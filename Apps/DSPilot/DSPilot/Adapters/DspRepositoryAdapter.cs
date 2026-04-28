@@ -1,26 +1,35 @@
+using Dapper;
+using DSPilot.Infrastructure;
+using DSPilot.Models.Dsp;
+using DSPilot.Repositories;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using CSharpDspFlowEntity = DSPilot.Models.Dsp.DspFlowEntity;
-using CSharpDspCallEntity = DSPilot.Models.Dsp.DspCallEntity;
-using FSharpDspFlowEntity = DSPilot.Engine.DspFlowEntity;
-using FSharpDspCallEntity = DSPilot.Engine.DspCallEntity;
 
 namespace DSPilot.Adapters;
 
 /// <summary>
-/// F# DspRepository를 C#에서 사용하기 위한 Adapter
-/// IDspRepository 인터페이스 유지하여 기존 코드 호환성 보장
+/// DSP 실시간 DB 저장소 (pure C# Dapper 구현).
+/// 기존 F# DspRepository에서 이관. DI 등록 이름 유지를 위해 클래스명은 Adapter 유지.
 /// </summary>
-public class DspRepositoryAdapter : Repositories.IDspRepository
+public class DspRepositoryAdapter : IDspRepository
 {
-    private readonly DSPilot.Engine.DatabasePaths _paths;
+    private const string HistoryTable = "dspFlowHistory";
+
+    private readonly DatabasePaths _paths;
     private readonly ILogger<DspRepositoryAdapter> _logger;
     private readonly bool _enabled;
+    private readonly string _connectionString;
+    private readonly string _flowTable;
+    private readonly string _callTable;
 
-    public DspRepositoryAdapter(DSPilot.Engine.DatabasePaths paths, ILogger<DspRepositoryAdapter> logger)
+    public DspRepositoryAdapter(DatabasePaths paths, ILogger<DspRepositoryAdapter> logger)
     {
         _paths = paths;
         _logger = logger;
         _enabled = paths.DspTablesEnabled;
+        _connectionString = $"Data Source={paths.SharedDbPath};Mode=ReadWriteCreate;Default Timeout=20";
+        _flowTable = paths.GetFlowTableName();
+        _callTable = paths.GetCallTableName();
 
         if (!_enabled)
         {
@@ -28,36 +37,202 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         }
     }
 
+    // ===== Connection helpers =====
+
+    private async Task<SqliteConnection> OpenAsync()
+    {
+        var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+        return conn;
+    }
+
+    private static async Task<bool> FlowAndCallTablesExistAsync(SqliteConnection conn, string flowTable, string callTable)
+    {
+        const string sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN (@flowTable, @callTable)";
+        var count = await conn.ExecuteScalarAsync<long>(sql, new { flowTable, callTable });
+        return count >= 2;
+    }
+
+    private static async Task<bool> TableExistsAsync(SqliteConnection conn, string tableName)
+    {
+        const string sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@tableName";
+        var count = await conn.ExecuteScalarAsync<long>(sql, new { tableName });
+        return count > 0;
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string tableName, string columnName)
+    {
+        var sql = $"SELECT name FROM pragma_table_info('{tableName}')";
+        var names = await conn.QueryAsync<string>(sql);
+        return names.Any(n => n == columnName);
+    }
+
+    private async Task EnsureIsIdleColumnAsync(SqliteConnection conn)
+    {
+        var exists = await ColumnExistsAsync(conn, HistoryTable, "IsIdle");
+        if (exists) return;
+        try
+        {
+            await conn.ExecuteAsync($"ALTER TABLE {HistoryTable} ADD COLUMN IsIdle INTEGER NOT NULL DEFAULT 0");
+            _logger.LogInformation("Added IsIdle column to {Table} table", HistoryTable);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to add IsIdle column (may already exist)");
+        }
+    }
+
+    // ===== IDspRepository =====
+
     public Task<bool> CreateSchemaAsync()
     {
         if (!_enabled) return Task.FromResult(true);
-        return DSPilot.Engine.DspRepository.createSchemaAsync(_paths, _logger);
+        _logger.LogInformation("Unified mode: Schema creation delegated to EV2 (no action needed)");
+        return Task.FromResult(true);
     }
 
-    public async Task<int> BulkInsertFlowsAsync(List<CSharpDspFlowEntity> flows)
+    public async Task<int> BulkInsertFlowsAsync(List<DspFlowEntity> flows)
     {
         if (!_enabled) return 0;
-        var fsharpFlows = Microsoft.FSharp.Collections.ListModule.OfSeq(flows.Select(ToFSharpFlowEntity));
-        return await DSPilot.Engine.DspRepository.bulkInsertFlowsAsync(_paths, _logger, fsharpFlows);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogWarning("Tables do not exist yet, cannot insert {Count} flows. Waiting for schema initialization.", flows.Count);
+            return 0;
+        }
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var sql = $@"
+                INSERT INTO {_flowTable} (FlowName, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName)
+                VALUES (@FlowName, @MT, @WT, @CT, @AvgMT, @AvgWT, @AvgCT, @State, @MovingStartName, @MovingEndName)
+                ON CONFLICT (FlowName) DO UPDATE SET
+                    MT = COALESCE(excluded.MT, {_flowTable}.MT),
+                    WT = COALESCE(excluded.WT, {_flowTable}.WT),
+                    CT = COALESCE(excluded.CT, {_flowTable}.CT),
+                    AvgMT = COALESCE(excluded.AvgMT, {_flowTable}.AvgMT),
+                    AvgWT = COALESCE(excluded.AvgWT, {_flowTable}.AvgWT),
+                    AvgCT = COALESCE(excluded.AvgCT, {_flowTable}.AvgCT),
+                    State = excluded.State,
+                    MovingStartName = excluded.MovingStartName,
+                    MovingEndName = excluded.MovingEndName,
+                    UpdatedAt = datetime('now')";
+
+            var count = await conn.ExecuteAsync(sql, flows, tx);
+            tx.Commit();
+            _logger.LogInformation("Inserted {Count} flows into DSP database (Table: {Table})", count, _flowTable);
+            return count;
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to bulk insert flows");
+            throw;
+        }
     }
 
-    public async Task<int> BulkInsertCallsAsync(List<CSharpDspCallEntity> calls)
+    public async Task<int> BulkInsertCallsAsync(List<DspCallEntity> calls)
     {
         if (!_enabled) return 0;
-        var fsharpCalls = Microsoft.FSharp.Collections.ListModule.OfSeq(calls.Select(ToFSharpCallEntity));
-        return await DSPilot.Engine.DspRepository.bulkInsertCallsAsync(_paths, _logger, fsharpCalls);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogWarning("Tables do not exist yet, cannot insert {Count} calls. Waiting for schema initialization.", calls.Count);
+            return 0;
+        }
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 중복 제거 (CallName, FlowName, WorkName 기준)
+            var uniqueCalls = calls
+                .GroupBy(c => (c.CallName, c.FlowName, c.WorkName))
+                .Select(g => g.First())
+                .ToList();
+
+            if (uniqueCalls.Count < calls.Count)
+            {
+                _logger.LogWarning(
+                    "Input data contains {DuplicateCount} duplicate calls (Total: {Total}, Unique: {Unique})",
+                    calls.Count - uniqueCalls.Count, calls.Count, uniqueCalls.Count);
+            }
+
+            // Flow 존재 보장
+            var flowNames = uniqueCalls.Select(c => c.FlowName).Distinct();
+            foreach (var flowName in flowNames)
+            {
+                await conn.ExecuteAsync(
+                    $"INSERT INTO {_flowTable} (FlowName) VALUES (@FlowName) ON CONFLICT (FlowName) DO NOTHING",
+                    new { FlowName = flowName },
+                    tx);
+            }
+
+            var sql = $@"
+                INSERT INTO {_callTable} (CallId, CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre, State, ProgressRate, Device)
+                VALUES (@CallId, @CallName, @ApiCall, @WorkName, @FlowName, @Next, @Prev, @AutoPre, @CommonPre, @State, @ProgressRate, @Device)
+                ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
+                    CallId = excluded.CallId,
+                    ApiCall = excluded.ApiCall,
+                    Next = excluded.Next,
+                    Prev = excluded.Prev,
+                    AutoPre = excluded.AutoPre,
+                    CommonPre = excluded.CommonPre,
+                    State = excluded.State,
+                    ProgressRate = excluded.ProgressRate,
+                    Device = excluded.Device,
+                    UpdatedAt = datetime('now')";
+
+            var count = await conn.ExecuteAsync(sql, uniqueCalls, tx);
+            tx.Commit();
+            _logger.LogInformation("Inserted {Count} calls into DSP database", count);
+            return count;
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to bulk insert calls");
+            throw;
+        }
     }
 
     public async Task<bool> UpdateFlowStateAsync(string flowName, string state)
     {
         if (!_enabled) return false;
-        return await DSPilot.Engine.DspRepository.updateFlowStateAsync(_paths, _logger, flowName, state);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, skipping update");
+            return false;
+        }
+
+        var sql = $@"
+            UPDATE {_flowTable}
+            SET State = @State,
+                UpdatedAt = datetime('now')
+            WHERE FlowName = @FlowName";
+
+        var result = await conn.ExecuteAsync(sql, new { State = state, FlowName = flowName });
+        return result > 0;
     }
 
     public async Task<bool> HasGoingCallsInFlowAsync(string flowName)
     {
         if (!_enabled) return false;
-        return await DSPilot.Engine.DspRepository.hasGoingCallsInFlowAsync(_paths, _logger, flowName);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet");
+            return false;
+        }
+
+        var sql = $"SELECT COUNT(*) FROM {_callTable} WHERE FlowName = @FlowName AND State = 'Going'";
+        var count = await conn.ExecuteScalarAsync<long>(sql, new { FlowName = flowName });
+        return count > 0;
     }
 
     public async Task<bool> UpdateFlowMetricsAsync(
@@ -69,13 +244,29 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         string? movingEndName)
     {
         if (!_enabled) return false;
-        var mtOpt = ToFSharpOption(mt);
-        var wtOpt = ToFSharpOption(wt);
-        var ctOpt = ToFSharpOption(ct);
-        var startOpt = ToFSharpOption(movingStartName);
-        var endOpt = ToFSharpOption(movingEndName);
 
-        return await DSPilot.Engine.DspRepository.updateFlowMetricsAsync(_paths, flowName, mtOpt, wtOpt, ctOpt, startOpt, endOpt);
+        await using var conn = await OpenAsync();
+
+        var sql = $@"
+            UPDATE {_flowTable}
+            SET MT = @MT,
+                WT = @WT,
+                CT = @CT,
+                MovingStartName = @MovingStartName,
+                MovingEndName = @MovingEndName,
+                UpdatedAt = datetime('now')
+            WHERE FlowName = @FlowName";
+
+        var result = await conn.ExecuteAsync(sql, new
+        {
+            MT = mt,
+            WT = wt,
+            CT = ct,
+            MovingStartName = movingStartName,
+            MovingEndName = movingEndName,
+            FlowName = flowName,
+        });
+        return result > 0;
     }
 
     public async Task<bool> UpdateFlowCycleBoundariesAsync(
@@ -84,70 +275,161 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         string? movingEndName)
     {
         if (!_enabled) return false;
-        var startOpt = ToFSharpOption(movingStartName);
-        var endOpt = ToFSharpOption(movingEndName);
-        return await DSPilot.Engine.DspRepository.updateFlowCycleBoundariesAsync(_paths, flowName, startOpt, endOpt);
-    }
 
-    public Task<bool> ClearAllDataAsync()
-    {
-        if (!_enabled) return Task.FromResult(true);
-        return DSPilot.Engine.DspRepository.clearAllDataAsync(_paths, _logger);
-    }
+        await using var conn = await OpenAsync();
 
-    public Task CleanupDatabaseAsync()
-    {
-        // F# 모듈에 없는 메서드 - 빈 구현
-        return Task.CompletedTask;
-    }
+        var sql = $@"
+            UPDATE {_flowTable}
+            SET MovingStartName = @MovingStartName,
+                MovingEndName = @MovingEndName,
+                UpdatedAt = datetime('now')
+            WHERE FlowName = @FlowName";
 
-    public async Task<List<Repositories.CallStatisticsDto>> GetCallStatisticsAsync()
-    {
-        if (!_enabled) return new List<Repositories.CallStatisticsDto>();
-        var fsharpStats = await DSPilot.Engine.DspRepository.getCallStatisticsAsync(_paths, _logger);
-        return fsharpStats.Select(s => new Repositories.CallStatisticsDto
+        var result = await conn.ExecuteAsync(sql, new
         {
-            CallId = s.CallId,
-            CallName = s.CallName,
-            FlowName = s.FlowName,
-            WorkName = s.WorkName,
-            AverageGoingTime = s.AverageGoingTime,
-            StdDevGoingTime = s.StdDevGoingTime,
-            GoingCount = s.GoingCount
-        }).ToList();
+            MovingStartName = movingStartName,
+            MovingEndName = movingEndName,
+            FlowName = flowName,
+        });
+        return result > 0;
     }
 
-    // ===== CallId 기반 메서드 (New Primary API) =====
+    public async Task<bool> ClearAllDataAsync()
+    {
+        if (!_enabled) return true;
+
+        try
+        {
+            await using var conn = await OpenAsync();
+            using var tx = conn.BeginTransaction();
+
+            var historyExists = await TableExistsAsync(conn, HistoryTable);
+            if (historyExists)
+            {
+                await conn.ExecuteAsync($"DELETE FROM {HistoryTable}", transaction: tx);
+            }
+
+            await conn.ExecuteAsync($"DELETE FROM {_callTable}", transaction: tx);
+            await conn.ExecuteAsync($"DELETE FROM {_flowTable}", transaction: tx);
+
+            tx.Commit();
+
+            _logger.LogInformation("Cleared all data from DSP database");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear DSP database");
+            return false;
+        }
+    }
+
+    public Task CleanupDatabaseAsync() => Task.CompletedTask;
+
+    public async Task<List<CallStatisticsDto>> GetCallStatisticsAsync()
+    {
+        if (!_enabled) return new List<CallStatisticsDto>();
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, returning empty list");
+            return new List<CallStatisticsDto>();
+        }
+
+        var sql = $@"
+            SELECT
+                CallId,
+                CallName,
+                FlowName,
+                WorkName,
+                AverageGoingTime,
+                StdDevGoingTime,
+                GoingCount
+            FROM {_callTable}
+            WHERE GoingCount > 0
+              AND AverageGoingTime IS NOT NULL
+              AND StdDevGoingTime IS NOT NULL
+            ORDER BY FlowName, CallName";
+
+        var results = await conn.QueryAsync<CallStatisticsDto>(sql);
+        return results.ToList();
+    }
+
+    // ===== CallId 기반 API =====
 
     public async Task<string> GetCallStateAsync(Guid callId)
     {
         if (!_enabled) return "Ready";
-        return await DSPilot.Engine.DspRepository.getCallStateByIdAsync(_paths, _logger, callId);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, returning default state");
+            return "Ready";
+        }
+
+        var sql = $"SELECT State FROM {_callTable} WHERE CallId = @CallId LIMIT 1";
+        var state = await conn.QueryFirstOrDefaultAsync<string>(sql, new { CallId = callId });
+        return string.IsNullOrEmpty(state) ? "Ready" : state;
     }
 
     public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(Guid callId)
     {
         if (!_enabled) return null;
-        var result = await DSPilot.Engine.DspRepository.getCallInfoByIdAsync(_paths, _logger, callId);
-        if (Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>>.get_IsNone(result))
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet");
             return null;
-        var tuple = result.Value;
-        return (tuple.Item1, tuple.Item2);
+        }
+
+        var sql = $"SELECT WorkName, FlowName FROM {_callTable} WHERE CallId = @CallId LIMIT 1";
+        var result = await conn.QueryFirstOrDefaultAsync<CallInfoRow>(sql, new { CallId = callId });
+        return result is null ? null : (result.WorkName, result.FlowName);
     }
 
-    public async Task<CSharpDspCallEntity?> GetCallByIdAsync(Guid callId)
+    public async Task<DspCallEntity?> GetCallByIdAsync(Guid callId)
     {
         if (!_enabled) return null;
-        var result = await DSPilot.Engine.DspRepository.getCallByIdAsync(_paths, _logger, callId);
-        if (Microsoft.FSharp.Core.FSharpOption<FSharpDspCallEntity>.get_IsNone(result))
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet");
             return null;
-        return ToCSharpCallEntity(result.Value);
+        }
+
+        var sql = $@"
+            SELECT CallId, CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
+                   State, ProgressRate, Device, PreviousGoingTime, AverageGoingTime, StdDevGoingTime, GoingCount
+            FROM {_callTable}
+            WHERE CallId = @CallId
+            LIMIT 1";
+
+        return await conn.QueryFirstOrDefaultAsync<DspCallEntity>(sql, new { CallId = callId });
     }
 
     public async Task<bool> UpdateCallStateAsync(Guid callId, string state)
     {
         if (!_enabled) return false;
-        return await DSPilot.Engine.DspRepository.updateCallStateByIdAsync(_paths, _logger, callId, state);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, skipping update");
+            return false;
+        }
+
+        var sql = $@"
+            UPDATE {_callTable}
+            SET State = @State,
+                UpdatedAt = datetime('now')
+            WHERE CallId = @CallId";
+
+        var result = await conn.ExecuteAsync(sql, new { State = state, CallId = callId });
+        return result > 0;
     }
 
     public async Task<bool> UpdateCallWithStatisticsAsync(
@@ -158,8 +440,41 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         double stdDevGoingTime)
     {
         if (!_enabled) return false;
-        return await DSPilot.Engine.DspRepository.updateCallWithStatisticsByIdAsync(
-            _paths, _logger, callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, skipping update");
+            return false;
+        }
+
+        var sql = $@"
+            UPDATE {_callTable}
+            SET State = @State,
+                PreviousGoingTime = @PreviousGoingTime,
+                AverageGoingTime = @AverageGoingTime,
+                StdDevGoingTime = @StdDevGoingTime,
+                GoingCount = GoingCount + 1,
+                UpdatedAt = datetime('now')
+            WHERE CallId = @CallId";
+
+        var result = await conn.ExecuteAsync(sql, new
+        {
+            State = state,
+            PreviousGoingTime = previousGoingTime,
+            AverageGoingTime = averageGoingTime,
+            StdDevGoingTime = stdDevGoingTime,
+            CallId = callId,
+        });
+
+        if (result > 0)
+        {
+            _logger.LogDebug(
+                "Updated Call (CallId: {CallId}): State={State}, GoingTime={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms",
+                callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
+        }
+
+        return result > 0;
     }
 
     // ===== Flow Metrics with Averages =====
@@ -176,177 +491,202 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         string? movingEndName)
     {
         if (!_enabled) return false;
-        var startOpt = ToFSharpOption(movingStartName);
-        var endOpt = ToFSharpOption(movingEndName);
 
-        return await DSPilot.Engine.DspRepository.updateFlowWithAveragesAsync(
-            _paths, _logger, flowName, mt, wt, ct, avgMT, avgWT, avgCT, startOpt, endOpt);
+        await using var conn = await OpenAsync();
+
+        var sql = $@"
+            UPDATE {_flowTable}
+            SET MT = @MT,
+                WT = @WT,
+                CT = @CT,
+                AvgMT = @AvgMT,
+                AvgWT = @AvgWT,
+                AvgCT = @AvgCT,
+                MovingStartName = @MovingStartName,
+                MovingEndName = @MovingEndName,
+                UpdatedAt = datetime('now')
+            WHERE FlowName = @FlowName";
+
+        var result = await conn.ExecuteAsync(sql, new
+        {
+            MT = mt,
+            WT = wt,
+            CT = ct,
+            AvgMT = avgMT,
+            AvgWT = avgWT,
+            AvgCT = avgCT,
+            MovingStartName = movingStartName,
+            MovingEndName = movingEndName,
+            FlowName = flowName,
+        });
+        return result > 0;
     }
 
-    // ===== Flow History Methods =====
+    // ===== Flow History =====
 
-    public async Task<int> InsertFlowHistoryAsync(Models.Dsp.DspFlowHistoryEntity history)
+    public async Task<int> InsertFlowHistoryAsync(DspFlowHistoryEntity history)
     {
         if (!_enabled) return 0;
-        var fsharpHistory = ToFSharpFlowHistoryEntity(history);
-        return await DSPilot.Engine.DspRepository.insertFlowHistoryAsync(_paths, _logger, fsharpHistory);
+
+        await using var conn = await OpenAsync();
+
+        if (!await TableExistsAsync(conn, HistoryTable))
+        {
+            _logger.LogWarning("{Table} table does not exist yet", HistoryTable);
+            return 0;
+        }
+
+        await EnsureIsIdleColumnAsync(conn);
+
+        try
+        {
+            var sql = $@"
+                INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle)
+                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle)";
+
+            var result = await conn.ExecuteAsync(sql, new
+            {
+                history.FlowName,
+                history.MT,
+                history.WT,
+                history.CT,
+                history.CycleNo,
+                RecordedAt = history.RecordedAt == default ? DateTime.UtcNow : history.RecordedAt,
+                history.IsIdle,
+            });
+
+            _logger.LogDebug(
+                "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms",
+                history.FlowName, history.CycleNo, history.MT, history.WT, history.CT);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to insert Flow history for '{FlowName}'", history.FlowName);
+            return 0;
+        }
     }
 
-    public async Task<List<Models.Dsp.DspFlowHistoryEntity>> GetFlowHistoryAsync(string flowName, int limit)
+    public async Task<List<DspFlowHistoryEntity>> GetFlowHistoryAsync(string flowName, int limit)
     {
-        if (!_enabled) return new List<Models.Dsp.DspFlowHistoryEntity>();
-        var fsharpList = await DSPilot.Engine.DspRepository.getFlowHistoryAsync(_paths, _logger, flowName, limit);
-        return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
+        if (!_enabled) return new List<DspFlowHistoryEntity>();
+
+        await using var conn = await OpenAsync();
+
+        if (!await TableExistsAsync(conn, HistoryTable))
+            return new List<DspFlowHistoryEntity>();
+
+        try
+        {
+            await EnsureIsIdleColumnAsync(conn);
+
+            var sql = $@"
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                FROM {HistoryTable}
+                WHERE FlowName = @FlowName
+                ORDER BY RecordedAt DESC
+                LIMIT @Limit";
+
+            var results = await conn.QueryAsync<DspFlowHistoryEntity>(sql, new { FlowName = flowName, Limit = limit });
+            return results.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Flow history for '{FlowName}'", flowName);
+            return new List<DspFlowHistoryEntity>();
+        }
     }
 
-    public async Task<List<Models.Dsp.DspFlowHistoryEntity>> GetFlowHistoryByDaysAsync(string flowName, int days)
+    public async Task<List<DspFlowHistoryEntity>> GetFlowHistoryByDaysAsync(string flowName, int days)
     {
-        if (!_enabled) return new List<Models.Dsp.DspFlowHistoryEntity>();
-        var fsharpList = await DSPilot.Engine.DspRepository.getFlowHistoryByDaysAsync(_paths, _logger, flowName, days);
-        return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
+        if (!_enabled) return new List<DspFlowHistoryEntity>();
+
+        await using var conn = await OpenAsync();
+
+        if (!await TableExistsAsync(conn, HistoryTable))
+            return new List<DspFlowHistoryEntity>();
+
+        try
+        {
+            await EnsureIsIdleColumnAsync(conn);
+
+            var sql = $@"
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                FROM {HistoryTable}
+                WHERE FlowName = @FlowName
+                  AND RecordedAt >= @SinceDate
+                ORDER BY RecordedAt DESC";
+
+            var sinceDate = DateTime.UtcNow.AddDays(-days);
+            var results = await conn.QueryAsync<DspFlowHistoryEntity>(sql, new { FlowName = flowName, SinceDate = sinceDate });
+            return results.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Flow history by days for '{FlowName}'", flowName);
+            return new List<DspFlowHistoryEntity>();
+        }
     }
 
-    public async Task<List<Models.Dsp.DspFlowHistoryEntity>> GetFlowHistoryByStartTimeAsync(string flowName, DateTime startTime)
+    public async Task<List<DspFlowHistoryEntity>> GetFlowHistoryByStartTimeAsync(string flowName, DateTime startTime)
     {
-        if (!_enabled) return new List<Models.Dsp.DspFlowHistoryEntity>();
-        var fsharpList = await DSPilot.Engine.DspRepository.getFlowHistoryByStartTimeAsync(_paths, _logger, flowName, startTime);
-        return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
+        if (!_enabled) return new List<DspFlowHistoryEntity>();
+
+        await using var conn = await OpenAsync();
+
+        if (!await TableExistsAsync(conn, HistoryTable))
+            return new List<DspFlowHistoryEntity>();
+
+        try
+        {
+            await EnsureIsIdleColumnAsync(conn);
+
+            var sql = $@"
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                FROM {HistoryTable}
+                WHERE FlowName = @FlowName
+                  AND RecordedAt >= @SinceDate
+                ORDER BY RecordedAt DESC";
+
+            var results = await conn.QueryAsync<DspFlowHistoryEntity>(sql, new { FlowName = flowName, SinceDate = startTime });
+            return results.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Flow history by start time for '{FlowName}'", flowName);
+            return new List<DspFlowHistoryEntity>();
+        }
     }
 
     public async Task<int> ClearFlowHistoryAsync()
     {
         if (!_enabled) return 0;
-        return await DSPilot.Engine.DspRepository.clearFlowHistoryAsync(_paths, _logger);
-    }
 
-    // ===== Helper Methods =====
+        await using var conn = await OpenAsync();
 
-    private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)
-    {
-        return new FSharpDspFlowEntity(
-            entity.Id,
-            entity.FlowName,
-            ToFSharpOption(entity.MT),
-            ToFSharpOption(entity.WT),
-            ToFSharpOption(entity.CT),
-            ToFSharpOption(entity.AvgMT),
-            ToFSharpOption(entity.AvgWT),
-            ToFSharpOption(entity.AvgCT),
-            ToFSharpOption(entity.State),
-            ToFSharpOption(entity.MovingStartName),
-            ToFSharpOption(entity.MovingEndName),
-            entity.CreatedAt,
-            entity.UpdatedAt
-        );
-    }
-
-    private FSharpDspCallEntity ToFSharpCallEntity(CSharpDspCallEntity entity)
-    {
-        return new FSharpDspCallEntity(
-            entity.Id,
-            entity.CallId,
-            entity.CallName,
-            entity.ApiCall,
-            entity.WorkName,
-            entity.FlowName,
-            ToFSharpOption(entity.Next),
-            ToFSharpOption(entity.Prev),
-            ToFSharpOption(entity.AutoPre),
-            ToFSharpOption(entity.CommonPre),
-            entity.State,
-            entity.ProgressRate,
-            ToFSharpOption(entity.PreviousGoingTime),
-            ToFSharpOption(entity.AverageGoingTime),
-            ToFSharpOption(entity.StdDevGoingTime),
-            entity.GoingCount,
-            ToFSharpOption(entity.Device),
-            ToFSharpOption(entity.ErrorText),
-            entity.CreatedAt,
-            entity.UpdatedAt
-        );
-    }
-
-    private CSharpDspCallEntity ToCSharpCallEntity(FSharpDspCallEntity entity)
-    {
-        return new CSharpDspCallEntity
+        if (!await TableExistsAsync(conn, HistoryTable))
         {
-            Id = entity.Id,
-            CallId = entity.CallId,
-            CallName = entity.CallName,
-            ApiCall = entity.ApiCall,
-            WorkName = entity.WorkName,
-            FlowName = entity.FlowName,
-            Next = FromFSharpOptionClass(entity.Next),
-            Prev = FromFSharpOptionClass(entity.Prev),
-            AutoPre = FromFSharpOptionClass(entity.AutoPre),
-            CommonPre = FromFSharpOptionClass(entity.CommonPre),
-            State = entity.State,
-            ProgressRate = entity.ProgressRate,
-            PreviousGoingTime = FromFSharpOptionStruct(entity.PreviousGoingTime),
-            AverageGoingTime = FromFSharpOptionStruct(entity.AverageGoingTime),
-            StdDevGoingTime = FromFSharpOptionStruct(entity.StdDevGoingTime),
-            GoingCount = entity.GoingCount,
-            Device = FromFSharpOptionClass(entity.Device),
-            ErrorText = FromFSharpOptionClass(entity.ErrorText),
-            CreatedAt = entity.CreatedAt,
-            UpdatedAt = entity.UpdatedAt
-        };
-    }
+            _logger.LogWarning("{Table} table does not exist, nothing to clear", HistoryTable);
+            return 0;
+        }
 
-    private static Microsoft.FSharp.Core.FSharpOption<T> ToFSharpOption<T>(T? value) where T : struct
-    {
-        return value.HasValue
-            ? Microsoft.FSharp.Core.FSharpOption<T>.Some(value.Value)
-            : Microsoft.FSharp.Core.FSharpOption<T>.None;
-    }
-
-    private static Microsoft.FSharp.Core.FSharpOption<T> ToFSharpOption<T>(T? value) where T : class
-    {
-        return value != null
-            ? Microsoft.FSharp.Core.FSharpOption<T>.Some(value)
-            : Microsoft.FSharp.Core.FSharpOption<T>.None;
-    }
-
-    private static T? FromFSharpOptionStruct<T>(Microsoft.FSharp.Core.FSharpOption<T> option) where T : struct
-    {
-        return Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option)
-            ? option.Value
-            : null;
-    }
-
-    private static T? FromFSharpOptionClass<T>(Microsoft.FSharp.Core.FSharpOption<T> option) where T : class
-    {
-        return Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option)
-            ? option.Value
-            : null;
-    }
-
-    private DSPilot.Engine.DspFlowHistoryEntity ToFSharpFlowHistoryEntity(Models.Dsp.DspFlowHistoryEntity entity)
-    {
-        return new DSPilot.Engine.DspFlowHistoryEntity(
-            entity.Id,
-            entity.FlowName,
-            ToFSharpOption(entity.MT),
-            ToFSharpOption(entity.WT),
-            ToFSharpOption(entity.CT),
-            ToFSharpOption(entity.CycleNo),
-            entity.RecordedAt,
-            entity.IsIdle
-        );
-    }
-
-    private Models.Dsp.DspFlowHistoryEntity ToCSharpFlowHistoryEntity(DSPilot.Engine.DspFlowHistoryEntity entity)
-    {
-        return new Models.Dsp.DspFlowHistoryEntity
+        try
         {
-            Id = entity.Id,
-            FlowName = entity.FlowName,
-            MT = FromFSharpOptionStruct(entity.MT),
-            WT = FromFSharpOptionStruct(entity.WT),
-            CT = FromFSharpOptionStruct(entity.CT),
-            CycleNo = FromFSharpOptionStruct(entity.CycleNo),
-            RecordedAt = entity.RecordedAt,
-            IsIdle = entity.IsIdle
-        };
+            var deleted = await conn.ExecuteAsync($"DELETE FROM {HistoryTable}");
+            _logger.LogInformation("Cleared {Count} rows from {Table}", deleted, HistoryTable);
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear {Table}", HistoryTable);
+            return 0;
+        }
+    }
+
+    private sealed class CallInfoRow
+    {
+        public string WorkName { get; set; } = string.Empty;
+        public string FlowName { get; set; } = string.Empty;
     }
 }

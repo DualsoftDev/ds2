@@ -99,9 +99,32 @@ public partial class ThreeDViewState : ObservableObject
         BuildMappings(store, scene);
 
         var floorSize = CalculateFloorSize(scene.Devices, scene.FlowZones);
-        await SendInitMessage(scene.FlowZones, floorSize);
-        await SendDevices(scene.Devices);
-        await SendAsync(new { type = "fitAll" });
+        await SendSceneInitMessage(scene.FlowZones, scene.Devices, floorSize);
+        // fitAll 메시지 제거 — JS 가 devices 추가 완료 후 자체 fitCameraToDevices 수행
+
+        HasScene = true;
+    }
+
+    /// <summary>
+    /// "전체 재배치" — 저장된 layout 을 무시하고 F# 자동 배치를 강제 실행한 뒤 Scene 전체를 재렌더링.
+    /// Device 좌표와 Flow Zone 을 단일 F# 경로에서 일괄 계산해 불일치를 방지.
+    /// </summary>
+    public async Task RebuildWithAutoLayout(DsStore store, Guid projectId)
+    {
+        if (_sendToWebView == null) return;
+
+        if (_customModelRegistry != null)
+            Ds2.View3D.DevicePresets.setCustomNames(_customModelRegistry.GetRegisteredNames());
+
+        _engine = CreateSceneEngine(store);
+        var scene = _engine.BuildDeviceSceneAutoLayout(SceneId, projectId);
+
+        ClearCaches();
+        BuildMappings(store, scene);
+
+        var floorSize = CalculateFloorSize(scene.Devices, scene.FlowZones);
+        await SendSceneInitMessage(scene.FlowZones, scene.Devices, floorSize);
+        // fitAll 메시지 제거 — JS 가 devices 추가 완료 후 자체 fitCameraToDevices 수행
 
         HasScene = true;
     }
@@ -444,14 +467,67 @@ public partial class ThreeDViewState : ObservableObject
         });
     }
 
+    // FlowZone + Device 를 단일 init 메시지로 전송 — "화면 두 번 바뀜" 제거용.
+    // JS 쪽은 customModels 해시가 동일하면 preload 캐시 재사용 후 devices 를 한 프레임에 배치한다.
+    private async Task SendSceneInitMessage(
+        IEnumerable<FlowZone> flowZones,
+        IEnumerable<DeviceInfo> devices,
+        double floorSize)
+    {
+        var customModels = LoadCustomModelRegistry();
+
+        var deviceList = devices
+            .Where(d => d.Position != null)
+            .Select(d =>
+            {
+                var pos = d.Position!.Value;
+                return new
+                {
+                    device = new
+                    {
+                        id = d.Id.ToString(),
+                        name = d.Name,
+                        flowName = d.FlowName,
+                        modelType = d.ModelType,
+                        deviceType = d.ModelType,
+                        state = "R",
+                        isUsedInSimulation = d.IsUsedInSimulation,
+                        apiDefs = d.ApiDefs.Select(a => new
+                        {
+                            id = a.Id.ToString(),
+                            name = a.Name,
+                            callerCount = a.CallerCount
+                        }).ToArray()
+                    },
+                    x = pos.X,
+                    z = pos.Z
+                };
+            })
+            .ToArray();
+
+        await SendAsync(new
+        {
+            type = "init",
+            config = new
+            {
+                flowZones = ToJsFlowZones(flowZones),
+                devices = deviceList,
+                floorSize,
+                customModels
+            }
+        });
+    }
+
     /// <summary>
     /// 커스텀 JSON 디바이스 모델 레지스트리를 직렬화 가능한 형태로 반환.
-    /// View3DWindow에서 주입된 CustomModelRegistry를 사용한다.
+    /// 키 정렬(Ordinal) — JS 쪽 JSON.stringify 해시 비교의 false-positive 방지.
     /// </summary>
     private Dictionary<string, object> LoadCustomModelRegistry()
     {
-        return _customModelRegistry?.ToSerializableDictionary()
-               ?? new Dictionary<string, object>();
+        var dict = _customModelRegistry?.ToSerializableDictionary()
+                   ?? new Dictionary<string, object>();
+        return dict.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                   .ToDictionary(kv => kv.Key, kv => kv.Value);
     }
 
     private async Task SendDevices(IEnumerable<DeviceInfo> devices)

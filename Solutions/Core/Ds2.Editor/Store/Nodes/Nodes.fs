@@ -276,12 +276,28 @@ type DsStoreNodesExtensions =
 
     // ─── AutoLayout ────────────────────────────────────────────────────
 
-    /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트 등)
+    /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트, 탭 최초 오픈 등).
+    /// 사용자 동작이 아닌 초기화 과정이므로 Undo 스택에 "Move Selected Nodes" 같은 항목을
+    /// 남기지 않는다 — 위치를 직접 변경하고 StoreRefreshed 이벤트만 발행한다.
     [<Extension>]
     static member AutoLayoutIfNeeded(store: DsStore, kind: TabKind, rootId: Guid) : bool =
         let content = EditorCanvasProjection.canvasContentForTab store kind rootId
         if CanvasLayout.needsAutoLayout content then
-            let requests = CanvasLayout.computeLayout content
-            DsStoreNodesExtensions.MoveEntities(store, requests) |> ignore
-            true
+            let mutable applied = 0
+            for r in CanvasLayout.computeLayout content do
+                let newPos = Some r.Position
+                match Queries.getWork r.Id store with
+                | Some work when work.Position <> newPos ->
+                    work.Position <- newPos
+                    applied <- applied + 1
+                | Some _ -> ()
+                | None ->
+                    match Queries.getCall r.Id store with
+                    | Some call when call.Position <> newPos ->
+                        call.Position <- newPos
+                        applied <- applied + 1
+                    | _ -> ()
+            if applied > 0 then
+                store.EmitEvent(StoreRefreshed)
+            applied > 0
         else false

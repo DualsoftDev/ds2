@@ -3,7 +3,6 @@ namespace Ds2.Aasx
 open System
 open System.Reflection
 open AasCore.Aas3_1
-open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
@@ -11,7 +10,7 @@ open Ds2.Core.Store
 
 module internal AasxImportCore =
 
-    let log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
+    let log = SimpleLog.create "Ds2.Aasx.AasxImporter"
 
     let valueOrEmpty (p: Property) = if p.Value = null then "" else p.Value
 

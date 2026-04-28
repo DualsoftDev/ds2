@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="SimpleLog.fs" />
     <Compile Include="AasxSemantics.fs" />
     <Compile Include="AasxProjectCache.fs" />
     <Compile Include="AasxFileIO.fs" />
@@ -41,7 +42,6 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="AasCore.Aas3_1" />
-    <PackageReference Include="log4net" />
   </ItemGroup>
 
 </Project>

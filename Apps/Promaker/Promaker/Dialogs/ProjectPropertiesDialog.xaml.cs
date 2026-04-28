@@ -89,7 +89,7 @@ public partial class ProjectPropertiesDialog : Window
         var filePresets = LoadPresetsFromFile();
         var source = filePresets.Length > 0
             ? filePresets
-            : Ds2.Core.Store.DevicePresets.DefaultMappingStrings;
+            : SystemTypePresetProvider.BuildDefaultMappingStrings();
 
         foreach (var mapping in source)
             PresetMappingListBox.Items.Add(mapping);

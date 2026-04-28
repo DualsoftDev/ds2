@@ -62,8 +62,17 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void ExportCsv()
     {
-        var projects = Queries.allProjects(_store);
-        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        string suggestedName;
+        if (_currentFilePath is not null)
+        {
+            suggestedName = System.IO.Path.GetFileNameWithoutExtension(_currentFilePath);
+        }
+        else
+        {
+            var projects = Queries.allProjects(_store);
+            suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        }
+
         var dialog = new SaveFileDialog
         {
             Title = "CSV 내보내기",

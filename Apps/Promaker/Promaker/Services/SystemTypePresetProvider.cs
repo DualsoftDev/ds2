@@ -78,6 +78,32 @@ public static class SystemTypePresetProvider
         }
         catch { /* fall through */ }
 
-        return Ds2.Core.Store.DevicePresets.DefaultMappingStrings;
+        return BuildDefaultMappingStrings();
+    }
+
+    /// <summary>
+    /// "ApiList:SystemType" 기본 매핑 문자열 배열을 <see cref="Ds2.Core.Store.DevicePresets.Entries"/> 에서 생성.
+    /// Cylinder_1..10 같은 동일 prefix 의 numbered SystemType 은 첫 등장 위치에서 단일 템플릿
+    /// "ADV;RET:Cylinder_#" 으로 축약 — '#' 은 AddCall 시 ApiCall 개수로 치환.
+    /// </summary>
+    public static string[] BuildDefaultMappingStrings()
+    {
+        var result = new List<string>();
+        bool cylinderEmitted = false;
+        foreach (var (model, apiList) in Ds2.Core.Store.DevicePresets.Entries)
+        {
+            if (string.IsNullOrEmpty(apiList)) continue;
+            if (model.StartsWith("Cylinder_", StringComparison.Ordinal))
+            {
+                if (cylinderEmitted) continue;
+                cylinderEmitted = true;
+                result.Add($"{apiList}:Cylinder_#");
+            }
+            else
+            {
+                result.Add($"{apiList}:{model}");
+            }
+        }
+        return result.ToArray();
     }
 }

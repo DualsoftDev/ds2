@@ -4,7 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.0.24</Version>
+    <Version>1.0.1.1</Version>
     <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
 
@@ -20,11 +20,10 @@
     <PackageReference Include="log4net" Version="3.3.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DSPilot.Engine\DSPilot.Engine.fsproj" />
     <ProjectReference Include="..\..\..\solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\..\solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />

@@ -5,46 +5,84 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Ds2 3D View</title>
     <style>
+        /* ── Theme tokens (synced with Promaker WPF ThemeManager) ──
+           html.theme-dark : Promaker Dark palette
+           html.theme-light: Promaker Light palette
+           Default = dark to avoid a white flash if theme arrives late. */
+        :root {
+            --canvas-bg: #1E1E22;
+            --panel-bg: #27272B;
+            --panel-bg-translucent: rgba(39, 39, 43, 0.85);
+            --hint-bg-translucent: rgba(39, 39, 43, 0.75);
+            --border: #45454A;
+            --hover: #32323A;
+            --text-primary: #D4D4D6;
+            --text-secondary: #8A8A90;
+            --text-disabled: #55555C;
+            --shadow: rgba(0, 0, 0, 0.6);
+        }
+        html.theme-light {
+            --canvas-bg: #E8EAED;
+            --panel-bg: #F5F6F8;
+            --panel-bg-translucent: rgba(245, 246, 248, 0.92);
+            --hint-bg-translucent: rgba(245, 246, 248, 0.85);
+            --border: #D0D7DE;
+            --hover: #E0E2E6;
+            --text-primary: #24292F;
+            --text-secondary: #6A7078;
+            --text-disabled: #A0A6AE;
+            --shadow: rgba(42, 45, 51, 0.25);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { overflow: hidden; background: #0f172a; }
+        body { overflow: hidden; background: var(--canvas-bg); }
         #scene3d { width: 100vw; height: 100vh; display: block; }
         #overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center;
-            background: #0f172a; color: #64748b; font-family: sans-serif;
-            font-size: 14px; pointer-events: none;
+            background: var(--canvas-bg); color: var(--text-secondary);
+            font-family: sans-serif; font-size: 14px; pointer-events: none;
         }
         #overlay.hidden { display: none; }
 
         /* Sound toggle button */
         #sound-btn {
             position: fixed; bottom: 12px; right: 12px; z-index: 100;
-            background: rgba(30,41,59,0.85); border: 1px solid #334155;
+            background: var(--panel-bg-translucent); border: 1px solid var(--border);
             border-radius: 8px; padding: 5px 10px;
-            color: #94a3b8; font-family: sans-serif; font-size: 13px;
+            color: var(--text-secondary); font-family: sans-serif; font-size: 13px;
             cursor: pointer; user-select: none; display: none;
             transition: background 0.15s, color 0.15s;
         }
-        #sound-btn:hover { background: #334155; color: #e2e8f0; }
-        #sound-btn.active { color: #e2e8f0; }
+        #sound-btn:hover { background: var(--hover); color: var(--text-primary); }
+        #sound-btn.active { color: var(--text-primary); }
+
+        /* 조작 힌트 (3D 모델 등록 화면과 통일) */
+        #info {
+            position: fixed; top: 8px; left: 8px; z-index: 100;
+            background: var(--hint-bg-translucent); border: 1px solid var(--border);
+            border-radius: 6px; padding: 4px 8px;
+            color: var(--text-secondary); font-family: sans-serif; font-size: 11px;
+            pointer-events: none; user-select: none;
+        }
 
         /* Context menu */
         #ctx-menu {
             display: none; position: fixed; z-index: 9999;
-            background: #1e293b; border: 1px solid #334155;
+            background: var(--panel-bg); border: 1px solid var(--border);
             border-radius: 6px; padding: 4px 0; min-width: 190px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+            box-shadow: 0 4px 16px var(--shadow);
             font-family: sans-serif;
         }
         .ctx-item {
-            padding: 8px 14px; color: #e2e8f0; cursor: pointer;
+            padding: 8px 14px; color: var(--text-primary); cursor: pointer;
             font-size: 13px; display: flex; align-items: center; gap: 8px;
             user-select: none;
         }
-        .ctx-item:hover { background: #334155; }
-        .ctx-item.disabled { color: #64748b; cursor: default; }
+        .ctx-item:hover { background: var(--hover); }
+        .ctx-item.disabled { color: var(--text-disabled); cursor: default; }
         .ctx-item.disabled:hover { background: transparent; }
-        .ctx-sep { height: 1px; background: #334155; margin: 4px 0; }
+        .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
     </style>
 </head>
 <body>
@@ -52,6 +90,9 @@
     <div id="overlay">
         <span>시뮬레이션을 시작하면 3D 장비 배치도가 표시됩니다.</span>
     </div>
+
+    <!-- 조작 힌트 -->
+    <div id="info">드래그: 회전 · 휠클릭/우드래그: 이동 · 스크롤: 줌</div>
 
     <!-- Sound toggle button -->
     <button id="sound-btn" class="active" title="사운드 켜기/끄기 (M)" onclick="toggleSound()">🔊</button>
@@ -87,9 +128,24 @@
         // 모델 사전 로드 Promise (init 시 시작, addDevice 시 완료 대기)
         var _modelsReady = Promise.resolve();
 
+        // ─── Theme apply (CSS class + Three.js scene) ─────────────────────────
+        function applyThemeToPage(themeName) {
+            var t = (themeName === 'light') ? 'light' : 'dark';
+            var html = document.documentElement;
+            html.classList.toggle('theme-light', t === 'light');
+            html.classList.toggle('theme-dark',  t === 'dark');
+            if (window.Ev23DViewer && Ev23DViewer.setTheme) {
+                Ev23DViewer.setTheme(SCENE_ID, t);
+            }
+        }
+
         // ─── C# (WPF) → JS ────────────────────────────────────────────────────
         function handleFromCSharp(msg) {
             try {
+                if (msg.type === 'setTheme') {
+                    applyThemeToPage(msg.theme);
+                    return;
+                }
                 if (msg.type === 'init') {
                     document.getElementById('overlay').classList.add('hidden');
                     Ev23DViewer.init(SCENE_ID, msg.config || {});
@@ -97,21 +153,38 @@
                     setupContextMenu();
                     initialized = true;
                     document.getElementById('sound-btn').style.display = 'block';
-                    // Lib3D 모델 사전 로드 시작 (addDevice 전에 완료 보장)
+
                     if (window.Ds2View3DLibrary) {
-                        // 씬 리빌드 시 preload 캐시 리셋 (새 커스텀 모델 반영)
-                        Ds2View3DLibrary._preloadPromise = null;
+                        var customModels = (msg.config && msg.config.customModels) || {};
+                        var initDevices  = (msg.config && msg.config.devices)      || [];
+
+                        // (W1) 해시 기반 조건부 preload 캐시 무효화 — 커스텀 모델이 바뀌었을 때만 리셋.
+                        //      재배치만 반복하는 경우 preload skip 으로 원샷 전환 달성.
+                        var newKey = JSON.stringify(customModels);
+                        if (Ds2View3DLibrary._cachedCustomModelsKey !== newKey) {
+                            Ds2View3DLibrary._preloadPromise = null;
+                            Ds2View3DLibrary._cachedCustomModelsKey = newKey;
+                        }
 
                         _modelsReady = (async function() {
-                            // 1. GenericDevice 클래스 사전 로드
                             await Ds2View3DLibrary.preloadGenericDevice();
-                            // 2. 커스텀 JSON 모델 등록 (C#에서 전달된 레지스트리)
-                            //    — 항상 호출해야 삭제된 모델도 반영됨 (replace 시맨틱)
-                            const customModels = (msg.config && msg.config.customModels) || {};
+                            // replace 시맨틱 — 삭제/추가 반영 위해 매 init 호출
                             Ds2View3DLibrary.registerAllFromJSON(customModels);
                             console.log('✅ Custom models registered:', Object.keys(customModels));
-                            // 3. 기존 하드코딩 모델 포함 전체 사전 로드
                             await Ds2View3DLibrary.preloadAll();
+
+                            // (W3) devices 가 init 에 포함됐으면 일괄 추가. WorkScene 처럼 없는 경로는 skip.
+                            if (Array.isArray(initDevices) && initDevices.length > 0) {
+                                for (var i = 0; i < initDevices.length; i++) {
+                                    var d = initDevices[i];
+                                    try {
+                                        Ev23DViewer.addDeviceAtPosition(SCENE_ID, d.device, d.x, d.z);
+                                    } catch (e) {
+                                        console.error('[init] addDevice failed:', d, e);
+                                    }
+                                }
+                                Ev23DViewer.fitCameraToDevices(SCENE_ID);
+                            }
                         })();
                     }
                 } else if (!initialized) {
@@ -158,10 +231,27 @@
             var canvas = document.querySelector('#scene3d canvas');
             if (!canvas) return;
 
-            canvas.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                showCtxMenu(e.clientX, e.clientY);
-            });
+            // 우클릭 드래그(팬)와 짧은 우클릭(메뉴) 구분.
+            // OrbitControls 의 pointer capture 영향을 피하기 위해 capture phase 로 먼저 받고,
+            // 판정은 contextmenu 가 아닌 pointerup 에서 수행한다.
+            var rDown = null;
+            var DRAG_PX = 6;
+
+            canvas.addEventListener('pointerdown', function(e) {
+                if (e.button === 2) rDown = { x: e.clientX, y: e.clientY };
+            }, true);
+
+            canvas.addEventListener('pointerup', function(e) {
+                if (e.button !== 2 || !rDown) return;
+                var dist = Math.hypot(e.clientX - rDown.x, e.clientY - rDown.y);
+                rDown = null;
+                if (dist <= DRAG_PX) showCtxMenu(e.clientX, e.clientY);
+            }, true);
+
+            canvas.addEventListener('pointercancel', function() { rDown = null; }, true);
+
+            // 브라우저 기본 컨텍스트 메뉴만 차단 (커스텀 메뉴는 pointerup 에서 이미 처리)
+            canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
             document.addEventListener('click', function(e) {
                 if (!e.target.closest('#ctx-menu')) hideCtxMenu();

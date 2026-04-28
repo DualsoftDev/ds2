@@ -160,11 +160,6 @@
                         <Trigger Property="HasItems" Value="False">
                             <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
                         </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
-                            <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
-                        </Trigger>
                         <Trigger SourceName="ItemBorder" Property="IsMouseOver" Value="True">
                             <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
                             <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>

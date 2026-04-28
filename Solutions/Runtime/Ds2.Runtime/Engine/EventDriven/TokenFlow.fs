@@ -2,6 +2,7 @@ namespace Ds2.Runtime.Engine
 
 open System
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Runtime.Model
 open Ds2.Runtime.Engine.Core
 
@@ -55,6 +56,18 @@ module internal TokenFlow =
             match receivableSuccessors () with
             | [] -> emitTokenEvent ctx Blocked token workGuid None
             | targetGuids -> shiftTokenToTargets targetGuids
+
+    /// Seed 대상 Work에 대응하는 origin label 결정.
+    /// TokenSpec에 매칭되는 항목이 있으면 그 Label, 없으면 Work 이름.
+    let resolveSeedOriginLabel (ctx: Context) (sourceWorkGuid: Guid) =
+        let canonicalSourceWorkGuid = SimIndex.canonicalWorkGuid ctx.Index sourceWorkGuid
+        Queries.getTokenSpecs ctx.Index.Store
+        |> List.tryFind (fun spec ->
+            spec.WorkId
+            |> Option.map (fun workGuid -> SimIndex.canonicalWorkGuid ctx.Index workGuid = canonicalSourceWorkGuid)
+            |> Option.defaultValue false)
+        |> Option.map (fun spec -> spec.Label)
+        |> Option.defaultWith (fun () -> workNameOf ctx canonicalSourceWorkGuid)
 
     let onWorkFinish (ctx: Context) (workGuid: Guid) =
         let tryGetActiveToken () =

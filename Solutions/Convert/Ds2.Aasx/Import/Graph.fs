@@ -3,7 +3,6 @@ namespace Ds2.Aasx
 open System
 open System.Reflection
 open AasCore.Aas3_1
-open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO

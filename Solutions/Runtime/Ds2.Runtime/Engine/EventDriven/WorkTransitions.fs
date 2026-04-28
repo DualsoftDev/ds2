@@ -11,6 +11,8 @@ module internal WorkTransitions =
         Index: SimIndex
         StateManager: StateManager
         Scheduler: EventScheduler
+        RuntimeMode: Ds2.Core.RuntimeMode
+        IsHomingPhase: unit -> bool
         TimeIgnore: unit -> bool
         ScheduleConditionEvaluation: unit -> unit
         OnWorkFinish: Guid -> unit
@@ -41,7 +43,16 @@ module internal WorkTransitions =
                 ScheduledEvent.PriorityStateChange)
             |> ignore
 
+    let private isDeviceWork (ctx: Context) (workGuid: Guid) =
+        match ctx.Index.WorkSystemName |> Map.tryFind workGuid with
+        | Some sysName -> not (ctx.Index.ActiveSystemNames.Contains sysName)
+        | None -> false
+
     let scheduleDuration (ctx: Context) (workGuid: Guid) =
+        // Control 모드: Device Work의 Duration 무시 (Finish는 외부 In 신호로만) — Homing 중에는 예외
+        if ctx.RuntimeMode = Ds2.Core.RuntimeMode.Control && isDeviceWork ctx workGuid && not (ctx.IsHomingPhase()) then
+            ctx.StateManager.MarkMinDurationMet(workGuid)
+        else
         let scheduleDurationComplete delayMs =
             let eventId =
                 ctx.Scheduler.ScheduleAfter(
@@ -132,6 +143,14 @@ module internal WorkTransitions =
         ctx.ScheduleConditionEvaluation()
 
     let runPostWorkTransitionEffects (ctx: Context) workGuid newState =
+        // Passive 모드 (VirtualPlant / Monitoring): VP passive inference가 Work 상태 owner.
+        // 엔진이 덮어쓰지 않게 후속 자동 전이 차단.
+        let isPassive =
+            match ctx.RuntimeMode with
+            | Ds2.Core.RuntimeMode.VirtualPlant
+            | Ds2.Core.RuntimeMode.Monitoring -> true
+            | _ -> false
+        if isPassive then () else
         match newState with
         | Status4.Going -> handleWorkGoingTransition ctx workGuid
         | Status4.Finish -> handleWorkFinishTransition ctx workGuid

@@ -22,6 +22,7 @@ using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Report;
 using Ds2.Runtime.Report.Exporters;
 using Ds2.Runtime.Report.Model;
+using Microsoft.FSharp.Core;
 
 namespace Ds2.Tutorial.Steps;
 

@@ -2,283 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
-using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Engine;
-using Ds2.Runtime.Engine.Core;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
-    private bool TryWithSimEngine(string operationName, Action<ISimulationEngine> action)
-    {
-        if (_simEngine is null)
-            return false;
-
-        try
-        {
-            action(_simEngine);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            SimLog.Error($"{operationName} failed", ex);
-            _setStatusText(SimText.SimulationError(ex.Message));
-            return false;
-        }
-    }
-
-    private bool TryDisposeCurrentEngine(string operationName)
-    {
-        if (_simEngine is null)
-            return true;
-
-        AdvanceSimUiGeneration();
-        var engine = _simEngine;
-        _simEngine = null;
-
-        try
-        {
-            engine.Dispose();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            SimLog.Error($"{operationName} failed", ex);
-            _setStatusText(SimText.SimulationError(ex.Message));
-            return false;
-        }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanStartSimulation))]
-    private void StartSimulation()
-    {
-        if (IsSimulating && IsSimPaused)
-        {
-            _simEngine?.SetAllFlowStates(FlowTag.Ready);
-            _simEngine?.Resume();
-            _isStepMode = false;
-            SimStatusText = SimText.Running;
-            ApplySimulationUiState(
-                ganttRunning: true,
-                isSimPaused: false,
-                statusText: SimText.Resumed);
-            return;
-        }
-
-        try
-        {
-            var index = SimIndexModule.build(Store, 10);
-
-            // 토큰 역할이 설정되어 있으면 PLAY 전 자동 검증
-            var hasPreStartWarnings = false;
-            if (HasAnyTokenRole(index))
-            {
-                var sections = RunGraphValidation(index);
-                if (sections.Count > 0)
-                {
-                    hasPreStartWarnings = true;
-                    AddGraphWarningLogs(sections);
-                    Dialogs.DialogHelpers.ShowGraphWarnings(sections);
-                    _setStatusText($"모델 검증: {sections.Count}건의 경고 발견");
-                }
-            }
-
-            // Race Condition 경고: 순서 없는 Call이 같은 Device의 ResetReset 관계 Work를 참조
-            if (index.CallRaceExclusions.Count > 0)
-            {
-                var raceWarnings = new List<string>();
-                var reported = new HashSet<string>();
-                foreach (var kv in index.CallRaceExclusions)
-                {
-                    var callGuid = kv.Key;
-                    var callName = Store.Calls.TryGetValue(callGuid, out var c) ? c.Name : "?";
-                    var workGuid = index.CallWorkGuid.TryGetValue(callGuid, out var wg) ? wg : Guid.Empty;
-                    var workName = index.WorkName.TryGetValue(workGuid, out var wn) ? wn : "?";
-                    foreach (var exGuid in kv.Value)
-                    {
-                        var exName = Store.Calls.TryGetValue(exGuid, out var ec) ? ec.Name : "?";
-                        var pairKey = string.Join(",", new[] { callGuid.ToString(), exGuid.ToString() }.OrderBy(x => x));
-                        if (reported.Add(pairKey))
-                            raceWarnings.Add($"  {workName}: {callName} ↔ {exName}");
-                    }
-                }
-                if (raceWarnings.Count > 0)
-                {
-                    hasPreStartWarnings = true;
-                    AddSimLog($"[WARN] Race Condition: 순서 없는 Call {raceWarnings.Count}쌍이 동일 Device ResetReset 관계 — 먼저 스케줄된 Call만 실행됩니다", LogSeverity.Warn);
-                }
-            }
-
-            if (!TryDisposeCurrentEngine("Simulation restart"))
-                return;
-            _simEngine = new EventDrivenEngine(index, RuntimeMode.Simulation);
-            _simEngine.SpeedMultiplier = SimSpeed;
-            _simEngine.TimeIgnore = SimTimeIgnore;
-            AdvanceSimUiGeneration();
-
-            WireSimEvents();
-            InitSimNodes();
-            InitTokenSources();
-            InitSceneEventHandler();
-
-            _simStartTime = DateTime.Now;
-            _stateChangeRecords.Clear();
-            ResetTraversalTracking();
-            _suppressedWarnings.Clear();
-            HasReportData = false;
-            SimEventLog.Clear();
-
-            GanttChart.Reset(_simStartTime);
-            InitGanttEntries();
-            GanttChart.IsRunning = true;
-
-            if (!hasPreStartWarnings)
-                _warningGuids.Clear();
-
-            // 자동 원위치 페이즈: Homing 대상이 있으면 페이즈 진행 후 정상 시뮬레이션
-            var hasHoming = _simEngine.StartWithHomingPhase();
-            if (hasHoming)
-            {
-                IsHomingPhase = true;
-                _setStatusText("시뮬레이션 초기화 중...");
-                SimStatusText = "시뮬레이션 초기화 중...";
-                _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
-            }
-
-            ApplySimStateToCanvas();
-            ApplyWarningsToCanvas();
-
-            ApplySimulationUiState(
-                ganttRunning: true,
-                isSimulating: true,
-                isSimPaused: false,
-                statusText: hasHoming ? "시뮬레이션 초기화 중..." : SimText.Started,
-                logText: hasHoming ? "시뮬레이션 자동 원위치 진행 중" : SimText.Started);
-            if (!hasHoming)
-                SimStatusText = SimText.Running;
-        }
-        catch (Exception ex)
-        {
-            SimLog.Error("Simulation start failed", ex);
-            _setStatusText(SimText.SimulationError(ex.Message));
-        }
-    }
-
-    private bool CanStartSimulation() => (!IsSimulating || IsSimPaused) && !IsHomingPhase;
-
-    [RelayCommand(CanExecute = nameof(CanPauseSimulation))]
-    private void PauseSimulation()
-    {
-        _simEngine?.SetAllFlowStates(FlowTag.Pause);
-        _isStepMode = true;
-        SimStatusText = SimText.StepMode;
-        ApplySimulationUiState(
-            isSimPaused: true,
-            statusText: SimText.Paused,
-            logText: "단계 제어 모드 진입");
-        RefreshSimulationProgressUi();
-    }
-
-    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused && !IsHomingPhase;
-
-    [RelayCommand(CanExecute = nameof(CanStopSimulation))]
-    private void StopSimulation()
-    {
-        AdvanceSimUiGeneration();
-        if (_simEngine is not null
-            && !TryWithSimEngine("Simulation stop", engine => engine.Stop()))
-            return;
-        if (_simEngine is not null)
-            _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
-        IsHomingPhase = false;
-        ClearSimStateFromCanvas();
-        ClearAllWarnings();
-        HasWorkGoing = false;
-        HasGoingCall = false;
-        _isStepMode = false;
-
-        SimStatusText = SimText.Stopped;
-        _sceneEventHandler?.Reset();
-        ApplySimulationUiState(
-            ganttRunning: false,
-            isSimulating: false,
-            isSimPaused: false,
-            statusText: SimText.Stopped,
-            logText: SimText.Stopped);
-
-        // 시뮬 종료 시 결과 시나리오 자동 저장 (TechnicalData.SimulationResults)
-        try
-        {
-            TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
-        }
-        catch { /* best-effort */ }
-    }
-
-    private void InitSceneEventHandler()
-    {
-        _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
-    }
-
-    private void OnHomingPhaseCompleted(object? sender, EventArgs e)
-    {
-        if (_simEngine is not null)
-            _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
-        _dispatcher.BeginInvoke(() =>
-        {
-            IsHomingPhase = false;
-            SimStatusText = SimText.Running;
-            _setStatusText(SimText.Started);
-            AddSimLog("시뮬레이션 자동 원위치 완료", LogSeverity.System);
-        });
-    }
-
-    private bool CanStopSimulation() => IsSimulating;
-
-    [RelayCommand(CanExecute = nameof(CanResetSimulation))]
-    private void ResetSimulation()
-    {
-        AdvanceSimUiGeneration();
-        if (_simEngine is not null
-            && !TryWithSimEngine("Simulation reset", engine => engine.Reset()))
-            return;
-        _simStartTime = DateTime.Now;
-        ApplySimulationResetUiState(clearCollections: false);
-        GanttChart.Reset(_simStartTime);
-        InitGanttEntries();
-        HasWorkGoing = false;
-        HasGoingCall = false;
-        _isStepMode = false;
-        SimStatusText = SimText.Reset;
-        ApplySimulationUiState(
-            statusText: SimText.Reset,
-            logText: SimText.ResetLog);
-    }
-
-    private bool CanResetSimulation() => IsSimulating;
-
-    [RelayCommand(CanExecute = nameof(CanStepSimulation))]
-    private void StepSimulation()
-    {
-        if (_simEngine is null) return;
-        SimStatusText = SimText.StepMode;
-
-        var (selectedSourceGuid, autoStartSources) = GetStepAdvanceSelection();
-        if (_simEngine.StepWithSourcePriming(selectedSourceGuid, autoStartSources))
-            AddSimLog("STEP 실행", LogSeverity.System);
-        else
-            AddSimLog("진행할 STEP 없음", LogSeverity.Warn);
-
-        RefreshSimulationProgressUi();
-    }
-
-    private bool CanStepSimulation() => IsSimulating
-        && IsSimPaused
-        && !IsHomingPhase
-        && _simEngine is { } engine
-        && engine.CanAdvanceStep(GetStepAdvanceSelection().SelectedSourceGuid, GetStepAdvanceSelection().AutoStartSources);
 
     partial void OnSimSpeedChanged(double value)
     {
@@ -347,6 +77,7 @@ public partial class SimulationPanelState
         DisposeSimEngine();
         _simStartTime = DateTime.Now;
         ApplySimulationResetUiState(clearCollections: true);
+        ClearAllWarnings();
         GanttChart.Reset(_simStartTime);
         PopulateWorkItems();
     }
@@ -406,9 +137,19 @@ public partial class SimulationPanelState
     {
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
         var prefix = severity == LogSeverity.Info ? "" : $" [{severity.ToString().ToUpper()}]";
-        SimEventLog.Insert(0, new SimLogEntry($"[{ts}]{prefix} {message}", severity));
+        var line = $"[{ts}]{prefix} {message}";
+        SimEventLog.Insert(0, new SimLogEntry(line, severity));
         if (SimEventLog.Count > 500)
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
+        // 진단 파일 append — 모드별로 분리
+        try
+        {
+            var path = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"ds2_eventlog_{SelectedRuntimeMode}.txt");
+            System.IO.File.AppendAllText(path, $"[{DateTime.Now:HH:mm:ss.fff}] {line}{Environment.NewLine}");
+        }
+        catch { }
     }
 
     private void AddWarningLog(string severity, string message)
@@ -466,47 +207,4 @@ public partial class SimulationPanelState
         return result;
     }
 
-    private void DisposeSimEngine()
-    {
-        TryDisposeCurrentEngine("Simulation dispose");
-        ClearSimStateFromCanvas();
-        IsSimulating = false;
-        IsSimPaused = false;
-        _stateCache.Clear();
-    }
-
-    private void ApplySimulationResetUiState(bool clearCollections)
-    {
-        GanttChart.IsRunning = false;
-        _stateChangeRecords.Clear();
-        ResetTraversalTracking();
-        HasReportData = false;
-        SimClock = SimText.ClockZero;
-        SelectedSimWork = null;
-        IsSimulating = false;
-        IsSimPaused = false;
-        _isStepMode = false;
-        SimSpeed = 1.0;
-        SimStatusText = SimText.Stopped;
-        _stateCache.Clear();
-        _suppressedWarnings.Clear();
-        ClearSimStateFromCanvas();
-
-        if (clearCollections)
-        {
-            SimNodes.Clear();
-            SimEventLog.Clear();
-            SimWorkItems.Clear();
-            TokenSourceWorks.Clear();
-            SelectedTokenSource = null;
-            return;
-        }
-
-        SimEventLog.Clear();
-        foreach (var row in SimNodes)
-        {
-            row.State = Status4.Ready;
-            row.TokenDisplay = "";
-        }
-    }
 }

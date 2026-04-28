@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 using Ds2.Core;
 using Ds2.Core.Store;
@@ -69,6 +73,25 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
+    public void ResetForNewStore_clears_warning_guids_so_reloaded_file_does_not_inherit_previous_check_results()
+    {
+        // 같은 컨텐츠 파일을 다른 이름/확장자로 저장한 뒤 다시 불러오면 GUID 가 동일해서
+        // 이전 Check 결과의 _warningGuids 가 새 store 노드에 그대로 매칭돼 warning 이
+        // 잘못 표시되던 회귀를 방지한다.
+        StaTestRunner.Run(() =>
+        {
+            var state = CreateState();
+            SetWarningGuids(state, Guid.NewGuid(), Guid.NewGuid());
+
+            state.ResetForNewStore();
+
+            var field = typeof(SimulationPanelState).GetField("_warningGuids", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var set = (HashSet<Guid>)field.GetValue(state)!;
+            Assert.Empty(set);
+        });
+    }
+
+    [Fact]
     public void SyncCanvasSelection_selects_matching_work_only_while_simulating()
     {
         StaTestRunner.Run(() =>
@@ -109,11 +132,109 @@ public sealed class SimulationPanelStateTests
         });
     }
 
-    private static SimulationPanelState CreateState(Func<DsStore>? storeProvider = null) =>
+    [Fact]
+    public void Warning_marking_propagates_to_reference_work_and_call_nodes()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var workId = store.AddWork("W", flowId);
+            var referenceWorkId = store.AddReferenceWork(workId);
+            store.AddCallsWithDevice(projectId, workId, ["Dev.Api"], true, null);
+            var callId = Queries.callsOf(workId, store).Head.Id;
+            var referenceCallId = store.AddReferenceCall(callId);
+
+            var canvasNodes = new ObservableCollection<EntityNode>
+            {
+                new(workId, EntityKind.Work, "W") { IsReference = false },
+                new(referenceWorkId, EntityKind.Work, "W") { IsReference = true, ReferenceOfId = workId },
+                new(callId, EntityKind.Call, "Api") { IsReference = false },
+                new(referenceCallId, EntityKind.Call, "Api") { IsReference = true, ReferenceOfId = callId }
+            };
+
+            var treeNodes = new[]
+            {
+                new EntityNode(workId, EntityKind.Work, "W") { IsReference = false },
+                new EntityNode(referenceWorkId, EntityKind.Work, "W") { IsReference = true, ReferenceOfId = workId },
+                new EntityNode(callId, EntityKind.Call, "Api") { IsReference = false },
+                new EntityNode(referenceCallId, EntityKind.Call, "Api") { IsReference = true, ReferenceOfId = callId }
+            };
+
+            var state = CreateState(() => store, () => canvasNodes, () => treeNodes);
+            SetWarningGuids(state, workId, callId);
+            InvokePrivate(state, "ApplyWarningsToCanvas");
+
+            Assert.All(canvasNodes, node => Assert.True(node.IsWarning));
+            Assert.All(treeNodes, node => Assert.True(node.IsWarning));
+        });
+    }
+
+    [Fact]
+    public void Warning_marking_on_device_work_propagates_to_referencing_call_nodes()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var workId = store.AddWork("W", flowId);
+            store.AddCallsWithDevice(projectId, workId, ["KIT.External"], true, null);
+
+            var callId = Queries.callsOf(workId, store).Head.Id;
+            var referenceCallId = store.AddReferenceCall(callId);
+            var apiCall = store.Calls[callId].ApiCalls.Single();
+            var apiDefId = apiCall.ApiDefId?.Value ?? throw new InvalidOperationException("ApiDefId was not linked.");
+            var apiDef = store.ApiDefs[apiDefId];
+            var deviceWorkId = apiDef.TxGuid?.Value ?? apiDef.RxGuid?.Value ?? throw new InvalidOperationException("Device work was not linked.");
+
+            var canvasNodes = new ObservableCollection<EntityNode>
+            {
+                new(callId, EntityKind.Call, "KIT.External") { IsReference = false },
+                new(referenceCallId, EntityKind.Call, "KIT.External") { IsReference = true, ReferenceOfId = callId }
+            };
+
+            var treeNodes = new[]
+            {
+                new EntityNode(callId, EntityKind.Call, "KIT.External") { IsReference = false },
+                new EntityNode(referenceCallId, EntityKind.Call, "KIT.External") { IsReference = true, ReferenceOfId = callId }
+            };
+
+            var state = CreateState(() => store, () => canvasNodes, () => treeNodes);
+            SetWarningGuids(state, deviceWorkId);
+            InvokePrivate(state, "ApplyWarningsToCanvas");
+
+            Assert.All(canvasNodes, node => Assert.True(node.IsWarning));
+            Assert.All(treeNodes, node => Assert.True(node.IsWarning));
+        });
+    }
+
+    private static SimulationPanelState CreateState(
+        Func<DsStore>? storeProvider = null,
+        Func<IEnumerable<EntityNode>>? canvasNodes = null,
+        Func<IEnumerable<EntityNode>>? treeNodes = null) =>
         new(
             storeProvider ?? (() => new DsStore()),
             Dispatcher.CurrentDispatcher,
-            () => new ObservableCollection<EntityNode>(),
-            () => Array.Empty<EntityNode>(),
+            canvasNodes ?? (() => new ObservableCollection<EntityNode>()),
+            treeNodes ?? (() => Array.Empty<EntityNode>()),
             _ => { });
+
+    private static void SetWarningGuids(SimulationPanelState state, params Guid[] warningGuids)
+    {
+        var field = typeof(SimulationPanelState).GetField("_warningGuids", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var set = (HashSet<Guid>)field.GetValue(state)!;
+        set.Clear();
+        foreach (var warningGuid in warningGuids)
+            set.Add(warningGuid);
+    }
+
+    private static void InvokePrivate(object target, string methodName)
+    {
+        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(target, null);
+    }
 }

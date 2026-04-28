@@ -49,44 +49,29 @@ module UiDefaults =
 
 
 // =============================================================================
-// DevicePresets — 3D 모델 프리셋 레지스트리 (단일 정의 위치)
+// DevicePresets — 모델 프리셋 레지스트리 (단일 정의 위치)
 // =============================================================================
 //
 //   C# 사용: Ds2.Store.DevicePresets.Entries / DefaultMappingStrings
 //   F# 사용: DevicePresets.KnownNames / DefaultMappingStrings (open Ds2.Store 후)
 
-/// 등록된 시스템 타입 프리셋 레지스트리 (B안 v2 — Cylinder 7종 + 로봇 2종).
 /// 각 entry 는 (SystemType, ApiList, DefaultFBName).
 /// ApiList: ';' 구분 API 이름 목록. DefaultFBName: XGI_Template.xml 의 FB 이름.
 /// Cylinder_N: 센서 N쌍 (LS_AdvN/LS_RetN) 을 가진 N-실린더 FB. XGI_Template 에 1/2/3/4/6/8/10 FB 존재.
 module DevicePresets =
-    let private cylinderApis = "ADV;RET"
-    let private partApis     = "ON;OFF"
     let Entries3 : (string * string * string)[] = [|
-        ("Cylinder_1",  cylinderApis, "FB421_Com_Cylinder_1_v1")
-        ("Cylinder_2",  cylinderApis, "FB422_Com_Cylinder_2_v1")
-        ("Cylinder_3",  cylinderApis, "FB423_Com_Cylinder_3_v1")
-        ("Cylinder_4",  cylinderApis, "FB424_Com_Cylinder_4_v1")
-        ("Cylinder_6",  cylinderApis, "FB425_Com_Cylinder_6_v1")
-        ("Cylinder_8",  cylinderApis, "FB426_Com_Cylinder_8_v1")
-        ("Cylinder_10", cylinderApis, "FB427_Com_Cylinder_10_v1")
-        ("RobotWeldGrip",
-            "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK",
-            "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼")
-        ("RobotWeldGripPallet",
-            "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK;PLT1_IN_OK;PLT2_IN_OK;PLT3_IN_OK;PLT4_IN_OK;PLT1_COUNT_RST;PLT2_COUNT_RST;PLT3_COUNT_RST;PLT4_COUNT_RST",
-            "FB496_Robot_Kawasaki_v3_260225_종합")
-        ("Part",        partApis,     "")
+        ("Unit",        "ADV;RET",     "")
+        ("Cylinder_1",  "ADV;RET", "FB421_Com_Cylinder_1_v1")
+        ("Cylinder_2",  "ADV;RET", "FB422_Com_Cylinder_2_v1")
+        ("Cylinder_3",  "ADV;RET", "FB423_Com_Cylinder_3_v1")
+        ("Cylinder_4",  "ADV;RET", "FB424_Com_Cylinder_4_v1")
+        ("Cylinder_6",  "ADV;RET", "FB425_Com_Cylinder_6_v1")
+        ("Cylinder_8",  "ADV;RET", "FB426_Com_Cylinder_8_v1")
+        ("Cylinder_10", "ADV;RET", "FB427_Com_Cylinder_10_v1")
+        ("RobotWeldGrip",       "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK", "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼")
+        ("RobotWeldGripPallet", "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK;PLT1_IN_OK;PLT2_IN_OK;PLT3_IN_OK;PLT4_IN_OK;PLT1_COUNT_RST;PLT2_COUNT_RST;PLT3_COUNT_RST;PLT4_COUNT_RST", "FB496_Robot_Kawasaki_v3_260225_종합")
+        ("Part", "ADV;RET", "")
     |]
-
-    /// SystemType 이름이 "Cylinder_N" 형식이면 N 반환 (1~10).
-    let tryCylinderSize (sysType: string) : int option =
-        if isNull sysType then None
-        elif not (sysType.StartsWith("Cylinder_")) then None
-        else
-            match System.Int32.TryParse(sysType.Substring("Cylinder_".Length)) with
-            | true, n when n >= 1 && n <= 10 -> Some n
-            | _ -> None
 
     /// (SystemType, ApiList) 호환 배열 — 기존 사용처 그대로 동작.
     let Entries : (string * string)[] =
@@ -102,11 +87,6 @@ module DevicePresets =
     let KnownNames : Set<string> =
         Entries |> Array.map fst |> Set.ofArray
 
-    /// "SystemType:ModelType" 기본 매핑 문자열 배열 (ProjectProperties 초기값, Dummy 제외)
-    let DefaultMappingStrings : string[] =
-        Entries
-        |> Array.filter (fun (_, s) -> s <> "")
-        |> Array.map (fun (model, sysType) -> $"{sysType}:{model}")
 
 // =============================================================================
 // EntityKind — 엔티티/노드 타입 열거형 (C# == 비교 가능)

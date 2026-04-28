@@ -240,9 +240,21 @@ module internal DirectDeviceOps =
         let call = Call(devicesAlias, apiName, workId)
         store.TrackAdd(store.Calls, call)
         apiDefIds
-        |> Seq.choose (fun id -> Queries.getApiDef id store)
-        |> Seq.iter (fun apiDef ->
-            createAndRegisterApiCall store call $"{devicesAlias}.{apiDef.Name}" apiDef.Id)
+        |> Seq.choose (fun defId ->
+            // ApiDef에 연결된 기존 ApiCall을 찾아서 공유
+            store.ApiCalls.Values
+            |> Seq.tryFind (fun ac -> ac.ApiDefId = Some defId)
+            |> Option.orElseWith (fun () ->
+                // 기존 ApiCall이 없으면 새로 생성
+                Queries.getApiDef defId store
+                |> Option.map (fun apiDef ->
+                    let ac = ApiCall($"{devicesAlias}.{apiDef.Name}")
+                    ac.ApiDefId <- Some defId
+                    ac.OriginFlowId <- Queries.getWork call.ParentId store |> Option.map (fun w -> w.ParentId)
+                    store.TrackAdd(store.ApiCalls, ac)
+                    ac)))
+        |> Seq.iter (fun apiCall ->
+            store.TrackMutate(store.Calls, call.Id, fun c -> c.ApiCalls.Add(apiCall)))
         call.Id
 
     /// ApiCall 복제 모드: 1개 Call + N개 Device System/ApiDef/ApiCall 생성.

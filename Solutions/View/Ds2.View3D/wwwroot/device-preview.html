@@ -66,7 +66,7 @@ body.embed #embed-bar{display:flex}
 </div>
 <div id="viewport">
   <div id="error-msg"></div>
-  <div id="info">Drag: rotate · Scroll: zoom · Right-drag: pan</div>
+  <div id="info">드래그: 회전 · 휠클릭/우드래그: 이동 · 스크롤: 줌</div>
   <div id="hint"></div>
   <!-- Embed 모드 컨트롤 바 (URL에 ?embed 파라미터 있을 때만 표시) -->
   <div id="embed-bar">
@@ -313,6 +313,13 @@ function init() {
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+
+  // 3D 배치뷰와 조작키 통일: 좌=회전, 휠클릭/우=이동(PAN), 스크롤=줌
+  controls.mouseButtons = {
+    LEFT:   THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.PAN,
+    RIGHT:  THREE.MOUSE.PAN
+  };
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.5));
   const dir = new THREE.DirectionalLight(0xffffff, 0.7);

@@ -1,5 +1,5 @@
 using Dapper;
-using DSPilot.Engine;
+using DSPilot.Infrastructure;
 using DSPilot.Models.Plc;
 using DSPilot.Services;
 using Microsoft.Data.Sqlite;
@@ -24,7 +24,7 @@ public class PlcRepository : IPlcRepository
         }
 
         // ReadOnly 제거 - PlcCaptureService가 DB를 생성하고 쓰기 작업을 수행함
-        _connectionString = DatabaseConfig.createConnectionString(dbPath);
+        _connectionString = DatabaseConfigLoader.CreateConnectionString(dbPath);
         _logger = logger;
         _logger.LogInformation("PLC Database path: {DbPath} (Unified mode)", dbPath);
     }
@@ -158,7 +158,7 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         // F# QueryHelpers 사용
-        var sinceStr = QueryHelpers.toSqliteUtcString(sinceDateTime);
+        var sinceStr = SqliteDateTimeHelpers.ToSqliteUtcString(sinceDateTime);
 
         const string sql = @"
             SELECT
@@ -184,8 +184,8 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         // F# QueryHelpers 사용
-        var startStr = QueryHelpers.toSqliteUtcString(startExclusive);
-        var endStr = QueryHelpers.toSqliteUtcString(endInclusive);
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startExclusive);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endInclusive);
 
         _logger.LogInformation("🔍 GetLogsInRangeAsync: Local ({LocalStart} ~ {LocalEnd}] → UTC ({UtcStart} ~ {UtcEnd}]",
             startExclusive.ToString("HH:mm:ss.fff"),
@@ -233,11 +233,7 @@ public class PlcRepository : IPlcRepository
             return null;
         }
 
-        // F# QueryHelpers 사용 (FSharpOption → nullable)
-        var fsharpOption = QueryHelpers.fromSqliteUtcString(resultStr);
-        var localDateTime = Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption)
-            ? fsharpOption.Value
-            : (DateTime?)null;
+        var localDateTime = SqliteDateTimeHelpers.FromSqliteUtcString(resultStr);
 
         _logger.LogInformation("📅 GetOldestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
             resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
@@ -259,11 +255,7 @@ public class PlcRepository : IPlcRepository
             return null;
         }
 
-        // F# QueryHelpers 사용 (FSharpOption → nullable)
-        var fsharpOption = QueryHelpers.fromSqliteUtcString(resultStr);
-        var localDateTime = Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption)
-            ? fsharpOption.Value
-            : (DateTime?)null;
+        var localDateTime = SqliteDateTimeHelpers.FromSqliteUtcString(resultStr);
 
         _logger.LogInformation("📅 GetLatestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
             resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
@@ -298,7 +290,7 @@ public class PlcRepository : IPlcRepository
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var atOrBeforeStr = QueryHelpers.toSqliteUtcString(atOrBefore);
+        var atOrBeforeStr = SqliteDateTimeHelpers.ToSqliteUtcString(atOrBefore);
 
         const string sql = @"
 WITH ranked AS (
@@ -409,8 +401,8 @@ WHERE RowNum = 1";
         string address, DateTime startTime, DateTime endTime)
     {
         using var connection = CreateConnection();
-        var startStr = QueryHelpers.toSqliteUtcString(startTime);
-        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
 
         const string sql = @"
 SELECT l.Id, l.PlcTagId, l.DateTime, l.Value
@@ -437,8 +429,8 @@ ORDER BY l.DateTime ASC";
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var startStr = QueryHelpers.toSqliteUtcString(startTime);
-        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
 
         const string sql = @"
 SELECT
@@ -484,8 +476,8 @@ ORDER BY l.DateTime ASC";
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var startStr = QueryHelpers.toSqliteUtcString(startTime);
-        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
 
         const string sql = @"
 WITH ordered_logs AS (
@@ -549,8 +541,8 @@ ORDER BY DateTime ASC, Id ASC";
         string address, DateTime startTime, DateTime endTime)
     {
         using var connection = CreateConnection();
-        var startStr = QueryHelpers.toSqliteUtcString(startTime);
-        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
 
         const string sql = @"
 WITH ordered_logs AS (
@@ -638,11 +630,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
 
     private static DateTime ParseSqliteDateTime(string value)
     {
-        var fsharpOption = QueryHelpers.fromSqliteUtcString(value);
-        if (Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption))
-            return fsharpOption.Value;
-
-        return DateTime.Parse(value);
+        var parsed = SqliteDateTimeHelpers.FromSqliteUtcString(value);
+        return parsed ?? DateTime.Parse(value);
     }
 
     private sealed class PlcTagLogAddressRow
@@ -718,8 +707,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 return new List<PlcTagLogEntity>();
             }
 
-            var startStr = QueryHelpers.toSqliteUtcString(startTime);
-            var endStr = QueryHelpers.toSqliteUtcString(endTime);
+            var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+            var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
 
             const string sql = @"
                 SELECT

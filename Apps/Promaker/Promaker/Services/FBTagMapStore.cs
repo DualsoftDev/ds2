@@ -89,13 +89,21 @@ public static class FBTagMapStore
         foreach (var kv in dto.ComAuxPortMap ?? new()) EnsureAux(preset.ComAuxPortMap, kv.Key, kv.Value);
     }
 
+    /// <summary>"Cylinder_N" → N (1 이상 정수). '#' 포함 템플릿이거나 형식 불일치 시 null.</summary>
+    private static int? TryGetCylinderSize(string? sysType)
+    {
+        if (string.IsNullOrEmpty(sysType)) return null;
+        if (!sysType.StartsWith("Cylinder_", StringComparison.Ordinal)) return null;
+        if (sysType.Contains('#')) return null;
+        return int.TryParse(sysType.AsSpan("Cylinder_".Length), out var n) && n >= 1 ? n : null;
+    }
+
     /// <summary>SystemType 별 기본 신호 패턴 / AUX 포트 매핑을 보충 (코드 factory).</summary>
     private static void ApplyBuiltInDefaults(FBTagMapPreset preset, string sysType)
     {
-        var sizeOpt = Ds2.Core.Store.DevicePresets.tryCylinderSize(sysType);
-        if (Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(sizeOpt))
+        if (TryGetCylinderSize(sysType) is int n)
         {
-            ApplyCylinderDefaults(preset, sizeOpt.Value);
+            ApplyCylinderDefaults(preset, n);
             return;
         }
         switch (sysType)

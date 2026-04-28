@@ -2275,7 +2275,7 @@ public partial class MainWindow : Window
         var index = SimIndexModule.build(_store, 50);
         var validationText = BuildValidationSummary(index);
 
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
         var records = new List<StateChangeRecord>();
         var startTime = DateTime.UtcNow;
 

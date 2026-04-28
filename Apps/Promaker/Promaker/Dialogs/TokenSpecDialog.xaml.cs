@@ -14,18 +14,16 @@ namespace Promaker.Dialogs;
 public partial class TokenSpecDialog : Window
 {
     private readonly ObservableCollection<TokenSpecRow> _rows;
+    private readonly IReadOnlyList<WorkOption> _allWorks;
 
-    /// <summary>Source Work 목록 (ComboBox 드롭다운용)</summary>
-    public List<WorkOption> SourceWorks { get; }
-
-    public TokenSpecDialog(IReadOnlyList<TokenSpec> specs, IReadOnlyList<WorkOption> sourceWorks)
+    public TokenSpecDialog(IReadOnlyList<TokenSpec> specs, IReadOnlyList<WorkOption> allWorks)
     {
         InitializeComponent();
 
-        SourceWorks = [new WorkOption(Guid.Empty, "(없음)"), .. sourceWorks];
+        _allWorks = allWorks;
         DataContext = this;
 
-        _rows = CreateRows(specs, sourceWorks);
+        _rows = CreateRows(specs, allWorks);
         _rows.CollectionChanged += (_, _) => UpdateCount();
         SpecGrid.ItemsSource = _rows;
         UpdateCount();
@@ -34,12 +32,33 @@ public partial class TokenSpecDialog : Window
     public IReadOnlyList<TokenSpec> Result =>
         _rows.Select(CreateTokenSpec).ToList();
 
+    /// <summary>적용 시점에 Source Role 자동 등록이 필요한 Work Guid 목록.</summary>
+    public IReadOnlyList<Guid> WorksRequiringSourceRole =>
+        _rows
+            .Where(r => r.WorkId is { } opt && Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(opt))
+            .Select(r => r.WorkId!.Value)
+            .Distinct()
+            .Where(id => _allWorks.FirstOrDefault(w => w.Id == id) is { IsSource: false })
+            .ToList();
+
     private void UpdateCount() => CountRun.Text = _rows.Count.ToString();
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
+        var picker = new WorkPickerDialog(_allWorks) { Owner = this };
+        if (picker.ShowDialog() != true || picker.SelectedWork is not { } picked)
+            return;
+
         var nextId = _rows.Count > 0 ? _rows.Max(r => r.Id) + 1 : 1;
-        _rows.Add(new TokenSpecRow(nextId, "", ""));
+        var row = new TokenSpecRow(
+            nextId,
+            "",
+            "",
+            Microsoft.FSharp.Core.FSharpOption<Guid>.Some(picked.Id))
+        {
+            WorkName = picked.Name
+        };
+        _rows.Add(row);
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
@@ -89,14 +108,6 @@ public partial class TokenSpecDialog : Window
         }
     }
 
-    private void WorkCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.ComboBox { DataContext: TokenSpecRow row, SelectedItem: WorkOption work })
-            return;
-
-        ApplySelectedWork(row, work);
-    }
-
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
         // 빈 Label 검증
@@ -120,14 +131,14 @@ public partial class TokenSpecDialog : Window
 
     private static ObservableCollection<TokenSpecRow> CreateRows(
         IReadOnlyList<TokenSpec> specs,
-        IReadOnlyList<WorkOption> sourceWorks)
+        IReadOnlyList<WorkOption> allWorks)
     {
         return new ObservableCollection<TokenSpecRow>(
             specs.Select(spec =>
             {
                 var row = new TokenSpecRow(spec.Id, spec.Label, FormatFields(spec.Fields), spec.WorkId);
                 if (spec.WorkId is { } workId)
-                    row.WorkName = sourceWorks.FirstOrDefault(work => work.Id == workId.Value)?.Name ?? "";
+                    row.WorkName = allWorks.FirstOrDefault(work => work.Id == workId.Value)?.Name ?? "";
                 return row;
             }));
     }
@@ -147,19 +158,6 @@ public partial class TokenSpecDialog : Window
             var fields = parts.Length > 1 ? parts[1].Trim().Trim('"') : "";
             yield return new TokenSpecRow(id++, label, fields);
         }
-    }
-
-    private static void ApplySelectedWork(TokenSpecRow row, WorkOption work)
-    {
-        if (work.Id == Guid.Empty)
-        {
-            row.WorkId = null;
-            row.WorkName = "";
-            return;
-        }
-
-        row.WorkId = Microsoft.FSharp.Core.FSharpOption<Guid>.Some(work.Id);
-        row.WorkName = work.Name;
     }
 
     private static string FormatFields(Microsoft.FSharp.Collections.FSharpMap<string, string> fields) =>

@@ -6,9 +6,8 @@ open System.IO.Compression
 open System.Text
 open System.Xml
 open AasCore.Aas3_1
-open log4net
 
-let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
+let private log = SimpleLog.create "Ds2.Aasx.AasxFileIO"
 
 type AasxThumbnail =
     { EntryName: string
@@ -238,6 +237,13 @@ let readEnvironment (path: string) : Environment option =
     | Error msg ->
         log.Warn($"AASX 읽기 실패: {msg}")
         None
+
+/// AASX ZIP에서 Environment를 읽어 반환합니다.
+/// 실패 시 예외를 발생시켜 호출자가 직접 처리할 수 있게 합니다.
+let readEnvironmentOrRaise (path: string) : Environment =
+    match readEnvironmentWithError path with
+    | Ok env -> env
+    | Error msg -> raise (InvalidDataException(msg))
 
 // ZipArchiveMode.Create 에서는 이전 엔트리 스트림이 닫혀야 다음 엔트리를 열 수 있음.
 // F# `use`는 함수 스코프 끝까지 유지되므로 별도 함수로 분리하여 즉시 dispose되도록 함.

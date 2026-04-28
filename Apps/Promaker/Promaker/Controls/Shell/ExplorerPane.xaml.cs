@@ -37,6 +37,7 @@ public partial class ExplorerPane : UserControl
         };
         _searchRefreshTimer.Tick += SearchRefreshTimer_Tick;
         DataContextChanged += ExplorerPane_DataContextChanged;
+        Loaded   += ExplorerPane_Loaded;
         Unloaded += ExplorerPane_Unloaded;
     }
 
@@ -64,6 +65,20 @@ public partial class ExplorerPane : UserControl
     private void ExplorerPane_Unloaded(object sender, RoutedEventArgs e) =>
         RebindViewModel(_boundViewModel, null);
 
+    private void ExplorerPane_Loaded(object sender, RoutedEventArgs e)
+    {
+        var currentVm = ViewModel;
+        if (currentVm is null) return;
+        if (!ReferenceEquals(_boundViewModel, currentVm) || ControlTree.ItemsSource is null)
+            RebindViewModel(_boundViewModel, currentVm);
+    }
+
+    private void HandleExplorerRebindRequested()
+    {
+        if (_boundViewModel is not null)
+            RebindViewModel(_boundViewModel, _boundViewModel);
+    }
+
     private void RebindViewModel(MainViewModel? oldVm, MainViewModel? newVm)
     {
         _searchRefreshTimer.Stop();
@@ -73,6 +88,7 @@ public partial class ExplorerPane : UserControl
             oldVm.ControlTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
             oldVm.DeviceTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
             oldVm.SearchResetRequested -= ClearSearch;
+            oldVm.ExplorerRebindRequested -= HandleExplorerRebindRequested;
         }
 
         _boundViewModel = newVm;
@@ -82,6 +98,7 @@ public partial class ExplorerPane : UserControl
             newVm.ControlTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
             newVm.DeviceTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
             newVm.SearchResetRequested += ClearSearch;
+            newVm.ExplorerRebindRequested += HandleExplorerRebindRequested;
         }
 
         RefreshTreeItemsSource();
@@ -121,11 +138,21 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (sender is not TreeViewItem item) return;
+
+        // Expander(셰브론) 클릭은 WPF 기본 토글에 맡긴다.
+        // 선택된 부모 노드에서 e.Handled=true 가 걸리면 ToggleButton 이 클릭을 받지 못해 펼침/접힘이 실패한다.
+        if (IsClickOnExpander(e.OriginalSource as DependencyObject, item))
+        {
+            ClearPendingTreeDragSelection();
+            return;
+        }
+
         var pane = ResolveTreePane(sender);
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
 
-        if (sender is TreeViewItem { DataContext: EntityNode node } item
+        if (item.DataContext is EntityNode node
             && node.EntityType == EntityKind.Call
             && !ctrlPressed
             && !shiftPressed)
@@ -142,6 +169,17 @@ public partial class ExplorerPane : UserControl
         }
 
         HandleTreeItemMouseDown(pane, sender, e, requireModifiers: true);
+    }
+
+    private static bool IsClickOnExpander(DependencyObject? source, DependencyObject stopAt)
+    {
+        var current = source;
+        while (current is not null && !ReferenceEquals(current, stopAt))
+        {
+            if (current is ToggleButton) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -480,11 +518,13 @@ public partial class ExplorerPane : UserControl
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != ModifierKeys.None)
             return;
 
+        if (newValue is not EntityNode node)
+            return;
+
         if (_activeTreePane != pane)
             SetActiveTreePane(pane);
 
         ViewModel.Selection.SetActiveTreePane(pane);
-        if (newValue is not EntityNode node) return;
 
         if (_treeDragCandidate
             && _pendingTreeSelectionNode is not null
@@ -510,10 +550,22 @@ public partial class ExplorerPane : UserControl
 
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
-        if (requireModifiers && !ctrlPressed && !shiftPressed) return;
+        if (requireModifiers && !ctrlPressed && !shiftPressed)
+        {
+            // ClickCount>=2 (더블클릭의 두 번째 다운)에서 Handled=true 가 걸리면
+            // Control.HandleDoubleClick 클래스 핸들러가 MouseDoubleClick 을 발생시키지 못한다.
+            if ((node.IsTreeSelected || item.IsSelected) && e.ClickCount == 1)
+            {
+                ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+                e.Handled = true;
+            }
+
+            return;
+        }
 
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed, shiftPressed);
-        e.Handled = true;
+        if (e.ClickCount == 1)
+            e.Handled = true;
     }
 
     private TreePaneKind ResolveTreePane(object sender)

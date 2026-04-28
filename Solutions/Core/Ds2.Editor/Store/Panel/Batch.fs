@@ -1,6 +1,7 @@
 namespace Ds2.Editor
 
 open System
+open System.Collections.Generic
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Core.Store
@@ -60,45 +61,42 @@ type DsStorePanelBatchExtensions =
                 yield! rowsForSystems true (Queries.passiveSystemsOf project.Id store)
             ])
 
-    /// 모든 ApiCall의 IO 태그 정보를 일괄 조회
+    /// 모든 ApiCall의 IO 태그 정보를 일괄 조회 (ApiCall GUID 기준으로 유일)
     [<Extension>]
     static member GetAllApiCallIORows(store: DsStore) : ApiCallIOBatchRow list =
-        Queries.allProjects store
-        |> List.collect (fun p -> Queries.projectSystemsOf p.Id store)
-        |> List.collect (fun sys ->
-            Queries.flowsOf sys.Id store
-            |> List.collect (fun flow ->
-                Queries.worksOf flow.Id store
-                |> List.collect (fun work ->
-                    Queries.callsOf work.Id store
-                    |> List.collect (fun call ->
-                        call.ApiCalls
-                        |> Seq.map (fun apiCall ->
-                            let inAddr = apiCall.InTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
-                            let inSym  = apiCall.InTag |> Option.map (fun t -> t.Name)    |> Option.defaultValue ""
-                            let outAddr = apiCall.OutTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
-                            let outSym  = apiCall.OutTag |> Option.map (fun t -> t.Name)    |> Option.defaultValue ""
+        let rows = Dictionary<Guid, ApiCallIOBatchRow>()
 
-                            // Extract Device and Api names
-                            let deviceName, apiName =
-                                match apiCall.ApiDefId with
-                                | Some apiDefId ->
-                                    match store.ApiDefs.TryGetValue(apiDefId) with
-                                    | true, apiDef ->
-                                        let devName =
-                                            match store.Systems.TryGetValue(apiDef.ParentId) with
-                                            | true, system -> system.Name
-                                            | false, _ -> "UNKNOWN"
-                                        (devName, apiDef.Name)
-                                    | false, _ -> ("UNKNOWN", "UNKNOWN")
-                                | None -> ("UNKNOWN", "UNKNOWN")
+        for p in Queries.allProjects store do
+            for sys in Queries.projectSystemsOf p.Id store do
+                for flow in Queries.flowsOf sys.Id store do
+                    for work in Queries.worksOf flow.Id store do
+                        for call in Queries.callsOf work.Id store do
+                            for apiCall in call.ApiCalls do
+                                if not (rows.ContainsKey(apiCall.Id)) then
+                                    let inAddr = apiCall.InTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
+                                    let inSym  = apiCall.InTag |> Option.map (fun t -> t.Name)    |> Option.defaultValue ""
+                                    let outAddr = apiCall.OutTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
+                                    let outSym  = apiCall.OutTag |> Option.map (fun t -> t.Name)    |> Option.defaultValue ""
 
-                            // DataType: IOTag에는 DataType이 없으므로 기본값 "BOOL"
-                            let outDataType = "BOOL"
-                            let inDataType = "BOOL"
+                                    let deviceName, apiName =
+                                        match apiCall.ApiDefId with
+                                        | Some apiDefId ->
+                                            match store.ApiDefs.TryGetValue(apiDefId) with
+                                            | true, apiDef ->
+                                                let devName =
+                                                    match store.Systems.TryGetValue(apiDef.ParentId) with
+                                                    | true, system -> system.Name
+                                                    | false, _ -> "UNKNOWN"
+                                                (devName, apiDef.Name)
+                                            | false, _ -> ("UNKNOWN", "UNKNOWN")
+                                        | None -> ("UNKNOWN", "UNKNOWN")
 
-                            ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
-                        |> Seq.toList))))
+                                    let outDataType = "BOOL"
+                                    let inDataType = "BOOL"
+
+                                    rows.[apiCall.Id] <- ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType)
+
+        rows.Values |> Seq.toList
 
     /// Work IsFinished 일괄 변경 (단일 Undo 트랜잭션)
     [<Extension>]

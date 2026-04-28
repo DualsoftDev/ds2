@@ -39,7 +39,7 @@ static class Step08_ConvertCli
             File("JSON Export", jsonPath);
 
             var aasxPath = Path.Combine(tempDir, "project.aasx");
-            AasxExporter.exportFromStore(store, aasxPath, "https://dualsoft.com/", false);
+            AasxExporter.exportFromStore(store, aasxPath, "https://dualsoft.com/", false, false);
             File("AASX Export", aasxPath);
 
             var aasxStore = DsStore.empty();
@@ -51,7 +51,7 @@ static class Step08_ConvertCli
             Section("PIPELINE 2: JSON → AASX → JSON (Roundtrip)");
 
             var aasxRt = Path.Combine(tempDir, "roundtrip.aasx");
-            AasxExporter.exportFromStore(store, aasxRt, "https://dualsoft.com/", false);
+            AasxExporter.exportFromStore(store, aasxRt, "https://dualsoft.com/", false, false);
             File("AASX Export", aasxRt);
 
             var rtStore = DsStore.empty();
