@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Media;
 using Ds2.Core;
 using Promaker.ViewModels;
 using Scenario = Ds2.Core.SimulationResultSnapshotTypes.SimulationScenario;
@@ -43,7 +45,7 @@ public partial class SimulationScenariosDialog : Window
             }
         }
 
-        public RunRow(Scenario s)
+        public RunRow(Scenario s, System.Collections.Generic.HashSet<string>? eligibleWorkNames)
         {
             Scenario = s;
             var meta = s.Meta ?? new SimulationResultSnapshotTypes.SimulationMeta();
@@ -51,12 +53,54 @@ public partial class SimulationScenariosDialog : Window
             RunDate = meta.RunDate.ToString("yyyy-MM-dd HH:mm:ss");
             Duration_s = meta.RunDuration_s;
             if (Microsoft.FSharp.Core.FSharpOption<SimulationResultSnapshotTypes.KpiThroughput>.get_IsSome(s.Throughput))
-            {
                 ThroughputPerHour = s.Throughput.Value.ThroughputPerHour;
-                AvgCt = s.Throughput.Value.AverageCycleTime_s;
-            }
-            OEE = s.OeeItems.Count > 0 ? s.OeeItems.Average(o => o.OEE) : 0.0;
+
+            // Avg CT — Call 이 있는 active Work 만 대상으로 cycle 가중 평균.
+            //   eligibleWorkNames == null (store 없음) 이면 fallback 으로 Throughput 의 AverageCycleTime_s 사용.
+            AvgCt = ComputeFilteredAvgCt(s, eligibleWorkNames);
+
+            // OEE — 동일 필터 (Active ∩ Call ≥ 1 Work) 의 단순 평균. 필터된 항목이 0 개면 전체 평균 fallback.
+            OEE = ComputeFilteredOee(s, eligibleWorkNames);
+
             PerTokenCount = s.PerTokenKpis.Count;
+        }
+
+        private static double ComputeFilteredOee(
+            Scenario s,
+            System.Collections.Generic.HashSet<string>? eligibleWorkNames)
+        {
+            if (s.OeeItems.Count == 0) return 0.0;
+            if (eligibleWorkNames is null)
+                return s.OeeItems.Average(o => o.OEE);
+
+            var matched = s.OeeItems.Where(o => eligibleWorkNames.Contains(o.ResourceName)).ToList();
+            if (matched.Count > 0) return matched.Average(o => o.OEE);
+            // Eligible Work 의 OEE 항목이 하나도 없으면 전체 평균 fallback (안전망).
+            return s.OeeItems.Average(o => o.OEE);
+        }
+
+        private static double ComputeFilteredAvgCt(
+            Scenario s,
+            System.Collections.Generic.HashSet<string>? eligibleWorkNames)
+        {
+            if (eligibleWorkNames is null || s.CycleTimes.Count == 0)
+            {
+                return Microsoft.FSharp.Core.FSharpOption<SimulationResultSnapshotTypes.KpiThroughput>.get_IsSome(s.Throughput)
+                    ? s.Throughput.Value.AverageCycleTime_s
+                    : 0.0;
+            }
+
+            // CycleCount 로 가중 평균 — 사이클이 많은 Work 가 더 큰 가중치 가짐.
+            double sumWeighted = 0.0;
+            long totalCycles = 0;
+            foreach (var k in s.CycleTimes)
+            {
+                if (!eligibleWorkNames.Contains(k.WorkName)) continue;
+                if (k.CycleCount <= 0 || k.ActualCycleTime_s <= 0.0) continue;
+                sumWeighted += k.ActualCycleTime_s * k.CycleCount;
+                totalCycles += k.CycleCount;
+            }
+            return totalCycles > 0 ? sumWeighted / totalCycles : 0.0;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -68,6 +112,11 @@ public partial class SimulationScenariosDialog : Window
     private readonly TechnicalDataTypes.TechnicalData _td;
     private readonly ObservableCollection<RunRow> _rows = new();
     private bool _suppressCheck;
+    /// <summary>
+    /// "통계 집계 대상 Work" 집합 — Active 시스템에 속하면서 Call 이 ≥1 개인 Work 의 이름.
+    /// AvgCT 계산, Work별 사이클 그리드 필터에 공통 적용.
+    /// </summary>
+    private System.Collections.Generic.HashSet<string>? _eligibleWorkNames;
 
     public SimulationScenariosDialog(SimulationPanelState sim, TechnicalDataTypes.TechnicalData td)
     {
@@ -83,6 +132,7 @@ public partial class SimulationScenariosDialog : Window
     private void Reload()
     {
         _rows.Clear();
+        _eligibleWorkNames = BuildEligibleWorkNames();
 
         // CapturedRuns 가 비어있으면 (예: AASX 신규 import 후), 기존 SimulationResult 로 1줄 hydrate.
         var sources = _sim.CapturedRuns.ToList();
@@ -92,7 +142,7 @@ public partial class SimulationScenariosDialog : Window
             sources.Add(_td.SimulationResult.Value);
         }
 
-        foreach (var s in sources) _rows.Add(new RunRow(s));
+        foreach (var s in sources) _rows.Add(new RunRow(s, _eligibleWorkNames));
 
         if (_rows.Count == 0)
         {
@@ -158,53 +208,251 @@ public partial class SimulationScenariosDialog : Window
             DetailText.Text = "";
             PerTokenGrid.ItemsSource = null;
             CycleTimeGrid.ItemsSource = null;
+            WorkChartItems.ItemsSource = null;
             return;
         }
 
+        DetailText.Text = BuildDetailText(scenario);
+        PerTokenGrid.ItemsSource = scenario.PerTokenKpis;
+        // Work별 사이클 — Active 시스템에 속한 Work 만 노출 (Passive 시스템 Work / ApiCall 행 제외).
+        var filtered = FilterToActiveWorksTyped(scenario.CycleTimes);
+        CycleTimeGrid.ItemsSource = filtered;
+        WorkChartItems.ItemsSource = BuildWorkChartRows(filtered);
+    }
+
+    /// <summary>
+    /// Work 분석 차트 행 생성 — Cycles, G(Going), IdleGap 시간을 막대 비율로 표현.
+    /// 모든 행은 동일한 max(G+IdleGap) 기준으로 정규화 → 시각적 비교 가능.
+    /// </summary>
+    private static IReadOnlyList<WorkChartRow> BuildWorkChartRows(
+        IEnumerable<SimulationResultSnapshotTypes.KpiCycleTime> filtered)
+    {
+        var items = filtered.ToList();
+        if (items.Count == 0) return Array.Empty<WorkChartRow>();
+
+        // G_total = ActualCycleTime × Cycles  (Going 시간 합).
+        double GTotal(SimulationResultSnapshotTypes.KpiCycleTime k) =>
+            k.ActualCycleTime_s * Math.Max(0, k.CycleCount);
+
+        var maxTotal = items.Max(k => GTotal(k) + Math.Max(0.0, k.IdleGapBetweenCycles_s));
+        if (maxTotal <= 0.0) maxTotal = 1.0;
+
+        // 정렬: 총 활동 시간 (G+IdleGap) 내림차순.
+        return items
+            .Select(k =>
+            {
+                var g = GTotal(k);
+                var gap = Math.Max(0.0, k.IdleGapBetweenCycles_s);
+                var empty = Math.Max(0.0, maxTotal - g - gap);
+                // GridLength star 단위로 비율 표현. 0 인 셀은 0-star 로 두면 폭 0 이 됨.
+                System.Windows.GridLength Star(double v) =>
+                    v <= 0.0 ? new System.Windows.GridLength(0.0001, System.Windows.GridUnitType.Star)
+                             : new System.Windows.GridLength(v, System.Windows.GridUnitType.Star);
+
+                var eff = k.EfficiencyRate_pct;
+                Brush effColor;
+                if (eff >= 95.0) effColor = new SolidColorBrush(Color.FromRgb(0xEF, 0x4B, 0x4B));      // 빨강 — 병목
+                else if (eff >= 70.0) effColor = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16)); // 주황
+                else effColor = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));                  // 초록 — 여유
+                effColor.Freeze();
+
+                return new WorkChartRow
+                {
+                    WorkName = k.WorkName ?? "",
+                    CyclesLabel = $"×{k.CycleCount}",
+                    GoingWidth = Star(g),
+                    IdleGapWidth = Star(gap),
+                    EmptyWidth = Star(empty),
+                    EfficiencyLabel = $"{eff:F1}%",
+                    EfficiencyColor = effColor,
+                    GoingTooltip = $"Going 합: {g:F2}s   ({k.CycleCount} 사이클 × 평균 {k.ActualCycleTime_s:F2}s)",
+                    IdleGapTooltip = $"IdleGap 합: {gap:F2}s — 사이클 사이 대기 시간",
+                    EfficiencyTooltip =
+                        "Eff(%) = G / (G + IdleGap) × 100\n" +
+                        "  • 95% ↑ : 시스템 한계 = 병목 (빨강)\n" +
+                        "  • 70~95% : 약간 여유 (주황)\n" +
+                        "  • 70% ↓ : 대기 多, 여유 (초록)",
+                };
+            })
+            .OrderByDescending(r => RowTotal(r, items, maxTotal))
+            .ToList();
+
+        // 정렬용 — row 의 G+Gap 비율 (star 값 합) 으로 비교.
+        static double RowTotal(WorkChartRow r,
+            List<SimulationResultSnapshotTypes.KpiCycleTime> _, double __) =>
+            r.GoingWidth.Value + r.IdleGapWidth.Value;
+    }
+
+    /// <summary>같은 필터를 강타입 리스트로 반환 (chart 와 grid 모두에서 재사용).</summary>
+    private List<SimulationResultSnapshotTypes.KpiCycleTime> FilterToActiveWorksTyped(
+        IEnumerable<SimulationResultSnapshotTypes.KpiCycleTime> all)
+    {
+        if (_eligibleWorkNames is null) return all.ToList();
+        return all.Where(k => _eligibleWorkNames.Contains(k.WorkName)).ToList();
+    }
+
+    /// <summary>요약 탭에 표시 + 복사 가능한 가독성 좋은 텍스트 생성.</summary>
+    private static string BuildDetailText(Scenario scenario)
+    {
         var meta = scenario.Meta ?? new SimulationResultSnapshotTypes.SimulationMeta();
         var sb = new StringBuilder();
-        sb.AppendLine($"Simulator: {meta.SimulatorName} v{meta.SimulatorVersion}");
-        sb.AppendLine($"ModelHash: {meta.Ds2ModelHash}");
-        sb.AppendLine($"Seed: {(Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(meta.Seed) ? meta.Seed.Value.ToString() : "(none)")}");
-        sb.AppendLine();
-        sb.AppendLine($"CycleTimes: {scenario.CycleTimes.Count} items, "
-                    + $"Constraints: {scenario.Constraints.Count}, "
-                    + $"Resources: {scenario.ResourceUtilizations.Count}, "
-                    + $"OEE: {scenario.OeeItems.Count}, "
-                    + $"PerToken: {scenario.PerTokenKpis.Count}");
 
+        sb.AppendLine("═══════════════════════════════════════════════");
+        sb.AppendLine($"  시나리오: {meta.ScenarioName}");
+        sb.AppendLine($"  실행 시각: {meta.RunDate:yyyy-MM-dd HH:mm:ss}    Duration: {FmtD(meta.RunDuration_s)} s");
+        sb.AppendLine("═══════════════════════════════════════════════");
+        sb.AppendLine();
+
+        // ── 메타 ──────────────────────────────────────────────────
+        sb.AppendLine("[ 시뮬레이터 정보 ]");
+        sb.AppendLine($"  Simulator   : {meta.SimulatorName} v{meta.SimulatorVersion}");
+        sb.AppendLine($"  ModelHash   : {meta.Ds2ModelHash}");
+        sb.AppendLine($"  Seed        : {(Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(meta.Seed) ? meta.Seed.Value.ToString() : "(none)")}");
+        sb.AppendLine();
+
+        // ── 처리량 (Throughput) ───────────────────────────────────
         if (Microsoft.FSharp.Core.FSharpOption<SimulationResultSnapshotTypes.KpiThroughput>.get_IsSome(scenario.Throughput))
         {
             var t = scenario.Throughput.Value;
-            sb.AppendLine($"Throughput: {FmtD(t.ThroughputPerHour)}/h, Avg CT={FmtD(t.AverageCycleTime_s)}s, Total Units={t.TotalUnitsProduced}");
+            sb.AppendLine("[ 처리량 (Throughput) ]");
+            sb.AppendLine($"  완주 토큰   : {t.TotalUnitsProduced} 개");
+            sb.AppendLine($"  시간당      : {FmtD(t.ThroughputPerHour)} /h");
+            sb.AppendLine($"  평균 CT     : {FmtD(t.AverageCycleTime_s)} s    (모든 Work 사이클 평균)");
+            sb.AppendLine();
         }
 
+        // ── 용량 (Capacity) ───────────────────────────────────────
         if (Microsoft.FSharp.Core.FSharpOption<SimulationResultSnapshotTypes.KpiCapacity>.get_IsSome(scenario.Capacity))
         {
             var c = scenario.Capacity.Value;
-            sb.AppendLine($"Capacity: design={FmtD(c.DesignCapacity)}, effective={FmtD(c.EffectiveCapacity)}, "
-                        + $"actual={FmtD(c.ActualCapacity)}, util(eff)={FmtD(c.EffectiveUtilization_pct)}%");
+            sb.AppendLine("[ 용량 (Capacity) ]");
+            sb.AppendLine($"  Design      : {FmtD(c.DesignCapacity)}");
+            sb.AppendLine($"  Effective   : {FmtD(c.EffectiveCapacity)}");
+            sb.AppendLine($"  Actual      : {FmtD(c.ActualCapacity)}");
+            sb.AppendLine($"  Util(eff)   : {FmtD(c.EffectiveUtilization_pct)} %");
+            sb.AppendLine();
         }
 
+        // ── 데이터 수집 통계 ───────────────────────────────────────
+        sb.AppendLine("[ 데이터 수집 ]");
+        sb.AppendLine($"  CycleTimes  : {scenario.CycleTimes.Count} 항목");
+        sb.AppendLine($"  PerToken    : {scenario.PerTokenKpis.Count} 종류");
+        sb.AppendLine($"  OEE 항목    : {scenario.OeeItems.Count}");
+        sb.AppendLine($"  Constraints : {scenario.Constraints.Count}");
+        sb.AppendLine($"  Resources   : {scenario.ResourceUtilizations.Count}");
+        sb.AppendLine();
+
+        // ── 토큰 유형별 ───────────────────────────────────────────
         if (scenario.PerTokenKpis.Count > 0)
         {
+            sb.AppendLine("[ 토큰 유형별 요약 ]   (Source 생성 → Sink 소멸)");
             sb.AppendLine();
-            sb.AppendLine("토큰 유형별 요약:");
+
+            int idx = 0;
             foreach (var p in scenario.PerTokenKpis)
-                sb.AppendLine($"  {p.OriginName} ({p.SpecLabel}): {p.CompletedCount}/{p.InstanceCount} 완주, "
-                            + $"Avg={FmtD(p.AvgTraversalTime_s)}s, TP/h={FmtD(p.ThroughputPerHour)}");
+            {
+                idx++;
+                sb.AppendLine($"  {idx}. {p.OriginName}  ({p.SpecLabel})");
+                sb.AppendLine($"     완주        : {p.CompletedCount} / {p.InstanceCount}");
+                sb.AppendLine($"     통과 시간   : Avg {FmtD(p.AvgTraversalTime_s)} s    Min {FmtD(p.MinTraversalTime_s)} s    Max {FmtD(p.MaxTraversalTime_s)} s");
+                sb.AppendLine($"     TP/h        : {FmtD(p.ThroughputPerHour)}");
+
+                if (p.WorkBreakdown != null && p.WorkBreakdown.Count > 0)
+                {
+                    var sumAvg = p.WorkBreakdown.Sum(b => b.AvgGoingTime_s);
+                    sb.AppendLine($"     경유 Work   : {p.WorkBreakdown.Count} 개   (Σ avg ≈ {FmtD(sumAvg)} s)");
+                    foreach (var b in p.WorkBreakdown)
+                    {
+                        sb.AppendLine($"        • {b.WorkName,-32}  visits={b.VisitCount,-3}  avgGoing={FmtD(b.AvgGoingTime_s)} s");
+                    }
+                }
+                sb.AppendLine();
+            }
         }
 
-        DetailText.Text = sb.ToString();
-        PerTokenGrid.ItemsSource = scenario.PerTokenKpis;
-        CycleTimeGrid.ItemsSource = scenario.CycleTimes;
+        return sb.ToString();
+    }
+
+    private void CopyDetail_Click(object sender, RoutedEventArgs e)
+    {
+        var text = DetailText.Text ?? "";
+        if (string.IsNullOrEmpty(text)) return;
+        try
+        {
+            Clipboard.SetText(text);
+            CopyHintText.Text = "✓ 클립보드에 복사됨";
+        }
+        catch (Exception ex)
+        {
+            CopyHintText.Text = $"복사 실패: {ex.Message}";
+        }
+    }
+
+    private System.Collections.IEnumerable FilterToActiveWorks(
+        System.Collections.Generic.IEnumerable<SimulationResultSnapshotTypes.KpiCycleTime> all)
+    {
+        if (_eligibleWorkNames is null) return all;
+        return all.Where(k => _eligibleWorkNames.Contains(k.WorkName)).ToList();
+    }
+
+    /// <summary>
+    /// 통계 집계 대상 Work 이름 집합 — Active 시스템에 속하고 Call 을 ≥1 개 가진 Work.
+    /// store/project 가 없으면 null 반환 (호출부에서 fallback 처리).
+    /// </summary>
+    private System.Collections.Generic.HashSet<string>? BuildEligibleWorkNames()
+    {
+        try
+        {
+            var store = _sim.StoreReadOnly;
+            var projects = Ds2.Core.Store.Queries.allProjects(store);
+            if (projects.IsEmpty) return null;
+
+            var set = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var w in Ds2.Core.Store.Queries.activeWorksOf(projects.Head.Id, store))
+            {
+                var calls = Ds2.Core.Store.Queries.callsOf(w.Id, store);
+                if (!calls.IsEmpty)
+                    set.Add(w.Name);
+            }
+            return set;
+        }
+        catch { return null; }
     }
 
     private void Clear_Click(object sender, RoutedEventArgs e)
     {
         if (_rows.Count == 0) return;
-        if (!DialogHelpers.Confirm(this, "누적된 시뮬레이션 결과를 모두 삭제하시겠습니까?", "확인")) return;
+        if (!DialogHelpers.Confirm(this, "누적된 시뮬레이션 결과를 모두 삭제하시겠습니까?\n(시나리오·토큰별·Work별 모두 초기화)", "확인")) return;
+
+        // 누적 Run 큐 초기화
         _sim.ClearAllCapturedRuns();
+
+        // TechnicalData.SimulationResult 초기화 — 그렇지 않으면 Reload 가 이 값으로 1줄 hydrate 하여
+        //   토큰별/Work별 그리드가 비워지지 않음.
+        _td.SimulationResult = Microsoft.FSharp.Core.FSharpOption<Scenario>.None;
+
+        // 상세 그리드 즉시 비우기 (Reload 의 빈-상태 분기가 이미 처리하지만 명시적으로 안전하게)
+        DetailText.Text = "(시뮬레이션 결과 없음)";
+        PerTokenGrid.ItemsSource = null;
+        CycleTimeGrid.ItemsSource = null;
+        WorkChartItems.ItemsSource = null;
+
         Reload();
     }
+}
+
+/// <summary>Work 분석 차트의 한 행 — 막대 비율은 GridLength(*) 로 표현.</summary>
+public sealed class WorkChartRow
+{
+    public string WorkName { get; set; } = "";
+    public string CyclesLabel { get; set; } = "";
+    public System.Windows.GridLength GoingWidth { get; set; }
+    public System.Windows.GridLength IdleGapWidth { get; set; }
+    public System.Windows.GridLength EmptyWidth { get; set; }
+    public string EfficiencyLabel { get; set; } = "";
+    public System.Windows.Media.Brush EfficiencyColor { get; set; } =
+        System.Windows.Media.Brushes.White;
+    public string GoingTooltip { get; set; } = "";
+    public string IdleGapTooltip { get; set; } = "";
+    public string EfficiencyTooltip { get; set; } = "";
 }

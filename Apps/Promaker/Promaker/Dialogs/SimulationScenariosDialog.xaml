@@ -23,20 +23,24 @@
             <Setter Property="Padding" Value="6,4"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
+        <!-- 기본 행 스타일 — IsSelected(체크박스) 바인딩이 없는 KpiPerToken/KpiCycleTime 등에 적용 -->
         <Style TargetType="DataGridRow">
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Style.Triggers>
-                <!-- 체크박스로 저장 대상 선택된 행: 강조 -->
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- RunsGrid 전용 행 스타일 — VM 의 IsSelected (저장 대상 체크박스) 강조 -->
+        <Style x:Key="RunsRowStyle" TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+            <Style.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                     <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
                     <Setter Property="Foreground" Value="White"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                 </DataTrigger>
-                <!-- 마우스로 클릭한 행 (커서 위치) -->
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-                    <Setter Property="Foreground" Value="White"/>
-                </Trigger>
             </Style.Triggers>
         </Style>
         <Style TargetType="DataGridCell">
@@ -75,9 +79,14 @@
                   HeadersVisibility="Column"
                   GridLinesVisibility="Horizontal"
                   CanUserAddRows="False"
+                  RowStyle="{StaticResource RunsRowStyle}"
                   SelectionChanged="RunsGrid_SelectionChanged">
             <DataGrid.Columns>
-                <DataGridTemplateColumn Header="저장" Width="50" CanUserSort="False">
+                <DataGridTemplateColumn Width="50" CanUserSort="False">
+                    <DataGridTemplateColumn.Header>
+                        <TextBlock Text="저장"
+                                   ToolTip="체크 시 이 시나리오 결과를 AASX 의 SimulationResults 에 박제하여 저장.&#x0a;체크 해제 행은 닫기 시 폐기."/>
+                    </DataGridTemplateColumn.Header>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <CheckBox HorizontalAlignment="Center"
@@ -87,26 +96,54 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="시나리오" Binding="{Binding Name}" Width="170" IsReadOnly="True"/>
-                <DataGridTextColumn Header="실행 시각" Binding="{Binding RunDate}" Width="160" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Duration(s)" Binding="{Binding Duration_s, StringFormat=F2}" Width="100" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Throughput/h" Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="110" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Avg CT(s)" Binding="{Binding AvgCt, StringFormat=F2}" Width="80" IsReadOnly="True"/>
-                <DataGridTextColumn Header="OEE" Binding="{Binding OEE, StringFormat=F2}" Width="60" IsReadOnly="True"/>
-                <DataGridTextColumn Header="PerToken" Binding="{Binding PerTokenCount}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Binding="{Binding Name}" Width="170" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="시나리오"
+                                   ToolTip="시뮬레이션 Run 식별 이름.&#x0a;형식: Run_yyyyMMdd_HHmmss (시작 시각 기반)."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding RunDate}" Width="160" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="실행 시각"
+                                   ToolTip="시뮬레이션 종료 시각 (yyyy-MM-dd HH:mm:ss)."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding Duration_s, StringFormat=F2}" Width="100" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="Duration(s)"
+                                   ToolTip="시뮬레이션 총 경과 시간 (초).&#x0a;계산: EndTime − StartTime."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="110" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="Throughput/h"
+                                   ToolTip="시간당 처리량 (UPH).&#x0a;계산: 완주 토큰 총수 / Duration(s) × 3600."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding AvgCt, StringFormat=F2}" Width="80" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="Avg CT(s)"
+                                   ToolTip="평균 사이클 타임 (초).&#x0a;계산: Σ(ActualCycleTime × CycleCount) / Σ CycleCount  (CycleCount 가중 평균)."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding OEE, StringFormat=F2}" Width="60" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="OEE"
+                                   ToolTip="Overall Equipment Effectiveness (0.0 ~ 1.0).&#x0a;OEE = Availability × Performance × Quality.&#x0a;&#x0a;━ 시뮬레이션 가정 상수 ━&#x0a;• Availability  = 1.00&#x0a;    가동시간 = 계획시간 (시뮬에는 고장/계획정지 텔레메트리가 없음).&#x0a;• Quality       = 1.00&#x0a;    양/불량 텔레메트리 없음 → 100% 양품 가정.&#x0a;• Performance   = G / (G + IdleGap)&#x0a;    G       : 그 Work 의 Going 시간 합&#x0a;    IdleGap : 사이클 사이 낭비 시간 합 (Σ Finish 종료 → 다음 Going 시작 갭)&#x0a;&#x0a;━ 의도하는 동작 ━&#x0a;• 단일 제품을 1번 흘리면 → 모든 Work 가 1회만 실행 → IdleGap = 0 → OEE ≈ 1.00&#x0a;• 여러 제품 흘리면 → 앞 Work 처리량 한계로 뒷 Work 가 사이클 사이 대기&#x0a;    → IdleGap 증가 → Performance &lt; 1 → OEE &lt; 1.00.&#x0a;&#x0a;전체 OEE 는 Work 들의 OEE 평균."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding PerTokenCount}" Width="80" IsReadOnly="True">
+                    <DataGridTextColumn.Header>
+                        <TextBlock Text="PerToken"
+                                   ToolTip="혼류 토큰 종류 수 — '토큰별 (혼류)' 탭의 행 수.&#x0a;Origin·Spec 조합으로 그룹화된 카운트."/>
+                    </DataGridTextColumn.Header>
+                </DataGridTextColumn>
             </DataGrid.Columns>
         </DataGrid>
 
         <TabControl Grid.Row="2" Margin="0,8,0,0"
                     Background="{DynamicResource PrimaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}">
-            <TabItem Header="요약" Background="{DynamicResource SecondaryBackgroundBrush}"
-                     Foreground="{DynamicResource PrimaryTextBrush}">
-                <Border Padding="10" Background="{DynamicResource SecondaryBackgroundBrush}">
-                    <TextBlock x:Name="DetailText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
-                               Foreground="{DynamicResource PrimaryTextBrush}"/>
-                </Border>
-            </TabItem>
             <TabItem Header="토큰별 (혼류)" Background="{DynamicResource SecondaryBackgroundBrush}"
                      Foreground="{DynamicResource PrimaryTextBrush}">
                 <DataGrid x:Name="PerTokenGrid"
@@ -115,15 +152,60 @@
                           HeadersVisibility="Column"
                           GridLinesVisibility="Horizontal">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Origin" Binding="{Binding OriginName}" Width="140"/>
-                        <DataGridTextColumn Header="Spec" Binding="{Binding SpecLabel}" Width="120"/>
-                        <DataGridTextColumn Header="총" Binding="{Binding InstanceCount}" Width="50"/>
-                        <DataGridTextColumn Header="완주" Binding="{Binding CompletedCount}" Width="50"/>
-                        <DataGridTextColumn Header="Avg(s)" Binding="{Binding AvgTraversalTime_s, StringFormat=F2}" Width="80"/>
-                        <DataGridTextColumn Header="Min(s)" Binding="{Binding MinTraversalTime_s, StringFormat=F2}" Width="80"/>
-                        <DataGridTextColumn Header="Max(s)" Binding="{Binding MaxTraversalTime_s, StringFormat=F2}" Width="80"/>
-                        <DataGridTextColumn Header="StdDev(s)" Binding="{Binding StdDevTraversalTime_s, StringFormat=F3}" Width="90"/>
-                        <DataGridTextColumn Header="Throughput/h" Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="100"/>
+                        <DataGridTextColumn Binding="{Binding OriginName}" Width="140">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Origin"
+                                           ToolTip="토큰 원천 — 토큰을 발행한 시작 위치/소스 식별자.&#x0a;(혼류 시 토큰 분류의 1차 키)"/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding SpecLabel}" Width="120">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Spec"
+                                           ToolTip="토큰 사양 라벨.&#x0a;(혼류 시 동일 Origin 내 차종/제품 변형 분류 키)"/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding InstanceCount}" Width="50">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="총"
+                                           ToolTip="시뮬 중 발행된 (Origin, Spec) 토큰 인스턴스 총 수.&#x0a;완주 + 미완주 포함."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CompletedCount}" Width="50">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="완주"
+                                           ToolTip="Source Work 에서 생성(Seed) → Sink Work 에서 소멸(Complete) 까지 완주한 인스턴스 수.&#x0a;Discard / BlockedOnHoming 으로 중단된 토큰은 제외 (총 수에는 포함)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding AvgTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Avg(s)"
+                                           ToolTip="평균 통과 시간 (초).&#x0a;정의: 한 토큰의 통과 시간 = Sink 소멸 시각 − Source 생성 시각 (CompleteAt − SeedAt).&#x0a;계산: Σ(통과 시간) / 완주 수."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MinTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Min(s)"
+                                           ToolTip="완주 인스턴스 중 통과 시간 최솟값 (초).&#x0a;= min(Sink 소멸 시각 − Source 생성 시각)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MaxTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Max(s)"
+                                           ToolTip="완주 인스턴스 중 통과 시간 최댓값 (초).&#x0a;= max(Sink 소멸 시각 − Source 생성 시각)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding StdDevTraversalTime_s, StringFormat=F3}" Width="90">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="StdDev(s)"
+                                           ToolTip="통과 시간 표준편차 (초) — 변동성 지표.&#x0a;계산: √(Σ(xᵢ − Avg)² / N).&#x0a;값이 클수록 흐름이 불안정."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Throughput/h"
+                                           ToolTip="(Origin, Spec) 별 시간당 처리량.&#x0a;계산: 완주 수 / Duration(s) × 3600."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>
@@ -135,18 +217,163 @@
                           HeadersVisibility="Column"
                           GridLinesVisibility="Horizontal">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="160"/>
-                        <DataGridTextColumn Header="Cycles" Binding="{Binding CycleCount}" Width="60"/>
-                        <DataGridTextColumn Header="Design(s)" Binding="{Binding DesignCycleTime_s, StringFormat=F2}" Width="80"/>
-                        <DataGridTextColumn Header="Actual(s)" Binding="{Binding ActualCycleTime_s, StringFormat=F2}" Width="80"/>
-                        <DataGridTextColumn Header="Min(s)" Binding="{Binding MinCycleTime_s, StringFormat=F2}" Width="70"/>
-                        <DataGridTextColumn Header="Max(s)" Binding="{Binding MaxCycleTime_s, StringFormat=F2}" Width="70"/>
-                        <DataGridTextColumn Header="StdDev(s)" Binding="{Binding StandardDeviation_s, StringFormat=F3}" Width="80"/>
-                        <DataGridTextColumn Header="Util(%)" Binding="{Binding UtilizationRate_pct, StringFormat=F1}" Width="70"/>
-                        <DataGridTextColumn Header="Bottleneck" Binding="{Binding BottleneckSeverity}" Width="100"/>
-                        <DataGridTextColumn Header="Normal" Binding="{Binding IsNormalDistribution}" Width="70"/>
+                        <DataGridTextColumn Binding="{Binding WorkName}" Width="220">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Work"
+                                           ToolTip="Work 식별자 — 형식: &lt;Flow&gt;.&lt;Work&gt;.&#x0a;사이클 측정 단위."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CycleCount}" Width="70">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Cycles"
+                                           ToolTip="시뮬레이션 동안 측정된 완료 사이클(Going) 수."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding ActualCycleTime_s, StringFormat=F2}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Avg CT(s)"
+                                           ToolTip="평균 사이클 타임 (초).&#x0a;계산: Σ(Going 세그먼트 시간) / Cycles.&#x0a;= 한 사이클당 작업 수행 평균 시간."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MinCycleTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Min(s)"
+                                           ToolTip="측정된 사이클 중 최소값 (초)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MaxCycleTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Max(s)"
+                                           ToolTip="측정된 사이클 중 최대값 (초)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding IdleGapBetweenCycles_s, StringFormat=F2}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="IdleGap(s)"
+                                           ToolTip="사이클 사이 대기/낭비 시간 (초).&#x0a;정의: 한 사이클 Finish 종료 시각 ~ 다음 사이클 Going 시작 시각 사이의 갭 합계.&#x0a;계산: Σ(다음 G.StartTime − 직전 F.EndTime)  (양수만).&#x0a;&#x0a;값이 클수록 그 Work 는 다음 일감을 기다리며 노는 시간이 많음 → 시스템 병목 아님.&#x0a;값이 0 에 가까우면 사이클 사이 대기 없음 → 그 Work 가 시스템 한계 (= 병목)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding EfficiencyRate_pct, StringFormat=F1}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Eff(%)"
+                                           ToolTip="Work 효율 (%) — 사이클 회전 조밀도.&#x0a;계산: G_total / (G_total + IdleGap) × 100.&#x0a;= Going 시간 합 ÷ (Going 시간 합 + 사이클간 F→G 갭 합).&#x0a;&#x0a;• 100% : 사이클 사이 대기 없음 (= 병목 Work / 시스템 한계).&#x0a;• 낮음  : 앞 Work 처리량 한계로 일감 기다림 (대기 多).&#x0a;단일 제품 1번만 흘리면 모든 Work 가 100%."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
+            </TabItem>
+            <TabItem Header="Work 분석" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <Grid Background="{DynamicResource SecondaryBackgroundBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 범례 + 정렬 안내 -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
+                        <Rectangle Width="14" Height="14" Fill="#3B82F6" VerticalAlignment="Center"/>
+                        <TextBlock Text="Going (작업 중)" Margin="6,0,16,0" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <Rectangle Width="14" Height="14" Fill="#F97316" VerticalAlignment="Center"/>
+                        <TextBlock Text="IdleGap (사이클 사이 대기)" Margin="6,0,24,0" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <TextBlock Text="(정렬: 총 활동 시간 G+IdleGap 내림차순. 막대가 가장 긴 Work = 시스템 활동 중심)"
+                                   FontSize="11" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </StackPanel>
+
+                    <!-- Work 별 막대 -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,0,12,12">
+                        <ItemsControl x:Name="WorkChartItems">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="220"/>
+                                            <ColumnDefinition Width="65"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding WorkName}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding WorkName}"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                   FontSize="12"/>
+
+                                        <TextBlock Grid.Column="1" Text="{Binding CyclesLabel}"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   FontSize="11"/>
+
+                                        <Border Grid.Column="2" Height="20" VerticalAlignment="Center"
+                                                Background="{DynamicResource TertiaryBackgroundBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="2">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="{Binding GoingWidth}"/>
+                                                    <ColumnDefinition Width="{Binding IdleGapWidth}"/>
+                                                    <ColumnDefinition Width="{Binding EmptyWidth}"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Grid.Column="0" Background="#3B82F6"
+                                                        ToolTip="{Binding GoingTooltip}"/>
+                                                <Border Grid.Column="1" Background="#F97316"
+                                                        ToolTip="{Binding IdleGapTooltip}"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <TextBlock Grid.Column="3" Text="{Binding EfficiencyLabel}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                   FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{Binding EfficiencyColor}"
+                                                   Margin="8,0,0,0"
+                                                   ToolTip="{Binding EfficiencyTooltip}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+            <TabItem Header="요약" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <Grid Background="{DynamicResource SecondaryBackgroundBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 툴바: 복사 버튼 -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10,8,10,4">
+                        <Button x:Name="CopyDetailButton" Content="복사"
+                                Click="CopyDetail_Click" Padding="10,3" MinWidth="60"
+                                Style="{StaticResource DarkButton}"/>
+                        <TextBlock x:Name="CopyHintText" VerticalAlignment="Center" Margin="10,0,0,0"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="텍스트 영역에서 드래그로 직접 선택해 복사할 수도 있습니다."/>
+                    </StackPanel>
+
+                    <!-- 스크롤 + 선택/복사 가능한 텍스트 -->
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  Padding="10,4,10,10">
+                        <TextBox x:Name="DetailText"
+                                 IsReadOnly="True"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 FontFamily="Consolas"
+                                 FontSize="12"
+                                 TextWrapping="NoWrap"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Disabled"
+                                 HorizontalScrollBarVisibility="Disabled"/>
+                    </ScrollViewer>
+                </Grid>
             </TabItem>
         </TabControl>
 

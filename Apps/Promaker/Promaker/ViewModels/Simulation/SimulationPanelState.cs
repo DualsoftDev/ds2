@@ -89,6 +89,7 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     private DsStore Store => _storeProvider();
+    internal DsStore StoreReadOnly => Store;
     private long AdvanceSimUiGeneration() => Interlocked.Increment(ref _simUiGeneration);
 
     [ObservableProperty]
