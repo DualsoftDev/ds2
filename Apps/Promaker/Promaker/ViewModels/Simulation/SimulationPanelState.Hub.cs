@@ -107,6 +107,14 @@ public partial class SimulationPanelState
                     {
                         if (!IsCurrentHubConnection(generation, hubConnection))
                             return;
+                        // 실제 connection state 검사 — Reconnected event 발화해도 즉시 끊겼거나
+                        // false-positive 인 경우 "완료" 로그 안 뜨게.
+                        if (hubConnection.State != HubConnectionState.Connected)
+                        {
+                            AddSimLog($"Hub 재연결 이벤트 — 그러나 state={hubConnection.State} (연결 안 됨)", LogSeverity.Warn);
+                            SetHubStatus(connected: false, reconnecting: false);
+                            return;
+                        }
                         SimStatusText = IsSimulating ? "Hub 재연결 완료" : SimText.Stopped;
                         AddSimLog("Hub 재연결 완료", LogSeverity.System);
                         SetHubStatus(connected: true, reconnecting: false);
