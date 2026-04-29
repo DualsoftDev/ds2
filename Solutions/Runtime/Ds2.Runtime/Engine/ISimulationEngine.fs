@@ -84,6 +84,8 @@ type ISimulationEngine =
     // 토큰
     abstract NextToken: unit -> TokenValue
     abstract SeedToken: sourceWorkGuid: Guid * value: TokenValue -> unit
+    /// Source Work 시작: 토큰이 없으면 시드하고 Going 전이를 같은 엔진 mutation 안에서 예약
+    abstract StartSourceWork: sourceWorkGuid: Guid -> unit
     abstract DiscardToken: workGuid: Guid -> unit
     abstract GetWorkToken: workGuid: Guid -> TokenValue option
     abstract GetTokenOrigin: token: TokenValue -> (string * int) option

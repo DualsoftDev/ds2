@@ -52,6 +52,9 @@ public partial class SimulationPanelState
             engine.DiscardToken(selectedWork.Guid);
         }
 
+        if (SimIndexModule.isTokenSource(engine.Index, selectedWork.Guid))
+            DisarmContinuousSource(selectedWork.Guid);
+
         engine.ForceWorkState(selectedWork.Guid, Status4.Ready);
         AddSimLog(SimText.ManualWorkReset(selectedWork.Name), LogSeverity.Ready);
     }
@@ -74,6 +77,7 @@ public partial class SimulationPanelState
 
     private void BatchStartSources(ISimulationEngine engine)
     {
+        var startedSourceGuids = new List<Guid>();
         var finishedSources = CollectSourcesByState(engine, s => s == Status4.Finish || s == Status4.Homing);
         if (finishedSources.Count > 0)
             WarnFinishedSources(finishedSources, engine);
@@ -96,8 +100,11 @@ public partial class SimulationPanelState
             var currentState = _stateCache.GetOrDefault(sourceGuid, Status4.Ready);
             if (currentState != Status4.Ready) continue;
 
-            StartSourceWork(engine, sourceGuid);
+            engine.StartSourceWork(sourceGuid);
+            startedSourceGuids.Add(sourceGuid);
         }
+
+        ArmContinuousSources(startedSourceGuids);
         AddSimLog("Source Work 일괄 시작", LogSeverity.Going);
     }
 
@@ -107,7 +114,13 @@ public partial class SimulationPanelState
     {
         var guid = selectedWork.Guid;
         if (!TryPrepareWorkStart(engine, selectedWork)) return;
-        engine.ForceWorkState(guid, Status4.Going);
+        if (SimIndexModule.isTokenSource(engine.Index, guid))
+        {
+            ArmContinuousSource(guid);
+            engine.StartSourceWork(guid);
+        }
+        else
+            engine.ForceWorkState(guid, Status4.Going);
         AddSimLog(SimText.ManualWorkStarted(selectedWork.Name), LogSeverity.Going);
     }
 
@@ -196,22 +209,7 @@ public partial class SimulationPanelState
             if (answer != System.Windows.MessageBoxResult.Yes) return false;
         }
 
-        EnsureSourceToken(engine, workGuid);
         return true;
-    }
-
-    private static void StartSourceWork(ISimulationEngine engine, Guid sourceGuid)
-    {
-        EnsureSourceToken(engine, sourceGuid);
-        engine.ForceWorkState(sourceGuid, Status4.Going);
-    }
-
-    /// <summary>Source Work에 토큰이 없으면 자동 시드합니다.</summary>
-    private static void EnsureSourceToken(ISimulationEngine engine, Guid workGuid)
-    {
-        if (engine.GetWorkToken(workGuid) is not null) return;
-        var token = engine.NextToken();
-        engine.SeedToken(workGuid, token);
     }
 
     private bool TryGetSelectedSimWork(

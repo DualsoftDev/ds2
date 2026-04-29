@@ -367,6 +367,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             stateManager.SetTokenOrigin(value, TokenFlow.resolveSeedOriginLabel tokenFlowContext sourceWorkGuid)
             applyToken (sourceWorkGuid, Some value, Seed, value)
 
+    let startSourceWork (sourceWorkGuid: Guid) =
+        if index.AllWorkGuids |> List.contains sourceWorkGuid then
+            if SimIndex.isTokenSource index sourceWorkGuid
+               && stateManager.GetWorkToken(sourceWorkGuid) |> Option.isNone then
+                seedToken sourceWorkGuid (stateManager.NextToken())
+            forceWorkState sourceWorkGuid Status4.Going
+
     let discardToken (workGuid: Guid) =
         match stateManager.GetWorkToken(workGuid) with
         | Some token -> applyToken (workGuid, None, Discard, token)
@@ -499,7 +506,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                     let previous = timeIgnore
                     timeIgnore <- isIgnored
                     if isIgnored && not previous && getStatus() = Running then
-                        EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowStateChange)
+                        EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowDurationCheck)
         member _.InjectIOValue(apiCallGuid, value) =
             runExternalMutation (fun () ->
                 stateManager.SetIOValue(apiCallGuid, value)
@@ -513,6 +520,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.NextToken() = stateManager.NextToken()
         member _.SeedToken(sourceWorkGuid, value) =
             runExternalMutation (fun () -> seedToken sourceWorkGuid value)
+        member _.StartSourceWork(sourceWorkGuid) =
+            runExternalMutation (fun () -> startSourceWork sourceWorkGuid)
         member _.DiscardToken(workGuid) =
             runExternalMutation (fun () -> discardToken workGuid)
         member _.GetWorkToken(workGuid) = stateManager.GetWorkToken(workGuid)
