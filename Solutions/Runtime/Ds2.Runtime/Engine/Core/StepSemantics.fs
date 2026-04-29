@@ -38,9 +38,7 @@ module StepSemantics =
         (autoStartSources: bool)
         (selectedSourceGuid: Guid)
         =
-        not hasGoingCall
-        && (
-            hasStartableWork
-            || hasActiveDuration
-            || not (primableSourceGuids index state getWorkState autoStartSources selectedSourceGuid |> List.isEmpty)
-        )
+        hasGoingCall
+        || hasStartableWork
+        || hasActiveDuration
+        || not (primableSourceGuids index state getWorkState autoStartSources selectedSourceGuid |> List.isEmpty)

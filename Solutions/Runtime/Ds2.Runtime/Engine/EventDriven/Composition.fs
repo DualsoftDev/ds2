@@ -335,6 +335,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         ScheduleConditionEvaluation = scheduleConditionEvaluation
     }
     let stepBoundaryContext : EngineFlowStep.StepBoundaryContext = {
+        Index = index
         GetState = stateManager.GetState
         CurrentTimeMs = (fun () -> scheduler.CurrentTimeMs)
         SetAllFlowStates = EngineFlowStep.setAllFlowStates flowContext
@@ -488,6 +489,16 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.StepWithSourcePriming(selectedSourceGuid, autoStartSources) =
             lock processGate (fun () ->
                 EngineFlowStep.stepWithSourcePriming stepContext selectedSourceGuid autoStartSources)
+        member _.BeginStepBatch(selectedSourceGuid, autoStartSources) =
+            lock processGate (fun () ->
+                EngineFlowStep.beginStepBatch stepBoundaryContext stepContext selectedSourceGuid autoStartSources)
+        member _.IsStepBatchActive(batch: Guid[]) =
+            EngineFlowStep.isAnyBatchStillGoing stepBoundaryContext (Set.ofArray batch)
+        member _.AdvanceSimulationTo(targetTimeMs) =
+            lock processGate (fun () -> advanceStepRuntime targetTimeMs)
+        member _.EndStep() =
+            lock processGate (fun () ->
+                EngineFlowStep.endStep stepBoundaryContext)
         member _.ReloadConnections() =
             runExternalMutation (fun () -> EngineFlowStep.reloadConnections reloadContext)
         member _.ReloadDurations() =

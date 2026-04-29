@@ -99,10 +99,11 @@ public partial class SimulationPanelState
         var suffix = args.IsSkipped ? " (Skip)" : "";
         var systemName = GetSystemName(EntityKind.Call, args.CallGuid);
         var canonicalId = Queries.resolveOriginalCallId(args.CallGuid, Store);
+        var timestamp = ToGanttTimestamp(args.Clock);
 
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
-        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
         RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();
@@ -145,9 +146,11 @@ public partial class SimulationPanelState
 
     private void ApplyNodeStateChange(Guid nodeGuid, Status4 newState, string nodeName, EntityKind nodeKind, string systemName)
     {
+        var timestamp = CurrentGanttTimestamp();
+
         _stateCache.Set(nodeGuid, newState);
         UpdateSimNodeState(nodeGuid, newState);
-        GanttChart.UpdateNodeState(nodeGuid, newState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(nodeGuid, newState, timestamp);
         RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
         UpdateSimClock();
     }
@@ -156,12 +159,18 @@ public partial class SimulationPanelState
     {
         var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
         var canonicalId = Queries.resolveOriginalWorkId(args.WorkGuid, Store);
+        var timestamp = ToGanttTimestamp(args.Clock);
 
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
-        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
         RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
+
+    private DateTime ToGanttTimestamp(TimeSpan clock) => _simStartTime + clock;
+
+    private DateTime CurrentGanttTimestamp() =>
+        _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
 }
