@@ -139,9 +139,35 @@ public class DspDbService : IDisposable
                 .Select(c => c.Id == oldCall.Id ? updatedCall : c)
                 .ToList();
 
+            // Flow.state 도 즉시 갱신 — 같은 Flow 안에 Going Call 존재 여부에 따라.
+            // 이게 없으면 dspFlow.state DB 갱신 후 1초 폴링까지 Dashboard 가 lag.
+            var updatedFlows = oldSnapshot.Flows
+                .Select(f =>
+                {
+                    if (f.FlowName != updatedCall.FlowName) return f;
+                    var hasGoing = updatedCalls.Any(c => c.FlowName == f.FlowName && c.State == "Going");
+                    var newFlowState = hasGoing ? "Going" : "Ready";
+                    if (f.State == newFlowState) return f;
+                    return new FlowState
+                    {
+                        Id = f.Id,
+                        FlowName = f.FlowName,
+                        MT = f.MT,
+                        WT = f.WT,
+                        CT = f.CT,
+                        AvgMT = f.AvgMT,
+                        AvgWT = f.AvgWT,
+                        AvgCT = f.AvgCT,
+                        State = newFlowState,
+                        MovingStartName = f.MovingStartName,
+                        MovingEndName = f.MovingEndName,
+                    };
+                })
+                .ToList();
+
             _snapshot = new DspDbSnapshot
             {
-                Flows       = oldSnapshot.Flows,
+                Flows       = updatedFlows,
                 Calls       = updatedCalls,
                 CallsByFlow = updatedCalls
                     .GroupBy(c => c.FlowName)
@@ -517,6 +543,21 @@ public class DspDbService : IDisposable
         cmd.Parameters.AddWithValue("@tableName", tableName);
         var count = (long)(cmd.ExecuteScalar() ?? 0L);
         return count > 0;
+    }
+
+    /// <summary>
+    /// 인메모리 스냅샷 / 진행률 캐시 클리어. plc.db 삭제 후 재로딩 시 stale 데이터 제거용.
+    /// 다음 폴링/이벤트 시 fresh 데이터로 재구성됨.
+    /// </summary>
+    public void Reset()
+    {
+        lock (_snapshotLock)
+        {
+            _snapshot = new DspDbSnapshot();
+            _goingStartTimes.Clear();
+        }
+        OnDataChanged?.Invoke();
+        _logger.LogInformation("DspDbService snapshot reset");
     }
 
     public void Dispose()
