@@ -262,16 +262,16 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,1,0,0">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="취소" Click="Cancel_Click" Width="96" Height="36"
-                            Background="{DynamicResource TertiaryBackgroundBrush}"
-                            Foreground="{DynamicResource PrimaryTextBrush}"
-                            BorderThickness="0" FontSize="13" Cursor="Hand"
-                            Margin="0,0,10,0"/>
                     <Button Content="적용" Click="Apply_Click" Width="96" Height="36"
                             Background="{DynamicResource AccentBrush}"
                             Foreground="{DynamicResource AccentTextBrush}"
                             BorderThickness="0" FontSize="13" FontWeight="SemiBold"
-                            Cursor="Hand"/>
+                            Cursor="Hand"
+                            Margin="0,0,10,0"/>
+                    <Button Content="취소" Click="Cancel_Click" Width="96" Height="36"
+                            Background="{DynamicResource TertiaryBackgroundBrush}"
+                            Foreground="{DynamicResource PrimaryTextBrush}"
+                            BorderThickness="0" FontSize="13" Cursor="Hand"/>
                 </StackPanel>
             </Border>
         </Grid>
