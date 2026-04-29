@@ -68,6 +68,7 @@ public partial class PropertyPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
     private string _nameEditorText = string.Empty;
     [ObservableProperty] private string _namePrefix = string.Empty;
+    [ObservableProperty] private string _nameSuffix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
     [ObservableProperty] private bool _isNameEditHighlighted;
     [ObservableProperty] private bool _isWorkPeriodDirty;
@@ -84,7 +85,7 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnNameEditorTextChanged(string value)
     {
-        var currentFull = NamePrefix + value.Trim();
+        var currentFull = NamePrefix + value.Trim() + NameSuffix;
         IsNameDirty = !string.Equals(currentFull, SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
     }
     private bool _suppressPropertySync;
@@ -164,11 +165,20 @@ public partial class PropertyPanelState : ObservableObject
             var (prefix, localName) = TokenRoleOps.parseWorkNameParts(fullName);
             NamePrefix = prefix;
             NameEditorText = localName;
+            NameSuffix = string.Empty;
+        }
+        else if (IsSingleCallSelected && fullName.LastIndexOf('.') is var dotIdx && dotIdx >= 0)
+        {
+            // Call.Name = "DevicesAlias.ApiName" — alias 만 편집, .ApiName 는 read-only
+            NamePrefix = string.Empty;
+            NameEditorText = fullName[..dotIdx];
+            NameSuffix = fullName[dotIdx..];
         }
         else
         {
             NamePrefix = string.Empty;
             NameEditorText = fullName;
+            NameSuffix = string.Empty;
         }
         if (IsWorkSelected)
         {
@@ -300,11 +310,19 @@ public partial class PropertyPanelState : ObservableObject
             {
                 NamePrefix = newName[..(dotIdx + 1)];
                 NameEditorText = newName[(dotIdx + 1)..];
+                NameSuffix = string.Empty;
+            }
+            else if (SelectedNode.EntityType == EntityKind.Call && newName.LastIndexOf('.') is var callDotIdx && callDotIdx >= 0)
+            {
+                NamePrefix = string.Empty;
+                NameEditorText = newName[..callDotIdx];
+                NameSuffix = newName[callDotIdx..];
             }
             else
             {
                 NamePrefix = string.Empty;
                 NameEditorText = newName;
+                NameSuffix = string.Empty;
             }
             IsNameDirty = false;
             IsNameEditHighlighted = false;
@@ -332,17 +350,26 @@ public partial class PropertyPanelState : ObservableObject
             {
                 NamePrefix = fullName[..(dotIdx + 1)];
                 NameEditorText = fullName[(dotIdx + 1)..];
+                NameSuffix = string.Empty;
             }
             else
             {
                 NamePrefix = string.Empty;
                 NameEditorText = fullName;
+                NameSuffix = string.Empty;
             }
+        }
+        else if (SelectedNode.EntityType == EntityKind.Call && fullName.LastIndexOf('.') is var callDotIdx && callDotIdx >= 0)
+        {
+            NamePrefix = string.Empty;
+            NameEditorText = fullName[..callDotIdx];
+            NameSuffix = fullName[callDotIdx..];
         }
         else
         {
             NamePrefix = string.Empty;
             NameEditorText = fullName;
+            NameSuffix = string.Empty;
         }
 
         IsNameDirty = false;
@@ -364,10 +391,8 @@ public partial class PropertyPanelState : ObservableObject
             return;
         }
 
-        // prefix가 있으면 전체 이름으로 전달 (RenameEntity가 다시 분리함)
-        var newName = string.IsNullOrEmpty(NamePrefix)
-            ? localName
-            : NamePrefix + localName;
+        // prefix/suffix 가 있으면 전체 이름으로 결합해 전달 (RenameEntity 가 다시 분리함)
+        var newName = NamePrefix + localName + NameSuffix;
         _host.RenameSelected(newName);
         IsNameEditHighlighted = false;
     }
