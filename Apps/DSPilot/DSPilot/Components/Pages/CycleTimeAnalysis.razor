@@ -8,6 +8,8 @@
 @inject CycleAnalysisService CycleAnalysis
 @inject IFlowMetricsService FlowMetrics
 @inject AppSettingsService SettingsService
+@inject DspDbService DbService
+@inject ILogger<CycleTimeAnalysis> AutoRefreshLogger
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -282,14 +284,98 @@
         ByGapSize    // GAP 크기순 정렬
     }
 
+    private DateTime _lastAutoRefresh = DateTime.MinValue;
+    private bool _autoRefreshScheduled;
+    private bool _autoRefreshDisposed;
+    private const int AutoRefreshThrottleMs = 5000;
+
     protected override async Task OnInitializedAsync()
     {
+        DbService.OnDataChanged += OnDbDataChanged;
         await LoadFlows();
 
         // 첫 번째 Flow가 선택되었으면 자동으로 GAP 분석 시작
         if (!string.IsNullOrEmpty(_selectedFlowName))
         {
             await LoadGanttData();
+        }
+    }
+
+    private void OnDbDataChanged()
+    {
+        if (_autoRefreshDisposed) return;
+        if (string.IsNullOrEmpty(_selectedFlowName)) return;
+
+        var now = DateTime.UtcNow;
+        var elapsed = (now - _lastAutoRefresh).TotalMilliseconds;
+        if (elapsed >= AutoRefreshThrottleMs)
+        {
+            _ = AutoRefreshGanttAsync();
+            return;
+        }
+
+        if (_autoRefreshScheduled) return;
+        _autoRefreshScheduled = true;
+        var delayMs = (int)(AutoRefreshThrottleMs - elapsed);
+        _ = Task.Delay(delayMs).ContinueWith(_ =>
+        {
+            _autoRefreshScheduled = false;
+            return AutoRefreshGanttAsync();
+        });
+    }
+
+    private async Task AutoRefreshGanttAsync()
+    {
+        if (_autoRefreshDisposed) return;
+        _lastAutoRefresh = DateTime.UtcNow;
+        try
+        {
+            await InvokeAsync(LoadGanttDataSilently);
+        }
+        catch (ObjectDisposedException) { }
+        catch (Exception ex)
+        {
+            AutoRefreshLogger.LogWarning(ex, "CycleTimeAnalysis auto-refresh failed");
+        }
+    }
+
+    /// <summary>
+    /// Auto-refresh 전용 — _isLoading 토글 / _ganttData=null / 선택 초기화 / 시간범위 자동조정 모두 스킵.
+    /// 데이터만 silently swap 해서 사용자가 보던 화면(zoom/선택)을 깨지 않게.
+    /// </summary>
+    private async Task LoadGanttDataSilently()
+    {
+        if (_autoRefreshDisposed) return;
+        if (string.IsNullOrEmpty(_selectedFlowName)) return;
+
+        try
+        {
+            var newData = await CycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(
+                _selectedFlowName, _chartStartTime, _chartEndTime);
+
+            // 사용자 선택을 같은 위치의 새 인스턴스로 매핑 (stale 참조 방지)
+            var prevSelected = _selectedItem;
+            _ganttData = newData;
+
+            if (newData.Items.Any())
+            {
+                CalculateLongestGap();
+                await DetectIdleRegionsAsync();
+
+                if (prevSelected != null)
+                {
+                    _selectedItem = newData.Items.FirstOrDefault(i =>
+                        i.CallName == prevSelected.CallName &&
+                        i.GoingStartTime == prevSelected.GoingStartTime &&
+                        i.Lane == prevSelected.Lane);
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            AutoRefreshLogger.LogWarning(ex, "Silent gantt refresh failed");
         }
     }
 
@@ -369,6 +455,8 @@
 
     public async ValueTask DisposeAsync()
     {
+        _autoRefreshDisposed = true;
+        DbService.OnDataChanged -= OnDbDataChanged;
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
