@@ -27,6 +27,7 @@ module internal EngineFlowStep =
         Index: SimIndex
         StateManager: StateManager
         DurationTracker: DurationTracker
+        SyncCurrentTime: unit -> unit
         ScheduleConditionEvaluation: unit -> unit
     }
 
@@ -43,6 +44,8 @@ module internal EngineFlowStep =
     let setAllFlowStates (ctx: FlowContext) tag =
         match tag with
         | FlowTag.Pause ->
+            ctx.SyncCurrentTime()
+
             for flowGuid in activeFlowGuids ctx.Index do
                 ctx.StateManager.SetFlowState(flowGuid, FlowTag.Pause)
 
@@ -127,11 +130,14 @@ module internal EngineFlowStep =
         let before = stepSnapshot ctx
 
         ctx.SetAllFlowStates FlowTag.Drive
+        // 1) cascade events (zero-time) 처리
         ctx.AdvanceStepRuntime (ctx.CurrentTimeMs())
 
-        let progressed =
-            if stepSnapshot ctx <> before then true
-            else advanceUntilStepBoundary ctx before
+        // 2) cascade 결과를 새 baseline 으로 잡고 다음 nextEventTime 까지 시계 진행 + events 처리.
+        //    cascade 만으로 종료하면 시계 진행 0 → STEP 한 번에 duration 소모 안 됨.
+        let afterCascade = stepSnapshot ctx
+        let timeAdvanced = advanceUntilStepBoundary ctx afterCascade
+        let progressed = timeAdvanced || stepSnapshot ctx <> before
 
         ctx.SetAllFlowStates FlowTag.Pause
         progressed

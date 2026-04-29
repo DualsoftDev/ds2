@@ -118,8 +118,9 @@ public partial class SimulationPanelState
         if (!_isStepMode || _simEngine is null)
             return;
 
+        // GanttChart.IsRunning 은 PauseSimulation/StepSimulationAsync 가 직접 관리.
+        // 여기서 덮어쓰면 STEP wait 도중 events handler 발화로 IsRunning=false 되어 progress bar 정지.
         var hasActiveDuration = !anyGoingCall && _simEngine.HasActiveDuration;
-        GanttChart.IsRunning = anyGoingCall || hasActiveDuration;
         StepSimulationCommand.NotifyCanExecuteChanged();
 
         if (!anyGoingCall && !hasActiveDuration)

@@ -66,6 +66,10 @@ type ISimulationEngine =
     /// Going 상태 Work는 기존 Duration 유지 (진행 중 타이머 보호).
     abstract ReloadDurations: unit -> unit
 
+    // 시뮬레이션 시계 (UI 측 STEP timing 계산용)
+    abstract CurrentTimeMs: int64
+    abstract NextEventTimeMs: int64 option
+
     // 설정
     abstract SpeedMultiplier: float with get, set
     abstract TimeIgnore: bool with get, set
