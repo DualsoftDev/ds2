@@ -331,6 +331,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         Index = index
         StateManager = stateManager
         DurationTracker = durationTracker
+        SyncCurrentTime = (fun () -> EventDrivenEngineRuntime.syncClockToCurrentTimeWhileRunning runtimeContext)
         ScheduleConditionEvaluation = scheduleConditionEvaluation
     }
     let stepBoundaryContext : EngineFlowStep.StepBoundaryContext = {
@@ -484,6 +485,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             runExternalMutation (fun () -> EngineFlowStep.reloadConnections reloadContext)
         member _.ReloadDurations() =
             runExternalMutation (fun () -> reloadDurations ())
+        member _.CurrentTimeMs = scheduler.CurrentTimeMs
+        member _.NextEventTimeMs = scheduler.NextEventTime
         member _.SpeedMultiplier
             with get() = speedMultiplier
             and set(value) =

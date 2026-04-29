@@ -369,6 +369,36 @@ module StepModeTests =
             engine.Stop()
 
     [<Fact>]
+    let ``STEP mode: pausing active duration preserves elapsed runtime clock`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        work.Duration <- Some (TimeSpan.FromMilliseconds 1000.)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+
+        try
+            engine.Start()
+
+            let token = engine.NextToken()
+            engine.SeedToken(work.Id, token)
+
+            Assert.True(
+                waitUntil 1000 (fun () -> engine.GetWorkState(work.Id) = Some Status4.Going),
+                "work should be Going before entering STEP pause")
+
+            System.Threading.Thread.Sleep(150)
+            engine.SetAllFlowStates(FlowTag.Pause)
+
+            Assert.True(
+                engine.State.Clock.TotalMilliseconds >= 75.,
+                $"Step pause should account for elapsed active duration time. Clock={engine.State.Clock}")
+        finally
+            engine.Stop()
+
+    [<Fact>]
     let ``pause resume and restart reuse a clean engine thread lifecycle`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
