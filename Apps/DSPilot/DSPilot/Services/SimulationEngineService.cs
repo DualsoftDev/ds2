@@ -45,6 +45,11 @@ public sealed class SimulationEngineService : IDisposable
     // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용)
     private readonly Dictionary<string, int> _plcTagIdByAddress = new(StringComparer.OrdinalIgnoreCase);
 
+    // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
+    private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
+    private readonly object _flowReadyLock = new();
+    private const int FlowReadyDebounceMs = 600;
+
     // Engine 의 CallStateChanged 이벤트를 단일 컨슈머로 직렬화 — 같은 callGuid 의 빠른
     // Ready→Going / Going→Finish 가 fire-and-forget 으로 병렬 실행되어 Welford 통계가
     // (0,0,0) 으로 corruption 되던 race 차단. ResetAsync 에서 재생성 가능하도록 mutable.
@@ -285,6 +290,62 @@ public sealed class SimulationEngineService : IDisposable
         }
     }
 
+    /// <summary>
+    /// dspFlow.state 동기화 — Going 진입은 즉시, Going 이탈은 600ms 디바운스.
+    /// 여러 Call 이 순차 실행되며 사이의 micro-gap 마다 Ready→Going 토글이 일어나 Dashboard 가
+    /// 점멸하는 문제 차단. 디바운스 윈도우 안에 다른 Call 이 Going 들어오면 Ready 전이 취소.
+    /// </summary>
+    private void ScheduleFlowSync(Adapters.DspRepositoryAdapter repo, string flowName, bool enteringGoing, bool leavingGoing)
+    {
+        if (enteringGoing)
+        {
+            // 보류 중인 Ready 디바운스 취소 + 즉시 sync (결과는 Going)
+            lock (_flowReadyLock)
+            {
+                if (_flowReadyDebounceCts.Remove(flowName, out var existing))
+                {
+                    try { existing.Cancel(); existing.Dispose(); } catch { /* ignore */ }
+                }
+            }
+            _ = repo.SyncFlowStateAsync(flowName);
+            return;
+        }
+
+        if (!leavingGoing)
+        {
+            // Going 무관 전이 (예: Finish→Ready) — flow.state 변할 일 없음, sync 생략
+            return;
+        }
+
+        // leavingGoing — 디바운스 후 sync. 윈도우 안에 새 Going 들어오면 enteringGoing 분기에서 cancel.
+        CancellationTokenSource cts;
+        lock (_flowReadyLock)
+        {
+            if (_flowReadyDebounceCts.Remove(flowName, out var existing))
+            {
+                try { existing.Cancel(); existing.Dispose(); } catch { /* ignore */ }
+            }
+            cts = new CancellationTokenSource();
+            _flowReadyDebounceCts[flowName] = cts;
+        }
+        var token = cts.Token;
+        _ = Task.Delay(FlowReadyDebounceMs, token).ContinueWith(async _ =>
+        {
+            if (token.IsCancellationRequested) return;
+            try { await repo.SyncFlowStateAsync(flowName); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[Engine] Deferred flow sync failed for {Flow}", flowName); }
+
+            lock (_flowReadyLock)
+            {
+                if (_flowReadyDebounceCts.TryGetValue(flowName, out var c) && c == cts)
+                {
+                    _flowReadyDebounceCts.Remove(flowName);
+                }
+            }
+            try { cts.Dispose(); } catch { /* ignore */ }
+        }, TaskScheduler.Default);
+    }
+
     private sealed class CallStatsSeedRow
     {
         public Guid CallId { get; set; }
@@ -442,12 +503,25 @@ public sealed class SimulationEngineService : IDisposable
             await _dspRepository.UpdateCallStateAsync(callGuid, next);
         }
 
-        // 2. Flow 이름 조회 + dspFlow.state 동기화 (Going Call 이 있으면 Going, 없으면 Ready)
+        // 2. Flow 이름 조회 + dspFlow.state 동기화 (디바운스 — micro-gap 점멸 방지)
         var info = await _dspRepository.GetCallInfoAsync(callGuid);
         var flowName = info?.FlowName ?? string.Empty;
         if (!string.IsNullOrEmpty(flowName) && _dspRepository is Adapters.DspRepositoryAdapter repo)
         {
-            await repo.SyncFlowStateAsync(flowName);
+            // Tail Call 의 Finish 가 사이클 1회 종료 — dspFlow.state="Finish" 를 250ms hold 로 표시
+            //   실 PLC: cycle 사이의 자연스러운 idle gap 동안 폴링이 잡음
+            //   시뮬:   gap 이 거의 0ms 라 hold 로 강제 표시
+            if (leavingGoing && _flowMetricsService.IsInitialized)
+            {
+                var (_, tailCallName) = _flowMetricsService.GetCycleBoundaryCallNames(flowName);
+                if (!string.IsNullOrEmpty(tailCallName) && tailCallName == callName)
+                {
+                    _ = repo.UpdateFlowStateAsync(flowName, "Finish");
+                    _dspDbService.SetFlowStateWithHold(flowName, "Finish", 250);
+                }
+            }
+
+            ScheduleFlowSync(repo, flowName, enteringGoing, leavingGoing);
         }
 
         // 3. FlowMetrics 사이클 hook (AASX 로딩 실패로 미초기화 상태일 때 NRE 방지)
@@ -565,6 +639,16 @@ public sealed class SimulationEngineService : IDisposable
         }
         lock (_statsLock) { _callStats.Clear(); }
         _plcTagIdByAddress.Clear();
+
+        // 보류 중인 flow ready 디바운스 모두 취소
+        lock (_flowReadyLock)
+        {
+            foreach (var c in _flowReadyDebounceCts.Values)
+            {
+                try { c.Cancel(); c.Dispose(); } catch { /* ignore */ }
+            }
+            _flowReadyDebounceCts.Clear();
+        }
 
         _logger.LogInformation("[Engine] Reset complete — ready for re-initialization");
     }
