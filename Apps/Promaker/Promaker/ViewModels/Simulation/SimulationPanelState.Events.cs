@@ -78,6 +78,7 @@ public partial class SimulationPanelState
 #endif
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
+        TryContinueSourceCycle(args.WorkGuid, args.NewState);
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)

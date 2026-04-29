@@ -12,25 +12,32 @@ public partial class SimulationPanelState
 
     partial void OnSimSpeedChanged(double value)
     {
-        if (value == 0)
-        {
-            SimTimeIgnore = true;
-            if (_simEngine is { } engine) engine.TimeIgnore = true;
-        }
-        else
+        if (value <= 0)
         {
             SimTimeIgnore = false;
             if (_simEngine is { } engine)
             {
                 engine.TimeIgnore = false;
-                engine.SpeedMultiplier = value;
+                engine.SpeedMultiplier = 1.0;
             }
+            if (SimSpeed != 1.0)
+                SimSpeed = 1.0;
+            return;
+        }
+
+        SimTimeIgnore = false;
+        if (_simEngine is { } activeEngine)
+        {
+            activeEngine.TimeIgnore = false;
+            activeEngine.SpeedMultiplier = value;
         }
     }
 
     partial void OnSimTimeIgnoreChanged(bool value)
     {
-        if (_simEngine is { } engine) engine.TimeIgnore = value;
+        if (_simEngine is { } engine) engine.TimeIgnore = false;
+        if (value)
+            SimTimeIgnore = false;
     }
 
     public void NotifyStoreChanged()

@@ -56,6 +56,48 @@ public sealed class MainToolbarVisualTests
     }
 
     [Fact]
+    public void Simulation_toolbar_exposes_continuous_injection_toggle()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var toolbar = CreateToolbar(vm);
+            var toggle = FindRequiredDescendant<CheckBox>(toolbar, "ContinuousInjectionCheckBox");
+
+            Assert.False(toggle.IsChecked ?? false);
+
+            toggle.IsChecked = true;
+            toolbar.UpdateLayout();
+
+            Assert.True(vm.Simulation.IsContinuousInjectionEnabled);
+        });
+    }
+
+    [Fact]
+    public void Simulation_toolbar_speed_combo_does_not_expose_time_ignore()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var toolbar = CreateToolbar(vm);
+            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
+
+            var tags = speedCombo.Items
+                .OfType<ComboBoxItem>()
+                .Select(item => item.Tag)
+                .OfType<double>()
+                .ToList();
+
+            Assert.Equal([0.5, 1.0, 2.0, 5.0, 10.0], tags);
+            Assert.DoesNotContain(0.0, tags);
+        });
+    }
+
+    [Fact]
     public void Connect_toolbar_icon_reflects_selected_arrow_type()
     {
         StaTestRunner.Run(() =>

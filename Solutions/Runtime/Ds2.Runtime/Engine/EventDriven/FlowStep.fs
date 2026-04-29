@@ -14,13 +14,13 @@ module internal EngineFlowStep =
         (index: SimIndex)
         (stateManager: StateManager)
         (scheduleDurationCheck: ScheduledEventType -> unit)
-        (scheduleStateChange: ScheduledEventType -> unit) =
+        (scheduleHomingCompletion: ScheduledEventType -> unit) =
         for workGuid in index.AllWorkGuids do
             match stateManager.GetWorkState(workGuid) with
             | Status4.Going when not (stateManager.IsMinDurationMet(workGuid)) ->
                 scheduleDurationCheck (ScheduledEventType.DurationComplete workGuid)
             | Status4.Homing ->
-                scheduleStateChange (ScheduledEventType.HomingComplete workGuid)
+                scheduleHomingCompletion (ScheduledEventType.HomingComplete workGuid)
             | _ -> ()
 
     type FlowContext = {

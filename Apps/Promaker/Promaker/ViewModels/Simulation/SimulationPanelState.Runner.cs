@@ -44,6 +44,7 @@ public partial class SimulationPanelState
         _simEngine = null;
         _runtimeSession = null;
         _passiveInference = null;
+        ClearContinuousSourceCycle();
 
         try
         {
@@ -191,8 +192,11 @@ public partial class SimulationPanelState
             _runtimeSession = SelectedRuntimeMode == RuntimeMode.Simulation
                 ? null
                 : new RuntimeModeSession(_simEngine.Index, _simEngine.IOMap, SelectedRuntimeMode);
+            if (SimSpeed <= 0)
+                SimSpeed = 1.0;
+            SimTimeIgnore = false;
             _simEngine.SpeedMultiplier = SimSpeed;
-            _simEngine.TimeIgnore = SimTimeIgnore;
+            _simEngine.TimeIgnore = false;
 
             // SignalIOMap 덤프: Out/In 주소 매핑 전체 목록을 파일로 저장 (진단용)
             try
@@ -304,14 +308,16 @@ public partial class SimulationPanelState
             }
             else
             {
+                _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
                 hasHoming = _simEngine.StartWithHomingPhase();
                 if (hasHoming)
                 {
                     IsHomingPhase = true;
                     _setStatusText("시뮬레이션 초기화 중...");
                     SimStatusText = "시뮬레이션 초기화 중...";
-                    _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
                 }
+                else
+                    _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
             }
 
             ApplySimStateToCanvas();
@@ -372,6 +378,7 @@ public partial class SimulationPanelState
         StopHub();
         ClearSimStateFromCanvas();
         ClearAllWarnings();
+        ClearContinuousSourceCycle();
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
@@ -456,19 +463,11 @@ public partial class SimulationPanelState
         if (autoStartSources)
         {
             foreach (var sg in engine.Index.TokenSourceGuids)
-            {
                 if (engine.GetWorkToken(sg) is null)
-                {
-                    engine.SeedToken(sg, engine.NextToken());
-                    engine.ForceWorkState(sg, Status4.Going);
-                }
-            }
+                    engine.StartSourceWork(sg);
         }
         else if (selectedSourceGuid != Guid.Empty && engine.GetWorkToken(selectedSourceGuid) is null)
-        {
-            engine.SeedToken(selectedSourceGuid, engine.NextToken());
-            engine.ForceWorkState(selectedSourceGuid, Status4.Going);
-        }
+            engine.StartSourceWork(selectedSourceGuid);
 
         // 2) Resume → simulation thread 시작 (RuntimeClock.Reset, elapsed 0 부터 자연 흐름)
         engine.SetAllFlowStates(FlowTag.Drive);
@@ -537,9 +536,11 @@ public partial class SimulationPanelState
         IsSimPaused = false;
         _isStepMode = false;
         SimSpeed = 1.0;
+        SimTimeIgnore = false;
         SimStatusText = SimText.Stopped;
         _stateCache.Clear();
         _suppressedWarnings.Clear();
+        ClearContinuousSourceCycle();
         ClearSimStateFromCanvas();
 
         if (clearCollections)

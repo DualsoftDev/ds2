@@ -18,6 +18,7 @@
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
+    <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
     <Compile Include="UndoMergeTests.fs" />
     <Compile Include="Program.fs" />
