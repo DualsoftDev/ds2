@@ -30,17 +30,15 @@ public partial class RuntimeSettingDialog : Window
         _items = BuildItems(vm.Simulation.SelectedRuntimeMode);
         ModeList.ItemsSource = _items;
         RefreshThumbnails();
-        SyncHubAddressVisibility();
+        UpdateSelectedModeText();
     }
 
-    /// <summary>선택된 카드의 모드에 따라 HubAddress 입력 영역을 즉시 show/hide.
-    /// Apply 전에도 카드 클릭만으로 반응하도록 ViewModel.NeedsHubConnection 대신 미리보기 IsSelected 기반 제어.</summary>
-    private void SyncHubAddressVisibility()
+    private void UpdateSelectedModeText()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
-        var needsHub = selected != null && selected.Mode != RuntimeMode.Simulation;
-        HubAddressArea.Visibility = needsHub ? Visibility.Visible : Visibility.Collapsed;
-        SelectedModeLabel.Text = selected?.Mode.ToString() ?? "";
+        SelectedModeText.Text = selected is null ? "" : $"{selected.Mode} ({selected.NameKr})";
+        // Sim 모드는 Hub 연결 불필요 → 주소 편집 불가
+        HubAddressBox.IsEnabled = selected is not null && selected.Mode != RuntimeMode.Simulation;
     }
 
     /// <summary>
@@ -115,7 +113,7 @@ public partial class RuntimeSettingDialog : Window
         new ModeItemVM
         {
             Mode = RuntimeMode.Monitoring, NameKr = "모니터링",
-            Description = "상태 모니터링 역할을 수행합니다 — Input 만 받아 현재 노드들의 상태를 유추해 보여줍니다.",
+            Description = "상태 모니터링 역할을 수행합니다 — Input/Output 둘 다 받아 현재 노드들의 상태를 유추해 보여줍니다.",
             LeftLabel = "모니터링",    RightLabel = "실제 설비",
             LeftAccent = BlueBrush,    RightAccent = OrangeBrush,
             ForwardVisibility = Visibility.Collapsed,
@@ -183,7 +181,7 @@ public partial class RuntimeSettingDialog : Window
 
         foreach (var vm in _items)
             vm.IsSelected = ReferenceEquals(vm, clicked);
-        SyncHubAddressVisibility();
+        UpdateSelectedModeText();
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

@@ -95,6 +95,26 @@ public partial class IoBatchSettingsDialog : Window
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => LoadFromStore();
 
+    private void IoGrid_LayoutUpdated(object? sender, EventArgs e)
+    {
+        if (IoHeaderGrid.ColumnDefinitions.Count == 0 || IoGrid.Columns.Count == 0)
+            return;
+
+        var count = Math.Min(IoHeaderGrid.ColumnDefinitions.Count, IoGrid.Columns.Count);
+        for (var i = 0; i < count; i++)
+        {
+            var actualWidth = IoGrid.Columns[i].ActualWidth;
+            if (actualWidth <= 0d)
+                continue;
+
+            var currentWidth = IoHeaderGrid.ColumnDefinitions[i].Width;
+            if (currentWidth.IsAbsolute && Math.Abs(currentWidth.Value - actualWidth) < 0.5d)
+                continue;
+
+            IoHeaderGrid.ColumnDefinitions[i].Width = new GridLength(actualWidth, GridUnitType.Pixel);
+        }
+    }
+
     private void UpdateStatus(IoQueryService.QueryResult qr)
     {
         var sb = new StringBuilder();
