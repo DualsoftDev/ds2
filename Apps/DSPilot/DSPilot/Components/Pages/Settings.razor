@@ -3,6 +3,7 @@
 @inject IDatabasePathResolver DatabasePathResolver
 @inject IFlowMetricsService FlowMetricsService
 @inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
+@inject DatabaseLifecycleService DbLifecycle
 @inject IJSRuntime JS
 
 <PageTitle>설정 - DSPilot</PageTitle>
@@ -337,73 +338,6 @@
                 </div>
             </div>
 
-            @* PLC 캡처 설정 섹션 *@
-            <div class="card" style="box-shadow: var(--shadow-2);">
-                <div class="card-header">
-                    <span class="material-icons mr-2">lan</span>
-                    <h6 class="typo-h6">PLC 캡처</h6>
-                </div>
-                <div class="card-content">
-                    <label class="switch mb-3">
-                        <input type="checkbox" @bind="_settings.PlcCapture.Enabled" />
-                        캡처 활성화
-                    </label>
-                    <div class="form-group mb-3">
-                        <label class="form-label">PLC 타입</label>
-                        <select class="form-select" value="@_settings.PlcCapture.PlcType"
-                                @onchange="OnPlcTypeChanged">
-                            <option value="Mitsubishi">Mitsubishi (MX)</option>
-                            <option value="LS">LS (XGI/XGK/XGT)</option>
-                        </select>
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">PLC 이름</label>
-                        <input class="form-field" @bind="_settings.PlcCapture.PlcName"
-                               placeholder="@(_settings.PlcCapture.IsLS ? "LSPLC" : "MitsubishiPLC")" />
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">IP 주소</label>
-                        <input class="form-field" @bind="_settings.PlcCapture.PlcIpAddress"
-                               placeholder="@(_settings.PlcCapture.IsLS ? "예: 192.168.9.100" : "예: 192.168.9.120")" />
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">포트</label>
-                        <input type="number" class="form-field" @bind="_settings.PlcCapture.PlcPort"
-                               min="1" max="65535"
-                               placeholder="@(_settings.PlcCapture.IsLS ? "2004" : "5555")" />
-                    </div>
-                    @if (_settings.PlcCapture.IsLS)
-                    {
-                        <div class="form-group mb-3">
-                            <label class="form-label">PLC 모델</label>
-                            <select class="form-select" @bind="_settings.PlcCapture.PlcModel">
-                                <option value="XGI">XGI</option>
-                                <option value="XGK">XGK</option>
-                                <option value="XGT">XGT</option>
-                            </select>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="form-group mb-3">
-                            <label class="form-label">프로토콜</label>
-                            <select class="form-select" @bind="_settings.PlcCapture.Protocol">
-                                <option value="UDP">UDP</option>
-                                <option value="TCP">TCP</option>
-                            </select>
-                        </div>
-                    }
-                    <div class="form-group">
-                        <label class="form-label">스캔 간격 (ms)</label>
-                        <input type="number" class="form-field" @bind="_settings.PlcCapture.ScanIntervalMs"
-                               min="10" max="60000" placeholder="100" />
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            PLC 데이터 캡처 간격 (밀리초)
-                        </small>
-                    </div>
-                </div>
-            </div>
-
         </div>
 
     </div>
@@ -478,12 +412,10 @@ else
     private string _dbDir = "";
     private int _dbBusyTimeout = 20000;
     private const string DbFileName = "plc.db";
-    private string _originalPlcType = "";
 
     protected override void OnInitialized()
     {
         _settings = SettingsService.LoadSettings();
-        _originalPlcType = _settings.PlcCapture.PlcType;
         ParseConnectionString(_settings.Database.ConnectionString);
     }
 
@@ -559,25 +491,9 @@ else
         try
         {
             _settings.Database.ConnectionString = BuildConnectionString();
-
-            // PLC 타입이 변경되면 기존 DB 삭제 (태그 주소 체계가 다르므로 재생성 필요)
-            var plcTypeChanged = !string.Equals(_originalPlcType, _settings.PlcCapture.PlcType, StringComparison.OrdinalIgnoreCase);
-            if (plcTypeChanged)
-            {
-                try
-                {
-                    var dbPath = DatabasePathResolver.GetPlcDbPath();
-                    SettingsService.DeleteDatabase(dbPath);
-                }
-                catch { /* DB가 없으면 무시 */ }
-            }
-
             SettingsService.SaveSettings(_settings);
-            _originalPlcType = _settings.PlcCapture.PlcType;
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar",
-                plcTypeChanged
-                    ? "설정이 저장되었습니다. PLC 타입이 변경되어 기존 데이터베이스를 초기화했습니다. 서비스를 재시작해주세요."
-                    : "설정이 저장되었습니다. 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.",
+                "설정이 저장되었습니다. 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.",
                 "success");
         }
         catch (Exception ex)
@@ -602,67 +518,31 @@ else
     {
         var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
             "Flow 히스토리 삭제",
-            "dspFlowHistory 테이블의 모든 기록을 삭제하시겠습니까?\n\nFlow/Call 현재 상태는 유지되며, 히스토리(사이클 기록)만 삭제됩니다.",
-            "삭제", "취소");
+            "dspFlowHistory 와 Call 통계(평균/표준편차/사이클 카운트) 를 모두 초기화합니다.\n\nFlow/Call 정의는 유지되며, 즉시 새 사이클부터 다시 측정됩니다. 서버 재시작 불필요.",
+            "초기화", "취소");
 
         if (!result) return;
 
-        try
-        {
-            var deleted = await DspRepository.ClearFlowHistoryAsync();
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Flow 히스토리 {deleted}건이 삭제되었습니다.", "success");
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"삭제 실패: {ex.Message}", "error");
-        }
+        var rebuild = await DbLifecycle.ClearFlowHistoryAsync();
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+            rebuild.Message,
+            rebuild.Success ? "success" : "error");
     }
 
     private async Task DeleteDatabase()
     {
         var dbPath = GetDatabasePath();
         var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
-            "데이터베이스 삭제",
-            $"DSP 데이터베이스를 삭제하시겠습니까?\n\n경로: {dbPath}\n\n모든 Flow/Call 데이터가 삭제되며, 재시작 시 새로 생성됩니다.",
-            "삭제", "취소");
+            "데이터베이스 초기화",
+            $"DSP 데이터베이스를 삭제하고 AASX 기준으로 재생성합니다.\n\n경로: {dbPath}\n\n• 모든 통계/히스토리/태그 로그 삭제\n• 스키마 + dspFlow / dspCall 자동 재생성\n• 엔진 자동 재시작\n• 서버 재시작 불필요",
+            "초기화", "취소");
 
         if (!result) return;
 
-        try
-        {
-            SettingsService.DeleteDatabase(dbPath);
-            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "데이터베이스가 삭제되었습니다. 재시작하여 새로 생성하세요.", "success");
-        }
-        catch (Exception ex)
-        {
-            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"삭제 실패: {ex.Message}", "error");
-        }
-    }
-
-    private void OnPlcTypeChanged(ChangeEventArgs e)
-    {
-        if (_settings is null) return;
-        var newType = e.Value?.ToString() ?? PlcCaptureSettings.DefaultPlcType;
-        var previousType = _settings.PlcCapture.PlcType;
-        _settings.PlcCapture.PlcType = newType;
-
-        if (!string.Equals(previousType, newType, StringComparison.OrdinalIgnoreCase))
-        {
-            if (newType.Equals("LS", StringComparison.OrdinalIgnoreCase))
-            {
-                _settings.PlcCapture.PlcName = PlcCaptureSettings.DefaultLsName;
-                _settings.PlcCapture.PlcIpAddress = PlcCaptureSettings.DefaultLsIp;
-                _settings.PlcCapture.PlcPort = PlcCaptureSettings.DefaultLsPort;
-                _settings.PlcCapture.PlcModel = PlcCaptureSettings.DefaultLsModel;
-            }
-            else
-            {
-                _settings.PlcCapture.PlcName = PlcCaptureSettings.DefaultMitsubishiName;
-                _settings.PlcCapture.PlcIpAddress = PlcCaptureSettings.DefaultMitsubishiIp;
-                _settings.PlcCapture.PlcPort = PlcCaptureSettings.DefaultMitsubishiPort;
-                _settings.PlcCapture.Protocol = PlcCaptureSettings.DefaultMitsubishiProtocol;
-            }
-        }
+        var rebuild = await DbLifecycle.RebuildDatabaseAsync();
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+            rebuild.Message,
+            rebuild.Success ? "success" : "error");
     }
 
     private async Task ReloadFlowCycleDefaultsFromAasxAsync()

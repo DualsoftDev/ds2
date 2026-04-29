@@ -43,24 +43,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
     {
         try
         {
-            if (!_paths.DspTablesEnabled)
-            {
-                _logger.LogInformation("DspTables:Enabled=false, skipping AASX load and DSP DB initialization.");
-                await WaitForCancellationAsync(stoppingToken);
-                return;
-            }
-
-            var success = await InitializeFromAasxWithRetryAsync(stoppingToken);
-
-            if (success)
-            {
-                _logger.LogInformation("Initializing PlcToCallMapper...");
-                _mapper.Initialize();
-
-                _logger.LogInformation("Initializing FlowMetricsService...");
-                await _flowMetricsService.InitializeAsync();
-            }
-
+            await BootstrapAsync(stoppingToken);
             await WaitForCancellationAsync(stoppingToken);
         }
         catch (TaskCanceledException)
@@ -71,6 +54,32 @@ public class DspDatabaseServiceAdapter : BackgroundService
         {
             _logger.LogInformation("DSP Database Service operation cancelled");
         }
+    }
+
+    /// <summary>
+    /// 스키마 생성 + AASX 로부터 dspFlow / dspCall 행 적재 + Mapper / FlowMetrics 초기화.
+    /// HostedService 시작 시 자동 실행되며, plc.db 삭제 후 재초기화 시 외부에서도 호출 가능.
+    /// </summary>
+    public async Task<bool> BootstrapAsync(CancellationToken stoppingToken = default)
+    {
+        if (!_paths.DspTablesEnabled)
+        {
+            _logger.LogInformation("DspTables:Enabled=false, skipping AASX load and DSP DB initialization.");
+            return false;
+        }
+
+        var success = await InitializeFromAasxWithRetryAsync(stoppingToken);
+
+        if (success)
+        {
+            _logger.LogInformation("Initializing PlcToCallMapper...");
+            _mapper.Initialize();
+
+            _logger.LogInformation("Initializing FlowMetricsService...");
+            await _flowMetricsService.InitializeAsync();
+        }
+
+        return success;
     }
 
     private async Task<bool> InitializeFromAasxWithRetryAsync(CancellationToken stoppingToken)
@@ -110,6 +119,10 @@ public class DspDatabaseServiceAdapter : BackgroundService
 
     private async Task<(int flowCount, int callCount)> InitializeFromAasxAsync()
     {
+        // Hub 모니터링 단독 시나리오에서는 PlcCapture 가 꺼져 있어 EV2 가 스키마를 만들지 않음.
+        // DsPilot 이 직접 dsp* 테이블을 보장한다.
+        await _dspRepository.CreateSchemaAsync();
+
         var allFlows = _projectService.GetAllFlows().ToList();
         _logger.LogInformation("Total flows in AASX: {Count}", allFlows.Count);
 

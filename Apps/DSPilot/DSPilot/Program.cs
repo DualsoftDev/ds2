@@ -1,9 +1,17 @@
 using DSPilot.Services;
 using DSPilot.Repositories;
-using DSPilot.Abstractions;
 using DSPilot.Adapters;
+using DSPilot.Infrastructure;
 using System.Data.Common;
 using Microsoft.Extensions.Hosting.WindowsServices;
+using Dapper;
+
+// Dapper Guid <-> SQLite TEXT 양방향 매핑 (dspCall.callId 등이 TEXT 로 저장됨)
+// Microsoft.Data.Sqlite 의 기본 BLOB 시도를 우회.
+SqlMapper.RemoveTypeMap(typeof(Guid));
+SqlMapper.RemoveTypeMap(typeof(Guid?));
+SqlMapper.AddTypeHandler(new SqliteGuidHandler());
+SqlMapper.AddTypeHandler(new SqliteNullableGuidHandler());
 
 // Windows 서비스 실행 시 작업 디렉터리가 System32이므로 exe 위치로 변경
 if (WindowsServiceHelpers.IsWindowsService())
@@ -14,7 +22,6 @@ AppSettingsService.EnsureSettingsFiles(Environment.CurrentDirectory);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
-var defaultEv2ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcCapture:ScanIntervalMs", 100);
 
 // 진단 모드 체크
 if (args.Contains("--diagnose"))
@@ -34,9 +41,6 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<DatabasePathResolverAdapter>();
 builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService<DatabasePathResolverAdapter>());
 
-// Bootstrap service for EV2 + DSP schema initialization - F# Adapter 사용
-builder.Services.AddHostedService<Ev2BootstrapServiceAdapter>();
-
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DsProjectService>();
@@ -48,9 +52,8 @@ builder.Services.AddSingleton<PlcDebugService>();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddSingleton<PlcIoDataService>();
 
-// PLC 데이터 읽기 서비스 등록
+// PLC 데이터 읽기 서비스 (plcTag/plcTagLog 조회 — Hub 가 채운 데이터를 UI 에서 사용)
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
-builder.Services.AddHostedService<PlcDataReaderService>();
 
 // DSP 데이터베이스 서비스 등록 - F# Adapter 사용
 builder.Services.AddSingleton<DspRepositoryAdapter>(sp =>
@@ -63,55 +66,50 @@ builder.Services.AddSingleton<DspRepositoryAdapter>(sp =>
 // Register as interface for existing consumers
 builder.Services.AddSingleton<IDspRepository>(sp => sp.GetRequiredService<DspRepositoryAdapter>());
 
-// Tracking services (F# Engine integration)
+// Tag → Call 매핑 + 상태 변경 알림
 builder.Services.AddSingleton<PlcToCallMapperService>();
-builder.Services.AddSingleton<PlcTagStateTrackerService>();
 builder.Services.AddSingleton<CallStateNotificationService>();
-
-builder.Services.AddSingleton<CallStatisticsService>();
-builder.Services.AddSingleton<StateTransitionService>();
-builder.Services.AddSingleton<InMemoryCallStateStore>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
-builder.Services.AddHostedService<DspDatabaseServiceAdapter>();
+// DspDatabaseServiceAdapter — Singleton 으로도 등록해서 Settings 페이지가 BootstrapAsync 를 다시 호출 가능
+builder.Services.AddSingleton<DspDatabaseServiceAdapter>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DspDatabaseServiceAdapter>());
+
+// plc.db 라이프사이클 (삭제 + 재로딩 + 엔진 재시작) — Settings UI 에서 호출
+builder.Services.AddSingleton<DatabaseLifecycleService>();
 
 // Real-time monitoring broadcast service
 builder.Services.AddHostedService<MonitoringBroadcastService>();
 
-// Real-time PLC Database Monitor (실제 DB에서 변경사항 감지 및 브로드캐스트)
+// Real-time PLC Database Monitor (plcTagLog 변경 감지 및 SignalR 브로드캐스트 — PlcDebug 페이지용)
 builder.Services.AddHostedService<PlcDatabaseMonitorService>();
 
-// Ev2.Backend.PLC 기반 실시간 이벤트 처리 (F# StateTransition 통합)
-var plcConnectionEnabled = builder.Configuration.GetValue<bool>("PlcConnection:Enabled");
-if (plcConnectionEnabled)
+// plcTagLog 배치 writer (250ms / 100건 단위 트랜잭션 INSERT) — Singleton + HostedService
+builder.Services.AddSingleton<PlcTagLogWriterService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PlcTagLogWriterService>());
+
+// plcTagLog retention — 30일 이상 된 행 자동 삭제 (디스크 폭증 방지)
+builder.Services.AddHostedService<PlcTagLogRetentionService>();
+
+// Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
+builder.Services.AddSingleton<SimulationEngineService>();
+
+// Promaker SignalHub(localhost:5050/hub/signal) 클라이언트 — Control/VirtualPlant 모니터링 입력
+var hubEnabled = builder.Configuration.GetValue<bool>("Hub:Enabled");
+if (hubEnabled)
 {
-    // PLC 연결 설정
-    var plcConfig = new PlcConnectionConfig
-    {
-        PlcName = builder.Configuration["PlcConnection:PlcName"] ?? "PLC_01",
-        IpAddress = builder.Configuration["PlcConnection:IpAddress"] ?? "192.168.0.100",
-        ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcConnection:ScanIntervalMs", defaultEv2ScanIntervalMs),
-        TagAddresses = builder.Configuration.GetSection("PlcConnection:TagAddresses").Get<List<string>>() ?? new List<string>()
-    };
-
-    builder.Services.AddSingleton(plcConfig);
-    builder.Services.AddSingleton<IPlcEventSource, Ev2PlcEventSource>();
-    builder.Services.AddHostedService<PlcEventProcessorService>();
-
-    builder.Logging.AddConsole();
-    builder.Logging.SetMinimumLevel(LogLevel.Debug);
-}
-
-// PLC Capture 서비스 등록 (DsStore → PLC → DB)
-var captureEnabled = builder.Configuration.GetValue<bool>("PlcCapture:Enabled");
-if (captureEnabled)
-{
-    builder.Services.AddHostedService<PlcCaptureService>();
-    builder.Logging.AddConsole();
-    builder.Logging.SetMinimumLevel(LogLevel.Information);
+    builder.Services.AddHostedService<HubSubscriberService>();
 }
 
 var app = builder.Build();
+
+// H1 fix: HostedService 시작 전에 plc.db 스키마를 보장 — Hub 신호가 빨리 들어와도
+// BootstrapPlcTags 가 plcTag 없는 상태에서 INSERT 실패하지 않도록.
+{
+    var dspRepoEarly = app.Services.GetRequiredService<DspRepositoryAdapter>();
+    var schemaOk = await dspRepoEarly.CreateSchemaAsync();
+    app.Logger.LogInformation("[Startup] Eager schema creation: {Ok}", schemaOk);
+}
 
 if (!app.Environment.IsDevelopment())
 {
@@ -162,23 +160,6 @@ app.MapRazorComponents<DSPilot.Components.App>()
 app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
 
 app.Run();
-
-static int ResolveScanIntervalMs(IConfiguration configuration, string legacyKey, int fallbackMs)
-{
-    var configuredMs = configuration.GetValue<int?>(legacyKey);
-    if (configuredMs.HasValue && configuredMs.Value > 0)
-    {
-        return configuredMs.Value;
-    }
-
-    var configuredValue = configuration["ScanInterval"];
-    if (TimeSpan.TryParse(configuredValue, out var configuredInterval) && configuredInterval > TimeSpan.Zero)
-    {
-        return (int)Math.Max(1, configuredInterval.TotalMilliseconds);
-    }
-
-    return fallbackMs;
-}
 
 static string? ResolveConfiguredDatabasePath(IConfiguration configuration)
 {
