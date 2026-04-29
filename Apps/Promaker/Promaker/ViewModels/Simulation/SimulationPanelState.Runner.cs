@@ -248,6 +248,7 @@ public partial class SimulationPanelState
             _simStartTime = DateTime.Now;
             _stateChangeRecords.Clear();
             _suppressedWarnings.Clear();
+            _stepPrimingDone = false;
             HasReportData = false;
             SimEventLog.Clear();
 
@@ -382,6 +383,7 @@ public partial class SimulationPanelState
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
+        _stepPrimingDone = false;
 
         SimStatusText = SimText.Stopped;
         _sceneEventHandler?.Reset();
@@ -413,6 +415,9 @@ public partial class SimulationPanelState
         _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
     }
 
+    private bool _pendingFirstStepAfterStart;
+    private bool _stepPrimingDone;
+
     private void OnHomingPhaseCompleted(object? sender, EventArgs e)
     {
         if (_simEngine is not null)
@@ -423,6 +428,14 @@ public partial class SimulationPanelState
             SimStatusText = SimText.Running;
             _setStatusText(SimText.Started);
             AddSimLog("시뮬레이션 자동 원위치 완료", LogSeverity.System);
+
+            // STEP 으로 시뮬을 시작한 경우: Homing 완료 후 자동 PauseSimulation + STEP 재진입.
+            if (_pendingFirstStepAfterStart)
+            {
+                _pendingFirstStepAfterStart = false;
+                PauseSimulation();
+                _ = StepSimulationAsync();
+            }
         });
     }
 
@@ -442,6 +455,7 @@ public partial class SimulationPanelState
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
+        _stepPrimingDone = false;
         SimStatusText = SimText.Reset;
         ApplySimulationUiState(
             statusText: SimText.Reset,
@@ -453,69 +467,124 @@ public partial class SimulationPanelState
     [RelayCommand(CanExecute = nameof(CanStepSimulation))]
     private async Task StepSimulationAsync()
     {
+        // 시뮬 시작 안 한 상태면 STEP 으로 Start.
+        if (!IsSimulating)
+        {
+            // Homing 페이즈가 있는 모델이면 OnHomingPhaseCompleted 가 끝난 후 자동으로
+            // PauseSimulation + STEP 재호출 하도록 flag set. (polling/Sleep 안 씀)
+            _pendingFirstStepAfterStart = true;
+            StartSimulation();
+            if (_simEngine is null)
+            {
+                _pendingFirstStepAfterStart = false;
+                return;
+            }
+            if (IsHomingPhase)
+                return;  // OnHomingPhaseCompleted 가 이어서 처리
+
+            _pendingFirstStepAfterStart = false;
+            PauseSimulation();
+        }
+
         if (_simEngine is null) return;
         var engine = _simEngine;
         SimStatusText = SimText.StepMode;
 
         var (selectedSourceGuid, autoStartSources) = GetStepAdvanceSelection();
 
-        // 1) Source prime — 명시적 token + Going (Source 가 Ready+token 없음일 때만)
-        if (autoStartSources)
+        // Source priming — *첫 STEP* 에만 호출. 이후 STEP 에선 자연 cascade/cycle 따라감.
+        // 매 STEP 호출 시 NewFlow.NewWork 가 cycle 끝나서 Ready 로 돌아오는 시점마다 다시
+        // ForceWorkState(Going) 호출되면 NewFlow1 안 끝났는데 NewFlow 가 또 시작하는 race 발생.
+        if (!_stepPrimingDone)
         {
-            foreach (var sg in engine.Index.TokenSourceGuids)
-                if (engine.GetWorkToken(sg) is null)
-                    engine.StartSourceWork(sg);
+            if (autoStartSources)
+            {
+                foreach (var sg in engine.Index.TokenSourceGuids)
+                {
+                    if (engine.GetWorkToken(sg) is null)
+                        engine.StartSourceWork(sg);
+                }
+            }
+            else if (selectedSourceGuid != Guid.Empty)
+            {
+                if (SimIndexModule.isTokenSource(engine.Index, selectedSourceGuid))
+                {
+                    if (engine.GetWorkToken(selectedSourceGuid) is null)
+                        engine.StartSourceWork(selectedSourceGuid);
+                }
+                else
+                {
+                    var st = engine.GetWorkState(selectedSourceGuid);
+                    if (st is not null && FSharpOption<Status4>.get_IsSome(st) && st.Value == Status4.Ready)
+                        engine.ForceWorkState(selectedSourceGuid, Status4.Going);
+                }
+            }
+            _stepPrimingDone = true;
         }
-        else if (selectedSourceGuid != Guid.Empty && engine.GetWorkToken(selectedSourceGuid) is null)
-            engine.StartSourceWork(selectedSourceGuid);
 
-        // 2) Resume → simulation thread 시작 (RuntimeClock.Reset, elapsed 0 부터 자연 흐름)
-        engine.SetAllFlowStates(FlowTag.Drive);
-        engine.Resume();
-        GanttChart.IsRunning = true;
+        Guid[] batch;
 
         try
         {
-            // 3) cascade events 처리 시간 (50ms) — 그 후 새 nextEventTime 결정됨
-            await Task.Delay(50);
+            batch = engine.BeginStepBatch(selectedSourceGuid, autoStartSources);
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("Simulation step failed", ex);
+            _setStatusText(SimText.SimulationError(ex.Message));
+            return;
+        }
 
-            // 4) nextEventTime 까지 real-time wait — simulation thread 가 자연 흐름으로 진행 (events 점진 trigger)
-            var nextEventTimeMs = engine.NextEventTimeMs;
-            var currentMs = engine.CurrentTimeMs;
-            if (nextEventTimeMs is not null)
+        var progressed = false;
+
+        // batch 의 unit 모두 finish 까지 단계적 advance + wait.
+        // 각 nextEventTime 까지 real-time wait 후 그 시점에 AdvanceSimulationTo 호출 →
+        // 이벤트들이 그 시점에 발화 → GanttChart 가 시간선 따라 표시 (점프 X).
+        GanttChart.IsRunning = true;
+        try
+        {
+            var guard = 0;
+            while (engine.IsStepBatchActive(batch) && guard < 256)
             {
-                var stepMs = nextEventTimeMs.Value - currentMs;
-                if (stepMs > 0)
+                guard++;
+                var nextEventTime = engine.NextEventTimeMs;
+                if (nextEventTime is null) break;
+
+                var simDelta = nextEventTime.Value - engine.CurrentTimeMs;
+                if (simDelta > 0)
                 {
                     var speed = Math.Max(0.000001, engine.SpeedMultiplier);
-                    var realWaitMs = (int)Math.Ceiling(stepMs / speed);
+                    var realWaitMs = (int)Math.Ceiling(simDelta / speed);
                     if (realWaitMs > 0)
                         await Task.Delay(realWaitMs);
                 }
+                engine.AdvanceSimulationTo(nextEventTime.Value);
+                progressed = true;
             }
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("Simulation step advance failed", ex);
+            _setStatusText(SimText.SimulationError(ex.Message));
         }
         finally
         {
-            // 5) 다시 Pause — status=Paused → simulation thread 종료, 시계 정지
-            engine.SetAllFlowStates(FlowTag.Pause);
-            engine.Pause();
+            engine.EndStep();
             GanttChart.IsRunning = false;
+            GanttChart.CurrentTime = ToGanttTimestamp(engine.State.Clock);
         }
 
-        AddSimLog("STEP 실행", LogSeverity.System);
+        AddSimLog(progressed ? "STEP 실행" : "STEP 진행 없음", LogSeverity.System);
         RefreshSimulationProgressUi();
-        // STEP 완료 후 Paused 표시. RefreshStepModeUi 가 anyGoingCall/hasActiveDuration 보고
-        // StepMode 로 덮어쓰는 걸 다시 Paused 로.
         SimStatusText = SimText.Paused;
     }
 
-    private bool CanStepSimulation() => IsSimulating
-        && IsSimPaused
+    private bool CanStepSimulation() =>
+        (!IsSimulating || IsSimPaused)
         && !IsHomingPhase
-        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring)
-        && _simEngine is not null;
-        // engine.CanAdvanceStep 의 hasGoingCall 가드는 새 STEP 흐름 (Resume + auto-Pause)
-        // 에 안 맞아서 제거 — Going Call 남아있어도 다음 STEP 으로 자연 진행.
+        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring);
+        // !IsSimulating 인 경우에도 활성 — StepSimulationAsync 가 StartSimulation 호출 후 첫 STEP 진행.
+        // engine.CanAdvanceStep 가드는 PAUSE 직후 cascade 처리 전 상태에서 false 반환해 stuck 되므로 미사용.
     private void DisposeSimEngine()
     {
         TryDisposeCurrentEngine("Simulation dispose");

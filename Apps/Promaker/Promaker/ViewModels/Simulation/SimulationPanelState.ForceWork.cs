@@ -64,12 +64,14 @@ public partial class SimulationPanelState
 
     private (Guid SelectedSourceGuid, bool AutoStartSources) GetStepAdvanceSelection()
     {
+        // SelectedSimWork 미지정 또는 IsAutoStart 시 모든 source 자동 prime (autoStartSources=true).
+        // SelectedSimWork 지정 시 그 work 가 source 가 아니더라도 STEP 으로 강제 시작 (Start 와 동일).
         if (SelectedSimWork is null)
-            return (Guid.Empty, false);
+            return (Guid.Empty, true);
         if (SelectedSimWork.IsAutoStart)
             return (Guid.Empty, true);
         if (SelectedSimWork.Guid == Guid.Empty)
-            return (Guid.Empty, false);
+            return (Guid.Empty, true);
         return (SelectedSimWork.Guid, false);
     }
 

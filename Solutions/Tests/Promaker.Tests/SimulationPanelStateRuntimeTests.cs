@@ -96,6 +96,32 @@ public sealed class SimulationPanelStateRuntimeTests
         });
     }
 
+    [Fact]
+    public void Step_uses_engine_step_boundary_without_resuming_runtime_thread()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = BuildSourceStore(out _);
+            var index = SimIndexModule.build(store, 10);
+            var engine = new FakeSimulationEngine(index);
+            var state = CreateState(() => store);
+
+            SetSimEngine(state, engine);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+            state.SelectedSimWork = SimWorkItem.AutoStart;
+
+            Assert.True(state.StepSimulationCommand.CanExecute(null));
+            state.StepSimulationCommand.Execute(null);
+
+            Assert.Equal([(Guid.Empty, true)], engine.StepWithSourcePrimingCalls);
+            Assert.Equal(0, engine.ResumeCalls);
+            Assert.Equal(0, engine.PauseCalls);
+            Assert.Empty(engine.StartedSourceGuids);
+            Assert.False(state.GanttChart.IsRunning);
+        });
+    }
+
     private static SimulationPanelState CreateState(
         Func<DsStore>? storeProvider = null,
         Action<string>? setStatusText = null) =>
@@ -183,6 +209,11 @@ public sealed class SimulationPanelStateRuntimeTests
         public List<Guid> SeededSourceGuids { get; } = [];
         public List<Guid> StartedSourceGuids { get; } = [];
         public List<(Guid WorkGuid, Status4 State)> ForcedWorkTransitions { get; } = [];
+        public List<(Guid SelectedSourceGuid, bool AutoStartSources)> StepWithSourcePrimingCalls { get; } = [];
+        public int PauseCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
+        public bool CanAdvanceStepResult { get; set; } = true;
+        public bool StepWithSourcePrimingResult { get; set; } = true;
 
         public event FSharpHandler<WorkStateChangedArgs>? WorkStateChanged;
         public event FSharpHandler<CallStateChangedArgs>? CallStateChanged;
@@ -204,8 +235,8 @@ public sealed class SimulationPanelStateRuntimeTests
         public bool IsHomingPhase => false;
 
         public void Start() => throw new NotSupportedException();
-        public void Pause() => throw new NotSupportedException();
-        public void Resume() => throw new NotSupportedException();
+        public void Pause() => PauseCalls++;
+        public void Resume() => ResumeCalls++;
         public void Stop() { }
         public void Reset() => throw new NotSupportedException();
         public void ApplyInitialStates() => throw new NotSupportedException();
@@ -215,8 +246,12 @@ public sealed class SimulationPanelStateRuntimeTests
         public void SetAllFlowStates(FlowTag tag) => throw new NotSupportedException();
         public FlowTag GetFlowState(Guid flowGuid) => FlowTag.Ready;
         public bool Step() => throw new NotSupportedException();
-        public bool CanAdvanceStep(Guid selectedSourceGuid, bool autoStartSources) => throw new NotSupportedException();
-        public bool StepWithSourcePriming(Guid selectedSourceGuid, bool autoStartSources) => throw new NotSupportedException();
+        public bool CanAdvanceStep(Guid selectedSourceGuid, bool autoStartSources) => CanAdvanceStepResult;
+        public bool StepWithSourcePriming(Guid selectedSourceGuid, bool autoStartSources)
+        {
+            StepWithSourcePrimingCalls.Add((selectedSourceGuid, autoStartSources));
+            return StepWithSourcePrimingResult;
+        }
         public void ReloadConnections() => throw new NotSupportedException();
         public void ReloadDurations() => throw new NotSupportedException();
         public void InjectIOValue(Guid apiCallGuid, string value) => throw new NotSupportedException();

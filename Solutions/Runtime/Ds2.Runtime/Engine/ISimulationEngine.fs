@@ -59,6 +59,16 @@ type ISimulationEngine =
     /// Source priming까지 포함해 STEP을 수행합니다.
     abstract StepWithSourcePriming: selectedSourceGuid: Guid * autoStartSources: bool -> bool
 
+    /// 단계적 STEP 진행용 (UI 측에서 nextEventTime 마다 wait 후 advance 호출):
+    /// Drive flow + source priming + cascade 처리 후 batch (Going Call + leaf-like Going Work) 반환.
+    abstract BeginStepBatch: selectedSourceGuid: Guid * autoStartSources: bool -> Guid[]
+    /// batch 의 Call/Work 중 하나라도 아직 Going 인지.
+    abstract IsStepBatchActive: batch: Guid[] -> bool
+    /// sim clock 을 targetTimeMs 까지 advance + 그 시점까지 due 한 events 처리.
+    abstract AdvanceSimulationTo: targetTimeMs: int64 -> unit
+    /// STEP 종료: FlowTag.Pause 복원.
+    abstract EndStep: unit -> unit
+
     /// 현재 Store 기준으로 연결 topology만 다시 계산합니다.
     abstract ReloadConnections: unit -> unit
 
