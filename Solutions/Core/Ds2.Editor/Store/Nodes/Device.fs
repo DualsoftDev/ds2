@@ -36,18 +36,22 @@ module internal DirectDeviceOps =
                             w.SetSimulationProperties(props))
             | _ -> ()
 
-            // Work 쌍마다 상호 리셋 Arrow 생성
-            works
-            |> List.pairwise
-            |> List.iter (fun (src, dst) ->
-                let alreadyExists =
-                    existingArrows |> List.exists (fun a ->
-                        a.ArrowType = ArrowType.ResetReset &&
-                        ((a.SourceId = src.Id && a.TargetId = dst.Id) ||
-                         (a.SourceId = dst.Id && a.TargetId = src.Id)))
-                if not alreadyExists then
-                    let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
-                    store.TrackAdd(store.ArrowWorks, arrow))
+            // Work 모든 unique 쌍마다 상호 리셋 Arrow 생성 (N*(N-1)/2 개).
+            // pairwise 는 인접 쌍 (N-1 개) 만 생성해서 같은 Device 의 Work 들이 일부만
+            // 상호 reset 으로 연결되던 문제 → 모든 쌍 (i<j) 으로 변경.
+            let workArr = List.toArray works
+            for i in 0 .. workArr.Length - 2 do
+                for j in i + 1 .. workArr.Length - 1 do
+                    let src = workArr.[i]
+                    let dst = workArr.[j]
+                    let alreadyExists =
+                        existingArrows |> List.exists (fun a ->
+                            a.ArrowType = ArrowType.ResetReset &&
+                            ((a.SourceId = src.Id && a.TargetId = dst.Id) ||
+                             (a.SourceId = dst.Id && a.TargetId = src.Id)))
+                    if not alreadyExists then
+                        let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
+                        store.TrackAdd(store.ArrowWorks, arrow)
 
     let private initialState = {
         PendingSystems      = Map.empty
