@@ -183,6 +183,12 @@ public class GanttChartState : INotifyPropertyChanged
         VerticalOffset = 0;
     }
 
+    /// <summary>
+    /// entry 당 보관할 최대 segment 수. VP/Control 같이 외부 신호로 장시간 가동되는 모드에서
+    /// 무한 Add 시 OOM 으로 이어지므로 가장 오래된 segment 부터 잘라낸다.
+    /// </summary>
+    public const int MaxSegmentsPerEntry = 2000;
+
     public void UpdateNodeState(Guid nodeId, Status4 newState, DateTime timestamp)
     {
         var entry = FindEntry(nodeId);
@@ -202,6 +208,8 @@ public class GanttChartState : INotifyPropertyChanged
                 State = newState,
                 StartTime = timestamp
             });
+            while (entry.Segments.Count > MaxSegmentsPerEntry)
+                entry.Segments.RemoveAt(0);
         }
 
         entry.CurrentState = newState;
