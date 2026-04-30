@@ -22,6 +22,11 @@ public class DspDbService : IDisposable
     // Going 상태 추적: CallName → Going 시작 시간
     private readonly Dictionary<string, DateTime> _goingStartTimes = new();
 
+    // Flow.state 강제 hold (예: Tail Call Finish 시 "Finish" 상태를 최소 N ms 동안 보장).
+    // 시뮬레이션은 cycle 사이 gap 이 거의 0ms 라 일반 로직으로는 Finish 가 안 보이므로,
+    // hold 기간 동안 다른 path 가 flow.state 를 override 못하게 막는다.
+    private readonly Dictionary<string, DateTime> _flowStateLockedUntil = new();
+
     // 인메모리 이벤트 채널: PlcDataReaderService가 상태 변경 즉시 여기에 쓴다
     private readonly Channel<CallStateChangedEvent> _channel =
         Channel.CreateBounded<CallStateChangedEvent>(
@@ -139,15 +144,16 @@ public class DspDbService : IDisposable
                 .Select(c => c.Id == oldCall.Id ? updatedCall : c)
                 .ToList();
 
-            // Flow.state 도 즉시 갱신 — 같은 Flow 안에 Going Call 존재 여부에 따라.
-            // 이게 없으면 dspFlow.state DB 갱신 후 1초 폴링까지 Dashboard 가 lag.
+            // Flow.state — Going 진입은 즉시 upgrade, Ready 다운그레이드는 폴링에 위임 (점멸 방지).
+            // SetFlowStateWithHold 로 잠긴 flow 는 hold 기간 동안 변경 안 함 (Tail Finish 시 "Finish" 보장).
             var updatedFlows = oldSnapshot.Flows
                 .Select(f =>
                 {
                     if (f.FlowName != updatedCall.FlowName) return f;
+                    if (IsFlowStateLocked(f.FlowName)) return f;  // hold 활성 — 변경 차단
                     var hasGoing = updatedCalls.Any(c => c.FlowName == f.FlowName && c.State == "Going");
-                    var newFlowState = hasGoing ? "Going" : "Ready";
-                    if (f.State == newFlowState) return f;
+                    if (!hasGoing) return f;          // 다운그레이드 안 함 — 폴링이 처리
+                    if (f.State == "Going") return f; // 이미 Going
                     return new FlowState
                     {
                         Id = f.Id,
@@ -158,7 +164,7 @@ public class DspDbService : IDisposable
                         AvgMT = f.AvgMT,
                         AvgWT = f.AvgWT,
                         AvgCT = f.AvgCT,
-                        State = newFlowState,
+                        State = "Going",
                         MovingStartName = f.MovingStartName,
                         MovingEndName = f.MovingEndName,
                     };
@@ -514,6 +520,28 @@ public class DspDbService : IDisposable
 
                 if (!hasChanged) return;
 
+                // hold 활성 flow 는 polling 결과로 override 하지 않음 (예: Tail Finish "Finish" 보장)
+                if (_flowStateLockedUntil.Count > 0)
+                {
+                    for (var i = 0; i < flows.Count; i++)
+                    {
+                        var f = flows[i];
+                        if (IsFlowStateLocked(f.FlowName)
+                            && oldFlowsMap.TryGetValue(f.Id, out var oldFlow))
+                        {
+                            flows[i] = new FlowState
+                            {
+                                Id = f.Id, FlowName = f.FlowName,
+                                MT = f.MT, WT = f.WT, CT = f.CT,
+                                AvgMT = f.AvgMT, AvgWT = f.AvgWT, AvgCT = f.AvgCT,
+                                State = oldFlow.State,           // hold 중인 state 유지
+                                MovingStartName = f.MovingStartName,
+                                MovingEndName = f.MovingEndName,
+                            };
+                        }
+                    }
+                }
+
                 var callsByFlow = calls
                     .GroupBy(c => c.FlowName)
                     .ToDictionary(g => g.Key, g => g.ToList());
@@ -544,6 +572,49 @@ public class DspDbService : IDisposable
         var count = (long)(cmd.ExecuteScalar() ?? 0L);
         return count > 0;
     }
+
+    /// <summary>
+    /// Flow.state 를 지정한 값으로 강제 설정하고 holdMs 동안 다른 path 가 override 못하게 잠금.
+    /// 사용처: Tail Call Finish 시 dspFlow.state = "Finish" 를 최소 250ms 보장 — 시뮬에서도 Finish 가 보이도록.
+    /// </summary>
+    public void SetFlowStateWithHold(string flowName, string state, int holdMs)
+    {
+        if (string.IsNullOrEmpty(flowName) || string.IsNullOrEmpty(state)) return;
+
+        lock (_snapshotLock)
+        {
+            var old = _snapshot;
+            var flow = old.Flows.FirstOrDefault(f => f.FlowName == flowName);
+            if (flow is null) return;
+            if (flow.State == state)
+            {
+                _flowStateLockedUntil[flowName] = DateTime.Now.AddMilliseconds(holdMs);
+                return;
+            }
+            var updatedFlows = old.Flows.Select(f => f.FlowName == flowName
+                ? new FlowState
+                {
+                    Id = f.Id, FlowName = f.FlowName,
+                    MT = f.MT, WT = f.WT, CT = f.CT,
+                    AvgMT = f.AvgMT, AvgWT = f.AvgWT, AvgCT = f.AvgCT,
+                    State = state,
+                    MovingStartName = f.MovingStartName, MovingEndName = f.MovingEndName,
+                }
+                : f).ToList();
+            _snapshot = new DspDbSnapshot
+            {
+                Flows = updatedFlows,
+                Calls = old.Calls,
+                CallsByFlow = old.CallsByFlow,
+                Timestamp = DateTimeOffset.UtcNow,
+            };
+            _flowStateLockedUntil[flowName] = DateTime.Now.AddMilliseconds(holdMs);
+        }
+        OnDataChanged?.Invoke();
+    }
+
+    private bool IsFlowStateLocked(string flowName)
+        => _flowStateLockedUntil.TryGetValue(flowName, out var until) && DateTime.Now < until;
 
     /// <summary>
     /// 인메모리 스냅샷 / 진행률 캐시 클리어. plc.db 삭제 후 재로딩 시 stale 데이터 제거용.

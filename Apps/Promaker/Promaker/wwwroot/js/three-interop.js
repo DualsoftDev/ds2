@@ -4909,6 +4909,13 @@ const Ev23DViewer = {
                             obj.scale.setScalar(pulse);
                         }
 
+                        // AAS icon floating — same pattern as work view animation loop
+                        if (obj.userData && obj.userData.isAASIcon) {
+                            const floatOffset = obj.userData.floatOffset || 0;
+                            const baseY = obj.userData.baseY || 0;
+                            obj.position.y = baseY + Math.sin(time * 1.5 + floatOffset) * 0.3;
+                        }
+
                         // Lib3D motion animation (apiDef Going state → animate toward target)
                         if (obj.userData && obj.userData.isDeviceIndicator && obj.userData.activeAnimation) {
                             if (window.Ds2View3DLibrary) {
@@ -5225,6 +5232,19 @@ const Ev23DViewer = {
         // hover 툴팁용 — group/model 어느 쪽이 raycast 에 걸려도 찾을 수 있도록
         group.userData.deviceName = deviceFullName;
         if (model) model.userData.deviceName = deviceFullName;
+
+        // AASX icon floating above the device label
+        // 라벨(sprite scale 1.875 → 약 ±0.94) 위로 약간 띄움
+        const aasIconBaseY = labelY + 1.6;
+        const aasIcon = this._createAASIcon();
+        aasIcon.position.set(0, aasIconBaseY, 0);
+        aasIcon.scale.set(1.0, 1.0, 1);
+        aasIcon.userData.floatOffset = Math.random() * Math.PI * 2;
+        aasIcon.userData.isAASIcon = true;
+        aasIcon.userData.baseY = aasIconBaseY;
+        aasIcon.userData.deviceId = device.id;
+        aasIcon.userData.deviceData = device;
+        group.add(aasIcon);
 
         return { group, indicator: model };
     },
@@ -7403,6 +7423,18 @@ const Ev23DViewer = {
         label.position.set(0, labelY, 0);
         label.userData.deviceId = device.id;
         group.add(label);
+
+        // AASX icon floating above the label (label sprite scale 2.5 → top ≈ labelY+1.25)
+        const aasIconBaseY = labelY + 2.0;
+        const aasIcon = this._createAASIcon();
+        aasIcon.position.set(0, aasIconBaseY, 0);
+        aasIcon.scale.set(1.0, 1.0, 1);
+        aasIcon.userData.floatOffset = Math.random() * Math.PI * 2;
+        aasIcon.userData.isAASIcon = true;
+        aasIcon.userData.baseY = aasIconBaseY;
+        aasIcon.userData.deviceId = device.id;
+        aasIcon.userData.deviceData = device;
+        group.add(aasIcon);
 
         return { group, indicator: model };
     },
