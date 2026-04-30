@@ -45,6 +45,9 @@ public partial class CallCreateDialog : Window
     // ─── SystemType 출력 ───
     public string? SelectedSystemType { get; private set; } = null;
 
+    /// <summary>true=Call+ApiCall+passive device 생성 (기본). false=Call만 생성 (ApiName 미입력 → Api_None).</summary>
+    public bool CreateDeviceSystem { get; private set; } = true;
+
     public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, Project? project = null)
     {
         _findApiDefsByName = findApiDefsByName;
@@ -261,7 +264,11 @@ public partial class CallCreateDialog : Window
         if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null; }
 
         var apiResult = InputValidation.validateApiNames(apiNameBox.Text);
-        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return null; }
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse)
+        {
+            CreateDeviceSystem = false;
+            return (alias, new List<string> { "Api_None" });
+        }
         if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null; }
 
         var apiNames = ((InputValidation.ApiNameValidationResult.Valid)apiResult).Item.ToList();

@@ -70,6 +70,7 @@ module DevicePresets =
         ("RobotWeldGrip",       "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK", "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼")
         ("RobotWeldGripPallet", "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK;PLT1_IN_OK;PLT2_IN_OK;PLT3_IN_OK;PLT4_IN_OK;PLT1_COUNT_RST;PLT2_COUNT_RST;PLT3_COUNT_RST;PLT4_COUNT_RST", "FB496_Robot_Kawasaki_v3_260225_종합")
         ("Part", "ADV;RET", "")
+        ("ModeStn", "", "FB402_Mode_Stn_v2")
     |]
 
     /// SystemType → 기본 FB 이름 lookup (XGI_Template.xml 기준).

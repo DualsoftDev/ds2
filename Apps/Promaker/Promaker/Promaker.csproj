@@ -60,6 +60,7 @@
 
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoXGI\AAStoXGI.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.IOList\Ds2.IOList.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
@@ -73,9 +74,6 @@
   </ItemGroup>
   <!-- AAStoXGI 는 외부 repo 산출물을 DLL 로만 참조 (ProjectReference 사용 금지). -->
   <ItemGroup>
-    <Reference Include="AAStoXGI">
-      <HintPath>..\..\..\ExternalDlls\AAStoXGI.dll</HintPath>
-    </Reference>
     <Reference Include="AAStoXGI.LadderViewer">
       <HintPath>..\..\..\ExternalDlls\AAStoXGI.LadderViewer.dll</HintPath>
     </Reference>

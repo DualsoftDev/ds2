@@ -74,27 +74,43 @@ public static class IoQueryService
             errors.Add($"저장된 IO 태그 조회 실패: {ex.Message}");
         }
 
-        // (2) Api_None 보충 — 파이프라인 1회 실행. 실패해도 (1) 결과는 그대로 반환.
+        // (2) 통합 파이프라인 — Api_None IW/QW + Dummy(MW) 모두 한 번에 emit.
         try
         {
-            using var tempDir = PresetToTempTemplateDir.Materialize(store);
-            var result = IoListPipeline.generate(store, tempDir.Path);
+            var bundle = IoSignalPipeline.GenerateAll(store);
+            foreach (var msg in bundle.ErrorMessages)   errors.Add($"파이프라인: {msg}");
+            foreach (var msg in bundle.WarningMessages) errors.Add($"파이프라인 경고: {msg}");
 
-            foreach (var err in result.Errors)
-                errors.Add($"파이프라인: {err.Message}");
-
-            // Api_None 행 추가 — DeviceAlias 가 비어있는 경우 "Api_None" 으로 표기.
-            foreach (var row in IoSignalPipeline.BuildApiNoneRows(result))
+            // Api_None IW/QW (ApiCallId=Empty) 행 추가.
+            foreach (var row in bundle.IoRows.Where(r => r.ApiCallId == Guid.Empty))
             {
                 if (string.IsNullOrWhiteSpace(row.Device))
                     rows.Add(WithDevicePlaceholder(row));
                 else
                     rows.Add(row);
             }
+
+            // Dummy(MW) 신호 — Out* 컬럼에 매핑.
+            foreach (var d in bundle.DummyRows)
+            {
+                rows.Add(new IoBatchRow(
+                    callId:      Guid.Empty,
+                    apiCallId:   Guid.Empty,
+                    flow:        d.Flow,
+                    work:        d.Work,
+                    device:      string.IsNullOrWhiteSpace(d.Call) ? IoConstants.ApiNoneSentinel : d.Call,
+                    api:         IoConstants.ApiNoneSentinel,
+                    inAddress:   "",
+                    inSymbol:    "",
+                    outAddress:  d.Address ?? "",
+                    outSymbol:   d.Symbol ?? "",
+                    outDataType: string.IsNullOrEmpty(d.DataType) ? "BOOL" : d.DataType,
+                    inDataType:  ""));
+            }
         }
         catch (Exception ex)
         {
-            errors.Add($"Api_None 보충 실패: {ex.Message}");
+            errors.Add($"Api_None/Dummy 보충 실패: {ex.Message}");
         }
 
         return new QueryResult(rows, unmatched, errors);

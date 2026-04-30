@@ -182,7 +182,7 @@ public partial class MainViewModel
         {
             case CallCreateMode.CallReplication:
                 if (TryCreateSiblingDiffWithCascade(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true, systemTypeOption),
+                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, dialog.CreateDeviceSystem, systemTypeOption),
                     TabKind.Work,
                     targetWorkId,
                     rawPos,

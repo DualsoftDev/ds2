@@ -1,13 +1,12 @@
 using System;
 using System.Windows;
-using Plc.Xgi;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
 
 /// <summary>
-/// 신호 생성 — 파이프라인 호출 + 결과를 IoSignalPipeline 으로 행 변환.
-/// 행 변환/매칭/Dummy 변환 로직은 모두 Services/IoSignalPipeline 에 위치.
+/// 신호 생성 — IoSignalPipeline facade 만 호출. F# IoListPipeline 직접 의존 없음.
+/// 행 변환/매칭/Dummy 변환 로직은 모두 Services/IoSignalPipeline.
 /// </summary>
 public partial class TagWizardDialog
 {
@@ -18,13 +17,12 @@ public partial class TagWizardDialog
             NextButton.IsEnabled = false;
             NextButton.Content = "생성 중...";
 
-            // AASX 내 Preset 데이터를 휘발성 임시 디렉토리에 emit 후 호출 → 즉시 삭제.
-            using var tempDir = PresetToTempTemplateDir.Materialize(_store);
-            var result = _generator.Generate(_store, tempDir.Path);
+            var bundle = IoSignalPipeline.GenerateAll(_store);
 
-            if (!_generator.IsSuccess(result))
+            // 파이프라인 자체 오류는 오류 탭으로 노출.
+            if (bundle.ErrorMessages.Count > 0)
             {
-                DisplayErrors(result);
+                DisplayErrorsFromMessages(bundle.ErrorMessages);
                 return true; // Step 3 로 이동하여 오류 탭 표시
             }
 
@@ -32,12 +30,10 @@ public partial class TagWizardDialog
             _dummyRows.Clear();
             _unmatchedRows.Clear();
 
-            foreach (var row in IoSignalPipeline.BuildIoBatchRows(result, _store))
+            foreach (var row in bundle.IoRows)
                 _ioRows.Add(row);
-
-            foreach (var row in IoSignalPipeline.BuildDummyRows(result))
+            foreach (var row in bundle.DummyRows)
                 _dummyRows.Add(row);
-
             foreach (var u in IoSignalPipeline.ClassifyUnmatched(_ioRows))
                 _unmatchedRows.Add(u);
 
