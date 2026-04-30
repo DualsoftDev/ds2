@@ -252,6 +252,10 @@ public sealed class SimulationPanelStateRuntimeTests
             StepWithSourcePrimingCalls.Add((selectedSourceGuid, autoStartSources));
             return StepWithSourcePrimingResult;
         }
+        public Guid[] BeginStepBatch(Guid selectedSourceGuid, bool autoStartSources) => [];
+        public bool IsStepBatchActive(Guid[] batch) => false;
+        public void AdvanceSimulationTo(long targetTimeMs) { }
+        public void EndStep() { }
         public void ReloadConnections() => throw new NotSupportedException();
         public void ReloadDurations() => throw new NotSupportedException();
         public void InjectIOValue(Guid apiCallGuid, string value) => throw new NotSupportedException();
