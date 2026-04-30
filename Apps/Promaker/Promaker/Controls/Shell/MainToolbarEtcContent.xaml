@@ -51,11 +51,9 @@
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 조회"/></Button>
-                            <!-- PLC 생성: 구현 완료 전까지 Release 빌드에서 숨김. DEBUG 에서만 노출. -->
                             <Button Style="{StaticResource AddMenuItemButton}"
                                     Command="{Binding OpenPlcXmlGeneratorCommand}"
-                                    Click="CloseUtilPopup"
-                                    Visibility="{Binding IsDebugBuildInstance, Converter={StaticResource BoolToVis}}">
+                                    Click="CloseUtilPopup">
                                 <TextBlock Text="PLC 생성"/>
                             </Button>
                             <Separator Margin="4,4"/>

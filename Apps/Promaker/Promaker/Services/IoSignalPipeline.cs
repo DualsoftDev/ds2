@@ -3,115 +3,106 @@ using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Plc.Xgi;
+using Plc.Xgi.SignalPipelineV2;
 using Promaker.Dialogs;
 
 namespace Promaker.Services;
 
 /// <summary>
-/// IoListPipeline 의 GenerationResult 를 UI 표시용 IoBatchRow / DummySignalRow / UnmatchedSignalRow 로 변환.
-/// 이전엔 TagWizardDialog.ConvertSignalsToRows / IoBatchCommands.BuildIoBatchRows / MakeSingleSignalRow
-/// 세 곳에서 동일 로직이 따로 구현돼 있었다 — 단일 진입점으로 통합.
+/// IO 신호 생성/변환 단일 진입점.
+/// 내부적으로 통합 SignalPipeline (B안 v3, 단일 패스) 호출 — txt round-trip 없음.
 /// </summary>
 public static class IoSignalPipeline
 {
-    /// <summary>
-    /// SignalRecord → IoBatchRow 변환.
-    /// store 가 주어지면 ApiCall 매칭 시도 (CallId/ApiDef 해석) → 없으면 이름만 채운 행.
-    /// </summary>
-    public static List<IoBatchRow> BuildIoBatchRows(GenerationResult result, DsStore? store = null)
+    public sealed record GenerateResult(
+        IReadOnlyList<IoBatchRow> IoRows,
+        IReadOnlyList<DummySignalRow> DummyRows,
+        IReadOnlyList<string> ErrorMessages,
+        IReadOnlyList<string> WarningMessages);
+
+    public static GenerateResult GenerateAll(DsStore store)
+    {
+        if (store == null) throw new ArgumentNullException(nameof(store));
+        try
+        {
+            var presets = FBTagMapStore.ToFSharpMap(store);
+            var templatePath = FBPortCatalog.DefaultTemplatePath;
+            var templateOpt = !string.IsNullOrEmpty(templatePath) && System.IO.File.Exists(templatePath)
+                ? FSharpOption<string>.Some(templatePath)
+                : FSharpOption<string>.None;
+
+            var pr = Generator.run(store, presets, templateOpt);
+            var rows = pr.Signals.ToList();
+
+            return new GenerateResult(
+                BuildIoBatchRows(rows),
+                BuildDummyRows(rows),
+                Array.Empty<string>(),
+                pr.Diagnostics.Select(d => $"[{d.Severity}] {d.Code} — {d.Message}").ToList());
+        }
+        catch (Exception ex)
+        {
+            return new GenerateResult(
+                Array.Empty<IoBatchRow>(), Array.Empty<DummySignalRow>(),
+                new[] { ex.Message }, Array.Empty<string>());
+        }
+    }
+
+    // ── SignalRow → IoBatchRow / DummySignalRow ─────────────────────────────
+
+    public static List<IoBatchRow> BuildIoBatchRows(IReadOnlyList<SignalRow> signals)
     {
         var rows = new List<IoBatchRow>();
+        var ioOnly = signals.Where(s => !s.IsSpare && !IsMw(s)).ToList();
 
-        // Api_None 신호: 신호 1개 = 행 1개 (API 컬럼 빈칸).
-        foreach (var s in result.IoSignals.Where(IsApiNone))
+        foreach (var s in ioOnly.Where(IsApiNone))
             rows.Add(MakeApiNoneRow(s));
 
-        // 그 외: ApiCallId+Flow+Work+Call+Device 그룹 안에서 IW + QW 1쌍.
-        var grouped = result.IoSignals
-            .Where(s => !IsApiNone(s))
-            .GroupBy(s => new { s.ApiCallId, s.FlowName, s.WorkName, s.CallName, s.DeviceName });
+        var grouped = ioOnly.Where(s => !IsApiNone(s))
+                            .GroupBy(s => (s.CallId, s.ApiCallId));
 
-        foreach (var group in grouped)
+        foreach (var g in grouped)
         {
-            var key = group.Key;
-            var input  = group.FirstOrDefault(s => s.IoType.StartsWith("I", StringComparison.OrdinalIgnoreCase));
-            var output = group.FirstOrDefault(s => s.IoType.StartsWith("Q", StringComparison.OrdinalIgnoreCase));
-
-            // store 가 있을 때만 ApiCall 해석 — 없으면 이름만 채운 단순 행.
-            Guid callId = Guid.Empty;
-            Guid apiCallId = key.ApiCallId;
-            string device = (input ?? output)?.DeviceAlias ?? "";
-            string api = key.DeviceName;
-
-            if (store != null)
-            {
-                var matchedCall = Device.findCallByName(key.FlowName, key.WorkName, key.CallName, store)?.Value;
-                callId = matchedCall?.Id ?? Guid.Empty;
-                if (matchedCall != null)
-                {
-                    var matchedApiCall = apiCallId != Guid.Empty
-                        ? matchedCall.ApiCalls.FirstOrDefault(ac => ac.Id == apiCallId)
-                        : null;
-                    if (matchedApiCall == null)
-                    {
-                        matchedApiCall = Device.findApiCallByDeviceName(matchedCall, key.DeviceName, store)?.Value;
-                        apiCallId = matchedApiCall?.Id ?? apiCallId;
-                    }
-                    if (matchedApiCall?.ApiDefId?.Value is { } apiDefId)
-                    {
-                        var apiDef = Queries.getApiDef(apiDefId, store)?.Value;
-                        if (apiDef != null)
-                        {
-                            api = apiDef.Name;
-                            if (store.Systems.TryGetValue(apiDef.ParentId, out var system))
-                                device = system.Name;
-                        }
-                    }
-                }
-            }
+            var input  = g.FirstOrDefault(s => IsIw(s));
+            var output = g.FirstOrDefault(s => IsQw(s));
+            var sample = input ?? output;
+            if (sample == null) continue;
 
             rows.Add(new IoBatchRow(
-                callId:     callId,
-                apiCallId:  apiCallId,
-                flow:       key.FlowName,
-                work:       key.WorkName,
-                device:     device,
-                api:        api,
-                inAddress:  input?.Address ?? "",
-                inSymbol:   input?.VarName ?? "",
-                outAddress: output?.Address ?? "",
-                outSymbol:  output?.VarName ?? ""));
+                callId:      sample.CallId,
+                apiCallId:   sample.ApiCallId,
+                flow:        sample.FlowName,
+                work:        sample.WorkName,
+                device:      sample.DeviceAlias,
+                api:         sample.ApiName,
+                inAddress:   input?.Address ?? "",
+                inSymbol:    input?.VarName ?? "",
+                outAddress:  output?.Address ?? "",
+                outSymbol:   output?.VarName ?? "",
+                outDataType: output != null ? output.DataType.ToString() : "BOOL",
+                inDataType:  input  != null ? input.DataType.ToString()  : "BOOL"));
         }
-
         return rows;
     }
 
-    /// <summary>
-    /// Api_None 신호만 추출 → IoBatchRow. (ApiCall 미바인딩 슬롯 → store 에 저장되지 않음.
-    /// IO 조회에서 store 데이터에 더해 표시하기 위함.)
-    /// </summary>
-    public static List<IoBatchRow> BuildApiNoneRows(GenerationResult result)
-    {
-        var rows = new List<IoBatchRow>();
-        foreach (var s in result.IoSignals.Where(IsApiNone))
-            rows.Add(MakeApiNoneRow(s));
-        return rows;
-    }
+    public static List<IoBatchRow> BuildApiNoneRows(IReadOnlyList<SignalRow> signals) =>
+        signals.Where(s => !s.IsSpare && !IsMw(s) && IsApiNone(s))
+               .Select(MakeApiNoneRow).ToList();
 
-    /// <summary>DummySignal → DummySignalRow 변환.</summary>
-    public static List<DummySignalRow> BuildDummyRows(GenerationResult result) =>
-        result.DummySignals
-            .Select(s => new DummySignalRow(
-                Flow: s.FlowName, Work: s.WorkName, Call: s.CallName,
-                Symbol: s.VarName, Address: s.Address, Type: s.IoType))
-            .ToList();
+    public static List<DummySignalRow> BuildDummyRows(IReadOnlyList<SignalRow> signals) =>
+        signals.Where(s => !s.IsSpare && IsMw(s))
+               .Select(s => new DummySignalRow(
+                   Flow:     s.FlowName,
+                   Work:     s.WorkName,
+                   Call:     s.CallName,
+                   Symbol:   s.VarName,
+                   Address:  s.Address,
+                   Type:     "MW",
+                   DataType: s.DataType.ToString()))
+               .ToList();
 
-    /// <summary>
-    /// 매칭 검증 — Call/ApiCall ID 가 비어 있는 행을 UnmatchedSignalRow 로 분류.
-    /// Api_None 행(api 빈 문자열)은 의도적 미바인딩 → 제외.
-    /// </summary>
     public static List<UnmatchedSignalRow> ClassifyUnmatched(IEnumerable<IoBatchRow> rows)
     {
         var list = new List<UnmatchedSignalRow>();
@@ -119,7 +110,6 @@ public static class IoSignalPipeline
         {
             if (string.IsNullOrEmpty(row.Api)) continue;
             if (row.CallId != Guid.Empty && row.ApiCallId != Guid.Empty) continue;
-
             string reason = (row.CallId == Guid.Empty, row.ApiCallId == Guid.Empty) switch
             {
                 (true, true)  => "Call 및 ApiCall을 찾을 수 없음",
@@ -135,23 +125,33 @@ public static class IoSignalPipeline
         return list;
     }
 
-    private static bool IsApiNone(SignalRecord s) =>
-        string.Equals(s.DeviceName, IoConstants.ApiNoneSentinel, StringComparison.OrdinalIgnoreCase);
+    // ── helpers ─────────────────────────────────────────────────────────────
 
-    private static IoBatchRow MakeApiNoneRow(SignalRecord s)
+    private static bool IsIw(SignalRow s) => s.Section.IsIwSection;
+    private static bool IsQw(SignalRow s) => s.Section.IsQwSection;
+    private static bool IsMw(SignalRow s) => s.Section.IsMwSection;
+
+    private static bool IsApiNone(SignalRow s) =>
+        s.ApiCallId == Guid.Empty
+        || string.Equals(s.ApiName ?? "", IoConstants.ApiNoneSentinel, StringComparison.OrdinalIgnoreCase)
+        || s.ApiName == "-"
+        || string.IsNullOrEmpty(s.ApiName);
+
+    private static IoBatchRow MakeApiNoneRow(SignalRow s)
     {
-        bool isInput  = s.IoType.StartsWith("I", StringComparison.OrdinalIgnoreCase);
-        bool isOutput = s.IoType.StartsWith("Q", StringComparison.OrdinalIgnoreCase);
+        var dt = s.DataType.ToString();
         return new IoBatchRow(
-            callId:     Guid.Empty,
-            apiCallId:  s.ApiCallId,
-            flow:       s.FlowName,
-            work:       s.WorkName,
-            device:     s.DeviceAlias,
-            api:        "",
-            inAddress:  isInput  ? s.Address : "",
-            inSymbol:   isInput  ? s.VarName : "",
-            outAddress: isOutput ? s.Address : "",
-            outSymbol:  isOutput ? s.VarName : "");
+            callId:      Guid.Empty,
+            apiCallId:   s.ApiCallId,
+            flow:        s.FlowName,
+            work:        s.WorkName,
+            device:      string.IsNullOrWhiteSpace(s.DeviceAlias) ? IoConstants.ApiNoneSentinel : s.DeviceAlias,
+            api:         "",
+            inAddress:   IsIw(s) ? s.Address : "",
+            inSymbol:    IsIw(s) ? s.VarName : "",
+            outAddress:  IsQw(s) ? s.Address : "",
+            outSymbol:   IsQw(s) ? s.VarName : "",
+            outDataType: IsQw(s) ? dt : "BOOL",
+            inDataType:  IsIw(s) ? dt : "BOOL");
     }
 }

@@ -556,30 +556,25 @@
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
 
-                                            <!-- 헤더: SystemType 이름 + 저장 버튼 -->
+                                            <!-- 헤더: SystemType 이름 (편집 즉시 자동 저장됨, 저장 버튼 없음). -->
                                             <Border Grid.Row="0"
                                                     Background="{DynamicResource SecondaryBackgroundBrush}"
                                                     BorderBrush="{DynamicResource BorderBrush}"
                                                     BorderThickness="0,0,0,1"
                                                     Padding="20,12">
-                                                <Grid>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="📝 "
-                                                                   FontSize="14"
-                                                                   VerticalAlignment="Center"/>
-                                                        <TextBlock x:Name="CurrentDeviceTemplateText"
-                                                                   Text="템플릿을 선택하세요"
-                                                                   FontSize="14"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                   VerticalAlignment="Center"/>
-                                                    </StackPanel>
-                                                    <Button Content="💾 저장"
-                                                            Style="{StaticResource WizardButton}"
-                                                            Padding="12,6"
-                                                            HorizontalAlignment="Right"
-                                                            Click="SaveDeviceTemplate_Click"/>
-                                                </Grid>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="📝 " FontSize="14" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="CurrentDeviceTemplateText"
+                                                               Text="템플릿을 선택하세요"
+                                                               FontSize="14" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource PrimaryTextBrush}"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Text="  ✓ 자동 저장"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="12,0,0,0"/>
+                                                </StackPanel>
                                             </Border>
 
                                             <!-- 안내 메시지 + 글로벌 FB 타입 선택 -->
@@ -653,15 +648,22 @@
                                                                         Click="AddIwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Margin="0,0,15,0"
                                                                         Background="{DynamicResource SecondaryBackgroundBrush}"
                                                                         Foreground="{DynamicResource ForegroundBrush}"
                                                                         BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveIwRow_Click"/>
+                                                                <CheckBox x:Name="IwChunkedToggle"
+                                                                          Content="IO정보만 보기"
+                                                                          VerticalAlignment="Center"
+                                                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                          Checked="ChunkedToggle_Changed"
+                                                                          Unchecked="ChunkedToggle_Changed"/>
                                                             </StackPanel>
                                                         </Border>
 
-                                                        <!-- IW 그리드 -->
-                                                        <DataGrid x:Name="IwSignalGrid"
+                                                        <!-- IW 그리드 (single 모드) -->
+                                                        <DataGrid x:Name="IwSignalGrid" EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
                                                                   Grid.Row="1"
                                                                   AutoGenerateColumns="False"
                                                                   CanUserAddRows="False"
@@ -674,7 +676,19 @@
                                                                   HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
                                                                   VerticalGridLinesBrush="{DynamicResource BorderBrush}"
                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                  AlternationCount="0"
+                                                                  AlternatingRowBackground="{x:Null}">
+                                                            <DataGrid.RowStyle>
+                                                                <Style TargetType="DataGridRow">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsSpare}" Value="True">
+                                                                            <Setter Property="Background" Value="#55505050"/>
+                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </DataGrid.RowStyle>
                                                             <DataGrid.Columns>
                                                                 <DataGridTemplateColumn Header="API 이름" Width="140">
                                                                     <DataGridTemplateColumn.CellTemplate>
@@ -682,24 +696,80 @@
                                                                             <ComboBox ItemsSource="{Binding DataContext.WizApiNames, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                                       SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                                       IsEditable="False"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
-                                                                <DataGridTextColumn Header="신호 패턴"
-                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
-                                                                                    Width="*"/>
+                                                                <DataGridTemplateColumn Header="신호 패턴" Width="*">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <TextBox Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                     IsEnabled="{Binding IsEditable}"
+                                                                                     BorderThickness="0" Background="Transparent"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
                                                                 <DataGridTemplateColumn Header="FB Local Label" Width="170">
                                                                     <DataGridTemplateColumn.CellTemplate>
                                                                         <DataTemplate>
                                                                             <ComboBox ItemsSource="{Binding PortOptions}"
                                                                                       SelectedItem="{Binding TargetFBPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
+                                                                <DataGridTextColumn Header="데이터타입"
+                                                                                    Binding="{Binding DataType, Mode=OneWay}"
+                                                                                    Width="90"
+                                                                                    IsReadOnly="True"/>
+<DataGridCheckBoxColumn Header="주소제외"
+                                                                                        Binding="{Binding SkipAddressAlloc, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="60"
+                                                                                        ToolTipService.ToolTip="체크 시 주소 할당 미진행 (외부 정의 변수/리터럴: _T1S, T#200MS 등)"/>
+                                                                <DataGridCheckBoxColumn Header="예비"
+                                                                                        Binding="{Binding IsSpare, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="50"
+                                                                                        ToolTipService.ToolTip="체크 시 예비(Spare) 슬롯 — 주소 1비트 예약, 신호 미생성. 다른 셀은 자동 비워지고 비활성화됩니다."/>
                                                             </DataGrid.Columns>
                                                         </DataGrid>
+
+                                                        <!-- IW chunked 모드 — 32행씩 가로 5개 정렬 -->
+                                                        <ScrollViewer x:Name="IwChunkedView"
+                                                                      Grid.Row="1"
+                                                                      HorizontalScrollBarVisibility="Auto"
+                                                                      VerticalScrollBarVisibility="Auto"
+                                                                      Visibility="Collapsed">
+                                                            <ItemsControl ItemsSource="{Binding IwChunks}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate>
+                                                                        <StackPanel Orientation="Horizontal"/>
+                                                                    </ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <!-- Read-only IO 정보만 — TextBlock 으로 가볍게 렌더 (ComboBox/DataGrid 없음). -->
+                                                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                                                Margin="0,0,4,0" Padding="2" MinWidth="280">
+                                                                            <ItemsControl ItemsSource="{Binding}">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <TextBlock FontFamily="Consolas" FontSize="11" Padding="4,1">
+                                                                                            <Run Text="{Binding IndexLabel, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                                                            <Run Text=" "/>
+                                                                                            <Run Text="{Binding Pattern, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                                                        </TextBlock>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
                                                     </Grid>
                                                 </TabItem>
 
@@ -728,15 +798,22 @@
                                                                         Click="AddQwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Margin="0,0,15,0"
                                                                         Background="{DynamicResource SecondaryBackgroundBrush}"
                                                                         Foreground="{DynamicResource ForegroundBrush}"
                                                                         BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveQwRow_Click"/>
+                                                                <CheckBox x:Name="QwChunkedToggle"
+                                                                          Content="IO정보만 보기"
+                                                                          VerticalAlignment="Center"
+                                                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                          Checked="ChunkedToggle_Changed"
+                                                                          Unchecked="ChunkedToggle_Changed"/>
                                                             </StackPanel>
                                                         </Border>
 
                                                         <!-- QW 그리드 -->
-                                                        <DataGrid x:Name="QwSignalGrid"
+                                                        <DataGrid x:Name="QwSignalGrid" EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
                                                                   Grid.Row="1"
                                                                   AutoGenerateColumns="False"
                                                                   CanUserAddRows="False"
@@ -746,7 +823,19 @@
                                                                   BorderBrush="{DynamicResource BorderBrush}"
                                                                   BorderThickness="0"
                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                  AlternationCount="0"
+                                                                  AlternatingRowBackground="{x:Null}">
+                                                            <DataGrid.RowStyle>
+                                                                <Style TargetType="DataGridRow">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsSpare}" Value="True">
+                                                                            <Setter Property="Background" Value="#55505050"/>
+                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </DataGrid.RowStyle>
                                                             <DataGrid.Columns>
                                                                 <DataGridTemplateColumn Header="API 이름" Width="140">
                                                                     <DataGridTemplateColumn.CellTemplate>
@@ -754,23 +843,74 @@
                                                                             <ComboBox ItemsSource="{Binding DataContext.WizApiNames, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                                       SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                                       IsEditable="False"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
-                                                                <DataGridTextColumn Header="신호 패턴" Width="*"
-                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"/>
+                                                                <DataGridTemplateColumn Header="신호 패턴" Width="*">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <TextBox Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                     IsEnabled="{Binding IsEditable}"
+                                                                                     BorderThickness="0" Background="Transparent"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
                                                                 <DataGridTemplateColumn Header="FB Local Label" Width="170">
                                                                     <DataGridTemplateColumn.CellTemplate>
                                                                         <DataTemplate>
                                                                             <ComboBox ItemsSource="{Binding PortOptions}"
                                                                                       SelectedItem="{Binding TargetFBPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
+                                                                <DataGridTextColumn Header="데이터타입"
+                                                                                    Binding="{Binding DataType, Mode=OneWay}"
+                                                                                    Width="90" IsReadOnly="True"/>
+<DataGridCheckBoxColumn Header="주소제외"
+                                                                                        Binding="{Binding SkipAddressAlloc, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="60"
+                                                                                        ToolTipService.ToolTip="체크 시 주소 할당 미진행 (외부 정의 변수/리터럴: _T1S, T#200MS 등)"/>
+                                                                <DataGridCheckBoxColumn Header="예비"
+                                                                                        Binding="{Binding IsSpare, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="50"
+                                                                                        ToolTipService.ToolTip="체크 시 예비(Spare) 슬롯 — 주소 1비트 예약, 신호 미생성."/>
                                                             </DataGrid.Columns>
                                                         </DataGrid>
+
+                                                        <!-- QW chunked 모드 -->
+                                                        <ScrollViewer x:Name="QwChunkedView" Grid.Row="1"
+                                                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                                                      Visibility="Collapsed">
+                                                            <ItemsControl ItemsSource="{Binding QwChunks}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                                                Margin="0,0,4,0" Padding="2" MinWidth="280">
+                                                                            <ItemsControl ItemsSource="{Binding}">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <TextBlock FontFamily="Consolas" FontSize="11" Padding="4,1">
+                                                                                            <Run Text="{Binding IndexLabel, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                                                            <Run Text=" "/>
+                                                                                            <Run Text="{Binding Pattern, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                                                        </TextBlock>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
                                                     </Grid>
                                                 </TabItem>
 
@@ -799,15 +939,22 @@
                                                                         Click="AddMwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Margin="0,0,15,0"
                                                                         Background="{DynamicResource SecondaryBackgroundBrush}"
                                                                         Foreground="{DynamicResource ForegroundBrush}"
                                                                         BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveMwRow_Click"/>
+                                                                <CheckBox x:Name="MwChunkedToggle"
+                                                                          Content="IO정보만 보기"
+                                                                          VerticalAlignment="Center"
+                                                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                          Checked="ChunkedToggle_Changed"
+                                                                          Unchecked="ChunkedToggle_Changed"/>
                                                             </StackPanel>
                                                         </Border>
 
                                                         <!-- MW 그리드 -->
-                                                        <DataGrid x:Name="MwSignalGrid"
+                                                        <DataGrid x:Name="MwSignalGrid" EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
                                                                   Grid.Row="1"
                                                                   AutoGenerateColumns="False"
                                                                   CanUserAddRows="False"
@@ -817,7 +964,19 @@
                                                                   BorderBrush="{DynamicResource BorderBrush}"
                                                                   BorderThickness="0"
                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                  AlternationCount="0"
+                                                                  AlternatingRowBackground="{x:Null}">
+                                                            <DataGrid.RowStyle>
+                                                                <Style TargetType="DataGridRow">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsSpare}" Value="True">
+                                                                            <Setter Property="Background" Value="#55505050"/>
+                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </DataGrid.RowStyle>
                                                             <DataGrid.Columns>
                                                                 <DataGridTemplateColumn Header="API 이름" Width="140">
                                                                     <DataGridTemplateColumn.CellTemplate>
@@ -825,23 +984,74 @@
                                                                             <ComboBox ItemsSource="{Binding DataContext.WizApiNames, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                                       SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                                       IsEditable="False"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
-                                                                <DataGridTextColumn Header="신호 패턴" Width="*"
-                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"/>
+                                                                <DataGridTemplateColumn Header="신호 패턴" Width="*">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <TextBox Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                     IsEnabled="{Binding IsEditable}"
+                                                                                     BorderThickness="0" Background="Transparent"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
                                                                 <DataGridTemplateColumn Header="FB Local Label" Width="170">
                                                                     <DataGridTemplateColumn.CellTemplate>
                                                                         <DataTemplate>
                                                                             <ComboBox ItemsSource="{Binding PortOptions}"
                                                                                       SelectedItem="{Binding TargetFBPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsEnabled="{Binding IsEditable}"
                                                                                       IsSynchronizedWithCurrentItem="False"/>
                                                                         </DataTemplate>
                                                                     </DataGridTemplateColumn.CellTemplate>
                                                                 </DataGridTemplateColumn>
+                                                                <DataGridTextColumn Header="데이터타입"
+                                                                                    Binding="{Binding DataType, Mode=OneWay}"
+                                                                                    Width="90" IsReadOnly="True"/>
+<DataGridCheckBoxColumn Header="주소제외"
+                                                                                        Binding="{Binding SkipAddressAlloc, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="60"
+                                                                                        ToolTipService.ToolTip="체크 시 주소 할당 미진행 (외부 정의 변수/리터럴: _T1S, T#200MS 등)"/>
+                                                                <DataGridCheckBoxColumn Header="예비"
+                                                                                        Binding="{Binding IsSpare, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="50"
+                                                                                        ToolTipService.ToolTip="체크 시 예비(Spare) 슬롯 — 주소 1비트 예약, 신호 미생성."/>
                                                             </DataGrid.Columns>
                                                         </DataGrid>
+
+                                                        <!-- MW chunked 모드 -->
+                                                        <ScrollViewer x:Name="MwChunkedView" Grid.Row="1"
+                                                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                                                      Visibility="Collapsed">
+                                                            <ItemsControl ItemsSource="{Binding MwChunks}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                                                Margin="0,0,4,0" Padding="2" MinWidth="280">
+                                                                            <ItemsControl ItemsSource="{Binding}">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <TextBlock FontFamily="Consolas" FontSize="11" Padding="4,1">
+                                                                                            <Run Text="{Binding IndexLabel, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                                                            <Run Text=" "/>
+                                                                                            <Run Text="{Binding Pattern, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                                                        </TextBlock>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
                                                     </Grid>
                                                 </TabItem>
 
@@ -881,7 +1091,12 @@
                                                                   HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
                                                                   VerticalGridLinesBrush="{DynamicResource BorderBrush}"
                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                  AlternationCount="0"
+                                                                  AlternatingRowBackground="{x:Null}">
+                                                            <DataGrid.RowStyle>
+                                                                <Style TargetType="DataGridRow"/>
+                                                            </DataGrid.RowStyle>
                                                             <DataGrid.Columns>
                                                                 <DataGridTextColumn Header="API 이름"
                                                                                     Binding="{Binding ApiName}"
@@ -1059,7 +1274,14 @@
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
-                                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="80">
+                                        <DataGridTextColumn Header="영역" Binding="{Binding Type}" Width="60">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="데이터타입" Binding="{Binding DataType}" Width="90">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
@@ -1298,25 +1520,6 @@
                             </Border>
 
                             <Border Background="{DynamicResource PrimaryBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="8"
-                                    Padding="24,18"
-                                    Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="🔗 FB 바인딩 요약"
-                                               FontSize="15" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource PrimaryTextBrush}"
-                                               Margin="0,0,0,10"/>
-                                    <TextBlock x:Name="SummaryBindingStats"
-                                               FontSize="13"
-                                               LineHeight="22"
-                                               Foreground="{DynamicResource PrimaryTextBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Background="{DynamicResource PrimaryBackgroundBrush}"
                                     BorderBrush="{DynamicResource AccentBrush}"
                                     BorderThickness="2"
                                     CornerRadius="8"
@@ -1350,12 +1553,6 @@
                                     Visibility="Collapsed"
                                     Click="OpenMigration_Click"/>
 
-                            <Button x:Name="OpenRobotMetadataButton"
-                                    Content="🤖 Robot 메타데이터 편집..."
-                                    Style="{StaticResource DarkButton}"
-                                    HorizontalAlignment="Left"
-                                    Margin="0,8,0,0" Padding="12,6"
-                                    Click="OpenRobotMetadata_Click"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

@@ -121,37 +121,6 @@ module internal AasxExportCore =
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elems)
         sm
 
-    let private fbTagMapPortToSmc (port: FBTagMapPort) : ISubmodelElement =
-        let baseElems = [
-            mkProp    "FBPort"     port.FBPort
-            mkProp    "Direction"  port.Direction
-            mkProp    "DataType"   port.DataType
-            mkProp    "TagPattern" port.TagPattern
-            mkBoolProp "IsDummy"   port.IsDummy
-        ]
-        let resultElems =
-            [ if not (String.IsNullOrEmpty port.VarName) then yield mkProp "VarName" port.VarName
-              if not (String.IsNullOrEmpty port.Address)  then yield mkProp "Address"  port.Address ]
-        mkSmc port.FBPort (baseElems @ resultElems)
-
-    let private fbTagMapInstanceToSmc (inst: FBTagMapInstance) : ISubmodelElement =
-        let baseElems = [
-            mkProp "FBTypeName"  inst.FBTypeName
-            mkProp "FlowName"    inst.FlowName
-            mkProp "WorkName"    inst.WorkName
-            mkProp "DeviceAlias" inst.DeviceAlias
-            mkProp "ApiDefName"  inst.ApiDefName
-        ]
-        let portsElem =
-            if inst.Ports.Count > 0 then
-                let portList = inst.Ports |> Seq.map fbTagMapPortToSmc |> Seq.toList
-                [ mkSml "Ports" portList |> Option.defaultValue (mkProp "Ports" "[]") ]
-            else []
-        let idShort =
-            let s = $"{inst.FlowName}_{inst.DeviceAlias}_{inst.ApiDefName}"
-            if String.IsNullOrWhiteSpace s || s = "__" then "FBTagMapInst" else s
-        mkSmc idShort (baseElems @ portsElem)
-
     let internal controlIoConfigElems (cp: ControlSystemProperties) : ISubmodelElement list =
         [ if cp.FBTagMapPresets.Count > 0 then
               yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets ]
@@ -207,18 +176,9 @@ module internal AasxExportCore =
                         Some (mkJsonProp name value)
             elif propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
                 let resizeArr = value :?> System.Collections.IEnumerable
-                let elemType = propType.GetGenericArguments().[0]
                 let items = resizeArr |> Seq.cast<obj> |> Seq.toList
                 if items.IsEmpty then None
-                else
-                    if elemType = typeof<FBTagMapPort> then
-                        let portList = items |> List.map (fun obj -> fbTagMapPortToSmc (obj :?> FBTagMapPort))
-                        mkSml name portList
-                    elif elemType = typeof<FBTagMapInstance> then
-                        let instList = items |> List.map (fun obj -> fbTagMapInstanceToSmc (obj :?> FBTagMapInstance))
-                        mkSml name instList
-                    else
-                        Some (mkJsonProp name value)
+                else Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))
             else None)
         |> Array.toList

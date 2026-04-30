@@ -18,7 +18,6 @@ namespace Promaker.Dialogs;
 public partial class TagWizardDialog : Window, INotifyPropertyChanged
 {
     private readonly DsStore _store;
-    private readonly IoListGeneratorService _generator;
     private readonly ObservableCollection<IoBatchRow> _ioRows;
     private readonly ObservableCollection<DummySignalRow> _dummyRows;
     private readonly ObservableCollection<UnmatchedSignalRow> _unmatchedRows;
@@ -41,6 +40,12 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     // 시스템 주소 추가용 콤보 데이터소스 (이미 추가된 타입은 제외)
     public System.Collections.ObjectModel.ObservableCollection<string> AvailableSystemTypes { get; }
         = new();
+
+    // 32점 단위 chunked 보기 (read-only). IndexedPatternRow 가 (Word.Bit 인덱스 + 패턴) 보유.
+    private const int ChunkSize = 32;
+    public System.Collections.ObjectModel.ObservableCollection<System.Collections.ObjectModel.ObservableCollection<IndexedPatternRow>> IwChunks { get; } = new();
+    public System.Collections.ObjectModel.ObservableCollection<System.Collections.ObjectModel.ObservableCollection<IndexedPatternRow>> QwChunks { get; } = new();
+    public System.Collections.ObjectModel.ObservableCollection<System.Collections.ObjectModel.ObservableCollection<IndexedPatternRow>> MwChunks { get; } = new();
 
     // ── Step 3 IoSignalPreviewGrid 컬럼 헤더 내장 필터 ───────────────
     private string _pvFlow = "", _pvDevice = "", _pvApi = "", _pvOutSym = "", _pvOutAddr = "", _pvInSym = "", _pvInAddr = "";
@@ -71,11 +76,14 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     private int _successCount;
     private string _currentDeviceTemplateFile = "";
 
+    /// <summary>LoadDeviceTemplate 진행 중 자동 저장 차단 — 행 setter 의 PropertyChanged 가
+    /// 신구 SystemType 사이에 잘못된 preset 으로 persist 되는 race 방지.</summary>
+    private bool _isLoadingTemplate;
+
     public TagWizardDialog(DsStore store)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _generator = new IoListGeneratorService();
         _ioRows = new ObservableCollection<IoBatchRow>();
         _dummyRows = new ObservableCollection<DummySignalRow>();
         _unmatchedRows = new ObservableCollection<UnmatchedSignalRow>();
@@ -125,48 +133,53 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 현재 store 의 모든 ApiDef 이름을 distinct 정렬해 WizApiNames 에 로드.
-    /// API 콤보박스의 원천 데이터.
+    /// API 콤보박스 데이터 로드.
+    ///   • 항상 Api_None 첫 번째.
+    ///   • 현재 선택된 SystemType 의 프리셋 API 목록 (DevicePresets/Entries3).
+    ///   • + store ApiDefs (사용자 정의 추가분).
+    /// systemType 가 비어있으면 store ApiDefs 만 로드.
     /// </summary>
-    private void ReloadWizApiNames()
+    private void ReloadWizApiNames(string? systemType = null)
     {
-        var names = _store.ApiDefsReadOnly.Values
-            .Select(d => d.Name)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct(System.StringComparer.OrdinalIgnoreCase)
-            .OrderBy(n => n)
-            .ToList();
+        var set = new System.Collections.Generic.SortedSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+        // (1) SystemType 프리셋 APIs — Robot 등은 ADV/RET 가 아니라 여기서 옴.
+        if (!string.IsNullOrWhiteSpace(systemType))
+            foreach (var n in SystemTypePresetProvider.GetApiNames(systemType))
+                if (!string.IsNullOrWhiteSpace(n)) set.Add(n);
+
+        // (2) store ApiDefs (사용자 정의 추가분).
+        foreach (var d in _store.ApiDefsReadOnly.Values)
+            if (!string.IsNullOrWhiteSpace(d.Name)) set.Add(d.Name);
+
         WizApiNames.Clear();
-        // Api_None 은 미바인딩 sentinel — Step 2 에서 명시적으로 선택해야 한다.
-        // 다운스트림에서 ApiName == "Api_None" 이면 IO 조회/Step 3 의 API 컬럼은 빈칸으로 표시.
+        // Api_None — 글로벌 신호 sentinel ($(A) 미사용 패턴용).
         WizApiNames.Add(ApiNoneSentinel);
-        foreach (var n in names) WizApiNames.Add(n);
+        foreach (var n in set) WizApiNames.Add(n);
     }
 
     /// <summary>"Api 사용 안 함" 표시용 sentinel — IoConstants 의 별칭(기존 호출부 호환).</summary>
-    public const string ApiNoneSentinel = Promaker.Services.IoConstants.ApiNoneSentinel;
+    public const string ApiNoneSentinel = IoConstants.ApiNoneSentinel;
 
     /// <summary>새 행의 기본 ApiName 은 Api_None — 사용자가 명시적으로 실제 API 를 선택해야 한다.</summary>
     private string DefaultApiName() => ApiNoneSentinel;
 
     /// <summary>
-    /// IW/QW/MW 신호 템플릿 행들의 ApiName 비어있는지 검사.
-    /// 하나라도 비어있으면 경고 후 false 반환 — 해당 그리드 탭/행으로 포커스 이동.
+    /// IW/QW/MW 신호 템플릿 행들의 ApiName 비어있는지 검사 — 예비(Spare) 행은 제외.
+    /// 결과는 차단 없이 Step 4 요약 화면에 안내 메시지로 표시.
     /// </summary>
+    public IReadOnlyList<string> SignalTemplateWarnings { get; private set; } = Array.Empty<string>();
+
     private bool ValidateSignalTemplates()
     {
         var missing = new List<string>();
-        if (_iwSignalRows.Any(r => string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("IW");
-        if (_qwSignalRows.Any(r => string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("QW");
-        if (_mwSignalRows.Any(r => string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("MW");
-        if (missing.Count == 0) return true;
-
-        System.Windows.MessageBox.Show(
-            $"API 이름이 비어있는 행이 있습니다: {string.Join(", ", missing)} 탭\n각 행의 API 콤보에서 값을 선택하세요.",
-            "API 이름 누락",
-            System.Windows.MessageBoxButton.OK,
-            System.Windows.MessageBoxImage.Warning);
-        return false;
+        if (_iwSignalRows.Any(r => !r.IsSpare && string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("IW");
+        if (_qwSignalRows.Any(r => !r.IsSpare && string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("QW");
+        if (_mwSignalRows.Any(r => !r.IsSpare && string.IsNullOrWhiteSpace(r.ApiName))) missing.Add("MW");
+        SignalTemplateWarnings = missing.Count == 0
+            ? Array.Empty<string>()
+            : new[] { $"API 이름 미지정 행 존재 — {string.Join(", ", missing)} 탭에서 API 선택 필요 (예비 행 제외)." };
+        return true;  // 차단하지 않음 — 요약에서 알림.
     }
 
     // ── Step 4: 신호 매핑 ──────────────────────────────────────────────
@@ -191,11 +204,11 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         var systemType = _currentDeviceTemplateFile;
         if (!string.IsNullOrWhiteSpace(systemType))
         {
-            var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+            var presets = FBTagMapStore.LoadAll(_store);
             if (!presets.TryGetValue(systemType, out var presetDto))
-                presetDto = new Promaker.Services.FBTagMapPresetDto();
+                presetDto = new FBTagMapPresetDto();
             presetDto.FBTagMapName = fbType;
-            Promaker.Services.FBTagMapStore.Save(_store, systemType, presetDto);
+            FBTagMapStore.Save(_store, systemType, presetDto);
 
             if (DeviceTemplateStatusText != null)
                 DeviceTemplateStatusText.Text = string.IsNullOrEmpty(fbType)
@@ -206,9 +219,9 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
 
     private void ShowSummary()
     {
-        var summary = WizardSummaryBuilder.Build(_store, _successCount, _ioRows.Count);
+        var summary = WizardSummaryBuilder.Build(
+            _store, _successCount, _ioRows.Count, _dummyRows.Count, SignalTemplateWarnings);
         SummarySignalStats.Text = summary.SignalStats;
-        SummaryBindingStats.Text = summary.BindingStats;
         CompletionSummaryText.Text = summary.CompletionStatus;
         OpenMigrationButton.Visibility =
             summary.HasCallStructureViolations ? Visibility.Visible : Visibility.Collapsed;
@@ -222,13 +235,53 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         ShowSummary();
     }
 
-    /// <summary>Step 4 '🤖 Robot 메타데이터' 버튼 — RobotMetadata 편집 다이얼로그.</summary>
-    private void OpenRobotMetadata_Click(object sender, RoutedEventArgs e)
+    /// <summary>32점 단위 보기 토글 — IW/QW/MW 각 섹션 독립.</summary>
+    private void ChunkedToggle_Changed(object sender, RoutedEventArgs e)
     {
-        var dlg = new RobotMetadataDialog(_store) { Owner = this };
-        dlg.ShowDialog();
+        if (sender is not CheckBox cb) return;
+        var sec = AllSections().FirstOrDefault(s => s.ChunkedToggle == cb);
+        if (sec != null) ApplyChunkedView(sec, cb.IsChecked == true);
     }
 
+    /// <summary>SystemType 변경 후 — chunked 모드가 켜져있는 섹션만 chunks 재계산.</summary>
+    private void RefreshChunkedViewsIfActive()
+    {
+        foreach (var sec in AllSections())
+            if (sec.ChunkedToggle?.IsChecked == true)
+                ApplyChunkedView(sec, true);
+    }
+
+    /// <summary>섹션 1개의 single/chunked 뷰 동기화 — 각 16행이 Word 1개, ChunkSize 비트씩 묶음.</summary>
+    private static void ApplyChunkedView(SignalSectionInfo sec, bool chunked)
+    {
+        sec.Chunks.Clear();
+        if (!chunked)
+        {
+            sec.Grid.Visibility = Visibility.Visible;
+            sec.ChunkedView.Visibility = Visibility.Collapsed;
+            return;
+        }
+        for (int start = 0; start < sec.Rows.Count; start += ChunkSize)
+        {
+            var slice = new ObservableCollection<IndexedPatternRow>();
+            for (int i = start; i < sec.Rows.Count && i < start + ChunkSize; i++)
+                slice.Add(new IndexedPatternRow(i / 16, i % 16, sec.Rows[i].Pattern ?? ""));
+            sec.Chunks.Add(slice);
+        }
+        sec.Grid.Visibility = Visibility.Collapsed;
+        sec.ChunkedView.Visibility = Visibility.Visible;
+    }
+}
+
+/// <summary>32점 chunked 뷰 전용 read-only 행 — Word/Bit 인덱스 + 패턴 텍스트.</summary>
+public sealed record IndexedPatternRow(int Word, int Bit, string Pattern)
+{
+    /// "[ 0.00]" 형식의 인덱스 라벨.
+    public string IndexLabel => $"[{Word,2}.{Bit:D2}]";
+}
+
+public partial class TagWizardDialog
+{
     // Step 4 는 이제 요약창이므로 신호 매핑 편집 관련 메서드는 모두 제거됨.
     // FB 바인딩은 Step 2 신호 템플릿(Phase 2 예정) 또는 I/O 일괄 편집에서 처리.
 
@@ -428,7 +481,8 @@ public record DummySignalRow(
     string Call,
     string Symbol,
     string Address,
-    string Type
+    string Type,
+    string DataType
 );
 
 /// <summary>
@@ -445,117 +499,57 @@ public record UnmatchedSignalRow(
     string FailureReason
 );
 
-/// <summary>
-/// 시스템 주소 설정 행 (DataGrid 바인딩용)
-/// </summary>
-public class SystemBaseRow : INotifyPropertyChanged
+/// <summary>시스템 주소 설정 행 (DataGrid 바인딩용)</summary>
+public class SystemBaseRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    private string _systemType = "";
-    private bool _isEnabled = false;
-    private string _iwBase = "";
-    private string _qwBase = "";
-    private string _mwBase = "";
-
-    public string SystemType
-    {
-        get => _systemType;
-        set { _systemType = value; OnPropertyChanged(nameof(SystemType)); }
-    }
-
-    public bool IsEnabled
-    {
-        get => _isEnabled;
-        set { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); }
-    }
-
-    public string IW_Base
-    {
-        get => _iwBase;
-        set { _iwBase = value; OnPropertyChanged(nameof(IW_Base)); }
-    }
-
-    public string QW_Base
-    {
-        get => _qwBase;
-        set { _qwBase = value; OnPropertyChanged(nameof(QW_Base)); }
-    }
-
-    public string MW_Base
-    {
-        get => _mwBase;
-        set { _mwBase = value; OnPropertyChanged(nameof(MW_Base)); }
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    string _systemType = "", _iwBase = "", _qwBase = "", _mwBase = "";
+    bool _isEnabled = false;
+    public string SystemType { get => _systemType; set => SetProperty(ref _systemType, value); }
+    public bool   IsEnabled  { get => _isEnabled;  set => SetProperty(ref _isEnabled, value); }
+    public string IW_Base    { get => _iwBase;     set => SetProperty(ref _iwBase, value); }
+    public string QW_Base    { get => _qwBase;     set => SetProperty(ref _qwBase, value); }
+    public string MW_Base    { get => _mwBase;     set => SetProperty(ref _mwBase, value); }
 }
 
-/// <summary>
-/// Flow 주소 설정 행 (DataGrid 바인딩용)
-/// </summary>
-public class FlowBaseRow : INotifyPropertyChanged
+/// <summary>Flow 주소 설정 행 (DataGrid 바인딩용)</summary>
+public class FlowBaseRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    private string _flowName = "";
-    private string _iwBase = "";
-    private string _qwBase = "";
-    private string _mwBase = "";
-
-    public string FlowName
-    {
-        get => _flowName;
-        set { _flowName = value; OnPropertyChanged(nameof(FlowName)); }
-    }
-
-    public string IW_Base
-    {
-        get => _iwBase;
-        set { _iwBase = value; OnPropertyChanged(nameof(IW_Base)); }
-    }
-
-    public string QW_Base
-    {
-        get => _qwBase;
-        set { _qwBase = value; OnPropertyChanged(nameof(QW_Base)); }
-    }
-
-    public string MW_Base
-    {
-        get => _mwBase;
-        set { _mwBase = value; OnPropertyChanged(nameof(MW_Base)); }
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    string _flowName = "", _iwBase = "", _qwBase = "", _mwBase = "";
+    public string FlowName { get => _flowName; set => SetProperty(ref _flowName, value); }
+    public string IW_Base  { get => _iwBase;   set => SetProperty(ref _iwBase, value); }
+    public string QW_Base  { get => _qwBase;   set => SetProperty(ref _qwBase, value); }
+    public string MW_Base  { get => _mwBase;   set => SetProperty(ref _mwBase, value); }
 }
 
 /// <summary>
 /// 신호 패턴 행 (IW/QW/MW 그리드 바인딩용)
 /// </summary>
-public class SignalPatternRow : INotifyPropertyChanged
+public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    private string _apiName = "";
-    private string _pattern = "";
-    private string _targetFBType = "";
-    private string _targetFBPort = "";
+    private const string ApiNoneSentinel = IoConstants.ApiNoneSentinel;
+
+    string _apiName = "", _pattern = "", _targetFBType = "", _targetFBPort = "";
+    bool _skipAddressAlloc, _isSpare;
 
     public string ApiName
     {
         get => _apiName;
-        set { _apiName = value; OnPropertyChanged(nameof(ApiName)); }
+        set => SetProperty(ref _apiName, value ?? "");
     }
 
+    /// 패턴에 $(A) 가 없으면 글로벌 신호 → ApiName 자동으로 Api_None 으로 강제.
+    /// 예외: IsSpare(예비) 또는 패턴이 비어있는 경우는 의도된 미바인딩이므로 보존.
     public string Pattern
     {
         get => _pattern;
-        set { _pattern = value; OnPropertyChanged(nameof(Pattern)); }
+        set
+        {
+            if (!SetProperty(ref _pattern, value ?? "")) return;
+            OnPropertyChanged(nameof(DataType));
+            if (!_isSpare && !string.IsNullOrEmpty(_pattern)
+                && !_pattern.Contains("$(A)") && _apiName != ApiNoneSentinel)
+                ApiName = ApiNoneSentinel;
+        }
     }
 
     /// 템플릿별 사용 FB 타입 (XGI_Template.xml 에서 선택)
@@ -564,10 +558,9 @@ public class SignalPatternRow : INotifyPropertyChanged
         get => _targetFBType;
         set
         {
-            if (_targetFBType == value) return;
-            _targetFBType = value ?? "";
-            OnPropertyChanged(nameof(TargetFBType));
+            if (!SetProperty(ref _targetFBType, value ?? "")) return;
             OnPropertyChanged(nameof(PortOptions));
+            OnPropertyChanged(nameof(DataType));
         }
     }
 
@@ -575,19 +568,52 @@ public class SignalPatternRow : INotifyPropertyChanged
     public string TargetFBPort
     {
         get => _targetFBPort;
-        set { _targetFBPort = value ?? ""; OnPropertyChanged(nameof(TargetFBPort)); }
+        set
+        {
+            if (!SetProperty(ref _targetFBPort, value ?? "")) return;
+            OnPropertyChanged(nameof(DataType));
+        }
+    }
+
+    /// 주소 할당 미진행 (true) — IO 슬롯 미소비, Address 빈값. 예: _T1S, T#200MS.
+    public bool SkipAddressAlloc
+    {
+        get => _skipAddressAlloc;
+        set => SetProperty(ref _skipAddressAlloc, value);
+    }
+
+    /// 예비(Spare) 슬롯 (true) — 주소 1비트 예약, 신호 미생성. 셀 값 무시 (UI 비활성, 기존 내용 보존).
+    public bool IsSpare
+    {
+        get => _isSpare;
+        set
+        {
+            if (!SetProperty(ref _isSpare, value)) return;
+            OnPropertyChanged(nameof(IsEditable));
+            OnPropertyChanged(nameof(DataType));
+        }
+    }
+
+    /// IsSpare 의 반대 — UI 셀 IsEnabled 바인딩용.
+    public bool IsEditable => !_isSpare;
+
+    /// 선택된 FB Local Label 의 IEC 데이터 타입 (read-only).
+    /// 우선순위: 시스템 플래그 → IsSpare → FB 포트 → 빈값.
+    public string DataType
+    {
+        get
+        {
+            var sysType = Plc.Xgi.XgiSystemFlags.tryGetTypeName(_pattern ?? "");
+            if (Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(sysType)) return sysType.Value;
+            if (_isSpare) return "BOOL";
+            if (string.IsNullOrEmpty(_targetFBType) || string.IsNullOrEmpty(_targetFBPort)) return "";
+            return FBPortCatalog.GetPortTypeMap(_targetFBType).TryGetValue(_targetFBPort, out var t) ? t : "";
+        }
     }
 
     /// 선택된 FB 의 Local Label 목록 (콤보 데이터소스)
     public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
         FbPortOptionsHelper.Get(_targetFBType);
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 }
 
 /// <summary>
@@ -595,66 +621,28 @@ public class SignalPatternRow : INotifyPropertyChanged
 /// 하나의 API 당 하나의 행 — AutoAux/ComAux 포트 이름을 FB 포트 드롭다운에서 선택.
 /// SystemType 이 바뀌면 전체 행 리로드 및 TargetFBType 변경에 따라 PortOptions 갱신.
 /// </summary>
-public class AuxPortRow : INotifyPropertyChanged
+public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    private string _apiName = "";
-    private string _targetFBType = "";
-    private string _autoAuxPort = "";
-    private string _comAuxPort = "";
+    string _apiName = "", _targetFBType = "", _autoAuxPort = "", _comAuxPort = "";
 
-    public string ApiName
-    {
-        get => _apiName;
-        set { _apiName = value ?? ""; OnPropertyChanged(nameof(ApiName)); }
-    }
+    public string ApiName     { get => _apiName;     set => SetProperty(ref _apiName, value ?? ""); }
+    public string AutoAuxPort { get => _autoAuxPort; set => SetProperty(ref _autoAuxPort, value ?? ""); }
+    public string ComAuxPort  { get => _comAuxPort;  set => SetProperty(ref _comAuxPort, value ?? ""); }
 
-    /// 이 AUX 행이 참조하는 FB 타입 (동일 SystemType 의 TargetFBType 공유).
-    /// SystemType 선택 시 일괄 주입.
+    /// SystemType 선택 시 일괄 주입. PortOptions 는 동일 콤보 데이터소스로 의존.
     public string TargetFBType
     {
         get => _targetFBType;
         set
         {
-            if (_targetFBType == value) return;
-            _targetFBType = value ?? "";
-            OnPropertyChanged(nameof(TargetFBType));
+            if (!SetProperty(ref _targetFBType, value ?? "")) return;
             OnPropertyChanged(nameof(PortOptions));
         }
     }
 
-    /// FB 의 AutoAux 입력 포트 이름 (예: "M_Auto_Adv", "1ST_IN_OK")
-    public string AutoAuxPort
-    {
-        get => _autoAuxPort;
-        set { _autoAuxPort = value ?? ""; OnPropertyChanged(nameof(AutoAuxPort)); }
-    }
-
-    /// FB 의 ComAux 입력 포트 이름 (비워두면 ComAux coil 생성 안 함)
-    public string ComAuxPort
-    {
-        get => _comAuxPort;
-        set { _comAuxPort = value ?? ""; OnPropertyChanged(nameof(ComAuxPort)); }
-    }
-
-    /// 선택된 FB 의 Local Label 목록 (Auto/Com ComboBox 공유 데이터소스).
-    /// AUX 포트는 선택 해제가 가능해야 하므로 맨 앞에 빈 문자열을 삽입해 "(없음)" 선택지로 제공.
-    public System.Collections.Generic.IReadOnlyList<string> PortOptions
-    {
-        get
-        {
-            var labels = FbPortOptionsHelper.Get(_targetFBType);
-            var result = new System.Collections.Generic.List<string>(labels.Count + 1) { "" };
-            result.AddRange(labels);
-            return result;
-        }
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    /// AUX 콤보 옵션 — FbPortOptionsHelper 가 이미 빈 항목 제공 (선택 해제용).
+    public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
+        FbPortOptionsHelper.Get(_targetFBType);
 }
 
 /// <summary>
@@ -672,8 +660,13 @@ public class ErrorDisplayItem
 /// </summary>
 internal static class FbPortOptionsHelper
 {
-    public static System.Collections.Generic.IReadOnlyList<string> Get(string? fbType) =>
-        string.IsNullOrEmpty(fbType)
-            ? System.Array.Empty<string>()
-            : Promaker.Services.FBPortCatalog.GetLocalLabels(fbType!);
+    /// <summary>FB Local Label 콤보 옵션. 첫 항목 "" 은 미바인딩 선택용 — 사용자가 라벨을 비울 수 있게 한다.</summary>
+    public static System.Collections.Generic.IReadOnlyList<string> Get(string? fbType)
+    {
+        if (string.IsNullOrEmpty(fbType)) return System.Array.Empty<string>();
+        var labels = FBPortCatalog.GetLocalLabels(fbType!);
+        var result = new System.Collections.Generic.List<string>(labels.Count + 1) { "" };
+        result.AddRange(labels);
+        return result;
+    }
 }

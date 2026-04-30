@@ -27,18 +27,29 @@ public static class FBTagMapStore
         return ToDtoDict(cp.FBTagMapPresets);
     }
 
+    /// <summary>특정 SystemType 프리셋 1개만 DTO 로 변환 (LoadAll 의 부분 변형 — 빈번 호출용).</summary>
+    public static FBTagMapPresetDto? LoadOne(DsStore store, string systemType)
+    {
+        if (string.IsNullOrWhiteSpace(systemType)) return null;
+        var cp = GetOrCreateCp(store);
+        if (cp == null) return null;
+        EnsureDefaultPresets(cp);
+        return cp.FBTagMapPresets.TryGetValue(systemType, out var preset) ? PresetToDto(preset) : null;
+    }
+
     /// <summary>
     /// 등록된 SystemType 별 FBTagMapPreset 을 보강한다.
     /// • Entry 가 없으면 신규 생성 + 기본 FB + 기본 패턴 채움.
     /// • Entry 가 있어도 누락된 기본값이 있으면 보충 (사용자 편집은 보존).
-    /// 디폴트 값의 출처: <c>%APPDATA%\Dualsoft\Promaker\FBTagMap\&lt;SystemType&gt;.json</c>
-    /// (첫 실행 시 factory 디폴트로 시드 → 이후 JSON 파일이 truth source)
+    /// 디폴트 출처: AAStoXGI.dll 임베디드 JSON — 디스크 파일 사용 안 함.
     /// </summary>
     public static void EnsureDefaultPresets(ControlSystemProperties cp)
     {
-        var entries = Ds2.Core.Store.DevicePresets.Entries3
-            .Select(t => (sysType: t.Item1, defaultFb: (string?)t.Item3));
-        FBTagMapDefaultsRepository.EnsureSeeded(BuildFactoryDto, entries);
+        // 모든 SystemType 의 default FB 집합 — 잘못된 SystemType↔FB 교차 오염 감지용.
+        var allDefaultFbs = Ds2.Core.Store.DevicePresets.Entries3
+            .Select(t => t.Item3)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (sysType, _, defaultFb) in Ds2.Core.Store.DevicePresets.Entries3)
         {
@@ -50,292 +61,183 @@ public static class FBTagMapStore
                 preset = new FBTagMapPreset();
                 cp.FBTagMapPresets[sysType] = preset;
             }
-            if (string.IsNullOrEmpty(preset.FBTagMapName))
-                preset.FBTagMapName = defaultFb ?? "";
 
-            // 1순위: AppData JSON / 2순위: hardcoded factory fallback
-            var dto = FBTagMapDefaultsRepository.Load(sysType) ?? BuildFactoryDto(sysType, defaultFb);
-            MergeDefaultsIntoPreset(preset, dto);
+            // FBTagMapName 검증 / 복원:
+            //   • 비어있음 → defaultFb 로 채움
+            //   • 다른 SystemType 의 default FB 와 매칭 → 이전 버그로 인한 교차 오염 → defaultFb 로 reset
+            //   • 그 외 (현재 default 와 일치 / 사용자 커스텀 FB) → 보존
+            var current = preset.FBTagMapName ?? "";
+            var expected = defaultFb ?? "";
+            if (string.IsNullOrEmpty(current))
+            {
+                preset.FBTagMapName = expected;
+            }
+            else if (!string.Equals(current, expected, StringComparison.OrdinalIgnoreCase)
+                  && allDefaultFbs.Contains(current))
+            {
+                // 다른 SystemType 의 default 가 박혀있음 → 잘못된 매핑으로 판정 후 reset.
+                preset.FBTagMapName = expected;
+            }
+
+            MergeDefaultsIntoPreset(preset, BuildFactoryDto(sysType, defaultFb));
         }
     }
 
-    /// <summary>현재 SystemType 디폴트를 factory 로 생성하여 JSON 으로 export (사용자 "디폴트 리셋" 명령용).</summary>
-    public static void ResetDefaultsToFactory()
-    {
-        var entries = Ds2.Core.Store.DevicePresets.Entries3
-            .Select(t => (sysType: t.Item1, defaultFb: (string?)t.Item3));
-        FBTagMapDefaultsRepository.ResetAll(BuildFactoryDto, entries);
-    }
-
-    /// <summary>코드의 factory 디폴트로부터 DTO 생성 (시드/fallback 용).</summary>
+    /// <summary>임베디드 JSON 디폴트 DTO. 부재 시 FBTagMapName 만 채운 빈 DTO.</summary>
     private static FBTagMapPresetDto BuildFactoryDto(string sysType, string? defaultFb)
     {
-        var preset = new FBTagMapPreset();
-        preset.FBTagMapName = defaultFb ?? "";
-        ApplyBuiltInDefaults(preset, sysType);
-        return PresetToDto(preset);
+        var dto = FBTagMapEmbeddedDefaults.Load(sysType) ?? new FBTagMapPresetDto();
+        if (string.IsNullOrWhiteSpace(dto.FBTagMapName) && !string.IsNullOrEmpty(defaultFb))
+            dto.FBTagMapName = defaultFb!;
+        return dto;
     }
 
-    /// <summary>DTO 의 디폴트 값을 preset 에 머지 — 같은 (Api, FBPort) / 같은 AUX 키가 이미 있으면 skip.</summary>
+    /// <summary>
+    /// DTO 와 preset 동기화. 임베디드 JSON 순서를 단일 진실원으로 사용.
+    /// 매칭되는 preset entry 는 보존 (사용자 편집 유지), 임베디드에 없는 사용자 추가분은 끝에.
+    /// </summary>
     private static void MergeDefaultsIntoPreset(FBTagMapPreset preset, FBTagMapPresetDto dto)
     {
         if (string.IsNullOrEmpty(preset.FBTagMapName) && !string.IsNullOrEmpty(dto.FBTagMapName))
             preset.FBTagMapName = dto.FBTagMapName;
 
-        foreach (var e in dto.IwPatterns ?? new()) EnsureIwPattern(preset, e.ApiName, e.Pattern, e.TargetFBPort);
-        foreach (var e in dto.QwPatterns ?? new()) EnsureQwPattern(preset, e.ApiName, e.Pattern, e.TargetFBPort);
-        foreach (var e in dto.MwPatterns ?? new()) EnsureMwPattern(preset, e.ApiName, e.Pattern, e.TargetFBPort);
+        SyncSectionOrdered(preset.IwPatterns, dto.IwPatterns);
+        SyncSectionOrdered(preset.QwPatterns, dto.QwPatterns);
+        SyncSectionOrdered(preset.MwPatterns, dto.MwPatterns);
         foreach (var kv in dto.AutoAuxPortMap ?? new()) EnsureAux(preset.AutoAuxPortMap, kv.Key, kv.Value);
         foreach (var kv in dto.ComAuxPortMap ?? new()) EnsureAux(preset.ComAuxPortMap, kv.Key, kv.Value);
-    }
-
-    /// <summary>"Cylinder_N" → N (1 이상 정수). '#' 포함 템플릿이거나 형식 불일치 시 null.</summary>
-    private static int? TryGetCylinderSize(string? sysType)
-    {
-        if (string.IsNullOrEmpty(sysType)) return null;
-        if (!sysType.StartsWith("Cylinder_", StringComparison.Ordinal)) return null;
-        if (sysType.Contains('#')) return null;
-        return int.TryParse(sysType.AsSpan("Cylinder_".Length), out var n) && n >= 1 ? n : null;
-    }
-
-    /// <summary>SystemType 별 기본 신호 패턴 / AUX 포트 매핑을 보충 (코드 factory).</summary>
-    private static void ApplyBuiltInDefaults(FBTagMapPreset preset, string sysType)
-    {
-        if (TryGetCylinderSize(sysType) is int n)
+        if (dto.IsOperationModeFb) preset.IsOperationModeFb = true;
+        if (dto.SkippedFBPorts != null)
         {
-            ApplyCylinderDefaults(preset, n);
+            preset.SkippedFBPorts ??= new System.Collections.Generic.List<string>();
+            var existing = new HashSet<string>(preset.SkippedFBPorts, StringComparer.OrdinalIgnoreCase);
+            foreach (var p in dto.SkippedFBPorts)
+                if (!string.IsNullOrEmpty(p) && existing.Add(p))
+                    preset.SkippedFBPorts.Add(p);
+        }
+    }
+
+    /// <summary>
+    /// preset 섹션을 임베디드 dto 순서대로 재구성.
+    ///   • dto 의 각 entry 에 대해 — preset 에 동일 (Api, Pattern, FBPort) 가 있으면 그 인스턴스 보존, 없으면 새로 만듦.
+    ///   • 임베디드에 없는 preset entry (사용자 추가분) 는 끝에 append.
+    ///     단, "Api_None"/"-" 은 SystemType 고유 글로벌/슬롯이므로 leftover 보존 대상에서 제외
+    ///     (다른 SystemType 에서 오염된 데이터 자동 제거).
+    /// </summary>
+    private static void SyncSectionOrdered(
+        System.Collections.Generic.ICollection<SignalPatternEntry> presetSection,
+        System.Collections.Generic.List<SignalPatternEntryDto>? dtoSection)
+    {
+        // Api_None / Spare / 레거시 "-" 는 dto 가 단일 진실원 — preset 보존하지 않고 dto 로 재생성.
+        static bool IsSystemTypeSpecific(SignalPatternEntry e) =>
+            e.IsSpare
+            || string.Equals(e.ApiName ?? "", "Api_None", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(e.ApiName ?? "", "-", StringComparison.Ordinal);
+        static bool IsSystemTypeSpecificDto(SignalPatternEntryDto d) =>
+            d.IsSpare
+            || string.Equals(d.ApiName ?? "", "Api_None", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(d.ApiName ?? "", "-", StringComparison.Ordinal);
+
+        // dto 가 비어있으면 — Api_None/Spare 오염 entry 만 제거하고 일반 사용자 entry 는 보존.
+        if (dtoSection == null || dtoSection.Count == 0)
+        {
+            var keep = presetSection
+                .Where(e => !IsSystemTypeSpecific(e))
+                .ToList();
+            presetSection.Clear();
+            foreach (var e in keep) presetSection.Add(e);
             return;
         }
-        switch (sysType)
+
+        var available = new System.Collections.Generic.Dictionary<(string, string, string), System.Collections.Generic.Queue<SignalPatternEntry>>();
+        foreach (var p in presetSection)
         {
-            case "RobotWeldGrip":       ApplyRobotDefaults(preset, includePallet: false); break;
-            case "RobotWeldGripPallet": ApplyRobotDefaults(preset, includePallet: true);  break;
+            if (IsSystemTypeSpecific(p)) continue;
+            var key = (p.ApiName ?? "", p.Pattern ?? "", p.TargetFBPort ?? "");
+            if (!available.TryGetValue(key, out var q)) { q = new(); available[key] = q; }
+            q.Enqueue(p);
         }
+
+        var newOrder = new System.Collections.Generic.List<SignalPatternEntry>(dtoSection.Count);
+        foreach (var d in dtoSection)
+        {
+            // 레거시 ApiName="-" 항목 → IsSpare 로 마이그레이션.
+            var isSpareEntry = d.IsSpare || string.Equals(d.ApiName ?? "", "-", StringComparison.Ordinal);
+            if (isSpareEntry)
+            {
+                var sp = MakeSig("", "", "", false);
+                sp.IsSpare = true;
+                newOrder.Add(sp);
+                continue;
+            }
+            var api = d.ApiName ?? "";
+            if (IsSystemTypeSpecificDto(d))
+            {
+                newOrder.Add(MakeSig(api, d.Pattern ?? "", d.TargetFBPort ?? "", d.SkipAddressAlloc));
+                continue;
+            }
+            var key = (api, d.Pattern ?? "", d.TargetFBPort ?? "");
+            if (available.TryGetValue(key, out var q) && q.Count > 0)
+                newOrder.Add(q.Dequeue());
+            else
+                newOrder.Add(MakeSig(api, d.Pattern ?? "", d.TargetFBPort ?? "", d.SkipAddressAlloc));
+        }
+
+        // 사용자 추가분 (dto 에 없는 비-글로벌 entry) — 끝에 보존.
+        foreach (var kv in available)
+            foreach (var leftover in kv.Value)
+                newOrder.Add(leftover);
+
+        presetSection.Clear();
+        foreach (var e in newOrder) presetSection.Add(e);
     }
 
-    /// <summary>FBTagMapPreset → DTO (단일 변환 — 시드 파일 작성용).</summary>
+    /// <summary>FBTagMapPreset → DTO. legacy FBTagMapTemplate (Ports) 은 직렬화하지 않음.</summary>
     private static FBTagMapPresetDto PresetToDto(FBTagMapPreset src)
     {
         var dto = new FBTagMapPresetDto
         {
-            FBTagMapName = src.FBTagMapName ?? "",
-            AddressRule  = src.AddressRule.ToString(),
-            BaseAddresses = new BaseAddressDto
+            FBTagMapName      = src.FBTagMapName ?? "",
+            AddressRule       = src.AddressRule.ToString(),
+            BaseAddresses     = new BaseAddressDto
             {
                 InputBase  = src.BaseAddresses.InputBase,
                 OutputBase = src.BaseAddresses.OutputBase,
                 MemoryBase = src.BaseAddresses.MemoryBase,
             },
+            IsOperationModeFb = src.IsOperationModeFb,
         };
-        foreach (var p in src.FBTagMapTemplate)
-            dto.Ports.Add(new FBTagMapPortDto
-            {
-                FBPort     = p.FBPort,
-                Direction  = p.Direction,
-                DataType   = p.DataType,
-                TagPattern = p.TagPattern,
-                IsDummy    = p.IsDummy,
-                AddressOffset = FSharpOption<int>.get_IsSome(p.AddressOffset)
-                    ? p.AddressOffset.Value : null,
-            });
-        foreach (var akv in src.AutoAuxPortMap) dto.AutoAuxPortMap[akv.Key] = akv.Value;
-        foreach (var ckv in src.ComAuxPortMap)  dto.ComAuxPortMap[ckv.Key]  = ckv.Value;
-        foreach (var e in src.IwPatterns) dto.IwPatterns.Add(ToDtoSig(e));
-        foreach (var e in src.QwPatterns) dto.QwPatterns.Add(ToDtoSig(e));
-        foreach (var e in src.MwPatterns) dto.MwPatterns.Add(ToDtoSig(e));
+        CopyDict(src.AutoAuxPortMap, dto.AutoAuxPortMap);
+        CopyDict(src.ComAuxPortMap,  dto.ComAuxPortMap);
+        CopyList(src.IwPatterns, dto.IwPatterns, ToDtoSig);
+        CopyList(src.QwPatterns, dto.QwPatterns, ToDtoSig);
+        CopyList(src.MwPatterns, dto.MwPatterns, ToDtoSig);
+        if (src.SkippedFBPorts != null)
+            foreach (var p in src.SkippedFBPorts) dto.SkippedFBPorts.Add(p);
         return dto;
     }
 
-    /// <summary>
-    /// RobotWeldGrip / RobotWeldGripPallet — MW 디폴트.
-    /// 사용자 API 와 1:1 매칭되는 FB 포트는 해당 API 에, 나머지 글로벌 FB 포트는 모두
-    /// "START" API 를 carrier 로 등록 (START 는 모든 로봇 Call 에 필수).
-    /// </summary>
-    private static void ApplyRobotDefaults(FBTagMapPreset preset, bool includePallet)
+    private static void CopyDict<TV>(IDictionary<string, TV>? src, IDictionary<string, TV> dst)
     {
-        // 1) User API ↔ FB 포트 1:1 매핑 (per-API)
-        var weldGripPerApi = new (string Api, string FbPort)[]
-        {
-            ("WORK_COMP_RST", "M_LAST_WK_COMP_RST"),
-            ("START",         "M_START_OK"),
-            ("A_1ST_IN_OK",   "M_A_In_Ok"),
-            ("B_1ST_IN_OK",   "M_B_In_Ok"),
-            ("2ND_IN_OK",     "M_2nd_In_Ok"),
-            ("3RD_IN_OK",     "M_3rd_In_Ok"),
-            ("4TH_IN_OK",     "M_4th_In_Ok"),
-            ("5TH_IN_OK",     "M_5th_In_Ok"),
-            ("6TH_IN_OK",     "M_6th_In_Ok"),
-            ("7TH_IN_OK",     "M_7th_In_Ok"),
-        };
-        var palletPerApi = new (string Api, string FbPort)[]
-        {
-            ("PLT1_IN_OK",     "M_PLT1_In_Ok"),
-            ("PLT2_IN_OK",     "M_PLT2_In_Ok"),
-            ("PLT3_IN_OK",     "M_PLT3_In_Ok"),
-            ("PLT4_IN_OK",     "M_PLT4_In_Ok"),
-            ("PLT1_COUNT_RST", "M_PLT1_COUNT_RST"),
-            ("PLT2_COUNT_RST", "M_PLT2_COUNT_RST"),
-            ("PLT3_COUNT_RST", "M_PLT3_COUNT_RST"),
-            ("PLT4_COUNT_RST", "M_PLT4_COUNT_RST"),
-        };
-        const string perApiPattern = "W_$(F)_M_$(D)_$(A)";
-        foreach (var (api, fbPort) in weldGripPerApi)
-            EnsureMwPattern(preset, api, perApiPattern, fbPort);
-        if (includePallet)
-            foreach (var (api, fbPort) in palletPerApi)
-                EnsureMwPattern(preset, api, perApiPattern, fbPort);
-
-        // 2) 글로벌 FB 포트 — START API 를 carrier 로 사용. 패턴 W_$(F)_M_$(D)_<port>
-        const string carrier = "START";
-        foreach (var fbPort in RobotGlobalInputPorts)
-            EnsureMwPattern(preset, carrier, $"W_$(F)_M_$(D)_{StripPrefix(fbPort)}", fbPort);
-        foreach (var fbPort in RobotOutputPorts)
-            EnsureMwPattern(preset, carrier, $"W_$(F)_M_$(D)_{StripPrefix(fbPort)}", fbPort);
-        foreach (var fbPort in RobotMutualPorts)
-            EnsureMwPattern(preset, carrier, $"W_$(F)_M_$(D)_{StripPrefix(fbPort)}", fbPort);
-
-        if (includePallet)
-        {
-            // PLT5..12 dummy 슬롯 (사용자가 site 에 따라 채움)
-            for (var i = 5; i <= 12; i++)
-            {
-                EnsureMwPattern(preset, carrier, $"W_$(F)_M_$(D)_PLT{i}_In_Ok",     $"M_PLT{i}_In_Ok");
-                EnsureMwPattern(preset, carrier, $"W_$(F)_M_$(D)_PLT{i}_COUNT_RST", $"M_PLT{i}_COUNT_RST");
-            }
-        }
-
-        // AUX 포트 — 로봇은 사용자 명시 영역 (Wizard 에서 직접 선택). 자동 채움 안 함.
+        if (src == null) return;
+        foreach (var kv in src) dst[kv.Key] = kv.Value;
     }
 
-    private static readonly string[] RobotGlobalInputPorts = new[]
+    private static void CopyList<TSrc, TDst>(IEnumerable<TSrc>? src, ICollection<TDst> dst, Func<TSrc, TDst> map)
     {
-        // 모드/제어 입력
-        "RBT_Prog_No", "X_Ready_On", "M_Auto", "T_START",
-        "M_Prog_OK", "M_RESTART_OK", "M_Stn_Fault", "M_Error_Rst", "M_Cycle_Set",
-        "M_ATD_OK", "M_TIP_CHANGE_START", "M_TIP_CHANGE_COMPL",
-        "M_WATER_CUT_OFF", "M_BUZZ_STOP_AUX", "M_GATE_CLOSED", "M_EM_STOP", "M_TEST",
-        // C~H In_Ok (사용자 API 외 dummy)
-        "M_C_In_Ok", "M_D_In_Ok", "M_E_In_Ok", "M_F_In_Ok", "M_G_In_Ok", "M_H_In_Ok",
-        // Comp Reset (1st~7th)
-        "M_1st_Comp_Rst", "M_2nd_Comp_Rst", "M_3rd_Comp_Rst", "M_4th_Comp_Rst",
-        "M_5th_Comp_Rst", "M_6th_Comp_Rst", "M_7th_Comp_Rst",
-        // 시퀀스/차종 워드
-        "M_TO_RB_CN", "M_TO_RB_CTYE",
-    };
-
-    private static readonly string[] RobotOutputPorts = new[]
-    {
-        "M_RBT_Ready", "M_RBT_Auto", "M_RBT_Fault", "M_RBT_Home", "M_RBT_EM_Stop",
-        "M_RBT_PAUSE", "M_RBT_PROGRAM_ERR", "M_RBT_PLC_RUN_CHK_ERR",
-        "M_RBT_SEALER_CHK_BYPASS", "M_RBT_TIP_CHK_BYPASS", "M_RBT_VISION_BYPASS", "M_RBT_CLEANNER_BYPASS",
-        "M_Last_COMP", "M_1st_COMP", "M_2nd_COMP", "M_3rd_COMP",
-        "M_4th_COMP", "M_5th_COMP", "M_6th_COMP", "M_7th_COMP",
-        "M_NO_INTF1", "M_NO_INTF2", "M_NO_INTF3", "M_NO_INTF4",
-        "M_NO_INTF5", "M_NO_INTF6", "M_NO_INTF7", "M_NO_INTF8",
-        "M_NO_INTF9", "M_NO_INTF10", "M_NO_INTF11", "M_NO_INTF12",
-        "M_WELD_PLT_COUNT",
-    };
-
-    private static readonly string[] RobotMutualPorts = new[]
-    {
-        "Mutual_Int1", "Mutual_Int2", "Mutual_Int3", "Mutual_Int4", "Mutual_Int5",
-        "Mutual_Int6", "Mutual_Int7", "Mutual_Int8", "Mutual_Int9", "Mutual_Int10",
-    };
-
-    /// <summary>FB 포트 이름에서 흔한 prefix 제거 (M_/M_RBT_ → 깔끔한 패턴 suffix).</summary>
-    private static string StripPrefix(string fbPort)
-    {
-        if (fbPort.StartsWith("M_RBT_", StringComparison.Ordinal)) return fbPort.Substring("M_RBT_".Length);
-        if (fbPort.StartsWith("M_",     StringComparison.Ordinal)) return fbPort.Substring("M_".Length);
-        return fbPort;
+        if (src == null) return;
+        foreach (var s in src) dst.Add(map(s));
     }
 
-    /// <summary>Cylinder_N — 누락된 IW/QW/MW 패턴 + AUX 포트 매핑 보충.</summary>
-    private static void ApplyCylinderDefaults(FBTagMapPreset preset, int n)
-    {
-        // === IW: 실제 입력 배선 — 센서 N 쌍 (per cylinder) ===
-        for (var i = 1; i <= n; i++)
-        {
-            EnsureIwPattern(preset, "ADV", $"W_$(F)_WRS_$(D)_$(A){i}", $"LS_Adv{i}");
-            EnsureIwPattern(preset, "RET", $"W_$(F)_WRS_$(D)_$(A){i}", $"LS_Ret{i}");
-        }
-
-        // === QW: SOL 공유 (ADV/RET 2행만) ===
-        EnsureQwPattern(preset, "ADV", "W_$(F)_SOL_$(D)_$(A)", "SOL_Adv");
-        EnsureQwPattern(preset, "RET", "W_$(F)_SOL_$(D)_$(A)", "SOL_Ret");
-
-        // === MW: 메모리 — 글로벌 Flow 신호 (실제 입력 아님, 내부 메모리) ===
-        var globalsMw = new (string FbPort, string Pattern)[]
-        {
-            ("General_JIG",   "_ON"),
-            ("M_Ready",       "W_$(F)_M_READY_ON"),
-            ("M_Auto_Run",    "W_$(F)_M_AUTO_START"),
-            ("M_Manual",      "W_$(F)_M_MANUAL_MODE"),
-            ("M_Home_Ret",    "W_$(F)_M_HOME_RET_AUX"),
-            ("PB_Error_Rst",  "W_$(F)_M_ERR_RESET"),
-            ("HMI_Sel",       "W_$(F)_$(D)_M_HMI_SEL"),
-            ("HMI_Adv",       "W_$(F)_M_HMI_JIG_ADV_PB"),
-            ("HMI_Ret",       "W_$(F)_M_HMI_JIG_RET_PB"),
-            ("M_FLICK",       "_T1S"),
-        };
-        foreach (var (port, pattern) in globalsMw)
-        {
-            EnsureMwPattern(preset, "ADV", pattern, port);
-            EnsureMwPattern(preset, "RET", pattern, port);
-        }
-        // === MW: 출력 메모리 (인접 FB 참조용) ===
-        EnsureMwPattern(preset, "ADV", "W_$(F)_M_$(D)_$(A)_END",       "M_Adv_End");
-        EnsureMwPattern(preset, "RET", "W_$(F)_M_$(D)_$(A)_END",       "M_Ret_End");
-        EnsureMwPattern(preset, "ADV", "W_$(F)_M_$(D)_$(A)_ERR",       "M_Adv_Err");
-        EnsureMwPattern(preset, "RET", "W_$(F)_M_$(D)_$(A)_ERR",       "M_Ret_Err");
-        EnsureMwPattern(preset, "ADV", "W_$(F)_M_$(D)_$(A)_LAMP",      "LP_Adv");
-        EnsureMwPattern(preset, "RET", "W_$(F)_M_$(D)_$(A)_LAMP",      "LP_Ret");
-        EnsureMwPattern(preset, "ADV", "W_$(F)_M_$(D)_$(A)_HMI_LAMP",  "Visu_Adv");
-        EnsureMwPattern(preset, "RET", "W_$(F)_M_$(D)_$(A)_HMI_LAMP",  "Visu_Ret");
-
-        // === AUX 포트 ===
-        EnsureAux(preset.AutoAuxPortMap, "ADV", "M_Auto_Adv");
-        EnsureAux(preset.AutoAuxPortMap, "RET", "M_Auto_Ret");
-        EnsureAux(preset.ComAuxPortMap , "ADV", "M_Com_Adv");
-        EnsureAux(preset.ComAuxPortMap , "RET", "M_Com_Ret");
-    }
-
-    private static void EnsureIwPattern(FBTagMapPreset preset, string api, string pattern, string fbPort)
-    {
-        // 같은 (Api, FBPort) 가 이미 있으면 skip; 없으면 추가.
-        foreach (var p in preset.IwPatterns)
-            if (string.Equals(p.ApiName, api, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(p.TargetFBPort, fbPort, StringComparison.OrdinalIgnoreCase))
-                return;
-        preset.IwPatterns.Add(MakeSig(api, pattern, fbPort));
-    }
-
-    private static void EnsureQwPattern(FBTagMapPreset preset, string api, string pattern, string fbPort)
-    {
-        foreach (var p in preset.QwPatterns)
-            if (string.Equals(p.ApiName, api, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(p.TargetFBPort, fbPort, StringComparison.OrdinalIgnoreCase))
-                return;
-        preset.QwPatterns.Add(MakeSig(api, pattern, fbPort));
-    }
-
-    private static void EnsureMwPattern(FBTagMapPreset preset, string api, string pattern, string fbPort)
-    {
-        foreach (var p in preset.MwPatterns)
-            if (string.Equals(p.ApiName, api, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(p.TargetFBPort, fbPort, StringComparison.OrdinalIgnoreCase))
-                return;
-        preset.MwPatterns.Add(MakeSig(api, pattern, fbPort));
-    }
-
+    /// <summary>AUX 맵: 기존 키가 비어있을 때만 default 채움.</summary>
     private static void EnsureAux(System.Collections.Generic.Dictionary<string, string> map, string api, string defaultPort)
     {
         if (!map.ContainsKey(api) || string.IsNullOrEmpty(map[api]))
             map[api] = defaultPort;
     }
 
-    private static SignalPatternEntry MakeSig(string apiName, string pattern, string targetFbPort) =>
-        new() { ApiName = apiName, Pattern = pattern, TargetFBPort = targetFbPort };
+    private static SignalPatternEntry MakeSig(string apiName, string pattern, string targetFbPort, bool skipAddressAlloc = false) =>
+        new() { ApiName = apiName, Pattern = pattern, TargetFBPort = targetFbPort, SkipAddressAlloc = skipAddressAlloc };
 
     public static void Save(DsStore store, string deviceType, FBTagMapPresetDto preset)
     {
@@ -343,40 +245,26 @@ public static class FBTagMapStore
         var cp = GetOrCreateCp(store);
         if (cp == null) return;
 
-        var corePreset = new FBTagMapPreset();
-        corePreset.FBTagMapName = preset.FBTagMapName ?? "";
-        corePreset.AddressRule = ParseRule(preset.AddressRule);
+        var core = new FBTagMapPreset
+        {
+            FBTagMapName      = preset.FBTagMapName ?? "",
+            AddressRule       = ParseRule(preset.AddressRule),
+            IsOperationModeFb = preset.IsOperationModeFb,
+        };
         if (preset.BaseAddresses != null)
         {
-            corePreset.BaseAddresses.InputBase  = preset.BaseAddresses.InputBase  ?? corePreset.BaseAddresses.InputBase;
-            corePreset.BaseAddresses.OutputBase = preset.BaseAddresses.OutputBase ?? corePreset.BaseAddresses.OutputBase;
-            corePreset.BaseAddresses.MemoryBase = preset.BaseAddresses.MemoryBase ?? corePreset.BaseAddresses.MemoryBase;
+            core.BaseAddresses.InputBase  = preset.BaseAddresses.InputBase  ?? core.BaseAddresses.InputBase;
+            core.BaseAddresses.OutputBase = preset.BaseAddresses.OutputBase ?? core.BaseAddresses.OutputBase;
+            core.BaseAddresses.MemoryBase = preset.BaseAddresses.MemoryBase ?? core.BaseAddresses.MemoryBase;
         }
-        foreach (var p in preset.Ports ?? new List<FBTagMapPortDto>())
-        {
-            var port = new FBTagMapPort();
-            port.FBPort     = p.FBPort     ?? "";
-            port.Direction  = p.Direction  ?? "";
-            port.DataType   = p.DataType   ?? "BOOL";
-            port.TagPattern = p.TagPattern ?? "";
-            port.IsDummy    = p.IsDummy;
-            port.AddressOffset =
-                p.AddressOffset.HasValue
-                    ? FSharpOption<int>.Some(p.AddressOffset.Value)
-                    : FSharpOption<int>.None;
-            corePreset.FBTagMapTemplate.Add(port);
-        }
-        foreach (var akv in preset.AutoAuxPortMap ?? new Dictionary<string, string>())
-            corePreset.AutoAuxPortMap[akv.Key] = akv.Value;
-        foreach (var ckv in preset.ComAuxPortMap ?? new Dictionary<string, string>())
-            corePreset.ComAuxPortMap[ckv.Key] = ckv.Value;
-        foreach (var e in preset.IwPatterns ?? new List<SignalPatternEntryDto>())
-            corePreset.IwPatterns.Add(FromDtoSig(e));
-        foreach (var e in preset.QwPatterns ?? new List<SignalPatternEntryDto>())
-            corePreset.QwPatterns.Add(FromDtoSig(e));
-        foreach (var e in preset.MwPatterns ?? new List<SignalPatternEntryDto>())
-            corePreset.MwPatterns.Add(FromDtoSig(e));
-        cp.FBTagMapPresets[deviceType] = corePreset;
+        CopyDict(preset.AutoAuxPortMap, core.AutoAuxPortMap);
+        CopyDict(preset.ComAuxPortMap,  core.ComAuxPortMap);
+        CopyList(preset.IwPatterns, core.IwPatterns, FromDtoSig);
+        CopyList(preset.QwPatterns, core.QwPatterns, FromDtoSig);
+        CopyList(preset.MwPatterns, core.MwPatterns, FromDtoSig);
+        if (preset.SkippedFBPorts != null)
+            foreach (var p in preset.SkippedFBPorts) core.SkippedFBPorts.Add(p);
+        cp.FBTagMapPresets[deviceType] = core;
     }
 
     public static void Remove(DsStore store, string deviceType)
@@ -404,16 +292,20 @@ public static class FBTagMapStore
 
     private static SignalPatternEntryDto ToDtoSig(SignalPatternEntry e) => new()
     {
-        ApiName      = e.ApiName ?? "",
-        Pattern      = e.Pattern ?? "",
-        TargetFBPort = e.TargetFBPort ?? "",
+        ApiName          = e.ApiName ?? "",
+        Pattern          = e.Pattern ?? "",
+        TargetFBPort     = e.TargetFBPort ?? "",
+        SkipAddressAlloc = e.SkipAddressAlloc,
+        IsSpare          = e.IsSpare,
     };
 
     private static SignalPatternEntry FromDtoSig(SignalPatternEntryDto d) => new()
     {
-        ApiName      = d.ApiName ?? "",
-        Pattern      = d.Pattern ?? "",
-        TargetFBPort = d.TargetFBPort ?? "",
+        ApiName          = d.ApiName ?? "",
+        Pattern          = d.Pattern ?? "",
+        TargetFBPort     = d.TargetFBPort ?? "",
+        SkipAddressAlloc = d.SkipAddressAlloc,
+        IsSpare          = d.IsSpare,
     };
 
     private static AddressAssignRule ParseRule(string? s) =>
@@ -428,7 +320,6 @@ public static class FBTagMapStore
 public class FBTagMapPresetDto
 {
     public string FBTagMapName { get; set; } = "";
-    public List<FBTagMapPortDto> Ports { get; set; } = new();
     public string AddressRule { get; set; } = "Sequential";
     public BaseAddressDto? BaseAddresses { get; set; } = new();
     public Dictionary<string, string> AutoAuxPortMap { get; set; } = new();
@@ -436,13 +327,21 @@ public class FBTagMapPresetDto
     public List<SignalPatternEntryDto> IwPatterns { get; set; } = new();
     public List<SignalPatternEntryDto> QwPatterns { get; set; } = new();
     public List<SignalPatternEntryDto> MwPatterns { get; set; } = new();
+    /// <summary>Active System Operation Mode FB 여부 (예: ModeStn) — true 이면 Api_None Call-only 모드 지원.</summary>
+    public bool IsOperationModeFb { get; set; } = false;
+    /// <summary>FB 호출 시 의도적으로 미연결로 남길 FB 포트 이름 목록 (예: "로보트기동이상").</summary>
+    public List<string> SkippedFBPorts { get; set; } = new();
 }
 
 public class SignalPatternEntryDto
 {
-    public string ApiName      { get; set; } = "";
-    public string Pattern      { get; set; } = "";
-    public string TargetFBPort { get; set; } = "";
+    public string ApiName         { get; set; } = "";
+    public string Pattern         { get; set; } = "";
+    public string TargetFBPort    { get; set; } = "";
+    /// <summary>주소 할당 미진행 — true 면 IO 슬롯 미소비, Address 빈값 emit. 예: _T1S, T#200MS.</summary>
+    public bool SkipAddressAlloc  { get; set; } = false;
+    /// <summary>예비(Spare) 슬롯 — true 면 주소 1비트 예약, 신호 미생성. 기타 필드 무시.</summary>
+    public bool IsSpare           { get; set; } = false;
 }
 
 public class BaseAddressDto
@@ -452,12 +351,3 @@ public class BaseAddressDto
     public string MemoryBase { get; set; } = "%MW100";
 }
 
-public class FBTagMapPortDto
-{
-    public string FBPort     { get; set; } = "";
-    public string Direction  { get; set; } = "Input";
-    public string DataType   { get; set; } = "BOOL";
-    public string TagPattern { get; set; } = "";
-    public bool   IsDummy    { get; set; } = false;
-    public int?   AddressOffset { get; set; }
-}

@@ -24,7 +24,7 @@ internal static class XgiTemplateExtractor
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
             // AAStoXGI 어셈블리는 IoListPipeline 등 Plc.Xgi 네임스페이스 타입을 통해 식별.
-            var asm = typeof(Plc.Xgi.IoListPipeline).Assembly;
+            var asm = typeof(Plc.Xgi.SignalPipelineV2.SignalRow).Assembly;
             using var stream = asm.GetManifestResourceStream(ResourceName);
             if (stream == null)
                 return false;

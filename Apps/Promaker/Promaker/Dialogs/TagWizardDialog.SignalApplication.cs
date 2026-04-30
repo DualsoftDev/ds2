@@ -1,7 +1,6 @@
 using System.Linq;
 using System.Text;
 using System.Windows;
-using Plc.Xgi;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -109,41 +108,14 @@ public partial class TagWizardDialog
         }
     }
 
-    /// <summary>오류를 다이얼로그 탭에 표시.</summary>
-    private void DisplayErrors(GenerationResult result)
+    /// <summary>오류 메시지 리스트를 다이얼로그 탭에 표시 (IoSignalPipeline 결과 기반).</summary>
+    private void DisplayErrorsFromMessages(System.Collections.Generic.IReadOnlyList<string> messages)
     {
         _errorItems.Clear();
+        foreach (var msg in messages.Distinct())
+            _errorItems.Add(new ErrorDisplayItem { ErrorType = "오류", Message = msg });
 
-        var errorGroups = result.Errors
-            .GroupBy(e => e.ErrorType)
-            .OrderBy(g => g.Key);
-
-        foreach (var group in errorGroups)
-        {
-            var errorType = FormatErrorType(group.Key);
-            var messages = string.Join("\n", group.Select(e => e.Message).Distinct());
-            _errorItems.Add(new ErrorDisplayItem
-            {
-                ErrorType = $"{errorType} ({group.Count()}개)",
-                Message = messages,
-            });
-        }
-
-        if (_errorItems.Count > 0)
-        {
-            ErrorsTabItem.Visibility = Visibility.Visible;
-            ErrorCountText.Text = result.Errors.Count().ToString();
-        }
-        else
-        {
-            ErrorsTabItem.Visibility = Visibility.Collapsed;
-        }
+        ErrorsTabItem.Visibility = _errorItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ErrorCountText.Text = _errorItems.Count.ToString();
     }
-
-    private static string FormatErrorType(ErrorType errorType) => errorType switch
-    {
-        ErrorType.TemplateNotFound      => "템플릿 파일 없음",
-        ErrorType.ApiDefNotInTemplate   => "API가 템플릿에 정의되지 않음",
-        _                                => errorType.ToString(),
-    };
 }
