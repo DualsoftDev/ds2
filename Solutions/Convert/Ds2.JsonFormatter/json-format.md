@@ -315,11 +315,112 @@ ApiDef는 `properties` 필드가 없습니다. 모든 설정은 엔티티 직접
   "sourceId": "<call-guid>",
   "targetId": "<call-guid>",
   "arrowType": 1,
-  "parentId": "<work-guid>",           // 부모 Work (★ System이 아님)
+  "parentId": "<work-guid>",           // 부모 Work — source/target Call이 함께 속한 Work
   "id": "<guid>",
   "name": ""
 }
 ```
+
+- `sourceId` / `targetId` 두 Call은 **반드시 같은 Work 안에 있어야** 합니다 (`Arrows.fs:48-49` 검증). `parentId`는 그 공통 Work의 GUID이며, 새 Arrow 생성 시 `Paste.DirectOps.fs:37`에서 `source Call.ParentId`로 자동 설정됩니다.
+- 시뮬레이션 인덱싱은 `Queries.arrowCallsOf w.Id`로 Work 단위 수집됩니다 (`SimIndex.fs:288-290`).
+
+#### Call 간 AND / OR 의미론
+
+한 target Call로 들어오는 다중 ArrowBetweenCalls는 **AND**로 해석됩니다 (`WorkConditionChecker.canStartCall` — `callPreds |> List.forall ...`).
+
+```
+{A, B} -> C   ⇒   A & B 가 모두 Finish 여야 C 시작 가능
+```
+
+```json
+"arrowCalls": {
+  "<arrow1-guid>": { "sourceId": "<call-A-guid>", "targetId": "<call-C-guid>", "arrowType": 1, "parentId": "<work-guid>", "id": "<arrow1-guid>", "name": "" },
+  "<arrow2-guid>": { "sourceId": "<call-B-guid>", "targetId": "<call-C-guid>", "arrowType": 1, "parentId": "<work-guid>", "id": "<arrow2-guid>", "name": "" }
+}
+```
+
+#### Call 간 OR — `referenceOf` 기반 OR 그룹
+
+Call에는 OR 화살표 타입이 없습니다. 대신 **동일 의미의 Call을 여러 개로 분리**하고 그 중 하나(또는 다수)에 `referenceOf`로 원본 Call을 가리키게 하면 OR 그룹이 형성됩니다. ArrowBetweenCalls는 동일 Work 내에서만 정의되지만, OR 그룹의 멤버들은 **같은 Work에 있어도 되고 서로 다른 Work에 있어도 됩니다** — 시뮬레이션은 `referenceOf` 체인만 보고 그룹을 식별합니다.
+
+```
+Work_W:  A -> C₁                          (원본)
+Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
+⇒   A 또는 B 가 Finish 이면 OR 그룹 {C₁, C₂} 의 successor 가 시작 가능
+```
+
+**시뮬레이션 동작** (`SimIndex.fs:341-352`, `SimIndex.fs:205-217`, `WorkConditionChecker.fs:98-100`):
+
+1. `CallCanonicalGuids`: 각 Call → `referenceOf ?? 자기 자신` 매핑
+2. `CallReferenceGroups`: canonical 기준 그룹화, 멤버 ≥ 2 인 것만 OR 그룹 등록
+3. predecessor 검사: `forall preds` 안에서 `orGuids |> List.exists (Finish?)` — 즉 **AND of OR**
+4. 참조 Call(`referenceOf` 보유)은 ApiCalls/조건/StartPreds를 **원본 Call로부터 상속** (`SimIndex.addCallData`의 `dataSource` 분기)
+
+**JSON 예시** — 4개 Call이 모두 같은 Work에 있는 패턴 (실제 `OR.json` 구조 기준):
+
+```json
+"calls": {
+  "<call-A-guid>": {
+    "properties": [], "status4": 0,
+    "apiCalls": [
+      { "apiDefId": "<apidef-A-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-A-guid>", "name": "cyl1.ADV" }
+    ],
+    "callConditions": [],
+    "devicesAlias": "cyl1", "apiName": "ADV", "name": "cyl1.ADV",
+    "parentId": "<work-W-guid>",
+    "id": "<call-A-guid>"
+  },
+  "<call-C1-guid>": {
+    "properties": [], "status4": 0,
+    "apiCalls": [
+      { "apiDefId": "<apidef-C-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-C-guid>", "name": "cyl1.RET" }
+    ],
+    "callConditions": [],
+    "devicesAlias": "cyl1", "apiName": "RET", "name": "cyl1.RET",
+    "parentId": "<work-W-guid>",
+    "id": "<call-C1-guid>"
+  },
+  "<call-B-guid>": {
+    "properties": [], "status4": 0,
+    "apiCalls": [
+      { "apiDefId": "<apidef-B-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-B-guid>", "name": "Cyl2.ADV" }
+    ],
+    "callConditions": [],
+    "devicesAlias": "Cyl2", "apiName": "ADV", "name": "Cyl2.ADV",
+    "parentId": "<work-W-guid>",
+    "id": "<call-B-guid>"
+  },
+  "<call-C2-guid>": {
+    "properties": [], "status4": 0,
+    "apiCalls": [],                                       // ★ 비워둠 — 원본에서 상속
+    "callConditions": [],
+    "referenceOf": "<call-C1-guid>",                      // ★ 원본 C₁ 참조 → OR 그룹 형성
+    "devicesAlias": "cyl1", "apiName": "RET", "name": "cyl1.RET",
+    "parentId": "<work-W-guid>",                          // ★ C₁과 같은 Work도 OK
+    "id": "<call-C2-guid>"
+  }
+},
+"arrowCalls": {
+  "<arr-AC1>": { "sourceId": "<call-A-guid>", "targetId": "<call-C1-guid>", "arrowType": 1, "parentId": "<work-W-guid>", "id": "<arr-AC1>", "name": "" },
+  "<arr-BC2>": { "sourceId": "<call-B-guid>", "targetId": "<call-C2-guid>", "arrowType": 1, "parentId": "<work-W-guid>", "id": "<arr-BC2>", "name": "" }
+}
+```
+
+> 위 예시는 같은 Work 내에 `cyl1.RET` 이름의 Call이 두 개(C₁, C₂) 공존합니다. 시뮬레이션 엔진은 ParentId/Name 동일성을 강제하지 않고 `referenceOf`만 보므로 정상 동작합니다. OR 그룹 멤버를 서로 다른 Work에 분산시키는 것도 가능하며, 그 경우 각 ArrowBetweenCalls의 `parentId`는 자신의 source/target Call이 속한 Work GUID가 됩니다.
+
+**규칙 요약**:
+
+| 항목 | 값 |
+|------|-----|
+| OR 그룹 식별 | `referenceOf`가 같은 원본을 가리키는 Call들 (원본 자신 포함) |
+| 원본 Call | `referenceOf` 필드 생략(또는 null) |
+| 참조 Call | `referenceOf: "<원본 Call GUID>"` |
+| 그룹 멤버의 Name | 동일 (`devicesAlias.apiName` 일치) — `name` 필드도 동일하게 작성. 시뮬레이션 동작상 필수는 아니나 의미적으로 권장 |
+| 참조 Call의 `apiCalls` / `callConditions` | 비워두고 원본에서 상속받음 (작성하더라도 시뮬레이션은 원본 데이터를 사용) |
+| 다중 OR | 같은 원본을 가리키는 Call을 N개 만들면 N-항 OR (그 중 하나라도 Finish이면 통과) |
+| 배치 자유도 | 같은 Work / 다른 Work 모두 허용. 시뮬레이션은 ParentId 동일성을 강제하지 않음 |
+
+> **참고**: 에디터의 paste 동작에서는 한 Work 내에 동일 Name Call이 새로 들어오는 것을 차단(`Paste.fs:67-72` `DuplicateCallInWork`)하지만, 이는 paste 시나리오에 한정됩니다. 일반 Call 추가/JSON 직접 작성/에디터 본연의 OR 생성 흐름에서는 같은 Work 내 동일 Name 공존이 자연스럽게 사용됩니다 (`OR.json` 참고).
 
 ### CallCondition (트리 구조)
 
