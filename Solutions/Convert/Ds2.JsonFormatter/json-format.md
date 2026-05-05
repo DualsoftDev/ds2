@@ -590,7 +590,9 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 - `type: 0` → AutoAux (자동 기동 시에만 체크)
 - `inputSpec: UndefinedValue` → 값 무관, RxWork가 Finish이면 통과
 
-### 최소 ComAux 예시 — type: 1
+### ComAux 예시 — type: 1 (children 포함)
+
+`A | B | (C & D)` 형태의 식을 children으로 중첩하여 표현합니다.
 
 ```json
 "callConditions": [
@@ -609,7 +611,27 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
         "inputSpec": { "Case": "BoolValue", "Fields": [{ "Case": "Single", "Fields": [true] }] }
       }
     ],
-    "children": [],
+    "children": [
+      {
+        "id": "<guid-child>",
+        "type": 1,
+        "conditions": [
+          {
+            "id": "<apicall-guid-3>",
+            "apiDefId": "<apidef-guid-3>",
+            "inputSpec": { "Case": "BoolValue", "Fields": [{ "Case": "Single", "Fields": [true] }] }
+          },
+          {
+            "id": "<apicall-guid-4>",
+            "apiDefId": "<apidef-guid-4>",
+            "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [10] }] }
+          }
+        ],
+        "children": [],
+        "isOR": false,
+        "isRising": false
+      }
+    ],
     "isOR": true,
     "isRising": false
   }
@@ -618,47 +640,108 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 
 - `type: 1` → ComAux (자동/수동 모두 체크)
 - `inputSpec`에 기대값 지정 — RxWork의 IO 값과 매칭
-- `isOR: true` / `isRising: false` → 에디터 UI 수식 표시용 (시뮬레이션에서는 미사용)
+- 부모 `isOR: true` → 부모의 conditions(A, B)와 child(`(C & D)`) 사이를 OR로 결합
+- child `isOR: false` → child 내부의 C, D를 AND로 결합
 
-### children (트리 중첩)
+### 임의의 Boolean 식 표현
+
+한 노드는 `isOR` 한 가지 연산자만 사용합니다. 서로 다른 연산자는 **children에 중첩**해서 표현하며, child 식은 자동으로 `(...)`로 감싸집니다(`ConditionFormulaProjection.formatItems`). 같은 노드의 `conditions`와 `children`은 동일한 연산자로 함께 결합됩니다.
+
+| 식 | 구조 |
+|----|------|
+| `A & B` | root: `isOR=false`, conditions=[A, B], children=[] |
+| `A \| B` | root: `isOR=true`, conditions=[A, B], children=[] |
+| `A & (B \| C)` | root: `isOR=false`, conditions=[A], children=[ {`isOR=true`, conditions=[B, C]} ] |
+| `(A & B) \| (C & D)` | root: `isOR=true`, conditions=[], children=[ {`isOR=false`, conditions=[A, B]}, {`isOR=false`, conditions=[C, D]} ] |
+| `A \| (B & (C \| D))` | root: `isOR=true`, conditions=[A], children=[ {`isOR=false`, conditions=[B], children=[ {`isOR=true`, conditions=[C, D]} ]} ] |
+
+#### `(A & B) | (C & D)` 예시
 
 ```json
 "callConditions": [
   {
-    "id": "<guid-parent>",
-    "type": 0,
-    "conditions": [
-      { "id": "<ac1>", "apiDefId": "<ad1>", "inputSpec": { "Case": "UndefinedValue" } }
-    ],
+    "id": "<guid-root>",
+    "type": 1,
+    "conditions": [],
     "children": [
       {
-        "id": "<guid-child>",
+        "id": "<guid-left>",
         "type": 1,
         "conditions": [
-          { "id": "<ac2>", "apiDefId": "<ad2>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [1] }] } }
+          { "id": "<ac-A>", "apiDefId": "<ad-A>", "inputSpec": { "Case": "BoolValue", "Fields": [{ "Case": "Single", "Fields": [true] }] } },
+          { "id": "<ac-B>", "apiDefId": "<ad-B>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [1] }] } }
         ],
         "children": [],
         "isOR": false,
-        "isRising": true
+        "isRising": false
+      },
+      {
+        "id": "<guid-right>",
+        "type": 1,
+        "conditions": [
+          { "id": "<ac-C>", "apiDefId": "<ad-C>", "inputSpec": { "Case": "BoolValue", "Fields": [{ "Case": "Single", "Fields": [true] }] } },
+          { "id": "<ac-D>", "apiDefId": "<ad-D>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [2] }] } }
+        ],
+        "children": [],
+        "isOR": false,
+        "isRising": false
       }
     ],
-    "isOR": false,
+    "isOR": true,
     "isRising": false
   }
 ]
 ```
 
-- `children`은 에디터 UI에서 트리 구조로 표시하기 위한 용도
-- 현재 시뮬레이션 엔진은 최상위 conditions만 평가 (children 미평가)
+#### `A | (B & (C | D))` 예시 (3단 중첩)
 
-### isOR / isRising 참고
+```json
+"callConditions": [
+  {
+    "id": "<guid-root>",
+    "type": 1,
+    "conditions": [
+      { "id": "<ac-A>", "apiDefId": "<ad-A>", "inputSpec": { "Case": "UndefinedValue" } }
+    ],
+    "children": [
+      {
+        "id": "<guid-mid>",
+        "type": 1,
+        "conditions": [
+          { "id": "<ac-B>", "apiDefId": "<ad-B>", "inputSpec": { "Case": "UndefinedValue" } }
+        ],
+        "children": [
+          {
+            "id": "<guid-leaf>",
+            "type": 1,
+            "conditions": [
+              { "id": "<ac-C>", "apiDefId": "<ad-C>", "inputSpec": { "Case": "UndefinedValue" } },
+              { "id": "<ac-D>", "apiDefId": "<ad-D>", "inputSpec": { "Case": "UndefinedValue" } }
+            ],
+            "children": [],
+            "isOR": true,
+            "isRising": false
+          }
+        ],
+        "isOR": false,
+        "isRising": false
+      }
+    ],
+    "isOR": true,
+    "isRising": false
+  }
+]
+```
+
+### isOR / isRising / children 시뮬레이션 동작
 
 | 필드 | 시뮬레이션 사용 | 용도 |
 |------|:-:|------|
 | `isOR` | X | 에디터 수식 표시: `false` → `A & B`, `true` → `A \| B` |
-| `isRising` | X | 에디터 수식 표시: `true`이면 `↑` (상승 엣지) 표기 |
+| `isRising` | X | 에디터 수식 표시: `true`이면 식 끝에 `↑` (상승 엣지) 표기 |
+| `children` | X | 에디터 UI 수식 트리 표시용 (괄호로 감싸짐) |
 
-현재 시뮬레이션에서는 동일 type의 모든 conditions를 AND(`List.forall`)로 평가합니다.
+현재 시뮬레이션 엔진은 동일 type의 모든 최상위 `conditions`만 AND(`List.forall`)로 평가하며, `children` / `isOR` / `isRising`은 평가하지 않습니다. 위 boolean 식 표현은 에디터 UI(`ConditionFormulaProjection.formatCondition`)에서만 의미가 있습니다.
 
 ---
 
