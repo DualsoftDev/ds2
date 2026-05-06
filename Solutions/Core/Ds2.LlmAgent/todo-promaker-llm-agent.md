@@ -305,7 +305,10 @@ type ToolDef<'TArgs,'TResult> = {
 - [x] **end-to-end 검증** (사용자 검증 완료): LLM 이 add_system 호출 → turn end → ApplyImportPlan → DsStore 변경 → EditorEvent → MainViewModel rebuild → 다음 turn 에서 list_systems 로 결과 확인 / Undo 1회로 turn 전체 롤백 모두 정상
 
 #### Phase 1d — Tool 풀세트 + UI 완성 (PR 4)
-- [ ] Mutation tool 추가: `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` (모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan)
+
+> **하위 단위로 분할 진행** (단일 PR 안의 internal sub-milestone): 1d-1 Mutation 풀세트 → 1d-2 Read tool composite + system prompt 보강 → 1d-3 validate_model → 1d-4 UX (dock / throttle / consent / strict-mcp-config) → 1d-5 lifecycle 보안 (Job Object / ACL / sweep) → 1d-6 golden scenario.
+
+- [x] **1d-1 — Mutation tool 풀세트** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` 모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan. `ToolOperations` 의 plan+store 합산 lookup 으로 같은 turn 안 ID chaining 지원 (e.g. add_flow → add_work). `ImportPlanBuilder.Operations` seq 노출. `ModelTools` 가 sanitize/Guid parse/dispatcher/audit/quota 통합 헬퍼 (`Sanitize`/`ParseGuid`/`RunMutation`) 로 7개 책임 inline 압축. ID 표기 full GUID 통일 (list_systems / 모든 mutation 응답).
 - [ ] **Read tool — N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical):
   - `list_systems()` → System.Id + Name + 통계 (Flow 수 / Work 수). 1KB 이내 메타
   - `describe_system(id, expand?: 'none'|'shallow'|'deep')` → 기본 'shallow' (Flow/ApiDef 이름만), 'deep' 명시 시 자식 트리 포함
@@ -458,7 +461,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1c 완료** (2026-05-06, end-to-end 검증 통과). 결정 9개 모두 확정. Phase 1d (Tool 풀세트 + UI 완성) 진입 가능
+- 현 단계: **Phase 1d-1 완료** (2026-05-06, 사용자 e2e 검증 통과). Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) + ID chaining (plan+store 합산 lookup). 다음 = 1d-2 (Read tool composite `describe_system`/`describe_subtree`/`find_by_name` + system prompt batch 가이드).
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -488,7 +491,12 @@ type ToolDef<'TArgs,'TResult> = {
 3. ✅ **Phase 1a** — scaffold + ClaudeCliProvider concrete + 최소 chat panel (PR 1, internal) — 2026-05-06 완료
 4. ✅ **Phase 1b-c** (HTTP) — Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 + loopback bind + ephemeral port + handshake nonce + `IUiDispatcher` 추상 + `ImportPlanBuilder` + dummy `PingTool` (PR 2) — 2026-05-06 완료
 5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
-6. **Phase 1d** Tool 풀세트 + UI 완성 + system prompt 보강 + golden scenario (token 회귀 / prompt injection / RDP 격리 포함) + ChatPanel dock 통합 + AssistantDelta 50ms aggregation throttle + Job Object attach (PR 4)
+6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
+7. **Phase 1d-2** Read tool composite (`describe_system` expand + `describe_subtree` depth/page + `find_by_name`) + system prompt batch 가이드 + token 회귀 golden test
+8. **Phase 1d-3** `validate_model(scope?)` + 500ms result cache
+9. **Phase 1d-4** UX (ChatPanel dock 통합 / AssistantDelta 50ms aggregation throttle / HistoryPanel LLM turn 시각화 / data egress consent dialog / `--strict-mcp-config` + `--allowed-tools`)
+10. **Phase 1d-5** Lifecycle 보안 (Job Object attach / `.mcp-config` ACL 강화 / stale sweep — 결정 5.0 / 5.4)
+11. **Phase 1d-6** Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection / tool allowlist)
 
 ---
 
