@@ -23,6 +23,10 @@ type ImportPlanBuilder() =
     member _.Build() : ImportPlan =
         { Operations = ops |> Seq.toList }
 
+    /// Plan 내 누적된 operation 의 read-only enumeration. tool handler 가 같은 turn 안에서
+    /// 추가된 entity (e.g. add_flow 후 add_work 의 parent flow) 를 plan + store 합쳐 검색하기 위함.
+    member _.Operations : seq<ImportPlanOperation> = ops :> seq<_>
+
     member _.Count = ops.Count
     member _.IsEmpty = ops.Count = 0
 
