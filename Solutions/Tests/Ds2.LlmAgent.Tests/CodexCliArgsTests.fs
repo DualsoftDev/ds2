@@ -120,6 +120,22 @@ let ``ExperimentalInstructionsFile None default 면 -c experimental_instructions
     Assert.False(args |> List.exists (fun a -> a.StartsWith("experimental_instructions_file=")))
 
 [<Fact>]
+let ``resume 시 Cd Some 이어도 -C 미전달 (codex exec resume 가 -C 미지원)`` () =
+    // codex 0.125 의 `codex exec resume` subcommand 는 `-C / --cd` 옵션 받지 않음 (Hot-fix-6 회귀).
+    // 첫 turn 에서 cwd 가 thread rollout 에 기록되어 resume 시 그대로 이어진다는 가정.
+    let opts = { baseOptions with Cd = Some "C:/work" }
+    let args = buildArgs opts (Some "abc-123") "hi"
+    Assert.DoesNotContain("-C", args)
+    Assert.DoesNotContain("C:/work", args)
+
+[<Fact>]
+let ``resume 시 FullAuto true 이어도 --full-auto 미전달`` () =
+    // `--full-auto` 도 `codex exec` 만 지원. resume 에 yield 시 clap parsing fail (exit code 2).
+    let opts = { baseOptions with FullAuto = true }
+    let args = buildArgs opts (Some "abc-123") "hi"
+    Assert.DoesNotContain("--full-auto", args)
+
+[<Fact>]
 let ``ExperimentalInstructionsFile Some 시 -c experimental_instructions_file='<path>' 형식 (toml literal string)`` () =
     let path = @"C:\Users\dualk\AppData\Local\Temp\Promaker\codex-instructions-abc.md"
     let opts = { baseOptions with ExperimentalInstructionsFile = Some path }

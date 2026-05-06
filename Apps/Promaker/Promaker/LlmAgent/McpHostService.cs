@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using log4net;
 using Microsoft.AspNetCore.Builder;
@@ -90,7 +91,55 @@ public sealed class McpHostService : IAsyncDisposable
             throw new InvalidOperationException("Kestrel 시작 후 listening URL 확인 실패.");
 
         _app = app;
+
+        // Kestrel listen socket bind 가 끝나도 middleware pipeline + nonce 검증 + MapMcp routing 이
+        // 실제 request 를 처리하는 시점은 약간 뒤일 수 있음. codex 0.125 는 MCP connect 실패 시
+        // silent fallback (tool 비활성화 + 사용자에겐 일반 응답) 으로 진행되어 사용자가 race 를 알아채기
+        // 어려움 (Hot-fix-4 시나리오의 정합성 강화). HTTP self-probe 로 routing pipeline 까지 통과 확인.
+        await WaitReadyAsync(TimeSpan.FromSeconds(2));
+
         Log.Info($"McpHostService 시작 — url={ServerUrl}, nonce length={HandshakeNonce.Length}");
+    }
+
+    /// <summary>
+    /// MCP HTTP endpoint 가 실제 응답할 때까지 retry. Kestrel start 직후에는 socket bind 만 보장되고
+    /// pipeline 이 첫 request 를 처리할 준비는 약간 뒤. nonce header 를 동봉하여 자체 미들웨어 통과까지 검증.
+    /// 어떤 status code 든 응답이 오면 ready (MCP transport 는 GET 에 405 등 줄 수 있음 — 그 자체가 routing OK 의 신호).
+    /// timeout 초과 시 InvalidOperationException — InitializeAsync 의 catch 가 사용자에게 노출.
+    /// </summary>
+    private async Task WaitReadyAsync(TimeSpan timeout)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+        http.DefaultRequestHeaders.Add(NonceHeader, HandshakeNonce);
+
+        var deadline = DateTime.UtcNow + timeout;
+        Exception? lastEx = null;
+        var attempts = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            attempts++;
+            try
+            {
+                using var resp = await http.GetAsync(ServerUrl).ConfigureAwait(false);
+                // attempts > 1 = 실제 race window 가 존재한다는 단서 (Kestrel listen 이후 routing pipeline 미준비).
+                // 일정 기간 attempts > 1 이 한 번도 안 나오면 WaitReadyAsync 자체 제거 후보 (review 항목 A).
+                if (attempts > 1)
+                    Log.Info($"MCP HTTP ready probe 통과 (race 발생) — status={(int)resp.StatusCode}, attempts={attempts}");
+                else
+                    Log.Debug($"MCP HTTP ready probe 통과 — status={(int)resp.StatusCode}, attempts={attempts}");
+                return;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // HttpRequestException = connection refused / DNS / TLS 등. TaskCanceledException = HttpClient.Timeout (500ms) 만료.
+                // 그 외 (OOM 등) 는 흡수하지 않고 즉시 throw — silent failure 회피.
+                lastEx = ex;
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+        }
+        throw new InvalidOperationException(
+            $"MCP HTTP endpoint readiness check {timeout.TotalMilliseconds:F0}ms 안에 응답 없음 (attempts={attempts})",
+            lastEx);
     }
 
     public async Task StopAsync()

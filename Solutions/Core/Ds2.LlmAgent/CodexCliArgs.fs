@@ -38,6 +38,11 @@ type CodexCliOptions = {
     /// codex default coding agent prompt. build 시 toml literal string `'...'` 으로 인코딩 (Windows backslash
     /// escape 회피, path 안 `'` 미지원). 호출자가 임시 파일 lifecycle 책임.
     ExperimentalInstructionsFile: string option
+    /// `CODEX_HOME` 환경변수 — codex 가 sessions / config / log 를 둘 디렉토리. None 이면 codex default
+    /// (`~/.codex/`). 인스턴스별 임시 디렉토리로 두면 thread rollout 이 사용자 home 에 누적되지 않고
+    /// 워크스페이스와 함께 cleanup. CodexCliArgs 는 인자만 다루므로 build 결과에는 영향 X — Provider
+    /// 가 process spawn 시 환경변수로 설정.
+    CodexHome: string option
     /// stream backpressure 채널 capacity. ClaudeCli 와 동일 default 256.
     ChannelCapacity: int
 } with
@@ -53,6 +58,7 @@ type CodexCliOptions = {
         DangerouslyBypassApprovalsAndSandbox = false
         ConfigOverrides = None
         ExperimentalInstructionsFile = None
+        CodexHome = None
         ChannelCapacity = 256
     }
 
@@ -75,15 +81,19 @@ module CodexCliArgs =
             if options.Ephemeral then yield "--ephemeral"
             if options.IgnoreUserConfig then yield "--ignore-user-config"
             if options.SkipGitRepoCheck then yield "--skip-git-repo-check"
-            if options.FullAuto then yield "--full-auto"
+            // `--full-auto` 는 `codex exec` 만 지원 — `codex exec resume` 은 unknown option (exit code 2).
+            // 첫 turn 의 thread context 가 resume 시 이어지므로 resume 에 다시 적용 불필요.
+            if options.FullAuto && sessionId.IsNone then yield "--full-auto"
             if options.DangerouslyBypassApprovalsAndSandbox then
                 yield "--dangerously-bypass-approvals-and-sandbox"
             // ─── value flags ─────────────────────────────────────────────────
-            match options.Cd with
-            | Some d ->
+            // `-C / --cd` 도 `codex exec` 만 지원 (codex 0.125 `exec resume --help` 확인).
+            // resume 시 codex 가 thread rollout 의 첫 turn cwd 를 이어받음 — 격리 효과 유지 가정.
+            match options.Cd, sessionId with
+            | Some d, None ->
                 yield "-C"
                 yield d
-            | None -> ()
+            | _ -> ()
             match options.Model with
             | Some m ->
                 yield "-m"
