@@ -26,9 +26,35 @@ public partial class MainWindow : Window
         _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
+        // 1d-4 D — IsLlmChatVisible 토글 시 dock column width 조정 (collapsed 시 splitter 도 0).
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible))
+                UpdateLlmChatColumnWidths();
+        };
+
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
+    }
+
+    private const double LlmChatColumnDefaultWidth = 380.0;
+    private const double LlmChatColumnMinWidth = 240.0;
+
+    private void UpdateLlmChatColumnWidths()
+    {
+        if (_vm.IsLlmChatVisible)
+        {
+            LlmChatSplitterCol.Width = new GridLength(4);
+            LlmChatPanelCol.Width = new GridLength(LlmChatColumnDefaultWidth);
+            LlmChatPanelCol.MinWidth = LlmChatColumnMinWidth;
+        }
+        else
+        {
+            LlmChatSplitterCol.Width = new GridLength(0);
+            LlmChatPanelCol.MinWidth = 0;
+            LlmChatPanelCol.Width = new GridLength(0);
+        }
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -40,10 +66,25 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Window_Closing(object sender, CancelEventArgs e)
+    private bool _llmChatDisposed;
+
+    /// <summary>
+    /// 1d-5/1d-4 D — 명시적 cleanup 패턴: 첫 진입 시 close cancel + Dispose 후 Close() 재호출,
+    /// 두 번째 진입 시 (`_llmChatDisposed=true`) 통과. async void Closed fire-and-forget 회피.
+    /// </summary>
+    private async void Window_Closing(object sender, CancelEventArgs e)
     {
         if (!_vm.ConfirmDiscardChangesPublic())
+        {
             e.Cancel = true;
+            return;
+        }
+        if (_llmChatDisposed) return;
+
+        e.Cancel = true;
+        _llmChatDisposed = true;
+        await _vm.DisposeLlmChatAsync();
+        Close();
     }
 
     private static readonly string[] SupportedExtensions =
@@ -159,6 +200,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
     }
 

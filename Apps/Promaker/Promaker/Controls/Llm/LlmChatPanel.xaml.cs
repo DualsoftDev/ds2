@@ -4,22 +4,19 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using Ds2.Core.Store;
 using Promaker.ViewModels;
 
-namespace Promaker.Windows;
+namespace Promaker.Controls.Llm;
 
-public partial class LlmChatWindow : Window
+/// <summary>
+/// MainWindow 안 dock LLM Chat panel (1d-4 D — 별도 Window 폐기 후 이전).
+/// DataContext 는 외부 (`MainViewModel.LlmChatVm`) 에서 주입.
+/// </summary>
+public partial class LlmChatPanel : UserControl
 {
-    public LlmChatWindow(DsStore store)
+    public LlmChatPanel()
     {
         InitializeComponent();
-        DataContext = new LlmChatViewModel(store);
-        Closed += async (_, _) =>
-        {
-            if (DataContext is LlmChatViewModel vm)
-                await vm.DisposeAsync();
-        };
     }
 
     /// <summary>
@@ -43,7 +40,6 @@ public partial class LlmChatWindow : Window
 
         if (actual == Key.J && mods == ModifierKeys.Alt)
         {
-            // SelectedText 가 selection 치환 + binding round-trip 처리해 줌. 직접 Text 재할당 회피.
             tb.SelectedText = Environment.NewLine;
             tb.SelectionStart += Environment.NewLine.Length;
             tb.SelectionLength = 0;
