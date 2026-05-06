@@ -111,6 +111,14 @@ public abstract class BatchRowBase : IBatchRow
         set => SetField(ref _isUnmatched, value);
     }
 
+    /// <summary>파이프라인 진단의 영향 행으로 매핑되었음. IsUnmatched 보다 강한 강조(빨강).</summary>
+    private bool _hasError;
+    public bool HasError
+    {
+        get => _hasError;
+        set => SetField(ref _hasError, value);
+    }
+
     protected void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))

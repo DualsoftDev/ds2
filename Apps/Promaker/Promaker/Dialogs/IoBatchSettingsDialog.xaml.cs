@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using Ds2.Core.Store;
 using Microsoft.Win32;
 using Promaker.Services;
@@ -24,11 +25,14 @@ public partial class IoBatchSettingsDialog : Window
 {
     private readonly DsStore _store;
     private readonly ObservableCollection<IoBatchRow> _rows = new();
+    private readonly ObservableCollection<DiagnosticItemViewModel> _diagnostics = new();
     private readonly ICollectionView _view;
     private readonly RowFilterDebouncer _filterDebouncer;
 
     private bool _showOnlyUnmatched;
     private int _unmatchedCount;
+    private int _errorCount;
+    private int _warningCount;
 
     // 그리드 헤더 내장 필터 — TextChanged 에서 Tag 키로 Map 업데이트 후 디바운스 Refresh.
     private readonly Dictionary<string, string> _filters = new(StringComparer.OrdinalIgnoreCase)
@@ -40,7 +44,6 @@ public partial class IoBatchSettingsDialog : Window
 
     /// <summary>
     /// store 1개만으로 다이얼로그 생성. 행은 IoQueryService 가 만든다.
-    /// 호출부에서 행을 미리 만들어 넘기던 옛 시그니처는 제거 — 단일 책임.
     /// </summary>
     public IoBatchSettingsDialog(DsStore store)
     {
@@ -50,12 +53,12 @@ public partial class IoBatchSettingsDialog : Window
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
         IoGrid.ItemsSource = _view;
+        DiagnosticsList.ItemsSource = _diagnostics;
 
         _filterDebouncer = new RowFilterDebouncer(() => _view.Refresh());
 
         DataContext = this;
 
-        // 자동 1회 생성 — 사용자 입력 없이 진입 즉시 결과 표시.
         LoadFromStore();
     }
 
@@ -80,11 +83,15 @@ public partial class IoBatchSettingsDialog : Window
             }
 
             _unmatchedCount = qr.Unmatched.Count;
+            _errorCount = qr.ErrorCount;
+            _warningCount = qr.WarningCount;
             ShowOnlyUnmatchedCheckBox.Visibility =
                 _unmatchedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+            ApplyDiagnostics(qr.Diagnostics);
+            UpdateStatusChips();
+
             BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
-            UpdateStatus(qr);
             _view.Refresh();
         }
         finally
@@ -115,15 +122,113 @@ public partial class IoBatchSettingsDialog : Window
         }
     }
 
-    private void UpdateStatus(IoQueryService.QueryResult qr)
+    // ── 진단(Diagnostics) ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// QueryResult 의 진단을 ViewModel 로 옮기고, 영향 행에 HasError 플래그를 매핑.
+    /// 진단이 없으면 패널을 자동으로 닫는다.
+    /// </summary>
+    private void ApplyDiagnostics(IReadOnlyList<DiagnosticItem> diagnostics)
     {
-        var sb = new StringBuilder();
-        sb.Append($"총 {_rows.Count}개");
-        if (_unmatchedCount > 0)
-            sb.Append($" / 매칭 실패 {_unmatchedCount}개");
-        if (qr.HasError)
-            sb.Append($" / 오류 {qr.ErrorMessages.Count}건");
-        StatusText.Text = sb.ToString();
+        _diagnostics.Clear();
+
+        // 행별 인덱스 — (CallId, ApiCallId) → IoBatchRow
+        var rowIndex = new Dictionary<(Guid, Guid), IoBatchRow>();
+        foreach (var r in _rows)
+        {
+            r.HasError = false;
+            rowIndex[(r.CallId, r.ApiCallId)] = r;
+        }
+
+        foreach (var d in diagnostics)
+        {
+            var matched = new List<IoBatchRow>();
+            foreach (var key in d.AffectedRows)
+            {
+                if (rowIndex.TryGetValue((key.CallId, key.ApiCallId), out var row))
+                {
+                    matched.Add(row);
+                    if (d.Severity == DiagnosticSeverity.Error)
+                        row.HasError = true;
+                }
+            }
+
+            _diagnostics.Add(new DiagnosticItemViewModel(d, matched));
+        }
+
+        // 진단 없으면 패널 닫기. 있으면 헤더 텍스트만 갱신 (사용자가 직접 칩 클릭으로 열도록 둠).
+        if (_diagnostics.Count == 0)
+        {
+            DiagnosticsPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            UpdateDiagnosticsHeader();
+        }
+    }
+
+    private void UpdateDiagnosticsHeader()
+    {
+        var parts = new List<string>();
+        if (_errorCount > 0) parts.Add($"❌ 오류 {_errorCount}");
+        if (_warningCount > 0) parts.Add($"⚠ 경고 {_warningCount}");
+        DiagnosticsHeaderText.Text = parts.Count > 0
+            ? $"진단 — {string.Join(" / ", parts)}"
+            : "진단";
+    }
+
+    private void UpdateStatusChips()
+    {
+        TotalChip.Content = _view != null && _view.Cast<object>().Any()
+            ? $"총 {_rows.Count}"
+            : $"총 {_rows.Count}";
+
+        if (_warningCount > 0)
+        {
+            WarningChip.Content = $"⚠ 경고 {_warningCount}";
+            WarningChip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            WarningChip.Visibility = Visibility.Collapsed;
+        }
+
+        if (_errorCount > 0)
+        {
+            ErrorChip.Content = $"❌ 오류 {_errorCount}";
+            ErrorChip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ErrorChip.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void DiagnosticsChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_diagnostics.Count == 0) return;
+
+        // 칩 클릭은 토글 — 이미 열려있으면 닫고, 닫혀있으면 연다.
+        DiagnosticsPanel.Visibility = DiagnosticsPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void DiagnosticsClose_Click(object sender, RoutedEventArgs e) =>
+        DiagnosticsPanel.Visibility = Visibility.Collapsed;
+
+    private void DiagnosticGoToRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: DiagnosticItemViewModel vm }) return;
+        if (vm.MatchedRows.Count == 0) return;
+
+        var first = vm.MatchedRows[0];
+
+        // 필터 때문에 안 보일 수 있으니 필터를 임시로 비우는 대신, 일단 SelectedItem 만 세팅.
+        // (사용자가 필터를 켠 상태에서 점프하길 원할 가능성도 있어 자동 해제는 보류.)
+        IoGrid.SelectedItem = first;
+        IoGrid.ScrollIntoView(first);
+        IoGrid.Focus();
     }
 
     // ── 필터링 ────────────────────────────────────────────────────────────
@@ -281,7 +386,7 @@ public partial class IoBatchSettingsDialog : Window
 }
 
 /// <summary>
-/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched 만 변경 가능.
+/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched/HasError 만 변경 가능.
 /// IoQueryService.Generate 이 채워서 반환한다.
 /// </summary>
 public sealed class IoBatchRow : BatchRowBase
@@ -317,4 +422,53 @@ public sealed class IoBatchRow : BatchRowBase
     public string OutSymbol   { get; }
     public string OutDataType { get; }
     public string InDataType  { get; }
+}
+
+/// <summary>
+/// 진단 패널 항목 표시용 ViewModel.
+/// XAML 바인딩에 필요한 표시 속성(Icon/AccentBrush/HasRawMessage 등)을 노출하고,
+/// "해당 행 보기" 클릭 시 점프할 행 목록을 들고 있다.
+/// </summary>
+public sealed class DiagnosticItemViewModel
+{
+    private static readonly Brush ErrorBrush   = MakeBrush(0xE1, 0x5B, 0x5B);
+    private static readonly Brush WarningBrush = MakeBrush(0xF2, 0xB1, 0x34);
+    private static readonly Brush InfoBrush    = MakeBrush(0x57, 0xC0, 0x6D);
+
+    public DiagnosticItemViewModel(DiagnosticItem source, IReadOnlyList<IoBatchRow> matchedRows)
+    {
+        Source = source;
+        MatchedRows = matchedRows;
+    }
+
+    public DiagnosticItem Source { get; }
+    public IReadOnlyList<IoBatchRow> MatchedRows { get; }
+
+    public string Icon => Source.Severity switch
+    {
+        DiagnosticSeverity.Error   => "❌",
+        DiagnosticSeverity.Warning => "⚠",
+        _                          => "ℹ",
+    };
+
+    public Brush AccentBrush => Source.Severity switch
+    {
+        DiagnosticSeverity.Error   => ErrorBrush,
+        DiagnosticSeverity.Warning => WarningBrush,
+        _                          => InfoBrush,
+    };
+
+    public string Title       => Source.Title;
+    public string Detail      => Source.Detail;
+    public string? RawMessage => Source.RawMessage;
+
+    public bool HasRawMessage    => !string.IsNullOrEmpty(Source.RawMessage);
+    public bool HasAffectedRows  => MatchedRows.Count > 0;
+
+    private static Brush MakeBrush(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
 }

@@ -10,6 +10,50 @@
         ShowInTaskbar="False"
         ResizeMode="CanResize">
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="StatusChipStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ChipBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ChipBorder" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DiagnosticCardStyle" TargetType="Border">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        </Style>
+
         <Style x:Key="BatchFilterHeaderCellStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource PanelHeaderBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -95,12 +139,37 @@
                         Click="Refresh_Click"
                         ToolTip="현재 store 의 매크로/Preset 으로 IO 신호 재생성"/>
 
-                <TextBlock x:Name="StatusText"
-                           Grid.Column="1"
-                           VerticalAlignment="Center"
-                           Margin="14,0,0,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           FontSize="12"/>
+                <!-- 상태 칩: 클릭 시 진단 패널 토글 (오류/경고가 있을 때) -->
+                <StackPanel Grid.Column="1"
+                            x:Name="StatusChipsPanel"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="14,0,0,0">
+                    <Button x:Name="TotalChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="{DynamicResource TertiaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            Foreground="{DynamicResource SecondaryTextBrush}"
+                            IsHitTestVisible="False"
+                            Content="총 0"
+                            ToolTip="현재 화면에 보이는 행 / 전체 행 수"/>
+                    <Button x:Name="WarningChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="#33F2B134"
+                            BorderBrush="{DynamicResource OrangeAccentBrush}"
+                            Foreground="{DynamicResource OrangeAccentBrush}"
+                            Visibility="Collapsed"
+                            Click="DiagnosticsChip_Click"
+                            ToolTip="경고 — 클릭하면 진단 패널이 열립니다"/>
+                    <Button x:Name="ErrorChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="#33E15B5B"
+                            BorderBrush="{DynamicResource RedAccentBrush}"
+                            Foreground="{DynamicResource RedAccentBrush}"
+                            Visibility="Collapsed"
+                            Click="DiagnosticsChip_Click"
+                            ToolTip="오류 — 클릭하면 진단 패널이 열립니다"/>
+                </StackPanel>
 
                 <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
                           Grid.Column="2"
@@ -118,11 +187,106 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+                    <!-- 진단 패널 — 칩 클릭 시 토글. 항목이 없으면 자동 숨김. -->
+                    <Border x:Name="DiagnosticsPanel"
+                            Grid.Row="0"
+                            Visibility="Collapsed"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="0,0,0,1"
+                            Padding="10,8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="DiagnosticsHeaderText"
+                                           Grid.Column="0"
+                                           Text="진단"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Content="✖"
+                                        Width="22" Height="22"
+                                        Padding="0"
+                                        ToolTip="진단 패널 닫기"
+                                        Click="DiagnosticsClose_Click"/>
+                            </Grid>
+
+                            <ItemsControl Grid.Row="1"
+                                          x:Name="DiagnosticsList"
+                                          MaxHeight="220">
+                                <ItemsControl.Template>
+                                    <ControlTemplate TargetType="ItemsControl">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiagnosticCardStyle}"
+                                                BorderBrush="{Binding AccentBrush}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Icon}"
+                                                           Foreground="{Binding AccentBrush}"
+                                                           FontSize="16"
+                                                           Margin="0,1,8,0"
+                                                           VerticalAlignment="Top"/>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Title}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                    <TextBlock Text="{Binding Detail}"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,3,0,0"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               FontSize="12"/>
+                                                    <TextBlock Text="{Binding RawMessage}"
+                                                               Visibility="{Binding HasRawMessage, Converter={StaticResource BoolToVis}}"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,4,0,0"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource DisabledTextBrush}"
+                                                               FontFamily="Consolas, Cascadia Mono, Menlo, monospace"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal"
+                                                            VerticalAlignment="Top"
+                                                            Margin="8,0,0,0">
+                                                    <Button Content="📍 해당 행 보기"
+                                                            Padding="8,3"
+                                                            FontSize="11"
+                                                            Visibility="{Binding HasAffectedRows, Converter={StaticResource BoolToVis}}"
+                                                            Click="DiagnosticGoToRow_Click"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Border>
+
                     <Grid x:Name="IoHeaderGrid"
-                          Grid.Row="0"
+                          Grid.Row="1"
                           Background="{DynamicResource PanelHeaderBrush}"
                           ClipToBounds="True">
                         <Grid.ColumnDefinitions>
@@ -264,7 +428,7 @@
                     </Grid>
 
                     <DataGrid x:Name="IoGrid"
-                              Grid.Row="1"
+                              Grid.Row="2"
                               Style="{StaticResource BatchGridStyle}"
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
@@ -279,8 +443,12 @@
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                 <Style.Triggers>
+                                    <!-- 우선순위: HasError(파이프라인 매칭) > IsUnmatched(매핑 미완) -->
                                     <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
-                                        <Setter Property="Background" Value="#30FF6B6B"/>
+                                        <Setter Property="Background" Value="#55F2B134"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasError}" Value="True">
+                                        <Setter Property="Background" Value="#66E15B5B"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
