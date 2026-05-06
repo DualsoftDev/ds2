@@ -91,5 +91,9 @@ module CodexCliArgs =
             match sessionId with
             | Some sid -> yield sid
             | None -> ()
+            // **INVARIANT**: prompt 는 항상 args 의 마지막 토큰. CodexCliProvider 의 redact 로직이
+            // `if i = args.Length - 1 then redact` 로 본 invariant 에 의존 (Claude 의 `--prompt <msg>` flag-pair
+            // 구조와 달리 Codex 는 위치 인자라 invariant 가 인자 자체에 박혀있지 않음). 본 줄 위치 변경 시
+            // CodexCliProvider 의 redact 로직도 함께 갱신 필요.
             yield prompt
         ]

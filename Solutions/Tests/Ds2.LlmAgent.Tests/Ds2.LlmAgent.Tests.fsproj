@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="ClaudeCliArgsTests.fs" />
     <Compile Include="CodexCliArgsTests.fs" />
+    <Compile Include="CodexStreamJsonParserTests.fs" />
     <Compile Include="ValidateModelTests.fs" />
     <Compile Include="DescribeSubtreeTests.fs" />
     <Compile Include="SanitizeNameTests.fs" />

@@ -1782,7 +1782,70 @@ Reading additional input from stdin...
 ### 의도적 미적용 (C-2 결과 후)
 | 항목 | 사유 |
 |---|---|
-| 실제 동작 MCP server connect → tool 호출 spike | toy server 별도 만들기 vs Promaker 띄우기 모두 부담 — C-3 production 통합 시 자연 검증 |
-| `-c instructions="..."` system prompt override 시도 | C-3 진입 시 Promaker prompt + Codex default 의 합성 정책 결정 후 spike |
-| `codex exec resume` multi-turn spike | C-3 의 FSM 설계에서 첫 turn vs resume turn 인자 분기 자연 검증 |
+| 실제 동작 MCP server connect → tool 호출 spike | toy server 별도 만들기 vs Promaker 띄우기 모두 부담 — production 통합 시 자연 검증 |
+| `-c instructions="..."` system prompt override 시도 | Promaker UI dispatch 진입 시 정책 결정 후 spike |
+| `codex exec resume` multi-turn spike | CodexCliArgs.build 의 resume 분기는 unit test 로 검증됨, 실제 process 통합은 production e2e |
 | RateLimitEvent / 429 응답 | ChatGPT subscription 한도 초과 시도 — phase 후속 (실 한도 도달 시점) |
+
+# Phase 2 C-3 — CodexStreamJsonParser + CodexCliProvider concrete (2026-05-06)
+
+C-2 실증 4 의 4-packet 형식 + MCP HTTP 양립성 결과를 바탕으로 production 코드 추가. ClaudeCliProvider 와 동일 backpressure / cancellation / lifecycle 패턴을 별개 type 으로 복제 (review M5 인정 — 인터페이스 추상화는 phase 후속).
+
+## 변경 파일
+
+### F# 측 (`Solutions/Core/Ds2.LlmAgent/`)
+
+- `CodexStreamJsonParser.fs` 신규 — 4-packet → LlmEvent 매핑:
+  - `thread.started` → `SessionStarted(thread_id, "codex", [], [])` (model 은 `-m` 옵션으로 호출자가 알고 있음, mcp_servers 는 Codex 가 미노출)
+  - `item.completed` (`type=agent_message`) → `AssistantDelta text` 1회 발사 (Codex 는 completion 후 단일 패킷)
+  - `turn.completed` → `SessionEnd(0, 0m, false, "end_turn", 0)` placeholder (usage 의 cost/duration 정보는 LlmEvent 에 미반영, 보존 필요 시 새 case 추가)
+  - `turn.started` → 빈 결과 (Codex 만의 sentinel, 명시적 무시)
+  - 알 수 없는 type / malformed JSON / MaxLineLength 초과 / 비-JSON 평문 → 빈 결과 + Log.Warn (Pass B 의 forensic 단서 패턴)
+- `CodexCliProvider.fs` 신규 — `CodexCliProvider(options: CodexCliOptions)` type:
+  - `Send(prompt, ?ct) : IAsyncEnumerable<LlmEvent>` — bounded `Channel<LlmEvent>` (capacity 256 default), `Process.Start` + stdout/stderr 분리 task, ct.Register 로 process kill, ContinueWith 로 unobserved exception 안전망
+  - `EnsureCli() : ClaudeCliVersion.Result` — `codex --version` 호출 검증 (5초 timeout). 반환 schema 는 ClaudeCliVersion.Result 재활용 (provider 무관)
+  - `SessionId` get / `ClearSession()` — thread_id 캡처 후 다음 turn `exec resume` subcommand 사용
+  - prompt redact (마지막 위치 인자가 prompt — `codex exec [resume sid] [OPTS] <prompt>` 형식)
+- `Ds2.LlmAgent.fsproj` — CodexStreamJsonParser.fs / CodexCliProvider.fs Compile 추가
+
+### Test 측 (`Solutions/Tests/Ds2.LlmAgent.Tests/`)
+
+- `CodexStreamJsonParserTests.fs` 신규 — 13 test:
+  - thread.started → SessionStarted (sid 캡처 / model="codex" / 빈 tools+mcpServers)
+  - thread.started 에 thread_id 없으면 빈 결과
+  - turn.started sentinel skip (빈 결과)
+  - item.completed agent_message → AssistantDelta (text 보존, 줄바꿈 포함)
+  - item.completed 빈 text → skip
+  - item.completed 다른 type (tool_call 등) → skip (production 통합 후 검증)
+  - turn.completed → SessionEnd placeholder (durationMs=0, costUsd=0m, isError=false, stopReason="end_turn", denials=0)
+  - 알 수 없는 type / 빈 라인 / null / 비-JSON 평문 / malformed JSON / MaxLineLength 초과 → 빈 결과
+  - **실증 4 의 4-packet sequence 회귀 흡수** — turn.started skip 후 SessionStarted/AssistantDelta/SessionEnd 정확히 3개
+- `Ds2.LlmAgent.Tests.fsproj` — CodexStreamJsonParserTests.fs Compile 추가
+
+## 핵심 설계 — Provider 패턴 별도 type 사유
+
+ClaudeCliProvider 와 CodexCliProvider 가 ~95% 동일 구조 (channel / stdout/stderr task / ct.Register / prompt redact / ContinueWith 안전망) 지만 **별도 type 유지**:
+
+1. **인자 형식 결정적 차이** — `claude -p <msg> --resume <sid> --mcp-config <path>` (flag 기반) vs `codex exec [resume <sid>] -c key=value <prompt>` (subcommand+위치 인자). 인터페이스 추상화 시 양쪽 어색
+2. **parser 별도** — Claude `assistant.message.content[]` (다중 content type) vs Codex `item.completed.item` (단일 type). 공통 추상 어색
+3. **EnsureCli 검증 깊이** — Claude SemVer ≥2.1.0 vs Codex `--version` 존재만. 향후 Codex 도 SemVer 분기 필요 시 별도 module 도입
+4. **review M5 인정** — "Codex 추가 시 인터페이스 재설계 가능성 인정" 에 따라 일단 concrete 1종 추가, 합치기는 provider fallback 정책 진입 시점
+
+코드 중복 인정 (~120 라인 거의 동일). 추후 추상화 시 `ICliProvider` 인터페이스 + `ProcessHostingHelper` 공통 module 분리 검토.
+
+## 빌드 / 테스트 검증
+
+- `Promaker.sln` 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **80/80 통과** (이전 67 + 신규 13 = CodexStreamJsonParserTests)
+- 실제 LLM e2e 미수행 — Promaker UI 측 provider dispatch 추가 후 사용자 검증 (별도 사이클)
+
+## 의도적 미적용 (별도 사이클)
+
+| 항목 | 사유 |
+|---|---|
+| Promaker UI 측 provider 선택 (Claude vs Codex) | UI 결정 (라디오 버튼 / 토글 / config 키) — 별도 사이클. ChatPanel ViewModel 의 IClaudeCliProvider 직접 의존을 추상화 또는 dispatch layer 도입 |
+| MCP HTTP ready 신호 별도 wait | Codex 는 mcp_servers init 상태 stdout 미노출 → in-process Kestrel startup 후 HTTP GET / retry 또는 첫 tool call 실패 시 retry. McpHostService 에 ready 신호 export 필요 |
+| `instructions` override 정책 | Codex default system prompt 12k → `-c instructions="<Promaker SystemPrompt.Phase1c>"` 로 완전 override vs append. cache hit 영향 평가 후 결정 |
+| Tool 호출 packet 형식 (item.completed type≠agent_message) | production 통합 후 자연 검증 — 현재 parser 는 silent skip |
+| usage 보존 (input_tokens / cached / output / reasoning) | LlmEvent 새 case `UsageReport` 또는 SessionEnd 확장 필요. Promaker 측 표시 UX 결정 후 |
+| 인터페이스 추상화 (ICliProvider) | provider fallback 정책 도입 시점 — Claude 한도 초과 시 Codex 자동 전환 등 use case 가 명확해진 후 |
