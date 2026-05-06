@@ -61,6 +61,9 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="LLM" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenLlmChatCommand}" Click="CloseUtilPopup"><TextBlock Text="LLM Chat (Phase 1a)"/></Button>
                         </StackPanel>
                     </Border>
                 </Popup>
