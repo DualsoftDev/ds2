@@ -559,3 +559,115 @@ Shell cwd was reset to F:\Git\ds2\feature-greenfield-modeling\Solutions\Core\Ds2
 - `_ = InitializeAsync()` fire-and-forget — 내부 try/catch 로 unobserved 차단됨
 - `McpHostService.Stop` / `McpConfigWriter.Dispose` 의 try/catch — idempotent fail-safe 로 정당
 - `_dispatcher` 미사용 경고 — phase 1c 진입 시 tool handler 에 주입 예정이라 보유
+
+---
+
+# Phase 1c — 최소 system prompt + `add_system` end-to-end (2026-05-06 완료)
+
+## 신규 파일
+
+### F# DLL `Solutions/Core/Ds2.LlmAgent/`
+- `ToolOperations.fs` — F# helper module. `DsSystem` internal ctor 가 C# 에서 직접 호출 불가 → F# 측 wrapper.
+  - `queueAddSystem (plan, store, name, isActive) → Guid` : ImportPlanBuilder 에 `AddSystem(DsSystem)` + `LinkSystemToProject(projectId, sysId, isActive)` 누적. 첫 번째 project 자동 부착 (phase 1c 단순화)
+  - `listSystems (store) → (Guid * string * bool) list` : 모든 project 의 active+passive 시스템
+
+### Promaker `Apps/Promaker/Promaker/LlmAgent/`
+- `LlmTurnContext.cs` — turn-scoped state holder + provider (DI singleton).
+  - `LlmTurnContext { Store, Dispatcher, Plan, MutationCallCount, MutationQuota=50 }` + `IncrementMutationCount()` 가 quota 초과 시 `QUOTA_EXCEEDED` throw
+  - `LlmTurnContextProvider { Current, BeginTurn(ctx), EndTurn() }` — McpHostService DI singleton 으로 등록
+- `SystemPrompt.cs` — `SystemPromptText.Phase1c` 상수 (영어, multi-line raw string). tool-use 지시 + 2 tool 설명 + 4 rule (mutation = queue / clarification / 1-line confirm)
+- `Tools/ModelTools.cs` — `[McpServerToolType] static class`. 두 tool 모두 `[FromKeyedServices(null)] LlmTurnContextProvider` 주입.
+  - `AddSystem(turnProvider, name, isActive=true)` : sanitize (1-128자) → `IncrementMutationCount` → dispatcher InvokeAsync 로 `ToolOperations.queueAddSystem` 호출 → `[plan] add_system queued: name="...", id=xxxxxxxx…, planSize=N` 반환
+  - `ListSystems(turnProvider)` : dispatcher InvokeAsync 로 `ToolOperations.listSystems` 호출 → `- {name} (id=xxxxxxxx…, active|passive)` 행들
+
+## 변경 파일
+
+### F# 측
+- `Solutions/Core/Ds2.Core/AssemblyInfo.fs` — `InternalsVisibleTo("Ds2.LlmAgent")` 추가 (DsSystem internal ctor 노출)
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` — `ClaudeCliOptions.SystemPrompt: string option` 필드 추가, `buildArgs` 가 `--append-system-prompt` 인자 적용
+- `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — `ToolOperations.fs` Compile Include
+
+### C# 측
+- `Apps/Promaker/Promaker/LlmAgent/McpHostService.cs` — `TurnProvider` public property + `builder.Services.AddSingleton(TurnProvider)` 등록
+- `Apps/Promaker/Promaker/LlmAgent/Tools/PingTool.cs` — **삭제** (mutation tool 로 대체)
+- `Apps/Promaker/Promaker/Windows/LlmChatWindow.xaml.cs` — ctor 가 `DsStore` 인자 받음
+- `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs` — `OpenLlmChat` 가 `_store` 전달
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs`:
+  - ctor (`DsStore` 인자) — 내부에서 `WpfDispatcherAdapter` 생성
+  - `InitializeAsync` 에 `ClaudeCliOptions.SystemPrompt = Some(SystemPromptText.Phase1c)` 적용
+  - `SendAsync` 에 `BeginTurn(new LlmTurnContext(store, dispatcher))` + finally 의 `ApplyTurnPlanAsync(endedCtx, prompt)`
+  - `ApplyTurnPlanAsync` — dispatcher 안에서 `DsStoreImportPlanExtensions.ApplyImportPlan(_store, "LLM: <50자>", plan)` 호출 → ChatPanel 에 `[applied] N operation(s) committed as 1 undo step.` 표시
+
+## Turn 흐름 (1 LLM turn = 1 undo step)
+
+```
+사용자 메시지 입력
+   ↓
+SendAsync 시작
+   ├─ Turns.Add(user) + streamingTurn(assistant) 추가
+   ├─ TurnProvider.BeginTurn(LlmTurnContext { Store, Dispatcher, Plan }) — DI 주입 활성화
+   └─ ClaudeCliProvider.Send(prompt, ct) → IAsyncEnumerable<LlmEvent>
+        ↓
+   (LLM 이 mutation tool 호출 시)
+   Claude CLI → MCP HTTP request → Kestrel → ModelTools.AddSystem
+       ├─ FromKeyedServices: turnProvider 주입
+       ├─ ctx = turnProvider.Current
+       ├─ ctx.IncrementMutationCount (quota 50 체크)
+       ├─ ctx.Dispatcher.InvokeAsync(Background) 안에서
+       │    └─ ToolOperations.queueAddSystem(ctx.Plan, ctx.Store, name, isActive)
+       │         ├─ DsSystem(name) 생성
+       │         ├─ ctx.Plan.Add(AddSystem sys)
+       │         └─ ctx.Plan.Add(LinkSystemToProject(projectId, sys.Id, isActive))
+       └─ "[plan] add_system queued: ..." 반환 → tool_result 패킷 → AssistantDelta 표시
+        ↓
+   stream 종료 (LlmEvent.SessionEnd)
+   ↓
+finally
+   ├─ endedCtx = TurnProvider.EndTurn()
+   ├─ if Plan 비어있지 않으면 ApplyTurnPlanAsync
+   │    └─ dispatcher 안에서 store.ApplyImportPlan("LLM: <50자>", plan) — 단일 WithTransaction + EmitRefreshAndHistory 1회
+   ├─ Turns 마지막에 [applied] N operation(s) 메시지 추가
+   └─ IsSending = false
+   ↓
+EditorEvent → MainViewModel.RequestRebuildAll → tree / canvas / simulation 자동 갱신
+다음 turn 에서 LLM 이 list_systems 호출 → 추가된 시스템 반영 확인
+```
+
+## 컴파일 검증
+
+- F# 단독 빌드 — 경고 0, 오류 0
+- Promaker.sln 전체 빌드 — 경고 0, 오류 0 (Promaker 종료 후 재빌드)
+- end-to-end 사용자 검증 통과 — `add_system` 호출 → turn end `ApplyImportPlan` → tree/canvas rebuild → Ctrl+Z 롤백 모두 정상
+
+## 의도적 미적용 (phase 1d 로 미룸)
+
+| 항목 | 후속 phase |
+|---|---|
+| Tool 풀세트 (`add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def`) | Phase 1d |
+| Read tool 풀세트 (`describe_system` / `describe_subtree` / `find_by_name` / `validate_model`) — N+1 token 폭증 방지 composite | Phase 1d |
+| `add_system` 의 projectId 인자 (현재 첫 번째 project 자동 부착) | Phase 1d |
+| Tool registry 공통 invoker `ToolDef<'TArgs,'TResult>` 추상화 | Phase 1d (현재는 ModelTools 가 inline 으로 7개 책임 — sanitize / quota / dispatcher / audit / 결과 직렬화 — 일부 흡수) |
+| 환각 방지 / 도메인 규칙 system prompt 보강 (`<spec>` delimiter, batch 가이드) | Phase 1d |
+| Data egress consent dialog | Phase 1d |
+| `.mcp-config` ACL 강화 + stale sweep + Job Object | Phase 1d |
+| `validate_model(scope?)` + 500ms result cache | Phase 1d |
+| ChatPanel dock 통합 + AssistantDelta 50ms throttle | Phase 1d |
+| Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection) | Phase 1d |
+
+## 사용자 측 검증 시나리오
+
+1. Promaker 실행 → 새 프로젝트 생성 (필수, `add_system` 이 첫 번째 project 에 부착하므로)
+2. 유틸 popup → "LLM Chat (Phase 1a)"
+3. status: `준비 완료 — MCP host http://127.0.0.1:NNNNN, Claude CLI 2.1.x`
+4. 메시지: "Add a system named MyConveyor as active."
+5. 기대 흐름:
+   - `[tool_use] mcp__promaker__add_system`
+   - `[tool_result] [plan] add_system queued: name="MyConveyor", isActive=True, id=xxxxxxxx…, planSize=2`
+   - LLM 1-line confirm
+   - `[applied] 2 operation(s) committed as 1 undo step.`
+6. Promaker 트리 / 캔버스에 `MyConveyor` 시스템 자동 표시 (EditorEvent → RebuildAll)
+7. Ctrl+Z → 시스템 1개 롤백 (1 turn = 1 undo step)
+8. 다음 메시지: "List all systems."
+   - `[tool_use] mcp__promaker__list_systems`
+   - `[tool_result] - MyConveyor (id=xxxxxxxx…, active)`
+9. Window 닫고 재오픈 시 새 host URL / nonce 발급, mcp-config 임시파일 cleanup

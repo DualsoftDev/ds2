@@ -14,6 +14,7 @@
     <Compile Include="ClaudeCliProvider.fs" />
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
+    <Compile Include="ToolOperations.fs" />
   </ItemGroup>
 
   <ItemGroup>

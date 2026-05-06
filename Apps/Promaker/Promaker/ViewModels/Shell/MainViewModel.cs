@@ -260,7 +260,7 @@ public partial class MainViewModel : ObservableObject
             _llmChatWindow.Activate();
             return;
         }
-        _llmChatWindow = new LlmChatWindow { Owner = Application.Current.MainWindow };
+        _llmChatWindow = new LlmChatWindow(_store) { Owner = Application.Current.MainWindow };
         _llmChatWindow.Closed += (_, _) => _llmChatWindow = null;
         _llmChatWindow.Show();
     }
