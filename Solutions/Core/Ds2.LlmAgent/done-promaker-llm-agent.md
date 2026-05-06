@@ -469,3 +469,93 @@ Shell cwd was reset to F:\Git\ds2\feature-greenfield-modeling\Solutions\Core\Ds2
 5. 첫 turn 후 status bar 에 `session=xxxxxxxx… model=... tools=N mcp=M` 갱신
 6. 다음 turn 부터 자동으로 `--resume <sid>` 적용 (이전 대화 맥락 유지)
 7. "초기화" 클릭 → 새 세션 시작 (`--resume` 인자 제거)
+
+---
+
+# Phase 1b-c — HTTP MCP transport 채널 (2026-05-06 완료)
+
+## 신규 파일
+
+### F# DLL `Solutions/Core/Ds2.LlmAgent/`
+- `UiDispatcher.fs` — `IUiDispatcher` interface (`InvokeAsync<'T>(Func<'T>) : Task<'T>`, `InvokeAsync(Action) : Task`). 결정 8 의 sync `Invoke` 금지 / Background priority 명시
+- `ImportPlanBuilder.fs` — turn 단위 `ImportPlanOperation` 누적 buffer. `Add` / `Build` / `Count` / `IsEmpty` / `Clear`. dispatcher marshalling 안에서만 사용 (단일 thread 가정)
+
+### Promaker `Apps/Promaker/Promaker/LlmAgent/`
+- `McpHostService.cs` — in-process Kestrel host. `StartAsync` / `StopAsync` / `IAsyncDisposable`. `ListenLocalhost(0)` ephemeral port + handshake nonce 미들웨어 (X-Promaker-Nonce 헤더 검증, 불일치 시 401). `WithToolsFromAssembly` 로 `[McpServerToolType]` 자동 등록
+- `McpConfigWriter.cs` — `%TEMP%\Promaker\mcp-<sessionId>-<guid>.json` 작성. `{mcpServers.promaker.{type:http, url, headers["X-Promaker-Nonce"]:nonce}}`. `IDisposable` 로 호출자가 cleanup
+- `WpfDispatcherAdapter.cs` — `IUiDispatcher` 의 WPF 어댑터. `Dispatcher.InvokeAsync(action, DispatcherPriority.Background).Task`
+- `Tools/PingTool.cs` — phase 1b-c 검증용 dummy `[McpServerToolType]` static class. phase 1c 진입 시 mutation tool 로 대체 예정
+
+## 변경 파일
+
+- `Apps/Promaker/Promaker/Promaker.csproj` — `ModelContextProtocol.AspNetCore` PackageReference (1.2.0)
+- `Apps/Promaker/Directory.Packages.props` — central package management 에 `ModelContextProtocol.AspNetCore` 1.2.0 추가
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` — McpHostService 자동 start (`InitializeAsync`) → `McpConfigWriter.Create` → `ClaudeCliOptions` 에 `McpConfigPath` + `permissionMode="bypassPermissions"` 적용. `IsReady` flag 로 host 준비 전 Send 차단. `IUiDispatcher` 인스턴스화 (phase 1c 에서 tool handler 에 주입)
+- `Apps/Promaker/Promaker/Windows/LlmChatWindow.xaml.cs` — `Window.Closed` 이벤트에서 `IAsyncDisposable.DisposeAsync` 호출 → host stop + mcp-config 삭제
+- `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — `UiDispatcher.fs` / `ImportPlanBuilder.fs` Compile Include
+
+## 사용 시 흐름
+
+1. 사용자가 Promaker → 유틸 popup → "LLM Chat" 클릭
+2. `LlmChatViewModel.InitializeAsync`:
+   - `_mcpHost.StartAsync()` → Kestrel 띄움, 실제 listening URL (e.g. `http://127.0.0.1:54321`) + 32-byte hex nonce 확정
+   - `McpConfigWriter.Create("promaker", url, nonce)` → 임시 mcp-config JSON 작성, path 캡처
+   - `ClaudeCliProvider` 생성 (mcp-config + bypassPermissions 인자)
+   - `EnsureCli` background 실행, status 갱신
+3. 사용자 메시지 전송 → Claude CLI 가 mcp-config 의 `headers` 따라 X-Promaker-Nonce 헤더와 함께 Kestrel 에 connect → handshake 미들웨어 통과 → `mcp__promaker__ping` tool 호출 가능
+4. Window 닫기 → `DisposeAsync` → host stop + mcp-config 임시파일 삭제
+
+## 빌드 검증
+
+- `Solutions/Core/Ds2.LlmAgent` 단독 빌드 — 경고 0, 오류 0
+- `Apps/Promaker/Promaker.sln` 전체 빌드 — 경고 0, 오류 0 (.NET 9.0.301 + WPF + ASP.NET Core 호스팅 양립 확인)
+
+## 의도적 미적용 (phase 1c+ 로 미룸)
+
+| 항목 | 후속 phase |
+|---|---|
+| Tool registry 공통 invoker 7개 책임 (schema validation / sanitize / dispatcher marshalling / handler / 결과 직렬화 / audit / quota) | Phase 1c 진입 시 첫 mutation tool (`add_system`) 와 함께 도입 |
+| Mutation tool (add_system / add_flow / add_work / add_call / add_arrow / add_api_def) | Phase 1c (add_system) → Phase 1d (나머지) |
+| Read tool (list_systems / describe_system / describe_subtree / find_by_name / validate_model) | Phase 1d |
+| Turn end `store.ApplyImportPlan` 호출 | Phase 1c. 현재 `ImportPlanBuilder` 만 있고 호출 wiring 없음 |
+| `.mcp-config` ACL 강화 (Owner/DACL/SetAccessRuleProtection) + stale sweep | Phase 1d (결정 5.0 / 5.4) |
+| Process.SessionId 격리 — 현재 파일명에 sessionId 포함하나 ACL 검증은 phase 1d | Phase 1d |
+| Data egress consent dialog | Phase 1d (결정 5.0 / 결정 9 보안) |
+| `--allowed-tools` / `--strict-mcp-config` 인자 | Phase 1d (현재 bypassPermissions 로 우회) |
+| Audit log `Promaker.LlmAgent.ToolCall` | Phase 1c 진입 시 (mutation tool 호출부터 의미) |
+| AssistantDelta 50ms aggregation throttle | Phase 1d |
+| Job Object attach (Claude CLI cascade kill) | Phase 1d |
+
+## 검증 방법
+
+1. Promaker 실행 → 유틸 popup → "LLM Chat (Phase 1a)"
+2. 상태바 = `준비 완료 — MCP host http://127.0.0.1:NNNNN, Claude CLI 2.1.x`
+3. 메시지: "Use the promaker Ping tool with name=test. Quote ONLY the result."
+4. 첫 패킷의 `mcp_servers` 에 `{"name":"promaker","status":"connected"}` 도착 확인 (status bar 의 `mcp=N`)
+5. `[tool_use] mcp__promaker__ping` + `[tool_result] pong from Promaker, name=test` 도착 확인
+6. Window 닫고 재오픈 시 새로운 host URL / nonce 발급, `%TEMP%\Promaker\` 의 임시파일 cleanup 확인
+
+## 후속 보정 (사용자 검증 / review 반영)
+
+### Kestrel ephemeral port binding (사용자 검증 시점 발견)
+- 1차 구현: `opts.ListenLocalhost(0)` — 런타임에 `InvalidOperationException: "Dynamic port binding is not supported when binding to localhost. You must either bind to 127.0.0.1:0 or [::1]:0, or both."`
+- 원인: `ListenLocalhost(int)` 가 IPv4 + IPv6 dual binding 시도 → port 0 (동적) 와 결합 시 두 주소가 다른 port 를 받게 되어 거부
+- 수정: `opts.Listen(IPAddress.Loopback, 0)` 으로 IPv4 단일 binding 명시
+- 영향: 사용자 검증 status bar 에 `준비 완료 — MCP host http://127.0.0.1:54058, Claude CLI 2.1.129` 표시 확인
+
+### LlmChatWindow 다크 테마 통일 (사용자 검증 — 1차 구현이 흰 배경 + 회색 글자로 가독성 X)
+- `<Window>` Background/Foreground 를 `PrimaryBackgroundBrush` / `PrimaryTextBrush` 로 통일
+- ListBox / TextBox / Button 모두 Promaker 전역 brush 사용 (`SecondaryBackgroundBrush` / `BorderBrush` / `AccentBrush` / `HoverBackgroundBrush` / `AccentTextBrush`)
+- ListBoxItem ControlTemplate override 로 background/border 제거 (DataTemplate 이 자체 Border 그림)
+- 버튼 hover 시 `HoverBackgroundBrush`, disabled 시 opacity 0.5
+- 전송 버튼은 accent 색 + "전송 (Ctrl+Enter)" 표기로 도드라지게
+
+### Directory.Packages.props EOF / 빈줄 복원 (review)
+- `dotnet add package` 자동 변경이 EOF newline + 한 줄 빈 줄을 제거 → 복원
+- 최종 diff 는 의도한 1줄 (`ModelContextProtocol.AspNetCore` 1.2.0 추가) 만 남음
+
+### Review 정당성 인정 (변경 없이 유지)
+- `FSharpOption.None/Some(...)` 4회 반복 — 인라인이 더 가독성 좋음
+- `_ = InitializeAsync()` fire-and-forget — 내부 try/catch 로 unobserved 차단됨
+- `McpHostService.Stop` / `McpConfigWriter.Dispose` 의 try/catch — idempotent fail-safe 로 정당
+- `_dispatcher` 미사용 경고 — phase 1c 진입 시 tool handler 에 주입 예정이라 보유
