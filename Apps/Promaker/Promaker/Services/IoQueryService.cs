@@ -118,8 +118,20 @@ public static class IoQueryService
             using var tempDir = PresetToTempTemplateDir.Materialize(store);
             var result = IoListPipeline.generate(store, tempDir.Path);
 
+            // 같은 SystemType 의 TEMPLATE_NOT_FOUND 는 한 카드로 합치고, 나머지는 그대로.
+            // (Conveyor 처럼 SystemType 한 개 누락이 N 개 ApiCall 에 동일하게 보고되어
+            //  카드가 N 번 쌓이는 노이즈를 제거.)
+            var seenTemplateMissing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var err in result.Errors)
-                diagnostics.Add(MapPipelineError(err, rows));
+            {
+                var item = MapPipelineError(err, rows);
+                if (item.Code == "TEMPLATE_NOT_FOUND" && !string.IsNullOrEmpty(item.SystemType))
+                {
+                    if (!seenTemplateMissing.Add(item.SystemType!))
+                        continue;
+                }
+                diagnostics.Add(item);
+            }
 
             // Api_None 행 추가 — DeviceAlias 가 비어있는 경우 "Api_None" 으로 표기.
             foreach (var row in IoSignalPipeline.BuildApiNoneRows(result))
@@ -154,14 +166,23 @@ public static class IoQueryService
         switch (err.ErrorType)
         {
             case ErrorType.TemplateNotFound:
+            {
+                var sysType = ExtractSystemType(msg);
+                var titleSuffix = string.IsNullOrEmpty(sysType) ? "" : $" — SystemType '{sysType}'";
+                var detail = string.IsNullOrEmpty(sysType)
+                    ? "사용 중인 SystemType 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
+                      "TAG Wizard → Step 2 (신호 템플릿) 에서 해당 SystemType 의 IW/QW/MW 패턴을 등록하세요."
+                    : $"SystemType '{sysType}' 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
+                      "TAG Wizard → Step 2 (신호 템플릿) 에서 IW/QW/MW 패턴을 등록하세요.";
                 return new DiagnosticItem(
                     Severity:   DiagnosticSeverity.Error,
                     Code:       "TEMPLATE_NOT_FOUND",
-                    Title:      "XGI 템플릿 파일 없음",
-                    Detail:     "Preset 에 등록된 XGI 템플릿 파일을 찾을 수 없습니다. " +
-                                "Preset 편집에서 템플릿 경로를 확인하거나 템플릿을 다시 첨부하세요.",
+                    Title:      "신호 템플릿 누락" + titleSuffix,
+                    Detail:     detail,
                     AffectedRows: Array.Empty<IoRowKey>(),
-                    RawMessage: msg);
+                    RawMessage: msg,
+                    SystemType: sysType);
+            }
 
             case ErrorType.ApiDefNotInTemplate:
                 return new DiagnosticItem(
@@ -207,6 +228,19 @@ public static class IoQueryService
             Detail:     "신호 생성 파이프라인이 오류를 보고했습니다. 원본 메시지를 참고해 주세요.",
             AffectedRows: TryMatchByName(msg, rows),
             RawMessage: msg);
+    }
+
+    /// <summary>
+    /// "Template not found for SystemType: Conveyor" 같은 메시지에서 SystemType 토큰을 추출.
+    /// 추출 실패 시 null. — TEMPLATE_NOT_FOUND 그룹화 + FBTagMap 편집 바로가기에 사용.
+    /// </summary>
+    private static string? ExtractSystemType(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return null;
+        var m = Regex.Match(message, @"SystemType\s*[:=]\s*([^\s,;)\]]+)", RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        var token = m.Groups[1].Value.Trim().Trim('\'', '"');
+        return string.IsNullOrEmpty(token) ? null : token;
     }
 
     /// <summary>메시지에 등장하는 Device/Api 이름과 일치하는 행을 best-effort 로 추출.</summary>
@@ -256,6 +290,7 @@ public readonly record struct IoRowKey(Guid CallId, Guid ApiCallId);
 /// 원시 메시지는 <see cref="RawMessage"/> 로 따로 보존하고,
 /// <see cref="Title"/>/<see cref="Detail"/> 은 한글 설명·조치 안내로 정제된 형태.
 /// <see cref="AffectedRows"/> 가 채워져 있으면 그리드에서 해당 행을 강조/점프할 수 있다.
+/// <see cref="SystemType"/> 은 FBTagMap 편집 바로가기 등 액션 디스패치용 식별자.
 /// </summary>
 public sealed record DiagnosticItem(
     DiagnosticSeverity Severity,
@@ -263,4 +298,5 @@ public sealed record DiagnosticItem(
     string Title,
     string Detail,
     IReadOnlyList<IoRowKey> AffectedRows,
-    string? RawMessage);
+    string? RawMessage,
+    string? SystemType = null);

@@ -26,6 +26,13 @@ public partial class CallCreateDialog : Window
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
     private readonly Project? _project;
 
+    // ─── 직접 입력 SystemType 자동 동기화 상태 ───
+    /// <summary>사용자가 CustomSystemTypeComboBox 를 한 번이라도 직접 손댔는가.
+    /// true 가 되면 DevicesAlias 변경에 따른 자동 채우기는 멈춘다 (엑셀 자동완성 패턴).</summary>
+    private bool _customSystemTypeTouched;
+    /// <summary>프로그램이 SystemType 텍스트를 자동 갱신할 때 임시로 set — touched 오탐 방지.</summary>
+    private bool _suppressSystemTypeTouchDetection;
+
     // ─── 공통 출력 ───
     public CallCreateMode Mode { get; private set; }
 
@@ -51,6 +58,15 @@ public partial class CallCreateDialog : Window
         _project = project;
         InitializeComponent();
         LoadPresets();
+
+        // DevicesAlias → CustomSystemTypeComboBox 자동 동기화 (touched 전까지).
+        BasicAliasTextBox.TextChanged += OnAliasChanged;
+
+        // 편집 가능한 ComboBox 의 TextChanged 는 inner TextBox 에서 발생 — AddHandler 로 후킹.
+        CustomSystemTypeComboBox.AddHandler(
+            System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler(OnCustomSystemTypeTextChanged));
+
         Loaded += (_, _) =>
         {
             BasicAliasTextBox.Focus();
@@ -91,6 +107,79 @@ public partial class CallCreateDialog : Window
             return prefix + "#";
         }
         return modelType;
+    }
+
+    /// <summary>
+    /// systemTypePreset.json 에 (systemType, apiNames) 항목을 upsert.
+    /// - 이미 같은 SystemType 이 있으면 ApiNames 를 합집합으로 보강 (기존 entry 보존)
+    /// - 없으면 새 entry 추가
+    /// 직접 입력 경로에서 새 Call 이 추가될 때마다 호출되어, 다음 IO 생성 시
+    /// 해당 SystemType 의 IW/QW 패턴이 자동 합성되도록 보장한다.
+    /// </summary>
+    private static void UpsertSystemTypePreset(string systemType, IEnumerable<string> apiNames)
+    {
+        if (string.IsNullOrWhiteSpace(systemType)) return;
+
+        try
+        {
+            // 기존 항목 로드 — "ApiList:SystemType" 형식.
+            var current = LoadPresetsFromFile();
+            var apisByType = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var typeOrder = new List<string>();
+
+            foreach (var s in current)
+            {
+                if (string.IsNullOrWhiteSpace(s)) continue;
+                var idx = s.LastIndexOf(':');
+                if (idx <= 0) continue;
+                var apis = s.Substring(0, idx)
+                    .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(a => a.Trim())
+                    .Where(a => !string.IsNullOrEmpty(a))
+                    .ToList();
+                var st = s.Substring(idx + 1).Trim();
+                if (string.IsNullOrEmpty(st)) continue;
+
+                if (!apisByType.ContainsKey(st))
+                {
+                    apisByType[st] = apis;
+                    typeOrder.Add(st);
+                }
+                else
+                {
+                    foreach (var a in apis)
+                        if (!apisByType[st].Contains(a, StringComparer.Ordinal))
+                            apisByType[st].Add(a);
+                }
+            }
+
+            // 대상 SystemType 보강/추가.
+            if (!apisByType.TryGetValue(systemType, out var existing))
+            {
+                existing = new List<string>();
+                apisByType[systemType] = existing;
+                typeOrder.Add(systemType);
+            }
+            foreach (var a in apiNames)
+            {
+                var trimmed = a?.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+                if (!existing.Contains(trimmed!, StringComparer.Ordinal))
+                    existing.Add(trimmed!);
+            }
+
+            // 직렬화 후 파일 쓰기.
+            var serialized = typeOrder
+                .Select(st => $"{string.Join(";", apisByType[st])}:{st}")
+                .ToArray();
+
+            var dir = Path.GetDirectoryName(PresetFilePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(serialized,
+                new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(PresetFilePath, json);
+        }
+        catch { /* 쓰기 실패해도 Call 생성 자체는 진행 — 진단 패널에서 재안내됨. */ }
     }
 
     private static void CreateDefaultPresetFile()
@@ -155,8 +244,19 @@ public partial class CallCreateDialog : Window
             });
         }
 
-        // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
+        // 직접 입력 항목 추가 (Tag = null → CustomSystemTypeComboBox 로 SystemType 결정)
         PresetComboBox.Items.Add(new ComboBoxItem { Content = "직접 입력", Tag = null });
+
+        // CustomSystemTypeComboBox 후보 — 등록된 SystemType 이름들 (템플릿 '#' 표기는 제외).
+        // 여기에 표시되는 항목은 selectable history — 같은 그릇으로 합류시키고 싶을 때 사용.
+        CustomSystemTypeComboBox.Items.Clear();
+        var seenTypes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (modelType, _) in rawEntries)
+        {
+            if (string.IsNullOrEmpty(modelType) || modelType.Contains('#')) continue;
+            if (seenTypes.Add(modelType))
+                CustomSystemTypeComboBox.Items.Add(modelType);
+        }
 
         // 마지막 선택 복원 — 일치 항목 없으면 첫 번째.
         var last = _lastSelectedPreset;
@@ -189,6 +289,12 @@ public partial class CallCreateDialog : Window
             BasicApiNameTextBox.IsEnabled = true;
             BasicApiNameTextBox.Text = "";
             BasicApiNameTextBox.Focus();
+
+            // 직접 입력 모드 진입 — SystemType 패널 표시 + DevicesAlias 와 동기화 시작.
+            if (CustomSystemTypePanel is not null)
+                CustomSystemTypePanel.Visibility = Visibility.Visible;
+            _customSystemTypeTouched = false;
+            SyncCustomSystemTypeFromAlias();
         }
         else if (PresetComboBox.SelectedItem is ComboBoxItem item)
         {
@@ -197,12 +303,55 @@ public partial class CallCreateDialog : Window
             BasicApiNameTextBox.IsEnabled = false;
             BasicApiNameTextBox.Text = apiList ?? "";
 
+            // 표준 프리셋 — 직접 입력 패널 숨김.
+            if (CustomSystemTypePanel is not null)
+                CustomSystemTypePanel.Visibility = Visibility.Collapsed;
+
             // 템플릿(#) 프리셋: ApiCall 복제 카운트로 SystemType 을 결정 — 패널 자동 펼침.
             if (IsTemplateModel(modelType))
             {
                 if (RadioApiCallReplication is not null) RadioApiCallReplication.IsChecked = true;
                 if (AdvancedExpander is not null) AdvancedExpander.IsExpanded = true;
             }
+        }
+    }
+
+    // ─── DevicesAlias → CustomSystemType 자동 동기화 ───
+
+    private void OnAliasChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!IsCustomInputSelected()) return;
+        if (_customSystemTypeTouched) return;
+        SyncCustomSystemTypeFromAlias();
+    }
+
+    private void SyncCustomSystemTypeFromAlias()
+    {
+        if (CustomSystemTypeComboBox is null || BasicAliasTextBox is null) return;
+        var alias = BasicAliasTextBox.Text?.Trim() ?? "";
+        // 프로그램 갱신 — touched 오탐 방지.
+        _suppressSystemTypeTouchDetection = true;
+        try { CustomSystemTypeComboBox.Text = alias; }
+        finally { _suppressSystemTypeTouchDetection = false; }
+    }
+
+    // 사용자가 ComboBox 의 inner TextBox 에 직접 타이핑 → touched.
+    private void OnCustomSystemTypeTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSystemTypeTouchDetection) return;
+        _customSystemTypeTouched = true;
+    }
+
+    // 사용자가 드롭다운에서 기존 SystemType 을 선택 → touched + 텍스트 채움.
+    private void OnCustomSystemTypeSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSystemTypeTouchDetection) return;
+        if (CustomSystemTypeComboBox.SelectedItem is string picked)
+        {
+            _customSystemTypeTouched = true;
+            // SelectedItem 변경은 ComboBox 가 Text 도 같이 갱신하므로 별도 set 불필요.
+            // 다만 선택 직후 inner TextBox 의 caret/selection 정리만 살짝.
+            CustomSystemTypeComboBox.Text = picked;
         }
     }
 
@@ -278,6 +427,11 @@ public partial class CallCreateDialog : Window
         // SystemType 가져오기 - 프리셋에 따라 고급 탭에서 설정한 값 사용
         SelectedSystemType = GetSystemTypeForCurrentPreset();
 
+        // 직접 입력 경로: 새 SystemType 이면 Api 집합과 함께 systemTypePreset.json 에 자동 등록.
+        // 이미 있는 SystemType 이면 Api 들을 합집합으로 보강 — IO 생성 시 새 ApiCall 도 패턴 매칭됨.
+        if (IsCustomInputSelected() && !string.IsNullOrWhiteSpace(SelectedSystemType))
+            UpsertSystemTypePreset(SelectedSystemType!, apiNames);
+
         // 마지막 선택 프리셋 저장 (메모리) — 다음 다이얼로그 오픈 시 자동 선택용.
         if (PresetComboBox.SelectedItem is ComboBoxItem { Content: string label })
             _lastSelectedPreset = label;
@@ -310,8 +464,17 @@ public partial class CallCreateDialog : Window
     {
         if (PresetComboBox.SelectedItem is not ComboBoxItem item)
             return null;
-        // 직접 입력 선택 시 → Dummy (Tag=null)
-        if (IsCustomInputSelected()) return "Dummy";
+
+        // 직접 입력 선택 시 → CustomSystemTypeComboBox 의 텍스트 사용.
+        // 사용자가 비워뒀거나 만지지 않았으면 DevicesAlias 로 fallback.
+        // 이렇게 하면 어떤 경우에도 의미 있는 SystemType 이 결정되어 Dummy 사각지대가 사라진다.
+        if (IsCustomInputSelected())
+        {
+            var typed = CustomSystemTypeComboBox?.Text?.Trim();
+            if (!string.IsNullOrEmpty(typed)) return typed;
+            var alias = BasicAliasTextBox?.Text?.Trim();
+            return string.IsNullOrEmpty(alias) ? null : alias;
+        }
 
         var modelType = ParseModelType(item.Tag?.ToString());
 

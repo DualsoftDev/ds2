@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 using System.Windows;
 using Ds2.Core;
 using Promaker.Dialogs;
@@ -149,15 +153,12 @@ public partial class SimulationPanelState
         SimEventLog.Insert(0, new SimLogEntry(line, severity));
         if (SimEventLog.Count > 500)
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
-        // 진단 파일 append — 모드별로 분리
-        try
-        {
-            var path = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                $"ds2_eventlog_{SelectedRuntimeMode}.txt");
-            System.IO.File.AppendAllText(path, $"[{DateTime.Now:HH:mm:ss.fff}] {line}{Environment.NewLine}");
-        }
-        catch { }
+        // 진단 파일 append — 모드별로 분리. UI 스레드를 막지 않도록 background writer 로 위임.
+        // (Control/VP 모드의 빈번한 Hub 신호와 결합하면 매 호출의 동기 디스크 쓰기가 dispatcher 큐를 블로킹.)
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            $"ds2_eventlog_{SelectedRuntimeMode}.txt");
+        DiagnosticLogWriter.Enqueue(path, $"[{DateTime.Now:HH:mm:ss.fff}] {line}{Environment.NewLine}");
     }
 
     private void AddWarningLog(string severity, string message)
@@ -215,4 +216,72 @@ public partial class SimulationPanelState
         return result;
     }
 
+}
+
+/// <summary>
+/// 진단 로그 파일을 background 에서 batch 로 append 하는 single-writer queue.
+/// UI 스레드의 매 AddSimLog 호출이 동기 디스크 쓰기로 dispatcher 큐를 블로킹하던 패턴 분리.
+/// 같은 path 의 여러 line 은 한 번의 AppendAllTextAsync 로 모아 쓴다.
+/// rotation: 파일이 10MB 초과 시 .old 로 회전 (단일 백업).
+/// </summary>
+internal static class DiagnosticLogWriter
+{
+    private const long MaxBytes = 10 * 1024 * 1024;
+
+    private static readonly Channel<(string Path, string Line)> _channel =
+        Channel.CreateBounded<(string Path, string Line)>(
+            new BoundedChannelOptions(10_000)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false,
+            });
+
+    static DiagnosticLogWriter() => _ = Task.Run(WorkerAsync);
+
+    public static void Enqueue(string path, string line)
+        => _channel.Writer.TryWrite((path, line));
+
+    private static async Task WorkerAsync()
+    {
+        var reader = _channel.Reader;
+        var byPath = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
+        while (await reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            byPath.Clear();
+            while (reader.TryRead(out var item))
+            {
+                if (!byPath.TryGetValue(item.Path, out var sb))
+                    byPath[item.Path] = sb = new StringBuilder();
+                sb.Append(item.Line);
+            }
+            foreach (var kv in byPath)
+            {
+                try
+                {
+                    RotateIfNeeded(kv.Key);
+                    await File.AppendAllTextAsync(kv.Key, kv.Value.ToString()).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // 진단 로그는 best-effort.
+                }
+            }
+        }
+    }
+
+    private static void RotateIfNeeded(string path)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            if (!fi.Exists || fi.Length < MaxBytes) return;
+            var bak = path + ".old";
+            if (File.Exists(bak)) File.Delete(bak);
+            File.Move(path, bak);
+        }
+        catch
+        {
+        }
+    }
 }

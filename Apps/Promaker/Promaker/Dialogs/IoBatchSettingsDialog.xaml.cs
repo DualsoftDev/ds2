@@ -24,6 +24,7 @@ namespace Promaker.Dialogs;
 public partial class IoBatchSettingsDialog : Window
 {
     private readonly DsStore _store;
+    private readonly Action<string?>? _openFBTagMapEdit;
     private readonly ObservableCollection<IoBatchRow> _rows = new();
     private readonly ObservableCollection<DiagnosticItemViewModel> _diagnostics = new();
     private readonly ICollectionView _view;
@@ -44,11 +45,14 @@ public partial class IoBatchSettingsDialog : Window
 
     /// <summary>
     /// store 1개만으로 다이얼로그 생성. 행은 IoQueryService 가 만든다.
+    /// <paramref name="openFBTagMapEdit"/> 가 주어지면 진단 카드의 "FBTagMap 편집" 버튼이 활성화되어
+    /// SystemType 식별자와 함께 호출자에게 전달한다 (TAG Wizard 진입 등). 호출 후 자동 새로고침된다.
     /// </summary>
-    public IoBatchSettingsDialog(DsStore store)
+    public IoBatchSettingsDialog(DsStore store, Action<string?>? openFBTagMapEdit = null)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _openFBTagMapEdit = openFBTagMapEdit;
 
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
@@ -153,7 +157,7 @@ public partial class IoBatchSettingsDialog : Window
                 }
             }
 
-            _diagnostics.Add(new DiagnosticItemViewModel(d, matched));
+            _diagnostics.Add(new DiagnosticItemViewModel(d, matched, _openFBTagMapEdit != null));
         }
 
         // 진단 없으면 패널 닫기. 있으면 헤더 텍스트만 갱신 (사용자가 직접 칩 클릭으로 열도록 둠).
@@ -216,6 +220,19 @@ public partial class IoBatchSettingsDialog : Window
 
     private void DiagnosticsClose_Click(object sender, RoutedEventArgs e) =>
         DiagnosticsPanel.Visibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// "FBTagMap 편집" 버튼 — 호출자가 주입한 액션으로 SystemType 을 넘기고,
+    /// 그 액션(보통 TAG Wizard 모달)이 닫히면 IO 조회를 자동 새로고침해 결과를 즉시 반영.
+    /// </summary>
+    private void DiagnosticOpenFBTagMap_Click(object sender, RoutedEventArgs e)
+    {
+        if (_openFBTagMapEdit == null) return;
+        if (sender is not Button { DataContext: DiagnosticItemViewModel vm }) return;
+
+        _openFBTagMapEdit.Invoke(vm.SystemType);
+        LoadFromStore();
+    }
 
     private void DiagnosticGoToRow_Click(object sender, RoutedEventArgs e)
     {
@@ -435,14 +452,20 @@ public sealed class DiagnosticItemViewModel
     private static readonly Brush WarningBrush = MakeBrush(0xF2, 0xB1, 0x34);
     private static readonly Brush InfoBrush    = MakeBrush(0x57, 0xC0, 0x6D);
 
-    public DiagnosticItemViewModel(DiagnosticItem source, IReadOnlyList<IoBatchRow> matchedRows)
+    public DiagnosticItemViewModel(
+        DiagnosticItem source,
+        IReadOnlyList<IoBatchRow> matchedRows,
+        bool fbTagMapEditAvailable = false)
     {
         Source = source;
         MatchedRows = matchedRows;
+        FBTagMapEditAvailable = fbTagMapEditAvailable;
     }
 
     public DiagnosticItem Source { get; }
     public IReadOnlyList<IoBatchRow> MatchedRows { get; }
+    public bool FBTagMapEditAvailable { get; }
+    public string? SystemType => Source.SystemType;
 
     public string Icon => Source.Severity switch
     {
@@ -464,6 +487,9 @@ public sealed class DiagnosticItemViewModel
 
     public bool HasRawMessage    => !string.IsNullOrEmpty(Source.RawMessage);
     public bool HasAffectedRows  => MatchedRows.Count > 0;
+
+    /// <summary>SystemType 이 식별되고 호출자가 편집 액션을 제공했을 때만 버튼 노출.</summary>
+    public bool CanOpenFBTagMap  => FBTagMapEditAvailable && !string.IsNullOrEmpty(SystemType);
 
     private static Brush MakeBrush(byte r, byte g, byte b)
     {
