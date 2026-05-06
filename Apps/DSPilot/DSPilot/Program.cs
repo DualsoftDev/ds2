@@ -32,7 +32,13 @@ if (args.Contains("--diagnose"))
 }
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddHubOptions(options =>
+    {
+        // 대용량 차트(예: cycle-time-analysis 의 수천 개 SVG bar)에서
+        // 기본 32KB 한계를 넘어 circuit이 끊기는 문제 방지
+        options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10 MB
+    });
 
 // SignalR for real-time monitoring
 builder.Services.AddSignalR();

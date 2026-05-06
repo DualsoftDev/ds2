@@ -398,12 +398,15 @@ public partial class SimulationPanelState
 
         // 시뮬 종료 시 결과 시나리오 자동 박제 (TechnicalData.SimulationResults).
         // CapturedRuns 에 누적되어 "시뮬레이션 결과 보기" 다이얼로그에 표시된다.
+        // 자동 박제는 Simulation 모드 한정 — VP/Control 은 외부 신호 기반이라 의도된 "Run" 경계가 없고
+        // scenario 객체가 무거워(_stateChangeRecords 전체 + KPI + traversals) 누적 시 메모리 폭증.
         try
         {
             // 활성 traversal 들을 finalize → KPI 집계가 모든 토큰을 본다.
             // (분기 도중 stuck 된 branch 까지 포함; 완주 branch 가 있으면 그 max 시각으로 기록.)
             FinalizePendingTraversals();
-            TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
+            if (SelectedRuntimeMode == RuntimeMode.Simulation)
+                TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
         }
         catch { /* best-effort */ }
 
