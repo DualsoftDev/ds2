@@ -76,7 +76,8 @@ public partial class SimulationPanelState
             SimLog.Warn($"토큰 BlockedOnHoming: {args.WorkName} — {label}");
         }
 
-        // Conflict: 토큰 보유 Finish 노드 → Homing 진입하지만 토큰 때문에 Ready 불가
+        // Conflict: 토큰 보유 Finish 노드 → Homing 진입하지만 토큰 때문에 Ready 불가.
+        // 체크박스 ("다음 시뮬레이션까지 다시 보지 않기") 가 기본 체크라 첫 OK 이후 자동 suppress.
         if (args.Kind.IsConflict)
         {
             ShowPausedMessageBox(
