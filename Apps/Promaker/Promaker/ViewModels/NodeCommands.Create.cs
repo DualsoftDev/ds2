@@ -111,7 +111,8 @@ public partial class MainViewModel
 
                 return matches;
             },
-            project)
+            project,
+            sysType => GetApiCountSpecsForSysType(sysType))
         {
             Owner = Application.Current.MainWindow
         };
@@ -177,6 +178,7 @@ public partial class MainViewModel
         }
 
         var worksBefore = _store.Works.Keys.ToHashSet();
+        var callsBefore = _store.Calls.Keys.ToHashSet();
 
         switch (dialog.Mode)
         {
@@ -248,6 +250,73 @@ public partial class MainViewModel
                     "Call 추가"))
                     StatusText = "Call added.";
                 break;
+        }
+
+        // 새로 생성된 Call 들에 SignalCounts 적용 (UI 입력값).
+        var newCallIds = _store.Calls.Keys.Where(id => !callsBefore.Contains(id)).ToList();
+        ApplySignalCountsToCalls(newCallIds, dialog.SignalCounts);
+    }
+
+    /// <summary>
+    /// SystemType 의 FBTagMapPreset 패턴들에서 ApiName 별 신호 수량 spec 추출.
+    /// MaxCount = preset 의 같은 (Section, ApiName) entry 개수 중 max
+    /// (예: IW 에 LS_Adv1..LS_Adv4 4개 → max=4). 1개 미만이면 1로 보정.
+    /// </summary>
+    private IReadOnlyList<Promaker.Dialogs.CallCreateDialog.ApiCountSpec> GetApiCountSpecsForSysType(string sysType)
+    {
+        if (string.IsNullOrWhiteSpace(sysType)) return [];
+        var dto = Promaker.Services.FBTagMapStore.LoadOne(_store, sysType);
+        if (dto is null) return [];
+
+        // (Section, ApiName) → entry 개수 — 미리 N 개 등록된 entry 수가 max 신호 수.
+        var sections = new[] { dto.IwPatterns, dto.QwPatterns, dto.MwPatterns };
+        var maxByApi = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in sections)
+        {
+            if (section is null) continue;
+            var perApi = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in section)
+            {
+                if (e.IsSpare) continue;
+                var api = e.ApiName ?? "";
+                if (string.IsNullOrEmpty(api) || api == "-"
+                    || string.Equals(api, "Api_None", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                perApi[api] = perApi.TryGetValue(api, out var v) ? v + 1 : 1;
+            }
+            foreach (var kv in perApi)
+            {
+                var cur = maxByApi.TryGetValue(kv.Key, out var prev) ? prev : 0;
+                if (kv.Value > cur) maxByApi[kv.Key] = kv.Value;
+            }
+        }
+
+        var result = new List<Promaker.Dialogs.CallCreateDialog.ApiCountSpec>();
+        foreach (var kv in maxByApi.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            int max = Math.Max(1, kv.Value);
+            result.Add(new Promaker.Dialogs.CallCreateDialog.ApiCountSpec(kv.Key, max, 1));
+        }
+        return result;
+    }
+
+    /// <summary>새로 생성된 Call 들에 dialog.SignalCounts 를 ControlCallProperties.SignalCounts 로 적용.</summary>
+    private void ApplySignalCountsToCalls(System.Collections.Generic.IEnumerable<Guid> callIds, Dictionary<string, int> signalCounts)
+    {
+        if (signalCounts is null || signalCounts.Count == 0) return;
+        foreach (var callId in callIds)
+        {
+            if (!_store.Calls.TryGetValue(callId, out var call)) continue;
+            ControlCallProperties? props = null;
+            foreach (var p in call.Properties)
+                if (p is CallSubmodelProperty.ControlCall cc) { props = cc.Item; break; }
+            if (props is null)
+            {
+                props = new ControlCallProperties();
+                call.Properties.Add(CallSubmodelProperty.NewControlCall(props));
+            }
+            foreach (var kv in signalCounts)
+                props.SignalCounts[kv.Key] = kv.Value;
         }
     }
 

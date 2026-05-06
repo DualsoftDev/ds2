@@ -9,235 +9,81 @@ namespace Promaker.Services;
 
 /// <summary>
 /// 디바이스 타입(SystemType)별 FBTagMap 프리셋 저장소.
-/// 첫 번째 ActiveSystem 의 ControlSystemProperties 에 저장 → AASX 에 포함된다.
+///
+/// 단일 진실원: AAStoPLC.dll 임베디드 JSON (Resources/FBTagMapDefaults/*.json).
+/// 매번 LoadAll/LoadOne 호출 시 JSON 으로부터 preset 을 통째로 재생성한다.
+/// 사용자 편집 (Save 호출) 은 store 에 반영되지만, 다음 LoadAll 에서 JSON 으로 다시 덮어써짐.
+/// 따라서 사용자가 패턴을 영구 변경하려면 JSON 자체를 수정해야 함.
 /// </summary>
 public static class FBTagMapStore
 {
     private static ControlSystemProperties? GetOrCreateCp(DsStore store)
     {
         var opt = Queries.getOrCreatePrimaryControlProps(store);
-        return Microsoft.FSharp.Core.FSharpOption<ControlSystemProperties>.get_IsSome(opt) ? opt.Value : null;
+        return FSharpOption<ControlSystemProperties>.get_IsSome(opt) ? opt.Value : null;
     }
 
     public static Dictionary<string, FBTagMapPresetDto> LoadAll(DsStore store)
     {
         var cp = GetOrCreateCp(store);
         if (cp == null) return new();
-        EnsureDefaultPresets(cp);
+        RebuildPresetsFromJson(cp);
         return ToDtoDict(cp.FBTagMapPresets);
     }
 
-    /// <summary>특정 SystemType 프리셋 1개만 DTO 로 변환 (LoadAll 의 부분 변형 — 빈번 호출용).</summary>
+    /// <summary>특정 SystemType 프리셋 1개만 DTO 로 변환.</summary>
     public static FBTagMapPresetDto? LoadOne(DsStore store, string systemType)
     {
         if (string.IsNullOrWhiteSpace(systemType)) return null;
         var cp = GetOrCreateCp(store);
         if (cp == null) return null;
-        EnsureDefaultPresets(cp);
+        RebuildPresetsFromJson(cp);
         return cp.FBTagMapPresets.TryGetValue(systemType, out var preset) ? PresetToDto(preset) : null;
     }
 
     /// <summary>
-    /// 등록된 SystemType 별 FBTagMapPreset 을 보강한다.
-    /// • Entry 가 없으면 신규 생성 + 기본 FB + 기본 패턴 채움.
-    /// • Entry 가 있어도 누락된 기본값이 있으면 보충 (사용자 편집은 보존).
-    /// 디폴트 출처: AAStoPLC.dll 임베디드 JSON — 디스크 파일 사용 안 함.
+    /// 모든 SystemType (DevicePresets.Entries3) 의 preset 을 JSON 기준으로 재생성.
+    /// 기존 entry 는 모두 폐기. 사용자 추가분 보존 안 함.
     /// </summary>
-    public static void EnsureDefaultPresets(ControlSystemProperties cp)
+    public static void RebuildPresetsFromJson(ControlSystemProperties cp)
     {
-        // 모든 SystemType 의 default FB 집합 — 잘못된 SystemType↔FB 교차 오염 감지용.
-        var allDefaultFbs = Ds2.Core.Store.DevicePresets.Entries3
-            .Select(t => t.Item3)
-            .Where(s => !string.IsNullOrEmpty(s))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (sysType, _, defaultFb) in Ds2.Core.Store.DevicePresets.Entries3)
+        foreach (var (sysType, _, defaultFb) in DevicePresets.Entries3)
         {
             if (string.IsNullOrWhiteSpace(sysType)) continue;
-
-            FBTagMapPreset preset;
-            if (!cp.FBTagMapPresets.TryGetValue(sysType, out preset!))
-            {
-                preset = new FBTagMapPreset();
-                cp.FBTagMapPresets[sysType] = preset;
-            }
-
-            // FBTagMapName 검증 / 복원:
-            //   • 비어있음 → defaultFb 로 채움
-            //   • 다른 SystemType 의 default FB 와 매칭 → 이전 버그로 인한 교차 오염 → defaultFb 로 reset
-            //   • 그 외 (현재 default 와 일치 / 사용자 커스텀 FB) → 보존
-            var current = preset.FBTagMapName ?? "";
-            var expected = defaultFb ?? "";
-            if (string.IsNullOrEmpty(current))
-            {
-                preset.FBTagMapName = expected;
-            }
-            else if (!string.Equals(current, expected, StringComparison.OrdinalIgnoreCase)
-                  && allDefaultFbs.Contains(current))
-            {
-                // 다른 SystemType 의 default 가 박혀있음 → 잘못된 매핑으로 판정 후 reset.
-                preset.FBTagMapName = expected;
-            }
-
-            MergeDefaultsIntoPreset(preset, BuildFactoryDto(sysType, defaultFb));
+            cp.FBTagMapPresets[sysType] = BuildPresetFromJson(sysType, defaultFb);
         }
     }
 
-    /// <summary>임베디드 JSON 디폴트 DTO. 부재 시 FBTagMapName 만 채운 빈 DTO.</summary>
-    private static FBTagMapPresetDto BuildFactoryDto(string sysType, string? defaultFb)
+    /// <summary>임베디드 JSON → FBTagMapPreset 통째 변환. JSON 없으면 FBTagMapName 만 채운 빈 preset.</summary>
+    private static FBTagMapPreset BuildPresetFromJson(string sysType, string? defaultFb)
     {
-        var dto = FBTagMapEmbeddedDefaults.Load(sysType) ?? new FBTagMapPresetDto();
-        if (string.IsNullOrWhiteSpace(dto.FBTagMapName) && !string.IsNullOrEmpty(defaultFb))
-            dto.FBTagMapName = defaultFb!;
-        return dto;
-    }
-
-    /// <summary>
-    /// DTO 와 preset 동기화. 임베디드 JSON 순서를 단일 진실원으로 사용.
-    /// 매칭되는 preset entry 는 보존 (사용자 편집 유지), 임베디드에 없는 사용자 추가분은 끝에.
-    /// </summary>
-    private static void MergeDefaultsIntoPreset(FBTagMapPreset preset, FBTagMapPresetDto dto)
-    {
-        if (string.IsNullOrEmpty(preset.FBTagMapName) && !string.IsNullOrEmpty(dto.FBTagMapName))
-            preset.FBTagMapName = dto.FBTagMapName;
-
-        SyncSectionOrdered(preset.IwPatterns, dto.IwPatterns);
-        SyncSectionOrdered(preset.QwPatterns, dto.QwPatterns);
-        SyncSectionOrdered(preset.MwPatterns, dto.MwPatterns);
-        foreach (var kv in dto.AutoAuxPortMap ?? new()) EnsureAux(preset.AutoAuxPortMap, kv.Key, kv.Value);
-        foreach (var kv in dto.ComAuxPortMap ?? new()) EnsureAux(preset.ComAuxPortMap, kv.Key, kv.Value);
-        if (dto.IsOperationModeFb) preset.IsOperationModeFb = true;
-        if (dto.SkippedFBPorts != null)
+        var dto = FBTagMapEmbeddedDefaults.Load(sysType);
+        var preset = new FBTagMapPreset
         {
-            preset.SkippedFBPorts ??= new System.Collections.Generic.List<string>();
-            var existing = new HashSet<string>(preset.SkippedFBPorts, StringComparer.OrdinalIgnoreCase);
-            foreach (var p in dto.SkippedFBPorts)
-                if (!string.IsNullOrEmpty(p) && existing.Add(p))
+            FBTagMapName      = !string.IsNullOrEmpty(dto?.FBTagMapName) ? dto!.FBTagMapName
+                                : (defaultFb ?? ""),
+            AddressRule       = dto != null ? ParseRule(dto.AddressRule) : AddressAssignRule.Sequential,
+            IsOperationModeFb = dto?.IsOperationModeFb ?? false,
+        };
+        if (dto?.BaseAddresses != null)
+        {
+            preset.BaseAddresses.InputBase  = dto.BaseAddresses.InputBase  ?? preset.BaseAddresses.InputBase;
+            preset.BaseAddresses.OutputBase = dto.BaseAddresses.OutputBase ?? preset.BaseAddresses.OutputBase;
+            preset.BaseAddresses.MemoryBase = dto.BaseAddresses.MemoryBase ?? preset.BaseAddresses.MemoryBase;
+        }
+        if (dto != null)
+        {
+            CopyDict(dto.AutoAuxPortMap, preset.AutoAuxPortMap);
+            CopyDict(dto.ComAuxPortMap,  preset.ComAuxPortMap);
+            CopyList(dto.IwPatterns, preset.IwPatterns, FromDtoSig);
+            CopyList(dto.QwPatterns, preset.QwPatterns, FromDtoSig);
+            CopyList(dto.MwPatterns, preset.MwPatterns, FromDtoSig);
+            foreach (var p in dto.SkippedFBPorts ?? new())
+                if (!string.IsNullOrEmpty(p))
                     preset.SkippedFBPorts.Add(p);
         }
+        return preset;
     }
-
-    /// <summary>
-    /// preset 섹션을 임베디드 dto 순서대로 재구성.
-    ///   • dto 의 각 entry 에 대해 — preset 에 동일 (Api, Pattern, FBPort) 가 있으면 그 인스턴스 보존, 없으면 새로 만듦.
-    ///   • 임베디드에 없는 preset entry (사용자 추가분) 는 끝에 append.
-    ///     단, "Api_None"/"-" 은 SystemType 고유 글로벌/슬롯이므로 leftover 보존 대상에서 제외
-    ///     (다른 SystemType 에서 오염된 데이터 자동 제거).
-    /// </summary>
-    private static void SyncSectionOrdered(
-        System.Collections.Generic.ICollection<SignalPatternEntry> presetSection,
-        System.Collections.Generic.List<SignalPatternEntryDto>? dtoSection)
-    {
-        // Api_None / Spare / 레거시 "-" 는 dto 가 단일 진실원 — preset 보존하지 않고 dto 로 재생성.
-        static bool IsSystemTypeSpecific(SignalPatternEntry e) =>
-            e.IsSpare
-            || string.Equals(e.ApiName ?? "", "Api_None", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(e.ApiName ?? "", "-", StringComparison.Ordinal);
-        static bool IsSystemTypeSpecificDto(SignalPatternEntryDto d) =>
-            d.IsSpare
-            || string.Equals(d.ApiName ?? "", "Api_None", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(d.ApiName ?? "", "-", StringComparison.Ordinal);
-
-        // dto 가 비어있으면 — Api_None/Spare 오염 entry 만 제거하고 일반 사용자 entry 는 보존.
-        if (dtoSection == null || dtoSection.Count == 0)
-        {
-            var keep = presetSection
-                .Where(e => !IsSystemTypeSpecific(e))
-                .ToList();
-            presetSection.Clear();
-            foreach (var e in keep) presetSection.Add(e);
-            return;
-        }
-
-        var available = new System.Collections.Generic.Dictionary<(string, string, string), System.Collections.Generic.Queue<SignalPatternEntry>>();
-        foreach (var p in presetSection)
-        {
-            if (IsSystemTypeSpecific(p)) continue;
-            var key = (p.ApiName ?? "", p.Pattern ?? "", p.TargetFBPort ?? "");
-            if (!available.TryGetValue(key, out var q)) { q = new(); available[key] = q; }
-            q.Enqueue(p);
-        }
-
-        var newOrder = new System.Collections.Generic.List<SignalPatternEntry>(dtoSection.Count);
-        foreach (var d in dtoSection)
-        {
-            // 레거시 ApiName="-" 항목 → IsSpare 로 마이그레이션.
-            var isSpareEntry = d.IsSpare || string.Equals(d.ApiName ?? "", "-", StringComparison.Ordinal);
-            if (isSpareEntry)
-            {
-                var sp = MakeSig("", "", "", false);
-                sp.IsSpare = true;
-                newOrder.Add(sp);
-                continue;
-            }
-            var api = d.ApiName ?? "";
-            if (IsSystemTypeSpecificDto(d))
-            {
-                newOrder.Add(MakeSig(api, d.Pattern ?? "", d.TargetFBPort ?? "", d.SkipAddressAlloc));
-                continue;
-            }
-            var key = (api, d.Pattern ?? "", d.TargetFBPort ?? "");
-            if (available.TryGetValue(key, out var q) && q.Count > 0)
-                newOrder.Add(q.Dequeue());
-            else
-                newOrder.Add(MakeSig(api, d.Pattern ?? "", d.TargetFBPort ?? "", d.SkipAddressAlloc));
-        }
-
-        // 사용자 추가분 (dto 에 없는 비-글로벌 entry) — 끝에 보존.
-        foreach (var kv in available)
-            foreach (var leftover in kv.Value)
-                newOrder.Add(leftover);
-
-        presetSection.Clear();
-        foreach (var e in newOrder) presetSection.Add(e);
-    }
-
-    /// <summary>FBTagMapPreset → DTO. legacy FBTagMapTemplate (Ports) 은 직렬화하지 않음.</summary>
-    private static FBTagMapPresetDto PresetToDto(FBTagMapPreset src)
-    {
-        var dto = new FBTagMapPresetDto
-        {
-            FBTagMapName      = src.FBTagMapName ?? "",
-            AddressRule       = src.AddressRule.ToString(),
-            BaseAddresses     = new BaseAddressDto
-            {
-                InputBase  = src.BaseAddresses.InputBase,
-                OutputBase = src.BaseAddresses.OutputBase,
-                MemoryBase = src.BaseAddresses.MemoryBase,
-            },
-            IsOperationModeFb = src.IsOperationModeFb,
-        };
-        CopyDict(src.AutoAuxPortMap, dto.AutoAuxPortMap);
-        CopyDict(src.ComAuxPortMap,  dto.ComAuxPortMap);
-        CopyList(src.IwPatterns, dto.IwPatterns, ToDtoSig);
-        CopyList(src.QwPatterns, dto.QwPatterns, ToDtoSig);
-        CopyList(src.MwPatterns, dto.MwPatterns, ToDtoSig);
-        if (src.SkippedFBPorts != null)
-            foreach (var p in src.SkippedFBPorts) dto.SkippedFBPorts.Add(p);
-        return dto;
-    }
-
-    private static void CopyDict<TV>(IDictionary<string, TV>? src, IDictionary<string, TV> dst)
-    {
-        if (src == null) return;
-        foreach (var kv in src) dst[kv.Key] = kv.Value;
-    }
-
-    private static void CopyList<TSrc, TDst>(IEnumerable<TSrc>? src, ICollection<TDst> dst, Func<TSrc, TDst> map)
-    {
-        if (src == null) return;
-        foreach (var s in src) dst.Add(map(s));
-    }
-
-    /// <summary>AUX 맵: 기존 키가 비어있을 때만 default 채움.</summary>
-    private static void EnsureAux(System.Collections.Generic.Dictionary<string, string> map, string api, string defaultPort)
-    {
-        if (!map.ContainsKey(api) || string.IsNullOrEmpty(map[api]))
-            map[api] = defaultPort;
-    }
-
-    private static SignalPatternEntry MakeSig(string apiName, string pattern, string targetFbPort, bool skipAddressAlloc = false) =>
-        new() { ApiName = apiName, Pattern = pattern, TargetFBPort = targetFbPort, SkipAddressAlloc = skipAddressAlloc };
 
     public static void Save(DsStore store, string deviceType, FBTagMapPresetDto preset)
     {
@@ -281,8 +127,33 @@ public static class FBTagMapStore
         return Microsoft.FSharp.Collections.MapModule.OfSeq(pairs);
     }
 
-    private static Dictionary<string, FBTagMapPresetDto> ToDtoDict(
-        Dictionary<string, FBTagMapPreset> source)
+    // ── DTO ↔ core 변환 ──────────────────────────────────────────────────────
+
+    private static FBTagMapPresetDto PresetToDto(FBTagMapPreset src)
+    {
+        var dto = new FBTagMapPresetDto
+        {
+            FBTagMapName      = src.FBTagMapName ?? "",
+            AddressRule       = src.AddressRule.ToString(),
+            BaseAddresses     = new BaseAddressDto
+            {
+                InputBase  = src.BaseAddresses.InputBase,
+                OutputBase = src.BaseAddresses.OutputBase,
+                MemoryBase = src.BaseAddresses.MemoryBase,
+            },
+            IsOperationModeFb = src.IsOperationModeFb,
+        };
+        CopyDict(src.AutoAuxPortMap, dto.AutoAuxPortMap);
+        CopyDict(src.ComAuxPortMap,  dto.ComAuxPortMap);
+        CopyList(src.IwPatterns, dto.IwPatterns, ToDtoSig);
+        CopyList(src.QwPatterns, dto.QwPatterns, ToDtoSig);
+        CopyList(src.MwPatterns, dto.MwPatterns, ToDtoSig);
+        if (src.SkippedFBPorts != null)
+            foreach (var p in src.SkippedFBPorts) dto.SkippedFBPorts.Add(p);
+        return dto;
+    }
+
+    private static Dictionary<string, FBTagMapPresetDto> ToDtoDict(Dictionary<string, FBTagMapPreset> source)
     {
         var result = new Dictionary<string, FBTagMapPresetDto>();
         foreach (var kv in source)
@@ -315,6 +186,18 @@ public static class FBTagMapStore
             "Manual"    => AddressAssignRule.Manual,
             _           => AddressAssignRule.Sequential,
         };
+
+    private static void CopyDict<TV>(IDictionary<string, TV>? src, IDictionary<string, TV> dst)
+    {
+        if (src == null) return;
+        foreach (var kv in src) dst[kv.Key] = kv.Value;
+    }
+
+    private static void CopyList<TSrc, TDst>(IEnumerable<TSrc>? src, ICollection<TDst> dst, Func<TSrc, TDst> map)
+    {
+        if (src == null) return;
+        foreach (var s in src) dst.Add(map(s));
+    }
 }
 
 public class FBTagMapPresetDto
@@ -350,4 +233,3 @@ public class BaseAddressDto
     public string OutputBase { get; set; } = "%QW0.0.0";
     public string MemoryBase { get; set; } = "%MW100";
 }
-

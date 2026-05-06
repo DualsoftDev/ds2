@@ -350,8 +350,9 @@ public partial class TagWizardDialog
         }
         else if (_currentStep == 3)
         {
-            // Step 3 → Step 4: 요약 이동만 (ApiCall 자동 덮어쓰기 없음).
-            // 실제 패턴 적용은 Step 3 의 "패턴 적용" 버튼 클릭으로만 수행.
+            // Step 3 → Step 4: 확인 다이얼로그 → 적용 → 요약 이동 (Basic 모드와 동일 UX).
+            // 별도 "패턴 적용" 버튼을 눌러도 같은 흐름.
+            if (!ConfirmAndApplyPatterns()) return;
             MoveToStep(4);
         }
     }
@@ -537,7 +538,8 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
         set => SetProperty(ref _apiName, value ?? "");
     }
 
-    /// 패턴에 $(A) 가 없으면 글로벌 신호 → ApiName 자동으로 Api_None 으로 강제.
+    /// 패턴에 $(A)/$(C) 둘 다 없으면 글로벌 신호 → ApiName 자동으로 Api_None 으로 강제.
+    /// $(C) 는 SignalCounts[ApiName] 을 참조하므로 ApiName 이 의미를 가짐 → 자동 강제 대상 아님.
     /// 예외: IsSpare(예비) 또는 패턴이 비어있는 경우는 의도된 미바인딩이므로 보존.
     public string Pattern
     {
@@ -547,7 +549,8 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
             if (!SetProperty(ref _pattern, value ?? "")) return;
             OnPropertyChanged(nameof(DataType));
             if (!_isSpare && !string.IsNullOrEmpty(_pattern)
-                && !_pattern.Contains("$(A)") && _apiName != ApiNoneSentinel)
+                && !_pattern.Contains("$(A)") && !_pattern.Contains("$(C)")
+                && _apiName != ApiNoneSentinel)
                 ApiName = ApiNoneSentinel;
         }
     }

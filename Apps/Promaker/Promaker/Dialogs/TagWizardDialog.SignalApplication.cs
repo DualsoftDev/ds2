@@ -13,7 +13,13 @@ public partial class TagWizardDialog
     /// <summary>
     /// "패턴 적용" 버튼 — 명시적 동의 후 ApiCall 에 일괄 덮어쓰기.
     /// </summary>
-    private void ApplyPatterns_Click(object sender, RoutedEventArgs e)
+    private void ApplyPatterns_Click(object sender, RoutedEventArgs e) => ConfirmAndApplyPatterns();
+
+    /// <summary>
+    /// 확인 다이얼로그 → ApplySignals → 완료 메시지. true 면 적용 성공 (or 사용자 취소 후에도 다음 단계 진행 가능).
+    /// 사용자가 취소하면 false 반환 — 호출자가 단계 이동 취소.
+    /// </summary>
+    private bool ConfirmAndApplyPatterns()
     {
         var confirm = DialogHelpers.ShowThemedMessageBox(
             $"프리뷰의 모든 패턴을 {_ioRows.Count}개 ApiCall 의 InTag/OutTag 에 적용합니다.\n\n" +
@@ -23,7 +29,7 @@ public partial class TagWizardDialog
             "패턴 적용 확인",
             MessageBoxButton.YesNo,
             "⚠");
-        if (confirm != MessageBoxResult.Yes) return;
+        if (confirm != MessageBoxResult.Yes) return false;
 
         if (ApplySignals())
         {
@@ -34,7 +40,9 @@ public partial class TagWizardDialog
                 "패턴 적용 완료",
                 MessageBoxButton.OK,
                 "✓");
+            return true;
         }
+        return false;
     }
 
     private bool ApplySignals()
