@@ -292,29 +292,27 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
         var atOrBeforeStr = SqliteDateTimeHelpers.ToSqliteUtcString(atOrBefore);
 
+        // 최적화: ROW_NUMBER() OVER (PARTITION BY ...) 는 시작시각 이전의 전체 로그를 스캔/랭킹.
+        // plc.db 가 수십만~수백만 행이면 cycle-time-analysis 시간범위 변경 시 매번 메가스캔.
+        // → MAX(dateTime) GROUP BY plcTagId 로 변경 — (plcTagId, dateTime) 인덱스 위에서
+        //   태그당 1회 index seek 로 끝나므로 plc.db 사이즈와 무관하게 일정 시간.
         const string sql = @"
-WITH ranked AS (
-    SELECT
-        l.id AS Id,
-        l.plcTagId AS PlcTagId,
-        l.dateTime AS DateTime,
-        l.value AS Value,
-        ROW_NUMBER() OVER (
-            PARTITION BY l.plcTagId
-            ORDER BY l.dateTime DESC, l.id DESC
-        ) AS RowNum
+WITH max_times AS (
+    SELECT l.plcTagId AS PlcTagId, MAX(l.dateTime) AS MaxDateTime
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.plcTagId = t.id
     WHERE t.address IN @Addresses
       AND l.dateTime <= @AtOrBefore
+    GROUP BY l.plcTagId
 )
 SELECT
-    Id,
-    PlcTagId,
-    DateTime,
-    Value
-FROM ranked
-WHERE RowNum = 1";
+    l.id AS Id,
+    l.plcTagId AS PlcTagId,
+    l.dateTime AS DateTime,
+    l.value AS Value
+FROM plcTagLog l
+INNER JOIN max_times m
+    ON l.plcTagId = m.PlcTagId AND l.dateTime = m.MaxDateTime";
 
         var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
         {
@@ -357,7 +355,8 @@ WHERE RowNum = 1";
                 return false;
             }
 
-            // 인덱스 자동 생성 (이미 존재하면 무시)
+            // 인덱스 자동 생성 (이미 존재하면 무시).
+            // 참고: WAL 활성화는 DspRepositoryAdapter.CreateSchemaAsync 가 단일 진입점에서 보장.
             await EnsureIndexesAsync(connection);
 
             _logger.LogInformation("Database connection test successful");
@@ -379,6 +378,10 @@ WHERE RowNum = 1";
         {
             "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime_id ON plcTagLog(dateTime, id)",
             "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_id ON plcTagLog(plcTagId, id DESC)",
+            // GetMultipleTagLogsInRangeAsync 의 핵심 쿼리(plcTagId IN (..) AND dateTime BETWEEN .. AND ..)
+            // 를 단일 인덱스 스캔으로 처리하기 위한 복합 인덱스. cycle-time-analysis 등 시간범위 조회 페이지의
+            // 주요 병목.
+            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_dateTime ON plcTagLog(plcTagId, dateTime)",
             "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)",
         };
 
