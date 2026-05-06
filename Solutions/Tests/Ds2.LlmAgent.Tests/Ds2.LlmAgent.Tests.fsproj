@@ -9,6 +9,9 @@
   <ItemGroup>
     <Compile Include="ClaudeCliArgsTests.fs" />
     <Compile Include="ValidateModelTests.fs" />
+    <Compile Include="DescribeSubtreeTests.fs" />
+    <Compile Include="SanitizeNameTests.fs" />
+    <Compile Include="PromakerToolNamesDriftTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

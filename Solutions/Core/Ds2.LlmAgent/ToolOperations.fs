@@ -16,6 +16,38 @@ open Ds2.Core.Store
 [<RequireQualifiedAccess>]
 module ToolOperations =
 
+    // ─── Tool 인자 sanitize (1d-4 C / Pass E) ────────────────────────────────
+    //
+    // RLO override (U+202E) / null byte / ZWJ (U+200D) / 제어문자 등 prompt injection 1차 방어.
+    // 정상적인 entity 이름은 영문/한글/숫자/공백/일부 기호로 충분하며 Cc(Control)/Cf(Format) 가
+    // 들어올 일은 spoofing / unicode bomb 시도뿐. 발견 시 codepoint 를 메시지에 포함해 LLM 회복 단서 제공.
+    //
+    // **C# interop 시그니처**: 빈 string "" = valid, 비어있지 않은 메시지 = error.
+    // (Option<string> 반환 시 C# 측이 FSharpOption.get_IsSome 핸들 — sentinel 패턴이 호출 코드 단순화)
+
+    /// 1d-4 C 의 default 길이 cap (System/Flow/Work/Call/ApiDef 이름 공통).
+    [<Literal>]
+    let NameMaxLength = 128
+
+    /// Tool 인자 sanitize. 빈 string "" 반환 = valid, 메시지 반환 = invalid.
+    let sanitizeName (value: string) (field: string) (maxLength: int) : string =
+        if String.IsNullOrWhiteSpace(value) then
+            $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
+        else
+            let trimmed = value.Trim()
+            if trimmed.Length > maxLength then
+                $"VALIDATION_ERROR: {field} 길이 {trimmed.Length} > {maxLength}."
+            else
+                let bad =
+                    trimmed
+                    |> Seq.tryFind (fun c ->
+                        let cat = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                        cat = System.Globalization.UnicodeCategory.Control
+                        || cat = System.Globalization.UnicodeCategory.Format)
+                match bad with
+                | Some c -> $"VALIDATION_ERROR: {field} 에 허용되지 않은 제어/format 문자 (U+{int c:X4}) 가 포함되어 있습니다."
+                | None -> ""
+
     // ─── Plan + Store 합산 lookup 헬퍼 ───────────────────────────────────────
 
     /// 필수 string 인자 whitespace 검사 — invalidArg 메시지 형식 통일.

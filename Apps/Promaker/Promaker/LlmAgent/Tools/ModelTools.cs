@@ -31,30 +31,14 @@ public static class ModelTools
 
     // ─── 공통 헬퍼 ────────────────────────────────────────────────────────────
 
-    private const int NameMaxLength = 128;
-
     /// <summary>
-    /// Tool 인자 sanitize. 1d-4 강화 — 길이 + 제어 문자 (Cc) + format 문자 (Cf, BiDi override 등) 차단.
-    /// 정상적인 entity 이름은 영문/한글/숫자/공백/일부 기호로 충분하며, 제어·format 문자가 들어올 일은
-    /// prompt injection 또는 unicode bomb 시도뿐. 발견 시 codepoint 를 메시지에 포함해 LLM 회복 단서 제공.
+    /// Tool 인자 sanitize. F# 측 ToolOperations.sanitizeName 로 위임 — Cc/Cf/길이/공백 검사 SSOT.
+    /// "" = valid → null 변환, non-empty = error 메시지 그대로 반환. (Pass E: F# 으로 이전하여 testability 확보)
     /// </summary>
-    private static string? Sanitize(string? value, string field, int maxLength = NameMaxLength)
+    private static string? Sanitize(string? value, string field, int maxLength = ToolOperations.NameMaxLength)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return $"VALIDATION_ERROR: {field} 이(가) 비어있습니다.";
-        var trimmed = value.Trim();
-        if (trimmed.Length > maxLength)
-            return $"VALIDATION_ERROR: {field} 길이 {trimmed.Length} > {maxLength}.";
-
-        for (int i = 0; i < trimmed.Length; i++)
-        {
-            var c = trimmed[i];
-            var cat = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
-            if (cat == System.Globalization.UnicodeCategory.Control ||
-                cat == System.Globalization.UnicodeCategory.Format)
-                return $"VALIDATION_ERROR: {field} 에 허용되지 않은 제어/format 문자 (U+{(int)c:X4}) 가 포함되어 있습니다.";
-        }
-        return null;
+        var result = ToolOperations.sanitizeName(value ?? string.Empty, field, maxLength);
+        return string.IsNullOrEmpty(result) ? null : result;
     }
 
     private static (Guid? id, string? error) ParseGuid(string? value, string field)
