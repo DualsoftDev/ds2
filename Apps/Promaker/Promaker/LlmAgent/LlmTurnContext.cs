@@ -23,6 +23,16 @@ public sealed class LlmTurnContext
     /// <summary>turn 당 mutation tool quota. 초과 시 invoker 가 거부.</summary>
     public int MutationQuota { get; init; } = 50;
 
+    /// <summary>validate_model 결과 short-lived cache TTL (ms). spam 방어용 — 너무 길면 store 변경 후
+    /// stale 결과 노출 위험, 너무 짧으면 의미 없음. SystemPromptText / ValidateModel description 의
+    /// 문구 ("500ms" / "0.5초") 와 동기화 필요.</summary>
+    public const int ValidateCacheTtlMs = 500;
+
+    /// <summary>validate_model 결과 short-lived cache. 같은 scope 가 ValidateCacheTtlMs 안 재호출 시 재사용.
+    /// dispatcher.InvokeAsync 안에서만 read/write 되므로 별도 lock 불필요 (RunRead 가 work delegate 를
+    /// dispatcher 위에서 실행함을 가정 — ModelTools.RunRead 참조).</summary>
+    private (string scopeKey, long tickMs, string result)? _validateCache;
+
     public LlmTurnContext(DsStore store, IUiDispatcher dispatcher)
     {
         Store = store ?? throw new ArgumentNullException(nameof(store));
@@ -36,6 +46,19 @@ public sealed class LlmTurnContext
         if (MutationCallCount > MutationQuota)
             throw new InvalidOperationException($"QUOTA_EXCEEDED: turn 당 mutation tool 호출이 {MutationQuota} 회를 초과했습니다.");
     }
+
+    /// <summary>validate_model cache lookup. 만료 또는 다른 scope 면 null.</summary>
+    internal string? TryGetValidateCache(string scopeKey)
+    {
+        if (_validateCache is null) return null;
+        var entry = _validateCache.Value;
+        if (entry.scopeKey != scopeKey) return null;
+        if (Environment.TickCount64 - entry.tickMs > ValidateCacheTtlMs) return null;
+        return entry.result;
+    }
+
+    internal void SetValidateCache(string scopeKey, string result)
+        => _validateCache = (scopeKey, Environment.TickCount64, result);
 }
 
 /// <summary>
