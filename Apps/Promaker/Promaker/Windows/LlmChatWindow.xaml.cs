@@ -3,16 +3,17 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using Ds2.Core.Store;
 using Promaker.ViewModels;
 
 namespace Promaker.Windows;
 
 public partial class LlmChatWindow : Window
 {
-    public LlmChatWindow()
+    public LlmChatWindow(DsStore store)
     {
         InitializeComponent();
-        DataContext = new LlmChatViewModel();
+        DataContext = new LlmChatViewModel(store);
         Closed += async (_, _) =>
         {
             if (DataContext is LlmChatViewModel vm)

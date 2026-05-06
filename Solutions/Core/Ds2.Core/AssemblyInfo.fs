@@ -8,6 +8,7 @@ open System.Runtime.CompilerServices
 [<assembly: AssemblyVersion("2.0.0.0")>]
 [<assembly: AssemblyFileVersion("2.0.0.0")>]
 [<assembly: InternalsVisibleTo("Ds2.Editor")>]
+[<assembly: InternalsVisibleTo("Ds2.LlmAgent")>]
 [<assembly: InternalsVisibleTo("Ds2.Aasx")>]
 [<assembly: InternalsVisibleTo("Ds2.CSV")>]
 [<assembly: InternalsVisibleTo("Ds2.Mermaid")>]

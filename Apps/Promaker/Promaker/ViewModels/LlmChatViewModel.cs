@@ -2,10 +2,11 @@ using System;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Ds2.LlmAgent;
 using Promaker.LlmAgent;
 using log4net;
@@ -15,21 +16,19 @@ namespace Promaker.ViewModels;
 /// <summary>
 /// Promaker 의 LLM chat ViewModel.
 ///
-/// Phase 1a — Claude CLI multi-turn echo (--resume FSM).
-/// Phase 1b-c — McpHostService 자동 start + .mcp-config 자동 작성 + ClaudeCliOptions 적용.
-///   현재 등록 tool = PingTool 1개 (검증용). 실제 mutation/read tool 은 phase 1c 부터.
-/// Phase 1d 예정 — dock panel 통합 / 50ms aggregation throttle / consent dialog.
+/// Phase 1c — system prompt + add_system / list_systems mutation/read tool + turn end ApplyImportPlan.
+///   1 LLM turn = 1 undo step (결정 7 (d), `Ds2.Editor.ImportPlanApply.applyWithUndo`).
+/// Phase 1d 예정 — dock panel 통합 / 50ms aggregation throttle / consent dialog / tool 풀세트.
 /// </summary>
 public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LlmChatViewModel));
 
+    private readonly DsStore _store;
+    private readonly IUiDispatcher _dispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
     private ClaudeCliProvider? _provider;
-
-    // ReSharper disable once NotAccessedField.Local — Phase 1c 진입 시 tool handler 에 주입.
-    private readonly IUiDispatcher _dispatcher;
 
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
@@ -51,19 +50,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     [ObservableProperty]
     private string? _sessionId;
 
-    public LlmChatViewModel()
+    public LlmChatViewModel(DsStore store)
     {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _dispatcher = new WpfDispatcherAdapter(Dispatcher.CurrentDispatcher);
         _ = InitializeAsync();
     }
 
-    /// <summary>
-    /// Window 진입 시 1회 호출:
-    ///   1) MCP host 띄우고 ServerUrl / HandshakeNonce 확정
-    ///   2) .mcp-config 임시 파일 작성
-    ///   3) ClaudeCliProvider 구성 (mcp-config + bypassPermissions)
-    ///   4) Claude CLI 버전 확인 (background)
-    /// </summary>
     private async Task InitializeAsync()
     {
         var uiContext = TaskScheduler.FromCurrentSynchronizationContext();
@@ -77,16 +70,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig.Path),
                 permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
                 model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+                systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
                 channelCapacity: 256);
             _provider = new ClaudeCliProvider(options);
 
             StatusText = $"MCP host {_mcpHost.ServerUrl} 준비 / Claude CLI 검출 중…";
 
-            await Task.Run(() =>
-            {
-                var ver = _provider!.EnsureCli();
-                return ver;
-            }).ContinueWith(t =>
+            await Task.Run(() => _provider!.EnsureCli()).ContinueWith(t =>
             {
                 var result = t.Result;
                 if (result.IsValid)
@@ -127,6 +117,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
         Input = "";
 
+        // Turn-scoped context — tool method 가 [FromServices] 로 받음.
+        // 안전망: 이전 turn 의 EndTurn 누락 방어 (정상 흐름은 finally 에서 종료됨).
+        // EndTurn 은 idempotent — current=null 이면 null 반환.
+        _mcpHost.TurnProvider.EndTurn();
+        var turnCtx = new LlmTurnContext(_store, _dispatcher);
+        _mcpHost.TurnProvider.BeginTurn(turnCtx);
+
         _cts = new CancellationTokenSource();
         try
         {
@@ -144,6 +141,21 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
+            // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step)
+            var endedCtx = _mcpHost.TurnProvider.EndTurn();
+            if (endedCtx != null && !endedCtx.Plan.IsEmpty)
+            {
+                try
+                {
+                    await ApplyTurnPlanAsync(endedCtx, prompt);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("ApplyImportPlan 실패", ex);
+                    AppendAssistant($"\n[ApplyImportPlan ERROR] {ex.Message}");
+                }
+            }
+
             if (_streamingTurn != null) _streamingTurn.IsStreaming = false;
             _streamingTurn = null;
             IsSending = false;
@@ -152,6 +164,15 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    private async Task ApplyTurnPlanAsync(LlmTurnContext ctx, string prompt)
+    {
+        var label = $"LLM: {Truncate(prompt, 50)}";
+        var plan = ctx.Plan.Build();
+        await _dispatcher.InvokeAsync(() =>
+            DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan));
+        AppendAssistant($"\n[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
     }
 
     private bool CanSend() => IsReady && !IsSending && !string.IsNullOrWhiteSpace(Input);
@@ -199,7 +220,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 break;
 
             case LlmEvent.ToolResult tr:
-                AppendAssistant($"\n[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 200)}\n");
+                AppendAssistant($"\n[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}\n");
                 break;
 
             case LlmEvent.RateLimitEvent rl:
