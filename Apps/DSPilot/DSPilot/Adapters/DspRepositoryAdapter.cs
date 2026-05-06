@@ -113,6 +113,23 @@ public class DspRepositoryAdapter : IDspRepository
         {
             await using var conn = await OpenAsync();
 
+            // SQLite journal_mode=WAL — write 트랜잭션이 read 를 차단하지 않도록.
+            // PlcTagLogWriterService 가 250ms 마다 커밋하므로, 이걸 안 켜면 cycle-time-analysis
+            // 등 시간 범위 read 쿼리가 매번 잠금 대기에 걸린다.
+            // journal_mode 는 DB 파일에 영구 저장되는 속성이므로 한 번만 켜면 되고, plc.db 를 삭제 →
+            // 재생성하는 경로(Settings 페이지의 DB 재초기화 + Program.cs 시작 시)에서도 항상 거치도록
+            // CreateSchemaAsync 안에 둔다.
+            try
+            {
+                var mode = await conn.ExecuteScalarAsync<string>("PRAGMA journal_mode=WAL");
+                await conn.ExecuteAsync("PRAGMA synchronous=NORMAL");
+                _logger.LogInformation("plc.db journal_mode={Mode}, synchronous=NORMAL", mode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set WAL pragma");
+            }
+
             // 컬럼명은 EV2 unified schema 와 호환되도록 lowercase camelCase.
             // SQLite identifier 매칭은 case-insensitive 라 INSERT/UPDATE 의 PascalCase 도 동일 컬럼을 가리킨다.
             const string createFlow = @"
