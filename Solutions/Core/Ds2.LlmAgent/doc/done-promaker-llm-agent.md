@@ -1589,3 +1589,72 @@ if (RequestServiceProvider<CallToolRequestParams>.IsAugmentedWith(pi.ParameterTy
 
 
 
+# Pass E — Phase 1d 자동화 회귀 보강 (token / sanitize / allowlist drift, 2026-05-06)
+
+Phase 1d-6 의 자동화 가능 회귀 잔여 3건 (token 회귀 R1 Critical / prompt injection sanitizer / tool allowlist drift) 을 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 회귀로 흡수. 사용자 e2e 시나리오로만 남았던 항목이 build-time 에 검출됨.
+
+## 변경 파일
+
+### F# 측 (`Solutions/Core/Ds2.LlmAgent/`)
+
+- `ToolOperations.fs` — module-level `[<Literal>] NameMaxLength = 128` + `sanitizeName : string -> string -> int -> string` 신규 (RLO/null/ZWJ/Cc/Cf/길이/공백 검사). 반환 "" = valid, 메시지 = invalid (C# interop 단순화 sentinel).
+  - 기존 `ModelTools.cs` 의 private Sanitize 의 Cc/Cf 검사 로직을 그대로 이전. 외부 동작 동등.
+
+### C# 측 (`Apps/Promaker/Promaker/`)
+
+- `LlmAgent/Tools/ModelTools.cs` — `Sanitize` private 을 F# wrapper 로 단축. 기존 호출처 9곳 (AddSystem name / AddFlow name / AddWork localName / AddCall devicesAlias·apiName / AddApiDef name) 변경 없이 동작. 본문 ~25줄 → ~5줄.
+
+### Test 측 (`Solutions/Tests/Ds2.LlmAgent.Tests/`)
+
+- `DescribeSubtreeTests.fs` 신규 — 10 test:
+  1. unknown rootId → `NOT_FOUND`
+  2~5. Project/System/Flow/Work depth=0 root-only (root kind 자동 판별)
+  6. depth cap [0,5] (depth=10 == depth=5)
+  7. 26 entity fixture depth=3 → no truncated + 26 lines
+  8. budget 정확히 50 = no truncated, 50 lines (boundary)
+  9. budget 51회 호출 = `(truncated)` 1줄 추가
+  10. **token 회귀 R1**: `describe_subtree(project, depth=3)` ≤ Σ`describe_system(deep=true)` + 256B overhead cap
+- `SanitizeNameTests.fs` 신규 — 13 test: ASCII allow / 한글 allow / trim / 빈 문자열 / 공백만 / null / 길이 초과 / RLO U+202E / null byte U+0000 / ZWJ U+200D / 일반 제어 U+0001 / LF U+000A / field 이름 메시지 포함
+- `PromakerToolNamesDriftTests.fs` 신규 — 4 test: file 존재 / `[McpServerTool]` ↔ `PromakerToolNames.All` 정합성 / 11개 sanity / snake_case 변환 단위
+- `Ds2.LlmAgent.Tests.fsproj` — 3개 신규 fs 파일 등록
+
+## 핵심 설계 — describe_subtree token 회귀 (R1 Critical)
+
+본 fixture (5 sys × 2 flow × 1 work, ApiDef/Arrow 0개) 에서 `describeSubtree` 의 `walkSystem` 은 ApiDef / ArrowBetweenWorks 를 출력하지 않고, `describeSystem(deep=true)` 는 그것을 포함. 따라서 자연 `subtree ≤ Σ describe_system + headerOverhead`. 256B overhead cap = "Project ..." 헤더 1줄 (~50B) + `\r\n` 등 line ending diff 의 여유. 미래 회귀 (e.g. indent 폭증 / 새 줄 추가) 시 cap 초과로 즉시 실패.
+
+## 핵심 설계 — Sanitize F# 이전 사유
+
+C# `private static Sanitize` 는 ModelTools 내부에 갇혀 외부 단위 테스트 어려움. F# `ToolOperations.sanitizeName` 으로 이전:
+1. **Testability** — `Ds2.LlmAgent.Tests` 가 직접 호출 가능 (fsproj ProjectReference = `Ds2.LlmAgent` only, Promaker.exe 미참조 정책 유지)
+2. **C# interop sentinel** — Option<string> 반환 시 C# 측이 `FSharpOption.get_IsSome` 로 풀어야 함 → 빈 string "" sentinel 이 호출 코드 단순. `string.IsNullOrEmpty(result) ? null : result` 1줄 wrap
+3. **SSOT** — `NameMaxLength = 128` 도 F# `[<Literal>]` 으로 이전, C# default 인자에 그대로 사용 가능 (literal 은 IL 에 inline)
+
+## 핵심 설계 — Allowlist drift 텍스트 파싱 사유
+
+`PromakerToolNames.All` (string array SSOT) 와 `ModelTools.cs` 의 `[McpServerTool]` 메소드 (PascalCase) 정합성 검증을 위해 reflection 사용 시 Tests 가 Promaker.exe dll 을 reference 해야 함 — 이는 WPF App entry point dependency 를 끌어들여 Tests 환경 오염. 대안으로 텍스트 파싱 (regex 2종) 채택:
+
+- `\[McpServerTool\b[\s\S]*?public\s+static\s+Task<\s*string\s*>\s+(\w+)\s*\(` — multiline DotAll 로 `[McpServerTool, Description("...")]` 묶음과 다음 메소드 시그니처 사이 매칭
+- `"mcp__promaker__(\w+)"` — All 배열 literal 추출
+
+PascalCase → snake_case 는 `Char.IsUpper` 기반 trivial 변환. `__SOURCE_DIRECTORY__` (F# 컴파일 타임 string literal) 로 repo root 절대경로 박힘 — 같은 머신에서 빌드/실행 시 안전.
+
+**Fragile 인지**: file path 변경 / regex 가정 깨짐 시 false positive 가능. 본 test 가 false 실패 시 regex 부터 점검할 것 명시 (test 모듈 doc-comment).
+
+## 빌드 / 테스트 검증
+
+- `Promaker.sln` 빌드: 경고 0 / 오류 0 (Sanitize wrapper 단축 회귀 없음)
+- `Ds2.LlmAgent.Tests`: **42/42 통과** (이전 15 + Pass E 신규 27)
+- 신규 test 분포: DescribeSubtree 10 + SanitizeName 13 + PromakerToolNamesDrift 4
+
+## 후속 영향 — Phase 2 진입 시
+
+- `modify_*` / `remove_*` 추가 시 `PromakerToolNamesDriftTests` 의 "11개 sanity" expected 값 갱신 필요 (실패 메시지로 즉시 알림)
+- `[McpServerTool]` 메소드 이름 작명 시 PascalCase ↔ snake_case 1:1 매핑 가능한 형태로 (e.g. `Add_System` 같은 underscore 혼용 금지)
+- Sanitize 강화 (e.g. URL/path traversal 검사 추가) 시 `SanitizeNameTests` 에 해당 케이스 추가 + F# 측 `sanitizeName` 만 수정 (C# wrapper 그대로)
+
+## 의도적 미적용 (계속)
+
+| 항목 | 사유 |
+|---|---|
+| 4-cylinder spec / 환각 회귀 / 인스턴스 격리 / RDP cross-session / session resume / GUI+LLM 혼용 | 사용자 e2e 시나리오 — Phase 1d-6 의 사용자 측 검증 시나리오 절에 그대로 유지. 자동화 부담 vs 가치가 낮음 |
+| LLM 실제 호출 측 prompt injection 회귀 | sanitizer 만으로 충분하지 않은 case (e.g. system prompt override 시도) — golden e2e 로만 검증 |

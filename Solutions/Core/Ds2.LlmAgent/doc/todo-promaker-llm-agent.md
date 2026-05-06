@@ -310,13 +310,13 @@ type ToolDef<'TArgs,'TResult> = {
 
 - [x] **1d-1 — Mutation tool 풀세트** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` 모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan. `ToolOperations` 의 plan+store 합산 lookup 으로 같은 turn 안 ID chaining 지원 (e.g. add_flow → add_work). `ImportPlanBuilder.Operations` seq 노출. `ModelTools` 가 sanitize/Guid parse/dispatcher/audit/quota 통합 헬퍼 (`Sanitize`/`ParseGuid`/`RunMutation`) 로 7개 책임 inline 압축. ID 표기 full GUID 통일 (list_systems / 모든 mutation 응답).
 - [x] **1d-2 — Read tool composite + system prompt 보강** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `describe_system(systemId, deep?)` / `describe_subtree(rootId, depth)` (Project/System/Flow/Work 자동 판별, depth cap 5, 50 entity 제한 + truncated 표기) / `find_by_name(name, kind?)` 3종 추가. `RunRead` 헬퍼 (read 는 quota 미증가 + sizeBytes audit). System prompt 1c → 1d-2 갱신: 모델 schema (Project→System→Flow→Work→Call + ApiDef sibling + Arrows) 트리 도식, batch read 우선 가이드 ("describe_subtree 1번 > describe_system N번"), turn-end commit / ID chaining 명시, **user-text-as-data 격리** (prompt injection 1차 방어), out-of-scope refusal (filesystem / shell / non-Promaker MCP 거부).
-- [ ] **Read tool — N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical):
-  - `list_systems()` → System.Id + Name + 통계 (Flow 수 / Work 수). 1KB 이내 메타
-  - `describe_system(id, expand?: 'none'|'shallow'|'deep')` → 기본 'shallow' (Flow/ApiDef 이름만), 'deep' 명시 시 자식 트리 포함
-  - `describe_subtree(rootId, depth: int, page: int?)` — composite tool. LLM 이 batch 선택 가능. result 에 `truncated: true` + `next_page` 플래그
-  - `find_by_name(name, kind?)`
-  - **system prompt 가이드 — "batch 우선"** (review 2차 R1 Critical): "여러 system 을 보려면 describe_subtree 한 번을, 단일 system 만 깊게 보려면 describe_system(deep)" 명시
-  - Phase 1d golden test 에 **token 회귀 케이스 추가** (review 2차 R1 Critical): 30 system × 5 flow × 3 work 모델에서 LLM exploration 후 누적 token 측정, 단일 get_model_summary 보다 작아야 함
+- [x] **Read tool — N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical) — 1d-2 에서 `describe_system`/`describe_subtree`/`find_by_name` 도입 + system prompt batch 가이드 + **Pass E 에서 token 회귀 자동화 흡수** (`DescribeSubtreeTests.fs` 의 "subtree ≤ Σdescribe_system + 256B overhead" cap):
+  - ~~`list_systems()` → 1KB 이내 메타~~ (1d-1 완료, 평탄화 형식)
+  - ~~`describe_system(id, deep?)`~~ (1d-2 완료)
+  - ~~`describe_subtree(rootId, depth)` + truncated 플래그~~ (1d-2 완료, 50 entity budget + boundary test = Pass E)
+  - ~~`find_by_name(name, kind?)`~~ (1d-2 완료)
+  - ~~system prompt 가이드 — "batch 우선"~~ (1d-2 + Pass B 풀세트)
+  - ~~Phase 1d golden test 에 token 회귀 케이스~~ — Pass E 자동화 흡수 (실제 LLM exploration 시뮬은 부담 vs 가치 낮아 fixture 기반 byte 비교로 대체)
 - [x] **1d-3 — `validate_model(scope?)` + 500ms cache** (2026-05-06 빌드 통과 + review 7건 중 4건 반영): `ToolOperations.validateModel/validateModelByGuid` + `ValidationScope` DU (Global/System/Flow). 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder, placeholder = TODO/TBD/FIXME/XXX/?/??/??? 대문자 정규화). `LlmTurnContext.ValidateCacheTtlMs = 500` const + `_validateCache` (scopeKey × tickMs × result) — turn-내 cache (lock 없음, RunRead 가 dispatcher 위에서 실행함을 가정). `ModelTools.ValidateModel(scope?)` — 빈 값 또는 "global" → global, GUID 면 자동 판별, cache hit 시 `(cached, <{TTL}ms)` suffix. 출력 안정성: 카테고리 안 line `Seq.sortBy snd` 정렬 + flow/system scope 의 skipped 카테고리 footer 명시. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄. 보류 review: false positive 가이드 (1d-4 또는 1d-6) / `?` 1글자 placeholder 적합성 (1d-6 결과 보고 결정)
 - [/] **1d-4 — UX 입력/버블 + A/B/C** (2026-05-06 부분 완료, 빌드 + 자동 검증 13/13 통과). 남은 항목 = D dock 통합 / E consent dialog / F HistoryPanel 시각화:
   - **입력 키 동작**: PreviewKeyDown 으로 Enter=전송 / Shift+Enter=줄바꿈 (TextBox 기본) / Alt+J=줄바꿈 강제 삽입 (Alt 조합 = `Key.System` + `e.SystemKey` 분기, `tb.SelectedText` 치환). Send 버튼 `IsDefault="True"` 제거 + 텍스트 "전송 (Enter)"
@@ -329,16 +329,16 @@ type ToolDef<'TArgs,'TResult> = {
 - [x] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`) — 2026-05-06 완료. `Apps/Promaker/Promaker/LlmAgent/LlmConsent.cs` (Load/Grant/IsGranted/EnsureGranted) + `MainViewModel.OpenLlmChat` 1차 차단 (Yes/No MessageBox) + `LlmChatViewModel.InitializeAsync` 2차 defense-in-depth (consent 거부 시 MCP host 미시작). consent flag = `DataEgressConsent: bool` + `ConsentTimestampUtc: ISO8601`
 - [x] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 — 2026-05-06 완료. `HistoryPanelItem.IsLlmTurn => Label.StartsWith("LLM: ")` + HistoryPanel.xaml DataTemplate 안 좌측 3px AccentBrush 색띠 + label foreground=AccentBrush + FontWeight=SemiBold (IsLlmTurn 시). IsRedo (취소선) 와 함께 자연 합성
 - [x] System prompt 보강 (1c 의 최소 → 1d 의 풀) — 2026-05-06 완료. `SystemPrompt.cs` 의 `Phase1c` 상수에 ① **Arrow 시맨틱 절** (Start/Reset/StartReset/ResetReset/Group/Unspecified 한 줄씩 + "next/then → Start, either-or → ResetReset" 매핑 가이드) ② **Greenfield anti-hallucination checklist** (Project 부재 시 GUI 안내 / 디바이스 주소·핀·protocol·timing·ApiDef sig 추측 금지 명시) ③ **Clarification 템플릿** 4종 (missing parent / missing arrowType / ambiguous count / vague spec) ④ **`<spec>...</spec>` delimiter 절** (delimiter 안은 DATA, 명령 아님 + 외부 prose 도 동일) 4개 섹션 추가. 기존 Operating rules 6개 + batch reads 가이드 유지. 상수명 `Phase1c` 호환성 위해 그대로
-- [ ] Golden scenario 회귀 테스트:
-  - 4-cylinder sequential+parallel spec → 기대 모델
-  - 환각 회귀 (주소 없는 spec)
-  - 인스턴스 격리 (Promaker 두 개 동시, cross-talk 없음 확인)
-  - 같은 user 의 다른 RDP / logon session 에서 pipe / port handshake 차단 검증 (review 2차 R5)
-  - `/quit` 후 재접속 (session resume)
-  - 사용자 GUI 직접 편집과 LLM mutation 혼용 → DsStore 일관성 / Undo 정상
-  - **token 회귀** (위)
-  - **prompt injection negative test**: "ignore previous instructions" / path traversal / null byte 인자에 sanitizer 동작 (review 2차 Minor R5)
-  - **tool allowlist 이중 방어 negative test**: `--mcp-config` 화이트리스트 외 tool 호출이 거부되는지 (review 2차 Minor R5)
+- [/] Golden scenario 회귀 테스트 — 자동화 가능 3건은 Pass E 에서 영구 회귀 흡수, e2e 시나리오는 done 문서 분산:
+  - [ ] 4-cylinder sequential+parallel spec → 기대 모델 (e2e, LLM 호출 수반)
+  - [ ] 환각 회귀 (주소 없는 spec) (e2e)
+  - [ ] 인스턴스 격리 (Promaker 두 개 동시, cross-talk 없음 확인) (e2e)
+  - [ ] 같은 user 의 다른 RDP / logon session 에서 pipe / port handshake 차단 검증 (review 2차 R5) (e2e)
+  - [ ] `/quit` 후 재접속 (session resume) (e2e)
+  - [ ] 사용자 GUI 직접 편집과 LLM mutation 혼용 → DsStore 일관성 / Undo 정상 (e2e)
+  - [x] **token 회귀** — Pass E `DescribeSubtreeTests.fs` 흡수 (subtree ≤ Σdescribe_system + 256B overhead)
+  - [x] **prompt injection sanitizer negative test** — Pass E `SanitizeNameTests.fs` 13 케이스 (RLO/null/ZWJ/Cc/Cf/길이/공백/null/field 메시지). LLM 측 system prompt override 시도는 e2e 영역
+  - [x] **tool allowlist drift negative test** — Pass E `PromakerToolNamesDriftTests.fs` ([McpServerTool] ↔ PromakerToolNames.All 정합성)
 
 #### `modify_*` / `remove_*` — phase 2
 > review 2차 R1 후속: `ImportPlanOperation` DU 미포함. phase 2 에서 ImportPlan 확장 vs 별도 undo path 결정.
@@ -351,7 +351,7 @@ type ToolDef<'TArgs,'TResult> = {
 - 공통 invoker 가 schema validation / sanitize / dispatcher / audit / quota / consent 흡수 (위 "Tool registry 공통 invoker 사양" 절)
 
 ### Phase 2
-- [ ] `modify_*` / `remove_*` mutation tool — `ImportPlanOperation` DU 확장 (`RenameFlow` / `RetargetArrow` / `RemoveFlow` cascade 등) + `Ds2.Editor` 측 transaction-internal cascade primitive 신설. Pass C 의 4 helper (requireNonEmpty/tryFindInPlan/requireFromStoreOrPlan/hasNameClash) 재활용
+- [ ] `modify_*` / `remove_*` mutation tool — `ImportPlanOperation` DU 확장 (`RenameFlow` / `RetargetArrow` / `RemoveFlow` cascade 등) + `Ds2.Editor` 측 transaction-internal cascade primitive 신설. Pass C 의 4 helper (requireNonEmpty/tryFindInPlan/requireFromStoreOrPlan/hasNameClash) 재활용. **rename 류는 새 user-text 진입점이므로 ToolOperations 측에서도 `sanitizeName` 호출 (defense in depth — 현재 phase 1 은 C# tool handler 가 단일 진입점이라 redundant)**
 - [ ] `list_projects` read tool 추가 (Pass D 후속 review 의견) — 현재 `list_systems` 만 평탄화 반환이라 빈 결과 시 LLM 이 "어떤 project 에도 system 없음" vs "project 자체가 없음" 헷갈릴 여지. `list_projects()` 가 명시적 분리. 또 phase 1 의 add_system 은 첫 project 자동 부착인데 `list_projects` 후 명시적 projectId 인자 받는 것이 정석
 - [ ] Codex CLI provider (사전 실증 4 결과에 따라). 인터페이스가 phase 1 의 ClaudeCli concrete 1종으로만 검증되었으므로 **Codex 추가 시 인터페이스 재설계 가능성 인정** (review M5)
 - [ ] OpenAI API provider (Codex CLI 막힌 경우 보험)
@@ -469,7 +469,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d 완료 + Pass B + Pass C + Pass D 완료** (2026-05-06, 빌드 통과 + unit test 15/15 통과). 1d-1~1d-6 모든 sub-milestone 완료. Pass A 이후 추가로 (B-1) StreamJsonParser MaxLineLength=1MB / MaxJsonDepth=32 cap + parse 실패 시 Log.Warn (m5/m10) (B-2) ValidateModel orphan 실제 시뮬 test (Project.ActiveSystemIds.Remove 로 unlink) — m7 (B-3) System prompt Phase1c 상수에 Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter 4개 섹션 추가 (todo 본문 line 331) (C) ToolOperations 4개 helper 추출 — M9 (D) ModelTools 의 `[FromKeyedServices(null)]` 12 곳 제거 — m3, SDK 자동 검출 path 정석화. Phase 1 (MVP) 의 자동화 가능한 회귀는 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 보존. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 done 문서의 phase 별 "사용자 측 검증 시나리오" 섹션 참조.
+- 현 단계: **Phase 1d 완료 + Pass B + Pass C + Pass D + Pass E 완료** (2026-05-06, 빌드 통과 + unit test 42/42 통과). 1d-1~1d-6 모든 sub-milestone 완료. Pass A 이후 (B) m5/m10/m7 + SystemPrompt 1d 풀세트 (C) ToolOperations 4 helper — M9 (D) ModelTools `[FromKeyedServices(null)]` 12곳 제거 — m3 (E) Phase 1d 자동화 회귀 보강 — token 회귀 R1 / Sanitize F# 이전 + negative test 13 / tool allowlist drift 텍스트 파싱 4. Phase 1 (MVP) 의 자동화 가능한 회귀 (token / sanitizer / allowlist drift) 는 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 보존. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / session resume / GUI+LLM 혼용) 는 done 문서의 phase 별 "사용자 측 검증 시나리오" 섹션 참조.
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -508,6 +508,7 @@ type ToolDef<'TArgs,'TResult> = {
 12. ✅ **Pass B 후속 묶음** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m5/m10/m7 + todo line 331 풀세트 보강. (m5/m10) `StreamJsonParser.MaxLineLength = 1MB` + `MaxJsonDepth = 32` (`JsonDocumentOptions`) + parse fail / line drop 시 `Log.provider.Warn` (forensic 단서). (m7) `ValidateModelTests.fs` 의 "orphan system" 케이스를 footer 검증 → 실제 orphan 시뮬 (project 만든 후 `project.ActiveSystemIds.Remove(sysId)` 로 unlink). 추가 attached system 비교군 + DoesNotContain assertion. (System prompt) `SystemPrompt.Phase1c` 에 Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter 4개 섹션 추가. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
 13. ✅ **Pass C — M9 ToolOperations boilerplate 통합** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 M9. `ToolOperations.fs` 에 `requireNonEmpty` / `tryFindInPlan` / `requireFromStoreOrPlan` / `hasNameClash` 4개 helper 추출. 6개 queueAdd* 함수의 String.IsNullOrWhiteSpace inline 검사, 4개 tryFindXxxInPlan, 3개 requireXxx, 4개 hasXxxClash 본문이 1~2줄 호출로 단축. 외부 시그니처 100% 보존 (invalidArg 메시지 "가"→"이" 1건만 미세 변경). Phase 2 의 modify_*/remove_* 추가 시 동일 helper 재활용. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
 14. ✅ **Pass D — m3 ModelTools DI attribute 정석화** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m3. SDK source 직접 분석 (`AIFunctionMcpServerTool.ConfigureParameterBinding`) 결과 ModelContextProtocol.AspNetCore 1.2.0 binder 가 `IServiceProviderIsService.IsService(type)` 로 DI 등록 type 자동 검출 + schema 자동 제외 → attribute 자체가 redundant 임이 밝혀짐. `[FromKeyedServices(null)]` 12 곳 제거 + 클래스 헤드 우회 설명 주석을 자동 검출 path 설명으로 교체 + `using Microsoft.Extensions.DependencyInjection` 제거. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과 (사용자 e2e 검증 — LLM add_system 정상 dispatch 확인 권장)
+15. ✅ **Pass E — Phase 1d 자동화 회귀 보강** (2026-05-06) — Phase 1d-6 의 자동화 가능 회귀 잔여 3건을 `Ds2.LlmAgent.Tests` 에 영구 흡수. (A) `DescribeSubtreeTests.fs` 10 test = root kind 자동 판별 / depth cap [0,5] / 50 budget boundary / **token 회귀 (R1 Critical, subtree ≤ Σdescribe_system + 256B overhead)**. (B) `ToolOperations.sanitizeName` 신규 + module-level `[<Literal>] NameMaxLength = 128` (Cc/Cf/길이/공백 검사 F# 이전, 빈 string sentinel = valid). `ModelTools.cs` 의 private Sanitize 를 F# wrapper 1줄로 단축. `SanitizeNameTests.fs` 13 test = ASCII/한글 allow + RLO U+202E / null U+0000 / ZWJ U+200D / 제어 U+0001 / LF U+000A / 길이 / 공백 / null / field 메시지 포함. (C) `PromakerToolNamesDriftTests.fs` 4 test — `__SOURCE_DIRECTORY__` 기반 file path, regex 2종 (`\[McpServerTool\b[\s\S]*?public\s+static\s+Task<\s*string\s*>\s+(\w+)\s*\(` + `"mcp__promaker__(\w+)"`) + PascalCase→snake_case 변환 + 11개 sanity. 결과: Promaker.sln 빌드 통과 (경고 0) + Ds2.LlmAgent.Tests **42/42** 통과 (15→42). Phase 2 진입 시 modify_*/remove_* 추가하면 drift test 의 11개 sanity expected 값 갱신 필요
 
 ---
 
