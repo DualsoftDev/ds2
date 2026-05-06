@@ -112,5 +112,7 @@ EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizatio
 | 결정 7 (d) 부정 | `Solutions/Core/Ds2.Editor/Editor/Authoring.fs:28-29` | nested transaction = `invalidOp`. outer 감싸기 금지 |
 | 결정 7 (d) 부정 | `Solutions/Core/Ds2.Editor/Store/Nodes/Nodes.fs:24-34` | `AddSystem` 등이 자체 `WithTransaction` 호출 — handler 가 직접 호출하면 nested |
 | 결정 8 | `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs:652-679` | 기존 `RequestRebuildAll` 이 `BeginInvoke` + `DispatcherPriority.Background` 패턴 — sync `Invoke` 는 coalescing 깨뜨림 |
+| 1d-3 cache 위치 | `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` `_validateCache` field | turn 단위 (LlmTurnContext 인스턴스 lifetime) — turn 종료 시 자연 expire. dispatcher 단일 sync 안에서만 R/W 라 lock 불필요 |
+| 1d-3 검사 카테고리 | `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` `validateModel` (placeholderTokens / categoryOrder) | 6 카테고리 고정 출력 순서. placeholder = 대문자 정규화 후 {TODO,TBD,FIXME,XXX,?,??,???}. Orphan 은 global scope 만 |
 
 수정 시 두 문서 (todo + done) 의 line 번호 동기 갱신.

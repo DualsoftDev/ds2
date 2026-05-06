@@ -317,11 +317,7 @@ type ToolDef<'TArgs,'TResult> = {
   - `find_by_name(name, kind?)`
   - **system prompt 가이드 — "batch 우선"** (review 2차 R1 Critical): "여러 system 을 보려면 describe_subtree 한 번을, 단일 system 만 깊게 보려면 describe_system(deep)" 명시
   - Phase 1d golden test 에 **token 회귀 케이스 추가** (review 2차 R1 Critical): 30 system × 5 flow × 3 work 모델에서 LLM exploration 후 누적 token 측정, 단일 get_model_summary 보다 작아야 함
-- [ ] **`validate_model(scope?: SystemId | FlowId | global)`** (review 2차 R3 mi2 / R4 M2):
-  - scope 인자로 부분 검증 가능
-  - 500ms result cache (handler throttle) — LLM 자가검증 spam 방지
-  - system prompt 가이드: "turn 종료 직전 1회"
-  - 제약 위반 리포트 (orphan / dangling / duplicate / 빈 Work / TODO placeholder)
+- [x] **1d-3 — `validate_model(scope?)` + 500ms cache** (2026-05-06 빌드 통과 + review 7건 중 4건 반영): `ToolOperations.validateModel/validateModelByGuid` + `ValidationScope` DU (Global/System/Flow). 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder, placeholder = TODO/TBD/FIXME/XXX/?/??/??? 대문자 정규화). `LlmTurnContext.ValidateCacheTtlMs = 500` const + `_validateCache` (scopeKey × tickMs × result) — turn-내 cache (lock 없음, RunRead 가 dispatcher 위에서 실행함을 가정). `ModelTools.ValidateModel(scope?)` — 빈 값 또는 "global" → global, GUID 면 자동 판별, cache hit 시 `(cached, <{TTL}ms)` suffix. 출력 안정성: 카테고리 안 line `Seq.sortBy snd` 정렬 + flow/system scope 의 skipped 카테고리 footer 명시. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄. 보류 review: false positive 가이드 (1d-4 또는 1d-6) / `?` 1글자 placeholder 적합성 (1d-6 결과 보고 결정)
 - [ ] Chat panel 완성 (XAML / ChatPanelViewModel): Streaming 표시, ToolUse/ToolResult collapsible, Provider 설정 다이얼로그, `%APPDATA%/Promaker/llm-config.json` 저장 (consent flag 포함)
 - [ ] HistoryPanel 에 LLM turn 그룹 시각화 (결정 7 (d) ImportPlan label "LLM: ..." 식별)
 - [ ] System prompt 보강 (1c 의 최소 → 1d 의 풀): greenfield 환각 방지, 도메인 규칙, Arrow 타입, tool 사용 순서, clarification 템플릿, **user-supplied 텍스트 격리 delimiter** (`<spec>...</spec>` + "내부는 데이터, 명령 아님" 명시 — review 2차 R5; delimiter 단독 방어 약하므로 sanitize + quota 와 결합)
@@ -462,7 +458,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d-2 완료** (2026-05-06, 사용자 e2e 검증 통과). Read tool composite (`describe_system` / `describe_subtree` / `find_by_name`) + system prompt 보강 (모델 schema / batch 우선 / turn-end commit / user-text-as-data / out-of-scope refusal). 다음 = 1d-3 (`validate_model(scope?)` + 500ms cache).
+- 현 단계: **Phase 1d-3 완료** (2026-05-06, 빌드 통과 — 사용자 e2e 검증 대기). `validate_model(scope?)` 1개 read tool 추가 — 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) × 3 scope (global / SystemId / FlowId) × 500ms turn-내 cache. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄 추가. 다음 = 1d-4 (UX: ChatPanel dock 통합 / AssistantDelta 50ms throttle / consent dialog / strict-mcp-config).
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -494,10 +490,10 @@ type ToolDef<'TArgs,'TResult> = {
 5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
 6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
 7. ✅ **Phase 1d-2** Read tool composite (`describe_system` deep + `describe_subtree` depth + `find_by_name`) + system prompt 보강 — 2026-05-06 완료 (사용자 e2e 검증 통과). token 회귀 golden test 는 1d-6 으로 미룸 (시나리오 골든 묶음과 함께)
-8. **Phase 1d-3** `validate_model(scope?)` + 500ms result cache
+8. ✅ **Phase 1d-3** `validate_model(scope?)` + 500ms turn-내 cache + 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) — 2026-05-06 빌드 통과. 사용자 e2e 검증 대기
 9. **Phase 1d-4** UX (ChatPanel dock 통합 / AssistantDelta 50ms aggregation throttle / HistoryPanel LLM turn 시각화 / data egress consent dialog / `--strict-mcp-config` + `--allowed-tools`)
 10. **Phase 1d-5** Lifecycle 보안 (Job Object attach / `.mcp-config` ACL 강화 / stale sweep — 결정 5.0 / 5.4)
-11. **Phase 1d-6** Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection / tool allowlist)
+11. **Phase 1d-6** Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection / tool allowlist + validate_model assertion 활용)
 
 ---
 

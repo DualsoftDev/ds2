@@ -377,3 +377,218 @@ module ToolOperations =
             if want EntityKind.ApiDef  then scan EntityKind.ApiDef  (store.ApiDefsReadOnly.Values |> Seq.cast<DsEntity>)
 
             results |> List.ofSeq
+
+    // ─── validate_model (Phase 1d-3) ─────────────────────────────────────────
+    //
+    // Mutation tool 의 fail-fast (parent existence + 이름 unique) 와 짝이 되는 retro 자가 검증.
+    // turn 종료 직전 LLM 이 "지금까지 누적된 plan + store 합쳐서 일관성 OK?" 확인용. 본 함수는
+    // store 만 본다 (plan 검증은 mutation tool 단계에서 끝). golden 시나리오 (1d-6) test step 의
+    // assertion 도 본 함수를 재사용 가능.
+    //
+    // **검사 카테고리** — LLM 이 회복 가능한 단서 위주, schema 무결성 (예: parent kind 가 잘못된
+    // arrow) 같은 invariant 는 ImportPlanApply 가 이미 거부하므로 제외:
+    //   - DanglingArrow:    Arrow 의 source/target 이 store 에 없는 경우
+    //   - EmptyFlow:        Work 0 개인 Flow (수정 의도 stub)
+    //   - EmptyWork:        Call 0 개인 Work
+    //   - DuplicateName:    같은 parent 안 동명 (mutation 단계가 차단하나 외부 import / 직접 mutation 대비)
+    //   - TodoPlaceholder:  TODO / TBD / FIXME / "?" 등 미완성 표식
+    //   - Orphan:           project 에 부착되지 않은 System (global scope 만)
+
+    /// validate_model scope.
+    type ValidationScope =
+        | GlobalScope
+        | SystemScope of Guid
+        | FlowScope of Guid
+
+    let private placeholderTokens =
+        Set.ofList [ "TODO"; "TBD"; "FIXME"; "XXX"; "?"; "??"; "???" ]
+
+    let private isPlaceholderName (name: string) : bool =
+        if String.IsNullOrWhiteSpace(name) then true
+        else Set.contains (name.Trim().ToUpperInvariant()) placeholderTokens
+
+    /// rootId 의 EntityKind 자동 판별. Project = global 동등 (현재 N=1 가정).
+    /// 어디에도 매칭되지 않으면 None — 호출자가 VALIDATION_ERROR 메시지로 변환.
+    let private resolveValidationScope (store: DsStore) (rootIdOpt: Guid option) : ValidationScope option =
+        match rootIdOpt with
+        | None -> Some GlobalScope
+        | Some id ->
+            match Queries.getProject id store with
+            | Some _ -> Some GlobalScope
+            | None ->
+                match Queries.getSystem id store with
+                | Some _ -> Some (SystemScope id)
+                | None ->
+                    match Queries.getFlow id store with
+                    | Some _ -> Some (FlowScope id)
+                    | None -> None
+
+    /// 카테고리 출력 순서 — 동일 plain text 비교 (golden test) 안정성 확보.
+    let private categoryOrder =
+        [ "Orphan"; "DanglingArrow"; "EmptyFlow"; "EmptyWork"; "DuplicateName"; "TodoPlaceholder" ]
+
+    let private formatScopeLabel (scope: ValidationScope) =
+        match scope with
+        | GlobalScope -> "global"
+        | SystemScope id -> $"System(id={id:D})"
+        | FlowScope id -> $"Flow(id={id:D})"
+
+    /// validate_model 본체. plain text 반환 (issue 없으면 "(no issues; scope=...)").
+    let validateModel (store: DsStore) (scope: ValidationScope) : string =
+        let issues = ResizeArray<string * string>()  // (category, line)
+        let report category line = issues.Add(category, line)
+
+        // scope → 검사 대상 system 목록 + flow filter (FlowScope 면 단일 flow 만)
+        let targetSystems, flowFilterOpt =
+            match scope with
+            | GlobalScope ->
+                store.SystemsReadOnly.Values |> Seq.toList, None
+            | SystemScope sysId ->
+                match Queries.getSystem sysId store with
+                | Some s -> [s], None
+                | None -> [], None
+            | FlowScope flowId ->
+                match Queries.getFlow flowId store with
+                | Some f ->
+                    match Queries.getSystem f.ParentId store with
+                    | Some s -> [s], Some flowId
+                    | None -> [], Some flowId
+                | None -> [], Some flowId
+
+        let isFlowInScope (flowId: Guid) =
+            match flowFilterOpt with
+            | Some fid -> flowId = fid
+            | None -> true
+
+        // 1. Orphan System (global scope 에서만 의미)
+        if scope = GlobalScope then
+            let attached =
+                Queries.allProjects store
+                |> List.collect (fun p -> Seq.append p.ActiveSystemIds p.PassiveSystemIds |> Seq.toList)
+                |> Set.ofList
+            for sys in store.SystemsReadOnly.Values do
+                if not (Set.contains sys.Id attached) then
+                    report "Orphan" $"System \"{sys.Name}\" (id={sys.Id:D}) is not attached to any Project"
+
+        let idsCsv (ids: Guid seq) =
+            ids |> Seq.map (fun g -> g.ToString("D")) |> String.concat ", "
+
+        for sys in targetSystems do
+            // System placeholder
+            if flowFilterOpt.IsNone && isPlaceholderName sys.Name then
+                report "TodoPlaceholder" $"System \"{sys.Name}\" (id={sys.Id:D})"
+
+            let flows = Queries.flowsOf sys.Id store
+
+            // Flow 이름 중복 (System 단위) — flow scope 면 skip
+            if flowFilterOpt.IsNone then
+                flows
+                |> List.groupBy (fun f -> f.Name)
+                |> List.filter (fun (_, xs) -> xs.Length > 1)
+                |> List.iter (fun (name, xs) ->
+                    let ids = xs |> List.map (fun f -> f.Id) |> idsCsv
+                    report "DuplicateName" $"Flow \"{name}\" duplicated {xs.Length}× in System \"{sys.Name}\" (ids=[{ids}])")
+
+            // ApiDef (System 단위) — flow scope 면 skip
+            if flowFilterOpt.IsNone then
+                let apiDefs = Queries.apiDefsOf sys.Id store
+                apiDefs
+                |> List.groupBy (fun a -> a.Name)
+                |> List.filter (fun (_, xs) -> xs.Length > 1)
+                |> List.iter (fun (name, xs) ->
+                    let ids = xs |> List.map (fun a -> a.Id) |> idsCsv
+                    report "DuplicateName" $"ApiDef \"{name}\" duplicated {xs.Length}× in System \"{sys.Name}\" (ids=[{ids}])")
+                for a in apiDefs do
+                    if isPlaceholderName a.Name then
+                        report "TodoPlaceholder" $"ApiDef \"{a.Name}\" (id={a.Id:D}) in System \"{sys.Name}\""
+
+            // ArrowBetweenWorks (System 단위) — flow scope 면 skip
+            if flowFilterOpt.IsNone then
+                for arrow in Queries.arrowWorksOf sys.Id store do
+                    if Queries.getWork arrow.SourceId store |> Option.isNone then
+                        report "DanglingArrow"
+                            $"ArrowWork (id={arrow.Id:D}) in System \"{sys.Name}\" has missing source Work (id={arrow.SourceId:D})"
+                    if Queries.getWork arrow.TargetId store |> Option.isNone then
+                        report "DanglingArrow"
+                            $"ArrowWork (id={arrow.Id:D}) in System \"{sys.Name}\" has missing target Work (id={arrow.TargetId:D})"
+
+            for flow in flows do
+                if isFlowInScope flow.Id then
+                    if isPlaceholderName flow.Name then
+                        report "TodoPlaceholder" $"Flow \"{flow.Name}\" (id={flow.Id:D})"
+
+                    let works = Queries.worksOf flow.Id store
+                    if works.IsEmpty then
+                        report "EmptyFlow" $"Flow \"{flow.Name}\" (id={flow.Id:D}) has no Works"
+
+                    works
+                    |> List.groupBy (fun w -> w.LocalName)
+                    |> List.filter (fun (_, xs) -> xs.Length > 1)
+                    |> List.iter (fun (lname, xs) ->
+                        let ids = xs |> List.map (fun w -> w.Id) |> idsCsv
+                        report "DuplicateName" $"Work \"{lname}\" duplicated {xs.Length}× in Flow \"{flow.Name}\" (ids=[{ids}])")
+
+                    for work in works do
+                        if isPlaceholderName work.LocalName then
+                            report "TodoPlaceholder" $"Work \"{work.Name}\" (id={work.Id:D})"
+
+                        let calls = Queries.callsOf work.Id store
+                        if calls.IsEmpty then
+                            report "EmptyWork" $"Work \"{work.Name}\" (id={work.Id:D}) has no Calls"
+
+                        calls
+                        |> List.groupBy (fun c -> c.Name)
+                        |> List.filter (fun (_, xs) -> xs.Length > 1)
+                        |> List.iter (fun (cname, xs) ->
+                            let ids = xs |> List.map (fun c -> c.Id) |> idsCsv
+                            report "DuplicateName" $"Call \"{cname}\" duplicated {xs.Length}× in Work \"{work.Name}\" (ids=[{ids}])")
+
+                        for c in calls do
+                            if isPlaceholderName c.Name then
+                                report "TodoPlaceholder" $"Call \"{c.Name}\" (id={c.Id:D}) in Work \"{work.Name}\""
+
+                        for arrow in Queries.arrowCallsOf work.Id store do
+                            if Queries.getCall arrow.SourceId store |> Option.isNone then
+                                report "DanglingArrow"
+                                    $"ArrowCall (id={arrow.Id:D}) in Work \"{work.Name}\" has missing source Call (id={arrow.SourceId:D})"
+                            if Queries.getCall arrow.TargetId store |> Option.isNone then
+                                report "DanglingArrow"
+                                    $"ArrowCall (id={arrow.Id:D}) in Work \"{work.Name}\" has missing target Call (id={arrow.TargetId:D})"
+
+        let scopeLabel = formatScopeLabel scope
+        // Flow scope 에서 의도적으로 skip 한 카테고리 — LLM 이 "왜 안 나오지" 헷갈리지 않게 footer 명시.
+        let skippedFooter =
+            match scope with
+            | FlowScope _ -> Some "(scope=flow: Orphan / sibling-flow DuplicateName / ApiDef / ArrowBetweenWorks checks skipped)"
+            | SystemScope _ -> Some "(scope=system: Orphan check skipped)"
+            | GlobalScope -> None
+
+        if issues.Count = 0 then
+            match skippedFooter with
+            | Some f -> $"(no issues; scope={scopeLabel})\n{f}"
+            | None -> $"(no issues; scope={scopeLabel})"
+        else
+            let sb = System.Text.StringBuilder()
+            sb.AppendLine($"validate_model scope={scopeLabel}, {issues.Count} issue(s)") |> ignore
+            let grouped = issues |> Seq.groupBy fst |> Map.ofSeq
+            for cat in categoryOrder do
+                match Map.tryFind cat grouped with
+                | Some items ->
+                    sb.AppendLine($"{cat}:") |> ignore
+                    // 카테고리 안 line 정렬 — store dictionary iteration 순서 의존 회피 (golden test 안정성).
+                    for (_, line) in items |> Seq.sortBy snd do
+                        sb.AppendLine($"  - {line}") |> ignore
+                | None -> ()
+            match skippedFooter with
+            | Some f -> sb.AppendLine(f) |> ignore
+            | None -> ()
+            sb.ToString().TrimEnd()
+
+    /// C# entry: rootId None = global, Some id = Project/System/Flow 자동 판별.
+    /// 매칭 실패 시 "VALIDATION_ERROR: ..." 반환 (RunRead 의 INTERNAL_ERROR 분기 회피).
+    let validateModelByGuid (store: DsStore) (rootIdOpt: Guid option) : string =
+        match resolveValidationScope store rootIdOpt with
+        | Some scope -> validateModel store scope
+        | None ->
+            let id = rootIdOpt.Value
+            $"VALIDATION_ERROR: scope id {id:D} 가 Project/System/Flow 어디에도 해당하지 않습니다."
