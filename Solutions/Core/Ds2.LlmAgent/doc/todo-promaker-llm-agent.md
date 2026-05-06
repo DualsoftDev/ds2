@@ -353,7 +353,7 @@ type ToolDef<'TArgs,'TResult> = {
 ### Phase 2
 - [/] `modify_*` / `remove_*` mutation tool — Phase 2 첫 사이클 (B-1 Remove + B-2 Rename) 완료. **잔여 (B-3)**: Flow/Work/Call rename 시 자식 cascade — Work.FlowPrefix 갱신 + Call.Name 합성 (DevicesAlias.ApiName) 갱신. `RetargetArrow` (source/target 변경) 도 후속. Pass C 4 helper 재활용 + sanitize 재적용 (rename 새 user-text 진입점, ToolOperations.queueRenameEntity 가 sanitize 호출 위치 — 현재 호출자 ModelTools 가 sanitize 끝낸 trimmed 입력 받음, defense-in-depth 추가 가능)
 - [x] `list_projects` read tool 추가 (Pass D 후속 review 의견) — Phase 2 진입 사이클에서 완료. `mcp__promaker__list_projects` 노출. 빈 결과 (`(no projects)`) 가 list_systems 빈 결과 (`(no systems)`) 와 구분됨
-- [/] Codex CLI provider (사전 실증 4 결과에 따라). **C-1 완료** (인자 inventory + CodexCliOptions/CodexCliArgs.build skeleton + 13 unit test). **C-2 잔여** (실제 codex exec spike — ChatGPT subscription 모드 default, 추가 청구 X / 결정 3 정합). **C-3 잔여** (CodexCliProvider concrete — FSM/stream/event loop). 인터페이스 재설계 인정 (review M5) — ClaudeCli 와 별개 record (Subcommand 형식 / config override 형식 / MCP 등록 path 가 모두 다름)
+- [/] Codex CLI provider (사전 실증 4 결과에 따라). **C-1 완료** (인자 inventory + skeleton). **C-2 완료** (실제 codex exec --json spike, 4 packet 종류 + stderr 분리 + MCP HTTP inline 등록 + connect 실패 graceful 모두 확인). **C-3 잔여** (CodexCliProvider concrete — FSM/stream/event loop, single item.completed → AssistantDelta 1회 발사, MCP ready 신호 별도 wait, instructions override 정책). 인터페이스 재설계 인정 (review M5) — ClaudeCli 와 별개 record (Subcommand 형식 / config override 형식 / MCP 등록 path 가 모두 다름)
 - [ ] OpenAI API provider (Codex CLI 막힌 경우 보험)
 - [ ] Anthropic API provider (구독 한도 초과 사용자용)
 - [ ] Ollama provider (local, OpenAI 호환 endpoint)
