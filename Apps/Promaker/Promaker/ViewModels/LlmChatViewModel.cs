@@ -194,12 +194,22 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     private async Task ApplyTurnPlanAsync(LlmTurnContext ctx, string prompt)
     {
-        var label = $"LLM: {Truncate(prompt, 50)}";
+        var label = $"{LlmTurnLabelPrefix}{Truncate(prompt, 50)}";
         var plan = ctx.Plan.Build();
         await _dispatcher.InvokeAsync(() =>
             DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan));
         AppendAssistant($"\n[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
+        // m6 — finally 의 first flush 이후 timer 가 다시 시작되었으므로, [applied] 메시지가 손실되지
+        // 않도록 즉시 한 번 더 flush. 이후 finally 의 IsStreaming=false 흐름이 자연스럽게 종료.
+        _assistantFlushTimer?.Stop();
+        FlushAssistantBuffer();
     }
+
+    /// <summary>
+    /// m8 — `LlmChatViewModel` 의 ApplyImportPlan label prefix. `HistoryPanelItem.IsLlmTurn` 도 같은 prefix 로 식별.
+    /// 양쪽 magic string 중복 회피.
+    /// </summary>
+    public const string LlmTurnLabelPrefix = "LLM: ";
 
     private bool CanSend() => IsReady && !IsSending && !string.IsNullOrWhiteSpace(Input);
 
