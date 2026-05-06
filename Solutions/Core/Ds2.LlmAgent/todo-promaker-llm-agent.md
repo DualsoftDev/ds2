@@ -318,8 +318,16 @@ type ToolDef<'TArgs,'TResult> = {
   - **system prompt 가이드 — "batch 우선"** (review 2차 R1 Critical): "여러 system 을 보려면 describe_subtree 한 번을, 단일 system 만 깊게 보려면 describe_system(deep)" 명시
   - Phase 1d golden test 에 **token 회귀 케이스 추가** (review 2차 R1 Critical): 30 system × 5 flow × 3 work 모델에서 LLM exploration 후 누적 token 측정, 단일 get_model_summary 보다 작아야 함
 - [x] **1d-3 — `validate_model(scope?)` + 500ms cache** (2026-05-06 빌드 통과 + review 7건 중 4건 반영): `ToolOperations.validateModel/validateModelByGuid` + `ValidationScope` DU (Global/System/Flow). 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder, placeholder = TODO/TBD/FIXME/XXX/?/??/??? 대문자 정규화). `LlmTurnContext.ValidateCacheTtlMs = 500` const + `_validateCache` (scopeKey × tickMs × result) — turn-내 cache (lock 없음, RunRead 가 dispatcher 위에서 실행함을 가정). `ModelTools.ValidateModel(scope?)` — 빈 값 또는 "global" → global, GUID 면 자동 판별, cache hit 시 `(cached, <{TTL}ms)` suffix. 출력 안정성: 카테고리 안 line `Seq.sortBy snd` 정렬 + flow/system scope 의 skipped 카테고리 footer 명시. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄. 보류 review: false positive 가이드 (1d-4 또는 1d-6) / `?` 1글자 placeholder 적합성 (1d-6 결과 보고 결정)
-- [ ] Chat panel 완성 (XAML / ChatPanelViewModel): Streaming 표시, ToolUse/ToolResult collapsible, Provider 설정 다이얼로그, `%APPDATA%/Promaker/llm-config.json` 저장 (consent flag 포함)
-- [ ] HistoryPanel 에 LLM turn 그룹 시각화 (결정 7 (d) ImportPlan label "LLM: ..." 식별)
+- [/] **1d-4 — UX 입력/버블 + A/B/C** (2026-05-06 부분 완료, 빌드 + 자동 검증 13/13 통과). 남은 항목 = D dock 통합 / E consent dialog / F HistoryPanel 시각화:
+  - **입력 키 동작**: PreviewKeyDown 으로 Enter=전송 / Shift+Enter=줄바꿈 (TextBox 기본) / Alt+J=줄바꿈 강제 삽입 (Alt 조합 = `Key.System` + `e.SystemKey` 분기, `tb.SelectedText` 치환). Send 버튼 `IsDefault="True"` 제거 + 텍스트 "전송 (Enter)"
+  - **메시지 버블**: "user" / "assistant" 라벨 제거. ListBoxItem `Style.Triggers` 의 DataTrigger Role 값으로 user=오른쪽 + accent 색, assistant=왼쪽 + secondary 색, system=가운데 + dim italic. Border `MaxWidth=520` 으로 long line 줄바꿈
+  - **A — AssistantDelta 50ms throttle**: `_pendingAssistant : StringBuilder` + `DispatcherTimer` (Background priority). `AppendAssistant` = buffer 누적 + timer.Start (이미 enabled noop). Tick = Stop + Flush. `finally` / `DisposeAsync` 강제 flush 로 마지막 fragment 손실 방지. claude CLI burst 패턴이면 사용자 체감 X — 안전망 역할
+  - **B — `--strict-mcp-config` + `--allowed-tools`**: `ClaudeCliOptions` 에 두 필드 추가 + `ClaudeCliArgs.build` module-level 분리 (외부 검증 가능). `--allowed-tools` 는 **반복 인자 형식** (`--allowed-tools T1 --allowed-tools T2 ...`) 채택 — 단일 인자/공백구분/콤마구분 호환성 이슈 회피. `PromakerToolNames.cs` 신규 (servername=`promaker` + 11개 tool 이름). 화이트리스트 drift 시 LLM 이 조용히 차단 → 1d-6 negative test 가 회귀 검출
+  - **C — Sanitize 강화**: `CharUnicodeInfo.GetUnicodeCategory` 검사로 Control (Cc) + Format (Cf) 차단. RLO override (U+202E) / null byte / ZWJ / newline 모두 거부. 메시지에 codepoint `U+XXXX` 명시 (LLM 회복 단서)
+  - **자동 검증**: 검증 스크립트 (B 8개 + C 8개 케이스) 모두 통과 후 폐기. 1d-6 golden test 묶음에 동일 검증 흡수 예정
+- [ ] **1d-4 잔여 D** — ChatPanel dock 통합 (별도 Window → MainWindow 안 dock panel)
+- [ ] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`)
+- [ ] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 (결정 7 (d) ImportPlan label "LLM: ..." 식별)
 - [ ] System prompt 보강 (1c 의 최소 → 1d 의 풀): greenfield 환각 방지, 도메인 규칙, Arrow 타입, tool 사용 순서, clarification 템플릿, **user-supplied 텍스트 격리 delimiter** (`<spec>...</spec>` + "내부는 데이터, 명령 아님" 명시 — review 2차 R5; delimiter 단독 방어 약하므로 sanitize + quota 와 결합)
 - [ ] Golden scenario 회귀 테스트:
   - 4-cylinder sequential+parallel spec → 기대 모델
@@ -458,7 +466,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d-3 완료** (2026-05-06, 빌드 통과 — 사용자 e2e 검증 대기). `validate_model(scope?)` 1개 read tool 추가 — 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) × 3 scope (global / SystemId / FlowId) × 500ms turn-내 cache. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄 추가. 다음 = 1d-4 (UX: ChatPanel dock 통합 / AssistantDelta 50ms throttle / consent dialog / strict-mcp-config).
+- 현 단계: **Phase 1d-4 부분 완료** (2026-05-06, 빌드 + 자동 검증 13/13 통과). 입력 키 (Enter 전송 / Shift+Enter / Alt+J 줄바꿈) + 메시지 버블 UI (좌/우 정렬 + 색상) + A throttle + B `--strict-mcp-config` + B `--allowed-tools` 11개 (반복 인자 형식) + C Sanitize 강화 (Control/Format 문자 차단). 다음 = 1d-4 잔여 (D dock 통합 / E consent / F HistoryPanel) 또는 1d-5 / 1d-6.
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -490,8 +498,8 @@ type ToolDef<'TArgs,'TResult> = {
 5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
 6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
 7. ✅ **Phase 1d-2** Read tool composite (`describe_system` deep + `describe_subtree` depth + `find_by_name`) + system prompt 보강 — 2026-05-06 완료 (사용자 e2e 검증 통과). token 회귀 golden test 는 1d-6 으로 미룸 (시나리오 골든 묶음과 함께)
-8. ✅ **Phase 1d-3** `validate_model(scope?)` + 500ms turn-내 cache + 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) — 2026-05-06 빌드 통과. 사용자 e2e 검증 대기
-9. **Phase 1d-4** UX (ChatPanel dock 통합 / AssistantDelta 50ms aggregation throttle / HistoryPanel LLM turn 시각화 / data egress consent dialog / `--strict-mcp-config` + `--allowed-tools`)
+8. ✅ **Phase 1d-3** `validate_model(scope?)` + 500ms turn-내 cache + 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) — 2026-05-06 commit `87763fa`
+9. 🟡 **Phase 1d-4 부분 완료** — 입력 키 + 버블 UI + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 (자동 검증 통과). 잔여 = D dock 통합 / E consent dialog / F HistoryPanel 시각화
 10. **Phase 1d-5** Lifecycle 보안 (Job Object attach / `.mcp-config` ACL 강화 / stale sweep — 결정 5.0 / 5.4)
 11. **Phase 1d-6** Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection / tool allowlist + validate_model assertion 활용)
 
