@@ -286,6 +286,7 @@ internal static class DialogHelpers
             dontShowCheck = new CheckBox
             {
                 Content = "다음 시뮬레이션까지 다시 보지 않기",
+                IsChecked = true,
                 Foreground = (System.Windows.Media.Brush?)Application.Current.TryFindResource("SecondaryTextBrush")
                              ?? System.Windows.SystemColors.ControlTextBrush,
                 FontSize = 12,

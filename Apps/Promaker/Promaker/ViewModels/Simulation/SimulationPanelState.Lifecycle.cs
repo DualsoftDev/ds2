@@ -87,6 +87,22 @@ public partial class SimulationPanelState
         ClearAllWarnings();
         GanttChart.Reset(_simStartTime);
         PopulateWorkItems();
+
+        // 새 모델로 바뀌면 이전 RuntimeMode 가 새 모델에 부적합 (I/O 미설정 등) 가능성 →
+        // Simulation 으로 리셋. _suppressRuntimeModeChangeHandler 로 I/O 검사 우회.
+        if (SelectedRuntimeMode != RuntimeMode.Simulation)
+        {
+            _suppressRuntimeModeChangeHandler = true;
+            try
+            {
+                SelectedRuntimeMode = RuntimeMode.Simulation;
+                _previousRuntimeMode = RuntimeMode.Simulation;
+                OnPropertyChanged(nameof(NeedsHubConnection));
+                OnPropertyChanged(nameof(IsHubHost));
+                SetHubStatus(connected: false, reconnecting: false);
+            }
+            finally { _suppressRuntimeModeChangeHandler = false; }
+        }
     }
 
     private void ApplySimulationUiState(

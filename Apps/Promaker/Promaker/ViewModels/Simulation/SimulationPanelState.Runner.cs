@@ -355,12 +355,14 @@ public partial class SimulationPanelState
         _simEngine?.SetAllFlowStates(FlowTag.Pause);
         _simEngine?.Pause();
         GanttChart.IsRunning = false;
-        _isStepMode = true;
-        SimStatusText = SimText.StepMode;
+        // STEP 모드는 Simulation 모드 전용. Control/VP/Monitoring 은 단순 일시 정지.
+        var isStepEligible = SelectedRuntimeMode == RuntimeMode.Simulation;
+        _isStepMode = isStepEligible;
+        SimStatusText = isStepEligible ? SimText.StepMode : SimText.Paused;
         ApplySimulationUiState(
             isSimPaused: true,
             statusText: SimText.Paused,
-            logText: "단계 제어 모드 진입");
+            logText: isStepEligible ? "단계 제어 모드 진입" : "시뮬레이션 일시 정지");
         RefreshSimulationProgressUi();
     }
 
@@ -582,9 +584,9 @@ public partial class SimulationPanelState
     private bool CanStepSimulation() =>
         (!IsSimulating || IsSimPaused)
         && !IsHomingPhase
-        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring);
-        // !IsSimulating 인 경우에도 활성 — StepSimulationAsync 가 StartSimulation 호출 후 첫 STEP 진행.
-        // engine.CanAdvanceStep 가드는 PAUSE 직후 cascade 처리 전 상태에서 false 반환해 stuck 되므로 미사용.
+        && SelectedRuntimeMode == RuntimeMode.Simulation;
+        // STEP 은 Simulation 모드 전용. Control 은 외부 Hub 신호로 진행되어 단계적 advance 의미 없음,
+        // VP/Monitoring 도 외부 신호 owner 라 STEP 부적절.
     private void DisposeSimEngine()
     {
         TryDisposeCurrentEngine("Simulation dispose");
