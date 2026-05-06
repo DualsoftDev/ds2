@@ -18,11 +18,13 @@ let ``Default options 의 첫 토큰은 exec subcommand`` () =
     Assert.Equal("exec", args.[0])
 
 [<Fact>]
-let ``Default 는 --json --ephemeral --ignore-user-config 모두 노출`` () =
+let ``Default 는 --json --ignore-user-config 노출, --ephemeral 미노출 (multi-turn resume 보장)`` () =
+    // Ephemeral default 는 false — 그렇지 않으면 두 번째 turn 의 `exec resume <sid>` 가 rollout 부재로 fail.
+    // 단일 turn 사용 케이스에서만 명시적으로 true 지정 (todo 후속 session cleanup 정책 참조).
     let args = buildArgs baseOptions None "hi"
     Assert.Contains("--json", args)
-    Assert.Contains("--ephemeral", args)
     Assert.Contains("--ignore-user-config", args)
+    Assert.DoesNotContain("--ephemeral", args)
 
 [<Fact>]
 let ``Default 는 prompt 가 마지막 토큰`` () =
@@ -99,8 +101,31 @@ let ``Json false 시 --json 미전달 (raw text 출력 모드)`` () =
     Assert.DoesNotContain("--json", args)
 
 [<Fact>]
-let ``Ephemeral / IgnoreUserConfig false 시 각각 미전달 (사용자 영속 config 사용)`` () =
-    let opts = { baseOptions with Ephemeral = false; IgnoreUserConfig = false }
+let ``Ephemeral true override 시 --ephemeral 노출, IgnoreUserConfig false 시 --ignore-user-config 미전달`` () =
+    let opts = { baseOptions with Ephemeral = true; IgnoreUserConfig = false }
     let args = buildArgs opts None "hi"
-    Assert.DoesNotContain("--ephemeral", args)
+    Assert.Contains("--ephemeral", args)
     Assert.DoesNotContain("--ignore-user-config", args)
+
+[<Fact>]
+let ``approval_policy 는 -c config override 로만 전달 (--ask-for-approval flag 미사용)`` () =
+    // codex 0.125 의 codex exec 는 `--ask-for-approval` flag 를 거부 (clap parse error, exit code 2).
+    // approval_policy 는 ConfigOverrides 의 `-c approval_policy="never"` path 로만 전달해야 함.
+    let args = buildArgs baseOptions None "hi"
+    Assert.DoesNotContain("--ask-for-approval", args)
+
+[<Fact>]
+let ``ExperimentalInstructionsFile None default 면 -c experimental_instructions_file= 미전달`` () =
+    let args = buildArgs baseOptions None "hi"
+    Assert.False(args |> List.exists (fun a -> a.StartsWith("experimental_instructions_file=")))
+
+[<Fact>]
+let ``ExperimentalInstructionsFile Some 시 -c experimental_instructions_file='<path>' 형식 (toml literal string)`` () =
+    let path = @"C:\Users\dualk\AppData\Local\Temp\Promaker\codex-instructions-abc.md"
+    let opts = { baseOptions with ExperimentalInstructionsFile = Some path }
+    let args = buildArgs opts None "hi"
+    let cIdx = args |> List.findIndex (fun a -> a.StartsWith("experimental_instructions_file="))
+    Assert.Equal("-c", args.[cIdx - 1])
+    let value = args.[cIdx]
+    // toml literal string '...' — Windows path 의 backslash 가 raw 로 들어감 (escape 없이).
+    Assert.Equal(sprintf "experimental_instructions_file='%s'" path, value)

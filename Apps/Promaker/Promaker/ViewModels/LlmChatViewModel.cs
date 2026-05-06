@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,11 +15,20 @@ using log4net;
 namespace Promaker.ViewModels;
 
 /// <summary>
+/// Phase 2 후속 — Claude / Codex 둘 다 ILlmProvider 로 추상화 후 dispatch.
+/// </summary>
+public enum LlmProviderKind
+{
+    Claude,
+    Codex,
+}
+
+/// <summary>
 /// Promaker 의 LLM chat ViewModel.
 ///
 /// Phase 1c — system prompt + add_system / list_systems mutation/read tool + turn end ApplyImportPlan.
 ///   1 LLM turn = 1 undo step (결정 7 (d), `Ds2.Editor.ImportPlanApply.applyWithUndo`).
-/// Phase 1d 예정 — dock panel 통합 / 50ms aggregation throttle / consent dialog / tool 풀세트.
+/// Phase 2 — `ILlmProvider` 추상화 + Claude / Codex provider dispatch (UI ComboBox).
 /// </summary>
 public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 {
@@ -28,7 +38,18 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private readonly IUiDispatcher _dispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
-    private ClaudeCliProvider? _provider;
+    /// <summary>
+    /// Codex 의 `experimental_instructions_file` 로 전달할 임시 파일 path. lazy 생성 (Codex provider 첫 선택 시),
+    /// DisposeAsync 시 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
+    /// </summary>
+    private string? _codexInstructionsPath;
+    private ILlmProvider? _provider;
+
+    /// <summary>
+    /// Provider 전환 race 가드 — `OnSelectedProviderChanged` 가 빠르게 두 번 호출되어도 stale 결과로
+    /// IsReady/StatusText 갱신되지 않도록 sequence 비교. async EnsureCli 의 await 후에 검사.
+    /// </summary>
+    private int _switchCounter;
 
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
@@ -37,12 +58,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// AssistantDelta aggregation buffer. Claude CLI 가 30~60Hz 로 fragment 를 보내면
     /// `_streamingTurn.Text +=` 매 호출이 INotifyPropertyChanged → TextBlock invalidate 를 유발해
     /// 깜빡임 + CPU 부하. 50ms 윈도로 묶어 ~20Hz 로 down-sample (사용자 체감 변화 없음).
+    /// Codex 는 단일 패킷이라 throttle 효과 없음 (noop) — Claude 와 공유해도 무해.
     /// </summary>
     private readonly System.Text.StringBuilder _pendingAssistant = new();
     private DispatcherTimer? _assistantFlushTimer;
     private const int AssistantFlushIntervalMs = 50;
 
     public ObservableCollection<ChatTurn> Turns { get; } = new();
+
+    public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } =
+        new[] { LlmProviderKind.Claude, LlmProviderKind.Codex };
 
     [ObservableProperty]
     private string _input = "";
@@ -58,6 +83,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     [ObservableProperty]
     private string? _sessionId;
+
+    [ObservableProperty]
+    private LlmProviderKind _selectedProvider = LlmProviderKind.Claude;
 
     public LlmChatViewModel(DsStore store)
     {
@@ -77,42 +105,12 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        var uiContext = TaskScheduler.FromCurrentSynchronizationContext();
         try
         {
             await _mcpHost.StartAsync().ConfigureAwait(true);
             _mcpConfig = McpConfigWriter.Create("promaker", _mcpHost.ServerUrl, _mcpHost.HandshakeNonce);
 
-            var options = new ClaudeCliOptions(
-                executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
-                mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig.Path),
-                permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
-                model: Microsoft.FSharp.Core.FSharpOption<string>.None,
-                systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
-                strictMcpConfig: true,
-                allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
-                channelCapacity: 256,
-                onProcessStarted: Microsoft.FSharp.Core.FSharpOption<Action<System.Diagnostics.Process>>.Some(
-                    new Action<System.Diagnostics.Process>(ChildProcessTracker.AddProcess)));
-            _provider = new ClaudeCliProvider(options);
-
-            StatusText = $"MCP host {_mcpHost.ServerUrl} 준비 / Claude CLI 검출 중…";
-
-            await Task.Run(() => _provider!.EnsureCli()).ContinueWith(t =>
-            {
-                var result = t.Result;
-                if (result.IsValid)
-                {
-                    StatusText = $"준비 완료 — MCP host {_mcpHost.ServerUrl}, Claude CLI {result.VersionString}";
-                    IsReady = true;
-                    SendCommand.NotifyCanExecuteChanged();
-                }
-                else
-                {
-                    StatusText = result.Message;
-                    Turns.Add(new ChatTurn { Role = "system", Text = result.Message });
-                }
-            }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, uiContext);
+            await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -120,6 +118,134 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             StatusText = $"초기화 실패: {ex.Message}";
             Turns.Add(new ChatTurn { Role = "system", Text = $"초기화 실패: {ex.Message}" });
         }
+    }
+
+    /// <summary>
+    /// Provider 생성 + EnsureCli 검증. SelectedProvider 변경 시 / 초기화 시 호출.
+    /// stale switch race = `_switchCounter` 증가 후 await 경계 뒤에서 비교.
+    ///
+    /// **try/catch 사유**: `OnSelectedProviderChanged` 의 `_ = ConfigureProviderAsync(...)` fire-and-forget
+    /// 경로에서 unobserved task exception 이 발생하면 GC finalizer 까지 노출이 지연되어 디버깅 어려움.
+    /// `InitializeAsync` 가 동일 try/catch 패턴이므로 일관성 + StatusText/Turns 에 사용자 가시화. provider
+    /// ctor / dispatcher 호출 / collection 수정 등의 동기 예외도 본 catch 가 흡수.
+    /// </summary>
+    private async Task ConfigureProviderAsync(LlmProviderKind kind)
+    {
+        var myCounter = Interlocked.Increment(ref _switchCounter);
+
+        try
+        {
+            // 진행 중 turn 취소 + 기존 provider session 정리.
+            _cts?.Cancel();
+            _provider?.ClearSession();
+
+            ILlmProvider provider = kind switch
+            {
+                LlmProviderKind.Claude => CreateClaudeProvider(),
+                LlmProviderKind.Codex => CreateCodexProvider(),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown provider"),
+            };
+
+            _provider = provider;
+            IsReady = false;
+            SessionId = null;
+            StatusText = $"{kind} CLI 검출 중…";
+            SendCommand.NotifyCanExecuteChanged();
+
+            var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
+
+            // stale 결과 무시 (다른 switch 가 더 늦게 들어와 _switchCounter 증가시켰으면).
+            if (myCounter != _switchCounter) return;
+
+            if (result.IsValid)
+            {
+                StatusText = $"준비 완료 — {kind}, MCP {_mcpHost.ServerUrl}, CLI {result.VersionString}";
+                IsReady = true;
+            }
+            else
+            {
+                StatusText = $"{kind} 초기화 실패: {result.Message}";
+                Turns.Add(new ChatTurn { Role = "system", Text = result.Message });
+            }
+            SendCommand.NotifyCanExecuteChanged();
+        }
+        catch (Exception ex)
+        {
+            if (myCounter != _switchCounter) return;
+            Log.Error($"ConfigureProviderAsync({kind}) 실패", ex);
+            StatusText = $"{kind} 초기화 실패: {ex.Message}";
+            Turns.Add(new ChatTurn { Role = "system", Text = $"{kind} 초기화 실패: {ex.Message}" });
+            IsReady = false;
+            SendCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private ILlmProvider CreateClaudeProvider()
+    {
+        var options = new ClaudeCliOptions(
+            executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig!.Path),
+            permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
+            model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
+            strictMcpConfig: true,
+            allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
+            channelCapacity: 256,
+            onProcessStarted: Microsoft.FSharp.Core.FSharpOption<Action<System.Diagnostics.Process>>.Some(
+                new Action<System.Diagnostics.Process>(ChildProcessTracker.AddProcess)));
+        return new ClaudeCliProvider(options);
+    }
+
+    /// <summary>
+    /// Codex CLI provider. config override 4종 (mcp url + http_headers + approval_policy + sandbox_mode) +
+    /// `experimental_instructions_file` 로 system prompt override.
+    ///
+    /// **`sandbox_mode = "danger-full-access"` 사유**: codex 0.125 는 read-only / workspace-write 모드에서
+    /// MCP tool call 을 "user cancelled" 로 자동 cancel (community issue 1379772). danger-full-access 만 통과.
+    /// codex 의 file system / network 자유 접근 부작용은 todo `cd:` 보안 격리 spike 로 격리 예정.
+    /// </summary>
+    private ILlmProvider CreateCodexProvider()
+    {
+        // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 임시 파일에 쓰고 path 전달.
+        // lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 삭제.
+        if (_codexInstructionsPath == null)
+        {
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Promaker");
+            System.IO.Directory.CreateDirectory(dir);
+            _codexInstructionsPath = System.IO.Path.Combine(dir, $"codex-instructions-{Guid.NewGuid():N}.md");
+            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, System.Text.Encoding.UTF8);
+            Log.Info($"Codex instructions 임시 파일 생성 — {_codexInstructionsPath}");
+        }
+
+        var configOverrides = new[]
+        {
+            new System.Tuple<string, string>(
+                "mcp_servers.promaker.url",
+                $"\"{_mcpHost.ServerUrl}\""),
+            // codex docs 의 공식 예시 (`http_headers = { "X-Figma-Region" = "..." }`) 와 동일 inline table 형식.
+            new System.Tuple<string, string>(
+                "mcp_servers.promaker.http_headers",
+                $"{{ \"X-Promaker-Nonce\" = \"{_mcpHost.HandshakeNonce}\" }}"),
+            // 사용자가 chat 명령으로 의도 표현 → mcp tool 호출에 추가 approval 불필요.
+            new System.Tuple<string, string>("approval_policy", "\"never\""),
+            // codex 0.125 의 mcp tool call 통과 조건 (위 docstring 참조).
+            new System.Tuple<string, string>("sandbox_mode", "\"danger-full-access\""),
+        };
+        var options = new CodexCliOptions(
+            executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            cd: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            json: true,
+            // ephemeral=false: thread rollout 을 disk 에 남겨 다음 turn 의 `exec resume <sid>` 가 동작.
+            ephemeral: false,
+            ignoreUserConfig: true,
+            skipGitRepoCheck: true,
+            fullAuto: false,
+            dangerouslyBypassApprovalsAndSandbox: false,
+            configOverrides: Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>[]>.Some(configOverrides),
+            experimentalInstructionsFile: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexInstructionsPath),
+            channelCapacity: 256);
+        return new CodexCliProvider(options);
     }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
@@ -234,6 +360,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
     partial void OnIsReadyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
 
+    /// <summary>
+    /// ComboBox 변경 시 provider 재구성. 첫 init 이전 (`_mcpConfig == null`) 에는 무시 — InitializeAsync 의
+    /// ConfigureProviderAsync 가 SelectedProvider 기본값으로 처리.
+    /// </summary>
+    partial void OnSelectedProviderChanged(LlmProviderKind value)
+    {
+        if (_mcpConfig == null) return;
+        _ = ConfigureProviderAsync(value);
+    }
+
     private void HandleEvent(LlmEvent evt)
     {
         switch (evt)
@@ -309,6 +445,18 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _cts?.Cancel();
         _assistantFlushTimer?.Stop();
         _mcpConfig?.Dispose();
+        if (_codexInstructionsPath != null)
+        {
+            try
+            {
+                if (System.IO.File.Exists(_codexInstructionsPath))
+                    System.IO.File.Delete(_codexInstructionsPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Codex instructions 임시 파일 삭제 실패 — {_codexInstructionsPath}", ex);
+            }
+        }
         await _mcpHost.DisposeAsync().ConfigureAwait(false);
     }
 }

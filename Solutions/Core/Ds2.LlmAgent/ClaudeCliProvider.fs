@@ -109,7 +109,10 @@ module ClaudeCliArgs =
 type ClaudeCliProvider(options: ClaudeCliOptions) =
 
     let mutable sessionId : string option = None
-    let executable = options.ExecutablePath |> Option.defaultValue "claude"
+    let executableName = options.ExecutablePath |> Option.defaultValue "claude"
+    /// PATHEXT 자동 검색 fragility 회피 — ctor 1회 fully-qualified 정규화.
+    /// 못 찾으면 raw name 으로 fallback (Process.Start 가 자체 PATH 검색 시도, 실패 시 EnsureCli 가 진단).
+    let executable = ProcessUtils.findOnPath executableName |> Option.defaultValue executableName
 
     let buildArgs (prompt: string) : string list = ClaudeCliArgs.build options sessionId prompt
     let formatArgs = ClaudeCliArgs.formatArgs
@@ -258,3 +261,11 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
 
     /// Session 강제 초기화 (Reset 명령). 다음 Send 가 `--resume` 없이 새 세션 시작.
     member _.ClearSession () = sessionId <- None
+
+    interface ILlmProvider with
+        member this.EnsureCli () = this.EnsureCli ()
+        // instance method 의 `?cancellationToken: CancellationToken` 에 named arg 로 forward —
+        // positional 매핑보다 의도가 명시적 + 향후 instance signature 변경 시 안전성 ↑.
+        member this.Send (prompt, ct) = this.Send (prompt, cancellationToken = ct)
+        member this.SessionId = this.SessionId
+        member this.ClearSession () = this.ClearSession ()

@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ProcessUtilsTests.fs" />
     <Compile Include="ClaudeCliArgsTests.fs" />
     <Compile Include="CodexCliArgsTests.fs" />
     <Compile Include="CodexStreamJsonParserTests.fs" />

@@ -37,9 +37,12 @@ module ClaudeCliVersion =
         else compare a3 b3
 
     /// `claude --version` 를 실행해서 raw 문자열을 가져온다. CLI 가 PATH 에 없으면 None.
+    /// `Process.Start` 의 PATHEXT 자동 검색에 의존하지 않고 `ProcessUtils.findOnPath` 로 fully-qualified
+    /// 정규화 — 일부 사용자 환경에서 Promaker process 의 PATH 가 셸 PATH 와 다른 케이스 대응.
     let tryGetInstalledVersion () : string option =
+        let exe = ProcessUtils.findOnPath "claude" |> Option.defaultValue "claude"
         try
-            let psi = ProcessStartInfo("claude", "--version")
+            let psi = ProcessStartInfo(exe, "--version")
             psi.RedirectStandardOutput <- true
             psi.RedirectStandardError <- true
             psi.UseShellExecute <- false
@@ -66,8 +69,13 @@ module ClaudeCliVersion =
     let ensureMinimum () : Result =
         match tryGetInstalledVersion () with
         | None ->
+            // PATH 누락 vs 실행 실패 (exit != 0 / 출력 없음) 케이스 진단 분리.
+            let hint =
+                match ProcessUtils.resolveOrDiagnostic "claude" with
+                | Ok _ -> ""
+                | Error e -> "\n" + e
             { IsValid = false
-              Message = "Claude CLI 가 PATH 에 없거나 `claude --version` 실행 실패. 설치 후 재시도해주세요."
+              Message = $"Claude CLI 가 PATH 에 없거나 `claude --version` 실행 실패. 설치 후 재시도해주세요.{hint}"
               VersionString = "" }
         | Some raw ->
             match parse raw with
