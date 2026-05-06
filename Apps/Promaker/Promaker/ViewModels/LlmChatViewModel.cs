@@ -10,17 +10,23 @@ using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.LlmAgent;
 using Promaker.LlmAgent;
+using Promaker.LlmAgent.Api;
 using log4net;
 
 namespace Promaker.ViewModels;
 
 /// <summary>
-/// Phase 2 후속 — Claude / Codex 둘 다 ILlmProvider 로 추상화 후 dispatch.
+/// Phase 2 후속 — 모든 provider 가 ILlmProvider 로 추상화 후 dispatch.
+/// CLI 2종 (Claude / Codex) + API 3종 (Anthropic / OpenAI / Ollama).
+/// API provider 는 Microsoft.Extensions.AI IChatClient + UseFunctionInvocation + McpClient HTTP self-call 패턴.
 /// </summary>
 public enum LlmProviderKind
 {
     Claude,
     Codex,
+    AnthropicApi,
+    OpenAiApi,
+    Ollama,
 }
 
 /// <summary>
@@ -51,6 +57,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private string? _codexInstructionsPath;
     private ILlmProvider? _provider;
 
+    /// <summary>API key + 모델명 + base URL 등 user-scope 설정. DPAPI 로 key 만 암호화.</summary>
+    private readonly LlmApiConfig _apiConfig = LlmApiConfig.Load();
+
     /// <summary>
     /// Provider 전환 race 가드 — `OnSelectedProviderChanged` 가 빠르게 두 번 호출되어도 stale 결과로
     /// IsReady/StatusText 갱신되지 않도록 sequence 비교. async EnsureCli 의 await 후에 검사.
@@ -73,7 +82,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<ChatTurn> Turns { get; } = new();
 
     public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } =
-        new[] { LlmProviderKind.Claude, LlmProviderKind.Codex };
+        new[] {
+            LlmProviderKind.Claude,
+            LlmProviderKind.Codex,
+            LlmProviderKind.AnthropicApi,
+            LlmProviderKind.OpenAiApi,
+            LlmProviderKind.Ollama,
+        };
 
     [ObservableProperty]
     private string _input = "";
@@ -145,14 +160,23 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
         try
         {
-            // 진행 중 turn 취소 + 기존 provider session 정리.
+            // 진행 중 turn 취소 + 기존 provider session 정리. API provider 는 IAsyncDisposable 라
+            // McpClient + HttpClient 회수까지 같이.
             _cts?.Cancel();
             _provider?.ClearSession();
+            if (_provider is IAsyncDisposable prevAsync)
+            {
+                try { await prevAsync.DisposeAsync().ConfigureAwait(true); }
+                catch (Exception ex) { Log.Warn("이전 provider DisposeAsync 실패", ex); }
+            }
 
             ILlmProvider provider = kind switch
             {
                 LlmProviderKind.Claude => CreateClaudeProvider(),
                 LlmProviderKind.Codex => CreateCodexProvider(),
+                LlmProviderKind.AnthropicApi => await CreateAnthropicApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.OpenAiApi => await CreateOpenAiApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.Ollama => await CreateOllamaApiProviderAsync().ConfigureAwait(true),
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown provider"),
             };
 
@@ -165,7 +189,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 
             // stale 결과 무시 (다른 switch 가 더 늦게 들어와 _switchCounter 증가시켰으면).
-            if (myCounter != _switchCounter) return;
+            // API provider 는 IAsyncDisposable 라 stale 방어 시 leak 방지로 즉시 dispose.
+            if (myCounter != _switchCounter)
+            {
+                if (provider is IAsyncDisposable staleAsync)
+                {
+                    try { await staleAsync.DisposeAsync().ConfigureAwait(true); }
+                    catch (Exception ex) { Log.Warn("stale provider DisposeAsync 실패", ex); }
+                }
+                return;
+            }
 
             if (result.IsValid)
             {
@@ -265,6 +298,52 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             codexHome: Microsoft.FSharp.Core.FSharpOption<string>.None,
             channelCapacity: 256);
         return new CodexCliProvider(options);
+    }
+
+    /// <summary>
+    /// Anthropic API provider — `Anthropic` SDK + IChatClient + UseFunctionInvocation + McpClient HTTP self-call.
+    /// API key 는 LlmApiConfig 에서 DPAPI 복호화. 부재 시 환경변수 ANTHROPIC_API_KEY fallback.
+    /// </summary>
+    private async Task<ILlmProvider> CreateAnthropicApiProviderAsync()
+    {
+        var apiKey = _apiConfig.GetApiKey(ApiProviderFactory.AnthropicKey)
+                     ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                     ?? "";
+        var model = _apiConfig.AnthropicModel;
+        return await ApiProviderFactory.CreateAnthropicAsync(
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>OpenAI API provider — 동일 패턴. API key fallback = OPENAI_API_KEY.</summary>
+    private async Task<ILlmProvider> CreateOpenAiApiProviderAsync()
+    {
+        var apiKey = _apiConfig.GetApiKey(ApiProviderFactory.OpenAiKey)
+                     ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+                     ?? "";
+        var model = _apiConfig.OpenAiModel;
+        return await ApiProviderFactory.CreateOpenAiAsync(
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>Ollama (local) — base URL + model name 만 필요. API key 없음.</summary>
+    private async Task<ILlmProvider> CreateOllamaApiProviderAsync()
+    {
+        var baseUrl = _apiConfig.OllamaBaseUrl;
+        var model = _apiConfig.OllamaModel;
+        return await ApiProviderFactory.CreateOllamaAsync(
+            baseUrl: baseUrl,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
@@ -463,6 +542,11 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     {
         _cts?.Cancel();
         _assistantFlushTimer?.Stop();
+        if (_provider is IAsyncDisposable apiAsync)
+        {
+            try { await apiAsync.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Log.Warn("provider DisposeAsync 실패", ex); }
+        }
         _mcpConfig?.Dispose();
         if (_codexWorkspacePath != null)
         {
