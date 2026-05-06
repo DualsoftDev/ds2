@@ -309,6 +309,7 @@ type ToolDef<'TArgs,'TResult> = {
 > **하위 단위로 분할 진행** (단일 PR 안의 internal sub-milestone): 1d-1 Mutation 풀세트 → 1d-2 Read tool composite + system prompt 보강 → 1d-3 validate_model → 1d-4 UX (dock / throttle / consent / strict-mcp-config) → 1d-5 lifecycle 보안 (Job Object / ACL / sweep) → 1d-6 golden scenario.
 
 - [x] **1d-1 — Mutation tool 풀세트** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` 모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan. `ToolOperations` 의 plan+store 합산 lookup 으로 같은 turn 안 ID chaining 지원 (e.g. add_flow → add_work). `ImportPlanBuilder.Operations` seq 노출. `ModelTools` 가 sanitize/Guid parse/dispatcher/audit/quota 통합 헬퍼 (`Sanitize`/`ParseGuid`/`RunMutation`) 로 7개 책임 inline 압축. ID 표기 full GUID 통일 (list_systems / 모든 mutation 응답).
+- [x] **1d-2 — Read tool composite + system prompt 보강** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `describe_system(systemId, deep?)` / `describe_subtree(rootId, depth)` (Project/System/Flow/Work 자동 판별, depth cap 5, 50 entity 제한 + truncated 표기) / `find_by_name(name, kind?)` 3종 추가. `RunRead` 헬퍼 (read 는 quota 미증가 + sizeBytes audit). System prompt 1c → 1d-2 갱신: 모델 schema (Project→System→Flow→Work→Call + ApiDef sibling + Arrows) 트리 도식, batch read 우선 가이드 ("describe_subtree 1번 > describe_system N번"), turn-end commit / ID chaining 명시, **user-text-as-data 격리** (prompt injection 1차 방어), out-of-scope refusal (filesystem / shell / non-Promaker MCP 거부).
 - [ ] **Read tool — N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical):
   - `list_systems()` → System.Id + Name + 통계 (Flow 수 / Work 수). 1KB 이내 메타
   - `describe_system(id, expand?: 'none'|'shallow'|'deep')` → 기본 'shallow' (Flow/ApiDef 이름만), 'deep' 명시 시 자식 트리 포함
@@ -461,7 +462,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d-1 완료** (2026-05-06, 사용자 e2e 검증 통과). Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) + ID chaining (plan+store 합산 lookup). 다음 = 1d-2 (Read tool composite `describe_system`/`describe_subtree`/`find_by_name` + system prompt batch 가이드).
+- 현 단계: **Phase 1d-2 완료** (2026-05-06, 사용자 e2e 검증 통과). Read tool composite (`describe_system` / `describe_subtree` / `find_by_name`) + system prompt 보강 (모델 schema / batch 우선 / turn-end commit / user-text-as-data / out-of-scope refusal). 다음 = 1d-3 (`validate_model(scope?)` + 500ms cache).
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -492,7 +493,7 @@ type ToolDef<'TArgs,'TResult> = {
 4. ✅ **Phase 1b-c** (HTTP) — Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 + loopback bind + ephemeral port + handshake nonce + `IUiDispatcher` 추상 + `ImportPlanBuilder` + dummy `PingTool` (PR 2) — 2026-05-06 완료
 5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
 6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
-7. **Phase 1d-2** Read tool composite (`describe_system` expand + `describe_subtree` depth/page + `find_by_name`) + system prompt batch 가이드 + token 회귀 golden test
+7. ✅ **Phase 1d-2** Read tool composite (`describe_system` deep + `describe_subtree` depth + `find_by_name`) + system prompt 보강 — 2026-05-06 완료 (사용자 e2e 검증 통과). token 회귀 golden test 는 1d-6 으로 미룸 (시나리오 골든 묶음과 함께)
 8. **Phase 1d-3** `validate_model(scope?)` + 500ms result cache
 9. **Phase 1d-4** UX (ChatPanel dock 통합 / AssistantDelta 50ms aggregation throttle / HistoryPanel LLM turn 시각화 / data egress consent dialog / `--strict-mcp-config` + `--allowed-tools`)
 10. **Phase 1d-5** Lifecycle 보안 (Job Object attach / `.mcp-config` ACL 강화 / stale sweep — 결정 5.0 / 5.4)
