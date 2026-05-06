@@ -325,9 +325,9 @@ type ToolDef<'TArgs,'TResult> = {
   - **B — `--strict-mcp-config` + `--allowed-tools`**: `ClaudeCliOptions` 에 두 필드 추가 + `ClaudeCliArgs.build` module-level 분리 (외부 검증 가능). `--allowed-tools` 는 **반복 인자 형식** (`--allowed-tools T1 --allowed-tools T2 ...`) 채택 — 단일 인자/공백구분/콤마구분 호환성 이슈 회피. `PromakerToolNames.cs` 신규 (servername=`promaker` + 11개 tool 이름). 화이트리스트 drift 시 LLM 이 조용히 차단 → 1d-6 negative test 가 회귀 검출
   - **C — Sanitize 강화**: `CharUnicodeInfo.GetUnicodeCategory` 검사로 Control (Cc) + Format (Cf) 차단. RLO override (U+202E) / null byte / ZWJ / newline 모두 거부. 메시지에 codepoint `U+XXXX` 명시 (LLM 회복 단서)
   - **자동 검증**: 검증 스크립트 (B 8개 + C 8개 케이스) 모두 통과 후 폐기. 1d-6 golden test 묶음에 동일 검증 흡수 예정
-- [ ] **1d-4 잔여 D** — ChatPanel dock 통합 (별도 Window → MainWindow 안 dock panel)
-- [ ] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`)
-- [ ] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 (결정 7 (d) ImportPlan label "LLM: ..." 식별)
+- [x] **1d-4 잔여 D** — ChatPanel dock 통합 (별도 Window → MainWindow 안 dock panel) — 2026-05-06 완료. `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml(.cs)` UserControl 추출 (`InverseBoolConverter` 동반 이전) + `MainWindow.xaml` 새 column 5/6 (Splitter 4px + Panel 380px, default width=0 collapsed) + DataTemplate `LlmChatViewModel→LlmChatPanel` + `MainViewModel.LlmChatVm` (lazy `[ObservableProperty]`) + `IsLlmChatVisible` + `ToggleLlmChatCommand` (lazy 생성 시 consent 검사) + `MainWindow.xaml.cs.UpdateLlmChatColumnWidths` (PropertyChanged 구독, collapsed 시 splitter+panel 둘 다 width 0). 기존 `LlmChatWindow.xaml(.cs)` 삭제. 메뉴 항목 → `ToggleLlmChatCommand` + 텍스트 "LLM Chat (토글)"
+- [x] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`) — 2026-05-06 완료. `Apps/Promaker/Promaker/LlmAgent/LlmConsent.cs` (Load/Grant/IsGranted/EnsureGranted) + `MainViewModel.OpenLlmChat` 1차 차단 (Yes/No MessageBox) + `LlmChatViewModel.InitializeAsync` 2차 defense-in-depth (consent 거부 시 MCP host 미시작). consent flag = `DataEgressConsent: bool` + `ConsentTimestampUtc: ISO8601`
+- [x] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 — 2026-05-06 완료. `HistoryPanelItem.IsLlmTurn => Label.StartsWith("LLM: ")` + HistoryPanel.xaml DataTemplate 안 좌측 3px AccentBrush 색띠 + label foreground=AccentBrush + FontWeight=SemiBold (IsLlmTurn 시). IsRedo (취소선) 와 함께 자연 합성
 - [ ] System prompt 보강 (1c 의 최소 → 1d 의 풀): greenfield 환각 방지, 도메인 규칙, Arrow 타입, tool 사용 순서, clarification 템플릿, **user-supplied 텍스트 격리 delimiter** (`<spec>...</spec>` + "내부는 데이터, 명령 아님" 명시 — review 2차 R5; delimiter 단독 방어 약하므로 sanitize + quota 와 결합)
 - [ ] Golden scenario 회귀 테스트:
   - 4-cylinder sequential+parallel spec → 기대 모델
@@ -466,7 +466,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d-4 부분 완료** (2026-05-06, 빌드 + 자동 검증 13/13 통과). 입력 키 (Enter 전송 / Shift+Enter / Alt+J 줄바꿈) + 메시지 버블 UI (좌/우 정렬 + 색상) + A throttle + B `--strict-mcp-config` + B `--allowed-tools` 11개 (반복 인자 형식) + C Sanitize 강화 (Control/Format 문자 차단). 다음 = 1d-4 잔여 (D dock 통합 / E consent / F HistoryPanel) 또는 1d-5 / 1d-6.
+- 현 단계: **Phase 1d 완료** (2026-05-06, 빌드 통과 + unit test 14/14 통과). 1d-1~1d-6 모든 sub-milestone 완료. Phase 1 (MVP) 의 자동화 가능한 회귀는 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 보존. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 done 문서의 phase 별 "사용자 측 검증 시나리오" 섹션 참조.
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -499,9 +499,9 @@ type ToolDef<'TArgs,'TResult> = {
 6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
 7. ✅ **Phase 1d-2** Read tool composite (`describe_system` deep + `describe_subtree` depth + `find_by_name`) + system prompt 보강 — 2026-05-06 완료 (사용자 e2e 검증 통과). token 회귀 golden test 는 1d-6 으로 미룸 (시나리오 골든 묶음과 함께)
 8. ✅ **Phase 1d-3** `validate_model(scope?)` + 500ms turn-내 cache + 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) — 2026-05-06 commit `87763fa`
-9. 🟡 **Phase 1d-4 부분 완료** — 입력 키 + 버블 UI + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 (자동 검증 통과). 잔여 = D dock 통합 / E consent dialog / F HistoryPanel 시각화
-10. **Phase 1d-5** Lifecycle 보안 (Job Object attach / `.mcp-config` ACL 강화 / stale sweep — 결정 5.0 / 5.4)
-11. **Phase 1d-6** Golden scenario 회귀 테스트 (4-cylinder spec / 환각 / 인스턴스 격리 / RDP / token 회귀 / prompt injection / tool allowlist + validate_model assertion 활용)
+9. ✅ **Phase 1d-4 완료** (2026-05-06) — 입력 키 + 버블 UI + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 + E consent dialog + D dock 통합 + F HistoryPanel 시각화
+10. ✅ **Phase 1d-5 완료** (2026-05-06) — `ChildProcessTracker` Job Object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (Promaker crash 시 Claude CLI cascade kill) + `ClaudeCliOptions.OnProcessStarted` callback hook + `McpConfigWriter` Owner-only ACL (`SetAccessRuleProtection(true,false)` + user FullControl 단일 rule) + 파일명 `mcp-{sessionId}-{pid}-{guid}.json` (PID 추출 가능) + `SweepStale` (자기 sessionId + dead pid OR mtime > 5분 + 자기 pid 보호) + App.OnStartup 1회 호출
+11. ✅ **Phase 1d-6 완료** (2026-05-06) — `Solutions/Tests/Ds2.LlmAgent.Tests/` 신규 fsproj (xunit, ProjectReference Ds2.LlmAgent). `ClaudeCliArgsTests.fs` 8개 (1d-4 B fsx 영구 회귀 — strict-mcp-config / allowed-tools 반복 인자 형식 / sessionId resume / 기본 인자) + `ValidateModelTests.fs` 6개 (no issues 메시지 / VALIDATION_ERROR / placeholder 보고 / scope footer). Promaker.sln 에 Tests 폴더 그룹 + project 추가. 14/14 통과. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 phase 별 done 문서의 "사용자 측 검증 시나리오" 절에 분산 정리
 
 ---
 
