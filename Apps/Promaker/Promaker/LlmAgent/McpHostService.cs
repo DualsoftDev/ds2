@@ -35,7 +35,8 @@ public sealed class McpHostService : IAsyncDisposable
     /// <summary>Kestrel 이 실제 listen 한 URL (ephemeral port). Start 후에만 유효.</summary>
     public string ServerUrl { get; private set; } = "";
 
-    /// <summary>turn-scoped state holder. Tool method 가 [FromServices] 로 받아 사용.</summary>
+    /// <summary>turn-scoped state holder. Tool method 의 인자로 type 만 적으면 SDK 가
+    /// IServiceProviderIsService.IsService(type) 로 자동 검출하여 schema 제외 + DI 주입 (Pass D).</summary>
     public LlmTurnContextProvider TurnProvider { get; } = new();
 
     /// <summary>Kestrel start. 첫 호출 시 host 띄우고 ServerUrl / HandshakeNonce 확정.</summary>
@@ -55,7 +56,9 @@ public sealed class McpHostService : IAsyncDisposable
             opts.Listen(IPAddress.Loopback, 0);
         });
 
-        // Tool method 가 [FromServices] 로 주입받음
+        // SDK (ModelContextProtocol.AspNetCore 1.2.0) 의 AIFunctionMcpServerTool binder 가
+        // IServiceProviderIsService.IsService(type) 로 등록 type 자동 검출 → tool method 인자에서
+        // 자동 schema 제외 + DI 주입 (attribute 불필요. Pass D — 이전 [FromKeyedServices(null)] 우회 제거).
         builder.Services.AddSingleton(TurnProvider);
 
         builder.Services

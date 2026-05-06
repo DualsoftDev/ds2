@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Ds2.Core;
 using Ds2.LlmAgent;
 using log4net;
-using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 
 namespace Promaker.LlmAgent.Tools;
@@ -24,10 +23,11 @@ public static class ModelTools
 {
     private static readonly ILog ToolCallLog = LogManager.GetLogger("Promaker.LlmAgent.ToolCall");
 
-    // DI 주입은 [FromKeyedServices(null)] 로 명시. ASP.NET Core MVC 의 [FromServices] 는 본 SDK
-    // (ModelContextProtocol.AspNetCore 1.2.0) 에서 인식되지 않음 → MCP binder 가 "DI 인자" 와 "tool JSON 인자"
-    // 를 구분하기 위해 keyed services API (unkeyed = null key) 를 사용. 본 attribute 가 없으면 LLM 의
-    // tool 인자로 잘못 매핑됨.
+    // DI 인자 (e.g. LlmTurnContextProvider) 는 attribute 없이 자동 주입됨.
+    // 근거: ModelContextProtocol.AspNetCore 1.2.0 의 AIFunctionMcpServerTool 이 parameter 의 type 을
+    // IServiceProviderIsService.IsService(type) 로 검사 → DI 등록된 type 이면 schema 에서 자동 제외 +
+    // service provider 에서 binding. McpHostService 가 LlmTurnContextProvider 를 AddSingleton 등록하므로
+    // 자동 검출 path 가 동작. (Pass D — 이전 [FromKeyedServices(null)] 우회 제거)
 
     // ─── 공통 헬퍼 ────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ public static class ModelTools
 
     [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). 반환: 새 system Id (full GUID).")]
     public static Task<string> AddSystem(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("System 이름 (1-128자, 한 프로젝트 내 unique).")] string name,
         [Description("Active 여부. 기본 true.")] bool isActive = true)
     {
@@ -125,7 +125,7 @@ public static class ModelTools
 
     [McpServerTool, Description("Promaker System 아래에 새 Flow 를 추가합니다. 반환: 새 Flow Id.")]
     public static Task<string> AddFlow(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("Flow 이름 (1-128자, System 내 unique).")] string name,
         [Description("Parent System 의 GUID (list_systems 결과 또는 같은 turn 의 add_system 반환값).")] string systemId)
     {
@@ -143,7 +143,7 @@ public static class ModelTools
 
     [McpServerTool, Description("Promaker Flow 아래에 새 Work 를 추가합니다. Work 표시명 = \"{flow.Name}.{localName}\". 반환: 새 Work Id.")]
     public static Task<string> AddWork(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("Work LocalName (1-128자, Flow 내 unique).")] string localName,
         [Description("Parent Flow 의 GUID.")] string flowId)
     {
@@ -161,7 +161,7 @@ public static class ModelTools
 
     [McpServerTool, Description("Promaker Work 아래에 새 Call 을 추가합니다. Call 표시명 = \"{devicesAlias}.{apiName}\". 반환: 새 Call Id.")]
     public static Task<string> AddCall(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("Devices alias (Call 표시명의 앞부분).")] string devicesAlias,
         [Description("API 이름 (Call 표시명의 뒷부분).")] string apiName,
         [Description("Parent Work 의 GUID.")] string workId)
@@ -181,7 +181,7 @@ public static class ModelTools
 
     [McpServerTool, Description("Promaker System 아래에 새 ApiDef 를 추가합니다. 반환: 새 ApiDef Id.")]
     public static Task<string> AddApiDef(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("ApiDef 이름 (1-128자, System 내 unique).")] string name,
         [Description("Parent System 의 GUID.")] string systemId)
     {
@@ -199,7 +199,7 @@ public static class ModelTools
 
     [McpServerTool, Description("두 Work 사이 (같은 System) 또는 두 Call 사이 (같은 Work) 에 Arrow 를 추가합니다. 종류는 자동 판별. 반환: 새 Arrow Id + kind.")]
     public static Task<string> AddArrow(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("Source 의 GUID (Work 또는 Call).")] string sourceId,
         [Description("Target 의 GUID (Source 와 같은 종류).")] string targetId,
         [Description("Arrow type. 허용 값: Unspecified|Start|Reset|StartReset|ResetReset|Group. 기본 Start.")] string arrowType = "Start")
@@ -221,7 +221,7 @@ public static class ModelTools
 
     [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기. 자식 트리는 미포함 — 자식까지 보려면 describe_system 또는 describe_subtree 호출.")]
     public static Task<string> ListSystems(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider)
+        LlmTurnContextProvider turnProvider)
     {
         return RunRead(turnProvider, "list_systems", ctx =>
         {
@@ -236,7 +236,7 @@ public static class ModelTools
 
     [McpServerTool, Description("특정 DsSystem 의 직계 자식 (Flow / ApiDef) 또는 깊은 트리 (Flow → Work → Call + Arrows) 를 반환합니다. deep=false (기본) 가 token 절약. 여러 system 을 한 번에 보려면 describe_subtree 사용.")]
     public static Task<string> DescribeSystem(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("DsSystem 의 GUID.")] string systemId,
         [Description("true 면 Work / Call / Arrows 까지 깊게. 기본 false (Flow / ApiDef 이름만).")] bool deep = false)
     {
@@ -248,7 +248,7 @@ public static class ModelTools
 
     [McpServerTool, Description("rootId (Project / System / Flow / Work GUID) 의 부분 트리를 indented text 로 반환합니다. depth = 추가 깊이 (0~5). 50 entity 초과 시 truncated 표기. 여러 system 을 한 번에 batch 조회할 때 사용 — 단일 describe_system 의 N+1 호출보다 token 효율 ↑.")]
     public static Task<string> DescribeSubtree(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("Root entity 의 GUID. EntityKind 는 자동 판별 (Project/System/Flow/Work).")] string rootId,
         [Description("Root 기준 추가 깊이 (0=root만, 1=직접 자식, ..., 최대 5).")] int depth = 2)
     {
@@ -260,7 +260,7 @@ public static class ModelTools
 
     [McpServerTool, Description("이름으로 entity 검색 (대소문자 무관 substring). kind 미지정 시 모든 종류. 결과 50개 제한.")]
     public static Task<string> FindByName(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("검색어 (대소문자 무관 substring).")] string name,
         [Description("필터 종류. 허용: Project|System|Flow|Work|Call|ApiDef. 미지정 시 모두.")] string? kind = null)
     {
@@ -293,7 +293,7 @@ public static class ModelTools
 
     [McpServerTool, Description("현재 모델의 일관성을 검사합니다. 카테고리: Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder. 위반 없으면 (no issues; scope=...). turn 종료 직전 1회 호출 권장 — 같은 scope 로 0.5초 안 재호출 시 캐시 결과 반환.")]
     public static Task<string> ValidateModel(
-        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        LlmTurnContextProvider turnProvider,
         [Description("검사 범위. 'global' (또는 미지정) = 모든 System. GUID 면 Project/System/Flow 중 자동 판별.")] string? scope = null)
     {
         var trimmed = scope?.Trim();

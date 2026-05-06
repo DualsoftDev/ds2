@@ -18,87 +18,91 @@ module ToolOperations =
 
     // ─── Plan + Store 합산 lookup 헬퍼 ───────────────────────────────────────
 
+    /// 필수 string 인자 whitespace 검사 — invalidArg 메시지 형식 통일.
+    /// 기존 5/6 케이스가 "{label} 이 비어있습니다." 형식이라 통일.
+    let private requireNonEmpty (paramName: string) (value: string) (label: string) : unit =
+        if String.IsNullOrWhiteSpace(value) then
+            invalidArg paramName $"{label} 이 비어있습니다."
+
+    /// plan.Operations 안에서 특정 ImportPlanOperation 패턴을 찾는 generic helper.
+    /// `tryFindXxxInPlan` 4종의 본문이 picker 만 다르고 동일한 패턴이라 단일 진입점으로 통합.
+    let private tryFindInPlan (plan: ImportPlanBuilder) (picker: ImportPlanOperation -> 'T option) : 'T option =
+        plan.Operations |> Seq.tryPick picker
+
+    /// store 우선 조회 → 없으면 plan 의 누적 operation 에서 fallback. None 이면 invalidOp.
+    /// `requireSystem` / `requireFlow` / `requireWork` 의 공통 골격.
+    let private requireFromStoreOrPlan
+        (storeLookup: unit -> 'T option)
+        (planLookup: unit -> 'T option)
+        (notFoundMsg: string) : 'T =
+        match storeLookup() with
+        | Some x -> x
+        | None ->
+            match planLookup() with
+            | Some x -> x
+            | None -> invalidOp notFoundMsg
+
     let private tryFindSystemInPlan (plan: ImportPlanBuilder) (id: Guid) : DsSystem option =
-        plan.Operations
-        |> Seq.tryPick (function AddSystem s when s.Id = id -> Some s | _ -> None)
+        tryFindInPlan plan (function AddSystem s when s.Id = id -> Some s | _ -> None)
 
     let private tryFindFlowInPlan (plan: ImportPlanBuilder) (id: Guid) : Flow option =
-        plan.Operations
-        |> Seq.tryPick (function AddFlow f when f.Id = id -> Some f | _ -> None)
+        tryFindInPlan plan (function AddFlow f when f.Id = id -> Some f | _ -> None)
 
     let private tryFindWorkInPlan (plan: ImportPlanBuilder) (id: Guid) : Work option =
-        plan.Operations
-        |> Seq.tryPick (function AddWork w when w.Id = id -> Some w | _ -> None)
+        tryFindInPlan plan (function AddWork w when w.Id = id -> Some w | _ -> None)
 
     let private tryFindCallInPlan (plan: ImportPlanBuilder) (id: Guid) : Call option =
-        plan.Operations
-        |> Seq.tryPick (function AddCall c when c.Id = id -> Some c | _ -> None)
+        tryFindInPlan plan (function AddCall c when c.Id = id -> Some c | _ -> None)
 
     let private requireSystem (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : DsSystem =
-        match Queries.getSystem id store with
-        | Some s -> s
-        | None ->
-            match tryFindSystemInPlan plan id with
-            | Some s -> s
-            | None -> invalidOp $"System(id={id}) 가 존재하지 않습니다."
+        requireFromStoreOrPlan
+            (fun () -> Queries.getSystem id store)
+            (fun () -> tryFindSystemInPlan plan id)
+            $"System(id={id}) 가 존재하지 않습니다."
 
     let private requireFlow (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : Flow =
-        match Queries.getFlow id store with
-        | Some f -> f
-        | None ->
-            match tryFindFlowInPlan plan id with
-            | Some f -> f
-            | None -> invalidOp $"Flow(id={id}) 가 존재하지 않습니다."
+        requireFromStoreOrPlan
+            (fun () -> Queries.getFlow id store)
+            (fun () -> tryFindFlowInPlan plan id)
+            $"Flow(id={id}) 가 존재하지 않습니다."
 
     let private requireWork (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : Work =
-        match Queries.getWork id store with
-        | Some w -> w
-        | None ->
-            match tryFindWorkInPlan plan id with
-            | Some w -> w
-            | None -> invalidOp $"Work(id={id}) 가 존재하지 않습니다."
+        requireFromStoreOrPlan
+            (fun () -> Queries.getWork id store)
+            (fun () -> tryFindWorkInPlan plan id)
+            $"Work(id={id}) 가 존재하지 않습니다."
+
+    /// 같은 parent 내 이름 중복 검사 generic helper.
+    /// store 측 / plan 측 두 path 의 `inStore || inPlan` 패턴을 단일화.
+    let private hasNameClash
+        (plan: ImportPlanBuilder)
+        (storeHasClash: unit -> bool)
+        (planMatcher: ImportPlanOperation -> bool) : bool =
+        storeHasClash() || (plan.Operations |> Seq.exists planMatcher)
 
     /// Plan + store 합산: 특정 system 내 Flow 이름 중복?
     let private hasFlowNameClash (plan: ImportPlanBuilder) (store: DsStore) (systemId: Guid) (name: string) : bool =
-        let inStore = not (Queries.isFlowNameUniqueInSystem systemId name None store)
-        let inPlan =
-            plan.Operations
-            |> Seq.exists (function
-                | AddFlow f -> f.ParentId = systemId && f.Name = name
-                | _ -> false)
-        inStore || inPlan
+        hasNameClash plan
+            (fun () -> not (Queries.isFlowNameUniqueInSystem systemId name None store))
+            (function AddFlow f -> f.ParentId = systemId && f.Name = name | _ -> false)
 
     /// Plan + store 합산: 특정 flow 내 Work LocalName 중복?
     let private hasWorkLocalNameClash (plan: ImportPlanBuilder) (store: DsStore) (flowId: Guid) (localName: string) : bool =
-        let inStore = not (Queries.isLocalNameUniqueInFlow flowId localName None store)
-        let inPlan =
-            plan.Operations
-            |> Seq.exists (function
-                | AddWork w -> w.ParentId = flowId && w.LocalName = localName
-                | _ -> false)
-        inStore || inPlan
+        hasNameClash plan
+            (fun () -> not (Queries.isLocalNameUniqueInFlow flowId localName None store))
+            (function AddWork w -> w.ParentId = flowId && w.LocalName = localName | _ -> false)
 
     /// Plan + store 합산: 특정 work 내 Call 이름(DevicesAlias.ApiName) 중복?
     let private hasCallNameClash (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (fullName: string) : bool =
-        let inStore = not (Queries.isCallNameUniqueInWork workId fullName None store)
-        let inPlan =
-            plan.Operations
-            |> Seq.exists (function
-                | AddCall c -> c.ParentId = workId && c.Name = fullName
-                | _ -> false)
-        inStore || inPlan
+        hasNameClash plan
+            (fun () -> not (Queries.isCallNameUniqueInWork workId fullName None store))
+            (function AddCall c -> c.ParentId = workId && c.Name = fullName | _ -> false)
 
     /// Plan + store 합산: 특정 system 내 ApiDef 이름 중복?
     let private hasApiDefNameClash (plan: ImportPlanBuilder) (store: DsStore) (systemId: Guid) (name: string) : bool =
-        let inStore =
-            Queries.apiDefsOf systemId store
-            |> List.exists (fun d -> d.Name = name)
-        let inPlan =
-            plan.Operations
-            |> Seq.exists (function
-                | AddApiDef d -> d.ParentId = systemId && d.Name = name
-                | _ -> false)
-        inStore || inPlan
+        hasNameClash plan
+            (fun () -> Queries.apiDefsOf systemId store |> List.exists (fun d -> d.Name = name))
+            (function AddApiDef d -> d.ParentId = systemId && d.Name = name | _ -> false)
 
     // ─── Mutation queue (Phase 1c~1d) ────────────────────────────────────────
 
@@ -108,8 +112,7 @@ module ToolOperations =
     /// (phase 1d 에서 projectId 인자 또는 selection 기반 resolve)
     /// 반환: 새로 생성된 system Id (LLM 응답에 포함).
     let queueAddSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (isActive: bool) : Guid =
-        if String.IsNullOrWhiteSpace(name) then
-            invalidArg (nameof name) "System name 이 비어있습니다."
+        requireNonEmpty (nameof name) name "System name"
         let project =
             match Queries.allProjects store with
             | [] -> invalidOp "프로젝트가 없습니다. 먼저 프로젝트를 생성하세요."
@@ -121,8 +124,7 @@ module ToolOperations =
 
     /// add_flow mutation tool. parent System 은 store 또는 plan 에 존재해야 함.
     let queueAddFlow (plan: ImportPlanBuilder) (store: DsStore) (name: string) (systemId: Guid) : Guid =
-        if String.IsNullOrWhiteSpace(name) then
-            invalidArg (nameof name) "Flow name 이 비어있습니다."
+        requireNonEmpty (nameof name) name "Flow name"
         requireSystem plan store systemId |> ignore
         if hasFlowNameClash plan store systemId name then
             invalidOp $"같은 System 내에 이미 '{name}' Flow 가 존재합니다."
@@ -133,8 +135,7 @@ module ToolOperations =
     /// add_work mutation tool. parent Flow 는 store 또는 plan 에 존재해야 함.
     /// Work.Name = "{flow.Name}.{localName}" 으로 자동 조립 (Work 의 FlowPrefix = flow.Name).
     let queueAddWork (plan: ImportPlanBuilder) (store: DsStore) (localName: string) (flowId: Guid) : Guid =
-        if String.IsNullOrWhiteSpace(localName) then
-            invalidArg (nameof localName) "Work localName 이 비어있습니다."
+        requireNonEmpty (nameof localName) localName "Work localName"
         let flow = requireFlow plan store flowId
         if hasWorkLocalNameClash plan store flowId localName then
             invalidOp $"같은 Flow 내에 이미 '{localName}' Work 가 존재합니다."
@@ -145,10 +146,8 @@ module ToolOperations =
     /// add_call mutation tool. parent Work 는 store 또는 plan 에 존재해야 함.
     /// Call.Name = "{devicesAlias}.{apiName}" 자동 조립.
     let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (devicesAlias: string) (apiName: string) (workId: Guid) : Guid =
-        if String.IsNullOrWhiteSpace(devicesAlias) then
-            invalidArg (nameof devicesAlias) "Call devicesAlias 가 비어있습니다."
-        if String.IsNullOrWhiteSpace(apiName) then
-            invalidArg (nameof apiName) "Call apiName 이 비어있습니다."
+        requireNonEmpty (nameof devicesAlias) devicesAlias "Call devicesAlias"
+        requireNonEmpty (nameof apiName) apiName "Call apiName"
         requireWork plan store workId |> ignore
         let fullName = $"{devicesAlias}.{apiName}"
         if hasCallNameClash plan store workId fullName then
@@ -159,8 +158,7 @@ module ToolOperations =
 
     /// add_api_def mutation tool. parent System 존재 + 이름 중복 검사.
     let queueAddApiDef (plan: ImportPlanBuilder) (store: DsStore) (name: string) (systemId: Guid) : Guid =
-        if String.IsNullOrWhiteSpace(name) then
-            invalidArg (nameof name) "ApiDef name 이 비어있습니다."
+        requireNonEmpty (nameof name) name "ApiDef name"
         requireSystem plan store systemId |> ignore
         if hasApiDefNameClash plan store systemId name then
             invalidOp $"같은 System 내에 이미 '{name}' ApiDef 가 존재합니다."

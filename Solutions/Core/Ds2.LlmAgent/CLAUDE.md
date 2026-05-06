@@ -54,7 +54,7 @@ LLM Chat 검증: Promaker → 상단 ribbon "기타" → "유틸" 토글 popup �
 
 ```
 LlmEvent.fs           DU 8종 (SessionStarted/AssistantDelta/Thinking/ToolUse/ToolResult/RateLimitEvent/SessionEnd/ProviderError)
-StreamJsonParser.fs   stream-json 5종 패킷 (system/init, assistant, user, rate_limit_event, result) → LlmEvent seq
+StreamJsonParser.fs   stream-json 5종 패킷 (system/init, assistant, user, rate_limit_event, result) → LlmEvent seq. MaxLineLength=1MB / MaxJsonDepth=32 cap + parse 실패 시 Log.Warn (Pass B m5/m10)
 ClaudeCliVersion.fs   `claude --version` SemVer 검증, ≥2.1.0 fail-fast, C# 친화 record `Result { IsValid; Message; VersionString }`
 ClaudeCliProvider.fs  multi-turn provider, --resume FSM, Channel.CreateBounded<LlmEvent>(256) backpressure, IAsyncEnumerable<LlmEvent>
 Logging.fs            log4net `Ds2.LlmAgent.Provider` / `Promaker.LlmAgent.RawStream` (verbose, default OFF)
@@ -86,7 +86,7 @@ Apps/Promaker/Promaker/
     ├── LlmConsent.cs                           atomic write + corrupt fallback + Yes/No MessageBox
     ├── LlmTurnContext.cs                       turn-scoped (plan / dispatcher / 500ms validate cache)
     ├── PromakerToolNames.cs                    11개 fully-qualified mcp__promaker__* (allowlist SSOT)
-    ├── SystemPrompt.cs                         Phase1c (모델 schema + batch 가이드 + injection 격리)
+    ├── SystemPrompt.cs                         Phase1c 상수 (모델 schema + batch 가이드 + injection 격리 + 1d 풀세트: Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter)
     ├── WpfDispatcherAdapter.cs                 IUiDispatcher.InvokeAsync (Background priority)
     └── Tools/ModelTools.cs                     [McpServerToolType] + Sanitize + RunMutation/RunRead 헬퍼
 ```
