@@ -8,16 +8,18 @@ open System.Threading
 open System.Threading.Channels
 open System.Threading.Tasks
 
-/// Phase 1a Claude CLI provider 옵션. mutation tool / mcp-config 는 phase 1b 에서 채움.
+/// Claude CLI provider 옵션.
 type ClaudeCliOptions = {
     /// `claude` 실행 파일 경로. None 이면 PATH 에서 탐색.
     ExecutablePath: string option
-    /// `--mcp-config <path>` 인자. phase 1a 에선 None.
+    /// `--mcp-config <path>` 인자.
     McpConfigPath: string option
     /// `--permission-mode` 값. None 이면 인자 미전달 (default).
     PermissionMode: string option
     /// `--model` 값. None 이면 인자 미전달.
     Model: string option
+    /// `--append-system-prompt` 본문. None 이면 인자 미전달 (default Claude Code system prompt 그대로 사용).
+    SystemPrompt: string option
     /// stream backpressure 채널 capacity. 기본 256.
     ChannelCapacity: int
 } with
@@ -26,6 +28,7 @@ type ClaudeCliOptions = {
         McpConfigPath = None
         PermissionMode = None
         Model = None
+        SystemPrompt = None
         ChannelCapacity = 256
     }
 
@@ -70,6 +73,11 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             | Some m ->
                 yield "--model"
                 yield m
+            | None -> ()
+            match options.SystemPrompt with
+            | Some sp ->
+                yield "--append-system-prompt"
+                yield sp
             | None -> ()
         ]
 
