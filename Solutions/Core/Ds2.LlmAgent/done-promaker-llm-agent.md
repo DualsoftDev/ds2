@@ -951,3 +951,96 @@ LLM 이 multi-step build 안에서 validate_model 을 spam 호출 (예: mutation
 - (5) EmptyFlow / EmptyWork false positive — system prompt 가이드 보강은 1d-4 (consent dialog / strict-mcp-config 와 함께 prompt 손볼 시점) 또는 1d-6 (golden 시나리오 결과 보고 결정)
 - (6) `?` 1글자 placeholder 도메인 적합성 — 사용자 워크플로 결정 필요. 현재 set 그대로 두고 1d-6 시나리오에서 false positive 발견 시 재평가
 
+# Phase 1d-4 부분 완료 — 입력 UX + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 (2026-05-06)
+
+## 변경 요약
+
+1d-4 의 5개 sub-task 중 **입력 키 동작 / 메시지 버블 / A / B / C** 완료, **D dock 통합 / E consent / F HistoryPanel** 잔여. 자동 검증 가능한 항목 (B 인자 빌드 / C Sanitize) 은 임시 fsx 스크립트 13개 케이스로 검증 후 폐기. A throttle 은 stream 패턴 의존이라 안전망 역할만 (사용자 체감 시 burst 패턴이면 효과 비가시).
+
+## 변경 파일
+
+### F# 측 (`Solutions/Core/Ds2.LlmAgent/`)
+
+- `ClaudeCliProvider.fs`:
+  - `ClaudeCliOptions` 에 `StrictMcpConfig: bool` + `AllowedTools: string array option` 2개 필드 추가
+  - `buildArgs` 의 핵심을 module-level `[<RequireQualifiedAccess>] module ClaudeCliArgs.build/formatArgs` 로 추출 — 외부 (test/검증) 에서 호출 가능. ClaudeCliProvider 내부는 wrapper 1줄
+  - `--strict-mcp-config` = bool 인자 1개. `--allowed-tools` = **반복 인자 형식** (`--allowed-tools T1 --allowed-tools T2 ...`) — 단일 인자/공백구분/콤마구분 호환성 이슈 회피
+
+### C# 측 (`Apps/Promaker/Promaker/`)
+
+- `LlmAgent/PromakerToolNames.cs` (신규): servername=`promaker` + 11개 tool fully-qualified 이름. drift 시 LLM 측 호출 차단 → 1d-6 negative test 가 회귀 검출
+- `LlmAgent/SystemPrompt.cs`: PromakerToolNames 부분을 위 파일로 이전 (관심사 분리)
+- `LlmAgent/Tools/ModelTools.cs` Sanitize:
+  - 길이 검사 후 `CharUnicodeInfo.GetUnicodeCategory` char 단위 검사
+  - `UnicodeCategory.Control` (Cc) + `UnicodeCategory.Format` (Cf) 거부 — RLO override (U+202E) / null byte / ZWJ / newline 모두 차단
+  - 메시지에 codepoint `U+XXXX` 명시 (LLM 회복 단서)
+- `ViewModels/LlmChatViewModel.cs`:
+  - `_pendingAssistant : StringBuilder` + `_assistantFlushTimer : DispatcherTimer` (Background priority, 50ms)
+  - `AppendAssistant` = buffer 누적 + timer.Start (이미 enabled 면 noop) → Tick 1회 fire 후 Stop + Flush
+  - `finally` / `DisposeAsync` 강제 flush — 마지막 fragment 손실 방지
+  - `InitializeAsync`: `strictMcpConfig: true` + `allowedTools: PromakerToolNames.All`
+- `Windows/LlmChatWindow.xaml.cs`:
+  - `KeyDown` → `PreviewKeyDown` 변경 (TextBox 의 Enter 줄바꿈 가로채기 위해 preview 단계 필요)
+  - **Enter** (modifier 없음) = 전송, **Shift+Enter** = TextBox 기본 줄바꿈, **Alt+J** = `tb.SelectedText = Environment.NewLine` 으로 binding round-trip 회피
+  - Alt 조합은 WPF 가 `Key.System` 으로 마샬링 → `e.SystemKey` 분기
+- `Windows/LlmChatWindow.xaml`:
+  - "user" / "assistant" 라벨 TextBlock 제거
+  - `TurnContainerStyle.Triggers` DataTrigger Role 값 → `HorizontalContentAlignment` 동적 (user=Right / assistant=Left / system=Center). ListBoxItem ControlTemplate 의 ContentPresenter `HorizontalAlignment="{TemplateBinding ...}"` 로 컨테이너 정렬 따라감
+  - `ChatBubbleBorderStyle`: user=AccentBrush 우측 / assistant=SecondaryBackgroundBrush 좌측 / system=Transparent 가운데 dim. MaxWidth=520
+  - `ChatBubbleTextStyle`: user=AccentTextBrush / system=SecondaryTextBrush + 11pt italic
+  - Send 버튼 `IsDefault="True"` 제거 + 텍스트 `전송 (Enter)` (PreviewKeyDown 직접 처리로 IsDefault 불필요)
+
+## 자동 검증 (임시 fsx 스크립트 — 사용 후 폐기)
+
+`Solutions/Core/Ds2.LlmAgent/check-1d4-bc.fsx` (commit 안 함, 검증 후 삭제):
+
+- (B) 8 케이스: default 시 두 인자 미노출 / strict=true & allowedTools=full 시 두 인자 모두 노출 + tool 첫/마지막 항목 + 반복 인자 11회 + `--resume sessionId` / 빈 array 면 `--allowed-tools` 미전달
+- (C) 8 케이스: 영문/한글 정상 통과, RLO U+202E / null byte U+0000 / newline U+000A / ZWJ U+200D 차단, 빈 문자열 / 130 글자 길이 초과 차단, 메시지에 codepoint 포함
+
+13/13 통과 후 fsx 삭제.
+
+## 핵심 설계 — `--allowed-tools` 반복 인자 형식
+
+review 3차 (3) 반영. CLI 가 `--allowed-tools "T1 T2"` 단일 인자 + 공백 구분도 받지만, 반복 인자 (`--allowed-tools T1 --allowed-tools T2`) 가 더 안전:
+- 구분자 변경 (공백→콤마) 호환성 이슈 회피
+- tool 이름에 공백/특수문자가 들어와도 escape 무관
+- CLI 측 인자 파싱 분기 단순
+
+## 핵심 설계 — Throttle 의 한계
+
+claude CLI 가 stdout 을 burst 로 flush 하는 패턴이라면 50ms aggregation 의 효과는 사용자 체감으로 안 보임 (이미 한꺼번에 도착). throttle 은 **안전망** 역할 — fragment 가 자주 들어오는 환경 (네트워크 lag 적은 model / 짧은 응답) 에서만 깜빡임 감소 가시. 1d-6 의 token 회귀 시나리오 (긴 응답) 에서 측정 가능.
+
+## 핵심 설계 — Sanitize 카테고리 선택
+
+`UnicodeCategory.Control` + `UnicodeCategory.Format` 만 거부. 의도:
+- entity 이름은 사람이 읽는 식별자 — 제어 문자 / 보이지 않는 format 문자 (BiDi override 등) 가 들어올 정상 사유 없음
+- printable 한글/한자/영문/숫자/일부 기호는 모두 통과 (도메인 친화)
+- charset whitelist 가 아닌 black-list 라 정상 입력 막힐 위험 ↓
+- prompt injection 의 핵심 벡터 (RLO override, ZWJ confusion, null byte) 모두 커버
+
+## 빌드 검증
+
+- F# 단독 (`Solutions/Core/Ds2.LlmAgent`) — 경고 0, 오류 0
+- Promaker.sln 전체 — 경고 0, 오류 0
+
+## 의도적 미적용 (1d-4 잔여 / 1d-5 / 1d-6)
+
+| 항목 | 후속 단위 |
+|---|---|
+| ChatPanel dock 통합 (별도 Window → MainWindow 안 dock) | 1d-4 D |
+| Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`) | 1d-4 E |
+| HistoryPanel LLM turn 그룹 시각화 | 1d-4 F |
+| Job Object attach / `.mcp-config` ACL / stale sweep | 1d-5 |
+| Golden scenario 회귀 (B / C 의 negative case 흡수, A throttle 측정) | 1d-6 |
+| Tool registry `ToolDef<'TArgs,'TResult>` 추상화 | phase 2 |
+
+## 사용자 측 검증 시나리오 (e2e)
+
+자동 검증으로 B/C 통과는 확정. 사용자 직접 검증 항목:
+
+1. **입력 키** — LLM Chat 창에서 Enter = 즉시 전송, Shift+Enter / Alt+J = 줄바꿈 (caret 위치 정상)
+2. **버블 UI** — user 메시지 우측 + accent 색, assistant 좌측 + 회색, "[applied]" 같은 system 메시지 가운데 + dim italic, "user"/"assistant" 라벨 없음
+3. **A throttle 정합성** — 긴 응답 시 깜빡임 감소 (체감 변화 없을 수 있음 — 정상). 마지막 fragment 가 손실 없이 보이는지 확인
+4. **B 인자 노출** — `bin/Debug/net9.0-windows/logs/ds2.log` 의 `Spawning: claude ...` 줄에 `--strict-mcp-config` + `--allowed-tools mcp__promaker__list_systems --allowed-tools ...` 11회 반복 확인
+5. **C 회귀 안전** — 1d-1~1d-3 의 정상 모델 작성 시나리오가 그대로 동작 (Sanitize 가 정상 입력 차단 안 하는지)
+

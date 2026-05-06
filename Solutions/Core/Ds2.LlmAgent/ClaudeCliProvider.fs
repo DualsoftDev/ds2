@@ -20,6 +20,13 @@ type ClaudeCliOptions = {
     Model: string option
     /// `--append-system-prompt` 본문. None 이면 인자 미전달 (default Claude Code system prompt 그대로 사용).
     SystemPrompt: string option
+    /// `--strict-mcp-config` — true 면 `--mcp-config` 외 server 자동 로드 차단 (settings.json 의
+    /// 사용자 mcp-server 가 우리 turn 에 끼어들지 않도록). default false (CLI default 동작).
+    StrictMcpConfig: bool
+    /// `--allowed-tools` 화이트리스트. None 또는 빈 array 면 미전달 (전체 허용). 형식 = `mcp__<server>__<tool>`.
+    /// 반복 인자로 전달 (`--allowed-tools T1 --allowed-tools T2 ...`) — 공백 escape / 구분자 변경에 무관하고
+    /// CLI 측 호환성 ↑ (단일 인자 + 공백 구분 / 콤마 구분 모두 회피).
+    AllowedTools: string array option
     /// stream backpressure 채널 capacity. 기본 256.
     ChannelCapacity: int
 } with
@@ -29,25 +36,17 @@ type ClaudeCliOptions = {
         PermissionMode = None
         Model = None
         SystemPrompt = None
+        StrictMcpConfig = false
+        AllowedTools = None
         ChannelCapacity = 256
     }
 
-/// Multi-turn Claude CLI provider.
-///
-/// 1 Send = `claude -p <msg> --output-format stream-json --verbose` 1회 spawn.
-/// 첫 turn 의 `SessionStarted` 가 `session_id` 를 캡처 → 이후 turn 은 `--resume <sid>` 추가.
-/// stream-json 라인 파싱 → `LlmEvent` 시퀀스 → bounded `Channel<LlmEvent>` 로 backpressure.
-///
-/// Phase 1a 범위:
-///   - mutation tool 미통합 (echo only)
-///   - Job Object attach 미적용 (Promaker 정상 종료 시 process orphan 가능 — phase 1b 추가)
-///   - 구현은 concrete (인터페이스 없음, phase 2 에서 패턴 추출)
-type ClaudeCliProvider(options: ClaudeCliOptions) =
+/// `claude` CLI 인자 list 빌더. ClaudeCliProvider 외부에서 단위 검증 가능하도록 module-level 노출.
+[<RequireQualifiedAccess>]
+module ClaudeCliArgs =
 
-    let mutable sessionId : string option = None
-    let executable = options.ExecutablePath |> Option.defaultValue "claude"
-
-    let buildArgs (prompt: string) : string list =
+    /// 옵션 + sessionId + prompt → CLI 인자 list. process spawn 이전 단계 검증 + golden test 용.
+    let build (options: ClaudeCliOptions) (sessionId: string option) (prompt: string) : string list =
         [
             yield "-p"
             yield prompt
@@ -79,6 +78,14 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                 yield "--append-system-prompt"
                 yield sp
             | None -> ()
+            if options.StrictMcpConfig then
+                yield "--strict-mcp-config"
+            match options.AllowedTools with
+            | Some tools when tools.Length > 0 ->
+                for t in tools do
+                    yield "--allowed-tools"
+                    yield t
+            | _ -> ()
         ]
 
     let quoteArg (s: string) : string =
@@ -86,8 +93,22 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             "\"" + s.Replace("\"", "\\\"") + "\""
         else s
 
+    /// 인자 list → 단일 commandline string (공백 구분, 공백/quote 포함 인자는 escape). 로그/검증 용도.
     let formatArgs (args: string list) : string =
         args |> List.map quoteArg |> String.concat " "
+
+/// Multi-turn Claude CLI provider.
+///
+/// 1 Send = `claude -p <msg> --output-format stream-json --verbose` 1회 spawn.
+/// 첫 turn 의 `SessionStarted` 가 `session_id` 를 캡처 → 이후 turn 은 `--resume <sid>` 추가.
+/// stream-json 라인 파싱 → `LlmEvent` 시퀀스 → bounded `Channel<LlmEvent>` 로 backpressure.
+type ClaudeCliProvider(options: ClaudeCliOptions) =
+
+    let mutable sessionId : string option = None
+    let executable = options.ExecutablePath |> Option.defaultValue "claude"
+
+    let buildArgs (prompt: string) : string list = ClaudeCliArgs.build options sessionId prompt
+    let formatArgs = ClaudeCliArgs.formatArgs
 
     /// Phase 1a: ensureMinimum 실패 시 Result.IsValid=false + Message 반환.
     member _.EnsureCli () : ClaudeCliVersion.Result =

@@ -114,5 +114,8 @@ EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizatio
 | 결정 8 | `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs:652-679` | 기존 `RequestRebuildAll` 이 `BeginInvoke` + `DispatcherPriority.Background` 패턴 — sync `Invoke` 는 coalescing 깨뜨림 |
 | 1d-3 cache 위치 | `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` `_validateCache` field | turn 단위 (LlmTurnContext 인스턴스 lifetime) — turn 종료 시 자연 expire. dispatcher 단일 sync 안에서만 R/W 라 lock 불필요 |
 | 1d-3 검사 카테고리 | `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` `validateModel` (placeholderTokens / categoryOrder) | 6 카테고리 고정 출력 순서. placeholder = 대문자 정규화 후 {TODO,TBD,FIXME,XXX,?,??,???}. Orphan 은 global scope 만 |
+| 1d-4 인자 빌더 분리 | `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` `module ClaudeCliArgs` | `build / formatArgs` module-level 노출 — process spawn 없이 단위 검증. `--allowed-tools` 는 반복 인자 형식 (`T1 --allowed-tools T2 ...`) |
+| 1d-4 tool 화이트리스트 | `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` | 11개 fully-qualified `mcp__promaker__*` 이름. drift 시 LLM 측 차단 → 1d-6 negative test 가 회귀 검출 |
+| 1d-4 Sanitize 차단 카테고리 | `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` `Sanitize` | `CharUnicodeInfo.GetUnicodeCategory` 검사로 Control(Cc) + Format(Cf) 차단. RLO/ZWJ/null byte/제어문자 모두 거부 |
 
 수정 시 두 문서 (todo + done) 의 line 번호 동기 갱신.

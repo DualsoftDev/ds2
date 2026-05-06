@@ -33,6 +33,15 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
 
+    /// <summary>
+    /// AssistantDelta aggregation buffer. Claude CLI 가 30~60Hz 로 fragment 를 보내면
+    /// `_streamingTurn.Text +=` 매 호출이 INotifyPropertyChanged → TextBlock invalidate 를 유발해
+    /// 깜빡임 + CPU 부하. 50ms 윈도로 묶어 ~20Hz 로 down-sample (사용자 체감 변화 없음).
+    /// </summary>
+    private readonly System.Text.StringBuilder _pendingAssistant = new();
+    private DispatcherTimer? _assistantFlushTimer;
+    private const int AssistantFlushIntervalMs = 50;
+
     public ObservableCollection<ChatTurn> Turns { get; } = new();
 
     [ObservableProperty]
@@ -71,6 +80,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
                 model: Microsoft.FSharp.Core.FSharpOption<string>.None,
                 systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
+                strictMcpConfig: true,
+                allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
                 channelCapacity: 256);
             _provider = new ClaudeCliProvider(options);
 
@@ -141,6 +152,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
+            // Stream 종료 시 throttle 의 잔여 fragment 즉시 반영 (마지막 50ms 안 들어온 텍스트가 손실되지 않도록).
+            _assistantFlushTimer?.Stop();
+            FlushAssistantBuffer();
+
             // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step)
             var endedCtx = _mcpHost.TurnProvider.EndTurn();
             if (endedCtx != null && !endedCtx.Plan.IsEmpty)
@@ -241,7 +256,28 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private void AppendAssistant(string fragment)
     {
         if (_streamingTurn == null) return;
-        _streamingTurn.Text += fragment;
+        _pendingAssistant.Append(fragment);
+
+        if (_assistantFlushTimer == null)
+        {
+            _assistantFlushTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(AssistantFlushIntervalMs)
+            };
+            _assistantFlushTimer.Tick += (_, _) =>
+            {
+                _assistantFlushTimer!.Stop();
+                FlushAssistantBuffer();
+            };
+        }
+        if (!_assistantFlushTimer.IsEnabled) _assistantFlushTimer.Start();
+    }
+
+    private void FlushAssistantBuffer()
+    {
+        if (_pendingAssistant.Length == 0 || _streamingTurn == null) return;
+        _streamingTurn.Text += _pendingAssistant.ToString();
+        _pendingAssistant.Clear();
     }
 
     private static string Truncate(string s, int max)
@@ -250,6 +286,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts?.Cancel();
+        _assistantFlushTimer?.Stop();
         _mcpConfig?.Dispose();
         await _mcpHost.DisposeAsync().ConfigureAwait(false);
     }
