@@ -223,3 +223,157 @@ module ToolOperations =
             let active  = Queries.activeSystemsOf  p.Id store |> List.map (fun s -> s.Id, s.Name, true)
             let passive = Queries.passiveSystemsOf p.Id store |> List.map (fun s -> s.Id, s.Name, false)
             active @ passive)
+
+    // ─── Read tool 풀세트 (Phase 1d-2) ───────────────────────────────────────
+    //
+    // 모든 read tool 은 indented plain text 를 반환한다 (JSON 직렬화 비용 / token 절약).
+    // entity 1개 = 1줄, 들여쓰기 = 트리 깊이. id 는 full GUID 표기 (LLM 이 mutation 인자로 그대로 사용 가능).
+
+    let private isSystemActiveOpt (store: DsStore) (systemId: Guid) : bool option =
+        Queries.allProjects store
+        |> List.tryPick (fun p ->
+            if p.ActiveSystemIds.Contains(systemId) then Some true
+            elif p.PassiveSystemIds.Contains(systemId) then Some false
+            else None)
+
+    let private indent (n: int) = String.replicate n "  "
+
+    /// arrowType enum 의 짧은 표기 (ArrowType.Start → "Start").
+    let private arrowTypeName (a: ArrowType) = a.ToString()
+
+    /// describe_system. deep=false 면 직계 child 의 이름 + id 만, deep=true 면 Work/Call 트리 + Arrows.
+    let describeSystem (store: DsStore) (systemId: Guid) (deep: bool) : string =
+        match Queries.getSystem systemId store with
+        | None -> $"NOT_FOUND: System(id={systemId}) 가 존재하지 않습니다."
+        | Some sys ->
+            let sb = System.Text.StringBuilder()
+            let activeMark =
+                match isSystemActiveOpt store systemId with
+                | Some true -> "active"
+                | Some false -> "passive"
+                | None -> "orphan"
+            sb.AppendLine($"DsSystem \"{sys.Name}\" (id={systemId:D}, {activeMark})") |> ignore
+
+            let flows = Queries.flowsOf systemId store
+            let apiDefs = Queries.apiDefsOf systemId store
+
+            for flow in flows do
+                let works = Queries.worksOf flow.Id store
+                sb.AppendLine($"{indent 1}Flow \"{flow.Name}\" (id={flow.Id:D}, works={works.Length})") |> ignore
+                if deep then
+                    for work in works do
+                        let calls = Queries.callsOf work.Id store
+                        sb.AppendLine($"{indent 2}Work \"{work.Name}\" (id={work.Id:D}, calls={calls.Length})") |> ignore
+                        for call in calls do
+                            sb.AppendLine($"{indent 3}Call \"{call.Name}\" (id={call.Id:D})") |> ignore
+                        for a in Queries.arrowCallsOf work.Id store do
+                            let srcName = Queries.getCall a.SourceId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
+                            let tgtName = Queries.getCall a.TargetId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
+                            sb.AppendLine($"{indent 3}ArrowCall {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})") |> ignore
+
+            for apiDef in apiDefs do
+                sb.AppendLine($"{indent 1}ApiDef \"{apiDef.Name}\" (id={apiDef.Id:D})") |> ignore
+
+            if deep then
+                let arrows = Queries.arrowWorksOf systemId store
+                for a in arrows do
+                    let srcName = Queries.getWork a.SourceId store |> Option.map (fun w -> w.Name) |> Option.defaultValue "?"
+                    let tgtName = Queries.getWork a.TargetId store |> Option.map (fun w -> w.Name) |> Option.defaultValue "?"
+                    sb.AppendLine($"{indent 1}ArrowWork {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})") |> ignore
+
+            sb.ToString().TrimEnd()
+
+    /// rootId 의 EntityKind 자동 판별 (Project/System/Flow/Work). depth = 트리 추가 깊이.
+    /// max 50 entity 노출, 초과 시 "... (truncated, N more)" 표기.
+    let describeSubtree (store: DsStore) (rootId: Guid) (depth: int) : string =
+        let depth = max 0 (min 5 depth)  // cap [0,5]
+        let sb = System.Text.StringBuilder()
+        let mutable budget = 50
+
+        let writeLine (level: int) (text: string) =
+            if budget > 0 then
+                sb.AppendLine($"{indent level}{text}") |> ignore
+                budget <- budget - 1
+            elif budget = 0 then
+                sb.AppendLine($"{indent level}... (truncated)") |> ignore
+                budget <- -1
+            // budget < 0 이면 추가 출력 안 함
+
+        let rec walkSystem (level: int) (sys: DsSystem) (remaining: int) =
+            let activeMark =
+                match isSystemActiveOpt store sys.Id with
+                | Some true -> "active" | Some false -> "passive" | None -> "orphan"
+            writeLine level $"DsSystem \"{sys.Name}\" (id={sys.Id:D}, {activeMark})"
+            if remaining > 0 then
+                for flow in Queries.flowsOf sys.Id store do
+                    walkFlow (level + 1) flow (remaining - 1)
+                for apiDef in Queries.apiDefsOf sys.Id store do
+                    writeLine (level + 1) $"ApiDef \"{apiDef.Name}\" (id={apiDef.Id:D})"
+
+        and walkFlow (level: int) (flow: Flow) (remaining: int) =
+            let works = Queries.worksOf flow.Id store
+            writeLine level $"Flow \"{flow.Name}\" (id={flow.Id:D}, works={works.Length})"
+            if remaining > 0 then
+                for work in works do
+                    walkWork (level + 1) work (remaining - 1)
+
+        and walkWork (level: int) (work: Work) (remaining: int) =
+            let calls = Queries.callsOf work.Id store
+            writeLine level $"Work \"{work.Name}\" (id={work.Id:D}, calls={calls.Length})"
+            if remaining > 0 then
+                for call in calls do
+                    writeLine (level + 1) $"Call \"{call.Name}\" (id={call.Id:D})"
+                for a in Queries.arrowCallsOf work.Id store do
+                    let srcName = Queries.getCall a.SourceId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
+                    let tgtName = Queries.getCall a.TargetId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
+                    writeLine (level + 1) $"ArrowCall {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})"
+
+        match Queries.getProject rootId store with
+        | Some p ->
+            writeLine 0 $"Project \"{p.Name}\" (id={p.Id:D})"
+            if depth > 0 then
+                for sysId in Seq.append p.ActiveSystemIds p.PassiveSystemIds do
+                    match Queries.getSystem sysId store with
+                    | Some s -> walkSystem 1 s (depth - 1)
+                    | None -> ()
+        | None ->
+            match Queries.getSystem rootId store with
+            | Some s -> walkSystem 0 s depth
+            | None ->
+                match Queries.getFlow rootId store with
+                | Some f -> walkFlow 0 f depth
+                | None ->
+                    match Queries.getWork rootId store with
+                    | Some w -> walkWork 0 w depth
+                    | None ->
+                        sb.AppendLine($"NOT_FOUND: rootId={rootId:D} 가 Project/System/Flow/Work 어디에도 없습니다.") |> ignore
+
+        // budget 음수 시 writeLine 가 이미 "... (truncated)" 한 줄을 붙였으므로 추가 처리 없음.
+        sb.ToString().TrimEnd()
+
+    /// find_by_name. case-insensitive substring 검색. kind None 이면 모든 종류.
+    /// 반환: (kind, id, displayName) 목록, 최대 51 (호출자가 50 초과를 truncated 로 판별).
+    let findByName (store: DsStore) (needle: string) (kind: EntityKind option) : (EntityKind * Guid * string) list =
+        let needle = if isNull needle then "" else needle.Trim().ToLowerInvariant()
+        if needle.Length = 0 then []
+        else
+            let matches (name: string) = name.ToLowerInvariant().Contains(needle)
+            let results = ResizeArray<EntityKind * Guid * string>()
+
+            // cap=51 → 호출자가 results.Length > 50 일 때만 truncated 표기 (정확히 50 매치는 false positive 회피)
+            let scan (k: EntityKind) (xs: seq<#DsEntity>) =
+                if results.Count < 51 then
+                    for e in xs do
+                        if results.Count < 51 && matches e.Name then
+                            results.Add(k, e.Id, e.Name)
+
+            let inline want target = kind |> Option.forall ((=) target)
+
+            if want EntityKind.Project then scan EntityKind.Project (Queries.allProjects store |> Seq.cast<DsEntity>)
+            if want EntityKind.System  then scan EntityKind.System  (store.SystemsReadOnly.Values |> Seq.cast<DsEntity>)
+            if want EntityKind.Flow    then scan EntityKind.Flow    (store.FlowsReadOnly.Values   |> Seq.cast<DsEntity>)
+            if want EntityKind.Work    then scan EntityKind.Work    (store.WorksReadOnly.Values   |> Seq.cast<DsEntity>)
+            if want EntityKind.Call    then scan EntityKind.Call    (store.CallsReadOnly.Values   |> Seq.cast<DsEntity>)
+            if want EntityKind.ApiDef  then scan EntityKind.ApiDef  (store.ApiDefsReadOnly.Values |> Seq.cast<DsEntity>)
+
+            results |> List.ofSeq
