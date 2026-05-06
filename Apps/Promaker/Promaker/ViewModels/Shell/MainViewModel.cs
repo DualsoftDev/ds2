@@ -250,19 +250,35 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
-    private LlmChatWindow? _llmChatWindow;
+    /// <summary>
+    /// 1d-4 D — MainWindow 안 dock LLM Chat panel 의 ViewModel. 첫 토글 시 lazy 생성.
+    /// MainWindow 가 IsLlmChatVisible PropertyChanged 를 구독해 column width 토글.
+    /// </summary>
+    [ObservableProperty] private LlmChatViewModel? _llmChatVm;
+    [ObservableProperty] private bool _isLlmChatVisible;
 
     [RelayCommand]
-    private void OpenLlmChat()
+    private void ToggleLlmChat()
     {
-        if (_llmChatWindow is { IsVisible: true })
+        if (LlmChatVm == null)
         {
-            _llmChatWindow.Activate();
-            return;
+            // 첫 활성화 — consent 검사 후 lazy 생성. 거부 시 visibility 변경 없음.
+            if (!Promaker.LlmAgent.LlmConsent.EnsureGranted()) return;
+            LlmChatVm = new LlmChatViewModel(_store);
         }
-        _llmChatWindow = new LlmChatWindow(_store) { Owner = Application.Current.MainWindow };
-        _llmChatWindow.Closed += (_, _) => _llmChatWindow = null;
-        _llmChatWindow.Show();
+        IsLlmChatVisible = !IsLlmChatVisible;
+    }
+
+    /// <summary>
+    /// MainWindow.Closing 시점에 LLM provider / MCP host 정리.
+    /// </summary>
+    public async System.Threading.Tasks.ValueTask DisposeLlmChatAsync()
+    {
+        if (LlmChatVm != null)
+        {
+            await LlmChatVm.DisposeAsync();
+            LlmChatVm = null;
+        }
     }
 
     private bool CanOpen3DView() => HasProject;
@@ -775,4 +791,9 @@ public sealed class HistoryPanelItem(string label, bool isRedo)
 {
     public string Label  { get; } = label;
     public bool   IsRedo { get; } = isRedo;
+    /// <summary>
+    /// 1d-4 F — LLM turn 식별. `LlmChatViewModel.ApplyTurnPlanAsync` 가 label 을 `"LLM: <50자 prompt>"` 로 만들어 호출.
+    /// HistoryPanel 의 좌측 색띠 / accent 색으로 시각화.
+    /// </summary>
+    public bool   IsLlmTurn => Label.StartsWith("LLM: ", StringComparison.Ordinal);
 }

@@ -68,6 +68,15 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     private async Task InitializeAsync()
     {
+        // Defense-in-depth (1d-4 E): OpenLlmChat 진입점이 1차 차단하나 다른 진입점 추가 시 안전망.
+        // 거부 상태에서는 MCP host 도 띄우지 않아 LLM tool 호출 자체가 불가.
+        if (!LlmConsent.IsGranted())
+        {
+            StatusText = "LLM 데이터 전송 동의 미완료 — LLM Chat 메뉴 재진입 시 다이얼로그 표시";
+            Turns.Add(new ChatTurn { Role = "system", Text = StatusText });
+            return;
+        }
+
         var uiContext = TaskScheduler.FromCurrentSynchronizationContext();
         try
         {
@@ -82,7 +91,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
                 strictMcpConfig: true,
                 allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
-                channelCapacity: 256);
+                channelCapacity: 256,
+                onProcessStarted: Microsoft.FSharp.Core.FSharpOption<Action<System.Diagnostics.Process>>.Some(
+                    new Action<System.Diagnostics.Process>(ChildProcessTracker.AddProcess)));
             _provider = new ClaudeCliProvider(options);
 
             StatusText = $"MCP host {_mcpHost.ServerUrl} 준비 / Claude CLI 검출 중…";
