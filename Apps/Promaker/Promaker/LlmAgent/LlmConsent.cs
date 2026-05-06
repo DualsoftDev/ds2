@@ -29,21 +29,45 @@ public static class LlmConsent
         public string? ConsentTimestampUtc { get; set; }
     }
 
+    private static readonly object _saveLock = new();
+
+    /// <summary>
+    /// M2 — corrupt JSON 시 LLM Chat 영구 차단 회피: `.bak` 백업 후 default 반환.
+    /// 다음 Grant 시 새 정상 파일이 작성되어 사용자가 동의 다이얼로그를 다시 거치게 됨.
+    /// </summary>
     public static Config Load()
     {
         if (!File.Exists(ConfigPath)) return new Config();
-        var json = File.ReadAllText(ConfigPath);
-        return JsonSerializer.Deserialize<Config>(json, new JsonSerializerOptions
+        try
         {
-            PropertyNameCaseInsensitive = true,
-        }) ?? new Config();
+            var json = File.ReadAllText(ConfigPath);
+            return JsonSerializer.Deserialize<Config>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            }) ?? new Config();
+        }
+        catch (JsonException ex)
+        {
+            var bak = ConfigPath + ".bak";
+            try { File.Move(ConfigPath, bak, overwrite: true); } catch { /* best-effort */ }
+            Log.Warn($"LlmConsent JSON corrupt — {bak} 로 백업 후 default 사용 ({ex.Message})");
+            return new Config();
+        }
     }
 
+    /// <summary>
+    /// M2 — Promaker 다중 인스턴스 동시 grant race 방지: lock + atomic write (temp + File.Move).
+    /// </summary>
     private static void Save(Config config)
     {
-        Directory.CreateDirectory(ConfigDir);
-        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(ConfigPath, json, new UTF8Encoding(false));
+        lock (_saveLock)
+        {
+            Directory.CreateDirectory(ConfigDir);
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            var tmp = ConfigPath + ".tmp-" + Environment.ProcessId;
+            File.WriteAllText(tmp, json, new UTF8Encoding(false));
+            File.Move(tmp, ConfigPath, overwrite: true);
+        }
     }
 
     public static bool IsGranted() => Load().DataEgressConsent;
