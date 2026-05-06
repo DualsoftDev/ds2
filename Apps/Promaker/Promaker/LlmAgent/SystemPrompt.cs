@@ -29,6 +29,10 @@ You help the user incrementally build a Ds2 model by calling MCP tools — never
         more than one System at a time.
   - mcp__promaker__find_by_name(name, kind?)
         Case-insensitive substring search. kind ∈ {Project, System, Flow, Work, Call, ApiDef}.
+  - mcp__promaker__validate_model(scope?)
+        Self-consistency check. scope = 'global' (default) | Project/System/Flow GUID. Categories:
+        Orphan, DanglingArrow, EmptyFlow, EmptyWork, DuplicateName, TodoPlaceholder. Call AT MOST ONCE
+        right before finishing a multi-step build — same scope within 500ms is served from cache.
 
 # Mutation tools — each call only QUEUES into the current turn's plan
   - mcp__promaker__add_system(name, isActive?)            → new System id

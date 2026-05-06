@@ -858,3 +858,96 @@ system prompt 의 rule 5/6 + tool registry 의 sanitize 가 협동:
 - **findByName truncation false positive @50** (review #3): F# cap 50 → 51, C# 출력에서 `truncated = rows.Length > 50` + `rows.Take(50)` — 정확히 50개 매치는 truncated 표기 회피
 - 보류된 review 항목: #4 budget 소진 후 자식 순회 비효율 (50 cap 내 trivial), #5 depth silent clamp 알림 (description 에 명시), #6 Project 분기 비대칭 (walkProject 추가 가치 minor) — 1d-3 / 1d-6 진입 시 자연 흡수 또는 재평가
 
+# Phase 1d-3 — `validate_model` 자가 검증 read tool (2026-05-06 완료)
+
+## 변경 요약
+
+mutation tool 의 fail-fast (parent existence + 같은 parent 안 이름 unique) 와 짝이 되는 retro 자가 검증 tool 1개 추가. Turn 종료 직전 LLM 이 자기 누적 결과의 일관성을 점검하는 용도. 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) × 3 scope (global / SystemId / FlowId) × 500ms turn-내 cache. 1d-6 의 golden scenario assertion 도 본 함수 출력을 그대로 재사용 가능하게 plain text 안정 출력 (카테고리 출력 순서 고정).
+
+## 변경 파일
+
+### F# 측 (`Solutions/Core/Ds2.LlmAgent/`)
+
+- `ToolOperations.fs`:
+  - `type ValidationScope = GlobalScope | SystemScope of Guid | FlowScope of Guid` 추가 (RequireQualifiedAccess module 안 → C# 에서 `Ds2.LlmAgent.ToolOperations.ValidationScope` 형식 노출)
+  - private 헬퍼:
+    - `placeholderTokens` Set: `{TODO, TBD, FIXME, XXX, ?, ??, ???}` (대문자 정규화 + Trim)
+    - `isPlaceholderName` (whitespace 도 placeholder 로 분류 — fail-fast 가 막지만 안전망)
+    - `resolveValidationScope` (rootId GUID 받아 Project/System/Flow 자동 판별, 매칭 실패 시 None)
+    - `categoryOrder` 고정 6원소 list (golden test 안정 출력)
+    - `formatScopeLabel`
+  - public:
+    - `validateModel store scope → string` 본체 — scope 별 검사 대상 (system list + flow filter Option) 결정 → Orphan (global only) → System placeholder + Flow 이름 중복 + ApiDef 중복/placeholder + ArrowBetweenWorks dangling → 각 Flow/Work 별 placeholder + EmptyFlow/EmptyWork + 동명 중복 + ArrowBetweenCalls dangling → 카테고리별 grouped indented text
+    - `validateModelByGuid store rootIdOpt → string` C# entry — None=global, Some id 매칭 실패 시 `VALIDATION_ERROR: ...` 메시지 (RunRead 의 INTERNAL_ERROR 분기 회피)
+
+### C# 측 (`Apps/Promaker/Promaker/`)
+
+- `LlmAgent/LlmTurnContext.cs`:
+  - `_validateCache : (string scopeKey, long tickMs, string result)?` 필드 추가
+  - `TryGetValidateCache(scopeKey)` / `SetValidateCache(scopeKey, result)` internal 메서드. `Environment.TickCount64` 기준 500ms TTL. dispatcher.InvokeAsync 안에서만 호출되므로 별도 lock 불필요 (UI 스레드 단일 sync)
+- `LlmAgent/Tools/ModelTools.cs`:
+  - 신규 tool method `ValidateModel(scope?: string = null)`:
+    - 인자 파싱: 빈 값 또는 "global" (case-insensitive) → global, 그 외 GUID parse 실패 시 VALIDATION_ERROR
+    - cache 적중 시 `(cached, <500ms)` suffix 1줄 추가 (LLM 이 cache hit 자체를 인지 가능)
+    - F# Option 변환: `Microsoft.FSharp.Core.FSharpOption<Guid>.Some/None`
+- `LlmAgent/SystemPrompt.cs`:
+  - read tool 시그니처 블록에 `validate_model(scope?)` 1줄 + "Call AT MOST ONCE right before finishing" + 500ms cache 동작 명시
+
+## 핵심 설계 — Plan 미참조
+
+본 함수는 **store 만** 본다 (Plan 비검사). 이유: mutation tool 단계의 fail-fast 가 이미 plan 누적 시점에 parent existence + 이름 unique 를 차단하므로, plan 자체는 dangling/duplicate 가 들어갈 수 없다. validate_model 은 turn 종료 시점이 아니라 turn 진행 중간에 호출되며, 그 시점에 plan 은 아직 store 에 적용 전 — 따라서 검사 대상은 "현재 store 상태" 가 자연스럽다 (외부 import / 직접 mutation 으로 들어온 이력 retro 검증). 결과: golden 시나리오의 turn 종료 후 `ApplyImportPlan` 다음 turn 의 첫 호출이 새 store 에 대한 진정한 validate.
+
+## 핵심 설계 — Cache (500ms turn-내)
+
+LLM 이 multi-step build 안에서 validate_model 을 spam 호출 (예: mutation 1개마다 1번) 하면 dispatcher.InvokeAsync × 6 카테고리 × N system × M flow 의 read 비용 누적. 500ms TTL 은 "방금 봤으니 똑같은 결과" 라는 가정의 boundary — LLM 이 1초 안에 의도적으로 같은 호출을 반복하면 cache hit 표기를 보고 "재호출 무의미" 학습. cache scope 는 turn 단위 (LlmTurnContext 인스턴스) — turn 종료 시 GC 와 함께 자연 expire.
+
+## 핵심 설계 — 카테고리 출력 순서 고정
+
+`categoryOrder` 를 list 로 명시 — `Seq.groupBy` 의 ordering 은 입력 순 (deterministic) 이지만 입력은 코드 path 에 따라 달라질 수 있어 golden test 의 string 비교가 깨질 위험. 명시적 list 순서 고정으로 1d-6 의 회귀 안정성 확보. 같은 카테고리 안 line 순서는 walk 순서 (sys → flow → work → call) 가 결정 — Project / Flow 추가 순서가 같으면 같은 출력.
+
+## 빌드 검증
+
+- F# 단독 (`Solutions/Core/Ds2.LlmAgent`) — 경고 0, 오류 0
+- Promaker.sln 전체 — 경고 0, 오류 0
+
+## 의도적 미적용 (1d-4~1d-6)
+
+| 항목 | 후속 단위 |
+|---|---|
+| Reference Work / Call 검증 (ReferenceOf 가 가리키는 원본 존재) | 1d-6 (golden 모델에서 reference 사용 시 추가) |
+| Arrow 의 source/target kind 일관성 (Work↔Call 혼용) | 현재 mutation 단계가 차단 — 외부 import 시 추가 검사 필요하면 1d-6 |
+| Critical-path / cycle (ArrowBetweenWorks/Calls) 검증 | 1d-6 또는 phase 2 — 현재 schema 는 cycle 허용 가능성 있음, 도메인 의도 확인 후 |
+| `validate_model` page 인자 (issues 50개 cap) | golden 모델 크기 결정 후 1d-6 |
+| ChatPanel dock 통합 / AssistantDelta 50ms throttle / HistoryPanel LLM turn 시각화 | 1d-4 |
+| Data egress consent dialog | 1d-4 |
+| Job Object / .mcp-config ACL / stale sweep | 1d-5 |
+| Golden scenario 회귀 (validate_model assertion 포함) | 1d-6 |
+
+## 사용자 측 검증 시나리오 (e2e)
+
+1d-1/1d-2 의 모델 (Press → Main → Adv/Bwd + Run ApiDef + Arrow) 위에서:
+
+1. 메시지: `Validate the whole model.`
+   - 기대: `validate_model(scope="global")` 1번 호출 → "(no issues; scope=global)" 또는 카테고리별 indented 출력
+2. 빈 Flow 만들고 검증 — 메시지: `Add a flow named "Empty" to the Press system, then validate.`
+   - 기대: turn 1 = add_flow 1건 (commit 1 undo step) → turn 2 = validate_model → `EmptyFlow` 카테고리에 "Empty" 행
+3. **TODO placeholder 검증** — 메시지: `Add a system named "TODO".`
+   - 기대: 다음 validate 에서 `TodoPlaceholder` 카테고리 노출
+4. **Cache hit 확인** — 같은 turn 안에서 `validate_model` 2회 (대화 보강 모호) → 두 번째 응답 끝에 `(cached, <500ms)`
+5. **Scope 좁히기** — `Validate just the Press system.`
+   - 기대: `validate_model(scope="<pressSysId>")` → 출력 첫 줄 `scope=System(id=<guid>)`, Orphan 카테고리는 출력 없음, footer `(scope=system: Orphan check skipped)` 1줄
+
+## 후속 보정 (review 반영)
+
+본 phase 의 빌드 통과 직후 받은 review 7건 중 4건 반영, 3건 보류:
+
+- **(7) golden test 안정성** — 카테고리 안 line 정렬 1줄 추가 (`Seq.sortBy snd`). 이전엔 `issues.Add` 호출 순서 = store dictionary iteration 순서 의존이라 1d-6 string 비교 회귀 위험. line 정렬 키는 텍스트 자체 — 같은 store input 에 대해 결정성 확보 (GUID 자체는 비결정적이지만 같은 input → 같은 GUID → 같은 정렬)
+- **(3) magic 500 const 화** — `LlmTurnContext.ValidateCacheTtlMs = 500` public const 로 일원화. cache lookup 의 `> 500` 과 `(cached, <500ms)` suffix 양쪽 const 참조. `[Description("...0.5초...")]` 의 attribute 인자는 compile-time constant 만 가능 → 문구는 const 와 동기화하라는 주석으로 처리
+- **(2) flow scope skipped 카테고리 footer** — `(scope=flow: Orphan / sibling-flow DuplicateName / ApiDef / ArrowBetweenWorks checks skipped)` 1줄, system scope 도 `Orphan check skipped` footer. LLM 이 "왜 일부 카테고리 안 나오지?" 헷갈림 회피
+- **(1) RunRead dispatcher 가정 sanity** — 코드 변경 불필요 (`ModelTools.cs:83` `await ctx.Dispatcher.InvokeAsync(() => work(ctx))` 확인). LlmTurnContext 의 lock-free 주석에 "RunRead 가 work delegate 를 dispatcher 위에서 실행함을 가정 — ModelTools.RunRead 참조" 단서 추가
+
+**보류된 review 항목**:
+- (4) Orphan 검사 다중 Project 정확성 — 현재 코드도 모든 Project 의 ActiveSystemIds + PassiveSystemIds 합집합이라 N>1 에서도 동작. 추가 작업 불필요
+- (5) EmptyFlow / EmptyWork false positive — system prompt 가이드 보강은 1d-4 (consent dialog / strict-mcp-config 와 함께 prompt 손볼 시점) 또는 1d-6 (golden 시나리오 결과 보고 결정)
+- (6) `?` 1글자 placeholder 도메인 적합성 — 사용자 워크플로 결정 필요. 현재 set 그대로 두고 1d-6 시나리오에서 false positive 발견 시 재평가
+
