@@ -8,9 +8,11 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Logging.fs" />
+    <Compile Include="ProcessUtils.fs" />
     <Compile Include="LlmEvent.fs" />
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
+    <Compile Include="LlmProvider.fs" />
     <Compile Include="ClaudeCliProvider.fs" />
     <Compile Include="CodexCliArgs.fs" />
     <Compile Include="CodexStreamJsonParser.fs" />

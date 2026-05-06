@@ -136,8 +136,21 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <TextBlock Grid.Row="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,4"/>
+        <!-- Header — title 좌측 + provider ComboBox 우측 (Phase 2 Claude/Codex dispatch) -->
+        <Grid Grid.Row="0" Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12"
+                       VerticalAlignment="Center"/>
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding AvailableProviders}"
+                      SelectedItem="{Binding SelectedProvider}"
+                      IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
+                      MinWidth="80"
+                      ToolTip="LLM provider 선택. 변경 시 새 CLI 검출 + 세션 초기화."/>
+        </Grid>
 
         <!-- Status -->
         <TextBlock Grid.Row="1" Text="{Binding StatusText}" Margin="0,0,0,6"

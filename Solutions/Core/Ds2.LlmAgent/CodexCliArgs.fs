@@ -18,7 +18,9 @@ type CodexCliOptions = {
     Model: string option
     /// `--json` JSONL 출력 (= Claude 의 stream-json 역할). default true (provider 가 stream 파싱).
     Json: bool
-    /// `--ephemeral` session 영속 X. default true (Promaker 인스턴스 별 격리).
+    /// `--ephemeral` session 영속 X. **default false** — `--ephemeral` 은 thread rollout (= disk save) 안 해서
+    /// 다음 turn 의 `exec resume <sid>` 가 "no rollout found" 로 fail. multi-turn 보장 위해 default off.
+    /// 단일 turn 사용 (resume 미사용) 케이스에서만 true 명시.
     Ephemeral: bool
     /// `--ignore-user-config` 사용자 ~/.codex/config.toml 무시. default true (인스턴스별 격리).
     IgnoreUserConfig: bool
@@ -31,6 +33,11 @@ type CodexCliOptions = {
     /// `-c <key=value>` config override 반복 인자. e.g. `("mcp_servers.promaker.url", "\"http://127.0.0.1:5777/\"")`
     /// MCP HTTP transport 등록은 본 path 로 inline (CODEX_HOME 격리 vs `-c` 중 어느 게 정석인지는 C-2 spike 결과)
     ConfigOverrides: (string * string) array option
+    /// `-c experimental_instructions_file=<path>` 으로 codex 의 default system prompt 를 완전 override.
+    /// codex docs 의 정식 키 — file path 만 전달, codex 가 그 파일을 읽어 system prompt 로 사용. None 이면
+    /// codex default coding agent prompt. build 시 toml literal string `'...'` 으로 인코딩 (Windows backslash
+    /// escape 회피, path 안 `'` 미지원). 호출자가 임시 파일 lifecycle 책임.
+    ExperimentalInstructionsFile: string option
     /// stream backpressure 채널 capacity. ClaudeCli 와 동일 default 256.
     ChannelCapacity: int
 } with
@@ -39,12 +46,13 @@ type CodexCliOptions = {
         Cd = None
         Model = None
         Json = true
-        Ephemeral = true
+        Ephemeral = false
         IgnoreUserConfig = true
         SkipGitRepoCheck = false
         FullAuto = false
         DangerouslyBypassApprovalsAndSandbox = false
         ConfigOverrides = None
+        ExperimentalInstructionsFile = None
         ChannelCapacity = 256
     }
 
@@ -86,6 +94,14 @@ module CodexCliArgs =
                 for (k, v) in pairs do
                     yield "-c"
                     yield $"{k}={v}"
+            | None -> ()
+            match options.ExperimentalInstructionsFile with
+            | Some path ->
+                yield "-c"
+                // toml literal string `'...'` — backslash 등 escape 무시 (Windows path `C:\...` 안전).
+                // path 안에 `'` 가 없는 한 안전 (Windows file 명에 `'` 거의 없음). path 자체가 사용자 정의가 아닌
+                // 호출자 (LlmChatViewModel) 가 만든 임시 파일이라 통제 가능.
+                yield $"experimental_instructions_file='{path}'"
             | None -> ()
             // ─── 위치 인자 ───────────────────────────────────────────────────
             match sessionId with

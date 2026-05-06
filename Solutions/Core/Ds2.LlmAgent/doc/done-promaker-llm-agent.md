@@ -1849,3 +1849,270 @@ ClaudeCliProvider 와 CodexCliProvider 가 ~95% 동일 구조 (channel / stdout/
 | Tool 호출 packet 형식 (item.completed type≠agent_message) | production 통합 후 자연 검증 — 현재 parser 는 silent skip |
 | usage 보존 (input_tokens / cached / output / reasoning) | LlmEvent 새 case `UsageReport` 또는 SessionEnd 확장 필요. Promaker 측 표시 UX 결정 후 |
 | 인터페이스 추상화 (ICliProvider) | provider fallback 정책 도입 시점 — Claude 한도 초과 시 Codex 자동 전환 등 use case 가 명확해진 후 |
+
+---
+
+# Phase 2 — ILlmProvider 추상화 + UI provider dispatch (2026-05-06)
+
+C-3 직속 후속 사이클. 두 concrete provider (`ClaudeCliProvider` / `CodexCliProvider`) 가 동일 4 surface (EnsureCli / Send / SessionId / ClearSession) 로 정리된 상태에서 인터페이스 추출 + Promaker UI 측 ComboBox dispatch 동시 진행. **review M5 의 "phase 1 = concrete only, phase 2 진입 후 인터페이스 재설계" 약속 이행**.
+
+## 변경 파일
+
+신규:
+- `Solutions/Core/Ds2.LlmAgent/LlmProvider.fs` — `ILlmProvider` interface 1개. fsproj `Compile` 순서 `ClaudeCliVersion.fs` 직후 / `ClaudeCliProvider.fs` 직전 (반환 타입 `ClaudeCliVersion.Result` 의존).
+
+수정:
+- `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — `LlmProvider.fs` Include 추가.
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` — `interface ILlmProvider with ...` 4 method 위임 추가 (기존 instance method 그대로, explicit forward).
+- `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — 동일 패턴 위임.
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` — `LlmProviderKind` enum (Claude/Codex) + `_provider` 타입 `ILlmProvider?` + `SelectedProvider` [ObservableProperty] + `OnSelectedProviderChanged` partial + `ConfigureProviderAsync` (provider 생성 + EnsureCli + stale switch race 가드 `_switchCounter`) + `CreateClaudeProvider` / `CreateCodexProvider` 분리. 기존 `InitializeAsync` 의 단일 provider 생성 경로를 `ConfigureProviderAsync` 에 위임.
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml` — Header 영역에 `Grid` 2-column + `ComboBox` (AvailableProviders / SelectedProvider binding, IsSending 동안 disable).
+
+## 핵심 설계 — `ILlmProvider` 4 surface
+
+```fsharp
+type ILlmProvider =
+    abstract EnsureCli : unit -> ClaudeCliVersion.Result
+    abstract Send : prompt: string * cancellationToken: CancellationToken -> IAsyncEnumerable<LlmEvent>
+    abstract SessionId : string option
+    abstract ClearSession : unit -> unit
+```
+
+- `EnsureCli` 의 반환 schema 는 provider 무관 record (IsValid / Message / VersionString) — 새 provider 가 자체 검증 정책으로 셋팅. Codex 는 이미 SemVer 강제 X 패턴으로 사용 중이라 schema 재활용 충분.
+- `Send` 의 `cancellationToken` 은 비-optional (인터페이스에서 optional 인자 표현 어려움). 기존 instance method 의 `?cancellationToken` 은 그대로 두고, 인터페이스 구현이 명시적으로 위임.
+- `SessionId` / `ClearSession` 는 그대로 노출.
+
+## 핵심 설계 — `_switchCounter` race 가드
+
+`OnSelectedProviderChanged` 가 빠르게 두 번 호출되거나 첫 init 의 `ConfigureProviderAsync` 가 await 중일 때 사용자가 ComboBox 를 변경하면 두 task 가 동시 진행. 늦게 시작된 task 의 결과만 IsReady/StatusText 에 반영되어야 한다.
+
+```csharp
+private int _switchCounter;
+
+private async Task ConfigureProviderAsync(LlmProviderKind kind)
+{
+    var myCounter = Interlocked.Increment(ref _switchCounter);
+    _cts?.Cancel(); _provider?.ClearSession();
+    ILlmProvider provider = kind switch { ... };
+    _provider = provider;
+    IsReady = false; StatusText = $"{kind} CLI 검출 중…";
+
+    var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
+    if (myCounter != _switchCounter) return;  // stale switch 결과 무시
+
+    if (result.IsValid) { IsReady = true; ... } else { ... }
+}
+```
+
+`_provider` 자체는 stale switch 가 덮어쓴 후라도 그대로 두기 — Send 시점에 어차피 최신 _provider 가 사용됨.
+
+## 핵심 설계 — Codex MCP HTTP 등록 인자 (현 시점 제약)
+
+`CodexCliOptions.ConfigOverrides` 로 url 1개만 등록:
+```csharp
+new[] { Tuple.Create("mcp_servers.promaker.url", $"\"{_mcpHost.ServerUrl}\"") }
+```
+
+**미해결**: handshake nonce 헤더 (`X-Promaker-Nonce`) 의 codex `-c` 표현 syntax 미검증. 따라서 Codex 가 MCP tool 호출 시 Promaker 측 nonce 검증에서 401 → tool call 실패 (chat 자체는 정상 진행). 사용자에게는 status 로 알림 충분.
+
+후속 사이클 (별도 spike):
+- `codex -c mcp_servers.promaker.headers.X-Promaker-Nonce="<value>"` 가 toml override 로 수용되는지 검증
+- 또는 `mcp_servers.promaker.headers."X-Promaker-Nonce"="<value>"` quote 변형
+- 검증 후 `CreateCodexProvider` 의 ConfigOverrides 에 nonce 추가
+
+## UI 측 변화
+
+LlmChatPanel.xaml 의 첫 행이 단일 TextBlock 에서 2-column Grid 로:
+- Left (`*`): "LLM Chat" 타이틀
+- Right (`Auto`): ComboBox — `AvailableProviders` (Claude/Codex 2종) bind, `SelectedProvider` two-way, `IsSending` 시 disable.
+
+ComboBox 변경 시 `OnSelectedProviderChanged` partial 이 즉시 `ConfigureProviderAsync` 호출 → 기존 turn cancel + 새 provider 생성 + EnsureCli.
+
+## 빌드 / 테스트 검증
+
+- `Solutions/Core/Ds2.LlmAgent` 빌드: 경고 0 / 오류 0
+- `Promaker.sln` 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **80/80 통과** (인터페이스 추출이 외부 시그니처 보존이라 회귀 0).
+- 실제 e2e (Codex 측): MCP HTTP 401 (nonce 헤더 syntax 미검증) 으로 tool call 실패 — 사용자 검증 시 chat 자체는 동작하나 model mutation 불가 한계 명시.
+
+## 사용자 측 검증 시나리오 (e2e)
+
+1. Promaker 실행 → 유틸 → LLM Chat 토글 → Header 의 ComboBox 가 Claude 로 default 표시
+2. Claude 로 "add a project named X" → 정상 동작 (기존 1d 회귀)
+3. ComboBox 를 Codex 로 변경 → "Codex CLI 검출 중…" status → "준비 완료 — Codex, MCP …, CLI 0.x.x" 표시
+4. Codex 로 chat 입력 (예: "what is 2+2") → text 응답 정상
+5. Codex 로 mutation 시도 (예: "add a project named Y") → tool call 시 nonce 401 → tool_result error 표시 (chat 자체는 종료)
+6. ComboBox 를 다시 Claude 로 → 정상 복귀
+
+## 의도적 미적용 (계속 후속)
+
+| 항목 | 사유 |
+|---|---|
+| Codex MCP HTTP nonce 헤더 syntax | 별도 spike. 검증 후 `CreateCodexProvider` 의 ConfigOverrides 보강 |
+| MCP HTTP ready 신호 wait | C-3 의 의도적 미적용 그대로 — codex 첫 tool call 실패 시 retry 또는 startup 후 GET / retry 도입 |
+| `instructions` override 정책 | Codex default system prompt 12k vs Phase1c 완전 override 의 cache 영향 평가 |
+| Provider fallback 정책 (자동 전환) | UI 에 manual 선택만 도입. 자동 전환 (Claude 한도 초과 시 Codex) 은 use case 명확해진 후 |
+| usage 보존 (input/cached/output/reasoning) | LlmEvent 새 case 또는 SessionEnd 확장 — Promaker 측 표시 UX 결정 후 |
+| B-3 (Flow/Work/Call rename child cascade) | Phase 2 첫 사이클의 Remove/Rename 잔여 |
+| m1 (LlmTurnContext AsyncLocal) | 다중 dock 시점 |
+
+## Hot-fix — `ProcessUtils.findOnPath` 도입 (PATH 정규화)
+
+UI dispatch 직후 사용자 측 e2e 검증 1회차에서 `Codex CLI 검출 실패: codex --version 실행 예외 — 지정된 파일을 찾을 수 없습니다` 발견. 진단 결과:
+
+| CLI | 위치 | PATH 등록 |
+|---|---|---|
+| Claude | `F:\HOME\.local\bin\claude.cmd` | ✅ 사용자 PATH 에 등록 |
+| Codex | `C:\Users\dualk\AppData\Roaming\npm\codex.cmd` | ❌ Promaker process 의 PATH 에 `%APPDATA%\npm` 누락 |
+
+→ `Process.Start("codex")` 의 PATHEXT 자동 검색이 npm 글로벌 디렉토리를 못 봄. 즉시 사용자 측에서 (a) 시스템 PATH 보강 + Promaker 측 (b) 정석 helper 도입 병행.
+
+### 변경 파일 (신규)
+- `Solutions/Core/Ds2.LlmAgent/ProcessUtils.fs` — `[<RequireQualifiedAccess>] module ProcessUtils`. 4 surface:
+  - `pathExtensions () : string array` — PATHEXT 환경변수 (없으면 Windows 기본값 `[.COM .EXE .BAT .CMD]`)
+  - `pathDirectories () : string array` — PATH 환경변수 (`Path.PathSeparator` 분리)
+  - `wellKnownFallbackDirs () : string array` — Windows 한정 `%APPDATA%\npm` (PATH 누락 환경 보완)
+  - `findOnPath (name) : string option` — PATH 우선 / well-known fallback 검색. path separator 포함이면 그 자체 존재 검사, 확장자 포함이면 그 자체로만 시도, 그 외 PATHEXT 전 확장자 시도
+  - `resolveOrDiagnostic (name) : Result<string,string>` — Ok=fully-qualified, Error=검색 디렉토리 요약 (12개 cap + `... (+N more)`) hint
+
+### 변경 파일 (수정)
+- `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — `Compile Include="ProcessUtils.fs"` 를 `Logging.fs` 직후에 배치 (전체 모듈이 의존 가능하도록 가장 앞쪽).
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliVersion.fs` — `tryGetInstalledVersion` 의 `ProcessStartInfo("claude", ...)` 를 `ProcessUtils.findOnPath` 결과로 정규화. `ensureMinimum` 의 None 분기 메시지에 `ProcessUtils.resolveOrDiagnostic` Error hint 흘림 (PATH 누락 vs exit≠0 진단 분리).
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` — ctor 의 `executable` 을 `findOnPath` 1회 정규화. spawn 시점마다 검색 X (cost 회피).
+- `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — ctor 정규화 + `EnsureCli` 가 `Process.Start` 시도 전 `resolveOrDiagnostic` 으로 PATH 누락 사전 진단 (Process.Start 의 raw exception 대신 검색 디렉토리 list 표시).
+
+### 핵심 설계 — `wellKnownFallbackDirs` 만 추가, nvm/Volta/pnpm 미포함
+
+`%APPDATA%\npm` 만 well-known. nvm/Volta/pnpm/cargo 는 사용자별 위치 다양 + 환경변수 형태도 다양 (`NVM_HOME` / `VOLTA_HOME` / `PNPM_HOME` / `CARGO_HOME`) 이라 별도 spike 후 추가. 본 도입의 목적은 가장 흔한 npm 글로벌 케이스 1개 보완 + 그 외는 진단 메시지로 사용자가 직접 환경 보강.
+
+### 핵심 설계 — Claude 측도 helper 적용 (일관성)
+
+Claude 는 본 사용자 환경에서 잘 동작했지만 일관성 + 향후 PATH 누락 시나리오 보호로 동일 helper 적용. 외부 동작 보존 (찾으면 fully-qualified, 못 찾으면 raw fallback) 으로 회귀 위험 0.
+
+### 빌드 / 테스트 검증
+- `Solutions/Core/Ds2.LlmAgent` 단독 빌드: 경고 0 / 오류 0
+- `Promaker.sln` 빌드 (Promaker.exe 종료 후): 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **80/80 통과** (PATH 의존 unit test 미추가 — 시스템 의존적이라 fragile, 사용자 e2e 로 검증)
+
+### 사용자 측 검증 (재시도)
+1. 시스템 환경변수 편집기에서 사용자 PATH 에 `%APPDATA%\npm` 추가 (사용자 측 (a) 처리 완료)
+2. Promaker 재시작 → LLM Chat 토글 → ComboBox 를 Codex 로 → "준비 완료 — Codex, MCP …, CLI 0.x.x" status 정상 표시 기대
+3. (만약 PATH 추가 전 시도) — Promaker 측 `wellKnownFallbackDirs` 의 `%APPDATA%\npm` fallback 으로 PATH 보강 없이도 동작
+
+### Hot-fix-2 — Windows PATHEXT 우선순위 수정 (bash shim 회피)
+
+위 검증 시 두번째 에러: `'C:\Users\dualk\AppData\Roaming\npm\codex' --version 실행 예외: The specified executable is not a valid application for this OS platform`. 즉 `findOnPath` 가 npm 글로벌 디렉토리에서 `codex` (확장자 없는 bash shim) 를 발견 후 그걸로 spawn → .NET `Process.Start` 가 bash shim 실행 불가.
+
+원인: `findOnPath` 의 검색 확장자 순서가 `[ ""; ".COM"; ".EXE"; ".BAT"; ".CMD" ]` — 빈 확장자가 첫 번째라 같은 디렉토리에 `codex` + `codex.cmd` 가 공존하면 `codex` (확장자 없음) 가 우선 매치.
+
+수정: `findOnPath` 의 확장자 순서를 OS 별 분기.
+- **Windows**: PATHEXT 만 시도, 빈 확장자 (확장자 없는 파일) 는 시도하지 않음. Windows 단독 실행 binary 가 확장자 없는 경우는 매우 드물고, 있어도 .NET 으로 spawn 불가하므로 skip 정당.
+- **Unix**: `[""] + PATHEXT` 순서 유지 (executable bit 가진 단일 파일 일반적).
+
+**회귀 방지**: `Solutions/Tests/Ds2.LlmAgent.Tests/ProcessUtilsTests.fs` 신규 7 test
+- 빈 문자열 / null → None
+- PATH 의 .cmd 발견
+- 미설치 → None
+- **Windows: 확장자 없는 파일 + .cmd 공존 시 .cmd 선택** (R1 회귀 회피)
+- 명시 확장자는 그것만 시도
+- path separator 포함이면 file 존재 검사
+- resolveOrDiagnostic Error 메시지 포맷
+
+테스트 비교는 `assertSomePath` (case-insensitive) 사용 — PATHEXT 가 사용자 환경마다 ".CMD" / ".cmd" 케이스 다양해서 path 케이스 unstable. Windows file system 이 case-insensitive 라 실제 동작 동일.
+
+빌드 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests **87/87** 통과 (이전 80 + 신규 7).
+
+### Hot-fix-3 — Codex `--ephemeral` + resume 양립 불가 (multi-turn 회복)
+
+Hot-fix-2 위에서 첫 turn 응답 정상 + 두번째 turn `Codex CLI 비정상 종료 (exit code = 1)` 발생. stderr 진단 강화 (`CodexCliProvider.runProcess` 의 `lastStderr` mutable 캡처 → `ProviderError` suffix `— stderr: <last line>`) 로 ChatPanel 에 즉시 노출:
+
+```
+Error: thread/resume: thread/resume failed: no rollout found for thread id 019dfd5a-18e0-7a12-...
+```
+
+원인: `--ephemeral` 은 thread rollout (= disk save) 을 생략. 첫 turn 의 thread_id 가 disk 에 없으니 두번째 turn 의 `codex exec resume <sid>` 가 그 sid 의 rollout 을 못 찾아 fail. multi-turn 보장하려면 `--ephemeral` 빼야 함.
+
+### 변경
+- `Solutions/Core/Ds2.LlmAgent/CodexCliArgs.fs` — `CodexCliOptions.Default.Ephemeral = false` (이전 true). 필드 doc 코멘트에 양립 불가 명시 + 단일 turn 사용 케이스에 한정.
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` `CreateCodexProvider` — `ephemeral: false` (explicit) + 사유 코멘트.
+- `Solutions/Tests/Ds2.LlmAgent.Tests/CodexCliArgsTests.fs` — default 회귀 2개 갱신:
+  - `Default 는 --json --ignore-user-config 노출, --ephemeral 미노출 (multi-turn resume 보장)` — `Assert.DoesNotContain("--ephemeral", args)` + 사유 코멘트
+  - `Ephemeral true override 시 --ephemeral 노출` — true override 검증으로 방향 반전
+- `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — `lastStderr` mutable 캡처 + `ExitCode != 0` 시 `ProviderError` suffix 에 stderr last line append.
+
+### 부작용 + 후속
+부작용: 사용자 `~/.codex/sessions/` 에 thread rollout 누적. ChatGPT subscription 사용량은 영향 없음 (rollout = local file).
+
+후속 (todo 신설 항목):
+1. (a) `CODEX_HOME` 환경변수로 인스턴스별 임시 디렉토리 격리 + 종료 시 삭제
+2. (b) `LlmChatViewModel.Reset()` 시 마지막 sessionId 의 rollout 파일만 cleanup
+3. (c) `--ephemeral` 토글 UI 노출 후 사용자 선택
+
+### 빌드 / 테스트 검증
+- `Solutions/Core/Ds2.LlmAgent` 단독 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **87/87 유지** (default 변경 + 갱신된 회귀 모두 통과)
+- 사용자 측 e2e 재검증 — multi-turn ("hi" → "who are you" → ...) 정상 동작 기대
+
+### Hot-fix-4 — Codex MCP nonce 헤더 + instructions override
+
+Hot-fix-3 위에서 multi-turn chat 정상 동작했으나 사용자가 "active system 추가, 이름은 HelloWorld" 명령 시 codex 가 git rev-parse / 소스 검색 / "bin 출력물은 수정 대상이 아니라" 같은 **coding agent 모드** 응답. status `session=... tools=0 mcp=0`. 두 원인 동시 발생:
+
+1. **MCP HTTP nonce 헤더 미전달** — `CreateCodexProvider` 가 `mcp_servers.promaker.url` 만 등록, nonce 헤더 미전달 → Promaker `McpHostService` 의 nonce 검증에서 401 → codex 측 mcp tool list 가 비어 있음
+2. **Phase1c system prompt 미전달** — codex default 12k coding agent prompt 가 "active system 추가" 를 코딩 task 로 해석. Promaker 의 model authoring 가이드가 system prompt 에 없음
+
+### 변경
+
+> **수정 이력**: 본 절은 Hot-fix-4 첫 시도 — 두 키 (`headers` / `instructions=<text>`) 모두 codex 의 알려진 키 아님이 사용자 e2e 에서 발견되어 재정정. 정정 결과는 본 절의 **(a 정정)** / **(b 정정)** 으로 기술. 시행착오 history 는 todo `--review` 처리 절 + 후속 hot-fix-5 (community issue 1379772 sandbox) 와 함께 누적.
+
+#### (a 정정) MCP HTTP 헤더 — `http_headers` inline table (codex docs 공식 키)
+- 첫 시도의 `headers.X-Promaker-Nonce` 는 codex 의 알려진 키 아님 — codex docs 의 정식 키는 `http_headers` (예: `http_headers = { "X-Figma-Region" = "..." }`).
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` `CreateCodexProvider`:
+  ```csharp
+  configOverrides = new[]
+  {
+      Tuple.Create("mcp_servers.promaker.url", $"\"{_mcpHost.ServerUrl}\""),
+      // dotted key 로 http_headers 까지 지정 + value 는 inline table.
+      Tuple.Create(
+          "mcp_servers.promaker.http_headers",
+          $"{{ \"X-Promaker-Nonce\" = \"{_mcpHost.HandshakeNonce}\" }}"),
+      ...
+  };
+  ```
+
+#### (b 정정) system prompt override — `experimental_instructions_file=<path>`
+- 첫 시도의 `-c instructions=<text>` 는 codex 의 알려진 키 아님 — toml override 적용 실패 + 후속 인자 파싱이 깨져 `No prompt provided` 발생.
+- 정식 키는 **`experimental_instructions_file`** — file path 만 받아 codex 가 그 파일을 읽어 system prompt 로 사용.
+- `Solutions/Core/Ds2.LlmAgent/CodexCliArgs.fs` — 필드 명을 `ExperimentalInstructionsFile: string option` 로 신설. `build` 가 Some 시 `-c experimental_instructions_file='<path>'` toml literal string 으로 인코딩 (Windows backslash escape 회피, path 안 `'` 미지원).
+  ```fsharp
+  match options.ExperimentalInstructionsFile with
+  | Some path ->
+      yield "-c"
+      yield $"experimental_instructions_file='{path}'"
+  | None -> ()
+  ```
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` `CreateCodexProvider` — 임시 파일 lifecycle 직접 관리:
+  ```csharp
+  if (_codexInstructionsPath == null)
+  {
+      var dir = Path.Combine(Path.GetTempPath(), "Promaker");
+      Directory.CreateDirectory(dir);
+      _codexInstructionsPath = Path.Combine(dir, $"codex-instructions-{Guid.NewGuid():N}.md");
+      File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, Encoding.UTF8);
+  }
+  // ...
+  experimentalInstructionsFile: FSharpOption<string>.Some(_codexInstructionsPath),
+  ```
+- DisposeAsync 가 임시 파일 삭제.
+
+#### 회귀 방지
+- `Solutions/Tests/Ds2.LlmAgent.Tests/CodexCliArgsTests.fs` 신규 2 test:
+  - `ExperimentalInstructionsFile None default 면 -c experimental_instructions_file= 미전달`
+  - `ExperimentalInstructionsFile Some 시 -c experimental_instructions_file='<path>' 형식 (toml literal string)` — Windows path 의 backslash 가 raw 로 보존 verify
+
+### 비용 영향
+매 turn input 약 6k 토큰 추가 (Phase1c 길이). codex 의 cache 적중 시 cost 거의 0 (input cached 비율 ~98% — C-2 spike 결과 12894 → cached 12672). 첫 turn 만 full price.
+
+### 빌드 / 테스트 검증
+- Promaker.sln 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **90/90 통과** (이전 87 + 신규: experimental_instructions_file 회귀 2 + approval/sandbox 관련 1, AskForApproval 시도 후 제거).
+- e2e 검증은 후속 hot-fix-5 (sandbox_mode danger-full-access) 가 합쳐진 시점에 통과.

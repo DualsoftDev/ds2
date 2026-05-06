@@ -25,7 +25,15 @@ open System.Threading.Tasks
 type CodexCliProvider(options: CodexCliOptions) =
 
     let mutable sessionId : string option = None
-    let executable = options.ExecutablePath |> Option.defaultValue "codex"
+    let executableName = options.ExecutablePath |> Option.defaultValue "codex"
+    /// PATHEXT 자동 검색 fragility 회피 — ctor 1회 PATH 검색 결과를 캐시. EnsureCli + Send 가 공유.
+    /// 일부 사용자 환경 (Promaker process 의 PATH 가 셸 PATH 와 다른 경우) 에서 npm 글로벌 디렉토리
+    /// (`%APPDATA%\npm`) 를 ProcessUtils.wellKnownFallbackDirs 로 보완.
+    let resolveResult = ProcessUtils.resolveOrDiagnostic executableName
+    let executable =
+        match resolveResult with
+        | Ok p -> p
+        | Error _ -> executableName
 
     let buildArgs (prompt: string) : string list = CodexCliArgs.build options sessionId prompt
     /// formatArgs 는 provider 무관 logger format 용 — Claude module 의 동일 함수 재활용.
@@ -37,30 +45,37 @@ type CodexCliProvider(options: CodexCliOptions) =
     /// 패턴 정합: ClaudeCliVersion.tryGetInstalledVersion 과 동일하게 `WaitForExit |> ignore` + `HasExited && ExitCode=0` 분기로
     /// timeout / non-zero exit / normal exit 케이스를 메시지에 구분 (forensic 단서).
     member _.EnsureCli () : ClaudeCliVersion.Result =
-        try
-            let psi = ProcessStartInfo(executable, "--version")
-            psi.RedirectStandardOutput <- true
-            psi.RedirectStandardError <- true
-            psi.UseShellExecute <- false
-            psi.CreateNoWindow <- true
-            use p = Process.Start(psi)
-            p.WaitForExit(5000) |> ignore
-            if not p.HasExited then
-                { ClaudeCliVersion.Result.IsValid = false
-                  Message = $"`{executable} --version` 5초 timeout — process 가 응답하지 않음"
-                  VersionString = "" }
-            elif p.ExitCode <> 0 then
-                { ClaudeCliVersion.Result.IsValid = false
-                  Message = $"`{executable} --version` 비정상 종료 (exit code = {p.ExitCode})"
-                  VersionString = "" }
-            else
-                let ver = p.StandardOutput.ReadToEnd().Trim()
-                { ClaudeCliVersion.Result.IsValid = true; Message = "ok"; VersionString = ver }
-        with ex ->
-            Log.provider.Warn($"Failed to invoke `{executable} --version`: {ex.Message}")
+        // PATH 누락은 process 시작 전에 미리 진단 — ctor 의 resolveResult 캐시 재사용 (재검색 회피).
+        match resolveResult with
+        | Error hint ->
             { ClaudeCliVersion.Result.IsValid = false
-              Message = $"`{executable} --version` 실행 예외: {ex.Message}"
+              Message = $"Codex CLI 검출 실패 — {hint}"
               VersionString = "" }
+        | Ok _ ->
+            try
+                let psi = ProcessStartInfo(executable, "--version")
+                psi.RedirectStandardOutput <- true
+                psi.RedirectStandardError <- true
+                psi.UseShellExecute <- false
+                psi.CreateNoWindow <- true
+                use p = Process.Start(psi)
+                p.WaitForExit(5000) |> ignore
+                if not p.HasExited then
+                    { ClaudeCliVersion.Result.IsValid = false
+                      Message = $"`{executable} --version` 5초 timeout — process 가 응답하지 않음"
+                      VersionString = "" }
+                elif p.ExitCode <> 0 then
+                    { ClaudeCliVersion.Result.IsValid = false
+                      Message = $"`{executable} --version` 비정상 종료 (exit code = {p.ExitCode})"
+                      VersionString = "" }
+                else
+                    let ver = p.StandardOutput.ReadToEnd().Trim()
+                    { ClaudeCliVersion.Result.IsValid = true; Message = "ok"; VersionString = ver }
+            with ex ->
+                Log.provider.Warn($"Failed to invoke `{executable} --version`: {ex.Message}")
+                { ClaudeCliVersion.Result.IsValid = false
+                  Message = $"`{executable} --version` 실행 예외: {ex.Message}"
+                  VersionString = "" }
 
     /// 단일 turn 의 stream 이벤트를 비동기로 흘려보낸다.
     /// 호출자는 `await foreach` 로 소비. 외부 cancellation 으로 중단 가능 (process kill).
@@ -117,6 +132,10 @@ type CodexCliProvider(options: CodexCliOptions) =
 
                 use p = proc
 
+                // stderr last non-empty line 캡처 → exit code != 0 시 ProviderError 메시지에 append.
+                // ChatPanel 에서 codex 의 실제 에러 (auth / mcp connect / sandbox 등) 를 즉시 확인 가능.
+                let mutable lastStderr : string = ""
+
                 let stderrTask =
                     task {
                         try
@@ -125,6 +144,7 @@ type CodexCliProvider(options: CodexCliOptions) =
                                 let! l = p.StandardError.ReadLineAsync(ct).AsTask()
                                 line <- l
                                 if not (isNull line) && line.Length > 0 then
+                                    lastStderr <- line
                                     Log.provider.Warn($"[codex stderr] {line}")
                         with
                         | :? OperationCanceledException -> ()
@@ -165,7 +185,10 @@ type CodexCliProvider(options: CodexCliOptions) =
                         let! _ = Task.WhenAll(stdoutTask :> Task, stderrTask :> Task)
                         p.WaitForExit()
                         if p.ExitCode <> 0 then
-                            do! writeAsync(ProviderError $"Codex CLI 비정상 종료 (exit code = {p.ExitCode}).")
+                            let suffix =
+                                if String.IsNullOrEmpty lastStderr then ""
+                                else $" — stderr: {lastStderr}"
+                            do! writeAsync(ProviderError $"Codex CLI 비정상 종료 (exit code = {p.ExitCode}){suffix}.")
                     with
                     | :? OperationCanceledException ->
                         do! writeAsync(ProviderError "사용자 취소.")
@@ -190,3 +213,10 @@ type CodexCliProvider(options: CodexCliOptions) =
 
     /// Session 강제 초기화 — 다음 Send 가 `resume` 없이 새 thread 시작.
     member _.ClearSession () = sessionId <- None
+
+    interface ILlmProvider with
+        member this.EnsureCli () = this.EnsureCli ()
+        // instance method 의 `?cancellationToken: CancellationToken` 에 named arg 로 forward.
+        member this.Send (prompt, ct) = this.Send (prompt, cancellationToken = ct)
+        member this.SessionId = this.SessionId
+        member this.ClearSession () = this.ClearSession ()
