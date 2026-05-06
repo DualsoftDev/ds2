@@ -3,25 +3,34 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.LlmAgent;
+using Promaker.LlmAgent;
 using log4net;
 
 namespace Promaker.ViewModels;
 
 /// <summary>
-/// Phase 1a — Promaker 의 LLM chat 진입 ViewModel.
+/// Promaker 의 LLM chat ViewModel.
 ///
-/// Mutation tool 미통합 (echo only). 첫 turn 의 SessionStarted 패킷에서 session_id 를 캡처하여
-/// 이후 turn 에 --resume 자동 전달. AssistantDelta 는 마지막 ChatTurn 에 누적.
-/// Phase 1d 에서 dock panel 통합 / 50ms aggregation throttle / mutation tool wiring 추가.
+/// Phase 1a — Claude CLI multi-turn echo (--resume FSM).
+/// Phase 1b-c — McpHostService 자동 start + .mcp-config 자동 작성 + ClaudeCliOptions 적용.
+///   현재 등록 tool = PingTool 1개 (검증용). 실제 mutation/read tool 은 phase 1c 부터.
+/// Phase 1d 예정 — dock panel 통합 / 50ms aggregation throttle / consent dialog.
 /// </summary>
-public partial class LlmChatViewModel : ObservableObject
+public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LlmChatViewModel));
 
-    private readonly ClaudeCliProvider _provider;
+    private readonly McpHostService _mcpHost = new();
+    private McpConfigWriter? _mcpConfig;
+    private ClaudeCliProvider? _provider;
+
+    // ReSharper disable once NotAccessedField.Local — Phase 1c 진입 시 tool handler 에 주입.
+    private readonly IUiDispatcher _dispatcher;
+
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
 
@@ -34,32 +43,77 @@ public partial class LlmChatViewModel : ObservableObject
     private bool _isSending;
 
     [ObservableProperty]
-    private string _statusText = "";
+    private bool _isReady;
+
+    [ObservableProperty]
+    private string _statusText = "초기화 중…";
 
     [ObservableProperty]
     private string? _sessionId;
 
     public LlmChatViewModel()
     {
-        _provider = new ClaudeCliProvider(ClaudeCliOptions.Default);
-        StatusText = "Claude CLI 검출 중…";
-        // 동기 EnsureCli (WaitForExit 5초) 가 ctor 를 막지 않도록 background.
-        // 결과는 dispatcher 로 marshalling 후 status / turn 표시.
+        _dispatcher = new WpfDispatcherAdapter(Dispatcher.CurrentDispatcher);
+        _ = InitializeAsync();
+    }
+
+    /// <summary>
+    /// Window 진입 시 1회 호출:
+    ///   1) MCP host 띄우고 ServerUrl / HandshakeNonce 확정
+    ///   2) .mcp-config 임시 파일 작성
+    ///   3) ClaudeCliProvider 구성 (mcp-config + bypassPermissions)
+    ///   4) Claude CLI 버전 확인 (background)
+    /// </summary>
+    private async Task InitializeAsync()
+    {
         var uiContext = TaskScheduler.FromCurrentSynchronizationContext();
-        Task.Run(() => _provider.EnsureCli()).ContinueWith(t =>
+        try
         {
-            var result = t.Result;
-            StatusText = result.Message;
-            if (!result.IsValid)
+            await _mcpHost.StartAsync().ConfigureAwait(true);
+            _mcpConfig = McpConfigWriter.Create("promaker", _mcpHost.ServerUrl, _mcpHost.HandshakeNonce);
+
+            var options = new ClaudeCliOptions(
+                executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
+                mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig.Path),
+                permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
+                model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+                channelCapacity: 256);
+            _provider = new ClaudeCliProvider(options);
+
+            StatusText = $"MCP host {_mcpHost.ServerUrl} 준비 / Claude CLI 검출 중…";
+
+            await Task.Run(() =>
             {
-                Turns.Add(new ChatTurn { Role = "system", Text = result.Message });
-            }
-        }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, uiContext);
+                var ver = _provider!.EnsureCli();
+                return ver;
+            }).ContinueWith(t =>
+            {
+                var result = t.Result;
+                if (result.IsValid)
+                {
+                    StatusText = $"준비 완료 — MCP host {_mcpHost.ServerUrl}, Claude CLI {result.VersionString}";
+                    IsReady = true;
+                    SendCommand.NotifyCanExecuteChanged();
+                }
+                else
+                {
+                    StatusText = result.Message;
+                    Turns.Add(new ChatTurn { Role = "system", Text = result.Message });
+                }
+            }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, uiContext);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("LlmChatViewModel 초기화 실패", ex);
+            StatusText = $"초기화 실패: {ex.Message}";
+            Turns.Add(new ChatTurn { Role = "system", Text = $"초기화 실패: {ex.Message}" });
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
     {
+        if (_provider == null) return;
         var prompt = (Input ?? "").Trim();
         if (prompt.Length == 0) return;
 
@@ -100,7 +154,7 @@ public partial class LlmChatViewModel : ObservableObject
         }
     }
 
-    private bool CanSend() => !IsSending && !string.IsNullOrWhiteSpace(Input);
+    private bool CanSend() => IsReady && !IsSending && !string.IsNullOrWhiteSpace(Input);
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel()
@@ -114,16 +168,14 @@ public partial class LlmChatViewModel : ObservableObject
     private void Reset()
     {
         Cancel();
-        _provider.ClearSession();
+        _provider?.ClearSession();
         Turns.Clear();
         SessionId = null;
         StatusText = "세션 초기화 완료";
     }
 
-    partial void OnInputChanged(string value)
-    {
-        SendCommand.NotifyCanExecuteChanged();
-    }
+    partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
+    partial void OnIsReadyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
 
     private void HandleEvent(LlmEvent evt)
     {
@@ -140,7 +192,6 @@ public partial class LlmChatViewModel : ObservableObject
                 break;
 
             case LlmEvent.Thinking _:
-                // phase 1a — 무시
                 break;
 
             case LlmEvent.ToolUse tu:
@@ -174,6 +225,13 @@ public partial class LlmChatViewModel : ObservableObject
 
     private static string Truncate(string s, int max)
         => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max) + "…");
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        _mcpConfig?.Dispose();
+        await _mcpHost.DisposeAsync().ConfigureAwait(false);
+    }
 }
 
 public partial class ChatTurn : ObservableObject
