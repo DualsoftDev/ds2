@@ -250,6 +250,21 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
+    private LlmChatWindow? _llmChatWindow;
+
+    [RelayCommand]
+    private void OpenLlmChat()
+    {
+        if (_llmChatWindow is { IsVisible: true })
+        {
+            _llmChatWindow.Activate();
+            return;
+        }
+        _llmChatWindow = new LlmChatWindow { Owner = Application.Current.MainWindow };
+        _llmChatWindow.Closed += (_, _) => _llmChatWindow = null;
+        _llmChatWindow.Show();
+    }
+
     private bool CanOpen3DView() => HasProject;
 
     [RelayCommand(CanExecute = nameof(CanOpen3DView))]
