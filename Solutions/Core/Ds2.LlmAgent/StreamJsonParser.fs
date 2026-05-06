@@ -10,6 +10,15 @@ open System.Text.Json
 [<RequireQualifiedAccess>]
 module StreamJsonParser =
 
+    /// 단일 stream-json 라인 최대 바이트 길이 (UTF-16 char 단위).
+    /// Claude CLI stdout 은 신뢰된 input 이지만 비정상 / 깨진 stream 으로부터의 OOM 1차 방어.
+    /// 1MB 면 정상 assistant turn 응답 수 배 여유.
+    let MaxLineLength = 1024 * 1024
+
+    /// JSON 트리 최대 depth. System.Text.Json 의 default 64 보다 보수적으로 32 채택.
+    /// Claude CLI 패킷 (system/init / assistant.message.content[].* / result) 은 4~5 depth.
+    let MaxJsonDepth = 32
+
     let private tryGetString (el: JsonElement) (name: string) : string option =
         match el.TryGetProperty(name) with
         | true, v when v.ValueKind = JsonValueKind.String -> Some(v.GetString())
@@ -154,15 +163,22 @@ module StreamJsonParser =
 
     /// 단일 stream-json 라인을 파싱해서 0~N 개의 LlmEvent 를 만든다.
     /// 라인이 빈 문자열, 비-JSON 평문 (e.g. shell hook 메시지), 알 수 없는 type 이면 빈 시퀀스.
+    /// MaxLineLength / MaxJsonDepth 초과 시 Log.Warn + skip (m5/m10 — silent skip 의 forensic 단서).
     let parseLine (line: string) : LlmEvent seq =
         let trimmed = if isNull line then "" else line.Trim()
         if trimmed.Length = 0 || not (trimmed.StartsWith("{")) then Seq.empty
+        elif trimmed.Length > MaxLineLength then
+            Log.provider.Warn(sprintf "StreamJsonParser: line dropped — length %d > MaxLineLength %d" trimmed.Length MaxLineLength)
+            Seq.empty
         else
+            let opts = JsonDocumentOptions(MaxDepth = MaxJsonDepth)
             let mutable doc : JsonDocument = null
             try
-                doc <- JsonDocument.Parse(trimmed)
-            with _ ->
-                ()
+                doc <- JsonDocument.Parse(trimmed, opts)
+            with ex ->
+                Log.provider.Warn(sprintf "StreamJsonParser: JSON parse failed (%s) — line skipped (len=%d, head=%s)"
+                                    (ex.GetType().Name) trimmed.Length
+                                    (if trimmed.Length > 80 then trimmed.Substring(0, 80) + "..." else trimmed))
             if isNull doc then Seq.empty
             else
                 use d = doc

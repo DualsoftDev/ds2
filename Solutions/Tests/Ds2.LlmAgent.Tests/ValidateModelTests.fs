@@ -40,15 +40,30 @@ let ``placeholder 이름의 system 은 TodoPlaceholder 로 보고`` () =
     Assert.Contains("System \"TODO\"", result)
 
 [<Fact>]
-let ``orphan system 은 global scope 에서만 보고`` () =
+let ``System scope 는 Orphan check skipped footer`` () =
     let store = DsStore()
-    // project 없이 system 만 추가 — 기존 API 가 project 부착 강제하지 않으면 orphan
-    // AddSystem 은 projectId 필수 → orphan 시뮬레이션이 어려움. 일단 GlobalScope 의 footer 출력 검증으로 대체.
     let projectId = store.AddProject("Project")
     let sysId = store.AddSystem("Sys", projectId, true)
     let result = ToolOperations.validateModelByGuid store (Some sysId)
     Assert.StartsWith("(no issues; scope=System(id=", result)
     Assert.Contains("Orphan check skipped", result)
+
+[<Fact>]
+let ``orphan system 은 global scope 에서 Orphan 카테고리로 보고`` () =
+    // 시뮬: project 와 system 을 만든 후 project 의 ActiveSystemIds 에서 제거 →
+    //       store.Systems 에는 남아있지만 어떤 project 에도 attach 안 된 상태 (= orphan)
+    let store = DsStore()
+    let projectId = store.AddProject("Project")
+    let orphanId = store.AddSystem("Detached", projectId, true)
+    let attachedId = store.AddSystem("Attached", projectId, true)
+    // project 의 active list 에서 orphan 만 제거 → attached 는 유지
+    let project = store.Projects.[projectId]
+    project.ActiveSystemIds.Remove(orphanId) |> Assert.True
+    let result = ToolOperations.validateModelByGuid store None
+    // Orphan 카테고리에 detached system 이 보고되고, attached 는 보고되지 않아야 함
+    Assert.Contains("Orphan:", result)
+    Assert.Contains($"System \"Detached\" (id={orphanId:D}) is not attached to any Project", result)
+    Assert.DoesNotContain($"id={attachedId:D}) is not attached", result)
 
 [<Fact>]
 let ``flow scope 는 sibling DuplicateName / ApiDef / ArrowBetweenWorks skip footer`` () =

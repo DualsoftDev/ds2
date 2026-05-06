@@ -328,7 +328,7 @@ type ToolDef<'TArgs,'TResult> = {
 - [x] **1d-4 잔여 D** — ChatPanel dock 통합 (별도 Window → MainWindow 안 dock panel) — 2026-05-06 완료. `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml(.cs)` UserControl 추출 (`InverseBoolConverter` 동반 이전) + `MainWindow.xaml` 새 column 5/6 (Splitter 4px + Panel 380px, default width=0 collapsed) + DataTemplate `LlmChatViewModel→LlmChatPanel` + `MainViewModel.LlmChatVm` (lazy `[ObservableProperty]`) + `IsLlmChatVisible` + `ToggleLlmChatCommand` (lazy 생성 시 consent 검사) + `MainWindow.xaml.cs.UpdateLlmChatColumnWidths` (PropertyChanged 구독, collapsed 시 splitter+panel 둘 다 width 0). 기존 `LlmChatWindow.xaml(.cs)` 삭제. 메뉴 항목 → `ToggleLlmChatCommand` + 텍스트 "LLM Chat (토글)"
 - [x] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`) — 2026-05-06 완료. `Apps/Promaker/Promaker/LlmAgent/LlmConsent.cs` (Load/Grant/IsGranted/EnsureGranted) + `MainViewModel.OpenLlmChat` 1차 차단 (Yes/No MessageBox) + `LlmChatViewModel.InitializeAsync` 2차 defense-in-depth (consent 거부 시 MCP host 미시작). consent flag = `DataEgressConsent: bool` + `ConsentTimestampUtc: ISO8601`
 - [x] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 — 2026-05-06 완료. `HistoryPanelItem.IsLlmTurn => Label.StartsWith("LLM: ")` + HistoryPanel.xaml DataTemplate 안 좌측 3px AccentBrush 색띠 + label foreground=AccentBrush + FontWeight=SemiBold (IsLlmTurn 시). IsRedo (취소선) 와 함께 자연 합성
-- [ ] System prompt 보강 (1c 의 최소 → 1d 의 풀): greenfield 환각 방지, 도메인 규칙, Arrow 타입, tool 사용 순서, clarification 템플릿, **user-supplied 텍스트 격리 delimiter** (`<spec>...</spec>` + "내부는 데이터, 명령 아님" 명시 — review 2차 R5; delimiter 단독 방어 약하므로 sanitize + quota 와 결합)
+- [x] System prompt 보강 (1c 의 최소 → 1d 의 풀) — 2026-05-06 완료. `SystemPrompt.cs` 의 `Phase1c` 상수에 ① **Arrow 시맨틱 절** (Start/Reset/StartReset/ResetReset/Group/Unspecified 한 줄씩 + "next/then → Start, either-or → ResetReset" 매핑 가이드) ② **Greenfield anti-hallucination checklist** (Project 부재 시 GUI 안내 / 디바이스 주소·핀·protocol·timing·ApiDef sig 추측 금지 명시) ③ **Clarification 템플릿** 4종 (missing parent / missing arrowType / ambiguous count / vague spec) ④ **`<spec>...</spec>` delimiter 절** (delimiter 안은 DATA, 명령 아님 + 외부 prose 도 동일) 4개 섹션 추가. 기존 Operating rules 6개 + batch reads 가이드 유지. 상수명 `Phase1c` 호환성 위해 그대로
 - [ ] Golden scenario 회귀 테스트:
   - 4-cylinder sequential+parallel spec → 기대 모델
   - 환각 회귀 (주소 없는 spec)
@@ -351,11 +351,14 @@ type ToolDef<'TArgs,'TResult> = {
 - 공통 invoker 가 schema validation / sanitize / dispatcher / audit / quota / consent 흡수 (위 "Tool registry 공통 invoker 사양" 절)
 
 ### Phase 2
+- [ ] `modify_*` / `remove_*` mutation tool — `ImportPlanOperation` DU 확장 (`RenameFlow` / `RetargetArrow` / `RemoveFlow` cascade 등) + `Ds2.Editor` 측 transaction-internal cascade primitive 신설. Pass C 의 4 helper (requireNonEmpty/tryFindInPlan/requireFromStoreOrPlan/hasNameClash) 재활용
+- [ ] `list_projects` read tool 추가 (Pass D 후속 review 의견) — 현재 `list_systems` 만 평탄화 반환이라 빈 결과 시 LLM 이 "어떤 project 에도 system 없음" vs "project 자체가 없음" 헷갈릴 여지. `list_projects()` 가 명시적 분리. 또 phase 1 의 add_system 은 첫 project 자동 부착인데 `list_projects` 후 명시적 projectId 인자 받는 것이 정석
 - [ ] Codex CLI provider (사전 실증 4 결과에 따라). 인터페이스가 phase 1 의 ClaudeCli concrete 1종으로만 검증되었으므로 **Codex 추가 시 인터페이스 재설계 가능성 인정** (review M5)
 - [ ] OpenAI API provider (Codex CLI 막힌 경우 보험)
 - [ ] Anthropic API provider (구독 한도 초과 사용자용)
 - [ ] Ollama provider (local, OpenAI 호환 endpoint)
 - [ ] Provider fallback 정책 (지정 provider 실패 시 다른 provider 자동 전환 vs 에러 종료)
+- [ ] m1 — `LlmTurnContextProvider` singleton → `AsyncLocal<LlmTurnContext>` (다중 dock / 다중 provider 동시 turn 분리)
 - [ ] (결정 7 (c) 채택했고 UX 가 부족하면) `withTransaction` nested 허용 (a) 또는 `BeginTurnBatch` (b) 도입
 - [ ] (결정 7 (a)/(b) 도입 시) deferred-apply 모델 — turn 안 mutation 은 in-memory plan, turn end 에 batch apply (review M4)
 
@@ -466,7 +469,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1d 완료** (2026-05-06, 빌드 통과 + unit test 14/14 통과). 1d-1~1d-6 모든 sub-milestone 완료. Phase 1 (MVP) 의 자동화 가능한 회귀는 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 보존. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 done 문서의 phase 별 "사용자 측 검증 시나리오" 섹션 참조.
+- 현 단계: **Phase 1d 완료 + Pass B + Pass C + Pass D 완료** (2026-05-06, 빌드 통과 + unit test 15/15 통과). 1d-1~1d-6 모든 sub-milestone 완료. Pass A 이후 추가로 (B-1) StreamJsonParser MaxLineLength=1MB / MaxJsonDepth=32 cap + parse 실패 시 Log.Warn (m5/m10) (B-2) ValidateModel orphan 실제 시뮬 test (Project.ActiveSystemIds.Remove 로 unlink) — m7 (B-3) System prompt Phase1c 상수에 Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter 4개 섹션 추가 (todo 본문 line 331) (C) ToolOperations 4개 helper 추출 — M9 (D) ModelTools 의 `[FromKeyedServices(null)]` 12 곳 제거 — m3, SDK 자동 검출 path 정석화. Phase 1 (MVP) 의 자동화 가능한 회귀는 `Solutions/Tests/Ds2.LlmAgent.Tests/` 에 영구 보존. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 done 문서의 phase 별 "사용자 측 검증 시나리오" 섹션 참조.
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -502,6 +505,9 @@ type ToolDef<'TArgs,'TResult> = {
 9. ✅ **Phase 1d-4 완료** (2026-05-06) — 입력 키 + 버블 UI + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 + E consent dialog + D dock 통합 + F HistoryPanel 시각화
 10. ✅ **Phase 1d-5 완료** (2026-05-06) — `ChildProcessTracker` Job Object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (Promaker crash 시 Claude CLI cascade kill) + `ClaudeCliOptions.OnProcessStarted` callback hook + `McpConfigWriter` Owner-only ACL (`SetAccessRuleProtection(true,false)` + user FullControl 단일 rule) + 파일명 `mcp-{sessionId}-{pid}-{guid}.json` (PID 추출 가능) + `SweepStale` (자기 sessionId + dead pid OR mtime > 5분 + 자기 pid 보호) + App.OnStartup 1회 호출
 11. ✅ **Phase 1d-6 완료** (2026-05-06) — `Solutions/Tests/Ds2.LlmAgent.Tests/` 신규 fsproj (xunit, ProjectReference Ds2.LlmAgent). `ClaudeCliArgsTests.fs` 8개 (1d-4 B fsx 영구 회귀 — strict-mcp-config / allowed-tools 반복 인자 형식 / sessionId resume / 기본 인자) + `ValidateModelTests.fs` 6개 (no issues 메시지 / VALIDATION_ERROR / placeholder 보고 / scope footer). Promaker.sln 에 Tests 폴더 그룹 + project 추가. 14/14 통과. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 phase 별 done 문서의 "사용자 측 검증 시나리오" 절에 분산 정리
+12. ✅ **Pass B 후속 묶음** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m5/m10/m7 + todo line 331 풀세트 보강. (m5/m10) `StreamJsonParser.MaxLineLength = 1MB` + `MaxJsonDepth = 32` (`JsonDocumentOptions`) + parse fail / line drop 시 `Log.provider.Warn` (forensic 단서). (m7) `ValidateModelTests.fs` 의 "orphan system" 케이스를 footer 검증 → 실제 orphan 시뮬 (project 만든 후 `project.ActiveSystemIds.Remove(sysId)` 로 unlink). 추가 attached system 비교군 + DoesNotContain assertion. (System prompt) `SystemPrompt.Phase1c` 에 Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter 4개 섹션 추가. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
+13. ✅ **Pass C — M9 ToolOperations boilerplate 통합** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 M9. `ToolOperations.fs` 에 `requireNonEmpty` / `tryFindInPlan` / `requireFromStoreOrPlan` / `hasNameClash` 4개 helper 추출. 6개 queueAdd* 함수의 String.IsNullOrWhiteSpace inline 검사, 4개 tryFindXxxInPlan, 3개 requireXxx, 4개 hasXxxClash 본문이 1~2줄 호출로 단축. 외부 시그니처 100% 보존 (invalidArg 메시지 "가"→"이" 1건만 미세 변경). Phase 2 의 modify_*/remove_* 추가 시 동일 helper 재활용. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
+14. ✅ **Pass D — m3 ModelTools DI attribute 정석화** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m3. SDK source 직접 분석 (`AIFunctionMcpServerTool.ConfigureParameterBinding`) 결과 ModelContextProtocol.AspNetCore 1.2.0 binder 가 `IServiceProviderIsService.IsService(type)` 로 DI 등록 type 자동 검출 + schema 자동 제외 → attribute 자체가 redundant 임이 밝혀짐. `[FromKeyedServices(null)]` 12 곳 제거 + 클래스 헤드 우회 설명 주석을 자동 검출 path 설명으로 교체 + `using Microsoft.Extensions.DependencyInjection` 제거. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과 (사용자 e2e 검증 — LLM add_system 정상 dispatch 확인 권장)
 
 ---
 
