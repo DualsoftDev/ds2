@@ -271,6 +271,13 @@
                                                             Orientation="Horizontal"
                                                             VerticalAlignment="Top"
                                                             Margin="8,0,0,0">
+                                                    <Button Content="🔧 FBTagMap 편집"
+                                                            Padding="8,3"
+                                                            Margin="0,0,6,0"
+                                                            FontSize="11"
+                                                            ToolTip="이 SystemType 의 신호 템플릿을 편집하기 위해 TAG Wizard 를 엽니다."
+                                                            Visibility="{Binding CanOpenFBTagMap, Converter={StaticResource BoolToVis}}"
+                                                            Click="DiagnosticOpenFBTagMap_Click"/>
                                                     <Button Content="📍 해당 행 보기"
                                                             Padding="8,3"
                                                             FontSize="11"

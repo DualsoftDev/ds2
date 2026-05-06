@@ -125,6 +125,47 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     }
 
     /// <summary>
+    /// 외부 진입점 — 다이얼로그가 표시되면 Step 2 (신호 템플릿) 로 점프하고,
+    /// 주어진 SystemType 을 좌측 리스트에서 선택한다.
+    /// 리스트에 해당 SystemType 이 없으면 빈 FBTagMap Preset 을 즉시 생성해 등장시킨다
+    /// (사용자가 누락된 SystemType 을 즉시 편집할 수 있도록).
+    /// </summary>
+    public void OpenAtFBTagMapForSystemType(string? systemType)
+    {
+        Loaded += OnLoadedNavigateToFBTagMap;
+
+        void OnLoadedNavigateToFBTagMap(object? s, RoutedEventArgs e)
+        {
+            Loaded -= OnLoadedNavigateToFBTagMap;
+
+            // 누락된 SystemType 이라도 리스트에 등장하도록 빈 Preset 을 시드.
+            if (!string.IsNullOrWhiteSpace(systemType))
+            {
+                var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+                if (!presets.ContainsKey(systemType))
+                    Promaker.Services.FBTagMapStore.Save(
+                        _store, systemType, new Promaker.Services.FBTagMapPresetDto());
+            }
+
+            LoadTemplateFileList();
+            MoveToStep(2);
+
+            if (!string.IsNullOrWhiteSpace(systemType) && DeviceTemplateListBox != null)
+            {
+                foreach (var item in DeviceTemplateListBox.Items)
+                {
+                    if (item is string s2 && string.Equals(s2, systemType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        DeviceTemplateListBox.SelectedItem = item;
+                        DeviceTemplateListBox.ScrollIntoView(item);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// 현재 store 의 모든 ApiDef 이름을 distinct 정렬해 WizApiNames 에 로드.
     /// API 콤보박스의 원천 데이터.
     /// </summary>
