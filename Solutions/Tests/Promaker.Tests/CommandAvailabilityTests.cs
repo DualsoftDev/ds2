@@ -219,6 +219,27 @@ public sealed class CommandAvailabilityTests
         });
     }
 
+    [Fact]
+    public void Call_name_editor_locks_api_name_suffix()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.Call, "Test.ADV");
+
+            // Call 의 .ApiName 은 read-only suffix 로 분리 — alias 부분만 편집 가능
+            Assert.Equal(string.Empty, vm.PropertyPanel.NamePrefix);
+            Assert.Equal("Test", vm.PropertyPanel.NameEditorText);
+            Assert.Equal(".ADV", vm.PropertyPanel.NameSuffix);
+
+            // Cancel 도 alias / suffix 분리 유지
+            vm.PropertyPanel.NameEditorText = "Renamed";
+            vm.PropertyPanel.CancelNameEdit();
+            Assert.Equal("Test", vm.PropertyPanel.NameEditorText);
+            Assert.Equal(".ADV", vm.PropertyPanel.NameSuffix);
+        });
+    }
+
     private static DsStore GetStore(MainViewModel vm)
     {
         var field = typeof(MainViewModel).GetField("_store", BindingFlags.Instance | BindingFlags.NonPublic)!;

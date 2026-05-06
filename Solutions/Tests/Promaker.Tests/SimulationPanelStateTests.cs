@@ -73,6 +73,20 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
+    public void SimSpeed_zero_is_coerced_to_normal_speed_without_time_ignore()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var state = CreateState();
+
+            state.SimSpeed = 0.0;
+
+            Assert.Equal(1.0, state.SimSpeed);
+            Assert.False(state.SimTimeIgnore);
+        });
+    }
+
+    [Fact]
     public void ResetForNewStore_clears_warning_guids_so_reloaded_file_does_not_inherit_previous_check_results()
     {
         // 같은 컨텐츠 파일을 다른 이름/확장자로 저장한 뒤 다시 불러오면 GUID 가 동일해서

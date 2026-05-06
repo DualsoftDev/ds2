@@ -67,6 +67,28 @@
                                  Margin="0,0,0,12"
                                  TextChanged="OnBasicApiNameChanged"/>
 
+                        <!-- SystemType 직접 입력 — 직접 입력 프리셋일 때만 표시.
+                             드롭다운: 이미 등록된 SystemType 선택. 자유 입력: 새 이름.
+                             DevicesAlias 와 자동 동기화되되, 한 번이라도 사용자가 손대면 동기화 멈춤. -->
+                        <StackPanel x:Name="CustomSystemTypePanel"
+                                    Visibility="Collapsed"
+                                    Margin="0,0,0,12">
+                            <TextBlock Text="SystemType 이름"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <ComboBox x:Name="CustomSystemTypeComboBox"
+                                      IsEditable="True"
+                                      IsTextSearchEnabled="True"
+                                      StaysOpenOnEdit="True"
+                                      Padding="6,4"
+                                      SelectionChanged="OnCustomSystemTypeSelectionChanged"/>
+                            <TextBlock Text="DevicesAlias 와 자동 동기화. 직접 수정하거나 위에서 선택하면 그 값이 고정됩니다. 새 이름이면 SystemType 프리셋에 자동 등록."
+                                       FontSize="10" FontStyle="Italic"
+                                       Foreground="{DynamicResource DisabledTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"/>
+                        </StackPanel>
+
                         <!-- 추가 기능 (접힌 상태) -->
                         <Expander x:Name="AdvancedExpander"
                                   Header="추가 기능"

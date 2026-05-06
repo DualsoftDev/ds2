@@ -109,3 +109,6 @@ docs/
 # Installer outputs and bundled redistributables
 /Apps/AasxEditor/Installer/Output/
 /Apps/AasxEditor/Installer/Redist/MicrosoftEdgeWebView2RuntimeInstaller*.exe
+/ExternalDlls/AAStoPLC.pdb
+/ExternalDlls/AAStoPLC.xml
+/ExternalDlls/AAStoPLC.LadderViewer.pdb

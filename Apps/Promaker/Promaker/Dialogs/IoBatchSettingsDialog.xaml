@@ -10,145 +10,71 @@
         ShowInTaskbar="False"
         ResizeMode="CanResize">
     <Window.Resources>
-        <Style x:Key="BatchGridHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
-            <Setter Property="BorderThickness" Value="0,0,1,1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <!-- Padding=0 → 헤더 DataTemplate 의 Grid 가 header ActualWidth 전체를 사용 -->
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="StatusChipStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ChipBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ChipBorder" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <!-- 공용 필터 헤더 DataTemplate: 레이블 + 컬럼 폭에 맞는 TextBox -->
-        <DataTemplate x:Key="FilterHeaderFlow">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Flow" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="Flow" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Flow 이름 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderWork">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Work" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="Work" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Work 이름 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderDevice">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Device" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="Device" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Device 이름 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderApi">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Api" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="Api" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Api 이름 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderInName">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="InName" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="InName" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In Symbol 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderInType">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="In Type" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="InType" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In DataType 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderInAddress">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="In Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="InAddress" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In Address 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderOutName">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="OutName" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="OutName" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out Symbol 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderOutType">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Out Type" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="OutType" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out DataType 필터"/>
-            </Grid>
-        </DataTemplate>
-        <DataTemplate x:Key="FilterHeaderOutAddress">
-            <Grid HorizontalAlignment="Stretch"
-                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Out Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
-                <TextBox   Grid.Row="1"
-                           Tag="OutAddress" TextChanged="FilterTextBox_TextChanged"
-                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out Address 필터"/>
-            </Grid>
-        </DataTemplate>
+        <Style x:Key="DiagnosticCardStyle" TargetType="Border">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        </Style>
+
+        <Style x:Key="BatchFilterHeaderCellStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource PanelHeaderBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+
+        <Style x:Key="BatchFilterHeaderTextBlockStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+
+        <Style x:Key="BatchGridHeaderFilterTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
 
         <Style x:Key="BatchGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
@@ -159,12 +85,12 @@
         <Style x:Key="BatchGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
             <Setter Property="GridLinesVisibility" Value="All"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="ColumnHeaderStyle" Value="{StaticResource BatchGridHeaderStyle}"/>
             <Setter Property="CellStyle" Value="{StaticResource BatchGridCellStyle}"/>
         </Style>
+
     </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
@@ -214,12 +140,37 @@
                         Click="Refresh_Click"
                         ToolTip="현재 store 의 매크로/Preset 으로 IO 신호 재생성"/>
 
-                <TextBlock x:Name="StatusText"
-                           Grid.Column="1"
-                           VerticalAlignment="Center"
-                           Margin="14,0,0,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           FontSize="12"/>
+                <!-- 상태 칩: 클릭 시 진단 패널 토글 (오류/경고가 있을 때) -->
+                <StackPanel Grid.Column="1"
+                            x:Name="StatusChipsPanel"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="14,0,0,0">
+                    <Button x:Name="TotalChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="{DynamicResource TertiaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            Foreground="{DynamicResource SecondaryTextBrush}"
+                            IsHitTestVisible="False"
+                            Content="총 0"
+                            ToolTip="현재 화면에 보이는 행 / 전체 행 수"/>
+                    <Button x:Name="WarningChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="#33F2B134"
+                            BorderBrush="{DynamicResource OrangeAccentBrush}"
+                            Foreground="{DynamicResource OrangeAccentBrush}"
+                            Visibility="Collapsed"
+                            Click="DiagnosticsChip_Click"
+                            ToolTip="경고 — 클릭하면 진단 패널이 열립니다"/>
+                    <Button x:Name="ErrorChip"
+                            Style="{StaticResource StatusChipStyle}"
+                            Background="#33E15B5B"
+                            BorderBrush="{DynamicResource RedAccentBrush}"
+                            Foreground="{DynamicResource RedAccentBrush}"
+                            Visibility="Collapsed"
+                            Click="DiagnosticsChip_Click"
+                            ToolTip="오류 — 클릭하면 진단 패널이 열립니다"/>
+                </StackPanel>
 
                 <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
                           Grid.Column="2"
@@ -234,67 +185,341 @@
                     Background="{DynamicResource TertiaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1">
-                <DataGrid x:Name="IoGrid"
-                          Style="{StaticResource BatchGridStyle}"
-                          AutoGenerateColumns="False"
-                          CanUserAddRows="False"
-                          CanUserDeleteRows="False"
-                          IsReadOnly="True"
-                          HeadersVisibility="Column"
-                          SelectionMode="Extended"
-                          SelectionUnit="FullRow"
-                          RowHeaderWidth="0"
-                          PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown">
-                    <DataGrid.RowStyle>
-                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
-                                    <Setter Property="Background" Value="#30FF6B6B"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </DataGrid.RowStyle>
-                    <DataGrid.ContextMenu>
-                        <ContextMenu>
-                            <MenuItem Header="선택 항목 체크" Click="CheckSelected_Click"/>
-                            <MenuItem Header="선택 항목 체크 해제" Click="UncheckSelected_Click"/>
-                            <Separator/>
-                            <MenuItem Header="전체 체크" Click="CheckAll_Click"/>
-                            <MenuItem Header="전체 체크 해제" Click="UncheckAll_Click"/>
-                        </ContextMenu>
-                    </DataGrid.ContextMenu>
-                    <DataGrid.Columns>
-                        <DataGridTemplateColumn Width="34">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              Click="RowCheckBox_Click"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                        <DataGridTextColumn Binding="{Binding Flow}"   Width="120" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderFlow}"/>
-                        <DataGridTextColumn Binding="{Binding Work}"   Width="140" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderWork}"/>
-                        <DataGridTextColumn Binding="{Binding Device}" Width="140" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderDevice}"/>
-                        <DataGridTextColumn Binding="{Binding Api}"    Width="140" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderApi}"/>
-                        <DataGridTextColumn Binding="{Binding InSymbol}"    Width="*"   IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderInName}"/>
-                        <DataGridTextColumn Binding="{Binding InDataType}"  Width="80"  IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderInType}"/>
-                        <DataGridTextColumn Binding="{Binding InAddress}"   Width="120" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderInAddress}"/>
-                        <DataGridTextColumn Binding="{Binding OutSymbol}"   Width="*"   IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderOutName}"/>
-                        <DataGridTextColumn Binding="{Binding OutDataType}" Width="80"  IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderOutType}"/>
-                        <DataGridTextColumn Binding="{Binding OutAddress}"  Width="120" IsReadOnly="True"
-                                            HeaderTemplate="{StaticResource FilterHeaderOutAddress}"/>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <TabControl x:Name="MainTabControl"
+                            Background="Transparent"
+                            BorderThickness="0">
+                    <TabItem x:Name="IoTab" Header="IO 신호">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 진단 패널 — 칩 클릭 시 토글. 항목이 없으면 자동 숨김. -->
+                    <Border x:Name="DiagnosticsPanel"
+                            Grid.Row="0"
+                            Visibility="Collapsed"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="0,0,0,1"
+                            Padding="10,8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="DiagnosticsHeaderText"
+                                           Grid.Column="0"
+                                           Text="진단"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Content="✖"
+                                        Width="22" Height="22"
+                                        Padding="0"
+                                        ToolTip="진단 패널 닫기"
+                                        Click="DiagnosticsClose_Click"/>
+                            </Grid>
+
+                            <ItemsControl Grid.Row="1"
+                                          x:Name="DiagnosticsList"
+                                          MaxHeight="220">
+                                <ItemsControl.Template>
+                                    <ControlTemplate TargetType="ItemsControl">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource DiagnosticCardStyle}"
+                                                BorderBrush="{Binding AccentBrush}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Icon}"
+                                                           Foreground="{Binding AccentBrush}"
+                                                           FontSize="16"
+                                                           Margin="0,1,8,0"
+                                                           VerticalAlignment="Top"/>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Title}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                    <TextBlock Text="{Binding Detail}"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,3,0,0"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               FontSize="12"/>
+                                                    <TextBlock Text="{Binding RawMessage}"
+                                                               Visibility="{Binding HasRawMessage, Converter={StaticResource BoolToVis}}"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,4,0,0"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource DisabledTextBrush}"
+                                                               FontFamily="Consolas, Cascadia Mono, Menlo, monospace"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2"
+                                                            Orientation="Horizontal"
+                                                            VerticalAlignment="Top"
+                                                            Margin="8,0,0,0">
+                                                    <Button Content="🔧 FBTagMap 편집"
+                                                            Padding="8,3"
+                                                            Margin="0,0,6,0"
+                                                            FontSize="11"
+                                                            ToolTip="이 SystemType 의 신호 템플릿을 편집하기 위해 TAG Wizard 를 엽니다."
+                                                            Visibility="{Binding CanOpenFBTagMap, Converter={StaticResource BoolToVis}}"
+                                                            Click="DiagnosticOpenFBTagMap_Click"/>
+                                                    <Button Content="📍 해당 행 보기"
+                                                            Padding="8,3"
+                                                            FontSize="11"
+                                                            Visibility="{Binding HasAffectedRows, Converter={StaticResource BoolToVis}}"
+                                                            Click="DiagnosticGoToRow_Click"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Border>
+
+                    <Grid x:Name="IoHeaderGrid"
+                          Grid.Row="1"
+                          Background="{DynamicResource PanelHeaderBrush}"
+                          ClipToBounds="True">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="34"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="120"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Style="{StaticResource BatchFilterHeaderCellStyle}" Padding="0"/>
+
+                        <Border Grid.Column="1" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Flow" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="Flow"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="2" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Work" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="Work"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="3" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Device" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="Device"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="4" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Api" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="Api"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="5" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="InName" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="InName"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="6" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="In Type" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="InType"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="7" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="In Address" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="InAddress"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="8" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="OutName" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="OutName"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="9" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Out Type" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="OutType"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="10" Style="{StaticResource BatchFilterHeaderCellStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Out Address" Style="{StaticResource BatchFilterHeaderTextBlockStyle}"/>
+                                <TextBox Grid.Row="1" Tag="OutAddress"
+                                         Style="{StaticResource BatchGridHeaderFilterTextBox}"
+                                         TextChanged="FilterTextBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <DataGrid x:Name="IoGrid"
+                              Grid.Row="2"
+                              Style="{StaticResource BatchGridStyle}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="None"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow"
+                              RowHeaderWidth="0"
+                              LayoutUpdated="IoGrid_LayoutUpdated"
+                              PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Style.Triggers>
+                                    <!-- 우선순위: HasError(파이프라인 매칭) > IsUnmatched(매핑 미완) -->
+                                    <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
+                                        <Setter Property="Background" Value="#55F2B134"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasError}" Value="True">
+                                        <Setter Property="Background" Value="#66E15B5B"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="선택 항목 체크" Click="CheckSelected_Click"/>
+                                <MenuItem Header="선택 항목 체크 해제" Click="UncheckSelected_Click"/>
+                                <Separator/>
+                                <MenuItem Header="전체 체크" Click="CheckAll_Click"/>
+                                <MenuItem Header="전체 체크 해제" Click="UncheckAll_Click"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Width="34">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  Click="RowCheckBox_Click"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Binding="{Binding Flow}"   Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding Work}"   Width="140" IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding Device}" Width="140" IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding Api}"    Width="140" IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding InSymbol}"    Width="*"   IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding InDataType}"  Width="80"  IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding InAddress}"   Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding OutSymbol}"   Width="*"   IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding OutDataType}" Width="80"  IsReadOnly="True"/>
+                            <DataGridTextColumn Binding="{Binding OutAddress}"  Width="120" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+                    </TabItem>
+
+                    <TabItem x:Name="DummyTab" Header="Dummy 신호">
+                        <DataGrid x:Name="DummyGrid"
+                                  Style="{StaticResource BatchGridStyle}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Flow"     Binding="{Binding Flow}"     Width="120"/>
+                                <DataGridTextColumn Header="Work"     Binding="{Binding Work}"     Width="140"/>
+                                <DataGridTextColumn Header="Call"     Binding="{Binding Call}"     Width="160"/>
+                                <DataGridTextColumn Header="Symbol"   Binding="{Binding Symbol}"   Width="*"/>
+                                <DataGridTextColumn Header="DataType" Binding="{Binding DataType}" Width="80"/>
+                                <DataGridTextColumn Header="Address"  Binding="{Binding Address}"  Width="120"/>
+                                <DataGridTextColumn Header="Type"     Binding="{Binding Type}"     Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </TabItem>
+                </TabControl>
             </Border>
 
             <!-- 선택 카운트 표시만 (자동 생성 섹션 제거 — 조회 전용) -->
@@ -323,18 +548,27 @@
             <Grid Grid.Row="7">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0"
-                        MinWidth="140"
+                        MinWidth="160"
                         Style="{StaticResource DarkButton}"
-                        Content="📥 CSV 내보내기"
-                        Click="ExportCsv_Click"
-                        ToolTip="현재 필터 적용된 행을 CSV 파일로 저장"/>
+                        Content="📥 IO CSV 내보내기"
+                        Click="ExportIoCsv_Click"
+                        ToolTip="IO 신호 탭의 현재 필터 적용된 행을 CSV 로 저장"/>
 
                 <Button Grid.Column="2"
+                        MinWidth="180"
+                        Style="{StaticResource DarkButton}"
+                        Content="📥 Dummy CSV 내보내기"
+                        Click="ExportDummyCsv_Click"
+                        ToolTip="Dummy 신호 탭의 모든 행을 CSV 로 저장"/>
+
+                <Button Grid.Column="4"
                         MinWidth="82"
                         Style="{StaticResource DarkButton}"
                         Content="닫기"

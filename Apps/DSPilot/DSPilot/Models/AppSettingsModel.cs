@@ -9,7 +9,6 @@ public class AppSettingsModel
     public DatabaseSettings Database { get; set; } = new();
     public FlowCycleSettings FlowCycle { get; set; } = new();
     public PlcDatabaseSettings PlcDatabase { get; set; } = new();
-    public PlcCaptureSettings PlcCapture { get; set; } = new();
     public DspTablesSettings DspTables { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
@@ -56,43 +55,6 @@ public class FlowCycleOverride
     public string FlowName { get; set; } = "";
     public string? StartCallName { get; set; }
     public string? EndCallName { get; set; }
-
-    [JsonExtensionData]
-    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
-}
-
-public class PlcCaptureSettings
-{
-    // Mitsubishi 기본값
-    public const string DefaultMitsubishiName = "MitsubishiPLC";
-    public const string DefaultMitsubishiIp = "192.168.9.120";
-    public const int DefaultMitsubishiPort = 5555;
-    public const string DefaultMitsubishiProtocol = "UDP";
-
-    // LS 기본값
-    public const string DefaultLsName = "LSPLC";
-    public const string DefaultLsIp = "192.168.9.100";
-    public const int DefaultLsPort = 2004;
-    public const string DefaultLsModel = "XGI";
-
-    public const int DefaultScanIntervalMs = 100;
-    public const string DefaultPlcType = "Mitsubishi";
-
-    public bool Enabled { get; set; }
-    public string PlcType { get; set; } = DefaultPlcType;
-    public string PlcName { get; set; } = DefaultMitsubishiName;
-    public string PlcIpAddress { get; set; } = DefaultMitsubishiIp;
-    public int PlcPort { get; set; } = DefaultMitsubishiPort;
-    public int ScanIntervalMs { get; set; } = DefaultScanIntervalMs;
-    public string Protocol { get; set; } = DefaultMitsubishiProtocol;
-
-    /// <summary>
-    /// LS PLC 모델: "XGI", "XGK", "XGT" (PlcType이 "LS"일 때 사용)
-    /// </summary>
-    public string PlcModel { get; set; } = DefaultLsModel;
-
-    [JsonIgnore]
-    public bool IsLS => PlcType.Equals("LS", StringComparison.OrdinalIgnoreCase);
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

@@ -15,6 +15,7 @@ public partial class SimulationPanelState
     private WebApplication? _hubHost;
     private HubConnection? _hubConnection;
     private CancellationTokenSource? _hubConnectionCts;
+    private CancellationTokenSource? _reconnectStabilizationCts;
     private int _hubGeneration;
 
     private int CurrentHubGeneration => Volatile.Read(ref _hubGeneration);
@@ -85,32 +86,74 @@ public partial class SimulationPanelState
             hubConnection.On<string, string, string>(
                 HubMethod.OnTagChanged,
                 (address, value, source) => OnHubTagChanged(generation, address, value, source));
-            hubConnection.Closed += ex => OnHubDisconnected(generation, ex);
-            hubConnection.Reconnecting += _ =>
+            hubConnection.Closed += ex =>
             {
+                // Closed 시 진행 중인 reconnect stabilization 취소 (false-positive "재연결 완료" 차단).
+                _reconnectStabilizationCts?.Cancel();
+                return OnHubDisconnected(generation, ex);
+            };
+            hubConnection.Reconnecting += ex =>
+            {
+                _reconnectStabilizationCts?.Cancel();
                 if (IsCurrentHubConnection(generation, hubConnection))
                     _dispatcher.BeginInvoke(() =>
                     {
-                        if (IsCurrentHubConnection(generation, hubConnection))
-                        {
-                            SimStatusText = "Hub 재연결 중...";
-                            SetHubStatus(connected: false, reconnecting: true);
-                            AddSimLog("Hub 연결 끊김 — 자동 재연결 시도 중", LogSeverity.Warn);
-                        }
+                        if (!IsCurrentHubConnection(generation, hubConnection)) return;
+                        SimStatusText = "Hub 재연결 시도 중...";
+                        SetHubStatus(connected: false, reconnecting: true);
+                        var detail = ex is null ? "" : $" ({ex.Message})";
+                        AddSimLog($"Hub 연결 끊김 — 자동 재연결 시도 중{detail}", LogSeverity.Warn);
                     });
                 return Task.CompletedTask;
             };
-            hubConnection.Reconnected += _ =>
+            hubConnection.Reconnected += _connectionId =>
             {
-                if (IsCurrentHubConnection(generation, hubConnection))
-                    _dispatcher.BeginInvoke(() =>
+                if (!IsCurrentHubConnection(generation, hubConnection))
+                    return Task.CompletedTask;
+
+                // Reconnected event 가 발화돼도 즉시 다시 끊기는 short-lived Connected 가 있어
+                // false-positive "재연결 완료" 가 뜨던 문제. 300ms stabilization 후 state 재검사 →
+                // 그 사이 Closed/Reconnecting 가 오면 cts.Cancel 로 취소되어 "완료" 로그 안 뜸.
+                _reconnectStabilizationCts?.Cancel();
+                _reconnectStabilizationCts?.Dispose();
+                _reconnectStabilizationCts = new CancellationTokenSource();
+                var stabCt = _reconnectStabilizationCts.Token;
+
+                _dispatcher.BeginInvoke(() =>
+                {
+                    if (IsCurrentHubConnection(generation, hubConnection))
                     {
-                        if (!IsCurrentHubConnection(generation, hubConnection))
+                        SimStatusText = "Hub 재연결 안정화 중...";
+                        AddSimLog("Hub 재연결 이벤트 발생 — 안정화 확인 중", LogSeverity.Info);
+                    }
+                });
+
+                _ = Task.Run(async () =>
+                {
+                    try { await Task.Delay(300, stabCt); }
+                    catch (OperationCanceledException) { return; }
+
+                    if (stabCt.IsCancellationRequested) return;
+                    if (!IsCurrentHubConnection(generation, hubConnection)) return;
+
+                    var stableState = hubConnection.State;
+                    _ = _dispatcher.BeginInvoke(() =>
+                    {
+                        if (!IsCurrentHubConnection(generation, hubConnection)) return;
+                        if (stableState != HubConnectionState.Connected)
+                        {
+                            AddSimLog(
+                                $"Hub 재연결 안정화 실패 — state={stableState} (false-positive)",
+                                LogSeverity.Warn);
+                            SimStatusText = "Hub 연결 끊김";
+                            SetHubStatus(connected: false, reconnecting: false);
                             return;
+                        }
                         SimStatusText = IsSimulating ? "Hub 재연결 완료" : SimText.Stopped;
                         AddSimLog("Hub 재연결 완료", LogSeverity.System);
                         SetHubStatus(connected: true, reconnecting: false);
                     });
+                });
                 return Task.CompletedTask;
             };
 
@@ -217,6 +260,9 @@ public partial class SimulationPanelState
     private void StopHub()
     {
         InvalidateHubGeneration();
+        _reconnectStabilizationCts?.Cancel();
+        _reconnectStabilizationCts?.Dispose();
+        _reconnectStabilizationCts = null;
         SetHubStatus(connected: false, reconnecting: false);
 
         if (_hubConnection is not null)

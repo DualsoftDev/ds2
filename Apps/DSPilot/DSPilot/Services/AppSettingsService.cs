@@ -51,7 +51,7 @@ public class AppSettingsService
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "PlcCapture", "DspTables", "Logging", "Ui", "HistoryView" })
+            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "DspTables", "Logging", "Ui", "HistoryView" })
             {
                 if (prod[key] is not null)
                     root[key] = prod[key]!.DeepClone();
@@ -64,7 +64,6 @@ public class AppSettingsService
             Database = Deserialize<DatabaseSettings>(root["Database"]),
             FlowCycle = Deserialize<FlowCycleSettings>(root["FlowCycle"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
-            PlcCapture = Deserialize<PlcCaptureSettings>(root["PlcCapture"]),
             DspTables = Deserialize<DspTablesSettings>(root["DspTables"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
@@ -80,7 +79,6 @@ public class AppSettingsService
         root["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
         root["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        root["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         root["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
@@ -94,7 +92,6 @@ public class AppSettingsService
         prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
         prod["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         prod["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        prod["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         prod["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
         prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);

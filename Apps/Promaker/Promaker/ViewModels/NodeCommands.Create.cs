@@ -1,3 +1,4 @@
+using AAStoPLC.TagWizard;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -265,7 +266,7 @@ public partial class MainViewModel
     private IReadOnlyList<Promaker.Dialogs.CallCreateDialog.ApiCountSpec> GetApiCountSpecsForSysType(string sysType)
     {
         if (string.IsNullOrWhiteSpace(sysType)) return [];
-        var dto = Promaker.Services.FBTagMapStore.LoadOne(_store, sysType);
+        var dto = AAStoPLC.TagWizard.FBTagMapStore.LoadOne(_store, sysType);
         if (dto is null) return [];
 
         // (Section, ApiName) → entry 개수 — 미리 N 개 등록된 entry 수가 max 신호 수.

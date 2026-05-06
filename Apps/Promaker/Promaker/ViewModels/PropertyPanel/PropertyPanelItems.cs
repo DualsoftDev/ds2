@@ -155,6 +155,7 @@ public sealed class CallConditionItem
     public Guid               ConditionId   { get; }
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
+    public bool               IsAND         => !IsOR;
     public bool               IsRising      { get; }
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }

@@ -8,16 +8,21 @@ public partial class MainViewModel
         "시뮬레이션 중에는 화살표 연결 수정만 가능합니다.\n\n계속하려면 시뮬레이션을 종료해야 합니다.";
 
     /// <summary>
-    /// Control / VirtualPlant / Monitoring 모드에서는 외부 PLC / 시뮬레이터와 동작 중이라
-    /// 화살표 연결/타입/방향/삭제 변경을 허용하면 시뮬레이션 일관성이 깨질 수 있음.
-    /// Simulation 모드에서만 화살표 변경 허용.
+    /// PLAY 상태 (시뮬 진행 중) 에서만 화살표 변경 차단. 그 외 (정지 / Pause) 시 모든 모드에서
+    /// 변경 허용. 진행 중 사용자가 변경 시도하면 경고창 띄워 종료 선택 시 진행.
     /// </summary>
     internal bool GuardArrowEditByRuntimeMode(string editName)
     {
-        if (Simulation.SelectedRuntimeMode == RuntimeMode.Simulation)
+        if (!Simulation.IsSimulating)
             return true;
-        StatusText = $"[차단] {Simulation.SelectedRuntimeMode} 모드에서는 화살표 변경 불가 ({editName}) — Simulation 모드에서만 가능";
-        return false;
+
+        var fullMessage = $"시뮬레이션 진행 중에는 화살표 변경이 불가합니다.\n\n대상: {editName}\n\n계속하려면 시뮬레이션을 종료해야 합니다.";
+        var proceed = TryStopSimulationViaWarning(fullMessage);
+
+        StatusText = proceed
+            ? $"시뮬레이션 종료 → '{editName}' 변경 진행"
+            : $"시뮬레이션 진행 중 '{editName}' 변경이 차단되었습니다.";
+        return proceed;
     }
 
     private bool GuardSimulationSemanticEdit(string editName)

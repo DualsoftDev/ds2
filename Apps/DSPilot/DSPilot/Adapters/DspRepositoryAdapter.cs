@@ -67,6 +67,27 @@ public class DspRepositoryAdapter : IDspRepository
         return names.Any(n => n == columnName);
     }
 
+    /// <summary>
+    /// 테이블에 컬럼이 없으면 ALTER TABLE ADD COLUMN 으로 추가. 옛 스키마 호환용.
+    /// </summary>
+    private async Task EnsureColumnAsync(SqliteConnection conn, string table, string column, string definition)
+    {
+        try
+        {
+            var existsSql = $"SELECT name FROM pragma_table_info('{table}')";
+            var names = await conn.QueryAsync<string>(existsSql);
+            if (names.Any(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {definition}");
+            _logger.LogInformation("Added missing column {Column} {Definition} to {Table}", column, definition, table);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "EnsureColumn failed for {Table}.{Column}", table, column);
+        }
+    }
+
     private async Task EnsureIsIdleColumnAsync(SqliteConnection conn)
     {
         var exists = await ColumnExistsAsync(conn, HistoryTable, "IsIdle");
@@ -84,11 +105,156 @@ public class DspRepositoryAdapter : IDspRepository
 
     // ===== IDspRepository =====
 
-    public Task<bool> CreateSchemaAsync()
+    public async Task<bool> CreateSchemaAsync()
     {
-        if (!_enabled) return Task.FromResult(true);
-        _logger.LogInformation("Unified mode: Schema creation delegated to EV2 (no action needed)");
-        return Task.FromResult(true);
+        if (!_enabled) return true;
+
+        try
+        {
+            await using var conn = await OpenAsync();
+
+            // SQLite journal_mode=WAL — write 트랜잭션이 read 를 차단하지 않도록.
+            // PlcTagLogWriterService 가 250ms 마다 커밋하므로, 이걸 안 켜면 cycle-time-analysis
+            // 등 시간 범위 read 쿼리가 매번 잠금 대기에 걸린다.
+            // journal_mode 는 DB 파일에 영구 저장되는 속성이므로 한 번만 켜면 되고, plc.db 를 삭제 →
+            // 재생성하는 경로(Settings 페이지의 DB 재초기화 + Program.cs 시작 시)에서도 항상 거치도록
+            // CreateSchemaAsync 안에 둔다.
+            try
+            {
+                var mode = await conn.ExecuteScalarAsync<string>("PRAGMA journal_mode=WAL");
+                await conn.ExecuteAsync("PRAGMA synchronous=NORMAL");
+                _logger.LogInformation("plc.db journal_mode={Mode}, synchronous=NORMAL", mode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set WAL pragma");
+            }
+
+            // 컬럼명은 EV2 unified schema 와 호환되도록 lowercase camelCase.
+            // SQLite identifier 매칭은 case-insensitive 라 INSERT/UPDATE 의 PascalCase 도 동일 컬럼을 가리킨다.
+            const string createFlow = @"
+                CREATE TABLE IF NOT EXISTS dspFlow (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flowName        NVARCHAR(128) NOT NULL UNIQUE,
+                    mt              INTEGER,
+                    wt              INTEGER,
+                    ct              INTEGER,
+                    avgMT           REAL,
+                    avgWT           REAL,
+                    avgCT           REAL,
+                    state           NVARCHAR(128),
+                    movingStartName NVARCHAR(128),
+                    movingEndName   NVARCHAR(128),
+                    createdAt       DATETIME DEFAULT (datetime('now')),
+                    updatedAt       DATETIME DEFAULT (datetime('now'))
+                )";
+
+            const string createCall = @"
+                CREATE TABLE IF NOT EXISTS dspCall (
+                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    callId             TEXT,
+                    callName           NVARCHAR(128) NOT NULL,
+                    apiCall            NVARCHAR(128),
+                    workName           NVARCHAR(128),
+                    flowName           NVARCHAR(128) NOT NULL,
+                    next               TEXT,
+                    prev               TEXT,
+                    autoPre            TEXT,
+                    commonPre          TEXT,
+                    state              NVARCHAR(128),
+                    progressRate       REAL DEFAULT 0,
+                    previousGoingTime  INTEGER,
+                    averageGoingTime   REAL,
+                    stdDevGoingTime    REAL,
+                    goingCount         INTEGER DEFAULT 0,
+                    device             NVARCHAR(128),
+                    errorText          TEXT,
+                    createdAt          DATETIME DEFAULT (datetime('now')),
+                    updatedAt          DATETIME DEFAULT (datetime('now')),
+                    UNIQUE (callName, flowName, workName)
+                )";
+
+            const string createFlowHistory = @"
+                CREATE TABLE IF NOT EXISTS dspFlowHistory (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flowName    NVARCHAR(128),
+                    mt          INTEGER,
+                    wt          INTEGER,
+                    ct          INTEGER,
+                    cycleNo     INTEGER,
+                    recordedAt  DATETIME,
+                    IsIdle      INTEGER NOT NULL DEFAULT 0
+                )";
+
+            // plc / plcTag / plcTagLog — Hub 모니터링 모드에서 DsPilot 자체가 채움.
+            // 컬럼 구성은 [PlcEntity](Apps/DSPilot/DSPilot/Models/Plc/PlcEntity.cs) 와 일치.
+            // CycleTimeAnalysis 와 PlcDebug 가 이 테이블을 읽음.
+            const string createPlc = @"
+                CREATE TABLE IF NOT EXISTS plc (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    projectId  INTEGER,
+                    name       NVARCHAR(128) NOT NULL UNIQUE,
+                    connection TEXT
+                )";
+
+            const string createPlcTag = @"
+                CREATE TABLE IF NOT EXISTS plcTag (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plcId     INTEGER NOT NULL DEFAULT 1,
+                    name      NVARCHAR(128) NOT NULL,
+                    address   NVARCHAR(128) NOT NULL UNIQUE,
+                    dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL'
+                )";
+
+            const string createPlcTagLog = @"
+                CREATE TABLE IF NOT EXISTS plcTagLog (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plcTagId  INTEGER NOT NULL,
+                    dateTime  DATETIME NOT NULL,
+                    value     TEXT NOT NULL,
+                    FOREIGN KEY (plcTagId) REFERENCES plcTag(id)
+                )";
+
+            const string createPlcTagLogIdx =
+                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime ON plcTagLog(dateTime)";
+            const string createPlcTagLogTagIdx =
+                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_plcTagId ON plcTagLog(plcTagId)";
+
+            await conn.ExecuteAsync(createFlow);
+            await conn.ExecuteAsync(createCall);
+            await conn.ExecuteAsync(createFlowHistory);
+            await conn.ExecuteAsync(createPlc);
+            await conn.ExecuteAsync(createPlcTag);
+            await conn.ExecuteAsync(createPlcTagLog);
+            await conn.ExecuteAsync(createPlcTagLogIdx);
+            await conn.ExecuteAsync(createPlcTagLogTagIdx);
+
+            // 기본 plc 행 보장 (id=1) — plcTag.plcId 가 참조하는 단일 PLC
+            await conn.ExecuteAsync(
+                "INSERT INTO plc (id, name) VALUES (1, 'DSPilot') ON CONFLICT(name) DO NOTHING");
+
+            // M2 — 옛 EV2 스키마 마이그레이션. CREATE TABLE IF NOT EXISTS 는 기존 테이블의 컬럼을
+            // 추가하지 않으므로, 우리 코드가 쓰는 컬럼이 누락되어 있으면 SQL 에러가 fire-and-forget
+            // 으로 흡수되어 통계가 영원히 0 으로 남는다. 누락된 컬럼만 ALTER 로 보충.
+            await EnsureColumnAsync(conn, "dspCall", "previousGoingTime", "INTEGER");
+            await EnsureColumnAsync(conn, "dspCall", "averageGoingTime",  "REAL");
+            await EnsureColumnAsync(conn, "dspCall", "stdDevGoingTime",   "REAL");
+            await EnsureColumnAsync(conn, "dspCall", "goingCount",        "INTEGER NOT NULL DEFAULT 0");
+            await EnsureColumnAsync(conn, "dspFlow", "movingStartName",   "NVARCHAR(128)");
+            await EnsureColumnAsync(conn, "dspFlow", "movingEndName",     "NVARCHAR(128)");
+            await EnsureColumnAsync(conn, "dspFlow", "avgMT",             "REAL");
+            await EnsureColumnAsync(conn, "dspFlow", "avgWT",             "REAL");
+            await EnsureColumnAsync(conn, "dspFlow", "avgCT",             "REAL");
+
+            _logger.LogInformation(
+                "DSP/PLC schema ensured (dspFlow / dspCall / dspFlowHistory / plc / plcTag / plcTagLog)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create DSP schema");
+            return false;
+        }
     }
 
     public async Task<int> BulkInsertFlowsAsync(List<DspFlowEntity> flows)
@@ -196,6 +362,32 @@ public class DspRepositoryAdapter : IDspRepository
             _logger.LogError(ex, "Failed to bulk insert calls");
             throw;
         }
+    }
+
+    /// <summary>
+    /// 한 Flow 내 Going 상태 Call 수에 따라 dspFlow.state 를 'Going' / 'Ready' 로 자동 동기화.
+    /// 단일 atomic UPDATE 로 race 없음.
+    /// </summary>
+    public async Task<bool> SyncFlowStateAsync(string flowName)
+    {
+        if (!_enabled) return false;
+        if (string.IsNullOrEmpty(flowName)) return false;
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+            return false;
+
+        var sql = $@"
+            UPDATE {_flowTable}
+            SET State = CASE WHEN EXISTS (
+                    SELECT 1 FROM {_callTable}
+                    WHERE FlowName = @FlowName AND State = 'Going'
+                ) THEN 'Going' ELSE 'Ready' END,
+                UpdatedAt = datetime('now')
+            WHERE FlowName = @FlowName";
+
+        var rows = await conn.ExecuteAsync(sql, new { FlowName = flowName });
+        return rows > 0;
     }
 
     public async Task<bool> UpdateFlowStateAsync(string flowName, string state)
@@ -656,6 +848,38 @@ public class DspRepositoryAdapter : IDspRepository
         {
             _logger.LogError(ex, "Failed to get Flow history by start time for '{FlowName}'", flowName);
             return new List<DspFlowHistoryEntity>();
+        }
+    }
+
+    /// <summary>
+    /// dspCall 의 통계 컬럼만 reset (Welford 누적기 fresh 상태로).
+    /// 사용처: Flow 히스토리 클리어 시 통계도 함께 초기화.
+    /// </summary>
+    public async Task<int> ResetCallStatisticsAsync()
+    {
+        if (!_enabled) return 0;
+
+        try
+        {
+            await using var conn = await OpenAsync();
+            if (!await TableExistsAsync(conn, _callTable))
+                return 0;
+
+            var sql = $@"
+                UPDATE {_callTable}
+                SET PreviousGoingTime = NULL,
+                    AverageGoingTime = NULL,
+                    StdDevGoingTime = NULL,
+                    GoingCount = 0,
+                    UpdatedAt = datetime('now')";
+            var rows = await conn.ExecuteAsync(sql);
+            _logger.LogInformation("Reset statistics on {Count} dspCall rows", rows);
+            return rows;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reset call statistics");
+            return 0;
         }
     }
 

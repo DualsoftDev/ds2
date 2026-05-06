@@ -24,6 +24,12 @@ public partial class SimulationPanelState
     /// <summary>시뮬 정지 시마다 누적되는 in-memory 시나리오 목록 (최신이 [0]).</summary>
     public ObservableCollection<Ds2.Core.SimulationResultSnapshotTypes.SimulationScenario> CapturedRuns { get; }
         = new();
+
+    /// <summary>
+    /// CapturedRuns 최대 보관 개수. 시나리오 한 개가 무거워(state-change 기록 전체 + KPI + traversals 포함)
+    /// Stop/Start 반복 시 무한 누적되면 OOM 으로 이어진다. 가장 오래된 것부터 잘라낸다.
+    /// </summary>
+    private const int MaxCapturedRuns = 20;
     /// <summary>UI 캡처 버튼 — 현재 시뮬 결과를 시나리오로 박제.</summary>
     [RelayCommand(CanExecute = nameof(CanCaptureScenario))]
     private void CaptureScenarioToProject()
@@ -73,8 +79,10 @@ public partial class SimulationPanelState
         var scenario = SimulationSnapshotBuilder.buildScenarioOnly(
             project, storeOpt, input, kpiInputs, report, traversals);
 
-        // 2) in-memory 누적 (최신이 [0])
+        // 2) in-memory 누적 (최신이 [0]) — 가장 오래된 항목부터 잘라내 무한 누적 방지.
         CapturedRuns.Insert(0, scenario);
+        while (CapturedRuns.Count > MaxCapturedRuns)
+            CapturedRuns.RemoveAt(CapturedRuns.Count - 1);
 
         // 3) 원본 보존 게이팅: 원본 AASX 에 TechnicalData 있으면 SimulationResult 갱신 skip
         if (!HasOriginalTechnicalData(project))
