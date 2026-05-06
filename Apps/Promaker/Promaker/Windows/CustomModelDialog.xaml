@@ -114,12 +114,13 @@
 
         <!-- Row 3: 하단 버튼 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="취소" Click="Cancel_Click" Width="80" Height="32"
-                    Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
-                    FontSize="13" Cursor="Hand" Margin="0,0,8,0"/>
             <Button x:Name="RegisterButton" Content="등록" Click="Register_Click" Width="80" Height="32"
                     Background="#3b82f6" Foreground="White" BorderThickness="0"
-                    FontSize="13" FontWeight="SemiBold" Cursor="Hand" IsEnabled="False"/>
+                    FontSize="13" FontWeight="SemiBold" Cursor="Hand" IsEnabled="False"
+                    Margin="0,0,8,0"/>
+            <Button Content="취소" Click="Cancel_Click" Width="80" Height="32"
+                    Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                    FontSize="13" Cursor="Hand"/>
         </StackPanel>
     </Grid>
 </Window>

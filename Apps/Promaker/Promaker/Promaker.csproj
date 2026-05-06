@@ -60,7 +60,17 @@
 
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoPLC\AAStoPLC.fsproj" />
+    <!-- AAStoPLC, AAStoPLC.LadderViewer 는 별도 저장소(dsev2cpu) 빌드 산출물.
+         빌드 시 ExternalDlls 로 게시되며, 여기서는 그 dll 만 파일 참조. -->
+    <Reference Include="AAStoPLC">
+      <HintPath>..\..\..\ExternalDlls\AAStoPLC.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="AAStoPLC.LadderViewer">
+      <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderViewer.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.IOList\Ds2.IOList.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
@@ -71,6 +81,5 @@
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
-    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoPLC.LadderViewer\AAStoPLC.LadderViewer.csproj" />
   </ItemGroup>
 </Project>

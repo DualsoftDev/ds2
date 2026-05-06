@@ -339,6 +339,50 @@ module StepModeTests =
             engine.Stop()
 
     [<Fact>]
+    let ``STEP mode: going call advances while paused`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.Duration <- Some(TimeSpan.FromMilliseconds 1000.)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ])
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+
+        try
+            engine.Start()
+            let token = engine.NextToken()
+            engine.SeedToken(work.Id, token)
+
+            Assert.True(
+                waitUntil 1000 (fun () -> engine.GetCallState(callId) = Some Status4.Going),
+                "call should be Going before pause")
+
+            engine.SetAllFlowStates(FlowTag.Pause)
+            let beforeMs = engine.CurrentTimeMs
+
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.True(
+                engine.CanAdvanceStep(Guid.Empty, false),
+                "Going Call should still be step-advanceable")
+            Assert.True(
+                engine.StepWithSourcePriming(Guid.Empty, false),
+                "STEP should advance the pending call boundary")
+            Assert.True(
+                engine.CurrentTimeMs > beforeMs,
+                $"STEP should advance sim time. Before={beforeMs}, After={engine.CurrentTimeMs}")
+        finally
+            engine.Stop()
+
+    [<Fact>]
     let ``STEP mode: terminal finish leaves no further step work`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
@@ -365,6 +409,36 @@ module StepModeTests =
             Assert.False(engine.HasStartableWork, "terminal finish should not leave any startable work")
             Assert.False(engine.HasActiveDuration, "terminal finish should not leave any active duration")
             Assert.False(engine.Step(), "terminal finish should not advance any further")
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``STEP mode: pausing active duration preserves elapsed runtime clock`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        work.Duration <- Some (TimeSpan.FromMilliseconds 1000.)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+
+        try
+            engine.Start()
+
+            let token = engine.NextToken()
+            engine.SeedToken(work.Id, token)
+
+            Assert.True(
+                waitUntil 1000 (fun () -> engine.GetWorkState(work.Id) = Some Status4.Going),
+                "work should be Going before entering STEP pause")
+
+            System.Threading.Thread.Sleep(150)
+            engine.SetAllFlowStates(FlowTag.Pause)
+
+            Assert.True(
+                engine.State.Clock.TotalMilliseconds >= 75.,
+                $"Step pause should account for elapsed active duration time. Clock={engine.State.Clock}")
         finally
             engine.Stop()
 

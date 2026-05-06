@@ -331,9 +331,11 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         Index = index
         StateManager = stateManager
         DurationTracker = durationTracker
+        SyncCurrentTime = (fun () -> EventDrivenEngineRuntime.syncClockToCurrentTimeWhileRunning runtimeContext)
         ScheduleConditionEvaluation = scheduleConditionEvaluation
     }
     let stepBoundaryContext : EngineFlowStep.StepBoundaryContext = {
+        Index = index
         GetState = stateManager.GetState
         CurrentTimeMs = (fun () -> scheduler.CurrentTimeMs)
         SetAllFlowStates = EngineFlowStep.setAllFlowStates flowContext
@@ -365,6 +367,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         | None ->
             stateManager.SetTokenOrigin(value, TokenFlow.resolveSeedOriginLabel tokenFlowContext sourceWorkGuid)
             applyToken (sourceWorkGuid, Some value, Seed, value)
+
+    let startSourceWork (sourceWorkGuid: Guid) =
+        if index.AllWorkGuids |> List.contains sourceWorkGuid then
+            if SimIndex.isTokenSource index sourceWorkGuid
+               && stateManager.GetWorkToken(sourceWorkGuid) |> Option.isNone then
+                seedToken sourceWorkGuid (stateManager.NextToken())
+            forceWorkState sourceWorkGuid Status4.Going
 
     let discardToken (workGuid: Guid) =
         match stateManager.GetWorkToken(workGuid) with
@@ -480,10 +489,22 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.StepWithSourcePriming(selectedSourceGuid, autoStartSources) =
             lock processGate (fun () ->
                 EngineFlowStep.stepWithSourcePriming stepContext selectedSourceGuid autoStartSources)
+        member _.BeginStepBatch(selectedSourceGuid, autoStartSources) =
+            lock processGate (fun () ->
+                EngineFlowStep.beginStepBatch stepBoundaryContext stepContext selectedSourceGuid autoStartSources)
+        member _.IsStepBatchActive(batch: Guid[]) =
+            EngineFlowStep.isAnyBatchStillGoing stepBoundaryContext (Set.ofArray batch)
+        member _.AdvanceSimulationTo(targetTimeMs) =
+            lock processGate (fun () -> advanceStepRuntime targetTimeMs)
+        member _.EndStep() =
+            lock processGate (fun () ->
+                EngineFlowStep.endStep stepBoundaryContext)
         member _.ReloadConnections() =
             runExternalMutation (fun () -> EngineFlowStep.reloadConnections reloadContext)
         member _.ReloadDurations() =
             runExternalMutation (fun () -> reloadDurations ())
+        member _.CurrentTimeMs = scheduler.CurrentTimeMs
+        member _.NextEventTimeMs = scheduler.NextEventTime
         member _.SpeedMultiplier
             with get() = speedMultiplier
             and set(value) =
@@ -496,7 +517,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                     let previous = timeIgnore
                     timeIgnore <- isIgnored
                     if isIgnored && not previous && getStatus() = Running then
-                        EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowStateChange)
+                        EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowDurationCheck)
         member _.InjectIOValue(apiCallGuid, value) =
             runExternalMutation (fun () ->
                 stateManager.SetIOValue(apiCallGuid, value)
@@ -510,6 +531,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.NextToken() = stateManager.NextToken()
         member _.SeedToken(sourceWorkGuid, value) =
             runExternalMutation (fun () -> seedToken sourceWorkGuid value)
+        member _.StartSourceWork(sourceWorkGuid) =
+            runExternalMutation (fun () -> startSourceWork sourceWorkGuid)
         member _.DiscardToken(workGuid) =
             runExternalMutation (fun () -> discardToken workGuid)
         member _.GetWorkToken(workGuid) = stateManager.GetWorkToken(workGuid)

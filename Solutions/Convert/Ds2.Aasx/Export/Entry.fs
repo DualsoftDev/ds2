@@ -23,7 +23,7 @@ module AasxExporter =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
-    let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+    let private appendProjectMetadataSubmodels (store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
         let npSm = nameplateToSubmodel nameplate project.Id
         submodels.Add(npSm :> ISubmodel)
@@ -36,8 +36,13 @@ module AasxExporter =
         smRefs.Add(mkSmRef docSm)
 
         // TechnicalData (IDTA 02003) — 시뮬결과 박제 가능. 항상 추가하되 비어있으면 기본 골격만.
+        // SimulationResult 는 Active System 이 존재할 때만 emit (passive-only 프로젝트 제외).
+        // 추가로 KPI 항목들은 Active 시스템 의 work/call 만 포함.
+        let hasActive = (Queries.activeSystemsOf project.Id store |> List.isEmpty |> not)
+        AasxExportTechnicalData.setActiveContext store project
         let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
-        let tdSm = technicalDataToSubmodel techData project.Id
+        let tdSm = technicalDataToSubmodelEx techData project.Id hasActive
+        AasxExportTechnicalData.clearActiveContext ()
         submodels.Add(tdSm :> ISubmodel)
         smRefs.Add(mkSmRef tdSm)
 
@@ -347,7 +352,7 @@ module AasxExporter =
                     log.Warn($"원본 Environment 처리 실패: {ex.Message}. 새로운 Environment를 생성합니다.", ex)
                     let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
                     let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
-                    appendProjectMetadataSubmodels project submodels smRefs
+                    appendProjectMetadataSubmodels store project submodels smRefs
 
                     let globalAssetId = resolveGlobalAssetId prefix project.Name
                     let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
@@ -359,7 +364,7 @@ module AasxExporter =
             | None ->
                 let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
                 let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
-                appendProjectMetadataSubmodels project submodels smRefs
+                appendProjectMetadataSubmodels store project submodels smRefs
 
                 let globalAssetId = resolveGlobalAssetId prefix project.Name
                 let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
@@ -451,7 +456,7 @@ module AasxExporter =
         let submodels = ResizeArray<ISubmodel>(allSubmodels |> List.map (fun sm -> sm :> ISubmodel))
         let smRefs = ResizeArray<IReference>(allSubmodels |> List.map mkSmRef)
 
-        appendProjectMetadataSubmodels project submodels smRefs
+        appendProjectMetadataSubmodels store project submodels smRefs
 
         let globalAssetId = resolveGlobalAssetId prefix project.Name
         let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)

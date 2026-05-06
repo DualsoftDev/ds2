@@ -87,6 +87,19 @@ public partial class SimulationPanelState
         }
     }
 
+    /// <summary>
+    /// _stateChangeRecords 최대 보관 개수. VP/Control 모드는 외부 신호 기반이라 사용자가
+    /// Stop 누르기 전까지 누적이 끊기지 않으며, 한 record 가 작아도 다일 운전 시 GB 단위로 성장.
+    /// </summary>
+    private const int MaxStateChangeRecords = 50_000;
+
+    /// <summary>
+    /// cap 초과 시 한 번에 제거할 record 수. 매 RecordStateChange 마다 RemoveRange(0,1) 을 부르면
+    /// hot-path 에서 List shift 가 O(MaxStateChangeRecords) 라 누적 비용이 커진다. 한 번에
+    /// 큰 chunk 를 제거해 amortized O(MaxStateChangeRecords / Chunk) 로 떨어뜨린다.
+    /// </summary>
+    private const int StateChangeTrimChunk = 5_000;
+
     private void RecordStateChange(string nodeId, string nodeName, string nodeType, string systemId, Status4 state)
     {
         var stateString = SimText.StateCode(state);
@@ -110,6 +123,8 @@ public partial class SimulationPanelState
         _stateChangeRecords.Add(
             new StateChangeRecord(nodeId, nodeName, nodeType, systemId, stateString, timestamp,
                 tokenItem, originName));
+        if (_stateChangeRecords.Count > MaxStateChangeRecords)
+            _stateChangeRecords.RemoveRange(0, StateChangeTrimChunk);
         HasReportData = _stateChangeRecords.Count > 0;
     }
 

@@ -180,16 +180,16 @@
                            FontSize="11"
                            Foreground="{DynamicResource SecondaryTextBrush}"/>
                 <Button Grid.Column="1"
-                        Content="취소"
-                        Style="{StaticResource DarkButton}"
-                        MinWidth="90" Padding="8,6"
-                        IsCancel="True"/>
-                <Button Grid.Column="3"
                         Content="✓ 적용"
                         Style="{StaticResource DarkButton}"
                         MinWidth="110" Padding="8,6"
                         Click="Apply_Click"
                         ToolTip="미리보기의 모든 태그를 ApiCall.InTag/OutTag 에 일괄 덮어쓰기"/>
+                <Button Grid.Column="3"
+                        Content="취소"
+                        Style="{StaticResource DarkButton}"
+                        MinWidth="90" Padding="8,6"
+                        IsCancel="True"/>
             </Grid>
         </Grid>
     </Border>

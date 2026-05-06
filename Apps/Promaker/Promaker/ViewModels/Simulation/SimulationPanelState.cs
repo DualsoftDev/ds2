@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Runtime.Engine;
+using Ds2.Runtime.IO;
 using Ds2.Runtime.Model;
 using Ds2.Runtime.Report;
 using Ds2.Runtime.Report.Model;
@@ -136,7 +137,10 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private string _simStatusText = SimText.Stopped;
 
     // ── Runtime Mode + Hub ───────────────────────────────────────────
-    [ObservableProperty] private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
     [ObservableProperty] private bool _isHubHosting;
 
@@ -157,11 +161,41 @@ public partial class SimulationPanelState : ObservableObject
         : IsHubReconnecting ? "Hub 재연결 시도 중"
         : "Hub 끊김";
 
+    private RuntimeMode _previousRuntimeMode = RuntimeMode.Simulation;
+    private bool _suppressRuntimeModeChangeHandler;
+
     partial void OnSelectedRuntimeModeChanged(RuntimeMode value)
     {
+        if (_suppressRuntimeModeChangeHandler) return;
+
+        // Simulation 외 모드는 외부 Hub 신호 + I/O 매핑 필수.
+        // I/O 미설정 상태에서 Control/VP/Monitoring 진입하면 시뮬 진행 불가 → 경고 + 이전 모드 revert.
+        if (value != RuntimeMode.Simulation && !HasIOConfigured())
+        {
+            Dialogs.DialogHelpers.ShowThemedMessageBox(
+                $"{value} 모드는 I/O 매핑 (ApiCall 의 OutTag/InTag 주소) 이 설정되어야 사용할 수 있습니다.\n\n" +
+                "프로젝트에 I/O 를 먼저 설정한 후 다시 시도해 주세요.",
+                "I/O 미설정",
+                System.Windows.MessageBoxButton.OK,
+                Dialogs.DialogHelpers.IconWarn);
+
+            _suppressRuntimeModeChangeHandler = true;
+            try { SelectedRuntimeMode = _previousRuntimeMode; }
+            finally { _suppressRuntimeModeChangeHandler = false; }
+            return;
+        }
+
+        _previousRuntimeMode = value;
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(IsHubHost));
         SetHubStatus(connected: false, reconnecting: false);
+    }
+
+    private bool HasIOConfigured()
+    {
+        var store = _storeProvider();
+        var iomap = SignalIOMapModule.build(store);
+        return iomap.Mappings.Length > 0;
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;

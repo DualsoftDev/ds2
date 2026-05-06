@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using AAStoPLC.TagWizard;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
@@ -130,6 +131,21 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         DataContext = this;
 
         InitializeStep1();
+    }
+
+    /// <summary>
+    /// 외부에서 FBTagMap 편집 화면 (Step 2 - 신호 템플릿) 으로 바로 점프.
+    /// I/O 조회 진단의 "FBTagMap 편집" 바로가기에서 호출.
+    /// systemType 가 주어지면 해당 SystemType 의 preset 을 미리 로드.
+    /// </summary>
+    public void OpenAtFBTagMapForSystemType(string? systemType)
+    {
+        MoveToStep(2);
+        if (!string.IsNullOrWhiteSpace(systemType))
+        {
+            try { LoadDeviceTemplate(systemType); }
+            catch { /* best-effort — 실패해도 wizard 자체는 열린 상태 유지 */ }
+        }
     }
 
     /// <summary>
@@ -261,11 +277,14 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
             sec.ChunkedView.Visibility = Visibility.Collapsed;
             return;
         }
-        for (int start = 0; start < sec.Rows.Count; start += ChunkSize)
+        // SkipAddressAlloc(주소제외) 행은 IO 슬롯을 소비하지 않으므로 chunked 뷰(주소 인덱스)에서 제외.
+        // 외부 정의 공용 변수 / IEC 리터럴 (_T1S, T#200MS 등) 이 IO 주소 자리를 차지하지 않게 함.
+        var ioRows = sec.Rows.Where(r => !r.SkipAddressAlloc).ToList();
+        for (int start = 0; start < ioRows.Count; start += ChunkSize)
         {
             var slice = new ObservableCollection<IndexedPatternRow>();
-            for (int i = start; i < sec.Rows.Count && i < start + ChunkSize; i++)
-                slice.Add(new IndexedPatternRow(i / 16, i % 16, sec.Rows[i].Pattern ?? ""));
+            for (int i = start; i < ioRows.Count && i < start + ChunkSize; i++)
+                slice.Add(new IndexedPatternRow(i / 16, i % 16, ioRows[i].Pattern ?? ""));
             sec.Chunks.Add(slice);
         }
         sec.Grid.Visibility = Visibility.Collapsed;
@@ -538,9 +557,8 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
         set => SetProperty(ref _apiName, value ?? "");
     }
 
-    /// 패턴에 $(A)/$(C) 둘 다 없으면 글로벌 신호 → ApiName 자동으로 Api_None 으로 강제.
-    /// $(C) 는 SignalCounts[ApiName] 을 참조하므로 ApiName 이 의미를 가짐 → 자동 강제 대상 아님.
-    /// 예외: IsSpare(예비) 또는 패턴이 비어있는 경우는 의도된 미바인딩이므로 보존.
+    /// 패턴 setter — ApiName 은 사용자가 명시적으로 선택한 값 그대로 보존.
+    /// (Pattern 에 $(A)/$(C) 가 없어도 ApiName 이 "7TH_IN_OK" 같이 의미 있는 값이면 유지.)
     public string Pattern
     {
         get => _pattern;
@@ -548,10 +566,6 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
         {
             if (!SetProperty(ref _pattern, value ?? "")) return;
             OnPropertyChanged(nameof(DataType));
-            if (!_isSpare && !string.IsNullOrEmpty(_pattern)
-                && !_pattern.Contains("$(A)") && !_pattern.Contains("$(C)")
-                && _apiName != ApiNoneSentinel)
-                ApiName = ApiNoneSentinel;
         }
     }
 

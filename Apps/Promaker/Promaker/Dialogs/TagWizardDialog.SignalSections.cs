@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using AAStoPLC.TagWizard;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;

@@ -91,9 +91,13 @@
                             <Canvas x:Name="LadderCanvas"
                                     VerticalAlignment="Top"
                                     HorizontalAlignment="Left">
-                                <Canvas.RenderTransform>
+                                <!-- LayoutTransform 사용 — RenderTransform 은 visual 만 확대해
+                                     ScrollViewer 가 확대된 영역까지 스크롤하지 못함.
+                                     LayoutTransform 은 measure/arrange 에 반영되어 ScrollViewer
+                                     가 정확한 extent 를 인식. -->
+                                <Canvas.LayoutTransform>
                                     <ScaleTransform x:Name="LadderScale" ScaleX="1" ScaleY="1"/>
-                                </Canvas.RenderTransform>
+                                </Canvas.LayoutTransform>
                             </Canvas>
                         </ScrollViewer>
                     </Grid>
