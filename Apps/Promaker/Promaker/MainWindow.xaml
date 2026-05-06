@@ -3,6 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
+        xmlns:llm="clr-namespace:Promaker.Controls.Llm"
+        xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
         Title="{Binding Title}" Width="1688" Height="800"
@@ -18,6 +20,11 @@
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- 1d-4 D — LlmChatViewModel 을 LlmChatPanel 로 자동 매핑 (DataTemplate). -->
+        <DataTemplate DataType="{x:Type vm:LlmChatViewModel}">
+            <llm:LlmChatPanel/>
+        </DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -51,6 +58,9 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="280" MinWidth="150"/>
+                <!-- 1d-4 D — LLM Chat dock column (default 0, ToggleLlmChatCommand 토글) -->
+                <ColumnDefinition x:Name="LlmChatSplitterCol" Width="0"/>
+                <ColumnDefinition x:Name="LlmChatPanelCol" Width="0" MinWidth="0"/>
             </Grid.ColumnDefinitions>
 
             <ctrl:ExplorerPane Grid.Column="0"/>
@@ -107,8 +117,12 @@
                 </Border>
             </Grid>
 
+            <!-- 1d-4 D — LLM Chat dock panel + splitter (column width 0 일 때 자동 비표시) -->
+            <GridSplitter Grid.Column="5" Width="4" HorizontalAlignment="Stretch"/>
+            <ContentControl Grid.Column="6" Content="{Binding LlmChatVm}"/>
+
             <!-- Welcome screen when no project is open -->
-            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="5"
+            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="7"
                     Background="{DynamicResource PrimaryBackgroundBrush}" Panel.ZIndex="10"
                     AllowDrop="True"
                     DragEnter="Window_DragEnter"

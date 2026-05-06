@@ -29,6 +29,9 @@ type ClaudeCliOptions = {
     AllowedTools: string array option
     /// stream backpressure 채널 capacity. 기본 256.
     ChannelCapacity: int
+    /// Process spawn 직후 호출 callback (1d-5 — Job Object attach 등 lifecycle hook).
+    /// None 이면 미호출. 예외 발생해도 provider 동작 영향 없음 (try/with 로 감싸 호출).
+    OnProcessStarted: Action<Process> option
 } with
     static member Default = {
         ExecutablePath = None
@@ -39,6 +42,7 @@ type ClaudeCliOptions = {
         StrictMcpConfig = false
         AllowedTools = None
         ChannelCapacity = 256
+        OnProcessStarted = None
     }
 
 /// `claude` CLI 인자 list 빌더. ClaudeCliProvider 외부에서 단위 검증 가능하도록 module-level 노출.
@@ -160,6 +164,12 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                     return ()
 
                 use p = proc
+
+                // 1d-5 — lifecycle hook (Job Object attach 등). 실패해도 provider 진행.
+                match options.OnProcessStarted with
+                | Some cb ->
+                    try cb.Invoke(p) with ex -> Log.provider.Warn("OnProcessStarted callback 실패", ex)
+                | None -> ()
 
                 let stderrTask =
                     task {
