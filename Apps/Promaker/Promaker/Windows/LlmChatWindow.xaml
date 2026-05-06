@@ -21,7 +21,7 @@
         </Style>
 
         <Style x:Key="TurnContainerStyle" TargetType="ListBoxItem">
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,2"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -29,10 +29,58 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
-                        <ContentPresenter/>
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Role}" Value="user">
+                    <Setter Property="HorizontalContentAlignment" Value="Right"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="assistant">
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="system">
+                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Role 별 버블 외관: user=accent 우측 / assistant=secondary 좌측 / system=dim 가운데 -->
+        <Style x:Key="ChatBubbleBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="MaxWidth" Value="520"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Role}" Value="user">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="system">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="MaxWidth" Value="640"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ChatBubbleTextStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Role}" Value="user">
+                    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="system">
+                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                    <Setter Property="FontSize" Value="11"/>
+                    <Setter Property="FontStyle" Value="Italic"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="ChatInputBoxStyle" TargetType="TextBox">
@@ -104,26 +152,14 @@
                  ItemsSource="{Binding Turns}">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Border Margin="2"
-                            Padding="8"
-                            CornerRadius="4"
-                            BorderThickness="1"
-                            Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}">
-                        <StackPanel>
-                            <TextBlock Text="{Binding Role}"
-                                       FontWeight="SemiBold" Margin="0,0,0,3"
-                                       Foreground="{DynamicResource AccentBrush}"/>
-                            <TextBlock Text="{Binding Text}"
-                                       TextWrapping="Wrap"
-                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
-                        </StackPanel>
+                    <Border Style="{StaticResource ChatBubbleBorderStyle}">
+                        <TextBlock Text="{Binding Text}" Style="{StaticResource ChatBubbleTextStyle}"/>
                     </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- Input -->
+        <!-- Input. Enter=전송 / Shift+Enter=줄바꿈 / Alt+J=줄바꿈 (LlmChatWindow.xaml.cs PreviewKeyDown) -->
         <TextBox Grid.Row="2"
                  Style="{StaticResource ChatInputBoxStyle}"
                  Margin="0,8,0,0"
@@ -134,7 +170,7 @@
                  VerticalScrollBarVisibility="Auto"
                  Text="{Binding Input, UpdateSourceTrigger=PropertyChanged}"
                  IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
-                 KeyDown="InputBox_KeyDown"/>
+                 PreviewKeyDown="InputBox_PreviewKeyDown"/>
 
         <!-- Buttons -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
@@ -144,9 +180,9 @@
             <Button Content="취소" Command="{Binding CancelCommand}"
                     Style="{StaticResource ChatButtonStyle}"
                     Width="84" Margin="0,0,8,0"/>
-            <Button Content="전송 (Ctrl+Enter)" Command="{Binding SendCommand}"
+            <Button Content="전송 (Enter)" Command="{Binding SendCommand}"
                     Style="{StaticResource SendButtonStyle}"
-                    Width="140" IsDefault="True"/>
+                    Width="140"/>
         </StackPanel>
     </Grid>
 </Window>
