@@ -276,4 +276,38 @@ public static class ModelTools
             return sb.ToString().TrimEnd();
         });
     }
+
+    [McpServerTool, Description("현재 모델의 일관성을 검사합니다. 카테고리: Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder. 위반 없으면 (no issues; scope=...). turn 종료 직전 1회 호출 권장 — 같은 scope 로 0.5초 안 재호출 시 캐시 결과 반환.")]
+    public static Task<string> ValidateModel(
+        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        [Description("검사 범위. 'global' (또는 미지정) = 모든 System. GUID 면 Project/System/Flow 중 자동 판별.")] string? scope = null)
+    {
+        var trimmed = scope?.Trim();
+        Guid? rootGuid = null;
+        string scopeKey;
+        if (string.IsNullOrEmpty(trimmed) || string.Equals(trimmed, "global", StringComparison.OrdinalIgnoreCase))
+        {
+            scopeKey = "global";
+        }
+        else
+        {
+            if (!Guid.TryParse(trimmed, out var g))
+                return Task.FromResult($"VALIDATION_ERROR: scope '{scope}' 가 'global' 또는 GUID 형식이 아닙니다.");
+            rootGuid = g;
+            scopeKey = g.ToString("D");
+        }
+
+        return RunRead(turnProvider, "validate_model", ctx =>
+        {
+            var cached = ctx.TryGetValidateCache(scopeKey);
+            if (cached is not null) return cached + $"\n(cached, <{LlmTurnContext.ValidateCacheTtlMs}ms)";
+
+            var fsRoot = rootGuid.HasValue
+                ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(rootGuid.Value)
+                : Microsoft.FSharp.Core.FSharpOption<Guid>.None;
+            var result = ToolOperations.validateModelByGuid(ctx.Store, fsRoot);
+            ctx.SetValidateCache(scopeKey, result);
+            return result;
+        });
+    }
 }
