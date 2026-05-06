@@ -35,6 +35,9 @@ public sealed class McpHostService : IAsyncDisposable
     /// <summary>Kestrel 이 실제 listen 한 URL (ephemeral port). Start 후에만 유효.</summary>
     public string ServerUrl { get; private set; } = "";
 
+    /// <summary>turn-scoped state holder. Tool method 가 [FromServices] 로 받아 사용.</summary>
+    public LlmTurnContextProvider TurnProvider { get; } = new();
+
     /// <summary>Kestrel start. 첫 호출 시 host 띄우고 ServerUrl / HandshakeNonce 확정.</summary>
     public async Task StartAsync()
     {
@@ -51,6 +54,9 @@ public sealed class McpHostService : IAsyncDisposable
         {
             opts.Listen(IPAddress.Loopback, 0);
         });
+
+        // Tool method 가 [FromServices] 로 주입받음
+        builder.Services.AddSingleton(TurnProvider);
 
         builder.Services
             .AddMcpServer()

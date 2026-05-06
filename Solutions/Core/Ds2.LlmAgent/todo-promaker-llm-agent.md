@@ -295,15 +295,14 @@ type ToolDef<'TArgs,'TResult> = {
   7. **turn 당 mutation tool quota** (review 2차 R5 prompt injection 방어): e.g. 50회 초과 시 `QUOTA_EXCEEDED` — runaway loop / injection 회피
 - **Data egress consent** (review 2차 R5 M3): 첫 chat 진입 시 opt-in 다이얼로그 — "이 모델 정보가 외부 LLM 으로 전송됩니다" + `%APPDATA%/Promaker/llm-config.json` consent flag + timestamp 저장. consent 없으면 read tool 차단.
 
-#### Phase 1c — 최소 system prompt + `add_system` end-to-end (PR 3)
-> review 2차 R3 M2: system prompt 없이 e2e 검증 불가 → 최소 prompt 가 1c 전제
-
-- [ ] **최소 system prompt** (review 2차 R3 M2): tool-use 지시 + 1 예시 (`add_system` 사용 1번). 환각 방지 / clarification 템플릿 / 도메인 규칙은 1d 보강
-- [ ] Tool handler 첫 mutation: `add_system(name, isActive?)` — `ImportPlanBuilder` 에 `AddSystem(DsSystem)` + `LinkSystemToProject(...)` 누적
-- [ ] **Turn end ImportPlan apply**: turn 종료 시점 `store.ApplyImportPlan("LLM: <user msg 요약>", plan)` 1회 호출 → 1 undo step 자동 (결정 7 (d))
-- [ ] Read tool 1개: `list_systems()` — `Queries.allSystems` 호출 (`Ds2.Editor.Queries` 또는 façade — 사전 실증 5 결과 따름)
-- [ ] LLM 이 add_system 호출 → turn end → ApplyImportPlan → DsStore 변경 → EditorEvent → MainViewModel rebuild → 다음 turn 에서 list_systems 로 결과 확인 검증
-- [ ] Undo 1회로 turn 전체 롤백 검증
+#### Phase 1c — 최소 system prompt + `add_system` end-to-end (PR 3) — ✅ 2026-05-06 완료
+- [x] 최소 system prompt — `Promaker.LlmAgent.SystemPromptText.Phase1c` 상수, `ClaudeCliOptions.SystemPrompt` 로 `--append-system-prompt` 인자 적용
+- [x] Tool handler 첫 mutation: `add_system(name, isActive?)` — `Promaker.LlmAgent.Tools.ModelTools.AddSystem`, F# `ToolOperations.queueAddSystem` 호출 (DsSystem internal ctor → `Ds2.LlmAgent` 에 InternalsVisibleTo 추가). 첫 번째 project 자동 부착 (phase 1c 단순화)
+- [x] Turn end `ApplyImportPlan` — `LlmChatViewModel.ApplyTurnPlanAsync` 가 dispatcher 안에서 `DsStoreImportPlanExtensions.ApplyImportPlan(_store, "LLM: <50자>", plan)` 1회 호출 → 1 undo step
+- [x] Read tool 1개: `list_systems()` — `ModelTools.ListSystems` → `ToolOperations.listSystems` → 모든 project 의 active+passive 시스템
+- [x] `LlmTurnContext` + `LlmTurnContextProvider` (turn-scoped, McpHostService DI singleton). Tool method 가 `[FromKeyedServices(null)]` 로 주입받음. mutation quota 50회 (`IncrementMutationCount`)
+- [x] Audit log — `Promaker.LlmAgent.ToolCall` logger 가 tool name / 결과 size / latency / error 기록
+- [x] **end-to-end 검증** (사용자 검증 완료): LLM 이 add_system 호출 → turn end → ApplyImportPlan → DsStore 변경 → EditorEvent → MainViewModel rebuild → 다음 turn 에서 list_systems 로 결과 확인 / Undo 1회로 turn 전체 롤백 모두 정상
 
 #### Phase 1d — Tool 풀세트 + UI 완성 (PR 4)
 - [ ] Mutation tool 추가: `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` (모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan)
@@ -459,7 +458,7 @@ type ToolDef<'TArgs,'TResult> = {
 
 ## 진행 상태
 
-- 현 단계: **Phase 1b-c 완료** (2026-05-06). 결정 9개 모두 확정. Phase 1c (최소 system prompt + `add_system` end-to-end) 진입 가능
+- 현 단계: **Phase 1c 완료** (2026-05-06, end-to-end 검증 통과). 결정 9개 모두 확정. Phase 1d (Tool 풀세트 + UI 완성) 진입 가능
 - 결정 상태:
   - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
   - **잠정 0개** — 모든 결정 확정
@@ -487,8 +486,8 @@ type ToolDef<'TArgs,'TResult> = {
 1. ✅ Phase 0 사전 실증 완료 (2026-05-06)
 2. ✅ 결정 4 (c) 확정 (2026-05-06)
 3. ✅ **Phase 1a** — scaffold + ClaudeCliProvider concrete + 최소 chat panel (PR 1, internal) — 2026-05-06 완료
-4. ✅ **Phase 1b-c** (HTTP) — Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 + loopback bind + ephemeral port + handshake nonce + `IUiDispatcher` 추상 + `ImportPlanBuilder` + dummy `PingTool` (PR 2) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`
-5. **Phase 1c** 최소 system prompt + `add_system` end-to-end + ImportPlan turn end apply (PR 3)
+4. ✅ **Phase 1b-c** (HTTP) — Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 + loopback bind + ephemeral port + handshake nonce + `IUiDispatcher` 추상 + `ImportPlanBuilder` + dummy `PingTool` (PR 2) — 2026-05-06 완료
+5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
 6. **Phase 1d** Tool 풀세트 + UI 완성 + system prompt 보강 + golden scenario (token 회귀 / prompt injection / RDP 격리 포함) + ChatPanel dock 통합 + AssistantDelta 50ms aggregation throttle + Job Object attach (PR 4)
 
 ---
