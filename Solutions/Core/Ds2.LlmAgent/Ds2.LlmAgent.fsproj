@@ -13,6 +13,8 @@
     <Compile Include="ClaudeCliVersion.fs" />
     <Compile Include="ClaudeCliProvider.fs" />
     <Compile Include="CodexCliArgs.fs" />
+    <Compile Include="CodexStreamJsonParser.fs" />
+    <Compile Include="CodexCliProvider.fs" />
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
     <Compile Include="ToolOperations.fs" />
