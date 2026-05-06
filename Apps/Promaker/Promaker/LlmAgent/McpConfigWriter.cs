@@ -67,11 +67,59 @@ public sealed class McpConfigWriter : IDisposable
         };
 
         var json = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(path, json, new UTF8Encoding(false));
-        ApplyOwnerOnlyAcl(path);
+
+        // M1 — write→ACL race 제거: 파일 생성 시점부터 owner-only ACL 적용 후 write.
+        // 같은 user 의 다른 process 가 nonce 평문을 ms window 안에 read 하는 경로 차단.
+        WriteWithOwnerOnlyAcl(path, json);
         Log.Info($"McpConfigWriter 작성 — {path}");
 
         return new McpConfigWriter(path, serverName);
+    }
+
+    private static void WriteWithOwnerOnlyAcl(string path, string json)
+    {
+        var bytes = new UTF8Encoding(false).GetBytes(json);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            File.WriteAllBytes(path, bytes);
+            return;
+        }
+
+        var sec = TryBuildOwnerOnlySecurity();
+        if (sec == null)
+        {
+            // SID 조회 실패 — fallback: 일반 write + 사후 ACL 시도 (race 잔존하나 cascade 방어 보존)
+            File.WriteAllBytes(path, bytes);
+            ApplyOwnerOnlyAcl(path);
+            return;
+        }
+
+        // FileStream ctor 의 FileSecurity overload — 파일 생성 atomic 하게 ACL 적용.
+        using var fs = FileSystemAclExtensions.Create(
+            new FileInfo(path),
+            FileMode.Create,
+            FileSystemRights.WriteData | FileSystemRights.ReadData,
+            FileShare.None,
+            bufferSize: 4096,
+            FileOptions.None,
+            sec);
+        fs.Write(bytes, 0, bytes.Length);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static FileSecurity? TryBuildOwnerOnlySecurity()
+    {
+        var sid = WindowsIdentity.GetCurrent().User;
+        if (sid == null) return null;
+        var sec = new FileSecurity();
+        sec.SetOwner(sid);
+        sec.SetAccessRuleProtection(true, false);
+        sec.AddAccessRule(new FileSystemAccessRule(
+            sid,
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        return sec;
     }
 
     public void Dispose()
@@ -150,6 +198,10 @@ public sealed class McpConfigWriter : IDisposable
         return int.TryParse(parts[2], out pid);
     }
 
+    /// <summary>
+    /// m2 — Win32Exception (admin process 조회 실패 / PID reuse) 도 fail-safe 로 감쌈.
+    /// 죽은 게 확실하지 않으면 false (alive) 로 보수적 보고 → mtime 임계로 자연 sweep.
+    /// </summary>
     private static bool IsProcessDead(int pid)
     {
         try
@@ -157,14 +209,9 @@ public sealed class McpConfigWriter : IDisposable
             using var _ = Process.GetProcessById(pid);
             return false;
         }
-        catch (ArgumentException)
-        {
-            return true;
-        }
-        catch (InvalidOperationException)
-        {
-            return true;
-        }
+        catch (ArgumentException) { return true; }
+        catch (InvalidOperationException) { return true; }
+        catch (Exception) { return false; }
     }
 
     [SupportedOSPlatform("windows")]

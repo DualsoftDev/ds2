@@ -792,8 +792,8 @@ public sealed class HistoryPanelItem(string label, bool isRedo)
     public string Label  { get; } = label;
     public bool   IsRedo { get; } = isRedo;
     /// <summary>
-    /// 1d-4 F — LLM turn 식별. `LlmChatViewModel.ApplyTurnPlanAsync` 가 label 을 `"LLM: <50자 prompt>"` 로 만들어 호출.
+    /// 1d-4 F / m8 — LLM turn 식별. prefix SSOT = `LlmChatViewModel.LlmTurnLabelPrefix` ("LLM: ").
     /// HistoryPanel 의 좌측 색띠 / accent 색으로 시각화.
     /// </summary>
-    public bool   IsLlmTurn => Label.StartsWith("LLM: ", StringComparison.Ordinal);
+    public bool   IsLlmTurn => Label.StartsWith(LlmChatViewModel.LlmTurnLabelPrefix, StringComparison.Ordinal);
 }
