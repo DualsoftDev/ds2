@@ -12,6 +12,8 @@
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
     <Compile Include="ClaudeCliProvider.fs" />
+    <Compile Include="UiDispatcher.fs" />
+    <Compile Include="ImportPlanBuilder.fs" />
   </ItemGroup>
 
   <ItemGroup>

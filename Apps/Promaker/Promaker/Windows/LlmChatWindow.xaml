@@ -4,12 +4,86 @@
         xmlns:local="clr-namespace:Promaker.Windows"
         Title="LLM Chat (Phase 1a)" Width="720" Height="640"
         MinWidth="420" MinHeight="320"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource PrimaryBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
     <Window.Resources>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
+
+        <!-- 다크 테마 친화 ChatTurn template -->
+        <Style x:Key="TurnListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        </Style>
+
+        <Style x:Key="TurnContainerStyle" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ChatInputBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
+        </Style>
+
+        <Style x:Key="ChatButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SendButtonStyle" TargetType="Button" BasedOn="{StaticResource ChatButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
     </Window.Resources>
 
-    <Grid Margin="8">
+    <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -17,32 +91,43 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="{Binding StatusText}" Margin="0,0,0,4" FontSize="11" Foreground="Gray" TextTrimming="CharacterEllipsis"/>
+        <!-- Status -->
+        <TextBlock Grid.Row="0" Text="{Binding StatusText}" Margin="0,0,0,6"
+                   FontSize="11"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   TextTrimming="CharacterEllipsis"/>
 
+        <!-- Turns -->
         <ListBox Grid.Row="1"
-                 ItemsSource="{Binding Turns}"
-                 HorizontalContentAlignment="Stretch"
-                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                 Style="{StaticResource TurnListBoxStyle}"
+                 ItemContainerStyle="{StaticResource TurnContainerStyle}"
+                 ItemsSource="{Binding Turns}">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Border Margin="0,2"
-                            Padding="6"
+                    <Border Margin="2"
+                            Padding="8"
                             CornerRadius="4"
                             BorderThickness="1"
-                            BorderBrush="LightGray">
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}">
                         <StackPanel>
-                            <TextBlock Text="{Binding Role}" FontWeight="SemiBold" Margin="0,0,0,2" Foreground="DodgerBlue"/>
-                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding Role}"
+                                       FontWeight="SemiBold" Margin="0,0,0,3"
+                                       Foreground="{DynamicResource AccentBrush}"/>
+                            <TextBlock Text="{Binding Text}"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
                         </StackPanel>
                     </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
 
+        <!-- Input -->
         <TextBox Grid.Row="2"
+                 Style="{StaticResource ChatInputBoxStyle}"
                  Margin="0,8,0,0"
-                 MinHeight="60"
+                 MinHeight="64"
                  MaxHeight="160"
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
@@ -51,10 +136,17 @@
                  IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
                  KeyDown="InputBox_KeyDown"/>
 
+        <!-- Buttons -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="초기화" Command="{Binding ResetCommand}" Width="80" Margin="0,0,8,0"/>
-            <Button Content="취소" Command="{Binding CancelCommand}" Width="80" Margin="0,0,8,0"/>
-            <Button Content="전송" Command="{Binding SendCommand}" Width="100" IsDefault="True"/>
+            <Button Content="초기화" Command="{Binding ResetCommand}"
+                    Style="{StaticResource ChatButtonStyle}"
+                    Width="84" Margin="0,0,8,0"/>
+            <Button Content="취소" Command="{Binding CancelCommand}"
+                    Style="{StaticResource ChatButtonStyle}"
+                    Width="84" Margin="0,0,8,0"/>
+            <Button Content="전송 (Ctrl+Enter)" Command="{Binding SendCommand}"
+                    Style="{StaticResource SendButtonStyle}"
+                    Width="140" IsDefault="True"/>
         </StackPanel>
     </Grid>
 </Window>

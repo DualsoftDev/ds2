@@ -13,6 +13,11 @@ public partial class LlmChatWindow : Window
     {
         InitializeComponent();
         DataContext = new LlmChatViewModel();
+        Closed += async (_, _) =>
+        {
+            if (DataContext is LlmChatViewModel vm)
+                await vm.DisposeAsync();
+        };
     }
 
     private void InputBox_KeyDown(object sender, KeyEventArgs e)
