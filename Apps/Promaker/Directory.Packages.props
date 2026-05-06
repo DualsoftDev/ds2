@@ -5,7 +5,16 @@
   <!-- WPF MVVM -->
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+  </ItemGroup>
+  <!-- LLM API Providers (Phase 2) — Anthropic / OpenAI / OllamaSharp + Microsoft.Extensions.AI 공통 추상 -->
+  <ItemGroup>
+    <PackageVersion Include="Anthropic" Version="12.20.0" />
+    <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.25" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.5.2" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.2" />
   </ItemGroup>
   <!-- 로깅 -->
   <ItemGroup>
