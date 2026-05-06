@@ -58,9 +58,9 @@ Desktop.ini
 # AI / Claude Code
 .claude/
 CHANGED.md
-CLAUDE.md
+#CLAUDE.md
 CRITIC.md
-AGENTS.md
+#AGENTS.md
 STRUCTURE.md
 
 # ci
