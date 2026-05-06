@@ -23,7 +23,7 @@ public static class IoTagApplier
 
     /// <summary>
     /// rows 의 (CallId, ApiCallId) 가 비어있지 않은 항목만 ApiCall 의 InTag/OutTag 에 덮어쓴다.
-    /// Out → OutTag, In → InTag. 행 단위 예외는 FailedItems 에 누적.
+    /// 같은 ApiCallId 가 여러 행에 나오면 비어있지 않은 필드를 우선해 단일 update 호출.
     /// </summary>
     public static ApplyResult Apply(DsStore store, IEnumerable<IoBatchRow> rows)
     {

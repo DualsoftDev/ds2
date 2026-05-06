@@ -52,21 +52,27 @@ public static class IoSignalPipeline
 
     // ── SignalRow → IoBatchRow / DummySignalRow ─────────────────────────────
 
+    /// <summary>
+    /// SignalRow 들을 (CallId, ApiCallId) 단위로 묶어 IW + QW 짝맞춤 1행 으로 emit.
+    /// ApiCallId=Empty (global / spare-but-api-none) 는 별도 단일방향 행으로 emit.
+    /// 한 ApiCall 1행 → IoTagApplier 가 InTag/OutTag 모두 한번에 update.
+    /// </summary>
     public static List<IoBatchRow> BuildIoBatchRows(IReadOnlyList<SignalRow> signals)
     {
         var rows = new List<IoBatchRow>();
         var ioOnly = signals.Where(s => !s.IsSpare && !IsMw(s)).ToList();
 
+        // (1) ApiCallId=Empty (global/spare-but-api-none) — 단일 방향 행으로 그대로 emit.
         foreach (var s in ioOnly.Where(IsApiNone))
-            rows.Add(MakeApiNoneRow(s));
+            rows.Add(MakeRow(s));
 
+        // (2) 나머지: (CallId, ApiCallId) 단위로 IW + QW 묶음 emit. ApiName 컬럼 채움.
         var grouped = ioOnly.Where(s => !IsApiNone(s))
                             .GroupBy(s => (s.CallId, s.ApiCallId));
-
         foreach (var g in grouped)
         {
-            var input  = g.FirstOrDefault(s => IsIw(s));
-            var output = g.FirstOrDefault(s => IsQw(s));
+            var input  = g.FirstOrDefault(IsIw);
+            var output = g.FirstOrDefault(IsQw);
             var sample = input ?? output;
             if (sample == null) continue;
 
@@ -76,7 +82,7 @@ public static class IoSignalPipeline
                 flow:        sample.FlowName,
                 work:        sample.WorkName,
                 device:      sample.DeviceAlias,
-                api:         sample.ApiName,
+                api:         sample.ApiName ?? "",
                 inAddress:   input?.Address ?? "",
                 inSymbol:    input?.VarName ?? "",
                 outAddress:  output?.Address ?? "",
@@ -137,16 +143,23 @@ public static class IoSignalPipeline
         || s.ApiName == "-"
         || string.IsNullOrEmpty(s.ApiName);
 
-    private static IoBatchRow MakeApiNoneRow(SignalRow s)
+    private static IoBatchRow MakeApiNoneRow(SignalRow s) => MakeRow(s);
+
+    /// <summary>
+    /// SignalRow → IoBatchRow. IW 면 input 컬럼만, QW 면 output 컬럼만 채움.
+    /// ApiName 은 항상 제대로 표기 (ApiCallId=Empty 인 global/spare 만 빈값).
+    /// </summary>
+    private static IoBatchRow MakeRow(SignalRow s)
     {
         var dt = s.DataType.ToString();
+        var apiName = IsApiNone(s) ? "" : (s.ApiName ?? "");
         return new IoBatchRow(
-            callId:      Guid.Empty,
+            callId:      s.CallId,
             apiCallId:   s.ApiCallId,
             flow:        s.FlowName,
             work:        s.WorkName,
             device:      string.IsNullOrWhiteSpace(s.DeviceAlias) ? IoConstants.ApiNoneSentinel : s.DeviceAlias,
-            api:         "",
+            api:         apiName,
             inAddress:   IsIw(s) ? s.Address : "",
             inSymbol:    IsIw(s) ? s.VarName : "",
             outAddress:  IsQw(s) ? s.Address : "",

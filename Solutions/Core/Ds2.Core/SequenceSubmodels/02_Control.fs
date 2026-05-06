@@ -136,6 +136,8 @@ type SignalPatternEntry() =
     /// ApiDef 이름 (예: "ADV", "RET"). Wizard 에서 드롭다운으로 선택.
     member val ApiName:     string = "" with get, set
     /// 태그 이름 패턴 (예: "W_$(F)_WRS_$(D)_$(A)"). $(F)/$(D)/$(A) 는 생성 시점에 확장.
+    /// Pattern 에 $(C:ApiName) 토큰을 쓰면 ControlCallProperties.SignalCounts[ApiName]
+    /// 값으로 치환됨 (FB 의 Adv_Amount/Ret_Amount 등 카운트 입력에 사용).
     member val Pattern:     string = "" with get, set
     /// 이 신호를 연결할 FB Local Label 이름 (옵션).
     member val TargetFBPort: string = "" with get, set
@@ -296,10 +298,7 @@ type ControlCallProperties() =
 
     // ========== Call 제어 설정 ==========
     member val CallDirection = "InOut" with get, set
-    member val InTagName: string option = None with get, set
-    member val InTagAddress: string option = None with get, set
-    member val OutTagName: string option = None with get, set
-    member val OutTagAddress: string option = None with get, set
+
 
     // ========== 실행 제어 ==========
     member val EnableRetry = false with get, set
@@ -313,6 +312,15 @@ type ControlCallProperties() =
     // ========== 조건부 실행 ==========
     member val EnableConditional = false with get, set
     member val ConditionExpression: string option = None with get, set
+
+    // ========== 동적 신호 수량 ==========
+    // Promaker AddCall UI 에서 입력한 ApiName 별 신호 수량 (예: "ADV" → 4, "RET" → 2).
+    // Preset 에 미리 등록된 (Section, ApiName) entry 들 중 첫 N 개만 emit, 나머지는 skip.
+    // 또한 SignalPatternEntry.Pattern 의 $(C:ApiName) 토큰을 이 값으로 치환 (FB 의 Adv_Amount 등).
+    // Call-level 이라 같은 Call 안의 모든 ApiCall 이 공유.
+    member val SignalCounts =
+        System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase)
+        with get, set
 
 
 
@@ -428,112 +436,3 @@ module ControlIoLegacyMigration =
             n <- n + 1
         n
 
-
-module ControlHelpers =
-
-    // ========== 태그 생성 함수 ==========
-
-    /// 자동 태그 이름 생성
-    let generateTagName
-        (format: string)
-        (systemId: string)
-        (workId: string)
-        (signal: string) =
-
-        format
-            .Replace("{SystemId}", systemId)
-            .Replace("{WorkId}", workId)
-            .Replace("{Signal}", signal)
-
-    /// 이름 변환 적용
-    let applyNameTransform (transform: NameTransform) (name: string) =
-        match transform with
-        | UpperCase -> name.ToUpperInvariant()
-        | LowerCase -> name.ToLowerInvariant()
-        | CamelCase ->
-            if name.Length = 0 then name
-            else name.[0].ToString().ToLowerInvariant() + name.[1..]
-        | PascalCase ->
-            if name.Length = 0 then name
-            else name.[0].ToString().ToUpperInvariant() + name.[1..]
-        | NoTransform -> name
-
-    /// Prefix 추가
-    let addPrefix (prefix: string option) (tagName: string) =
-        match prefix with
-        | Some p when not (String.IsNullOrEmpty(p)) -> p + tagName
-        | _ -> tagName
-
-
-    // ========== PLC 주소 검증 함수 ==========
-
-    /// Mitsubishi 주소 검증 (M, D, X, Y, etc.)
-    let validateMitsubishiAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            let deviceCode = address.[0]
-            let number = address.[1..]
-            match deviceCode with
-            | 'M' | 'D' | 'X' | 'Y' | 'T' | 'C' | 'S' ->
-                System.Int32.TryParse(number) |> fst
-            | _ -> false
-
-    /// Siemens S7 주소 검증 (DB, M, I, Q, etc.)
-    let validateSiemensAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            address.StartsWith("DB") ||
-            address.StartsWith("M") ||
-            address.StartsWith("I") ||
-            address.StartsWith("Q")
-
-    /// Rockwell AB 주소 검증 (N7, B3, F8, etc.)
-    let validateRockwellAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            let fileType = address.[0]
-            match fileType with
-            | 'N' | 'B' | 'F' | 'T' | 'C' | 'R' | 'S' ->
-                true
-            | _ -> false
-
-    /// 벤더별 주소 검증
-    let validateAddress (vendor: PlcVendor) (address: string) =
-        match vendor with
-        | Mitsubishi -> validateMitsubishiAddress address
-        | Siemens -> validateSiemensAddress address
-        | RockwellAB -> validateRockwellAddress address
-        | _ -> true // Generic은 검증 생략
-
-    // ========== 안전 기능 함수 ==========
-
-    /// 타임아웃 확인
-    let isTimeout (startTime: DateTime) (timeoutSeconds: float) =
-        (DateTime.UtcNow - startTime).TotalSeconds > timeoutSeconds
-
-    // ========== 상태 관리 함수 ==========
-
-    /// Work 상태 전이 검증
-    let canTransitionState (currentState: string) (newState: string) =
-        match currentState, newState with
-        | "Idle", "Running" -> true
-        | "Running", "Paused" -> true
-        | "Running", "Error" -> true
-        | "Paused", "Running" -> true
-        | "Error", "Idle" -> true
-        | _, "Idle" -> true  // 항상 Idle로 리셋 가능
-        | _ -> false
-
-
-    // ========== 인터록 함수 ==========
-
-    /// 인터록 조건 평가
-    let evaluateInterlockConditions (conditions: string array) =
-        // 실제 구현에서는 조건 파싱 및 평가
-        // 예: "DOOR_CLOSED AND LIGHT_CURTAIN_OK"
-        conditions.Length = 0 || true // 임시: 조건 없거나 모두 만족
-
-    /// 인터록 우선순위 정렬
-    let sortByPriority (components: HwComponent list) =
-        components
-        |> List.sortByDescending (fun c -> c.Priority)

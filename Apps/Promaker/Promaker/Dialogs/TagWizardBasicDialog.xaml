@@ -60,7 +60,7 @@
                     <TextBlock Grid.Row="0" Grid.ColumnSpan="8"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                TextWrapping="Wrap"
-                               Text="💡 심볼 매크로 — $(F)=Flow명, $(D)=Device Alias, $(A)=Api명. Input/Output 각각 지정. 비워두면 해당 방향은 생성하지 않음."/>
+                               Text="💡 심볼 매크로 — $(F)=Flow명, $(D)=Device Alias, $(A)=Api명, $(C)=SignalCounts[ApiName] (카운트 입력 포트용). Input/Output 각각 지정. 비워두면 해당 방향은 생성하지 않음."/>
 
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Input(IW):"
                                VerticalAlignment="Center" Margin="0,0,6,0"

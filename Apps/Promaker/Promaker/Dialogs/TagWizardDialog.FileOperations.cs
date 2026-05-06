@@ -382,8 +382,8 @@ public partial class TagWizardDialog
                 return;
             }
 
-            // 사전 seed — FBTagMapStore.LoadAll → EnsureDefaultPresets 가
-            // 모든 SystemType 의 preset 을 임베디드 JSON 으로 자동 시드/동기화하므로 별도 호출 불필요.
+            // 사전 seed — FBTagMapStore.LoadAll → RebuildPresetsFromJson 가
+            // 모든 SystemType 의 preset 을 임베디드 JSON 으로 통째 재생성하므로 별도 호출 불필요.
             _ = FBTagMapStore.LoadAll(_store);
 
             foreach (var n in names)
@@ -440,8 +440,8 @@ public partial class TagWizardDialog
 
             // Preset 조회 (없으면 신규) → 비어있는 섹션에 한해 DefaultTemplates 로 seed → 다시 저장
             var presets = FBTagMapStore.LoadAll(_store);
-            // FBTagMapStore.LoadAll 이 EnsureDefaultPresets 를 통해 임베디드 JSON 으로
-            // 시드/동기화 + 오염 청소 모두 처리. 별도 seed 호출 불필요.
+            // FBTagMapStore.LoadAll 이 RebuildPresetsFromJson 를 통해 임베디드 JSON 으로
+            // 매번 통째 재생성. 별도 seed 호출 불필요.
             if (!presets.TryGetValue(systemType, out var presetDto))
                 presetDto = new FBTagMapPresetDto();
 

@@ -594,7 +594,7 @@
                                                                Foreground="{DynamicResource SecondaryTextBrush}"
                                                                TextWrapping="Wrap">
                                                         <Run Text="💡 "/>
-                                                        <Run Text="각 API별 신호 패턴을 설정합니다. 변수 치환: $(F)=Flow명, $(D)=Device명, $(A)=Api명"/>
+                                                        <Run Text="각 API별 신호 패턴을 설정합니다. 변수 치환: $(F)=Flow명, $(D)=Device명, $(A)=Api명, $(C)=SignalCounts[ApiName] 값 (FB의 Adv_Amount/Ret_Amount 등 카운트 입력 포트용 — entry 의 ApiName 이 ADV/RET 이어야 함)"/>
                                                     </TextBlock>
                                                     <StackPanel Grid.Row="2" Orientation="Horizontal">
                                                         <TextBlock Text="🎯 FB 타입 (SystemType 당 1개):"
