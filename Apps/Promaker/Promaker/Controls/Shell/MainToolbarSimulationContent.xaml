@@ -304,7 +304,6 @@
                     <ComboBoxItem Content="2x"><ComboBoxItem.Tag><sys:Double>2.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="5x"><ComboBoxItem.Tag><sys:Double>5.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,1,0,0">
                     <Button x:Name="OpenTokenSpecButton"
@@ -328,6 +327,13 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
+                <CheckBox x:Name="ContinuousInjectionCheckBox"
+                          Content="연속 투입"
+                          IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
+                          Margin="0,4,0,0"
+                          HorizontalAlignment="Center"
+                          FontSize="10"
+                          ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다."/>
             </StackPanel>
             <!-- 좌측 세로선: 다른 ribbon 그룹과 동일한 분리 패턴 (플랫 테마) -->
             <Rectangle Width="1"

@@ -78,6 +78,7 @@ public partial class SimulationPanelState
 #endif
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
+        TryContinueSourceCycle(args.WorkGuid, args.NewState);
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)
@@ -98,10 +99,11 @@ public partial class SimulationPanelState
         var suffix = args.IsSkipped ? " (Skip)" : "";
         var systemName = GetSystemName(EntityKind.Call, args.CallGuid);
         var canonicalId = Queries.resolveOriginalCallId(args.CallGuid, Store);
+        var timestamp = ResolveEventTimestamp(args.Clock);
 
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
-        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
         RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();
@@ -144,9 +146,11 @@ public partial class SimulationPanelState
 
     private void ApplyNodeStateChange(Guid nodeGuid, Status4 newState, string nodeName, EntityKind nodeKind, string systemName)
     {
+        var timestamp = CurrentGanttTimestamp();
+
         _stateCache.Set(nodeGuid, newState);
         UpdateSimNodeState(nodeGuid, newState);
-        GanttChart.UpdateNodeState(nodeGuid, newState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(nodeGuid, newState, timestamp);
         RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
         UpdateSimClock();
     }
@@ -155,12 +159,30 @@ public partial class SimulationPanelState
     {
         var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
         var canonicalId = Queries.resolveOriginalWorkId(args.WorkGuid, Store);
+        var timestamp = ResolveEventTimestamp(args.Clock);
 
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
-        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
         RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
+
+    private DateTime ToGanttTimestamp(TimeSpan clock) => _simStartTime + clock;
+
+    /// <summary>
+    /// Simulation 모드에서만 sim clock 기반 timestamp. 그 외 모드 (VirtualPlant/Control/Monitoring) 는
+    /// 외부 신호 기반이라 sim clock 이 wall clock 보다 늦거나 안 흘러서 GanttChart 시간선 (AdjustedNow)
+    /// 보다 events 가 뒤처져 보이는 mismatch 발생 → wall clock 사용.
+    /// </summary>
+    private DateTime ResolveEventTimestamp(TimeSpan clock) =>
+        SelectedRuntimeMode == RuntimeMode.Simulation
+            ? ToGanttTimestamp(clock)
+            : GanttChart.AdjustedNow;
+
+    private DateTime CurrentGanttTimestamp() =>
+        SelectedRuntimeMode != RuntimeMode.Simulation
+            ? GanttChart.AdjustedNow
+            : _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
 }

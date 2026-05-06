@@ -59,12 +59,26 @@ type ISimulationEngine =
     /// Source priming까지 포함해 STEP을 수행합니다.
     abstract StepWithSourcePriming: selectedSourceGuid: Guid * autoStartSources: bool -> bool
 
+    /// 단계적 STEP 진행용 (UI 측에서 nextEventTime 마다 wait 후 advance 호출):
+    /// Drive flow + source priming + cascade 처리 후 batch (Going Call + leaf-like Going Work) 반환.
+    abstract BeginStepBatch: selectedSourceGuid: Guid * autoStartSources: bool -> Guid[]
+    /// batch 의 Call/Work 중 하나라도 아직 Going 인지.
+    abstract IsStepBatchActive: batch: Guid[] -> bool
+    /// sim clock 을 targetTimeMs 까지 advance + 그 시점까지 due 한 events 처리.
+    abstract AdvanceSimulationTo: targetTimeMs: int64 -> unit
+    /// STEP 종료: FlowTag.Pause 복원.
+    abstract EndStep: unit -> unit
+
     /// 현재 Store 기준으로 연결 topology만 다시 계산합니다.
     abstract ReloadConnections: unit -> unit
 
     /// 현재 Store 기준으로 Duration만 다시 계산합니다.
     /// Going 상태 Work는 기존 Duration 유지 (진행 중 타이머 보호).
     abstract ReloadDurations: unit -> unit
+
+    // 시뮬레이션 시계 (UI 측 STEP timing 계산용)
+    abstract CurrentTimeMs: int64
+    abstract NextEventTimeMs: int64 option
 
     // 설정
     abstract SpeedMultiplier: float with get, set
@@ -80,6 +94,8 @@ type ISimulationEngine =
     // 토큰
     abstract NextToken: unit -> TokenValue
     abstract SeedToken: sourceWorkGuid: Guid * value: TokenValue -> unit
+    /// Source Work 시작: 토큰이 없으면 시드하고 Going 전이를 같은 엔진 mutation 안에서 예약
+    abstract StartSourceWork: sourceWorkGuid: Guid -> unit
     abstract DiscardToken: workGuid: Guid -> unit
     abstract GetWorkToken: workGuid: Guid -> TokenValue option
     abstract GetTokenOrigin: token: TokenValue -> (string * int) option

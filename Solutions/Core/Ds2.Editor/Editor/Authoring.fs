@@ -23,6 +23,7 @@ module internal StoreAuthoring =
         | Some ids -> if not (ids.Contains id) then ids.Add(id)
         | None -> ()
 
+    /// 빈번한 일괄 작업 (Wizard Apply 등) 의 노이즈 방지용. 에러 로그는 영향 없음.
     let withTransaction (store: DsStore) (label: string) (action: unit -> 'T) : 'T =
         let editorState = state store
         if editorState.CurrentRecords.IsSome then

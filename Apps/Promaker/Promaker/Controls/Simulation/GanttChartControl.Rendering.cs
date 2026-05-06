@@ -149,6 +149,15 @@ public partial class GanttChartControl
         var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
         int rowIdx = 0, lineIdx = 0, barIdx = 0;
 
+        // viewport culling — 장시간 운전 시 segment 가 누적되어도 화면 밖은 Rectangle 안 만든다.
+        double scrollOffset = TimelineScrollViewer.HorizontalOffset;
+        double viewportPx = TimelineScrollViewer.ViewportWidth > 0
+            ? TimelineScrollViewer.ViewportWidth
+            : TimelineScrollViewer.ActualWidth;
+        const double CullMargin = 100;
+        double cullLeft = scrollOffset - CullMargin;
+        double cullRight = scrollOffset + viewportPx + CullMargin;
+
         foreach (var entry in _viewModel.Entries)
         {
             if (!entry.IsVisible) continue;
@@ -177,6 +186,10 @@ public partial class GanttChartControl
                 var segmentEndTime = segment.EndTime ?? _viewModel.CurrentTime;
                 double width = (segmentEndTime - segment.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                 if (width < 2) width = 2;
+
+                if (startX + width < cullLeft) continue;
+                // Segments 는 시간순으로만 Add 되므로 우측 컷 발견 즉시 행 종료.
+                if (startX > cullRight) break;
 
                 var bar = GetOrCreateBar(barIdx++);
                 bar.Width = width;

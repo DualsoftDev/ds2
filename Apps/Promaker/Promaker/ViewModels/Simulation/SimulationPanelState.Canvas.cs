@@ -99,7 +99,7 @@ public partial class SimulationPanelState
     {
         if (_simEngine is null || !IsSimulating) return;
 
-        var timestamp = GanttChart.AdjustedNow;
+        var timestamp = CurrentGanttTimestamp();
 
         foreach (var entry in EnumerateSimulationEntries())
         {

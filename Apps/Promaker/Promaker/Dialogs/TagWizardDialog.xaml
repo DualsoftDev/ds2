@@ -169,6 +169,7 @@
             <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
         </Style>
+
     </Window.Resources>
 
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
@@ -683,8 +684,8 @@
                                                                 <Style TargetType="DataGridRow">
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsSpare}" Value="True">
-                                                                            <Setter Property="Background" Value="#55505050"/>
-                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                            <Setter Property="Background" Value="#55D08040"/>
+                                                                            <Setter Property="Opacity" Value="0.75"/>
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
@@ -830,8 +831,8 @@
                                                                 <Style TargetType="DataGridRow">
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsSpare}" Value="True">
-                                                                            <Setter Property="Background" Value="#55505050"/>
-                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                            <Setter Property="Background" Value="#55D08040"/>
+                                                                            <Setter Property="Opacity" Value="0.75"/>
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
@@ -971,8 +972,8 @@
                                                                 <Style TargetType="DataGridRow">
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsSpare}" Value="True">
-                                                                            <Setter Property="Background" Value="#55505050"/>
-                                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                                            <Setter Property="Background" Value="#55D08040"/>
+                                                                            <Setter Property="Opacity" Value="0.75"/>
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>

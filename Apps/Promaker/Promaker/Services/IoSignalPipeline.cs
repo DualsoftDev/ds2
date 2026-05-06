@@ -1,3 +1,4 @@
+using AAStoPLC.TagWizard;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -62,9 +63,16 @@ public static class IoSignalPipeline
         var rows = new List<IoBatchRow>();
         var ioOnly = signals.Where(s => !s.IsSpare && !IsMw(s)).ToList();
 
-        // (1) ApiCallId=Empty (global/spare-but-api-none) — 단일 방향 행으로 그대로 emit.
+        // (1) ApiCallId=Empty (global/spare-but-api-none) — (Flow, Device, VarName) 단위 dedup 후 emit.
+        //     각 Call 마다 preset 의 Api_None entry 가 동일하게 emit 되어 N 중복 → 단일 표시.
+        var seenApiNone = new HashSet<(string, string, string)>(
+            EqualityComparer<(string, string, string)>.Default);
         foreach (var s in ioOnly.Where(IsApiNone))
-            rows.Add(MakeRow(s));
+        {
+            var key = (s.FlowName ?? "", s.DeviceAlias ?? "", s.VarName ?? "");
+            if (seenApiNone.Add(key))
+                rows.Add(MakeRow(s));
+        }
 
         // (2) 나머지: (CallId, ApiCallId) 단위로 IW + QW 묶음 emit. ApiName 컬럼 채움.
         var grouped = ioOnly.Where(s => !IsApiNone(s))
@@ -98,7 +106,10 @@ public static class IoSignalPipeline
                .Select(MakeApiNoneRow).ToList();
 
     public static List<DummySignalRow> BuildDummyRows(IReadOnlyList<SignalRow> signals) =>
+        // Dummy(MW) 도 (Flow, Device, VarName) 단위 dedup — 각 Call 마다 동일 신호 중복 방지.
         signals.Where(s => !s.IsSpare && IsMw(s))
+               .GroupBy(s => (s.FlowName ?? "", s.DeviceAlias ?? "", s.VarName ?? ""))
+               .Select(g => g.First())
                .Select(s => new DummySignalRow(
                    Flow:     s.FlowName,
                    Work:     s.WorkName,

@@ -91,7 +91,10 @@ internal static class ConditionDropHelper
     }
 
     /// <summary>
-    /// 드롭된 Call의 ApiCall을 조회 → Picker → store.AddConditionWithApiCalls 호출 (새 조건 생성).
+    /// 드롭된 Call의 ApiCall을 조회 → Picker → 기존 root 그룹이 있으면 거기에 추가,
+    /// 없으면 새 root 그룹 생성.
+    ///
+    /// 정책: 최상위 그룹은 항상 1개만 유지 (편집 다이얼로그의 + 조건 추가 와 동일 규칙).
     /// PropertyPanelState, ConditionEditDialog, EditorCanvas에서 공용.
     /// </summary>
     internal static bool ExecuteConditionDrop(
@@ -106,8 +109,18 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
-        if (!host.TryAction(() => store.AddConditionWithApiCalls(targetCallId, condType, selectedIds)))
-            return false;
+        // 기존 동일 type 의 top-level CallCondition 조회.
+        Guid? existingRootId = null;
+        if (host.TryRef(() => store.GetCallConditionsForPanel(targetCallId), out var existing))
+        {
+            var root = existing.FirstOrDefault(c => c.ConditionType == condType);
+            if (root is not null) existingRootId = root.ConditionId;
+        }
+
+        bool ok = existingRootId is { } rootId
+            ? host.TryAction(() => store.AddApiCallsToConditionBatch(targetCallId, rootId, selectedIds))
+            : host.TryAction(() => store.AddConditionWithApiCalls(targetCallId, condType, selectedIds));
+        if (!ok) return false;
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to {condType}.");
         return true;

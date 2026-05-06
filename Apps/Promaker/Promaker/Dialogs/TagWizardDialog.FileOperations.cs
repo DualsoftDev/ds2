@@ -9,6 +9,7 @@ using System.Windows;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Microsoft.FSharp.Core;
+using AAStoPLC.TagWizard;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -464,7 +465,14 @@ public partial class TagWizardDialog
             RefreshChunkedViewsIfActive();
 
             var totalCount = presetDto.IwPatterns.Count + presetDto.QwPatterns.Count + presetDto.MwPatterns.Count;
-            DeviceTemplateStatusText.Text = $"✓ 로드 완료 | IW: {presetDto.IwPatterns.Count}, QW: {presetDto.QwPatterns.Count}, MW: {presetDto.MwPatterns.Count} | 총 {totalCount}개 신호";
+            int iwSpare = presetDto.IwPatterns.Count(p => p.IsSpare);
+            int qwSpare = presetDto.QwPatterns.Count(p => p.IsSpare);
+            int mwSpare = presetDto.MwPatterns.Count(p => p.IsSpare);
+            string SparePart(int n) => n > 0 ? $" ({n} 예비)" : "";
+            DeviceTemplateStatusText.Text =
+                $"✓ 로드 완료 | IW: {presetDto.IwPatterns.Count}{SparePart(iwSpare)}, " +
+                $"QW: {presetDto.QwPatterns.Count}{SparePart(qwSpare)}, " +
+                $"MW: {presetDto.MwPatterns.Count}{SparePart(mwSpare)} | 총 {totalCount}개 신호";
 
             // AUX 포트 행 로드 (distinct API 이름 집계).
             // 'Api_None' (글로벌 신호 sentinel) / '-' (빈 슬롯) 은 특정 ApiCall 미바인딩 → AUX 매핑 대상에서 제외.

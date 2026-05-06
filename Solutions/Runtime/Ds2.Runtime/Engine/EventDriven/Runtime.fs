@@ -104,6 +104,12 @@ module internal EventDrivenEngineRuntime =
         ctx.Scheduler.SetCurrentTime(timeMs)
         ctx.UpdateClock(TimeSpan.FromMilliseconds(float timeMs))
 
+    let syncClockToCurrentTimeWhileRunning (ctx: RuntimeContext) =
+        if ctx.GetStatus () = Running then
+            let targetMs =
+                ctx.RuntimeClock.CaptureTargetMs(ctx.Scheduler.CurrentTimeMs, ctx.SpeedMultiplier())
+            setCurrentTime ctx (max ctx.Scheduler.CurrentTimeMs targetMs)
+
     let private advanceTo (ctx: RuntimeContext) (targetMs: int64) (shouldContinue: unit -> bool) =
         let targetMs = max ctx.Scheduler.CurrentTimeMs targetMs
         // 시계는 advance 시작 시 한 번만 targetMs 로 fast-forward.

@@ -71,7 +71,8 @@ public static class BasicMacroIoGenerator
             {
                 if (!string.IsNullOrEmpty(inSym))
                 {
-                    inAddr = $"%IW{fb.IwBase}.{cnt.iw / 16}.{cnt.iw % 16}";
+                    // 2-segment 포맷 %IW{word}.{bit} — Pipeline Address.formatAddr 와 일관.
+                    inAddr = $"%IW{fb.IwBase + cnt.iw / 16}.{cnt.iw % 16}";
                     cnt.iw++;
                 }
                 if (!string.IsNullOrEmpty(qwSymBase))
@@ -84,7 +85,7 @@ public static class BasicMacroIoGenerator
                     }
                     else
                     {
-                        outAddr = $"%QW{fb.QwBase}.{cnt.qw / 16}.{cnt.qw % 16}";
+                        outAddr = $"%QW{fb.QwBase + cnt.qw / 16}.{cnt.qw % 16}";
                         outSym  = qwSymBase;
                         cnt.qw++;
                         qwCacheByCallApi[key] = (outAddr, outSym);
