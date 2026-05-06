@@ -41,7 +41,7 @@ public static class FBTagMapStore
     /// 등록된 SystemType 별 FBTagMapPreset 을 보강한다.
     /// • Entry 가 없으면 신규 생성 + 기본 FB + 기본 패턴 채움.
     /// • Entry 가 있어도 누락된 기본값이 있으면 보충 (사용자 편집은 보존).
-    /// 디폴트 출처: AAStoXGI.dll 임베디드 JSON — 디스크 파일 사용 안 함.
+    /// 디폴트 출처: AAStoPLC.dll 임베디드 JSON — 디스크 파일 사용 안 함.
     /// </summary>
     public static void EnsureDefaultPresets(ControlSystemProperties cp)
     {

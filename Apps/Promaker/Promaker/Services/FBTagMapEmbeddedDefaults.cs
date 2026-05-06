@@ -8,8 +8,8 @@ using log4net;
 namespace Promaker.Services;
 
 /// <summary>
-/// SystemType 별 FBTagMap 디폴트 — AAStoXGI.dll 의 EmbeddedResource (타입당 1개 JSON).
-/// 리소스 이름 패턴: "AAStoXGI.FBTagMapDefaults.&lt;SystemType&gt;.json"
+/// SystemType 별 FBTagMap 디폴트 — AAStoPLC.dll 의 EmbeddedResource (타입당 1개 JSON).
+/// 리소스 이름 패턴: "AAStoPLC.FBTagMapDefaults.&lt;SystemType&gt;.json"
 /// 디스크 사본은 사용하지 않음 — 임베디드만이 진실원.
 /// </summary>
 public static class FBTagMapEmbeddedDefaults
@@ -22,7 +22,7 @@ public static class FBTagMapEmbeddedDefaults
         PropertyNamingPolicy = null,
     };
 
-    private const string ResourcePrefix = "AAStoXGI.FBTagMapDefaults.";
+    private const string ResourcePrefix = "AAStoPLC.FBTagMapDefaults.";
     private const string ResourceSuffix = ".json";
 
     private static System.Reflection.Assembly ResourceAssembly =>
