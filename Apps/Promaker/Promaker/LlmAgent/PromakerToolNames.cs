@@ -15,6 +15,7 @@ public static class PromakerToolNames
 
     public static readonly string[] All =
     {
+        "mcp__promaker__list_projects",
         "mcp__promaker__list_systems",
         "mcp__promaker__describe_system",
         "mcp__promaker__describe_subtree",
@@ -26,5 +27,7 @@ public static class PromakerToolNames
         "mcp__promaker__add_call",
         "mcp__promaker__add_api_def",
         "mcp__promaker__add_arrow",
+        "mcp__promaker__remove_entity",
+        "mcp__promaker__rename_entity",
     };
 }

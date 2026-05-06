@@ -1658,3 +1658,76 @@ PascalCase → snake_case 는 `Char.IsUpper` 기반 trivial 변환. `__SOURCE_DI
 |---|---|
 | 4-cylinder spec / 환각 회귀 / 인스턴스 격리 / RDP cross-session / session resume / GUI+LLM 혼용 | 사용자 e2e 시나리오 — Phase 1d-6 의 사용자 측 검증 시나리오 절에 그대로 유지. 자동화 부담 vs 가치가 낮음 |
 | LLM 실제 호출 측 prompt injection 회귀 | sanitizer 만으로 충분하지 않은 case (e.g. system prompt override 시도) — golden e2e 로만 검증 |
+
+# Phase 2 첫 사이클 — list_projects + Remove/Rename + Codex CLI 사전 실증 4 (2026-05-06)
+
+Phase 1d 완료 + Pass A~E 위에 Phase 2 진입. 단계 분할 (분량 폭증 회피):
+- **A**: `list_projects` read tool — 짧은 단위, drift test 자연 검증
+- **B-1 / B-2**: `RemoveEntity` (cascade) + `RenameEntity` (System/ApiDef) — Ds2.Editor 의 internal `CascadeRemove` 활용
+- **C-1**: Codex CLI 사전 실증 4 + `CodexCliOptions` / `CodexCliArgs.build` skeleton (process spawn / event loop 은 후속)
+- **B-3 / C-2 / C-3** 은 의도적 후속 (별도 사이클)
+
+## 변경 파일
+
+### F# 측 (`Solutions/Core/Ds2.LlmAgent/`, `Solutions/Core/Ds2.Core/`, `Solutions/Core/Ds2.Editor/`)
+
+- `Ds2.Core/Store/ImportPlan.fs` — `ImportPlanOperation` DU 에 `RemoveEntity of EntityKind*Guid` + `RenameEntity of EntityKind*Guid*newName` 2종 추가. `applyOperationDirect` (raw build path, Mermaid/CSV importer 만 사용) 에 dict.Remove + entity.Name <- newName 케이스. cascade X (호출자 책임 명시 주석)
+- `Ds2.Editor/Editor/ImportPlanApply.fs` — `applyOperationTracked` 에 `CascadeRemove.batchRemoveEntities store [(kind, id)]` 호출 (자식 cascade + orphan ApiCall sweep + history 추적 모두 포함). `RenameEntity` 는 `store.TrackMutate` 로 entity.Name 변경
+- `Ds2.LlmAgent/ToolOperations.fs` — `listProjects (store) : (Guid*string*int) list` (project 별 system 합계) + `queueRemoveEntity` (EntityKind 자동 판별, store dict ContainsKey 검색) + `queueRenameEntity` (System/ApiDef 만, ApiDef 는 같은 system 내 중복 검사 자기자신 제외)
+- `Ds2.LlmAgent/CodexCliArgs.fs` 신규 — `CodexCliOptions` record (12 fields) + `CodexCliArgs.build` module-level 함수. default Json/Ephemeral/IgnoreUserConfig=true (인스턴스별 격리)
+- `Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — CodexCliArgs.fs Compile 추가
+
+### C# 측 (`Apps/Promaker/Promaker/`)
+
+- `LlmAgent/Tools/ModelTools.cs` — `[McpServerTool] ListProjects` + `[McpServerTool] RemoveEntity` + `[McpServerTool] RenameEntity` 3종 신규. RemoveEntity 는 EntityKind 자동 판별 (cascade 안내 메시지 포함). RenameEntity 는 Sanitize 재적용 (sanitizeName F# wrapper)
+- `LlmAgent/PromakerToolNames.cs` — `mcp__promaker__list_projects` / `remove_entity` / `rename_entity` 3개 추가 (11→14)
+
+### Test 측 (`Solutions/Tests/Ds2.LlmAgent.Tests/`)
+
+- `RemoveRenameTests.fs` 신규 — 12 test:
+  - Remove 6: queueRemoveEntity EntityKind 판별 / System cascade (자식 Flow/Work) / Project ActiveSystemIds 정리 / unknown GUID invalidOp / Flow 단독 cascade / ApiDef 단독 (cascade 없음)
+  - Rename 6: System rename / ApiDef rename + 중복 invalidOp / Flow/Work/Project rename 미지원 invalidOp / ApiDef 자기자신 이름 유지 (self-clash 회피)
+  - `addApiDefDirect` helper = `queueAddApiDef + ApplyImportPlan` 우회 (Ds2.Core 의 ApiDef ctor internal)
+- `CodexCliArgsTests.fs` 신규 — 13 test: exec subcommand / resume subcommand / --json + --ephemeral + --ignore-user-config default / -C / -m / -c key=value 반복 / DangerouslyBypass long flag / Json/Ephemeral/IgnoreUserConfig false 시 미전달
+- `PromakerToolNamesDriftTests.fs` — expected 11→14 갱신 (drift test 가 list_projects + remove_entity + rename_entity 자동 검출 — 회귀 동작 확인)
+- `Ds2.LlmAgent.Tests.fsproj` — CodexCliArgsTests + RemoveRenameTests Compile 추가
+
+## 사전 실증 4 결과 — Codex CLI 0.125.0 인자 inventory
+
+| 항목 | Claude CLI | Codex CLI |
+|---|---|---|
+| Non-interactive | `claude -p <msg>` | `codex exec <prompt>` |
+| Session resume | `--resume <sid>` flag | `codex exec resume <sid>` **subcommand** |
+| Stream | `--output-format stream-json` | `--json` (JSONL) |
+| MCP config | `--mcp-config <path>` 임시 파일 | `codex mcp add` 영속 / `-c` inline override / `CODEX_HOME` 격리 (**임시 path 부재**) |
+| MCP transport | HTTP / stdio | HTTP (`--url`) / stdio 모두 지원 |
+| Tool 단위 allowlist | `--allowed-tools T1 --allowed-tools T2 ...` | **부재** — sandbox policy + system prompt 가이드만 |
+| Permission bypass | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` / `--full-auto` |
+
+**결론** (review M5 인정): `ClaudeCliOptions` 와 `CodexCliOptions` 는 별개 record. 추상화는 Promaker 측 dock 의 provider 선택 layer 에서 (`enum LlmProviderKind { Claude, Codex }` + dispatch). 인스턴스별 임시 MCP config 는 `CODEX_HOME=<tmp>` + `--ignore-user-config` 격리 또는 `-c mcp_servers.promaker.url=...` inline 중 어느 게 정석인지는 C-2 spike (실제 codex exec 호출) 로 결정.
+
+## 빌드 / 테스트 검증
+
+- `Promaker.sln` 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **67/67 통과** (이전 42 + 신규 25 = list_projects drift 갱신 + Remove/Rename 12 + CodexCliArgs 13)
+- 실제 LLM 호출 검증 X (C-2 후속 — 사용자 환경은 `codex login status` = `Logged in using ChatGPT` 로 subscription 모드, 추가 청구 없이 ChatGPT 한도 내 spike 가능)
+
+## 의도적 미적용 (별도 사이클로)
+
+| 항목 | 사유 |
+|---|---|
+| **B-3** Flow/Work/Call rename | 자식 cascade 복잡도 — Work.FlowPrefix 갱신, Call.Name 합성 (`{DevicesAlias}.{ApiName}`) 갱신. ImportPlanOperation 에 `RenameFlow with cascade` 별도 op 도입 검토 |
+| **C-2** 실제 `codex exec --json` spike | Codex CLI 인증 모드 = ChatGPT subscription (default `codex login` OAuth, 결정 3 의 subscription 우선 원칙과 정합) — 사용자 환경 `codex login status` = `Logged in using ChatGPT` 확인됨, 추가 청구 X. JSONL 패킷 종류 / system+result 분기 / mcp_servers init 확인 단순 spike. **API key 모드 (`codex login --with-api-key`) 는 별도 청구 — 본 환경 해당 X** |
+| **C-3** `CodexCliProvider` concrete | 분량 큼 (FSM / stream parser / event loop / IAsyncEnumerable<LlmEvent>). C-2 결과 후 진입 |
+| RetargetArrow / RemoveArrow 단독 | 현재 cascadeRemoveWork/Call 가 자동 cascade — 단독 arrow 변경/제거는 phase 후속 |
+| Provider fallback 정책 | C-3 끝난 후 ClaudeCli / Codex 양립 검증 시점 |
+| m1 — `LlmTurnContextProvider` AsyncLocal | 다중 dock 시점 (현재 단일 dock 만 — 사용자 의도) |
+
+## 사용자 측 검증 시나리오 (e2e)
+
+1. `list_projects` 호출 — 빈 store 시 `(no projects)`, project 1개 시 `- {name} (id=..., systems=N)` 형식
+2. `remove_entity` System 제거 — 자식 Flow/Work + ArrowWork/Call 모두 cascade 사라짐, project tree refresh 정상
+3. `remove_entity` 호출 후 Undo — 1 LLM turn = 1 undo step 보장 (`ApplyImportPlan` 단일 transaction)
+4. `rename_entity` System 이름 변경 — tree label 즉시 갱신, 자식 Flow/Work 영향 X
+5. `rename_entity` ApiDef + 같은 system 내 중복 시도 — VALIDATION_ERROR 응답 + LLM 회복 (다른 이름 시도)
+6. `rename_entity` Flow → 미지원 메시지 (LLM 이 후속 phase 안내 받음)

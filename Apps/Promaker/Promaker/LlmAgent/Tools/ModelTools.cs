@@ -201,7 +201,56 @@ public static class ModelTools
         });
     }
 
+    // ─── Remove / Rename (Phase 2) ───────────────────────────────────────────
+
+    [McpServerTool, Description("entity (Project / System / Flow / Work / Call / ApiDef) 와 모든 자식 + 관련 Arrow 를 cascade 로 제거합니다. EntityKind 는 GUID 로 자동 판별. Arrow 단독 제거는 미지원 (source/target Work/Call 제거 시 자동 cascade). 반환: 판별된 kind + 제거 plan 누적 메시지.")]
+    public static Task<string> RemoveEntity(
+        LlmTurnContextProvider turnProvider,
+        [Description("제거할 entity 의 GUID. Project/System/Flow/Work/Call/ApiDef 자동 판별.")] string entityId)
+    {
+        var (gid, gerr) = ParseGuid(entityId, "entityId");
+        if (gerr != null) return Task.FromResult(gerr);
+        return RunMutation(turnProvider, "remove_entity", ctx =>
+        {
+            var kind = ToolOperations.queueRemoveEntity(ctx.Plan, ctx.Store, gid!.Value);
+            return $"[plan] remove_entity queued: kind={kind}, id={gid:D}, planSize={ctx.Plan.Count} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)";
+        });
+    }
+
+    [McpServerTool, Description("System 또는 ApiDef 의 이름을 변경합니다 (Phase 2 는 System/ApiDef 만 지원 — Flow/Work/Call 은 자식 cascade 복잡도로 후속). EntityKind 는 GUID 로 자동 판별. 반환: 판별된 kind + new name.")]
+    public static Task<string> RenameEntity(
+        LlmTurnContextProvider turnProvider,
+        [Description("이름 변경할 entity 의 GUID. System 또는 ApiDef 만 허용.")] string entityId,
+        [Description("새 이름 (1-128자, 같은 parent 안 unique).")] string newName)
+    {
+        var err = Sanitize(newName, "newName");
+        if (err != null) return Task.FromResult(err);
+        var (gid, gerr) = ParseGuid(entityId, "entityId");
+        if (gerr != null) return Task.FromResult(gerr);
+        var trimmed = newName.Trim();
+        return RunMutation(turnProvider, "rename_entity", ctx =>
+        {
+            var kind = ToolOperations.queueRenameEntity(ctx.Plan, ctx.Store, gid!.Value, trimmed);
+            return $"[plan] rename_entity queued: kind={kind}, id={gid:D}, newName=\"{trimmed}\", planSize={ctx.Plan.Count}";
+        });
+    }
+
     // ─── Read tools ──────────────────────────────────────────────────────────
+
+    [McpServerTool, Description("현재 Promaker 의 모든 Project 목록 + 각 project 의 system 합계 (active + passive). 빈 결과 (no projects) 는 프로젝트 자체 부재 — list_systems 의 빈 결과 (어느 프로젝트에도 system 없음) 와 구분. add_system 의 첫 project 자동 부착이 어느 project 인지 확인 시 사용.")]
+    public static Task<string> ListProjects(
+        LlmTurnContextProvider turnProvider)
+    {
+        return RunRead(turnProvider, "list_projects", ctx =>
+        {
+            var rows = ToolOperations.listProjects(ctx.Store);
+            if (rows.Length == 0) return "(no projects)";
+            var sb = new StringBuilder();
+            foreach (var (id, name, total) in rows)
+                sb.AppendLine($"- {name} (id={id:D}, systems={total})");
+            return sb.ToString().TrimEnd();
+        });
+    }
 
     [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기. 자식 트리는 미포함 — 자식까지 보려면 describe_system 또는 describe_subtree 호출.")]
     public static Task<string> ListSystems(

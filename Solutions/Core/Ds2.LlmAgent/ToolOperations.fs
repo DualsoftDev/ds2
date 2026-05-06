@@ -198,6 +198,54 @@ module ToolOperations =
         plan.Add(AddApiDef apiDef)
         apiDef.Id
 
+    // ─── Remove / Rename (Phase 2) ───────────────────────────────────────────
+    //
+    // Remove: cascade 는 Ds2.Editor 의 CascadeRemove.batchRemoveEntities 가 책임.
+    //         LLM tool 측은 entity kind 자동 판별 + plan 누적만.
+    // Rename: phase 2 첫 사이클은 System / ApiDef 만 지원. Flow/Work/Call 은 자식 (Work.FlowPrefix /
+    //         Call.Name 합성) cascade 복잡도로 phase 후속.
+
+    /// remove_entity mutation tool. id 의 EntityKind 를 store dict 검색으로 자동 판별.
+    /// 같은 turn 안에서 plan 의 in-memory add 직후 remove 는 의미 약함 (turn end 까지 store 미반영).
+    /// → store 검색만 수행 (plan operation 검색은 의도적 skip — false positive 회피).
+    /// 반환: 판별된 EntityKind (LLM 응답 메시지에 포함).
+    let queueRemoveEntity (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : EntityKind =
+        let kind =
+            if   store.Projects.ContainsKey(id) then EntityKind.Project
+            elif store.Systems.ContainsKey(id)  then EntityKind.System
+            elif store.Flows.ContainsKey(id)    then EntityKind.Flow
+            elif store.Works.ContainsKey(id)    then EntityKind.Work
+            elif store.Calls.ContainsKey(id)    then EntityKind.Call
+            elif store.ApiDefs.ContainsKey(id)  then EntityKind.ApiDef
+            else
+                invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef 어디에도 없음)."
+        plan.Add(RemoveEntity(kind, id))
+        kind
+
+    /// rename_entity mutation tool. System / ApiDef 만 지원 (Flow/Work/Call 은 자식 cascade 복잡도로 보류).
+    /// sanitize 는 호출자 (ModelTools) 가 끝낸 trimmed name 을 받음.
+    /// ApiDef 는 같은 System 내 이름 중복 검사 (자기 자신 제외).
+    /// 반환: 판별된 EntityKind.
+    let queueRenameEntity (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) (newName: string) : EntityKind =
+        let kind =
+            if   store.Systems.ContainsKey(id) then EntityKind.System
+            elif store.ApiDefs.ContainsKey(id) then EntityKind.ApiDef
+            else
+                invalidOp $"Rename: id={id} 는 System 또는 ApiDef 가 아닙니다 (Phase 2 는 System/ApiDef 만 지원)."
+
+        match kind with
+        | EntityKind.ApiDef ->
+            let parentSysId = store.ApiDefs.[id].ParentId
+            let clash =
+                Queries.apiDefsOf parentSysId store
+                |> List.exists (fun d -> d.Id <> id && d.Name = newName)
+            if clash then
+                invalidOp $"같은 System 내에 이미 '{newName}' ApiDef 가 존재합니다."
+        | _ -> ()  // System 은 phase 1 의 add_system 과 일관 (이름 중복 검사 생략)
+
+        plan.Add(RenameEntity(kind, id, newName))
+        kind
+
     /// add_arrow mutation tool.
     /// source/target 이 모두 Work → ArrowBetweenWorks(parentId=systemId), 같은 system 에 속해야 함.
     /// source/target 이 모두 Call → ArrowBetweenCalls(parentId=workId), 같은 work 에 속해야 함.
@@ -244,6 +292,16 @@ module ToolOperations =
                 invalidOp "Arrow 의 source/target 은 모두 Work 이거나 모두 Call 이어야 합니다 (혼용 불가)."
 
     // ─── Read tool (Phase 1c~) ───────────────────────────────────────────────
+
+    /// list_projects read tool. project 별 system 합계 (active + passive).
+    /// 빈 결과는 "프로젝트 자체 없음" 을 명시 — list_systems 가 빈 array 를 반환할 때
+    /// "어느 project 에도 system 없음" vs "project 자체가 없음" 을 LLM 이 구분 가능.
+    /// 반환: (Id, Name, totalSystems) tuple 의 목록.
+    let listProjects (store: DsStore) : (Guid * string * int) list =
+        Queries.allProjects store
+        |> List.map (fun p ->
+            let total = p.ActiveSystemIds.Count + p.PassiveSystemIds.Count
+            p.Id, p.Name, total)
 
     /// list_systems read tool. 모든 project 의 active + passive 시스템.
     /// 반환: (Id, Name, IsActive) tuple 의 목록.
