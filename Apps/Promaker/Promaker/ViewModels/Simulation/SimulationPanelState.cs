@@ -137,7 +137,10 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private string _simStatusText = SimText.Stopped;
 
     // ── Runtime Mode + Hub ───────────────────────────────────────────
-    [ObservableProperty] private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
     [ObservableProperty] private bool _isHubHosting;
 

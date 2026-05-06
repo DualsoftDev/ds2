@@ -366,7 +366,12 @@ public partial class SimulationPanelState
         RefreshSimulationProgressUi();
     }
 
-    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused && !IsHomingPhase;
+    private bool CanPauseSimulation() =>
+        IsSimulating
+        && !IsSimPaused
+        && !IsHomingPhase
+        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring);
+        // VP/Monitoring 은 외부 Hub 신호로 진행되어 일시정지 자체가 의미 없음 → 버튼 비활성.
 
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
