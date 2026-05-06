@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Ds2.Core;
@@ -68,6 +69,25 @@ public static class ModelTools
         {
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return $"VALIDATION_ERROR: {ex.Message}";
+        }
+    }
+
+    private static async Task<string> RunRead(
+        LlmTurnContextProvider turnProvider, string toolName,
+        Func<LlmTurnContext, string> work)
+    {
+        var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var msg = await ctx.Dispatcher.InvokeAsync(() => work(ctx));
+            ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} sizeBytes={msg?.Length ?? 0}");
+            return msg ?? "";
+        }
+        catch (Exception ex)
+        {
+            ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
+            return $"INTERNAL_ERROR: {ex.Message}";
         }
     }
 
@@ -185,27 +205,75 @@ public static class ModelTools
 
     // ─── Read tools ──────────────────────────────────────────────────────────
 
-    [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기.")]
-    public static async Task<string> ListSystems(
+    [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기. 자식 트리는 미포함 — 자식까지 보려면 describe_system 또는 describe_subtree 호출.")]
+    public static Task<string> ListSystems(
         [FromKeyedServices(null)] LlmTurnContextProvider turnProvider)
     {
-        var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
+        return RunRead(turnProvider, "list_systems", ctx =>
         {
-            var rows = await ctx.Dispatcher.InvokeAsync(() => ToolOperations.listSystems(ctx.Store));
-            ToolCallLog.Info($"list_systems ok count={rows.Length} elapsedMs={sw.ElapsedMilliseconds}");
+            var rows = ToolOperations.listSystems(ctx.Store);
             if (rows.Length == 0) return "(no systems)";
             var sb = new StringBuilder();
             foreach (var (id, name, isActive) in rows)
                 sb.AppendLine($"- {name} (id={id:D}, {(isActive ? "active" : "passive")})");
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
+        });
+    }
+
+    [McpServerTool, Description("특정 DsSystem 의 직계 자식 (Flow / ApiDef) 또는 깊은 트리 (Flow → Work → Call + Arrows) 를 반환합니다. deep=false (기본) 가 token 절약. 여러 system 을 한 번에 보려면 describe_subtree 사용.")]
+    public static Task<string> DescribeSystem(
+        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        [Description("DsSystem 의 GUID.")] string systemId,
+        [Description("true 면 Work / Call / Arrows 까지 깊게. 기본 false (Flow / ApiDef 이름만).")] bool deep = false)
+    {
+        var (sysGuid, gerr) = ParseGuid(systemId, "systemId");
+        if (gerr != null) return Task.FromResult(gerr);
+        return RunRead(turnProvider, "describe_system", ctx =>
+            ToolOperations.describeSystem(ctx.Store, sysGuid!.Value, deep));
+    }
+
+    [McpServerTool, Description("rootId (Project / System / Flow / Work GUID) 의 부분 트리를 indented text 로 반환합니다. depth = 추가 깊이 (0~5). 50 entity 초과 시 truncated 표기. 여러 system 을 한 번에 batch 조회할 때 사용 — 단일 describe_system 의 N+1 호출보다 token 효율 ↑.")]
+    public static Task<string> DescribeSubtree(
+        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        [Description("Root entity 의 GUID. EntityKind 는 자동 판별 (Project/System/Flow/Work).")] string rootId,
+        [Description("Root 기준 추가 깊이 (0=root만, 1=직접 자식, ..., 최대 5).")] int depth = 2)
+    {
+        var (rootGuid, gerr) = ParseGuid(rootId, "rootId");
+        if (gerr != null) return Task.FromResult(gerr);
+        return RunRead(turnProvider, "describe_subtree", ctx =>
+            ToolOperations.describeSubtree(ctx.Store, rootGuid!.Value, depth));
+    }
+
+    [McpServerTool, Description("이름으로 entity 검색 (대소문자 무관 substring). kind 미지정 시 모든 종류. 결과 50개 제한.")]
+    public static Task<string> FindByName(
+        [FromKeyedServices(null)] LlmTurnContextProvider turnProvider,
+        [Description("검색어 (대소문자 무관 substring).")] string name,
+        [Description("필터 종류. 허용: Project|System|Flow|Work|Call|ApiDef. 미지정 시 모두.")] string? kind = null)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Task.FromResult("VALIDATION_ERROR: name 이 비어있습니다.");
+
+        Ds2.Core.Store.EntityKind? kindFilter = null;
+        if (!string.IsNullOrWhiteSpace(kind))
         {
-            ToolCallLog.Warn($"list_systems 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
-            return $"INTERNAL_ERROR: {ex.Message}";
+            if (!Enum.TryParse<Ds2.Core.Store.EntityKind>(kind.Trim(), ignoreCase: true, out var k))
+                return Task.FromResult($"VALIDATION_ERROR: kind '{kind}' 가 유효하지 않습니다. 허용: Project|System|Flow|Work|Call|ApiDef.");
+            kindFilter = k;
         }
+
+        return RunRead(turnProvider, "find_by_name", ctx =>
+        {
+            var fsKind = kindFilter.HasValue
+                ? Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.Some(kindFilter.Value)
+                : Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.None;
+            var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
+            if (rows.Length == 0) return "(no matches)";
+            var truncated = rows.Length > 50;
+            var sb = new StringBuilder();
+            foreach (var (k, id, n) in truncated ? rows.Take(50) : rows)
+                sb.AppendLine($"- {k} \"{n}\" (id={id:D})");
+            if (truncated) sb.AppendLine("... (truncated at 50; refine the name)");
+            return sb.ToString().TrimEnd();
+        });
     }
 }
