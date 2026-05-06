@@ -134,6 +134,9 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                     do! writer.WriteAsync(evt, ct)
                 with
                 | :? OperationCanceledException -> ()
+                // M4 — outer try 가 writer 를 complete 한 후 sibling task 가 emit 하면 ChannelClosed.
+                // emit 무시하고 silent skip — outer ProviderError 와 이중 emit 회피.
+                | :? ChannelClosedException -> ()
             } :> Task
 
         let runProcess () =
@@ -148,7 +151,13 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                 psi.StandardOutputEncoding <- System.Text.Encoding.UTF8
                 psi.StandardErrorEncoding <- System.Text.Encoding.UTF8
 
-                Log.provider.Debug($"Spawning: {executable} {formatArgs args}")
+                // m4 — 사용자 prompt 평문이 log 에 남지 않도록 -p <user msg> 만 redact. 다른 인자 (model / mcp-config / allowed-tools) 는 노출 유지 (1d-4 B 검증 시나리오에 필요).
+                let redacted =
+                    args
+                    |> List.mapi (fun i a ->
+                        if i > 0 && args.[i - 1] = "-p" then sprintf "<redacted, len=%d>" a.Length
+                        else a)
+                Log.provider.Debug($"Spawning: {executable} {formatArgs redacted}")
 
                 let mutable proc : Process = null
                 try
@@ -171,31 +180,44 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                     try cb.Invoke(p) with ex -> Log.provider.Warn("OnProcessStarted callback 실패", ex)
                 | None -> ()
 
+                // M4 — inner task 의 unhandled exception 이 sibling task 의 WriteAsync 를 closed channel
+                // 으로 보내거나 outer try 까지 escalation 되어 ProviderError 가 두 번 emit 되는 경로 차단.
+                // 한 task 가 throw 해도 다른 task 는 ct cancel 또는 EOF 까지 자연 종료.
                 let stderrTask =
                     task {
-                        let mutable line = ""
-                        while not (isNull line) do
-                            let! l = p.StandardError.ReadLineAsync(ct).AsTask()
-                            line <- l
-                            if not (isNull line) && line.Length > 0 then
-                                Log.provider.Warn($"[claude stderr] {line}")
+                        try
+                            let mutable line = ""
+                            while not (isNull line) do
+                                let! l = p.StandardError.ReadLineAsync(ct).AsTask()
+                                line <- l
+                                if not (isNull line) && line.Length > 0 then
+                                    Log.provider.Warn($"[claude stderr] {line}")
+                        with
+                        | :? OperationCanceledException -> ()
+                        | ex -> Log.provider.Warn("stderr task 실패", ex)
                     }
 
                 let stdoutTask =
                     task {
-                        let mutable line = ""
-                        while not (isNull line) do
-                            let! l = p.StandardOutput.ReadLineAsync(ct).AsTask()
-                            line <- l
-                            if not (isNull line) then
-                                if Log.rawStream.IsDebugEnabled then
-                                    Log.rawStream.Debug(line)
-                                for evt in StreamJsonParser.parseLine line do
-                                    match evt with
-                                    | SessionStarted(sid, _, _, _) ->
-                                        sessionId <- Some sid
-                                    | _ -> ()
-                                    do! writeAsync evt
+                        try
+                            let mutable line = ""
+                            while not (isNull line) do
+                                let! l = p.StandardOutput.ReadLineAsync(ct).AsTask()
+                                line <- l
+                                if not (isNull line) then
+                                    if Log.rawStream.IsDebugEnabled then
+                                        Log.rawStream.Debug(line)
+                                    for evt in StreamJsonParser.parseLine line do
+                                        match evt with
+                                        | SessionStarted(sid, _, _, _) ->
+                                            sessionId <- Some sid
+                                        | _ -> ()
+                                        do! writeAsync evt
+                        with
+                        | :? OperationCanceledException -> ()
+                        | ex ->
+                            Log.provider.Warn("stdout task 실패", ex)
+                            do! writeAsync(ProviderError $"Stream 파싱 실패: {ex.Message}")
                     }
 
                 let killOnCancel =
