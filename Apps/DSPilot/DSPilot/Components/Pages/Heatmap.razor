@@ -5,8 +5,10 @@
 @using Ds2.Core
 @inject HeatmapService HeatmapService
 @inject AppSettingsService SettingsService
+@inject DspDbService DbService
 @inject ILogger<Heatmap> Logger
 @inject IJSRuntime JS
+@implements IDisposable
 
 <PageTitle>동작편차</PageTitle>
 
@@ -444,9 +446,92 @@
         ? FilteredGroups.SelectMany(g => g.Calls).Average(c => c.GetMetricValue(ToCoreMetric(SelectedMetric)))
         : 0;
 
+    private DateTime _lastAutoRefresh = DateTime.MinValue;
+    private bool _autoRefreshScheduled;
+    private bool _disposed;
+    private const int AutoRefreshThrottleMs = 5000;
+
     protected override async Task OnInitializedAsync()
     {
+        DbService.OnDataChanged += OnDbDataChanged;
         await LoadDataAsync();
+    }
+
+    private void OnDbDataChanged()
+    {
+        if (_disposed) return;
+
+        var now = DateTime.UtcNow;
+        var elapsed = (now - _lastAutoRefresh).TotalMilliseconds;
+        if (elapsed >= AutoRefreshThrottleMs)
+        {
+            _ = AutoRefreshAsync();
+            return;
+        }
+
+        if (_autoRefreshScheduled) return;
+        _autoRefreshScheduled = true;
+        var delayMs = (int)(AutoRefreshThrottleMs - elapsed);
+        _ = Task.Delay(delayMs).ContinueWith(_ =>
+        {
+            _autoRefreshScheduled = false;
+            return AutoRefreshAsync();
+        });
+    }
+
+    private async Task AutoRefreshAsync()
+    {
+        if (_disposed) return;
+        _lastAutoRefresh = DateTime.UtcNow;
+        try
+        {
+            await InvokeAsync(LoadDataSilentlyAsync);
+        }
+        catch (ObjectDisposedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Heatmap auto-refresh failed");
+        }
+    }
+
+    /// <summary>
+    /// Auto-refresh 전용 — IsLoading 토글 없이 AllGroups 만 swap.
+    /// 사용자가 보던 매트릭스가 잠깐 비워졌다 다시 그려지는 깜빡임 방지.
+    /// </summary>
+    private async Task LoadDataSilentlyAsync()
+    {
+        if (_disposed) return;
+        try
+        {
+            var settings = SettingsService.LoadSettings();
+            var filter = settings.HistoryView;
+            _activeFilter = filter;
+
+            List<FlowHeatmapGroup> newGroups;
+            if (filter.FilterMode == "None")
+            {
+                newGroups = await HeatmapService.GetHeatmapDataAsync();
+                _filterStatusText = string.Empty;
+            }
+            else
+            {
+                _filterStatusText = GetFilterDescription(filter);
+                newGroups = await HeatmapService.GetHeatmapDataFilteredAsync(filter);
+            }
+
+            AllGroups = newGroups;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Heatmap silent refresh failed");
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        DbService.OnDataChanged -= OnDbDataChanged;
     }
 
     protected override void OnParametersSet()

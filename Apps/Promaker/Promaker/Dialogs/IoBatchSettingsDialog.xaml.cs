@@ -9,6 +9,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using AAStoPLC.TagWizard;
 using Ds2.Core.Store;
 using Microsoft.Win32;
 using Promaker.Services;
@@ -23,12 +25,17 @@ namespace Promaker.Dialogs;
 public partial class IoBatchSettingsDialog : Window
 {
     private readonly DsStore _store;
+    private readonly Action<string?>? _openFBTagMapEdit;
     private readonly ObservableCollection<IoBatchRow> _rows = new();
+    private readonly ObservableCollection<DummySignalRow> _dummyRows = new();
+    private readonly ObservableCollection<DiagnosticItemViewModel> _diagnostics = new();
     private readonly ICollectionView _view;
     private readonly RowFilterDebouncer _filterDebouncer;
 
     private bool _showOnlyUnmatched;
     private int _unmatchedCount;
+    private int _errorCount;
+    private int _warningCount;
 
     // 그리드 헤더 내장 필터 — TextChanged 에서 Tag 키로 Map 업데이트 후 디바운스 Refresh.
     private readonly Dictionary<string, string> _filters = new(StringComparer.OrdinalIgnoreCase)
@@ -40,22 +47,25 @@ public partial class IoBatchSettingsDialog : Window
 
     /// <summary>
     /// store 1개만으로 다이얼로그 생성. 행은 IoQueryService 가 만든다.
-    /// 호출부에서 행을 미리 만들어 넘기던 옛 시그니처는 제거 — 단일 책임.
+    /// <paramref name="openFBTagMapEdit"/> 가 주어지면 진단 카드의 "FBTagMap 편집" 버튼이 활성화되어
+    /// SystemType 식별자와 함께 호출자에게 전달한다 (TAG Wizard 진입 등). 호출 후 자동 새로고침된다.
     /// </summary>
-    public IoBatchSettingsDialog(DsStore store)
+    public IoBatchSettingsDialog(DsStore store, Action<string?>? openFBTagMapEdit = null)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _openFBTagMapEdit = openFBTagMapEdit;
 
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
         IoGrid.ItemsSource = _view;
+        DummyGrid.ItemsSource = _dummyRows;
+        DiagnosticsList.ItemsSource = _diagnostics;
 
         _filterDebouncer = new RowFilterDebouncer(() => _view.Refresh());
 
         DataContext = this;
 
-        // 자동 1회 생성 — 사용자 입력 없이 진입 즉시 결과 표시.
         LoadFromStore();
     }
 
@@ -79,12 +89,24 @@ public partial class IoBatchSettingsDialog : Window
                 _rows.Add(r);
             }
 
+            // Dummy 신호 행 갱신.
+            _dummyRows.Clear();
+            foreach (var d in qr.DummyRows) _dummyRows.Add(d);
+
+            // 탭 헤더에 카운트 부착.
+            IoTab.Header    = $"IO 신호 ({_rows.Count})";
+            DummyTab.Header = $"Dummy 신호 ({_dummyRows.Count})";
+
             _unmatchedCount = qr.Unmatched.Count;
+            _errorCount = qr.ErrorCount;
+            _warningCount = qr.WarningCount;
             ShowOnlyUnmatchedCheckBox.Visibility =
                 _unmatchedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+            ApplyDiagnostics(qr.Diagnostics);
+            UpdateStatusChips();
+
             BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
-            UpdateStatus(qr);
             _view.Refresh();
         }
         finally
@@ -95,15 +117,146 @@ public partial class IoBatchSettingsDialog : Window
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => LoadFromStore();
 
-    private void UpdateStatus(IoQueryService.QueryResult qr)
+    private void IoGrid_LayoutUpdated(object? sender, EventArgs e)
     {
-        var sb = new StringBuilder();
-        sb.Append($"총 {_rows.Count}개");
-        if (_unmatchedCount > 0)
-            sb.Append($" / 매칭 실패 {_unmatchedCount}개");
-        if (qr.HasError)
-            sb.Append($" / 오류 {qr.ErrorMessages.Count}건");
-        StatusText.Text = sb.ToString();
+        if (IoHeaderGrid.ColumnDefinitions.Count == 0 || IoGrid.Columns.Count == 0)
+            return;
+
+        var count = Math.Min(IoHeaderGrid.ColumnDefinitions.Count, IoGrid.Columns.Count);
+        for (var i = 0; i < count; i++)
+        {
+            var actualWidth = IoGrid.Columns[i].ActualWidth;
+            if (actualWidth <= 0d)
+                continue;
+
+            var currentWidth = IoHeaderGrid.ColumnDefinitions[i].Width;
+            if (currentWidth.IsAbsolute && Math.Abs(currentWidth.Value - actualWidth) < 0.5d)
+                continue;
+
+            IoHeaderGrid.ColumnDefinitions[i].Width = new GridLength(actualWidth, GridUnitType.Pixel);
+        }
+    }
+
+    // ── 진단(Diagnostics) ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// QueryResult 의 진단을 ViewModel 로 옮기고, 영향 행에 HasError 플래그를 매핑.
+    /// 진단이 없으면 패널을 자동으로 닫는다.
+    /// </summary>
+    private void ApplyDiagnostics(IReadOnlyList<DiagnosticItem> diagnostics)
+    {
+        _diagnostics.Clear();
+
+        // 행별 인덱스 — (CallId, ApiCallId) → IoBatchRow
+        var rowIndex = new Dictionary<(Guid, Guid), IoBatchRow>();
+        foreach (var r in _rows)
+        {
+            r.HasError = false;
+            rowIndex[(r.CallId, r.ApiCallId)] = r;
+        }
+
+        foreach (var d in diagnostics)
+        {
+            var matched = new List<IoBatchRow>();
+            foreach (var key in d.AffectedRows)
+            {
+                if (rowIndex.TryGetValue((key.CallId, key.ApiCallId), out var row))
+                {
+                    matched.Add(row);
+                    if (d.Severity == DiagnosticSeverity.Error)
+                        row.HasError = true;
+                }
+            }
+
+            _diagnostics.Add(new DiagnosticItemViewModel(d, matched, _openFBTagMapEdit != null));
+        }
+
+        // 진단 없으면 패널 닫기. 있으면 헤더 텍스트만 갱신 (사용자가 직접 칩 클릭으로 열도록 둠).
+        if (_diagnostics.Count == 0)
+        {
+            DiagnosticsPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            UpdateDiagnosticsHeader();
+        }
+    }
+
+    private void UpdateDiagnosticsHeader()
+    {
+        var parts = new List<string>();
+        if (_errorCount > 0) parts.Add($"❌ 오류 {_errorCount}");
+        if (_warningCount > 0) parts.Add($"⚠ 경고 {_warningCount}");
+        DiagnosticsHeaderText.Text = parts.Count > 0
+            ? $"진단 — {string.Join(" / ", parts)}"
+            : "진단";
+    }
+
+    private void UpdateStatusChips()
+    {
+        TotalChip.Content = _view != null && _view.Cast<object>().Any()
+            ? $"총 {_rows.Count}"
+            : $"총 {_rows.Count}";
+
+        if (_warningCount > 0)
+        {
+            WarningChip.Content = $"⚠ 경고 {_warningCount}";
+            WarningChip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            WarningChip.Visibility = Visibility.Collapsed;
+        }
+
+        if (_errorCount > 0)
+        {
+            ErrorChip.Content = $"❌ 오류 {_errorCount}";
+            ErrorChip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ErrorChip.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void DiagnosticsChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_diagnostics.Count == 0) return;
+
+        // 칩 클릭은 토글 — 이미 열려있으면 닫고, 닫혀있으면 연다.
+        DiagnosticsPanel.Visibility = DiagnosticsPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void DiagnosticsClose_Click(object sender, RoutedEventArgs e) =>
+        DiagnosticsPanel.Visibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// "FBTagMap 편집" 버튼 — 호출자가 주입한 액션으로 SystemType 을 넘기고,
+    /// 그 액션(보통 TAG Wizard 모달)이 닫히면 IO 조회를 자동 새로고침해 결과를 즉시 반영.
+    /// </summary>
+    private void DiagnosticOpenFBTagMap_Click(object sender, RoutedEventArgs e)
+    {
+        if (_openFBTagMapEdit == null) return;
+        if (sender is not Button { DataContext: DiagnosticItemViewModel vm }) return;
+
+        _openFBTagMapEdit.Invoke(vm.SystemType);
+        LoadFromStore();
+    }
+
+    private void DiagnosticGoToRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: DiagnosticItemViewModel vm }) return;
+        if (vm.MatchedRows.Count == 0) return;
+
+        var first = vm.MatchedRows[0];
+
+        // 필터 때문에 안 보일 수 있으니 필터를 임시로 비우는 대신, 일단 SelectedItem 만 세팅.
+        // (사용자가 필터를 켠 상태에서 점프하길 원할 가능성도 있어 자동 해제는 보류.)
+        IoGrid.SelectedItem = first;
+        IoGrid.ScrollIntoView(first);
+        IoGrid.Focus();
     }
 
     // ── 필터링 ────────────────────────────────────────────────────────────
@@ -177,25 +330,18 @@ public partial class IoBatchSettingsDialog : Window
 
     // ── CSV 내보내기 ──────────────────────────────────────────────────────
 
-    /// <summary>현재 화면(필터 적용 후)의 행을 UTF-8 BOM CSV 로 내보낸다.</summary>
-    private void ExportCsv_Click(object sender, RoutedEventArgs e)
+    /// <summary>IO 탭 — 현재 필터 적용된 행을 UTF-8 BOM CSV 로 내보낸다.</summary>
+    private void ExportIoCsv_Click(object sender, RoutedEventArgs e)
     {
         var rows = _view.Cast<IoBatchRow>().ToList();
         if (rows.Count == 0)
         {
-            DialogHelpers.ShowThemedMessageBox("내보낼 행이 없습니다.",
-                "CSV 내보내기", MessageBoxButton.OK, "ℹ");
+            DialogHelpers.ShowThemedMessageBox("내보낼 IO 행이 없습니다.",
+                "IO CSV 내보내기", MessageBoxButton.OK, "ℹ");
             return;
         }
 
-        var dlg = new SaveFileDialog
-        {
-            Title      = "CSV 저장",
-            Filter     = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
-            FileName   = $"IoList_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
-            DefaultExt = ".csv",
-        };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!TryGetSavePath("IoList", out var path)) return;
 
         try
         {
@@ -208,20 +354,78 @@ public partial class IoBatchSettingsDialog : Window
                 emitted += AppendCsvLine(sb, r, isInput: false);
             }
 
-            File.WriteAllText(dlg.FileName, sb.ToString(),
+            File.WriteAllText(path, sb.ToString(),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
-            var openResult = DialogHelpers.ShowThemedMessageBox(
-                $"{emitted}개 태그를 저장했습니다.\n{dlg.FileName}\n\n파일을 바로 열어 볼까요?",
-                "CSV 내보내기 완료", MessageBoxButton.YesNo, "✓");
-
-            if (openResult == MessageBoxResult.Yes) TryOpenFile(dlg.FileName);
+            AfterExport(emitted, path, "IO");
         }
         catch (Exception ex)
         {
             DialogHelpers.ShowThemedMessageBox($"저장 실패:\n{ex.Message}",
-                "CSV 내보내기 오류", MessageBoxButton.OK, "✖");
+                "IO CSV 내보내기 오류", MessageBoxButton.OK, "✖");
         }
+    }
+
+    /// <summary>Dummy 탭 — 모든 dummy 행을 CSV 로 내보낸다.</summary>
+    private void ExportDummyCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dummyRows.Count == 0)
+        {
+            DialogHelpers.ShowThemedMessageBox("내보낼 Dummy 행이 없습니다.",
+                "Dummy CSV 내보내기", MessageBoxButton.OK, "ℹ");
+            return;
+        }
+
+        if (!TryGetSavePath("DummyList", out var path)) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Flow,Work,Call,Symbol,DataType,Address,Type");
+            foreach (var d in _dummyRows)
+            {
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Flow));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Work));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Call));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Symbol));   sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.DataType)); sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Address));  sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Type));
+                sb.AppendLine();
+            }
+
+            File.WriteAllText(path, sb.ToString(),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+            AfterExport(_dummyRows.Count, path, "Dummy");
+        }
+        catch (Exception ex)
+        {
+            DialogHelpers.ShowThemedMessageBox($"저장 실패:\n{ex.Message}",
+                "Dummy CSV 내보내기 오류", MessageBoxButton.OK, "✖");
+        }
+    }
+
+    private bool TryGetSavePath(string namePrefix, out string path)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title      = "CSV 저장",
+            Filter     = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
+            FileName   = $"{namePrefix}_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+            DefaultExt = ".csv",
+        };
+        if (dlg.ShowDialog(this) == true) { path = dlg.FileName; return true; }
+        path = ""; return false;
+    }
+
+    private void AfterExport(int emitted, string path, string kind)
+    {
+        var openResult = DialogHelpers.ShowThemedMessageBox(
+            $"{emitted}개 항목을 저장했습니다.\n{path}\n\n파일을 바로 열어 볼까요?",
+            $"{kind} CSV 내보내기 완료", MessageBoxButton.YesNo, "✓");
+
+        if (openResult == MessageBoxResult.Yes) TryOpenFile(path);
     }
 
     private static int AppendCsvLine(StringBuilder sb, IoBatchRow r, bool isInput)
@@ -261,7 +465,7 @@ public partial class IoBatchSettingsDialog : Window
 }
 
 /// <summary>
-/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched 만 변경 가능.
+/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched/HasError 만 변경 가능.
 /// IoQueryService.Generate 이 채워서 반환한다.
 /// </summary>
 public sealed class IoBatchRow : BatchRowBase
@@ -297,4 +501,62 @@ public sealed class IoBatchRow : BatchRowBase
     public string OutSymbol   { get; }
     public string OutDataType { get; }
     public string InDataType  { get; }
+}
+
+/// <summary>
+/// 진단 패널 항목 표시용 ViewModel.
+/// XAML 바인딩에 필요한 표시 속성(Icon/AccentBrush/HasRawMessage 등)을 노출하고,
+/// "해당 행 보기" 클릭 시 점프할 행 목록을 들고 있다.
+/// </summary>
+public sealed class DiagnosticItemViewModel
+{
+    private static readonly Brush ErrorBrush   = MakeBrush(0xE1, 0x5B, 0x5B);
+    private static readonly Brush WarningBrush = MakeBrush(0xF2, 0xB1, 0x34);
+    private static readonly Brush InfoBrush    = MakeBrush(0x57, 0xC0, 0x6D);
+
+    public DiagnosticItemViewModel(
+        DiagnosticItem source,
+        IReadOnlyList<IoBatchRow> matchedRows,
+        bool fbTagMapEditAvailable = false)
+    {
+        Source = source;
+        MatchedRows = matchedRows;
+        FBTagMapEditAvailable = fbTagMapEditAvailable;
+    }
+
+    public DiagnosticItem Source { get; }
+    public IReadOnlyList<IoBatchRow> MatchedRows { get; }
+    public bool FBTagMapEditAvailable { get; }
+    public string? SystemType => Source.SystemType;
+
+    public string Icon => Source.Severity switch
+    {
+        DiagnosticSeverity.Error   => "❌",
+        DiagnosticSeverity.Warning => "⚠",
+        _                          => "ℹ",
+    };
+
+    public Brush AccentBrush => Source.Severity switch
+    {
+        DiagnosticSeverity.Error   => ErrorBrush,
+        DiagnosticSeverity.Warning => WarningBrush,
+        _                          => InfoBrush,
+    };
+
+    public string Title       => Source.Title;
+    public string Detail      => Source.Detail;
+    public string? RawMessage => Source.RawMessage;
+
+    public bool HasRawMessage    => !string.IsNullOrEmpty(Source.RawMessage);
+    public bool HasAffectedRows  => MatchedRows.Count > 0;
+
+    /// <summary>SystemType 이 식별되고 호출자가 편집 액션을 제공했을 때만 버튼 노출.</summary>
+    public bool CanOpenFBTagMap  => FBTagMapEditAvailable && !string.IsNullOrEmpty(SystemType);
+
+    private static Brush MakeBrush(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
 }

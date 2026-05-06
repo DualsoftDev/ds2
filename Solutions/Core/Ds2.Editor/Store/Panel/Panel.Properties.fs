@@ -29,19 +29,35 @@ type DsStorePanelPropertiesExtensions =
                 sys.SystemType <- DirectPanelOps.toOpt systemType))
         store.EmitAndHistory(SystemPropsChanged systemId)
 
-    /// ApiCall의 IO 태그 정보 업데이트 (TAG Wizard에서 사용)
-    /// C#에서는 IOTag 또는 null을 넘기면 됩니다.
+    /// ApiCall IO 태그 일괄 업데이트 — 단일 transaction + Call 별 1회 이벤트.
+    /// Wizard Apply 의 N 행 적용 시 N transactions → 1 transaction 으로 축소.
+    /// entries: (callId, apiCallId, outTag, inTag) 튜플 시퀀스. null IOTag 는 None 으로 저장.
+    /// 반환값: 실제로 적용된 entry 개수.
     [<Extension>]
-    static member UpdateApiCallIoTags(store: DsStore, callId: Guid, apiCallId: Guid,
-                                      outTag: IOTag, inTag: IOTag) : bool =
-        Queries.requireNonReferenceCall callId store
-        StoreLog.debug($"UpdateApiCallIoTags callId={callId}, apiCallId={apiCallId}")
-        DirectPanelOps.mutateCallProps store callId "IO 태그 업데이트" (fun call ->
-            let targetApiCall =
-                call.ApiCalls
-                |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
-                |> Option.defaultWith (fun () ->
-                    failwith $"ApiCall {apiCallId} not found in Call {callId}")
-            targetApiCall.OutTag <- Option.ofObj outTag
-            targetApiCall.InTag <- Option.ofObj inTag)
-        true
+    static member UpdateApiCallIoTagsBatch(
+            store: DsStore,
+            entries: System.Collections.Generic.IReadOnlyList<struct (Guid * Guid * IOTag * IOTag)>) : int =
+        if isNull (box entries) || entries.Count = 0 then 0
+        else
+            let mutable applied = 0
+            let touchedCallIds = System.Collections.Generic.HashSet<Guid>()
+            store.WithTransaction("IO 태그 일괄 업데이트", fun () ->
+                for e in entries do
+                    let struct (callId, apiCallId, outTag, inTag) = e
+                    if callId <> Guid.Empty && apiCallId <> Guid.Empty then
+                        try
+                            Queries.requireNonReferenceCall callId store
+                            store.TrackMutate(store.Calls, callId, fun call ->
+                                call.ApiCalls
+                                |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+                                |> Option.iter (fun targetApiCall ->
+                                    targetApiCall.OutTag <- Option.ofObj outTag
+                                    targetApiCall.InTag  <- Option.ofObj inTag))
+                            touchedCallIds.Add callId |> ignore
+                            applied <- applied + 1
+                        with _ -> ()
+            )
+            // Call 별 1회만 이벤트 — 같은 Call 내 N ApiCall 변경은 1 refresh.
+            for cid in touchedCallIds do
+                store.EmitAndHistory(CallPropsChanged cid)
+            applied

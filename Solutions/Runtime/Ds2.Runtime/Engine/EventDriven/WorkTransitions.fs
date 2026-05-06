@@ -112,16 +112,19 @@ module internal WorkTransitions =
             Clock = clock })
 
     let scheduleHomingCompletion (ctx: Context) workGuid =
+        // HomingComplete must run after same-tick CallTransition(..., Homing) events.
+        // If it fires first under TimeIgnore, the work can return to Ready before its
+        // child calls leave Finish, and those pending call resets are then dropped.
         if ctx.TimeIgnore() then
             ctx.Scheduler.ScheduleNow(
                 ScheduledEventType.HomingComplete workGuid,
-                ScheduledEvent.PriorityStateChange)
+                ScheduledEvent.PriorityDurationCheck)
             |> ignore
         else
             ctx.Scheduler.ScheduleAfter(
                 ScheduledEventType.HomingComplete workGuid,
                 1L,
-                ScheduledEvent.PriorityStateChange)
+                ScheduledEvent.PriorityDurationCheck)
             |> ignore
 
     let handleWorkGoingTransition (ctx: Context) workGuid =
