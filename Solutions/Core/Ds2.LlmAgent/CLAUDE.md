@@ -6,15 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `Solutions/Core/Ds2.LlmAgent/` = Promaker (WPF C# 데스크탑 앱) 에 **대화형 LLM agent** 를 통합하는 F# DLL 의 source root, 그리고 통합 작업 자체의 설계/진척 문서 holder.
 
-- `todo-promaker-llm-agent.md` — 남은 작업, 모든 결정 사항 (확정 9개), Phase 0/1a/1b-c/1c/1d 체크리스트, 검증된 사실 표
-- `done-promaker-llm-agent.md` — 완료된 spike / phase 의 발견 사항 + 작업 산출물 누적
+- `doc/todo-promaker-llm-agent.md` — 남은 작업, 모든 결정 사항 (확정 9개), Phase 0/1a/1b-c/1c/1d 체크리스트, 검증된 사실 표
+- `doc/done-promaker-llm-agent.md` — 완료된 spike / phase 의 발견 사항 + 작업 산출물 누적
 
 > **두 문서 유지 정책**: `git commit` 시점에 다른 Claude Code 세션이 바로 이어받아 작업할 수 있는 수준으로 동기화되어야 한다. 진척 / 결정 변경 / 미적용 의도 / 다음 단계 권장 순서가 두 문서 안에서 일관된 상태여야 함. 작업 종료 직전 두 문서 갱신을 빠뜨리지 말 것.
 
 ## 새 세션 진입 절차
 
-1. `todo-promaker-llm-agent.md` 의 **"진행 상태"** + **"다음 작업 진입 권장 순서"** 섹션부터 읽기 (현재 phase 위치 파악)
-2. `done-promaker-llm-agent.md` 의 가장 최근 phase 절 (현재까지의 산출물 + 의도적 미적용 항목)
+1. `doc/todo-promaker-llm-agent.md` 의 **"진행 상태"** + **"다음 작업 진입 권장 순서"** 섹션부터 읽기 (현재 phase 위치 파악)
+2. `doc/done-promaker-llm-agent.md` 의 가장 최근 phase 절 (현재까지의 산출물 + 의도적 미적용 항목)
 3. todo 의 **"검증된 사실 표"** 의 source line 1~2개를 직접 열어 sanity check (특히 `ImportPlanApply.fs:34-38`, `Authoring.fs:28-29`, `App.xaml:4-5`)
 4. 사용자에게 다음 작업 단위 확인 후 진행
 
@@ -109,7 +109,7 @@ EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizatio
 ## `--git-commit` 플래그 처리 (사용자 규칙)
 
 - `git pull --ff-only` 성공 시에만 진행
-- commit 이전에 본 디렉토리의 `todo-*.md` / `done-*.md` 가 현재 작업과 동기화되어 있는지 확인 (다른 세션이 이어받을 수 있는 수준)
+- commit 이전에 본 디렉토리의 `doc/todo-*.md` / `doc/done-*.md` 가 현재 작업과 동기화되어 있는지 확인 (다른 세션이 이어받을 수 있는 수준)
 - summary 한 줄 + line break + itemize (통상 4줄 이내)
 - `Co-Authored-By:` 등 추가 표기 X
 - 자동 생성 파일 (bin/obj 등) 은 add 대상 외
