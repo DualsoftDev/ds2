@@ -2116,3 +2116,105 @@ Hot-fix-3 위에서 multi-turn chat 정상 동작했으나 사용자가 "active 
 - Promaker.sln 빌드: 경고 0 / 오류 0
 - `Ds2.LlmAgent.Tests`: **90/90 통과** (이전 87 + 신규: experimental_instructions_file 회귀 2 + approval/sandbox 관련 1, AskForApproval 시도 후 제거).
 - e2e 검증은 후속 hot-fix-5 (sandbox_mode danger-full-access) 가 합쳐진 시점에 통과.
+
+---
+
+# Phase 2 — Codex 보안 격리 + MCP HTTP ready 신호 + CODEX_HOME cleanup (2026-05-06)
+
+todo 의 권장 순서 3건 일괄 적용. Phase 2 Codex production 통합의 보안/lifecycle 보강 묶음.
+
+## 변경 요약
+- **Codex `cd:` 워크스페이스 격리** — codex 가 빈 임시 폴더 (`%TEMP%/Promaker/codex-workspace-<guid>/`) 안에서 실행되어 사용자 git working tree / 작업 디렉토리에 닿지 않음. instructions.md 도 같은 워크스페이스 안에 두어 단일 디렉토리 lifecycle.
+- **MCP HTTP ready 신호 wait** — `McpHostService.StartAsync()` 마지막에 self-probe (HTTP GET to ServerUrl + nonce header / 50ms backoff / 2초 timeout). Kestrel listen socket bind 후의 middleware pipeline + nonce 검증 + MapMcp routing 까지 실제 응답 보장.
+- **Codex session cleanup (CODEX_HOME 격리)** — `CodexCliOptions.CodexHome: string option` 신설 + `CodexCliProvider` 가 ProcessStartInfo.Environment 에 설정. 워크스페이스 안 `codex-home/` 서브디렉토리 → codex sessions/config/log 가 사용자 `~/.codex/` 가 아닌 워크스페이스 안 격리 → 워크스페이스 재귀 삭제 시 자동 cleanup.
+
+## 변경 파일
+
+### F# (Ds2.LlmAgent)
+- `CodexCliArgs.fs` — `CodexCliOptions` 에 `CodexHome: string option` 필드 신설 (default None). build 결과 인자에는 영향 X — Provider 가 process spawn 시 환경변수로 설정함을 docstring 에 명시. `Default` record 갱신.
+- `CodexCliProvider.fs` — `ProcessStartInfo` 빌드 직후 `match options.CodexHome with | Some h -> psi.Environment.["CODEX_HOME"] <- h | None -> ()` 추가.
+
+### C# (Promaker)
+- `Apps/Promaker/Promaker/LlmAgent/McpHostService.cs`
+  - `using System.Net.Http;` 추가
+  - `StartAsync()` 마지막에 `await WaitReadyAsync(TimeSpan.FromSeconds(2));` 호출
+  - `WaitReadyAsync(timeout)` private method — `HttpClient` (Timeout 500ms) + nonce header 동봉, deadline loop with 50ms backoff, 응답 status code 무관 (200/401/405 등 어떤 status 든 routing pipeline 통과로 간주). timeout 시 `InvalidOperationException` (attempts 횟수 + lastEx 포함) → `InitializeAsync` catch 가 사용자에게 노출.
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs`
+  - `_codexInstructionsPath` 단일 파일 → `_codexWorkspacePath` 디렉토리 + `_codexInstructionsPath` (워크스페이스 안 `instructions.md`) + `_codexHomePath` (워크스페이스 안 `codex-home/`) 3종 lazy 생성으로 격상.
+  - `CreateCodexProvider()` 가 `cd: Some(_codexWorkspacePath)` + `codexHome: Some(_codexHomePath)` 전달. instructions.md 는 `Path.Combine(_codexWorkspacePath, "instructions.md")` 로 워크스페이스 안.
+  - `DisposeAsync()` 가 `Directory.Delete(_codexWorkspacePath, recursive: true)` 1회 호출 — instructions / codex-home / 미래 추가 파일 모두 일괄 삭제.
+
+## 핵심 설계 — `cd:` 격리의 한계
+- `sandbox_mode = "danger-full-access"` 는 codex 0.125 의 community issue 1379772 한정 그대로 유지 (workspace-write 에서 MCP tool call 이 user-cancelled 되는 known bug). codex 가 fix 되면 workspace-write 로 격상 검토.
+- `cd:` 격리는 cwd 만 통제 → codex 가 절대 경로로 사용자 파일 접근하면 여전히 가능. **추가 방어로 cwd 만 두는 것이 의미** = (a) 사용자 git working tree 의 우발적 변경 회피, (b) `pwd` / `ls` / `git` 호출 시 빈 폴더만 노출되어 정보 누설 감소.
+- 우리 use case 는 codex 가 promaker MCP tool 만 호출 — 실제로 file/shell/web tool 사용 의도 X. 격리는 의도치 않은 동작 1차 방어.
+
+## 핵심 설계 — Self-probe 의 응답 status 무관
+- MCP HTTP transport 의 `MapMcp()` endpoint 는 GET 에 대해 405/404 등 줄 수 있음 (POST 만 받는 streamable HTTP transport 라). 우리가 **응답이 왔다는 사실 = pipeline 통과** 만 검증하면 충분.
+- nonce header 동봉 → middleware 가 401 안 줌 (정확한 nonce). 만약 middleware 자체가 잘못 구성되었으면 401 응답이 돌아와도 그건 그대로 ready (응답이 온다 = pipeline OK).
+
+## 핵심 설계 — CODEX_HOME 동작 미검증
+- codex 0.125 가 `CODEX_HOME` 환경변수를 실제로 sessions/config/log 디렉토리로 사용하는지 spike 미수행 (사용자 e2e 시점에 `_codexWorkspacePath` 디렉토리 구조를 확인하면 즉시 검증 가능).
+- 미동작 시 후속 패스 옵션:
+  - (b) `LlmChatViewModel.Reset()` (해당 method 신설) 시 `~/.codex/sessions/<sid>.jsonl` 파일만 직접 삭제
+  - (c) `--ephemeral` 토글 UI 노출 후 사용자가 multi-turn vs cleanup trade-off 선택
+
+## 빌드 / 테스트 검증
+- Promaker.sln 빌드: 경고 0 / 오류 0
+- `Ds2.LlmAgent.Tests`: **90/90 통과** (외부 시그니처 보존, CodexHome 필드 추가는 record 의 named arg 호출 호환)
+
+## 의도적 미적용 (후속 패스)
+- B-3 Rename cascade — Flow/Work/Call rename 시 자식 cascade (Work.FlowPrefix, Call.Name 합성, ApiName) + RetargetArrow
+- m1 — `LlmTurnContextProvider` singleton → `AsyncLocal<LlmTurnContext>` (다중 dock / 다중 provider 동시 turn 분리)
+- Provider fallback 자동 전환 정책 (지금은 ComboBox manual 선택만)
+- OpenAI / Anthropic API / Ollama provider
+
+## 사용자 측 검증 시나리오 (e2e)
+1. **`cd:` 격리 확인**: Codex 선택 후 임의 chat (예: "현재 디렉토리에서 .gitignore 확인해봐"). codex 가 빈 폴더만 보고함을 stderr 또는 응답으로 확인.
+2. **CODEX_HOME 격리 확인**: Promaker 실행 → Codex chat 1턴 진행 → 워크스페이스 디렉토리 (`%TEMP%/Promaker/codex-workspace-<guid>/codex-home/`) 안에 sessions 또는 그 유사 파일 생성 여부 확인. 사용자 `%USERPROFILE%\.codex\sessions\` 에 새 파일 미생성 확인.
+3. **워크스페이스 cleanup**: Promaker 정상 종료 후 `%TEMP%/Promaker/codex-workspace-*` 잔여 디렉토리 없음 확인 (DisposeAsync 동작).
+4. **Ready probe race**: 일반 동작 검증 — InitializeAsync 가 정상 진행되어 StatusText 가 "준비 완료" 로 갱신되는지 (probe 가 추가 1~수십 ms 만 소요되어야 함).
+
+## 후속 보정 (review 반영)
+- review 의견 1번 채택: `LlmChatViewModel.InitializeAsync` catch 절에 `await _mcpHost.StopAsync()` 1줄 추가. `WaitReadyAsync` timeout 시 `_app` 이 set 된 채 throw → 사용자가 panel 닫지 않으면 DisposeAsync 까지 leak. `StopAsync` 가 `_app == null` 일 때 noop 이라 idempotent — Kestrel start 자체가 throw 한 케이스도 안전. 90/90 유지.
+- 의견 2 (DateTime.UtcNow → Stopwatch): 2초 윈도우라 시스템 시간 변경 race 실용 차이 무. 보류 (reviewer 결론 동의).
+- 의견 3 (warm 캐시 시 probe 비용): codex silent fallback 회피의 trade-off 로 정당. 추가 작업 X.
+
+## Hot-fix-5 — CODEX_HOME 격리 해제 (인증 401 fix)
+- e2e 검증 시 즉시 401 Unauthorized — stderr: `codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses`.
+- 원인: codex 의 ChatGPT subscription 인증 토큰이 `~/.codex/auth.json` 에 저장됨. `CODEX_HOME=<workspace>/codex-home` 으로 빈 디렉토리를 가리키니 인증 정보 못 찾고 OpenAI API 직접 호출로 fallback → 미인증 401.
+- 즉시 조치: `CreateCodexProvider` 의 `codexHome: Some(_codexHomePath)` → `None` 으로 되돌림 (사용자 `~/.codex/` 사용). `_codexHomePath` 필드 + 워크스페이스 안 `codex-home/` 디렉토리 생성 코드 제거. cleanup 정책은 (b) `LlmChatViewModel.Reset()` 시 마지막 sessionId 의 `~/.codex/sessions/<sid>.jsonl` 직접 삭제 또는 (c) auth.json 복사 + 격리 (codex 의 정확한 인증 파일 spike 후) 로 전환 예정.
+- `CodexCliOptions.CodexHome: string option` F# 필드는 보존 (향후 conditional 활용 — 격리 + 인증 파일 복사 모드).
+- 결과: Promaker.sln 빌드 통과 + 90/90 유지.
+
+## Hot-fix-6 — `codex exec resume` 의 -C / --full-auto 미지원 (resume turn exit 2 fix)
+- e2e 재시도: 첫 turn `hi` → "안녕하세요" 정상 응답 (Hot-fix-5 인증 fix 동작 확인). 두 번째 turn `active system 추가 : 이름은 Hello` → `Codex CLI 비정상 종료 (exit code = 2) — stderr: For more information, try '--help'.`
+- exit code 2 + "For more information, try '--help'" = **clap (rust CLI parser) 의 표준 인자 파싱 실패 메시지**. 즉 `codex exec resume <sid>` 형식의 인자 중 unknown option 존재.
+- 직접 `codex exec resume --help` 호출하여 옵션 inventory 확인:
+  - resume 이 받는 옵션: `-c`, `--last`, `--all`, `--enable`, `--disable`, `-i`, `-m`, `--dangerously-bypass-approvals-and-sandbox`, `--skip-git-repo-check`, `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--json`, `-o`
+  - **resume 이 받지 않는 옵션** (`exec` 전용): `-C / --cd`, `--full-auto`
+  - 우리는 `Cd: Some(_codexWorkspacePath)` 로 항상 `-C <workspace>` yield → resume 시 unknown option → exit 2.
+- 추가 발견 (cleanup 정책 후속에 활용): `--ignore-user-config` 의 help 문구 = "Do not load $CODEX_HOME/config.toml; **auth still uses CODEX_HOME**". 즉 codex 는 인증 정보를 항상 `CODEX_HOME` (default `~/.codex/`) 에서 찾음. 향후 cleanup (c) 옵션 (CODEX_HOME 격리 + auth 파일 복사) 의 path 가 정합 — 격리 디렉토리에 auth.json 만 복사하면 격리 + 인증 둘 다 가능.
+- Fix: `Solutions/Core/Ds2.LlmAgent/CodexCliArgs.fs` 의 `Cd` / `FullAuto` yield 조건에 `sessionId.IsNone` AND 추가:
+  ```fsharp
+  // `--full-auto` 는 `codex exec` 만 지원 — `codex exec resume` 은 unknown option (exit code 2).
+  if options.FullAuto && sessionId.IsNone then yield "--full-auto"
+  // `-C / --cd` 도 `codex exec` 만 지원. resume 시 codex 가 thread rollout 의 첫 turn cwd 를 이어받음.
+  match options.Cd, sessionId with
+  | Some d, None -> yield "-C"; yield d
+  | _ -> ()
+  ```
+- 회귀 방지: `Solutions/Tests/Ds2.LlmAgent.Tests/CodexCliArgsTests.fs` 신규 2 test:
+  - `resume 시 Cd Some 이어도 -C 미전달` — Hot-fix-6 회귀 케이스
+  - `resume 시 FullAuto true 이어도 --full-auto 미전달`
+- 결과: Promaker.sln 빌드 통과 + **92/92** (90→92, 신규 2). 사용자 e2e 재시도 권장.
+
+## 자체 review (--review) 반영 — A.1 race 모니터링 + D catch 좁히기
+변경 후 자체 비판적 review 진행 결과 5개 우려점 (A WaitReadyAsync 본질적 필요성 / B CodexHome dead code / C lazy 부분 throw / D catch 광범위 / E cancellation token). 비용 / 위험 / 의미 정당화 종합 후 2건만 즉시 적용:
+- **A.1 (race 실증 모니터링)**: `WaitReadyAsync` 의 probe 통과 로그가 항상 `Log.Debug` 였던 것을 `attempts > 1` 일 때만 `Log.Info` 로 격상 (1차 attempt 성공은 그대로 Debug). `attempts > 1` = Kestrel listen 이후 routing pipeline 미준비 race 가 실제로 일어났다는 단서. 일정 기간 Info 로그가 한 번도 안 나오면 race 가설 자체가 틀린 것 → `WaitReadyAsync` 자체 제거 후보 (review 항목 A 의 본질적 의문 검증 path).
+- **D (catch 좁히기)**: `catch (Exception ex)` → `catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)` exception filter 패턴. C# 이 multi-catch 를 안 받지만 `when` 절로 동등 표현. `HttpRequestException` (connection refused / DNS / TLS) + `TaskCanceledException` (HttpClient.Timeout 500ms 만료) 만 retry, 그 외 `OutOfMemoryException` / `StackOverflowException` 등은 즉시 throw → silent failure 방지.
+- **보류 결정** (사유 명시):
+  - B (CodexHome 필드 + 환경변수 set 코드): 현재 사용처 0 dead code 이긴 하나 cleanup 정책 후속 (c) 옵션 (auth.json 복사 + 격리) 에서 곧 활용 가능. Hot-fix-6 의 발견 사실 (`auth still uses CODEX_HOME`) 코멘트와 함께 보존 가치.
+  - C (`_codexWorkspacePath` lazy 부분 throw + try/catch reset): CLAUDE.md "예외 처리 자제, fail-fast 우선" 정책 부합. 발생 빈도 매우 낮음 (TEMP 쓰기 권한 fail).
+  - E (WaitReadyAsync cancellation token): 실용 이득 적음 (2초 dead window). InitializeAsync cancellation 정책 도입 시점에 함께 처리.
+- 결과: Promaker.sln 빌드 통과 (경고 0) + **92/92** 유지 (동작 영향 없음 — 로그 출력 레벨 + catch type 좁히기만).

@@ -107,6 +107,11 @@ type CodexCliProvider(options: CodexCliOptions) =
                 psi.CreateNoWindow <- true
                 psi.StandardOutputEncoding <- System.Text.Encoding.UTF8
                 psi.StandardErrorEncoding <- System.Text.Encoding.UTF8
+                // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
+                // 사용자 ~/.codex/sessions/ 에 thread rollout 누적 회피 + 워크스페이스 재귀 삭제 시 자동 cleanup.
+                match options.CodexHome with
+                | Some h -> psi.Environment.["CODEX_HOME"] <- h
+                | None -> ()
 
                 // 사용자 prompt 평문 redact — `codex exec [resume <sid>] [OPTS...] <prompt>` 의 마지막 위치 인자가 prompt.
                 // resume 시 sessionId 도 위치 인자지만 prompt 가 항상 마지막 (CodexCliArgs.build 보장).

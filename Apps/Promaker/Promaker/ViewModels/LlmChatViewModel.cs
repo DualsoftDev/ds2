@@ -39,9 +39,15 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
     /// <summary>
-    /// Codex 의 `experimental_instructions_file` 로 전달할 임시 파일 path. lazy 생성 (Codex provider 첫 선택 시),
-    /// DisposeAsync 시 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
+    /// Codex 격리 워크스페이스 디렉토리 (`%TEMP%/Promaker/codex-workspace-&lt;guid&gt;/`). lazy 생성 (Codex provider
+    /// 첫 선택 시), DisposeAsync 시 재귀 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
+    ///
+    /// **격리 사유**: codex 0.125 는 `sandbox_mode = "danger-full-access"` 만 MCP tool call 통과 (community
+    /// issue 1379772) → file system / network 자유 접근. 의도는 codex 가 promaker MCP tool 만 호출하는 것.
+    /// `cd:` 를 사용자 repo 가 아닌 빈 임시 폴더로 두면 codex 의 file 탐색 / git 호출이 사용자 작업물에 닿지 않음.
+    /// instructions 파일도 같은 디렉토리 안에 두어 단일 cleanup.
     /// </summary>
+    private string? _codexWorkspacePath;
     private string? _codexInstructionsPath;
     private ILlmProvider? _provider;
 
@@ -117,6 +123,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             Log.Error("LlmChatViewModel 초기화 실패", ex);
             StatusText = $"초기화 실패: {ex.Message}";
             Turns.Add(new ChatTurn { Role = "system", Text = $"초기화 실패: {ex.Message}" });
+            // McpHostService.WaitReadyAsync timeout 등으로 throw 시 _app 은 이미 set 된 상태.
+            // panel close 까지 DisposeAsync 가 지연되면 background Kestrel + ephemeral port leak →
+            // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
+            await _mcpHost.StopAsync().ConfigureAwait(true);
         }
     }
 
@@ -198,23 +208,29 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>
     /// Codex CLI provider. config override 4종 (mcp url + http_headers + approval_policy + sandbox_mode) +
-    /// `experimental_instructions_file` 로 system prompt override.
+    /// `experimental_instructions_file` 로 system prompt override + `cd:` 격리 워크스페이스.
     ///
     /// **`sandbox_mode = "danger-full-access"` 사유**: codex 0.125 는 read-only / workspace-write 모드에서
     /// MCP tool call 을 "user cancelled" 로 자동 cancel (community issue 1379772). danger-full-access 만 통과.
-    /// codex 의 file system / network 자유 접근 부작용은 todo `cd:` 보안 격리 spike 로 격리 예정.
+    /// 부작용 (file system / network 자유 접근) 은 `cd:` 격리로 1차 완화 — codex 가 빈 임시 폴더에서
+    /// 실행되어 사용자 git working tree / 작업 디렉토리에 닿지 않음.
     /// </summary>
     private ILlmProvider CreateCodexProvider()
     {
-        // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 임시 파일에 쓰고 path 전달.
-        // lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 삭제.
-        if (_codexInstructionsPath == null)
+        // 워크스페이스 디렉토리 + instructions 파일 lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 일괄 삭제.
+        // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 워크스페이스 안 .md 파일에 쓰고 path 전달.
+        if (_codexWorkspacePath == null)
         {
-            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Promaker");
-            System.IO.Directory.CreateDirectory(dir);
-            _codexInstructionsPath = System.IO.Path.Combine(dir, $"codex-instructions-{Guid.NewGuid():N}.md");
+            _codexWorkspacePath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "Promaker", $"codex-workspace-{Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(_codexWorkspacePath);
+            _codexInstructionsPath = System.IO.Path.Combine(_codexWorkspacePath, "instructions.md");
             System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, System.Text.Encoding.UTF8);
-            Log.Info($"Codex instructions 임시 파일 생성 — {_codexInstructionsPath}");
+            // CODEX_HOME 격리는 e2e 검증 결과 인증 정보까지 격리시켜 401 Unauthorized 발생 (codex 의
+            // auth 토큰이 ~/.codex/auth.json 에 저장되어 있어 격리 디렉토리에서는 못 찾음). cleanup 정책은
+            // 후속 패스에서 (b) Reset() 시 ~/.codex/sessions/<sid>.jsonl 직접 삭제 또는 인증 파일 복사로 전환 예정.
+            // 옵션 필드 자체는 보존 (향후 conditional 사용 가능성).
+            Log.Info($"Codex 워크스페이스 격리 디렉토리 생성 — {_codexWorkspacePath}");
         }
 
         var configOverrides = new[]
@@ -233,7 +249,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         };
         var options = new CodexCliOptions(
             executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
-            cd: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            cd: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexWorkspacePath!),
             model: Microsoft.FSharp.Core.FSharpOption<string>.None,
             json: true,
             // ephemeral=false: thread rollout 을 disk 에 남겨 다음 turn 의 `exec resume <sid>` 가 동작.
@@ -243,7 +259,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             fullAuto: false,
             dangerouslyBypassApprovalsAndSandbox: false,
             configOverrides: Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>[]>.Some(configOverrides),
-            experimentalInstructionsFile: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexInstructionsPath),
+            experimentalInstructionsFile: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexInstructionsPath!),
+            // CODEX_HOME 격리는 인증 정보까지 격리시켜 401 — None 으로 두어 사용자 ~/.codex/ 사용.
+            // cleanup 은 후속 패스에서 (b) Reset rollout 직접 삭제 등으로 전환.
+            codexHome: Microsoft.FSharp.Core.FSharpOption<string>.None,
             channelCapacity: 256);
         return new CodexCliProvider(options);
     }
@@ -445,16 +464,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _cts?.Cancel();
         _assistantFlushTimer?.Stop();
         _mcpConfig?.Dispose();
-        if (_codexInstructionsPath != null)
+        if (_codexWorkspacePath != null)
         {
             try
             {
-                if (System.IO.File.Exists(_codexInstructionsPath))
-                    System.IO.File.Delete(_codexInstructionsPath);
+                if (System.IO.Directory.Exists(_codexWorkspacePath))
+                    System.IO.Directory.Delete(_codexWorkspacePath, recursive: true);
             }
             catch (Exception ex)
             {
-                Log.Warn($"Codex instructions 임시 파일 삭제 실패 — {_codexInstructionsPath}", ex);
+                Log.Warn($"Codex 워크스페이스 디렉토리 삭제 실패 — {_codexWorkspacePath}", ex);
             }
         }
         await _mcpHost.DisposeAsync().ConfigureAwait(false);
