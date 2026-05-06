@@ -55,12 +55,12 @@
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
 
-    <!-- AAStoXGI 산출물 — XGI_Template.xml / IECFunctionInfo.json 모두 AAStoXGI.dll 의
+    <!-- AAStoXGI 산출물 — XGI_Template.xml / IECFunctionInfo.json 모두 AAStoPLC.dll 의
          EmbeddedResource. 첫 실행 시 PlcConfig 가 AppData\PlcTemplate\ 로 추출. -->
 
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoXGI\AAStoXGI.fsproj" />
+    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoPLC\AAStoPLC.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.IOList\Ds2.IOList.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
@@ -71,11 +71,6 @@
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
-  </ItemGroup>
-  <!-- AAStoXGI 는 외부 repo 산출물을 DLL 로만 참조 (ProjectReference 사용 금지). -->
-  <ItemGroup>
-    <Reference Include="AAStoXGI.LadderViewer">
-      <HintPath>..\..\..\ExternalDlls\AAStoXGI.LadderViewer.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\..\..\..\dsev2cpu\src\AAStoPLC.LadderViewer\AAStoPLC.LadderViewer.csproj" />
   </ItemGroup>
 </Project>
