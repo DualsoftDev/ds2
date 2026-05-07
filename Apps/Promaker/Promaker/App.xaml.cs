@@ -34,6 +34,11 @@ public partial class App : Application
     /// </summary>
     internal static bool StartupMeasureThenExit { get; set; }
 
+    // 측정 자동화 fail-fast exit codes — 외부 측정 스크립트(run-pass5.fsx 등)가 이 값으로 실패 원인을 분기 식별.
+    // 변경 시 측정 스크립트 측도 함께 갱신 필요.
+    internal const int MeasureExitSendCommandUnavailable = 2;
+    internal const int MeasureExitLlmVmMissing = 3;
+
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);
 
