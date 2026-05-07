@@ -219,6 +219,16 @@ public class DspRepositoryAdapter : IDspRepository
                 "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime ON plcTagLog(dateTime)";
             const string createPlcTagLogTagIdx =
                 "CREATE INDEX IF NOT EXISTS idx_plcTagLog_plcTagId ON plcTagLog(plcTagId)";
+            // 시간범위 쿼리 (cycle-time-analysis 메인 쿼리 등) 의 핵심 인덱스 —
+            //   WHERE plcTagId IN (..) AND dateTime BETWEEN @start AND @end
+            //   GROUP BY plcTagId 의 MAX(dateTime <= @at) (latest-before)
+            // 둘 다 (plcTagId, dateTime) 복합 인덱스 위에서 태그당 1회 index seek 로 끝낼 수 있다.
+            // 단일 인덱스 두 개로는 SQLite 가 풀스캔 또는 거대한 인메모리 필터로 처리해 시간범위 1분이라도
+            // plcTagLog 전체에 비례한 비용이 든다.
+            const string createPlcTagLogTagDateTimeIdx =
+                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_dateTime ON plcTagLog(plcTagId, dateTime)";
+            const string createPlcTagAddressIdx =
+                "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)";
 
             await conn.ExecuteAsync(createFlow);
             await conn.ExecuteAsync(createCall);
@@ -228,6 +238,8 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createPlcTagLog);
             await conn.ExecuteAsync(createPlcTagLogIdx);
             await conn.ExecuteAsync(createPlcTagLogTagIdx);
+            await conn.ExecuteAsync(createPlcTagLogTagDateTimeIdx);
+            await conn.ExecuteAsync(createPlcTagAddressIdx);
 
             // 기본 plc 행 보장 (id=1) — plcTag.plcId 가 참조하는 단일 PLC
             await conn.ExecuteAsync(
