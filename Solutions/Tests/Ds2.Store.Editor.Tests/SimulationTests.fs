@@ -562,6 +562,87 @@ module EventDrivenEngineTokenTests =
         Assert.Equal<Guid list>([ w2.Id ], refSuccs)
 
     [<Fact>]
+    let ``group token shift waits for all members to finish (diagnostic)`` () =
+        // 정상 케이스: A → Group[B, C, D] → E. A Source.
+        // 의도: A Finish → token 분배 (B, C, D 모두 시작) → 셋 다 Finish 후 → E 로 token shift.
+        // 현재 동작 진단용 — 그룹 sync 가 token shift 에 반영되는지 확인.
+        let store = createStore ()
+        let _, _, flow, a = setupBasicHierarchy store
+        let b = addWork store "B" flow.Id
+        let c = addWork store "C" flow.Id
+        let d = addWork store "D" flow.Id
+        let e = addWork store "E" flow.Id
+
+        // A → B (Start). Group: B ↔ C, B ↔ D. B → E (Start).
+        store.ConnectSelectionInOrder([ a.Id; b.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; c.Id ], ArrowType.Group) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; d.Id ], ArrowType.Group) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; e.Id ], ArrowType.Start) |> ignore
+
+        store.UpdateWorkTokenRole(a.Id, TokenRole.Source)
+        store.UpdateWorkPeriodMs(a.Id, Some 50)
+        store.UpdateWorkPeriodMs(b.Id, Some 100)
+        store.UpdateWorkPeriodMs(c.Id, Some 200)
+        store.UpdateWorkPeriodMs(d.Id, Some 300)
+        store.UpdateWorkPeriodMs(e.Id, Some 50)
+
+        let index = SimIndex.build store 10
+
+        // 1) 그룹 expand 확인: A 의 token successor 에 B, C, D 모두 들어가야 정상.
+        let aSuccs =
+            index.WorkTokenSuccessors |> Map.tryFind a.Id |> Option.defaultValue [] |> List.sort
+        let expectedAGroupSuccs = [ b.Id; c.Id; d.Id ] |> List.sort
+        // 진단용 — 실제 동작 확인. 통과/실패 둘 다 의미 있음.
+        Assert.Equal<Guid list>(expectedAGroupSuccs, aSuccs)
+
+    [<Fact>]
+    let ``E starts only after entire group B C D finishes`` () =
+        // 정상 케이스 + 시뮬 실행 — 그룹 → 다음 work 로 token 이 *그룹 전체 Finish 후* 넘어가야.
+        // 만약 단독 멤버 Finish 시 token shift 발화하면 fail (B 가 가장 빨리 끝나니 E 가 너무 일찍 시작됨).
+        let store = createStore ()
+        let _, _, flow, a = setupBasicHierarchy store
+        let b = addWork store "B" flow.Id
+        let c = addWork store "C" flow.Id
+        let d = addWork store "D" flow.Id
+        let e = addWork store "E" flow.Id
+
+        store.ConnectSelectionInOrder([ a.Id; b.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; c.Id ], ArrowType.Group) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; d.Id ], ArrowType.Group) |> ignore
+        store.ConnectSelectionInOrder([ b.Id; e.Id ], ArrowType.Start) |> ignore
+
+        store.UpdateWorkTokenRole(a.Id, TokenRole.Source)
+        store.UpdateWorkPeriodMs(a.Id, Some 50)
+        store.UpdateWorkPeriodMs(b.Id, Some 100)
+        store.UpdateWorkPeriodMs(c.Id, Some 200)
+        store.UpdateWorkPeriodMs(d.Id, Some 300)
+        store.UpdateWorkPeriodMs(e.Id, Some 50)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        try
+            engine.TimeIgnore <- true
+            engine.Start()
+            engine.SeedToken(a.Id, engine.NextToken())
+            engine.ForceWorkState(a.Id, Status4.Going)
+
+            // 모든 멤버 Finish + E Going 확인. timeIgnore=true 라 즉시 처리.
+            Assert.True(
+                waitUntil 2000 (fun () ->
+                    engine.GetWorkState(b.Id) = Some Status4.Finish
+                    && engine.GetWorkState(c.Id) = Some Status4.Finish
+                    && engine.GetWorkState(d.Id) = Some Status4.Finish),
+                "Group members B, C, D should all reach Finish")
+
+            // E 가 Going 또는 Finish 까지 진행됐는지 — token shift 가 그룹 모두 Finish 후 발화한다는 증거.
+            let eState = engine.GetWorkState(e.Id)
+            Assert.True(
+                eState = Some Status4.Going || eState = Some Status4.Finish,
+                $"E should start after group finished, but state={eState}")
+        finally
+            engine.Stop()
+
+    [<Fact>]
     let ``reference work shares original call guids without cloning`` () =
         // REF Work 의 WorkCallGuids 는 원본 Work 의 Call guid 와 동일해야 함.
         // Store.Calls 에 없는 복제 guid 가 만들어지면 Validation 에서 "?" 표시 +

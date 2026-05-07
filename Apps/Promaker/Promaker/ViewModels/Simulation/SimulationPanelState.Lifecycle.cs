@@ -156,11 +156,6 @@ public partial class SimulationPanelState
             SimStatusText = SimText.StepMode;
     }
 
-    private bool CanAdvanceStepCore() =>
-        _simEngine is { } engine
-        && !HasGoingCall
-        && (engine.HasStartableWork || engine.HasActiveDuration);
-
     private void AddSimLog(string message, LogSeverity severity = LogSeverity.Info)
     {
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;

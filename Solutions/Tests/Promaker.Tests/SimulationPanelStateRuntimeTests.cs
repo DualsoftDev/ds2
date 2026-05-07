@@ -97,7 +97,7 @@ public sealed class SimulationPanelStateRuntimeTests
     }
 
     [Fact]
-    public void Step_uses_engine_step_boundary_without_resuming_runtime_thread()
+    public void Step_uses_begin_step_batch_without_resuming_runtime_thread()
     {
         StaTestRunner.Run(() =>
         {
@@ -114,10 +114,13 @@ public sealed class SimulationPanelStateRuntimeTests
             Assert.True(state.StepSimulationCommand.CanExecute(null));
             state.StepSimulationCommand.Execute(null);
 
-            Assert.Equal([(Guid.Empty, true)], engine.StepWithSourcePrimingCalls);
+            // 새 STEP 흐름: BeginStepBatch + (단계적 advance loop) + EndStep.
+            // sim thread Resume/Pause 는 호출하지 않음 — 외부에서 advance.
+            Assert.Equal([(Guid.Empty, true)], engine.BeginStepBatchCalls);
+            Assert.Equal(1, engine.EndStepCalls);
+            Assert.Empty(engine.StepWithSourcePrimingCalls);
             Assert.Equal(0, engine.ResumeCalls);
             Assert.Equal(0, engine.PauseCalls);
-            Assert.Empty(engine.StartedSourceGuids);
             Assert.False(state.GanttChart.IsRunning);
         });
     }
@@ -210,6 +213,8 @@ public sealed class SimulationPanelStateRuntimeTests
         public List<Guid> StartedSourceGuids { get; } = [];
         public List<(Guid WorkGuid, Status4 State)> ForcedWorkTransitions { get; } = [];
         public List<(Guid SelectedSourceGuid, bool AutoStartSources)> StepWithSourcePrimingCalls { get; } = [];
+        public List<(Guid SelectedSourceGuid, bool AutoStartSources)> BeginStepBatchCalls { get; } = [];
+        public int EndStepCalls { get; private set; }
         public int PauseCalls { get; private set; }
         public int ResumeCalls { get; private set; }
         public bool CanAdvanceStepResult { get; set; } = true;
@@ -252,10 +257,14 @@ public sealed class SimulationPanelStateRuntimeTests
             StepWithSourcePrimingCalls.Add((selectedSourceGuid, autoStartSources));
             return StepWithSourcePrimingResult;
         }
-        public Guid[] BeginStepBatch(Guid selectedSourceGuid, bool autoStartSources) => [];
+        public Guid[] BeginStepBatch(Guid selectedSourceGuid, bool autoStartSources)
+        {
+            BeginStepBatchCalls.Add((selectedSourceGuid, autoStartSources));
+            return [];
+        }
         public bool IsStepBatchActive(Guid[] batch) => false;
         public void AdvanceSimulationTo(long targetTimeMs) { }
-        public void EndStep() { }
+        public void EndStep() => EndStepCalls++;
         public void ReloadConnections() => throw new NotSupportedException();
         public void ReloadDurations() => throw new NotSupportedException();
         public void InjectIOValue(Guid apiCallGuid, string value) => throw new NotSupportedException();

@@ -36,6 +36,9 @@ type SimIndex = {
     CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
     /// ReferenceOf 기반 OR 그룹: 원본 WorkId → [원본 + 참조 Work Guid 목록]
     WorkReferenceGroups: Map<Guid, Guid list>
+    /// Group arrow 기반 동시 그룹: 그룹 멤버 Work guid → 같은 그룹 모든 멤버 Set (자기 포함).
+    /// 그룹 멤버가 아닌 Work 는 entry 없음.
+    WorkGroupSets: Map<Guid, Set<Guid>>
     /// Call Guid → canonical/original Call Guid
     CallCanonicalGuids: Map<Guid, Guid>
     /// ReferenceOf 기반 OR 그룹: 원본 CallId → [원본 + 참조 Call Guid 목록]
@@ -97,6 +100,10 @@ module SimIndex =
         index.WorkReferenceGroups
         |> Map.tryFind canonical
         |> Option.defaultValue [ canonical ]
+
+    /// Group arrow 기반 그룹 멤버 (자기 포함). 그룹 멤버 아니면 빈 set.
+    let workGroupOf (index: SimIndex) (workGuid: Guid) =
+        index.WorkGroupSets |> Map.tryFind workGuid |> Option.defaultValue Set.empty
 
     let canonicalCallGuid (index: SimIndex) (callGuid: Guid) =
         index.CallCanonicalGuids
@@ -178,6 +185,7 @@ module SimIndex =
         let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
         let mutable tokenSuccMap = Map.empty<Guid, Guid list>
         let mutable tokenSources = []
+        let mutable workGroupSets = Map.empty<Guid, Set<Guid>>
 
         let state = {
             AllWorkGuids = []; AllCallGuids = []; AllFlowGuids = []
@@ -277,6 +285,13 @@ module SimIndex =
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
             let wStartPreds, wResetPreds = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
             let wPureStartPreds, _ = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wPureStartPreds Map.empty
+
+            // Group Set 저장 — shiftToken 의 그룹 sync 가드용.
+            let groupSourceIds = workGroupArrows |> List.map (fun a -> a.SourceId)
+            let groupTargetIds = workGroupArrows |> List.map (fun a -> a.TargetId)
+            for groupSet in SimIndexGroupExpansion.buildGroupSets groupSourceIds groupTargetIds do
+                for member' in groupSet do
+                    workGroupSets <- workGroupSets.Add(member', groupSet)
 
             // ── Token successor 맵 (wStartPreds 역전: predecessor→successor) ──
             // Group 확장 후의 wStartPreds에서 빌드하므로 Group 멤버 관계도 포함
@@ -446,6 +461,7 @@ module SimIndex =
           CallComAuxConditions = state.CallComAuxConditions
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
           WorkReferenceGroups = workReferenceGroups
+          WorkGroupSets = workGroupSets
           CallCanonicalGuids = callCanonicalGuids
           CallReferenceGroups = callReferenceGroups
           ActiveSystemNames = activeSystemNames
