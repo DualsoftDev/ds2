@@ -258,6 +258,14 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     private ILlmProvider CreateCodexProvider()
     {
+        // Codex 추가 권한 동의 — danger-full-access sandbox + ~/.codex/sessions rollout 이 일반 LLM 동의보다
+        // 강한 위임이라 별도 confirm. 거부 시 InvalidOperationException → ConfigureProviderAsync 의 catch 로
+        // 떨어져 StatusText / Turns 에 안내 + IsReady=false.
+        if (!LlmConfig.EnsureCodexConsent())
+            throw new InvalidOperationException(
+                "Codex 추가 권한 (danger-full-access sandbox) 동의 미완료 — Codex provider 비활성화. " +
+                "다른 provider (Claude / Anthropic API / OpenAI / Ollama) 로 변경하거나 재시도 시 다이얼로그 다시 표시됩니다.");
+
         // 워크스페이스 디렉토리 + instructions 파일 lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 일괄 삭제.
         // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 워크스페이스 안 .md 파일에 쓰고 path 전달.
         if (_codexWorkspacePath == null)

@@ -205,9 +205,22 @@ module ToolOperations =
     // Rename: phase 2 첫 사이클은 System / ApiDef 만 지원. Flow/Work/Call 은 자식 (Work.FlowPrefix /
     //         Call.Name 합성) cascade 복잡도로 phase 후속.
 
+    /// 같은 turn 안 plan 에 누적된 add_* operation 의 id 인지 검사 (회복 단서용).
+    /// 본 함수는 진단 메시지 생성에만 사용 — remove 는 turn end 후 store 를 봐야 의미가 있다.
+    let private addedInPlanKind (plan: ImportPlanBuilder) (id: Guid) : EntityKind option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddSystem s    when s.Id = id -> Some EntityKind.System
+            | AddFlow f      when f.Id = id -> Some EntityKind.Flow
+            | AddWork w      when w.Id = id -> Some EntityKind.Work
+            | AddCall c      when c.Id = id -> Some EntityKind.Call
+            | AddApiDef d    when d.Id = id -> Some EntityKind.ApiDef
+            | _ -> None)
+
     /// remove_entity mutation tool. id 의 EntityKind 를 store dict 검색으로 자동 판별.
-    /// 같은 turn 안에서 plan 의 in-memory add 직후 remove 는 의미 약함 (turn end 까지 store 미반영).
-    /// → store 검색만 수행 (plan operation 검색은 의도적 skip — false positive 회피).
+    /// **같은 turn 안 add 직후 remove 는 미지원** — turn end 까지 store 미반영이라 plan 안 add 와 remove 가
+    /// 같은 id 로 누적되면 ImportPlanApply 가 add → remove 순으로 적용해 redundant op 가 됨. LLM 의 흔한
+    /// 회복 패턴 ("방금 만든 것 지워") 을 명확히 차단하고 회복 단서 (turn 종료 후 retry) 제공.
     /// 반환: 판별된 EntityKind (LLM 응답 메시지에 포함).
     let queueRemoveEntity (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : EntityKind =
         let kind =
@@ -218,7 +231,11 @@ module ToolOperations =
             elif store.Calls.ContainsKey(id)    then EntityKind.Call
             elif store.ApiDefs.ContainsKey(id)  then EntityKind.ApiDef
             else
-                invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef 어디에도 없음)."
+                match addedInPlanKind plan id with
+                | Some addedKind ->
+                    invalidOp (sprintf "Entity(id=%O, kind=%O) 는 같은 turn 안에서 방금 add_* 로 추가되어 store 에 아직 반영되지 않았습니다. 같은 turn 의 add 직후 remove 는 미지원입니다 — 이 turn 의 add 자체를 취소하려면 add_* tool 호출 자체를 하지 마세요. 이미 추가된 entity 를 제거하려면 응답을 마치고 다음 turn 에서 remove_entity 를 호출하세요." id addedKind)
+                | None ->
+                    invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef 어디에도 없음)."
         plan.Add(RemoveEntity(kind, id))
         kind
 
@@ -303,6 +320,16 @@ module ToolOperations =
             let total = p.ActiveSystemIds.Count + p.PassiveSystemIds.Count
             p.Id, p.Name, total)
 
+    /// list_projects 의 formatted plain text 변환 (LLM 응답 SSOT). 빈 결과는 "(no projects)".
+    /// describe / validate / find 의 formatting 패턴과 동일 파일에서 관리하여 후속 schema 변경 시 한 곳에서.
+    let formatProjectList (rows: (Guid * string * int) list) : string =
+        if rows.IsEmpty then "(no projects)"
+        else
+            let sb = System.Text.StringBuilder()
+            for (id, name, total) in rows do
+                sb.AppendLine($"- {name} (id={id:D}, systems={total})") |> ignore
+            sb.ToString().TrimEnd()
+
     /// list_systems read tool. 모든 project 의 active + passive 시스템.
     /// 반환: (Id, Name, IsActive) tuple 의 목록.
     let listSystems (store: DsStore) : (Guid * string * bool) list =
@@ -311,6 +338,30 @@ module ToolOperations =
             let active  = Queries.activeSystemsOf  p.Id store |> List.map (fun s -> s.Id, s.Name, true)
             let passive = Queries.passiveSystemsOf p.Id store |> List.map (fun s -> s.Id, s.Name, false)
             active @ passive)
+
+    /// list_systems 의 formatted plain text. 빈 결과는 "(no systems)".
+    let formatSystemList (rows: (Guid * string * bool) list) : string =
+        if rows.IsEmpty then "(no systems)"
+        else
+            let sb = System.Text.StringBuilder()
+            for (id, name, isActive) in rows do
+                let activeMark = if isActive then "active" else "passive"
+                sb.AppendLine($"- {name} (id={id:D}, {activeMark})") |> ignore
+            sb.ToString().TrimEnd()
+
+    /// find_by_name 의 formatted plain text. 50 초과면 "... (truncated at 50; refine the name)" footer.
+    /// 빈 결과는 "(no matches)".
+    let formatFindResults (rows: (EntityKind * Guid * string) list) : string =
+        if rows.IsEmpty then "(no matches)"
+        else
+            let truncated = rows.Length > 50
+            let visible = if truncated then rows |> List.truncate 50 else rows
+            let sb = System.Text.StringBuilder()
+            for (k, id, n) in visible do
+                sb.AppendLine($"- {k} \"{n}\" (id={id:D})") |> ignore
+            if truncated then
+                sb.AppendLine("... (truncated at 50; refine the name)") |> ignore
+            sb.ToString().TrimEnd()
 
     // ─── Read tool 풀세트 (Phase 1d-2) ───────────────────────────────────────
     //

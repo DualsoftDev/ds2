@@ -50,26 +50,49 @@ public static class ModelTools
         return (g, null);
     }
 
+    /// <summary>
+    /// LLM tool 호출 시 발생하는 예외 중, **사용자/모델 입력 오류** 인 것만 catch 하여 LLM 에 회복 단서로 노출.
+    /// OOM / StackOverflow / ThreadAbort 등 fatal 은 catch 하지 않고 그대로 전파 (CLAUDE.md fail-fast 정책).
+    /// </summary>
+    private static bool IsRecoverableToolException(Exception ex) =>
+        ex is InvalidOperationException
+        || ex is ArgumentException
+        || ex is OperationCanceledException
+        || ex is FormatException;
+
     private static async Task<string> RunMutation(
         LlmTurnContextProvider turnProvider, string toolName,
         Func<LlmTurnContext, string> work)
     {
         var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
-        ctx.IncrementMutationCount();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
+            ctx.IncrementMutationCount();
             var msg = await ctx.Dispatcher.InvokeAsync(() => work(ctx));
             ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} planSize={ctx.Plan.Count}");
             return msg;
         }
-        catch (Exception ex)
+        catch (QuotaExceededException qex)
+        {
+            // QUOTA_EXCEEDED 는 system policy — VALIDATION_ERROR 와 prefix 분리해 LLM retry 폭주 방지.
+            // ctx.IsQuotaExceeded 가 set 된 후라 동일 turn 의 후속 mutation 호출은 즉시 fast-fail.
+            ToolCallLog.Warn($"{toolName} quota exceeded elapsedMs={sw.ElapsedMilliseconds}: {qex.Message}");
+            return qex.Message;  // 메시지 자체가 "QUOTA_EXCEEDED:" prefix 로 시작
+        }
+        catch (Exception ex) when (IsRecoverableToolException(ex))
         {
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return $"VALIDATION_ERROR: {ex.Message}";
         }
+        // OOM / StackOverflow / ThreadAbort 등 fatal 은 catch 안 함 — fail-fast 로 process 종료 (디버깅 용이성).
     }
 
+    /// <summary>
+    /// Read tool 진입점. **결정 8 정합성**: read tool 도 dispatcher.InvokeAsync (Background) 경유 —
+    /// store dict 가 lock-free 라도 동시 mutation 중 inconsistent snapshot 회피 + write 와 정책 일관.
+    /// 누적 latency 가 부담되면 결정 8 자체를 변경한 뒤 본 함수의 dispatcher hop 우회를 별도 PR 로 분리.
+    /// </summary>
     private static async Task<string> RunRead(
         LlmTurnContextProvider turnProvider, string toolName,
         Func<LlmTurnContext, string> work)
@@ -82,7 +105,7 @@ public static class ModelTools
             ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} sizeBytes={msg?.Length ?? 0}");
             return msg ?? "";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsRecoverableToolException(ex))
         {
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return $"INTERNAL_ERROR: {ex.Message}";
@@ -242,14 +265,7 @@ public static class ModelTools
         LlmTurnContextProvider turnProvider)
     {
         return RunRead(turnProvider, "list_projects", ctx =>
-        {
-            var rows = ToolOperations.listProjects(ctx.Store);
-            if (rows.Length == 0) return "(no projects)";
-            var sb = new StringBuilder();
-            foreach (var (id, name, total) in rows)
-                sb.AppendLine($"- {name} (id={id:D}, systems={total})");
-            return sb.ToString().TrimEnd();
-        });
+            ToolOperations.formatProjectList(ToolOperations.listProjects(ctx.Store)));
     }
 
     [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기. 자식 트리는 미포함 — 자식까지 보려면 describe_system 또는 describe_subtree 호출.")]
@@ -257,14 +273,7 @@ public static class ModelTools
         LlmTurnContextProvider turnProvider)
     {
         return RunRead(turnProvider, "list_systems", ctx =>
-        {
-            var rows = ToolOperations.listSystems(ctx.Store);
-            if (rows.Length == 0) return "(no systems)";
-            var sb = new StringBuilder();
-            foreach (var (id, name, isActive) in rows)
-                sb.AppendLine($"- {name} (id={id:D}, {(isActive ? "active" : "passive")})");
-            return sb.ToString().TrimEnd();
-        });
+            ToolOperations.formatSystemList(ToolOperations.listSystems(ctx.Store)));
     }
 
     [McpServerTool, Description("특정 DsSystem 의 직계 자식 (Flow / ApiDef) 또는 깊은 트리 (Flow → Work → Call + Arrows) 를 반환합니다. deep=false (기본) 가 token 절약. 여러 system 을 한 번에 보려면 describe_subtree 사용.")]
@@ -314,13 +323,7 @@ public static class ModelTools
                 ? Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.Some(kindFilter.Value)
                 : Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.None;
             var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
-            if (rows.Length == 0) return "(no matches)";
-            var truncated = rows.Length > 50;
-            var sb = new StringBuilder();
-            foreach (var (k, id, n) in truncated ? rows.Take(50) : rows)
-                sb.AppendLine($"- {k} \"{n}\" (id={id:D})");
-            if (truncated) sb.AppendLine("... (truncated at 50; refine the name)");
-            return sb.ToString().TrimEnd();
+            return ToolOperations.formatFindResults(rows);
         });
     }
 

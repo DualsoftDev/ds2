@@ -23,6 +23,9 @@ public sealed class LlmTurnContext
     /// <summary>turn 당 mutation tool quota. 초과 시 invoker 가 거부.</summary>
     public int MutationQuota { get; init; } = 50;
 
+    /// <summary>quota 한 번 초과되면 같은 turn 의 후속 mutation 호출을 fast-fail. retry 폭주 방어.</summary>
+    public bool IsQuotaExceeded { get; private set; }
+
     /// <summary>validate_model 결과 short-lived cache TTL (ms). spam 방어용 — 너무 길면 store 변경 후
     /// stale 결과 노출 위험, 너무 짧으면 의미 없음. SystemPromptText / ValidateModel description 의
     /// 문구 ("500ms" / "0.5초") 와 동기화 필요.</summary>
@@ -39,12 +42,19 @@ public sealed class LlmTurnContext
         Dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
     }
 
-    /// <summary>mutation tool handler 가 호출 직전 quota 체크.</summary>
+    /// <summary>mutation tool handler 가 호출 직전 quota 체크. 초과 시 <see cref="QuotaExceededException"/>.</summary>
     internal void IncrementMutationCount()
     {
+        if (IsQuotaExceeded)
+            throw new QuotaExceededException(
+                $"QUOTA_EXCEEDED: 이 turn 은 이미 mutation tool 호출 quota ({MutationQuota}) 를 초과했습니다. 추가 mutation 시도는 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
         MutationCallCount++;
         if (MutationCallCount > MutationQuota)
-            throw new InvalidOperationException($"QUOTA_EXCEEDED: turn 당 mutation tool 호출이 {MutationQuota} 회를 초과했습니다.");
+        {
+            IsQuotaExceeded = true;
+            throw new QuotaExceededException(
+                $"QUOTA_EXCEEDED: turn 당 mutation tool 호출이 quota ({MutationQuota}) 를 초과했습니다. 이 turn 의 후속 mutation 은 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
+        }
     }
 
     /// <summary>validate_model cache lookup. 만료 또는 다른 scope 면 null.</summary>
@@ -59,6 +69,16 @@ public sealed class LlmTurnContext
 
     internal void SetValidateCache(string scopeKey, string result)
         => _validateCache = (scopeKey, Environment.TickCount64, result);
+}
+
+/// <summary>
+/// turn 당 mutation tool quota 초과. <see cref="InvalidOperationException"/> 을 상속해 기존 catch path 와
+/// 호환하되, ModelTools.RunMutation 가 본 type 을 별도 catch 하여 VALIDATION_ERROR 가 아닌
+/// QUOTA_EXCEEDED prefix 로 LLM 에 노출 (system policy / validation error 분리).
+/// </summary>
+public sealed class QuotaExceededException : InvalidOperationException
+{
+    public QuotaExceededException(string message) : base(message) { }
 }
 
 /// <summary>
