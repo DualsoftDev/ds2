@@ -45,12 +45,12 @@ public sealed class SimulationEditGuardsTests
     }
 
     [Fact]
-    public void DeleteSelected_blocks_node_deletion_but_allows_arrow_deletion_during_simulation()
+    public void DeleteSelected_blocks_node_and_arrow_during_simulation_when_user_cancels()
     {
         StaTestRunner.Run(() =>
         {
             var vm = new MainViewModel();
-            var dialog = new RecordingDialogService();
+            var dialog = new RecordingDialogService();  // 기본은 stop 안 함 (cancel)
             SetDialogService(vm, dialog);
 
             vm.NewProjectCommand.Execute(null);
@@ -73,6 +73,7 @@ public sealed class SimulationEditGuardsTests
             vm.Canvas.CanvasArrows.Add(arrowNode);
             vm.Simulation.IsSimulating = true;
 
+            // 8e2e425 이후 시뮬 중 arrow 변경도 차단 → dialog 띄움. 사용자가 cancel 하면 둘 다 차단.
             vm.Selection.SelectNodeFromCanvas(work1Node, ctrlPressed: false, shiftPressed: false);
             vm.DeleteSelectedCommand.Execute(null);
 
@@ -83,6 +84,40 @@ public sealed class SimulationEditGuardsTests
             vm.Selection.SelectArrowFromCanvas(arrowNode, ctrlPressed: false);
             vm.DeleteSelectedCommand.Execute(null);
 
+            Assert.True(store.ArrowWorksReadOnly.ContainsKey(arrowId));
+            Assert.Equal(2, dialog.WarningMessages.Count);
+        });
+    }
+
+    [Fact]
+    public void DeleteSelected_proceeds_when_user_stops_simulation()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new StopChoosingDialogService();  // stop 선택
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var work1Id = store.AddWork("Work1", flowId);
+            var work2Id = store.AddWork("Work2", flowId);
+            store.ConnectSelectionInOrder([work1Id, work2Id], ArrowType.StartReset);
+            var arrowId = store.ArrowWorksReadOnly.Values.Single().Id;
+
+            var arrowNode = new ArrowNode(arrowId, work1Id, work2Id, ArrowType.StartReset);
+            vm.Canvas.CanvasArrows.Add(arrowNode);
+            vm.Simulation.IsSimulating = true;
+
+            vm.Selection.SelectArrowFromCanvas(arrowNode, ctrlPressed: false);
+            vm.DeleteSelectedCommand.Execute(null);
+
+            // stop 선택 → 시뮬 종료 + arrow 삭제 진행.
+            Assert.False(vm.Simulation.IsSimulating);
             Assert.False(store.ArrowWorksReadOnly.ContainsKey(arrowId));
             Assert.Single(dialog.WarningMessages);
         });
@@ -206,7 +241,7 @@ public sealed class SimulationEditGuardsTests
     }
 
     [Fact]
-    public void OpenIoBatchDialog_during_simulation_shows_dialog_and_blocks_when_user_cancels()
+    public void OpenIoBatchDialog_during_simulation_opens_dialog_without_guard()
     {
         StaTestRunner.Run(() =>
         {
@@ -219,8 +254,10 @@ public sealed class SimulationEditGuardsTests
 
             vm.OpenIoBatchDialogCommand.Execute(null);
 
+            // OpenIoBatchDialog 는 현재 시뮬 가드 없이 dialog 열림 (IO 매핑 편집은 시뮬 중 허용).
+            // 시뮬 상태도 그대로 유지.
             Assert.True(vm.Simulation.IsSimulating);
-            Assert.Single(dialog.WarningMessages);
+            Assert.Empty(dialog.WarningMessages);
         });
     }
 
