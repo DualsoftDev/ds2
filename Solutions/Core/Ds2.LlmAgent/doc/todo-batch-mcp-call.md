@@ -31,8 +31,9 @@
 | **Pass 5 (hot-fix)** self-close timing race | ✅ 완료 | `b56af69` | `MainViewModel.ScheduleMeasurePrompt` 의 `wasSending` 초기값을 `vm.IsSending` 으로 set |
 | **Pass 5 (add_project)** | ✅ 완료 | (HEAD) | `ImportPlanOperation.AddProject` case + Direct/Tracked handler. F# `queueAddProject` (이름 unique 검사) + `queueAddSystem` 의 plan-AddProject fallback. C# `AddProject` MCP tool (assignVar 호환) + `PromakerToolNames` allowlist. SystemPrompt 의 "no add_project" 제거 + greenfield checklist 갱신 |
 | **Pass 5 (cascade scope)** | ✅ 완료 | (HEAD) | cascade scope 가 1 SendAsync 단위 → 1 LLM message 단위로 축소. `ImportPlanBuilder.CascadeFailureFlag` getter 가 1500ms TTL 적용. SystemPrompt 의 "WHOLE turn aborts" → "REST of the message aborts, next message can retry" 갱신 |
-| **Pass 5 (측정)** Task C-6 final 측정 | ✅ 완료 (fresh store) / ⬜ default project 추가 | (HEAD) | fresh store 5 trial: wall avg 50.2s, asstTurn 27.8, ok 10.2, authoring 1/trial, self-close 5/5. Gate FAIL = fresh store 회복 비용. `run-pass5.fsx` 가 `--load <path>` 두 번째 인자 추가 (사용자 .ds2 준비 후 default project 환경 재측정 가능) |
-| **Pass 5 (정리)** done 통합 + cleanup | ⬜ 미진입 | — | 추가 측정 후 |
+| **Pass 5 (측정)** Task C-6 final 측정 | ✅ 완료 (fresh store) / ⬜ default project 추가 | (HEAD) | fresh store 5 trial: wall avg 50.2s, asstTurn 27.8, ok 10.2, authoring 1/trial, self-close 5/5. Gate FAIL = fresh store 회복 비용. `run-pass5.fsx` 가 두 번째 인자로 model file path (`.sdf`/`.json`/`.aasx`/`.md`) 받아 default project 환경 재측정 가능 |
+| **Pass 5 (정리)** done 통합 | ✅ 완료 | (HEAD) | `done-batch-mcp-call.md` 신규 (Pass 0~5 통합) |
+| **Pass 6 ((b) 채택, (c) 폐기)** | ✅ 완료 | (HEAD) | numTurns 부풀림 해소 위해 (c) variable binding 폐기 + (b) `apply_operations` 채택. F# `queueBatch` + `BatchOpInput/Result` types + `ImportPlanBuilder.TruncateTo`. (c) 코드 (sanitizeVarName/resolveGuidOrVar/registerVar/VarCache/cascadeFailureFlag) 모두 제거. C# `ApplyOperations` MCP tool + add_* 의 assignVar 인자 제거 + RunMutation 단순화 (cascade short-circuit/ enter trace/ _toolCallSeq 모두 제거). Tool 풀세트 15→16. SystemPrompt 의 chain pattern 절을 apply_operations 가이드로 교체. VarBindingTests → BatchTests (15 케이스). **측정 (n=5, default project): numTurns 11.8→3.4 (-71%) / wall 28.2→21.4s (-24%)** — message-grouping 검증 = max tool_use/msg 1 (의도된 batch). 111 테스트 통과 |
 
 ### 결정 갱신 (Pass 0 ~ 2 종합)
 
@@ -49,7 +50,7 @@
 
 1. ~~**측정 인프라 self-close hang**~~ — ✅ Pass 5 hot-fix 로 해결 (`MainViewModel.ScheduleMeasurePrompt` 의 sendHandler timing race). 원인 = SendCommand.Execute 의 동기 부분이 IsSending=true 를 즉시 emit, 그 후 sendHandler 등록 시 wasSending=false 초기화 → false transition 시 단락. fix = `wasSending = vm.IsSending` 로 등록 시점 캐시
 2. **claude CLI noise 통제 어려움** — `--bare` 가 OAuth 차단 → hooks/CLAUDE.md/skill 모두 활성. (a) / (c) 정량 비교 신뢰도 낮음
-3. **(c) ROI 도 미검증** — Pass 5 측정 결과에 따라 본 todo 보류 가능성
+3. ~~**(c) ROI 도 미검증**~~ — ✅ Pass 6 에서 (c) 폐기 + (b) `apply_operations` 채택으로 해결. 측정 numTurns 11.8→3.4 (-71%) / wall 28.2→21.4s (-24%)
 
 ---
 

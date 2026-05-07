@@ -14,10 +14,11 @@
 // 사용:
 //   dotnet fsi doc/run-pass5.fsx                                    # default 5 trial, fresh store
 //   dotnet fsi doc/run-pass5.fsx 3                                  # 3 trial, fresh store
-//   dotnet fsi doc/run-pass5.fsx 5 path\to\default-project.ds2      # default project 환경 측정
+//   dotnet fsi doc/run-pass5.fsx 5 path\to\default-project.json     # default project 환경 측정
 //
-// default project 환경 측정 시: GUI 로 Promaker 열어 NewProject 생성 + 저장 (.ds2). 그 path 인자.
-// 매 trial 마다 같은 .ds2 load 라 누적 system 명 충돌 회피 위해 prompt 의 Cyl{trialId} unique 화 활용.
+// default project 환경 측정 시: GUI 로 Promaker 열어 NewProject 생성 + 저장 (.sdf/.json/.aasx/.md 중 하나).
+// 그 file path 를 두 번째 인자로 전달. 매 trial 마다 같은 file load 라 누적 system 명 충돌 회피 위해
+// prompt 의 Cyl{trialId} unique 화 활용.
 
 #r "nuget: Newtonsoft.Json, 13.0.3"
 
@@ -69,10 +70,15 @@ type TrialResult = {
     EnterCount: int
     OkCount: int
     AuthoringCount: int
-    AssistantTurnCount: int
+    AssistantTurnCount: int  // stream-json assistant 이벤트 라인 수 (한 message 의 multi-block 부풀림 포함)
     UserTurnCount: int
     HasResultLine: bool
+    NumTurns: int            // claude CLI result 의 num_turns (= 진짜 LLM internal turn 수)
+    DurationApiMs: int       // claude CLI result 의 duration_api_ms
 }
+
+let numTurnsRegex = Regex(@"""num_turns""\s*:\s*(\d+)")
+let durationApiMsRegex = Regex(@"""duration_api_ms""\s*:\s*(\d+)")
 
 let parseLogs (logFile: string) (startTime: DateTime) =
     if not (File.Exists(logFile)) then [||]
@@ -125,22 +131,32 @@ let runOne trial =
         lines |> Array.filter (fun l ->
             l.Logger = "RawStream"
             && (l.Body.Contains("\"type\":\"user\"") || l.Body.Contains("\"role\":\"user\"")))
-    let hasResult =
-        lines |> Array.exists (fun l ->
+    let resultLine =
+        lines |> Array.tryFind (fun l ->
             l.Logger = "RawStream" && l.Body.Contains("\"type\":\"result\""))
-    printfn "  wall=%.1fs exited=%b enter=%d ok=%d authoring=%d asst=%d result=%b"
-        sw.Elapsed.TotalSeconds exited enters.Length oks.Length authorings.Length rawAssistant.Length hasResult
+    let hasResult = resultLine.IsSome
+    // claude CLI result 라인의 num_turns / duration_api_ms 추출 (= LLM internal turn 의 정확한 카운트)
+    let extractInt (rx: Regex) defaultVal =
+        match resultLine with
+        | Some l ->
+            let m = rx.Match(l.Body)
+            if m.Success then int m.Groups.[1].Value else defaultVal
+        | None -> defaultVal
+    let numTurns = extractInt numTurnsRegex 0
+    let durationApiMs = extractInt durationApiMsRegex 0
+    printfn "  wall=%.1fs exited=%b enter=%d ok=%d authoring=%d asst=%d numTurns=%d apiMs=%d result=%b"
+        sw.Elapsed.TotalSeconds exited enters.Length oks.Length authorings.Length rawAssistant.Length numTurns durationApiMs hasResult
     { Trial = trial; Wall = sw.Elapsed; Exited = exited
       EnterCount = enters.Length; OkCount = oks.Length; AuthoringCount = authorings.Length
       AssistantTurnCount = rawAssistant.Length; UserTurnCount = rawUser.Length
-      HasResultLine = hasResult }
+      HasResultLine = hasResult; NumTurns = numTurns; DurationApiMs = durationApiMs }
 
 let overallStart = DateTime.Now
 printfn "=== Pass 5 final 측정 시작 — %s, n=%d ===" (overallStart.ToString("yyyy-MM-dd HH:mm:ss")) nTrials
 printfn "Promaker: %s" promakerExe
 match loadFilePath with
-| Some p -> printfn "Load .ds2 : %s" p
-| None -> printfn "Load .ds2 : (none — fresh store)"
+| Some p -> printfn "Load file : %s" p
+| None -> printfn "Load file : (none — fresh store)"
 printfn ""
 
 let results = [| for i in 1 .. nTrials -> runOne i |]
@@ -153,8 +169,10 @@ let stddev (xs: float[]) =
         Math.Sqrt(xs |> Array.map (fun x -> (x - m) ** 2.0) |> Array.average)
 
 let walls = results |> Array.map (fun r -> r.Wall.TotalSeconds)
-let turns = results |> Array.map (fun r -> float r.AssistantTurnCount)
+let asstLines = results |> Array.map (fun r -> float r.AssistantTurnCount)
+let numTurns = results |> Array.map (fun r -> float r.NumTurns)
 let toolUses = results |> Array.map (fun r -> float r.OkCount)
+let apiMs = results |> Array.map (fun r -> float r.DurationApiMs / 1000.0)  // -> seconds
 let exitedCount = results |> Array.filter (fun r -> r.Exited) |> Array.length
 let resultLineCount = results |> Array.filter (fun r -> r.HasResultLine) |> Array.length
 
@@ -163,19 +181,21 @@ printfn "=== 통계 (n=%d) ===" nTrials
 printfn "Self-close OK   : %d/%d" exitedCount nTrials
 printfn "stop_reason 도달: %d/%d" resultLineCount nTrials
 printfn "Wall(s)        : avg=%.1f min=%.1f max=%.1f std=%.1f" (avg walls) (Array.min walls) (Array.max walls) (stddev walls)
-printfn "AsstTurn       : avg=%.1f min=%.0f max=%.0f std=%.1f" (avg turns) (Array.min turns) (Array.max turns) (stddev turns)
+printfn "ApiMs (s)      : avg=%.1f min=%.1f max=%.1f std=%.1f  (claude CLI duration_api_ms)" (avg apiMs) (Array.min apiMs) (Array.max apiMs) (stddev apiMs)
+printfn "NumTurns       : avg=%.1f min=%.0f max=%.0f std=%.1f  (claude CLI result.num_turns)" (avg numTurns) (Array.min numTurns) (Array.max numTurns) (stddev numTurns)
+printfn "AsstLines      : avg=%.1f min=%.0f max=%.0f std=%.1f  (stream-json assistant lines, 부풀림 포함)" (avg asstLines) (Array.min asstLines) (Array.max asstLines) (stddev asstLines)
 printfn "ToolUse(ok)    : avg=%.1f min=%.0f max=%.0f std=%.1f" (avg toolUses) (Array.min toolUses) (Array.max toolUses) (stddev toolUses)
 
-let avgTurn = avg turns
+let avgTurn = avg numTurns
 let avgWall = avg walls
 let turnPass = avgTurn <= 5.0
 let wallPass = avgWall <= 18.0
 let gatePass = turnPass && wallPass
 
 printfn ""
-printfn "=== Gate (avg turn ≤ 5 AND avg wall ≤ 18s) ==="
-printfn "avg turn = %.1f (limit 5.0) — %s" avgTurn (if turnPass then "PASS" else "FAIL")
-printfn "avg wall = %.1fs (limit 18.0s) — %s" avgWall (if wallPass then "PASS" else "FAIL")
+printfn "=== Gate (avg numTurns ≤ 5 AND avg wall ≤ 18s) ==="
+printfn "avg numTurns = %.1f (limit 5.0) — %s" avgTurn (if turnPass then "PASS" else "FAIL")
+printfn "avg wall     = %.1fs (limit 18.0s) — %s" avgWall (if wallPass then "PASS" else "FAIL")
 printfn "RESULT: %s" (if gatePass then "PASS" else "FAIL")
 
 // markdown 저장
@@ -190,25 +210,28 @@ sb.AppendLine("- 측정: Promaker self-flow (--autostart-llm --measure-prompt --
 sb.AppendLine("") |> ignore
 sb.AppendLine("## Trial 결과") |> ignore
 sb.AppendLine("") |> ignore
-sb.AppendLine("| trial | wall(s) | exited | result line | enter | ok | authoring | asstTurn |") |> ignore
-sb.AppendLine("|-------|--------:|:------:|:-----------:|------:|---:|----------:|---------:|") |> ignore
+sb.AppendLine("| trial | wall(s) | apiMs(s) | exited | result | enter | ok | authoring | numTurns | asstLines |") |> ignore
+sb.AppendLine("|-------|--------:|---------:|:------:|:------:|------:|---:|----------:|---------:|----------:|") |> ignore
 for r in results do
-    sb.AppendLine(sprintf "| %d | %.1f | %s | %s | %d | %d | %d | %d |"
-        r.Trial r.Wall.TotalSeconds (if r.Exited then "✓" else "✗") (if r.HasResultLine then "✓" else "✗")
-        r.EnterCount r.OkCount r.AuthoringCount r.AssistantTurnCount) |> ignore
+    sb.AppendLine(sprintf "| %d | %.1f | %.1f | %s | %s | %d | %d | %d | %d | %d |"
+        r.Trial r.Wall.TotalSeconds (float r.DurationApiMs / 1000.0)
+        (if r.Exited then "✓" else "✗") (if r.HasResultLine then "✓" else "✗")
+        r.EnterCount r.OkCount r.AuthoringCount r.NumTurns r.AssistantTurnCount) |> ignore
 sb.AppendLine("") |> ignore
 sb.AppendLine("## 통계") |> ignore
 sb.AppendLine("") |> ignore
 sb.AppendLine(sprintf "- Self-close OK: %d/%d" exitedCount nTrials) |> ignore
 sb.AppendLine(sprintf "- stop_reason 도달: %d/%d" resultLineCount nTrials) |> ignore
 sb.AppendLine(sprintf "- Wall(s): avg=%.1f / min=%.1f / max=%.1f / std=%.1f" (avg walls) (Array.min walls) (Array.max walls) (stddev walls)) |> ignore
-sb.AppendLine(sprintf "- AsstTurn: avg=%.1f / min=%.0f / max=%.0f / std=%.1f" (avg turns) (Array.min turns) (Array.max turns) (stddev turns)) |> ignore
+sb.AppendLine(sprintf "- ApiMs(s): avg=%.1f / min=%.1f / max=%.1f / std=%.1f" (avg apiMs) (Array.min apiMs) (Array.max apiMs) (stddev apiMs)) |> ignore
+sb.AppendLine(sprintf "- NumTurns (claude CLI internal): avg=%.1f / min=%.0f / max=%.0f / std=%.1f" (avg numTurns) (Array.min numTurns) (Array.max numTurns) (stddev numTurns)) |> ignore
+sb.AppendLine(sprintf "- AsstLines (stream-json, 부풀림): avg=%.1f / min=%.0f / max=%.0f / std=%.1f" (avg asstLines) (Array.min asstLines) (Array.max asstLines) (stddev asstLines)) |> ignore
 sb.AppendLine(sprintf "- ToolUse(ok): avg=%.1f / min=%.0f / max=%.0f / std=%.1f" (avg toolUses) (Array.min toolUses) (Array.max toolUses) (stddev toolUses)) |> ignore
 sb.AppendLine("") |> ignore
-sb.AppendLine("## Gate 판정 (avg turn ≤ 5 AND avg wall ≤ 18s)") |> ignore
+sb.AppendLine("## Gate 판정 (avg numTurns ≤ 5 AND avg wall ≤ 18s)") |> ignore
 sb.AppendLine("") |> ignore
-sb.AppendLine(sprintf "- avg turn = %.1f (limit 5.0) — **%s**" avgTurn (if turnPass then "PASS" else "FAIL")) |> ignore
-sb.AppendLine(sprintf "- avg wall = %.1fs (limit 18.0s) — **%s**" avgWall (if wallPass then "PASS" else "FAIL")) |> ignore
+sb.AppendLine(sprintf "- avg numTurns = %.1f (limit 5.0) — **%s**" avgTurn (if turnPass then "PASS" else "FAIL")) |> ignore
+sb.AppendLine(sprintf "- avg wall     = %.1fs (limit 18.0s) — **%s**" avgWall (if wallPass then "PASS" else "FAIL")) |> ignore
 sb.AppendLine(sprintf "- **결과: %s**" (if gatePass then "✅ PASS" else "❌ FAIL")) |> ignore
 sb.AppendLine("") |> ignore
 sb.AppendLine("## 비교 (Pass 1.5 baseline 의 S1 결과)") |> ignore
