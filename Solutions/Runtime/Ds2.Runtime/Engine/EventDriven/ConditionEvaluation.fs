@@ -169,7 +169,21 @@ module internal ConditionEvaluation =
             let isSink = ctx.Index.TokenSinkGuids.Contains(workGuid)
             let successors = ctx.Index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue []
             let hasEmptySuccessor = successors |> List.exists ctx.CanReceiveToken
-            hasEmptySuccessor || isSink
+            // Group sync: workGuid (또는 reference group 멤버) 가 Group arrow 그룹에 속하면
+            // 그룹 모든 멤버 Finish 까지 retry skip — Blocked event 무한 loop 방지.
+            let groupSet =
+                SimIndex.referenceGroupOf ctx.Index workGuid
+                |> List.collect (fun g -> SimIndex.workGroupOf ctx.Index g |> Set.toList)
+                |> Set.ofList
+            let refGroup = SimIndex.referenceGroupOf ctx.Index workGuid |> Set.ofList
+            let waitingForGroup =
+                if Set.isEmpty groupSet then false
+                else
+                    groupSet
+                    |> Set.exists (fun g ->
+                        not (Set.contains g refGroup)
+                        && ctx.StateManager.GetWorkState(g) <> Status4.Finish)
+            not waitingForGroup && (hasEmptySuccessor || isSink)
 
         let finalizeHomingAfterTokenShift workGuid =
             if SimState.getWorkToken workGuid (ctx.StateManager.GetState()) |> Option.isNone then
