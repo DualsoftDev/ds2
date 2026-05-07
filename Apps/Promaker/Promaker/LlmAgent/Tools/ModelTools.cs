@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Ds2.Core;
 using Ds2.LlmAgent;
@@ -11,12 +13,18 @@ using ModelContextProtocol.Server;
 namespace Promaker.LlmAgent.Tools;
 
 /// <summary>
+/// Promaker MCP server 의 tool 핸들러.
+///
 /// Phase 1c — add_system + list_systems.
-/// Phase 1d-1 — add_flow / add_work / add_call / add_arrow / add_api_def 풀세트 추가.
+/// Phase 1d-1 — add_flow / add_work / add_call / add_arrow / add_api_def 풀세트.
+/// Pass 5 — add_project 추가로 Phase 1 의 'GUI 의존' 한계 제거.
+/// **Pass 6 — (b) batch tool (`apply_operations`) 채택. (c) variable binding 폐기.**
+///   - chain pattern 의 numTurns 부풀림 (multi tool_use → multi internal turn) 해소
+///   - 1 LLM message = 1 tool_use (apply_operations) = 1 internal turn = 진짜 round-trip 압축
+///   - turn-scoped state (VarCache, cascade flag) 제거 — batch self-contained 처리
 ///
 /// 모든 mutation tool 은 ImportPlanBuilder 에 ImportPlanOperation 누적만. turn end 의 단일
-/// ApplyImportPlan 호출이 1 undo step 생성. 같은 turn 안의 ID chaining (add_flow 의 반환 id 를
-/// 다음 add_work 의 flowId 로 사용) 은 ToolOperations 가 plan + store 합산 lookup 으로 지원.
+/// ApplyImportPlan 호출이 1 undo step 생성.
 /// </summary>
 [McpServerToolType]
 public static class ModelTools
@@ -27,32 +35,41 @@ public static class ModelTools
     // 근거: ModelContextProtocol.AspNetCore 1.2.0 의 AIFunctionMcpServerTool 이 parameter 의 type 을
     // IServiceProviderIsService.IsService(type) 로 검사 → DI 등록된 type 이면 schema 에서 자동 제외 +
     // service provider 에서 binding. McpHostService 가 LlmTurnContextProvider 를 AddSingleton 등록하므로
-    // 자동 검출 path 가 동작. (Pass D — 이전 [FromKeyedServices(null)] 우회 제거)
+    // 자동 검출 path 가 동작.
 
     // ─── 공통 헬퍼 ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Tool 인자 sanitize. F# 측 ToolOperations.sanitizeName 로 위임 — Cc/Cf/길이/공백 검사 SSOT.
-    /// "" = valid → null 변환, non-empty = error 메시지 그대로 반환. (Pass E: F# 으로 이전하여 testability 확보)
-    /// </summary>
-    private static string? Sanitize(string? value, string field, int maxLength = ToolOperations.NameMaxLength)
+    /// <summary>F# sanitizeName 의 메시지를 InvalidOperationException 으로 변환. dispatcher work 안에서 사용.</summary>
+    private static void SanitizeOrThrow(string? value, string field, int maxLength = ToolOperations.NameMaxLength)
     {
-        var result = ToolOperations.sanitizeName(value ?? string.Empty, field, maxLength);
-        return string.IsNullOrEmpty(result) ? null : result;
+        var msg = ToolOperations.sanitizeName(value ?? string.Empty, field, maxLength);
+        if (!string.IsNullOrEmpty(msg)) throw new InvalidOperationException(msg);
     }
 
-    private static (Guid? id, string? error) ParseGuid(string? value, string field)
+    /// <summary>GUID 문자열 → Guid. parse 실패 시 throw.</summary>
+    private static Guid ParseGuidOrThrow(string? value, string field)
     {
         if (string.IsNullOrWhiteSpace(value))
-            return (null, $"VALIDATION_ERROR: {field} 이(가) 비어있습니다.");
+            throw new InvalidOperationException($"VALIDATION_ERROR: {field} 이(가) 비어있습니다.");
         if (!Guid.TryParse(value.Trim(), out var g))
-            return (null, $"VALIDATION_ERROR: {field} 가 유효한 GUID 형식이 아닙니다 ({value}).");
-        return (g, null);
+            throw new InvalidOperationException($"VALIDATION_ERROR: {field} 가 유효한 GUID 형식이 아닙니다.");
+        return g;
+    }
+
+    /// <summary>F# invalidOp 메시지가 이미 카테고리 prefix 포함이면 그대로, 그 외 VALIDATION_ERROR prefix.</summary>
+    private static string EnsureErrorPrefix(string message)
+    {
+        if (message.StartsWith("VALIDATION_ERROR:") || message.StartsWith("BATCH_ERROR:")
+            || message.StartsWith("QUOTA_EXCEEDED:") || message.StartsWith("INTERNAL_ERROR:")
+            || message.StartsWith("NOT_FOUND:"))
+            return message;
+        return "VALIDATION_ERROR: " + message;
     }
 
     /// <summary>
     /// LLM tool 호출 시 발생하는 예외 중, **사용자/모델 입력 오류** 인 것만 catch 하여 LLM 에 회복 단서로 노출.
     /// OOM / StackOverflow / ThreadAbort 등 fatal 은 catch 하지 않고 그대로 전파 (CLAUDE.md fail-fast 정책).
+    /// QuotaExceededException 은 InvalidOperationException 의 하위라 본 필터에 자연 포함 — 별도 catch 가 elapsed log 만 분리.
     /// </summary>
     private static bool IsRecoverableToolException(Exception ex) =>
         ex is InvalidOperationException
@@ -78,12 +95,12 @@ public static class ModelTools
             // QUOTA_EXCEEDED 는 system policy — VALIDATION_ERROR 와 prefix 분리해 LLM retry 폭주 방지.
             // ctx.IsQuotaExceeded 가 set 된 후라 동일 turn 의 후속 mutation 호출은 즉시 fast-fail.
             ToolCallLog.Warn($"{toolName} quota exceeded elapsedMs={sw.ElapsedMilliseconds}: {qex.Message}");
-            return qex.Message;  // 메시지 자체가 "QUOTA_EXCEEDED:" prefix 로 시작
+            return EnsureErrorPrefix(qex.Message);
         }
         catch (Exception ex) when (IsRecoverableToolException(ex))
         {
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
-            return $"VALIDATION_ERROR: {ex.Message}";
+            return EnsureErrorPrefix(ex.Message);
         }
         // OOM / StackOverflow / ThreadAbort 등 fatal 은 catch 안 함 — fail-fast 로 process 종료 (디버깅 용이성).
     }
@@ -108,152 +125,245 @@ public static class ModelTools
         catch (Exception ex) when (IsRecoverableToolException(ex))
         {
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
-            return $"INTERNAL_ERROR: {ex.Message}";
+            var msg = ex.Message;
+            return msg.StartsWith("VALIDATION_ERROR:") || msg.StartsWith("NOT_FOUND:")
+                ? msg
+                : $"INTERNAL_ERROR: {msg}";
+        }
+        // OOM / StackOverflow / ThreadAbort 등 fatal 은 catch 안 함.
+    }
+
+    // ─── Pass 6: Batch tool ──────────────────────────────────────────────────
+
+    [McpServerTool, Description(@"여러 mutation 을 1 round-trip 으로 누적 적용합니다 (권장 — 같은 turn 의 N 개 mutation 은 본 도구 1번 호출로). 같은 batch 안 후속 op 가 직전 op 결과 Guid 를 참조하려면 'ref' 를 부여하고 args 의 Guid 자리에 '@<ref>' 사용. fail-fast — 첫 실패 시 batch 전체 rollback (1 undo step 의미 보장). read tool (list_*, describe_*, validate_model) 은 array 에 포함 불가. 입력 schema = JSON array of {op, ref?, args}, op ∈ {add_project, add_system, add_flow, add_work, add_call, add_api_def, add_arrow, remove_entity, rename_entity}. ref = 같은 batch 안 unique 한 1-32자 식별자. 예: [{""op"":""add_system"", ""ref"":""cyl"", ""args"":{""name"":""Cyl""}}, {""op"":""add_api_def"", ""args"":{""name"":""ADV"", ""systemId"":""@cyl""}}].")]
+    public static Task<string> ApplyOperations(
+        LlmTurnContextProvider turnProvider,
+        [Description("Op 객체 JSON array 의 string 표현. 각 객체: { op: \"add_xxx|remove_entity|rename_entity\", ref?: \"<localName>\", args: {...} }.")] string operations)
+    {
+        return RunMutation(turnProvider, "apply_operations", ctx =>
+        {
+            // (review M2) using 으로 ArrayPool 즉시 반환 — JsonElement 의 lifetime 은 queueBatch 동기 완료까지만
+            // 필요하므로 work delegate scope 안에서 안전하게 dispose.
+            if (string.IsNullOrWhiteSpace(operations))
+                throw new InvalidOperationException("VALIDATION_ERROR: operations 이 비어있습니다.");
+            JsonDocument doc;
+            try { doc = JsonDocument.Parse(operations); }
+            catch (JsonException jex)
+            {
+                throw new InvalidOperationException($"VALIDATION_ERROR: operations JSON parse 실패 — {jex.Message}");
+            }
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                    throw new InvalidOperationException($"VALIDATION_ERROR: operations 의 root 가 array 가 아닙니다 (ValueKind={doc.RootElement.ValueKind}).");
+                var inputs = BuildBatchOpInputs(doc.RootElement);
+                // (review C1) batch 안 op 수만큼 quota 추가 charge — RunMutation 진입에서 +1 했으므로 (length-1) 만 추가.
+                // batch 1회 = quota 1 로 두면 100 op 단발 호출이 quota cap 을 우회 → DoS 표면.
+                if (inputs.Length > 1)
+                    ctx.IncrementMutationCount(inputs.Length - 1);
+                var result = ToolOperations.queueBatch(ctx.Plan, ctx.Store, inputs);
+                return FormatBatchResult(result, ctx.Plan.Count);
+            }
+        });
+    }
+
+    /// <summary>
+    /// JSON array root → BatchOpInput[]. caller (ApplyOperations) 가 JsonDocument 의 using 으로 lifetime 관리.
+    /// </summary>
+    private static BatchOpInput[] BuildBatchOpInputs(JsonElement root)
+    {
+        var result = new List<BatchOpInput>();
+        foreach (var item in root.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException($"VALIDATION_ERROR: operations[{result.Count}] 가 object 가 아닙니다.");
+            if (!item.TryGetProperty("op", out var opProp) || opProp.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException($"VALIDATION_ERROR: operations[{result.Count}].op 가 string 이 아닙니다.");
+            var op = opProp.GetString() ?? "";
+            var refOpt = item.TryGetProperty("ref", out var refProp) && refProp.ValueKind == JsonValueKind.String
+                ? Microsoft.FSharp.Core.FSharpOption<string>.Some(refProp.GetString() ?? "")
+                : Microsoft.FSharp.Core.FSharpOption<string>.None;
+            var args = item.TryGetProperty("args", out var argsProp) && argsProp.ValueKind == JsonValueKind.Object
+                ? argsProp
+                : default;
+            result.Add(new BatchOpInput(op, refOpt, args));
+        }
+        return result.ToArray();
+    }
+
+    private static string FormatBatchResult(
+        Microsoft.FSharp.Core.FSharpResult<BatchOpResult[], Tuple<int, string, string>> result,
+        int planSize)
+    {
+        if (result.IsOk)
+        {
+            var ops = result.ResultValue;
+            var sb = new StringBuilder();
+            sb.Append($"[batch] {ops.Length} op(s) queued (planSize={planSize}):\n");
+            foreach (var r in ops)
+            {
+                var refSuffix = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(r.Ref)
+                    ? $" (ref=@{r.Ref.Value})" : "";
+                sb.Append($"  [{r.Index}] {r.Display}{refSuffix}\n");
+            }
+            return sb.ToString().TrimEnd();
+        }
+        else
+        {
+            var (idx, opName, msg) = (result.ErrorValue.Item1, result.ErrorValue.Item2, result.ErrorValue.Item3);
+            // F# invalidOp 메시지가 이미 VALIDATION_ERROR: 면 그대로, 아니면 prefix 추가
+            var detail = EnsureErrorPrefix(msg);
+            return $"BATCH_ERROR: op[{idx}] '{opName}' 실패 — {detail} (rollback applied, 0 ops queued in this call)";
         }
     }
 
-    // ─── Mutation tools ──────────────────────────────────────────────────────
+    // ─── Single mutation tools (legacy fallback — apply_operations 권장) ────
+    //
+    // Pass 6 변경: assignVar 인자 + Guid 인자의 '$<varname>' 참조 모두 제거. 다중 op chain 은 apply_operations 사용.
+    // 본 도구들은 단일 mutation 이 필요한 경우 (예: 사용자가 1 op 만 지시) 의 편의용으로 유지.
 
-    [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). 반환: 새 system Id (full GUID).")]
+    [McpServerTool, Description("Promaker 에 새 Project 를 추가합니다 (workspace 단위). 빈 store 에서 LLM 이 자율적으로 모델을 시작할 때 사용. 같은 turn 의 후속 add_system 은 첫 project 에 자동 부착됨. 반환: 새 project Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddProject(
+        LlmTurnContextProvider turnProvider,
+        [Description("Project 이름 (1-128자, 다른 project 와 unique). '@' 또는 '$' 시작 금지.")] string name)
+    {
+        return RunMutation(turnProvider, "add_project", ctx =>
+        {
+            SanitizeOrThrow(name, "name");
+            var trimmed = name.Trim();
+            var projId = ToolOperations.queueAddProject(ctx.Plan, ctx.Store, trimmed);
+            return $"[plan] add_project queued: name=\"{trimmed}\", id={projId:D}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). 반환: 새 system Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddSystem(
         LlmTurnContextProvider turnProvider,
-        [Description("System 이름 (1-128자, 한 프로젝트 내 unique).")] string name,
+        [Description("System 이름 (1-128자, 한 프로젝트 내 unique). '@' 또는 '$' 시작 금지.")] string name,
         [Description("Active 여부. 기본 true.")] bool isActive = true)
     {
-        var err = Sanitize(name, "name");
-        if (err != null) return Task.FromResult(err);
-        name = name.Trim();
         return RunMutation(turnProvider, "add_system", ctx =>
         {
-            var sysId = ToolOperations.queueAddSystem(ctx.Plan, ctx.Store, name, isActive);
-            return $"[plan] add_system queued: name=\"{name}\", isActive={isActive}, id={sysId:D}, planSize={ctx.Plan.Count}";
+            SanitizeOrThrow(name, "name");
+            var trimmed = name.Trim();
+            var sysId = ToolOperations.queueAddSystem(ctx.Plan, ctx.Store, trimmed, isActive);
+            return $"[plan] add_system queued: name=\"{trimmed}\", isActive={isActive}, id={sysId:D}, planSize={ctx.Plan.Count}";
         });
     }
 
-    [McpServerTool, Description("Promaker System 아래에 새 Flow 를 추가합니다. 반환: 새 Flow Id.")]
+    [McpServerTool, Description("Promaker System 아래에 새 Flow 를 추가합니다. 반환: 새 Flow Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddFlow(
         LlmTurnContextProvider turnProvider,
-        [Description("Flow 이름 (1-128자, System 내 unique).")] string name,
-        [Description("Parent System 의 GUID (list_systems 결과 또는 같은 turn 의 add_system 반환값).")] string systemId)
-    {
-        var err = Sanitize(name, "name");
-        if (err != null) return Task.FromResult(err);
-        var (sysGuid, gerr) = ParseGuid(systemId, "systemId");
-        if (gerr != null) return Task.FromResult(gerr);
-        name = name.Trim();
-        return RunMutation(turnProvider, "add_flow", ctx =>
-        {
-            var flowId = ToolOperations.queueAddFlow(ctx.Plan, ctx.Store, name, sysGuid!.Value);
-            return $"[plan] add_flow queued: name=\"{name}\", systemId={sysGuid:D}, id={flowId:D}, planSize={ctx.Plan.Count}";
-        });
-    }
-
-    [McpServerTool, Description("Promaker Flow 아래에 새 Work 를 추가합니다. Work 표시명 = \"{flow.Name}.{localName}\". 반환: 새 Work Id.")]
-    public static Task<string> AddWork(
-        LlmTurnContextProvider turnProvider,
-        [Description("Work LocalName (1-128자, Flow 내 unique).")] string localName,
-        [Description("Parent Flow 의 GUID.")] string flowId)
-    {
-        var err = Sanitize(localName, "localName");
-        if (err != null) return Task.FromResult(err);
-        var (flowGuid, gerr) = ParseGuid(flowId, "flowId");
-        if (gerr != null) return Task.FromResult(gerr);
-        localName = localName.Trim();
-        return RunMutation(turnProvider, "add_work", ctx =>
-        {
-            var workId = ToolOperations.queueAddWork(ctx.Plan, ctx.Store, localName, flowGuid!.Value);
-            return $"[plan] add_work queued: localName=\"{localName}\", flowId={flowGuid:D}, id={workId:D}, planSize={ctx.Plan.Count}";
-        });
-    }
-
-    [McpServerTool, Description("Promaker Work 아래에 새 Call 을 추가합니다. Call 표시명 = \"{devicesAlias}.{apiName}\". 반환: 새 Call Id.")]
-    public static Task<string> AddCall(
-        LlmTurnContextProvider turnProvider,
-        [Description("Devices alias (Call 표시명의 앞부분).")] string devicesAlias,
-        [Description("API 이름 (Call 표시명의 뒷부분).")] string apiName,
-        [Description("Parent Work 의 GUID.")] string workId)
-    {
-        var err = Sanitize(devicesAlias, "devicesAlias") ?? Sanitize(apiName, "apiName");
-        if (err != null) return Task.FromResult(err);
-        var (workGuid, gerr) = ParseGuid(workId, "workId");
-        if (gerr != null) return Task.FromResult(gerr);
-        devicesAlias = devicesAlias.Trim();
-        apiName = apiName.Trim();
-        return RunMutation(turnProvider, "add_call", ctx =>
-        {
-            var callId = ToolOperations.queueAddCall(ctx.Plan, ctx.Store, devicesAlias, apiName, workGuid!.Value);
-            return $"[plan] add_call queued: name=\"{devicesAlias}.{apiName}\", workId={workGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}";
-        });
-    }
-
-    [McpServerTool, Description("Promaker System 아래에 새 ApiDef 를 추가합니다. 반환: 새 ApiDef Id.")]
-    public static Task<string> AddApiDef(
-        LlmTurnContextProvider turnProvider,
-        [Description("ApiDef 이름 (1-128자, System 내 unique).")] string name,
+        [Description("Flow 이름 (1-128자, System 내 unique). '@' 또는 '$' 시작 금지.")] string name,
         [Description("Parent System 의 GUID.")] string systemId)
     {
-        var err = Sanitize(name, "name");
-        if (err != null) return Task.FromResult(err);
-        var (sysGuid, gerr) = ParseGuid(systemId, "systemId");
-        if (gerr != null) return Task.FromResult(gerr);
-        name = name.Trim();
-        return RunMutation(turnProvider, "add_api_def", ctx =>
+        return RunMutation(turnProvider, "add_flow", ctx =>
         {
-            var defId = ToolOperations.queueAddApiDef(ctx.Plan, ctx.Store, name, sysGuid!.Value);
-            return $"[plan] add_api_def queued: name=\"{name}\", systemId={sysGuid:D}, id={defId:D}, planSize={ctx.Plan.Count}";
+            SanitizeOrThrow(name, "name");
+            var trimmed = name.Trim();
+            var sysGuid = ParseGuidOrThrow(systemId, "systemId");
+            var flowId = ToolOperations.queueAddFlow(ctx.Plan, ctx.Store, trimmed, sysGuid);
+            return $"[plan] add_flow queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={flowId:D}, planSize={ctx.Plan.Count}";
         });
     }
 
-    [McpServerTool, Description("두 Work 사이 (같은 System) 또는 두 Call 사이 (같은 Work) 에 Arrow 를 추가합니다. 종류는 자동 판별. 반환: 새 Arrow Id + kind.")]
+    [McpServerTool, Description("Promaker Flow 아래에 새 Work 를 추가합니다. Work 표시명 = \"{flow.Name}.{localName}\". 반환: 새 Work Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddWork(
+        LlmTurnContextProvider turnProvider,
+        [Description("Work LocalName (1-128자, Flow 내 unique). '@' 또는 '$' 시작 금지.")] string localName,
+        [Description("Parent Flow 의 GUID.")] string flowId)
+    {
+        return RunMutation(turnProvider, "add_work", ctx =>
+        {
+            SanitizeOrThrow(localName, "localName");
+            var trimmed = localName.Trim();
+            var flowGuid = ParseGuidOrThrow(flowId, "flowId");
+            var workId = ToolOperations.queueAddWork(ctx.Plan, ctx.Store, trimmed, flowGuid);
+            return $"[plan] add_work queued: localName=\"{trimmed}\", flowId={flowGuid:D}, id={workId:D}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("Promaker Work 아래에 새 Call 을 추가합니다. Call 표시명 = \"{devicesAlias}.{apiName}\". 반환: 새 Call Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddCall(
+        LlmTurnContextProvider turnProvider,
+        [Description("Devices alias (Call 표시명의 앞부분). '@' 또는 '$' 시작 금지.")] string devicesAlias,
+        [Description("API 이름 (Call 표시명의 뒷부분). '@' 또는 '$' 시작 금지.")] string apiName,
+        [Description("Parent Work 의 GUID.")] string workId)
+    {
+        return RunMutation(turnProvider, "add_call", ctx =>
+        {
+            SanitizeOrThrow(devicesAlias, "devicesAlias");
+            SanitizeOrThrow(apiName, "apiName");
+            var alias = devicesAlias.Trim();
+            var api = apiName.Trim();
+            var workGuid = ParseGuidOrThrow(workId, "workId");
+            var callId = ToolOperations.queueAddCall(ctx.Plan, ctx.Store, alias, api, workGuid);
+            return $"[plan] add_call queued: name=\"{alias}.{api}\", workId={workGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("Promaker System 아래에 새 ApiDef 를 추가합니다. 반환: 새 ApiDef Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddApiDef(
+        LlmTurnContextProvider turnProvider,
+        [Description("ApiDef 이름 (1-128자, System 내 unique). '@' 또는 '$' 시작 금지.")] string name,
+        [Description("Parent System 의 GUID.")] string systemId)
+    {
+        return RunMutation(turnProvider, "add_api_def", ctx =>
+        {
+            SanitizeOrThrow(name, "name");
+            var trimmed = name.Trim();
+            var sysGuid = ParseGuidOrThrow(systemId, "systemId");
+            var defId = ToolOperations.queueAddApiDef(ctx.Plan, ctx.Store, trimmed, sysGuid);
+            return $"[plan] add_api_def queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={defId:D}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("두 Work 사이 (같은 System) 또는 두 Call 사이 (같은 Work) 에 Arrow 를 추가합니다. 종류는 자동 판별. 반환: 새 Arrow Id + kind. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddArrow(
         LlmTurnContextProvider turnProvider,
         [Description("Source 의 GUID (Work 또는 Call).")] string sourceId,
         [Description("Target 의 GUID (Source 와 같은 종류).")] string targetId,
         [Description("Arrow type. 허용 값: Unspecified|Start|Reset|StartReset|ResetReset|Group. 기본 Start.")] string arrowType = "Start")
     {
-        var (srcGuid, serr) = ParseGuid(sourceId, "sourceId");
-        if (serr != null) return Task.FromResult(serr);
-        var (tgtGuid, terr) = ParseGuid(targetId, "targetId");
-        if (terr != null) return Task.FromResult(terr);
-        if (!Enum.TryParse<ArrowType>(arrowType?.Trim(), ignoreCase: true, out var atype))
-            return Task.FromResult($"VALIDATION_ERROR: arrowType 값 '{arrowType}' 이 유효하지 않습니다. 허용: Unspecified|Start|Reset|StartReset|ResetReset|Group.");
         return RunMutation(turnProvider, "add_arrow", ctx =>
         {
-            var (arrowId, kind) = ToolOperations.queueAddArrow(ctx.Plan, ctx.Store, srcGuid!.Value, tgtGuid!.Value, atype);
+            if (!Enum.TryParse<ArrowType>(arrowType?.Trim(), ignoreCase: true, out var atype))
+                throw new InvalidOperationException(
+                    $"VALIDATION_ERROR: arrowType 값 '{arrowType}' 이 유효하지 않습니다. 허용: Unspecified|Start|Reset|StartReset|ResetReset|Group.");
+            var srcGuid = ParseGuidOrThrow(sourceId, "sourceId");
+            var tgtGuid = ParseGuidOrThrow(targetId, "targetId");
+            var (arrowId, kind) = ToolOperations.queueAddArrow(ctx.Plan, ctx.Store, srcGuid, tgtGuid, atype);
             return $"[plan] add_arrow queued: kind={kind}, type={atype}, source={srcGuid:D}, target={tgtGuid:D}, id={arrowId:D}, planSize={ctx.Plan.Count}";
         });
     }
 
-    // ─── Remove / Rename (Phase 2) ───────────────────────────────────────────
+    // ─── Remove / Rename ────────────────────────────────────────────────────
 
-    [McpServerTool, Description("entity (Project / System / Flow / Work / Call / ApiDef) 와 모든 자식 + 관련 Arrow 를 cascade 로 제거합니다. EntityKind 는 GUID 로 자동 판별. Arrow 단독 제거는 미지원 (source/target Work/Call 제거 시 자동 cascade). 반환: 판별된 kind + 제거 plan 누적 메시지.")]
+    [McpServerTool, Description("entity (Project / System / Flow / Work / Call / ApiDef) 와 모든 자식 + 관련 Arrow 를 cascade 로 제거합니다. EntityKind 는 GUID 로 자동 판별. Arrow 단독 제거는 미지원 (source/target Work/Call 제거 시 자동 cascade). 반환: 판별된 kind + 제거 plan 누적 메시지. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> RemoveEntity(
         LlmTurnContextProvider turnProvider,
         [Description("제거할 entity 의 GUID. Project/System/Flow/Work/Call/ApiDef 자동 판별.")] string entityId)
     {
-        var (gid, gerr) = ParseGuid(entityId, "entityId");
-        if (gerr != null) return Task.FromResult(gerr);
         return RunMutation(turnProvider, "remove_entity", ctx =>
         {
-            var kind = ToolOperations.queueRemoveEntity(ctx.Plan, ctx.Store, gid!.Value);
+            var gid = ParseGuidOrThrow(entityId, "entityId");
+            var kind = ToolOperations.queueRemoveEntity(ctx.Plan, ctx.Store, gid);
             return $"[plan] remove_entity queued: kind={kind}, id={gid:D}, planSize={ctx.Plan.Count} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)";
         });
     }
 
-    [McpServerTool, Description("System 또는 ApiDef 의 이름을 변경합니다 (Phase 2 는 System/ApiDef 만 지원 — Flow/Work/Call 은 자식 cascade 복잡도로 후속). EntityKind 는 GUID 로 자동 판별. 반환: 판별된 kind + new name.")]
+    [McpServerTool, Description("System 또는 ApiDef 의 이름을 변경합니다 (Phase 2 는 System/ApiDef 만 지원 — Flow/Work/Call 은 자식 cascade 복잡도로 후속). EntityKind 는 GUID 로 자동 판별. 반환: 판별된 kind + new name. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> RenameEntity(
         LlmTurnContextProvider turnProvider,
         [Description("이름 변경할 entity 의 GUID. System 또는 ApiDef 만 허용.")] string entityId,
-        [Description("새 이름 (1-128자, 같은 parent 안 unique).")] string newName)
+        [Description("새 이름 (1-128자, 같은 parent 안 unique). '@' 또는 '$' 시작 금지.")] string newName)
     {
-        var err = Sanitize(newName, "newName");
-        if (err != null) return Task.FromResult(err);
-        var (gid, gerr) = ParseGuid(entityId, "entityId");
-        if (gerr != null) return Task.FromResult(gerr);
-        var trimmed = newName.Trim();
         return RunMutation(turnProvider, "rename_entity", ctx =>
         {
-            var kind = ToolOperations.queueRenameEntity(ctx.Plan, ctx.Store, gid!.Value, trimmed);
+            SanitizeOrThrow(newName, "newName");
+            var trimmed = newName.Trim();
+            var gid = ParseGuidOrThrow(entityId, "entityId");
+            var kind = ToolOperations.queueRenameEntity(ctx.Plan, ctx.Store, gid, trimmed);
             return $"[plan] rename_entity queued: kind={kind}, id={gid:D}, newName=\"{trimmed}\", planSize={ctx.Plan.Count}";
         });
     }
@@ -282,10 +392,11 @@ public static class ModelTools
         [Description("DsSystem 의 GUID.")] string systemId,
         [Description("true 면 Work / Call / Arrows 까지 깊게. 기본 false (Flow / ApiDef 이름만).")] bool deep = false)
     {
-        var (sysGuid, gerr) = ParseGuid(systemId, "systemId");
-        if (gerr != null) return Task.FromResult(gerr);
         return RunRead(turnProvider, "describe_system", ctx =>
-            ToolOperations.describeSystem(ctx.Store, sysGuid!.Value, deep));
+        {
+            var sysGuid = ParseGuidOrThrow(systemId, "systemId");
+            return ToolOperations.describeSystem(ctx.Store, sysGuid, deep);
+        });
     }
 
     [McpServerTool, Description("rootId (Project / System / Flow / Work GUID) 의 부분 트리를 indented text 로 반환합니다. depth = 추가 깊이 (0~5). 50 entity 초과 시 truncated 표기. 여러 system 을 한 번에 batch 조회할 때 사용 — 단일 describe_system 의 N+1 호출보다 token 효율 ↑.")]
@@ -294,10 +405,11 @@ public static class ModelTools
         [Description("Root entity 의 GUID. EntityKind 는 자동 판별 (Project/System/Flow/Work).")] string rootId,
         [Description("Root 기준 추가 깊이 (0=root만, 1=직접 자식, ..., 최대 5).")] int depth = 2)
     {
-        var (rootGuid, gerr) = ParseGuid(rootId, "rootId");
-        if (gerr != null) return Task.FromResult(gerr);
         return RunRead(turnProvider, "describe_subtree", ctx =>
-            ToolOperations.describeSubtree(ctx.Store, rootGuid!.Value, depth));
+        {
+            var rootGuid = ParseGuidOrThrow(rootId, "rootId");
+            return ToolOperations.describeSubtree(ctx.Store, rootGuid, depth);
+        });
     }
 
     [McpServerTool, Description("이름으로 entity 검색 (대소문자 무관 substring). kind 미지정 시 모든 종류. 결과 50개 제한.")]
@@ -322,8 +434,7 @@ public static class ModelTools
             var fsKind = kindFilter.HasValue
                 ? Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.Some(kindFilter.Value)
                 : Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.None;
-            var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
-            return ToolOperations.formatFindResults(rows);
+            return ToolOperations.formatFindResults(ToolOperations.findByName(ctx.Store, name.Trim(), fsKind));
         });
     }
 

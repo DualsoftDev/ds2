@@ -14,6 +14,8 @@ module ImportPlanApply =
                     project.ActiveSystemIds.Add(systemId)
                 else
                     project.PassiveSystemIds.Add(systemId))
+        | AddProject project ->
+            store.TrackAdd(store.Projects, project)
         | AddSystem system ->
             store.TrackAdd(store.Systems, system)
         | AddFlow flow ->

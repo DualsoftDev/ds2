@@ -80,7 +80,9 @@ public partial class MainWindow : Window
     /// </summary>
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
-        if (!_vm.ConfirmDiscardChangesPublic())
+        // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
+        // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
+        if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
         {
             e.Cancel = true;
             return;
