@@ -28,9 +28,11 @@
 | **Pass 3** (c) F# / C# 구현 | ✅ 완료 | `b44a644` | F# `VarCache`/`SignalCascadeFailure` + `sanitizeVarName`/`resolveGuidOrVar`/`registerVar` + `@`/`$` reject. C# add_* 6종 `assignVar` + cascade 단락. 솔루션 빌드 통과. 기존 92 테스트 통과 |
 | **Pass 4 (C-4)** SystemPrompt 풀세트 | ✅ 완료 | (HEAD) | mutation batching 절을 chain pattern (assignVar / `$<var>`) 풀세트로 확장. 실린더 8 op 압축 예시 + assignVar rule + `@`/`$` name reject + BATCH_ABORTED 정책 명시. 빌드 통과 |
 | **Pass 4 (C-5)** Negative test | ✅ 완료 | `80ac12b` | `VarBindingTests.fs` 신규 (sanitizeVarName / resolveGuidOrVar / registerVar / cascade flag) + `SanitizeNameTests.fs` 의 `@`/`$` reject 6 케이스. 총 37 케이스 추가. 빌드 통과 + 129 테스트 모두 통과 |
-| **Pass 5 (hot-fix)** self-close timing race | ✅ 완료 | (HEAD) | `MainViewModel.ScheduleMeasurePrompt` 의 `wasSending` 초기값을 `vm.IsSending` 으로 set — sendHandler 등록 시점에 IsSending=true 가 이미 emit 된 race 흡수. 빌드 통과 |
-| **Pass 5 (측정)** Task C-6 final 측정 | ⬜ 미진입 | — | 다음 작업 (사용자 환경 의존) |
-| **Pass 5 (정리)** done 통합 + cleanup | ⬜ 미진입 | — | 측정 후 |
+| **Pass 5 (hot-fix)** self-close timing race | ✅ 완료 | `b56af69` | `MainViewModel.ScheduleMeasurePrompt` 의 `wasSending` 초기값을 `vm.IsSending` 으로 set |
+| **Pass 5 (add_project)** | ✅ 완료 | (HEAD) | `ImportPlanOperation.AddProject` case + Direct/Tracked handler. F# `queueAddProject` (이름 unique 검사) + `queueAddSystem` 의 plan-AddProject fallback. C# `AddProject` MCP tool (assignVar 호환) + `PromakerToolNames` allowlist. SystemPrompt 의 "no add_project" 제거 + greenfield checklist 갱신 |
+| **Pass 5 (cascade scope)** | ✅ 완료 | (HEAD) | cascade scope 가 1 SendAsync 단위 → 1 LLM message 단위로 축소. `ImportPlanBuilder.CascadeFailureFlag` getter 가 1500ms TTL 적용. SystemPrompt 의 "WHOLE turn aborts" → "REST of the message aborts, next message can retry" 갱신 |
+| **Pass 5 (측정)** Task C-6 final 측정 | ✅ 완료 (fresh store) / ⬜ default project 추가 | (HEAD) | fresh store 5 trial: wall avg 50.2s, asstTurn 27.8, ok 10.2, authoring 1/trial, self-close 5/5. Gate FAIL = fresh store 회복 비용. `run-pass5.fsx` 가 `--load <path>` 두 번째 인자 추가 (사용자 .ds2 준비 후 default project 환경 재측정 가능) |
+| **Pass 5 (정리)** done 통합 + cleanup | ⬜ 미진입 | — | 추가 측정 후 |
 
 ### 결정 갱신 (Pass 0 ~ 2 종합)
 
