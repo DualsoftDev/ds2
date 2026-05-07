@@ -55,6 +55,8 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
+    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
+    <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />

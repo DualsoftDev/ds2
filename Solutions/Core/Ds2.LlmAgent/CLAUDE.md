@@ -86,7 +86,9 @@ Apps/Promaker/Promaker/
     ├── LlmConsent.cs                           atomic write + corrupt fallback + Yes/No MessageBox
     ├── LlmTurnContext.cs                       turn-scoped (plan / dispatcher / 500ms validate cache)
     ├── PromakerToolNames.cs                    11개 fully-qualified mcp__promaker__* (allowlist SSOT)
-    ├── SystemPrompt.cs                         Phase1c 상수 (모델 schema + batch 가이드 + injection 격리 + 1d 풀세트: Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter)
+    ├── SystemPrompt.cs                         static readonly = PromptLoader.LoadComposed() 1회 호출. 본문은 외부 `.md` 로 이전
+    ├── PromptLoader.cs                         3-tier 로드 (embedded baseline / `<exedir>\Prompts\*.md` / `%APPDATA%\Promaker\Prompts\*.md`) + 자연 정렬 + append merge. 시작 시 활성 소스 1줄 log
+    ├── Prompts/1.SystemPrompt.md               baseline (모델 schema + batch + injection 격리 + 1d 풀세트: Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter). 추가 `.md` 자연 정렬 후 concat
     ├── WpfDispatcherAdapter.cs                 IUiDispatcher.InvokeAsync (Background priority)
     └── Tools/ModelTools.cs                     [McpServerToolType] + Sanitize + RunMutation/RunRead 헬퍼
 ```
