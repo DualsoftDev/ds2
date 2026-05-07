@@ -366,8 +366,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         CancelCommand.NotifyCanExecuteChanged();
 
         Turns.Add(new ChatTurn { Role = "user", Text = prompt });
-        _streamingTurn = new ChatTurn { Role = "assistant", Text = "", IsStreaming = true };
-        Turns.Add(_streamingTurn);
+        // Streaming turn 은 첫 AssistantDelta 시점에 EnsureStreamingTurn 으로 lazy-create —
+        // tool_use 가 첫 이벤트로 오는 경우 빈 assistant 버블이 먼저 보이는 깜빡임 회피.
+        _streamingTurn = null;
 
         Input = "";
 
@@ -391,13 +392,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("LlmChatViewModel.SendAsync 실패", ex);
+            EnsureStreamingTurn();
             AppendAssistant($"\n[ERROR] {ex.Message}");
         }
         finally
         {
-            // Stream 종료 시 throttle 의 잔여 fragment 즉시 반영 (마지막 50ms 안 들어온 텍스트가 손실되지 않도록).
-            _assistantFlushTimer?.Stop();
-            FlushAssistantBuffer();
+            // Stream 종료 — throttle 의 잔여 fragment flush + streaming turn 마감.
+            EndStreamingTurn();
 
             // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step)
             var endedCtx = _mcpHost.TurnProvider.EndTurn();
@@ -410,12 +411,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 catch (Exception ex)
                 {
                     Log.Error("ApplyImportPlan 실패", ex);
-                    AppendAssistant($"\n[ApplyImportPlan ERROR] {ex.Message}");
+                    AddToolTurn($"[ApplyImportPlan ERROR] {ex.Message}");
                 }
             }
 
-            if (_streamingTurn != null) _streamingTurn.IsStreaming = false;
-            _streamingTurn = null;
             IsSending = false;
             SendCommand.NotifyCanExecuteChanged();
             CancelCommand.NotifyCanExecuteChanged();
@@ -430,11 +429,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         var plan = ctx.Plan.Build();
         await _dispatcher.InvokeAsync(() =>
             DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan));
-        AppendAssistant($"\n[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
-        // m6 — finally 의 first flush 이후 timer 가 다시 시작되었으므로, [applied] 메시지가 손실되지
-        // 않도록 즉시 한 번 더 flush. 이후 finally 의 IsStreaming=false 흐름이 자연스럽게 종료.
-        _assistantFlushTimer?.Stop();
-        FlushAssistantBuffer();
+        AddToolTurn($"[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
     }
 
     /// <summary>
@@ -567,18 +562,20 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 break;
 
             case LlmEvent.AssistantDelta delta:
+                EnsureStreamingTurn();
                 AppendAssistant(delta.text);
                 break;
 
-            case LlmEvent.Thinking _:
+            case LlmEvent.Thinking think:
+                AddThinkingTurn(think.text);
                 break;
 
             case LlmEvent.ToolUse tu:
-                AppendAssistant($"\n[tool_use] {tu.name}\n");
+                AddToolTurn($"[tool_use] {tu.name}");
                 break;
 
             case LlmEvent.ToolResult tr:
-                AppendAssistant($"\n[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}\n");
+                AddToolTurn($"[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}");
                 break;
 
             case LlmEvent.RateLimitEvent rl:
@@ -590,10 +587,48 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 break;
 
             case LlmEvent.ProviderError err:
+                EnsureStreamingTurn();
                 AppendAssistant($"\n[provider error] {err.message}\n");
                 StatusText = err.message;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Streaming assistant turn lazy-create. AssistantDelta / ProviderError / catch 의 ERROR 텍스트가
+    /// _streamingTurn=null 상태에서 호출되더라도 새 assistant 버블을 생성한다.
+    /// tool_use → tool_result → assistant 순서일 때 사이에 새 assistant 버블이 chronologically 삽입되도록 함.
+    /// </summary>
+    private void EnsureStreamingTurn()
+    {
+        if (_streamingTurn != null) return;
+        _streamingTurn = new ChatTurn { Role = "assistant", Text = "", IsStreaming = true };
+        Turns.Add(_streamingTurn);
+    }
+
+    /// <summary>현재 streaming turn 의 throttle buffer flush + IsStreaming=false + null 화. 비어있으면 제거.</summary>
+    private void EndStreamingTurn()
+    {
+        _assistantFlushTimer?.Stop();
+        FlushAssistantBuffer();
+        if (_streamingTurn == null) return;
+        _streamingTurn.IsStreaming = false;
+        if (string.IsNullOrEmpty(_streamingTurn.Text)) Turns.Remove(_streamingTurn);
+        _streamingTurn = null;
+    }
+
+    /// <summary>Tool 관련 메시지를 별도 turn 으로 추가 (XAML 의 Role=tool DataTrigger 가 gray 적용).</summary>
+    private void AddToolTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = "tool", Text = text });
+    }
+
+    /// <summary>Thinking block 을 별도 turn 으로 추가 (Role=thinking — 기본 어시스턴트 스타일).</summary>
+    private void AddThinkingTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = "thinking", Text = text });
     }
 
     private void AppendAssistant(string fragment)
