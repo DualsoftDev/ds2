@@ -1,0 +1,248 @@
+﻿{
+  "projects": {
+    "2b074a7f-fcc6-45cb-ad61-7043bc16be67": {
+      "activeSystemIds": [
+        "30bd72d0-b80d-4cbe-b9c9-f88026111aa8"
+      ],
+      "passiveSystemIds": [
+        "86cf326f-0e40-4970-96f6-e9ffc47570b9"
+      ],
+      "tokenSpecs": [],
+      "author": "",
+      "dateTime": "2026-05-07T18:10:40.096525+09:00",
+      "version": "1.0.0",
+      "id": "2b074a7f-fcc6-45cb-ad61-7043bc16be67",
+      "name": "NewProject"
+    }
+  },
+  "systems": {
+    "30bd72d0-b80d-4cbe-b9c9-f88026111aa8": {
+      "properties": [],
+      "id": "30bd72d0-b80d-4cbe-b9c9-f88026111aa8",
+      "name": "NewSystem"
+    },
+    "86cf326f-0e40-4970-96f6-e9ffc47570b9": {
+      "properties": [],
+      "systemType": "Unit",
+      "id": "86cf326f-0e40-4970-96f6-e9ffc47570b9",
+      "name": "NewFlow_cyl"
+    }
+  },
+  "flows": {
+    "3f707fca-baba-4887-8d90-4d678b6316b4": {
+      "properties": [],
+      "parentId": "30bd72d0-b80d-4cbe-b9c9-f88026111aa8",
+      "id": "3f707fca-baba-4887-8d90-4d678b6316b4",
+      "name": "NewFlow"
+    },
+    "3c84f224-be2b-40aa-be68-5f852cbf5f8a": {
+      "properties": [],
+      "parentId": "86cf326f-0e40-4970-96f6-e9ffc47570b9",
+      "id": "3c84f224-be2b-40aa-be68-5f852cbf5f8a",
+      "name": "cyl_Flow"
+    }
+  },
+  "works": {
+    "d76e9f5c-c098-41c1-8994-2d69ba7b45dd": {
+      "properties": [],
+      "flowPrefix": "NewFlow",
+      "localName": "NewWork",
+      "status4": 0,
+      "position": {
+        "x": 240,
+        "y": 200,
+        "w": 120,
+        "h": 40
+      },
+      "tokenRole": 0,
+      "name": "NewFlow.NewWork",
+      "parentId": "3f707fca-baba-4887-8d90-4d678b6316b4",
+      "id": "d76e9f5c-c098-41c1-8994-2d69ba7b45dd"
+    },
+    "92537e6b-ec3b-4e94-9609-016cf95320af": {
+      "properties": [],
+      "flowPrefix": "cyl_Flow",
+      "localName": "ADV",
+      "status4": 0,
+      "position": {
+        "x": 80,
+        "y": 80,
+        "w": 120,
+        "h": 40
+      },
+      "tokenRole": 0,
+      "duration": "00:00:00.5000000",
+      "name": "cyl_Flow.ADV",
+      "parentId": "3c84f224-be2b-40aa-be68-5f852cbf5f8a",
+      "id": "92537e6b-ec3b-4e94-9609-016cf95320af"
+    },
+    "2cdd20e5-5f95-41be-b544-d42d5a5d0bd3": {
+      "properties": [
+        {
+          "Case": "SimulationWork",
+          "Fields": [
+            {
+              "externalStart": false,
+              "isFinished": true,
+              "numRepeat": 0,
+              "sequenceOrder": 0,
+              "designCycleTime": 0,
+              "actualCycleTime": 0,
+              "minCycleTime": 1.7976931348623157E+308,
+              "maxCycleTime": 0,
+              "cycleTimeSum": 0,
+              "cycleTimeSumOfSquares": 0,
+              "cycleTimeStdDev": 0,
+              "cycleCount": 0,
+              "isBottleneck": false,
+              "bottleneckSeverity": "NoBottleneck",
+              "utilizationRate": 0,
+              "processingTimePerUnit": 0,
+              "setupTime": 0,
+              "teardownTime": 0,
+              "batchSize": 1,
+              "maxParallelExecutions": 1,
+              "totalUnitsProcessed": 0,
+              "availableTime": "00:00:00",
+              "usedTime": "00:00:00",
+              "productionTime": "00:00:00",
+              "changeoverTime": "00:00:00",
+              "idleTime": "00:00:00",
+              "downTime": "00:00:00",
+              "plannedOperatingTime": "00:00:00",
+              "actualOperatingTime": "00:00:00",
+              "plannedProductionQty": 0,
+              "actualProductionQty": 0,
+              "goodProductQty": 0,
+              "defectQty": 0,
+              "isConstraining": false,
+              "currentTocStep": "Identify",
+              "isDrum": false,
+              "hasBuffer": false,
+              "bufferSize": 0,
+              "currentBufferLevel": 0
+            }
+          ]
+        }
+      ],
+      "flowPrefix": "cyl_Flow",
+      "localName": "RET",
+      "status4": 0,
+      "position": {
+        "x": 400,
+        "y": 80,
+        "w": 120,
+        "h": 40
+      },
+      "tokenRole": 0,
+      "duration": "00:00:00.5000000",
+      "name": "cyl_Flow.RET",
+      "parentId": "3c84f224-be2b-40aa-be68-5f852cbf5f8a",
+      "id": "2cdd20e5-5f95-41be-b544-d42d5a5d0bd3"
+    }
+  },
+  "calls": {
+    "cc7fea27-d4bb-48f3-82b8-3f281b40bab3": {
+      "properties": [],
+      "status4": 0,
+      "position": {
+        "x": 360,
+        "y": 200,
+        "w": 120,
+        "h": 40
+      },
+      "apiCalls": [
+        {
+          "apiDefId": "e1c6ab27-9986-4067-919b-4295b1710268",
+          "inputSpec": {
+            "Case": "UndefinedValue"
+          },
+          "outputSpec": {
+            "Case": "UndefinedValue"
+          },
+          "originFlowId": "3f707fca-baba-4887-8d90-4d678b6316b4",
+          "id": "20233017-82a1-4acc-81bc-63e1d9205867",
+          "name": "cyl.ADV"
+        }
+      ],
+      "callConditions": [],
+      "devicesAlias": "cyl",
+      "apiName": "ADV",
+      "name": "cyl.ADV",
+      "parentId": "d76e9f5c-c098-41c1-8994-2d69ba7b45dd",
+      "id": "cc7fea27-d4bb-48f3-82b8-3f281b40bab3"
+    },
+    "b001c276-681f-474b-9dfd-31969fb21186": {
+      "properties": [],
+      "status4": 0,
+      "position": {
+        "x": 600,
+        "y": 200,
+        "w": 120,
+        "h": 40
+      },
+      "apiCalls": [
+        {
+          "apiDefId": "b2c691fc-9404-4c81-a90b-d80865451a54",
+          "inputSpec": {
+            "Case": "UndefinedValue"
+          },
+          "outputSpec": {
+            "Case": "UndefinedValue"
+          },
+          "originFlowId": "3f707fca-baba-4887-8d90-4d678b6316b4",
+          "id": "b3cb6e90-3418-420c-ab8c-618fe0e5b202",
+          "name": "cyl.RET"
+        }
+      ],
+      "callConditions": [],
+      "devicesAlias": "cyl",
+      "apiName": "RET",
+      "name": "cyl.RET",
+      "parentId": "d76e9f5c-c098-41c1-8994-2d69ba7b45dd",
+      "id": "b001c276-681f-474b-9dfd-31969fb21186"
+    }
+  },
+  "apiDefs": {
+    "e1c6ab27-9986-4067-919b-4295b1710268": {
+      "apiDefActionType": {
+        "Case": "Normal"
+      },
+      "txGuid": "92537e6b-ec3b-4e94-9609-016cf95320af",
+      "rxGuid": "92537e6b-ec3b-4e94-9609-016cf95320af",
+      "parentId": "86cf326f-0e40-4970-96f6-e9ffc47570b9",
+      "id": "e1c6ab27-9986-4067-919b-4295b1710268",
+      "name": "ADV"
+    },
+    "b2c691fc-9404-4c81-a90b-d80865451a54": {
+      "apiDefActionType": {
+        "Case": "Normal"
+      },
+      "txGuid": "2cdd20e5-5f95-41be-b544-d42d5a5d0bd3",
+      "rxGuid": "2cdd20e5-5f95-41be-b544-d42d5a5d0bd3",
+      "parentId": "86cf326f-0e40-4970-96f6-e9ffc47570b9",
+      "id": "b2c691fc-9404-4c81-a90b-d80865451a54",
+      "name": "RET"
+    }
+  },
+  "arrowWorks": {
+    "f6848c1e-63c7-49af-a8e8-9363d1632afa": {
+      "name": "",
+      "sourceId": "92537e6b-ec3b-4e94-9609-016cf95320af",
+      "targetId": "2cdd20e5-5f95-41be-b544-d42d5a5d0bd3",
+      "arrowType": 4,
+      "parentId": "86cf326f-0e40-4970-96f6-e9ffc47570b9",
+      "id": "f6848c1e-63c7-49af-a8e8-9363d1632afa"
+    }
+  },
+  "arrowCalls": {
+    "ac7a2f8e-577f-49d0-872c-8e2e2994f220": {
+      "name": "",
+      "sourceId": "cc7fea27-d4bb-48f3-82b8-3f281b40bab3",
+      "targetId": "b001c276-681f-474b-9dfd-31969fb21186",
+      "arrowType": 1,
+      "parentId": "d76e9f5c-c098-41c1-8994-2d69ba7b45dd",
+      "id": "ac7a2f8e-577f-49d0-872c-8e2e2994f220"
+    }
+  }
+}
