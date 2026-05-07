@@ -179,7 +179,8 @@ type CallApiCallPanelItem
 type CallConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
-     inputSpecText: string, inputSpecTypeIndex: int) =
+     inputSpecText: string, inputSpecTypeIndex: int,
+     inputSpec: ValueSpec) =
     member _.ApiCallId          = apiCallId
     member _.ApiCallName        = apiCallName
     member _.ApiDefDisplayName  = apiDefDisplayName
@@ -187,6 +188,8 @@ type CallConditionApiCallItem
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
     member _.InputSpecText      = inputSpecText
     member _.InputSpecTypeIndex = inputSpecTypeIndex
+    /// 시뮬 IO 값 매칭 검사용 — 패널에 [현재:X / 기대:Y] 표시할 때 evaluate 에 그대로 전달.
+    member _.InputSpec          = inputSpec
 
 [<Sealed>]
 type CallConditionPanelItem

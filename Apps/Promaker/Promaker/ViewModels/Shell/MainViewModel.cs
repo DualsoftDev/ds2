@@ -6,13 +6,10 @@ using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Ds2.View3D;
 using log4net;
-using Promaker.Dialogs;
 using Promaker.Presentation;
 using Promaker.Services;
 using Promaker.Resources;
@@ -60,6 +57,7 @@ public partial class MainViewModel : ObservableObject
                 ShowSimulationScenariosCommand.NotifyCanExecuteChanged();
         };
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        Simulation.RuntimeIoChanged = ioValues => PropertyPanel.RefreshConditionRuntime(ioValues);
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
@@ -71,6 +69,59 @@ public partial class MainViewModel : ObservableObject
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
+
+        // Pass 1.5 측정 자동화 — `--autostart-llm` 인자 시작 시 chat panel 자동 활성화.
+        // McpHostService 가 LlmChatViewModel ctor 안에서 StartAsync → mcp config 파일이 즉시 작성됨.
+        // 추가: --measure-prompt 가 있으면 IsReady 후 자동 prompt 전송, --measure-then-exit 면 turn 끝 후 self-close.
+        if (App.StartupAutoOpenLlm)
+        {
+            _dispatcher.BeginInvoke(new Action(() =>
+            {
+                ToggleLlmChat();
+                if (LlmChatVm != null && App.StartupMeasurePrompt != null)
+                {
+                    ScheduleMeasurePrompt(LlmChatVm, App.StartupMeasurePrompt, App.StartupMeasureThenExit);
+                }
+            }), DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>
+    /// 측정 자동화: LlmChatViewModel.IsReady 가 true 되면 Input 에 prompt 적용 + SendCommand 실행.
+    /// thenExit=true 이면 IsSending true→false transition 후 MainWindow.Close() (Closing 의 dirty check 는 autostart 에서 skip).
+    /// </summary>
+    private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
+    {
+        System.ComponentModel.PropertyChangedEventHandler? readyHandler = null;
+        readyHandler = (_, e) =>
+        {
+            if (e.PropertyName != nameof(LlmChatViewModel.IsReady) || !vm.IsReady) return;
+            vm.PropertyChanged -= readyHandler;
+            vm.Input = prompt;
+            if (vm.SendCommand.CanExecute(null))
+                vm.SendCommand.Execute(null);
+
+            if (!thenExit) return;
+
+            // SendCommand.Execute 의 동기 부분이 readyHandler 와 같은 dispatcher thread 에서 즉시 실행되어
+            // IsSending=true 가 이미 emit 된 상태로 여기 도달. 따라서 wasSending 초기값을 현 IsSending 으로
+            // 캐시 — 미캐시 시 후속 false transition 의 sendHandler 가 wasSending=false 로 단락 → Close 안됨.
+            bool wasSending = vm.IsSending;
+            System.ComponentModel.PropertyChangedEventHandler? sendHandler = null;
+            sendHandler = (_, e2) =>
+            {
+                if (e2.PropertyName != nameof(LlmChatViewModel.IsSending)) return;
+                if (vm.IsSending) { wasSending = true; return; }
+                if (!wasSending) return;
+                vm.PropertyChanged -= sendHandler;
+                // 응답 마무리 (last AssistantDelta flush + Authoring "Executed" 로그) 의 background priority 작업이
+                // 끝난 후 close. ApplicationIdle = 모든 priority 가 비었을 때 → log4net flush 충분.
+                _dispatcher.BeginInvoke(new Action(() =>
+                    Application.Current.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
+            };
+            vm.PropertyChanged += sendHandler;
+        };
+        vm.PropertyChanged += readyHandler;
     }
 
     /// <summary>
@@ -218,214 +269,7 @@ public partial class MainViewModel : ObservableObject
             : "한국어로 전환";
     }
 
-    [RelayCommand]
-    private void NewProject()
-    {
-        if (!GuardSimulationSemanticEdit("새 프로젝트 만들기"))
-            return;
-
-        if (!ConfirmDiscardChanges())
-            return;
-
-        Reset();
-        TryEditorAction(() => _store.AddProject("NewProject"));
-
-        // 기본 System + Flow 자동 추가
-        var projectId = Queries.allProjects(_store).Head.Id;
-        var systemId = _store.AddSystem("NewSystem", projectId, isActive: true);
-        _store.AddFlow("NewFlow", systemId);
-
-        _store.ClearHistory();
-        IsDirty = false;
-        HasProject = true;
-        UpdateTitle();
-        StatusText = "New project created.";
-
-        RequestRebuildAll(() =>
-        {
-            ExpandAllNodes(ControlTreeRoots);
-            ActivateInitialSystemTab();
-            RefreshEditorCommandStates();
-            ResyncView3DIfOpen();
-        });
-    }
-
     private bool CanOpen3DView() => HasProject;
-
-    [RelayCommand(CanExecute = nameof(CanOpen3DView))]
-    private void Open3DView()
-    {
-        if (_view3DWindow is { IsVisible: true })
-        {
-            _view3DWindow.Activate();
-            return;
-        }
-
-        var store = _store;
-        var projectId = Queries.allProjects(_store).Head.Id;
-        _view3DWindow = new View3DWindow(Simulation.ThreeD,
-            onReady: () => Simulation.ThreeD.BuildScene(store, projectId));
-        _view3DWindow.SetSceneData(store, projectId, _currentFilePath);
-
-        // 3D 뷰 선택 이벤트 콜백 주입 (View3DWindow 생성 후)
-        Simulation.ThreeD.SetSelectionCallbacks(
-            onDeviceSelected: (systemId, kind) => Handle3DDeviceSelection(systemId, kind),
-            onApiDefSelected: (deviceId, apiName) => Handle3DApiDefSelection(deviceId, apiName),
-            onEmptySpaceSelected: () => Handle3DEmptySpaceSelection(),
-            onDeviceInfoRequested: (deviceName, deviceData) => _view3DWindow.ShowDeviceInfo(deviceName, deviceData)
-        );
-
-        _view3DWindow.Owner = Application.Current.MainWindow;
-        _view3DWindow.Show();
-    }
-
-    /// 3D 창이 열려 있으면 현재 프로젝트로 재동기화 — 창 내부 참조·DeviceTree·WebView 씬까지 일괄 갱신.
-    /// 프로젝트 변경(파일 열기/새 파일) 훅에서 호출. Device 0개 프로젝트도 그대로 빈 상태로 갱신된다.
-    private void ResyncView3DIfOpen()
-    {
-        if (_view3DWindow is not { IsVisible: true }) return;
-
-        var projects = Queries.allProjects(_store);
-        if (projects.IsEmpty) return;
-
-        var projectId = projects.Head.Id;
-        _view3DWindow.SetSceneData(_store, projectId, _currentFilePath);
-        _ = Simulation.ThreeD.BuildScene(_store, projectId);
-    }
-
-    private void Handle3DDeviceSelection(Guid systemId, EntityKind kind)
-    {
-        // System 노드를 찾아서 선택
-        var systemNode = FindNodeById(systemId, kind);
-        if (systemNode != null)
-        {
-            SelectedNode = systemNode;
-            PropertyPanel.SyncSelection(systemNode, [new SelectionKey(systemId, kind)]);
-        }
-
-        // 3D 뷰 창 내 Devices 트리도 동기화
-        _view3DWindow?.SelectDeviceInTree(systemId);
-    }
-
-    private void Handle3DApiDefSelection(Guid deviceId, string apiName)
-    {
-        try
-        {
-            if (!_store.Systems.TryGetValue(deviceId, out var system)) return;
-            var systemName = system.Name;
-
-            // Find the specific ApiDef on this system (deviceId == System.Id)
-            var targetApiDef = _store.ApiDefs.Values
-                .FirstOrDefault(ad => ad.ParentId == deviceId
-                    && ad.Name.Equals(apiName, StringComparison.OrdinalIgnoreCase));
-            if (targetApiDef == null) return;
-
-            // Find Calls that reference this ApiDef via ApiCall.ApiDefId
-            // ApiDefId is unique per System, so this automatically filters by device
-            var matchingCalls = _store.Calls.Values
-                .Where(c => c.ApiCalls.Any(ac =>
-                    FSharpOption<Guid>.get_IsSome(ac.ApiDefId)
-                    && ac.ApiDefId.Value == targetApiDef.Id))
-                .ToList();
-
-            var outgoing3D = new List<object>();
-            var incoming3D = new List<object>();
-            var outgoingItems = new List<ConnectionItem>();
-            var incomingItems = new List<ConnectionItem>();
-
-            foreach (var call in matchingCalls)
-            {
-                var workId = call.ParentId;
-                var arrows = Queries.arrowCallsOf(workId, _store);
-
-                // Incoming: arrows pointing TO this call
-                foreach (var arrow in arrows.Where(a => a.TargetId == call.Id))
-                {
-                    if (TryResolveCallToSystemViaApiDef(arrow.SourceId, out var srcSystemId, out var srcApiName))
-                    {
-                        incoming3D.Add(new { deviceId = srcSystemId.ToString(), apiDefName = srcApiName });
-                        var srcSys = _store.Systems.GetValueOrDefault(srcSystemId);
-                        incomingItems.Add(new ConnectionItem(
-                            srcSys?.Name ?? "?", srcApiName ?? "", "←"));
-                    }
-                }
-
-                // Outgoing: arrows FROM this call
-                foreach (var arrow in arrows.Where(a => a.SourceId == call.Id))
-                {
-                    if (TryResolveCallToSystemViaApiDef(arrow.TargetId, out var tgtSystemId, out var tgtApiName))
-                    {
-                        outgoing3D.Add(new { deviceId = tgtSystemId.ToString(), apiDefName = tgtApiName });
-                        var tgtSys = _store.Systems.GetValueOrDefault(tgtSystemId);
-                        outgoingItems.Add(new ConnectionItem(
-                            tgtSys?.Name ?? "?", tgtApiName ?? "", "→"));
-                    }
-                }
-            }
-
-            _ = Simulation.ThreeD.ShowApiDefConnections(deviceId, apiName, outgoing3D, incoming3D);
-            _view3DWindow?.ShowConnectionInfo($"{systemName}.{apiName}", outgoingItems, incomingItems);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[3D] ApiDef selection error: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Call → ApiCall → ApiDef → System (ParentId) 체인으로 정확한 System.Id 추출.
-    /// ApiCall.OriginFlowId / ApiDefId 기반이므로 이름 매칭 불필요.
-    /// </summary>
-    private bool TryResolveCallToSystemViaApiDef(Guid callId, out Guid systemId, out string? apiName)
-    {
-        systemId = Guid.Empty;
-        apiName = null;
-        if (!_store.Calls.TryGetValue(callId, out var call)) return false;
-
-        foreach (var ac in call.ApiCalls)
-        {
-            if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
-            if (!_store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var apiDef)) continue;
-            if (!_store.Systems.ContainsKey(apiDef.ParentId)) continue;
-
-            systemId = apiDef.ParentId;
-            apiName = apiDef.Name;
-            return true;
-        }
-
-        return false;
-    }
-
-    private void Handle3DEmptySpaceSelection()
-    {
-        // 선택 해제
-        Selection.Reset();
-        PropertyPanel.SyncSelection(null, []);
-    }
-
-    private EntityNode? FindNodeById(Guid id, EntityKind kind)
-    {
-        return kind switch
-        {
-            EntityKind.System => DeviceTreeRoots.FirstOrDefault(n => n.Id == id),
-            EntityKind.Work or EntityKind.Call => ControlTreeRoots
-                .SelectMany(flow => EnumerateAllDescendants(flow))
-                .FirstOrDefault(n => n.Id == id && n.EntityType == kind),
-            _ => null
-        };
-    }
-
-    private static IEnumerable<EntityNode> EnumerateAllDescendants(EntityNode node)
-    {
-        yield return node;
-        foreach (var child in node.Children)
-        {
-            foreach (var descendant in EnumerateAllDescendants(child))
-            {
-                yield return descendant;
-            }
-        }
-    }
 
     [RelayCommand(CanExecute = nameof(CanUndoNow))]
     private void Undo()
@@ -447,317 +291,15 @@ public partial class MainViewModel : ObservableObject
 
     public void EditApiDefNode(Guid apiDefId) => PropertyPanel.EditApiDefNode(apiDefId);
 
-    private void Reset()
-    {
-        Simulation.ResetForNewStore();
-
-        _store = new DsStore();
-        WireEvents();
-
-        _currentFilePath = null;
-        IsDirty = false;
-        HasProject = false;
-        CanUndo = false;
-        CanRedo = false;
-        HistoryItems.Clear();
-        HistoryItems.Add(new HistoryPanelItem("(초기 상태)", isRedo: false));
-        CurrentHistoryIndex = 0;
-
-        _clipboardSelection.Clear();
-        Selection.Reset();
-        CanvasManager.Reset();
-        _rebuildQueued = false;
-        _pendingRebuildActions.Clear();
-        _lastAddWorkTargetFlowId = null;
-        SelectedNode = null;
-        SelectedArrow = null;
-
-        RebuildAll();
-        UpdateTitle();
-        StatusText = "Ready";
-        RefreshEditorCommandStates();
-        SearchResetRequested?.Invoke();
-    }
-
-    private bool ConfirmDiscardChanges()
-    {
-        if (!IsDirty)
-            return true;
-
-        var result = _dialogService.AskSaveChanges();
-        return DiscardChangesFlow.ShouldProceed(result, TrySaveFileDuringDiscardCheck);
-    }
-
-    /// <summary>Window Closing 이벤트에서 호출</summary>
-    public bool ConfirmDiscardChangesPublic() => ConfirmDiscardChanges();
-
-    private void UpdateTitle()
-    {
-        var dirty = IsDirty ? " *" : "";
-        var file = _currentFilePath is not null ? $" - {System.IO.Path.GetFileName(_currentFilePath)}" : "";
-        Title = $"{AppInfo.TitleBase}{file}{dirty}";
-    }
-
-    internal void PrepareForLoadedStore()
-    {
-        Simulation.ResetForNewStore();
-        _clipboardSelection.Clear();
-        Selection.Reset();
-        CanvasManager.Reset();
-        _rebuildQueued = false;
-        _pendingRebuildActions.Clear();
-        SelectedNode = null;
-        SelectedArrow = null;
-        RefreshEditorCommandStates();
-        SearchResetRequested?.Invoke();
-    }
-
-    private bool TrySaveFileDuringDiscardCheck()
-    {
-        try
-        {
-            return TrySaveFile();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Save failed during discard check", ex);
-            _dialogService.ShowWarning($"저장 실패: {ex.Message}");
-            return false;
-        }
-    }
-
-    [RelayCommand]
-    private void JumpToHistory(HistoryPanelItem? item)
-    {
-        if (item is null || Simulation.IsSimulating) return;
-        int clickedIdx = HistoryItems.IndexOf(item);
-        if (clickedIdx < 0) return;
-        int delta = clickedIdx - CurrentHistoryIndex;
-
-        if (delta < 0)
-        {
-            _pasteCount = 0; TryEditorAction(() => _store.UndoTo(-delta));
-        }
-        else if (delta > 0)
-        {
-            _pasteCount = 0; TryEditorAction(() => _store.RedoTo(delta));
-        }
-        else return;
-
-        if (clickedIdx == 0)
-        {
-            // (초기 상태) — undo 스택이 비어 affected IDs가 없음.
-            // 새 프로젝트/파일 로드 시와 같은 첫 System 탭으로 이동.
-            RequestRebuildAll(ActivateInitialSystemTab);
-            return;
-        }
-
-        // 점프 후 undo stack top = 클릭한 항목의 트랜잭션 (undo/redo 양쪽 모두)
-        var targetIds = _store.TryGetUndoAffectedIds(0);
-        // RequestRebuildAll이 BeginInvoke로 비동기 실행되므로,
-        // rebuild 완료 후에 캔버스 활성화해야 탭이 덮어쓰이지 않음
-        RequestRebuildAll(() => ActivateCanvasForAffectedEntities(targetIds));
-    }
-
-    /// <summary>새 프로젝트/파일 로드/(초기 상태) 점프 시 첫 System 캔버스 탭을 활성화합니다.</summary>
-    internal void ActivateInitialSystemTab()
-    {
-        var firstSystem = TreeNodeSearch
-            .EnumerateNodes(ControlTreeRoots)
-            .FirstOrDefault(node => node.EntityType == EntityKind.System);
-        if (firstSystem is not null)
-            Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
-    }
-
-    private void ActivateCanvasForAffectedEntities(IEnumerable<Guid>? affectedIds)
-    {
-        if (affectedIds is null) return;
-
-        foreach (var entityId in affectedIds)
-        {
-            var kind = entityId switch
-            {
-                _ when _store.Works.ContainsKey(entityId) => EntityKind.Work,
-                _ when _store.Flows.ContainsKey(entityId) => EntityKind.Flow,
-                _ when _store.Systems.ContainsKey(entityId) => EntityKind.System,
-                _ when _store.Calls.ContainsKey(entityId) => EntityKind.Call,
-                _ => (EntityKind?)null
-            };
-            if (kind is null) continue;
-
-            var parentInfo = EditorNavigation.TryOpenParentTabOrNull(_store, kind.Value, entityId);
-            var directInfo = EditorNavigation.TryOpenTabForEntityOrNull(_store, kind.Value, entityId);
-            var tabInfo = parentInfo ?? directInfo;
-            if (tabInfo is null) continue;
-
-            Canvas.OpenCanvasTab(tabInfo.RootId, tabInfo.Kind switch
-            {
-                TabKind.System => EntityKind.System,
-                TabKind.Flow => EntityKind.Flow,
-                TabKind.Work => EntityKind.Work,
-                _ => EntityKind.System
-            }, expandTree: false);
-            return;
-        }
-    }
-
-    private void RebuildHistoryItems(
-        IEnumerable<string> undoLabels,
-        IEnumerable<string> redoLabels)
-    {
-        var undoList = undoLabels.ToList();
-        var redoList = redoLabels.ToList();
-        CanUndo = undoList.Count > 0;
-        CanRedo = redoList.Count > 0;
-        IsDirty = undoList.Count > 0;
-
-        HistoryItems.Clear();
-        HistoryItems.Add(new HistoryPanelItem("(초기 상태)", isRedo: false));
-        foreach (var label in Enumerable.Reverse(undoList))
-            HistoryItems.Add(new HistoryPanelItem(label, isRedo: false));
-        foreach (var label in redoList)
-            HistoryItems.Add(new HistoryPanelItem(label, isRedo: true));
-        CurrentHistoryIndex = undoList.Count;
-        RefreshEditorCommandStates();
-    }
-
-    private void RebuildAll()
-    {
-        var prevSelection = Selection.OrderedNodeSelection.ToList();
-        var prevSelectedArrowIds = Selection.OrderedArrowSelection.ToList();
-        var expandedNodes = Selection.GetExpandedKeys();
-
-        ControlTreeRoots.Clear();
-        DeviceTreeRoots.Clear();
-
-        if (!TryEditorRef(
-                () => EditorTreeProjection.BuildTrees(_store),
-                out var trees,
-                statusOverride: "[ERROR] Failed to rebuild tree views."))
-            return;
-
-        foreach (var info in trees.Item1)
-            ControlTreeRoots.Add(MapToEntityNode(info));
-        foreach (var info in trees.Item2)
-            DeviceTreeRoots.Add(MapToEntityNode(info));
-
-        Selection.ApplyExpansionStateTo(ControlTreeRoots, expandedNodes);
-        Selection.ApplyExpansionStateTo(DeviceTreeRoots, expandedNodes);
-
-        CanvasManager.RebuildAllPanes();
-        Simulation.RestoreSimStateToCanvas();
-        Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
-    }
-
-    private void RequestRebuildAll(Action? afterRebuild = null)
-    {
-        if (afterRebuild is not null)
-            _pendingRebuildActions.Add(afterRebuild);
-
-        if (_rebuildQueued)
-            return;
-
-        _rebuildQueued = true;
-        _dispatcher.BeginInvoke(new Action(() =>
-        {
-            try
-            {
-                RebuildAll();
-
-                if (_pendingRebuildActions.Count == 0)
-                    return;
-
-                var actions = _pendingRebuildActions.ToArray();
-                _pendingRebuildActions.Clear();
-                foreach (var action in actions)
-                    action();
-            }
-            finally
-            {
-                _rebuildQueued = false;
-            }
-        }), DispatcherPriority.Background);
-    }
-
-    private static EntityNode MapToEntityNode(TreeNodeInfo info)
-    {
-        var parentId = info.ParentIdOrNull;
-        var node = new EntityNode(info.Id, info.EntityKind, info.Name, parentId);
-        foreach (var child in info.Children)
-            node.Children.Add(MapToEntityNode(child));
-        return node;
-    }
-
-    private static IEnumerable<EntityNode> FlattenTree(IEnumerable<EntityNode> roots)
-    {
-        foreach (var node in roots)
-        {
-            yield return node;
-            foreach (var child in FlattenTree(node.Children))
-                yield return child;
-        }
-    }
-
-    // ========== SplitDeviceAasx 설정 ==========
-    private static string SplitDeviceAasxSettingsPath => Promaker.Services.SettingsPaths.SplitDeviceAasx;
-
-    public bool SplitDeviceAasx { get; private set; }
-
-    private void LoadSplitDeviceAasxSetting()
-    {
-        SplitDeviceAasx = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
-    }
-
-    public void SetSplitDeviceAasx(bool value)
-    {
-        if (SplitDeviceAasx != value)
-        {
-            SplitDeviceAasx = value;
-            AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, value);
-        }
-    }
-
-    // ========== CreateDefaultEntitiesOnEmptyAasx 설정 ==========
-    private static string CreateDefaultEntitiesSettingsPath => Promaker.Services.SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
-
-    public bool CreateDefaultEntitiesOnEmptyAasx { get; private set; }
-
-    private void LoadCreateDefaultEntitiesSetting()
-    {
-        CreateDefaultEntitiesOnEmptyAasx = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
-    }
-
-    public void SetCreateDefaultEntitiesOnEmptyAasx(bool value)
-    {
-        if (CreateDefaultEntitiesOnEmptyAasx != value)
-        {
-            CreateDefaultEntitiesOnEmptyAasx = value;
-            AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, value);
-        }
-    }
-
-    // ========== IriPrefix 설정 ==========
-    private static string IriPrefixSettingsPath => Promaker.Services.SettingsPaths.IriPrefix;
-
-    public string IriPrefix { get; private set; } = "https://dualsoft.com/";
-
-    private void LoadIriPrefixSetting()
-    {
-        IriPrefix = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, "https://dualsoft.com/");
-    }
-
-    public void SetIriPrefix(string value)
-    {
-        if (IriPrefix != value)
-        {
-            IriPrefix = value;
-            AppSettingStore.SaveString(IriPrefixSettingsPath, value);
-        }
-    }
 }
 
 public sealed class HistoryPanelItem(string label, bool isRedo)
 {
     public string Label  { get; } = label;
     public bool   IsRedo { get; } = isRedo;
+    /// <summary>
+    /// 1d-4 F / m8 — LLM turn 식별. prefix SSOT = `LlmChatViewModel.LlmTurnLabelPrefix` ("LLM: ").
+    /// HistoryPanel 의 좌측 색띠 / accent 색으로 시각화.
+    /// </summary>
+    public bool   IsLlmTurn => Label.StartsWith(LlmChatViewModel.LlmTurnLabelPrefix, StringComparison.Ordinal);
 }

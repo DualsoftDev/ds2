@@ -1,14 +1,19 @@
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.Win32;
+using Promaker.LlmAgent;
+using Promaker.LlmAgent.Api;
 using Promaker.Presentation;
 using Promaker.Services;
+using Promaker.ViewModels;
 
 namespace Promaker.Dialogs;
 
@@ -37,6 +42,32 @@ public partial class ProjectPropertiesDialog : Window
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
 
+    private LlmConfig _llmConfig = LlmConfig.Load();
+    /// <summary>OK 시 LlmConfig 변경 사항이 disk 에 저장되었는지. 호출자가 LlmChatVm.ReloadConfig() 호출 트리거로 사용.</summary>
+    public bool LlmConfigChanged { get; private set; }
+
+    /// <summary>모델 ComboBox (IsEditable=True) 의 후보 목록. 사용자는 선택 또는 직접 입력 가능.</summary>
+    private static readonly string[] AnthropicModelCandidates =
+    {
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    };
+    private static readonly string[] OpenAiModelCandidates =
+    {
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo",
+        "o1-mini",
+    };
+    private static readonly string[] OllamaModelCandidates =
+    {
+        "llama3.1",
+        "llama3.2",
+        "mistral-small",
+        "qwen2.5",
+    };
+
     public ProjectPropertiesDialog(string projectName, DsStore store)
     {
         InitializeComponent();
@@ -62,6 +93,9 @@ public partial class ProjectPropertiesDialog : Window
 
         // 프리셋 SystemType 매핑 로드
         LoadPresetMappings();
+
+        // LLM 탭 — 통합 LlmConfig 로 UI 채우기 (PR-B)
+        LoadLlmTab();
 
         // 기본 값 — Motor 샘플 (프리셋 입력 형식 안내용). 실제 systemTypePreset.json 의
         // 디폴트 항목은 CallCreateDialog 가 없을 때 자동 생성하는 5종 (Unit/Cylinder_#/Robot*/Part).
@@ -186,6 +220,152 @@ public partial class ProjectPropertiesDialog : Window
         PresetMappingListBox.SelectedIndex = selectedIndex + 1;
     }
 
+    // ── LLM 탭 (PR-B) ────────────────────────────────────────────────────────
+
+    private void LoadLlmTab()
+    {
+        // API keys — DPAPI 복호화한 값을 PasswordBox 에 표시 (사용자가 직접 보고 검증 가능)
+        LlmAnthropicKeyBox.Password = _llmConfig.GetApiKey(ApiProviderFactory.AnthropicKey) ?? "";
+        LlmOpenAiKeyBox.Password    = _llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey) ?? "";
+
+        // Models — TextBox + ▾ Button 패턴 (Hot-fix-8 v3, IsEditable ComboBox quirks 회피)
+        LlmAnthropicModelBox.Text = _llmConfig.AnthropicModel;
+        LlmOpenAiModelBox.Text    = _llmConfig.OpenAiModel;
+        LlmOllamaModelBox.Text    = _llmConfig.OllamaModel;
+
+        // Ollama base URL
+        LlmOllamaBaseUrlBox.Text = _llmConfig.OllamaBaseUrl;
+
+        // Consent 상태
+        UpdateConsentStatus();
+    }
+
+    // ─── Hot-fix-8 v3: 후보 선택 ContextMenu (TextBox + ▾ Button 패턴) ─────────
+
+    private void LlmAnthropicCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, LlmAnthropicModelBox, AnthropicModelCandidates);
+
+    private void LlmOpenAiCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, LlmOpenAiModelBox, OpenAiModelCandidates);
+
+    private void LlmOllamaCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, LlmOllamaModelBox, OllamaModelCandidates);
+
+    private static void ShowCandidatesMenu(object sender, TextBox target, string[] candidates)
+    {
+        if (sender is not Button btn) return;
+        var menu = new ContextMenu
+        {
+            PlacementTarget = btn,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+        foreach (var c in candidates)
+        {
+            var mi = new MenuItem { Header = c };
+            mi.Click += (_, _) => target.Text = c;
+            menu.Items.Add(mi);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void UpdateConsentStatus()
+    {
+        if (_llmConfig.IsConsentGranted())
+        {
+            var ts = _llmConfig.ConsentTimestampUtc ?? "(시간 정보 없음)";
+            LlmConsentStatusText.Text = $"동의 완료 — {ts}";
+            LlmRevokeConsentButton.IsEnabled = true;
+        }
+        else
+        {
+            LlmConsentStatusText.Text = "미동의 — LLM Chat 진입 시 다이얼로그 표시";
+            LlmRevokeConsentButton.IsEnabled = false;
+        }
+    }
+
+    private void LlmClearAnthropicKey_Click(object sender, RoutedEventArgs e) => LlmAnthropicKeyBox.Password = "";
+    private void LlmClearOpenAiKey_Click(object sender, RoutedEventArgs e)    => LlmOpenAiKeyBox.Password = "";
+
+    private void LlmRevokeConsent_Click(object sender, RoutedEventArgs e)
+    {
+        _llmConfig.DataEgressConsent = false;
+        _llmConfig.ConsentTimestampUtc = null;
+        _llmConfig.Save();
+        LlmConfigChanged = true;
+        UpdateConsentStatus();
+        DialogHelpers.Warn("동의가 철회되었습니다. LLM Chat 패널이 열려 있다면 다음 진입 시 다시 동의 다이얼로그가 표시됩니다.");
+    }
+
+    private async void LlmTestOllama_Click(object sender, RoutedEventArgs e)
+    {
+        var url = (LlmOllamaBaseUrlBox.Text ?? "").Trim();
+        if (string.IsNullOrEmpty(url))
+        {
+            LlmOllamaTestResult.Text = "❌ URL 이 비어있습니다.";
+            return;
+        }
+        LlmOllamaTestResult.Text = "확인 중…";
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            // Ollama 의 `GET /api/version` 은 인증 불필요 + 가벼운 endpoint.
+            var probe = url.TrimEnd('/') + "/api/version";
+            using var resp = await http.GetAsync(probe).ConfigureAwait(true);
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
+                LlmOllamaTestResult.Text = $"✅ 연결 성공 — {body.Trim()}";
+            }
+            else
+            {
+                LlmOllamaTestResult.Text = $"❌ 응답 status {(int)resp.StatusCode} {resp.ReasonPhrase}";
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
+        {
+            // review (3): OOM/StackOverflow 등 시스템 예외는 흡수하지 않고 즉시 throw → 진단 용이성 보존.
+            LlmOllamaTestResult.Text = $"❌ 연결 실패: {ex.Message}";
+        }
+    }
+
+    private void SaveLlmTab()
+    {
+        // PR-D: Default provider 는 LLM Chat 패널의 ComboBox 마지막 선택이 자동 저장 — 본 다이얼로그에서 다루지 않음.
+        //
+        // review (2) — dirty 비교: DPAPI 재암호화는 매번 다른 ciphertext 라 EncryptedKeys 변경만으로는 dirty 판단 불가.
+        // plaintext (PasswordBox.Password) + 모델 / URL 비교로 진짜 변경 여부 판단 → 불필요한 ReloadConfig (활성 provider
+        // 재구성 비용) 회피. LlmRevokeConsent_Click 처럼 별도 핸들러는 자체 LlmConfigChanged=true 설정.
+        var fallback = new LlmConfig();
+        var newAnthropicKey = LlmAnthropicKeyBox.Password ?? "";
+        var newOpenAiKey    = LlmOpenAiKeyBox.Password ?? "";
+        var newAnthropicModel = string.IsNullOrWhiteSpace(LlmAnthropicModelBox.Text) ? fallback.AnthropicModel : LlmAnthropicModelBox.Text.Trim();
+        var newOpenAiModel    = string.IsNullOrWhiteSpace(LlmOpenAiModelBox.Text)    ? fallback.OpenAiModel    : LlmOpenAiModelBox.Text.Trim();
+        var newOllamaModel    = string.IsNullOrWhiteSpace(LlmOllamaModelBox.Text)    ? fallback.OllamaModel    : LlmOllamaModelBox.Text.Trim();
+        var newOllamaBaseUrl  = string.IsNullOrWhiteSpace(LlmOllamaBaseUrlBox.Text)  ? fallback.OllamaBaseUrl  : LlmOllamaBaseUrlBox.Text.Trim();
+
+        var dirty =
+            newAnthropicModel != _llmConfig.AnthropicModel
+            || newOpenAiModel    != _llmConfig.OpenAiModel
+            || newOllamaModel    != _llmConfig.OllamaModel
+            || newOllamaBaseUrl  != _llmConfig.OllamaBaseUrl
+            || newAnthropicKey   != (_llmConfig.GetApiKey(ApiProviderFactory.AnthropicKey) ?? "")
+            || newOpenAiKey      != (_llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey)    ?? "");
+
+        if (!dirty) return;
+
+        _llmConfig.SetApiKey(ApiProviderFactory.AnthropicKey, newAnthropicKey);
+        _llmConfig.SetApiKey(ApiProviderFactory.OpenAiKey,    newOpenAiKey);
+        _llmConfig.AnthropicModel = newAnthropicModel;
+        _llmConfig.OpenAiModel    = newOpenAiModel;
+        _llmConfig.OllamaModel    = newOllamaModel;
+        _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
+
+        _llmConfig.Save();
+        LlmConfigChanged = true;
+    }
+
+    // ── OK 처리 ──────────────────────────────────────────────────────────────
+
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         ResultProjectName = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
@@ -212,6 +392,9 @@ public partial class ProjectPropertiesDialog : Window
         PlcConfig.Save(
             PlcXgiTemplatePathBox.Text.Trim(),
             PlcXg5000ExePathBox.Text.Trim());
+
+        // LLM 탭 저장 (PR-B). LlmConfigChanged=true 면 호출자가 LlmChatVm.ReloadConfig() 호출.
+        SaveLlmTab();
 
         DialogResult = true;
     }

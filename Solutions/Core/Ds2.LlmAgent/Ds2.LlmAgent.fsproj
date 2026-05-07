@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Logging.fs" />
+    <Compile Include="ProcessUtils.fs" />
+    <Compile Include="LlmEvent.fs" />
+    <Compile Include="StreamJsonParser.fs" />
+    <Compile Include="ClaudeCliVersion.fs" />
+    <Compile Include="ClaudeCliArgs.fs" />
+    <Compile Include="CliProcessHost.fs" />
+    <Compile Include="LlmProvider.fs" />
+    <Compile Include="ClaudeCliProvider.fs" />
+    <Compile Include="CodexCliArgs.fs" />
+    <Compile Include="CodexStreamJsonParser.fs" />
+    <Compile Include="CodexCliProvider.fs" />
+    <Compile Include="UiDispatcher.fs" />
+    <Compile Include="ImportPlanBuilder.fs" />
+    <Compile Include="ToolOperations.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Editor\Ds2.Editor.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,621 @@
+# Promaker 대화형 LLM agent 통합 설계 todo
+
+## 작업 목표
+
+WPF C# 데스크탑 앱 **Promaker** 에 **대화형 LLM agent 패널** 을 통합한다. 사용자는 채팅으로 모델(Project / DsSystem / Flow / Work / Call / ApiDef / Arrow) 을 점진적으로 만들고, 이미 만든 모델에 대해 LLM 과 대화한다.
+
+- 통합 형태: **Promaker 내부 dock panel** (별도 console exe 가 아님)
+- LLM provider 우선순위: **Claude CLI subscription 1st-class**, Codex CLI best-effort, API/SDK/Ollama 는 후순위
+- Tool 채널: **MCP transport (HTTP 우선, stdio fallback)** — 결정 4 잠정, 사전 실증 3 후 확정. (c) HTTP 채택 시 Promaker in-process Kestrel + loopback bind, (b) stdio 채택 시 Promaker 자기 자신 `--mcp-server` 재진입
+- 다중 Promaker 인스턴스 동시 실행 지원 (인스턴스별 격리된 MCP 서비스)
+- Undo: **`ImportPlan` 활용 — 1 LLM turn = 1 undo step** (F# editor 무수정, 결정 7)
+
+---
+
+## 배경 / 맥락
+
+### Promaker 현황 (요약)
+- WPF C# (`net9.0-windows`, `UseWPF=true`, `OutputType=WinExe`)
+- 위치 (이 문서 기준): `../../../Apps/Promaker/` (ds2 `feature-greenfield-modeling` branch). 주 통합은 ds2 main 흡수 후 진행 가능.
+- 진입점: `App.xaml.cs` → `MainWindow` → `MainViewModel` (CommunityToolkit.Mvvm `ObservableObject` / `RelayCommand` source generator 활용)
+- F# core 직접 ProjectReference: `Ds2.Core` / `Ds2.Editor` / `Ds2.Aasx` / `Ds2.Mermaid` / `Ds2.IOList` / `Ds2.CSV` / `Ds2.View3D` / `Ds2.Runtime` / `Ds2.Backend`
+- **모델 SSOT (Single Source of Truth) = `DsStore` (F# 인스턴스, Promaker 프로세스 메모리)**. 디스크 파일 (SDF / JSON / AASX / Mermaid) 은 SSOT 의 스냅샷.
+- 변경 전파: `_store.ObserveEvents()` → `EditorEvent` IObservable → MainViewModel 이 dispatcher 로 받아 `RebuildAll()` (트리 / 캔버스 / 시뮬레이션)
+- Mutation 경로: `RelayCommand` (예: `AddSystem`, `AddFlow`, `AddWork`, `AddCall`) → `_store.AddSystem(...)` / `_store.AddFlow(...)` 등 F# API
+- Undo/Redo: `_store.Undo()` / `_store.Redo()` + `HistoryItems` 패널
+- Dialog 추상화: `IDialogService` (테스트성 + 추상)
+- I/O 포맷: SDF / JSON / AASX / Mermaid (`.md`)
+- 부가 기능: 3D 뷰 (WebView2), 시뮬레이션, IO/PLC/Tag wizard 다이얼로그, 한국어/영어 로컬라이제이션, 다크/라이트 테마
+
+### Ev2 측 학습 자산 (별도 repo `/f/Git/ev2/master`, 직접 통합 X — 패턴 차용만)
+- `/f/Git/ev2/master/solutions/Ev2.Backend/todos/todo-greenfield-model-builder.md` — Python 기반 PoC (GreenfieldModelerPoC) 별도 진행 중. 5 카테고리 provider 추상화 / system prompt / tool schema / MCP 채널 분기점 등의 **설계 결정 자산** 을 본 작업이 차용.
+- `/f/Git/ev2/master/solutions/Ev2.Backend/src/Ev2.Oracle/Builder/pipeline/llm_providers/claude_cli.py` — Builder 의 stateless 1-shot Claude CLI provider. 본 작업의 multi-turn provider 와는 인자 조합이 다르므로 **재사용 불가**, process spawn / Job Object / stream-json 파싱 **유틸성 패턴만 차용**.
+
+### 사용자 선호 (글로벌 CLAUDE.md)
+- 언어 선호: F# > C#
+- 정석 해결 선호 (우회 X), 기존 코드 재사용 / refactoring 우선
+- F# 가능한 곳은 F# 로, C# 는 WPF binding 등 불가피한 곳에만
+
+---
+
+## 현재까지 결정된 설계 방향
+
+### 결정 1 — 통합 형태: Promaker 내부 dock panel
+- 외부 console exe 가 아니라 chat panel 을 Promaker MainWindow 의 한 dock 영역으로 추가
+- 사용자가 GUI 직접 편집과 LLM 대화를 **동시 사용** 가능 — 양쪽 mutation 이 같은 DsStore 를 만짐
+- EditorEvent 가 자연스러운 sync 채널 역할 (사용자 GUI 변경 → LLM session context 주입)
+
+### 결정 2 — 구현 언어: F# DLL + C# WPF binding (+ Tool registry 흡수)
+- **F# DLL `Ds2.LlmAgent.fsproj` 신규** — 비-UI 핵심 로직
+  - `ILlmProvider` 인터페이스 — **phase 1 은 `ClaudeCliProvider` 1종 concrete only**, 인터페이스는 회의적/실험적 ("phase 2 의 Codex 실증 후 재설계 가능" 단서 명시) — review M5 반영
+  - 공통 Event 타입 (`AssistantDelta` / `ToolUse` / `ToolResult` / `SessionEnd` / `ProviderError`)
+  - `Capabilities` flag (streaming / resume / structured_tools / mcp_stdio)
+  - **Tool registry + tool handler = "JsonNode → Ds2.Editor extension 호출 → JsonNode" 한 줄 함수의 dictionary** (결정 6 흡수 — review M8)
+    - mutation tool: `Ds2.Editor` 의 extension API (예: `store.AddSystem(name, projectId, isActive)`) 직접 호출
+    - read tool: `Ds2.Core.Queries` 의 read API 직접 호출
+  - Tool JSON Schema 정의
+  - MCP server 어댑터
+  - System prompt / 환각 방지 지침
+- **C# 영역 (Promaker 안)** — WPF binding 만
+  - `ChatPanel.xaml` + `ChatPanelViewModel.cs`
+  - `IAsyncEnumerable<LlmEvent>` 구독 → `ObservableCollection<ChatTurn>`
+  - `RelayCommand` (Send / Cancel / Reset)
+  - Provider 선택 / 설정 binding
+- **분리 근거** (review M9 반영): F# 미적 선호가 1차 이유 아님. **CommunityToolkit.Mvvm `[ObservableProperty]` source generator 가 C#-only** 이라 F# 단독 ViewModel 은 Promaker 의 기존 MVVM 패턴을 깸. F# core 호출의 자연스러움은 보너스.
+- **ProjectReference** (review M3 반영):
+  - `Ds2.LlmAgent` → `Ds2.Editor` (mutation extension) + `Ds2.Core` (DsStore / Queries / EditorEvent)
+  - `Promaker.csproj` → `Ds2.LlmAgent` 추가
+  - **DsStore 자체는 read-only dictionary + JSON I/O**. mutation API (`AddSystem` 등) 는 모두 `Ds2.Editor` 의 `[<Extension>] static member`. tool handler 는 RelayCommand 핸들러 떼어내는 게 아니라 **`Ds2.Editor` extension 을 직접 호출** (M3).
+
+### 결정 3 — Provider 우선순위 (subscription 우선)
+- **Phase 1 (MVP) — Claude CLI 1종만 1st-class**
+  - 추가 비용 없음 (사용자가 이미 구독 중), API key 발급/관리 부담 없음
+  - 사용자 zero-config 진입 가능
+  - Codex CLI 는 동일 phase 에서 **실증만** (multi-turn / stream / MCP 지원 확인). 가능하면 추가, 불가하면 phase 2 로 이월
+- **Phase 2** — Codex CLI 정식 또는 OpenAI API (Codex 가 막힌 경우 보험), Anthropic API (구독 한도 초과 사용자용), Ollama (local)
+- 추상화 인터페이스가 모두 흡수하므로 등록 테이블만 조정하면 됨
+
+### 결정 4 — Tool 채널: MCP transport (잠정 — 사전 실증 3 후 확정)
+**잠정 채택 우선순위** (review C4 반영):
+- **(c) Claude CLI HTTP MCP transport** — 가능하면 1순위. Promaker 가 in-process HTTP MCP server 띄우고 Claude CLI 는 `--transport http` 로 접속. 자식 프로세스 / Job Object / named pipe 스택 전체 불필요. **사전 실증 3 (~30분 spike) 으로 동작 확인 시 (b) 폐기**.
+- **(b) Promaker `--mcp-server` 모드 재진입 (stdio)** — (c) 가 막힐 때 fallback. 아래 세부는 (b) 채택 시 적용:
+  - 부모 Promaker → Claude CLI 기동 시 동적으로 `.mcp-config` JSON 생성 → Claude CLI 가 자식 Promaker 를 `--mcp-server` 로 spawn
+  - 자식 Promaker (MCP server 모드) 는 부모 Promaker 와 **named pipe** 로 통신, MCP stdio 와의 양 채널을 중계
+  - 단일 바이너리, 배포 단순. 명령행 진입점 분기를 처음부터 설계 필요.
+  - **WPF WinExe 제약** (review C2 반영):
+    - `App.xaml` 의 `StartupUri="MainWindow.xaml"` **반드시 제거** + `App.OnStartup` 에서 argv 파싱 후 MainWindow 명시 호출
+    - `--mcp-server` 모드는 WPF 진입 자체 skip (StartupObject 직접 작성 또는 OnStartup 분기에서 `Application.Shutdown` 회피하며 console-mode 진입)
+    - WinExe 는 stdin/stdout 이 `TextReader.Null` / `TextWriter.Null` 로 묶임 → `GetStdHandle` + `Console.SetIn/SetOut` 재바인딩 필요 (사전 실증 0)
+- (a) 별도 bridge exe — 폐기 (배포 / sync drift 비용 > 효용)
+
+### 결정 5 — 다중 인스턴스 격리 + IPC 보안
+
+> 결정 4 의 transport 분기에 따라 적용 sub-section 이 다름. (c) HTTP 채택 시 5.0, (b) stdio 채택 시 5.1~5.6. 5.7 은 양쪽 공통.
+
+#### 5.0 HTTP transport 보안 (결정 4 (c) 채택 시)
+- **Loopback-only bind** (`127.0.0.1`) — 외부 NIC 노출 차단
+- **OS-assigned ephemeral port** — port 충돌 방지 (다중 인스턴스)
+- **`.mcp-config` 에 url + handshake nonce 기록** (ACL 명세는 5.3 동일 적용)
+- **첫 요청 handshake nonce 검증** — Claude CLI 가 첫 요청 헤더 (e.g. `X-Promaker-Nonce`) 로 송신, server 가 비교 → 불일치 시 401 + connection close
+- **Process.SessionId 식별** — `.mcp-config` 파일명에 `<WindowsSessionId>` 포함하여 RDP / Fast User Switching 격리 (5.3)
+- **HTTP MCP transport schema 버전 핀** — Phase 1b-c 진입 시 명시 (사전 실증 3 sub-task)
+- **Kestrel cold start 측정** (review 2차 Minor R4) — chat 세션 시작 latency 영향 확인
+
+#### 5.1 Pipe 이름 / 식별자 (결정 4 (b) stdio 채택 시 — 이하 5.6 까지)
+- Pipe 이름: `\\.\pipe\Promaker-Mcp-<WindowsSessionId>-<SessionGUID>` (review 2차 R5: `Process.GetCurrentProcess().SessionId` 포함 — RDP / Fast User Switching 격리)
+  - SessionGUID: PID 재사용 / chat 재시작 충돌 방지
+- 부모 Promaker 가 chat 세션 시작 시 GUID 생성, `.mcp-config` 의 args 또는 env 로 자식에게 전달
+- ParentPID 는 log/debug 메타로만 (review 1차 Mi2)
+
+#### 5.2 Pipe SECURITY_DESCRIPTOR (review 2차 R5 Critical)
+- pipe 생성 시 명시적 SECURITY_DESCRIPTOR:
+  - DACL: 현재 user 의 SID FullControl only, 그 외 deny
+  - SACL/Owner: current user
+- 생성 옵션: `PIPE_REJECT_REMOTE_CLIENTS` flag (Windows Vista+) — remote SMB 접속 거부
+- 부모 server 측 connect 수락 직후 **handshake nonce 검증**:
+  - `.mcp-config` 안에 short-lived secret (32-byte random) 기록
+  - 자식이 첫 메시지로 nonce 송신, 부모가 비교 → 불일치 시 connection 즉시 close
+  - 같은 user 의 다른 logon session 또는 악성 프로세스가 GUID leak 으로 connect 해도 nonce 없으면 차단
+- 부모는 connect 수락 후 `GetNamedPipeClientProcessId` 로 client PID 조회 → expected (자식 Promaker spawn 추적) 와 비교 보조 검증
+
+#### 5.3 `.mcp-config` 임시 파일 ACL
+- 위치: `%TEMP%\Promaker\mcp-<WindowsSessionId>-<GUID>.json` (sweep scope 가 자기 session 안에서만 동작하도록)
+- ACL 명세 (review 1차 M10 / Mi1, 2차 R5 보강):
+  - Owner = current user
+  - DACL = user FullControl only
+  - `FileSecurity.SetAccessRuleProtection(true, false)` 로 inheritance 차단
+  - %TEMP% redirect 환경 (group policy / roaming) 의 ACL drift 검증 후 적용 (review 2차 Minor R5)
+
+#### 5.4 stale `.mcp-config` sweep (review 2차 R2 M3 — self-race 방지)
+- Sweep 조건 (AND):
+  1. 자기 WindowsSessionId 안의 파일만 (다른 session 의 파일 건드리지 않음)
+  2. 파일 안 ParentPID 가 죽어있음 (`Process.GetProcessById` 실패 또는 다른 image)
+  3. mtime > 5분
+- 자기 자신이 막 만든 파일 보호: 생성 직후 own-pid lock file 또는 PID-기반 own check
+- 비정상 종료 leak 회수가 목적, 실행 중 파일은 절대 삭제 X
+
+#### 5.5 자식 Promaker `--mcp-server` 모드 진입 sequence
+- argv `--parent-pid <N>` + `--session <GUID>` + `--nonce <secret>` 파싱
+- pipe 이름 조립 (5.1)
+- **race FSM 재기술 — review 2차 R2 Critical**:
+  - 부모 ↔ 자식 ↔ Claude CLI 의 spawn 순서: 부모 → Claude CLI spawn → Claude CLI 가 lazy 시점에 자식 Promaker spawn (init 시? 첫 tool 호출 시?). **lazy spawn 시점 자체가 사전 실증 2 의 sub-task** (Phase 0 측정).
+  - 부모는 chat 세션 시작 즉시 (= Claude CLI spawn 이전) `WaitForConnectionAsync` 시작 — 자식이 언제든 connect 가능하게 listen 상태 유지
+  - 자식은 connect retry policy (3회 × 100ms backoff)
+  - connect 후 nonce handshake (5.2)
+- MCP stdio (Claude CLI ↔ 자식) ↔ named pipe (자식 ↔ 부모) 중계
+
+#### 5.6 라이프사이클 / 좀비 방지
+- **부모 → Claude CLI 를 Windows Job Object 에 attach** (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)
+- **⚠ 손자(자식 Promaker) Job 상속 미보장** (review 1차 M1): Claude CLI 는 Node.js, `CREATE_BREAKAWAY_FROM_JOB` 또는 자체 Job 생성 시 cascade 빠져나감. 사전 실증 6 으로 검증 필수
+- 보험: 자식 Promaker **자체 watchdog** — review 2차 R2 M4 정정: "polling" 이 아니라 별도 thread 가 `WaitForSingleObject(parent_handle, INFINITE)` 으로 **blocking wait**, 부모 종료 신호 시 self-exit. + named pipe broken 감지 시 즉시 self-exit (이중)
+- 자식 Promaker 는 MCP stdio EOF / pipe broken 감지 시 즉시 self-exit
+
+### 결정 6 — (결정 2 로 흡수, 결정 7 (d) 와 통합)
+> 1차 review M8 + 2차 review R1 로 본 결정은 **결정 2 의 "Tool registry 공통 invoker" + 결정 7 (d) "ImportPlan 활용"** 두 결정으로 분해 흡수.
+>
+> **결과**:
+> - Mutation tool handler = `ImportPlanBuilder` 에 `ImportPlanOperation` 누적하는 한 줄 함수 (결정 2)
+> - Read tool handler = `Queries` 호출 + lightweight snapshot + projection (결정 8 thread 모델)
+> - Turn end 에 단일 `store.ApplyImportPlan(label, plan)` 호출 → 1 undo step (결정 7 (d))
+>
+> 본 항목은 trace 보존용 placeholder. 본문 내용은 결정 2 / 7 / 8 참조.
+
+### 결정 7 — Undo 단위: ImportPlan 활용 (review 2차 R1 — 정석 path 확정)
+> ⚠ **review 2차 R1 (검증 완료) 로 결정 7 이 (c) 잠정에서 (d) ImportPlan 활용 으로 격상.** 1차 review 의 (a)/(b)/(c) 비교는 더 단순한 path 를 놓친 것.
+
+**검증 결과 (직접 source 확인)**:
+- `Ds2.Core/Store/ImportPlan.fs` — `ImportPlanOperation` DU (`AddSystem` / `AddFlow` / `AddWork` / `AddCall` / `AddApiDef` / `AddApiCall` / `AddArrowWork` / `AddArrowCall` / `LinkSystemToProject`)
+- `Ds2.Editor/Editor/ImportPlanApply.fs:34-38` — `applyWithUndo` 가 **단일 `store.WithTransaction(label, ...)` 으로 plan 의 모든 operation 을 한 묶음 처리** + `EmitRefreshAndHistory()` 1회 emit
+- `[<Extension>] ApplyImportPlan(store: DsStore, label: string, plan: ImportPlan)` — C# / F# 호출 측 노출 완료
+
+**채택 (d) ImportPlan 활용**:
+- LLM 1 turn 의 모든 mutation tool 호출 → 각 handler 가 `ImportPlanOperation` 누적 (in-memory plan)
+- Turn end 시점에 `store.ApplyImportPlan("LLM: <user msg 요약>", plan)` 1회 호출 → **1 undo step 자동 생성**
+- F# editor **무수정** (사용자 철학 "기존 재활용 90점" 부합)
+- nested transaction 충돌 자연 해소 (outer transaction 1회만)
+- review M4 의 deferred-apply 모델이 자연스럽게 따라옴 (turn 안 mutation 은 plan 누적, turn end batch apply)
+- 1차 review 의 (a)/(b)/(c) 모두 폐기
+
+**잔여 검증 (사전 실증 5 재기술)**:
+- Phase 1 mutation tool 세트 (`add_system` / `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def`) 모두 `ImportPlanOperation` 으로 표현 가능 — **이미 검증 (DU 가 모두 커버)**
+- ⚠ **`modify_*` / `remove_*` 는 `ImportPlanOperation` 미포함** — phase 2 에서 ImportPlan 확장 vs 별도 undo path 결정 (phase 1 범위 밖)
+- LLM tool 호출 도중 schema validation 실패 → plan 일부 누적 후 turn end 직전 fail-safe 정책 (전체 plan 폐기 + LLM 에 전체 에러 반환)
+
+**read tool 과의 상호작용 — review 2차 R3 mi2 / R4 M2 통합**:
+- LLM 의 read tool 은 **현재 DsStore 상태 (plan apply 전)** 를 본다 — turn 안에서 in-memory plan 진행 상태는 LLM 에게 노출 안 함. LLM 은 "내가 방금 add_system 한 결과" 를 바로 못 보는 게 정상 (turn end 적용 후 다음 turn 에서 확인)
+- 또는: in-memory plan 을 read tool 응답에 합쳐서 보여주는 옵션 (구현 비용 ↑)
+- Phase 1 디폴트 = 전자 (단순). LLM system prompt 에 "mutation 결과는 turn end 에 적용" 명시.
+
+### 결정 9 — 비동기 표현 통일 (review 2차 outlier R3 → 잠정 확정)
+**LLM 측 stream → ChatPanel 사이의 비동기 표현은 `IAsyncEnumerable<LlmEvent>` 1종으로 통일**.
+- 후보 비교:
+  - `IObservable<T>` (Rx) — Promaker 의 `_store.ObserveEvents()` 가 이미 사용 중이라 일관성 ↑. 단 cold/hot 의미와 backpressure 가 모호
+  - **`IAsyncEnumerable<T>` (C# 8+ / F# 8 `taskSeq`) — 채택**. cancellation token 자연 통합 + `await foreach` / F# `taskSeq` 자연. backpressure (Phase 1a 의 `Channel.CreateBounded` 후 `ReadAllAsync()`) 와 자연 합류
+  - `Event<T>` / `IEvent<T>` (F#) — fire-and-forget, backpressure 없음. provider stream 부적합
+- **DsStore 내부 `EditorEvent` 는 기존 `IObservable` 그대로** (코드베이스 패턴 보존, 결정 8 dispatcher marshalling 으로 흡수)
+- **provider ↔ ChatPanel 사이의 LlmEvent 는 `IAsyncEnumerable`** — 신규 도입 영역이므로 표현 통일 우선
+- 양쪽 사이 어댑터는 Phase 1a 의 stream backpressure (`Channel.CreateBounded`) 가 자연 다리
+
+### 결정 8 — Thread 모델 (review 1차 C3 + 2차 R4 Critical / R4 M1 / M4 통합)
+**모든 mutation/read tool handler 는 부모 Promaker UI Dispatcher 에 async marshalling, AssistantDelta 등 stream-only 이벤트는 dispatcher 우회**.
+- 근거: `Ds2.Editor/Editor/Authoring.fs` 의 `StoreEditorState` 가 `mutable CurrentRecords / SuppressEvents / CurrentAffectedIds` 를 lock 없이 사용. `EventBus.Trigger` 도 동기 호출. `Dictionary<Guid, _>` enumeration race 가능.
+- **Sync vs async — review 2차 R4 Critical 반영**:
+  - `IUiDispatcher.InvokeAsync<'T>(action: unit -> 'T): Task<'T>` (Background priority) — sync `Invoke` 금지
+  - 근거: Promaker `MainViewModel.cs:683-` 의 `RequestRebuildAll` 도 이미 `BeginInvoke` + `DispatcherPriority.Background` 패턴. Dispatcher.Invoke (sync) 진입은 사용자 GUI drag / 큰 RebuildAll 진행 중 stream 처리 thread block → AssistantDelta 표시 frozen.
+  - AssistantDelta / ProviderError / SessionEnd 같은 **stream-only 이벤트는 dispatcher 우회**, ChatPanel ViewModel 의 ObservableCollection 갱신만 별도 dispatcher (이미 ViewModel 측 책임)
+- **EditorEvent coalescing 의존 — review 2차 R4 M1 반영**:
+  - 1 turn N mutation 결과 EditorEvent N개 → `MainViewModel.RequestRebuildAll` 의 `_rebuildQueued` flag + `BeginInvoke(...,Background)` 자연 coalescing 으로 N→1 합쳐짐
+  - dispatcher marshalling 도 **async + Background priority** 여야 coalescing 유지. sync 진입은 매번 dispatcher pump 풀려 coalescing 깨짐
+  - 결정 7 (d) ImportPlan 채택으로 turn 단위 EditorEvent = 1회 (`EmitRefreshAndHistory` 1번) → coalescing 불필요해짐. 이중 안전망.
+- **Snapshot lightweight — review 2차 R4 M4 반영**:
+  - Read tool dispatcher 안에서는 `.Values.ToArray()` 같은 lightweight copy 만, projection / serialization 은 background. 큰 모델에서 UI thread 점유 회피
+  - 장기적으로 ImmutableDictionary 검토 (phase 3+)
+- 구조:
+  - F# DLL 에 `IUiDispatcher` 추상 주입
+  - C# 측에서 Promaker `Dispatcher.CurrentDispatcher` 를 어댑터로 감싸 주입 (`InvokeAsync` = `Dispatcher.InvokeAsync(action, DispatcherPriority.Background).Task`)
+- review 1차 Mi5 (`Event<EditorEvent>` 동기 trigger) / Mi6 (Dictionary race) 자연 해소
+
+---
+
+## 남은 할 일
+
+### Phase 0 — 사전 실증 + surface inventory (review 1차 + 2차 반영, scaffold 진입 전 필수)
+> 모든 spike 30분~2시간 이내 종료. 결과로 결정 4 (Tool 채널) 잠정 → 확정 전환. 결정 7 은 (d) ImportPlan 으로 이미 확정, 사전 실증 5 는 surface 검증 spike 로 변경.
+
+- [ ] **사전 실증 0** (review 1차 C2): WPF `WinExe` 가 `--mcp-server` 인자로 진입했을 때 `GetStdHandle` + `Console.SetIn/SetOut` 재바인딩 후 stdin/stdout 으로 1KB MCP JSON-RPC 왕복 echo 가능한지 확인. 불가 시 결정 4 (b) 자체 폐기.
+  - Sub-task (review 2차 R5 M5): `<DisableWinExeOutputInference>` + 별도 `static int Main` 진입점 분리 vs `App.OnStartup` 분기의 designer / Hot Reload / Theme 영향 측정
+- [ ] **사전 실증 3** (review 1차 C4, 우선순위 최상위): `claude mcp add --transport http <url>` 또는 `.mcp-config` 의 `transport: "http"` 가 동작하는지 30분 spike. 동작 시 결정 4 → (c) 확정, 사전 실증 0/2/6 skippable.
+  - Sub-task (review 2차 Minor R2): HTTP MCP transport schema 버전 핀
+- [ ] **사전 실증 1**: `ModelContextProtocol` C# SDK (.NET 9 공식) 의 F# 호출 가능성 (결정 4 (c) / (b) 양쪽 필요)
+- [ ] **사전 실증 2 — 보강** (review 2차 R2 Critical / R4 Major): Claude CLI 멀티턴 인자 양립성 + spawn 시점 정량 측정 (결정 4 (b) 채택 시 모두; (c) 시 4종 인자만)
+  - **Sub-task 2a** (review 2차 R2 Critical): `claude -p <msg> --resume <sid> --mcp-config <path> --output-format stream-json` 4종 인자 조합이 실제 동작하는가. `-p` 는 본래 print-and-exit 의도라 `--resume` 양립이 ev2 측에서도 미검증 spike. **양립 불가 시 `--input-format stream-json` stdin 연속 모드로 전환 검토** — Phase 1a 진입 차단 조건
+  - **Sub-task 2b**: Claude CLI 가 매 turn MCP server 자식을 re-spawn vs long-running
+  - **Sub-task 2c** (review 2차 R4 Major): per-turn spawn-to-first-token / handshake / 메모리 정량 측정. cold start 1~3s/turn × 누적 측정
+  - **Sub-task 2d** (review 2차 R2 Critical): Claude CLI 의 자식 (MCP server) spawn 시점 — init 시 vs 첫 tool 호출 시
+- [ ] **사전 실증 4**: Codex CLI multi-turn / stream / MCP 지원 — spike 만, 결과로 phase 2 작업 분량 결정 (review 1차 Mi3)
+- [ ] **사전 실증 5 — 재기술** (review 2차 R1 Critical / R1 M5 + R3 M5): Ds2.Editor extension / `ImportPlanOperation` surface inventory (~30분)
+  - phase 1 mutation tool 세트 (`add_system` / `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def`) 가 모두 `ImportPlanOperation` 으로 표현 가능 — **이미 확인** (DU 가 모두 커버)
+  - `modify_*` / `remove_*` 가 `ImportPlanOperation` 미포함 — phase 2 처리 방식 결정
+  - `Ds2.Editor` 의 `[<Extension>]` 노출 surface 와 `internal` 차이 점검 (1차 review M3 보강)
+  - read tool 용 `Queries` 노출 surface 점검 → `Ds2.LlmAgent` 가 `Ds2.Editor` 만 ProjectReference 하면 충분한지 확인 (review 2차 R3 M5)
+- [ ] **사전 실증 6** (review 1차 M1, 결정 4 (b) 채택 시만): 손자(Claude CLI 가 spawn 한 자식 Promaker) 가 부모 Job Object 안에 머무는가
+- [ ] **사전 실증 7 — 신설** (review 2차 R2 Critical): session_id 패킷 실제 형식 측정. **claim**: `{"type":"system","subtype":"init","session_id":"..."}` (Builder PoC 의 `parse_stream_line` 은 `system` 타입 무시 — 그대로 재사용 불가). parser 가 `subtype` 분기 필요
+
+### Phase 1 — MVP (review Mi8 반영, 4분할)
+
+> **모든 phase 1a~1d 는 internal milestone (PR 단위)** — 단독 release 아님 (review 2차 Minor R3)
+
+#### Phase 1a — Scaffold + Claude CLI echo (PR 1, internal) — ✅ 2026-05-06 완료
+- [x] `./Ds2.LlmAgent.fsproj` 생성 — `Ds2.Editor` only ProjectReference (Ds2.Core 는 transitive)
+- [x] `../../Apps/Promaker/Promaker.sln` 에 명시적 추가 (Core 폴더 그룹)
+- [x] `../../Apps/Promaker/Promaker/Promaker.csproj` ProjectReference 추가
+- [x] ~~`App.xaml` 의 `StartupUri` 제거 + 진입점 분리~~ — **결정 4 (c) HTTP 채택으로 자식 Promaker spawn 없음 → skip**
+- [x] `ClaudeCliProvider` concrete (interface 없이) — `LlmEvent` DU 8종 + `--resume` FSM (`SessionStarted` 캡처) + stream-json 5종 패킷 parser + `Channel.CreateBounded<LlmEvent>(256)` backpressure + `IAsyncEnumerable<LlmEvent>` 반환. AssistantDelta 50ms aggregation throttle 은 phase 1d 로 미룸. Job Object attach 도 phase 1b 로 미룸 (현재 Promaker 비정상 종료 시 `claude` 자식 process orphan 가능)
+- [x] Claude CLI 버전 핀 — `ClaudeCliVersion.ensureMinimum` (≥2.1.0) → C# 친화 record `Result { IsValid; Message; VersionString }`. ViewModel 에서 lazy `Task.Run` background 검증 (UI thread block 회피)
+- [x] Audit log 인프라 — `Log.provider` (Ds2.LlmAgent.Provider) / `Log.rawStream` (Promaker.LlmAgent.RawStream). `ToolCall` logger 는 mutation tool 진입 시점 (phase 1b) 추가
+- [x] 최소 chat panel — `Apps/Promaker/Promaker/Windows/LlmChatWindow.xaml` + `ViewModels/LlmChatViewModel.cs`. MainViewModel 에 `OpenLlmChatCommand` + 유틸 popup 메뉴 항목 1개. 별도 Window (dock 통합은 phase 1d).
+
+#### Phase 1b-c — HTTP MCP transport 채널 (PR 2, 결정 4 (c) 채택) — ✅ 2026-05-06 완료
+- [x] Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 HTTP transport — `Apps/Promaker/Promaker/LlmAgent/McpHostService.cs`
+- [x] loopback-only bind (`127.0.0.1`) + OS-assigned ephemeral port (`ListenLocalhost(0)`)
+- [x] `.mcp-config` JSON 작성 (`McpConfigWriter`) — `%TEMP%/Promaker/mcp-<sessionId>-<guid>.json`. `transport=http + url + headers["X-Promaker-Nonce"]`. ACL 강화는 phase 1d
+- [x] `IUiDispatcher` 추상 주입 — F# DLL `UiDispatcher.fs` interface, Promaker 측 `WpfDispatcherAdapter.cs` 어댑터 (Background priority). Tool handler 진입 marshalling 은 phase 1c 진입 시 사용
+- [x] `ImportPlanBuilder` (turn 단위 mutation 누적 buffer) — phase 1c 에서 mutation tool handler 가 `Add(ImportPlanOperation)` 호출
+- [x] Tool registry 공통 invoker 골격 — Phase 1b-c 에선 dummy `PingTool` (`[McpServerToolType]` attribute 등록) 1개만. 실제 invoker (schema validation / sanitize / dispatcher / audit / quota 7개 책임) 는 phase 1c 진입 시 mutation tool 1번째 (`add_system`) 부터 채움
+
+#### Phase 1b-b — stdio MCP + 자기자신 재진입 (PR 2, 결정 4 (b) 채택 시)
+> 결정 4 가 사전 실증 3 결과로 (b) 확정 시 진행. 1b-c 와 sibling — 둘 중 하나만.
+
+- [ ] `App` 진입점 argv `--mcp-server --parent-pid N --session GUID --nonce <secret>` 분기 (Phase 1a 의 진입점 분리 후속)
+- [ ] `.mcp-config` JSON 동적 생성 + ACL 헬퍼 (결정 5.3)
+- [ ] Promaker 시작 시 stale `mcp-*.json` sweep (결정 5.4 — self-race 방지 조건)
+- [ ] Named pipe SECURITY_DESCRIPTOR + handshake nonce + Process.SessionId 격리 (결정 5.1, 5.2)
+- [ ] `WaitForConnectionAsync` FSM (결정 5.5)
+- [ ] 자식 watchdog (`WaitForSingleObject` blocking thread + pipe broken self-exit, 결정 5.6 — review 2차 R2 M4 정정)
+- [ ] **`IUiDispatcher` 추상 주입** (1b-c 동일)
+- [ ] **Tool registry 공통 invoker** (1b-c 동일)
+
+#### Tool registry 공통 invoker 사양 (review 2차 R3 M4 + R5 prompt injection / consent / audit 통합)
+1c/1d 진입 전 1b 단계에서 골격 작성 — phase 1 의 cross-cutting 책임 흡수:
+```fsharp
+type ToolDef<'TArgs,'TResult> = {
+    Name: string
+    Schema: JsonSchema           // pattern / maxLength / required
+    Sanitize: 'TArgs -> Result<'TArgs, string>
+    Handle: 'TArgs * IUiDispatcher * ImportPlanBuilder -> Async<'TResult>
+}
+```
+- 공통 invoker 책임 (Handler 본문은 정말 한 줄):
+  1. JSON Schema validation (Schema enforce — pattern/maxLength/required)
+  2. 인자 sanitize (max length / charset whitelist / GUID 포맷 / null byte / unicode bomb 방어 — review 2차 R5 prompt injection)
+  3. **dispatcher.InvokeAsync(Background)** 로 marshalling (결정 8)
+  4. handler 호출 (mutation = `ImportPlanBuilder` 누적 / read = `Queries` 호출)
+  5. 결과 직렬화 + 에러 → `VALIDATION_ERROR` 변환
+  6. **audit log** (review 2차 R5 M4): `ToolCall` logger 에 tool name / argv hash / latency / 결과 size / error 기록
+  7. **turn 당 mutation tool quota** (review 2차 R5 prompt injection 방어): e.g. 50회 초과 시 `QUOTA_EXCEEDED` — runaway loop / injection 회피
+- **Data egress consent** (review 2차 R5 M3): 첫 chat 진입 시 opt-in 다이얼로그 — "이 모델 정보가 외부 LLM 으로 전송됩니다" + `%APPDATA%/Promaker/llm-config.json` consent flag + timestamp 저장. consent 없으면 read tool 차단.
+
+#### Phase 1c — 최소 system prompt + `add_system` end-to-end (PR 3) — ✅ 2026-05-06 완료
+- [x] 최소 system prompt — `Promaker.LlmAgent.SystemPromptText.Phase1c` 상수, `ClaudeCliOptions.SystemPrompt` 로 `--append-system-prompt` 인자 적용
+- [x] Tool handler 첫 mutation: `add_system(name, isActive?)` — `Promaker.LlmAgent.Tools.ModelTools.AddSystem`, F# `ToolOperations.queueAddSystem` 호출 (DsSystem internal ctor → `Ds2.LlmAgent` 에 InternalsVisibleTo 추가). 첫 번째 project 자동 부착 (phase 1c 단순화)
+- [x] Turn end `ApplyImportPlan` — `LlmChatViewModel.ApplyTurnPlanAsync` 가 dispatcher 안에서 `DsStoreImportPlanExtensions.ApplyImportPlan(_store, "LLM: <50자>", plan)` 1회 호출 → 1 undo step
+- [x] Read tool 1개: `list_systems()` — `ModelTools.ListSystems` → `ToolOperations.listSystems` → 모든 project 의 active+passive 시스템
+- [x] `LlmTurnContext` + `LlmTurnContextProvider` (turn-scoped, McpHostService DI singleton). Tool method 가 `[FromKeyedServices(null)]` 로 주입받음. mutation quota 50회 (`IncrementMutationCount`)
+- [x] Audit log — `Promaker.LlmAgent.ToolCall` logger 가 tool name / 결과 size / latency / error 기록
+- [x] **end-to-end 검증** (사용자 검증 완료): LLM 이 add_system 호출 → turn end → ApplyImportPlan → DsStore 변경 → EditorEvent → MainViewModel rebuild → 다음 turn 에서 list_systems 로 결과 확인 / Undo 1회로 turn 전체 롤백 모두 정상
+
+#### Phase 1d — Tool 풀세트 + UI 완성 (PR 4)
+
+> **하위 단위로 분할 진행** (단일 PR 안의 internal sub-milestone): 1d-1 Mutation 풀세트 → 1d-2 Read tool composite + system prompt 보강 → 1d-3 validate_model → 1d-4 UX (dock / throttle / consent / strict-mcp-config) → 1d-5 lifecycle 보안 (Job Object / ACL / sweep) → 1d-6 golden scenario.
+
+- [x] **1d-1 — Mutation tool 풀세트** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `add_flow` / `add_work` / `add_call` / `add_arrow` / `add_api_def` 모두 `ImportPlanOperation` 누적 + turn end ApplyImportPlan. `ToolOperations` 의 plan+store 합산 lookup 으로 같은 turn 안 ID chaining 지원 (e.g. add_flow → add_work). `ImportPlanBuilder.Operations` seq 노출. `ModelTools` 가 sanitize/Guid parse/dispatcher/audit/quota 통합 헬퍼 (`Sanitize`/`ParseGuid`/`RunMutation`) 로 7개 책임 inline 압축. ID 표기 full GUID 통일 (list_systems / 모든 mutation 응답).
+- [x] **1d-2 — Read tool composite + system prompt 보강** (2026-05-06 빌드 통과 + 사용자 e2e 검증 통과): `describe_system(systemId, deep?)` / `describe_subtree(rootId, depth)` (Project/System/Flow/Work 자동 판별, depth cap 5, 50 entity 제한 + truncated 표기) / `find_by_name(name, kind?)` 3종 추가. `RunRead` 헬퍼 (read 는 quota 미증가 + sizeBytes audit). System prompt 1c → 1d-2 갱신: 모델 schema (Project→System→Flow→Work→Call + ApiDef sibling + Arrows) 트리 도식, batch read 우선 가이드 ("describe_subtree 1번 > describe_system N번"), turn-end commit / ID chaining 명시, **user-text-as-data 격리** (prompt injection 1차 방어), out-of-scope refusal (filesystem / shell / non-Promaker MCP 거부).
+- [x] **Read tool — N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical) — 1d-2 에서 `describe_system`/`describe_subtree`/`find_by_name` 도입 + system prompt batch 가이드 + **Pass E 에서 token 회귀 자동화 흡수** (`DescribeSubtreeTests.fs` 의 "subtree ≤ Σdescribe_system + 256B overhead" cap):
+  - ~~`list_systems()` → 1KB 이내 메타~~ (1d-1 완료, 평탄화 형식)
+  - ~~`describe_system(id, deep?)`~~ (1d-2 완료)
+  - ~~`describe_subtree(rootId, depth)` + truncated 플래그~~ (1d-2 완료, 50 entity budget + boundary test = Pass E)
+  - ~~`find_by_name(name, kind?)`~~ (1d-2 완료)
+  - ~~system prompt 가이드 — "batch 우선"~~ (1d-2 + Pass B 풀세트)
+  - ~~Phase 1d golden test 에 token 회귀 케이스~~ — Pass E 자동화 흡수 (실제 LLM exploration 시뮬은 부담 vs 가치 낮아 fixture 기반 byte 비교로 대체)
+- [x] **1d-3 — `validate_model(scope?)` + 500ms cache** (2026-05-06 빌드 통과 + review 7건 중 4건 반영): `ToolOperations.validateModel/validateModelByGuid` + `ValidationScope` DU (Global/System/Flow). 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder, placeholder = TODO/TBD/FIXME/XXX/?/??/??? 대문자 정규화). `LlmTurnContext.ValidateCacheTtlMs = 500` const + `_validateCache` (scopeKey × tickMs × result) — turn-내 cache (lock 없음, RunRead 가 dispatcher 위에서 실행함을 가정). `ModelTools.ValidateModel(scope?)` — 빈 값 또는 "global" → global, GUID 면 자동 판별, cache hit 시 `(cached, <{TTL}ms)` suffix. 출력 안정성: 카테고리 안 line `Seq.sortBy snd` 정렬 + flow/system scope 의 skipped 카테고리 footer 명시. system prompt 에 "Call AT MOST ONCE right before finishing" 1줄. 보류 review: false positive 가이드 (1d-4 또는 1d-6) / `?` 1글자 placeholder 적합성 (1d-6 결과 보고 결정)
+- [/] **1d-4 — UX 입력/버블 + A/B/C** (2026-05-06 부분 완료, 빌드 + 자동 검증 13/13 통과). 남은 항목 = D dock 통합 / E consent dialog / F HistoryPanel 시각화:
+  - **입력 키 동작**: PreviewKeyDown 으로 Enter=전송 / Shift+Enter=줄바꿈 (TextBox 기본) / Alt+J=줄바꿈 강제 삽입 (Alt 조합 = `Key.System` + `e.SystemKey` 분기, `tb.SelectedText` 치환). Send 버튼 `IsDefault="True"` 제거 + 텍스트 "전송 (Enter)"
+  - **메시지 버블**: "user" / "assistant" 라벨 제거. ListBoxItem `Style.Triggers` 의 DataTrigger Role 값으로 user=오른쪽 + accent 색, assistant=왼쪽 + secondary 색, system=가운데 + dim italic. Border `MaxWidth=520` 으로 long line 줄바꿈
+  - **A — AssistantDelta 50ms throttle**: `_pendingAssistant : StringBuilder` + `DispatcherTimer` (Background priority). `AppendAssistant` = buffer 누적 + timer.Start (이미 enabled noop). Tick = Stop + Flush. `finally` / `DisposeAsync` 강제 flush 로 마지막 fragment 손실 방지. claude CLI burst 패턴이면 사용자 체감 X — 안전망 역할
+  - **B — `--strict-mcp-config` + `--allowed-tools`**: `ClaudeCliOptions` 에 두 필드 추가 + `ClaudeCliArgs.build` module-level 분리 (외부 검증 가능). `--allowed-tools` 는 **반복 인자 형식** (`--allowed-tools T1 --allowed-tools T2 ...`) 채택 — 단일 인자/공백구분/콤마구분 호환성 이슈 회피. `PromakerToolNames.cs` 신규 (servername=`promaker` + 11개 tool 이름). 화이트리스트 drift 시 LLM 이 조용히 차단 → 1d-6 negative test 가 회귀 검출
+  - **C — Sanitize 강화**: `CharUnicodeInfo.GetUnicodeCategory` 검사로 Control (Cc) + Format (Cf) 차단. RLO override (U+202E) / null byte / ZWJ / newline 모두 거부. 메시지에 codepoint `U+XXXX` 명시 (LLM 회복 단서)
+  - **자동 검증**: 검증 스크립트 (B 8개 + C 8개 케이스) 모두 통과 후 폐기. 1d-6 golden test 묶음에 동일 검증 흡수 예정
+- [x] **1d-4 잔여 D** — ChatPanel dock 통합 (별도 Window → MainWindow 안 dock panel) — 2026-05-06 완료. `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml(.cs)` UserControl 추출 (`InverseBoolConverter` 동반 이전) + `MainWindow.xaml` 새 column 5/6 (Splitter 4px + Panel 380px, default width=0 collapsed) + DataTemplate `LlmChatViewModel→LlmChatPanel` + `MainViewModel.LlmChatVm` (lazy `[ObservableProperty]`) + `IsLlmChatVisible` + `ToggleLlmChatCommand` (lazy 생성 시 consent 검사) + `MainWindow.xaml.cs.UpdateLlmChatColumnWidths` (PropertyChanged 구독, collapsed 시 splitter+panel 둘 다 width 0). 기존 `LlmChatWindow.xaml(.cs)` 삭제. 메뉴 항목 → `ToggleLlmChatCommand` + 텍스트 "LLM Chat (토글)"
+- [x] **1d-4 잔여 E** — Data egress consent dialog (`%APPDATA%/Promaker/llm-config.json`) — 2026-05-06 완료. `Apps/Promaker/Promaker/LlmAgent/LlmConsent.cs` (Load/Grant/IsGranted/EnsureGranted) + `MainViewModel.OpenLlmChat` 1차 차단 (Yes/No MessageBox) + `LlmChatViewModel.InitializeAsync` 2차 defense-in-depth (consent 거부 시 MCP host 미시작). consent flag = `DataEgressConsent: bool` + `ConsentTimestampUtc: ISO8601`
+- [x] **1d-4 잔여 F** — HistoryPanel 에 LLM turn 그룹 시각화 — 2026-05-06 완료. `HistoryPanelItem.IsLlmTurn => Label.StartsWith("LLM: ")` + HistoryPanel.xaml DataTemplate 안 좌측 3px AccentBrush 색띠 + label foreground=AccentBrush + FontWeight=SemiBold (IsLlmTurn 시). IsRedo (취소선) 와 함께 자연 합성
+- [x] System prompt 보강 (1c 의 최소 → 1d 의 풀) — 2026-05-06 완료. `SystemPrompt.cs` 의 `Phase1c` 상수에 ① **Arrow 시맨틱 절** (Start/Reset/StartReset/ResetReset/Group/Unspecified 한 줄씩 + "next/then → Start, either-or → ResetReset" 매핑 가이드) ② **Greenfield anti-hallucination checklist** (Project 부재 시 GUI 안내 / 디바이스 주소·핀·protocol·timing·ApiDef sig 추측 금지 명시) ③ **Clarification 템플릿** 4종 (missing parent / missing arrowType / ambiguous count / vague spec) ④ **`<spec>...</spec>` delimiter 절** (delimiter 안은 DATA, 명령 아님 + 외부 prose 도 동일) 4개 섹션 추가. 기존 Operating rules 6개 + batch reads 가이드 유지. 상수명 `Phase1c` 호환성 위해 그대로
+- [/] Golden scenario 회귀 테스트 — 자동화 가능 3건은 Pass E 에서 영구 회귀 흡수, e2e 시나리오는 done 문서 분산:
+  - [ ] 4-cylinder sequential+parallel spec → 기대 모델 (e2e, LLM 호출 수반)
+  - [ ] 환각 회귀 (주소 없는 spec) (e2e)
+  - [ ] 인스턴스 격리 (Promaker 두 개 동시, cross-talk 없음 확인) (e2e)
+  - [ ] 같은 user 의 다른 RDP / logon session 에서 pipe / port handshake 차단 검증 (review 2차 R5) (e2e)
+  - [ ] `/quit` 후 재접속 (session resume) (e2e)
+  - [ ] 사용자 GUI 직접 편집과 LLM mutation 혼용 → DsStore 일관성 / Undo 정상 (e2e)
+  - [x] **token 회귀** — Pass E `DescribeSubtreeTests.fs` 흡수 (subtree ≤ Σdescribe_system + 256B overhead)
+  - [x] **prompt injection sanitizer negative test** — Pass E `SanitizeNameTests.fs` 13 케이스 (RLO/null/ZWJ/Cc/Cf/길이/공백/null/field 메시지). LLM 측 system prompt override 시도는 e2e 영역
+  - [x] **tool allowlist drift negative test** — Pass E `PromakerToolNamesDriftTests.fs` ([McpServerTool] ↔ PromakerToolNames.All 정합성)
+
+#### `modify_*` / `remove_*` — phase 2
+> review 2차 R1 후속: `ImportPlanOperation` DU 미포함. phase 2 에서 ImportPlan 확장 vs 별도 undo path 결정.
+
+**원칙**:
+- 각 tool 의 JSON Schema **SSOT 결정 (review 1차 Mi7)**: **손수 정의 + JSON Schema 가 SSOT**. Ds2 도메인 type 은 이미 변환 path (Newtonsoft / NjObjects) 가 분산되어 있어 자동 파생은 drift 위험. tool schema 는 LLM-facing 계약으로 별도 관리 + handler 에서 F# type 으로 매핑.
+- 필수 필드 누락 → `VALIDATION_ERROR` 반환 (스키마 거부 + 이유 명시) → LLM 이 사용자에게 되묻도록 system prompt 가 유도
+- **Mutation tool handler = `ImportPlanBuilder` 에 `ImportPlanOperation` 누적하는 한 줄 함수** (review 1차 M3/M8 + 2차 R1). turn end 에 단일 `store.ApplyImportPlan(label, plan)` 호출
+- **Read tool handler = `Queries` 호출 + lightweight snapshot + projection** (결정 8 thread 모델)
+- 공통 invoker 가 schema validation / sanitize / dispatcher / audit / quota / consent 흡수 (위 "Tool registry 공통 invoker 사양" 절)
+
+### Phase 2
+- [/] `modify_*` / `remove_*` mutation tool — Phase 2 첫 사이클 (B-1 Remove + B-2 Rename) 완료. **잔여 (B-3)**: Flow/Work/Call rename 시 자식 cascade — Work.FlowPrefix 갱신 + Call.Name 합성 (DevicesAlias.ApiName) 갱신. `RetargetArrow` (source/target 변경) 도 후속. Pass C 4 helper 재활용 + sanitize 재적용 (rename 새 user-text 진입점, ToolOperations.queueRenameEntity 가 sanitize 호출 위치 — 현재 호출자 ModelTools 가 sanitize 끝낸 trimmed 입력 받음, defense-in-depth 추가 가능)
+- [x] `list_projects` read tool 추가 (Pass D 후속 review 의견) — Phase 2 진입 사이클에서 완료. `mcp__promaker__list_projects` 노출. 빈 결과 (`(no projects)`) 가 list_systems 빈 결과 (`(no systems)`) 와 구분됨
+- [x] Codex CLI provider — concrete + parser + skeleton 모두 완료. **C-1** (인자 inventory + CodexCliOptions/CodexCliArgs.build), **C-2** (실제 spike — 4 packet 종류 / stderr 분리 / MCP HTTP inline 등록 / connect 실패 graceful), **C-3** (`CodexStreamJsonParser` 4 packet → LlmEvent 매핑 + `CodexCliProvider` Send/EnsureCli/SessionId/ClearSession — ClaudeCliProvider 와 동일 패턴, single `item.completed` → `AssistantDelta` 1회).
+- [x] **ILlmProvider 인터페이스 + UI provider dispatch (2026-05-06)** — review M5 의 phase 2 약속 이행. `LlmProvider.fs` 신규 + ClaudeCliProvider/CodexCliProvider `interface ILlmProvider with` 위임. LlmChatViewModel 에 `LlmProviderKind` enum + `_provider : ILlmProvider?` + `OnSelectedProviderChanged` partial + `ConfigureProviderAsync` (`_switchCounter` race 가드) + `CreateClaudeProvider` / `CreateCodexProvider` 분리. LlmChatPanel.xaml header 에 ComboBox (Claude/Codex). 빌드 통과 + 80/80 유지.
+- [x] **Codex MCP HTTP nonce 헤더** — `mcp_servers.promaker.http_headers` inline table 형식 (codex 공식 docs `http_headers = { "X-Figma-Region" = "..." }` 패턴) + ConfigOverrides 등록. e2e 통과
+- [x] **Codex `cd:` 인자 + sandbox 격리 (보안)** (2026-05-06) — `LlmChatViewModel` 의 `_codexInstructionsPath` 단일 파일을 `_codexWorkspacePath` 디렉토리 (`%TEMP%/Promaker/codex-workspace-<guid>/`) 로 격상. instructions.md 도 같은 워크스페이스 안. `CodexCliOptions.Cd = Some workspace` 로 codex 가 빈 임시 폴더에서 실행 → 사용자 git working tree / 작업 디렉토리에 닿지 않음. `DisposeAsync` 가 디렉토리 재귀 삭제. `sandbox_mode=danger-full-access` 는 codex 0.125 의 community issue 1379772 한정 그대로 유지 (workspace-write 에서 MCP tool call user-cancelled). 사용자 e2e 검증 권장
+- [/] **Codex session cleanup 정책** — (a) CODEX_HOME 격리 시도 (2026-05-06) → e2e 검증 시 401 Unauthorized 발생 (`codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses`). 원인: codex 의 인증 토큰이 `~/.codex/auth.json` 에 저장 → CODEX_HOME 격리 디렉토리에서 못 찾음. **즉시 fix (Hot-fix-5)**: `CreateCodexProvider` 에서 `codexHome: None` 으로 되돌림 (사용자 ~/.codex/ 사용). `CodexCliOptions.CodexHome` 필드는 보존 (향후 conditional 활용). **남은 cleanup 옵션**: (b) `LlmChatViewModel.Reset()` 시 마지막 sessionId 의 `~/.codex/sessions/<sid>.jsonl` 직접 삭제 — 인증은 그대로, rollout 만 cleanup. (c) CODEX_HOME 격리 + 인증 파일 (auth.json) 만 워크스페이스로 복사 — codex 의 정확한 인증 파일 명/경로 spike 필요. (d) `--ephemeral` 토글 UI 노출 후 사용자 선택. (b) 가 가장 단순 + safe
+- [x] **MCP HTTP ready 신호 wait** (2026-05-06) — `McpHostService.StartAsync()` 마지막에 `WaitReadyAsync(2초)` 추가. HTTP GET to ServerUrl with nonce header / 50ms backoff retry. Kestrel listen socket bind 만으로는 보장 안 되는 middleware pipeline + nonce 검증 + MapMcp routing 이 실제 응답하는 시점까지 검증. timeout 시 `InvalidOperationException` → InitializeAsync catch 가 사용자에게 노출. 외부 API surface 변경 X (caller 가 await StartAsync 하면 자연 보장)
+- [x] **system prompt override (Phase1c)** — `CodexCliOptions.ExperimentalInstructionsFile: string option` 신설 + build 시 `-c experimental_instructions_file='<path>'` toml literal string. CreateCodexProvider 가 `%TEMP%/Promaker/codex-instructions-<guid>.md` 임시 파일에 Phase1c 쓰고 path 전달, DisposeAsync 시 삭제. e2e 통과
+- [x] **approval_policy / sandbox_mode** — `ConfigOverrides` 에 `approval_policy="never"` (사용자 chat 명령으로 의도 표현 → 추가 approval 불필요) + `sandbox_mode="danger-full-access"` (codex 0.125 의 known behavior — read-only/workspace-write 에서 MCP tool call 이 user-cancelled 처리, danger-full-access 만 통과. community issue 1379772). e2e 통과
+- [x] **API providers 3종 — Anthropic / OpenAI / Ollama** (2026-05-07) — Microsoft.Extensions.AI `IChatClient` + `UseFunctionInvocation()` 미들웨어 + `McpClient.CreateAsync(HttpClientTransport)` self-call 패턴으로 통합. 단일 `ApiChatProvider` (C#) 가 3 provider 공통 — `Anthropic` SDK / `OpenAI` SDK + `Microsoft.Extensions.AI.OpenAI` / `OllamaSharp` 모두 IChatClient 어댑터 노출. multi-turn loop = SDK 자동. tool 정의 = MCP server 의 `tools/list` 자동 노출 (PromakerToolNames drift 자연 차단). `LlmApiConfig` (DPAPI 암호화 API key + 모델명 + Ollama base URL, `%APPDATA%/Promaker/llm-api-config.json`). `LlmProviderKind` 5종 (Claude/Codex/AnthropicApi/OpenAiApi/Ollama). `ConfigureProviderAsync` switch 5분기 + stale switch 시 IAsyncDisposable leak 방지. `LlmChatViewModel.DisposeAsync` 가 provider 회수. **사용자 e2e 검증 권장**: API key 입력 UI 미노출 — 환경변수 (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) fallback 사용 또는 후속 패스에서 다이얼로그 추가. 빌드 통과 (경고 0 / 오류 0) + 기존 92/92 회귀 통과
+- [x] **PR-A — 설정 통합 (LlmConfig + SettingsPaths)** (2026-05-07 완료) — `LlmConsent.cs` + `LlmApiConfig.cs` → 단일 `Promaker.LlmAgent.LlmConfig` (flat JSON, 8 필드). 파일 위치 = `SettingsPaths.Of("llm-config.json")` (다른 Promaker 설정과 통합). 마이그레이션 코드 없음 (배포 전). 호출자 4곳 rename (`_apiConfig` → `_config` sed bulk + `LlmConsent.IsGranted/EnsureGranted/Grant` → 인스턴스 메서드). `_config` 가 readonly 해제 (PR-B 의 ReloadConfig 가 reassign). Constructor 가 `_config.DefaultProvider` enum parse → `SelectedProvider` 초기화 (PR-B 의 즉시 ComboBox 갱신 기반). 빌드 통과 + 92/92 회귀.
+- [x] **PR-B — 설정 다이얼로그 LLM 탭** (2026-05-07 완료) — `ProjectPropertiesDialog.xaml` 5번째 탭 "LLM" 추가 (4 탭 → 5 탭). 항목 = (1) Default provider ComboBox 5종 (`turn 중 disable` — `_llmChatVm?.IsSending` 참조) / (2) API keys (Anthropic / OpenAI PasswordBox + DPAPI 암호화 저장 + "지우기" 버튼) / (3) Models 3종 TextBox / (4) Ollama base URL TextBox + **연결 확인 버튼** (`HttpClient.GetAsync($"{url}/api/version")` 3초 timeout, 결과를 hint TextBlock 에 표시) / (5) Consent 상태 표시 + 동의 철회 버튼. `LlmChatViewModel.ReloadConfig()` 신규 — disk reload + DefaultProvider 변경 시 SelectedProvider 즉시 갱신 (turn 중이면 갱신 보류). `FileCommands.ShowProjectSettings` 가 `dlg.LlmConfigChanged` 플래그 확인 후 `LlmChatVm?.ReloadConfig()` 호출. ProjectPropertiesDialog ctor 에 `LlmChatViewModel?` 인자 추가. 빌드 통과 + 92/92 회귀.
+- [x] **PR-D — DefaultProvider UI 통합 + 모델 ComboBox IsEditable** (2026-05-07 완료) — 사용자 요청 (e2e 1차 결과 반영). (1) "기본 Provider" UI 항목 삭제 — `LlmChatViewModel.OnSelectedProviderChanged` 가 `_config.DefaultProvider = value.ToString()` + `_config.Save()` 자동 호출. 사용자 마지막 선택이 곧 다음 시작 시 default → 별도 UI 항목 불필요. (2) 모델 TextBox 3개 → IsEditable ComboBox — 후보 (Anthropic 3 / OpenAI 4 / Ollama 4) + 직접 입력 모두 가능. `SetEditableComboBox` private helper 로 ItemsSource 등록 + Text 설정. (3) `ProjectPropertiesDialog` ctor 의 `LlmChatViewModel?` 인자 제거 (DefaultProvider ComboBox disable 외 사용처 없음 → CLAUDE.md "추가 안 함" 원칙). `FileCommands.ShowProjectSettings` ctor 호출도 그에 맞춰 단순화. (4) `LlmChatViewModel.ReloadConfig()` 단순화 — DefaultProvider 동기화 코드 제거 (다이얼로그가 건드리지 않으므로 SelectedProvider 갱신 무의미). 빌드 통과 + 92/92 회귀.
+
+- [x] **PR-C — Toolbar LLM 토글 버튼** (2026-05-07 완료) — 우측 4 버튼 → 5 버튼 (LLM 추가). 라이트 버튼 패턴 (Button + DataTrigger — `IsLlmChatVisible=True` 시 `IconForeground = AccentBrush`). 아이콘 = `PackIconMaterial Kind="Robot"`. ToggleButton + IsChecked OneWay binding 검토했으나 click 시 default toggle + Command toggle 의 이중 동작 / 시각 깜빡임 회피로 일반 Button + DataTrigger 패턴 채택 (라이트와 일관). 유틸 popup 의 "LLM Chat (토글)" 메뉴 항목 + Separator + LLM 헤더 모두 **제거** (진입점 분산 회피, 사용자 결정). 빌드 통과 + 92/92 회귀.
+- [ ] **API provider 단위 테스트** — mock IChatClient 로 ChatResponseUpdate 시퀀스 → LlmEvent 매핑 검증 (TextContent → AssistantDelta, FunctionCallContent → ToolUse, FunctionResultContent → ToolResult, FinishReason → SessionEnd)
+- [ ] Provider fallback 정책 (지정 provider 실패 시 다른 provider 자동 전환 vs 에러 종료) — 현재는 manual ComboBox 선택만 지원
+- [ ] m1 — `LlmTurnContextProvider` singleton → `AsyncLocal<LlmTurnContext>` (다중 dock / 다중 provider 동시 turn 분리)
+- [ ] (결정 7 (c) 채택했고 UX 가 부족하면) `withTransaction` nested 허용 (a) 또는 `BeginTurnBatch` (b) 도입
+- [ ] (결정 7 (a)/(b) 도입 시) deferred-apply 모델 — turn 안 mutation 은 in-memory plan, turn end 에 batch apply (review M4)
+
+### Phase 3
+- [ ] LLM 제안 적용 전 미리보기 / confirm 모드 (opt-in)
+- [ ] 제안 diff 시각화 (캔버스에 ghost 노드 등)
+- [ ] LLM 추천 액션 chip / quick-apply UX
+
+---
+
+## 사전 실증 항목
+
+> 단일 source: 위의 **"Phase 0 — 사전 실증 + surface inventory"** 섹션 (line ~194) 본문 참조. 중복 표 제거 (drift 방지).
+
+---
+
+## 검증된 사실 (직접 source 검증 완료)
+
+> 새 세션이 결정의 근거를 빠르게 확인할 수 있도록 한 곳에 모아둔 매핑. 모든 line 번호는 검증 시점 기준.
+
+| 결정 | 근거 source | line | 사실 |
+|---|---|---|---|
+| 결정 7 (d) | `Solutions/Core/Ds2.Core/Store/ImportPlan.fs` | 5-15 | `ImportPlanOperation` DU 9종 (`AddSystem`/`AddFlow`/`AddWork`/`AddCall`/`AddApiDef`/`AddApiCall`/`AddArrowWork`/`AddArrowCall`/`LinkSystemToProject`) |
+| 결정 7 (d) | `Solutions/Core/Ds2.Editor/Editor/ImportPlanApply.fs` | 34-38 | `applyWithUndo` = 단일 `store.WithTransaction(label, ...)` + `EmitRefreshAndHistory()` 1회 emit. `[<Extension>] ApplyImportPlan` 으로 호출 측 노출 |
+| 결정 7 (d) 의 부정 근거 | `Solutions/Core/Ds2.Editor/Editor/Authoring.fs` | 28-29 | `if editorState.CurrentRecords.IsSome then invalidOp "Nested transactions are not supported"` — outer transaction 가정은 즉시 invalidOp |
+| 결정 7 (d) 의 부정 근거 | `Solutions/Core/Ds2.Editor/Store/Nodes/Nodes.fs` | 24-34 | `[<Extension>] static member AddSystem(...)` 이 자체 `store.WithTransaction(...)` 호출 — 외부에서 outer 감싸면 nested |
+| 결정 8 (Thread) | `Solutions/Core/Ds2.Editor/Editor/Authoring.fs` | StoreEditorState | `mutable CurrentRecords / SuppressEvents / CurrentAffectedIds` lock 없음 → background thread 직접 접근 위험 |
+| 결정 8 (`InvokeAsync` Background) | `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs` | 652-679 | 기존 `RequestRebuildAll` 이 `BeginInvoke` + `DispatcherPriority.Background` 패턴. coalescing 의존. sync `Invoke` 는 이 패턴 깨짐 |
+| 주의 13 (WPF WinExe) | `Apps/Promaker/Promaker/App.xaml` | 4-5 | `StartupUri="MainWindow.xaml"` + `ShutdownMode="OnMainWindowClose"` — argv 분기 없이 자식도 MainWindow 자동 생성 |
+| 결정 2 (mutation API 위치) | `Solutions/Core/Ds2.Editor/Store/Nodes/Nodes.fs` | 24 | `AddSystem` 은 `[<Extension>] static member` on `DsStoreNodesExtensions` (Ds2.Editor) — DsStore 자체는 read-only dictionary |
+
+**미검증 (사전 실증 위임)**:
+- 결정 4 (transport): HTTP MCP transport 동작 가능 여부 — **사전 실증 3** 으로 위임
+- Phase 1a (`-p` + `--resume` + `--mcp-config` + `stream-json` 양립성) — **사전 실증 2a** 로 위임
+- Phase 1a (session_id 실제 packet format `subtype:init` 분기) — **사전 실증 7** 로 위임
+- 결정 5 (손자 Job Object 상속) — **사전 실증 6** 으로 위임 ((b) 채택 시)
+
+---
+
+## 새 세션 진입 절차
+
+새 Claude Code 세션이 본 작업을 이어받을 때:
+
+1. **본 문서 전체 1회 통독** — 결정 1~8 + Phase 0~1d + 주의 사항 17개. 약 500 lines
+2. **검증된 사실 표** (위 섹션) 의 source line 1~2개를 직접 열어 코드 변경 없는지 sanity check (특히 `ImportPlanApply.fs:34-38`, `Authoring.fs:28-29`, `App.xaml:4-5` 우선)
+3. **사용자에게 진입 단계 확인**:
+   - Phase 0 (사전 실증) 미진행 상태인지 → 가장 먼저 spike 시작
+   - Phase 0 일부 완료 → 어느 결정이 잠정→확정 전환되었는지
+   - Phase 1a/1b/1c/1d 어느 PR 진행 중인지
+4. **Phase 0 미완료 시 권장 진입**: 사전 실증 3 (HTTP MCP transport, ~30분) 먼저 — 결정 4 의 (c)/(b) 분기 결정. 그 후 1, 2a, 5, 7 병렬 spike.
+5. **Phase 1a 진입 시 필수 사전 차단 조건**:
+   - 사전 실증 2a (CLI 인자 양립성) 통과
+   - 사전 실증 7 (session_id format) 측정 결과 반영
+   - 사전 실증 5 (Editor surface) 결과로 ProjectReference 확정
+6. **잠정 결정 1개 (결정 4) 가 확정 전환 시** — 본 문서 결정 4 / 결정 5 / Phase 1b 섹션 갱신 + 진행 상태 의 "잠정→확정" 표기 이동
+
+---
+
+## 관련 파일 / 경로
+
+**기준 디렉토리**: 이 문서 위치 = `<repo>/Solutions/Core/Ds2.LlmAgent/` (ds2 `feature-greenfield-modeling` branch). 아래 경로는 모두 **이 문서 기준 상대경로**.
+
+### 신규 (모두 ds2 `feature-greenfield-modeling` branch)
+- **이 문서**: `./todo-promaker-llm-agent.md`
+- (예정) `./Ds2.LlmAgent.fsproj`
+- (예정) Chat panel: **신설 `../../Apps/Promaker/Promaker/Controls/Llm/`** 잠정 결정 (Phase 1d 진입 시 최종 확인). 근거: 기존 `Controls/Shell/` 은 explorer/history/toolbar 등 shell 인프라 용도이므로 LLM agent panel 은 별도 디렉토리가 응집도 ↑
+
+### 참고 (모두 ds2 `feature-greenfield-modeling` branch — 본 작업 분기)
+- Promaker 진입점: `../../Apps/Promaker/Promaker/App.xaml.cs`
+- Promaker MainViewModel: `../../Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs`
+- Promaker csproj: `../../Apps/Promaker/Promaker/Promaker.csproj`
+- Promaker 솔루션: `../../Apps/Promaker/Promaker.sln`
+- Ds2 도메인 core (F#): `../Ds2.Core/` / `../Ds2.Editor/`
+
+### Cross-repo / cross-branch 참고 (절대경로 — 다른 repo 또는 다른 branch)
+- Ds2 entity 개념 문서: `/f/Git/kwak/kwak/DsConcepts/ds.md`, `ds-entities.md` (별도 repo, CLAUDE.local.md 인용)
+- Ds2 JSON 포맷 문서: `/f/Git/ds2/main/Solutions/Convert/Ds2.JsonFormatter/json-format.md` (포맷은 main 의 안정 문서 참조)
+
+### Ev2 측 학습 자산 (별도 repo `/f/Git/ev2/master`, 직접 통합 X, 패턴만 참조)
+- todo-greenfield-model-builder: `/f/Git/ev2/master/solutions/Ev2.Backend/todos/todo-greenfield-model-builder.md`
+- Builder Claude CLI provider (1-shot): `/f/Git/ev2/master/solutions/Ev2.Backend/src/Ev2.Oracle/Builder/pipeline/llm_providers/claude_cli.py`
+- GreenfieldModelerPoC (Python): `/f/Git/ev2/master/solutions/Ev2.Backend/src/Ev2.Oracle/GreenfieldModelerPoC/`
+- Ev2.Oracle Backend (FastAPI tool registry): `/f/Git/ev2/master/solutions/Ev2.Backend/src/Ev2.Oracle/Backend/`
+
+---
+
+## 주의 사항
+
+1. **모델 SSOT 는 DsStore 1개**. LLM mutation / 사용자 GUI 편집 / 파일 import 모두 DsStore 를 거친다. EditorEvent 로 양방향 sync 보장.
+2. **세션 SSOT 는 Provider 의 SessionHandle**. CLI 는 `--resume` ID, API 는 message array. 둘이 분리되어 있으므로 사용자 GUI 변경을 LLM session 에 단방향 주입하는 다리가 필요 (model_changed system message 또는 다음 turn 전 context refresh).
+3. **Promaker 는 다중 인스턴스 동시 실행 가능**. 모든 IPC 식별자(named pipe / 임시 파일) 는 SessionGUID 로 unique 화 (PID 는 log 메타). cross-talk 방지가 보안/안전 양면에서 필수.
+4. **Job Object cascade kill 필수 — 단 손자 상속 미보장** (review M1). 자식 Promaker 자체 watchdog (parent_handle 폴링 + pipe broken self-exit) 이중 방어. 부모 Promaker 가 비정상 종료해도 Claude CLI + 자식 Promaker (MCP server) 가 좀비로 남지 않게.
+5. **`--tools ""` + `--strict-mcp-config` 충돌 가능성** — Builder 의 1-shot provider 는 도구 비활성 + 빈 MCP 였음. 본 작업은 도구 활성 + MCP server 연결이 필요하므로 인자 조합이 정반대. 실측 단계에서 충돌/우회 확인 필수. **Claude CLI 최소 버전 핀** 도 첫 적용 시 명시 (review Mi4).
+6. **`.mcp-config` 임시 파일 ACL** = Owner: current user, DACL: user FullControl only, `SetAccessRuleProtection(true,false)` 로 inheritance 차단. 시작 시 stale `mcp-*.json` sweep (review M10 / Mi1).
+7. **Tool 범위 제한**: model mutation 도구로만 한정. `Bash` / `Read` / `Write` 같은 filesystem 도구는 전면 금지. Claude CLI 의 `--tools ""` allowlist + `--mcp-config` 화이트리스트 이중 방어. (Ev2.Hub 의 headless XG5000 사고 같은 외부 프로세스 spawn 방지)
+8. **F# / C# 분리 근거** = `CommunityToolkit.Mvvm [ObservableProperty]` source generator 가 C#-only 라 Promaker 의 기존 MVVM 패턴 깨지 않으려는 절충 (review M9). F# 선호는 보너스. `Ds2.LlmAgent` DLL 은 F# 단독, Promaker 안의 ChatPanel ViewModel 만 C#.
+9. **작업 branch 는 `feature-greenfield-modeling`** (Promaker 가 위치한 branch). `Ds2.LlmAgent` DLL / todo 문서 모두 이 branch 의 `Solutions/Core/Ds2.LlmAgent/` 에 두고 작업. main 흡수 시점은 사용자 결정.
+10. **Codex CLI 가 막혀도 진행**. provider 추상화가 흡수하나, phase 1 은 ClaudeCli concrete 1종이므로 Codex 추가 시 인터페이스 재설계 인정 (review M5).
+11. **Thread 모델 = `IUiDispatcher.InvokeAsync<'T>` Background priority** (review 1차 C3 + 2차 R4). `Ds2.Editor` 의 mutable state 가 lock 없이 사용되므로 background thread 직접 mutation 시 Undo 스택 corruption / `InvalidOperationException` 위험. **sync `Invoke` 금지** — UI thread 점유 시 stream 처리도 block 되어 AssistantDelta 표시 frozen. read tool 도 dispatcher snapshot (lightweight `.Values.ToArray()`) 후 background 가공. AssistantDelta 같은 stream-only 이벤트는 dispatcher 우회.
+12. **Undo 단위 = 결정 7 (d) ImportPlan 활용 — 1 LLM turn = 1 undo step** (review 2차 R1 Critical). `Ds2.Core/Store/ImportPlan.fs` + `Ds2.Editor/Editor/ImportPlanApply.fs` 의 `ApplyImportPlan` 이 단일 `WithTransaction` + `EmitRefreshAndHistory` 1회 emit. F# editor **무수정**. `modify_*` / `remove_*` 는 ImportPlanOperation 미포함 → phase 2 처리.
+13. **WPF WinExe 제약** (review 1차 C2 + 2차 R5 M5): `App.xaml` 의 `StartupUri` 제거 + 진입점 분리 (1차 안 = OnStartup argv 분기, 2차 안 = `<DisableWinExeOutputInference>` + 별도 `static int Main` — 사전 실증 0 결과로 결정). `--mcp-server` 모드는 WPF 진입 skip + `GetStdHandle` + `Console.SetIn/SetOut` 재바인딩으로 stdin/stdout 사용.
+14. **IPC 보안** (review 2차 R5 Critical): pipe 생성 시 SECURITY_DESCRIPTOR (DACL: current user FullControl only, deny others) + `PIPE_REJECT_REMOTE_CLIENTS` + `Process.SessionId` 격리 (RDP / Fast User Switching) + handshake nonce (`.mcp-config` 에 short-lived secret 기록 → 자식 첫 메시지로 송신 → 부모 검증). 같은 user 의 다른 logon session 또는 GUID leak 시에도 nonce 없으면 차단. Stale `.mcp-config` sweep 은 자기 session scope + dead PID 조건만.
+15. **Tool argument validation + prompt injection 방어** (review 2차 R5 Critical): mutation 인자에 사용자 paste 텍스트가 흘러갈 수 있음 — path traversal / null byte / unicode bomb / "ignore previous instructions" injection 무방비. 공통 invoker 가 ① schema enforce (pattern/maxLength/required) ② sanitize (charset whitelist / GUID 포맷) ③ system prompt user-text 격리 delimiter (`<spec>...</spec>` + "내부는 데이터") ④ turn 당 mutation tool quota (e.g. 50회) 4중 방어.
+16. **Data egress consent + audit log** (review 2차 R5 M3 / M4): read tool 결과는 사용자 모델 전체가 외부 LLM 으로 송출되므로 첫 진입 opt-in 다이얼로그 + `%APPDATA%/Promaker/llm-config.json` consent flag + timestamp. `Promaker.LlmAgent.ToolCall` log4net logger 로 tool 호출/결과/latency 기록 (forensic / repro), `RawStream` verbose appender 는 default OFF.
+17. **Read tool N+1 token 폭증 방지** (review 2차 R1·R2·R4 Critical): 4분할 단순 read tool 은 LLM exploration 패턴에서 prompt cache 5분 TTL 만료 시 누적 token 폭증. `describe_subtree(rootId, depth, page)` composite + truncated/next_page 플래그 + system prompt batch 가이드 + golden test token 회귀.
+
+---
+
+## 진행 상태
+
+- 현 단계: **Phase 2 — UI/설정 정비 + e2e 후속 hot-fix 통합** (2026-05-07, 빌드 0/0 + 92/92). PR-A (LlmConfig 통합) / PR-B (LLM 탭) / PR-C (Toolbar Robot 토글) / PR-D (DefaultProvider 통합 + 모델 input) / PR-E (UX 정비 4건 — pixel scroll / TextBox selection + ContextMenu copy/export / 전송↔Cancel 토글) / PR-F (3-dot thinking animation, Ev2.Oracle 패턴 포팅). e2e 후속: **Hot-fix-7** (LlmChatVm._store stale reference → UpdateStore 메서드 + Reset 동기화) / **Hot-fix-8 v3** (IsEditable ComboBox quirks 회피 — TextBox + ▾ Button + ContextMenu 패턴) / **Hot-fix-9 v2** (Window_Closing 의 IsClosing race — `Dispatcher.BeginInvoke(Close, Background)`). review 반영: ReloadConfig 활성 provider 재구성 / SaveLlmTab dirty 비교 / Ollama 연결 확인 catch filter. **Editor → LLM 변경 알림 (2026-05-07)** — `EditorChangeDigest` + `<editor_changes>` prepend + self-loop guard + system prompt 정책 단락. **다음**: API provider 단위 테스트 / B-3 (rename cascade) / m1 (AsyncLocal) / Codex session cleanup (b) / provider fallback 정책 / `<editor_changes>` negative test 1d-6 추가.
+- 결정 상태:
+  - **확정 9개**: 결정 1 (통합 형태) / 결정 2 (언어 + tool registry, ILlmProvider 인터페이스 phase 2 로 미룸) / 결정 3 (Provider 우선순위) / **결정 4 ((c) HTTP MCP transport — 2026-05-06 사전 실증 3 통과)** / 결정 5 (인스턴스 격리 + IPC 보안, (c) 채택으로 5.0 적용) / 결정 7 ((d) ImportPlan 활용) / 결정 8 (Thread 모델, InvokeAsync Background priority) / 결정 9 (비동기 표현 — provider stream `IAsyncEnumerable`, EditorEvent `IObservable`) / 결정 6 흡수 완료
+  - **잠정 0개** — 모든 결정 확정
+
+### Phase 0 사전 실증 결과 (2026-05-06 진행)
+
+| 실증 # | 상태 | 결과 요약 |
+|---|---|---|
+| 실증 1 — MCP SDK 패키지 | ✅ | `ModelContextProtocol` / `.Core` / `.AspNetCore` 모두 1.2.0 정식 GA. F# 호출은 빌드 단계 검증 (manual DI 등록 우회 가능) |
+| 실증 2a — CLI 4종 인자 양립성 | ✅ | `claude -p <msg> --resume <sid> --mcp-config <path> --output-format stream-json --verbose` 동시 동작 확인. session resume 정상 (cache_read 활용), 응답 ~3.7s |
+| 실증 3 — HTTP MCP transport | ✅ | ASP.NET Core 10 + `ModelContextProtocol.AspNetCore` 1.2.0 + `[McpServerTool]` attribute 로 toy server (`PingTool`) 띄움 → `.mcp-config` 의 `{"type":"http","url":"http://127.0.0.1:5777/"}` 항목으로 Claude CLI 가 connect 성공 → `mcp__spike__ping` 호출하여 응답 정상 수신. 결정 4 → (c) 확정 |
+| 실증 5 — Editor surface inventory | ✅ | `ImportPlanOperation` 9종 DU 모두 phase 1 mutation tool 세트 (add_system/flow/work/call/arrow/api_def) 커버. `ImportPlanApply.applyWithUndo` = 단일 `WithTransaction` + `EmitRefreshAndHistory` 1회 emit. `[<Extension>] ApplyImportPlan` 노출. **`Ds2.LlmAgent` ProjectReference = `Ds2.Editor` only 충분** (Ds2.Core 는 transitive, `Queries` 는 `[<AutoOpen>] module Queries` in `Ds2.Core.Store`). `modify_*`/`remove_*` 는 DU 미포함 — phase 2 처리 |
+| 실증 7 — session_id 패킷 형식 | ✅ | 첫 패킷 = `{"type":"system","subtype":"init","cwd":"...","session_id":"...","tools":[...],"mcp_servers":[...],"model":"...",...}`. 종료 패킷 = `{"type":"result","subtype":"success",...}`. 추가 발견: `mcp_servers` 가 init 패킷에 health check 결과 포함 (e.g. `{"name":"spike","status":"connected"}`) — 별도 health-check 호출 불필요 |
+
+**Skip 처리 (결정 4 (c) 확정으로 불필요)**:
+- 실증 0 (WPF WinExe stdio 진입점 분리) — (c) 채택 시 자식 Promaker spawn 없으므로 불필요. App.xaml StartupUri 변경도 skip 가능
+- 실증 6 (손자 Job Object 상속) — (c) 채택 시 자식 프로세스 자체 없음
+
+**남은 spike (phase 2 사전)**:
+- 실증 2b/2c/2d (per-turn spawn vs long-running, latency, lazy spawn 시점) — (c) 채택으로 자식 spawn 자체가 in-process Kestrel 로 대체. CLI 측 spawn 시점은 phase 1a 단순 측정으로 충분
+- 실증 4 (Codex CLI multi-turn / stream / MCP) — phase 2 진입 시점
+
+### 다음 작업 진입 권장 순서
+
+1. ✅ Phase 0 사전 실증 완료 (2026-05-06)
+2. ✅ 결정 4 (c) 확정 (2026-05-06)
+3. ✅ **Phase 1a** — scaffold + ClaudeCliProvider concrete + 최소 chat panel (PR 1, internal) — 2026-05-06 완료
+4. ✅ **Phase 1b-c** (HTTP) — Promaker in-process Kestrel + `ModelContextProtocol.AspNetCore` 1.2.0 + loopback bind + ephemeral port + handshake nonce + `IUiDispatcher` 추상 + `ImportPlanBuilder` + dummy `PingTool` (PR 2) — 2026-05-06 완료
+5. ✅ **Phase 1c** — 최소 system prompt + `add_system` mutation tool + `list_systems` read tool + Turn end `ApplyImportPlan` + LlmTurnContext + audit log (PR 3) — 2026-05-06 완료. 산출물 `done-promaker-llm-agent.md`. end-to-end 검증 통과 (add_system → ApplyImportPlan → tree rebuild → Undo 롤백 모두 정상)
+6. ✅ **Phase 1d-1** — Mutation tool 풀세트 (`add_flow`/`add_work`/`add_call`/`add_arrow`/`add_api_def`) — 2026-05-06 완료 (사용자 e2e 검증 통과). ID chaining (plan+store 합산 lookup) 으로 같은 turn 안 add_flow → add_work 가능
+7. ✅ **Phase 1d-2** Read tool composite (`describe_system` deep + `describe_subtree` depth + `find_by_name`) + system prompt 보강 — 2026-05-06 완료 (사용자 e2e 검증 통과). token 회귀 golden test 는 1d-6 으로 미룸 (시나리오 골든 묶음과 함께)
+8. ✅ **Phase 1d-3** `validate_model(scope?)` + 500ms turn-내 cache + 6 카테고리 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder) — 2026-05-06 commit `87763fa`
+9. ✅ **Phase 1d-4 완료** (2026-05-06) — 입력 키 + 버블 UI + A throttle + B strict-mcp/allowed-tools + C Sanitize 강화 + E consent dialog + D dock 통합 + F HistoryPanel 시각화
+10. ✅ **Phase 1d-5 완료** (2026-05-06) — `ChildProcessTracker` Job Object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (Promaker crash 시 Claude CLI cascade kill) + `ClaudeCliOptions.OnProcessStarted` callback hook + `McpConfigWriter` Owner-only ACL (`SetAccessRuleProtection(true,false)` + user FullControl 단일 rule) + 파일명 `mcp-{sessionId}-{pid}-{guid}.json` (PID 추출 가능) + `SweepStale` (자기 sessionId + dead pid OR mtime > 5분 + 자기 pid 보호) + App.OnStartup 1회 호출
+11. ✅ **Phase 1d-6 완료** (2026-05-06) — `Solutions/Tests/Ds2.LlmAgent.Tests/` 신규 fsproj (xunit, ProjectReference Ds2.LlmAgent). `ClaudeCliArgsTests.fs` 8개 (1d-4 B fsx 영구 회귀 — strict-mcp-config / allowed-tools 반복 인자 형식 / sessionId resume / 기본 인자) + `ValidateModelTests.fs` 6개 (no issues 메시지 / VALIDATION_ERROR / placeholder 보고 / scope footer). Promaker.sln 에 Tests 폴더 그룹 + project 추가. 14/14 통과. 사용자 e2e 시나리오 (4-cylinder / 환각 / 인스턴스 격리 / RDP / token / prompt injection / tool allowlist) 는 phase 별 done 문서의 "사용자 측 검증 시나리오" 절에 분산 정리
+12. ✅ **Pass B 후속 묶음** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m5/m10/m7 + todo line 331 풀세트 보강. (m5/m10) `StreamJsonParser.MaxLineLength = 1MB` + `MaxJsonDepth = 32` (`JsonDocumentOptions`) + parse fail / line drop 시 `Log.provider.Warn` (forensic 단서). (m7) `ValidateModelTests.fs` 의 "orphan system" 케이스를 footer 검증 → 실제 orphan 시뮬 (project 만든 후 `project.ActiveSystemIds.Remove(sysId)` 로 unlink). 추가 attached system 비교군 + DoesNotContain assertion. (System prompt) `SystemPrompt.Phase1c` 에 Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter 4개 섹션 추가. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
+13. ✅ **Pass C — M9 ToolOperations boilerplate 통합** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 M9. `ToolOperations.fs` 에 `requireNonEmpty` / `tryFindInPlan` / `requireFromStoreOrPlan` / `hasNameClash` 4개 helper 추출. 6개 queueAdd* 함수의 String.IsNullOrWhiteSpace inline 검사, 4개 tryFindXxxInPlan, 3개 requireXxx, 4개 hasXxxClash 본문이 1~2줄 호출로 단축. 외부 시그니처 100% 보존 (invalidArg 메시지 "가"→"이" 1건만 미세 변경). Phase 2 의 modify_*/remove_* 추가 시 동일 helper 재활용. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과
+14. ✅ **Pass D — m3 ModelTools DI attribute 정석화** (2026-05-06) — Pass A 의 의도적 미적용 항목 중 m3. SDK source 직접 분석 (`AIFunctionMcpServerTool.ConfigureParameterBinding`) 결과 ModelContextProtocol.AspNetCore 1.2.0 binder 가 `IServiceProviderIsService.IsService(type)` 로 DI 등록 type 자동 검출 + schema 자동 제외 → attribute 자체가 redundant 임이 밝혀짐. `[FromKeyedServices(null)]` 12 곳 제거 + 클래스 헤드 우회 설명 주석을 자동 검출 path 설명으로 교체 + `using Microsoft.Extensions.DependencyInjection` 제거. 결과: Promaker.sln 빌드 통과 + Ds2.LlmAgent.Tests 15/15 통과 (사용자 e2e 검증 — LLM add_system 정상 dispatch 확인 권장)
+15. ✅ **Pass E — Phase 1d 자동화 회귀 보강** (2026-05-06) — Phase 1d-6 의 자동화 가능 회귀 잔여 3건을 `Ds2.LlmAgent.Tests` 에 영구 흡수. (A) `DescribeSubtreeTests.fs` 10 test = root kind 자동 판별 / depth cap [0,5] / 50 budget boundary / **token 회귀 (R1 Critical, subtree ≤ Σdescribe_system + 256B overhead)**. (B) `ToolOperations.sanitizeName` 신규 + module-level `[<Literal>] NameMaxLength = 128` (Cc/Cf/길이/공백 검사 F# 이전, 빈 string sentinel = valid). `ModelTools.cs` 의 private Sanitize 를 F# wrapper 1줄로 단축. `SanitizeNameTests.fs` 13 test = ASCII/한글 allow + RLO U+202E / null U+0000 / ZWJ U+200D / 제어 U+0001 / LF U+000A / 길이 / 공백 / null / field 메시지 포함. (C) `PromakerToolNamesDriftTests.fs` 4 test — `__SOURCE_DIRECTORY__` 기반 file path, regex 2종 (`\[McpServerTool\b[\s\S]*?public\s+static\s+Task<\s*string\s*>\s+(\w+)\s*\(` + `"mcp__promaker__(\w+)"`) + PascalCase→snake_case 변환 + 11개 sanity. 결과: Promaker.sln 빌드 통과 (경고 0) + Ds2.LlmAgent.Tests **42/42** 통과 (15→42). Phase 2 진입 시 modify_*/remove_* 추가하면 drift test 의 11개 sanity expected 값 갱신 필요
+16. ✅ **Phase 2 첫 사이클 — list_projects + Remove/Rename + Codex CLI 사전 실증 4 + skeleton** (2026-05-06) — (A) `ToolOperations.listProjects` + `ModelTools.ListProjects` ([McpServerTool]) + `PromakerToolNames.All` 13개로 갱신. drift test expected 11→12 (자연 갱신 회귀 동작 확인). (B-1 Remove) `ImportPlanOperation.RemoveEntity of EntityKind*Guid` 추가, `ImportPlan.applyOperationDirect` (raw dict.Remove) + `ImportPlanApply.applyOperationTracked` (`CascadeRemove.batchRemoveEntities` 활용 — Ds2.Editor 측 internal 모듈 그대로 활용, 자식 cascade + orphan ApiCall sweep 포함). `ToolOperations.queueRemoveEntity` (EntityKind 자동 판별 — store dict 검색) + `ModelTools.RemoveEntity`. (B-2 Rename) `ImportPlanOperation.RenameEntity of EntityKind*Guid*newName` + `ToolOperations.queueRenameEntity` (System/ApiDef 만, ApiDef 는 같은 System 내 중복 검사 자기자신 제외) + `ModelTools.RenameEntity` (Sanitize 재적용 — sanitizeName F# 측 활용). Flow/Work/Call rename 은 자식 cascade (Work.FlowPrefix / Call.Name 합성) 복잡도로 미지원 → invalidOp. (C-1 Codex 실증 4 + skeleton) Codex CLI 0.125.0 인자 inventory 완료: Claude 와 다름 (`exec` subcommand / `exec resume <sid>` 형식 / `--json` JSONL / `-c key=value` config override / **`--mcp-config <path>` 임시 인자 부재** / **tool 단위 allowlist 부재**). HTTP MCP transport 양립 (`codex mcp add --url`). `CodexCliOptions` record + `CodexCliArgs.build` module-level (12 fields, default Json/Ephemeral/IgnoreUserConfig=true 격리) + `CodexCliArgsTests.fs` 13 test. 결과: Promaker.sln 빌드 통과 + **67/67** 통과 (42→67, 신규 25). C-2/C-3 은 후속 항목 17 에서 진행
+17. ✅ **Phase 2 C-2 + C-3 — Codex spike 결과 + CodexCliProvider concrete + StreamJsonParser** (2026-05-06) — (C-2) ChatGPT subscription 모드 (결정 3 정합) 에서 실제 `codex exec --json --ephemeral --skip-git-repo-check` 2회 spike. 추가 청구 X (input 12894 / cached 12672 / output 69~136). JSONL 4 packet 종류 확정 (thread.started UUIDv7 / turn.started sentinel / item.completed `agent_message` 단일 패킷 / turn.completed usage). stdout/stderr 분리 + completion 후 단일 item.completed (streaming 미관찰) + `-c mcp_servers.<name>.url="..."` inline 등록 동작 + connect 실패 graceful (turn 정상 / stderr ERROR 라인) + mcp_servers init 상태 stdout 미노출. (C-3) `CodexStreamJsonParser.fs` (thread.started→SessionStarted / item.completed agent_message→AssistantDelta / turn.completed→SessionEnd placeholder / turn.started sentinel skip) + `CodexCliProvider.fs` (Send/EnsureCli/SessionId/ClearSession — ClaudeCliProvider 와 동일 backpressure/cancellation 패턴, prompt redact, stderr forensic). `CodexStreamJsonParserTests.fs` 13 test (실증 4 의 4-packet sequence 회귀 흡수 + malformed/MaxLineLength/empty/unknown type silent skip). 결과: Promaker.sln 빌드 통과 (경고 0) + **80/80** 통과 (67→80). 인터페이스 추상화 미진행 — review M5 인정 (provider fallback 정책 도입 시점에 합치기). production 통합 (Promaker UI 측 provider 선택 + MCP HTTP ready 신호 wait + instructions override 정책) 은 후속 사이클
+18. ✅ **Phase 2 — ILlmProvider 추상화 + UI provider dispatch** (2026-05-06) — review M5 의 phase 2 약속 이행. (a) `LlmProvider.fs` 신규 + `ILlmProvider` interface 4 surface (EnsureCli/Send/SessionId/ClearSession) + ClaudeCliProvider/CodexCliProvider `interface ILlmProvider with` 위임. (b) `LlmChatViewModel` 에 `LlmProviderKind` enum (Claude/Codex) + `_provider : ILlmProvider?` + `OnSelectedProviderChanged` partial + `ConfigureProviderAsync` (`_switchCounter` Interlocked race 가드 — stale switch 결과 무시) + `CreateClaudeProvider` / `CreateCodexProvider` 분리. (c) `LlmChatPanel.xaml` header 영역에 ComboBox (AvailableProviders / SelectedProvider binding, IsSending 동안 disable). 결과: 빌드 통과 (경고 0) + **80/80** 유지 (인터페이스 추출이 외부 시그니처 보존). 의도적 미적용: Codex MCP HTTP nonce 헤더 syntax (별도 spike), MCP HTTP ready 신호 wait, instructions override 정책, provider fallback 자동 전환
+19. ✅ **Hot-fix — `ProcessUtils.findOnPath` PATH 정규화** (2026-05-06) — 18. 의 e2e 1차 시도 시 `Process.Start("codex")` 가 `%APPDATA%\npm\codex.cmd` 를 못 찾음 (`%APPDATA%\npm` 사용자 PATH 누락 + Promaker process 가 못 봄). 사용자 측 (a) 시스템 PATH 보강 + Promaker 측 (b) `ProcessUtils.fs` 신규 (PATH/PATHEXT 명시 + `wellKnownFallbackDirs` = `%APPDATA%\npm` + `resolveOrDiagnostic` = 검색 디렉토리 12개 cap hint) 병행. ClaudeCliVersion + ClaudeCliProvider + CodexCliProvider 셋 다 helper 적용 (Claude 도 일관성 + 향후 누락 보호). 외부 동작 보존 (찾으면 fully-qualified, 못 찾으면 raw fallback) 으로 회귀 위험 0. 결과: Promaker.sln 빌드 통과 + **80/80** 유지
+20. ✅ **review 반영 + Hot-fix-2 (Windows PATHEXT 우선순위)** (2026-05-06) — 외부 review 6개 의견 평가 후 (1) `ConfigureProviderAsync` 본체 try/catch (fire-and-forget unobserved 예외 → StatusText/Turns 노출 + Log.Error, InitializeAsync 패턴 일치) + (4) ClaudeCli/CodexCli interface Send 위임의 `cancellationToken = ct` named arg + (6) Codex `cd: None` 보안 spike 항목 todo 추가 적용. (2)(3)(5) 는 그대로 (영향 미미 / F# 관용 / premature). 19. e2e 재시도 시 발견된 두번째 에러 (`Process.Start` 가 npm 글로벌의 `codex` bash shim 발견 → "not a valid application for this OS platform") 즉시 fix — `findOnPath` 의 확장자 검색 순서를 OS 분기 (Windows: PATHEXT 만, 빈 확장자 skip / Unix: `[""]+PATHEXT`). 회귀 방지로 `ProcessUtilsTests.fs` 신규 7 test (R1 회귀 케이스 — bash shim + .cmd 공존 시 .cmd 선택 + path separator + 미설치 None + diagnostic 메시지 포맷). 결과: Promaker.sln 빌드 통과 + **87/87** 통과 (80→87)
+21. ✅ **Hot-fix-3 — Codex `--ephemeral` + resume 양립 불가 → default off** (2026-05-06) — 20. e2e 검증 시 첫 turn 정상 + 두번째 turn `Codex CLI 비정상 종료 (exit code = 1) — stderr: Error: thread/resume: thread/resume failed: no rollout found for thread id ...`. stderr 진단 강화 (last non-empty line 캡처 → ProviderError suffix) 로 원인 즉시 파악. `--ephemeral` 은 thread rollout (= disk save) 안 함 → `exec resume <sid>` 가 sid 의 rollout 못 찾아 fail. multi-turn 보장 위해 `CodexCliOptions.Default.Ephemeral = false` + `CreateCodexProvider` explicit `ephemeral: false` + 코드/문서 코멘트 추가. CodexCliArgsTests 2개 갱신 (default 동작 변경 반영). 후속: codex session 누적 회피 cleanup 정책 (CODEX_HOME 격리 / Reset() rollout 삭제 / UI 토글 등) — todo 항목 신설. 결과: Promaker.sln 빌드 통과 + **87/87** 유지
+22. ✅ **Hot-fix-4 — Codex MCP nonce 헤더 + instructions override (Phase1c)** (2026-05-06) — 21. e2e 검증 시 multi-turn chat 은 정상이나 "active system 추가" 같은 mutation 명령에 codex 가 file system 탐색 / git 조작 모드로 fallback (status `tools=0 mcp=0`). 두 원인 동시 fix: (a) MCP HTTP nonce 헤더 — `CreateCodexProvider.ConfigOverrides` 에 `mcp_servers.promaker.headers.X-Promaker-Nonce` toml dotted key 4-depth 추가 (hyphen 포함 키도 toml bare key 허용). (b) instructions override — `CodexCliOptions.SystemPrompt: string option` 필드 신설 + `CodexCliArgs.build` 가 `-c instructions='''<sp>'''` toml literal multi-line string 인코딩 (한글/`<spec>`/줄바꿈 raw 허용). `CreateCodexProvider` 가 `SystemPromptText.Phase1c` 전달 → codex 가 model authoring agent 로 동작. `CodexCliArgsTests` 신규 2 test (None default 미전달 + Some 시 형식 검증). 결과: Promaker.sln 빌드 통과 + **89/89** (87→89, 신규 2)
+23. ✅ **Phase 2 — Codex 보안/lifecycle 정착** (2026-05-06) — todo 권장 순서 3건 일괄. (a) **Codex `cd:` 워크스페이스 격리** — `_codexInstructionsPath` 단일 파일을 `_codexWorkspacePath` 디렉토리 (`%TEMP%/Promaker/codex-workspace-<guid>/`) 로 격상. instructions.md 와 codex-home 서브디렉토리 모두 그 안. `CodexCliOptions.Cd = Some workspace` → codex 가 사용자 git working tree 에 닿지 않음. `DisposeAsync` 가 `Directory.Delete(recursive:true)` 1회로 일괄 cleanup. (b) **MCP HTTP ready 신호 wait** — `McpHostService.StartAsync()` 마지막에 `WaitReadyAsync(2초)` 추가. HTTP GET to ServerUrl + nonce header / 50ms backoff retry / 응답 status 무관 (routing pipeline 통과만 확인). Kestrel listen socket bind 후의 middleware pipeline + nonce 검증 + MapMcp routing 까지 보장. timeout 시 InvalidOperationException → InitializeAsync catch 가 사용자에게 노출. caller API surface 변경 X. (c) **Codex session cleanup (CODEX_HOME 격리)** — `CodexCliOptions.CodexHome: string option` 필드 신설 + `CodexCliProvider` ProcessStartInfo.Environment 에 `CODEX_HOME` 설정. `LlmChatViewModel` 가 `_codexHomePath = workspace/codex-home` 전달 → codex sessions/config/log 가 사용자 `~/.codex/` 가 아닌 워크스페이스 안 격리. 워크스페이스 재귀 삭제 시 자동 cleanup. **사용자 e2e 검증 권장**: CODEX_HOME 0.125 동작 미검증 — 미동작 시 후속 패스에서 (b) Reset() rollout 직접 삭제로 전환. 결과: Promaker.sln 빌드 통과 (경고 0) + **90/90** 유지 (외부 시그니처 보존)
+24. ✅ **review 반영 — InitializeAsync catch 절 defense-in-depth StopAsync** (2026-05-06) — 23. review (--review) 의견 1번 채택. `WaitReadyAsync` timeout throw 시점에 `_app` 이 이미 set 된 상태인데 InitializeAsync catch 가 status text 만 갱신해서 사용자가 panel 을 닫지 않으면 background Kestrel + ephemeral port leak. catch 절에 `await _mcpHost.StopAsync()` 1줄 추가 — `_app == null` 일 때 noop 이라 idempotent. 의견 2 (DateTime.UtcNow vs Stopwatch) / 3 (probe 비용) 은 reviewer 결론 동의로 보류. 결과: Promaker.sln 빌드 통과 + 90/90 유지
+25. ✅ **Hot-fix-5 — CODEX_HOME 격리 해제 (인증 401 fix)** (2026-05-06) — 23.(c) CODEX_HOME 격리 e2e 검증 시 즉시 401 Unauthorized: `codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized`. 원인: codex 의 인증 토큰이 `~/.codex/auth.json` 에 저장 → 격리 디렉토리에 인증 정보 없음 → ChatGPT subscription 인증 실패 후 OpenAI API 직접 호출로 fallback → 미인증 401. 즉시 조치: `CreateCodexProvider` 의 `codexHome: Some(_codexHomePath)` → `None` 으로 되돌림 (사용자 `~/.codex/` 사용). `_codexHomePath` 필드 + 워크스페이스 안 `codex-home/` 디렉토리 생성 코드 제거. `CodexCliOptions.CodexHome` 필드는 보존 (향후 인증 파일 복사 + 격리 conditional 활용 가능). 남은 cleanup 정책은 todo line 360 의 (b) Reset rollout 직접 삭제 또는 (c) auth.json 복사 + 격리로 전환 예정. 결과: Promaker.sln 빌드 통과 + 90/90 유지
+26. ✅ **Hot-fix-6 — `codex exec resume` -C / --full-auto 옵션 호환성** (2026-05-06) — 25. e2e 재시도 시 첫 turn `hi` 정상 응답 + 두 번째 turn `active system 추가...` 에서 `Codex CLI 비정상 종료 (exit code = 2) — stderr: For more information, try '--help'` (clap parsing fail). 직접 `codex exec resume --help` 호출하여 옵션 inventory 확인 → resume subcommand 가 `-C / --cd` 와 `--full-auto` 를 받지 않음 (exec 만 지원). 추가 발견: `--ignore-user-config` help 문구 = "auth still uses CODEX_HOME" → 향후 cleanup (c) 옵션의 auth.json 복사 + 격리 path 가 정합 (CODEX_HOME 안 auth.json 만 있으면 인증 OK). 즉시 fix: `CodexCliArgs.build` 의 `Cd` 와 `FullAuto` yield 조건에 `sessionId.IsNone` AND 추가. 회귀 방지로 `CodexCliArgsTests.fs` 신규 2 test (resume + Cd Some → -C 미전달 / resume + FullAuto true → --full-auto 미전달). 결과: Promaker.sln 빌드 통과 + **92/92** (90→92, 신규 2)
+27. ✅ **자체 review (--review) 반영 — A.1 race 모니터링 + D catch 좁히기** (2026-05-06) — 5개 우려점 (A WaitReadyAsync 본질적 필요성 / B CodexHome dead code / C lazy 부분 throw / D catch 광범위 / E cancellation token) 중 비용 1~2줄 + 위험 0 + 의미 명확한 2건만 즉시 적용. **A.1**: `WaitReadyAsync` 의 probe 통과 로그를 `attempts > 1` 일 때만 `Log.Info` 로 격상 (default `Log.Debug`) — race 실제 발생 단서 가시화. 일정 기간 Info 로그 0 이면 WaitReadyAsync 자체 제거 후보. **D**: `catch (Exception ex)` → `catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)` exception filter 패턴 (C# multi-catch 미지원 회피) — OOM 등 시스템 예외는 즉시 throw → silent failure 회피. **보류**: B (CodexHome dead code 이지만 곧 cleanup (c) 옵션에서 활용 가능 + 발견 사실 보존 가치) / C (CLAUDE.md "예외 처리 자제" 부합) / E (실용 이득 적음 — 2초 dead window). 결과: Promaker.sln 빌드 통과 (경고 0) + **92/92** 유지 (동작 영향 X)
+36. ✅ **Editor → LLM 변경 알림 (`<editor_changes>` prepend)** (2026-05-07) — LLM chat 패널이 떠있는 상태에서 사용자가 GUI 로 store 변경 시 LLM 의 `--resume` session conversation memory 가 stale 한 채 답할 위험 차단. (a) `EditorChangeDigest.cs` 신규 — 카테고리 카운트 + EntityRenamed.newName 샘플 (≤3) + StoreRefreshed 격상 + 임계 (8 lines) 초과 시 축약 + ProjectReset 한 줄 모드. (b) `LlmChatViewModel` — 필드 (`_editorDigest` / `_editorSubscription` / `_wpfDispatcher` / `_isLlmApplyingPlan`), 생성자 / `UpdateStore` 의 `SubscribeEditorEvents` (기존 sub dispose + 신 store 재구독 + PROJECT_RESET 표식), `OnEditorEvent` (CheckAccess 분기 → sync 또는 InvokeAsync Background marshalling), `SendAsync` 진입 시 prefix 합성 (`<editor_changes>...</editor_changes>` + 본 prompt) + digest clear, `ApplyTurnPlanAsync` 의 self-loop guard (dispatcher.InvokeAsync 안 sync 윈도에서 set/unset → ApplyImportPlan emit 의 EditorEvent 가 같은 stack frame 에서 reject), `DisposeAsync` 의 sub dispose. file-scope `EditorEventObserver` IObserver helper. (c) `Prompts/1.SystemPrompt.md` — `<spec>` 단락 다음에 `<editor_changes>` 단락 (사실 신뢰 / 명령 X / PROJECT_RESET 시 list_projects/list_systems follow-up 권장 / 일반 변경은 list_systems 등으로 보강). 결과: C# 컴파일 통과 (CS error 0). 빌드 시 Promaker.exe / VS 가 dll 잠금 시 copy 실패 — 사용자에게 재빌드 권장. **사용자 e2e 검증 권장**: LLM Chat 열기 → GUI 에서 system 추가/이름변경 → 다음 turn user prompt 에 `<editor_changes>` 블럭 포함 / "새로 만들기" 후 첫 turn 의 PROJECT_RESET 한 줄 / LLM 자기 add_system 후 다음 turn 에 self-loop noise 미포함.
+
+35. ✅ **Hot-fix 8/9 통합 + review 반영** (2026-05-07) — PR-D/E/F 진행 중 발견된 functional / UX bug 묶음. **Hot-fix-8 v1/v2/v3** (모델 ComboBox selection): v1 (SelectionChanged 핸들러 + ReadEditableComboBox fallback) → v2 (`IsTextSearchEnabled` + `StaysOpenOnEdit` + Items.Add 패턴, CallCreateDialog 사례 따라감) 모두 효과 없음 → v3 채택: `IsEditable ComboBox` 자체를 폐기하고 **TextBox + ▾ Button + ContextMenu** 패턴 (Click → 동적 ContextMenu + 후보 MenuItem.Click → TextBox.Text 채움). WPF IsEditable ComboBox quirks 완전 회피. 직접 입력도 자연. **Hot-fix-9 v2** (Window_Closing IsClosing race): v1 의 try/catch + noop 가 throw 만 흡수해 첫 X 무반응 → 두 번째 X 만 close 되는 부작용. v2 = `Dispatcher.BeginInvoke(Close, DispatcherPriority.Background)` 로 다음 message pump cycle 에 close 큐 → WPF 의 첫 close 사이클 정리 끝난 후 안전 close. 한 번 X 클릭으로 즉시 정상 종료. **PR-D review SSOT fallback**: SaveLlmTab 의 default 값 4건이 LlmConfig 필드 초기값과 중복 → `var fallback = new LlmConfig()` 1줄 + `fallback.AnthropicModel` 등 참조 (drift 방지). **review 반영 (functional bug fix)**: (1) `LlmChatViewModel.ReloadConfig` 가 `_config = LlmConfig.Load()` 만 했었음 → 활성 provider 의 model/key 가 baked-in 이라 변경 안 반영. fix = `_ = ConfigureProviderAsync(SelectedProvider)` 호출하여 활성 provider 재생성. _switchCounter 가드로 중복 안전. (2) `SaveLlmTab` dirty 비교: DPAPI 재암호화로 매번 다른 ciphertext 라 EncryptedKeys 변경만으로는 dirty 판단 불가 → plaintext 6 필드 (PasswordBox.Password + 모델 + URL) 비교 → 변경 없으면 Save / LlmConfigChanged 미설정 → (1) 의 불필요한 provider 재구성 회피. (3) Ollama 연결 확인 catch 좁히기: `catch (Exception)` → `when (ex is HttpRequestException or TaskCanceledException or UriFormatException)` filter — OOM/StackOverflow 흡수 X. **보류**: review (4) OnSelectedProviderChanged try/catch (fire-and-forget context fail-safe 합당) / (5) Storyboard 항상 회전 (비용 무시) / (6) 모델 후보 SSOT 분산 (작은 하드코드, 후속 패스). 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지.
+
+34. ✅ **PR-F — Thinking animation (3-dot blink)** + **review #2 fix** (2026-05-07) — 사용자 e2e 후 thinking animation 요청 (Ev2.Oracle Backend web 의 `#typing-indicator` 패턴 참고). **PR-F**: `LlmChatPanel.xaml` 의 status row 를 `DockPanel` 로 변경 (LastChildFill=True + 우측 ThinkingIndicator). 3 `Ellipse` (W6 H6 + AccentBrush + Opacity 0.3 init) 를 가로 정렬 + 각 Ellipse 의 `EventTrigger RoutedEvent="Loaded"` 가 `BeginStoryboard` 시작. `Storyboard RepeatBehavior="Forever" AutoReverse="True"` + `DoubleAnimation Opacity 0.3 → 1.0 Duration=0:0:0.6` (1.2s 주기, Ev2.Oracle CSS keyframe 1.2s 정합). Dot 별 `BeginTime` 0 / 0.2s / 0.4s 로 순차 점멸. ThinkingIndicator StackPanel 의 `Visibility = IsSending → Visible` (BoolToVisibilityConverter 신규 등록). Storyboard 자체는 Forever 도는데 Visibility 만 ON/OFF — CPU 비용 무시 (각 dot Opacity 1 property 만 변경). **review #2 fix**: `ChatBubbleTextStyle` 의 read-only TextBox 가 우클릭 시 자체 기본 ContextMenu (잘라내기/복사/붙여넣기) 를 표시 → 의도한 ListBox.ContextMenu (전체 대화 복사 / Markdown 내보내기) 가 가려짐. `<TextBox.ContextMenu><x:Null/></TextBox.ContextMenu>` 로 TextBox 기본 메뉴 비활성화 → 우클릭 시 visual tree 상위 ListBox.ContextMenu 가 자연 표시. 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지. **사용자 e2e 검증 권장**: turn 진행 중 입력 박스 위 status 행 우측에 3 dot 순차 점멸 / 우클릭 시 우리 메뉴 (전체 대화 복사 / 내보내기) 표시.
+
+33. ✅ **PR-E — LLM chat panel UX 정비** (2026-05-07) — 사용자 e2e 후 4건 요청. (1) **Pixel scroll**: ListBox 에 `VirtualizingPanel.ScrollUnit="Pixel"` — item 단위 점프 → 픽셀 단위 부드러운 scroll. (2) **텍스트 selection + ContextMenu 복사/export**: TextBlock → read-only TextBox 패턴 (WPF `TextBlock.IsTextSelectionEnabled` 가 .NET 9 미지원 — 첫 시도 후 fix). `Background=Transparent / BorderThickness=0 / IsReadOnly=True / Cursor=IBeam` 로 시각적으로 TextBlock 과 동일하면서 selection + Ctrl+C 부분 복사 활성. ListBox 의 ContextMenu 에 "전체 대화 복사" + "대화 내보내기 (.md)…" 두 항목. ViewModel 에 `CopyAllCommand` / `ExportCommand` + `BuildMarkdownTranscript()` private helper (`# header + ## role` Markdown). 개별 메시지 복사는 selection 만으로 충족 (CopyTurnCommand 추가했다가 제거 — CLAUDE.md "추가 안 함"). (3) **전송↔Cancel 토글**: 단일 Button + `Style.Triggers.DataTrigger Binding="{Binding IsSending}" Value="True"` → Content "취소" + Command CancelCommand. 별도 "취소" 버튼 삭제. Enter 키는 그대로 SendCommand.CanExecute 체크 (IsSending 시 noop). 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지.
+
+32. ✅ **Hot-fix-7 — LlmChatVm 의 stale `_store` reference 동기화** (2026-05-07) — e2e 시 발견. 사용자가 LLM Chat 패널 열어둔 상태에서 새 프로젝트 생성 → Codex 가 add_system tool 호출 → `Ds2.LlmAgent.ToolOperations.queueAddSystem` (line 150) 가 `Queries.allProjects(store) = []` 라 `invalidOp "프로젝트가 없습니다"` throw. **root cause**: `MainViewModel.Reset()` (line 485) 가 `_store = new DsStore()` 로 reassign 하는데 `LlmChatViewModel.\_store` 는 ctor 시점의 reference 라 stale (= old 빈 store 만 보고 있음). **fix**: (1) `LlmChatViewModel._store` readonly 해제 + `UpdateStore(newStore)` public 메서드 추가 — `ReferenceEquals` 체크 후 `Cancel()` + `_provider?.ClearSession()` + `_store = newStore` + `SessionId=null` + status "프로젝트 변경 — 다음 turn 부터 새 store 사용". (2) `MainViewModel.Reset()` 의 `_store = new DsStore()` 직후 `LlmChatVm?.UpdateStore(_store)` 호출. 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지. **사용자 e2e 재시도 권장**: LLM Chat 패널 열기 → "파일 → 새로 만들기" → 같은 LLM Chat 에서 "실린더 하나..." 같은 명령 → status 메시지 "프로젝트 변경 — 다음 turn 부터" 표시 + add_system 정상 동작.
+
+31. ✅ **PR-D — DefaultProvider UI 통합 + 모델 ComboBox IsEditable** (2026-05-07) — 30 의 e2e 1차 결과 사용자 피드백 반영. **변경 1 (DefaultProvider UI 삭제)**: `OnSelectedProviderChanged` 가 `_config.DefaultProvider = value.ToString() + _config.Save()` 자동 호출 → LLM Chat 패널 ComboBox 의 사용자 마지막 선택이 곧 다음 시작 default. 별도 "기본 Provider" 항목 (라벨 + ComboBox + Hint TextBlock) 모두 LLM 탭에서 삭제. 진입점 단일화 + 사용자 인지 부하 ↓. **변경 2 (모델 IsEditable ComboBox)**: TextBox 3종 → `<ComboBox IsEditable="True">`. 후보 = Anthropic 3 (claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku-4-5-20251001) / OpenAI 4 (gpt-4o / gpt-4o-mini / gpt-4-turbo / o1-mini) / Ollama 4 (llama3.1 / llama3.2 / mistral-small / qwen2.5). `SetEditableComboBox(box, candidates, currentValue)` private helper — ItemsSource + Text 한 번에. 후보 외 임의 입력도 그대로 보존 (Text 가 ItemsSource 매핑되지 않아도 자유 텍스트). **부수 cleanup**: ProjectPropertiesDialog ctor 의 `LlmChatViewModel?` 인자 제거 (DefaultProvider ComboBox disable 외 사용처 없음 → CLAUDE.md "추가 안 함" 원칙) + FileCommands.ShowProjectSettings ctor 호출 단순화 + LlmChatViewModel.ReloadConfig() 도 SelectedProvider 동기화 코드 제거 (1줄 expression-bodied). 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지.
+
+30. ✅ **Phase 2 UI/설정 정비 — PR-A/B/C 통합 사이클** (2026-05-07) — 사용자가 UI/설정 전반 조정 시점 지시. plan 합의 후 순차 진행. **PR-A** (설정 통합): `LlmConsent.cs` (static) + `LlmApiConfig.cs` (instance, `%APPDATA%\Promaker\` 별도 디렉토리) → 단일 `Promaker.LlmAgent.LlmConfig` 인스턴스 클래스 (flat JSON 8 필드, `SettingsPaths.Of("llm-config.json")` → `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json`). 마이그레이션 코드 없음 (배포 전 동의). 호출자 4곳 rename. `_apiConfig` → `_config` sed bulk + `LlmConsent.IsGranted/EnsureGranted/Grant` → `_config.IsConsentGranted()/GrantConsent()/LlmConfig.EnsureGranted()` 인스턴스 + static helper. `_config` readonly 해제 (PR-B 의 ReloadConfig 가 reassign). Constructor 가 `_config.DefaultProvider` enum parse 후 SelectedProvider 초기화. **PR-B** (설정 다이얼로그 LLM 탭): `ProjectPropertiesDialog.xaml` 5번째 탭 "LLM" 추가 — Default provider ComboBox 5종 (turn 중 disable, `_llmChatVm?.IsSending` 참조) / API keys 2종 (Anthropic / OpenAI PasswordBox + DPAPI 암호화 + 지우기 버튼) / Models 3종 TextBox / Ollama base URL + 연결 확인 버튼 (`HttpClient.GetAsync($"{url}/api/version")` 3초 timeout, ✅/❌ + 응답 body 표시) / Consent 상태 + 철회 버튼. ProjectPropertiesDialog ctor 인자 `LlmChatViewModel?` 추가 (default null — 다른 진입점 호환). `LlmConfigChanged` flag 노출. `LlmChatViewModel.ReloadConfig()` 신규 = disk reload + DefaultProvider 변경 시 SelectedProvider 즉시 갱신 (turn 중이면 보류). `FileCommands.ShowProjectSettings` 가 close 후 LlmChatVm?.ReloadConfig() 호출. **PR-C** (Toolbar LLM 토글): 우측 4 버튼 (유틸 / 라이트 / 설정 / 정보) → 5 버튼 (LLM 추가). 라이트 패턴 일관 — 일반 Button + DataTrigger (IsLlmChatVisible=True 시 PackIconMaterial Foreground = AccentBrush). 아이콘 = `PackIconMaterial Kind="Robot"` (사용자 선택). ToggleButton + IsChecked OneWay 검토했으나 click 시 default toggle + Command 의 이중 동작 / 시각 깜빡임 회피 위해 Button 채택. 유틸 popup 의 "LLM Chat (토글)" 메뉴 항목 + Separator + LLM 헤더 모두 제거 (진입점 분산 회피). 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + Ds2.LlmAgent.Tests **92/92** 유지 (회귀 0). **사용자 e2e 검증 권장**: 설정 다이얼로그 → LLM 탭 → API key 입력+Save → LLM Chat 새 provider 선택 정상 / Default provider 저장 후 재시작 시 초기 선택 / Ollama 연결 확인 / 동의 철회 후 토글 시 다이얼로그 재표시 / Toolbar LLM 아이콘 active 색상.
+
+29. ✅ **review 반영 — firstTurn 순서 / factory 중복 / Anthropic default 모델 / Key 상수 단순화** (2026-05-07) — 28. 의 외부 review 6 의견 평가 후 권장 수정 1건 + 선택 개선 3건 모두 적용. (1) `ApiChatProvider.SendImpl` firstTurn 순서: `_sessionId = Guid` + `_history.Add(System)` 다음에 `ListToolsAsync` → 실패 시 sessionId/history 가 firstTurn=false 분기로 들어와 `_cachedTools=null` silent corruption. **fix**: tools 먼저 await → 성공 후 sessionId/history 확정. (2) `ApiProviderFactory.CreateInternalAsync` private helper 도입: builder + UseFunctionInvocation + McpClient + ctor 7줄이 3 public 메소드에 중복. CLAUDE.md "3줄 이상 반복 시 리팩토링" 부합. 3 public 은 raw IChatClient 만 만들고 위임. ~15줄 감축. (3) `LlmApiConfig.AnthropicModel` default `claude-sonnet-4-5-20250929` → `claude-sonnet-4-6`. 환경 메시지 기준 현재 최신 권장. (4) `AnthropicKey`/`OpenAiKey` 우회 (private const + public property getter) → `public const string` 단순화. **보류**: (5) Send 도중 cancel/throw 시 history user→user 연속 가능 — reviewer 도 코드 변경 비권장 (CLAUDE.md 예외 처리 자제 부합). e2e 검증 항목으로 이관. (6) HttpClientTransport 외부 주입 HttpClient ownership — 정합 OK 확인 (변경 없음). 결과: Promaker.sln 빌드 통과 + **92/92** 유지 (외부 시그니처 보존).
+28. ✅ **Phase 2 — API providers 3종 (Anthropic / OpenAI / Ollama) 통합** (2026-05-07) — 핵심 발견: Anthropic `Anthropic` SDK / OpenAI `OpenAI` + `Microsoft.Extensions.AI.OpenAI` / `OllamaSharp` 모두 Microsoft.Extensions.AI `IChatClient` 를 어댑터 노출 → multi-turn loop / tool 변환 / message 스키마를 SDK 미들웨어 (`UseFunctionInvocation()`) 와 `McpClient.CreateAsync(HttpClientTransport)` 가 자동 처리. 단일 `ApiChatProvider` (C#) 가 3 provider 공통 + ILlmProvider 위임. 산출물: (a) `Apps/Promaker/Promaker/LlmAgent/Api/ApiChatProvider.cs` — IChatClient + McpClient 래퍼, ChatResponseUpdate → LlmEvent 매핑 (TextContent → AssistantDelta, FunctionCallContent → ToolUse, FunctionResultContent → ToolResult, FinishReason → SessionEnd), 자체 history 관리 + sessionId Guid emit, IAsyncDisposable 로 McpClient + HttpClient 회수. (b) `ApiProviderFactory.cs` — `CreateAnthropicAsync` / `CreateOpenAiAsync` / `CreateOllamaAsync` 3종, McpClient HTTP self-call helper, nonce 헤더 자동 부착 (DefaultRequestHeaders). (c) `LlmApiConfig.cs` — DPAPI (`ProtectedData.Protect` CurrentUser scope) 암호화 + entropy `Promaker.LlmApi.v1` + base64, `%APPDATA%/Promaker/llm-api-config.json` atomic write (.tmp + Move overwrite). API key (Anthropic/OpenAI) + 모델명 3종 + Ollama base URL. (d) `LlmChatViewModel` — `LlmProviderKind` 5종 (CLI 2 + API 3) + `AvailableProviders` 5개 + `Create*ApiProviderAsync` 3개 + `ConfigureProviderAsync` switch 5분기 + stale switch IAsyncDisposable leak 방지 + `DisposeAsync` provider 회수 + 환경변수 fallback (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). 패키지 5개 추가 (Anthropic 12.20.0 / OpenAI 2.10.0 / OllamaSharp 5.4.25 / Microsoft.Extensions.AI 10.5.2 / Microsoft.Extensions.AI.OpenAI 10.5.2). 결과: Promaker.sln 빌드 통과 (경고 0 / 오류 0) + **92/92** 유지 (회귀 0). **사용자 e2e 검증 권장**: Anthropic API 첫 호출 (env `ANTHROPIC_API_KEY` 설정 후 ComboBox `AnthropicApi`) / OpenAI API (`OPENAI_API_KEY`) / Ollama (`http://localhost:11434` 구동 + `llama3.1` 모델). **남은 후속**: API key 입력 다이얼로그 / 모델명·Ollama base URL 입력 UI / API provider 단위 테스트 (mock IChatClient) / provider fallback 정책
+
+---
+
+## Review 반영 이력
+
+### 2차 review (--review 2, 5 reviewers — Generalist / 정확성 / 설계구조 / 성능 / 보안유지보수)
+
+**Critical (검증 완료, 즉시 결정 변경)**:
+- **R1 (검증 완료) ImportPlan path 누락 → 결정 7 격상**: 1차 review C1 의 (a)/(b)/(c) 비교가 더 단순한 `ImportPlanApply.applyWithUndo` (단일 `WithTransaction` + `EmitRefreshAndHistory` 1회) 를 놓침. 결정 7 → **(d) ImportPlan 활용** 확정. F# editor 무수정. 사전 실증 5 → surface inventory spike 로 변경. (`ImportPlan.fs` + `ImportPlanApply.fs:34-38` 직접 검증 완료)
+- **R1·R2·R4 (consensus 3/5) Read tool 4분할 N+1 token 폭증** → `describe_subtree` composite + page/depth/truncated + system prompt batch 가이드 + golden token 회귀 (Phase 1d + 주의 17)
+- **R2 (검증 완료) `claude -p` + `--resume` + `--mcp-config` + `stream-json` 양립성 미검증** → 사전 실증 2a 신설, Phase 1a 진입 차단 조건. fallback = `--input-format stream-json` stdin 연속 모드
+- **R2 (검증 완료) session_id 패킷 형식 정정** → `subtype:init` 분기. 사전 실증 7 신설. parser 가 Builder PoC 의 `system` 무시 패턴 그대로 재사용 X
+- **R2 (검증 완료) 결정 5 FSM ↔ "lazy spawn" 부정합** → 결정 5.5 재기술. 부모는 chat 세션 시작 즉시 listen, Claude CLI 의 자식 spawn 시점은 사전 실증 2d 측정
+- **R5 (consensus 2/5) 보안 — pipe SD / RDP 격리 / handshake nonce / data egress consent / prompt injection / audit log** → 결정 5.1~5.6 신설 + 주의 14~16 + Tool registry 공통 invoker 사양에 흡수
+- **R4 (consensus 2/5) `IUiDispatcher.Invoke` sync block** → `InvokeAsync<'T>` Background priority + AssistantDelta 우회 (결정 8 + 주의 11)
+
+**Major (전부 반영)**:
+- R1 M5 / R3 M5 Ds2.Editor surface inventory → 사전 실증 5 재기술
+- R4 M1 EditorEvent coalescing 의존 → 결정 8 명문화 (결정 7 (d) 로 자연 해소)
+- R3 mi2 / R4 M2 validate_model scope/throttle → Phase 1d
+- R3 C1 결정 4 fork 분량 차이 → Phase 1b-c / 1b-b sibling 분리
+- R3 M5 Ds2.Editor only ProjectReference → Phase 1a
+- R3 M2 system prompt 배치 → Phase 1c 에 최소 prompt 선행
+- R1 M3 / R3 M1 ILlmProvider 인터페이스 dead abstraction → phase 1 = ClaudeCli concrete only, 인터페이스 phase 2 로 미룸
+- R3 M4 Tool registry "한 줄" 추상화 → 공통 invoker (`ToolDef<'TArgs,'TResult>`) 사양 신설, phase 1b 에 도입
+- R4 C1 spawn latency 측정 → 사전 실증 2c
+- R4 M4 read snapshot copy cost → 결정 8 lightweight snapshot 명시
+- R4 M3 stream backpressure → `Channel.CreateBounded` + AssistantDelta merge throttle (Phase 1a)
+- R2 M3 stale sweep self-race → 결정 5.4 sweep 조건 명시 (자기 session + dead PID + mtime > 5분)
+- R2 M4 watchdog "polling" → blocking thread + `WaitForSingleObject` 정정 (결정 5.6)
+- R1 M4 read tool depth/cycle → expand/depth 인자 (Phase 1d)
+- R5 M2 Claude CLI 버전 핀 enforce → 기동 시 SemVer 체크 fail-fast (Phase 1a + 주의 5)
+- R5 M3 data egress consent → 첫 진입 opt-in (주의 16)
+- R5 M4 audit log → log4net `Promaker.LlmAgent.ToolCall` (Phase 1a + 주의 16)
+- R5 M5 진입점 분리 trade-off → 사전 실증 0 sub-task
+
+**Minor 모두 반영**:
+- 사전 실증 시간 예산 정합 / Phase 1a~1d internal milestone 표기 / HTTP transport schema 버전 핀 / Kestrel cold start 측정 / `_pendingRebuildActions` unbounded 검토 / %TEMP% redirect ACL 사전 검증 / tool allowlist negative test / EditorEvent dispatcher reentrancy 모두 todo 본문 또는 Phase 1d golden test 에 흡수
+
+**반론 0건** — 5 reviewer 모두 사실 기반. R1 ImportPlan / R4 dispatcher InvokeAsync / R5 보안은 source 직접 검증 또는 `MainViewModel.cs:683-` 패턴 검증 완료.
+
+### 1차 review (--review 1, cross-validated 3 reviewers A/B/C)
+
+**Critical (즉시 결정 변경 / 실증 필요)**:
+- C1 (3/3) `withTransaction` nested 거부 ↔ "1 turn = 1 undo unit" 충돌 → **결정 7 잠정 강등 + 사전 실증 5 재기술** + Authoring.fs:28-29 / Nodes.fs:24-34 직접 검증 완료
+- C2 (B + A 보강) WinExe `StartupUri` + Console.In/Out null 제약 → **결정 4 (b) 세부 보강 + 사전 실증 0 신설 + 주의 사항 13 신설** + App.xaml 직접 검증 완료
+- C3 (2/3) DsStore thread-safety 부재 → **결정 8 (Thread 모델) 신설 + IUiDispatcher 도입 + 주의 사항 11**
+- C4 (1/3 outlier, 검증 통과) (b) 가 사전 실증 3 보다 선행 채택 → **결정 4 잠정 강등 + 사전 실증 3 우선순위 최상위 격상**
+
+**Major**:
+- M1 (B) Job Object 손자 상속 미보장 → **결정 5 + 주의 사항 4 명문화 + 사전 실증 6 신설 + 자식 watchdog 이중 방어**
+- M2 (A) Promaker.sln 별도 솔루션 명시 → Phase 1a 작업 항목에 명시적 추가 step
+- M3 (2/3) `Ds2.Editor` extension 표현 정정 → 결정 2 의 ProjectReference 에 `Ds2.Editor` 명시 + tool handler = "extension 직접 호출"
+- M4 (B + A 부분) sync race + stale read → **(c) 채택 시 자연 해소**, (a)/(b) 채택 시 deferred-apply 모델 phase 2 검토
+- M5 (2/3) Provider 5종 over-eng → **phase 1 = ClaudeCli concrete 1종 only**, 인터페이스는 회의적 (재설계 가능 단서)
+- M6 (2/3) `get_model_summary` 토큰 폭증 → **read tool 4분할** (`list_systems` / `describe_system` / `describe_flow` / `describe_work`)
+- M7 (B) session_id race + pipe race → FSM (SessionEnd 후 Send 활성화, server WaitForConnection 선행, retry policy)
+- M8 (C) 결정 6 ↔ 결정 2 중복 → **결정 6 → 결정 2 흡수 완료**
+- M9 (C) 분리 근거 정합 → "MVVM source generator 비호환" 으로 재기술 (주의 사항 8)
+- M10 (2/3) ACL 명세 → DACL 명시 + stale sweep (결정 5 + 주의 사항 6)
+
+**Minor 모두 반영**:
+- Mi1 ACL Owner/DACL/inheritance 명세화 (주의 사항 6)
+- Mi2 Pipe 이름 PID 제거, GUID 만 (결정 5)
+- Mi3 Codex CLI phase 1 작업에서 제거, spike 분리 (사전 실증 4)
+- Mi4 Claude CLI 버전 핀 (주의 사항 5)
+- Mi5/Mi6 `Event<EditorEvent>` / Dictionary enumeration race → dispatcher marshalling 으로 해소 (결정 8)
+- Mi7 JSON Schema SSOT 한 줄 결정 → 손수 정의 + JSON Schema SSOT (Phase 1d 원칙 절)
+- Mi8 Phase 1 4분할 (1a/1b/1c/1d) 적용
+
+**반론 0건** — 3 reviewer 모두 사실 기반 견고, 직접 source 검증 (`Authoring.fs` / `App.xaml` / `Nodes.fs`) 으로 C1·C2·M3 확정.
