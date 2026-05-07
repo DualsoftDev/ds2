@@ -1389,6 +1389,88 @@
                                                     </Grid>
                                                 </TabItem>
 
+                                                <TabItem Header="End 포트"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel>
+                                                                <TextBlock Text="API → 완료 FB 출력 포트 매핑 (인과 자동 게이팅용). 화살표 LW_LATCH.ADV → LW_CLAMP.ADV 가 있으면, LW_CLAMP 의 AutoAux 코일 조건에 'LW_LATCH 의 매핑된 OUT 포트 변수' 가 자동 AND 결합됩니다. 예: ADV → M_Adv_End, RET → M_Ret_End."
+                                                                           VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                           FontSize="11"
+                                                                           TextWrapping="Wrap"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                                    <Button Content="➕ 행 추가" Padding="10,4" Margin="0,0,4,0"
+                                                                            Background="{DynamicResource AccentBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource AccentBrush}"
+                                                                            Click="AddEndPortRow_Click"/>
+                                                                    <Button Content="➖ 선택 행 삭제" Padding="10,4" Margin="0,0,5,0"
+                                                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                                            Click="RemoveEndPortRow_Click"/>
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <DataGrid x:Name="EndPortGrid"
+                                                                  Grid.Row="1"
+                                                                  AutoGenerateColumns="False"
+                                                                  CanUserAddRows="False"
+                                                                  CanUserDeleteRows="False"
+                                                                  CanUserSortColumns="False"
+                                                                  SelectionMode="Extended"
+                                                                  SelectionUnit="FullRow"
+                                                                  GridLinesVisibility="All"
+                                                                  BorderBrush="{DynamicResource BorderBrush}"
+                                                                  BorderThickness="0"
+                                                                  HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTemplateColumn Header="심볼" Width="240">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{Binding ApiOptions}"
+                                                                                      SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsSynchronizedWithCurrentItem="False"
+                                                                                      ToolTip="IW/QW/MW 패턴에서 심볼 선택 — 인과 게이팅에 쓰일 신호 패턴."/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="완료 OUT 포트" Width="280">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{Binding PortOptions}"
+                                                                                      SelectedItem="{Binding EndPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsSynchronizedWithCurrentItem="False"
+                                                                                      ToolTip="해당 API 의 '완료' 신호 FB 출력 포트 (예: M_Adv_End)."/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="" Width="*" CanUserResize="False">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <Border Background="Transparent"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
+                                                </TabItem>
+
                                             </TabControl>
 
                                             <!-- 하단 상태바 -->

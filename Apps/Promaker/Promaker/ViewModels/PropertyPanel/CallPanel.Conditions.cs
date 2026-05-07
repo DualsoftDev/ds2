@@ -79,6 +79,45 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
+    private void RemoveConditionApiCall(ConditionApiCallRow? row)
+    {
+        if (row is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("ApiCall 제거"))
+            return;
+        var callId = SelectedNode.Id;
+        if (!_host.TryAction(() =>
+                Store.RemoveApiCallFromCondition(callId, row.ConditionId, row.ApiCallId)))
+            return;
+        RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
+    private void EditConditionApiCallSpec(ConditionApiCallRow? row)
+    {
+        if (row is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("ValueSpec 편집"))
+            return;
+        var callId = SelectedNode.Id;
+
+        var dialog = new ApiCallSpecDialog(
+            row.ApiDefDisplayName,
+            row.OutputSpecText, row.OutputSpecTypeIndex,
+            row.InputSpecText,  row.InputSpecTypeIndex);
+        ShowOwnedDialog(dialog);
+        if (dialog.DialogResult != true) return;
+
+        _host.TryAction(() =>
+            Store.UpdateConditionApiCallOutputSpec(
+                callId, row.ConditionId, row.ApiCallId,
+                dialog.OutSpecTypeIndex, dialog.OutSpecText));
+        _host.TryAction(() =>
+            Store.UpdateConditionApiCallInputSpec(
+                callId, row.ConditionId, row.ApiCallId,
+                dialog.InSpecTypeIndex, dialog.InSpecText));
+        RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
     private void NavigateConditionApiCall(ConditionApiCallRow? row)
     {
         if (row is null) return;

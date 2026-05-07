@@ -141,7 +141,6 @@ public sealed class CallConditionItem
         ConditionId   = panel.ConditionId;
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
-        IsRising      = panel.IsRising;
         FormulaText   = panel.FormulaText();
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
@@ -156,10 +155,12 @@ public sealed class CallConditionItem
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsAND         => !IsOR;
-    public bool               IsRising      { get; }
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
     public IReadOnlyList<CallConditionItem> Children { get; }
+
+    /// <summary>그룹 결합자 표시용 — XAML 바인딩 편의.</summary>
+    public string GroupOperator => IsOR ? "OR" : "AND";
 }
 
 public sealed class ConditionApiCallRow

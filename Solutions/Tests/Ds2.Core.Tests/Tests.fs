@@ -139,7 +139,7 @@ module DeepCopyTests =
 
         let parent = CallCondition()
         parent.Type <- Some CallConditionType.ComAux
-        parent.IsRising <- true
+        parent.IsInverted <- true
         let parentApi = ApiCall("ParentApi")
         parentApi.OutputSpec <- BoolValue (Single true)
         parent.Conditions.Add(parentApi)
@@ -150,7 +150,7 @@ module DeepCopyTests =
         // ID 보존 (CallCondition은 DsEntity 비상속 — jsonClone 사용)
         Assert.Equal(parent.Id, copied.Id)
         Assert.Equal(parent.Type, copied.Type)
-        Assert.Equal(parent.IsRising, copied.IsRising)
+        Assert.Equal(parent.IsInverted, copied.IsInverted)
         Assert.Equal(1, copied.Conditions.Count)
         Assert.Equal(1, copied.Children.Count)
 

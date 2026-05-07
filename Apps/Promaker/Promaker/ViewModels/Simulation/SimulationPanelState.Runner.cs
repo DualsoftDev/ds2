@@ -131,6 +131,7 @@ public partial class SimulationPanelState
             {
                 var hub = _hubConnection;
                 var hubGeneration = CurrentHubGeneration;
+                var sender = _hubBatchSender;
                 writeTagAction = (address, value) =>
                 {
                     if (!IsCurrentHubConnection(hubGeneration, hub))
@@ -142,46 +143,9 @@ public partial class SimulationPanelState
                         if (IsCurrentHubConnection(hubGeneration, hub))
                             AddSimLog($"[Ctrl→] Out {address}={value} (hub={state})", LogSeverity.Going);
                     });
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var waitStart = DateTime.Now;
-                            while (hub.State != HubConnectionState.Connected
-                                   && IsCurrentHubConnection(hubGeneration, hub)
-                                   && (DateTime.Now - waitStart).TotalMilliseconds < 3000)
-                            {
-                                await Task.Delay(50);
-                            }
 
-                            if (!IsCurrentHubConnection(hubGeneration, hub))
-                                return;
-                            if (hub.State != HubConnectionState.Connected)
-                            {
-                                _ = _dispatcher.BeginInvoke(() =>
-                                {
-                                    if (IsCurrentHubConnection(hubGeneration, hub))
-                                        AddSimLog($"[Ctrl→] WriteTag skipped: Hub not connected ({address}={value})", LogSeverity.Warn);
-                                });
-                                return;
-                            }
-
-                            await hub.InvokeAsync(HubMethod.WriteTag, address, value, HubSource.Control);
-                            _ = _dispatcher.BeginInvoke(() =>
-                            {
-                                if (IsCurrentHubConnection(hubGeneration, hub))
-                                    AddSimLog($"[Ctrl→] Hub 전송 완료: {address}={value}", LogSeverity.System);
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            _ = _dispatcher.BeginInvoke(() =>
-                            {
-                                if (IsCurrentHubConnection(hubGeneration, hub))
-                                    AddSimLog($"[Ctrl→] WriteTag 실패: {ex.Message}", LogSeverity.Error);
-                            });
-                        }
-                    });
+                    // Batch sender 가 짧은 윈도우 내 다른 WriteTag 들과 묶어 1개 SignalR 프레임으로 송신.
+                    sender?.Enqueue(address, value, HubSource.Control);
                 };
             }
             _simEngine = writeTagAction is not null

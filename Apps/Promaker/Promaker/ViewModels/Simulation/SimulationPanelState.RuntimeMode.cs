@@ -146,15 +146,31 @@ public partial class SimulationPanelState
         if (!requiresExclusiveImmediateLane)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrite: false);
+            if (awaitWrites)
+                FlushBatchSenderSynchronously(hubGeneration);
             return;
         }
 
         lock (_runtimeImmediateEffectLock)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrite: false);
+            if (awaitWrites)
+                FlushBatchSenderSynchronously(hubGeneration);
         }
+    }
+
+    /// <summary>
+    /// awaitWrites=true 일 때 batch 끝에 호출 — pending 한 WriteTag 들이 모두 송신될 때까지 동기 대기.
+    /// 기존 per-effect await 의 의미(쓰기 완료 후 다음 단계 진행)를 유지.
+    /// </summary>
+    private void FlushBatchSenderSynchronously(int hubGeneration)
+    {
+        var sender = _hubBatchSender;
+        if (sender is null || !IsCurrentHubGeneration(hubGeneration)) return;
+        try { sender.FlushAsync().Wait(TimeSpan.FromSeconds(2)); }
+        catch { /* best-effort */ }
     }
 
     private void ApplyRuntimeHubEffect(
@@ -192,18 +208,12 @@ public partial class SimulationPanelState
                 return;
 
             case RuntimeHubEffectKind.WriteTag:
-                if (_hubConnection is { State: HubConnectionState.Connected } hub
-                    && IsCurrentHubConnection(hubGeneration, hub)
+                if (_hubConnection is not null
+                    && IsCurrentHubConnection(hubGeneration, _hubConnection)
                     && !string.IsNullOrEmpty(effect.Address))
                 {
-                    var writeTask = InvokeRuntimeHubWriteTagAsync(
-                        hub,
-                        hubGeneration,
-                        effect.Address,
-                        effect.Value,
-                        runtimeSource);
-                    if (awaitWrite)
-                        writeTask.GetAwaiter().GetResult();
+                    // Batch sender 가 짧은 윈도우 내 WriteTag 들을 묶어 1개 SignalR 프레임으로 송신.
+                    _hubBatchSender?.Enqueue(effect.Address, effect.Value, runtimeSource);
                 }
                 return;
 
@@ -214,29 +224,6 @@ public partial class SimulationPanelState
                         ObserveAndInferPassiveState(effect.Address, effect.Value);
                 });
                 return;
-        }
-    }
-
-    private async Task InvokeRuntimeHubWriteTagAsync(
-        HubConnection hub,
-        int hubGeneration,
-        string address,
-        string value,
-        string runtimeSource)
-    {
-        try
-        {
-            if (!IsCurrentHubConnection(hubGeneration, hub))
-                return;
-            await hub.InvokeAsync(HubMethod.WriteTag, address, value, runtimeSource);
-        }
-        catch (Exception ex)
-        {
-            _ = _dispatcher.BeginInvoke(() =>
-            {
-                if (IsCurrentHubGeneration(hubGeneration))
-                    AddSimLog($"[Hub] WriteTag failed: {ex.Message}", LogSeverity.Error);
-            });
         }
     }
 

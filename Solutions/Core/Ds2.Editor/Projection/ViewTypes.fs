@@ -179,7 +179,8 @@ type CallApiCallPanelItem
 type CallConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
-     inputSpecText: string, inputSpecTypeIndex: int) =
+     inputSpecText: string, inputSpecTypeIndex: int,
+     contactKind: ContactKind) =
     member _.ApiCallId          = apiCallId
     member _.ApiCallName        = apiCallName
     member _.ApiDefDisplayName  = apiDefDisplayName
@@ -187,15 +188,17 @@ type CallConditionApiCallItem
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
     member _.InputSpecText      = inputSpecText
     member _.InputSpecTypeIndex = inputSpecTypeIndex
+    member _.ContactKind        = contactKind
 
 [<Sealed>]
 type CallConditionPanelItem
     (conditionId: Guid, conditionType: CallConditionType,
-     isOR: bool, isRising: bool, items: CallConditionApiCallItem list,
+     isOR: bool, isInverted: bool,
+     items: CallConditionApiCallItem list,
      children: CallConditionPanelItem list) =
     member _.ConditionId   = conditionId
     member _.ConditionType = conditionType
     member _.IsOR          = isOR
-    member _.IsRising      = isRising
+    member _.IsInverted    = isInverted
     member _.Items         = items
     member _.Children      = children

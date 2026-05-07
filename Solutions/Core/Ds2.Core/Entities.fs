@@ -133,6 +133,7 @@ and ApiCall [<JsonConstructor>] internal (name) =
     [<AasxField("InputSpec")>]    member val InputSpec    : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OutputSpec")>]   member val OutputSpec   : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OriginFlowId")>] member val OriginFlowId : Guid option  = None           with get, set
+    [<AasxField("ContactKind")>]  member val ContactKind  : ContactKind  = ContactKind.NoContact with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
@@ -142,7 +143,7 @@ and CallCondition [<JsonConstructor>] internal () =
     member val Conditions = ResizeArray<ApiCall>()                    with get, set
     member val Children   = ResizeArray<CallCondition>()              with get, set
     member val IsOR       = false                                     with get, set
-    member val IsRising   = false                                     with get, set
+    member val IsInverted = false                                     with get, set
 
     // DsEntity 비상속 → jsonClone (ID 보존)
     member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition> this

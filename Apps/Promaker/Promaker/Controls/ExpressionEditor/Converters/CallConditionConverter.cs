@@ -32,8 +32,7 @@ public static class CallConditionConverter
             {
                 if (item == null) continue;
                 var name = item.ApiDefDisplayName ?? "";
-                var kind = cc.IsRising ? ExprKind.Rising : ExprKind.Var;
-                leafNodes.Add(new ExprNode(kind, name, item.ApiCallId));
+                leafNodes.Add(new ExprNode(ExprKind.Var, name, item.ApiCallId));
             }
         }
 

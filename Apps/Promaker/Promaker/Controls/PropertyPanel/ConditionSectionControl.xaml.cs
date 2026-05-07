@@ -63,6 +63,14 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(NavigateConditionApiCallCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null, OnNavigateCommandChanged));
 
+    public static readonly DependencyProperty RemoveConditionApiCallCommandProperty =
+        DependencyProperty.Register(nameof(RemoveConditionApiCallCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
+    public static readonly DependencyProperty EditConditionApiCallSpecCommandProperty =
+        DependencyProperty.Register(nameof(EditConditionApiCallSpecCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public ConditionSectionControl()
     {
         InitializeComponent();
@@ -81,6 +89,8 @@ public partial class ConditionSectionControl : UserControl
     public ICommand? DropCallCommand { get => (ICommand?)GetValue(DropCallCommandProperty); set => SetValue(DropCallCommandProperty, value); }
     public ICommand? DropCallToConditionItemCommand { get => (ICommand?)GetValue(DropCallToConditionItemCommandProperty); set => SetValue(DropCallToConditionItemCommandProperty, value); }
     public ICommand? NavigateConditionApiCallCommand { get => (ICommand?)GetValue(NavigateConditionApiCallCommandProperty); set => SetValue(NavigateConditionApiCallCommandProperty, value); }
+    public ICommand? RemoveConditionApiCallCommand { get => (ICommand?)GetValue(RemoveConditionApiCallCommandProperty); set => SetValue(RemoveConditionApiCallCommandProperty, value); }
+    public ICommand? EditConditionApiCallSpecCommand { get => (ICommand?)GetValue(EditConditionApiCallSpecCommandProperty); set => SetValue(EditConditionApiCallSpecCommandProperty, value); }
 
     // ── Drop hint visibility ──
 
@@ -244,8 +254,6 @@ internal static class FormulaColorizer
             parts[i]();
         }
 
-        if (cond.IsRising)
-            inlines.Add(new Run(" ↑") { Foreground = RisingBrush, FontWeight = FontWeights.Bold });
     }
 
     private static void AddApiCallInlines(ConditionApiCallRow item, InlineCollection inlines, ICommand? navigateCommand)
