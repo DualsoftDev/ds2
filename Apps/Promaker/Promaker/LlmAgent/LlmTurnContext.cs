@@ -42,18 +42,23 @@ public sealed class LlmTurnContext
         Dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
     }
 
-    /// <summary>mutation tool handler 가 호출 직전 quota 체크. 초과 시 <see cref="QuotaExceededException"/>.</summary>
-    internal void IncrementMutationCount()
+    /// <summary>
+    /// mutation tool handler 가 호출 직전 quota 체크. 초과 시 <see cref="QuotaExceededException"/>.
+    /// <paramref name="delta"/> = 이번 호출이 소비할 mutation op 갯수. 단일 tool = 1, batch tool = batch 안 op 수.
+    /// (review C1) batch 1회 = quota 1 로 간주하면 100 op 단발 호출이 quota 50 cap 을 우회 → DoS 표면.
+    /// </summary>
+    internal void IncrementMutationCount(int delta = 1)
     {
+        if (delta < 1) throw new ArgumentOutOfRangeException(nameof(delta), "delta 는 1 이상이어야 합니다.");
         if (IsQuotaExceeded)
             throw new QuotaExceededException(
                 $"QUOTA_EXCEEDED: 이 turn 은 이미 mutation tool 호출 quota ({MutationQuota}) 를 초과했습니다. 추가 mutation 시도는 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
-        MutationCallCount++;
+        MutationCallCount += delta;
         if (MutationCallCount > MutationQuota)
         {
             IsQuotaExceeded = true;
             throw new QuotaExceededException(
-                $"QUOTA_EXCEEDED: turn 당 mutation tool 호출이 quota ({MutationQuota}) 를 초과했습니다. 이 turn 의 후속 mutation 은 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
+                $"QUOTA_EXCEEDED: turn 당 mutation op 누적이 quota ({MutationQuota}) 를 초과했습니다 (현재 {MutationCallCount}). 이 turn 의 후속 mutation 은 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
         }
     }
 

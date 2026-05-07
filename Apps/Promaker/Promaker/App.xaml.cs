@@ -16,6 +16,24 @@ public partial class App : Application
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
 
+    /// <summary>
+    /// `--autostart-llm` 인자 — Pass 1.5 측정 자동화용. 시작 시 LLM Chat panel 자동 활성화 →
+    /// McpHostService 가 StartAsync 되어 mcp config 파일이 즉시 작성됨. 수동 모드에서는 사용 안 함.
+    /// </summary>
+    internal static bool StartupAutoOpenLlm { get; set; }
+
+    /// <summary>
+    /// `--measure-prompt <text>` 인자 — 측정용 prompt 자동 전송. IsReady 후 LlmChatVm.Input 에 set + SendCommand 자동 실행.
+    /// LlmTurnContext 가 정상 시작 → mutation tool 이 ImportPlanBuilder 누적 → turn end 시 ApplyImportPlan.
+    /// </summary>
+    internal static string? StartupMeasurePrompt { get; set; }
+
+    /// <summary>
+    /// `--measure-then-exit` 인자 — IsSending true→false transition (= turn 끝 + ApplyImportPlan 완료) 후 MainWindow 자동 close.
+    /// MainWindow.Closing 의 dirty check 도 autostart 모드에서 skip. log4net flush 보장 + 외부 fsx 의 process.WaitForExit 자연 완료.
+    /// </summary>
+    internal static bool StartupMeasureThenExit { get; set; }
+
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);
 
@@ -33,8 +51,21 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Length > 0 && File.Exists(e.Args[0]))
-            StartupFilePath = e.Args[0];
+        for (int i = 0; i < e.Args.Length; i++)
+        {
+            var arg = e.Args[i];
+            if (arg == "--autostart-llm")
+                StartupAutoOpenLlm = true;
+            else if (arg == "--measure-then-exit")
+                StartupMeasureThenExit = true;
+            else if (arg == "--measure-prompt" && i + 1 < e.Args.Length)
+            {
+                StartupMeasurePrompt = e.Args[i + 1];
+                i++;   // skip next (consumed as prompt value)
+            }
+            else if (StartupFilePath == null && File.Exists(arg))
+                StartupFilePath = arg;
+        }
 
         if (OperatingSystem.IsWindows())
         {

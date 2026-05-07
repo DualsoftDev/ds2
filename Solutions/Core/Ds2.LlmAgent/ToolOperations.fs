@@ -1,8 +1,29 @@
 namespace Ds2.LlmAgent
 
 open System
+open System.Collections.Generic
+open System.Text.Json
 open Ds2.Core
 open Ds2.Core.Store
+
+/// Pass 6 (b) — Batch tool (`apply_operations`) 의 op 1개 입력.
+/// Args 는 op 별 필요 field 가 다른 dynamic JSON object → JsonElement 로 lazy 처리.
+/// C# 측이 JsonDocument.Parse 후 array iter → BatchOpInput[] 생성하여 queueBatch 에 전달.
+type BatchOpInput = {
+    Op: string
+    Ref: string option
+    Args: JsonElement
+}
+
+/// Pass 6 (b) — Batch op 1개 결과.
+/// Id = 새 Guid 반환 op (add_*) 만 Some. remove_entity / rename_entity 는 None.
+type BatchOpResult = {
+    Index: int
+    Op: string
+    Ref: string option
+    Id: Guid option
+    Display: string
+}
 
 /// LLM mutation/read tool handler 가 호출하는 F# 측 helper.
 ///
@@ -35,7 +56,11 @@ module ToolOperations =
             $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
         else
             let trimmed = value.Trim()
-            if trimmed.Length > maxLength then
+            // Pass 3 (c): name="@xxx" / "$xxx" injection self-loop 방지 (C5 / M10).
+            // entity 이름이 변수 참조 prefix 와 모양이 같으면 read tool 출력에서 LLM 자가혼동.
+            if trimmed.StartsWith("@") || trimmed.StartsWith("$") then
+                $"VALIDATION_ERROR: {field} 가 '@' 또는 '$' 로 시작할 수 없습니다 (예약 prefix)."
+            elif trimmed.Length > maxLength then
                 $"VALIDATION_ERROR: {field} 길이 {trimmed.Length} > {maxLength}."
             else
                 let bad =
@@ -138,6 +163,23 @@ module ToolOperations =
 
     // ─── Mutation queue (Phase 1c~1d) ────────────────────────────────────────
 
+    /// add_project mutation tool. Pass 5 에서 추가 — fresh store 에서 LLM 이 자율적으로 모델
+    /// 빌드 가능 (이전 phase 1 = "사용자가 GUI 로 새 project 생성" 의존을 제거).
+    /// 같은 turn 의 add_system 은 첫 project 자동 부착이라 add_project 직후 add_system 사용 가능.
+    /// 이름 중복 (store + plan 합산) 시 invalidOp.
+    /// 반환: 새 project Id.
+    let queueAddProject (plan: ImportPlanBuilder) (store: DsStore) (name: string) : Guid =
+        requireNonEmpty (nameof name) name "Project name"
+        let nameClash =
+            hasNameClash plan
+                (fun () -> Queries.allProjects store |> List.exists (fun p -> p.Name = name))
+                (function AddProject p -> p.Name = name | _ -> false)
+        if nameClash then
+            invalidOp $"이미 '{name}' 프로젝트가 존재합니다."
+        let project = Project(name)
+        plan.Add(AddProject project)
+        project.Id
+
     /// add_system mutation tool 의 plan 누적 wrapper.
     ///
     /// **현재 phase 1c 단순화**: 첫 번째 project 에 자동 부착. project 가 0개면 invalidOp.
@@ -145,13 +187,21 @@ module ToolOperations =
     /// 반환: 새로 생성된 system Id (LLM 응답에 포함).
     let queueAddSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (isActive: bool) : Guid =
         requireNonEmpty (nameof name) name "System name"
-        let project =
+        // 첫 project 자동 부착 — store 우선, 없으면 같은 turn 의 plan 의 AddProject (Pass 5: add_project 도구
+        // 추가 후 같은 turn 안 add_project → add_system chain 패턴 지원).
+        let projectId =
             match Queries.allProjects store with
-            | [] -> invalidOp "프로젝트가 없습니다. 먼저 프로젝트를 생성하세요."
-            | p :: _ -> p
+            | p :: _ -> p.Id
+            | [] ->
+                let planProj =
+                    plan.Operations
+                    |> Seq.tryPick (function AddProject p -> Some p.Id | _ -> None)
+                match planProj with
+                | Some id -> id
+                | None -> invalidOp "프로젝트가 없습니다. 먼저 add_project 를 호출하거나 GUI 로 생성하세요."
         let sys = DsSystem(name)
         plan.Add(AddSystem sys)
-        plan.Add(LinkSystemToProject(project.Id, sys.Id, isActive))
+        plan.Add(LinkSystemToProject(projectId, sys.Id, isActive))
         sys.Id
 
     /// add_flow mutation tool. parent System 은 store 또는 plan 에 존재해야 함.
@@ -210,6 +260,7 @@ module ToolOperations =
     let private addedInPlanKind (plan: ImportPlanBuilder) (id: Guid) : EntityKind option =
         plan.Operations
         |> Seq.tryPick (function
+            | AddProject p   when p.Id = id -> Some EntityKind.Project
             | AddSystem s    when s.Id = id -> Some EntityKind.System
             | AddFlow f      when f.Id = id -> Some EntityKind.Flow
             | AddWork w      when w.Id = id -> Some EntityKind.Work
@@ -731,3 +782,179 @@ module ToolOperations =
         | None ->
             let id = rootIdOpt.Value
             $"VALIDATION_ERROR: scope id {id:D} 가 Project/System/Flow 어디에도 해당하지 않습니다."
+
+    // ─── Pass 6 (b) — Batch tool (apply_operations) ──────────────────────────
+    //
+    // 채택 근거: (c) variable binding 의 chain pattern 이 message-level 1 round-trip 은 달성하나
+    //   claude CLI 의 internal turn 카운트 (numTurns) 가 N 회 tool_use 별 N 번 cycle 로 부풀림.
+    //   (b) 는 단일 tool 1번 호출 = 1 internal turn = 진짜 round-trip 압축. cascade 도 self-contained.
+    //
+    // ref 해소:
+    //   - batch 안 op 의 Args 에 "@<refName>" 패턴이 있으면 직전 op (= array 안 더 앞) 의 결과 Guid 로 치환
+    //   - refName scope = 이 batch 호출 안만 (호출 사이 공유 X — Plan 에 누적된 op 는 server 측 ref map 와 무관)
+    //
+    // fail-fast: 첫 op 실패 시 plan.TruncateTo(snapshotCount) 으로 진입 시점 plan 으로 rollback +
+    //   Error(failureIndex, opName, message) 반환. partial 누적이 ApplyImportPlan 시점에 의도와 다른
+    //   모델을 만들지 않도록 보장 (= 결정 7 (d) "1 turn = 1 undo" 의미 유지).
+
+    /// Args 에서 string field 추출. 없거나 wrong type 이면 invalidOp.
+    let private getStringArg (args: JsonElement) (name: string) : string =
+        let mutable prop = JsonElement()
+        if args.ValueKind <> JsonValueKind.Object || not (args.TryGetProperty(name, &prop)) then
+            invalidOp $"VALIDATION_ERROR: args.{name} 이 존재하지 않습니다."
+        elif prop.ValueKind <> JsonValueKind.String then
+            invalidOp $"VALIDATION_ERROR: args.{name} 가 string 이 아닙니다 (ValueKind={prop.ValueKind})."
+        else
+            prop.GetString()
+
+    /// Args 의 optional string field. 없으면 None.
+    let private getStringArgOpt (args: JsonElement) (name: string) : string option =
+        let mutable prop = JsonElement()
+        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+            Some(prop.GetString())
+        else None
+
+    /// Args 의 optional bool field. 없으면 default.
+    let private getBoolArg (args: JsonElement) (name: string) (defaultVal: bool) : bool =
+        let mutable prop = JsonElement()
+        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) then
+            match prop.ValueKind with
+            | JsonValueKind.True -> true
+            | JsonValueKind.False -> false
+            | _ -> defaultVal
+        else defaultVal
+
+    /// "@refName" → refMap[refName] (Guid). 그 외 → Guid.Parse. 실패 시 invalidOp.
+    let private resolveBatchRef (refMap: Dictionary<string, Guid>) (value: string) (field: string) : Guid =
+        if String.IsNullOrWhiteSpace(value) then
+            invalidOp $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
+        let trimmed = value.Trim()
+        if trimmed.StartsWith("@") then
+            let refName = trimmed.Substring(1)
+            match refMap.TryGetValue(refName) with
+            | true, g -> g
+            | _ -> invalidOp $"VALIDATION_ERROR: {field} 의 ref '@{refName}' 이 같은 batch 의 이전 op 에서 정의되지 않았습니다."
+        else
+            match Guid.TryParse(trimmed) with
+            | true, g -> g
+            | _ -> invalidOp $"VALIDATION_ERROR: {field} 가 유효한 GUID 또는 '@<ref>' 이 아닙니다."
+
+    /// dispatch 시 entity name 인자 sanitize (Cc/Cf reject + @/$ prefix reject + 길이 cap). 실패 시 invalidOp.
+    let private sanitizeOrThrow (value: string) (field: string) =
+        let err = sanitizeName value field NameMaxLength
+        if err <> "" then invalidOp err
+
+    /// queueBatch op 1개 dispatch. 새 Guid 가 있으면 Some 반환.
+    /// (review M5) 빈 op.Op 검증을 본 함수 첫 줄로 통합 — queueBatch 의 try-with 와 단일 경로로 합쳐 분기 단순화.
+    let private dispatchBatchOp
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (refMap: Dictionary<string, Guid>) (op: BatchOpInput) : Guid option * string =
+        if String.IsNullOrEmpty(op.Op) then
+            invalidOp "VALIDATION_ERROR: 'op' 필드가 비어있습니다."
+        match op.Op with
+        | "add_project" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let id = queueAddProject plan store (name.Trim())
+            Some id, $"add_project name=\"{name.Trim()}\" id={id:D}"
+        | "add_system" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let isActive = getBoolArg op.Args "isActive" true
+            let id = queueAddSystem plan store (name.Trim()) isActive
+            Some id, $"add_system name=\"{name.Trim()}\" isActive={isActive} id={id:D}"
+        | "add_flow" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
+            let id = queueAddFlow plan store (name.Trim()) sysId
+            Some id, $"add_flow name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
+        | "add_work" ->
+            let localName = getStringArg op.Args "localName"
+            sanitizeOrThrow localName "localName"
+            let flowId = resolveBatchRef refMap (getStringArg op.Args "flowId") "flowId"
+            let id = queueAddWork plan store (localName.Trim()) flowId
+            Some id, $"add_work localName=\"{localName.Trim()}\" flowId={flowId:D} id={id:D}"
+        | "add_call" ->
+            let alias = getStringArg op.Args "devicesAlias"
+            sanitizeOrThrow alias "devicesAlias"
+            let api = getStringArg op.Args "apiName"
+            sanitizeOrThrow api "apiName"
+            let workId = resolveBatchRef refMap (getStringArg op.Args "workId") "workId"
+            let id = queueAddCall plan store (alias.Trim()) (api.Trim()) workId
+            Some id, $"add_call name=\"{alias.Trim()}.{api.Trim()}\" workId={workId:D} id={id:D}"
+        | "add_api_def" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
+            let id = queueAddApiDef plan store (name.Trim()) sysId
+            Some id, $"add_api_def name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
+        | "add_arrow" ->
+            let srcId = resolveBatchRef refMap (getStringArg op.Args "sourceId") "sourceId"
+            let tgtId = resolveBatchRef refMap (getStringArg op.Args "targetId") "targetId"
+            let arrowTypeStr = getStringArgOpt op.Args "arrowType" |> Option.defaultValue "Start"
+            let arrowType =
+                match Enum.TryParse<ArrowType>(arrowTypeStr, true) with
+                | true, t -> t
+                | _ -> invalidOp $"VALIDATION_ERROR: arrowType '{arrowTypeStr}' 이 유효하지 않습니다. 허용: Unspecified|Start|Reset|StartReset|ResetReset|Group."
+            let (id, kind) = queueAddArrow plan store srcId tgtId arrowType
+            Some id, $"add_arrow kind={kind} type={arrowType} source={srcId:D} target={tgtId:D} id={id:D}"
+        | "remove_entity" ->
+            let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
+            let kind = queueRemoveEntity plan store entityId
+            None, $"remove_entity kind={kind} id={entityId:D} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)"
+        | "rename_entity" ->
+            let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
+            let newName = getStringArg op.Args "newName"
+            sanitizeOrThrow newName "newName"
+            let kind = queueRenameEntity plan store entityId (newName.Trim())
+            None, $"rename_entity kind={kind} id={entityId:D} newName=\"{newName.Trim()}\""
+        | other ->
+            invalidOp $"VALIDATION_ERROR: 지원하지 않는 op '{other}'. 허용: add_project|add_system|add_flow|add_work|add_call|add_api_def|add_arrow|remove_entity|rename_entity."
+
+    /// Batch op array 를 plan 에 누적.
+    /// 성공 시 Ok(results) — 모든 op 의 BatchOpResult.
+    /// 실패 시 Error(failureIndex, opName, message) — plan 은 진입 시점으로 rollback.
+    let queueBatch
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (ops: BatchOpInput[]) : Result<BatchOpResult[], int * string * string> =
+        if isNull ops || ops.Length = 0 then
+            Error(0, "", "VALIDATION_ERROR: operations array 가 비어있습니다.")
+        else
+            let snapshotCount = plan.Count
+            let refMap = Dictionary<string, Guid>()
+            let results = ResizeArray<BatchOpResult>()
+            let mutable failure : (int * string * string) option = None
+            let mutable i = 0
+            while failure.IsNone && i < ops.Length do
+                let op = ops.[i]
+                try
+                    // (review M5) ref 형식 검사 — `[a-zA-Z_][a-zA-Z0-9_]*` (1-32자). dispatchBatchOp 호출 전에 검증해서
+                    // op 성공 후 ref 만 fail 하는 부분 실패 회피. failwith → invalidOp 로 통일 (C# 측
+                    // IsRecoverableToolException 의 InvalidOperationException 분기와 의미 정합).
+                    match op.Ref with
+                    | Some refName ->
+                        if String.IsNullOrEmpty(refName) then
+                            invalidOp "VALIDATION_ERROR: ref 가 비어있습니다."
+                        elif refName.Length > 32 then
+                            invalidOp $"VALIDATION_ERROR: ref 길이 {refName.Length} > 32."
+                        elif not (System.Text.RegularExpressions.Regex.IsMatch(refName, @"^[a-zA-Z_][a-zA-Z0-9_]*$")) then
+                            invalidOp $"VALIDATION_ERROR: ref 형식 오류 (1-32자, [a-zA-Z_][a-zA-Z0-9_]*)."
+                        elif refMap.ContainsKey(refName) then
+                            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다."
+                    | None -> ()
+                    let (idOpt, display) = dispatchBatchOp plan store refMap op
+                    // ref 등록 (op.Ref 가 있고 새 Guid 가 있으면)
+                    match op.Ref, idOpt with
+                    | Some refName, Some id -> refMap.[refName] <- id
+                    | _ -> ()
+                    results.Add({ Index = i; Op = op.Op; Ref = op.Ref; Id = idOpt; Display = display })
+                with ex ->
+                    failure <- Some(i, op.Op, ex.Message)
+                i <- i + 1
+            match failure with
+            | Some(idx, opName, msg) ->
+                plan.TruncateTo(snapshotCount)
+                Error(idx, opName, msg)
+            | None ->
+                Ok(results.ToArray())
