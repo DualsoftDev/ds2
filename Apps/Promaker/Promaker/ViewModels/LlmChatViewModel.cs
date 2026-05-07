@@ -130,7 +130,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         if (!_config.IsConsentGranted())
         {
             StatusText = "LLM 데이터 전송 동의 미완료 — LLM Chat 메뉴 재진입 시 다이얼로그 표시";
-            Turns.Add(new ChatTurn { Role = "system", Text = StatusText });
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = StatusText });
             return;
         }
 
@@ -145,7 +145,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         {
             Log.Error("LlmChatViewModel 초기화 실패", ex);
             StatusText = $"초기화 실패: {ex.Message}";
-            Turns.Add(new ChatTurn { Role = "system", Text = $"초기화 실패: {ex.Message}" });
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"초기화 실패: {ex.Message}" });
             // McpHostService.WaitReadyAsync timeout 등으로 throw 시 _app 은 이미 set 된 상태.
             // panel close 까지 DisposeAsync 가 지연되면 background Kestrel + ephemeral port leak →
             // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
@@ -216,7 +216,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             else
             {
                 StatusText = $"{kind} 초기화 실패: {result.Message}";
-                Turns.Add(new ChatTurn { Role = "system", Text = result.Message });
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = result.Message });
             }
             SendCommand.NotifyCanExecuteChanged();
         }
@@ -225,7 +225,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             if (myCounter != _switchCounter) return;
             Log.Error($"ConfigureProviderAsync({kind}) 실패", ex);
             StatusText = $"{kind} 초기화 실패: {ex.Message}";
-            Turns.Add(new ChatTurn { Role = "system", Text = $"{kind} 초기화 실패: {ex.Message}" });
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"{kind} 초기화 실패: {ex.Message}" });
             IsReady = false;
             SendCommand.NotifyCanExecuteChanged();
         }
@@ -365,7 +365,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         SendCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
 
-        Turns.Add(new ChatTurn { Role = "user", Text = prompt });
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.User, Text = prompt });
         // Streaming turn 은 첫 AssistantDelta 시점에 EnsureStreamingTurn 으로 lazy-create —
         // tool_use 가 첫 이벤트로 오는 경우 빈 assistant 버블이 먼저 보이는 깜빡임 회피.
         _streamingTurn = null;
@@ -392,8 +392,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("LlmChatViewModel.SendAsync 실패", ex);
-            EnsureStreamingTurn();
-            AppendAssistant($"\n[ERROR] {ex.Message}");
+            AddErrorTurn($"[ERROR] {ex.Message}");
         }
         finally
         {
@@ -411,7 +410,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 catch (Exception ex)
                 {
                     Log.Error("ApplyImportPlan 실패", ex);
-                    AddToolTurn($"[ApplyImportPlan ERROR] {ex.Message}");
+                    AddErrorTurn($"[ApplyImportPlan ERROR] {ex.Message}");
                 }
             }
 
@@ -587,8 +586,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 break;
 
             case LlmEvent.ProviderError err:
-                EnsureStreamingTurn();
-                AppendAssistant($"\n[provider error] {err.message}\n");
+                AddErrorTurn($"[provider error] {err.message}");
                 StatusText = err.message;
                 break;
         }
@@ -602,7 +600,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private void EnsureStreamingTurn()
     {
         if (_streamingTurn != null) return;
-        _streamingTurn = new ChatTurn { Role = "assistant", Text = "", IsStreaming = true };
+        _streamingTurn = new ChatTurn { Role = ChatTurn.Roles.Assistant, Text = "", IsStreaming = true };
         Turns.Add(_streamingTurn);
     }
 
@@ -621,14 +619,21 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private void AddToolTurn(string text)
     {
         EndStreamingTurn();
-        Turns.Add(new ChatTurn { Role = "tool", Text = text });
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Tool, Text = text });
     }
 
-    /// <summary>Thinking block 을 별도 turn 으로 추가 (Role=thinking — 기본 어시스턴트 스타일).</summary>
+    /// <summary>Thinking block 을 별도 turn 으로 추가 (Role=thinking — 기본 어시스턴트 스타일 + 좌측 색띠).</summary>
     private void AddThinkingTurn(string text)
     {
         EndStreamingTurn();
-        Turns.Add(new ChatTurn { Role = "thinking", Text = text });
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Thinking, Text = text });
+    }
+
+    /// <summary>에러 메시지를 별도 turn 으로 추가 (Role=error — XAML DataTrigger 가 dark orange 적용).</summary>
+    private void AddErrorTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Error, Text = text });
     }
 
     private void AppendAssistant(string fragment)
@@ -689,6 +694,20 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
 public partial class ChatTurn : ObservableObject
 {
+    /// <summary>
+    /// ChatTurn.Role 의 magic string SSOT. ViewModel 측은 이 const 만 참조.
+    /// XAML DataTrigger 의 Value 는 string literal 매칭 특성상 그대로 유지하되, 변경 시 본 const 와 함께 동기화.
+    /// </summary>
+    public static class Roles
+    {
+        public const string User = "user";
+        public const string Assistant = "assistant";
+        public const string System = "system";
+        public const string Tool = "tool";
+        public const string Thinking = "thinking";
+        public const string Error = "error";
+    }
+
     [ObservableProperty]
     private string _role = "";
 
