@@ -149,22 +149,10 @@
                     <DataGridTemplateColumn Header="{x:Static core:Labels.InSpec}" Width="1.2*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,1,0,1">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0"
-                                             Text="{Binding InputValueSpecText, Mode=OneWay}"
-                                             IsReadOnly="True"
-                                             Padding="4,2"/>
-                                    <Button Grid.Column="1"
-                                            Content="✎"
-                                            Style="{StaticResource InlineListButton}"
-                                            Margin="4,0,0,0"
-                                            Command="{Binding DataContext.EditCallApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                            CommandParameter="{Binding}"/>
-                                </Grid>
+                                <TextBox Text="{Binding InputValueSpecText, Mode=OneWay}"
+                                         IsReadOnly="True"
+                                         Padding="4,2"
+                                         Margin="0,1,0,1"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
@@ -200,15 +188,22 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTemplateColumn Width="32">
+                    <DataGridTemplateColumn Width="64">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="✓"
-                                        Style="{StaticResource InlineListButton}"
-                                        Margin="0,1,0,1"
-                                        IsEnabled="{Binding IsDirty}"
-                                        Command="{Binding DataContext.UpdateCallApiCallCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        CommandParameter="{Binding}"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="✎"
+                                            Style="{StaticResource InlineListButton}"
+                                            Margin="0,1,2,1"
+                                            Command="{Binding DataContext.EditCallApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"/>
+                                    <Button Content="✓"
+                                            Style="{StaticResource InlineListButton}"
+                                            Margin="0,1,0,1"
+                                            IsEnabled="{Binding IsDirty}"
+                                            Command="{Binding DataContext.UpdateCallApiCallCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"/>
+                                </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

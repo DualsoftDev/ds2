@@ -79,8 +79,10 @@ module WorkConditionChecker =
                 | Some apiCallGuid ->
                     match state.IOValues |> Map.tryFind apiCallGuid with
                     | Some currentValue -> ValueSpec.evaluate spec.InputSpec currentValue
-                    | None -> true
-                | None -> true
+                    | None -> false   // IO 값 미설정 — 사용자가 spec 으로 명시한 조건이 검증 안 된 상태라 차단.
+                                       // 이전엔 true (false-positive) 였음 — 첫 사이클 통과 후 두 번째부터 stale 값으로
+                                       // 차단되는 일관성 깨짐 유발. 명시 spec 있으면 IO 값 매칭이 확인되어야 통과.
+                | None -> true   // ApiCallGuid 없는 spec — IO 비교 대상 없음. RxWork Finish 만 검사.
             | _ -> false
 
     /// SkipUnmatch: ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
