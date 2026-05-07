@@ -1,11 +1,12 @@
+using AAStoPLC.TagWizard;
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Input;
-using AAStoXGI.LadderViewer.Models;
-using AAStoXGI.LadderViewer.Renderers;
+using AAStoPLC.LadderViewer.Models;
+using AAStoPLC.LadderViewer.Renderers;
 using Ds2.Core.Store;
 using Microsoft.Win32;
 using Plc.Xgi;
@@ -69,35 +70,32 @@ public partial class PlcXmlGeneratorDialog : Window
 
         try
         {
-            // IOList 파이프라인은 여전히 디렉토리 입력을 받는다 — AASX Preset 에서 일시 디렉토리로 emit.
-            using var tempDir = Promaker.Services.PresetToTempTemplateDir.Materialize(_store);
-            var ioListResult = IoListPipeline.generate(_store, tempDir.Path);
-            var ioCount      = ioListResult.IoSignals.Length;
-            var dummyCount   = ioListResult.DummySignals.Length;
-            var ioErrCount   = ioListResult.Errors.Length;
+            // IO 신호/Dummy 통계는 IoSignalPipeline facade 에서 추출 (IoListPipeline 직접 호출 없음).
+            var ioBundle = IoSignalPipeline.GenerateAll(_store);
 
             var xgiOpt = !string.IsNullOrEmpty(xgiTemplatePath) && File.Exists(xgiTemplatePath)
                 ? Microsoft.FSharp.Core.FSharpOption<string>.Some(xgiTemplatePath)
                 : Microsoft.FSharp.Core.FSharpOption<string>.None;
 
             var fbTagMaps = FBTagMapStore.ToFSharpMap(_store);
+            // 주소 할당은 F# 측 SignalPipeline 이 내부에서 수행 — 별도 override 불필요.
             var detailResult = Plc.Xgi.Api.generateXmlWithDetail(_store, fbTagMaps, xgiOpt);
 
-            UpdateSummary(ioListResult, ioCount, dummyCount, ioErrCount, detailResult);
+            UpdateSummary(ioBundle, detailResult);
 
             if (detailResult.IsOk)
             {
                 _generatedXml = detailResult.ResultValue.Xml;
 
                 // 생성 결과를 store에 기록 → 다음 AASX 저장 시 SequenceControl 서브모델 포함
-                Plc.Xgi.Api.persistFbMappings(_store, detailResult.ResultValue.FBResult);
+                Plc.Xgi.Api.persistFbMappings(_store, detailResult.ResultValue.Output);
 
                 SaveButton.IsEnabled = true;
-                var fbCount = detailResult.ResultValue.FBResult.FBMappings
-                    .Select(m => m.InstanceName)
+                var fbCount = detailResult.ResultValue.Output.CallPlans
+                    .Select(p => p.InstanceName)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Count();
-                SetStatus($"✓ 완료 — IO {ioCount + dummyCount}개 신호, FB {fbCount}개 인스턴스");
+                SetStatus($"✓ 완료 — IO {ioBundle.IoRows.Count + ioBundle.DummyRows.Count}개 신호, FB {fbCount}개 인스턴스");
 
                 LoadLadder(_generatedXml);
                 PreviewTabs.SelectedIndex = 1; // 래더 탭
@@ -193,78 +191,80 @@ public partial class PlcXmlGeneratorDialog : Window
 
     // ── 요약 텍스트 ──────────────────────────────────────────────────────────
 
+    private const int MaxErrorsShown   = 10;
+    private const int MaxCriticalShown = 15;
+    private const int MaxWarningsShown = 10;
+
     private void UpdateSummary(
-        GenerationResult ioResult,
-        int ioCount, int dummyCount, int ioErrCount,
+        IoSignalPipeline.GenerateResult ioBundle,
         Microsoft.FSharp.Core.FSharpResult<Plc.Xgi.PlcXmlGenerationDetail, string> detailResult)
     {
         var sb = new StringBuilder();
-
-        sb.AppendLine("=== IOList 신호 생성 ===");
-        sb.AppendLine($"  IO 신호 (IW/QW): {ioCount}개");
-        sb.AppendLine($"  Dummy 신호 (MW): {dummyCount}개");
-        if (ioErrCount > 0)
-        {
-            sb.AppendLine($"  ⚠ 오류: {ioErrCount}개");
-            foreach (var err in ioResult.Errors.Take(10))
-                sb.AppendLine($"    - {err.Message}");
-            if (ioErrCount > 10)
-                sb.AppendLine($"    ... 외 {ioErrCount - 10}개");
-        }
-        else sb.AppendLine("  오류: 없음");
+        AppendIoListSection(sb, ioBundle);
         sb.AppendLine();
+        AppendFbSection(sb, detailResult);
+        SummaryText.Text = sb.ToString().TrimEnd();
+    }
+
+    private static void AppendIoListSection(StringBuilder sb, IoSignalPipeline.GenerateResult bundle)
+    {
+        sb.AppendLine("=== IOList 신호 생성 ===");
+        sb.AppendLine($"  IO 신호 (IW/QW): {bundle.IoRows.Count}개");
+        sb.AppendLine($"  Dummy 신호 (MW): {bundle.DummyRows.Count}개");
+        if (bundle.ErrorMessages.Count == 0)
+        {
+            sb.AppendLine("  오류: 없음");
+            return;
+        }
+        sb.AppendLine($"  ⚠ 오류: {bundle.ErrorMessages.Count}개");
+        AppendList(sb, bundle.ErrorMessages, MaxErrorsShown, "    - ");
+    }
+
+    private void AppendFbSection(
+        StringBuilder sb,
+        Microsoft.FSharp.Core.FSharpResult<Plc.Xgi.PlcXmlGenerationDetail, string> detailResult)
+    {
+        sb.AppendLine("=== FB 매핑 생성 ===");
 
         if (detailResult.IsError)
         {
-            sb.AppendLine("=== FB 매핑 생성 ===");
             sb.AppendLine($"  ❌ 실패: {detailResult.ErrorValue}");
-
-            // FBMappings 가 비어있지만 Errors 가 없을 때는 경고(FBTagMap 미설정 등)가 원인.
-            try
-            {
-                var fbMaps = FBTagMapStore.ToFSharpMap(_store);
-                var probe  = Plc.Xgi.Pipeline.generate(_store, fbMaps);
-                // 같은 SystemType 에 여러 Device 가 있어도 사용자가 해야할 작업은 1회 — 중복 제거.
-                var uniqueWarns = probe.Warnings
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-                if (uniqueWarns.Length > 0)
-                {
-                    sb.AppendLine();
-                    sb.AppendLine($"  해결해야 할 설정 ({uniqueWarns.Length}건):");
-                    foreach (var w in uniqueWarns.Take(20))
-                        sb.AppendLine($"    • {w}");
-                    if (uniqueWarns.Length > 20)
-                        sb.AppendLine($"    ... 외 {uniqueWarns.Length - 20}건");
-                }
-            }
-            catch { /* probe 실패해도 원래 오류는 표시됨 */ }
+            return;
         }
+
+        var output = detailResult.ResultValue.Output;
+        var fbCount = output.CallPlans
+            .Select(p => p.InstanceName)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+        sb.AppendLine($"  FB 인스턴스: {fbCount}개 (Device 당 1개)");
+
+        // Diagnostic.Severity 로 직접 분류 — SevError = PLC 동작 불가, SevWarning = 소프트 경고.
+        var errors   = output.Diagnostics.Where(d => d.Severity.IsSevError).ToList();
+        var warnings = output.Diagnostics.Where(d => d.Severity.IsSevWarning).ToList();
+
+        if (errors.Count == 0) sb.AppendLine("  오류: 없음");
         else
         {
-            var fbResult   = detailResult.ResultValue.FBResult;
-            var fbErrCount = fbResult.Errors.Length;
-
-            // InstanceName 기준으로 그룹화 — 같은 Device 의 여러 API Call 은 하나의 FB 로 표시.
-            var deviceGroups = fbResult.FBMappings
-                .GroupBy(m => m.InstanceName, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var fbCount = deviceGroups.Count;
-
-            sb.AppendLine("=== FB 매핑 생성 ===");
-            sb.AppendLine($"  FB 인스턴스: {fbCount}개 (Device 당 1개)");
-            if (fbErrCount > 0)
-            {
-                sb.AppendLine($"  ⚠ 오류: {fbErrCount}개");
-                foreach (var err in fbResult.Errors.Take(5))
-                    sb.AppendLine($"    - {err.Message}");
-            }
-            else sb.AppendLine("  오류: 없음");
-
-            // 상세 입출력 포트 목록은 표시하지 않음 — 래더 탭에서 직접 확인.
+            sb.AppendLine();
+            sb.AppendLine($"  🔴 오류 {errors.Count}건 (PLC 동작 불가):");
+            AppendList(sb, errors.Select(e => e.Message), MaxCriticalShown, "    - ");
         }
+        if (warnings.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  🟡 경고 {warnings.Count}건:");
+            AppendList(sb, warnings.Select(w => w.Message), MaxWarningsShown, "    - ");
+        }
+    }
 
-        SummaryText.Text = sb.ToString().TrimEnd();
+    /// <summary>최대 N 항목까지 출력 + 초과분 요약.</summary>
+    private static void AppendList(StringBuilder sb, IEnumerable<string> items, int max, string prefix)
+    {
+        var list = items.ToList();
+        foreach (var s in list.Take(max)) sb.AppendLine(prefix + s);
+        if (list.Count > max)
+            sb.AppendLine($"{prefix}... 외 {list.Count - max}건");
     }
 
     // ── 저장 ─────────────────────────────────────────────────────────────────

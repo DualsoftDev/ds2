@@ -9,9 +9,8 @@ using Promaker.Dialogs;
 namespace Promaker.Services;
 
 /// <summary>
-/// IoBatchRow 컬렉션을 DsStore.UpdateApiCallIoTags 로 일괄 적용.
-/// 이전엔 TagWizardDialog.ApplySignals 와 TagWizardBasicDialog.Apply_Click 두 곳에서
-/// 동일 루프를 따로 작성 — 단일 진입점으로 통합.
+/// IoBatchRow 컬렉션을 Ds2.Editor 의 batch 확장으로 일괄 적용.
+/// 단일 transaction + Call 별 1회 이벤트 — N transactions/events → 최소화.
 /// </summary>
 public static class IoTagApplier
 {
@@ -21,16 +20,12 @@ public static class IoTagApplier
         public bool AnyFailed => FailedCount > 0;
     }
 
-    /// <summary>
-    /// rows 의 (CallId, ApiCallId) 가 비어있지 않은 항목만 ApiCall 의 InTag/OutTag 에 덮어쓴다.
-    /// Out → OutTag, In → InTag. 행 단위 예외는 FailedItems 에 누적.
-    /// </summary>
     public static ApplyResult Apply(DsStore store, IEnumerable<IoBatchRow> rows)
     {
         if (store == null) throw new ArgumentNullException(nameof(store));
 
-        int success = 0;
         var failed = new List<string>();
+        var entries = new List<(Guid, Guid, IOTag, IOTag)>();
 
         foreach (var row in rows)
         {
@@ -39,20 +34,20 @@ public static class IoTagApplier
                 failed.Add($"{row.Flow}/{row.Device}/{row.Api}: Call/ApiCall 매칭 실패");
                 continue;
             }
+            entries.Add((
+                row.CallId, row.ApiCallId,
+                new IOTag(row.OutSymbol ?? "", row.OutAddress ?? "", ""),
+                new IOTag(row.InSymbol  ?? "", row.InAddress  ?? "", "")));
+        }
 
-            try
-            {
-                store.UpdateApiCallIoTags(
-                    row.CallId,
-                    row.ApiCallId,
-                    new IOTag(row.OutSymbol ?? "", row.OutAddress ?? "", ""),
-                    new IOTag(row.InSymbol ?? "", row.InAddress ?? "", ""));
-                success++;
-            }
-            catch (Exception ex)
-            {
-                failed.Add($"{row.Flow}/{row.Device}/{row.Api}: {ex.Message}");
-            }
+        int success = 0;
+        try
+        {
+            success = store.UpdateApiCallIoTagsBatch(entries);
+        }
+        catch (Exception ex)
+        {
+            failed.Add($"일괄 적용 예외: {ex.Message}");
         }
 
         return new ApplyResult(success, failed);

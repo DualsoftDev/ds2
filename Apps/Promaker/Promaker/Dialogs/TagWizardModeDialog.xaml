@@ -89,7 +89,8 @@
                              IsChecked="True"
                              Padding="10,10"
                              Margin="0,0,0,10"
-                             Style="{StaticResource WizardModeRadioStyle}">
+                             Style="{StaticResource WizardModeRadioStyle}"
+                             MouseDoubleClick="ModeRadio_DoubleClick">
                     <StackPanel Margin="6,0,0,0">
                         <TextBlock FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource PrimaryTextBrush}"
@@ -104,7 +105,8 @@
                 <RadioButton x:Name="AdvancedRadio"
                              GroupName="WizardMode"
                              Padding="10,10"
-                             Style="{StaticResource WizardModeRadioStyle}">
+                             Style="{StaticResource WizardModeRadioStyle}"
+                             MouseDoubleClick="ModeRadio_DoubleClick">
                     <StackPanel Margin="6,0,0,0">
                         <TextBlock FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource PrimaryTextBrush}"
@@ -130,11 +132,6 @@
                         MinWidth="110" Padding="8,6"
                         IsDefault="True"
                         Click="Next_Click"/>
-                <Button Grid.Column="3"
-                        Content="취소"
-                        Style="{StaticResource DarkButton}"
-                        MinWidth="90" Padding="8,6"
-                        IsCancel="True"/>
             </Grid>
         </Grid>
     </Border>

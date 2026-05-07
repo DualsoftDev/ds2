@@ -1162,11 +1162,12 @@ public sealed class SimulationPassiveInferenceTests
 
     private static void SetIoTags(DsStore store, Guid callId, Guid apiCallId, string outAddress, string inAddress)
     {
-        store.UpdateApiCallIoTags(
-            callId,
-            apiCallId,
-            new IOTag("Out", outAddress, ""),
-            new IOTag("In", inAddress, ""));
+        store.UpdateApiCallIoTagsBatch(new[]
+        {
+            (callId, apiCallId,
+             new IOTag("Out", outAddress, ""),
+             new IOTag("In",  inAddress,  ""))
+        });
     }
 
     private static SimulationPanelState CreatePassiveState(

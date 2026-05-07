@@ -51,10 +51,6 @@ let validateHomogeneousSystemType (call: Call) (store: DsStore) : string list =
         [ sprintf "Call '%s' (%O): SystemType 혼재 [%s] — preset 합성 불가."
                   call.Name call.Id (String.concat ", " types) ]
 
-/// 하위 호환 — 기존 호출처를 위해 유지 (이종 Device 자체는 정상이므로 항상 [] 반환).
-[<System.Obsolete("B안 v2: 이종 Device Call 정상. validateHomogeneousSystemType 사용.")>]
-let validateHomogeneousDevice (_call: Call) (_store: DsStore) : string list = []
-
 /// 한 Call 에 대한 전체 검증 (빈 + SystemType 동종성).
 let validateCall (call: Call) (store: DsStore) : string list =
     validateNonEmptyApiCalls call @ validateHomogeneousSystemType call store

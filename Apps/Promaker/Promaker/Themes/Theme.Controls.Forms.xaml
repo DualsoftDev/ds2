@@ -137,6 +137,11 @@
         <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
         <Setter Property="Padding" Value="6,4"/>
+        <!-- WPF 의 default ComboBoxItem template 이 부모 ItemsControl 의 ContentAlignment 를
+             RelativeSource FindAncestor 로 찾는다. ComboBox 가 DataTemplate 안에 있을 때 부모를 못 찾아
+             "Cannot find source for binding... ContentAlignment" 경고가 출력된다. 명시 setter 로 차단. -->
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>

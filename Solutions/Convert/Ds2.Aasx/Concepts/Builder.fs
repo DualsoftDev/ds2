@@ -75,11 +75,26 @@ module AasxConceptDescriptions =
         cd.Description <- descs
         cd :> IConceptDescription
 
+    /// ds2 자체 발급 CD 의 구버전 prefix — 임베디드 SequenceModel.aasx 가 옛 호스트 도메인을 포함.
+    /// 신규 CdBaseUrl 로 교체된 CD 와 충돌하지 않도록 임베디드 로드 시 제외.
+    let private legacyCdPrefixes = [
+        "https://dualsoft.com/cd/"   // 옛 ds2 CD 베이스 (현재 CdBaseUrl 로 대체됨)
+    ]
+
+    let private isLegacyCd (cd: IConceptDescription) =
+        match Option.ofObj cd.Id with
+        | None    -> false
+        | Some id -> legacyCdPrefixes |> List.exists (fun p -> id.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+
     let createAllConceptDescriptions () : ResizeArray<IConceptDescription> =
         let result = ResizeArray<IConceptDescription>()
-        // 1) 외부 표준 CD (Nameplate, Documentation 등) — 임베디드 IDTA AASX 템플릿에서
-        result.AddRange(loadFromEmbeddedAasx ())
-        // 2) ds2 자체 발급 CD (Entities + Submodel + Simulation)
+        // 1) 외부 표준 CD (Nameplate, Documentation 등) — 임베디드 IDTA AASX 템플릿에서.
+        //    ds2 자체 CD 의 구버전(legacy) prefix 항목은 제외 — 신규 CdBaseUrl 로 단일화.
+        let embedded =
+            loadFromEmbeddedAasx ()
+            |> List.filter (fun cd -> not (isLegacyCd cd))
+        result.AddRange(embedded)
+        // 2) ds2 자체 발급 CD (Entities + Submodel + Simulation) — 신규 CdBaseUrl 기반.
         let existingIds = result |> Seq.choose (fun cd -> Option.ofObj cd.Id) |> Set.ofSeq
         for info in AasxConceptDescriptionCatalog.allConceptDescriptionInfos do
             if not (existingIds.Contains info.Id) then

@@ -1,3 +1,4 @@
+using AAStoPLC.TagWizard;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -23,7 +24,10 @@ public partial class CallCreateDialog : Window
     /// </summary>
     private static string? _lastSelectedPreset;
 
+    public sealed record ApiCountSpec(string ApiName, int MaxCount, int DefaultCount);
+
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
+    private readonly Func<string, IReadOnlyList<ApiCountSpec>>? _apiCountSpecsForSysType;
     private readonly Project? _project;
 
     // ─── 직접 입력 SystemType 자동 동기화 상태 ───
@@ -52,9 +56,22 @@ public partial class CallCreateDialog : Window
     // ─── SystemType 출력 ───
     public string? SelectedSystemType { get; private set; } = null;
 
-    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, Project? project = null)
+    /// <summary>true=Call+ApiCall+passive device 생성 (기본). false=Call만 생성 (ApiName 미입력 → Api_None).</summary>
+    public bool CreateDeviceSystem { get; private set; } = true;
+
+    /// <summary>
+    /// 신호 수량 — SignalPatternEntry.RepeatCountFromCallProp 키 → 사용자 입력 카운트.
+    /// 빈 dict 이면 기본값 (Pipeline ENUM011 경고).
+    /// </summary>
+    public Dictionary<string, int> SignalCounts { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public CallCreateDialog(
+        Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName,
+        Project? project = null,
+        Func<string, IReadOnlyList<ApiCountSpec>>? apiCountSpecsForSysType = null)
     {
         _findApiDefsByName = findApiDefsByName;
+        _apiCountSpecsForSysType = apiCountSpecsForSysType;
         _project = project;
         InitializeComponent();
         LoadPresets();
@@ -71,6 +88,7 @@ public partial class CallCreateDialog : Window
         {
             BasicAliasTextBox.Focus();
             RefreshApiDefList();
+            RefreshSignalCountsPanel();
         };
     }
 
@@ -279,6 +297,137 @@ public partial class CallCreateDialog : Window
     private bool IsCustomInputSelected() =>
         PresetComboBox.SelectedItem is ComboBoxItem { Tag: null };
 
+    /// <summary>현재 SystemType 의 ApiName spec 캐시 — 콤보 선택 변경 시 lookup 용.</summary>
+    private IReadOnlyList<ApiCountSpec> _currentApiSpecs = Array.Empty<ApiCountSpec>();
+    private bool _suppressSignalCountEvents;
+
+    /// <summary>BasicApiNameTextBox 의 ApiName 목록 (';' 구분).</summary>
+    private IReadOnlyList<string> ParseApiNamesFromInput()
+    {
+        var raw = BasicApiNameTextBox?.Text ?? "";
+        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
+        return raw.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                  .Select(s => s.Trim())
+                  .Where(s => s.Length > 0
+                              && !string.Equals(s, "Api_None", StringComparison.OrdinalIgnoreCase))
+                  .Distinct(StringComparer.OrdinalIgnoreCase)
+                  .ToList();
+    }
+
+    /// <summary>현재 SystemType 의 ApiName 콤보 + 수량 입력 재구성. ApiCall 복제 우측 영역.</summary>
+    private void RefreshSignalCountsPanel()
+    {
+        if (SignalCountApiCombo is null) return;
+        SignalCountsContainer.Visibility = Visibility.Visible;
+
+        // ApiName 1차 소스 = 다이얼로그 입력 (사용자가 만들 Call 의 정의).
+        // preset 의 RepeatCountFromCallProp/FB 매칭은 max 산출에만 사용.
+        var apiNames = ParseApiNamesFromInput();
+        var sysType = GetSystemTypeForCurrentPreset() ?? "";
+        var presetSpecs = _apiCountSpecsForSysType is null || string.IsNullOrEmpty(sysType)
+            ? Array.Empty<ApiCountSpec>()
+            : (_apiCountSpecsForSysType(sysType) ?? Array.Empty<ApiCountSpec>());
+        var presetByName = presetSpecs.ToDictionary(s => s.ApiName, StringComparer.OrdinalIgnoreCase);
+
+        // 입력 ApiName 으로 spec 합성. preset 매칭이 있으면 그 max 사용, 없으면 max=1.
+        var specs = (apiNames.Count > 0 ? apiNames : presetSpecs.Select(s => s.ApiName).ToList())
+            .Select(api => presetByName.TryGetValue(api, out var s)
+                ? s : new ApiCountSpec(api, 1, 1))
+            .ToList();
+
+        if (specs.Count == 0)
+        {
+            // ApiName 도 preset 도 비어있는 매우 드문 경우 — 패널 비활성.
+            _currentApiSpecs = Array.Empty<ApiCountSpec>();
+            _suppressSignalCountEvents = true;
+            SignalCountApiCombo.ItemsSource = new[] { "(ApiName 입력 필요)" };
+            SignalCountApiCombo.SelectedIndex = 0;
+            SignalCountApiCombo.IsEnabled = false;
+            SignalCountValueBox.IsEnabled = false;
+            SignalCountValueBox.Text = "0";
+            SignalCountMaxLabel.Text = "";
+            _suppressSignalCountEvents = false;
+            return;
+        }
+        SignalCountApiCombo.IsEnabled = true;
+        SignalCountValueBox.IsEnabled = true;
+        _currentApiSpecs = specs;
+
+        // 모든 API 의 default 값으로 SignalCounts 초기화 (사용자 기존 입력은 보존).
+        foreach (var s in specs)
+        {
+            if (!SignalCounts.ContainsKey(s.ApiName))
+                SignalCounts[s.ApiName] = s.DefaultCount;
+            if (s.MaxCount > 0 && SignalCounts[s.ApiName] > s.MaxCount)
+                SignalCounts[s.ApiName] = s.MaxCount;
+        }
+
+        _suppressSignalCountEvents = true;
+        SignalCountApiCombo.ItemsSource = specs.Select(s => s.ApiName).ToList();
+        SignalCountApiCombo.SelectedIndex = 0;
+        _suppressSignalCountEvents = false;
+        SyncSignalCountInput();
+    }
+
+    /// <summary>ApiCall 복제 개수 — 신호 수량 effective max 에 곱셈으로 반영.</summary>
+    private int CurrentApiCallReplicationFactor()
+    {
+        if (RadioApiCallReplication?.IsChecked == true
+            && int.TryParse(ApiCallCountTextBox?.Text?.Trim(), out var n) && n >= 1)
+            return n;
+        return 1;
+    }
+
+    private int EffectiveMaxFor(ApiCountSpec spec)
+    {
+        // 신호 수량 max = ApiCall 복제 수 (FB 용량 무시).
+        return CurrentApiCallReplicationFactor();
+    }
+
+    private void SyncSignalCountInput()
+    {
+        if (SignalCountApiCombo?.SelectedItem is not string api) return;
+        var spec = _currentApiSpecs.FirstOrDefault(s => string.Equals(s.ApiName, api, StringComparison.OrdinalIgnoreCase));
+        if (spec is null) return;
+        var effMax = EffectiveMaxFor(spec);
+        var v = SignalCounts.TryGetValue(api, out var n) ? n : spec.DefaultCount;
+        if (effMax > 0 && v > effMax) { v = effMax; SignalCounts[api] = v; }
+        _suppressSignalCountEvents = true;
+        SignalCountValueBox.Text = v.ToString();
+        SignalCountMaxLabel.Text = effMax > 0 ? $"(max {effMax})" : "(max ∞)";
+        _suppressSignalCountEvents = false;
+    }
+
+    private void OnBasicApiNameChanged(object sender, TextChangedEventArgs e)
+    {
+        RefreshSignalCountsPanel();
+    }
+
+    private void OnSignalCountApiChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSignalCountEvents) return;
+        SyncSignalCountInput();
+    }
+
+    private void OnSignalCountValueChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSignalCountEvents) return;
+        if (SignalCountApiCombo?.SelectedItem is not string api) return;
+        var spec = _currentApiSpecs.FirstOrDefault(s => string.Equals(s.ApiName, api, StringComparison.OrdinalIgnoreCase));
+        if (spec is null) return;
+        if (!int.TryParse(SignalCountValueBox.Text.Trim(), out var n) || n < 0) return;
+        var effMax = EffectiveMaxFor(spec);
+        if (effMax > 0 && n > effMax)
+        {
+            n = effMax;
+            _suppressSignalCountEvents = true;
+            SignalCountValueBox.Text = n.ToString();
+            SignalCountValueBox.CaretIndex = SignalCountValueBox.Text.Length;
+            _suppressSignalCountEvents = false;
+        }
+        SignalCounts[api] = n;
+    }
+
     // ─── SystemType 선택 ───
     private void OnPresetChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -314,6 +463,7 @@ public partial class CallCreateDialog : Window
                 if (AdvancedExpander is not null) AdvancedExpander.IsExpanded = true;
             }
         }
+        RefreshSignalCountsPanel();
     }
 
     // ─── DevicesAlias → CustomSystemType 자동 동기화 ───
@@ -363,6 +513,7 @@ public partial class CallCreateDialog : Window
         bool isCallMode = RadioCallReplication.IsChecked == true;
         CallReplicationPanel.IsEnabled = isCallMode;
         ApiCallReplicationPanel.IsEnabled = !isCallMode;
+        SyncSignalCountInput();
     }
 
     // 좌/우 카운트 TextBox — 입력 시 해당 라디오 자동 선택 (UX 버그 방지).
@@ -376,7 +527,11 @@ public partial class CallCreateDialog : Window
     {
         if (RadioApiCallReplication is { } r && r.IsChecked != true) r.IsChecked = true;
     }
-    private void OnApiCallCountChanged(object sender, TextChangedEventArgs e) => OnApiCallCountFocus(sender, e);
+    private void OnApiCallCountChanged(object sender, TextChangedEventArgs e)
+    {
+        OnApiCallCountFocus(sender, e);
+        SyncSignalCountInput();
+    }
 
     // ─── 고급 탭: ApiDef 검색 ───
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
@@ -410,7 +565,11 @@ public partial class CallCreateDialog : Window
         if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null; }
 
         var apiResult = InputValidation.validateApiNames(apiNameBox.Text);
-        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return null; }
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse)
+        {
+            CreateDeviceSystem = false;
+            return (alias, new List<string> { "Api_None" });
+        }
         if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null; }
 
         var apiNames = ((InputValidation.ApiNameValidationResult.Valid)apiResult).Item.ToList();

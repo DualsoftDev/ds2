@@ -59,6 +59,8 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.KeepAliveInterval = TimeSpan.FromMinutes(2);
 
         _connection.On<string, string, string>(HubMethod.OnTagChanged, OnHubTagChanged);
+        // Batch 변형 — 송신측이 짧은 윈도우 내 변경을 묶어 1프레임으로 보낸다. 동일 처리 경로를 재사용.
+        _connection.On<TagWrite[]>(HubMethod.OnTagsChanged, OnHubTagsChanged);
 
         _connection.Reconnecting += ex =>
         {
@@ -144,6 +146,22 @@ public sealed class HubSubscriberService : BackgroundService
         // 채널에 enqueue만. SignalR 콜백 스레드는 즉시 반환 — 동시 진입해도 컨슈머가 직렬 처리.
         if (!_signalChannel.Writer.TryWrite(new HubSignal(address, value, source)))
             _logger.LogWarning("[Hub] Signal channel write dropped for {Address}", address);
+    }
+
+    private void OnHubTagsChanged(TagWrite[] items)
+    {
+        if (items is null || items.Length == 0) return;
+        var writer = _signalChannel.Writer;
+        foreach (var it in items)
+        {
+            if (!_acceptedSources.Contains(it.Source))
+            {
+                _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
+                continue;
+            }
+            if (!writer.TryWrite(new HubSignal(it.Address, it.Value, it.Source)))
+                _logger.LogWarning("[Hub] Signal channel write dropped for {Address}", it.Address);
+        }
     }
 
     private async Task ConsumeSignalsAsync(CancellationToken ct)

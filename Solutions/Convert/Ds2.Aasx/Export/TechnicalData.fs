@@ -1,8 +1,10 @@
 namespace Ds2.Aasx
 
 open System
+open System.Collections.Generic
 open AasCore.Aas3_1
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Aasx.AasxSemantics
 
 /// IDTA 02003 TechnicalData → AAS Submodel 직렬화
@@ -142,10 +144,50 @@ module internal AasxExportTechnicalData =
             mkDoubleProp "EfficiencyRate_pct"           k.EfficiencyRate_pct |> tagSim
         ]
 
-    let private cycleTimesToSmcGroup (items: ResizeArray<KpiCycleTime>) : ISubmodelElement option =
-        if items.Count = 0 then None
+    /// Active 시스템에 속한 entity 이름(work/call/flow/system 등) 의 단일 진실 set.
+    /// passive 시스템 의 KPI 항목을 필터링할 때 사용.
+    let mutable private activeNameSet : HashSet<string> = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+    /// 빈 set 또는 미초기화 시 모든 항목 통과(레거시 동작 보존).
+    let private isActiveName (name: string) : bool =
+        if String.IsNullOrEmpty name || activeNameSet.Count = 0 then true
         else
-            let children = items |> Seq.map cycleTimeToSmc |> Seq.toList
+            // 정확 매치 → fast path.
+            if activeNameSet.Contains name then true
+            else
+                // resource name 이 "{a}.{b}" 형태일 때 분해해 후보 매칭.
+                // 어느 부분 이름이라도 active set 에 있으면 active 로 간주.
+                let parts = name.Split([| '.'; '/'; ' ' |], StringSplitOptions.RemoveEmptyEntries)
+                parts |> Array.exists activeNameSet.Contains
+
+    /// 호출 측이 export 시작 시 한 번 호출 — active 시스템의 모든 하위 이름 수집.
+    let setActiveContext (store: DsStore) (project: Project) : unit =
+        let s = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sys in Queries.activeSystemsOf project.Id store do
+            s.Add sys.Name |> ignore
+            for flow in Queries.flowsOf sys.Id store do
+                s.Add flow.Name |> ignore
+                s.Add (sprintf "%s_%s" sys.Name flow.Name) |> ignore
+                s.Add (sprintf "%s.%s"  sys.Name flow.Name) |> ignore
+                for work in Queries.worksOf flow.Id store do
+                    s.Add work.Name |> ignore
+                    s.Add (sprintf "%s.%s" flow.Name work.Name) |> ignore
+                    s.Add (sprintf "%s_%s.%s" sys.Name flow.Name work.Name) |> ignore
+                    for call in Queries.callsOf work.Id store do
+                        s.Add call.Name |> ignore
+                        s.Add (sprintf "%s.%s" work.Name call.Name) |> ignore
+                        s.Add (sprintf "%s.%s" flow.Name call.Name) |> ignore
+                        s.Add (sprintf "%s_%s.%s" sys.Name flow.Name call.Name) |> ignore
+        activeNameSet <- s
+
+    let clearActiveContext () : unit =
+        activeNameSet <- HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+    let private cycleTimesToSmcGroup (items: ResizeArray<KpiCycleTime>) : ISubmodelElement option =
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.WorkName) |> Seq.toList
+        if filtered.IsEmpty then None
+        else
+            let children = filtered |> List.map cycleTimeToSmc
             mkSml "KPI_CycleTime" children
             |> Option.map (withSem SimKpiCycleTimeSemanticId)
 
@@ -162,9 +204,13 @@ module internal AasxExportTechnicalData =
         ]
 
     let private callCycleTimesToSmcGroup (items: ResizeArray<KpiCallCycleTime>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered =
+            items
+            |> Seq.filter (fun k -> isActiveName k.CallName || isActiveName k.ParentWorkName)
+            |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            let children = items |> Seq.map callCycleTimeToSmc |> Seq.toList
+            let children = filtered |> List.map callCycleTimeToSmc
             mkSml "KPI_CallCycleTime" children
 
     let private throughputToSmc (t: KpiThroughput) : ISubmodelElement =
@@ -247,9 +293,10 @@ module internal AasxExportTechnicalData =
         ]
 
     let private resourcesToSmcGroup (items: ResizeArray<KpiResourceItem>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.ResourceName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_ResourceUtilization" (items |> Seq.map resourceItemToSmc |> Seq.toList)
+            mkSml "KPI_ResourceUtilization" (filtered |> List.map resourceItemToSmc)
             |> Option.map (withSem SimKpiResourceUtilSemanticId)
 
     let private oeeItemToSmc (k: KpiOeeItem) : ISubmodelElement =
@@ -276,9 +323,10 @@ module internal AasxExportTechnicalData =
         ]
 
     let private oeeToSmcGroup (items: ResizeArray<KpiOeeItem>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.ResourceName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_OEE" (items |> Seq.map oeeItemToSmc |> Seq.toList)
+            mkSml "KPI_OEE" (filtered |> List.map oeeItemToSmc)
             |> Option.map (withSem SimKpiOeeSemanticId)
 
     let private perTokenWorkBreakdownToSmc (b: KpiPerTokenWorkBreakdown) : ISubmodelElement =
@@ -307,9 +355,10 @@ module internal AasxExportTechnicalData =
         mkSmc "PerTokenItem" baseElems
 
     let private perTokensToSmcGroup (items: ResizeArray<KpiPerToken>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.OriginName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_PerToken" (items |> Seq.map perTokenItemToSmc |> Seq.toList)
+            mkSml "KPI_PerToken" (filtered |> List.map perTokenItemToSmc)
             |> Option.map (withSem SimKpiPerTokenSemanticId)
 
     /// 단일 SimulationResult SMC (없으면 None)
@@ -331,13 +380,16 @@ module internal AasxExportTechnicalData =
             Some (withSem SimulationResultSemanticId (mkSmc "SimulationResult" elems))
 
     // ── TechnicalProperties 컨테이너 ──────────────────────────────────────
-    let private technicalPropertiesToSmc (td: TechnicalData) : ISubmodelElement =
+    /// hasActiveSystem=true 일 때만 SimulationResult 를 SMC 에 포함.
+    /// 시뮬레이션 결과는 Active 시스템 의미 — passive-only 프로젝트는 emit 하지 않는다.
+    let private technicalPropertiesToSmc (td: TechnicalData) (hasActiveSystem: bool) : ISubmodelElement =
         let elems : ISubmodelElement list = [
             sequenceCharacteristicsToSmc td.SequenceCharacteristics
             ioCharacteristicsToSmc       td.IoCharacteristics
             apiSurfaceToSmc              td.ApiSurface
             controllerInfoToSmc          td.ControllerInfo
-            yield! simulationResultToSmcOpt td.SimulationResult |> Option.toList
+            if hasActiveSystem then
+                yield! simulationResultToSmcOpt td.SimulationResult |> Option.toList
         ]
         mkSmc "TechnicalProperties" elems
 
@@ -351,11 +403,12 @@ module internal AasxExportTechnicalData =
         mkSmc "FurtherInformation" elems
 
     // ── Submodel 진입점 ───────────────────────────────────────────────────
-    let technicalDataToSubmodel (td: TechnicalData) (projectId: Guid) : Submodel =
+    /// Ex entry — hasActiveSystem 명시. false 면 SimulationResult 미포함.
+    let technicalDataToSubmodelEx (td: TechnicalData) (projectId: Guid) (hasActiveSystem: bool) : Submodel =
         let elems : ISubmodelElement list = [
             generalInfoToSmc       td.GeneralInformation
             classificationsToSmc   td.ProductClassifications
-            technicalPropertiesToSmc td
+            technicalPropertiesToSmc td hasActiveSystem
             furtherInfoToSmc       td.FurtherInformation
         ]
         mkSubmodel
@@ -363,3 +416,7 @@ module internal AasxExportTechnicalData =
             TechnicalDataSubmodelIdShort
             TechnicalDataSemanticId
             elems
+
+    /// 기본 entry — Active 시스템 존재 여부 미상. SimulationResult emit (호환용).
+    let technicalDataToSubmodel (td: TechnicalData) (projectId: Guid) : Submodel =
+        technicalDataToSubmodelEx td projectId true

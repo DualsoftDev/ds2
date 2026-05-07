@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using AAStoPLC.TagWizard;
 using Ds2.Core.Store;
 using Microsoft.Win32;
 using Promaker.Services;
@@ -26,6 +27,7 @@ public partial class IoBatchSettingsDialog : Window
     private readonly DsStore _store;
     private readonly Action<string?>? _openFBTagMapEdit;
     private readonly ObservableCollection<IoBatchRow> _rows = new();
+    private readonly ObservableCollection<DummySignalRow> _dummyRows = new();
     private readonly ObservableCollection<DiagnosticItemViewModel> _diagnostics = new();
     private readonly ICollectionView _view;
     private readonly RowFilterDebouncer _filterDebouncer;
@@ -57,6 +59,7 @@ public partial class IoBatchSettingsDialog : Window
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
         IoGrid.ItemsSource = _view;
+        DummyGrid.ItemsSource = _dummyRows;
         DiagnosticsList.ItemsSource = _diagnostics;
 
         _filterDebouncer = new RowFilterDebouncer(() => _view.Refresh());
@@ -85,6 +88,14 @@ public partial class IoBatchSettingsDialog : Window
                 r.PropertyChanged += Row_PropertyChanged;
                 _rows.Add(r);
             }
+
+            // Dummy 신호 행 갱신.
+            _dummyRows.Clear();
+            foreach (var d in qr.DummyRows) _dummyRows.Add(d);
+
+            // 탭 헤더에 카운트 부착.
+            IoTab.Header    = $"IO 신호 ({_rows.Count})";
+            DummyTab.Header = $"Dummy 신호 ({_dummyRows.Count})";
 
             _unmatchedCount = qr.Unmatched.Count;
             _errorCount = qr.ErrorCount;
@@ -319,25 +330,18 @@ public partial class IoBatchSettingsDialog : Window
 
     // ── CSV 내보내기 ──────────────────────────────────────────────────────
 
-    /// <summary>현재 화면(필터 적용 후)의 행을 UTF-8 BOM CSV 로 내보낸다.</summary>
-    private void ExportCsv_Click(object sender, RoutedEventArgs e)
+    /// <summary>IO 탭 — 현재 필터 적용된 행을 UTF-8 BOM CSV 로 내보낸다.</summary>
+    private void ExportIoCsv_Click(object sender, RoutedEventArgs e)
     {
         var rows = _view.Cast<IoBatchRow>().ToList();
         if (rows.Count == 0)
         {
-            DialogHelpers.ShowThemedMessageBox("내보낼 행이 없습니다.",
-                "CSV 내보내기", MessageBoxButton.OK, "ℹ");
+            DialogHelpers.ShowThemedMessageBox("내보낼 IO 행이 없습니다.",
+                "IO CSV 내보내기", MessageBoxButton.OK, "ℹ");
             return;
         }
 
-        var dlg = new SaveFileDialog
-        {
-            Title      = "CSV 저장",
-            Filter     = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
-            FileName   = $"IoList_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
-            DefaultExt = ".csv",
-        };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!TryGetSavePath("IoList", out var path)) return;
 
         try
         {
@@ -350,20 +354,78 @@ public partial class IoBatchSettingsDialog : Window
                 emitted += AppendCsvLine(sb, r, isInput: false);
             }
 
-            File.WriteAllText(dlg.FileName, sb.ToString(),
+            File.WriteAllText(path, sb.ToString(),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
-            var openResult = DialogHelpers.ShowThemedMessageBox(
-                $"{emitted}개 태그를 저장했습니다.\n{dlg.FileName}\n\n파일을 바로 열어 볼까요?",
-                "CSV 내보내기 완료", MessageBoxButton.YesNo, "✓");
-
-            if (openResult == MessageBoxResult.Yes) TryOpenFile(dlg.FileName);
+            AfterExport(emitted, path, "IO");
         }
         catch (Exception ex)
         {
             DialogHelpers.ShowThemedMessageBox($"저장 실패:\n{ex.Message}",
-                "CSV 내보내기 오류", MessageBoxButton.OK, "✖");
+                "IO CSV 내보내기 오류", MessageBoxButton.OK, "✖");
         }
+    }
+
+    /// <summary>Dummy 탭 — 모든 dummy 행을 CSV 로 내보낸다.</summary>
+    private void ExportDummyCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dummyRows.Count == 0)
+        {
+            DialogHelpers.ShowThemedMessageBox("내보낼 Dummy 행이 없습니다.",
+                "Dummy CSV 내보내기", MessageBoxButton.OK, "ℹ");
+            return;
+        }
+
+        if (!TryGetSavePath("DummyList", out var path)) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Flow,Work,Call,Symbol,DataType,Address,Type");
+            foreach (var d in _dummyRows)
+            {
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Flow));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Work));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Call));     sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Symbol));   sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.DataType)); sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Address));  sb.Append(',');
+                sb.Append(BatchDialogHelper.EscapeCsvField(d.Type));
+                sb.AppendLine();
+            }
+
+            File.WriteAllText(path, sb.ToString(),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+            AfterExport(_dummyRows.Count, path, "Dummy");
+        }
+        catch (Exception ex)
+        {
+            DialogHelpers.ShowThemedMessageBox($"저장 실패:\n{ex.Message}",
+                "Dummy CSV 내보내기 오류", MessageBoxButton.OK, "✖");
+        }
+    }
+
+    private bool TryGetSavePath(string namePrefix, out string path)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title      = "CSV 저장",
+            Filter     = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
+            FileName   = $"{namePrefix}_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+            DefaultExt = ".csv",
+        };
+        if (dlg.ShowDialog(this) == true) { path = dlg.FileName; return true; }
+        path = ""; return false;
+    }
+
+    private void AfterExport(int emitted, string path, string kind)
+    {
+        var openResult = DialogHelpers.ShowThemedMessageBox(
+            $"{emitted}개 항목을 저장했습니다.\n{path}\n\n파일을 바로 열어 볼까요?",
+            $"{kind} CSV 내보내기 완료", MessageBoxButton.YesNo, "✓");
+
+        if (openResult == MessageBoxResult.Yes) TryOpenFile(path);
     }
 
     private static int AppendCsvLine(StringBuilder sb, IoBatchRow r, bool isInput)

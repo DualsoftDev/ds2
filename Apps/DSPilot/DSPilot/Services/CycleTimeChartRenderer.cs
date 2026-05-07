@@ -154,6 +154,9 @@ public static class CycleTimeChartRenderer
         double xScale,
         CultureInfo inv)
     {
+        // bar 마다 <title> 툴팁을 인라인하던 것을 제거 — Blazor circuit 으로 전송되는 SVG markup
+        // 크기의 가장 큰 비중(2000개 × 8줄 텍스트). 툴팁은 호버 시점에 JS 가 메타 배열에서 lookup
+        // 해 단일 floating div 로 표시. 라벨("In"/"Out") 만 인라인 유지 (2자 × 조건부).
         for (int i = 0; i < sortedItems.Count; i++)
         {
             var item = sortedItems[i];
@@ -163,14 +166,9 @@ public static class CycleTimeChartRenderer
             var x = LeftMargin + ((item.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
             var durationMs = GetItemDurationMs(item);
             var width = Math.Max(2, Math.Max(durationMs, 1) * xScale);
-
-            var eventLabel = item.EventType == IOEventType.InTag ? "InTag" : "OutTag";
-            var endLabel = item.FinishTime?.ToString("HH:mm:ss.fff") ?? "진행중";
-            var tooltipText = $"Call: {item.CallName}\nWork: {item.WorkName}\nTag: {item.TagName} ({item.TagAddress})\nEvent: {eventLabel}\nStart: {item.GoingStartTime:HH:mm:ss.fff}\nEnd: {endLabel}\nDuration: {FormatDurationTooltip(durationMs)}";
             var barClass = item.EventType == IOEventType.InTag ? "gantt-bar-in" : "gantt-bar-out";
 
             sb.Append("<g style=\"cursor:pointer\" data-bar-idx=\"").Append(i).Append("\">")
-              .Append("<title>").Append(EscapeXml(tooltipText)).Append("</title>")
               .Append("<rect class=\"").Append(barClass)
               .Append("\" x=\"").Append(x.ToString("F2", inv))
               .Append("\" y=\"").Append(y)
@@ -189,6 +187,21 @@ public static class CycleTimeChartRenderer
 
             sb.Append("</g>");
         }
+    }
+
+    /// <summary>호버 시점 JS lookup 용 툴팁 배열 — 인덱스는 sortedItems 와 일치(<c>data-bar-idx</c>).</summary>
+    public static string[] BuildBarTooltips(IList<GanttChartItem> sortedItems)
+    {
+        var arr = new string[sortedItems.Count];
+        for (int i = 0; i < sortedItems.Count; i++)
+        {
+            var item = sortedItems[i];
+            var eventLabel = item.EventType == IOEventType.InTag ? "InTag" : "OutTag";
+            var endLabel = item.FinishTime?.ToString("HH:mm:ss.fff") ?? "진행중";
+            var durationMs = GetItemDurationMs(item);
+            arr[i] = $"Call: {item.CallName}\nWork: {item.WorkName}\nTag: {item.TagName} ({item.TagAddress})\nEvent: {eventLabel}\nStart: {item.GoingStartTime:HH:mm:ss.fff}\nEnd: {endLabel}\nDuration: {FormatDurationTooltip(durationMs)}";
+        }
+        return arr;
     }
 
     private static void AppendIdleRegions(

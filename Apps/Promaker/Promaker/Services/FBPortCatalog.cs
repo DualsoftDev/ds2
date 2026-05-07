@@ -1,70 +1,52 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using Microsoft.FSharp.Collections;
-using Plc.Xgi;
 
 namespace Promaker.Services;
 
 /// <summary>
-/// XGI_Template.xml 로부터 FB 타입 + Local Label 목록을 읽어
-/// Wizard Step 4 의 콤보박스 데이터소스로 제공.
-/// Direction 필터 없음 — 모든 포트(Input+Output) 가 한 리스트.
+/// XGI_Template.xml 의 FB 정의를 UI 콤보용 형태로 노출.
+/// 캐시 / 실제 lookup 은 <see cref="AAStoPLC.TagWizard.FBPortLookup"/>(F#) 으로 이관됨.
+/// 이 thin shim 은 Promaker 의 SettingsPaths / XgiTemplateExtractor 와 통합해
+/// 기본 경로 자동 추출만 담당.
 /// </summary>
 public static class FBPortCatalog
 {
-    private static Dictionary<string, List<string>>? _cache;
-
     /// <summary>
-    /// XGI_Template.xml 기본 경로 — AppData 사본 (PlcConfig 가 임베디드 리소스에서 추출).
-    /// 호출 시점에 사본이 없으면 즉시 추출.
+    /// XGI_Template.xml 기본 경로 — AppData 사본 (없으면 임베디드 리소스에서 1회 추출).
+    /// 추출 시도는 첫 호출 1회만 — 이후엔 path 문자열만 즉시 반환 (퍼포먼스).
     /// </summary>
     public static string DefaultTemplatePath
     {
         get
         {
-            if (!File.Exists(SettingsPaths.DefaultXgiTemplate))
-                XgiTemplateExtractor.ExtractIfMissing(SettingsPaths.DefaultXgiTemplate);
+            if (!_extractAttempted)
+            {
+                _extractAttempted = true;
+                if (!File.Exists(SettingsPaths.DefaultXgiTemplate))
+                    XgiTemplateExtractor.ExtractIfMissing(SettingsPaths.DefaultXgiTemplate);
+                AAStoPLC.TagWizard.FBPortLookup.SetDefaultTemplatePath(SettingsPaths.DefaultXgiTemplate);
+            }
             return SettingsPaths.DefaultXgiTemplate;
         }
     }
+    private static bool _extractAttempted;
 
-    /// <summary>FB 타입명 목록 (콤보 1 데이터소스).</summary>
-    public static IReadOnlyList<string> GetFBTypeNames(string? xmlPath = null)
+    public static IReadOnlyList<string> GetFBTypeNames(string? xmlPath = null) =>
+        AAStoPLC.TagWizard.FBPortLookup.GetFBTypeNames(xmlPath ?? DefaultTemplatePath);
+
+    public static IReadOnlyList<string> GetLocalLabels(string fbTypeName, string? xmlPath = null) =>
+        AAStoPLC.TagWizard.FBPortLookup.GetLocalLabels(fbTypeName, xmlPath ?? DefaultTemplatePath);
+
+    public static (IReadOnlyList<string> Inputs, IReadOnlyList<string> Outputs) GetPortsByDirection(
+        string fbTypeName, string? xmlPath = null)
     {
-        EnsureLoaded(xmlPath);
-        return _cache!.Keys.OrderBy(x => x).ToList();
+        var t = AAStoPLC.TagWizard.FBPortLookup.GetPortsByDirection(fbTypeName, xmlPath ?? DefaultTemplatePath);
+        return (t.Item1, t.Item2);
     }
 
-    /// <summary>선택한 FB 의 모든 Local Label (콤보 2 데이터소스) — Direction 필터 없음.</summary>
-    public static IReadOnlyList<string> GetLocalLabels(string fbTypeName, string? xmlPath = null)
-    {
-        EnsureLoaded(xmlPath);
-        if (string.IsNullOrEmpty(fbTypeName)) return System.Array.Empty<string>();
-        return _cache!.TryGetValue(fbTypeName, out var labels)
-            ? labels
-            : (IReadOnlyList<string>)System.Array.Empty<string>();
-    }
+    public static IReadOnlyDictionary<string, string> GetPortTypeMap(string fbTypeName, string? xmlPath = null) =>
+        AAStoPLC.TagWizard.FBPortLookup.GetPortTypeMap(fbTypeName, xmlPath ?? DefaultTemplatePath);
 
-    /// <summary>강제 재로드 (템플릿 파일이 교체되었을 때).</summary>
-    public static void Reload(string? xmlPath = null)
-    {
-        _cache = null;
-        EnsureLoaded(xmlPath);
-    }
-
-    private static void EnsureLoaded(string? xmlPath)
-    {
-        if (_cache != null) return;
-        var path = xmlPath ?? DefaultTemplatePath;
-        var map = FBPortReader.readFromXml(path);
-        _cache = new Dictionary<string, List<string>>();
-        foreach (var kv in map)
-        {
-            var labels = new List<string>();
-            foreach (var p in ListModule.ToSeq(kv.Value.InputPorts))  labels.Add(p.Name);
-            foreach (var p in ListModule.ToSeq(kv.Value.OutputPorts)) labels.Add(p.Name);
-            _cache[kv.Key] = labels;
-        }
-    }
+    public static void Reload(string? xmlPath = null) =>
+        AAStoPLC.TagWizard.FBPortLookup.Reload(xmlPath ?? DefaultTemplatePath);
 }

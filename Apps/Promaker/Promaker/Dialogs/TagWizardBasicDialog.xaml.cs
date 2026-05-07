@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using Ds2.Core.Store;
@@ -140,13 +139,11 @@ public partial class TagWizardBasicDialog : Window
     }
 }
 
-public class FlowBaseBasicRow : INotifyPropertyChanged
+public class FlowBaseBasicRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    private string _flow = "", _iw = "", _qw = "", _mw = "";
-    public string FlowName { get => _flow; set { _flow = value ?? ""; Notify(nameof(FlowName)); } }
-    public string IW_Base  { get => _iw;   set { _iw   = value ?? ""; Notify(nameof(IW_Base));  } }
-    public string QW_Base  { get => _qw;   set { _qw   = value ?? ""; Notify(nameof(QW_Base));  } }
-    public string MW_Base  { get => _mw;   set { _mw   = value ?? ""; Notify(nameof(MW_Base));  } }
-    public event PropertyChangedEventHandler? PropertyChanged;
-    private void Notify(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    string _flow = "", _iw = "", _qw = "", _mw = "";
+    public string FlowName { get => _flow; set => SetProperty(ref _flow, value ?? ""); }
+    public string IW_Base  { get => _iw;   set => SetProperty(ref _iw,   value ?? ""); }
+    public string QW_Base  { get => _qw;   set => SetProperty(ref _qw,   value ?? ""); }
+    public string MW_Base  { get => _mw;   set => SetProperty(ref _mw,   value ?? ""); }
 }
