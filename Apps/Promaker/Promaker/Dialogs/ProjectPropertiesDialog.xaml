@@ -1,6 +1,7 @@
 <Window x:Class="Promaker.Dialogs.ProjectPropertiesDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:b="clr-namespace:Promaker.Behaviors"
         Title="설정"
         Width="500" Height="600"
         ResizeMode="NoResize"
@@ -8,7 +9,8 @@
         ShowInTaskbar="False">
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
-            BorderThickness="1">
+            BorderThickness="1"
+            b:CtrlWheelZoom.IsEnabled="True">
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
