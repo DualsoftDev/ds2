@@ -70,6 +70,12 @@
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderViewer.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- PLC 게이트웨이가 Ev2.PLC.Common 의 PlcDataType 을 노출하므로,
+         PlcSettings 모델 빌드 시 C# 측에서도 동일 타입을 참조 가능해야 한다. -->
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.IOList\Ds2.IOList.fsproj" />

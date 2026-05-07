@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <ProjectReference Include="..\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
   </ItemGroup>
 
 </Project>

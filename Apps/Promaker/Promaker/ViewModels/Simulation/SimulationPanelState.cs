@@ -104,6 +104,8 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private bool _isSimulating;
 
     [ObservableProperty]
@@ -125,6 +127,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     private bool _isHomingPhase;
 
     [ObservableProperty]
@@ -140,9 +143,46 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
     [ObservableProperty] private bool _isHubHosting;
+
+    /// <summary>Control 모드에서 실 PLC 와 연결할지 여부. 체크 해제면 BackendHost 가 PLC 게이트웨이 idle 로 동작.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    private bool _isRealPlcConnected;
+
+    /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
+    /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
+    public bool IsHomingButtonVisible =>
+        SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected;
+
+    /// <summary>원위치 버튼 IsEnabled — 다른 시뮬이 돌고 있지 않을 때만 새 누름을 받지만,
+    /// 자신의 push-session 도중에는 enabled 유지해 release 이벤트가 안전하게 도달하도록.</summary>
+    public bool IsHomingButtonHotEnabled =>
+        IsHomingButtonVisible && (!IsSimulating || IsHomingPressed);
+
+    /// <summary>수동 컨트롤러 버튼 가시성 — 원위치와 동일 조건 (Control + 실 PLC 연결).</summary>
+    public bool IsManualControlButtonVisible =>
+        SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected;
+
+    /// <summary>수동 컨트롤러 버튼 활성 — 다이얼로그 열려 있는 동안엔 enabled (자기 세션) 유지.</summary>
+    public bool IsManualControlButtonHotEnabled =>
+        IsManualControlButtonVisible && (!IsSimulating || IsManualControlActive);
+
+    /// <summary>수동 컨트롤러 다이얼로그가 열려 있는 동안 true. UI 상태 표시·재진입 차단에 사용.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    private bool _isManualControlActive;
+    /// <summary>PLC 연결 정보 — 사용자가 RuntimeSettingDialog 에서 "PLC 설정" 으로 편집.</summary>
+    public PlcSettings PlcSettings { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HubStatusText))]
@@ -196,6 +236,28 @@ public partial class SimulationPanelState : ObservableObject
         var store = _storeProvider();
         var iomap = SignalIOMapModule.build(store);
         return iomap.Mappings.Length > 0;
+    }
+
+    /// <summary>현재 IO 매핑에서 dedup 된 PLC 주소 개수 — PLC 설정 다이얼로그 안내용.</summary>
+    public int CountAutoImportablePlcAddresses()
+    {
+        var store = _storeProvider();
+        var iomap = SignalIOMapModule.build(store);
+        var set = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var k in iomap.OutAddressToMappings.Keys)
+            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
+        foreach (var k in iomap.InAddressToMappings.Keys)
+            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
+        return set.Count;
+    }
+
+    /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
+    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.</summary>
+    public Ds2.Backend.Plc.PlcGatewayConfig? BuildPlcGatewayConfig(out System.Collections.Generic.List<string> errors)
+    {
+        var store = _storeProvider();
+        var iomap = SignalIOMapModule.build(store);
+        return PlcSettings.BuildGatewayConfig(iomap, out errors);
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
