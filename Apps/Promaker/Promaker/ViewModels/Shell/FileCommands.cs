@@ -247,6 +247,10 @@ public partial class MainViewModel
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
 
+        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload (모델 / API key / Ollama URL 다음 turn 부터 반영).
+        // PR-D 후속: DefaultProvider 는 LlmChat 패널 ComboBox 변경 시 자동 저장돼 본 경로에서 다루지 않음.
+        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
+
         TryEditorAction(() =>
         {
             var nextProjectName = dlg.ResultProjectName ?? project.Name;

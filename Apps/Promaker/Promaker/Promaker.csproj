@@ -22,6 +22,14 @@
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!-- Phase 2 — API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="OllamaSharp" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -47,6 +55,8 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
+    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
+    <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
@@ -77,6 +87,7 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
