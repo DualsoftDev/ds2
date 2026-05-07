@@ -58,9 +58,9 @@ Desktop.ini
 # AI / Claude Code
 .claude/
 CHANGED.md
-CLAUDE.md
+#CLAUDE.md
 CRITIC.md
-AGENTS.md
+#AGENTS.md
 STRUCTURE.md
 
 # ci
@@ -77,6 +77,9 @@ scripts/scratch/
 *.tmp
 *.cache
 *~
+
+# Path-mangled temp files at repo root (U+F03A 등 ':' 대체 문자가 들어간 윈도 SFM 파일명 사고)
+/C*Users*
 
 # Samples
 [Ss]amples/

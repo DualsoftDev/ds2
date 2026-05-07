@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -68,6 +69,59 @@ public partial class MainViewModel : ObservableObject
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
+
+        // Pass 1.5 측정 자동화 — `--autostart-llm` 인자 시작 시 chat panel 자동 활성화.
+        // McpHostService 가 LlmChatViewModel ctor 안에서 StartAsync → mcp config 파일이 즉시 작성됨.
+        // 추가: --measure-prompt 가 있으면 IsReady 후 자동 prompt 전송, --measure-then-exit 면 turn 끝 후 self-close.
+        if (App.StartupAutoOpenLlm)
+        {
+            _dispatcher.BeginInvoke(new Action(() =>
+            {
+                ToggleLlmChat();
+                if (LlmChatVm != null && App.StartupMeasurePrompt != null)
+                {
+                    ScheduleMeasurePrompt(LlmChatVm, App.StartupMeasurePrompt, App.StartupMeasureThenExit);
+                }
+            }), DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>
+    /// 측정 자동화: LlmChatViewModel.IsReady 가 true 되면 Input 에 prompt 적용 + SendCommand 실행.
+    /// thenExit=true 이면 IsSending true→false transition 후 MainWindow.Close() (Closing 의 dirty check 는 autostart 에서 skip).
+    /// </summary>
+    private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
+    {
+        System.ComponentModel.PropertyChangedEventHandler? readyHandler = null;
+        readyHandler = (_, e) =>
+        {
+            if (e.PropertyName != nameof(LlmChatViewModel.IsReady) || !vm.IsReady) return;
+            vm.PropertyChanged -= readyHandler;
+            vm.Input = prompt;
+            if (vm.SendCommand.CanExecute(null))
+                vm.SendCommand.Execute(null);
+
+            if (!thenExit) return;
+
+            // SendCommand.Execute 의 동기 부분이 readyHandler 와 같은 dispatcher thread 에서 즉시 실행되어
+            // IsSending=true 가 이미 emit 된 상태로 여기 도달. 따라서 wasSending 초기값을 현 IsSending 으로
+            // 캐시 — 미캐시 시 후속 false transition 의 sendHandler 가 wasSending=false 로 단락 → Close 안됨.
+            bool wasSending = vm.IsSending;
+            System.ComponentModel.PropertyChangedEventHandler? sendHandler = null;
+            sendHandler = (_, e2) =>
+            {
+                if (e2.PropertyName != nameof(LlmChatViewModel.IsSending)) return;
+                if (vm.IsSending) { wasSending = true; return; }
+                if (!wasSending) return;
+                vm.PropertyChanged -= sendHandler;
+                // 응답 마무리 (last AssistantDelta flush + Authoring "Executed" 로그) 의 background priority 작업이
+                // 끝난 후 close. ApplicationIdle = 모든 priority 가 비었을 때 → log4net flush 충분.
+                _dispatcher.BeginInvoke(new Action(() =>
+                    Application.Current.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
+            };
+            vm.PropertyChanged += sendHandler;
+        };
+        vm.PropertyChanged += readyHandler;
     }
 
     /// <summary>
@@ -243,4 +297,9 @@ public sealed class HistoryPanelItem(string label, bool isRedo)
 {
     public string Label  { get; } = label;
     public bool   IsRedo { get; } = isRedo;
+    /// <summary>
+    /// 1d-4 F / m8 — LLM turn 식별. prefix SSOT = `LlmChatViewModel.LlmTurnLabelPrefix` ("LLM: ").
+    /// HistoryPanel 의 좌측 색띠 / accent 색으로 시각화.
+    /// </summary>
+    public bool   IsLlmTurn => Label.StartsWith(LlmChatViewModel.LlmTurnLabelPrefix, StringComparison.Ordinal);
 }
