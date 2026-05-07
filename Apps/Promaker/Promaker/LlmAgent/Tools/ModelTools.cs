@@ -13,7 +13,7 @@ namespace Promaker.LlmAgent.Tools;
 /// <summary>
 /// Phase 1c — add_system + list_systems.
 /// Phase 1d-1 — add_flow / add_work / add_call / add_arrow / add_api_def 풀세트 추가.
-/// Pass 3 (c) — add_* 5종에 assignVar 인자 + Guid 인자에 '$&lt;varname&gt;' 변수 참조 허용.
+/// Pass 3 (c) — add_* 6종 (system/flow/work/call/api_def/arrow) 에 assignVar 인자 + Guid 인자에 '$&lt;varname&gt;' 변수 참조 허용.
 ///   같은 turn 안 multi tool_use 가 직전 op 의 미래 Guid 를 참조 가능 → ID chain 압축.
 ///
 /// 모든 mutation tool 은 ImportPlanBuilder 에 ImportPlanOperation 누적만. turn end 의 단일
@@ -145,7 +145,7 @@ public static class ModelTools
 
     // ─── Mutation tools ──────────────────────────────────────────────────────
     //
-    // Pass 3 (c): add_* 5종에 `assignVar` 인자 + Guid 인자는 dispatcher work 안에서 resolveGuidOrVar
+    // Pass 3 (c): add_* 6종 (system/flow/work/call/api_def/arrow) 에 `assignVar` 인자 + Guid 인자는 dispatcher work 안에서 resolveGuidOrVar
     // (= GUID 문자열 / '$<varname>' 양쪽 허용). sanitize / parse 검사 모두 work delegate 안에서
     // throw → RunMutation catch 가 cascade 트리거 + 메시지 prefix 통일.
 
