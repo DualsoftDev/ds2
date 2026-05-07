@@ -2,7 +2,11 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:conv="clr-namespace:Promaker.Presentation"
              x:Name="Root">
+    <UserControl.Resources>
+        <conv:MatchStateToBrushConverter x:Key="MatchToBrush"/>
+    </UserControl.Resources>
     <Border BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             Margin="0,2,0,4"
@@ -67,14 +71,36 @@
                                         Style="{DynamicResource InlineListButton}"
                                         Command="{Binding RemoveConditionCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"/>
-                                <TextBlock Grid.Column="1"
-                                           FontSize="10"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding FormulaText}"
-                                           Margin="4,0"
-                                           Loaded="FormulaBlock_Loaded"
-                                           DataContextChanged="FormulaBlock_DataContextChanged"/>
+                                <StackPanel Grid.Column="1" Margin="4,0">
+                                    <TextBlock FontSize="10"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding FormulaText}"
+                                               Loaded="FormulaBlock_Loaded"
+                                               DataContextChanged="FormulaBlock_DataContextChanged"/>
+                                    <!-- 시뮬 동작 중 leaf 별 [현재:X / 기대:Y] 표시 — RuntimeText 가 비어있는 row 는 자동 숨김. -->
+                                    <ItemsControl ItemsSource="{Binding AllLeafRows}" Margin="12,0,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding RuntimeText}"
+                                                           FontSize="9"
+                                                           FontStyle="Italic"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{Binding IsMatched, Converter={StaticResource MatchToBrush}}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RuntimeText}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
                             </Grid>
                         </Border>
                     </DataTemplate>

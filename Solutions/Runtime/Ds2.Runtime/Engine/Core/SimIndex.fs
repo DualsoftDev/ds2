@@ -10,6 +10,14 @@ type ConditionEntry = {
     InputSpec: ValueSpec
 }
 
+/// CallCondition 트리 구조 보존 — isOR 플래그를 evaluate 단계까지 전달.
+/// And/Or 중첩으로 사용자 모델의 `A | (B|C)` 같은 표현 정확히 평가.
+/// 빈 And 는 true (= 조건 없음 통과), 빈 Or 는 false.
+type ConditionExpression =
+    | Leaf of ConditionEntry
+    | And of ConditionExpression list
+    | Or of ConditionExpression list
+
 type SimIndex = {
     Store: DsStore
     AllWorkGuids: Guid list
@@ -27,9 +35,9 @@ type SimIndex = {
     mutable CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
-    CallAutoAuxConditions: Map<Guid, ConditionEntry list>
-    CallComAuxConditions: Map<Guid, ConditionEntry list>
-    CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
+    CallAutoAuxConditions: Map<Guid, ConditionExpression>
+    CallComAuxConditions: Map<Guid, ConditionExpression>
+    CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
     WorkReferenceGroups: Map<Guid, Guid list>
     WorkGroupSets: Map<Guid, Set<Guid>>
     CallCanonicalGuids: Map<Guid, Guid>
@@ -65,9 +73,9 @@ module SimIndex =
         mutable CallStartPreds: Map<Guid, Guid list>
         mutable CallWorkGuid: Map<Guid, Guid>
         mutable CallApiCallGuids: Map<Guid, Guid list>
-        mutable CallAutoAuxConditions: Map<Guid, ConditionEntry list>
-        mutable CallComAuxConditions: Map<Guid, ConditionEntry list>
-        mutable CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
+        mutable CallAutoAuxConditions: Map<Guid, ConditionExpression>
+        mutable CallComAuxConditions: Map<Guid, ConditionExpression>
+        mutable CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
         mutable CallTypeMap: Map<Guid, CallType>
         mutable CallTimeoutMap: Map<Guid, TimeSpan>
     }
@@ -112,15 +120,29 @@ module SimIndex =
     let rxWorkGuids (index: SimIndex) (callGuid: Guid) =
         resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.RxGuid)
 
-    let private conditionSpecs store conditionType (call: Call) =
-        call.CallConditions
-        |> Seq.filter (fun cc -> cc.Type = Some conditionType)
-        |> SimIndexAlgorithms.convertConditions store
-        |> List.map (fun entry -> {
-            RxWorkGuid = entry.RxWorkGuid
-            ApiCallGuid = entry.ApiCallGuid
-            InputSpec = entry.InputSpec
-        })
+    let private toEntry (data: SimIndexAlgorithms.ConditionEntryData) : ConditionEntry = {
+        RxWorkGuid = data.RxWorkGuid
+        ApiCallGuid = data.ApiCallGuid
+        InputSpec = data.InputSpec
+    }
+
+    /// CallCondition 트리를 ConditionExpression 으로 변환. cc.IsOR 보존.
+    /// 여러 callCondition (top-level) 끼리는 AND (모두 충족 필요).
+    let private buildConditionExpression store conditionType (call: Call) : ConditionExpression =
+        let rec convertOne (cc: CallCondition) : ConditionExpression =
+            let leafExprs =
+                SimIndexAlgorithms.convertApiCallsToEntries store cc.Conditions
+                |> List.map (toEntry >> Leaf)
+            let childExprs = cc.Children |> Seq.map convertOne |> Seq.toList
+            let all = leafExprs @ childExprs
+            if cc.IsOR then Or all else And all
+
+        let topExprs =
+            call.CallConditions
+            |> Seq.filter (fun cc -> cc.Type = Some conditionType)
+            |> Seq.map convertOne
+            |> Seq.toList
+        And topExprs
 
     let build (store: DsStore) (tickMs: int) : SimIndex =
         let project = Queries.allProjects store |> List.tryHead
@@ -170,9 +192,9 @@ module SimIndex =
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
             state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty dataSource.Id callStartPreds)
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
-            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux dataSource)
-            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux dataSource)
-            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch dataSource)
+            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, buildConditionExpression store CallConditionType.AutoAux dataSource)
+            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, buildConditionExpression store CallConditionType.ComAux dataSource)
+            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, buildConditionExpression store CallConditionType.SkipUnmatch dataSource)
             let simProps = dataSource.GetSimulationProperties()
             let callType = simProps |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
             state.CallTypeMap <- state.CallTypeMap.Add(call.Id, callType)
