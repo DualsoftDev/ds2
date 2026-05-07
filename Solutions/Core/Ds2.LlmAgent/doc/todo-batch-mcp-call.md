@@ -27,8 +27,10 @@
 | **Pass 2** McpHostService spike | ✅ 완료 | `e7e8025` | **SDK 직렬 dispatch 확인** (Δms 311~395) → SemaphoreSlim gate 제거 |
 | **Pass 3** (c) F# / C# 구현 | ✅ 완료 | `b44a644` | F# `VarCache`/`SignalCascadeFailure` + `sanitizeVarName`/`resolveGuidOrVar`/`registerVar` + `@`/`$` reject. C# add_* 6종 `assignVar` + cascade 단락. 솔루션 빌드 통과. 기존 92 테스트 통과 |
 | **Pass 4 (C-4)** SystemPrompt 풀세트 | ✅ 완료 | (HEAD) | mutation batching 절을 chain pattern (assignVar / `$<var>`) 풀세트로 확장. 실린더 8 op 압축 예시 + assignVar rule + `@`/`$` name reject + BATCH_ABORTED 정책 명시. 빌드 통과 |
-| **Pass 4 (C-5)** Negative test | ✅ 완료 | (HEAD) | `VarBindingTests.fs` 신규 (sanitizeVarName / resolveGuidOrVar / registerVar / cascade flag) + `SanitizeNameTests.fs` 의 `@`/`$` reject 6 케이스. 총 37 케이스 추가. 빌드 통과 + 129 테스트 모두 통과 |
-| **Pass 5** 측정 인프라 hot-fix + final 측정 + done 정리 | ⬜ 미진입 | — | |
+| **Pass 4 (C-5)** Negative test | ✅ 완료 | `80ac12b` | `VarBindingTests.fs` 신규 (sanitizeVarName / resolveGuidOrVar / registerVar / cascade flag) + `SanitizeNameTests.fs` 의 `@`/`$` reject 6 케이스. 총 37 케이스 추가. 빌드 통과 + 129 테스트 모두 통과 |
+| **Pass 5 (hot-fix)** self-close timing race | ✅ 완료 | (HEAD) | `MainViewModel.ScheduleMeasurePrompt` 의 `wasSending` 초기값을 `vm.IsSending` 으로 set — sendHandler 등록 시점에 IsSending=true 가 이미 emit 된 race 흡수. 빌드 통과 |
+| **Pass 5 (측정)** Task C-6 final 측정 | ⬜ 미진입 | — | 다음 작업 (사용자 환경 의존) |
+| **Pass 5 (정리)** done 통합 + cleanup | ⬜ 미진입 | — | 측정 후 |
 
 ### 결정 갱신 (Pass 0 ~ 2 종합)
 
@@ -43,7 +45,7 @@
 
 ### 알려진 한계
 
-1. **측정 인프라 self-close hang** — `--measure-then-exit` 가 timeout. Pass 5 진입 전 hot-fix 필요. 후보: `IsSending` PropertyChanged 미emit, `ApplyTurnPlanAsync` async hang, Close 시점 race
+1. ~~**측정 인프라 self-close hang**~~ — ✅ Pass 5 hot-fix 로 해결 (`MainViewModel.ScheduleMeasurePrompt` 의 sendHandler timing race). 원인 = SendCommand.Execute 의 동기 부분이 IsSending=true 를 즉시 emit, 그 후 sendHandler 등록 시 wasSending=false 초기화 → false transition 시 단락. fix = `wasSending = vm.IsSending` 로 등록 시점 캐시
 2. **claude CLI noise 통제 어려움** — `--bare` 가 OAuth 차단 → hooks/CLAUDE.md/skill 모두 활성. (a) / (c) 정량 비교 신뢰도 낮음
 3. **(c) ROI 도 미검증** — Pass 5 측정 결과에 따라 본 todo 보류 가능성
 
@@ -837,10 +839,10 @@ S2 시나리오 (Sys1~4 4개 system 추가, 자발적 parallel tool_use 4 묶음
 
 ### 부수 이슈 — Pass 2 spike 결론에 영향 없음
 
-- measure-then-exit 가 self-close 안 함 (timeout 120s) → fsx 강제 kill
-- ToolCall `ok` 라인 0개 + Authoring 'Executed' 0개 — work 진행은 됐지만 (enter 4개) finally / Apply 흐름 미완 또는 buffer 미flush
+- ~~measure-then-exit 가 self-close 안 함 (timeout 120s) → fsx 강제 kill~~ — ✅ Pass 5 hot-fix 로 해결 (sendHandler 의 wasSending timing race, line 825 갱신 참조)
+- ToolCall `ok` 라인 0개 + Authoring 'Executed' 0개 의 원인도 위 race 의 부수 효과 — fsx 가 timeout kill 하면서 RollingFile buffer 미flush + work delegate 가 Close 도중 끊긴 것으로 추정. Pass 5 final 측정에서 ok / Executed 라인 정상 출력 확인 예정
 
-→ Pass 3 진입 전 측정 인프라 hot-fix 1회 필요 (turn end 까지 self-close 도달 보장).
+→ ~~Pass 3 진입 전 측정 인프라 hot-fix 1회 필요~~ — Pass 5 진입 시 처리 완료.
 
 ### Pass 2 산출물
 
