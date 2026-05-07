@@ -62,22 +62,14 @@ module internal AasxImportTechnicalData =
 
     let private smcToClassificationItem (smc: SubmodelElementCollection) : TdProductClassificationItem =
         let c = TdProductClassificationItem()
-        c.ClassificationSystem  <- getProp smc "ProductClassificationSystem" |> Option.defaultValue ""
+        // v2.0: ClassificationSystem / v1.x: ProductClassificationSystem (둘 다 시도)
+        c.ClassificationSystem  <-
+            (getProp smc "ClassificationSystem"
+             |> Option.orElseWith (fun () -> getProp smc "ProductClassificationSystem")
+             |> Option.defaultValue "")
         c.ClassificationVersion <- getProp smc "ClassificationSystemVersion" |> Option.defaultValue ""
         c.ProductClassId        <- getProp smc "ProductClassId"              |> Option.defaultValue ""
         c
-
-    let private smcToSequenceChar (smc: SubmodelElementCollection) : TdSequenceCharacteristics =
-        elementsToProps<TdSequenceCharacteristics> smc |> Option.defaultWith TdSequenceCharacteristics
-
-    let private smcToIoChar (smc: SubmodelElementCollection) : TdIoCharacteristics =
-        elementsToProps<TdIoCharacteristics> smc |> Option.defaultWith TdIoCharacteristics
-
-    let private smcToApiSurface (smc: SubmodelElementCollection) : TdApiSurface =
-        elementsToProps<TdApiSurface> smc |> Option.defaultWith TdApiSurface
-
-    let private smcToControllerInfo (smc: SubmodelElementCollection) : TdControllerInfo =
-        elementsToProps<TdControllerInfo> smc |> Option.defaultWith TdControllerInfo
 
     let private smcToFurtherInfo (smc: SubmodelElementCollection) : TdFurtherInformation =
         let fi = elementsToProps<TdFurtherInformation> smc |> Option.defaultWith TdFurtherInformation
@@ -130,7 +122,8 @@ module internal AasxImportTechnicalData =
         | None -> ()
         r
 
-    let private smcToScenario (smc: SubmodelElementCollection) : SimulationScenario =
+    /// 외부 노출 — SequenceSimulation 서브모델에서 SimulationResult SMC 를 발견하면 본 함수로 디시리얼라이즈.
+    let smcToScenario (smc: SubmodelElementCollection) : SimulationScenario =
         let s = SimulationScenario()
         match tryFindSmc smc "SimulationMeta" with
         | Some m -> s.Meta <- smcToSimMeta m
@@ -157,7 +150,7 @@ module internal AasxImportTechnicalData =
         | None -> ()
         s
 
-    // ── 진입점 ─────────────────────────────────────────────────────────────
+    // ── 진입점 — TD 는 표준 3 블록만 ────────────────────────────────────────
     let submodelToTechnicalData (sm: ISubmodel) : TechnicalData =
         let td = TechnicalData()
 
@@ -172,17 +165,20 @@ module internal AasxImportTechnicalData =
                     for c in smlChildSmcs sml do td.ProductClassifications.Add(smcToClassificationItem c)
                 | _ -> ()
 
-        // TechnicalProperties — 도메인 그룹 + SimulationResult (단일)
-        match tryFindSmcInSubmodel sm "TechnicalProperties" with
-        | Some tp ->
-            tryFindSmc tp "SequenceCharacteristics" |> Option.iter (fun s -> td.SequenceCharacteristics <- smcToSequenceChar s)
-            tryFindSmc tp "IOCharacteristics"       |> Option.iter (fun s -> td.IoCharacteristics       <- smcToIoChar s)
-            tryFindSmc tp "ApiSurface"              |> Option.iter (fun s -> td.ApiSurface              <- smcToApiSurface s)
-            tryFindSmc tp "ControllerInfo"          |> Option.iter (fun s -> td.ControllerInfo          <- smcToControllerInfo s)
-            td.SimulationResult <- tryFindSmc tp "SimulationResult" |> Option.map smcToScenario
-        | None -> ()
-
         tryFindSmcInSubmodel sm "FurtherInformation"
         |> Option.iter (fun smc -> td.FurtherInformation <- smcToFurtherInfo smc)
 
         td
+
+    /// SequenceSimulation 서브모델의 SystemProperties SMC 안에서 SimulationResult SMC 를 찾아 디시리얼라이즈.
+    /// (구버전 호환: top-level SimulationResult 도 폴백 검색)
+    let trySimulationResultFromSequenceSimulation (sm: ISubmodel) : SimulationScenario option =
+        // 1순위: SystemProperties 안에 있는 SimulationResult (현재 구조)
+        let viaSystemProps =
+            tryFindSmcInSubmodel sm "SystemProperties"
+            |> Option.bind (fun sp -> tryFindSmc sp "SimulationResult")
+        // 2순위: top-level (이전 잠시 사용된 위치) — 후방호환.
+        let viaTopLevel = tryFindSmcInSubmodel sm "SimulationResult"
+        viaSystemProps
+        |> Option.orElse viaTopLevel
+        |> Option.map smcToScenario

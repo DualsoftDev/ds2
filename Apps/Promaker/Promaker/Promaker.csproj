@@ -60,14 +60,14 @@
 
   </ItemGroup>
   <ItemGroup>
-    <!-- AAStoPLC, AAStoPLC.LadderViewer 는 별도 저장소(dsev2cpu) 빌드 산출물.
+    <!-- AAStoPLC, AAStoPLC.LadderEditor 는 별도 저장소(dsev2cpu) 빌드 산출물.
          빌드 시 ExternalDlls 로 게시되며, 여기서는 그 dll 만 파일 참조. -->
     <Reference Include="AAStoPLC">
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="AAStoPLC.LadderViewer">
-      <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderViewer.dll</HintPath>
+    <Reference Include="AAStoPLC.LadderEditor">
+      <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderEditor.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />

@@ -114,13 +114,6 @@ module internal AasxExportCore =
             elem.SemanticId <- mkSemanticRef u
             elem
 
-    let mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =
-        let sm = Submodel(id = id)
-        sm.IdShort <- sanitizeIdShort idShort
-        sm.SemanticId <- mkSemanticRef semanticId
-        sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elems)
-        sm
-
     let internal controlIoConfigElems (cp: ControlSystemProperties) : ISubmodelElement list =
         [ if cp.FBTagMapPresets.Count > 0 then
               yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets ]

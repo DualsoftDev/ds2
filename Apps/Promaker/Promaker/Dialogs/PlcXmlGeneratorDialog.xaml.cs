@@ -1,12 +1,14 @@
 using AAStoPLC.TagWizard;
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
-using System.Windows.Input;
-using AAStoPLC.LadderViewer.Models;
-using AAStoPLC.LadderViewer.Renderers;
+using AAStoPLC.Ir;
+using AAStoPLC.LadderEditor.Models;
+using AAStoPLC.LadderEditor.Rendering;
 using Ds2.Core.Store;
 using Microsoft.Win32;
 using Plc.Xgi;
@@ -21,13 +23,10 @@ public partial class PlcXmlGeneratorDialog : Window
     private readonly string? _currentFilePath;
     private string? _generatedXml;
 
-    private readonly LadderRenderer _ladderRenderer = new() { LineFactor = 0.3 };
-    private XG5000Project? _ladderProject;
-    private double _ladderZoom = 1.0;
-
-    private const double ZoomStep = 0.2;
-    private const double ZoomMin  = 0.1;
-    private const double ZoomMax  = 4.0;
+    private IrProject? _irProject;
+    /// <summary>현재 program 의 rung list — LadderEditorControl 이 binding.</summary>
+    private readonly ObservableCollection<RungViewModel> _rungs = new();
+    private readonly EditorContext _ladderCtx = new() { GridCols = 12, IsReadOnly = true };
 
     public PlcXmlGeneratorDialog(DsStore store, string? currentFilePath = null)
     {
@@ -35,6 +34,8 @@ public partial class PlcXmlGeneratorDialog : Window
         _store = store;
         _currentFilePath = currentFilePath;
 
+        LadderView.Context = _ladderCtx;
+        LadderView.Rungs   = _rungs;
         SyncLadderTheme(ThemeManager.CurrentTheme);
         ThemeManager.ThemeChanged += OnThemeChanged;
         Closed += (_, _) => ThemeManager.ThemeChanged -= OnThemeChanged;
@@ -51,8 +52,9 @@ public partial class PlcXmlGeneratorDialog : Window
 
     private void SyncLadderTheme(AppTheme theme)
     {
-        LadderRenderer.DarkMode = theme == AppTheme.Dark;
-        LadderCanvas.Background = LadderRenderer.CanvasBackground;
+        LadderView.Theme = theme == AppTheme.Dark
+            ? new DefaultDarkTheme()
+            : new DefaultLightTheme();
     }
 
     // ── 생성 ─────────────────────────────────────────────────────────────────
@@ -97,7 +99,8 @@ public partial class PlcXmlGeneratorDialog : Window
                     .Count();
                 SetStatus($"✓ 완료 — IO {ioBundle.IoRows.Count + ioBundle.DummyRows.Count}개 신호, FB {fbCount}개 인스턴스");
 
-                LoadLadder(_generatedXml);
+                // XML 재파싱 없이 IR 그대로 사용 — RungViewModel 변환만.
+                LoadLadder(detailResult.ResultValue.Project);
                 PreviewTabs.SelectedIndex = 1; // 래더 탭
             }
             else
@@ -114,46 +117,57 @@ public partial class PlcXmlGeneratorDialog : Window
 
     // ── 래더 뷰어 ─────────────────────────────────────────────────────────────
 
-    private void LoadLadder(string xml)
+    private void LoadLadder(IrProject project)
     {
-        try
+        _irProject = project;
+        LadderProgramComboBox.SelectionChanged -= LadderProgram_SelectionChanged;
+        LadderProgramComboBox.Items.Clear();
+        foreach (var prog in project.Programs)
+            LadderProgramComboBox.Items.Add(prog.Name);
+        LadderProgramComboBox.SelectionChanged += LadderProgram_SelectionChanged;
+
+        // 구분자 더미 POU (===이름===) 는 건너뛰고 첫 실 POU 선택.
+        if (LadderProgramComboBox.Items.Count > 0)
         {
-            _ladderProject = XmlParser.ParseProjectXml(xml);
-
-            LadderProgramComboBox.SelectionChanged -= LadderProgram_SelectionChanged;
-            LadderProgramComboBox.Items.Clear();
-            foreach (var prog in _ladderProject.Programs)
-                LadderProgramComboBox.Items.Add(prog.Name);
-            LadderProgramComboBox.SelectionChanged += LadderProgram_SelectionChanged;
-
-            if (LadderProgramComboBox.Items.Count > 0)
-                LadderProgramComboBox.SelectedIndex = 0;
-            else
-                ClearLadder();
+            int idx = 0;
+            for (int i = 0; i < LadderProgramComboBox.Items.Count; i++)
+            {
+                var n = LadderProgramComboBox.Items[i] as string ?? "";
+                if (!(n.StartsWith("=") && n.EndsWith("="))) { idx = i; break; }
+            }
+            LadderProgramComboBox.SelectedIndex = idx;
         }
-        catch (Exception ex)
-        {
+        else
             ClearLadder();
-            SetStatus($"⚠ 래더 파싱 오류: {ex.Message}", isError: true);
-        }
     }
 
     private void RenderSelectedProgram()
     {
-        LadderCanvas.Children.Clear();
-        if (_ladderProject == null || LadderProgramComboBox.SelectedItem is not string name) return;
-
-        var program = _ladderProject.Programs.FirstOrDefault(p => p.Name == name);
-        if (program?.Body == null || program.Body.Rungs.Count == 0) return;
-
-        _ladderRenderer.RenderRungs(LadderCanvas, program.Body.Rungs);
+        _rungs.Clear();
+        if (_irProject == null || LadderProgramComboBox.SelectedItem is not string name) return;
+        var program = _irProject.Programs.FirstOrDefault(p => p.Name == name);
+        if (program == null) return;
+        foreach (var r in program.Rungs)
+            _rungs.Add(IrRungToViewModel(r));
     }
+
+    /// <summary>IR Rung (CoilRung / FbCallRung) → LadderEditor 의 RungViewModel 변환. 설명문 포함.</summary>
+    private static RungViewModel IrRungToViewModel(Rung rung) => rung switch
+    {
+        Rung.CoilRung c   => new CoilRungViewModel(c.cond, c.bit)
+                                { CommentText = OptStr(c.comment) },
+        Rung.FbCallRung f => new FbCallRungViewModel(f.Item)
+                                { CommentText = OptStr(f.Item.Comment) },
+        _ => new CoilRungViewModel(CoilCondition.AlwaysTrue, ""),
+    };
+
+    private static string? OptStr(Microsoft.FSharp.Core.FSharpOption<string>? opt) =>
+        opt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(opt) ? opt.Value : null;
 
     private void ClearLadder()
     {
-        LadderCanvas.Children.Clear();
-        _ladderProject = null;
-
+        _rungs.Clear();
+        _irProject = null;
         LadderProgramComboBox.SelectionChanged -= LadderProgram_SelectionChanged;
         LadderProgramComboBox.Items.Clear();
         LadderProgramComboBox.SelectionChanged += LadderProgram_SelectionChanged;
@@ -162,32 +176,6 @@ public partial class PlcXmlGeneratorDialog : Window
     private void LadderProgram_SelectionChanged(object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
         => RenderSelectedProgram();
-
-    // ── 래더 줌 ──────────────────────────────────────────────────────────────
-
-    private void SetLadderZoom(double zoom)
-    {
-        _ladderZoom       = Math.Clamp(zoom, ZoomMin, ZoomMax);
-        LadderScale.ScaleX = _ladderZoom;
-        LadderScale.ScaleY = _ladderZoom;
-        LadderZoomLabel.Text = $"{_ladderZoom * 100:0}%";
-    }
-
-    private void LadderZoomIn_Click(object sender, RoutedEventArgs e)
-        => SetLadderZoom(Math.Round(_ladderZoom + ZoomStep, 2));
-
-    private void LadderZoomOut_Click(object sender, RoutedEventArgs e)
-        => SetLadderZoom(Math.Round(_ladderZoom - ZoomStep, 2));
-
-    private void LadderZoomReset_Click(object sender, RoutedEventArgs e)
-        => SetLadderZoom(1.0);
-
-    private void LadderScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        if (Keyboard.Modifiers != ModifierKeys.Control) return;
-        e.Handled = true;
-        SetLadderZoom(_ladderZoom + (e.Delta > 0 ? ZoomStep : -ZoomStep));
-    }
 
     // ── 요약 텍스트 ──────────────────────────────────────────────────────────
 

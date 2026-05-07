@@ -128,6 +128,26 @@ type FBBaseAddressSet() =
     member val OutputBase: string = "%QW0.0.0" with get, set  // QW 기준 주소
     member val MemoryBase: string = "%MW100"   with get, set  // MW(Dummy) 기준 주소
 
+/// Pre-FB 입력 식 노드 종류 — FB 인풋 핀에 LD contact 로 직접 와이어할 부울식.
+type FbInputExprKind =
+    | Var      = 0   // ─┤ ├─ Symbol
+    | NegVar   = 1   // ─┤/├─ Symbol
+    | And      = 2   // 직렬 결합 (Children)
+    | Or       = 3   // 병렬 결합 (Children)
+    | Not      = 4   // Children[0] 의 부정
+    | Rising   = 5   // ─|P|─ Symbol
+    | Falling  = 6   // ─|N|─ Symbol
+    | Raw      = 7   // 백엔드가 해석하는 raw 식 (Symbol)
+
+/// FB 인풋 식 — 매크로 ($(F)/$(D)/$(A)) 포함된 변수명 leaf + AND/OR/NOT/Edge 결합.
+/// SignalPatternEntry.PreFbCondition 에서 사용. JSON 직렬화 호환을 위해 mutable class.
+type FbInputExpr() =
+    member val Kind:     FbInputExprKind            = FbInputExprKind.Var with get, set
+    /// Var/NegVar/Rising/Falling/Raw 일 때 변수 이름 (매크로 포함 가능).
+    member val Symbol:   string                     = ""                  with get, set
+    /// And/Or 일 때 자식들. Not 은 Children.[0] 만 사용. Var 류는 빈 리스트.
+    member val Children: ResizeArray<FbInputExpr>   = ResizeArray()       with get, set
+
 /// 신호 패턴 엔트리 — Tag Wizard Step 2 "신호 템플릿" 탭에서 편집.
 /// ApiDefName 별로 IW/QW/MW 태그 이름 패턴을 정의한다.
 /// 이 값은 FBTagMapPreset.(Iw|Qw|Mw)Patterns 안에만 존재하며, AASX 에 함께 저장된다.
@@ -146,6 +166,33 @@ type SignalPatternEntry() =
     member val SkipAddressAlloc: bool = false  with get, set
     /// 예비(Spare) 슬롯 — true 면 주소 1비트 예약 후 신호 미생성. ApiName/Pattern/TargetFBPort 무시.
     member val IsSpare:          bool = false  with get, set
+    /// Pre-FB 입력 식 — 비어있지 않으면 Pattern→VarName 단일 와이어 대신 LD contact 트리로 FB 포트에 연결.
+    /// PLC 코드 생성 전용 메타데이터 — DS2 시뮬레이터는 무시.
+    member val PreFbCondition:   FbInputExpr option = None with get, set
+    /// 사용자 지정 데이터 타입 — FB Local Label 미설정 시 적용. 설정 시 FB 포트 타입이 우선.
+    /// 예: "BOOL", "WORD", "DINT", "REAL". 빈 문자열이면 폴백 (BOOL).
+    member val UserDataType:     string = "" with get, set
+
+/// FB 입력 포트 와이어링 entry — Cylinder/Robot 등 모든 FB 통합 모델.
+/// Kind 2가지 + AuxKind (AuxCoil 일 때 user 조건 소스 선택):
+///   DirectFB           = FB 포트에 ApiDef 변수 직접 와이어 (코일 emit 없음). Robot 류.
+///   AuxCoil + AutoAux  = WorkGoing ∧ preds ∧ CallCondition.AutoAux  → 코일 비트 → FB 포트.
+///   AuxCoil + ComAux   = CallCondition.ComAux                       → 코일 비트 → FB 포트.
+type AuxPortMapEntry() =
+    member val ApiName:      string = "" with get, set         // 예: "ADV" / "WORK_COMP_RST"
+    member val TargetFBPort: string = "" with get, set         // 예: "M_Auto_Adv" / "WORK_COMP_RST"
+    /// "DirectFB" / "AuxCoil"
+    member val Kind:         string = "DirectFB" with get, set
+    /// AuxCoil 일 때만 의미 — Ds2 CallCondition 의 어느 Type 속성값(수식)을 코일 조건으로 사용:
+    ///   "AutoAux" = WorkGoing ∧ preds ∧ CallCondition.AutoAux 값 — Cylinder M_Auto_X 류.
+    ///   "ComAux"  = CallCondition.ComAux 값 — Cylinder M_Com_X 류 (게이팅 없음).
+    /// DirectFB 면 무시.
+    member val AuxKind:      string = "AutoAux" with get, set
+    /// 사용자 정의 추가 수식 — 자동 합성 조건과 AND 결합.
+    /// DirectFB: FB 포트에 식이 LD contact 트리로 직접 와이어.
+    /// AuxCoil: 코일 조건에 추가 AND 로 합성됨.
+    /// 매크로 $(F)/$(D)/$(A)/$(S) 자동 치환.
+    member val Condition:    FbInputExpr option = None with get, set
 
 /// 디바이스 타입(SystemType)별 FBTagMap 프리셋
 /// 시스템 인스턴스별이 아닌 디바이스 타입별 전역 설정
@@ -157,17 +204,10 @@ type FBTagMapPreset() =
     member val BaseAddresses: FBBaseAddressSet = FBBaseAddressSet() with get, set
     /// 주소 자동 할당 규칙
     member val AddressRule: AddressAssignRule = AddressAssignRule.Sequential with get, set
-    /// ApiDefName → FB AutoAux 입력 포트 이름
-    /// 예: 실린더 { "ADV"→"M_Auto_Adv", "RET"→"M_Auto_Ret" }
-    ///     로봇   { "STEP1"→"1ST_IN_OK", "STEP2"→"2ND_IN_OK" }
-    /// Promaker UI (TagWizardDialog) 에서 API 별로 FB 포트 드롭다운 선택.
-    member val AutoAuxPortMap: System.Collections.Generic.Dictionary<string, string> =
-        System.Collections.Generic.Dictionary<string, string>() with get, set
-    /// ApiDefName → FB ComAux 입력 포트 이름 (옵션)
-    /// 예: 실린더 { "ADV"→"M_Com_Adv", "RET"→"M_Com_Ret" }
-    ///     로봇: 비어 있음 → ComAux coil 생성 안 함
-    member val ComAuxPortMap: System.Collections.Generic.Dictionary<string, string> =
-        System.Collections.Generic.Dictionary<string, string>() with get, set
+    /// FB 입력 포트 와이어링 매핑 — Cylinder/Robot 등 모든 FB 통합. 단일 진실원.
+    /// 예: 실린더 [{ADV, M_Auto_Adv, Auto}, {ADV, M_Com_Adv, Com}, {RET, M_Auto_Ret, Auto}, {RET, M_Com_Ret, Com}]
+    /// 예: 로봇   [{WORK_COMP_RST, WORK_COMP_RST, Direct}, {START, START, Direct}, ...]
+    member val AuxPortMap: ResizeArray<AuxPortMapEntry> = ResizeArray() with get, set
     /// IW(입력 워드) 신호 템플릿 — 외부 txt 파일을 완전히 대체한다.
     member val IwPatterns: ResizeArray<SignalPatternEntry> = ResizeArray() with get, set
     /// QW(출력 워드) 신호 템플릿.

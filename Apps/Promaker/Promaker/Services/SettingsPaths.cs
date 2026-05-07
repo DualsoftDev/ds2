@@ -37,6 +37,12 @@ public static class SettingsPaths
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");
 
+    /// <summary>사용자 정의 AASX 템플릿 폴더 경로. 폴더 안의 *.aasx 의 모든 SM 이 export 시 자동 첨부.</summary>
+    public static string AasxUserTemplatesFolder         => Of("aasxUserTemplatesFolder.txt");
+
+    /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
+    public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
+
     /// <summary>PLC 템플릿 사용자 복사본 폴더 — AppData\Dualsoft\Promaker\PlcTemplate</summary>
     public static string PlcTemplateDir => Path.Combine(AppDataRoot, "PlcTemplate");
 
