@@ -74,10 +74,53 @@ public partial class MainViewModel : ObservableObject
 
         // Pass 1.5 측정 자동화 — `--autostart-llm` 인자 시작 시 chat panel 자동 활성화.
         // McpHostService 가 LlmChatViewModel ctor 안에서 StartAsync → mcp config 파일이 즉시 작성됨.
+        // 추가: --measure-prompt 가 있으면 IsReady 후 자동 prompt 전송, --measure-then-exit 면 turn 끝 후 self-close.
         if (App.StartupAutoOpenLlm)
         {
-            _dispatcher.BeginInvoke(new Action(() => ToggleLlmChat()), DispatcherPriority.Loaded);
+            _dispatcher.BeginInvoke(new Action(() =>
+            {
+                ToggleLlmChat();
+                if (LlmChatVm != null && App.StartupMeasurePrompt != null)
+                {
+                    ScheduleMeasurePrompt(LlmChatVm, App.StartupMeasurePrompt, App.StartupMeasureThenExit);
+                }
+            }), DispatcherPriority.Loaded);
         }
+    }
+
+    /// <summary>
+    /// 측정 자동화: LlmChatViewModel.IsReady 가 true 되면 Input 에 prompt 적용 + SendCommand 실행.
+    /// thenExit=true 이면 IsSending true→false transition 후 MainWindow.Close() (Closing 의 dirty check 는 autostart 에서 skip).
+    /// </summary>
+    private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
+    {
+        System.ComponentModel.PropertyChangedEventHandler? readyHandler = null;
+        readyHandler = (_, e) =>
+        {
+            if (e.PropertyName != nameof(LlmChatViewModel.IsReady) || !vm.IsReady) return;
+            vm.PropertyChanged -= readyHandler;
+            vm.Input = prompt;
+            if (vm.SendCommand.CanExecute(null))
+                vm.SendCommand.Execute(null);
+
+            if (!thenExit) return;
+
+            bool wasSending = false;
+            System.ComponentModel.PropertyChangedEventHandler? sendHandler = null;
+            sendHandler = (_, e2) =>
+            {
+                if (e2.PropertyName != nameof(LlmChatViewModel.IsSending)) return;
+                if (vm.IsSending) { wasSending = true; return; }
+                if (!wasSending) return;
+                vm.PropertyChanged -= sendHandler;
+                // 응답 마무리 (last AssistantDelta flush + Authoring "Executed" 로그) 의 background priority 작업이
+                // 끝난 후 close. 100ms 의 background hop = log4net flush 충분.
+                _dispatcher.BeginInvoke(new Action(() =>
+                    Application.Current.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
+            };
+            vm.PropertyChanged += sendHandler;
+        };
+        vm.PropertyChanged += readyHandler;
     }
 
     /// <summary>

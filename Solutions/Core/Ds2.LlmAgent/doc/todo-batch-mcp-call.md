@@ -752,6 +752,55 @@ todo 분기 매트릭스의 "S1 chain 압축 < 15% AND 묶음 변화 미미" →
 
 위 흐름은 Pass 5 final 측정 / 향후 회귀 검증에도 그대로 재사용.
 
+---
+
+## Pass 2 결과 (2026-05-07) — McpHostService 동시성 spike
+
+### 측정 환경
+
+- 자동화: `doc/run-pass2-spike.fsx` — Promaker spawn `--autostart-llm --measure-prompt "Sys1~4 4개 추가" --measure-then-exit` → ChatVm 자동 SendCommand → ClaudeCliProvider 정상 흐름 (LlmTurnContext.Begin) → claude CLI 자식 process 가 mcp tool 호출 → ToolCall trace 로그 → ds2.log 자동 분석
+- ModelTools.RunMutation/RunRead 진입 시 `enter seq=N t=<threadId> nanos=...` trace 로그 추가
+
+### 핵심 결과 — SDK 직렬 dispatch ✅
+
+S2 시나리오 (Sys1~4 4개 system 추가, 자발적 parallel tool_use 4 묶음) 에서 ToolCall enter 라인 4개:
+
+| seq | tool | 시각 | thread | Δms |
+|---:|---|---|---:|---:|
+| 1 | add_system | 13:27:51.474 | 9 | — |
+| 2 | add_system | 13:27:51.849 | 9 | 375 |
+| 3 | add_system | 13:27:52.244 | 17 | 395 |
+| 4 | add_system | 13:27:52.555 | 9 | 311 |
+
+- **인접 enter Δms = 311~395ms** — todo 의 Critical-1 R4 임계 (>100ms = 직렬화) 를 훨씬 초과. SDK 가 message-boundary 에서 자체 직렬 dispatch
+- **고유 thread id = 2** (9 / 17) — 단 시간대 분리 = async/await thread hop, concurrent 아님
+
+→ `ModelContextProtocol.AspNetCore` 1.2.0 의 dispatch 가 자체 직렬화. **(c) Variable binding 의 SemaphoreSlim gate (보완안 2) 불필요**.
+
+### Critical-1 결정 갱신
+
+기존 결정:
+> Default 채택 (보완안 2 — semaphore 직렬화)
+
+**갱신**: SDK 자체 직렬화 확인 → SemaphoreSlim gate 제거. `LlmTurnContext` 의 `_gate: SemaphoreSlim` 미도입. `VarCache: ConcurrentDictionary` 는 **그대로 유지** (방어적 — 향후 SDK upgrade 또는 다른 transport 시 안전망).
+
+`SignalCascadeFailure` 의 `volatile bool` 도 그대로 유지 — flag set / read 가 dispatcher work 안에서만 일어나면 race-free 지만 양쪽이 다른 thread 일 가능성 (cascadeFailureFlag 는 dispatch 외 진입 short-circuit 용). volatile 이 cheap insurance.
+
+### 부수 이슈 — Pass 2 spike 결론에 영향 없음
+
+- measure-then-exit 가 self-close 안 함 (timeout 120s) → fsx 강제 kill
+- ToolCall `ok` 라인 0개 + Authoring 'Executed' 0개 — work 진행은 됐지만 (enter 4개) finally / Apply 흐름 미완 또는 buffer 미flush
+
+→ Pass 3 진입 전 측정 인프라 hot-fix 1회 필요 (turn end 까지 self-close 도달 보장).
+
+### Pass 2 산출물
+
+- `doc/run-pass2-spike.fsx` — Promaker 자체 흐름으로 측정 + ds2.log 자동 분석
+- `App.xaml.cs` — `--measure-prompt <text>` / `--measure-then-exit` 인자 처리
+- `MainViewModel.cs` — `ScheduleMeasurePrompt` (IsReady 대기 + Input set + SendCommand + IsSending false transition 시 close)
+- `MainWindow.xaml.cs` — Closing dirty check skip in autostart mode
+- `ModelTools.cs` — RunMutation/RunRead 의 `enter` trace 로그 (seq + threadId + nanos)
+
 ### 다른 todo 와의 cross-reference (M9 review)
 
 - 본 todo 는 phase 2 후속 작업으로 `doc/todo-promaker-llm-agent.md` 의 "다음 작업 진입 권장 순서" 에서 참조 추가 필요

@@ -50,22 +50,34 @@ public static class ModelTools
         return (g, null);
     }
 
+    /// <summary>
+    /// Pass 2 spike — 단일 client connection 의 multi tool_use 가 concurrent 진입하는지 검증용.
+    /// 각 tool 호출의 진입/종료 thread id + timestamp 로그 → 같은 message 의 4 tool 이 거의 동시에
+    /// 진입하면 concurrent (race 위험), 직렬 차례 진입하면 SDK 가 message-boundary 에서 직렬화.
+    /// </summary>
+    private static long _toolCallSeq = 0;
+
     private static async Task<string> RunMutation(
         LlmTurnContextProvider turnProvider, string toolName,
         Func<LlmTurnContext, string> work)
     {
         var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
+        var seq = System.Threading.Interlocked.Increment(ref _toolCallSeq);
+        var entryT = Environment.CurrentManagedThreadId;
+        var entryNanos = System.Diagnostics.Stopwatch.GetTimestamp();
+        ToolCallLog.Debug($"{toolName} enter seq={seq} t={entryT} nanos={entryNanos}");
         ctx.IncrementMutationCount();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var msg = await ctx.Dispatcher.InvokeAsync(() => work(ctx));
-            ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} planSize={ctx.Plan.Count}");
+            var exitT = Environment.CurrentManagedThreadId;
+            ToolCallLog.Info($"{toolName} ok seq={seq} entryT={entryT} exitT={exitT} elapsedMs={sw.ElapsedMilliseconds} planSize={ctx.Plan.Count}");
             return msg;
         }
         catch (Exception ex)
         {
-            ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
+            ToolCallLog.Warn($"{toolName} 실패 seq={seq} elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return $"VALIDATION_ERROR: {ex.Message}";
         }
     }
@@ -75,16 +87,21 @@ public static class ModelTools
         Func<LlmTurnContext, string> work)
     {
         var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
+        var seq = System.Threading.Interlocked.Increment(ref _toolCallSeq);
+        var entryT = Environment.CurrentManagedThreadId;
+        var entryNanos = System.Diagnostics.Stopwatch.GetTimestamp();
+        ToolCallLog.Debug($"{toolName} enter seq={seq} t={entryT} nanos={entryNanos}");
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var msg = await ctx.Dispatcher.InvokeAsync(() => work(ctx));
-            ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} sizeBytes={msg?.Length ?? 0}");
+            var exitT = Environment.CurrentManagedThreadId;
+            ToolCallLog.Info($"{toolName} ok seq={seq} entryT={entryT} exitT={exitT} elapsedMs={sw.ElapsedMilliseconds} sizeBytes={msg?.Length ?? 0}");
             return msg ?? "";
         }
         catch (Exception ex)
         {
-            ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
+            ToolCallLog.Warn($"{toolName} 실패 seq={seq} elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return $"INTERNAL_ERROR: {ex.Message}";
         }
     }
