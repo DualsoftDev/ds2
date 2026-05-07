@@ -19,6 +19,18 @@ type SignalHub() =
         tagCache.[address] <- value
         this.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, source)
 
+    /// Batch 송신 — 여러 태그 변경을 한 프레임으로 받아 한 프레임으로 fan-out.
+    /// Per-tag WriteTag 호출 대비 SignalR 프레임 수 / 직렬화 비용 감소.
+    member this.WriteTags(items: TagWrite[]) : Task =
+        if isNull items || items.Length = 0 then
+            Task.CompletedTask
+        else
+            for it in items do
+                if not (isNull it.Address) then
+                    tagCache.[it.Address] <- it.Value
+            log.Debug($"WriteTags: count={items.Length}")
+            this.Clients.All.SendAsync(HubMethod.OnTagsChanged, items)
+
     /// 현재 Tag 값 조회 — 캐시에 없으면 빈 문자열
     member _.QueryTag(address: string) : Task<string> =
         match tagCache.TryGetValue(address) with

@@ -6,6 +6,11 @@ module HubMethod =
     let WriteTag = "WriteTag"
     [<Literal>]
     let OnTagChanged = "OnTagChanged"
+    /// Batch 변형 — 여러 tag 변경을 1개 SignalR 프레임으로 송수신.
+    [<Literal>]
+    let WriteTags = "WriteTags"
+    [<Literal>]
+    let OnTagsChanged = "OnTagsChanged"
     [<Literal>]
     let SubscribeTag = "SubscribeTag"
     [<Literal>]
@@ -26,3 +31,11 @@ module HubSource =
     let Plc = "plc"
     [<Literal>]
     let Web = "web"
+
+/// Batch payload for WriteTags / OnTagsChanged.
+/// 별도 record 로 정의 — System.Text.Json 으로 양방향 직렬화 가능.
+type TagWrite = {
+    Address: string
+    Value: string
+    Source: string
+}
