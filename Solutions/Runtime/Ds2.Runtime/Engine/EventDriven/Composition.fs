@@ -83,31 +83,27 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         |> Map.tryFind workGuid
         |> Option.map index.ActiveSystemNames.Contains
         |> Option.defaultValue false
-    let tokenFlowContext : TokenFlow.Context = {
-        Index = index
-        StateManager = stateManager
-        CurrentTimeMs = (fun () -> scheduler.CurrentTimeMs)
-        TriggerTokenEvent = tokenEventEvent.Trigger
-    }
+    let tokenFlowContext =
+        EventDrivenCompositionContext.createTokenFlowContext index stateManager scheduler tokenEventEvent.Trigger
     let workNameOf guid = TokenFlow.workNameOf tokenFlowContext guid
     let canReceiveToken workGuid = TokenFlow.canReceiveToken tokenFlowContext workGuid
     let emitTokenEvent kind token workGuid (targetGuid: Guid option) =
         TokenFlow.emitTokenEvent tokenFlowContext kind token workGuid targetGuid
     let shiftToken workGuid token = TokenFlow.shiftToken tokenFlowContext workGuid token
     let onWorkFinish workGuid = TokenFlow.onWorkFinish tokenFlowContext workGuid
-    let workTransitionContext : WorkTransitions.Context = {
-        Index = index
-        StateManager = stateManager
-        Scheduler = scheduler
-        RuntimeMode = runtimeMode
-        IsHomingPhase = (fun () -> isHomingPhase)
-        TimeIgnore = (fun () -> timeIgnore)
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-        OnWorkFinish = onWorkFinish
-        TriggerWorkStateChanged = workStateChangedEvent.Trigger
-        OnDurationScheduled = fun workGuid eventId scheduledTimeMs ->
-            durationTracker.OnDurationScheduled(workGuid, eventId, scheduledTimeMs)
-    }
+    let workTransitionContext =
+        EventDrivenCompositionContext.createWorkTransitionContext
+            index
+            stateManager
+            scheduler
+            runtimeMode
+            (fun () -> isHomingPhase)
+            (fun () -> timeIgnore)
+            scheduleConditionEvaluation
+            onWorkFinish
+            workStateChangedEvent.Trigger
+            (fun workGuid eventId scheduledTimeMs ->
+                durationTracker.OnDurationScheduled(workGuid, eventId, scheduledTimeMs))
     let scheduleWorkIfReady workGuid targetState =
         WorkTransitions.scheduleWorkIfReady workTransitionContext workGuid targetState
     let applyWorkTransition workGuid newState =
@@ -150,15 +146,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let forceCallState callGuid newState =
         if index.AllCallGuids |> List.contains callGuid then
             scheduleNowStateChange (ScheduledEventType.ForcedCallTransition(callGuid, newState))
-    let apiCallExecutionContext : ApiCallExecutionContext = {
-        RuntimeMode = runtimeMode
-        GetDeviceState = stateManager.GetWorkState
-        GetDeviceName = resolveWorkName
-        GetTxOutAddresses = fun deviceWorkGuid ->
-            ioMap.TxWorkToOutAddresses |> Map.tryFind deviceWorkGuid |> Option.defaultValue []
-        WriteTag = writeTagFn
-        ForceWorkState = forceWorkState
-    }
+    let apiCallExecutionContext =
+        EventDrivenCompositionContext.createApiCallExecutionContext
+            runtimeMode
+            stateManager
+            resolveWorkName
+            ioMap
+            writeTagFn
+            forceWorkState
     let executeApiCall deviceWorkGuid =
         EventDrivenExecution.executeApiCall apiCallExecutionContext deviceWorkGuid
     let executeCallGoing callGuid =
@@ -167,49 +162,42 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     /// 개별 Call의 Ready 전이는 하지 않음 — StartWithHomingPhase completion handler가 일괄 처리.
     let executeCallHoming (callGuid: Guid) (goingTargets: Set<Guid>) =
         EventDrivenExecution.executeCallHoming index apiCallExecutionContext callGuid goingTargets
-    let callTransitionContext : CallTransitions.Context = {
-        Index = index
-        StateManager = stateManager
-        Scheduler = scheduler
-        RuntimeMode = runtimeMode
-        ShouldSkipCall = shouldSkipCall
-        TriggerCallStateChanged = callStateChangedEvent.Trigger
-        ScheduleWorkIfReady = scheduleWorkIfReady
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-        DurationTracker = durationTracker
-        TimeIgnore = fun () -> timeIgnore
-        ExecuteCallGoing = executeCallGoing
-    }
-    let callTransitionApplyContext : CallTransitionApplyContext = {
-        RuntimeMode = runtimeMode
-        GetCallOutAddresses = fun callGuid ->
-            ioMap.CallToMappings
-            |> Map.tryFind callGuid
-            |> Option.defaultValue []
-            |> List.choose (fun mapping ->
-                if String.IsNullOrEmpty mapping.OutAddress then None
-                else Some mapping.OutAddress)
-        WriteTag = writeTagFn
-        GetCallState = stateManager.GetCallState
-        ApplyCallTransitionCore = fun callGuid newState ->
-            CallTransitions.applyCallTransition callTransitionContext callGuid newState
-    }
+    let callTransitionContext =
+        EventDrivenCompositionContext.createCallTransitionContext
+            index
+            stateManager
+            scheduler
+            runtimeMode
+            shouldSkipCall
+            callStateChangedEvent.Trigger
+            scheduleWorkIfReady
+            scheduleConditionEvaluation
+            durationTracker
+            (fun () -> timeIgnore)
+            executeCallGoing
+    let callTransitionApplyContext =
+        EventDrivenCompositionContext.createCallTransitionApplyContext
+            runtimeMode
+            ioMap
+            writeTagFn
+            stateManager
+            (fun callGuid newState ->
+                CallTransitions.applyCallTransition callTransitionContext callGuid newState)
     let applyCallTransition callGuid newState =
         EventDrivenExecution.applyCallTransition callTransitionApplyContext callGuid newState
-    let conditionEvaluationContext : ConditionEvaluation.Context = {
-        Index = index
-        StateManager = stateManager
-        Scheduler = scheduler
-        IsWorkFrozen = stateManager.IsWorkFrozen
-        CanStartWork = canStartWork
-        CanStartCall = canStartCall
-        CanCompleteCall = canCompleteCall
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-        ShiftToken = shiftToken
-        EmitTokenEvent = emitTokenEvent
-        CanReceiveToken = canReceiveToken
-        ApplyWorkTransition = applyWorkTransition
-    }
+    let conditionEvaluationContext =
+        EventDrivenCompositionContext.createConditionEvaluationContext
+            index
+            stateManager
+            scheduler
+            canStartWork
+            canStartCall
+            canCompleteCall
+            scheduleConditionEvaluation
+            shiftToken
+            emitTokenEvent
+            canReceiveToken
+            applyWorkTransition
     /// Passive 모드 (VirtualPlant / Monitoring)는 상태 전이를 IO 이벤트 기반 외부 유추로만 처리.
     /// 엔진의 자체 조건 평가 루프를 끔 — 수동 관찰자 역할.
     let isPassiveMode =
@@ -220,70 +208,67 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let evaluateConditions () =
         if not isPassiveMode then
             ConditionEvaluation.evaluateConditions conditionEvaluationContext ()
-    let transitionGuardsContext : TransitionGuards.Context = {
-        Index = index
-        StateManager = stateManager
-        IsWorkFrozen = stateManager.IsWorkFrozen
-        CanStartCall = canStartCall
-        CanCompleteCall = canCompleteCall
-        ApplyWorkTransition = applyWorkTransition
-        ApplyCallTransition = applyCallTransition
-    }
+    let transitionGuardsContext =
+        EventDrivenCompositionContext.createTransitionGuardsContext
+            index
+            stateManager
+            canStartCall
+            canCompleteCall
+            applyWorkTransition
+            applyCallTransition
     let hasGoingCall () =
         index.AllCallGuids
         |> List.exists (fun callGuid -> stateManager.GetCallState(callGuid) = Status4.Going)
-    let connectionReloadContext : ConnectionReload.Context = {
-        Index = index
-        StateManager = stateManager
-        Scheduler = scheduler
-        IsActiveSystemWork = isActiveSystemWork
-        EmitTokenEvent = emitTokenEvent
-        TriggerWorkStateChanged = workStateChangedEvent.Trigger
-        PauseDuration = durationTracker.PauseDuration
-        ResumePausedDuration = durationTracker.TryResumePausedDuration
-        ClearPausedDuration = durationTracker.ClearPausedDuration
-    }
-    let durationCompleteContext : DurationCompleteContext = {
-        IsPassiveMode = isPassiveMode
-        RemoveDuration = durationTracker.Remove
-        GetWorkState = stateManager.GetWorkState
-        MarkMinDurationMet = stateManager.MarkMinDurationMet
-        GetWorkCallGuids = fun workGuid -> SimIndex.findOrEmpty workGuid index.WorkCallGuids
-        GetCallState = stateManager.GetCallState
-        ApplyWorkTransition = applyWorkTransition
-    }
+    let connectionReloadContext =
+        EventDrivenCompositionContext.createConnectionReloadContext
+            index
+            stateManager
+            scheduler
+            isActiveSystemWork
+            emitTokenEvent
+            workStateChangedEvent.Trigger
+            durationTracker
+    let durationCompleteContext =
+        EventDrivenCompositionContext.createDurationCompleteContext
+            isPassiveMode
+            durationTracker
+            stateManager
+            index
+            applyWorkTransition
     let handleDurationComplete workGuid =
         EventDrivenExecution.handleDurationComplete durationCompleteContext workGuid
-    let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
-        ProcessGate = processGate
-        Scheduler = scheduler
-        RuntimeClock = runtimeClock
-        WakeSignal = wakeSignal
-        TryDrainHubInjectOnce = tryDrainHubInjectOnce
-        GetStatus = getStatus
-        SpeedMultiplier = (fun () -> speedMultiplier)
-        UpdateClock = stateManager.UpdateClock
-        GetWorkState = stateManager.GetWorkState
-        GetWorkToken = stateManager.GetWorkToken
-        ClearAndApplyWorkTransition = TransitionGuards.clearAndApplyWork transitionGuardsContext
-        ClearAndApplyCallTransition = TransitionGuards.clearAndApplyCall transitionGuardsContext
-        ForceAndApplyWorkTransition = TransitionGuards.forceAndApplyWork transitionGuardsContext
-        ForceAndApplyCallTransition = TransitionGuards.forceAndApplyCall transitionGuardsContext
-        ApplyWorkTransition = applyWorkTransition
-        HandleDurationComplete = handleDurationComplete
-        ShiftToken = shiftToken
-        EmitTokenEvent = emitTokenEvent
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-        EvaluateConditions = evaluateConditions
-        TriggerCallTimeout = callTimeoutEvent.Trigger
-        GetCallState = stateManager.GetCallState
-        GetCallName = fun callGuid ->
-            Queries.getCall callGuid index.Store
-            |> Option.map (fun c -> c.Name) |> Option.defaultValue (string callGuid)
-        GetCallTimeoutMs = fun callGuid ->
-            index.CallTimeoutMap |> Map.tryFind callGuid |> Option.map (fun ts -> int ts.TotalMilliseconds)
-        CurrentTimeMs = fun () -> scheduler.CurrentTimeMs
-    }
+    let runtimeContext =
+        EventDrivenCompositionContext.createRuntimeContext
+            processGate
+            scheduler
+            runtimeClock
+            wakeSignal
+            tryDrainHubInjectOnce
+            getStatus
+            (fun () -> speedMultiplier)
+            stateManager.UpdateClock
+            stateManager.GetWorkState
+            stateManager.GetWorkToken
+            (TransitionGuards.clearAndApplyWork transitionGuardsContext)
+            (TransitionGuards.clearAndApplyCall transitionGuardsContext)
+            (TransitionGuards.forceAndApplyWork transitionGuardsContext)
+            (TransitionGuards.forceAndApplyCall transitionGuardsContext)
+            applyWorkTransition
+            handleDurationComplete
+            shiftToken
+            emitTokenEvent
+            scheduleConditionEvaluation
+            evaluateConditions
+            callTimeoutEvent.Trigger
+            stateManager.GetCallState
+            (fun callGuid ->
+                Queries.getCall callGuid index.Store
+                |> Option.map (fun c -> c.Name)
+                |> Option.defaultValue (string callGuid))
+            (fun callGuid ->
+                index.CallTimeoutMap
+                |> Map.tryFind callGuid
+                |> Option.map (fun ts -> int ts.TotalMilliseconds))
     let advanceStepRuntime targetTimeMs =
         EventDrivenEngineRuntime.advanceAndDrain runtimeContext targetTimeMs
     let startEngineThread (tokenSource: CancellationTokenSource) =
@@ -306,150 +291,105 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             let result = action ()
             signalWork ()
             result)
-    let lifecycleContext : EngineLifecycle.Context = {
-        EngineThreadJoinTimeoutMs = engineThreadJoinTimeoutMs
-        GetStatus = getStatus
-        SetStatus = setStatus
-        GetEngineThread = (fun () -> engineThread)
-        SetEngineThread = (fun thread -> engineThread <- thread)
-        GetCts = (fun () -> cts)
-        SetCts = (fun tokenSource -> cts <- tokenSource)
-        TriggerStatusChanged = simulationStatusChangedEvent.Trigger
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-        StartEngineThread = startEngineThread
-        AllWorkGuids = index.AllWorkGuids
-        AllCallGuids = index.AllCallGuids
-        GetWorkState = stateManager.GetWorkState
-        GetCallState = stateManager.GetCallState
-        ApplyWorkTransition = applyWorkTransition
-        ForceWorkState = (fun workGuid newState -> stateManager.ForceWorkState(workGuid, newState))
-        ForceCallState = (fun callGuid newState -> stateManager.ForceCallState(callGuid, newState))
-        SchedulerClear = scheduler.Clear
-        ResetState = stateManager.Reset
-    }
-    let flowContext : EngineFlowStep.FlowContext = {
-        Index = index
-        StateManager = stateManager
-        DurationTracker = durationTracker
-        SyncCurrentTime = (fun () -> EventDrivenEngineRuntime.syncClockToCurrentTimeWhileRunning runtimeContext)
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-    }
-    let stepBoundaryContext : EngineFlowStep.StepBoundaryContext = {
-        Index = index
-        GetState = stateManager.GetState
-        CurrentTimeMs = (fun () -> scheduler.CurrentTimeMs)
-        SetAllFlowStates = EngineFlowStep.setAllFlowStates flowContext
-        AdvanceStepRuntime = advanceStepRuntime
-        NextEventTime = (fun () -> scheduler.NextEventTime)
-    }
-    let reloadContext : EngineFlowStep.ReloadContext = {
-        RemoveScheduledConditionEvents = (fun () -> ConnectionReload.removeScheduledConditionEvents connectionReloadContext)
-        ClearConnectionTransientState = stateManager.ClearConnectionTransientState
-        ReloadConnections = (fun () -> SimIndex.reloadConnections index)
-        InvalidateOrphanedGoingWorks = (fun previousSnapshot currentSnapshot ->
-            ConnectionReload.invalidateOrphanedGoingWorks connectionReloadContext previousSnapshot currentSnapshot)
-        InvalidateOrphanedTokenHolders = (fun () -> ConnectionReload.invalidateOrphanedTokenHolders connectionReloadContext)
-        ScheduleConditionEvaluation = scheduleConditionEvaluation
-    }
+    let lifecycleContext =
+        EventDrivenCompositionContext.createLifecycleContext
+            engineThreadJoinTimeoutMs
+            getStatus
+            setStatus
+            (fun () -> engineThread)
+            (fun thread -> engineThread <- thread)
+            (fun () -> cts)
+            (fun tokenSource -> cts <- tokenSource)
+            simulationStatusChangedEvent.Trigger
+            scheduleConditionEvaluation
+            startEngineThread
+            index
+            stateManager
+            applyWorkTransition
+            scheduler.Clear
+            stateManager.Reset
+    let flowContext =
+        EventDrivenCompositionContext.createFlowContext
+            index
+            stateManager
+            durationTracker
+            (fun () -> EventDrivenEngineRuntime.syncClockToCurrentTimeWhileRunning runtimeContext)
+            scheduleConditionEvaluation
+    let stepBoundaryContext =
+        EventDrivenCompositionContext.createStepBoundaryContext
+            index
+            stateManager.GetState
+            (fun () -> scheduler.CurrentTimeMs)
+            (EngineFlowStep.setAllFlowStates flowContext)
+            advanceStepRuntime
+            (fun () -> scheduler.NextEventTime)
+    let reloadContext =
+        EventDrivenCompositionContext.createReloadContext
+            (fun () -> ConnectionReload.removeScheduledConditionEvents connectionReloadContext)
+            stateManager.ClearConnectionTransientState
+            (fun () -> SimIndex.reloadConnections index)
+            (fun previousSnapshot currentSnapshot ->
+                ConnectionReload.invalidateOrphanedGoingWorks connectionReloadContext previousSnapshot currentSnapshot)
+            (fun () -> ConnectionReload.invalidateOrphanedTokenHolders connectionReloadContext)
+            scheduleConditionEvaluation
 
-    // ── ISimulationEngine 구현에 쓰이는 함수들 (let binding으로 한 번 정의, interface에서 참조) ──
     let applyInitialStates () =
-        EngineLifecycle.applyInitialFinishStates index stateManager resolveWorkName workStateChangedEvent.Trigger
+        EventDrivenCompositionActions.applyInitialStates index stateManager resolveWorkName workStateChangedEvent.Trigger
 
     let applyToken (workGuid, newValue, kind, token) =
-        stateManager.SetWorkToken(workGuid, newValue)
-        emitTokenEvent kind token workGuid None
-        scheduleConditionEvaluation ()
+        EventDrivenCompositionActions.applyToken stateManager emitTokenEvent scheduleConditionEvaluation (workGuid, newValue, kind, token)
 
     let seedToken (sourceWorkGuid: Guid) (value: TokenValue) =
-        match stateManager.GetWorkToken(sourceWorkGuid) with
-        | Some _ -> ()
-        | None ->
-            stateManager.SetTokenOrigin(value, TokenFlow.resolveSeedOriginLabel tokenFlowContext sourceWorkGuid)
-            applyToken (sourceWorkGuid, Some value, Seed, value)
+        EventDrivenCompositionActions.seedToken stateManager tokenFlowContext applyToken sourceWorkGuid value
 
     let startSourceWork (sourceWorkGuid: Guid) =
-        if index.AllWorkGuids |> List.contains sourceWorkGuid then
-            if SimIndex.isTokenSource index sourceWorkGuid
-               && stateManager.GetWorkToken(sourceWorkGuid) |> Option.isNone then
-                seedToken sourceWorkGuid (stateManager.NextToken())
-            forceWorkState sourceWorkGuid Status4.Going
+        EventDrivenCompositionActions.startSourceWork index stateManager seedToken forceWorkState sourceWorkGuid
 
     let discardToken (workGuid: Guid) =
-        match stateManager.GetWorkToken(workGuid) with
-        | Some token -> applyToken (workGuid, None, Discard, token)
-        | None -> ()
+        EventDrivenCompositionActions.discardToken stateManager applyToken workGuid
 
     let getTokenOrigin (token: TokenValue) =
-        match token with
-        | IntToken id -> stateManager.GetState().TokenOrigins |> Map.tryFind id
+        EventDrivenCompositionActions.getTokenOrigin stateManager token
 
     let hasStartableWork () =
-        EngineFlowStep.hasStartableWork index stateManager canStartWork stateManager.IsWorkFrozen
+        EventDrivenCompositionActions.hasStartableWork index stateManager canStartWork
 
     let hasActiveDuration () =
-        EngineFlowStep.hasActiveDuration index stateManager stateManager.IsWorkFrozen
+        EventDrivenCompositionActions.hasActiveDuration index stateManager
 
     let getWorkStateOpt (workGuid: Guid) =
-        if index.AllWorkGuids |> List.contains workGuid then
-            Some (stateManager.GetWorkState(workGuid))
-        else
-            None
+        EventDrivenCompositionActions.getWorkStateOpt index stateManager workGuid
 
-    let stepContext : EngineFlowStep.StepContext = {
-        Index = index
-        StateManager = stateManager
-        HasStartableWork = hasStartableWork
-        HasActiveDuration = hasActiveDuration
-        HasGoingCall = hasGoingCall
-        NextToken = stateManager.NextToken
-        SeedToken = seedToken
-        ForceWorkState = forceWorkState
-        RunStepUntilBoundary = (fun () -> EngineFlowStep.runStepUntilBoundary stepBoundaryContext)
-    }
+    let stepContext =
+        EventDrivenCompositionContext.createStepContext
+            index
+            stateManager
+            hasStartableWork
+            hasActiveDuration
+            hasGoingCall
+            stateManager.NextToken
+            seedToken
+            forceWorkState
+            (fun () -> EngineFlowStep.runStepUntilBoundary stepBoundaryContext)
 
-    /// 자동 원위치 페이즈:
-    /// 1. IsFinished → ApplyInitialStates 즉시 Finish
-    /// 2. Active System Work/Call → Homing
-    /// 3. ExecuteCallHoming per call (goingTargets로 Device 구분)
-    /// 4. target Device Work Finish 완료 후 Active Call Ready
-    /// 5. Active Call 전부 Ready 확인 후 Active Work Ready 복원 → homing 완료
     let startWithHomingPhase () : bool =
-        let isFinishedGuids = SimIndex.findInitialFlagRxWorkGuids index
-        applyInitialStates ()
-        let plan = HomingPhaseSetup.computePlan index isFinishedGuids
-        let homingContext : HomingPhaseContext = {
-            AllGoingTargets = plan.AllGoingTargets
-            DisplayHomingCallGuids = plan.DisplayHomingCallGuids
-            ExecutionCallGuids = plan.ExecutionCallGuids
-            ActiveWorkGuids = plan.ActiveWorkGuids
-            IsHomingPhase = (fun () -> isHomingPhase)
-            SetIsHomingPhase = (fun value -> isHomingPhase <- value)
-            SetWorkStateDirect = setWorkStateDirect
-            SetCallStateDirect = setCallStateDirect
-            TriggerHomingPhaseCompleted = fun () -> homingPhaseCompletedEvent.Trigger(EventArgs.Empty)
-            SubscribeWorkStateChanged = fun handler -> workStateChangedEvent.Publish.Subscribe(handler)
-            StartEngine = fun () -> EngineLifecycle.start lifecycleContext
-            ExecuteCallHoming = executeCallHoming
-        }
-        EventDrivenHoming.startWithHomingPhase homingContext
+        EventDrivenCompositionActions.startWithHomingPhase
+            index
+            applyInitialStates
+            (fun () -> isHomingPhase)
+            (fun value -> isHomingPhase <- value)
+            setWorkStateDirect
+            setCallStateDirect
+            (fun () -> homingPhaseCompletedEvent.Trigger(EventArgs.Empty))
+            (fun handler -> workStateChangedEvent.Publish.Subscribe(handler))
+            (fun () -> EngineLifecycle.start lifecycleContext)
+            executeCallHoming
 
-    /// Hub 외부 호출 시점엔 큐에만 enqueue + wake. 실제 SetIOValue/scheduleConditionEval 은
-    /// simulationLoop 이 advance 안에서 한 항목씩 처리해서 페어 broadcast 도중 stale eval race 차단.
     let enqueueHubIOValueByAddress (address: string) (value: string) : bool =
-        if ioMap.InAddressToMappings.ContainsKey(address) then
-            hubInjectQueue.Enqueue(struct(address, value, System.Diagnostics.Stopwatch.GetTimestamp()))
-            signalWork ()
-            true
-        else
-            false
+        EventDrivenCompositionActions.enqueueHubIOValueByAddress ioMap signalWork hubInjectQueue address value
 
     let reloadDurations () =
-        lock processGate (fun () ->
-            SimIndex.reloadDurations index
-                (index.AllWorkGuids
-                 |> List.filter (fun wg -> stateManager.GetWorkState(wg) = Status4.Going)
-                 |> Set.ofList))
+        EventDrivenCompositionActions.reloadDurations index stateManager processGate
 
     interface ISimulationEngine with
         member _.State = stateManager.GetState()
