@@ -35,7 +35,11 @@ module ToolOperations =
             $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
         else
             let trimmed = value.Trim()
-            if trimmed.Length > maxLength then
+            // Pass 3 (c): name="@xxx" / "$xxx" injection self-loop 방지 (C5 / M10).
+            // entity 이름이 변수 참조 prefix 와 모양이 같으면 read tool 출력에서 LLM 자가혼동.
+            if trimmed.StartsWith("@") || trimmed.StartsWith("$") then
+                $"VALIDATION_ERROR: {field} 가 '@' 또는 '$' 로 시작할 수 없습니다 (예약 prefix)."
+            elif trimmed.Length > maxLength then
                 $"VALIDATION_ERROR: {field} 길이 {trimmed.Length} > {maxLength}."
             else
                 let bad =
@@ -47,6 +51,84 @@ module ToolOperations =
                 match bad with
                 | Some c -> $"VALIDATION_ERROR: {field} 에 허용되지 않은 제어/format 문자 (U+{int c:X4}) 가 포함되어 있습니다."
                 | None -> ""
+
+    // ─── Pass 3 (c) — Variable binding ($<varname>) ───────────────────────────
+    //
+    // LLM 이 한 message 안 multi tool_use 로 mutation 을 묶을 때, 직전 op 의 반환 Guid 를
+    // 다음 op 의 인자로 직접 쓸 수 없는 (= 미래 Guid) 한계를 풀기 위해 turn-scoped 변수 cache
+    // 도입. `assignVar` 로 등록 + `$<varname>` 으로 참조.
+    //
+    // SSOT — sanitize / resolve / register 모두 본 module 에서. C# 측은 string 그대로 통과.
+    // VarCache 는 ImportPlanBuilder 의 멤버라 plan 1개 = cache 1개 = turn 1개.
+
+    /// 변수명 길이 cap. 1-32자.
+    [<Literal>]
+    let VarNameMaxLength = 32
+
+    /// turn 당 변수 등록 cap. LlmTurnContext.MutationQuota (50) 와 동기화.
+    [<Literal>]
+    let VarCacheMaxCount = 50
+
+    /// 변수명 sanitize. 빈 string "" = valid, 메시지 = error. sanitizeName 의 sibling.
+    /// 정규식 의미: `[a-zA-Z_][a-zA-Z0-9_]*` (1-32자).
+    /// **Echo 회피** — 잘못된 codepoint 만 노출 (RLO/Cf 등 raw value 가 메시지에 echo 되면 LLM 자기혼동).
+    let sanitizeVarName (value: string) : string =
+        if String.IsNullOrEmpty(value) then
+            "VALIDATION_ERROR: 변수명이 비어있습니다."
+        elif value.Length > VarNameMaxLength then
+            $"VALIDATION_ERROR: 변수명 길이 {value.Length} > {VarNameMaxLength}."
+        else
+            let isFirstOk c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_'
+            let isRestOk  c = isFirstOk c || (c >= '0' && c <= '9')
+            if not (isFirstOk value.[0]) then
+                $"VALIDATION_ERROR: 변수명 첫 글자 (U+{int value.[0]:X4}) 가 영문/밑줄이 아닙니다."
+            else
+                let mutable badIdx = -1
+                let mutable i = 1
+                while badIdx < 0 && i < value.Length do
+                    if not (isRestOk value.[i]) then badIdx <- i
+                    i <- i + 1
+                if badIdx >= 0 then
+                    $"VALIDATION_ERROR: 변수명 글자 (U+{int value.[badIdx]:X4}) 가 영숫자/밑줄이 아닙니다."
+                else ""
+
+    /// "$varname" 또는 GUID 문자열을 Guid 로 해소.
+    /// - `$xxx` → plan.VarCache lookup. miss = invalidOp.
+    /// - 정규 GUID → Guid.Parse. parse 실패 = invalidOp.
+    /// - 비어있음 = invalidOp.
+    /// 호출 시점은 dispatcher work delegate 안 (cache R/W race-free).
+    let resolveGuidOrVar (plan: ImportPlanBuilder) (value: string) (field: string) : Guid =
+        if String.IsNullOrWhiteSpace(value) then
+            invalidOp $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
+        else
+            let trimmed = value.Trim()
+            if trimmed.StartsWith("$") then
+                let varName = trimmed.Substring(1)
+                let saniErr = sanitizeVarName varName
+                if saniErr <> "" then
+                    invalidOp $"VALIDATION_ERROR: {field} 의 변수 참조 형식 오류 ({saniErr})"
+                else
+                    match plan.VarCache.TryGetValue(varName) with
+                    | true, g -> g
+                    | _ -> invalidOp $"VALIDATION_ERROR: {field} 의 변수 '${varName}' 가 같은 turn 안에 정의되지 않았습니다."
+            else
+                match Guid.TryParse(trimmed) with
+                | true, g -> g
+                | _ -> invalidOp $"VALIDATION_ERROR: {field} 가 유효한 GUID 또는 '$<varname>' 이 아닙니다."
+
+    /// queueAddXxx 의 반환 Guid 를 plan.VarCache 에 등록.
+    /// `assignVar` null/empty 면 no-op. sanitize 실패 / 중복 / cap 초과는 invalidOp (RunMutation catch
+    /// 에서 SignalCascadeFailure 트리거).
+    let registerVar (plan: ImportPlanBuilder) (assignVar: string) (id: Guid) : unit =
+        if String.IsNullOrEmpty(assignVar) then ()
+        else
+            let saniErr = sanitizeVarName assignVar
+            if saniErr <> "" then
+                invalidOp saniErr
+            elif plan.VarCache.Count >= VarCacheMaxCount then
+                invalidOp $"VALIDATION_ERROR: turn 당 변수 등록 cap ({VarCacheMaxCount}) 초과."
+            elif not (plan.VarCache.TryAdd(assignVar, id)) then
+                invalidOp $"VALIDATION_ERROR: assignVar '{assignVar}' 가 같은 turn 안에 이미 정의되어 있습니다."
 
     // ─── Plan + Store 합산 lookup 헬퍼 ───────────────────────────────────────
 
