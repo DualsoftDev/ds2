@@ -21,6 +21,7 @@ public static class PromakerToolNames
         "mcp__promaker__describe_subtree",
         "mcp__promaker__find_by_name",
         "mcp__promaker__validate_model",
+        "mcp__promaker__apply_operations",
         "mcp__promaker__add_project",
         "mcp__promaker__add_system",
         "mcp__promaker__add_flow",
