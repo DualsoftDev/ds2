@@ -6,6 +6,22 @@ open Ds2.Core
 open Ds2.Core.Store
 
 
+/// <summary>
+/// CallCondition 트리 wholesale 교체용 DTO — `ReplaceCallConditionTree` 입력.
+/// 중첩 그룹 구조 보존 (item leaves + 재귀 children).
+/// </summary>
+type CallConditionTreeDto = {
+    IsOR        : bool
+    IsInverted  : bool
+    /// 직접 leaf — 기존 store 의 ApiCall id (deep-copy 해서 spec 보존).
+    /// Inverter leaf 는 Guid.Empty.
+    ApiCallIds  : System.Collections.Generic.IReadOnlyList<Guid>
+    /// ApiCallIds 와 평행 — leaf 별 접점 종류.
+    ApiCallKinds: System.Collections.Generic.IReadOnlyList<ContactKind>
+    Children    : System.Collections.Generic.IReadOnlyList<CallConditionTreeDto>
+}
+
+
 [<Extension>]
 type DsStorePanelConditionExtensions =
     [<Extension>]
@@ -17,7 +33,7 @@ type DsStorePanelConditionExtensions =
             CallConditionPanelItem(
                 cond.Id,
                 (cond.Type |> Option.defaultValue CallConditionType.AutoAux),
-                cond.IsOR, cond.IsRising, items, children)
+                cond.IsOR, cond.IsInverted, items, children)
         DirectPanelOps.withCallOrEmpty store resolvedId (fun call ->
             call.CallConditions |> Seq.map toPanel |> Seq.toList)
 
@@ -28,6 +44,44 @@ type DsStorePanelConditionExtensions =
         StoreLog.requireCall(store, callId) |> ignore
         let cond = CallCondition(Type = Some condType)
         DirectPanelOps.mutateCallProps store callId "조건 추가" (fun c -> c.CallConditions.Add(cond))
+
+    /// 트리 통째 교체용 DTO. 재귀 — children 포함.
+    [<Extension>]
+    static member ReplaceCallConditionTree(store: DsStore, callId: Guid, condType: CallConditionType,
+                                            tree: CallConditionTreeDto) =
+        Queries.requireNonReferenceCall callId store
+        StoreLog.debug($"callId={callId}, condType={condType}")
+        StoreLog.requireCall(store, callId) |> ignore
+        DirectPanelOps.mutateCallProps store callId "조건 트리 교체" (fun c ->
+            // 기존 condType conditions 제거.
+            let toRemove = c.CallConditions |> Seq.filter (fun cc -> cc.Type = Some condType) |> Seq.toList
+            for cc in toRemove do c.CallConditions.Remove(cc) |> ignore
+            // 트리 → CallCondition 재귀 빌드.
+            let rec build (dto: CallConditionTreeDto) (typeOpt: CallConditionType option) =
+                let cc = CallCondition(IsOR = dto.IsOR, IsInverted = dto.IsInverted, Type = typeOpt)
+                // items: 기존 store 의 ApiCall 을 deep copy 해서 spec 보존. ContactKind 적용.
+                let kinds = dto.ApiCallKinds
+                let n = dto.ApiCallIds.Count
+                for i in 0 .. n - 1 do
+                    let sid = dto.ApiCallIds.[i]
+                    let kind = if i < kinds.Count then kinds.[i] else ContactKind.NoContact
+                    if kind = ContactKind.Inverter then
+                        // placeholder leaf — 실 ApiCall 무관.
+                        let dummy = ApiCall("__inverter__")
+                        dummy.ContactKind <- ContactKind.Inverter
+                        cc.Conditions.Add(dummy)
+                    else
+                        match Queries.getApiCall sid store with
+                        | Some src ->
+                            let copy = src.DeepCopy()
+                            copy.Id <- src.Id
+                            copy.ContactKind <- kind
+                            cc.Conditions.Add(copy)
+                        | None -> ()
+                for child in dto.Children do
+                    cc.Children.Add(build child None)  // children 은 Type 미설정
+                cc
+            c.CallConditions.Add(build tree (Some condType)))
 
     /// 단일 트랜잭션: 조건 생성 + ApiCall 추가 (드래그&드롭용)
     [<Extension>]
@@ -67,14 +121,13 @@ type DsStorePanelConditionExtensions =
             parent.Children.Add(child))
 
     [<Extension>]
-    static member UpdateCallConditionSettings(store: DsStore, callId: Guid, condId: Guid, isOR: bool, isRising: bool) : bool =
+    static member UpdateCallConditionSettings(store: DsStore, callId: Guid, condId: Guid, isOR: bool) : bool =
         Queries.requireNonReferenceCall callId store
-        StoreLog.debug($"callId={callId}, condId={condId}, isOR={isOR}, isRising={isRising}")
+        StoreLog.debug($"callId={callId}, condId={condId}, isOR={isOR}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
-        if cond.IsOR <> isOR || cond.IsRising <> isRising then
+        if cond.IsOR <> isOR then
             DirectPanelOps.mutateCallProps store callId "조건 설정 변경" (fun _ ->
-                cond.IsOR <- isOR
-                cond.IsRising <- isRising)
+                cond.IsOR <- isOR)
             true
         else false
 

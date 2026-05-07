@@ -17,6 +17,14 @@ type CallConditionType =
     | ComAux       = 1
     | SkipUnmatch  = 2
 
+/// Per-leaf contact kind in CallCondition (LadderEditor visual ↔ store round-trip).
+type ContactKind =
+    | NoContact    = 0   // ─┤├─
+    | NcContact    = 1   // ─┤/├─
+    | RisingPulse  = 2   // ─┤P├─
+    | FallingPulse = 3   // ─┤N├─
+    | Inverter     = 4   // ──*──  (placeholder leaf — ApiCallId ignored)
+
 /// Runtime status for Work/Call.
 type Status4 =
     | Ready  = 0

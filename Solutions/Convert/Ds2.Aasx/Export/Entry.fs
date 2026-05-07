@@ -23,6 +23,130 @@ module AasxExporter =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
+    // ─────────────────────────────────────────────────────────────────
+    // AASX 검증 통과용 방어적 정리 — 직렬화 직전에 환경 트리를 정규화한다.
+    //   • Description / DisplayName / MLP.Value : 동일 language 첫 등장만 보존 (AASd-022 / equiv)
+    //   • Qualifiers : 동일 (Type, ValueType, Value) 중복 1개만 보존 (AASd-021)
+    // 임베디드 템플릿이 동일 langString 을 두 번 가진 채 import 되거나, 빌더가 중복을 추가해도
+    // 최종 산출물은 spec-conformant 가 되도록 보장.
+    // ─────────────────────────────────────────────────────────────────
+    let private dedupeLangText (xs: ResizeArray<ILangStringTextType>) : ResizeArray<ILangStringTextType> =
+        if isNull xs then null
+        else
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<ILangStringTextType>()
+            for x in xs do
+                if not (isNull (box x)) then
+                    let lang = if isNull x.Language then "" else x.Language
+                    if seen.Add(lang) then result.Add(x)
+            result
+
+    let private dedupeLangName (xs: ResizeArray<ILangStringNameType>) : ResizeArray<ILangStringNameType> =
+        if isNull xs then null
+        else
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<ILangStringNameType>()
+            for x in xs do
+                if not (isNull (box x)) then
+                    let lang = if isNull x.Language then "" else x.Language
+                    if seen.Add(lang) then result.Add(x)
+            result
+
+    let private dedupeQualifiers (xs: ResizeArray<IQualifier>) : ResizeArray<IQualifier> =
+        if isNull xs then null
+        else
+            // AASd-021: 동일 Type 의 qualifier 1개만 허용. 중복 시 첫 entry 보존.
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<IQualifier>()
+            for q in xs do
+                if not (isNull (box q)) then
+                    let t = if isNull q.Type then "" else q.Type
+                    if seen.Add(t) then result.Add(q)
+            result
+
+    /// Property.Value 가 ValueType 과 호환되도록 정규화 — 비어있거나 mismatch 면 타입별 안전 기본값.
+    let private normalizePropertyValue (p: Property) =
+        let v = if isNull p.Value then "" else p.Value
+        let dt = p.ValueType
+        let setIf condition fallback =
+            if not condition then p.Value <- fallback
+        match dt with
+        | DataTypeDefXsd.Boolean ->
+            setIf (v = "true" || v = "false") "false"
+        | DataTypeDefXsd.Int | DataTypeDefXsd.Integer
+        | DataTypeDefXsd.Long | DataTypeDefXsd.Short | DataTypeDefXsd.Byte
+        | DataTypeDefXsd.UnsignedInt | DataTypeDefXsd.UnsignedLong
+        | DataTypeDefXsd.UnsignedShort | DataTypeDefXsd.UnsignedByte
+        | DataTypeDefXsd.NonNegativeInteger | DataTypeDefXsd.PositiveInteger
+        | DataTypeDefXsd.NegativeInteger | DataTypeDefXsd.NonPositiveInteger ->
+            let mutable n = 0L
+            setIf (System.Int64.TryParse(v, &n)) "0"
+        | DataTypeDefXsd.Float | DataTypeDefXsd.Double | DataTypeDefXsd.Decimal ->
+            let mutable d = 0.0
+            let ok =
+                System.Double.TryParse(v, System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, &d)
+            setIf ok "0.0"
+        | DataTypeDefXsd.Date ->
+            // xs:date: YYYY-MM-DD. 빈 값/형식 mismatch 면 epoch.
+            let isDate =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}")
+            setIf isDate "1970-01-01"
+        | DataTypeDefXsd.DateTime ->
+            let isDt =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+            setIf isDt "1970-01-01T00:00:00Z"
+        | DataTypeDefXsd.Time ->
+            let isT =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{2}:\d{2}:\d{2}")
+            setIf isT "00:00:00"
+        | DataTypeDefXsd.AnyUri ->
+            setIf (not (System.String.IsNullOrWhiteSpace v)) "urn:placeholder"
+        | _ -> ()
+
+    let private sanitizeReferable (r: IReferable) =
+        if not (isNull (box r)) then
+            r.Description <- dedupeLangText r.Description
+            r.DisplayName <- dedupeLangName r.DisplayName
+
+    let rec private sanitizeElement (e: ISubmodelElement) =
+        if isNull (box e) then ()
+        else
+            sanitizeReferable e
+            // ISubmodelElement 는 IQualifiable 를 항상 구현 — upcast 만.
+            (e :> IQualifiable).Qualifiers <- dedupeQualifiers (e :> IQualifiable).Qualifiers
+            match e with
+            | :? Property as p ->
+                normalizePropertyValue p
+            | :? MultiLanguageProperty as mlp ->
+                mlp.Value <- dedupeLangText mlp.Value
+            | :? SubmodelElementCollection as smc when not (isNull smc.Value) ->
+                for child in smc.Value do sanitizeElement child
+            | :? SubmodelElementList as sml when not (isNull sml.Value) ->
+                for child in sml.Value do sanitizeElement child
+            | :? Entity as ent when not (isNull ent.Statements) ->
+                for child in ent.Statements do sanitizeElement child
+            | :? AnnotatedRelationshipElement as are when not (isNull are.Annotations) ->
+                for child in are.Annotations do sanitizeElement (child :> ISubmodelElement)
+            | _ -> ()
+
+    let private sanitizeEnvironment (env: Environment) =
+        if not (isNull env) then
+            if not (isNull env.Submodels) then
+                for sm in env.Submodels do
+                    sanitizeReferable sm
+                    // Submodel 은 IQualifiable 를 항상 구현 — upcast 만.
+                    (sm :> IQualifiable).Qualifiers <- dedupeQualifiers (sm :> IQualifiable).Qualifiers
+                    if not (isNull sm.SubmodelElements) then
+                        for e in sm.SubmodelElements do sanitizeElement e
+            if not (isNull env.AssetAdministrationShells) then
+                for shell in env.AssetAdministrationShells do sanitizeReferable shell
+            if not (isNull env.ConceptDescriptions) then
+                for cd in env.ConceptDescriptions do sanitizeReferable cd
+
     /// 사용자 정의 AASX 템플릿 폴더 — Promaker 등 호출 측이 export 전 setting.
     /// None 이면 임베디드 템플릿만 사용. Some path 이면 그 폴더의 *.aasx 의 모든 SM 을
     /// 추가로 첨부 (project ID 별 instance URN 으로 재할당).
@@ -459,6 +583,7 @@ module AasxExporter =
                 submodels = finalSubmodels,
                 assetAdministrationShells = finalShells,
                 conceptDescriptions = finalConceptDescs)
+        sanitizeEnvironment env
         writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries project)
 
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
@@ -494,6 +619,7 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
+        sanitizeEnvironment env
         let thumbnail = selectThumbnail None
         writeEnvironment env outputPath thumbnail None
 

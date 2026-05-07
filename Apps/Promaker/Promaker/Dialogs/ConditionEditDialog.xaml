@@ -71,13 +71,20 @@
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center"
                            FontSize="11"/>
-                <Button Grid.Column="1"
-                        Content="닫기"
-                        Style="{StaticResource DarkButton}"
-                        Padding="20,6"
-                        MinWidth="80"
-                        IsCancel="True"
-                        Click="Close_Click"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="저장"
+                            Style="{StaticResource DarkButton}"
+                            Padding="20,6"
+                            MinWidth="80"
+                            Margin="0,0,8,0"
+                            Click="Save_Click"/>
+                    <Button Content="닫기"
+                            Style="{StaticResource DarkButton}"
+                            Padding="20,6"
+                            MinWidth="80"
+                            IsCancel="True"
+                            Click="Close_Click"/>
+                </StackPanel>
             </Grid>
         </Grid>
     </Border>

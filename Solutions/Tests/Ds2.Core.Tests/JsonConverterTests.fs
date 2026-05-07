@@ -85,7 +85,7 @@ let rec private assertConditionsEqual (expected: ResizeArray<CallCondition>) (ac
         Assert.Equal(ec.Id, ac.Id)
         Assert.Equal(ec.Type, ac.Type)
         Assert.Equal(ec.IsOR, ac.IsOR)
-        Assert.Equal(ec.IsRising, ac.IsRising)
+        Assert.Equal(ec.IsInverted, ac.IsInverted)
         let eConds = ec.Conditions |> Seq.toList
         let aConds = ac.Conditions |> Seq.toList
         Assert.Equal(eConds.Length, aConds.Length)
@@ -270,7 +270,7 @@ module JsonRoundTripTests =
         let condition = CallCondition()
         condition.Type <- Some CallConditionType.SkipUnmatch
         condition.IsOR <- true
-        condition.IsRising <- true
+        condition.IsInverted <- true
         condition.Conditions.Add(apiFloat)
         condition.Conditions.Add(apiBool)
 

@@ -138,6 +138,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         MwSignalGrid.ItemsSource = _mwSignalRows;
         if (AuxPortGrid != null)
             AuxPortGrid.ItemsSource = _auxPortRows;
+        if (EndPortGrid != null)
+            EndPortGrid.ItemsSource = _endPortRows;
 
         // FB 타입 목록 로드 (XGI_Template.xml 의 UserFB) — 콤보 바인딩 전에 선행
         WizFBTypes = FBPortCatalog.GetFBTypeNames();
@@ -357,6 +359,32 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     private void MoveAuxRowDown_Click(object sender, RoutedEventArgs e) =>
         MoveSelected(AuxPortGrid, _auxPortRows, up: false);
 
+    // ── End 포트 (EndPortMap) — API → 완료 OUT 포트 매핑 ────────────────────
+    private readonly ObservableCollection<EndPortRow> _endPortRows = new();
+
+    private void AddEndPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var sysType = _currentDeviceTemplateFile;
+        _endPortRows.Add(HookAutoSave(new EndPortRow
+        {
+            ApiName = "",
+            EndPort = "",
+            TargetFBType = fb,
+            ApiOptions = BuildAuxApiOptions(sysType),
+        }));
+        PersistCurrentPreset();
+    }
+
+    private void RemoveEndPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (EndPortGrid == null) return;
+        var selected = EndPortGrid.SelectedItems.Cast<EndPortRow>().ToList();
+        if (selected.Count == 0) return;
+        foreach (var row in selected) _endPortRows.Remove(row);
+        PersistCurrentPreset();
+    }
+
     /// <summary>Ctrl+C/V 키 이벤트 — 포커스된 그리드의 선택 행 클립보드 복사 / 붙여넣기.
     /// 그리드 타입(SignalPatternRow vs AuxPortRow)에 따라 호환성 검사.</summary>
     private void TagWizardKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -501,6 +529,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     {
         var fbType = GlobalFBTypeCombo?.SelectedItem as string ?? "";
         foreach (var row in _auxPortRows)
+            row.TargetFBType = fbType;
+        foreach (var row in _endPortRows)
             row.TargetFBType = fbType;
         foreach (var row in _iwSignalRows)
             row.TargetFBType = fbType;
@@ -1093,6 +1123,35 @@ public sealed record AuxPortClipboardItem(
     string Kind,
     string AuxKind,
     Promaker.Controls.ExpressionEditor.Models.ExprNode? Condition);
+
+/// <summary>
+/// EndPortMap 행 — API 이름 → 완료 FB 출력 포트 매핑.
+/// PLC 인과 자동 게이팅 (A 의 완료 → B 시작) 에 사용. preset 단위 1:1 정적 매핑.
+/// </summary>
+public class EndPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+{
+    string _apiName = "", _endPort = "", _targetFBType = "";
+
+    public string ApiName { get => _apiName; set => SetProperty(ref _apiName, value ?? ""); }
+    public string EndPort { get => _endPort; set => SetProperty(ref _endPort, value ?? ""); }
+
+    public System.Collections.Generic.IReadOnlyList<string> ApiOptions { get; set; }
+        = System.Array.Empty<string>();
+
+    public string TargetFBType
+    {
+        get => _targetFBType;
+        set
+        {
+            if (!SetProperty(ref _targetFBType, value ?? "")) return;
+            OnPropertyChanged(nameof(PortOptions));
+        }
+    }
+
+    /// 완료 OUT 포트 후보 — FB 의 출력 포트만.
+    public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
+        FbPortOptionsHelper.GetByDirection(_targetFBType, AuxPortDirectionFilter.Output);
+}
 
 /// IW/QW/MW 신호 패턴 행 클립보드 직렬화 단위 — 동일 타입 그리드끼리 호환.
 public sealed record SignalRowClipboardItem(

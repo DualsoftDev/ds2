@@ -223,6 +223,13 @@ type FBTagMapPreset() =
     /// CodeGenerator 는 이 목록의 포트에 대해 변수/_OFF/AUX 모두 emit 하지 않고 skip.
     member val SkippedFBPorts: ResizeArray<string> = ResizeArray() with get, set
 
+    /// API 이름 → 해당 API 의 "완료" 를 표시하는 FB 출력 포트 이름.
+    /// 인과(예: LW_LATCH.ADV → LW_CLAMP.ADV) PLC 생성 시, 후행 Call 의 자동 게이팅 leaf 로
+    /// 선행 Call 의 매핑된 OUT 포트 변수를 사용. preset 단위 1:1 정적 매핑.
+    /// 예: { "ADV" → "M_Adv_End"; "RET" → "M_Ret_End" }
+    member val EndPortMap: System.Collections.Generic.Dictionary<string, string> =
+        System.Collections.Generic.Dictionary<string, string>() with get, set
+
 // =============================================================================
 // PROPERTIES - 제어 속성 클래스
 //

@@ -14,9 +14,13 @@ public partial class SimulationPanelState
 {
     private WebApplication? _hubHost;
     private HubConnection? _hubConnection;
+    private HubTagBatchSender? _hubBatchSender;
     private CancellationTokenSource? _hubConnectionCts;
     private CancellationTokenSource? _reconnectStabilizationCts;
     private int _hubGeneration;
+
+    /// <summary>현재 generation 의 batch sender — 없으면 null. WriteTag 송신은 모두 이 sender 경유.</summary>
+    internal HubTagBatchSender? HubBatchSender => _hubBatchSender;
 
     private int CurrentHubGeneration => Volatile.Read(ref _hubGeneration);
 
@@ -86,6 +90,29 @@ public partial class SimulationPanelState
             hubConnection.On<string, string, string>(
                 HubMethod.OnTagChanged,
                 (address, value, source) => OnHubTagChanged(generation, address, value, source));
+            hubConnection.On<TagWrite[]>(
+                HubMethod.OnTagsChanged,
+                items =>
+                {
+                    if (items is null) return;
+                    foreach (var it in items)
+                        OnHubTagChanged(generation, it.Address, it.Value, it.Source);
+                });
+
+            // Batch sender — 이 generation 동안 모든 WriteTag 송신을 이 sender 가 coalesce.
+            _hubBatchSender = new HubTagBatchSender(
+                hubConnection,
+                generation,
+                (gen, hub) => IsCurrentHubConnection(gen, hub),
+                (msg, ex) =>
+                {
+                    if (!IsCurrentHubConnection(generation, hubConnection)) return;
+                    _ = _dispatcher.BeginInvoke(() =>
+                    {
+                        if (IsCurrentHubConnection(generation, hubConnection))
+                            AddSimLog($"[Hub] {msg}", LogSeverity.Warn);
+                    });
+                });
             hubConnection.Closed += ex =>
             {
                 // Closed 시 진행 중인 reconnect stabilization 취소 (false-positive "재연결 완료" 차단).
@@ -265,6 +292,9 @@ public partial class SimulationPanelState
         _reconnectStabilizationCts = null;
         SetHubStatus(connected: false, reconnecting: false);
 
+        var batchSender = _hubBatchSender;
+        _hubBatchSender = null;
+
         if (_hubConnection is not null)
         {
             var conn = _hubConnection;
@@ -282,8 +312,19 @@ public partial class SimulationPanelState
             {
                 if (connectedAtStop)
                     await BroadcastClearOwnOutputsAsync(conn);
+                if (batchSender is not null)
+                {
+                    try { await batchSender.DisposeAsync(); } catch { /* ignore */ }
+                }
                 try { await conn.StopAsync(); } catch { /* ignore */ }
                 try { await conn.DisposeAsync(); } catch { /* ignore */ }
+            });
+        }
+        else if (batchSender is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await batchSender.DisposeAsync(); } catch { /* ignore */ }
             });
         }
 
@@ -309,23 +350,23 @@ public partial class SimulationPanelState
         if (SelectedRuntimeMode != RuntimeMode.Control) return;
         if (_simEngine?.IOMap is not { } ioMap) return;
 
-        var outAddresses = ioMap.TxWorkToOutAddresses
+        var source = ResolveRuntimeHubSource() + ":stop";
+        var batch = ioMap.TxWorkToOutAddresses
             .SelectMany(kv => kv.Value)
             .Where(addr => !string.IsNullOrWhiteSpace(addr))
             .Distinct()
+            .Select(addr => new TagWrite(addr, "false", source))
             .ToArray();
 
-        var source = ResolveRuntimeHubSource() + ":stop";
-        foreach (var address in outAddresses)
+        if (batch.Length == 0) return;
+
+        try
         {
-            try
-            {
-                await conn.InvokeAsync(HubMethod.WriteTag, address, "false", source);
-            }
-            catch
-            {
-                // hub 가 이미 끊어졌거나 race — 다음 PLAY 의 ClearTagCache 가 정리한다.
-            }
+            await conn.InvokeAsync(HubMethod.WriteTags, batch);
+        }
+        catch
+        {
+            // hub 가 이미 끊어졌거나 race — 다음 PLAY 의 ClearTagCache 가 정리한다.
         }
     }
 

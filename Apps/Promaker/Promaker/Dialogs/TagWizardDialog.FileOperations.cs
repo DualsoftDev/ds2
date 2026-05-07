@@ -488,6 +488,7 @@ public partial class TagWizardDialog
                          && !string.Equals(n, "-", StringComparison.Ordinal))
                 .Distinct(StringComparer.OrdinalIgnoreCase);
             LoadAuxPortRows(systemType, apis);
+            LoadEndPortRows(systemType, apis);
         }
         catch (Exception ex)
         {
@@ -518,6 +519,34 @@ public partial class TagWizardDialog
         _qwSignalRows.Clear();
         _mwSignalRows.Clear();
         _auxPortRows.Clear();
+        _endPortRows.Clear();
+    }
+
+    /// <summary>EndPortMap 행 로드 — preset.EndPortMap 의 (api, port) 를 그대로 풀어 행으로 표시.</summary>
+    private void LoadEndPortRows(string systemType, IEnumerable<string> apis)
+    {
+        _endPortRows.Clear();
+        var presets = FBTagMapStore.LoadAll(_store);
+        var fbType = "";
+        var existing = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (presets.TryGetValue(systemType, out var preset) && preset != null)
+        {
+            fbType = preset.FBTagMapName ?? "";
+            if (preset.EndPortMap != null)
+                foreach (var kv in preset.EndPortMap)
+                    if (!string.IsNullOrEmpty(kv.Key)) existing[kv.Key] = kv.Value ?? "";
+        }
+        var apiOpts = BuildAuxApiOptions(systemType);
+        foreach (var kv in existing.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            _endPortRows.Add(HookAutoSave(new EndPortRow
+            {
+                ApiName      = kv.Key,
+                EndPort      = kv.Value,
+                TargetFBType = fbType,
+                ApiOptions   = apiOpts,
+            }));
+        }
     }
 
     /// <summary>
@@ -659,6 +688,15 @@ public partial class TagWizardDialog
                 AuxKind      = string.IsNullOrEmpty(row.AuxKind) ? "AutoAux" : row.AuxKind,
                 Condition    = CoreToDtoExpr(row.Condition),
             });
+        }
+
+        // EndPortMap — API → 완료 OUT 포트 매핑.
+        presetDto.EndPortMap.Clear();
+        foreach (var row in _endPortRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.ApiName)) continue;
+            if (string.IsNullOrWhiteSpace(row.EndPort)) continue;
+            presetDto.EndPortMap[row.ApiName] = row.EndPort;
         }
 
         // legacy Ports/FBTagMapTemplate 재생성 제거 — Direction 은 XGI_Template 가 단일 출처.

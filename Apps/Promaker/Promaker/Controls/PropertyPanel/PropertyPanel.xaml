@@ -41,7 +41,9 @@
                             CommandParameter="properties"/>
                 </Grid>
             </Border>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Row="1" x:Name="PropertyScroll"
+                          VerticalScrollBarVisibility="Auto"
+                          PreviewMouseWheel="PropertyScroll_PreviewMouseWheel">
                 <StackPanel Margin="8">
                     <TextBlock Text="{Binding SelectionTypeText}"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,4"/>
@@ -309,6 +311,8 @@
                                         DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
                                         DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
                                         NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
+                                        RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, ElementName=PanelRoot}"
+                                        EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
