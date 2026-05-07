@@ -310,6 +310,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private LlmChatViewModel? _llmChatVm;
     [ObservableProperty] private bool _isLlmChatVisible;
 
+    /// <summary>
+    /// ENABLE_LLM 환경변수 가 설정된 경우에만 LLM 토글 버튼을 표시.
+    /// </summary>
+    public bool IsLlmEnabled =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ENABLE_LLM"));
+
     [RelayCommand]
     private void ToggleLlmChat()
     {
