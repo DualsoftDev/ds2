@@ -169,6 +169,83 @@
                             </TextBlock>
                         </StackPanel>
                     </Button>
+                    <!-- 원위치(Homing) — Control 모드 + 실 PLC 연결 시에만 가시. Push-button: 누르고 있는 동안만 진행, 떼면 즉시 종료(deadman switch). -->
+                    <Button x:Name="SimulationHomingButton"
+                            ToolTip="{x:Static res:Strings.HomingTooltip}"
+                            Visibility="{Binding Simulation.IsHomingButtonVisible, Converter={StaticResource BoolToVis}}"
+                            IsEnabled="{Binding Simulation.IsHomingButtonHotEnabled}"
+                            PreviewMouseLeftButtonDown="HomingButton_MouseLeftButtonDown"
+                            PreviewMouseLeftButtonUp="HomingButton_Release"
+                            LostMouseCapture="HomingButton_Release">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                <Style.Triggers>
+                                    <!-- 누름 상태: 빨간 강조 + 굵은 테두리 (deadman switch 임을 시각적으로 강조) -->
+                                    <DataTrigger Binding="{Binding Simulation.IsHomingPressed}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{DynamicResource IconRedBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Vertical">
+                            <iconPacks:PackIconMaterial Kind="HomeImportOutline"
+                                                        Width="18" Height="18"
+                                                        HorizontalAlignment="Center"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
+                                        <Setter Property="Text" Value="원위치"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Simulation.IsHomingPressed}" Value="True">
+                                                <Setter Property="Text" Value="진행중..."/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Button>
+                    <!-- 수동 컨트롤러 — Control + 실 PLC 연결 시에만 가시. 클릭하면 modeless 다이얼로그가 열려 디바이스별로 직접 ON/OFF 제어. -->
+                    <Button x:Name="SimulationManualControlButton"
+                            Click="ManualControlButton_Click"
+                            ToolTip="{x:Static res:Strings.ManualControlTooltip}"
+                            Visibility="{Binding Simulation.IsManualControlButtonVisible, Converter={StaticResource BoolToVis}}"
+                            IsEnabled="{Binding Simulation.IsManualControlButtonHotEnabled}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Simulation.IsManualControlActive}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{DynamicResource IconRedBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Vertical">
+                            <iconPacks:PackIconMaterial Kind="GestureTapButton"
+                                                        Width="18" Height="18"
+                                                        HorizontalAlignment="Center"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
+                                        <Setter Property="Text" Value="수동"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Simulation.IsManualControlActive}" Value="True">
+                                                <Setter Property="Text" Value="활성"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,0">
                     <iconPacks:PackIconMaterial Kind="Autorenew"

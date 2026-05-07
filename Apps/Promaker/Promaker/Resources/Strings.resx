@@ -246,6 +246,12 @@
   <data name="StopSimulationTooltip" xml:space="preserve">
     <value>정지</value>
   </data>
+  <data name="HomingTooltip" xml:space="preserve">
+    <value>원위치 — 누르고 있는 동안만 실 PLC 라인 home 복귀 (놓으면 중단, deadman switch)</value>
+  </data>
+  <data name="ManualControlTooltip" xml:space="preserve">
+    <value>수동 컨트롤러 — 디바이스별 직접 ON/OFF 제어 (실 PLC 라인 동작)</value>
+  </data>
   <data name="ResetSimulationTooltip" xml:space="preserve">
     <value>초기화</value>
   </data>
