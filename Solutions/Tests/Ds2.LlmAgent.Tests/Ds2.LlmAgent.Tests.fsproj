@@ -10,6 +10,7 @@
     <Compile Include="ProcessUtilsTests.fs" />
     <Compile Include="ClaudeCliArgsTests.fs" />
     <Compile Include="CodexCliArgsTests.fs" />
+    <Compile Include="StreamJsonParserTests.fs" />
     <Compile Include="CodexStreamJsonParserTests.fs" />
     <Compile Include="ValidateModelTests.fs" />
     <Compile Include="DescribeSubtreeTests.fs" />

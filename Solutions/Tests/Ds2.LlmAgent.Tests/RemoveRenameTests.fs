@@ -77,6 +77,22 @@ let ``존재하지 않는 GUID 의 remove 는 invalidOp`` () =
     Assert.Contains("어디에도 없음", ex.Message)
 
 [<Fact>]
+let ``같은 turn 의 add_* 직후 remove_entity 는 명확한 진단 메시지로 거부`` () =
+    let store, _, _, _, _ = buildFixture ()
+    let plan = ImportPlanBuilder()
+    // 같은 turn 안에서 add_system 을 plan 에 누적 — store 는 아직 미반영
+    let newSysId = ToolOperations.queueAddSystem plan store "TempSys" true
+    Assert.False(store.Systems.ContainsKey(newSysId))   // store 는 모름 (turn end 까지)
+    let countAfterAdd = plan.Count   // queueAddSystem 은 AddSystem + LinkSystemToProject 누적
+    // 같은 plan 으로 remove_entity 호출 → "같은 turn add 직후 remove" 진단
+    let ex = Assert.Throws<InvalidOperationException>(fun () ->
+        ToolOperations.queueRemoveEntity plan store newSysId |> ignore)
+    Assert.Contains("같은 turn", ex.Message)
+    Assert.Contains("add 직후 remove 는 미지원", ex.Message)
+    // plan 에는 RemoveEntity 가 누적되지 않음 (count 는 변하지 않음)
+    Assert.Equal(countAfterAdd, plan.Count)
+
+[<Fact>]
 let ``Flow 단독 제거 시 자식 Work 도 cascade`` () =
     let store, _, _, flowId, workId = buildFixture ()
     let plan = ImportPlanBuilder()

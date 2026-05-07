@@ -1,0 +1,6 @@
+# Force git to treat F#/C#/F# script source as text. literal control chars (RLO/NUL/ZWJ 등)
+# 이 들어간 source 도 binary 로 fall-through 하지 않게 하여 diff/blame/merge 가시성 보존.
+*.fs    text diff
+*.fsi   text diff
+*.fsx   text diff
+*.cs    text diff

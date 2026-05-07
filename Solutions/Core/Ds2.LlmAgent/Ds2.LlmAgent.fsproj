@@ -12,6 +12,8 @@
     <Compile Include="LlmEvent.fs" />
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
+    <Compile Include="ClaudeCliArgs.fs" />
+    <Compile Include="CliProcessHost.fs" />
     <Compile Include="LlmProvider.fs" />
     <Compile Include="ClaudeCliProvider.fs" />
     <Compile Include="CodexCliArgs.fs" />

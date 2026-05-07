@@ -42,6 +42,17 @@ public sealed class LlmConfig
     [JsonPropertyName("consentTimestampUtc")]
     public string? ConsentTimestampUtc { get; set; }
 
+    /// <summary>
+    /// Codex CLI 추가 동의. Codex 는 0.125 기준 danger-full-access sandbox 만 MCP tool call 허용 →
+    /// 일반 LLM 동의보다 강한 권한 위임 (file system / network 자유 접근). 임시 워크스페이스 cd 격리가
+    /// 1차 방어이지만, 사용자에게 명시적 추가 동의 받음.
+    /// </summary>
+    [JsonPropertyName("codexConsentGranted")]
+    public bool CodexConsentGranted { get; set; }
+
+    [JsonPropertyName("codexConsentTimestampUtc")]
+    public string? CodexConsentTimestampUtc { get; set; }
+
     // ─── Provider settings ───────────────────────────────────────────────────
 
     /// <summary>시작 시 ComboBox 의 초기 선택값. enum 이름 (Claude / Codex / AnthropicApi / OpenAiApi / Ollama).</summary>
@@ -70,9 +81,13 @@ public sealed class LlmConfig
     /// Corrupt JSON 시 LLM Chat 영구 차단 회피: `.bak` 백업 후 default 반환.
     /// 다음 Save 시 새 정상 파일이 작성되어 사용자가 동의 다이얼로그를 다시 거치게 됨 (이전 LlmConsent.cs M2 정책 보존).
     /// </summary>
-    public static LlmConfig Load()
+    public static LlmConfig Load() => LoadFrom(ConfigPath);
+
+    /// <summary>
+    /// 명시 path 로 부터 load (테스트 / 마이그레이션 전용). production code 는 <see cref="Load"/>.
+    /// </summary>
+    internal static LlmConfig LoadFrom(string path)
     {
-        var path = ConfigPath;
         if (!File.Exists(path)) return new LlmConfig();
         try
         {
@@ -156,6 +171,52 @@ public sealed class LlmConfig
             return true;
         }
         Log.Info("LlmConsent declined");
+        return false;
+    }
+
+    // ─── Codex consent (extra) ───────────────────────────────────────────────
+
+    public bool IsCodexConsentGranted() => CodexConsentGranted;
+
+    public void GrantCodexConsent()
+    {
+        CodexConsentGranted = true;
+        CodexConsentTimestampUtc = DateTime.UtcNow.ToString("o");
+        Save();
+        Log.Info($"Codex consent granted — {ConfigPath}");
+    }
+
+    /// <summary>
+    /// Codex provider 첫 선택 시 별도 동의 다이얼로그. true=granted, false=거부 (provider 비활성화).
+    /// 일반 LLM 동의 (<see cref="EnsureGranted"/>) 이미 있어야 호출 가능. 메인 UI 스레드에서 호출.
+    /// </summary>
+    public static bool EnsureCodexConsent()
+    {
+        var config = Load();
+        if (config.IsCodexConsentGranted()) return true;
+
+        const string msg =
+            "Codex CLI 사용 시 일반 LLM 동의에 더해 다음 추가 권한이 위임됩니다:\n" +
+            "  • Codex 0.125 는 sandbox_mode = \"danger-full-access\" 에서만 MCP tool call 을 통과시킴\n" +
+            "    (read-only / workspace-write 모드에서는 MCP 호출이 자동 cancel — community issue 1379772)\n" +
+            "  • danger-full-access 는 file system / network 자유 접근 허용\n" +
+            "  • Promaker 는 임시 빈 폴더 (cd:) 격리로 1차 완화하지만 OS 레벨 sandbox 는 미적용\n" +
+            "  • Codex 가 자체 판단으로 file system 탐색을 시도할 수 있음 — system prompt 의 refusal 이 차선책\n" +
+            "  • Codex 의 thread rollout 이 사용자 ~/.codex/sessions/<sid>.jsonl 에 평문 누적\n\n" +
+            "Codex 사용에 동의하시겠습니까?\n\n" +
+            "(거부 시 Codex provider 가 비활성화됩니다. Claude / API providers 는 그대로 사용 가능.)";
+
+        var owner = System.Windows.Application.Current?.MainWindow;
+        var result = owner != null
+            ? System.Windows.MessageBox.Show(owner, msg, "Codex 추가 권한 동의", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning)
+            : System.Windows.MessageBox.Show(msg, "Codex 추가 권한 동의", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
+
+        if (result == System.Windows.MessageBoxResult.Yes)
+        {
+            config.GrantCodexConsent();
+            return true;
+        }
+        Log.Info("Codex consent declined");
         return false;
     }
 

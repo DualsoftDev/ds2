@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using log4net;
 using Microsoft.AspNetCore.Builder;
@@ -69,10 +71,13 @@ public sealed class McpHostService : IAsyncDisposable
 
         var app = builder.Build();
 
-        // 결정 5.0: handshake nonce 검증 미들웨어 — MapMcp 보다 먼저 등록
+        // 결정 5.0: handshake nonce 검증 미들웨어 — MapMcp 보다 먼저 등록.
+        // 비교는 CryptographicOperations.FixedTimeEquals — 일반 `!=` 는 prefix-match 길이에 따른 timing
+        // leak 가능 (MCP 는 high-frequency 요청이라 statistical 누적 표면 ↑). 256-bit nonce 는 brute force
+        // 비현실적이지만 defense-in-depth. 길이 가드 후 fixed-time 비교.
         app.Use(async (context, next) =>
         {
-            if (!context.Request.Headers.TryGetValue(NonceHeader, out var v) || v.ToString() != HandshakeNonce)
+            if (!IsHandshakeValid(context.Request.Headers))
             {
                 Log.Warn($"MCP handshake 거부 (path={context.Request.Path}, ip={context.Connection.RemoteIpAddress})");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -170,7 +175,23 @@ public sealed class McpHostService : IAsyncDisposable
     private static string GenerateNonce()
     {
         var bytes = new byte[32];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        RandomNumberGenerator.Fill(bytes);
         return Convert.ToHexString(bytes);
+    }
+
+    /// <summary>
+    /// handshake nonce 헤더 fixed-time 비교. 길이 mismatch / 헤더 부재 시 false (early reject).
+    /// 길이 동일 시 <see cref="CryptographicOperations.FixedTimeEquals"/> — UTF-8 byte 비교라 ASCII hex
+    /// 만 사용하는 nonce 에 충분.
+    /// </summary>
+    private bool IsHandshakeValid(IHeaderDictionary headers)
+    {
+        if (!headers.TryGetValue(NonceHeader, out var v)) return false;
+        var got = v.ToString();
+        // 길이 가드 — FixedTimeEquals 는 길이 다르면 그냥 false 반환하지만 명시적 분기로 의도 표현.
+        if (got.Length != HandshakeNonce.Length) return false;
+        var gotBytes = Encoding.UTF8.GetBytes(got);
+        var expectedBytes = Encoding.UTF8.GetBytes(HandshakeNonce);
+        return CryptographicOperations.FixedTimeEquals(gotBytes, expectedBytes);
     }
 }

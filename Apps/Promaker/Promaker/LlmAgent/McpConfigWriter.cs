@@ -76,12 +76,14 @@ public sealed class McpConfigWriter : IDisposable
         return new McpConfigWriter(path, serverName);
     }
 
-    private static void WriteWithOwnerOnlyAcl(string path, string json)
+    internal static void WriteWithOwnerOnlyAcl(string path, string json)
     {
         var bytes = new UTF8Encoding(false).GetBytes(json);
 
         if (!OperatingSystem.IsWindows())
         {
+            // 비-Windows 는 process owner / file mode 의 OS 기본 격리에 의존 (Linux: 600, mac: 600 등 umask).
+            // FileSecurity API 자체가 Windows 전용이므로 별도 ACL 적용 없음.
             File.WriteAllBytes(path, bytes);
             return;
         }
@@ -89,10 +91,13 @@ public sealed class McpConfigWriter : IDisposable
         var sec = TryBuildOwnerOnlySecurity();
         if (sec == null)
         {
-            // SID 조회 실패 — fallback: 일반 write + 사후 ACL 시도 (race 잔존하나 cascade 방어 보존)
-            File.WriteAllBytes(path, bytes);
-            ApplyOwnerOnlyAcl(path);
-            return;
+            // SID 조회 실패 — 1d-5 보안 격리 기준 미충족 (loopback bind + nonce 가 1차 방어이지만
+            // .mcp-config 의 nonce 평문이 같은 user 의 다른 process 에 노출될 수 있는 ms-window race 발생).
+            // 정책: fallback write 보다 fail-fast. 호출자 (LlmChatViewModel.InitializeAsync) 가 catch 하여
+            // StatusText 로 사용자에게 "보안 격리 불가 — LLM 비활성화" 명시.
+            throw new InvalidOperationException(
+                "보안 격리 불가 — WindowsIdentity SID 조회 실패로 .mcp-config 의 Owner-only ACL 을 적용할 수 없습니다. " +
+                "LLM 비활성화. (가상화 / sandboxed 환경 또는 비표준 user identity 가능성)");
         }
 
         // FileStream ctor 의 FileSecurity overload — 파일 생성 atomic 하게 ACL 적용.
@@ -189,7 +194,7 @@ public sealed class McpConfigWriter : IDisposable
     /// <summary>
     /// 파일명 `mcp-{sessionId}-{pid}-{guid}.json` 에서 pid 추출.
     /// </summary>
-    private static bool TryParsePidFromFileName(string fileName, out int pid)
+    internal static bool TryParsePidFromFileName(string fileName, out int pid)
     {
         pid = 0;
         var parts = fileName.Split('-');
@@ -214,39 +219,4 @@ public sealed class McpConfigWriter : IDisposable
         catch (Exception) { return false; }
     }
 
-    [SupportedOSPlatform("windows")]
-    private static void ApplyOwnerOnlyAcl(string path)
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            var sid = WindowsIdentity.GetCurrent().User;
-            if (sid == null)
-            {
-                Log.Warn($"WindowsIdentity.GetCurrent().User == null — ACL skip ({path})");
-                return;
-            }
-
-            var fi = new FileInfo(path);
-            var sec = fi.GetAccessControl();
-
-            sec.SetOwner(sid);
-            sec.SetAccessRuleProtection(true, false);
-
-            var rules = sec.GetAccessRules(true, false, typeof(SecurityIdentifier));
-            foreach (FileSystemAccessRule r in rules)
-                sec.RemoveAccessRule(r);
-
-            sec.AddAccessRule(new FileSystemAccessRule(
-                sid,
-                FileSystemRights.FullControl,
-                AccessControlType.Allow));
-
-            fi.SetAccessControl(sec);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"McpConfigWriter ACL 적용 실패 — {path}", ex);
-        }
-    }
 }
