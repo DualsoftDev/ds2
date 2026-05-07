@@ -13,7 +13,8 @@ namespace Promaker.LlmAgent.Tools;
 /// <summary>
 /// Phase 1c — add_system + list_systems.
 /// Phase 1d-1 — add_flow / add_work / add_call / add_arrow / add_api_def 풀세트 추가.
-/// Pass 3 (c) — add_* 6종 (system/flow/work/call/api_def/arrow) 에 assignVar 인자 + Guid 인자에 '$&lt;varname&gt;' 변수 참조 허용.
+/// Pass 3 (c) — add_* 7종 (project/system/flow/work/call/api_def/arrow) 에 assignVar 인자 + Guid 인자에 '$&lt;varname&gt;' 변수 참조 허용.
+/// Pass 5 — add_project 추가로 Phase 1 의 'GUI 의존' 한계 제거.
 ///   같은 turn 안 multi tool_use 가 직전 op 의 미래 Guid 를 참조 가능 → ID chain 압축.
 ///
 /// 모든 mutation tool 은 ImportPlanBuilder 에 ImportPlanOperation 누적만. turn end 의 단일
@@ -145,7 +146,7 @@ public static class ModelTools
 
     // ─── Mutation tools ──────────────────────────────────────────────────────
     //
-    // Pass 3 (c): add_* 6종 (system/flow/work/call/api_def/arrow) 에 `assignVar` 인자 + Guid 인자는 dispatcher work 안에서 resolveGuidOrVar
+    // Pass 3 (c) + Pass 5: add_* 7종 (project/system/flow/work/call/api_def/arrow) 에 `assignVar` 인자 + Guid 인자는 dispatcher work 안에서 resolveGuidOrVar
     // (= GUID 문자열 / '$<varname>' 양쪽 허용). sanitize / parse 검사 모두 work delegate 안에서
     // throw → RunMutation catch 가 cascade 트리거 + 메시지 prefix 통일.
 
@@ -153,7 +154,23 @@ public static class ModelTools
         "같은 turn 의 후속 호출이 '$<varname>' 으로 이 entity 의 GUID 를 참조하려면 변수명 부여 (1-32자, "
         + "[a-zA-Z_][a-zA-Z0-9_]*). 미사용 시 null. turn 종료 시 자동 폐기.";
 
-    [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). 반환: 새 system Id (full GUID).")]
+    [McpServerTool, Description("Promaker 에 새 Project 를 추가합니다 (workspace 단위). 빈 store 에서 LLM 이 자율적으로 모델을 시작할 때 사용. 같은 turn 의 후속 add_system 은 첫 project 에 자동 부착됨. 반환: 새 project Id (full GUID).")]
+    public static Task<string> AddProject(
+        LlmTurnContextProvider turnProvider,
+        [Description("Project 이름 (1-128자, 다른 project 와 unique). '@' 또는 '$' 시작 금지.")] string name,
+        [Description(AssignVarDescription)] string? assignVar = null)
+    {
+        return RunMutation(turnProvider, "add_project", ctx =>
+        {
+            SanitizeOrThrow(name, "name");
+            var trimmed = name.Trim();
+            var projId = ToolOperations.queueAddProject(ctx.Plan, ctx.Store, trimmed);
+            ToolOperations.registerVar(ctx.Plan, assignVar ?? string.Empty, projId);
+            return $"[plan] add_project queued: name=\"{trimmed}\", id={projId:D}{VarSuffix(assignVar)}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착 — 같은 turn 의 add_project 직후 호출 가능). 반환: 새 system Id (full GUID).")]
     public static Task<string> AddSystem(
         LlmTurnContextProvider turnProvider,
         [Description("System 이름 (1-128자, 한 프로젝트 내 unique). '@' 또는 '$' 시작 금지.")] string name,

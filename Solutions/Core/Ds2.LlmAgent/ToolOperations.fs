@@ -220,6 +220,23 @@ module ToolOperations =
 
     // ─── Mutation queue (Phase 1c~1d) ────────────────────────────────────────
 
+    /// add_project mutation tool. Pass 5 에서 추가 — fresh store 에서 LLM 이 자율적으로 모델
+    /// 빌드 가능 (이전 phase 1 = "사용자가 GUI 로 새 project 생성" 의존을 제거).
+    /// 같은 turn 의 add_system 은 첫 project 자동 부착이라 add_project 직후 add_system 사용 가능.
+    /// 이름 중복 (store + plan 합산) 시 invalidOp.
+    /// 반환: 새 project Id.
+    let queueAddProject (plan: ImportPlanBuilder) (store: DsStore) (name: string) : Guid =
+        requireNonEmpty (nameof name) name "Project name"
+        let nameClash =
+            hasNameClash plan
+                (fun () -> Queries.allProjects store |> List.exists (fun p -> p.Name = name))
+                (function AddProject p -> p.Name = name | _ -> false)
+        if nameClash then
+            invalidOp $"이미 '{name}' 프로젝트가 존재합니다."
+        let project = Project(name)
+        plan.Add(AddProject project)
+        project.Id
+
     /// add_system mutation tool 의 plan 누적 wrapper.
     ///
     /// **현재 phase 1c 단순화**: 첫 번째 project 에 자동 부착. project 가 0개면 invalidOp.
@@ -227,13 +244,21 @@ module ToolOperations =
     /// 반환: 새로 생성된 system Id (LLM 응답에 포함).
     let queueAddSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (isActive: bool) : Guid =
         requireNonEmpty (nameof name) name "System name"
-        let project =
+        // 첫 project 자동 부착 — store 우선, 없으면 같은 turn 의 plan 의 AddProject (Pass 5: add_project 도구
+        // 추가 후 같은 turn 안 add_project → add_system chain 패턴 지원).
+        let projectId =
             match Queries.allProjects store with
-            | [] -> invalidOp "프로젝트가 없습니다. 먼저 프로젝트를 생성하세요."
-            | p :: _ -> p
+            | p :: _ -> p.Id
+            | [] ->
+                let planProj =
+                    plan.Operations
+                    |> Seq.tryPick (function AddProject p -> Some p.Id | _ -> None)
+                match planProj with
+                | Some id -> id
+                | None -> invalidOp "프로젝트가 없습니다. 먼저 add_project 를 호출하거나 GUI 로 생성하세요."
         let sys = DsSystem(name)
         plan.Add(AddSystem sys)
-        plan.Add(LinkSystemToProject(project.Id, sys.Id, isActive))
+        plan.Add(LinkSystemToProject(projectId, sys.Id, isActive))
         sys.Id
 
     /// add_flow mutation tool. parent System 은 store 또는 plan 에 존재해야 함.

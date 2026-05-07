@@ -5,6 +5,7 @@ open Ds2.Core
 
 type ImportPlanOperation =
     | LinkSystemToProject of projectId: Guid * systemId: Guid * isActive: bool
+    | AddProject of Project
     | AddSystem of DsSystem
     | AddFlow of Flow
     | AddWork of Work
@@ -40,6 +41,8 @@ module ImportPlan =
                 project.ActiveSystemIds.Add(systemId)
             else
                 project.PassiveSystemIds.Add(systemId)
+        | AddProject project ->
+            store.DirectWrite(store.Projects, project)
         | AddSystem system ->
             store.DirectWrite(store.Systems, system)
         | AddFlow flow ->
