@@ -581,7 +581,18 @@ public class CycleAnalysisService
             .ToList();
         var addressSet = new HashSet<string>(addresses, StringComparer.OrdinalIgnoreCase);
 
-        var allTags = await _plcRepository.GetAllTagsAsync();
+        // 3개 쿼리를 병렬로 실행 — 각자 고유 SqliteConnection 사용해 contention 없음.
+        // 직렬 합계 vs max 1개 → 시간 범위 클수록 효과 큼.
+        var allTagsTask = _plcRepository.GetAllTagsAsync();
+        var latestBeforeTask = _plcRepository.GetLatestLogsByAddressesBeforeAsync(addresses, startTime);
+        var rangeLogsTask = _plcRepository.GetMultipleTagLogsInRangeAsync(addresses, startTime, endTime);
+
+        await Task.WhenAll(allTagsTask, latestBeforeTask, rangeLogsTask);
+
+        var allTags = allTagsTask.Result;
+        var latestBeforeLogs = latestBeforeTask.Result;
+        var logs = rangeLogsTask.Result;
+
         var tagById = allTags
             .Where(tag => addressSet.Contains(tag.Address))
             .ToDictionary(tag => tag.Id, tag => tag);
@@ -593,7 +604,6 @@ public class CycleAnalysisService
                 group => group.First().Name,
                 StringComparer.OrdinalIgnoreCase);
 
-        var latestBeforeLogs = await _plcRepository.GetLatestLogsByAddressesBeforeAsync(addresses, startTime);
         var initialStateByAddress = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var log in latestBeforeLogs.OrderBy(log => log.DateTime).ThenBy(log => log.Id))
@@ -604,7 +614,6 @@ public class CycleAnalysisService
             }
         }
 
-        var logs = await _plcRepository.GetMultipleTagLogsInRangeAsync(addresses, startTime, endTime);
         var logsByAddress = logs
             .Where(log => !string.IsNullOrWhiteSpace(log.PlcTag?.Address) || !string.IsNullOrWhiteSpace(log.Address))
             .GroupBy(
