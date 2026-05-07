@@ -33,7 +33,10 @@ module HubSource =
     let Web = "web"
 
 /// Batch payload for WriteTags / OnTagsChanged.
-/// 별도 record 로 정의 — System.Text.Json 으로 양방향 직렬화 가능.
+/// [<CLIMutable>] 필수 — SignalR JsonHubProtocol(System.Text.Json, camelCase)이
+/// F# record를 ctor 기반으로 deserialize 할 때 ctor parameter 이름 매칭이
+/// 환경에 따라 깨져 모든 field가 null 인 record 가 만들어지는 사례 차단.
+[<CLIMutable>]
 type TagWrite = {
     Address: string
     Value: string
