@@ -16,6 +16,12 @@ public partial class App : Application
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
 
+    /// <summary>
+    /// `--autostart-llm` 인자 — Pass 1.5 측정 자동화용. 시작 시 LLM Chat panel 자동 활성화 →
+    /// McpHostService 가 StartAsync 되어 mcp config 파일이 즉시 작성됨. 수동 모드에서는 사용 안 함.
+    /// </summary>
+    internal static bool StartupAutoOpenLlm { get; set; }
+
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);
 
@@ -33,8 +39,13 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Length > 0 && File.Exists(e.Args[0]))
-            StartupFilePath = e.Args[0];
+        foreach (var arg in e.Args)
+        {
+            if (arg == "--autostart-llm")
+                StartupAutoOpenLlm = true;
+            else if (StartupFilePath == null && File.Exists(arg))
+                StartupFilePath = arg;
+        }
 
         if (OperatingSystem.IsWindows())
         {

@@ -71,6 +71,13 @@ public partial class MainViewModel : ObservableObject
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
+
+        // Pass 1.5 측정 자동화 — `--autostart-llm` 인자 시작 시 chat panel 자동 활성화.
+        // McpHostService 가 LlmChatViewModel ctor 안에서 StartAsync → mcp config 파일이 즉시 작성됨.
+        if (App.StartupAutoOpenLlm)
+        {
+            _dispatcher.BeginInvoke(new Action(() => ToggleLlmChat()), DispatcherPriority.Loaded);
+        }
     }
 
     /// <summary>

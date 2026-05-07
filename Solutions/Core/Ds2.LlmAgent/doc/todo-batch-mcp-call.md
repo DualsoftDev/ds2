@@ -685,6 +685,73 @@ S5 는 결정에 사용 X — lower bound 참조용. S5 의 turn 수가 baseline
 
 본 todo 의 별도 절 "## Pass 1.5 결과 (YYYY-MM-DD)" 신설 + 결정 결론을 작업 순서 절에도 반영. 결과에 따라 `done-promaker-llm-agent.md` 에는 옮기지 않음 — Pass 5 까지 통합 정리.
 
+---
+
+## Pass 1.5 결과 (2026-05-07)
+
+### 측정 환경
+
+- 자동화: `doc/run-pass15.fsx` — Promaker spawn (`--autostart-llm` 으로 LlmChatVm lazy 우회) → mcp config 자동 탐색 → claude CLI `--print --mcp-config --append-system-prompt --strict-mcp-config --allowed-tools mcp__promaker__* --output-format stream-json` 호출 → stream-json 파싱
+- baseline = `dac8ef1` (mutation batching 절 X), treatment = `5e80af3` (mutation batching 절 ✅). 둘 다 AskUserQuestion 가이드 포함
+- 시나리오 2종: S1 (실린더 chain heavy ~8 op), S2 (독립 4 system)
+- n=3 paired
+
+### 결과 표
+
+| Scenario | Mode | n | Wall(s) | Turn | MultiTool | **ToolUse** | Δ Wall% |
+|---|---|---|---:|---:|---:|---:|---:|
+| S1 chain | baseline | 3 | 28.1 | 4.7 | 0.0 | **3.7** | — |
+| S1 chain | treatment | 3 | 57.8 | 9.3 | 0.3 | **8.7** | +105% |
+| S2 독립 | baseline | 3 | 26.5 | 5.0 | 2.0 | 8.0 | — |
+| S2 독립 | treatment | 3 | 25.2 | 5.0 | 2.0 | 8.0 | -4.7% |
+
+stop_reason = `end_turn` 모든 trial. err=false 모든 trial.
+
+### 작업 무결성 신호 — 측정 raw 비교 무효화
+
+S1 시나리오 spec 은 ~8 op 인데:
+- baseline 평균 ToolUse 3.7 (3, 5, 3) — **시나리오의 절반도 안 진행하고 종료**
+- treatment 평균 ToolUse 8.7 (4, 9, 13) — 거의 정상 + 일부 overshoot
+
+→ baseline 의 "wall 28초" 는 **작업 누락에 의한 빠른 종료**. wall/turn Δ% +105% 는 regression 이 아니라 **baseline 측정 무효**. SystemPrompt 의 batching 가이드가 round-trip 압축이 아닌 LLM 의 "끈기" 부수 효과.
+
+### S2 (독립) — batching 가이드 효과 0%
+
+3 trial 모두 동일 (8.0 ToolUse / 5 turn / 2 multiTool). baseline 이 이미 자발 묶음 (PoC 2 의 자발성 재확인). batching 가이드 추가의 가시 효과 없음.
+
+### 결론
+
+| 가설 검증 | 결과 |
+|---|---|
+| S1 chain 의 multiTool 묶음이 batching 가이드로 증가 | ❌ multiTool 평균 0 → 0.3 (효과 없음) |
+| S2 독립의 묶음이 가이드로 안정 / 증가 | △ 양쪽 동일 (이미 자발 묶음) |
+| (a) 단독으로 round-trip 의미 있게 단축 | ❌ 측정 noise 와 작업 누락으로 단정 불가, 단 가이드 자체는 round-trip 직접 압축 안 함 |
+
+**판정: (a) 단독 효과는 미미 또는 감지 불가**. ID chain boundary 압축은 (a) 만으론 못 끊음 — todo Pass 1 단독 risk 절의 예측과 일치 (SystemPrompt 가이드 본문이 "독립 op only" 인 상태로 chain 패턴 가르치지 않으므로 chain 압축은 없는 게 정상).
+
+### 측정 한계 (caveat)
+
+- n=3 분산 큼 (S1 treatment ToolUse 4/9/13)
+- claude CLI 의 default hooks / `~/.claude/CLAUDE.md` / `Solutions/Core/Ds2.LlmAgent/CLAUDE.md` 가 모두 적용됨 (`--bare` 빼야 OAuth keychain 인증 가능 → noise 차단 못함)
+- LLM 비결정성 + 시나리오 prompt 에 "ALL N op 호출" 명시 부족
+
+이 한계로 정량 신뢰도 낮음. 단 **(a) 효과 < 큰 폭** 은 확인.
+
+### 분기 결정
+
+todo 분기 매트릭스의 "S1 chain 압축 < 15% AND 묶음 변화 미미" → **(c) 진행 → Pass 2** 로 매핑. (a) 가이드는 그대로 유지 (큰 부작용 없음 + S2 의 baseline 자발 묶음 패턴은 가이드로 명시적 안전 보장).
+
+→ **Pass 2 — McpHostService 동시성 spike (Task C-3) 로 진행**.
+
+### 자동화 산출물
+
+- `doc/run-pass15.fsx` — paired 자동 측정 + stream-json 분석 + Δ% 표 + markdown 리포트
+- `App.xaml.cs` — `--autostart-llm` 인자 처리 (StartupAutoOpenLlm)
+- `MainViewModel.cs` ctor — 인자 있을 시 ToggleLlmChat 자동 호출 (mcp host 즉시 시작)
+- `doc/run-pass15.ps1` — 수동 모드 (자동화 도구 신뢰 부족 시 fallback)
+
+위 흐름은 Pass 5 final 측정 / 향후 회귀 검증에도 그대로 재사용.
+
 ### 다른 todo 와의 cross-reference (M9 review)
 
 - 본 todo 는 phase 2 후속 작업으로 `doc/todo-promaker-llm-agent.md` 의 "다음 작업 진입 권장 순서" 에서 참조 추가 필요
