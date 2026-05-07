@@ -218,19 +218,9 @@ public partial class MainViewModel
                 Simulation.StopSimulationCommand.Execute(null);
         }
 
-        // TechnicalData 가 없으면 표시할 게 없음 — 빈 상태로라도 열어 사용자가 확인 가능하도록 신규 생성
-        Ds2.Core.TechnicalDataTypes.TechnicalData td;
-        if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.get_IsSome(project.TechnicalData))
-        {
-            td = project.TechnicalData.Value;
-        }
-        else
-        {
-            td = new Ds2.Core.TechnicalDataTypes.TechnicalData();
-            project.TechnicalData = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.Some(td);
-        }
-
-        var dlg = new Promaker.Dialogs.SimulationScenariosDialog(Simulation, td);
+        // SimulationResult 는 이제 Project 레벨 (이전엔 TechnicalData.SimulationResult).
+        // SequenceSimulation 서브모델로 emit 됨.
+        var dlg = new Promaker.Dialogs.SimulationScenariosDialog(Simulation, project);
         _dialogService.ShowDialog(dlg);
     }
 
@@ -344,7 +334,42 @@ public partial class MainViewModel
                     Log.Warn($"AASX 저장 전 시뮬 시나리오 박제 실패 (무시): {capEx.Message}");
                 }
 
+                // 사용자 정의 AASX 템플릿 폴더 — 설정값을 export 직전에 set, 후 reset.
+                var userTplFolder = Promaker.Presentation.AppSettingStore.LoadStringOrDefault(
+                    Promaker.Services.SettingsPaths.AasxUserTemplatesFolder, "");
+                var prevTplFolder = AasxExporter.UserTemplatesFolder;
+                AasxExporter.UserTemplatesFolder =
+                    string.IsNullOrWhiteSpace(userTplFolder) || !System.IO.Directory.Exists(userTplFolder)
+                        ? Microsoft.FSharp.Core.FSharpOption<string>.None
+                        : Microsoft.FSharp.Core.FSharpOption<string>.Some(userTplFolder);
+
                 var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
+
+                AasxExporter.UserTemplatesFolder = prevTplFolder;
+
+                // 사용자 폴더 SM 이 ds2 표준 SM 을 override 했는지 확인 → 사용자에게 상세 안내.
+                if (exported)
+                {
+                    var overrides = AasxExporter.LastUserTemplateOverrides;
+                    if (overrides != null && overrides.Any())
+                    {
+                        var lines = string.Join("\n",
+                            overrides.Select(t => $"  • {t.Item1}  →  Submodel \"{t.Item2}\""));
+                        var msg =
+                            $"AASX 사용자 템플릿 폴더의 .aasx 파일이 ds2 기본 표준 Submodel 을 덮어썼습니다.\n\n" +
+                            $"{lines}\n\n" +
+                            $"⚠ 결과: 위 Submodel(들) 은 사용자 폴더의 .aasx 내용으로 출력되며,\n" +
+                            $"     Promaker 의 입력 데이터(예: Nameplate 의 ManufacturerName/SerialNumber 등) 는 \n" +
+                            $"     반영되지 않습니다.\n\n" +
+                            $"폴더: {userTplFolder}\n" +
+                            $"파일: {filePath}\n\n" +
+                            $"의도한 동작이 아니라면, 사용자 템플릿 폴더에서 해당 파일을 제거하거나\n" +
+                            $"Submodel idShort 를 ds2 표준과 다른 이름으로 변경하세요\n" +
+                            $"(예: \"Nameplate\" → \"NameplateCustom\").";
+                        Promaker.Dialogs.DialogHelpers.ShowThemedMessageBox(
+                            msg, "AASX 사용자 템플릿 override 안내", System.Windows.MessageBoxButton.OK, "ⓘ");
+                    }
+                }
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 

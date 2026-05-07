@@ -33,6 +33,10 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // AAStoPLC.TagWizard 의 모든 family preset 자동 등록 (idempotent).
+        // 새 family 추가 시 Bootstrap.fs 의 ensureRegistered 안에서 처리 — startup 무수정.
+        AAStoPLC.TagWizard.Bootstrap.EnsureRegistered();
+
         if (e.Args.Length > 0 && File.Exists(e.Args[0]))
             StartupFilePath = e.Args[0];
 

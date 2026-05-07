@@ -1,7 +1,7 @@
 <Window x:Class="Promaker.Dialogs.ConditionEditDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:lv="clr-namespace:AAStoPLC.LadderViewer.Preview;assembly=AAStoPLC.LadderViewer"
+        xmlns:le="clr-namespace:AAStoPLC.LadderEditor.Views;assembly=AAStoPLC.LadderEditor"
         Title="조건 편집"
         Width="1280"
         Height="784"
@@ -16,191 +16,49 @@
         <Grid Margin="14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="10"/>
-                <RowDefinition Height="*" MinHeight="120"/>
                 <RowDefinition Height="6"/>
-                <RowDefinition Height="240" MinHeight="80"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="*"/>
                 <RowDefinition Height="10"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Header -->
-            <Grid Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="SectionTitle"
-                           FontSize="16"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource PrimaryTextBrush}"
-                           VerticalAlignment="Center"/>
-            </Grid>
+            <TextBlock Grid.Row="0"
+                       x:Name="SectionTitle"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       VerticalAlignment="Center"/>
 
-            <!-- Condition tree -->
+            <!-- 조작 안내 배너 -->
             <Border Grid.Row="2"
+                    Background="{DynamicResource TertiaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="3"
-                    Background="{DynamicResource TertiaryBackgroundBrush}">
-                <Grid>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  Padding="4">
-                        <ItemsControl x:Name="ConditionList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="0,0,0,1"
-                                            Padding="6,6"
-                                            Margin="2,2">
-                                        <StackPanel>
-                                            <!-- Condition header -->
-                                            <Grid Margin="0,0,0,4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                                    <Button Content="x"
-                                                            Style="{StaticResource DarkButton}"
-                                                            Padding="6,2"
-                                                            FontSize="10"
-                                                            Margin="0,0,6,0"
-                                                            ToolTip="조건 삭제"
-                                                            Tag="{Binding}"
-                                                            Click="RemoveCondition_Click"/>
-                                                    <RadioButton Content="AND"
-                                                                 IsChecked="{Binding IsAND, Mode=OneWay}"
-                                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                 Margin="0,0,4,0"
-                                                                 VerticalAlignment="Center"
-                                                                 FontSize="11"
-                                                                 Tag="{Binding}"
-                                                                 Click="SetAnd_Click"/>
-                                                    <RadioButton Content="OR"
-                                                                 IsChecked="{Binding IsOR, Mode=OneWay}"
-                                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                 Margin="0,0,8,0"
-                                                                 VerticalAlignment="Center"
-                                                                 FontSize="11"
-                                                                 Tag="{Binding}"
-                                                                 Click="SetOr_Click"/>
-                                                    <CheckBox Content="Rising"
-                                                              IsChecked="{Binding IsRising, Mode=OneWay}"
-                                                              Foreground="{DynamicResource PrimaryTextBrush}"
-                                                              Margin="0,0,8,0"
-                                                              VerticalAlignment="Center"
-                                                              FontSize="11"
-                                                              Tag="{Binding}"
-                                                              Click="ToggleRising_Click"/>
-                                                    <Button Content="+ 하위그룹"
-                                                            Style="{StaticResource DarkButton}"
-                                                            Padding="8,2"
-                                                            FontSize="10"
-                                                            Tag="{Binding}"
-                                                            Click="AddChildCondition_Click"/>
-                                                </StackPanel>
-                                                <Button Grid.Column="1"
-                                                        Content="+"
-                                                        Style="{StaticResource DarkButton}"
-                                                        Padding="6,2"
-                                                        FontSize="12"
-                                                        FontWeight="Bold"
-                                                        ToolTip="ApiCall 추가"
-                                                        Tag="{Binding}"
-                                                        Click="AddApiCallToCondition_Click"/>
-                                            </Grid>
-                                            <ItemsControl ItemsSource="{Binding Items}" Margin="12,0,0,0">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Grid Margin="0,2" Background="Transparent">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <Button Grid.Column="0"
-                                                                    Content="x"
-                                                                    Style="{StaticResource DarkButton}"
-                                                                    Padding="6,1"
-                                                                    FontSize="10"
-                                                                    Margin="0,0,4,0"
-                                                                    Tag="{Binding}"
-                                                                    Click="RemoveApiCall_Click"/>
-                                                            <TextBlock Grid.Column="1"
-                                                                       Text="{Binding ApiDefDisplayName}"
-                                                                       Foreground="{DynamicResource PrimaryTextBrush}"
-                                                                       FontSize="11"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="4,0"/>
-                                                            <TextBlock Grid.Column="2"
-                                                                       Text="{Binding OutputSpecText}"
-                                                                       FontSize="11"
-                                                                       VerticalAlignment="Center"
-                                                                       Foreground="{DynamicResource AccentBrush}"
-                                                                       Margin="4,0"/>
-                                                            <Button Grid.Column="3"
-                                                                    Content="ValueSpec 편집"
-                                                                    Style="{StaticResource DarkButton}"
-                                                                    Padding="8,1"
-                                                                    FontSize="10"
-                                                                    Tag="{Binding}"
-                                                                    Click="EditApiCallSpec_Click"/>
-                                                        </Grid>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                            <!-- Children (recursive — uses code-behind BuildChildrenUI) -->
-                                            <ItemsControl x:Name="ChildrenHost"
-                                                          ItemsSource="{Binding Children}"
-                                                          Margin="20,4,0,0"
-                                                          Loaded="ChildrenHost_Loaded"/>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-
-                    <!-- Empty hint -->
-                    <TextBlock x:Name="EmptyHint"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               FontSize="12"
-                               FontStyle="Italic"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               TextAlignment="Center"
-                               Visibility="Collapsed">
-                        <Run Text="조건이 없습니다."/>
-                        <LineBreak/>
-                        <Run Text="Call 을 드래그하여 추가하세요."/>
-                    </TextBlock>
-                </Grid>
+                    Padding="10,6">
+                <TextBlock TextWrapping="Wrap" FontSize="11"
+                           Foreground="{DynamicResource SecondaryTextBrush}">
+                    <Run FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">조작:</Run>
+                    <Run> 접점 더블클릭 = 심볼 편집 ·</Run>
+                    <Run> 빈 셀 더블클릭 = 신규 접점 ·</Run>
+                    <Run> 접점 우클릭 = 종류(NO/NC/Pulse) / 복사·붙여넣기 / 삭제 ·</Run>
+                    <Run> 접점 드래그 → = 직렬 추가 ·</Run>
+                    <Run> 접점 드래그 ↓ = OR 분기 ·</Run>
+                    <Run> Ctrl+Z/Y = Undo/Redo ·</Run>
+                    <Run> Ctrl+휠 = 확대/축소</Run>
+                </TextBlock>
             </Border>
 
-            <!-- Ladder 미리보기 -->
+            <!-- LadderEditor — 전체 영역. 드래그/우클릭/Ctrl+Z 모두 활성. -->
             <Border Grid.Row="4"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="3"
                     Background="{DynamicResource TertiaryBackgroundBrush}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0"
-                               Text="Ladder 미리보기 (사용자 입력 트리만)"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               FontSize="11"
-                               Margin="6,4"/>
-                    <lv:CoilConditionView Grid.Row="1"
-                                          x:Name="PreviewView"
-                                          CoilName="OUT"
-                                          LineFactor="0.6"
-                                          EmptyHint="(조건이 비어있음 — TRUE)"/>
-                </Grid>
+                <le:LadderEditorControl x:Name="EditorView" IsReadOnly="False"/>
             </Border>
 
             <!-- Footer -->
@@ -209,7 +67,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="변경사항은 즉시 적용됩니다."
+                <TextBlock x:Name="StatusText"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center"
                            FontSize="11"/>

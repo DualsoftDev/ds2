@@ -296,7 +296,7 @@
                 <ComboBox x:Name="SimSpeedComboBox"
                           SelectedValue="{Binding Simulation.SimSpeed}"
                           SelectedValuePath="Tag"
-                          Width="72"
+                          Width="130"
                           MinHeight="24"
                           FontSize="11">
                     <ComboBoxItem Content="0.5x"><ComboBoxItem.Tag><sys:Double>0.5</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
@@ -305,11 +305,20 @@
                     <ComboBoxItem Content="5x"><ComboBoxItem.Tag><sys:Double>5.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,1,0,0">
+                <!-- 속도 콤보 아래: 연속 투입 + Token 버튼 같은 행 -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,3,0,0">
+                    <CheckBox x:Name="ContinuousInjectionCheckBox"
+                              Content="연속 투입"
+                              IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
+                              VerticalAlignment="Center"
+                              Margin="0,0,8,0"
+                              FontSize="10"
+                              ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다."/>
                     <Button x:Name="OpenTokenSpecButton"
                             Command="{Binding OpenTokenSpecDialogCommand}"
                             IsEnabled="{Binding HasProject}"
-                            ToolTip="TokenSpec 편집">
+                            ToolTip="TokenSpec 편집"
+                            VerticalAlignment="Center">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
                                 <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
@@ -327,13 +336,6 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
-                <CheckBox x:Name="ContinuousInjectionCheckBox"
-                          Content="연속 투입"
-                          IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
-                          Margin="0,4,0,0"
-                          HorizontalAlignment="Center"
-                          FontSize="10"
-                          ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다."/>
             </StackPanel>
             <!-- 좌측 세로선: 다른 ribbon 그룹과 동일한 분리 패턴 (플랫 테마) -->
             <Rectangle Width="1"

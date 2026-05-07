@@ -16,36 +16,11 @@ public partial class TagWizardDialog
     private void ApplyPatterns_Click(object sender, RoutedEventArgs e) => ConfirmAndApplyPatterns();
 
     /// <summary>
-    /// 확인 다이얼로그 → ApplySignals → 완료 메시지. true 면 적용 성공 (or 사용자 취소 후에도 다음 단계 진행 가능).
-    /// 사용자가 취소하면 false 반환 — 호출자가 단계 이동 취소.
+    /// 단일 확인 → 적용 → 단일 통합 리포트.
+    /// 다이얼로그는 사전 확인 1번 + 사후 통합 리포트 1번 (총 최대 2회).
+    /// 통합 리포트 안에서 Call 구조 마이그레이션도 같이 분기 처리.
     /// </summary>
     private bool ConfirmAndApplyPatterns()
-    {
-        var confirm = DialogHelpers.ShowThemedMessageBox(
-            $"프리뷰의 모든 패턴을 {_ioRows.Count}개 ApiCall 의 InTag/OutTag 에 적용합니다.\n\n" +
-            "⚠ 현재 ApiCall 에 수동으로 설정된 이름과 주소가 모두 덮어써집니다.\n" +
-            "   (I/O 일괄 편집에서 개별 수정한 항목 포함)\n\n" +
-            "계속하시겠습니까?",
-            "패턴 적용 확인",
-            MessageBoxButton.YesNo,
-            "⚠");
-        if (confirm != MessageBoxResult.Yes) return false;
-
-        if (ApplySignals())
-        {
-            DialogHelpers.ShowThemedMessageBox(
-                $"✓ {_successCount}개 ApiCall 에 패턴이 적용되었습니다.\n\n" +
-                $"이후 I/O 일괄 편집에서 개별 수정한 값은 이 적용으로 손실될 수 있으며,\n" +
-                $"필요 시 다시 '패턴 적용' 을 눌러야 합니다.",
-                "패턴 적용 완료",
-                MessageBoxButton.OK,
-                "✓");
-            return true;
-        }
-        return false;
-    }
-
-    private bool ApplySignals()
     {
         if (_ioRows.Count == 0)
         {
@@ -54,20 +29,9 @@ public partial class TagWizardDialog
             return false;
         }
 
-        var validRows = _ioRows.Where(r => r.CallId != System.Guid.Empty && r.ApiCallId != System.Guid.Empty).ToList();
-        var unmatchedCount = _unmatchedRows.Count;
-
-        if (unmatchedCount > 0)
-        {
-            var ok = DialogHelpers.ShowThemedMessageBox(
-                $"⚠ {unmatchedCount}개 항목이 DS2 모델과 매칭되지 않았습니다.\n\n" +
-                $"'매칭 실패' 탭에서 상세 내역을 확인할 수 있습니다.\n\n" +
-                $"✓ 매칭된 {validRows.Count}개 항목만 적용됩니다.\n\n" +
-                $"계속하시겠습니까?",
-                "TAG Wizard - 확인", MessageBoxButton.YesNo, "?");
-            if (ok != MessageBoxResult.Yes) return false;
-        }
-
+        var validRows = _ioRows
+            .Where(r => r.CallId != System.Guid.Empty && r.ApiCallId != System.Guid.Empty)
+            .ToList();
         if (validRows.Count == 0)
         {
             DialogHelpers.ShowThemedMessageBox(
@@ -77,31 +41,33 @@ public partial class TagWizardDialog
             return false;
         }
 
+        // 사전 확인 — unmatched/덮어쓰기 경고를 한 화면에 통합.
+        var unmatchedCount = _unmatchedRows.Count;
+        var preMsg = new StringBuilder();
+        preMsg.AppendLine($"매칭된 {validRows.Count}개 ApiCall 의 InTag/OutTag 에 패턴을 적용합니다.");
+        if (unmatchedCount > 0)
+        {
+            preMsg.AppendLine();
+            preMsg.AppendLine($"⚠ {unmatchedCount}개 항목이 DS2 모델과 매칭되지 않아 제외됩니다 ('매칭 실패' 탭 참조).");
+        }
+        preMsg.AppendLine();
+        preMsg.AppendLine("⚠ 현재 ApiCall 에 수동으로 설정된 이름과 주소가 모두 덮어써집니다.");
+        preMsg.AppendLine("   (I/O 일괄 편집에서 개별 수정한 항목 포함)");
+        preMsg.AppendLine();
+        preMsg.Append("계속하시겠습니까?");
+
+        var confirm = DialogHelpers.ShowThemedMessageBox(
+            preMsg.ToString(), "패턴 적용 확인", MessageBoxButton.YesNo, "⚠");
+        if (confirm != MessageBoxResult.Yes) return false;
+
+        // 적용 실행.
+        IoTagApplier.ApplyResult applyResult;
         try
         {
             NextButton.IsEnabled = false;
             NextButton.Content = "적용 중...";
-
-            var applyResult = IoTagApplier.Apply(_store, validRows);
+            applyResult = IoTagApplier.Apply(_store, validRows);
             _successCount = applyResult.SuccessCount;
-
-            var summary = new StringBuilder();
-            summary.AppendLine($"✅ {_successCount}개 ApiCall에 IO 태그가 성공적으로 적용되었습니다.");
-            summary.AppendLine($"📊 IO 신호: {_ioRows.Count}개");
-            summary.AppendLine($"📊 Dummy 신호: {_dummyRows.Count}개");
-
-            if (applyResult.AnyFailed)
-            {
-                summary.AppendLine();
-                summary.AppendLine($"⚠️ {applyResult.FailedCount}개 항목 적용 실패:");
-                foreach (var item in applyResult.FailedItems.Take(3))
-                    summary.AppendLine($"  • {item}");
-                if (applyResult.FailedCount > 3)
-                    summary.AppendLine($"  ... 외 {applyResult.FailedCount - 3}개");
-            }
-
-            CompletionSummaryText.Text = summary.ToString();
-            return _successCount > 0;
         }
         catch (System.Exception ex)
         {
@@ -113,6 +79,65 @@ public partial class TagWizardDialog
         finally
         {
             NextButton.IsEnabled = true;
+        }
+
+        if (_successCount <= 0) return false;
+
+        // 사후 통합 리포트 — 신호 통계 + 적용 결과 + 검증 + Call 구조 위반 한꺼번에.
+        ShowUnifiedApplyReport(applyResult, unmatchedCount);
+        return true;
+    }
+
+    /// <summary>적용 후 통합 리포트 — 단일 다이얼로그. Call 구조 위반 시 마이그레이션 yes/no 분기 포함.</summary>
+    private void ShowUnifiedApplyReport(IoTagApplier.ApplyResult applyResult, int unmatchedCount)
+    {
+        var summary = WizardSummaryBuilder.Build(
+            _store, _successCount, _ioRows.Count, _dummyRows.Count, SignalTemplateWarnings);
+
+        var msg = new StringBuilder();
+        msg.AppendLine($"✓ {_successCount}개 ApiCall 에 패턴 적용 완료.");
+        msg.AppendLine();
+        msg.AppendLine("📊 신호 통계");
+        msg.AppendLine(summary.SignalStats);
+
+        if (applyResult.AnyFailed)
+        {
+            msg.AppendLine();
+            msg.AppendLine($"⚠ 적용 실패 {applyResult.FailedCount}건:");
+            foreach (var item in applyResult.FailedItems.Take(3))
+                msg.AppendLine($"  • {item}");
+            if (applyResult.FailedCount > 3)
+                msg.AppendLine($"  … 외 {applyResult.FailedCount - 3}건");
+        }
+        if (unmatchedCount > 0)
+        {
+            msg.AppendLine();
+            msg.AppendLine($"⚠ 매칭 실패 {unmatchedCount}건 — 적용 제외 ('매칭 실패' 탭 참조).");
+        }
+
+        msg.AppendLine();
+        msg.AppendLine(summary.CompletionStatus);
+
+        var hasViolations = summary.HasCallStructureViolations;
+        if (hasViolations)
+        {
+            msg.AppendLine();
+            msg.Append("Call 구조 마이그레이션을 지금 실행하시겠습니까?");
+        }
+        else
+        {
+            msg.AppendLine();
+            msg.Append("필요 시 '패턴 적용' 을 다시 눌러 재적용할 수 있습니다.");
+        }
+
+        var btn = hasViolations ? MessageBoxButton.YesNo : MessageBoxButton.OK;
+        var result = DialogHelpers.ShowThemedMessageBox(
+            msg.ToString(), "TAG Wizard - 적용 결과", btn, "✓");
+
+        if (hasViolations && result == MessageBoxResult.Yes)
+        {
+            var dlg = new MultiDeviceCallMigrationDialog(_store) { Owner = this };
+            dlg.ShowDialog();
         }
     }
 

@@ -19,6 +19,11 @@ module AasxImporter =
     let private importDomainSubmodel (sm: Submodel) (store: DsStore) (_project: Project) (submodelType: SubmodelType) : unit =
         if sm.SubmodelElements = null then ()
         else
+            // SequenceSimulation 서브모델 한정 — top-level SimulationResult SMC 가 있으면
+            // Project.SimulationResult 로 흡수 (이전엔 TechnicalData.SimulationResult).
+            if submodelType = SequenceSimulation then
+                trySimulationResultFromSequenceSimulation sm
+                |> Option.iter (fun s -> _project.SimulationResult <- Some s)
             sm.SubmodelElements
             |> Seq.tryPick (function
                 | :? SubmodelElementCollection as smc when smc.IdShort = "SystemProperties" -> Some smc

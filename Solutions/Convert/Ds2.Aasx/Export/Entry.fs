@@ -23,7 +23,68 @@ module AasxExporter =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
-    let private appendProjectMetadataSubmodels (store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+    /// 사용자 정의 AASX 템플릿 폴더 — Promaker 등 호출 측이 export 전 setting.
+    /// None 이면 임베디드 템플릿만 사용. Some path 이면 그 폴더의 *.aasx 의 모든 SM 을
+    /// 추가로 첨부 (project ID 별 instance URN 으로 재할당).
+    let mutable UserTemplatesFolder : string option = None
+
+    /// 마지막 export 시 사용자 폴더 SM 이 ds2 표준 SM 을 override 한 항목 (fileName, idShort).
+    /// 매 export 시작 시 비워지고, 충돌 시 항목이 추가됨. 호출 측(Promaker 등)이
+    /// export 직후 읽어 사용자에게 안내.
+    let mutable LastUserTemplateOverrides : (string * string) list = []
+
+    /// 폴더 내 모든 .aasx 의 SM 을 추가 첨부 + CD 도 통합. project ID 로 instance ID 재할당.
+    /// 이미 등록된 SM idShort 와 충돌하면 폴더 SM 우선 (사용자 의도). override 항목은
+    /// `LastUserTemplateOverrides` 에 누적되어 호출 측이 사용자에게 안내.
+    let private appendUserTemplateSubmodels
+            (project: Project)
+            (submodels: ResizeArray<ISubmodel>)
+            (smRefs: ResizeArray<IReference>)
+            (extraConcepts: ResizeArray<IConceptDescription>) =
+        // 매 export 시작 시 override 기록 비움.
+        LastUserTemplateOverrides <- []
+        match UserTemplatesFolder with
+        | None -> ()
+        | Some folder ->
+            let scanned = AasxTemplateLoader.scanFolderSubmodels folder
+            if scanned.IsEmpty then ()
+            else
+                // 이미 등록된 idShort 추적 — 충돌 시 사용자 폴더 SM 으로 교체.
+                let existingByIdShort =
+                    let d = System.Collections.Generic.Dictionary<string, int>()
+                    submodels |> Seq.iteri (fun i sm -> d.[sm.IdShort] <- i)
+                    d
+                let overrides = ResizeArray<string * string>()
+                for (fileName, sms) in scanned do
+                    for sm in sms do
+                        // instance URN 으로 ID 재할당 (Project 별 unique).
+                        let safeShort = sm.IdShort
+                        sm.Id <- sprintf "urn:dualsoft:user:%s:%s" (safeShort.ToLowerInvariant()) (project.Id.ToString("N"))
+                        match existingByIdShort.TryGetValue(safeShort) with
+                        | true, idx ->
+                            log.Info($"[UserTemplates] {fileName} → {safeShort} 가 기본 SM 을 override")
+                            overrides.Add(fileName, safeShort)
+                            submodels.[idx] <- sm
+                            smRefs.[idx] <- mkSmRef sm
+                        | _ ->
+                            submodels.Add(sm)
+                            smRefs.Add(mkSmRef sm)
+                            log.Info($"[UserTemplates] {fileName} → {safeShort} 첨부")
+                LastUserTemplateOverrides <- overrides |> Seq.toList
+                // CD 도 통합 — id 중복은 첫 정의 우선.
+                let existingCdIds = System.Collections.Generic.HashSet<string>()
+                for cd in extraConcepts do
+                    match Option.ofObj cd.Id with
+                    | Some id -> existingCdIds.Add(id) |> ignore
+                    | None -> ()
+                for cd in AasxTemplateLoader.scanFolderConceptDescriptions folder do
+                    match Option.ofObj cd.Id with
+                    | Some id when not (existingCdIds.Contains id) ->
+                        extraConcepts.Add(cd)
+                        existingCdIds.Add(id) |> ignore
+                    | _ -> ()
+
+    let private appendProjectMetadataSubmodels (_store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
         let npSm = nameplateToSubmodel nameplate project.Id
         submodels.Add(npSm :> ISubmodel)
@@ -35,14 +96,9 @@ module AasxExporter =
         submodels.Add(docSm :> ISubmodel)
         smRefs.Add(mkSmRef docSm)
 
-        // TechnicalData (IDTA 02003) — 시뮬결과 박제 가능. 항상 추가하되 비어있으면 기본 골격만.
-        // SimulationResult 는 Active System 이 존재할 때만 emit (passive-only 프로젝트 제외).
-        // 추가로 KPI 항목들은 Active 시스템 의 work/call 만 포함.
-        let hasActive = (Queries.activeSystemsOf project.Id store |> List.isEmpty |> not)
-        AasxExportTechnicalData.setActiveContext store project
+        // TechnicalData (IDTA 02003) — 표준 3 블록 (얇은 컨테이너). 시뮬결과는 SequenceSimulation 으로 이동.
         let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
-        let tdSm = technicalDataToSubmodelEx techData project.Id hasActive
-        AasxExportTechnicalData.clearActiveContext ()
+        let tdSm = technicalDataToSubmodel techData project.Id
         submodels.Add(tdSm :> ISubmodel)
         smRefs.Add(mkSmRef tdSm)
 
@@ -177,8 +233,27 @@ module AasxExporter =
                 if propElements.IsEmpty then None
                 else Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) propElements))
 
+        // SequenceSimulation 서브모델 한정 — Project.SimulationResult (시뮬 KPI 박제) 를
+        // SystemProperties SMC 안에 추가 (System_<id> 형제 항목으로). 이전에는 TechnicalData
+        // 안에 있었음. {System/Flow/Work/Call}Properties 단일 구조로 통일.
+        // active 컨텍스트 set 후 KPI 항목 필터링이 KPI builder 내부에서 자동 적용.
+        let simulationResultElement : ISubmodelElement option =
+            match submodelType with
+            | SequenceSimulation ->
+                AasxExportTechnicalData.setActiveContext store project
+                let r = AasxExportTechnicalData.simulationResultToSmcOpt project.SimulationResult
+                AasxExportTechnicalData.clearActiveContext ()
+                r
+            | _ -> None
+
+        // SimulationResult 가 있으면 SystemProperties 안에 합치고, 없거나 비어있어도 빈 컨테이너 보장.
+        let mergedSystemProps =
+            match simulationResultElement with
+            | Some sim -> sysPropsWithRefs @ [ sim ]
+            | None     -> sysPropsWithRefs
+
         let elements =
-            [ if not sysPropsWithRefs.IsEmpty then yield mkSmc "SystemProperties" sysPropsWithRefs
+            [ if not mergedSystemProps.IsEmpty then yield mkSmc "SystemProperties" mergedSystemProps
               if not flowPropsWithRefs.IsEmpty then yield mkSmc "FlowProperties" flowPropsWithRefs
               if not workPropsWithRefs.IsEmpty then yield mkSmc "WorkProperties" workPropsWithRefs
               if not callPropsWithRefs.IsEmpty then yield mkSmc "CallProperties" callPropsWithRefs ]
@@ -373,6 +448,11 @@ module AasxExporter =
                 shell.Submodels <- smRefs
 
                 (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions ())
+
+        // 사용자 정의 폴더의 추가 .aasx 템플릿 SM/CD 첨부 (UserTemplatesFolder set 시).
+        appendUserTemplateSubmodels project finalSubmodels
+            (finalShells.[0].Submodels)  // shell 의 SM refs 도 동기화
+            finalConceptDescs
 
         let env =
             Environment(

@@ -110,7 +110,7 @@ public partial class SimulationScenariosDialog : Window
     }
 
     private readonly SimulationPanelState _sim;
-    private readonly TechnicalDataTypes.TechnicalData _td;
+    private readonly Project _project;
     private readonly ObservableCollection<RunRow> _rows = new();
     private bool _suppressCheck;
     /// <summary>
@@ -119,11 +119,11 @@ public partial class SimulationScenariosDialog : Window
     /// </summary>
     private System.Collections.Generic.HashSet<string>? _eligibleWorkNames;
 
-    public SimulationScenariosDialog(SimulationPanelState sim, TechnicalDataTypes.TechnicalData td)
+    public SimulationScenariosDialog(SimulationPanelState sim, Project project)
     {
         InitializeComponent();
         _sim = sim ?? throw new ArgumentNullException(nameof(sim));
-        _td = td ?? throw new ArgumentNullException(nameof(td));
+        _project = project ?? throw new ArgumentNullException(nameof(project));
         RunsGrid.ItemsSource = _rows;
         Reload();
     }
@@ -138,9 +138,9 @@ public partial class SimulationScenariosDialog : Window
         // CapturedRuns 가 비어있으면 (예: AASX 신규 import 후), 기존 SimulationResult 로 1줄 hydrate.
         var sources = _sim.CapturedRuns.ToList();
         if (sources.Count == 0
-            && Microsoft.FSharp.Core.FSharpOption<Scenario>.get_IsSome(_td.SimulationResult))
+            && Microsoft.FSharp.Core.FSharpOption<Scenario>.get_IsSome(_project.SimulationResult))
         {
-            sources.Add(_td.SimulationResult.Value);
+            sources.Add(_project.SimulationResult.Value);
         }
 
         foreach (var s in sources) _rows.Add(new RunRow(s, _eligibleWorkNames));
@@ -158,9 +158,9 @@ public partial class SimulationScenariosDialog : Window
 
         // 디폴트: 현재 SimulationResult 와 같은 항목, 없으면 최신(=첫 행)
         RunRow? defaultRow = null;
-        if (Microsoft.FSharp.Core.FSharpOption<Scenario>.get_IsSome(_td.SimulationResult))
+        if (Microsoft.FSharp.Core.FSharpOption<Scenario>.get_IsSome(_project.SimulationResult))
         {
-            var current = _td.SimulationResult.Value;
+            var current = _project.SimulationResult.Value;
             defaultRow = _rows.FirstOrDefault(r => ReferenceEquals(r.Scenario, current));
         }
         defaultRow ??= _rows[0];
@@ -799,7 +799,7 @@ public partial class SimulationScenariosDialog : Window
 
         // TechnicalData.SimulationResult 초기화 — 그렇지 않으면 Reload 가 이 값으로 1줄 hydrate 하여
         //   토큰별/Work별 그리드가 비워지지 않음.
-        _td.SimulationResult = Microsoft.FSharp.Core.FSharpOption<Scenario>.None;
+        _project.SimulationResult = Microsoft.FSharp.Core.FSharpOption<Scenario>.None;
 
         // 상세 그리드 즉시 비우기 (Reload 의 빈-상태 분기가 이미 처리하지만 명시적으로 안전하게)
         DetailText.Text = "(시뮬레이션 결과 없음)";

@@ -109,9 +109,8 @@ public partial class SimulationPanelState
         var projects = Queries.allProjects(Store);
         if (projects.IsEmpty) return;
         var project = projects.Head;
-        if (FSharpOption<TechnicalDataTypes.TechnicalData>.get_IsSome(project.TechnicalData))
-            project.TechnicalData.Value.SimulationResult =
-                FSharpOption<SimulationResultSnapshotTypes.SimulationScenario>.None;
+        // SimulationResult 가 Project 레벨로 이동 (이전엔 TechnicalData.SimulationResult).
+        project.SimulationResult = FSharpOption<SimulationResultSnapshotTypes.SimulationScenario>.None;
     }
 
     /// <summary>원본 AASX 에 TechnicalData 서브모델이 있는지 검사 (캐시된 Environment 기반).</summary>

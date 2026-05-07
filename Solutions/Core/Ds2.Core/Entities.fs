@@ -20,6 +20,9 @@ type Project [<JsonConstructor>] internal (name) =
     [<AasxField("Nameplate",             Skip = true)>] member val Nameplate             : Nameplate option             = None    with get, set
     [<AasxField("HandoverDocumentation", Skip = true)>] member val HandoverDocumentation : HandoverDocumentation option = None    with get, set
     [<AasxField("TechnicalData",         Skip = true)>] member val TechnicalData         : TechnicalData option         = None    with get, set
+    /// SequenceSimulation 서브모델로 emit 되는 시뮬레이션 박제 (Meta + KPI 그룹).
+    /// 이전에는 TechnicalData.SimulationResult 였음. AAS 표준 SM 분리 정책에 따라 Project 레벨로 이동.
+    [<AasxField("SimulationResult",      Skip = true)>] member val SimulationResult      : SimulationScenario option    = None    with get, set
 
     // ── 프로젝트 메타데이터 ──────────────────────────────────────────────────
     [<AasxField("TokenSpecs")>]                         member val TokenSpecs            = ResizeArray<TokenSpec>()              with get, set
