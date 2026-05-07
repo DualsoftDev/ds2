@@ -61,9 +61,6 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
-                            <Separator Margin="4,4"/>
-                            <TextBlock Text="LLM" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ToggleLlmChatCommand}" Click="CloseUtilPopup"><TextBlock Text="LLM Chat (토글)"/></Button>
                         </StackPanel>
                     </Border>
                 </Popup>
@@ -97,6 +94,27 @@
                         </iconPacks:PackIconMaterial>
                     </Grid>
                     <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
+                </StackPanel>
+            </Button>
+            <!-- LLM 토글 (Phase 2 PR-C) — 라이트 버튼 패턴 (Command + DataTrigger 로 active 시 아이콘 색 강조).
+                 Click 시 ToggleLlmChatCommand 가 lazy 생성 + consent 검사 + IsLlmChatVisible 토글. -->
+            <Button Style="{StaticResource RibbonFlatButton}"
+                    Command="{Binding ToggleLlmChatCommand}"
+                    ToolTip="LLM Chat 패널 토글">
+                <StackPanel Orientation="Vertical">
+                    <iconPacks:PackIconMaterial Kind="Robot" Width="18" Height="18" HorizontalAlignment="Center">
+                        <iconPacks:PackIconMaterial.Style>
+                            <Style TargetType="iconPacks:PackIconMaterial">
+                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLlmChatVisible}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </iconPacks:PackIconMaterial.Style>
+                    </iconPacks:PackIconMaterial>
+                    <TextBlock Text="LLM" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
             <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">

@@ -71,6 +71,12 @@ public partial class MainWindow : Window
     /// <summary>
     /// 1d-5/1d-4 D — 명시적 cleanup 패턴: 첫 진입 시 close cancel + Dispose 후 Close() 재호출,
     /// 두 번째 진입 시 (`_llmChatDisposed=true`) 통과. async void Closed fire-and-forget 회피.
+    ///
+    /// Hot-fix-9 v2: 한 번 X 클릭만으로 발생하는 IsClosing race —
+    /// `e.Cancel = true` 후 await 이 끝난 시점에 같은 close 사이클의 `IsClosing` 가 아직 남아있어
+    /// `Close()` 가 `VerifyNotClosing` throw. v1 의 try/catch 는 throw 를 흡수만 해서 첫 X 무반응 → 두 번째 X
+    /// 시 _llmChatDisposed=true 분기로 close. 정확한 fix = `Dispatcher.BeginInvoke(Close, Background)` 로
+    /// 다음 message pump cycle 에 close 큐 → WPF 가 첫 close 사이클 정리 끝낸 후 background priority 로 실행.
     /// </summary>
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
@@ -84,7 +90,9 @@ public partial class MainWindow : Window
         e.Cancel = true;
         _llmChatDisposed = true;
         await _vm.DisposeLlmChatAsync();
-        Close();
+        // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
+        // fire-and-forget 의도 — DispatcherOperation 결과 무시.
+        _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private static readonly string[] SupportedExtensions =

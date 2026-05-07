@@ -136,6 +136,147 @@
                     </ScrollViewer>
                 </TabItem>
 
+                <!-- 탭 5: LLM (Phase 2 PR-B + PR-D) — API keys (DPAPI) / Models (editable ComboBox) / Ollama / Consent.
+                     Default provider 는 LLM Chat 패널 ComboBox 의 마지막 선택이 자동으로 영구 저장됨 (PR-D). -->
+                <TabItem Header="LLM">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <!-- API keys -->
+                            <TextBlock Text="API 키 (DPAPI 암호화 저장)"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <TextBlock Text="Anthropic API key" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="LlmAnthropicKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                <Button Grid.Column="2" Content="지우기"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LlmClearAnthropicKey_Click"/>
+                            </Grid>
+
+                            <TextBlock Text="OpenAI API key" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="LlmOpenAiKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                <Button Grid.Column="2" Content="지우기"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LlmClearOpenAiKey_Click"/>
+                            </Grid>
+
+                            <!-- Models -->
+                            <TextBlock Text="모델명"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <!-- Hot-fix-8 v3: IsEditable ComboBox quirks 회피 — TextBox + dropdown Button (▾) + ContextMenu.
+                                 Button click → 후보 ContextMenu 표시 → 선택 시 TextBox.Text 채움. 직접 입력도 가능. -->
+                            <TextBlock Text="Anthropic" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="LlmAnthropicModelBox" Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
+                                <Button Grid.Column="1" x:Name="LlmAnthropicCandidatesButton" Content="▾"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Margin="4,0,0,0"
+                                        Click="LlmAnthropicCandidates_Click"
+                                        ToolTip="추천 모델 후보"/>
+                            </Grid>
+
+                            <TextBlock Text="OpenAI" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="LlmOpenAiModelBox" Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
+                                <Button Grid.Column="1" x:Name="LlmOpenAiCandidatesButton" Content="▾"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Margin="4,0,0,0"
+                                        Click="LlmOpenAiCandidates_Click"
+                                        ToolTip="추천 모델 후보"/>
+                            </Grid>
+
+                            <TextBlock Text="Ollama" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="LlmOllamaModelBox" Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="모델 ID 직접 입력 (`ollama list` 결과 참조) 또는 ▾ 버튼"/>
+                                <Button Grid.Column="1" x:Name="LlmOllamaCandidatesButton" Content="▾"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Margin="4,0,0,0"
+                                        Click="LlmOllamaCandidates_Click"
+                                        ToolTip="추천 모델 후보"/>
+                            </Grid>
+
+                            <!-- Ollama base URL + 연결 확인 -->
+                            <TextBlock Text="Ollama base URL"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="LlmOllamaBaseUrlBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                <Button Grid.Column="2" Content="연결 확인"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LlmTestOllama_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="LlmOllamaTestResult"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic"/>
+
+                            <!-- Consent -->
+                            <TextBlock Text="데이터 전송 동의"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="LlmConsentStatusText" Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           TextWrapping="Wrap"/>
+                                <Button x:Name="LlmRevokeConsentButton" Grid.Column="2" Content="동의 철회"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LlmRevokeConsent_Click"/>
+                            </Grid>
+                            <TextBlock Text="동의 철회 시 LLM Chat 진입이 차단됩니다. 다음 진입 시 동의 다이얼로그가 다시 표시됩니다."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,4,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <!-- 탭 4: 프리셋 -->
                 <TabItem Header="프리셋">
                     <Grid Margin="10">

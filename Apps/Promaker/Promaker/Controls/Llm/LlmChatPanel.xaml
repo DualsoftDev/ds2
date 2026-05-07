@@ -6,6 +6,7 @@
              Foreground="{DynamicResource PrimaryTextBrush}">
     <UserControl.Resources>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- 다크 테마 친화 ChatTurn template (1d-4 D — 별도 Window 에서 dock 으로 이전) -->
         <Style x:Key="TurnListBoxStyle" TargetType="ListBox">
@@ -64,8 +65,17 @@
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="ChatBubbleTextStyle" TargetType="TextBlock">
+        <!-- PR-E (2): 부분 텍스트 selection 위해 read-only TextBox 사용 (WPF TextBlock 은 native selection 미지원).
+             Background/Border 제거로 시각적으로 TextBlock 과 동일. Cursor=IBeam 으로 선택 가능 시각 단서. -->
+        <Style x:Key="ChatBubbleTextStyle" TargetType="TextBox">
             <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="IsReadOnlyCaretVisible" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="IBeam"/>
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Role}" Value="user">
@@ -152,21 +162,85 @@
                       ToolTip="LLM provider 선택. 변경 시 새 CLI 검출 + 세션 초기화."/>
         </Grid>
 
-        <!-- Status -->
-        <TextBlock Grid.Row="1" Text="{Binding StatusText}" Margin="0,0,0,6"
-                   FontSize="11"
-                   Foreground="{DynamicResource SecondaryTextBrush}"
-                   TextTrimming="CharacterEllipsis"/>
+        <!-- Status + Thinking indicator (PR-F). Ev2.Oracle 의 3-dot blink 패턴 — IsSending 시 우측에 표시.
+             Storyboard 는 Loaded 시점부터 항상 도는데 컨테이너 Visibility 로 ON/OFF (CPU 비용 무시 수준). -->
+        <DockPanel Grid.Row="1" Margin="0,0,0,6" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="6,0,0,0"
+                        Visibility="{Binding IsSending, Converter={StaticResource BoolToVis}}">
+                <Ellipse Width="6" Height="6" Margin="2,0"
+                         Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                    <Ellipse.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     From="0.3" To="1.0" Duration="0:0:0.6"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Ellipse.Triggers>
+                </Ellipse>
+                <Ellipse Width="6" Height="6" Margin="2,0"
+                         Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                    <Ellipse.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever" AutoReverse="True" BeginTime="0:0:0.2">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     From="0.3" To="1.0" Duration="0:0:0.6"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Ellipse.Triggers>
+                </Ellipse>
+                <Ellipse Width="6" Height="6" Margin="2,0"
+                         Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                    <Ellipse.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever" AutoReverse="True" BeginTime="0:0:0.4">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     From="0.3" To="1.0" Duration="0:0:0.6"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Ellipse.Triggers>
+                </Ellipse>
+            </StackPanel>
+            <TextBlock Text="{Binding StatusText}"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"/>
+        </DockPanel>
 
-        <!-- Turns -->
-        <ListBox Grid.Row="2"
+        <!-- Turns. PR-E (1): VirtualizingPanel.ScrollUnit=Pixel 로 부드러운 scroll. -->
+        <ListBox x:Name="TurnsListBox" Grid.Row="2"
                  Style="{StaticResource TurnListBoxStyle}"
                  ItemContainerStyle="{StaticResource TurnContainerStyle}"
-                 ItemsSource="{Binding Turns}">
+                 ItemsSource="{Binding Turns}"
+                 VirtualizingPanel.ScrollUnit="Pixel"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <!-- PR-E (2): ListBox 자체 ContextMenu — 전체 대화 복사 / Markdown 내보내기 -->
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="전체 대화 복사" Command="{Binding CopyAllCommand}"/>
+                    <MenuItem Header="대화 내보내기 (.md)…" Command="{Binding ExportCommand}"/>
+                </ContextMenu>
+            </ListBox.ContextMenu>
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Border Style="{StaticResource ChatBubbleBorderStyle}">
-                        <TextBlock Text="{Binding Text}" Style="{StaticResource ChatBubbleTextStyle}"/>
+                        <!-- 부분 복사: read-only TextBox 의 selection + Ctrl+C. 전체 복사 / export 는 ListBox 의 ContextMenu.
+                             review #2 fix: TextBox 의 기본 ContextMenu (잘라내기/복사/붙여넣기) 를 비활성화해
+                             우클릭 시 visual tree 상위 ListBox.ContextMenu (전체 복사 / export) 가 표시되도록. -->
+                        <TextBox Text="{Binding Text, Mode=OneWay}" Style="{StaticResource ChatBubbleTextStyle}">
+                            <TextBox.ContextMenu>
+                                <x:Null/>
+                            </TextBox.ContextMenu>
+                        </TextBox>
                     </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
@@ -185,17 +259,25 @@
                  IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
                  PreviewKeyDown="InputBox_PreviewKeyDown"/>
 
-        <!-- Buttons -->
+        <!-- Buttons. PR-E (3): 단일 버튼이 IsSending 에 따라 "전송 (Enter)" ↔ "취소" 로 토글. 별도 취소 버튼 삭제. -->
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="초기화" Command="{Binding ResetCommand}"
                     Style="{StaticResource ChatButtonStyle}"
                     Width="72" Margin="0,0,6,0"/>
-            <Button Content="취소" Command="{Binding CancelCommand}"
-                    Style="{StaticResource ChatButtonStyle}"
-                    Width="72" Margin="0,0,6,0"/>
-            <Button Content="전송 (Enter)" Command="{Binding SendCommand}"
-                    Style="{StaticResource SendButtonStyle}"
-                    Width="120"/>
+            <Button Width="120">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource SendButtonStyle}">
+                        <Setter Property="Content" Value="전송 (Enter)"/>
+                        <Setter Property="Command" Value="{Binding SendCommand}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                <Setter Property="Content" Value="취소"/>
+                                <Setter Property="Command" Value="{Binding CancelCommand}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
         </StackPanel>
     </Grid>
 </UserControl>
