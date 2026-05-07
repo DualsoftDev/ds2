@@ -105,7 +105,10 @@ public partial class MainViewModel : ObservableObject
 
             if (!thenExit) return;
 
-            bool wasSending = false;
+            // SendCommand.Execute 의 동기 부분이 readyHandler 와 같은 dispatcher thread 에서 즉시 실행되어
+            // IsSending=true 가 이미 emit 된 상태로 여기 도달. 따라서 wasSending 초기값을 현 IsSending 으로
+            // 캐시 — 미캐시 시 후속 false transition 의 sendHandler 가 wasSending=false 로 단락 → Close 안됨.
+            bool wasSending = vm.IsSending;
             System.ComponentModel.PropertyChangedEventHandler? sendHandler = null;
             sendHandler = (_, e2) =>
             {
@@ -114,7 +117,7 @@ public partial class MainViewModel : ObservableObject
                 if (!wasSending) return;
                 vm.PropertyChanged -= sendHandler;
                 // 응답 마무리 (last AssistantDelta flush + Authoring "Executed" 로그) 의 background priority 작업이
-                // 끝난 후 close. 100ms 의 background hop = log4net flush 충분.
+                // 끝난 후 close. ApplicationIdle = 모든 priority 가 비었을 때 → log4net flush 충분.
                 _dispatcher.BeginInvoke(new Action(() =>
                     Application.Current.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
             };
