@@ -56,6 +56,7 @@ public partial class MainViewModel : ObservableObject
                 ShowSimulationScenariosCommand.NotifyCanExecuteChanged();
         };
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        Simulation.RuntimeIoChanged = ioValues => PropertyPanel.RefreshConditionRuntime(ioValues);
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();

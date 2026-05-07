@@ -68,7 +68,7 @@ module WorkConditionChecker =
         | Some (_, _, preds) -> checkPredecessorCondition index state preds Status4.Going List.exists
         | None -> false
 
-    /// 조건 스펙 평가 (RxWork 상태 + ValueSpec 비교)
+    /// 단일 ConditionEntry 평가 (RxWork 상태 + ValueSpec 비교)
     let checkConditionSpec (state: SimState) (spec: ConditionEntry) : bool =
         if ValueSpec.isFalse spec.InputSpec then
             state.WorkStates |> Map.tryFind spec.RxWorkGuid = Some Status4.Ready
@@ -79,17 +79,25 @@ module WorkConditionChecker =
                 | Some apiCallGuid ->
                     match state.IOValues |> Map.tryFind apiCallGuid with
                     | Some currentValue -> ValueSpec.evaluate spec.InputSpec currentValue
-                    | None -> false   // IO 값 미설정 — 사용자가 spec 으로 명시한 조건이 검증 안 된 상태라 차단.
-                                       // 이전엔 true (false-positive) 였음 — 첫 사이클 통과 후 두 번째부터 stale 값으로
-                                       // 차단되는 일관성 깨짐 유발. 명시 spec 있으면 IO 값 매칭이 확인되어야 통과.
-                | None -> true   // ApiCallGuid 없는 spec — IO 비교 대상 없음. RxWork Finish 만 검사.
+                    | None -> false
+                | None -> true
             | _ -> false
+
+    /// ConditionExpression 트리 평가 — cc.IsOR 보존된 And/Or 노드 재귀 처리.
+    /// 빈 And 는 true (조건 없음 통과), 빈 Or 는 false.
+    let rec evaluateConditionExpression (state: SimState) (expr: ConditionExpression) : bool =
+        match expr with
+        | Leaf entry -> checkConditionSpec state entry
+        | And exprs -> exprs |> List.forall (evaluateConditionExpression state)
+        | Or exprs ->
+            if exprs.IsEmpty then false
+            else exprs |> List.exists (evaluateConditionExpression state)
 
     /// SkipUnmatch: ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
     let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
-        let skipSpecs = SimIndex.findOrEmpty callGuid index.CallSkipUnmatchConditions
-        if skipSpecs.IsEmpty then false
-        else not (skipSpecs |> List.forall (checkConditionSpec state))
+        match index.CallSkipUnmatchConditions |> Map.tryFind callGuid with
+        | Some (And []) | None -> false
+        | Some expr -> not (evaluateConditionExpression state expr)
 
     /// Call 시작 가능 여부 (Work G + 선행 Call F + AutoAux/ComAux 조건)
     let canStartCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
@@ -103,10 +111,11 @@ module WorkConditionChecker =
         if not basicOk then false
         elif shouldSkipCall index state callGuid then true
         else
-            let autoAuxSpecs = SimIndex.findOrEmpty callGuid index.CallAutoAuxConditions
-            let comAuxSpecs = SimIndex.findOrEmpty callGuid index.CallComAuxConditions
-            (autoAuxSpecs |> List.forall (checkConditionSpec state)) &&
-            (comAuxSpecs |> List.forall (checkConditionSpec state))
+            let evalExpr exprMap =
+                match Map.tryFind callGuid exprMap with
+                | Some expr -> evaluateConditionExpression state expr
+                | None -> true
+            evalExpr index.CallAutoAuxConditions && evalExpr index.CallComAuxConditions
 
     /// Call 완료 가능 여부 (RxWork 모두 F + WaitForCompletion 시 epoch 체크)
     let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =

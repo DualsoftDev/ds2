@@ -213,11 +213,15 @@ internal static class FormulaColorizer
     private static readonly Brush ValueBrush    = new SolidColorBrush(Color.FromRgb(0xCE, 0x91, 0x78)); // orange — string/value
     private static readonly Brush RisingBrush   = new SolidColorBrush(Color.FromRgb(0x56, 0x9C, 0xD6)); // blue — keyword
     private static readonly Brush EmptyBrush    = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)); // gray
+    private static readonly Brush MatchedBrush  = new SolidColorBrush(Color.FromRgb(0x6A, 0x99, 0x55)); // green — runtime match ✓
+    private static readonly Brush MismatchBrush = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47)); // red — runtime mismatch ✗
+    private static readonly Brush NeutralBrush  = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)); // gray — runtime info
 
     static FormulaColorizer()
     {
         NameBrush.Freeze(); OperatorBrush.Freeze(); ParenBrush.Freeze();
         ValueBrush.Freeze(); RisingBrush.Freeze(); EmptyBrush.Freeze();
+        MatchedBrush.Freeze(); MismatchBrush.Freeze(); NeutralBrush.Freeze();
     }
 
     public static void BuildInlines(CallConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)

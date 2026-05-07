@@ -47,6 +47,32 @@ public partial class SimulationPanelState : ObservableObject
     private long _simUiGeneration;
     private ISceneEventHandler? _sceneEventHandler;
 
+    /// <summary>
+    /// 시뮬 IO 값이 갱신될 가능성이 있는 시점 (Work/Call 상태 전이) 에 호출되는 후크.
+    /// MainViewModel 에서 PropertyPanel.RefreshConditionRuntime 으로 wiring.
+    /// 인자: 현재 IO 스냅샷 (시뮬 미실행이면 null).
+    /// </summary>
+    public Action<IReadOnlyDictionary<Guid, string>?>? RuntimeIoChanged { get; set; }
+
+    private void NotifyRuntimeIoChanged()
+    {
+        if (RuntimeIoChanged is null) return;
+        var snapshot = GetIoValuesSnapshot();
+        RuntimeIoChanged(snapshot);
+    }
+
+    /// <summary>현재 시뮬 엔진의 IOValues 를 C# Dictionary 로 스냅샷. 미실행이면 null.</summary>
+    public IReadOnlyDictionary<Guid, string>? GetIoValuesSnapshot()
+    {
+        var engine = _simEngine;
+        if (engine is null) return null;
+        var map = engine.State.IOValues;
+        var dict = new Dictionary<Guid, string>(capacity: 16);
+        foreach (var kv in map)
+            dict[kv.Key] = kv.Value;
+        return dict;
+    }
+
     private static class SimText
     {
         public const string Running = "시뮬레이션 동작 중";
