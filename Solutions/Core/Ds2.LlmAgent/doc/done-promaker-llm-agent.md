@@ -2387,3 +2387,305 @@ reviewer 도 "CLAUDE.md 예외 처리 자제 철학과 충돌하므로 try/catch
 - Promaker.sln 빌드 통과 (경고 0 / 오류 0, OllamaSharp source generator analyzer 경고 2건은 .NET 10 SDK 도입 시 자연 해소)
 - Ds2.LlmAgent.Tests 92/92 통과 (회귀 0)
 - 외부 시그니처 100% 보존 (`AnthropicKey` / `OpenAiKey` 의 noun 변경 없음, `Create*Async` 의 인자 / 반환 형 동일)
+
+# Phase 2 UI/설정 정비 — PR-A/B/C 통합 사이클 (2026-05-07 완료)
+
+사용자가 UI / 설정 전반 조정 시점 지시. 의사결정 4건 합의 후 순차 진행.
+
+## 사용자 결정 사항
+
+| 결정 항목 | 선택 |
+|---|---|
+| 설정 디렉토리 통합 | ✅ 진행 (`%APPDATA%\Promaker\` → `%APPDATA%\Dualsoft\Promaker\Settings\`). 마이그레이션 코드 없음 (배포 전) |
+| Toolbar LLM 버튼 | ✅ (b) 토글 버튼 추가 + 유틸 popup LLM Chat 항목 제거 |
+| LLM 파일 2개 (`llm-config.json` + `llm-api-config.json`) | ✅ 단일 통합 |
+| 아이콘 | Robot |
+| Default provider 변경 적용 | 즉시 (turn 중일 시 disable) |
+| Ollama 연결 확인 버튼 | 포함 |
+| API key 즉시 검증 | 보류 |
+
+## PR-A — 설정 통합 (LlmConfig + SettingsPaths)
+
+### 산출물
+- 신규: `Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs` (185 LoC) — Consent + Provider 통합 instance class
+  - 8 필드 flat JSON: `dataEgressConsent` / `consentTimestampUtc` / `defaultProvider` / `encryptedKeys` / `anthropicModel` / `openAiModel` / `ollamaModel` / `ollamaBaseUrl`
+  - `ConfigPath` = `SettingsPaths.Of("llm-config.json")` → `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json`
+  - `Load()` (corrupt JSON `.bak` 백업 + default), `Save()` (lock + atomic `.tmp-<pid>` + Move)
+  - `IsConsentGranted()` / `GrantConsent()` / **static** `EnsureGranted()` (다이얼로그 헬퍼, MessageBox 표시)
+  - `GetApiKey(key)` / `SetApiKey(key, plain)` / `HasApiKey(key)` — DPAPI (`ProtectedData.Protect` CurrentUser + entropy `"Promaker.LlmApi.v1"` + base64)
+- 삭제: `Apps/Promaker/Promaker/LlmAgent/LlmConsent.cs` (115 LoC)
+- 삭제: `Apps/Promaker/Promaker/LlmAgent/Api/LlmApiConfig.cs` (110 LoC)
+
+### 호출자 4곳 갱신
+- `MainViewModel.OpenLlmChat:266`: `LlmConsent.EnsureGranted()` → `LlmConfig.EnsureGranted()` (static helper)
+- `LlmChatViewModel.InitializeAsync:122`: `LlmConsent.IsGranted()` → `_config.IsConsentGranted()`
+- `LlmChatViewModel.cs` 의 `_apiConfig` 6 곳 → `_config` (sed bulk rename, `LlmConfig` 이 `LlmApiConfig` 의 `GetApiKey` / `AnthropicModel` / `OpenAiModel` / `OllamaBaseUrl` / `OllamaModel` 인터페이스 보존)
+
+### 구조 변경
+- `_config` readonly → 일반 필드 (PR-B 의 `ReloadConfig` 가 reassign)
+- `LlmChatViewModel` Constructor: `Enum.TryParse<LlmProviderKind>(_config.DefaultProvider, ignoreCase:true, out var k)` → `SelectedProvider = k` (사용자별 default 보존, `_mcpConfig == null` 가드로 첫 init 시 ConfigureProviderAsync 미호출)
+
+## PR-B — 설정 다이얼로그 LLM 탭
+
+### XAML
+`ProjectPropertiesDialog.xaml` 5번째 탭 "LLM" (4 탭 → 5 탭, "프리셋" 앞에 삽입). 항목:
+
+1. **Default provider** ComboBox — Tag 별 5종 (Claude/Codex/AnthropicApi/OpenAiApi/Ollama). turn 중 disable
+2. **API keys** PasswordBox 2개 (Anthropic / OpenAI) + 각 "지우기" 버튼
+3. **Models** TextBox 3개 (Anthropic / OpenAI / Ollama)
+4. **Ollama base URL** TextBox + "연결 확인" 버튼 + 결과 hint TextBlock
+5. **Consent 상태** TextBlock + "동의 철회" 버튼 + 안내문
+
+### Code-behind
+- ctor 인자 `LlmChatViewModel? llmChatVm = null` 추가 (default null — 다른 진입점 호환)
+- `_llmConfig = LlmConfig.Load()` 인스턴스 필드
+- `LlmConfigChanged` 공개 flag (호출자가 `LlmChatVm.ReloadConfig()` 트리거 판단)
+- `LoadLlmTab()` — UI 채우기 (DPAPI 복호화 후 PasswordBox 에 평문 표시 — 사용자 검증 가능). turn 중 ComboBox disable
+- `LlmTestOllama_Click` async — `HttpClient.GetAsync($"{url}/api/version")` 3초 timeout, ✅/❌ + body 표시
+- `LlmRevokeConsent_Click` — `_llmConfig.DataEgressConsent = false` + Save + UpdateConsentStatus + Warn 메시지
+- `SaveLlmTab()` — Ok_Click 안에서 호출. 8 필드 모두 `_llmConfig` 갱신 + Save + LlmConfigChanged=true
+
+### LlmChatViewModel 측
+- `ReloadConfig()` 신규 (`public void`):
+  - `_config = LlmConfig.Load()` reassign
+  - `Enum.TryParse<LlmProviderKind>(_config.DefaultProvider)` 새 kind 추출
+  - 새 kind 가 SelectedProvider 와 다르고 `!IsSending` 이면 `SelectedProvider = newKind` (OnSelectedProviderChanged → ConfigureProviderAsync)
+  - 모델명 / API key / Ollama URL 변경은 다음 turn 의 `CreateXxxApiProviderAsync` 가 자연 반영 (인스턴스 필드 참조)
+
+### FileCommands.ShowProjectSettings 갱신
+- `new ProjectPropertiesDialog(project.Name, _store, LlmChatVm)` ← LlmChatVm 전달
+- close 후 `if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig()`
+
+## PR-C — Toolbar LLM 토글 버튼 (Robot)
+
+### XAML 변경
+- `MainToolbarEtcContent.xaml` 우측 toolbar — 라이트 버튼 직전에 LLM 토글 버튼 추가 (4 → 5 버튼)
+- 라이트 버튼 패턴 일관: 일반 `Button` + `Command="{Binding ToggleLlmChatCommand}"` + 아이콘 `Style.Triggers` `DataTrigger Binding="{Binding IsLlmChatVisible}" Value="True"` 시 `Foreground="{DynamicResource AccentBrush}"`
+- 아이콘 = `PackIconMaterial Kind="Robot"` (사용자 선택)
+- 유틸 popup 의 "LLM" Separator + 헤더 + "LLM Chat (토글)" Button **모두 제거** (진입점 분산 회피)
+
+### ToggleButton vs Button 트레이드오프
+처음에 `ToggleButton + IsChecked="{Binding IsLlmChatVisible, Mode=OneWay}"` 검토. 단점:
+- click 시 ToggleButton 의 default IsChecked 토글 (target side) + Command.Execute → IsLlmChatVisible 토글 → OneWay binding 강제 갱신. 두 번 toggle = 시각 깜빡임 가능
+- 라이트 버튼이 일반 Button + DataTrigger 패턴이라 일관성 ↑
+
+→ Button + DataTrigger 채택. active 시 `Foreground=AccentBrush` 로 시각 가시 + click 동작 단순.
+
+## 빌드 / 테스트 결과
+- Promaker.sln 빌드 통과 (경고 0 / 오류 0, OllamaSharp analyzer CS9057 2건 무관)
+- Ds2.LlmAgent.Tests **92/92** 통과 (회귀 0)
+- 외부 시그니처 보존 (`ProjectPropertiesDialog` ctor 의 새 인자는 default null — 기존 호출자 영향 없음, `LlmChatViewModel` 의 새 `ReloadConfig()` 만 추가)
+
+## 사용자 e2e 검증 권장
+1. **설정 다이얼로그 LLM 탭 표시** — 메뉴 "설정" → "LLM" 탭 진입 + 5 항목 모두 표시
+2. **API key 입력 + Save** — Anthropic API key 입력 → 확인 → 다이얼로그 close → LLM Chat 패널의 "AnthropicApi" 선택 시 정상 호출 (env 설정 X 시에도 동작)
+3. **Default provider 저장 + 재시작** — `AnthropicApi` 저장 → Promaker 재시작 → LLM Chat 패널 ComboBox 의 초기 선택값이 `AnthropicApi`
+4. **Default provider 즉시 갱신** — turn 진행 중이 아닐 때 다이얼로그에서 변경 → OK → LLM Chat 패널 ComboBox 즉시 갱신 + 새 provider 활성화
+5. **Default provider turn 중 disable** — LLM Chat 의 turn 진행 중 다이얼로그 → LLM 탭 → ComboBox 가 회색 (disable)
+6. **Ollama 연결 확인** — 서버 미구동 시 ❌ + connection refused / 구동 시 ✅ + version body
+7. **동의 철회 후 재진입** — LLM 탭 → 동의 철회 → toolbar Robot 버튼 클릭 → 동의 다이얼로그 재표시
+8. **Toolbar LLM 토글 active 색** — Chat 패널 visible 시 Robot 아이콘이 AccentBrush 색, hide 시 IconGrayBrush
+
+## 의도적 미적용
+- API key 즉시 검증 (Anthropic / OpenAI ping) — 사용자 결정 보류 (비용 발생 + 의도 불일치)
+- LLM Chat 패널 안 직접 API key 입력 — 다이얼로그로 단일화
+- 설정 디렉토리 마이그레이션 코드 — 배포 전이라 불필요
+- 다른 LLM 설정 (system prompt override / throttle ms) — 후속 추가 가능
+
+# PR-D — DefaultProvider UI 통합 + 모델 ComboBox IsEditable (2026-05-07 완료)
+
+PR-A/B/C 통합 사이클 e2e 1차 직후 사용자 피드백:
+1. "기본 provider" 와 "마지막 선택된 provider" 가 의미적으로 동일 — 별도 UI 항목 불필요
+2. 모델 선택 = TextBox 직접 입력만 가능 → ComboBox + 직접 입력 (IsEditable) 으로 후보 추천 + 자유 입력 모두
+
+## 변경 1 — DefaultProvider UI 삭제 + 자동 저장
+
+### LlmChatViewModel.OnSelectedProviderChanged 갱신
+```csharp
+partial void OnSelectedProviderChanged(LlmProviderKind value)
+{
+    if (_mcpConfig == null) return;
+    _config.DefaultProvider = value.ToString();
+    try { _config.Save(); }
+    catch (Exception ex) { Log.Warn("DefaultProvider 저장 실패", ex); }
+    _ = ConfigureProviderAsync(value);
+}
+```
+
+LLM Chat 패널 ComboBox 의 사용자 변경이 곧 disk 영구 저장 → 다음 Promaker 시작 시 ctor 의 `Enum.TryParse<LlmProviderKind>(_config.DefaultProvider)` 가 그 값을 SelectedProvider 초기값으로 set. **마지막 선택 = 다음 default** 자연 일치. 별도 "기본 Provider" 입력 UI 불필요.
+
+### ProjectPropertiesDialog 의 LLM 탭 변경
+- 라벨 "기본 Provider" 삭제
+- ComboBox `LlmDefaultProviderBox` (5 ComboBoxItem) 삭제
+- Hint TextBlock `LlmDefaultProviderHint` 삭제
+- code-behind 의 LoadLlmTab / SaveLlmTab 의 LlmDefaultProviderBox 처리 코드 모두 제거
+
+### 부수 cleanup
+- `ProjectPropertiesDialog` ctor 의 `LlmChatViewModel? llmChatVm = null` 인자 제거 — DefaultProvider ComboBox disable 외 사용처 없음 (CLAUDE.md "추가 안 함" 원칙)
+- `_llmChatVm` 필드 삭제
+- `FileCommands.ShowProjectSettings` 의 `new ProjectPropertiesDialog(project.Name, _store, LlmChatVm)` → `new ProjectPropertiesDialog(project.Name, _store)`
+- `LlmChatViewModel.ReloadConfig()` = `_config = LlmConfig.Load()` 1줄 (expression-bodied) — DefaultProvider 동기화 코드 제거 (다이얼로그가 안 건드리므로 무의미)
+
+## 변경 2 — 모델 IsEditable ComboBox
+
+### XAML
+```xml
+<TextBox x:Name="LlmAnthropicModelBox" .../>
+<!-- ↓ -->
+<ComboBox x:Name="LlmAnthropicModelBox" IsEditable="True" Padding="6,4" .../>
+```
+
+`IsEditable="True"` = ComboBox 가 후보 표시 + 자유 텍스트 입력 둘 다 허용. WPF 의 `ComboBox.Text` 는 IsEditable 시 사용자 입력값 (선택 또는 직접). x:Name 보존 → Save 측 코드 `LlmAnthropicModelBox.Text` 자연 호환.
+
+### Code-behind 후보 데이터
+```csharp
+private static readonly string[] AnthropicModelCandidates = {
+    "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",
+};
+private static readonly string[] OpenAiModelCandidates = {
+    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-mini",
+};
+private static readonly string[] OllamaModelCandidates = {
+    "llama3.1", "llama3.2", "mistral-small", "qwen2.5",
+};
+```
+
+### LoadLlmTab helper
+```csharp
+private static void SetEditableComboBox(ComboBox box, string[] candidates, string currentValue)
+{
+    box.ItemsSource = candidates;
+    box.Text = currentValue;
+}
+```
+
+후보에 없는 사용자 임의 입력값 (예: 새 모델 ID) 도 Text 로 그대로 보존. Save 시 Text trim 후 저장.
+
+## 결과
+
+- Promaker.sln 빌드 통과 (경고 0 / 오류 0)
+- Ds2.LlmAgent.Tests **92/92** 유지 (회귀 0)
+- LLM 탭 = 6 항목 → 5 항목 (DefaultProvider 삭제) + 모델 3종이 IsEditable ComboBox
+
+## 사용자 e2e 검증 권장 (PR-D 추가)
+
+1. **DefaultProvider 통합**: LLM Chat 패널 ComboBox 에서 `AnthropicApi` 선택 → Promaker 종료 → 재시작 → ComboBox 가 `AnthropicApi` 로 시작 (별도 다이얼로그 변경 없이도 자연 영구 저장)
+2. **모델 ComboBox 펼침**: 설정 → LLM 탭 → 각 모델 ComboBox 펼침 → 후보 표시 + 직접 입력 가능
+3. **임의 입력값 보존**: 모델 ComboBox 에 후보 외 값 (예: `claude-3-5-sonnet-20241022`) 직접 입력 → OK → 재진입 → 그 값 그대로 표시
+
+# PR-E (UX 정비) + PR-F (Thinking animation) + Hot-fix-7/8/9 + review 반영 (2026-05-07 완료)
+
+PR-D 후 사용자 e2e 검증 사이클 진행. UX 요청 4건 (PR-E) + thinking animation (PR-F) + e2e 발견 functional bug 3건 (Hot-fix-7/8/9) + review 반영 통합.
+
+## PR-E — LLM chat panel UX 4건
+
+| # | 변경 | 구현 |
+|---|---|---|
+| 1 | 부드러운 scroll | ListBox 에 `VirtualizingPanel.ScrollUnit="Pixel"` (item 단위 → 픽셀 단위) |
+| 2 | 텍스트 selection + 우클릭 export | TextBlock → read-only TextBox 패턴 (`Background=Transparent` / `BorderThickness=0` / `Cursor=IBeam`). `TextBlock.IsTextSelectionEnabled` 가 .NET 9 WPF 미지원 발견 → TextBox 로 fix. `<TextBox.ContextMenu><x:Null/></TextBox.ContextMenu>` 로 TextBox 기본 메뉴 차단 → ListBox.ContextMenu 가 우클릭 시 표시 (review #2 fix) |
+| 2b | 대화 내보내기 (Markdown) | ListBox.ContextMenu — "전체 대화 복사" + "대화 내보내기 (.md)…". `LlmChatViewModel.CopyAllCommand` / `ExportCommand` + `BuildMarkdownTranscript()` (`# header + ## role` 형식 + UTC timestamp) |
+| 3 | 전송 ↔ 취소 토글 | 단일 Button + `Style.Triggers.DataTrigger Binding=IsSending Value=True` → Content "취소" + Command CancelCommand. 별도 취소 버튼 삭제 |
+
+## PR-F — Thinking animation (Ev2.Oracle 패턴 포팅)
+
+Ev2.Oracle Backend web 의 `#typing-indicator` (3 dot blink, 1.2s 주기, delay 0/0.2/0.4s) 를 WPF Storyboard 로 포팅.
+
+- `LlmChatPanel.xaml` status row 를 `DockPanel` 로 변경 (LastChildFill=True + 우측 ThinkingIndicator)
+- 3 `Ellipse` (W6 H6 + AccentBrush + Opacity 0.3 init) + 각 Ellipse `EventTrigger Loaded` → `BeginStoryboard`
+- `Storyboard RepeatBehavior="Forever" AutoReverse="True"` + `DoubleAnimation Opacity 0.3 → 1.0 Duration=0:0:0.6` (1.2s 주기)
+- 각 Ellipse 의 BeginTime 0/0.2s/0.4s 로 순차 점멸
+- 컨테이너 `Visibility = IsSending → Visible` (`BooleanToVisibilityConverter` 신규 등록)
+- Storyboard 자체는 Forever 도는데 Visibility 만 ON/OFF (CPU 비용 무시 — 단지 Opacity 1 property 변경)
+
+## Hot-fix-7 — LlmChatVm._store stale reference
+
+### 문제
+사용자가 LLM Chat 패널 열어둔 상태에서 새 프로젝트 생성 → Codex 가 add_system tool 호출 → `Queries.allProjects(store) = []` → `invalidOp "프로젝트가 없습니다"` throw.
+
+### Root cause
+`MainViewModel.Reset()` 가 `_store = new DsStore()` reassign — `LlmChatViewModel._store` 는 ctor 시점의 old reference 라 stale.
+
+### Fix
+- `LlmChatViewModel._store` readonly 해제 + `UpdateStore(DsStore)` public 메서드 추가
+- `ReferenceEquals` noop 가드 + `Cancel() + _provider?.ClearSession() + _store=newStore + SessionId=null + status` 안내
+- `MainViewModel.Reset()` 의 `_store = new DsStore()` 직후 `LlmChatVm?.UpdateStore(_store)`
+
+## Hot-fix-8 — 모델 ComboBox selection 반영 (3 시도)
+
+### 문제
+사용자가 LLM 탭 모델 ComboBox 의 dropdown 에서 후보 클릭해도 본체에 표시 안 됨 (empty).
+
+### v1 — SelectionChanged 핸들러 (실패)
+`box.SelectionChanged += (s,e) => box.Text = box.SelectedItem` 명시 동기화. 효과 없음.
+
+### v2 — Items.Add + IsTextSearchEnabled (실패)
+CallCreateDialog 의 동작 사례 (`IsTextSearchEnabled="True" + StaysOpenOnEdit="True" + Items.Add` 대신 `ItemsSource`) 따라감. 그래도 효과 없음.
+
+### v3 — IsEditable ComboBox 폐기, TextBox + ▾ Button + ContextMenu 채택 (성공)
+WPF `IsEditable=True` ComboBox 의 quirks 완전 회피.
+```xml
+<Grid>
+    <TextBox x:Name="LlmAnthropicModelBox" Padding="6,4" FontFamily="Consolas"/>
+    <Button Content="▾" Click="LlmAnthropicCandidates_Click" .../>
+</Grid>
+```
+- `LlmAnthropicCandidates_Click` / `LlmOpenAiCandidates_Click` / `LlmOllamaCandidates_Click` 각각 `ShowCandidatesMenu(sender, target, candidates)` 위임
+- `ShowCandidatesMenu`: 동적 `ContextMenu` 생성 + 후보별 MenuItem.Click → `target.Text = c` + `PlacementTarget=btn, Placement=Bottom, IsOpen=true`
+- 직접 입력은 TextBox 그대로
+- `SetEditableComboBox` / helper 메서드들 모두 제거 (코드 단순화)
+
+## Hot-fix-9 — Window_Closing IsClosing race (2 시도)
+
+### 문제
+사용자가 X 한 번 클릭 → `Window.InternalClose` 의 `VerifyNotClosing()` throw → 첫 X 무반응 → 두 번째 X 만 close.
+
+### v1 — try/catch + noop (잘못된 가설)
+race (await 중 두 번째 X) 라고 추정 → catch 만 하니 throw 흡수만 → 첫 X 무반응 부작용.
+
+### v2 — Dispatcher.BeginInvoke(Close, Background) (정확한 fix)
+`e.Cancel=true` 후 await 끝난 시점 같은 close 사이클의 `IsClosing` 가 아직 true → 같은 cycle 안 `Close()` 가 throw.
+다음 message pump cycle (DispatcherPriority.Background) 에 close 큐 → WPF 가 첫 close 사이클 정리 끝낸 후 안전 close.
+```csharp
+e.Cancel = true;
+_llmChatDisposed = true;
+await _vm.DisposeLlmChatAsync();
+_ = Dispatcher.BeginInvoke(new Action(Close), DispatcherPriority.Background);
+```
+
+## Review 반영 (functional bug fix)
+
+### (1) ReloadConfig 활성 provider 재구성 (functional bug)
+`Create*ApiProviderAsync` 는 `ConfigureProviderAsync` 시점에만 호출 → 활성 provider 의 model/key 가 baked-in. 사용자가 LLM 탭에서 모델 변경해도 ComboBox 다른 provider 갔다 와야만 적용됐음.
+fix:
+```csharp
+public void ReloadConfig()
+{
+    _config = LlmConfig.Load();
+    if (_mcpConfig != null) _ = ConfigureProviderAsync(SelectedProvider);
+}
+```
+`_switchCounter` race 가드가 이미 있어 중복 안전.
+
+### (2) SaveLlmTab dirty 비교
+DPAPI 재암호화는 매번 다른 ciphertext → EncryptedKeys 변경만으로는 dirty 판단 불가. plaintext 6 필드 비교 (PasswordBox.Password 2 + 모델 3 + URL 1) → 변경 없으면 Save / LlmConfigChanged 미설정 → (1) 의 불필요한 provider 재구성 회피.
+
+### (3) Ollama 연결 확인 catch filter
+`catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)` — OOM/StackOverflow 등 시스템 예외는 흡수 안 하고 즉시 throw → 진단 용이성 보존.
+
+### Review 보류
+- (4) `OnSelectedProviderChanged` try/catch — fire-and-forget context fail-safe 합당. CLAUDE.md "예외 처리 자제" 와 약간 충돌이지만 unobserved task 방어로 그대로
+- (5) Storyboard 항상 회전 — Opacity 1 property 변경 비용 무시 (PR-F 의 코멘트 명시)
+- (6) 모델 후보 SSOT 분산 — 4 strings 하드코드, 두 곳 갱신 부담 작음. 후속 패스 후보
+
+## 결과
+- Promaker.sln 빌드 통과 (경고 0 / 오류 0, OllamaSharp analyzer CS9057 무관)
+- Ds2.LlmAgent.Tests **92/92** 유지 (회귀 0)
+- 외부 시그니처 보존 (`LlmChatViewModel.UpdateStore` / `ReloadConfig` 새 추가만)
+
+## 사용자 e2e 검증 권장
+1. LLM Chat 패널 → "파일 → 새로 만들기" → status "프로젝트 변경 — 다음 turn 부터 새 store 사용" → 같은 패널에서 `add_system` 정상 동작 (Hot-fix-7)
+2. 모델 ▾ Button 클릭 → 후보 ContextMenu → 선택 시 TextBox 즉시 채워짐 + 직접 입력도 정상 (Hot-fix-8 v3)
+3. X 한 번 클릭으로 정상 종료 (Hot-fix-9 v2)
+4. LLM 탭 → 모델 변경 → OK → 다음 turn 에 즉시 새 모델 호출 (review (1))
+5. LLM 탭 변경 없이 OK → ReloadConfig 호출 안 됨 (review (2) — status 미변화)
+6. Ollama URL `htp://...` 입력 → "❌ 연결 실패" UriFormatException 표시 (review (3))

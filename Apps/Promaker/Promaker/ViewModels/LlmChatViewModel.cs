@@ -40,7 +40,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LlmChatViewModel));
 
-    private readonly DsStore _store;
+    /// <summary>현재 active DsStore. <see cref="MainViewModel.Reset"/> 에서 reassign 시 <see cref="UpdateStore"/> 로 동기화.
+    /// readonly 가 아닌 사유: 새 프로젝트 시 MainViewModel._store 가 새 인스턴스로 교체되는데 본 VM 의 reference 가 stale 되면
+    /// `Queries.allProjects(store)` 가 empty 반환 → tool 호출 시 "프로젝트가 없습니다" throw (Hot-fix-7).</summary>
+    private DsStore _store;
     private readonly IUiDispatcher _dispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
@@ -57,8 +60,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private string? _codexInstructionsPath;
     private ILlmProvider? _provider;
 
-    /// <summary>API key + 모델명 + base URL 등 user-scope 설정. DPAPI 로 key 만 암호화.</summary>
-    private readonly LlmApiConfig _apiConfig = LlmApiConfig.Load();
+    /// <summary>Consent + API key + 모델명 + base URL + DefaultProvider 통합 user-scope 설정. DPAPI 로 key 만 암호화.
+    /// readonly 가 아닌 사유: <see cref="ReloadConfig"/> 가 설정 다이얼로그 close 후 새 인스턴스로 reassign.</summary>
+    private LlmConfig _config = LlmConfig.Load();
 
     /// <summary>
     /// Provider 전환 race 가드 — `OnSelectedProviderChanged` 가 빠르게 두 번 호출되어도 stale 결과로
@@ -112,6 +116,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _dispatcher = new WpfDispatcherAdapter(Dispatcher.CurrentDispatcher);
+        // PR-A: 시작 시 사용자 default provider 적용. _mcpConfig 미초기화 상태라 OnSelectedProviderChanged 가
+        // ConfigureProviderAsync 호출하지 않음 — 안전. InitializeAsync 가 SelectedProvider 값으로 첫 구성.
+        if (Enum.TryParse<LlmProviderKind>(_config.DefaultProvider, ignoreCase: true, out var defaultKind))
+            SelectedProvider = defaultKind;
         _ = InitializeAsync();
     }
 
@@ -119,7 +127,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     {
         // Defense-in-depth (1d-4 E): OpenLlmChat 진입점이 1차 차단하나 다른 진입점 추가 시 안전망.
         // 거부 상태에서는 MCP host 도 띄우지 않아 LLM tool 호출 자체가 불가.
-        if (!LlmConsent.IsGranted())
+        if (!_config.IsConsentGranted())
         {
             StatusText = "LLM 데이터 전송 동의 미완료 — LLM Chat 메뉴 재진입 시 다이얼로그 표시";
             Turns.Add(new ChatTurn { Role = "system", Text = StatusText });
@@ -306,10 +314,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     private async Task<ILlmProvider> CreateAnthropicApiProviderAsync()
     {
-        var apiKey = _apiConfig.GetApiKey(ApiProviderFactory.AnthropicKey)
+        var apiKey = _config.GetApiKey(ApiProviderFactory.AnthropicKey)
                      ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
                      ?? "";
-        var model = _apiConfig.AnthropicModel;
+        var model = _config.AnthropicModel;
         return await ApiProviderFactory.CreateAnthropicAsync(
             apiKey: apiKey,
             model: model,
@@ -321,10 +329,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// <summary>OpenAI API provider — 동일 패턴. API key fallback = OPENAI_API_KEY.</summary>
     private async Task<ILlmProvider> CreateOpenAiApiProviderAsync()
     {
-        var apiKey = _apiConfig.GetApiKey(ApiProviderFactory.OpenAiKey)
+        var apiKey = _config.GetApiKey(ApiProviderFactory.OpenAiKey)
                      ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
                      ?? "";
-        var model = _apiConfig.OpenAiModel;
+        var model = _config.OpenAiModel;
         return await ApiProviderFactory.CreateOpenAiAsync(
             apiKey: apiKey,
             model: model,
@@ -336,8 +344,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Ollama (local) — base URL + model name 만 필요. API key 없음.</summary>
     private async Task<ILlmProvider> CreateOllamaApiProviderAsync()
     {
-        var baseUrl = _apiConfig.OllamaBaseUrl;
-        var model = _apiConfig.OllamaModel;
+        var baseUrl = _config.OllamaBaseUrl;
+        var model = _config.OllamaModel;
         return await ApiProviderFactory.CreateOllamaAsync(
             baseUrl: baseUrl,
             model: model,
@@ -455,16 +463,96 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         StatusText = "세션 초기화 완료";
     }
 
+    /// <summary>전체 대화를 Markdown 형식으로 clipboard 에 복사 (Role 라벨 + 빈 줄 구분).</summary>
+    [RelayCommand]
+    private void CopyAll()
+    {
+        try { System.Windows.Clipboard.SetText(BuildMarkdownTranscript()); }
+        catch (Exception ex) { Log.Warn("clipboard 전체 복사 실패", ex); }
+    }
+
+    /// <summary>SaveFileDialog 로 사용자 지정 경로 (.md/.txt) 에 전체 대화 저장.</summary>
+    [RelayCommand]
+    private void Export()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "LLM 대화 내보내기",
+            Filter = "Markdown (*.md)|*.md|Text (*.txt)|*.txt|All files (*.*)|*.*",
+            FileName = $"llm-chat-{DateTime.Now:yyyyMMdd-HHmmss}.md",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            System.IO.File.WriteAllText(dlg.FileName, BuildMarkdownTranscript(), new System.Text.UTF8Encoding(false));
+            StatusText = $"대화 내보냄 — {dlg.FileName}";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("대화 내보내기 실패", ex);
+            StatusText = $"내보내기 실패: {ex.Message}";
+        }
+    }
+
+    private string BuildMarkdownTranscript()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# LLM Chat — {SelectedProvider}, session={SessionId ?? "(none)"}, exported {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+        foreach (var t in Turns)
+        {
+            sb.AppendLine($"## {t.Role}");
+            sb.AppendLine();
+            sb.AppendLine(t.Text);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 설정 다이얼로그 close 후 호출. disk 의 새 LlmConfig 를 메모리로 reload + **활성 provider 재구성**.
+    /// review (1): Create*ApiProviderAsync 는 ConfigureProviderAsync 시점에만 호출되므로 _config reassign 만으로
+    /// 활성 provider (이미 baked-in model/key) 는 재생성되지 않음. 사용자가 모델 / API key 변경해도 다음 turn 까지 옛 값 사용.
+    /// → ConfigureProviderAsync(SelectedProvider) 호출하여 활성 provider 도 새 _config 기반으로 재생성. _switchCounter
+    /// race 가드가 이미 있어 중복 호출 안전.
+    /// DefaultProvider 자체는 OnSelectedProviderChanged 에서 자동 저장되므로 SelectedProvider 동기화 불필요.
+    /// </summary>
+    public void ReloadConfig()
+    {
+        _config = LlmConfig.Load();
+        if (_mcpConfig != null) _ = ConfigureProviderAsync(SelectedProvider);
+    }
+
+    /// <summary>
+    /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
+    /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
+    /// </summary>
+    public void UpdateStore(DsStore newStore)
+    {
+        if (ReferenceEquals(_store, newStore)) return;
+        Cancel();
+        _provider?.ClearSession();
+        _store = newStore;
+        SessionId = null;
+        StatusText = "프로젝트 변경 — 다음 turn 부터 새 store 사용";
+    }
+
     partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
     partial void OnIsReadyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
 
     /// <summary>
     /// ComboBox 변경 시 provider 재구성. 첫 init 이전 (`_mcpConfig == null`) 에는 무시 — InitializeAsync 의
     /// ConfigureProviderAsync 가 SelectedProvider 기본값으로 처리.
+    ///
+    /// PR-D: 사용자 마지막 선택 = 다음 시작 시 default provider. SelectedProvider 변경 시 _config.DefaultProvider
+    /// 갱신 + Save → 별도 "기본 Provider" UI 불필요 (LLM 탭에서 항목 삭제됨).
     /// </summary>
     partial void OnSelectedProviderChanged(LlmProviderKind value)
     {
         if (_mcpConfig == null) return;
+        _config.DefaultProvider = value.ToString();
+        try { _config.Save(); }
+        catch (Exception ex) { Log.Warn("DefaultProvider 저장 실패", ex); }
         _ = ConfigureProviderAsync(value);
     }
 

@@ -263,7 +263,7 @@ public partial class MainViewModel : ObservableObject
         if (LlmChatVm == null)
         {
             // 첫 활성화 — consent 검사 후 lazy 생성. 거부 시 visibility 변경 없음.
-            if (!Promaker.LlmAgent.LlmConsent.EnsureGranted()) return;
+            if (!Promaker.LlmAgent.LlmConfig.EnsureGranted()) return;
             LlmChatVm = new LlmChatViewModel(_store);
         }
         IsLlmChatVisible = !IsLlmChatVisible;
@@ -484,6 +484,8 @@ public partial class MainViewModel : ObservableObject
 
         _store = new DsStore();
         WireEvents();
+        // Hot-fix-7: LLM Chat 의 _store reference 도 동기화. 새 프로젝트 추가가 LLM 측에 안 보이는 문제 회피.
+        LlmChatVm?.UpdateStore(_store);
 
         _currentFilePath = null;
         IsDirty = false;
