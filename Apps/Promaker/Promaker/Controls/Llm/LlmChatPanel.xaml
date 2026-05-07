@@ -9,6 +9,9 @@
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
+        <!-- LLM 에러 표시 색상 SSOT — Border / Foreground 양쪽에서 참조. 향후 테마 변경 시 본 한 줄만 수정. -->
+        <SolidColorBrush x:Key="LlmErrorBrush" Color="DarkOrange"/>
+
         <!-- 다크 테마 친화 ChatTurn template (1d-4 D — 별도 Window 에서 dock 으로 이전) -->
         <Style x:Key="TurnListBoxStyle" TargetType="ListBox">
             <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
@@ -48,6 +51,9 @@
                 <DataTrigger Binding="{Binding Role}" Value="thinking">
                     <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="error">
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -76,7 +82,21 @@
                     <Setter Property="Padding" Value="2,0"/>
                     <Setter Property="MaxWidth" Value="640"/>
                 </DataTrigger>
-                <!-- Thinking: 기본 assistant 버블 외형을 그대로 사용 (사용자 요구 = "normal"). 추가 setter 없음. -->
+                <!-- Thinking: 외형은 normal (텍스트 스타일 그대로) + 좌측 2px accent 색띠 (옵션 b). HistoryPanel IsLlmTurn 패턴 재활용. -->
+                <DataTrigger Binding="{Binding Role}" Value="thinking">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="BorderThickness" Value="2,0,0,0"/>
+                    <Setter Property="CornerRadius" Value="0"/>
+                    <Setter Property="Padding" Value="8,4"/>
+                </DataTrigger>
+                <!-- Error: dark orange 외곽선 + 동일 색 텍스트 (사용자 지정). [ERROR] / [provider error] / [ApplyImportPlan ERROR]. -->
+                <DataTrigger Binding="{Binding Role}" Value="error">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource LlmErrorBrush}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Setter Property="CornerRadius" Value="3"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -107,7 +127,12 @@
                     <Setter Property="FontSize" Value="11"/>
                     <Setter Property="FontStyle" Value="Italic"/>
                 </DataTrigger>
-                <!-- Thinking: 기본 PrimaryTextBrush 유지 (사용자 요구 = "Thinking : normal"). 별도 setter 없음. -->
+                <!-- Thinking: 기본 PrimaryTextBrush 유지 (사용자 요구 = "normal"). 시각 구분은 Border 좌측 색띠로 처리. -->
+                <!-- Error: dark orange 강조 + SemiBold. -->
+                <DataTrigger Binding="{Binding Role}" Value="error">
+                    <Setter Property="Foreground" Value="{StaticResource LlmErrorBrush}"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
