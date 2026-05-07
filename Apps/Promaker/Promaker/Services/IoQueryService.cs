@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
+using AAStoPLC.TagWizard;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Plc.Xgi;
@@ -12,7 +14,7 @@ namespace Promaker.Services;
 /// I/O 조회용 행 생성 — 두 출처를 병합한다:
 ///   (1) store 의 진실: ApiCall.InTag/OutTag — Wizard Apply 결과 (Basic/Advanced 모두 일치)
 ///   (2) 파이프라인 보충: Api_None 신호 — 어떤 ApiCall 에도 바인딩되지 않아 store 에 저장되지 않으므로
-///       IoListPipeline 를 한 번 돌려 Api_None 슬롯 결과만 별도 행으로 노출.
+///       IoSignalPipeline 를 한 번 돌려 Api_None 슬롯 + Dummy(MW) 결과만 별도 행으로 노출.
 ///
 /// 결과에는 행 데이터 외에 사용자에게 보여줄 진단(<see cref="DiagnosticItem"/>) 리스트가 포함된다.
 /// 원시 파이프라인/예외 메시지는 사용자 친화적인 한글 설명·조치 안내로 변환되어 들어간다.
@@ -21,6 +23,7 @@ public static class IoQueryService
 {
     public sealed record QueryResult(
         IReadOnlyList<IoBatchRow> Rows,
+        IReadOnlyList<DummySignalRow> DummyRows,
         IReadOnlyList<UnmatchedSignalRow> Unmatched,
         IReadOnlyList<DiagnosticItem> Diagnostics)
     {
@@ -29,6 +32,12 @@ public static class IoQueryService
 
         public bool HasError    => ErrorCount   > 0;
         public bool HasWarning  => WarningCount > 0;
+
+        // 호환용 — 옛 ErrorMessages 호출부.
+        public IReadOnlyList<string> ErrorMessages =>
+            Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+                       .Select(d => string.IsNullOrEmpty(d.RawMessage) ? d.Title : d.RawMessage!)
+                       .ToList();
 
         private static int CountBy(IReadOnlyList<DiagnosticItem> items, DiagnosticSeverity sev)
         {
@@ -43,6 +52,7 @@ public static class IoQueryService
         if (store == null) throw new ArgumentNullException(nameof(store));
 
         var rows = new List<IoBatchRow>();
+        var dummyRows = new List<DummySignalRow>();
         var unmatched = new List<UnmatchedSignalRow>();
         var diagnostics = new List<DiagnosticItem>();
 
@@ -97,9 +107,7 @@ public static class IoQueryService
         {
             var keys = new List<IoRowKey>();
             foreach (var r in rows)
-            {
                 if (r.IsUnmatched) keys.Add(new IoRowKey(r.CallId, r.ApiCallId));
-            }
 
             diagnostics.Add(new DiagnosticItem(
                 Severity:   DiagnosticSeverity.Warning,
@@ -112,19 +120,17 @@ public static class IoQueryService
                 RawMessage: null));
         }
 
-        // (2) Api_None 보충 — 파이프라인 1회 실행. 실패해도 (1) 결과는 그대로 반환.
+        // (2) 파이프라인 진단만 수집 — preset 패턴에서 파생되는 Api_None / Dummy 행은
+        //     I/O 조회에 표시하지 않는다 (실제 Apply 된 IO 만 노출).
         try
         {
-            using var tempDir = PresetToTempTemplateDir.Materialize(store);
-            var result = IoListPipeline.generate(store, tempDir.Path);
+            var bundle = IoSignalPipeline.GenerateAll(store);
 
             // 같은 SystemType 의 TEMPLATE_NOT_FOUND 는 한 카드로 합치고, 나머지는 그대로.
-            // (Conveyor 처럼 SystemType 한 개 누락이 N 개 ApiCall 에 동일하게 보고되어
-            //  카드가 N 번 쌓이는 노이즈를 제거.)
             var seenTemplateMissing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var err in result.Errors)
+            foreach (var msg in bundle.ErrorMessages)
             {
-                var item = MapPipelineError(err, rows);
+                var item = MapPipelineErrorMessage(msg, rows, DiagnosticSeverity.Error);
                 if (item.Code == "TEMPLATE_NOT_FOUND" && !string.IsNullOrEmpty(item.SystemType))
                 {
                     if (!seenTemplateMissing.Add(item.SystemType!))
@@ -132,15 +138,12 @@ public static class IoQueryService
                 }
                 diagnostics.Add(item);
             }
+            foreach (var msg in bundle.WarningMessages)
+                diagnostics.Add(MapPipelineErrorMessage(msg, rows, DiagnosticSeverity.Warning));
 
-            // Api_None 행 추가 — DeviceAlias 가 비어있는 경우 "Api_None" 으로 표기.
-            foreach (var row in IoSignalPipeline.BuildApiNoneRows(result))
-            {
-                if (string.IsNullOrWhiteSpace(row.Device))
-                    rows.Add(WithDevicePlaceholder(row));
-                else
-                    rows.Add(row);
-            }
+            // Dummy 행 — preset 패턴이 만드는 파생 신호. I/O 조회의 별도 탭으로 노출.
+            foreach (var d in bundle.DummyRows)
+                dummyRows.Add(d);
         }
         catch (Exception ex)
         {
@@ -154,48 +157,33 @@ public static class IoQueryService
                 RawMessage: ex.Message));
         }
 
-        return new QueryResult(rows, unmatched, diagnostics);
+        return new QueryResult(rows, dummyRows, unmatched, diagnostics);
     }
 
-    /// <summary>Plc.Xgi 의 원시 에러를 사용자 친화적 진단으로 변환.</summary>
-    private static DiagnosticItem MapPipelineError(GenerationError err, List<IoBatchRow> rows)
+    /// <summary>파이프라인 원시 에러 메시지를 사용자 친화적 진단으로 변환.</summary>
+    private static DiagnosticItem MapPipelineErrorMessage(string msg, List<IoBatchRow> rows, DiagnosticSeverity defaultSeverity)
     {
-        var msg = err.Message ?? "";
+        msg ??= "";
 
-        // ErrorType 별 우선 매핑 — 가장 흔한 케이스부터.
-        switch (err.ErrorType)
+        if (Regex.IsMatch(msg, @"template.*not.*found|템플릿.*없음|preset.*없음", RegexOptions.IgnoreCase))
         {
-            case ErrorType.TemplateNotFound:
-            {
-                var sysType = ExtractSystemType(msg);
-                var titleSuffix = string.IsNullOrEmpty(sysType) ? "" : $" — SystemType '{sysType}'";
-                var detail = string.IsNullOrEmpty(sysType)
-                    ? "사용 중인 SystemType 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
-                      "TAG Wizard → Step 2 (신호 템플릿) 에서 해당 SystemType 의 IW/QW/MW 패턴을 등록하세요."
-                    : $"SystemType '{sysType}' 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
-                      "TAG Wizard → Step 2 (신호 템플릿) 에서 IW/QW/MW 패턴을 등록하세요.";
-                return new DiagnosticItem(
-                    Severity:   DiagnosticSeverity.Error,
-                    Code:       "TEMPLATE_NOT_FOUND",
-                    Title:      "신호 템플릿 누락" + titleSuffix,
-                    Detail:     detail,
-                    AffectedRows: Array.Empty<IoRowKey>(),
-                    RawMessage: msg,
-                    SystemType: sysType);
-            }
-
-            case ErrorType.ApiDefNotInTemplate:
-                return new DiagnosticItem(
-                    Severity:   DiagnosticSeverity.Error,
-                    Code:       "API_DEF_NOT_IN_TEMPLATE",
-                    Title:      "ApiDef 가 템플릿에 정의되어 있지 않음",
-                    Detail:     "사용 중인 ApiDef 가 현재 XGI 템플릿에 없습니다. " +
-                                "템플릿 파일을 갱신하거나 해당 ApiDef 의 SystemType / Api 이름이 템플릿과 일치하는지 확인하세요.",
-                    AffectedRows: TryMatchByName(msg, rows),
-                    RawMessage: msg);
+            var sysType = ExtractSystemType(msg);
+            var titleSuffix = string.IsNullOrEmpty(sysType) ? "" : $" — SystemType '{sysType}'";
+            var detail = string.IsNullOrEmpty(sysType)
+                ? "사용 중인 SystemType 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
+                  "TAG Wizard → Step 2 (신호 템플릿) 에서 해당 SystemType 의 IW/QW/MW 패턴을 등록하세요."
+                : $"SystemType '{sysType}' 의 태그 패턴이 어디에도 등록되어 있지 않습니다. " +
+                  "TAG Wizard → Step 2 (신호 템플릿) 에서 IW/QW/MW 패턴을 등록하세요.";
+            return new DiagnosticItem(
+                Severity:   DiagnosticSeverity.Error,
+                Code:       "TEMPLATE_NOT_FOUND",
+                Title:      "신호 템플릿 누락" + titleSuffix,
+                Detail:     detail,
+                AffectedRows: Array.Empty<IoRowKey>(),
+                RawMessage: msg,
+                SystemType: sysType);
         }
 
-        // 미분류 — 메시지 패턴으로 보충 매핑 시도.
         if (Regex.IsMatch(msg, "address.*pool|pool.*exhaust|주소.*풀", RegexOptions.IgnoreCase))
         {
             return new DiagnosticItem(
@@ -220,20 +208,16 @@ public static class IoQueryService
                 RawMessage: msg);
         }
 
-        // 그 외 — 분류 안 됨. 최소 일반 오류 카드로 표시.
         return new DiagnosticItem(
-            Severity:   DiagnosticSeverity.Error,
+            Severity:   defaultSeverity,
             Code:       "PIPELINE_GENERIC",
-            Title:      "파이프라인 오류",
-            Detail:     "신호 생성 파이프라인이 오류를 보고했습니다. 원본 메시지를 참고해 주세요.",
+            Title:      defaultSeverity == DiagnosticSeverity.Warning ? "파이프라인 경고" : "파이프라인 오류",
+            Detail:     "신호 생성 파이프라인이 메시지를 보고했습니다. 원본 메시지를 참고해 주세요.",
             AffectedRows: TryMatchByName(msg, rows),
             RawMessage: msg);
     }
 
-    /// <summary>
-    /// "Template not found for SystemType: Conveyor" 같은 메시지에서 SystemType 토큰을 추출.
-    /// 추출 실패 시 null. — TEMPLATE_NOT_FOUND 그룹화 + FBTagMap 편집 바로가기에 사용.
-    /// </summary>
+    /// <summary>"Template not found for SystemType: Conveyor" 같은 메시지에서 SystemType 토큰 추출.</summary>
     private static string? ExtractSystemType(string? message)
     {
         if (string.IsNullOrEmpty(message)) return null;
@@ -279,24 +263,4 @@ public static class IoQueryService
             outDataType: src.OutDataType, inDataType: src.InDataType);
 }
 
-/// <summary>진단 항목의 심각도.</summary>
-public enum DiagnosticSeverity { Info, Warning, Error }
-
-/// <summary>I/O 그리드 행 식별 키 — CallId/ApiCallId 페어.</summary>
-public readonly record struct IoRowKey(Guid CallId, Guid ApiCallId);
-
-/// <summary>
-/// 사용자에게 보여줄 진단 항목.
-/// 원시 메시지는 <see cref="RawMessage"/> 로 따로 보존하고,
-/// <see cref="Title"/>/<see cref="Detail"/> 은 한글 설명·조치 안내로 정제된 형태.
-/// <see cref="AffectedRows"/> 가 채워져 있으면 그리드에서 해당 행을 강조/점프할 수 있다.
-/// <see cref="SystemType"/> 은 FBTagMap 편집 바로가기 등 액션 디스패치용 식별자.
-/// </summary>
-public sealed record DiagnosticItem(
-    DiagnosticSeverity Severity,
-    string Code,
-    string Title,
-    string Detail,
-    IReadOnlyList<IoRowKey> AffectedRows,
-    string? RawMessage,
-    string? SystemType = null);
+// DiagnosticSeverity / IoRowKey / DiagnosticItem — AAStoPLC.TagWizard.Models 으로 이관됨.

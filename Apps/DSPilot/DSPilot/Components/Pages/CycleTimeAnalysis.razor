@@ -270,7 +270,9 @@
     private bool _isCrosshairInitialized = false;
     private bool _needsCrosshairInit = false;
 
-    private DateTime _chartStartTime = DateTime.Now.AddHours(-1);
+    // 첫 진입 디폴트 범위는 OnInitializedAsync 에서 "DB 의 최신 로그 - 1분" 으로 재설정.
+    // 1분 윈도우 — 첫 페이지 진입에 1시간치 풀스캔하던 비용 회피. 사용자는 프리셋 버튼으로 확장.
+    private DateTime _chartStartTime = DateTime.Now.AddMinutes(-1);
     private DateTime _chartEndTime = DateTime.Now;
     private CancellationTokenSource? _debounceCts;
 
@@ -319,6 +321,10 @@
     private bool _clickDelegationInitialized;
     private bool _needsClickDelegationInit;
 
+    // 호버 툴팁 메타 — base SVG 에서 <title> 인라인을 제거한 대신, 호버 시 JS 가 lookup 할 배열.
+    private string[] _barTooltips = Array.Empty<string>();
+    private bool _needsTooltipsPush;
+
     // 차트 geometry 상수 — CycleTimeChartRenderer 의 정의를 razor 안에서도 그대로 쓰도록 forward.
     // dynamic overlay 가 base SVG 와 동일 좌표계를 사용해야 해서 수치 단일 소스 유지.
     private const int ChartLeftMargin = CycleTimeChartRenderer.LeftMargin;
@@ -340,6 +346,11 @@
         // 첫 번째 Flow가 자동 선택된 경우 1회만 로딩 (이후 자동 갱신 없음 — 사용자 선택 시에만 새로고침)
         if (!string.IsNullOrEmpty(_selectedFlowName))
         {
+            // 디폴트 범위: DB 최신 로그 시각 - 1분 ~ 최신 로그 시각.
+            // (실시간 + 이력 데이터 양쪽에서 의미 있음 — DB 가 비었으면 DateTime.Now 폴백)
+            _chartEndTime = await GetEffectiveLatestTimeAsync();
+            _chartStartTime = _chartEndTime.AddMinutes(-1);
+
             await LoadGanttData();
         }
     }
@@ -364,6 +375,18 @@
                 _dotNetRef ??= DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("cycleTimeChart.init", _ganttChartContainerRef, _dotNetRef);
                 _clickDelegationInitialized = true;
+            }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+            catch (Exception) { }
+        }
+
+        if (_needsTooltipsPush && _clickDelegationInitialized && _ganttData != null && _ganttData.Items.Any())
+        {
+            _needsTooltipsPush = false;
+            try
+            {
+                await JS.InvokeVoidAsync("cycleTimeChart.setTooltips", _ganttChartContainerRef, _barTooltips);
             }
             catch (JSDisconnectedException) { }
             catch (ObjectDisposedException) { }
@@ -573,10 +596,19 @@
 
         try
         {
-            var newData = await CycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(
+            // 메인 데이터 쿼리와 idle-edge 쿼리를 병렬로 실행 — 둘 다 같은 사용자 시간범위 입력.
+            // (실데이터 도착 후 차트 범위가 ActualEvent* 로 좁혀지지만, idle-edge 는 사용자 범위 위에서
+            // 계산해도 결과 동일 — 어차피 마지막에 _chartStart/EndTime 기준으로 region 을 잘라 만든다.)
+            var dataTask = CycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(
                 _selectedFlowName,
                 _chartStartTime,
                 _chartEndTime);
+            var idleEdgesTask = LoadIdleEdgesAsync(_chartStartTime, _chartEndTime);
+
+            await Task.WhenAll(dataTask, idleEdgesTask);
+
+            var newData = dataTask.Result;
+            var idleEdges = idleEdgesTask.Result;
 
             // 결과 도착 후에야 기존 데이터 교체
             _ganttData = newData;
@@ -600,8 +632,8 @@
                 CalculateLongestGap();
                 _needsCrosshairInit = true;
 
-                // 비가동 사이클 구간 감지
-                await DetectIdleRegionsAsync();
+                // 미리 받아둔 idle edges 로 비가동 구간 빌드 (DB 조회 없음 — 메모리 처리)
+                BuildIdleRegionsFromEdges(idleEdges);
             }
         }
         catch (Exception ex)
@@ -941,40 +973,43 @@
         StateHasChanged();
     }
 
-    private async Task DetectIdleRegionsAsync()
+    /// <summary>
+    /// idle-edge DB 쿼리만 수행 (메인 데이터 쿼리와 병렬 실행을 위해 분리).
+    /// 결과는 <see cref="BuildIdleRegionsFromEdges"/> 가 메모리에서 처리.
+    /// </summary>
+    private async Task<List<DateTime>> LoadIdleEdgesAsync(DateTime startTime, DateTime endTime)
     {
-        _idleRegions.Clear();
-        var settings = SettingsService.LoadSettings();
-        var maxCT = settings.HistoryView.MaxCycleTimeMs;
-        if (maxCT <= 0 || string.IsNullOrEmpty(_selectedFlowName)) return;
+        if (string.IsNullOrEmpty(_selectedFlowName)) return new List<DateTime>();
 
-        // FlowMetricsService가 실제 사용하는 HeadCall의 InTag로 사이클 경계 감지
+        var settings = SettingsService.LoadSettings();
+        if (settings.HistoryView.MaxCycleTimeMs <= 0) return new List<DateTime>();
+
+        // FlowMetricsService 가 실제 사용하는 HeadCall 의 InTag 로 사이클 경계 감지.
         var (headCallName, _) = FlowMetrics.GetCycleBoundaryCallNames(_selectedFlowName);
         string? inTagAddress = null;
-
         if (!string.IsNullOrEmpty(headCallName))
         {
-            // HeadCallName으로 InTag 주소 찾기
             var allPairs = CallMapper.GetAllCallTagPairs();
             var match = allPairs.FirstOrDefault(p =>
                 p.FlowName == _selectedFlowName && p.CallName == headCallName);
-            if (match != default)
-                inTagAddress = match.InTag;
+            if (match != default) inTagAddress = match.InTag;
         }
 
-        // FlowMetrics에서 못 찾으면 CycleAnalysisService 폴백
-        List<DateTime> edges;
+        // FlowMetrics 에서 못 찾으면 CycleAnalysisService 폴백.
         if (!string.IsNullOrEmpty(inTagAddress))
-        {
-            edges = await PlcRepository.FindRisingEdgesAsync(inTagAddress, _chartStartTime, _chartEndTime);
-        }
-        else
-        {
-            edges = await CycleAnalysis.GetCycleBoundaryTimesAsync(
-                _selectedFlowName, _chartStartTime, _chartEndTime);
-        }
+            return await PlcRepository.FindRisingEdgesAsync(inTagAddress, startTime, endTime);
+        return await CycleAnalysis.GetCycleBoundaryTimesAsync(_selectedFlowName, startTime, endTime);
+    }
 
+    /// <summary>edges 와 현재 차트 범위/설정으로 idle 구간 build (메모리 처리).</summary>
+    private void BuildIdleRegionsFromEdges(List<DateTime> edges)
+    {
+        _idleRegions.Clear();
         if (edges.Count == 0) return;
+
+        var settings = SettingsService.LoadSettings();
+        var maxCT = settings.HistoryView.MaxCycleTimeMs;
+        if (maxCT <= 0) return;
 
         var sorted = edges.OrderBy(t => t).ToList();
 
@@ -984,24 +1019,18 @@
             var cycleStart = sorted[i];
             var cycleEnd = sorted[i + 1];
             if ((cycleEnd - cycleStart).TotalMilliseconds > maxCT)
-            {
                 _idleRegions.Add((cycleStart, cycleEnd));
-            }
         }
 
         // 마지막 edge ~ 차트 끝: 사이클 시작 후 다음 사이클이 없는 경우
         var lastEdge = sorted[^1];
         if ((_chartEndTime - lastEdge).TotalMilliseconds > maxCT)
-        {
             _idleRegions.Add((lastEdge, _chartEndTime));
-        }
 
         // 차트 시작 ~ 첫 edge: 이전 사이클이 오래 전에 시작된 경우
         var firstEdge = sorted[0];
         if ((firstEdge - _chartStartTime).TotalMilliseconds > maxCT)
-        {
             _idleRegions.Add((_chartStartTime, firstEdge));
-        }
     }
 
     private async Task ExportCsv()
@@ -1044,12 +1073,14 @@
         {
             _baseSvgFullMarkup = default;
             _renderedDisplayLaneIndex = new();
+            _barTooltips = Array.Empty<string>();
             return;
         }
 
+        var sortedItems = GetSortedItemsForDisplay();
         var result = CycleTimeChartRenderer.BuildBaseSvg(
             _ganttData,
-            GetSortedItemsForDisplay(),
+            sortedItems,
             GetDisplayLaneOrder(),
             _idleRegions);
 
@@ -1059,6 +1090,10 @@
         _renderedDisplayLaneIndex = result.DisplayLaneIndex;
         _chartWidth = result.ChartWidth;
         _chartHeight = result.ChartHeight;
+
+        // 호버 툴팁 메타 — sortedItems 와 인덱스 일치(data-bar-idx).
+        _barTooltips = CycleTimeChartRenderer.BuildBarTooltips(sortedItems);
+        _needsTooltipsPush = true;
     }
 
     // ===========================================================================================

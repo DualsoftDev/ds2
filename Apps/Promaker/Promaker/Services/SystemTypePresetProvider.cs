@@ -31,7 +31,7 @@ public static class SystemTypePresetProvider
         {
             if (string.IsNullOrWhiteSpace(mapping)) continue;
             var idx = mapping.LastIndexOf(':');
-            if (idx <= 0) continue;
+            if (idx < 0) continue;
 
             var apiList    = mapping.Substring(0, idx).Trim();
             var systemType = mapping.Substring(idx + 1).Trim();
@@ -55,12 +55,32 @@ public static class SystemTypePresetProvider
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    /// <summary>특정 SystemType 의 API 이름 목록. 프리셋에 없으면 빈 배열.</summary>
+    /// <summary>
+    /// 특정 SystemType 의 API 이름 목록.
+    ///   • 정확 일치 → 그 entry 반환
+    ///   • 일치 없고 'Cylinder_5' 같은 numeric suffix 면 'Cylinder_#' 같은 템플릿 entry 로 fallback
+    /// 프리셋에 없으면 빈 배열.
+    /// </summary>
     public static string[] GetApiNames(string systemType)
     {
-        var entry = GetEntries()
-            .FirstOrDefault(e => string.Equals(e.SystemType, systemType, StringComparison.OrdinalIgnoreCase));
-        return entry.ApiNames ?? Array.Empty<string>();
+        if (string.IsNullOrEmpty(systemType)) return Array.Empty<string>();
+
+        var entries = GetEntries();
+        // (1) 정확 일치
+        var exact = entries.FirstOrDefault(e =>
+            string.Equals(e.SystemType, systemType, StringComparison.OrdinalIgnoreCase));
+        if (exact.ApiNames != null && exact.ApiNames.Length > 0)
+            return exact.ApiNames;
+
+        // (2) '#' 템플릿 fallback — 'Cylinder_5' → 'Cylinder_#' 매칭
+        foreach (var e in entries)
+        {
+            if (string.IsNullOrEmpty(e.SystemType) || !e.SystemType.Contains('#')) continue;
+            var pattern = "^" + System.Text.RegularExpressions.Regex.Escape(e.SystemType).Replace("\\#", @"\d+") + "$";
+            if (System.Text.RegularExpressions.Regex.IsMatch(systemType, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return e.ApiNames ?? Array.Empty<string>();
+        }
+        return Array.Empty<string>();
     }
 
     // ── 내부 로더 ────────────────────────────────────────────────────────────
@@ -73,12 +93,33 @@ public static class SystemTypePresetProvider
             {
                 var json = File.ReadAllText(PresetFilePath);
                 var parsed = JsonSerializer.Deserialize<string[]>(json);
-                if (parsed != null && parsed.Length > 0) return parsed;
+                if (parsed != null && parsed.Length > 0)
+                    return MergeWithDefaults(parsed);
             }
         }
         catch { /* fall through */ }
 
         return BuildDefaultMappingStrings();
+    }
+
+    /// <summary>사용자 저장본 + DevicePresets 신규 SystemType 합집합 (저장본 순서 우선).</summary>
+    private static string[] MergeWithDefaults(string[] saved)
+    {
+        var result = new List<string>(saved);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in saved)
+        {
+            var idx = m.LastIndexOf(':');
+            if (idx >= 0) seen.Add(m.Substring(idx + 1).Trim());
+        }
+        foreach (var def in BuildDefaultMappingStrings())
+        {
+            var idx = def.LastIndexOf(':');
+            var sysType = idx >= 0 ? def.Substring(idx + 1).Trim() : "";
+            if (!string.IsNullOrEmpty(sysType) && seen.Add(sysType))
+                result.Add(def);
+        }
+        return result.ToArray();
     }
 
     /// <summary>
@@ -93,8 +134,7 @@ public static class SystemTypePresetProvider
         foreach (var t in Ds2.Core.Store.DevicePresets.Entries3)
         {
             var model = t.Item1;
-            var apiList = t.Item2;
-            if (string.IsNullOrEmpty(apiList)) continue;
+            var apiList = t.Item2 ?? "";
             if (model.StartsWith("Cylinder_", StringComparison.Ordinal))
             {
                 if (cylinderEmitted) continue;

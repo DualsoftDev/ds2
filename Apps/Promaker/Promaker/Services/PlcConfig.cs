@@ -36,7 +36,7 @@ public static class PlcConfig
     }
 
     /// <summary>
-    /// PlcConfig.txt 가 없으면 AAStoXGI.dll 의 임베디드 리소스 XGI_Template.xml 을
+    /// PlcConfig.txt 가 없으면 AAStoPLC.dll 의 임베디드 리소스 XGI_Template.xml 을
     /// AppData\Dualsoft\Promaker\PlcTemplate\ 로 추출하고, 그 경로를 기본값으로 한 PlcConfig.txt 작성.
     /// 사용자는 이후 AppData 의 사본만 편집 — 앱 업데이트로 덮어써지지 않음.
     /// </summary>
@@ -121,7 +121,7 @@ public class PlcSettings
     /// <summary>
     /// 유효한 XGI 템플릿 경로 —
     ///   (1) 사용자 설정값 (XgiTemplatePath)
-    ///   (2) AppData\PlcTemplate\XGI_Template.xml — 없으면 AAStoXGI.dll 임베디드 리소스에서 추출.
+    ///   (2) AppData\PlcTemplate\XGI_Template.xml — 없으면 AAStoPLC.dll 임베디드 리소스에서 추출.
     /// </summary>
     public string EffectiveXgiTemplatePath
     {

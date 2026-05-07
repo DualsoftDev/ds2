@@ -114,43 +114,13 @@ type HwAction [<JsonConstructor>] internal (name: string) =
 
 
 // =============================================================================
-// FB TAG MAP — FB 포트 ↔ TagPattern 매핑
+// FB TAG MAP — Preset 기반 FB 포트 ↔ TagPattern 매핑 (V2)
 // =============================================================================
 //
-// 태그패턴 매크로:
-//   $(F) = 액티브 시스템에서 ApiCall이 있는 Flow 이름
-//   $(D) = 그 Call이 호출하는 Device alias (패시브 시스템 참조)
-//   $(A) = 호출하는 ApiDef 이름
-//
-// Direction (PLC 신호 기준):
-//   "Input"  → IW (디바이스 → PLC, 피드백/센서)
-//   "Output" → QW (PLC → 디바이스, 명령/액추에이터)
-//   IsDummy=true → MW (가상 태그, 실배선 없음)
-
-/// FB 포트 하나의 정의 + 생성 결과
-/// TagPattern/IsDummy: 사용자 설정 (템플릿)
-/// VarName/Address:    코드 생성 결과 ($(F)/$(D)/$(A) 확장 후)
-type FBTagMapPort() =
-    member val FBPort:     string = "" with get, set   // XGI_Template.xml 포트 이름
-    member val Direction:  string = "" with get, set   // "Input"=IW | "Output"=QW
-    member val DataType:   string = "BOOL" with get, set
-    member val TagPattern: string = "" with get, set   // 예: "$(F)_Q_$(D)_$(A)"
-    member val IsDummy:    bool   = false with get, set // true → MW, 실배선 없음
-    member val VarName:    string = "" with get, set   // 생성 결과: 확장된 태그 이름
-    member val Address:    string = "" with get, set   // 생성 결과: PLC 주소
-    /// 포트별 주소 오프셋 힌트 (AddressAssignRule=PortIndex 일 때 사용)
-    member val AddressOffset: int option = None with get, set
-
-/// ApiCall 1개에 대응하는 FB 인스턴스 (생성 결과)
-/// AASX에 저장 (외부 참조용), import 복원 없음 (항상 재생성)
-type FBTagMapInstance() =
-    member val FBTypeName:  string = "" with get, set  // FB 타입명 (XGI_Template.xml 기준)
-    member val FlowName:    string = "" with get, set  // 액티브 시스템 Flow 이름 → $(F)
-    member val WorkName:    string = "" with get, set
-    member val DeviceAlias: string = "" with get, set  // 호출된 디바이스 alias → $(D)
-    member val ApiDefName:  string = "" with get, set  // 호출된 ApiDef 이름 → $(A)
-    member val Ports: ResizeArray<FBTagMapPort> = ResizeArray() with get, set
-
+// 태그패턴 매크로 ($(F)/$(D)/$(A)) 와 SignalPatternEntry 가
+// SignalEnumerator (AAStoXGI) 의 단일 진실원.
+// 코드 생성 결과 (VarName/Address) 는 어디에도 영구 저장하지 않으며
+// run-time 에 in-memory 로 계산된다.
 
 /// FBTagMapPreset 내부 기준 주소 세트 (IoSystemBase/IoFlowBase 매크로 파일을 대체)
 type FBBaseAddressSet() =
@@ -166,9 +136,16 @@ type SignalPatternEntry() =
     /// ApiDef 이름 (예: "ADV", "RET"). Wizard 에서 드롭다운으로 선택.
     member val ApiName:     string = "" with get, set
     /// 태그 이름 패턴 (예: "W_$(F)_WRS_$(D)_$(A)"). $(F)/$(D)/$(A) 는 생성 시점에 확장.
+    /// Pattern 에 $(C:ApiName) 토큰을 쓰면 ControlCallProperties.SignalCounts[ApiName]
+    /// 값으로 치환됨 (FB 의 Adv_Amount/Ret_Amount 등 카운트 입력에 사용).
     member val Pattern:     string = "" with get, set
     /// 이 신호를 연결할 FB Local Label 이름 (옵션).
     member val TargetFBPort: string = "" with get, set
+    /// 주소 할당을 건너뜀 — true 면 IO 슬롯을 소비하지 않고 Address 를 빈값으로 emit.
+    /// 예: _T1S, _OFF_TIME, T#200MS 같이 외부 정의 공용 변수 / IEC 리터럴.
+    member val SkipAddressAlloc: bool = false  with get, set
+    /// 예비(Spare) 슬롯 — true 면 주소 1비트 예약 후 신호 미생성. ApiName/Pattern/TargetFBPort 무시.
+    member val IsSpare:          bool = false  with get, set
 
 /// 디바이스 타입(SystemType)별 FBTagMap 프리셋
 /// 시스템 인스턴스별이 아닌 디바이스 타입별 전역 설정
@@ -176,8 +153,6 @@ type SignalPatternEntry() =
 type FBTagMapPreset() =
     /// 이 디바이스 타입에 적용할 FB 이름 (XGI_Template.xml Type="2" 기준)
     member val FBTagMapName: string = "" with get, set
-    /// FB 포트별 TagPattern 템플릿
-    member val FBTagMapTemplate: ResizeArray<FBTagMapPort> = ResizeArray() with get, set
     /// 기준 주소 (IoSystemBase/IoFlowBase 매크로 파일 대체)
     member val BaseAddresses: FBBaseAddressSet = FBBaseAddressSet() with get, set
     /// 주소 자동 할당 규칙
@@ -200,99 +175,22 @@ type FBTagMapPreset() =
     /// MW(Dummy 메모리 워드) 신호 템플릿.
     member val MwPatterns: ResizeArray<SignalPatternEntry> = ResizeArray() with get, set
 
-// =============================================================================
-// SIGNAL BINDING — IoList 행이 FB 포트를 소유 (B안: IoList 단일 진실원)
-// =============================================================================
-//
-// 설계:
-//   • 매크로 편집은 오직 IoList(Wizard Step 3) 에서만 수행
-//   • 각 IoListEntry 는 자신을 어떤 FB 의 어떤 Local Label 로 연결할지 보유 (1:1)
-//   • Dummy 신호는 별도 풀(DummyEntries)에 저장 — 실배선 없음, MW 자동할당
-//   • 코드 생성은 IoListEntries 를 순회하며 FB 인스턴스를 조립
+    /// Active System 의 Operation Mode FB 여부 — true 이면 ApiCall 없이 Call(Api_None) 만 있어도
+    /// 이 preset 으로 FB 가 생성된다 (예: ModeStn). false 는 일반 device 별 FB.
+    member val IsOperationModeFb: bool = false with get, set
 
-/// FB 포트 바인딩 (1:1)
-type SignalBinding() =
-    /// XGI_Template.xml 의 FB 타입명 (예: "FB402_Mode_Stn_v2")
-    member val TargetFBType: string = "" with get, set
-    /// 해당 FB 의 Local Label 이름 (Direction 무관, 모든 포트 선택 가능)
-    member val TargetFBPort: string = "" with get, set
-
-/// IoList 엔트리 — 하나의 PLC 신호 + FB 포트 바인딩 (모든 엔트리는 Self = passiveSystem IOList)
-type IoListEntry() =
-    // ─ 식별 ───────────────────────────────────────────────
-    member val Name:        string = "" with get, set    // 최종 VarName (사용자 authoring)
-    member val Address:     string = "" with get, set    // PLC 주소 (수동 또는 AddressAssigner)
-    member val Direction:   string = "Input" with get, set  // Input | Output
-    member val DataType:    string = "BOOL" with get, set
-    member val Comment:     string = "" with get, set
-
-    // ─ ApiCall 컨텍스트 (역참조) ─────────────────────────
-    member val FlowName:    string = "" with get, set
-    member val DeviceAlias: string = "" with get, set
-    member val ApiDefName:  string = "" with get, set
-    member val SystemId:    Guid   = Guid.Empty with get, set   // passiveSystem Id
-
-    // ─ FB 바인딩 (1:1) ──────────────────────────────────
-    member val Binding:     SignalBinding = SignalBinding() with get, set
-
-/// 더미 IoList 엔트리 — 실배선 없음, MW 자동할당 (별도 탭에서 편집)
-type DummyIoEntry() =
-    member val Name:        string = "" with get, set
-    member val Address:     string = "" with get, set
-    member val Comment:     string = "" with get, set
-    member val FlowName:    string = "" with get, set
-    member val DeviceAlias: string = "" with get, set
-    member val ApiDefName:  string = "" with get, set
-    member val SystemId:    Guid   = Guid.Empty with get, set
-    member val Binding:     SignalBinding = SignalBinding() with get, set
-
+    /// FB 호출 시 의도적으로 미연결로 남길 FB 포트 이름 목록 (예: "로보트기동이상").
+    /// CodeGenerator 는 이 목록의 포트에 대해 변수/_OFF/AUX 모두 emit 하지 않고 skip.
+    member val SkippedFBPorts: ResizeArray<string> = ResizeArray() with get, set
 
 // =============================================================================
 // PROPERTIES - 제어 속성 클래스
+//
+// V2 단일 진실원: FBTagMapPreset (SystemType별 전역) +
+//                  ApiCall.InTag/OutTag.Address (Manual 입력)
+// 구 IoListEntry/DummyIoEntry/SignalBinding (Wizard Step 3/4) 은 V2 SignalEnumerator
+// 도입으로 폐기됨.
 // =============================================================================
-
-// =============================================================================
-// Robot 보조 rung 메타데이터 (Wizard Robot Step 편집).
-// FB496/497/498 등 로봇 FB 호출 외 보조 rung 시퀀스 (PROG_NO 분기 / READY 집계 /
-// HOME_PLS / mutual interlock 등) 의 입력값.
-// =============================================================================
-
-/// PROG_NO 분기 1건 — `BT_L1` 등 조건 태그 AND 결합 시 ProgNo 할당.
-type RobotProgNoBranch() =
-    member val ConditionTags : ResizeArray<string> = ResizeArray() with get, set
-    member val ProgNo : int = 0 with get, set
-
-/// 집계 그룹 — 같은 Work 의 여러 로봇 신호를 AND 로 묶어 하나의 종합 coil 생성.
-/// 예: Kind="READY", Aggregated="W_TT_M_ALL_RBT_READY", Sources=["W_R112_1_M_READY"; ...]
-type RobotAggregationGroup() =
-    member val Kind : string = "" with get, set                      // READY / AUTO / FAULT / HOME / EMSTOP
-    member val Aggregated : string = "" with get, set                // 종합 coil 이름
-    member val Sources : ResizeArray<string> = ResizeArray() with get, set
-
-/// Mutual interlock — 다른 로봇의 신호를 본 로봇 FB Call 의 특정 포트에 연결.
-type RobotMutualInterlock() =
-    member val SourceSignal : string = "" with get, set              // 예: W_S112_I_RBT2_MUTUAL_INT1
-    member val TargetPort   : string = "" with get, set              // 예: Mutual_Int1
-
-/// 로봇 1대 메타데이터.
-type RobotMetadata() =
-    /// FB Call 의 enable 인자에 들어가는 임시 변수 setup 조건들.
-    /// 예: ["NOT W_TT_M_TOTAL_ERR"; "NOT W_S112B_M_ERR_RESET"] → @LDTemp1 chain.
-    member val EnableConditions : ResizeArray<string> = ResizeArray() with get, set
-
-    /// PROG_NO 분기 — ApiDef 1개 당 여러 분기 가능 (BT_L1→11 / BT_L2→12 등).
-    member val ProgNoBranches : ResizeArray<RobotProgNoBranch> = ResizeArray() with get, set
-
-    /// 집계 그룹 (Work 단위로 한 번 emit — 첫 번째 로봇이 대표).
-    member val AggregationGroups : ResizeArray<RobotAggregationGroup> = ResizeArray() with get, set
-
-    /// Mutual interlock 매핑 (사용자 명시).
-    member val MutualInterlocks : ResizeArray<RobotMutualInterlock> = ResizeArray() with get, set
-
-    /// 1ST_IN_OK 같은 추가 조건 coil — Key: coil 이름, Value: AND 결합되는 source 태그 list.
-    member val AuxCoils : System.Collections.Generic.Dictionary<string, ResizeArray<string>> =
-        System.Collections.Generic.Dictionary() with get, set
-
 
 /// System-level 제어 속성
 type ControlSystemProperties() =
@@ -333,28 +231,10 @@ type ControlSystemProperties() =
     // ========== PLC 코드 생성 (FBTagMap) ==========
     member val SystemType: string option = None with get, set
 
-    /// 코드 생성 결과: ApiCall 1개 = FBTagMapInstance 1개 (AASX 저장, import 복원 없음)
-    /// FBTagMap 템플릿은 SystemType 기반 전역 프리셋 (Promaker AppData) 사용
-    member val FBTagMapInstances: ResizeArray<FBTagMapInstance> = ResizeArray() with get, set
-
     // ========== FBTagMap 프리셋 + Global IO (TAG Wizard / PLC 생성, AASX에 저장) ==========
     /// SystemType별 기준 주소/AddressRule 설정 (Wizard Step 1).
-    /// FBTagMapTemplate 필드는 더 이상 편집되지 않음 (IoListEntries 가 대체).
+    /// V2 SignalEnumerator 가 IwPatterns/QwPatterns/MwPatterns 를 진실원으로 사용.
     member val FBTagMapPresets   = System.Collections.Generic.Dictionary<string, FBTagMapPreset>() with get, set
-
-    /// IoList 엔트리 (Wizard Step 3 편집, Step 4 에서 FB 바인딩).
-    /// 매크로가 정의되는 **유일한** 위치 — SignalBinding 이 FB 측 매칭을 연결.
-    member val IoListEntries     = ResizeArray<IoListEntry>() with get, set
-
-    /// 더미 IoList (실배선 없음, Wizard Dummy 탭).
-    member val DummyEntries      = ResizeArray<DummyIoEntry>() with get, set
-
-    // ========== Robot 보조 rung 메타데이터 (Wizard Robot Step 편집) ==========
-    /// 로봇별 메타데이터 — Key: Device alias (Call.DevicesAlias 와 일치).
-    /// 실린더는 사용 안 함 — 로봇 패밀리 (FB496/497/498) 한정.
-    member val RobotMetadata : System.Collections.Generic.Dictionary<string, RobotMetadata> =
-        System.Collections.Generic.Dictionary() with get, set
-
 
 /// Flow-level 제어 속성
 type ControlFlowProperties() =
@@ -418,10 +298,7 @@ type ControlCallProperties() =
 
     // ========== Call 제어 설정 ==========
     member val CallDirection = "InOut" with get, set
-    member val InTagName: string option = None with get, set
-    member val InTagAddress: string option = None with get, set
-    member val OutTagName: string option = None with get, set
-    member val OutTagAddress: string option = None with get, set
+
 
     // ========== 실행 제어 ==========
     member val EnableRetry = false with get, set
@@ -435,6 +312,15 @@ type ControlCallProperties() =
     // ========== 조건부 실행 ==========
     member val EnableConditional = false with get, set
     member val ConditionExpression: string option = None with get, set
+
+    // ========== 동적 신호 수량 ==========
+    // Promaker AddCall UI 에서 입력한 ApiName 별 신호 수량 (예: "ADV" → 4, "RET" → 2).
+    // Preset 에 미리 등록된 (Section, ApiName) entry 들 중 첫 N 개만 emit, 나머지는 skip.
+    // 또한 SignalPatternEntry.Pattern 의 $(C:ApiName) 토큰을 이 값으로 치환 (FB 의 Adv_Amount 등).
+    // Call-level 이라 같은 Call 안의 모든 ApiCall 이 공유.
+    member val SignalCounts =
+        System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase)
+        with get, set
 
 
 
@@ -453,39 +339,6 @@ type ControlCallProperties() =
 //   @IW_BASE 100
 // AASX import 시점에 이 텍스트를 읽어 FBTagMapPreset.BaseAddresses /
 // ControlFlowProperties.BaseAddressOverride 로 이식한다.
-/// IoList 바인딩 무결성 검증 — B안 1:1 규칙
-module IoListValidation =
-
-    /// 중복 바인딩 검출: 같은 (Flow, Device, ApiDef, FBType, FBPort) 가 2번 이상 나타나면 오류.
-    /// 반환: 위반 메시지 목록 (빈 목록이면 OK)
-    let detectDuplicateBindings (entries: seq<IoListEntry>) : string list =
-        let keyOf (e: IoListEntry) =
-            (e.FlowName, e.DeviceAlias, e.ApiDefName, e.Binding.TargetFBType, e.Binding.TargetFBPort)
-        entries
-        |> Seq.filter (fun e ->
-            not (String.IsNullOrEmpty e.Binding.TargetFBType) &&
-            not (String.IsNullOrEmpty e.Binding.TargetFBPort))
-        |> Seq.groupBy keyOf
-        |> Seq.choose (fun (key, group) ->
-            let count = Seq.length group
-            if count > 1 then
-                let (f, d, a, fb, port) = key
-                Some (sprintf "중복 바인딩: Flow=%s, Device=%s, Api=%s → %s.%s (%d개 엔트리)"
-                              f d a fb port count)
-            else None)
-        |> Seq.toList
-
-    /// 미바인딩 엔트리 경고 (TargetFBType/FBPort 중 하나라도 비어있음)
-    let detectUnboundEntries (entries: seq<IoListEntry>) : string list =
-        entries
-        |> Seq.filter (fun e ->
-            String.IsNullOrEmpty e.Binding.TargetFBType ||
-            String.IsNullOrEmpty e.Binding.TargetFBPort)
-        |> Seq.map (fun e ->
-            sprintf "미바인딩 신호: %s (Flow=%s, Device=%s, Api=%s)"
-                    e.Name e.FlowName e.DeviceAlias e.ApiDefName)
-        |> Seq.toList
-
 
 module ControlIoLegacyMigration =
 
@@ -583,112 +436,3 @@ module ControlIoLegacyMigration =
             n <- n + 1
         n
 
-
-module ControlHelpers =
-
-    // ========== 태그 생성 함수 ==========
-
-    /// 자동 태그 이름 생성
-    let generateTagName
-        (format: string)
-        (systemId: string)
-        (workId: string)
-        (signal: string) =
-
-        format
-            .Replace("{SystemId}", systemId)
-            .Replace("{WorkId}", workId)
-            .Replace("{Signal}", signal)
-
-    /// 이름 변환 적용
-    let applyNameTransform (transform: NameTransform) (name: string) =
-        match transform with
-        | UpperCase -> name.ToUpperInvariant()
-        | LowerCase -> name.ToLowerInvariant()
-        | CamelCase ->
-            if name.Length = 0 then name
-            else name.[0].ToString().ToLowerInvariant() + name.[1..]
-        | PascalCase ->
-            if name.Length = 0 then name
-            else name.[0].ToString().ToUpperInvariant() + name.[1..]
-        | NoTransform -> name
-
-    /// Prefix 추가
-    let addPrefix (prefix: string option) (tagName: string) =
-        match prefix with
-        | Some p when not (String.IsNullOrEmpty(p)) -> p + tagName
-        | _ -> tagName
-
-
-    // ========== PLC 주소 검증 함수 ==========
-
-    /// Mitsubishi 주소 검증 (M, D, X, Y, etc.)
-    let validateMitsubishiAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            let deviceCode = address.[0]
-            let number = address.[1..]
-            match deviceCode with
-            | 'M' | 'D' | 'X' | 'Y' | 'T' | 'C' | 'S' ->
-                System.Int32.TryParse(number) |> fst
-            | _ -> false
-
-    /// Siemens S7 주소 검증 (DB, M, I, Q, etc.)
-    let validateSiemensAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            address.StartsWith("DB") ||
-            address.StartsWith("M") ||
-            address.StartsWith("I") ||
-            address.StartsWith("Q")
-
-    /// Rockwell AB 주소 검증 (N7, B3, F8, etc.)
-    let validateRockwellAddress (address: string) =
-        if address.Length < 2 then false
-        else
-            let fileType = address.[0]
-            match fileType with
-            | 'N' | 'B' | 'F' | 'T' | 'C' | 'R' | 'S' ->
-                true
-            | _ -> false
-
-    /// 벤더별 주소 검증
-    let validateAddress (vendor: PlcVendor) (address: string) =
-        match vendor with
-        | Mitsubishi -> validateMitsubishiAddress address
-        | Siemens -> validateSiemensAddress address
-        | RockwellAB -> validateRockwellAddress address
-        | _ -> true // Generic은 검증 생략
-
-    // ========== 안전 기능 함수 ==========
-
-    /// 타임아웃 확인
-    let isTimeout (startTime: DateTime) (timeoutSeconds: float) =
-        (DateTime.UtcNow - startTime).TotalSeconds > timeoutSeconds
-
-    // ========== 상태 관리 함수 ==========
-
-    /// Work 상태 전이 검증
-    let canTransitionState (currentState: string) (newState: string) =
-        match currentState, newState with
-        | "Idle", "Running" -> true
-        | "Running", "Paused" -> true
-        | "Running", "Error" -> true
-        | "Paused", "Running" -> true
-        | "Error", "Idle" -> true
-        | _, "Idle" -> true  // 항상 Idle로 리셋 가능
-        | _ -> false
-
-
-    // ========== 인터록 함수 ==========
-
-    /// 인터록 조건 평가
-    let evaluateInterlockConditions (conditions: string array) =
-        // 실제 구현에서는 조건 파싱 및 평가
-        // 예: "DOOR_CLOSED AND LIGHT_CURTAIN_OK"
-        conditions.Length = 0 || true // 임시: 조건 없거나 모두 만족
-
-    /// 인터록 우선순위 정렬
-    let sortByPriority (components: HwComponent list) =
-        components
-        |> List.sortByDescending (fun c -> c.Priority)

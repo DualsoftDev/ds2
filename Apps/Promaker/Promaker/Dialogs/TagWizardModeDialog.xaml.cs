@@ -21,4 +21,12 @@ public partial class TagWizardModeDialog : Window
         DialogResult = true;
         Close();
     }
+
+    /// <summary>모드 라디오 더블클릭 → 즉시 선택 + 다음 버튼 효과.</summary>
+    private void ModeRadio_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is System.Windows.Controls.RadioButton rb)
+            rb.IsChecked = true;
+        Next_Click(sender, new RoutedEventArgs());
+    }
 }

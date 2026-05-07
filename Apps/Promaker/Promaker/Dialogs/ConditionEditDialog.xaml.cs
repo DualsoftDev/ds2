@@ -4,9 +4,12 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using AAStoPLC.Ir;
+using AAStoPLC.Pipeline;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Promaker.ViewModels;
 
 namespace Promaker.Dialogs;
@@ -47,16 +50,32 @@ public partial class ConditionEditDialog : Window
 
         ConditionList.ItemsSource = filtered;
         EmptyHint.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        RefreshPreview();
     }
 
-    // ── Add / Remove conditions ──
-
-    private void AddCondition_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 사용자 편집 트리 → CoilCondition → CoilConditionView 에 binding.
+    /// AutoAux base 합성 없음 (Emit 의 PLC 합성과 분리).
+    /// </summary>
+    private void RefreshPreview()
     {
-        if (!_host.TryAction(() => _store.AddCallCondition(_callId, _condType)))
+        if (!_host.TryRef(() => _store.Calls[_callId], out var call))
+        {
+            PreviewView.Condition = null;
+            PreviewView.OutputRising = false;
             return;
-        ReloadList();
+        }
+
+        var (condOpt, outputRising) = ConditionExprBuilder.buildPreview(_store, call, _condType);
+        PreviewView.Condition =
+            FSharpOption<CoilCondition>.get_IsSome(condOpt) ? condOpt.Value : null;
+        PreviewView.OutputRising = outputRising;
     }
+
+    // ── Remove conditions ──
+    // ※ "+ 조건 추가" 버튼은 제거됨 — 조건 추가는 Call drag-drop 으로만.
+    //    드롭 시 기존 root 그룹이 있으면 거기에, 없으면 새로 생성 (ConditionDropHelper).
 
     private void RemoveCondition_Click(object sender, RoutedEventArgs e)
     {
@@ -68,11 +87,21 @@ public partial class ConditionEditDialog : Window
 
     // ── Toggle OR / Rising ──
 
-    private void ToggleOR_Click(object sender, RoutedEventArgs e)
+    private void SetAnd_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
+        if (!item.IsOR) return;   // 이미 AND
         _host.TryAction(() =>
-            _store.UpdateCallConditionSettings(_callId, item.ConditionId, !item.IsOR, item.IsRising));
+            _store.UpdateCallConditionSettings(_callId, item.ConditionId, false, item.IsRising));
+        ReloadList();
+    }
+
+    private void SetOr_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
+        if (item.IsOR) return;    // 이미 OR
+        _host.TryAction(() =>
+            _store.UpdateCallConditionSettings(_callId, item.ConditionId, true, item.IsRising));
         ReloadList();
     }
 
@@ -183,23 +212,26 @@ public partial class ConditionEditDialog : Window
         var removeBtn = CreateButton("x", "조건 삭제", item, RemoveCondition_Click);
         headerPanel.Children.Add(removeBtn);
 
-        var orCheck = new CheckBox
+        var fg = (Brush)FindResource("PrimaryTextBrush");
+        var andRadio = new RadioButton
+        {
+            Content = "AND", IsChecked = !item.IsOR, Tag = item,
+            Foreground = fg,
+            Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11
+        };
+        andRadio.Click += SetAnd_Click;
+        headerPanel.Children.Add(andRadio);
+
+        var orRadio = new RadioButton
         {
             Content = "OR", IsChecked = item.IsOR, Tag = item,
-            Foreground = (Brush)FindResource("PrimaryTextBrush"),
-            Margin = new Thickness(6, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11
-        };
-        orCheck.Click += ToggleOR_Click;
-        headerPanel.Children.Add(orCheck);
-
-        var risingCheck = new CheckBox
-        {
-            Content = "Rising", IsChecked = item.IsRising, Tag = item,
-            Foreground = (Brush)FindResource("PrimaryTextBrush"),
+            Foreground = fg,
             Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11
         };
-        risingCheck.Click += ToggleRising_Click;
-        headerPanel.Children.Add(risingCheck);
+        orRadio.Click += SetOr_Click;
+        headerPanel.Children.Add(orRadio);
+
+        // Rising 체크박스는 최상위 그룹에서만 노출 — 하위 그룹은 의미 없음 (출력 코일에만 적용).
 
         var addChildBtn = CreateButton("+ 하위그룹", null, item, AddChildCondition_Click);
         headerPanel.Children.Add(addChildBtn);
@@ -240,7 +272,7 @@ public partial class ConditionEditDialog : Window
             Grid.SetColumn(specText, 2);
             rowGrid.Children.Add(specText);
 
-            var editBtn = CreateButton("편집", null, apiRow, EditApiCallSpec_Click);
+            var editBtn = CreateButton("ValueSpec 편집", null, apiRow, EditApiCallSpec_Click);
             Grid.SetColumn(editBtn, 3);
             rowGrid.Children.Add(editBtn);
 
@@ -325,6 +357,26 @@ public partial class ConditionEditDialog : Window
         tabControl.Items.Add(flowTab.tab);
         tabControl.Items.Add(systemTab.tab);
         mainPanel.Children.Add(tabControl);
+
+        // 더블클릭 즉시 추가 — 단일 항목으로 곧장 추가하고 picker 닫음.
+        // SelectionMode.Multiple 에서는 첫 클릭이 토글 → SelectedItem 으로 판정 불가.
+        // OriginalSource 에서 ListBoxItem 을 hit-test 로 찾아 DataContext 추출.
+        void OnItemDoubleClick(object s, System.Windows.Input.MouseButtonEventArgs ev)
+        {
+            if (s is not ListBox lb) return;
+            var src = ev.OriginalSource as DependencyObject;
+            while (src is not null && src is not ListBoxItem)
+                src = System.Windows.Media.VisualTreeHelper.GetParent(src);
+            if (src is not ListBoxItem lbi || lbi.DataContext is not ApiCallPickItem pick) return;
+
+            _host.TryAction(() =>
+                _store.AddApiCallsToConditionBatch(_callId, conditionId, new List<Guid> { pick.Id }));
+            picker.DialogResult = false;   // 외부 ShowDialog 흐름의 multi-select 우회
+            picker.Close();
+            ReloadList();
+        }
+        flowTab.listBox.MouseDoubleClick += OnItemDoubleClick;
+        systemTab.listBox.MouseDoubleClick += OnItemDoubleClick;
 
         // 검색 필터
         searchBox.TextChanged += (_, _) =>
