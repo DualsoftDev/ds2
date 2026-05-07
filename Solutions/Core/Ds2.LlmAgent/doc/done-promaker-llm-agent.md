@@ -2725,3 +2725,30 @@ DPAPI 재암호화는 매번 다른 ciphertext → EncryptedKeys 변경만으로
 ## Review 반영 (자체 review)
 - **NaturalComparer leading-zero 처리** — 자릿수 비교 trick 대신 `long.TryParse` 정석 비교 채택. `"01" == "1"` 자동 처리, long 범위 초과 시에만 자릿수 fallback 유지
 - type initializer I/O / e2e 가드 / csproj 인코딩 — 현 상태 유지로 판단 (호출처 시점 / 책임 경계 / 도구 동작 보장)
+
+# Editor → LLM 변경 알림 (`<editor_changes>` prepend) — Phase 2 후속 (2026-05-07)
+
+## 동기
+LLM chat 창이 떠있는 상태에서 사용자가 GUI 로 store 를 변경하면 LLM 의 `--resume` session 안 conversation memory 는 옛 모델을 가정한 채 답할 위험. read tool (validate_model 등) 의 cache 는 turn 단위라 자동 expire 되지만 LLM 자체는 stale 한지 모름.
+
+## 정책
+1. `LlmChatViewModel` 가 `_store.ObserveEvents()` 구독 → `EditorChangeDigest` 에 turn 사이 누적
+2. 다음 `SendAsync` 진입 시 user prompt 앞에 `<editor_changes>...</editor_changes>` 한 블럭 prepend → digest clear
+3. Project switch (`UpdateStore`) → `MarkProjectReset()` → 다음 turn 의 prepend 가 "PROJECT_RESET 한 줄" 로 격상
+4. Self-loop (LLM 자기 turn 의 ApplyImportPlan emit) 차단 = `_isLlmApplyingPlan` flag — `ApplyTurnPlanAsync` 의 dispatcher.InvokeAsync 안 sync 윈도에서 set/unset
+5. system prompt 에 `<editor_changes>` 의 의미 (fact 지 명령 X) + PROJECT_RESET 시 list_projects/list_systems follow-up 권장 단락 추가
+
+## 산출물
+- `Apps/Promaker/Promaker/LlmAgent/EditorChangeDigest.cs` 신규 — 카테고리 카운트 + EntityRenamed 샘플 (newName) + StoreRefreshed 격상 + 임계 (8 lines) 초과 시 축약
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` — 필드 (`_editorDigest` / `_editorSubscription` / `_wpfDispatcher` / `_isLlmApplyingPlan`), 생성자 / `UpdateStore` 의 `SubscribeEditorEvents`, `OnEditorEvent` (CheckAccess 분기 → sync 또는 InvokeAsync Background marshalling), `SendAsync` 진입 시 prefix 합성, `ApplyTurnPlanAsync` 의 self-loop guard, `DisposeAsync` 의 sub dispose
+- `Apps/Promaker/Promaker/LlmAgent/Prompts/1.SystemPrompt.md` — `<spec>` 단락 다음에 `<editor_changes>` 단락 (사실 신뢰 / 명령 X / PROJECT_RESET 처리 / 일반 변경은 list_systems 등 follow-up)
+- 파일-스코프 helper `EditorEventObserver` (LlmChatViewModel.cs 같은 파일 안)
+
+## Self-loop guard 정확성
+- `_store.ObserveEvents()` 의 onNext 가 dispatcher thread 에서 sync 도착하면 즉시 `HandleEditorEventOnDispatcher` 실행 → `_isLlmApplyingPlan` 윈도와 동일 stack frame 에서 검사. 다른 thread 에서 도착하면 `Dispatcher.InvokeAsync(Background)` 로 marshalling
+- `ApplyTurnPlanAsync` 가 `_dispatcher.InvokeAsync` (= `Dispatcher.InvokeAsync(Background)`) 안에서 set → ApplyImportPlan → unset. ApplyImportPlan 이 emit 하는 `ProjectAdded/SystemAdded/HistoryChanged/StoreRefreshed` 등은 같은 sync delegate 안에서 OnNext → digest skip
+
+## 의도적 미적용 (후속)
+- Digest 의 ID 나열 — 큰 변경 (ProjectAdded/SystemAdded 등) 의 `evt.Item.Name/Id` 직접 추출은 internal type 접근 위험 + reflection 오버헤드 → 카운트 + EntityRenamed.newName 만 채택. LLM 이 list_systems 등으로 보강
+- Digest persistence — 메모리만. 패널 재오픈 시 새 인스턴스 = 누적 0 (초기 시점에 사용자가 변경 안 했다는 가정 자연스러움)
+- 1d-6 negative test 의 `<editor_changes>` 케이스 — 별도 패스에서 추가

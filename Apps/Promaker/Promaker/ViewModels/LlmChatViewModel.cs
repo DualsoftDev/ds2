@@ -45,6 +45,12 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// `Queries.allProjects(store)` 가 empty 반환 → tool 호출 시 "프로젝트가 없습니다" throw (Hot-fix-7).</summary>
     private DsStore _store;
     private readonly IUiDispatcher _dispatcher;
+    /// <summary>
+    /// EditorEvent subscription 의 onNext 가 dispatcher thread 에서 동기 도착했는지 판단하기 위해 보관.
+    /// thread-affinity 검사는 IUiDispatcher 의 책임이 아니므로 WPF Dispatcher 를 직접 참조한다.
+    /// dispatcher thread 면 sync 처리 → ApplyImportPlan 동안의 _isLlmApplyingPlan 윈도가 정확히 작동.
+    /// </summary>
+    private readonly Dispatcher _wpfDispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
     /// <summary>
@@ -83,6 +89,22 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private DispatcherTimer? _assistantFlushTimer;
     private const int AssistantFlushIntervalMs = 50;
 
+    /// <summary>
+    /// Editor → LLM 변경 알림 채널. <see cref="DsStore.ObserveEvents"/> 구독을 통해 사용자가 GUI 에서
+    /// 발생시킨 store 변경을 누적하고, 다음 <see cref="SendAsync"/> 진입 시 user prompt 앞에 한 블럭으로
+    /// prepend 한다. 1 turn = 1 prepend → digest clear.
+    /// </summary>
+    private readonly EditorChangeDigest _editorDigest = new();
+    private System.IDisposable? _editorSubscription;
+
+    /// <summary>
+    /// Self-loop guard. <see cref="ApplyTurnPlanAsync"/> 의 ApplyImportPlan 호출 직전 set, 완료 후 unset.
+    /// EditorEvent subscription 의 onNext 가 동일 dispatcher thread 면 sync 처리되므로 본 flag 가
+    /// ApplyImportPlan emit 윈도를 정확히 덮는다 → LLM 자기 turn 의 mutation 결과가 다음 turn 의 digest 로
+    /// 다시 inject 되는 noise 차단.
+    /// </summary>
+    private bool _isLlmApplyingPlan;
+
     public ObservableCollection<ChatTurn> Turns { get; } = new();
 
     public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } =
@@ -115,7 +137,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     public LlmChatViewModel(DsStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _dispatcher = new WpfDispatcherAdapter(Dispatcher.CurrentDispatcher);
+        _wpfDispatcher = Dispatcher.CurrentDispatcher;
+        _dispatcher = new WpfDispatcherAdapter(_wpfDispatcher);
+        SubscribeEditorEvents();
         // PR-A: 시작 시 사용자 default provider 적용. _mcpConfig 미초기화 상태라 OnSelectedProviderChanged 가
         // ConfigureProviderAsync 호출하지 않음 — 안전. InitializeAsync 가 SelectedProvider 값으로 첫 구성.
         if (Enum.TryParse<LlmProviderKind>(_config.DefaultProvider, ignoreCase: true, out var defaultKind))
@@ -387,10 +411,21 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         var turnCtx = new LlmTurnContext(_store, _dispatcher);
         _mcpHost.TurnProvider.BeginTurn(turnCtx);
 
+        // Editor 변경 digest prepend — 사용자가 GUI 에서 변경한 fact 를 user prompt 앞에 한 블럭으로 inject.
+        // digest 가 비어있으면 prompt 그대로. 전송 후 clear → 1 turn = 1 prepend.
+        var promptForProvider = prompt;
+        if (_editorDigest.HasAny)
+        {
+            var prefix = _editorDigest.ToContextMessage();
+            _editorDigest.Clear();
+            if (!string.IsNullOrEmpty(prefix))
+                promptForProvider = prefix + "\n\n" + prompt;
+        }
+
         _cts = new CancellationTokenSource();
         try
         {
-            var stream = _provider.Send(prompt, _cts.Token);
+            var stream = _provider.Send(promptForProvider, _cts.Token);
             await foreach (var evt in stream.ConfigureAwait(true))
             {
                 HandleEvent(evt);
@@ -435,7 +470,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         var label = $"{LlmTurnLabelPrefix}{Truncate(prompt, 50)}";
         var plan = ctx.Plan.Build();
         await _dispatcher.InvokeAsync(() =>
-            DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan));
+        {
+            // Self-loop guard: ApplyImportPlan 이 emit 하는 EditorEvent 들은 dispatcher thread 에서 sync 도착 →
+            // SubscribeEditorEvents 의 OnEditorEvent 가 본 flag 를 보고 digest 누적을 skip. unset 은 finally 보장.
+            _isLlmApplyingPlan = true;
+            try { DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan); }
+            finally { _isLlmApplyingPlan = false; }
+        });
         AddToolTurn($"[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
     }
 
@@ -528,6 +569,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// <summary>
     /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
     /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
+    ///
+    /// 추가: 새 store 에 EditorEvent subscription 재설정 + digest 를 PROJECT_RESET 으로 표식 (다음 turn 의
+    /// user prompt 앞에 "이전 모델 가정 무효" 한 줄 prepend). 기존 subscription 은 dispose.
     /// </summary>
     public void UpdateStore(DsStore newStore)
     {
@@ -537,6 +581,36 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _store = newStore;
         SessionId = null;
         StatusText = "프로젝트 변경 — 다음 turn 부터 새 store 사용";
+
+        SubscribeEditorEvents();
+        _editorDigest.MarkProjectReset();
+    }
+
+    /// <summary>
+    /// 현재 <see cref="_store"/> 에 EditorEvent subscription 재설정. 생성자/UpdateStore 모두에서 호출.
+    /// 이전 구독은 dispose. onNext 가 dispatcher thread 에서 sync 도착하면 즉시 처리, 아니면 marshalling.
+    /// </summary>
+    private void SubscribeEditorEvents()
+    {
+        _editorSubscription?.Dispose();
+        var observable = (IObservable<EditorEvent>)_store.ObserveEvents();
+        _editorSubscription = observable.Subscribe(new EditorEventObserver(OnEditorEvent));
+    }
+
+    private void OnEditorEvent(EditorEvent evt)
+    {
+        // dispatcher thread 도착 시 sync — _isLlmApplyingPlan 윈도가 ApplyImportPlan 의 sync emit 과 동일 stack frame
+        // 에서 검사되므로 self-loop guard 정확. marshalling 경로 (else) 는 BG/non-dispatcher thread 에서 store 가 mutate 되는
+        // 가설적 경로 — 결정 8 (mutation 은 dispatcher 경유) 가 깨지지 않는 한 사용자 GUI 직접 동작에서만 발생하므로
+        // self-loop 와 무관 (LLM 자기 turn 의 ApplyImportPlan 은 항상 dispatcher 위라 sync 분기로 들어옴).
+        if (_wpfDispatcher.CheckAccess()) HandleEditorEventOnDispatcher(evt);
+        else _wpfDispatcher.InvokeAsync(() => HandleEditorEventOnDispatcher(evt), DispatcherPriority.Background);
+    }
+
+    private void HandleEditorEventOnDispatcher(EditorEvent evt)
+    {
+        if (_isLlmApplyingPlan) return;
+        _editorDigest.Record(evt);
     }
 
     partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
@@ -678,6 +752,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     {
         _cts?.Cancel();
         _assistantFlushTimer?.Stop();
+        _editorSubscription?.Dispose();
+        _editorSubscription = null;
         if (_provider is IAsyncDisposable apiAsync)
         {
             try { await apiAsync.DisposeAsync().ConfigureAwait(false); }
@@ -724,4 +800,15 @@ public partial class ChatTurn : ObservableObject
 
     [ObservableProperty]
     private bool _isStreaming;
+}
+
+file sealed class EditorEventObserver : IObserver<EditorEvent>
+{
+    private readonly Action<EditorEvent> _onNext;
+
+    public EditorEventObserver(Action<EditorEvent> onNext) => _onNext = onNext;
+
+    public void OnNext(EditorEvent value) => _onNext(value);
+    public void OnCompleted() { }
+    public void OnError(Exception error) { /* swallow — provider 변경/dispose 시 emit 종료 가능 */ }
 }
