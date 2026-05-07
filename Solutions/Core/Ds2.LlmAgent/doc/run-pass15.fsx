@@ -113,7 +113,10 @@ let spawnPromaker () : Process * string =
     let psi = ProcessStartInfo(promakerExe)
     psi.WorkingDirectory <- Path.GetDirectoryName(promakerExe)
     psi.UseShellExecute <- true   // WPF UI startup
-    psi.Arguments <- "--autostart-llm"
+    psi.ArgumentList.Add("--autostart-llm")
+    psi.ArgumentList.Add("--measure-prompt")
+    psi.ArgumentList.Add(prompt)
+    psi.ArgumentList.Add("--measure-then-exit")
     let proc = Process.Start(psi)
     if proc = null then failwithf "Promaker spawn 실패: %s" promakerExe
 
@@ -316,7 +319,15 @@ for (modeName, commit) in activeModes do
                     stat.WallMs stat.TurnCount stat.MultiToolMsgs stat.TotalToolUse
                     stat.StopReason stat.NumTurnsCli stat.ResultLen stat.IsError stat.ExitCode
             finally
-                try proc.Kill(true); proc.WaitForExit(2000) |> ignore with _ -> ()
+                // graceful close — WPF MainWindow.Closing → DisposeLlmChatAsync → log4net flush.
+                // 강제 Kill 만 쓰면 RollingFileAppender 의 file handle close 안 되어 ToolCall/Authoring 로그 30초치 손실.
+                try
+                    if not proc.HasExited then
+                        proc.CloseMainWindow() |> ignore
+                        if not (proc.WaitForExit(5000)) then
+                            proc.Kill(true)
+                            proc.WaitForExit(2000) |> ignore
+                with _ -> ()
 
 printfn ""
 printfn "============================================================"
