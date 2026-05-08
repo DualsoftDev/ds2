@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:b="clr-namespace:Promaker.Behaviors"
         Title="프로젝트 속성"
-        Width="480" Height="440"
+        Width="480" Height="520"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -17,7 +17,7 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="6">
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Disabled" Padding="6">
                 <StackPanel>
                     <!-- Project Name -->
                     <TextBlock Text="프로젝트 이름"
