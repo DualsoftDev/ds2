@@ -386,6 +386,15 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 1 turn 종료 시점(= ApplyTurnPlanAsync 까지 완료, IsSending=false 직전) 에 발생.
+    /// 측정 자동화(`MainViewModel.LlmChat.cs`) 가 IsSending PropertyChanged + wasSending rising-edge
+    /// 로 추정하던 invariant 를 명시적 event 로 보호. SendAsync 가 향후 Task.Run 으로 전환되어도
+    /// 측정 path 는 안전하게 1회 호출됨. Early-return(_provider==null/prompt 비어있음) 시에는
+    /// 발생하지 않음 — 그 경로는 SendCommand.CanExecute=false 로 차단됨.
+    /// </summary>
+    public event EventHandler? TurnCompleted;
+
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
     {
@@ -462,6 +471,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             CancelCommand.NotifyCanExecuteChanged();
             _cts?.Dispose();
             _cts = null;
+
+            TurnCompleted?.Invoke(this, EventArgs.Empty);
         }
     }
 
