@@ -257,6 +257,65 @@ public partial class SimulationPanelState : ObservableObject
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(IsHubHost));
         SetHubStatus(connected: false, reconnecting: false);
+        RefreshGanttTimeSource();
+    }
+
+    partial void OnIsSimulatingChanged(bool value)
+    {
+        ResetSimClockInterpolationBase();
+        RefreshGanttTimeSource();
+    }
+
+    // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
+    partial void OnIsSimPausedChanged(bool value) => ResetSimClockInterpolationBase();
+
+    // ── Sim clock interpolation (Gantt 빨간선 부드러운 진행용) ──
+    // sim clock 은 event-driven 이라 due 시점에만 update → 그대로 쓰면 빨간선 점프.
+    // 마지막으로 관측한 sim clock 을 base 로 잡고 (그 시점의 wall 도 함께 기록),
+    // 매 frame 에 wall 경과 × speed 만큼 sim clock 을 보간 추정해서 빨간선이 부드럽게 진행.
+    private DateTime _interpBaseWall = DateTime.Now;
+    private TimeSpan _interpBaseSim = TimeSpan.Zero;
+
+    private void ResetSimClockInterpolationBase()
+    {
+        _interpBaseWall = DateTime.Now;
+        _interpBaseSim = _simEngine?.State.Clock ?? TimeSpan.Zero;
+    }
+
+    private DateTime EstimateSimClockNow()
+    {
+        var engine = _simEngine;
+        if (engine is null) return _simStartTime + _interpBaseSim;
+
+        var actualSim = engine.State.Clock;
+        // 엔진이 새 sim clock 으로 advance → base 갱신 (이후 보간은 그 지점부터 다시 측정)
+        if (actualSim != _interpBaseSim)
+        {
+            _interpBaseSim = actualSim;
+            _interpBaseWall = DateTime.Now;
+        }
+
+        // Pause 중에는 보간 정지 — 마지막 base 그대로 반환
+        if (IsSimPaused || !IsSimulating) return _simStartTime + _interpBaseSim;
+
+        var wallElapsed = DateTime.Now - _interpBaseWall;
+        var speed = SimSpeed > 0 ? SimSpeed : 1.0;
+        var simDelta = TimeSpan.FromTicks((long)(wallElapsed.Ticks * speed));
+        return _simStartTime + _interpBaseSim + simDelta;
+    }
+
+    /// <summary>
+    /// Gantt 빨간선의 시간 source 를 현재 모드/시뮬 상태에 맞게 갱신.
+    /// Simulation 모드 + 시뮬 실행 중 → sim clock 기반 보간 provider 주입.
+    /// 그 외 (Control/VP/Monitoring 또는 시뮬 미실행) → null (wall clock default).
+    /// 노드 막대 timestamp 도 동일 source 라 빨간선과 일치 — 배속 시 막대가 빨간선 추월하던 mismatch 해결.
+    /// </summary>
+    private void RefreshGanttTimeSource()
+    {
+        if (IsSimulating && SelectedRuntimeMode == RuntimeMode.Simulation)
+            GanttChart.NowOverride = EstimateSimClockNow;
+        else
+            GanttChart.NowOverride = null;
     }
 
     private bool HasIOConfigured()
