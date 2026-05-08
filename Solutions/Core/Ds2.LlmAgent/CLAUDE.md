@@ -11,6 +11,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **두 문서 유지 정책**: `git commit` 시점에 다른 Claude Code 세션이 바로 이어받아 작업할 수 있는 수준으로 동기화되어야 한다. 진척 / 결정 변경 / 미적용 의도 / 다음 단계 권장 순서가 두 문서 안에서 일관된 상태여야 함. 작업 종료 직전 두 문서 갱신을 빠뜨리지 말 것.
 
+> **path / 식별자 갱신 정책 (rename 등)**: 파일 / 식별자 / 시그니처가 rename 될 때:
+> - **`todo-*.md`** = *현재 진행 중* 의 작업 안내 → 새 path/이름으로 **일괄 갱신** (옛 path 인용을 유지하면 다음 세션이 stale 정보로 진입). 단 그 todo 안의 *과거 revision history* (rev N 본문) 도 *현재 path* 기준으로 갱신하고, rename 사실 자체는 별도 rev 한 줄에 기록 (historical accuracy 는 `git log` 가 보존).
+> - **`done-*.md`** = 완료된 작업의 *historical record* → 그 시점의 path/이름 **그대로 보존**. 새 path 로 갱신하면 *완료 시점의 사실* 이 사라져 audit / 회귀 추적이 깨짐. 검색 시 `git log --follow` / 이름 변경 trace 활용.
+> - **`CLAUDE.md`** (본 문서) / 외부 cross-link = *현재 상태 안내* → 새 path 로 갱신.
+
 ## 새 세션 진입 절차
 
 1. `doc/todo-promaker-llm-agent.md` 의 **"진행 상태"** + **"다음 작업 진입 권장 순서"** 섹션부터 읽기 (현재 phase 위치 파악)
@@ -101,7 +106,9 @@ Apps/Promaker/Promaker/
     ├── PromakerToolNames.cs                    16개 fully-qualified mcp__promaker__* (allowlist SSOT) — list_projects/list_systems/describe_system/describe_subtree/find_by_name/validate_model + apply_operations (Pass 6 batch) + add_project/system/flow/work/call/api_def/arrow + remove_entity/rename_entity
     ├── SystemPrompt.cs                         static readonly = PromptLoader.LoadComposed() 1회 호출. 본문은 외부 `.md` 로 이전
     ├── PromptLoader.cs                         3-tier 로드 (embedded baseline / `<exedir>\Prompts\*.md` / `%APPDATA%\Promaker\Prompts\*.md`) + 자연 정렬 + append merge. 시작 시 활성 소스 1줄 log
-    ├── Prompts/1.SystemPrompt.md               baseline (모델 schema + batch + injection 격리 + 1d 풀세트: Arrow 시맨틱 / greenfield checklist / clarification 템플릿 / `<spec>` delimiter). 추가 `.md` 자연 정렬 후 concat
+    ├── Prompts/1.entities.md                   baseline foundation — Ds2 entity 모델 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow) 속성 / 관계 / GUI canonical
+    ├── Prompts/2.modeling.md                   baseline rules — 자연어 → entity mapping (§0 해석 단계 / §1 매핑표 / §2 룰 A~E / §3 결정 트리·실행 시맨틱 / §5 self-check)
+    ├── Prompts/3.tooling.md                    baseline tools — MCP 도구 시그니처 / 운영 규칙 / Clarification 템플릿 / 후속 phase 확장 entity 안내. 추가 `.md` 자연 정렬 후 concat (foundation → rules → tools 순)
     ├── WpfDispatcherAdapter.cs                 IUiDispatcher.InvokeAsync (Background priority)
     ├── Api/                                    Phase 2 API providers
     │   ├── ApiChatProvider.cs                  Microsoft.Extensions.AI 기반 IChatClient → ILlmProvider 어댑터. update.Contents 를 LlmEvent 4종으로 매핑
