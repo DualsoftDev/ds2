@@ -16,12 +16,19 @@
     </UserControl.Resources>
 
     <Grid x:Name="SimulationSection" HorizontalAlignment="Left">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <WrapPanel x:Name="SimulationRibbonContentPanel" Orientation="Horizontal">
-            <StackPanel Orientation="Vertical">
+
+        <!-- 시뮬레이션 controls (PLAY/PAUSE + Work + 속도) -->
+        <StackPanel Grid.Column="0" Grid.Row="0" Orientation="Horizontal">
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="SimulationStartStopButton"
                             IsEnabled="{Binding HasProject}">
@@ -313,18 +320,32 @@
                     </TextBlock>
                 </StackPanel>
             </StackPanel>
-            <StackPanel Orientation="Vertical"
-                        Margin="22,0,0,0"
-                        VerticalAlignment="Center"
-                        IsEnabled="{Binding HasProject}">
-                <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox x:Name="SimWorkComboBox"
+
+            <!-- Work / 속도 / 연속투입 통합 grid: 같은 grid 의 row 라서 라벨/콤보가 자동으로 같은 가로선에 정렬됨 -->
+            <Grid Margin="22,0,0,0"
+                  VerticalAlignment="Center"
+                  IsEnabled="{Binding HasProject}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Work 칸 -->
+                <TextBlock Grid.Column="0" Grid.Row="0" Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
+                <ComboBox Grid.Column="0" Grid.Row="1"
+                          x:Name="SimWorkComboBox"
                           ItemsSource="{Binding Simulation.SimWorkItems}"
                           SelectedItem="{Binding Simulation.SelectedSimWork}"
                           Width="130"
                           MinHeight="24"
                           FontSize="11"/>
-                <UniformGrid Columns="2" Margin="0,1,0,0">
+                <UniformGrid Grid.Column="0" Grid.Row="2" Columns="2" Margin="0,1,0,0">
                     <Button x:Name="ForceWorkStartButton"
                             Command="{Binding Simulation.ForceWorkStartCommand}"
                             ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}"
@@ -364,25 +385,27 @@
                                    HorizontalAlignment="Center"/>
                     </Button>
                 </UniformGrid>
-            </StackPanel>
-            <StackPanel Orientation="Vertical"
-                        Margin="22,0,0,0"
-                        VerticalAlignment="Center"
-                        IsEnabled="{Binding HasProject}">
-                <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox x:Name="SimSpeedComboBox"
+
+                <!-- 속도 칸 (좌측 22px 간격은 column 1 자식들의 좌측 Margin 으로 부여) -->
+                <TextBlock Grid.Column="1" Grid.Row="0" Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="22,0,0,1"/>
+                <ComboBox Grid.Column="1" Grid.Row="1"
+                          x:Name="SimSpeedComboBox"
                           SelectedValue="{Binding Simulation.SimSpeed}"
                           SelectedValuePath="Tag"
-                          Width="72"
+                          Width="110"
                           MinHeight="24"
-                          FontSize="11">
+                          FontSize="11"
+                          HorizontalContentAlignment="Center"
+                          Margin="22,0,0,0">
                     <ComboBoxItem Content="0.5x"><ComboBoxItem.Tag><sys:Double>0.5</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="1x"><ComboBoxItem.Tag><sys:Double>1.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="2x"><ComboBoxItem.Tag><sys:Double>2.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="5x"><ComboBoxItem.Tag><sys:Double>5.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,1,0,0">
+                <!-- Token + 연속투입 — 같은 StackPanel 에 묶어 baseline/padding 일관 정렬 (column 1+2 RowSpan 방식) -->
+                <StackPanel Grid.Column="1" Grid.Row="2" Grid.ColumnSpan="2"
+                            Orientation="Horizontal" HorizontalAlignment="Center" Margin="22,1,0,0">
                     <Button x:Name="OpenTokenSpecButton"
                             Command="{Binding OpenTokenSpecDialogCommand}"
                             IsEnabled="{Binding HasProject}"
@@ -403,21 +426,68 @@
                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                         </StackPanel>
                     </Button>
+                    <!-- 연속투입: Token 과 같은 padding/외곽선/baseline. IsChecked=True 일 때 AccentBrush 배경 + 흰글씨로 "눌린 이펙트". -->
+                    <ToggleButton x:Name="ContinuousInjectionToggle"
+                                  IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
+                                  IsEnabled="{Binding HasProject}"
+                                  Margin="6,0,0,0"
+                                  ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다.">
+                        <ToggleButton.Style>
+                            <Style TargetType="ToggleButton">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Padding" Value="4,2"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="Bd"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="3"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}"/>
+                                                    <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ToggleButton.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial Kind="Repeat" Width="10" Height="10"
+                                                        VerticalAlignment="Center" Margin="0,0,3,0"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"/>
+                            <TextBlock Text="연속투입" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"/>
+                        </StackPanel>
+                    </ToggleButton>
                 </StackPanel>
-                <CheckBox x:Name="ContinuousInjectionCheckBox"
-                          Content="연속 투입"
-                          IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
-                          Margin="0,4,0,0"
-                          HorizontalAlignment="Center"
-                          FontSize="10"
-                          ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다."/>
-            </StackPanel>
-            <!-- 좌측 세로선: 다른 ribbon 그룹과 동일한 분리 패턴 (플랫 테마) -->
-            <Rectangle Width="1"
-                       Fill="{DynamicResource BorderBrush}"
-                       Margin="18,4,18,4"
-                       VerticalAlignment="Stretch"/>
-            <!-- Runtime 진입 버튼 -->
+            </Grid>
+        </StackPanel>
+
+        <!-- 시뮬레이션 / 런타임 구분선 — 다른 ribbon 섹션과 동일 스타일/길이 (라벨 row 까지 RowSpan=2) -->
+        <Border Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
+                Style="{StaticResource RibbonSectionSeparator}"/>
+
+        <!-- 런타임 controls (Runtime 버튼 + 모드/Hub 입력) -->
+        <StackPanel Grid.Column="2" Grid.Row="0" Orientation="Horizontal">
             <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                 <Button x:Name="RuntimeSettingButton"
                         Command="{Binding ShowRuntimeSettingsCommand}"
@@ -436,11 +506,10 @@
                                                     HorizontalAlignment="Center"
                                                     Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                         <TextBlock Text="Runtime" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"
-                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
                     </StackPanel>
                 </Button>
             </StackPanel>
-            <!-- 모드 라벨 + Hub 연결 상태 dot + Hub 입력란 -->
             <StackPanel Orientation="Vertical"
                         Margin="12,0,0,0"
                         MinWidth="130"
@@ -478,7 +547,10 @@
                          ToolTip="Hub 주소 (host:port) — Sim 외 모드에서 입력"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
-        </WrapPanel>
-        <TextBlock Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>
+        </StackPanel>
+
+        <!-- 섹션 라벨: 시뮬레이션 / 런타임 (각자 칸 중앙 정렬) -->
+        <TextBlock Grid.Column="0" Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>
+        <TextBlock Grid.Column="2" Grid.Row="1" Text="런타임" Style="{StaticResource RibbonSectionLabel}"/>
     </Grid>
 </UserControl>
