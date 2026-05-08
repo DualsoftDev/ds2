@@ -133,16 +133,15 @@ public partial class EditorCanvas
         var dx = canvasPos.X - _drag.StartPoint.X;
         var dy = canvasPos.Y - _drag.StartPoint.Y;
 
-        var canvasW = MainCanvas.Width;
-        var canvasH = MainCanvas.Height;
-
+        // 좌상단(0,0)만 고정. 우/하단은 캔버스가 동적으로 확장되므로 상한 클램프 없음.
         foreach (var item in _drag.Items)
         {
-            var maxX = canvasW - item.Node.Width;
-            var maxY = canvasH - item.Node.Height;
-            item.Node.X = Math.Clamp(item.OriginX + dx, 0, maxX);
-            item.Node.Y = Math.Clamp(item.OriginY + dy, 0, maxY);
+            item.Node.X = Math.Max(0, item.OriginX + dx);
+            item.Node.Y = Math.Max(0, item.OriginY + dy);
         }
+
+        // 드래그된 노드가 캔버스 끝을 넘으면 확장(축소도 가능 — 다른 노드가 잡고 있으면 유지됨).
+        RecalculateCanvasSize();
 
         UpdateDragArrows(_drag);
     }
@@ -233,10 +232,9 @@ public partial class EditorCanvas
 
                 var (finalX, finalY) = EntityKindRules.snapToGrid(item.Node.X, item.Node.Y, ctrlHeld);
 
-                var maxX = MainCanvas.Width - item.Node.Width;
-                var maxY = MainCanvas.Height - item.Node.Height;
-                finalX = Math.Clamp(finalX, 0, maxX);
-                finalY = Math.Clamp(finalY, 0, maxY);
+                // 좌상단만 클램프. 우/하단은 캔버스가 함께 늘어남.
+                finalX = Math.Max(0, finalX);
+                finalY = Math.Max(0, finalY);
 
                 item.Node.X = finalX;
                 item.Node.Y = finalY;
@@ -256,6 +254,9 @@ public partial class EditorCanvas
 
         _drag = null;
         _dragElement = null;
+
+        // 드래그 종료 후 비어있는 영역이 있으면 캔버스를 다시 줄임.
+        RecalculateCanvasSize();
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
