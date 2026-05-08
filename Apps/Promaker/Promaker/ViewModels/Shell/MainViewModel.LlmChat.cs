@@ -117,8 +117,8 @@ public partial class MainViewModel
                 Application.Current?.Shutdown(App.MeasureExitSendCommandUnavailable);
                 return;
             }
-            vm.SendCommand.Execute(null);
             Log.Info("autostart-llm: SendCommand.Execute 호출 (turn 시작).");
+            vm.SendCommand.Execute(null);
 
             if (!thenExit) return;
 
