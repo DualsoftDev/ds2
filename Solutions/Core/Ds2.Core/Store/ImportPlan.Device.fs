@@ -6,6 +6,11 @@ open Ds2.Core
 
 module internal ImportPlanDeviceOps =
 
+    type internal WiringMode =
+        | Chain
+        | AllPairs
+        | NoneMode
+
     type private DeviceBatchState = {
         PendingSystems: Map<string, DsSystem>
         PendingFlows: Map<string, Flow>
@@ -40,6 +45,7 @@ module internal ImportPlanDeviceOps =
         (flowName: string)
         (devAlias: string)
         (systemNameHint: string option)
+        (systemType: string option)
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
         let systemName = systemNameHint |> Option.defaultWith (fun () -> $"{flowName}_{devAlias}")
@@ -86,6 +92,7 @@ module internal ImportPlanDeviceOps =
                         NewSystemIds = Set.add existing.Id state.NewSystemIds }
             | None ->
                 let system = DsSystem(systemName)
+                system.SystemType <- systemType
                 let flow = Flow($"{devAlias}_Flow", system.Id)
                 queueOperation (AddSystem system) operations
                 queueOperation (LinkSystemToProject(projectId, system.Id, false)) operations
@@ -100,6 +107,7 @@ module internal ImportPlanDeviceOps =
         (deviceKey: string)
         (apiName: string)
         (systemId: Guid)
+        (workDuration: TimeSpan option)
         (store: DsStore)
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
@@ -113,7 +121,7 @@ module internal ImportPlanDeviceOps =
                 |> List.tryFind (fun existing -> existing.LocalName = apiName)
                 |> Option.defaultWith (fun () ->
                     let created = Work(flow.Name, apiName, flow.Id)
-                    created.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+                    created.Duration <- workDuration
                     queueOperation (AddWork created) operations
                     created)
             let current = Map.tryFind deviceKey state.PendingWorkOrderRev |> Option.defaultValue []
@@ -159,7 +167,8 @@ module internal ImportPlanDeviceOps =
         call.ApiCalls.Add(apiCall)
         queueOperation (AddApiCall apiCall) operations
 
-    let private buildWorkArrows
+    let private buildWorkArrowsBy
+        (pairsOf: Work list -> (Work * Work) list)
         (store: DsStore)
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
@@ -170,27 +179,36 @@ module internal ImportPlanDeviceOps =
             | Some flow ->
                 let systemId = flow.ParentId
                 let existingArrows = Queries.arrowWorksOf systemId store
+                let pairs = workOrderRev |> List.rev |> pairsOf
                 let nextPairs =
-                    workOrderRev
-                    |> List.rev
-                    |> List.pairwise
-                    |> List.fold (fun pairs (src, dst) ->
+                    pairs
+                    |> List.fold (fun acc (src, dst) ->
                         let pair = (src.Id, dst.Id)
                         let alreadyExists =
-                            Set.contains pair pairs
+                            Set.contains pair acc
                             || existingArrows |> List.exists (fun arrow ->
                                 arrow.ArrowType = ArrowType.ResetReset
                                 && ((arrow.SourceId = src.Id && arrow.TargetId = dst.Id)
                                     || (arrow.SourceId = dst.Id && arrow.TargetId = src.Id)))
                         if alreadyExists then
-                            pairs
+                            acc
                         else
                             let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
                             queueOperation (AddArrowWork arrow) operations
-                            Set.add pair pairs
+                            Set.add pair acc
                     ) currentState.PlannedArrowPairs
                 { currentState with PlannedArrowPairs = nextPairs }) state
         |> ignore
+
+    let private buildWorkArrows store operations state =
+        buildWorkArrowsBy List.pairwise store operations state
+
+    let private buildWorkArrowsAllPairs store operations state =
+        let allPairs (ws: Work list) =
+            [ for i in 0 .. ws.Length - 1 do
+                for j in i + 1 .. ws.Length - 1 do
+                    yield ws.[i], ws.[j] ]
+        buildWorkArrowsBy allPairs store operations state
 
     let private linkCallsToDevicesWithState
         (store: DsStore)
@@ -208,12 +226,54 @@ module internal ImportPlanDeviceOps =
                     st
                 else
                     let devAlias = call.DevicesAlias
-                    let system, deviceKey, withSystem = ensureSystem store projectId flowName devAlias sysHint operations st
-                    let withWork = ensurePendingWork deviceKey apiName system.Id store operations withSystem
+                    let system, deviceKey, withSystem = ensureSystem store projectId flowName devAlias sysHint None operations st
+                    let workDurationDefault = Some (TimeSpan.FromMilliseconds 500.)
+                    let withWork = ensurePendingWork deviceKey apiName system.Id workDurationDefault store operations withSystem
                     let apiDef, withApiDef = ensureApiDef store system apiName operations withWork
                     createAndRegisterApiCall call callName apiDef.Id operations
                     withApiDef
             ) state
+
+    /// LLM helper 진입점 — PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 1회 발행.
+    /// 반환 = (PassiveSystem.Id, (apiName * ApiDef.Id) list). caller (LlmAgent) 가 batch ref table 다중 등록 source 로 사용.
+    /// helper 는 *신규* device 생성 책임만 짐 — 동명 PassiveSystem 이 store 에 이미 존재하면 invalidOp.
+    /// 기존 device 재사용 시나리오는 LLM 이 사전에 find_by_name/list_systems 로 조회 후 primitive add_call 사용.
+    let internal buildPassiveDeviceCascade
+        (store: DsStore)
+        (projectId: Guid)
+        (operations: ResizeArray<ImportPlanOperation>)
+        (name: string)
+        (deviceType: string)
+        (apiNames: string list)
+        (workDuration: TimeSpan option)
+        (wiringMode: WiringMode)
+        : Guid * (string * Guid) list =
+        let existing =
+            Queries.passiveSystemsOf projectId store
+            |> List.tryFind (fun s -> s.Name = name)
+        match existing with
+        | Some _ ->
+            invalidOp $"PassiveSystem '{name}' 이 이미 존재합니다 — find_by_name/list_systems 로 사전 조회 후 primitive add_call 로 기존 ApiDef.Id 참조 권장 (helper 는 신규 device 생성 책임)"
+        | None -> ()
+        let system, deviceKey, stateWithSystem =
+            ensureSystem store projectId name name (Some name) (Some deviceType) operations initialState
+        let stateWithWorks =
+            apiNames
+            |> List.fold (fun st apiName ->
+                ensurePendingWork deviceKey apiName system.Id workDuration store operations st
+            ) stateWithSystem
+        let apiDefIds, stateWithApiDefs =
+            apiNames
+            |> List.fold (fun (acc, st) apiName ->
+                let apiDef, st' = ensureApiDef store system apiName operations st
+                ((apiName, apiDef.Id) :: acc, st')
+            ) ([], stateWithWorks)
+        let apiDefIdsOrdered = List.rev apiDefIds
+        match wiringMode with
+        | Chain -> buildWorkArrows store operations stateWithApiDefs
+        | AllPairs -> buildWorkArrowsAllPairs store operations stateWithApiDefs
+        | NoneMode -> ()
+        system.Id, apiDefIdsOrdered
 
     let linkCallsToDevices
         (store: DsStore)
