@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\Ds2.Editor\Ds2.Editor.fsproj" />
   </ItemGroup>
 

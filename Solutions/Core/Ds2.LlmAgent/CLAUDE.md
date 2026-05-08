@@ -76,7 +76,7 @@ ImportPlanBuilder.fs      mutable plan accumulator (turn 단위, plan.Add / plan
 ToolOperations.fs         mutation 13종 (queueAddProject/System/Flow/Work/Call/ApiDef/Arrow + queueRemoveEntity/queueRenameEntity + queueBatch + helper) + read 6종 (listProjects/listSystems/describeSystem/describeSubtree/findByName/validateModelByGuid) + format helper 3종. NameMaxLength=128 + sanitizeName Cc/Cf + @/$ prefix 차단
 ```
 
-ProjectReference = `Ds2.Editor` only. `Ds2.Core` 는 transitive (특히 `[<AutoOpen>] module Queries` in `Ds2.Core.Store`, `ImportPlanOperation` DU).
+ProjectReference = `Ds2.Core` + `Ds2.Editor` (둘 다 직접). `Ds2.Core` 는 `Ds2.Editor` transitive 로도 들어오나 `[<InternalsVisibleTo("Ds2.LlmAgent")>]` (Ds2.Core/AssemblyInfo.fs:11) 효력화 위해 *직접* 참조 강제 — F# `InternalsVisibleTo` 는 transitive 확장 안 됨. `[<AutoOpen>] module Queries` in `Ds2.Core.Store` / `ImportPlanOperation` DU / `module internal ImportPlanDeviceOps.buildPassiveDeviceCascade` 등 internal 진입점 직접 호출 가능.
 
 ### Mutation 경로 (Phase 1c 부터)
 
