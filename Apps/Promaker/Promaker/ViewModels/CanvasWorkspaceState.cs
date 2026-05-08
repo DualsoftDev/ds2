@@ -305,6 +305,107 @@ public partial class CanvasWorkspaceState : ObservableObject
         ActiveTab = tab;
     }
 
+    /// <summary>
+    /// 화살표 추가/삭제/타입변경/방향전환 이벤트의 경량 처리.
+    /// 노드 ContentPresenter/visual은 보존하고 CanvasArrows에 diff(add/remove/replace)만 적용한 뒤 path 재계산.
+    /// </summary>
+    public void ApplyConnectionsChanged()
+    {
+        if (ActiveTab is null)
+        {
+            // 탭이 없으면 그냥 비움
+            CanvasNodes.Clear();
+            CanvasArrows.Clear();
+            _host.Selection.ApplyNodeSelectionVisuals();
+            return;
+        }
+
+        if (!_host.TryRef(
+                () => EditorCanvasProjection.CanvasContentForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
+                out var content,
+                statusOverride: "[ERROR] Failed to refresh canvas content."))
+            return;
+
+        var newById = content.Arrows.ToDictionary(a => a.Id);
+
+        // 1) 제거: 새 set에 없는 기존 화살표
+        for (int i = CanvasArrows.Count - 1; i >= 0; i--)
+        {
+            if (!newById.ContainsKey(CanvasArrows[i].Id))
+                CanvasArrows.RemoveAt(i);
+        }
+
+        // 2) 교체/추가: ID 기준으로 매칭, 불변 필드(SourceId/TargetId/ArrowType)가 다르면 새 객체로 교체
+        var existingById = new Dictionary<Guid, ArrowNode>(CanvasArrows.Count);
+        foreach (var arrow in CanvasArrows) existingById[arrow.Id] = arrow;
+
+        foreach (var a in content.Arrows)
+        {
+            if (existingById.TryGetValue(a.Id, out var existing))
+            {
+                if (existing.SourceId != a.SourceId
+                    || existing.TargetId != a.TargetId
+                    || existing.ArrowType != a.ArrowType)
+                {
+                    var idx = CanvasArrows.IndexOf(existing);
+                    if (idx >= 0)
+                        CanvasArrows[idx] = new ArrowNode(a.Id, a.SourceId, a.TargetId, a.ArrowType);
+                }
+            }
+            else
+            {
+                CanvasArrows.Add(new ArrowNode(a.Id, a.SourceId, a.TargetId, a.ArrowType));
+            }
+        }
+
+        RefreshArrowPaths();
+    }
+
+    /// <summary>
+    /// 노드 이동(EntitiesMoved) 이벤트 처리: 트리/visual tree 재구축 없이
+    /// 이동된 노드의 X/Y를 store에서 동기화하고 인접 flow의 화살표 path만 재계산한다.
+    /// 드래그/AutoLayout 등 위치만 바뀐 작업의 hitch 제거를 위한 경로.
+    /// </summary>
+    public void ApplyEntitiesMoved(IReadOnlyCollection<Guid> ids)
+    {
+        if (ActiveTab is null || ids.Count == 0 || CanvasNodes.Count == 0)
+            return;
+
+        var idSet = ids as HashSet<Guid> ?? new HashSet<Guid>(ids);
+        foreach (var node in CanvasNodes)
+        {
+            if (!idSet.Contains(node.Id)) continue;
+
+            var pos = TryGetEntityPosition(node.Id);
+            if (pos is null) continue;
+
+            node.X = pos.X;
+            node.Y = pos.Y;
+        }
+
+        RefreshArrowPaths();
+        RecalculateCanvasSizeRequested?.Invoke();
+    }
+
+    private Xywh? TryGetEntityPosition(Guid id)
+    {
+        var work = Queries.getWork(id, Store);
+        if (work is not null)
+        {
+            var posOpt = work.Value.Position;
+            if (posOpt is not null) return posOpt.Value;
+            return null;
+        }
+
+        var call = Queries.getCall(id, Store);
+        if (call is not null)
+        {
+            var posOpt = call.Value.Position;
+            if (posOpt is not null) return posOpt.Value;
+        }
+        return null;
+    }
+
     private void RefreshArrowPaths()
     {
         if (ActiveTab is null || CanvasArrows.Count == 0)

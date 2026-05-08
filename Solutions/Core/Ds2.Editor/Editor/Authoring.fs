@@ -111,6 +111,10 @@ module internal StoreAuthoring =
         emitEvent store StoreRefreshed
         emitHistoryChanged store
 
+    let emitEntitiesMovedAndHistory (store: DsStore) (ids: Guid list) =
+        emitEvent store (EntitiesMoved ids)
+        emitHistoryChanged store
+
     let observeEvents (store: DsStore) =
         (state store).EventBus.Publish
 
@@ -238,6 +242,10 @@ type DsStoreAuthoringExtensions =
     [<Extension>]
     static member EmitRefreshAndHistory(store: DsStore) =
         StoreAuthoring.emitRefreshAndHistory store
+
+    [<Extension>]
+    static member EmitEntitiesMovedAndHistory(store: DsStore, ids: Guid list) =
+        StoreAuthoring.emitEntitiesMovedAndHistory store ids
 
     [<Extension>]
     static member ObserveEvents(store: DsStore) =

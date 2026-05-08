@@ -179,7 +179,10 @@ type DsStoreNodesExtensions =
                         store.TrackMutate(store.Works, id, fun work -> work.Position <- newPos)
                     else
                         store.TrackMutate(store.Calls, id, fun call -> call.Position <- newPos))
-            store.EmitRefreshAndHistory()
+            // 트리/캔버스 visual tree 재구축을 피하기 위해 가벼운 이벤트 발행.
+            // C# 측에서 인접 화살표 path만 재계산한다.
+            let movedIds = moves |> List.map (fun (id, _, _) -> id)
+            store.EmitEntitiesMovedAndHistory(movedIds)
             moves.Length
 
     // ─── Remove ──────────────────────────────────────────────────────
