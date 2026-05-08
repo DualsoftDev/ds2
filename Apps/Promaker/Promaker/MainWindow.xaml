@@ -117,8 +117,16 @@
                 </Border>
             </Grid>
 
-            <!-- 1d-4 D — LLM Chat dock panel + splitter (column width 0 일 때 자동 비표시) -->
-            <GridSplitter Grid.Column="5" Width="4" HorizontalAlignment="Stretch"/>
+            <!-- 1d-4 D — LLM Chat dock panel + splitter (column width 0 일 때 자동 비표시).
+                 GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피용 Thumb. -->
+            <Thumb Grid.Column="5" Width="4" HorizontalAlignment="Stretch"
+                   Cursor="SizeWE" DragDelta="LlmChatSplitter_DragDelta">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Rectangle Fill="{DynamicResource BorderBrush}"/>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
             <ContentControl Grid.Column="6" Content="{Binding LlmChatVm}"/>
 
             <!-- Welcome screen when no project is open -->
