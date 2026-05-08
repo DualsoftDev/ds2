@@ -202,6 +202,55 @@
             </StatusBarItem>
         </StatusBar>
 
+        <!-- Busy overlay (파일 열기 등 무거운 작업 진행 중) -->
+        <Grid x:Name="BusyOverlay" Grid.RowSpan="3" Panel.ZIndex="200"
+              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+              Background="#80000000" IsHitTestVisible="True">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="40,28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Opacity="0.4" BlurRadius="20" ShadowDepth="4"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid Width="36" Height="36" Margin="0,0,16,0">
+                        <Ellipse Stroke="{DynamicResource BorderBrush}" StrokeThickness="3"/>
+                        <Ellipse Stroke="{DynamicResource AccentBrush}" StrokeThickness="3"
+                                 StrokeDashArray="4 6" StrokeDashCap="Round"
+                                 RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform x:Name="BusySpinnerRotate" Angle="0"/>
+                            </Ellipse.RenderTransform>
+                            <Ellipse.Triggers>
+                                <EventTrigger RoutedEvent="Ellipse.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="BusySpinnerRotate"
+                                                             Storyboard.TargetProperty="Angle"
+                                                             From="0" To="360" Duration="0:0:1.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Ellipse.Triggers>
+                        </Ellipse>
+                    </Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="로딩 중..."
+                                   FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <TextBlock Text="{Binding BusyMessage}"
+                                   FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
         <!-- File drag overlay -->
         <Grid x:Name="FileDragOverlay" Grid.RowSpan="3" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="100">
             <!-- Semi-transparent background with accent color -->
