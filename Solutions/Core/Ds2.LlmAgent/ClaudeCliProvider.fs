@@ -2,6 +2,7 @@ namespace Ds2.LlmAgent
 
 open System
 open System.Collections.Generic
+open System.IO
 open System.Threading
 
 /// Multi-turn Claude CLI provider.
@@ -20,16 +21,6 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     /// 못 찾으면 raw name 으로 fallback (Process.Start 가 자체 PATH 검색 시도, 실패 시 EnsureCli 가 진단).
     let executable = ProcessUtils.findOnPath executableName |> Option.defaultValue executableName
 
-    /// 사용자 prompt 평문 redact — `-p <user msg>` 의 prompt 위치만. 다른 인자 (model / mcp-config /
-    /// allowed-tools) 는 노출 유지 (1d-4 B 검증 시나리오에 필요).
-    let redactPromptArg (args: string list) : string list =
-        let arr = args |> List.toArray
-        arr
-        |> Array.mapi (fun i a ->
-            if i > 0 && arr.[i - 1] = "-p" then sprintf "<redacted, len=%d>" a.Length
-            else a)
-        |> Array.toList
-
     /// Phase 1a: ensureMinimum 실패 시 Result.IsValid=false + Message 반환.
     member _.EnsureCli () : ClaudeCliVersion.Result =
         ClaudeCliVersion.ensureMinimum ()
@@ -38,12 +29,33 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     /// 호출자는 `await foreach` 로 소비. 외부 cancellation 으로 중단 가능.
     member this.Send (prompt: string, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
-        let args = ClaudeCliArgs.build options sessionId prompt
+
+        // SystemPrompt 본문은 임시 파일에 저장 후 `--append-system-prompt-file <path>` 로 전달.
+        // **Why**: Windows CreateProcess 의 lpCommandLine 32K 한계 초과 시 [WinError 206]
+        // ("파일 이름이나 확장명이 너무 깁니다") 가 발생. 본 회피 패턴은 Ev2.Oracle 의 ClaudeCliProvider
+        // (`solutions/Ev2.Backend/src/Ev2.Oracle/Builder/pipeline/llm_providers/claude_cli.py`) 에서 동일
+        // 사고 (HelloDSKit 사고, ~43KB 본문) 후 정착된 방식.
+        let systemPromptFile, cleanupSystemPromptFile =
+            match options.SystemPrompt with
+            | Some sp when not (String.IsNullOrEmpty sp) ->
+                let dir = Path.Combine(Path.GetTempPath(), "Promaker")
+                Directory.CreateDirectory(dir) |> ignore
+                let path = Path.Combine(dir, sprintf "claude-append-system-%s.md" (Guid.NewGuid().ToString("N")))
+                File.WriteAllText(path, sp, Text.Encoding.UTF8)
+                let cleanup () =
+                    try if File.Exists path then File.Delete path
+                    with ex -> Log.provider.Warn($"임시 system-prompt 파일 삭제 실패 ({path}): {ex.Message}", ex)
+                Some path, cleanup
+            | _ ->
+                None, (fun () -> ())
+
+        let args = ClaudeCliArgs.build options sessionId systemPromptFile
         let spec : CliProcessHost.Spec = {
             Executable = executable
             Args = args
             EnvOverrides = []
-            Redact = redactPromptArg
+            // prompt 본문이 args 에서 stdin 으로 옮겨진 이후로는 args 에 평문 prompt 가 없어 redact 불필요.
+            Redact = id
             Parser = StreamJsonParser.parseLine
             OnSessionStarted = fun sid -> sessionId <- Some sid
             OnProcessStarted =
@@ -53,6 +65,9 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                 $"Claude CLI 비정상 종료 (exit code = {code})."
             Label = "Claude"
             ChannelCapacity = options.ChannelCapacity
+            // user prompt 본문도 stdin 으로 전달 — 32K 한도 회피 + Ev2.Oracle 동일 패턴.
+            Stdin = Some prompt
+            OnFinally = cleanupSystemPromptFile
         }
         CliProcessHost.runStream spec ct
 

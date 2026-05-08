@@ -104,6 +104,10 @@ type CodexCliProvider(options: CodexCliOptions) =
                 $"Codex CLI 비정상 종료 (exit code = {code}){suffix}."
             Label = "Codex"
             ChannelCapacity = options.ChannelCapacity
+            // Codex 는 prompt 가 위치 인자 (codex exec [resume <sid>] [OPTS] <prompt>) — stdin 미사용.
+            // 32K 한도 도달 가능성은 별도 spike 후 결정.
+            Stdin = None
+            OnFinally = ignore
         }
         CliProcessHost.runStream spec ct
 
