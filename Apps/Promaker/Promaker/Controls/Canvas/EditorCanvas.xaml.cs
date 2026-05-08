@@ -97,6 +97,7 @@ public partial class EditorCanvas : UserControl
         var state = ActiveCanvasState;
         NodesHost.ItemsSource = state?.CanvasNodes;
         ArrowsHost.ItemsSource = state?.CanvasArrows;
+        RecalculateCanvasSize();
     }
 
     private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)

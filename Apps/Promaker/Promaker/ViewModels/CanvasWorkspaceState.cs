@@ -40,6 +40,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public Func<Point?>? GetViewportCenterRequested { get; set; }
     public Func<(double Zoom, double PanX, double PanY)>? GetCurrentViewRequested { get; set; }
     public Action<double, double, double>? RestoreViewRequested { get; set; }
+    public Action? RecalculateCanvasSizeRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
     {
@@ -269,6 +270,7 @@ public partial class CanvasWorkspaceState : ObservableObject
         RefreshArrowPaths();
         _host.Selection.ApplyNodeSelectionVisuals();
         _host.RestoreSimStateToCanvas();
+        RecalculateCanvasSizeRequested?.Invoke();
     }
 
     public string? ResolveTabTitle(CanvasTab tab)

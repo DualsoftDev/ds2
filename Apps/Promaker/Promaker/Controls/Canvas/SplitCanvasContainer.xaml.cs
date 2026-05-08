@@ -146,6 +146,7 @@ public partial class SplitCanvasContainer : UserControl
         pane.GetViewportCenterRequested = workspace.GetViewportCenter;
         pane.GetCurrentViewRequested = workspace.GetCurrentView;
         pane.RestoreViewRequested = workspace.RestoreView;
+        pane.RecalculateCanvasSizeRequested = workspace.RecalculateCanvasSize;
     }
 
     private void UnwirePaneCallbacks(CanvasWorkspaceState? pane, CanvasWorkspace? workspace)
@@ -157,5 +158,6 @@ public partial class SplitCanvasContainer : UserControl
         pane.GetViewportCenterRequested = null;
         pane.GetCurrentViewRequested = null;
         pane.RestoreViewRequested = null;
+        pane.RecalculateCanvasSizeRequested = null;
     }
 }

@@ -69,7 +69,8 @@
                 <!-- Node layer -->
                 <Canvas x:Name="MainCanvas" Width="3000" Height="2000">
                     <!-- Grid background -->
-                    <Rectangle Width="3000" Height="2000"
+                    <Rectangle x:Name="CanvasGridBackground"
+                               Width="3000" Height="2000"
                                Fill="{DynamicResource CanvasGridPatternBrush}"
                                Panel.ZIndex="0" IsHitTestVisible="False"/>
 

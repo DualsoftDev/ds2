@@ -73,6 +73,8 @@ public partial class ManualControlState : ObservableObject
                 outAddress: m.OutAddress,
                 inAddress: m.InAddress,
                 writeTag: _sim.WriteTagFromManualAsync);
+            // 같은 device group 의 sibling 인지 토글 시 mutex 처리할 수 있도록 owning group 연결.
+            row.Group = group;
             group.Calls.Add(row);
 
             if (hasOut)
