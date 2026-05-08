@@ -108,7 +108,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveFileAsCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ShowProjectSettingsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowProjectPropertiesCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddSystemCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddFlowCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddWorkCommand))]

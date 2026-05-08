@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:b="clr-namespace:Promaker.Behaviors"
-        Title="설정"
-        Width="500" Height="600"
+        Title="프로젝트 속성"
+        Width="480" Height="440"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -17,356 +17,40 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 탭 컨트롤 -->
-            <TabControl Grid.Row="0" Margin="0,0,0,10">
-                <!-- 탭 1: 일반 -->
-                <TabItem Header="일반">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                        <StackPanel>
-                            <!-- Project Name -->
-                            <TextBlock Text="프로젝트 이름"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <TextBox x:Name="ProjectNameBox" Padding="6,4" Margin="0,0,0,12"/>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="6">
+                <StackPanel>
+                    <!-- Project Name -->
+                    <TextBlock Text="프로젝트 이름"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <TextBox x:Name="ProjectNameBox" Padding="6,4" Margin="0,0,0,12"/>
 
-                            <!-- Author -->
-                            <TextBlock Text="작성자"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <TextBox x:Name="AuthorBox" Padding="6,4" Margin="0,0,0,12"/>
+                    <!-- Author -->
+                    <TextBlock Text="작성자"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <TextBox x:Name="AuthorBox" Padding="6,4" Margin="0,0,0,12"/>
 
-                            <!-- Version -->
-                            <TextBlock Text="버전"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <TextBox x:Name="VersionBox" Padding="6,4" Margin="0,0,0,12"/>
+                    <!-- Version -->
+                    <TextBlock Text="버전"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <TextBox x:Name="VersionBox" Padding="6,4" Margin="0,0,0,12"/>
 
-                            <!-- Description -->
-                            <TextBlock Text="설명"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <TextBox x:Name="DescriptionBox" Padding="6,4"
-                                     AcceptsReturn="True" TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Disabled"
-                                     Height="200"/>
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
+                    <!-- Description -->
+                    <TextBlock Text="설명"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <TextBox x:Name="DescriptionBox" Padding="6,4"
+                             AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Disabled"
+                             Height="160"/>
+                </StackPanel>
+            </ScrollViewer>
 
-                <!-- 탭 2: AASX -->
-                <TabItem Header="AASX">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                        <StackPanel>
-                            <!-- IRI Prefix -->
-                            <TextBlock Text="IRI Prefix"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <TextBox x:Name="IriPrefixBox" Padding="6,4" Margin="0,0,0,2"/>
-                            <TextBlock Text="Global Asset ID는 IRI Prefix + 프로젝트 이름으로 자동 생성됩니다"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic"/>
-
-                            <!-- SplitDeviceAasx -->
-                            <CheckBox x:Name="SplitDeviceAasxBox"
-                                      Content="Device System을 별도 AASX 파일로 분리 저장"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      FontSize="12" Margin="0,0,0,2"/>
-                            <TextBlock Text="저장 시 {파일명}_devices/ 폴더에 Device별 AASX를 생성합니다"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="20,0,0,16" FontStyle="Italic"/>
-
-                            <!-- CreateDefaultEntitiesOnEmptyAasx -->
-                            <CheckBox x:Name="CreateDefaultEntitiesBox"
-                                      Content="AASX 저장 시 빈 서브모델 Properties 자동 생성"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      FontSize="12" Margin="0,0,0,2"/>
-                            <TextBlock Text="저장할 때 엔티티에 도메인 서브모델 Properties가 없으면 자동으로 생성합니다 (Simulation, Control, Monitoring 등)"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="20,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-
-                <!-- 탭 3: PLC -->
-                <TabItem Header="PLC">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                        <StackPanel>
-                            <!-- 신호 템플릿은 AASX 내 FBTagMapPresets 로 완전 이전됨 (외부 파일 불필요). -->
-                            <!-- FBTagMap 설정은 IO Wizard 내부로 이전됨 (B안: IoList = 단일 진실원) -->
-
-                            <!-- XGI 템플릿 파일 -->
-                            <TextBlock Text="XGI 템플릿 파일"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="PlcXgiTemplatePathBox" Grid.Column="0"
-                                         Padding="6,4" FontFamily="Consolas" FontSize="11"/>
-                                <Button Grid.Column="2" Content="..."
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="BrowsePlcXgiTemplate_Click"/>
-                            </Grid>
-                            <TextBlock Text="XGI_Template.xml 경로 (필수) — 비우면 자동으로 디폴트 경로로 복원됩니다."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic"/>
-
-                            <!-- XG5000 실행 파일 -->
-                            <TextBlock Text="XG5000 실행 파일"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="PlcXg5000ExePathBox" Grid.Column="0"
-                                         Padding="6,4" FontFamily="Consolas" FontSize="11"/>
-                                <Button Grid.Column="2" Content="..."
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="BrowsePlcXg5000Exe_Click"/>
-                            </Grid>
-                            <TextBlock Text="XG5000.exe 경로 (필수) — 비우면 자동으로 기본 설치 경로로 복원됩니다."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,0" FontStyle="Italic"/>
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-
-                <!-- 탭 5: LLM (Phase 2 PR-B + PR-D) — API keys (DPAPI) / Models (editable ComboBox) / Ollama / Consent.
-                     Default provider 는 LLM Chat 패널 ComboBox 의 마지막 선택이 자동으로 영구 저장됨 (PR-D). -->
-                <TabItem Header="LLM">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                        <StackPanel>
-                            <!-- API keys -->
-                            <TextBlock Text="API 키 (DPAPI 암호화 저장)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-
-                            <TextBlock Text="Anthropic API key" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="LlmAnthropicKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="지우기"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmClearAnthropicKey_Click"/>
-                            </Grid>
-
-                            <TextBlock Text="OpenAI API key" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="LlmOpenAiKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="지우기"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmClearOpenAiKey_Click"/>
-                            </Grid>
-
-                            <!-- Models -->
-                            <TextBlock Text="모델명"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Hot-fix-8 v3: IsEditable ComboBox quirks 회피 — TextBox + dropdown Button (▾) + ContextMenu.
-                                 Button click → 후보 ContextMenu 표시 → 선택 시 TextBox.Text 채움. 직접 입력도 가능. -->
-                            <TextBlock Text="Anthropic" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmAnthropicModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
-                                <Button Grid.Column="1" x:Name="LlmAnthropicCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmAnthropicCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
-
-                            <TextBlock Text="OpenAI" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmOpenAiModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
-                                <Button Grid.Column="1" x:Name="LlmOpenAiCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmOpenAiCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
-
-                            <TextBlock Text="Ollama" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmOllamaModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 (`ollama list` 결과 참조) 또는 ▾ 버튼"/>
-                                <Button Grid.Column="1" x:Name="LlmOllamaCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmOllamaCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
-
-                            <!-- Ollama base URL + 연결 확인 -->
-                            <TextBlock Text="Ollama base URL"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="LlmOllamaBaseUrlBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="연결 확인"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmTestOllama_Click"/>
-                            </Grid>
-                            <TextBlock x:Name="LlmOllamaTestResult"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic"/>
-
-                            <!-- Consent -->
-                            <TextBlock Text="데이터 전송 동의"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="LlmConsentStatusText" Grid.Column="0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"
-                                           TextWrapping="Wrap"/>
-                                <Button x:Name="LlmRevokeConsentButton" Grid.Column="2" Content="동의 철회"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmRevokeConsent_Click"/>
-                            </Grid>
-                            <TextBlock Text="동의 철회 시 LLM Chat 진입이 차단됩니다. 다음 진입 시 동의 다이얼로그가 다시 표시됩니다."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,4,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-
-                <!-- 탭 4: 프리셋 -->
-                <TabItem Header="프리셋">
-                    <Grid Margin="10">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-
-                        <!-- 프리셋/SystemType 입력 패널 -->
-                        <Grid Grid.Row="0" Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-
-                            <!-- 프리셋 입력 -->
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="프리셋" FontSize="11"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           Margin="0,0,0,2"/>
-                                <TextBox x:Name="PresetTextBox" Padding="6,4"/>
-                            </StackPanel>
-
-                            <!-- SystemType 입력 -->
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="SystemType" FontSize="11"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           Margin="0,0,0,2"/>
-                                <TextBox x:Name="SystemTypeTextBox" Padding="6,4" Text="Motor"/>
-                            </StackPanel>
-
-                            <!-- 추가 버튼 -->
-                            <Button Grid.Column="4" Content="추가"
-                                    Style="{StaticResource DarkButton}"
-                                    Padding="12,4" VerticalAlignment="Bottom"
-                                    Click="AddPreset_Click"/>
-
-                            <!-- 제거 버튼 -->
-                            <Button Grid.Column="6" Content="제거"
-                                    Style="{StaticResource DarkButton}"
-                                    Padding="12,4" VerticalAlignment="Bottom"
-                                    Click="RemovePreset_Click"/>
-                        </Grid>
-
-                        <!-- 매핑 리스트 + 순서 조절 버튼 -->
-                        <Grid Grid.Row="1">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-
-                            <ListBox Grid.Column="0" x:Name="PresetMappingListBox"
-                                     BorderBrush="{DynamicResource BorderBrush}"
-                                     Background="{DynamicResource SecondaryBackgroundBrush}"
-                                     SelectionChanged="PresetMappingListBox_SelectionChanged">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-                            <!-- 순서 조절 버튼 -->
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                <Button Content="▲"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="8,2" Margin="0,0,0,4"
-                                        ToolTip="위로 이동"
-                                        Click="MoveUp_Click"/>
-                                <Button Content="▼"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="8,2"
-                                        ToolTip="아래로 이동"
-                                        Click="MoveDown_Click"/>
-                            </StackPanel>
-                        </Grid>
-                    </Grid>
-                </TabItem>
-            </TabControl>
-
-            <!-- Buttons (ScrollViewer 밖에 배치) -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
+            <!-- Buttons -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
                 <Button Content="확인" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"
                         Click="Ok_Click" IsDefault="True"/>

@@ -16,7 +16,7 @@
     <Grid x:Name="EtcSection">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <WrapPanel Orientation="Horizontal">
             <Grid>
@@ -116,7 +116,7 @@
                     <TextBlock Text="LLM" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">
+            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (AASX/PLC/LLM/프리셋)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
