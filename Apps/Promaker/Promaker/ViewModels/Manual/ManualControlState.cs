@@ -145,7 +145,7 @@ public partial class ManualControlState : ObservableObject
 
     public IAsyncRelayCommand EmergencyOffAllCommand { get; }
 
-    /// <summary>비상 OFF — 모든 OUT 주소에 false 송출.</summary>
+    /// <summary>비상 OFF — 모든 OUT 주소에 false 송출 (현재 상태 무관 강제).</summary>
     private async Task EmergencyOffAllAsync()
     {
         StatusText = "비상 OFF — 모든 OUT 주소를 false 로 송출 중...";
@@ -153,7 +153,7 @@ public partial class ManualControlState : ObservableObject
         foreach (var group in DeviceGroups)
             foreach (var row in group.Calls)
                 if (row.HasOut)
-                    tasks.Add(row.SetOffCommand.ExecuteAsync(null));
+                    tasks.Add(row.ForceOffCommand.ExecuteAsync(null));
         try { await Task.WhenAll(tasks); }
         catch { /* 개별 실패는 row 내부에서 LastWriteStatus 로 표시 */ }
         StatusText = "비상 OFF 완료";

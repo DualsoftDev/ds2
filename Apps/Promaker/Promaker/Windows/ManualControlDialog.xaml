@@ -28,15 +28,16 @@
             </Style.Triggers>
         </Style>
 
-        <!-- ON 버튼: OutValue=true 일 때 강조 -->
-        <Style x:Key="OnButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="58"/>
-            <Setter Property="Height" Value="26"/>
+        <!-- 단일 토글 버튼: 현재 OutValue 표시 + 클릭 시 반대 상태로 전환.
+             OutValue=true → 녹색 ON / OutValue=false → 회색 OFF. 라벨도 자동. -->
+        <Style x:Key="ToggleButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="80"/>
+            <Setter Property="Height" Value="28"/>
             <Setter Property="Margin" Value="2,0"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -44,18 +45,7 @@
                 <DataTrigger Binding="{Binding OutValue}" Value="True">
                     <Setter Property="Background" Value="{DynamicResource IconGreenBrush}"/>
                     <Setter Property="Foreground" Value="#0f172a"/>
-                </DataTrigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.4"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="OffButtonStyle" TargetType="Button" BasedOn="{StaticResource OnButtonStyle}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding OutValue}" Value="False">
-                    <Setter Property="Background" Value="{DynamicResource IconRedBrush}"/>
-                    <Setter Property="Foreground" Value="#0f172a"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource IconGreenBrush}"/>
                 </DataTrigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.4"/>
@@ -156,7 +146,6 @@
                                                         <ColumnDefinition Width="160"/>
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="Auto"/>
                                                         <ColumnDefinition Width="160"/>
                                                     </Grid.ColumnDefinitions>
 
@@ -184,18 +173,27 @@
                                                         </TextBlock>
                                                     </StackPanel>
 
-                                                    <!-- ON/OFF 버튼 -->
+                                                    <!-- 단일 토글 버튼 (ON/OFF 자동 라벨, 색상으로 현재 상태 표시) -->
                                                     <Button Grid.Column="3"
-                                                            Content="ON"
-                                                            Style="{StaticResource OnButtonStyle}"
-                                                            Command="{Binding SetOnCommand}"/>
-                                                    <Button Grid.Column="4"
-                                                            Content="OFF"
-                                                            Style="{StaticResource OffButtonStyle}"
-                                                            Command="{Binding SetOffCommand}"/>
+                                                            Style="{StaticResource ToggleButtonStyle}"
+                                                            Command="{Binding ToggleCommand}"
+                                                            ToolTip="현재 상태를 토글 (반대로 송출)">
+                                                        <TextBlock>
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Text" Value="OFF"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding OutValue}" Value="True">
+                                                                            <Setter Property="Text" Value="ON"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                    </Button>
 
                                                     <!-- 마지막 송신 결과 -->
-                                                    <TextBlock Grid.Column="5"
+                                                    <TextBlock Grid.Column="4"
                                                                Text="{Binding LastWriteStatus}"
                                                                Foreground="{DynamicResource SecondaryTextBrush}"
                                                                FontSize="11"

@@ -32,6 +32,10 @@ public partial class ApiCallControlVm : ObservableObject
 
     private readonly Func<string, string, Task<bool>> _writeTag;
 
+    /// <summary>같은 device group 안의 sibling 들을 mutex 처리 위해 owning group 참조.
+    /// ManualControlState 가 row 추가 시 set. null 이면 mutex 없이 단독 toggle.</summary>
+    public DeviceGroupVm? Group { get; internal set; }
+
     public ApiCallControlVm(
         string callName,
         string actionName,
@@ -44,15 +48,39 @@ public partial class ApiCallControlVm : ObservableObject
         OutAddress = outAddress ?? "";
         InAddress = inAddress ?? "";
         _writeTag = writeTag;
-        SetOnCommand = new AsyncRelayCommand(() => WriteAsync(true), () => HasOut);
-        SetOffCommand = new AsyncRelayCommand(() => WriteAsync(false), () => HasOut);
+        ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => HasOut);
+        // 비상 OFF 가 사용하는 별도 OFF-only 명령 — 항상 OFF 송출 (현재 상태 무관).
+        ForceOffCommand = new AsyncRelayCommand(() => WriteAsync(false), () => HasOut);
     }
 
-    /// <summary>외부에서 await 가능하도록 IAsyncRelayCommand 로 노출 (XAML 바인딩에는 ICommand 로도 동작).</summary>
-    public IAsyncRelayCommand SetOnCommand { get; }
-    public IAsyncRelayCommand SetOffCommand { get; }
+    /// <summary>토글 — ON 으로 가는 경우 같은 device 의 다른 ON 들을 먼저 OFF (mutex).
+    /// 양방향 솔레노이드 (ADV+RET) 가 동시에 active 되는 안전 위험 차단.</summary>
+    private async Task ToggleAsync()
+    {
+        var newValue = !OutValue;
+        if (newValue && Group is not null)
+        {
+            // 같은 group 내에서 현재 ON 인 *다른* row 들을 먼저 OFF.
+            // 동시 active 방지를 위해 sibling OFF 가 *먼저* 완료된 후 자기 ON.
+            foreach (var sibling in Group.Calls)
+            {
+                if (ReferenceEquals(sibling, this)) continue;
+                if (sibling.HasOut && sibling.OutValue)
+                {
+                    await sibling.WriteAsync(false);
+                }
+            }
+        }
+        await WriteAsync(newValue);
+    }
 
-    private async Task WriteAsync(bool value)
+    /// <summary>현재 OutValue 의 반대값 송출 (토글). 매뉴얼 다이얼로그 행 버튼이 사용.</summary>
+    public IAsyncRelayCommand ToggleCommand { get; }
+    /// <summary>항상 OFF 를 송출 — 비상 OFF / 모든 OUT 일괄 끄기용.</summary>
+    public IAsyncRelayCommand ForceOffCommand { get; }
+
+    /// <summary>실제 hub.WriteTag 호출 + 결과 반영. mutex 처리에서 sibling 의 OFF 도 이걸 사용.</summary>
+    internal async Task WriteAsync(bool value)
     {
         var ok = await _writeTag(OutAddress, value ? "true" : "false");
         if (ok)

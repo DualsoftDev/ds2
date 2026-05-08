@@ -336,8 +336,13 @@ public partial class SimulationPanelState
         IsSimulating
         && !IsSimPaused
         && !IsHomingPhase
-        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring);
+        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring)
+        && !(SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected);
         // VP/Monitoring 은 외부 Hub 신호로 진행되어 일시정지 자체가 의미 없음 → 버튼 비활성.
+        // Control + 실 PLC 연결 시에도 Pause 비활성 — Pause 는 엔진만 freeze 하고
+        // 이미 송출된 OUT 코일은 그대로 유지되므로 PLC 측 액추에이터 모션이 멈추지 않음.
+        // 사용자가 "Pause = 라인 멈춤" 으로 오해하는 안전 위험 차단. 실 라인 정지는 STOP 사용
+        // (BroadcastClearOwnOutputsAsync 로 모든 OUT 을 false 송출 → 솔레노이드 OFF).
 
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
