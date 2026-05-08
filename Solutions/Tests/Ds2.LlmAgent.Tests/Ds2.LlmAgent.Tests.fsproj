@@ -18,7 +18,19 @@
     <Compile Include="BatchTests.fs" />
     <Compile Include="PromakerToolNamesDriftTests.fs" />
     <Compile Include="RemoveRenameTests.fs" />
+    <Compile Include="HelperCascadeTests.fs" />
+    <Compile Include="HelperGuiParityTests.fs" />
+    <Compile Include="PromptCanaryTests.fs" />
+    <Compile Include="DeviceTypeDriftTests.fs" />
+    <Compile Include="LlmTurnContextQuotaTests.fs" />
+    <Compile Include="ImportPlanApplyApiCallTests.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Fixtures\WithCyl.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
