@@ -76,7 +76,8 @@ public partial class MainViewModel
 
     /// <summary>
     /// 측정 자동화: LlmChatViewModel.IsReady 가 true 되면 Input 에 prompt 적용 + SendCommand 실행.
-    /// thenExit=true 이면 IsSending true→false transition 후 MainWindow.Close() (Closing 의 dirty check 는 autostart 에서 skip).
+    /// thenExit=true 이면 LlmChatViewModel.TurnCompleted (= 1 turn 종료, ApplyTurnPlan 까지 완료) 후 MainWindow.Close().
+    /// Closing 의 dirty check 는 autostart 에서 skip.
     /// </summary>
     private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
     {
@@ -88,7 +89,7 @@ public partial class MainViewModel
             vm.Input = prompt;
             if (!vm.SendCommand.CanExecute(null))
             {
-                // SendCommand 실행 불가 → IsSending 토글 안 됨 → thenExit hang. 측정 모드 fail-fast.
+                // SendCommand 실행 불가 → TurnCompleted 영영 안 옴 → thenExit hang. 측정 모드 fail-fast.
                 Log.Fatal($"autostart-llm 측정 모드에서 SendCommand.CanExecute=false (prompt 길이={prompt.Length}). shutdown({App.MeasureExitSendCommandUnavailable}).");
                 Application.Current?.Shutdown(App.MeasureExitSendCommandUnavailable);
                 return;
@@ -97,23 +98,17 @@ public partial class MainViewModel
 
             if (!thenExit) return;
 
-            // SendCommand.Execute 의 동기 부분이 readyHandler 와 같은 dispatcher thread 에서 즉시 실행되어
-            // IsSending=true 가 이미 emit 된 상태로 여기 도달. 따라서 wasSending 초기값을 현 IsSending 으로
-            // 캐시 — 미캐시 시 후속 false transition 의 sendHandler 가 wasSending=false 로 단락 → Close 안됨.
-            bool wasSending = vm.IsSending;
-            PropertyChangedEventHandler? sendHandler = null;
-            sendHandler = (_, e2) =>
+            // TurnCompleted = SendAsync 의 finally 끝(IsSending=false + ApplyTurnPlan 완료) 직후 1회 발생.
+            // 응답 마무리(last AssistantDelta flush + Authoring "Executed" 로그)의 background priority 작업이
+            // 끝난 후 close 하도록 ApplicationIdle 로 BeginInvoke → log4net flush 충분.
+            EventHandler? turnHandler = null;
+            turnHandler = (_, _) =>
             {
-                if (e2.PropertyName != nameof(LlmChatViewModel.IsSending)) return;
-                if (vm.IsSending) { wasSending = true; return; }
-                if (!wasSending) return;
-                vm.PropertyChanged -= sendHandler;
-                // 응답 마무리 (last AssistantDelta flush + Authoring "Executed" 로그) 의 background priority 작업이
-                // 끝난 후 close. ApplicationIdle = 모든 priority 가 비었을 때 → log4net flush 충분.
+                vm.TurnCompleted -= turnHandler;
                 _dispatcher.BeginInvoke(new Action(() =>
                     Application.Current?.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
             };
-            vm.PropertyChanged += sendHandler;
+            vm.TurnCompleted += turnHandler;
         };
         vm.PropertyChanged += readyHandler;
     }
