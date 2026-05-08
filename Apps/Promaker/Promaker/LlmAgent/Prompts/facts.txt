@@ -1,3 +1,19 @@
-- work 와 call 관계
+- flow, work 와 call 관계
     - work 는 call 을 포함할 수 있다.
-    - work 내의 call 들은 DAG 형태이며, 화살표를 따라 순차 진행(call 에 연동된 ApiCall 호출)한다.
+    - work 내의 call 들은 DAG 형태이며,
+      - 화살표를 따라 순차 진행(call 에 연동된 ApiCall 호출)한다.
+      - work 상태는 r->g->f->h 를 순환한다. (ready, going, finish, homing)
+      - call 상태도 개념적으로는 r->g->f->h 를 순환하지만, 외부 시스템을 apiCall 을 통해 호출하는 것이므로 going 과 homing 은 관찰되지 않는다.  ready 에서 ApiCall 을 통해 작업 지시하고, 센서 감지 등을 통해 finish 상태가 된다.
+        - work 내의 call 들은 개념적으로 coin 으로 생각할 수 있고, work 가 작업 시작하면 DAG 를 따라서 coin 들을 순차적으로 뒤집는 것으로 생각할 수 있다.
+      - going 상태에서는 call 들이 순차적으로 진행되고, finish 상태에서는 모든 call 이 완료된 상태이다.
+      - going 상태에서 해당 work 를 다시 실행할 수는 없다. (재실행은 homing 을 통해 ready 상태 도달 후에만 가능)
+      - e.g work 내에 call1, call2, call3 이 있고, call1 -> call2 -> call3 의 화살표가 있다면, work 가 going 상태일 때 call1 이 먼저 실행되고 완료되어야 call2 가 실행될 수 있으며, call2 가 완료되어야 call3 가 실행될 수 있다.   call2 실행 중에는 call1 이나 call3 가 실행될 수 없다.
+    - flow 는 여러 work 간의 흐름을 표현할 수 있다.
+      - flow 내의 여러 work 들은 DAG 가 아니며, 단일 work 종료시에, 조건만 맞으면 해당 work 를 다시 실행할 수 있다.
+          - e.g flow 내에 workA, workB 가 있고, workA -> workB 의 화살표(Start Arrow)가 있다면, workA 종료 후 workB 가 going 할 수 있으며, workB 가 진행 중이더라도 workA 가 시작 조건만 맞으면 다시 going 할 수 있다. (workA 가 다시 going 할 때, workB 는 여전히 going 상태일 수 있다.)
+          - work 는 종료되면 finish 상태가 되고, reset 신호(Reset arrow)를 받아 homing 상태를 거쳐 ready 로 복귀한다.
+          - e.g: 다음과 같이 모델링 된 시스템은 workA 와 workB 를 반복 작업 할 수 있다.  이때 workA 와 workB 는 동시 진행이 가능하므로 처리 가능한 capacity 는 2가 된다.
+            외부신호(button 등) -> workA (Start Arrow)
+            workA -> workB (Start Arrow) : workA 가 f 이고 workB 가 r 이면, workB 가 going 할 수 있다.
+            workB ..> workA (Reset Arrow) : workB 가 작업 시작할 때(going 시작시) workA 에게 reset 신호를 전송한다.  workA 는 reset 신호를 받으면 homing 상태를 거쳐 ready 상태로 복귀한다.
+            workB ..> workB (Reset Arrow. Self Reset) : workB 가 작업을 종료하는 즉시 바로 자신을 reset 수행한다. (self reset 은 해당 work 종료시 자신을 reset 상태로 만드는 것을 의미한다. self reset 이 있는 work 는 종료되자마자 바로 다시 시작할 수 있다.)
