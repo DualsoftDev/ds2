@@ -55,11 +55,16 @@ public partial class MainViewModel
     internal void InitLlmAutostart()
     {
         if (!App.StartupAutoOpenLlm) return;
+        Log.Info($"autostart-llm: 시작 (measure-prompt={(App.StartupMeasurePrompt != null ? "set" : "unset")}, then-exit={App.StartupMeasureThenExit}).");
 
         _dispatcher.BeginInvoke(new Action(() =>
         {
             ToggleLlmChat();
-            if (App.StartupMeasurePrompt == null) return;
+            if (App.StartupMeasurePrompt == null)
+            {
+                Log.Info("autostart-llm: measure-prompt 없음 → 일반 autostart 모드 (LLM panel 만 활성화).");
+                return;
+            }
 
             if (LlmChatVm != null)
             {
@@ -84,12 +89,15 @@ public partial class MainViewModel
 
     private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
     {
+        Log.Info($"autostart-llm: ScheduleMeasurePrompt 진입 (prompt 길이={prompt.Length}, thenExit={thenExit}, IsReady timeout={MeasureReadyTimeoutSeconds}s).");
+
         PropertyChangedEventHandler? readyHandler = null;
         DispatcherTimer? readyTimeoutTimer = null;
 
         readyHandler = (_, e) =>
         {
             if (e.PropertyName != nameof(LlmChatViewModel.IsReady) || !vm.IsReady) return;
+            Log.Info("autostart-llm: IsReady=true → prompt 전송 준비.");
             vm.PropertyChanged -= readyHandler;
             readyTimeoutTimer?.Stop();
             readyTimeoutTimer = null;
@@ -102,6 +110,7 @@ public partial class MainViewModel
                 return;
             }
             vm.SendCommand.Execute(null);
+            Log.Info("autostart-llm: SendCommand.Execute 호출 (turn 시작).");
 
             if (!thenExit) return;
 
@@ -112,6 +121,7 @@ public partial class MainViewModel
             turnHandler = (_, _) =>
             {
                 vm.TurnCompleted -= turnHandler;
+                Log.Info("autostart-llm: TurnCompleted → MainWindow.Close 예약 (ApplicationIdle).");
                 _dispatcher.BeginInvoke(new Action(() =>
                     Application.Current?.MainWindow?.Close()), DispatcherPriority.ApplicationIdle);
             };
