@@ -333,8 +333,8 @@ public partial class ArrowNode : ObservableObject
     }
 
     /// <summary>
-    /// 양방향 StartReset 쌍에서 가운데 원에 붙는 네모 꼬리. 단일 StartReset의 시작 사각형이 통합으로 사라지는 것을 시각적으로 보존.
-    /// 라인 방향에 정렬된 정사각형을 midpoint 살짝 앞쪽(파트너 쪽 절반)으로 오프셋해 "꼬리" 느낌을 준다.
+    /// 양방향 StartReset 쌍에서 가운데 원 양쪽에 붙는 네모 두 개. 각 절반이 각자 시작 사각형을 갖는 시맨틱 보존.
+    /// 라인 방향에 정렬된 정사각형을 midpoint 양쪽(±forward)으로 대칭 오프셋.
     /// </summary>
     private static Geometry CreateCenterTailGeometry(IReadOnlyList<Point> halfPoints, double size)
     {
@@ -356,28 +356,33 @@ public partial class ArrowNode : ObservableObject
         if (forward.LengthSquared < 0.5)
             return Geometry.Empty;
 
-        // 꼬리는 leader의 forward 반대 방향(파트너 쪽)으로 오프셋해서, 원과 살짝 떨어진 곳에 위치.
-        var tail = -forward;
-        var perpendicular = new Vector(-tail.Y, tail.X);
+        var perpendicular = new Vector(-forward.Y, forward.X);
         var midpoint = halfPoints[0];
         var sqHalf = size * 0.32;
-        var sqCenter = midpoint + tail * (size * 0.55);
-
-        var c1 = sqCenter + tail * sqHalf + perpendicular * sqHalf;
-        var c2 = sqCenter + tail * sqHalf - perpendicular * sqHalf;
-        var c3 = sqCenter - tail * sqHalf - perpendicular * sqHalf;
-        var c4 = sqCenter - tail * sqHalf + perpendicular * sqHalf;
+        var offset = size * 0.55;
 
         var geo = new StreamGeometry();
         using (var ctx = geo.Open())
         {
-            ctx.BeginFigure(c1, true, true);
-            ctx.LineTo(c2, true, false);
-            ctx.LineTo(c3, true, false);
-            ctx.LineTo(c4, true, false);
+            // 원 양쪽으로 대칭 오프셋: 한 개는 leader 쪽, 한 개는 partner 쪽 — 각자 절반의 "시작" 표시.
+            AppendCenteredSquare(ctx, midpoint + forward * offset, forward, perpendicular, sqHalf);
+            AppendCenteredSquare(ctx, midpoint - forward * offset, forward, perpendicular, sqHalf);
         }
         geo.Freeze();
         return geo;
+    }
+
+    private static void AppendCenteredSquare(
+        StreamGeometryContext ctx, Point center, Vector axis, Vector perpendicular, double half)
+    {
+        var c1 = center + axis * half + perpendicular * half;
+        var c2 = center + axis * half - perpendicular * half;
+        var c3 = center - axis * half - perpendicular * half;
+        var c4 = center - axis * half + perpendicular * half;
+        ctx.BeginFigure(c1, true, true);
+        ctx.LineTo(c2, true, false);
+        ctx.LineTo(c3, true, false);
+        ctx.LineTo(c4, true, false);
     }
 
     private static void AppendStartSquare(StreamGeometryContext ctx, Point start, Vector forwardDirection, double size)
