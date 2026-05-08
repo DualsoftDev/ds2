@@ -14,7 +14,6 @@ x86/
 bld/
 [Ll]og/
 [Ll]ogs/
-[Dd]ocs/
 # Visual Studio
 .vs/
 .vscode/
@@ -99,7 +98,6 @@ Apps/DSPilot/publish-tray/
 Apps/DSPilot/Output/
 
 
-docs/
 /Apps/CostSim/Installer/Output
 /Apps/AasxEditor/**/aas_metadata.db
 /Apps/AasxEditor/**/aas_metadata.db-journal
