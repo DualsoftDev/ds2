@@ -66,6 +66,21 @@ public partial class MainWindow : Window
         }
     }
 
+    // GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피 — col 4/col 6 합계만 trade-off.
+    private void LlmChatSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+    {
+        var grid = (System.Windows.Controls.Grid)((System.Windows.Controls.Primitives.Thumb)sender).Parent;
+        var colProperties = grid.ColumnDefinitions[4];
+        var colLlm = grid.ColumnDefinitions[6];
+
+        double total = colProperties.ActualWidth + colLlm.ActualWidth;
+        double newProp = Math.Clamp(colProperties.ActualWidth + e.HorizontalChange,
+                                    colProperties.MinWidth, total - colLlm.MinWidth);
+
+        colProperties.Width = new GridLength(newProp);
+        colLlm.Width = new GridLength(total - newProp);
+    }
+
     private bool _llmChatDisposed;
 
     /// <summary>

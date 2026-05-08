@@ -110,3 +110,14 @@ public partial class MainViewModel
         RefreshEditorCommandStates();
     }
 }
+
+public sealed class HistoryPanelItem(string label, bool isRedo)
+{
+    public string Label  { get; } = label;
+    public bool   IsRedo { get; } = isRedo;
+    /// <summary>
+    /// 1d-4 F / m8 — LLM turn 식별. prefix SSOT = `LlmChatViewModel.LlmTurnLabelPrefix` ("LLM: ").
+    /// HistoryPanel 의 좌측 색띠 / accent 색으로 시각화.
+    /// </summary>
+    public bool   IsLlmTurn => Label.StartsWith(LlmChatViewModel.LlmTurnLabelPrefix, StringComparison.Ordinal);
+}
