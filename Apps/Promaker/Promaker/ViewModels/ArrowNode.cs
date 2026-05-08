@@ -35,8 +35,37 @@ public partial class ArrowNode : ObservableObject
     [ObservableProperty] private double _endX;
     [ObservableProperty] private double _endY;
 
+    /// <summary>양방향 ResetReset 쌍의 파트너 화살표 Id. null이면 단방향.</summary>
+    [ObservableProperty] private Guid? _bidirectionalPartnerId;
+    /// <summary>양방향 쌍 중 중앙 마커를 그리는 쪽 (중복 방지). 데이터 모델은 그대로 두 화살표지만 시각/선택만 통합.</summary>
+    [ObservableProperty] private bool _renderCenterMarker;
+    [ObservableProperty] private double _centerX;
+    [ObservableProperty] private double _centerY;
+    /// <summary>StartReset 양방향일 때 가운데 원에 붙는 네모 꼬리(원래 시작 사각형 보존). 그 외 타입에선 null.</summary>
+    [ObservableProperty] private Geometry? _centerTailGeometry;
+
     private List<Point>? _lastPoints;
     private List<Point>? _dragSnapshot;
+
+    public bool IsBidirectional => BidirectionalPartnerId.HasValue;
+    /// <summary>화살표 끝 핸들(시작/끝 ellipse) 가시성. 선택 + 비양방향일 때만.</summary>
+    public bool EndpointHandlesVisible => IsSelected && !IsBidirectional;
+
+    /// <summary>드래그/동기화용으로 보존된 풀 경로 점들 (양방향이어도 절반이 아닌 전체).</summary>
+    public IReadOnlyList<Point>? LastPoints => _lastPoints;
+
+    partial void OnBidirectionalPartnerIdChanged(Guid? value)
+    {
+        OnPropertyChanged(nameof(IsBidirectional));
+        OnPropertyChanged(nameof(EndpointHandlesVisible));
+        if (_lastPoints is { Count: > 0 })
+            SetGeometryFromPoints(_lastPoints);
+    }
+
+    partial void OnIsSelectedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(EndpointHandlesVisible));
+    }
 
     /// <summary>F# ArrowVisual -> WPF geometry conversion.</summary>
     public void UpdateFromVisual(ArrowPathCalculator.ArrowVisual visual)
@@ -76,29 +105,116 @@ public partial class ArrowNode : ObservableObject
         SetGeometryFromPoints(translated);
     }
 
+    /// <summary>외부에서 경로점을 직접 지정 (양방향 쌍 동기화 등에 사용).</summary>
+    public void SetPathPoints(IReadOnlyList<Point> points)
+    {
+        SetGeometryFromPoints(new List<Point>(points));
+    }
+
     private void SetGeometryFromPoints(List<Point> points)
     {
-        PathGeometry = CreateLineGeometry(points);
-        HeadGeometry = CreateHeadGeometry(ArrowType, points);
-
         if (points.Count == 0)
         {
+            PathGeometry = Geometry.Empty;
+            HeadGeometry = Geometry.Empty;
             StartX = 0;
             StartY = 0;
             EndX = 0;
             EndY = 0;
+            CenterX = 0;
+            CenterY = 0;
             _lastPoints = null;
             return;
         }
 
-        var start = points[0];
-        var end = points[^1];
-        StartX = start.X;
-        StartY = start.Y;
+        var renderPoints = points;
+        var head = ArrowType;
+        var midpoint = points[^1];
+
+        if (IsBidirectional)
+        {
+            var (_, second, mid) = SplitPathAtMidpoint(points);
+            renderPoints = second;
+            midpoint = mid;
+            // 양방향에서는 source-측 마커(ResetReset의 reverse kite, StartReset의 square)는 모두 억제.
+            // 파트너 화살표가 자기 쪽 끝에 head를 그림. 결과적으로 양 끝에 kite head만 있는 깔끔한 라인.
+            if (head == ArrowType.ResetReset || head == ArrowType.StartReset)
+                head = ArrowType.Reset;
+        }
+
+        PathGeometry = CreateLineGeometry(renderPoints);
+        HeadGeometry = CreateHeadGeometry(head, renderPoints);
+        // StartReset 양방향: 가운데 원에 네모 꼬리 추가 (원래 시작 사각형 보존). 그 외에는 null.
+        CenterTailGeometry = (IsBidirectional && ArrowType == ArrowType.StartReset)
+            ? CreateCenterTailGeometry(renderPoints, MarkerSize)
+            : null;
+
+        var visualStart = renderPoints[0];
+        var end = renderPoints[^1];
+        StartX = visualStart.X;
+        StartY = visualStart.Y;
         EndX = end.X;
         EndY = end.Y;
+        CenterX = midpoint.X;
+        CenterY = midpoint.Y;
+        // _lastPoints는 항상 풀 패스 보관 (드래그 시 평행이동에 필요)
         _lastPoints = points;
     }
+
+    private static (List<Point> First, List<Point> Second, Point Midpoint) SplitPathAtMidpoint(IReadOnlyList<Point> points)
+    {
+        if (points.Count == 4)
+        {
+            // 큐빅 베지어 De Casteljau t=0.5 분할
+            var p0 = points[0]; var p1 = points[1]; var p2 = points[2]; var p3 = points[3];
+            var m01 = MidPoint(p0, p1);
+            var m12 = MidPoint(p1, p2);
+            var m23 = MidPoint(p2, p3);
+            var m012 = MidPoint(m01, m12);
+            var m123 = MidPoint(m12, m23);
+            var mid = MidPoint(m012, m123);
+            return (
+                new List<Point> { p0, m01, m012, mid },
+                new List<Point> { mid, m123, m23, p3 },
+                mid);
+        }
+
+        // 폴리라인: 누적 길이 절반 지점에서 분할
+        var totalLength = 0.0;
+        for (var i = 1; i < points.Count; i++)
+            totalLength += (points[i] - points[i - 1]).Length;
+
+        if (totalLength <= MinSegmentLength)
+        {
+            var only = points[0];
+            return (new List<Point> { only }, new List<Point>(points), only);
+        }
+
+        var halfLength = totalLength * 0.5;
+        var accumulated = 0.0;
+        for (var i = 1; i < points.Count; i++)
+        {
+            var seg = points[i] - points[i - 1];
+            var segLen = seg.Length;
+            if (accumulated + segLen >= halfLength)
+            {
+                var t = segLen <= MinSegmentLength ? 0.0 : (halfLength - accumulated) / segLen;
+                var midPt = new Point(points[i - 1].X + seg.X * t, points[i - 1].Y + seg.Y * t);
+                var first = new List<Point>(i + 1);
+                for (var j = 0; j < i; j++) first.Add(points[j]);
+                first.Add(midPt);
+                var second = new List<Point>(points.Count - i + 1) { midPt };
+                for (var j = i; j < points.Count; j++) second.Add(points[j]);
+                return (first, second, midPt);
+            }
+            accumulated += segLen;
+        }
+
+        var fallback = points[^1];
+        return (new List<Point>(points), new List<Point> { fallback }, fallback);
+    }
+
+    private static Point MidPoint(Point a, Point b) => new((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5);
 
     private static List<Point> ToPointList(
         Microsoft.FSharp.Collections.FSharpList<Tuple<double, double>> points)
@@ -214,6 +330,54 @@ public partial class ArrowNode : ObservableObject
         ctx.BeginFigure(wing1, false, false);
         ctx.LineTo(tip, true, false);
         ctx.LineTo(wing2, true, false);
+    }
+
+    /// <summary>
+    /// 양방향 StartReset 쌍에서 가운데 원에 붙는 네모 꼬리. 단일 StartReset의 시작 사각형이 통합으로 사라지는 것을 시각적으로 보존.
+    /// 라인 방향에 정렬된 정사각형을 midpoint 살짝 앞쪽(파트너 쪽 절반)으로 오프셋해 "꼬리" 느낌을 준다.
+    /// </summary>
+    private static Geometry CreateCenterTailGeometry(IReadOnlyList<Point> halfPoints, double size)
+    {
+        if (halfPoints.Count < 2)
+            return Geometry.Empty;
+
+        // halfPoints[0] = midpoint. midpoint 다음 점까지 방향이 leader의 forward 방향.
+        Vector forward = default;
+        for (var i = 1; i < halfPoints.Count; i++)
+        {
+            var seg = halfPoints[i] - halfPoints[i - 1];
+            if (seg.Length > MinSegmentLength)
+            {
+                seg.Normalize();
+                forward = seg;
+                break;
+            }
+        }
+        if (forward.LengthSquared < 0.5)
+            return Geometry.Empty;
+
+        // 꼬리는 leader의 forward 반대 방향(파트너 쪽)으로 오프셋해서, 원과 살짝 떨어진 곳에 위치.
+        var tail = -forward;
+        var perpendicular = new Vector(-tail.Y, tail.X);
+        var midpoint = halfPoints[0];
+        var sqHalf = size * 0.32;
+        var sqCenter = midpoint + tail * (size * 0.55);
+
+        var c1 = sqCenter + tail * sqHalf + perpendicular * sqHalf;
+        var c2 = sqCenter + tail * sqHalf - perpendicular * sqHalf;
+        var c3 = sqCenter - tail * sqHalf - perpendicular * sqHalf;
+        var c4 = sqCenter - tail * sqHalf + perpendicular * sqHalf;
+
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open())
+        {
+            ctx.BeginFigure(c1, true, true);
+            ctx.LineTo(c2, true, false);
+            ctx.LineTo(c3, true, false);
+            ctx.LineTo(c4, true, false);
+        }
+        geo.Freeze();
+        return geo;
     }
 
     private static void AppendStartSquare(StreamGeometryContext ctx, Point start, Vector forwardDirection, double size)

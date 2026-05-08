@@ -92,11 +92,44 @@
                                           Stroke="{Binding ArrowType, Converter={StaticResource ArrowTypeToColor}}"
                                           StrokeThickness="2.5"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    <!-- 선택 하이라이트 오버레이 (양방향이면 자기 절반만 색칠됨) -->
+                                    <Path Data="{Binding PathGeometry}"
+                                          Stroke="{DynamicResource AccentHoverBrush}"
+                                          StrokeThickness="4"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          IsHitTestVisible="False"
+                                          Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"/>
+                                    <Path Data="{Binding HeadGeometry}"
+                                          Fill="{DynamicResource AccentHoverBrush}"
+                                          Stroke="{DynamicResource AccentHoverBrush}"
+                                          StrokeThickness="2.5"
+                                          IsHitTestVisible="False"
+                                          Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"/>
                                     <Path Data="{Binding PathGeometry}"
                                           Stroke="Transparent" StrokeThickness="20"
                                           Tag="{Binding Id}"
                                           MouseLeftButtonDown="Arrow_MouseDown"
                                           MouseRightButtonDown="Arrow_RightClick"/>
+                                    <!-- StartReset 양방향: 원에 붙는 네모 꼬리 (원래 시작 사각형 보존). leader만 그림. -->
+                                    <Path Data="{Binding CenterTailGeometry}"
+                                          Fill="{Binding ArrowType, Converter={StaticResource ArrowTypeToColor}}"
+                                          Stroke="{Binding ArrowType, Converter={StaticResource ArrowTypeToColor}}"
+                                          StrokeThickness="1"
+                                          IsHitTestVisible="False"
+                                          Visibility="{Binding RenderCenterMarker, Converter={StaticResource BoolToVis}}"/>
+                                    <!-- 양방향 쌍의 중앙 마커 (한쪽만 그림). 두 절반의 분기점을 시각적으로 표시. -->
+                                    <Ellipse Width="10" Height="10"
+                                             Fill="{DynamicResource PrimaryBackgroundBrush}"
+                                             Stroke="{DynamicResource PrimaryTextBrush}"
+                                             StrokeThickness="1.5"
+                                             IsHitTestVisible="False"
+                                             Canvas.Left="{Binding CenterX}"
+                                             Canvas.Top="{Binding CenterY}"
+                                             Visibility="{Binding RenderCenterMarker, Converter={StaticResource BoolToVis}}">
+                                        <Ellipse.RenderTransform>
+                                            <TranslateTransform X="-5" Y="-5"/>
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
                                     <Ellipse Width="10"
                                              Height="10"
                                              Fill="{DynamicResource AccentBrush}"
@@ -106,7 +139,7 @@
                                              Canvas.Left="{Binding StartX}"
                                              Canvas.Top="{Binding StartY}"
                                              Tag="{Binding Id}"
-                                             Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
+                                             Visibility="{Binding EndpointHandlesVisible, Converter={StaticResource BoolToVis}}"
                                              MouseLeftButtonDown="ArrowStartHandle_MouseLeftButtonDown">
                                         <Ellipse.RenderTransform>
                                             <TranslateTransform X="-5" Y="-5"/>
@@ -121,7 +154,7 @@
                                              Canvas.Left="{Binding EndX}"
                                              Canvas.Top="{Binding EndY}"
                                              Tag="{Binding Id}"
-                                             Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
+                                             Visibility="{Binding EndpointHandlesVisible, Converter={StaticResource BoolToVis}}"
                                              MouseLeftButtonDown="ArrowEndHandle_MouseLeftButtonDown">
                                         <Ellipse.RenderTransform>
                                             <TranslateTransform X="-5" Y="-5"/>
