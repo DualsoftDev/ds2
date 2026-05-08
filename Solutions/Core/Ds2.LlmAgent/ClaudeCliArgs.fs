@@ -44,11 +44,18 @@ type ClaudeCliOptions = {
 [<RequireQualifiedAccess>]
 module ClaudeCliArgs =
 
-    /// 옵션 + sessionId + prompt → CLI 인자 list. process spawn 이전 단계 검증 + golden test 용.
-    let build (options: ClaudeCliOptions) (sessionId: string option) (prompt: string) : string list =
+    /// 옵션 + sessionId + (선택) systemPromptFile path → CLI 인자 list.
+    /// process spawn 이전 단계 검증 + golden test 용.
+    ///
+    /// **prompt 본문은 인자가 아닌 stdin 으로 전달** (Windows CreateProcess 32K 한도 회피, Ev2.Oracle
+    /// claude_cli.py 패턴). 따라서 본 함수는 prompt 본문을 받지 않으며 `-p` 만 노출한다.
+    /// **SystemPrompt 본문**도 동일 이유로 임시 파일에 저장 후 path 만 `--append-system-prompt-file` 로 전달.
+    /// 호출자 (ClaudeCliProvider) 가 파일 생성 / 정리 책임을 갖고 path 만 본 함수에 넘긴다.
+    /// `systemPromptFile` 가 None 이면 `--append-system-prompt-file` 미전달 — options.SystemPrompt 가
+    /// Some 이어도 path 가 None 이면 미전달 (호출자가 의도적으로 비활성화한 케이스).
+    let build (options: ClaudeCliOptions) (sessionId: string option) (systemPromptFile: string option) : string list =
         [
             yield "-p"
-            yield prompt
             yield "--output-format"
             yield "stream-json"
             yield "--verbose"
@@ -72,10 +79,10 @@ module ClaudeCliArgs =
                 yield "--model"
                 yield m
             | None -> ()
-            match options.SystemPrompt with
-            | Some sp ->
-                yield "--append-system-prompt"
-                yield sp
+            match systemPromptFile with
+            | Some path ->
+                yield "--append-system-prompt-file"
+                yield path
             | None -> ()
             if options.StrictMcpConfig then
                 yield "--strict-mcp-config"

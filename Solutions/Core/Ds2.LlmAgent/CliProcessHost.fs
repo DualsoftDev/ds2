@@ -42,6 +42,12 @@ module CliProcessHost =
         Label: string
         /// BoundedChannel 용량 (provider option 의 ChannelCapacity 그대로 전달).
         ChannelCapacity: int
+        /// stdin 파이프 입력 본문. Some 이면 RedirectStandardInput=true + spawn 직후 1회 write + close.
+        /// Windows CreateProcess 의 32K command-line 한도 회피용 — prompt 본문은 인자가 아닌 stdin 으로
+        /// 전달 (Ev2.Oracle ClaudeCliProvider 의 stdin 우회 패턴 채택, HelloDSKit 사고 전례).
+        Stdin: string option
+        /// process 종료 / 실패 후 1회 호출되는 cleanup hook (임시 파일 삭제 등). 예외는 swallow.
+        OnFinally: unit -> unit
     }
 
     /// spec 대로 process 를 spawn 후 stream LlmEvent 를 IAsyncEnumerable 로 노출.
@@ -74,99 +80,123 @@ module CliProcessHost =
                 for a in spec.Args do psi.ArgumentList.Add(a)
                 psi.RedirectStandardOutput <- true
                 psi.RedirectStandardError <- true
+                psi.RedirectStandardInput <- spec.Stdin.IsSome
                 psi.UseShellExecute <- false
                 psi.CreateNoWindow <- true
                 psi.StandardOutputEncoding <- System.Text.Encoding.UTF8
                 psi.StandardErrorEncoding <- System.Text.Encoding.UTF8
+                if spec.Stdin.IsSome then
+                    // 한글 prompt 본문이 CP949 등으로 인코딩되어 깨지는 경로 차단.
+                    psi.StandardInputEncoding <- System.Text.Encoding.UTF8
                 for (k, v) in spec.EnvOverrides do
                     psi.Environment.[k] <- v
 
                 let redacted = spec.Redact spec.Args
                 Log.provider.Debug($"Spawning: {spec.Executable} {ClaudeCliArgs.formatArgs redacted}")
 
-                let mutable proc : Process = null
-                try
-                    proc <- Process.Start(psi)
-                with ex ->
-                    do! writeAsync(ProviderError $"{spec.Label} CLI 실행 실패: {ex.Message}")
-                    writer.TryComplete() |> ignore
-                    return ()
-
-                if isNull proc then
-                    do! writeAsync(ProviderError $"{spec.Label} CLI process 시작 실패 (null process).")
-                    writer.TryComplete() |> ignore
-                    return ()
-
-                use p = proc
-
-                // 1d-5 lifecycle hook. 예외는 그대로 escalate — fail-fast (CLAUDE.md 정책).
-                match spec.OnProcessStarted with
-                | Some cb -> cb p
-                | None -> ()
-
-                // stderr last non-empty line 캡처. Claude provider 는 본 값을 무시 (OnExitNonZero 가 ""만 받음).
-                // Codex provider 는 stderr 의 인증 / mcp / sandbox 메시지를 exit error 에 append.
-                let mutable lastStderr : string = ""
-
-                // M4 — inner task 의 unhandled exception 이 sibling task 의 WriteAsync 를 closed channel
-                // 으로 보내거나 outer try 까지 escalation 되어 ProviderError 가 두 번 emit 되는 경로 차단.
-                // 한 task 가 throw 해도 다른 task 는 ct cancel 또는 EOF 까지 자연 종료.
-                let stderrTask =
-                    task {
-                        try
-                            let mutable line = ""
-                            while not (isNull line) do
-                                let! l = p.StandardError.ReadLineAsync(ct).AsTask()
-                                line <- l
-                                if not (isNull line) && line.Length > 0 then
-                                    lastStderr <- line
-                                    Log.provider.Warn($"[{spec.Label.ToLowerInvariant()} stderr] {line}")
-                        with
-                        | :? OperationCanceledException -> ()
-                        | ex -> Log.provider.Warn("stderr task 실패", ex)
-                    }
-
-                let stdoutTask =
-                    task {
-                        try
-                            let mutable line = ""
-                            while not (isNull line) do
-                                let! l = p.StandardOutput.ReadLineAsync(ct).AsTask()
-                                line <- l
-                                if not (isNull line) then
-                                    if Log.rawStream.IsDebugEnabled then
-                                        Log.rawStream.Debug(line)
-                                    for evt in spec.Parser line do
-                                        match evt with
-                                        | SessionStarted(sid, _, _, _) -> spec.OnSessionStarted sid
-                                        | _ -> ()
-                                        do! writeAsync evt
-                        with
-                        | :? OperationCanceledException -> ()
-                        | ex ->
-                            Log.provider.Warn("stdout task 실패", ex)
-                            do! writeAsync(ProviderError $"Stream 파싱 실패: {ex.Message}")
-                    }
-
-                let killOnCancel =
-                    ct.Register(fun () ->
-                        try
-                            if not p.HasExited then p.Kill(true)
-                        with _ -> ())
+                // F# `task { }` CE 의 `try with + return ()` 가 일부 시나리오에서 흐름을 끊지 못해
+                // 후속 코드가 실행되어 NRE 가 나는 경로를 차단 — Process.Start 결과를 Result 로 캡처 후
+                // match 분기로 명시적 종료. (이전 사고: lpCommandLine 32K 초과로 Win32Exception 발생 시
+                // proc=null 인 채 use p = proc 통과 → stderrTask 의 p.StandardError.ReadLineAsync 에서 NRE)
+                let procResult =
+                    try Ok (Process.Start(psi))
+                    with ex -> Error ex.Message
 
                 try
-                    try
-                        let! _ = Task.WhenAll(stdoutTask :> Task, stderrTask :> Task)
-                        p.WaitForExit()
-                        if p.ExitCode <> 0 then
-                            do! writeAsync(ProviderError (spec.OnExitNonZero p.ExitCode lastStderr))
-                    with
-                    | :? OperationCanceledException ->
-                        do! writeAsync(ProviderError "사용자 취소.")
-                    | ex ->
-                        do! writeAsync(ProviderError $"Stream 파싱 실패: {ex.Message}")
+                    match procResult with
+                    | Error msg ->
+                        do! writeAsync(ProviderError $"{spec.Label} CLI 실행 실패: {msg}")
+                    | Ok null ->
+                        do! writeAsync(ProviderError $"{spec.Label} CLI process 시작 실패 (null process).")
+                    | Ok proc ->
+                        use p = proc
+
+                        // 1d-5 lifecycle hook. 예외는 그대로 escalate — fail-fast (CLAUDE.md 정책).
+                        match spec.OnProcessStarted with
+                        | Some cb -> cb p
+                        | None -> ()
+
+                        // stderr last non-empty line 캡처. Claude provider 는 본 값을 무시 (OnExitNonZero 가 ""만 받음).
+                        // Codex provider 는 stderr 의 인증 / mcp / sandbox 메시지를 exit error 에 append.
+                        let mutable lastStderr : string = ""
+
+                        // M4 — inner task 의 unhandled exception 이 sibling task 의 WriteAsync 를 closed channel
+                        // 으로 보내거나 outer try 까지 escalation 되어 ProviderError 가 두 번 emit 되는 경로 차단.
+                        // 한 task 가 throw 해도 다른 task 는 ct cancel 또는 EOF 까지 자연 종료.
+                        let stderrTask =
+                            task {
+                                try
+                                    let mutable line = ""
+                                    while not (isNull line) do
+                                        let! l = p.StandardError.ReadLineAsync(ct).AsTask()
+                                        line <- l
+                                        if not (isNull line) && line.Length > 0 then
+                                            lastStderr <- line
+                                            Log.provider.Warn($"[{spec.Label.ToLowerInvariant()} stderr] {line}")
+                                with
+                                | :? OperationCanceledException -> ()
+                                | ex -> Log.provider.Warn("stderr task 실패", ex)
+                            }
+
+                        let stdoutTask =
+                            task {
+                                try
+                                    let mutable line = ""
+                                    while not (isNull line) do
+                                        let! l = p.StandardOutput.ReadLineAsync(ct).AsTask()
+                                        line <- l
+                                        if not (isNull line) then
+                                            if Log.rawStream.IsDebugEnabled then
+                                                Log.rawStream.Debug(line)
+                                            for evt in spec.Parser line do
+                                                match evt with
+                                                | SessionStarted(sid, _, _, _) -> spec.OnSessionStarted sid
+                                                | _ -> ()
+                                                do! writeAsync evt
+                                with
+                                | :? OperationCanceledException -> ()
+                                | ex ->
+                                    Log.provider.Warn("stdout task 실패", ex)
+                                    do! writeAsync(ProviderError $"Stream 파싱 실패: {ex.Message}")
+                            }
+
+                        // stdin 본문 1회 write + close. 32K 초과 prompt 를 인자 대신 파이프로 전달.
+                        // BrokenPipeException 등은 stdout/stderr 측 에러로 이미 진단되므로 swallow.
+                        let stdinTask =
+                            task {
+                                match spec.Stdin with
+                                | Some text ->
+                                    try
+                                        do! p.StandardInput.WriteAsync(text.AsMemory(), ct)
+                                        p.StandardInput.Close()
+                                    with
+                                    | :? OperationCanceledException -> ()
+                                    | ex -> Log.provider.Warn("stdin task 실패", ex)
+                                | None -> ()
+                            }
+
+                        let killOnCancel =
+                            ct.Register(fun () ->
+                                try
+                                    if not p.HasExited then p.Kill(true)
+                                with _ -> ())
+
+                        try
+                            try
+                                let! _ = Task.WhenAll(stdoutTask :> Task, stderrTask :> Task, stdinTask :> Task)
+                                p.WaitForExit()
+                                if p.ExitCode <> 0 then
+                                    do! writeAsync(ProviderError (spec.OnExitNonZero p.ExitCode lastStderr))
+                            with
+                            | :? OperationCanceledException ->
+                                do! writeAsync(ProviderError "사용자 취소.")
+                            | ex ->
+                                do! writeAsync(ProviderError $"Stream 파싱 실패: {ex.Message}")
+                        finally
+                            killOnCancel.Dispose()
                 finally
-                    killOnCancel.Dispose()
+                    try spec.OnFinally()
+                    with ex -> Log.provider.Warn($"{spec.Label} OnFinally cleanup 실패: {ex.Message}", ex)
                     writer.TryComplete() |> ignore
             }
 
