@@ -59,19 +59,7 @@ public partial class MainToolbarSimulationContent : UserControl
             return;
         }
 
-        // 안전 확인 — 실 라인이 동작한다는 점 명확히 알림.
-        var confirm = MessageBox.Show(
-            "실 PLC 라인의 모든 디바이스를 직접 제어합니다.\n" +
-            "\n" +
-            "• 시퀀스(자동 운전)는 수동 운전 동안 일시정지됩니다.\n" +
-            "• 다이얼로그를 닫으면 모든 OUT 이 OFF 되고 Hub/PLC 게이트웨이가 종료됩니다.\n" +
-            "\n" +
-            "계속하시겠습니까?",
-            "수동 컨트롤러 진입",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.OK) return;
-
+        // 다이얼로그 자체가 빨간 띠 + 비상 OFF 버튼으로 사용자에게 위험성 명시 → 추가 확인 다이얼로그 생략.
         if (!sim.BeginManualControlSession()) return;
 
         // 세션 진입 성공 — SimulationPanelState 가 store 접근 책임을 갖고 VM 조립.

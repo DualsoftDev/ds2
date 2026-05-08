@@ -128,6 +128,9 @@ public partial class PlcSettingsDialog : Window
         _vm.NetworkNumber = net;
         _vm.StationNumber = stn;
 
+        // 다음 실행 시에도 같은 값이 채워지도록 영속화.
+        _vm.Save();
+
         DialogResult = true;
         Close();
     }
