@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. `doc/todo-promaker-llm-agent.md` 의 **"진행 상태"** + **"다음 작업 진입 권장 순서"** 섹션부터 읽기 (현재 phase 위치 파악)
 2. `doc/done-promaker-llm-agent.md` 의 가장 최근 phase 절 (현재까지의 산출물 + 의도적 미적용 항목)
-3. todo 의 **"검증된 사실 표"** 의 source line 1~2개를 직접 열어 sanity check (특히 `ImportPlanApply.fs:46-50`, `Authoring.fs:28-29`, `Nodes.fs:24-34`)
+3. todo 의 **"검증된 사실 표"** 의 source line 1~2개를 직접 열어 sanity check (특히 `ImportPlanApply.fs:48-52`, `Authoring.fs:28-29`, `Nodes.fs:24-34`)
 4. 사용자에게 다음 작업 단위 확인 후 진행
 
 ## Build / Run
@@ -149,10 +149,10 @@ EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizatio
 | 결정 근거 | 파일:line | 의미 |
 |---|---|---|
 | 결정 7 (d) | `Solutions/Core/Ds2.Core/Store/ImportPlan.fs:6-21` | `ImportPlanOperation` DU (Phase 2 RemoveEntity/RenameEntity + Pass 5 AddProject 포함) 가 mutation tool 21개 세트 모두 커버 (extend-mcp L3 helper cascade 포함) |
-| 결정 7 (d) | `Solutions/Core/Ds2.Editor/Editor/ImportPlanApply.fs:46-50` | `applyWithUndo` = 단일 `WithTransaction` + `EmitRefreshAndHistory` 1회. RemoveEntity 분기는 `CascadeRemove.batchRemoveEntities` 위임 |
+| 결정 7 (d) | `Solutions/Core/Ds2.Editor/Editor/ImportPlanApply.fs:48-52` | `applyWithUndo` 정의 + 단일 `WithTransaction` + for loop + `EmitRefreshAndHistory` 1회. RemoveEntity 분기는 `CascadeRemove.batchRemoveEntities` 위임. (line 46 = `invalidOp` RenameEntity 미지원 분기) |
 | 결정 7 (d) 부정 | `Solutions/Core/Ds2.Editor/Editor/Authoring.fs:28-29` | nested transaction = `invalidOp`. outer 감싸기 금지 |
 | 결정 7 (d) 부정 | `Solutions/Core/Ds2.Editor/Store/Nodes/Nodes.fs:24-34` | `AddSystem` 등이 자체 `WithTransaction` 호출 — handler 가 직접 호출하면 nested |
-| 결정 8 | `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.cs:685-` | 기존 `RequestRebuildAll` 이 `BeginInvoke` + `DispatcherPriority.Background` 패턴 — sync `Invoke` 는 coalescing 깨뜨림 |
+| 결정 8 | `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.Rebuild.cs:41/50/68` | partial class 분할 후 위치 (기존 `MainViewModel.cs:685-` 는 stale — 245줄 파일에 line 685 존재 안 함). line 41 `RequestRebuildAll` 정의, line 50 `_dispatcher.BeginInvoke`, line 68 `DispatcherPriority.Background`. sync `Invoke` 는 coalescing 깨뜨림 |
 | 1d-3 cache 위치 | `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` `_validateCache` field | turn 단위 (LlmTurnContext 인스턴스 lifetime) — turn 종료 시 자연 expire. dispatcher 단일 sync 안에서만 R/W 라 lock 불필요 |
 | 1d-3 검사 카테고리 | `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` `validateModel` (placeholderTokens / categoryOrder) | 6 카테고리 고정 출력 순서 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder). placeholder = 대문자 정규화 후 {TODO,TBD,FIXME,XXX,?,??,???}. Orphan 은 global scope 만 |
 | 1d-4 인자 빌더 분리 | `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` `module ClaudeCliArgs` | `build / formatArgs` module-level 노출 — process spawn 없이 단위 검증. `--allowed-tools` 는 반복 인자 형식 (`T1 --allowed-tools T2 ...`) |
