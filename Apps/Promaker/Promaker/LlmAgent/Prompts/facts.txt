@@ -3,3 +3,6 @@
     - 따라서 사용자가 project 를 생성해서 뭔가를 해 달라는 요구가 있으면,
       현재 열린 project 가 있다면, 해당 project 를 닫고 새 project 를 생성해서 해당 요구를 처리한다.
       현재 열린 project 가 dirty 상태이면 사용자에게 UI 를 통해 닫아줄 것을 요청한다.
+- ds 의 flow 는 work 들을 grouping 하는 container 역할
+  - flow 는 Start/Stop button 을 ds engine 에서 자동으로 생성한다.
+  - flow 가 Start 되면, flow 안에 있는 work 들은 조건만 맞으면 동시에 병렬 실행된다.

@@ -34,7 +34,18 @@
 >   - **§5 Consent 갱신**: API key 보관 = 사용자 직접 콘솔 가입 → DPAPI 보관 책임 chain 명시. 키 미입력 / 검증 실패 시 회색 fallback 동작 (F-5c) 와 정합.
 >   - **F-7d 비고**: Gemini key restriction 정책 변경 trigger 추가.
 >   - **F-7e 비고**: DeepSeek 진입 시 카드 등록 사전 안내 의무.
-> - 다음 리비전 trigger: 결정 대기 5건 풀이 / F-1 spike 결과 (capabilities 차이 발견) / NuGet `Microsoft.Extensions.AI.Google` 등장 시 / xAI Grok consent 정책 변경 시 / 2026-06-19 Gemini key restriction 정책 시행 시 / DeepSeek 카드 정책 변경 시.
+> - **rev 6 (2026-05-09)**: F-1 spike 1차 manual smoke test 결과 반영 (Groq + Llama 4 Scout 17B).
+>   - **F-1 spike 통과**: OpenAI SDK Endpoint override / Microsoft.Extensions.AI streaming function calling / MCP HTTP 21 tool 노출 / LlmEvent 5종 매핑 모두 정상 동작 (`session=5163ceb0..` + `turn 종료 — 124244ms, $0.0000, stop=stop, denials=0`).
+>   - **§A 표 비고 갱신**: Groq free tier 의 RPM/RPD 외 **TPM (tokens/min) 이 가장 빡빡한 제약**. `llama-3.3-70b-versatile` = TPM 12,000 (Promaker system prompt + 21 tool descriptions 합 ~25K → 단일 호출 HTTP 413 즉시 거부 — retry 무관).
+>   - **§A 표 모델 ID prefix 명시**: Groq Llama 4 모델 = `meta-llama/` prefix 필수 (prefix 누락 시 HTTP 404 `model_not_found` — 1차 spike 시도 시 발견). Llama 4 Scout 17B 는 Groq **Preview Model** 분류 (production 비권장).
+>   - **§F-1 산출 절 신설**: spike 결과 4종 (통과 / architectural / Groq specific / retry layer 미결정) + 새 todo trigger.
+>   - **Architectural 발견 `todo-hotfix-llm.md` 분리**: ① ImportPlan queued vs LLM 동기 검증 mismatch (결정 7 (d) side-effect) / ② Promaker UI 한글 `\uXXXX` escape 미해석 → provider/모델 무관 hotfix 별도 todo.
+>   - **모델 품질 요건 발견**: Llama 4 Scout 17B class = Promaker modeling 작업에 부족. 2회차 spike (`system NewSystem2 생성` prompt) 에서 **NewSystem2 ×2 중복 생성** + LLM 자기 첫 mutation 결과 context 누락 관찰. architectural Issue 1 의 모델 quality 영향 직접 입증. free tier 의 70B+ 만 실용 가능, 그러나 70B+ 는 TPM 12K 한도 → system prompt 압축 prerequisite.
+>   - **새 todo trigger — `todo-prompt-compaction.md`**: Promaker system prompt ~25K 토큰 압축. 모든 free tier provider 의 TPM 한도 / Cerebras 8K context cap 영향 = 본 phase 의 횡단 작업으로 분리.
+>   - **F-1 cleanup 미결정 (사용자 단독)**: spike 코드 (`feature/groq` branch, +46 line / 2 파일) 보존 vs memo-only 전환.
+>   - **D-γ-pre 풀이 trigger**: §4 회귀 측정 metric 의 "clarification 비율" 에 *unnecessary self-verification* sub-category 추가 검토 (NewSystem2 ×2 케이스로 입증).
+>   - **retry layer 미결정**: TPM 12K 즉시 거부 (HTTP 413, retry 무관) + Llama 4 Scout 17B 환경에서 한도 미도달 → spike 환경에서 발현 안 됨. 추가 spike (`llama-3.1-8b-instant` 빠른 연속 호출) 또는 F-7 진입 시점 자연 검증으로 이연.
+> - 다음 리비전 trigger: F-1 cleanup 결정 / `todo-hotfix-llm.md` 작업 진입 / `todo-prompt-compaction.md` 신설 / D-γ-pre 풀이 / 결정 대기 풀이 / NuGet `Microsoft.Extensions.AI.Google` 등장 시 / xAI Grok consent 정책 변경 시 / 2026-06-19 Gemini key restriction 정책 시행 시 / DeepSeek 카드 정책 변경 시.
 
 ## 작업 목표
 
@@ -44,8 +55,9 @@
 
 | 단계 | 상태 |
 |---|---|
-| 결정 대기 5건 (D-α/β/γ-pre/γ-post/δ/ε) | ❌ 미진입 — 사용자 confirm 필요 |
-| F-1 (Groq spike + retry) | ❌ 미진입 |
+| D-α 결정 (Phase 분리/일괄) | ✅ rev 6 — (a) 분리 채택 (Groq 단독 spike 우선) |
+| 결정 대기 4건 (D-β/γ-pre/γ-post/δ/ε) | ❌ 미진입 — 사용자 confirm 필요 |
+| F-1 (Groq spike) | ⚠️ 1차 manual smoke 완료 — Groq endpoint 동작 / 21 tool / LlmEvent 5종 통과. retry layer 미결정 + cleanup 미결정 |
 | F-2-infra (검증기 / 분류기 / 측정 hook) | ❌ |
 | F-2-baseline (Claude 4.6 + Groq 측정) | ❌ |
 | F-3 (`ProviderCapabilities` + `ProviderConnection` record) | ❌ |
@@ -56,18 +68,69 @@
 | F-8 (Gemini smoke test 미통과 시 별도 phase) | ❌ |
 | F-9 (GitHub Models, 별도 phase) | ❌ |
 
-## 다음 작업 진입 권장 순서
+## 다음 작업 진입 권장 순서 (rev 6)
 
-1. 본 todo 의 **"검증된 사실 표"** source line 1~2개 직접 열어 sanity check (`ApiChatProvider.cs:113-117` SessionStarted yield + `LlmChatViewModel.cs:112-119` AvailableProviders SSOT + `LlmConfig.cs:62-76` Encrypted/Model 필드 + `MainViewModel.Rebuild.cs:41/50/68` dispatcher 패턴).
-2. **결정 대기 풀이 순서** (rev 4 분할):
-   - **D-α** (Phase 분리/일괄) 사용자 단독 confirm
-   - **D-β** (Refactoring 범위) 사용자 단독, D-α 후
-   - **D-γ-pre** (회귀 측정 metric *후보* 합의) — F-1 진입 prerequisite
-   - **D-δ** 보류 가능 (F-5d Consent 직전까지)
-3. **F-1 (Groq spike)** — `ApiProviderFactory.cs` 에 임시 `CreateGroqAsync` 추가 (env-var `GROQ_API_KEY` 사용, LlmConfig schema 변경 미동반 — spike 의도). 429 retry 패턴 검증 + tool calling smoke test + `LlmEvent` 5종 매핑 정합 검증. 산출: `ProviderCapabilities` 차이점 + retry 위치 결정 (provider layer vs `ApiChatProvider` layer vs `Microsoft.Extensions.AI` middleware).
-4. **D-γ-post** (F-1 spike 결과 반영 metric 확정).
-5. **F-2-infra → F-2-baseline** 진입.
-6. **F-3 + F-4 atomic** → **F-5a (F-4 와 묶음 가능)** → **F-5b/c/d** → **F-6 (DriftTest 포함)** → **F-7a/b/c** → **F-7d / F-8 분기** (D-ε 풀이 직전) → **F-7e** → **F-9**.
+1. **F-1 cleanup 결정** (사용자 단독, **즉시 진입 가능**):
+   - **(a) 코드 보존**: `feature/groq` branch 의 spike 코드 (+46 line / 2 파일) 그대로 두고 F-2/F-3/F-4 진입 시 정식 schema 로 점진 승격
+   - **(b) memo-only 전환**: spike 코드 revert + F-4 commit 에서 처음부터 정식 schema 로 작성. 본 todo 본문 (§F-1 산출 절) 만 결과 보존
+2. **`todo-hotfix-llm.md` 진입** (rev 2) — Issue 2 (단일 line, token reduce 효과) → Issue 1 옵션 B → 옵션 A 순. **F-7 진입 prerequisite** (모든 free tier provider 의 작은 모델에서 발현 보장).
+3. **`todo-prompt-compaction.md` 신설** (사용자 합의) — Promaker system prompt ~25K → 압축. Cerebras 8K context cap + Groq TPM 12K 등 free tier 호환 prerequisite.
+4. **D-γ-pre 풀이** — §"4. 회귀 측정 metric" (4종 vs 부분 채택 vs 별도 fixture). *unnecessary self-verification* sub-category 추가 검토 (rev 6 입증 trigger).
+5. **D-β 풀이** — refactoring 범위 (F-4 묶음 vs F-4/F-6 분리).
+6. **F-2-infra → F-2-baseline → D-γ-post → F-3 + F-4 atomic** → **F-5a (F-4 와 묶음 가능)** → **F-5b/c/d** → **F-6 (DriftTest 포함)** → **F-7a/b/c** → **F-7d / F-8 분기** (D-ε 풀이 직전) → **F-7e** → **F-9**.
+
+> **rev 6 변경**: F-1 산출은 §"F-1 spike 산출" 절에 정리 완료. 결정 대기 풀이는 D-α (a) 분리 채택 후 D-β/γ-pre/δ/ε 4건 남음. sanity check 항목은 §"검증된 사실" 절 하단 표 그대로 유효 (변경 없음).
+
+## F-1 spike 산출 (rev 6 — Groq + Llama 4 Scout 17B 1차/2차 manual smoke)
+
+### ✅ 통과 항목
+
+| 항목 | 결과 |
+|---|---|
+| OpenAI SDK Endpoint override | ✅ `OpenAIClientOptions.Endpoint = https://api.groq.com/openai/v1` 정상 통과 (`OpenAIClient(ApiKeyCredential, OpenAIClientOptions)` ctor 검증됨) |
+| Microsoft.Extensions.AI 어댑터 | ✅ `IChatClient.GetStreamingResponseAsync` + `ChatClientBuilder.UseFunctionInvocation` multi-turn loop 정상. tool result 후 LLM 재호출 자동 진행 |
+| MCP HTTP self-call (21 tool) | ✅ `tools=21 mcp=0` (mcp server count 0, tool 21 노출). Groq 가 OpenAI tool calling 포맷 그대로 수용 |
+| LlmEvent 매핑 | ✅ SessionStarted + AssistantDelta + ToolUse + ToolResult + SessionEnd 모두 노출 (`turn 종료 — 124244ms, $0.0000, stop=stop, denials=0`) |
+| Tool 시그니처 정확도 | ✅ `add_project` / `add_active_system` / `apply_operations` / `list_projects` / `list_systems` / `describe_subtree` 모두 정확한 시그니처로 호출 |
+
+### ⚠️ Provider/모델 무관 (architectural) — `todo-hotfix-llm.md` 로 분리
+
+- **Issue 1**: ImportPlan queued vs LLM 동기 검증 mismatch (결정 7 (d) side-effect, 작은 모델에서 발현). **2회차 spike 에서 NewSystem2 ×2 중복 생성 으로 입증** (사용자 데이터 오염 위험).
+- **Issue 2**: Promaker UI 한글 `\uXXXX` escape 미해석 (`ApiChatProvider.ExtractToolResult` JsonSerializer default Encoder).
+
+본 phase 의 F-7 진입 *전* 또는 *병행* 처리 권장. 상세 = `todo-hotfix-llm.md` (rev 2).
+
+### ⚠️ Groq / Llama 4 Scout 17B specific 발견
+
+| 발견 | 영향 |
+|---|---|
+| Groq free tier `llama-3.3-70b-versatile` TPM 12,000 < Promaker system prompt ~25K → 단일 호출 HTTP 413 (retry 무관, 영구 거부) | F-7 의 Groq 모델 선택 (TPM 큰 모델 한정) + `todo-prompt-compaction.md` 신설 trigger |
+| Groq Llama 4 모델 ID = **`meta-llama/llama-4-scout-17b-16e-instruct`** (prefix 누락 시 HTTP 404 `model_not_found`) | F-7 의 모델 candidates 배열 작성 시 정확한 prefix 사용 |
+| Llama 4 Scout 17B = Groq **Preview Model** ("evaluation purposes only, not for production") | F-7 의 Groq 정식 모델 선택 시 stable 모델 (`llama-3.3-70b-versatile` / `llama-3.1-8b-instant`) 우선 |
+| **Llama 4 Scout 17B class = Promaker modeling 작업에 부족** — NewSystem2 ×2 중복 생성, 자기 첫 mutation 결과 (id=ab18a871) context 누락하고 두 번째 (id=fb88e232) 만 보고. architectural Issue 1 의 모델 quality 영향 직접 입증 | F-2-baseline 의 모델 품질 측정 → free tier 의 70B+ 만 실용 가능 결론. 그러나 70B+ 는 TPM 12K 한도 → system prompt 압축 prerequisite |
+
+### ⚠️ retry layer 미결정 (rev 6 시점)
+
+F-1 spike 의 핵심 산출 후보였던 **429/Retry-After backoff layer 결정** (provider / `ApiChatProvider` / `Microsoft.Extensions.AI` 미들웨어 4 후보) 는:
+- TPM 12K 즉시 거부 (HTTP 413) = **retry 무관** (요청 자체가 한도 초과)
+- Llama 4 Scout 17B 로의 전환 후에는 한도 미도달 → spike 환경에서 retry layer 발현 안 됨
+
+→ 추가 spike (`llama-3.1-8b-instant` 빠른 연속 5~10회 호출) 또는 F-7a/b/c 진입 시점 자연 검증으로 이연.
+
+### ⚠️ 새 todo trigger — `todo-prompt-compaction.md` (system prompt 압축)
+
+Promaker system prompt = `Apps/Promaker/Promaker/LlmAgent/Prompts/1.entities.md` + `2.modeling.md` + `3.tooling.md` + 21 tool descriptions concat ≈ **~25K 토큰**. 모든 free tier provider 의 한도와 충돌:
+
+| Provider / 모델 | Free tier 한도 | 25K 충돌 여부 |
+|---|---|---|
+| Groq llama-3.3-70b-versatile | TPM 12,000 | ❌ 영구 거부 (rev 6 입증) |
+| Groq llama-3.1-8b-instant | TPM ~30,000 (추정) | ⚠️ 단일 호출 가능, 분당 1회 한도 |
+| Groq meta-llama/llama-4-scout-17b-16e-instruct | TPM ~30,000 (rev 6 검증) | ⚠️ 단일 호출 가능 + 모델 품질 부족 |
+| Cerebras 8K context cap (free tier) | context cap 8,192 | ❌ context 자체 초과 |
+| Gemini 2.0 Flash 무료 | TPM 미공개 (RPM/RPD 한정) | 추가 확인 필요 |
+| 기타 (OpenRouter / SambaNova / DeepSeek / Z.AI) | provider 별 상이 | 추가 확인 필요 |
+
+→ **`todo-prompt-compaction.md` 별도 todo 신설 권장**. F-7 진입 *전* 또는 *병행*. 본 phase 의 횡단 작업.
 
 ## 검증된 사실 (직접 source 검증 완료, rev 4 stale 인용 정정)
 
@@ -108,7 +171,7 @@
 
 | Provider | Endpoint | 무료 한도 (2026-05-08) | 모델 예시 |
 |---|---|---|---|
-| **Groq** | `https://api.groq.com/openai/v1` | **모델별 차등** — 일반: 30 RPM / 14,400 RPD. `llama-3.3-70b-versatile`: 30 RPM / **1,000 RPD**. `qwen/qwen3-32b`: 60 RPM / **1,000 RPD** | Llama 3.3 70B, Llama 4 Scout, DeepSeek R1 Distill, Qwen QwQ 32B (Mixtral = 2025-03-05 deprecate, 제거) |
+| **Groq** | `https://api.groq.com/openai/v1` | **모델별 차등 + TPM 가장 빡빡** — 일반: 30 RPM / 14,400 RPD. `llama-3.3-70b-versatile`: 30 RPM / **1,000 RPD / TPM 12,000** (Promaker 25K prompt 단일 호출 ❌ HTTP 413 — rev 6 입증). `qwen/qwen3-32b`: 60 RPM / **1,000 RPD / TPM 6,000**. `meta-llama/llama-4-scout-17b-16e-instruct` (**Preview Model**): TPM 추정 30K (rev 6 검증됨) | Llama 3.3 70B, **`meta-llama/llama-4-scout-17b-16e-instruct`** (prefix 필수 — rev 6), DeepSeek R1 Distill, Qwen QwQ 32B (Mixtral = 2025-03-05 deprecate) |
 | **Cerebras** | OpenAI 호환 | 30 RPM / **1,000,000 TPD / 8,192 ctx cap** (free tier, 모델별) | `gpt-oss-120b`, `llama3.1-8b`, `qwen-3-235b-a22b-instruct-2507`, `zai-glm-4.7` |
 | **SambaNova Cloud** | OpenAI 호환 | **Free production: 20 RPM / 20 RPD / 200K TPD**. 60–240 RPM 행은 결제수단 등록한 developer tier (무료 아님) | Llama, DeepSeek, Qwen |
 | **OpenRouter** | OpenAI 호환 (`:free` suffix 모델) | **20 RPM / 50 RPD** (계정 크레딧 기반, 모델별 X). $10 이상 크레딧 구매 시 1,000 RPD 로 상향 | DeepSeek R1, Llama 등 |

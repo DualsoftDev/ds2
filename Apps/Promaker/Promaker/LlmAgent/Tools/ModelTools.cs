@@ -38,6 +38,25 @@ public static class ModelTools
 {
     private static readonly ILog ToolCallLog = LogManager.GetLogger("Promaker.LlmAgent.ToolCall");
 
+    // todo-hotfix-llm Issue 1 옵션 B — mutation tool_result self-explanatory 보강.
+    // 결정 7 (d) 의 architectural invariant (1 LLM turn = 1 undo step, mutation 은 turn end 에 일괄 apply)
+    // 가 작은 모델 (Llama 4 Scout 17B 등) 에서 잘 안 보일 때, 같은 turn 안 read 재조회가 turn-시작 snapshot 만
+    // 반환 → "queue 안 됨" 으로 잘못 추론 → 동일 mutation 중복 호출 → 사용자 데이터 오염 (NewSystem2 ×2 사례).
+    // tool_result 자체가 visibility invariant 를 LLM 에 직접 알려주는 single line suffix.
+    // 옵션 A (3.tooling.md 의 운영 규칙 1번 항목) 와 짝을 이룬다.
+    // **wording 변경 시 sync 필수**:
+    //   1) 같은 본문 텍스트의 두 변형 (`PlanVisibilityHint` = leading space 1개 / `PlanVisibilityHintLine` =
+    //      space 없음) 은 single mutation 인라인 suffix 와 batch 다중 라인 결과의 마지막 줄 용도. 본문이 어긋나면
+    //      LLM 입장에서 일관성 깨짐.
+    //   2) `RemoveEntity` (현 line ~635) 만 cascade-specific 정보 (`cascade 포함`) 를 추가로 담아 별도 wording.
+    //      reword 시 같이 수정.
+    //   3) `Apps/Promaker/Promaker/LlmAgent/Prompts/3.tooling.md` 운영 규칙 1번 (system prompt 측 wording) 도
+    //      동일 invariant 를 명시 — 강도/표현이 vary 해도 의미가 어긋나지 않게 sync 유지.
+    private const string PlanVisibilityHint = " (반영은 turn 종료 후 — 같은 turn 안에서 재조회 금지)";
+
+    /// <summary>batch 다중 라인 결과의 마지막 줄에 단독 line 으로 붙이는 변형. PlanVisibilityHint 와 본문 동일.</summary>
+    private const string PlanVisibilityHintLine = "(반영은 turn 종료 후 — 같은 turn 안에서 재조회 금지)";
+
     // DI 인자 (e.g. LlmTurnContextProvider) 는 attribute 없이 자동 주입됨.
     // 근거: ModelContextProtocol.AspNetCore 1.2.0 의 AIFunctionMcpServerTool 이 parameter 의 type 을
     // IServiceProviderIsService.IsService(type) 로 검사 → DI 등록된 type 이면 schema 에서 자동 제외 +
@@ -264,6 +283,7 @@ public static class ModelTools
                     ? $" (ref=@{r.Ref.Value})" : "";
                 sb.Append($"  [{r.Index}] {r.Display}{refSuffix}\n");
             }
+            sb.Append(PlanVisibilityHintLine);
             return sb.ToString().TrimEnd();
         }
         else
@@ -290,7 +310,7 @@ public static class ModelTools
             SanitizeOrThrow(name, "name");
             var trimmed = name.Trim();
             var projId = ToolOperations.queueAddProject(ctx.Plan, ctx.Store, trimmed);
-            return $"[plan] add_project queued: name=\"{trimmed}\", id={projId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_project queued: name=\"{trimmed}\", id={projId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -304,7 +324,7 @@ public static class ModelTools
             SanitizeOrThrow(name, "name");
             var trimmed = name.Trim();
             var sysId = ToolOperations.queueAddActiveSystem(ctx.Plan, ctx.Store, trimmed);
-            return $"[plan] add_active_system queued: name=\"{trimmed}\", id={sysId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_active_system queued: name=\"{trimmed}\", id={sysId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -322,7 +342,7 @@ public static class ModelTools
             var trimmed = name.Trim();
             var dt = deviceType.Trim();
             var sysId = ToolOperations.queueAddPassiveSystem(ctx.Plan, ctx.Store, trimmed, dt);
-            return $"[plan] add_passive_system queued: name=\"{trimmed}\", deviceType=\"{dt}\", id={sysId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_passive_system queued: name=\"{trimmed}\", deviceType=\"{dt}\", id={sysId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -338,7 +358,7 @@ public static class ModelTools
             var trimmed = name.Trim();
             var sysGuid = ParseGuidOrThrow(systemId, "systemId");
             var flowId = ToolOperations.queueAddFlow(ctx.Plan, ctx.Store, trimmed, sysGuid);
-            return $"[plan] add_flow queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={flowId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_flow queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={flowId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -354,7 +374,7 @@ public static class ModelTools
             var trimmed = localName.Trim();
             var flowGuid = ParseGuidOrThrow(flowId, "flowId");
             var workId = ToolOperations.queueAddWork(ctx.Plan, ctx.Store, trimmed, flowGuid);
-            return $"[plan] add_work queued: localName=\"{trimmed}\", flowId={flowGuid:D}, id={workId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_work queued: localName=\"{trimmed}\", flowId={flowGuid:D}, id={workId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -369,7 +389,7 @@ public static class ModelTools
             var workGuid = ParseGuidOrThrow(workId, "workId");
             var apiDefGuid = ParseGuidOrThrow(apiDefId, "apiDefId");
             var callId = ToolOperations.queueAddCall(ctx.Plan, ctx.Store, workGuid, apiDefGuid);
-            return $"[plan] add_call queued: workId={workGuid:D}, apiDefId={apiDefGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_call queued: workId={workGuid:D}, apiDefId={apiDefGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -393,7 +413,7 @@ public static class ModelTools
                 ? Microsoft.FSharp.Core.FSharpOption<Guid>.None
                 : Microsoft.FSharp.Core.FSharpOption<Guid>.Some(ParseGuidOrThrow(rxWorkId, "rxWorkId"));
             var defId = ToolOperations.queueAddApiDef(ctx.Plan, ctx.Store, trimmed, sysGuid, tx, rx);
-            return $"[plan] add_api_def queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={defId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_api_def queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={defId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -412,7 +432,7 @@ public static class ModelTools
             var srcGuid = ParseGuidOrThrow(sourceId, "sourceId");
             var tgtGuid = ParseGuidOrThrow(targetId, "targetId");
             var (arrowId, kind) = ToolOperations.queueAddArrow(ctx.Plan, ctx.Store, srcGuid, tgtGuid, atype);
-            return $"[plan] add_arrow queued: kind={kind}, type={atype}, source={srcGuid:D}, target={tgtGuid:D}, id={arrowId:D}, planSize={ctx.Plan.Count}";
+            return $"[plan] add_arrow queued: kind={kind}, type={atype}, source={srcGuid:D}, target={tgtGuid:D}, id={arrowId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 
@@ -490,7 +510,7 @@ public static class ModelTools
             pairs.Add(Tuple.Create(refName, pair.Item2));
             idx++;
         }
-        return $"[plan] {toolName} queued: name=\"{name.Trim()}\", id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], planSize={ctx.Plan.Count}";
+        return $"[plan] {toolName} queued: name=\"{name.Trim()}\", id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], planSize={ctx.Plan.Count}{PlanVisibilityHint}";
     }
 
     /// <summary>
@@ -537,7 +557,7 @@ public static class ModelTools
             idx++;
         }
         var dtSuffix = deviceTypeOrNull != null ? $", deviceType=\"{deviceTypeOrNull.Trim()}\"" : "";
-        return $"[plan] {toolName} queued: name=\"{name.Trim()}\"{dtSuffix}, id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], opposing={opposingNorm}, planSize={ctx.Plan.Count}";
+        return $"[plan] {toolName} queued: name=\"{name.Trim()}\"{dtSuffix}, id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], opposing={opposingNorm}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
     }
 
     [McpServerTool, Description("Cylinder 디바이스 (PassiveSystem + Flow + Work×2 + ApiDef×2 + ResetReset Arrow) cascade 를 1 op 로 추가합니다. SystemType='Unit', apiNames default ['ADV','RET'], workDuration default 500ms. apiDef1Ref / apiDef2Ref 는 batch 안 sub-ref 등록용 (D6 ref-required) — single 호출 시에도 인자는 받지만 반환 메시지에 mapping 노출. 반환: PassiveSystem Id + ApiDef Id mapping. **batch 권장 — apply_operations 안에서 ref 로 후속 add_call 의 apiDefId 참조**.")]
@@ -621,7 +641,7 @@ public static class ModelTools
         {
             var gid = ParseGuidOrThrow(entityId, "entityId");
             var kind = ToolOperations.queueRemoveEntity(ctx.Plan, ctx.Store, gid);
-            return $"[plan] remove_entity queued: kind={kind}, id={gid:D}, planSize={ctx.Plan.Count} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)";
+            return $"[plan] remove_entity queued: kind={kind}, id={gid:D}, planSize={ctx.Plan.Count} (cascade 포함, turn 종료 후 ApplyImportPlan 시점에 적용 — 같은 turn 안에서 재조회 금지)";
         });
     }
 
@@ -637,7 +657,7 @@ public static class ModelTools
             var trimmed = newName.Trim();
             var gid = ParseGuidOrThrow(entityId, "entityId");
             var kind = ToolOperations.queueRenameEntity(ctx.Plan, ctx.Store, gid, trimmed);
-            return $"[plan] rename_entity queued: kind={kind}, id={gid:D}, newName=\"{trimmed}\", planSize={ctx.Plan.Count}";
+            return $"[plan] rename_entity queued: kind={kind}, id={gid:D}, newName=\"{trimmed}\", planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
 

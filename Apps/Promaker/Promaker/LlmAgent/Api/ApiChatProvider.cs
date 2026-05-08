@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -39,6 +40,15 @@ namespace Promaker.LlmAgent.Api;
 public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(ApiChatProvider));
+
+    // tool_result payload 직렬화 옵션. 기본 JsonSerializerOptions 는 JavaScriptEncoder.Default (ASCII-safe)
+    // 라 한국어 / 일본어 / emoji 등 non-ASCII 가 \uXXXX 로 escape 되어 LLM Chat panel 에 raw escape 형태로 노출.
+    // UnsafeRelaxedJsonEscaping 은 한글 등을 그대로 유지 (HTML inject 위험은 plain text TextBlock 표시라 무관).
+    // 부수 효과로 token 사용량 감소 (UTF-8 1글자 ≈ 1.5 token vs \uXXXX = 6 token) → 작은 free tier TPM 한도 완화.
+    private static readonly JsonSerializerOptions ToolResultJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     private readonly IChatClient _chatClient;
     private readonly McpClient _mcpClient;
@@ -173,7 +183,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         if (result.Result is string s) return (false, s);
         try
         {
-            return (false, JsonSerializer.Serialize(result.Result));
+            return (false, JsonSerializer.Serialize(result.Result, ToolResultJsonOptions));
         }
         catch (Exception ex)
         {
