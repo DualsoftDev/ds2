@@ -55,6 +55,14 @@ public partial class MainViewModel
     internal void InitLlmAutostart()
     {
         if (!App.StartupAutoOpenLlm) return;
+
+        // ENABLE_LLM 미설정 시 LLM 자체가 비활성(토글 버튼 숨김) → autostart 무시. 측정 모드도 동일 (외부 스크립트가 환경변수 보장 책임).
+        if (!IsLlmEnabled)
+        {
+            Log.Warn("autostart-llm 무시: ENABLE_LLM 환경변수 미설정.");
+            return;
+        }
+
         Log.Info($"autostart-llm: 시작 (measure-prompt={(App.StartupMeasurePrompt != null ? "set" : "unset")}, then-exit={App.StartupMeasureThenExit}).");
 
         _dispatcher.BeginInvoke(new Action(() =>
