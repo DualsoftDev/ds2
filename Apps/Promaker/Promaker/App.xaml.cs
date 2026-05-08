@@ -38,6 +38,7 @@ public partial class App : Application
     // 변경 시 측정 스크립트 측도 함께 갱신 필요.
     internal const int MeasureExitSendCommandUnavailable = 2;
     internal const int MeasureExitLlmVmMissing = 3;
+    internal const int MeasureExitInitTimeout = 4;
 
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);

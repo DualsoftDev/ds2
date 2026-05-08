@@ -78,14 +78,21 @@ public partial class MainViewModel
     /// 측정 자동화: LlmChatViewModel.IsReady 가 true 되면 Input 에 prompt 적용 + SendCommand 실행.
     /// thenExit=true 이면 LlmChatViewModel.TurnCompleted (= 1 turn 종료, ApplyTurnPlan 까지 완료) 후 MainWindow.Close().
     /// Closing 의 dirty check 는 autostart 에서 skip.
+    /// IsReady 가 timeout 안에 true 가 안 되면 (InitializeAsync 실패/hang) fail-fast 로 종료.
     /// </summary>
+    private const int MeasureReadyTimeoutSeconds = 60;
+
     private void ScheduleMeasurePrompt(LlmChatViewModel vm, string prompt, bool thenExit)
     {
         PropertyChangedEventHandler? readyHandler = null;
+        DispatcherTimer? readyTimeoutTimer = null;
+
         readyHandler = (_, e) =>
         {
             if (e.PropertyName != nameof(LlmChatViewModel.IsReady) || !vm.IsReady) return;
             vm.PropertyChanged -= readyHandler;
+            readyTimeoutTimer?.Stop();
+            readyTimeoutTimer = null;
             vm.Input = prompt;
             if (!vm.SendCommand.CanExecute(null))
             {
@@ -111,5 +118,18 @@ public partial class MainViewModel
             vm.TurnCompleted += turnHandler;
         };
         vm.PropertyChanged += readyHandler;
+
+        // IsReady 가 InitializeAsync 실패/hang 으로 영영 true 안 되는 경우의 안전망.
+        // 정상 path 에서는 readyHandler 진입 시 timer.Stop() → Tick 호출 안 됨.
+        readyTimeoutTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(MeasureReadyTimeoutSeconds) };
+        readyTimeoutTimer.Tick += (_, _) =>
+        {
+            readyTimeoutTimer.Stop();
+            if (vm.IsReady) return; // race — 정상 path 가 같은 dispatcher tick 에서 진행 중
+            vm.PropertyChanged -= readyHandler;
+            Log.Fatal($"autostart-llm 측정 모드에서 IsReady 가 {MeasureReadyTimeoutSeconds}s 안에 true 안 됨. shutdown({App.MeasureExitInitTimeout}).");
+            Application.Current?.Shutdown(App.MeasureExitInitTimeout);
+        };
+        readyTimeoutTimer.Start();
     }
 }
