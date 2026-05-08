@@ -198,7 +198,7 @@
                             <TextBlock Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
-                                        <Setter Property="Text" Value="원위치"/>
+                                        <Setter Property="Text" Value="원위치(Hold)"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding Simulation.IsHomingPressed}" Value="True">
                                                 <Setter Property="Text" Value="진행중..."/>

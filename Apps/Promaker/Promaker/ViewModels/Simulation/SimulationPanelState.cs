@@ -207,8 +207,9 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private bool _isManualControlActive;
-    /// <summary>PLC 연결 정보 — 사용자가 RuntimeSettingDialog 에서 "PLC 설정" 으로 편집.</summary>
-    public PlcSettings PlcSettings { get; } = new();
+    /// <summary>PLC 연결 정보 — 사용자가 RuntimeSettingDialog 에서 "PLC 설정" 으로 편집.
+    /// 마지막 입력값은 AppData 의 PlcConnection.json 에 저장돼 다음 실행 시 자동 로드.</summary>
+    public PlcSettings PlcSettings { get; } = PlcSettings.LoadOrDefault();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HubStatusText))]

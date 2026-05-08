@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Ds2.Backend.Plc;
 using Ds2.Runtime.IO;
 using Microsoft.FSharp.Core;
+using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
@@ -93,5 +96,86 @@ public partial class PlcSettings : ObservableObject
 
         return new PlcGatewayConfig(
             Microsoft.FSharp.Collections.ListModule.OfSeq(new[] { connection }));
+    }
+
+    // ── 영속화 (Load/Save) ──────────────────────────────────────────────
+    // 사용자가 다이얼로그에서 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을
+    // %AppData%\Dualsoft\Promaker\Settings\PlcConnection.json 에 저장. 다음 실행 시 자동 로드.
+    // (태그는 IO 매핑에서 자동 import 되므로 저장 안 함.)
+
+    private sealed class PersistedShape
+    {
+        public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
+        public string Name { get; set; } = "PLC#1";
+        public string IpAddress { get; set; } = "192.168.0.10";
+        public int Port { get; set; } = 2004;
+        public int TimeoutMs { get; set; } = 3000;
+        public int ScanIntervalMs { get; set; } = 100;
+        public bool LocalEthernet { get; set; } = true;
+        public byte NetworkNumber { get; set; } = 0;
+        public byte StationNumber { get; set; } = 0xFF;
+    }
+
+    private static readonly JsonSerializerOptions _jsonOpts = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    /// <summary>저장된 설정을 읽어 새 PlcSettings 인스턴스 생성. 파일 없으면 default.</summary>
+    public static PlcSettings LoadOrDefault()
+    {
+        var s = new PlcSettings();
+        try
+        {
+            var path = SettingsPaths.PlcConnection;
+            if (!File.Exists(path)) return s;
+            var text = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<PersistedShape>(text, _jsonOpts);
+            if (data is null) return s;
+
+            if (Enum.TryParse<PlcVendorChoice>(data.Vendor, ignoreCase: true, out var v))
+                s.Vendor = v;
+            s.Name = data.Name ?? s.Name;
+            s.IpAddress = data.IpAddress ?? s.IpAddress;
+            if (data.Port > 0) s.Port = data.Port;
+            if (data.TimeoutMs > 0) s.TimeoutMs = data.TimeoutMs;
+            if (data.ScanIntervalMs > 0) s.ScanIntervalMs = data.ScanIntervalMs;
+            s.LocalEthernet = data.LocalEthernet;
+            s.NetworkNumber = data.NetworkNumber;
+            s.StationNumber = data.StationNumber;
+        }
+        catch
+        {
+            // 손상된 설정 파일은 default 로 fallback — silent
+        }
+        return s;
+    }
+
+    /// <summary>현재 값을 JSON 으로 저장. 실패해도 throw 없이 조용히 반환 (사용자 흐름 막지 않음).</summary>
+    public void Save()
+    {
+        try
+        {
+            var path = SettingsPaths.PlcConnection;
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            var data = new PersistedShape
+            {
+                Vendor = Vendor.ToString(),
+                Name = Name,
+                IpAddress = IpAddress,
+                Port = Port,
+                TimeoutMs = TimeoutMs,
+                ScanIntervalMs = ScanIntervalMs,
+                LocalEthernet = LocalEthernet,
+                NetworkNumber = NetworkNumber,
+                StationNumber = StationNumber,
+            };
+            var text = JsonSerializer.Serialize(data, _jsonOpts);
+            File.WriteAllText(path, text);
+        }
+        catch { /* best-effort */ }
     }
 }
