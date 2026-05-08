@@ -10,6 +10,7 @@ using Ds2.Core;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
+using Ds2.Runtime.IO;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.FSharp.Core;
 
@@ -543,8 +544,9 @@ public partial class SimulationPanelState
             inValues[addr] = v == "true";
         }
 
-        var outsToFire = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var details = new List<string>();
+        // 의도된 (work → 송출할 OUT 후보 + 어느 Call 이 source 인지) 매핑을 먼저 모은다.
+        // 다음 단계에서 Call 의 ComAux condition 을 평가해 *통과한 Call 의 OUT 만* 실 송출.
+        var candidates = new List<(string outAddr, Guid callGuid, string workName, string reason)>();
 
         foreach (var workGuid in idx.AllWorkGuids)
         {
@@ -563,59 +565,121 @@ public partial class SimulationPanelState
             if (finishTargets.Contains(workGuid) && !inOn)
             {
                 // 목표 Finish 인데 IN=false → 이 Work 의 OUT 을 firing 해서 home(Finish)으로 보냄.
-                foreach (var oa in outAddrs) outsToFire.Add(oa);
-                details.Add($"FIRE {workName} (목표=Finish, 현재 IN=false)");
+                foreach (var oa in outAddrs)
+                    foreach (var (cg, _) in CallsForOutAddress(iom, oa))
+                        candidates.Add((oa, cg, workName, "FIRE 목표=Finish, 현재 IN=false"));
             }
             else if (readyTargets.Contains(workGuid) && inOn)
             {
                 // 목표 Ready 인데 IN=true → reset partner 의 OUT 을 firing 해서 reset.
                 if (idx.WorkResetPreds.TryGetValue(workGuid, out var partners) && partners.Any())
                 {
-                    var partnerOuts = new List<string>();
                     foreach (var partnerGuid in partners)
                     {
                         if (iom.TxWorkToOutAddresses.TryGetValue(partnerGuid, out var pOuts))
                         {
                             foreach (var po in pOuts.Where(a => !string.IsNullOrWhiteSpace(a)))
-                            {
-                                outsToFire.Add(po);
-                                partnerOuts.Add(po);
-                            }
+                                foreach (var (cg, _) in CallsForOutAddress(iom, po))
+                                    candidates.Add((po, cg, workName, "RESET via partner 목표=Ready, 현재 IN=true"));
                         }
                     }
-                    details.Add($"RESET {workName} via partner OUT=[{string.Join(",", partnerOuts.Take(3))}] (목표=Ready, 현재 IN=true)");
                 }
                 else
                 {
-                    details.Add($"⚠ {workName}: 목표=Ready, IN=true 이지만 WorkResetPreds 없음 → reset 불가");
+                    AddSimLog($"  · ⚠ {workName}: 목표=Ready, IN=true 이지만 WorkResetPreds 없음 → reset 불가", LogSeverity.Warn);
                 }
             }
         }
 
-        if (outsToFire.Count == 0)
+        if (candidates.Count == 0)
         {
             AddSimLog("[engine-aware homing] 어긋난 Work 없음 — 모든 디바이스가 이미 home 위치", LogSeverity.System);
-            // home 이라면 그냥 push-button 종료 → release 시 BroadcastClearOwn 이 그대로 처리.
+            return;
+        }
+
+        // ── B1 안전 게이트: 각 candidate 의 Call 에 대해 ComAux 조건 평가 ────────────────
+        // ComAux = "공통 보조 조건" = 비상정지/안전문/시스템 인터록 같이 *모든 모드에서 항상 충족돼야 하는*
+        // 안전 floor. 모델러가 정의한 그대로 평가 — 미충족 Call 의 OUT 은 firing 차단.
+        // 엔진의 정상 cycle 에서 canStartCall 이 적용하는 것과 동일한 evaluator (DS 규칙 일관성).
+        var state = _simEngine.State;
+        var blockedByComAux = new List<string>();
+        var passedCandidates = new List<(string outAddr, Guid callGuid, string workName, string reason)>();
+        var blockedCallNames = new HashSet<string>();
+        var seenCallGuids = new HashSet<Guid>();
+
+        foreach (var c in candidates)
+        {
+            bool comAuxOk = true;
+            if (idx.CallComAuxConditions.TryGetValue(c.callGuid, out var expr))
+            {
+                comAuxOk = WorkConditionChecker.evaluateConditionExpression(state, expr);
+            }
+            if (comAuxOk)
+            {
+                passedCandidates.Add(c);
+            }
+            else if (seenCallGuids.Add(c.callGuid))
+            {
+                var callName = _storeProvider().Calls.TryGetValue(c.callGuid, out var call)
+                    ? call.Name : c.callGuid.ToString();
+                blockedByComAux.Add($"{callName} ({c.workName})");
+                blockedCallNames.Add(callName);
+            }
+        }
+
+        if (blockedByComAux.Count > 0)
+        {
+            AddSimLog(
+                $"⛔ [B1 안전 차단] ComAux 조건 미충족 Call {blockedByComAux.Count}건 — 해당 OUT 송출 차단됨. " +
+                $"비상정지·안전문·인터록 등 공통 안전 조건이 미충족 상태입니다.",
+                LogSeverity.Error);
+            foreach (var bn in blockedByComAux.Take(8))
+                AddSimLog($"  ⛔ {bn}", LogSeverity.Error);
+            if (blockedByComAux.Count > 8)
+                AddSimLog($"  ⛔ ... 외 {blockedByComAux.Count - 8}건", LogSeverity.Error);
+        }
+
+        // OUT 주소 dedup (여러 Call 이 같은 OUT 공유 시 중복 송출 방지).
+        // 단 한 Call 이라도 ComAux 통과한 경우만 OUT 송출 (= OR 정책).
+        // 보수적 정책 원하면 ALL pass 요구로 바꿀 수 있음 — 현재는 일관 firing 보장 위해 OR.
+        var outsToFire = new HashSet<string>(passedCandidates.Select(c => c.outAddr), StringComparer.OrdinalIgnoreCase);
+
+        if (outsToFire.Count == 0)
+        {
+            AddSimLog(
+                "[engine-aware homing] 통과한 OUT 0개 — 모든 후보가 ComAux 차단됨. " +
+                "안전 조건 확인 후 다시 시도하세요.",
+                LogSeverity.Warn);
             return;
         }
 
         AddSimLog(
-            $"[engine-aware homing] {outsToFire.Count}개 OUT 을 firing — 버튼 누르고 있는 동안 유지",
+            $"[engine-aware homing] {candidates.Count}개 후보 → ComAux 통과 {outsToFire.Count}개 OUT firing " +
+            $"(차단 {blockedByComAux.Count}건)",
             LogSeverity.System);
-        foreach (var d in details.Take(8)) AddSimLog($"  · {d}", LogSeverity.Info);
-        if (details.Count > 8) AddSimLog($"  · ... 외 {details.Count - 8}건", LogSeverity.Info);
 
-        // 모든 결정된 OUT 을 source="control" 로 송출 (manual control 과 동일 source — 엔진이 self-loop 방지).
-        // PLC 는 OUT=true 를 받아 액추에이터 구동 시작. PLC 가 IN echo 보내면 cache 갱신 + 그것만으로 home 도달 인지.
+        // 진단 — 통과한 케이스 일부 표시.
+        var passedSample = passedCandidates.GroupBy(c => c.workName).Take(8);
+        foreach (var grp in passedSample)
+            AddSimLog($"  · {grp.First().reason}: {grp.Key}", LogSeverity.Info);
+
+        // 송출. 모든 OUT 을 source="control" 로. PLC 가 OUT=true 를 받아 액추에이터 구동.
         // 사용자 release 시 StopHub 의 BroadcastClearOwnOutputsAsync 가 모든 OUT 을 false 로 → 안전 정지.
         foreach (var addr in outsToFire)
         {
-            // IsHomingPressed 가 release 로 false 가 되면 즉시 firing 중단.
-            if (!IsHomingPressed) break;
+            if (!IsHomingPressed) break;   // release 시 즉시 중단
             var ok = await WriteTagFromManualAsync(addr, "true");
             if (!ok)
                 AddSimLog($"[engine-aware homing] 송신 실패: {addr}", LogSeverity.Warn);
         }
+    }
+
+    /// <summary>OUT 주소가 속한 Call 들 — 같은 OUT 을 여러 Call 이 공유 가능 (OR group 등).</summary>
+    private static IEnumerable<(Guid CallGuid, Guid ApiCallGuid)> CallsForOutAddress(SignalIOMap iom, string outAddress)
+    {
+        if (iom.OutAddressToMappings.TryGetValue(outAddress, out var mappings))
+            foreach (var m in mappings)
+                yield return (m.CallGuid, m.ApiCallGuid);
     }
 
     /// <summary>원위치 push-button 의 "놓음" 핸들러 (deadman switch 종료).
