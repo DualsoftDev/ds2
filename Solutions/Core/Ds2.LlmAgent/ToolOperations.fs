@@ -50,6 +50,12 @@ module ToolOperations =
     [<Literal>]
     let NameMaxLength = 128
 
+    /// helper cascade quota 사전 reject 기준 — `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs:24`
+    /// `MutationQuota = 50` 과 sync. 변경 시 양쪽 동시 수정 (drift 시 helper 가 quota 초과 op 를
+    /// dispatch 시점에 reject 못하고 batch 도중 RuntimeException 회귀 위험).
+    [<Literal>]
+    let MutationQuotaSync = 50
+
     /// Tool 인자 sanitize. 빈 string "" 반환 = valid, 메시지 반환 = invalid.
     let sanitizeName (value: string) (field: string) (maxLength: int) : string =
         if String.IsNullOrWhiteSpace(value) then
@@ -108,6 +114,9 @@ module ToolOperations =
     let private tryFindWorkInPlan (plan: ImportPlanBuilder) (id: Guid) : Work option =
         tryFindInPlan plan (function AddWork w when w.Id = id -> Some w | _ -> None)
 
+    let private tryFindApiDefInPlan (plan: ImportPlanBuilder) (id: Guid) : ApiDef option =
+        tryFindInPlan plan (function AddApiDef d when d.Id = id -> Some d | _ -> None)
+
     let private tryFindCallInPlan (plan: ImportPlanBuilder) (id: Guid) : Call option =
         tryFindInPlan plan (function AddCall c when c.Id = id -> Some c | _ -> None)
 
@@ -165,7 +174,7 @@ module ToolOperations =
 
     /// add_project mutation tool. Pass 5 에서 추가 — fresh store 에서 LLM 이 자율적으로 모델
     /// 빌드 가능 (이전 phase 1 = "사용자가 GUI 로 새 project 생성" 의존을 제거).
-    /// 같은 turn 의 add_system 은 첫 project 자동 부착이라 add_project 직후 add_system 사용 가능.
+    /// 같은 turn 의 add_active_system / add_passive_system 은 첫 project 자동 부착이라 add_project 직후 사용 가능.
     /// 이름 중복 (store + plan 합산) 시 invalidOp.
     /// 반환: 새 project Id.
     let queueAddProject (plan: ImportPlanBuilder) (store: DsStore) (name: string) : Guid =
@@ -180,28 +189,40 @@ module ToolOperations =
         plan.Add(AddProject project)
         project.Id
 
-    /// add_system mutation tool 의 plan 누적 wrapper.
-    ///
-    /// **현재 phase 1c 단순화**: 첫 번째 project 에 자동 부착. project 가 0개면 invalidOp.
-    /// (phase 1d 에서 projectId 인자 또는 selection 기반 resolve)
-    /// 반환: 새로 생성된 system Id (LLM 응답에 포함).
-    let queueAddSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (isActive: bool) : Guid =
+    /// 첫 project 자동 부착 — store 우선, 없으면 같은 turn 의 plan 의 AddProject.
+    /// Pass 5: add_project 도구 추가 후 같은 turn 안 add_project → add_active_system/add_passive_system chain 패턴 지원.
+    let private resolveFirstProjectId (plan: ImportPlanBuilder) (store: DsStore) : Guid =
+        match Queries.allProjects store with
+        | p :: _ -> p.Id
+        | [] ->
+            let planProj =
+                plan.Operations
+                |> Seq.tryPick (function AddProject p -> Some p.Id | _ -> None)
+            match planProj with
+            | Some id -> id
+            | None -> invalidOp "프로젝트가 없습니다. 먼저 add_project 를 호출하거나 GUI 로 생성하세요."
+
+    /// add_active_system mutation tool. 첫 project 에 active 로 부착.
+    /// 반환: 새로 생성된 system Id.
+    let queueAddActiveSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) : Guid =
         requireNonEmpty (nameof name) name "System name"
-        // 첫 project 자동 부착 — store 우선, 없으면 같은 turn 의 plan 의 AddProject (Pass 5: add_project 도구
-        // 추가 후 같은 turn 안 add_project → add_system chain 패턴 지원).
-        let projectId =
-            match Queries.allProjects store with
-            | p :: _ -> p.Id
-            | [] ->
-                let planProj =
-                    plan.Operations
-                    |> Seq.tryPick (function AddProject p -> Some p.Id | _ -> None)
-                match planProj with
-                | Some id -> id
-                | None -> invalidOp "프로젝트가 없습니다. 먼저 add_project 를 호출하거나 GUI 로 생성하세요."
+        let projectId = resolveFirstProjectId plan store
         let sys = DsSystem(name)
         plan.Add(AddSystem sys)
-        plan.Add(LinkSystemToProject(projectId, sys.Id, isActive))
+        plan.Add(LinkSystemToProject(projectId, sys.Id, true))
+        sys.Id
+
+    /// add_passive_system mutation tool. 첫 project 에 passive 로 부착 + SystemType 설정.
+    /// deviceType: cylinder/clamp/lifter → "Unit", robot → "Robot", conveyor → "Conveyor" 등 (KnownNames).
+    /// 반환: 새로 생성된 system Id.
+    let queueAddPassiveSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (deviceType: string) : Guid =
+        requireNonEmpty (nameof name) name "System name"
+        requireNonEmpty (nameof deviceType) deviceType "System deviceType"
+        let projectId = resolveFirstProjectId plan store
+        let sys = DsSystem(name)
+        sys.SystemType <- Some deviceType
+        plan.Add(AddSystem sys)
+        plan.Add(LinkSystemToProject(projectId, sys.Id, false))
         sys.Id
 
     /// add_flow mutation tool. parent System 은 store 또는 plan 에 존재해야 함.
@@ -225,28 +246,194 @@ module ToolOperations =
         plan.Add(AddWork work)
         work.Id
 
-    /// add_call mutation tool. parent Work 는 store 또는 plan 에 존재해야 함.
-    /// Call.Name = "{devicesAlias}.{apiName}" 자동 조립.
-    let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (devicesAlias: string) (apiName: string) (workId: Guid) : Guid =
-        requireNonEmpty (nameof devicesAlias) devicesAlias "Call devicesAlias"
-        requireNonEmpty (nameof apiName) apiName "Call apiName"
-        requireWork plan store workId |> ignore
+    /// System 의 isActive 검사 (store 측). store 에 없으면 None.
+    let private isSystemActiveOpt (store: DsStore) (systemId: Guid) : bool option =
+        Queries.allProjects store
+        |> List.tryPick (fun p ->
+            if p.ActiveSystemIds.Contains(systemId) then Some true
+            elif p.PassiveSystemIds.Contains(systemId) then Some false
+            else None)
+
+    /// add_call mutation tool. parent Work + ApiDef 는 store 또는 plan 에 존재해야 함.
+    /// 인자 = (workId, apiDefId) 2개. devicesAlias / apiName 은 ApiDef → ParentSystem.Name / ApiDef.Name 자동 도출.
+    /// 룰 B (alias = Passive.Name) = 구문상 차단 (alias 인자 자체 부재).
+    /// 룰 C (ApiDef 는 Passive 의 자식) = 런타임 차단 (ApiDef.ParentSystem.IsActive == true 시 BATCH_ERROR).
+    /// ApiCall cascade: ApiCall.ApiDefId / OriginFlowId (= workId 의 parent Flow.Id) 자동 set + AddApiCall plan op.
+    /// Call.Name 충돌 검사 유지 (같은 Work 안 동일 fullName 중복 차단).
+    let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
+        let work = requireWork plan store workId
+        // ApiDef lookup (store + plan)
+        let apiDef =
+            match Queries.getApiDef apiDefId store |> Option.orElseWith (fun () -> tryFindApiDefInPlan plan apiDefId) with
+            | Some d -> d
+            | None -> invalidOp $"ApiDef(id={apiDefId}) 가 store/plan 어디에도 없습니다."
+        // ParentSystem (= ApiDef.ParentId) 의 IsActive 검사 — 룰 C 런타임 차단.
+        let parentSysId = apiDef.ParentId
+        // store 측 isActive
+        let storeIsActive = isSystemActiveOpt store parentSysId
+        // plan 측 LinkSystemToProject (같은 turn 안 add_passive_system → add_call chain 지원)
+        let planIsActive =
+            plan.Operations
+            |> Seq.tryPick (function
+                | LinkSystemToProject(_, sysId, isActive) when sysId = parentSysId -> Some isActive
+                | _ -> None)
+        match storeIsActive, planIsActive with
+        | Some true, _
+        | None, Some true ->
+            invalidOp $"ApiDef(id={apiDefId}) 의 parent System(id={parentSysId}) 가 Active 입니다. ApiDef 는 Passive System 의 자식이어야 합니다 (룰 C)."
+        | Some false, _
+        | None, Some false -> ()
+        | None, None ->
+            // store/plan 어디에서도 LinkSystemToProject 가 발견되지 않음 (orphan 또는 corrupt). fail-safe.
+            invalidOp $"System(id={parentSysId}) 의 IsActive 를 결정할 수 없습니다 (orphan 또는 LinkSystemToProject 누락)."
+        // devicesAlias / apiName 자동 도출
+        let parentSys =
+            match Queries.getSystem parentSysId store |> Option.orElseWith (fun () -> tryFindSystemInPlan plan parentSysId) with
+            | Some s -> s
+            | None -> invalidOp $"ApiDef.ParentSystem(id={parentSysId}) 가 store/plan 어디에도 없습니다."
+        let devicesAlias = parentSys.Name
+        let apiName = apiDef.Name
         let fullName = $"{devicesAlias}.{apiName}"
         if hasCallNameClash plan store workId fullName then
             invalidOp $"같은 Work 내에 이미 '{fullName}' Call 이 존재합니다."
         let call = Call(devicesAlias, apiName, workId)
         plan.Add(AddCall call)
+        // ApiCall cascade — ApiDefId + OriginFlowId 자동 set (createAndRegisterApiCall 패턴 + OriginFlowId 보강).
+        let apiCall = ApiCall(fullName)
+        apiCall.ApiDefId <- Some apiDefId
+        apiCall.OriginFlowId <- Some work.ParentId  // workId 의 parent Flow.Id
+        call.ApiCalls.Add(apiCall)
+        plan.Add(AddApiCall apiCall)
         call.Id
 
     /// add_api_def mutation tool. parent System 존재 + 이름 중복 검사.
-    let queueAddApiDef (plan: ImportPlanBuilder) (store: DsStore) (name: string) (systemId: Guid) : Guid =
+    /// txWorkId/rxWorkId 가 주어지면 ApiDef.TxGuid/RxGuid 에 binding 후 ActionType=Normal.
+    /// helper (add_cylinder 등) 가 자동 채우는 binding 을 primitive 만으로도 표현 가능하게 함.
+    let queueAddApiDef
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (systemId: Guid)
+        (txWorkId: Guid option) (rxWorkId: Guid option) : Guid =
         requireNonEmpty (nameof name) name "ApiDef name"
         requireSystem plan store systemId |> ignore
         if hasApiDefNameClash plan store systemId name then
             invalidOp $"같은 System 내에 이미 '{name}' ApiDef 가 존재합니다."
+        // Tx/Rx 인자 검증 — Work 가 store/plan 에 존재하는지.
+        let validateWork (idOpt: Guid option) (label: string) =
+            match idOpt with
+            | None -> ()
+            | Some id ->
+                match Queries.getWork id store |> Option.orElseWith (fun () -> tryFindWorkInPlan plan id) with
+                | Some _ -> ()
+                | None -> invalidOp $"{label}(id={id}) 가 Work 로 존재하지 않습니다."
+        validateWork txWorkId "txWorkId"
+        validateWork rxWorkId "rxWorkId"
         let apiDef = ApiDef(name, systemId)
+        apiDef.TxGuid <- txWorkId
+        apiDef.RxGuid <- rxWorkId
         plan.Add(AddApiDef apiDef)
         apiDef.Id
+
+    // ─── Tier 1 helper — device-class cascade (Phase extend-mcp L2.d) ────────
+    //
+    // PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 를 1 op 로.
+    // ImportPlanDeviceOps.buildPassiveDeviceCascade 가 raw ResizeArray 에 append 하므로
+    // wrapper 가 별도 buffer 만들어 전달 후 plan.Add 로 옮긴다.
+    // 반환 = (PassiveSystemId, (apiName * ApiDefId) list) — caller (dispatchBatchOp) 가 batch refTable 에 다중 등록.
+
+    let private runDeviceCascade
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (deviceType: string)
+        (apiNames: string list)
+        (workDuration: TimeSpan option)
+        (wiringMode: ImportPlanDeviceOps.WiringMode) : Guid * (string * Guid) list =
+        requireNonEmpty (nameof name) name "Device name"
+        requireNonEmpty (nameof deviceType) deviceType "Device deviceType"
+        if apiNames.IsEmpty then
+            invalidOp "apiNames 가 비어있습니다."
+        // 동일 이름 sanitize 1차 — apiNames 도 prompt injection / 빈 문자열 / 중복 방어.
+        // 중복 apiName 은 buildPassiveDeviceCascade 의 ensureApiDef 가 같은 System.Id 안 동명 ApiDef 로 dedupe 하므로
+        // 결과 ApiDef 수가 입력 apiNames 수와 어긋남 → list_zip 실패 / refTable 매칭 깨짐. 호출자 측에서 1차 거름.
+        let dupSet = HashSet<string>()
+        for apiName in apiNames do
+            if String.IsNullOrWhiteSpace apiName then
+                invalidOp "apiNames 에 빈 항목이 포함되어 있습니다."
+            if not (dupSet.Add apiName) then
+                invalidOp $"apiNames 에 중복 항목 '{apiName}' 이 포함되어 있습니다."
+        let projectId = resolveFirstProjectId plan store
+        let buffer = ResizeArray<ImportPlanOperation>()
+        let result =
+            ImportPlanDeviceOps.buildPassiveDeviceCascade
+                store projectId buffer name deviceType apiNames workDuration wiringMode
+        for op in buffer do
+            plan.Add(op)
+        result
+
+    /// add_cylinder helper. N=2 (ADV/RET 등 default), Chain wiring (ResetReset 1 개), 500ms.
+    let queueAddCylinder
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (apiNames: string list) (workDuration: TimeSpan option) : Guid * (string * Guid) list =
+        let names = if apiNames.IsEmpty then ["ADV"; "RET"] else apiNames
+        if names.Length <> 2 then
+            invalidOp $"add_cylinder: apiNames 는 정확히 2개여야 합니다 (현재 {names.Length})."
+        let duration = workDuration |> Option.orElseWith (fun () -> Some (TimeSpan.FromMilliseconds 500.))
+        runDeviceCascade plan store name "Unit" names duration ImportPlanDeviceOps.Chain
+
+    /// add_clamp helper. N=2 (CLP/UNCLP default), Chain wiring (ResetReset 1 개), 500ms.
+    let queueAddClamp
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (apiNames: string list) (workDuration: TimeSpan option) : Guid * (string * Guid) list =
+        let names = if apiNames.IsEmpty then ["CLP"; "UNCLP"] else apiNames
+        if names.Length <> 2 then
+            invalidOp $"add_clamp: apiNames 는 정확히 2개여야 합니다 (현재 {names.Length})."
+        let duration = workDuration |> Option.orElseWith (fun () -> Some (TimeSpan.FromMilliseconds 500.))
+        runDeviceCascade plan store name "Unit" names duration ImportPlanDeviceOps.Chain
+
+    /// add_robot helper. opposing default = "none" (rev 11 — 도메인 룰 ROBOT opposing 없음).
+    /// "chain" / "all-pairs" 는 사용자 명시 시.
+    let queueAddRobot
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (apiNames: string list) (opposing: string) (workDuration: TimeSpan option)
+        : Guid * (string * Guid) list =
+        if apiNames.IsEmpty then invalidOp "add_robot: apiNames 가 비어있습니다."
+        let mode =
+            match opposing with
+            | "none" | "" -> ImportPlanDeviceOps.NoneMode
+            | "chain" -> ImportPlanDeviceOps.Chain
+            | "all-pairs" -> ImportPlanDeviceOps.AllPairs
+            | other -> invalidOp $"opposing '{other}' 이 유효하지 않습니다. 허용: none|chain|all-pairs."
+        // D8 quota 사전 reject (all-pairs N≥9 = 57 op > 50)
+        let n = apiNames.Length
+        let cascadeOpCount =
+            match mode with
+            | ImportPlanDeviceOps.NoneMode -> 3 + 2*n
+            | ImportPlanDeviceOps.Chain -> 3 + 2*n + (n-1)
+            | ImportPlanDeviceOps.AllPairs -> 3 + 2*n + (n*(n-1)/2)
+        if cascadeOpCount > MutationQuotaSync then
+            invalidOp $"op 수 초과: {cascadeOpCount} > {MutationQuotaSync}, opposing='chain' 또는 'none' 으로 변경 권장 (apiNames 분할은 device 의미 분리)."
+        runDeviceCascade plan store name "Robot" apiNames workDuration mode
+
+    /// add_device generic fallback. deviceType 사용자 지정 (KnownNames 권장).
+    let queueAddDevice
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (deviceType: string) (apiNames: string list)
+        (opposing: string) (workDuration: TimeSpan option)
+        : Guid * (string * Guid) list =
+        if apiNames.IsEmpty then invalidOp "add_device: apiNames 가 비어있습니다."
+        let mode =
+            match opposing with
+            | "none" | "" -> ImportPlanDeviceOps.NoneMode
+            | "chain" -> ImportPlanDeviceOps.Chain
+            | "all-pairs" -> ImportPlanDeviceOps.AllPairs
+            | other -> invalidOp $"opposing '{other}' 이 유효하지 않습니다. 허용: none|chain|all-pairs."
+        let n = apiNames.Length
+        let cascadeOpCount =
+            match mode with
+            | ImportPlanDeviceOps.NoneMode -> 3 + 2*n
+            | ImportPlanDeviceOps.Chain -> 3 + 2*n + (n-1)
+            | ImportPlanDeviceOps.AllPairs -> 3 + 2*n + (n*(n-1)/2)
+        if cascadeOpCount > MutationQuotaSync then
+            invalidOp $"op 수 초과: {cascadeOpCount} > {MutationQuotaSync}, opposing='chain' 또는 'none' 으로 변경 권장."
+        runDeviceCascade plan store name deviceType apiNames workDuration mode
 
     // ─── Remove / Rename (Phase 2) ───────────────────────────────────────────
     //
@@ -309,7 +496,7 @@ module ToolOperations =
                 |> List.exists (fun d -> d.Id <> id && d.Name = newName)
             if clash then
                 invalidOp $"같은 System 내에 이미 '{newName}' ApiDef 가 존재합니다."
-        | _ -> ()  // System 은 phase 1 의 add_system 과 일관 (이름 중복 검사 생략)
+        | _ -> ()  // System 은 add_active_system / add_passive_system 과 일관 (이름 중복 검사 생략)
 
         plan.Add(RenameEntity(kind, id, newName))
         kind
@@ -418,13 +605,6 @@ module ToolOperations =
     //
     // 모든 read tool 은 indented plain text 를 반환한다 (JSON 직렬화 비용 / token 절약).
     // entity 1개 = 1줄, 들여쓰기 = 트리 깊이. id 는 full GUID 표기 (LLM 이 mutation 인자로 그대로 사용 가능).
-
-    let private isSystemActiveOpt (store: DsStore) (systemId: Guid) : bool option =
-        Queries.allProjects store
-        |> List.tryPick (fun p ->
-            if p.ActiveSystemIds.Contains(systemId) then Some true
-            elif p.PassiveSystemIds.Contains(systemId) then Some false
-            else None)
 
     let private indent (n: int) = String.replicate n "  "
 
@@ -814,6 +994,37 @@ module ToolOperations =
             Some(prop.GetString())
         else None
 
+    /// Args 의 string array field. 없거나 array 가 아니면 invalidOp.
+    let private getStringArrayArg (args: JsonElement) (name: string) : string list =
+        let mutable prop = JsonElement()
+        if args.ValueKind <> JsonValueKind.Object || not (args.TryGetProperty(name, &prop)) then
+            invalidOp $"VALIDATION_ERROR: args.{name} 이 존재하지 않습니다."
+        elif prop.ValueKind <> JsonValueKind.Array then
+            invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (ValueKind={prop.ValueKind})."
+        else
+            [ for el in prop.EnumerateArray() ->
+                if el.ValueKind <> JsonValueKind.String then
+                    invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
+                el.GetString() ]
+
+    /// Args 의 optional string array field. 없으면 None.
+    let private getStringArrayArgOpt (args: JsonElement) (name: string) : string list option =
+        let mutable prop = JsonElement()
+        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.Array then
+            Some [ for el in prop.EnumerateArray() ->
+                    if el.ValueKind <> JsonValueKind.String then
+                        invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
+                    el.GetString() ]
+        else None
+
+    /// Args 의 optional int field (workDurationMs 등). 없으면 None.
+    let private getIntArgOpt (args: JsonElement) (name: string) : int option =
+        let mutable prop = JsonElement()
+        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.Number then
+            let mutable v = 0
+            if prop.TryGetInt32(&v) then Some v else None
+        else None
+
     /// Args 의 optional bool field. 없으면 default.
     let private getBoolArg (args: JsonElement) (name: string) (defaultVal: bool) : bool =
         let mutable prop = JsonElement()
@@ -823,6 +1034,17 @@ module ToolOperations =
             | JsonValueKind.False -> false
             | _ -> defaultVal
         else defaultVal
+
+    /// ref name 형식 검증. 실패 시 invalidOp. 1-32자, [a-zA-Z_][a-zA-Z0-9_]*.
+    let private validateRefName (refMap: Dictionary<string, Guid>) (refName: string) =
+        if String.IsNullOrEmpty(refName) then
+            invalidOp "VALIDATION_ERROR: ref 가 비어있습니다."
+        elif refName.Length > 32 then
+            invalidOp $"VALIDATION_ERROR: ref 길이 {refName.Length} > 32."
+        elif not (System.Text.RegularExpressions.Regex.IsMatch(refName, @"^[a-zA-Z_][a-zA-Z0-9_]*$")) then
+            invalidOp $"VALIDATION_ERROR: ref 형식 오류 (1-32자, [a-zA-Z_][a-zA-Z0-9_]*)."
+        elif refMap.ContainsKey(refName) then
+            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다."
 
     /// "@refName" → refMap[refName] (Guid). 그 외 → Guid.Parse. 실패 시 invalidOp.
     let private resolveBatchRef (refMap: Dictionary<string, Guid>) (value: string) (field: string) : Guid =
@@ -844,51 +1066,68 @@ module ToolOperations =
         let err = sanitizeName value field NameMaxLength
         if err <> "" then invalidOp err
 
-    /// queueBatch op 1개 dispatch. 새 Guid 가 있으면 Some 반환.
+    /// queueBatch op 1개 dispatch.
+    /// 반환 = ((refName * Guid) list, display).
+    /// list = primitive op 의 경우 op.Ref 가 Some 이면 [(refName, id)] 단원소 / None 또는 remove/rename 이면 [].
+    ///        helper op (add_cylinder/clamp/robot/device) 의 경우 op.Ref 의 (refName, PassiveSystemId) +
+    ///        apiDef*Ref / apiDefRefs 의 (refName, ApiDefId) 다중 등록 (D6 ref-required).
     /// (review M5) 빈 op.Op 검증을 본 함수 첫 줄로 통합 — queueBatch 의 try-with 와 단일 경로로 합쳐 분기 단순화.
     let private dispatchBatchOp
         (plan: ImportPlanBuilder) (store: DsStore)
-        (refMap: Dictionary<string, Guid>) (op: BatchOpInput) : Guid option * string =
+        (refMap: Dictionary<string, Guid>) (op: BatchOpInput) : (string * Guid) list * string =
         if String.IsNullOrEmpty(op.Op) then
             invalidOp "VALIDATION_ERROR: 'op' 필드가 비어있습니다."
+        let mainRef (id: Guid) : (string * Guid) list =
+            match op.Ref with Some r -> [r, id] | None -> []
+        let parseDuration () =
+            getIntArgOpt op.Args "workDurationMs"
+            |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))
         match op.Op with
         | "add_project" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
             let id = queueAddProject plan store (name.Trim())
-            Some id, $"add_project name=\"{name.Trim()}\" id={id:D}"
-        | "add_system" ->
+            mainRef id, $"add_project name=\"{name.Trim()}\" id={id:D}"
+        | "add_active_system" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
-            let isActive = getBoolArg op.Args "isActive" true
-            let id = queueAddSystem plan store (name.Trim()) isActive
-            Some id, $"add_system name=\"{name.Trim()}\" isActive={isActive} id={id:D}"
+            let id = queueAddActiveSystem plan store (name.Trim())
+            mainRef id, $"add_active_system name=\"{name.Trim()}\" id={id:D}"
+        | "add_passive_system" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let deviceType = getStringArg op.Args "deviceType"
+            let id = queueAddPassiveSystem plan store (name.Trim()) (deviceType.Trim())
+            mainRef id, $"add_passive_system name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={id:D}"
         | "add_flow" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
             let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
             let id = queueAddFlow plan store (name.Trim()) sysId
-            Some id, $"add_flow name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
+            mainRef id, $"add_flow name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
         | "add_work" ->
             let localName = getStringArg op.Args "localName"
             sanitizeOrThrow localName "localName"
             let flowId = resolveBatchRef refMap (getStringArg op.Args "flowId") "flowId"
             let id = queueAddWork plan store (localName.Trim()) flowId
-            Some id, $"add_work localName=\"{localName.Trim()}\" flowId={flowId:D} id={id:D}"
+            mainRef id, $"add_work localName=\"{localName.Trim()}\" flowId={flowId:D} id={id:D}"
         | "add_call" ->
-            let alias = getStringArg op.Args "devicesAlias"
-            sanitizeOrThrow alias "devicesAlias"
-            let api = getStringArg op.Args "apiName"
-            sanitizeOrThrow api "apiName"
             let workId = resolveBatchRef refMap (getStringArg op.Args "workId") "workId"
-            let id = queueAddCall plan store (alias.Trim()) (api.Trim()) workId
-            Some id, $"add_call name=\"{alias.Trim()}.{api.Trim()}\" workId={workId:D} id={id:D}"
+            let apiDefId = resolveBatchRef refMap (getStringArg op.Args "apiDefId") "apiDefId"
+            let id = queueAddCall plan store workId apiDefId
+            mainRef id, $"add_call workId={workId:D} apiDefId={apiDefId:D} id={id:D}"
         | "add_api_def" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
             let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
-            let id = queueAddApiDef plan store (name.Trim()) sysId
-            Some id, $"add_api_def name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
+            let txWorkId =
+                getStringArgOpt op.Args "txWorkId"
+                |> Option.map (fun v -> resolveBatchRef refMap v "txWorkId")
+            let rxWorkId =
+                getStringArgOpt op.Args "rxWorkId"
+                |> Option.map (fun v -> resolveBatchRef refMap v "rxWorkId")
+            let id = queueAddApiDef plan store (name.Trim()) sysId txWorkId rxWorkId
+            mainRef id, $"add_api_def name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
         | "add_arrow" ->
             let srcId = resolveBatchRef refMap (getStringArg op.Args "sourceId") "sourceId"
             let tgtId = resolveBatchRef refMap (getStringArg op.Args "targetId") "targetId"
@@ -898,19 +1137,88 @@ module ToolOperations =
                 | true, t -> t
                 | _ -> invalidOp $"VALIDATION_ERROR: arrowType '{arrowTypeStr}' 이 유효하지 않습니다. 허용: Unspecified|Start|Reset|StartReset|ResetReset|Group."
             let (id, kind) = queueAddArrow plan store srcId tgtId arrowType
-            Some id, $"add_arrow kind={kind} type={arrowType} source={srcId:D} target={tgtId:D} id={id:D}"
+            mainRef id, $"add_arrow kind={kind} type={arrowType} source={srcId:D} target={tgtId:D} id={id:D}"
+        | "add_cylinder" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let apiDef1Ref = (getStringArg op.Args "apiDef1Ref").Trim()
+            let apiDef2Ref = (getStringArg op.Args "apiDef2Ref").Trim()
+            validateRefName refMap apiDef1Ref
+            validateRefName refMap apiDef2Ref
+            if apiDef1Ref = apiDef2Ref then
+                invalidOp $"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref}')."
+            let apiNames = getStringArrayArgOpt op.Args "apiNames" |> Option.defaultValue []
+            let (sysId, apiDefIds) = queueAddCylinder plan store (name.Trim()) apiNames (parseDuration())
+            let apiPairs =
+                match apiDefIds with
+                | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
+                | _ -> invalidOp $"INTERNAL: add_cylinder cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
+            mainRef sysId @ apiPairs, $"add_cylinder name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length}"
+        | "add_clamp" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let apiDef1Ref = (getStringArg op.Args "apiDef1Ref").Trim()
+            let apiDef2Ref = (getStringArg op.Args "apiDef2Ref").Trim()
+            validateRefName refMap apiDef1Ref
+            validateRefName refMap apiDef2Ref
+            if apiDef1Ref = apiDef2Ref then
+                invalidOp $"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref}')."
+            let apiNames = getStringArrayArgOpt op.Args "apiNames" |> Option.defaultValue []
+            let (sysId, apiDefIds) = queueAddClamp plan store (name.Trim()) apiNames (parseDuration())
+            let apiPairs =
+                match apiDefIds with
+                | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
+                | _ -> invalidOp $"INTERNAL: add_clamp cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
+            mainRef sysId @ apiPairs, $"add_clamp name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length}"
+        | "add_robot" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let apiNames = getStringArrayArg op.Args "apiNames"
+            let apiDefRefs = getStringArrayArg op.Args "apiDefRefs" |> List.map (fun r -> r.Trim())
+            if apiNames.Length <> apiDefRefs.Length then
+                invalidOp $"VALIDATION_ERROR: add_robot apiNames.length ({apiNames.Length}) != apiDefRefs.length ({apiDefRefs.Length}) (D6 ref-required: 길이 일치)."
+            for r in apiDefRefs do validateRefName refMap r
+            // 같은 op 안 ref 중복 검사 (refMap 들어가기 전)
+            let dupSet = HashSet<string>()
+            for r in apiDefRefs do
+                if not (dupSet.Add r) then
+                    invalidOp $"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다."
+            let opposing = getStringArgOpt op.Args "opposing" |> Option.defaultValue "none"
+            let (sysId, apiDefIds) = queueAddRobot plan store (name.Trim()) apiNames opposing (parseDuration())
+            let apiPairs =
+                List.zip apiDefRefs (apiDefIds |> List.map snd)
+            mainRef sysId @ apiPairs, $"add_robot name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length} opposing={opposing}"
+        | "add_device" ->
+            let name = getStringArg op.Args "name"
+            sanitizeOrThrow name "name"
+            let deviceType = getStringArg op.Args "deviceType"
+            let apiNames = getStringArrayArg op.Args "apiNames"
+            let apiDefRefs = getStringArrayArg op.Args "apiDefRefs" |> List.map (fun r -> r.Trim())
+            if apiNames.Length <> apiDefRefs.Length then
+                invalidOp $"VALIDATION_ERROR: add_device apiNames.length ({apiNames.Length}) != apiDefRefs.length ({apiDefRefs.Length}) (D6 ref-required: 길이 일치)."
+            for r in apiDefRefs do validateRefName refMap r
+            let dupSet = HashSet<string>()
+            for r in apiDefRefs do
+                if not (dupSet.Add r) then
+                    invalidOp $"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다."
+            let opposing = getStringArgOpt op.Args "opposing" |> Option.defaultValue "none"
+            let (sysId, apiDefIds) =
+                queueAddDevice plan store (name.Trim()) (deviceType.Trim()) apiNames opposing (parseDuration())
+            let apiPairs =
+                List.zip apiDefRefs (apiDefIds |> List.map snd)
+            mainRef sysId @ apiPairs, $"add_device name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length} opposing={opposing}"
         | "remove_entity" ->
             let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
             let kind = queueRemoveEntity plan store entityId
-            None, $"remove_entity kind={kind} id={entityId:D} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)"
+            [], $"remove_entity kind={kind} id={entityId:D} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)"
         | "rename_entity" ->
             let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
             let newName = getStringArg op.Args "newName"
             sanitizeOrThrow newName "newName"
             let kind = queueRenameEntity plan store entityId (newName.Trim())
-            None, $"rename_entity kind={kind} id={entityId:D} newName=\"{newName.Trim()}\""
+            [], $"rename_entity kind={kind} id={entityId:D} newName=\"{newName.Trim()}\""
         | other ->
-            invalidOp $"VALIDATION_ERROR: 지원하지 않는 op '{other}'. 허용: add_project|add_system|add_flow|add_work|add_call|add_api_def|add_arrow|remove_entity|rename_entity."
+            invalidOp $"VALIDATION_ERROR: 지원하지 않는 op '{other}'. 허용: add_project|add_active_system|add_passive_system|add_flow|add_work|add_call|add_api_def|add_arrow|add_cylinder|add_clamp|add_robot|add_device|remove_entity|rename_entity."
 
     /// Batch op array 를 plan 에 누적.
     /// 성공 시 Ok(results) — 모든 op 의 BatchOpResult.
@@ -930,25 +1238,22 @@ module ToolOperations =
                 let op = ops.[i]
                 try
                     // (review M5) ref 형식 검사 — `[a-zA-Z_][a-zA-Z0-9_]*` (1-32자). dispatchBatchOp 호출 전에 검증해서
-                    // op 성공 후 ref 만 fail 하는 부분 실패 회피. failwith → invalidOp 로 통일 (C# 측
-                    // IsRecoverableToolException 의 InvalidOperationException 분기와 의미 정합).
+                    // op 성공 후 ref 만 fail 하는 부분 실패 회피.
                     match op.Ref with
-                    | Some refName ->
-                        if String.IsNullOrEmpty(refName) then
-                            invalidOp "VALIDATION_ERROR: ref 가 비어있습니다."
-                        elif refName.Length > 32 then
-                            invalidOp $"VALIDATION_ERROR: ref 길이 {refName.Length} > 32."
-                        elif not (System.Text.RegularExpressions.Regex.IsMatch(refName, @"^[a-zA-Z_][a-zA-Z0-9_]*$")) then
-                            invalidOp $"VALIDATION_ERROR: ref 형식 오류 (1-32자, [a-zA-Z_][a-zA-Z0-9_]*)."
-                        elif refMap.ContainsKey(refName) then
-                            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다."
+                    | Some refName -> validateRefName refMap refName
                     | None -> ()
-                    let (idOpt, display) = dispatchBatchOp plan store refMap op
-                    // ref 등록 (op.Ref 가 있고 새 Guid 가 있으면)
-                    match op.Ref, idOpt with
-                    | Some refName, Some id -> refMap.[refName] <- id
-                    | _ -> ()
-                    results.Add({ Index = i; Op = op.Op; Ref = op.Ref; Id = idOpt; Display = display })
+                    let (refs, display) = dispatchBatchOp plan store refMap op
+                    // refs 의 모든 (refName, id) 등록. 중복 시 invalidOp (helper 의 sub-ref 가 main ref 와 충돌하는 경우 포함).
+                    for (refName, id) in refs do
+                        if refMap.ContainsKey(refName) then
+                            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다 (helper sub-ref 와 충돌)."
+                        refMap.[refName] <- id
+                    // 첫 ref 의 id 를 BatchOpResult.Id 로 노출 (primitive 의 main ref / helper 의 PassiveSystemId).
+                    let primaryId =
+                        match refs, op.Ref with
+                        | [], _ -> None
+                        | (_, id) :: _, _ -> Some id
+                    results.Add({ Index = i; Op = op.Op; Ref = op.Ref; Id = primaryId; Display = display })
                 with ex ->
                     failure <- Some(i, op.Op, ex.Message)
                 i <- i + 1

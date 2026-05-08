@@ -235,7 +235,10 @@ module internal ImportPlanDeviceOps =
             ) state
 
     /// LLM helper 진입점 — PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 1회 발행.
-    /// 반환 = (PassiveSystem.Id, (apiName * ApiDef.Id) list). caller (LlmAgent) 가 batch ref table 다중 등록 source 로 사용.
+    /// 반환 = (PassiveSystem.Id, (apiName * ApiDef.Id) list).
+    /// **반환 list 의 순서는 입력 `apiNames` 순서를 그대로 보존** — caller (LlmAgent) 가 `apiDef*Ref` /
+    /// `apiDefRefs` 의 입력 순서와 zip 하여 batch ref table 에 다중 등록한다. 순서 파괴 시 ref 가
+    /// 다른 ApiDef 를 가리키는 silent miscompile 가능 → 본 보장은 contract.
     /// helper 는 *신규* device 생성 책임만 짐 — 동명 PassiveSystem 이 store 에 이미 존재하면 invalidOp.
     /// 기존 device 재사용 시나리오는 LLM 이 사전에 find_by_name/list_systems 로 조회 후 primitive add_call 사용.
     let internal buildPassiveDeviceCascade
