@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `doc/todo-promaker-llm-agent.md` — 남은 작업, 모든 결정 사항 (확정 9개), Phase 0/1a/1b-c/1c/1d/2 체크리스트, 검증된 사실 표
 - `doc/done-promaker-llm-agent.md` — 완료된 spike / phase 의 발견 사항 + 작업 산출물 누적
+- `doc/todo-extend-mcp.md` — extend MCP phase (Active/Passive 분리 + Tier 1 helper 4종) — L1/L2/L3 + Tests 4 stage 모두 완료 (rev 15)
+- `doc/done-extend-mcp.md` — extend MCP phase 완료 시점의 historical record (호환성 invalidate 사항 + 결정 9개 적용 결과 + 측정된 op 수 변화 + 잔여 후속 trigger)
+- `doc/todo-llm-chat-attachment.md` / `doc/todo-promaker-hmi-llm-agent.md` / `doc/done-batch-mcp-call.md` — 분리된 phase 별 todo/done
 
 > **두 문서 유지 정책**: `git commit` 시점에 다른 Claude Code 세션이 바로 이어받아 작업할 수 있는 수준으로 동기화되어야 한다. 진척 / 결정 변경 / 미적용 의도 / 다음 단계 권장 순서가 두 문서 안에서 일관된 상태여야 함. 작업 종료 직전 두 문서 갱신을 빠뜨리지 말 것.
 
