@@ -1,0 +1,3 @@
+- work 와 call 관계
+    - work 는 call 을 포함할 수 있다.
+    - work 내의 call 들은 DAG 형태이며, 화살표를 따라 순차 진행(call 에 연동된 ApiCall 호출)한다.
