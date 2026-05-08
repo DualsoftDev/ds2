@@ -11,7 +11,7 @@ open Ds2.LlmAgent
 /// ToolOperations.queueAddApiDef + ApplyImportPlan 으로 우회 (Ds2.LlmAgent 측 path 그대로).
 let private addApiDefDirect (store: DsStore) (name: string) (systemId: Guid) : Guid =
     let plan = ImportPlanBuilder()
-    let id = ToolOperations.queueAddApiDef plan store name systemId
+    let id = ToolOperations.queueAddApiDef plan store name systemId None None
     store.ApplyImportPlan($"test add apidef {name}", plan.Build())
     id
 
@@ -80,10 +80,10 @@ let ``존재하지 않는 GUID 의 remove 는 invalidOp`` () =
 let ``같은 turn 의 add_* 직후 remove_entity 는 명확한 진단 메시지로 거부`` () =
     let store, _, _, _, _ = buildFixture ()
     let plan = ImportPlanBuilder()
-    // 같은 turn 안에서 add_system 을 plan 에 누적 — store 는 아직 미반영
-    let newSysId = ToolOperations.queueAddSystem plan store "TempSys" true
+    // 같은 turn 안에서 add_active_system 을 plan 에 누적 — store 는 아직 미반영 (extend-mcp L2 분리)
+    let newSysId = ToolOperations.queueAddActiveSystem plan store "TempSys"
     Assert.False(store.Systems.ContainsKey(newSysId))   // store 는 모름 (turn end 까지)
-    let countAfterAdd = plan.Count   // queueAddSystem 은 AddSystem + LinkSystemToProject 누적
+    let countAfterAdd = plan.Count   // queueAddActiveSystem 은 AddSystem + LinkSystemToProject 누적
     // 같은 plan 으로 remove_entity 호출 → "같은 turn add 직후 remove" 진단
     let ex = Assert.Throws<InvalidOperationException>(fun () ->
         ToolOperations.queueRemoveEntity plan store newSysId |> ignore)

@@ -15,13 +15,20 @@ namespace Promaker.LlmAgent.Tools;
 /// <summary>
 /// Promaker MCP server 의 tool 핸들러.
 ///
-/// Phase 1c — add_system + list_systems.
+/// Phase 1c — list_systems + 단일 mutation tool 풀세트.
 /// Phase 1d-1 — add_flow / add_work / add_call / add_arrow / add_api_def 풀세트.
 /// Pass 5 — add_project 추가로 Phase 1 의 'GUI 의존' 한계 제거.
 /// **Pass 6 — (b) batch tool (`apply_operations`) 채택. (c) variable binding 폐기.**
 ///   - chain pattern 의 numTurns 부풀림 (multi tool_use → multi internal turn) 해소
 ///   - 1 LLM message = 1 tool_use (apply_operations) = 1 internal turn = 진짜 round-trip 압축
 ///   - turn-scoped state (VarCache, cascade flag) 제거 — batch self-contained 처리
+/// **extend-mcp Phase L3** — (1) `add_system(isActive)` → `add_active_system` / `add_passive_system(deviceType)` 분리,
+/// (2) `add_call` 시그니처 단순화 (`workId, apiDefId` 2-인자 — devicesAlias / apiName 자동 도출),
+/// (3) `add_api_def` 에 `txWorkId?` / `rxWorkId?` 인자 노출,
+/// (4) Tier 1 device-class helper 4종 (`add_cylinder` / `add_clamp` / `add_robot` / `add_device`) 신설 —
+///     PassiveSystem + Flow + Work + ApiDef + ResetReset Arrow cascade 를 1 op 로,
+/// (5) D8 quota cascade 차감 — single helper 는 RunMutation 진입 직후 추가 차감 (cascadeOpCount - 1),
+///     batch 경로 (`apply_operations`) 는 inputs walk 시 helper op 별 사전 합산 차감.
 ///
 /// 모든 mutation tool 은 ImportPlanBuilder 에 ImportPlanOperation 누적만. turn end 의 단일
 /// ApplyImportPlan 호출이 1 undo step 생성.
@@ -135,7 +142,7 @@ public static class ModelTools
 
     // ─── Pass 6: Batch tool ──────────────────────────────────────────────────
 
-    [McpServerTool, Description(@"여러 mutation 을 1 round-trip 으로 누적 적용합니다 (권장 — 같은 turn 의 N 개 mutation 은 본 도구 1번 호출로). 같은 batch 안 후속 op 가 직전 op 결과 Guid 를 참조하려면 'ref' 를 부여하고 args 의 Guid 자리에 '@<ref>' 사용. fail-fast — 첫 실패 시 batch 전체 rollback (1 undo step 의미 보장). read tool (list_*, describe_*, validate_model) 은 array 에 포함 불가. 입력 schema = JSON array of {op, ref?, args}, op ∈ {add_project, add_system, add_flow, add_work, add_call, add_api_def, add_arrow, remove_entity, rename_entity}. ref = 같은 batch 안 unique 한 1-32자 식별자. 예: [{""op"":""add_system"", ""ref"":""cyl"", ""args"":{""name"":""Cyl""}}, {""op"":""add_api_def"", ""args"":{""name"":""ADV"", ""systemId"":""@cyl""}}].")]
+    [McpServerTool, Description(@"여러 mutation 을 1 round-trip 으로 누적 적용합니다 (권장 — 같은 turn 의 N 개 mutation 은 본 도구 1번 호출로). 같은 batch 안 후속 op 가 직전 op 결과 Guid 를 참조하려면 'ref' 를 부여하고 args 의 Guid 자리에 '@<ref>' 사용. fail-fast — 첫 실패 시 batch 전체 rollback (1 undo step 의미 보장). read tool (list_*, describe_*, validate_model) 은 array 에 포함 불가. 입력 schema = JSON array of {op, ref?, args}, op ∈ {add_project, add_active_system, add_passive_system, add_flow, add_work, add_call, add_api_def, add_arrow, add_cylinder, add_clamp, add_robot, add_device, remove_entity, rename_entity}. ref = 같은 batch 안 unique 한 1-32자 식별자. helper op (add_cylinder/add_clamp/add_robot/add_device) 의 apiDef*Ref / apiDefRefs 는 같은 batch 안 sub-ref 다중 등록 (D6 ref-required). 예: [{""op"":""add_cylinder"", ""ref"":""cyl"", ""args"":{""name"":""Cyl1"", ""apiDef1Ref"":""cylAdv"", ""apiDef2Ref"":""cylRet""}}, {""op"":""add_call"", ""args"":{""workId"":""@wAdv"", ""apiDefId"":""@cylAdv""}}].")]
     public static Task<string> ApplyOperations(
         LlmTurnContextProvider turnProvider,
         [Description("Op 객체 JSON array 의 string 표현. 각 객체: { op: \"add_xxx|remove_entity|rename_entity\", ref?: \"<localName>\", args: {...} }.")] string operations)
@@ -161,10 +168,61 @@ public static class ModelTools
                 // batch 1회 = quota 1 로 두면 100 op 단발 호출이 quota cap 을 우회 → DoS 표면.
                 if (inputs.Length > 1)
                     ctx.IncrementMutationCount(inputs.Length - 1);
+                // **extend-mcp D8 batch 경로** (todo §3.1 D8 ② / §5.4 (4)): inputs walk 하며 helper op 별 cascade op 수
+                // 사전 합산 차감 (이미 input 1개로 +1 카운트되어 있으므로 -1 추가). dispatch *진입 전* 사전 reject 하여
+                // op[0] 부분 적용 회피. 산식 = §4.3 (none/chain/all-pairs).
+                foreach (var input in inputs)
+                {
+                    if (IsHelperOp(input.Op))
+                    {
+                        int cascadeOpCount = CalcCascadeOpCount(input);
+                        if (cascadeOpCount > 1)
+                            ctx.IncrementMutationCount(cascadeOpCount - 1);
+                    }
+                }
                 var result = ToolOperations.queueBatch(ctx.Plan, ctx.Store, inputs);
                 return FormatBatchResult(result, ctx.Plan.Count);
             }
         });
+    }
+
+    /// <summary>helper op 식별 — apply_operations 의 batch 진입 시 cascade op 수 사전 합산용.</summary>
+    private static bool IsHelperOp(string op) =>
+        op == "add_cylinder" || op == "add_clamp" || op == "add_robot" || op == "add_device";
+
+    /// <summary>
+    /// helper op 의 cascade op 수 계산 — 산식은 F# <see cref="ToolOperations.cascadeOpCount"/> 가 SSOT.
+    /// cylinder/clamp 는 N=2 + chain 고정 = 8 op. robot/device 는 args 의 apiNames.Length / opposing 으로 결정.
+    /// </summary>
+    private static int CalcCascadeOpCount(BatchOpInput input)
+    {
+        switch (input.Op)
+        {
+            case "add_cylinder":
+            case "add_clamp":
+                return ToolOperations.cascadeOpCount(2, "chain"); // N=2 chain 고정 = 8.
+            case "add_robot":
+            case "add_device":
+            {
+                int n = 0;
+                if (input.Args.ValueKind == JsonValueKind.Object
+                    && input.Args.TryGetProperty("apiNames", out var apiProp)
+                    && apiProp.ValueKind == JsonValueKind.Array)
+                {
+                    n = apiProp.GetArrayLength();
+                }
+                string opposing = "none";
+                if (input.Args.ValueKind == JsonValueKind.Object
+                    && input.Args.TryGetProperty("opposing", out var oppProp)
+                    && oppProp.ValueKind == JsonValueKind.String)
+                {
+                    opposing = oppProp.GetString()?.Trim() ?? "none";
+                }
+                return ToolOperations.cascadeOpCount(n, opposing);
+            }
+            default:
+                return 1;
+        }
     }
 
     /// <summary>
@@ -236,18 +294,35 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("Promaker 모델에 새 DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). 반환: 새 system Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
-    public static Task<string> AddSystem(
+    [McpServerTool, Description("Promaker 모델에 새 Active DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). Active System 은 Flow / Work / Call / Arrow 트리를 가지며 다른 Passive System 의 ApiDef 를 호출. 반환: 새 system Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddActiveSystem(
         LlmTurnContextProvider turnProvider,
-        [Description("System 이름 (1-128자, 한 프로젝트 내 unique). '@' 또는 '$' 시작 금지.")] string name,
-        [Description("Active 여부. 기본 true.")] bool isActive = true)
+        [Description("System 이름 (1-128자, 한 프로젝트 내 unique). '@' 또는 '$' 시작 금지.")] string name)
     {
-        return RunMutation(turnProvider, "add_system", ctx =>
+        return RunMutation(turnProvider, "add_active_system", ctx =>
         {
             SanitizeOrThrow(name, "name");
             var trimmed = name.Trim();
-            var sysId = ToolOperations.queueAddSystem(ctx.Plan, ctx.Store, trimmed, isActive);
-            return $"[plan] add_system queued: name=\"{trimmed}\", isActive={isActive}, id={sysId:D}, planSize={ctx.Plan.Count}";
+            var sysId = ToolOperations.queueAddActiveSystem(ctx.Plan, ctx.Store, trimmed);
+            return $"[plan] add_active_system queued: name=\"{trimmed}\", id={sysId:D}, planSize={ctx.Plan.Count}";
+        });
+    }
+
+    [McpServerTool, Description("Promaker 모델에 새 Passive DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). Passive System 은 ApiDef (호출 가능한 외부 인터페이스) 를 갖고, 자체 Flow/Work cascade 는 helper (add_cylinder / add_clamp / add_robot / add_device) 가 자동 생성 권장. 반환: 새 system Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    public static Task<string> AddPassiveSystem(
+        LlmTurnContextProvider turnProvider,
+        [Description("System 이름 (1-128자, 한 프로젝트 내 unique). '@' 또는 '$' 시작 금지.")] string name,
+        [Description("DeviceType (DsSystem.SystemType). 권장: cylinder/clamp/lifter='Unit', robot='Robot', conveyor='Conveyor'.")] string deviceType)
+    {
+        return RunMutation(turnProvider, "add_passive_system", ctx =>
+        {
+            SanitizeOrThrow(name, "name");
+            // (review M7) deviceType 도 Cc/Cf/RLO/ZWJ 침투 차단 — entity 이름 sanitize 와 동일 정책.
+            SanitizeOrThrow(deviceType, "deviceType");
+            var trimmed = name.Trim();
+            var dt = deviceType.Trim();
+            var sysId = ToolOperations.queueAddPassiveSystem(ctx.Plan, ctx.Store, trimmed, dt);
+            return $"[plan] add_passive_system queued: name=\"{trimmed}\", deviceType=\"{dt}\", id={sysId:D}, planSize={ctx.Plan.Count}";
         });
     }
 
@@ -283,37 +358,41 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("Promaker Work 아래에 새 Call 을 추가합니다. Call 표시명 = \"{devicesAlias}.{apiName}\". 반환: 새 Call Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    [McpServerTool, Description("Promaker Work 아래에 새 Call 을 추가합니다. devicesAlias / apiName 은 ApiDef 로부터 자동 도출 — devicesAlias = ApiDef.ParentSystem.Name, apiName = ApiDef.Name (룰 B 구문상 차단). 룰 C 런타임 검증 — ApiDef 의 parent System 이 Active 이면 거부 (single 호출=VALIDATION_ERROR / batch 안=BATCH_ERROR wrap). ApiCall.OriginFlowId 자동 = workId 의 parent Flow.Id. 반환: 새 Call Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddCall(
         LlmTurnContextProvider turnProvider,
-        [Description("Devices alias (Call 표시명의 앞부분). '@' 또는 '$' 시작 금지.")] string devicesAlias,
-        [Description("API 이름 (Call 표시명의 뒷부분). '@' 또는 '$' 시작 금지.")] string apiName,
-        [Description("Parent Work 의 GUID.")] string workId)
+        [Description("Parent Work 의 GUID.")] string workId,
+        [Description("호출 대상 ApiDef 의 GUID (ApiDef 의 parent System 은 Passive 여야 함 — 룰 C).")] string apiDefId)
     {
         return RunMutation(turnProvider, "add_call", ctx =>
         {
-            SanitizeOrThrow(devicesAlias, "devicesAlias");
-            SanitizeOrThrow(apiName, "apiName");
-            var alias = devicesAlias.Trim();
-            var api = apiName.Trim();
             var workGuid = ParseGuidOrThrow(workId, "workId");
-            var callId = ToolOperations.queueAddCall(ctx.Plan, ctx.Store, alias, api, workGuid);
-            return $"[plan] add_call queued: name=\"{alias}.{api}\", workId={workGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}";
+            var apiDefGuid = ParseGuidOrThrow(apiDefId, "apiDefId");
+            var callId = ToolOperations.queueAddCall(ctx.Plan, ctx.Store, workGuid, apiDefGuid);
+            return $"[plan] add_call queued: workId={workGuid:D}, apiDefId={apiDefGuid:D}, id={callId:D}, planSize={ctx.Plan.Count}";
         });
     }
 
-    [McpServerTool, Description("Promaker System 아래에 새 ApiDef 를 추가합니다. 반환: 새 ApiDef Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    [McpServerTool, Description("Promaker System 아래에 새 ApiDef 를 추가합니다. txWorkId / rxWorkId 가 주어지면 ApiDef.TxGuid / RxGuid 에 binding (ApiDef ↔ Work 자기 실행 link). primitive 만 쓰는 경우 LLM 이 명시 — helper (add_cylinder 등) 는 자동 채움. 반환: 새 ApiDef Id. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddApiDef(
         LlmTurnContextProvider turnProvider,
         [Description("ApiDef 이름 (1-128자, System 내 unique). '@' 또는 '$' 시작 금지.")] string name,
-        [Description("Parent System 의 GUID.")] string systemId)
+        [Description("Parent System 의 GUID.")] string systemId,
+        [Description("ApiDef.TxGuid 에 binding 할 Work 의 GUID. omit 가능 (helper 가 자동 채움).")] string? txWorkId = null,
+        [Description("ApiDef.RxGuid 에 binding 할 Work 의 GUID. omit 가능.")] string? rxWorkId = null)
     {
         return RunMutation(turnProvider, "add_api_def", ctx =>
         {
             SanitizeOrThrow(name, "name");
             var trimmed = name.Trim();
             var sysGuid = ParseGuidOrThrow(systemId, "systemId");
-            var defId = ToolOperations.queueAddApiDef(ctx.Plan, ctx.Store, trimmed, sysGuid);
+            var tx = string.IsNullOrWhiteSpace(txWorkId)
+                ? Microsoft.FSharp.Core.FSharpOption<Guid>.None
+                : Microsoft.FSharp.Core.FSharpOption<Guid>.Some(ParseGuidOrThrow(txWorkId, "txWorkId"));
+            var rx = string.IsNullOrWhiteSpace(rxWorkId)
+                ? Microsoft.FSharp.Core.FSharpOption<Guid>.None
+                : Microsoft.FSharp.Core.FSharpOption<Guid>.Some(ParseGuidOrThrow(rxWorkId, "rxWorkId"));
+            var defId = ToolOperations.queueAddApiDef(ctx.Plan, ctx.Store, trimmed, sysGuid, tx, rx);
             return $"[plan] add_api_def queued: name=\"{trimmed}\", systemId={sysGuid:D}, id={defId:D}, planSize={ctx.Plan.Count}";
         });
     }
@@ -335,6 +414,200 @@ public static class ModelTools
             var (arrowId, kind) = ToolOperations.queueAddArrow(ctx.Plan, ctx.Store, srcGuid, tgtGuid, atype);
             return $"[plan] add_arrow queued: kind={kind}, type={atype}, source={srcGuid:D}, target={tgtGuid:D}, id={arrowId:D}, planSize={ctx.Plan.Count}";
         });
+    }
+
+    // ─── Tier 1 — Device-class helpers (extend-mcp Phase L3) ────────────────
+    //
+    // PassiveSystem + Flow + Work×N + ApiDef×N (+ ResetReset Arrow) cascade 를 1 op 로.
+    // 각 helper 는 RunMutation 진입 직후 D8 quota 추가 차감 (cascadeOpCount - 1) — single 호출에서도 cascade 반영.
+    // single 호출의 apiDef*Ref / apiDefRefs 인자는 *naming hint* 용 — batch ref table 부재 (반환 메시지에 mapping 노출).
+    // batch 호출 시에는 dispatchBatchOp 가 ref table 에 sub-ref 다중 등록 (D6 ref-required).
+
+    private static string FormatApiDefMapping(IEnumerable<Tuple<string, Guid>> apiDefIds)
+    {
+        var sb = new StringBuilder();
+        bool first = true;
+        foreach (var pair in apiDefIds)
+        {
+            if (!first) sb.Append(", ");
+            sb.Append($"{pair.Item1}={pair.Item2:D}");
+            first = false;
+        }
+        return sb.ToString();
+    }
+
+    private static Microsoft.FSharp.Collections.FSharpList<string> ToFSharpList(IReadOnlyList<string> items)
+    {
+        var list = Microsoft.FSharp.Collections.FSharpList<string>.Empty;
+        for (int i = items.Count - 1; i >= 0; i--)
+            list = Microsoft.FSharp.Collections.FSharpList<string>.Cons(items[i], list);
+        return list;
+    }
+
+    private static Microsoft.FSharp.Core.FSharpOption<TimeSpan> ParseDurationMs(int? workDurationMs)
+    {
+        return workDurationMs.HasValue
+            ? Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(workDurationMs.Value))
+            : Microsoft.FSharp.Core.FSharpOption<TimeSpan>.None;
+    }
+
+    // ─── Helper 통합 본문 (review M2/M3) — cylinder/clamp / robot/device 의 동일 cascade 본문을 한 곳에 집중.
+
+    /// <summary>
+    /// cylinder/clamp 처럼 N=2 + chain 고정 + 두 sub-ref (apiDef1Ref/apiDef2Ref) 형태의 device cascade 공통 본문.
+    /// quota 차감 / sanitize / ref 검증 / queue 호출 / mapping 노출 한 곳 집중. helper 4종의 80% 중복 제거.
+    /// </summary>
+    private static string RunPairedDeviceCascadeWork(
+        LlmTurnContext ctx, string toolName,
+        string name, string apiDef1Ref, string apiDef2Ref, string? apiNames, int? workDurationMs)
+    {
+        // (review M1) Sanitize / ref 검증을 quota 차감보다 먼저.
+        SanitizeOrThrow(name, "name");
+        if (string.IsNullOrWhiteSpace(apiDef1Ref))
+            throw new InvalidOperationException("VALIDATION_ERROR: apiDef1Ref 가 비어있습니다 (D6 ref-required).");
+        if (string.IsNullOrWhiteSpace(apiDef2Ref))
+            throw new InvalidOperationException("VALIDATION_ERROR: apiDef2Ref 가 비어있습니다 (D6 ref-required).");
+        if (apiDef1Ref.Trim() == apiDef2Ref.Trim())
+            throw new InvalidOperationException($"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref.Trim()}').");
+        // D8 quota 추가 차감 — N=2 chain = 8 op (RunMutation +1 후 -1 = +7). 산식 SSOT = F# cascadeOpCount.
+        int cascadeOps = ToolOperations.cascadeOpCount(2, "chain");
+        if (cascadeOps > 1)
+            ctx.IncrementMutationCount(cascadeOps - 1);
+        var names = ParseStringArrayArg(apiNames, "apiNames");
+        var (sysId, apiDefIds) = toolName switch
+        {
+            "add_cylinder" => ToolOperations.queueAddCylinder(
+                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
+            "add_clamp" => ToolOperations.queueAddClamp(
+                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
+            _ => throw new InvalidOperationException($"INTERNAL_ERROR: paired helper 미지원 toolName '{toolName}'."),
+        };
+        var pairs = new List<Tuple<string, Guid>>();
+        int idx = 0;
+        foreach (var pair in apiDefIds)
+        {
+            var refName = idx == 0 ? apiDef1Ref.Trim() : apiDef2Ref.Trim();
+            pairs.Add(Tuple.Create(refName, pair.Item2));
+            idx++;
+        }
+        return $"[plan] {toolName} queued: name=\"{name.Trim()}\", id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], planSize={ctx.Plan.Count}";
+    }
+
+    /// <summary>
+    /// robot/device 처럼 가변 길이 apiNames + 가변 길이 apiDefRefs + opposing wiring 의 device cascade 공통 본문.
+    /// deviceTypeOrNull == null → robot ('Robot' systemType F# 측 hardcoded), non-null → device (사용자 지정).
+    /// </summary>
+    private static string RunListDeviceCascadeWork(
+        LlmTurnContext ctx, string toolName, string name, string? deviceTypeOrNull,
+        string apiNames, string apiDefRefs, string opposing, int? workDurationMs)
+    {
+        SanitizeOrThrow(name, "name");
+        if (deviceTypeOrNull != null)
+            SanitizeOrThrow(deviceTypeOrNull, "deviceType");
+        // (review minor #1) opposing trim — F# queueAddRobot 의 match 와 동일 normalize.
+        var opposingNorm = (opposing ?? "none").Trim();
+        var names = ParseStringArrayArg(apiNames, "apiNames");
+        var refs = ParseStringArrayArg(apiDefRefs, "apiDefRefs").Select(r => r.Trim()).ToList();
+        if (names.Count != refs.Count)
+            throw new InvalidOperationException($"VALIDATION_ERROR: apiNames.length ({names.Count}) != apiDefRefs.length ({refs.Count}) (D6 ref-required: 길이 일치).");
+        if (names.Count == 0)
+            throw new InvalidOperationException("VALIDATION_ERROR: apiNames 가 비어있습니다.");
+        var dupSet = new HashSet<string>();
+        foreach (var r in refs)
+        {
+            if (string.IsNullOrWhiteSpace(r))
+                throw new InvalidOperationException("VALIDATION_ERROR: apiDefRefs 에 빈 항목이 포함되어 있습니다.");
+            if (!dupSet.Add(r))
+                throw new InvalidOperationException($"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다.");
+        }
+        // D8 quota 사전 차감 — 산식 SSOT = F# cascadeOpCount.
+        int cascadeOps = ToolOperations.cascadeOpCount(names.Count, opposingNorm);
+        if (cascadeOps > 1)
+            ctx.IncrementMutationCount(cascadeOps - 1);
+        var (sysId, apiDefIds) = deviceTypeOrNull == null
+            ? ToolOperations.queueAddRobot(
+                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs))
+            : ToolOperations.queueAddDevice(
+                ctx.Plan, ctx.Store, name.Trim(), deviceTypeOrNull.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs));
+        var pairs = new List<Tuple<string, Guid>>();
+        int idx = 0;
+        foreach (var pair in apiDefIds)
+        {
+            pairs.Add(Tuple.Create(refs[idx], pair.Item2));
+            idx++;
+        }
+        var dtSuffix = deviceTypeOrNull != null ? $", deviceType=\"{deviceTypeOrNull.Trim()}\"" : "";
+        return $"[plan] {toolName} queued: name=\"{name.Trim()}\"{dtSuffix}, id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], opposing={opposingNorm}, planSize={ctx.Plan.Count}";
+    }
+
+    [McpServerTool, Description("Cylinder 디바이스 (PassiveSystem + Flow + Work×2 + ApiDef×2 + ResetReset Arrow) cascade 를 1 op 로 추가합니다. SystemType='Unit', apiNames default ['ADV','RET'], workDuration default 500ms. apiDef1Ref / apiDef2Ref 는 batch 안 sub-ref 등록용 (D6 ref-required) — single 호출 시에도 인자는 받지만 반환 메시지에 mapping 노출. 반환: PassiveSystem Id + ApiDef Id mapping. **batch 권장 — apply_operations 안에서 ref 로 후속 add_call 의 apiDefId 참조**.")]
+    public static Task<string> AddCylinder(
+        LlmTurnContextProvider turnProvider,
+        [Description("PassiveSystem 이름 (1-128자). '@' / '$' 시작 금지.")] string name,
+        [Description("ApiDef[0] (ADV) 의 sub-ref 명. batch 안에서 후속 add_call 의 apiDefId='@<ref>' 로 참조.")] string apiDef1Ref,
+        [Description("ApiDef[1] (RET) 의 sub-ref 명.")] string apiDef2Ref,
+        [Description("apiNames (정확히 2개). default ['ADV','RET']. JSON array string 형식.")] string? apiNames = null,
+        [Description("Work.Duration (ms). 미지정 시 500ms.")] int? workDurationMs = null) =>
+        RunMutation(turnProvider, "add_cylinder", ctx =>
+            RunPairedDeviceCascadeWork(ctx, "add_cylinder", name, apiDef1Ref, apiDef2Ref, apiNames, workDurationMs));
+
+    [McpServerTool, Description("Clamp 디바이스 (PassiveSystem + Flow + Work×2 + ApiDef×2 + ResetReset Arrow) cascade 를 1 op 로 추가합니다. SystemType='Unit', apiNames default ['CLP','UNCLP'], workDuration default 500ms. **batch 권장**.")]
+    public static Task<string> AddClamp(
+        LlmTurnContextProvider turnProvider,
+        [Description("PassiveSystem 이름. '@' / '$' 시작 금지.")] string name,
+        [Description("ApiDef[0] (CLP) 의 sub-ref 명.")] string apiDef1Ref,
+        [Description("ApiDef[1] (UNCLP) 의 sub-ref 명.")] string apiDef2Ref,
+        [Description("apiNames (정확히 2개). default ['CLP','UNCLP']. JSON array string.")] string? apiNames = null,
+        [Description("Work.Duration (ms). 미지정 시 500ms.")] int? workDurationMs = null) =>
+        RunMutation(turnProvider, "add_clamp", ctx =>
+            RunPairedDeviceCascadeWork(ctx, "add_clamp", name, apiDef1Ref, apiDef2Ref, apiNames, workDurationMs));
+
+    [McpServerTool, Description("Robot 디바이스 (PassiveSystem + Flow + Work×N + ApiDef×N + opposing Arrow) cascade 를 1 op 로. SystemType='Robot'. opposing default 'none' (도메인 룰 ROBOT opposing 없음 — 2.modeling.md §3.3). 'chain' / 'all-pairs' 는 사용자 명시 시. apiNames.length === apiDefRefs.length 강제. **batch 권장**.")]
+    public static Task<string> AddRobot(
+        LlmTurnContextProvider turnProvider,
+        [Description("PassiveSystem 이름.")] string name,
+        [Description("apiNames 배열 (예: ['HOME','WORK1','WORK2','WORK3']). JSON array string.")] string apiNames,
+        [Description("apiDefRefs 배열 — apiNames 와 길이 일치. 각 ref 는 batch 안 sub-ref 명. JSON array string.")] string apiDefRefs,
+        [Description("ResetReset 위상. 허용: 'none'|'chain'|'all-pairs'. default 'none'.")] string opposing = "none",
+        [Description("Work.Duration (ms). 미지정 시 None.")] int? workDurationMs = null) =>
+        RunMutation(turnProvider, "add_robot", ctx =>
+            RunListDeviceCascadeWork(ctx, "add_robot", name, deviceTypeOrNull: null, apiNames, apiDefRefs, opposing, workDurationMs));
+
+    [McpServerTool, Description("Generic device cascade — deviceType 사용자 지정 (KnownNames 권장: Conveyor / AGV / Gripper / Lifter / Crane 등). PassiveSystem + Flow + Work×N + ApiDef×N (+ opposing Arrow). cylinder/clamp/robot 외 device 에 사용. **batch 권장**.")]
+    public static Task<string> AddDevice(
+        LlmTurnContextProvider turnProvider,
+        [Description("PassiveSystem 이름.")] string name,
+        [Description("DeviceType (DsSystem.SystemType). 권장: KnownNames 의 19종 중 하나.")] string deviceType,
+        [Description("apiNames 배열. JSON array string.")] string apiNames,
+        [Description("apiDefRefs 배열 — apiNames 와 길이 일치.")] string apiDefRefs,
+        [Description("ResetReset 위상. 'none'|'chain'|'all-pairs'. default 'none'.")] string opposing = "none",
+        [Description("Work.Duration (ms). 미지정 시 None.")] int? workDurationMs = null) =>
+        RunMutation(turnProvider, "add_device", ctx =>
+            RunListDeviceCascadeWork(ctx, "add_device", name, deviceType, apiNames, apiDefRefs, opposing, workDurationMs));
+
+    /// <summary>helper 의 apiNames / apiDefRefs JSON array string 인자 파싱. 빈 string 은 빈 list.</summary>
+    private static List<string> ParseStringArrayArg(string? value, string field)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(value)) return result;
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(value); }
+        catch (JsonException jex)
+        {
+            throw new InvalidOperationException($"VALIDATION_ERROR: {field} JSON parse 실패 — {jex.Message}");
+        }
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"VALIDATION_ERROR: {field} 가 array 가 아닙니다 (ValueKind={doc.RootElement.ValueKind}).");
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                    throw new InvalidOperationException($"VALIDATION_ERROR: {field} 의 항목이 string 이 아닙니다.");
+                result.Add(item.GetString() ?? "");
+            }
+        }
+        return result;
     }
 
     // ─── Remove / Rename ────────────────────────────────────────────────────
