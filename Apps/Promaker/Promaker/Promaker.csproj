@@ -57,7 +57,7 @@
     </Compile>
     <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
     <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
-    <!-- <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" /> -->
+    <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
