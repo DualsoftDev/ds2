@@ -93,13 +93,14 @@ let ``단일 add_project = Ok + plan count 1`` () =
 // ─── @<ref> resolve chain ──────────────────────────────────────────────────
 
 [<Fact>]
-let ``add_project 후 add_system auto attach`` () =
-    // add_system 은 첫 project 자동 부착이라 systemId 인자 X. ref 는 add_api_def 등에서 활용.
+let ``add_project 후 add_passive_system auto attach`` () =
+    // add_passive_system 은 첫 project 자동 부착이라 systemId 인자 X. ref 는 add_api_def 등에서 활용.
+    // (extend-mcp L3) add_system 분리 — Passive 측만 auto-attach 검증, Active 도 동일 동작.
     let plan = newPlan()
     let store = DsStore()
     let ops = parse """[
         {"op":"add_project", "ref":"p", "args":{"name":"M1"}},
-        {"op":"add_system",  "ref":"cyl", "args":{"name":"Cyl"}}
+        {"op":"add_passive_system",  "ref":"cyl", "args":{"name":"Cyl", "deviceType":"Unit"}}
     ]"""
     let result = ToolOperations.queueBatch plan store ops
     match result with
@@ -109,12 +110,12 @@ let ``add_project 후 add_system auto attach`` () =
     | Error(_, _, msg) -> Assert.Fail(msg)
 
 [<Fact>]
-let ``add_system + add_api_def 의 ref 정상 해소`` () =
+let ``add_passive_system + add_api_def 의 ref 정상 해소`` () =
     let plan = newPlan()
     let store = DsStore()
     let ops = parse """[
         {"op":"add_project", "args":{"name":"M1"}},
-        {"op":"add_system",  "ref":"cyl", "args":{"name":"Cyl"}},
+        {"op":"add_passive_system",  "ref":"cyl", "args":{"name":"Cyl", "deviceType":"Unit"}},
         {"op":"add_api_def", "args":{"name":"ADV", "systemId":"@cyl"}}
     ]"""
     let result = ToolOperations.queueBatch plan store ops
@@ -126,27 +127,32 @@ let ``add_system + add_api_def 의 ref 정상 해소`` () =
     | Error(_, _, msg) -> Assert.Fail(msg)
 
 [<Fact>]
-let ``실린더 풀세트 chain = Ok + plan count 11 (project + system + LinkSystemToProject + 7 entity + 1 arrow)`` () =
+let ``실린더 풀세트 chain = Ok + plan count 11 (extend-mcp L3 primitive 시그니처)`` () =
+    // (extend-mcp L3) 시그니처 cutover: add_system isActive:false → add_passive_system deviceType,
+    // add_system isActive:true → add_active_system, add_call 2-인자 (workId, apiDefId).
+    // primitive 풀세트 op count = 11 그대로 (분리/시그니처 변경만, helper 미사용).
     let plan = newPlan()
     let store = DsStore()
     let ops = parse """[
         {"op":"add_project", "args":{"name":"M1"}},
-        {"op":"add_system",  "ref":"cyl", "args":{"name":"Cyl"}},
-        {"op":"add_api_def", "args":{"name":"ADV", "systemId":"@cyl"}},
-        {"op":"add_api_def", "args":{"name":"RET", "systemId":"@cyl"}},
-        {"op":"add_flow",    "ref":"run", "args":{"name":"Run", "systemId":"@cyl"}},
+        {"op":"add_passive_system",  "ref":"cyl", "args":{"name":"Cyl", "deviceType":"Unit"}},
+        {"op":"add_api_def", "ref":"apiAdv", "args":{"name":"ADV", "systemId":"@cyl"}},
+        {"op":"add_api_def", "ref":"apiRet", "args":{"name":"RET", "systemId":"@cyl"}},
+        {"op":"add_active_system", "ref":"ctl", "args":{"name":"Controller"}},
+        {"op":"add_flow",    "ref":"run", "args":{"name":"Run", "systemId":"@ctl"}},
         {"op":"add_work",    "ref":"adv", "args":{"localName":"Adv", "flowId":"@run"}},
         {"op":"add_work",    "ref":"ret", "args":{"localName":"Ret", "flowId":"@run"}},
-        {"op":"add_call",    "args":{"devicesAlias":"Cyl", "apiName":"ADV", "workId":"@adv"}},
-        {"op":"add_call",    "args":{"devicesAlias":"Cyl", "apiName":"RET", "workId":"@ret"}},
+        {"op":"add_call",    "args":{"workId":"@adv", "apiDefId":"@apiAdv"}},
+        {"op":"add_call",    "args":{"workId":"@ret", "apiDefId":"@apiRet"}},
         {"op":"add_arrow",   "args":{"sourceId":"@adv", "targetId":"@ret", "arrowType":"Start"}}
     ]"""
     let result = ToolOperations.queueBatch plan store ops
     match result with
     | Ok rs ->
-        Assert.Equal(10, rs.Length)
-        // queueAddSystem 이 LinkSystemToProject 도 추가하므로 plan op = 10 + 1 = 11
-        Assert.Equal(11, plan.Count)
+        Assert.Equal(11, rs.Length)
+        // Active/Passive 각각 LinkSystemToProject 추가 + AddCall 마다 AddApiCall = primitive 풀세트 plan op 갯수.
+        // AddProject + AddSystem(Passive) + Link(Passive) + AddApiDef×2 + AddSystem(Active) + Link(Active) + AddFlow + AddWork×2 + AddCall + AddApiCall + AddCall + AddApiCall + AddArrow = 15
+        Assert.Equal(15, plan.Count)
     | Error(_, opName, msg) -> Assert.Fail($"unexpected fail at {opName}: {msg}")
 
 // ─── ref 미정의 / 중복 / 형식 ──────────────────────────────────────────────
@@ -173,8 +179,8 @@ let ``중복 ref = Error + rollback`` () =
     let store = DsStore()
     let ops = parse """[
         {"op":"add_project", "args":{"name":"M1"}},
-        {"op":"add_system",  "ref":"x", "args":{"name":"S1"}},
-        {"op":"add_system",  "ref":"x", "args":{"name":"S2"}}
+        {"op":"add_active_system",  "ref":"x", "args":{"name":"S1"}},
+        {"op":"add_active_system",  "ref":"x", "args":{"name":"S2"}}
     ]"""
     let result = ToolOperations.queueBatch plan store ops
     match result with
@@ -208,7 +214,7 @@ let ``mid-batch 실패 = 진입 시점 plan count 로 rollback`` () =
     let snapshot = plan.Count  // 1
     let ops = parse """[
         {"op":"add_project", "args":{"name":"M1"}},
-        {"op":"add_system",  "args":{"name":"@malicious"}}
+        {"op":"add_active_system",  "args":{"name":"@malicious"}}
     ]"""
     let result = ToolOperations.queueBatch plan store ops
     match result with
@@ -273,12 +279,12 @@ let ``같은 batch 안 add_project 후 remove_entity = Error + Project kind 회�
     | Ok _ -> Assert.Fail()
 
 [<Fact>]
-let ``같은 batch 안 add_system 후 remove_entity = Error + System kind 회복 단서`` () =
+let ``같은 batch 안 add_active_system 후 remove_entity = Error + System kind 회복 단서`` () =
     let plan = newPlan()
     let store = DsStore()
-    store.AddProject("M1") |> ignore  // add_system 의 첫 project 자동 부착 대상
+    store.AddProject("M1") |> ignore  // add_active_system 의 첫 project 자동 부착 대상
     let json = """[
-        {"op":"add_system", "ref":"sys", "args":{"name":"Cyl"}},
+        {"op":"add_active_system", "ref":"sys", "args":{"name":"Sys"}},
         {"op":"remove_entity", "args":{"entityId":"@sys"}}
     ]"""
     let ops = parse json

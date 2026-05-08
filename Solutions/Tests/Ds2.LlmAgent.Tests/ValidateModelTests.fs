@@ -129,7 +129,7 @@ let ``ApiDef 이름이 placeholder 면 TodoPlaceholder 보고`` () =
     let projectId = store.AddProject("P")
     let sysId = store.AddSystem("S", projectId, true)
     let plan = ImportPlanBuilder()
-    ToolOperations.queueAddApiDef plan store "TODO" sysId |> ignore
+    ToolOperations.queueAddApiDef plan store "TODO" sysId None None |> ignore
     store.ApplyImportPlan("test", plan.Build())
     let result = ToolOperations.validateModelByGuid store None
     Assert.Contains("TodoPlaceholder:", result)

@@ -32,9 +32,11 @@ public enum LlmProviderKind
 /// <summary>
 /// Promaker 의 LLM chat ViewModel.
 ///
-/// Phase 1c — system prompt + add_system / list_systems mutation/read tool + turn end ApplyImportPlan.
+/// Phase 1c — system prompt + 단일 mutation/read tool 풀세트 + turn end ApplyImportPlan.
 ///   1 LLM turn = 1 undo step (결정 7 (d), `Ds2.Editor.ImportPlanApply.applyWithUndo`).
 /// Phase 2 — `ILlmProvider` 추상화 + Claude / Codex provider dispatch (UI ComboBox).
+/// extend-mcp Phase L3 — Active/Passive System 분리 + Tier 1 device-class helper 4종 (add_cylinder /
+///   add_clamp / add_robot / add_device) 으로 PassiveSystem cascade 자동 생성.
 /// </summary>
 public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 {
