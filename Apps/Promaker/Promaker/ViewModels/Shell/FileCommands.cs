@@ -234,8 +234,11 @@ public partial class MainViewModel
         _dialogService.ShowDialog(dlg);
     }
 
+    /// <summary>
+    /// 프로젝트 메타 편집 (이름/작성자/버전/설명). 프로젝트가 열려 있을 때만 활성.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(HasProject))]
-    private void ShowProjectSettings()
+    private void ShowProjectProperties()
     {
         var project = HasProject
             ? Queries.allProjects(_store).Head
@@ -247,10 +250,6 @@ public partial class MainViewModel
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
 
-        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload (모델 / API key / Ollama URL 다음 turn 부터 반영).
-        // PR-D 후속: DefaultProvider 는 LlmChat 패널 ComboBox 변경 시 자동 저장돼 본 경로에서 다루지 않음.
-        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
-
         TryEditorAction(() =>
         {
             var nextProjectName = dlg.ResultProjectName ?? project.Name;
@@ -261,14 +260,30 @@ public partial class MainViewModel
                 dlg.ResultAuthor,
                 dlg.ResultDateTime,
                 dlg.ResultVersion);
-
-            // 앱 설정으로 저장
-            SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
-            SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
-            SetIriPrefix(dlg.ResultIriPrefix);
-            // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
         StatusText = "프로젝트 속성이 변경되었습니다.";
+    }
+
+    /// <summary>
+    /// 환경(앱 전역) 설정 편집 — AASX / PLC / LLM / 프리셋. 프로젝트와 무관, 항상 활성.
+    /// </summary>
+    [RelayCommand]
+    private void ShowApplicationSettings()
+    {
+        var dlg = new ApplicationSettingsDialog();
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+        if (!accepted) return;
+
+        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload.
+        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
+
+        // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
+        SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+        SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
+        SetIriPrefix(dlg.ResultIriPrefix);
+        // PresetSystemTypes / PlcConfig / LlmConfig 는 Dialog 내부에서 이미 파일에 저장됨
+
+        StatusText = "환경 설정이 변경되었습니다.";
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]

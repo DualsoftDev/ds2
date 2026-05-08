@@ -10,7 +10,7 @@ namespace Promaker.Services;
 /// 프로젝트 속성의 "SystemType 프리셋" (<c>systemTypePreset.json</c>) 을 단일 진실원으로 노출.
 /// TAG Wizard 의 SystemType 목록, 신호 템플릿 seed, 임시 디렉토리 emit 등에서 공통 사용.
 ///
-/// 저장 형식 (ProjectPropertiesDialog 와 동일):
+/// 저장 형식 (ApplicationSettingsDialog 의 프리셋 탭과 동일):
 ///   - JSON string[] — 각 항목 "ApiList:SystemType" (예: "ADV;RET:Cylinder")
 ///   - 파일 없거나 빈 경우 <see cref="Ds2.Core.Store.DevicePresets.DefaultMappingStrings"/> 폴백
 /// </summary>
