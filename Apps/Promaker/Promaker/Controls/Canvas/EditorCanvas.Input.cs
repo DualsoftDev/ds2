@@ -134,14 +134,23 @@ public partial class EditorCanvas
         var dy = canvasPos.Y - _drag.StartPoint.Y;
 
         // 좌상단(0,0)만 고정. 우/하단은 캔버스가 동적으로 확장되므로 상한 클램프 없음.
+        // 드래그된 노드들의 max right/bottom만 추적해서 경계 도달 시에만 캔버스 확장.
+        double maxRight = 0, maxBottom = 0;
         foreach (var item in _drag.Items)
         {
-            item.Node.X = Math.Max(0, item.OriginX + dx);
-            item.Node.Y = Math.Max(0, item.OriginY + dy);
+            var newX = Math.Max(0, item.OriginX + dx);
+            var newY = Math.Max(0, item.OriginY + dy);
+            item.Node.X = newX;
+            item.Node.Y = newY;
+
+            var r = newX + item.Node.Width;
+            var b = newY + item.Node.Height;
+            if (r > maxRight) maxRight = r;
+            if (b > maxBottom) maxBottom = b;
         }
 
-        // 드래그된 노드가 캔버스 끝을 넘으면 확장(축소도 가능 — 다른 노드가 잡고 있으면 유지됨).
-        RecalculateCanvasSize();
+        // 드래그 중에는 경계를 실제로 넘어설 때만 확장. 축소는 MouseUp에서 일괄 처리.
+        EnsureCanvasFits(maxRight, maxBottom);
 
         UpdateDragArrows(_drag);
     }

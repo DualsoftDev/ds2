@@ -187,10 +187,6 @@
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="2" CornerRadius="3" Cursor="Hand"
                                             Tag="{Binding Id}">
-                                        <Border.Effect>
-                                            <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.5"
-                                                              Color="{DynamicResource ShadowColor}"/>
-                                        </Border.Effect>
                                         <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="8">
                                             <TextBlock Foreground="{DynamicResource PrimaryTextBrush}"
                                                        FontSize="14" FontWeight="Bold"

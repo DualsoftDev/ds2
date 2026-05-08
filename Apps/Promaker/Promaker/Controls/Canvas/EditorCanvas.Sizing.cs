@@ -46,4 +46,16 @@ public partial class EditorCanvas
         CanvasGridBackground.Width = width;
         CanvasGridBackground.Height = height;
     }
+
+    /// <summary>드래그 중 빠른 경계 확인. 주어진 right/bottom이 현재 캔버스 경계+패딩 안이면 아무것도 하지 않는다.
+    /// 경계를 넘은 경우에만 전체 RecalculateCanvasSize()를 한 번 호출한다 — 매 MouseMove마다 모든 노드를 순회하는 비용을 회피하기 위함.
+    /// </summary>
+    public void EnsureCanvasFits(double right, double bottom)
+    {
+        if (right + CanvasEdgePadding <= MainCanvas.Width
+            && bottom + CanvasEdgePadding <= MainCanvas.Height)
+            return;
+
+        RecalculateCanvasSize();
+    }
 }

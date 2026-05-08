@@ -44,3 +44,6 @@ type EditorEvent =
     | HwComponentRemoved of entityKind: EntityKind * id: Guid
     | HistoryChanged of undoLabels: string list * redoLabels: string list
     | StoreRefreshed
+    /// 노드 위치만 변경된 가벼운 이벤트. 트리/패널/캔버스 visual tree를 재구축하지 않고
+    /// 이동된 노드의 위치 + 인접 화살표 path만 갱신하기 위한 hint.
+    | EntitiesMoved of ids: Guid list
