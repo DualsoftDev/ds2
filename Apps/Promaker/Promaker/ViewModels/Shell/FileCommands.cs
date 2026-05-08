@@ -106,8 +106,36 @@ public partial class MainViewModel
         OpenFilePath(dlg.FileName);
     }
 
-    /// <summary>지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.</summary>
+    /// <summary>
+    /// 지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.
+    /// 큰 프로젝트(AASX 등)는 수 초 걸릴 수 있으므로 BusyOverlay 를 먼저 렌더한 뒤
+    /// Background 우선순위로 본 작업을 시작 → 사용자가 "로딩 중" 표시를 즉시 확인.
+    /// 본 작업이 RequestRebuildAll 을 큐잉하면 그 rebuild 가 끝난 시점에 IsBusy=false.
+    /// </summary>
     internal void OpenFilePath(string fileName)
+    {
+        BusyMessage = $"파일을 여는 중... {Path.GetFileName(fileName)}";
+        IsBusy = true;
+
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                OpenFilePathCore(fileName);
+            }
+            finally
+            {
+                // CompleteOpen 이 RequestRebuildAll 을 큐잉했으면 rebuild 완료 후 hide.
+                // (실패 분기 / 빠른 분기에서는 큐잉이 없으므로 즉시 hide.)
+                if (_rebuildQueued)
+                    _pendingRebuildActions.Add(() => IsBusy = false);
+                else
+                    IsBusy = false;
+            }
+        }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void OpenFilePathCore(string fileName)
     {
         if (IsMermaid(fileName))
         {

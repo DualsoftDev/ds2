@@ -133,6 +133,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
+    /// <summary>파일 열기·저장 등 무거운 작업 중에 윈도우 전체 위로 로딩 오버레이 표시.</summary>
+    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _busyMessage = "";
+
     public static bool IsDebugBuild =>
 #if DEBUG
         true;
