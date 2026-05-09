@@ -36,24 +36,22 @@ public static class ApiProviderFactory
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
     {
         var raw = new AnthropicClient { ApiKey = apiKey }.AsIChatClient(model);
-        // Anthropic API 공식 한도 — 이미지 base64 inline 5MB / PDF document 32MB. Files API 경유 시 별도.
-        var caps = Capabilities.ImagesAndPdf(5L * 1024L * 1024L, 32L * 1024L * 1024L);
+        // Anthropic API 공식 한도 — 이미지 base64 inline 5MB / PDF document 32MB. SSOT = CapabilityPresets.AnthropicWire.
         return CreateInternalAsync(
             raw, "Anthropic", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
-            capabilities: caps);
+            capabilities: CapabilityPresets.AnthropicWire);
     }
 
     public static Task<ApiChatProvider> CreateOpenAiAsync(
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
     {
         var raw = new OpenAIClient(apiKey).GetChatClient(model).AsIChatClient();
-        // OpenAI gpt-4o vision — 이미지 20MB. PDF 직접 지원 여부 = V-1 미해결 (S-4 spike) → 보수적으로 미지원.
-        var caps = Capabilities.ImagesOnly(20L * 1024L * 1024L);
+        // OpenAI gpt-4o vision — SSOT = CapabilityPresets.OpenAiApiWire (V-1 PDF 미해결, S-4 spike 결과 의존).
         return CreateInternalAsync(
             raw, "OpenAI", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
-            capabilities: caps);
+            capabilities: CapabilityPresets.OpenAiApiWire);
     }
 
     /// <summary>

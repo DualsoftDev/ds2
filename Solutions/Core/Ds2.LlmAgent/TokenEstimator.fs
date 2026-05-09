@@ -37,17 +37,21 @@ module TokenEstimator =
 
     /// 텍스트의 한국어 비율 추정 (단순 휴리스틱). 앞 64KB sample 기준.
     /// Hangul Syllables (AC00-D7A3) + Jamo (1100-11FF) + Compat Jamo (3130-318F) / 공백 제외 글자.
+    /// review 2차 M2: `EnumerateRunes` 사용 — surrogate pair (emoji / 한자보충 U+20000+) 가 2 char 가 아닌
+    /// 1 rune 으로 카운트되어 분모 (total) 정확. 이전 `text.[i]` UTF-16 code unit loop 는 surrogate 를 2번 카운트해
+    /// 한국어 비율 underestimate.
     let estimateKoreanRatio (text: string) : float =
         if String.IsNullOrEmpty text then 0.0
         else
+            let sample =
+                if text.Length > 65536 then text.Substring(0, 65536)
+                else text
             let mutable hangul = 0
             let mutable total = 0
-            let sampleLen = min text.Length 65536
-            for i in 0 .. sampleLen - 1 do
-                let c = text.[i]
-                if not (Char.IsWhiteSpace c) then
+            for rune in sample.EnumerateRunes() do
+                if not (System.Text.Rune.IsWhiteSpace rune) then
                     total <- total + 1
-                    let cp = int c
+                    let cp = rune.Value
                     if (cp >= 0xAC00 && cp <= 0xD7A3) ||
                        (cp >= 0x1100 && cp <= 0x11FF) ||
                        (cp >= 0x3130 && cp <= 0x318F) then
@@ -61,18 +65,24 @@ module TokenEstimator =
         if pages <= 0 then 0L, 0L
         else int64 pages * 1_500L, int64 pages * 3_000L
 
-    /// OpenAI gpt-4o vision tile 기반 토큰 (별도 공식). base 85 + 170/tile.
-    /// short side 768 fit + long side 2048 cap → 512x512 tile count.
+    /// OpenAI gpt-4o vision tile 기반 토큰 (별도 공식). base 85 + 170/tile, 512×512 tile count.
+    /// 알고리즘 (review 2차 C1): ① long side 2048 fit (단순 cap 아님 — 비율 보존 scale) →
+    /// ② short side 768 fit (long 도 비율 따라 재축소). 4096×1000 → 약 765 토큰 (이전 1단계 fit = 1445 토큰, 2배 오차).
     let openAiGpt4oImageTokens (widthPx: int) (heightPx: int) : int64 =
         if widthPx <= 0 || heightPx <= 0 then 85L
         else
-            let shortSide = min widthPx heightPx |> float
-            let longSide = max widthPx heightPx |> float
-            let scale =
-                if shortSide > 768.0 then 768.0 / shortSide
-                else 1.0
-            let scaledShort = min (shortSide * scale) 768.0
-            let scaledLong = min (longSide * scale) 2048.0
-            let tilesShort = int (Math.Ceiling(scaledShort / 512.0))
-            let tilesLong = int (Math.Ceiling(scaledLong / 512.0))
+            let mutable shortSide = float (min widthPx heightPx)
+            let mutable longSide = float (max widthPx heightPx)
+            // ① long side 2048 fit (비율 보존) — 더 긴 변이 2048 초과면 양쪽 모두 동일 비율 축소.
+            if longSide > 2048.0 then
+                let s = 2048.0 / longSide
+                longSide <- longSide * s
+                shortSide <- shortSide * s
+            // ② short side 768 fit (비율 보존) — 짧은 변이 768 초과면 양쪽 모두 동일 비율 축소.
+            if shortSide > 768.0 then
+                let s = 768.0 / shortSide
+                shortSide <- shortSide * s
+                longSide <- longSide * s
+            let tilesShort = int (Math.Ceiling(shortSide / 512.0))
+            let tilesLong = int (Math.Ceiling(longSide / 512.0))
             int64 (tilesShort * tilesLong * 170 + 85)

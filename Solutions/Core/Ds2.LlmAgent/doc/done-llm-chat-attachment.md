@@ -170,3 +170,56 @@
 
 - 2차 review (Critical 1 / Major 5 / Minor 11) 결과는 별도 처리 — C1 (`openAiGpt4oImageTokens` long-side 2048 fit) / M1 (Capability byte-cap SSOT 통합) / M2 (`estimateKoreanRatio` surrogate pair) / M3 (UTF-8 replacement fallback + logWarn) / M4 (provider Send capability gating helper) / M5 (drift 보안 critical contains assertion) + Minor 11
 - commit-5 / commit-6 분할 유지
+
+## Phase 3a — commit-4 2차 review sweep (rev 9, 2026-05-09)
+
+### 산출물 (수정 10)
+
+- `Solutions/Core/Ds2.LlmAgent/TokenEstimator.fs`
+  - **C1**: `openAiGpt4oImageTokens` 알고리즘 정정 — 1단계 short-side fit → 2단계 (long 2048 fit → short 768 fit) 비율 보존 scale. 4096×1000 입력 → 765 토큰 (이전 ~1445, 약 2배 오차 해소)
+  - **M2**: `estimateKoreanRatio` `text.[i]` UTF-16 char loop → `EnumerateRunes` (`System.Text.Rune.IsWhiteSpace`). surrogate pair (emoji / 한자보충) underestimate 해소
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs`
+  - **M1**: `module CapabilityPresets` 신설 — `AnthropicWire` / `OpenAiApiWire` / `CodexCliWire` / `DefaultMaxAttachmentCount` literal. 4 호출처 byte literal 중복 제거
+  - **M4**: `module LlmUserMessageOps` 신설 — `WarnUnsupportedAttachments(caps, msg)` log warn 만 (commit-4 dead code 단계, commit-6 strict 전환 예정)
+  - **m4**: `Capabilities.TextOnly` static member → `static member val ... with get` (1회 평가)
+  - **m11**: `LlmUserMessage.Create(text, attachments)` null-safe factory
+- `Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs`
+  - **M3**: 모든 strict 시도 실패 시 fallback = UTF-16 LE → **UTF-8 replacement** + `Log.provider.Warn` 1줄. ASCII 부분 보존 + 비-UTF-8 만 U+FFFD
+  - **m2**: `extensionlessTextNames` 의 dead entry "license.txt" 제거 (.txt 는 ext 분기 미진입)
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` / `CodexCliProvider.fs`
+  - **M1**: `Capabilities.ImagesAndPdf(...)` literal → `CapabilityPresets.AnthropicWire` / `CapabilityPresets.CodexCliWire`
+  - **M4**: Send 진입 시 `LlmUserMessageOps.WarnUnsupportedAttachments` 호출
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiProviderFactory.cs`
+  - **M1**: Anthropic = `CapabilityPresets.AnthropicWire`, OpenAI = `CapabilityPresets.OpenAiApiWire`
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiChatProvider.cs`
+  - **M4**: Send 진입 시 `LlmUserMessageOps.WarnUnsupportedAttachments(_capabilities, msg)` 호출 (Anthropic/OpenAI/Ollama/Groq 4 provider 공통 진입)
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+  - **m1**: `MaxAttachmentCount = Ds2.LlmAgent.CapabilityPresets.DefaultMaxAttachmentCount` (F# literal 위임)
+  - **m10**: `ExtOf(ImageFormat) -> ".jpg"` helper 추가, notice 의 `{img.Item}` (= "Jpeg") → `{ExtOf(img.Item)}` (= ".jpg")
+- `Apps/Promaker/Promaker/LlmAgent/Prompts/4.attachments.md`
+  - **m8**: `\``` escape → 자연어 ("3개의 backtick + lang + filename")
+- `Solutions/Tests/Ds2.LlmAgent.Tests/AttachmentClassifierDriftTests.fs`
+  - **M5**: 보안·정책 critical contains assertion 2 fact 추가 (`rejectedExtensions` 16개 + `textExtensions` 15개)
+  - **m7**: invalid UTF-8 (`0xC3 0x28`) fixture 추가 — UTF-8 replacement fallback 분기 회귀 보장
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **205건 전수 통과** (기존 202 + 신규 3)
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 0 / Minor 1)
+
+- **Mi-1**: `LlmUserMessageOps.WarnUnsupportedAttachments` 의 `if isNull (box msg.Attachments)` null guard 가 m11 `Create` factory 정규화 후 dead path. C# record initializer 직접 생성 가능성을 방어층으로 유지 — 의도된 결정
+- 5 검토항목 모두 정합 확인:
+  - C1 OpenAI 두 단계 fit = 공식 high detail 알고리즘 정합 (4096×1000 → 765 토큰)
+  - M4 호출 위치 = ClaudeCli + CodexCli + ApiChatProvider (4 provider 공통) 5종 전수 커버
+  - M3 UTF-8 replacement = `Encoding.UTF8` default `ReplacementFallback("�")` 동작 정합
+  - m1 F# literal → C# const initializer 통과 (compile-time literal field IL emit)
+  - M5 contains list 누락 critical 없음 (`.bat`/`.cmd`/`.ps1` 는 textExtensions 통과 + 실행 안 됨)
+
+### 의도적 미적용 (별도 follow-up todo)
+
+- **m3**: `Image of name * bytes * mime` → `Image of name * bytes * format: ImageFormat` 일원화 + `mimeOf` helper. 광범위 영향 (5종 provider wire 진입 + DriftTests + AttachmentClassifier) — 별도 PR
+- **m5**: `ApiChatProvider.cs:145,178-180` streaming `collected.Add(update)` 누적 메모리 — 본 PR 범위 외 follow-up
+- **m6**: `_history` unbounded — multi-turn OOM. todo 정책 추가 권고
+- **m9**: BOM 4중 elif → table-driven. 룰 5번째 추가 시 trigger

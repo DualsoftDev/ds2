@@ -31,6 +31,8 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     /// rev 4 (commit-2): `LlmUserMessage` 수신 — 현 단계 `msg.Attachments` 무시. 첨부 wire 는 commit-4..N 에서.
     member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
+        // review 2차 M4 — capability 미지원 첨부 silent drop 방지 (warn). commit-6 wire 진입 시 strict 모드 전환.
+        LlmUserMessageOps.WarnUnsupportedAttachments CapabilityPresets.AnthropicWire msg
         let prompt = msg.Text
 
         // SystemPrompt 본문은 임시 파일에 저장 후 `--append-system-prompt-file <path>` 로 전달.
@@ -81,8 +83,8 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     member _.ClearSession () = sessionId <- None
 
     /// Capabilities — Anthropic API 와 동일 (CLI 가 stream-json 으로 동일 multipart wire).
-    /// 이미지 4종 (png/jpg/gif/webp) base64 inline 5MB + PDF document block 32MB.
-    member _.Capabilities = Capabilities.ImagesAndPdf(5L * 1024L * 1024L, 32L * 1024L * 1024L)
+    /// 이미지 4종 (png/jpg/gif/webp) base64 inline 5MB + PDF document block 32MB. SSOT = `CapabilityPresets.AnthropicWire`.
+    member _.Capabilities = CapabilityPresets.AnthropicWire
 
     interface ILlmProvider with
         member this.EnsureCli () = this.EnsureCli ()
