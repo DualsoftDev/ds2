@@ -151,11 +151,11 @@ public sealed class LlmConfig
         if (config.IsConsentGranted()) return true;
 
         const string msg =
-            "Promaker LLM Chat 사용 시 다음 정보가 외부 LLM 서비스 (Claude / OpenAI / Anthropic / Ollama) 로 전송됩니다:\n" +
+            "Promaker LLM Chat 사용 시 다음 정보가 외부 LLM 서비스 (Claude / OpenAI / Anthropic / Ollama / Groq) 로 전송됩니다:\n" +
             "  • 대화에 입력하는 사용자 메시지\n" +
             "  • LLM 이 read tool 로 조회한 모델 정보 (system / flow / work 이름, 구조)\n" +
             "  • Promaker 가 정의한 system prompt\n\n" +
-            "전송 채널: Claude CLI / Codex CLI / Anthropic API / OpenAI API / Ollama (local).\n" +
+            "전송 채널: Claude CLI / Codex CLI / Anthropic API / OpenAI API / Ollama (local) / Groq API.\n" +
             "API 키 / 비밀번호 / 파일 시스템 경로 등은 전송되지 않습니다.\n\n" +
             "동의하시겠습니까?\n\n" +
             "(거부 시 LLM Chat 기능이 차단됩니다. 추후 동의는 LLM Chat 메뉴 재진입 시 다시 묻습니다.)";
