@@ -61,10 +61,13 @@ let ``TextFile 첨부는 invalidOp — prompt 본문 inline 강제`` () =
         ClaudeStreamJsonInput.encode "x" (seq { txt }) |> ignore)
 
 [<Fact>]
-let ``인코딩 결과는 단일 라인 (newline 없음) — JSON Lines 한 줄 envelope`` () =
+let ``인코딩 결과는 trailing \n 단일 — Claude CLI line-based parser 종료 토큰 필수`` () =
     let encoded = ClaudeStreamJsonInput.encode "hello" Seq.empty
-    Assert.DoesNotContain("\n", encoded)
-    Assert.DoesNotContain("\r", encoded)
+    Assert.EndsWith("\n", encoded)
+    // body 안에는 newline 없음 (단일 라인 JSON Lines envelope)
+    let body = encoded.TrimEnd('\n')
+    Assert.DoesNotContain("\n", body)
+    Assert.DoesNotContain("\r", body)
 
 [<Fact>]
 let ``빈 prompt 도 명시적 빈 text block 으로 wire`` () =

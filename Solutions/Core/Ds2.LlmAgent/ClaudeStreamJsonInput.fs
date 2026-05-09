@@ -22,7 +22,9 @@ open System.Text.Json
 [<RequireQualifiedAccess>]
 module ClaudeStreamJsonInput =
 
-    /// 단일 user turn 을 JSON Lines 한 줄로 인코딩. trailing newline 없음 (host 가 stdin write 후 close).
+    /// 단일 user turn 을 JSON Lines 한 줄로 인코딩. **trailing `\n` 포함** —
+    /// Claude CLI 의 stream-json input 은 line-based parser ("Error parsing streaming input line"
+    /// 회귀: envelope 끝에 `\n` 없으면 partial line 으로 인식, parse 실패 후 process exit 1).
     /// 첨부는 Image / Pdf 만 wire — TextFile 은 이미 fenced wrapper 로 prompt 본문에 inline 됨 (정책 15).
     let encode (prompt: string) (attachments: Attachment seq) : string =
         use buffer = new MemoryStream()
@@ -73,4 +75,5 @@ module ClaudeStreamJsonInput =
             writer.WriteEndObject()
             writer.WriteEndObject()
             writer.Flush()
-        Encoding.UTF8.GetString(buffer.ToArray())
+        // Claude CLI line-based parser 의 line 종료 — `\n` 누락 시 "Error parsing streaming input line" + exit 1.
+        Encoding.UTF8.GetString(buffer.ToArray()) + "\n"
