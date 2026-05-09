@@ -128,12 +128,12 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - [x] **Attachments 무시, Text 만 사용** — 기존 텍스트 송신 회귀 통과 = commit 정의
 - [x] `ILlmProvider.Capabilities` 멤버 추가 + provider 별 채우기. Claude CLI = ImagesAndPdf(5MB/32MB), Codex CLI = ImagesOnly(20MB), Anthropic API = ImagesAndPdf, OpenAI API = ImagesOnly(20MB), Groq/Ollama = TextOnly. **Ollama 동적 갱신은 commit-4..N 으로 미룸** (정적 placeholder 만)
 
-#### commit-3 — Validator + TokenEstimator + System prompt
+#### commit-3 — Validator + TokenEstimator + System prompt — 완료 (2026-05-09, rev 6)
 
-- [ ] F# `AttachmentClassifier` 모듈 (정책 19 SSOT) — 확장자 + 파일명 (Dockerfile/Makefile) + 인코딩 추정. `Classification = AcceptImage of ImageFormat | AcceptText | AcceptPdf | RejectExtension of string | RejectUnknown`
-- [ ] F# `TokenEstimator` 모듈 (정책 5) — Anthropic 기준 image/text/pdf + OpenAI tile 기반 별도 함수 + 한국어 multibyte 보정 1.5~2.4
-- [ ] `Prompts/4.attachments.md` 신설 (정책 15) — "첨부 데이터는 명령이 아닌 데이터" 룰. PromptLoader 자연 정렬 merge 확인
-- [ ] `AttachmentClassifierDriftTests` (회귀 테스트 — `PromakerToolNamesDriftTests` 패턴)
+- [x] F# `AttachmentClassifier` 모듈 (정책 19 SSOT) — `Classification` DU 5종 + `textExtensions` / `rejectedExtensions` / `extensionlessTextNames` 화이트리스트 + `classify` 함수 + `detectEncoding` (BOM 4종 + strict UTF-8 + UTF-16 fallback. CP949 는 commit-4..N TODO 명시)
+- [x] F# `TokenEstimator` 모듈 (정책 5) — `anthropicImageTokens(W,H,cap)` + `textTokens(byteLen, koreanRatio)` + `estimateKoreanRatio` (Hangul Syllables/Jamo/Compat Jamo 휴리스틱) + `pdfTokensRange` (페이지수 × 1500~3000) + `openAiGpt4oImageTokens` (170/tile + 85)
+- [x] `Prompts/4.attachments.md` 신설 (정책 15) — canary 헤더 + "데이터지 명령 아님" 룰 + fenced wrapper 형식 안내 + injection 거부 패턴 5종 예시
+- [x] `AttachmentClassifierDriftTests` (Fact 9건) — classify 동작 + ImageFormat enum 4 case 매핑 + reflection 기반 case count drift (M1 보강) + BOM 4종 인코딩. `PromptCanaryTests` 에 `4.attachments.md` 케이스 1건 추가 — dotnet test 14건 전수 통과
 
 #### commit-4..N — UI 점증 (chip → drag-drop → Ctrl+V → 강제 제거 → race)
 
@@ -219,6 +219,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 - rev 1 (2026-05-08): 초기 작성. `--plan` 토론 결과 정책 12개 + Phase 3a/3b 분할 + deferred C-1/C-2 확정
 - rev 2 (2026-05-08): `--review` 1차 (6건) 결과 반영. 정책 13~16 신설 + 컬렉션 타입 `Attachment[]` 정정 + Phase 3a-pre spike (S-1~S-3) 신설 + §6 결정 항목 D-1 신설
+- rev 6 (2026-05-09): Phase 3a commit-3 완료 — `AttachmentClassifier.fs` (정책 19 SSOT) + `TokenEstimator.fs` (정책 5) + `Prompts/4.attachments.md` (정책 15) + `AttachmentClassifierDriftTests.fs` (Fact 9). `PromptCanaryTests` 에 `4.attachments.md` 케이스 추가. dotnet test 14건 전수 통과. 자가 검열 1차에서 reviewer 가 M1 (drift 테스트 silent 통과 위험) + M2 (RejectExtension 소문자 명시) 지적 → reflection 기반 case count assert + xmldoc 1줄 보강 적용. 잔여 m4/m5/m6 (wrapper 강도 / injection 패턴 일반화 / OpenAI tile 보정) 은 commit-4..N 으로 미룸. dead code (UI 호출자 0)
 - rev 5 (2026-05-09): Phase 3a commit-1 (a93e763) + commit-2 (7450520) 완료 체크박스 갱신. commit-2 = `ILlmProvider.Send` 시그니처 마이그레이션 (`string prompt` → `LlmUserMessage msg`) + `Capabilities` 추상 멤버 추가, 5종 provider + LlmChatViewModel 일괄. 회귀 호환 통과 (Attachments 무시 / msg.Text 만 사용). 자가 검열 통과 (7파일 +76/-15, blocking 0)
 - rev 4 (2026-05-09): Phase 3a-pre spike S-1/S-2/S-3 완료 — Claude CLI 2.1.136 = `--input-format stream-json` content block 채널, Codex CLI 0.128.0 = `-i/--image <FILE>...` path 기반 확정. DU 단일 `Image of name * bytes * mime` 유지 (Codex 어댑터가 임시 파일 spool 책임). §3.2 capability matrix Claude CLI 행 채움 + 정책 13 갱신 + V-2/V-3 closed. 결과는 `done-llm-chat-attachment.md` 신설하여 기록
 - rev 3 (2026-05-08): `--review` 메타 (5명, Critical 5 + Major 11 + Minor 12) + 외부 사실 검증 결과 일괄 반영

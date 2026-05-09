@@ -24,6 +24,7 @@
     <Compile Include="DeviceTypeDriftTests.fs" />
     <Compile Include="LlmTurnContextQuotaTests.fs" />
     <Compile Include="ImportPlanApplyApiCallTests.fs" />
+    <Compile Include="AttachmentClassifierDriftTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
