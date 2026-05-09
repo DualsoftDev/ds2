@@ -209,41 +209,74 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
 
         var stream = _chatClient.GetStreamingResponseAsync(historyForStream, options, cancellationToken);
         var collected = new List<ChatResponseUpdate>();
-        await foreach (var update in stream.ConfigureAwait(false))
+
+        // C1 fix — cancel/exception 시에도 partial collected 를 history 에 flush.
+        // _history 는 line 162 에서 user message 가 이미 add 된 상태. 여기서 throw 시 finally 가
+        // assistant/tool message 를 마저 추가하지 않으면 다음 turn 이 user→user 연속 메시지로
+        // Anthropic API 400 (role alternation) reject. try/finally 로 role 정합성 보존.
+        try
         {
-            collected.Add(update);
-
-            foreach (var content in update.Contents)
+            await foreach (var update in stream.ConfigureAwait(false))
             {
-                switch (content)
+                collected.Add(update);
+
+                foreach (var content in update.Contents)
                 {
-                    case TextContent text when !string.IsNullOrEmpty(text.Text):
-                        yield return LlmEvent.NewAssistantDelta(text.Text);
-                        break;
+                    switch (content)
+                    {
+                        case TextContent text when !string.IsNullOrEmpty(text.Text):
+                            yield return LlmEvent.NewAssistantDelta(text.Text);
+                            break;
 
-                    case FunctionCallContent call:
-                        var argsJson = call.Arguments != null
-                            ? JsonSerializer.SerializeToElement(call.Arguments)
-                            : JsonSerializer.SerializeToElement(new { });
-                        yield return LlmEvent.NewToolUse(call.CallId ?? "", call.Name, argsJson);
-                        break;
+                        case FunctionCallContent call:
+                            var argsJson = call.Arguments != null
+                                ? JsonSerializer.SerializeToElement(call.Arguments)
+                                : JsonSerializer.SerializeToElement(new { });
+                            yield return LlmEvent.NewToolUse(call.CallId ?? "", call.Name, argsJson);
+                            break;
 
-                    case FunctionResultContent result:
-                        var (isErr, payload) = ExtractToolResult(result);
-                        yield return LlmEvent.NewToolResult(result.CallId ?? "", isErr, payload);
-                        if (isErr) isError = true;
-                        break;
+                        case FunctionResultContent result:
+                            var (isErr, payload) = ExtractToolResult(result);
+                            yield return LlmEvent.NewToolResult(result.CallId ?? "", isErr, payload);
+                            if (isErr) isError = true;
+                            break;
+                    }
+                }
+
+                if (update.FinishReason.HasValue)
+                    stopReason = update.FinishReason.Value.ToString();
+            }
+        }
+        finally
+        {
+            // collected 가 비어있으면 stream 시작 전 throw — assistant 메시지 부재. user message 만 history 에
+            // 남으나, 다음 turn 의 _history.Add(user) 가 또 user 추가하면 alternation 깨짐. 이 경우 마지막
+            // user message 를 도로 제거 (firstTurn 이면 system 도 보존되어야 하므로 user 만 pop).
+            // line 162 의 user message add 직후이므로 _history 의 마지막은 항상 ChatRole.User.
+            // collected 가 비어있거나 ToChatResponse() / Add 가 실패하면 마지막 user message 를 pop —
+            // 그러지 않으면 다음 turn 의 user add 가 user→user 연속을 만들어 alternation 깨짐.
+            var assistantAdded = false;
+            if (collected.Count > 0)
+            {
+                try
+                {
+                    var partial = collected.ToChatResponse();
+                    foreach (var responseMsg in partial.Messages)
+                        _history.Add(responseMsg);
+                    assistantAdded = partial.Messages.Count > 0;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("partial response history flush 실패 — user message pop 으로 alternation 보존", ex);
                 }
             }
-
-            if (update.FinishReason.HasValue)
-                stopReason = update.FinishReason.Value.ToString();
+            if (!assistantAdded
+                && _history.Count > 0
+                && _history[_history.Count - 1].Role == ChatRole.User)
+            {
+                _history.RemoveAt(_history.Count - 1);
+            }
         }
-
-        // collected updates 를 history 에 단일 ChatResponse 로 통합 (다음 turn 의 multi-turn context).
-        var response = collected.ToChatResponse();
-        foreach (var responseMsg in response.Messages)
-            _history.Add(responseMsg);
 
         var elapsedMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
         yield return LlmEvent.NewSessionEnd(elapsedMs, 0m, isError, stopReason, 0);

@@ -107,20 +107,26 @@ type CodexCliProvider(options: CodexCliOptions) =
                 [||], (fun () -> ())
             else
                 let dir = Path.Combine(Path.GetTempPath(), "Promaker.LlmAgent", "codex-img-" + Guid.NewGuid().ToString("N"))
-                Directory.CreateDirectory(dir) |> ignore
-                // rev 18 review 후속: inline extOf 폐기 — Attachment.extOf SSOT 위임.
-                let paths =
-                    images
-                    |> Array.mapi (fun i (_, bytes, fmt) ->
-                        let path = Path.Combine(dir, sprintf "%d%s" i (Attachment.extOf fmt))
-                        File.WriteAllBytes(path, bytes)
-                        path)
                 let cleanup () =
                     try
                         if Directory.Exists dir then Directory.Delete(dir, true)
                     with ex ->
                         Log.provider.Warn($"Codex 임시 이미지 디렉토리 삭제 실패 ({dir}): {ex.Message}", ex)
-                paths, cleanup
+                // M1 fix — spool 단계에서 IO throw (디스크 풀 / 권한) 시 partial 파일 + dir 즉시 정리.
+                // OnFinally 는 runStream 진입 후에만 호출되므로 진입 전 leak 을 자체 try/with 로 방어.
+                Directory.CreateDirectory(dir) |> ignore
+                try
+                    // rev 18 review 후속: inline extOf 폐기 — Attachment.extOf SSOT 위임.
+                    let paths =
+                        images
+                        |> Array.mapi (fun i (_, bytes, fmt) ->
+                            let path = Path.Combine(dir, sprintf "%d%s" i (Attachment.extOf fmt))
+                            File.WriteAllBytes(path, bytes)
+                            path)
+                    paths, cleanup
+                with ex ->
+                    cleanup ()
+                    reraise ()
 
         let args = CodexCliArgs.buildWith options sessionId prompt imagePaths
         // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
@@ -150,6 +156,20 @@ type CodexCliProvider(options: CodexCliOptions) =
             OnFinally = cleanupImageSpool
         }
         CliProcessHost.runStream spec ct
+
+    /// M1 stale sweep — Promaker 비정상 종료 / OnFinally cleanup 실패로 남은 `codex-img-*` 임시 디렉토리 회수.
+    /// App.OnStartup 1회 호출 (McpConfigWriter.SweepStale 와 같은 패턴). mtime > 30분 + 자기 PID 외 디렉토리만 정리.
+    static member SweepStale () : unit =
+        let root = Path.Combine(Path.GetTempPath(), "Promaker.LlmAgent")
+        if Directory.Exists root then
+            let cutoff = DateTime.UtcNow.AddMinutes(-30.0)
+            // eager array — enumerate-during-delete race 회피 (Sweep 은 OnStartup 1회라 부하 무시 가능).
+            for dir in Directory.GetDirectories(root, "codex-img-*") do
+                try
+                    if Directory.GetLastWriteTimeUtc(dir) < cutoff then
+                        Directory.Delete(dir, true)
+                with ex ->
+                    Log.provider.Warn($"Codex stale sweep 실패 ({dir}): {ex.Message}", ex)
 
     /// 현재 캡처된 thread_id (`exec resume` 의 sessionId 위치 인자로 사용). 첫 turn 전에는 None.
     member _.SessionId = sessionId

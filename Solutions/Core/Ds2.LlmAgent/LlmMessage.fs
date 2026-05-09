@@ -214,14 +214,27 @@ module AttachmentRendering =
         | "txt" | "log" -> ""
         | other -> other
 
+    /// 본문에 등장하는 backtick run 의 longest length. fence escalate 산정용.
+    let private longestBacktickRun (content: string) : int =
+        let mutable longest = 0
+        let mutable cur = 0
+        for ch in content do
+            if ch = '`' then
+                cur <- cur + 1
+                if cur > longest then longest <- cur
+            else
+                cur <- 0
+        longest
+
     /// 텍스트 첨부를 prompt 본문에 inject 할 fenced code block (정책 15 prompt injection 방어).
-    /// 본문에 ``` fence 충돌 시 4-backtick 으로 escalate.
+    /// 본문 안 backtick longest run + 1 만큼 fence 길이 escalate (5-backtick 이상 PDF/markdown 도 안전).
     /// 이미지/PDF 는 multimodal content block 으로 직접 wire — placeholder 만 반환.
     let toInlineString (att: Attachment) : string =
         match att with
         | TextFile (name, content) ->
             let lang = langTokenOf name
-            let fence = if content.Contains("```") then "````" else "```"
+            let fenceLen = max 3 (longestBacktickRun content + 1)
+            let fence = String.replicate fenceLen "`"
             sprintf "%s%s filename=\"%s\"\n%s\n%s" fence lang name content fence
         | Image (name, _, _)
         | Pdf (name, _) ->
@@ -239,24 +252,9 @@ module AttachmentRendering =
             sprintf "[text: %s %s]" name (formatBytes bytes)
 
 /// review 2차 M4 — provider Send 진입 시 capability 미지원 첨부 silent drop 방어.
-/// commit-4..6a 단계 = warn only (UI 검증 미완 / wire 미구현 dead path 방치 호환).
-/// commit-6b (이미지/PDF wire 활성) 진입 시 strict invalidArg 로 전환 — UI 1차 검증 후 race / provider 전환
+/// commit-6b (이미지/PDF wire 활성) 부터 strict 모드 — UI 1차 검증 후 race / provider 전환
 /// 누락이 발생하면 fail-fast 가 silent drop 보다 안전 (CLAUDE.md "복잡한 예외처리보다 간단한 fail-safe 우선").
 module LlmUserMessageOps =
-    /// commit-6b 이전 잔존 호출 호환을 위한 warn-only alias. 신규 호출은 EnforceCapabilityOrFail 로.
-    let WarnUnsupportedAttachments (caps: Capabilities) (msg: LlmUserMessage) : unit =
-        if isNull (box msg.Attachments) then ()
-        else
-            for att in msg.Attachments do
-                match att with
-                | Image (name, _, _fmt) ->
-                    if caps.ImageFormats.IsEmpty then
-                        Log.provider.Warn(sprintf "이미지 첨부 무시 — provider capability 미지원: %s" name)
-                | Pdf (name, _) ->
-                    if not caps.SupportsPdfNative then
-                        Log.provider.Warn(sprintf "PDF 첨부 무시 — provider capability 미지원: %s" name)
-                | TextFile _ -> ()  // 텍스트는 inline wrapper — capability 무관
-
     /// commit-6b strict 모드 — capability 미지원 첨부 발견 시 invalidArg throw.
     /// provider wire 직전 호출 → silent drop 차단. UI 측 `ReevaluateAttachmentsForProvider` (provider 전환 시
     /// 강제 제거) + 첨부 추가 시 capability 검증을 race 로 빠져나간 첨부가 도달하면 fail-fast.
