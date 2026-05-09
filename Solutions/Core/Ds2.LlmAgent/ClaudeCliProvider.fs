@@ -31,9 +31,20 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     /// rev 4 (commit-2): `LlmUserMessage` 수신 — 현 단계 `msg.Attachments` 무시. 첨부 wire 는 commit-4..N 에서.
     member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
-        // review 2차 M4 — capability 미지원 첨부 silent drop 방지 (warn). commit-6 wire 진입 시 strict 모드 전환.
-        LlmUserMessageOps.WarnUnsupportedAttachments CapabilityPresets.AnthropicWire msg
+        // commit-6b — strict 모드. capability 미지원 첨부는 invalidArg 로 fail-fast (UI race / 누락 차단).
+        LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg
         let prompt = msg.Text
+        // 첨부 (이미지/PDF) 가 있으면 stream-json input 모드로 전환 — Anthropic API 와 동일 multipart content block 으로 wire.
+        // TextFile 은 호출자 (LlmChatViewModel) 가 prompt 본문에 fenced inline 후 nonText 만 Attachments 로 전달.
+        let nonTextAttachments =
+            if isNull (box msg.Attachments) then [||]
+            else
+                msg.Attachments
+                |> Array.filter (fun a ->
+                    match a with
+                    | TextFile _ -> false
+                    | _ -> true)
+        let useStreamJsonInput = nonTextAttachments.Length > 0
 
         // SystemPrompt 본문은 임시 파일에 저장 후 `--append-system-prompt-file <path>` 로 전달.
         // **Why**: Windows CreateProcess 의 lpCommandLine 32K 한계 초과 시 [WinError 206]
@@ -54,7 +65,13 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             | _ ->
                 None, (fun () -> ())
 
-        let args = ClaudeCliArgs.build options sessionId systemPromptFile
+        let args = ClaudeCliArgs.buildWith options sessionId systemPromptFile useStreamJsonInput
+        // stream-json 모드 = JSON Lines user message envelope, text 모드 = raw prompt body.
+        let stdinBody =
+            if useStreamJsonInput then
+                ClaudeStreamJsonInput.encode prompt nonTextAttachments
+            else
+                prompt
         let spec : CliProcessHost.Spec = {
             Executable = executable
             Args = args
@@ -71,7 +88,8 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             Label = "Claude"
             ChannelCapacity = options.ChannelCapacity
             // user prompt 본문도 stdin 으로 전달 — 32K 한도 회피 + Ev2.Oracle 동일 패턴.
-            Stdin = Some prompt
+            // 첨부 turn 은 stream-json envelope (1줄 JSON Lines) 로 wire.
+            Stdin = Some stdinBody
             OnFinally = cleanupSystemPromptFile
         }
         CliProcessHost.runStream spec ct

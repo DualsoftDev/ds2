@@ -3,6 +3,7 @@ namespace Ds2.LlmAgent
 open System
 open System.Collections.Generic
 open System.Diagnostics
+open System.IO
 open System.Threading
 
 /// Multi-turn Codex CLI provider (Phase 2 C-3).
@@ -85,10 +86,48 @@ type CodexCliProvider(options: CodexCliOptions) =
     /// (`-i/--image <FILE>...` path 인자 + bytes 시 임시 파일 spool — spike S-2 결과).
     member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
-        // review 2차 M4 — capability 미지원 첨부 silent drop 방지 (warn). PDF / 미지원 image format 만 영향.
-        LlmUserMessageOps.WarnUnsupportedAttachments CapabilityPresets.CodexCliWire msg
+        // commit-6b — strict 모드. PDF/미지원 image format 도달 시 invalidArg fail-fast (silent drop 차단).
+        LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.CodexCliWire msg
         let prompt = msg.Text
-        let args = CodexCliArgs.build options sessionId prompt
+
+        // commit-6b — 이미지 첨부 bytes → 임시 파일 spool. Codex CLI 는 path 만 받음 (`-i <path>`).
+        // 위치: %TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>\<n>.<ext>  (단일 cleanup 위해 turn 별 디렉토리)
+        // 확장자는 mime → ".png"/".jpg"/".gif"/".webp". turn 종료 시 OnFinally 로 디렉토리 재귀 삭제.
+        let images =
+            if isNull (box msg.Attachments) then [||]
+            else
+                msg.Attachments
+                |> Array.choose (fun a ->
+                    match a with
+                    | Image (n, b, m) -> Some (n, b, m)
+                    | _ -> None)
+        let imagePaths, cleanupImageSpool =
+            if images.Length = 0 then
+                [||], (fun () -> ())
+            else
+                let dir = Path.Combine(Path.GetTempPath(), "Promaker.LlmAgent", "codex-img-" + Guid.NewGuid().ToString("N"))
+                Directory.CreateDirectory(dir) |> ignore
+                let extOf (mime: string) =
+                    match mime with
+                    | "image/png" -> ".png"
+                    | "image/jpeg" -> ".jpg"
+                    | "image/gif" -> ".gif"
+                    | "image/webp" -> ".webp"
+                    | _ -> ".bin"
+                let paths =
+                    images
+                    |> Array.mapi (fun i (_, bytes, mime) ->
+                        let path = Path.Combine(dir, sprintf "%d%s" i (extOf mime))
+                        File.WriteAllBytes(path, bytes)
+                        path)
+                let cleanup () =
+                    try
+                        if Directory.Exists dir then Directory.Delete(dir, true)
+                    with ex ->
+                        Log.provider.Warn($"Codex 임시 이미지 디렉토리 삭제 실패 ({dir}): {ex.Message}", ex)
+                paths, cleanup
+
+        let args = CodexCliArgs.buildWith options sessionId prompt imagePaths
         // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
         // 사용자 ~/.codex/sessions/ 에 thread rollout 누적 회피 + 워크스페이스 재귀 삭제 시 자동 cleanup.
         let envOverrides =
@@ -113,7 +152,7 @@ type CodexCliProvider(options: CodexCliOptions) =
             // Codex 는 prompt 가 위치 인자 (codex exec [resume <sid>] [OPTS] <prompt>) — stdin 미사용.
             // 32K 한도 도달 가능성은 별도 spike 후 결정.
             Stdin = None
-            OnFinally = ignore
+            OnFinally = cleanupImageSpool
         }
         CliProcessHost.runStream spec ct
 

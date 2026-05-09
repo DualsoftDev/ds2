@@ -16,6 +16,7 @@
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
     <Compile Include="ClaudeCliArgs.fs" />
+    <Compile Include="ClaudeStreamJsonInput.fs" />
     <Compile Include="CliProcessHost.fs" />
     <Compile Include="LlmProvider.fs" />
     <Compile Include="ClaudeCliProvider.fs" />

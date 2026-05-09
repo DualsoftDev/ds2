@@ -136,6 +136,19 @@ let ``resume 시 FullAuto true 이어도 --full-auto 미전달`` () =
     Assert.DoesNotContain("--full-auto", args)
 
 [<Fact>]
+let ``commit-6b: buildWith imagePaths 빈 array → -i 미전달, 비어있지 않으면 반복 노출`` () =
+    let none = CodexCliArgs.buildWith baseOptions None "hi" [||]
+    Assert.DoesNotContain("-i", none)
+    let paths = [| "C:/tmp/0.png"; "C:/tmp/1.jpg" |]
+    let args = CodexCliArgs.buildWith baseOptions None "hi" paths
+    let iCount = args |> List.filter ((=) "-i") |> List.length
+    Assert.Equal(2, iCount)
+    Assert.Contains("C:/tmp/0.png", args)
+    Assert.Contains("C:/tmp/1.jpg", args)
+    // prompt 는 imagePaths 추가 후에도 여전히 마지막 토큰 (redactLastArg invariant 유지)
+    Assert.Equal("hi", List.last args)
+
+[<Fact>]
 let ``ExperimentalInstructionsFile Some 시 -c experimental_instructions_file='<path>' 형식 (toml literal string)`` () =
     let path = @"C:\Users\dualk\AppData\Local\Temp\Promaker\codex-instructions-abc.md"
     let opts = { baseOptions with ExperimentalInstructionsFile = Some path }

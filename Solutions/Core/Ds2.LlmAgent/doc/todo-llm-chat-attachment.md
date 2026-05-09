@@ -167,14 +167,14 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 > **NOTE (정책 4 vs commit-6a)**: 정책 4 ("send 성공 시 자동 비움 / 실패 시 유지") 는 race-free snapshot (정책 20) 과 부분 충돌. commit-6a 는 race-free 우선 → snapshot 캡처 직후 즉시 `Attachments.Clear()`. 실패 시 사용자가 재첨부 부담. multimodal wire 활성 (commit-6b) 후 사용자 피드백 따라 변경 검토.
 
-#### commit-6b — 이미지/PDF provider wire (예정)
+#### commit-6b — 이미지/PDF provider wire (rev 12, 2026-05-09 완료)
 
-- [ ] Claude CLI: `--input-format stream-json` JSON Lines stdin (Anthropic multipart `image` / `document` content block) 인코더 신설. text-only 회귀 보장 (첨부 없을 때 기존 text stdin 경로)
-- [ ] Codex CLI: `-i/--image <FILE>...` path 인자 + bytes → `%TEMP%\Promaker.LlmAgent\<turn-id>\<n>.<ext>` 임시 파일 spool + turn 종료 cleanup
-- [ ] API provider (`ApiChatProvider`): Microsoft.Extensions.AI 의 `DataContent("image/png", bytes)` / `DataContent("application/pdf", bytes)` 로 첫 turn message 의 `Contents` 에 추가. 이후 turn history 에는 summary 만 (정책 17 — 본 turn 끝나면 bytes drop)
-- [ ] `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환 (capability 미지원 첨부 silent drop 차단)
-- [ ] commit-6a 의 silent-drop 안내 placeholder 제거
-- [ ] 자가 검열 Minor-3 (`summarize` byte hint), Minor-5 (413 메시지 통합) 적용
+- [x] Claude CLI: `--input-format stream-json` JSON Lines stdin (Anthropic multipart `image` / `document` content block) 인코더 신설 (`ClaudeStreamJsonInput.fs`). text-only 회귀 보장 (첨부 없을 때 기존 text stdin 경로) — `ClaudeCliArgs.buildWith` 의 `useStreamJsonInput` toggle
+- [x] Codex CLI: `-i/--image <FILE>...` path 인자 + bytes → `%TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>\<n>.<ext>` 임시 파일 spool + turn 종료 cleanup (`OnFinally`)
+- [x] API provider (`ApiChatProvider`): Microsoft.Extensions.AI 의 `DataContent("image/png", bytes)` / `DataContent("application/pdf", bytes)` 로 첫 turn message 의 `Contents` 에 추가. 이후 turn history 에는 text-only summary 만 (정책 17 — bytes drop). multi-content `ChatMessage` 분리 = `_history` (text-only) vs `historyForStream` 의 마지막 user message swap
+- [x] `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환 (`EnforceCapabilityOrFail` 신설, 5종 provider Send 진입점 교체. `WarnUnsupportedAttachments` 는 잔존 호환 alias)
+- [x] commit-6a 의 silent-drop 안내 placeholder 제거 (`LlmChatViewModel.SendAsync` 의 system turn block)
+- [x] 자가 검열 Minor-5 (413 메시지 통합 — error turn + StatusText 둘 다 동일 한국어 안내). Minor-3 (`summarize` byte hint) 는 commit-6a 단계에서 이미 byte size 노출 — 후속 trigger 없음 → 거부
 
 ### Phase 3b — PDF (SDK / 페이지 cap 검증 후)
 
@@ -239,6 +239,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 12 (2026-05-09): Phase 3a commit-6b 완료 — 이미지/PDF provider wire 5종 활성. Claude CLI 첨부 turn `--input-format stream-json` JSON Lines (`ClaudeStreamJsonInput.encode` 신설, Anthropic multipart content block — image base64 / document base64) + Codex CLI `-i/--image <FILE>...` 반복 인자 + `%TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>` 임시 파일 spool + `OnFinally` 디렉토리 재귀 삭제 (cancel/non-zero/spawn-실패 전수 cleanup) + ApiChatProvider Microsoft.Extensions.AI `DataContent` multi-content first-turn (`historyForStream` 의 마지막 user message swap, `_history` text-only summary 만 누적 — 정책 17 bytes drop) + `LlmUserMessageOps.EnforceCapabilityOrFail` strict 모드 (silent drop 차단) + `AttachmentInfo.tryGetImage`/`tryGetPdf` PascalCase decompose helper + commit-6a silent-drop placeholder 제거 + HTTP 413 메시지 통합 (Minor-5). dotnet build Promaker.sln + dotnet test Ds2.LlmAgent.Tests **221건** 전수 통과 (205 + 신규 16 = stream-json 인코더 6 + LlmUserMessageOps strict 7 + ClaudeCliArgs --input-format 2 + CodexCliArgs buildWith 1). 자가 검열 Critical/Major 0, Minor 3 모두 거부 (CodexCliProvider extOf .bin fallback / Utf8JsonWriter dispose 코멘트 / promptForHistory 포맷 일치 가드)
 - rev 11 (2026-05-09): Phase 3a commit-6a 완료 — race-free SendAsync (snapshot + provider 캡처) + default prefix + ImportPlan label fallback + 텍스트 첨부 inline (F# `AttachmentRendering` module) + ApiChatProvider history summary prepend + StatusText 진행 + HTTP 413 매핑 + CanSend 첨부-only 허용 + commit-5 후속 m1 (BitmapSource fallback background 인코딩) + m2 (image format 세분 비교 + F# `AttachmentInfo.tryGetImageMime` helper). 자가 검열 Major-2 적용 (이미지/PDF metadata-only wire 안내 1줄). dotnet build + dotnet test **205건** 전수 통과. 잔여 commit-6b (이미지/PDF provider wire) 로 분리
 - rev 10 (2026-05-09): Phase 3a commit-5 완료 — Ctrl+V (`DataObject.AddPastingHandler`) + 클립보드 image PNG 인코딩 (CF_PNG raw 우선 / BitmapSource fallback) + `ReevaluateAttachmentsForProvider` (provider 전환 시 미지원 chip 강제 제거) + DragOver visual cue (outer Border accent BrushBrush 토글). 자가 검열 M1 적용 (DragEnter/Over 짝). dotnet build + dotnet test **205건** 전수 통과. 잔여 m1 (큰 이미지 background 인코딩) / m2 (image format 세분 비교) 는 commit-6 이월
 - rev 9 (2026-05-09): Phase 3a commit-4 2차 review sweep (Critical 1 / Major 5 / Minor 8 일괄 적용) — C1 (`openAiGpt4oImageTokens` long 2048 → short 768 두 단계 fit) / M1 (`module CapabilityPresets` SSOT — AnthropicWire / OpenAiApiWire / CodexCliWire / DefaultMaxAttachmentCount, 4 호출처 위임) / M2 (`estimateKoreanRatio` `EnumerateRunes` surrogate-safe) / M3 (`detectEncoding` UTF-8 replacement fallback + `Log.provider.Warn`) / M4 (`module LlmUserMessageOps.WarnUnsupportedAttachments` + 5종 provider Send 위임) / M5 (rejectedExtensions/textExtensions 보안 critical contains assertion 2 fact + invalid UTF-8 fixture) / m1 (`MaxAttachmentCount` SSOT — F# literal → C# const) / m2 (license.txt dead entry 제거) / m4 (`Capabilities.TextOnly` `static member val`) / m7 (invalid UTF-8 fixture) / m8 (4.attachments.md 백틱 escape 자연어) / m10 (`ExtOf` helper 사용자 표시) / m11 (`LlmUserMessage.Create` null-safe factory). dotnet build + dotnet test **205건** 전수 통과. 자가 검열 Critical/Major 0, Minor 1 (방어층 의도 유지). m3/m5/m6/m9 는 별도 follow-up

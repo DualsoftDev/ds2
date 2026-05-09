@@ -97,6 +97,12 @@ module CapabilityPresets =
     /// Codex CLI (`-i/--image <FILE>...`) — OpenAI 와 동일 한도. 의미 명료를 위해 별도 alias.
     let CodexCliWire = Capabilities.ImagesOnly(20L * MB)
 
+/// 이미지 첨부 decompose helper (commit-6b). C# DataContent / Anthropic content block 으로 wire 시 사용.
+type ImageAttachmentData = { Name: string; Bytes: byte[]; Mime: string }
+
+/// PDF 첨부 decompose helper (commit-6b). C# DataContent / Anthropic document content block 으로 wire 시 사용.
+type PdfAttachmentData = { Name: string; Bytes: byte[] }
+
 /// 첨부 metadata 추출 helper (commit-6 m2). F# DU C# interop 에서 multi-field named 의 명칭 모호함 회피.
 module AttachmentInfo =
     /// 이미지 mime — 이미지 case 가 아니면 None.
@@ -104,6 +110,26 @@ module AttachmentInfo =
         match att with
         | Image (_, _, mime) -> Some mime
         | _ -> None
+
+    /// commit-6b: 이미지 첨부 → record. 이미지 case 가 아니면 None.
+    /// C# 측에서 `Attachment.Image` 중첩 클래스의 field 명 (F# 컴파일러 버전별) 의존 회피.
+    let tryGetImage (att: Attachment) : ImageAttachmentData option =
+        match att with
+        | Image (n, b, m) -> Some { Name = n; Bytes = b; Mime = m }
+        | _ -> None
+
+    /// commit-6b: PDF 첨부 → record. PDF case 가 아니면 None.
+    let tryGetPdf (att: Attachment) : PdfAttachmentData option =
+        match att with
+        | Pdf (n, b) -> Some { Name = n; Bytes = b }
+        | _ -> None
+
+    /// 첨부 공통 이름 — chip filename, 임시 파일 spool naming 등.
+    let attachmentName (att: Attachment) : string =
+        match att with
+        | Image (n, _, _) -> n
+        | Pdf (n, _) -> n
+        | TextFile (n, _) -> n
 
 /// 텍스트 첨부 inline wrapper (정책 15) + history summary (정책 17). commit-6 (rev 11).
 /// provider 가 본 helper 만으로 첨부 → prompt 본문 / history summary 변환 — provider 별 중복 로직 회피.
@@ -168,10 +194,11 @@ module AttachmentRendering =
             sprintf "[text: %s %s]" name (formatBytes bytes)
 
 /// review 2차 M4 — provider Send 진입 시 capability 미지원 첨부 silent drop 방어.
-/// commit-4 단계 (chip UI 활성 / provider wire 미구현) = warn only. commit-6 wire 진입 시 strict invalidArg 로 전환 예정.
-/// UI 측 1차 검증 (`LlmChatViewModel.AddPathsAsync`) 후에도 race / provider 전환 누락 시 본 helper 가 2차 안전망.
+/// commit-4..6a 단계 = warn only (UI 검증 미완 / wire 미구현 dead path 방치 호환).
+/// commit-6b (이미지/PDF wire 활성) 진입 시 strict invalidArg 로 전환 — UI 1차 검증 후 race / provider 전환
+/// 누락이 발생하면 fail-fast 가 silent drop 보다 안전 (CLAUDE.md "복잡한 예외처리보다 간단한 fail-safe 우선").
 module LlmUserMessageOps =
-    /// 미지원 첨부에 대해 log warn 만. 본 함수는 의도적으로 throw 하지 않음 — commit-4 dead code 단계 호환.
+    /// commit-6b 이전 잔존 호출 호환을 위한 warn-only alias. 신규 호출은 EnforceCapabilityOrFail 로.
     let WarnUnsupportedAttachments (caps: Capabilities) (msg: LlmUserMessage) : unit =
         if isNull (box msg.Attachments) then ()
         else
@@ -183,4 +210,20 @@ module LlmUserMessageOps =
                 | Pdf (name, _) ->
                     if not caps.SupportsPdfNative then
                         Log.provider.Warn(sprintf "PDF 첨부 무시 — provider capability 미지원: %s" name)
-                | TextFile _ -> ()  // 텍스트는 inline wrapper (commit-6) — capability 무관
+                | TextFile _ -> ()  // 텍스트는 inline wrapper — capability 무관
+
+    /// commit-6b strict 모드 — capability 미지원 첨부 발견 시 invalidArg throw.
+    /// provider wire 직전 호출 → silent drop 차단. UI 측 `ReevaluateAttachmentsForProvider` (provider 전환 시
+    /// 강제 제거) + 첨부 추가 시 capability 검증을 race 로 빠져나간 첨부가 도달하면 fail-fast.
+    let EnforceCapabilityOrFail (caps: Capabilities) (msg: LlmUserMessage) : unit =
+        if isNull (box msg.Attachments) then ()
+        else
+            for att in msg.Attachments do
+                match att with
+                | Image (name, _, mime) ->
+                    if caps.ImageFormats.IsEmpty then
+                        invalidArg "msg" (sprintf "이미지 첨부 미지원 provider 에 wire 시도: %s (%s)" name mime)
+                | Pdf (name, _) ->
+                    if not caps.SupportsPdfNative then
+                        invalidArg "msg" (sprintf "PDF 첨부 미지원 provider 에 wire 시도: %s" name)
+                | TextFile _ -> ()  // 텍스트는 inline — capability 무관

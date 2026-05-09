@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text.Encodings.Web;
@@ -106,29 +107,17 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     }
 
     // rev 4 (commit-2): `string prompt` → `LlmUserMessage msg`.
-    // review 2차 M4: capability 미지원 첨부 silent drop 방지 — WarnUnsupportedAttachments 호출.
-    // commit-6 정책 17: 비텍스트 첨부의 history summary 만 prompt 본문 끝에 prepend (bytes 미누적).
-    //   이미지/PDF bytes wire 는 commit-6b 에서 SDK content block (DataContent) 으로 직접 전달 예정.
+    // commit-6b: capability strict 모드 — 미지원 첨부 발견 시 invalidArg throw (silent drop 차단).
+    // 정책 17: history 에는 text summary 만 누적 (bytes drop). 본 turn 호출 시에는 multi-content
+    //   ChatMessage (TextContent + DataContent) 를 별도로 만들어 GetStreamingResponseAsync 에 전달.
     public IAsyncEnumerable<LlmEvent> Send(LlmUserMessage msg, CancellationToken cancellationToken)
     {
-        LlmUserMessageOps.WarnUnsupportedAttachments(_capabilities, msg);
-        var promptForHistory = msg.Text;
-        if (msg.Attachments != null && msg.Attachments.Length > 0)
-        {
-            var summaries = new System.Text.StringBuilder();
-            foreach (var att in msg.Attachments)
-            {
-                if (summaries.Length > 0) summaries.Append(' ');
-                summaries.Append(AttachmentRendering.summarize(att));
-            }
-            // 첨부 summary 를 prompt 앞에 한 줄로 prepend — 다음 turn 의 history 에서 LLM 이 의도 추론용 metadata 보유.
-            promptForHistory = summaries.ToString() + "\n" + msg.Text;
-        }
-        return SendImpl(promptForHistory, cancellationToken);
+        LlmUserMessageOps.EnforceCapabilityOrFail(_capabilities, msg);
+        return SendImpl(msg, cancellationToken);
     }
 
     private async IAsyncEnumerable<LlmEvent> SendImpl(
-        string prompt,
+        LlmUserMessage msg,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // 첫 turn 에서 tools 먼저 로드 → sessionId/history 확정. 순서가 중요:
@@ -151,7 +140,53 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
                 Microsoft.FSharp.Collections.ListModule.Empty<McpServerStatus>());
         }
 
-        _history.Add(new ChatMessage(ChatRole.User, prompt));
+        // commit-6b — multi-content turn message 분리.
+        //   - history 에 누적 = text-only (prompt + 첨부 summary metadata, 정책 17 bytes drop)
+        //   - 본 turn 호출 = 동일 위치에 multi-content (TextContent + DataContent) 로 swap
+        // 둘이 다른 ChatMessage 인스턴스. 다음 turn 의 history 에는 bytes 가 사라져 OOM/비용 폭증 회피.
+        var nonTextAttachments = msg.Attachments != null
+            ? msg.Attachments.Where(a => !a.IsTextFile).ToArray()
+            : Array.Empty<Attachment>();
+
+        var promptForHistory = msg.Text;
+        if (nonTextAttachments.Length > 0)
+        {
+            var summaries = new System.Text.StringBuilder();
+            foreach (var att in nonTextAttachments)
+            {
+                if (summaries.Length > 0) summaries.Append(' ');
+                summaries.Append(AttachmentRendering.summarize(att));
+            }
+            promptForHistory = summaries.ToString() + "\n" + msg.Text;
+        }
+        _history.Add(new ChatMessage(ChatRole.User, promptForHistory));
+
+        ChatMessage turnUserMessage;
+        if (nonTextAttachments.Length > 0)
+        {
+            var contents = new List<AIContent> { new TextContent(promptForHistory) };
+            foreach (var att in nonTextAttachments)
+            {
+                var imgOpt = AttachmentInfo.tryGetImage(att);
+                if (imgOpt != null)
+                {
+                    var img = imgOpt.Value;
+                    contents.Add(new DataContent(img.Bytes, img.Mime) { Name = img.Name });
+                    continue;
+                }
+                var pdfOpt = AttachmentInfo.tryGetPdf(att);
+                if (pdfOpt != null)
+                {
+                    var pdf = pdfOpt.Value;
+                    contents.Add(new DataContent(pdf.Bytes, "application/pdf") { Name = pdf.Name });
+                }
+            }
+            turnUserMessage = new ChatMessage(ChatRole.User, contents);
+        }
+        else
+        {
+            turnUserMessage = _history[_history.Count - 1];
+        }
 
         var options = new ChatOptions { Tools = _cachedTools, ModelId = _modelLabel };
         var startedAt = DateTime.UtcNow;
@@ -159,7 +194,20 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         var stopReason = "end_turn";
         var isError = false;
 
-        var stream = _chatClient.GetStreamingResponseAsync(_history, options, cancellationToken);
+        // history 의 마지막 user message 를 turn 용 multi-content 버전으로 치환한 list 로 stream 호출.
+        IList<ChatMessage> historyForStream;
+        if (nonTextAttachments.Length > 0)
+        {
+            var copy = new List<ChatMessage>(_history);
+            copy[copy.Count - 1] = turnUserMessage;
+            historyForStream = copy;
+        }
+        else
+        {
+            historyForStream = _history;
+        }
+
+        var stream = _chatClient.GetStreamingResponseAsync(historyForStream, options, cancellationToken);
         var collected = new List<ChatResponseUpdate>();
         await foreach (var update in stream.ConfigureAwait(false))
         {
@@ -194,8 +242,8 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
 
         // collected updates 를 history 에 단일 ChatResponse 로 통합 (다음 turn 의 multi-turn context).
         var response = collected.ToChatResponse();
-        foreach (var msg in response.Messages)
-            _history.Add(msg);
+        foreach (var responseMsg in response.Messages)
+            _history.Add(responseMsg);
 
         var elapsedMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
         yield return LlmEvent.NewSessionEnd(elapsedMs, 0m, isError, stopReason, 0);
