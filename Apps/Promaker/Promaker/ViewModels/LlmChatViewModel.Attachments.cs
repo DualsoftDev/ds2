@@ -378,7 +378,9 @@ public partial class LlmChatViewModel
             catch (Exception ex)
             {
                 // log4net 에 기록 — main partial 의 Log 재사용. 단일 파일 실패는 계속.
+                // UX 보강 (rev 16): user-visible 안내 1줄 — PDF inner catch 와 일관 패턴.
                 Log.Warn($"첨부 로드 실패: {path}", ex);
+                bgNotices.Add($"{name}: 로드 실패 ({ex.GetType().Name})");
             }
         }
         return (chips, bgNotices);

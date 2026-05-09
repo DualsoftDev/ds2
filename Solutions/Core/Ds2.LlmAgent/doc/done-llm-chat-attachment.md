@@ -490,3 +490,50 @@
 - **Ollama vision 모델 동적 capability 갱신** — `CapabilityPresets` 정적이라 Ollama vision 모델 (`llava` 등) 사용 시에도 PDF/image 차단. 의도적 미적용 (정책 7, 별도 phase). todo 추적 지속.
 - **outer single-file failure 의 user-visible 안내** — 본 phase 범위 외, 향후 UX phase 권고 (todo 기록).
 - **Codex CLI PDF 미지원** — `CodexCliWire = ImagesOnly(20MB)` 유지 → sync 단계 `!caps.SupportsPdfNative` 즉시 거부. 정상 동작.
+
+## Phase 3a 후속 — UX 보강 + Ollama 동적 capability (rev 16, 2026-05-09)
+
+### UX 보강 — `LoadAcceptedAttachments` outer catch user-visible 안내 (1 파일 / +2 line)
+
+- **배경**: rev 15 자가 검열 M-2 ("outer single-file failure swallow") 가 정책 18 일관 사유로 영구 skip 결정됐으나, todo §5 후속 작업 후보로 잔존. PDF inner catch (`bgNotices.Add($"{name}: PDF 파싱 실패 ({ex.GetType().Name})")` — `LlmChatViewModel.Attachments.cs:365`) 와 일관 패턴 적용
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs:378-384` (이전: line 378-382) — outer `catch (Exception ex)` 에 `bgNotices.Add($"{name}: 로드 실패 ({ex.GetType().Name})")` 한 줄 추가. 기존 `Log.Warn` 은 유지 (file path + stacktrace 디버깅 보존). 사용자 안내는 짧은 GetType().Name 만 노출 — chip 영역 1줄 안내 단일화 (정책 8)
+- 자가 검열 trigger 미충족 (변경 = 1 line, 신규 함수 0, public API 무변)
+
+### Ollama 동적 capability — `/api/show` probe (1 파일 / +37 line)
+
+- **배경**: 정책 7 ("Ollama 는 instance property 로 `EnsureCli` 시점 `/api/show` 조회 → 모델별 동적 capability") 의 정적 placeholder `Capabilities.TextOnly` 를 동적으로 갱신. vision 모델 (llava / llama3.2-vision 등) 사용 시 이미지 첨부 chip 추가 가능
+- **구현 방향 결정**: 어댑터 `ApiChatProvider._capabilities` 는 immutable 유지 (record). factory `CreateOllamaAsync` 에 비동기 probe 단계 추가 → 결과를 ctor 인자에 주입. `EnsureCli` 시점이 아닌 factory 시점이 정책 7 의 "EnsureCli 시점" 보다 단순 (현 codebase 의 모든 provider factory async + ConfigureProviderAsync await 패턴 일관)
+- **OllamaSharp 5.4.25 SDK 검증**:
+  - `OllamaSharp.OllamaApiClientExtensions.ShowModelAsync(IOllamaApiClient, string, CancellationToken)` extension method (string overload) 존재 — `using OllamaSharp;` 로 자동 import
+  - `OllamaSharp.Models.ShowModelResponse.Capabilities` property type = `System.String[]` (F# script reflection 으로 검증 — `dotnet fsi` Type 확인)
+  - capabilities 배열 값: "completion" / "vision" / "embedding" / "tools" / "insert" 등 (Ollama 0.4+ 표준)
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiProviderFactory.cs`
+  - `Log` field 신설 (`LogManager.GetLogger(typeof(ApiProviderFactory))`) + `OllamaVisionImageCap = 20MB` 상수 (OpenAI 한도와 동일 보수)
+  - `CreateOllamaAsync` → `async Task<ApiChatProvider>` 로 시그니처 변경 (이전: `Task<...>`). `OllamaApiClient` 인스턴스를 IChatClient 어댑터와 별도 보유 → `ProbeOllamaCapabilitiesAsync(ollama, model)` 호출 → 결과를 `CreateInternalAsync(... capabilities: caps)` 에 전달
+  - `ProbeOllamaCapabilitiesAsync` 신설 (~25 line) — `client.ShowModelAsync(model)` try/catch. `resp?.Capabilities` foreach → "vision" (case-insensitive) 발견 시 `Capabilities.ImagesOnly(OllamaVisionImageCap)`. 미발견 또는 probe 실패 시 `Capabilities.TextOnly` fallback + Log.Warn
+
+### 회귀 호환
+
+- 기존 `OllamaApiClient` 생성 path 무수정 (인스턴스를 IChatClient 캐스트 전 보유만). non-vision 모델 (llama3.1 등) = `Capabilities.TextOnly` 그대로 → wire 회귀 없음
+- Ollama daemon 미실행 / 모델 미설치 / 네트워크 단절 → probe 실패 → `Capabilities.TextOnly` fallback → 사용자가 첨부 시도하면 정책 7/8 의 chip 영역 1줄 안내 ("현재 provider 가 이미지 미지원") + chip 미생성. 기존과 동일 graceful 동작
+- `ConfigureProviderAsync` 의 `await CreateOllamaAsync(...)` 는 이미 await 패턴 — 시그니처 변경 영향 없음
+
+### 검증
+
+- 컴파일 오류 0건 확인 — `dotnet build Apps/Promaker/Promaker.sln` 시 CS/FS error 0 (file copy lock 만 — Promaker.exe + Visual Studio 잠금 보유 상태). Promaker.exe / VS 종료 후 재빌드 시 정상 통과 예상
+- `OllamaSharp.OllamaApiClientExtensions.ShowModelAsync(string)` extension method 존재 — XML doc 검증 완료
+- `ShowModelResponse.Capabilities` = `string[]` — F# script reflection 검증 완료
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests` — 본 변경은 Promaker C# 측 + F# Capabilities schema 무변 → 회귀 영향 없음 (rev 15 = 225건 통과 baseline 유지)
+
+### 자가 검열 trigger 분석 (수행 미필요)
+
+- ② 신규 함수/타입 = 1개 (`ProbeOllamaCapabilitiesAsync`) — 미충족 (≥3)
+- ③ 단일 파일 line = ~37 line 추가 (CreateOllamaAsync sig 변경 + probe 메서드) — 미충족 (≥100)
+- ⑤ public API/SSOT = `CreateOllamaAsync` 시그니처 `Task` → `async Task` 변경은 caller 측 await 호환 (이미 await), 반환 타입 `Task<ApiChatProvider>` 그대로 — 미충족
+- ④ dispatch / state machine = ✗
+
+### 잔여 / 의도적 미적용
+
+- **probe 시 cancellationToken 미전달** — 본 단계 ConfigureProviderAsync flow 에 token 전파 없음. 향후 cancel 우선순위 정책 결정 시 갱신. 현 단계 fallback 의 보수성 (TextOnly) 으로 graceful
+- **ImageFormats 별 세분 capability** — Ollama 의 vision 모델이 PNG/JPEG/GIF/WebP 모두 지원하는 모델 (`llama3.2-vision`) vs 일부만 지원하는 모델 분기 미적용. `Capabilities.ImagesOnly(20MB)` = 4종 일괄. 모델별 차이는 OllamaSharp `/api/show` 응답 구조 안에 명시되지 않아 별도 KB 필요 — todo deferred
+- **Ollama image cap 20MB 의 정확성** — Ollama 자체 한도가 명시 문서로 없어 OpenAI 와 동일하게 보수적으로 설정. 실제 OOM / 거부는 Ollama 응답으로 노출 → 향후 사용자 피드백 반영

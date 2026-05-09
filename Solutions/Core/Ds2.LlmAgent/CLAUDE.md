@@ -115,7 +115,7 @@ Apps/Promaker/Promaker/
     ├── WpfDispatcherAdapter.cs                 IUiDispatcher.InvokeAsync (Background priority)
     ├── Api/                                    Phase 2 API providers
     │   ├── ApiChatProvider.cs                  Microsoft.Extensions.AI 기반 IChatClient → ILlmProvider 어댑터. update.Contents 를 LlmEvent 4종으로 매핑
-    │   └── ApiProviderFactory.cs               Anthropic 12.20.0 / OpenAI 2.10.0 / OllamaSharp 5.4.25 → IChatClient 빌드 + MCP HttpClient 부착
+    │   └── ApiProviderFactory.cs               Anthropic 12.20.0 / OpenAI 2.10.0 / OllamaSharp 5.4.25 → IChatClient 빌드 + MCP HttpClient 부착. Ollama 만 `/api/show` probe 로 동적 capability (rev 16, 정책 7 — vision 포함 시 ImagesOnly(20MB))
     └── Tools/ModelTools.cs                     [McpServerToolType] + Sanitize → ToolOperations.sanitizeName 위임 + RunMutation/RunRead 헬퍼 + 21 tool method (Pass 6 ApplyOperations + AddProject / extend-mcp L3: Active/Passive 분리 + AddCall 시그니처 단순화 + Tier 1 helper 4종 + D8 quota cascade)
 ```
 
