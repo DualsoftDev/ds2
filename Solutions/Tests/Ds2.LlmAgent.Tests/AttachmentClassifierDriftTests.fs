@@ -96,3 +96,17 @@ let ``strict UTF-8 통과 — BOM 없는 영어 텍스트`` () =
     let detect = AttachmentClassifier.detectEncoding bytes
     Assert.Equal(System.Text.Encoding.UTF8.WebName, detect.Encoding.WebName)
     Assert.False(detect.ConfidenceHigh)  // BOM 없으므로 strict 통과해도 confidence low
+
+[<Fact>]
+let ``CP949 fallback — 한국어 Windows 환경 .txt`` () =
+    // CodePagesEncodingProvider 가 등록 안 된 단위 테스트 환경에서도 1회 등록 (Promaker.App 와 동일 패턴).
+    // 등록은 idempotent — 중복 호출 무해.
+    System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance)
+
+    // 한국어 "안녕하세요" 를 CP949 (Windows-949, code page 949) 로 인코딩 → invalid UTF-8 sequence 생성.
+    let cp949 = System.Text.Encoding.GetEncoding(949)
+    let bytes = cp949.GetBytes("안녕하세요")
+    let detect = AttachmentClassifier.detectEncoding bytes
+    // strict UTF-8 fail → CP949 strict 통과 → CP949 반환 (UTF-16 LE 로 떨어지지 않음).
+    Assert.Equal(949, detect.Encoding.CodePage)
+    Assert.False(detect.ConfidenceHigh)

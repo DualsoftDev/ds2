@@ -24,6 +24,8 @@
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
     <!-- Phase 2 — API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
     <PackageReference Include="Anthropic" />
     <PackageReference Include="OpenAI" />
