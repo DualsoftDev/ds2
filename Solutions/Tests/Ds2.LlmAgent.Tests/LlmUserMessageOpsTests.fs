@@ -9,7 +9,7 @@ open Ds2.LlmAgent
 
 [<Fact>]
 let ``Image 첨부 + Capabilities.TextOnly → invalidArg`` () =
-    let img = Image("a.png", [|0uy|], "image/png")
+    let img = Image("a.png", [|0uy|], Png)
     let msg = LlmUserMessage.Create("hi", [| img |])
     let ex = Assert.Throws<ArgumentException>(fun () ->
         LlmUserMessageOps.EnforceCapabilityOrFail Capabilities.TextOnly msg)
@@ -44,10 +44,11 @@ let ``OfText (첨부 0개) 는 모든 capability 에서 통과`` () =
 
 [<Fact>]
 let ``AttachmentInfo.tryGetImage 은 Image 만 Some, 그 외 None`` () =
-    let img = Image("a.png", [|1uy;2uy|], "image/png")
+    let img = Image("a.png", [|1uy;2uy|], Png)
     match AttachmentInfo.tryGetImage img with
     | Some d ->
         Assert.Equal("a.png", d.Name)
+        // rev 18 m3: Image case 가 ImageFormat 보유 → tryGetImage 가 Attachment.mimeOf 변환해 Mime field 채움.
         Assert.Equal("image/png", d.Mime)
         Assert.Equal(2, d.Bytes.Length)
     | None -> failwith "Image 인데 None"
@@ -62,7 +63,22 @@ let ``AttachmentInfo.tryGetPdf 은 Pdf 만 Some, 그 외 None`` () =
         Assert.Equal("doc.pdf", d.Name)
         Assert.Equal(2, d.Bytes.Length)
     | None -> failwith "Pdf 인데 None"
-    Assert.Equal(None, AttachmentInfo.tryGetPdf (Image("a.png", [||], "image/png")))
+    Assert.Equal(None, AttachmentInfo.tryGetPdf (Image("a.png", [||], Png)))
+
+/// rev 18 m3 — ImageFormat ↔ mime 1:1 매핑 SSOT (`Attachment.mimeOf`) 회귀.
+[<Fact>]
+let ``Attachment.mimeOf — 4 case exhaustive 매핑`` () =
+    Assert.Equal("image/png", Attachment.mimeOf Png)
+    Assert.Equal("image/jpeg", Attachment.mimeOf Jpeg)
+    Assert.Equal("image/gif", Attachment.mimeOf Gif)
+    Assert.Equal("image/webp", Attachment.mimeOf Webp)
+
+[<Fact>]
+let ``AttachmentInfo.tryGetImageFormat — chip reevaluate 용 직접 노출`` () =
+    Assert.Equal(Some Png, AttachmentInfo.tryGetImageFormat (Image("a.png", [|0uy|], Png)))
+    Assert.Equal(Some Webp, AttachmentInfo.tryGetImageFormat (Image("b.webp", [|0uy|], Webp)))
+    Assert.Equal(None, AttachmentInfo.tryGetImageFormat (Pdf("p.pdf", [||])))
+    Assert.Equal(None, AttachmentInfo.tryGetImageFormat (TextFile("t.md", "x")))
 
 /// Phase 3b (rev 15) — Capabilities schema 의 MaxPdfPages field 회귀.
 /// optional `?maxPdfPages` 시그니처 + None / Some 분기.

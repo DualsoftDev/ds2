@@ -617,3 +617,98 @@
 - **스캔 PDF (vector text 부재) UX 안내** — `ExtractPdfText` 결과 빈 문자열 시 chip 은 추가되지만 의미 없는 fenced 블록 송신. OCR fallback 또는 빈 결과 안내는 별도 phase
 - **DefaultPdfSizeCap 32MB 의 정확성** — Anthropic native 한도와 동일하게 보수 설정. 미지원 provider 측 텍스트 추출 후 1MB cap 이 실 차단. 실 사용 피드백 반영 시 조정
 - **D 가드 외 native 미지원의 페이지 cap** — fallback 경로는 `caps.MaxPdfPages` 검사 안 함 (의도). 큰 PDF 도 텍스트 1MB 면 통과. 페이지 수 직접 cap 추가 필요 시 후속
+
+## Phase 3a 후속 — Image DU mime → ImageFormat 일원화 (rev 18 m3, 2026-05-09)
+
+### 산출물 (7 파일 / +86/-66 line)
+
+- **F# 측 변경 (3 파일)**:
+  - `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs`
+    - `Attachment.Image of name * bytes * mime: string` → `name * bytes * format: ImageFormat` 시그니처 변경. 4 mime 의 free string 표현을 화이트리스트 enum 으로 좁힘
+    - `module Attachment` 신설 (`[<RequireQualifiedAccess>]`) — `mimeOf : ImageFormat -> string` SSOT helper. 4 case exhaustive (`.bin` dead fallback 제거, 신규 case 추가 시 컴파일러 강제)
+    - `AttachmentInfo.tryGetImageMime` — Image (_,_,fmt) → Some(Attachment.mimeOf fmt). 호출자 호환 유지 (외부 patch 의존성 미검증, dead code 제거는 별도 commit)
+    - `AttachmentInfo.tryGetImageFormat` 신설 — chip reevaluate 시 mime 문자열 역추론 회피, `caps.ImageFormats.Contains(fmt)` 비교에 직접 사용
+    - `AttachmentInfo.tryGetImage` (record decompose) — `Mime = Attachment.mimeOf fmt` 변환 책임 보유. 호출자 (`ApiChatProvider.cs:170` 의 `DataContent(img.Bytes, img.Mime)`) 무수정으로 호환
+    - `EnforceCapabilityOrFail` 의 image 분기에 format 별 세분 검증 추가 (`elif not (caps.ImageFormats.Contains fmt)` 분기) — 현재 dead path (4종 일괄), 향후 모델별 capability 변동 (Ollama vision 모델 일부 format 만 지원 등) 시 fail-fast 활성
+  - `Solutions/Core/Ds2.LlmAgent/ClaudeStreamJsonInput.fs` — `Image (_, bytes, fmt)` pattern 으로 변경, `media_type` field 에 `Attachment.mimeOf fmt` wire
+  - `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — 임시 파일 spool 의 `extOf (mime: string)` → `extOf (fmt: ImageFormat)`. 4 case exhaustive match (`_ -> ".bin"` dead fallback 제거)
+- **C# 측 변경 (2 파일)**:
+  - `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+    - `AddImageBytesAsync(byte[] bytes, ImageFormat format, string suggestedName)` 시그니처 변경 (이전: `string mime` 인자) — 호출자 paste handler 도 같이 변경
+    - `Attachment.NewImage(name, bytes, format)` 호출 — chip background load 단계 (`img.Item` 직접 사용)
+    - `MimeOf(ImageFormat)` C# helper 폐기 (F# `Attachment.mimeOf` 위임 대상이 더 이상 필요 없음 — chip 생성 시 ImageFormat 직접 사용)
+    - `ImageFormatFromMime(string)` C# helper 폐기 (m2 helper) — `ReevaluateAttachmentsForProvider` 가 `AttachmentInfo.tryGetImageFormat` 사용해 mime 역추론 회피
+  - `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml.cs` — paste 진입점 2곳 (`OnInputPaste` ② CF_PNG / `EnqueueBitmapImage` continuation) 의 `vm.AddImageBytesAsync(bytes, "image/png", name)` → `(bytes, Ds2.LlmAgent.ImageFormat.Png, name)` 으로 호출. fully-qualified 사용 = `System.Drawing.Imaging.ImageFormat` 등 BCL 충돌 회피
+- **테스트 (2 파일)**:
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/LlmUserMessageOpsTests.fs` — `Image(..., "image/png")` → `Image(..., Png)`. 신규 fact 2: `Attachment.mimeOf` 4 case exhaustive + `tryGetImageFormat` 양방향 (Image → Some / Pdf/TextFile → None)
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/ClaudeStreamJsonInputTests.fs` — `Image(..., "image/png")` → `Image(..., Png)` (3 fact). 출력 assertion (`media_type` = `"image/png"`) 은 mimeOf 결과로 그대로 유지 → 변경 없음
+
+### 회귀 호환
+
+- `ApiChatProvider.cs` 무수정 — `tryGetImage` 가 record 내부에서 `Mime = Attachment.mimeOf fmt` 채워 호출자 (Anthropic/OpenAI/Ollama 공통 IChatClient 어댑터) 의 `DataContent(bytes, mime)` 진입점 정합 유지
+- 외부 wire 형식 (Claude CLI multipart `media_type` / Codex 임시 파일 ext / API DataContent mime) 모두 동일 출력 — 회귀 0
+- F# DU `ImageFormat` (인자 없는 case) C# interop = 정적 readonly field + `IsPng` boolean property 로 노출 — 호출 패턴 정합 검증 완료
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **227건 전수 통과** (기존 225 + 신규 2)
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 0 / Minor 5)
+
+- **Min-1 (별도 commit 권고)**: `AttachmentInfo.tryGetImageMime` 외부 호출자 0건 — dead code. 외부 patch 의존성 검증 미수행 상태라 본 PR 보존, 후속 cleanup commit 권고
+- **Min-2 (수용)**: `EnforceCapabilityOrFail` 신규 format 별 분기 — 현재 dead path 지만 향후 Ollama 동적 capability 모델별 분기 (정책 7) 활성 시 fail-fast race 보호. 의도된 보수
+- **Min-3 (즉시 적용)**: `todo-llm-chat-attachment.md:58` stale 코드 블럭 — `Image of name * bytes * mime: string` 을 `* format: ImageFormat` 으로 갱신. CLAUDE.md 의 "todo-*.md 는 현재 상태 안내 → 일괄 갱신" 정책 정합
+- **Min-4 (수용)**: `LlmChatPanel.xaml.cs` 의 fully-qualified `Ds2.LlmAgent.ImageFormat.Png` — `System.Drawing.Imaging.ImageFormat` 등 BCL 동명 타입 충돌 회피로 의도된 보수
+- **Min-5 (수용)**: C# `ExtOf(ImageFormat)` 와 F# `extOf (fmt: ImageFormat)` 의 4 case 매핑 중복 — F# pattern match exhaustiveness 와 C# `IsPng` boolean property 분기의 컴파일 보장 동등성 차이로 강제 일원화 시 호출 비용/가독성 trade-off 발생. 현 상태 컴파일러 검증 동등 효과 — 유지 권장
+
+### 잔여 / 의도적 미적용
+
+- **Ollama 모델별 ImageFormat 별 세분 capability** — `EnforceCapabilityOrFail` 신규 분기 (Min-2) 활용 trigger. `/api/show` 응답 KB 부재로 deferred (rev 16 잔여 사항)
+- **본 일원화 효과 측정**: 5종 provider wire 경로 모두 mime 문자열 매핑 helper 1개 (`Attachment.mimeOf`) + decompose helper 1개 (`tryGetImage`) 로 축소. 종전 양방향 helper (C# `MimeOf` + `ImageFormatFromMime`) + F# `tryGetImageMime` 분산 → SSOT 1개로 일원화 완료
+
+## Phase 3a 후속 — rev 18 review 즉시 조치 (rev 18b, 2026-05-09)
+
+### 산출물 (3 파일 / +14/-15 line)
+
+본 변경은 사용자 `--review` 의 권고 1+2 즉시 적용 결과. 권고 3 (type extension 화) 은 사용자가 "강한 권고 아님" 명시 → skip.
+
+- **권고 1 적용 — `tryGetImageMime` dead helper 제거**:
+  - `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` — `AttachmentInfo.tryGetImageMime` (Image case → mime decompose) 정의 4 line 제거. 사용자 review 가 `Solutions/`/`Apps/` 전수 grep 으로 외부 호출자 0건 직접 검증. 본 PR 보존 결정 ("외부 patch 의존성 검증") 의 근거가 검증 완료 → 묶는 것이 정석. 종전 `tryGetImageFormat` (chip reevaluate 용) 으로 충분하고, mime 필요 시 `tryGetImage.Mime` (record decompose) 로 일원화
+
+- **권고 2 적용 — `Attachment.extOf` SSOT 추가 + 위임**:
+  - `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` — `module Attachment` (이전 `mimeOf` 유일) 에 `extOf : ImageFormat -> string` 4 case exhaustive 추가. mime SSOT 와 같은 module 에 두는 일관성. type `Attachment` 와 module 이름 동명 회피로 `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]` attribute 추가 — F# 측은 `Attachment.mimeOf fmt` / `Attachment.extOf fmt` 그대로 호출, C# 측은 `Ds2.LlmAgent.AttachmentModule.extOf(fmt)` 로 IL 노출
+  - `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — 임시 파일 spool 의 inline `extOf (fmt: ImageFormat)` 4 case 매치 폐기 → `Attachment.extOf fmt` 위임. 6 line → 0 line (loop 안의 `extOf fmt` 호출만 남음)
+  - `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs` — `ExtOf(ImageFormat fmt)` 의 종전 7 line `IsPng`/`IsJpeg`/`IsGif`/`IsWebp` 분기 → `=> Ds2.LlmAgent.AttachmentModule.extOf(fmt)` 1 line 위임 (CLAUDE.md "3줄 이상 반복 패턴 시 리팩토링" 정합)
+
+### SSOT 일원화 효과 (rev 18 + 18b 누적)
+
+| 항목 | 종전 분산 위치 | rev 18+18b 후 SSOT |
+|---|---|---|
+| ImageFormat → mime | C# `MimeOf` (7 line) + F# `tryGetImageMime` (decompose+위임) + 기타 inline | `Attachment.mimeOf` (4 case match) — F# 측 직접, C# 측 `tryGetImage.Mime` 변환 경유 |
+| ImageFormat → ext | F# inline `extOf` (CodexCliProvider 6 line) + C# `ExtOf` (7 line) | `Attachment.extOf` (4 case match) — 양쪽 위임 |
+| mime → ImageFormat 역추론 | C# `ImageFormatFromMime` (7 line) | 폐기 — chip 의 `Attachment.Image` 가 `ImageFormat` 직접 보유, `AttachmentInfo.tryGetImageFormat` 로 추출 |
+| 외부 wire 출력 변화 | — | 0 (회귀 무) |
+
+### 회귀 호환
+
+- F# 측 호출처 무수정 (`Attachment.mimeOf` / `Attachment.extOf` 모두 그대로 작동 — `[<CompilationRepresentation(ModuleSuffix)>]` 는 IL 노출만 변경)
+- C# 측 위임 1줄 wrapper 가 종전 `ExtOf(...)` 호출 위치 무수정 (XAML / SendAsync / chip notice 등)
+- F# DU `Attachment` C# interop (`Attachment.NewImage(...)` 등 case constructor) 영향 없음 — module 의 `ModuleSuffix` 는 module 함수만 적용
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **227건 전수 통과** baseline 유지 (rev 18 = 225 + 2 / rev 18b = 무변)
+
+### 자가 검열 trigger 분석 (수행 미필요)
+
+- ① 시그니처 변경 = 0 (module 폐기 0, 함수 시그니처 0)
+- ② 신규 함수/타입 = `Attachment.extOf` 1개 — 미충족 (≥3)
+- ③ 단일 파일 line = 14/15 line — 미충족 (≥100)
+- ④ dispatch / state machine = ✗
+- ⑤ public API/SSOT = SSOT 1개 추가 + dead helper 1개 제거. attribute 추가는 IL 노출만 영향, F# call site 호환
+
+### 잔여 / 의도적 미적용
+
+- **권고 3 type extension 화 (`fmt.Mime`/`fmt.Ext` property)** — 사용자가 "강한 권고 아님" 명시. F# style 함수 + module 패턴이 codebase 일관 (`AttachmentRendering.langTokenOf` 등 동일 형태) → 유지

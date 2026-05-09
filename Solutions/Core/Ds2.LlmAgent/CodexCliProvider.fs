@@ -92,14 +92,15 @@ type CodexCliProvider(options: CodexCliOptions) =
 
         // commit-6b — 이미지 첨부 bytes → 임시 파일 spool. Codex CLI 는 path 만 받음 (`-i <path>`).
         // 위치: %TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>\<n>.<ext>  (단일 cleanup 위해 turn 별 디렉토리)
-        // 확장자는 mime → ".png"/".jpg"/".gif"/".webp". turn 종료 시 OnFinally 로 디렉토리 재귀 삭제.
+        // 확장자는 ImageFormat 으로 결정 — rev 18 m3 일원화 후 4 case exhaustive (`.bin` dead fallback 제거).
+        // turn 종료 시 OnFinally 로 디렉토리 재귀 삭제.
         let images =
             if isNull (box msg.Attachments) then [||]
             else
                 msg.Attachments
                 |> Array.choose (fun a ->
                     match a with
-                    | Image (n, b, m) -> Some (n, b, m)
+                    | Image (n, b, fmt) -> Some (n, b, fmt)
                     | _ -> None)
         let imagePaths, cleanupImageSpool =
             if images.Length = 0 then
@@ -107,17 +108,11 @@ type CodexCliProvider(options: CodexCliOptions) =
             else
                 let dir = Path.Combine(Path.GetTempPath(), "Promaker.LlmAgent", "codex-img-" + Guid.NewGuid().ToString("N"))
                 Directory.CreateDirectory(dir) |> ignore
-                let extOf (mime: string) =
-                    match mime with
-                    | "image/png" -> ".png"
-                    | "image/jpeg" -> ".jpg"
-                    | "image/gif" -> ".gif"
-                    | "image/webp" -> ".webp"
-                    | _ -> ".bin"
+                // rev 18 review 후속: inline extOf 폐기 — Attachment.extOf SSOT 위임.
                 let paths =
                     images
-                    |> Array.mapi (fun i (_, bytes, mime) ->
-                        let path = Path.Combine(dir, sprintf "%d%s" i (extOf mime))
+                    |> Array.mapi (fun i (_, bytes, fmt) ->
+                        let path = Path.Combine(dir, sprintf "%d%s" i (Attachment.extOf fmt))
                         File.WriteAllBytes(path, bytes)
                         path)
                 let cleanup () =

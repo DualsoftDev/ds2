@@ -55,11 +55,11 @@ exe, dll, msi, zip, 7z, rar, mp4, mov, avi, mkv, mp3, wav, flac, bin, **svg** (X
 
 ```fsharp
 type Attachment =
-    | Image of name: string * bytes: byte[] * mime: string
+    | Image of name: string * bytes: byte[] * format: ImageFormat   // rev 18 m3 (mime: string → format)
     | Pdf of name: string * bytes: byte[]
     | TextFile of name: string * content: string
     // 후보 — spike 결과 일부 CLI 가 path 만 받으면 추가
-    // | ImagePath of name: string * path: string * mime: string
+    // | ImagePath of name: string * path: string * format: ImageFormat
 
 type LlmUserMessage = {
     Text: string
@@ -209,7 +209,9 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - **deferred C-1**: Office 문서 (docx/xlsx/pptx) 텍스트 추출 첨부 — OpenXml SDK 의존성 검토
 - ~~**deferred C-2**: PDF 미지원 provider (Codex) 의 fallback 정책~~ — ✅ rev 17 완료 (fallback D = 자동 텍스트 추출 + 1MB 가드)
 - **모델별 PDF 페이지 cap 분기**: 200K context = 100p / 그 외 = 600p — 현재 100p 단일 적용 (Anthropic / OpenAI 모두). 모델 분류 SSOT 결정 후 진입
-- **m3 (commit-4 자가 검열 보류)**: `Image of name * bytes * mime` → `Image of name * bytes * format: ImageFormat` 일원화 + `mimeOf` helper. 5종 provider wire + DriftTests + AttachmentClassifier 광범위 영향 — 별도 PR
+- ~~**m3 (commit-4 자가 검열 보류)**: `Image of name * bytes * mime` → `Image of name * bytes * format: ImageFormat` 일원화~~ — ✅ rev 18 완료 (`Attachment.mimeOf` SSOT + `tryGetImageFormat` + 7 파일 / +86/-66 line, dotnet test 227건 전수 통과)
+- ~~**m3 후속 cleanup (Min-1)**: `AttachmentInfo.tryGetImageMime` 외부 patch 호출자 검증 후 dead helper 제거~~ — ✅ rev 18b 완료 (사용자 review grep 으로 외부 호출자 0건 검증 후 즉시 묶음 제거)
+- ~~**m3 후속 cleanup (Min-5)**: extOf F#/C# 4 case 매핑 중복~~ — ✅ rev 18b 완료 (`Attachment.extOf` SSOT 추가, 양쪽 위임. `[<CompilationRepresentation(ModuleSuffix)>]` 로 C# IL 노출명 `AttachmentModule`)
 - **스캔 PDF UX 안내**: rev 17 fallback D 의 빈 텍스트 추출 (vector text 부재) 시 안내 부재. OCR fallback 또는 빈 결과 안내 별도 phase
 - ~~**별도 phase**: Ollama vision 모델 동적 capability 갱신~~ — ✅ rev 16 완료 (`/api/show` probe + `Capabilities.ImagesOnly` 동적 부여)
 - ~~**UX 개선**: outer `catch (Exception ex)` single-file failure 의 user-visible 안내~~ — ✅ rev 16 완료 (`bgNotices` 1줄 추가)
@@ -253,6 +255,22 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 18b (2026-05-09): **rev 18 review 즉시 조치 — 권고 1+2 적용 (3 파일 / +14/-15 line)**.
+  - 권고 1: `AttachmentInfo.tryGetImageMime` dead helper 제거 — 사용자 review 의 grep 검증으로 외부 호출자 0건 확정 후 본 PR 묶음 (종전 "외부 patch 의존성 검증 후 별도 commit" 보수 결정의 근거가 검증 완료)
+  - 권고 2: `Attachment.extOf : ImageFormat -> string` SSOT 추가 — `mimeOf` 와 같은 module 일관성. `CodexCliProvider.fs` 의 inline extOf 6 line 폐기 + C# `ExtOf` 의 7 line `IsPng/IsJpeg/...` 분기를 `Ds2.LlmAgent.AttachmentModule.extOf(fmt)` 1줄 위임으로 단순화. `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]` attribute 추가로 type/module 동명 (`Attachment`) 충돌 회피 — F# 측은 `Attachment.mimeOf` / `Attachment.extOf` 그대로, C# 측은 `Ds2.LlmAgent.AttachmentModule.extOf` 로 IL 노출
+  - 권고 3 (type extension 화) 은 사용자가 "강한 권고 아님" 명시 → skip. codebase 의 module 패턴 (`AttachmentRendering.langTokenOf` 등) 일관성 유지
+  - dotnet build 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경) + dotnet test **227건** baseline 유지 (변경 무변). 자가 검열 trigger 미충족
+- rev 18 (2026-05-09): **Image DU mime → ImageFormat 일원화 (m3, commit-4 2차 review 보류분 처리)**.
+  - `Attachment.Image of name * bytes * mime: string` → `name * bytes * format: ImageFormat` 시그니처 변경 (4 mime free string → 화이트리스트 enum)
+  - `module Attachment` 신설 (`[<RequireQualifiedAccess>]`) — `mimeOf : ImageFormat -> string` SSOT helper. 4 case exhaustive (`.bin` dead fallback 제거, 신규 case 추가 시 컴파일러 강제)
+  - `AttachmentInfo.tryGetImageFormat` 신설 — chip reevaluate 시 mime 역추론 회피, `caps.ImageFormats.Contains(fmt)` 비교에 직접 사용
+  - `AttachmentInfo.tryGetImage` (record decompose) — `Mime = Attachment.mimeOf fmt` 변환 책임 보유 → `ApiChatProvider.cs` 호출자 무수정으로 호환
+  - `EnforceCapabilityOrFail` image 분기에 format 별 세분 검증 추가 (`elif not (caps.ImageFormats.Contains fmt)`) — 현재 dead path, 향후 모델별 capability 변동 시 fail-fast 활성
+  - `ClaudeStreamJsonInput.fs` `media_type` wire 시 `Attachment.mimeOf fmt` 사용. `CodexCliProvider.fs` 임시 파일 spool 의 `extOf` 가 ImageFormat 기반 4 case exhaustive (.bin 제거)
+  - C# 측: `LlmChatViewModel.Attachments.cs` 의 `AddImageBytesAsync(... ImageFormat format)` 시그니처 변경, `MimeOf` / `ImageFormatFromMime` C# helper 폐기. `ReevaluateAttachmentsForProvider` 가 `tryGetImageFormat` 사용. `LlmChatPanel.xaml.cs` paste 진입점 `vm.AddImageBytesAsync(bytes, Ds2.LlmAgent.ImageFormat.Png, name)` 으로 호출
+  - 테스트: `Image(..., "image/png")` → `Image(..., Png)` 갱신 + 신규 fact 2 (`Attachment.mimeOf` 4 case + `tryGetImageFormat` 양방향)
+  - 7 파일 / +86/-66 line. dotnet build 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경) + dotnet test **227건** 전수 통과 (기존 225 + 신규 2)
+  - 자가 검열 (Agent 위임 — Critical 0 / Major 0 / Minor 5): Min-1 (dead `tryGetImageMime`) → 외부 patch 의존성 검증 후 별도 commit. Min-2 (신규 dead 분기) → 의도된 fail-fast 보존. Min-3 (todo:58 stale 코드 블럭) → 즉시 적용. Min-4 (fully-qualified 타입명) → BCL 충돌 회피 의도. Min-5 (C#/F# extOf 중복) → 컴파일러 검증 동등 효과로 유지
 - rev 17 (2026-05-09): **probe CT 인프라 + Codex/Ollama PDF fallback 묶음 commit**.
   - **(1) probe CT 전파 인프라** — `ApiProviderFactory.cs` 4 public factory + `ProbeOllamaCapabilitiesAsync` + `CreateInternalAsync` + `CreateMcpClientAsync` 에 `CancellationToken cancellationToken = default` 매개변수 추가 (default param, non-breaking). `OllamaSharp 5.4.25` 의 `ShowModelAsync(string, CancellationToken)` + `MCP.Core 1.2.0` 의 `McpClient.CreateAsync(... CancellationToken)` 시그니처 활용 (XML doc 직접 검증). `ProbeOllamaCapabilitiesAsync` 의 `OperationCanceledException when ct.IsCancellationRequested` catch 분기 추가 — throw 그대로 (TextOnly fallback 우회, caller stale 처리에 위임). caller (LlmChatViewModel `Create*Async` 4종) 변경 없음 — 향후 ConfigureProviderAsync 가 CT 만들어 전달하면 즉시 활용. 1 파일 / +14 line
   - **(2) Codex/Ollama PDF fallback (deferred C-2 fallback D)** — `LlmChatViewModel.Attachments.cs`. `using System.Text;` + `DefaultPdfSizeCap=32MB` 상수. `ClassifyPathSync` PDF 분기 `!caps.SupportsPdfNative` 거부 분기 제거 + size cap 일률 적용. `LoadAcceptedAttachments` PDF 분기에 `caps.SupportsPdfNative` 분기 추가:
