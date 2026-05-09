@@ -126,8 +126,9 @@ public partial class LlmChatViewModel
     /// <summary>
     /// 클립보드 image (CF_PNG/CF_DIB) 진입점 — commit-5 의 AddPastingHandler 가 호출.
     /// 이미 PNG bytes 로 인코딩된 상태로 진입. dim 측정은 bytes stream 으로.
+    /// rev 18 m3: 시그니처 mime: string → format: ImageFormat 일원화.
     /// </summary>
-    public async Task AddImageBytesAsync(byte[] bytes, string mime, string suggestedName)
+    public async Task AddImageBytesAsync(byte[] bytes, ImageFormat format, string suggestedName)
     {
         if (bytes == null || bytes.Length == 0) return;
 
@@ -137,9 +138,9 @@ public partial class LlmChatViewModel
             AttachmentNotice = $"{suggestedName}: 현재 provider 가 이미지 미지원";
             return;
         }
-        if (!caps.ImageFormats.Contains(ImageFormat.Png))
+        if (!caps.ImageFormats.Contains(format))
         {
-            AttachmentNotice = $"{suggestedName}: 현재 provider 가 PNG 미지원";
+            AttachmentNotice = $"{suggestedName}: 현재 provider 가 {ExtOf(format)} 미지원";
             return;
         }
         if (caps.MaxImageBytes != null && bytes.Length > caps.MaxImageBytes.Value)
@@ -157,7 +158,7 @@ public partial class LlmChatViewModel
         {
             var (w, h) = TryReadImageDimFromBytes(bytes);
             var tok = TokenEstimator.anthropicImageTokens(w, h, TokenEstimator.opus47ImageCap);
-            var att = Attachment.NewImage(suggestedName, bytes, mime);
+            var att = Attachment.NewImage(suggestedName, bytes, format);
             return new AttachmentChipVm(suggestedName, bytes.Length, tok.Item1, att);
         }).ConfigureAwait(true);
 
@@ -183,8 +184,9 @@ public partial class LlmChatViewModel
     /// <summary>
     /// commit-5 정책 9 / 3.4: provider 전환 후 호출. 새 provider 의 capability 와 현재 chip 비교 →
     /// 미지원 첨부 강제 제거 + 1줄 안내. <see cref="ConfigureProviderAsync"/> 의 IsReady=true 직후 진입.
-    /// commit-6 m2: image format 별 세분 비교 — mime 으로 <see cref="ImageFormat"/> 역추론 후
-    /// <c>caps.ImageFormats.Contains</c> 체크 (PNG 만 지원하는 provider 에서 JPEG chip 은 제거).
+    /// commit-6 m2: image format 별 세분 비교 (PNG 만 지원하는 provider 에서 JPEG chip 은 제거).
+    /// rev 18 m3: chip 의 <see cref="Attachment"/> 에서 직접 ImageFormat 추출 (`AttachmentInfo.tryGetImageFormat`)
+    /// — mime 문자열 역추론 helper (`ImageFormatFromMime`) 폐기.
     /// </summary>
     public void ReevaluateAttachmentsForProvider()
     {
@@ -198,11 +200,8 @@ public partial class LlmChatViewModel
             bool keep;
             if (src.IsImage)
             {
-                // m2: mime → ImageFormat 역추론. 미매칭이면 거부.
-                var mimeOpt = AttachmentInfo.tryGetImageMime(src);
-                var mime = mimeOpt != null ? mimeOpt.Value : null;
-                var fmt = ImageFormatFromMime(mime);
-                keep = fmt != null && caps.ImageFormats.Contains(fmt);
+                var fmtOpt = AttachmentInfo.tryGetImageFormat(src);
+                keep = fmtOpt != null && caps.ImageFormats.Contains(fmtOpt.Value);
             }
             else if (src.IsPdf)
             {
@@ -221,20 +220,6 @@ public partial class LlmChatViewModel
         }
         if (removed.Count > 0)
             AttachmentNotice = $"provider 변경 — 미지원 첨부 {removed.Count}개 제거 ({string.Join(", ", removed)})";
-    }
-
-    /// <summary>m2 helper: mime → ImageFormat 역추론. <see cref="MimeOf"/> 의 역방향.</summary>
-    private static ImageFormat? ImageFormatFromMime(string? mime)
-    {
-        if (string.IsNullOrEmpty(mime)) return null;
-        return mime switch
-        {
-            "image/png" => ImageFormat.Png,
-            "image/jpeg" => ImageFormat.Jpeg,
-            "image/gif" => ImageFormat.Gif,
-            "image/webp" => ImageFormat.Webp,
-            _ => null,
-        };
     }
 
     /// <summary>
@@ -343,8 +328,8 @@ public partial class LlmChatViewModel
                     var bytes = File.ReadAllBytes(path);
                     var (w, h) = TryReadImageDimFromPath(path);
                     var tok = TokenEstimator.anthropicImageTokens(w, h, TokenEstimator.opus47ImageCap);
-                    var mime = MimeOf(img.Item);
-                    var att = Attachment.NewImage(name, bytes, mime);
+                    // rev 18 m3: ImageFormat 직접 보유 — mime 변환은 wire 시점 (Attachment.mimeOf SSOT).
+                    var att = Attachment.NewImage(name, bytes, img.Item);
                     chips.Add(new AttachmentChipVm(name, size, tok.Item1, att));
                 }
                 else if (cls.IsAcceptText)
@@ -458,26 +443,11 @@ public partial class LlmChatViewModel
         return f is null ? (0, 0) : (f.PixelWidth, f.PixelHeight);
     }
 
-    private static string MimeOf(ImageFormat fmt)
-    {
-        // F# DU 는 C# enum 이 아니라 sealed class + static instances → switch 상수 불가.
-        // `IsPng` / `IsJpeg` / ... 자동 생성 boolean property 로 분기.
-        if (fmt.IsPng) return "image/png";
-        if (fmt.IsJpeg) return "image/jpeg";
-        if (fmt.IsGif) return "image/gif";
-        if (fmt.IsWebp) return "image/webp";
-        return "application/octet-stream";
-    }
-
-    /// <summary>review m10 — 사용자 표시용 확장자 (.jpg 등). ToString() 의 "Jpeg" 보다 친숙.</summary>
-    private static string ExtOf(ImageFormat fmt)
-    {
-        if (fmt.IsPng) return ".png";
-        if (fmt.IsJpeg) return ".jpg";
-        if (fmt.IsGif) return ".gif";
-        if (fmt.IsWebp) return ".webp";
-        return "";
-    }
+    /// <summary>review m10 — 사용자 표시용 확장자 (.jpg 등). ToString() 의 "Jpeg" 보다 친숙.
+    /// rev 18 review 후속: F# <c>Attachment.extOf</c> SSOT 위임 — 종전 IsPng/IsJpeg/IsGif/IsWebp 4 case
+    /// 분기 폐기. F# pattern match exhaustiveness 활용 (신규 case 추가 시 컴파일러 강제).
+    /// type/module 동명 (`Attachment`) 회피로 module IL 노출명은 <c>AttachmentModule</c>.</summary>
+    private static string ExtOf(ImageFormat fmt) => Ds2.LlmAgent.AttachmentModule.extOf(fmt);
 }
 
 /// <summary>

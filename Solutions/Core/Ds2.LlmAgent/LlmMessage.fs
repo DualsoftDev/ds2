@@ -12,13 +12,45 @@ type ImageFormat =
 /// rev 4 (2026-05-09) 결정: spike S-1/S-2/S-3 결과 단일 `Image` case 로 모든 provider 커버.
 /// Codex CLI (`-i/--image <FILE>...`) 어댑터는 bytes → 임시 파일 spool 후 path 전달 책임 보유.
 /// Claude CLI 는 `--input-format stream-json` 으로 base64 inline. Anthropic / OpenAI / Ollama API 도 SDK content block 으로 inline.
+///
+/// rev 18 (2026-05-09) 일원화 (m3): `Image` case 의 mime: string → format: ImageFormat 로 교체.
+/// 4 mime 의 free string 표현 (`"image/png"` 등 마법 문자열) 을 화이트리스트 enum 으로 좁혀
+/// `_ -> ".bin"` 같은 dead fallback 제거 + AttachmentClassifier / Capabilities 와의 SSOT 일원화.
+/// mime 문자열은 wire 시점에 `Attachment.mimeOf format` 으로 1:1 변환.
 type Attachment =
-    /// 이미지 첨부. mime = "image/png" | "image/jpeg" | "image/gif" | "image/webp".
-    | Image of name: string * bytes: byte[] * mime: string
+    /// 이미지 첨부. format ∈ {Png, Jpeg, Gif, Webp} — mime 변환은 <see cref="Attachment.mimeOf"/>.
+    | Image of name: string * bytes: byte[] * format: ImageFormat
     /// PDF 첨부 (Phase 3b). Anthropic / Claude CLI 만 native 지원.
     | Pdf of name: string * bytes: byte[]
     /// 텍스트/코드 첨부 — prompt injection 방어 위해 fenced wrapper 로 inline (정책 15).
     | TextFile of name: string * content: string
+
+/// <see cref="Attachment.Image"/> 의 ImageFormat ↔ mime / 확장자 1:1 매핑 (rev 18 m3 일원화).
+/// Anthropic / OpenAI / Claude CLI multipart content block 의 `media_type` 필드 형식과 동일.
+/// rev 18 review 후속: `extOf` 추가 — Codex CLI 임시 파일 spool / chip notice 사용자 표시 등 SSOT 확장.
+///
+/// `[<CompilationRepresentation(ModuleSuffix)>]` = type `Attachment` 와 동명 module 충돌 회피.
+/// F# 측은 `Attachment.mimeOf fmt` 그대로 호출, C# 측은 `Ds2.LlmAgent.AttachmentModule.mimeOf(fmt)` 로 접근.
+[<RequireQualifiedAccess>]
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module Attachment =
+    /// ImageFormat → mime ("image/png" 등). 4 case exhaustive — 신규 case 추가 시 컴파일러가 강제.
+    let mimeOf (fmt: ImageFormat) : string =
+        match fmt with
+        | Png -> "image/png"
+        | Jpeg -> "image/jpeg"
+        | Gif -> "image/gif"
+        | Webp -> "image/webp"
+
+    /// ImageFormat → 파일 확장자 (".png" 등). 4 case exhaustive.
+    /// `mimeOf` 와 동일 SSOT — Codex CLI 임시 파일 spool (`CodexCliProvider.fs`) / C# chip notice
+    /// 사용자 표시 (`LlmChatViewModel.Attachments.cs ExtOf`) 양쪽이 본 helper 위임.
+    let extOf (fmt: ImageFormat) : string =
+        match fmt with
+        | Png -> ".png"
+        | Jpeg -> ".jpg"
+        | Gif -> ".gif"
+        | Webp -> ".webp"
 
 /// `ILlmProvider.Send` 의 user message 표현. 텍스트 + 첨부.
 ///
@@ -115,17 +147,20 @@ type PdfAttachmentData = { Name: string; Bytes: byte[] }
 
 /// 첨부 metadata 추출 helper (commit-6 m2). F# DU C# interop 에서 multi-field named 의 명칭 모호함 회피.
 module AttachmentInfo =
-    /// 이미지 mime — 이미지 case 가 아니면 None.
-    let tryGetImageMime (att: Attachment) : string option =
+    /// 이미지 ImageFormat — 이미지 case 가 아니면 None. rev 18 m3: chip reevaluate 시 mime → ImageFormat 역추론
+    /// 회피 위해 직접 format 노출. C# 측에서 <c>caps.ImageFormats.Contains(fmt)</c> 비교에 사용.
+    /// rev 18 review 후속: `tryGetImageMime` 폐기 (외부 호출자 0건) — mime 필요 시 `tryGetImage.Mime` 사용.
+    let tryGetImageFormat (att: Attachment) : ImageFormat option =
         match att with
-        | Image (_, _, mime) -> Some mime
+        | Image (_, _, fmt) -> Some fmt
         | _ -> None
 
     /// commit-6b: 이미지 첨부 → record. 이미지 case 가 아니면 None.
     /// C# 측에서 `Attachment.Image` 중첩 클래스의 field 명 (F# 컴파일러 버전별) 의존 회피.
+    /// rev 18 m3: format → mime 변환은 본 helper 가 책임 — 호출자 (ApiChatProvider) 의 Mime field 의존 호환 유지.
     let tryGetImage (att: Attachment) : ImageAttachmentData option =
         match att with
-        | Image (n, b, m) -> Some { Name = n; Bytes = b; Mime = m }
+        | Image (n, b, fmt) -> Some { Name = n; Bytes = b; Mime = Attachment.mimeOf fmt }
         | _ -> None
 
     /// commit-6b: PDF 첨부 → record. PDF case 가 아니면 None.
@@ -214,7 +249,7 @@ module LlmUserMessageOps =
         else
             for att in msg.Attachments do
                 match att with
-                | Image (name, _, _) ->
+                | Image (name, _, _fmt) ->
                     if caps.ImageFormats.IsEmpty then
                         Log.provider.Warn(sprintf "이미지 첨부 무시 — provider capability 미지원: %s" name)
                 | Pdf (name, _) ->
@@ -230,9 +265,13 @@ module LlmUserMessageOps =
         else
             for att in msg.Attachments do
                 match att with
-                | Image (name, _, mime) ->
+                | Image (name, _, fmt) ->
                     if caps.ImageFormats.IsEmpty then
-                        invalidArg "msg" (sprintf "이미지 첨부 미지원 provider 에 wire 시도: %s (%s)" name mime)
+                        invalidArg "msg" (sprintf "이미지 첨부 미지원 provider 에 wire 시도: %s (%s)" name (Attachment.mimeOf fmt))
+                    elif not (caps.ImageFormats.Contains fmt) then
+                        // rev 18 m3: format 별 세분 검증 추가 — capability 가 일부 format 만 지원하는 provider 대비
+                        // (현재는 4종 일괄 지원/미지원이라 dead path 지만 향후 모델별 capability 변동 시 fail-fast).
+                        invalidArg "msg" (sprintf "이미지 포맷 미지원 provider 에 wire 시도: %s (%s)" name (Attachment.mimeOf fmt))
                 | Pdf (name, _) ->
                     if not caps.SupportsPdfNative then
                         invalidArg "msg" (sprintf "PDF 첨부 미지원 provider 에 wire 시도: %s" name)

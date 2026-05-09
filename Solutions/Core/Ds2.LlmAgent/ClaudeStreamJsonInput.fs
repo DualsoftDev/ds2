@@ -47,12 +47,13 @@ module ClaudeStreamJsonInput =
 
             for att in attachments do
                 match att with
-                | Image (_, bytes, mime) ->
+                | Image (_, bytes, fmt) ->
                     writer.WriteStartObject()
                     writer.WriteString("type", "image")
                     writer.WriteStartObject("source")
                     writer.WriteString("type", "base64")
-                    writer.WriteString("media_type", mime)
+                    // rev 18 m3: ImageFormat → mime 1:1 변환은 Attachment.mimeOf SSOT.
+                    writer.WriteString("media_type", Attachment.mimeOf fmt)
                     // Convert.ToBase64String 1회 — Anthropic API 와 동일 inline base64.
                     writer.WriteString("data", Convert.ToBase64String(bytes))
                     writer.WriteEndObject()
