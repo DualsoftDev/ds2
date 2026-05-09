@@ -36,18 +36,24 @@ public static class ApiProviderFactory
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
     {
         var raw = new AnthropicClient { ApiKey = apiKey }.AsIChatClient(model);
+        // Anthropic API 공식 한도 — 이미지 base64 inline 5MB / PDF document 32MB. Files API 경유 시 별도.
+        var caps = Capabilities.ImagesAndPdf(5L * 1024L * 1024L, 32L * 1024L * 1024L);
         return CreateInternalAsync(
             raw, "Anthropic", model, systemPrompt, mcpServerUrl, mcpNonce,
-            validate: () => !string.IsNullOrEmpty(apiKey));
+            validate: () => !string.IsNullOrEmpty(apiKey),
+            capabilities: caps);
     }
 
     public static Task<ApiChatProvider> CreateOpenAiAsync(
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
     {
         var raw = new OpenAIClient(apiKey).GetChatClient(model).AsIChatClient();
+        // OpenAI gpt-4o vision — 이미지 20MB. PDF 직접 지원 여부 = V-1 미해결 (S-4 spike) → 보수적으로 미지원.
+        var caps = Capabilities.ImagesOnly(20L * 1024L * 1024L);
         return CreateInternalAsync(
             raw, "OpenAI", model, systemPrompt, mcpServerUrl, mcpNonce,
-            validate: () => !string.IsNullOrEmpty(apiKey));
+            validate: () => !string.IsNullOrEmpty(apiKey),
+            capabilities: caps);
     }
 
     /// <summary>
@@ -64,9 +70,11 @@ public static class ApiProviderFactory
         var keyForCtor = string.IsNullOrEmpty(apiKey) ? "missing" : apiKey;
         var options = new OpenAIClientOptions { Endpoint = GroqEndpoint };
         var raw = new OpenAIClient(new ApiKeyCredential(keyForCtor), options).GetChatClient(model).AsIChatClient();
+        // F-1 spike Llama 4 Scout = 텍스트 only tier (vision 별도 모델). 보수적으로 TextOnly.
         return CreateInternalAsync(
             raw, "Groq", model, systemPrompt, mcpServerUrl, mcpNonce,
-            validate: () => !string.IsNullOrEmpty(apiKey));
+            validate: () => !string.IsNullOrEmpty(apiKey),
+            capabilities: Capabilities.TextOnly);
     }
 
     public static Task<ApiChatProvider> CreateOllamaAsync(
@@ -74,9 +82,12 @@ public static class ApiProviderFactory
     {
         // OllamaApiClient 가 IChatClient 직접 구현. base URL + 기본 모델만 주면 됨. API key 없음 → 항상 valid.
         IChatClient raw = new OllamaApiClient(new Uri(baseUrl), defaultModel: model);
+        // 모델 의존 — vision 모델 (llava/llama3.2-vision 등) 동적 갱신은 phase 3a UI commit 에서 `/api/show` 조회.
+        // 현 단계 정적 placeholder = TextOnly.
         return CreateInternalAsync(
             raw, "Ollama", model, systemPrompt, mcpServerUrl, mcpNonce,
-            validate: () => true);
+            validate: () => true,
+            capabilities: Capabilities.TextOnly);
     }
 
     /// <summary>
@@ -85,11 +96,12 @@ public static class ApiProviderFactory
     /// </summary>
     private static async Task<ApiChatProvider> CreateInternalAsync(
         IChatClient raw, string label, string model,
-        string systemPrompt, string mcpServerUrl, string mcpNonce, Func<bool> validate)
+        string systemPrompt, string mcpServerUrl, string mcpNonce,
+        Func<bool> validate, Capabilities capabilities)
     {
         var chatClient = new ChatClientBuilder(raw).UseFunctionInvocation().Build();
         var (mcpClient, http) = await CreateMcpClientAsync(mcpServerUrl, mcpNonce).ConfigureAwait(false);
-        return new ApiChatProvider(chatClient, mcpClient, http, label, model, systemPrompt, validate);
+        return new ApiChatProvider(chatClient, mcpClient, http, label, model, systemPrompt, validate, capabilities);
     }
 
     /// <summary>

@@ -26,10 +26,18 @@ type ILlmProvider =
 
     /// 단일 turn 의 stream 이벤트를 비동기로 흘려보낸다. `await foreach` 로 소비.
     /// `cancellationToken` cancel 시 background process kill + ProviderError emit + writer.Complete().
-    abstract Send : prompt: string * cancellationToken: CancellationToken -> IAsyncEnumerable<LlmEvent>
+    ///
+    /// rev 4 (2026-05-09 / commit-2): `string prompt` → `LlmUserMessage msg` 마이그레이션.
+    /// 현 단계에서는 어댑터 모두 `msg.Attachments` 를 무시하고 `msg.Text` 만 사용 (회귀 호환).
+    /// 첨부 wire 는 commit-4..N (UI) + Phase 3b (PDF) 에서 점증적으로 활성화.
+    abstract Send : msg: LlmUserMessage * cancellationToken: CancellationToken -> IAsyncEnumerable<LlmEvent>
 
     /// 현재 캡처된 sessionId. 첫 turn 전에는 None. resume 인자 빌드 / UI status 표시에 사용.
     abstract SessionId : string option
 
     /// Session 강제 초기화. 다음 Send 가 새 session 으로 시작.
     abstract ClearSession : unit -> unit
+
+    /// 본 provider 의 multimodal 능력. Claude/Codex CLI 는 `EnsureCli` 시점 정적 확정,
+    /// Ollama 는 모델별 `/api/show` 동적 갱신. 첨부 미지원 provider 는 `Capabilities.TextOnly`.
+    abstract Capabilities : Capabilities

@@ -27,8 +27,11 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
 
     /// 단일 turn 의 stream 이벤트를 비동기로 흘려보낸다.
     /// 호출자는 `await foreach` 로 소비. 외부 cancellation 으로 중단 가능.
-    member this.Send (prompt: string, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
+    ///
+    /// rev 4 (commit-2): `LlmUserMessage` 수신 — 현 단계 `msg.Attachments` 무시. 첨부 wire 는 commit-4..N 에서.
+    member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
+        let prompt = msg.Text
 
         // SystemPrompt 본문은 임시 파일에 저장 후 `--append-system-prompt-file <path>` 로 전달.
         // **Why**: Windows CreateProcess 의 lpCommandLine 32K 한계 초과 시 [WinError 206]
@@ -77,10 +80,15 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
     /// Session 강제 초기화 (Reset 명령). 다음 Send 가 `--resume` 없이 새 세션 시작.
     member _.ClearSession () = sessionId <- None
 
+    /// Capabilities — Anthropic API 와 동일 (CLI 가 stream-json 으로 동일 multipart wire).
+    /// 이미지 4종 (png/jpg/gif/webp) base64 inline 5MB + PDF document block 32MB.
+    member _.Capabilities = Capabilities.ImagesAndPdf(5L * 1024L * 1024L, 32L * 1024L * 1024L)
+
     interface ILlmProvider with
         member this.EnsureCli () = this.EnsureCli ()
         // instance method 의 `?cancellationToken: CancellationToken` 에 named arg 로 forward —
         // positional 매핑보다 의도가 명시적 + 향후 instance signature 변경 시 안전성 ↑.
-        member this.Send (prompt, ct) = this.Send (prompt, cancellationToken = ct)
+        member this.Send (msg, ct) = this.Send (msg, cancellationToken = ct)
         member this.SessionId = this.SessionId
         member this.ClearSession () = this.ClearSession ()
+        member this.Capabilities = this.Capabilities
