@@ -358,3 +358,82 @@
   - `OnFinally` cancel / non-zero exit / spawn 실패 모두 `try ... finally` 진입 — `CliProcessHost.fs:197-199` 검증
   - F# record `ImageAttachmentData` C# PascalCase + `FSharpOption.Value` interop 패턴이 `LlmChatViewModel.Attachments.cs:189` 와 완전 일관
   - `useStreamJsonInput` JSON Lines 단일 라인 = 골든 테스트로 회귀 보장
+
+## Phase 3a — commit-6b 후속 fix (rev 13, 2026-05-09)
+
+### 회귀 2건 + 적용 fix
+
+**회귀 1: Ctrl+V (image-only / file-drop-only 클립보드)**
+- 증상: Snipping Tool 캡처 / 탐색기 파일 Ctrl+C 후 InputBox Ctrl+V → chip 추가 안 됨
+- 근본 원인: WPF `TextBox.ApplicationCommands.Paste.CanExecute` 가 클립보드에 텍스트 부재 시 false → `DataObject.AddPastingHandler` 자체 미발화
+- fix: `LlmChatPanel.xaml.cs` 의 `InputBox_PreviewKeyDown` 에서 Ctrl+V 직접 가로채기 + `TryHandleClipboardPaste` 신설 (Clipboard API 직접 검사 — file drop > image > 텍스트는 default e.Handled=false)
+- 부수 강화: `OnInputPaste` ②번 PNG 분기 — `ExtractBytes` helper 로 byte[] / Stream / MemoryStream 도구별 차이 흡수. ③번 BitmapSource 분기 — `Clipboard.GetImage()` fallback 으로 CF_DIB / CF_DIBV5 통합 처리
+
+**회귀 2: Claude CLI stream-json input exit code 1**
+- 증상: 이미지 첨부 송신 시 "Claude CLI 비정상 종료 (exit code = 1) — stderr: Error parsing streaming input line: {...}"
+- 근본 원인 (a): envelope 끝에 `\n` 부재 → Claude CLI line-based parser 가 partial line 으로 인식
+- 근본 원인 (b): `psi.StandardInputEncoding = System.Text.Encoding.UTF8` (default `emitUTF8Identifier=true`) → stdin 첫 write 시 UTF-8 BOM (`EF BB BF`) 자동 송출 → 첫 line 의 BOM 이 invalid JSON 으로 reject
+- 진단 보조: `OnExitNonZero` 의 stderr suffix 추가 (Codex 패턴 일관). 임시 stdin dump 코드 (`%TEMP%\Promaker.LlmAgent\claude-stdin-last.jsonl`) 로 BOM 식별
+- fix (a): `ClaudeStreamJsonInput.encode` 결과에 trailing `\n` (`Encoding.UTF8.GetString(buffer.ToArray()) + "\n"`)
+- fix (b): `CliProcessHost.fs:90` `psi.StandardInputEncoding = System.Text.UTF8Encoding(false)` (BOM 없는 UTF-8)
+- 부수: `CliProcessHost.Spec.OnExitNonZero` xmldoc 갱신 ("Codex 전용" → "Codex/Claude 공통")
+
+### 산출물 (수정 5)
+
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml.cs` (~+110 line, partial 갱신)
+  - `OnInputPaste` 강화 — `ExtractBytes` (byte[]/Stream/MemoryStream 흡수), `Clipboard.GetImage()` fallback
+  - `InputBox_PreviewKeyDown` Ctrl+V 분기 + `TryHandleClipboardPaste` 신설
+  - `EnqueueBitmapImage(vm, src)` static helper 추출 (자가 검열 Minor-1 + 외부 review 문제 1)
+  - `ExtractBytes` 의 `case Stream s` 에 `using (s)` dispose 추가 (외부 review 문제 2)
+  - `OnInputPaste` ③ fallback dead path 의도 주석 보강 (외부 review 문제 3)
+- `Solutions/Core/Ds2.LlmAgent/ClaudeStreamJsonInput.fs` — trailing `\n` 추가 + xmldoc 명시
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` — `OnExitNonZero` stderr suffix 활성
+- `Solutions/Core/Ds2.LlmAgent/CliProcessHost.fs` — `UTF8Encoding(false)` + Spec 주석 갱신
+- `Solutions/Tests/Ds2.LlmAgent.Tests/ClaudeStreamJsonInputTests.fs` — trailing `\n` 골든 테스트 갱신 (`EndsWith("\n")` + body 안 newline 부재)
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과
+- `dotnet test --no-build` = **221건 전수 통과** (commit-6b 동일)
+- 사용자 실측 — Snipping Tool 캡처 paste + 송신 정상 응답 확인 ("it works!")
+- envelope dump 직접 hex 검증 — `EF BB BF` BOM 식별이 fix 의 결정적 증거
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 1 / Minor 3 → 적용)
+
+- **Major-1 적용**: Ctrl+V 우선순위 (file > image > text) 의도 명확화 — `TryHandleClipboardPaste` xmldoc 에 정책 3.3 인용 + mixed clipboard 시 첫 매칭만 처리 명시
+- **Minor-1 적용**: `EnqueueBitmapImage(vm, src)` static helper 추출 — `OnInputPaste` ③ + `TryHandleClipboardPaste` ② 양쪽 호출. CLAUDE.md "3줄 이상 반복 → refactoring" 정합
+- **Minor-2 거부**: encode 단위 테스트의 BOM 검증 위치 부적절 — reviewer 자체 결론
+- **Minor-3 적용**: `CliProcessHost.Spec.OnExitNonZero` 주석을 "Codex 전용 — Claude 무시" → "Codex/Claude 공통" 갱신
+
+### 외부 review (5명 reviewer 종합) 적용
+
+- **문제 1 (helper 추출 권장)** — 반론 (자가 검열에서 이미 `EnqueueBitmapImage` 추출 완료)
+- **문제 2 (Stream dispose)** — 적용 (`using (s)` 추가)
+- **문제 3 (③ fallback dead path 주석)** — 적용 (PreviewKeyDown / IME / 컨텍스트 메뉴 edge case 명시)
+- **문제 4 (`AddPathsAsync` 시그니처)** — 검증 완료 (IReadOnlyList<string> ← string[] OK)
+
+### 잔여 / 의도적 미적용
+
+- 본 fix 가 commit-6b 의 핵심 동작을 살린 회귀 fix — Phase 3a-pre S-4 spike + Phase 3b PDF 진입 가능 상태
+- Codex CLI / API provider 측은 회귀 영향 없음 (확인 — Codex stdin 미사용, API HTTP 직접)
+
+## F-1 spike 5-reviewer review 즉시 조치 (rev 14, 2026-05-09)
+
+본 phase 와 직접 관련 없는 **F-1 Groq spike** (commit `c5b9df27`) 에 대한 5-reviewer review 를 적용. spike 가 별도 branch (feature/groq) 가 아닌 본 branch (`feature/llms/attachment`) 로 leak 되어 11 commit 위에 LLM Chat 첨부 phase 가 쌓인 상태 — revert 불가, todo `:74-75` 의 (a) 코드 보존 노선으로 자연 진행.
+
+### 적용 (3건, spike scope, 14 line)
+
+- `Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs:154,158` — consent 문구에 Groq 추가 ("Claude / OpenAI / Anthropic / Ollama / Groq", "...Ollama (local) / Groq API"). **GDPR-급** — 동의 외 provider 송신 차단
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs:411-414` — `_config.GetApiKey(ApiProviderFactory.GroqKey) ?? Env.Trim() ?? ""` 2-tier 정렬 (`GroqKey="groq"` dead constant 활성, `EncryptedKeys` Dict 는 schema 자유). env-var Trim() Groq 한정 적용
+- `LlmChatViewModel.cs:399-404` xmldoc — DPAPI 2-tier 명시 + GroqModel F-4 이전 명시
+
+### 보류 (F-4 cleanup 합류, `todo-free-llm-providers.md:395` sub-bullet 등록)
+
+- `LlmConfig.GroqModel` property 추가 (LlmConfig schema = F-4 영역)
+- `CreateOpenAiCompatibleAsync(... endpoint, caps)` 일반화 (R-1) — trigger ②⑤
+- `LlmProviderKindDriftTest` 신설
+- Anthropic / OpenAI provider env-var Trim() 정렬 (Groq 와 일관)
+
+### commit
+
+- `e32c583` — F-1 spike 5-reviewer review 즉시 조치 3건 적용
