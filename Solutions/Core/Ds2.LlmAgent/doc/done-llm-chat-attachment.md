@@ -537,3 +537,83 @@
 - **probe 시 cancellationToken 미전달** — 본 단계 ConfigureProviderAsync flow 에 token 전파 없음. 향후 cancel 우선순위 정책 결정 시 갱신. 현 단계 fallback 의 보수성 (TextOnly) 으로 graceful
 - **ImageFormats 별 세분 capability** — Ollama 의 vision 모델이 PNG/JPEG/GIF/WebP 모두 지원하는 모델 (`llama3.2-vision`) vs 일부만 지원하는 모델 분기 미적용. `Capabilities.ImagesOnly(20MB)` = 4종 일괄. 모델별 차이는 OllamaSharp `/api/show` 응답 구조 안에 명시되지 않아 별도 KB 필요 — todo deferred
 - **Ollama image cap 20MB 의 정확성** — Ollama 자체 한도가 명시 문서로 없어 OpenAI 와 동일하게 보수적으로 설정. 실제 OOM / 거부는 Ollama 응답으로 노출 → 향후 사용자 피드백 반영
+
+## Phase 3a 후속 — probe CT 인프라 + Codex/Ollama PDF fallback (rev 17, 2026-05-09)
+
+### probe CT 전파 인프라 — 4 factory + helper (1 파일 / +14 line)
+
+- **배경**: rev 16 잔여 사항 ("probe 시 cancellationToken 미전달 — 향후 cancel 우선순위 정책 결정 시 갱신"). caller 측 cancel 정책 결정과 무관하게 인프라만 준비
+- **구현 방향**: factory layer 에 `CancellationToken cancellationToken = default` 매개변수만 추가 (default param 으로 non-breaking). caller 측 (LlmChatViewModel `Create*Async` 4종) 변경 없음 — 향후 ConfigureProviderAsync 가 CT 만들어 전달하면 즉시 활용 가능
+- **OllamaSharp 5.4.25 / MCP.Core 1.2.0 SDK 검증**:
+  - `OllamaSharp.OllamaApiClientExtensions.ShowModelAsync(IOllamaApiClient, string, CancellationToken)` — XML doc 직접 검증
+  - `ModelContextProtocol.Client.McpClient.CreateAsync(IClientTransport, McpClientOptions, ILoggerFactory, CancellationToken)` — XML doc 직접 검증
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiProviderFactory.cs`
+  - `using System.Threading;` 추가
+  - `CreateAnthropicAsync` / `CreateOpenAiAsync` / `CreateGroqAsync` / `CreateOllamaAsync` 시그니처에 `CancellationToken cancellationToken = default` 추가 — `CreateInternalAsync` 로 전파
+  - `ProbeOllamaCapabilitiesAsync(client, model, ct)` — `client.ShowModelAsync(model, ct)` 호출. `OperationCanceledException when ct.IsCancellationRequested` catch 분기 추가 → throw 그대로 (TextOnly fallback 우회 — caller stale 처리에 위임). 일반 `Exception` 은 기존 `Log.Warn` + TextOnly fallback 유지
+  - `CreateInternalAsync` / `CreateMcpClientAsync` 도 CT 인자 받아 `McpClient.CreateAsync(transport, cancellationToken: ct)` 까지 전파
+
+### 회귀 호환
+
+- caller (LlmChatViewModel.cs:363/378/391/419) 의 `await ApiProviderFactory.Create*Async(...)` 호출은 새 default param 미전달 → `CancellationToken.None` 사용 → 기존 동작 그대로
+- `Capabilities` schema 무변 → F# 측 회귀 0
+- 향후 ConfigureProviderAsync 가 자체 CT 만들어 전달 시: provider switch 시 진행 중 probe / MCP connect 즉시 cancel 가능 (현재는 stale switch 응답을 _switchCounter 비교로 무시만 — 작업은 끝까지 진행)
+
+### 자가 검열 trigger 분석 (수행 미필요)
+
+- ① 시그니처 변경 = 5 함수 (default param 추가, non-breaking) — breaking 미충족
+- ② 신규 함수/타입 = 0
+- ③ 단일 파일 line = ~14 line — 미충족 (≥100)
+- ④ dispatch / state machine = ✗
+- ⑤ public API/SSOT = default param 추가 (non-breaking) — 미충족
+
+### Codex/Ollama PDF fallback — 자동 텍스트 추출 (deferred C-2 fallback D, 1 파일 / +44 line)
+
+- **배경**: todo §4 deferred C-2 ("PDF 미지원 provider 의 fallback 정책 — 자동 텍스트 추출 vs 확인 dialog — 현재는 거부") 결정 — **fallback D** 채택 (자동 추출 + 1MB 가드)
+- **D 옵션 사유** (vs A/B/C):
+  - A (자동 추출): UX 자동, 토큰 폭증 우려
+  - B (확인 dialog): UX 무거움, 다중 PDF drag-drop 흐름 깨짐
+  - C (거부 유지 + 안내 강화): 정책 4/8 일관, 자동화 편의 부재
+  - D (A + 텍스트 1MB cap): A 의 토큰 폭증 우려를 1MB 가드로 흡수 — 가장 균형
+- **정책 위반 검토**: 정책 4/8 ("미지원 즉시 거부") 의 정신은 *capability 미정의* 미지원에 대한 것. PDF→텍스트는 기능적으로 가능한 변환이며 사용자 의사가 명백 (PDF 를 LLM 에 전달 의도). bgNotice 1줄 안내로 추적성 보장
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+  - `using System.Text;` 추가 (UTF-8 byte count + StringBuilder)
+  - `DefaultPdfSizeCap = 32MB` 상수 — 미지원 provider 의 sync 단계 size cap fallback
+  - `ClassifyPathSync` PDF 분기 — `!caps.SupportsPdfNative` 거부 분기 제거. `pdfSizeCap = caps.SupportsPdfNative ? (caps.MaxPdfBytes ?? DefaultPdfSizeCap) : DefaultPdfSizeCap` 로 size cap 일률 적용 → accepted push
+  - `LoadAcceptedAttachments` PDF 분기 — `using (doc)` 패턴으로 IDisposable 보장 후 분기:
+    - `caps.SupportsPdfNative=true`: 기존 native wire 경로 (페이지 cap 검증 + `Attachment.NewPdf` chip)
+    - `caps.SupportsPdfNative=false`: `ExtractPdfText(doc)` 호출 → `Encoding.UTF8.GetByteCount(text) > MaxTextBytes(1MB)` 거부 / 통과 시 `TokenEstimator.estimateKoreanRatio` + `textTokens` → `Attachment.NewTextFile(name, text)` chip + bgNotice "`{name}`: PDF 미지원 → 텍스트 N페이지 추출됨"
+  - `ExtractPdfText(doc)` 신설 — `doc.GetPages()` foreach `page.Text` + AppendLine concat. PdfPig 0.1.14 의 vector text stream 추출 (OCR 아님 — 스캔 PDF 는 빈 결과)
+
+### 회귀 호환
+
+- native 지원 provider (Anthropic/OpenAI/Claude CLI) 는 분기 변화 없음 — 기존 `Attachment.NewPdf` 경로 그대로
+- TextFile chip 으로 변환된 fallback 결과는 기존 텍스트 첨부 wire 와 동일 흐름:
+  - SendAsync 의 `AttachmentRendering.toInlineString` 으로 fenced wrapper inline (정책 15)
+  - `EnforceCapabilityOrFail` = TextFile capability 무관 → Codex/Ollama 모두 통과
+  - history summary = 일반 텍스트 첨부 metadata 형식
+- chip FileName 은 원본 PDF 이름 (`spec.pdf`) 유지 → 사용자가 SendAsync 후 turn 표시에서 출처 인지 가능
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **225건 전수 통과** (F# 측 변경 없음)
+- 수동 테스트 시나리오 (사용자 실측 권장):
+  - Codex provider 선택 + PDF drag-drop → chip 추가 + bgNotice "PDF 미지원 → 텍스트 N페이지 추출됨" 노출 확인
+  - 1MB 초과 PDF 텍스트 → "PDF 추출 텍스트 NMB 가 1MB 초과 — 거부" notice 확인
+  - 스캔 PDF (이미지 only) → 빈 텍스트 추출 → chip 은 추가되지만 빈 fenced 블록 — UX 후속 보강 후보
+
+### 자가 검열 trigger 분석 (수행 미필요)
+
+- ① 시그니처 변경 = 0
+- ② 신규 함수/타입 = `ExtractPdfText` 1개 — 미충족 (≥3)
+- ③ 단일 파일 line = ~44 line — 미충족 (≥100)
+- ④ dispatch / state machine = 분기 추가 (재작성 아님)
+- ⑤ public API/SSOT = ✗ — 미충족
+- 정책 변경 사안이라 영향력 있으나 trigger 미충족. 본 commit 정의 = "거부 → 자동 변환 (1MB 가드)" 단일 정책 변경
+
+### 잔여 / 의도적 미적용
+
+- **스캔 PDF (vector text 부재) UX 안내** — `ExtractPdfText` 결과 빈 문자열 시 chip 은 추가되지만 의미 없는 fenced 블록 송신. OCR fallback 또는 빈 결과 안내는 별도 phase
+- **DefaultPdfSizeCap 32MB 의 정확성** — Anthropic native 한도와 동일하게 보수 설정. 미지원 provider 측 텍스트 추출 후 1MB cap 이 실 차단. 실 사용 피드백 반영 시 조정
+- **D 가드 외 native 미지원의 페이지 cap** — fallback 경로는 `caps.MaxPdfPages` 검사 안 함 (의도). 큰 PDF 도 텍스트 1MB 면 통과. 페이지 수 직접 cap 추가 필요 시 후속
