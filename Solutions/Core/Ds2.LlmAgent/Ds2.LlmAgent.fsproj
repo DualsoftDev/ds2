@@ -11,6 +11,8 @@
     <Compile Include="ProcessUtils.fs" />
     <Compile Include="LlmEvent.fs" />
     <Compile Include="LlmMessage.fs" />
+    <Compile Include="AttachmentClassifier.fs" />
+    <Compile Include="TokenEstimator.fs" />
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
     <Compile Include="ClaudeCliArgs.fs" />

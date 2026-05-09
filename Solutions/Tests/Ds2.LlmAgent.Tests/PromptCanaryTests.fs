@@ -37,6 +37,12 @@ let ``3.tooling.md 첫 줄에 canary pong 표기`` () =
     Assert.Contains("pong: Prompts/3.tooling.md", line)
 
 [<Fact>]
+let ``4.attachments.md 첫 줄에 canary pong 표기`` () =
+    let line = firstLine "4.attachments.md"
+    Assert.Contains("canary:", line)
+    Assert.Contains("pong: Prompts/4.attachments.md", line)
+
+[<Fact>]
 let ``CLAUDE.md 첫 줄에 canary pong 표기`` () =
     let line = firstLine "CLAUDE.md"
     Assert.Contains("canary:", line)
