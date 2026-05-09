@@ -117,16 +117,16 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ### Phase 3a — 이미지 + 텍스트/코드 첨부 (commit 4단계 분할)
 
-#### commit-1 — type 신설 (dead code 허용)
+#### commit-1 — type 신설 (dead code 허용) — 완료 (a93e763, 2026-05-09)
 
-- [ ] `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` 신설 (단일 파일) — `Attachment` DU + `LlmUserMessage` record + `Capabilities` record + `ImageFormat` 열거 + `LlmUserMessage.OfText` factory. `<Compile Include>` = `LlmEvent.fs` 다음
-- [ ] build 통과 확인 (사용처 0)
+- [x] `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` 신설 (단일 파일) — `Attachment` DU + `LlmUserMessage` record + `Capabilities` record + `ImageFormat` 열거 + `LlmUserMessage.OfText` factory. `<Compile Include>` = `LlmEvent.fs` 다음
+- [x] build 통과 확인 (사용처 0)
 
-#### commit-2 — Send 시그니처 마이그레이션 (텍스트 송신 회귀 보장)
+#### commit-2 — Send 시그니처 마이그레이션 (텍스트 송신 회귀 보장) — 완료 (7450520, 2026-05-09)
 
-- [ ] `LlmProvider.fs:29` 의 `Send` 시그니처 교체 (`string prompt` → `LlmUserMessage msg`). 5종 provider 어댑터 + LlmChatViewModel 송신 진입점 동시 갱신
-- [ ] **Attachments 무시, Text 만 사용** — 기존 텍스트 송신 회귀 통과 = commit 정의
-- [ ] `ILlmProvider.Capabilities` 멤버 추가 + provider 별 채우기 (CLI 는 spike 결과). `EnsureCli` 시점 평가 (Ollama 동적)
+- [x] `LlmProvider.fs:29` 의 `Send` 시그니처 교체 (`string prompt` → `LlmUserMessage msg`). 5종 provider 어댑터 + LlmChatViewModel 송신 진입점 동시 갱신
+- [x] **Attachments 무시, Text 만 사용** — 기존 텍스트 송신 회귀 통과 = commit 정의
+- [x] `ILlmProvider.Capabilities` 멤버 추가 + provider 별 채우기. Claude CLI = ImagesAndPdf(5MB/32MB), Codex CLI = ImagesOnly(20MB), Anthropic API = ImagesAndPdf, OpenAI API = ImagesOnly(20MB), Groq/Ollama = TextOnly. **Ollama 동적 갱신은 commit-4..N 으로 미룸** (정적 placeholder 만)
 
 #### commit-3 — Validator + TokenEstimator + System prompt
 
@@ -219,6 +219,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 - rev 1 (2026-05-08): 초기 작성. `--plan` 토론 결과 정책 12개 + Phase 3a/3b 분할 + deferred C-1/C-2 확정
 - rev 2 (2026-05-08): `--review` 1차 (6건) 결과 반영. 정책 13~16 신설 + 컬렉션 타입 `Attachment[]` 정정 + Phase 3a-pre spike (S-1~S-3) 신설 + §6 결정 항목 D-1 신설
+- rev 5 (2026-05-09): Phase 3a commit-1 (a93e763) + commit-2 (7450520) 완료 체크박스 갱신. commit-2 = `ILlmProvider.Send` 시그니처 마이그레이션 (`string prompt` → `LlmUserMessage msg`) + `Capabilities` 추상 멤버 추가, 5종 provider + LlmChatViewModel 일괄. 회귀 호환 통과 (Attachments 무시 / msg.Text 만 사용). 자가 검열 통과 (7파일 +76/-15, blocking 0)
 - rev 4 (2026-05-09): Phase 3a-pre spike S-1/S-2/S-3 완료 — Claude CLI 2.1.136 = `--input-format stream-json` content block 채널, Codex CLI 0.128.0 = `-i/--image <FILE>...` path 기반 확정. DU 단일 `Image of name * bytes * mime` 유지 (Codex 어댑터가 임시 파일 spool 책임). §3.2 capability matrix Claude CLI 행 채움 + 정책 13 갱신 + V-2/V-3 closed. 결과는 `done-llm-chat-attachment.md` 신설하여 기록
 - rev 3 (2026-05-08): `--review` 메타 (5명, Critical 5 + Major 11 + Minor 12) + 외부 사실 검증 결과 일괄 반영
     - **외부 검증 통과**: 이미지 5MB cap (CR-1) / image token modelCap (Opus 4.7 = 4,784, 그 외 = 1,568) (MA-1) / PDF 페이지 cap (200K context = 100, 그 외 = 600) (MA-10)
