@@ -223,3 +223,46 @@
 - **m5**: `ApiChatProvider.cs:145,178-180` streaming `collected.Add(update)` 누적 메모리 — 본 PR 범위 외 follow-up
 - **m6**: `_history` unbounded — multi-turn OOM. todo 정책 추가 권고
 - **m9**: BOM 4중 elif → table-driven. 룰 5번째 추가 시 trigger
+
+## Phase 3a — commit-5 (rev 10, 2026-05-09)
+
+### 산출물 (수정 4)
+
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml`
+  - input TextBox 에 `x:Name="InputBox"` 부여 (DataObject.AddPastingHandler hook 대상)
+  - root Grid 를 outer `<Border x:Name="DragHighlightBorder">` (BorderThickness=2 / CornerRadius=3 / Padding=6) 로 감쌈 — drag-over visual cue (정책 commit-5)
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml.cs`
+  - constructor 에서 `DataObject.AddPastingHandler(InputBox, OnInputPaste)` 등록 (정책 2 정석)
+  - `OnInputPaste` 우선순위 (정책 3.3절): file drop > image > text. text-only 는 `e.CancelCommand()` 미호출 → 기존 TextBox paste 회귀 (MI-3)
+  - `TryExtractPngBytes` helper — CF_PNG raw 우선 (`MemoryStream.ToArray()` 재인코딩 회피) / fallback `BitmapSource` → `Clone()+Freeze()` → `PngBitmapEncoder` (큰 이미지 background marshal 은 commit-6 이월 — m1)
+  - `Panel_PreviewDragEnter` / `PreviewDragOver` 에서 FileDrop 일 때 `DragHighlightBorder.BorderBrush = AccentBrush` (`TryFindResource` fallback `DodgerBlue`). Leave/Drop 시 Transparent. 자가 검열 M1 적용 — Enter/Over 짝
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+  - `ReevaluateAttachmentsForProvider()` 추가 — `_provider.Capabilities` 와 chip `Source.IsImage`/`IsPdf`/`IsTextFile` 분기로 미지원 chip 강제 제거 + notice (정책 9 / 3.4). image format 세분 비교는 단순화 (commit-6 m2)
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs`
+  - `ConfigureProviderAsync` 의 IsValid=true 분기에서 `IsReady = true` 직후 `ReevaluateAttachmentsForProvider()` 호출
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **205건 전수 통과** (commit-5 추가 fixture 없음 — UI 통합 검증은 수동)
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 1 / Minor 3)
+
+- **M1 적용**: `Panel_PreviewDragOver` 에 highlight 토글 추가 — DragEnter/Over 짝 맞춰 FileDrop 데이터로 swap 되는 edge case 에서 highlight 누락 방지
+- **m1 이월** (commit-6): 큰 BitmapSource fallback 경로의 PNG 인코딩이 STA paste handler 안 동기 수행 — 4K 스크린샷 등에서 paste freeze 가능. CF_PNG 우선 경로가 대다수 흡수해 실측 영향 작음. background marshal 로 옮길 예정
+- **m2 이월** (commit-6): `ReevaluateAttachmentsForProvider` 의 image format 별 세분 capability 비교 — 현재 모든 ImageFormats 일괄 (`!caps.ImageFormats.IsEmpty`). 4종 provider 모두 4 format 일괄 지원/미지원이라 실질 회귀 없음
+- **m3 영구 skip**: `DataContext` 변경 시 paste handler 재등록 — `MainViewModel.LlmChatVm` lazy 단일 인스턴스 패턴상 불필요
+
+### 미처리 (commit-6 으로)
+
+- race-free SendAsync (snapshot + provider 캡처) + `Attachments.Clear()` 송신 후
+- `CanSend` 갱신 (첨부-only 허용)
+- default prompt prefix
+- ImportPlan label fallback
+- F# `Attachment.toInlineString` helper (정책 15 fenced wrapper)
+- `ApiChatProvider` history summary (정책 17)
+- `StatusText` 진행 표시 + HTTP 413 매핑
+- `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환
+- commit-4 의 SendAsync system turn 안내 ("commit-6 wire 미구현 placeholder") 제거
+- CLI provider 첨부 wire 본 구현 (Claude `--input-format stream-json` JSON Lines / Codex `-i/--image` path + bytes 임시 spool)
+- commit-5 자가 검열 m1 (background 인코딩) + m2 (format 세분 비교)

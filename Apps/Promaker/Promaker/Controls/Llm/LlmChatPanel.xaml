@@ -189,7 +189,13 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="6" b:CtrlWheelZoom.IsEnabled="True">
+    <!-- commit-5: drag-over visual cue — Panel_PreviewDragEnter/Leave/Drop 가 BorderBrush 토글. -->
+    <Border x:Name="DragHighlightBorder"
+            BorderBrush="Transparent"
+            BorderThickness="2"
+            CornerRadius="3"
+            Padding="6">
+    <Grid b:CtrlWheelZoom.IsEnabled="True">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -382,8 +388,9 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <!-- Input. Enter=전송 / Shift+Enter=줄바꿈 / Alt+J=줄바꿈 -->
-        <TextBox Grid.Row="5"
+        <!-- Input. Enter=전송 / Shift+Enter=줄바꿈 / Alt+J=줄바꿈. commit-5: Ctrl+V hook (DataObject.AddPastingHandler). -->
+        <TextBox x:Name="InputBox"
+                 Grid.Row="5"
                  Style="{StaticResource ChatInputBoxStyle}"
                  Margin="0,8,0,0"
                  MinHeight="64"
@@ -449,4 +456,5 @@
             </Button>
         </StackPanel>
     </Grid>
+    </Border>
 </UserControl>

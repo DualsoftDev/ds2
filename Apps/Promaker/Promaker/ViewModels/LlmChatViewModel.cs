@@ -243,6 +243,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             {
                 StatusText = $"준비 완료 — {kind}, MCP {_mcpHost.ServerUrl}, CLI {result.VersionString}";
                 IsReady = true;
+                // commit-5: 새 provider capability 로 chip 재검증 — 미지원 첨부 강제 제거 + 1줄 안내 (정책 9 / 3.4).
+                ReevaluateAttachmentsForProvider();
             }
             else
             {
