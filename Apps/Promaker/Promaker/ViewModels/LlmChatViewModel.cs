@@ -397,8 +397,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
-    /// F-1 spike — Groq OpenAI 호환 endpoint provider. env-var <c>GROQ_API_KEY</c> 만 사용 (DPAPI 미보관).
-    /// 모델은 <c>meta-llama/llama-4-scout-17b-16e-instruct</c> 하드코딩.
+    /// F-1 spike — Groq OpenAI 호환 endpoint provider. API key 는 다른 provider 와 동일 2-tier
+    /// (DPAPI dict <c>GroqKey="groq"</c> 우선 / env-var <c>GROQ_API_KEY</c> fallback). 모델은
+    /// <c>meta-llama/llama-4-scout-17b-16e-instruct</c> 하드코딩 — F-4 cleanup 시 <c>LlmConfig.GroqModel</c>
+    /// property 추가로 이전.
     ///
     /// **모델 선택 사유** (F-1 spike 발견 — rev 6 todo 본문 정리 예정):
     /// llama-3.3-70b-versatile = free tier TPM 12,000 → Promaker system prompt + 21 tool descriptions
@@ -409,7 +411,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     private async Task<ILlmProvider> CreateGroqApiProviderAsync()
     {
-        var apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? "";
+        // 5-reviewer review: Anthropic / OpenAI 와 동일 2-tier — DPAPI dict 우선 / env-var Trim fallback.
+        var apiKey = _config.GetApiKey(ApiProviderFactory.GroqKey)
+                     ?? Environment.GetEnvironmentVariable("GROQ_API_KEY")?.Trim()
+                     ?? "";
         const string model = "meta-llama/llama-4-scout-17b-16e-instruct";
         return await ApiProviderFactory.CreateGroqAsync(
             apiKey: apiKey,
