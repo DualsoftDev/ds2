@@ -170,6 +170,8 @@ public partial class LlmChatViewModel
     /// <summary>
     /// commit-5 정책 9 / 3.4: provider 전환 후 호출. 새 provider 의 capability 와 현재 chip 비교 →
     /// 미지원 첨부 강제 제거 + 1줄 안내. <see cref="ConfigureProviderAsync"/> 의 IsReady=true 직후 진입.
+    /// commit-6 m2: image format 별 세분 비교 — mime 으로 <see cref="ImageFormat"/> 역추론 후
+    /// <c>caps.ImageFormats.Contains</c> 체크 (PNG 만 지원하는 provider 에서 JPEG chip 은 제거).
     /// </summary>
     public void ReevaluateAttachmentsForProvider()
     {
@@ -180,12 +182,24 @@ public partial class LlmChatViewModel
         for (int i = Attachments.Count - 1; i >= 0; i--)
         {
             var src = Attachments[i].Source;
-            // capability 비교 — image format 별 세분 비교는 단순화 (대부분 4 format 일괄 지원/미지원).
-            // PDF native 만 분기.
-            bool keep =
-                src.IsImage    ? !caps.ImageFormats.IsEmpty :
-                src.IsPdf      ? caps.SupportsPdfNative :
-                /* IsTextFile */ true;
+            bool keep;
+            if (src.IsImage)
+            {
+                // m2: mime → ImageFormat 역추론. 미매칭이면 거부.
+                var mimeOpt = AttachmentInfo.tryGetImageMime(src);
+                var mime = mimeOpt != null ? mimeOpt.Value : null;
+                var fmt = ImageFormatFromMime(mime);
+                keep = fmt != null && caps.ImageFormats.Contains(fmt);
+            }
+            else if (src.IsPdf)
+            {
+                keep = caps.SupportsPdfNative;
+            }
+            else
+            {
+                // TextFile 은 inline 으로 wire — capability 무관.
+                keep = true;
+            }
             if (!keep)
             {
                 removed.Add(Attachments[i].FileName);
@@ -194,6 +208,20 @@ public partial class LlmChatViewModel
         }
         if (removed.Count > 0)
             AttachmentNotice = $"provider 변경 — 미지원 첨부 {removed.Count}개 제거 ({string.Join(", ", removed)})";
+    }
+
+    /// <summary>m2 helper: mime → ImageFormat 역추론. <see cref="MimeOf"/> 의 역방향.</summary>
+    private static ImageFormat? ImageFormatFromMime(string? mime)
+    {
+        if (string.IsNullOrEmpty(mime)) return null;
+        return mime switch
+        {
+            "image/png" => ImageFormat.Png,
+            "image/jpeg" => ImageFormat.Jpeg,
+            "image/gif" => ImageFormat.Gif,
+            "image/webp" => ImageFormat.Webp,
+            _ => null,
+        };
     }
 
     /// <summary>

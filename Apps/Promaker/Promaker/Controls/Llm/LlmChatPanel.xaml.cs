@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -28,15 +29,17 @@ public partial class LlmChatPanel : UserControl
     }
 
     /// <summary>
-    /// Ctrl+V 진입점. 우선순위 (정책 3.3절): file drop list > image > text.
+    /// Ctrl+V 진입점. 우선순위 (정책 3.3절): file drop list > CF_PNG raw > BitmapSource fallback > text.
     /// text-only 이면 cancel 안 함 → 기존 TextBox paste 동작 유지 (MI-3).
+    /// commit-6 m1: BitmapSource fallback 의 PngBitmapEncoder 인코딩이 큰 이미지 (4K+) 에서 STA freeze
+    /// 가능 → background <see cref="Task.Run"/> 분리 + UI thread continuation 으로 chip 추가.
     /// </summary>
     private void OnInputPaste(object sender, DataObjectPastingEventArgs e)
     {
         if (DataContext is not LlmChatViewModel vm) return;
         var data = e.SourceDataObject;
 
-        // ① 파일 drop 리스트가 있으면 → drag-drop 과 동일 경로
+        // ① 파일 drop 리스트
         if (data.GetDataPresent(DataFormats.FileDrop))
         {
             if (data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
@@ -47,50 +50,57 @@ public partial class LlmChatPanel : UserControl
             }
         }
 
-        // ② 이미지 (CF_PNG > CF_DIB > CF_BITMAP). PNG raw → 우선 사용 (재인코딩 회피).
-        var pngBytes = TryExtractPngBytes(data);
-        if (pngBytes != null && pngBytes.Length > 0)
+        // ② CF_PNG raw — STA 즉시 처리 (재인코딩 회피, ToArray 만 — UI thread 부하 ms 단위)
+        if (data.GetDataPresent("PNG") && data.GetData("PNG") is MemoryStream rawPng)
         {
-            e.CancelCommand();
-            var name = $"clipboard-{DateTime.Now:HHmmss}.png";
-            _ = vm.AddImageBytesAsync(pngBytes, "image/png", name);
-            return;
-        }
-
-        // ③ text 만 → 기존 paste 동작 유지 (cancel 안 함).
-    }
-
-    /// <summary>
-    /// 클립보드에서 PNG bytes 추출. CF_PNG raw → memory stream 그대로. fallback BitmapSource → PngBitmapEncoder.
-    /// STA 단계에서 BitmapSource.Freeze 후 즉시 인코딩 (background marshal 은 SDK 가 freeze 된 객체 ref 만 보유).
-    /// </summary>
-    private static byte[]? TryExtractPngBytes(IDataObject data)
-    {
-        // ① CF_PNG (raw PNG bytes — 재인코딩 회피)
-        if (data.GetDataPresent("PNG"))
-        {
-            if (data.GetData("PNG") is MemoryStream ms) return ms.ToArray();
-        }
-
-        // ② DataFormats.Bitmap → BitmapSource → PNG encode
-        if (data.GetDataPresent(DataFormats.Bitmap))
-        {
-            if (data.GetData(DataFormats.Bitmap) is BitmapSource src)
+            var bytes = rawPng.ToArray();
+            if (bytes.Length > 0)
             {
-                if (!src.IsFrozen)
-                {
-                    src = src.Clone();
-                    if (src.CanFreeze) src.Freeze();
-                }
-                using var enc = new MemoryStream();
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(src));
-                encoder.Save(enc);
-                return enc.ToArray();
+                e.CancelCommand();
+                _ = vm.AddImageBytesAsync(bytes, "image/png", PasteFileName());
+                return;
             }
         }
 
-        return null;
+        // ③ BitmapSource fallback — STA 단계 Freeze 만, background 인코딩 (m1 — 4K 이미지 etc UI freeze 회피).
+        if (data.GetDataPresent(DataFormats.Bitmap) && data.GetData(DataFormats.Bitmap) is BitmapSource src)
+        {
+            BitmapSource frozen;
+            if (src.IsFrozen) frozen = src;
+            else
+            {
+                frozen = src.Clone();
+                if (frozen.CanFreeze) frozen.Freeze();
+            }
+            e.CancelCommand();
+            var name = PasteFileName();
+            // TaskScheduler.FromCurrentSynchronizationContext() = paste handler 의 UI thread 캡처.
+            // continuation 이 UI thread 에서 vm.AddImageBytesAsync 호출 → ObservableCollection cross-thread access 회피.
+            var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
+            _ = Task.Run(() => EncodeBitmapToPng(frozen))
+                .ContinueWith(t =>
+                {
+                    if (t.IsCompletedSuccessfully && t.Result is { Length: > 0 } bytes)
+                        _ = vm.AddImageBytesAsync(bytes, "image/png", name);
+                }, uiScheduler);
+            return;
+        }
+
+        // ④ text 만 → 기존 paste 동작 유지 (cancel 안 함).
+    }
+
+    private static string PasteFileName() => $"clipboard-{DateTime.Now:HHmmss}.png";
+
+    /// <summary>
+    /// background thread 에서 frozen BitmapSource → PNG bytes. PngBitmapEncoder 가 frozen ref 만 참조해 race-free.
+    /// </summary>
+    private static byte[] EncodeBitmapToPng(BitmapSource frozen)
+    {
+        using var ms = new MemoryStream();
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(frozen));
+        encoder.Save(ms);
+        return ms.ToArray();
     }
 
     /// <summary>

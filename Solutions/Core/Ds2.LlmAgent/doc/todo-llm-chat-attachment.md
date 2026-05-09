@@ -153,15 +153,28 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - [x] `ConfigureProviderAsync` 의 IsValid 분기에서 `ReevaluateAttachmentsForProvider()` 호출 — `_provider.Capabilities` 와 chip `Source.IsImage`/`IsPdf`/`IsTextFile` 분기로 미지원 강제 제거 + 1줄 안내 (정책 9 / 3.4). **m2**: image format 세분 (PNG/JPEG 별 capability) 비교는 commit-6 이월 — 현재 4종 provider 모두 4 format 일괄 지원/미지원
 - [x] DragOver visual cue — `<Border x:Name="DragHighlightBorder">` outer wrap + Panel_PreviewDragEnter/Over 에 FileDrop 검사 시 BorderBrush = `AccentBrush` (`TryFindResource` fallback DodgerBlue), Leave/Drop 에 Transparent 복원. 자가 검열 M1 적용 — DragOver 에도 토글 (Enter/Over 짝)
 
-#### commit-6 — race-free SendAsync + default prefix + history summary + status (예정)
+#### commit-6a — race-free SendAsync + 텍스트 첨부 inline + history summary + status (rev 11, 2026-05-09 완료)
 
-- [ ] **race-free SendAsync** (정책 20): 진입 시 `snapshot = Attachments.ToArray()` + `snapshotProvider = _provider` 캡처. `LlmUserMessage` 빌드 → snapshotProvider.Send. `Attachments.Clear()` (정책 16 송신 후 처리)
-- [ ] `CanSend` 조건 (정책 16) — `IsReady && !IsSending && (HasInputText \|\| HasAttachments)`. `LlmChatViewModel.cs:402-403` 가드 갱신
-- [ ] **default prompt prefix** (정책 16): `Text==""` && `HasAttachments` 시 "첨부된 N개 파일을 검토해 주세요" 자동 prefix → provider 전달 + history 누적
-- [ ] ImportPlan label fallback `LlmTurnLabelPrefix + "[첨부 N개]"` (정책 16)
-- [ ] **Prompt injection wrapper** (정책 15): 텍스트 첨부 inline 시 ```` ```<lang> filename="..." ```` fenced 표준화. F# helper `Attachment.toInlineString`
-- [ ] **history summary 처리** (정책 17): `ApiChatProvider.cs:120` 의 `_history.Add(new ChatMessage(ChatRole.User, prompt))` 변경 — 첨부 summary 를 prompt 본문에 붙이거나 별도 ChatMessage 로. bytes 는 첫 turn 만 wire, 이후 turn history 에는 summary 만
-- [ ] **status 표시**: `StatusText = "첨부 N개 (XMB) 업로드 중..."` + HTTP 413 ProviderError 매핑
+- [x] **race-free SendAsync** (정책 20): 진입 시 `attachmentsSnapshot = Attachments.ToArray()` + `snapshotProvider = _provider` 캡처. `LlmUserMessage.Create(promptForProvider, nonTextAttachments)` 빌드 → snapshotProvider.Send. `Attachments.Clear()` 즉시 (race-free 우선 — 정책 4 의 "실패 시 유지" 와 충돌은 의도적 단순화, NOTE 참조)
+- [x] `CanSend` 조건 (정책 16) — `IsReady && !IsSending && (!IsNullOrWhiteSpace(Input) || HasAttachments)`. commit-4 의 placeholder text 필수 가드 제거
+- [x] **default prompt prefix** (정책 16): `rawPrompt.Length == 0 && hasAttachments` 시 "첨부된 N개 파일을 검토해 주세요" 자동 prefix → provider 전달 + user turn 표시
+- [x] ImportPlan label fallback (정책 16) — `(hasAttachments && rawPrompt.Length > 0)` 시 `[첨부 N개]` prefix 라벨, 첨부-only 시 default prefix 자체가 라벨
+- [x] **Prompt injection wrapper** (정책 15): F# `module AttachmentRendering` 신설 — `toInlineString` (텍스트 첨부 fenced wrapper, 본문에 ``` 포함 시 4-backtick escalate) + `langTokenOf` (확장자 → fenced lang token) + `summarize` (history summary)
+- [x] **history summary 처리** (정책 17): `ApiChatProvider.Send` 가 `msg.Attachments` 의 `summarize` 결과를 prompt 앞 prepend 후 `SendImpl` 호출 — `_history` 에 첨부 metadata 보유, bytes 미누적
+- [x] **status 표시**: `StatusText = "첨부 N개 (XMB) 송신 중…"` + HTTP 413 `HttpRequestException.StatusCode` 매핑 (한국어 안내)
+- [x] commit-4 의 SendAsync system turn 안내 placeholder 제거 + commit-6a silent-drop 방어 1줄 안내 추가 (자가 검열 Major-2 — 이미지/PDF 가 commit-6b 까지 metadata 만 전달됨을 명시)
+- [x] commit-5 자가 검열 후속 m1 (BitmapSource fallback background 인코딩 — `Task.Run` + UI continuation), m2 (ReevaluateAttachmentsForProvider 의 mime → ImageFormat 역추론 + `caps.ImageFormats.Contains` 세분 비교 + F# `AttachmentInfo.tryGetImageMime` helper)
+
+> **NOTE (정책 4 vs commit-6a)**: 정책 4 ("send 성공 시 자동 비움 / 실패 시 유지") 는 race-free snapshot (정책 20) 과 부분 충돌. commit-6a 는 race-free 우선 → snapshot 캡처 직후 즉시 `Attachments.Clear()`. 실패 시 사용자가 재첨부 부담. multimodal wire 활성 (commit-6b) 후 사용자 피드백 따라 변경 검토.
+
+#### commit-6b — 이미지/PDF provider wire (예정)
+
+- [ ] Claude CLI: `--input-format stream-json` JSON Lines stdin (Anthropic multipart `image` / `document` content block) 인코더 신설. text-only 회귀 보장 (첨부 없을 때 기존 text stdin 경로)
+- [ ] Codex CLI: `-i/--image <FILE>...` path 인자 + bytes → `%TEMP%\Promaker.LlmAgent\<turn-id>\<n>.<ext>` 임시 파일 spool + turn 종료 cleanup
+- [ ] API provider (`ApiChatProvider`): Microsoft.Extensions.AI 의 `DataContent("image/png", bytes)` / `DataContent("application/pdf", bytes)` 로 첫 turn message 의 `Contents` 에 추가. 이후 turn history 에는 summary 만 (정책 17 — 본 turn 끝나면 bytes drop)
+- [ ] `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환 (capability 미지원 첨부 silent drop 차단)
+- [ ] commit-6a 의 silent-drop 안내 placeholder 제거
+- [ ] 자가 검열 Minor-3 (`summarize` byte hint), Minor-5 (413 메시지 통합) 적용
 
 ### Phase 3b — PDF (SDK / 페이지 cap 검증 후)
 
@@ -226,6 +239,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 11 (2026-05-09): Phase 3a commit-6a 완료 — race-free SendAsync (snapshot + provider 캡처) + default prefix + ImportPlan label fallback + 텍스트 첨부 inline (F# `AttachmentRendering` module) + ApiChatProvider history summary prepend + StatusText 진행 + HTTP 413 매핑 + CanSend 첨부-only 허용 + commit-5 후속 m1 (BitmapSource fallback background 인코딩) + m2 (image format 세분 비교 + F# `AttachmentInfo.tryGetImageMime` helper). 자가 검열 Major-2 적용 (이미지/PDF metadata-only wire 안내 1줄). dotnet build + dotnet test **205건** 전수 통과. 잔여 commit-6b (이미지/PDF provider wire) 로 분리
 - rev 10 (2026-05-09): Phase 3a commit-5 완료 — Ctrl+V (`DataObject.AddPastingHandler`) + 클립보드 image PNG 인코딩 (CF_PNG raw 우선 / BitmapSource fallback) + `ReevaluateAttachmentsForProvider` (provider 전환 시 미지원 chip 강제 제거) + DragOver visual cue (outer Border accent BrushBrush 토글). 자가 검열 M1 적용 (DragEnter/Over 짝). dotnet build + dotnet test **205건** 전수 통과. 잔여 m1 (큰 이미지 background 인코딩) / m2 (image format 세분 비교) 는 commit-6 이월
 - rev 9 (2026-05-09): Phase 3a commit-4 2차 review sweep (Critical 1 / Major 5 / Minor 8 일괄 적용) — C1 (`openAiGpt4oImageTokens` long 2048 → short 768 두 단계 fit) / M1 (`module CapabilityPresets` SSOT — AnthropicWire / OpenAiApiWire / CodexCliWire / DefaultMaxAttachmentCount, 4 호출처 위임) / M2 (`estimateKoreanRatio` `EnumerateRunes` surrogate-safe) / M3 (`detectEncoding` UTF-8 replacement fallback + `Log.provider.Warn`) / M4 (`module LlmUserMessageOps.WarnUnsupportedAttachments` + 5종 provider Send 위임) / M5 (rejectedExtensions/textExtensions 보안 critical contains assertion 2 fact + invalid UTF-8 fixture) / m1 (`MaxAttachmentCount` SSOT — F# literal → C# const) / m2 (license.txt dead entry 제거) / m4 (`Capabilities.TextOnly` `static member val`) / m7 (invalid UTF-8 fixture) / m8 (4.attachments.md 백틱 escape 자연어) / m10 (`ExtOf` helper 사용자 표시) / m11 (`LlmUserMessage.Create` null-safe factory). dotnet build + dotnet test **205건** 전수 통과. 자가 검열 Critical/Major 0, Minor 1 (방어층 의도 유지). m3/m5/m6/m9 는 별도 follow-up
 - rev 8 (2026-05-09): Phase 3a commit-4 1차 review 5건 적용 — F1 (SendAsync 진입 시 첨부 있으면 commit-6 wire 미구현 안내 1줄, system turn) / F2 (dispatcher add 직전 cap 재검증 — fire-and-forget 중첩 race 방어) / F3 (`AttachmentClassifier.detectEncoding` CP949 fallback + `System.Text.Encoding.CodePages` NuGet 의존성 추가 + `App.xaml.cs` 에 `CodePagesEncodingProvider` 등록 + drift 테스트 case 추가) / F4 (Reset 명령에 `Attachments.Clear()` + `AttachmentNotice = ""` 추가) / F5 (chip filename `MaxWidth=220` + `TextTrimming=CharacterEllipsis` + ToolTip). dotnet build + dotnet test Ds2.LlmAgent.Tests **202건** 전수 통과

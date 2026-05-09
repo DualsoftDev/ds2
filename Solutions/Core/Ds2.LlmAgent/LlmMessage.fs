@@ -97,6 +97,76 @@ module CapabilityPresets =
     /// Codex CLI (`-i/--image <FILE>...`) — OpenAI 와 동일 한도. 의미 명료를 위해 별도 alias.
     let CodexCliWire = Capabilities.ImagesOnly(20L * MB)
 
+/// 첨부 metadata 추출 helper (commit-6 m2). F# DU C# interop 에서 multi-field named 의 명칭 모호함 회피.
+module AttachmentInfo =
+    /// 이미지 mime — 이미지 case 가 아니면 None.
+    let tryGetImageMime (att: Attachment) : string option =
+        match att with
+        | Image (_, _, mime) -> Some mime
+        | _ -> None
+
+/// 텍스트 첨부 inline wrapper (정책 15) + history summary (정책 17). commit-6 (rev 11).
+/// provider 가 본 helper 만으로 첨부 → prompt 본문 / history summary 변환 — provider 별 중복 로직 회피.
+module AttachmentRendering =
+
+    /// byte 크기 표기 ("B" / "KB" / "MB"). chip / summary 공통.
+    let formatBytes (n: int64) : string =
+        if n < 1024L then sprintf "%dB" n
+        elif n < 1024L * 1024L then sprintf "%.1fKB" (float n / 1024.0)
+        else sprintf "%.2fMB" (float n / 1024.0 / 1024.0)
+
+    /// 확장자 → fenced code block lang token (정책 15). 화이트리스트 외 확장자는 그대로 사용.
+    let langTokenOf (filename: string) : string =
+        let ext = System.IO.Path.GetExtension(filename).ToLowerInvariant().TrimStart('.')
+        match ext with
+        | "fs" | "fsi" | "fsx" -> "fsharp"
+        | "cs" | "csx" -> "csharp"
+        | "ts" | "tsx" -> "typescript"
+        | "js" | "jsx" | "mjs" | "cjs" -> "javascript"
+        | "py" -> "python"
+        | "rb" -> "ruby"
+        | "go" -> "go"
+        | "rs" -> "rust"
+        | "java" -> "java"
+        | "kt" -> "kotlin"
+        | "sql" -> "sql"
+        | "ps1" -> "powershell"
+        | "sh" -> "bash"
+        | "bat" | "cmd" -> "batch"
+        | "html" | "htm" -> "html"
+        | "css" -> "css"
+        | "scss" -> "scss"
+        | "json" -> "json"
+        | "xml" -> "xml"
+        | "yaml" | "yml" -> "yaml"
+        | "md" -> "markdown"
+        | "txt" | "log" -> ""
+        | other -> other
+
+    /// 텍스트 첨부를 prompt 본문에 inject 할 fenced code block (정책 15 prompt injection 방어).
+    /// 본문에 ``` fence 충돌 시 4-backtick 으로 escalate.
+    /// 이미지/PDF 는 multimodal content block 으로 직접 wire — placeholder 만 반환.
+    let toInlineString (att: Attachment) : string =
+        match att with
+        | TextFile (name, content) ->
+            let lang = langTokenOf name
+            let fence = if content.Contains("```") then "````" else "```"
+            sprintf "%s%s filename=\"%s\"\n%s\n%s" fence lang name content fence
+        | Image (name, _, _)
+        | Pdf (name, _) ->
+            sprintf "[binary attachment: %s — multimodal content block 으로 전달]" name
+
+    /// history summary 형식 (정책 17). bytes 미누적 — 다음 turn 의 multi-turn history 에 메타만 보관.
+    let summarize (att: Attachment) : string =
+        match att with
+        | Image (name, bytes, _) ->
+            sprintf "[image: %s %s]" name (formatBytes (int64 bytes.Length))
+        | Pdf (name, bytes) ->
+            sprintf "[pdf: %s %s]" name (formatBytes (int64 bytes.Length))
+        | TextFile (name, content) ->
+            let bytes = int64 (System.Text.Encoding.UTF8.GetByteCount content)
+            sprintf "[text: %s %s]" name (formatBytes bytes)
+
 /// review 2차 M4 — provider Send 진입 시 capability 미지원 첨부 silent drop 방어.
 /// commit-4 단계 (chip UI 활성 / provider wire 미구현) = warn only. commit-6 wire 진입 시 strict invalidArg 로 전환 예정.
 /// UI 측 1차 검증 (`LlmChatViewModel.AddPathsAsync`) 후에도 race / provider 전환 누락 시 본 helper 가 2차 안전망.

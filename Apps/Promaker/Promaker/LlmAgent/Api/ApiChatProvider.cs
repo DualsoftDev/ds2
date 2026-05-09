@@ -105,12 +105,26 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             : new ClaudeCliVersion.Result(false, $"{_providerLabel} API key 미설정", _modelLabel);
     }
 
-    // rev 4 (commit-2): `string prompt` → `LlmUserMessage msg`. 현 단계 Attachments 무시 / msg.Text 만 사용.
-    // review 2차 M4: capability 미지원 첨부 silent drop 방지 — WarnUnsupportedAttachments 호출 후 텍스트 송신.
+    // rev 4 (commit-2): `string prompt` → `LlmUserMessage msg`.
+    // review 2차 M4: capability 미지원 첨부 silent drop 방지 — WarnUnsupportedAttachments 호출.
+    // commit-6 정책 17: 비텍스트 첨부의 history summary 만 prompt 본문 끝에 prepend (bytes 미누적).
+    //   이미지/PDF bytes wire 는 commit-6b 에서 SDK content block (DataContent) 으로 직접 전달 예정.
     public IAsyncEnumerable<LlmEvent> Send(LlmUserMessage msg, CancellationToken cancellationToken)
     {
         LlmUserMessageOps.WarnUnsupportedAttachments(_capabilities, msg);
-        return SendImpl(msg.Text, cancellationToken);
+        var promptForHistory = msg.Text;
+        if (msg.Attachments != null && msg.Attachments.Length > 0)
+        {
+            var summaries = new System.Text.StringBuilder();
+            foreach (var att in msg.Attachments)
+            {
+                if (summaries.Length > 0) summaries.Append(' ');
+                summaries.Append(AttachmentRendering.summarize(att));
+            }
+            // 첨부 summary 를 prompt 앞에 한 줄로 prepend — 다음 turn 의 history 에서 LLM 이 의도 추론용 metadata 보유.
+            promptForHistory = summaries.ToString() + "\n" + msg.Text;
+        }
+        return SendImpl(promptForHistory, cancellationToken);
     }
 
     private async IAsyncEnumerable<LlmEvent> SendImpl(
