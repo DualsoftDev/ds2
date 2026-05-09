@@ -27,6 +27,8 @@ public enum LlmProviderKind
     AnthropicApi,
     OpenAiApi,
     Ollama,
+    /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 정식 schema 로 보존 (이름 동일).</summary>
+    GroqApi,
 }
 
 /// <summary>
@@ -116,6 +118,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             LlmProviderKind.AnthropicApi,
             LlmProviderKind.OpenAiApi,
             LlmProviderKind.Ollama,
+            LlmProviderKind.GroqApi,
         };
 
     [ObservableProperty]
@@ -211,6 +214,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 LlmProviderKind.AnthropicApi => await CreateAnthropicApiProviderAsync().ConfigureAwait(true),
                 LlmProviderKind.OpenAiApi => await CreateOpenAiApiProviderAsync().ConfigureAwait(true),
                 LlmProviderKind.Ollama => await CreateOllamaApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.GroqApi => await CreateGroqApiProviderAsync().ConfigureAwait(true),
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown provider"),
             };
 
@@ -382,6 +386,29 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         var model = _config.OllamaModel;
         return await ApiProviderFactory.CreateOllamaAsync(
             baseUrl: baseUrl,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// F-1 spike — Groq OpenAI 호환 endpoint provider. env-var <c>GROQ_API_KEY</c> 만 사용 (DPAPI 미보관).
+    /// 모델은 <c>meta-llama/llama-4-scout-17b-16e-instruct</c> 하드코딩.
+    ///
+    /// **모델 선택 사유** (F-1 spike 발견 — rev 6 todo 본문 정리 예정):
+    /// llama-3.3-70b-versatile = free tier TPM 12,000 → Promaker system prompt + 21 tool descriptions
+    /// 합계 ~25K tokens 로 단일 요청이 한도 2배 초과 (HTTP 413). Llama 4 Scout 17B 는 context window
+    /// 131K + 더 큰 TPM + tool calling 호환 검증 spike 의의. **모델 ID 는 meta-llama/ prefix 필수**
+    /// (prefix 누락 시 HTTP 404 model_not_found — 1차 spike 시도 시 발견).
+    /// 모델 변경 시 본 메서드 재컴파일 필요 (F-4 cleanup 시 LlmConfig.GroqModel 로 이전).
+    /// </summary>
+    private async Task<ILlmProvider> CreateGroqApiProviderAsync()
+    {
+        var apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? "";
+        const string model = "meta-llama/llama-4-scout-17b-16e-instruct";
+        return await ApiProviderFactory.CreateGroqAsync(
+            apiKey: apiKey,
             model: model,
             systemPrompt: SystemPromptText.Phase1c,
             mcpServerUrl: _mcpHost.ServerUrl,

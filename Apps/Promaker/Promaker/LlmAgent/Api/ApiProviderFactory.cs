@@ -1,4 +1,5 @@
 using System;
+using System.ClientModel;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Anthropic;
@@ -25,6 +26,11 @@ public static class ApiProviderFactory
     public const string AnthropicKey = "anthropic";
     /// <summary>LlmApiConfig 의 EncryptedKeys dict 키 — OpenAI API key 슬롯.</summary>
     public const string OpenAiKey = "openai";
+    /// <summary>F-1 spike — Groq API key 슬롯 (env-var fallback only, DPAPI 미사용). F-4 cleanup 시 정식 schema 로 대체.</summary>
+    public const string GroqKey = "groq";
+
+    /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 ProviderCapabilities.DefaultEndpoint 로 흡수.</summary>
+    private static readonly Uri GroqEndpoint = new("https://api.groq.com/openai/v1");
 
     public static Task<ApiChatProvider> CreateAnthropicAsync(
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
@@ -41,6 +47,25 @@ public static class ApiProviderFactory
         var raw = new OpenAIClient(apiKey).GetChatClient(model).AsIChatClient();
         return CreateInternalAsync(
             raw, "OpenAI", model, systemPrompt, mcpServerUrl, mcpNonce,
+            validate: () => !string.IsNullOrEmpty(apiKey));
+    }
+
+    /// <summary>
+    /// F-1 spike — Groq OpenAI 호환 endpoint. OpenAI SDK 의 <c>OpenAIClientOptions.Endpoint</c> override
+    /// 로 baseUrl 만 갈아끼움. tool calling / streaming / 5종 LlmEvent 매핑은 OpenAI 어댑터 그대로 통과.
+    /// 429/Retry-After backoff 위치는 spike 검증 항목 (provider layer / ApiChatProvider / Microsoft.Extensions.AI 미들웨어 4 후보).
+    /// F-4 cleanup 시 본 메소드는 ProviderCapabilities + Endpoint 파라미터화된 일반 메소드로 흡수.
+    /// </summary>
+    public static Task<ApiChatProvider> CreateGroqAsync(
+        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
+    {
+        // ApiKeyCredential ctor 는 empty string 에 throw — 빈 키일 때도 ConfigureProviderAsync 가
+        // EnsureCli().IsValid=false 로 graceful 차단되도록 placeholder 로 대체. validate 가 실 빈 키 검증.
+        var keyForCtor = string.IsNullOrEmpty(apiKey) ? "missing" : apiKey;
+        var options = new OpenAIClientOptions { Endpoint = GroqEndpoint };
+        var raw = new OpenAIClient(new ApiKeyCredential(keyForCtor), options).GetChatClient(model).AsIChatClient();
+        return CreateInternalAsync(
+            raw, "Groq", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey));
     }
 
