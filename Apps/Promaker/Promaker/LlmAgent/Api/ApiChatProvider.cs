@@ -57,6 +57,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     private readonly string _modelLabel;
     private readonly string _systemPrompt;
     private readonly Func<bool> _validate;
+    private readonly Capabilities _capabilities;
 
     private readonly List<ChatMessage> _history = new();
     private string? _sessionId;
@@ -69,7 +70,8 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         string providerLabel,
         string modelLabel,
         string systemPrompt,
-        Func<bool> validate)
+        Func<bool> validate,
+        Capabilities capabilities)
     {
         _chatClient = chatClient;
         _mcpClient = mcpClient;
@@ -78,7 +80,10 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         _modelLabel = modelLabel;
         _systemPrompt = systemPrompt;
         _validate = validate;
+        _capabilities = capabilities;
     }
+
+    public Capabilities Capabilities => _capabilities;
 
     public Microsoft.FSharp.Core.FSharpOption<string> SessionId =>
         _sessionId == null
@@ -100,8 +105,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             : new ClaudeCliVersion.Result(false, $"{_providerLabel} API key 미설정", _modelLabel);
     }
 
-    public IAsyncEnumerable<LlmEvent> Send(string prompt, CancellationToken cancellationToken)
-        => SendImpl(prompt, cancellationToken);
+    // rev 4 (commit-2): `string prompt` → `LlmUserMessage msg`. 현 단계 Attachments 무시 / msg.Text 만 사용.
+    public IAsyncEnumerable<LlmEvent> Send(LlmUserMessage msg, CancellationToken cancellationToken)
+        => SendImpl(msg.Text, cancellationToken);
 
     private async IAsyncEnumerable<LlmEvent> SendImpl(
         string prompt,

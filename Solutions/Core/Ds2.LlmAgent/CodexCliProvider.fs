@@ -80,8 +80,12 @@ type CodexCliProvider(options: CodexCliOptions) =
 
     /// 단일 turn 의 stream 이벤트를 비동기로 흘려보낸다.
     /// 호출자는 `await foreach` 로 소비. 외부 cancellation 으로 중단 가능 (process kill).
-    member this.Send (prompt: string, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
+    ///
+    /// rev 4 (commit-2): `LlmUserMessage` 수신 — 현 단계 `msg.Attachments` 무시. 첨부 wire 는 commit-4..N 에서
+    /// (`-i/--image <FILE>...` path 인자 + bytes 시 임시 파일 spool — spike S-2 결과).
+    member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
+        let prompt = msg.Text
         let args = CodexCliArgs.build options sessionId prompt
         // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
         // 사용자 ~/.codex/sessions/ 에 thread rollout 누적 회피 + 워크스페이스 재귀 삭제 시 자동 cleanup.
@@ -117,9 +121,14 @@ type CodexCliProvider(options: CodexCliOptions) =
     /// Session 강제 초기화 — 다음 Send 가 `resume` 없이 새 thread 시작.
     member _.ClearSession () = sessionId <- None
 
+    /// Capabilities — Codex CLI 0.128.0 spike S-2 결과: `-i/--image <FILE>...` path 기반.
+    /// PDF 옵션 부재 → 미지원. 이미지 cap 은 OpenAI 기준 추정 20MB (향후 검증 필요).
+    member _.Capabilities = Capabilities.ImagesOnly(20L * 1024L * 1024L)
+
     interface ILlmProvider with
         member this.EnsureCli () = this.EnsureCli ()
         // instance method 의 `?cancellationToken: CancellationToken` 에 named arg 로 forward.
-        member this.Send (prompt, ct) = this.Send (prompt, cancellationToken = ct)
+        member this.Send (msg, ct) = this.Send (msg, cancellationToken = ct)
         member this.SessionId = this.SessionId
         member this.ClearSession () = this.ClearSession ()
+        member this.Capabilities = this.Capabilities

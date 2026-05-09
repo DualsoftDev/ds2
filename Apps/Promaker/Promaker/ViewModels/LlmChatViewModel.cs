@@ -463,7 +463,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _cts = new CancellationTokenSource();
         try
         {
-            var stream = _provider.Send(promptForProvider, _cts.Token);
+            // rev 4 (commit-2): `string prompt` → `LlmUserMessage`. 현 단계 첨부 없음 (OfText factory).
+            // commit-4..N 에서 Attachments snapshot 채워 wire.
+            var stream = _provider.Send(LlmUserMessage.OfText(promptForProvider), _cts.Token);
             await foreach (var evt in stream.ConfigureAwait(true))
             {
                 HandleEvent(evt);

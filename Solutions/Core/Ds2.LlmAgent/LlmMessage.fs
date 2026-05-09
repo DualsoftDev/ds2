@@ -55,3 +55,19 @@ with
           MaxImageBytes = None
           MaxPdfBytes = None
           MaxAttachmentCount = None }
+
+    /// 이미지 4종 (png/jpg/gif/webp) + PDF 미지원. Codex CLI / OpenAI API / vision 지원 Ollama 모델용.
+    static member ImagesOnly(maxImageBytes: int64) =
+        { ImageFormats = Set.ofList [Png; Jpeg; Gif; Webp]
+          SupportsPdfNative = false
+          MaxImageBytes = Some maxImageBytes
+          MaxPdfBytes = None
+          MaxAttachmentCount = None }
+
+    /// 이미지 4종 + PDF native. Claude CLI (`--input-format stream-json`) / Anthropic API 용.
+    static member ImagesAndPdf(maxImageBytes: int64, maxPdfBytes: int64) =
+        { ImageFormats = Set.ofList [Png; Jpeg; Gif; Webp]
+          SupportsPdfNative = true
+          MaxImageBytes = Some maxImageBytes
+          MaxPdfBytes = Some maxPdfBytes
+          MaxAttachmentCount = None }
