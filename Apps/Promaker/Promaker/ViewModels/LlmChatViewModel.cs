@@ -145,6 +145,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _wpfDispatcher = Dispatcher.CurrentDispatcher;
         _dispatcher = new WpfDispatcherAdapter(_wpfDispatcher);
         SubscribeEditorEvents();
+        HookAttachmentsCollection();
         // PR-A: 시작 시 사용자 default provider 적용. _mcpConfig 미초기화 상태라 OnSelectedProviderChanged 가
         // ConfigureProviderAsync 호출하지 않음 — 안전. InitializeAsync 가 SelectedProvider 값으로 첫 구성.
         if (Enum.TryParse<LlmProviderKind>(_config.DefaultProvider, ignoreCase: true, out var defaultKind))
@@ -528,6 +529,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     public const string LlmTurnLabelPrefix = "LLM: ";
 
+    /// <summary>
+    /// commit-4 단계: 텍스트 필수 유지. 정책 16 의 첨부-only 송신 + default prefix 는 commit-6 (race-free SendAsync)
+    /// 에서 SendAsync 본체와 함께 묶어 처리 — 그 전까지는 chip UI 만 동작하고 송신은 text 필요.
+    /// </summary>
     private bool CanSend() => IsReady && !IsSending && !string.IsNullOrWhiteSpace(Input);
 
     [RelayCommand(CanExecute = nameof(CanCancel))]

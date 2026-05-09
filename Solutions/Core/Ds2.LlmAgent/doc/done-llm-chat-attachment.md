@@ -106,3 +106,42 @@
   - **m5** (injection 패턴 일반화 한 줄 추가): commit-4..N 진입 시
   - **m6** (OpenAI tile short side scale 분기 누락): dead code 단계라 체감 영향 없음. commit-4..N 진입 전 보정
 - 잔여 우려: dead code 보존 기간이 길어지면 namespace 직속 public 노출이 외부 우연 의존 형성 risk — Phase 3a 종료 시점까지 호출자 미발생 시 `internal` 검토
+
+## Phase 3a — commit-4 (2026-05-09, rev 7)
+
+### 산출물 (1 신규 + 3 수정)
+
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs` (신규, ~280 line, partial class) — 정책 6/14/18/19 적용
+  - `AttachmentChipVm` — filename + size + ≈token + Source(F# `Attachment`) 보유 plain class. `SizeLabel` (B/KB/MB 자동) + `TokensLabel` (`≈Nt` or empty)
+  - `MaxAttachmentCount = 10` (정책 6) + `MaxTextBytes = 1MB` (텍스트 cap) const
+  - `Attachments: ObservableCollection<AttachmentChipVm>` + `HookAttachmentsCollection` (CollectionChanged → `HasAttachments` PropertyChanged + `SendCommand.NotifyCanExecuteChanged`)
+  - `[ObservableProperty] AttachmentNotice` — chip 영역 1줄 안내 SSOT (정책 8/9/MI-5)
+  - `AddPathsAsync(IReadOnlyList<string>)` — drag-drop / 향후 file paste 진입점. STA sync = `ClassifyPathSync` 검증 → background `LoadAcceptedAttachments` (bytes 로드 + dim + 토큰 추정) → dispatcher chip 추가
+  - `AddImageBytesAsync(byte[], mime, suggestedName)` — clipboard image 진입점 (commit-5 paste handler 가 호출 예정)
+  - `RemoveAttachmentCommand` (RelayCommand<AttachmentChipVm>) — chip × 버튼 + Delete 키 binding
+  - `MimeOf(ImageFormat)` — F# DU C# interop (`IsPng`/`IsJpeg`/...) 으로 enum switch 회피
+  - `TryReadImageDimFromPath/Bytes` + `ReadImageDim` — `BitmapDecoder.Create(stream, IgnoreColorProfile, None)` metadata-only 경로 (full decode 회피, 정책 18)
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` (수정 ~5 line) — constructor 에 `HookAttachmentsCollection()` 한 줄 + `CanSend` 본문은 commit-4 단계 text 필수 유지 (commit-6 의 첨부-only 송신 + default prefix 와 함께 SendAsync 본체 갱신 예정)
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml` (수정 ~80 line) — UserControl 에 `AllowDrop="True"` + `PreviewDragEnter/Leave/Over/Drop` 4종 hookup. Grid 행 2개 추가 (notice TextBlock + chip ItemsControl). chip = WrapPanel + Border focusable + KeyBinding(Delete) + × Button. `RemoveAttachmentCommand` 는 `RelativeSource AncestorType=UserControl` 으로 binding
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml.cs` (수정 ~30 line) — `Panel_PreviewDragEnter/Leave/Over/Drop` 4종 핸들러. 모두 `e.Handled=true` + FileDrop 만 `Copy` effect. Drop handler 는 fire-and-forget `vm.AddPathsAsync(paths)` 호출
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 = OllamaSharp 사전 환경 무관)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **201건 전수 통과**
+- 회귀 호환: `CanSend` 본체 무수정 → 기존 텍스트 송신 회귀 통과. commit-4 단계는 chip UI / drag-drop / 토큰 추정만 활성화. 첨부 wire 는 commit-6 의 race-free SendAsync 와 함께 진입
+
+### 자가 검열 (Agent 위임 1차 + 자가 보강 적용)
+
+- 보고된 이슈: Critical 0 / Major 1 / Minor 4
+  - **M1**: `MainWindow.xaml.cs:143` 의 `Window_DragEnter` bubble 단계 후킹으로 `FileDragOverlay.Visibility=Visible` → LLM Chat 패널 위에 `.sdf`/`.json` drag 시 overlay 가 chip UI 를 가림. **자가 수정 적용** — `LlmChatPanel.xaml` 에 `PreviewDragEnter`/`PreviewDragLeave` 추가 + `LlmChatPanel.xaml.cs` 에 `Panel_PreviewDragEnter`/`Panel_PreviewDragLeave` 2종 핸들러 추가 (모두 `e.Handled=true`). 정책 14 의 "MainWindow bubble 차단" 의도가 DragEnter/Leave 까지 확장
+  - **mi1** (path null 가드): drag-drop OS 가드로 실용 영향 없음 — 영구 skip
+  - **mi2** (`BitmapDecoder` lazy frame 위험): `using stream` 블록 *안* 에서 `PixelWidth/Height` 즉시 읽고 tuple 반환 → 안전. 추가 metadata 사용 시 `BitmapCacheOption.OnLoad` 검토
+  - **mi3** (미사용 `Microsoft.FSharp.Core` using): **자가 수정 적용** — using 정리
+  - **mi4** (`AddImageBytesAsync` notices 단일화 누락): commit-5 paste 합류 시 helper 통일 — 이월
+- 잔여 우려: 없음 (M1 적용으로 정책 14 완전 충족)
+
+### 미처리 (commit-5 / commit-6 으로 분할)
+
+- commit-5: Ctrl+V (`DataObject.AddPastingHandler`), 클립보드 이미지 PNG 인코딩, `OnSelectedProviderChanged` 시 미지원 첨부 강제 제거, DragOver visual cue
+- commit-6: race-free SendAsync (snapshot + provider 캡처), `CanSend` 갱신 (첨부-only 허용), default prompt prefix, ImportPlan label fallback, prompt injection wrapper, history summary, status / 413 매핑
