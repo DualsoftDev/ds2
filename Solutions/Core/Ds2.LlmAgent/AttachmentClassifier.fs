@@ -73,11 +73,12 @@ module AttachmentClassifier =
         ]
 
     /// 확장자 없는 파일명 화이트리스트 (소문자) — Dockerfile / Makefile / .editorconfig 등.
+    /// review m2: "license.txt" 등 .txt 확장자가 있는 항목은 dead entry (`String.IsNullOrEmpty ext` 분기 미진입) → 제거.
     let extensionlessTextNames : Set<string> =
         Set.ofList [
             "dockerfile"; "containerfile"
             "makefile"; "rakefile"; "gemfile"; "procfile"; "vagrantfile"
-            "license"; "license.txt"; "readme"; "changelog"; "authors"; "contributors"
+            "license"; "readme"; "changelog"; "authors"; "contributors"
             "copying"; "notice"; "version"
         ]
 
@@ -116,6 +117,7 @@ module AttachmentClassifier =
 
     /// CP949 (Windows-949) lazy probe. CodePagesEncodingProvider 등록 안 된 환경이면 None.
     /// 명칭 "cp949" 는 .NET 미인식 — code page 번호 949 사용.
+    /// `EncoderExceptionFallback` 인자는 GetEncoding signature 필수 (decode 흐름에 무영향, encoder fallback 정책).
     let private tryCp949 () : Encoding option =
         try Some (Encoding.GetEncoding(949, EncoderExceptionFallback(), DecoderExceptionFallback()))
         with :? System.ArgumentException -> None
@@ -127,7 +129,9 @@ module AttachmentClassifier =
             true
         with :? DecoderFallbackException -> false
 
-    /// bytes 의 텍스트 인코딩 추정. BOM 우선, 다음 strict UTF-8, 다음 strict CP949 (한국어 환경), 마지막 UTF-16 LE.
+    /// bytes 의 텍스트 인코딩 추정. BOM 우선, 다음 strict UTF-8, 다음 strict CP949 (한국어 환경), 마지막 UTF-8 replacement.
+    /// review 2차 M3: 모든 strict 시도 실패 시 fallback 을 UTF-16 LE → UTF-8 replacement 로 변경.
+    /// ASCII 부분은 살아남고 비-UTF-8 부분만 U+FFFD 로 대체 → 사용자 측 mojibake 인지 가능 + LLM 입력 손상 최소화.
     let detectEncoding (bytes: byte[]) : TextEncodingDetect =
         if isNull bytes then
             { Encoding = Encoding.UTF8; ConfidenceHigh = false }
@@ -150,5 +154,6 @@ module AttachmentClassifier =
                     // 통과한 random binary 도 가능. UI 측 안내 문구로 보강.
                     { Encoding = cp949; ConfidenceHigh = false }
                 | _ ->
-                    // 마지막 수단 — UTF-16 LE. 한국어 텍스트가 깨질 가능성 높음, 사용자 측 인식 필요.
-                    { Encoding = Encoding.Unicode; ConfidenceHigh = false }
+                    // 모든 strict 시도 실패 → fallback. UTF-8 replacement 로 ASCII 부분만 살리고 나머지는 U+FFFD.
+                    Log.provider.Warn("AttachmentClassifier.detectEncoding — strict UTF-8/CP949 모두 실패, UTF-8 replacement fallback")
+                    { Encoding = Encoding.UTF8; ConfidenceHigh = false }

@@ -106,8 +106,12 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     }
 
     // rev 4 (commit-2): `string prompt` → `LlmUserMessage msg`. 현 단계 Attachments 무시 / msg.Text 만 사용.
+    // review 2차 M4: capability 미지원 첨부 silent drop 방지 — WarnUnsupportedAttachments 호출 후 텍스트 송신.
     public IAsyncEnumerable<LlmEvent> Send(LlmUserMessage msg, CancellationToken cancellationToken)
-        => SendImpl(msg.Text, cancellationToken);
+    {
+        LlmUserMessageOps.WarnUnsupportedAttachments(_capabilities, msg);
+        return SendImpl(msg.Text, cancellationToken);
+    }
 
     private async IAsyncEnumerable<LlmEvent> SendImpl(
         string prompt,

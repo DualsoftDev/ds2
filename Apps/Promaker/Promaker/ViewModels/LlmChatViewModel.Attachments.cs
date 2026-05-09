@@ -28,8 +28,9 @@ namespace Promaker.ViewModels;
 /// </summary>
 public partial class LlmChatViewModel
 {
-    /// <summary>turn 당 첨부 개수 cap (정책 6).</summary>
-    public const int MaxAttachmentCount = 10;
+    /// <summary>turn 당 첨부 개수 cap (정책 6). SSOT = F# <c>CapabilityPresets.DefaultMaxAttachmentCount</c>.
+    /// review m1 — F# literal 을 가져옴 (값 변경 시 한 곳만 수정).</summary>
+    public const int MaxAttachmentCount = Ds2.LlmAgent.CapabilityPresets.DefaultMaxAttachmentCount;
 
     /// <summary>텍스트 첨부 단일 파일 size cap (정책 6: 1MB). capability 별 분기 없음.</summary>
     private const long MaxTextBytes = 1024L * 1024L;
@@ -198,7 +199,7 @@ public partial class LlmChatViewModel
             }
             if (!caps.ImageFormats.Contains(img.Item))
             {
-                notices.Add($"{name}: 현재 provider 가 {img.Item} 미지원");
+                notices.Add($"{name}: 현재 provider 가 {ExtOf(img.Item)} 미지원");
                 return;
             }
             if (caps.MaxImageBytes != null && size > caps.MaxImageBytes.Value)
@@ -319,6 +320,16 @@ public partial class LlmChatViewModel
         if (fmt.IsGif) return "image/gif";
         if (fmt.IsWebp) return "image/webp";
         return "application/octet-stream";
+    }
+
+    /// <summary>review m10 — 사용자 표시용 확장자 (.jpg 등). ToString() 의 "Jpeg" 보다 친숙.</summary>
+    private static string ExtOf(ImageFormat fmt)
+    {
+        if (fmt.IsPng) return ".png";
+        if (fmt.IsJpeg) return ".jpg";
+        if (fmt.IsGif) return ".gif";
+        if (fmt.IsWebp) return ".webp";
+        return "";
     }
 }
 

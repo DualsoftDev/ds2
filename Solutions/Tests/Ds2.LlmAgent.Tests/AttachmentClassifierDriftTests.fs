@@ -45,6 +45,37 @@ let ``명시 거부 — SVG / 실행파일 / 미디어 / 압축 / BMP·TIFF`` ()
     Assert.Equal(RejectExtension ".tiff", AttachmentClassifier.classify "x.tiff")
 
 [<Fact>]
+let ``review M5 — 보안·정책 critical 거부 확장자 set 직접 contains assertion`` () =
+    // classify sample 검사만으로는 rejectedExtensions set 에서 silent 삭제될 위험.
+    // 보안 critical 항목 (XSS/실행/대용량/HEIC 등 미지원) 을 set 자체에 직접 contains 으로 강제.
+    let critical = [
+        ".svg"   // XSS / XXE
+        ".exe"; ".dll"; ".msi"; ".bin"; ".scr"  // 실행 / 바이너리
+        ".zip"; ".7z"; ".rar"; ".tar"; ".gz"     // 압축
+        ".mp4"; ".mp3"                            // 미디어
+        ".bmp"; ".tiff"; ".heic"                  // 미지원 이미지 포맷 (대용량 / Apple)
+    ]
+    for ext in critical do
+        Assert.True(
+            Set.contains ext AttachmentClassifier.rejectedExtensions,
+            sprintf "rejectedExtensions 에서 %s 가 누락됨 — 보안·정책 critical drift" ext)
+
+[<Fact>]
+let ``review M5 — 텍스트 화이트리스트 critical 항목 set 직접 contains`` () =
+    // 핵심 코드/문서 확장자 silent 삭제 방어. classify sample 보강.
+    let critical = [
+        ".txt"; ".md"; ".log"
+        ".json"; ".xml"; ".yaml"
+        ".fs"; ".fsi"; ".cs"
+        ".ts"; ".js"; ".py"
+        ".sql"; ".sh"; ".ps1"
+    ]
+    for ext in critical do
+        Assert.True(
+            Set.contains ext AttachmentClassifier.textExtensions,
+            sprintf "textExtensions 에서 %s 가 누락됨" ext)
+
+[<Fact>]
 let ``확장자 없는 파일 — Dockerfile / Makefile / .editorconfig`` () =
     Assert.Equal(AcceptText, AttachmentClassifier.classify "Dockerfile")
     Assert.Equal(AcceptText, AttachmentClassifier.classify "DOCKERFILE")
@@ -96,6 +127,16 @@ let ``strict UTF-8 통과 — BOM 없는 영어 텍스트`` () =
     let detect = AttachmentClassifier.detectEncoding bytes
     Assert.Equal(System.Text.Encoding.UTF8.WebName, detect.Encoding.WebName)
     Assert.False(detect.ConfidenceHigh)  // BOM 없으므로 strict 통과해도 confidence low
+
+[<Fact>]
+let ``invalid UTF-8 + invalid CP949 — UTF-8 replacement fallback (review m7)`` () =
+    System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance)
+    // 0xC3 0x28 = UTF-8 lead byte 후 invalid continuation. CP949 도 0xC3 0x28 (ASCII 0x28 두번째) 라 invalid.
+    // → UTF-8 replacement fallback (ConfidenceHigh = false).
+    let bytes = [| 0xC3uy; 0x28uy; 0x41uy; 0x42uy |]
+    let detect = AttachmentClassifier.detectEncoding bytes
+    Assert.Equal(System.Text.Encoding.UTF8.WebName, detect.Encoding.WebName)
+    Assert.False(detect.ConfidenceHigh)
 
 [<Fact>]
 let ``CP949 fallback — 한국어 Windows 환경 .txt`` () =

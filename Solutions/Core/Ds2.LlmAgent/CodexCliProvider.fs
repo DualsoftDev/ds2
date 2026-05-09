@@ -85,6 +85,8 @@ type CodexCliProvider(options: CodexCliOptions) =
     /// (`-i/--image <FILE>...` path 인자 + bytes 시 임시 파일 spool — spike S-2 결과).
     member this.Send (msg: LlmUserMessage, [<Runtime.InteropServices.Optional>] ?cancellationToken: CancellationToken) : IAsyncEnumerable<LlmEvent> =
         let ct = defaultArg cancellationToken CancellationToken.None
+        // review 2차 M4 — capability 미지원 첨부 silent drop 방지 (warn). PDF / 미지원 image format 만 영향.
+        LlmUserMessageOps.WarnUnsupportedAttachments CapabilityPresets.CodexCliWire msg
         let prompt = msg.Text
         let args = CodexCliArgs.build options sessionId prompt
         // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
@@ -122,8 +124,8 @@ type CodexCliProvider(options: CodexCliOptions) =
     member _.ClearSession () = sessionId <- None
 
     /// Capabilities — Codex CLI 0.128.0 spike S-2 결과: `-i/--image <FILE>...` path 기반.
-    /// PDF 옵션 부재 → 미지원. 이미지 cap 은 OpenAI 기준 추정 20MB (향후 검증 필요).
-    member _.Capabilities = Capabilities.ImagesOnly(20L * 1024L * 1024L)
+    /// PDF 옵션 부재 → 미지원. 이미지 cap 은 OpenAI 기준 추정 20MB. SSOT = `CapabilityPresets.CodexCliWire`.
+    member _.Capabilities = CapabilityPresets.CodexCliWire
 
     interface ILlmProvider with
         member this.EnsureCli () = this.EnsureCli ()
