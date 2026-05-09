@@ -146,12 +146,12 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - [x] 토큰 추정 → chip `TokensLabel` 노출 (`≈Nt`). 이미지 = Anthropic `(W*H)/750` clamp opus47 cap, 텍스트 = `byteLen/4 × 한국어 보정`
 - [x] PDF 는 commit-4 단계 chip 차단 (Phase 3b 진입 시 분기 제거 — `LlmChatViewModel.Attachments.cs` `ClassifyPathSync` 의 `cls.IsAcceptPdf` 분기)
 
-#### commit-5 — Ctrl+V + provider 전환 강제 제거 (예정)
+#### commit-5 — Ctrl+V + provider 전환 강제 제거 (rev 10, 2026-05-09 완료)
 
-- [ ] `DataObject.AddPastingHandler` 등록 (정책 2 정석) — Ctrl+V 우선순위 (3.3 절) 처리. text-only paste 회귀 보장 (Clipboard.ContainsFileDropList()/ContainsImage() 일 때만 `e.Handled=true`)
-- [ ] 클립보드 image (CF_PNG > CF_DIB > CF_BITMAP) → STA `BitmapSource.Freeze()` → background PNG 인코딩 → `AddImageBytesAsync` 호출
-- [ ] `OnSelectedProviderChanged` 시 capability 비교 → 미지원 첨부 chip 영역 1줄 안내 + 강제 제거 (정책 9 / 3.4)
-- [ ] DragOver visual cue (panel border highlight 등) — UX detail
+- [x] `DataObject.AddPastingHandler` 등록 (정책 2 정석) — `LlmChatPanel.xaml.cs` constructor 에서 `InputBox` 에 hook. `OnInputPaste` 우선순위 file drop > image > text. text-only 는 `e.CancelCommand()` 미호출 → 기존 TextBox paste 동작 유지 (MI-3)
+- [x] 클립보드 image (CF_PNG raw 우선 → MemoryStream toArray, fallback BitmapSource → `Clone()+Freeze()` → `PngBitmapEncoder`) → `AddImageBytesAsync` 호출. **m1 (commit-5 자가 검열 후속 — UI thread 인코딩 비용)**: 큰 BitmapSource fallback 경로 background marshal 은 commit-6 이월
+- [x] `ConfigureProviderAsync` 의 IsValid 분기에서 `ReevaluateAttachmentsForProvider()` 호출 — `_provider.Capabilities` 와 chip `Source.IsImage`/`IsPdf`/`IsTextFile` 분기로 미지원 강제 제거 + 1줄 안내 (정책 9 / 3.4). **m2**: image format 세분 (PNG/JPEG 별 capability) 비교는 commit-6 이월 — 현재 4종 provider 모두 4 format 일괄 지원/미지원
+- [x] DragOver visual cue — `<Border x:Name="DragHighlightBorder">` outer wrap + Panel_PreviewDragEnter/Over 에 FileDrop 검사 시 BorderBrush = `AccentBrush` (`TryFindResource` fallback DodgerBlue), Leave/Drop 에 Transparent 복원. 자가 검열 M1 적용 — DragOver 에도 토글 (Enter/Over 짝)
 
 #### commit-6 — race-free SendAsync + default prefix + history summary + status (예정)
 
@@ -226,6 +226,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 10 (2026-05-09): Phase 3a commit-5 완료 — Ctrl+V (`DataObject.AddPastingHandler`) + 클립보드 image PNG 인코딩 (CF_PNG raw 우선 / BitmapSource fallback) + `ReevaluateAttachmentsForProvider` (provider 전환 시 미지원 chip 강제 제거) + DragOver visual cue (outer Border accent BrushBrush 토글). 자가 검열 M1 적용 (DragEnter/Over 짝). dotnet build + dotnet test **205건** 전수 통과. 잔여 m1 (큰 이미지 background 인코딩) / m2 (image format 세분 비교) 는 commit-6 이월
 - rev 9 (2026-05-09): Phase 3a commit-4 2차 review sweep (Critical 1 / Major 5 / Minor 8 일괄 적용) — C1 (`openAiGpt4oImageTokens` long 2048 → short 768 두 단계 fit) / M1 (`module CapabilityPresets` SSOT — AnthropicWire / OpenAiApiWire / CodexCliWire / DefaultMaxAttachmentCount, 4 호출처 위임) / M2 (`estimateKoreanRatio` `EnumerateRunes` surrogate-safe) / M3 (`detectEncoding` UTF-8 replacement fallback + `Log.provider.Warn`) / M4 (`module LlmUserMessageOps.WarnUnsupportedAttachments` + 5종 provider Send 위임) / M5 (rejectedExtensions/textExtensions 보안 critical contains assertion 2 fact + invalid UTF-8 fixture) / m1 (`MaxAttachmentCount` SSOT — F# literal → C# const) / m2 (license.txt dead entry 제거) / m4 (`Capabilities.TextOnly` `static member val`) / m7 (invalid UTF-8 fixture) / m8 (4.attachments.md 백틱 escape 자연어) / m10 (`ExtOf` helper 사용자 표시) / m11 (`LlmUserMessage.Create` null-safe factory). dotnet build + dotnet test **205건** 전수 통과. 자가 검열 Critical/Major 0, Minor 1 (방어층 의도 유지). m3/m5/m6/m9 는 별도 follow-up
 - rev 8 (2026-05-09): Phase 3a commit-4 1차 review 5건 적용 — F1 (SendAsync 진입 시 첨부 있으면 commit-6 wire 미구현 안내 1줄, system turn) / F2 (dispatcher add 직전 cap 재검증 — fire-and-forget 중첩 race 방어) / F3 (`AttachmentClassifier.detectEncoding` CP949 fallback + `System.Text.Encoding.CodePages` NuGet 의존성 추가 + `App.xaml.cs` 에 `CodePagesEncodingProvider` 등록 + drift 테스트 case 추가) / F4 (Reset 명령에 `Attachments.Clear()` + `AttachmentNotice = ""` 추가) / F5 (chip filename `MaxWidth=220` + `TextTrimming=CharacterEllipsis` + ToolTip). dotnet build + dotnet test Ds2.LlmAgent.Tests **202건** 전수 통과
 - rev 7 (2026-05-09): Phase 3a commit-4 완료 — `LlmChatViewModel.Attachments.cs` (partial 신규, ~280 line) + `AttachmentChipVm` + `LlmChatPanel.xaml/.cs` drag-drop 4종 핸들러 (`PreviewDragEnter/Leave/Over/Drop` 모두 `e.Handled=true`, 정책 14 강화). MainWindow `Window_DragEnter` bubble 까지 차단 — 자가 검열 M1 적용. PDF 는 capability 통과해도 commit-4 단계 chip 차단 (Phase 3b 대기). dotnet build Promaker.sln + dotnet test Ds2.LlmAgent.Tests (201건) 전수 통과. 잔여 commit-5 (Ctrl+V + provider 전환 강제 제거) / commit-6 (race-free SendAsync + default prefix + history summary + status) 으로 분할

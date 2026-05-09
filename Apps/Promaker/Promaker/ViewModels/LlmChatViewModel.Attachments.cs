@@ -168,6 +168,35 @@ public partial class LlmChatViewModel
     }
 
     /// <summary>
+    /// commit-5 정책 9 / 3.4: provider 전환 후 호출. 새 provider 의 capability 와 현재 chip 비교 →
+    /// 미지원 첨부 강제 제거 + 1줄 안내. <see cref="ConfigureProviderAsync"/> 의 IsReady=true 직후 진입.
+    /// </summary>
+    public void ReevaluateAttachmentsForProvider()
+    {
+        if (_provider == null) return;
+        if (Attachments.Count == 0) return;
+        var caps = _provider.Capabilities;
+        var removed = new System.Collections.Generic.List<string>();
+        for (int i = Attachments.Count - 1; i >= 0; i--)
+        {
+            var src = Attachments[i].Source;
+            // capability 비교 — image format 별 세분 비교는 단순화 (대부분 4 format 일괄 지원/미지원).
+            // PDF native 만 분기.
+            bool keep =
+                src.IsImage    ? !caps.ImageFormats.IsEmpty :
+                src.IsPdf      ? caps.SupportsPdfNative :
+                /* IsTextFile */ true;
+            if (!keep)
+            {
+                removed.Add(Attachments[i].FileName);
+                Attachments.RemoveAt(i);
+            }
+        }
+        if (removed.Count > 0)
+            AttachmentNotice = $"provider 변경 — 미지원 첨부 {removed.Count}개 제거 ({string.Join(", ", removed)})";
+    }
+
+    /// <summary>
     /// 단일 path 에 대한 sync 검증 — 확장자 / capability / size cap. 통과 시 <paramref name="accepted"/> 에 push,
     /// 거부 시 <paramref name="notices"/> 에 한 줄 추가. PDF 는 capability 통과해도 commit-4 단계 (Phase 3b 미구현)
     /// 라 거부.
