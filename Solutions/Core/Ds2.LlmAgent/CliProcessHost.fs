@@ -36,7 +36,8 @@ module CliProcessHost =
         /// process spawn 직후 lifecycle hook (Job Object attach 등). 예외 발생 시 그대로 throw —
         /// 상위에서 fail-fast (CLAUDE.md 정책: 무관한 catch-and-warn 자제).
         OnProcessStarted: (Process -> unit) option
-        /// non-zero exit code 메시지 빌더. exitCode + 마지막 stderr 라인 (Codex 전용 — Claude 는 "" 무시).
+        /// non-zero exit code 메시지 빌더. exitCode + 마지막 stderr 라인.
+        /// Codex / Claude 양쪽 모두 stderr suffix 노출 (commit-6b 후속: stream-json input 회귀 진단 위해 Claude 도 활성).
         OnExitNonZero: int -> string -> string
         /// log / error message prefix ("Claude" / "Codex" / 후속 provider 명).
         Label: string
@@ -87,7 +88,11 @@ module CliProcessHost =
                 psi.StandardErrorEncoding <- System.Text.Encoding.UTF8
                 if spec.Stdin.IsSome then
                     // 한글 prompt 본문이 CP949 등으로 인코딩되어 깨지는 경로 차단.
-                    psi.StandardInputEncoding <- System.Text.Encoding.UTF8
+                    // **BOM 없는 UTF-8** — `System.Text.Encoding.UTF8` 의 default 는 emitUTF8Identifier=true 라
+                    // stdin 첫 write 시 BOM (EF BB BF) 이 자동 송출됨. text 모드는 흡수되지만 Claude CLI 의
+                    // `--input-format stream-json` line-strict parser 는 BOM 포함 line 을 즉시 reject
+                    // ("Error parsing streaming input line" + exit 1).
+                    psi.StandardInputEncoding <- System.Text.UTF8Encoding(false)
                 for (k, v) in spec.EnvOverrides do
                     psi.Environment.[k] <- v
 

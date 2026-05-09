@@ -83,8 +83,11 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             OnProcessStarted =
                 options.OnProcessStarted
                 |> Option.map (fun cb -> fun proc -> cb.Invoke(proc))
-            OnExitNonZero = fun code _stderrLast ->
-                $"Claude CLI 비정상 종료 (exit code = {code})."
+            OnExitNonZero = fun code stderrLast ->
+                let suffix =
+                    if String.IsNullOrEmpty stderrLast then ""
+                    else $" — stderr: {stderrLast}"
+                $"Claude CLI 비정상 종료 (exit code = {code}){suffix}."
             Label = "Claude"
             ChannelCapacity = options.ChannelCapacity
             // user prompt 본문도 stdin 으로 전달 — 32K 한도 회피 + Ev2.Oracle 동일 패턴.
