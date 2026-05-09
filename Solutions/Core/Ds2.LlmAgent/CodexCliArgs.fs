@@ -131,3 +131,26 @@ module CodexCliArgs =
     /// 첨부 없을 때 사용 — 기존 호출자 호환.
     let build (options: CodexCliOptions) (sessionId: string option) (prompt: string) : string list =
         buildWith options sessionId prompt [||]
+
+    /// rev 20 (F2 외부 review) — Windows `CreateProcessW` lpCommandLine 한도 회피용 args 길이 추정.
+    /// **단위 주의**: OS 한도는 *32,767 wide chars (UTF-16 code unit)* ≈ 65,534 byte. .NET `Process.Start` 가
+    /// string args 를 UTF-16 으로 OS 에 전달. 본 helper 는 *UTF-8 byte* 측정 — 한국어 (UTF-8 3 byte / UTF-16 2 byte)
+    /// 의 경우 byte > char 라 cap 환산 시 *over-estimate* 방향 (false-positive 만 발생, silent over-limit 회피).
+    /// 추정식 = 토큰 byte 합 + 토큰당 separator 1 + quote overhead 2 (≈ 3 byte / token). 정확 quote escape 시뮬
+    /// 대신 보수 가산.
+    /// Codex 는 prompt 가 위치 인자 + Stdin 미사용 (`CodexCliProvider.fs` 의 `Stdin = None`) 이라 prompt + textInline
+    /// 이 args 에 누적 → 1MB 텍스트 첨부 시 32K 한도 초과로 process spawn 깨짐.
+    let measureArgsBytes (args: string list) : int =
+        let mutable total = 0
+        let mutable count = 0
+        for a in args do
+            count <- count + 1
+            if not (isNull a) then
+                total <- total + System.Text.Encoding.UTF8.GetByteCount(a)
+        total + count * 3
+
+    /// `measureArgsBytes` 와 짝 — 한도 도달 시 사용자에게 다른 provider (Claude/Anthropic/OpenAI/Ollama API) 권장.
+    /// 24,576 byte = 32,767 char 한도의 ASCII 가정 (1 byte = 1 char) 시 약 75% 안전 마진. 한국어 multi-byte 는
+    /// byte 측정이 더 보수적 → 더 일찍 차단 (안전 방향). quote escape / lpCommandLine wide-char 변환 / 미래 인자 추가 여유.
+    [<Literal>]
+    let CodexArgsByteCap = 24576

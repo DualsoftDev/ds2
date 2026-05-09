@@ -244,9 +244,9 @@ module AttachmentRendering =
     let summarize (att: Attachment) : string =
         match att with
         | Image (name, bytes, _) ->
-            sprintf "[image: %s %s]" name (formatBytes (int64 bytes.Length))
+            sprintf "[image: %s %s]" name (formatBytes (bytes.LongLength))
         | Pdf (name, bytes) ->
-            sprintf "[pdf: %s %s]" name (formatBytes (int64 bytes.Length))
+            sprintf "[pdf: %s %s]" name (formatBytes (bytes.LongLength))
         | TextFile (name, content) ->
             let bytes = int64 (System.Text.Encoding.UTF8.GetByteCount content)
             sprintf "[text: %s %s]" name (formatBytes bytes)
@@ -258,19 +258,39 @@ module LlmUserMessageOps =
     /// commit-6b strict 모드 — capability 미지원 첨부 발견 시 invalidArg throw.
     /// provider wire 직전 호출 → silent drop 차단. UI 측 `ReevaluateAttachmentsForProvider` (provider 전환 시
     /// 강제 제거) + 첨부 추가 시 capability 검증을 race 로 빠져나간 첨부가 도달하면 fail-fast.
+    /// rev 20 (F3 외부 review): format/native 외 **size cap** 도 검증 — 10MB OpenAI 이미지 → Claude (5MB)
+    /// 전환 후 send 시 silent 통과하던 회귀 차단.
     let EnforceCapabilityOrFail (caps: Capabilities) (msg: LlmUserMessage) : unit =
         if isNull (box msg.Attachments) then ()
         else
             for att in msg.Attachments do
                 match att with
-                | Image (name, _, fmt) ->
+                | Image (name, bytes, fmt) ->
                     if caps.ImageFormats.IsEmpty then
                         invalidArg "msg" (sprintf "이미지 첨부 미지원 provider 에 wire 시도: %s (%s)" name (Attachment.mimeOf fmt))
                     elif not (caps.ImageFormats.Contains fmt) then
                         // rev 18 m3: format 별 세분 검증 추가 — capability 가 일부 format 만 지원하는 provider 대비
                         // (현재는 4종 일괄 지원/미지원이라 dead path 지만 향후 모델별 capability 변동 시 fail-fast).
                         invalidArg "msg" (sprintf "이미지 포맷 미지원 provider 에 wire 시도: %s (%s)" name (Attachment.mimeOf fmt))
-                | Pdf (name, _) ->
+                    else
+                        match caps.MaxImageBytes with
+                        | Some cap when bytes.LongLength > cap ->
+                            invalidArg "msg"
+                                (sprintf "이미지 크기 cap 초과: %s (%s > %s)"
+                                    name
+                                    (AttachmentRendering.formatBytes (bytes.LongLength))
+                                    (AttachmentRendering.formatBytes cap))
+                        | _ -> ()
+                | Pdf (name, bytes) ->
                     if not caps.SupportsPdfNative then
                         invalidArg "msg" (sprintf "PDF 첨부 미지원 provider 에 wire 시도: %s" name)
+                    else
+                        match caps.MaxPdfBytes with
+                        | Some cap when bytes.LongLength > cap ->
+                            invalidArg "msg"
+                                (sprintf "PDF 크기 cap 초과: %s (%s > %s)"
+                                    name
+                                    (AttachmentRendering.formatBytes (bytes.LongLength))
+                                    (AttachmentRendering.formatBytes cap))
+                        | _ -> ()
                 | TextFile _ -> ()  // 텍스트는 inline — capability 무관

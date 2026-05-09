@@ -106,3 +106,75 @@ let ``CapabilityPresets — Anthropic / OpenAI = 100p, Codex = N/A`` () =
 let ``ImagesOnly / TextOnly → MaxPdfPages = None`` () =
     Assert.Equal(None, (Capabilities.ImagesOnly 1024L).MaxPdfPages)
     Assert.Equal(None, Capabilities.TextOnly.MaxPdfPages)
+
+/// rev 20 (F3 외부 review) — EnforceCapabilityOrFail 의 size cap 검증 회귀.
+/// 10MB OpenAI 이미지 → Claude (5MB) 전환 시 silent 통과 회귀 차단.
+
+[<Fact>]
+let ``Image 첨부 size cap 초과 → invalidArg`` () =
+    // Claude 5MB cap. 6MB image → fail.
+    let bytes6mb = Array.zeroCreate<byte> (6 * 1024 * 1024)
+    let img = Image("big.png", bytes6mb, Png)
+    let msg = LlmUserMessage.Create("review", [| img |])
+    let ex = Assert.Throws<ArgumentException>(fun () ->
+        LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg)
+    Assert.Contains("이미지 크기 cap 초과", ex.Message)
+    Assert.Contains("big.png", ex.Message)
+
+[<Fact>]
+let ``Image 첨부 size cap 경계 (정확히 cap) → 통과`` () =
+    let cap = 5L * 1024L * 1024L
+    let bytes5mb = Array.zeroCreate<byte> (int cap)
+    let img = Image("edge.png", bytes5mb, Png)
+    let msg = LlmUserMessage.Create("review", [| img |])
+    LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg
+
+[<Fact>]
+let ``PDF 첨부 size cap 초과 → invalidArg`` () =
+    // Anthropic 32MB cap. 33MB → fail.
+    let bytes33mb = Array.zeroCreate<byte> (33 * 1024 * 1024)
+    let pdf = Pdf("big.pdf", bytes33mb)
+    let msg = LlmUserMessage.Create("review", [| pdf |])
+    let ex = Assert.Throws<ArgumentException>(fun () ->
+        LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg)
+    Assert.Contains("PDF 크기 cap 초과", ex.Message)
+
+[<Fact>]
+let ``ImagesOnly + MaxImageBytes None → size 무검사 (cap 미설정 시 통과)`` () =
+    // ImagesOnly factory 는 MaxImageBytes 명시. 그러나 cap = None 인 case 도 record 직접 만들면 가능.
+    let caps =
+        { ImageFormats = Set.ofList [Png]
+          SupportsPdfNative = false
+          MaxImageBytes = None
+          MaxPdfBytes = None
+          MaxPdfPages = None
+          MaxAttachmentCount = None }
+    let bytes = Array.zeroCreate<byte> (100 * 1024 * 1024)  // 100MB — cap None 이면 통과
+    let img = Image("huge.png", bytes, Png)
+    let msg = LlmUserMessage.Create("x", [| img |])
+    LlmUserMessageOps.EnforceCapabilityOrFail caps msg
+
+/// rev 20 (F2 외부 review) — Codex 32K 한도 mitigation 회귀.
+/// CodexCliArgs.measureArgsBytes + CodexArgsByteCap 보수 추정 일관성.
+
+[<Fact>]
+let ``CodexCliArgs.measureArgsBytes — empty → 0`` () =
+    Assert.Equal(0, CodexCliArgs.measureArgsBytes [])
+
+[<Fact>]
+let ``CodexCliArgs.measureArgsBytes — ASCII tokens 합 + token-당 separator 3`` () =
+    // ["abc"; "de"] → 3 + 2 + 2*3 = 11
+    Assert.Equal(11, CodexCliArgs.measureArgsBytes [ "abc"; "de" ])
+
+[<Fact>]
+let ``CodexCliArgs.measureArgsBytes — 한국어 multi-byte UTF-8`` () =
+    // "가" UTF-8 = 3 byte. ["가나"] → 6 + 1*3 = 9
+    Assert.Equal(9, CodexCliArgs.measureArgsBytes [ "가나" ])
+
+[<Fact>]
+let ``CodexCliArgs.measureArgsBytes — null token 안전 무시`` () =
+    Assert.Equal(3, CodexCliArgs.measureArgsBytes [ null ])  // 0 byte + 1 separator overhead
+
+[<Fact>]
+let ``CodexCliArgs.CodexArgsByteCap = 24576 (24K 보수 cap)`` () =
+    Assert.Equal(24576, CodexCliArgs.CodexArgsByteCap)
