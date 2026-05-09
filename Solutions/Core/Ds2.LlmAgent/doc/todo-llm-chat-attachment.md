@@ -255,6 +255,20 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 20 (2026-05-09): **외부 review 4 finding 수용 (F1 consent / F3 size cap / F2 Codex 32K) + F4 hallucination 반론**.
+  - F1 (consent 다이얼로그 첨부 미공개 누락): `LlmConfig.cs:153-164` 의 const msg 본문에 첨부 송신 사실 (텍스트 fenced inline / 이미지·PDF multimodal content block) + `.env` 등 비밀정보 차단 명시. UI 동작 무변경, 다이얼로그 텍스트만
+  - F3 (provider 전환 size cap recheck 누락): `LlmMessage.fs:268-296` `EnforceCapabilityOrFail` 의 Image/Pdf 분기에 `MaxImageBytes` / `MaxPdfBytes` cap 검증 추가 (F# strict throw, fail-fast). `LlmChatViewModel.Attachments.cs:191-244` `ReevaluateAttachmentsForProvider` 에 동일 size 분기 추가 (UI 사전 흡수 + 안내 "미지원/cap 초과"). dual-layer invariant
+  - F2 (Codex 32K 한도): `CodexCliArgs.fs:135-160` `measureArgsBytes : string list -> int` (UTF-8 byte 합 + 토큰당 separator 3 over-estimate, false-positive 만 발생) + `[<Literal>] CodexArgsByteCap = 24576` (Windows lpCommandLine 32,767 wide-char 한도 ≈ 65,534 byte 의 ASCII 75% 마진 — 한국어는 byte > char 라 더 보수적). `CodexCliProvider.fs:131-141` Send 진입 시 args 측정 → 24K 초과 시 `cleanupImageSpool ()` 후 `invalidArg` ("Claude / Anthropic API / OpenAI API 로 전환하세요"). 정석 Stream stdin 시그니처는 Phase D 보류
+  - F4 hallucination (fence escalate 가 4-backtick 만): `LlmMessage.fs:217-237` 의 `longestBacktickRun` + `max 3 (run + 1)` 가 5+ backtick markdown 도 정확 처리 — rev 19 commit `52b14c0` 에서 이미 일반화 완료. reviewer 가 docstring line (`:220`) 만 보고 실제 구현 (`:218`) 못 본 hallucination 으로 판정 후 반론, 변경 없음
+  - 자가 검열 (Critical 0 / Major 2 / Minor 6): Major-1 lpCommandLine 단위 (char vs byte) 주석 보강 → 적용. Major-2 buildWith throw path leak (본 turn 외 잠재) → 후속 todo. Minor-1 `int64 bytes.Length` → `bytes.LongLength` 통일 (4 곳, summarize 포함) → 적용
+  - 7 파일 변경 + 테스트 9 건 추가. dotnet build 통과 + dotnet test **236건** (rev 19 의 227 + 신규 9: Image cap / PDF cap / MaxImageBytes None / measureArgsBytes 4 + CodexArgsByteCap 1)
+  - 후속 todo: (a) Codex 의 `CodexCliArgs.buildWith` throw path 시 image spool leak 가능 (line 131 위치) — try/finally 또는 use 로 감싸는 정석 fix Phase D 합류 시점. (b) F2 의 정석 = `Spec.Stdin: string option` → `Stream option` 시그니처 (Phase D / C2)
+- rev 19 (2026-05-09): **`--inspect-diff 7` reviewer 결과 적용 (Phase A 코드 fix + Phase B doc 동기화)**. commit `52b14c0`.
+  - C1/M2: `ApiChatProvider.SendImpl` try/finally + `assistantAdded` 가드 (cancel/exception 시 partial flush + user pop, alternation 정합성)
+  - M1: Codex 임시 이미지 spool try/with partial leak 방어 + `static SweepStale ()` (eager array, 30분 cutoff) — App.OnStartup 1회 호출
+  - C4/M6/M11/M12: `.env` 거부 list 이동 / WarnUnsupportedAttachments dead code 제거 / stderr secret redact + 200자 cap / toInlineString fence escalate 일반화 (`longestBacktickRun + 1`)
+  - doc: CLAUDE.md provider 6종 + fsproj layout 5 파일 + 검증 사실 표 4 행 / todo line refs sweep / Prompts 4.attachments.md 안내
+  - 9 파일 / +159 / -71. dotnet build 통과 + dotnet test **227건** 전수 통과. 자가 검열 (Critical 0 / Major 1 + Minor 6 → Major + Minor 3 즉시 fix, Minor 2 후속 todo)
 - rev 18b (2026-05-09): **rev 18 review 즉시 조치 — 권고 1+2 적용 (3 파일 / +14/-15 line)**.
   - 권고 1: `AttachmentInfo.tryGetImageMime` dead helper 제거 — 사용자 review 의 grep 검증으로 외부 호출자 0건 확정 후 본 PR 묶음 (종전 "외부 patch 의존성 검증 후 별도 commit" 보수 결정의 근거가 검증 완료)
   - 권고 2: `Attachment.extOf : ImageFormat -> string` SSOT 추가 — `mimeOf` 와 같은 module 일관성. `CodexCliProvider.fs` 의 inline extOf 6 line 폐기 + C# `ExtOf` 의 7 line `IsPng/IsJpeg/...` 분기를 `Ds2.LlmAgent.AttachmentModule.extOf(fmt)` 1줄 위임으로 단순화. `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]` attribute 추가로 type/module 동명 (`Attachment`) 충돌 회피 — F# 측은 `Attachment.mimeOf` / `Attachment.extOf` 그대로, C# 측은 `Ds2.LlmAgent.AttachmentModule.extOf` 로 IL 노출

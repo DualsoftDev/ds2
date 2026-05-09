@@ -129,6 +129,16 @@ type CodexCliProvider(options: CodexCliOptions) =
                     reraise ()
 
         let args = CodexCliArgs.buildWith options sessionId prompt imagePaths
+
+        // rev 20 (F2 외부 review) — Windows CreateProcess lpCommandLine 한도 사전 가드.
+        // Codex 는 prompt 가 위치 인자 + Stdin 미사용이라 1MB text 첨부 inline 시 32K 초과 → process spawn 깨짐.
+        // Stream stdin 시그니처는 Phase D 보류 — 단기 mitigation 으로 24K 보수 cap.
+        let argsBytes = CodexCliArgs.measureArgsBytes args
+        if argsBytes > CodexCliArgs.CodexArgsByteCap then
+            cleanupImageSpool ()
+            invalidArg "msg"
+                (sprintf "Codex CLI 명령줄 한도 초과 (%d > %d byte) — 큰 텍스트 첨부 사용 시 Claude / Anthropic API / OpenAI API 로 전환하세요."
+                    argsBytes CodexCliArgs.CodexArgsByteCap)
         // CODEX_HOME 격리 — codex 가 sessions/config/log 를 인스턴스별 임시 디렉토리에 둠.
         // 사용자 ~/.codex/sessions/ 에 thread rollout 누적 회피 + 워크스페이스 재귀 삭제 시 자동 cleanup.
         let envOverrides =

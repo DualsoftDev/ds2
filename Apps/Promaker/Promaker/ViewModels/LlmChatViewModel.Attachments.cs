@@ -198,14 +198,36 @@ public partial class LlmChatViewModel
         {
             var src = Attachments[i].Source;
             bool keep;
+            // rev 20 (F3 외부 review): format/native 외 size cap 도 검사 — 10MB OpenAI 이미지 → Claude (5MB)
+            // 전환 시 silent 통과 회귀 차단. F# `EnforceCapabilityOrFail` 의 strict throw 를 UI 가 사전 흡수.
             if (src.IsImage)
             {
                 var fmtOpt = AttachmentInfo.tryGetImageFormat(src);
-                keep = fmtOpt != null && caps.ImageFormats.Contains(fmtOpt.Value);
+                if (fmtOpt == null || !caps.ImageFormats.Contains(fmtOpt.Value))
+                {
+                    keep = false;
+                }
+                else
+                {
+                    var imgOpt = AttachmentInfo.tryGetImage(src);
+                    keep = imgOpt == null
+                        || caps.MaxImageBytes == null
+                        || imgOpt.Value.Bytes.LongLength <= caps.MaxImageBytes.Value;
+                }
             }
             else if (src.IsPdf)
             {
-                keep = caps.SupportsPdfNative;
+                if (!caps.SupportsPdfNative)
+                {
+                    keep = false;
+                }
+                else
+                {
+                    var pdfOpt = AttachmentInfo.tryGetPdf(src);
+                    keep = pdfOpt == null
+                        || caps.MaxPdfBytes == null
+                        || pdfOpt.Value.Bytes.LongLength <= caps.MaxPdfBytes.Value;
+                }
             }
             else
             {
@@ -219,7 +241,7 @@ public partial class LlmChatViewModel
             }
         }
         if (removed.Count > 0)
-            AttachmentNotice = $"provider 변경 — 미지원 첨부 {removed.Count}개 제거 ({string.Join(", ", removed)})";
+            AttachmentNotice = $"provider 변경 — 미지원/cap 초과 첨부 {removed.Count}개 제거 ({string.Join(", ", removed)})";
     }
 
     /// <summary>
