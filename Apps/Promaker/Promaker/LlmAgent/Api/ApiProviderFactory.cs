@@ -20,7 +20,12 @@ namespace Promaker.LlmAgent.Api;
 /// </summary>
 public static class ApiProviderFactory
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(ApiProviderFactory));
+
     private const string McpNonceHeader = "X-Promaker-Nonce";
+
+    /// <summary>Ollama vision 모델용 단일 이미지 cap. base64 inline — OpenAI 한도와 동일하게 보수.</summary>
+    private const long OllamaVisionImageCap = 20L * 1024L * 1024L;
 
     /// <summary>LlmApiConfig 의 EncryptedKeys dict 키 — Anthropic API key 슬롯.</summary>
     public const string AnthropicKey = "anthropic";
@@ -75,17 +80,46 @@ public static class ApiProviderFactory
             capabilities: Capabilities.TextOnly);
     }
 
-    public static Task<ApiChatProvider> CreateOllamaAsync(
+    public static async Task<ApiChatProvider> CreateOllamaAsync(
         string baseUrl, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
     {
         // OllamaApiClient 가 IChatClient 직접 구현. base URL + 기본 모델만 주면 됨. API key 없음 → 항상 valid.
-        IChatClient raw = new OllamaApiClient(new Uri(baseUrl), defaultModel: model);
-        // 모델 의존 — vision 모델 (llava/llama3.2-vision 등) 동적 갱신은 phase 3a UI commit 에서 `/api/show` 조회.
-        // 현 단계 정적 placeholder = TextOnly.
-        return CreateInternalAsync(
+        var ollama = new OllamaApiClient(new Uri(baseUrl), defaultModel: model);
+        IChatClient raw = ollama;
+        // 정책 7 — Ollama 만 모델별 동적 capability. /api/show 의 capabilities 배열에 "vision" 포함 시
+        // 이미지 첨부 활성, 아니면 TextOnly. probe 실패 (Ollama 미실행 / 모델 미설치 / 네트워크) 시 보수적 fallback.
+        var caps = await ProbeOllamaCapabilitiesAsync(ollama, model).ConfigureAwait(false);
+        return await CreateInternalAsync(
             raw, "Ollama", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => true,
-            capabilities: Capabilities.TextOnly);
+            capabilities: caps).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ollama 의 <c>/api/show</c> 응답에서 <c>capabilities</c> 배열을 검사 — "vision" 포함 시 이미지 첨부 활성.
+    /// PDF 는 Ollama 미지원 → <see cref="Capabilities.ImagesOnly"/> 만 반환. probe 실패는 TextOnly fallback.
+    /// </summary>
+    private static async Task<Capabilities> ProbeOllamaCapabilitiesAsync(OllamaApiClient client, string model)
+    {
+        try
+        {
+            var resp = await client.ShowModelAsync(model).ConfigureAwait(false);
+            var modelCaps = resp?.Capabilities;
+            if (modelCaps != null)
+            {
+                foreach (var c in modelCaps)
+                {
+                    if (string.Equals(c, "vision", StringComparison.OrdinalIgnoreCase))
+                        return Capabilities.ImagesOnly(OllamaVisionImageCap);
+                }
+            }
+            return Capabilities.TextOnly;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Ollama /api/show 실패 ({model}) — TextOnly fallback", ex);
+            return Capabilities.TextOnly;
+        }
     }
 
     /// <summary>
