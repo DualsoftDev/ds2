@@ -48,3 +48,31 @@
 - Anthropic.SDK 12.20.0 / OpenAI .NET SDK 2.10.0 / OllamaSharp 5.4.25 어댑터 PDF/image content block 매핑
 - OpenAI API PDF 직접 입력 지원 여부 (V-1) 본 spike 에서 확정
 - Phase 3a 완료 후 별도 진행
+
+## Phase 3a — commit-1 (a93e763, 2026-05-09)
+
+### 산출물
+
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` (신규) — `ImageFormat` enum (Png/Jpeg/Gif/Webp) + `Attachment` DU (Image/Pdf/TextFile) + `LlmUserMessage` record + `OfText` factory + `Capabilities` record + `TextOnly` factory
+- `Ds2.LlmAgent.fsproj` `<Compile Include>` 에 `LlmEvent.fs` 다음으로 등록
+- 빌드 통과 (오류 0 / 경고 0). 사용처 0 — dead code 의도 (commit 정의 = "type 신설")
+
+## Phase 3a — commit-2 (7450520, 2026-05-09)
+
+### 산출물
+
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` — `Capabilities.ImagesOnly(maxImageBytes)` / `ImagesAndPdf(maxImageBytes, maxPdfBytes)` static factory 2종 추가 (C# 측 호출 친화)
+- `Solutions/Core/Ds2.LlmAgent/LlmProvider.fs` — `ILlmProvider.Send` 시그니처 `string prompt` → `LlmUserMessage msg` 교체 + `Capabilities` 추상 멤버 추가
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` — instance Send + interface impl 갱신, `Capabilities = ImagesAndPdf(5L*1024L*1024L, 32L*1024L*1024L)` (Anthropic API 와 동일 — `--input-format stream-json` 으로 동일 wire)
+- `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs` — 동일 패턴, `Capabilities = ImagesOnly(20L*1024L*1024L)` (V-1 미해결 placeholder)
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiChatProvider.cs` — ctor 에 `Capabilities` 인자 추가, `Send(LlmUserMessage)` 시그니처, `Capabilities` 프로퍼티 노출
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiProviderFactory.cs` — 4종 factory (Anthropic/OpenAI/Groq/Ollama) 에 capability 분배. Anthropic = `ImagesAndPdf(5MB, 32MB)` / OpenAI = `ImagesOnly(20MB)` / Groq = `TextOnly` / Ollama = `TextOnly` (모델 의존 동적 갱신은 commit-4..N 으로 미룸)
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs:466` — `_provider.Send(promptForProvider, ct)` → `_provider.Send(LlmUserMessage.OfText(promptForProvider), ct)` wrap
+- 빌드 통과 (Promaker.sln 전체, 오류 0 / 경고 2 — OllamaSharp source generator 사전 환경 무관)
+- 자가 검열 통과: 7파일 +76/-15, Critical/Major 0건, Minor 1 (V-1 placeholder, 코드 주석 명시)
+
+### 회귀 호환
+
+- 본 commit 정의 = "Attachments 무시 / msg.Text 만 사용 → 기존 텍스트 송신 회귀 통과"
+- 5종 어댑터 모두 `let prompt = msg.Text` 또는 `msg.Text` 로 추출 후 기존 흐름 그대로
+- 테스트 (`Solutions/Tests/Ds2.LlmAgent.Tests/`) 와 `MainViewModel.LlmChat.cs` 모두 `_provider.Send` 직접 호출 0건 — 마이그레이션 누락 없음 (자가 검열 grep 검증)
