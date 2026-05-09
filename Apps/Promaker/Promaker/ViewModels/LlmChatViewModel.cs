@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -431,55 +432,102 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private async Task SendAsync()
     {
         if (_provider == null) return;
-        var prompt = (Input ?? "").Trim();
-        if (prompt.Length == 0) return;
+
+        // 정책 20 race-free snapshot — fire-and-forget paste / drag-drop 이 SendAsync 진행 중 Attachments 갱신해도
+        // 본 turn 은 진입 시점 sn 으로 완료. snapshotProvider 도 OnSelectedProviderChanged 가 cancel 시켜도
+        // 진행 중 스트림은 캡처된 provider 로 끝남.
+        var attachmentsSnapshot = Attachments.ToArray();
+        var snapshotProvider = _provider;
+
+        var rawPrompt = (Input ?? "").Trim();
+        var hasAttachments = attachmentsSnapshot.Length > 0;
+        if (rawPrompt.Length == 0 && !hasAttachments) return;
 
         IsSending = true;
         SendCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
 
-        // commit-4 단계: chip UI 만 활성, 실제 provider wire 는 commit-6 에서. 사용자 오해 방지 1회 안내.
-        // commit-6 진입 시 본 분기 제거 + race-free snapshot 으로 대체.
-        if (Attachments.Count > 0)
-        {
-            Turns.Add(new ChatTurn
-            {
-                Role = ChatTurn.Roles.System,
-                Text = $"[안내] 첨부 {Attachments.Count}개는 표시만 됩니다. 실제 LLM 전송 wire 는 후속 commit (Phase 3a commit-6) 에서 활성화됩니다."
-            });
-        }
+        // 정책 16 default prefix — 텍스트 비어있고 첨부만 있을 때 자동 보충 (user-facing turn 도 동일 텍스트).
+        var prompt = rawPrompt.Length == 0
+            ? $"첨부된 {attachmentsSnapshot.Length}개 파일을 검토해 주세요."
+            : rawPrompt;
 
-        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.User, Text = prompt });
-        // Streaming turn 은 첫 AssistantDelta 시점에 EnsureStreamingTurn 으로 lazy-create —
-        // tool_use 가 첫 이벤트로 오는 경우 빈 assistant 버블이 먼저 보이는 깜빡임 회피.
+        // 정책 16 송신 후 처리 — chip 즉시 비움 + notice 비움. 실패 시 복원 안 함 (race-free 우선; 사용자가 재첨부 가능).
+        Attachments.Clear();
+        AttachmentNotice = "";
+
+        // user turn 표시 — 첨부 있으면 summary 라벨 prepend (정책 17 history summary 와 동일 형식)
+        var userTurnText = prompt;
+        if (hasAttachments)
+        {
+            var summaries = string.Join(" ",
+                attachmentsSnapshot.Select(a => AttachmentRendering.summarize(a.Source)));
+            userTurnText = summaries + "\n" + prompt;
+        }
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.User, Text = userTurnText });
         _streamingTurn = null;
 
         Input = "";
 
-        // Turn-scoped context — tool method 가 [FromServices] 로 받음.
-        // 안전망: 이전 turn 의 EndTurn 누락 방어 (정상 흐름은 finally 에서 종료됨).
-        // EndTurn 은 idempotent — current=null 이면 null 반환.
+        // Turn-scoped context
         _mcpHost.TurnProvider.EndTurn();
         var turnCtx = new LlmTurnContext(_store, _dispatcher);
         _mcpHost.TurnProvider.BeginTurn(turnCtx);
 
-        // Editor 변경 digest prepend — 사용자가 GUI 에서 변경한 fact 를 user prompt 앞에 한 블럭으로 inject.
-        // digest 가 비어있으면 prompt 그대로. 전송 후 clear → 1 turn = 1 prepend.
+        // Editor digest prepend
         var promptForProvider = prompt;
         if (_editorDigest.HasAny)
         {
             var prefix = _editorDigest.ToContextMessage();
             _editorDigest.Clear();
             if (!string.IsNullOrEmpty(prefix))
-                promptForProvider = prefix + "\n\n" + prompt;
+                promptForProvider = prefix + "\n\n" + promptForProvider;
         }
+
+        // 정책 15 텍스트 첨부 inline — fenced wrapper. 이미지/PDF 는 LlmUserMessage.Attachments 로 wire (commit-6b).
+        var textInlines = attachmentsSnapshot
+            .Where(a => a.Source.IsTextFile)
+            .Select(a => AttachmentRendering.toInlineString(a.Source))
+            .ToArray();
+        if (textInlines.Length > 0)
+            promptForProvider = string.Join("\n\n", textInlines) + "\n\n" + promptForProvider;
+
+        // 비텍스트 첨부 array — provider wire 대상 (commit-6b 까지는 LlmUserMessageOps.WarnUnsupported only).
+        var nonTextAttachments = attachmentsSnapshot
+            .Where(a => !a.Source.IsTextFile)
+            .Select(a => a.Source)
+            .ToArray();
+
+        // commit-6a 단계 silent drop 방어 (자가 검열 Major-2): 이미지/PDF 는 history summary 만 들어가고 실제
+        // bytes wire 는 commit-6b 의 provider 측 (Claude stream-json / Codex -i / API DataContent) 에서 활성.
+        // 사용자 오해 방지 1줄 안내. commit-6b 진입 시 본 분기 제거.
+        if (nonTextAttachments.Length > 0)
+        {
+            Turns.Add(new ChatTurn
+            {
+                Role = ChatTurn.Roles.System,
+                Text = $"[안내] 이미지/PDF 첨부 {nonTextAttachments.Length}개는 현재 metadata (이름/크기) 만 LLM 에 전달됩니다. 실제 이미지 bytes wire 는 후속 commit (Phase 3a commit-6b) 에서 활성화됩니다."
+            });
+        }
+
+        // status 진행 표시
+        if (hasAttachments)
+        {
+            var totalBytes = 0L;
+            foreach (var a in attachmentsSnapshot) totalBytes += a.ByteSize;
+            StatusText = $"첨부 {attachmentsSnapshot.Length}개 ({AttachmentRendering.formatBytes(totalBytes)}) 송신 중…";
+        }
+
+        // ImportPlan label fallback (정책 16) — 사용자 입력 + 첨부 시 [첨부 N개] prefix 라벨링.
+        var labelPrompt = (hasAttachments && rawPrompt.Length > 0)
+            ? $"[첨부 {attachmentsSnapshot.Length}개] {prompt}"
+            : prompt;
 
         _cts = new CancellationTokenSource();
         try
         {
-            // rev 4 (commit-2): `string prompt` → `LlmUserMessage`. 현 단계 첨부 없음 (OfText factory).
-            // commit-4..N 에서 Attachments snapshot 채워 wire.
-            var stream = _provider.Send(LlmUserMessage.OfText(promptForProvider), _cts.Token);
+            var msg = LlmUserMessage.Create(promptForProvider, nonTextAttachments);
+            var stream = snapshotProvider.Send(msg, _cts.Token);
             await foreach (var evt in stream.ConfigureAwait(true))
             {
                 HandleEvent(evt);
@@ -490,19 +538,21 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         {
             Log.Error("LlmChatViewModel.SendAsync 실패", ex);
             AddErrorTurn($"[ERROR] {ex.Message}");
+            // HTTP 413 매핑 — 첨부 크기 초과 안내.
+            if (ex is System.Net.Http.HttpRequestException hre && (int?)hre.StatusCode == 413)
+                StatusText = "첨부 크기가 provider 한도를 초과했습니다 (HTTP 413)";
         }
         finally
         {
-            // Stream 종료 — throttle 의 잔여 fragment flush + streaming turn 마감.
             EndStreamingTurn();
 
-            // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step)
+            // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step). label = labelPrompt.
             var endedCtx = _mcpHost.TurnProvider.EndTurn();
             if (endedCtx != null && !endedCtx.Plan.IsEmpty)
             {
                 try
                 {
-                    await ApplyTurnPlanAsync(endedCtx, prompt);
+                    await ApplyTurnPlanAsync(endedCtx, labelPrompt);
                 }
                 catch (Exception ex)
                 {
@@ -543,10 +593,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     public const string LlmTurnLabelPrefix = "LLM: ";
 
     /// <summary>
-    /// commit-4 단계: 텍스트 필수 유지. 정책 16 의 첨부-only 송신 + default prefix 는 commit-6 (race-free SendAsync)
-    /// 에서 SendAsync 본체와 함께 묶어 처리 — 그 전까지는 chip UI 만 동작하고 송신은 text 필요.
+    /// 정책 16 (commit-6): 텍스트 또는 첨부 중 하나만 있어도 송신. 둘 다 없으면 차단.
+    /// 첨부-only 시 SendAsync 가 default prefix ("첨부된 N개 파일을 검토해 주세요") 자동 부여.
     /// </summary>
-    private bool CanSend() => IsReady && !IsSending && !string.IsNullOrWhiteSpace(Input);
+    private bool CanSend() => IsReady && !IsSending && (!string.IsNullOrWhiteSpace(Input) || HasAttachments);
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel()

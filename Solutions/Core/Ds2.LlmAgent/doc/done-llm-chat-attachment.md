@@ -266,3 +266,45 @@
 - commit-4 의 SendAsync system turn 안내 ("commit-6 wire 미구현 placeholder") 제거
 - CLI provider 첨부 wire 본 구현 (Claude `--input-format stream-json` JSON Lines / Codex `-i/--image` path + bytes 임시 spool)
 - commit-5 자가 검열 m1 (background 인코딩) + m2 (format 세분 비교)
+
+## Phase 3a — commit-6a (rev 11, 2026-05-09)
+
+### 산출물 (수정 5)
+
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs`
+  - `module AttachmentRendering` 신설 — `formatBytes` (B/KB/MB) + `langTokenOf` (확장자 → fenced lang token, 정책 15) + `toInlineString` (텍스트 첨부 fenced wrapper, 본문 ``` 충돌 시 4-backtick escalate) + `summarize` (history summary, 정책 17)
+  - `module AttachmentInfo` 신설 — `tryGetImageMime` (m2 helper, F# DU multi-field named C# interop 회피)
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs`
+  - `using System.Linq` 추가
+  - **SendAsync 재작성** (~80 line): race-free snapshot (정책 20) + default prefix (정책 16) + `Attachments.Clear()` 즉시 + user turn 에 summary prepend + 텍스트 첨부 inline (`AttachmentRendering.toInlineString`) + 비텍스트 첨부 array → `LlmUserMessage.Create` + StatusText 진행 + HTTP 413 매핑 + ImportPlan label fallback (`[첨부 N개]` prefix)
+  - **commit-4 placeholder 안내 제거** + commit-6a silent-drop 방어 1줄 안내 추가 (자가 검열 Major-2)
+  - `CanSend` = `IsReady && !IsSending && (!IsNullOrWhiteSpace(Input) || HasAttachments)` (정책 16, 첨부-only 허용)
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiChatProvider.cs`
+  - `Send` 메서드 갱신 — `msg.Attachments.Length > 0` 시 `AttachmentRendering.summarize` 결과 prompt 앞 prepend → SendImpl. `_history` 에 첨부 metadata 보유, bytes 미누적 (정책 17)
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml.cs`
+  - `using System.Threading.Tasks` 추가
+  - `OnInputPaste` 의 BitmapSource fallback 경로 background 분리 (m1) — `TaskScheduler.FromCurrentSynchronizationContext()` 캡처 후 `Task.Run(EncodeBitmapToPng)` + UI continuation 으로 `vm.AddImageBytesAsync` 호출
+  - `EncodeBitmapToPng(BitmapSource frozen)` helper 분리
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+  - `ReevaluateAttachmentsForProvider` 의 image 분기 m2 — mime → `ImageFormat` 역추론 후 `caps.ImageFormats.Contains(fmt)` 세분 비교 (PNG only provider 에서 JPEG chip 제거 등)
+  - `ImageFormatFromMime` helper (4종 mime → ImageFormat 매핑, `MimeOf` 의 역방향)
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **205건 전수 통과**
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 2 (1 적용 / 1 skip) / Minor 3)
+
+- **Major-2 적용**: 비텍스트 첨부 (이미지/PDF) 가 commit-6a 단계에서 metadata-only wire — sender 측 silent drop 위험. SendAsync 안에 system turn 1줄 안내 추가 ("이미지/PDF 첨부 N개는 metadata 만 전달, bytes wire 는 commit-6b 에서 활성화")
+- **Major-1 영구 skip**: `FSharpOption<string>` null 비교 컨벤션 — 현 동작 안전 (boxed null 처리), F# `OptionModule.IsSome` 형태로 갱신은 cosmetic
+- **Minor-3 commit-6b 이월**: `AttachmentRendering.summarize` 의 byte 계산이 chip `ByteSize` (FileInfo.Length) 와 불일치 (UTF-8 GetByteCount). multimodal wire 시 `byteHint` 시그니처로 통합
+- **Minor-4 적용** (todo 정책 갱신): 정책 4 ("실패 시 chip 유지") vs commit-6a 의 즉시 Clear 충돌 — todo `commit-6a` NOTE 항목으로 명시
+- **Minor-5 commit-6b 이월**: HTTP 413 분기 메시지 통합 (현재 일반 ERROR + status text 분리 노출)
+
+### 미처리 (commit-6b 로)
+
+- 이미지/PDF provider wire — Claude CLI `--input-format stream-json` JSON Lines + Codex `-i/--image` path spool + API provider `DataContent`
+- `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환
+- commit-6a 의 silent-drop 안내 placeholder 제거
+- 자가 검열 Minor-3 (`summarize` byte hint) / Minor-5 (413 메시지 통합)
