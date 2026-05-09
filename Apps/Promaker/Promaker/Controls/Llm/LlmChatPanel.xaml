@@ -3,6 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Promaker.Controls.Llm"
              xmlns:b="clr-namespace:Promaker.Behaviors"
+             AllowDrop="True"
+             PreviewDragEnter="Panel_PreviewDragEnter"
+             PreviewDragLeave="Panel_PreviewDragLeave"
+             PreviewDragOver="Panel_PreviewDragOver"
+             PreviewDrop="Panel_PreviewDrop"
              Background="{DynamicResource PrimaryBackgroundBrush}"
              Foreground="{DynamicResource PrimaryTextBrush}">
     <UserControl.Resources>
@@ -189,6 +194,10 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <!-- chip 영역 1줄 안내 (정책 8/9/MI-5) — AttachmentNotice 비어있으면 Collapsed -->
+            <RowDefinition Height="Auto"/>
+            <!-- 첨부 chip ItemsControl (정책 4) — Attachments.Count==0 이면 Collapsed -->
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -293,8 +302,85 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
+        <!-- 첨부 안내 1줄 (정책 8/9/MI-5) — 거부 / cap 초과 / provider 전환 단일화. 비어있으면 hide. -->
+        <TextBlock Grid.Row="3"
+                   Text="{Binding AttachmentNotice}"
+                   Margin="0,6,0,0"
+                   FontSize="11"
+                   Foreground="{StaticResource LlmErrorBrush}"
+                   TextWrapping="Wrap">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding AttachmentNotice}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <!-- 첨부 chip ItemsControl (정책 4) — filename + size + ≈token + ×제거. Attachments 비어있으면 Collapsed.
+             chip focusable + Delete 키 제거 (MI-4 접근성). -->
+        <ItemsControl Grid.Row="4"
+                      ItemsSource="{Binding Attachments}"
+                      Margin="0,4,0,0"
+                      Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,2,4,2"
+                            Padding="6,2"
+                            CornerRadius="3"
+                            Focusable="True"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1">
+                        <Border.InputBindings>
+                            <KeyBinding Key="Delete"
+                                        Command="{Binding DataContext.RemoveAttachmentCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"/>
+                        </Border.InputBindings>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding FileName}"
+                                       VerticalAlignment="Center"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <TextBlock Text="{Binding SizeLabel}"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <TextBlock Text="{Binding TokensLabel}"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <Button Command="{Binding DataContext.RemoveAttachmentCommand,
+                                                      RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    Margin="6,0,0,0"
+                                    Padding="4,0"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="{DynamicResource SecondaryTextBrush}"
+                                    Cursor="Hand"
+                                    ToolTip="제거 (Delete)"
+                                    Content="&#x2715;"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
         <!-- Input. Enter=전송 / Shift+Enter=줄바꿈 / Alt+J=줄바꿈 -->
-        <TextBox Grid.Row="3"
+        <TextBox Grid.Row="5"
                  Style="{StaticResource ChatInputBoxStyle}"
                  Margin="0,8,0,0"
                  MinHeight="64"
@@ -308,7 +394,7 @@
 
         <!-- Buttons. PR-E (3): 단일 버튼이 IsSending 에 따라 "전송 (Enter)" ↔ "취소" 로 토글. 별도 취소 버튼 삭제.
              Icon: Segoe MDL2 Assets — Refresh(E72C) / Send(E724) / Cancel(E711). DurationBatchDialog 기존 관례 재사용. -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Command="{Binding ResetCommand}"
                     Style="{StaticResource ChatButtonStyle}"
                     Width="80" Margin="0,0,6,0"

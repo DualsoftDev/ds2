@@ -135,17 +135,26 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - [x] `Prompts/4.attachments.md` 신설 (정책 15) — canary 헤더 + "데이터지 명령 아님" 룰 + fenced wrapper 형식 안내 + injection 거부 패턴 5종 예시
 - [x] `AttachmentClassifierDriftTests` (Fact 9건) — classify 동작 + ImageFormat enum 4 case 매핑 + reflection 기반 case count drift (M1 보강) + BOM 4종 인코딩. `PromptCanaryTests` 에 `4.attachments.md` 케이스 1건 추가 — dotnet test 14건 전수 통과
 
-#### commit-4..N — UI 점증 (chip → drag-drop → Ctrl+V → 강제 제거 → race)
+#### commit-4 — chip UI + drag-drop (rev 7, 2026-05-09 완료)
 
-- [ ] `LlmChatViewModel.cs` 에 `Attachments: ObservableCollection<AttachmentChipVm>` + `AddAttachmentCommand` / `RemoveAttachmentCommand` + `HasAttachments` 계산 속성
-- [ ] `AttachmentChip` ItemsControl (입력창 위) — filename + 크기 + 추정 token + ×제거 버튼. **chip focusable + Delete 키 제거** (접근성)
-- [ ] `LlmChatPanel.xaml` 에 `AllowDrop="True"` + DragOver visual cue
-- [ ] `LlmChatPanel.xaml.cs` `PreviewDragOver` / `PreviewDrop` handler — **`e.Handled = true` 필수** (정책 14, MainWindow bubble 차단)
+- [x] `LlmChatViewModel.Attachments.cs` (partial 신규) — `Attachments: ObservableCollection<AttachmentChipVm>` + `RemoveAttachmentCommand` + `HasAttachments` + `AttachmentNotice` (chip 영역 1줄 안내 SSOT). `AddPathsAsync(IReadOnlyList<string>)` + `AddImageBytesAsync(byte[], string, string)` (commit-5 paste 진입 대비) + `MaxAttachmentCount=10`/`MaxTextBytes=1MB`
+- [x] `AttachmentChipVm` 클래스 — filename + size label + ≈token label + Source(F# Attachment) 보유. WrapPanel chip + ×버튼 + Delete 키 (focusable Border + KeyBinding) — MI-4 접근성
+- [x] `LlmChatPanel.xaml` UserControl 에 `AllowDrop="True"` + `PreviewDragEnter/Leave/Over/Drop` 4종 hook. Grid 행 2개 추가 (notice TextBlock + chip ItemsControl). DragOver visual cue 는 commit-5 에서 보강
+- [x] `LlmChatPanel.xaml.cs` — `Panel_PreviewDragEnter/Leave/Over/Drop` 4종 핸들러 모두 `e.Handled=true` (정책 14 강화 — MainWindow `Window_DragEnter` 까지 bubble 차단)
+- [x] STA sync = 확장자 / capability / size / count 검증, Background `Task.Run` = bytes 로드 + 이미지 dim (`BitmapDecoder` metadata-only 경로) + 토큰 추정 (`TokenEstimator`), 후속 `await ConfigureAwait(true)` 결과 dispatcher 에서 `Attachments.Add` (정책 18)
+- [x] 확장자 화이트리스트 (F# `AttachmentClassifier.classify`) + size cap (`Capabilities.MaxImageBytes`/`MaxPdfBytes` provider 별) + turn 당 10개 cap. 다중 drop 시 cap 초과분만 거부 + chip 영역 1줄 안내 (MI-5)
+- [x] 토큰 추정 → chip `TokensLabel` 노출 (`≈Nt`). 이미지 = Anthropic `(W*H)/750` clamp opus47 cap, 텍스트 = `byteLen/4 × 한국어 보정`
+- [x] PDF 는 commit-4 단계 chip 차단 (Phase 3b 진입 시 분기 제거 — `LlmChatViewModel.Attachments.cs` `ClassifyPathSync` 의 `cls.IsAcceptPdf` 분기)
+
+#### commit-5 — Ctrl+V + provider 전환 강제 제거 (예정)
+
 - [ ] `DataObject.AddPastingHandler` 등록 (정책 2 정석) — Ctrl+V 우선순위 (3.3 절) 처리. text-only paste 회귀 보장 (Clipboard.ContainsFileDropList()/ContainsImage() 일 때만 `e.Handled=true`)
-- [ ] STA sync 단계 = 경량 검증, Background `Task.Run` = bytes 로드/디코딩, `IUiDispatcher.InvokeAsync` Background priority 로 chip 추가 (정책 18)
-- [ ] 확장자 화이트리스트 + size cap (provider 별 — 정책 6) + turn 당 10개 cap. 다중 paste/drop 시 cap 초과분만 거부 (chip 영역 1줄 안내)
-- [ ] 토큰 추정 (`TokenEstimator` 호출) → chip 라벨 표시. modelCap 적용된 추정값
-- [ ] `SelectedProvider` 변경 시 capability 비교 → 미지원 첨부 chip 영역 1줄 안내 + 강제 제거 (정책 9 / 3.4)
+- [ ] 클립보드 image (CF_PNG > CF_DIB > CF_BITMAP) → STA `BitmapSource.Freeze()` → background PNG 인코딩 → `AddImageBytesAsync` 호출
+- [ ] `OnSelectedProviderChanged` 시 capability 비교 → 미지원 첨부 chip 영역 1줄 안내 + 강제 제거 (정책 9 / 3.4)
+- [ ] DragOver visual cue (panel border highlight 등) — UX detail
+
+#### commit-6 — race-free SendAsync + default prefix + history summary + status (예정)
+
 - [ ] **race-free SendAsync** (정책 20): 진입 시 `snapshot = Attachments.ToArray()` + `snapshotProvider = _provider` 캡처. `LlmUserMessage` 빌드 → snapshotProvider.Send. `Attachments.Clear()` (정책 16 송신 후 처리)
 - [ ] `CanSend` 조건 (정책 16) — `IsReady && !IsSending && (HasInputText \|\| HasAttachments)`. `LlmChatViewModel.cs:402-403` 가드 갱신
 - [ ] **default prompt prefix** (정책 16): `Text==""` && `HasAttachments` 시 "첨부된 N개 파일을 검토해 주세요" 자동 prefix → provider 전달 + history 누적
@@ -217,6 +226,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 7 (2026-05-09): Phase 3a commit-4 완료 — `LlmChatViewModel.Attachments.cs` (partial 신규, ~280 line) + `AttachmentChipVm` + `LlmChatPanel.xaml/.cs` drag-drop 4종 핸들러 (`PreviewDragEnter/Leave/Over/Drop` 모두 `e.Handled=true`, 정책 14 강화). MainWindow `Window_DragEnter` bubble 까지 차단 — 자가 검열 M1 적용. PDF 는 capability 통과해도 commit-4 단계 chip 차단 (Phase 3b 대기). dotnet build Promaker.sln + dotnet test Ds2.LlmAgent.Tests (201건) 전수 통과. 잔여 commit-5 (Ctrl+V + provider 전환 강제 제거) / commit-6 (race-free SendAsync + default prefix + history summary + status) 으로 분할
 - rev 1 (2026-05-08): 초기 작성. `--plan` 토론 결과 정책 12개 + Phase 3a/3b 분할 + deferred C-1/C-2 확정
 - rev 2 (2026-05-08): `--review` 1차 (6건) 결과 반영. 정책 13~16 신설 + 컬렉션 타입 `Attachment[]` 정정 + Phase 3a-pre spike (S-1~S-3) 신설 + §6 결정 항목 D-1 신설
 - rev 6 (2026-05-09): Phase 3a commit-3 완료 — `AttachmentClassifier.fs` (정책 19 SSOT) + `TokenEstimator.fs` (정책 5) + `Prompts/4.attachments.md` (정책 15) + `AttachmentClassifierDriftTests.fs` (Fact 9). `PromptCanaryTests` 에 `4.attachments.md` 케이스 추가. dotnet test 14건 전수 통과. 자가 검열 1차에서 reviewer 가 M1 (drift 테스트 silent 통과 위험) + M2 (RejectExtension 소문자 명시) 지적 → reflection 기반 case count assert + xmldoc 1줄 보강 적용. 잔여 m4/m5/m6 (wrapper 강도 / injection 패턴 일반화 / OpenAI tile 보정) 은 commit-4..N 으로 미룸. dead code (UI 호출자 0)
