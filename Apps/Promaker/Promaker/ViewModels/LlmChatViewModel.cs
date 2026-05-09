@@ -498,18 +498,6 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             .Select(a => a.Source)
             .ToArray();
 
-        // commit-6a 단계 silent drop 방어 (자가 검열 Major-2): 이미지/PDF 는 history summary 만 들어가고 실제
-        // bytes wire 는 commit-6b 의 provider 측 (Claude stream-json / Codex -i / API DataContent) 에서 활성.
-        // 사용자 오해 방지 1줄 안내. commit-6b 진입 시 본 분기 제거.
-        if (nonTextAttachments.Length > 0)
-        {
-            Turns.Add(new ChatTurn
-            {
-                Role = ChatTurn.Roles.System,
-                Text = $"[안내] 이미지/PDF 첨부 {nonTextAttachments.Length}개는 현재 metadata (이름/크기) 만 LLM 에 전달됩니다. 실제 이미지 bytes wire 는 후속 commit (Phase 3a commit-6b) 에서 활성화됩니다."
-            });
-        }
-
         // status 진행 표시
         if (hasAttachments)
         {
@@ -537,10 +525,17 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("LlmChatViewModel.SendAsync 실패", ex);
-            AddErrorTurn($"[ERROR] {ex.Message}");
-            // HTTP 413 매핑 — 첨부 크기 초과 안내.
+            // commit-6b Minor-5 — 413 메시지 통합. error turn / StatusText 둘 다 같은 한국어 안내.
             if (ex is System.Net.Http.HttpRequestException hre && (int?)hre.StatusCode == 413)
-                StatusText = "첨부 크기가 provider 한도를 초과했습니다 (HTTP 413)";
+            {
+                const string msg413 = "첨부 크기가 provider 한도를 초과했습니다 (HTTP 413)";
+                AddErrorTurn($"[ERROR] {msg413}");
+                StatusText = msg413;
+            }
+            else
+            {
+                AddErrorTurn($"[ERROR] {ex.Message}");
+            }
         }
         finally
         {

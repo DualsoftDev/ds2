@@ -9,7 +9,9 @@
   <ItemGroup>
     <Compile Include="ProcessUtilsTests.fs" />
     <Compile Include="ClaudeCliArgsTests.fs" />
+    <Compile Include="ClaudeStreamJsonInputTests.fs" />
     <Compile Include="CodexCliArgsTests.fs" />
+    <Compile Include="LlmUserMessageOpsTests.fs" />
     <Compile Include="StreamJsonParserTests.fs" />
     <Compile Include="CodexStreamJsonParserTests.fs" />
     <Compile Include="ValidateModelTests.fs" />

@@ -308,3 +308,53 @@
 - `LlmUserMessageOps.WarnUnsupportedAttachments` warn-only → strict invalidArg 모드 전환
 - commit-6a 의 silent-drop 안내 placeholder 제거
 - 자가 검열 Minor-3 (`summarize` byte hint) / Minor-5 (413 메시지 통합)
+
+## Phase 3a — commit-6b (rev 12, 2026-05-09)
+
+### 산출물 (수정 8 + 신규 3)
+
+- `Solutions/Core/Ds2.LlmAgent/ClaudeStreamJsonInput.fs` (신규, ~75 line) — `ClaudeStreamJsonInput.encode prompt attachments` Anthropic multipart user message envelope 인코더 (JSON Lines 단일 라인). Image base64 / Pdf application/pdf base64. TextFile 도달 시 `invalidOp` (호출자 nonText filter invariant). `Utf8JsonWriter` 사용 — base64 1회 변환, intermediate JsonNode 회피
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs`
+  - `ImageAttachmentData` / `PdfAttachmentData` record 추가 — C# DataContent / 임시 파일 spool 위임용 PascalCase decompose helper
+  - `AttachmentInfo.tryGetImage` / `tryGetPdf` / `attachmentName` 추가 — F# DU multi-field named C# interop 회피
+  - `LlmUserMessageOps.EnforceCapabilityOrFail` 추가 (strict invalidArg). `WarnUnsupportedAttachments` 는 warn-only alias 로 잔존 호환 유지
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliArgs.fs`
+  - `buildWith options sid sysFile useStreamJsonInput` 신규 — `useStreamJsonInput=true` 시 `--input-format stream-json` 추가. `build` 는 `buildWith ... false` alias
+- `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs`
+  - 첨부 (이미지/PDF) 발견 시 `useStreamJsonInput=true` + `ClaudeStreamJsonInput.encode prompt nonTextAttachments` 결과를 stdin 으로 전달. 첨부 없을 때 기존 raw text stdin 경로 회귀 유지
+  - `WarnUnsupportedAttachments` → `EnforceCapabilityOrFail` 교체
+- `Solutions/Core/Ds2.LlmAgent/CodexCliArgs.fs`
+  - `buildWith options sid prompt imagePaths` 신규 — imagePaths 반복 `-i <path>` 추가. `build` 는 `buildWith ... [||]` alias
+- `Solutions/Core/Ds2.LlmAgent/CodexCliProvider.fs`
+  - Image 첨부 → `%TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>\<n>.<ext>` (mime 별 .png/.jpg/.gif/.webp/.bin) 임시 파일 spool. `OnFinally = cleanupImageSpool` 으로 turn 종료 시 디렉토리 재귀 삭제 — process kill / cancel 경로도 `CliProcessHost.runProcess` 의 outer `try ... finally` 가 보장
+  - `WarnUnsupportedAttachments` → `EnforceCapabilityOrFail` 교체
+- `Apps/Promaker/Promaker/LlmAgent/Api/ApiChatProvider.cs`
+  - `using System.Linq` 추가
+  - `Send(LlmUserMessage)` → `EnforceCapabilityOrFail` strict 모드
+  - `SendImpl(LlmUserMessage)` 시그니처로 변경 — multi-content turn message 분리 (`_history` = text-only summary + prompt, `historyForStream` 의 마지막 user message 만 `ChatMessage(ChatRole.User, [TextContent + DataContent...])` 로 swap). 다음 turn 의 history 에 bytes 잔존 X (정책 17)
+  - `AttachmentInfo.tryGetImage` / `tryGetPdf` 호출 후 `DataContent(bytes, mime) { Name = name }` 으로 wire
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs`
+  - commit-6a 의 silent-drop 안내 system turn 제거 (Major-2 placeholder 정리)
+  - HTTP 413 분기 통합 — error turn 텍스트 + StatusText 둘 다 동일 한국어 안내 (Minor-5)
+- 테스트 신규 / 수정:
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/ClaudeStreamJsonInputTests.fs` (신규, Fact 6) — text-only 1 block / image 2 block / PDF document block / TextFile invalidOp / 단일 라인 / 빈 prompt
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/LlmUserMessageOpsTests.fs` (신규, Fact 7) — strict 모드 capability 매트릭스 + AttachmentInfo helper 양방향
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/ClaudeCliArgsTests.fs` — `--input-format stream-json` toggle 2 fact 추가
+  - `Solutions/Tests/Ds2.LlmAgent.Tests/CodexCliArgsTests.fs` — `buildWith imagePaths` 회귀 1 fact 추가 (`-i` 반복 + prompt 마지막 토큰 invariant)
+  - `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` / `Solutions/Tests/Ds2.LlmAgent.Tests/Ds2.LlmAgent.Tests.fsproj` — `<Compile Include>` 등록
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **221건 전수 통과** (205 + 신규 16)
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 0 / Minor 3 모두 거부)
+
+- **Minor-1 (거부)**: `CodexCliProvider.extOf` 의 `_ -> ".bin"` fallback. 현재 `EnforceCapabilityOrFail` 이 `caps.ImageFormats.IsEmpty` 만 검사 (mime 별 세부 X) — 도달 가능성 0. 4 mime 외 추가 시 trigger 로 `invalidArg` 분기 추가 후속
+- **Minor-2 (거부)**: `ClaudeStreamJsonInput.encode` 의 `Utf8JsonWriter.Flush()` + dispose 가 stream close 하지 않는 사실 코멘트화 — 현 동작 정상
+- **Minor-3 (거부)**: `ApiChatProvider.cs` 의 `promptForHistory` 형식이 `LlmChatViewModel.userTurnText` 와 동일 (`summaries + "\n" + text`) — 일치 확인. 향후 differ 가능성 가드 코멘트는 추가 가치 낮음
+- 5 검토항목 정합 확인:
+  - history 누적 (text-only) vs turn 호출 (multi-content) 분리 정상 (line 162 vs 200-204)
+  - `OnFinally` cancel / non-zero exit / spawn 실패 모두 `try ... finally` 진입 — `CliProcessHost.fs:197-199` 검증
+  - F# record `ImageAttachmentData` C# PascalCase + `FSharpOption.Value` interop 패턴이 `LlmChatViewModel.Attachments.cs:189` 와 완전 일관
+  - `useStreamJsonInput` JSON Lines 단일 라인 = 골든 테스트로 회귀 보장

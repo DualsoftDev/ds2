@@ -67,10 +67,10 @@ type CodexCliOptions = {
 [<RequireQualifiedAccess>]
 module CodexCliArgs =
 
-    /// 옵션 + sessionId + prompt → CLI 인자 list.
-    /// new session: `codex exec [OPTS] <prompt>`
-    /// resume:      `codex exec resume [OPTS] <sid> <prompt>`
-    let build (options: CodexCliOptions) (sessionId: string option) (prompt: string) : string list =
+    /// commit-6b — 첨부 이미지 path 들을 `-i <path>` 반복 인자로 추가.
+    /// `imagePaths` 는 호출자 (CodexCliProvider) 가 임시 파일로 spool 한 절대 경로. 빈 array 면 첨부 없음.
+    /// PDF 미지원 (spike S-2) — 이미지만. 호출자가 PDF/TextFile filter 책임.
+    let buildWith (options: CodexCliOptions) (sessionId: string option) (prompt: string) (imagePaths: string array) : string list =
         [
             yield "exec"
             match sessionId with
@@ -113,6 +113,10 @@ module CodexCliArgs =
                 // 호출자 (LlmChatViewModel) 가 만든 임시 파일이라 통제 가능.
                 yield $"experimental_instructions_file='{path}'"
             | None -> ()
+            // commit-6b — `-i, --image <FILE>...` 다중 이미지 첨부. spike S-2 결과: codex 0.128.0 path 인자.
+            for p in imagePaths do
+                yield "-i"
+                yield p
             // ─── 위치 인자 ───────────────────────────────────────────────────
             match sessionId with
             | Some sid -> yield sid
@@ -123,3 +127,7 @@ module CodexCliArgs =
             // CodexCliProvider 의 redact 로직도 함께 갱신 필요.
             yield prompt
         ]
+
+    /// 첨부 없을 때 사용 — 기존 호출자 호환.
+    let build (options: CodexCliOptions) (sessionId: string option) (prompt: string) : string list =
+        buildWith options sessionId prompt [||]

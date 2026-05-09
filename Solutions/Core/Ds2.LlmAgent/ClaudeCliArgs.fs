@@ -53,12 +53,17 @@ module ClaudeCliArgs =
     /// 호출자 (ClaudeCliProvider) 가 파일 생성 / 정리 책임을 갖고 path 만 본 함수에 넘긴다.
     /// `systemPromptFile` 가 None 이면 `--append-system-prompt-file` 미전달 — options.SystemPrompt 가
     /// Some 이어도 path 가 None 이면 미전달 (호출자가 의도적으로 비활성화한 케이스).
-    let build (options: ClaudeCliOptions) (sessionId: string option) (systemPromptFile: string option) : string list =
+    /// commit-6b 추가 — `useStreamJsonInput` true 시 `--input-format stream-json` 추가.
+    /// 첨부 (이미지/PDF) 가 있는 turn 만 stream-json input 으로 전환하고, 그 외 turn 은 기존 raw text stdin 경로 유지.
+    let buildWith (options: ClaudeCliOptions) (sessionId: string option) (systemPromptFile: string option) (useStreamJsonInput: bool) : string list =
         [
             yield "-p"
             yield "--output-format"
             yield "stream-json"
             yield "--verbose"
+            if useStreamJsonInput then
+                yield "--input-format"
+                yield "stream-json"
             match sessionId with
             | Some sid ->
                 yield "--resume"
@@ -93,6 +98,10 @@ module ClaudeCliArgs =
                     yield t
             | _ -> ()
         ]
+
+    /// 첨부 없을 때 사용 — 기존 호출자 호환.
+    let build (options: ClaudeCliOptions) (sessionId: string option) (systemPromptFile: string option) : string list =
+        buildWith options sessionId systemPromptFile false
 
     let quoteArg (s: string) : string =
         if s.Contains(' ') || s.Contains('"') then
