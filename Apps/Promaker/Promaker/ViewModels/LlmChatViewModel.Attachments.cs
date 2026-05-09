@@ -89,7 +89,24 @@ public partial class LlmChatViewModel
         if (accepted.Count == 0) return;
 
         var loaded = await Task.Run(() => LoadAcceptedAttachments(accepted)).ConfigureAwait(true);
-        foreach (var chip in loaded) Attachments.Add(chip);
+
+        // race 재검증 (review F2): fire-and-forget AddPathsAsync 가 겹치면 sync 단계의 remainingSlots 가 stale 상태에서
+        // 양쪽 다 통과 → cap 초과 가능. dispatcher thread (single-threaded) 에서 add 직전 재검증.
+        var capOverflow = false;
+        foreach (var chip in loaded)
+        {
+            if (Attachments.Count >= MaxAttachmentCount)
+            {
+                capOverflow = true;
+                break;
+            }
+            Attachments.Add(chip);
+        }
+        if (capOverflow)
+        {
+            var prev = string.IsNullOrEmpty(AttachmentNotice) ? "" : AttachmentNotice + " / ";
+            AttachmentNotice = $"{prev}첨부 cap {MaxAttachmentCount}개 초과 — 일부 파일 거부";
+        }
     }
 
     /// <summary>
@@ -130,6 +147,12 @@ public partial class LlmChatViewModel
             return new AttachmentChipVm(suggestedName, bytes.Length, tok.Item1, att);
         }).ConfigureAwait(true);
 
+        // race 재검증 (review F2): paste / drop 동시 발생 시 cap 초과 방어.
+        if (Attachments.Count >= MaxAttachmentCount)
+        {
+            AttachmentNotice = $"첨부 cap {MaxAttachmentCount}개 초과 — 추가 거부";
+            return;
+        }
         AttachmentNotice = "";
         Attachments.Add(chip);
     }

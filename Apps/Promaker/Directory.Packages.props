@@ -7,6 +7,8 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <!-- LLM Chat 첨부 (review F3) — App.xaml.cs 의 CodePagesEncodingProvider 등록용. -->
+    <PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />
   </ItemGroup>
   <!-- LLM API Providers (Phase 2) — Anthropic / OpenAI / OllamaSharp + Microsoft.Extensions.AI 공통 추상 -->
   <ItemGroup>

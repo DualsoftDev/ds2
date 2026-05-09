@@ -436,6 +436,17 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         SendCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
 
+        // commit-4 단계: chip UI 만 활성, 실제 provider wire 는 commit-6 에서. 사용자 오해 방지 1회 안내.
+        // commit-6 진입 시 본 분기 제거 + race-free snapshot 으로 대체.
+        if (Attachments.Count > 0)
+        {
+            Turns.Add(new ChatTurn
+            {
+                Role = ChatTurn.Roles.System,
+                Text = $"[안내] 첨부 {Attachments.Count}개는 표시만 됩니다. 실제 LLM 전송 wire 는 후속 commit (Phase 3a commit-6) 에서 활성화됩니다."
+            });
+        }
+
         Turns.Add(new ChatTurn { Role = ChatTurn.Roles.User, Text = prompt });
         // Streaming turn 은 첫 AssistantDelta 시점에 EnsureStreamingTurn 으로 lazy-create —
         // tool_use 가 첫 이벤트로 오는 경우 빈 assistant 버블이 먼저 보이는 깜빡임 회피.
@@ -549,6 +560,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         Cancel();
         _provider?.ClearSession();
         Turns.Clear();
+        // review F4: Reset 은 세션/대화 초기화 의미 — chip / notice 도 함께 정리해 stale 상태 회피.
+        Attachments.Clear();
+        AttachmentNotice = "";
         SessionId = null;
         StatusText = "세션 초기화 완료";
     }

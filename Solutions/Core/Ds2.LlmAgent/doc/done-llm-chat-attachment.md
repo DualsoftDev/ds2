@@ -145,3 +145,28 @@
 
 - commit-5: Ctrl+V (`DataObject.AddPastingHandler`), 클립보드 이미지 PNG 인코딩, `OnSelectedProviderChanged` 시 미지원 첨부 강제 제거, DragOver visual cue
 - commit-6: race-free SendAsync (snapshot + provider 캡처), `CanSend` 갱신 (첨부-only 허용), default prompt prefix, ImportPlan label fallback, prompt injection wrapper, history summary, status / 413 매핑
+
+## Phase 3a — commit-4 1차 review 적용 (rev 8, 2026-05-09)
+
+### 산출물 (수정 7 + NuGet 1)
+
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` — F1 SendAsync 진입 시 `Attachments.Count > 0` 분기 추가 (system turn 안내 1줄: "첨부 N개는 표시만 됩니다. 실제 LLM 전송 wire 는 후속 commit (Phase 3a commit-6) 에서 활성화됩니다."). F4 Reset 명령에 `Attachments.Clear()` + `AttachmentNotice = ""` 추가
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs` — F2 race 재검증: `AddPathsAsync` 의 dispatcher add 단계 for-loop 안에서 `if (Attachments.Count >= MaxAttachmentCount)` 검증 + cap overflow 시 notice append. `AddImageBytesAsync` 도 동일 패턴 (`Attachments.Count` 재확인 후 거부)
+- `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml` — F5 chip filename TextBlock 에 `MaxWidth="220"` + `TextTrimming="CharacterEllipsis"` + `ToolTip="{Binding FileName}"` (긴 파일명 layout 보호)
+- `Apps/Promaker/Promaker/App.xaml.cs` — F3 `Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)` 1회 등록 (`McpConfigWriter.SweepStale` 다음 줄)
+- `Apps/Promaker/Promaker/Promaker.csproj` — F3 `<PackageReference Include="System.Text.Encoding.CodePages" />`
+- `Apps/Promaker/Directory.Packages.props` — F3 `<PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />`
+- `Solutions/Directory.Packages.props` — F3 동일 PackageVersion 추가 (테스트 + Ds2.LlmAgent transitive 용)
+- `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` — F3 `<PackageReference Include="System.Text.Encoding.CodePages" />`
+- `Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs` — F3 `tryCp949` (code page 949, lazy probe) + `isStrictDecodable` helper. `detectEncoding` BOM 미일치 분기 = strict UTF-8 시도 → fail 시 strict CP949 → 모두 실패 시 UTF-16 LE fallback. 기존 try/catch 의 `EncoderExceptionFallback` 인자 (decode 무영향) 정리
+- `Solutions/Tests/Ds2.LlmAgent.Tests/AttachmentClassifierDriftTests.fs` — F3 CP949 case 추가 ("안녕하세요" CP949 인코딩 → strict UTF-8 fail → CP949 검출 검증). `RegisterProvider` 호출은 idempotent
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 = OllamaSharp 사전 환경 무관)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests --no-build` = **202건 전수 통과** (CP949 case +1)
+
+### 의도적 잔여 (2차 review 17건은 사용자 지시 대기)
+
+- 2차 review (Critical 1 / Major 5 / Minor 11) 결과는 별도 처리 — C1 (`openAiGpt4oImageTokens` long-side 2048 fit) / M1 (Capability byte-cap SSOT 통합) / M2 (`estimateKoreanRatio` surrogate pair) / M3 (UTF-8 replacement fallback + logWarn) / M4 (provider Send capability gating helper) / M5 (drift 보안 critical contains assertion) + Minor 11
+- commit-5 / commit-6 분할 유지

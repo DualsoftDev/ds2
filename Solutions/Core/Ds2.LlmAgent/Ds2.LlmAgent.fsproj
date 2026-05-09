@@ -35,6 +35,8 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="log4net" />
+    <!-- LLM Chat 첨부 (review F3) — `AttachmentClassifier.detectEncoding` CP949 fallback. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
   </ItemGroup>
 
 </Project>

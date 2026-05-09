@@ -106,15 +106,28 @@ module AttachmentClassifier =
                 else RejectUnknown
 
     /// 텍스트 인코딩 추정 결과. ConfidenceHigh = BOM 또는 strict UTF-8 통과.
-    /// 정책 §3.6 — UTF-8 → CP949 → UTF-16 fallback. CP949 는 `System.Text.Encoding.CodePages` 의존성
-    /// 미추가 단계 (commit-3 dead code) 라 현 구현은 BOM + UTF-8 strict + UTF-16 LE/BE 만.
-    /// commit-4..N (UI) 에서 한국어 환경 빈도 고려해 CP949 도입 검토.
+    /// 정책 §3.6 — UTF-8 → CP949 → UTF-16 fallback. CP949 는 .NET Core 환경에서
+    /// `Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)` 사전 등록 필요 — Promaker `App.OnStartup` 에서 1회.
+    /// 미등록 환경 (CodePages 미참조) 은 ArgumentException → UTF-16 LE 로 fallback.
     type TextEncodingDetect = {
         Encoding: Encoding
         ConfidenceHigh: bool
     }
 
-    /// bytes 의 텍스트 인코딩 추정. BOM 우선, 다음 strict UTF-8.
+    /// CP949 (Windows-949) lazy probe. CodePagesEncodingProvider 등록 안 된 환경이면 None.
+    /// 명칭 "cp949" 는 .NET 미인식 — code page 번호 949 사용.
+    let private tryCp949 () : Encoding option =
+        try Some (Encoding.GetEncoding(949, EncoderExceptionFallback(), DecoderExceptionFallback()))
+        with :? System.ArgumentException -> None
+
+    /// bytes 가 strict 모드의 enc 로 디코딩 가능한지. invalid sequence 발견 시 false.
+    let private isStrictDecodable (enc: Encoding) (bytes: byte[]) : bool =
+        try
+            enc.GetCharCount(bytes, 0, bytes.Length) |> ignore
+            true
+        with :? DecoderFallbackException -> false
+
+    /// bytes 의 텍스트 인코딩 추정. BOM 우선, 다음 strict UTF-8, 다음 strict CP949 (한국어 환경), 마지막 UTF-16 LE.
     let detectEncoding (bytes: byte[]) : TextEncodingDetect =
         if isNull bytes then
             { Encoding = Encoding.UTF8; ConfidenceHigh = false }
@@ -127,11 +140,15 @@ module AttachmentClassifier =
         elif bytes.Length >= 2 && bytes.[0] = 0xFEuy && bytes.[1] = 0xFFuy then
             { Encoding = Encoding.BigEndianUnicode; ConfidenceHigh = true }
         else
-            // strict UTF-8 시도. invalid sequence 발견 시 throw → fallback.
-            let strict = Encoding.GetEncoding("utf-8", EncoderExceptionFallback(), DecoderExceptionFallback())
-            try
-                strict.GetCharCount(bytes, 0, bytes.Length) |> ignore
+            let utf8Strict = Encoding.GetEncoding("utf-8", EncoderExceptionFallback(), DecoderExceptionFallback())
+            if isStrictDecodable utf8Strict bytes then
                 { Encoding = Encoding.UTF8; ConfidenceHigh = false }
-            with :? DecoderFallbackException ->
-                // CP949 미도입 단계 → UTF-16 LE 추정 (잘못된 추측이면 사용자 측에서 인식). commit-4..N 갱신.
-                { Encoding = Encoding.Unicode; ConfidenceHigh = false }
+            else
+                match tryCp949 () with
+                | Some cp949 when isStrictDecodable cp949 bytes ->
+                    // 한국어 Windows 의 .txt / .log 흔한 케이스. confidence low — invalid UTF-8 가 우연히 CP949 로
+                    // 통과한 random binary 도 가능. UI 측 안내 문구로 보강.
+                    { Encoding = cp949; ConfidenceHigh = false }
+                | _ ->
+                    // 마지막 수단 — UTF-16 LE. 한국어 텍스트가 깨질 가능성 높음, 사용자 측 인식 필요.
+                    { Encoding = Encoding.Unicode; ConfidenceHigh = false }

@@ -226,6 +226,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 8 (2026-05-09): Phase 3a commit-4 1차 review 5건 적용 — F1 (SendAsync 진입 시 첨부 있으면 commit-6 wire 미구현 안내 1줄, system turn) / F2 (dispatcher add 직전 cap 재검증 — fire-and-forget 중첩 race 방어) / F3 (`AttachmentClassifier.detectEncoding` CP949 fallback + `System.Text.Encoding.CodePages` NuGet 의존성 추가 + `App.xaml.cs` 에 `CodePagesEncodingProvider` 등록 + drift 테스트 case 추가) / F4 (Reset 명령에 `Attachments.Clear()` + `AttachmentNotice = ""` 추가) / F5 (chip filename `MaxWidth=220` + `TextTrimming=CharacterEllipsis` + ToolTip). dotnet build + dotnet test Ds2.LlmAgent.Tests **202건** 전수 통과
 - rev 7 (2026-05-09): Phase 3a commit-4 완료 — `LlmChatViewModel.Attachments.cs` (partial 신규, ~280 line) + `AttachmentChipVm` + `LlmChatPanel.xaml/.cs` drag-drop 4종 핸들러 (`PreviewDragEnter/Leave/Over/Drop` 모두 `e.Handled=true`, 정책 14 강화). MainWindow `Window_DragEnter` bubble 까지 차단 — 자가 검열 M1 적용. PDF 는 capability 통과해도 commit-4 단계 chip 차단 (Phase 3b 대기). dotnet build Promaker.sln + dotnet test Ds2.LlmAgent.Tests (201건) 전수 통과. 잔여 commit-5 (Ctrl+V + provider 전환 강제 제거) / commit-6 (race-free SendAsync + default prefix + history summary + status) 으로 분할
 - rev 1 (2026-05-08): 초기 작성. `--plan` 토론 결과 정책 12개 + Phase 3a/3b 분할 + deferred C-1/C-2 확정
 - rev 2 (2026-05-08): `--review` 1차 (6건) 결과 반영. 정책 13~16 신설 + 컬렉션 타입 `Attachment[]` 정정 + Phase 3a-pre spike (S-1~S-3) 신설 + §6 결정 항목 D-1 신설

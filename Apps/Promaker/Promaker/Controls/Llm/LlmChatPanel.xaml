@@ -351,6 +351,9 @@
                             <TextBlock Text="{Binding FileName}"
                                        VerticalAlignment="Center"
                                        FontSize="11"
+                                       MaxWidth="220"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding FileName}"
                                        Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <TextBlock Text="{Binding SizeLabel}"
                                        Margin="6,0,0,0"
