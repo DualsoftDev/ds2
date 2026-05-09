@@ -10,6 +10,7 @@
     <Compile Include="Logging.fs" />
     <Compile Include="ProcessUtils.fs" />
     <Compile Include="LlmEvent.fs" />
+    <Compile Include="LlmMessage.fs" />
     <Compile Include="StreamJsonParser.fs" />
     <Compile Include="ClaudeCliVersion.fs" />
     <Compile Include="ClaudeCliArgs.fs" />
