@@ -24,7 +24,8 @@ namespace Promaker.ViewModels;
 /// 정책 18: STA sync = 경량 검증 (확장자 / 개수 / Length), Background <see cref="Task.Run"/> = bytes 로드 + 이미지 dim.
 /// 정책 19: 분류는 F# <c>AttachmentClassifier</c> SSOT 만 사용.
 ///
-/// commit-4 범위: 이미지 + 텍스트/코드 까지. PDF 는 capability 통과해도 Phase 3b 미구현 안내 후 거부 (chip 미생성).
+/// commit-4 범위: 이미지 + 텍스트/코드. Phase 3b (rev 15): PDF 활성 — capability + size + 페이지 cap 검증.
+/// 페이지 cap 검증은 background 단계 (PdfPig 파싱) — STA sync 는 size cap 만 (정책 18).
 /// </summary>
 public partial class LlmChatViewModel
 {
@@ -89,7 +90,7 @@ public partial class LlmChatViewModel
 
         if (accepted.Count == 0) return;
 
-        var loaded = await Task.Run(() => LoadAcceptedAttachments(accepted)).ConfigureAwait(true);
+        var (loaded, loadNotices) = await Task.Run(() => LoadAcceptedAttachments(accepted, caps)).ConfigureAwait(true);
 
         // race 재검증 (review F2): fire-and-forget AddPathsAsync 가 겹치면 sync 단계의 remainingSlots 가 stale 상태에서
         // 양쪽 다 통과 → cap 초과 가능. dispatcher thread (single-threaded) 에서 add 직전 재검증.
@@ -104,9 +105,15 @@ public partial class LlmChatViewModel
             Attachments.Add(chip);
         }
         if (capOverflow)
+            loadNotices.Add($"첨부 cap {MaxAttachmentCount}개 초과 — 일부 파일 거부");
+
+        // background 단계 notice (페이지 cap 초과 / PDF 파싱 실패 등) 머지.
+        if (loadNotices.Count > 0)
         {
-            var prev = string.IsNullOrEmpty(AttachmentNotice) ? "" : AttachmentNotice + " / ";
-            AttachmentNotice = $"{prev}첨부 cap {MaxAttachmentCount}개 초과 — 일부 파일 거부";
+            var merged = string.IsNullOrEmpty(AttachmentNotice)
+                ? string.Join(" / ", loadNotices)
+                : AttachmentNotice + " / " + string.Join(" / ", loadNotices);
+            AttachmentNotice = merged;
         }
     }
 
@@ -281,8 +288,18 @@ public partial class LlmChatViewModel
 
         if (cls.IsAcceptPdf)
         {
-            // commit-4 단계: PDF 는 chip 단계에서 차단. Phase 3b 진입 시 이 분기 제거.
-            notices.Add($"{name}: PDF 는 Phase 3b 에서 지원 예정");
+            // Phase 3b (rev 15): capability + size cap 검증. 페이지 cap 검증은 background (PdfPig 파싱).
+            if (!caps.SupportsPdfNative)
+            {
+                notices.Add($"{name}: 현재 provider 가 PDF 미지원");
+                return;
+            }
+            if (caps.MaxPdfBytes != null && size > caps.MaxPdfBytes.Value)
+            {
+                notices.Add($"{name}: PDF 크기 cap {caps.MaxPdfBytes.Value / 1024 / 1024}MB 초과");
+                return;
+            }
+            accepted.Add((path, cls, size));
             return;
         }
 
@@ -299,13 +316,16 @@ public partial class LlmChatViewModel
     }
 
     /// <summary>
-    /// background thread 진입 — accepted 목록의 bytes 로드 + 이미지 dim + 토큰 추정.
+    /// background thread 진입 — accepted 목록의 bytes 로드 + 이미지 dim + PDF 페이지 수 + 토큰 추정.
     /// 단일 파일 실패는 swallow + log (다른 파일 chip 추가 계속).
+    /// 반환 = (chips, notices) — 페이지 cap 초과 / PDF 파싱 실패는 notices 에 1줄 추가 + chip skip.
     /// </summary>
-    private static List<AttachmentChipVm> LoadAcceptedAttachments(
-        List<(string Path, Classification Cls, long Size)> accepted)
+    private static (List<AttachmentChipVm> chips, List<string> notices) LoadAcceptedAttachments(
+        List<(string Path, Classification Cls, long Size)> accepted,
+        Capabilities caps)
     {
         var chips = new List<AttachmentChipVm>(accepted.Count);
+        var bgNotices = new List<string>();  // sync 단계 caller 의 notices 와 lifecycle 분리 — review M-1
         foreach (var (path, cls, size) in accepted)
         {
             var name = Path.GetFileName(path);
@@ -330,6 +350,30 @@ public partial class LlmChatViewModel
                     var att = Attachment.NewTextFile(name, content);
                     chips.Add(new AttachmentChipVm(name, size, tok, att));
                 }
+                else if (cls.IsAcceptPdf)
+                {
+                    var bytes = File.ReadAllBytes(path);
+                    int pages;
+                    try
+                    {
+                        using var doc = UglyToad.PdfPig.PdfDocument.Open(bytes);
+                        pages = doc.NumberOfPages;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"PDF 파싱 실패: {path}", ex);
+                        bgNotices.Add($"{name}: PDF 파싱 실패 ({ex.GetType().Name})");
+                        continue;
+                    }
+                    if (caps.MaxPdfPages != null && pages > caps.MaxPdfPages.Value)
+                    {
+                        bgNotices.Add($"{name}: PDF 페이지 cap {caps.MaxPdfPages.Value}p 초과 ({pages}p)");
+                        continue;
+                    }
+                    var (_, tokHigh) = TokenEstimator.pdfTokensRange(pages);
+                    var att = Attachment.NewPdf(name, bytes);
+                    chips.Add(new AttachmentChipVm(name, size, tokHigh, att));
+                }
             }
             catch (Exception ex)
             {
@@ -337,7 +381,7 @@ public partial class LlmChatViewModel
                 Log.Warn($"첨부 로드 실패: {path}", ex);
             }
         }
-        return chips;
+        return (chips, bgNotices);
     }
 
     private static (int W, int H) TryReadImageDimFromPath(string path)

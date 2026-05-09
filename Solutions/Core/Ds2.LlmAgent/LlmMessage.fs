@@ -50,6 +50,9 @@ type Capabilities = {
     MaxImageBytes: int64 option
     /// 단일 PDF 최대 byte (None = provider 자체 한도).
     MaxPdfBytes: int64 option
+    /// 단일 PDF 최대 페이지 수 (정책 11 — Anthropic 200K context = 100p / 그 외 600p, OpenAI = 100p).
+    /// None = 페이지 cap 미적용. Phase 3b (rev 15 / 2026-05-09) 추가.
+    MaxPdfPages: int option
     /// turn 당 첨부 개수 cap (None = 정책 6 의 기본값 10 사용).
     MaxAttachmentCount: int option
 }
@@ -60,22 +63,26 @@ with
           SupportsPdfNative = false
           MaxImageBytes = None
           MaxPdfBytes = None
+          MaxPdfPages = None
           MaxAttachmentCount = None } with get
 
-    /// 이미지 4종 (png/jpg/gif/webp) + PDF 미지원. Codex CLI / OpenAI API / vision 지원 Ollama 모델용.
+    /// 이미지 4종 (png/jpg/gif/webp) + PDF 미지원. Codex CLI / vision 지원 Ollama 모델용.
     static member ImagesOnly(maxImageBytes: int64) =
         { ImageFormats = Set.ofList [Png; Jpeg; Gif; Webp]
           SupportsPdfNative = false
           MaxImageBytes = Some maxImageBytes
           MaxPdfBytes = None
+          MaxPdfPages = None
           MaxAttachmentCount = None }
 
-    /// 이미지 4종 + PDF native. Claude CLI (`--input-format stream-json`) / Anthropic API 용.
-    static member ImagesAndPdf(maxImageBytes: int64, maxPdfBytes: int64) =
+    /// 이미지 4종 + PDF native. Claude CLI (`--input-format stream-json`) / Anthropic API / OpenAI API.
+    /// `?maxPdfPages` = 페이지 cap (Phase 3b). 미지정 시 페이지 cap 미적용 (None).
+    static member ImagesAndPdf(maxImageBytes: int64, maxPdfBytes: int64, ?maxPdfPages: int) =
         { ImageFormats = Set.ofList [Png; Jpeg; Gif; Webp]
           SupportsPdfNative = true
           MaxImageBytes = Some maxImageBytes
           MaxPdfBytes = Some maxPdfBytes
+          MaxPdfPages = maxPdfPages
           MaxAttachmentCount = None }
 
 /// provider 별 wire 한도 SSOT (review 2차 M1). 4 호출처의 byte literal 중복 제거.
@@ -88,13 +95,16 @@ module CapabilityPresets =
     [<Literal>]
     let DefaultMaxAttachmentCount = 10
 
-    /// Anthropic API / Claude CLI (`--input-format stream-json`) — 5MB image / 32MB PDF (외부 검증 통과).
-    let AnthropicWire = Capabilities.ImagesAndPdf(5L * MB, 32L * MB)
+    /// Anthropic API / Claude CLI (`--input-format stream-json`) — 5MB image / 32MB PDF.
+    /// 페이지 cap = 100p (200K context Opus 4.7 / Sonnet 4.6 기준 보수, 정책 11 외부 검증).
+    let AnthropicWire = Capabilities.ImagesAndPdf(5L * MB, 32L * MB, maxPdfPages = 100)
 
-    /// OpenAI API — 20MB image, PDF placeholder (V-1 미해결, S-4 spike 결과 의존).
-    let OpenAiApiWire = Capabilities.ImagesOnly(20L * MB)
+    /// OpenAI API — 20MB image / 32MB PDF / 100p (Phase 3a-pre S-4 spike rev 15 — V-1 RESOLVED).
+    /// Chat Completions API 의 `type:"file"` content block + Microsoft.Extensions.AI.OpenAI 10.5.2
+    /// `application/pdf` → `ChatMessageContentPart.CreateFilePart(...)` 자동 wire.
+    let OpenAiApiWire = Capabilities.ImagesAndPdf(20L * MB, 32L * MB, maxPdfPages = 100)
 
-    /// Codex CLI (`-i/--image <FILE>...`) — OpenAI 와 동일 한도. 의미 명료를 위해 별도 alias.
+    /// Codex CLI (`-i/--image <FILE>...`) — OpenAI 와 동일 image 한도. PDF 미지원.
     let CodexCliWire = Capabilities.ImagesOnly(20L * MB)
 
 /// 이미지 첨부 decompose helper (commit-6b). C# DataContent / Anthropic content block 으로 wire 시 사용.

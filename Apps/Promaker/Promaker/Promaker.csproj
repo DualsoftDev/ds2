@@ -32,6 +32,8 @@
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <!-- LLM Chat 첨부 Phase 3b — PDF 페이지 수 추출 (LlmChatViewModel.Attachments.cs 의 LoadAcceptedAttachments). -->
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
