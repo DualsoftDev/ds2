@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.Windows.Media.Imaging;
@@ -35,6 +36,11 @@ public partial class LlmChatViewModel
 
     /// <summary>텍스트 첨부 단일 파일 size cap (정책 6: 1MB). capability 별 분기 없음.</summary>
     private const long MaxTextBytes = 1024L * 1024L;
+
+    /// <summary>PDF 미지원 provider (Codex/Ollama) 의 sync 단계 size cap fallback default — capability 의 MaxPdfBytes 가
+    /// None 일 때 적용. 32MB = Anthropic native 한도와 동일. 큰 파일 로드 + PdfPig 파싱 비용 차단용 sync 가드.
+    /// 추출된 텍스트의 1MB 가드 (deferred C-2 fallback D) 는 background <see cref="LoadAcceptedAttachments"/> 단계에서 별도 적용.</summary>
+    private const long DefaultPdfSizeCap = 32L * 1024L * 1024L;
 
     /// <summary>chip 영역 상단 1줄 안내 (거부 / cap / provider 전환 등 단일화 — 정책 8/9/MI-5).</summary>
     [ObservableProperty]
@@ -289,14 +295,15 @@ public partial class LlmChatViewModel
         if (cls.IsAcceptPdf)
         {
             // Phase 3b (rev 15): capability + size cap 검증. 페이지 cap 검증은 background (PdfPig 파싱).
-            if (!caps.SupportsPdfNative)
+            // deferred C-2 fallback D (rev 17): native 미지원 provider (Codex/Ollama) 도 거부 대신 background 에서
+            // 텍스트 추출 → TextFile chip 변환. sync 단계는 size cap 만 적용 — native 면 caps.MaxPdfBytes,
+            // 미지원이면 DefaultPdfSizeCap (32MB) fallback. 양쪽 다 큰 파일의 PdfPig 파싱 비용 차단용.
+            var pdfSizeCap = caps.SupportsPdfNative
+                ? (caps.MaxPdfBytes != null ? caps.MaxPdfBytes.Value : DefaultPdfSizeCap)
+                : DefaultPdfSizeCap;
+            if (size > pdfSizeCap)
             {
-                notices.Add($"{name}: 현재 provider 가 PDF 미지원");
-                return;
-            }
-            if (caps.MaxPdfBytes != null && size > caps.MaxPdfBytes.Value)
-            {
-                notices.Add($"{name}: PDF 크기 cap {caps.MaxPdfBytes.Value / 1024 / 1024}MB 초과");
+                notices.Add($"{name}: PDF 크기 cap {pdfSizeCap / 1024 / 1024}MB 초과");
                 return;
             }
             accepted.Add((path, cls, size));
@@ -353,26 +360,48 @@ public partial class LlmChatViewModel
                 else if (cls.IsAcceptPdf)
                 {
                     var bytes = File.ReadAllBytes(path);
-                    int pages;
-                    try
-                    {
-                        using var doc = UglyToad.PdfPig.PdfDocument.Open(bytes);
-                        pages = doc.NumberOfPages;
-                    }
+                    UglyToad.PdfPig.PdfDocument doc;
+                    try { doc = UglyToad.PdfPig.PdfDocument.Open(bytes); }
                     catch (Exception ex)
                     {
                         Log.Warn($"PDF 파싱 실패: {path}", ex);
                         bgNotices.Add($"{name}: PDF 파싱 실패 ({ex.GetType().Name})");
                         continue;
                     }
-                    if (caps.MaxPdfPages != null && pages > caps.MaxPdfPages.Value)
+                    using (doc)
                     {
-                        bgNotices.Add($"{name}: PDF 페이지 cap {caps.MaxPdfPages.Value}p 초과 ({pages}p)");
-                        continue;
+                        var pages = doc.NumberOfPages;
+                        if (caps.SupportsPdfNative)
+                        {
+                            // native wire: PDF bytes 그대로 chip 에 보유 → 송신 시 multipart content block.
+                            if (caps.MaxPdfPages != null && pages > caps.MaxPdfPages.Value)
+                            {
+                                bgNotices.Add($"{name}: PDF 페이지 cap {caps.MaxPdfPages.Value}p 초과 ({pages}p)");
+                                continue;
+                            }
+                            var (_, tokHigh) = TokenEstimator.pdfTokensRange(pages);
+                            var att = Attachment.NewPdf(name, bytes);
+                            chips.Add(new AttachmentChipVm(name, size, tokHigh, att));
+                        }
+                        else
+                        {
+                            // deferred C-2 fallback D (rev 17): native 미지원 provider (Codex/Ollama) — PdfPig 로 텍스트
+                            // 추출 후 TextFile chip 으로 변환. 1MB 가드 (MaxTextBytes) 로 토큰 폭증 차단.
+                            // chip FileName 은 원본 PDF 이름 유지 → 사용자 인지 + bgNotice 1줄 안내로 변환 사실 노출.
+                            var text = ExtractPdfText(doc);
+                            var byteLen = Encoding.UTF8.GetByteCount(text);
+                            if (byteLen > MaxTextBytes)
+                            {
+                                bgNotices.Add($"{name}: PDF 추출 텍스트 {byteLen / 1024 / 1024}MB 가 {MaxTextBytes / 1024 / 1024}MB 초과 — 거부");
+                                continue;
+                            }
+                            var ratio = TokenEstimator.estimateKoreanRatio(text);
+                            var tok = TokenEstimator.textTokens(byteLen, ratio);
+                            var att = Attachment.NewTextFile(name, text);
+                            chips.Add(new AttachmentChipVm(name, size, tok, att));
+                            bgNotices.Add($"{name}: PDF 미지원 → 텍스트 {pages}페이지 추출됨");
+                        }
                     }
-                    var (_, tokHigh) = TokenEstimator.pdfTokensRange(pages);
-                    var att = Attachment.NewPdf(name, bytes);
-                    chips.Add(new AttachmentChipVm(name, size, tokHigh, att));
                 }
             }
             catch (Exception ex)
@@ -384,6 +413,21 @@ public partial class LlmChatViewModel
             }
         }
         return (chips, bgNotices);
+    }
+
+    /// <summary>
+    /// deferred C-2 fallback D — PdfPig 로 페이지별 텍스트 추출 후 concat. 페이지 사이 빈 줄 1개로 구분.
+    /// PdfPig 가 PDF 의 vector text 스트림을 추출 (OCR 아님 — 스캔 PDF 는 빈 결과).
+    /// </summary>
+    private static string ExtractPdfText(UglyToad.PdfPig.PdfDocument doc)
+    {
+        var sb = new StringBuilder();
+        foreach (var page in doc.GetPages())
+        {
+            sb.AppendLine(page.Text);
+            sb.AppendLine();
+        }
+        return sb.ToString();
     }
 
     private static (int W, int H) TryReadImageDimFromPath(string path)

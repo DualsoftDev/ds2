@@ -191,7 +191,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 ### Phase 3 외 deferred TODO
 
 - [ ] **C-1**: Office 문서 (docx/xlsx/pptx) 텍스트 추출 첨부 (OpenXml SDK 의존성 추가 검토)
-- [ ] **C-2**: PDF 미지원 provider 의 fallback 정책 (자동 텍스트 추출 vs 확인 dialog) — 현재는 거부
+- [x] **C-2** (2026-05-09 closed, rev 17): PDF 미지원 provider 의 fallback 정책 — **fallback D 채택** (자동 텍스트 추출 + 1MB 가드). `LlmChatViewModel.Attachments.cs` 의 `ClassifyPathSync` PDF 분기에서 `!SupportsPdfNative` 거부 분기 제거 + `LoadAcceptedAttachments` 의 PDF 분기에 `caps.SupportsPdfNative` 분기 추가 (native = 기존 path / 미지원 = `ExtractPdfText(doc)` → TextFile chip + bgNotice). 1MB cap (`MaxTextBytes`) 로 토큰 폭증 차단. PdfPig `doc.GetPages().page.Text` concat. 스캔 PDF (vector text 부재) UX 안내는 별도 phase
 
 ## 5. 진입 순서 (commit 단위)
 
@@ -207,10 +207,13 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 본 phase 의 핵심 흐름은 모두 완료. 다음 후보는 deferred / 별도 phase:
 
 - **deferred C-1**: Office 문서 (docx/xlsx/pptx) 텍스트 추출 첨부 — OpenXml SDK 의존성 검토
-- **deferred C-2**: PDF 미지원 provider (Codex) 의 fallback 정책 — 자동 텍스트 추출 vs 확인 dialog
+- ~~**deferred C-2**: PDF 미지원 provider (Codex) 의 fallback 정책~~ — ✅ rev 17 완료 (fallback D = 자동 텍스트 추출 + 1MB 가드)
 - **모델별 PDF 페이지 cap 분기**: 200K context = 100p / 그 외 = 600p — 현재 100p 단일 적용 (Anthropic / OpenAI 모두). 모델 분류 SSOT 결정 후 진입
+- **m3 (commit-4 자가 검열 보류)**: `Image of name * bytes * mime` → `Image of name * bytes * format: ImageFormat` 일원화 + `mimeOf` helper. 5종 provider wire + DriftTests + AttachmentClassifier 광범위 영향 — 별도 PR
+- **스캔 PDF UX 안내**: rev 17 fallback D 의 빈 텍스트 추출 (vector text 부재) 시 안내 부재. OCR fallback 또는 빈 결과 안내 별도 phase
 - ~~**별도 phase**: Ollama vision 모델 동적 capability 갱신~~ — ✅ rev 16 완료 (`/api/show` probe + `Capabilities.ImagesOnly` 동적 부여)
 - ~~**UX 개선**: outer `catch (Exception ex)` single-file failure 의 user-visible 안내~~ — ✅ rev 16 완료 (`bgNotices` 1줄 추가)
+- ~~**probe cancellationToken 미전달**~~ — ✅ rev 17 완료 (factory layer 인프라 — `CancellationToken cancellationToken = default` 전파, caller 측 변경 없음)
 
 ## 6. 결정 필요 / 검증 보류 항목
 
@@ -250,6 +253,12 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 
 ## 9. 변경 이력
 
+- rev 17 (2026-05-09): **probe CT 인프라 + Codex/Ollama PDF fallback 묶음 commit**.
+  - **(1) probe CT 전파 인프라** — `ApiProviderFactory.cs` 4 public factory + `ProbeOllamaCapabilitiesAsync` + `CreateInternalAsync` + `CreateMcpClientAsync` 에 `CancellationToken cancellationToken = default` 매개변수 추가 (default param, non-breaking). `OllamaSharp 5.4.25` 의 `ShowModelAsync(string, CancellationToken)` + `MCP.Core 1.2.0` 의 `McpClient.CreateAsync(... CancellationToken)` 시그니처 활용 (XML doc 직접 검증). `ProbeOllamaCapabilitiesAsync` 의 `OperationCanceledException when ct.IsCancellationRequested` catch 분기 추가 — throw 그대로 (TextOnly fallback 우회, caller stale 처리에 위임). caller (LlmChatViewModel `Create*Async` 4종) 변경 없음 — 향후 ConfigureProviderAsync 가 CT 만들어 전달하면 즉시 활용. 1 파일 / +14 line
+  - **(2) Codex/Ollama PDF fallback (deferred C-2 fallback D)** — `LlmChatViewModel.Attachments.cs`. `using System.Text;` + `DefaultPdfSizeCap=32MB` 상수. `ClassifyPathSync` PDF 분기 `!caps.SupportsPdfNative` 거부 분기 제거 + size cap 일률 적용. `LoadAcceptedAttachments` PDF 분기에 `caps.SupportsPdfNative` 분기 추가:
+    - native = 기존 path (페이지 cap + `Attachment.NewPdf` chip)
+    - 미지원 = `ExtractPdfText(doc)` (PdfPig `doc.GetPages().page.Text` concat) → `Encoding.UTF8.GetByteCount(text) > MaxTextBytes(1MB)` 거부 / 통과 시 `Attachment.NewTextFile(name, text)` chip + bgNotice "`{name}`: PDF 미지원 → 텍스트 N페이지 추출됨". chip FileName 은 원본 PDF 이름 유지 → 사용자 인지
+  - 1 파일 / +44 line. `ExtractPdfText(doc)` 신설 1개. dotnet build 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경) + dotnet test **225건** 전수 통과 baseline 유지. 자가 검열 trigger 미충족 (양 작업 모두) — ① 시그니처 default param 추가 (non-breaking) / ② 신규 함수 1개 / ③ 단일 파일 ~14+44 line / ⑤ public API SSOT 무변
 - rev 16 (2026-05-09): **Phase 3a 후속 — UX 보강 + Ollama 동적 capability** (todo §5 후속 작업 후보 2건 처리). (1) UX 보강 — `LlmChatViewModel.Attachments.cs:378-384` 의 outer `catch (Exception ex)` 가 swallow + log 만 하던 것을 PDF inner catch (`bgNotices.Add(...)` line 365) 와 일관되게 `bgNotices.Add($"{name}: 로드 실패 ({ex.GetType().Name})")` 한 줄 추가 → 사용자 안내 단일화 (정책 8). 1 line 추가. (2) Ollama 동적 capability — `ApiProviderFactory.CreateOllamaAsync` 에 비동기 probe 단계 추가 (`async Task<...>` 시그니처). `OllamaSharp.OllamaApiClientExtensions.ShowModelAsync(string)` extension method 호출 → `ShowModelResponse.Capabilities` (System.String[]) 배열에 "vision" 포함 시 `Capabilities.ImagesOnly(20MB)`, 미발견 또는 probe 실패 (Ollama 미실행/모델 미설치/네트워크) 시 `Capabilities.TextOnly` fallback. `ProbeOllamaCapabilitiesAsync` 신설 (~25 line) + `Log` field + `OllamaVisionImageCap=20MB` 상수. 정책 7 의 정적 placeholder 제거. 어댑터 `ApiChatProvider._capabilities` immutable 유지 (record). 자가 검열 trigger 미충족 (1+1 파일 / +39 line / 신규 함수 1개 / public API 무변). 빌드 검증 = 컴파일 오류 0 (file copy lock 만 — Promaker.exe + VS 잠금). dotnet test = Promaker C# 측 + Capabilities schema 무변 → 회귀 영향 없음 (rev 15 = 225건 통과 baseline 유지)
 - rev 15 (2026-05-09): Phase 3a-pre **S-4 spike + Phase 3b PDF wire 활성** (묶음 commit) — 5종 SDK multimodal wire raw source 검증 (Anthropic 공식 12.20.0 R5 ambiguity 해결 / Microsoft.Extensions.AI.OpenAI 10.5.2 `CreateFilePart` 자동 / OllamaSharp 5.4.25 image-only) → **raw HttpClient 우회 = 불필요** + **V-1 RESOLVED**. `Capabilities` record 에 `MaxPdfPages: int option` field 추가 + `ImagesAndPdf` optional `?maxPdfPages` 시그니처 확장. `CapabilityPresets.OpenAiApiWire` = `ImagesAndPdf(20MB, 32MB, 100p)` (이전 `ImagesOnly(20MB)` 폐기) / `AnthropicWire` 100p 추가. `PdfPig` 0.1.14 (Apache-2.0) 도입 — `LlmChatViewModel.Attachments.cs` 의 `ClassifyPathSync` PDF 차단 분기를 capability + size cap 검증으로 교체, `LoadAcceptedAttachments` 시그니처 = `(chips, notices)` 튜플 + Capabilities 인자 + PDF 분기에서 `using var doc = UglyToad.PdfPig.PdfDocument.Open(bytes)` 페이지 수 추출 + 페이지 cap 검증 + `TokenEstimator.pdfTokensRange` 토큰 추정 + chip 생성. 자가 검열 적용 — M-1 (변수 shadowing → `bgNotices` rename), M-2 (outer single-file failure swallow) 영구 skip = 정책 18 일관, m-1/m-2 거부, m-3 (doc 동기화) 본 단계 적용. dotnet build + dotnet test = **225건 전수 통과** (기존 221 + 신규 4: capability schema 회귀)
 - rev 13 (2026-05-09): Phase 3a commit-6b 후속 fix 2건 — (1) Ctrl+V 회귀 (image-only / file-drop-only 클립보드 paste 미동작) — WPF `TextBox.ApplicationCommands.Paste.CanExecute` 가 텍스트 부재 시 false → `OnInputPaste` 자체 미발화. `InputBox_PreviewKeyDown` 에서 Ctrl+V 직접 가로채기 + `TryHandleClipboardPaste` 신설 (Clipboard API 직접 검사 — file drop > image > 텍스트는 default). 텍스트 paste 회귀 보장. `OnInputPaste` 도 보존 (IME / 컨텍스트 메뉴 paste edge case). (2) Claude CLI exit 1 회귀 — `--input-format stream-json` 모드의 stdin 이 (a) trailing `\n` 부재 → "Error parsing streaming input line" + (b) `Encoding.UTF8` (default `emitUTF8Identifier=true`) 의 BOM (`EF BB BF`) 자동 송출로 첫 line invalid JSON. fix: `ClaudeStreamJsonInput.encode` 결과에 trailing `\n` + `CliProcessHost.fs` 의 `psi.StandardInputEncoding = UTF8Encoding(false)` (BOM 없는 UTF-8). 부수: `OnExitNonZero` 에 stderr suffix 포함 (Codex/Claude 공통, spec 주석 갱신). 자가 검열 적용 (Major-1 우선순위 의도 명문화 + Minor-1 `EnqueueBitmapImage` helper 추출 + Minor-3 spec 주석 갱신) + 외부 5-reviewer review 적용 (Stream dispose + dead path 의도 주석). dotnet build + dotnet test **221건** 전수 통과. commit 9d9c19d

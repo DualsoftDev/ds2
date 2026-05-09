@@ -1,6 +1,7 @@
 using System;
 using System.ClientModel;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Anthropic;
 using Ds2.LlmAgent;
@@ -38,25 +39,29 @@ public static class ApiProviderFactory
     private static readonly Uri GroqEndpoint = new("https://api.groq.com/openai/v1");
 
     public static Task<ApiChatProvider> CreateAnthropicAsync(
-        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
+        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce,
+        CancellationToken cancellationToken = default)
     {
         var raw = new AnthropicClient { ApiKey = apiKey }.AsIChatClient(model);
         // Anthropic API 공식 한도 — 이미지 base64 inline 5MB / PDF document 32MB. SSOT = CapabilityPresets.AnthropicWire.
         return CreateInternalAsync(
             raw, "Anthropic", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
-            capabilities: CapabilityPresets.AnthropicWire);
+            capabilities: CapabilityPresets.AnthropicWire,
+            cancellationToken: cancellationToken);
     }
 
     public static Task<ApiChatProvider> CreateOpenAiAsync(
-        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
+        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce,
+        CancellationToken cancellationToken = default)
     {
         var raw = new OpenAIClient(apiKey).GetChatClient(model).AsIChatClient();
         // OpenAI gpt-4o vision — SSOT = CapabilityPresets.OpenAiApiWire (V-1 PDF 미해결, S-4 spike 결과 의존).
         return CreateInternalAsync(
             raw, "OpenAI", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
-            capabilities: CapabilityPresets.OpenAiApiWire);
+            capabilities: CapabilityPresets.OpenAiApiWire,
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -66,7 +71,8 @@ public static class ApiProviderFactory
     /// F-4 cleanup 시 본 메소드는 ProviderCapabilities + Endpoint 파라미터화된 일반 메소드로 흡수.
     /// </summary>
     public static Task<ApiChatProvider> CreateGroqAsync(
-        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
+        string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce,
+        CancellationToken cancellationToken = default)
     {
         // ApiKeyCredential ctor 는 empty string 에 throw — 빈 키일 때도 ConfigureProviderAsync 가
         // EnsureCli().IsValid=false 로 graceful 차단되도록 placeholder 로 대체. validate 가 실 빈 키 검증.
@@ -77,33 +83,38 @@ public static class ApiProviderFactory
         return CreateInternalAsync(
             raw, "Groq", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
-            capabilities: Capabilities.TextOnly);
+            capabilities: Capabilities.TextOnly,
+            cancellationToken: cancellationToken);
     }
 
     public static async Task<ApiChatProvider> CreateOllamaAsync(
-        string baseUrl, string model, string systemPrompt, string mcpServerUrl, string mcpNonce)
+        string baseUrl, string model, string systemPrompt, string mcpServerUrl, string mcpNonce,
+        CancellationToken cancellationToken = default)
     {
         // OllamaApiClient 가 IChatClient 직접 구현. base URL + 기본 모델만 주면 됨. API key 없음 → 항상 valid.
         var ollama = new OllamaApiClient(new Uri(baseUrl), defaultModel: model);
         IChatClient raw = ollama;
         // 정책 7 — Ollama 만 모델별 동적 capability. /api/show 의 capabilities 배열에 "vision" 포함 시
         // 이미지 첨부 활성, 아니면 TextOnly. probe 실패 (Ollama 미실행 / 모델 미설치 / 네트워크) 시 보수적 fallback.
-        var caps = await ProbeOllamaCapabilitiesAsync(ollama, model).ConfigureAwait(false);
+        var caps = await ProbeOllamaCapabilitiesAsync(ollama, model, cancellationToken).ConfigureAwait(false);
         return await CreateInternalAsync(
             raw, "Ollama", model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => true,
-            capabilities: caps).ConfigureAwait(false);
+            capabilities: caps,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Ollama 의 <c>/api/show</c> 응답에서 <c>capabilities</c> 배열을 검사 — "vision" 포함 시 이미지 첨부 활성.
     /// PDF 는 Ollama 미지원 → <see cref="Capabilities.ImagesOnly"/> 만 반환. probe 실패는 TextOnly fallback.
+    /// CT 가 cancel 되면 OperationCanceledException 그대로 전파 (TextOnly fallback 회피 — 호출자가 stale switch 처리).
     /// </summary>
-    private static async Task<Capabilities> ProbeOllamaCapabilitiesAsync(OllamaApiClient client, string model)
+    private static async Task<Capabilities> ProbeOllamaCapabilitiesAsync(
+        OllamaApiClient client, string model, CancellationToken cancellationToken)
     {
         try
         {
-            var resp = await client.ShowModelAsync(model).ConfigureAwait(false);
+            var resp = await client.ShowModelAsync(model, cancellationToken).ConfigureAwait(false);
             var modelCaps = resp?.Capabilities;
             if (modelCaps != null)
             {
@@ -114,6 +125,11 @@ public static class ApiProviderFactory
                 }
             }
             return Capabilities.TextOnly;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // cancel 은 fallback 대상이 아님 — caller 의 stale 처리에 위임.
+            throw;
         }
         catch (Exception ex)
         {
@@ -129,10 +145,11 @@ public static class ApiProviderFactory
     private static async Task<ApiChatProvider> CreateInternalAsync(
         IChatClient raw, string label, string model,
         string systemPrompt, string mcpServerUrl, string mcpNonce,
-        Func<bool> validate, Capabilities capabilities)
+        Func<bool> validate, Capabilities capabilities,
+        CancellationToken cancellationToken)
     {
         var chatClient = new ChatClientBuilder(raw).UseFunctionInvocation().Build();
-        var (mcpClient, http) = await CreateMcpClientAsync(mcpServerUrl, mcpNonce).ConfigureAwait(false);
+        var (mcpClient, http) = await CreateMcpClientAsync(mcpServerUrl, mcpNonce, cancellationToken).ConfigureAwait(false);
         return new ApiChatProvider(chatClient, mcpClient, http, label, model, systemPrompt, validate, capabilities);
     }
 
@@ -142,7 +159,7 @@ public static class ApiProviderFactory
     /// HttpClientTransport 가 외부 주입 HttpClient 를 dispose 하지 않는 동작이라 ApiChatProvider 측에서 별도 dispose.
     /// </summary>
     private static async Task<(McpClient client, HttpClient http)> CreateMcpClientAsync(
-        string mcpServerUrl, string mcpNonce)
+        string mcpServerUrl, string mcpNonce, CancellationToken cancellationToken)
     {
         var http = new HttpClient { BaseAddress = new Uri(mcpServerUrl) };
         http.DefaultRequestHeaders.Add(McpNonceHeader, mcpNonce);
@@ -151,7 +168,7 @@ public static class ApiProviderFactory
             new HttpClientTransportOptions { Endpoint = new Uri(mcpServerUrl) },
             httpClient: http);
 
-        var client = await McpClient.CreateAsync(transport).ConfigureAwait(false);
+        var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken).ConfigureAwait(false);
         return (client, http);
     }
 }
