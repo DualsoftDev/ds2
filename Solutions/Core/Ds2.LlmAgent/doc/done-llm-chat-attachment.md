@@ -437,3 +437,56 @@
 ### commit
 
 - `e32c583` — F-1 spike 5-reviewer review 즉시 조치 3건 적용
+
+## Phase 3a-pre — S-4 spike + Phase 3b PDF 활성 (rev 15, 2026-05-09)
+
+### S-4 spike 결과 (closed)
+
+5종 SDK 의 multimodal wire 매핑을 raw source 로 직접 검증:
+
+| Provider | wire 위치 | image | PDF | 결론 |
+|---|---|---|---|---|
+| **OpenAI** Chat Completions | `Microsoft.Extensions.AI.OpenAI 10.5.2` 의 `OpenAIChatClient.ToChatMessageContentPart` | image/* → image_url | application/pdf → `ChatMessageContentPart.CreateFilePart(...)` | **V-1 RESOLVED** — 32MB / 100p native 지원, SDK 자동 매핑 |
+| **Anthropic** 공식 12.20.0 | `AnthropicClientExtensions.cs:890-916` (`AsIChatClient`) | image/* → `ImageBlockParam` | application/pdf → `DocumentBlockParam`, text/* → `DocumentBlockParam` (plain text) | **R5 ambiguity 해결** — tghamm/Anthropic.SDK 아닌 공식 anthropics/anthropic-sdk-csharp |
+| **Ollama** 5.4.25 | `MicrosoftAi/AbstractionMapper.cs:232` | `HasTopLevelMediaType("image")` filter → `Message.Images` | silent drop | 우리 측 `EnforceCapabilityOrFail` strict 가 차단 (Phase 3a commit-6b 적용) |
+| **Codex CLI** 0.128.0 | `-i/--image <FILE>...` path 인자 | path 기반 (Phase 3a-pre S-2) | 미지원 | capability `ImagesOnly(20MB)` 그대로 |
+| **Claude CLI** 2.1.136 | `--input-format stream-json` content block | base64 inline (Phase 3a commit-6b) | base64 inline (Phase 3a commit-6b) | 이미 wire 완료 |
+
+**raw HttpClient 우회 어댑터 = 모두 불필요**. `DataContent(bytes, mime)` 위임 그대로 native multimodal content block 으로 자동 wire.
+
+### Phase 3b 산출물 (5 파일)
+
+- `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` — `Capabilities` record 에 `MaxPdfPages: int option` field 추가. `ImagesAndPdf(maxImageBytes, maxPdfBytes, ?maxPdfPages)` optional 인자로 시그니처 확장 (기존 호출 호환). `CapabilityPresets.AnthropicWire` = `ImagesAndPdf(5MB, 32MB, maxPdfPages = 100)` (200K context Opus 4.7 / Sonnet 4.6 보수). `CapabilityPresets.OpenAiApiWire` = `ImagesAndPdf(20MB, 32MB, maxPdfPages = 100)` (V-1 RESOLVED — 이전 `ImagesOnly(20MB)` placeholder 폐기). `CodexCliWire` = `ImagesOnly(20MB)` 그대로.
+- `Apps/Promaker/Directory.Packages.props` — `PdfPig` 0.1.14 (Apache-2.0, .NET Standard 2.0+) PackageVersion. iText AGPL 회피.
+- `Apps/Promaker/Promaker/Promaker.csproj` — `PdfPig` PackageReference.
+- `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.Attachments.cs`
+  - `ClassifyPathSync` 의 PDF 차단 분기 (`commit-4 단계: PDF 는 chip 단계에서 차단`) → capability + size cap 검증으로 교체. `!caps.SupportsPdfNative` → 거부, `caps.MaxPdfBytes` 초과 → 거부, 통과 시 accepted push.
+  - `LoadAcceptedAttachments` 시그니처 = `(List<AttachmentChipVm> chips, List<string> notices) LoadAcceptedAttachments(List<...> accepted, Capabilities caps)` 로 확장. background 단계의 페이지 cap 초과 / PdfPig 파싱 실패는 `bgNotices` 에 1줄 추가 + chip skip (review M-1: `notices` 와의 shadowing 회피 위해 `bgNotices` 명명).
+  - PDF 분기 본 구현: `File.ReadAllBytes(path)` → `using var doc = UglyToad.PdfPig.PdfDocument.Open(bytes)` → `doc.NumberOfPages` → `caps.MaxPdfPages` 검증 → `TokenEstimator.pdfTokensRange(pages)` 의 high 값을 chip token 추정으로 사용 → `Attachment.NewPdf(name, bytes)` chip.
+  - inner try/catch 로 PdfPig 파싱 실패만 분리해 사용자에게 안내 (그 외 single-file failure 는 outer catch swallow + log — 정책 18 일관).
+  - `AddPathsAsync` 에서 `(loaded, loadNotices)` 튜플 receive 후 dispatcher add 단계에서 cap overflow notice 와 함께 `bgNotices` 머지 (sync notices + cap overflow + bg notices 3종 정렬).
+- `Solutions/Tests/Ds2.LlmAgent.Tests/LlmUserMessageOpsTests.fs` — capability schema 회귀 4건 추가:
+  - `ImagesAndPdf without maxPdfPages → MaxPdfPages = None`
+  - `ImagesAndPdf with maxPdfPages=100 → MaxPdfPages = Some 100`
+  - `CapabilityPresets — Anthropic / OpenAI = 100p, Codex = N/A`
+  - `ImagesOnly / TextOnly → MaxPdfPages = None`
+
+### 검증
+
+- `dotnet build Apps/Promaker/Promaker.sln` 통과 (오류 0 / 경고 2 OllamaSharp 사전 환경 무관)
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests` = **225건 전수 통과** (기존 221 + 신규 4)
+- 패키지 라이선스 확인: PdfPig 0.1.14 = Apache-2.0 (iText AGPL 회피 정책 정합)
+
+### 자가 검열 (Agent 위임 — Critical 0 / Major 2 / Minor 3)
+
+- **M-1 적용**: `LoadAcceptedAttachments` 의 `notices` 변수 명을 `bgNotices` 로 변경 — sync 단계 caller `notices` 와의 shadowing 가독성 우려 해소
+- **M-2 영구 skip**: outer `catch (Exception ex)` 가 모든 single-file failure 를 swallow + log — 본 phase 범위 외, 정책 18 의 일관 적용 (PDF 만 inner catch 로 사용자 안내한 것은 PdfPig 가 새 의존성이라 user-visible 안내 의미 있음)
+- **m-1 거부**: `bytes` 메모리 2회 보유 우려 — PdfPig 0.1.14 의 `Open(byte[])` 가 byte[] 복사 없이 reference 만 보유 (직접 검증). using 의 Dispose 후 reference 1개만 살아남아 OK
+- **m-2 거부**: 이미지/PDF size cap sync 일관, page cap 만 background 인 것은 PdfPig 파싱 비용 사유 (정책 18 정합)
+- **m-3 적용**: 본 done.md 갱신 + todo 의 path/line 인용 동기화 — 본 단계에서 처리
+
+### 잔여 / 의도적 미적용
+
+- **Ollama vision 모델 동적 capability 갱신** — `CapabilityPresets` 정적이라 Ollama vision 모델 (`llava` 등) 사용 시에도 PDF/image 차단. 의도적 미적용 (정책 7, 별도 phase). todo 추적 지속.
+- **outer single-file failure 의 user-visible 안내** — 본 phase 범위 외, 향후 UX phase 권고 (todo 기록).
+- **Codex CLI PDF 미지원** — `CodexCliWire = ImagesOnly(20MB)` 유지 → sync 단계 `!caps.SupportsPdfNative` 즉시 거부. 정상 동작.

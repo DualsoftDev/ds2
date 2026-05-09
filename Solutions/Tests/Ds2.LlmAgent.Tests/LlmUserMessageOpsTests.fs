@@ -63,3 +63,30 @@ let ``AttachmentInfo.tryGetPdf 은 Pdf 만 Some, 그 외 None`` () =
         Assert.Equal(2, d.Bytes.Length)
     | None -> failwith "Pdf 인데 None"
     Assert.Equal(None, AttachmentInfo.tryGetPdf (Image("a.png", [||], "image/png")))
+
+/// Phase 3b (rev 15) — Capabilities schema 의 MaxPdfPages field 회귀.
+/// optional `?maxPdfPages` 시그니처 + None / Some 분기.
+
+[<Fact>]
+let ``ImagesAndPdf without maxPdfPages → MaxPdfPages = None`` () =
+    let caps = Capabilities.ImagesAndPdf(1024L, 1024L)
+    Assert.Equal(None, caps.MaxPdfPages)
+
+[<Fact>]
+let ``ImagesAndPdf with maxPdfPages=100 → MaxPdfPages = Some 100`` () =
+    let caps = Capabilities.ImagesAndPdf(1024L, 1024L, maxPdfPages = 100)
+    Assert.Equal(Some 100, caps.MaxPdfPages)
+
+[<Fact>]
+let ``CapabilityPresets — Anthropic / OpenAI = 100p, Codex = N/A`` () =
+    Assert.Equal(Some 100, CapabilityPresets.AnthropicWire.MaxPdfPages)
+    Assert.True(CapabilityPresets.AnthropicWire.SupportsPdfNative)
+    Assert.Equal(Some 100, CapabilityPresets.OpenAiApiWire.MaxPdfPages)
+    Assert.True(CapabilityPresets.OpenAiApiWire.SupportsPdfNative)
+    Assert.Equal(None, CapabilityPresets.CodexCliWire.MaxPdfPages)
+    Assert.False(CapabilityPresets.CodexCliWire.SupportsPdfNative)
+
+[<Fact>]
+let ``ImagesOnly / TextOnly → MaxPdfPages = None`` () =
+    Assert.Equal(None, (Capabilities.ImagesOnly 1024L).MaxPdfPages)
+    Assert.Equal(None, Capabilities.TextOnly.MaxPdfPages)
