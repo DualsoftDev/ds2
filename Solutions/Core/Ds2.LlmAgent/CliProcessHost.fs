@@ -3,6 +3,7 @@ namespace Ds2.LlmAgent
 open System
 open System.Collections.Generic
 open System.Diagnostics
+open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Channels
 open System.Threading.Tasks
@@ -17,6 +18,22 @@ open System.Threading.Tasks
 /// 200+ 라인 복제 → 30 라인 옵션 변환으로 축소.
 [<RequireQualifiedAccess>]
 module CliProcessHost =
+
+    /// M11 — stderr last line 의 secret 토큰 redact + 길이 cap. exit-error 메시지로 사용자에게
+    /// 노출되는 영문 raw 가 인증 토큰 / API key 같은 secret 을 포함하면 화면 / IM 캡처에 leak.
+    /// 패턴 = `(키워드)(separator)(value)` 3 group — 원본 separator (`:` / `=` / 공백 / `Bearer ` 의 단일 공백 등) 보존.
+    let private secretRedactPattern =
+        Regex(@"(?i)\b(api[_-]?key|token|bearer|secret|password)([\s=:]+)[^\s'""]+",
+              RegexOptions.Compiled)
+
+    let internal redactStderr (line: string) : string =
+        if String.IsNullOrEmpty line then ""
+        else
+            let redacted =
+                secretRedactPattern.Replace(line, fun m ->
+                    m.Groups.[1].Value + m.Groups.[2].Value + "<redacted>")
+            if redacted.Length > 200 then redacted.Substring(0, 200) + "…"
+            else redacted
 
     /// CLI process 를 stream LlmEvent 로 어댑트하기 위한 사양.
     type Spec = {
@@ -191,7 +208,10 @@ module CliProcessHost =
                                 let! _ = Task.WhenAll(stdoutTask :> Task, stderrTask :> Task, stdinTask :> Task)
                                 p.WaitForExit()
                                 if p.ExitCode <> 0 then
-                                    do! writeAsync(ProviderError (spec.OnExitNonZero p.ExitCode lastStderr))
+                                    // M11 — stderr suffix 사용자 노출 시 secret 토큰 redact + 200자 cap.
+                                    // CLI 가 향후 인증 토큰 / API key 를 stderr 로 leak 하는 회귀 대비.
+                                    let sanitizedStderr = redactStderr lastStderr
+                                    do! writeAsync(ProviderError (spec.OnExitNonZero p.ExitCode sanitizedStderr))
                             with
                             | :? OperationCanceledException ->
                                 do! writeAsync(ProviderError "사용자 취소.")

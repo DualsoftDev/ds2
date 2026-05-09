@@ -122,6 +122,10 @@ public partial class App : Application
         // 자기 sessionId + dead pid 또는 mtime > 5분 조건만 (자기 자신 / 다른 user session 보호).
         Promaker.LlmAgent.McpConfigWriter.SweepStale();
 
+        // M1 — Codex CLI 임시 이미지 spool stale 정리 (mtime > 30분).
+        // OnFinally cleanup 실패 / Promaker kill 등으로 남은 `%TEMP%\Promaker.LlmAgent\codex-img-*` 회수.
+        Ds2.LlmAgent.CodexCliProvider.SweepStale();
+
         // CP949 (Windows-949) 등 legacy code page 활성화 — .NET Core/9 는 기본 미포함. LLM Chat 첨부 텍스트
         // 파일 인코딩 추정 (`AttachmentClassifier.detectEncoding`) 의 CP949 fallback 분기 활성화 (review F3).
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);

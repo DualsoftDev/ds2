@@ -54,12 +54,15 @@ module AttachmentClassifier =
             // 웹
             ".html"; ".htm"; ".css"; ".scss"; ".less"
             // 설정
-            ".gitignore"; ".gitattributes"; ".editorconfig"; ".env"
+            ".gitignore"; ".gitattributes"; ".editorconfig"
         ]
 
-    /// 명시 거부 확장자 — 실행파일 / 미디어 / 압축 / SVG (XSS/XXE) / BMP·TIFF (대용량 비효율).
+    /// 명시 거부 확장자 — 실행파일 / 미디어 / 압축 / SVG (XSS/XXE) / BMP·TIFF (대용량 비효율) / 비밀정보.
     let rejectedExtensions : Set<string> =
         Set.ofList [
+            // 비밀정보 — `.env` 는 OPENAI_API_KEY / DATABASE_URL 등 평문 비밀을 통상 보관.
+            // consent 다이얼로그 ("API 키 / 비밀번호 ... 는 전송되지 않습니다") 와의 정합성 위해 차단.
+            ".env"
             // 실행 / 바이너리
             ".exe"; ".dll"; ".msi"; ".bin"; ".so"; ".dylib"; ".com"; ".scr"
             // 압축
