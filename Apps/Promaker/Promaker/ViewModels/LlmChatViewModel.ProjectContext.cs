@@ -16,6 +16,8 @@ public partial class LlmChatViewModel
     /// </summary>
     public void OnProjectClosing(string? lastPath)
     {
+        // 순서 의존: ResetCommand 본문이 LastClosedProjectPath = null 로 비우므로 set 은 *반드시* Reset 호출 이후.
+        // Reset 자체의 책임 (사용자 명시 세션 초기화 시 hint 도 clear) 은 유지하고, 여기서는 닫기 직후 hint 캡처만 추가.
         ResetCommand.Execute(null);
         LastClosedProjectPath = lastPath;
         Log.Info($"LLM context cleared on project close (lastPath={lastPath ?? "(unsaved)"}).");
