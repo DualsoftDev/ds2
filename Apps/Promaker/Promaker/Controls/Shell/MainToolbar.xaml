@@ -110,6 +110,9 @@
                             </Popup>
                         </Grid>
                     </StackPanel>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CloseFileCommand}" ToolTip="{x:Static res:Strings.CloseFileTooltip}">
+                        <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentRemoveOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.CloseFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                    </Button>
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="파일" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>

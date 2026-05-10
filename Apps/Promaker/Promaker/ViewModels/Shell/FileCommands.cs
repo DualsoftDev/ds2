@@ -62,6 +62,7 @@ public partial class MainViewModel
         _currentFilePath = filePath;
         IsDirty = false;
         HasProject = true;
+        LlmChatVm?.OnProjectOpened();
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";

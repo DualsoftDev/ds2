@@ -489,6 +489,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 promptForProvider = prefix + "\n\n" + promptForProvider;
         }
 
+        // LastClosedProjectPath hint — 직전 닫힌 프로젝트 경로를 LLM 에 1회성 주입.
+        // 토큰 절약을 위해 주입 직후 null clear — session/history 에 이미 들어가 LLM 이 인지하므로 다음 turn 부터 다시 prefix 안 붙임.
+        // EditorChangeDigest.MarkProjectReset 자동 발화와 분리된 별도 분기 (UpdateStore 와 무관, 사용자가 직접 닫기 명령 호출했을 때만).
+        if (!string.IsNullOrEmpty(LastClosedProjectPath))
+        {
+            var hint = $"<closed_project>\n직전 세션 닫힌 프로젝트 경로: {LastClosedProjectPath}\n사용자가 이 프로젝트를 다시 참조하면 해당 파일을 읽어 컨텍스트를 재구축하세요.\n</closed_project>";
+            promptForProvider = hint + "\n\n" + promptForProvider;
+            LastClosedProjectPath = null;
+        }
+
         // 정책 15 텍스트 첨부 inline — fenced wrapper. 이미지/PDF 는 LlmUserMessage.Attachments 로 wire (commit-6b).
         var textInlines = attachmentsSnapshot
             .Where(a => a.Source.IsTextFile)
@@ -616,6 +626,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         Attachments.Clear();
         AttachmentNotice = "";
         SessionId = null;
+        LastClosedProjectPath = null;
         StatusText = "세션 초기화 완료";
     }
 
