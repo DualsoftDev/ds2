@@ -2,8 +2,23 @@
 
 > 본 문서는 외부 검토 사이클을 거쳐 architectural 안전성을 확보한 최종 작업 계획.
 > 작성 시점: 2026-05-11
+> **완료 시점: 2026-05-11 (Step 1~9 모두 적용 + 사용자 시각 검증 통과 "정상동작 OK")**
 > 작업 경로: `F:\Git\ds2\feature-llm\Apps\Promaker\Promaker`
 > branch: `feature/llm`
+
+## STATUS: 완료
+
+- Step 1~8 코드 적용 완료. `dotnet build -t:Compile` 컴파일 오류 0.
+- Step 9 시각 검증: 닫기 명령 정상 동작, 상태표시줄 "Closed.", 툴바 닫기 버튼 노출 사용자 확인 완료.
+- 자가 검열 (general-purpose subagent) — Critical 0 / Major 0 / Minor 2 (의도된 설계 범위).
+
+### 외부 review 반영 (구현 후 정정)
+1. **1회성 hint 동작 일치화** — 계획서의 "토큰 절약" 의도(line 16, 121, 274)에 따라 `LlmChatViewModel.SendAsync` 안 hint 주입 직후 `LastClosedProjectPath = null` 처리. session/history 가 이미 LLM 에 인지시키므로 다음 turn 부터 다시 prefix 안 붙임. `LlmChatViewModel.ProjectContext.cs` 의 라이프사이클 주석에 clear 시점 (a) "hint 주입 직후 1회성" 명시.
+2. **Strings.Designer.cs 알파벳 순 정정** — `CloseFile` / `CloseFileTooltip` 을 `CallAddFailed` 와 `ConfirmSaveChanges` 사이로 이동 (ResGen 자동 재생성 시 diff noise 회피).
+3. **WelcomeOverlay ColumnSpan 부수효과** — column 5 Thumb (4px) 노출 부수효과 검토 결과, 사용자 시각 검증에서 문제 없음 ("정상동작 OK") 확인. 코드 변경 없음.
+4. **Open 진입점 hook 완전성** — drag-drop / OpenRecentFile / Mermaid / AASX / 일반파일 모두 `OpenFilePath → OpenFilePathCore → CompleteOpen` funneling 확인. `CompleteOpen` 의 hook 1줄로 전부 커버.
+
+---
 
 ---
 
