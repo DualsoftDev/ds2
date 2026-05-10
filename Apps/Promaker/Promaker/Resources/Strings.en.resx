@@ -54,6 +54,12 @@
   <data name="SaveFileAs" xml:space="preserve">
     <value>Save As</value>
   </data>
+  <data name="CloseFile" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="CloseFileTooltip" xml:space="preserve">
+    <value>Close project (Ctrl+Shift+W)</value>
+  </data>
   <data name="ConfirmSaveChanges" xml:space="preserve">
     <value>There are unsaved changes in the current project.
 Do you want to save?</value>
