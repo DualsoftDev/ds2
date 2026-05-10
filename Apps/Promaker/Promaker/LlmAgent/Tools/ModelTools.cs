@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Ds2.Core;
+using Ds2.Core.Store;
 using Ds2.LlmAgent;
 using log4net;
 using ModelContextProtocol.Server;
@@ -161,7 +162,7 @@ public static class ModelTools
 
     // ─── Pass 6: Batch tool ──────────────────────────────────────────────────
 
-    [McpServerTool, Description(@"여러 mutation 을 1 round-trip 으로 누적 적용합니다 (권장 — 같은 turn 의 N 개 mutation 은 본 도구 1번 호출로). 같은 batch 안 후속 op 가 직전 op 결과 Guid 를 참조하려면 'ref' 를 부여하고 args 의 Guid 자리에 '@<ref>' 사용. fail-fast — 첫 실패 시 batch 전체 rollback (1 undo step 의미 보장). read tool (list_*, describe_*, validate_model) 은 array 에 포함 불가. 입력 schema = JSON array of {op, ref?, args}, op ∈ {add_project, add_active_system, add_passive_system, add_flow, add_work, add_call, add_api_def, add_arrow, add_cylinder, add_clamp, add_robot, add_device, remove_entity, rename_entity}. ref = 같은 batch 안 unique 한 1-32자 식별자. helper op (add_cylinder/add_clamp/add_robot/add_device) 의 apiDef*Ref / apiDefRefs 는 같은 batch 안 sub-ref 다중 등록 (D6 ref-required). 예: [{""op"":""add_cylinder"", ""ref"":""cyl"", ""args"":{""name"":""Cyl1"", ""apiDef1Ref"":""cylAdv"", ""apiDef2Ref"":""cylRet""}}, {""op"":""add_call"", ""args"":{""workId"":""@wAdv"", ""apiDefId"":""@cylAdv""}}].")]
+    [McpServerTool, Description(@"여러 mutation 을 1 round-trip 으로 누적 적용합니다 (권장 — 같은 turn 의 N 개 mutation 은 본 도구 1번 호출로). 같은 batch 안 후속 op 가 직전 op 결과 Guid 를 참조하려면 'ref' 를 부여하고 args 의 Guid 자리에 '@<ref>' 사용. fail-fast — 첫 실패 시 batch 전체 rollback (1 undo step 의미 보장). read tool (list_*, describe_*, validate_model) 은 array 에 포함 불가. 입력 schema = JSON array of {op, ref?, args}, op ∈ {add_project, add_active_system, add_passive_system, add_flow, add_work, add_call, add_api_def, add_arrow, add_cylinder, add_clamp, add_robot, add_device, remove_entity, rename_entity}. ref = 같은 batch 안 unique 한 1-32자 식별자. helper op (add_cylinder/add_clamp/add_robot/add_device) 의 apiDef*Ref / apiDefRefs 는 같은 batch 안 sub-ref 다중 등록 (D6 ref-required). **add_project 정책**: 현재 store 에 project 가 이미 있으면 batch 거부됨 — 사용자가 UI ('파일 > 닫기' 또는 Ctrl+Shift+W) 로 닫은 후 재시도 필요. batch 당 최대 1개. 예: [{""op"":""add_cylinder"", ""ref"":""cyl"", ""args"":{""name"":""Cyl1"", ""apiDef1Ref"":""cylAdv"", ""apiDef2Ref"":""cylRet""}}, {""op"":""add_call"", ""args"":{""workId"":""@wAdv"", ""apiDefId"":""@cylAdv""}}].")]
     public static Task<string> ApplyOperations(
         LlmTurnContextProvider turnProvider,
         [Description("Op 객체 JSON array 의 string 표현. 각 객체: { op: \"add_xxx|remove_entity|rename_entity\", ref?: \"<localName>\", args: {...} }.")] string operations)
@@ -183,6 +184,21 @@ public static class ModelTools
                 if (doc.RootElement.ValueKind != JsonValueKind.Array)
                     throw new InvalidOperationException($"VALIDATION_ERROR: operations 의 root 가 array 가 아닙니다 (ValueKind={doc.RootElement.ValueKind}).");
                 var inputs = BuildBatchOpInputs(doc.RootElement);
+
+                // 1-file/1-project 정책: batch 안 add_project 우회 차단.
+                int addProjectCount = inputs.Count(i => i.Op == "add_project");
+                if (addProjectCount > 0)
+                {
+                    if (Queries.allProjects(ctx.Store).Any())
+                        return "VALIDATION_ERROR: apply_operations batch 안에 add_project 가 포함되어 있으나 현재 프로젝트가 열려있습니다. '파일 > 닫기' 메뉴 또는 Ctrl+Shift+W 로 닫은 뒤 다시 시도해 주세요.";
+
+                    if (addProjectCount > 1)
+                        return "VALIDATION_ERROR: apply_operations batch 안에 add_project 가 2개 이상 포함되어 있습니다. 1 file = 1 project 정책상 batch 당 최대 1개.";
+
+                    if (PlanHasQueuedAddProject(ctx.Plan))
+                        return "VALIDATION_ERROR: 이미 같은 turn 안에 add_project 가 큐잉되어 있습니다. 1 file = 1 project 정책상 한 turn 에 하나만 가능합니다.";
+                }
+
                 // (review C1) batch 안 op 수만큼 quota 추가 charge — RunMutation 진입에서 +1 했으므로 (length-1) 만 추가.
                 // batch 1회 = quota 1 로 두면 100 op 단발 호출이 quota cap 을 우회 → DoS 표면.
                 if (inputs.Length > 1)
@@ -300,7 +316,7 @@ public static class ModelTools
     // Pass 6 변경: assignVar 인자 + Guid 인자의 '$<varname>' 참조 모두 제거. 다중 op chain 은 apply_operations 사용.
     // 본 도구들은 단일 mutation 이 필요한 경우 (예: 사용자가 1 op 만 지시) 의 편의용으로 유지.
 
-    [McpServerTool, Description("Promaker 에 새 Project 를 추가합니다 (workspace 단위). 빈 store 에서 LLM 이 자율적으로 모델을 시작할 때 사용. 같은 turn 의 후속 add_system 은 첫 project 에 자동 부착됨. 반환: 새 project Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    [McpServerTool, Description("Promaker 에 새 Project 를 추가합니다 (workspace 단위). 빈 store 에서 LLM 이 자율적으로 모델을 시작할 때 사용. 같은 turn 의 후속 add_system 은 첫 project 에 자동 부착됨. 반환: 새 project Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**. **정책**: 현재 store 에 project 가 이미 있으면 거부됨 — 사용자가 UI 메뉴 ('파일 > 닫기' 또는 Ctrl+Shift+W) 로 닫은 후 재시도 필요.")]
     public static Task<string> AddProject(
         LlmTurnContextProvider turnProvider,
         [Description("Project 이름 (1-128자, 다른 project 와 unique). '@' 또는 '$' 시작 금지.")] string name)
@@ -309,10 +325,23 @@ public static class ModelTools
         {
             SanitizeOrThrow(name, "name");
             var trimmed = name.Trim();
+
+            // 1-file/1-project 정책. store 에 project 가 이미 있으면 거부 (자동 reset 안 함 — provider ClearSession contract 위반 회피).
+            if (Queries.allProjects(ctx.Store).Any())
+                return "VALIDATION_ERROR: 현재 프로젝트가 열려있습니다. '파일 > 닫기' 메뉴 또는 Ctrl+Shift+W 로 닫은 뒤 다시 시도해 주세요.";
+
+            // 같은 turn 안 plan 누적 가드 — 한 turn 에 add_project 두 번 요청 차단.
+            if (PlanHasQueuedAddProject(ctx.Plan))
+                return "VALIDATION_ERROR: 이미 같은 turn 안에 add_project 가 큐잉되어 있습니다. 1 file = 1 project 정책상 한 turn 에 하나만 가능합니다.";
+
             var projId = ToolOperations.queueAddProject(ctx.Plan, ctx.Store, trimmed);
             return $"[plan] add_project queued: name=\"{trimmed}\", id={projId:D}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
         });
     }
+
+    /// <summary>ImportPlanBuilder 의 누적 op 중 AddProject case 가 1건 이상인지 검사.</summary>
+    private static bool PlanHasQueuedAddProject(ImportPlanBuilder plan) =>
+        plan.Operations.Any(op => op.IsAddProject);
 
     [McpServerTool, Description("Promaker 모델에 새 Active DsSystem 을 추가합니다 (현재 단순화: 첫 번째 프로젝트에 자동 부착). Active System 은 Flow / Work / Call / Arrow 트리를 가지며 다른 Passive System 의 ApiDef 를 호출. 반환: 새 system Id (full GUID). **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddActiveSystem(

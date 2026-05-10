@@ -38,6 +38,7 @@
         <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}"/>
         <KeyBinding Key="F2" Command="{Binding FocusNameEditorCommand}"/>
         <KeyBinding Gesture="Ctrl+W" Command="{Binding Canvas.CloseActiveTabCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+W" Command="{Binding CloseFileCommand}"/>
         <KeyBinding Key="F1" Command="{x:Static help:HelpNavigator.NavigateCommand}" CommandParameter="general"/>
     </Window.InputBindings>
 
@@ -130,7 +131,7 @@
             <ContentControl Grid.Column="6" Content="{Binding LlmChatVm}"/>
 
             <!-- Welcome screen when no project is open -->
-            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="7"
+            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="5"
                     Background="{DynamicResource PrimaryBackgroundBrush}" Panel.ZIndex="10"
                     AllowDrop="True"
                     DragEnter="Window_DragEnter"

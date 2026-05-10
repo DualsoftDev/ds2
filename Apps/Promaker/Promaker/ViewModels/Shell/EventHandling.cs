@@ -103,6 +103,8 @@ public partial class MainViewModel
                 return;
 
             case { IsStoreRefreshed: true }:
+                // LLM ApplyImportPlan 이후 store 가 갱신되면 HasProject 도 동기화 — Welcome overlay 자동 닫힘 / CloseFileCommand CanExecute 갱신.
+                HasProject = Queries.allProjects(_store).Any();
                 RequestRebuildAll();
                 return;
         }
