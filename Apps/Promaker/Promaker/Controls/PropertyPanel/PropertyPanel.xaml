@@ -7,6 +7,7 @@
              xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
              xmlns:coreEnum="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:b="clr-namespace:Promaker.Behaviors"
              x:Name="PanelRoot">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
@@ -27,7 +28,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Border Style="{StaticResource PanelContainer}">
+    <Border Style="{StaticResource PanelContainer}" b:CtrlWheelZoom.IsEnabled="True">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

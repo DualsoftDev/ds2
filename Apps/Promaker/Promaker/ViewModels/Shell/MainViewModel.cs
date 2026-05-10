@@ -56,6 +56,7 @@ public partial class MainViewModel : ObservableObject
                 ShowSimulationScenariosCommand.NotifyCanExecuteChanged();
         };
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        Simulation.RuntimeIoChanged = ioValues => PropertyPanel.RefreshConditionRuntime(ioValues);
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
@@ -67,6 +68,8 @@ public partial class MainViewModel : ObservableObject
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
+
+        InitLlmAutostart();
     }
 
     /// <summary>
@@ -105,7 +108,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveFileAsCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ShowProjectSettingsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowProjectPropertiesCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddSystemCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddFlowCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddWorkCommand))]
@@ -129,6 +132,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _languageButtonToolTip = LanguageManager.CurrentLanguage == AppLanguage.Korean ? "Switch to English" : "한국어로 전환";
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
+
+    /// <summary>파일 열기·저장 등 무거운 작업 중에 윈도우 전체 위로 로딩 오버레이 표시.</summary>
+    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private string _busyMessage = "";
 
     public static bool IsDebugBuild =>
 #if DEBUG
@@ -235,11 +242,4 @@ public partial class MainViewModel : ObservableObject
     private bool CanRedoNow => CanRedo;
 
     public void EditApiDefNode(Guid apiDefId) => PropertyPanel.EditApiDefNode(apiDefId);
-
-}
-
-public sealed class HistoryPanelItem(string label, bool isRedo)
-{
-    public string Label  { get; } = label;
-    public bool   IsRedo { get; } = isRedo;
 }

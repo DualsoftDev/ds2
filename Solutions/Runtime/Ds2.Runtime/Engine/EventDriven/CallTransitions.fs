@@ -32,6 +32,14 @@ module internal CallTransitions =
             |> Option.iter (fun apiCall ->
                 ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
+    /// Call R(Reset) 시 그 Call 이 직접 owning 한 ApiCall 들의 IOValue 를 비움.
+    /// Simulation/Control 모드에서만 호출 — 두 모드 모두 시뮬 엔진이 reset 의 주체.
+    /// Monitoring/VirtualPlant 는 외부 PLC 가 진실원이라 자체 clear 금지.
+    let clearCallIOValues (ctx: Context) (callGuid: Guid) =
+        let apiCallIds = SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
+        if not apiCallIds.IsEmpty then
+            ctx.StateManager.ClearIOValues(apiCallIds)
+
     /// Call F -> RxWork에 IO값 설정 (RxGuid가 있는 ApiCall만)
     let setRxWorkIOValues (ctx: Context) (callGuid: Guid) =
         SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
@@ -83,4 +91,9 @@ module internal CallTransitions =
             ctx.ScheduleConditionEvaluation ()
         | Status4.Ready ->
             ctx.StateManager.ClearCallRxEpochSnapshot(callGuid)
+            // 시뮬 엔진이 reset 주체인 모드에서만 IO 값 비움 — 외부 PLC 가 진실원인 모드는 유지.
+            match ctx.RuntimeMode with
+            | RuntimeMode.Simulation
+            | RuntimeMode.Control -> clearCallIOValues ctx callGuid
+            | _ -> ()
         | _ -> ()

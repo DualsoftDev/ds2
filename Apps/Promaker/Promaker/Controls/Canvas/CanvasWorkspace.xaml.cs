@@ -43,6 +43,7 @@ public partial class CanvasWorkspace : UserControl, INotifyPropertyChanged
     public Point? GetViewportCenter() => EditorCanvasControl.GetViewportCenter();
     public (double Zoom, double PanX, double PanY) GetCurrentView() => EditorCanvasControl.GetCurrentView();
     public void RestoreView(double zoom, double panX, double panY) => EditorCanvasControl.RestoreView(zoom, panX, panY);
+    public void RecalculateCanvasSize() => EditorCanvasControl.RecalculateCanvasSize();
 
     private void TabHeader_MouseDown(object sender, MouseButtonEventArgs e)
     {

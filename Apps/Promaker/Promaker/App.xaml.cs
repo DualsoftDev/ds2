@@ -16,6 +16,30 @@ public partial class App : Application
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
 
+    /// <summary>
+    /// `--autostart-llm` 인자 — Pass 1.5 측정 자동화용. 시작 시 LLM Chat panel 자동 활성화 →
+    /// McpHostService 가 StartAsync 되어 mcp config 파일이 즉시 작성됨. 수동 모드에서는 사용 안 함.
+    /// </summary>
+    internal static bool StartupAutoOpenLlm { get; set; }
+
+    /// <summary>
+    /// `--measure-prompt <text>` 인자 — 측정용 prompt 자동 전송. IsReady 후 LlmChatVm.Input 에 set + SendCommand 자동 실행.
+    /// LlmTurnContext 가 정상 시작 → mutation tool 이 ImportPlanBuilder 누적 → turn end 시 ApplyImportPlan.
+    /// </summary>
+    internal static string? StartupMeasurePrompt { get; set; }
+
+    /// <summary>
+    /// `--measure-then-exit` 인자 — IsSending true→false transition (= turn 끝 + ApplyImportPlan 완료) 후 MainWindow 자동 close.
+    /// MainWindow.Closing 의 dirty check 도 autostart 모드에서 skip. log4net flush 보장 + 외부 fsx 의 process.WaitForExit 자연 완료.
+    /// </summary>
+    internal static bool StartupMeasureThenExit { get; set; }
+
+    // 측정 자동화 fail-fast exit codes — 외부 측정 스크립트(run-pass5.fsx 등)가 이 값으로 실패 원인을 분기 식별.
+    // 변경 시 측정 스크립트 측도 함께 갱신 필요.
+    internal const int MeasureExitSendCommandUnavailable = 2;
+    internal const int MeasureExitLlmVmMissing = 3;
+    internal const int MeasureExitInitTimeout = 4;
+
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);
 
@@ -37,8 +61,21 @@ public partial class App : Application
         // 새 family 추가 시 Bootstrap.fs 의 ensureRegistered 안에서 처리 — startup 무수정.
         AAStoPLC.TagWizard.Bootstrap.EnsureRegistered();
 
-        if (e.Args.Length > 0 && File.Exists(e.Args[0]))
-            StartupFilePath = e.Args[0];
+        for (int i = 0; i < e.Args.Length; i++)
+        {
+            var arg = e.Args[i];
+            if (arg == "--autostart-llm")
+                StartupAutoOpenLlm = true;
+            else if (arg == "--measure-then-exit")
+                StartupMeasureThenExit = true;
+            else if (arg == "--measure-prompt" && i + 1 < e.Args.Length)
+            {
+                StartupMeasurePrompt = e.Args[i + 1];
+                i++;   // skip next (consumed as prompt value)
+            }
+            else if (StartupFilePath == null && File.Exists(arg))
+                StartupFilePath = arg;
+        }
 
         if (OperatingSystem.IsWindows())
         {
@@ -84,6 +121,18 @@ public partial class App : Application
         };
 
         ThemeManager.ApplySavedTheme();
+
+        // 1d-5 — 비정상 종료한 이전 Promaker 인스턴스가 남긴 stale .mcp-config 정리.
+        // 자기 sessionId + dead pid 또는 mtime > 5분 조건만 (자기 자신 / 다른 user session 보호).
+        Promaker.LlmAgent.McpConfigWriter.SweepStale();
+
+        // M1 — Codex CLI 임시 이미지 spool stale 정리 (mtime > 30분).
+        // OnFinally cleanup 실패 / Promaker kill 등으로 남은 `%TEMP%\Promaker.LlmAgent\codex-img-*` 회수.
+        Ds2.LlmAgent.CodexCliProvider.SweepStale();
+
+        // CP949 (Windows-949) 등 legacy code page 활성화 — .NET Core/9 는 기본 미포함. LLM Chat 첨부 텍스트
+        // 파일 인코딩 추정 (`AttachmentClassifier.detectEncoding`) 의 CP949 fallback 분기 활성화 (review F3).
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
         Log.Info("=== Promaker startup ===");
         base.OnStartup(e);

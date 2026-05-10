@@ -35,6 +35,8 @@ public partial class SimulationPanelState
             activeEngine.TimeIgnore = false;
             activeEngine.SpeedMultiplier = value;
         }
+        // Speed 변경 시점부터 새 속도로 보간하도록 base 재설정 — 그 전 wall 경과 × 옛 speed 누적이 잘못 더해지는 점프 방지.
+        ResetSimClockInterpolationBase();
     }
 
     partial void OnSimTimeIgnoreChanged(bool value)

@@ -161,11 +161,23 @@ public class GanttChartState : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Pause 누적 시간을 보정한 현재 시각 (Pause 중이면 고정)</summary>
+    /// <summary>
+    /// 현재 시각 source override.
+    /// Simulation 모드에서는 sim clock 기반 (`_simStartTime + engine.State.Clock`) 으로 set 되어
+    /// 빨간선과 노드 막대가 같은 시간 기준으로 일치. 그 외 모드 (Control/VP/Monitoring) 는 null —
+    /// wall clock 기반 default 사용 (외부 신호 owner 라 sim clock 이 wall clock 따라가지 못함).
+    /// </summary>
+    public Func<DateTime>? NowOverride { get; set; }
+
+    /// <summary>Pause 누적 시간을 보정한 현재 시각 (Pause 중이면 고정).
+    /// NowOverride 가 set 되어 있으면 그 provider 가 우선 — sim clock 기반에서는
+    /// engine.Pause 시 sim clock 자체가 멈추므로 별도 _pausedAt 보정 불필요.</summary>
     public DateTime AdjustedNow
     {
         get
         {
+            if (NowOverride is { } provider)
+                return provider();
             if (!_isRunning && _pausedAt != default)
                 return _pausedAt - _totalPausedDuration;
             return DateTime.Now - _totalPausedDuration;

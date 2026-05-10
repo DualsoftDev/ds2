@@ -215,7 +215,8 @@ module ConditionCrudTests =
 module FormulaTextTests =
 
     let private aci (name: string) (spec: string) =
-        CallConditionApiCallItem(Guid.NewGuid(), name, name, spec, 0, "", 0, ContactKind.NoContact)
+        CallConditionApiCallItem(Guid.NewGuid(), name, name, spec, 0, "", 0,
+                                 ContactKind.NoContact, ValueSpec.UndefinedValue)
 
     let private panel isOr items children =
         CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux,

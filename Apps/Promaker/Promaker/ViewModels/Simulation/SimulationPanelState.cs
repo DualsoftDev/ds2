@@ -47,6 +47,32 @@ public partial class SimulationPanelState : ObservableObject
     private long _simUiGeneration;
     private ISceneEventHandler? _sceneEventHandler;
 
+    /// <summary>
+    /// 시뮬 IO 값이 갱신될 가능성이 있는 시점 (Work/Call 상태 전이) 에 호출되는 후크.
+    /// MainViewModel 에서 PropertyPanel.RefreshConditionRuntime 으로 wiring.
+    /// 인자: 현재 IO 스냅샷 (시뮬 미실행이면 null).
+    /// </summary>
+    public Action<IReadOnlyDictionary<Guid, string>?>? RuntimeIoChanged { get; set; }
+
+    private void NotifyRuntimeIoChanged()
+    {
+        if (RuntimeIoChanged is null) return;
+        var snapshot = GetIoValuesSnapshot();
+        RuntimeIoChanged(snapshot);
+    }
+
+    /// <summary>현재 시뮬 엔진의 IOValues 를 C# Dictionary 로 스냅샷. 미실행이면 null.</summary>
+    public IReadOnlyDictionary<Guid, string>? GetIoValuesSnapshot()
+    {
+        var engine = _simEngine;
+        if (engine is null) return null;
+        var map = engine.State.IOValues;
+        var dict = new Dictionary<Guid, string>(capacity: 16);
+        foreach (var kv in map)
+            dict[kv.Key] = kv.Value;
+        return dict;
+    }
+
     private static class SimText
     {
         public const string Running = "시뮬레이션 동작 중";
@@ -104,6 +130,8 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private bool _isSimulating;
 
     [ObservableProperty]
@@ -125,6 +153,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     private bool _isHomingPhase;
 
     [ObservableProperty]
@@ -140,9 +169,48 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
     [ObservableProperty] private bool _isHubHosting;
+
+    /// <summary>Control 모드에서 실 PLC 와 연결할지 여부. 체크 해제면 BackendHost 가 PLC 게이트웨이 idle 로 동작.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    private bool _isRealPlcConnected;
+
+    /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
+    /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
+    public bool IsHomingButtonVisible =>
+        SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected;
+
+    /// <summary>원위치 버튼 IsEnabled — 다른 시뮬이 돌고 있지 않을 때만 새 누름을 받지만,
+    /// 자신의 push-session 도중에는 enabled 유지해 release 이벤트가 안전하게 도달하도록.</summary>
+    public bool IsHomingButtonHotEnabled =>
+        IsHomingButtonVisible && (!IsSimulating || IsHomingPressed);
+
+    /// <summary>수동 컨트롤러 버튼 가시성 — 원위치와 동일 조건 (Control + 실 PLC 연결).</summary>
+    public bool IsManualControlButtonVisible =>
+        SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected;
+
+    /// <summary>수동 컨트롤러 버튼 활성 — 다이얼로그 열려 있는 동안엔 enabled (자기 세션) 유지.</summary>
+    public bool IsManualControlButtonHotEnabled =>
+        IsManualControlButtonVisible && (!IsSimulating || IsManualControlActive);
+
+    /// <summary>수동 컨트롤러 다이얼로그가 열려 있는 동안 true. UI 상태 표시·재진입 차단에 사용.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    private bool _isManualControlActive;
+    /// <summary>PLC 연결 정보 — 사용자가 RuntimeSettingDialog 에서 "PLC 설정" 으로 편집.
+    /// 마지막 입력값은 AppData 의 PlcConnection.json 에 저장돼 다음 실행 시 자동 로드.</summary>
+    public PlcSettings PlcSettings { get; } = PlcSettings.LoadOrDefault();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HubStatusText))]
@@ -189,6 +257,65 @@ public partial class SimulationPanelState : ObservableObject
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(IsHubHost));
         SetHubStatus(connected: false, reconnecting: false);
+        RefreshGanttTimeSource();
+    }
+
+    partial void OnIsSimulatingChanged(bool value)
+    {
+        ResetSimClockInterpolationBase();
+        RefreshGanttTimeSource();
+    }
+
+    // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
+    partial void OnIsSimPausedChanged(bool value) => ResetSimClockInterpolationBase();
+
+    // ── Sim clock interpolation (Gantt 빨간선 부드러운 진행용) ──
+    // sim clock 은 event-driven 이라 due 시점에만 update → 그대로 쓰면 빨간선 점프.
+    // 마지막으로 관측한 sim clock 을 base 로 잡고 (그 시점의 wall 도 함께 기록),
+    // 매 frame 에 wall 경과 × speed 만큼 sim clock 을 보간 추정해서 빨간선이 부드럽게 진행.
+    private DateTime _interpBaseWall = DateTime.Now;
+    private TimeSpan _interpBaseSim = TimeSpan.Zero;
+
+    private void ResetSimClockInterpolationBase()
+    {
+        _interpBaseWall = DateTime.Now;
+        _interpBaseSim = _simEngine?.State.Clock ?? TimeSpan.Zero;
+    }
+
+    private DateTime EstimateSimClockNow()
+    {
+        var engine = _simEngine;
+        if (engine is null) return _simStartTime + _interpBaseSim;
+
+        var actualSim = engine.State.Clock;
+        // 엔진이 새 sim clock 으로 advance → base 갱신 (이후 보간은 그 지점부터 다시 측정)
+        if (actualSim != _interpBaseSim)
+        {
+            _interpBaseSim = actualSim;
+            _interpBaseWall = DateTime.Now;
+        }
+
+        // Pause 중에는 보간 정지 — 마지막 base 그대로 반환
+        if (IsSimPaused || !IsSimulating) return _simStartTime + _interpBaseSim;
+
+        var wallElapsed = DateTime.Now - _interpBaseWall;
+        var speed = SimSpeed > 0 ? SimSpeed : 1.0;
+        var simDelta = TimeSpan.FromTicks((long)(wallElapsed.Ticks * speed));
+        return _simStartTime + _interpBaseSim + simDelta;
+    }
+
+    /// <summary>
+    /// Gantt 빨간선의 시간 source 를 현재 모드/시뮬 상태에 맞게 갱신.
+    /// Simulation 모드 + 시뮬 실행 중 → sim clock 기반 보간 provider 주입.
+    /// 그 외 (Control/VP/Monitoring 또는 시뮬 미실행) → null (wall clock default).
+    /// 노드 막대 timestamp 도 동일 source 라 빨간선과 일치 — 배속 시 막대가 빨간선 추월하던 mismatch 해결.
+    /// </summary>
+    private void RefreshGanttTimeSource()
+    {
+        if (IsSimulating && SelectedRuntimeMode == RuntimeMode.Simulation)
+            GanttChart.NowOverride = EstimateSimClockNow;
+        else
+            GanttChart.NowOverride = null;
     }
 
     private bool HasIOConfigured()
@@ -196,6 +323,28 @@ public partial class SimulationPanelState : ObservableObject
         var store = _storeProvider();
         var iomap = SignalIOMapModule.build(store);
         return iomap.Mappings.Length > 0;
+    }
+
+    /// <summary>현재 IO 매핑에서 dedup 된 PLC 주소 개수 — PLC 설정 다이얼로그 안내용.</summary>
+    public int CountAutoImportablePlcAddresses()
+    {
+        var store = _storeProvider();
+        var iomap = SignalIOMapModule.build(store);
+        var set = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var k in iomap.OutAddressToMappings.Keys)
+            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
+        foreach (var k in iomap.InAddressToMappings.Keys)
+            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
+        return set.Count;
+    }
+
+    /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
+    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.</summary>
+    public Ds2.Backend.Plc.PlcGatewayConfig? BuildPlcGatewayConfig(out System.Collections.Generic.List<string> errors)
+    {
+        var store = _storeProvider();
+        var iomap = SignalIOMapModule.build(store);
+        return PlcSettings.BuildGatewayConfig(iomap, out errors);
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;

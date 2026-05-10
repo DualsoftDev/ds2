@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Promaker.ViewModels"
              xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:help="clr-namespace:Promaker.Help">
+             xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:b="clr-namespace:Promaker.Behaviors">
     <UserControl.Resources>
         <conv:EntityTypeToIconConverter x:Key="TypeToIcon"/>
         <conv:EntityTypeToBrushConverter x:Key="TypeToBrush"/>
@@ -123,7 +124,7 @@
         </ContextMenu>
     </UserControl.Resources>
 
-    <Border Style="{StaticResource PanelContainer}">
+    <Border Style="{StaticResource PanelContainer}" b:CtrlWheelZoom.IsEnabled="True">
             <Grid x:Name="ExplorerLayoutRoot">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>

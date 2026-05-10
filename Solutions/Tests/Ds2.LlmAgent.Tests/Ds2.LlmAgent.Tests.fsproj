@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="ProcessUtilsTests.fs" />
+    <Compile Include="ClaudeCliArgsTests.fs" />
+    <Compile Include="ClaudeStreamJsonInputTests.fs" />
+    <Compile Include="CodexCliArgsTests.fs" />
+    <Compile Include="LlmUserMessageOpsTests.fs" />
+    <Compile Include="StreamJsonParserTests.fs" />
+    <Compile Include="CodexStreamJsonParserTests.fs" />
+    <Compile Include="ValidateModelTests.fs" />
+    <Compile Include="DescribeSubtreeTests.fs" />
+    <Compile Include="SanitizeNameTests.fs" />
+    <Compile Include="BatchTests.fs" />
+    <Compile Include="PromakerToolNamesDriftTests.fs" />
+    <Compile Include="RemoveRenameTests.fs" />
+    <Compile Include="HelperCascadeTests.fs" />
+    <Compile Include="HelperGuiParityTests.fs" />
+    <Compile Include="PromptCanaryTests.fs" />
+    <Compile Include="DeviceTypeDriftTests.fs" />
+    <Compile Include="LlmTurnContextQuotaTests.fs" />
+    <Compile Include="ImportPlanApplyApiCallTests.fs" />
+    <Compile Include="AttachmentClassifierDriftTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Fixtures\WithCyl.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
+  </ItemGroup>
+
+</Project>
