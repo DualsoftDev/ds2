@@ -18,6 +18,14 @@
 3. **WelcomeOverlay ColumnSpan 부수효과** — column 5 Thumb (4px) 노출 부수효과 검토 결과, 사용자 시각 검증에서 문제 없음 ("정상동작 OK") 확인. 코드 변경 없음.
 4. **Open 진입점 hook 완전성** — drag-drop / OpenRecentFile / Mermaid / AASX / 일반파일 모두 `OpenFilePath → OpenFilePathCore → CompleteOpen` funneling 확인. `CompleteOpen` 의 hook 1줄로 전부 커버.
 
+### 5-인 메타 review 추가 반영
+5. **Step 7 SystemPromptText.cs 이관 표기** — `SystemPromptText.cs` 는 단순 entry point (`PromptLoader.LoadComposed()`) 이며, 1-file/1-project 정책 본문은 `LlmAgent/Prompts/3.tooling.md` 에 직접 추가됨 (commit 2335e20). 계획서 line 322 의 SystemPromptText 정책 섹션 추가 항목은 .md 이관으로 실효 충족.
+6. **OnProjectClosing 순서 의존 명시** (Major-1) — `LlmChatViewModel.ProjectContext.cs:19` 위에 주석 추가: "ResetCommand 가 `LastClosedProjectPath = null` 로 비우므로 set 은 반드시 Reset 호출 이후". Reset 의 null clear 책임 (사용자 명시 세션 초기화) 은 유지.
+7. **가드 거부 분기 throw 일관화** (Major-3) — `ModelTools.AddProject` / `ApplyOperations` 의 VALIDATION_ERROR 거부 분기를 `throw new InvalidOperationException(...)` 로 변경. `RunMutation` 의 기존 `IsRecoverableToolException` catch path 가 자동으로 `Log.Warn` + `EnsureErrorPrefix` 적용 → ToolCallLog "ok" 오기록 회피. LLM 반환 메시지는 동일.
+
+### Follow-up 분리 처리 (별도 commit 예정)
+- **Critical-1 streaming race** — `ApiChatProvider._history` (lock 없는 `List<ChatMessage>`) 와 `Reset() → ClearSession()` 사이 race. `SendImpl` 의 `.ConfigureAwait(false)` 이후 background thread 에서 `_history.Add` 가능 + `_cts.Cancel()` cooperative 특성으로 잠재 corruption. 본 작업이 새로 도입한 race 아닌 기존 architectural debt (Reset RelayCommand 자체는 본 commit 이전 존재). 노출 빈도만 증가. drain 로직 또는 `_history` lock 도입 필요 — scope 분리.
+
 ---
 
 ---
