@@ -64,7 +64,8 @@ public sealed class MainToolbarVisualTests
             vm.NewProjectCommand.Execute(null);
 
             var toolbar = CreateToolbar(vm);
-            var toggle = FindRequiredDescendant<CheckBox>(toolbar, "ContinuousInjectionCheckBox");
+            var toggle = FindRequiredDescendant<System.Windows.Controls.Primitives.ToggleButton>(
+                toolbar, "ContinuousInjectionToggle");
 
             Assert.False(toggle.IsChecked ?? false);
 

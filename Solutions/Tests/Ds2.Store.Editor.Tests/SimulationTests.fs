@@ -89,82 +89,6 @@ module SimIndexTests =
         Assert.Equal<Guid list>([ callIds[0] ], index.CallStartPreds[callIds[1]])
 
     [<Fact>]
-    let ``build collects condition specs by call condition type`` () =
-        let store = createStore ()
-        let project, _, flow, work = setupBasicHierarchy store
-        let rxWork = addWork store "RxWork" flow.Id
-
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
-
-        let calls = Queries.callsOf work.Id store
-        let sourceCall = calls[0]
-        let targetCall = calls[1]
-        let sourceApiCall = sourceCall.ApiCalls |> Seq.head
-
-        let apiDefId = sourceApiCall.ApiDefId |> Option.defaultValue Guid.Empty
-        let apiDef = store.ApiDefs[apiDefId]
-        apiDef.RxGuid <- Some rxWork.Id
-
-        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
-        let conditionId =
-            store.Calls[targetCall.Id].CallConditions
-            |> Seq.head
-            |> fun condition -> condition.Id
-
-        store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, [ sourceApiCall.Id ]) |> ignore
-
-        let index = SimIndex.build store 10
-        let specs = index.CallComAuxConditions[targetCall.Id]
-
-        Assert.Single(specs) |> ignore
-        Assert.Equal(rxWork.Id, specs[0].RxWorkGuid)
-        Assert.Equal(Some sourceApiCall.Id, specs[0].ApiCallGuid)
-
-    [<Fact>]
-    let ``build collects child condition specs recursively`` () =
-        let store = createStore ()
-        let project, _, flow, work = setupBasicHierarchy store
-        let rxWork1 = addWork store "RxWork1" flow.Id
-        let rxWork2 = addWork store "RxWork2" flow.Id
-
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src1.Api"; "Src2.Api"; "Target.Api" ], true, None)
-
-        let calls = Queries.callsOf work.Id store
-        let src1Call = calls[0]
-        let src2Call = calls[1]
-        let targetCall = calls[2]
-        let src1ApiCall = src1Call.ApiCalls |> Seq.head
-        let src2ApiCall = src2Call.ApiCalls |> Seq.head
-
-        // RxGuid 설정
-        let apiDef1 = store.ApiDefs[src1ApiCall.ApiDefId |> Option.defaultValue Guid.Empty]
-        apiDef1.RxGuid <- Some rxWork1.Id
-        let apiDef2 = store.ApiDefs[src2ApiCall.ApiDefId |> Option.defaultValue Guid.Empty]
-        apiDef2.RxGuid <- Some rxWork2.Id
-
-        // 상위 조건: Src1.Api
-        store.AddCallCondition(targetCall.Id, CallConditionType.AutoAux)
-        let parentCondId =
-            store.Calls[targetCall.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
-        store.AddApiCallsToConditionBatch(targetCall.Id, parentCondId, [ src1ApiCall.Id ]) |> ignore
-
-        // 하위 조건: Src2.Api (Children)
-        store.AddChildCondition(targetCall.Id, parentCondId, false)
-        let childCondId =
-            store.Calls[targetCall.Id].CallConditions |> Seq.head
-            |> fun cc -> cc.Children |> Seq.head |> fun ch -> ch.Id
-        store.AddApiCallsToConditionBatch(targetCall.Id, childCondId, [ src2ApiCall.Id ]) |> ignore
-
-        let index = SimIndex.build store 10
-        let specs = index.CallAutoAuxConditions[targetCall.Id]
-
-        // 상위 + 하위 조건 모두 수집되어야 함
-        Assert.Equal(2, specs.Length)
-        let rxGuids = specs |> List.map (fun s -> s.RxWorkGuid) |> Set.ofList
-        Assert.Contains(rxWork1.Id, rxGuids)
-        Assert.Contains(rxWork2.Id, rxGuids)
-
-    [<Fact>]
     let ``build collects token role successor and manual sink`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
@@ -1759,3 +1683,162 @@ module CallRaceExclusionTests =
         sim.Stop()
 
         Assert.False(bothGoingDetected, "ResetReset pair calls across different Works should not be Going simultaneously")
+
+module ConditionExpressionEvalTests =
+
+    /// Leaf 평가 시 RxWork = Finish + IO 매칭이 true 가 되도록 SimState 만들기
+    let private stateWith (entries: (Guid * Status4) list) (ioValues: (Guid * string) list) =
+        let baseState = SimState.create 100 [] [] []
+        let withWork =
+            entries
+            |> List.fold (fun acc (g, s) -> SimState.setWorkState g s acc) baseState
+        ioValues
+        |> List.fold (fun acc (g, v) -> SimState.setIOValue g v acc) withWork
+
+    let private leafSpec rx api spec : ConditionExpression =
+        Leaf { RxWorkGuid = rx; ApiCallGuid = Some api; InputSpec = spec }
+
+    [<Fact>]
+    let ``Or evaluates true when only one leaf matches (A|B)`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        // A 만 매칭: rxA Finish + IO=3, rxB 는 Ready
+        let state = stateWith [ rxA, Status4.Finish; rxB, Status4.Ready ] [ apiA, "3" ]
+        let expr = Or [ leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                        leafSpec rxB apiB (ValueSpec.singleInt32 7) ]
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Or evaluates false when no leaves match`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Ready; rxB, Status4.Ready ] []
+        let expr = Or [ leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                        leafSpec rxB apiB (ValueSpec.singleInt32 7) ]
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``And evaluates false when only one leaf matches`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Finish; rxB, Status4.Ready ] [ apiA, "3" ]
+        let expr = And [ leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                         leafSpec rxB apiB (ValueSpec.singleInt32 7) ]
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``And evaluates true when all leaves match`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        let state =
+            stateWith
+                [ rxA, Status4.Finish; rxB, Status4.Finish ]
+                [ apiA, "3"; apiB, "7" ]
+        let expr = And [ leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                         leafSpec rxB apiB (ValueSpec.singleInt32 7) ]
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Nested Or A or (B or C) evaluates true when only deepest leaf matches`` () =
+        // 사용자 시나리오: A | (B|C) 트리 평가 — C 만 만족해도 통과해야 함
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        let rxC, apiC = Guid.NewGuid(), Guid.NewGuid()
+        let state =
+            stateWith
+                [ rxA, Status4.Ready; rxB, Status4.Ready; rxC, Status4.Finish ]
+                [ apiC, "9" ]
+        let expr =
+            Or [
+                leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                Or [
+                    leafSpec rxB apiB (ValueSpec.singleInt32 7)
+                    leafSpec rxC apiC (ValueSpec.singleInt32 9)
+                ]
+            ]
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Nested Or A or (B or C) evaluates false when no leaves match`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let rxB, apiB = Guid.NewGuid(), Guid.NewGuid()
+        let rxC, apiC = Guid.NewGuid(), Guid.NewGuid()
+        let state =
+            stateWith
+                [ rxA, Status4.Ready; rxB, Status4.Ready; rxC, Status4.Ready ]
+                []
+        let expr =
+            Or [
+                leafSpec rxA apiA (ValueSpec.singleInt32 3)
+                Or [
+                    leafSpec rxB apiB (ValueSpec.singleInt32 7)
+                    leafSpec rxC apiC (ValueSpec.singleInt32 9)
+                ]
+            ]
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Empty And evaluates true (no conditions = pass)`` () =
+        let state = SimState.create 100 [] [] []
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state (And []))
+
+    [<Fact>]
+    let ``Empty Or evaluates false`` () =
+        let state = SimState.create 100 [] [] []
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state (Or []))
+
+module IOValueResetClearTests =
+
+    /// 모드별 setup 공유 헬퍼: ApiCall 1개 가진 Call 1개 + 시뮬 엔진.
+    let private setupSingleApiCall (mode: RuntimeMode) =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ])
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, mode) :> ISimulationEngine
+        let apiCallId = SimIndex.findOrEmpty callId index.CallApiCallGuids |> List.head
+        engine, callId, apiCallId
+
+    [<Fact>]
+    let ``Simulation: Call F sets IO value then Call R clears it`` () =
+        let engine, callId, apiCallId = setupSingleApiCall RuntimeMode.Simulation
+        try
+            engine.Start()
+            // 강제로 F → setCallIOValues 가 호출되어 IOValues 에 값 채워짐.
+            engine.ForceCallState(callId, Status4.Going)
+            Assert.True(waitUntil 1000 (fun () -> engine.GetCallState(callId) = Some Status4.Going))
+            engine.ForceCallState(callId, Status4.Finish)
+            Assert.True(waitUntil 1000 (fun () ->
+                engine.State.IOValues |> Map.containsKey apiCallId))
+
+            // Reset (R) 시점에 clearCallIOValues 가 발화되어야 함.
+            engine.ForceCallState(callId, Status4.Ready)
+            let cleared = waitUntil 1000 (fun () ->
+                engine.State.IOValues |> Map.containsKey apiCallId |> not)
+            Assert.True(cleared, "Simulation 모드에서 Call Reset 시 IOValue 가 비워져야 함")
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``Monitoring: Call R does not clear IO value (외부 PLC 가 진실원)`` () =
+        let engine, callId, apiCallId = setupSingleApiCall RuntimeMode.Monitoring
+        try
+            engine.Start()
+            // 외부 신호 시뮬 — 직접 InjectIOValue 로 채움.
+            engine.InjectIOValue(apiCallId, "true")
+            Assert.True(waitUntil 1000 (fun () ->
+                engine.State.IOValues |> Map.tryFind apiCallId = Some "true"))
+
+            // Reset 전이 — Monitoring 은 외부 IO 가 진실원이라 clear 하면 안 됨.
+            engine.ForceCallState(callId, Status4.Ready)
+            System.Threading.Thread.Sleep(200)
+            Assert.Equal(Some "true", engine.State.IOValues |> Map.tryFind apiCallId)
+        finally
+            engine.Stop()

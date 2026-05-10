@@ -123,6 +123,11 @@ module SimState =
     let setIOValue (apiCallGuid: Guid) (value: string) simState =
         { simState with IOValues = simState.IOValues.Add(apiCallGuid, value) }
 
+    /// 지정된 ApiCall 들의 IOValue 만 제거. Simulation/Control Reset 시 다음 사이클을 위해 사용.
+    let clearIOValues (apiCallGuids: Guid seq) simState =
+        let next = apiCallGuids |> Seq.fold (fun (m: Map<Guid, string>) g -> m.Remove g) simState.IOValues
+        { simState with IOValues = next }
+
     // ── Token helpers ──
 
     let getWorkToken (guid: Guid) simState =

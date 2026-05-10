@@ -144,8 +144,24 @@ type DsStoreArrowsExtensions =
         match Queries.getArrowWork arrowId store with
         | Some arrow when arrow.ArrowType <> newArrowType
                           && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Work newArrowType ->
+            // ResetReset는 단일 화살표가 양방향 시맨틱이므로 같은 노드 쌍(방향 무관)에 중복이 있으면 통합한다.
+            let mergeIds =
+                if newArrowType = ArrowType.ResetReset then
+                    Queries.arrowWorksOf arrow.ParentId store
+                    |> Seq.filter (fun a ->
+                        a.Id <> arrow.Id
+                        && a.ArrowType = ArrowType.ResetReset
+                        && ((a.SourceId = arrow.SourceId && a.TargetId = arrow.TargetId)
+                            || (a.SourceId = arrow.TargetId && a.TargetId = arrow.SourceId)))
+                    |> Seq.map (fun a -> a.Id)
+                    |> Seq.toList
+                else []
             store.WithTransaction("화살표 타입 변경", fun () ->
+                for id in mergeIds do
+                    store.TrackRemove(store.ArrowWorks, id)
                 store.TrackMutate(store.ArrowWorks, arrowId, fun a -> a.ArrowType <- newArrowType))
+            if not mergeIds.IsEmpty then
+                StoreLog.debug($"ResetReset merged {mergeIds.Length} duplicate(s)")
             store.EmitConnectionsChangedAndHistory()
             true
         | Some _ -> false
@@ -153,8 +169,23 @@ type DsStoreArrowsExtensions =
             match Queries.getArrowCall arrowId store with
             | Some arrow when arrow.ArrowType <> newArrowType
                               && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Call newArrowType ->
+                let mergeIds =
+                    if newArrowType = ArrowType.ResetReset then
+                        Queries.arrowCallsOf arrow.ParentId store
+                        |> Seq.filter (fun a ->
+                            a.Id <> arrow.Id
+                            && a.ArrowType = ArrowType.ResetReset
+                            && ((a.SourceId = arrow.SourceId && a.TargetId = arrow.TargetId)
+                                || (a.SourceId = arrow.TargetId && a.TargetId = arrow.SourceId)))
+                        |> Seq.map (fun a -> a.Id)
+                        |> Seq.toList
+                    else []
                 store.WithTransaction("화살표 타입 변경", fun () ->
+                    for id in mergeIds do
+                        store.TrackRemove(store.ArrowCalls, id)
                     store.TrackMutate(store.ArrowCalls, arrowId, fun a -> a.ArrowType <- newArrowType))
+                if not mergeIds.IsEmpty then
+                    StoreLog.debug($"ResetReset merged {mergeIds.Length} duplicate(s)")
                 store.EmitConnectionsChangedAndHistory()
                 true
             | _ -> false
@@ -163,26 +194,56 @@ type DsStoreArrowsExtensions =
     static member UpdateArrowTypesBatch(store: DsStore, arrowIds: seq<Guid>, newArrowType: ArrowType) : int =
         let workChanges = ResizeArray<Guid>()
         let callChanges = ResizeArray<Guid>()
+        let workParents = System.Collections.Generic.HashSet<Guid>()
+        let callParents = System.Collections.Generic.HashSet<Guid>()
         for arrowId in arrowIds do
             match Queries.getArrowWork arrowId store with
             | Some arrow when arrow.ArrowType <> newArrowType
                               && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Work newArrowType ->
                 workChanges.Add(arrowId)
+                workParents.Add(arrow.ParentId) |> ignore
             | Some _ -> ()
             | None ->
                 match Queries.getArrowCall arrowId store with
                 | Some arrow when arrow.ArrowType <> newArrowType
                                   && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Call newArrowType ->
                     callChanges.Add(arrowId)
+                    callParents.Add(arrow.ParentId) |> ignore
                 | _ -> ()
         let total = workChanges.Count + callChanges.Count
         if total > 0 then
             StoreLog.debug($"UpdateArrowTypesBatch: {total} items -> {newArrowType}")
+            // 일괄 ResetReset 변경 후 같은 parent 안에서 unordered 노드 쌍별로 dedup (가장 작은 Id 보존)
+            let resetResetUnorderedKey (a: #DsArrow) =
+                if a.SourceId.CompareTo(a.TargetId) < 0
+                then struct(a.SourceId, a.TargetId)
+                else struct(a.TargetId, a.SourceId)
             store.WithTransaction("화살표 타입 일괄 변경", fun () ->
                 for id in workChanges do
                     store.TrackMutate(store.ArrowWorks, id, fun a -> a.ArrowType <- newArrowType)
                 for id in callChanges do
-                    store.TrackMutate(store.ArrowCalls, id, fun a -> a.ArrowType <- newArrowType))
+                    store.TrackMutate(store.ArrowCalls, id, fun a -> a.ArrowType <- newArrowType)
+                if newArrowType = ArrowType.ResetReset then
+                    for parentId in workParents do
+                        let removeIds =
+                            Queries.arrowWorksOf parentId store
+                            |> Seq.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+                            |> Seq.groupBy resetResetUnorderedKey
+                            |> Seq.collect (fun (_, group) ->
+                                group |> Seq.sortBy (fun a -> a.Id) |> Seq.skip 1 |> Seq.map (fun a -> a.Id))
+                            |> Seq.toList
+                        for id in removeIds do
+                            store.TrackRemove(store.ArrowWorks, id)
+                    for parentId in callParents do
+                        let removeIds =
+                            Queries.arrowCallsOf parentId store
+                            |> Seq.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+                            |> Seq.groupBy resetResetUnorderedKey
+                            |> Seq.collect (fun (_, group) ->
+                                group |> Seq.sortBy (fun a -> a.Id) |> Seq.skip 1 |> Seq.map (fun a -> a.Id))
+                            |> Seq.toList
+                        for id in removeIds do
+                            store.TrackRemove(store.ArrowCalls, id))
             store.EmitConnectionsChangedAndHistory()
         total
 

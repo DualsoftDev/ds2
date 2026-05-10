@@ -129,6 +129,20 @@ public partial class SplitCanvasManager : ObservableObject
             pane.ValidateAndRefresh();
     }
 
+    /// <summary>모든 pane에 노드 이동 이벤트를 전파합니다 (visual tree 재구축 없이 위치/화살표만 갱신).</summary>
+    public void ApplyEntitiesMovedToAllPanes(IReadOnlyCollection<Guid> ids)
+    {
+        foreach (var pane in AllPanes)
+            pane.ApplyEntitiesMoved(ids);
+    }
+
+    /// <summary>모든 pane에 화살표 변경 이벤트를 전파합니다 (노드 visual 보존, 화살표만 diff 적용).</summary>
+    public void ApplyConnectionsChangedToAllPanes()
+    {
+        foreach (var pane in AllPanes)
+            pane.ApplyConnectionsChanged();
+    }
+
     private CanvasWorkspaceState? FindPaneContaining(CanvasTab tab)
     {
         if (PrimaryPane.OpenTabs.Contains(tab)) return PrimaryPane;

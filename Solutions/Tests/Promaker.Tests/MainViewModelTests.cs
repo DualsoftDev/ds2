@@ -127,7 +127,7 @@ public sealed class MainViewModelTests
                 return true;
             }));
 
-            vm.ShowProjectSettingsCommand.Execute(null);
+            vm.ShowProjectPropertiesCommand.Execute(null);
 
             var project = Queries.allProjects(GetStore(vm)).Head;
             Assert.Equal("ConfiguredProject", project.Name);

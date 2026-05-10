@@ -3,6 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
+        xmlns:llm="clr-namespace:Promaker.Controls.Llm"
+        xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
         Title="{Binding Title}" Width="1688" Height="800"
@@ -18,6 +20,11 @@
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- 1d-4 D — LlmChatViewModel 을 LlmChatPanel 로 자동 매핑 (DataTemplate). -->
+        <DataTemplate DataType="{x:Type vm:LlmChatViewModel}">
+            <llm:LlmChatPanel/>
+        </DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -51,6 +58,9 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="280" MinWidth="150"/>
+                <!-- 1d-4 D — LLM Chat dock column (default 0, ToggleLlmChatCommand 토글) -->
+                <ColumnDefinition x:Name="LlmChatSplitterCol" Width="0"/>
+                <ColumnDefinition x:Name="LlmChatPanelCol" Width="0" MinWidth="0"/>
             </Grid.ColumnDefinitions>
 
             <ctrl:ExplorerPane Grid.Column="0"/>
@@ -107,8 +117,20 @@
                 </Border>
             </Grid>
 
+            <!-- 1d-4 D — LLM Chat dock panel + splitter (column width 0 일 때 자동 비표시).
+                 GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피용 Thumb. -->
+            <Thumb Grid.Column="5" Width="4" HorizontalAlignment="Stretch"
+                   Cursor="SizeWE" DragDelta="LlmChatSplitter_DragDelta">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Rectangle Fill="{DynamicResource BorderBrush}"/>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
+            <ContentControl Grid.Column="6" Content="{Binding LlmChatVm}"/>
+
             <!-- Welcome screen when no project is open -->
-            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="5"
+            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="7"
                     Background="{DynamicResource PrimaryBackgroundBrush}" Panel.ZIndex="10"
                     AllowDrop="True"
                     DragEnter="Window_DragEnter"
@@ -179,6 +201,55 @@
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>
         </StatusBar>
+
+        <!-- Busy overlay (파일 열기 등 무거운 작업 진행 중) -->
+        <Grid x:Name="BusyOverlay" Grid.RowSpan="3" Panel.ZIndex="200"
+              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+              Background="#80000000" IsHitTestVisible="True">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="40,28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Opacity="0.4" BlurRadius="20" ShadowDepth="4"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid Width="36" Height="36" Margin="0,0,16,0">
+                        <Ellipse Stroke="{DynamicResource BorderBrush}" StrokeThickness="3"/>
+                        <Ellipse Stroke="{DynamicResource AccentBrush}" StrokeThickness="3"
+                                 StrokeDashArray="4 6" StrokeDashCap="Round"
+                                 RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform x:Name="BusySpinnerRotate" Angle="0"/>
+                            </Ellipse.RenderTransform>
+                            <Ellipse.Triggers>
+                                <EventTrigger RoutedEvent="Ellipse.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="BusySpinnerRotate"
+                                                             Storyboard.TargetProperty="Angle"
+                                                             From="0" To="360" Duration="0:0:1.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Ellipse.Triggers>
+                        </Ellipse>
+                    </Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="로딩 중..."
+                                   FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <TextBlock Text="{Binding BusyMessage}"
+                                   FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- File drag overlay -->
         <Grid x:Name="FileDragOverlay" Grid.RowSpan="3" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="100">

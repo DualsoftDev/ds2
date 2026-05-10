@@ -33,6 +33,9 @@ public static class SettingsPaths
     }
 
     public static string PlcConfig                       => Of("PlcConfig.txt");
+    /// <summary>실 PLC 연결 다이얼로그가 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을 저장.
+    /// Promaker 재실행 시 같은 값으로 다시 채워져 사용자 입력 부담 감소.</summary>
+    public static string PlcConnection                   => Of("PlcConnection.json");
     public static string SplitDeviceAasx                 => Of("splitDeviceAasx.txt");
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");

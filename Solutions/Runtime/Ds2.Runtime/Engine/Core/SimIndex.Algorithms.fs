@@ -123,32 +123,25 @@ module internal SimIndexAlgorithms =
             |> List.filter (fun (_, excludedCalls) -> not excludedCalls.IsEmpty)
         |> Map.ofList
 
-    let rec private collectAllApiCalls (cond: CallCondition) : ApiCall seq =
-        seq {
-            yield! cond.Conditions
-            for child in cond.Children do
-                yield! collectAllApiCalls child
-        }
-
-    let convertConditions (store: DsStore) (conditions: CallCondition seq) : ConditionEntryData list =
-        conditions
-        |> Seq.collect (fun cond ->
-            collectAllApiCalls cond
-            |> Seq.choose (fun apiCall ->
-                match apiCall.ApiDefId with
-                | Some apiDefId ->
-                    match Queries.getApiDef apiDefId store with
-                    | Some apiDef ->
-                        match apiDef.RxGuid with
-                        | Some rxWorkGuid ->
-                            Some {
-                                RxWorkGuid = rxWorkGuid
-                                ApiCallGuid = Some apiCall.Id
-                                InputSpec = apiCall.InputSpec
-                            }
-                        | None -> None
+    /// 한 CallCondition 의 직접 ApiCall list 를 ConditionEntryData list 로.
+    /// children 은 호출자가 별도 재귀 처리 (트리 구조 보존).
+    let convertApiCallsToEntries (store: DsStore) (apiCalls: ApiCall seq) : ConditionEntryData list =
+        apiCalls
+        |> Seq.choose (fun apiCall ->
+            match apiCall.ApiDefId with
+            | Some apiDefId ->
+                match Queries.getApiDef apiDefId store with
+                | Some apiDef ->
+                    match apiDef.RxGuid with
+                    | Some rxWorkGuid ->
+                        Some {
+                            RxWorkGuid = rxWorkGuid
+                            ApiCallGuid = Some apiCall.Id
+                            InputSpec = apiCall.InputSpec
+                        }
                     | None -> None
-                | None -> None))
+                | None -> None
+            | None -> None)
         |> Seq.toList
 
     let private findOrEmpty key map =

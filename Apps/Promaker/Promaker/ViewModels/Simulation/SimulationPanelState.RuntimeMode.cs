@@ -281,6 +281,26 @@ public partial class SimulationPanelState
                 tagValues[address] = await hub.InvokeAsync<string>(HubMethod.QueryTag, address);
             }
 
+            // 진단용 — query 결과의 값 분포를 sim 패널 로그에 노출.
+            // 모두 ""(빈 값) 이면 hub cache 가 PLC scan 전에 query 됐다는 뜻 →
+            //   원인: PlcScanService initial scan 이 완료되기 전에 SyncRuntimeBootstrapStateFromHub 가 실행됨.
+            // 일부 값이 "true"/"false" 면 cache 정상 → 엔진 추론 로직 자체를 보아야 함.
+            var emptyCount = 0;
+            var trueCount  = 0;
+            var falseCount = 0;
+            var sampleNonEmpty = new System.Collections.Generic.List<string>();
+            foreach (var (addr, val) in tagValues)
+            {
+                if (string.IsNullOrEmpty(val)) emptyCount++;
+                else if (val == "true") { trueCount++; if (sampleNonEmpty.Count < 5) sampleNonEmpty.Add($"{addr}=T"); }
+                else { falseCount++; if (sampleNonEmpty.Count < 5) sampleNonEmpty.Add($"{addr}={val}"); }
+            }
+            var sampleText = sampleNonEmpty.Count > 0 ? $", 샘플=[{string.Join(",", sampleNonEmpty)}]" : "";
+            _ = _dispatcher.BeginInvoke(() =>
+                AddSimLog(
+                    $"[Ctrl] Hub query: {tagValues.Count}개 address — 빈값={emptyCount}, true={trueCount}, false={falseCount}{sampleText}",
+                    emptyCount == tagValues.Count && tagValues.Count > 0 ? LogSeverity.Warn : LogSeverity.Info));
+
             var effects = runtimeSession.ResolveHubSnapshotEffects(tagValues)
                 .OrderBy(effect => effect.DelayMs)
                 .ToArray();

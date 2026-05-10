@@ -106,8 +106,36 @@ public partial class MainViewModel
         OpenFilePath(dlg.FileName);
     }
 
-    /// <summary>지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.</summary>
+    /// <summary>
+    /// 지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.
+    /// 큰 프로젝트(AASX 등)는 수 초 걸릴 수 있으므로 BusyOverlay 를 먼저 렌더한 뒤
+    /// Background 우선순위로 본 작업을 시작 → 사용자가 "로딩 중" 표시를 즉시 확인.
+    /// 본 작업이 RequestRebuildAll 을 큐잉하면 그 rebuild 가 끝난 시점에 IsBusy=false.
+    /// </summary>
     internal void OpenFilePath(string fileName)
+    {
+        BusyMessage = $"파일을 여는 중... {Path.GetFileName(fileName)}";
+        IsBusy = true;
+
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                OpenFilePathCore(fileName);
+            }
+            finally
+            {
+                // CompleteOpen 이 RequestRebuildAll 을 큐잉했으면 rebuild 완료 후 hide.
+                // (실패 분기 / 빠른 분기에서는 큐잉이 없으므로 즉시 hide.)
+                if (_rebuildQueued)
+                    _pendingRebuildActions.Add(() => IsBusy = false);
+                else
+                    IsBusy = false;
+            }
+        }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void OpenFilePathCore(string fileName)
     {
         if (IsMermaid(fileName))
         {
@@ -224,8 +252,11 @@ public partial class MainViewModel
         _dialogService.ShowDialog(dlg);
     }
 
+    /// <summary>
+    /// 프로젝트 메타 편집 (이름/작성자/버전/설명). 프로젝트가 열려 있을 때만 활성.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(HasProject))]
-    private void ShowProjectSettings()
+    private void ShowProjectProperties()
     {
         var project = HasProject
             ? Queries.allProjects(_store).Head
@@ -247,14 +278,30 @@ public partial class MainViewModel
                 dlg.ResultAuthor,
                 dlg.ResultDateTime,
                 dlg.ResultVersion);
-
-            // 앱 설정으로 저장
-            SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
-            SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
-            SetIriPrefix(dlg.ResultIriPrefix);
-            // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
         StatusText = "프로젝트 속성이 변경되었습니다.";
+    }
+
+    /// <summary>
+    /// 환경(앱 전역) 설정 편집 — AASX / PLC / LLM / 프리셋. 프로젝트와 무관, 항상 활성.
+    /// </summary>
+    [RelayCommand]
+    private void ShowApplicationSettings()
+    {
+        var dlg = new ApplicationSettingsDialog();
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+        if (!accepted) return;
+
+        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload.
+        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
+
+        // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
+        SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+        SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
+        SetIriPrefix(dlg.ResultIriPrefix);
+        // PresetSystemTypes / PlcConfig / LlmConfig 는 Dialog 내부에서 이미 파일에 저장됨
+
+        StatusText = "환경 설정이 변경되었습니다.";
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]

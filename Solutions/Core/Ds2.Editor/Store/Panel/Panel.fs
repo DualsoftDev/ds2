@@ -45,7 +45,8 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
-            apiCall.ContactKind)
+            apiCall.ContactKind,
+            apiCall.InputSpec)
 
     let buildApiCall
         (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)

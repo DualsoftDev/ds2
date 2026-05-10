@@ -112,6 +112,49 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Control 모드 선택 시에만 표시되는 PLC 연결 옵션 줄 -->
+                    <Border x:Name="PlcOptionRow"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="22,12"
+                            HorizontalAlignment="Left"
+                            Margin="0,0,0,8"
+                            Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="실 PLC 연결"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Rectangle Width="1" Height="22"
+                                       Fill="{DynamicResource BorderBrush}"
+                                       Margin="20,0"
+                                       VerticalAlignment="Center"/>
+                            <CheckBox x:Name="RealPlcCheckBox"
+                                      Content="Control 모드에서 실제 PLC 와 연결"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,16,0"
+                                      Checked="RealPlcCheckBox_Toggled"
+                                      Unchecked="RealPlcCheckBox_Toggled"/>
+                            <Button x:Name="PlcSettingsButton"
+                                    Content="PLC 설정…"
+                                    Click="PlcSettings_Click"
+                                    Width="120" Height="28"
+                                    Background="{DynamicResource AccentBrush}"
+                                    Foreground="{DynamicResource AccentTextBrush}"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    IsEnabled="False"/>
+                            <TextBlock x:Name="PlcSummaryText"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       Margin="14,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+
                     <ItemsControl x:Name="ModeList">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
