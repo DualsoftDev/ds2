@@ -63,6 +63,12 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     private readonly Func<bool> _validate;
     private readonly Capabilities _capabilities;
 
+    // round-trip §5.2 / §J2 — cache_control: ephemeral 부착 람다 SSOT.
+    // capability 비트에 따라 한 번만 생성 (Anthropic 호환 wire 외에는 null = nop).
+    // system prompt / turn snapshot 양쪽 호출처가 동일 인스턴스 공유 → cache_control 정책 변경 시
+    // (e.g. ttl_seconds 명시, 다른 wrapper) 한 곳만 갱신.
+    private readonly Func<AIContent, AIContent>? _applyCacheControl;
+
     private readonly List<ChatMessage> _history = new();
     private string? _sessionId;
     private IList<AITool>? _cachedTools;
@@ -101,6 +107,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         _systemPrompt = systemPrompt;
         _validate = validate;
         _capabilities = capabilities;
+        _applyCacheControl = capabilities.SupportsAnthropicCacheControl
+            ? c => c.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral())
+            : null;
     }
 
     public Capabilities Capabilities => _capabilities;
@@ -156,13 +165,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             Log.Info($"[timing] firstTurn ListToolsAsync elapsedMs={listToolsElapsedMs} toolCount={_cachedTools.Count}");
 
             // round-trip §5.2 / §J2 — Anthropic 호환 wire 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
-            // Anthropic SDK 가 Microsoft.Extensions.AI extension 으로 WithCacheControl 을 제공 — 다른 provider
-            // (OpenAI/Groq/Ollama) 어댑터에서는 이 attribute 가 raw API body 에 전달되지 않으므로 nop (안전).
-            // §J2 — label 문자열 비교 대신 Capabilities.SupportsAnthropicCacheControl 비트로 분기 → Bedrock 등
-            // Anthropic 호환 endpoint 추가 시 새 preset 으로 즉시 cache 적용 (silent miss 회피).
+            // _applyCacheControl 은 ctor 에서 capability 비트로 결정된 SSOT (다른 provider 어댑터에서는 null = nop).
             AIContent systemContent = new TextContent(_systemPrompt);
-            if (_capabilities.SupportsAnthropicCacheControl)
-                systemContent = systemContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
+            if (_applyCacheControl != null) systemContent = _applyCacheControl(systemContent);
             _history.Add(new ChatMessage(ChatRole.System, new List<AIContent> { systemContent }));
 
             var toolNames = new List<string>(_cachedTools.Count);
@@ -206,12 +211,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             // round-trip §5.2 / §J2 — snapshot block 끝에 cache_control: ephemeral (Anthropic 호환 wire 만).
             // system 의 부착과 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
             // sticky 라 매 turn 동일 내용 → Anthropic prompt cache 의 stable prefix hit. revision 변화 시점에만
-            // miss + 새 cache 시작. capability 비트 분기 (label 문자열 비교 아님) — §J2 참조.
-            Func<AIContent, AIContent>? applyCache = _capabilities.SupportsAnthropicCacheControl
-                ? c => c.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral())
-                : null;
+            // miss + 새 cache 시작. _applyCacheControl 은 ctor 에서 capability 비트로 결정된 SSOT (§J2).
             var contents = ApiTurnContentBuilder.BuildMultiContents(
-                _stickySnapshot, promptForHistory, nonTextAttachments, applyCache);
+                _stickySnapshot, promptForHistory, nonTextAttachments, _applyCacheControl);
             turnUserMessage = new ChatMessage(ChatRole.User, contents);
         }
         else
