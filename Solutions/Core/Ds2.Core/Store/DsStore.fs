@@ -4,10 +4,27 @@ open System
 open System.Collections.Generic
 open System.Collections.ObjectModel
 open System.Text.Json.Serialization
+open System.Threading
 open Ds2.Core
 open Ds2.Serialization
 
 type DsStore() =
+
+    let mutable revision = 0
+
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+    /// Monotonic mutation counter (runtime-only — 직렬화/디스크 저장 제외).
+    /// commit / undo / redo / load / replace 직후 `BumpRevision` 으로 1 증가.
+    /// **Read 는 `Volatile.Read` 로 memory ordering 보장** (round-trip §J6 review 반영) — UI dispatcher
+    /// 외 thread 가 BumpRevision 호출 시에도 stale read 방지. `RenderSnapshotEnvelope` 의 (rev, body)
+    /// 동시 캡쳐 경로는 `DsStoreSnapshotExtensions.RenderSnapshotEnvelope` 에서 본 getter 1회 read.
+    [<JsonIgnore>]
+    member _.Revision = Volatile.Read(&revision)
+
+    /// `Interlocked.Increment` 기반 atomic ++. internal — Ds2.Editor / Ds2.LlmAgent / Promaker 의
+    /// transaction commit hook (`Authoring.fs withTransaction / applyTransaction`, `DsStore.ApplyNewStore`) 만 호출.
+    member internal _.BumpRevision() =
+        Interlocked.Increment(&revision) |> ignore
 
     member val Projects   = Dictionary<Guid, Project>()            with get, set
     member val Systems    = Dictionary<Guid, DsSystem>()           with get, set
@@ -102,6 +119,12 @@ type DsStore() =
             this.RewireApiCallReferences()
             this.MigrateWorkNaming()
             this.MigrateSystemType()
+            // round-trip §1.3 hook (3 지점 중 하나): load / replace / import / new — store 전체 교체 후 1회 ++.
+            // LLM chat 의 LastSentRevision 무효화 → 다음 송신에 새 snapshot 자동 첨부.
+            // **참고 (round-trip §n2)**: 새 store 인스턴스 자체로 교체되는 경로 (`MainViewModel.Reset` →
+            // `LlmChatViewModel.UpdateStore`) 는 본 hook 통과 안 함 — 새 인스턴스의 revision = 0 으로 시작하고
+            // UpdateStore 가 _lastSentRevision 을 null 로 reset 하여 정합 유지. 두 path 의 의미 차이 명시.
+            this.BumpRevision()
             printfn $"[INFO] Store applied: {contextLabel}"
         with ex ->
             eprintfn $"[ERROR] ApplyNewStore failed: {contextLabel} - {ex.Message}"

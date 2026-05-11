@@ -38,6 +38,11 @@ public static class ApiProviderFactory
     /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 ProviderCapabilities.DefaultEndpoint 로 흡수.</summary>
     private static readonly Uri GroqEndpoint = new("https://api.groq.com/openai/v1");
 
+    /// <summary>round-trip §M5 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+    /// provider label SSOT. ApiChatProvider 의 cache_control 분기 (Anthropic-only) 가 이 상수를 참조하여
+    /// 라벨 변경 시 silent cache regression 차단.</summary>
+    public const string AnthropicProviderLabel = "Anthropic";
+
     public static Task<ApiChatProvider> CreateAnthropicAsync(
         string apiKey, string model, string systemPrompt, string mcpServerUrl, string mcpNonce,
         CancellationToken cancellationToken = default)
@@ -45,7 +50,7 @@ public static class ApiProviderFactory
         var raw = new AnthropicClient { ApiKey = apiKey }.AsIChatClient(model);
         // Anthropic API 공식 한도 — 이미지 base64 inline 5MB / PDF document 32MB. SSOT = CapabilityPresets.AnthropicWire.
         return CreateInternalAsync(
-            raw, "Anthropic", model, systemPrompt, mcpServerUrl, mcpNonce,
+            raw, AnthropicProviderLabel, model, systemPrompt, mcpServerUrl, mcpNonce,
             validate: () => !string.IsNullOrEmpty(apiKey),
             capabilities: CapabilityPresets.AnthropicWire,
             cancellationToken: cancellationToken);
