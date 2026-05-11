@@ -182,6 +182,9 @@ type DsStoreNodesExtensions =
             // 트리/캔버스 visual tree 재구축을 피하기 위해 가벼운 이벤트 발행.
             // C# 측에서 인접 화살표 path만 재계산한다.
             let movedIds = moves |> List.map (fun (id, _, _) -> id)
+            // 같은 트랜잭션을 undo/redo 할 때도 동일한 가벼운 경로를 타도록 힌트 부착.
+            // 미부착 시 applyTransaction 이 StoreRefreshed 를 emit 해 RebuildAll → 50+ 노드 ContentPresenter 재생성.
+            store.SetLastUndoLightEvent(EntitiesMoved movedIds)
             store.EmitEntitiesMovedAndHistory(movedIds)
             moves.Length
 
@@ -281,26 +284,31 @@ type DsStoreNodesExtensions =
 
     /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트, 탭 최초 오픈 등).
     /// 사용자 동작이 아닌 초기화 과정이므로 Undo 스택에 "Move Selected Nodes" 같은 항목을
-    /// 남기지 않는다 — 위치를 직접 변경하고 StoreRefreshed 이벤트만 발행한다.
+    /// 남기지 않는다 — 위치만 직접 변경하고 가벼운 EntitiesMoved 이벤트를 발행한다.
+    /// (이전에는 StoreRefreshed 였는데, 새 탭 오픈 시마다 큐잉되는 RebuildAll 이 ~2s hitch 의 주범이었음.
+    ///  변한 건 노드 좌표뿐이고 OpenTab 직후 RefreshCanvasForActiveTab 가 새 탭을 채우므로 heavy 갱신 불필요.)
     [<Extension>]
     static member AutoLayoutIfNeeded(store: DsStore, kind: TabKind, rootId: Guid) : bool =
         let content = EditorCanvasProjection.canvasContentForTab store kind rootId
         if CanvasLayout.needsAutoLayout content then
             let mutable applied = 0
+            let movedIds = ResizeArray<Guid>()
             for r in CanvasLayout.computeLayout content do
                 let newPos = Some r.Position
                 match Queries.getWork r.Id store with
                 | Some work when work.Position <> newPos ->
                     work.Position <- newPos
                     applied <- applied + 1
+                    movedIds.Add(r.Id)
                 | Some _ -> ()
                 | None ->
                     match Queries.getCall r.Id store with
                     | Some call when call.Position <> newPos ->
                         call.Position <- newPos
                         applied <- applied + 1
+                        movedIds.Add(r.Id)
                     | _ -> ()
             if applied > 0 then
-                store.EmitEvent(StoreRefreshed)
+                store.EmitEvent(EntitiesMoved (List.ofSeq movedIds))
             applied > 0
         else false
