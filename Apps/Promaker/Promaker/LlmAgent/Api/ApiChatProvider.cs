@@ -15,6 +15,9 @@ using ModelContextProtocol.Client;
 
 namespace Promaker.LlmAgent.Api;
 
+// Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+// 본 파일 안의 `§C1` / `§5.2` 는 위 doc 의 섹션/이슈 ID.
+
 /// <summary>
 /// API 기반 ILlmProvider 구현체 (Anthropic / OpenAI / Ollama 공통).
 ///
@@ -64,6 +67,15 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     private string? _sessionId;
     private IList<AITool>? _cachedTools;
 
+    /// <summary>
+    /// round-trip §H1 (review) — sticky snapshot. ApiChatProvider 는 매 turn `_history` 를 다시 보내는
+    /// 구조라, snapshot 을 본문에서 분리한 후 revision 무변경 turn 에서는 LLM 이 snapshot 을 영영 못 본다.
+    /// 해결: 마지막으로 받은 snapshot 을 본 field 에 보관 → 매 turn 호출 시 multi-content 의 stable prefix
+    /// 로 prepend (cache_control 부착). 새 snapshot 도착 시 갱신, ClearSession 시 null reset.
+    /// CLI provider 는 자체 session transcript 에 prompt 본문이 보존되므로 본 sticky 불요.
+    /// </summary>
+    private string? _stickySnapshot;
+
     public ApiChatProvider(
         IChatClient chatClient,
         McpClient mcpClient,
@@ -95,6 +107,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     {
         _history.Clear();
         _sessionId = null;
+        _stickySnapshot = null;
     }
 
     /// <summary>API key 검증. CLI 가 아닌 API 라 EnsureCli 명칭은 인터페이스 호환용. 실 검증은 첫 호출 시 401 등으로 노출.</summary>
@@ -129,7 +142,16 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             var tools = await _mcpClient.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
             _cachedTools = new List<AITool>(tools);
             _sessionId = Guid.NewGuid().ToString("N");
-            _history.Add(new ChatMessage(ChatRole.System, _systemPrompt));
+
+            // round-trip §5.2 — Anthropic provider 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
+            // Anthropic SDK 가 Microsoft.Extensions.AI extension 으로 WithCacheControl 을 제공 — 다른 provider
+            // (OpenAI/Groq/Ollama) 어댑터에서는 이 attribute 가 raw API body 에 전달되지 않으므로 nop (안전).
+            // snapshot block 까지 별도 cache breakpoint 를 추가하려면 LlmUserMessage 가 multi-content 로 변경되어야
+            // 하므로 본 단계에서는 system prompt + tool schema prefix 까지만 hit (deferred — todo Step 4 후속).
+            AIContent systemContent = new TextContent(_systemPrompt);
+            if (_providerLabel == ApiProviderFactory.AnthropicProviderLabel)
+                systemContent = systemContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
+            _history.Add(new ChatMessage(ChatRole.System, new List<AIContent> { systemContent }));
 
             var toolNames = new List<string>(_cachedTools.Count);
             foreach (var t in _cachedTools) toolNames.Add(t.Name);
@@ -159,12 +181,38 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             }
             promptForHistory = summaries.ToString() + "\n" + msg.Text;
         }
+        // round-trip §C1 — snapshot 은 _history 에 누적하지 않음 (turn 마다 1.5~2.5K stale 토큰 영구 누적 차단).
+        // 본 turn 호출 시점에만 turnUserMessage 의 multi-content 앞부분으로 분리해 prepend.
+        // **trade-off (round-trip §n1)**: 다음 turn 의 LLM context 에는 직전 snapshot 이 사라지지만,
+        // mutation 시 BumpRevision 으로 _lastSentRevision 무효화 → 자동 재첨부. revision 무변경 turn 은
+        // doc §6.1 룰대로 직전 transcript 의 snapshot 을 LLM 이 그대로 사용 (history 안 user message 본문은
+        // 남으므로 recall 가능, snapshot 만 별도 분리).
         _history.Add(new ChatMessage(ChatRole.User, promptForHistory));
 
+        // round-trip §H1 — incoming snapshot 은 sticky 갱신만 하고, 매 turn 호출 시 _stickySnapshot 을 prepend.
+        // revision 무변경 turn (incoming SnapshotPrefix 가 null) 에서도 직전 sticky 가 유지되어 LLM 이 store 상태 인지.
+        var incomingSnapshot = msg.SnapshotPrefixOrNull;
+        if (!string.IsNullOrEmpty(incomingSnapshot))
+            _stickySnapshot = incomingSnapshot;
+        var hasSnapshot = !string.IsNullOrEmpty(_stickySnapshot);
+        var hasAttachments = nonTextAttachments.Length > 0;
+
         ChatMessage turnUserMessage;
-        if (nonTextAttachments.Length > 0)
+        if (hasSnapshot || hasAttachments)
         {
-            var contents = new List<AIContent> { new TextContent(promptForHistory) };
+            var contents = new List<AIContent>();
+            if (hasSnapshot)
+            {
+                // round-trip §5.2 — snapshot block 끝에 cache_control: ephemeral (Anthropic only). system 의 부착과
+                // 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
+                // sticky 라 매 turn 동일 내용 → Anthropic prompt cache 의 stable prefix hit. revision 변화 시점에만
+                // miss + 새 cache 시작.
+                AIContent snapshotContent = new TextContent(_stickySnapshot!);
+                if (_providerLabel == ApiProviderFactory.AnthropicProviderLabel)
+                    snapshotContent = snapshotContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
+                contents.Add(snapshotContent);
+            }
+            contents.Add(new TextContent(promptForHistory));
             foreach (var att in nonTextAttachments)
             {
                 var imgOpt = AttachmentInfo.tryGetImage(att);
@@ -195,8 +243,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         var isError = false;
 
         // history 의 마지막 user message 를 turn 용 multi-content 버전으로 치환한 list 로 stream 호출.
+        // round-trip §C1 — snapshot 또는 attachment 어느 쪽이든 multi-content turnUserMessage 가 만들어진 경우 모두 치환 필요.
         IList<ChatMessage> historyForStream;
-        if (nonTextAttachments.Length > 0)
+        if (hasSnapshot || hasAttachments)
         {
             var copy = new List<ChatMessage>(_history);
             copy[copy.Count - 1] = turnUserMessage;
