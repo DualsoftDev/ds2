@@ -26,6 +26,8 @@
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
     <Compile Include="ToolOperations.fs" />
+    <Compile Include="ModelProtocol.Yaml.fs" />
+    <Compile Include="ModelProtocol.fs" />
     <Compile Include="StoreSnapshot.fs" />
   </ItemGroup>
 
@@ -39,6 +41,8 @@
     <PackageReference Include="log4net" />
     <!-- LLM Chat 첨부 (review F3) — `AttachmentClassifier.detectEncoding` CP949 fallback. -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): ModelProtocol.Yaml.fs 의 yaml↔json 변환. -->
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
 </Project>

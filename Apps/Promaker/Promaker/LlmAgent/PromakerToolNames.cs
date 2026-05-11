@@ -36,5 +36,12 @@ public static class PromakerToolNames
         "mcp__promaker__add_device",
         "mcp__promaker__remove_entity",
         "mcp__promaker__rename_entity",
+        // ── Phase 1 YAML protocol (SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md) ──
+        // Wire = JSON object (LLM tool_use native), View = YAML.
+        // 기존 validate_model (consistency check) 과 별개 도구 — `_doc` 접미사로 차별화.
+        "mcp__promaker__apply_model_doc",
+        "mcp__promaker__validate_model_doc",
+        "mcp__promaker__export_model_doc",
+        "mcp__promaker__json_to_yaml",
     };
 }

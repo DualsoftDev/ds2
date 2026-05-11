@@ -76,6 +76,9 @@ module ToolOperations =
             // entity 이름이 변수 참조 prefix 와 모양이 같으면 read tool 출력에서 LLM 자가혼동.
             if trimmed.StartsWith("@") || trimmed.StartsWith("$") then
                 $"VALIDATION_ERROR: {field} 가 '@' 또는 '$' 로 시작할 수 없습니다 (예약 prefix)."
+            // Phase 1 (YAML protocol §2.5): entity 이름의 '.' 금지 — dotted-path segment 구분자 ambiguity 회피.
+            elif trimmed.Contains('.') then
+                $"VALIDATION_ERROR: {field} 에 '.' 사용 불가 (path 구분자 예약). '_' 또는 '-' 로 대체."
             elif trimmed.Length > maxLength then
                 $"VALIDATION_ERROR: {field} 길이 {trimmed.Length} > {maxLength}."
             else
@@ -264,13 +267,13 @@ module ToolOperations =
             elif p.PassiveSystemIds.Contains(systemId) then Some false
             else None)
 
-    /// add_call mutation tool. parent Work + ApiDef 는 store 또는 plan 에 존재해야 함.
-    /// 인자 = (workId, apiDefId) 2개. devicesAlias / apiName 은 ApiDef → ParentSystem.Name / ApiDef.Name 자동 도출.
-    /// 룰 B (alias = Passive.Name) = 구문상 차단 (alias 인자 자체 부재).
-    /// 룰 C (ApiDef 는 Passive 의 자식) = 런타임 차단 (ApiDef.ParentSystem.IsActive == true 시 BATCH_ERROR).
-    /// ApiCall cascade: ApiCall.ApiDefId / OriginFlowId (= workId 의 parent Flow.Id) 자동 set + AddApiCall plan op.
-    /// Call.Name 충돌 검사 유지 (같은 Work 안 동일 fullName 중복 차단).
-    let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
+    /// add_call 의 *공통 본체* — clash check 정책만 인자로 받음.
+    /// `queueAddCall` (기존, op-layer 직접 + apply_operations) = 중복 차단 유지.
+    /// `queueAddCallAllowDup` (Phase 1 YAML protocol concurrent path) = 중복 허용.
+    /// `hasCallNameClash` 함수 자체는 보존 (4차 review C1 — 기존 op-layer 회귀 차단).
+    let private queueAddCallCore
+        (allowDup: bool)
+        (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
         let work = requireWork plan store workId
         // ApiDef lookup (store + plan)
         let apiDef =
@@ -304,7 +307,7 @@ module ToolOperations =
         let devicesAlias = parentSys.Name
         let apiName = apiDef.Name
         let fullName = $"{devicesAlias}.{apiName}"
-        if hasCallNameClash plan store workId fullName then
+        if not allowDup && hasCallNameClash plan store workId fullName then
             invalidOp $"같은 Work 내에 이미 '{fullName}' Call 이 존재합니다."
         let call = Call(devicesAlias, apiName, workId)
         plan.Add(AddCall call)
@@ -315,6 +318,22 @@ module ToolOperations =
         call.ApiCalls.Add(apiCall)
         plan.Add(AddApiCall apiCall)
         call.Id
+
+    /// add_call mutation tool. parent Work + ApiDef 는 store 또는 plan 에 존재해야 함.
+    /// 인자 = (workId, apiDefId) 2개. devicesAlias / apiName 은 ApiDef → ParentSystem.Name / ApiDef.Name 자동 도출.
+    /// 룰 B (alias = Passive.Name) = 구문상 차단 (alias 인자 자체 부재).
+    /// 룰 C (ApiDef 는 Passive 의 자식) = 런타임 차단 (ApiDef.ParentSystem.IsActive == true 시 BATCH_ERROR).
+    /// ApiCall cascade: ApiCall.ApiDefId / OriginFlowId (= workId 의 parent Flow.Id) 자동 set + AddApiCall plan op.
+    /// Call.Name 충돌 검사 유지 (같은 Work 안 동일 fullName 중복 차단).
+    let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
+        queueAddCallCore false plan store workId apiDefId
+
+    /// **Phase 1 YAML protocol entry — concurrent path 전용**. clash check bypass.
+    /// SSOT (`yaml-protocol-v0.md` §1.7, todo §3.4.2): 같은 Work 안 같은 ApiDef 가 N회 등장 = concurrent 의미.
+    /// dispatcher 가 *Work 안 arrows 없음 + 중복 ApiDef 포함* 일 때만 호출. 순차 chain path 는 `queueAddCall` 그대로.
+    /// `hasCallNameClash` 함수 자체 미수정 (4차 review C1 — 기존 op-layer 회귀 차단).
+    let queueAddCallAllowDup (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
+        queueAddCallCore true plan store workId apiDefId
 
     /// add_api_def mutation tool. parent System 존재 + 이름 중복 검사.
     /// txWorkId/rxWorkId 가 주어지면 ApiDef.TxGuid/RxGuid 에 binding 후 ActionType=Normal.
