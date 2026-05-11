@@ -8,7 +8,7 @@ open Ds2.Core
 open Ds2.Core.Store
 
 /// LLM chat round-trip 최소화용 store snapshot 직렬화.
-/// doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md §4.1 (grammar 정의).
+/// doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md §4.1 (grammar 정의).
 /// 본 파일 안의 `§M2` / `§M4` 등은 같은 doc 의 v5.1 review 이슈 ID.
 ///
 /// 출력 grammar (informal, v5):

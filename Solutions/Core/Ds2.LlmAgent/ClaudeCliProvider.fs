@@ -33,7 +33,7 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
         let ct = defaultArg cancellationToken CancellationToken.None
         // commit-6b — strict 모드. capability 미지원 첨부는 invalidArg 로 fail-fast (UI race / 누락 차단).
         LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg
-        // round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+        // round-trip §C1 (doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md) —
         // CLI 는 자체 history 관리. snapshot 분리 불가능하므로 prompt 본문 앞에 단순 prepend.
         // CLI 측 cache 정책 (Claude Code 의 stable prefix ephemeral cache) 에 위임.
         let prompt =

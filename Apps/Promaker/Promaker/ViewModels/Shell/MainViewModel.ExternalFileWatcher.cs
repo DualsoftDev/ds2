@@ -52,6 +52,7 @@ public partial class MainViewModel
         try
         {
             var fileName = Path.GetFileName(_currentFilePath);
+            Log.Info($"[external-mtime] detected change file={fileName} prev={_currentFileMTime.Value:O} curr={current.Value:O} isDirty={IsDirty}");
             var alertMsg = IsDirty
                 ? $"외부에서 파일이 변경되었습니다:\n  {fileName}\n\n" +
                   $"현재 편집 중인 변경 내용이 있습니다.\n" +
@@ -62,6 +63,7 @@ public partial class MainViewModel
             if (!_dialogService.Confirm(alertMsg, "외부 파일 변경 감지"))
             {
                 // 사용자가 거절 — 다음 변경까지는 재질의 안 하도록 mtime 갱신.
+                Log.Info($"[external-mtime] user declined reload file={fileName} — suppress until next change");
                 _currentFileMTime = current;
                 return;
             }
@@ -71,9 +73,13 @@ public partial class MainViewModel
             // (Save 후 reload 하면 방금 저장한 내용이 다시 읽힘 — net effect = 외부 변경 무시 + 현재 dirty 보존.)
             // Cancel 또는 Save 실패 시 reload 건너뜀.
             if (IsDirty && !ConfirmDiscardChanges())
+            {
+                Log.Info($"[external-mtime] dirty Save/Discard/Cancel — Cancel 또는 Save 실패로 reload 건너뜀 file={fileName}");
                 return;
+            }
 
             // OpenFilePath 가 BeginInvoke 로 분기되므로 mtime 은 CompleteOpen 안에서 다시 기록됨.
+            Log.Info($"[external-mtime] reload 진행 file={fileName}");
             OpenFilePath(_currentFilePath);
         }
         finally
