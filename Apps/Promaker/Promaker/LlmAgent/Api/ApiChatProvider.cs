@@ -175,26 +175,30 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         }
 
         // commit-6b — multi-content turn message 분리.
-        //   - history 에 누적 = text-only (prompt + 첨부 summary metadata, 정책 17 bytes drop)
-        //   - 본 turn 호출 = 동일 위치에 multi-content (TextContent + DataContent) 로 swap
-        // 둘이 다른 ChatMessage 인스턴스. 다음 turn 의 history 에는 bytes 가 사라져 OOM/비용 폭증 회피.
+        //   - history 에 누적 = snapshot block + text-only (정책 17: attachment bytes 는 drop, summary 만 prepend)
+        //   - 본 turn 호출 = 동일 위치에 multi-content (snapshot + cache_control + TextContent + DataContent) 로 swap
+        // 둘이 다른 ChatMessage 인스턴스. 다음 turn 의 history 에는 attachment bytes 가 사라져 OOM/비용 폭증 회피.
         var nonTextAttachments = msg.Attachments != null
             ? msg.Attachments.Where(a => !a.IsTextFile).ToArray()
             : Array.Empty<Attachment>();
 
-        // round-trip §C1 — snapshot 은 _history 에 누적하지 않음 (turn 마다 1.5~2.5K stale 토큰 영구 누적 차단).
-        // 본 turn 호출 시점에만 turnUserMessage 의 multi-content 앞부분으로 분리해 prepend.
-        // **trade-off (round-trip §n1)**: 다음 turn 의 LLM context 에는 직전 snapshot 이 사라지지만,
-        // mutation 시 BumpRevision 으로 _lastSentRevision 무효화 → 자동 재첨부. revision 무변경 turn 은
-        // doc §6.1 룰대로 직전 transcript 의 snapshot 을 LLM 이 그대로 사용.
-        var promptForHistory = ApiTurnContentBuilder.BuildPromptForHistory(msg.Text, nonTextAttachments);
-        _history.Add(new ChatMessage(ChatRole.User, promptForHistory));
-
-        // round-trip §H1 — incoming snapshot 은 sticky 갱신만 하고, 매 turn 호출 시 _stickySnapshot 을 prepend.
-        // revision 무변경 turn (incoming SnapshotPrefix 가 null) 에서도 직전 sticky 가 유지되어 LLM 이 store 상태 인지.
+        // round-trip §H1 / §R10 — incoming snapshot 으로 sticky 갱신을 user message add 보다 먼저 수행.
+        //   - revision 변경 turn: incoming 으로 교체 → 본 turn 의 user message 에 새 snapshot 누적.
+        //   - revision 무변경 turn (incoming = null): 기존 sticky 유지 → user message 에도 동일 snapshot 누적.
+        // 이 순서가 §R10 의 핵심 — history 안 user message 들이 동일한 snapshot 토큰을 동일 위치에 가져
+        // Anthropic prompt cache 의 prefix-match 가 turn 누적에 따라 성장. plain-text only history 정책 시
+        // snapshot 위치가 매 turn 변동되어 cache miss.
         _stickySnapshot = ApiTurnContentBuilder.UpdateStickySnapshot(_stickySnapshot, msg.SnapshotPrefixOrNull);
         var hasSnapshot = !string.IsNullOrEmpty(_stickySnapshot);
         var hasAttachments = nonTextAttachments.Length > 0;
+
+        // round-trip §R10 — history 에 누적하는 user message contents:
+        //   - snapshot block (있을 때, cache_control 부착 없음)
+        //   - text prompt (attachment summary prepend 된 버전)
+        // PoC e2e-cache-hit.fsx 옵션 A 패턴 — 마지막 user 만 cache_control 부착, history 안 user 들은 plain.
+        var promptForHistory = ApiTurnContentBuilder.BuildPromptForHistory(msg.Text, nonTextAttachments);
+        var historyContents = ApiTurnContentBuilder.BuildHistoryContents(_stickySnapshot, promptForHistory);
+        _history.Add(new ChatMessage(ChatRole.User, historyContents));
 
         ChatMessage turnUserMessage;
         if (hasSnapshot || hasAttachments)
@@ -212,6 +216,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         }
         else
         {
+            // snapshot/attachment 모두 없는 경우 — history 에 추가한 multi-content (실질 single text) 그대로 사용.
             turnUserMessage = _history[_history.Count - 1];
         }
 
