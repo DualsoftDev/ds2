@@ -13,7 +13,7 @@ module internal PanelApiDefOps =
         ApiDefPanelItem(
             apiDef.Id, apiDef.Name, apiDef.ApiDefActionType,
             apiDef.TxGuid, apiDef.RxGuid,
-            "")
+            apiDef.Description |> Option.defaultValue "")
 
 // ─── ApiDef extensions ───────────────────────────────────────────────
 
@@ -54,7 +54,7 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member UpdateApiDef
-        (store: DsStore, apiDefId: Guid, newName: string, actionType: ApiDefActionType, txGuid: Guid option, rxGuid: Guid option) =
+        (store: DsStore, apiDefId: Guid, newName: string, actionType: ApiDefActionType, txGuid: Guid option, rxGuid: Guid option, description: string) =
         StoreLog.debug($"apiDefId={apiDefId}, newName={newName}, actionType={actionType}")
         StoreLog.requireApiDef(store, apiDefId) |> ignore
         store.WithTransaction("ApiDef 편집", fun () ->
@@ -62,7 +62,8 @@ type DsStorePanelApiDefExtensions =
                 d.Name <- newName
                 d.ApiDefActionType <- actionType
                 d.TxGuid <- txGuid
-                d.RxGuid <- rxGuid))
+                d.RxGuid <- rxGuid
+                d.Description <- (if System.String.IsNullOrEmpty description then None else Some description)))
         store.EmitRefreshAndHistory()
 
 // ─── ApiCall extensions ──────────────────────────────────────────────

@@ -1156,7 +1156,8 @@ public sealed class SimulationPassiveInferenceTests
             name,
             ApiDefActionType.Normal,
             FSharpOption<Guid>.Some(deviceWorkId),
-            FSharpOption<Guid>.Some(deviceWorkId));
+            FSharpOption<Guid>.Some(deviceWorkId),
+            "");
         return apiDefId;
     }
 

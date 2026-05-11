@@ -154,6 +154,7 @@ and ApiDef [<JsonConstructor>] internal (name, parentId) =
     [<AasxField("ApiDefActionType")>] member val ApiDefActionType : ApiDefActionType = ApiDefActionType.Normal with get, set
     [<AasxField("TxGuid")>]           member val TxGuid : Guid option = None  with get, set
     [<AasxField("RxGuid")>]           member val RxGuid : Guid option = None  with get, set
+    [<AasxField("Description")>]      member val Description : string option = None  with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
