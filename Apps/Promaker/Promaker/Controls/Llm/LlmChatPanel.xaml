@@ -200,6 +200,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <!-- Streaming/progress dots — IsSending 시 ListBox 바로 아래 좌측에 표시 (마지막 turn 시선과 인접). -->
+            <RowDefinition Height="Auto"/>
             <!-- chip 영역 1줄 안내 (정책 8/9/MI-5) — AttachmentNotice 비어있으면 Collapsed -->
             <RowDefinition Height="Auto"/>
             <!-- 첨부 chip ItemsControl (정책 4) — Attachments.Count==0 이면 Collapsed -->
@@ -308,8 +310,56 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
+        <!-- Progress dots (B 옵션) — ListBox 바로 아래 좌측. 송신 시점부터 SessionEnd 까지 (= IsSending) 표시.
+             기존 상단 status 의 3-dot 과 동일 storyboard 패턴, 크기만 6→12 로 확대 + 좌측 정렬 (마지막 turn 시선 근접).
+             phase 1 (응답 대기) / phase 2 (streaming) / phase 3 (tool 사이클) 모두 동일 invariant — IsSending 만으로 ON/OFF. -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal"
+                    HorizontalAlignment="Left"
+                    Margin="12,4,0,0"
+                    Visibility="{Binding IsSending, Converter={StaticResource BoolToVis}}">
+            <Ellipse Width="10" Height="10" Margin="3,0"
+                     Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                <Ellipse.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0.3" To="1.0" Duration="0:0:0.6"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Ellipse.Triggers>
+            </Ellipse>
+            <Ellipse Width="10" Height="10" Margin="3,0"
+                     Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                <Ellipse.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True" BeginTime="0:0:0.2">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0.3" To="1.0" Duration="0:0:0.6"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Ellipse.Triggers>
+            </Ellipse>
+            <Ellipse Width="10" Height="10" Margin="3,0"
+                     Fill="{DynamicResource AccentBrush}" Opacity="0.3">
+                <Ellipse.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True" BeginTime="0:0:0.4">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0.3" To="1.0" Duration="0:0:0.6"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Ellipse.Triggers>
+            </Ellipse>
+        </StackPanel>
+
         <!-- 첨부 안내 1줄 (정책 8/9/MI-5) — 거부 / cap 초과 / provider 전환 단일화. 비어있으면 hide. -->
-        <TextBlock Grid.Row="3"
+        <TextBlock Grid.Row="4"
                    Text="{Binding AttachmentNotice}"
                    Margin="0,6,0,0"
                    FontSize="11"
@@ -329,7 +379,7 @@
 
         <!-- 첨부 chip ItemsControl (정책 4) — filename + size + ≈token + ×제거. Attachments 비어있으면 Collapsed.
              chip focusable + Delete 키 제거 (MI-4 접근성). -->
-        <ItemsControl Grid.Row="4"
+        <ItemsControl Grid.Row="5"
                       ItemsSource="{Binding Attachments}"
                       Margin="0,4,0,0"
                       Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}">
@@ -390,7 +440,7 @@
 
         <!-- Input. Enter=전송 / Shift+Enter=줄바꿈 / Alt+J=줄바꿈. commit-5: Ctrl+V hook (DataObject.AddPastingHandler). -->
         <TextBox x:Name="InputBox"
-                 Grid.Row="5"
+                 Grid.Row="6"
                  Style="{StaticResource ChatInputBoxStyle}"
                  Margin="0,8,0,0"
                  MinHeight="64"
@@ -404,7 +454,7 @@
 
         <!-- Buttons. PR-E (3): 단일 버튼이 IsSending 에 따라 "전송 (Enter)" ↔ "취소" 로 토글. 별도 취소 버튼 삭제.
              Icon: Segoe MDL2 Assets — Refresh(E72C) / Send(E724) / Cancel(E711). DurationBatchDialog 기존 관례 재사용. -->
-        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Command="{Binding ResetCommand}"
                     Style="{StaticResource ChatButtonStyle}"
                     Width="80" Margin="0,0,6,0"
@@ -443,8 +493,22 @@
                     <Style TargetType="Button" BasedOn="{StaticResource SendButtonStyle}">
                         <Setter Property="Command" Value="{Binding SendCommand}"/>
                         <Style.Triggers>
+                            <!-- A 옵션: IsSending=True 시 취소 버튼 breathing (Opacity 0.7↔1.0, 0.8s).
+                                 hit-target 흔들리지 않도록 진폭 좁게 + Background/Border 색은 유지.
+                                 ExitActions 의 StopStoryboard 가 Opacity=1.0 으로 원복 (animation hold value 제거). -->
                             <DataTrigger Binding="{Binding IsSending}" Value="True">
                                 <Setter Property="Command" Value="{Binding CancelCommand}"/>
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard x:Name="CancelBreathBeginStoryboard">
+                                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="0.7" To="1.0" Duration="0:0:0.8"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <StopStoryboard BeginStoryboardName="CancelBreathBeginStoryboard"/>
+                                </DataTrigger.ExitActions>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
