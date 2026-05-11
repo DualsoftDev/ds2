@@ -42,6 +42,12 @@ public partial class MainViewModel
             return;
         }
 
+        // 직전 undo/redo 가 light event(예: EntitiesMoved) 로 처리됐다면 캔버스/트리 가
+        // 이미 가벼운 경로로 갱신됨 — 무거운 RebuildAll 을 건너뛴다.
+        // 대량 노드 이동의 undo hitch 의 주요 원인이었음.
+        if (_store.WasLastUndoRedoLight())
+            return;
+
         var targetIds = _store.TryGetUndoAffectedIds(0);
         RequestRebuildAll(() => ActivateCanvasForAffectedEntities(targetIds));
     }
