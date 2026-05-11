@@ -45,8 +45,15 @@ type UndoRedoManager(maxSize: int) =
                 match popFirst undoStack with
                 | Some tx -> records.InsertRange(0, tx.Records)
                 | None -> ()
-            undoStack.AddFirst({ Label = label; Records = Seq.toList records; AffectedEntityIds = [] }) |> ignore
+            undoStack.AddFirst({ Label = label; Records = Seq.toList records; AffectedEntityIds = []; LightEventOnUndo = None }) |> ignore
             redoStack.Clear()
+
+    /// 가장 최근에 push 된 undo 트랜잭션에 가벼운 이벤트 힌트를 설정한다.
+    /// (pure 이동 등의 트랜잭션이 undo/redo 시 StoreRefreshed 대신 EntitiesMoved 같은 가벼운 이벤트를 발행하도록.)
+    member _.SetTopLightEvent(evt: EditorEvent) =
+        match undoStack.First with
+        | null -> ()
+        | first -> first.Value.LightEventOnUndo <- Some evt
 
     /// Undo 스택에서 index번째 트랜잭션의 AffectedEntityIds 조회 (0 = 가장 최근)
     member _.TryGetUndoAffectedIds(index: int) =

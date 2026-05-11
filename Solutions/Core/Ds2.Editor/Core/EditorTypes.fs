@@ -4,18 +4,6 @@ open System
 open Ds2.Core
 open Ds2.Core.Store
 
-type UndoRecord = {
-    Undo: unit -> unit
-    Redo: unit -> unit
-    Description: string
-}
-
-type UndoTransaction = {
-    Label: string
-    Records: UndoRecord list
-    AffectedEntityIds: Guid list
-}
-
 type EditorEvent =
     | ProjectAdded of Project
     | ProjectRemoved of Guid
@@ -47,3 +35,19 @@ type EditorEvent =
     /// 노드 위치만 변경된 가벼운 이벤트. 트리/패널/캔버스 visual tree를 재구축하지 않고
     /// 이동된 노드의 위치 + 인접 화살표 path만 갱신하기 위한 hint.
     | EntitiesMoved of ids: Guid list
+
+type UndoRecord = {
+    Undo: unit -> unit
+    Redo: unit -> unit
+    Description: string
+}
+
+type UndoTransaction = {
+    Label: string
+    Records: UndoRecord list
+    AffectedEntityIds: Guid list
+    /// Undo/Redo 적용 시 StoreRefreshed(heavy=tree+캔버스 재구축) 대신 발행할 가벼운 이벤트.
+    /// pure 이동(좌표만 변경) 등 visual tree 재구축이 불필요한 트랜잭션에 설정한다.
+    /// None 이면 종전대로 StoreRefreshed 발행.
+    mutable LightEventOnUndo: EditorEvent option
+}
