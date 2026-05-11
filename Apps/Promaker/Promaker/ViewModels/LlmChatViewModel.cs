@@ -84,7 +84,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
 
-    // Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
     // 본 파일 안의 `§3` / `§5.1` / `§C1` / `§M1` 는 모두 위 doc 의 섹션/이슈 ID.
     /// <summary>
     /// 마지막 성공 송신 시점의 <see cref="DsStore.Revision"/>. delta-only snapshot 첨부 정책 (§3) —

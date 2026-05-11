@@ -88,7 +88,7 @@ type CodexCliProvider(options: CodexCliOptions) =
         let ct = defaultArg cancellationToken CancellationToken.None
         // commit-6b — strict 모드. PDF/미지원 image format 도달 시 invalidArg fail-fast (silent drop 차단).
         LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.CodexCliWire msg
-        // round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+        // round-trip §C1 (doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md) —
         // CLI 는 자체 history 관리. snapshot 분리 불가능하므로 prompt 본문 앞에 단순 prepend.
         let prompt =
             match msg.SnapshotPrefix with

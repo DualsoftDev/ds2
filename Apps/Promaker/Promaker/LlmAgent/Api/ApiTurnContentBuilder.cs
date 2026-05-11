@@ -6,7 +6,7 @@ using Microsoft.Extensions.AI;
 
 namespace Promaker.LlmAgent.Api;
 
-// Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md §C1 / §H1 / §5.2
+// Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md §C1 / §H1 / §5.2
 //
 // ApiChatProvider 의 turn user message 구성 로직 (sticky snapshot 갱신 / multi-content build /
 // prompt-for-history 요약) 을 분리한 internal helper. McpClient / IChatClient 의존 없이 단위 테스트

@@ -59,7 +59,7 @@ module Attachment =
 type LlmUserMessage = {
     Text: string
     Attachments: Attachment[]
-    /// round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+    /// round-trip §C1 (doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md) —
     /// store snapshot block (있으면 `<store-snapshot revision="N"> ... </store-snapshot>` envelope).
     /// **history 누적 회피 정책**: in-process IChatClient provider (ApiChatProvider) 는 본 prefix 를 본 turn 호출
     /// 시점에만 multi-content 로 분리해 prepend — `_history` 의 user message 본문에는 들어가지 않음. CLI provider

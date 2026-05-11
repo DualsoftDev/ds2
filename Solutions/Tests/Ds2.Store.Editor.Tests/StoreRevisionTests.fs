@@ -7,7 +7,7 @@ open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
-// Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+// Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
 //
 // 본 테스트의 목적 = §1 hook 의 핵심 invariant "1 transaction = Revision +=1" 회귀 방어.
 // 이 invariant 가 깨지면 LLM 의 `_lastSentRevision` 비교가 잘못된 빈도로 trigger 되어
