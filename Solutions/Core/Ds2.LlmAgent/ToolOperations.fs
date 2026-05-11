@@ -504,15 +504,14 @@ module ToolOperations =
 
     /// add_arrow mutation tool.
     /// source/target 이 모두 Work → ArrowBetweenWorks(parentId=systemId), 같은 system 에 속해야 함.
+    ///   - Work-arrow 는 self-loop 허용 (Self Reset 패턴 — capacity cycle 의 cycle 폐쇄용).
     /// source/target 이 모두 Call → ArrowBetweenCalls(parentId=workId), 같은 work 에 속해야 함.
+    ///   - Call-arrow 는 DAG 이므로 self-loop 거부.
     /// 종류가 섞이면 invalidOp.
     /// 반환: (newArrowId, kind) — kind = "work" 또는 "call".
     let queueAddArrow
         (plan: ImportPlanBuilder) (store: DsStore)
         (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) : Guid * string =
-        if sourceId = targetId then
-            invalidOp "Arrow 의 source 와 target 이 같습니다."
-
         let srcWorkOpt = Queries.getWork sourceId store |> Option.orElseWith (fun () -> tryFindWorkInPlan plan sourceId)
         let tgtWorkOpt = Queries.getWork targetId store |> Option.orElseWith (fun () -> tryFindWorkInPlan plan targetId)
         let srcCallOpt = Queries.getCall sourceId store |> Option.orElseWith (fun () -> tryFindCallInPlan plan sourceId)
@@ -520,7 +519,7 @@ module ToolOperations =
 
         match srcWorkOpt, tgtWorkOpt, srcCallOpt, tgtCallOpt with
         | Some srcW, Some tgtW, _, _ ->
-            // ArrowBetweenWorks: parent = systemId (work → flow → system)
+            // ArrowBetweenWorks: parent = systemId (work → flow → system). self-loop 허용 (Self Reset).
             let srcFlow = requireFlow plan store srcW.ParentId
             let tgtFlow = requireFlow plan store tgtW.ParentId
             if srcFlow.ParentId <> tgtFlow.ParentId then
@@ -530,6 +529,8 @@ module ToolOperations =
             plan.Add(AddArrowWork arrow)
             arrow.Id, "work"
         | _, _, Some srcC, Some tgtC ->
+            if sourceId = targetId then
+                invalidOp "ArrowBetweenCalls: source 와 target 이 같을 수 없습니다 (Call 그래프는 DAG)."
             if srcC.ParentId <> tgtC.ParentId then
                 invalidOp "ArrowBetweenCalls: source 와 target 이 같은 Work 에 속해야 합니다."
             let arrow = ArrowBetweenCalls(srcC.ParentId, sourceId, targetId, arrowType)

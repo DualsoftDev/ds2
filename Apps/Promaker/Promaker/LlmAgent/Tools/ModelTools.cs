@@ -448,7 +448,7 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("두 Work 사이 (같은 System) 또는 두 Call 사이 (같은 Work) 에 Arrow 를 추가합니다. 종류는 자동 판별. 반환: 새 Arrow Id + kind. **N 개 mutation 묶음 시 apply_operations 권장**.")]
+    [McpServerTool, Description("두 Work 사이 (같은 System) 또는 두 Call 사이 (같은 Work) 에 Arrow 를 추가합니다. kind (work/call) 는 source/target 의 entity 종류로 자동 판별 — arrowType 은 인자로 명시. Work-arrow 는 self-loop 허용 (Self Reset 패턴), Call-arrow 는 DAG 이므로 self-loop 거부. 반환: 새 Arrow Id + kind. **N 개 mutation 묶음 시 apply_operations 권장**.")]
     public static Task<string> AddArrow(
         LlmTurnContextProvider turnProvider,
         [Description("Source 의 GUID (Work 또는 Call).")] string sourceId,
