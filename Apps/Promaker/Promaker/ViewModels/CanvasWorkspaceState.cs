@@ -111,11 +111,16 @@ public partial class CanvasWorkspaceState : ObservableObject
                 out var info))
             return;
 
-        // System 탭을 열 때 Flow 하이라이트 초기화
+        // System 탭을 열 때 Flow 하이라이트 초기화. 이전에 highlight 가 있었다면 같은 활성 탭이어도
+        // 다시 그려야 함 — 그 경우만 forceRefresh.
+        bool refreshForHighlight = false;
         if (entityType == EntityKind.System)
+        {
+            refreshForHighlight = HighlightedFlowId is not null;
             HighlightedFlowId = null;
+        }
 
-        OpenTab(info.Kind, info.RootId, info.Title);
+        OpenTab(info.Kind, info.RootId, info.Title, forceRefresh: refreshForHighlight);
         if (expandTree)
             _host.ExpandNodeAndAncestors(entityId);
     }
@@ -129,6 +134,8 @@ public partial class CanvasWorkspaceState : ObservableObject
 
         if (zoomOverride.HasValue)
             _suppressFitToView = true;
+        // OpenTab → ActiveTab 변경 시 OnActiveTabChanged 가 RefreshCanvasForActiveTab + RestoreSimStateToCanvas 까지 동기 처리.
+        // 같은 활성 탭이면 forceRefresh=false 라 no-op. 즉 OpenTab 반환 시점에 CanvasNodes 는 항상 최신.
         OpenTab(info.Kind, info.RootId, info.Title);
 
         // 줌/센터는 캔버스 로드 직후 즉시 적용 (2단계 전환 방지)
@@ -136,13 +143,12 @@ public partial class CanvasWorkspaceState : ObservableObject
             ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
         CenterOnNodeRequested?.Invoke(entityId);
 
-        _host.RequestRebuildAll(() =>
-        {
-            _host.ExpandNodeAndAncestors(entityId);
-            var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
-            if (node is not null)
-                _host.SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);
-        });
+        // 트리/다른 panes 재구축 불필요 — 사용자 UI 트리거(트리 클릭/Property navigation/Focus 커맨드)에서만 호출됨.
+        // 종전 RequestRebuildAll 은 BuildTrees + RebuildAllPanes 까지 돌려 큰 모델에서 2~3s hitch 의 주범이었음.
+        _host.ExpandNodeAndAncestors(entityId);
+        var targetNode = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
+        if (targetNode is not null)
+            _host.SelectNodeFromCanvas(targetNode, ctrlPressed: false, shiftPressed: false);
     }
 
     private bool CanFocusSelectedInCanvas() =>
@@ -284,20 +290,25 @@ public partial class CanvasWorkspaceState : ObservableObject
         return title;
     }
 
-    private void OpenTab(TabKind kind, Guid rootId, string title)
+    private void OpenTab(TabKind kind, Guid rootId, string title, bool forceRefresh = false)
     {
         var existing = OpenTabs.FirstOrDefault(t => t.Kind == kind && t.RootId == rootId);
         if (existing is not null)
         {
             if (ActiveTab == existing)
-                RefreshCanvasForActiveTab(); // Flow 하이라이트 변경 시 강제 리프레시
+            {
+                // 같은 활성 탭 재호출은 기본적으로 no-op. Flow 하이라이트 변경 같은 일부 케이스에만 강제 리프레시.
+                // (이전에는 무조건 RefreshCanvasForActiveTab 호출 → 트리에서 Call 클릭 시 캔버스 통째 재생성으로 hitch.)
+                if (forceRefresh)
+                    RefreshCanvasForActiveTab();
+            }
             else
                 ActiveTab = existing;
             return;
         }
 
-        // 새 탭을 처음 열 때만 자동 배치 (Mermaid 임포트 등)
-        // RefreshCanvasForActiveTab에서 하면 Undo 시 매번 트리거되어 Undo/Redo 스택을 망침
+        // 새 탭을 처음 열 때만 자동 배치 (Mermaid 임포트, JSON 에 Call 좌표 없는 경우 등).
+        // AutoLayoutIfNeeded 가 좌표를 채우면 가벼운 EntitiesMoved 이벤트만 발행 — RebuildAll 미트리거.
         _host.TryAction(() => Store.AutoLayoutIfNeeded(kind, rootId));
 
         var tab = new CanvasTab(rootId, kind, title);

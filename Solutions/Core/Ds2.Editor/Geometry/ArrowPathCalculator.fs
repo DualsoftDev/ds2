@@ -304,10 +304,19 @@ let private tryResolveNodePosition
 
 [<CompiledName("ComputeFlowArrowPaths")>]
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
+    // Flow의 Work 들은 단 한 번만 enumerate — Queries.callsOf / arrowCallsOf 가 store 전체를
+    // 매번 선형 스캔하므로(O(C_total) 또는 O(A_total) per call), Flow 안 Work 마다 호출하면
+    // O(W_flow × C_total) 로 폭발. 큰 모델에서 탭 오픈 시 freeze 의 주범.
+    let works = Queries.worksOf flowId store
+    let workIds = HashSet<Guid>()
     let positions = Dictionary<Guid, Xywh>()
-    for work in Queries.worksOf flowId store do
+    for work in works do
+        workIds.Add(work.Id) |> ignore
         positions.[work.Id] <- defaultArg work.Position (UiDefaults.createDefaultNodeBounds ())
-        for call in Queries.callsOf work.Id store do
+
+    // Call 위치: store 전체를 1회만 스캔하고 workIds 로 필터.
+    for call in store.CallsReadOnly.Values do
+        if workIds.Contains call.ParentId then
             positions.[call.Id] <- defaultArg call.Position (UiDefaults.createDefaultNodeBounds ())
 
     let arrows = ResizeArray<DsArrow>()
@@ -317,8 +326,9 @@ let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisua
             arrows.Add(a :> DsArrow)
     | None -> ()
 
-    for work in Queries.worksOf flowId store do
-        for a in Queries.arrowCallsOf work.Id store do
+    // ArrowCalls: store 전체를 1회만 스캔하고 workIds 로 필터.
+    for a in store.ArrowCallsReadOnly.Values do
+        if workIds.Contains a.ParentId then
             arrows.Add(a :> DsArrow)
 
     let resolved = ResizeArray<struct (DsArrow * Xywh * Xywh * DockFace * DockFace)>()
