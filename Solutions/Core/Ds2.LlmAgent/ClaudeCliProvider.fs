@@ -33,7 +33,13 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
         let ct = defaultArg cancellationToken CancellationToken.None
         // commit-6b — strict 모드. capability 미지원 첨부는 invalidArg 로 fail-fast (UI race / 누락 차단).
         LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg
-        let prompt = msg.Text
+        // round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+        // CLI 는 자체 history 관리. snapshot 분리 불가능하므로 prompt 본문 앞에 단순 prepend.
+        // CLI 측 cache 정책 (Claude Code 의 stable prefix ephemeral cache) 에 위임.
+        let prompt =
+            match msg.SnapshotPrefix with
+            | Some s -> s + "\n\n" + msg.Text
+            | None -> msg.Text
         // 첨부 (이미지/PDF) 가 있으면 stream-json input 모드로 전환 — Anthropic API 와 동일 multipart content block 으로 wire.
         // TextFile 은 호출자 (LlmChatViewModel) 가 prompt 본문에 fenced inline 후 nonText 만 Attachments 로 전달.
         let nonTextAttachments =

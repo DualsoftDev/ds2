@@ -88,7 +88,12 @@ type CodexCliProvider(options: CodexCliOptions) =
         let ct = defaultArg cancellationToken CancellationToken.None
         // commit-6b — strict 모드. PDF/미지원 image format 도달 시 invalidArg fail-fast (silent drop 차단).
         LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.CodexCliWire msg
-        let prompt = msg.Text
+        // round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+        // CLI 는 자체 history 관리. snapshot 분리 불가능하므로 prompt 본문 앞에 단순 prepend.
+        let prompt =
+            match msg.SnapshotPrefix with
+            | Some s -> s + "\n\n" + msg.Text
+            | None -> msg.Text
 
         // commit-6b — 이미지 첨부 bytes → 임시 파일 spool. Codex CLI 는 path 만 받음 (`-i <path>`).
         // 위치: %TEMP%\Promaker.LlmAgent\codex-img-<turnGuid>\<n>.<ext>  (단일 cleanup 위해 turn 별 디렉토리)

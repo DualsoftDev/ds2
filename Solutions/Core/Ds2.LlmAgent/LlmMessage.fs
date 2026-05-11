@@ -59,16 +59,37 @@ module Attachment =
 type LlmUserMessage = {
     Text: string
     Attachments: Attachment[]
+    /// round-trip §C1 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
+    /// store snapshot block (있으면 `<store-snapshot revision="N"> ... </store-snapshot>` envelope).
+    /// **history 누적 회피 정책**: in-process IChatClient provider (ApiChatProvider) 는 본 prefix 를 본 turn 호출
+    /// 시점에만 multi-content 로 분리해 prepend — `_history` 의 user message 본문에는 들어가지 않음. CLI provider
+    /// (Claude/Codex) 는 prompt 텍스트 앞에 단순 prepend (CLI 자체가 history 관리하므로 분리 불가능).
+    /// None / `""` 면 미첨부.
+    SnapshotPrefix: string option
 }
 with
     /// 텍스트 only message (회귀 호환 helper).
     static member OfText(text: string) =
-        { Text = text; Attachments = [||] }
+        { Text = text; Attachments = [||]; SnapshotPrefix = None }
 
     /// review m11 — null Attachments 정규화 factory. C# `new LlmUserMessage(text, null)` 같은 경로 방어.
     static member Create(text: string, attachments: Attachment[]) =
         { Text = text
-          Attachments = if isNull attachments then [||] else attachments }
+          Attachments = if isNull attachments then [||] else attachments
+          SnapshotPrefix = None }
+
+    /// round-trip §C1 — snapshot prefix 와 함께 생성. `snapshotPrefix` 가 null/empty 면 `Create` 와 동일.
+    static member CreateWithSnapshot(text: string, attachments: Attachment[], snapshotPrefix: string) =
+        { Text = text
+          Attachments = if isNull attachments then [||] else attachments
+          SnapshotPrefix = if System.String.IsNullOrEmpty snapshotPrefix then None else Some snapshotPrefix }
+
+    /// C# interop helper — `SnapshotPrefix` 가 None 이면 null, Some s 면 s. C# 측은
+    /// `msg.SnapshotPrefixOrNull` 로 nullable string 처럼 사용 (FSharpOption boxing 회피).
+    member this.SnapshotPrefixOrNull =
+        match this.SnapshotPrefix with
+        | Some s -> s
+        | None -> null
 
 /// provider 별 multimodal 능력. `ILlmProvider.Capabilities` 노출.
 ///
