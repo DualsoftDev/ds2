@@ -199,7 +199,8 @@ public sealed class SimulationPanelStateRuntimeTests
             name,
             ApiDefActionType.Normal,
             FSharpOption<Guid>.Some(deviceWorkId),
-            FSharpOption<Guid>.Some(deviceWorkId));
+            FSharpOption<Guid>.Some(deviceWorkId),
+            "");
         return apiDefId;
     }
 

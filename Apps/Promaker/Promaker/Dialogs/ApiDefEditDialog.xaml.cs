@@ -20,6 +20,7 @@ public partial class ApiDefEditDialog : Window
     public ApiDefActionType ActionType { get; private set; } = ApiDefActionType.Normal;
     public Guid? TxGuid { get; private set; }
     public Guid? RxGuid { get; private set; }
+    public string Description { get; private set; } = string.Empty;
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
     {
@@ -108,6 +109,7 @@ public partial class ApiDefEditDialog : Window
 
         TxGuid = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : null;
         RxGuid = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : null;
+        Description = DescriptionBox.Text.Trim();
 
         DialogResult = true;
     }
