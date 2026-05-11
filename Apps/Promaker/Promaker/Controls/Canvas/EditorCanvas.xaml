@@ -180,7 +180,7 @@
                         </ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:EntityNode}">
-                                <Grid>
+                                <Grid CacheMode="BitmapCache">
                                     <Border x:Name="NodeBorder"
                                             Width="{Binding Width}" Height="{Binding Height}"
                                             Background="{DynamicResource TertiaryBackgroundBrush}"

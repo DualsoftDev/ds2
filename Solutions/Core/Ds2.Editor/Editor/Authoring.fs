@@ -41,7 +41,7 @@ module internal StoreAuthoring =
             try
                 let result = action()
                 if records.Count > 0 then
-                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds })
+                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds; LightEventOnUndo = None })
                     // round-trip §1.3 hook: transaction commit 성공 + 실 변경 발생 시점.
                     // records.Count = 0 이면 wizard 빈 apply / read-only 등 — store 상태 무변경이므로 ++ skip.
                     store.BumpRevision()
@@ -121,6 +121,18 @@ module internal StoreAuthoring =
         emitEvent store (EntitiesMoved ids)
         emitHistoryChanged store
 
+    /// 직전 WithTransaction 에서 push 된 트랜잭션에 가벼운 이벤트 힌트를 설정.
+    /// undo/redo 시 StoreRefreshed 대신 이 이벤트가 발행된다.
+    let setLastUndoLightEvent (store: DsStore) (evt: EditorEvent) =
+        let editorState = state store
+        editorState.UndoManager.SetTopLightEvent(evt)
+
+    /// 직전 undo/redo 가 light event 로 처리됐는지 여부.
+    /// C# JumpToHistory 가 명시적 RebuildAll 을 건너뛸지 결정.
+    let wasLastUndoRedoLight (store: DsStore) : bool =
+        let editorState = state store
+        editorState.LastUndoRedoLightEvent.IsSome
+
     let observeEvents (store: DsStore) =
         (state store).EventBus.Publish
 
@@ -165,9 +177,13 @@ module internal StoreAuthoring =
         |> List.distinct
 
     let private applyTransaction (store: DsStore) pop push apply label =
+        let editorState = state store
         match pop() with
         | None -> ()
         | Some tx ->
+            let lightEvent = tx.LightEventOnUndo
+            // C# 측에서 추가 RebuildAll 을 건너뛸 수 있도록 마킹. 다음 undo/redo 호출까지 유효.
+            editorState.LastUndoRedoLightEvent <- lightEvent
             try
                 apply tx.Records
                 store.RewireApiCallReferences()
@@ -180,7 +196,14 @@ module internal StoreAuthoring =
                 store.BumpRevision()
                 log.Debug($"{label}: {tx.Label}")
             finally
-                emitRefreshAndHistory store
+                // 힌트가 있으면 가벼운 이벤트(예: EntitiesMoved) + HistoryChanged 만 발행.
+                // 없으면 종전대로 StoreRefreshed → C# 측 RebuildAll 트리거.
+                match lightEvent with
+                | Some evt ->
+                    emitEvent store evt
+                    emitHistoryChanged store
+                | None ->
+                    emitRefreshAndHistory store
 
     let undo (store: DsStore) =
         let editorState = state store
@@ -197,12 +220,15 @@ module internal StoreAuthoring =
             for _ in 1 .. n do
                 action()
         else
+            // 다중 step undo 는 일괄 처리 후 한 번에 StoreRefreshed 발행.
+            // light hint 는 다중 step 케이스에서는 무시 — 마지막에 heavy refresh.
             editorState.SuppressEvents <- true
             try
                 for _ in 1 .. n do
                     action()
             finally
                 editorState.SuppressEvents <- false
+                editorState.LastUndoRedoLightEvent <- None
                 emitRefreshAndHistory store
 
     let undoTo (store: DsStore) (steps: int) = runBatch store (fun () -> undo store) steps
@@ -254,6 +280,14 @@ type DsStoreAuthoringExtensions =
     [<Extension>]
     static member EmitEntitiesMovedAndHistory(store: DsStore, ids: Guid list) =
         StoreAuthoring.emitEntitiesMovedAndHistory store ids
+
+    [<Extension>]
+    static member SetLastUndoLightEvent(store: DsStore, evt: EditorEvent) =
+        StoreAuthoring.setLastUndoLightEvent store evt
+
+    [<Extension>]
+    static member WasLastUndoRedoLight(store: DsStore) =
+        StoreAuthoring.wasLastUndoRedoLight store
 
     [<Extension>]
     static member ObserveEvents(store: DsStore) =
