@@ -108,6 +108,11 @@ type Capabilities = {
     MaxPdfPages: int option
     /// turn 당 첨부 개수 cap (None = 정책 6 의 기본값 10 사용).
     MaxAttachmentCount: int option
+    /// round-trip §J2 — provider 가 Anthropic-compatible `cache_control: ephemeral` 부착을
+    /// raw wire 까지 통과시키는지 여부. true 면 ApiChatProvider 가 system / sticky snapshot block 에
+    /// `WithCacheControl` 부여 (다른 어댑터는 silent ignore). label 문자열 비교 대신 capability 비트로
+    /// 분기하여 Bedrock 등 Anthropic 호환 endpoint 추가 시 silent miss 방지.
+    SupportsAnthropicCacheControl: bool
 }
 with
     /// 첨부 미지원 (텍스트 only). review m4: `static member val` 로 1회 평가 (매 접근마다 record alloc 회피).
@@ -117,7 +122,8 @@ with
           MaxImageBytes = None
           MaxPdfBytes = None
           MaxPdfPages = None
-          MaxAttachmentCount = None } with get
+          MaxAttachmentCount = None
+          SupportsAnthropicCacheControl = false } with get
 
     /// 이미지 4종 (png/jpg/gif/webp) + PDF 미지원. Codex CLI / vision 지원 Ollama 모델용.
     static member ImagesOnly(maxImageBytes: int64) =
@@ -126,7 +132,8 @@ with
           MaxImageBytes = Some maxImageBytes
           MaxPdfBytes = None
           MaxPdfPages = None
-          MaxAttachmentCount = None }
+          MaxAttachmentCount = None
+          SupportsAnthropicCacheControl = false }
 
     /// 이미지 4종 + PDF native. Claude CLI (`--input-format stream-json`) / Anthropic API / OpenAI API.
     /// `?maxPdfPages` = 페이지 cap (Phase 3b). 미지정 시 페이지 cap 미적용 (None).
@@ -136,7 +143,8 @@ with
           MaxImageBytes = Some maxImageBytes
           MaxPdfBytes = Some maxPdfBytes
           MaxPdfPages = maxPdfPages
-          MaxAttachmentCount = None }
+          MaxAttachmentCount = None
+          SupportsAnthropicCacheControl = false }
 
 /// provider 별 wire 한도 SSOT (review 2차 M1). 4 호출처의 byte literal 중복 제거.
 /// 변경 시 이 한 곳만 수정 — Claude/Codex CLI provider + ApiProviderFactory (Anthropic/OpenAI) 위임.
@@ -150,7 +158,11 @@ module CapabilityPresets =
 
     /// Anthropic API / Claude CLI (`--input-format stream-json`) — 5MB image / 32MB PDF.
     /// 페이지 cap = 100p (200K context Opus 4.7 / Sonnet 4.6 기준 보수, 정책 11 외부 검증).
-    let AnthropicWire = Capabilities.ImagesAndPdf(5L * MB, 32L * MB, maxPdfPages = 100)
+    /// round-trip §J2 — `SupportsAnthropicCacheControl = true` 만 본 preset 한정. Anthropic 호환 endpoint
+    /// (Bedrock 등) 추가 시 동일 비트로 새 preset 정의.
+    let AnthropicWire =
+        { Capabilities.ImagesAndPdf(5L * MB, 32L * MB, maxPdfPages = 100) with
+            SupportsAnthropicCacheControl = true }
 
     /// OpenAI API — 20MB image / 32MB PDF / 100p (Phase 3a-pre S-4 spike rev 15 — V-1 RESOLVED).
     /// Chat Completions API 의 `type:"file"` content block + Microsoft.Extensions.AI.OpenAI 10.5.2
