@@ -564,9 +564,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _cts = new CancellationTokenSource();
         try
         {
-            var msg = attachSnapshot
-                ? LlmUserMessage.CreateWithSnapshot(promptForProvider, nonTextAttachments, snapshotEnvelope!)
-                : LlmUserMessage.Create(promptForProvider, nonTextAttachments);
+            // §C1 — snapshotEnvelope=null 이면 LlmUserMessage.Create overload 가 자동으로 SnapshotPrefix=None 처리.
+            var msg = LlmUserMessage.Create(promptForProvider, nonTextAttachments, snapshotEnvelope);
             var stream = snapshotProvider.Send(msg, _cts.Token);
             await foreach (var evt in stream.ConfigureAwait(true))
             {

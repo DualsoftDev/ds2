@@ -43,8 +43,10 @@ module StoreSnapshot =
                 | _   -> sb.Append(ch) |> ignore
             sb.ToString()
 
-    /// ArrowType enum → 1~2자 약자. 신규 ArrowType case 추가 시 본 매핑도 함께 갱신 필요
-    /// (round-trip §n5 review — silent "U" fallback 회피 책임은 enum 추가 시점에).
+    /// ArrowType enum → 1~2자 약자. 신규 ArrowType case 추가 시 본 매핑도 함께 갱신 필요.
+    /// .NET enum 은 F# pattern match 가 exhaustive 강제 불가 → wildcard fallback 시 silent "U" leak 위험.
+    /// 본 구현은 Unspecified 와 구분되는 "?" sentinel + Log.provider.Warn 으로 운영 시 즉시 탐지 가능하게 처리.
+    /// (review M3 — silent "U" 매핑 회피).
     let private arrowAbbrev (t: ArrowType) =
         match t with
         | ArrowType.Start       -> "S"
@@ -53,7 +55,9 @@ module StoreSnapshot =
         | ArrowType.ResetReset  -> "RR"
         | ArrowType.Group       -> "G"
         | ArrowType.Unspecified -> "U"
-        | _                     -> "U"  // future ArrowType case — doc 의 grammar 룰 갱신과 함께 case 추가 권장
+        | _ ->
+            Log.provider.Warn(sprintf "StoreSnapshot.arrowAbbrev: 미매핑 ArrowType 값 %d → grammar 룰 (3.tooling.md) 갱신 필요" (int t))
+            "?"
 
     /// SystemType (예: "Cylinder_1", "Clamp_2") → "/cylinder" 같은 약자. 미식별 시 "/device" fallback.
     /// passive system 표시에만 사용. active 는 kind 자체 미표기.
