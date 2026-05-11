@@ -33,7 +33,13 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
         let ct = defaultArg cancellationToken CancellationToken.None
         // commit-6b — strict 모드. capability 미지원 첨부는 invalidArg 로 fail-fast (UI race / 누락 차단).
         LlmUserMessageOps.EnforceCapabilityOrFail CapabilityPresets.AnthropicWire msg
-        let prompt = msg.Text
+        // round-trip §C1 (doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md) —
+        // CLI 는 자체 history 관리. snapshot 분리 불가능하므로 prompt 본문 앞에 단순 prepend.
+        // CLI 측 cache 정책 (Claude Code 의 stable prefix ephemeral cache) 에 위임.
+        let prompt =
+            match msg.SnapshotPrefix with
+            | Some s -> s + "\n\n" + msg.Text
+            | None -> msg.Text
         // 첨부 (이미지/PDF) 가 있으면 stream-json input 모드로 전환 — Anthropic API 와 동일 multipart content block 으로 wire.
         // TextFile 은 호출자 (LlmChatViewModel) 가 prompt 본문에 fenced inline 후 nonText 만 Attachments 로 전달.
         let nonTextAttachments =
@@ -46,7 +52,7 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                     | _ -> true)
         let useStreamJsonInput = nonTextAttachments.Length > 0
 
-        // SystemPrompt 본문은 임시 파일에 저장 후 `--append-system-prompt-file <path>` 로 전달.
+        // SystemPrompt 본문은 임시 파일에 저장 후 `--system-prompt-file <path>` 로 전달.
         // **Why**: Windows CreateProcess 의 lpCommandLine 32K 한계 초과 시 [WinError 206]
         // ("파일 이름이나 확장명이 너무 깁니다") 가 발생. 본 회피 패턴은 Ev2.Oracle 의 ClaudeCliProvider
         // (`solutions/Ev2.Backend/src/Ev2.Oracle/Builder/pipeline/llm_providers/claude_cli.py`) 에서 동일
@@ -75,7 +81,10 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
         let spec : CliProcessHost.Spec = {
             Executable = executable
             Args = args
-            EnvOverrides = []
+            // round-trip 최적화 — `claude-opus-4-7[1m]` (1M context 변형) 비활성화. 사용자 ~/.claude 설정이
+            // 1M 으로 잡혀 있어도 본 env 가 200K 변형 (`claude-opus-4-7`) 으로 강제. prompt processing
+            // throughput 향상 + cache 동작 일관성 (출처: code.claude.com/docs model-config).
+            EnvOverrides = [("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")]
             // prompt 본문이 args 에서 stdin 으로 옮겨진 이후로는 args 에 평문 prompt 가 없어 redact 불필요.
             Redact = id
             Parser = StreamJsonParser.parseLine

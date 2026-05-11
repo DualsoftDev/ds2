@@ -74,6 +74,33 @@ let ``-p --output-format stream-json --verbose 기본 인자 항상 노출 (prom
     Assert.Contains("--verbose", args)
 
 [<Fact>]
+let ``round-trip 최적화 — --tools "" 가 항상 노출되어 Claude Code builtin tool schema 를 model context 에서 제외`` () =
+    let args = buildArgs baseOptions None None
+    let idx = args |> List.findIndex ((=) "--tools")
+    Assert.Equal("", args.[idx + 1])
+
+[<Fact>]
+let ``round-trip 최적화 — --disable-slash-commands 가 항상 노출되어 사용자 ~/.claude 의 slash commands / skills 자동 등록 차단`` () =
+    let args = buildArgs baseOptions None None
+    Assert.Contains("--disable-slash-commands", args)
+
+[<Fact>]
+let ``round-trip 최적화 — --settings '{"disableAllHooks":true}' 가 OAuth 양립하며 SessionStart hook (superpowers 등) 차단`` () =
+    let args = buildArgs baseOptions None None
+    let idx = args |> List.findIndex ((=) "--settings")
+    Assert.Equal("""{"disableAllHooks":true}""", args.[idx + 1])
+
+[<Fact>]
+let ``회귀 가드 — --bare 와 --setting-sources 는 사용해선 안 됨 (둘 다 user OAuth credentials 차단으로 인증 실패)`` () =
+    // 이전 시도들에서 `--bare` 및 `--setting-sources ""` 를 각각 추가했으나
+    // 두 옵션 모두 user OAuth credentials 까지 차단되어 CLI 가
+    // `error: authentication_failed` ("Not logged in · Please run /login") 로 exit 1.
+    // RawStream 의 SessionStart hook noise 는 prompt cache 에 잠겨 첫 turn 1회만 비용 발생.
+    let args = buildArgs baseOptions None None
+    Assert.DoesNotContain("--bare", args)
+    Assert.DoesNotContain("--setting-sources", args)
+
+[<Fact>]
 let ``prompt 본문은 args 에 포함되지 않는다 (32K 한도 회피 stdin 분리)`` () =
     // 본문이 args 에 흘러들면 회귀 — Windows CreateProcess 32K 한도 충돌 위험.
     let args = buildArgs baseOptions None None
@@ -91,10 +118,18 @@ let ``McpConfigPath / systemPromptFile / PermissionMode / Model Some 시 인자 
     let args = buildArgs full None (Some "/tmp/sp.md")
     Assert.Contains("--mcp-config", args)
     Assert.Contains("/tmp/mcp.json", args)
-    Assert.Contains("--append-system-prompt-file", args)
+    // round-trip 최적화 — `--append-system-prompt-file` (default 위 누적) 에서 `--system-prompt-file`
+    // (default 치환) 로 전환. CLI default system prompt 토큰 비용 절감.
+    Assert.Contains("--system-prompt-file", args)
     Assert.Contains("/tmp/sp.md", args)
     // 본문 자체가 args 로 흘러들지 않는지 회귀 가드
     Assert.DoesNotContain("be terse", args)
+    // file 변형 외 `--system-prompt` (inline 본문) 옵션이 잘못 노출되지 않는지 가드.
+    // xunit 의 Assert.DoesNotContain<T>(T expected, IEnumerable<T> collection) 는 **정확 매칭**
+    // (substring 아님) 이라 `--system-prompt-file` 가 args 에 있어도 `--system-prompt` 와는 별개로 통과.
+    Assert.DoesNotContain("--system-prompt", args)
+    // 구 옵션명 회귀 방지
+    Assert.DoesNotContain("--append-system-prompt-file", args)
     Assert.DoesNotContain("--append-system-prompt", args)
     Assert.Contains("--permission-mode", args)
     Assert.Contains("bypassPermissions", args)
@@ -103,6 +138,8 @@ let ``McpConfigPath / systemPromptFile / PermissionMode / Model Some 시 인자 
 
     let none = buildArgs baseOptions None None
     Assert.DoesNotContain("--mcp-config", none)
+    Assert.DoesNotContain("--system-prompt-file", none)
+    Assert.DoesNotContain("--system-prompt", none)
     Assert.DoesNotContain("--append-system-prompt", none)
     Assert.DoesNotContain("--append-system-prompt-file", none)
     Assert.DoesNotContain("--permission-mode", none)
