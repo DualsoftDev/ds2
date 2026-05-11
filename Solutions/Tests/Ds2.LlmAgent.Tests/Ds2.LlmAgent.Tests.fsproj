@@ -27,6 +27,7 @@
     <Compile Include="LlmTurnContextQuotaTests.fs" />
     <Compile Include="ImportPlanApplyApiCallTests.fs" />
     <Compile Include="AttachmentClassifierDriftTests.fs" />
+    <Compile Include="StoreSnapshotTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

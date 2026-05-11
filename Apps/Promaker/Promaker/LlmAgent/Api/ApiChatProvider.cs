@@ -182,65 +182,32 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             ? msg.Attachments.Where(a => !a.IsTextFile).ToArray()
             : Array.Empty<Attachment>();
 
-        var promptForHistory = msg.Text;
-        if (nonTextAttachments.Length > 0)
-        {
-            var summaries = new System.Text.StringBuilder();
-            foreach (var att in nonTextAttachments)
-            {
-                if (summaries.Length > 0) summaries.Append(' ');
-                summaries.Append(AttachmentRendering.summarize(att));
-            }
-            promptForHistory = summaries.ToString() + "\n" + msg.Text;
-        }
         // round-trip §C1 — snapshot 은 _history 에 누적하지 않음 (turn 마다 1.5~2.5K stale 토큰 영구 누적 차단).
         // 본 turn 호출 시점에만 turnUserMessage 의 multi-content 앞부분으로 분리해 prepend.
         // **trade-off (round-trip §n1)**: 다음 turn 의 LLM context 에는 직전 snapshot 이 사라지지만,
         // mutation 시 BumpRevision 으로 _lastSentRevision 무효화 → 자동 재첨부. revision 무변경 turn 은
-        // doc §6.1 룰대로 직전 transcript 의 snapshot 을 LLM 이 그대로 사용 (history 안 user message 본문은
-        // 남으므로 recall 가능, snapshot 만 별도 분리).
+        // doc §6.1 룰대로 직전 transcript 의 snapshot 을 LLM 이 그대로 사용.
+        var promptForHistory = ApiTurnContentBuilder.BuildPromptForHistory(msg.Text, nonTextAttachments);
         _history.Add(new ChatMessage(ChatRole.User, promptForHistory));
 
         // round-trip §H1 — incoming snapshot 은 sticky 갱신만 하고, 매 turn 호출 시 _stickySnapshot 을 prepend.
         // revision 무변경 turn (incoming SnapshotPrefix 가 null) 에서도 직전 sticky 가 유지되어 LLM 이 store 상태 인지.
-        var incomingSnapshot = msg.SnapshotPrefixOrNull;
-        if (!string.IsNullOrEmpty(incomingSnapshot))
-            _stickySnapshot = incomingSnapshot;
+        _stickySnapshot = ApiTurnContentBuilder.UpdateStickySnapshot(_stickySnapshot, msg.SnapshotPrefixOrNull);
         var hasSnapshot = !string.IsNullOrEmpty(_stickySnapshot);
         var hasAttachments = nonTextAttachments.Length > 0;
 
         ChatMessage turnUserMessage;
         if (hasSnapshot || hasAttachments)
         {
-            var contents = new List<AIContent>();
-            if (hasSnapshot)
-            {
-                // round-trip §5.2 / §J2 — snapshot block 끝에 cache_control: ephemeral (Anthropic 호환 wire 만).
-                // system 의 부착과 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
-                // sticky 라 매 turn 동일 내용 → Anthropic prompt cache 의 stable prefix hit. revision 변화 시점에만
-                // miss + 새 cache 시작. capability 비트 분기 (label 문자열 비교 아님) — §J2 참조.
-                AIContent snapshotContent = new TextContent(_stickySnapshot!);
-                if (_capabilities.SupportsAnthropicCacheControl)
-                    snapshotContent = snapshotContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
-                contents.Add(snapshotContent);
-            }
-            contents.Add(new TextContent(promptForHistory));
-            foreach (var att in nonTextAttachments)
-            {
-                var imgOpt = AttachmentInfo.tryGetImage(att);
-                if (imgOpt != null)
-                {
-                    var img = imgOpt.Value;
-                    contents.Add(new DataContent(img.Bytes, img.Mime) { Name = img.Name });
-                    continue;
-                }
-                var pdfOpt = AttachmentInfo.tryGetPdf(att);
-                if (pdfOpt != null)
-                {
-                    var pdf = pdfOpt.Value;
-                    contents.Add(new DataContent(pdf.Bytes, "application/pdf") { Name = pdf.Name });
-                }
-            }
+            // round-trip §5.2 / §J2 — snapshot block 끝에 cache_control: ephemeral (Anthropic 호환 wire 만).
+            // system 의 부착과 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
+            // sticky 라 매 turn 동일 내용 → Anthropic prompt cache 의 stable prefix hit. revision 변화 시점에만
+            // miss + 새 cache 시작. capability 비트 분기 (label 문자열 비교 아님) — §J2 참조.
+            Func<AIContent, AIContent>? applyCache = _capabilities.SupportsAnthropicCacheControl
+                ? c => c.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral())
+                : null;
+            var contents = ApiTurnContentBuilder.BuildMultiContents(
+                _stickySnapshot, promptForHistory, nonTextAttachments, applyCache);
             turnUserMessage = new ChatMessage(ChatRole.User, contents);
         }
         else
