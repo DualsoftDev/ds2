@@ -139,9 +139,14 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         var firstTurn = _sessionId == null;
         if (firstTurn)
         {
+            // 진단 로깅 (첫 RT 지연 원인 분리용) — MCP ListTools RPC 단독 소요. localhost Kestrel 이므로
+            // 통상 수~수십 ms. 비정상적으로 크면 MCP server cold start / nonce 검증 / DI 비용 의심.
+            var listToolsStartedAt = DateTime.UtcNow;
             var tools = await _mcpClient.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            var listToolsElapsedMs = (int)(DateTime.UtcNow - listToolsStartedAt).TotalMilliseconds;
             _cachedTools = new List<AITool>(tools);
             _sessionId = Guid.NewGuid().ToString("N");
+            Log.Info($"[timing] firstTurn ListToolsAsync elapsedMs={listToolsElapsedMs} toolCount={_cachedTools.Count}");
 
             // round-trip §5.2 — Anthropic provider 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
             // Anthropic SDK 가 Microsoft.Extensions.AI extension 으로 WithCacheControl 을 제공 — 다른 provider
@@ -237,7 +242,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         }
 
         var options = new ChatOptions { Tools = _cachedTools, ModelId = _modelLabel };
-        var startedAt = DateTime.UtcNow;
+        // 진단 timing 측정 — Stopwatch 가 DateTime.UtcNow 차이 대비 monotonic + 시스템 시계 변경/NTP 보정에 무관.
+        // CliProcessHost.fs 의 timingSw 패턴과 통일.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         var stopReason = "end_turn";
         var isError = false;
@@ -258,6 +265,9 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
 
         var stream = _chatClient.GetStreamingResponseAsync(historyForStream, options, cancellationToken);
         var collected = new List<ChatResponseUpdate>();
+        // 진단 로깅 — TTFB (time to first byte/chunk). 첫 chunk 도착까지가 prompt cache cold write +
+        // 모델 prompt processing 시간의 합. firstTurn vs 후속 turn 비교 시 cache hit 효과 정량화.
+        int? ttfbMs = null;
 
         // C1 fix — cancel/exception 시에도 partial collected 를 history 에 flush.
         // _history 는 line 162 에서 user message 가 이미 add 된 상태. 여기서 throw 시 finally 가
@@ -267,6 +277,11 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         {
             await foreach (var update in stream.ConfigureAwait(false))
             {
+                if (ttfbMs == null)
+                {
+                    ttfbMs = (int)stopwatch.ElapsedMilliseconds;
+                    Log.Info($"[timing] firstChunk(TTFB) ms={ttfbMs} firstTurn={firstTurn} hasSnapshot={hasSnapshot} snapshotLen={(_stickySnapshot?.Length ?? 0)} historyMsgs={historyForStream.Count}");
+                }
                 collected.Add(update);
 
                 foreach (var content in update.Contents)
@@ -310,6 +325,19 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
                 try
                 {
                     var partial = collected.ToChatResponse();
+                    // 진단 로깅 — Anthropic usage 만 의미 있음. AdditionalCounts 의 cache_creation_input_tokens /
+                    // cache_read_input_tokens 는 Anthropic SDK 어댑터 한정 키. OpenAI / Groq / Ollama
+                    // 호출 시 로깅해도 키가 비거나 다른 의미라 noise. 첫 turn 에는 cache_creation 이 크고
+                    // cache_read=0, 후속 turn 은 그 반대.
+                    if (partial.Usage != null && _providerLabel == ApiProviderFactory.AnthropicProviderLabel)
+                    {
+                        var u = partial.Usage;
+                        var addInfo = "(none)";
+                        if (u.AdditionalCounts != null && u.AdditionalCounts.Count > 0)
+                            addInfo = string.Join(", ", u.AdditionalCounts.Select(kv => $"{kv.Key}={kv.Value}"));
+                        var totalMs = (int)stopwatch.ElapsedMilliseconds;
+                        Log.Info($"[timing] usage input={u.InputTokenCount} output={u.OutputTokenCount} additional=[{addInfo}] firstTurn={firstTurn} ttfbMs={ttfbMs} totalMs={totalMs}");
+                    }
                     foreach (var responseMsg in partial.Messages)
                         _history.Add(responseMsg);
                     assistantAdded = partial.Messages.Count > 0;
@@ -327,7 +355,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             }
         }
 
-        var elapsedMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
+        var elapsedMs = (int)stopwatch.ElapsedMilliseconds;
         yield return LlmEvent.NewSessionEnd(elapsedMs, 0m, isError, stopReason, 0);
     }
 
