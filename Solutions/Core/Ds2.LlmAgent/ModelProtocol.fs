@@ -657,13 +657,15 @@ module ModelProtocol =
 
             // 중복 prefix 검사 — 첫 등장만 채택, 두 번째 이후는 diagnostic 후 skip (Critical 3 fix).
             // 미수정 시 같은 이름 Flow 가 두 번 queueAddFlow 되어 sysEntry.FlowIds 가 두 번째 ID 로 덮어써짐.
-            let seenForDup = HashSet<string>(StringComparer.Ordinal)
-            for (fname, _) in flowKeys do
-                if not (seenForDup.Add fname) then
-                    ctx.Diagnostics.Add(basePath, sprintf "'flow %s' 키 중복." fname)
+            // single-pass: filter 가 dedup 과 diagnostic 동시 수행.
+            let seen = HashSet<string>(StringComparer.Ordinal)
             let dedupedFlowKeys =
-                let seen = HashSet<string>(StringComparer.Ordinal)
-                flowKeys |> List.filter (fun (fname, _) -> seen.Add fname)
+                flowKeys
+                |> List.filter (fun (fname, _) ->
+                    if seen.Add fname then true
+                    else
+                        ctx.Diagnostics.Add(basePath, sprintf "'flow %s' 키 중복." fname)
+                        false)
 
             for (flowName, flowEl) in dedupedFlowKeys do
                 let flowPath = sprintf "%s.flow %s" basePath flowName
@@ -1133,6 +1135,9 @@ module ModelProtocol =
                             w.WriteEndArray()
                     // **Major 2 (review)**: workDuration / opposing override emit — round-trip 보장.
                     // workDuration: passive 내부 Flow 의 첫 Work duration 이 default (500ms) 와 다르면 emit.
+                    // *가정* (W1): sugar (queueAddCylinder/Clamp/Robot/Device) 가 모든 internal Work 를 *동일 duration* 으로 생성.
+                    // 첫 Work duration 만 대표값으로 사용. 후속 cycle 에서 sugar 가 Work 별 다른 duration 을 만드는 케이스
+                    // 도입 시 본 가정 깨짐 — emit 정책 재검토 필요.
                     let internalFlow =
                         Queries.flowsOf s.Id store
                         |> List.tryHead
@@ -1146,12 +1151,11 @@ module ModelProtocol =
                     | _ -> ()
                     // opposing: 내부 Flow 의 ResetReset arrow 갯수 → 추정 → device default 와 다르면 emit.
                     let resetResetCount =
-                        internalFlow
-                        |> Option.map (fun _ ->
+                        if internalFlow.IsSome then
                             Queries.arrowWorksOf s.Id store
                             |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
-                            |> List.length)
-                        |> Option.defaultValue 0
+                            |> List.length
+                        else 0
                     let inferredOpp = inferOpposing apis.Length resetResetCount
                     let defaultOpp = defaultOpposing deviceCase
                     if inferredOpp <> defaultOpp then
