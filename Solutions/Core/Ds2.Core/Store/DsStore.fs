@@ -12,7 +12,7 @@ type DsStore() =
 
     let mutable revision = 0
 
-    // Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
     /// Monotonic mutation counter (runtime-only — 직렬화/디스크 저장 제외).
     /// commit / undo / redo / load / replace 직후 `BumpRevision` 으로 1 증가.
     /// **Read 는 `Volatile.Read` 로 memory ordering 보장** (round-trip §J6 review 반영) — UI dispatcher

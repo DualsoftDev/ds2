@@ -6,7 +6,7 @@ open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.LlmAgent
 
-// Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md §4.1
+// Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md §4.1
 //
 // 본 테스트의 목적 = `StoreSnapshot.render` grammar 와 `RenderSnapshotEnvelope` wire format SSOT 회귀 방어.
 // 출력 변형 시 LLM 의 `3.tooling.md` snapshot 룰 (보이는 block 을 신뢰) 이 의미 불일치를 일으켜

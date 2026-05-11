@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Promaker.Tests;
 
-// Round-trip 최적화 — doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md
+// Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
 //
 // `ApiTurnContentBuilder` (ApiChatProvider 에서 추출된 helper) 의 핵심 분기 회귀 방어.
 // 검증 항목:
