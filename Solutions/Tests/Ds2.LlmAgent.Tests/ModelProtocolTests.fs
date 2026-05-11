@@ -443,11 +443,28 @@ let ``중복 flow 키 → diagnostic + 첫 등장 1번만 queueAddFlow`` () =
 [<InlineData("Group")>]
 [<InlineData("Unspecified")>]
 let ``parseArrowType 6종 모두 round-trip`` (typeName: string) =
-    match ModelProtocol.parseArrowType typeName with
-    | Ok t ->
-        // formatArrowType 는 private — string round-trip 으로 우회 검증.
-        Assert.Equal(typeName, sprintf "%A" t)
-    | Error e -> failwith e
+    // exportToJson 경유 — 실제 emit 경로 (formatArrowType private) 까지 검증.
+    // %A 의존 회피가 본 변경의 핵심이므로 회귀 테스트도 동일 경로 사용.
+    let template = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        A: { calls: [] }
+        B: { calls: [] }
+      arrows:
+        - A -> B : __TYPE__
+"""
+    let yaml = template.Replace("__TYPE__", typeName)
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.GetRawText()
+    let expected = "A -\\u003E B : " + typeName
+    Assert.Contains(expected, json)
 
 // ─── §3.4 patch round-trip — patch.add + patch.arrows.add ───────────────────
 
