@@ -155,13 +155,13 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             _sessionId = Guid.NewGuid().ToString("N");
             Log.Info($"[timing] firstTurn ListToolsAsync elapsedMs={listToolsElapsedMs} toolCount={_cachedTools.Count}");
 
-            // round-trip §5.2 — Anthropic provider 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
+            // round-trip §5.2 / §J2 — Anthropic 호환 wire 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
             // Anthropic SDK 가 Microsoft.Extensions.AI extension 으로 WithCacheControl 을 제공 — 다른 provider
             // (OpenAI/Groq/Ollama) 어댑터에서는 이 attribute 가 raw API body 에 전달되지 않으므로 nop (안전).
-            // snapshot block 까지 별도 cache breakpoint 를 추가하려면 LlmUserMessage 가 multi-content 로 변경되어야
-            // 하므로 본 단계에서는 system prompt + tool schema prefix 까지만 hit (deferred — todo Step 4 후속).
+            // §J2 — label 문자열 비교 대신 Capabilities.SupportsAnthropicCacheControl 비트로 분기 → Bedrock 등
+            // Anthropic 호환 endpoint 추가 시 새 preset 으로 즉시 cache 적용 (silent miss 회피).
             AIContent systemContent = new TextContent(_systemPrompt);
-            if (_providerLabel == ApiProviderFactory.AnthropicProviderLabel)
+            if (_capabilities.SupportsAnthropicCacheControl)
                 systemContent = systemContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
             _history.Add(new ChatMessage(ChatRole.System, new List<AIContent> { systemContent }));
 
@@ -215,12 +215,12 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             var contents = new List<AIContent>();
             if (hasSnapshot)
             {
-                // round-trip §5.2 — snapshot block 끝에 cache_control: ephemeral (Anthropic only). system 의 부착과
-                // 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
+                // round-trip §5.2 / §J2 — snapshot block 끝에 cache_control: ephemeral (Anthropic 호환 wire 만).
+                // system 의 부착과 합쳐 2 breakpoint (4 breakpoint cap 안). 다른 provider 어댑터에서는 silently ignored.
                 // sticky 라 매 turn 동일 내용 → Anthropic prompt cache 의 stable prefix hit. revision 변화 시점에만
-                // miss + 새 cache 시작.
+                // miss + 새 cache 시작. capability 비트 분기 (label 문자열 비교 아님) — §J2 참조.
                 AIContent snapshotContent = new TextContent(_stickySnapshot!);
-                if (_providerLabel == ApiProviderFactory.AnthropicProviderLabel)
+                if (_capabilities.SupportsAnthropicCacheControl)
                     snapshotContent = snapshotContent.WithCacheControl(new Anthropic.Models.Messages.CacheControlEphemeral());
                 contents.Add(snapshotContent);
             }

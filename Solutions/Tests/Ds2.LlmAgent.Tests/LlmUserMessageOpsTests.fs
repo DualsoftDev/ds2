@@ -148,7 +148,8 @@ let ``ImagesOnly + MaxImageBytes None → size 무검사 (cap 미설정 시 통�
           MaxImageBytes = None
           MaxPdfBytes = None
           MaxPdfPages = None
-          MaxAttachmentCount = None }
+          MaxAttachmentCount = None
+          SupportsAnthropicCacheControl = false }
     let bytes = Array.zeroCreate<byte> (100 * 1024 * 1024)  // 100MB — cap None 이면 통과
     let img = Image("huge.png", bytes, Png)
     let msg = LlmUserMessage.Create("x", [| img |])

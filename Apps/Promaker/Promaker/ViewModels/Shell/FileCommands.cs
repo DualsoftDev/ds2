@@ -60,6 +60,7 @@ public partial class MainViewModel
     {
         _store.ClearHistory();
         _currentFilePath = filePath;
+        RecordCurrentFileMTime();
         IsDirty = false;
         HasProject = true;
         LlmChatVm?.OnProjectOpened();
@@ -87,6 +88,7 @@ public partial class MainViewModel
     private void CompleteSave(string filePath, string kind)
     {
         _currentFilePath = filePath;
+        RecordCurrentFileMTime();
         IsDirty = false;
         UpdateTitle();
         StatusText = "Saved.";

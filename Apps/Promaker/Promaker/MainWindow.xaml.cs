@@ -36,6 +36,17 @@ public partial class MainWindow : Window
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
+        Activated += MainWindow_Activated;
+    }
+
+    // 외부 에디터 등으로 파일이 변경된 경우 포커스 복귀 시 사용자 confirm → reload.
+    // Window_Closing / OpenFilePath 와 동일하게 Dispatcher.BeginInvoke(Background) 로 분리 —
+    // activate cycle 안에서 modal Confirm 을 직접 호출하면 nested message pump 위험 + 다중 발화 비용.
+    private void MainWindow_Activated(object? sender, EventArgs e)
+    {
+        _ = Dispatcher.BeginInvoke(
+            new Action(_vm.CheckExternalFileChange),
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private const double LlmChatColumnDefaultWidth = 380.0;
