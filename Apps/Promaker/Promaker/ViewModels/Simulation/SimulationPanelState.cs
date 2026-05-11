@@ -373,6 +373,9 @@ public partial class SimulationPanelState : ObservableObject
     public ObservableCollection<SimLogEntry> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
+
+    /// <summary>앱 전역 log4net 출력 GUI VM (singleton proxy). SimulationPanel 의 Log tab 이 DataContext 경유로 binding.</summary>
+    public Logging.AppLogState AppLog { get; } = Logging.AppLogState.Instance;
     public ThreeDViewState ThreeD { get; } = new();
 
     public void SyncCanvasSelection(IReadOnlyList<SelectionKey> orderedSelection)
