@@ -73,13 +73,13 @@ with
         { Text = text; Attachments = [||]; SnapshotPrefix = None }
 
     /// review m11 — null Attachments 정규화 factory. C# `new LlmUserMessage(text, null)` 같은 경로 방어.
+    /// 2-arg overload 는 snapshot 미첨부 (SnapshotPrefix = None) 의 회귀 호환 helper.
     static member Create(text: string, attachments: Attachment[]) =
-        { Text = text
-          Attachments = if isNull attachments then [||] else attachments
-          SnapshotPrefix = None }
+        LlmUserMessage.Create(text, attachments, null)
 
-    /// round-trip §C1 — snapshot prefix 와 함께 생성. `snapshotPrefix` 가 null/empty 면 `Create` 와 동일.
-    static member CreateWithSnapshot(text: string, attachments: Attachment[], snapshotPrefix: string) =
+    /// round-trip §C1 — snapshot prefix 와 함께 생성. `snapshotPrefix` 가 null/empty 면 SnapshotPrefix=None.
+    /// 호출처는 분기 없이 `Create(text, attachments, envelope)` 한 줄 — envelope=null/empty 면 자동 None.
+    static member Create(text: string, attachments: Attachment[], snapshotPrefix: string) =
         { Text = text
           Attachments = if isNull attachments then [||] else attachments
           SnapshotPrefix = if System.String.IsNullOrEmpty snapshotPrefix then None else Some snapshotPrefix }
