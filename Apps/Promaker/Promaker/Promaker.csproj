@@ -15,6 +15,13 @@
     <OtherFlags>
     </OtherFlags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CS9057: OllamaSharp 5.4.25 의 분석기 어셈블리 OllamaSharp.SourceGenerators.dll 이 Roslyn 5.0.0.0 을
+         요구하지만 현재 .NET SDK 9.0.301 의 Roslyn 은 4.14.0.0. 분석기가 로드되지 않을 뿐 본 코드는
+         [OllamaTool] attribute 미사용 (MCP 경유 tool 호출) — 런타임 무해.
+         **회수 조건** (R7 검증 결과 — 2026-05-11 기준 아래 둘 중 하나 충족 시): (a) .NET SDK 가 Roslyn 5.0+
+         포함 (VS 17.15+ / dotnet SDK 10.x 예상) 으로 업그레이드, 또는 (b) OllamaSharp 가 Roslyn 4.x 호환
+         분석기로 downgrade. 둘 다 미충족 시 NoWarn 유지. -->
+    <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />

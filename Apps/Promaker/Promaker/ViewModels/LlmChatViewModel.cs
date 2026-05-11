@@ -84,6 +84,20 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private CancellationTokenSource? _cts;
     private ChatTurn? _streamingTurn;
 
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
+    // 본 파일 안의 `§3` / `§5.1` / `§C1` / `§M1` 는 모두 위 doc 의 섹션/이슈 ID.
+    /// <summary>
+    /// 마지막 성공 송신 시점의 <see cref="DsStore.Revision"/>. delta-only snapshot 첨부 정책 (§3) —
+    /// 현재 store.Revision 과 다르면 다음 송신에 snapshot 재첨부, 같으면 침묵 (marker 도 미부착).
+    /// in-memory only — app restart / chat history 복원 시 첫 송신에 자동 재첨부 (null 시작).
+    ///
+    /// **갱신 시점**: 송신 성공 (await foreach 정상 종료) 직후. 실패 / cancel 시에는 갱신 안 함 → 재시도 시 재첨부.
+    /// **reset 시점**: <see cref="Reset"/>, <see cref="UpdateStore"/>, provider switch (<see cref="ConfigureProviderAsync"/>),
+    ///   ApplyImportPlan 실패 (round-trip §M1).
+    /// TODO(roundtrip): message edit / regenerate 기능 추가 시 해당 진입점에서도 reset 필요.
+    /// </summary>
+    private int? _lastSentRevision;
+
     /// <summary>
     /// AssistantDelta aggregation buffer. Claude CLI 가 30~60Hz 로 fragment 를 보내면
     /// `_streamingTurn.Text +=` 매 호출이 INotifyPropertyChanged → TextBlock invalidate 를 유발해
@@ -203,6 +217,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             // McpClient + HttpClient 회수까지 같이.
             _cts?.Cancel();
             _provider?.ClearSession();
+            // round-trip §3 — provider switch 는 새 history 시작과 동치 → 새 provider 의 첫 송신에 snapshot 무조건 첨부.
+            _lastSentRevision = null;
             if (_provider is IAsyncDisposable prevAsync)
             {
                 try { await prevAsync.DisposeAsync().ConfigureAwait(true); }
@@ -507,6 +523,25 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         if (textInlines.Length > 0)
             promptForProvider = string.Join("\n\n", textInlines) + "\n\n" + promptForProvider;
 
+        // round-trip §3 / §5.1 — store snapshot delta-only 첨부. revision 변화 시점에만 별도 envelope 으로 첨부.
+        // §C1 — snapshot 은 promptForProvider 본문에 prepend 하지 않고 LlmUserMessage.SnapshotPrefix 로 분리 전달:
+        //   - In-process IChatClient (ApiChatProvider) 가 _history 누적에서 분리하고 본 turn 호출 시점에만
+        //     별도 TextContent 로 prepend (Anthropic 시 cache_control 부착).
+        //   - CLI provider (Claude/Codex) 는 prompt 본문 앞에 단순 prepend (CLI 자체가 history 관리).
+        // §J6 — revision read 와 envelope 빌드 사이 BumpRevision race 차단을 위해 RenderSnapshotEnvelopeAtomic 사용
+        //   (rev, body) 단일 호출 내 캡쳐. 비교용 _store.Revision 도 한 번 더 read 하지만 attach 결정만 하므로 무해.
+        // retry-safe: send 성공 직후에만 _lastSentRevision 갱신 (정상 종료 path 의 finally 직전).
+        var attachSnapshot = _lastSentRevision != _store.Revision;
+        int revisionAtSend = _lastSentRevision ?? -1;
+        string? snapshotEnvelope = null;
+        if (attachSnapshot)
+        {
+            var (rev, body) = _store.RenderSnapshotEnvelopeAtomic();
+            revisionAtSend = rev;
+            snapshotEnvelope = body;
+            Log.Info($"[snapshot] attached revision={rev} prev={_lastSentRevision?.ToString() ?? "null"} length={body.Length}");
+        }
+
         // 비텍스트 첨부 array — provider wire 대상 (commit-6b 까지는 LlmUserMessageOps.WarnUnsupported only).
         var nonTextAttachments = attachmentsSnapshot
             .Where(a => !a.Source.IsTextFile)
@@ -529,14 +564,18 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _cts = new CancellationTokenSource();
         try
         {
-            var msg = LlmUserMessage.Create(promptForProvider, nonTextAttachments);
+            // §C1 — snapshotEnvelope=null 이면 LlmUserMessage.Create overload 가 자동으로 SnapshotPrefix=None 처리.
+            var msg = LlmUserMessage.Create(promptForProvider, nonTextAttachments, snapshotEnvelope);
             var stream = snapshotProvider.Send(msg, _cts.Token);
             await foreach (var evt in stream.ConfigureAwait(true))
             {
                 HandleEvent(evt);
             }
+            // round-trip §3 retry-safe — stream 정상 종료 시점에만 commit. catch / cancel path 에서는 미갱신 → 다음 송신에 동일 snapshot 재첨부.
+            if (attachSnapshot)
+                _lastSentRevision = revisionAtSend;
         }
-        catch (OperationCanceledException) { /* user cancel */ }
+        catch (OperationCanceledException) { /* user cancel — _lastSentRevision 미갱신 */ }
         catch (Exception ex)
         {
             Log.Error("LlmChatViewModel.SendAsync 실패", ex);
@@ -568,6 +607,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 {
                     Log.Error("ApplyImportPlan 실패", ex);
                     AddErrorTurn($"[ApplyImportPlan ERROR] {ex.Message}");
+                    // round-trip §M1 — apply 실패 시 LLM 측은 mutation 성공 가정으로 다음 turn 진입할 수 있는데
+                    // store 는 갱신 안 됨 → BumpRevision 미발동 → _lastSentRevision 비교 무변경 → 다음 turn snapshot
+                    // 미첨부 → LLM 이 stale 가정 그대로. 강제 재첨부로 stale 차단.
+                    _lastSentRevision = null;
                 }
             }
 
@@ -627,6 +670,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         AttachmentNotice = "";
         SessionId = null;
         LastClosedProjectPath = null;
+        // round-trip §3 — 세션 초기화 시 snapshot 재첨부 강제 (새 history 의 첫 turn 에 무조건 snapshot 보냄).
+        _lastSentRevision = null;
         StatusText = "세션 초기화 완료";
     }
 
@@ -704,6 +749,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _provider?.ClearSession();
         _store = newStore;
         SessionId = null;
+        // round-trip §3 — store 인스턴스 자체가 바뀌면 이전 store 의 revision 비교가 의미 없음. 새 store 의 첫 송신에 snapshot 무조건 첨부.
+        _lastSentRevision = null;
         StatusText = "프로젝트 변경 — 다음 turn 부터 새 store 사용";
 
         SubscribeEditorEvents();
