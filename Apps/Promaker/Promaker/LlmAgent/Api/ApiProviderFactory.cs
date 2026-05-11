@@ -38,9 +38,10 @@ public static class ApiProviderFactory
     /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 ProviderCapabilities.DefaultEndpoint 로 흡수.</summary>
     private static readonly Uri GroqEndpoint = new("https://api.groq.com/openai/v1");
 
-    /// <summary>round-trip §M5 (doc: Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md) —
-    /// provider label SSOT. ApiChatProvider 의 cache_control 분기 (Anthropic-only) 가 이 상수를 참조하여
-    /// 라벨 변경 시 silent cache regression 차단.</summary>
+    /// <summary>round-trip §M5 → §J2 — provider label SSOT (logging / EnsureCli 메시지 식별용).
+    /// 과거에는 ApiChatProvider 의 cache_control 분기가 본 라벨 비교에 의존했으나, §J2 이후 분기는
+    /// <see cref="Ds2.LlmAgent.Capabilities.SupportsAnthropicCacheControl"/> 비트로 격상. 본 const 는
+    /// 인스턴스 생성 시 _providerLabel 주입 + 사용자 노출 status 문자열 용도만 남음.</summary>
     public const string AnthropicProviderLabel = "Anthropic";
 
     public static Task<ApiChatProvider> CreateAnthropicAsync(
