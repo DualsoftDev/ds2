@@ -191,6 +191,81 @@ public class ApiTurnContentBuilderTests
         Assert.Equal("application/pdf", data.MediaType);
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // BuildHistoryContents — §R10
+    // ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void BuildHistory_NullSnapshot_ReturnsSinglePromptText()
+    {
+        var contents = ApiTurnContentBuilder.BuildHistoryContents(null, "prompt");
+        Assert.Single(contents);
+        Assert.Equal("prompt", Assert.IsType<TextContent>(contents[0]).Text);
+    }
+
+    [Fact]
+    public void BuildHistory_EmptySnapshot_ReturnsSinglePromptText()
+    {
+        var contents = ApiTurnContentBuilder.BuildHistoryContents(string.Empty, "prompt");
+        Assert.Single(contents);
+        Assert.Equal("prompt", Assert.IsType<TextContent>(contents[0]).Text);
+    }
+
+    [Fact]
+    public void BuildHistory_WithSnapshot_OrdersSnapshotThenPrompt()
+    {
+        var contents = ApiTurnContentBuilder.BuildHistoryContents("<snap rev=1/>", "prompt body");
+        Assert.Equal(2, contents.Count);
+        Assert.Equal("<snap rev=1/>", Assert.IsType<TextContent>(contents[0]).Text);
+        Assert.Equal("prompt body", Assert.IsType<TextContent>(contents[1]).Text);
+    }
+
+    [Fact]
+    public void BuildHistory_OnlyTextContents_NoDataContent()
+    {
+        // attachment bytes 가 history 에 누적되지 않음 (정책 17). BuildMultiContents 와 대조 — 본 helper 는
+        // DataContent 미포함이 invariant. attachment summary 는 caller 가 promptText 에 prepend 후 전달.
+        var contents = ApiTurnContentBuilder.BuildHistoryContents("<snap/>", "summary\nbody");
+        Assert.All(contents, c => Assert.IsType<TextContent>(c));
+    }
+
+    [Fact]
+    public void BuildHistory_DoesNotAttachCacheControl()
+    {
+        // R10 invariant — history 안 user message 에는 cache_control 미부착 (마지막 user 만 부착).
+        // SDK 의 AdditionalProperties 가 비어있는지 검증 (cache_control 부착 시 여기 들어감).
+        var contents = ApiTurnContentBuilder.BuildHistoryContents("<snap/>", "prompt");
+        foreach (var content in contents)
+        {
+            // AdditionalProperties null 또는 cache_control 키 부재 — 둘 다 통과.
+            var hasNoCacheControl =
+                content.AdditionalProperties == null
+                || !content.AdditionalProperties.ContainsKey("cache_control");
+            Assert.True(hasNoCacheControl);
+        }
+    }
+
+    [Fact]
+    public void BuildHistory_SnapshotText_ByteIdentical_ToBuildMulti()
+    {
+        // R10 핵심 invariant — Anthropic prompt cache 의 prefix-match 는 byte-exact 비교.
+        // 동일 sticky snapshot 으로 호출 시 BuildHistoryContents (옛 turn 의 누적) 와
+        // BuildMultiContents (본 turn 의 마지막 user swap) 의 snapshot TextContent.Text 가
+        // 1 byte 라도 다르면 prefix-match 가 깨져 cache miss → hit ratio 손실. drift 방지.
+        const string snapshot = "<store-snapshot revision=\"7\">projects: (empty)</store-snapshot>";
+        const string prompt = "summary\nbody";
+
+        var historyContents = ApiTurnContentBuilder.BuildHistoryContents(snapshot, prompt);
+        var multiContents = ApiTurnContentBuilder.BuildMultiContents(
+            snapshot, prompt, NoAttachments, applyCacheControlForSnapshot: null);
+
+        var historySnapText = Assert.IsType<TextContent>(historyContents[0]).Text;
+        var multiSnapText = Assert.IsType<TextContent>(multiContents[0]).Text;
+        Assert.Equal(historySnapText, multiSnapText);
+        Assert.Same(snapshot, historySnapText); // 동일 string 참조 — 1 byte drift 도 차단.
+        Assert.Same(snapshot, multiSnapText);
+    }
+
     [Fact]
     public void BuildMulti_MixedAttachments_PreservesOrder()
     {
