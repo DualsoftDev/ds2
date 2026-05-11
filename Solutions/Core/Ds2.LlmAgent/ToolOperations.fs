@@ -996,27 +996,48 @@ module ToolOperations =
             Some(prop.GetString())
         else None
 
-    /// Args 의 string array field. 없거나 array 가 아니면 invalidOp.
+    /// Array 이면 그대로 string list, String 이면 JSON array string 으로 한 번 더 parse 하여 list 로 reduce.
+    /// 단일 helper (`AddDevice` 등) 의 `string apiNames (JSON array string)` contract 와 batch 의 array contract 를
+    /// LLM 측에서 혼동했을 때 tolerance — 둘 다 수용. 그 외 ValueKind 는 None (호출자가 reject 메시지 결정).
+    let private tryReadStringArrayProp (prop: JsonElement) (name: string) : string list option =
+        let readArray (arr: JsonElement) =
+            [ for el in arr.EnumerateArray() ->
+                if el.ValueKind <> JsonValueKind.String then
+                    invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
+                el.GetString() ]
+        match prop.ValueKind with
+        | JsonValueKind.Array -> Some(readArray prop)
+        | JsonValueKind.String ->
+            // 정식 형태는 JSON Array literal — 본 string fallback 은 단일 helper contract 와의 호환용 tolerance.
+            // 빈/whitespace string 은 묵시적 empty list 로 흡수하지 않고 명시적 reject — LLM 학습 신호 명확화.
+            let raw = prop.GetString()
+            if isNull raw || raw.Trim() = "" then
+                invalidOp $"VALIDATION_ERROR: args.{name} 가 빈 string 입니다 (array literal 필요)."
+            let innerDoc =
+                try JsonDocument.Parse(raw)
+                with :? JsonException as jex ->
+                    invalidOp $"VALIDATION_ERROR: args.{name} string 안 JSON parse 실패 — {jex.Message}"
+            use _ = innerDoc
+            if innerDoc.RootElement.ValueKind <> JsonValueKind.Array then
+                invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (string 안 ValueKind={innerDoc.RootElement.ValueKind})."
+            Some(readArray innerDoc.RootElement)
+        | _ -> None
+
+    /// Args 의 string array field. 없으면 invalidOp. Array / String(JSON array) 둘 다 수용.
     let private getStringArrayArg (args: JsonElement) (name: string) : string list =
         let mutable prop = JsonElement()
         if args.ValueKind <> JsonValueKind.Object || not (args.TryGetProperty(name, &prop)) then
             invalidOp $"VALIDATION_ERROR: args.{name} 이 존재하지 않습니다."
-        elif prop.ValueKind <> JsonValueKind.Array then
-            invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (ValueKind={prop.ValueKind})."
         else
-            [ for el in prop.EnumerateArray() ->
-                if el.ValueKind <> JsonValueKind.String then
-                    invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
-                el.GetString() ]
+            match tryReadStringArrayProp prop name with
+            | Some xs -> xs
+            | None -> invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (ValueKind={prop.ValueKind})."
 
-    /// Args 의 optional string array field. 없으면 None.
+    /// Args 의 optional string array field. 없으면 None. Array / String(JSON array) 둘 다 수용.
     let private getStringArrayArgOpt (args: JsonElement) (name: string) : string list option =
         let mutable prop = JsonElement()
-        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.Array then
-            Some [ for el in prop.EnumerateArray() ->
-                    if el.ValueKind <> JsonValueKind.String then
-                        invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
-                    el.GetString() ]
+        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) then
+            tryReadStringArrayProp prop name
         else None
 
     /// Args 의 optional int field (workDurationMs 등). 없으면 None.
