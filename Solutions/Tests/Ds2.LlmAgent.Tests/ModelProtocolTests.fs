@@ -289,3 +289,307 @@ systems:
     let advWork = (Queries.worksOf runFlow.Id store) |> List.find (fun w -> w.LocalName = "Adv")
     let calls = Queries.callsOf advWork.Id store
     Assert.Equal(2, calls.Length)
+
+// ─── Review 후속: 누락 parser subset 부정 케이스 (SSOT §2.0) ────────────────
+
+[<Fact>]
+let ``YAML custom tag (!tag) → 거부`` () =
+    // !!str (YAML 2002 표준) 은 implicit 통과. custom !foo 는 거부 대상.
+    let yamlCustom = "protocol: !mytag promaker/v0\nproject: M1\nsystems: []\n"
+    let ex = Assert.Throws<System.InvalidOperationException>(fun () ->
+        use _ = ModelProtocolYaml.yamlToJson yamlCustom
+        ())
+    Assert.Contains("custom tag", ex.Message)
+
+[<Fact>]
+let ``YAML merge key (<<) → 거부`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+base:
+  device: cylinder
+systems:
+  - <<: *base
+    system: Cyl1
+    kind: passive
+"""
+    let ex = Assert.Throws<System.InvalidOperationException>(fun () ->
+        use _ = ModelProtocolYaml.yamlToJson yaml
+        ())
+    // anchor (*base) 가 먼저 트리거되거나 merge key (<<) 둘 중 하나 — 둘 다 거부 대상.
+    Assert.True(ex.Message.Contains("merge key") || ex.Message.Contains("anchor"))
+
+[<Fact>]
+let ``YAML duplicate map key → 거부`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+project: M2
+systems: []
+"""
+    let ex = Assert.Throws<System.InvalidOperationException>(fun () ->
+        use _ = ModelProtocolYaml.yamlToJson yaml
+        ())
+    Assert.Contains("uplicate", ex.Message)  // case-insensitive (YamlDotNet 의 "Duplicate" + 본 module 의 "duplicate" 모두 매칭)
+
+[<Fact>]
+let ``YAML multi-document (---) → 거부`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems: []
+---
+protocol: promaker/v0
+project: M2
+systems: []
+"""
+    let ex = Assert.Throws<System.InvalidOperationException>(fun () ->
+        use _ = ModelProtocolYaml.yamlToJson yaml
+        ())
+    Assert.Contains("multi-document", ex.Message)
+
+// ─── §2.7 룰 #6 — kind 와 키 정합성 ─────────────────────────────────────────
+
+[<Fact>]
+let ``kind=passive 인데 flow 키 존재 → validate 에러`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: P1
+    kind: passive
+    device: cylinder
+    flow Bad:
+      works: {}
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("flow 키 존재", diag.Format())
+
+[<Fact>]
+let ``kind=active 인데 device 키 존재 → validate 에러`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Bad
+    kind: active
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("device 키 존재", diag.Format())
+
+// ─── Critical 2 회귀 — apis: [] 빈 명시 시 default 적용 ─────────────────────
+
+[<Fact>]
+let ``apis: [] 빈 list 명시 시 cylinder default ([ADV;RET]) 적용`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    apis: []
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let projects = Queries.allProjects store
+    let cyl = (Queries.passiveSystemsOf projects.Head.Id store) |> List.head
+    let apis = Queries.apiDefsOf cyl.Id store |> List.map (fun d -> d.Name) |> Set.ofList
+    Assert.Equal<Set<string>>(Set.ofList ["ADV"; "RET"], apis)
+
+// ─── Critical 3 회귀 — 중복 flow 키 시 한 번만 생성 ────────────────────────
+
+[<Fact>]
+let ``중복 flow 키 → diagnostic + 첫 등장 1번만 queueAddFlow`` () =
+    // 동일 raw 키 두 번은 YAML duplicate map key 로 잡힘 → JSON 변환 후 dispatcher 가 보지 못함.
+    // 본 테스트는 *normalize 후 같은 이름* 이 되는 두 키 (e.g. "flow Run" 과 "flow  Run" — 공백 차이)
+    // 가 들어오는 케이스를 시뮬레이션하기 위해 JSON 직접 입력 사용.
+    let json = """
+{
+  "protocol": "promaker/v0",
+  "project": "M1",
+  "systems": [
+    { "system": "Controller", "kind": "active",
+      "flow Run":  { "works": { "A": { "calls": [] } } },
+      "flow  Run": { "works": { "B": { "calls": [] } } }
+    }
+  ]
+}
+"""
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    // diagnostic 에 flow 키 중복 메시지 포함 + plan 에 AddFlow 1 회만
+    Assert.Contains("flow Run", diag.Format())
+    let flowAdds =
+        plan.Operations
+        |> Seq.filter (function AddFlow _ -> true | _ -> false)
+        |> Seq.length
+    Assert.Equal(1, flowAdds)
+
+// ─── ArrowType 6종 round-trip (review m4 정합) ──────────────────────────────
+
+[<Theory>]
+[<InlineData("Start")>]
+[<InlineData("Reset")>]
+[<InlineData("StartReset")>]
+[<InlineData("ResetReset")>]
+[<InlineData("Group")>]
+[<InlineData("Unspecified")>]
+let ``parseArrowType 6종 모두 round-trip`` (typeName: string) =
+    match ModelProtocol.parseArrowType typeName with
+    | Ok t ->
+        // formatArrowType 는 private — string round-trip 으로 우회 검증.
+        Assert.Equal(typeName, sprintf "%A" t)
+    | Error e -> failwith e
+
+// ─── §3.4 patch round-trip — patch.add + patch.arrows.add ───────────────────
+
+[<Fact>]
+let ``§3.4 patch round-trip — Zone 4 추가 시나리오`` () =
+    // 1단계: 베이스 모델 (single zone) apply
+    let baseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Z1_Adv: { calls: [Z1_C1.ADV] }
+        Z1_Ret: { calls: [Z1_C1.RET] }
+      arrows:
+        - Z1_Adv -> Z1_Ret : Start
+  - { system: Z1_C1, kind: passive, device: cylinder }
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store baseYaml
+
+    // 2단계: patch — Zone 4 system 추가 + 같은 Flow 에 arrow 추가
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - { system: Z4_C1, kind: passive, device: cylinder }
+  arrows:
+    add:
+      - in: Controller.Run
+        entries:
+          - Z1_Adv -> Z1_Ret : Reset
+"""
+    let _ = parseApplyCommit store patchYaml
+
+    // 검증: passive 2개 (Z1_C1 + Z4_C1)
+    let projects = Queries.allProjects store
+    let passives = Queries.passiveSystemsOf projects.Head.Id store
+    let names = passives |> List.map (fun s -> s.Name) |> Set.ofList
+    Assert.Equal<Set<string>>(Set.ofList ["Z1_C1"; "Z4_C1"], names)
+    // arrow 2개 (기존 Start + 신규 Reset)
+    let ctrl = (Queries.activeSystemsOf projects.Head.Id store) |> List.head
+    let arrows = Queries.arrowWorksOf ctrl.Id store
+    Assert.Equal(2, arrows.Length)
+    let types = arrows |> List.map (fun a -> a.ArrowType) |> Set.ofList
+    Assert.Equal<Set<ArrowType>>(Set.ofList [ArrowType.Start; ArrowType.Reset], types)
+
+[<Fact>]
+let ``patch.add — 기존 store 의 같은 이름 system 추가 시 친절 에러 (Major 1)`` () =
+    let baseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - { system: Cyl1, kind: passive, device: cylinder }
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store baseYaml
+
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - { system: Cyl1, kind: passive, device: cylinder }
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("이미 존재", diag.Format())
+
+[<Fact>]
+let ``patch.arrows.remove — PoC 미지원 친절 에러`` () =
+    let baseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        A: { calls: [] }
+        B: { calls: [] }
+      arrows:
+        - A -> B : Start
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store baseYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.Run
+        entries:
+          - A -> B
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("PoC 미지원", diag.Format())
+
+// ─── Major 2 회귀 — workDuration / opposing override export round-trip ──────
+
+[<Fact>]
+let ``workDuration override (Active Work) round-trip`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Slow:
+          calls: [Cyl1.ADV]
+          workDuration: 2s
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.GetRawText()
+    Assert.Contains("workDuration", json)
+    Assert.Contains("2s", json)
+
+[<Fact>]
+let ``opposing override (Passive robot = chain) round-trip`` () =
+    // robot 의 default opposing 은 none — chain 으로 override 시 export 가 inferOpposing 으로 chain detect.
+    // (cylinder/clamp 는 sugar 가 opposing 인자 받지 않아 always chain — override 자체 의미 없음.)
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: R1
+    kind: passive
+    device: robot
+    apis: [PICK, PLACE]
+    opposing: chain
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.GetRawText()
+    Assert.Contains("\"opposing\":\"chain\"", json)
