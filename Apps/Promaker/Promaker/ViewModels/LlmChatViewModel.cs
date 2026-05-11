@@ -270,6 +270,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             }
             SendCommand.NotifyCanExecuteChanged();
         }
+        catch (LlmProviderDeclinedException ex)
+        {
+            // 사용자가 동의 다이얼로그에서 "거부" — 정상 흐름. Error 톤 (Log.Error / Error role) 으로 표시하지 않음.
+            if (myCounter != _switchCounter) return;
+            Log.Info($"ConfigureProviderAsync({kind}) declined — {ex.Message}");
+            StatusText = ex.Message;
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = ex.Message });
+            IsReady = false;
+            SendCommand.NotifyCanExecuteChanged();
+        }
         catch (Exception ex)
         {
             if (myCounter != _switchCounter) return;
@@ -280,6 +290,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             SendCommand.NotifyCanExecuteChanged();
         }
     }
+
+    /// <summary>
+    /// 동의 거부 throw 의 공통 메시지 빌더. provider label + 거부 사유 + 통일된 안내 suffix.
+    /// Error 톤이 아닌 정상 흐름이라 sentinel <see cref="LlmProviderDeclinedException"/> 사용.
+    /// </summary>
+    private static LlmProviderDeclinedException ProviderDeclined(string providerLabel, string declineReason) =>
+        new($"{providerLabel} {declineReason} — provider 비활성화. 다른 provider 선택 또는 재선택 시 다이얼로그 다시 표시됩니다.");
 
     private ILlmProvider CreateClaudeProvider()
     {
@@ -309,12 +326,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private ILlmProvider CreateCodexProvider()
     {
         // Codex 추가 권한 동의 — danger-full-access sandbox + ~/.codex/sessions rollout 이 일반 LLM 동의보다
-        // 강한 위임이라 별도 confirm. 거부 시 InvalidOperationException → ConfigureProviderAsync 의 catch 로
-        // 떨어져 StatusText / Turns 에 안내 + IsReady=false.
+        // 강한 위임이라 별도 confirm. 거부 시 LlmProviderDeclinedException → ConfigureProviderAsync catch 의
+        // 별도 분기로 Info + 안내 메시지 처리 (Error 톤 아님).
         if (!LlmConfig.EnsureCodexConsent())
-            throw new InvalidOperationException(
-                "Codex 추가 권한 (danger-full-access sandbox) 동의 미완료 — Codex provider 비활성화. " +
-                "다른 provider (Claude / Anthropic API / OpenAI / Ollama) 로 변경하거나 재시도 시 다이얼로그 다시 표시됩니다.");
+            throw ProviderDeclined("Codex", "추가 권한 (danger-full-access sandbox) 동의 미완료");
 
         // 워크스페이스 디렉토리 + instructions 파일 lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 일괄 삭제.
         // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 워크스페이스 안 .md 파일에 쓰고 path 전달.
@@ -372,6 +387,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     private async Task<ILlmProvider> CreateAnthropicApiProviderAsync()
     {
+        if (!LlmConfig.EnsureApiCostConsent("Anthropic API"))
+            throw ProviderDeclined("Anthropic API", "비용 경고 동의 미완료");
+
         var apiKey = _config.GetApiKey(ApiProviderFactory.AnthropicKey)
                      ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
                      ?? "";
@@ -387,6 +405,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// <summary>OpenAI API provider — 동일 패턴. API key fallback = OPENAI_API_KEY.</summary>
     private async Task<ILlmProvider> CreateOpenAiApiProviderAsync()
     {
+        if (!LlmConfig.EnsureApiCostConsent("OpenAI API"))
+            throw ProviderDeclined("OpenAI API", "비용 경고 동의 미완료");
+
         var apiKey = _config.GetApiKey(ApiProviderFactory.OpenAiKey)
                      ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
                      ?? "";
