@@ -23,6 +23,9 @@ module internal StoreAuthoring =
         | Some ids -> if not (ids.Contains id) then ids.Add(id)
         | None -> ()
 
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
+    // (`§1.3 hook` 표기는 본 doc 참조)
+
     /// 빈번한 일괄 작업 (Wizard Apply 등) 의 노이즈 방지용. 에러 로그는 영향 없음.
     let withTransaction (store: DsStore) (label: string) (action: unit -> 'T) : 'T =
         let editorState = state store
@@ -39,6 +42,9 @@ module internal StoreAuthoring =
                 let result = action()
                 if records.Count > 0 then
                     editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds })
+                    // round-trip §1.3 hook: transaction commit 성공 + 실 변경 발생 시점.
+                    // records.Count = 0 이면 wizard 빈 apply / read-only 등 — store 상태 무변경이므로 ++ skip.
+                    store.BumpRevision()
                 log.Debug($"Executed: {label}")
                 result
             with ex ->
@@ -170,6 +176,8 @@ module internal StoreAuthoring =
                     if tx.AffectedEntityIds.IsEmpty then extractGuidsFromDescriptions tx.Records
                     else tx.AffectedEntityIds
                 store.LastTransactionAffectedIds <- ids
+                // round-trip §1.3 hook: undo / redo 성공 시점. tx 가 pop 된 시점에 이미 실 변경 보장됨.
+                store.BumpRevision()
                 log.Debug($"{label}: {tx.Label}")
             finally
                 emitRefreshAndHistory store
