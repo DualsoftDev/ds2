@@ -122,6 +122,11 @@ public partial class App : Application
 
         ThemeManager.ApplySavedTheme();
 
+        // GUI Log tab 의 AppLogState (singleton + ICollectionView) 를 UI thread 에서 강제 prefetch.
+        // worker thread 의 첫 log 호출이 lazy 생성을 trigger 하면 CollectionView 가 worker SynchronizationContext
+        // 에 묶여 이후 binding 시 NotSupportedException. fatal handler 등록 이후 시점이므로 ctor 예외 시 진단 가능.
+        _ = Promaker.ViewModels.Logging.AppLogState.Instance;
+
         // 1d-5 — 비정상 종료한 이전 Promaker 인스턴스가 남긴 stale .mcp-config 정리.
         // 자기 sessionId + dead pid 또는 mtime > 5분 조건만 (자기 자신 / 다른 user session 보호).
         Promaker.LlmAgent.McpConfigWriter.SweepStale();

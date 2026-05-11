@@ -53,6 +53,17 @@ public sealed class LlmConfig
     [JsonPropertyName("codexConsentTimestampUtc")]
     public string? CodexConsentTimestampUtc { get; set; }
 
+    /// <summary>
+    /// API 모드 (Anthropic / OpenAI) 의 토큰 과금 위험에 대한 사용자 인지 동의. CLI provider (Claude / Codex)
+    /// 는 사용자가 별도 구독하므로 본 flag 와 무관. Ollama 는 local 이라 비용 없음.
+    /// 한 번 동의하면 provider 별 재확인 없이 모든 API 모드 진입 허용.
+    /// </summary>
+    [JsonPropertyName("apiCostConsentGranted")]
+    public bool ApiCostConsentGranted { get; set; }
+
+    [JsonPropertyName("apiCostConsentTimestampUtc")]
+    public string? ApiCostConsentTimestampUtc { get; set; }
+
     // ─── Provider settings ───────────────────────────────────────────────────
 
     /// <summary>시작 시 ComboBox 의 초기 선택값. enum 이름 (Claude / Codex / AnthropicApi / OpenAiApi / Ollama).</summary>
@@ -223,6 +234,52 @@ public sealed class LlmConfig
         return false;
     }
 
+    // ─── API cost consent (Anthropic / OpenAI) ──────────────────────────────
+
+    public bool IsApiCostConsentGranted() => ApiCostConsentGranted;
+
+    public void GrantApiCostConsent()
+    {
+        ApiCostConsentGranted = true;
+        ApiCostConsentTimestampUtc = DateTime.UtcNow.ToString("o");
+        Save();
+        Log.Info($"API cost consent granted — {ConfigPath}");
+    }
+
+    /// <summary>
+    /// API 모드 (Anthropic API / OpenAI API) 첫 선택 시 토큰 과금 경고 다이얼로그. true=granted (이미 또는 신규),
+    /// false=거부 (provider 비활성화). 메인 UI 스레드에서 호출.
+    /// </summary>
+    public static bool EnsureApiCostConsent(string providerLabel)
+    {
+        var config = Load();
+        if (config.IsApiCostConsentGranted()) return true;
+
+        var msg =
+            $"{providerLabel} 는 외부 LLM 서비스의 유료 API 입니다. 사용 시 다음 사항을 인지해 주세요:\n\n" +
+            "  • 매 요청마다 입력/출력 토큰량에 따라 사용자 계정으로 과금됩니다\n" +
+            "  • Promaker 의 system prompt + tool 정의 + 모델 snapshot 이 매 turn 함께 전송되어\n" +
+            "    짧은 사용자 입력에도 수천~수만 토큰이 송신될 수 있습니다\n" +
+            "  • 첨부 파일 (이미지/PDF/텍스트) 은 토큰 사용량을 크게 증가시킵니다\n" +
+            "  • Promaker 는 사용량 / 비용 한도를 제어하지 않으며 책임지지 않습니다\n" +
+            "    — provider 콘솔 (Anthropic Console / OpenAI Platform) 에서 직접 예산/한도 설정 필요\n\n" +
+            "API 모드 사용에 동의하시겠습니까?\n\n" +
+            "(거부 시 본 provider 가 비활성화됩니다. Claude CLI / Codex CLI / Ollama (local) 는 그대로 사용 가능.)";
+
+        var owner = Application.Current?.MainWindow;
+        var result = owner != null
+            ? MessageBox.Show(owner, msg, "API 비용 경고", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+            : MessageBox.Show(msg, "API 비용 경고", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            config.GrantApiCostConsent();
+            return true;
+        }
+        Log.Info("API cost consent declined");
+        return false;
+    }
+
     // ─── API key helpers (DPAPI) ─────────────────────────────────────────────
 
     public string? GetApiKey(string providerKey)
@@ -255,4 +312,14 @@ public sealed class LlmConfig
     }
 
     public bool HasApiKey(string providerKey) => !string.IsNullOrEmpty(GetApiKey(providerKey));
+}
+
+/// <summary>
+/// 사용자가 LLM provider 진입 시 동의 다이얼로그에서 "거부" 를 선택한 경우 throw. 정상 흐름 (사용자 의도) 이므로
+/// <c>ConfigureProviderAsync</c> catch 가 일반 Exception 분기 (Log.Error + 에러 톤) 가 아닌 별도 분기로
+/// Info 레벨 + 안내 메시지로 처리한다.
+/// </summary>
+public sealed class LlmProviderDeclinedException : Exception
+{
+    public LlmProviderDeclinedException(string message) : base(message) { }
 }
