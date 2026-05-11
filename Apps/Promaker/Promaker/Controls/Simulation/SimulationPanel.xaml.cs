@@ -30,6 +30,24 @@ public partial class SimulationPanel : UserControl
             vm.SimEventLog.Clear();
     }
 
+    private void AppLogCopyAll_Click(object sender, RoutedEventArgs e)
+    {
+        CopyToClipboard(AppLogListBox.Items);
+    }
+
+    private void AppLogCopySelected_Click(object sender, RoutedEventArgs e)
+    {
+        CopyToClipboard(AppLogListBox.SelectedItems.Count > 0
+            ? AppLogListBox.SelectedItems
+            : AppLogListBox.Items);
+    }
+
+    private void AppLogClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.SimulationPanelState vm)
+            vm.AppLog.Clear();
+    }
+
     private static void CopyToClipboard(IList items)
     {
         if (items.Count == 0) return;

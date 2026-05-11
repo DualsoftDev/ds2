@@ -43,6 +43,9 @@ public static class SettingsPaths
     /// <summary>사용자 정의 AASX 템플릿 폴더 경로. 폴더 안의 *.aasx 의 모든 SM 이 export 시 자동 첨부.</summary>
     public static string AasxUserTemplatesFolder         => Of("aasxUserTemplatesFolder.txt");
 
+    /// <summary>Log tab ComboBox 의 선택 LogLevelChoice (Debug/Info/Warn). AppLogState 가 세션 간 영속화.</summary>
+    public static string LogFilterLevel                  => Of("logFilterLevel.txt");
+
     /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
     public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
 
