@@ -4,10 +4,10 @@
 // 진짜 store 의 직렬화 결과와 1 byte 단위로 동일하지는 않지만 (escapeXml, sort 순서 등 미세 차이) doc 추정치
 // 검증 용도로는 충분.
 //
-// 사용법:
-//   dotnet fsi measure-snapshot-tokens.fsx                     // 기본 size mix
-//   dotnet fsi measure-snapshot-tokens.fsx 10 30 3             // sys=10, work=30, callPerWork=3
-//   $env:ANTHROPIC_API_KEY="sk-ant-..."; dotnet fsi ...        // 추가로 Anthropic count_tokens 실측
+// 사용법 (repo root 에서):
+//   dotnet fsi Apps/Promaker/Docs/Poc/measure-snapshot-tokens.fsx                  // 기본 size mix
+//   dotnet fsi Apps/Promaker/Docs/Poc/measure-snapshot-tokens.fsx 10 30 3          // sys=10, work=30, callPerWork=3
+//   $env:ANTHROPIC_API_KEY="sk-ant-..."; dotnet fsi ...                            // 추가로 Anthropic count_tokens 실측
 //
 // 출력:
 //   - char count
@@ -23,6 +23,8 @@ open System.Text.Json
 
 // ──────────────────────────────────────────────────────────────────────
 // Synthetic snapshot 생성 — doc §4.1 grammar 직접 emit
+// **drift 시 동기화 책임**: e2e-cache-hit.fsx 의 buildSnapshot 과 의도적 중복.
+// 한쪽 grammar 갱신 시 다른쪽도 같이 갱신할 것. (DLL 의존을 피해 fsx 단독 실행성을 우선한 trade-off)
 // ──────────────────────────────────────────────────────────────────────
 
 type Cfg = {
