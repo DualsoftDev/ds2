@@ -110,7 +110,7 @@ Apps/Promaker/Promaker/
     ├── McpConfigWriter.cs                      atomic Owner-only ACL (FileStream + FileSecurity) + PID 포함 파일명 + SweepStale
     ├── ChildProcessTracker.cs                  Job Object cascade kill (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
     ├── LlmConfig.cs                            consent + API config 통합 (이전 LlmConsent.cs / LlmApiConfig.cs 통합). atomic write + corrupt fallback + DPAPI CurrentUser scope key 보관 + EnsureGranted (Yes/No MessageBox)
-    ├── LlmTurnContext.cs                       turn-scoped (plan / dispatcher / 500ms validate cache / mutation quota=200 + DecrementMutationCount revert)
+    ├── LlmTurnContext.cs                       turn-scoped (plan / dispatcher / 500ms validate cache / mutation quota=2000 + DecrementMutationCount revert)
     ├── LlmTurnContextProvider.cs               McpHostService 의 AddSingleton 등록 — tool method 인자 자동 DI
     ├── PromakerToolNames.cs                    21개 fully-qualified mcp__promaker__* (allowlist SSOT) — list_projects/list_systems/describe_system/describe_subtree/find_by_name/validate_model + apply_operations (Pass 6 batch) + add_project/active_system/passive_system/flow/work/call/api_def/arrow + add_cylinder/clamp/robot/device (extend-mcp Tier 1 helper) + remove_entity/rename_entity
     ├── SystemPrompt.cs                         static readonly = PromptLoader.LoadComposed() 1회 호출. 본문은 외부 `.md` 로 이전
