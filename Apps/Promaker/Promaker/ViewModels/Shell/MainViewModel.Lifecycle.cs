@@ -51,6 +51,7 @@ public partial class MainViewModel
         LlmChatVm?.UpdateStore(_store);
 
         _currentFilePath = null;
+        _currentFileMTime = null;
         IsDirty = false;
         HasProject = false;
         CanUndo = false;

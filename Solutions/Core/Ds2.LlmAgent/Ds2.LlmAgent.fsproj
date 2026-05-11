@@ -26,6 +26,7 @@
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
     <Compile Include="ToolOperations.fs" />
+    <Compile Include="StoreSnapshot.fs" />
   </ItemGroup>
 
   <ItemGroup>

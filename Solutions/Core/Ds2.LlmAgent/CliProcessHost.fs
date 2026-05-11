@@ -94,6 +94,20 @@ module CliProcessHost =
 
         let runProcess () =
             task {
+                // 진단 로깅 (CLI provider 첫 RT 단계별 비용 분리용).
+                // 외부에서 관찰 가능한 시점만 측정 — CLI 내부의 MCP config / system prompt 파일 read /
+                // allowed-tools 등록 비용은 분리 불가능하므로 "firstStdout" 까지가 그 합산 비용으로 잡힘.
+                let timingSw = Stopwatch.StartNew()
+                let mutable processStartedMs : int64 voption = ValueNone
+                let mutable stdinDoneMs : int64 voption = ValueNone
+                let mutable firstStdoutMs : int64 voption = ValueNone
+                let mutable firstSessionStartedMs : int64 voption = ValueNone
+                let mutable firstAssistantMs : int64 voption = ValueNone
+                let mutable firstThinkingMs : int64 voption = ValueNone
+                let mutable firstToolUseMs : int64 voption = ValueNone
+                let mutable firstToolResultMs : int64 voption = ValueNone
+                let mutable exitCodeForLog : int = -1
+
                 let psi = ProcessStartInfo(spec.Executable)
                 for a in spec.Args do psi.ArgumentList.Add(a)
                 psi.RedirectStandardOutput <- true
@@ -131,6 +145,7 @@ module CliProcessHost =
                     | Ok null ->
                         do! writeAsync(ProviderError $"{spec.Label} CLI process 시작 실패 (null process).")
                     | Ok proc ->
+                        processStartedMs <- ValueSome timingSw.ElapsedMilliseconds
                         use p = proc
 
                         // 1d-5 lifecycle hook. 예외는 그대로 escalate — fail-fast (CLAUDE.md 정책).
@@ -168,11 +183,28 @@ module CliProcessHost =
                                         let! l = p.StandardOutput.ReadLineAsync(ct).AsTask()
                                         line <- l
                                         if not (isNull line) then
+                                            if firstStdoutMs.IsNone then
+                                                firstStdoutMs <- ValueSome timingSw.ElapsedMilliseconds
                                             if Log.rawStream.IsDebugEnabled then
                                                 Log.rawStream.Debug(line)
                                             for evt in spec.Parser line do
                                                 match evt with
-                                                | SessionStarted(sid, _, _, _) -> spec.OnSessionStarted sid
+                                                | SessionStarted(sid, _, _, _) ->
+                                                    if firstSessionStartedMs.IsNone then
+                                                        firstSessionStartedMs <- ValueSome timingSw.ElapsedMilliseconds
+                                                    spec.OnSessionStarted sid
+                                                | AssistantDelta _ ->
+                                                    if firstAssistantMs.IsNone then
+                                                        firstAssistantMs <- ValueSome timingSw.ElapsedMilliseconds
+                                                | Thinking _ ->
+                                                    if firstThinkingMs.IsNone then
+                                                        firstThinkingMs <- ValueSome timingSw.ElapsedMilliseconds
+                                                | ToolUse _ ->
+                                                    if firstToolUseMs.IsNone then
+                                                        firstToolUseMs <- ValueSome timingSw.ElapsedMilliseconds
+                                                | ToolResult _ ->
+                                                    if firstToolResultMs.IsNone then
+                                                        firstToolResultMs <- ValueSome timingSw.ElapsedMilliseconds
                                                 | _ -> ()
                                                 do! writeAsync evt
                                 with
@@ -191,6 +223,7 @@ module CliProcessHost =
                                     try
                                         do! p.StandardInput.WriteAsync(text.AsMemory(), ct)
                                         p.StandardInput.Close()
+                                        stdinDoneMs <- ValueSome timingSw.ElapsedMilliseconds
                                     with
                                     | :? OperationCanceledException -> ()
                                     | ex -> Log.provider.Warn("stdin task 실패", ex)
@@ -207,6 +240,7 @@ module CliProcessHost =
                             try
                                 let! _ = Task.WhenAll(stdoutTask :> Task, stderrTask :> Task, stdinTask :> Task)
                                 p.WaitForExit()
+                                exitCodeForLog <- p.ExitCode
                                 if p.ExitCode <> 0 then
                                     // M11 — stderr suffix 사용자 노출 시 secret 토큰 redact + 200자 cap.
                                     // CLI 가 향후 인증 토큰 / API key 를 stderr 로 leak 하는 회귀 대비.
@@ -222,6 +256,39 @@ module CliProcessHost =
                 finally
                     try spec.OnFinally()
                     with ex -> Log.provider.Warn($"{spec.Label} OnFinally cleanup 실패: {ex.Message}", ex)
+                    // 진단 로깅 — CLI provider 단계별 wall-clock (timingSw 기점 누적). 모든 경로
+                    // (정상 / cancel / fault / spawn 실패) 에서 1회 출력. ValueNone 은 "-" 로 표기.
+                    let fmt (v: int64 voption) =
+                        match v with
+                        | ValueSome x -> string x
+                        | ValueNone -> "-"
+                    let stdinLen =
+                        match spec.Stdin with
+                        | Some s -> s.Length
+                        | None -> 0
+                    let totalMs = timingSw.ElapsedMilliseconds
+                    // exit code 표기 분기: -1 sentinel 은 spawn 자체가 실패한 경우 (Process.Start 가
+                    // Error / null 반환 → exit 분기 진입 못함) vs 정상 종료 후 exit code. 후속 로그
+                    // 분석 시 spawn-failed / canceled / 정상 종료를 구분 가능하도록 문자열 sentinel 사용.
+                    let exitStr =
+                        if exitCodeForLog = -1 then
+                            if ct.IsCancellationRequested then "canceled"
+                            else "spawn-failed"
+                        else string exitCodeForLog
+                    Log.provider.Info(
+                        sprintf "[timing] %s spawn=%s stdinDone=%s firstStdout=%s firstSession=%s firstAssistant=%s firstThinking=%s firstToolUse=%s firstToolResult=%s total=%dms stdinLen=%d exit=%s"
+                            spec.Label
+                            (fmt processStartedMs)
+                            (fmt stdinDoneMs)
+                            (fmt firstStdoutMs)
+                            (fmt firstSessionStartedMs)
+                            (fmt firstAssistantMs)
+                            (fmt firstThinkingMs)
+                            (fmt firstToolUseMs)
+                            (fmt firstToolResultMs)
+                            totalMs
+                            stdinLen
+                            exitStr)
                     writer.TryComplete() |> ignore
             }
 
