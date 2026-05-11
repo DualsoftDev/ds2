@@ -51,10 +51,10 @@ module ToolOperations =
     let NameMaxLength = 128
 
     /// helper cascade quota 사전 reject 기준 — `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs:24`
-    /// `MutationQuota = 50` 과 sync. 변경 시 양쪽 동시 수정 (drift 시 helper 가 quota 초과 op 를
+    /// `MutationQuota = 200` 과 sync. 변경 시 양쪽 동시 수정 (drift 시 helper 가 quota 초과 op 를
     /// dispatch 시점에 reject 못하고 batch 도중 RuntimeException 회귀 위험).
     [<Literal>]
-    let MutationQuotaSync = 50
+    let MutationQuotaSync = 200
 
     /// (review M3 SSOT) helper cascade 의 op 수 산식 — System + Flow + Work×N + ApiDef×N + Arrow×wiring.
     /// none: `3 + 2N` / chain: `3 + 2N + (N-1)` / all-pairs: `3 + 2N + N(N-1)/2`.
@@ -1068,6 +1068,15 @@ module ToolOperations =
         let err = sanitizeName value field NameMaxLength
         if err <> "" then invalidOp err
 
+    /// helper cascade 의 ApiDef (name * Guid) list 를 batch 응답 Display 에 노출하기 위한 포맷.
+    /// `apiDefs=[ADV:<guid>, RET:<guid>]` 형태 — 다음 turn 의 add_call 이 describe_system read 없이도
+    /// ApiDef GUID 를 그대로 참조 가능하게 함 (round-trip 절감).
+    let private formatApiDefIds (apiDefIds: (string * Guid) list) =
+        apiDefIds
+        |> List.map (fun (n, id) -> sprintf "%s:%s" n (id.ToString("D")))
+        |> String.concat ", "
+        |> sprintf "[%s]"
+
     /// queueBatch op 1개 dispatch.
     /// 반환 = (primaryId option, (refName * Guid) list, display).
     /// primaryId = add_* op 의 결과 Guid (BatchOpResult.Id 로 노출, op.Ref 유무와 무관).
@@ -1157,7 +1166,7 @@ module ToolOperations =
                 match apiDefIds with
                 | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
                 | _ -> invalidOp $"INTERNAL: add_cylinder cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
-            Some sysId, mainRef sysId @ apiPairs, $"add_cylinder name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length}"
+            Some sysId, mainRef sysId @ apiPairs, $"add_cylinder name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds}"
         | "add_clamp" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
@@ -1173,7 +1182,7 @@ module ToolOperations =
                 match apiDefIds with
                 | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
                 | _ -> invalidOp $"INTERNAL: add_clamp cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
-            Some sysId, mainRef sysId @ apiPairs, $"add_clamp name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length}"
+            Some sysId, mainRef sysId @ apiPairs, $"add_clamp name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds}"
         | "add_robot" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
@@ -1191,7 +1200,7 @@ module ToolOperations =
             let (sysId, apiDefIds) = queueAddRobot plan store (name.Trim()) apiNames opposing (parseDuration())
             let apiPairs =
                 List.zip apiDefRefs (apiDefIds |> List.map snd)
-            Some sysId, mainRef sysId @ apiPairs, $"add_robot name=\"{name.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length} opposing={opposing}"
+            Some sysId, mainRef sysId @ apiPairs, $"add_robot name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds} opposing={opposing}"
         | "add_device" ->
             let name = getStringArg op.Args "name"
             sanitizeOrThrow name "name"
@@ -1210,7 +1219,7 @@ module ToolOperations =
                 queueAddDevice plan store (name.Trim()) (deviceType.Trim()) apiNames opposing (parseDuration())
             let apiPairs =
                 List.zip apiDefRefs (apiDefIds |> List.map snd)
-            Some sysId, mainRef sysId @ apiPairs, $"add_device name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={sysId:D} apiDefs={apiDefIds.Length} opposing={opposing}"
+            Some sysId, mainRef sysId @ apiPairs, $"add_device name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds} opposing={opposing}"
         | "remove_entity" ->
             let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
             let kind = queueRemoveEntity plan store entityId

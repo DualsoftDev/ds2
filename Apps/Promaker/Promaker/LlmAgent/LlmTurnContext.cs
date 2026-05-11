@@ -21,9 +21,11 @@ public sealed class LlmTurnContext
     public int MutationCallCount { get; private set; }
 
     /// <summary>turn 당 mutation tool quota. 초과 시 invoker 가 거부.</summary>
-    public int MutationQuota { get; init; } = 50;
+    public int MutationQuota { get; init; } = 200;
 
-    /// <summary>quota 한 번 초과되면 같은 turn 의 후속 mutation 호출을 fast-fail. retry 폭주 방어.</summary>
+    /// <summary>quota 한 번 초과되면 같은 turn 의 후속 mutation 호출을 fast-fail. retry 폭주 방어.
+    /// 단 <see cref="DecrementMutationCount"/> 에 의한 사전 charge revert 후 counter 가 한도 이하로
+    /// 떨어지면 자동 해제 (1차 validation 실패 후 정상 재시도 정당성).</summary>
     public bool IsQuotaExceeded { get; private set; }
 
     /// <summary>validate_model 결과 short-lived cache TTL (ms). spam 방어용 — 너무 길면 store 변경 후
@@ -45,7 +47,7 @@ public sealed class LlmTurnContext
     /// <summary>
     /// mutation tool handler 가 호출 직전 quota 체크. 초과 시 <see cref="QuotaExceededException"/>.
     /// <paramref name="delta"/> = 이번 호출이 소비할 mutation op 갯수. 단일 tool = 1, batch tool = batch 안 op 수.
-    /// (review C1) batch 1회 = quota 1 로 간주하면 100 op 단발 호출이 quota 50 cap 을 우회 → DoS 표면.
+    /// (review C1) batch 1회 = quota 1 로 간주하면 대량 op 단발 호출이 quota cap 을 우회 → DoS 표면.
     /// </summary>
     internal void IncrementMutationCount(int delta = 1)
     {
@@ -60,6 +62,23 @@ public sealed class LlmTurnContext
             throw new QuotaExceededException(
                 $"QUOTA_EXCEEDED: turn 당 mutation op 누적이 quota ({MutationQuota}) 를 초과했습니다 (현재 {MutationCallCount}). 이 turn 의 후속 mutation 은 거부됩니다 — 응답을 마치고 다음 turn 에서 작업을 분할하세요.");
         }
+    }
+
+    /// <summary>
+    /// 사전 charge 후 후속 작업이 throw (validation / sanitize / batch 실패) 시 quota counter 를 revert.
+    /// 1차 시도 실패가 quota 를 먹어버려 정상 재시도가 차단되는 회귀를 방어.
+    /// `ModelTools.RunMutation` 진입 +1, `ApplyOperations` batch 사전 charge, helper cascade 사전 charge
+    /// 의 catch path 모두에서 호출 (path-symmetric).
+    /// <paramref name="delta"/> &lt; 1 은 silent no-op (호출자 단순화 — <see cref="IncrementMutationCount"/>
+    /// 와 짝이 되는 invariant 가 아닌 *revert* 의미라 음수/0 은 의도된 부작용 없음).
+    /// quota 초과 flag 도 revert 후 한도 이하이면 해제 (재시도 정당).
+    /// </summary>
+    internal void DecrementMutationCount(int delta)
+    {
+        if (delta < 1) return;
+        MutationCallCount = Math.Max(0, MutationCallCount - delta);
+        if (IsQuotaExceeded && MutationCallCount <= MutationQuota)
+            IsQuotaExceeded = false;
     }
 
     /// <summary>validate_model cache lookup. 만료 또는 다른 scope 면 null.</summary>

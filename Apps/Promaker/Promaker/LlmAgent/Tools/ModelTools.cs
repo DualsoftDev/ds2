@@ -104,15 +104,42 @@ public static class ModelTools
         || ex is OperationCanceledException
         || ex is FormatException;
 
+    /// <summary>
+    /// quota 사전 charge 후 work 실행, work 가 throw 시 charge 분 revert.
+    /// <see cref="LlmTurnContext.IncrementMutationCount"/> 자체가 quota 초과로 throw 한 경우는 `entryCharged=false`
+    /// 라 revert 0 — 가산되지 않은 분 over-revert 방지 (M-B 회귀 차단).
+    /// `extraDelta &lt;= 0` 이면 charge 생략하고 work 만 실행 (cascade=1 single-op helper 의 trivial 경로).
+    /// </summary>
+    private static T RunWithChargedQuota<T>(LlmTurnContext ctx, int extraDelta, Func<T> work)
+    {
+        if (extraDelta <= 0) return work();
+        bool charged = false;
+        try
+        {
+            ctx.IncrementMutationCount(extraDelta);
+            charged = true;
+            return work();
+        }
+        catch
+        {
+            if (charged) ctx.DecrementMutationCount(extraDelta);
+            throw;
+        }
+    }
+
     private static async Task<string> RunMutation(
         LlmTurnContextProvider turnProvider, string toolName,
         Func<LlmTurnContext, string> work)
     {
         var ctx = turnProvider.Current ?? throw new InvalidOperationException("활성 turn 이 없습니다.");
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        // (A path-symmetric) 진입 +1 도 work delegate 가 throw 하면 revert — single helper / batch 의 cascade revert 와 일관.
+        // IncrementMutationCount 가 quota 초과로 throw 한 경우 entryCharged=false 라 revert 0 (M-B 회귀 차단).
+        bool entryCharged = false;
         try
         {
             ctx.IncrementMutationCount();
+            entryCharged = true;
             var msg = await ctx.Dispatcher.InvokeAsync(() => work(ctx));
             ToolCallLog.Info($"{toolName} ok elapsedMs={sw.ElapsedMilliseconds} planSize={ctx.Plan.Count}");
             return msg;
@@ -121,11 +148,14 @@ public static class ModelTools
         {
             // QUOTA_EXCEEDED 는 system policy — VALIDATION_ERROR 와 prefix 분리해 LLM retry 폭주 방지.
             // ctx.IsQuotaExceeded 가 set 된 후라 동일 turn 의 후속 mutation 호출은 즉시 fast-fail.
+            // revert 후 counter 가 한도 이하이면 IsQuotaExceeded 자동 해제 (재시도 정당) — DecrementMutationCount 참조.
+            if (entryCharged) ctx.DecrementMutationCount(1);
             ToolCallLog.Warn($"{toolName} quota exceeded elapsedMs={sw.ElapsedMilliseconds}: {qex.Message}");
             return EnsureErrorPrefix(qex.Message);
         }
         catch (Exception ex) when (IsRecoverableToolException(ex))
         {
+            if (entryCharged) ctx.DecrementMutationCount(1);
             ToolCallLog.Warn($"{toolName} 실패 elapsedMs={sw.ElapsedMilliseconds}: {ex.Message}");
             return EnsureErrorPrefix(ex.Message);
         }
@@ -201,23 +231,52 @@ public static class ModelTools
                 }
 
                 // (review C1) batch 안 op 수만큼 quota 추가 charge — RunMutation 진입에서 +1 했으므로 (length-1) 만 추가.
-                // batch 1회 = quota 1 로 두면 100 op 단발 호출이 quota cap 을 우회 → DoS 표면.
-                if (inputs.Length > 1)
-                    ctx.IncrementMutationCount(inputs.Length - 1);
-                // **extend-mcp D8 batch 경로** (todo §3.1 D8 ② / §5.4 (4)): inputs walk 하며 helper op 별 cascade op 수
-                // 사전 합산 차감 (이미 input 1개로 +1 카운트되어 있으므로 -1 추가). dispatch *진입 전* 사전 reject 하여
-                // op[0] 부분 적용 회피. 산식 = §4.3 (none/chain/all-pairs).
-                foreach (var input in inputs)
+                // batch 1회 = quota 1 로 두면 대량 op 단발 호출이 quota cap 을 우회 → DoS 표면.
+                // (A) 사전 charge 누적량 추적 → queueBatch 실패 (validation / sanitize) 시 revert.
+                // 1차 시도 실패가 quota 를 먹어버려 정상 재시도가 차단되는 회귀 방어.
+                // **순서 규칙 (M-B)**: batchExtraCharged += delta 를 IncrementMutationCount 성공 *직후* 에 누적 —
+                // Increment 가 quota 초과 (IsQuotaExceeded 가드) 로 throw 한 경우 가산 자체가 없으므로 누적 안 함 →
+                // catch 에서 over-revert 발생하지 않음 (counter 0 reset → IsQuotaExceeded auto-reset → DoS 표면 회귀 차단).
+                int batchExtraCharged = 0;
+                try
                 {
-                    if (IsHelperOp(input.Op))
+                    if (inputs.Length > 1)
                     {
-                        int cascadeOpCount = CalcCascadeOpCount(input);
-                        if (cascadeOpCount > 1)
-                            ctx.IncrementMutationCount(cascadeOpCount - 1);
+                        ctx.IncrementMutationCount(inputs.Length - 1);
+                        batchExtraCharged += inputs.Length - 1;
                     }
+                    // **extend-mcp D8 batch 경로** (todo §3.1 D8 ② / §5.4 (4)): inputs walk 하며 helper op 별 cascade op 수
+                    // 사전 합산 차감 (이미 input 1개로 +1 카운트되어 있으므로 -1 추가). dispatch *진입 전* 사전 reject 하여
+                    // op[0] 부분 적용 회피. 산식 = §4.3 (none/chain/all-pairs).
+                    foreach (var input in inputs)
+                    {
+                        if (IsHelperOp(input.Op))
+                        {
+                            int cascadeOpCount = CalcCascadeOpCount(input);
+                            if (cascadeOpCount > 1)
+                            {
+                                ctx.IncrementMutationCount(cascadeOpCount - 1);
+                                batchExtraCharged += cascadeOpCount - 1;
+                            }
+                        }
+                    }
+                    var result = ToolOperations.queueBatch(ctx.Plan, ctx.Store, inputs);
+                    if (!result.IsOk)
+                    {
+                        // queueBatch 실패 → throw 로 통일해 RunMutation catch 가 진입 +1 도 함께 revert (path-symmetric).
+                        // FormatBatchResult 의 BATCH_ERROR 메시지를 그대로 InvalidOperationException 에 담음.
+                        throw new InvalidOperationException(FormatBatchResult(result, ctx.Plan.Count));
+                    }
+                    return FormatBatchResult(result, ctx.Plan.Count);
                 }
-                var result = ToolOperations.queueBatch(ctx.Plan, ctx.Store, inputs);
-                return FormatBatchResult(result, ctx.Plan.Count);
+                catch
+                {
+                    // 사전 charge 도중 throw / queueBatch IsError throw — batchExtra revert 후 재전파.
+                    // 진입 +1 revert 는 RunMutation 의 catch 가 담당 (path-symmetric).
+                    if (batchExtraCharged > 0)
+                        ctx.DecrementMutationCount(batchExtraCharged);
+                    throw;
+                }
             }
         });
     }
@@ -474,6 +533,10 @@ public static class ModelTools
     // single 호출의 apiDef*Ref / apiDefRefs 인자는 *naming hint* 용 — batch ref table 부재 (반환 메시지에 mapping 노출).
     // batch 호출 시에는 dispatchBatchOp 가 ref table 에 sub-ref 다중 등록 (D6 ref-required).
 
+    /// <summary>
+    /// (M-C) F# `formatApiDefIds` 와 동일 포맷 (`name:guid`) — single helper 응답과 batch dispatch Display
+    /// 의 drift 제거. 3.tooling.md 의 prompt 명세 ("apiDefs=[name:guid, ...]") 와 일치.
+    /// </summary>
     private static string FormatApiDefMapping(IEnumerable<Tuple<string, Guid>> apiDefIds)
     {
         var sb = new StringBuilder();
@@ -481,7 +544,7 @@ public static class ModelTools
         foreach (var pair in apiDefIds)
         {
             if (!first) sb.Append(", ");
-            sb.Append($"{pair.Item1}={pair.Item2:D}");
+            sb.Append($"{pair.Item1}:{pair.Item2:D}");
             first = false;
         }
         return sb.ToString();
@@ -521,27 +584,29 @@ public static class ModelTools
         if (apiDef1Ref.Trim() == apiDef2Ref.Trim())
             throw new InvalidOperationException($"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref.Trim()}').");
         // D8 quota 추가 차감 — N=2 chain = 8 op (RunMutation +1 후 -1 = +7). 산식 SSOT = F# cascadeOpCount.
+        // (M-A path-symmetric) RunWithChargedQuota — queue* throw 시 cascade-1 revert.
         int cascadeOps = ToolOperations.cascadeOpCount(2, "chain");
-        if (cascadeOps > 1)
-            ctx.IncrementMutationCount(cascadeOps - 1);
-        var names = ParseStringArrayArg(apiNames, "apiNames");
-        var (sysId, apiDefIds) = toolName switch
+        return RunWithChargedQuota(ctx, cascadeOps - 1, () =>
         {
-            "add_cylinder" => ToolOperations.queueAddCylinder(
-                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
-            "add_clamp" => ToolOperations.queueAddClamp(
-                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
-            _ => throw new InvalidOperationException($"INTERNAL_ERROR: paired helper 미지원 toolName '{toolName}'."),
-        };
-        var pairs = new List<Tuple<string, Guid>>();
-        int idx = 0;
-        foreach (var pair in apiDefIds)
-        {
-            var refName = idx == 0 ? apiDef1Ref.Trim() : apiDef2Ref.Trim();
-            pairs.Add(Tuple.Create(refName, pair.Item2));
-            idx++;
-        }
-        return $"[plan] {toolName} queued: name=\"{name.Trim()}\", id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], planSize={ctx.Plan.Count}{PlanVisibilityHint}";
+            var names = ParseStringArrayArg(apiNames, "apiNames");
+            var (sysId, apiDefIds) = toolName switch
+            {
+                "add_cylinder" => ToolOperations.queueAddCylinder(
+                    ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
+                "add_clamp" => ToolOperations.queueAddClamp(
+                    ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), ParseDurationMs(workDurationMs)),
+                _ => throw new InvalidOperationException($"INTERNAL_ERROR: paired helper 미지원 toolName '{toolName}'."),
+            };
+            var pairs = new List<Tuple<string, Guid>>();
+            int idx = 0;
+            foreach (var pair in apiDefIds)
+            {
+                var refName = idx == 0 ? apiDef1Ref.Trim() : apiDef2Ref.Trim();
+                pairs.Add(Tuple.Create(refName, pair.Item2));
+                idx++;
+            }
+            return $"[plan] {toolName} queued: name=\"{name.Trim()}\", id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], planSize={ctx.Plan.Count}{PlanVisibilityHint}";
+        });
     }
 
     /// <summary>
@@ -572,23 +637,25 @@ public static class ModelTools
                 throw new InvalidOperationException($"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다.");
         }
         // D8 quota 사전 차감 — 산식 SSOT = F# cascadeOpCount.
+        // (M-A path-symmetric) RunWithChargedQuota — queue* throw 시 cascade-1 revert.
         int cascadeOps = ToolOperations.cascadeOpCount(names.Count, opposingNorm);
-        if (cascadeOps > 1)
-            ctx.IncrementMutationCount(cascadeOps - 1);
-        var (sysId, apiDefIds) = deviceTypeOrNull == null
-            ? ToolOperations.queueAddRobot(
-                ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs))
-            : ToolOperations.queueAddDevice(
-                ctx.Plan, ctx.Store, name.Trim(), deviceTypeOrNull.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs));
-        var pairs = new List<Tuple<string, Guid>>();
-        int idx = 0;
-        foreach (var pair in apiDefIds)
+        return RunWithChargedQuota(ctx, cascadeOps - 1, () =>
         {
-            pairs.Add(Tuple.Create(refs[idx], pair.Item2));
-            idx++;
-        }
-        var dtSuffix = deviceTypeOrNull != null ? $", deviceType=\"{deviceTypeOrNull.Trim()}\"" : "";
-        return $"[plan] {toolName} queued: name=\"{name.Trim()}\"{dtSuffix}, id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], opposing={opposingNorm}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
+            var (sysId, apiDefIds) = deviceTypeOrNull == null
+                ? ToolOperations.queueAddRobot(
+                    ctx.Plan, ctx.Store, name.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs))
+                : ToolOperations.queueAddDevice(
+                    ctx.Plan, ctx.Store, name.Trim(), deviceTypeOrNull.Trim(), ToFSharpList(names), opposingNorm, ParseDurationMs(workDurationMs));
+            var pairs = new List<Tuple<string, Guid>>();
+            int idx = 0;
+            foreach (var pair in apiDefIds)
+            {
+                pairs.Add(Tuple.Create(refs[idx], pair.Item2));
+                idx++;
+            }
+            var dtSuffix = deviceTypeOrNull != null ? $", deviceType=\"{deviceTypeOrNull.Trim()}\"" : "";
+            return $"[plan] {toolName} queued: name=\"{name.Trim()}\"{dtSuffix}, id={sysId:D}, apiDefs=[{FormatApiDefMapping(pairs)}], opposing={opposingNorm}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
+        });
     }
 
     [McpServerTool, Description("Cylinder 디바이스 (PassiveSystem + Flow + Work×2 + ApiDef×2 + ResetReset Arrow) cascade 를 1 op 로 추가합니다. SystemType='Unit', apiNames default ['ADV','RET'], workDuration default 500ms. apiDef1Ref / apiDef2Ref 는 batch 안 sub-ref 등록용 (D6 ref-required) — single 호출 시에도 인자는 받지만 반환 메시지에 mapping 노출. 반환: PassiveSystem Id + ApiDef Id mapping. **batch 권장 — apply_operations 안에서 ref 로 후속 add_call 의 apiDefId 참조**.")]
