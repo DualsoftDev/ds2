@@ -60,7 +60,13 @@ public partial class PropertyPanel : UserControl
                 noContent
                 || (e.Delta > 0 && atTop)
                 || (e.Delta < 0 && atBottom);
-            if (!delegateOut) return;   // 내부가 처리하도록 둠.
+            if (!delegateOut)
+            {
+                // 내부 ScrollViewer 가 처리. 외부로 전달되지 않도록 직접 스크롤 후 소진.
+                inner.ScrollToVerticalOffset(inner.VerticalOffset - e.Delta);
+                e.Handled = true;
+                return;
+            }
         }
         // 외부 ScrollViewer 스크롤 + 이벤트 소진 (내부 재발생 방지).
         PropertyScroll.ScrollToVerticalOffset(PropertyScroll.VerticalOffset - e.Delta);

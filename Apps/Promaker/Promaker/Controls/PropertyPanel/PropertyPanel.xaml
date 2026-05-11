@@ -149,40 +149,43 @@
                                     </Grid>
                                 </Border>
 
-                                <ItemsControl Grid.Row="1"
-                                              ItemsSource="{Binding SystemApiDefs}"
+                                <ScrollViewer Grid.Row="1"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
                                               MinHeight="40" MaxHeight="200">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="4,2">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0"
-                                                           Text="{Binding Name}"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="11"/>
-                                                <Button Grid.Column="1"
-                                                        Content="✎"
-                                                        ToolTip="Edit ApiDef"
-                                                        Style="{StaticResource InlineListButton}"
-                                                        Margin="4,0,0,0"
-                                                        Command="{Binding DataContext.EditSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"/>
-                                                <Button Grid.Column="2"
-                                                        Content="×"
-                                                        ToolTip="Delete ApiDef"
-                                                        Style="{StaticResource InlineListButton}"
-                                                        Margin="2,0,0,0"
-                                                        Foreground="{DynamicResource RedAccentBrush}"
-                                                        Command="{Binding DataContext.DeleteSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding SystemApiDefs}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="4,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding Name}"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="11"/>
+                                                    <Button Grid.Column="1"
+                                                            Content="✎"
+                                                            ToolTip="Edit ApiDef"
+                                                            Style="{StaticResource InlineListButton}"
+                                                            Margin="4,0,0,0"
+                                                            Command="{Binding DataContext.EditSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <Button Grid.Column="2"
+                                                            Content="×"
+                                                            ToolTip="Delete ApiDef"
+                                                            Style="{StaticResource InlineListButton}"
+                                                            Margin="2,0,0,0"
+                                                            Foreground="{DynamicResource RedAccentBrush}"
+                                                            Command="{Binding DataContext.DeleteSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </Grid>
                         </Border>
                         <Separator Margin="0,4"/>
