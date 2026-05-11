@@ -95,6 +95,9 @@ public partial class MainWindow : Window
     /// </summary>
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
+        // 재진입 사이클(BeginInvoke(Close))에서는 dirty 다이얼로그 재차 띄우지 않고 통과.
+        if (_llmChatDisposed) return;
+
         // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
         // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
         if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
@@ -102,7 +105,6 @@ public partial class MainWindow : Window
             e.Cancel = true;
             return;
         }
-        if (_llmChatDisposed) return;
 
         e.Cancel = true;
         _llmChatDisposed = true;
