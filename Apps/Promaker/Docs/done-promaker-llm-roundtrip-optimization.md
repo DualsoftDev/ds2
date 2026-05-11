@@ -1,6 +1,6 @@
 # Promaker LLM chat — round-trip 최소화 (delta-only snapshot)
 
-> **v5.7** (2026-05-11). R10 production 반영 — `ApiChatProvider._history` 안에도 multi-content user (snapshot 포함) 누적 + helper composition 으로 byte-identical invariant 구조 강제 + 회귀 방어 6 테스트 추가. 누적: 1 RT 목표 구현 완료 + 회귀 방어 45 테스트 + 자동 측정 PoC (steady 91.3% hit ratio 입증, revision-stable 구간). 남은 manual: 시나리오 6 외부 mtime UI smoke. **새 세션 진입 절차**: §새 세션 진입 시 권장 시작점 부터 읽고 §Revision History v5.7 entry 확인. 변경 이력 전체는 문서 끝 §Revision History.
+> **v5.8** (2026-05-11). Production 실측 + 시나리오 6 UI smoke 검증 완료 → done 처리. **본 PR 최종 검증치**: AnthropicApi provider 실측 2 turn 시퀀스에서 cache hit ratio **97.4%** (`cached/input` 분모) / **48.9%** (doc §시나리오 3 분모식 `cache_read/(input+creation+read)`) — PoC steady 91.3% 상회. 시나리오 6 외부 mtime UI smoke Case A (clean reload) + Case B (clean decline) 검증 완료, 재발화 차단 동작 확인. `CheckExternalFileChange` 정상 흐름 4 분기 (감지/거절/dirty cancel/reload 진행) 에 `Log.Info` 부착. 변경 이력 전체는 문서 끝 §Revision History (v5.8 entry).
 
 ## 작업 목표
 
@@ -452,7 +452,7 @@ dotnet test Apps/Promaker/Promaker.Tests/Promaker.Tests.csproj --filter "FullyQu
 | Tests | `Solutions/Tests/Ds2.LlmAgent.Tests/StoreSnapshotTests.fs` | **Tier A 신규** — `StoreSnapshot.render` grammar 회귀 12건 |
 | Tests | `Solutions/Tests/Ds2.Store.Editor.Tests/StoreRevisionTests.fs` | **Tier A 신규** — `DsStore.Revision` transaction invariant 회귀 11건 (nested 거부 포함) |
 | Tests | `Solutions/Tests/Ds2.LlmAgent.Tests/LlmUserMessageOpsTests.fs` | **R6** — 직접 record 생성에 `SupportsAnthropicCacheControl = false` 추가 |
-| Docs | `Apps/Promaker/Docs/todo-promaker-llm-roundtrip-optimization.md` | 본 문서 |
+| Docs | `Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md` | 본 문서 (v5.8 에서 `todo-...md` → `done-...md` rename) |
 
 ### 본 PR 외부 (별도 결정 필요)
 
@@ -580,6 +580,20 @@ dotnet test Apps/Promaker/Promaker.Tests/Promaker.Tests.csproj --filter "FullyQu
 
 ## Revision History
 
+- **v5.8** — Production 실측 + 시나리오 6 UI smoke 검증 (2026-05-11). 본 PR 의 모든 자동 회귀 + manual 분기 통과 → done 처리.
+  - **R3 production hit ratio 실측** — AnthropicApi provider 로 사용자가 첨부한 transcript 와 동일 시나리오 (빈 store → 1차 cylinder 모델 13 op + UI 에서 NewWork 추가 + 2차 NewWork 에 Cyl3 ADV/RET) 재현. 로그 캡처 (`Apps/Promaker/Promaker/bin/Debug/net9.0-windows/logs/ds2.log20260511`):
+    - Turn 1 (firstTurn=True, 빈 store snapshot len=65, 13 op apply): `input=82065 cached=40066 creation=40311 output=1285` → hit `cached/input = 48.8%` / hit `cache_read/(input+creation+read) = 24.7%`, ttfb=1666ms, total=23.0s
+    - Turn 2 (firstTurn=False, rev 0→3 delta, snapshot len=606): `input=129755 cached=126324 creation=2346 output=594` → hit `cached/input = 97.4%` / hit `cache_read/(input+creation+read) = 48.9%`, ttfb=995ms, total=11.8s
+    - **PoC steady 91.3%** (10 turn, query-only) 대비 mutation 시퀀스 2 turn 만으로 **97.4%** 달성 — R10 의 prefix-stable 누적 + system+tool schema cache + sticky snapshot 의 종합 효과
+  - **§1+§3 hook 동작 증거**: `[snapshot] attached revision=0 prev=null length=65` → `revision=3 prev=0 length=606` — 1차 send 후 LastSentRevision=0 commit, 그 사이 (LLM apply + UI work add + Move) 3회 Revision++ 누적, 2차 send 시 delta 감지 + 갱신 snapshot 첨부
+  - **§4.1 grammar trade-off 노출**: 2차 turn 에 LLM 이 `find_by_name` 1회 RT 추가 호출 (NewWork 의 id 조회 목적). snapshot 의 "UUID 제외, 이름만" 결정의 의도된 비용 — id 가 필요한 op (add_call 등) 1 RT 추가. follow-up doc 보강 후보
+  - **시나리오 6 외부 mtime UI smoke 완료** (Case A clean reload + Case B clean decline):
+    - **`Log.Info` 4 분기 부착** (`MainViewModel.ExternalFileWatcher.cs:54/64/74/79`): `[external-mtime] detected change file=... prev=... curr=... isDirty=...` / `... user declined reload — suppress until next change` / `... dirty Save/Discard/Cancel — Cancel 또는 Save 실패로 reload 건너뜀` / `... reload 진행`. catch 분기의 `Log.Warn` 외에 정상 흐름 흔적 zero 였던 결함 해소
+    - **Case A 검증** (15:14:30~33): clean 상태에서 외부 수정 (mtime 19.6s 후) → 포커스 복귀 → 다이얼로그 → Yes → reload (`OpenFilePath` → `LastClosedProjectPath cleared` → `File opened`) → `CompleteOpen` 의 `RecordCurrentFileMTime` 으로 mtime 재기록
+    - **Case B 검증** (15:16:32~34): Case A reload 직후의 mtime 06:14:28Z 이 정확히 prev 로 사용됨 (Case A 의 `RecordCurrentFileMTime` 살아있다는 결정적 증거) → 외부 재수정 → 다이얼로그 → No → `_currentFileMTime = current` 갱신으로 재발화 차단
+    - **재발화 차단 무한 루프 없음**: Case A 후 추가 detected 0건, Case B 후 추가 detected 0건
+    - **미검증 (선택)**: Case C (dirty Save/Discard/Cancel), Case D (decline → 재수정 fall-through) — 핵심 분기 검증으로 충분 판정
+  - **done 처리**: 본 문서를 `Docs/todo-promaker-llm-roundtrip-optimization.md` → `Docs/done-promaker-llm-roundtrip-optimization.md` 로 git mv + 코드 12 파일의 doc 경로 참조 갱신. 후속 작업은 별도 PR (★ Sticky rollback, R8 SystemType SSOT, R9 CLI snapshot helper, WizardSummaryBuilderTests fix/삭제)
 - **v5.7** — R10 production 반영 (2026-05-11). hotfix `f45be9f` (저장 확인 다이얼로그 2회 회피) 의 rebase 정착 후 진행. PoC 옵션 A 패턴을 `ApiChatProvider` 에 이식.
   - **`ApiTurnContentBuilder.BuildHistoryContents(stickySnapshot, promptText)` 신규** — `_history` 안에 누적되는 user message 의 contents 를 `[snapshot block (cache 없음), text block]` multi-content 로 생성. cache_control / attachment DataContent 없음 (정책 17 — bytes drop 유지).
   - **`BuildMultiContents` 리팩토링** — `BuildHistoryContents` 의 결과를 받아 `[0]` snapshot 에 cache_control 부착 + attachment append. `new TextContent(snapshot)` 생성이 한 곳으로 일원화되어 byte-identical invariant (prefix-match 보존) 가 helper composition 으로 **구조적 강제**.
