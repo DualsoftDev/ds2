@@ -20,8 +20,13 @@ public sealed class LlmTurnContext
     /// <summary>turn 당 mutation tool 호출 횟수 (runaway / injection 방어).</summary>
     public int MutationCallCount { get; private set; }
 
-    /// <summary>turn 당 mutation tool quota. 초과 시 invoker 가 거부.</summary>
-    public int MutationQuota { get; init; } = 200;
+    /// <summary>turn 당 mutation tool quota. 초과 시 invoker 가 거부.
+    /// **SSOT** — 본 default 값 변경 시 다음을 동시 갱신:
+    /// `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs:57` `MutationQuotaSync` (helper 사전 reject 산식 기준),
+    /// `Solutions/Tests/Ds2.LlmAgent.Tests/LlmTurnContextQuotaTests.fs` (sync literal + 임계 케이스),
+    /// `Apps/Promaker/Promaker/LlmAgent/Prompts/3.tooling.md` (LLM 안내 + safety margin 20%),
+    /// `Solutions/Core/Ds2.LlmAgent/CLAUDE.md` (한 줄 sync 주석).</summary>
+    public int MutationQuota { get; init; } = 2000;
 
     /// <summary>quota 한 번 초과되면 같은 turn 의 후속 mutation 호출을 fast-fail. retry 폭주 방어.
     /// 단 <see cref="DecrementMutationCount"/> 에 의한 사전 charge revert 후 counter 가 한도 이하로

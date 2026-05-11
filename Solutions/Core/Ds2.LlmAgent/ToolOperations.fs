@@ -51,10 +51,10 @@ module ToolOperations =
     let NameMaxLength = 128
 
     /// helper cascade quota 사전 reject 기준 — `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs:24`
-    /// `MutationQuota = 200` 과 sync. 변경 시 양쪽 동시 수정 (drift 시 helper 가 quota 초과 op 를
+    /// `MutationQuota = 2000` 과 sync. 변경 시 양쪽 동시 수정 (drift 시 helper 가 quota 초과 op 를
     /// dispatch 시점에 reject 못하고 batch 도중 RuntimeException 회귀 위험).
     [<Literal>]
-    let MutationQuotaSync = 200
+    let MutationQuotaSync = 2000
 
     /// (review M3 SSOT) helper cascade 의 op 수 산식 — System + Flow + Work×N + ApiDef×N + Arrow×wiring.
     /// none: `3 + 2N` / chain: `3 + 2N + (N-1)` / all-pairs: `3 + 2N + N(N-1)/2`.
