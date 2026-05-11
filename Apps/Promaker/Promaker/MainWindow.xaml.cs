@@ -95,6 +95,10 @@ public partial class MainWindow : Window
     /// </summary>
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
+        // 두 번째 진입(BeginInvoke 로 재큐된 Close)은 이미 confirm/dispose 완료 — 그대로 통과.
+        // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
+        if (_llmChatDisposed) return;
+
         // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
         // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
         if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
@@ -102,7 +106,6 @@ public partial class MainWindow : Window
             e.Cancel = true;
             return;
         }
-        if (_llmChatDisposed) return;
 
         e.Cancel = true;
         _llmChatDisposed = true;
