@@ -14,6 +14,8 @@
     <PackageVersion Include="System.Text.Json" Version="9.0.0" />
     <!-- LLM Chat 첨부 (review F3) — CP949 등 legacy code page 활성화. .NET Core/9 BCL 미포함 → 별도 NuGet. -->
     <PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />
+    <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): yaml↔json 양방향 변환. wire = JSON object, view = YAML. -->
+    <PackageVersion Include="YamlDotNet" Version="16.2.0" />
   </ItemGroup>
   <!-- F# 핵심 라이브러리 -->
   <ItemGroup>

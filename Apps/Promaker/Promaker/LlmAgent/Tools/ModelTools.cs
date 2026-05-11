@@ -759,6 +759,103 @@ public static class ModelTools
         });
     }
 
+    // ─── Phase 1 YAML protocol — doc-level entry ────────────────────────────
+    //
+    // SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md
+    // Wire = JSON object (LLM tool_use native, escape 0). View = YAML (사용자 미리보기 / 디스크 SSOT).
+    //
+    // 기존 op-layer 도구 (apply_operations + 21 단일 도구) 는 *그대로 유지* — escape hatch.
+    // 본 doc-level 도구는 자연어 → 선언적 모델 변환을 LLM 한 번의 tool_use 로 압축하기 위한 주력 진입점.
+    //
+    // 이름 정책: 기존 ValidateModel (consistency check) 과 충돌 회피로 'Doc' 접미사 (snake_case = `_doc`).
+
+    private static string FormatDiagnostics(ModelProtocol.Diagnostics diag)
+    {
+        var msg = diag.Format();
+        return string.IsNullOrEmpty(msg) ? "(no diagnostics)" : msg;
+    }
+
+    [McpServerTool, Description("doc-level YAML 프로토콜의 주력 진입점. JSON object 로 선언적 모델 입력 → MCP 가 entity graph 변환 + cascade + 검증 + 트랜잭션 일괄 처리. **GUID 노출 없음** — 이름 기반 dotted-path 만 사용. 입력 schema = `{protocol:'promaker/v0', project?:..., systems?:[...], patch?:{...}}`. 자세한 schema = Apps/Promaker/Docs/yaml-protocol-v0.md §2. 같은 turn 안 visibility 규칙은 op-layer 와 동일 (turn 종료 후 반영).")]
+    public static Task<string> ApplyModelDoc(
+        LlmTurnContextProvider turnProvider,
+        [Description("schema v0 의 JSON object string. 최상단 키: protocol(MUST='promaker/v0'), project?, systems?, patch?.")] string model)
+    {
+        return RunMutation(turnProvider, "apply_model_doc", ctx =>
+        {
+            if (string.IsNullOrWhiteSpace(model))
+                throw new InvalidOperationException("VALIDATION_ERROR: model 이 비어있습니다.");
+            JsonDocument doc;
+            try { doc = JsonDocument.Parse(model); }
+            catch (JsonException jex)
+            {
+                throw new InvalidOperationException($"VALIDATION_ERROR: model JSON parse 실패: {jex.Message}");
+            }
+            using (doc)
+            {
+                var (diag, refs) = ModelProtocol.apply(ctx.Plan, ctx.Store, doc.RootElement);
+                if (diag.HasErrors)
+                {
+                    throw new InvalidOperationException(diag.Format());
+                }
+                return $"[plan] apply_model_doc queued: refs={refs.Count}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
+            }
+        });
+    }
+
+    [McpServerTool, Description("apply_model_doc 의 dry-run. mutation 누적 없이 schema 검증 + 가까운 후보 제안만 반환. LLM 이 자체 검증 후 apply_model_doc 호출 권장. 기존 mcp__promaker__validate_model (consistency check) 와 별개 도구.")]
+    public static Task<string> ValidateModelDoc(
+        LlmTurnContextProvider turnProvider,
+        [Description("schema v0 의 JSON object string. apply_model_doc 와 동일 schema.")] string model)
+    {
+        return RunRead(turnProvider, "validate_model_doc", ctx =>
+        {
+            if (string.IsNullOrWhiteSpace(model))
+                throw new InvalidOperationException("VALIDATION_ERROR: model 이 비어있습니다.");
+            JsonDocument doc;
+            try { doc = JsonDocument.Parse(model); }
+            catch (JsonException jex)
+            {
+                throw new InvalidOperationException($"VALIDATION_ERROR: model JSON parse 실패: {jex.Message}");
+            }
+            using (doc)
+            {
+                var diag = ModelProtocol.validate(ctx.Store, doc.RootElement);
+                return FormatDiagnostics(diag);
+            }
+        });
+    }
+
+    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model.")]
+    public static Task<string> ExportModelDoc(
+        LlmTurnContextProvider turnProvider,
+        [Description("출력 형식. 'yaml' (default) 또는 'json'.")] string format = "yaml")
+    {
+        return RunRead(turnProvider, "export_model_doc", ctx =>
+        {
+            using var jdoc = ModelProtocol.exportToJson(ctx.Store);
+            var fmt = string.IsNullOrWhiteSpace(format) ? "yaml" : format.Trim().ToLowerInvariant();
+            return fmt switch
+            {
+                "json" => jdoc.RootElement.GetRawText(),
+                "yaml" => ModelProtocolYaml.jsonElementToYaml(jdoc.RootElement),
+                _ => throw new InvalidOperationException($"VALIDATION_ERROR: format '{format}' 미지원. 'yaml' 또는 'json' 사용.")
+            };
+        });
+    }
+
+    [McpServerTool, Description("JSON object string 을 YAML 문자열로 변환 (사용자 미리보기 / 디스크 SSOT 용). schema 검증 없음 — 순수 transformer. apply_model_doc 응답을 YAML 로 보고 싶을 때 사용.")]
+    public static Task<string> JsonToYaml(
+        LlmTurnContextProvider turnProvider,
+        [Description("YAML 으로 변환할 JSON 문자열.")] string json)
+    {
+        return RunRead(turnProvider, "json_to_yaml", _ =>
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidOperationException("VALIDATION_ERROR: json 이 비어있습니다.");
+            return ModelProtocolYaml.jsonToYaml(json);
+        });
+    }
+
     // ─── Read tools ──────────────────────────────────────────────────────────
 
     [McpServerTool, Description("현재 Promaker 의 모든 Project 목록 + 각 project 의 system 합계 (active + passive). 빈 결과 (no projects) 는 프로젝트 자체 부재 — list_systems 의 빈 결과 (어느 프로젝트에도 system 없음) 와 구분. add_system 의 첫 project 자동 부착이 어느 project 인지 확인 시 사용.")]

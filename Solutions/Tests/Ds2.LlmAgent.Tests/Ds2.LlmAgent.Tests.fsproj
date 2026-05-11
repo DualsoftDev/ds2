@@ -28,6 +28,8 @@
     <Compile Include="ImportPlanApplyApiCallTests.fs" />
     <Compile Include="AttachmentClassifierDriftTests.fs" />
     <Compile Include="StoreSnapshotTests.fs" />
+    <Compile Include="Helpers\ModelEquivalence.fs" />
+    <Compile Include="ModelProtocolTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
