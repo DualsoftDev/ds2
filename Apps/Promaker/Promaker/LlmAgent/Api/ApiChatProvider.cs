@@ -68,6 +68,13 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     private IList<AITool>? _cachedTools;
 
     /// <summary>
+    /// round-trip §R2 — rolling history window. system 메시지 제외 데이터 message 의 최대 누적 수.
+    /// 초과 시 가장 오래된 것부터 drop. 40 message ≈ 10~20 turn (도구 호출 비율에 따라 가변).
+    /// 파일 변경 시 전체 clear 는 UpdateStore() / Reset() 의 ClearSession() 에서 처리.
+    /// </summary>
+    private const int MaxHistoryDataMessages = 40;
+
+    /// <summary>
     /// round-trip §H1 (review) — sticky snapshot. ApiChatProvider 는 매 turn `_history` 를 다시 보내는
     /// 구조라, snapshot 을 본문에서 분리한 후 revision 무변경 turn 에서는 LLM 이 snapshot 을 영영 못 본다.
     /// 해결: 마지막으로 받은 snapshot 을 본 field 에 보관 → 매 turn 호출 시 multi-content 의 stable prefix
@@ -341,6 +348,11 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
                     foreach (var responseMsg in partial.Messages)
                         _history.Add(responseMsg);
                     assistantAdded = partial.Messages.Count > 0;
+                    // round-trip §R3 — cache 적중률 / usage 모니터링. Anthropic: cache_read_input_tokens →
+                    // CachedInputTokenCount, cache_creation_input_tokens → AdditionalCounts. OpenAI:
+                    // prompt_tokens_details.cached_tokens → CachedInputTokenCount. logging 만 (SessionEnd
+                    // 의 cost/token 통합은 Step 5 후속).
+                    LogUsage(partial.Usage);
                 }
                 catch (Exception ex)
                 {
@@ -353,10 +365,54 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             {
                 _history.RemoveAt(_history.Count - 1);
             }
+            // round-trip §R2 — rolling: turn 끝마다 데이터 message 를 N 개로 trim. system 은 보존.
+            TrimHistory();
         }
 
         var elapsedMs = (int)stopwatch.ElapsedMilliseconds;
         yield return LlmEvent.NewSessionEnd(elapsedMs, 0m, isError, stopReason, 0);
+    }
+
+    /// <summary>
+    /// round-trip §R2 — rolling history trim. system 메시지는 보존, 데이터 message 가 MaxHistoryDataMessages
+    /// 초과 시 가장 오래된 것부터 drop. trim 후 role alternation 보존을 위해 첫 데이터 message 가 User 가
+    /// 될 때까지 추가 drop (tool_use/tool_result chain 의 시작점에서 잘리면 Anthropic 400 발생).
+    /// </summary>
+    private void TrimHistory()
+    {
+        var systemCount = 0;
+        while (systemCount < _history.Count && _history[systemCount].Role == ChatRole.System)
+            systemCount++;
+        var excess = _history.Count - systemCount - MaxHistoryDataMessages;
+        if (excess > 0)
+            _history.RemoveRange(systemCount, excess);
+        while (_history.Count > systemCount && _history[systemCount].Role != ChatRole.User)
+            _history.RemoveAt(systemCount);
+    }
+
+    /// <summary>
+    /// round-trip §R3 — turn 단위 usage / cache 적중률 logging. INFO 레벨로 한 줄. AdditionalCounts 는
+    /// provider-specific (Anthropic 의 cache_creation_input_tokens 등) — alphabetic 정렬로 안정 출력.
+    /// </summary>
+    private void LogUsage(UsageDetails? usage)
+    {
+        if (usage == null || !Log.IsInfoEnabled) return;
+        var input = usage.InputTokenCount ?? 0;
+        var output = usage.OutputTokenCount ?? 0;
+        var cached = usage.CachedInputTokenCount ?? 0;
+        // CachedInputTokenCount 가 InputTokenCount 에 합산되는 SDK 규약 (Microsoft.Extensions.AI 10.5 doc).
+        var ratio = input > 0 ? (double)cached / input : 0.0;
+        var sb = new System.Text.StringBuilder();
+        sb.Append('[').Append(_providerLabel).Append("] usage: input=").Append(input)
+          .Append(" cached=").Append(cached)
+          .Append(" hit=").Append(ratio.ToString("P1", System.Globalization.CultureInfo.InvariantCulture))
+          .Append(" output=").Append(output);
+        if (usage.AdditionalCounts is { Count: > 0 } extra)
+        {
+            foreach (var kv in extra.OrderBy(p => p.Key, StringComparer.Ordinal))
+                sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value);
+        }
+        Log.Info(sb.ToString());
     }
 
     private static (bool isError, string content) ExtractToolResult(FunctionResultContent result)
