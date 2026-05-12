@@ -797,6 +797,9 @@ public static class ModelTools
                 {
                     throw new InvalidOperationException(diag.Format());
                 }
+                // chat-ui boost: 발행 doc 의 yaml view 를 turn context 에 append → turn end 시 ViewModel 이
+                // chat bubble (≤30 라인) 또는 button-dialog (>30) 로 노출. LLM output/input token 변화 0.
+                ctx.AppendModelDocYaml(ModelProtocolYaml.jsonElementToYaml(doc.RootElement));
                 return $"[plan] apply_model_doc queued: refs={refs.Count}, planSize={ctx.Plan.Count}{PlanVisibilityHint}";
             }
         });

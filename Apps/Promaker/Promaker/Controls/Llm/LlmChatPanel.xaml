@@ -59,6 +59,13 @@
                 <DataTrigger Binding="{Binding Role}" Value="error">
                     <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 </DataTrigger>
+                <!-- chat-ui boost: 발행 doc bubble 좌측 정렬 (assistant 와 동일 layer 인지). -->
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -103,6 +110,19 @@
                     <Setter Property="BorderThickness" Value="1"/>
                     <Setter Property="CornerRadius" Value="3"/>
                 </DataTrigger>
+                <!-- chat-ui boost: 발행 doc inline bubble — 약간 다른 배경 (accent dim) 으로 식별, MaxWidth 동일. -->
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                    <Setter Property="CornerRadius" Value="3"/>
+                    <Setter Property="MaxWidth" Value="720"/>
+                </DataTrigger>
+                <!-- chat-ui boost: 발행 doc button bubble — Button 자체가 시각 — Border 는 transparent. -->
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Padding" Value="2,0"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -137,6 +157,18 @@
                      fenced code block 부분 mono (RichTextBox + markdown 파서) 는 본 PoC scope 외 — 전체 mono 로 타협. -->
                 <DataTrigger Binding="{Binding Role}" Value="assistant">
                     <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New, monospace"/>
+                </DataTrigger>
+                <!-- chat-ui boost: model-doc-inline = mono + 표준 크기 (system 의 size 11 / italic 회피).
+                     review M2: ListBox.ScrollViewer.HorizontalScrollBarVisibility=Disabled + TextWrapping=NoWrap 시 긴 line 우측 잘림 →
+                     TextBox 자체 HorizontalScrollBarVisibility=Auto 로 부모 ListBox 와 독립 가로 스크롤. -->
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
+                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New, monospace"/>
+                    <Setter Property="TextWrapping" Value="NoWrap"/>
+                    <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+                </DataTrigger>
+                <!-- chat-ui boost: model-doc-button = TextBox 자체 hide (Button 으로 대체 — 별개 DataTemplate 분기). -->
+                <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                    <Setter Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
                 <!-- Thinking: 기본 PrimaryTextBrush 유지 (사용자 요구 = "normal"). 시각 구분은 Border 좌측 색띠로 처리. -->
                 <!-- Error: dark orange 강조 + SemiBold. -->
@@ -305,12 +337,44 @@
                     <Border Style="{StaticResource ChatBubbleBorderStyle}">
                         <!-- 부분 복사: read-only TextBox 의 selection + Ctrl+C. 전체 복사 / export 는 ListBox 의 ContextMenu.
                              review #2 fix: TextBox 의 기본 ContextMenu (잘라내기/복사/붙여넣기) 를 비활성화해
-                             우클릭 시 visual tree 상위 ListBox.ContextMenu (전체 복사 / export) 가 표시되도록. -->
-                        <TextBox Text="{Binding Text, Mode=OneWay}" Style="{StaticResource ChatBubbleTextStyle}">
-                            <TextBox.ContextMenu>
-                                <x:Null/>
-                            </TextBox.ContextMenu>
-                        </TextBox>
+                             우클릭 시 visual tree 상위 ListBox.ContextMenu (전체 복사 / export) 가 표시되도록.
+                             chat-ui boost: model-doc-button role 일 때만 TextBox 가 hide → Button 표시. 두 컨트롤 동시 Grid 에 배치. -->
+                        <Grid>
+                            <TextBox Text="{Binding Text, Mode=OneWay}" Style="{StaticResource ChatBubbleTextStyle}">
+                                <TextBox.ContextMenu>
+                                    <x:Null/>
+                                </TextBox.ContextMenu>
+                            </TextBox>
+                            <!-- chat-ui boost: model-doc-button = 클릭 시 ModelDocPreviewDialog 띄움. Payload = yaml 본문.
+                                 review m3: model-doc-button 이외 role 의 Collapsed Button 이 focus tab order 영향 없도록
+                                 IsTabStop/Focusable=False (defense in depth — Visibility=Collapsed 자체로 자동 차단되나 명시 강화). -->
+                            <Button Content="{Binding Text}"
+                                    Command="{Binding DataContext.OpenModelDocPreviewCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding Payload}"
+                                    Cursor="Hand"
+                                    Padding="12,5"
+                                    HorizontalAlignment="Left"
+                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    Foreground="{DynamicResource PrimaryTextBrush}"
+                                    BorderBrush="{DynamicResource AccentBrush}"
+                                    BorderThickness="1"
+                                    ToolTip="발행 doc yaml view 를 dialog 로 보기">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Setter Property="IsTabStop" Value="False"/>
+                                        <Setter Property="Focusable" Value="False"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Setter Property="IsTabStop" Value="True"/>
+                                                <Setter Property="Focusable" Value="True"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
                     </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
