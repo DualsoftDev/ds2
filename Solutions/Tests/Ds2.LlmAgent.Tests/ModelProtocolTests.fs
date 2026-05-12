@@ -86,21 +86,13 @@ let ``§3.1 단일 cylinder — YAML round-trip 성공`` () =
 let ``§3.1 단일 cylinder — export 후 동일 의미 (round-trip 의 SSOT)`` () =
     let store = DsStore()
     let _ = parseApplyCommit store singleCylinderYaml
-    let shape1 = ModelEquivalence.captureShape store
 
+    // exported JSON 을 YAML 로 변환해서 정상 변환 가능한지 별도 확인 (round-trip 본체는 helper 가 수행).
     use exported = ModelProtocol.exportToJson store
-    // exported JSON 을 YAML 로 변환해서 정상 변환 가능한지 확인
     let yaml = ModelProtocolYaml.jsonElementToYaml exported.RootElement
     Assert.False(System.String.IsNullOrWhiteSpace yaml, "export → YAML 변환이 비어있음")
 
-    // exported JSON 을 새 store 에 적용 후 shape 일치
-    let store2 = DsStore()
-    let plan = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
-    Assert.False(diag.HasErrors, sprintf "round-trip 적용 실패: %s" (diag.Format()))
-    store2.ApplyImportPlan("round-trip", plan.Build())
-    let shape2 = ModelEquivalence.captureShape store2
-
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
     let diffs = ModelEquivalence.diff shape1 shape2
     Assert.True(diffs.IsEmpty, sprintf "shape mismatch: %A" diffs)
 
@@ -623,72 +615,7 @@ systems:
 let private withCylFixturePath =
     System.IO.Path.Combine(System.AppContext.BaseDirectory, "Fixtures", "WithCyl.json")
 
-/// 카운트 + 관계 위주 비교용 helper. ApiDefNames 는 cylinder sugar 가 "ADV"/"RET" 고정 emit
-/// 하므로 동등 비교 가능. Passive flowNames 만 제외.
-type private RelaxedShape = {
-    ProjectName: string option
-    SystemNames: string Set
-    ActiveSystemFlowNames: Map<string, string Set>  // active system → flow set (이름 보존)
-    PassiveSystemApiDefNames: Map<string, string Set>  // passive system → api def 이름
-    WorkLocalNames: Map<string, string Set>  // flow 이름은 빼고 system 단위로 work 이름 집합
-    WorkArrowsByType: Map<string, int>  // system 기준 arrow type → count
-}
-
-let private captureRelaxed (store: DsStore) : RelaxedShape =
-    match Queries.allProjects store with
-    | [] ->
-        { ProjectName = None
-          SystemNames = Set.empty
-          ActiveSystemFlowNames = Map.empty
-          PassiveSystemApiDefNames = Map.empty
-          WorkLocalNames = Map.empty
-          WorkArrowsByType = Map.empty }
-    | p :: _ ->
-        let actives = Queries.activeSystemsOf p.Id store
-        let passives = Queries.passiveSystemsOf p.Id store
-        let allSystems =
-            (actives |> List.map (fun s -> s, true))
-            @ (passives |> List.map (fun s -> s, false))
-
-        let sysNames = allSystems |> List.map (fun (s, _) -> s.Name) |> Set.ofList
-
-        let activeFlowNames =
-            actives
-            |> List.map (fun s ->
-                s.Name, Queries.flowsOf s.Id store |> List.map (fun f -> f.Name) |> Set.ofList)
-            |> Map.ofList
-
-        let passiveApiNames =
-            passives
-            |> List.map (fun s ->
-                s.Name, Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name) |> Set.ofList)
-            |> Map.ofList
-
-        let workLocalsBySystem =
-            allSystems
-            |> List.map (fun (s, _) ->
-                let locals =
-                    Queries.flowsOf s.Id store
-                    |> List.collect (fun f -> Queries.worksOf f.Id store)
-                    |> List.map (fun w -> w.LocalName)
-                    |> Set.ofList
-                s.Name, locals)
-            |> Map.ofList
-
-        let arrowsByType =
-            allSystems
-            |> List.collect (fun (s, _) ->
-                Queries.arrowWorksOf s.Id store
-                |> List.map (fun a -> sprintf "%s|%s" s.Name (sprintf "%A" a.ArrowType)))
-            |> List.countBy id
-            |> Map.ofList
-
-        { ProjectName = Some p.Name
-          SystemNames = sysNames
-          ActiveSystemFlowNames = activeFlowNames
-          PassiveSystemApiDefNames = passiveApiNames
-          WorkLocalNames = workLocalsBySystem
-          WorkArrowsByType = arrowsByType }
+// RelaxedShape / captureRelaxed / roundTrip helper 는 `Helpers/ModelEquivalence.fs` 로 이동 (Phase 2.5 m1/m3).
 
 [<Fact>]
 let ``Phase 2 §3.1 #1 — WithCyl.json load → export → apply round-trip (완화 shape 동등)`` () =
@@ -697,18 +624,11 @@ let ``Phase 2 §3.1 #1 — WithCyl.json load → export → apply round-trip (�
     let loaded = Ds2.Serialization.JsonConverter.deserialize<DsStore> json
     Assert.NotNull(box loaded)
 
-    let shape1 = captureRelaxed loaded
+    let shape1 = ModelEquivalence.captureRelaxed loaded
     Assert.True(shape1.SystemNames.Count >= 2, sprintf "loaded store 의 system 추출 실패: %A" shape1.SystemNames)
 
-    use exported = ModelProtocol.exportToJson loaded
-
-    let store2 = DsStore()
-    let plan = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
-    Assert.False(diag.HasErrors, sprintf "round-trip apply 실패: %s" (diag.Format()))
-    store2.ApplyImportPlan("WithCyl round-trip", plan.Build())
-
-    let shape2 = captureRelaxed store2
+    // Phase 2.5 m3: round-trip pattern 은 helper 로 단순화 (export → apply → captureRelaxed).
+    let _, shape2 = ModelEquivalence.roundTripRelaxed loaded
 
     Assert.Equal<string option>(shape1.ProjectName, shape2.ProjectName)
     Assert.Equal<Set<string>>(shape1.SystemNames, shape2.SystemNames)
@@ -780,17 +700,7 @@ systems:
 let ``Phase 2 §3.1 #3 — multi-sugar short-form round-trip 완전 동등 (cylinder + clamp + robot)`` () =
     let store = DsStore()
     let _ = parseApplyCommit store multiSugarYaml
-    let shape1 = ModelEquivalence.captureShape store
-
-    use exported = ModelProtocol.exportToJson store
-
-    let store2 = DsStore()
-    let plan = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
-    Assert.False(diag.HasErrors, sprintf "round-trip apply 실패: %s" (diag.Format()))
-    store2.ApplyImportPlan("multi-sugar round-trip", plan.Build())
-
-    let shape2 = ModelEquivalence.captureShape store2
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
     let diffs = ModelEquivalence.diff shape1 shape2
     Assert.True(diffs.IsEmpty, sprintf "multi-sugar round-trip mismatch: %A" diffs)
 
@@ -865,16 +775,8 @@ let ``Phase 2 §3.1 #5b — custom(Unit) export 결과가 다시 apply 시 동�
     let plan = ImportPlanBuilder()
     let _ = ToolOperations.queueAddDevice plan store "X1" "Unit" [ "OPEN"; "CLOSE"; "STOP" ] "none" None
     store.ApplyImportPlan("fingerprint test", plan.Build())
-    let shape1 = ModelEquivalence.captureShape store
 
-    use exported = ModelProtocol.exportToJson store
-    let store2 = DsStore()
-    let plan2 = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan2 store2 exported.RootElement
-    Assert.False(diag.HasErrors, sprintf "custom(Unit) round-trip apply 실패: %s" (diag.Format()))
-    store2.ApplyImportPlan("custom(Unit) round-trip", plan2.Build())
-    let shape2 = ModelEquivalence.captureShape store2
-
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
     let diffs = ModelEquivalence.diff shape1 shape2
     Assert.True(diffs.IsEmpty, sprintf "custom(Unit) round-trip mismatch: %A" diffs)
 
@@ -990,3 +892,51 @@ let ``Phase 2 §3.1 #1c — WithCyl.json export 가 DevicesAlias 가 아닌 syst
     // alias 기반 emit 금지 (정책 deprecation)
     Assert.DoesNotContain("\"cyl.ADV\"", raw)
     Assert.DoesNotContain("\"cyl.RET\"", raw)
+
+// ─── Phase 2.5 cycle2 M4 — KnownSugars.tryMatchFingerprint 단위 테스트 (5인 review) ─
+
+[<Fact>]
+let ``KnownSugars — Unit + [ADV;RET] → cylinder`` () =
+    let m = KnownSugars.tryMatchFingerprint "Unit" [ "ADV"; "RET" ]
+    Assert.Equal(Some "cylinder", m |> Option.map (fun s -> s.DeviceCase))
+
+[<Fact>]
+let ``KnownSugars — Unit + [RET;ADV] → cylinder (순서 무관)`` () =
+    let m = KnownSugars.tryMatchFingerprint "Unit" [ "RET"; "ADV" ]
+    Assert.Equal(Some "cylinder", m |> Option.map (fun s -> s.DeviceCase))
+
+[<Fact>]
+let ``KnownSugars — Unit + [CLP;UNCLP] → clamp`` () =
+    let m = KnownSugars.tryMatchFingerprint "Unit" [ "CLP"; "UNCLP" ]
+    Assert.Equal(Some "clamp", m |> Option.map (fun s -> s.DeviceCase))
+
+[<Fact>]
+let ``KnownSugars — Robot + 임의 apis → robot (apis 자유)`` () =
+    let m = KnownSugars.tryMatchFingerprint "Robot" [ "PICK"; "PLACE"; "HOME" ]
+    Assert.Equal(Some "robot", m |> Option.map (fun s -> s.DeviceCase))
+
+[<Fact>]
+let ``KnownSugars — Unit + [FOO] → None (sugar 미적용 fallback)`` () =
+    let m = KnownSugars.tryMatchFingerprint "Unit" [ "FOO" ]
+    Assert.True(m.IsNone)
+
+[<Fact>]
+let ``KnownSugars — 미지 SystemType (Conveyor) + [] → None (확장 sugar 미정의)`` () =
+    let m = KnownSugars.tryMatchFingerprint "Conveyor" []
+    Assert.True(m.IsNone)
+
+// ─── Phase 2.5 cycle2 M5 — formatArrowType enum 전수 cover (5인 review) ────────
+
+[<Fact>]
+let ``formatArrowType — 모든 ArrowType enum 값이 SSOT 명시 케이스로 직렬화 (Unknown fallback 진입 0)`` () =
+    // SSOT §2.4 에 명시된 6 케이스 — fallback `Unknown(<n>)` 진입 시 silent divergence.
+    // 신규 ArrowType 추가 시 본 테스트 실패 → SSOT 명시 + formatArrowType 분기 추가 강제.
+    let expected = Set.ofList [ "Start"; "Reset"; "StartReset"; "ResetReset"; "Group"; "Unspecified" ]
+    let actual =
+        System.Enum.GetValues(typeof<ArrowType>)
+        :?> ArrowType array
+        |> Array.map ModelProtocol.formatArrowType
+        |> Set.ofArray
+    let unknown = actual |> Set.filter (fun s -> s.StartsWith("Unknown("))
+    Assert.True(unknown.IsEmpty, sprintf "formatArrowType Unknown fallback 진입: %A" (Set.toList unknown))
+    Assert.True(Set.isSubset actual expected, sprintf "SSOT 외 직렬화: %A" (Set.toList (Set.difference actual expected)))
