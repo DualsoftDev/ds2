@@ -231,12 +231,15 @@ module ToolOperations =
 
     /// add_work mutation tool. parent Flow 는 store 또는 plan 에 존재해야 함.
     /// Work.Name = "{flow.Name}.{localName}" 으로 자동 조립 (Work 의 FlowPrefix = flow.Name).
-    let queueAddWork (plan: ImportPlanBuilder) (store: DsStore) (localName: string) (flowId: Guid) : Guid =
+    /// M3 fix: Duration 을 명시 인자로 받아 큐잉 시점에 set — 호출자 후행 mutation 제거.
+    /// duration 미지정 시 None 전달.
+    let queueAddWork (plan: ImportPlanBuilder) (store: DsStore) (localName: string) (flowId: Guid) (duration: TimeSpan option) : Guid =
         requireNonEmpty (nameof localName) localName "Work localName"
         let flow = requireFlow plan store flowId
         if hasWorkLocalNameClash plan store flowId localName then
             invalidOp $"같은 Flow 내에 이미 '{localName}' Work 가 존재합니다."
         let work = Work(flow.Name, localName, flowId)
+        duration |> Option.iter (fun ts -> work.Duration <- Some ts)
         plan.Add(AddWork work)
         work.Id
 
@@ -478,7 +481,9 @@ module ToolOperations =
             else
                 match addedInPlanKind plan id with
                 | Some addedKind ->
-                    invalidOp (sprintf "Entity(id=%O, kind=%O) 는 같은 turn 안에서 방금 add_* 로 추가되어 store 에 아직 반영되지 않았습니다. 같은 turn 의 add 직후 remove 는 미지원입니다 — 이 turn 의 add 자체를 취소하려면 add_* tool 호출 자체를 하지 마세요. 이미 추가된 entity 를 제거하려면 응답을 마치고 다음 turn 에서 remove_entity 를 호출하세요." id addedKind)
+                    // C1 fix: Phase 5 cleanup 으로 add_* / remove_entity 도구가 일소되어 LLM 호출 불가.
+                    // doc-level 어휘 (apply_model_doc / patch.remove) 로 안내 재작성.
+                    invalidOp (sprintf "Entity(id=%O, kind=%O) 는 같은 apply_model_doc turn 안에서 방금 추가되어 store 에 아직 반영되지 않았습니다. 같은 turn 의 patch.remove 로 즉시 제거는 미지원입니다 — 추가 자체를 취소하려면 doc 본문에서 해당 entity 를 빼고 다시 apply_model_doc 하거나, 응답을 마친 뒤 다음 turn 의 apply_model_doc 에서 patch.remove 로 호출하세요." id addedKind)
                 | None ->
                     invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef 어디에도 없음)."
         plan.Add(RemoveEntity(kind, id))

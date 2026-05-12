@@ -68,12 +68,18 @@ public partial class ModelDocPreviewDialog : Window
 
     /// <summary>YAML → JSON → MermaidBlock list → JSON 직렬화 (HTML 측 schema 와 동형).
     /// null 반환 = Mermaid tab 미생성 (block 0 또는 parse 실패).</summary>
-    private string? TryBuildBlocksJson()
+    private string? TryBuildBlocksJson() => BuildBlocksJsonFromYaml(_yaml);
+
+    /// <summary>M4 fix: F# emitter ↔ C# JSON payload ↔ HTML render schema drift 테스트 hook.
+    /// HTML (`mermaid-view.html`) 는 `{ type: "render", blocks: [{ title, mermaid }, ...] }` 를 기대.
+    /// 본 helper 의 출력이 그 schema 와 일치해야 함. property naming 이 변경되면 silent broken
+    /// (HTML 측 block-title 빈 채 렌더) — `ModelDocPreviewDialogPayloadTests` 로 lock-in.</summary>
+    internal static string? BuildBlocksJsonFromYaml(string? yaml)
     {
-        if (string.IsNullOrWhiteSpace(_yaml)) return null;
+        if (string.IsNullOrWhiteSpace(yaml)) return null;
         try
         {
-            using var jdoc = ModelProtocolYaml.yamlToJson(_yaml);
+            using var jdoc = ModelProtocolYaml.yamlToJson(yaml);
             var blocks = ModelProtocolMermaid.jsonElementToBlocks(jdoc.RootElement);
             if (blocks == null || !blocks.Any()) return null;
             var payload = blocks

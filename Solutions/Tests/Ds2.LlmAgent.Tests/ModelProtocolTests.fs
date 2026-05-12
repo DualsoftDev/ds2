@@ -1011,3 +1011,57 @@ let ``useAllowDup — arrows 키 명시 + parse error 라도 concurrent 분기 �
     Assert.True(diag.HasErrors, "arrows entry parse error 가 diagnostic 으로 누적되어야")
     // C1 rollback 도 동반 — plan 비어있음.
     Assert.Equal(0, plan.Operations |> Seq.length)
+
+// ─── review M1 회귀 — doc-level entity 이름 sanitize 가드 ──────────────────
+
+[<Theory>]
+[<InlineData("Active System @ prefix",
+    """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"@Bad","kind":"active"}]}""")>]
+[<InlineData("Passive System $ prefix",
+    """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"$Bad","kind":"passive","device":"cylinder"}]}""")>]
+[<InlineData("Work localName 에 '.' 포함",
+    """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"Ctl","kind":"active","flow Run":{"works":{"A.B":{"calls":[]}}}}]}""")>]
+let ``doc-level entity 이름 sanitize — 3 진입점 차단 + 전체 rollback (review M1)`` (label: string) (json: string) =
+    // Phase 5 op-layer cleanup 으로 SanitizeOrThrow 가 일소 — doc-level dispatcher 의 sanitize
+    // 가드가 entry 이름 (Active/Passive System, Work localName) 의 `@`/`$` prefix / '.' / Cc/Cf
+    // 등을 모두 차단해야 함. `ToolOperations.sanitizeName` 위임.
+    // Flow 키는 `flowKeyRegex` (`[A-Za-z0-9_\-]+`) 가 sanitize 보다 strict 라 별도 fact 불요
+    // — regex 가 먼저 reject. Rename newName 의 sanitize 도 가드되나 store 가 비어있으면 분리 검증 어려움.
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    Assert.True(diag.HasErrors, sprintf "%s: HasErrors 발생해야" label)
+    Assert.Contains("VALIDATION_ERROR", diag.Format())
+    // C1 rollback 동반.
+    Assert.Equal(0, plan.Operations |> Seq.length)
+
+// ─── review M5 회귀 — patch.add 성공 + patch.arrows.add 실패 시 patch.add 까지 rollback ─
+
+[<Fact>]
+let ``multi-stage rollback — patch.add 성공 후 후속 단계 실패 시 patch.add 까지 rollback (review M5)`` () =
+    // C1 의 "HasErrors 시 plan 전체 TruncateTo" 가 *복합 patch* (add + arrows.add 등 다단계) 에도
+    // 적용됨을 lock-in. 본 테스트: patch.add 로 system 생성 성공 + patch.arrows.add 로 존재하지 않는
+    // flow path 에 arrow 시도 → arrows.add diag 누적 → 전체 rollback (system add 포함).
+    let json = """
+{
+  "protocol": "promaker/v0",
+  "patch": {
+    "add": [
+      { "system": "NewSys", "kind": "passive", "device": "cylinder" }
+    ],
+    "arrows": {
+      "add": [
+        { "in": "NoSuchSystem.NoSuchFlow", "arrows": ["A -> B : Start"] }
+      ]
+    }
+  }
+}
+"""
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    Assert.True(diag.HasErrors, "후속 단계 실패 시 HasErrors")
+    // M5 fix lock-in: patch.add 의 system op 도 rollback — plan 비어있음.
+    Assert.Equal(0, plan.Operations |> Seq.length)
