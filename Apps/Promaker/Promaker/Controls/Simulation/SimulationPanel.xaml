@@ -9,12 +9,24 @@
         <SolidColorBrush x:Key="LogWarnBrush"  Color="#FFA500"/>
         <SolidColorBrush x:Key="LogErrorBrush" Color="#FF4444"/>
         <SolidColorBrush x:Key="LogFatalBrush" Color="#FF00FF"/>
+
+        <!-- Welcome(=!HasProject) 상태에서는 Log 만 노출. 나머지 탭 헤더까지 숨김.
+             BasedOn: Theme.Controls.Navigation.xaml 의 implicit TabItem style 을 상속해야 외관 회귀 없음. -->
+        <Style x:Key="TabVisibleWhenHasProject" TargetType="TabItem"
+               BasedOn="{StaticResource {x:Type TabItem}}">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.HasProject, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
             b:CtrlWheelZoom.IsEnabled="True">
         <TabControl x:Name="MainTabControl">
-            <TabItem Header="Log">
+            <TabItem Header="Log" IsSelected="True">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -80,11 +92,11 @@
                     </ListBox>
                 </Grid>
             </TabItem>
-            <TabItem Header="Gantt Chart" IsSelected="True">
+            <TabItem Header="Gantt Chart" Style="{StaticResource TabVisibleWhenHasProject}">
                 <ctrl:GanttChartControl x:Name="GanttChart"
                                         DataContext="{Binding GanttChart}"/>
             </TabItem>
-            <TabItem Header="Status Monitor">
+            <TabItem Header="Status Monitor" Style="{StaticResource TabVisibleWhenHasProject}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -134,7 +146,7 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
-            <TabItem Header="Event Log">
+            <TabItem Header="Event Log" Style="{StaticResource TabVisibleWhenHasProject}">
                 <ListBox x:Name="EventLogListBox"
                          ItemsSource="{Binding SimEventLog}"
                          Background="{DynamicResource SecondaryBackgroundBrush}"

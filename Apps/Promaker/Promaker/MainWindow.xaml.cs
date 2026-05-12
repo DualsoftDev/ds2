@@ -54,18 +54,19 @@ public partial class MainWindow : Window
 
     private void UpdateLlmChatColumnWidths()
     {
-        if (_vm.IsLlmChatVisible)
-        {
-            LlmChatSplitterCol.Width = new GridLength(4);
-            LlmChatPanelCol.Width = new GridLength(LlmChatColumnDefaultWidth);
-            LlmChatPanelCol.MinWidth = LlmChatColumnMinWidth;
-        }
-        else
-        {
-            LlmChatSplitterCol.Width = new GridLength(0);
-            LlmChatPanelCol.MinWidth = 0;
-            LlmChatPanelCol.Width = new GridLength(0);
-        }
+        // OpenLayout / WelcomeLayout 양쪽 LLM Chat dock column 동시 갱신.
+        // HasProject 토글 시 layout 자체가 Collapsed/Visible 되지만 ColumnDefinition 은 미리 동기화해두어야 전환 직후 폭이 맞음.
+        var splitterW = _vm.IsLlmChatVisible ? new GridLength(4) : new GridLength(0);
+        var panelW    = _vm.IsLlmChatVisible ? new GridLength(LlmChatColumnDefaultWidth) : new GridLength(0);
+        var panelMinW = _vm.IsLlmChatVisible ? LlmChatColumnMinWidth : 0;
+
+        LlmChatSplitterCol.Width = splitterW;
+        LlmChatPanelCol.Width    = panelW;
+        LlmChatPanelCol.MinWidth = panelMinW;
+
+        WelcomeLlmChatSplitterCol.Width = splitterW;
+        WelcomeLlmChatPanelCol.Width    = panelW;
+        WelcomeLlmChatPanelCol.MinWidth = panelMinW;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
