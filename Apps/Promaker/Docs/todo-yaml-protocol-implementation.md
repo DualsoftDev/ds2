@@ -94,6 +94,11 @@ A (Phase 2.5 refactor backlog), B (Phase 3 prompt 마이그레이션), D (todo o
 - Phase 2.5 cycle2 반론 보류 6건 — m2/m3/m4/m6/m7/o1 (사유 §3.1)
 - Phase 3 M2 — refs SSOT vs 실 구현 mismatch (`apply_model_doc` 응답에서 GUID 정보 필요 시나리오 등장 시. SSOT = `yaml-protocol-v0.md §4`)
 - SSOT 미결정 4건 — Active 의 직접 ApiDef 키 / arrowType Group·Unspecified 빈도 / patch cross-system scope 표기 / yaml_to_json LLM 노출 여부 (SSOT §7)
+- review Major 8건 (commit `78a9589` 직후 inspect-diff 결과) — M1 `sanitizeName` 의 `:` 차단 / M2 Passive `device` 키 부재 round-trip 깨짐 / M3 arrow 처리 3중복 (todo cycle2 m2 합의 유지로 보류) / M4 `ModelTools.cs` wrapper boilerplate / M5 `exportToJson` 의 500ms hard-code → `KnownSugars` SSOT 통합 / M6 `inferOpposing` heuristic silent loss (logWarn 추가) / M7 `yaml_to_json` 비대칭 (apply_model_doc 의 auto-detect 검토) / M8 `ModelProtocol.fs` 1201 line SRP — Phase 4 진입 전 5 module split
+- review Minor 9건 — m1 suggestion 빈 string / m2 nearestCandidates threshold / m3 parseDuration overflow / m4 flowKeyRegex 숫자 시작 허용 / m5 KnownSugars custom default record 화 / m6 patch.arrows.remove Warning vs Error 카테고리 / m7 tryResolveCallTargetSystem 1:1 invariant guard / m8 queueAddRobot SSOT 절반 적용 / m9 success-string 비대칭
+- **capacity cycle 자동 적용 (Turn D 관찰)** — §3.4b "1회 명확화" 룰을 LLM 이 무시하고 자동 capacity > 1 cycle 적용 (Reset + Self Reset). prompt 의 명확화 룰 강제 강화 또는 default = sequential 명시 검토.
+- **chat-UI boost (Phase A/B/C) revert 경위 기록** — Phase A (YAML echo prompt 룰 5a) = LLM 이 zone 내부 arrow 를 ellipsis 처리 → 검증 가치 0 + tokens 77% ↑ → revert. Phase B (export_mermaid_diagram MCP tool) = chat 창 미렌더 + Promaker 의 기존 entity tree + canvas editor 와 중복 → revert. Phase C (Markdig.Wpf chat bubble) = Phase A/B 무가치 결정 후 자연 보류. *재방문 trigger*: 사용자가 GUI 사용 중 *발행 doc 검증 단계가 부족* 하다 명시 요청 시. memory `yaml-protocol-phase4-ui-deferred` 결정 유효.
+- **Critical fix 자가 검열 권고 Minor 3건** — (1) C1 의 `apply` 외부 throw 시 호출 site (`ModelTools.ApplyModelDoc` 의 `RunMutation` catch 분기) plan rollback 보장 검토; (2) C2 회귀 테스트의 `"PoC 미지원"` substring 의존 fragility → hint 상수 SSOT 추출; (3) todo §3.0 분량 ↑ → Phase 5 진입 시 별개 절로 split.
 
 ### 3.1 Phase 2.5 — refactor backlog (✅ 완료, commit `58574f8`)
 
