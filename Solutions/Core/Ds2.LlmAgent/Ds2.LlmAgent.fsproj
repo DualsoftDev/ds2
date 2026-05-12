@@ -29,6 +29,7 @@
     <Compile Include="ToolOperations.fs" />
     <Compile Include="ModelProtocol.Yaml.fs" />
     <Compile Include="ModelProtocol.fs" />
+    <Compile Include="ModelProtocol.Mermaid.fs" />
     <Compile Include="StoreSnapshot.fs" />
   </ItemGroup>
 
