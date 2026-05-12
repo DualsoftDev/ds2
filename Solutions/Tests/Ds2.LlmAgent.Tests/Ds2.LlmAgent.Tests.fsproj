@@ -17,7 +17,6 @@
     <Compile Include="ValidateModelTests.fs" />
     <Compile Include="DescribeSubtreeTests.fs" />
     <Compile Include="SanitizeNameTests.fs" />
-    <Compile Include="BatchTests.fs" />
     <Compile Include="PromakerToolNamesDriftTests.fs" />
     <Compile Include="RemoveRenameTests.fs" />
     <Compile Include="HelperCascadeTests.fs" />

@@ -78,10 +78,9 @@ public sealed class LlmTurnContext
     }
 
     /// <summary>
-    /// 사전 charge 후 후속 작업이 throw (validation / sanitize / batch 실패) 시 quota counter 를 revert.
+    /// 사전 charge 후 후속 작업이 throw (validation / sanitize / dispatcher 실패) 시 quota counter 를 revert.
     /// 1차 시도 실패가 quota 를 먹어버려 정상 재시도가 차단되는 회귀를 방어.
-    /// `ModelTools.RunMutation` 진입 +1, `ApplyOperations` batch 사전 charge, helper cascade 사전 charge
-    /// 의 catch path 모두에서 호출 (path-symmetric).
+    /// `ModelTools.RunMutation` 진입 +1 의 catch path 에서 호출 (path-symmetric).
     /// <paramref name="delta"/> &lt; 1 은 silent no-op (호출자 단순화 — <see cref="IncrementMutationCount"/>
     /// 와 짝이 되는 invariant 가 아닌 *revert* 의미라 음수/0 은 의도된 부작용 없음).
     /// quota 초과 flag 도 revert 후 한도 이하이면 해제 (재시도 정당).

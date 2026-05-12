@@ -77,7 +77,7 @@ public sealed class LlmTurnContextRevertTests
 
     /// <summary>
     /// M-B 회귀: fast-fail 가드 throw 후 호출자가 over-revert 하면 counter 0 reset + IsQuotaExceeded auto-reset →
-    /// DoS 표면. 호출자는 IncrementMutationCount 성공 직후에만 누적해야 함 — ApplyOperations / RunWithChargedQuota 패턴.
+    /// DoS 표면. 호출자는 IncrementMutationCount 성공 직후에만 누적해야 함 (`RunMutation` 진입 +1 패턴).
     /// 본 테스트는 over-revert 가 발생하면 어떻게 망가지는지 명시적으로 기록 (회귀 발견 시 본 테스트 fail 보장 없음 —
     /// 호출자 측 패턴 위반은 별도 grep 으로 검증).
     /// </summary>

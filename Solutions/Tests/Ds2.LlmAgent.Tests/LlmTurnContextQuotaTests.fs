@@ -6,12 +6,11 @@ open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.LlmAgent
 
-/// extend-mcp §5.6 신규 5 — D8 quota cascade 산식 / 사전 reject 회귀.
+/// D8 quota cascade 산식 / 사전 reject 회귀.
 ///
 /// `ToolOperations.cascadeOpCount` SSOT 산식 + helper 진입점 (`queueAddRobot`/`queueAddDevice`) 의
-/// `MutationQuotaSync = 2000` 사전 reject 분기 검증. C# `ModelTools` 의 single-helper / batch 경로
-/// 추가 차감 (`IncrementMutationCount(cascadeOpCount-1)`) 은 .NET interop 측 책임 — 본 test 는
-/// F# layer 의 build block 만 검증.
+/// `MutationQuotaSync = 2000` 사전 reject 분기 검증. 본 test 는 F# helper 의 build block 만 검증
+/// (Phase 5 cleanup 이후 호출 site = `ModelProtocol` doc-level dispatcher).
 
 let private newStoreWithProject () =
     let store = DsStore()
