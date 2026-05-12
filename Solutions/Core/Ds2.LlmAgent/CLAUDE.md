@@ -82,7 +82,7 @@ CodexStreamJsonParser.fs  Codex stream-json (turn.created/turn.assistant.message
 CodexCliProvider.fs       Codex CLI provider — 자체 sessions/{sid}.jsonl rollout + MCP HTTP 통신 + 임시 이미지 spool (rev 19 try/with partial leak 방어 + `static SweepStale ()` stale 정리)
 UiDispatcher.fs           `IUiDispatcher` 인터페이스 (Background priority 권장)
 ImportPlanBuilder.fs      mutable plan accumulator (turn 단위, plan.Add / plan.Operations / plan.Count)
-ToolOperations.fs         mutation 13종 (queueAddProject/System/Flow/Work/Call/ApiDef/Arrow + queueRemoveEntity/queueRenameEntity + queueBatch + helper) + read 6종 (listProjects/listSystems/describeSystem/describeSubtree/findByName/validateModelByGuid) + format helper 3종. NameMaxLength=128 + sanitizeName Cc/Cf + @/$ prefix 차단
+ToolOperations.fs         queueAdd* helper (Project/ActiveSystem/PassiveSystem/Flow/Work/Call(+AllowDup)/ApiDef/Arrow/Cylinder/Clamp/Robot/Device + queueRemoveEntity/queueRenameEntity) + read 6종 (listProjects/listSystems/describeSystem/describeSubtree/findByName/validateModelByGuid) + format helper 3종 + cascadeOpCount + sanitizeName (NameMaxLength=128, Cc/Cf + @/$ prefix 차단). Phase 5 cleanup 후 doc-level dispatcher (`ModelProtocol.applyPatch` / `applyDoc`) 만 호출 — op-layer [McpServerTool] surface 일소
 ```
 
 ProjectReference = `Ds2.Core` + `Ds2.Editor` (둘 다 직접). `Ds2.Core` 는 `Ds2.Editor` transitive 로도 들어오나 `[<InternalsVisibleTo("Ds2.LlmAgent")>]` (Ds2.Core/AssemblyInfo.fs:11) 효력화 위해 *직접* 참조 강제 — F# `InternalsVisibleTo` 는 transitive 확장 안 됨. `[<AutoOpen>] module Queries` in `Ds2.Core.Store` / `ImportPlanOperation` DU / `module internal ImportPlanDeviceOps.buildPassiveDeviceCascade` 등 internal 진입점 직접 호출 가능.
@@ -112,7 +112,7 @@ Apps/Promaker/Promaker/
     ├── LlmConfig.cs                            consent + API config 통합 (이전 LlmConsent.cs / LlmApiConfig.cs 통합). atomic write + corrupt fallback + DPAPI CurrentUser scope key 보관 + EnsureGranted (Yes/No MessageBox)
     ├── LlmTurnContext.cs                       turn-scoped (plan / dispatcher / 500ms validate cache / mutation quota=2000 + DecrementMutationCount revert)
     ├── LlmTurnContextProvider.cs               McpHostService 의 AddSingleton 등록 — tool method 인자 자동 DI
-    ├── PromakerToolNames.cs                    21개 fully-qualified mcp__promaker__* (allowlist SSOT) — list_projects/list_systems/describe_system/describe_subtree/find_by_name/validate_model + apply_operations (Pass 6 batch) + add_project/active_system/passive_system/flow/work/call/api_def/arrow + add_cylinder/clamp/robot/device (extend-mcp Tier 1 helper) + remove_entity/rename_entity
+    ├── PromakerToolNames.cs                    10개 fully-qualified mcp__promaker__* (allowlist SSOT) — read 6종 (list_projects/list_systems/describe_system/describe_subtree/find_by_name/validate_model) + doc-level 4종 (apply_model_doc/validate_model_doc/export_model_doc/json_to_yaml). Phase 5 cleanup 으로 op-layer 15종 (apply_operations + add_* + remove_entity + rename_entity) 일소
     ├── SystemPrompt.cs                         static readonly = PromptLoader.LoadComposed() 1회 호출. 본문은 외부 `.md` 로 이전
     ├── PromptLoader.cs                         3-tier 로드 (embedded baseline / `<exedir>\Prompts\*.md` / `%APPDATA%\Promaker\Prompts\*.md`) + 자연 정렬 + append merge. 시작 시 활성 소스 1줄 log
     ├── Prompts/1.entities.md                   baseline foundation — Ds2 entity 모델 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow) 속성 / 관계 / GUI canonical
@@ -122,7 +122,7 @@ Apps/Promaker/Promaker/
     ├── Api/                                    Phase 2 API providers
     │   ├── ApiChatProvider.cs                  Microsoft.Extensions.AI 기반 IChatClient → ILlmProvider 어댑터. update.Contents 를 LlmEvent 4종으로 매핑. rev 19 — `SendImpl` try/finally + partial collected flush (cancel/exception 시 user-only history 회피, role alternation 정합성)
     │   └── ApiProviderFactory.cs               Anthropic 12.20.0 / OpenAI 2.10.0 / OllamaSharp 5.4.25 → IChatClient 빌드 + MCP HttpClient 부착. Groq F-1 spike (`CreateGroqAsync`, OpenAI SDK + `https://api.groq.com/openai/v1` endpoint override). Ollama 만 `/api/show` probe 로 동적 capability (rev 16, 정책 7 — vision 포함 시 ImagesOnly(20MB))
-    └── Tools/ModelTools.cs                     [McpServerToolType] + Sanitize → ToolOperations.sanitizeName 위임 + RunMutation/RunRead 헬퍼 + 21 tool method (Pass 6 ApplyOperations + AddProject / extend-mcp L3: Active/Passive 분리 + AddCall 시그니처 단순화 + Tier 1 helper 4종 + D8 quota cascade)
+    └── Tools/ModelTools.cs                     [McpServerToolType] + Sanitize → ToolOperations.sanitizeName 위임 + RunMutation/RunRead 헬퍼 + 10 tool method = 4 doc-level (ApplyModelDoc / ValidateModelDoc / ExportModelDoc / JsonToYaml) + 6 read (ListProjects/ListSystems/DescribeSystem/DescribeSubtree/FindByName/ValidateModel). Phase 5 cleanup 으로 op-layer 15종 일소
 ```
 
 EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizationContext` 로 marshalling (UI block 회피).
@@ -162,7 +162,7 @@ EnsureCli 는 `Task.Run` background → `TaskScheduler.FromCurrentSynchronizatio
 | 1d-3 cache 위치 | `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` `_validateCache` field | turn 단위 (LlmTurnContext 인스턴스 lifetime) — turn 종료 시 자연 expire. dispatcher 단일 sync 안에서만 R/W 라 lock 불필요 |
 | 1d-3 검사 카테고리 | `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` `validateModel` (placeholderTokens / categoryOrder) | 6 카테고리 고정 출력 순서 (Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder). placeholder = 대문자 정규화 후 {TODO,TBD,FIXME,XXX,?,??,???}. Orphan 은 global scope 만 |
 | 1d-4 인자 빌더 분리 | `Solutions/Core/Ds2.LlmAgent/ClaudeCliProvider.fs` `module ClaudeCliArgs` | `build / formatArgs` module-level 노출 — process spawn 없이 단위 검증. `--allowed-tools` 는 반복 인자 형식 (`T1 --allowed-tools T2 ...`) |
-| 1d-4 tool 화이트리스트 | `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs:16-39` | 21개 fully-qualified `mcp__promaker__*` 이름 (Pass 6 apply_operations / add_project + Phase 2 remove_entity / rename_entity + extend-mcp L3 add_active_system / add_passive_system / add_cylinder / add_clamp / add_robot / add_device). drift 시 LLM 측 차단 → `PromakerToolNamesDriftTests` 가 회귀 검출 |
+| 1d-4 tool 화이트리스트 | `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs:16-39` | 10개 fully-qualified `mcp__promaker__*` 이름 (read 6 + doc-level 4 — Phase 5 cleanup 후). drift 시 LLM 측 차단 → `PromakerToolNamesDriftTests` 가 회귀 검출 |
 | 1d-4 Sanitize 차단 카테고리 | `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` `sanitizeName` (Pass E F# 이전) | `CharUnicodeInfo.GetUnicodeCategory` 검사로 Control(Cc) + Format(Cf) 차단. RLO/ZWJ/null byte/제어문자 모두 거부. `ModelTools.cs` 의 `Sanitize` 가 위임 |
 | Phase 2 Codex sandbox | `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs:265` | `sandbox_mode = "danger-full-access"` + `cd: <임시 폴더>` 격리. consent 다이얼로그 약속 ("파일 시스템 경로 등 전송 X") 대비 별도 정책 — 향후 codexConsentGranted 분리 검토 |
 | Phase 2 ILlmProvider | `Solutions/Core/Ds2.LlmAgent/LlmProvider.fs:33` | CLI 2종 (Claude/Codex) + API 4종 (Anthropic/OpenAI/Ollama/Groq) 공통 `Send : LlmUserMessage * CancellationToken -> IAsyncEnumerable<LlmEvent>`. `ApiChatProvider` 는 `IChatClient.GetStreamingResponseAsync` 어댑터 |

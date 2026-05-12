@@ -967,7 +967,7 @@ module ModelProtocol =
 
         let ctx = newContext plan store
         // review C1 (partial-commit transactional leak): 진입 시점 plan 위치 기록 → 종료 시 HasErrors 면
-        // 누적된 부분 op 를 TruncateTo 로 rollback. queueBatch (ToolOperations.fs:1291, 1317) 패턴 일관.
+        // 누적된 부분 op 를 TruncateTo 로 rollback (`ImportPlanBuilder.TruncateTo` 와 동일 패턴).
         // 본 fix 없으면 collectSystems→buildSystems→buildActiveFlows→applyPatch 중 *부분 성공* op 가
         // plan 에 남아 EndTurn 시 ApplyImportPlan 으로 store 에 silent commit — 다음 turn 의 retry 가
         // "이미 존재" 에러로 connection 단절.

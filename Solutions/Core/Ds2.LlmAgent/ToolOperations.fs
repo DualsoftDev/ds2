@@ -6,24 +6,6 @@ open System.Text.Json
 open Ds2.Core
 open Ds2.Core.Store
 
-/// Pass 6 (b) — Batch tool (`apply_operations`) 의 op 1개 입력.
-/// Args 는 op 별 필요 field 가 다른 dynamic JSON object → JsonElement 로 lazy 처리.
-/// C# 측이 JsonDocument.Parse 후 array iter → BatchOpInput[] 생성하여 queueBatch 에 전달.
-type BatchOpInput = {
-    Op: string
-    Ref: string option
-    Args: JsonElement
-}
-
-/// Pass 6 (b) — Batch op 1개 결과.
-/// Id = 새 Guid 반환 op (add_*) 만 Some. remove_entity / rename_entity 는 None.
-type BatchOpResult = {
-    Index: int
-    Op: string
-    Ref: string option
-    Id: Guid option
-    Display: string
-}
 
 /// LLM mutation/read tool handler 가 호출하는 F# 측 helper.
 ///
@@ -58,8 +40,7 @@ module ToolOperations =
 
     /// (review M3 SSOT) helper cascade 의 op 수 산식 — System + Flow + Work×N + ApiDef×N + Arrow×wiring.
     /// none: `3 + 2N` / chain: `3 + 2N + (N-1)` / all-pairs: `3 + 2N + N(N-1)/2`.
-    /// C# `ModelTools.CalcCascadeOpCount` + F# `queueAddRobot/Device` 의 사전 reject 가 본 함수 단일 호출.
-    /// 변경 시 한 곳만 수정하면 모든 호출자 동기 — 5곳 중복 제거.
+    /// `queueAddRobot/Device` 의 사전 reject 가 본 함수 단일 호출. 변경 시 한 곳만 수정하면 모든 호출자 동기.
     let cascadeOpCount (n: int) (opposing: string) : int =
         match opposing with
         | "chain" -> 3 + 2*n + max 0 (n-1)
@@ -268,9 +249,9 @@ module ToolOperations =
             else None)
 
     /// add_call 의 *공통 본체* — clash check 정책만 인자로 받음.
-    /// `queueAddCall` (기존, op-layer 직접 + apply_operations) = 중복 차단 유지.
-    /// `queueAddCallAllowDup` (Phase 1 YAML protocol concurrent path) = 중복 허용.
-    /// `hasCallNameClash` 함수 자체는 보존 (4차 review C1 — 기존 op-layer 회귀 차단).
+    /// `queueAddCall` (sequential path) = 중복 차단 유지.
+    /// `queueAddCallAllowDup` (doc-level concurrent path) = 중복 허용.
+    /// `hasCallNameClash` 함수 자체는 보존 (4차 review C1 — sequential path 회귀 차단).
     let private queueAddCallCore
         (allowDup: bool)
         (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
@@ -322,7 +303,7 @@ module ToolOperations =
     /// add_call mutation tool. parent Work + ApiDef 는 store 또는 plan 에 존재해야 함.
     /// 인자 = (workId, apiDefId) 2개. devicesAlias / apiName 은 ApiDef → ParentSystem.Name / ApiDef.Name 자동 도출.
     /// 룰 B (alias = Passive.Name) = 구문상 차단 (alias 인자 자체 부재).
-    /// 룰 C (ApiDef 는 Passive 의 자식) = 런타임 차단 (ApiDef.ParentSystem.IsActive == true 시 BATCH_ERROR).
+    /// 룰 C (ApiDef 는 Passive 의 자식) = 런타임 차단 (ApiDef.ParentSystem.IsActive == true 시 VALIDATION_ERROR).
     /// ApiCall cascade: ApiCall.ApiDefId / OriginFlowId (= workId 의 parent Flow.Id) 자동 set + AddApiCall plan op.
     /// Call.Name 충돌 검사 유지 (같은 Work 안 동일 fullName 중복 차단).
     let queueAddCall (plan: ImportPlanBuilder) (store: DsStore) (workId: Guid) (apiDefId: Guid) : Guid =
@@ -367,7 +348,7 @@ module ToolOperations =
     // PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 를 1 op 로.
     // ImportPlanDeviceOps.buildPassiveDeviceCascade 가 raw ResizeArray 에 append 하므로
     // wrapper 가 별도 buffer 만들어 전달 후 plan.Add 로 옮긴다.
-    // 반환 = (PassiveSystemId, (apiName * ApiDefId) list) — caller (dispatchBatchOp) 가 batch refTable 에 다중 등록.
+    // 반환 = (PassiveSystemId, (apiName * ApiDefId) list).
 
     let private runDeviceCascade
         (plan: ImportPlanBuilder) (store: DsStore)
@@ -990,331 +971,3 @@ module ToolOperations =
             let id = rootIdOpt.Value
             $"VALIDATION_ERROR: scope id {id:D} 가 Project/System/Flow 어디에도 해당하지 않습니다."
 
-    // ─── Pass 6 (b) — Batch tool (apply_operations) ──────────────────────────
-    //
-    // 채택 근거: (c) variable binding 의 chain pattern 이 message-level 1 round-trip 은 달성하나
-    //   claude CLI 의 internal turn 카운트 (numTurns) 가 N 회 tool_use 별 N 번 cycle 로 부풀림.
-    //   (b) 는 단일 tool 1번 호출 = 1 internal turn = 진짜 round-trip 압축. cascade 도 self-contained.
-    //
-    // ref 해소:
-    //   - batch 안 op 의 Args 에 "@<refName>" 패턴이 있으면 직전 op (= array 안 더 앞) 의 결과 Guid 로 치환
-    //   - refName scope = 이 batch 호출 안만 (호출 사이 공유 X — Plan 에 누적된 op 는 server 측 ref map 와 무관)
-    //
-    // fail-fast: 첫 op 실패 시 plan.TruncateTo(snapshotCount) 으로 진입 시점 plan 으로 rollback +
-    //   Error(failureIndex, opName, message) 반환. partial 누적이 ApplyImportPlan 시점에 의도와 다른
-    //   모델을 만들지 않도록 보장 (= 결정 7 (d) "1 turn = 1 undo" 의미 유지).
-
-    /// Args 에서 string field 추출. 없거나 wrong type 이면 invalidOp.
-    let private getStringArg (args: JsonElement) (name: string) : string =
-        let mutable prop = JsonElement()
-        if args.ValueKind <> JsonValueKind.Object || not (args.TryGetProperty(name, &prop)) then
-            invalidOp $"VALIDATION_ERROR: args.{name} 이 존재하지 않습니다."
-        elif prop.ValueKind <> JsonValueKind.String then
-            invalidOp $"VALIDATION_ERROR: args.{name} 가 string 이 아닙니다 (ValueKind={prop.ValueKind})."
-        else
-            prop.GetString()
-
-    /// Args 의 optional string field. 없으면 None.
-    let private getStringArgOpt (args: JsonElement) (name: string) : string option =
-        let mutable prop = JsonElement()
-        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
-            Some(prop.GetString())
-        else None
-
-    /// Array 이면 그대로 string list, String 이면 JSON array string 으로 한 번 더 parse 하여 list 로 reduce.
-    /// 단일 helper (`AddDevice` 등) 의 `string apiNames (JSON array string)` contract 와 batch 의 array contract 를
-    /// LLM 측에서 혼동했을 때 tolerance — 둘 다 수용. 그 외 ValueKind 는 None (호출자가 reject 메시지 결정).
-    let private tryReadStringArrayProp (prop: JsonElement) (name: string) : string list option =
-        let readArray (arr: JsonElement) =
-            [ for el in arr.EnumerateArray() ->
-                if el.ValueKind <> JsonValueKind.String then
-                    invalidOp $"VALIDATION_ERROR: args.{name} 의 항목이 string 이 아닙니다."
-                el.GetString() ]
-        match prop.ValueKind with
-        | JsonValueKind.Array -> Some(readArray prop)
-        | JsonValueKind.String ->
-            // 정식 형태는 JSON Array literal — 본 string fallback 은 단일 helper contract 와의 호환용 tolerance.
-            // 빈/whitespace string 은 묵시적 empty list 로 흡수하지 않고 명시적 reject — LLM 학습 신호 명확화.
-            let raw = prop.GetString()
-            if isNull raw || raw.Trim() = "" then
-                invalidOp $"VALIDATION_ERROR: args.{name} 가 빈 string 입니다 (array literal 필요)."
-            let innerDoc =
-                try JsonDocument.Parse(raw)
-                with :? JsonException as jex ->
-                    invalidOp $"VALIDATION_ERROR: args.{name} string 안 JSON parse 실패 — {jex.Message}"
-            use _ = innerDoc
-            if innerDoc.RootElement.ValueKind <> JsonValueKind.Array then
-                invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (string 안 ValueKind={innerDoc.RootElement.ValueKind})."
-            Some(readArray innerDoc.RootElement)
-        | _ -> None
-
-    /// Args 의 string array field. 없으면 invalidOp. Array / String(JSON array) 둘 다 수용.
-    let private getStringArrayArg (args: JsonElement) (name: string) : string list =
-        let mutable prop = JsonElement()
-        if args.ValueKind <> JsonValueKind.Object || not (args.TryGetProperty(name, &prop)) then
-            invalidOp $"VALIDATION_ERROR: args.{name} 이 존재하지 않습니다."
-        else
-            match tryReadStringArrayProp prop name with
-            | Some xs -> xs
-            | None -> invalidOp $"VALIDATION_ERROR: args.{name} 가 array 가 아닙니다 (ValueKind={prop.ValueKind})."
-
-    /// Args 의 optional string array field. 없으면 None. Array / String(JSON array) 둘 다 수용.
-    let private getStringArrayArgOpt (args: JsonElement) (name: string) : string list option =
-        let mutable prop = JsonElement()
-        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) then
-            tryReadStringArrayProp prop name
-        else None
-
-    /// Args 의 optional int field (workDurationMs 등). 없으면 None.
-    let private getIntArgOpt (args: JsonElement) (name: string) : int option =
-        let mutable prop = JsonElement()
-        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.Number then
-            let mutable v = 0
-            if prop.TryGetInt32(&v) then Some v else None
-        else None
-
-    /// Args 의 optional bool field. 없으면 default.
-    let private getBoolArg (args: JsonElement) (name: string) (defaultVal: bool) : bool =
-        let mutable prop = JsonElement()
-        if args.ValueKind = JsonValueKind.Object && args.TryGetProperty(name, &prop) then
-            match prop.ValueKind with
-            | JsonValueKind.True -> true
-            | JsonValueKind.False -> false
-            | _ -> defaultVal
-        else defaultVal
-
-    /// ref name 형식 검증. 실패 시 invalidOp. 1-32자, [a-zA-Z_][a-zA-Z0-9_]*.
-    let private validateRefName (refMap: Dictionary<string, Guid>) (refName: string) =
-        if String.IsNullOrEmpty(refName) then
-            invalidOp "VALIDATION_ERROR: ref 가 비어있습니다."
-        elif refName.Length > 32 then
-            invalidOp $"VALIDATION_ERROR: ref 길이 {refName.Length} > 32."
-        elif not (System.Text.RegularExpressions.Regex.IsMatch(refName, @"^[a-zA-Z_][a-zA-Z0-9_]*$")) then
-            invalidOp $"VALIDATION_ERROR: ref 형식 오류 (1-32자, [a-zA-Z_][a-zA-Z0-9_]*)."
-        elif refMap.ContainsKey(refName) then
-            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다."
-
-    /// "@refName" → refMap[refName] (Guid). 그 외 → Guid.Parse. 실패 시 invalidOp.
-    let private resolveBatchRef (refMap: Dictionary<string, Guid>) (value: string) (field: string) : Guid =
-        if String.IsNullOrWhiteSpace(value) then
-            invalidOp $"VALIDATION_ERROR: {field} 이(가) 비어있습니다."
-        let trimmed = value.Trim()
-        if trimmed.StartsWith("@") then
-            let refName = trimmed.Substring(1)
-            match refMap.TryGetValue(refName) with
-            | true, g -> g
-            | _ -> invalidOp $"VALIDATION_ERROR: {field} 의 ref '@{refName}' 이 같은 batch 의 이전 op 에서 정의되지 않았습니다."
-        else
-            match Guid.TryParse(trimmed) with
-            | true, g -> g
-            | _ -> invalidOp $"VALIDATION_ERROR: {field} 가 유효한 GUID 또는 '@<ref>' 이 아닙니다."
-
-    /// dispatch 시 entity name 인자 sanitize (Cc/Cf reject + @/$ prefix reject + 길이 cap). 실패 시 invalidOp.
-    let private sanitizeOrThrow (value: string) (field: string) =
-        let err = sanitizeName value field NameMaxLength
-        if err <> "" then invalidOp err
-
-    /// helper cascade 의 ApiDef (name * Guid) list 를 batch 응답 Display 에 노출하기 위한 포맷.
-    /// `apiDefs=[ADV:<guid>, RET:<guid>]` 형태 — 다음 turn 의 add_call 이 describe_system read 없이도
-    /// ApiDef GUID 를 그대로 참조 가능하게 함 (round-trip 절감).
-    let private formatApiDefIds (apiDefIds: (string * Guid) list) =
-        apiDefIds
-        |> List.map (fun (n, id) -> sprintf "%s:%s" n (id.ToString("D")))
-        |> String.concat ", "
-        |> sprintf "[%s]"
-
-    /// queueBatch op 1개 dispatch.
-    /// 반환 = (primaryId option, (refName * Guid) list, display).
-    /// primaryId = add_* op 의 결과 Guid (BatchOpResult.Id 로 노출, op.Ref 유무와 무관).
-    ///   remove_entity / rename_entity 는 None — Guid 반환 의미 없음.
-    /// list = ref 등록 source. primitive op + op.Ref Some 이면 [(refName, id)] 단원소 / None 이면 [].
-    ///        helper op (add_cylinder/clamp/robot/device) 는 op.Ref Some 시 (refName, PassiveSystemId) +
-    ///        apiDef*Ref / apiDefRefs 의 (refName, ApiDefId) 다중 등록 (D6 ref-required).
-    /// (review M5) 빈 op.Op 검증을 본 함수 첫 줄로 통합 — queueBatch 의 try-with 와 단일 경로로 합쳐 분기 단순화.
-    let private dispatchBatchOp
-        (plan: ImportPlanBuilder) (store: DsStore)
-        (refMap: Dictionary<string, Guid>) (op: BatchOpInput) : Guid option * (string * Guid) list * string =
-        if String.IsNullOrEmpty(op.Op) then
-            invalidOp "VALIDATION_ERROR: 'op' 필드가 비어있습니다."
-        let mainRef (id: Guid) : (string * Guid) list =
-            match op.Ref with Some r -> [r, id] | None -> []
-        let parseDuration () =
-            getIntArgOpt op.Args "workDurationMs"
-            |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))
-        match op.Op with
-        | "add_project" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let id = queueAddProject plan store (name.Trim())
-            Some id, mainRef id, $"add_project name=\"{name.Trim()}\" id={id:D}"
-        | "add_active_system" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let id = queueAddActiveSystem plan store (name.Trim())
-            Some id, mainRef id, $"add_active_system name=\"{name.Trim()}\" id={id:D}"
-        | "add_passive_system" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let deviceType = getStringArg op.Args "deviceType"
-            let id = queueAddPassiveSystem plan store (name.Trim()) (deviceType.Trim())
-            Some id, mainRef id, $"add_passive_system name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={id:D}"
-        | "add_flow" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
-            let id = queueAddFlow plan store (name.Trim()) sysId
-            Some id, mainRef id, $"add_flow name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
-        | "add_work" ->
-            let localName = getStringArg op.Args "localName"
-            sanitizeOrThrow localName "localName"
-            let flowId = resolveBatchRef refMap (getStringArg op.Args "flowId") "flowId"
-            let id = queueAddWork plan store (localName.Trim()) flowId
-            Some id, mainRef id, $"add_work localName=\"{localName.Trim()}\" flowId={flowId:D} id={id:D}"
-        | "add_call" ->
-            let workId = resolveBatchRef refMap (getStringArg op.Args "workId") "workId"
-            let apiDefId = resolveBatchRef refMap (getStringArg op.Args "apiDefId") "apiDefId"
-            let id = queueAddCall plan store workId apiDefId
-            Some id, mainRef id, $"add_call workId={workId:D} apiDefId={apiDefId:D} id={id:D}"
-        | "add_api_def" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let sysId = resolveBatchRef refMap (getStringArg op.Args "systemId") "systemId"
-            let txWorkId =
-                getStringArgOpt op.Args "txWorkId"
-                |> Option.map (fun v -> resolveBatchRef refMap v "txWorkId")
-            let rxWorkId =
-                getStringArgOpt op.Args "rxWorkId"
-                |> Option.map (fun v -> resolveBatchRef refMap v "rxWorkId")
-            let id = queueAddApiDef plan store (name.Trim()) sysId txWorkId rxWorkId
-            Some id, mainRef id, $"add_api_def name=\"{name.Trim()}\" systemId={sysId:D} id={id:D}"
-        | "add_arrow" ->
-            let srcId = resolveBatchRef refMap (getStringArg op.Args "sourceId") "sourceId"
-            let tgtId = resolveBatchRef refMap (getStringArg op.Args "targetId") "targetId"
-            let arrowTypeStr = getStringArgOpt op.Args "arrowType" |> Option.defaultValue "Start"
-            let arrowType =
-                match Enum.TryParse<ArrowType>(arrowTypeStr, true) with
-                | true, t -> t
-                | _ -> invalidOp $"VALIDATION_ERROR: arrowType '{arrowTypeStr}' 이 유효하지 않습니다. 허용: Unspecified|Start|Reset|StartReset|ResetReset|Group."
-            let (id, kind) = queueAddArrow plan store srcId tgtId arrowType
-            Some id, mainRef id, $"add_arrow kind={kind} type={arrowType} source={srcId:D} target={tgtId:D} id={id:D}"
-        | "add_cylinder" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let apiDef1Ref = (getStringArg op.Args "apiDef1Ref").Trim()
-            let apiDef2Ref = (getStringArg op.Args "apiDef2Ref").Trim()
-            validateRefName refMap apiDef1Ref
-            validateRefName refMap apiDef2Ref
-            if apiDef1Ref = apiDef2Ref then
-                invalidOp $"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref}')."
-            let apiNames = getStringArrayArgOpt op.Args "apiNames" |> Option.defaultValue []
-            let (sysId, apiDefIds) = queueAddCylinder plan store (name.Trim()) apiNames (parseDuration())
-            let apiPairs =
-                match apiDefIds with
-                | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
-                | _ -> invalidOp $"INTERNAL: add_cylinder cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
-            Some sysId, mainRef sysId @ apiPairs, $"add_cylinder name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds}"
-        | "add_clamp" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let apiDef1Ref = (getStringArg op.Args "apiDef1Ref").Trim()
-            let apiDef2Ref = (getStringArg op.Args "apiDef2Ref").Trim()
-            validateRefName refMap apiDef1Ref
-            validateRefName refMap apiDef2Ref
-            if apiDef1Ref = apiDef2Ref then
-                invalidOp $"VALIDATION_ERROR: apiDef1Ref / apiDef2Ref 가 동일합니다 ('{apiDef1Ref}')."
-            let apiNames = getStringArrayArgOpt op.Args "apiNames" |> Option.defaultValue []
-            let (sysId, apiDefIds) = queueAddClamp plan store (name.Trim()) apiNames (parseDuration())
-            let apiPairs =
-                match apiDefIds with
-                | [(_, id1); (_, id2)] -> [apiDef1Ref, id1; apiDef2Ref, id2]
-                | _ -> invalidOp $"INTERNAL: add_clamp cascade 가 ApiDef 2개를 반환하지 않았습니다 (got {apiDefIds.Length})."
-            Some sysId, mainRef sysId @ apiPairs, $"add_clamp name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds}"
-        | "add_robot" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let apiNames = getStringArrayArg op.Args "apiNames"
-            let apiDefRefs = getStringArrayArg op.Args "apiDefRefs" |> List.map (fun r -> r.Trim())
-            if apiNames.Length <> apiDefRefs.Length then
-                invalidOp $"VALIDATION_ERROR: add_robot apiNames.length ({apiNames.Length}) != apiDefRefs.length ({apiDefRefs.Length}) (D6 ref-required: 길이 일치)."
-            for r in apiDefRefs do validateRefName refMap r
-            // 같은 op 안 ref 중복 검사 (refMap 들어가기 전)
-            let dupSet = HashSet<string>()
-            for r in apiDefRefs do
-                if not (dupSet.Add r) then
-                    invalidOp $"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다."
-            let opposing = getStringArgOpt op.Args "opposing" |> Option.defaultValue "none"
-            let (sysId, apiDefIds) = queueAddRobot plan store (name.Trim()) apiNames opposing (parseDuration())
-            let apiPairs =
-                List.zip apiDefRefs (apiDefIds |> List.map snd)
-            Some sysId, mainRef sysId @ apiPairs, $"add_robot name=\"{name.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds} opposing={opposing}"
-        | "add_device" ->
-            let name = getStringArg op.Args "name"
-            sanitizeOrThrow name "name"
-            let deviceType = getStringArg op.Args "deviceType"
-            let apiNames = getStringArrayArg op.Args "apiNames"
-            let apiDefRefs = getStringArrayArg op.Args "apiDefRefs" |> List.map (fun r -> r.Trim())
-            if apiNames.Length <> apiDefRefs.Length then
-                invalidOp $"VALIDATION_ERROR: add_device apiNames.length ({apiNames.Length}) != apiDefRefs.length ({apiDefRefs.Length}) (D6 ref-required: 길이 일치)."
-            for r in apiDefRefs do validateRefName refMap r
-            let dupSet = HashSet<string>()
-            for r in apiDefRefs do
-                if not (dupSet.Add r) then
-                    invalidOp $"VALIDATION_ERROR: apiDefRefs 안에 ref '{r}' 이 중복 정의되었습니다."
-            let opposing = getStringArgOpt op.Args "opposing" |> Option.defaultValue "none"
-            let (sysId, apiDefIds) =
-                queueAddDevice plan store (name.Trim()) (deviceType.Trim()) apiNames opposing (parseDuration())
-            let apiPairs =
-                List.zip apiDefRefs (apiDefIds |> List.map snd)
-            Some sysId, mainRef sysId @ apiPairs, $"add_device name=\"{name.Trim()}\" deviceType=\"{deviceType.Trim()}\" id={sysId:D} apiDefs={formatApiDefIds apiDefIds} opposing={opposing}"
-        | "remove_entity" ->
-            let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
-            let kind = queueRemoveEntity plan store entityId
-            None, [], $"remove_entity kind={kind} id={entityId:D} (cascade 는 turn end 의 ApplyImportPlan 시점에 적용)"
-        | "rename_entity" ->
-            let entityId = resolveBatchRef refMap (getStringArg op.Args "entityId") "entityId"
-            let newName = getStringArg op.Args "newName"
-            sanitizeOrThrow newName "newName"
-            let kind = queueRenameEntity plan store entityId (newName.Trim())
-            None, [], $"rename_entity kind={kind} id={entityId:D} newName=\"{newName.Trim()}\""
-        | other ->
-            invalidOp $"VALIDATION_ERROR: 지원하지 않는 op '{other}'. 허용: add_project|add_active_system|add_passive_system|add_flow|add_work|add_call|add_api_def|add_arrow|add_cylinder|add_clamp|add_robot|add_device|remove_entity|rename_entity."
-
-    /// Batch op array 를 plan 에 누적.
-    /// 성공 시 Ok(results) — 모든 op 의 BatchOpResult.
-    /// 실패 시 Error(failureIndex, opName, message) — plan 은 진입 시점으로 rollback.
-    let queueBatch
-        (plan: ImportPlanBuilder) (store: DsStore)
-        (ops: BatchOpInput[]) : Result<BatchOpResult[], int * string * string> =
-        if isNull ops || ops.Length = 0 then
-            Error(0, "", "VALIDATION_ERROR: operations array 가 비어있습니다.")
-        else
-            let snapshotCount = plan.Count
-            let refMap = Dictionary<string, Guid>()
-            let results = ResizeArray<BatchOpResult>()
-            let mutable failure : (int * string * string) option = None
-            let mutable i = 0
-            while failure.IsNone && i < ops.Length do
-                let op = ops.[i]
-                try
-                    // (review M5) ref 형식 검사 — `[a-zA-Z_][a-zA-Z0-9_]*` (1-32자). dispatchBatchOp 호출 전에 검증해서
-                    // op 성공 후 ref 만 fail 하는 부분 실패 회피.
-                    match op.Ref with
-                    | Some refName -> validateRefName refMap refName
-                    | None -> ()
-                    let (primaryId, refs, display) = dispatchBatchOp plan store refMap op
-                    // refs 의 모든 (refName, id) 등록. 중복 시 invalidOp (helper 의 sub-ref 가 main ref 와 충돌하는 경우 포함).
-                    for (refName, id) in refs do
-                        if refMap.ContainsKey(refName) then
-                            invalidOp $"VALIDATION_ERROR: ref '@{refName}' 이 같은 batch 안에 중복 정의되었습니다 (helper sub-ref 와 충돌)."
-                        refMap.[refName] <- id
-                    // primaryId = add_* 결과 Guid (op.Ref 유무 무관) / remove/rename 은 None.
-                    results.Add({ Index = i; Op = op.Op; Ref = op.Ref; Id = primaryId; Display = display })
-                with ex ->
-                    failure <- Some(i, op.Op, ex.Message)
-                i <- i + 1
-            match failure with
-            | Some(idx, opName, msg) ->
-                plan.TruncateTo(snapshotCount)
-                Error(idx, opName, msg)
-            | None ->
-                Ok(results.ToArray())
