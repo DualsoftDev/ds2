@@ -3,6 +3,8 @@ module ModelEquivalence
 open System.Collections.Generic
 open Ds2.Core
 open Ds2.Core.Store
+open Ds2.Editor
+open Ds2.LlmAgent
 
 /// Phase 1 YAML protocol round-trip 의미-동등 비교 (todo §3.1 Step 9, M13).
 ///
@@ -127,17 +129,22 @@ let captureShape (store: DsStore) : StoreShape =
                     }))
             |> Set.ofList
 
+        // Phase 2.5 m6: allArrowCalls 1회 호출 후 ParentId 별 그룹 캐싱. work 마다 전체 enumerate (O(N×M)) 회피.
+        let callArrowsByParent =
+            Queries.allArrowCalls store
+            |> List.groupBy (fun a -> a.ParentId)
+            |> Map.ofList
+
         let callArrows =
-            // ArrowBetweenCalls 은 work 단위 — 모든 work 순회.
             allSystems
             |> List.collect (fun (s, _) ->
                 Queries.flowsOf s.Id store
                 |> List.collect (fun f ->
                     Queries.worksOf f.Id store
                     |> List.collect (fun w ->
-                        // arrowCallsOf 가 있는지 확인 — 없으면 빈 list.
-                        Queries.allArrowCalls store
-                        |> List.filter (fun a -> a.ParentId = w.Id)
+                        callArrowsByParent
+                        |> Map.tryFind w.Id
+                        |> Option.defaultValue []
                         |> List.map (fun a ->
                             {
                                 SourceLabel = callLabel store a.SourceId
@@ -180,3 +187,102 @@ let diff (a: StoreShape) (b: StoreShape) : string list =
         if not (Set.isEmpty onlyA) then diffs.Add(sprintf "CallArrows only in A: %A" (Set.toList onlyA))
         if not (Set.isEmpty onlyB) then diffs.Add(sprintf "CallArrows only in B: %A" (Set.toList onlyB))
     diffs |> List.ofSeq
+
+// ─── Phase 2.5 m1 — RelaxedShape (StoreShape 의 부분 projection) ─────────────
+//
+// 카운트 + 관계 위주 비교용. cylinder sugar canonical 의 internal Flow 이름은 동등 비교에서 제외.
+// Passive flowNames 만 빼고 비교하므로 GUI fixture vs export round-trip 의 *완화* 의미-동등 검증에 적합.
+// 이전 `ModelProtocolTests.fs` 의 private RelaxedShape 정의를 흡수 (정보 중복 제거).
+
+type RelaxedShape = {
+    ProjectName: string option
+    SystemNames: string Set
+    ActiveSystemFlowNames: Map<string, string Set>
+    PassiveSystemApiDefNames: Map<string, string Set>
+    WorkLocalNames: Map<string, string Set>
+    WorkArrowsByType: Map<string, int>
+}
+
+let captureRelaxed (store: DsStore) : RelaxedShape =
+    match Queries.allProjects store with
+    | [] ->
+        { ProjectName = None
+          SystemNames = Set.empty
+          ActiveSystemFlowNames = Map.empty
+          PassiveSystemApiDefNames = Map.empty
+          WorkLocalNames = Map.empty
+          WorkArrowsByType = Map.empty }
+    | p :: _ ->
+        let actives = Queries.activeSystemsOf p.Id store
+        let passives = Queries.passiveSystemsOf p.Id store
+        let allSystems =
+            (actives |> List.map (fun s -> s, true))
+            @ (passives |> List.map (fun s -> s, false))
+
+        let sysNames = allSystems |> List.map (fun (s, _) -> s.Name) |> Set.ofList
+
+        let activeFlowNames =
+            actives
+            |> List.map (fun s ->
+                s.Name, Queries.flowsOf s.Id store |> List.map (fun f -> f.Name) |> Set.ofList)
+            |> Map.ofList
+
+        let passiveApiNames =
+            passives
+            |> List.map (fun s ->
+                s.Name, Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name) |> Set.ofList)
+            |> Map.ofList
+
+        let workLocalsBySystem =
+            allSystems
+            |> List.map (fun (s, _) ->
+                let locals =
+                    Queries.flowsOf s.Id store
+                    |> List.collect (fun f -> Queries.worksOf f.Id store)
+                    |> List.map (fun w -> w.LocalName)
+                    |> Set.ofList
+                s.Name, locals)
+            |> Map.ofList
+
+        // Phase 2.5 m7: ArrowType key 직렬화는 `ModelProtocol.formatArrowType` (SSOT §2.4) 재활용.
+        // 이전의 `%A` 표현은 컴파일러 fallback 표기와 silent 일치 — 회귀 fence 부재.
+        let arrowsByType =
+            allSystems
+            |> List.collect (fun (s, _) ->
+                Queries.arrowWorksOf s.Id store
+                |> List.map (fun a -> sprintf "%s|%s" s.Name (ModelProtocol.formatArrowType a.ArrowType)))
+            |> List.countBy id
+            |> Map.ofList
+
+        { ProjectName = Some p.Name
+          SystemNames = sysNames
+          ActiveSystemFlowNames = activeFlowNames
+          PassiveSystemApiDefNames = passiveApiNames
+          WorkLocalNames = workLocalsBySystem
+          WorkArrowsByType = arrowsByType }
+
+// ─── Phase 2.5 m3 + cycle2 M3 — round-trip helper ────────────────────────────
+//
+// `exportToJson → apply → project × 2 → 동등 검증` pattern 흡수.
+// projection 함수 (captureShape / captureRelaxed) 를 generic 인자로 받아 두 비교 방식 모두 적용 가능.
+
+/// 임의 projection 으로 round-trip 의미-동등 검증. before/after 한 쌍 반환.
+let roundTripWith (project: DsStore -> 'T) (store: DsStore) : 'T * 'T =
+    let before = project store
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
+    if diag.HasErrors then
+        failwithf "round-trip apply diagnostics: %s" (diag.Format())
+    store2.ApplyImportPlan("round-trip helper", plan.Build())
+    let after = project store2
+    before, after
+
+/// StoreShape 기반 round-trip — 정확 의미-동등 비교 (cascade 자식 이름 포함).
+let roundTripShape (store: DsStore) : StoreShape * StoreShape =
+    roundTripWith captureShape store
+
+/// RelaxedShape 기반 round-trip — Passive cascade internal Flow 이름 무시 (GUI fixture 호환).
+let roundTripRelaxed (store: DsStore) : RelaxedShape * RelaxedShape =
+    roundTripWith captureRelaxed store

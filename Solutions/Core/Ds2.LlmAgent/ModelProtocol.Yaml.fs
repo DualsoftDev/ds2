@@ -48,6 +48,10 @@ module ModelProtocolYaml =
     /// YAML null literal token — string 값이 이 set 에 들면 plain emit 시 null 로 오인되므로 quoted 강제.
     let private yamlNullTokens = Set.ofList [ "null"; "Null"; "NULL"; "~"; "" ]
 
+    /// plain emit 시 boolean/null 로 오인될 위험이 있는 reserved token 의 union 캐시 (Phase 2.5 m5).
+    /// 호출처: `jsonToYamlNode` string 분기에서 ASCII identifier 검사와 함께 quoted 강제 판정.
+    let private yamlReservedTokens = Set.unionMany [ yaml12Bools; yaml11OnlyBools; yamlNullTokens ]
+
     /// JSON string → YAML plain scalar 안전 검사 (Phase 2 §3.1 #4).
     /// ASCII identifier 패턴 = 첫 글자 [A-Za-z_], 이후 [A-Za-z0-9_\-]*. dotted-path ("Cyl1.ADV") /
     /// 공백 포함 ("A -> B : Start") / 숫자 시작 / 특수문자 모두 미매칭 → quoted.
@@ -104,7 +108,8 @@ module ModelProtocolYaml =
     let private scalarToJsonLiteral (s: YamlScalarNode) : string =
         let raw = s.Value
         if isPlainScalar s then
-            if String.IsNullOrEmpty raw || raw = "null" || raw = "~" || raw = "Null" || raw = "NULL" then
+            // Phase 2.5 m4: yamlNullTokens SSOT 재활용 — null literal hardcode 제거.
+            if yamlNullTokens.Contains raw then
                 "null"
             elif yaml12Bools.Contains raw then
                 raw.ToLowerInvariant()
@@ -200,10 +205,8 @@ module ModelProtocolYaml =
             let v = el.GetString()
             let s = YamlScalarNode(v)
             let asciiId = not (String.IsNullOrEmpty v) && plainScalarSafeRegex.IsMatch v
-            let reserved =
-                yaml12Bools.Contains v
-                || yaml11OnlyBools.Contains v
-                || yamlNullTokens.Contains v
+            // Phase 2.5 m5: union set 단일 lookup (boolean/null token 모두 quoted 강제).
+            let reserved = yamlReservedTokens.Contains v
             if asciiId && not reserved then
                 s.Style <- ScalarStyle.Plain
             else

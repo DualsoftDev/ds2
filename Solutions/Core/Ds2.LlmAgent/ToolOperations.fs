@@ -397,25 +397,30 @@ module ToolOperations =
             plan.Add(op)
         result
 
+    /// Phase 2.5 cycle2 M2 (5인 review): cylinder/clamp 골격 중복 흡수 — N=2 / Chain 모드 paired sugar 전용.
+    /// robot 은 quota check / opposing 인자 등 다른 로직이 있어 별개. 본 helper 는 spec.DeviceCase 가
+    /// `cylinder` / `clamp` 일 때만 호출 — 호출처는 KnownSugars.cylinder / KnownSugars.clamp 만 전달.
+    let private queueAddPairedSugar
+        (plan: ImportPlanBuilder) (store: DsStore)
+        (name: string) (apiNames: string list) (workDuration: TimeSpan option)
+        (spec: KnownSugarSpec) : Guid * (string * Guid) list =
+        let names = if apiNames.IsEmpty then spec.DefaultApis else apiNames
+        if names.Length <> 2 then
+            invalidOp $"add_{spec.DeviceCase}: apiNames 는 정확히 2개여야 합니다 (현재 {names.Length})."
+        let duration = workDuration |> Option.orElseWith (fun () -> Some spec.DefaultDuration)
+        runDeviceCascade plan store name spec.SystemType names duration ImportPlanDeviceOps.Chain
+
     /// add_cylinder helper. N=2 (ADV/RET 등 default), Chain wiring (ResetReset 1 개), 500ms.
     let queueAddCylinder
         (plan: ImportPlanBuilder) (store: DsStore)
         (name: string) (apiNames: string list) (workDuration: TimeSpan option) : Guid * (string * Guid) list =
-        let names = if apiNames.IsEmpty then ["ADV"; "RET"] else apiNames
-        if names.Length <> 2 then
-            invalidOp $"add_cylinder: apiNames 는 정확히 2개여야 합니다 (현재 {names.Length})."
-        let duration = workDuration |> Option.orElseWith (fun () -> Some (TimeSpan.FromMilliseconds 500.))
-        runDeviceCascade plan store name "Unit" names duration ImportPlanDeviceOps.Chain
+        queueAddPairedSugar plan store name apiNames workDuration KnownSugars.cylinder
 
     /// add_clamp helper. N=2 (CLP/UNCLP default), Chain wiring (ResetReset 1 개), 500ms.
     let queueAddClamp
         (plan: ImportPlanBuilder) (store: DsStore)
         (name: string) (apiNames: string list) (workDuration: TimeSpan option) : Guid * (string * Guid) list =
-        let names = if apiNames.IsEmpty then ["CLP"; "UNCLP"] else apiNames
-        if names.Length <> 2 then
-            invalidOp $"add_clamp: apiNames 는 정확히 2개여야 합니다 (현재 {names.Length})."
-        let duration = workDuration |> Option.orElseWith (fun () -> Some (TimeSpan.FromMilliseconds 500.))
-        runDeviceCascade plan store name "Unit" names duration ImportPlanDeviceOps.Chain
+        queueAddPairedSugar plan store name apiNames workDuration KnownSugars.clamp
 
     /// add_robot helper. opposing default = "none" (rev 11 — 도메인 룰 ROBOT opposing 없음).
     /// "chain" / "all-pairs" 는 사용자 명시 시.
@@ -424,6 +429,7 @@ module ToolOperations =
         (name: string) (apiNames: string list) (opposing: string) (workDuration: TimeSpan option)
         : Guid * (string * Guid) list =
         if apiNames.IsEmpty then invalidOp "add_robot: apiNames 가 비어있습니다."
+        let spec = KnownSugars.robot
         let mode =
             match opposing with
             | "none" | "" -> ImportPlanDeviceOps.NoneMode
@@ -434,7 +440,7 @@ module ToolOperations =
         let total = cascadeOpCount apiNames.Length opposing
         if total > MutationQuotaSync then
             invalidOp $"op 수 초과: {total} > {MutationQuotaSync}, opposing='chain' 또는 'none' 으로 변경 권장 (apiNames 분할은 device 의미 분리)."
-        runDeviceCascade plan store name "Robot" apiNames workDuration mode
+        runDeviceCascade plan store name spec.SystemType apiNames workDuration mode
 
     /// add_device generic fallback. deviceType 사용자 지정 (KnownNames 권장).
     let queueAddDevice
