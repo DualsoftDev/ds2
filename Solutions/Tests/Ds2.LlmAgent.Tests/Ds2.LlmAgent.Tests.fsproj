@@ -30,6 +30,7 @@
     <Compile Include="StoreSnapshotTests.fs" />
     <Compile Include="Helpers\ModelEquivalence.fs" />
     <Compile Include="ModelProtocolTests.fs" />
+    <Compile Include="ModelProtocolMermaidTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
