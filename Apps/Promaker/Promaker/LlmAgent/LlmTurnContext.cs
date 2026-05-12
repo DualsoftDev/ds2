@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Ds2.Core.Store;
 using Ds2.LlmAgent;
 
@@ -42,6 +43,13 @@ public sealed class LlmTurnContext
     /// dispatcher.InvokeAsync 안에서만 read/write 되므로 별도 lock 불필요 (RunRead 가 work delegate 를
     /// dispatcher 위에서 실행함을 가정 — ModelTools.RunRead 참조).</summary>
     private (string scopeKey, long tickMs, string result)? _validateCache;
+
+    /// <summary>
+    /// 본 turn 안 `apply_model_doc` 호출들이 받은 model 의 YAML view (발행 doc display 용).
+    /// turn end 시 ViewModel 이 본 list 의 각 entry 를 chat bubble (or 큰 모델이면 button → dialog) 로 노출.
+    /// LLM output/input tokens 변화 0 — server↔client display channel.
+    /// </summary>
+    private readonly List<string> _modelDocsYaml = new();
 
     public LlmTurnContext(DsStore store, IUiDispatcher dispatcher)
     {
@@ -98,6 +106,20 @@ public sealed class LlmTurnContext
 
     internal void SetValidateCache(string scopeKey, string result)
         => _validateCache = (scopeKey, Environment.TickCount64, result);
+
+    /// <summary>
+    /// `apply_model_doc` 발행 doc 의 YAML view 1건을 turn 의 list 에 append. 호출 순서 보존.
+    /// 호출자 = `ModelTools.ApplyModelDoc` (성공 / 부분 성공 무관 받은 model 의 yaml 1건). HasErrors 로
+    /// rollback 된 경우 본 entry 의 표시 여부는 ViewModel 책임 (현 정책: turn end 시 모두 표시).
+    /// </summary>
+    public void AppendModelDocYaml(string yaml)
+    {
+        if (string.IsNullOrEmpty(yaml)) return;
+        _modelDocsYaml.Add(yaml);
+    }
+
+    /// <summary>본 turn 안 누적된 발행 doc yaml view 들. turn end 시 ViewModel 이 1회 조회.</summary>
+    public IReadOnlyList<string> ModelDocsYaml => _modelDocsYaml;
 }
 
 /// <summary>
