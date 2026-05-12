@@ -564,17 +564,16 @@ module ModelProtocol =
                         |> Some
                     else None)
                 |> Option.defaultValue []
-            let workArrowStrings =
-                workArrowsList
-                |> List.choose (function Ok s -> Some s | Error _ -> None)
-
             // 중복 ApiDef Call 검출
             let callCounts = Dictionary<string, int>(StringComparer.Ordinal)
             for c in callsList do
                 let normalized = normalizePath c
                 callCounts.[normalized] <- (if callCounts.ContainsKey normalized then callCounts.[normalized] + 1 else 1)
             let hasDup = callCounts.Values |> Seq.exists (fun n -> n > 1)
-            let useAllowDup = hasDup && workArrowStrings.IsEmpty
+            // review C3: 사용자 의도 판정은 *arrows 키 자체의 존재 여부* 로 — parse 성공한 entry 만 보면
+            // 모두 parse error 인 경우 (사용자는 sequential 의도였음) 가 concurrent path 로 silent 분기됨.
+            // parse error 는 별도 diagnostic 으로 누적 (extractArrowString / parseArrowSpec 호출처).
+            let useAllowDup = hasDup && workArrowsList.IsEmpty
 
             // calls 추가 — call name → callId 매핑 (arrows 의 source/target 식별용)
             let callIdMap = Dictionary<string, ResizeArray<Guid>>(StringComparer.Ordinal)
@@ -789,12 +788,21 @@ module ModelProtocol =
         // diagnostic 게이트 적용 — partial state 회피.
         match tryProp patchEl "add" with
         | Some addEl when addEl.ValueKind = JsonValueKind.Array ->
-            // patch.add 안의 각 entry — system 키 있으면 systems list 와 동일 처리, 그 외는 in: + 자식 키.
-            // PoC 는 system 추가 만 우선 — 나머지는 후속.
+            // patch.add 안의 각 entry — system 키 있으면 systems list 와 동일 처리.
+            // review C2 (silent drop): system 키 없는 entry (`in:` + works/calls 등) 는 PoC 미지원 →
+            // silent drop 대신 친절 에러로 안내 (patch.arrows.remove 의 line 877 패턴과 동일).
+            let entriesWithIdx = addEl.EnumerateArray() |> Seq.toList |> List.indexed
+            for (i, entry) in entriesWithIdx do
+                if tryProp entry "system" |> Option.isNone then
+                    let hint =
+                        if tryProp entry "in" |> Option.isSome then
+                            "PoC 미지원 — `in:` + works/calls 등 자식 키 추가는 후속 cycle. 새 Work/Call 추가는 `apply_model_doc` 으로 전체 doc 재발행."
+                        else
+                            "patch.add entry 는 `system:` 키 필수 (Passive/Active system 추가). 다른 형식 미지원."
+                    ctx.Diagnostics.Add(sprintf "patch.add[%d]" i, hint)
             let systemsAdd =
-                addEl.EnumerateArray()
-                |> Seq.filter (fun e -> tryProp e "system" |> Option.isSome)
-                |> Seq.toList
+                entriesWithIdx
+                |> List.choose (fun (_, e) -> if tryProp e "system" |> Option.isSome then Some e else None)
             if not systemsAdd.IsEmpty then
                 let arr =
                     let bytes =
@@ -958,6 +966,12 @@ module ModelProtocol =
         (root: JsonElement) : Diagnostics * Map<string, Guid> =
 
         let ctx = newContext plan store
+        // review C1 (partial-commit transactional leak): 진입 시점 plan 위치 기록 → 종료 시 HasErrors 면
+        // 누적된 부분 op 를 TruncateTo 로 rollback. queueBatch (ToolOperations.fs:1291, 1317) 패턴 일관.
+        // 본 fix 없으면 collectSystems→buildSystems→buildActiveFlows→applyPatch 중 *부분 성공* op 가
+        // plan 에 남아 EndTurn 시 ApplyImportPlan 으로 store 에 silent commit — 다음 turn 의 retry 가
+        // "이미 존재" 에러로 connection 단절.
+        let snapshotCount = plan.Count
 
         // protocol 키 검증
         match tryProp root "protocol" |> Option.bind tryString with
@@ -968,6 +982,8 @@ module ModelProtocol =
         | _ -> ()
 
         if ctx.Diagnostics.HasErrors then
+            // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
+            plan.TruncateTo(snapshotCount)
             ctx.Diagnostics, Map.empty
         else
             // project 키 처리
@@ -987,14 +1003,19 @@ module ModelProtocol =
             | Some patchEl -> applyPatch ctx patchEl
             | None -> ()
 
-            let refs =
-                ctx.Systems
-                |> Seq.choose (fun kv ->
-                    match kv.Value.SystemId.Value with
-                    | Some id -> Some (kv.Key, id)
-                    | None -> None)
-                |> Map.ofSeq
-            ctx.Diagnostics, refs
+            if ctx.Diagnostics.HasErrors then
+                // 부분 성공 op 가 plan 에 누적된 상태 — 전체 rollback. refs 도 invalidate.
+                plan.TruncateTo(snapshotCount)
+                ctx.Diagnostics, Map.empty
+            else
+                let refs =
+                    ctx.Systems
+                    |> Seq.choose (fun kv ->
+                        match kv.Value.SystemId.Value with
+                        | Some id -> Some (kv.Key, id)
+                        | None -> None)
+                    |> Map.ofSeq
+                ctx.Diagnostics, refs
 
     /// validate_model_doc 본체. dry-run — plan 은 별도 dummy builder, store 는 현재 그대로 사용.
     /// 호출자는 plan 결과를 *commit 하지 않음* (`store.ApplyImportPlan` 호출 안 함).
