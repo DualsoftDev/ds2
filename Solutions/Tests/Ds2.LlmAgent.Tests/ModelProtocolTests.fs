@@ -610,3 +610,383 @@ systems:
     use exported = ModelProtocol.exportToJson store
     let json = exported.RootElement.GetRawText()
     Assert.Contains("\"opposing\":\"chain\"", json)
+
+// ─── Phase 2 §3.1 #1 — WithCyl.json (GUI canonical) round-trip SSOT ──────────
+//
+// 본 테스트는 *GUI 가 만든 store dump* 가 export → apply 후 *의미-동등* 인지 검증.
+// fixture 의 Passive internal Flow 이름 ("cyl_Flow") 은 cylinder sugar 의 default
+// 이름과 다르므로 *완전 동등* (FlowNames 포함) 은 깨짐 — short-form emit 정책 trade-off.
+//
+// **검증 범위 = 완화 shape** (HelperGuiParityTests 와 동등): 카운트 + 관계 + Active 측 이름.
+// Passive cascade 의 internal Flow/Work/ApiDef 이름은 cylinder sugar canonical 에 위임.
+
+let private withCylFixturePath =
+    System.IO.Path.Combine(System.AppContext.BaseDirectory, "Fixtures", "WithCyl.json")
+
+/// 카운트 + 관계 위주 비교용 helper. ApiDefNames 는 cylinder sugar 가 "ADV"/"RET" 고정 emit
+/// 하므로 동등 비교 가능. Passive flowNames 만 제외.
+type private RelaxedShape = {
+    ProjectName: string option
+    SystemNames: string Set
+    ActiveSystemFlowNames: Map<string, string Set>  // active system → flow set (이름 보존)
+    PassiveSystemApiDefNames: Map<string, string Set>  // passive system → api def 이름
+    WorkLocalNames: Map<string, string Set>  // flow 이름은 빼고 system 단위로 work 이름 집합
+    WorkArrowsByType: Map<string, int>  // system 기준 arrow type → count
+}
+
+let private captureRelaxed (store: DsStore) : RelaxedShape =
+    match Queries.allProjects store with
+    | [] ->
+        { ProjectName = None
+          SystemNames = Set.empty
+          ActiveSystemFlowNames = Map.empty
+          PassiveSystemApiDefNames = Map.empty
+          WorkLocalNames = Map.empty
+          WorkArrowsByType = Map.empty }
+    | p :: _ ->
+        let actives = Queries.activeSystemsOf p.Id store
+        let passives = Queries.passiveSystemsOf p.Id store
+        let allSystems =
+            (actives |> List.map (fun s -> s, true))
+            @ (passives |> List.map (fun s -> s, false))
+
+        let sysNames = allSystems |> List.map (fun (s, _) -> s.Name) |> Set.ofList
+
+        let activeFlowNames =
+            actives
+            |> List.map (fun s ->
+                s.Name, Queries.flowsOf s.Id store |> List.map (fun f -> f.Name) |> Set.ofList)
+            |> Map.ofList
+
+        let passiveApiNames =
+            passives
+            |> List.map (fun s ->
+                s.Name, Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name) |> Set.ofList)
+            |> Map.ofList
+
+        let workLocalsBySystem =
+            allSystems
+            |> List.map (fun (s, _) ->
+                let locals =
+                    Queries.flowsOf s.Id store
+                    |> List.collect (fun f -> Queries.worksOf f.Id store)
+                    |> List.map (fun w -> w.LocalName)
+                    |> Set.ofList
+                s.Name, locals)
+            |> Map.ofList
+
+        let arrowsByType =
+            allSystems
+            |> List.collect (fun (s, _) ->
+                Queries.arrowWorksOf s.Id store
+                |> List.map (fun a -> sprintf "%s|%s" s.Name (sprintf "%A" a.ArrowType)))
+            |> List.countBy id
+            |> Map.ofList
+
+        { ProjectName = Some p.Name
+          SystemNames = sysNames
+          ActiveSystemFlowNames = activeFlowNames
+          PassiveSystemApiDefNames = passiveApiNames
+          WorkLocalNames = workLocalsBySystem
+          WorkArrowsByType = arrowsByType }
+
+[<Fact>]
+let ``Phase 2 §3.1 #1 — WithCyl.json load → export → apply round-trip (완화 shape 동등)`` () =
+    Assert.True(System.IO.File.Exists withCylFixturePath, sprintf "fixture missing: %s" withCylFixturePath)
+    let json = System.IO.File.ReadAllText withCylFixturePath
+    let loaded = Ds2.Serialization.JsonConverter.deserialize<DsStore> json
+    Assert.NotNull(box loaded)
+
+    let shape1 = captureRelaxed loaded
+    Assert.True(shape1.SystemNames.Count >= 2, sprintf "loaded store 의 system 추출 실패: %A" shape1.SystemNames)
+
+    use exported = ModelProtocol.exportToJson loaded
+
+    let store2 = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
+    Assert.False(diag.HasErrors, sprintf "round-trip apply 실패: %s" (diag.Format()))
+    store2.ApplyImportPlan("WithCyl round-trip", plan.Build())
+
+    let shape2 = captureRelaxed store2
+
+    Assert.Equal<string option>(shape1.ProjectName, shape2.ProjectName)
+    Assert.Equal<Set<string>>(shape1.SystemNames, shape2.SystemNames)
+    Assert.Equal<Map<string, Set<string>>>(shape1.ActiveSystemFlowNames, shape2.ActiveSystemFlowNames)
+    Assert.Equal<Map<string, Set<string>>>(shape1.PassiveSystemApiDefNames, shape2.PassiveSystemApiDefNames)
+    Assert.Equal<Map<string, Set<string>>>(shape1.WorkLocalNames, shape2.WorkLocalNames)
+    Assert.Equal<Map<string, int>>(shape1.WorkArrowsByType, shape2.WorkArrowsByType)
+
+[<Fact>]
+let ``Phase 2 §3.1 #1b — WithCyl.json export 결과가 cylinder sugar 로 short-form emit`` () =
+    // export 결과에서 cylinder sugar 매핑 정확성 lock-in.
+    Assert.True(System.IO.File.Exists withCylFixturePath)
+    let json = System.IO.File.ReadAllText withCylFixturePath
+    let loaded = Ds2.Serialization.JsonConverter.deserialize<DsStore> json
+    use exported = ModelProtocol.exportToJson loaded
+    let raw = exported.RootElement.GetRawText()
+    // SystemType="Unit" + apis=[ADV,RET] → cylinder sugar emit + apis 키 생략
+    Assert.Contains("\"device\":\"cylinder\"", raw)
+    // workDuration override 없음 (모든 work = 500ms default)
+    Assert.DoesNotContain("\"workDuration\"", raw)
+    // opposing override 없음 (cylinder default = chain, fixture 도 chain N-1)
+    Assert.DoesNotContain("\"opposing\"", raw)
+
+// ─── Phase 2 §3.1 #3 — short-form round-trip sugar deterministic lock-in ────
+//
+// LLM 이 작성한 short-form doc → apply → exportToJson → apply (새 store) 시
+// *완전* 동등 (Passive internal Flow 이름 포함) 보장. sugar (cylinder/clamp/robot)
+// 매핑이 deterministic 이라는 정책의 직접 증인.
+//
+// **기존 §3.1 단일 cylinder round-trip** (line 86) 가 cylinder 1종 cover.
+// 본 테스트는 multi-sugar 조합 + override (workDuration / opposing) 까지 cover.
+
+let private multiSugarYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Step1:
+          calls: [Cyl1.ADV, Clm1.CLP]
+        Step2:
+          calls: [R1.PICK, R1.PLACE]
+          workDuration: 2s
+        Step3:
+          calls: [Cyl1.RET, Clm1.UNCLP]
+      arrows:
+        - Step1 -> Step2 : Start
+        - Step2 -> Step3 : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+
+  - system: Clm1
+    kind: passive
+    device: clamp
+
+  - system: R1
+    kind: passive
+    device: robot
+    apis: [PICK, PLACE]
+    opposing: chain
+"""
+
+[<Fact>]
+let ``Phase 2 §3.1 #3 — multi-sugar short-form round-trip 완전 동등 (cylinder + clamp + robot)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store multiSugarYaml
+    let shape1 = ModelEquivalence.captureShape store
+
+    use exported = ModelProtocol.exportToJson store
+
+    let store2 = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store2 exported.RootElement
+    Assert.False(diag.HasErrors, sprintf "round-trip apply 실패: %s" (diag.Format()))
+    store2.ApplyImportPlan("multi-sugar round-trip", plan.Build())
+
+    let shape2 = ModelEquivalence.captureShape store2
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "multi-sugar round-trip mismatch: %A" diffs)
+
+// ─── Phase 2 §3.1 #4 — YAML plain scalar 안정화 ─────────────────────────────
+
+[<Fact>]
+let ``Phase 2 §3.1 #4 — ASCII identifier 는 plain scalar 로 emit`` () =
+    // JSON: {"device": "cylinder", "kind": "active"} → YAML 에서 quoted 없이 emit.
+    let json = """{"device":"cylinder","kind":"active","name":"Cyl1"}"""
+    use doc = JsonDocument.Parse(json)
+    let yaml = ModelProtocolYaml.jsonElementToYaml doc.RootElement
+    // ASCII identifier 가 plain (no double quote) 으로 출력.
+    Assert.Contains("device: cylinder", yaml)
+    Assert.Contains("kind: active", yaml)
+    Assert.Contains("name: Cyl1", yaml)
+    Assert.DoesNotContain("device: \"cylinder\"", yaml)
+    Assert.DoesNotContain("\"active\"", yaml)
+
+[<Fact>]
+let ``Phase 2 §3.1 #4 — dotted-path / 공백 포함 string 은 quoted 유지`` () =
+    let json = """{"call":"Cyl1.ADV","arrow":"Adv -> Ret : Start"}"""
+    use doc = JsonDocument.Parse(json)
+    let yaml = ModelProtocolYaml.jsonElementToYaml doc.RootElement
+    // dotted-path (`.`) / 공백 포함 string 은 ASCII identifier 패턴 미매칭 → quoted.
+    Assert.Contains("\"Cyl1.ADV\"", yaml)
+    Assert.Contains("\"Adv -> Ret : Start\"", yaml)
+
+[<Theory>]
+[<InlineData("true")>]
+[<InlineData("false")>]
+[<InlineData("True")>]
+[<InlineData("yes")>]
+[<InlineData("on")>]
+[<InlineData("null")>]
+[<InlineData("Null")>]
+[<InlineData("~")>]
+// YAML 1.1 단축 boolean (m1, 외부 review) — y/Y/n/N 4종 defensive cover
+[<InlineData("y")>]
+[<InlineData("Y")>]
+[<InlineData("n")>]
+[<InlineData("N")>]
+let ``Phase 2 §3.1 #4 — YAML reserved token 은 plain 으로 emit 금지 (quoted 유지)`` (value: string) =
+    let json = sprintf """{"k":"%s"}""" value
+    use doc = JsonDocument.Parse(json)
+    let yaml = ModelProtocolYaml.jsonElementToYaml doc.RootElement
+    Assert.Contains(sprintf "\"%s\"" value, yaml)
+
+// ─── Phase 2 §3.1 #5 — device fingerprint 강화 ──────────────────────────────
+
+[<Fact>]
+let ``Phase 2 §3.1 #5 — Unit + 비표준 apis 는 custom(Unit) + apis long-form + 순서 보존`` () =
+    // Unit SystemType 인데 apis 가 cylinder/clamp fingerprint 와 다른 경우 — custom(Unit) fallback.
+    // 단, SSOT §3.4.4 정책상 LLM doc 입력은 known sugar 3종만 허용 → custom(Unit) 은
+    // *export 결과* 에서만 등장 (사용자 GUI 수정 케이스). 본 테스트는 helper 직접 호출로 시뮬레이션.
+    let store = DsStore()
+    store.AddProject("M1") |> ignore
+    let plan = ImportPlanBuilder()
+    let _ = ToolOperations.queueAddDevice plan store "X1" "Unit" [ "OPEN"; "CLOSE"; "STOP" ] "none" None
+    store.ApplyImportPlan("fingerprint test", plan.Build())
+
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    Assert.Contains("\"device\":\"custom(Unit)\"", raw)
+    // m6 (외부 review): apis 순서 보존 — substring 정확 매칭으로 확인.
+    Assert.Contains("\"apis\":[\"OPEN\",\"CLOSE\",\"STOP\"]", raw)
+
+[<Fact>]
+let ``Phase 2 §3.1 #5b — custom(Unit) export 결과가 다시 apply 시 동등 (m4 round-trip 보강)`` () =
+    // m4 (외부 review): custom(Unit) emit 결과가 round-trip 가능한지 검증.
+    let store = DsStore()
+    store.AddProject("M1") |> ignore
+    let plan = ImportPlanBuilder()
+    let _ = ToolOperations.queueAddDevice plan store "X1" "Unit" [ "OPEN"; "CLOSE"; "STOP" ] "none" None
+    store.ApplyImportPlan("fingerprint test", plan.Build())
+    let shape1 = ModelEquivalence.captureShape store
+
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag.HasErrors, sprintf "custom(Unit) round-trip apply 실패: %s" (diag.Format()))
+    store2.ApplyImportPlan("custom(Unit) round-trip", plan2.Build())
+    let shape2 = ModelEquivalence.captureShape store2
+
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "custom(Unit) round-trip mismatch: %A" diffs)
+
+[<Fact>]
+let ``Phase 2 §3.1 #5 — robot 은 SystemType=Robot + apis 항상 명시`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: R1
+    kind: passive
+    device: robot
+    apis: [PICK, PLACE]
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    Assert.Contains("\"device\":\"robot\"", raw)
+    Assert.Contains("\"apis\":[", raw)
+    Assert.Contains("\"PICK\"", raw)
+    Assert.Contains("\"PLACE\"", raw)
+
+[<Fact>]
+let ``Phase 2 §3.1 #5 — clamp fingerprint round-trip (Unit + CLP/UNCLP)`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Clm1
+    kind: passive
+    device: clamp
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    // clamp fingerprint 매칭 → device:clamp 만 emit, apis 키 부재 (short-form).
+    Assert.Contains("\"device\":\"clamp\"", raw)
+    // clamp 의 apis 는 sugar default — 생략됨.
+    Assert.DoesNotContain("\"apis\"", raw)
+
+[<Fact>]
+let ``Phase 2 §3.1 #5 — custom DU literal (custom(Pusher)) round-trip`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: P1
+    kind: passive
+    device: "custom(Pusher)"
+    apis: [PUNCH]
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    Assert.Contains("\"device\":\"custom(Pusher)\"", raw)
+    Assert.Contains("\"PUNCH\"", raw)
+
+[<Fact>]
+let ``Phase 2 §3.1 #4 — exportToJson 결과를 YAML 변환 시 device 키가 plain emit`` () =
+    // 실제 export 경로 통합 검증 — exportToJson 의 device 값이 YAML view 에서 plain.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    use exported = ModelProtocol.exportToJson store
+    let yaml = ModelProtocolYaml.jsonElementToYaml exported.RootElement
+    // Active "Controller" / kind "active" / device "cylinder" 등 ASCII identifier 가 plain.
+    Assert.Contains("device: cylinder", yaml)
+    Assert.Contains("kind: active", yaml)
+    Assert.Contains("kind: passive", yaml)
+
+[<Fact>]
+let ``Phase 2 §3.1 #3b — 동일 short-form doc 2회 apply (서로 다른 store) 시 cascade 자식 이름 동일`` () =
+    // sugar 매핑이 *deterministic* 이라는 의미: 같은 input → 같은 cascade 자식 이름.
+    let store1 = DsStore()
+    let _ = parseApplyCommit store1 multiSugarYaml
+    let shape1 = ModelEquivalence.captureShape store1
+
+    let store2 = DsStore()
+    let _ = parseApplyCommit store2 multiSugarYaml
+    let shape2 = ModelEquivalence.captureShape store2
+
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "deterministic 검증 실패 — 같은 doc 가 다른 cascade 생성: %A" diffs)
+
+[<Fact>]
+let ``Phase 2 §3.1 #3c — robot opposing=chain 가 apply 측에서 ResetReset N-1 wiring (m3 lock-in)`` () =
+    // m3 자가 검열: multiSugarYaml 의 R1 (robot + apis 2개 + opposing chain) 이 apply 시점에
+    // ResetReset arrow 1개 (= apis.Length - 1) wiring 인지 명시적 검증.
+    let store = DsStore()
+    let _ = parseApplyCommit store multiSugarYaml
+    let projects = Queries.allProjects store
+    let r1 = Queries.passiveSystemsOf projects.Head.Id store |> List.find (fun s -> s.Name = "R1")
+    let resetResets =
+        Queries.arrowWorksOf r1.Id store
+        |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+        |> List.length
+    Assert.Equal(1, resetResets)  // chain: N-1 = 2-1 = 1
+
+[<Fact>]
+let ``Phase 2 §3.1 #1c — WithCyl.json export 가 DevicesAlias 가 아닌 systemName 으로 calls emit (SSOT §1.7 lock-in)`` () =
+    // SSOT §1.7 정책 변경의 직접 증인 — alias≠systemName 인 fixture 에서 systemName 으로 정정 emit 되는지.
+    // WithCyl.json: devicesAlias="cyl" / systemName="NewFlow_cyl" — round-trip 시 "NewFlow_cyl.ADV/RET" 로 emit 되어야 함.
+    Assert.True(System.IO.File.Exists withCylFixturePath)
+    let json = System.IO.File.ReadAllText withCylFixturePath
+    let loaded = Ds2.Serialization.JsonConverter.deserialize<DsStore> json
+    use exported = ModelProtocol.exportToJson loaded
+    let raw = exported.RootElement.GetRawText()
+    // systemName 기반 emit (정책 채택 결과)
+    Assert.Contains("\"NewFlow_cyl.ADV\"", raw)
+    Assert.Contains("\"NewFlow_cyl.RET\"", raw)
+    // alias 기반 emit 금지 (정책 deprecation)
+    Assert.DoesNotContain("\"cyl.ADV\"", raw)
+    Assert.DoesNotContain("\"cyl.RET\"", raw)
