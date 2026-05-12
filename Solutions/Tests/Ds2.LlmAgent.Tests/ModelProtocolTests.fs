@@ -394,13 +394,17 @@ systems:
     let apis = Queries.apiDefsOf cyl.Id store |> List.map (fun d -> d.Name) |> Set.ofList
     Assert.Equal<Set<string>>(Set.ofList ["ADV"; "RET"], apis)
 
-// ─── Critical 3 회귀 — 중복 flow 키 시 한 번만 생성 ────────────────────────
+// ─── Critical 3 회귀 — 중복 flow 키 시 diagnostic + (review C1) plan 전체 rollback ────
 
 [<Fact>]
-let ``중복 flow 키 → diagnostic + 첫 등장 1번만 queueAddFlow`` () =
+let ``중복 flow 키 → diagnostic + plan 전체 rollback (review C1)`` () =
     // 동일 raw 키 두 번은 YAML duplicate map key 로 잡힘 → JSON 변환 후 dispatcher 가 보지 못함.
     // 본 테스트는 *normalize 후 같은 이름* 이 되는 두 키 (e.g. "flow Run" 과 "flow  Run" — 공백 차이)
     // 가 들어오는 케이스를 시뮬레이션하기 위해 JSON 직접 입력 사용.
+    //
+    // review C1 (partial-commit transactional leak): HasErrors 시 부분 op (첫 등장 flow 1번)
+    // 가 plan 에 남아 EndTurn 시 store 에 silent commit 되던 회귀 — apply 가 snapshotCount +
+    // TruncateTo 로 전체 rollback 보장. 본 테스트 = HasErrors 시 *모든* op 가 0개임을 lock-in.
     let json = """
 {
   "protocol": "promaker/v0",
@@ -416,14 +420,14 @@ let ``중복 flow 키 → diagnostic + 첫 등장 1번만 queueAddFlow`` () =
     use jdoc = System.Text.Json.JsonDocument.Parse(json)
     let store = DsStore()
     let plan = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
-    // diagnostic 에 flow 키 중복 메시지 포함 + plan 에 AddFlow 1 회만
+    let diag, refs = ModelProtocol.apply plan store jdoc.RootElement
+    // diagnostic 에 flow 키 중복 메시지 포함
+    Assert.True(diag.HasErrors, "중복 flow 키는 HasErrors 발생해야")
     Assert.Contains("flow Run", diag.Format())
-    let flowAdds =
-        plan.Operations
-        |> Seq.filter (function AddFlow _ -> true | _ -> false)
-        |> Seq.length
-    Assert.Equal(1, flowAdds)
+    // C1 fix: plan 전체 rollback — 어떤 op 도 남아있으면 안 됨.
+    Assert.Equal(0, plan.Operations |> Seq.length)
+    // refs 도 invalidate.
+    Assert.Empty(refs)
 
 // ─── ArrowType 6종 round-trip (review m4 정합) ──────────────────────────────
 
@@ -940,3 +944,70 @@ let ``formatArrowType — 모든 ArrowType enum 값이 SSOT 명시 케이스로 
     let unknown = actual |> Set.filter (fun s -> s.StartsWith("Unknown("))
     Assert.True(unknown.IsEmpty, sprintf "formatArrowType Unknown fallback 진입: %A" (Set.toList unknown))
     Assert.True(Set.isSubset actual expected, sprintf "SSOT 외 직렬화: %A" (Set.toList (Set.difference actual expected)))
+
+// ─── review C2 회귀 — patch.add 의 system 키 없는 entry silent drop ────────────
+
+[<Fact>]
+let ``patch.add 의 'in:' + 자식 키 entry → silent drop 대신 diagnostic (review C2)`` () =
+    // review C2: prompt 는 LLM 에게 `in: Controller.Run.works / Zone4: {...}` 형식의 Work 추가를
+    // 유효 schema 로 가르치고 있었으나, dispatcher 의 patch.add filter 가 system 키 없는 entry 를
+    // silent drop 했음. LLM 이 prompt 그대로 발행 시 Zone4 가 store 에 미생성되고 [plan] queued 로
+    // "성공" 응답 — silent no-op + 후속 arrows.add 가 Zone4 missing 으로 부분 실패. 본 fix 는
+    // silent drop 대신 친절 에러로 안내 (PoC scope 명시).
+    let json = """
+{
+  "protocol": "promaker/v0",
+  "patch": {
+    "add": [
+      { "in": "Controller.Run.works", "Zone4": { "calls": [] } }
+    ]
+  }
+}
+"""
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    Assert.True(diag.HasErrors, "system 키 없는 patch.add entry 는 친절 에러로 reject 되어야")
+    let msg = diag.Format()
+    Assert.Contains("patch.add", msg)
+    Assert.Contains("PoC 미지원", msg)
+
+// ─── review C3 회귀 — useAllowDup 가 arrow parse 실패와 부재 구분 ────────────
+
+[<Fact>]
+let ``useAllowDup — arrows 키 명시 + parse error 라도 concurrent 분기 진입 금지 (review C3)`` () =
+    // review C3: 사용자가 arrows: 키를 명시했음에도 모든 entry 가 parse error 면
+    // (workArrowStrings.IsEmpty 가 true 가 되어) useAllowDup = true → concurrent 의도로 silent 분기.
+    // fix: workArrowsList.IsEmpty (키 자체 존재 여부) 로 판정. parse error 는 별도 diagnostic.
+    //
+    // 본 테스트: 중복 ApiDef call (`[A, A]`) + arrows 키 명시 (단 parse error 인 broken arrow) →
+    // sequential path 진입 시도 → 중복 call 으로 hasCallNameClash → 별도 에러.
+    // 핵심 검증: arrows parse error 의 diagnostic 이 누적되어야 함 (silent drop 회피).
+    let json = """
+{
+  "protocol": "promaker/v0",
+  "project": "M1",
+  "systems": [
+    { "system": "Cyl1", "kind": "passive", "device": "cylinder" },
+    { "system": "Controller", "kind": "active",
+      "flow Run": {
+        "works": {
+          "W1": {
+            "calls": ["Cyl1.ADV", "Cyl1.ADV"],
+            "arrows": ["BROKEN_ARROW_NO_TYPE"]
+          }
+        }
+      }
+    }
+  ]
+}
+"""
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    // arrows parse error 가 diagnostic 으로 누적되어야 (silent drop 회피).
+    Assert.True(diag.HasErrors, "arrows entry parse error 가 diagnostic 으로 누적되어야")
+    // C1 rollback 도 동반 — plan 비어있음.
+    Assert.Equal(0, plan.Operations |> Seq.length)
