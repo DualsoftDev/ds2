@@ -25,6 +25,9 @@ bld/
 *.fsproj.user
 *.userprefs
 
+
+**/*.*.sln
+
 # NuGet
 **/packages/
 *.nupkg
