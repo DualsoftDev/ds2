@@ -354,13 +354,14 @@ module ModelProtocol =
             None
 
     /// device sugar 의 default 매핑 (SSOT §2.3 표). UnknownSugar 는 호출처에서 사전 분기 — 본 함수 도달 불가.
+    /// known sugar 3종 = `KnownSugars` SSOT 표 lookup (Phase 2.5 M4). Custom 은 `customDefault*` 상수 (Phase 2.5 cycle2 M1).
     let private deviceDefaults (lit: DeviceLiteral) : string list * string * TimeSpan =
-        // (apis, opposing, duration) — robot 은 apis 사용자 지정 필수, custom 도 동일.
+        let pick (spec: KnownSugarSpec) = spec.DefaultApis, spec.DefaultOpposing, spec.DefaultDuration
         match lit with
-        | KnownCylinder -> [ "ADV"; "RET" ], "chain", TimeSpan.FromMilliseconds 500.
-        | KnownClamp    -> [ "CLP"; "UNCLP" ], "chain", TimeSpan.FromMilliseconds 500.
-        | KnownRobot    -> [], "none", TimeSpan.FromMilliseconds 500.
-        | Custom _      -> [], "none", TimeSpan.FromMilliseconds 500.
+        | KnownCylinder    -> pick KnownSugars.cylinder
+        | KnownClamp       -> pick KnownSugars.clamp
+        | KnownRobot       -> pick KnownSugars.robot
+        | Custom _         -> KnownSugars.customDefaultApis, KnownSugars.customDefaultOpposing, KnownSugars.customDefaultDuration
         | UnknownSugar raw -> failwithf "deviceDefaults: UnknownSugar '%s' 는 호출처에서 분기 처리되어야 합니다." raw
 
     let private dispatchPassiveSystem
@@ -1021,7 +1022,8 @@ module ModelProtocol =
             sprintf "%dms" (int totalMs)
 
     /// ArrowType enum → SSOT §2.4 type 이름 (Start/Reset/...). %A 의존 회피 (Major 3 review 정합).
-    let private formatArrowType (t: ArrowType) : string =
+    /// Phase 2.5 m7: 테스트 helper (ModelEquivalence) 도 같은 직렬화 사용 — public 노출.
+    let formatArrowType (t: ArrowType) : string =
         match t with
         | ArrowType.Start -> "Start"
         | ArrowType.Reset -> "Reset"
@@ -1038,12 +1040,6 @@ module ModelProtocol =
         elif resetResetCount = apiCount - 1 then "chain"
         elif resetResetCount = apiCount * (apiCount - 1) / 2 then "all-pairs"
         else "none"  // unknown shape — conservative
-
-    /// device default opposing (cylinder/clamp = chain, robot = none).
-    let private defaultOpposing (deviceCase: string) : string =
-        match deviceCase with
-        | "cylinder" | "clamp" -> "chain"
-        | _ -> "none"
 
     let exportToJson (store: DsStore) : JsonDocument =
         let projects = Queries.allProjects store
@@ -1095,11 +1091,7 @@ module ModelProtocol =
                                         // (a) ApiCalls 빈 list / (b) ApiDefId None / (c) getApiDef None / (d) getSystem None.
                                         // 모두 데이터 무결성 깨진 상태 — fallback 유지 + logWarn 으로 forensic 단서 남김.
                                         let resolved =
-                                            c.ApiCalls
-                                            |> Seq.tryHead
-                                            |> Option.bind (fun ac -> ac.ApiDefId)
-                                            |> Option.bind (fun defId -> Queries.getApiDef defId store)
-                                            |> Option.bind (fun apiDef -> Queries.getSystem apiDef.ParentId store)
+                                            Queries.tryResolveCallTargetSystem c store
                                             |> Option.map (fun sys -> sys.Name)
                                         let sysName =
                                             match resolved with
@@ -1153,20 +1145,21 @@ module ModelProtocol =
                     //
                     // workDuration / opposing override 는 sugar short-form 위에 *키로 적용* —
                     // round-trip 시 cylinder cascade + override 로 매핑 정합 보장.
-                    let deviceCase, emitApisAlways =
+                    // Phase 2.5 M4: `KnownSugars.tryMatchFingerprint` SSOT 표 lookup 으로 통합.
+                    // 매칭 없으면 SystemType 별 custom 분기 — None 은 fail-safe custom(Unknown) + logWarn.
+                    // Phase 2.5 cycle2 C1 (5인 review): defaultOpposing 도 spec.DefaultOpposing 직접 사용 — SSOT 통합 완성.
+                    // custom fallback (매칭 실패) 의 opposing default = "none" (sugar 미적용 시 보수적 추정).
+                    let deviceCase, emitApisAlways, defaultOpp =
                         match s.SystemType with
-                        | Some "Unit" ->
-                            match apis with
-                            | [ "ADV"; "RET" ] | [ "RET"; "ADV" ] -> "cylinder", false
-                            | [ "CLP"; "UNCLP" ] | [ "UNCLP"; "CLP" ] -> "clamp", false
-                            | _ -> "custom(Unit)", true
-                        | Some "Robot" -> "robot", true
-                        | Some other -> sprintf "custom(%s)" other, true
+                        | Some st ->
+                            match KnownSugars.tryMatchFingerprint st apis with
+                            | Some spec -> spec.DeviceCase, spec.EmitApisAlways, spec.DefaultOpposing
+                            | None -> sprintf "custom(%s)" st, true, "none"
                         | None ->
                             // M1 (외부 review): SystemType=None 은 비정상 store — fail-safe custom(Unknown).
                             // round-trip 시 Custom "Unknown" 으로 굳어 silent type mutation 가능 — forensic 단서로 logWarn.
                             log.Warn(sprintf "[exportToJson] Passive system '%s' SystemType=None — custom(Unknown) fallback. round-trip 시 SystemType 이 'Unknown' 으로 굳음." s.Name)
-                            "custom(Unknown)", true
+                            "custom(Unknown)", true, "none"
                     w.WriteString("device", deviceCase)
                     if emitApisAlways then
                         w.WritePropertyName "apis"
@@ -1197,7 +1190,6 @@ module ModelProtocol =
                             |> List.length
                         else 0
                     let inferredOpp = inferOpposing apis.Length resetResetCount
-                    let defaultOpp = defaultOpposing deviceCase
                     if inferredOpp <> defaultOpp then
                         w.WriteString("opposing", inferredOpp)
                     w.WriteEndObject()
