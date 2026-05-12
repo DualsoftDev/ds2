@@ -17,6 +17,10 @@ open Ds2.Core.Store
 [<RequireQualifiedAccess>]
 module ModelProtocol =
 
+    /// log4net logger — 데이터 무결성 fallback (export 측 silent path) forensic 단서.
+    /// Phase 2 cycle3 외부 review M1/M2 — None/fallback 분기에서 1회 Warn 출력.
+    let private log = log4net.LogManager.GetLogger("Ds2.LlmAgent.ModelProtocol")
+
     let private VALIDATION_ERROR = "VALIDATION_ERROR"
 
     /// validate / dispatch 단계의 진단 메시지 누적용.
@@ -1079,7 +1083,31 @@ module ModelProtocol =
                                     w.WritePropertyName "calls"
                                     w.WriteStartArray()
                                     for c in calls do
-                                        w.WriteStringValue(sprintf "%s.%s" c.DevicesAlias c.ApiName)
+                                        // SSOT §1.7: Call 참조는 DevicesAlias 가 아닌 *Passive system 이름* 으로 emit.
+                                        // ApiDef.ParentId → system.Name 으로 정정. GUI 사용자가 부여한 alias 는
+                                        // doc-level 추상화에서 무시.
+                                        //
+                                        // *invariant 가정* (M1, 자가 검열): Call.ApiCalls 는 본 PoC scope (cylinder/clamp/
+                                        // robot sugar) 에서 1:1 매핑 — `Seq.tryHead` 로 canonical ApiDef 식별. multi-entry
+                                        // 케이스 (Paste.DeviceOps 등) 가 들어와도 첫 항목 = 정답으로 가정.
+                                        //
+                                        // *fallback* (M2, 외부 review 적용): 다음 4 케이스에서 alias 그대로 emit (= 기존 동작):
+                                        // (a) ApiCalls 빈 list / (b) ApiDefId None / (c) getApiDef None / (d) getSystem None.
+                                        // 모두 데이터 무결성 깨진 상태 — fallback 유지 + logWarn 으로 forensic 단서 남김.
+                                        let resolved =
+                                            c.ApiCalls
+                                            |> Seq.tryHead
+                                            |> Option.bind (fun ac -> ac.ApiDefId)
+                                            |> Option.bind (fun defId -> Queries.getApiDef defId store)
+                                            |> Option.bind (fun apiDef -> Queries.getSystem apiDef.ParentId store)
+                                            |> Option.map (fun sys -> sys.Name)
+                                        let sysName =
+                                            match resolved with
+                                            | Some n -> n
+                                            | None ->
+                                                log.Warn(sprintf "[exportToJson] call '%s.%s' systemName resolution 실패 — DevicesAlias fallback" c.DevicesAlias c.ApiName)
+                                                c.DevicesAlias
+                                        w.WriteStringValue(sprintf "%s.%s" sysName c.ApiName)
                                     w.WriteEndArray()
                                 // Active Work duration override (default 500ms 와 다른 경우만 emit)
                                 match wk.Duration with
@@ -1115,7 +1143,16 @@ module ModelProtocol =
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "passive")
                     let apis = Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name)
-                    // device 추정 — SystemType + apis 패턴 매칭. (deviceCase, emitApis)
+                    // device 추정 (Phase 2 §3.1 #5) — SystemType + apis 패턴 fingerprint 매칭.
+                    // sugar fingerprint:
+                    //   - cylinder: SystemType="Unit" + apis={ADV, RET}
+                    //   - clamp:    SystemType="Unit" + apis={CLP, UNCLP}
+                    //   - robot:    SystemType="Robot" + apis 명시
+                    // mismatch 시 custom(<SystemType>) + apis 명시 long-form.
+                    // SystemType=None (비정상 store) → fail-safe custom(Unknown) + apis.
+                    //
+                    // workDuration / opposing override 는 sugar short-form 위에 *키로 적용* —
+                    // round-trip 시 cylinder cascade + override 로 매핑 정합 보장.
                     let deviceCase, emitApisAlways =
                         match s.SystemType with
                         | Some "Unit" ->
@@ -1125,14 +1162,17 @@ module ModelProtocol =
                             | _ -> "custom(Unit)", true
                         | Some "Robot" -> "robot", true
                         | Some other -> sprintf "custom(%s)" other, true
-                        | None -> "", false
-                    if deviceCase <> "" then
-                        w.WriteString("device", deviceCase)
-                        if emitApisAlways then
-                            w.WritePropertyName "apis"
-                            w.WriteStartArray()
-                            for a in apis do w.WriteStringValue a
-                            w.WriteEndArray()
+                        | None ->
+                            // M1 (외부 review): SystemType=None 은 비정상 store — fail-safe custom(Unknown).
+                            // round-trip 시 Custom "Unknown" 으로 굳어 silent type mutation 가능 — forensic 단서로 logWarn.
+                            log.Warn(sprintf "[exportToJson] Passive system '%s' SystemType=None — custom(Unknown) fallback. round-trip 시 SystemType 이 'Unknown' 으로 굳음." s.Name)
+                            "custom(Unknown)", true
+                    w.WriteString("device", deviceCase)
+                    if emitApisAlways then
+                        w.WritePropertyName "apis"
+                        w.WriteStartArray()
+                        for a in apis do w.WriteStringValue a
+                        w.WriteEndArray()
                     // **Major 2 (review)**: workDuration / opposing override emit — round-trip 보장.
                     // workDuration: passive 내부 Flow 의 첫 Work duration 이 default (500ms) 와 다르면 emit.
                     // *가정* (W1): sugar (queueAddCylinder/Clamp/Robot/Device) 가 모든 internal Work 를 *동일 duration* 으로 생성.

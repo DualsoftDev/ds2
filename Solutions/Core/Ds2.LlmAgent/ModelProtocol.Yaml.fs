@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text
 open System.Text.Json
+open System.Text.RegularExpressions
 open YamlDotNet.Core
 open YamlDotNet.RepresentationModel
 
@@ -40,7 +41,17 @@ module ModelProtocolYaml =
         Set.ofList [
             "yes"; "Yes"; "YES"; "no"; "No"; "NO"
             "on"; "On"; "ON"; "off"; "Off"; "OFF"
+            // YAML 1.1 의 단축 boolean (PyYAML/libyaml 일부 구현) — defensive (m1).
+            "y"; "Y"; "n"; "N"
         ]
+
+    /// YAML null literal token — string 값이 이 set 에 들면 plain emit 시 null 로 오인되므로 quoted 강제.
+    let private yamlNullTokens = Set.ofList [ "null"; "Null"; "NULL"; "~"; "" ]
+
+    /// JSON string → YAML plain scalar 안전 검사 (Phase 2 §3.1 #4).
+    /// ASCII identifier 패턴 = 첫 글자 [A-Za-z_], 이후 [A-Za-z0-9_\-]*. dotted-path ("Cyl1.ADV") /
+    /// 공백 포함 ("A -> B : Start") / 숫자 시작 / 특수문자 모두 미매칭 → quoted.
+    let private plainScalarSafeRegex = Regex(@"^[A-Za-z_][A-Za-z0-9_\-]*$", RegexOptions.Compiled)
 
     /// scalar 가 *unquoted* 인지 확인 — YamlScalarNode.Style 이 Plain 이면 unquoted.
     let private isPlainScalar (s: YamlScalarNode) : bool =
@@ -181,10 +192,22 @@ module ModelProtocolYaml =
                 s.Add(jsonToYamlNode c)
             s :> YamlNode
         | JsonValueKind.String ->
-            // string 은 항상 quoted 가 안전 (예: "500ms" 가 plain 으로 출력되어도 valid 이지만,
-            // "true" / "yes" 같은 값은 quoted 필요 — 일괄 DoubleQuoted 로 안전 측 선택).
-            let s = YamlScalarNode(el.GetString())
-            s.Style <- ScalarStyle.DoubleQuoted
+            // SSOT §3 예시: ASCII identifier 는 plain emit (사람 친화 view), 그 외 DoubleQuoted.
+            // 안전 검사 = ① ASCII identifier 패턴 일치 (`^[A-Za-z_][A-Za-z0-9_\-]*$`)
+            //          ② YAML 1.1/1.2 boolean token 미포함 ("true"/"yes"/"on" 등 — bool 변환 회피)
+            //          ③ null token 미포함 ("null"/"Null"/"NULL" — null 변환 회피)
+            // 예: "cylinder" / "active" / "Start" → plain.  "Cyl1.ADV" / "Adv -> Ret : Start" → quoted.
+            let v = el.GetString()
+            let s = YamlScalarNode(v)
+            let asciiId = not (String.IsNullOrEmpty v) && plainScalarSafeRegex.IsMatch v
+            let reserved =
+                yaml12Bools.Contains v
+                || yaml11OnlyBools.Contains v
+                || yamlNullTokens.Contains v
+            if asciiId && not reserved then
+                s.Style <- ScalarStyle.Plain
+            else
+                s.Style <- ScalarStyle.DoubleQuoted
             s :> YamlNode
         | JsonValueKind.Number ->
             YamlScalarNode(el.GetRawText()) :> YamlNode
