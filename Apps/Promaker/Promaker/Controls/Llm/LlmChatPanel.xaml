@@ -60,9 +60,6 @@
                     <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 </DataTrigger>
                 <!-- chat-ui boost: 발행 doc bubble 좌측 정렬 (assistant 와 동일 layer 인지). -->
-                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
-                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
-                </DataTrigger>
                 <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
                     <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 </DataTrigger>
@@ -110,13 +107,6 @@
                     <Setter Property="BorderThickness" Value="1"/>
                     <Setter Property="CornerRadius" Value="3"/>
                 </DataTrigger>
-                <!-- chat-ui boost: 발행 doc inline bubble — 약간 다른 배경 (accent dim) 으로 식별, MaxWidth 동일. -->
-                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
-                    <Setter Property="CornerRadius" Value="3"/>
-                    <Setter Property="MaxWidth" Value="720"/>
-                </DataTrigger>
                 <!-- chat-ui boost: 발행 doc button bubble — Button 자체가 시각 — Border 는 transparent. -->
                 <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
                     <Setter Property="Background" Value="Transparent"/>
@@ -157,14 +147,6 @@
                      fenced code block 부분 mono (RichTextBox + markdown 파서) 는 본 PoC scope 외 — 전체 mono 로 타협. -->
                 <DataTrigger Binding="{Binding Role}" Value="assistant">
                     <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New, monospace"/>
-                </DataTrigger>
-                <!-- chat-ui boost: model-doc-inline = mono + 표준 크기 (system 의 size 11 / italic 회피).
-                     review M2: ListBox.ScrollViewer.HorizontalScrollBarVisibility=Disabled + TextWrapping=NoWrap 시 긴 line 우측 잘림 →
-                     TextBox 자체 HorizontalScrollBarVisibility=Auto 로 부모 ListBox 와 독립 가로 스크롤. -->
-                <DataTrigger Binding="{Binding Role}" Value="model-doc-inline">
-                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New, monospace"/>
-                    <Setter Property="TextWrapping" Value="NoWrap"/>
-                    <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
                 </DataTrigger>
                 <!-- chat-ui boost: model-doc-button = TextBox 자체 hide (Button 으로 대체 — 별개 DataTemplate 분기). -->
                 <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
