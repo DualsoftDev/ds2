@@ -658,37 +658,25 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             finally { _isLlmApplyingPlan = false; }
         });
         AddToolTurn($"[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
-        // chat-ui boost: 발행 doc yaml view bubble — ≤30 line inline, >30 line button (클릭 시 dialog).
+        // chat-ui boost: 발행 doc yaml view 가 생성되면 line 수 무관 항상 button bubble (클릭 시 dialog).
         // LLM output/input token 변화 0 — turn 안 누적된 yaml 들을 ViewModel local 로 display.
         foreach (var yaml in ctx.ModelDocsYaml)
             AddModelDocTurn(yaml);
     }
 
-    /// <summary>chat-ui boost: 발행 doc yaml view 1건 → bubble 추가. line count 로 inline / button 분기.</summary>
+    /// <summary>chat-ui boost: 발행 doc yaml view 1건 → button bubble 추가. 클릭 시 dialog.</summary>
     private void AddModelDocTurn(string yaml)
     {
         if (string.IsNullOrEmpty(yaml)) return;
         // review m1: YamlDotNet emitter 가 trailing '\n' 으로 끝나면 Split 결과 마지막 빈 string 1개 추가됨 →
-        // 임계값 30 근처 경계 흔들림 (실제 30 line yaml 이 31 카운트로 button 진입). TrimEnd 로 정정.
+        // 라벨의 line 카운트가 실제보다 1 많게 표시되어 보정 필요. TrimEnd 로 정정.
         var lineCount = yaml.TrimEnd('\n').Split('\n').Length;
         EndStreamingTurn();
-        if (lineCount <= ModelDocInlineLineThreshold)
-        {
-            // inline — yaml 본문 직접 표시 (mono + 표준 크기, ChatBubble template 의 ModelDocInline DataTrigger).
-            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.ModelDocInline, Text = yaml });
-        }
-        else
-        {
-            // button — 클릭 시 ModelDocPreviewDialog 열기. Text = 사용자 보이는 label, Payload = yaml 본문.
-            // review m5a: emoji 제거 (CLAUDE.md "emoji 자제" 룰) — 텍스트만으로 표기.
-            var byteCount = System.Text.Encoding.UTF8.GetByteCount(yaml);
-            var label = $"발행 doc 보기 ({lineCount} lines, {byteCount / 1024.0:F1} KB)";
-            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.ModelDocButton, Text = label, Payload = yaml });
-        }
+        // Text = 사용자 보이는 label, Payload = yaml 본문. 클릭 시 ModelDocPreviewDialog 열기.
+        var byteCount = System.Text.Encoding.UTF8.GetByteCount(yaml);
+        var label = $"발행 doc 보기 ({lineCount} lines, {byteCount / 1024.0:F1} KB)";
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.ModelDocButton, Text = label, Payload = yaml });
     }
-
-    /// <summary>ModelDocInline 대 ModelDocButton 분기 임계값 (라인 수). SSOT — XAML 의 별도 styling 과 무관.</summary>
-    private const int ModelDocInlineLineThreshold = 30;
 
     /// <summary>
     /// m8 — `LlmChatViewModel` 의 ApplyImportPlan label prefix. `HistoryPanelItem.IsLlmTurn` 도 같은 prefix 로 식별.
@@ -1029,11 +1017,8 @@ public partial class ChatTurn : ObservableObject
         public const string Tool = "tool";
         public const string Thinking = "thinking";
         public const string Error = "error";
-        /// <summary>chat-ui boost: `apply_model_doc` 발행 doc 의 inline view (≤30 line).
-        /// Text = yaml 본문. mono + 표준 크기 + 약간 다른 배경. XAML DataTrigger 동기화.</summary>
-        public const string ModelDocInline = "model-doc-inline";
-        /// <summary>chat-ui boost: `apply_model_doc` 발행 doc 의 button view (>30 line).
-        /// Text = label ("📋 발행 doc 보기 (N lines, X KB)"), Payload = yaml 본문.
+        /// <summary>chat-ui boost: `apply_model_doc` 발행 doc bubble — 항상 button.
+        /// Text = label ("발행 doc 보기 (N lines, X KB)"), Payload = yaml 본문.
         /// 클릭 시 ModelDocPreviewDialog 열기. XAML DataTrigger 동기화.</summary>
         public const string ModelDocButton = "model-doc-button";
     }
