@@ -15,30 +15,17 @@ public static class PromakerToolNames
 
     public static readonly string[] All =
     {
+        // ── Read tools (store inspect) ────────────────────────────────────────
         "mcp__promaker__list_projects",
         "mcp__promaker__list_systems",
         "mcp__promaker__describe_system",
         "mcp__promaker__describe_subtree",
         "mcp__promaker__find_by_name",
         "mcp__promaker__validate_model",
-        "mcp__promaker__apply_operations",
-        "mcp__promaker__add_project",
-        "mcp__promaker__add_active_system",
-        "mcp__promaker__add_passive_system",
-        "mcp__promaker__add_flow",
-        "mcp__promaker__add_work",
-        "mcp__promaker__add_call",
-        "mcp__promaker__add_api_def",
-        "mcp__promaker__add_arrow",
-        "mcp__promaker__add_cylinder",
-        "mcp__promaker__add_clamp",
-        "mcp__promaker__add_robot",
-        "mcp__promaker__add_device",
-        "mcp__promaker__remove_entity",
-        "mcp__promaker__rename_entity",
-        // ── Phase 1 YAML protocol (SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md) ──
+        // ── doc-level YAML protocol (SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md) ──
         // Wire = JSON object (LLM tool_use native), View = YAML.
-        // 기존 validate_model (consistency check) 과 별개 도구 — `_doc` 접미사로 차별화.
+        // Phase 5 cleanup 이후 doc-level + read = 10종으로 응축. op-layer 15종 (apply_operations / add_* /
+        // remove_entity / rename_entity) 은 일소됨 — patch DSL 로 대체 (yaml-protocol-v0.md §2.6).
         "mcp__promaker__apply_model_doc",
         "mcp__promaker__validate_model_doc",
         "mcp__promaker__export_model_doc",
