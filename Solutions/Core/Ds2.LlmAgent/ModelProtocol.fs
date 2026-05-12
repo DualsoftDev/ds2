@@ -353,6 +353,17 @@ module ModelProtocol =
                 sprintf "프로젝트 '%s' 가 이미 열려 있습니다. '%s' 로 바꾸려면 '파일 > 닫기' 후 재시도하세요." p.Name other)
             None
 
+    /// M1 fix: doc-level entity 이름 sanitize 가드 (RLO/ZWJ/Cc/Cf/`@`/`$` prefix/`.` 차단 + 길이 검사).
+    /// Phase 5 cleanup 으로 op-layer 도구의 `SanitizeOrThrow` 가 제거되면서 doc-level path 가
+    /// sanitize 우회 회귀 — `ToolOperations.sanitizeName` 위임으로 동일 정책 복원.
+    /// 메시지 ≠ "" 이면 ctx.Diagnostics.Add 후 false 반환 (호출자는 dispatch skip 책임).
+    let private tryValidateName (ctx: ApplyContext) (path: string) (field: string) (name: string) : bool =
+        let msg = ToolOperations.sanitizeName name field ToolOperations.NameMaxLength
+        if msg = "" then true
+        else
+            ctx.Diagnostics.Add(path, msg)
+            false
+
     /// device sugar 의 default 매핑 (SSOT §2.3 표). UnknownSugar 는 호출처에서 사전 분기 — 본 함수 도달 불가.
     /// known sugar 3종 = `KnownSugars` SSOT 표 lookup (Phase 2.5 M4). Custom 은 `customDefault*` 상수 (Phase 2.5 cycle2 M1).
     let private deviceDefaults (lit: DeviceLiteral) : string list * string * TimeSpan =
@@ -369,6 +380,9 @@ module ModelProtocol =
         (entry: SystemEntry)
         (sysEl: JsonElement)
         (path: string) : unit =
+
+        // M1 fix: passive system 이름 sanitize 가드.
+        if not (tryValidateName ctx (path + ".system") "System name" entry.Name) then () else
 
         let deviceRaw = tryProp sysEl "device" |> Option.bind tryString
         let apisRaw =
@@ -449,6 +463,9 @@ module ModelProtocol =
         (_sysEl: JsonElement)
         (path: string) : unit =
 
+        // M1 fix: active system 이름 sanitize 가드.
+        if not (tryValidateName ctx (path + ".system") "System name" entry.Name) then () else
+
         try
             let id = ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
@@ -518,25 +535,24 @@ module ModelProtocol =
         (path: string) : unit =
 
         try
-            let workId = ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId
+            // M1 fix: work localName sanitize 가드.
+            if not (tryValidateName ctx path "Work localName" workLocalName) then () else
+            // M3 fix: workDuration 을 queueAddWork 호출 *전* 에 파싱해서 옵션 인자로 전달.
+            // 후행 mutation (plan.Operations 재검색 + w.Duration <- ts) 제거 — Operations immutable invariant 보존.
+            let durationOpt =
+                tryProp workEl "workDuration" |> Option.bind tryString
+                |> Option.bind (fun s ->
+                    match parseDuration s with
+                    | Ok ts -> Some ts
+                    | Error msg ->
+                        ctx.Diagnostics.Add(path + ".workDuration", msg)
+                        None)
+            let workId = ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
             // WorkIds 누적
             if not (sysEntry.WorkIds.ContainsKey flowName) then
                 sysEntry.WorkIds.[flowName] <- Dictionary<string, Guid>(StringComparer.Ordinal)
             sysEntry.WorkIds.[flowName].[workLocalName] <- workId
 
-            // workDuration override (Active Work) — review fix: 누락된 처리 추가.
-            // plan 의 AddWork operation 에서 해당 work entity 찾아 Duration set.
-            match tryProp workEl "workDuration" |> Option.bind tryString with
-            | None -> ()
-            | Some s ->
-                match parseDuration s with
-                | Error msg -> ctx.Diagnostics.Add(path + ".workDuration", msg)
-                | Ok ts ->
-                    ctx.Plan.Operations
-                    |> Seq.tryPick (function
-                        | AddWork w when w.Id = workId -> Some w
-                        | _ -> None)
-                    |> Option.iter (fun w -> w.Duration <- Some ts)
             if tryProp workEl "duration" |> Option.isSome then
                 ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
@@ -673,6 +689,8 @@ module ModelProtocol =
 
             for (flowName, flowEl) in dedupedFlowKeys do
                 let flowPath = sprintf "%s.flow %s" basePath flowName
+                // M1 fix: flow 이름 sanitize 가드.
+                if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
                 try
                     let flowId = ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                     sysEntry.FlowIds.[flowName] <- flowId
@@ -900,6 +918,8 @@ module ModelProtocol =
                         let oldPath = prop.Name
                         match tryString prop.Value with
                         | None -> ctx.Diagnostics.Add(path, "newName 은 string 이어야 합니다.")
+                        | Some newName when not (tryValidateName ctx path "Rename newName" newName) ->
+                            () // M1 fix: rename newName sanitize 가드 — 메시지는 tryValidateName 가 Diagnostics 에 추가.
                         | Some newName ->
                             // 현재 PoC 는 System 만 — 단일 segment path
                             let segs = pathSegments oldPath
