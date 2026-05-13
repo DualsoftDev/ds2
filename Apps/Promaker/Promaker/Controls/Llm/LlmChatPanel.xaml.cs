@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Promaker.ViewModels;
 
 namespace Promaker.Controls.Llm;
@@ -21,11 +23,74 @@ namespace Promaker.Controls.Llm;
 /// </summary>
 public partial class LlmChatPanel : UserControl
 {
+    private LlmChatViewModel? _vmHooked;
+    // Send 시작 시점에 panel 안에 focus 가 있었는지 capture — IsSending true→false 후 복귀 가드.
+    // disabled 전이로 focus 가 사라진 뒤 IsKeyboardFocusWithin 을 읽으면 항상 false 라 send 후 판정 불가.
+    private bool _focusWasInPanelOnSend;
+
     public LlmChatPanel()
     {
         InitializeComponent();
         // commit-5 (정책 2 정석): DataObject.AddPastingHandler 로 Ctrl+V 가로채기. text-only paste 는 회귀 보장.
         DataObject.AddPastingHandler(InputBox, OnInputPaste);
+
+        // Focus 자동화: ① panel 활성화 (Loaded / IsVisibleChanged) 시 InputBox 로 focus 이동,
+        // ② Send 직후 InputBox 가 disabled → 응답 종료 (IsSending false 전이) 시점에 focus 복귀.
+        Loaded += (_, _) =>
+        {
+            // Unloaded→Loaded cycle 에서 DataContextChanged 가 재발화하지 않을 수 있음 → 재후킹 안전망.
+            if (_vmHooked is null && DataContext is LlmChatViewModel vm)
+            {
+                _vmHooked = vm;
+                vm.PropertyChanged += OnVmPropertyChanged;
+            }
+            FocusInputDeferred();
+        };
+        IsVisibleChanged += (_, e) => { if ((bool)e.NewValue) FocusInputDeferred(); };
+        DataContextChanged += OnDataContextChanged;
+        // VM 수명 > panel 수명 케이스에서 PropertyChanged 강참조 chain 으로 인한 누수 차단.
+        Unloaded += (_, _) =>
+        {
+            if (_vmHooked is not null) _vmHooked.PropertyChanged -= OnVmPropertyChanged;
+            _vmHooked = null;
+        };
+    }
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_vmHooked is not null) _vmHooked.PropertyChanged -= OnVmPropertyChanged;
+        _vmHooked = DataContext as LlmChatViewModel;
+        if (_vmHooked is not null) _vmHooked.PropertyChanged += OnVmPropertyChanged;
+    }
+
+    private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(LlmChatViewModel.IsSending)
+            || sender is not LlmChatViewModel vm) return;
+
+        if (vm.IsSending)
+        {
+            // Send 시작 — focus 가 아직 InputBox 에 살아있는 시점에 capture.
+            _focusWasInPanelOnSend = IsKeyboardFocusWithin;
+        }
+        else if (_focusWasInPanelOnSend)
+        {
+            // Send 시작 시 panel 안에 focus 가 있었으면 복귀. 다른 곳 (Canvas 등) 에서 시작된 send 면 회수 안 함.
+            // InputBox 가 disabled→enabled 로 복귀하는 같은 dispatch cycle 회피 위해 Input priority 로 deferred.
+            _focusWasInPanelOnSend = false;
+            FocusInputDeferred();
+        }
+    }
+
+    private void FocusInputDeferred()
+    {
+        if (!IsVisible) return;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!InputBox.IsEnabled) return;
+            InputBox.Focus();
+            Keyboard.Focus(InputBox);
+        }), DispatcherPriority.Input);
     }
 
     /// <summary>
