@@ -46,7 +46,8 @@ let ``System scope 는 Orphan check skipped footer`` () =
     let projectId = store.AddProject("Project")
     let sysId = store.AddSystem("Sys", projectId, true)
     let result = ToolOperations.validateModelByGuid store (Some sysId)
-    Assert.StartsWith("(no issues; scope=System(id=", result)
+    // Phase 6: scope footer 가 path 기반 (GUID 노출 회피). 본 case = ".Project.Sys" path.
+    Assert.StartsWith("(no issues; scope=System(path=.Project.Sys", result)
     Assert.Contains("Orphan check skipped", result)
 
 [<Fact>]

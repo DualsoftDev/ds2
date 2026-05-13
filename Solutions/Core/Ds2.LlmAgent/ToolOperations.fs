@@ -621,31 +621,83 @@ module ToolOperations =
         if String.IsNullOrWhiteSpace(name) then true
         else Set.contains (name.Trim().ToUpperInvariant()) placeholderTokens
 
-    /// rootId 의 EntityKind 자동 판별. Project = global 동등 (현재 N=1 가정).
-    /// 어디에도 매칭되지 않으면 None — 호출자가 VALIDATION_ERROR 메시지로 변환.
-    let private resolveValidationScope (store: DsStore) (rootIdOpt: Guid option) : ValidationScope option =
-        match rootIdOpt with
+    /// Local 3-level path resolver — `validate_model` scope 한정 (Project/System/Flow).
+    /// Forward-reference 회피 위해 `ModelProtocol.tryFindEntity` 미사용 (fsproj 컴파일 순서: ToolOperations
+    /// → ModelProtocol). 후속 cycle `ModelProtocol.fs` SRP split 시 단일 PathResolver 모듈로 통합 권고
+    /// (done-yaml-protocol-implementation.md §3.0).
+    let private pathSegmentsForScope (raw: string) : string list =
+        if String.IsNullOrEmpty(raw) then []
+        else
+            // NFC 정규화 — `ModelProtocol.normalizePath` 와 정합 (NFD 한글 입력 시 동일 entity 보장).
+            // 후속 cycle PathResolver 단일화 시 본 라인 제거 (단일 helper 가 NFC 도맡음).
+            raw.Replace('/', '.').Normalize(System.Text.NormalizationForm.FormC)
+                .TrimStart('.').Split('.')
+            |> Array.filter (fun s -> s.Length > 0)
+            |> Array.toList
+
+    /// path 의 EntityKind 자동 판별 (Phase 6 — `validate_model` path scope).
+    /// path None / empty → GlobalScope. Project path → GlobalScope. System/Flow path → 각 scope.
+    /// 그 외 (Work/Call/ApiDef/매칭 실패) 는 path-unsupported scope → None.
+    let private resolveValidationScope (store: DsStore) (rawPathOpt: string option) : ValidationScope option =
+        match rawPathOpt with
         | None -> Some GlobalScope
-        | Some id ->
-            match Queries.getProject id store with
-            | Some _ -> Some GlobalScope
-            | None ->
-                match Queries.getSystem id store with
-                | Some _ -> Some (SystemScope id)
-                | None ->
-                    match Queries.getFlow id store with
-                    | Some _ -> Some (FlowScope id)
-                    | None -> None
+        | Some raw when String.IsNullOrWhiteSpace(raw) -> Some GlobalScope
+        | Some raw ->
+            let segs = pathSegmentsForScope raw
+            match segs with
+            | [] -> Some GlobalScope
+            | _ when segs.Length > 3 -> None  // Work/Call scope 미지원
+            | _ ->
+                let project = Queries.allProjects store |> List.tryFind (fun p -> p.Name = segs.[0])
+                match segs.Length, project with
+                | _, None -> None
+                | 1, Some _ -> Some GlobalScope  // Project = global 동등 (현 N=1)
+                | _, Some p ->
+                    let sys = Queries.projectSystemsOf p.Id store |> List.tryFind (fun s -> s.Name = segs.[1])
+                    match segs.Length, sys with
+                    | _, None -> None
+                    | 2, Some s -> Some (SystemScope s.Id)
+                    | 3, Some s ->
+                        // 3-segment: ApiDef 또는 Flow — validate_model 은 Flow 만 scope (ApiDef = None)
+                        Queries.flowsOf s.Id store
+                        |> List.tryFind (fun f -> f.Name = segs.[2])
+                        |> Option.map (fun f -> FlowScope f.Id)
+                    | _ -> None
 
     /// 카테고리 출력 순서 — 동일 plain text 비교 (golden test) 안정성 확보.
     let private categoryOrder =
         [ "Orphan"; "DanglingArrow"; "EmptyFlow"; "EmptyWork"; "DuplicateName"; "TodoPlaceholder" ]
 
-    let private formatScopeLabel (scope: ValidationScope) =
+    /// Local 2-level path emitter — `formatScopeLabel` 전용 (System/Flow 만).
+    /// Forward-reference 회피 위해 `ModelProtocol.tryPathOf` 미사용. 후속 cycle PathResolver 통합 시 단일화.
+    let private trySystemPathLocal (store: DsStore) (sysId: Guid) : string option =
+        match Queries.getSystem sysId store with
+        | None -> None
+        | Some s ->
+            Queries.allProjects store
+            |> List.tryFind (fun p -> p.ActiveSystemIds.Contains s.Id || p.PassiveSystemIds.Contains s.Id)
+            |> Option.map (fun p -> sprintf ".%s.%s" p.Name s.Name)
+
+    let private tryFlowPathLocal (store: DsStore) (flowId: Guid) : string option =
+        match Queries.getFlow flowId store with
+        | None -> None
+        | Some f ->
+            trySystemPathLocal store f.ParentId
+            |> Option.map (fun sp -> sp + "." + f.Name)
+
+    /// Phase 6: footer scope echo 도 path 기반으로 — GUID 노출 회피.
+    /// path 합성 실패 시 (entity 사라짐) "System(<missing>)" 등 marker.
+    let private formatScopeLabel (store: DsStore) (scope: ValidationScope) =
         match scope with
         | GlobalScope -> "global"
-        | SystemScope id -> $"System(id={id:D})"
-        | FlowScope id -> $"Flow(id={id:D})"
+        | SystemScope id ->
+            match trySystemPathLocal store id with
+            | Some p -> $"System(path={p})"
+            | None -> "System(<missing>)"
+        | FlowScope id ->
+            match tryFlowPathLocal store id with
+            | Some p -> $"Flow(path={p})"
+            | None -> "Flow(<missing>)"
 
     /// validate_model 본체. plain text 반환 (issue 없으면 "(no issues; scope=...)").
     let validateModel (store: DsStore) (scope: ValidationScope) : string =
@@ -769,7 +821,7 @@ module ToolOperations =
                                 report "DanglingArrow"
                                     $"ArrowCall (id={arrow.Id:D}) in Work \"{work.Name}\" has missing target Call (id={arrow.TargetId:D})"
 
-        let scopeLabel = formatScopeLabel scope
+        let scopeLabel = formatScopeLabel store scope
         // Flow scope 에서 의도적으로 skip 한 카테고리 — LLM 이 "왜 안 나오지" 헷갈리지 않게 footer 명시.
         let skippedFooter =
             match scope with
@@ -798,10 +850,35 @@ module ToolOperations =
             | None -> ()
             sb.ToString().TrimEnd()
 
-    /// C# entry: rootId None = global, Some id = Project/System/Flow 자동 판별.
-    /// 매칭 실패 시 "VALIDATION_ERROR: ..." 반환 (RunRead 의 INTERNAL_ERROR 분기 회피).
+    /// C# entry (Phase 6): rawPath None / "" = global, Project/System/Flow dotted-path = 해당 scope.
+    /// 매칭 실패 또는 path-unsupported kind 시 "VALIDATION_ERROR: ..." 반환
+    /// (RunRead 의 INTERNAL_ERROR 분기 회피).
+    let validateModelByPath (store: DsStore) (rawPathOpt: string option) : string =
+        match resolveValidationScope store rawPathOpt with
+        | Some scope -> validateModel store scope
+        | None ->
+            let raw = rawPathOpt |> Option.defaultValue ""
+            $"VALIDATION_ERROR: scope path \"{raw}\" 가 Project/System/Flow 에 해당하지 않습니다. `find_by_name` 으로 후보 확인 후 dotted-path 재시도."
+
+    /// **Deprecated (Phase 6 → chunk-3 에서 일소 예정)**: Guid 기반 scope 진입.
+    /// `validateModelByPath` 가 본격 entry. 본 함수는 ValidateModelTests.fs 가 chunk-3 에서 path 기반
+    /// 으로 재작성될 때까지의 backward-compat 만 — 사용 권장 X. C# `ModelTools.ValidateModel` 은
+    /// 이미 `validateModelByPath` 로 전환됨.
     let validateModelByGuid (store: DsStore) (rootIdOpt: Guid option) : string =
-        match resolveValidationScope store rootIdOpt with
+        let scopeOpt =
+            match rootIdOpt with
+            | None -> Some GlobalScope
+            | Some id ->
+                match Queries.getProject id store with
+                | Some _ -> Some GlobalScope
+                | None ->
+                    match Queries.getSystem id store with
+                    | Some _ -> Some (SystemScope id)
+                    | None ->
+                        match Queries.getFlow id store with
+                        | Some _ -> Some (FlowScope id)
+                        | None -> None
+        match scopeOpt with
         | Some scope -> validateModel store scope
         | None ->
             let id = rootIdOpt.Value
