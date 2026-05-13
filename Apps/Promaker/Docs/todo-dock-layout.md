@@ -9,7 +9,16 @@
 > - v3: --review web 검증 + 본 환경 직접 검증 (DevExpress 24.1.7 로컬 feed 자동 등록 확인, 옵션 A 채택)
 > - v4: PR-1 spike 결과로 DevExpress.Wpf.Docking 24.1.7 도입 시 138 곳 모호 참조 + WinForms transitive + size 비용. AvalonDock 4.x 로 변경.
 > - v5: 5명 메타 reviewer (Generalist / 정확성 / 설계 / 영향범위 / 인터넷 검색) 통합 검증 반영. 핵심: 테마 NuGet 별도, 4.74.1 stable, ContentId e.Cancel 패턴, §3.4 헤더 API 3안 비교, §3.3 single-source-of-truth 모델, PR-2 분할, log4net C# 패턴(`Log.Info`) 정정.
-> - **v7 (현재)**: PR-1a 완료 + PR-1b spike 자동 검증 회신 + 사용자 Q1/Q2 결정 반영. 핵심 변경:
+> - **v8 (현재, 2026-05-13)**: PR-2a 외곽 교체 + PR-2b SSOT 흡수 commit (`1479f74`) + PR-2a/2b Phase A commit (`89a23e2`) + 외부 reviewer (Generalist / Logic / Design) 검토 처리 working tree. 핵심 변경:
+>   - **§3.1 보조 anchor 동기화 명세 보강** — Welcome 모드 (`HasProject=false`) 시 `explorerAnchor`/`propertyAnchor`/`historyAnchor`/`simulationAnchor` 의 `IsVisible=false` 토글 (외부 reviewer M1 — 이전 v7 까지는 "나머지 anchor 들" 로 모호 표기, 실구현이 누락하여 회귀 발생). LlmChat 은 IsLlmChatVisible SSOT 별도라 제외.
+>   - **§4 PR-2a / PR-2b 경계 정정 (외부 reviewer M2)** — v7 까지는 "PR-2a 는 minimal wiring 만, PR-2b 는 SSOT 완성" 분리. 실구현 (`1479f74` + `89a23e2`) 은 SSOT 가 PR-2a 안으로 흡수됨. revert 비현실 → 명세 정정. PR-2b 는 측정 자동화 검증 1건으로 축소.
+>   - **§3.3 변수명 통일** — `_suppressVmSync` → `_suppressLlmChatSync` (실구현 명명 채택). v6 까지 todo 표기는 정정.
+>   - **§3.3 false 분기 3속성 set** — VM → View 의 false 분기도 IsVisible/IsActive/IsSelected 동시 false (89a23e2 자가 검열 Major 2 수용 — 비대칭 set 시 다음 Show 사이클 첫 클릭 dead 회피).
+>   - **§3.3 `Hiding` 의 `e.Cancel`** — 기본값 false 유지가 의도 (X 버튼이 hide 진행 + VM 만 동기화). reviewer 가 `LayoutSerializationCallback` 의 e.Cancel (§3.2 PR-3 영역) 과 혼동한 부분 반론.
+>   - **§4 PR-2a 의 v7 신규 항목 7건 Phase A 처리 commit** — 빈 column 자동 collapse / floating Topmost=false / LlmChatVm null edge case / Autostart race / Window_Closing 순서 / PropertyPane 정석 refactor / dockManager x:Name placeholder. 닫힌 anchor 복원 UI (Q2) 만 Phase B 로 이월 (UI 신규 + 사용자 검증 필요).
+>   - **§8 갱신** — commit hash 명시, 외부 reviewer 처리 표 추가, Phase B / PR-3 / PR-4 / PR-5 잔여 액션 명시화.
+>   - **다른 파일 가리키는 참조 표기 정정** — 코드 주석 / 본 문서 안에서 다른 문서 / 파일 가리키는 참조는 `Apps/Promaker/Docs/todo-dock-layout.md §X.Y` 처럼 파일 경로 명시. "PR-3 이후 backlog", "todo §3.1" 등 모호 표기 회피.
+> - v7: PR-1a 완료 + PR-1b spike 자동 검증 회신 + 사용자 Q1/Q2 결정 반영. 핵심 변경:
 >   - **§2 끝부분 단정 6건 → "spike 결과 의존" → "spike 확정"** 으로 전환. 항목 1(Hiding), 3(Deserialize), 4(IsVisible round-trip PASS), 5(Theme namespace 충돌 없음), 6(x:Name 보존 FAIL → ReconcileAnchors 필수) 확정. 항목 2(5경로 차단)는 수동 검증 PR-2a 진입 시 별도.
 >   - **§2 새 발견 사항 절** 신설 — F1 (AvalonDock 4.74.1 의 ClosedPanelsBar 자동 노출 X), F2 (모든 anchor hidden 시 빈 column 잔존), F3 (IsVisibleChanged 중복 raise), F4 (e.Cancel 미설정 시 unknown ContentId placeholder 보존), F5 (CloseCommand=ICommand → InputGestures 변경 불가), F6 (테마 brush key 5종 도달), **F7 (floating window 기본 TopMost — 사용자 결정으로 `Topmost=false` 정책)**.
 >   - **§2 단정 정정** — `Hidden` 이벤트는 존재하지 않음 (todo v6 까지 "Hiding 또는 Hidden" 으로 표기한 부분 정정). VM 역동기화는 **`Hiding`** (cancelable) 또는 **`IsVisibleChanged`** 사용.
@@ -185,10 +194,11 @@
 
 **채택안: 안 A — Welcome 도 `LayoutDocument` 1개로 dock 안에 통합**
 
-- HasProject=false 시 `welcomeDoc` 만 활성 (Canvas/Sim/Property/History/Explorer/LlmChat anchor 들은 `IsVisible=false`).
-- HasProject=true 시 `welcomeDoc.IsVisible=false` + 나머지 anchor 들 default 위치로 복원.
+- HasProject=false 시 `welcomeDoc` 만 활성 (보조 anchor 4종 `explorerAnchor`/`propertyAnchor`/`historyAnchor`/`simulationAnchor` 의 `IsVisible=false`). `llmChatAnchor` 는 `IsLlmChatVisible` SSOT 가 별도라 토글 동기화 대상에서 제외 (외부 reviewer M1 으로 정정 — Welcome 모드 보조 anchor 미동기화 누락 수용).
+- HasProject=true 시 `welcomeDoc` 은 `workspaceDocs.Children` 에서 detach + `canvasDoc` attach + 보조 anchor 4종 `IsVisible=true` 로 복원.
+- 단순 정책: 사용자가 프로젝트 열린 상태에서 수동 hide 한 anchor 의 상태는 Welcome 토글로 잃을 수 있음 (HasProject 가 IsVisible 를 덮어씀). 사용자 수동 hide 상태 보존이 필요해지면 별도 저장 필드 도입 (본 문서 `Apps/Promaker/Docs/todo-dock-layout.md` §4 의 PR-3 이후 후속 작업으로 backlog 추가 예정).
 - `WelcomeLayout` 의 별도 LLM column / SimulationPanel 제거 → 단일 dockManager 가 양 모드 통합.
-- `UpdateLlmChatColumnWidths` 의 양 layout 동시 갱신 로직 제거 가능.
+- `UpdateLlmChatColumnWidths` 의 양 layout 동시 갱신 로직 제거.
 
 **Plan B (보류)**: dockManager 와 WelcomeOverlay 가 진짜 형제 + HasProject=false 시 floating window 강제 dock-back. 안 A 가 spike 에서 막히면 fallback.
 
@@ -336,19 +346,19 @@ public static class DockLayoutPersistence
 - **VM 의 `IsLlmChatVisible` 가 single-source-of-truth**.
 - **VM → View 단방향 흐름**: `IsLlmChatVisible` PropertyChanged →
   - true: `llmChatAnchor.IsVisible = true; llmChatAnchor.IsActive = true; llmChatAnchor.IsSelected = true;` (3속성 동시 set — v6 R1.M4).
-  - false: `llmChatAnchor.IsVisible = false;`
-- **역방향은 X 버튼 한 곳만 — v7 spike 확정**: `llmChatAnchor.Hiding` 이벤트 (`EventHandler<CancelEventArgs>`) 사용 → `_vm.IsLlmChatVisible = false`. (`Hidden` 이벤트는 AvalonDock 4.74.1 에 존재하지 않음 — v6 까지의 "Hiding 또는 Hidden" 표기는 정정됨.)
+  - false: 동일하게 3속성 모두 false (검열 Major 2 수용 — 비대칭 set 시 다음 Show 사이클 첫 클릭 dead 가능).
+- **역방향은 X 버튼 한 곳만 — v7 spike 확정**: `llmChatAnchor.Hiding` 이벤트 (`EventHandler<CancelEventArgs>`) 사용 → `_vm.IsLlmChatVisible = false`. `e.Cancel` 은 기본값 false 유지 (X 버튼이 hide 진행 + VM 만 동기화). (`Hidden` 이벤트는 AvalonDock 4.74.1 에 존재하지 않음 — v6 까지의 "Hiding 또는 Hidden" 표기는 정정됨.)
 - auto-hide / float 상태 변화는 VM 무관 (View 의 시각 상태일 뿐).
 
 **재진입 가드 — 양방향 절대 필수 (v7 spike F3 입증)**:
 - spike trace: `Hide()` 1회 호출 → `IsVisibleChanged` 4회 raise (True 2번 + False 2번). `Show()` 1회 → 3회 raise (True 3번). 가드 없으면 VM 으로 4회 역류 → 무한 재진입 위험.
-- `_suppressVmSync` 플래그.
-- VM → View 진입 시 `_suppressVmSync = true` wrap (Show/Hide 가 다시 이벤트 raise 해도 VM 으로 역류 X).
+- `_suppressLlmChatSync` 플래그 (실구현 명명, v6 까지 todo 의 `_suppressVmSync` 표기는 정정).
+- VM → View 진입 시 `_suppressLlmChatSync = true` wrap (Show/Hide 가 다시 이벤트 raise 해도 VM 으로 역류 X).
 - View → VM 진입 시 동일 wrap.
 
-**Edge cases**:
-- `LlmChatVm == null` (consent 거부 / autostart 미실행): `llmChatAnchor.IsEnabled = false` + Hide.
-- `ENABLE_LLM=false`: anchor 자체를 layout 에서 제거 vs `Hide` 유지 → PR-2b 결정.
+**Edge cases (PR-2a 통합 구현 완료, commit `89a23e2`)**:
+- `LlmChatVm == null` (consent 거부 / autostart 미실행): `SyncLlmChatAnchorFromVm` 의 `show = _vm.IsLlmChatVisible && _vm.LlmChatVm != null && _vm.IsLlmEnabled` AND 가드. anchor.IsVisible/IsActive/IsSelected 모두 false 로 fall-through.
+- `ENABLE_LLM=false`: 동일 AND 가드로 hide. anchor 자체는 layout 에 남김 (Phase B 복원 메뉴에서 비활성/숨김 표시).
 
 **Autostart race 해결 (v6 R3.C2)**:
 - `InitLlmAutostart()` 의 `Dispatcher.BeginInvoke(..., DispatcherPriority.Loaded)` → **`DispatcherPriority.ApplicationIdle` 로 변경** → `Window.Loaded` 의 layout 복원 + ReconcileAnchors 완료 후 실행 보장.
@@ -431,10 +441,14 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
   - dock 마그넷 / auto-hide 정상 동작.
 - [ ] 단일 commit (uncommitted — 사용자 명시 신호 대기).
 
-### PR-2a — `MainWindow` Grid → DockingManager 외곽 교체 (구조) + LlmChat minimal wiring
+### PR-2a — `MainWindow` Grid → DockingManager 외곽 교체 (구조) + LlmChat SSOT 통합
+
+**경계 정정 (외부 reviewer M2 수용)**: v6 까지 todo 는 PR-2a 를 "minimal wiring 만, PR-2b 는 SSOT 완성" 으로 분리했으나, 실구현은 1479f74 + 89a23e2 에서 PR-2b 의 SSOT (3속성 set + `_suppressLlmChatSync` 양방향 가드 + `Hiding` 역동기화 + LlmChatVm null edge case + Autostart race + Window_Closing 순서) 가 PR-2a 안으로 통합됨. revert 비현실 → 명세 정정. PR-2b 의 잔여 항목은 측정 자동화 검증 1개로 축소.
+
 - [x] `MainWindow.xaml` 외곽 Grid 통째 제거 → §3.1 트리 (Welcome/Canvas 통합 안 A). (commit 1479f74)
 - [x] `welcomeDoc` ↔ `canvasDoc` 의 `IsVisible` 을 `HasProject` 에 동기화 — LayoutDocument.IsVisible read-only 라 `workspaceDocs.Children` Add/Remove 동적 관리로. (commit 1479f74)
-- [x] **LlmChat anchor minimal wiring (단독 머지 회귀 회피, v6 C2)**: `IsLlmChatVisible` PropertyChanged → `llmChatAnchor.IsVisible` 단순 양방향. (commit 1479f74 — PR-2b SSOT 까지 같이 들어감)
+- [x] **외부 reviewer M1 — Welcome 모드 보조 anchor 4종 동기화** (`explorerAnchor`/`propertyAnchor`/`historyAnchor`/`simulationAnchor` 의 `IsVisible` 를 `HasProject` 와 토글). LlmChat 은 IsLlmChatVisible SSOT 별도라 제외.
+- [x] **LlmChat anchor SSOT 통합**: `IsLlmChatVisible` PropertyChanged → 3속성 동시 set + `_suppressLlmChatSync` 양방향 가드 + `Hiding` 역동기화 + LlmChatVm null/IsLlmEnabled=false edge case. (commit 1479f74 + 89a23e2)
 - [ ] `LayoutSerializationCallback` 핸들러 등록 (ContentId → Content + e.Cancel 패턴, 단일 dictionary SSOT). → **PR-3 으로 이월** (Serialize/Deserialize 도입 시).
 - [ ] `ReconcileAnchors()` 헬퍼 도입 (callback 종료 직후 호출). → **PR-3 으로 이월**.
 - [x] `WelcomeOverlay` / `FileDragOverlay` / `BusyOverlay` 형제 배치 (§3.5). WelcomeOverlay 의 drop target 역할 → Window 레벨 핸들러로 흡수 (FileDragOverlay 의 watchdog 그대로). (commit 1479f74)
@@ -452,13 +466,11 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 - [ ] **v7 PR-1b 수동 항목 본 코드 위 회귀 검증**: 5경로 차단 / WindowChrome 사용 여부 / Float cycle 메모리 delta. → **Phase B**.
 - [x] commit 분할: Phase A (이번 turn) + Phase B (UI 추가).
 
-### PR-2b — LlmChat SSOT 완성 + 측정 자동화
-- [x] §3.3 SSOT 모델 완성 적용 (3속성 동시 set / true·false 양 분기 / `_suppressLlmChatSync` 양방향 가드).
-- [x] `llmChatAnchor.Hiding` 이벤트 → VM 역방향 동기화 (`Hidden` 이벤트 부재 확정).
-- [x] `LlmChatVm == null` / `ENABLE_LLM=false` edge case — `SyncLlmChatAnchorFromVm` 안에서 `_vm.LlmChatVm != null && _vm.IsLlmEnabled` AND 조건으로 처리. anchor 자체는 layout 에 남김 (Phase B 의 복원 UI 메뉴에서 비활성 표시).
-- [x] **Autostart race 해결**: `InitLlmAutostart()` 의 `DispatcherPriority.Loaded` → `ApplicationIdle` 변경.
+### PR-2b — 측정 자동화 시나리오 검증 (PR-2a 흡수 후 잔여 1건)
+
+**경계 정정 (외부 reviewer M2 수용)**: SSOT 모델 / Hiding / LlmChatVm null / Autostart race / Window_Closing 순서 항목들은 PR-2a 의 1479f74 + 89a23e2 commit 안으로 흡수됨. PR-2b 는 측정 자동화 수동 회귀로 축소.
+
 - [ ] 측정 자동화 시나리오: `App.StartupAutoOpenLlm` true 시 정상 close 확인. → **Phase B 수동 검증**.
-- [x] **`Window_Closing` 순서 명시 (v6 R2.M4)**: (1) save [PR-3] → (2) `CloseAllFloatingWindows` (floating anchor 일괄 Hide) → (3) `DisposeLlmChatAsync` → (4) `BeginInvoke(Close, Background)`. `_llmChatDisposed=true` 가드로 idempotent.
 
 ### PR-3 — Layout 저장/복원 + DockThemeBridge + Reset
 - [ ] **`Promaker.Persistence.DockLayoutPersistence`** 헬퍼 추가 (§3.2 단순화 API).
@@ -545,25 +557,64 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 
 ## 8. 진행 체크포인트 (이어받는 세션용)
 
-- 현재까지 **plan v7 확정 (2026-05-13)**. 코드 변경 **uncommitted**:
-  - PR-1a 완료 — `Apps/Promaker/Directory.Packages.props` + `Apps/Promaker/Promaker/Promaker.csproj` 에 `Dirkster.AvalonDock 4.74.1` 추가, 빌드 0 경고/0 오류.
-  - PR-1b 자동 검증 완료 — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` + `App.xaml.cs` 의 `--dock-spike` args 분기. 자동 8 항목 + 사용자 회신 F1/F2/F7 모두 §2 표에 확정 반영.
-  - `Docs/todo-dock-layout.md` → `Apps/Promaker/Docs/todo-dock-layout.md` (git mv).
-- v7 의 핵심 추가/정정 사항은 본 문서 상단 "변경 이력" 참조.
-- 다음 액션 순서:
-  1. ~~PR-1a~~ ✅ 완료 (uncommitted)
-  2. ~~PR-1b 자동 검증~~ ✅ 완료 (uncommitted). 수동 검증 (5경로 차단 / WindowChrome / Float cycle) 은 PR-2a 진입 시 본 코드 위에서 회귀.
-  3. **PR-2a 진행 대기**: §3.1 Welcome 통합 안 A + LlmChat minimal wiring + PropertyPane 정석 refactor + **v7 신규 (자동 collapse + 복원 UI + Topmost=false + callback e.Cancel)**. 단일 commit. 단독 머지 가능.
-  4. **PR-2b 진행**: SSOT 완성 + autostart race 해결 + Window_Closing 순서.
-  5. **PR-3 진행**: DockLayoutPersistence + DockThemeBridge + Reset + DPI fallback.
-  6. **PR-4 진행**: Caption 헤더 (안 B conditional 또는 안 A setter).
-  7. **PR-5 진행** (선택): KeyBinding floating 라우팅.
-- 사용자 "PR-2a 진행" 신호 후 본격 코드 수정 시작.
-- 각 PR 완료 시 빌드 통과 확인, 수동 시나리오 검증, 결과 보고. **사용자 명시 없이 git commit 금지**.
-- todo 진행 상태 갱신 규약: 각 체크박스 옆 완료 시 `(commit <hash>)` 추가.
+- **plan v8 (2026-05-13)**. v7 → v8 핵심 변경: 외부 reviewer M1/M2/M3 처리, PR-2a / PR-2b 경계 정정 (SSOT 가 PR-2a 안으로 흡수), Welcome 모드 보조 anchor 4종 동기화 추가, 변수명 `_suppressVmSync` → `_suppressLlmChatSync` 통일.
+- 현재 commit 상태 (branch `dock`):
+  - `5e40fa6` Dock layout: PR-1a (AvalonDock 4.74.1) + PR-1b (Spike Window) + todo v7 (옛 시점). 패키지 추가 + spike 자동 검증.
+  - `1479f74` Dock layout: PR-2a 외곽 DockingManager 교체 + PR-2b LlmChat SSOT (부분). MainWindow.xaml Grid → 6 anchor 트리, WelcomeView 신규 (`Apps/Promaker/Promaker/Controls/Shell/WelcomeView.xaml(.cs)`), SSOT 가드 + 3속성 set + Hiding 역동기화, workspaceDocs.Children Add/Remove 동적 관리, todo v5 → v7.
+  - `89a23e2` Dock layout: PR-2a/2b Phase A — 빈 column 자동 collapse (5 anchor IsVisibleChanged → pane DockWidth/Height toggle) + DockingManager.Resources 의 LayoutAnchorableFloatingWindowControl/LayoutDocumentFloatingWindowControl Topmost=False Style + LlmChatVm null/IsLlmEnabled=false edge case + DispatcherPriority Loaded → ApplicationIdle + CloseAllFloatingWindows + PropertyPanel Loaded/Unloaded 자가 등록.
+- working tree (--git-commit 대상, dock branch — remote 없음 → local commit only):
+  - 외부 reviewer 처리 turn 의 변경. `M Apps/Promaker/Docs/todo-dock-layout.md` + `M Apps/Promaker/Promaker/MainWindow.xaml` + `M Apps/Promaker/Promaker/MainWindow.xaml.cs` + `M Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs`.
+  - 내용: M1 수용 (`SyncWelcomeCanvasVisibility` 안에 보조 anchor 4종 IsVisible 동기화), M2 정책 정정 (todo PR-2a/PR-2b 경계 변경, SSOT 가 PR-2a 흡수), m2 변수명 통일, m3/m4 주석 (가드 부재 의도 / dockManager x:Name placeholder), 다른 파일 가리키는 참조 표현을 `Apps/Promaker/Docs/todo-dock-layout.md §X.Y` 형식으로 풀어쓰기.
+
+### 외부 reviewer 처리 내역 (1479f74 시점 기준)
+
+| 항목 | reviewer 의견 | 처리 |
+|---|---|---|
+| M1 (합의 2/3) | Welcome 모드에서 보조 anchor 4종 (Explorer/Property/History/Simulation) IsVisible 동기화 누락 — todo §3.1 안 A 명세 drift + 이전 WelcomeLayout 안내 화면 대비 UX 회귀 | 수용. `SyncWelcomeCanvasVisibility` 안에 4 anchor `IsVisible = _vm.HasProject` 추가. LlmChat 은 IsLlmChatVisible SSOT 별도라 제외. |
+| M2 (B 단독) — PR-2a 가 PR-2b 영역 (SSOT 가드 / 3속성 / Hiding) 선반영 | todo line 437 의 "PR-2a 는 minimal wiring 만, PR-2b 는 SSOT 완성" 분리 위반 | 부분 수용. 1479f74 + 89a23e2 이미 commit 됨 → revert 비현실. todo 의 PR-2a/PR-2b 경계 명세 정정 (§4). PR-2b 는 측정 자동화 검증 1건으로 축소. |
+| M2 (B 단독) — callback `e.Cancel=true` 누락 | callback 에서 e.Cancel 미설정 시 ghost placeholder | 반론. reviewer 가 `LayoutSerializationCallback` (§3.2, PR-3 영역) 의 e.Cancel 과 `Hiding` 이벤트의 e.Cancel 을 혼동. 현 코드는 `LayoutSerializationCallback` 미등록 (PR-3 이월 명시). `Hiding` 의 e.Cancel=false 유지는 의도 — true 면 X 버튼이 hide 실패. 변경 없음. |
+| M3 (A 단독) | 초기 1 frame 동안 welcomeDoc + canvasDoc 두 LayoutDocument 동시 노출 | 89a23e2 에서 `SyncWelcomeCanvasVisibility` 호출을 ctor → `MainWindow_Loaded` 로 이동 완료. reviewer 검토가 그 commit 이전 시점 기준이라 미반영. |
+| B4 (B outlier) | Window Drop vs AvalonDock 내부 drop 충돌 가능성 | Phase B 수동 회귀로 이월 — anchor pane 위 .sdf drop 1회 확인. |
+| B5 (B outlier) | FocusNameEditorRequested 가 hidden anchor 시 실패 | 기각. 89a23e2 의 PropertyPanel Loaded/Unloaded 자가 등록 패턴으로 자동 해제. |
+| m1 (C 단독) | WelcomeView 가 부모 DataContext 강결합 | PR-3 backlog. |
+| m2 (A 단독) | 변수명 `_suppressVmSync` → `_suppressLlmChatSync` 표기 불일치 | 수용. todo §3.3 갱신. |
+| m3 (C 단독) | `SyncWelcomeCanvasVisibility` 재진입 가드 부재 → LlmChat 비대칭 | 수용. 주석으로 의도 명시 (View 갱신만 단방향이라 가드 불필요). |
+| m4 (C 단독) | dockManager x:Name 미사용 | 수용. PR-3 placeholder 주석. |
+| m5 (A 단독) | `MainWindow_Loaded` 책임 비대 | PR-3 진입 시 분리. |
+| m6 (B 단독) | `MainWindow_Closed` 핸들러 해제 순서 race | PR-3 정리 시 같이. |
+
+### 다음 액션 순서
+
+1. ~~PR-1a~~ ✅ commit `5e40fa6`.
+2. ~~PR-1b 자동 검증~~ ✅ commit `5e40fa6`. 수동 검증 (5경로 차단 / WindowChrome / Float cycle) 은 Phase B 회귀.
+3. ~~PR-2a 외곽 교체 + PR-2b SSOT 흡수~~ ✅ commit `1479f74`.
+4. ~~PR-2a/2b Phase A~~ ✅ commit `89a23e2`. 외부 reviewer M1/M2/M3 처리는 본 turn working tree 의 다음 commit 으로 들어감.
+5. **Phase B 진행 대기**: 사용자 검증/UI 필요.
+   - 닫힌 anchor 복원 UI (Q2): 메인 메뉴 보기 하위 6개 항목 + 우측 상단 ▼ 드롭다운. `Apps/Promaker/Promaker/Controls/Shell/MainToolbarEtcContent.xaml` 또는 신규 보기 메뉴 추가.
+   - Ctrl+W / Ctrl+F4 충돌 fallback (anchor 모두 CanClose=False 라 현재 충돌 없는 것으로 추정 — 수동 회귀 후 결정).
+   - 수동 시나리오 검증: dock·float·auto-hide·마그넷·Welcome 전환·FileDrag·BusyOverlay·floating Topmost=false 동작·5경로 차단·Float cycle 메모리·WindowChrome.
+   - 측정 자동화 close 확인 (App.StartupAutoOpenLlm 시).
+   - LayoutAnchorable.Title 정책 (PR-4 와 stacked 또는 임시 노출 유지).
+6. **PR-3 진행**: §3.2 결정 트리 적용.
+   - `Apps/Promaker/Promaker/Persistence/DockLayoutPersistence.cs` (신규) — Save/Restore bool API.
+   - atomic write (`write-temp` + `File.Replace`) + `FileShare.None`.
+   - `dock-layout.xml` + `dock-layout.meta.xml` (version 1.0 박제) atomic 쌍.
+   - `Window_Closing` 의 `_llmChatDisposed=true` 직후 Save 호출.
+   - `Window.Loaded` 5-케이스 결정 트리 + `ReconcileAnchors()` 헬퍼 + `LayoutSerializationCallback` 의 `e.Cancel=true` 명시 (§3.2 — unknown ContentId placeholder 잔존 회피).
+   - Reset Layout 메뉴 (`Apps/Promaker/Promaker/Controls/Shell/MainToolbarEtcContent.xaml`) — layout 파일 삭제 + default 분기 재실행.
+   - `Apps/Promaker/Promaker/Presentation/Dock/DockThemeBridge.cs` (신규) — ThemeManager.ThemeChanged 만 구독 → dockManager.Theme 갱신.
+   - DPI / multi-monitor fallback (50% 교집합 미만 시 main 중앙 재배치 + `Log.Warn`).
+   - 측정 모드 시 복원 skip 검증.
+   - 외부 reviewer 후속 (m5 — Loaded 책임 분리, m6 — Closed 핸들러 해제 순서 race) 일괄 정리.
+7. **PR-4 진행**: §3.4 헤더 안 B (UserControl 컴포지션) conditional 또는 안 A (AnchorableTitleTemplate) setter 비교 후 채택. `Apps/Promaker/Promaker/Themes/Theme.Controls.Dock.xaml` (신규) 의 dock caption/tab/auto-hide brush 매핑 + `App.xaml` DockResources DynamicResource 머지.
+8. **PR-5 진행** (선택): KeyBinding floating 라우팅 — `EventManager.RegisterClassHandler(typeof(Window), Window.KeyDownEvent, ...)` 좁게 적용.
 
 ### 주의 사항
 - AvalonDock 4.74.1 API 6건은 **v7 spike 로 확정 완료** (§2 끝부분 표). 새 가정 추가 시 동일 절차로 spike 확인.
-- `MainWindow.xaml.cs` 의 line 번호는 v5 작성 이후 이미 drift 발생 (108/109 → 124/125). **line 박제 금지, 시점 표현 사용**.
-- PR-2a 의 LlmChat minimal wiring 은 **PR-2b 완성 전까지 임시** — main 머지 시 사용자 회귀 없도록 anchor.IsVisible 양방향 양방향 최소 wiring 필수.
-- 자가 검열 trigger: 코드 수정 시 함수 시그니처 변경 / 신규 type 3개 이상 / 단일 파일 100 line 이상 / dispatch 재작성 / public API 갱신 중 하나라도 충족 시 `--git-diff` 검열 위임 후 commit 제안.
+- `MainWindow.xaml.cs` 의 line 번호는 v5 작성 이후 이미 drift 발생. **line 박제 금지, 시점 표현 사용**.
+- 자가 검열 trigger (CLAUDE.md): 함수 시그니처 변경 / 신규 type 3개 이상 / 단일 파일 100 line 이상 / dispatch 재작성 / public API 갱신 중 하나라도 충족 시 sub-agent (general-purpose 또는 code-review skill) 위임 후 commit 제안.
+- `--git-commit` 진행 시 dock branch 가 remote 없으면 local commit only (push 생략).
+- 다른 문서 / 파일 가리키는 참조는 파일 경로 명시 (예: `Apps/Promaker/Docs/todo-dock-layout.md §3.1`, "PR-3 이후 backlog" 처럼 모호한 표기 회피).
+- 사용자 명시 없이 git commit 금지. **memory feedback**: multi-step plan 의 "go" 동의로 commit 까지 묶지 않음, commit step 별도 confirm.
+- PR-1b Spike Window (`Apps/Promaker/Promaker/Spike/`) 는 Phase B 종료 또는 PR-3 commit 시 제거 예정.
+- working tree 의 임시 산출물 (`_review_*.diff` 등 자가 검열 agent 가 남긴 untracked 파일) 은 사용자 명시 후 삭제 — CLAUDE.md "관련 없는 파일을 함부로 삭제하지 않는다".
