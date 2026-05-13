@@ -109,7 +109,7 @@ public partial class MainWindow : Window
     }
 
     // VM → View 단방향 (3속성 동시 set). 재진입 가드로 IsVisibleChanged 중복 raise → VM 역류 차단.
-    // Edge case (todo §3.3): LlmChatVm==null (consent 거부) 또는 IsLlmEnabled=false → 안전 가드로 hide 유지.
+    // Edge case (`Apps/Promaker/Docs/todo-dock-layout.md` §3.3): LlmChatVm==null (consent 거부) 또는 IsLlmEnabled=false → 안전 가드로 hide 유지.
     private void SyncLlmChatAnchorFromVm()
     {
         if (_suppressLlmChatSync) return;
@@ -150,11 +150,18 @@ public partial class MainWindow : Window
         finally { _suppressLlmChatSync = false; }
     }
 
-    // HasProject 토글 시 welcomeDoc / canvasDoc 중 하나만 LayoutDocumentPane 에 attach.
+    // HasProject 토글 시 welcomeDoc / canvasDoc 중 하나만 LayoutDocumentPane 에 attach +
+    // `Apps/Promaker/Docs/todo-dock-layout.md` §3.1 안 A 명세대로 보조 anchor 4종 (Explorer/Property/History/Simulation) 도 함께 토글.
     // LayoutDocument.IsVisible 은 XAML/C# 양쪽 모두 read-only (CS0200) 라 anchor 와 달리 set 불가능 →
     // workspaceDocs.Children Add/Remove 동적 관리로 처리.
     //
-    // M1 (PR-1b 검열 발견) 잔여 우려: PR-3 의 XmlLayoutSerializer 도입 시 detach 된 LayoutDocument 인스턴스 가
+    // 외부 reviewer M1 수용 — Welcome 모드 (HasProject=false) 에 보조 anchor 가 노출되면 동일 문서 §3.1 안 A 명세 drift
+    // + 이전 WelcomeLayout (전용 안내 화면) 대비 UX 회귀. LlmChat 은 IsLlmChatVisible SSOT 가 별도라 제외.
+    //
+    // 재진입 가드 없음 — anchor.IsVisible set 의 IsVisibleChanged 가 OnAnchorIsVisibleChanged 만 부르고
+    // VM ↔ View 역방향 없음. LlmChat 의 _suppressLlmChatSync 가드와 비대칭이 의도된 부분.
+    //
+    // PR-3 잔여 우려: XmlLayoutSerializer 도입 시 detach 된 LayoutDocument 인스턴스가
     // serialize 직전에 attach 되어 있어야 round-trip 정합. PR-3 진입 시 spike 1차 검증 필요.
     private void SyncWelcomeCanvasVisibility()
     {
@@ -164,6 +171,11 @@ public partial class MainWindow : Window
         if (!children.Contains(target)) children.Add(target);
         target.IsActive = true;
         target.IsSelected = true;
+
+        explorerAnchor.IsVisible    = _vm.HasProject;
+        propertyAnchor.IsVisible    = _vm.HasProject;
+        historyAnchor.IsVisible     = _vm.HasProject;
+        simulationAnchor.IsVisible  = _vm.HasProject;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)

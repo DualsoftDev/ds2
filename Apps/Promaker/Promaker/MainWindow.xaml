@@ -57,6 +57,7 @@
              Welcome/Canvas 통합 안 A: welcomeDoc/canvasDoc 의 IsVisible 을 HasProject 에 동기화.
              모든 anchor 에 CanClose=False CanHide=True 일괄 (v7 spike 회귀 회피 — 기본값 CanClose=true 면 X = 영구 제거).
              ContentId 모든 항목 필수 (serialize/deserialize key). LlmChat 은 IsVisible=False 기본. -->
+        <!-- dockManager x:Name 은 `Apps/Promaker/Docs/todo-dock-layout.md` §4 의 PR-3 (XmlLayoutSerializer Save/Restore) 진입 시 사용 예정 — 현재는 placeholder. -->
         <ad:DockingManager x:Name="dockManager" Grid.Row="1"
                            AllowMixedOrientation="True">
             <!-- v7 PR-2a F7 — floating window 를 main 위에 강제 노출하지 않음 (VS 표준 동작).

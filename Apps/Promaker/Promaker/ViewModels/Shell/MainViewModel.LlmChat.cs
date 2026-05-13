@@ -85,7 +85,7 @@ public partial class MainViewModel
                 Application.Current?.Shutdown(App.MeasureExitLlmVmMissing);
             }
             // v7 PR-2b — Loaded 가 아닌 ApplicationIdle 로 한 tick 더 미뤄야 dock layout 복원 + ReconcileAnchors 완료 보장.
-            // todo §3.3 Autostart race 해결.
+            // `Apps/Promaker/Docs/todo-dock-layout.md` §3.3 Autostart race 해결.
         }), DispatcherPriority.ApplicationIdle);
     }
 
