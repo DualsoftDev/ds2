@@ -11,6 +11,20 @@ public partial class PropertyPanel : UserControl
     public PropertyPanel()
     {
         InitializeComponent();
+        // v7 PR-2a — visual tree reparent (dock/float/auto-hide) 무관 자가 등록.
+        // DataContext 는 PropertyPanelState 라 MainViewModel 은 Application.Current.MainWindow 통해 access.
+        // 기존 MainWindow.xaml.cs 의 ad-hoc Action 슬롯 set 폐기.
+        Loaded += (_, _) =>
+        {
+            if (Application.Current?.MainWindow?.DataContext is MainViewModel mvm)
+                mvm.FocusNameEditorRequested = FocusNameEditorControl;
+        };
+        Unloaded += (_, _) =>
+        {
+            if (Application.Current?.MainWindow?.DataContext is MainViewModel mvm
+                && mvm.FocusNameEditorRequested == FocusNameEditorControl)
+                mvm.FocusNameEditorRequested = null;
+        };
     }
 
     private PropertyPanelState? ViewModel => DataContext as PropertyPanelState;
