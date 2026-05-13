@@ -28,6 +28,7 @@ module internal PasteDeviceOps =
         cloned.ApiDefId <- mapApiDefId sourceApiCall.ApiDefId
         cloned.InputSpec <- sourceApiCall.InputSpec
         cloned.OutputSpec <- sourceApiCall.OutputSpec
+        cloned.UseInputSensor <- sourceApiCall.UseInputSensor
         cloned
 
     let private ensureTargetDeviceSystem
