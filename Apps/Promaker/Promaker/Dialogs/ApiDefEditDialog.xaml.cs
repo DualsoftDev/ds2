@@ -45,10 +45,10 @@ public partial class ApiDefEditDialog : Window
             {
                 PulseRadio.IsChecked = true;
             }
-            else if (existing.ActionType.IsTime)
+            else if (existing.ActionType.IsTimeTotal)
             {
                 TimeRadio.IsChecked = true;
-                TimeValueBox.Text = ((ApiDefActionType.Time)existing.ActionType).Item.ToString();
+                TimeValueBox.Text = ((ApiDefActionType.TimeTotal)existing.ActionType).Item.ToString();
             }
             else // Normal
             {
@@ -100,7 +100,7 @@ public partial class ApiDefEditDialog : Window
                 DialogHelpers.Warn("Time 값은 양의 정수여야 합니다.");
                 return;
             }
-            ActionType = ApiDefActionType.NewTime(timeMs);
+            ActionType = ApiDefActionType.NewTimeTotal(timeMs);
         }
         else
         {

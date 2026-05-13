@@ -420,8 +420,8 @@ module ApiDefActionTypeTests =
         Assert.Equal(value, actual)
 
     [<Fact>]
-    let ``JsonConverter should roundtrip ApiDefActionType Time`` () =
-        let value = ApiDefActionType.Time 1500
+    let ``JsonConverter should roundtrip ApiDefActionType TimeTotal`` () =
+        let value = ApiDefActionType.TimeTotal 1500
         let actual = roundTrip value
         Assert.Equal(value, actual)
 
@@ -470,13 +470,13 @@ module ApiDefActionTypeTests =
         Assert.Equal(ApiDefActionType.Pulse, actual.ApiDefActionType)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with Time ActionType`` () =
+    let ``ApiDef should roundtrip with TimeTotal ActionType`` () =
         let systemId = Guid.NewGuid()
         let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.Time 2500
+        apiDef.ApiDefActionType <- ApiDefActionType.TimeTotal 2500
         let actual = roundTrip apiDef
         Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
         match actual.ApiDefActionType with
-        | ApiDefActionType.Time ms -> Assert.Equal(2500, ms)
-        | _ -> Assert.Fail("Expected Time action type")
+        | ApiDefActionType.TimeTotal ms -> Assert.Equal(2500, ms)
+        | _ -> Assert.Fail("Expected TimeTotal action type")
 
