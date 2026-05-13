@@ -19,6 +19,7 @@ public sealed class CallApiCallItem : ObservableObject
     private readonly string _originalInputAddress;
     private readonly string _originalValueSpecText;
     private readonly string _originalInputValueSpecText;
+    private readonly bool _originalUseInputSensor;
 
     private Guid? _apiDefId;
     private string _name;
@@ -28,6 +29,7 @@ public sealed class CallApiCallItem : ObservableObject
     private string _inputAddress;
     private string _valueSpecText;
     private string _inputValueSpecText;
+    private bool _useInputSensor;
     private bool _isDirty;
 
     public CallApiCallItem(
@@ -42,7 +44,8 @@ public sealed class CallApiCallItem : ObservableObject
         string valueSpecText,
         string inputValueSpecText,
         int outputSpecTypeIndex,
-        int inputSpecTypeIndex)
+        int inputSpecTypeIndex,
+        bool useInputSensor)
     {
         ApiCallId                   = apiCallId;
         ApiDefDisplayName           = apiDefDisplayName;
@@ -57,6 +60,7 @@ public sealed class CallApiCallItem : ObservableObject
         _inputAddress               = inputAddress;
         _valueSpecText              = valueSpecText;
         _inputValueSpecText         = inputValueSpecText;
+        _useInputSensor             = useInputSensor;
 
         _originalApiDefId           = _apiDefId;
         _originalName               = _name;
@@ -66,6 +70,7 @@ public sealed class CallApiCallItem : ObservableObject
         _originalInputAddress       = _inputAddress;
         _originalValueSpecText      = _valueSpecText;
         _originalInputValueSpecText = _inputValueSpecText;
+        _originalUseInputSensor     = _useInputSensor;
     }
 
     public static CallApiCallItem FromPanel(CallApiCallPanelItem row) =>
@@ -74,7 +79,8 @@ public sealed class CallApiCallItem : ObservableObject
             row.OutputTagName, row.OutputAddress,
             row.InputTagName, row.InputAddress,
             row.ValueSpecText, row.InputValueSpecText,
-            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
+            row.OutputSpecTypeIndex, row.InputSpecTypeIndex,
+            row.UseInputSensor);
 
     public Guid ApiCallId { get; }
     public string ApiDefDisplayName { get; }
@@ -94,6 +100,12 @@ public sealed class CallApiCallItem : ObservableObject
     public string InputAddress    { get => _inputAddress;    set => SetStr(ref _inputAddress, value); }
     public string ValueSpecText   { get => _valueSpecText;   set => SetStr(ref _valueSpecText, value); }
     public string InputValueSpecText { get => _inputValueSpecText; set => SetStr(ref _inputValueSpecText, value); }
+
+    public bool UseInputSensor
+    {
+        get => _useInputSensor;
+        set { if (SetProperty(ref _useInputSensor, value)) RefreshDirtyState(); }
+    }
 
     private void SetStr(ref string field, string? value)
     {
@@ -117,7 +129,8 @@ public sealed class CallApiCallItem : ObservableObject
             !String.Equals(_originalInputTagName, _inputTagName, StringComparison.Ordinal) ||
             !String.Equals(_originalInputAddress, _inputAddress, StringComparison.Ordinal) ||
             !String.Equals(_originalValueSpecText, _valueSpecText, StringComparison.Ordinal) ||
-            !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal);
+            !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal) ||
+            _originalUseInputSensor != _useInputSensor;
     }
 }
 
@@ -197,6 +210,7 @@ public sealed class ConditionApiCallRow : ObservableObject
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
         InputSpecText        = item.InputSpecText;
         InputSpecTypeIndex   = item.InputSpecTypeIndex;
+        UseInputSensor       = item.UseInputSensor;
         _inputSpec           = item.InputSpec;
     }
 
@@ -209,6 +223,7 @@ public sealed class ConditionApiCallRow : ObservableObject
     public int    OutputSpecTypeIndex  { get; }
     public string InputSpecText        { get; }
     public int    InputSpecTypeIndex   { get; }
+    public bool   UseInputSensor       { get; }
 
     /// <summary>
     /// 시뮬 동작 중에만 채워지는 표시 — `NewFlow_clp.ADV ✓ [현재:true / 기대:true]`.
