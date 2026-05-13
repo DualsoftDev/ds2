@@ -341,3 +341,25 @@ module internal AasxImportGraph =
                         else Some (mlp.Value.[0].Text)
                     | _ -> None)
             |> Option.defaultValue ""
+
+    /// idShort 후보 리스트를 차례로 시도해 첫 매치 반환. 임포트 시 IDTA 버전별 idShort 변경 흡수용.
+    /// 예: getAnyStringValueAlt smc [ "DocumentIdentifier"; "ValueId" ]  // v2.0 우선, v1.x fallback
+    let getAnyStringValueAlt (smc: SubmodelElementCollection) (candidates: string list) : string =
+        candidates
+        |> List.tryPick (fun idShort ->
+            let v = getAnyStringValue smc idShort
+            if String.IsNullOrEmpty v then None else Some v)
+        |> Option.defaultValue ""
+
+    /// File element 의 Value (경로) 읽기. Property 도 호환 (구버전 / 단순 문자열 저장).
+    let getFileOrStringValue (smc: SubmodelElementCollection) (idShort: string) : string =
+        if smc.Value = null then ""
+        else
+            smc.Value |> Seq.tryPick (fun elem ->
+                if elem.IdShort <> idShort then None
+                else
+                    match elem with
+                    | :? File as f -> if isNull f.Value then Some "" else Some f.Value
+                    | :? Property as p -> if isNull p.Value then Some "" else Some p.Value
+                    | _ -> None)
+            |> Option.defaultValue ""

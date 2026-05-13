@@ -55,6 +55,8 @@ public partial class TagWizardDialog
             TargetFBPort     = e.TargetFBPort,
             SkipAddressAlloc = e.SkipAddressAlloc,
             IsSpare          = e.IsSpare || e.ApiName == "-",
+            PreFbCondition   = DtoToCoreExpr(e.PreFbCondition),
+            UserDataType     = e.UserDataType ?? "",
         };
 
     /// <summary>Row → DTO entry. 빈 ApiName 의 비-Spare 행은 호출자가 사전 필터.</summary>
@@ -66,7 +68,39 @@ public partial class TagWizardDialog
             TargetFBPort     = row.TargetFBPort ?? "",
             SkipAddressAlloc = row.SkipAddressAlloc,
             IsSpare          = row.IsSpare,
+            PreFbCondition   = CoreToDtoExpr(row.PreFbCondition),
+            UserDataType     = row.UserDataType ?? "",
         };
+
+    private static Ds2.Core.FbInputExpr? DtoToCoreExpr(FbInputExprDto? d)
+    {
+        if (d == null) return null;
+        var c = new Ds2.Core.FbInputExpr
+        {
+            Kind   = (Ds2.Core.FbInputExprKind)(int)d.Kind,
+            Symbol = d.Symbol ?? "",
+        };
+        if (d.Children != null)
+            foreach (var cd in d.Children)
+            {
+                var cc = DtoToCoreExpr(cd);
+                if (cc != null) c.Children.Add(cc);
+            }
+        return c;
+    }
+
+    private static FbInputExprDto? CoreToDtoExpr(Ds2.Core.FbInputExpr? c)
+    {
+        if (c == null) return null;
+        var d = new FbInputExprDto
+        {
+            Kind   = (FbInputExprKindDto)(int)c.Kind,
+            Symbol = c.Symbol ?? "",
+        };
+        foreach (var cc in c.Children)
+            if (cc != null) d.Children.Add(CoreToDtoExpr(cc));
+        return d!;
+    }
 
     /// <summary>섹션 1개를 DTO 에서 행으로 로드 (HookAutoSave 적용).</summary>
     private void LoadSectionRows(SignalSectionInfo sec, FBTagMapPresetDto dto, string currentFbType)

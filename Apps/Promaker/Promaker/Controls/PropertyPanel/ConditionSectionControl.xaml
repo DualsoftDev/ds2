@@ -2,7 +2,11 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:conv="clr-namespace:Promaker.Presentation"
              x:Name="Root">
+    <UserControl.Resources>
+        <conv:MatchStateToBrushConverter x:Key="MatchToBrush"/>
+    </UserControl.Resources>
     <Border BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             Margin="0,2,0,4"
@@ -46,36 +50,93 @@
                 </Grid>
             </Border>
 
-            <!-- Condition formula list -->
+            <!-- Condition group list — 각 그룹은 헤더(remove 버튼) + 신호 행들 -->
             <ItemsControl ItemsSource="{Binding ItemsSource, ElementName=Root}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border AllowDrop="True"
                                 Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,0,0,1"
                                 DragEnter="ConditionItem_DragEnter"
                                 DragLeave="ConditionItem_DragLeave"
                                 DragOver="ConditionItem_DragOver"
                                 Drop="ConditionItem_Drop"
                                 Tag="{Binding}">
-                            <Grid Margin="4,2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0"
-                                        Content="x"
+                            <StackPanel Margin="4,2">
+                                <!-- 그룹 헤더: 그룹 전체 삭제 버튼만 (AND/OR 의미 없음 — 단순 리스트). -->
+                                <Button Content="x"
+                                        HorizontalAlignment="Left"
                                         Style="{DynamicResource InlineListButton}"
+                                        ToolTip="조건 그룹 삭제"
+                                        Margin="0,0,0,2"
                                         Command="{Binding RemoveConditionCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"/>
-                                <TextBlock Grid.Column="1"
-                                           FontSize="10"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding FormulaText}"
-                                           Margin="4,0"
-                                           Loaded="FormulaBlock_Loaded"
-                                           DataContextChanged="FormulaBlock_DataContextChanged"/>
-                            </Grid>
+
+                                <!-- 그룹 안의 ApiCall 신호 리스트 — 각 행: 이름 + ValueSpec + 편집/삭제 버튼 -->
+                                <ItemsControl ItemsSource="{Binding Items}" Margin="14,0,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0"
+                                                        Content="x"
+                                                        Style="{DynamicResource InlineListButton}"
+                                                        ToolTip="이 ApiCall 제거"
+                                                        Command="{Binding RemoveConditionApiCallCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"/>
+                                                <TextBlock Grid.Column="1"
+                                                           FontSize="10"
+                                                           VerticalAlignment="Center"
+                                                           Margin="4,0"
+                                                           Text="{Binding ApiDefDisplayName}"
+                                                           ToolTip="{Binding ApiDefDisplayName}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2"
+                                                           FontSize="10"
+                                                           VerticalAlignment="Center"
+                                                           Margin="4,0"
+                                                           Foreground="{DynamicResource AccentBrush}"
+                                                           Text="{Binding OutputSpecText}"/>
+                                                <Button Grid.Column="3"
+                                                        Content="ValueSpec"
+                                                        Style="{DynamicResource InlineListButton}"
+                                                        ToolTip="OutputSpec / InputSpec 편집"
+                                                        Command="{Binding EditConditionApiCallSpecCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 시뮬 동작 중 leaf 별 [현재:X / 기대:Y] 표시 — RuntimeText 가 비어있는 row 는 자동 숨김. -->
+                                <ItemsControl ItemsSource="{Binding AllLeafRows}" Margin="14,2,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding RuntimeText}"
+                                                       FontSize="9"
+                                                       FontStyle="Italic"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{Binding IsMatched, Converter={StaticResource MatchToBrush}}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RuntimeText}" Value="">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

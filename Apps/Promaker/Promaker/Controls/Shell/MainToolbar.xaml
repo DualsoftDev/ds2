@@ -26,20 +26,22 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/> <!-- 0: File -->
                 <ColumnDefinition Width="Auto"/> <!-- 1: sep -->
-                <ColumnDefinition Width="Auto"/> <!-- 2: Edit (편집 + 검증 통합) -->
+                <ColumnDefinition Width="Auto"/> <!-- 2: 프로젝트 속성 -->
                 <ColumnDefinition Width="Auto"/> <!-- 3: sep -->
-                <ColumnDefinition Width="Auto"/> <!-- 4: Connect -->
+                <ColumnDefinition Width="Auto"/> <!-- 4: Edit (편집 + 검증 통합) -->
                 <ColumnDefinition Width="Auto"/> <!-- 5: sep -->
-                <ColumnDefinition Width="Auto"/> <!-- 6: Simulation -->
+                <ColumnDefinition Width="Auto"/> <!-- 6: Connect -->
                 <ColumnDefinition Width="Auto"/> <!-- 7: sep -->
-                <ColumnDefinition Width="*"/>    <!-- 8: spacer -->
-                <ColumnDefinition Width="Auto"/> <!-- 9: Util -->
-                <ColumnDefinition Width="Auto"/> <!-- 10: Settings -->
+                <ColumnDefinition Width="Auto"/> <!-- 8: Simulation -->
+                <ColumnDefinition Width="Auto"/> <!-- 9: sep -->
+                <ColumnDefinition Width="*"/>    <!-- 10: spacer -->
+                <ColumnDefinition Width="Auto"/> <!-- 11: Util -->
+                <ColumnDefinition Width="Auto"/> <!-- 12: Settings -->
             </Grid.ColumnDefinitions>
 
             <!-- File Section -->
             <Grid x:Name="ProjectQuickAccessSection" Grid.Column="0">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="NewProjectQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding NewProjectCommand}" ToolTip="{x:Static res:Strings.NewFileTooltip}">
                         <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.NewFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
@@ -108,15 +110,35 @@
                             </Popup>
                         </Grid>
                     </StackPanel>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CloseFileCommand}" ToolTip="{x:Static res:Strings.CloseFileTooltip}">
+                        <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentRemoveOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.CloseFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                    </Button>
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="파일" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
 
             <Border x:Name="ProjectEditSeparator" Grid.Column="1" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Project Properties Section -->
+            <Grid x:Name="ProjectPropertiesSection" Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Button Style="{StaticResource RibbonFlatButton}"
+                        Command="{Binding ShowProjectPropertiesCommand}"
+                        ToolTip="프로젝트 속성 (이름/작성자/버전/설명)">
+                    <StackPanel Orientation="Vertical">
+                        <iconPacks:PackIconMaterial Kind="FileDocumentMultiple" Width="18" Height="18"
+                                                    HorizontalAlignment="Center"
+                                                    Foreground="{DynamicResource IconGrayBrush}"/>
+                        <TextBlock Text="속성" Style="{StaticResource RibbonIconLabel}"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock Grid.Row="1" Text="프로젝트" Style="{StaticResource RibbonSectionLabel}"/>
+            </Grid>
+            <Border x:Name="ProjectPropertiesEditSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
+
             <!-- Edit Section (편집 메뉴 드롭다운 + 검증 버튼 통합) -->
-            <Grid x:Name="EditSection" Grid.Column="2">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid x:Name="EditSection" Grid.Column="4">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <StackPanel x:Name="EditRibbonContentPanel" Orientation="Horizontal">
                     <ToggleButton x:Name="EditMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="편집 메뉴" IsEnabled="{Binding HasProject}">
                         <StackPanel Orientation="Vertical">
@@ -161,11 +183,11 @@
                 </StackPanel>
                 <TextBlock Grid.Row="1" Text="편집" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="EditConnectSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="EditConnectSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
 
             <!-- Connect Section (dropdown with arrow type selection) -->
-            <Grid x:Name="ConnectSection" Grid.Column="4">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid x:Name="ConnectSection" Grid.Column="6">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectExecuteButton" Style="{StaticResource RibbonFlatButton}"
                             Command="{Binding ConnectSelectedNodesCommand}"
@@ -379,10 +401,10 @@
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="연결" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="ConnectSimulationSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ConnectSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"/>
 
-            <controls:MainToolbarSimulationContent Grid.Column="6" DataContext="{Binding}"/>
-            <controls:MainToolbarEtcContent Grid.Column="9" Grid.ColumnSpan="2" DataContext="{Binding}"/>
+            <controls:MainToolbarSimulationContent Grid.Column="8" DataContext="{Binding}"/>
+            <controls:MainToolbarEtcContent Grid.Column="11" Grid.ColumnSpan="2" DataContext="{Binding}"/>
         </Grid>
     </Border>
 </UserControl>

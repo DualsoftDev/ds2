@@ -7,8 +7,10 @@
 
   <ItemGroup>
     <Compile Include="Model\SimState.fs" />
-<Compile Include="Model\StateCache.fs" />
+    <Compile Include="Model\StateCache.fs" />
     <Compile Include="Engine\Core\Scheduler.fs" />
+    <Compile Include="Engine\Core\SimIndex.Algorithms.fs" />
+    <Compile Include="Engine\Core\SimIndex.AutoHoming.fs" />
     <Compile Include="Engine\Core\SimIndex.GroupExpansion.fs" />
     <Compile Include="Engine\Core\SimIndex.TokenGraph.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />
@@ -39,6 +41,8 @@
     <Compile Include="Engine\EventDriven\Runtime.fs" />
     <Compile Include="Engine\EventDriven\Execution.fs" />
     <Compile Include="Engine\EventDriven\Homing.fs" />
+    <Compile Include="Engine\EventDriven\CompositionActions.fs" />
+    <Compile Include="Engine\EventDriven\CompositionContext.fs" />
     <Compile Include="Engine\EventDriven\Composition.fs" />
   </ItemGroup>
 

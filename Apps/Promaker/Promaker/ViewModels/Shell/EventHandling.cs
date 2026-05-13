@@ -88,12 +88,23 @@ public partial class MainViewModel
             case EditorEvent.ArrowCallAdded:
             case EditorEvent.ArrowCallRemoved:
             case { IsConnectionsChanged: true }:
+                // 노드 visual을 보존하고 화살표 set만 diff(add/remove/replace) 적용.
+                // 노드 100+ 환경에서 ContentPresenter 전체 재생성 비용을 회피.
                 Simulation.NotifyConnectionsChanged();
-                Canvas.RefreshCanvasForActiveTab();
+                CanvasManager.ApplyConnectionsChangedToAllPanes();
                 Selection.ApplyArrowSelectionVisuals();
                 return;
 
+            case EditorEvent.EntitiesMoved moved:
+                // 노드 위치만 변경된 경량 이벤트: 트리/visual tree 재구축 없이
+                // 이동된 노드 위치 + 인접 화살표 path만 갱신 (드래그 끝 hitch 제거).
+                CanvasManager.ApplyEntitiesMovedToAllPanes(new HashSet<Guid>(moved.ids));
+                PropertyPanel.Refresh();
+                return;
+
             case { IsStoreRefreshed: true }:
+                // LLM ApplyImportPlan 이후 store 가 갱신되면 HasProject 도 동기화 — Welcome overlay 자동 닫힘 / CloseFileCommand CanExecute 갱신.
+                HasProject = Queries.allProjects(_store).Any();
                 RequestRebuildAll();
                 return;
         }

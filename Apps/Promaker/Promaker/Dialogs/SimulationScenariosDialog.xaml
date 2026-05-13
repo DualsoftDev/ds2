@@ -145,124 +145,6 @@
         <TabControl Grid.Row="2" Margin="0,8,0,0"
                     Background="{DynamicResource PrimaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}">
-            <TabItem Header="토큰별 (혼류)" Background="{DynamicResource SecondaryBackgroundBrush}"
-                     Foreground="{DynamicResource PrimaryTextBrush}">
-                <DataGrid x:Name="PerTokenGrid"
-                          AutoGenerateColumns="False"
-                          IsReadOnly="True"
-                          HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding OriginName}" Width="140">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Origin"
-                                           ToolTip="토큰 원천 — 토큰을 발행한 시작 위치/소스 식별자.&#x0a;(혼류 시 토큰 분류의 1차 키)"/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding SpecLabel}" Width="120">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Spec"
-                                           ToolTip="토큰 사양 라벨.&#x0a;(혼류 시 동일 Origin 내 차종/제품 변형 분류 키)"/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding InstanceCount}" Width="50">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="총"
-                                           ToolTip="시뮬 중 발행된 (Origin, Spec) 토큰 인스턴스 총 수.&#x0a;완주 + 미완주 포함."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding CompletedCount}" Width="50">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="완주"
-                                           ToolTip="Source Work 에서 생성(Seed) → Sink Work 에서 소멸(Complete) 까지 완주한 인스턴스 수.&#x0a;Discard / BlockedOnHoming 으로 중단된 토큰은 제외 (총 수에는 포함)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgTraversalTime_s, StringFormat=F2}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Avg(s)"
-                                           ToolTip="평균 통과 시간 (초).&#x0a;정의: 한 토큰의 통과 시간 = Sink 소멸 시각 − Source 생성 시각 (CompleteAt − SeedAt).&#x0a;계산: Σ(통과 시간) / 완주 수."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding MinTraversalTime_s, StringFormat=F2}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Min(s)"
-                                           ToolTip="완주 인스턴스 중 통과 시간 최솟값 (초).&#x0a;= min(Sink 소멸 시각 − Source 생성 시각)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding MaxTraversalTime_s, StringFormat=F2}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Max(s)"
-                                           ToolTip="완주 인스턴스 중 통과 시간 최댓값 (초).&#x0a;= max(Sink 소멸 시각 − Source 생성 시각)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding StdDevTraversalTime_s, StringFormat=F3}" Width="90">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="StdDev(s)"
-                                           ToolTip="통과 시간 표준편차 (초) — 변동성 지표.&#x0a;계산: √(Σ(xᵢ − Avg)² / N).&#x0a;값이 클수록 흐름이 불안정."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="100">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Throughput/h"
-                                           ToolTip="(Origin, Spec) 별 시간당 처리량.&#x0a;계산: 완주 수 / Duration(s) × 3600."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </TabItem>
-            <TabItem Header="Work별 사이클" Background="{DynamicResource SecondaryBackgroundBrush}"
-                     Foreground="{DynamicResource PrimaryTextBrush}">
-                <DataGrid x:Name="CycleTimeGrid"
-                          AutoGenerateColumns="False"
-                          IsReadOnly="True"
-                          HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding WorkName}" Width="220">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Work"
-                                           ToolTip="Work 식별자 — 형식: &lt;Flow&gt;.&lt;Work&gt;.&#x0a;사이클 측정 단위."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding CycleCount}" Width="70">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Cycles"
-                                           ToolTip="시뮬레이션 동안 측정된 완료 사이클(Going) 수."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding ActualCycleTime_s, StringFormat=F2}" Width="100">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Avg CT(s)"
-                                           ToolTip="평균 사이클 타임 (초).&#x0a;계산: Σ(Going 세그먼트 시간) / Cycles.&#x0a;= 한 사이클당 작업 수행 평균 시간."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding MinCycleTime_s, StringFormat=F2}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Min(s)"
-                                           ToolTip="측정된 사이클 중 최소값 (초)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding MaxCycleTime_s, StringFormat=F2}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Max(s)"
-                                           ToolTip="측정된 사이클 중 최대값 (초)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding IdleGapBetweenCycles_s, StringFormat=F2}" Width="100">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="IdleGap(s)"
-                                           ToolTip="사이클 사이 대기/낭비 시간 (초).&#x0a;정의: 한 사이클 Finish 종료 시각 ~ 다음 사이클 Going 시작 시각 사이의 갭 합계.&#x0a;계산: Σ(다음 G.StartTime − 직전 F.EndTime)  (양수만).&#x0a;&#x0a;값이 클수록 그 Work 는 다음 일감을 기다리며 노는 시간이 많음 → 시스템 병목 아님.&#x0a;값이 0 에 가까우면 사이클 사이 대기 없음 → 그 Work 가 시스템 한계 (= 병목)."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding EfficiencyRate_pct, StringFormat=F1}" Width="80">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Eff(%)"
-                                           ToolTip="Work 효율 (%) — 사이클 회전 조밀도.&#x0a;계산: G_total / (G_total + IdleGap) × 100.&#x0a;= Going 시간 합 ÷ (Going 시간 합 + 사이클간 F→G 갭 합).&#x0a;&#x0a;• 100% : 사이클 사이 대기 없음 (= 병목 Work / 시스템 한계).&#x0a;• 낮음  : 앞 Work 처리량 한계로 일감 기다림 (대기 多).&#x0a;단일 제품 1번만 흘리면 모든 Work 가 100%."/>
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </TabItem>
             <TabItem Header="Work 분석" Background="{DynamicResource SecondaryBackgroundBrush}"
                      Foreground="{DynamicResource PrimaryTextBrush}">
                 <Grid Background="{DynamicResource SecondaryBackgroundBrush}">
@@ -413,6 +295,124 @@
                         </ScrollViewer>
                     </Grid>
                 </Grid>
+            </TabItem>
+            <TabItem Header="토큰별 (혼류)" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <DataGrid x:Name="PerTokenGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding OriginName}" Width="140">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Origin"
+                                           ToolTip="토큰 원천 — 토큰을 발행한 시작 위치/소스 식별자.&#x0a;(혼류 시 토큰 분류의 1차 키)"/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding SpecLabel}" Width="120">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Spec"
+                                           ToolTip="토큰 사양 라벨.&#x0a;(혼류 시 동일 Origin 내 차종/제품 변형 분류 키)"/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding InstanceCount}" Width="50">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="총"
+                                           ToolTip="시뮬 중 발행된 (Origin, Spec) 토큰 인스턴스 총 수.&#x0a;완주 + 미완주 포함."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CompletedCount}" Width="50">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="완주"
+                                           ToolTip="Source Work 에서 생성(Seed) → Sink Work 에서 소멸(Complete) 까지 완주한 인스턴스 수.&#x0a;Discard / BlockedOnHoming 으로 중단된 토큰은 제외 (총 수에는 포함)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding AvgTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Avg(s)"
+                                           ToolTip="평균 통과 시간 (초).&#x0a;정의: 한 토큰의 통과 시간 = Sink 소멸 시각 − Source 생성 시각 (CompleteAt − SeedAt).&#x0a;계산: Σ(통과 시간) / 완주 수."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MinTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Min(s)"
+                                           ToolTip="완주 인스턴스 중 통과 시간 최솟값 (초).&#x0a;= min(Sink 소멸 시각 − Source 생성 시각)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MaxTraversalTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Max(s)"
+                                           ToolTip="완주 인스턴스 중 통과 시간 최댓값 (초).&#x0a;= max(Sink 소멸 시각 − Source 생성 시각)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding StdDevTraversalTime_s, StringFormat=F3}" Width="90">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="StdDev(s)"
+                                           ToolTip="통과 시간 표준편차 (초) — 변동성 지표.&#x0a;계산: √(Σ(xᵢ − Avg)² / N).&#x0a;값이 클수록 흐름이 불안정."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Throughput/h"
+                                           ToolTip="(Origin, Spec) 별 시간당 처리량.&#x0a;계산: 완주 수 / Duration(s) × 3600."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+            <TabItem Header="Work별 사이클" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <DataGrid x:Name="CycleTimeGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding WorkName}" Width="220">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Work"
+                                           ToolTip="Work 식별자 — 형식: &lt;Flow&gt;.&lt;Work&gt;.&#x0a;사이클 측정 단위."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CycleCount}" Width="70">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Cycles"
+                                           ToolTip="시뮬레이션 동안 측정된 완료 사이클(Going) 수."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding ActualCycleTime_s, StringFormat=F2}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Avg CT(s)"
+                                           ToolTip="평균 사이클 타임 (초).&#x0a;계산: Σ(Going 세그먼트 시간) / Cycles.&#x0a;= 한 사이클당 작업 수행 평균 시간."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MinCycleTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Min(s)"
+                                           ToolTip="측정된 사이클 중 최소값 (초)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MaxCycleTime_s, StringFormat=F2}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Max(s)"
+                                           ToolTip="측정된 사이클 중 최대값 (초)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding IdleGapBetweenCycles_s, StringFormat=F2}" Width="100">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="IdleGap(s)"
+                                           ToolTip="사이클 사이 대기/낭비 시간 (초).&#x0a;정의: 한 사이클 Finish 종료 시각 ~ 다음 사이클 Going 시작 시각 사이의 갭 합계.&#x0a;계산: Σ(다음 G.StartTime − 직전 F.EndTime)  (양수만).&#x0a;&#x0a;값이 클수록 그 Work 는 다음 일감을 기다리며 노는 시간이 많음 → 시스템 병목 아님.&#x0a;값이 0 에 가까우면 사이클 사이 대기 없음 → 그 Work 가 시스템 한계 (= 병목)."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding EfficiencyRate_pct, StringFormat=F1}" Width="80">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Eff(%)"
+                                           ToolTip="Work 효율 (%) — 사이클 회전 조밀도.&#x0a;계산: G_total / (G_total + IdleGap) × 100.&#x0a;= Going 시간 합 ÷ (Going 시간 합 + 사이클간 F→G 갭 합).&#x0a;&#x0a;• 100% : 사이클 사이 대기 없음 (= 병목 Work / 시스템 한계).&#x0a;• 낮음  : 앞 Work 처리량 한계로 일감 기다림 (대기 多).&#x0a;단일 제품 1번만 흘리면 모든 Work 가 100%."/>
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
             </TabItem>
             <TabItem Header="요약" Background="{DynamicResource SecondaryBackgroundBrush}"
                      Foreground="{DynamicResource PrimaryTextBrush}">

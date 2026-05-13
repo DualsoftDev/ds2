@@ -20,6 +20,7 @@ public partial class ApiDefEditDialog : Window
     public ApiDefActionType ActionType { get; private set; } = ApiDefActionType.Normal;
     public Guid? TxGuid { get; private set; }
     public Guid? RxGuid { get; private set; }
+    public string Description { get; private set; } = string.Empty;
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
     {
@@ -44,10 +45,10 @@ public partial class ApiDefEditDialog : Window
             {
                 PulseRadio.IsChecked = true;
             }
-            else if (existing.ActionType.IsTime)
+            else if (existing.ActionType.IsTimeTotal)
             {
                 TimeRadio.IsChecked = true;
-                TimeValueBox.Text = ((ApiDefActionType.Time)existing.ActionType).Item.ToString();
+                TimeValueBox.Text = ((ApiDefActionType.TimeTotal)existing.ActionType).Item.ToString();
             }
             else // Normal
             {
@@ -99,7 +100,7 @@ public partial class ApiDefEditDialog : Window
                 DialogHelpers.Warn("Time 값은 양의 정수여야 합니다.");
                 return;
             }
-            ActionType = ApiDefActionType.NewTime(timeMs);
+            ActionType = ApiDefActionType.NewTimeTotal(timeMs);
         }
         else
         {
@@ -108,6 +109,7 @@ public partial class ApiDefEditDialog : Window
 
         TxGuid = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : null;
         RxGuid = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : null;
+        Description = DescriptionBox.Text.Trim();
 
         DialogResult = true;
     }

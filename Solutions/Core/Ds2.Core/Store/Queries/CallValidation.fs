@@ -37,13 +37,8 @@ let private collectSystemTypes (call: Call) (store: DsStore) : string list =
     |> Seq.distinct
     |> Seq.toList
 
-/// Call.ApiCalls.Count == 0 검증.
-let validateNonEmptyApiCalls (call: Call) : string list =
-    if call.ApiCalls.Count = 0 then
-        [ sprintf "Call '%s' (%O) 에 ApiCall 이 없습니다." call.Name call.Id ]
-    else []
-
 /// Call 내 모든 ApiCall 의 SystemType 이 동일한지 검증 (B안 v2).
+/// ApiCall 0건은 위반 아님 — 비어있는 Call 은 PLC 생성 시 단순 무시.
 let validateHomogeneousSystemType (call: Call) (store: DsStore) : string list =
     let types = collectSystemTypes call store
     if types.Length <= 1 then []
@@ -51,9 +46,9 @@ let validateHomogeneousSystemType (call: Call) (store: DsStore) : string list =
         [ sprintf "Call '%s' (%O): SystemType 혼재 [%s] — preset 합성 불가."
                   call.Name call.Id (String.concat ", " types) ]
 
-/// 한 Call 에 대한 전체 검증 (빈 + SystemType 동종성).
+/// 한 Call 에 대한 전체 검증 (SystemType 동종성).
 let validateCall (call: Call) (store: DsStore) : string list =
-    validateNonEmptyApiCalls call @ validateHomogeneousSystemType call store
+    validateHomogeneousSystemType call store
 
 /// Store 전체에서 위반 Call 수집.
 let detectInvalidCalls (store: DsStore) : (Guid * string list) list =

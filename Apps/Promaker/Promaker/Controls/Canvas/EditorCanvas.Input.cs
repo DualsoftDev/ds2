@@ -133,16 +133,24 @@ public partial class EditorCanvas
         var dx = canvasPos.X - _drag.StartPoint.X;
         var dy = canvasPos.Y - _drag.StartPoint.Y;
 
-        var canvasW = MainCanvas.Width;
-        var canvasH = MainCanvas.Height;
-
+        // 좌상단(0,0)만 고정. 우/하단은 캔버스가 동적으로 확장되므로 상한 클램프 없음.
+        // 드래그된 노드들의 max right/bottom만 추적해서 경계 도달 시에만 캔버스 확장.
+        double maxRight = 0, maxBottom = 0;
         foreach (var item in _drag.Items)
         {
-            var maxX = canvasW - item.Node.Width;
-            var maxY = canvasH - item.Node.Height;
-            item.Node.X = Math.Clamp(item.OriginX + dx, 0, maxX);
-            item.Node.Y = Math.Clamp(item.OriginY + dy, 0, maxY);
+            var newX = Math.Max(0, item.OriginX + dx);
+            var newY = Math.Max(0, item.OriginY + dy);
+            item.Node.X = newX;
+            item.Node.Y = newY;
+
+            var r = newX + item.Node.Width;
+            var b = newY + item.Node.Height;
+            if (r > maxRight) maxRight = r;
+            if (b > maxBottom) maxBottom = b;
         }
+
+        // 드래그 중에는 경계를 실제로 넘어설 때만 확장. 축소는 MouseUp에서 일괄 처리.
+        EnsureCanvasFits(maxRight, maxBottom);
 
         UpdateDragArrows(_drag);
     }
@@ -233,10 +241,9 @@ public partial class EditorCanvas
 
                 var (finalX, finalY) = EntityKindRules.snapToGrid(item.Node.X, item.Node.Y, ctrlHeld);
 
-                var maxX = MainCanvas.Width - item.Node.Width;
-                var maxY = MainCanvas.Height - item.Node.Height;
-                finalX = Math.Clamp(finalX, 0, maxX);
-                finalY = Math.Clamp(finalY, 0, maxY);
+                // 좌상단만 클램프. 우/하단은 캔버스가 함께 늘어남.
+                finalX = Math.Max(0, finalX);
+                finalY = Math.Max(0, finalY);
 
                 item.Node.X = finalX;
                 item.Node.Y = finalY;
@@ -256,6 +263,9 @@ public partial class EditorCanvas
 
         _drag = null;
         _dragElement = null;
+
+        // 드래그 종료 후 비어있는 영역이 있으면 캔버스를 다시 줄임.
+        RecalculateCanvasSize();
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)

@@ -8,4 +8,11 @@
     <Compile Include="HubContracts.fs" />
   </ItemGroup>
 
+  <!-- FSharp.Core 명시 — Directory.Packages.props 의 9.0.100 으로 고정.
+       없으면 SDK implicit 가 들어와 .NET 10 SDK 가 설치된 환경에서
+       FSharp.Core 11.0.0.0 reference 로 빌드되어 런타임 'FileNotFoundException' 발생. -->
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+
 </Project>
