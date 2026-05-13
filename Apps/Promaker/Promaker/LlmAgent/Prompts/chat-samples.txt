@@ -5,10 +5,25 @@ Home, Work1, ..., Work9 을 갖는 Robot device 생성
 
 Clamp device 생성
 
+
+## 순차 work x 3
 Part 가 구역1, 구역2, 구역3 에서 순차로 이동하는 시스템 모델링
 구역1에서 두개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 두 실린더가 동시 후진
 구역2에서 세개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 세 실린더가 동시 후진
 구역3에서 네개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 네 실린더가 동시 후진
 
-
 구역3 다음에 구역4 추가해서 2개의 cylinder 가 순차 전진 후, Puncher 가 Punch 후 두 실린더가 동시 후진
+
+
+
+
+# Plan mode
+## device 선지정
+:plan
+- 공정: Zone1, Zone2, Zone3
+- Robot device Rb1: Home, Work1, ..., Work9
+- cylinder device : [Z{i}Cyl{j}]
+Part 가 Zone1, Zone2, Zone3 에서 순차로 이동하는 시스템 모델링
+Zone1에서 두개의 Z1Cyl1, Z1Cyl2 cylinder 가 동시 전진 후, Rb1 Work1 -> Work2 -> Home 수행 후 두 실린더가 동시 후진
+Zone2에서 세개의 Z2Cyl1, Z2Cyl2, Z2Cyl3 cylinder 가 동시 전진 후, Rb1 Work3 -> Home 수행 후 Puncher 가 Punch 후 세 실린더가 동시 후진
+Zone3에서 네개의 Z3Cyl1, Z3Cyl2, Z3Cyl3, Z3Cyl4  cylinder 가 동시 전진 후, Rb1 Work4 -> Home 수행 후 Puncher 가 Punch 후 네 실린더가 동시 후진
