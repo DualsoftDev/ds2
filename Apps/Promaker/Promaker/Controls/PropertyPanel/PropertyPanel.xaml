@@ -7,6 +7,7 @@
              xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
              xmlns:coreEnum="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:b="clr-namespace:Promaker.Behaviors"
              x:Name="PanelRoot">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
@@ -27,7 +28,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Border Style="{StaticResource PanelContainer}">
+    <Border Style="{StaticResource PanelContainer}" b:CtrlWheelZoom.IsEnabled="True">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -41,7 +42,9 @@
                             CommandParameter="properties"/>
                 </Grid>
             </Border>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Row="1" x:Name="PropertyScroll"
+                          VerticalScrollBarVisibility="Auto"
+                          PreviewMouseWheel="PropertyScroll_PreviewMouseWheel">
                 <StackPanel Margin="8">
                     <TextBlock Text="{Binding SelectionTypeText}"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,4"/>
@@ -146,40 +149,43 @@
                                     </Grid>
                                 </Border>
 
-                                <ItemsControl Grid.Row="1"
-                                              ItemsSource="{Binding SystemApiDefs}"
+                                <ScrollViewer Grid.Row="1"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
                                               MinHeight="40" MaxHeight="200">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="4,2">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0"
-                                                           Text="{Binding Name}"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="11"/>
-                                                <Button Grid.Column="1"
-                                                        Content="✎"
-                                                        ToolTip="Edit ApiDef"
-                                                        Style="{StaticResource InlineListButton}"
-                                                        Margin="4,0,0,0"
-                                                        Command="{Binding DataContext.EditSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"/>
-                                                <Button Grid.Column="2"
-                                                        Content="×"
-                                                        ToolTip="Delete ApiDef"
-                                                        Style="{StaticResource InlineListButton}"
-                                                        Margin="2,0,0,0"
-                                                        Foreground="{DynamicResource RedAccentBrush}"
-                                                        Command="{Binding DataContext.DeleteSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding SystemApiDefs}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="4,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding Name}"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="11"/>
+                                                    <Button Grid.Column="1"
+                                                            Content="✎"
+                                                            ToolTip="Edit ApiDef"
+                                                            Style="{StaticResource InlineListButton}"
+                                                            Margin="4,0,0,0"
+                                                            Command="{Binding DataContext.EditSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <Button Grid.Column="2"
+                                                            Content="×"
+                                                            ToolTip="Delete ApiDef"
+                                                            Style="{StaticResource InlineListButton}"
+                                                            Margin="2,0,0,0"
+                                                            Foreground="{DynamicResource RedAccentBrush}"
+                                                            Command="{Binding DataContext.DeleteSystemApiDefCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </Grid>
                         </Border>
                         <Separator Margin="0,4"/>
@@ -309,6 +315,8 @@
                                         DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
                                         DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
                                         NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
+                                        RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, ElementName=PanelRoot}"
+                                        EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

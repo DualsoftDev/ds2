@@ -20,6 +20,9 @@ type Project [<JsonConstructor>] internal (name) =
     [<AasxField("Nameplate",             Skip = true)>] member val Nameplate             : Nameplate option             = None    with get, set
     [<AasxField("HandoverDocumentation", Skip = true)>] member val HandoverDocumentation : HandoverDocumentation option = None    with get, set
     [<AasxField("TechnicalData",         Skip = true)>] member val TechnicalData         : TechnicalData option         = None    with get, set
+    /// SequenceSimulation 서브모델로 emit 되는 시뮬레이션 박제 (Meta + KPI 그룹).
+    /// 이전에는 TechnicalData.SimulationResult 였음. AAS 표준 SM 분리 정책에 따라 Project 레벨로 이동.
+    [<AasxField("SimulationResult",      Skip = true)>] member val SimulationResult      : SimulationScenario option    = None    with get, set
 
     // ── 프로젝트 메타데이터 ──────────────────────────────────────────────────
     [<AasxField("TokenSpecs")>]                         member val TokenSpecs            = ResizeArray<TokenSpec>()              with get, set
@@ -130,6 +133,10 @@ and ApiCall [<JsonConstructor>] internal (name) =
     [<AasxField("InputSpec")>]    member val InputSpec    : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OutputSpec")>]   member val OutputSpec   : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OriginFlowId")>] member val OriginFlowId : Guid option  = None           with get, set
+    [<AasxField("ContactKind")>]  member val ContactKind  : ContactKind  = ContactKind.NoContact with get, set
+    /// 완료 판정 — true: 실 센서 (InTag) 감지, false: Work.Duration 흐름 후 RxWork 관찰 (가상 센서).
+    /// ApiDef.ApiDefActionType (출력 인터페이스) 및 Work.Duration (디바이스 내부 시간) 과 직교 — 독립적 정책.
+    [<AasxField("UseInputSensor")>] member val UseInputSensor : bool = true with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
@@ -139,7 +146,7 @@ and CallCondition [<JsonConstructor>] internal () =
     member val Conditions = ResizeArray<ApiCall>()                    with get, set
     member val Children   = ResizeArray<CallCondition>()              with get, set
     member val IsOR       = false                                     with get, set
-    member val IsRising   = false                                     with get, set
+    member val IsInverted = false                                     with get, set
 
     // DsEntity 비상속 → jsonClone (ID 보존)
     member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition> this
@@ -150,6 +157,7 @@ and ApiDef [<JsonConstructor>] internal (name, parentId) =
     [<AasxField("ApiDefActionType")>] member val ApiDefActionType : ApiDefActionType = ApiDefActionType.Normal with get, set
     [<AasxField("TxGuid")>]           member val TxGuid : Guid option = None  with get, set
     [<AasxField("RxGuid")>]           member val RxGuid : Guid option = None  with get, set
+    [<AasxField("Description")>]      member val Description : string option = None  with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 

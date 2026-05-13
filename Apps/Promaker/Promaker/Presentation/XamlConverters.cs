@@ -214,6 +214,26 @@ public sealed class DotToNewlineConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+public sealed class MatchStateToBrushConverter : IValueConverter
+{
+    private static readonly Brush MatchedBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x6A, 0x99, 0x55)));   // green
+    private static readonly Brush MismatchBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47))); // red
+    private static readonly Brush NeutralBrush  = Freeze(new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80))); // gray
+
+    private static Brush Freeze(SolidColorBrush brush) { brush.Freeze(); return brush; }
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value switch
+        {
+            true => MatchedBrush,
+            false => MismatchBrush,
+            _ => NeutralBrush,
+        };
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public sealed class TabKindToBrushConverter : IValueConverter
 {
     private static readonly IReadOnlyDictionary<TabKind, string> TabBrushKeys =

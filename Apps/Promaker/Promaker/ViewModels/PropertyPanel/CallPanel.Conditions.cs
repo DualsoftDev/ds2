@@ -79,6 +79,45 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
+    private void RemoveConditionApiCall(ConditionApiCallRow? row)
+    {
+        if (row is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("ApiCall 제거"))
+            return;
+        var callId = SelectedNode.Id;
+        if (!_host.TryAction(() =>
+                Store.RemoveApiCallFromCondition(callId, row.ConditionId, row.ApiCallId)))
+            return;
+        RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
+    private void EditConditionApiCallSpec(ConditionApiCallRow? row)
+    {
+        if (row is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("ValueSpec 편집"))
+            return;
+        var callId = SelectedNode.Id;
+
+        var dialog = new ApiCallSpecDialog(
+            row.ApiDefDisplayName,
+            row.OutputSpecText, row.OutputSpecTypeIndex,
+            row.InputSpecText,  row.InputSpecTypeIndex);
+        ShowOwnedDialog(dialog);
+        if (dialog.DialogResult != true) return;
+
+        _host.TryAction(() =>
+            Store.UpdateConditionApiCallOutputSpec(
+                callId, row.ConditionId, row.ApiCallId,
+                dialog.OutSpecTypeIndex, dialog.OutSpecText));
+        _host.TryAction(() =>
+            Store.UpdateConditionApiCallInputSpec(
+                callId, row.ConditionId, row.ApiCallId,
+                dialog.InSpecTypeIndex, dialog.InSpecText));
+        RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
     private void NavigateConditionApiCall(ConditionApiCallRow? row)
     {
         if (row is null) return;
@@ -104,6 +143,8 @@ public partial class PropertyPanelState
         _host.OpenParentCanvasAndFocusNode(owners[0].Id, EntityKind.Call);
     }
 
+    private IReadOnlyDictionary<Guid, string>? _lastIoSnapshot;
+
     private void ReloadConditions(Guid callId)
     {
         ClearConditionSections();
@@ -117,7 +158,10 @@ public partial class PropertyPanelState
         {
             var target = FindConditionSection(cond.ConditionType)
                          ?? FindConditionSection(CallConditionType.ComAux);
-            target?.Conditions.Add(new CallConditionItem(callId, cond));
+            var item = new CallConditionItem(callId, cond);
+            // 시뮬 동작 중 Call 노드를 새로 선택해 reload 한 경우, 직전 IO 스냅샷으로 즉시 표시.
+            if (_lastIoSnapshot is not null) item.RefreshRuntime(_lastIoSnapshot);
+            target?.Conditions.Add(item);
         }
     }
 
@@ -140,5 +184,17 @@ public partial class PropertyPanelState
         ConditionSections.Add(new ConditionSectionItem(CallConditionType.SkipUnmatch, "SkipUnmatch", "Add SkipUnmatch"));
         ConditionSections.Add(new ConditionSectionItem(CallConditionType.AutoAux, "AutoAux", "Add AutoAux"));
         ConditionSections.Add(new ConditionSectionItem(CallConditionType.ComAux, "ComAux", "Add ComAux"));
+    }
+
+    /// <summary>
+    /// 시뮬 IO 값 dictionary 로 현재 표시 중인 모든 조건 row 의 런타임 표시를 갱신.
+    /// ioValues 가 null 이면 표시 비움 (시뮬 종료). 시뮬 이벤트 hook 에서 호출.
+    /// </summary>
+    public void RefreshConditionRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
+    {
+        _lastIoSnapshot = ioValues;
+        foreach (var section in ConditionSections)
+            foreach (var cond in section.Conditions)
+                cond.RefreshRuntime(ioValues);
     }
 }

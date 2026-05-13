@@ -14,9 +14,13 @@ public partial class SimulationPanelState
 {
     private WebApplication? _hubHost;
     private HubConnection? _hubConnection;
+    private HubTagBatchSender? _hubBatchSender;
     private CancellationTokenSource? _hubConnectionCts;
     private CancellationTokenSource? _reconnectStabilizationCts;
     private int _hubGeneration;
+
+    /// <summary>현재 generation 의 batch sender — 없으면 null. WriteTag 송신은 모두 이 sender 경유.</summary>
+    internal HubTagBatchSender? HubBatchSender => _hubBatchSender;
 
     private int CurrentHubGeneration => Volatile.Read(ref _hubGeneration);
 
@@ -71,9 +75,28 @@ public partial class SimulationPanelState
 
             if (IsHubHost)
             {
-                _hubHost = BackendHost.start(ParseHubPort());
+                if (IsRealPlcConnected)
+                {
+                    // 태그 매핑은 AASX IO 설정에서 자동 import.
+                    var plcConfig = BuildPlcGatewayConfig(out var errors);
+                    if (plcConfig is null)
+                    {
+                        var msg = "PLC 설정 검증 실패:\n  - " + string.Join("\n  - ", errors);
+                        AddSimLog(msg, LogSeverity.Error);
+                        _setStatusText("PLC 설정 오류 — Hub 시작 중단");
+                        return false;
+                    }
+                    _hubHost = BackendHost.startWithPlcConfig(ParseHubPort(), plcConfig);
+                    AddSimLog(
+                        $"SignalR Hub + PLC 게이트웨이 시작 (port={ParseHubPort()}, vendor={PlcSettings.Vendor}, ip={PlcSettings.IpAddress}:{PlcSettings.Port})",
+                        LogSeverity.System);
+                }
+                else
+                {
+                    _hubHost = BackendHost.start(ParseHubPort());
+                    AddSimLog($"SignalR Hub 호스팅 시작 (port={ParseHubPort()})", LogSeverity.System);
+                }
                 IsHubHosting = true;
-                AddSimLog($"SignalR Hub 호스팅 시작 (port={ParseHubPort()})", LogSeverity.System);
             }
 
             var hubUrl = BuildHubUrl();
@@ -86,6 +109,29 @@ public partial class SimulationPanelState
             hubConnection.On<string, string, string>(
                 HubMethod.OnTagChanged,
                 (address, value, source) => OnHubTagChanged(generation, address, value, source));
+            hubConnection.On<TagWrite[]>(
+                HubMethod.OnTagsChanged,
+                items =>
+                {
+                    if (items is null) return;
+                    foreach (var it in items)
+                        OnHubTagChanged(generation, it.Address, it.Value, it.Source);
+                });
+
+            // Batch sender — 이 generation 동안 모든 WriteTag 송신을 이 sender 가 coalesce.
+            _hubBatchSender = new HubTagBatchSender(
+                hubConnection,
+                generation,
+                (gen, hub) => IsCurrentHubConnection(gen, hub),
+                (msg, ex) =>
+                {
+                    if (!IsCurrentHubConnection(generation, hubConnection)) return;
+                    _ = _dispatcher.BeginInvoke(() =>
+                    {
+                        if (IsCurrentHubConnection(generation, hubConnection))
+                            AddSimLog($"[Hub] {msg}", LogSeverity.Warn);
+                    });
+                });
             hubConnection.Closed += ex =>
             {
                 // Closed 시 진행 중인 reconnect stabilization 취소 (false-positive "재연결 완료" 차단).
@@ -265,38 +311,57 @@ public partial class SimulationPanelState
         _reconnectStabilizationCts = null;
         SetHubStatus(connected: false, reconnecting: false);
 
-        if (_hubConnection is not null)
+        var batchSender = _hubBatchSender;
+        _hubBatchSender = null;
+
+        // Cleanup 직렬화 — 클라이언트 → 호스트 순서 보장.
+        // 병렬 Task.Run 으로 분리하면 host 가 client 보다 먼저 죽고, client 의 WithAutomaticReconnect 가
+        // 죽은 host 에 connect 시도 → SocketException(ConnectionRefused) race 노이즈 발생.
+        var conn = _hubConnection;
+        var connectedAtStop = conn?.State == HubConnectionState.Connected;
+        _hubConnection = null;
+
+        // 자기 hub host 라면 다음 PLAY 가 BackendHost.start 새로 띄우기 전에
+        // 동기적으로 캐시 클리어 — Stop 비동기 cleanup 의 race 방지.
+        if (_hubHost is not null && conn is not null)
+            SignalHub.ClearTagCache();
+
+        var host = _hubHost;
+        _hubHost = null;
+        if (host is not null)
+            IsHubHosting = false;
+
+        if (conn is null && batchSender is null && host is null)
+            return;
+
+        _ = Task.Run(async () =>
         {
-            var conn = _hubConnection;
-            var connectedAtStop = conn.State == HubConnectionState.Connected;
-            _hubConnection = null;
-
-            // 자기 hub host 라면 다음 PLAY 가 BackendHost.start 새로 띄우기 전에
-            // 동기적으로 캐시 클리어 — Stop 비동기 cleanup 의 race 방지.
-            if (_hubHost is not null)
-                SignalHub.ClearTagCache();
-
-            // 비동기 정리 — UI 안 막음. 끊기 전에 자기가 쓴 OUT tag 모두 false 로
-            // broadcast 해서 attached client 들도 stale "true" 잔존 안 하게 cleanup.
-            _ = Task.Run(async () =>
+            // 1) batch sender flush (송신 미완료 패킷이 있으면 전송 후 dispose).
+            if (batchSender is not null)
             {
-                if (connectedAtStop)
-                    await BroadcastClearOwnOutputsAsync(conn);
+                try { await batchSender.DisposeAsync(); } catch { /* ignore */ }
+            }
+
+            // 2) 자기가 쓴 OUT tag 들을 false 로 broadcast — attached client 의 stale "true" 잔존 cleanup.
+            if (conn is not null && connectedAtStop)
+            {
+                try { await BroadcastClearOwnOutputsAsync(conn); } catch { /* ignore */ }
+            }
+
+            // 3) 클라이언트 먼저 정리 — auto-reconnect 가 멈추도록 StopAsync 후 DisposeAsync.
+            //    이게 호스트보다 *반드시* 먼저 끝나야 reconnect race 가 발생하지 않음.
+            if (conn is not null)
+            {
                 try { await conn.StopAsync(); } catch { /* ignore */ }
                 try { await conn.DisposeAsync(); } catch { /* ignore */ }
-            });
-        }
+            }
 
-        if (_hubHost is not null)
-        {
-            var host = _hubHost;
-            _hubHost = null;
-            IsHubHosting = false;
-            _ = Task.Run(() =>
+            // 4) 클라이언트 stop 완료 후에야 호스트 stop — 죽은 host 에 client 가 connect 시도하는 race 차단.
+            if (host is not null)
             {
                 try { BackendHost.stop(host); } catch { /* ignore */ }
-            });
-        }
+            }
+        });
     }
 
     /// <summary>
@@ -309,23 +374,23 @@ public partial class SimulationPanelState
         if (SelectedRuntimeMode != RuntimeMode.Control) return;
         if (_simEngine?.IOMap is not { } ioMap) return;
 
-        var outAddresses = ioMap.TxWorkToOutAddresses
+        var source = ResolveRuntimeHubSource() + ":stop";
+        var batch = ioMap.TxWorkToOutAddresses
             .SelectMany(kv => kv.Value)
             .Where(addr => !string.IsNullOrWhiteSpace(addr))
             .Distinct()
+            .Select(addr => new TagWrite(addr, "false", source))
             .ToArray();
 
-        var source = ResolveRuntimeHubSource() + ":stop";
-        foreach (var address in outAddresses)
+        if (batch.Length == 0) return;
+
+        try
         {
-            try
-            {
-                await conn.InvokeAsync(HubMethod.WriteTag, address, "false", source);
-            }
-            catch
-            {
-                // hub 가 이미 끊어졌거나 race — 다음 PLAY 의 ClearTagCache 가 정리한다.
-            }
+            await conn.InvokeAsync(HubMethod.WriteTags, batch);
+        }
+        catch
+        {
+            // hub 가 이미 끊어졌거나 race — 다음 PLAY 의 ClearTagCache 가 정리한다.
         }
     }
 
@@ -340,6 +405,10 @@ public partial class SimulationPanelState
                 AddSimLog($"[Hub수신] {address}={value} from={source}", LogSeverity.Info);
         });
 
+        // 수동 컨트롤러 다이얼로그 등 외부 구독자에게 broadcast — engine·session 상태와 무관히 항상 발화.
+        try { HubTagBroadcast?.Invoke(address, value, source); }
+        catch (Exception ex) { SimLog.Error("HubTagBroadcast subscriber threw", ex); }
+
         if (_simEngine is null || _runtimeSession is null)
             return;
         // 자기 모드의 source는 무시 (순환 방지)
@@ -348,5 +417,38 @@ public partial class SimulationPanelState
 
         var effects = _runtimeSession.HandleHubTag(address, value, source);
         ApplyRuntimeHubEffects(effects);
+    }
+
+    /// <summary>외부 UI(수동 컨트롤러 다이얼로그) 가 hub 의 OnTagChanged 를 구독하기 위한 이벤트.
+    /// (address, value, source) — engine/runtime session 과 무관히 hub 가 받는 모든 변화를 그대로 흘림.</summary>
+    public event Action<string, string, string>? HubTagBroadcast;
+
+    /// <summary>수동 컨트롤러 측에서 OUT 태그를 hub 로 쓰기 위한 진입점.
+    /// 내부적으로 Control source 로 InvokeAsync — SignalHub 가 PLC 게이트웨이로 forward.
+    /// hub 미연결이면 false 반환.</summary>
+    public async Task<bool> WriteTagFromManualAsync(string address, string value)
+    {
+        var conn = _hubConnection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            return false;
+        try
+        {
+            await conn.InvokeAsync(HubMethod.WriteTag, address, value, HubSource.Control);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error($"WriteTagFromManual failed {address}={value}", ex);
+            return false;
+        }
+    }
+
+    /// <summary>수동 컨트롤러 다이얼로그 초기 로드 시 hub 캐시에서 현재 값 한 번 조회.</summary>
+    public async Task<string> QueryTagFromManualAsync(string address)
+    {
+        var conn = _hubConnection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return "";
+        try { return await conn.InvokeAsync<string>(HubMethod.QueryTag, address); }
+        catch { return ""; }
     }
 }

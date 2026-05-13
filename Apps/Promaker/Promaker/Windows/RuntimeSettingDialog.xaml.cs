@@ -31,6 +31,11 @@ public partial class RuntimeSettingDialog : Window
         ModeList.ItemsSource = _items;
         RefreshThumbnails();
         UpdateSelectedModeText();
+
+        // PLC 옵션 행 — 현재 VM 의 IsRealPlcConnected 반영
+        RealPlcCheckBox.IsChecked = vm.Simulation.IsRealPlcConnected;
+        UpdatePlcRowVisibility();
+        UpdatePlcSummary();
     }
 
     private void UpdateSelectedModeText()
@@ -39,6 +44,47 @@ public partial class RuntimeSettingDialog : Window
         SelectedModeText.Text = selected is null ? "" : $"{selected.Mode} ({selected.NameKr})";
         // Sim 모드는 Hub 연결 불필요 → 주소 편집 불가
         HubAddressBox.IsEnabled = selected is not null && selected.Mode != RuntimeMode.Simulation;
+        UpdatePlcRowVisibility();
+    }
+
+    /// <summary>Control 모드일 때만 PLC 옵션 행 노출.</summary>
+    private void UpdatePlcRowVisibility()
+    {
+        var selected = _items.FirstOrDefault(v => v.IsSelected);
+        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
+        PlcOptionRow.Visibility = isControl ? System.Windows.Visibility.Visible
+                                            : System.Windows.Visibility.Collapsed;
+    }
+
+    private void RealPlcCheckBox_Toggled(object sender, RoutedEventArgs e)
+    {
+        // 체크박스 상태 → 설정 버튼 활성화
+        PlcSettingsButton.IsEnabled = RealPlcCheckBox.IsChecked == true;
+        UpdatePlcSummary();
+    }
+
+    private void PlcSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // IO 매핑이 비어 있으면 사용자에게 즉시 알려준다 — 다이얼로그 안에서도 안내.
+        var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
+        var dialog = new PlcSettingsDialog(_vm.Simulation.PlcSettings, tagCount)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() == true)
+            UpdatePlcSummary();
+    }
+
+    private void UpdatePlcSummary()
+    {
+        if (RealPlcCheckBox.IsChecked != true)
+        {
+            PlcSummaryText.Text = "";
+            return;
+        }
+        var s = _vm.Simulation.PlcSettings;
+        var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
+        PlcSummaryText.Text = $"{s.Vendor}  {s.IpAddress}:{s.Port}  IO 자동 import {tagCount}개";
     }
 
     /// <summary>
@@ -196,6 +242,10 @@ public partial class RuntimeSettingDialog : Window
         if (selected != null)
             _vm.Simulation.SelectedRuntimeMode = selected.Mode;
         // HubAddress 는 TextBox 가 TwoWay 바인딩이라 자동 반영됨.
+        // PLC 토글은 Control 모드일 때만 의미가 있음 — 다른 모드 선택 시엔 자동 해제.
+        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
+        _vm.Simulation.IsRealPlcConnected = isControl && RealPlcCheckBox.IsChecked == true;
+
         DialogResult = true;
         Close();
     }

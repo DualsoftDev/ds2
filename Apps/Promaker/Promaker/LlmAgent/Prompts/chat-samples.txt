@@ -1,0 +1,14 @@
+새 프로젝트 생성해서 두개의 cylinder 가 순차로 전진하고, 다시 두개의 cylinder 가 순차로 후진하는 시스템 모델링
+    cyl3 도 추가해 줘.  1, 2 와 같이 ADV / RET 수행하게
+
+Home, Work1, ..., Work9 을 갖는 Robot device 생성
+
+Clamp device 생성
+
+Part 가 구역1, 구역2, 구역3 에서 순차로 이동하는 시스템 모델링
+구역1에서 두개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 두 실린더가 동시 후진
+구역2에서 세개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 세 실린더가 동시 후진
+구역3에서 네개의 cylinder 가 동시 전진 후, Puncher 가 Punch 후 네 실린더가 동시 후진
+
+
+구역3 다음에 구역4 추가해서 2개의 cylinder 가 순차 전진 후, Puncher 가 Punch 후 두 실린더가 동시 후진

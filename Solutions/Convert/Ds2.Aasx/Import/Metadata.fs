@@ -48,7 +48,8 @@ module internal AasxImportMetadata =
         m.DesignationOfCertificateOrApproval  <- getAnyStringValue smc "DesignationOfCertificateOrApproval"
         m.IssueDate                           <- getAnyStringValue smc "IssueDate"
         m.ExpiryDate                          <- getAnyStringValue smc "ExpiryDate"
-        m.MarkingFile                         <- getAnyStringValue smc "MarkingFile"
+        // v3: File element / v1.x: Property
+        m.MarkingFile                         <- getFileOrStringValue smc "MarkingFile"
         m.MarkingAdditionalText               <- getAnyStringValue smc "MarkingAdditionalText"
         m
 
@@ -72,7 +73,6 @@ module internal AasxImportMetadata =
                     | "SoftwareVersion"                     -> np.SoftwareVersion <- (valueOrEmpty p)
                     | "CountryOfOrigin"                     -> np.CountryOfOrigin <- (valueOrEmpty p)
                     | "UniqueFacilityIdentifier"            -> np.UniqueFacilityIdentifier <- (valueOrEmpty p)
-                    | "CompanyLogo"                         -> np.CompanyLogo <- (valueOrEmpty p)
                     | _ -> ()
                 | :? MultiLanguageProperty as mlp ->
                     let v = if mlp.Value = null || mlp.Value.Count = 0 then "" else mlp.Value.[0].Text
@@ -90,6 +90,9 @@ module internal AasxImportMetadata =
                             match item with
                             | :? SubmodelElementCollection as msmc -> np.Markings.Add(smcToMarkingInfo msmc)
                             | _ -> ()
+                | :? File as f when f.IdShort = "CompanyLogo" ->
+                    // v3: File element. v1.x 호환은 위 Property 분기에서 처리.
+                    if not (isNull f.Value) then np.CompanyLogo <- f.Value
                 | _ -> ()
             np
 
@@ -98,25 +101,29 @@ module internal AasxImportMetadata =
     let smcToDocumentId (smc: SubmodelElementCollection) : DocumentId =
         let d = DocumentId()
         d.DocumentDomainId <- getAnyStringValue smc "DocumentDomainId"
-        d.ValueId          <- getAnyStringValue smc "ValueId"
-        let isPrimaryStr   = getAnyStringValue smc "IsPrimary"
+        // v2.0: DocumentIdentifier  / v1.x: ValueId
+        d.ValueId          <- getAnyStringValueAlt smc [ "DocumentIdentifier"; "ValueId" ]
+        // v2.0: DocumentIsPrimary   / v1.x: IsPrimary
+        let isPrimaryStr   = getAnyStringValueAlt smc [ "DocumentIsPrimary"; "IsPrimary" ]
         d.IsPrimary        <- isPrimaryStr.Equals("true", StringComparison.OrdinalIgnoreCase)
         d
 
     let smcToDocClassification (smc: SubmodelElementCollection) : DocumentClassification =
         let c = DocumentClassification()
         c.ClassId              <- getAnyStringValue smc "ClassId"
-        c.ClassName            <- getAnyStringValue smc "ClassName"
+        // v2.0: ClassName 은 MLP. getAnyStringValue 가 MLP 도 처리 (en 우선).
+        c.ClassName            <- getAnyStringValueAlt smc [ "ClassName"; "ProductClassName" ]
         c.ClassificationSystem <- getAnyStringValue smc "ClassificationSystem"
         c
 
     let smcToDocVersion (smc: SubmodelElementCollection) : DocumentVersion =
         let dv = DocumentVersion()
-        // Languages SML
+        // Language(v2) / Languages(v1) SML — Property items
+        // DigitalFiles SML — v2: File items / v1: Property items
         if smc.Value <> null then
             smc.Value |> Seq.iter (fun elem ->
                 match elem with
-                | :? SubmodelElementList as sml when sml.IdShort = "Languages" ->
+                | :? SubmodelElementList as sml when sml.IdShort = "Language" || sml.IdShort = "Languages" ->
                     if sml.Value <> null then
                         for item in sml.Value do
                             match item with
@@ -126,21 +133,27 @@ module internal AasxImportMetadata =
                     if sml.Value <> null then
                         for item in sml.Value do
                             match item with
-                            | :? Property as p when p.Value <> null -> dv.DigitalFiles.Add(p.Value)
+                            | :? File as f when not (isNull f.Value) -> dv.DigitalFiles.Add(f.Value)
+                            | :? Property as p when p.Value <> null -> dv.DigitalFiles.Add(p.Value)  // v1 호환
                             | _ -> ()
                 | _ -> ())
-        dv.DocumentVersionId       <- getAnyStringValue smc "DocumentVersionId"
+        // v2.0: Version  / v1.x: DocumentVersionId
+        dv.DocumentVersionId       <- getAnyStringValueAlt smc [ "Version"; "DocumentVersionId" ]
         dv.Title                   <- getAnyStringValue smc "Title"
-        dv.SubTitle                <- getAnyStringValue smc "SubTitle"
-        dv.Summary                 <- getAnyStringValue smc "Summary"
+        // v2.0: Subtitle / v1.x: SubTitle
+        dv.SubTitle                <- getAnyStringValueAlt smc [ "Subtitle"; "SubTitle" ]
+        // v2.0: Description / v1.x: Summary
+        dv.Summary                 <- getAnyStringValueAlt smc [ "Description"; "Summary" ]
         dv.KeyWords                <- getAnyStringValue smc "KeyWords"
         dv.SetDate                 <- getAnyStringValue smc "SetDate"
         dv.StatusSetDate           <- getAnyStringValue smc "StatusSetDate"
         dv.StatusValue             <- getAnyStringValue smc "StatusValue"
-        dv.OrganizationName        <- getAnyStringValue smc "OrganizationName"
+        // v2.0: OrganizationShortName / v1.x: OrganizationName
+        dv.OrganizationName        <- getAnyStringValueAlt smc [ "OrganizationShortName"; "OrganizationName" ]
         dv.OrganizationOfficialName <- getAnyStringValue smc "OrganizationOfficialName"
         dv.Role                    <- getAnyStringValue smc "Role"
-        dv.PreviewFile             <- getAnyStringValue smc "PreviewFile"
+        // v3: File element / v1.x: Property
+        dv.PreviewFile             <- getFileOrStringValue smc "PreviewFile"
         dv
 
     let smcToDocument (smc: SubmodelElementCollection) : Document =

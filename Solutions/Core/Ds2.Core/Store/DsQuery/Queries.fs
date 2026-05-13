@@ -228,6 +228,17 @@ module Queries =
     /// <summary>모든 ApiCall 조회</summary>
     let allApiCalls (store: DsStore) : ApiCall list = allOf store.ApiCallsReadOnly
 
+    /// Call → ApiCall.tryHead → ApiDefId → ApiDef → ParentSystem chain resolve.
+    /// PoC scope (cylinder/clamp/robot sugar) 에서 Call.ApiCalls 는 1:1 매핑 — 첫 ApiCall 만 본다.
+    /// 4 fallback case (ApiCalls 빈 list / ApiDefId None / orphan ApiDef / orphan System) 시 None.
+    /// 호출자: ModelProtocol.exportToJson (Call 참조 systemName resolve), findConflictingDeviceSystemType.
+    let tryResolveCallTargetSystem (call: Call) (store: DsStore) : DsSystem option =
+        call.ApiCalls
+        |> Seq.tryHead
+        |> Option.bind (fun ac -> ac.ApiDefId)
+        |> Option.bind (fun defId -> getApiDef defId store)
+        |> Option.bind (fun apiDef -> getSystem apiDef.ParentId store)
+
     /// 프로젝트 전체에서 같은 DevicesAlias 를 쓰는 Device System 의 SystemType 과
     /// 새로 지정한 SystemType 이 다르면 (기존 SystemType, 새 SystemType) 쌍을 반환.
     /// 충돌 없으면 None.
@@ -248,14 +259,8 @@ module Queries =
             store.CallsReadOnly.Values
             |> Seq.filter (fun c -> c.DevicesAlias = devAlias)
             |> Seq.tryPick (fun c ->
-                c.ApiCalls
-                |> Seq.tryHead
-                |> Option.bind (fun ac -> ac.ApiDefId)
-                |> Option.bind (fun apiDefId -> getApiDef apiDefId store)
-                |> Option.bind (fun apiDef ->
-                    if Set.contains apiDef.ParentId projectSystemIds
-                    then getSystem apiDef.ParentId store
-                    else None)
+                tryResolveCallTargetSystem c store
+                |> Option.filter (fun sys -> Set.contains sys.Id projectSystemIds)
                 |> Option.bind (fun sys -> sys.SystemType)
                 |> Option.filter (fun existingType -> existingType <> newType)
                 |> Option.map (fun existingType -> (existingType, newType)))

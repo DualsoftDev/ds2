@@ -141,7 +141,6 @@ public sealed class CallConditionItem
         ConditionId   = panel.ConditionId;
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
-        IsRising      = panel.IsRising;
         FormulaText   = panel.FormulaText();
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
@@ -149,6 +148,9 @@ public sealed class CallConditionItem
         Children = panel.Children
             .Select(c => new CallConditionItem(callId, c))
             .ToList();
+        var leaves = new List<ConditionApiCallRow>(Items);
+        foreach (var c in Children) leaves.AddRange(c.AllLeafRows);
+        AllLeafRows = leaves;
     }
 
     public Guid               CallId        { get; }
@@ -156,14 +158,34 @@ public sealed class CallConditionItem
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsAND         => !IsOR;
-    public bool               IsRising      { get; }
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
     public IReadOnlyList<CallConditionItem> Children { get; }
+
+    /// <summary>그룹 결합자 표시용 — XAML 바인딩 편의.</summary>
+    public string GroupOperator => IsOR ? "OR" : "AND";
+
+    /// <summary>트리 평면화 — children 의 leaf row 까지 모두 포함. 시뮬 런타임 표시용 ItemsControl 바인딩.</summary>
+    public IReadOnlyList<ConditionApiCallRow> AllLeafRows { get; }
+
+    /// <summary>
+    /// 시뮬 IO 값 dictionary 로 모든 leaf row 의 런타임 표시를 갱신.
+    /// ioValues 가 null 이면 런타임 표시를 비움 (시뮬 종료 / 미시작).
+    /// row 의 RuntimeText/IsMatched 는 INotifyPropertyChanged 로 binding 자동 갱신.
+    /// </summary>
+    public void RefreshRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
+    {
+        foreach (var row in AllLeafRows)
+            row.UpdateRuntime(ioValues);
+    }
 }
 
-public sealed class ConditionApiCallRow
+public sealed class ConditionApiCallRow : ObservableObject
 {
+    private readonly Ds2.Core.ValueSpec _inputSpec;
+    private string _runtimeText = string.Empty;
+    private bool? _isMatched;
+
     public ConditionApiCallRow(Guid callId, Guid conditionId, CallConditionApiCallItem item)
     {
         CallId               = callId;
@@ -175,6 +197,7 @@ public sealed class ConditionApiCallRow
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
         InputSpecText        = item.InputSpecText;
         InputSpecTypeIndex   = item.InputSpecTypeIndex;
+        _inputSpec           = item.InputSpec;
     }
 
     public Guid   CallId               { get; }
@@ -186,6 +209,49 @@ public sealed class ConditionApiCallRow
     public int    OutputSpecTypeIndex  { get; }
     public string InputSpecText        { get; }
     public int    InputSpecTypeIndex   { get; }
+
+    /// <summary>
+    /// 시뮬 동작 중에만 채워지는 표시 — `NewFlow_clp.ADV ✓ [현재:true / 기대:true]`.
+    /// 시뮬 종료 / 미시작 시 빈 문자열.
+    /// </summary>
+    public string RuntimeText
+    {
+        get => _runtimeText;
+        private set => SetProperty(ref _runtimeText, value);
+    }
+
+    /// <summary>매칭 결과: true=충족, false=불일치, null=시뮬 미실행 또는 IO 값 없음.</summary>
+    public bool? IsMatched
+    {
+        get => _isMatched;
+        private set => SetProperty(ref _isMatched, value);
+    }
+
+    public void UpdateRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
+    {
+        if (ioValues is null)
+        {
+            IsMatched = null;
+            RuntimeText = string.Empty;
+            return;
+        }
+
+        var current = ioValues.TryGetValue(ApiCallId, out var v) ? v : null;
+        var expected = !string.IsNullOrEmpty(InputSpecText) ? InputSpecText
+                     : !string.IsNullOrEmpty(OutputSpecText) ? OutputSpecText
+                     : "—";
+        if (current is null)
+        {
+            IsMatched = null;
+            RuntimeText = $"{ApiDefDisplayName}  [현재:— / 기대:{expected}]";
+            return;
+        }
+
+        var matched = Ds2.Core.ValueSpecModule.evaluate(_inputSpec, current);
+        IsMatched = matched;
+        var mark = matched ? "✓" : "✗";
+        RuntimeText = $"{ApiDefDisplayName} {mark} [현재:{current} / 기대:{expected}]";
+    }
 }
 
 public sealed class ConditionSectionItem : ObservableObject

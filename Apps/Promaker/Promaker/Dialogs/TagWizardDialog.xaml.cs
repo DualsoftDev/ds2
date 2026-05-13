@@ -57,6 +57,25 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     public string PvOutAddressFilter { get => _pvOutAddr;  set => SetPv(ref _pvOutAddr, value, nameof(PvOutAddressFilter)); }
     public string PvInSymbolFilter   { get => _pvInSym;    set => SetPv(ref _pvInSym, value, nameof(PvInSymbolFilter)); }
     public string PvInAddressFilter  { get => _pvInAddr;   set => SetPv(ref _pvInAddr, value, nameof(PvInAddressFilter)); }
+
+    // Dummy 신호 컬럼 필터
+    private string _dmFlow = "", _dmWork = "", _dmCall = "", _dmSym = "", _dmAddr = "", _dmArea = "", _dmDt = "";
+    public string DmFlowFilter     { get => _dmFlow; set => SetDm(ref _dmFlow, value, nameof(DmFlowFilter)); }
+    public string DmWorkFilter     { get => _dmWork; set => SetDm(ref _dmWork, value, nameof(DmWorkFilter)); }
+    public string DmCallFilter     { get => _dmCall; set => SetDm(ref _dmCall, value, nameof(DmCallFilter)); }
+    public string DmSymbolFilter   { get => _dmSym;  set => SetDm(ref _dmSym,  value, nameof(DmSymbolFilter)); }
+    public string DmAddressFilter  { get => _dmAddr; set => SetDm(ref _dmAddr, value, nameof(DmAddressFilter)); }
+    public string DmAreaFilter     { get => _dmArea; set => SetDm(ref _dmArea, value, nameof(DmAreaFilter)); }
+    public string DmDataTypeFilter { get => _dmDt;   set => SetDm(ref _dmDt,   value, nameof(DmDataTypeFilter)); }
+    private RowFilterDebouncer _dmDebounce = null!;
+    private void SetDm(ref string field, string value, string name)
+    {
+        value ??= "";
+        if (field == value) return;
+        field = value;
+        OnPropertyChanged(name);
+        _dmDebounce.Bump();
+    }
     /// <summary>150ms 디바운스 — 빠른 타이핑 시 마지막 입력 후 한 번만 _ioView.Refresh.</summary>
     private RowFilterDebouncer _pvDebounce = null!;
 
@@ -73,6 +92,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     private ICollectionView _ioView;
+    private ICollectionView _dummyView = null!;
     private int _currentStep = 1;
     private int _successCount;
     private string _currentDeviceTemplateFile = "";
@@ -103,7 +123,10 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
 
         _pvDebounce = new RowFilterDebouncer(() => _ioView?.Refresh());
 
-        DummySignalPreviewGrid.ItemsSource = _dummyRows;
+        _dummyView = CollectionViewSource.GetDefaultView(_dummyRows);
+        _dummyView.Filter = FilterDummyRow;
+        _dmDebounce = new RowFilterDebouncer(() => _dummyView?.Refresh());
+        DummySignalPreviewGrid.ItemsSource = _dummyView;
         UnmatchedSignalGrid.ItemsSource = _unmatchedRows;
         ErrorsListBox.ItemsSource = _errorItems;
 
@@ -115,6 +138,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         MwSignalGrid.ItemsSource = _mwSignalRows;
         if (AuxPortGrid != null)
             AuxPortGrid.ItemsSource = _auxPortRows;
+        if (EndPortGrid != null)
+            EndPortGrid.ItemsSource = _endPortRows;
 
         // FB 타입 목록 로드 (XGI_Template.xml 의 UserFB) — 콤보 바인딩 전에 선행
         WizFBTypes = FBPortCatalog.GetFBTypeNames();
@@ -159,14 +184,10 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     {
         var set = new System.Collections.Generic.SortedSet<string>(System.StringComparer.OrdinalIgnoreCase);
 
-        // (1) SystemType 프리셋 APIs — Robot 등은 ADV/RET 가 아니라 여기서 옴.
+        // 현 SystemType 프리셋 APIs 만 — 다른 SystemType 의 ApiDef 는 노출 안 함.
         if (!string.IsNullOrWhiteSpace(systemType))
             foreach (var n in SystemTypePresetProvider.GetApiNames(systemType))
                 if (!string.IsNullOrWhiteSpace(n)) set.Add(n);
-
-        // (2) store ApiDefs (사용자 정의 추가분).
-        foreach (var d in _store.ApiDefsReadOnly.Values)
-            if (!string.IsNullOrWhiteSpace(d.Name)) set.Add(d.Name);
 
         WizApiNames.Clear();
         // Api_None — 글로벌 신호 sentinel ($(A) 미사용 패턴용).
@@ -200,6 +221,306 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
 
     // ── Step 4: 신호 매핑 ──────────────────────────────────────────────
 
+    /// <summary>조건식 컬럼 셀 클릭 → 공용 식 편집기 열기.
+    /// Pre-FB 조건 편집 — 현 SystemType 의 IW/QW/MW Pattern 을 변수 후보로 제공.</summary>
+    private void EditPreFbCondition_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not SignalPatternRow row) return;
+        var sysType = _currentDeviceTemplateFile;
+        if (string.IsNullOrWhiteSpace(sysType))
+        {
+            DialogHelpers.ShowThemedMessageBox("SystemType 을 먼저 선택하세요.", "TAG Wizard",
+                MessageBoxButton.OK, "⚠");
+            return;
+        }
+        var provider = new Promaker.Controls.ExpressionEditor.Providers.SignalPatternSymbolProvider(_store, sysType);
+        var initial = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(row.PreFbCondition);
+        var dlg = new Promaker.Controls.ExpressionEditor.Views.ExpressionEditorWindow(initial, provider,
+            $"Pre-FB 조건 편집 — {row.TargetFBPort}") { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.Result != null)
+        {
+            // Var 빈 노드만 있으면 조건 제거 (간소화)
+            var node = dlg.Result;
+            if (node.Kind == Promaker.Controls.ExpressionEditor.Models.ExprKind.Var
+                && string.IsNullOrWhiteSpace(node.Symbol)
+                && node.Children.Count == 0)
+                row.PreFbCondition = null;
+            else
+                row.PreFbCondition = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.ToCore(node);
+            // 자동저장 — PreFbCondition setter 가 PropertyChanged 발화 → HookAutoSave 가 PersistCurrentPreset.
+        }
+    }
+
+    /// <summary>AUX 포트 콤보의 입력/출력/전체 필터 라디오 변경 핸들러.</summary>
+    /// <summary>AUX 포트 entry 의 조건식 편집 — 공용 식 편집기 열기.</summary>
+    private void EditAuxPortCondition_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not AuxPortRow row) return;
+        var sysType = _currentDeviceTemplateFile;
+        if (string.IsNullOrWhiteSpace(sysType))
+        {
+            DialogHelpers.ShowThemedMessageBox("SystemType 을 먼저 선택하세요.", "TAG Wizard",
+                MessageBoxButton.OK, "⚠");
+            return;
+        }
+        var provider = new Promaker.Controls.ExpressionEditor.Providers.SignalPatternSymbolProvider(_store, sysType);
+        var initial = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(row.Condition);
+        var dlg = new Promaker.Controls.ExpressionEditor.Views.ExpressionEditorWindow(initial, provider,
+            $"AUX 조건식 — {row.ApiName} → {row.TargetFBPort}") { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.Result != null)
+        {
+            var node = dlg.Result;
+            if (node.Kind == Promaker.Controls.ExpressionEditor.Models.ExprKind.Var
+                && string.IsNullOrWhiteSpace(node.Symbol)
+                && node.Children.Count == 0)
+                row.Condition = null;
+            else
+                row.Condition = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.ToCore(node);
+        }
+    }
+
+    /// <summary>AUX 그리드 선택 트리거 셀 — 클릭 시 행 선택 (Ctrl/Shift 지원).</summary>
+    private void AuxRowSelector_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement el || el.DataContext is not AuxPortRow row) return;
+        if (AuxPortGrid == null) return;
+        bool ctrl  = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0;
+        bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift)   != 0;
+        if (ctrl)
+        {
+            if (AuxPortGrid.SelectedItems.Contains(row)) AuxPortGrid.SelectedItems.Remove(row);
+            else AuxPortGrid.SelectedItems.Add(row);
+        }
+        else if (shift && AuxPortGrid.SelectedItem is AuxPortRow anchor)
+        {
+            int a = _auxPortRows.IndexOf(anchor), b = _auxPortRows.IndexOf(row);
+            if (a >= 0 && b >= 0)
+            {
+                int lo = System.Math.Min(a, b), hi = System.Math.Max(a, b);
+                AuxPortGrid.SelectedItems.Clear();
+                for (int i = lo; i <= hi; i++) AuxPortGrid.SelectedItems.Add(_auxPortRows[i]);
+            }
+        }
+        else
+        {
+            AuxPortGrid.SelectedItems.Clear();
+            AuxPortGrid.SelectedItems.Add(row);
+        }
+        AuxPortGrid.Focus();
+        e.Handled = true;
+    }
+
+    /// <summary>탭 변경 — AUX 포트 탭 활성화 시 심볼 후보를 IW/QW/MW 의 최신 패턴으로 재스냅샷.</summary>
+    private void SignalSectionTab_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (e.Source != SignalSectionTabControl) return;
+        if (SignalSectionTabControl.SelectedItem is not System.Windows.Controls.TabItem tab) return;
+        var header = tab.Header as string ?? "";
+        if (!header.Contains("AUX")) return;
+        var sysType = _currentDeviceTemplateFile;
+        if (string.IsNullOrWhiteSpace(sysType)) return;
+        var fresh = BuildAuxApiOptions(sysType);
+        foreach (var row in _auxPortRows)
+        {
+            row.ApiOptions = fresh;
+            row.RaisePropertyChanged(nameof(AuxPortRow.ApiOptions));
+        }
+    }
+
+    /// <summary>AUX 포트 그리드에 빈 행 추가 — 사용자가 한 API 에 여러 포트 매핑 가능.</summary>
+    private void AddAuxPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var sysType = _currentDeviceTemplateFile;
+        _auxPortRows.Add(HookAutoSave(new AuxPortRow
+        {
+            ApiName = "",
+            TargetFBType = fb,
+            TargetFBPort = "",
+            Kind = "DirectFB",
+            AuxKind = "AutoAux",
+            ApiOptions = BuildAuxApiOptions(sysType),
+        }));
+        PersistCurrentPreset();
+    }
+
+    /// <summary>선택 행 삭제.</summary>
+    private void RemoveAuxPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (AuxPortGrid == null) return;
+        var selected = AuxPortGrid.SelectedItems.Cast<AuxPortRow>().ToList();
+        if (selected.Count == 0) return;
+        foreach (var row in selected) _auxPortRows.Remove(row);
+        PersistCurrentPreset();
+    }
+
+    private void MoveAuxRowUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(AuxPortGrid, _auxPortRows, up: true);
+    private void MoveAuxRowDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(AuxPortGrid, _auxPortRows, up: false);
+
+    // ── End 포트 (EndPortMap) — API → 완료 OUT 포트 매핑 ────────────────────
+    private readonly ObservableCollection<EndPortRow> _endPortRows = new();
+
+    private void AddEndPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var sysType = _currentDeviceTemplateFile;
+        _endPortRows.Add(HookAutoSave(new EndPortRow
+        {
+            ApiName = "",
+            EndPort = "",
+            TargetFBType = fb,
+            ApiOptions = BuildAuxApiOptions(sysType),
+        }));
+        PersistCurrentPreset();
+    }
+
+    private void RemoveEndPortRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (EndPortGrid == null) return;
+        var selected = EndPortGrid.SelectedItems.Cast<EndPortRow>().ToList();
+        if (selected.Count == 0) return;
+        foreach (var row in selected) _endPortRows.Remove(row);
+        PersistCurrentPreset();
+    }
+
+    /// <summary>Ctrl+C/V 키 이벤트 — 포커스된 그리드의 선택 행 클립보드 복사 / 붙여넣기.
+    /// 그리드 타입(SignalPatternRow vs AuxPortRow)에 따라 호환성 검사.</summary>
+    private void TagWizardKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.Control) return;
+        var grid = FindFocusedGrid();
+        if (grid == null) return;
+        if (e.Key == System.Windows.Input.Key.C)
+        {
+            CopyGridSelection(grid);
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.V)
+        {
+            PasteGridSelection(grid);
+            e.Handled = true;
+        }
+    }
+
+    private System.Windows.Controls.DataGrid? FindFocusedGrid()
+    {
+        foreach (var g in new[] { IwSignalGrid, QwSignalGrid, MwSignalGrid, AuxPortGrid })
+            if (g != null && g.IsKeyboardFocusWithin) return g;
+        return null;
+    }
+
+    private record ClipboardEnvelope(string Type, string Json);
+
+    private void CopyGridSelection(System.Windows.Controls.DataGrid grid)
+    {
+        try
+        {
+            object[] selected = grid.SelectedItems.Cast<object>().ToArray();
+            if (selected.Length == 0) return;
+
+            string typeTag;
+            string payload;
+            if (selected[0] is SignalPatternRow)
+            {
+                typeTag = "SignalPatternRow";
+                var items = selected.Cast<SignalPatternRow>()
+                    .Select(r => new SignalRowClipboardItem(
+                        r.ApiName ?? "", r.Pattern ?? "", r.TargetFBPort ?? "",
+                        r.SkipAddressAlloc, r.IsSpare, r.UserDataType ?? "",
+                        Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(r.PreFbCondition)))
+                    .ToList();
+                payload = System.Text.Json.JsonSerializer.Serialize(items);
+            }
+            else if (selected[0] is AuxPortRow)
+            {
+                typeTag = "AuxPortRow";
+                var items = selected.Cast<AuxPortRow>()
+                    .Select(r => new AuxPortClipboardItem(
+                        r.ApiName ?? "", r.TargetFBPort ?? "",
+                        r.Kind ?? "DirectFB", r.AuxKind ?? "AutoAux",
+                        Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(r.Condition)))
+                    .ToList();
+                payload = System.Text.Json.JsonSerializer.Serialize(items);
+            }
+            else return;
+
+            var envelope = new ClipboardEnvelope(typeTag, payload);
+            System.Windows.Clipboard.SetText(System.Text.Json.JsonSerializer.Serialize(envelope));
+        }
+        catch { /* clipboard 실패 시 silent */ }
+    }
+
+    private void PasteGridSelection(System.Windows.Controls.DataGrid grid)
+    {
+        try
+        {
+            if (!System.Windows.Clipboard.ContainsText()) return;
+            var raw = System.Windows.Clipboard.GetText();
+            var env = System.Text.Json.JsonSerializer.Deserialize<ClipboardEnvelope>(raw);
+            if (env == null) return;
+
+            var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+            var sysType = _currentDeviceTemplateFile;
+
+            // SignalPatternRow → IW/QW/MW 그리드끼리 호환.
+            if (env.Type == "SignalPatternRow"
+                && (grid == IwSignalGrid || grid == QwSignalGrid || grid == MwSignalGrid))
+            {
+                var sec = AllSections().FirstOrDefault(s => s.Grid == grid);
+                if (sec == null) return;
+                var items = System.Text.Json.JsonSerializer.Deserialize<List<SignalRowClipboardItem>>(env.Json) ?? new();
+                foreach (var it in items)
+                {
+                    sec.Rows.Add(HookAutoSave(new SignalPatternRow
+                    {
+                        ApiName          = it.ApiName,
+                        Pattern          = it.Pattern,
+                        TargetFBType     = fb,
+                        TargetFBPort     = it.TargetFBPort,
+                        SkipAddressAlloc = it.SkipAddressAlloc,
+                        IsSpare          = it.IsSpare,
+                        UserDataType     = it.UserDataType,
+                        PreFbCondition   = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.ToCore(it.PreFbCondition),
+                    }));
+                }
+                PersistCurrentPreset();
+            }
+            // AuxPortRow → AUX 그리드만.
+            else if (env.Type == "AuxPortRow" && grid == AuxPortGrid)
+            {
+                var items = System.Text.Json.JsonSerializer.Deserialize<List<AuxPortClipboardItem>>(env.Json) ?? new();
+                var apiOpts = BuildAuxApiOptions(sysType);
+                foreach (var it in items)
+                {
+                    _auxPortRows.Add(HookAutoSave(new AuxPortRow
+                    {
+                        ApiName      = it.ApiName,
+                        TargetFBType = fb,
+                        TargetFBPort = it.TargetFBPort,
+                        Kind         = string.IsNullOrEmpty(it.Kind) ? "DirectFB" : it.Kind,
+                        AuxKind      = string.IsNullOrEmpty(it.AuxKind) ? "AutoAux" : it.AuxKind,
+                        Condition    = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.ToCore(it.Condition),
+                        ApiOptions   = apiOpts,
+                    }));
+                }
+                PersistCurrentPreset();
+            }
+            // 타입 불일치 시 silent (서로 다른 그리드 type)
+        }
+        catch { }
+    }
+
+    private void AuxFilter_Changed(object sender, System.Windows.RoutedEventArgs e)
+    {
+        AuxPortDirectionFilter mode;
+        if (AuxFilterInput?.IsChecked == true)       mode = AuxPortDirectionFilter.Input;
+        else if (AuxFilterOutput?.IsChecked == true) mode = AuxPortDirectionFilter.Output;
+        else                                          mode = AuxPortDirectionFilter.All;
+        AuxPortRow.SetDirectionFilter(mode);
+    }
+
     /// <summary>
     /// 글로벌 FB 타입 콤보 변경 시 — AuxPortRow 및 IW/QW/MW 신호 행의 TargetFBType 을 일괄 갱신해
     /// PortOptions 가 새 FB 의 포트로 바뀌게 하고, 현재 SystemType 의 Preset 에 즉시 저장(자동 persist).
@@ -208,6 +529,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     {
         var fbType = GlobalFBTypeCombo?.SelectedItem as string ?? "";
         foreach (var row in _auxPortRows)
+            row.TargetFBType = fbType;
+        foreach (var row in _endPortRows)
             row.TargetFBType = fbType;
         foreach (var row in _iwSignalRows)
             row.TargetFBType = fbType;
@@ -233,25 +556,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         }
     }
 
-    private void ShowSummary()
-    {
-        var summary = WizardSummaryBuilder.Build(
-            _store, _successCount, _ioRows.Count, _dummyRows.Count, SignalTemplateWarnings);
-        SummarySignalStats.Text = summary.SignalStats;
-        CompletionSummaryText.Text = summary.CompletionStatus;
-        OpenMigrationButton.Visibility =
-            summary.HasCallStructureViolations ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>Step 4 '🔧 Call 구조 마이그레이션...' 버튼 — 위반 Call 분할/삭제 다이얼로그.</summary>
-    private void OpenMigration_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new MultiDeviceCallMigrationDialog(_store) { Owner = this };
-        dlg.ShowDialog();
-        ShowSummary();
-    }
-
-    /// <summary>32점 단위 보기 토글 — IW/QW/MW 각 섹션 독립.</summary>
+/// <summary>32점 단위 보기 토글 — IW/QW/MW 각 섹션 독립.</summary>
     private void ChunkedToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox cb) return;
@@ -278,8 +583,12 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
             return;
         }
         // SkipAddressAlloc(주소제외) 행은 IO 슬롯을 소비하지 않으므로 chunked 뷰(주소 인덱스)에서 제외.
+        // ARRAY 타입(포인터)도 cursor 미진전이라 IO 인덱스 자리를 차지하지 않으므로 chunked 뷰에서 제외.
         // 외부 정의 공용 변수 / IEC 리터럴 (_T1S, T#200MS 등) 이 IO 주소 자리를 차지하지 않게 함.
-        var ioRows = sec.Rows.Where(r => !r.SkipAddressAlloc).ToList();
+        static bool IsArrayType(string? dt) =>
+            !string.IsNullOrEmpty(dt) &&
+            dt.StartsWith("ARRAY", StringComparison.OrdinalIgnoreCase);
+        var ioRows = sec.Rows.Where(r => !r.SkipAddressAlloc && !IsArrayType(r.DataType)).ToList();
         for (int start = 0; start < ioRows.Count; start += ChunkSize)
         {
             var slice = new ObservableCollection<IndexedPatternRow>();
@@ -308,6 +617,20 @@ public partial class TagWizardDialog
     {
         var opt = Queries.getOrCreatePrimaryControlProps(_store);
         return Microsoft.FSharp.Core.FSharpOption<ControlSystemProperties>.get_IsSome(opt) ? opt.Value : null;
+    }
+
+    private bool FilterDummyRow(object obj)
+    {
+        if (obj is not DummySignalRow row) return false;
+        static bool Match(string v, string f) =>
+            string.IsNullOrEmpty(f) || (v != null && v.Contains(f, StringComparison.OrdinalIgnoreCase));
+        return Match(row.Flow,     DmFlowFilter)
+            && Match(row.Work,     DmWorkFilter)
+            && Match(row.Call,     DmCallFilter)
+            && Match(row.Symbol,   DmSymbolFilter)
+            && Match(row.Address,  DmAddressFilter)
+            && Match(row.Type,     DmAreaFilter)
+            && Match(row.DataType, DmDataTypeFilter);
     }
 
     private bool FilterIoRow(object obj)
@@ -369,10 +692,10 @@ public partial class TagWizardDialog
         }
         else if (_currentStep == 3)
         {
-            // Step 3 → Step 4: 확인 다이얼로그 → 적용 → 요약 이동 (Basic 모드와 동일 UX).
-            // 별도 "패턴 적용" 버튼을 눌러도 같은 흐름.
+            // Step 3 적용: ConfirmAndApplyPatterns 가 단일 통합 리포트까지 처리.
             if (!ConfirmAndApplyPatterns()) return;
-            MoveToStep(4);
+            _appliedInStep3 = true;
+            UpdateButtons();
         }
     }
 
@@ -402,15 +725,12 @@ public partial class TagWizardDialog
     private void MoveToStep(int step)
     {
         _currentStep = step;
+        if (step != 3) _appliedInStep3 = false;
 
         // 컨텐츠 표시
         Step1Content.Visibility = step == 1 ? Visibility.Visible : Visibility.Collapsed;
         Step2Content.Visibility = step == 2 ? Visibility.Visible : Visibility.Collapsed;
         Step3Content.Visibility = step == 3 ? Visibility.Visible : Visibility.Collapsed;
-        Step4Content.Visibility = step == 4 ? Visibility.Visible : Visibility.Collapsed;
-
-        // Step 4 진입 시 요약 통계 계산
-        if (step == 4) ShowSummary();
 
         // 단계 인디케이터 업데이트
         UpdateStepIndicators();
@@ -433,7 +753,6 @@ public partial class TagWizardDialog
         ApplyStepStyle(Step1Bar, Step1Text, 1, accentBrush, greenBrush, secondaryBrush, lightText, secondaryText);
         ApplyStepStyle(Step2Bar, Step2Text, 2, accentBrush, greenBrush, secondaryBrush, lightText, secondaryText);
         ApplyStepStyle(Step3Bar, Step3Text, 3, accentBrush, greenBrush, secondaryBrush, lightText, secondaryText);
-        ApplyStepStyle(Step4Bar, Step4Text, 4, accentBrush, greenBrush, secondaryBrush, lightText, secondaryText);
     }
 
     /// <summary>
@@ -465,31 +784,29 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// 버튼 상태 업데이트
+    /// 버튼 상태 업데이트 — 3단계 구조: Step 3 적용 후엔 닫기 버튼만 노출.
     /// </summary>
     private void UpdateButtons()
     {
-        // 이전 버튼 (Step 4 신호 매핑에서도 뒤로 갈 수 있어야 함)
         BackButton.Visibility = _currentStep > 1 ? Visibility.Visible : Visibility.Collapsed;
 
-        // 다음 버튼
-        if (_currentStep < 4)
-        {
-            NextButton.Visibility = Visibility.Visible;
-            if (_currentStep == 1)
-                NextButton.Content = "다음 ▶";
-            else if (_currentStep == 2)
-                NextButton.Content = "신호 생성 ▶";
-            else if (_currentStep == 3)
-                NextButton.Content = "적용 ▶";
-            CloseButton.Visibility = Visibility.Collapsed;
-        }
-        else
+        var atFinalApplied = _currentStep == 3 && _appliedInStep3;
+        if (atFinalApplied)
         {
             NextButton.Visibility = Visibility.Collapsed;
             CloseButton.Visibility = Visibility.Visible;
         }
+        else
+        {
+            NextButton.Visibility = Visibility.Visible;
+            CloseButton.Visibility = Visibility.Collapsed;
+            if (_currentStep == 1)      NextButton.Content = "다음 ▶";
+            else if (_currentStep == 2) NextButton.Content = "신호 생성 ▶";
+            else if (_currentStep == 3) NextButton.Content = "적용 ▶";
+        }
     }
+
+    private bool _appliedInStep3;
 }
 
 /// <summary>
@@ -550,6 +867,33 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
 
     string _apiName = "", _pattern = "", _targetFBType = "", _targetFBPort = "";
     bool _skipAddressAlloc, _isSpare;
+    Ds2.Core.FbInputExpr? _preFbCondition;
+
+    /// <summary>Pre-FB 입력식 — null 이면 단일 변수 와이어, 비어있지 않으면 LD contact 트리로 FB 핀 와이어.</summary>
+    public Ds2.Core.FbInputExpr? PreFbCondition
+    {
+        get => _preFbCondition;
+        set
+        {
+            _preFbCondition = value;
+            OnPropertyChanged(nameof(PreFbCondition));
+            OnPropertyChanged(nameof(PreFbConditionSummary));
+            OnPropertyChanged(nameof(HasPreFbCondition));
+        }
+    }
+
+    /// <summary>그리드 셀 표시용 한 줄 요약 — ST 형태.</summary>
+    public string PreFbConditionSummary
+    {
+        get
+        {
+            if (_preFbCondition == null) return "";
+            var node = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(_preFbCondition);
+            return Promaker.Controls.ExpressionEditor.Converters.CoilConditionConverter.ToStPreview(node);
+        }
+    }
+
+    public bool HasPreFbCondition => _preFbCondition != null;
 
     public string ApiName
     {
@@ -578,6 +922,8 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
             if (!SetProperty(ref _targetFBType, value ?? "")) return;
             OnPropertyChanged(nameof(PortOptions));
             OnPropertyChanged(nameof(DataType));
+            OnPropertyChanged(nameof(IsDataTypeUserEditable));
+            OnPropertyChanged(nameof(IsDataTypeFromFb));
         }
     }
 
@@ -589,6 +935,8 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
         {
             if (!SetProperty(ref _targetFBPort, value ?? "")) return;
             OnPropertyChanged(nameof(DataType));
+            OnPropertyChanged(nameof(IsDataTypeUserEditable));
+            OnPropertyChanged(nameof(IsDataTypeFromFb));
         }
     }
 
@@ -608,14 +956,29 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
             if (!SetProperty(ref _isSpare, value)) return;
             OnPropertyChanged(nameof(IsEditable));
             OnPropertyChanged(nameof(DataType));
+            OnPropertyChanged(nameof(IsDataTypeUserEditable));
+            OnPropertyChanged(nameof(IsDataTypeFromFb));
         }
     }
 
     /// IsSpare 의 반대 — UI 셀 IsEnabled 바인딩용.
     public bool IsEditable => !_isSpare;
 
-    /// 선택된 FB Local Label 의 IEC 데이터 타입 (read-only).
-    /// 우선순위: 시스템 플래그 → IsSpare → FB 포트 → 빈값.
+    /// 사용자가 직접 선택한 데이터 타입 — FB Local Label 미설정 시에만 의미 있음.
+    /// FB 가 설정되면 FB 포트 타입이 우선되어 무시됨.
+    string _userDataType = "";
+    public string UserDataType
+    {
+        get => _userDataType;
+        set
+        {
+            if (!SetProperty(ref _userDataType, value ?? "")) return;
+            OnPropertyChanged(nameof(DataType));
+        }
+    }
+
+    /// 선택된 FB Local Label 의 IEC 데이터 타입.
+    /// 우선순위: 시스템 플래그 → IsSpare → FB 포트 → 사용자 선택.
     public string DataType
     {
         get
@@ -623,15 +986,38 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
             var sysType = Plc.Xgi.XgiSystemFlags.tryGetTypeName(_pattern ?? "");
             if (Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(sysType)) return sysType.Value;
             if (_isSpare) return "BOOL";
-            if (string.IsNullOrEmpty(_targetFBType) || string.IsNullOrEmpty(_targetFBPort)) return "";
-            return FBPortCatalog.GetPortTypeMap(_targetFBType).TryGetValue(_targetFBPort, out var t) ? t : "";
+            if (!string.IsNullOrEmpty(_targetFBType) && !string.IsNullOrEmpty(_targetFBPort))
+                return FBPortCatalog.GetPortTypeMap(_targetFBType).TryGetValue(_targetFBPort, out var t) ? t : "";
+            return _userDataType ?? "";
+        }
+        set
+        {
+            // FB 가 미설정일 때만 사용자 선택 의미 있음 — Cell 콤보 SelectedValue=DataType TwoWay 바인딩 호환.
+            if (string.IsNullOrEmpty(_targetFBType) || string.IsNullOrEmpty(_targetFBPort))
+                UserDataType = value ?? "";
         }
     }
+
+    /// FB 가 미설정 = 사용자 선택 가능. FB 가 설정되면 read-only.
+    public bool IsDataTypeUserEditable =>
+        !_isSpare
+        && (string.IsNullOrEmpty(_targetFBType) || string.IsNullOrEmpty(_targetFBPort));
+
+    /// FB 가 설정되어 데이터타입이 FB 포트로부터 자동 결정됨 — IsEditable 콤보의 IsReadOnly 바인딩.
+    public bool IsDataTypeFromFb => !IsDataTypeUserEditable;
+
+    /// 사용자 선택 가능한 IEC 표준 데이터 타입 후보.
+    public static System.Collections.Generic.IReadOnlyList<string> StandardDataTypes { get; }
+        = new[] { "", "BOOL", "BYTE", "WORD", "DWORD", "LWORD", "SINT", "INT", "DINT", "LINT",
+                  "USINT", "UINT", "UDINT", "ULINT", "REAL", "LREAL", "TIME", "STRING" };
 
     /// 선택된 FB 의 Local Label 목록 (콤보 데이터소스)
     public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
         FbPortOptionsHelper.Get(_targetFBType);
 }
+
+/// AUX 포트 콤보 옵션의 방향 필터 — 입력/출력/전체.
+public enum AuxPortDirectionFilter { All = 0, Input = 1, Output = 2 }
 
 /// <summary>
 /// AUX 포트 매핑 행 (AUX 포트 탭 그리드 바인딩용).
@@ -640,11 +1026,79 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
 /// </summary>
 public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
-    string _apiName = "", _targetFBType = "", _autoAuxPort = "", _comAuxPort = "";
+    /// 방향 필터 — 모든 행이 공유하는 정적 상태. 변경 시 NotifyAll() 로 PortOptions 갱신.
+    public static AuxPortDirectionFilter DirectionFilter { get; private set; } = AuxPortDirectionFilter.All;
 
-    public string ApiName     { get => _apiName;     set => SetProperty(ref _apiName, value ?? ""); }
-    public string AutoAuxPort { get => _autoAuxPort; set => SetProperty(ref _autoAuxPort, value ?? ""); }
-    public string ComAuxPort  { get => _comAuxPort;  set => SetProperty(ref _comAuxPort, value ?? ""); }
+    private static event System.Action? FilterChanged;
+
+    public static void SetDirectionFilter(AuxPortDirectionFilter mode)
+    {
+        if (DirectionFilter == mode) return;
+        DirectionFilter = mode;
+        FilterChanged?.Invoke();
+    }
+
+    string _apiName = "", _targetFBType = "", _targetFBPort = "", _kind = "DirectFB", _auxKind = "AutoAux";
+    Ds2.Core.FbInputExpr? _condition;
+
+    public AuxPortRow()
+    {
+        FilterChanged += () => OnPropertyChanged(nameof(PortOptions));
+    }
+
+    public string ApiName      { get => _apiName;      set => SetProperty(ref _apiName, value ?? ""); }
+    /// API 이름 콤보 후보 — row 생성 시 스냅샷 주입.
+    /// 동적 RelativeSource 바인딩 race (ItemsSource 평가 지연 → SelectedItem 매칭 실패 → TwoWay null 역기록) 회피.
+    public System.Collections.Generic.IReadOnlyList<string> ApiOptions { get; set; } = System.Array.Empty<string>();
+
+    /// 외부에서 ApiOptions 갱신 후 콤보 ItemsSource 재바인딩 트리거용.
+    public void RaisePropertyChanged(string propertyName) => OnPropertyChanged(propertyName);
+    /// FB 입력 포트 (FB Local Label).
+    public string TargetFBPort { get => _targetFBPort; set => SetProperty(ref _targetFBPort, value ?? ""); }
+    /// 와이어 종류 — "DirectFB" / "AuxCoil".
+    public string Kind
+    {
+        get => _kind;
+        set
+        {
+            if (!SetProperty(ref _kind, value ?? "DirectFB")) return;
+            OnPropertyChanged(nameof(IsAuxCoil));
+        }
+    }
+    /// AuxCoil 일 때 CallCondition 속성 매핑 — "AutoAux" / "ComAux".
+    public string AuxKind { get => _auxKind; set => SetProperty(ref _auxKind, value ?? "AutoAux"); }
+    /// XAML AuxKind 콤보 IsEnabled 바인딩.
+    public bool IsAuxCoil =>
+        string.Equals(_kind, "AuxCoil", System.StringComparison.OrdinalIgnoreCase);
+
+    /// 사용자 정의 추가 수식 — 자동 합성 조건과 AND 결합.
+    public Ds2.Core.FbInputExpr? Condition
+    {
+        get => _condition;
+        set
+        {
+            _condition = value;
+            OnPropertyChanged(nameof(Condition));
+            OnPropertyChanged(nameof(ConditionSummary));
+        }
+    }
+    /// 그리드 셀 표시용 ST 한 줄 요약.
+    public string ConditionSummary
+    {
+        get
+        {
+            if (_condition == null) return "";
+            var node = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(_condition);
+            return Promaker.Controls.ExpressionEditor.Converters.CoilConditionConverter.ToStPreview(node);
+        }
+    }
+
+    /// Kind 콤보 후보.
+    public static System.Collections.Generic.IReadOnlyList<string> KindOptions { get; }
+        = new[] { "DirectFB", "AuxCoil" };
+    /// AuxKind 콤보 후보 — None 은 CallCondition 미사용 (entry.Condition 만 사용).
+    public static System.Collections.Generic.IReadOnlyList<string> AuxKindOptions { get; }
+        = new[] { "AutoAux", "ComAux", "None" };
 
     /// SystemType 선택 시 일괄 주입. PortOptions 는 동일 콤보 데이터소스로 의존.
     public string TargetFBType
@@ -657,10 +1111,57 @@ public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
         }
     }
 
-    /// AUX 콤보 옵션 — FbPortOptionsHelper 가 이미 빈 항목 제공 (선택 해제용).
+    /// AUX 콤보 옵션 — 방향 필터 적용. 빈 항목은 항상 첫 행 (선택 해제용).
     public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
-        FbPortOptionsHelper.Get(_targetFBType);
+        FbPortOptionsHelper.GetByDirection(_targetFBType, DirectionFilter);
 }
+
+/// AUX 매핑 클립보드 직렬화 단위.
+public sealed record AuxPortClipboardItem(
+    string ApiName,
+    string TargetFBPort,
+    string Kind,
+    string AuxKind,
+    Promaker.Controls.ExpressionEditor.Models.ExprNode? Condition);
+
+/// <summary>
+/// EndPortMap 행 — API 이름 → 완료 FB 출력 포트 매핑.
+/// PLC 인과 자동 게이팅 (A 의 완료 → B 시작) 에 사용. preset 단위 1:1 정적 매핑.
+/// </summary>
+public class EndPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+{
+    string _apiName = "", _endPort = "", _targetFBType = "";
+
+    public string ApiName { get => _apiName; set => SetProperty(ref _apiName, value ?? ""); }
+    public string EndPort { get => _endPort; set => SetProperty(ref _endPort, value ?? ""); }
+
+    public System.Collections.Generic.IReadOnlyList<string> ApiOptions { get; set; }
+        = System.Array.Empty<string>();
+
+    public string TargetFBType
+    {
+        get => _targetFBType;
+        set
+        {
+            if (!SetProperty(ref _targetFBType, value ?? "")) return;
+            OnPropertyChanged(nameof(PortOptions));
+        }
+    }
+
+    /// 완료 OUT 포트 후보 — FB 의 출력 포트만.
+    public System.Collections.Generic.IReadOnlyList<string> PortOptions =>
+        FbPortOptionsHelper.GetByDirection(_targetFBType, AuxPortDirectionFilter.Output);
+}
+
+/// IW/QW/MW 신호 패턴 행 클립보드 직렬화 단위 — 동일 타입 그리드끼리 호환.
+public sealed record SignalRowClipboardItem(
+    string ApiName,
+    string Pattern,
+    string TargetFBPort,
+    bool   SkipAddressAlloc,
+    bool   IsSpare,
+    string UserDataType,
+    Promaker.Controls.ExpressionEditor.Models.ExprNode? PreFbCondition);
 
 /// <summary>
 /// 오류 표시 항목 (ListBox 바인딩용)
@@ -684,6 +1185,21 @@ internal static class FbPortOptionsHelper
         var labels = FBPortCatalog.GetLocalLabels(fbType!);
         var result = new System.Collections.Generic.List<string>(labels.Count + 1) { "" };
         result.AddRange(labels);
+        return result;
+    }
+
+    /// <summary>방향(입력/출력/전체) 필터를 적용한 FB Local Label 콤보 옵션.</summary>
+    public static System.Collections.Generic.IReadOnlyList<string> GetByDirection(string? fbType, AuxPortDirectionFilter mode)
+    {
+        if (string.IsNullOrEmpty(fbType)) return System.Array.Empty<string>();
+        var (inputs, outputs) = FBPortCatalog.GetPortsByDirection(fbType!);
+        var result = new System.Collections.Generic.List<string> { "" };
+        switch (mode)
+        {
+            case AuxPortDirectionFilter.Input:  result.AddRange(inputs);  break;
+            case AuxPortDirectionFilter.Output: result.AddRange(outputs); break;
+            default: result.AddRange(inputs); result.AddRange(outputs); break;
+        }
         return result;
     }
 }

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
         Title="ApiDef 편집"
-        Width="380" Height="330"
+        Width="380" Height="430"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -80,12 +80,15 @@
             </Grid>
 
             <!-- 설명 -->
-            <StackPanel Grid.Row="4" Margin="0,0,0,8">
-                <TextBlock Text="설명"
+            <DockPanel Grid.Row="4" Grid.RowSpan="2" Margin="0,0,0,8" LastChildFill="True">
+                <TextBlock Text="설명" DockPanel.Dock="Top"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
-                <TextBox x:Name="DescriptionBox" Padding="6,4"/>
-            </StackPanel>
+                <TextBox x:Name="DescriptionBox" Padding="6,4"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         VerticalContentAlignment="Top"/>
+            </DockPanel>
 
             <!-- Buttons -->
             <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right"

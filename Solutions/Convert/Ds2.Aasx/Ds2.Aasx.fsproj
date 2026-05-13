@@ -12,6 +12,8 @@
     <Compile Include="AasxFileIO.fs" />
     <Compile Include="Concepts\Catalog.fs" />
     <Compile Include="Concepts\Builder.fs" />
+    <Compile Include="Concepts\TemplateLoader.fs" />
+    <Compile Include="Concepts\TemplateScaffold.fs" />
     <Compile Include="Import\Core.fs" />
     <Compile Include="Export\Core.fs" />
     <Compile Include="Common\PropertyConversion.fs" />
@@ -32,6 +34,20 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Concepts\Templates\SequenceModel.aasx">
       <LogicalName>Ds2.Aasx.Templates.SequenceModel.aasx</LogicalName>
+    </EmbeddedResource>
+    <!-- ───────────────────────────────────────────────────────────────────
+         IDTA 표준 SM 템플릿 — admin-shell-io/submodel-templates 에서 받은
+         원본 .aasx 를 무수정 임베드. TemplateLoader 로 런타임 로드.
+         업데이트: 새 버전 publish 시 본 폴더 파일만 교체 (코드 무수정).
+         ─────────────────────────────────────────────────────────────────── -->
+    <EmbeddedResource Include="Concepts\Templates\Nameplate.aasx">
+      <LogicalName>Ds2.Aasx.Templates.Nameplate.aasx</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Concepts\Templates\HandoverDocumentation.aasx">
+      <LogicalName>Ds2.Aasx.Templates.HandoverDocumentation.aasx</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Concepts\Templates\TechnicalData.aasx">
+      <LogicalName>Ds2.Aasx.Templates.TechnicalData.aasx</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

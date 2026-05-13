@@ -14,6 +14,8 @@ module ImportPlanApply =
                     project.ActiveSystemIds.Add(systemId)
                 else
                     project.PassiveSystemIds.Add(systemId))
+        | AddProject project ->
+            store.TrackAdd(store.Projects, project)
         | AddSystem system ->
             store.TrackAdd(store.Systems, system)
         | AddFlow flow ->
@@ -30,6 +32,18 @@ module ImportPlanApply =
             store.TrackAdd(store.ArrowWorks, arrow)
         | AddArrowCall arrow ->
             store.TrackAdd(store.ArrowCalls, arrow)
+        | RemoveEntity (kind, id) ->
+            // CascadeRemove 가 history 추적 (TrackRemove / TrackMutate) + 자식 cascade 모두 처리.
+            // batchRemoveEntities 는 selections list 안에서 부모-자식 중복 제거 + orphan ApiCall 정리까지 포함.
+            CascadeRemove.batchRemoveEntities store [ (kind, id) ]
+        | RenameEntity (kind, id, newName) ->
+            match kind with
+            | EntityKind.System ->
+                store.TrackMutate(store.Systems, id, fun s -> s.Name <- newName)
+            | EntityKind.ApiDef ->
+                store.TrackMutate(store.ApiDefs, id, fun d -> d.Name <- newName)
+            | _ ->
+                invalidOp $"RenameEntity: kind={kind} 는 phase 2 미지원 (System/ApiDef 만)."
 
     let applyWithUndo (store: DsStore) (label: string) (plan: ImportPlan) =
         store.WithTransaction(label, fun () ->

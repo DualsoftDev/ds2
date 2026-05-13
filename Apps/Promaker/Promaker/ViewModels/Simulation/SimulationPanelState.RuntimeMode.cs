@@ -146,15 +146,31 @@ public partial class SimulationPanelState
         if (!requiresExclusiveImmediateLane)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrite: false);
+            if (awaitWrites)
+                FlushBatchSenderSynchronously(hubGeneration);
             return;
         }
 
         lock (_runtimeImmediateEffectLock)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrite: false);
+            if (awaitWrites)
+                FlushBatchSenderSynchronously(hubGeneration);
         }
+    }
+
+    /// <summary>
+    /// awaitWrites=true 일 때 batch 끝에 호출 — pending 한 WriteTag 들이 모두 송신될 때까지 동기 대기.
+    /// 기존 per-effect await 의 의미(쓰기 완료 후 다음 단계 진행)를 유지.
+    /// </summary>
+    private void FlushBatchSenderSynchronously(int hubGeneration)
+    {
+        var sender = _hubBatchSender;
+        if (sender is null || !IsCurrentHubGeneration(hubGeneration)) return;
+        try { sender.FlushAsync().Wait(TimeSpan.FromSeconds(2)); }
+        catch { /* best-effort */ }
     }
 
     private void ApplyRuntimeHubEffect(
@@ -192,18 +208,12 @@ public partial class SimulationPanelState
                 return;
 
             case RuntimeHubEffectKind.WriteTag:
-                if (_hubConnection is { State: HubConnectionState.Connected } hub
-                    && IsCurrentHubConnection(hubGeneration, hub)
+                if (_hubConnection is not null
+                    && IsCurrentHubConnection(hubGeneration, _hubConnection)
                     && !string.IsNullOrEmpty(effect.Address))
                 {
-                    var writeTask = InvokeRuntimeHubWriteTagAsync(
-                        hub,
-                        hubGeneration,
-                        effect.Address,
-                        effect.Value,
-                        runtimeSource);
-                    if (awaitWrite)
-                        writeTask.GetAwaiter().GetResult();
+                    // Batch sender 가 짧은 윈도우 내 WriteTag 들을 묶어 1개 SignalR 프레임으로 송신.
+                    _hubBatchSender?.Enqueue(effect.Address, effect.Value, runtimeSource);
                 }
                 return;
 
@@ -214,29 +224,6 @@ public partial class SimulationPanelState
                         ObserveAndInferPassiveState(effect.Address, effect.Value);
                 });
                 return;
-        }
-    }
-
-    private async Task InvokeRuntimeHubWriteTagAsync(
-        HubConnection hub,
-        int hubGeneration,
-        string address,
-        string value,
-        string runtimeSource)
-    {
-        try
-        {
-            if (!IsCurrentHubConnection(hubGeneration, hub))
-                return;
-            await hub.InvokeAsync(HubMethod.WriteTag, address, value, runtimeSource);
-        }
-        catch (Exception ex)
-        {
-            _ = _dispatcher.BeginInvoke(() =>
-            {
-                if (IsCurrentHubGeneration(hubGeneration))
-                    AddSimLog($"[Hub] WriteTag failed: {ex.Message}", LogSeverity.Error);
-            });
         }
     }
 
@@ -293,6 +280,26 @@ public partial class SimulationPanelState
                     return;
                 tagValues[address] = await hub.InvokeAsync<string>(HubMethod.QueryTag, address);
             }
+
+            // 진단용 — query 결과의 값 분포를 sim 패널 로그에 노출.
+            // 모두 ""(빈 값) 이면 hub cache 가 PLC scan 전에 query 됐다는 뜻 →
+            //   원인: PlcScanService initial scan 이 완료되기 전에 SyncRuntimeBootstrapStateFromHub 가 실행됨.
+            // 일부 값이 "true"/"false" 면 cache 정상 → 엔진 추론 로직 자체를 보아야 함.
+            var emptyCount = 0;
+            var trueCount  = 0;
+            var falseCount = 0;
+            var sampleNonEmpty = new System.Collections.Generic.List<string>();
+            foreach (var (addr, val) in tagValues)
+            {
+                if (string.IsNullOrEmpty(val)) emptyCount++;
+                else if (val == "true") { trueCount++; if (sampleNonEmpty.Count < 5) sampleNonEmpty.Add($"{addr}=T"); }
+                else { falseCount++; if (sampleNonEmpty.Count < 5) sampleNonEmpty.Add($"{addr}={val}"); }
+            }
+            var sampleText = sampleNonEmpty.Count > 0 ? $", 샘플=[{string.Join(",", sampleNonEmpty)}]" : "";
+            _ = _dispatcher.BeginInvoke(() =>
+                AddSimLog(
+                    $"[Ctrl] Hub query: {tagValues.Count}개 address — 빈값={emptyCount}, true={trueCount}, false={falseCount}{sampleText}",
+                    emptyCount == tagValues.Count && tagValues.Count > 0 ? LogSeverity.Warn : LogSeverity.Info));
 
             var effects = runtimeSession.ResolveHubSnapshotEffects(tagValues)
                 .OrderBy(effect => effect.DelayMs)

@@ -15,6 +15,14 @@
     <OtherFlags>
     </OtherFlags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CS9057: OllamaSharp 5.4.25 의 분석기 어셈블리 OllamaSharp.SourceGenerators.dll 이 Roslyn 5.0.0.0 을
+         요구하지만 현재 .NET SDK 9.0.301 의 Roslyn 은 4.14.0.0. 분석기가 로드되지 않을 뿐 본 코드는
+         [OllamaTool] attribute 미사용 (MCP 경유 tool 호출) — 런타임 무해.
+         **회수 조건** (R7 cross-check 2026-05-11 — Microsoft Learn Roslyn version mapping 기준): (a) .NET
+         SDK 가 Roslyn 5.0+ 포함 — Roslyn 5.0.0 은 **VS 2026 (18.0) / .NET 10 SDK** 부터 (VS 17.x 계열은
+         영원히 4.x 라인), 또는 (b) OllamaSharp 가 Roslyn 4.x 호환 분석기로 downgrade. 둘 다 미충족 시
+         NoWarn 유지. -->
+    <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
@@ -22,6 +30,18 @@
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- Phase 2 — API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="OllamaSharp" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <!-- LLM Chat 첨부 Phase 3b — PDF 페이지 수 추출 (LlmChatViewModel.Attachments.cs 의 LoadAcceptedAttachments). -->
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -47,6 +67,9 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
+    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
+    <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
+    <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
@@ -60,14 +83,20 @@
 
   </ItemGroup>
   <ItemGroup>
-    <!-- AAStoPLC, AAStoPLC.LadderViewer 는 별도 저장소(dsev2cpu) 빌드 산출물.
+    <!-- AAStoPLC, AAStoPLC.LadderEditor 는 별도 저장소(dsev2cpu) 빌드 산출물.
          빌드 시 ExternalDlls 로 게시되며, 여기서는 그 dll 만 파일 참조. -->
     <Reference Include="AAStoPLC">
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="AAStoPLC.LadderViewer">
-      <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderViewer.dll</HintPath>
+    <Reference Include="AAStoPLC.LadderEditor">
+      <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderEditor.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <!-- PLC 게이트웨이가 Ev2.PLC.Common 의 PlcDataType 을 노출하므로,
+         PlcSettings 모델 빌드 시 C# 측에서도 동일 타입을 참조 가능해야 한다. -->
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
@@ -77,6 +106,7 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />

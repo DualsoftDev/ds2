@@ -60,8 +60,10 @@ public partial class MainViewModel
     {
         _store.ClearHistory();
         _currentFilePath = filePath;
+        RecordCurrentFileMTime();
         IsDirty = false;
         HasProject = true;
+        LlmChatVm?.OnProjectOpened();
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
@@ -86,6 +88,7 @@ public partial class MainViewModel
     private void CompleteSave(string filePath, string kind)
     {
         _currentFilePath = filePath;
+        RecordCurrentFileMTime();
         IsDirty = false;
         UpdateTitle();
         StatusText = "Saved.";
@@ -106,8 +109,36 @@ public partial class MainViewModel
         OpenFilePath(dlg.FileName);
     }
 
-    /// <summary>지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.</summary>
+    /// <summary>
+    /// 지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.
+    /// 큰 프로젝트(AASX 등)는 수 초 걸릴 수 있으므로 BusyOverlay 를 먼저 렌더한 뒤
+    /// Background 우선순위로 본 작업을 시작 → 사용자가 "로딩 중" 표시를 즉시 확인.
+    /// 본 작업이 RequestRebuildAll 을 큐잉하면 그 rebuild 가 끝난 시점에 IsBusy=false.
+    /// </summary>
     internal void OpenFilePath(string fileName)
+    {
+        BusyMessage = $"파일을 여는 중... {Path.GetFileName(fileName)}";
+        IsBusy = true;
+
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                OpenFilePathCore(fileName);
+            }
+            finally
+            {
+                // CompleteOpen 이 RequestRebuildAll 을 큐잉했으면 rebuild 완료 후 hide.
+                // (실패 분기 / 빠른 분기에서는 큐잉이 없으므로 즉시 hide.)
+                if (_rebuildQueued)
+                    _pendingRebuildActions.Add(() => IsBusy = false);
+                else
+                    IsBusy = false;
+            }
+        }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void OpenFilePathCore(string fileName)
     {
         if (IsMermaid(fileName))
         {
@@ -218,24 +249,17 @@ public partial class MainViewModel
                 Simulation.StopSimulationCommand.Execute(null);
         }
 
-        // TechnicalData 가 없으면 표시할 게 없음 — 빈 상태로라도 열어 사용자가 확인 가능하도록 신규 생성
-        Ds2.Core.TechnicalDataTypes.TechnicalData td;
-        if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.get_IsSome(project.TechnicalData))
-        {
-            td = project.TechnicalData.Value;
-        }
-        else
-        {
-            td = new Ds2.Core.TechnicalDataTypes.TechnicalData();
-            project.TechnicalData = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.Some(td);
-        }
-
-        var dlg = new Promaker.Dialogs.SimulationScenariosDialog(Simulation, td);
+        // SimulationResult 는 이제 Project 레벨 (이전엔 TechnicalData.SimulationResult).
+        // SequenceSimulation 서브모델로 emit 됨.
+        var dlg = new Promaker.Dialogs.SimulationScenariosDialog(Simulation, project);
         _dialogService.ShowDialog(dlg);
     }
 
+    /// <summary>
+    /// 프로젝트 메타 편집 (이름/작성자/버전/설명). 프로젝트가 열려 있을 때만 활성.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(HasProject))]
-    private void ShowProjectSettings()
+    private void ShowProjectProperties()
     {
         var project = HasProject
             ? Queries.allProjects(_store).Head
@@ -257,14 +281,30 @@ public partial class MainViewModel
                 dlg.ResultAuthor,
                 dlg.ResultDateTime,
                 dlg.ResultVersion);
-
-            // 앱 설정으로 저장
-            SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
-            SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
-            SetIriPrefix(dlg.ResultIriPrefix);
-            // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
         StatusText = "프로젝트 속성이 변경되었습니다.";
+    }
+
+    /// <summary>
+    /// 환경(앱 전역) 설정 편집 — AASX / PLC / LLM / 프리셋. 프로젝트와 무관, 항상 활성.
+    /// </summary>
+    [RelayCommand]
+    private void ShowApplicationSettings()
+    {
+        var dlg = new ApplicationSettingsDialog();
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+        if (!accepted) return;
+
+        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload.
+        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
+
+        // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
+        SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+        SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
+        SetIriPrefix(dlg.ResultIriPrefix);
+        // PresetSystemTypes / PlcConfig / LlmConfig 는 Dialog 내부에서 이미 파일에 저장됨
+
+        StatusText = "환경 설정이 변경되었습니다.";
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]
@@ -344,7 +384,42 @@ public partial class MainViewModel
                     Log.Warn($"AASX 저장 전 시뮬 시나리오 박제 실패 (무시): {capEx.Message}");
                 }
 
+                // 사용자 정의 AASX 템플릿 폴더 — 설정값을 export 직전에 set, 후 reset.
+                var userTplFolder = Promaker.Presentation.AppSettingStore.LoadStringOrDefault(
+                    Promaker.Services.SettingsPaths.AasxUserTemplatesFolder, "");
+                var prevTplFolder = AasxExporter.UserTemplatesFolder;
+                AasxExporter.UserTemplatesFolder =
+                    string.IsNullOrWhiteSpace(userTplFolder) || !System.IO.Directory.Exists(userTplFolder)
+                        ? Microsoft.FSharp.Core.FSharpOption<string>.None
+                        : Microsoft.FSharp.Core.FSharpOption<string>.Some(userTplFolder);
+
                 var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
+
+                AasxExporter.UserTemplatesFolder = prevTplFolder;
+
+                // 사용자 폴더 SM 이 ds2 표준 SM 을 override 했는지 확인 → 사용자에게 상세 안내.
+                if (exported)
+                {
+                    var overrides = AasxExporter.LastUserTemplateOverrides;
+                    if (overrides != null && overrides.Any())
+                    {
+                        var lines = string.Join("\n",
+                            overrides.Select(t => $"  • {t.Item1}  →  Submodel \"{t.Item2}\""));
+                        var msg =
+                            $"AASX 사용자 템플릿 폴더의 .aasx 파일이 ds2 기본 표준 Submodel 을 덮어썼습니다.\n\n" +
+                            $"{lines}\n\n" +
+                            $"⚠ 결과: 위 Submodel(들) 은 사용자 폴더의 .aasx 내용으로 출력되며,\n" +
+                            $"     Promaker 의 입력 데이터(예: Nameplate 의 ManufacturerName/SerialNumber 등) 는 \n" +
+                            $"     반영되지 않습니다.\n\n" +
+                            $"폴더: {userTplFolder}\n" +
+                            $"파일: {filePath}\n\n" +
+                            $"의도한 동작이 아니라면, 사용자 템플릿 폴더에서 해당 파일을 제거하거나\n" +
+                            $"Submodel idShort 를 ds2 표준과 다른 이름으로 변경하세요\n" +
+                            $"(예: \"Nameplate\" → \"NameplateCustom\").";
+                        Promaker.Dialogs.DialogHelpers.ShowThemedMessageBox(
+                            msg, "AASX 사용자 템플릿 override 안내", System.Windows.MessageBoxButton.OK, "ⓘ");
+                    }
+                }
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 

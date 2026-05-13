@@ -48,7 +48,7 @@ public partial class TagWizardDialog
     private static IEnumerable<string> ExpandSystemTypeTemplate(string name)
     {
         if (string.Equals(name, "Cylinder_#", StringComparison.Ordinal))
-            return Ds2.Core.Store.DevicePresets.Entries3
+            return Ds2.Core.Store.DevicePresets.Entries()
                 .Select(t => t.Item1)
                 .Where(s => s.StartsWith("Cylinder_") && int.TryParse(s.AsSpan("Cylinder_".Length), out _));
         return new[] { name };
@@ -184,7 +184,11 @@ public partial class TagWizardDialog
         {
             var ba = kv.Value.BaseAddresses;
             if (ba == null) continue;
-            result[kv.Key] = (TryParseNum(ba.InputBase), TryParseNum(ba.OutputBase), TryParseNum(ba.MemoryBase));
+            var iw = TryParseNum(ba.InputBase);
+            var qw = TryParseNum(ba.OutputBase);
+            var mw = TryParseNum(ba.MemoryBase);
+            if (iw == null && qw == null && mw == null) continue;
+            result[kv.Key] = (iw, qw, mw);
         }
         return result;
     }
@@ -484,6 +488,7 @@ public partial class TagWizardDialog
                          && !string.Equals(n, "-", StringComparison.Ordinal))
                 .Distinct(StringComparer.OrdinalIgnoreCase);
             LoadAuxPortRows(systemType, apis);
+            LoadEndPortRows(systemType, apis);
         }
         catch (Exception ex)
         {
@@ -514,6 +519,34 @@ public partial class TagWizardDialog
         _qwSignalRows.Clear();
         _mwSignalRows.Clear();
         _auxPortRows.Clear();
+        _endPortRows.Clear();
+    }
+
+    /// <summary>EndPortMap 행 로드 — preset.EndPortMap 의 (api, port) 를 그대로 풀어 행으로 표시.</summary>
+    private void LoadEndPortRows(string systemType, IEnumerable<string> apis)
+    {
+        _endPortRows.Clear();
+        var presets = FBTagMapStore.LoadAll(_store);
+        var fbType = "";
+        var existing = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (presets.TryGetValue(systemType, out var preset) && preset != null)
+        {
+            fbType = preset.FBTagMapName ?? "";
+            if (preset.EndPortMap != null)
+                foreach (var kv in preset.EndPortMap)
+                    if (!string.IsNullOrEmpty(kv.Key)) existing[kv.Key] = kv.Value ?? "";
+        }
+        var apiOpts = BuildAuxApiOptions(systemType);
+        foreach (var kv in existing.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            _endPortRows.Add(HookAutoSave(new EndPortRow
+            {
+                ApiName      = kv.Key,
+                EndPort      = kv.Value,
+                TargetFBType = fbType,
+                ApiOptions   = apiOpts,
+            }));
+        }
     }
 
     /// <summary>
@@ -521,22 +554,48 @@ public partial class TagWizardDialog
     /// FBTagMapPreset 에 기존 설정이 있으면 값 채움. API 목록은 signal template 에서 전달받은 distinct API 이름들.
     /// SystemType 당 단일 FB 타입을 글로벌 콤보에도 반영.
     /// </summary>
+    /// <summary>AUX 포트 심볼 콤보 후보 — 현 SystemType 의 preset IW/QW/MW 패턴 중 FB 포트가 설정된 항목.
+    /// 자유 입력도 허용 (IsEditable=True). 자유 입력한 심볼은 코일 비트로 단독 럼 생성.</summary>
+    private List<string> BuildAuxApiOptions(string systemType)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(systemType)) return result;
+        var presets = FBTagMapStore.LoadAll(_store);
+        if (!presets.TryGetValue(systemType, out var preset) || preset == null) return result;
+
+        void Collect(IEnumerable<SignalPatternEntryDto> entries)
+        {
+            foreach (var e in entries)
+            {
+                if (e == null || string.IsNullOrWhiteSpace(e.Pattern)) continue;
+                if (e.IsSpare) continue;
+                // FB 포트 미설정 신호도 포함 — 단독 코일/외부 참조 가능.
+                if (!result.Contains(e.Pattern, StringComparer.OrdinalIgnoreCase))
+                    result.Add(e.Pattern);
+            }
+        }
+        Collect(preset.IwPatterns);
+        Collect(preset.QwPatterns);
+        Collect(preset.MwPatterns);
+        result.Sort(StringComparer.OrdinalIgnoreCase);
+        return result;
+    }
+
     private void LoadAuxPortRows(string systemType, IEnumerable<string> apis)
     {
         _auxPortRows.Clear();
 
-        // 현재 preset 로드 (해당 SystemType 의 FBTagMapName 과 AUX 맵)
+        // 현재 preset 로드 (해당 SystemType 의 FBTagMapName 과 AuxPortMap)
         var presets = FBTagMapStore.LoadAll(_store);
         var fbType = "";
-        var existingAutoMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var existingComMap  = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var auxEntries = new List<AuxPortMapEntryDto>();
         if (presets.TryGetValue(systemType, out var preset))
         {
             fbType = preset.FBTagMapName ?? "";
-            if (preset.AutoAuxPortMap != null)
-                foreach (var kv in preset.AutoAuxPortMap) existingAutoMap[kv.Key] = kv.Value;
-            if (preset.ComAuxPortMap != null)
-                foreach (var kv in preset.ComAuxPortMap) existingComMap[kv.Key] = kv.Value;
+            if (preset.AuxPortMap != null)
+                foreach (var e in preset.AuxPortMap)
+                    if (e != null && !string.IsNullOrEmpty(e.ApiName))
+                        auxEntries.Add(e);
         }
 
         // 글로벌 FB 타입 콤보 동기화 (이벤트 미발화 상태에서 선택 — 후속 AuxPortRow 주입과 충돌 방지)
@@ -548,14 +607,18 @@ public partial class TagWizardDialog
             GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
         }
 
-        foreach (var api in apis)
+        // Preset 의 기존 entry 만 표시 — 자동 빈 행 추가 X (사용자가 ➕ 행 추가 로 수동 추가).
+        foreach (var e in auxEntries)
         {
             var row = new AuxPortRow
             {
-                ApiName      = api,
+                ApiName      = e.ApiName,
                 TargetFBType = fbType,
-                AutoAuxPort  = existingAutoMap.TryGetValue(api, out var a) ? a : "",
-                ComAuxPort   = existingComMap.TryGetValue(api, out var c) ? c : "",
+                TargetFBPort = e.TargetFBPort ?? "",
+                Kind         = string.IsNullOrEmpty(e.Kind) ? "DirectFB" : e.Kind,
+                AuxKind      = string.IsNullOrEmpty(e.AuxKind) ? "AutoAux" : e.AuxKind,
+                Condition    = DtoToCoreExpr(e.Condition),
+                ApiOptions   = BuildAuxApiOptions(systemType),
             };
             _auxPortRows.Add(HookAutoSave(row));
         }
@@ -611,15 +674,29 @@ public partial class TagWizardDialog
         foreach (var sec in AllSections())
             SaveSectionRows(sec, presetDto);
 
-        presetDto.AutoAuxPortMap.Clear();
-        presetDto.ComAuxPortMap.Clear();
+        // 통합 AuxPortMap 단일 진실원 — 한 행 = 한 entry.
+        presetDto.AuxPortMap.Clear();
         foreach (var row in _auxPortRows)
         {
             if (string.IsNullOrWhiteSpace(row.ApiName)) continue;
-            if (!string.IsNullOrWhiteSpace(row.AutoAuxPort))
-                presetDto.AutoAuxPortMap[row.ApiName] = row.AutoAuxPort;
-            if (!string.IsNullOrWhiteSpace(row.ComAuxPort))
-                presetDto.ComAuxPortMap[row.ApiName] = row.ComAuxPort;
+            if (string.IsNullOrWhiteSpace(row.TargetFBPort)) continue;
+            presetDto.AuxPortMap.Add(new AuxPortMapEntryDto
+            {
+                ApiName      = row.ApiName,
+                TargetFBPort = row.TargetFBPort,
+                Kind         = string.IsNullOrEmpty(row.Kind) ? "DirectFB" : row.Kind,
+                AuxKind      = string.IsNullOrEmpty(row.AuxKind) ? "AutoAux" : row.AuxKind,
+                Condition    = CoreToDtoExpr(row.Condition),
+            });
+        }
+
+        // EndPortMap — API → 완료 OUT 포트 매핑.
+        presetDto.EndPortMap.Clear();
+        foreach (var row in _endPortRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.ApiName)) continue;
+            if (string.IsNullOrWhiteSpace(row.EndPort)) continue;
+            presetDto.EndPortMap[row.ApiName] = row.EndPort;
         }
 
         // legacy Ports/FBTagMapTemplate 재생성 제거 — Direction 은 XGI_Template 가 단일 출처.
@@ -646,6 +723,57 @@ public partial class TagWizardDialog
         RemoveSelectedAndAdvance(QwSignalGrid, _qwSignalRows);
     private void RemoveMwRow_Click(object sender, RoutedEventArgs e) =>
         RemoveSelectedAndAdvance(MwSignalGrid, _mwSignalRows);
+
+    private void MoveIwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(IwSignalGrid, _iwSignalRows, up: true);
+    private void MoveIwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(IwSignalGrid, _iwSignalRows, up: false);
+    private void MoveQwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(QwSignalGrid, _qwSignalRows, up: true);
+    private void MoveQwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(QwSignalGrid, _qwSignalRows, up: false);
+    private void MoveMwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(MwSignalGrid, _mwSignalRows, up: true);
+    private void MoveMwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(MwSignalGrid, _mwSignalRows, up: false);
+
+    /// <summary>선택된 행을 위/아래로 1칸 이동. 다중 선택 시 그룹 전체 이동.
+    /// up=true 면 인덱스 오름차순으로 (위 행과 swap), 아래로는 내림차순으로 처리해 안전하게 이동.</summary>
+    private void MoveSelected<T>(
+        System.Windows.Controls.DataGrid grid,
+        ObservableCollection<T> rows,
+        bool up) where T : class
+    {
+        if (grid == null || rows == null || rows.Count < 2) return;
+        var selected = grid.SelectedItems.Cast<T>().ToList();
+        if (selected.Count == 0) return;
+
+        var indices = selected.Select(r => rows.IndexOf(r)).Where(i => i >= 0).ToList();
+        if (indices.Count == 0) return;
+
+        if (up)
+        {
+            indices.Sort();
+            if (indices[0] == 0) return;  // 이미 맨 위
+            foreach (var i in indices) rows.Move(i, i - 1);
+        }
+        else
+        {
+            indices.Sort((a, b) => b.CompareTo(a));
+            if (indices[0] == rows.Count - 1) return;  // 이미 맨 아래
+            foreach (var i in indices) rows.Move(i, i + 1);
+        }
+
+        PersistCurrentPreset();
+
+        grid.SelectedItems.Clear();
+        foreach (var item in selected)
+        {
+            grid.SelectedItems.Add(item);
+        }
+        grid.CurrentItem = selected[0];
+        grid.ScrollIntoView(selected[0]);
+    }
 
     /// <summary>
     /// 선택된 행 제거 후 가장 작은 삭제 인덱스 위치로 커서 이동.

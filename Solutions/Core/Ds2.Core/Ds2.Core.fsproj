@@ -13,11 +13,17 @@
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
     <Compile Include="ModelClass.fs" />
+    <Compile Include="SequenceSubmodels\00_CommonProperties.fs" />
     <Compile Include="SequenceSubmodels\01_Simulation.fs" />
+    <Compile Include="SequenceSubmodels\01_Simulation.Snapshot.fs" />
     <Compile Include="SequenceSubmodels\02_Control.fs" />
     <Compile Include="SequenceSubmodels\03_Monitoring.fs" />
     <Compile Include="SequenceSubmodels\04_Logging.fs" />
+    <Compile Include="SequenceSubmodels\04_Logging.Helpers.fs" />
     <Compile Include="SequenceSubmodels\05_Maintenance.fs" />
+    <Compile Include="SequenceSubmodels\05_Maintenance.AnalysisAndContracts.fs" />
+    <Compile Include="SequenceSubmodels\05_Maintenance.Properties.fs" />
+    <Compile Include="SequenceSubmodels\05_Maintenance.Registry.fs" />
     <Compile Include="SequenceSubmodels\06_Hmi.fs" />
     <Compile Include="SequenceSubmodels\07_Quality.fs" />
     <Compile Include="SequenceSubmodels\08_CostAnalysis.fs" />

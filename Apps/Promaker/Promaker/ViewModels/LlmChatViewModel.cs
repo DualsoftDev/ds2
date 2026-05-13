@@ -1,0 +1,1050 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Ds2.Core.Store;
+using Ds2.Editor;
+using Ds2.LlmAgent;
+using Promaker.LlmAgent;
+using Promaker.LlmAgent.Api;
+using log4net;
+
+namespace Promaker.ViewModels;
+
+/// <summary>
+/// Phase 2 후속 — 모든 provider 가 ILlmProvider 로 추상화 후 dispatch.
+/// CLI 2종 (Claude / Codex) + API 3종 (Anthropic / OpenAI / Ollama).
+/// API provider 는 Microsoft.Extensions.AI IChatClient + UseFunctionInvocation + McpClient HTTP self-call 패턴.
+/// </summary>
+public enum LlmProviderKind
+{
+    Claude,
+    Codex,
+    AnthropicApi,
+    OpenAiApi,
+    Ollama,
+    /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 정식 schema 로 보존 (이름 동일).</summary>
+    GroqApi,
+}
+
+/// <summary>
+/// Promaker 의 LLM chat ViewModel.
+///
+/// Phase 1c — system prompt + 단일 mutation/read tool 풀세트 + turn end ApplyImportPlan.
+///   1 LLM turn = 1 undo step (결정 7 (d), `Ds2.Editor.ImportPlanApply.applyWithUndo`).
+/// Phase 2 — `ILlmProvider` 추상화 + Claude / Codex provider dispatch (UI ComboBox).
+/// extend-mcp Phase L3 — Active/Passive System 분리 + Tier 1 device-class helper 4종 (add_cylinder /
+///   add_clamp / add_robot / add_device) 으로 PassiveSystem cascade 자동 생성.
+/// </summary>
+public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
+{
+    private static readonly ILog Log = LogManager.GetLogger(typeof(LlmChatViewModel));
+
+    /// <summary>현재 active DsStore. <see cref="MainViewModel.Reset"/> 에서 reassign 시 <see cref="UpdateStore"/> 로 동기화.
+    /// readonly 가 아닌 사유: 새 프로젝트 시 MainViewModel._store 가 새 인스턴스로 교체되는데 본 VM 의 reference 가 stale 되면
+    /// `Queries.allProjects(store)` 가 empty 반환 → tool 호출 시 "프로젝트가 없습니다" throw (Hot-fix-7).</summary>
+    private DsStore _store;
+    private readonly IUiDispatcher _dispatcher;
+    /// <summary>
+    /// EditorEvent subscription 의 onNext 가 dispatcher thread 에서 동기 도착했는지 판단하기 위해 보관.
+    /// thread-affinity 검사는 IUiDispatcher 의 책임이 아니므로 WPF Dispatcher 를 직접 참조한다.
+    /// dispatcher thread 면 sync 처리 → ApplyImportPlan 동안의 _isLlmApplyingPlan 윈도가 정확히 작동.
+    /// </summary>
+    private readonly Dispatcher _wpfDispatcher;
+    private readonly McpHostService _mcpHost = new();
+    private McpConfigWriter? _mcpConfig;
+    /// <summary>
+    /// Codex 격리 워크스페이스 디렉토리 (`%TEMP%/Promaker/codex-workspace-&lt;guid&gt;/`). lazy 생성 (Codex provider
+    /// 첫 선택 시), DisposeAsync 시 재귀 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
+    ///
+    /// **격리 사유**: codex 0.125 는 `sandbox_mode = "danger-full-access"` 만 MCP tool call 통과 (community
+    /// issue 1379772) → file system / network 자유 접근. 의도는 codex 가 promaker MCP tool 만 호출하는 것.
+    /// `cd:` 를 사용자 repo 가 아닌 빈 임시 폴더로 두면 codex 의 file 탐색 / git 호출이 사용자 작업물에 닿지 않음.
+    /// instructions 파일도 같은 디렉토리 안에 두어 단일 cleanup.
+    /// </summary>
+    private string? _codexWorkspacePath;
+    private string? _codexInstructionsPath;
+    private ILlmProvider? _provider;
+
+    /// <summary>Consent + API key + 모델명 + base URL + DefaultProvider 통합 user-scope 설정. DPAPI 로 key 만 암호화.
+    /// readonly 가 아닌 사유: <see cref="ReloadConfig"/> 가 설정 다이얼로그 close 후 새 인스턴스로 reassign.</summary>
+    private LlmConfig _config = LlmConfig.Load();
+
+    /// <summary>
+    /// Provider 전환 race 가드 — `OnSelectedProviderChanged` 가 빠르게 두 번 호출되어도 stale 결과로
+    /// IsReady/StatusText 갱신되지 않도록 sequence 비교. async EnsureCli 의 await 후에 검사.
+    /// </summary>
+    private int _switchCounter;
+
+    private CancellationTokenSource? _cts;
+    private ChatTurn? _streamingTurn;
+
+    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
+    // 본 파일 안의 `§3` / `§5.1` / `§C1` / `§M1` 는 모두 위 doc 의 섹션/이슈 ID.
+    /// <summary>
+    /// 마지막 성공 송신 시점의 <see cref="DsStore.Revision"/>. delta-only snapshot 첨부 정책 (§3) —
+    /// 현재 store.Revision 과 다르면 다음 송신에 snapshot 재첨부, 같으면 침묵 (marker 도 미부착).
+    /// in-memory only — app restart / chat history 복원 시 첫 송신에 자동 재첨부 (null 시작).
+    ///
+    /// **갱신 시점**: 송신 성공 (await foreach 정상 종료) 직후. 실패 / cancel 시에는 갱신 안 함 → 재시도 시 재첨부.
+    /// **reset 시점**: <see cref="Reset"/>, <see cref="UpdateStore"/>, provider switch (<see cref="ConfigureProviderAsync"/>),
+    ///   ApplyImportPlan 실패 (round-trip §M1).
+    /// TODO(roundtrip): message edit / regenerate 기능 추가 시 해당 진입점에서도 reset 필요.
+    /// </summary>
+    private int? _lastSentRevision;
+
+    /// <summary>
+    /// AssistantDelta aggregation buffer. Claude CLI 가 30~60Hz 로 fragment 를 보내면
+    /// `_streamingTurn.Text +=` 매 호출이 INotifyPropertyChanged → TextBlock invalidate 를 유발해
+    /// 깜빡임 + CPU 부하. 50ms 윈도로 묶어 ~20Hz 로 down-sample (사용자 체감 변화 없음).
+    /// Codex 는 단일 패킷이라 throttle 효과 없음 (noop) — Claude 와 공유해도 무해.
+    /// </summary>
+    private readonly System.Text.StringBuilder _pendingAssistant = new();
+    private DispatcherTimer? _assistantFlushTimer;
+    private const int AssistantFlushIntervalMs = 50;
+
+    /// <summary>
+    /// Editor → LLM 변경 알림 채널. <see cref="DsStore.ObserveEvents"/> 구독을 통해 사용자가 GUI 에서
+    /// 발생시킨 store 변경을 누적하고, 다음 <see cref="SendAsync"/> 진입 시 user prompt 앞에 한 블럭으로
+    /// prepend 한다. 1 turn = 1 prepend → digest clear.
+    /// </summary>
+    private readonly EditorChangeDigest _editorDigest = new();
+    private System.IDisposable? _editorSubscription;
+
+    /// <summary>
+    /// Self-loop guard. <see cref="ApplyTurnPlanAsync"/> 의 ApplyImportPlan 호출 직전 set, 완료 후 unset.
+    /// EditorEvent subscription 의 onNext 가 동일 dispatcher thread 면 sync 처리되므로 본 flag 가
+    /// ApplyImportPlan emit 윈도를 정확히 덮는다 → LLM 자기 turn 의 mutation 결과가 다음 turn 의 digest 로
+    /// 다시 inject 되는 noise 차단.
+    /// </summary>
+    private bool _isLlmApplyingPlan;
+
+    public ObservableCollection<ChatTurn> Turns { get; } = new();
+
+    public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } =
+        new[] {
+            LlmProviderKind.Claude,
+            LlmProviderKind.Codex,
+            LlmProviderKind.AnthropicApi,
+            LlmProviderKind.OpenAiApi,
+            LlmProviderKind.Ollama,
+            LlmProviderKind.GroqApi,
+        };
+
+    [ObservableProperty]
+    private string _input = "";
+
+    [ObservableProperty]
+    private bool _isSending;
+
+    [ObservableProperty]
+    private bool _isReady;
+
+    [ObservableProperty]
+    private string _statusText = "초기화 중…";
+
+    [ObservableProperty]
+    private string? _sessionId;
+
+    [ObservableProperty]
+    private LlmProviderKind _selectedProvider = LlmProviderKind.Claude;
+
+    public LlmChatViewModel(DsStore store)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _wpfDispatcher = Dispatcher.CurrentDispatcher;
+        _dispatcher = new WpfDispatcherAdapter(_wpfDispatcher);
+        SubscribeEditorEvents();
+        HookAttachmentsCollection();
+        // PR-A: 시작 시 사용자 default provider 적용. _mcpConfig 미초기화 상태라 OnSelectedProviderChanged 가
+        // ConfigureProviderAsync 호출하지 않음 — 안전. InitializeAsync 가 SelectedProvider 값으로 첫 구성.
+        if (Enum.TryParse<LlmProviderKind>(_config.DefaultProvider, ignoreCase: true, out var defaultKind))
+            SelectedProvider = defaultKind;
+        _ = InitializeAsync();
+    }
+
+    private async Task InitializeAsync()
+    {
+        // Defense-in-depth (1d-4 E): OpenLlmChat 진입점이 1차 차단하나 다른 진입점 추가 시 안전망.
+        // 거부 상태에서는 MCP host 도 띄우지 않아 LLM tool 호출 자체가 불가.
+        if (!_config.IsConsentGranted())
+        {
+            StatusText = "LLM 데이터 전송 동의 미완료 — LLM Chat 메뉴 재진입 시 다이얼로그 표시";
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = StatusText });
+            return;
+        }
+
+        try
+        {
+            await _mcpHost.StartAsync().ConfigureAwait(true);
+            _mcpConfig = McpConfigWriter.Create("promaker", _mcpHost.ServerUrl, _mcpHost.HandshakeNonce);
+
+            await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("LlmChatViewModel 초기화 실패", ex);
+            StatusText = $"초기화 실패: {ex.Message}";
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"초기화 실패: {ex.Message}" });
+            // McpHostService.WaitReadyAsync timeout 등으로 throw 시 _app 은 이미 set 된 상태.
+            // panel close 까지 DisposeAsync 가 지연되면 background Kestrel + ephemeral port leak →
+            // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
+            await _mcpHost.StopAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Provider 생성 + EnsureCli 검증. SelectedProvider 변경 시 / 초기화 시 호출.
+    /// stale switch race = `_switchCounter` 증가 후 await 경계 뒤에서 비교.
+    ///
+    /// **try/catch 사유**: `OnSelectedProviderChanged` 의 `_ = ConfigureProviderAsync(...)` fire-and-forget
+    /// 경로에서 unobserved task exception 이 발생하면 GC finalizer 까지 노출이 지연되어 디버깅 어려움.
+    /// `InitializeAsync` 가 동일 try/catch 패턴이므로 일관성 + StatusText/Turns 에 사용자 가시화. provider
+    /// ctor / dispatcher 호출 / collection 수정 등의 동기 예외도 본 catch 가 흡수.
+    /// </summary>
+    private async Task ConfigureProviderAsync(LlmProviderKind kind)
+    {
+        var myCounter = Interlocked.Increment(ref _switchCounter);
+
+        try
+        {
+            // 진행 중 turn 취소 + 기존 provider session 정리. API provider 는 IAsyncDisposable 라
+            // McpClient + HttpClient 회수까지 같이.
+            _cts?.Cancel();
+            _provider?.ClearSession();
+            // round-trip §3 — provider switch 는 새 history 시작과 동치 → 새 provider 의 첫 송신에 snapshot 무조건 첨부.
+            _lastSentRevision = null;
+            if (_provider is IAsyncDisposable prevAsync)
+            {
+                try { await prevAsync.DisposeAsync().ConfigureAwait(true); }
+                catch (Exception ex) { Log.Warn("이전 provider DisposeAsync 실패", ex); }
+            }
+
+            ILlmProvider provider = kind switch
+            {
+                LlmProviderKind.Claude => CreateClaudeProvider(),
+                LlmProviderKind.Codex => CreateCodexProvider(),
+                LlmProviderKind.AnthropicApi => await CreateAnthropicApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.OpenAiApi => await CreateOpenAiApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.Ollama => await CreateOllamaApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.GroqApi => await CreateGroqApiProviderAsync().ConfigureAwait(true),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown provider"),
+            };
+
+            _provider = provider;
+            IsReady = false;
+            SessionId = null;
+            StatusText = $"{kind} CLI 검출 중…";
+            SendCommand.NotifyCanExecuteChanged();
+
+            var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
+
+            // stale 결과 무시 (다른 switch 가 더 늦게 들어와 _switchCounter 증가시켰으면).
+            // API provider 는 IAsyncDisposable 라 stale 방어 시 leak 방지로 즉시 dispose.
+            if (myCounter != _switchCounter)
+            {
+                if (provider is IAsyncDisposable staleAsync)
+                {
+                    try { await staleAsync.DisposeAsync().ConfigureAwait(true); }
+                    catch (Exception ex) { Log.Warn("stale provider DisposeAsync 실패", ex); }
+                }
+                return;
+            }
+
+            if (result.IsValid)
+            {
+                StatusText = $"준비 완료 — {kind}, MCP {_mcpHost.ServerUrl}, CLI {result.VersionString}";
+                IsReady = true;
+                // commit-5: 새 provider capability 로 chip 재검증 — 미지원 첨부 강제 제거 + 1줄 안내 (정책 9 / 3.4).
+                ReevaluateAttachmentsForProvider();
+            }
+            else
+            {
+                StatusText = $"{kind} 초기화 실패: {result.Message}";
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = result.Message });
+            }
+            SendCommand.NotifyCanExecuteChanged();
+        }
+        catch (LlmProviderDeclinedException ex)
+        {
+            // 사용자가 동의 다이얼로그에서 "거부" — 정상 흐름. Error 톤 (Log.Error / Error role) 으로 표시하지 않음.
+            if (myCounter != _switchCounter) return;
+            Log.Info($"ConfigureProviderAsync({kind}) declined — {ex.Message}");
+            StatusText = ex.Message;
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = ex.Message });
+            IsReady = false;
+            SendCommand.NotifyCanExecuteChanged();
+        }
+        catch (Exception ex)
+        {
+            if (myCounter != _switchCounter) return;
+            Log.Error($"ConfigureProviderAsync({kind}) 실패", ex);
+            StatusText = $"{kind} 초기화 실패: {ex.Message}";
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"{kind} 초기화 실패: {ex.Message}" });
+            IsReady = false;
+            SendCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 동의 거부 throw 의 공통 메시지 빌더. provider label + 거부 사유 + 통일된 안내 suffix.
+    /// Error 톤이 아닌 정상 흐름이라 sentinel <see cref="LlmProviderDeclinedException"/> 사용.
+    /// </summary>
+    private static LlmProviderDeclinedException ProviderDeclined(string providerLabel, string declineReason) =>
+        new($"{providerLabel} {declineReason} — provider 비활성화. 다른 provider 선택 또는 재선택 시 다이얼로그 다시 표시됩니다.");
+
+    private ILlmProvider CreateClaudeProvider()
+    {
+        var options = new ClaudeCliOptions(
+            executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig!.Path),
+            permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
+            model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
+            strictMcpConfig: true,
+            allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
+            channelCapacity: 256,
+            onProcessStarted: Microsoft.FSharp.Core.FSharpOption<Action<System.Diagnostics.Process>>.Some(
+                new Action<System.Diagnostics.Process>(ChildProcessTracker.AddProcess)));
+        return new ClaudeCliProvider(options);
+    }
+
+    /// <summary>
+    /// Codex CLI provider. config override 4종 (mcp url + http_headers + approval_policy + sandbox_mode) +
+    /// `experimental_instructions_file` 로 system prompt override + `cd:` 격리 워크스페이스.
+    ///
+    /// **`sandbox_mode = "danger-full-access"` 사유**: codex 0.125 는 read-only / workspace-write 모드에서
+    /// MCP tool call 을 "user cancelled" 로 자동 cancel (community issue 1379772). danger-full-access 만 통과.
+    /// 부작용 (file system / network 자유 접근) 은 `cd:` 격리로 1차 완화 — codex 가 빈 임시 폴더에서
+    /// 실행되어 사용자 git working tree / 작업 디렉토리에 닿지 않음.
+    /// </summary>
+    private ILlmProvider CreateCodexProvider()
+    {
+        // Codex 추가 권한 동의 — danger-full-access sandbox + ~/.codex/sessions rollout 이 일반 LLM 동의보다
+        // 강한 위임이라 별도 confirm. 거부 시 LlmProviderDeclinedException → ConfigureProviderAsync catch 의
+        // 별도 분기로 Info + 안내 메시지 처리 (Error 톤 아님).
+        if (!LlmConfig.EnsureCodexConsent())
+            throw ProviderDeclined("Codex", "추가 권한 (danger-full-access sandbox) 동의 미완료");
+
+        // 워크스페이스 디렉토리 + instructions 파일 lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 일괄 삭제.
+        // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 워크스페이스 안 .md 파일에 쓰고 path 전달.
+        if (_codexWorkspacePath == null)
+        {
+            _codexWorkspacePath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "Promaker", $"codex-workspace-{Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(_codexWorkspacePath);
+            _codexInstructionsPath = System.IO.Path.Combine(_codexWorkspacePath, "instructions.md");
+            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, System.Text.Encoding.UTF8);
+            // CODEX_HOME 격리는 e2e 검증 결과 인증 정보까지 격리시켜 401 Unauthorized 발생 (codex 의
+            // auth 토큰이 ~/.codex/auth.json 에 저장되어 있어 격리 디렉토리에서는 못 찾음). cleanup 정책은
+            // 후속 패스에서 (b) Reset() 시 ~/.codex/sessions/<sid>.jsonl 직접 삭제 또는 인증 파일 복사로 전환 예정.
+            // 옵션 필드 자체는 보존 (향후 conditional 사용 가능성).
+            Log.Info($"Codex 워크스페이스 격리 디렉토리 생성 — {_codexWorkspacePath}");
+        }
+
+        var configOverrides = new[]
+        {
+            new System.Tuple<string, string>(
+                "mcp_servers.promaker.url",
+                $"\"{_mcpHost.ServerUrl}\""),
+            // codex docs 의 공식 예시 (`http_headers = { "X-Figma-Region" = "..." }`) 와 동일 inline table 형식.
+            new System.Tuple<string, string>(
+                "mcp_servers.promaker.http_headers",
+                $"{{ \"X-Promaker-Nonce\" = \"{_mcpHost.HandshakeNonce}\" }}"),
+            // 사용자가 chat 명령으로 의도 표현 → mcp tool 호출에 추가 approval 불필요.
+            new System.Tuple<string, string>("approval_policy", "\"never\""),
+            // codex 0.125 의 mcp tool call 통과 조건 (위 docstring 참조).
+            new System.Tuple<string, string>("sandbox_mode", "\"danger-full-access\""),
+        };
+        var options = new CodexCliOptions(
+            executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            cd: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexWorkspacePath!),
+            model: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            json: true,
+            // ephemeral=false: thread rollout 을 disk 에 남겨 다음 turn 의 `exec resume <sid>` 가 동작.
+            ephemeral: false,
+            ignoreUserConfig: true,
+            skipGitRepoCheck: true,
+            fullAuto: false,
+            dangerouslyBypassApprovalsAndSandbox: false,
+            configOverrides: Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>[]>.Some(configOverrides),
+            experimentalInstructionsFile: Microsoft.FSharp.Core.FSharpOption<string>.Some(_codexInstructionsPath!),
+            // CODEX_HOME 격리는 인증 정보까지 격리시켜 401 — None 으로 두어 사용자 ~/.codex/ 사용.
+            // cleanup 은 후속 패스에서 (b) Reset rollout 직접 삭제 등으로 전환.
+            codexHome: Microsoft.FSharp.Core.FSharpOption<string>.None,
+            channelCapacity: 256);
+        return new CodexCliProvider(options);
+    }
+
+    /// <summary>
+    /// Anthropic API provider — `Anthropic` SDK + IChatClient + UseFunctionInvocation + McpClient HTTP self-call.
+    /// API key 는 LlmApiConfig 에서 DPAPI 복호화. 부재 시 환경변수 ANTHROPIC_API_KEY fallback.
+    /// </summary>
+    private async Task<ILlmProvider> CreateAnthropicApiProviderAsync()
+    {
+        if (!LlmConfig.EnsureApiCostConsent("Anthropic API"))
+            throw ProviderDeclined("Anthropic API", "비용 경고 동의 미완료");
+
+        var apiKey = _config.GetApiKey(ApiProviderFactory.AnthropicKey)
+                     ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                     ?? "";
+        var model = _config.AnthropicModel;
+        return await ApiProviderFactory.CreateAnthropicAsync(
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>OpenAI API provider — 동일 패턴. API key fallback = OPENAI_API_KEY.</summary>
+    private async Task<ILlmProvider> CreateOpenAiApiProviderAsync()
+    {
+        if (!LlmConfig.EnsureApiCostConsent("OpenAI API"))
+            throw ProviderDeclined("OpenAI API", "비용 경고 동의 미완료");
+
+        var apiKey = _config.GetApiKey(ApiProviderFactory.OpenAiKey)
+                     ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+                     ?? "";
+        var model = _config.OpenAiModel;
+        return await ApiProviderFactory.CreateOpenAiAsync(
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>Ollama (local) — base URL + model name 만 필요. API key 없음.</summary>
+    private async Task<ILlmProvider> CreateOllamaApiProviderAsync()
+    {
+        var baseUrl = _config.OllamaBaseUrl;
+        var model = _config.OllamaModel;
+        return await ApiProviderFactory.CreateOllamaAsync(
+            baseUrl: baseUrl,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// F-1 spike — Groq OpenAI 호환 endpoint provider. API key 는 다른 provider 와 동일 2-tier
+    /// (DPAPI dict <c>GroqKey="groq"</c> 우선 / env-var <c>GROQ_API_KEY</c> fallback). 모델은
+    /// <c>meta-llama/llama-4-scout-17b-16e-instruct</c> 하드코딩 — F-4 cleanup 시 <c>LlmConfig.GroqModel</c>
+    /// property 추가로 이전.
+    ///
+    /// **모델 선택 사유** (F-1 spike 발견 — rev 6 todo 본문 정리 예정):
+    /// llama-3.3-70b-versatile = free tier TPM 12,000 → Promaker system prompt + 21 tool descriptions
+    /// 합계 ~25K tokens 로 단일 요청이 한도 2배 초과 (HTTP 413). Llama 4 Scout 17B 는 context window
+    /// 131K + 더 큰 TPM + tool calling 호환 검증 spike 의의. **모델 ID 는 meta-llama/ prefix 필수**
+    /// (prefix 누락 시 HTTP 404 model_not_found — 1차 spike 시도 시 발견).
+    /// 모델 변경 시 본 메서드 재컴파일 필요 (F-4 cleanup 시 LlmConfig.GroqModel 로 이전).
+    /// </summary>
+    private async Task<ILlmProvider> CreateGroqApiProviderAsync()
+    {
+        // 5-reviewer review: Anthropic / OpenAI 와 동일 2-tier — DPAPI dict 우선 / env-var Trim fallback.
+        var apiKey = _config.GetApiKey(ApiProviderFactory.GroqKey)
+                     ?? Environment.GetEnvironmentVariable("GROQ_API_KEY")?.Trim()
+                     ?? "";
+        const string model = "meta-llama/llama-4-scout-17b-16e-instruct";
+        return await ApiProviderFactory.CreateGroqAsync(
+            apiKey: apiKey,
+            model: model,
+            systemPrompt: SystemPromptText.Phase1c,
+            mcpServerUrl: _mcpHost.ServerUrl,
+            mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 1 turn 종료 시점(= ApplyTurnPlanAsync 까지 완료, IsSending=false 직전) 에 발생.
+    /// 측정 자동화(`MainViewModel.LlmChat.cs`) 가 IsSending PropertyChanged + wasSending rising-edge
+    /// 로 추정하던 invariant 를 명시적 event 로 보호. SendAsync 가 향후 Task.Run 으로 전환되어도
+    /// 측정 path 는 안전하게 1회 호출됨. Early-return(_provider==null/prompt 비어있음) 시에는
+    /// 발생하지 않음 — 그 경로는 SendCommand.CanExecute=false 로 차단됨.
+    /// </summary>
+    public event EventHandler? TurnCompleted;
+
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private async Task SendAsync()
+    {
+        if (_provider == null) return;
+
+        // 정책 20 race-free snapshot — fire-and-forget paste / drag-drop 이 SendAsync 진행 중 Attachments 갱신해도
+        // 본 turn 은 진입 시점 sn 으로 완료. snapshotProvider 도 OnSelectedProviderChanged 가 cancel 시켜도
+        // 진행 중 스트림은 캡처된 provider 로 끝남.
+        var attachmentsSnapshot = Attachments.ToArray();
+        var snapshotProvider = _provider;
+
+        var rawPrompt = (Input ?? "").Trim();
+        var hasAttachments = attachmentsSnapshot.Length > 0;
+        if (rawPrompt.Length == 0 && !hasAttachments) return;
+
+        IsSending = true;
+        SendCommand.NotifyCanExecuteChanged();
+        CancelCommand.NotifyCanExecuteChanged();
+
+        // 정책 16 default prefix — 텍스트 비어있고 첨부만 있을 때 자동 보충 (user-facing turn 도 동일 텍스트).
+        var prompt = rawPrompt.Length == 0
+            ? $"첨부된 {attachmentsSnapshot.Length}개 파일을 검토해 주세요."
+            : rawPrompt;
+
+        // 정책 16 송신 후 처리 — chip 즉시 비움 + notice 비움. 실패 시 복원 안 함 (race-free 우선; 사용자가 재첨부 가능).
+        Attachments.Clear();
+        AttachmentNotice = "";
+
+        // user turn 표시 — 첨부 있으면 summary 라벨 prepend (정책 17 history summary 와 동일 형식)
+        var userTurnText = prompt;
+        if (hasAttachments)
+        {
+            var summaries = string.Join(" ",
+                attachmentsSnapshot.Select(a => AttachmentRendering.summarize(a.Source)));
+            userTurnText = summaries + "\n" + prompt;
+        }
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.User, Text = userTurnText });
+        _streamingTurn = null;
+
+        Input = "";
+
+        // Turn-scoped context
+        _mcpHost.TurnProvider.EndTurn();
+        var turnCtx = new LlmTurnContext(_store, _dispatcher);
+        _mcpHost.TurnProvider.BeginTurn(turnCtx);
+
+        // Editor digest prepend
+        var promptForProvider = prompt;
+        if (_editorDigest.HasAny)
+        {
+            var prefix = _editorDigest.ToContextMessage();
+            _editorDigest.Clear();
+            if (!string.IsNullOrEmpty(prefix))
+                promptForProvider = prefix + "\n\n" + promptForProvider;
+        }
+
+        // LastClosedProjectPath hint — 직전 닫힌 프로젝트 경로를 LLM 에 1회성 주입.
+        // 토큰 절약을 위해 주입 직후 null clear — session/history 에 이미 들어가 LLM 이 인지하므로 다음 turn 부터 다시 prefix 안 붙임.
+        // EditorChangeDigest.MarkProjectReset 자동 발화와 분리된 별도 분기 (UpdateStore 와 무관, 사용자가 직접 닫기 명령 호출했을 때만).
+        if (!string.IsNullOrEmpty(LastClosedProjectPath))
+        {
+            var hint = $"<closed_project>\n직전 세션 닫힌 프로젝트 경로: {LastClosedProjectPath}\n사용자가 이 프로젝트를 다시 참조하면 해당 파일을 읽어 컨텍스트를 재구축하세요.\n</closed_project>";
+            promptForProvider = hint + "\n\n" + promptForProvider;
+            LastClosedProjectPath = null;
+        }
+
+        // 정책 15 텍스트 첨부 inline — fenced wrapper. 이미지/PDF 는 LlmUserMessage.Attachments 로 wire (commit-6b).
+        var textInlines = attachmentsSnapshot
+            .Where(a => a.Source.IsTextFile)
+            .Select(a => AttachmentRendering.toInlineString(a.Source))
+            .ToArray();
+        if (textInlines.Length > 0)
+            promptForProvider = string.Join("\n\n", textInlines) + "\n\n" + promptForProvider;
+
+        // round-trip §3 / §5.1 — store snapshot delta-only 첨부. revision 변화 시점에만 별도 envelope 으로 첨부.
+        // §C1 — snapshot 은 promptForProvider 본문에 prepend 하지 않고 LlmUserMessage.SnapshotPrefix 로 분리 전달:
+        //   - In-process IChatClient (ApiChatProvider) 가 _history 누적에서 분리하고 본 turn 호출 시점에만
+        //     별도 TextContent 로 prepend (Anthropic 시 cache_control 부착).
+        //   - CLI provider (Claude/Codex) 는 prompt 본문 앞에 단순 prepend (CLI 자체가 history 관리).
+        // §J6 — revision read 와 envelope 빌드 사이 BumpRevision race 차단을 위해 RenderSnapshotEnvelopeAtomic 사용
+        //   (rev, body) 단일 호출 내 캡쳐. 비교용 _store.Revision 도 한 번 더 read 하지만 attach 결정만 하므로 무해.
+        // retry-safe: send 성공 직후에만 _lastSentRevision 갱신 (정상 종료 path 의 finally 직전).
+        var attachSnapshot = _lastSentRevision != _store.Revision;
+        int revisionAtSend = _lastSentRevision ?? -1;
+        string? snapshotEnvelope = null;
+        if (attachSnapshot)
+        {
+            var (rev, body) = _store.RenderSnapshotEnvelopeAtomic();
+            revisionAtSend = rev;
+            snapshotEnvelope = body;
+            Log.Info($"[snapshot] attached revision={rev} prev={_lastSentRevision?.ToString() ?? "null"} length={body.Length}");
+        }
+
+        // 비텍스트 첨부 array — provider wire 대상 (commit-6b 까지는 LlmUserMessageOps.WarnUnsupported only).
+        var nonTextAttachments = attachmentsSnapshot
+            .Where(a => !a.Source.IsTextFile)
+            .Select(a => a.Source)
+            .ToArray();
+
+        // status 진행 표시
+        if (hasAttachments)
+        {
+            var totalBytes = 0L;
+            foreach (var a in attachmentsSnapshot) totalBytes += a.ByteSize;
+            StatusText = $"첨부 {attachmentsSnapshot.Length}개 ({AttachmentRendering.formatBytes(totalBytes)}) 송신 중…";
+        }
+
+        // ImportPlan label fallback (정책 16) — 사용자 입력 + 첨부 시 [첨부 N개] prefix 라벨링.
+        var labelPrompt = (hasAttachments && rawPrompt.Length > 0)
+            ? $"[첨부 {attachmentsSnapshot.Length}개] {prompt}"
+            : prompt;
+
+        _cts = new CancellationTokenSource();
+        try
+        {
+            // §C1 — snapshotEnvelope=null 이면 LlmUserMessage.Create overload 가 자동으로 SnapshotPrefix=None 처리.
+            var msg = LlmUserMessage.Create(promptForProvider, nonTextAttachments, snapshotEnvelope);
+            var stream = snapshotProvider.Send(msg, _cts.Token);
+            await foreach (var evt in stream.ConfigureAwait(true))
+            {
+                HandleEvent(evt);
+            }
+            // round-trip §3 retry-safe — stream 정상 종료 시점에만 commit. catch / cancel path 에서는 미갱신 → 다음 송신에 동일 snapshot 재첨부.
+            if (attachSnapshot)
+                _lastSentRevision = revisionAtSend;
+        }
+        catch (OperationCanceledException) { /* user cancel — _lastSentRevision 미갱신 */ }
+        catch (Exception ex)
+        {
+            Log.Error("LlmChatViewModel.SendAsync 실패", ex);
+            // commit-6b Minor-5 — 413 메시지 통합. error turn / StatusText 둘 다 같은 한국어 안내.
+            if (ex is System.Net.Http.HttpRequestException hre && (int?)hre.StatusCode == 413)
+            {
+                const string msg413 = "첨부 크기가 provider 한도를 초과했습니다 (HTTP 413)";
+                AddErrorTurn($"[ERROR] {msg413}");
+                StatusText = msg413;
+            }
+            else
+            {
+                AddErrorTurn($"[ERROR] {ex.Message}");
+            }
+        }
+        finally
+        {
+            EndStreamingTurn();
+
+            // Turn end — plan apply (결정 7 (d): 1 turn = 1 undo step). label = labelPrompt.
+            var endedCtx = _mcpHost.TurnProvider.EndTurn();
+            if (endedCtx != null && !endedCtx.Plan.IsEmpty)
+            {
+                try
+                {
+                    await ApplyTurnPlanAsync(endedCtx, labelPrompt);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("ApplyImportPlan 실패", ex);
+                    AddErrorTurn($"[ApplyImportPlan ERROR] {ex.Message}");
+                    // round-trip §M1 — apply 실패 시 LLM 측은 mutation 성공 가정으로 다음 turn 진입할 수 있는데
+                    // store 는 갱신 안 됨 → BumpRevision 미발동 → _lastSentRevision 비교 무변경 → 다음 turn snapshot
+                    // 미첨부 → LLM 이 stale 가정 그대로. 강제 재첨부로 stale 차단.
+                    _lastSentRevision = null;
+                }
+            }
+
+            IsSending = false;
+            SendCommand.NotifyCanExecuteChanged();
+            CancelCommand.NotifyCanExecuteChanged();
+            _cts?.Dispose();
+            _cts = null;
+
+            TurnCompleted?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private async Task ApplyTurnPlanAsync(LlmTurnContext ctx, string prompt)
+    {
+        var label = $"{LlmTurnLabelPrefix}{Truncate(prompt, 50)}";
+        var plan = ctx.Plan.Build();
+        await _dispatcher.InvokeAsync(() =>
+        {
+            // Self-loop guard: ApplyImportPlan 이 emit 하는 EditorEvent 들은 dispatcher thread 에서 sync 도착 →
+            // SubscribeEditorEvents 의 OnEditorEvent 가 본 flag 를 보고 digest 누적을 skip. unset 은 finally 보장.
+            _isLlmApplyingPlan = true;
+            try { DsStoreImportPlanExtensions.ApplyImportPlan(_store, label, plan); }
+            finally { _isLlmApplyingPlan = false; }
+        });
+        AddToolTurn($"[applied] {plan.Operations.Length} operation(s) committed as 1 undo step.");
+        // chat-ui boost: 발행 doc yaml view 가 생성되면 line 수 무관 항상 button bubble (클릭 시 dialog).
+        // LLM output/input token 변화 0 — turn 안 누적된 yaml 들을 ViewModel local 로 display.
+        foreach (var yaml in ctx.ModelDocsYaml)
+            AddModelDocTurn(yaml);
+    }
+
+    /// <summary>chat-ui boost: 발행 doc yaml view 1건 → button bubble 추가. 클릭 시 dialog.</summary>
+    private void AddModelDocTurn(string yaml)
+    {
+        if (string.IsNullOrEmpty(yaml)) return;
+        // review m1: YamlDotNet emitter 가 trailing '\n' 으로 끝나면 Split 결과 마지막 빈 string 1개 추가됨 →
+        // 라벨의 line 카운트가 실제보다 1 많게 표시되어 보정 필요. TrimEnd 로 정정.
+        var lineCount = yaml.TrimEnd('\n').Split('\n').Length;
+        EndStreamingTurn();
+        // Text = 사용자 보이는 label, Payload = yaml 본문. 클릭 시 ModelDocPreviewDialog 열기.
+        var byteCount = System.Text.Encoding.UTF8.GetByteCount(yaml);
+        var label = $"발행 doc 보기 ({lineCount} lines, {byteCount / 1024.0:F1} KB)";
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.ModelDocButton, Text = label, Payload = yaml });
+    }
+
+    /// <summary>
+    /// m8 — `LlmChatViewModel` 의 ApplyImportPlan label prefix. `HistoryPanelItem.IsLlmTurn` 도 같은 prefix 로 식별.
+    /// 양쪽 magic string 중복 회피.
+    /// </summary>
+    public const string LlmTurnLabelPrefix = "LLM: ";
+
+    /// <summary>
+    /// 정책 16 (commit-6): 텍스트 또는 첨부 중 하나만 있어도 송신. 둘 다 없으면 차단.
+    /// 첨부-only 시 SendAsync 가 default prefix ("첨부된 N개 파일을 검토해 주세요") 자동 부여.
+    /// </summary>
+    private bool CanSend() => IsReady && !IsSending && (!string.IsNullOrWhiteSpace(Input) || HasAttachments);
+
+    [RelayCommand(CanExecute = nameof(CanCancel))]
+    private void Cancel()
+    {
+        _cts?.Cancel();
+    }
+
+    private bool CanCancel() => IsSending;
+
+    [RelayCommand]
+    private void Reset()
+    {
+        Cancel();
+        _provider?.ClearSession();
+        Turns.Clear();
+        // review F4: Reset 은 세션/대화 초기화 의미 — chip / notice 도 함께 정리해 stale 상태 회피.
+        Attachments.Clear();
+        AttachmentNotice = "";
+        SessionId = null;
+        LastClosedProjectPath = null;
+        // round-trip §3 — 세션 초기화 시 snapshot 재첨부 강제 (새 history 의 첫 turn 에 무조건 snapshot 보냄).
+        _lastSentRevision = null;
+        StatusText = "세션 초기화 완료";
+    }
+
+    /// <summary>전체 대화를 Markdown 형식으로 clipboard 에 복사 (Role 라벨 + 빈 줄 구분).</summary>
+    [RelayCommand]
+    private void CopyAll()
+    {
+        try { System.Windows.Clipboard.SetText(BuildMarkdownTranscript()); }
+        catch (Exception ex) { Log.Warn("clipboard 전체 복사 실패", ex); }
+    }
+
+    /// <summary>chat-ui boost: ModelDocButton chat bubble 클릭 → ModelDocPreviewDialog 띄우기.
+    /// XAML 의 Button.Command binding 으로 호출. CommandParameter = ChatTurn.Payload (yaml 본문).</summary>
+    [RelayCommand]
+    private void OpenModelDocPreview(string? yaml)
+    {
+        if (string.IsNullOrEmpty(yaml)) return;
+        try
+        {
+            var dlg = new Promaker.Dialogs.ModelDocPreviewDialog(yaml)
+            {
+                Owner = System.Windows.Application.Current?.MainWindow
+            };
+            dlg.ShowDialog();
+        }
+        catch (Exception ex) { Log.Warn("ModelDocPreviewDialog 띄우기 실패", ex); }
+    }
+
+    /// <summary>SaveFileDialog 로 사용자 지정 경로 (.md/.txt) 에 전체 대화 저장.</summary>
+    [RelayCommand]
+    private void Export()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "LLM 대화 내보내기",
+            Filter = "Markdown (*.md)|*.md|Text (*.txt)|*.txt|All files (*.*)|*.*",
+            FileName = $"llm-chat-{DateTime.Now:yyyyMMdd-HHmmss}.md",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            System.IO.File.WriteAllText(dlg.FileName, BuildMarkdownTranscript(), new System.Text.UTF8Encoding(false));
+            StatusText = $"대화 내보냄 — {dlg.FileName}";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("대화 내보내기 실패", ex);
+            StatusText = $"내보내기 실패: {ex.Message}";
+        }
+    }
+
+    private string BuildMarkdownTranscript()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# LLM Chat — {SelectedProvider}, session={SessionId ?? "(none)"}, exported {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+        foreach (var t in Turns)
+        {
+            sb.AppendLine($"## {t.Role}");
+            sb.AppendLine();
+            sb.AppendLine(t.Text);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 설정 다이얼로그 close 후 호출. disk 의 새 LlmConfig 를 메모리로 reload + **활성 provider 재구성**.
+    /// review (1): Create*ApiProviderAsync 는 ConfigureProviderAsync 시점에만 호출되므로 _config reassign 만으로
+    /// 활성 provider (이미 baked-in model/key) 는 재생성되지 않음. 사용자가 모델 / API key 변경해도 다음 turn 까지 옛 값 사용.
+    /// → ConfigureProviderAsync(SelectedProvider) 호출하여 활성 provider 도 새 _config 기반으로 재생성. _switchCounter
+    /// race 가드가 이미 있어 중복 호출 안전.
+    /// DefaultProvider 자체는 OnSelectedProviderChanged 에서 자동 저장되므로 SelectedProvider 동기화 불필요.
+    /// </summary>
+    public void ReloadConfig()
+    {
+        _config = LlmConfig.Load();
+        if (_mcpConfig != null) _ = ConfigureProviderAsync(SelectedProvider);
+    }
+
+    /// <summary>
+    /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
+    /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
+    ///
+    /// 추가: 새 store 에 EditorEvent subscription 재설정 + digest 를 PROJECT_RESET 으로 표식 (다음 turn 의
+    /// user prompt 앞에 "이전 모델 가정 무효" 한 줄 prepend). 기존 subscription 은 dispose.
+    /// </summary>
+    public void UpdateStore(DsStore newStore)
+    {
+        if (ReferenceEquals(_store, newStore)) return;
+        Cancel();
+        _provider?.ClearSession();
+        _store = newStore;
+        SessionId = null;
+        // round-trip §3 — store 인스턴스 자체가 바뀌면 이전 store 의 revision 비교가 의미 없음. 새 store 의 첫 송신에 snapshot 무조건 첨부.
+        _lastSentRevision = null;
+        StatusText = "프로젝트 변경 — 다음 turn 부터 새 store 사용";
+
+        SubscribeEditorEvents();
+        _editorDigest.MarkProjectReset();
+    }
+
+    /// <summary>
+    /// 현재 <see cref="_store"/> 에 EditorEvent subscription 재설정. 생성자/UpdateStore 모두에서 호출.
+    /// 이전 구독은 dispose. onNext 가 dispatcher thread 에서 sync 도착하면 즉시 처리, 아니면 marshalling.
+    /// </summary>
+    private void SubscribeEditorEvents()
+    {
+        _editorSubscription?.Dispose();
+        var observable = (IObservable<EditorEvent>)_store.ObserveEvents();
+        _editorSubscription = observable.Subscribe(new EditorEventObserver(OnEditorEvent));
+    }
+
+    private void OnEditorEvent(EditorEvent evt)
+    {
+        // dispatcher thread 도착 시 sync — _isLlmApplyingPlan 윈도가 ApplyImportPlan 의 sync emit 과 동일 stack frame
+        // 에서 검사되므로 self-loop guard 정확. marshalling 경로 (else) 는 BG/non-dispatcher thread 에서 store 가 mutate 되는
+        // 가설적 경로 — 결정 8 (mutation 은 dispatcher 경유) 가 깨지지 않는 한 사용자 GUI 직접 동작에서만 발생하므로
+        // self-loop 와 무관 (LLM 자기 turn 의 ApplyImportPlan 은 항상 dispatcher 위라 sync 분기로 들어옴).
+        if (_wpfDispatcher.CheckAccess()) HandleEditorEventOnDispatcher(evt);
+        else _wpfDispatcher.InvokeAsync(() => HandleEditorEventOnDispatcher(evt), DispatcherPriority.Background);
+    }
+
+    private void HandleEditorEventOnDispatcher(EditorEvent evt)
+    {
+        if (_isLlmApplyingPlan) return;
+        _editorDigest.Record(evt);
+    }
+
+    partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
+    partial void OnIsReadyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
+
+    /// <summary>
+    /// ComboBox 변경 시 provider 재구성. 첫 init 이전 (`_mcpConfig == null`) 에는 무시 — InitializeAsync 의
+    /// ConfigureProviderAsync 가 SelectedProvider 기본값으로 처리.
+    ///
+    /// PR-D: 사용자 마지막 선택 = 다음 시작 시 default provider. SelectedProvider 변경 시 _config.DefaultProvider
+    /// 갱신 + Save → 별도 "기본 Provider" UI 불필요 (LLM 탭에서 항목 삭제됨).
+    /// </summary>
+    partial void OnSelectedProviderChanged(LlmProviderKind value)
+    {
+        if (_mcpConfig == null) return;
+        _config.DefaultProvider = value.ToString();
+        try { _config.Save(); }
+        catch (Exception ex) { Log.Warn("DefaultProvider 저장 실패", ex); }
+        _ = ConfigureProviderAsync(value);
+    }
+
+    private void HandleEvent(LlmEvent evt)
+    {
+        switch (evt)
+        {
+            case LlmEvent.SessionStarted started:
+                SessionId = started.sessionId;
+                var sidShort = started.sessionId.Length >= 8 ? started.sessionId.Substring(0, 8) : started.sessionId;
+                StatusText = $"session={sidShort}… model={started.model} tools={started.tools.Length} mcp={started.mcpServers.Length}";
+                break;
+
+            case LlmEvent.AssistantDelta delta:
+                EnsureStreamingTurn();
+                AppendAssistant(delta.text);
+                break;
+
+            case LlmEvent.Thinking think:
+                AddThinkingTurn(think.text);
+                break;
+
+            case LlmEvent.ToolUse tu:
+                AddToolTurn($"[tool_use] {tu.name}");
+                break;
+
+            case LlmEvent.ToolResult tr:
+                AddToolTurn($"[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}");
+                break;
+
+            case LlmEvent.RateLimitEvent rl:
+                StatusText = $"rate-limit: {rl.status} (resets {rl.resetsAtUnix})";
+                break;
+
+            case LlmEvent.SessionEnd end:
+                StatusText = $"turn 종료 — {end.durationMs}ms, ${end.costUsd:0.0000}, stop={end.stopReason}, denials={end.permissionDenialCount}";
+                break;
+
+            case LlmEvent.ProviderError err:
+                AddErrorTurn($"[provider error] {err.message}");
+                StatusText = err.message;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Streaming assistant turn lazy-create. AssistantDelta / ProviderError / catch 의 ERROR 텍스트가
+    /// _streamingTurn=null 상태에서 호출되더라도 새 assistant 버블을 생성한다.
+    /// tool_use → tool_result → assistant 순서일 때 사이에 새 assistant 버블이 chronologically 삽입되도록 함.
+    /// </summary>
+    private void EnsureStreamingTurn()
+    {
+        if (_streamingTurn != null) return;
+        _streamingTurn = new ChatTurn { Role = ChatTurn.Roles.Assistant, Text = "", IsStreaming = true };
+        Turns.Add(_streamingTurn);
+    }
+
+    /// <summary>현재 streaming turn 의 throttle buffer flush + IsStreaming=false + null 화. 비어있으면 제거.</summary>
+    private void EndStreamingTurn()
+    {
+        _assistantFlushTimer?.Stop();
+        FlushAssistantBuffer();
+        if (_streamingTurn == null) return;
+        _streamingTurn.IsStreaming = false;
+        if (string.IsNullOrEmpty(_streamingTurn.Text)) Turns.Remove(_streamingTurn);
+        _streamingTurn = null;
+    }
+
+    /// <summary>Tool 관련 메시지를 별도 turn 으로 추가 (XAML 의 Role=tool DataTrigger 가 gray 적용).</summary>
+    private void AddToolTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Tool, Text = text });
+    }
+
+    /// <summary>Thinking block 을 별도 turn 으로 추가 (Role=thinking — 기본 어시스턴트 스타일 + 좌측 색띠).</summary>
+    private void AddThinkingTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Thinking, Text = text });
+    }
+
+    /// <summary>에러 메시지를 별도 turn 으로 추가 (Role=error — XAML DataTrigger 가 dark orange 적용).</summary>
+    private void AddErrorTurn(string text)
+    {
+        EndStreamingTurn();
+        Turns.Add(new ChatTurn { Role = ChatTurn.Roles.Error, Text = text });
+    }
+
+    private void AppendAssistant(string fragment)
+    {
+        if (_streamingTurn == null) return;
+        _pendingAssistant.Append(fragment);
+
+        if (_assistantFlushTimer == null)
+        {
+            _assistantFlushTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(AssistantFlushIntervalMs)
+            };
+            _assistantFlushTimer.Tick += (_, _) =>
+            {
+                _assistantFlushTimer!.Stop();
+                FlushAssistantBuffer();
+            };
+        }
+        if (!_assistantFlushTimer.IsEnabled) _assistantFlushTimer.Start();
+    }
+
+    private void FlushAssistantBuffer()
+    {
+        if (_pendingAssistant.Length == 0 || _streamingTurn == null) return;
+        _streamingTurn.Text += _pendingAssistant.ToString();
+        _pendingAssistant.Clear();
+    }
+
+    private static string Truncate(string s, int max)
+        => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max) + "…");
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        _assistantFlushTimer?.Stop();
+        _editorSubscription?.Dispose();
+        _editorSubscription = null;
+        if (_provider is IAsyncDisposable apiAsync)
+        {
+            try { await apiAsync.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Log.Warn("provider DisposeAsync 실패", ex); }
+        }
+        _mcpConfig?.Dispose();
+        if (_codexWorkspacePath != null)
+        {
+            try
+            {
+                if (System.IO.Directory.Exists(_codexWorkspacePath))
+                    System.IO.Directory.Delete(_codexWorkspacePath, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Codex 워크스페이스 디렉토리 삭제 실패 — {_codexWorkspacePath}", ex);
+            }
+        }
+        await _mcpHost.DisposeAsync().ConfigureAwait(false);
+    }
+}
+
+public partial class ChatTurn : ObservableObject
+{
+    /// <summary>
+    /// ChatTurn.Role 의 magic string SSOT. ViewModel 측은 이 const 만 참조.
+    /// XAML DataTrigger 의 Value 는 string literal 매칭 특성상 그대로 유지하되, 변경 시 본 const 와 함께 동기화.
+    /// </summary>
+    public static class Roles
+    {
+        public const string User = "user";
+        public const string Assistant = "assistant";
+        public const string System = "system";
+        public const string Tool = "tool";
+        public const string Thinking = "thinking";
+        public const string Error = "error";
+        /// <summary>chat-ui boost: `apply_model_doc` 발행 doc bubble — 항상 button.
+        /// Text = label ("발행 doc 보기 (N lines, X KB)"), Payload = yaml 본문.
+        /// 클릭 시 ModelDocPreviewDialog 열기. XAML DataTrigger 동기화.</summary>
+        public const string ModelDocButton = "model-doc-button";
+    }
+
+    [ObservableProperty]
+    private string _role = "";
+
+    [ObservableProperty]
+    private string _text = "";
+
+    [ObservableProperty]
+    private bool _isStreaming;
+
+    /// <summary>chat-ui boost: ModelDocButton role 의 yaml 본문 payload. 클릭 시 dialog 에 전달.
+    /// 다른 role 에서는 빈 string. 별도 DataTemplate 분기.</summary>
+    [ObservableProperty]
+    private string _payload = "";
+}
+
+file sealed class EditorEventObserver : IObserver<EditorEvent>
+{
+    private readonly Action<EditorEvent> _onNext;
+
+    public EditorEventObserver(Action<EditorEvent> onNext) => _onNext = onNext;
+
+    public void OnNext(EditorEvent value) => _onNext(value);
+    public void OnCompleted() { }
+    public void OnError(Exception error) { /* swallow — provider 변경/dispose 시 emit 종료 가능 */ }
+}

@@ -10,7 +10,7 @@ namespace Promaker.Services;
 /// 프로젝트 속성의 "SystemType 프리셋" (<c>systemTypePreset.json</c>) 을 단일 진실원으로 노출.
 /// TAG Wizard 의 SystemType 목록, 신호 템플릿 seed, 임시 디렉토리 emit 등에서 공통 사용.
 ///
-/// 저장 형식 (ProjectPropertiesDialog 와 동일):
+/// 저장 형식 (ApplicationSettingsDialog 의 프리셋 탭과 동일):
 ///   - JSON string[] — 각 항목 "ApiList:SystemType" (예: "ADV;RET:Cylinder")
 ///   - 파일 없거나 빈 경우 <see cref="Ds2.Core.Store.DevicePresets.DefaultMappingStrings"/> 폴백
 /// </summary>
@@ -123,7 +123,7 @@ public static class SystemTypePresetProvider
     }
 
     /// <summary>
-    /// "ApiList:SystemType" 기본 매핑 문자열 배열을 <see cref="Ds2.Core.Store.DevicePresets.Entries3"/> 에서 생성.
+    /// "ApiList:SystemType" 기본 매핑 문자열 배열을 <see cref="Ds2.Core.Store.DevicePresets.Entries()"/> 에서 생성.
     /// Cylinder_1..10 같은 동일 prefix 의 numbered SystemType 은 첫 등장 위치에서 단일 템플릿
     /// "ADV;RET:Cylinder_#" 으로 축약 — '#' 은 AddCall 시 ApiCall 개수로 치환.
     /// </summary>
@@ -131,7 +131,7 @@ public static class SystemTypePresetProvider
     {
         var result = new List<string>();
         bool cylinderEmitted = false;
-        foreach (var t in Ds2.Core.Store.DevicePresets.Entries3)
+        foreach (var t in Ds2.Core.Store.DevicePresets.Entries())
         {
             var model = t.Item1;
             var apiList = t.Item2 ?? "";
