@@ -83,7 +83,10 @@ let ``loadStoreFromYamlText — view: partial 거부 후 Error msg 전파`` () =
     | Ok _ -> failwith "view: partial 은 거부되어야 함"
     | Error msg ->
         // SSOT §2.7 룰 #7 — partial export 결과는 view-only.
+        // 친절 에러 메시지 핵심 토큰까지 검증 → SSOT drift 조기 검출.
         Assert.Contains("partial", msg)
+        Assert.Contains("view-only", msg)
+        Assert.Contains("apply/validate 재입력 불가", msg)
 
 // ─── round-trip wiring 검증 (semantic 비교는 ModelProtocolTests 가 이미 보장) ──
 

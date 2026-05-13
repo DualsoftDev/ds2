@@ -90,9 +90,12 @@ public partial class MainViewModel
     {
         _store.ReplaceStore(store);
         // 레거시 파일 자동 복구 — OriginFlowId 누락 ApiCall 을 Call→Work→Flow 로 채움.
+        // YAML/JSON apply 경로 (ToolOperations.queueAddCall) 는 OriginFlowId 를 명시 set 하므로
+        // 정상 흐름에서 healed=0. healed>0 면 dispatcher 갭 또는 외부 손상 파일 — silent 데이터
+        // 변형 가시성을 위해 Warn 격상 (가시 dialog 까지는 over-spec, 로그 검토 책임).
         var healed = Ds2.Core.CallValidation.healMissingOriginFlowIds(_store);
         if (healed > 0)
-            Log.Info($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain.");
+            Log.Warn($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain. ({kind} '{filePath}')");
         CompleteOpen(filePath, kind);
     }
 
@@ -219,9 +222,10 @@ public partial class MainViewModel
                     _store.LoadFromFile(fileName);
                     // 레거시 파일 자동 복구 — OriginFlowId 누락 ApiCall 을 Call→Work→Flow 로 채움.
                     // (과거 Panel.buildApiCall 경유 생성 시 미설정되던 버그의 뒤처리)
+                    // healed>0 면 외부 손상/구버전 파일 — silent 데이터 변형 가시성 위해 Warn 격상.
                     var healed = Ds2.Core.CallValidation.healMissingOriginFlowIds(_store);
                     if (healed > 0)
-                        Log.Info($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain.");
+                        Log.Warn($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain. ('{fileName}')");
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "File");
                 },
@@ -446,14 +450,15 @@ public partial class MainViewModel
 
         // _currentFilePath 가 .yaml 인 상태에서 SaveAs default 가 .sdf 면 사용자 의도 위반 →
         // 현 경로 확장자 기준 동적 선택. 신규 프로젝트는 기존대로 .sdf.
+        // SaveFileDialog.DefaultExt 는 점 없는 형식 ("yaml") 기대 — TrimStart('.').
         var defaultExt = _currentFilePath is null
-            ? FileExtensions.Sdf
-            : Path.GetExtension(_currentFilePath).ToLowerInvariant();
+            ? FileExtensions.Sdf.TrimStart('.')
+            : Path.GetExtension(_currentFilePath).ToLowerInvariant().TrimStart('.');
 
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,
-            DefaultExt = string.IsNullOrEmpty(defaultExt) ? FileExtensions.Sdf : defaultExt,
+            DefaultExt = string.IsNullOrEmpty(defaultExt) ? FileExtensions.Sdf.TrimStart('.') : defaultExt,
             FileName = suggestedName
         };
 
