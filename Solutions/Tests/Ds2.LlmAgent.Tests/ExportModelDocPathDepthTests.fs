@@ -14,7 +14,7 @@ open Ds2.LlmAgent
 /// orphan marker + tryPathOf unsupported kind 회귀 fact lock.
 ///
 /// SSOT: `Apps/Promaker/Docs/yaml-protocol-v0.md §2.8` (partial export view-only spec) /
-/// `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md §0.5 v6 chunk-3` (fact a~k 명세).
+/// `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md §0.5 v6 chunk-3` (fact a~k 명세).
 ///
 /// 명명 컨벤션: 한글 backtick fact + prefix `6f-N` (Phase 6 → 6f).
 
