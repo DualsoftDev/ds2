@@ -79,7 +79,9 @@ Baseline은 네 개의 문서(`1.entities.md`, `2.modeling.md`, `3.tooling.md`, 
 LLM은 in-process Kestrel HTTP 서버로 노출된 MCP 엔드포인트와 통신한다(`LlmAgent/McpHostService.cs`). 손쉬운 외부 침입을 막기 위해 루프백(127.0.0.1) 임시 포트에 바인딩되며, 32바이트 nonce가 HTTP 헤더(`X-Promaker-Nonce`)로 검증된다. 노출되는 도구는 다음과 같이 doc-level 진입점과 read-only 조회로 정리되어 있다(`LlmAgent/PromakerToolNames.cs`).
 
 - **Doc-level 편집** (주력 진입점): `apply_model_doc`, `validate_model_doc`, `export_model_doc`, `json_to_yaml`
-- **읽기**: `list_projects`, `list_systems`, `describe_system`, `describe_subtree`, `find_by_name`, `validate_model`
+- **읽기**: `find_by_name`, `validate_model`
+
+위 `export_model_doc` 는 `path?: string` (dotted-path scope, 예: `.Proj1.SysA`) 과 `depth?: int ≥ 0` (walk 깊이) 인자로 부분 export 도 수행한다. 초기 설계의 `list_projects` / `list_systems` / `describe_system` / `describe_subtree` 4종 read 도구는 `export_model_doc(path?, depth?)` 으로 흡수되었다 (Phase 6 read surface GUID-free 정렬). 부분 export 결과는 envelope 의 `view: partial` flag + `summary: { totalEntities, emitted, budget }` 진단 metadata 를 동반하며, view-only — apply/validate 재입력은 거부된다.
 
 초기 설계는 21종에 달하는 단일 연산 도구(`add_project`, `add_flow`, `apply_operations` 등)를 노출했으나, 다단 연산이 누적되며 token 비용과 재시도가 늘어나는 문제가 있었다. 현재 설계는 위 도구만 노출하고 한 턴의 발화에 대해 LLM이 단일 YAML 문서를 발행하도록 유도한다. 단일 연산 도구는 escape hatch로만 남아 있으며 일반 사용 흐름에서는 호출되지 않는다.
 

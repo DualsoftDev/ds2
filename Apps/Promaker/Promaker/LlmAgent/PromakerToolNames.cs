@@ -15,17 +15,13 @@ public static class PromakerToolNames
 
     public static readonly string[] All =
     {
-        // ── Read tools (store inspect) ────────────────────────────────────────
-        "mcp__promaker__list_projects",
-        "mcp__promaker__list_systems",
-        "mcp__promaker__describe_system",
-        "mcp__promaker__describe_subtree",
+        // ── Read tools (store inspect) — Phase 6 후 2종 (list_*/describe_* 4종은 export_model_doc 의
+        //    path?/depth? 인자로 흡수, find_by_name 은 path 출력 격상, validate_model 은 path scope) ──
         "mcp__promaker__find_by_name",
         "mcp__promaker__validate_model",
         // ── doc-level YAML protocol (SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md) ──
         // Wire = JSON object (LLM tool_use native), View = YAML.
-        // Phase 5 cleanup 이후 doc-level + read = 10종으로 응축. op-layer 15종 (apply_operations / add_* /
-        // remove_entity / rename_entity) 은 일소됨 — patch DSL 로 대체 (yaml-protocol-v0.md §2.6).
+        // Phase 5 (op-layer 15종 일소) + Phase 6 (read 4종 흡수) 누적으로 풀세트 = 6종.
         "mcp__promaker__apply_model_doc",
         "mcp__promaker__validate_model_doc",
         "mcp__promaker__export_model_doc",

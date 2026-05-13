@@ -559,180 +559,11 @@ module ToolOperations =
             else
                 invalidOp "Arrow 의 source/target 은 모두 Work 이거나 모두 Call 이어야 합니다 (혼용 불가)."
 
-    // ─── Read tool (Phase 1c~) ───────────────────────────────────────────────
-
-    /// list_projects read tool. project 별 system 합계 (active + passive).
-    /// 빈 결과는 "프로젝트 자체 없음" 을 명시 — list_systems 가 빈 array 를 반환할 때
-    /// "어느 project 에도 system 없음" vs "project 자체가 없음" 을 LLM 이 구분 가능.
-    /// 반환: (Id, Name, totalSystems) tuple 의 목록.
-    let listProjects (store: DsStore) : (Guid * string * int) list =
-        Queries.allProjects store
-        |> List.map (fun p ->
-            let total = p.ActiveSystemIds.Count + p.PassiveSystemIds.Count
-            p.Id, p.Name, total)
-
-    /// list_projects 의 formatted plain text 변환 (LLM 응답 SSOT). 빈 결과는 "(no projects)".
-    /// describe / validate / find 의 formatting 패턴과 동일 파일에서 관리하여 후속 schema 변경 시 한 곳에서.
-    let formatProjectList (rows: (Guid * string * int) list) : string =
-        if rows.IsEmpty then "(no projects)"
-        else
-            let sb = System.Text.StringBuilder()
-            for (id, name, total) in rows do
-                sb.AppendLine($"- {name} (id={id:D}, systems={total})") |> ignore
-            sb.ToString().TrimEnd()
-
-    /// list_systems read tool. 모든 project 의 active + passive 시스템.
-    /// 반환: (Id, Name, IsActive) tuple 의 목록.
-    let listSystems (store: DsStore) : (Guid * string * bool) list =
-        Queries.allProjects store
-        |> List.collect (fun p ->
-            let active  = Queries.activeSystemsOf  p.Id store |> List.map (fun s -> s.Id, s.Name, true)
-            let passive = Queries.passiveSystemsOf p.Id store |> List.map (fun s -> s.Id, s.Name, false)
-            active @ passive)
-
-    /// list_systems 의 formatted plain text. 빈 결과는 "(no systems)".
-    let formatSystemList (rows: (Guid * string * bool) list) : string =
-        if rows.IsEmpty then "(no systems)"
-        else
-            let sb = System.Text.StringBuilder()
-            for (id, name, isActive) in rows do
-                let activeMark = if isActive then "active" else "passive"
-                sb.AppendLine($"- {name} (id={id:D}, {activeMark})") |> ignore
-            sb.ToString().TrimEnd()
-
-    /// find_by_name 의 formatted plain text. 50 초과면 "... (truncated at 50; refine the name)" footer.
-    /// 빈 결과는 "(no matches)".
-    let formatFindResults (rows: (EntityKind * Guid * string) list) : string =
-        if rows.IsEmpty then "(no matches)"
-        else
-            let truncated = rows.Length > 50
-            let visible = if truncated then rows |> List.truncate 50 else rows
-            let sb = System.Text.StringBuilder()
-            for (k, id, n) in visible do
-                sb.AppendLine($"- {k} \"{n}\" (id={id:D})") |> ignore
-            if truncated then
-                sb.AppendLine("... (truncated at 50; refine the name)") |> ignore
-            sb.ToString().TrimEnd()
-
-    // ─── Read tool 풀세트 (Phase 1d-2) ───────────────────────────────────────
+    // ─── Read tool (Phase 6 후) ──────────────────────────────────────────────
     //
-    // 모든 read tool 은 indented plain text 를 반환한다 (JSON 직렬화 비용 / token 절약).
-    // entity 1개 = 1줄, 들여쓰기 = 트리 깊이. id 는 full GUID 표기 (LLM 이 mutation 인자로 그대로 사용 가능).
-
-    let private indent (n: int) = String.replicate n "  "
-
-    /// arrowType enum 의 짧은 표기 (ArrowType.Start → "Start").
-    let private arrowTypeName (a: ArrowType) = a.ToString()
-
-    /// describe_system. deep=false 면 직계 child 의 이름 + id 만, deep=true 면 Work/Call 트리 + Arrows.
-    let describeSystem (store: DsStore) (systemId: Guid) (deep: bool) : string =
-        match Queries.getSystem systemId store with
-        | None -> $"NOT_FOUND: System(id={systemId}) 가 존재하지 않습니다."
-        | Some sys ->
-            let sb = System.Text.StringBuilder()
-            let activeMark =
-                match isSystemActiveOpt store systemId with
-                | Some true -> "active"
-                | Some false -> "passive"
-                | None -> "orphan"
-            sb.AppendLine($"DsSystem \"{sys.Name}\" (id={systemId:D}, {activeMark})") |> ignore
-
-            let flows = Queries.flowsOf systemId store
-            let apiDefs = Queries.apiDefsOf systemId store
-
-            for flow in flows do
-                let works = Queries.worksOf flow.Id store
-                sb.AppendLine($"{indent 1}Flow \"{flow.Name}\" (id={flow.Id:D}, works={works.Length})") |> ignore
-                if deep then
-                    for work in works do
-                        let calls = Queries.callsOf work.Id store
-                        sb.AppendLine($"{indent 2}Work \"{work.Name}\" (id={work.Id:D}, calls={calls.Length})") |> ignore
-                        for call in calls do
-                            sb.AppendLine($"{indent 3}Call \"{call.Name}\" (id={call.Id:D})") |> ignore
-                        for a in Queries.arrowCallsOf work.Id store do
-                            let srcName = Queries.getCall a.SourceId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
-                            let tgtName = Queries.getCall a.TargetId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
-                            sb.AppendLine($"{indent 3}ArrowCall {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})") |> ignore
-
-            for apiDef in apiDefs do
-                sb.AppendLine($"{indent 1}ApiDef \"{apiDef.Name}\" (id={apiDef.Id:D})") |> ignore
-
-            if deep then
-                let arrows = Queries.arrowWorksOf systemId store
-                for a in arrows do
-                    let srcName = Queries.getWork a.SourceId store |> Option.map (fun w -> w.Name) |> Option.defaultValue "?"
-                    let tgtName = Queries.getWork a.TargetId store |> Option.map (fun w -> w.Name) |> Option.defaultValue "?"
-                    sb.AppendLine($"{indent 1}ArrowWork {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})") |> ignore
-
-            sb.ToString().TrimEnd()
-
-    /// rootId 의 EntityKind 자동 판별 (Project/System/Flow/Work). depth = 트리 추가 깊이.
-    /// max 50 entity 노출, 초과 시 "... (truncated, N more)" 표기.
-    let describeSubtree (store: DsStore) (rootId: Guid) (depth: int) : string =
-        let depth = max 0 (min 5 depth)  // cap [0,5]
-        let sb = System.Text.StringBuilder()
-        let mutable budget = 50
-
-        let writeLine (level: int) (text: string) =
-            if budget > 0 then
-                sb.AppendLine($"{indent level}{text}") |> ignore
-                budget <- budget - 1
-            elif budget = 0 then
-                sb.AppendLine($"{indent level}... (truncated)") |> ignore
-                budget <- -1
-            // budget < 0 이면 추가 출력 안 함
-
-        let rec walkSystem (level: int) (sys: DsSystem) (remaining: int) =
-            let activeMark =
-                match isSystemActiveOpt store sys.Id with
-                | Some true -> "active" | Some false -> "passive" | None -> "orphan"
-            writeLine level $"DsSystem \"{sys.Name}\" (id={sys.Id:D}, {activeMark})"
-            if remaining > 0 then
-                for flow in Queries.flowsOf sys.Id store do
-                    walkFlow (level + 1) flow (remaining - 1)
-                for apiDef in Queries.apiDefsOf sys.Id store do
-                    writeLine (level + 1) $"ApiDef \"{apiDef.Name}\" (id={apiDef.Id:D})"
-
-        and walkFlow (level: int) (flow: Flow) (remaining: int) =
-            let works = Queries.worksOf flow.Id store
-            writeLine level $"Flow \"{flow.Name}\" (id={flow.Id:D}, works={works.Length})"
-            if remaining > 0 then
-                for work in works do
-                    walkWork (level + 1) work (remaining - 1)
-
-        and walkWork (level: int) (work: Work) (remaining: int) =
-            let calls = Queries.callsOf work.Id store
-            writeLine level $"Work \"{work.Name}\" (id={work.Id:D}, calls={calls.Length})"
-            if remaining > 0 then
-                for call in calls do
-                    writeLine (level + 1) $"Call \"{call.Name}\" (id={call.Id:D})"
-                for a in Queries.arrowCallsOf work.Id store do
-                    let srcName = Queries.getCall a.SourceId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
-                    let tgtName = Queries.getCall a.TargetId store |> Option.map (fun c -> c.Name) |> Option.defaultValue "?"
-                    writeLine (level + 1) $"ArrowCall {srcName}→{tgtName} ({arrowTypeName a.ArrowType}, id={a.Id:D})"
-
-        match Queries.getProject rootId store with
-        | Some p ->
-            writeLine 0 $"Project \"{p.Name}\" (id={p.Id:D})"
-            if depth > 0 then
-                for sysId in Seq.append p.ActiveSystemIds p.PassiveSystemIds do
-                    match Queries.getSystem sysId store with
-                    | Some s -> walkSystem 1 s (depth - 1)
-                    | None -> ()
-        | None ->
-            match Queries.getSystem rootId store with
-            | Some s -> walkSystem 0 s depth
-            | None ->
-                match Queries.getFlow rootId store with
-                | Some f -> walkFlow 0 f depth
-                | None ->
-                    match Queries.getWork rootId store with
-                    | Some w -> walkWork 0 w depth
-                    | None ->
-                        sb.AppendLine($"NOT_FOUND: rootId={rootId:D} 가 Project/System/Flow/Work 어디에도 없습니다.") |> ignore
-
-        // budget 음수 시 writeLine 가 이미 "... (truncated)" 한 줄을 붙였으므로 추가 처리 없음.
-        sb.ToString().TrimEnd()
+    // Phase 6 (read surface GUID-free 정렬) 에서 list_*/describe_* 4종은 `export_model_doc(path?, depth?)`
+    // 으로 흡수 — `listProjects` / `listSystems` / `describeSystem` / `describeSubtree` 일소.
+    // 잔존: `findByName` (출력 path 격상 — chunk-1c 에서 처리), `validateModel*` (path scope — chunk-1c).
 
     /// find_by_name. case-insensitive substring 검색. kind None 이면 모든 종류.
     /// 반환: (kind, id, displayName) 목록, 최대 51 (호출자가 50 초과를 truncated 로 판별).
@@ -790,31 +621,83 @@ module ToolOperations =
         if String.IsNullOrWhiteSpace(name) then true
         else Set.contains (name.Trim().ToUpperInvariant()) placeholderTokens
 
-    /// rootId 의 EntityKind 자동 판별. Project = global 동등 (현재 N=1 가정).
-    /// 어디에도 매칭되지 않으면 None — 호출자가 VALIDATION_ERROR 메시지로 변환.
-    let private resolveValidationScope (store: DsStore) (rootIdOpt: Guid option) : ValidationScope option =
-        match rootIdOpt with
+    /// Local 3-level path resolver — `validate_model` scope 한정 (Project/System/Flow).
+    /// Forward-reference 회피 위해 `ModelProtocol.tryFindEntity` 미사용 (fsproj 컴파일 순서: ToolOperations
+    /// → ModelProtocol). 후속 cycle `ModelProtocol.fs` SRP split 시 단일 PathResolver 모듈로 통합 권고
+    /// (done-yaml-protocol-implementation.md §3.0).
+    let private pathSegmentsForScope (raw: string) : string list =
+        if String.IsNullOrEmpty(raw) then []
+        else
+            // NFC 정규화 — `ModelProtocol.normalizePath` 와 정합 (NFD 한글 입력 시 동일 entity 보장).
+            // 후속 cycle PathResolver 단일화 시 본 라인 제거 (단일 helper 가 NFC 도맡음).
+            raw.Replace('/', '.').Normalize(System.Text.NormalizationForm.FormC)
+                .TrimStart('.').Split('.')
+            |> Array.filter (fun s -> s.Length > 0)
+            |> Array.toList
+
+    /// path 의 EntityKind 자동 판별 (Phase 6 — `validate_model` path scope).
+    /// path None / empty → GlobalScope. Project path → GlobalScope. System/Flow path → 각 scope.
+    /// 그 외 (Work/Call/ApiDef/매칭 실패) 는 path-unsupported scope → None.
+    let private resolveValidationScope (store: DsStore) (rawPathOpt: string option) : ValidationScope option =
+        match rawPathOpt with
         | None -> Some GlobalScope
-        | Some id ->
-            match Queries.getProject id store with
-            | Some _ -> Some GlobalScope
-            | None ->
-                match Queries.getSystem id store with
-                | Some _ -> Some (SystemScope id)
-                | None ->
-                    match Queries.getFlow id store with
-                    | Some _ -> Some (FlowScope id)
-                    | None -> None
+        | Some raw when String.IsNullOrWhiteSpace(raw) -> Some GlobalScope
+        | Some raw ->
+            let segs = pathSegmentsForScope raw
+            match segs with
+            | [] -> Some GlobalScope
+            | _ when segs.Length > 3 -> None  // Work/Call scope 미지원
+            | _ ->
+                let project = Queries.allProjects store |> List.tryFind (fun p -> p.Name = segs.[0])
+                match segs.Length, project with
+                | _, None -> None
+                | 1, Some _ -> Some GlobalScope  // Project = global 동등 (현 N=1)
+                | _, Some p ->
+                    let sys = Queries.projectSystemsOf p.Id store |> List.tryFind (fun s -> s.Name = segs.[1])
+                    match segs.Length, sys with
+                    | _, None -> None
+                    | 2, Some s -> Some (SystemScope s.Id)
+                    | 3, Some s ->
+                        // 3-segment: ApiDef 또는 Flow — validate_model 은 Flow 만 scope (ApiDef = None)
+                        Queries.flowsOf s.Id store
+                        |> List.tryFind (fun f -> f.Name = segs.[2])
+                        |> Option.map (fun f -> FlowScope f.Id)
+                    | _ -> None
 
     /// 카테고리 출력 순서 — 동일 plain text 비교 (golden test) 안정성 확보.
     let private categoryOrder =
         [ "Orphan"; "DanglingArrow"; "EmptyFlow"; "EmptyWork"; "DuplicateName"; "TodoPlaceholder" ]
 
-    let private formatScopeLabel (scope: ValidationScope) =
+    /// Local 2-level path emitter — `formatScopeLabel` 전용 (System/Flow 만).
+    /// Forward-reference 회피 위해 `ModelProtocol.tryPathOf` 미사용. 후속 cycle PathResolver 통합 시 단일화.
+    let private trySystemPathLocal (store: DsStore) (sysId: Guid) : string option =
+        match Queries.getSystem sysId store with
+        | None -> None
+        | Some s ->
+            Queries.allProjects store
+            |> List.tryFind (fun p -> p.ActiveSystemIds.Contains s.Id || p.PassiveSystemIds.Contains s.Id)
+            |> Option.map (fun p -> sprintf ".%s.%s" p.Name s.Name)
+
+    let private tryFlowPathLocal (store: DsStore) (flowId: Guid) : string option =
+        match Queries.getFlow flowId store with
+        | None -> None
+        | Some f ->
+            trySystemPathLocal store f.ParentId
+            |> Option.map (fun sp -> sp + "." + f.Name)
+
+    /// Phase 6: footer scope echo 도 path 기반으로 — GUID 노출 회피.
+    /// path 합성 실패 시 (entity 사라짐) "System(<missing>)" 등 marker.
+    let private formatScopeLabel (store: DsStore) (scope: ValidationScope) =
         match scope with
         | GlobalScope -> "global"
-        | SystemScope id -> $"System(id={id:D})"
-        | FlowScope id -> $"Flow(id={id:D})"
+        | SystemScope id ->
+            match trySystemPathLocal store id with
+            | Some p -> $"System(path={p})"
+            | None -> "System(<missing>)"
+        | FlowScope id ->
+            match tryFlowPathLocal store id with
+            | Some p -> $"Flow(path={p})"
+            | None -> "Flow(<missing>)"
 
     /// validate_model 본체. plain text 반환 (issue 없으면 "(no issues; scope=...)").
     let validateModel (store: DsStore) (scope: ValidationScope) : string =
@@ -938,7 +821,7 @@ module ToolOperations =
                                 report "DanglingArrow"
                                     $"ArrowCall (id={arrow.Id:D}) in Work \"{work.Name}\" has missing target Call (id={arrow.TargetId:D})"
 
-        let scopeLabel = formatScopeLabel scope
+        let scopeLabel = formatScopeLabel store scope
         // Flow scope 에서 의도적으로 skip 한 카테고리 — LLM 이 "왜 안 나오지" 헷갈리지 않게 footer 명시.
         let skippedFooter =
             match scope with
@@ -967,12 +850,13 @@ module ToolOperations =
             | None -> ()
             sb.ToString().TrimEnd()
 
-    /// C# entry: rootId None = global, Some id = Project/System/Flow 자동 판별.
-    /// 매칭 실패 시 "VALIDATION_ERROR: ..." 반환 (RunRead 의 INTERNAL_ERROR 분기 회피).
-    let validateModelByGuid (store: DsStore) (rootIdOpt: Guid option) : string =
-        match resolveValidationScope store rootIdOpt with
+    /// C# entry (Phase 6): rawPath None / "" = global, Project/System/Flow dotted-path = 해당 scope.
+    /// 매칭 실패 또는 path-unsupported kind 시 "VALIDATION_ERROR: ..." 반환
+    /// (RunRead 의 INTERNAL_ERROR 분기 회피).
+    let validateModelByPath (store: DsStore) (rawPathOpt: string option) : string =
+        match resolveValidationScope store rawPathOpt with
         | Some scope -> validateModel store scope
         | None ->
-            let id = rootIdOpt.Value
-            $"VALIDATION_ERROR: scope id {id:D} 가 Project/System/Flow 어디에도 해당하지 않습니다."
+            let raw = rawPathOpt |> Option.defaultValue ""
+            $"VALIDATION_ERROR: scope path \"{raw}\" 가 Project/System/Flow 에 해당하지 않습니다. `find_by_name` 으로 후보 확인 후 dotted-path 재시도."
 

@@ -10,7 +10,7 @@ open Ds2.LlmAgent
 //
 // 본 테스트의 목적 = `StoreSnapshot.render` grammar 와 `RenderSnapshotEnvelope` wire format SSOT 회귀 방어.
 // 출력 변형 시 LLM 의 `3.tooling.md` snapshot 룰 (보이는 block 을 신뢰) 이 의미 불일치를 일으켜
-// list_projects fallback 호출 또는 stale state 추론 → 1 RT 목표 손상.
+// read 도구 (`export_model_doc(depth=0)` cold-start 등) fallback 호출 또는 stale state 추론 → 1 RT 목표 손상.
 
 [<Fact>]
 let ``empty store renders projects (empty)`` () =
