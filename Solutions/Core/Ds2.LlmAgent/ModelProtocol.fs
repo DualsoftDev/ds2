@@ -800,6 +800,102 @@ module ModelProtocol =
                 |> List.tryFind (fun f -> f.Name = flowName))
         | _ -> None
 
+    /// SSOT §2.5.1 — dotted-path → (EntityKind, Guid) 변환. path 깊이로 EntityKind 자동 결정.
+    /// 1 seg = Project / 2 = System / 3 = ApiDef 또는 Flow (System 직접 자식 ambiguity) /
+    /// 4 = Work / 5 = Call. 6+ 는 schema 위반 — None 반환 (호출자가 VALIDATION_ERROR 변환).
+    /// 3-segment ambiguity (ApiDef vs Flow) 은 ApiDef → Flow → None 순.
+    /// `findSystemByName` / `findFlowByPath` 는 호출지점 그대로 유지
+    /// (병존 — `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md` §4.6 정합).
+    let tryFindEntity (store: DsStore) (rawPath: string) : (EntityKind * Guid) option =
+        let segs = pathSegments rawPath
+        if segs.IsEmpty || segs.Length > 5 then None
+        else
+            let projectName = segs.[0]
+            let project =
+                Queries.allProjects store
+                |> List.tryFind (fun p -> p.Name = projectName)
+            match segs.Length with
+            | 1 -> project |> Option.map (fun p -> EntityKind.Project, p.Id)
+            | _ ->
+                project |> Option.bind (fun p ->
+                    let sysName = segs.[1]
+                    let sys =
+                        Queries.projectSystemsOf p.Id store
+                        |> List.tryFind (fun s -> s.Name = sysName)
+                    match segs.Length with
+                    | 2 -> sys |> Option.map (fun s -> EntityKind.System, s.Id)
+                    | _ ->
+                        sys |> Option.bind (fun s ->
+                            let thirdName = segs.[2]
+                            match segs.Length with
+                            | 3 ->
+                                // ApiDef 먼저 (System 직접 자식 ambiguity 해소 순서 — SSOT §2.5.1)
+                                let apiHit =
+                                    Queries.apiDefsOf s.Id store
+                                    |> List.tryFind (fun d -> d.Name = thirdName)
+                                match apiHit with
+                                | Some d -> Some (EntityKind.ApiDef, d.Id)
+                                | None ->
+                                    Queries.flowsOf s.Id store
+                                    |> List.tryFind (fun f -> f.Name = thirdName)
+                                    |> Option.map (fun f -> EntityKind.Flow, f.Id)
+                            | _ ->
+                                // 4 또는 5 segment — Flow 경로만 (ApiDef 는 깊이 3 cap)
+                                Queries.flowsOf s.Id store
+                                |> List.tryFind (fun f -> f.Name = thirdName)
+                                |> Option.bind (fun f ->
+                                    let fourthName = segs.[3]
+                                    let work =
+                                        Queries.worksOf f.Id store
+                                        |> List.tryFind (fun w -> w.LocalName = fourthName)
+                                    match segs.Length with
+                                    | 4 -> work |> Option.map (fun w -> EntityKind.Work, w.Id)
+                                    | 5 ->
+                                        work |> Option.bind (fun w ->
+                                            let fifthName = segs.[4]
+                                            Queries.callsOf w.Id store
+                                            |> List.tryFind (fun c -> c.Name = fifthName)
+                                            |> Option.map (fun c -> EntityKind.Call, c.Id))
+                                    | _ -> None)))
+
+    /// SSOT §2.5.1 역방향 — entity → dotted-path. leading `.` prefix + dot segment.
+    /// find_by_name 출력 emit 에 사용. System 의 project 는 ActiveSystemIds / PassiveSystemIds 역방향 lookup.
+    /// 매칭 실패 시 empty string (호출자가 처리).
+    let rec pathOf (store: DsStore) (kind: EntityKind) (id: Guid) : string =
+        match kind with
+        | EntityKind.Project ->
+            match Queries.getProject id store with
+            | Some p -> "." + p.Name
+            | None -> ""
+        | EntityKind.System ->
+            match Queries.getSystem id store with
+            | Some s ->
+                let projOpt =
+                    Queries.allProjects store
+                    |> List.tryFind (fun p ->
+                        p.ActiveSystemIds.Contains s.Id || p.PassiveSystemIds.Contains s.Id)
+                match projOpt with
+                | Some p -> sprintf ".%s.%s" p.Name s.Name
+                | None -> "." + s.Name  // orphan
+            | None -> ""
+        | EntityKind.Flow ->
+            match Queries.getFlow id store with
+            | Some f -> pathOf store EntityKind.System f.ParentId + "." + f.Name
+            | None -> ""
+        | EntityKind.ApiDef ->
+            match Queries.getApiDef id store with
+            | Some d -> pathOf store EntityKind.System d.ParentId + "." + d.Name
+            | None -> ""
+        | EntityKind.Work ->
+            match Queries.getWork id store with
+            | Some w -> pathOf store EntityKind.Flow w.ParentId + "." + w.LocalName
+            | None -> ""
+        | EntityKind.Call ->
+            match Queries.getCall id store with
+            | Some c -> pathOf store EntityKind.Work c.ParentId + "." + c.Name
+            | None -> ""
+        | _ -> ""
+
     let private applyPatch (ctx: ApplyContext) (patchEl: JsonElement) : unit =
         // patch 의 add — systems list 형태 (existing systems 와 동일 schema)
         // **Critical 1 (review M3.1)**: `apply` 의 systems path 와 동일하게 collectSystems 후
@@ -1001,6 +1097,16 @@ module ModelProtocol =
             ctx.Diagnostics.Add("protocol", sprintf "'%s' 미지원. 'promaker/v0' 만 허용." v)
         | _ -> ()
 
+        // SSOT §2.7 룰 #7 / §2.8: view: partial 은 view-only — apply/validate 재입력 거부.
+        // view: full 은 round-trip 시나리오 (self export → apply) 정합으로 허용. unknown 값은 사전 거부.
+        match tryProp root "view" |> Option.bind tryString with
+        | Some "full" -> ()
+        | Some "partial" ->
+            ctx.Diagnostics.Add("view", "partial export 결과는 view-only — apply/validate 재입력 불가. 전체 export (view: full) 로 다시 호출하거나 'view:' 키를 제거하세요.")
+        | Some other ->
+            ctx.Diagnostics.Add("view", sprintf "값 '%s' 인식 불가. 'full' 또는 'partial'." other)
+        | None -> ()
+
         if ctx.Diagnostics.HasErrors then
             // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
             plan.TruncateTo(snapshotCount)
@@ -1089,6 +1195,8 @@ module ModelProtocol =
             use w = new Utf8JsonWriter(ms)
             w.WriteStartObject()
             w.WriteString("protocol", "promaker/v0")
+            // SSOT §2.8 — 전체 export 는 항상 view: full. partial 변형은 별도 함수 (Phase 6 후속 commit).
+            w.WriteString("view", "full")
             match projects with
             | [] -> ()
             | p :: _ ->

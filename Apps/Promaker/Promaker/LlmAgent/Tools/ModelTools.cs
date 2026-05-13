@@ -43,16 +43,6 @@ public static class ModelTools
     // 후속 cycle: ModelProtocol.fs 의 dispatcher 가 systems/flow/work 이름 발견 시점에 ToolOperations.sanitizeName
     // 직접 호출하여 동일 정책 보장 (현재는 미적용 — 별개 cycle 권고).
 
-    /// <summary>GUID 문자열 → Guid. parse 실패 시 throw.</summary>
-    private static Guid ParseGuidOrThrow(string? value, string field)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            throw new InvalidOperationException($"VALIDATION_ERROR: {field} 이(가) 비어있습니다.");
-        if (!Guid.TryParse(value.Trim(), out var g))
-            throw new InvalidOperationException($"VALIDATION_ERROR: {field} 가 유효한 GUID 형식이 아닙니다.");
-        return g;
-    }
-
     /// <summary>F# invalidOp 메시지가 이미 카테고리 prefix 포함이면 그대로, 그 외 VALIDATION_ERROR prefix.</summary>
     private static string EnsureErrorPrefix(string message)
     {
@@ -238,49 +228,7 @@ public static class ModelTools
         });
     }
 
-    // ─── Read tools ──────────────────────────────────────────────────────────
-
-    [McpServerTool, Description("현재 Promaker 의 모든 Project 목록 + 각 project 의 system 합계 (active + passive). 빈 결과 (no projects) 는 프로젝트 자체 부재 — list_systems 의 빈 결과 (어느 프로젝트에도 system 없음) 와 구분. apply_model_doc 의 project: 키가 어느 project 에 부착되는지 확인 시 사용.")]
-    public static Task<string> ListProjects(
-        LlmTurnContextProvider turnProvider)
-    {
-        return RunRead(turnProvider, "list_projects", ctx =>
-            ToolOperations.formatProjectList(ToolOperations.listProjects(ctx.Store)));
-    }
-
-    [McpServerTool, Description("현재 Promaker 모델의 모든 DsSystem 목록을 반환합니다 (모든 프로젝트의 active + passive). full GUID 로 표기. 자식 트리는 미포함 — 자식까지 보려면 describe_system 또는 describe_subtree 호출.")]
-    public static Task<string> ListSystems(
-        LlmTurnContextProvider turnProvider)
-    {
-        return RunRead(turnProvider, "list_systems", ctx =>
-            ToolOperations.formatSystemList(ToolOperations.listSystems(ctx.Store)));
-    }
-
-    [McpServerTool, Description("특정 DsSystem 의 직계 자식 (Flow / ApiDef) 또는 깊은 트리 (Flow → Work → Call + Arrows) 를 반환합니다. deep=false (기본) 가 token 절약. 여러 system 을 한 번에 보려면 describe_subtree 사용.")]
-    public static Task<string> DescribeSystem(
-        LlmTurnContextProvider turnProvider,
-        [Description("DsSystem 의 GUID.")] string systemId,
-        [Description("true 면 Work / Call / Arrows 까지 깊게. 기본 false (Flow / ApiDef 이름만).")] bool deep = false)
-    {
-        return RunRead(turnProvider, "describe_system", ctx =>
-        {
-            var sysGuid = ParseGuidOrThrow(systemId, "systemId");
-            return ToolOperations.describeSystem(ctx.Store, sysGuid, deep);
-        });
-    }
-
-    [McpServerTool, Description("rootId (Project / System / Flow / Work GUID) 의 부분 트리를 indented text 로 반환합니다. depth = 추가 깊이 (0~5). 50 entity 초과 시 truncated 표기. 여러 system 을 한 번에 batch 조회할 때 사용 — 단일 describe_system 의 N+1 호출보다 token 효율 ↑.")]
-    public static Task<string> DescribeSubtree(
-        LlmTurnContextProvider turnProvider,
-        [Description("Root entity 의 GUID. EntityKind 는 자동 판별 (Project/System/Flow/Work).")] string rootId,
-        [Description("Root 기준 추가 깊이 (0=root만, 1=직접 자식, ..., 최대 5).")] int depth = 2)
-    {
-        return RunRead(turnProvider, "describe_subtree", ctx =>
-        {
-            var rootGuid = ParseGuidOrThrow(rootId, "rootId");
-            return ToolOperations.describeSubtree(ctx.Store, rootGuid, depth);
-        });
-    }
+    // ─── Read tools (Phase 6 후 2종 — list_*/describe_* 는 export_model_doc(path?, depth?) 으로 흡수) ──
 
     [McpServerTool, Description("이름으로 entity 검색 (대소문자 무관 substring). kind 미지정 시 모든 종류. 결과 50개 제한.")]
     public static Task<string> FindByName(
@@ -304,7 +252,21 @@ public static class ModelTools
             var fsKind = kindFilter.HasValue
                 ? Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.Some(kindFilter.Value)
                 : Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.None;
-            return ToolOperations.formatFindResults(ToolOperations.findByName(ctx.Store, name.Trim(), fsKind));
+            var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
+            if (rows.Length == 0) return "(no matches)";
+            // SSOT yaml-protocol-v0.md §2.5.1 / §4.5 (Phase 6 todo-read-surface-guid-cleanup.md closure #3 v4):
+            // 출력 = `[ {kind, path} ]` 목록. ModelProtocol.pathOf 가 entity → leading `.` + dot path 합성
+            // (root 까지 parent chain).
+            var truncated = rows.Length > 50;
+            var visible = truncated ? Microsoft.FSharp.Collections.ListModule.Truncate(50, rows) : rows;
+            var sb = new System.Text.StringBuilder();
+            foreach (var triple in visible)
+            {
+                var path = ModelProtocol.pathOf(ctx.Store, triple.Item1, triple.Item2);
+                sb.AppendLine($"- {triple.Item1} (path={path})");
+            }
+            if (truncated) sb.AppendLine("... (truncated at 50; refine the name)");
+            return sb.ToString().TrimEnd();
         });
     }
 
