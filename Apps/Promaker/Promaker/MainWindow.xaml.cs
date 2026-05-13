@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AvalonDock.Layout;
 using Ds2.Core;
 using Promaker.Presentation;
 using Promaker.Services;
@@ -26,11 +27,18 @@ public partial class MainWindow : Window
     // v7 PR-2a — VM ↔ View 동기화 재진입 가드. spike 결과 IsVisibleChanged 가 Hide()/Show() 1회당 3~4회 raise.
     private bool _suppressLlmChatSync;
 
+    // v7 PR-2a Q1 — 빈 column 자동 collapse 시 복원할 default 폭/높이.
+    private static readonly GridLength ExplorerDefaultW = new(320);
+    private static readonly GridLength SimulationDefaultH = new(200);
+    private static readonly GridLength HistoryDefaultH = new(220);
+    private static readonly GridLength RightDefaultW = new(280);
+    private static readonly GridLength ZeroLength = new(0);
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _vm;
-        _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
+        // v7 PR-2a — _vm.FocusNameEditorRequested 슬롯 set 은 PropertyPane.xaml.cs 의 Loaded/Unloaded 자가 등록으로 이동.
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
@@ -64,6 +72,13 @@ public partial class MainWindow : Window
             });
         };
 
+        // v7 PR-2a Q1 — 빈 column 자동 collapse listener. 5개 anchor 모두 동일 핸들러.
+        explorerAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        simulationAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        propertyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        historyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        llmChatAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
@@ -94,27 +109,32 @@ public partial class MainWindow : Window
     }
 
     // VM → View 단방향 (3속성 동시 set). 재진입 가드로 IsVisibleChanged 중복 raise → VM 역류 차단.
+    // Edge case (todo §3.3): LlmChatVm==null (consent 거부) 또는 IsLlmEnabled=false → 안전 가드로 hide 유지.
     private void SyncLlmChatAnchorFromVm()
     {
         if (_suppressLlmChatSync) return;
         _suppressLlmChatSync = true;
         try
         {
-            if (_vm.IsLlmChatVisible)
-            {
-                llmChatAnchor.IsVisible = true;
-                llmChatAnchor.IsActive = true;
-                llmChatAnchor.IsSelected = true;
-            }
-            else
-            {
-                // false 분기도 IsActive/IsSelected 동시 false — 다음 Show 사이클의 첫 클릭 dead 회피.
-                llmChatAnchor.IsVisible = false;
-                llmChatAnchor.IsActive = false;
-                llmChatAnchor.IsSelected = false;
-            }
+            bool show = _vm.IsLlmChatVisible && _vm.LlmChatVm != null && _vm.IsLlmEnabled;
+            llmChatAnchor.IsVisible = show;
+            llmChatAnchor.IsActive = show;
+            llmChatAnchor.IsSelected = show;
         }
         finally { _suppressLlmChatSync = false; }
+    }
+
+    // v7 PR-2a Q1/F2 — anchor 가 hidden 시 그 anchor 의 LayoutAnchorablePane DockWidth/DockHeight 잔존 문제.
+    // 각 anchor 의 IsVisible 에 따라 pane 의 default 폭/높이를 toggle. 매 raise 마다 호출되어도 멱등.
+    private void OnAnchorIsVisibleChanged(object? sender, EventArgs e)
+    {
+        explorerPane.DockWidth    = explorerAnchor.IsVisible    ? ExplorerDefaultW   : ZeroLength;
+        simulationPane.DockHeight = simulationAnchor.IsVisible  ? SimulationDefaultH : ZeroLength;
+        historyPane.DockHeight    = historyAnchor.IsVisible     ? HistoryDefaultH    : ZeroLength;
+
+        // rightPanel 의 children (property/history/llm) 모두 hidden 시 column 자체 collapse.
+        bool anyRightVisible = propertyAnchor.IsVisible || historyAnchor.IsVisible || llmChatAnchor.IsVisible;
+        rightPanel.DockWidth = anyRightVisible ? RightDefaultW : ZeroLength;
     }
 
     // View → VM (X 버튼 = 사용자 명시 close 한 곳만). auto-hide / float 상태 변화는 무관.
@@ -151,6 +171,8 @@ public partial class MainWindow : Window
         // v7 PR-2a (검열 Major 1) — XAML 트리 / LayoutDocumentPane SelectedContentIndex 완전 unwound 이후 시점.
         // 생성자 InitializeComponent 직후 호출은 nondeterministic 위험.
         SyncWelcomeCanvasVisibility();
+        // 초기 collapse 적용 (XAML 기본값 — llmChatAnchor IsVisible=False).
+        OnAnchorIsVisibleChanged(null, EventArgs.Empty);
 
         if (App.StartupFilePath is { } path)
         {
@@ -204,10 +226,29 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         _llmChatDisposed = true;
+
+        // v7 PR-2b — DisposeLlmChatAsync 전에 floating window 일괄 close.
+        // 순서 (todo R2.M4): (1) save [PR-3 도입] → (2) floating close → (3) Dispose → (4) Close.
+        CloseAllFloatingWindows();
+
         await _vm.DisposeLlmChatAsync();
         // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
         // fire-and-forget 의도 — DispatcherOperation 결과 무시.
         _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    // v7 PR-2b — Window 종료 직전 dockManager 의 floating anchor 들 일괄 close.
+    // anchor.IsFloating=true 인 항목 Hide → AvalonDock 가 빈 floating window 자동 정리.
+    // LlmChat 의 경우 SyncLlmChatAnchorFromVm 의 가드를 거치는 대신 직접 Hide (Window 종료 path).
+    private void CloseAllFloatingWindows()
+    {
+        if (dockManager.Layout == null) return;
+        var floatingAnchors = dockManager.Layout.Descendents()
+            .OfType<LayoutAnchorable>()
+            .Where(a => a.IsFloating)
+            .ToList();
+        foreach (var anchor in floatingAnchors)
+            anchor.Hide();
     }
 
     private static readonly string[] SupportedExtensions =
@@ -418,6 +459,14 @@ public partial class MainWindow : Window
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
         llmChatAnchor.Hiding -= OnLlmChatHiding;
+
+        // v7 PR-2a Q1 — anchor IsVisibleChanged listener 해지.
+        explorerAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
+        simulationAnchor.IsVisibleChanged  -= OnAnchorIsVisibleChanged;
+        propertyAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
+        historyAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
+        llmChatAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
+
         // 트레이 아이콘 정리 — stale 잔존 방지.
         try { _trayService.Dispose(); } catch { /* ignore */ }
     }
