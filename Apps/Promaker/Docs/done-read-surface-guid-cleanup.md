@@ -1,12 +1,17 @@
-# TODO — Read surface GUID-free 정렬 (Phase 6 후보)
+# DONE — Read surface GUID-free 정렬 (Phase 6) ✅ 완료 (2026-05-13)
 
 > Phase 5 (mutation op-layer 15종 일소) 이후 잔존 read 6종에 남은 GUID 입출력을 청산하고,
-> `export_model_doc` 의 scope 인자로 list/describe 류를 흡수하여 read surface 압축.
+> `export_model_doc` 의 scope 인자로 list/describe 류를 흡수하여 read surface 압축. **read 풀세트 10 → 6종 / GUID 입출력 0건 달성**.
 >
-> 본 문서는 **--plan 모드 논의 결과 + 5인 reviewer 검증 통과 사항 + 메타 review 검증 통과 사항 + v4 closure list 결정** 반영의 transfer 메모.
-> 실제 구현은 사용자 명시적 지시 (§0.3 trigger 발화) 후 착수.
+> 본 문서는 **--plan 모드 논의 결과 + 5인 reviewer 검증 통과 사항 + 메타 review 검증 통과 사항 + v4 closure list 결정 + v5/v6/v7 실 구현 commit + 자가 검열 통과** 의 전체 기록.
 >
-> **v4 (2026-05-13)**: closure list 5건 모두 결정 완료. SSOT commit #1 본문 작성 진입 가능 상태. 결정 사항 §7.2 v4 round + 본문 §3.1 / §4 각 절 "**결정**" 라벨 참조. 작업 worktree: `F:/Git/ds2/phase6-readsurface` (브랜치 `phase6-read-surface-guid-cleanup`).
+> **v7 (2026-05-13) — 완료 (commit #2 6 sub-chunk 전체 push 통과)**:
+> - 작업 worktree: `F:/Git/ds2/phase6-readsurface` (브랜치 `phase6-read-surface-guid-cleanup`, push 완료).
+> - commit graph: `e85edba` (commit #1 SSOT) → `eab4537` (chunk-1 read 4종 일소) → `caabfa7` (chunk-1c exportToJsonScoped + summary) → `989a47c` (chunk-2/3/4 test+drift+prompt) → `7eb4dc8` (chunk-3.5/5 SSOT sync + 외부 문서) → `7c56cc0` (chunk-6 광역 grep + 자가 검열).
+> - 빌드 0 오류 / **330 test 통과** baseline 유지 (이전 314 + 신규 16).
+> - 자가 검열 (Agent 5요소 리포트) — commit #2 누적 4 commit 검열, **발견 이슈 0건**. SSOT/구현 substring sync / `PartialBudget=500` 4-way sync / `validate ⊆ apply` 위임 / prompt alias 의미 정합 / drift fence 부담 정당 모두 통과.
+> - 광역 grep `describe_system|describe_subtree|list_systems|list_projects` 잔재 — stale 도구 권유 0건. 의도 보존만 (transition note / historical / parser fixture / drift fence).
+> - 후속 cycle 후보 (보류): PathResolver 모듈 SRP split + ModelProtocol.fs 1500+ line SRP split 묶음 진행 (`done-yaml-protocol-implementation.md §3.0` 추가).
 
 ---
 
@@ -171,7 +176,7 @@ git log --oneline -10   # commit #1 (SSOT) 와 commit #2-chunk1 (코드 일부) 
 - `e85edba` — Docs/Phase 6: SSOT commit #1 (설계만)
 - `1b20aa7` (main, base) — Docs: Phase 6 todo v4 — closure 결정 완료
 - working tree staged (chunk-1c, 미 commit): 5 파일 = `ModelProtocol.fs` / `ToolOperations.fs` / `ModelTools.cs` / `LlmTurnContext.cs` / `ValidateModelTests.fs`. 변경 line ≈ +600/-90.
-- v6 todo 갱신 본 commit 안 포함 권장 — `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md`.
+- v6 todo 갱신 본 commit 안 포함 권장 — `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md`.
 
 ### 0.4 용어 사전
 
@@ -815,8 +820,8 @@ SSOT commit #1 진입 직전 5건 closure 모두 결정 완료. + path notation 
 **코멘트 추적성 보강** (사용자 우려 반영, 본 round 추가 정정):
 - 본 PR 의 새 코멘트 안 closure 참조 (`closure #3 v4`, `§4.6 정합`) 가 어느 SSOT 의 § 인지 ambiguous → 파일 경로 명시.
 - 정정 위치 2곳:
-  - `ModelTools.cs:257` FindByName inline format 코멘트 — `(closure #3 v4)` → `(Phase 6 todo-read-surface-guid-cleanup.md closure #3 v4)`.
-  - `ModelProtocol.fs` tryFindEntity docstring — `(병존 — §4.6 정합)` → `(병존 — Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md §4.6 정합)`.
+  - `ModelTools.cs:257` FindByName inline format 코멘트 — `(closure #3 v4)` → `(Phase 6 done-read-surface-guid-cleanup.md closure #3 v4)`.
+  - `ModelProtocol.fs` tryFindEntity docstring — `(병존 — §4.6 정합)` → `(병존 — Apps/Promaker/Docs/done-read-surface-guid-cleanup.md §4.6 정합)`.
 - 기존 컨벤션 (module / file 머리에 SSOT 파일 경로 한 번 명시, 본문은 § 번호) 은 그대로 유지 — yaml-protocol-v0.md 참조는 ModelProtocol.fs:16 / ModelTools.cs:17, 133 의 머리 명시 덕에 자연 추적 가능.
 
 **검증**:

@@ -268,7 +268,7 @@ public static class ModelTools
                 : Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Store.EntityKind>.None;
             var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
             if (rows.Length == 0) return "(no matches)";
-            // SSOT yaml-protocol-v0.md §2.5.1 / §4.5 (Phase 6 todo-read-surface-guid-cleanup.md closure #3 v4):
+            // SSOT yaml-protocol-v0.md §2.5.1 / §4.5 (Phase 6 done-read-surface-guid-cleanup.md closure #3 v4):
             // 출력 = `[ {kind, path} ]` 목록. ModelProtocol.tryPathOf 가 entity → leading `.` + dot path 합성
             // (root 까지 parent chain). orphan System (project 미부착) / path-unsupported kind 는 None →
             // 빈 "" emit 대신 명시적 marker (`<orphan:Name>` / `<unsupported:Kind>`) 로 모호성 회피.

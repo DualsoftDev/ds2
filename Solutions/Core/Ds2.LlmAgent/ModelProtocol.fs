@@ -806,7 +806,7 @@ module ModelProtocol =
     /// 4 = Work / 5 = Call. 6+ 는 schema 위반 — None 반환 (호출자가 VALIDATION_ERROR 변환).
     /// 3-segment ambiguity (ApiDef vs Flow) 은 ApiDef → Flow → None 순.
     /// `findSystemByName` / `findFlowByPath` 는 호출지점 그대로 유지
-    /// (병존 — `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md` §4.6 정합).
+    /// (병존 — `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md` §4.6 정합).
     let tryFindEntity (store: DsStore) (rawPath: string) : (EntityKind * Guid) option =
         let segs = pathSegments rawPath
         if segs.IsEmpty || segs.Length > 5 then None
@@ -1374,7 +1374,7 @@ module ModelProtocol =
     //
     // SSOT `yaml-protocol-v0.md §2.8` — partial export view-only spec.
     // 일소된 list_projects / list_systems / describe_system / describe_subtree 흡수.
-    // `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md` §3.1 / §4.1 / §4.7 / closure #2/#4 정합.
+    // `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md` §3.1 / §4.1 / §4.7 / closure #2/#4 정합.
 
     /// envelope 의 `view` 키 갱신. 모든 단계 끝 `truncated` 상태에 따라 partial/full 결정.
     let private setView (root: JsonObject) (view: string) : unit =
@@ -1638,7 +1638,7 @@ module ModelProtocol =
     /// systems 는 항상 array 유지 (type 단일성). 진단 정보 (totalEntities / emitted / budget) 는
     /// `exportToJsonScoped` 의 `summary` metadata 키로 별도 emit — LLM 이 "513 이면 늘려서 재호출,
     /// 50000 이면 포기" 류의 후속 호출 전략 결정 가능.
-    /// SSOT `todo-read-surface-guid-cleanup.md` §4.3 ("빈 결과 의미 구분") 정합 — `[]` (실제 0건) 와
+    /// SSOT `done-read-surface-guid-cleanup.md` §4.3 ("빈 결과 의미 구분") 정합 — `[]` (실제 0건) 와
     /// `view: partial` + `summary` 동반 (절단으로 0건) 구분은 view/summary 조합으로.
     let private applyEntityBudget (root: JsonObject) (limit: int) (truncated: bool ref) : unit =
         match root.TryGetPropertyValue("systems") with
