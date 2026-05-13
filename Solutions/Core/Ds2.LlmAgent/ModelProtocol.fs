@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.IO
 open System.Text
 open System.Text.Json
+open System.Text.Json.Nodes
 open Ds2.Core
 open Ds2.Core.Store
 
@@ -800,6 +801,115 @@ module ModelProtocol =
                 |> List.tryFind (fun f -> f.Name = flowName))
         | _ -> None
 
+    /// SSOT §2.5.1 — dotted-path → (EntityKind, Guid) 변환. path 깊이로 EntityKind 자동 결정.
+    /// 1 seg = Project / 2 = System / 3 = ApiDef 또는 Flow (System 직접 자식 ambiguity) /
+    /// 4 = Work / 5 = Call. 6+ 는 schema 위반 — None 반환 (호출자가 VALIDATION_ERROR 변환).
+    /// 3-segment ambiguity (ApiDef vs Flow) 은 ApiDef → Flow → None 순.
+    /// `findSystemByName` / `findFlowByPath` 는 호출지점 그대로 유지
+    /// (병존 — `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md` §4.6 정합).
+    let tryFindEntity (store: DsStore) (rawPath: string) : (EntityKind * Guid) option =
+        let segs = pathSegments rawPath
+        if segs.IsEmpty || segs.Length > 5 then None
+        else
+            let projectName = segs.[0]
+            let project =
+                Queries.allProjects store
+                |> List.tryFind (fun p -> p.Name = projectName)
+            match segs.Length with
+            | 1 -> project |> Option.map (fun p -> EntityKind.Project, p.Id)
+            | _ ->
+                project |> Option.bind (fun p ->
+                    let sysName = segs.[1]
+                    let sys =
+                        Queries.projectSystemsOf p.Id store
+                        |> List.tryFind (fun s -> s.Name = sysName)
+                    match segs.Length with
+                    | 2 -> sys |> Option.map (fun s -> EntityKind.System, s.Id)
+                    | _ ->
+                        sys |> Option.bind (fun s ->
+                            let thirdName = segs.[2]
+                            match segs.Length with
+                            | 3 ->
+                                // ApiDef 먼저 (System 직접 자식 ambiguity 해소 순서 — SSOT §2.5.1)
+                                let apiHit =
+                                    Queries.apiDefsOf s.Id store
+                                    |> List.tryFind (fun d -> d.Name = thirdName)
+                                match apiHit with
+                                | Some d -> Some (EntityKind.ApiDef, d.Id)
+                                | None ->
+                                    Queries.flowsOf s.Id store
+                                    |> List.tryFind (fun f -> f.Name = thirdName)
+                                    |> Option.map (fun f -> EntityKind.Flow, f.Id)
+                            | _ ->
+                                // 4 또는 5 segment — Flow 경로만 (ApiDef 는 깊이 3 cap)
+                                Queries.flowsOf s.Id store
+                                |> List.tryFind (fun f -> f.Name = thirdName)
+                                |> Option.bind (fun f ->
+                                    let fourthName = segs.[3]
+                                    let work =
+                                        Queries.worksOf f.Id store
+                                        |> List.tryFind (fun w -> w.LocalName = fourthName)
+                                    match segs.Length with
+                                    | 4 -> work |> Option.map (fun w -> EntityKind.Work, w.Id)
+                                    | 5 ->
+                                        work |> Option.bind (fun w ->
+                                            let fifthName = segs.[4]
+                                            Queries.callsOf w.Id store
+                                            |> List.tryFind (fun c -> c.Name = fifthName)
+                                            |> Option.map (fun c -> EntityKind.Call, c.Id))
+                                    | _ -> None)))
+
+    /// SSOT §2.5.1 역방향 — entity → dotted-path (leading `.` + dot segment).
+    /// find_by_name 출력 emit + scope path 형성에 사용. 매칭 실패 / unsupported kind 시 None.
+    ///
+    /// **kind 별 안정성** (Phase 6 chunk-1c, Outlier 2/3 통합):
+    /// - Project / System / Flow / ApiDef / Work / Call: 5 kind 지원. 모두 재귀 호출 패턴으로 통일
+    ///   (System 도 `tryPathOf store Project p.Id` 경유 — 직접 sprintf 조립 제거).
+    /// - orphan System (project 미부착): None — 1-segment path 가 `tryFindEntity` 역해석 시
+    ///   Project 로 round-trip 오인되는 회귀 회피.
+    /// - **path-unsupported kinds (None)**: Button / Lamp / Condition / Action / ApiDefCategory /
+    ///   DeviceRoot / Arrow 등. dotted-path 어휘 자체가 정의된 5 kind 외엔 명시적 None.
+    let rec tryPathOf (store: DsStore) (kind: EntityKind) (id: Guid) : string option =
+        match kind with
+        | EntityKind.Project ->
+            Queries.getProject id store
+            |> Option.map (fun p -> "." + p.Name)
+        | EntityKind.System ->
+            Queries.getSystem id store
+            |> Option.bind (fun s ->
+                Queries.allProjects store
+                |> List.tryFind (fun p ->
+                    p.ActiveSystemIds.Contains s.Id || p.PassiveSystemIds.Contains s.Id)
+                |> Option.bind (fun p ->
+                    tryPathOf store EntityKind.Project p.Id
+                    |> Option.map (fun pp -> pp + "." + s.Name)))
+        | EntityKind.Flow ->
+            Queries.getFlow id store
+            |> Option.bind (fun f ->
+                tryPathOf store EntityKind.System f.ParentId
+                |> Option.map (fun pp -> pp + "." + f.Name))
+        | EntityKind.ApiDef ->
+            Queries.getApiDef id store
+            |> Option.bind (fun d ->
+                tryPathOf store EntityKind.System d.ParentId
+                |> Option.map (fun pp -> pp + "." + d.Name))
+        | EntityKind.Work ->
+            Queries.getWork id store
+            |> Option.bind (fun w ->
+                tryPathOf store EntityKind.Flow w.ParentId
+                |> Option.map (fun pp -> pp + "." + w.LocalName))
+        | EntityKind.Call ->
+            Queries.getCall id store
+            |> Option.bind (fun c ->
+                tryPathOf store EntityKind.Work c.ParentId
+                |> Option.map (fun pp -> pp + "." + c.Name))
+        | _ -> None  // path-unsupported: Button/Lamp/Condition/Action/ApiDefCategory/DeviceRoot/Arrow
+
+    /// `tryPathOf` 호환 wrapper — 호출지점이 매칭 실패를 string fallback 으로 처리하는 경우용.
+    /// 신규 호출지점은 `tryPathOf` 직접 사용 권장 (orphan / unsupported kind 명시적 처리).
+    let pathOf (store: DsStore) (kind: EntityKind) (id: Guid) : string =
+        tryPathOf store kind id |> Option.defaultValue ""
+
     let private applyPatch (ctx: ApplyContext) (patchEl: JsonElement) : unit =
         // patch 의 add — systems list 형태 (existing systems 와 동일 schema)
         // **Critical 1 (review M3.1)**: `apply` 의 systems path 와 동일하게 collectSystems 후
@@ -1001,6 +1111,23 @@ module ModelProtocol =
             ctx.Diagnostics.Add("protocol", sprintf "'%s' 미지원. 'promaker/v0' 만 허용." v)
         | _ -> ()
 
+        // SSOT §2.7 룰 #7 / §2.8: view: partial 은 view-only — apply/validate 재입력 거부.
+        // view: full 은 round-trip 시나리오 (self export → apply) 정합으로 허용. unknown 값은 사전 거부.
+        match tryProp root "view" |> Option.bind tryString with
+        | Some "full" -> ()
+        | Some "partial" ->
+            ctx.Diagnostics.Add("view", "partial export 결과는 view-only — apply/validate 재입력 불가. 전체 export (view: full) 로 다시 호출하거나 'view:' 키를 제거하세요.")
+        | Some other ->
+            ctx.Diagnostics.Add("view", sprintf "값 '%s' 인식 불가. 'full' 또는 'partial'." other)
+        | None -> ()
+
+        // SSOT §2.8: summary 는 partial export 진단 metadata 전용 — apply/validate 재입력 불가.
+        // view: partial 과 짝이 되는 진단 신호 ({totalEntities, emitted, budget}). 입력 단에 등장하면 사전 거부.
+        match tryProp root "summary" with
+        | Some _ ->
+            ctx.Diagnostics.Add("summary", "summary 는 partial export 진단 metadata 전용 — apply/validate 재입력 불가. 'summary:' 키를 제거하세요.")
+        | None -> ()
+
         if ctx.Diagnostics.HasErrors then
             // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
             plan.TruncateTo(snapshotCount)
@@ -1089,6 +1216,8 @@ module ModelProtocol =
             use w = new Utf8JsonWriter(ms)
             w.WriteStartObject()
             w.WriteString("protocol", "promaker/v0")
+            // SSOT §2.8 — 전체 export 는 항상 view: full. partial 변형은 별도 함수 (Phase 6 후속 commit).
+            w.WriteString("view", "full")
             match projects with
             | [] -> ()
             | p :: _ ->
@@ -1240,3 +1369,360 @@ module ModelProtocol =
             w.Flush()
         ms.Position <- 0L
         JsonDocument.Parse(ms.ToArray())
+
+    // ─── exportToJsonScoped (Phase 6 chunk-1c) ───────────────────────────────
+    //
+    // SSOT `yaml-protocol-v0.md §2.8` — partial export view-only spec.
+    // 일소된 list_projects / list_systems / describe_system / describe_subtree 흡수.
+    // `Apps/Promaker/Docs/done-read-surface-guid-cleanup.md` §3.1 / §4.1 / §4.7 / closure #2/#4 정합.
+
+    /// envelope 의 `view` 키 갱신. 모든 단계 끝 `truncated` 상태에 따라 partial/full 결정.
+    let private setView (root: JsonObject) (view: string) : unit =
+        root.["view"] <- JsonValue.Create(view)
+
+    /// system entry (JsonObject) 가 active 인지 — `kind: active` literal lookup.
+    let private isActiveSystem (sysObj: JsonObject) : bool =
+        match sysObj.TryGetPropertyValue("kind") with
+        | true, kv when kv <> null -> kv.ToString() = "active"
+        | _ -> false
+
+    /// path scope 적용 — root 의 systems[] 와 안쪽 flow*/works/calls/apis 를 segments 별 필터.
+    /// segs[0]=project, [1]=system, [2]=flow|apidef, [3]=work, [4]=call. 매칭 외 요소 제거 + truncated set.
+    let private applyPathScope (root: JsonObject) (segs: string list) (truncated: bool ref) : unit =
+        match segs with
+        | [] -> ()
+        | _ ->
+            // segs[0] = project — root.project 와 mismatch 면 모든 systems 제거 (현 single-project export)
+            let rootProj =
+                match root.TryGetPropertyValue("project") with
+                | true, v when v <> null -> v.ToString()
+                | _ -> ""
+            if segs.[0] <> rootProj then
+                // path 가 다른 project — systems 비우고 project 키도 정합 위해 path 의 project 로 교체
+                truncated := true
+                root.["project"] <- JsonValue.Create(segs.[0])
+                root.["systems"] <- JsonArray()
+            else
+                match root.TryGetPropertyValue("systems") with
+                | true, (:? JsonArray as systemsArr) when segs.Length >= 2 ->
+                    // segs[1] = system 이름 — 그 외 모두 제거
+                    let kept = ResizeArray<JsonNode>()
+                    let mutable removedAny = false
+                    let original = systemsArr |> Seq.toArray
+                    for node in original do
+                        match node with
+                        | :? JsonObject as sysObj ->
+                            let name =
+                                match sysObj.TryGetPropertyValue("system") with
+                                | true, v when v <> null -> v.ToString()
+                                | _ -> ""
+                            if name = segs.[1] then
+                                kept.Add(sysObj)
+                            else
+                                removedAny <- true
+                        | _ -> ()
+                    if removedAny then truncated := true
+                    systemsArr.Clear()
+                    for k in kept do
+                        // detach from any parent then re-add (JsonNode requires reparenting)
+                        let raw = k.ToJsonString()
+                        systemsArr.Add(JsonNode.Parse(raw))
+
+                    // 3+ segment — 안쪽 필터
+                    if segs.Length >= 3 && systemsArr.Count = 1 then
+                        match systemsArr.[0] with
+                        | :? JsonObject as sysObj ->
+                            let activeSys = isActiveSystem sysObj
+                            if activeSys then
+                                // segs[2] = flow 이름 — "flow X" 키 외 제거
+                                let flowKey = "flow " + segs.[2]
+                                let keysToRemove =
+                                    sysObj
+                                    |> Seq.filter (fun kv ->
+                                        kv.Key.StartsWith("flow ") && kv.Key <> flowKey)
+                                    |> Seq.map (fun kv -> kv.Key)
+                                    |> Seq.toList
+                                for k in keysToRemove do
+                                    sysObj.Remove(k) |> ignore
+                                    truncated := true
+                                // 추가로 system 의 arrows (cross-flow arrows 가 있으면) 도 path 외부 → 제거
+                                if sysObj.ContainsKey("arrows") then
+                                    sysObj.Remove("arrows") |> ignore
+                                    truncated := true
+                                // segs[3] = work 안 필터
+                                if segs.Length >= 4 then
+                                    match sysObj.TryGetPropertyValue(flowKey) with
+                                    | true, (:? JsonObject as flowObj) ->
+                                        match flowObj.TryGetPropertyValue("works") with
+                                        | true, (:? JsonObject as worksObj) ->
+                                            let workKeys =
+                                                worksObj
+                                                |> Seq.map (fun kv -> kv.Key)
+                                                |> Seq.toList
+                                            for wk in workKeys do
+                                                if wk <> segs.[3] then
+                                                    worksObj.Remove(wk) |> ignore
+                                                    truncated := true
+                                            // flow level arrows 도 제거 (work 한정 scope)
+                                            if flowObj.ContainsKey("arrows") then
+                                                flowObj.Remove("arrows") |> ignore
+                                                truncated := true
+                                            // segs[4] = call 필터 (calls[] 안 string 항목)
+                                            if segs.Length >= 5 then
+                                                match worksObj.TryGetPropertyValue(segs.[3]) with
+                                                | true, (:? JsonObject as workObj) ->
+                                                    match workObj.TryGetPropertyValue("calls") with
+                                                    | true, (:? JsonArray as callsArr) ->
+                                                        let kept = ResizeArray<JsonNode>()
+                                                        let mutable removed = false
+                                                        let orig = callsArr |> Seq.toArray
+                                                        for cn in orig do
+                                                            // call 문자열은 "SysName.ApiName" — `.ApiName` suffix 비교
+                                                            let s = if cn = null then "" else cn.ToString()
+                                                            let lastDot = s.LastIndexOf('.')
+                                                            let apiPart = if lastDot >= 0 then s.Substring(lastDot + 1) else s
+                                                            if apiPart = segs.[4] then
+                                                                kept.Add(JsonNode.Parse(if cn = null then "null" else cn.ToJsonString()))
+                                                            else
+                                                                removed <- true
+                                                        if removed then truncated := true
+                                                        callsArr.Clear()
+                                                        for k in kept do callsArr.Add(k)
+                                                    | _ -> ()
+                                                | _ -> ()
+                                        | _ -> ()
+                                    | _ -> ()
+                            else
+                                // passive system — segs[2] = ApiDef 이름. apis[] 필터.
+                                if segs.Length >= 3 then
+                                    match sysObj.TryGetPropertyValue("apis") with
+                                    | true, (:? JsonArray as apisArr) ->
+                                        let kept = ResizeArray<JsonNode>()
+                                        let mutable removed = false
+                                        let orig = apisArr |> Seq.toArray
+                                        for an in orig do
+                                            let s = if an = null then "" else an.ToString()
+                                            if s = segs.[2] then
+                                                kept.Add(JsonValue.Create(s))
+                                            else
+                                                removed <- true
+                                        if removed then truncated := true
+                                        apisArr.Clear()
+                                        for k in kept do apisArr.Add(k)
+                                    | _ -> ()
+                        | _ -> ()
+                | true, (:? JsonArray as _systemsArr) ->
+                    // segs.Length = 1 (path = project 만) — systems 그대로
+                    ()
+                | _ -> ()
+
+    /// depth cap — scope root 로부터 d 단계 자식까지 유지. 그 너머는 제거 + truncated set.
+    /// `baseDepth` = scope entity 가 project root 로부터 떨어진 depth (0=project, 1=system, 2=flow/api, 3=work, 4=call).
+    /// `maxAbsDepth` = baseDepth + d. JSON tree 의 각 노드 절대 depth 와 비교.
+    /// 절대 depth 매핑: project=0, system entity=1, system content(flow X 키/device/apis 등)=2,
+    /// flow content(works obj / arrows)=3, work content(calls 배열)=4, call element(string)=5.
+    let private applyDepthCap (root: JsonObject) (maxAbsDepth: int) (truncated: bool ref) : unit =
+        // depth=0 : systems 배열 제거 (envelope only)
+        if maxAbsDepth < 1 then
+            match root.TryGetPropertyValue("systems") with
+            | true, (:? JsonArray as sa) when sa.Count > 0 ->
+                truncated := true
+                sa.Clear()
+            | _ -> ()
+        else
+            // depth>=1: systems[] 안 각 system entry 정리
+            match root.TryGetPropertyValue("systems") with
+            | true, (:? JsonArray as systemsArr) ->
+                for node in systemsArr do
+                    match node with
+                    | :? JsonObject as sysObj ->
+                        // 절대 depth 2 = system content (flow X 키 / apis / device / arrows / workDuration / opposing)
+                        if maxAbsDepth < 2 then
+                            // system identity 만 유지: system, kind, device (passive identity 보존)
+                            let keysToRemove =
+                                sysObj
+                                |> Seq.filter (fun kv ->
+                                    kv.Key <> "system" && kv.Key <> "kind" && kv.Key <> "device")
+                                |> Seq.map (fun kv -> kv.Key)
+                                |> Seq.toList
+                            if not keysToRemove.IsEmpty then truncated := true
+                            for k in keysToRemove do
+                                sysObj.Remove(k) |> ignore
+                        else
+                            // depth>=2: flow content (works/arrows) 절단
+                            if maxAbsDepth < 3 then
+                                // active: 각 "flow X" obj 내부 비우기
+                                let flowKeys =
+                                    sysObj
+                                    |> Seq.filter (fun kv -> kv.Key.StartsWith("flow "))
+                                    |> Seq.map (fun kv -> kv.Key)
+                                    |> Seq.toList
+                                for fk in flowKeys do
+                                    match sysObj.TryGetPropertyValue(fk) with
+                                    | true, (:? JsonObject as flowObj) when flowObj.Count > 0 ->
+                                        truncated := true
+                                        flowObj.Clear()
+                                    | _ -> ()
+                                // system level arrows 도 절단 — Phase 6 에선 active 의 cross-flow arrows
+                                if sysObj.ContainsKey("arrows") then
+                                    truncated := true
+                                    sysObj.Remove("arrows") |> ignore
+                            elif maxAbsDepth < 4 then
+                                // depth=3: flow content 유지 (works obj) — works 안 work entry 비우기
+                                let flowKeys =
+                                    sysObj
+                                    |> Seq.filter (fun kv -> kv.Key.StartsWith("flow "))
+                                    |> Seq.map (fun kv -> kv.Key)
+                                    |> Seq.toList
+                                for fk in flowKeys do
+                                    match sysObj.TryGetPropertyValue(fk) with
+                                    | true, (:? JsonObject as flowObj) ->
+                                        match flowObj.TryGetPropertyValue("works") with
+                                        | true, (:? JsonObject as worksObj) ->
+                                            // 각 work entry 의 calls 제거 (work identity 만 유지)
+                                            for kv in (worksObj |> Seq.toArray) do
+                                                match kv.Value with
+                                                | :? JsonObject as workObj ->
+                                                    if workObj.ContainsKey("calls") then
+                                                        truncated := true
+                                                        workObj.Remove("calls") |> ignore
+                                                | _ -> ()
+                                        | _ -> ()
+                                    | _ -> ()
+                            // depth>=4: calls 까지 모두 유지 — 추가 절단 없음
+                    | _ -> ()
+            | _ -> ()
+
+    /// systems[] / flow / work / call / apidef 수 합계. budget 측정 + summary.totalEntities 의 단위.
+    /// **카운트 단위** (SSOT §2.8 후속 본문 명시 예정): EntityKind 가 `find_by_name` 에서 노출되는 5종
+    /// (System / Flow / Work / Call / ApiDef). Arrow 는 entity 가 아닌 관계, device / kind / workDuration /
+    /// opposing 은 attribute — 카운트 미포함. Project 는 envelope root 라 카운트 미포함 (단일 project export).
+    let private countEntities (systemsArr: JsonArray) : int =
+        let mutable c = 0
+        for n in systemsArr do
+            match n with
+            | :? JsonObject as sysObj ->
+                c <- c + 1
+                // passive system 의 apidef 카운트 (apis[] 의 string 각 항목)
+                match sysObj.TryGetPropertyValue("apis") with
+                | true, (:? JsonArray as apisArr) -> c <- c + apisArr.Count
+                | _ -> ()
+                for kv in sysObj do
+                    if kv.Key.StartsWith("flow ") then
+                        c <- c + 1
+                        match kv.Value with
+                        | :? JsonObject as flowObj ->
+                            match flowObj.TryGetPropertyValue("works") with
+                            | true, (:? JsonObject as worksObj) ->
+                                for wkv in worksObj do
+                                    c <- c + 1
+                                    match wkv.Value with
+                                    | :? JsonObject as workObj ->
+                                        match workObj.TryGetPropertyValue("calls") with
+                                        | true, (:? JsonArray as callsArr) ->
+                                            c <- c + callsArr.Count
+                                        | _ -> ()
+                                    | _ -> ()
+                            | _ -> ()
+                        | _ -> ()
+            | _ -> ()
+        c
+
+    /// partial entry 의 entity budget 상한. SSOT `yaml-protocol-v0.md §2.8` (후속 SSOT commit 에서 본문 명시 예정).
+    /// 현 PoC scale (3 zone × N cylinder + Pusher Punch) 에선 절단 거의 도달 안 함 — 사실상 무제한 +
+    /// 안전 catch-all. v4 round 의 50 한도가 path 명시 scope 를 통째 삭제하던 회귀 (Major-1) 해소.
+    [<Literal>]
+    let private PartialBudget = 500
+
+    /// partial entry budget — limit 초과 시 후미 systems 부터 제거 + truncated set.
+    /// systems 는 항상 array 유지 (type 단일성). 진단 정보 (totalEntities / emitted / budget) 는
+    /// `exportToJsonScoped` 의 `summary` metadata 키로 별도 emit — LLM 이 "513 이면 늘려서 재호출,
+    /// 50000 이면 포기" 류의 후속 호출 전략 결정 가능.
+    /// SSOT `done-read-surface-guid-cleanup.md` §4.3 ("빈 결과 의미 구분") 정합 — `[]` (실제 0건) 와
+    /// `view: partial` + `summary` 동반 (절단으로 0건) 구분은 view/summary 조합으로.
+    let private applyEntityBudget (root: JsonObject) (limit: int) (truncated: bool ref) : unit =
+        match root.TryGetPropertyValue("systems") with
+        | true, (:? JsonArray as systemsArr) ->
+            if countEntities systemsArr > limit then
+                truncated := true
+                while systemsArr.Count > 0 && countEntities systemsArr > limit do
+                    systemsArr.RemoveAt(systemsArr.Count - 1)
+        | _ -> ()
+
+    /// `exportToJsonScoped` — partial export entry (SSOT §2.8).
+    /// 두 인자 모두 None → `exportToJson` delegate (`view: full`, budget 0, 무제한).
+    /// 그 외 partial entry — full export 받아 path/depth/budget post-process, 실제 truncation
+    /// 1건 이상 시 `view: partial`. path Some + 미존재 = fail-fast (VALIDATION_ERROR).
+    let exportToJsonScoped (store: DsStore) (pathOpt: string option) (depthOpt: int option) : JsonDocument =
+        match pathOpt, depthOpt with
+        | None, None -> exportToJson store
+        | _ ->
+            // path 미존재 사전 거부
+            let scopeOpt =
+                match pathOpt with
+                | None -> None
+                | Some path ->
+                    match tryFindEntity store path with
+                    | Some hit -> Some hit
+                    | None ->
+                        invalidOp (sprintf "VALIDATION_ERROR: path \"%s\" 가 store 에 존재하지 않습니다 (fail-fast). 근사 후보는 `find_by_name` 도구로 확인하세요." path)
+
+            use fullDoc = exportToJson store
+            let root =
+                match JsonNode.Parse(fullDoc.RootElement.GetRawText()) with
+                | :? JsonObject as o -> o
+                | _ -> invalidOp "INTERNAL_ERROR: exportToJson 결과 root 가 object 가 아닙니다."
+
+            let truncated = ref false
+
+            // 절단 전 entity 합 — summary metadata 의 totalEntities 필드용.
+            // **의미**: `exportToJson` 이 emit 한 단일 project 의 entity 합. multi-project store 의 경우
+            // 첫 project 만 cover (exportToJson:1192 의 단일 project emit 제약 — todo §7.1 후속 cycle).
+            // path scope 가 다른 project 를 가리키는 mismatch 분기 (현 PoC N=1 가정상 사실상 미도달)
+            // 에서는 totalEntities 가 의도 외 project 합을 표시할 수 있음 — multi-project 도입 시 재정의.
+            let totalEntitiesBefore =
+                match root.TryGetPropertyValue("systems") with
+                | true, (:? JsonArray as sa) -> countEntities sa
+                | _ -> 0
+
+            // path scope
+            match pathOpt with
+            | Some raw ->
+                let segs = pathSegments raw
+                applyPathScope root segs truncated
+            | None -> ()
+
+            // depth cap (scope baseDepth + d)
+            match depthOpt with
+            | Some d when d >= 0 ->
+                let baseDepth =
+                    match scopeOpt with
+                    | None | Some (EntityKind.Project, _) -> 0
+                    | Some (EntityKind.System, _) -> 1
+                    | Some (EntityKind.Flow, _) | Some (EntityKind.ApiDef, _) -> 2
+                    | Some (EntityKind.Work, _) -> 3
+                    | Some (EntityKind.Call, _) -> 4
+                    | _ -> 0
+                applyDepthCap root (baseDepth + d) truncated
+            | _ -> ()
+
+            // partial budget — partial entry only (PartialBudget = 500)
+            applyEntityBudget root PartialBudget truncated
+
+            // view 재스탬프 (실제 truncation 0건이면 full 유지, 1건+ 면 partial)
+            setView root (if !truncated then "partial" else "full")
+
+            // summary metadata — 절단 발생 시에만 emit. LLM 이 totalEntities / budget 비교로 후속 전략
+            // 결정 (좁혀서 재호출 / 포기). SSOT §2.8 / todo §4.3 정합. 정상 (view: full) 결과에는 부재.
+            if !truncated then
+                let emittedAfter =
+                    match root.TryGetPropertyValue("systems") with
+                    | true, (:? JsonArray as sa) -> countEntities sa
+                    | _ -> 0
+                let summary = JsonObject()
+                summary.["totalEntities"] <- JsonValue.Create(totalEntitiesBefore)
+                summary.["emitted"] <- JsonValue.Create(emittedAfter)
+                summary.["budget"] <- JsonValue.Create(PartialBudget)
+                root.["summary"] <- summary
+
+            JsonDocument.Parse(root.ToJsonString())
