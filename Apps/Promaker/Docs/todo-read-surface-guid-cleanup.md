@@ -3,8 +3,10 @@
 > Phase 5 (mutation op-layer 15종 일소) 이후 잔존 read 6종에 남은 GUID 입출력을 청산하고,
 > `export_model_doc` 의 scope 인자로 list/describe 류를 흡수하여 read surface 압축.
 >
-> 본 문서는 **--plan 모드 논의 결과 + 5인 reviewer 검증 통과 사항 + 메타 review 검증 통과 사항** 반영의 transfer 메모.
+> 본 문서는 **--plan 모드 논의 결과 + 5인 reviewer 검증 통과 사항 + 메타 review 검증 통과 사항 + v4 closure list 결정** 반영의 transfer 메모.
 > 실제 구현은 사용자 명시적 지시 (§0.3 trigger 발화) 후 착수.
+>
+> **v4 (2026-05-13)**: closure list 5건 모두 결정 완료. SSOT commit #1 본문 작성 진입 가능 상태. 결정 사항 §7.2 v4 round + 본문 §3.1 / §4 각 절 "**결정**" 라벨 참조. 작업 worktree: `F:/Git/ds2/phase6-readsurface` (브랜치 `phase6-read-surface-guid-cleanup`).
 
 ---
 
@@ -12,36 +14,86 @@
 
 ### 0.1 읽기 순서
 
-1. **§0.2 closure list** — SSOT commit #1 진입 전 결정 필요한 5건 (착수 차단 해제 항목)
+0. **§0.5 새 세션 즉시 작업 진입 가이드** ★ — 새 세션이라면 본 절부터. worktree 진입 명령 + 현 상태 + 다음 step 명세.
+1. **§0.2 closure list** — SSOT commit #1 진입 전 결정 필요했던 5건 + 부속 1건 (v4 모두 ✅ 결정 완료)
 2. **§0.3 trigger 발화** — 사용자 의도 확인 (ambiguous 발화 오해 방지)
 3. **§0.4 용어 사전**
-4. **§1.1 Phase 4 변형 B 충돌 검증** — 진입 prerequisite
+4. **§1.1 Phase 4 변형 B 충돌 검증** — 진입 prerequisite (v2 통과)
 5. **§1 작업 목표 + §2 배경** — 맥락
-6. **§3 설계 + §4 결정 항목** — 본문
+6. **§3 설계 + §4 결정 항목** — 본문 (v4 결정 라벨 위치: §3.1 path notation / §3.2 표 라벨 / §4.1 envelope flag / §4.5 find_by_name 출력 / §4.6 thin lookup)
 7. **§5 작업 단계** — 구현 시점 참조
-8. **§7.3 review 처리 이력** — 본 메모 변경 추적
+8. **§7.2 review 처리 이력** — 본 메모 변경 추적 (v1 → v4 round 누적)
 
-### 0.2 SSOT commit #1 진입 전 closure list (★ 결정 필요)
+### 0.2 SSOT commit #1 진입 전 closure list (✅ v4 모두 결정 완료)
 
-본 5건이 결정되지 않으면 SSOT commit #1 의 본문 작성 불가. 진입 전 사용자 의사결정 요청.
+본 **5건 + 부속 1건 (path notation, 표 하단)** 이 결정되지 않으면 SSOT commit #1 의 본문 작성 불가. **v4 (2026-05-13) 사용자 결정 완료**.
 
-| # | 항목 | 본문 위치 | 합의 |
+| # | 항목 | 본문 위치 | v4 결정 |
 |---|---|---|---|
-| 1 | envelope 페이로드 flag 이름 — 기존 도구 인자 `scope` 와의 충돌 회피. 후보: `view: full \| partial` / `_meta.scope` / 기타 + v0 §2.0 top-level 키 enum 갱신 (legacy / unknown-key 정책) | §4.1 | 5/5 |
-| 2 | path → entity 결정 메커니즘 — 후보: 강타입 `ResolvedEntity` DU (Project 포함, Arrow 미포함 footnote) / thin lookup `tryFindEntity : DsStore → string → (EntityKind * Guid) option` (사용자 철학 90/10 — `findByName` tuple 답습) | §4.6 | 5/5 |
-| 3 | find_by_name path unique 정책 — 후보 (a) ordinal suffix / (b) GUID prefix tail / (c) sibling-unique invariant 강제 / (d) sanitizeName 의 `.` 거부 + legacy 마이그레이션 — + cross-kind 동명 처리 (resolver 에 kind 인자 강제 OR 출력에 `kind:` 필드) | §4.5 | 5/5 |
-| 4 | partial 판정 기준 — 후보 (a) `path` OR `depth` 명시 여부 / (b) 실제 truncation 발생 여부 + 회귀 fact 5건 명세 + `depth: integer >= 0` 사전 거부 | §4.1 / §4.7 / §3.1 | 4/5 |
-| 5 | `PromakerToolNamesDriftTests.fs` 회귀 가드 격상 — `opLayerStaleTokens` 에 read-4종 추가 + sanity fact 를 `Assert.Equal<Set<string>>(expected, listed)` set equality 로 강화 | §5.1 | 2/5 |
+| 1 | envelope 페이로드 flag 이름 + v0 §2.0 top-level 키 enum 갱신 | §4.1 | **`view: full \| partial`** 채택. format 무관 (yaml/json 양쪽 적용 — top-level mapping key). legacy/unknown-key 정책: 부재 시 ERROR (명시 강제, ii). |
+| 2 | path → entity 결정 메커니즘 | §4.6 | **thin lookup `tryFindEntity : DsStore → string → (EntityKind * Guid) option`** 채택. **kind 인자 없음** — path 자체에서 `proj/system/flow/work/call` 깊이로 EntityKind 유추 가능. |
+| 3 | find_by_name path unique 정책 (4-way) | §4.5 | **폐기**. `find_by_name` 출력 spec 자체를 `[ (EntityKind, path) ]` **목록 반환** 으로 격상 — 동명 sibling 도 N건 그대로 노출. ordinal suffix / GUID tail / sibling invariant / sanitize 4 후보 모두 불필요. |
+| 4 | partial 판정 기준 | §4.1 / §4.7 / §3.1 | **(b) 실제 truncation 발생 여부** 채택. `exportToJson` walk 내 `truncated: bool ref` 한 줄로 추적, 누락 1건 이상이면 `view: partial`. depth schema `>= 0` 정수 사전 거부 포함. |
+| 5 | `PromakerToolNamesDriftTests.fs` 회귀 가드 격상 | §5.1 | **set equality + `opLayerStaleTokens` 격상** 채택. read-4종 stale token 추가. |
+
+**부속 결정 (path notation, v4)**: (α) 현 dual-accept 유지 — wire 입력은 `.` 와 `/` 둘 다 허용, 정규형 dot (현 `normalizePath` 동작 유지). SSOT 본문 path 예시 dot 유지. **root 절대 경로 표기는 leading `.`** (예: `.Proj1.SysA.Flow1`) — 신규 어휘 룰. 이름의 `.` 금지 invariant 유지 (변경 0).
 
 ### 0.3 사용자 trigger 발화
 
 본 작업 착수 의도를 명확히 하는 발화 (ambiguous "좋은데?" / "괜찮네" 오해 방지):
 
-- **착수 (commit #1 SSOT 결정 단계)**: "Phase 6 go" / "Phase 6 진입" / "closure list 결정 시작"
-- **착수 (commit #2 코드/prompt/test)**: "Phase 6 commit #2 진행" / "Phase 6 구현"
-- **개별 closure 결정**: "closure #1: view 채택" / "#2: thin lookup 채택" 형태로 번호 + 결정 명시
+- **착수 (commit #1 SSOT 본문 작성)**: "Phase 6 commit #1 진행" / "SSOT 작성" — closure list ✅ 결정 완료, 다음 단계.
+- **착수 (commit #2 코드/prompt/test)**: "Phase 6 commit #2 진행" / "Phase 6 구현" — commit #1 머지 후.
+- **개별 closure 재논의 (필요 시)**: "closure #N 재논의" 형태로 번호 명시.
 
-위 형태가 아닌 발화는 **--plan 정신 유지 (논의 only)**.
+위 형태가 아닌 발화는 **본 메모 자체 정책 (논의 only — Claude Code plan mode 가 아님)** 유지.
+
+### 0.5 새 세션 즉시 작업 진입 가이드 (★ 새 세션 진입 시 이 절부터 확인)
+
+본 절은 새 Claude Code 세션이 본 메모를 처음 읽고 즉시 작업 진입할 수 있도록 self-contained.
+
+**진입 위치**:
+```powershell
+# worktree 로 직접 진입 — main 의 메모는 v3 stale, worktree 의 메모만 v4 (현 절 포함) 보유.
+cd F:\Git\ds2\phase6-readsurface
+git status   # 현 브랜치 phase6-read-surface-guid-cleanup, working tree clean 확인
+```
+
+**현재 상태 (v4 시점)**:
+- ✅ closure list 5건 + 부속 1건 모두 사용자 결정 완료 (§0.2 + §7.2 v4 round).
+- ✅ Phase 4 변형 B 충돌 검증 통과 (§1.1, v2 시점 commit 완료).
+- ✅ 본 메모 v4 update + 3-reviewer 메타 review 처리 commit 완료 (§7.2 v4 round 말미).
+- ⏸ SSOT commit #1 본문 작성 대기 — 사용자 trigger 발화 "Phase 6 commit #1 진행" 필요.
+
+**즉시 진입 가능 단계** (trigger 발화 수신 후):
+1. SSOT 본문 작성 = `Apps/Promaker/Docs/yaml-protocol-v0.md` 갱신:
+   - §2.0 top-level 키 enum 5개로 확장 (`protocol` / `project` / `systems` / `patch` / **`view`** 추가) — closure #1.
+   - §2.5 path resolver 절 신규 — `tryFindEntity` 시그니처 + path 깊이 ↔ EntityKind 매핑 + ApiDef vs Flow ambiguity 처리 + leading `.` strip 사양 (§3.1 / §4.6 본문 참조).
+   - §2.8 신규 — partial export view-only spec + `view: full | partial` flag 의 truncation 발생 여부 판정 (closure #4).
+   - §4 line 437 도구 시그니처 갱신 — 기존 `scope: "project" | "system:<name>"` enum 폐기 → `path?` + `depth?` (closure #1 / §3.1).
+   - line 469-471 LLM 노출 도구 카운트 10 → 6 + `yaml_to_json` 비노출 확정 (§3.3).
+   - §1.7 결정 표 — path resolver / find_by_name 출력 spec / view flag policy 추가.
+2. `Apps/Promaker/Docs/done-yaml-protocol-implementation.md` §3.0 후속 cycle 표 갱신 (closure #3 v4 archive / find_by_name long-term clean 폐기 반영).
+3. SSOT commit #1 — `--git-commit` 으로 위 2 파일만 commit. 코드 변경 없음 (Phase 5 패턴 답습 — §5.0 2-단계 commit 전략).
+4. commit #1 머지 후 → commit #2 코드/prompt/test 진입 trigger 발화 대기.
+
+**SSOT 본문 작성 시 즉시 참조 절**:
+- 최소 결정 spec — §0.2 closure list 표 + 부속 path notation 결정.
+- 본문 spec — §3.1 export 인자 / §3.2 흡수 매핑 / §3.3 풀세트 6종.
+- 결정 근거 — §4.1 (envelope) / §4.5 (find_by_name 출력) / §4.6 (resolver) / §4.7 (truncation) / §4.8 (validate_model scope).
+- 작업 단계 — §5.0 (2-단계 commit) / §5.1 (코드 변경 표) / §5.2 (SSOT 갱신 표) / §5.3 (Prompt 갱신 표).
+- 회귀 절차 — §5.4 (Rollback trigger) / §5.5 (자가 검열).
+
+**branch 정책**:
+- main 브랜치의 본 메모 = v3 stale 그대로 둠 (phase6 작업 중에는 main 변경 0). phase6 commit #2 머지 시점에 v4 자연 흡수.
+- 새 세션이 main 위치에서 메모를 읽으면 v3 만 볼 수 있음 → 반드시 worktree 진입 후 작업.
+
+**v4 시점 git log (참고)**:
+- `e214330` (main, base) — Docs: Phase 6 todo 초기 transfer 메모 (v3 까지 누적)
+- worktree HEAD = v4 update commit (closure 결정 + 메타 review 처리)
+
+**Trigger 발화 형식 reminder** (§0.3):
+- 다음 step trigger = `Phase 6 commit #1 진행` 또는 `SSOT 작성`.
 
 ### 0.4 용어 사전
 
@@ -52,7 +104,7 @@
 - **op-layer**: Phase 5 일소된 mutation 도구 15종 (`apply_operations` / `add_*` / `remove_entity` / `rename_entity`)
 - **wire**: LLM ↔ MCP 간 실제 직렬화 JSON object
 - **partial export**: path/depth 스코프 지정 export — 전체 export 와 의미 분리
-- **envelope**: export 결과의 top-level JSON object (`protocol` / `project` / `systems` / `patch` + 신규 view flag)
+- **envelope**: export 결과의 **최상단 mapping (format 무관 — yaml/json 양쪽 동일)**. v4 키 enum 5개: `protocol` / `project` / `systems` / `patch` / `view` (§4.1 closure #1)
 - **canonical**: schema 의 정규 표현 (생략 가능한 키의 기본값)
 - **parent chain resolver**: entity 의 부모 path 를 root 까지 추적하는 helper
 - **delta-only snapshot**: revision 변경 시에만 새로 첨부되는 sticky snapshot (`done-promaker-llm-roundtrip-optimization.md` §6.2)
@@ -132,11 +184,13 @@ mutation 경로는 path-based 통일됐는데 read 4종만 GUID 잔재 → **시
 
 ### 3.1 `export_model_doc` scope 인자 확장
 
-**중요 (closure #1 - SSOT 영향)**: yaml-protocol-v0.md:437 의 기존 `scope: "project" | "system:<name>"` enum 인자 **폐기**. 대신 `path`/`depth` 두 신규 인자 도입.
+**중요 (closure #1 결정 - SSOT 영향)**: yaml-protocol-v0.md:437 의 기존 `scope: "project" | "system:<name>"` enum 인자 **폐기**. 대신 `path`/`depth` 두 신규 인자 도입.
 
 ```
 export_model_doc(
-  path?:   string  — name dotted-path  (예: "Proj1.SysA", "Proj1.SysA.Flow1" — segment 구분자 = '.')
+  path?:   string  — name dotted-path  (예: ".Proj1.SysA", ".Proj1.SysA.Flow1")
+                    leading `.` = root 절대 경로 (권장 표기)
+                    segment 구분자 = `.` (정규형) — `/` 도 dual-accept (normalizePath 가 `/` → `.` replace)
                     생략 = 전체 (canonical)
   depth?:  integer >= 0  — 0 = root entity 자체 (자식 빈 list)
                            1 = 직접 자식까지
@@ -146,23 +200,38 @@ export_model_doc(
 )
 ```
 
-규칙 (closure #4 결정 후 확정):
+**path notation 결정 (v4 closure #3 부속 — α 채택)**:
+- 정규형 = dot (`normalizePath` 가 `/` → `.` replace 유지, 변경 0).
+- wire 입력 dual-accept: `.Proj1.SysA` 와 `/Proj1/SysA` 모두 OK.
+- **leading `.` = root 절대 경로** 권장 어휘. leading 없는 path 도 동일 의미로 해석 (export 는 store root 부터 dump 이므로 절대 의미 자연).
+- **leading `.` strip 사양**: `normalizePath` 진입 직후 `TrimStart('.')` 적용 → 이후 `pathSegments` 의 split 결과 = pure segment list. 즉 leading `.` 은 어휘 강조 prefix 일 뿐 segment 카운트에 영향 없음 (§4.6 깊이 룰 정합).
+- 이름의 `.` 금지 invariant 유지 → leading `.` 와 이름 충돌 0건 (entity 이름이 `.` 로 시작 불가).
+- SSOT yaml-protocol-v0.md:103,230 의 "entity 이름에 `.` 금지" 룰 변경 없음.
+
+**케이스 분리 (두 다른 시나리오)**:
+- (i) **`path` 키 부재** → 전체 export (canonical). depth 키도 부재면 무한 depth.
+- (ii) **`path` 키 있음 + leading `.` 유무** → 의미 동일 (leading 은 어휘 강조). `path=".Proj1.SysA"` ≡ `path="Proj1.SysA"`.
+
+규칙 (closure #4 결정 적용):
 - **`depth` 는 wire 에서 정수만 허용**. 음수 / 비정수 / overflow 사전 거부 (`VALIDATION_ERROR: depth must be integer >= 0`). 무한 의미는 키 생략으로만 표현.
-- **`path` 는 segment 구분자 `.`** (SSOT yaml-protocol-v0.md:103,230 의 entity 이름 `.` 금지 invariant 와 정렬). 본 메모의 path 예시는 모두 `.` 으로 통일.
 - **`path` 미존재 시**: `VALIDATION_ERROR: path "<value>" 가 store 에 존재하지 않습니다 (fail-fast). 근사 후보: ...` — 기존 dispatcher 의 nearest-candidate 패턴 답습.
 - **`path` + `depth=0`**: 정확히 그 entity 자체만 (자식 빈 list).
 - **`path` 미지정 + `depth=0`**: envelope 만 (projects/systems 빈 list).
-- **`query` 인자 미도입** — §4.4 결정 (find_by_name 별개 유지).
+- **`query` 인자 미도입** — find_by_name 의 search semantic (절차적, 자연어 이름 → 위치 목록) 과 export 의 선언적 dump semantic 을 분리 유지. §4.4 결정.
 
 ### 3.2 흡수 매핑
 
-| 기존 도구 | 대체 호출 |
+좌측 = **현 도구 시그니처 (폐기 대상)** — `describe_system` / `describe_subtree` 의 GUID 입력은 LLM 이 GUID 관리해야 함을 의미 (done §6 #5 "GUID 는 LLM 에 절대 노출 금지" invariant 와 모순). 우측 = **Phase 6 후 호출** — path 기반, GUID 0건, 1-RT.
+
+| 현 도구 (Phase 5 직후, 폐기 대상) | Phase 6 후 호출 |
 |---|---|
-| `list_projects` | `export_model_doc(depth=0)` |
-| `list_systems` | `export_model_doc(depth=1)` |
-| `describe_system(GUID, deep=false)` | `export_model_doc(path="Proj.Sys", depth=1)` |
-| `describe_system(GUID, deep=true)` | `export_model_doc(path="Proj.Sys")` |
-| `describe_subtree(GUID, depth=N)` | `export_model_doc(path="...", depth=N)` |
+| `list_projects()` | `export_model_doc(depth=0)` |
+| `list_systems()` | `export_model_doc(depth=1)` |
+| `describe_system(systemId: GUID, deep=false)` | `export_model_doc(path=".Proj.Sys", depth=1)` |
+| `describe_system(systemId: GUID, deep=true)` | `export_model_doc(path=".Proj.Sys")` |
+| `describe_subtree(rootId: GUID, depth=N)` | `export_model_doc(path=".Proj.Sys.Flow...", depth=N)` |
+
+**Round-trip 영향**: 현 패턴은 `list_systems` (GUID 획득) → `describe_system(GUID)` 2-RT. Phase 6 후 path 만으로 1-RT. done-promaker-llm-roundtrip-optimization §6.2 cold-start 룰 자연 정합 (별도 갱신은 §5.2 표 참조).
 
 비고: `list_projects` 흡수는 의미 정렬되나 `exportToJson:1085-1094` 의 단일 project emit 한계는 별도 후속 (§7.2).
 
@@ -188,24 +257,19 @@ export_model_doc(
 
 ## 4. 검토 항목 + closure 결정
 
-### 4.1 partial export 의미 + envelope flag (closure #1, #4)
+### 4.1 partial export 의미 + envelope flag (closure #1, #4 — v4 결정)
 
 검증: `applyPatch` (ModelProtocol.fs:803) 의 patch.add 가 `in:` + 자식 키 추가를 PoC 미지원 — partial export 결과를 patch 로 재해석할 코드 부재.
 
-**closure #1 결정 사항**:
-- **envelope flag 이름** — 기존 도구 인자 `scope` 와 충돌 회피. 후보:
-  - (a) `view: full | partial` — 짧고 의미 명료. 신규 top-level 키 +1 (v0 §2.0 enum 갱신).
-  - (b) `_meta.scope` — reserved namespace 패턴. 향후 metadata 확장 여지. 단 nesting 추가.
-  - (c) 기타 — 사용자 제안 가능.
-- **scope 부재 시 policy** — legacy export (v0 이전) / 사용자 손편집 시:
-  - (i) **full 추정** — silent 통과 위험 (partial 결과가 잘못 apply 될 수 있음).
-  - (ii) **명시 강제** — flag 부재 시 `VALIDATION_ERROR: view 키 누락` (안전). 다만 손편집 사용자에게 부담.
-  - 권장: (ii) + 친절 에러 메시지 ("v0 이전 export 결과는 `view: full` 추가 후 재시도").
-- **v0 §2.0 top-level 키 enum 갱신** — 신규 flag 명을 enum 에 추가. SSOT commit #1 본문 포함.
+**(정정)** v2/v3 메모에서 "JSON envelope" 으로 표기했으나 부정확. 본질은 **export 결과 최상단 mapping 의 top-level key (format 무관 — yaml/json 양쪽 적용)**. yaml format 인 경우도 top-level mapping 에 `view: partial` 한 줄 key 로 emit.
 
-**closure #4 결정 사항 (partial 판정 기준)**:
-- (a) `path` OR `depth` 명시 여부 — 단순. 단 `depth=999` 시 결과 full 인데 partial 표시 → 의미 부정확.
-- (b) **실제 truncation 발생 여부** — `exportToJson` walk 도중 entity 누락 1건 이상이면 partial, 0건이면 full. 의미 정확. 권장.
+**closure #1 결정 (v4)**:
+- **envelope flag 이름**: ✅ **`view: full | partial`** 채택. format 무관 top-level key. 신규 v0 §2.0 top-level 키 enum 에 추가 (기존 `protocol` / `project` / `systems` / `patch` + `view`).
+- **flag 부재 시 policy**: ✅ **(ii) 명시 강제** 채택. 부재 시 `VALIDATION_ERROR: view 키 누락 — v0 이전 export 결과는 'view: full' 추가 후 재시도` 친절 에러.
+- **v0 §2.0 top-level 키 enum 갱신**: SSOT commit #1 본문 포함.
+
+**closure #4 결정 (v4)**:
+- ✅ **(b) 실제 truncation 발생 여부** 채택. `exportToJson` walk 도중 entity 누락 1건 이상이면 `view: partial`, 0건이면 `view: full`. 구현 = walk 진입 시 `let truncated = ref false`, 절단 시점 (depth limit / budget overflow / path 외부 skip) 에 `truncated := true` set. `depth=999` 입력이라도 실제 절단 0건이면 `view: full` (의미 정확).
 
 **구현**: dispatcher 의 `apply_model_doc` 에 `view: partial` 입력 사전 거부 분기. `validate_model_doc(view: partial)` 도 동일 거부 (Major-C 흡수 — alias fallback / cross-system arrow 의 misleading 회귀 차단).
 
@@ -236,54 +300,70 @@ export_model_doc(
 - **근거**: search semantic (절차적) ≠ export (선언적 dump). `query` 를 export 에 추가하면 의미 혼란.
 - **옵션 B' (대안 — 본 Phase 에서 미채택)**: `export_model_doc(path="prefix*")` 형태 partial match enumerate. patch DSL 와 일관성 ↑ 이나 wildcard 어휘 신설 부담. 후속 cycle 후보 (§7.2).
 
-### 4.5 find_by_name path unique 정책 (closure #3)
+### 4.5 find_by_name 출력 spec (closure #3 — v4 결정: unique 4-way 폐기)
 
-`findByName` (`ToolOperations.fs:739`) 이 `(EntityKind, Guid, string)` 만 반환 — parent chain resolver 필요. sibling 이름 중복 시 동일 path → N entity 식별 충돌. + **cross-kind 동명**: 같은 project 안 Active System "Run" + Flow "Run" 이 동일 path 표현 → resolver silent first-match risk.
+**v4 사용자 통찰** (closure #3 본질 재정의):
+> "find_by_name 구현이지? 실제 chat LLM 이 하는 역할을 생각해 보고 결정하면 될 듯. 'Proj.Sys.Flow1' 같은 path 가 있다면 대부분 성질을 유추 가능하지 않나? proj.system.flow.work.call 순서이니..
+> 오히려 사용자가 자연어에서 이름을 언급하면, 해당 item 이 어디에 있고, EntityKind 가 무엇인지 목록들을 반환해 주는게 맞지 않을까? e.g [ (ApiDef, /proj/cylinder1/.../apidef1), (Work, /proj/...)]"
 
-**unique 정책 4-way 결정 (closure #3 — 어느 것이든 OK, 명문화 필수)**:
-- (a) **ordinal suffix** — `Proj.Sys.Flow1[2]` (같은 path 의 N번째). 단순. wire 안정성 낮음.
-- (b) **GUID prefix tail** — `Proj.Sys.Flow1#a1b2`. wire 안정성 높음. 단 GUID-free invariant 와 미묘한 충돌.
-- (c) **sibling-unique invariant 강제** — sanitizeName 단계에서 sibling 중복 reject. 가장 깔끔. 단 기존 모델 마이그레이션 필요.
-- (d) **sanitizeName `.` 거부 + legacy 마이그레이션** — sanitizeName 에 `.` 거부 (Phase 1 적용 완료). legacy store 에 `.` 포함 이름이 있으면 quoting 또는 reject. (a/b/c 와 직교 — 보조 정책).
+→ find_by_name 의 본질 = **자연어 이름 → 위치 목록 회신**. unique path 강제 불필요. v3 의 (a) ordinal / (b) GUID tail / (c) sibling invariant / (d) sanitize 4 후보 모두 **폐기**.
 
-**cross-kind 동명 처리** — 위 (a-d) 와 별개:
-- (α) **resolver 시그니처에 kind 인자 강제**: `tryResolveEntityByPath : DsStore → string → EntityKind → ResolvedEntity option` (또는 thin lookup 시 `(EntityKind * Guid) option`).
-- (β) **find_by_name 출력에 `kind:` 필드 강제** + kind 미지정 호출은 multi-kind 매칭 시 ERROR.
+**출력 path 정규형 (§3.1 부속 결정과 정합)**: `leading "." + dot segment`. 아래 출력 예시는 정규형 (`.Proj1.Run`). 사용자 자연어 인용 (`/proj/.../apidef1`) 은 dual-accept 의 wire 입력 표기 예시일 뿐 — 정규화 후 dot 형으로 emit.
 
-권장: 잠정 (a) + (α) 조합 — 마이그레이션 cost 없이 wire 안정성 + cross-kind 안전성 확보. long-term clean 은 (c) + (α).
+**find_by_name 출력 spec (v4 확정)**:
+```
+find_by_name(name: "Run") →
+  [
+    { kind: "System", path: ".Proj1.Run" },
+    { kind: "Flow",   path: ".Proj1.SysA.Run" },
+    { kind: "Work",   path: ".Proj1.SysA.F1.Run" }
+  ]
+```
 
-### 4.6 path → EntityKind resolver (closure #2)
+규칙:
+- 동명 sibling 도 그대로 N건 반환 (filter 없음).
+- 호출자 (LLM) 가 `kind` + `path` 조합으로 다음 단계 결정 (`export_model_doc(path)` / `apply_model_doc` patch 작성 등).
+- v3 의 cross-kind 동명 처리 (α kind 인자 강제 / β kind 필드 강제) → **(β) 자연 채택**. `kind` 필드가 출력에 항상 포함되어 호출자가 명시 구분 가능.
+- **`kind` 필드 존재 의의 (path-from-kind 가 아닌 disambiguation 목적)**: path 깊이 ↔ EntityKind 매핑은 대부분 unique 하지만 **ApiDef vs Flow** 처럼 같은 깊이 (System 직접 자식 = 3-segment) 에 두 kind 가 공존 → path 만으로 유추 불가능. `kind` 필드로 명시 구분. §4.6 의 `tryFindEntity` 내부 lookup 도 동일 ambiguity 해소 필요.
+- name 인자 substring/정확매칭 분기는 현 동작 유지 (별도 변경 0).
+
+**구현 영향**:
+- `ToolOperations.fs:739` `findByName : (EntityKind * Guid * string) seq` → **`findByName : (EntityKind * string) seq`** (Guid 제거, path 추가). parent chain resolver 신설 — `pathOf : EntityKind → Guid → string` (root 까지 추적, leading `.` prefix).
+- `ModelTools.cs` `FindByName` Description 갱신 — 출력이 `kind` + `path` 튜플 목록임을 명시.
+- closure #3 의 sibling unique 정책 4-way 의사결정 항목 자체가 사라지므로 SSOT commit #1 본문 영향 -1 항목.
+
+### 4.6 path → EntityKind resolver (closure #2 — v4 결정)
 
 검증: 현 ModelProtocol.fs 는 `findSystemByName` (line 786) + `findFlowByPath` (line 794, 2-segment hard-code) 만 — 일반 path resolver 부재.
 
-**closure #2 — 후보**:
-- (A) 강타입 DU:
-  ```fsharp
-  type ResolvedEntity =
-      | ResolvedProject of DsProject      // ★ Project 포함 — ModelTools.cs:275 describe_subtree 4 EntityKind 와 정합
-      | ResolvedSystem  of DsSystem
-      | ResolvedFlow    of Flow
-      | ResolvedWork    of Work
-      | ResolvedCall    of Call
-      | ResolvedApiDef  of ApiDef
-      // Arrow 미포함 — done §3.0 후속 cycle (patch.arrows.remove) 와 연동. 본 Phase 의 export.path 시나리오에 Arrow root 없음.
-  let tryResolveEntityByPath : DsStore → string → EntityKind → ResolvedEntity option
-  ```
-- (B) thin lookup (★ 사용자 철학 90/10 — `findByName` tuple 답습):
-  ```fsharp
-  let tryFindEntity : DsStore → string → (EntityKind * Guid) option
-  ```
-  Caller 가 EntityKind switch + Store lookup 으로 entity 본체 조회. site 별 type 분기 폭증 회피.
+**closure #2 결정 (v4)**: ✅ **(B) thin lookup** 채택. **kind 인자 없음** (사용자 통찰: path 자체에서 `proj/system/flow/work/call` 깊이로 EntityKind 유추 가능).
 
-**사용처 비대칭 분석**:
-- `patch.in:` (mutation, 현 PoC = Flow path 만)
-- `export.path` (Phase 6 신규, 모든 kind cover)
-- `validate_model.scope` (Phase 6 신규, Project/System/Flow 만)
-→ DU 사용 시 site 별 unsupported case match → 컴파일 warning + 분기 폭증. thin lookup 시 caller 가 자연스럽게 site 별 kind 제한 enforce.
+```fsharp
+let tryFindEntity : DsStore -> string -> (EntityKind * Guid) option
+// 입력 path 예: ".Proj1.SysA.Flow1.W1"  (leading `.` 권장, 없어도 동일 의미)
+// 출력: Some (Work, <Guid>)
+// path 깊이로 kind 자동 결정:
+//   1 segment → Project
+//   2 segment → System
+//   3 segment → Flow
+//   4 segment → Work
+//   5 segment → Call
+//   ApiDef 는 system 자식 (Flow 와 형제) → 2-segment 의 어떤 분기인지는 store lookup 으로 결정
+```
 
-**권장**: (B) thin lookup. site 별 type 분기 폭증 회피 + 사용자 철학 정합 + 기존 `findByName` 답습. 단 사용자 의사결정 필요 (closure #2).
+**v3 의 (α) kind 인자 강제 폐기** — closure #3 폐기와 동시. resolver site 에서 path 만으로 unique 결정.
 
-**기존 helper 처리** — Major-H 흡수: `findSystemByName` / `findFlowByPath` 는 **호출지점 그대로 유지 (병존)**. 신규 lookup 은 `export.path` / `validate_model.scope` 진입점에만. 사용자 철학 ("기존 코드 베이스의 수정 최소화") 정합.
+**사용처 일관 동작**:
+- `export.path` (Phase 6 신규, 모든 kind cover) — path 그대로 lookup.
+- `validate_model.scope` (Phase 6 신규) — path 그대로 lookup.
+- `find_by_name` 출력의 path — `pathOf` 역방향 helper 사용 (entity → path).
+
+**기존 helper 처리**: `findSystemByName` (line 786) / `findFlowByPath` (line 794) 는 **호출지점 그대로 유지 (병존)**. 신규 `tryFindEntity` / `pathOf` 는 `export.path` / `validate_model.scope` / `find_by_name` 진입점에만. 사용자 철학 ("기존 코드 베이스의 수정 최소화") 정합.
+
+**path 깊이 ambiguity 처리**:
+- 2-segment path = Project + 직접 자식 (System / 만약 Project 자식이 다른 kind 있다면 모호). 현 PoC 는 System 만이 Project 직접 자식이므로 명확.
+- ApiDef vs Flow: 둘 다 System 의 직접 자식이므로 3-segment 일 때 store 의 두 컬렉션 모두 lookup 필요. `tryFindEntity` 내부에서 ApiDef 먼저 확인 → Flow → 미발견 시 None.
+- 이 부분 명세는 SSOT commit #1 의 yaml-protocol-v0.md §2.5 path resolver 절에 명문화.
 
 ### 4.7 `describe_subtree` 의 "50 entity truncation" 정책
 
@@ -320,21 +400,21 @@ Phase 5 와 달리 Phase 6 는 **SSOT 결정 자체가 신설** (envelope flag /
 
 ### 5.1 코드 변경 (commit #2)
 
-| 파일 | 변경 |
+| 파일 | 변경 (v4 결정 반영) |
 |---|---|
-| `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` | `ExportModelDoc` 에 `path?`, `depth?` 인자 추가 + envelope `view` flag emit (closure #1). `ListProjects` / `ListSystems` / `DescribeSystem` / `DescribeSubtree` 4 메서드 본문 삭제. `FindByName` 출력 GUID → path (closure #3). `ValidateModel` 의 GUID 분기 + 'global' literal 제거 (§4.8). |
+| `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` | `ExportModelDoc` 에 `path?: string`, `depth?: int` 인자 추가 + envelope `view: full \| partial` flag emit (closure #1 ✅). `ListProjects` / `ListSystems` / `DescribeSystem` / `DescribeSubtree` 4 메서드 본문 삭제. `FindByName` 출력 = `[ {kind, path} ]` 목록 (closure #3 v4 ✅ — Guid 제거, kind+path 튜플). `ValidateModel` 의 GUID 분기 + 'global' literal 제거 (§4.8). |
 | `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` | `All` 배열 10 → 6 (§3.3). |
-| `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs:37,42,96` | `validate_model` cache key sentinel = `""` (§4.8). |
+| `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs:42,96` | `validate_model` cache key sentinel = `""` (§4.8). line 37 은 doc-comment 라 영향 없음 (인접 doc 도 sentinel 어휘 동기화 권장). |
 | `Apps/Promaker/Promaker/LlmAgent/EditorChangeDigest.cs:18,142,165` | 런타임 합성 message 의 read 도구 어휘 갱신 — list_projects/list_systems 권고 제거, validate_model 권고 유지. |
-| `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` | `listProjects` / `listSystems` / `describeSystem` / `describeSubtree` helper 일소. `findByName` 출력 format 갱신 (GUID → path). `validateModelByGuid` → path 기반 lookup helper. |
-| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.fs` | `exportToJson` 에 `path` resolve + `depth` 절단 + view flag emit. **신규 lookup (closure #2 결정 따라 thin `tryFindEntity` 또는 DU)**. dispatcher 의 `apply_model_doc` / `validate_model_doc` 에 `view: partial` 사전 거부 분기. `findSystemByName` / `findFlowByPath` 호출지점 그대로 유지 (§4.6 병존). |
+| `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs` | `listProjects` / `listSystems` / `describeSystem` / `describeSubtree` helper 일소. `findByName : seq<EntityKind * Guid * string>` → **`seq<EntityKind * string>`** (Guid 제거, path 추가 — `pathOf` helper 사용). `validateModelByGuid` → path 기반 lookup helper. |
+| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.fs` | `exportToJson` 에 `path` resolve + `depth` 절단 + `truncated: bool ref` 한 줄 + `view` flag emit (closure #4 ✅). **신규 thin lookup `tryFindEntity : DsStore → string → (EntityKind * Guid) option`** (closure #2 ✅, kind 인자 없음). **신규 역방향 helper `pathOf : EntityKind → Guid → string`** (root 까지 parent chain 추적, leading `.` prefix). dispatcher 의 `apply_model_doc` / `validate_model_doc` 에 `view: partial` 사전 거부 분기. `findSystemByName` / `findFlowByPath` 호출지점 그대로 유지 (§4.6 병존). |
 | `Solutions/Core/Ds2.LlmAgent/CLAUDE.md:115` | sibling fence — read 6종 → 2종 카운트 갱신 (↔ §3.3 SSOT). |
 
 ### 5.1.1 테스트 fact 별 cover 표 (Major-E 흡수)
 
 | 파일 | 기존 fact | 처리 |
 |---|---|---|
-| `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` | sanity count 10 (`Assert.Equal(10, ...)`) | **closure #5**: sanity → `Assert.Equal<Set<string>>(expectedSet, listed)` set equality + `opLayerStaleTokens` 에 `list_projects` / `list_systems` / `describe_system` / `describe_subtree` 4종 추가. 카운트만 6 통과 + description 잔재 silent 회귀 차단. |
+| `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` | sanity count 10 (`Assert.Equal(10, ...)`) | **closure #5 v4 ✅**: sanity → `Assert.Equal<Set<string>>(expectedSet, listed)` set equality + `opLayerStaleTokens` 에 `list_projects` / `list_systems` / `describe_system` / `describe_subtree` 4종 추가. 카운트만 6 통과 + description 잔재 silent 회귀 차단. |
 | `DescribeSubtreeTests.fs` | 10 fact (depth cap, budget=51 truncated 등) | **모듈 통째 삭제 또는 일부 회수**: `export_model_doc(path, depth)` 회귀 모듈 (`ExportModelDocPathDepthTests.fs`) 신설로 (1) depth 0/N/무한 (2) budget 50 truncation = view: partial (3) path 미존재 = fail-fast (4) path → kind 모호 = ERROR (5) round-trip full path/depth 회귀로 흡수. describeSystem 자체 폐기 → token 회귀 baseline 비교 대상 사라짐 — e2e turn cost 측정 (§5.4) 으로 대체. |
 | `ValidateModelTests.fs` | 19 fact (scope=global literal lock 등) | **재작성**: 'global' literal fact 4개 제거. path scope fact 신규 + scope 미지정 = 전체 fact 신규. |
 | `HelperCascadeTests.fs:220` | `Assert.Contains("find_by_name", ex.Message)` | 그대로 유효 (find_by_name 별개 유지). 단 ex.Message 본문이 path 출력 형식으로 바뀌었으면 동기화. |
@@ -462,8 +542,8 @@ trigger 충족:
 1. **--plan 정신**: 사용자 명시적 구현 지시 (§0.3 trigger) 전까지 코드 변경 금지.
 2. **2-단계 commit**: §5.0 — SSOT-only → 코드/prompt/test 일괄.
 3. **prompt 와 코드는 commit #2 안에서 묶음**: sibling drift 방지.
-4. **partial export 의미 spec 우선**: closure list (§0.2) 미결정 시 commit #1 본문 작성 불가.
-5. **`describe_subtree` 의 EntityKind 자동 판별**: 현재 GUID. path 로 대체 시 cross-kind 동명 처리 (§4.5 closure #3).
+4. **closure list ✅ v4 결정 완료** (구 항목: "미결정 시 commit #1 본문 작성 불가"): 5건 + 부속 1건 모두 사용자 결정 완료 → SSOT commit #1 본문 작성 진입 가능 상태. trigger 발화 ("Phase 6 commit #1 진행") 대기.
+5. **EntityKind 자동 판별 ✅ v4 해소** (구 항목: `describe_subtree` GUID + cross-kind 동명 risk): closure #2 `tryFindEntity` 가 path 깊이 (`proj/system/flow/work/call`) 로 EntityKind 자동 결정. ApiDef vs Flow 같은 동일 깊이 ambiguity 는 `tryFindEntity` 내부 lookup 순서 (§4.6) + find_by_name 출력의 `kind` 필드 (§4.5) 로 해소.
 6. **`validate_model` scope**: §4.8 — 'global' literal 입력 폐기, 출력 footer 어휘 유지.
 7. **Phase 4 변형 B 충돌 검증 (§1.1)**: 진입 전 새 세션에서 1회 실행.
 8. **자가 생성 파일 sweep 제외**: `Apps/Promaker/Promaker.kwak.sln`, `Apps/Promaker/Promaker.main.sln`, `Apps/Promaker/Docs/ds2.log*`, `bin/`, `obj/`, `.vs/`, `*.user`, `*.suo`, `TestResults/`, `.idea/`.
@@ -473,7 +553,7 @@ trigger 충족:
 
 - **list_projects 흡수의 multi-project 한계** — exportToJson:1085-1094 가 단일 project 만 emit. v0 schema multi-project 미지원과 충돌. 별도 cycle.
 - **find_by_name path partial match (옵션 B')** — `export_model_doc(path="prefix*")` wildcard. wildcard 어휘 신설 부담으로 본 Phase 미채택.
-- **`find_by_name` long-term clean** — 잠정 (a) ordinal suffix → (c) sibling-unique invariant 강제 + 마이그레이션.
+- ~~**`find_by_name` long-term clean** — 잠정 (a) ordinal suffix → (c) sibling-unique invariant 강제 + 마이그레이션.~~ **[v4 archive]** closure #3 폐기 + find_by_name 출력 `[(kind, path)]` 목록 격상으로 unique 정책 의사결정 항목 자체가 소멸. sibling-unique invariant 강제는 별도 동기 (예: dotted-path apply 시점 entity 재조회 안정성) 발생 시 재검토.
 - **`ModelProtocol.fs` 1201 line SRP 모듈 split** (done §3.0 의 5 module split 권고) — Phase 6 진입 전 권장. 우선순위 상승.
 - `patch.arrows.remove` 의 Arrow EntityKind 확장 (done §3.0).
 - doc-level dispatcher name sanitize (done §3.0).
@@ -535,3 +615,83 @@ v2 재검증에서 사실 검증 통과한 Critical 5 / Major 8 / Minor + outlie
 **검증 통과 사항 처리율**: Critical 5/5 + Major 8/8 + Minor 다수 흡수. 합의 분포 (메타 review): Critical 5×high-consensus, Major 1×5/5 + 1×3/5 + 6×{2/5, 1/5}, Minor 대부분 1/5 (cosmetic).
 
 **반론 / 기각 0건** — 모든 권고가 사실 검증 통과 + 본 작업 spec 정합.
+
+#### v4 (closure list 사용자 결정 round, 2026-05-13)
+
+SSOT commit #1 진입 직전 5건 closure 모두 결정 완료. + path notation 부속 결정 + JSON envelope 표현 정정 + 표 라벨 정정.
+
+**closure 결정 사항** (§0.2 표 참조 — 본 절은 결정 근거 / 변경 영향 보강):
+
+1. **closure #1 `view: full | partial` 채택**:
+   - format 무관 top-level mapping key (yaml/json 양쪽 적용). v2/v3 의 "JSON envelope" 표현은 부정확 — §4.1 본문 정정.
+   - flag 부재 시 ERROR (명시 강제 ii) + 친절 에러 메시지.
+   - v0 §2.0 top-level 키 enum 5개로 확장 (`protocol` / `project` / `systems` / `patch` / `view`).
+
+2. **closure #2 thin lookup `tryFindEntity` 채택 (kind 인자 없음)**:
+   - 사용자 통찰 = path 자체에서 `proj/system/flow/work/call` 깊이로 EntityKind 유추 가능 → kind 인자 강제 불필요.
+   - 시그니처: `DsStore → string → (EntityKind * Guid) option`.
+   - v3 의 `ResolvedEntity` DU + Project case + Arrow 미포함 footnote 모두 폐기.
+   - 신규 역방향 helper `pathOf : EntityKind → Guid → string` (find_by_name 출력의 path 생성용).
+
+3. **closure #3 (sibling unique 4-way) 폐기 + find_by_name 출력 spec 격상**:
+   - 사용자 통찰 = find_by_name 의 본질 = 자연어 이름 → `[(EntityKind, path)]` 목록 회신. unique path 강제 불필요.
+   - v3 의 (a) ordinal `[2]` / (b) GUID tail `#a1b2` / (c) sibling invariant / (d) sanitize 4 후보 모두 의사결정 항목에서 제거.
+   - cross-kind 동명 → (β) kind 필드 자연 채택 (출력에 항상 포함).
+   - `ToolOperations.fs:739` `findByName : seq<EntityKind * Guid * string>` → **`seq<EntityKind * string>`**.
+
+4. **closure #4 truncation ref 채택**:
+   - `exportToJson` walk 진입 시 `let truncated = ref false`, 절단 시점 (depth limit / 50 budget / path 외부 skip) `truncated := true` set.
+   - depth 큰 정수 + 실제 절단 0건 = `view: full` 정확 emit.
+   - `view: partial` 회귀 fact 5건 (§4.1) 그대로 유지.
+
+5. **closure #5 DriftTests 격상 채택**:
+   - sanity → set equality (`Assert.Equal<Set<string>>`).
+   - `opLayerStaleTokens` 에 read-4종 (`list_projects` / `list_systems` / `describe_system` / `describe_subtree`) 추가.
+
+**path notation 부속 결정 (closure #3 부속, v4 신규)**:
+- (α) **현 dual-accept 유지** — wire 입력 `.` 와 `/` 모두 OK, 정규형 = dot (`normalizePath` 동작 변경 0).
+- **root 절대 경로 표기 = leading `.`** (예: `.Proj1.SysA.Flow1`). 권장 어휘 — 호환성 위해 leading 없는 표기도 동일 의미 (export 는 store root 부터 dump).
+- 이름의 `.` 금지 invariant 유지 (변경 0). leading `.` 와 이름 충돌 0건.
+- yaml-protocol-v0.md §2.5 normalizePath 절 변경 0 (이미 dual-accept).
+
+**JSON envelope 표현 정정**:
+- v2/v3 본문의 "JSON envelope" → "최상단 top-level mapping key (format 무관)" 으로 §4.1 정정.
+
+**표 라벨 정정 (§3.2)**:
+- "기존 도구 / 대체 호출" → "**현 도구 (Phase 5 직후, 폐기 대상) / Phase 6 후 호출**" 로 라벨 명료화. GUID 입력이 폐기 대상임을 시각적으로 강조 (사용자 우려: "describe_system(GUID...) — LLM 이 GUID 관리해야 한다는 뜻 인가?" 응답).
+- Round-trip 영향 한 줄 보강 (2-RT → 1-RT).
+
+**SSOT commit #1 본문 작성 진입 가능 상태**. closure list ✅ all resolved. 다음 step = trigger 발화 "Phase 6 commit #1 진행".
+
+#### v4 후속 review 처리 (3-reviewer meta-review, 2026-05-13)
+
+본 메모 v4 update 직후 generalist + accuracy specialist + completeness specialist 3-reviewer 메타 review 수행. 검증 통과 항목 처리 내역:
+
+**Critical (수용 — typo 정정)**:
+- §0.1 line 24 의 "§7.3 review 처리 이력" 인용이 깨졌음 — 실제 헤딩은 §7.2 만 존재. typo 정정 ("§7.2 review 처리 이력 — 본 메모 변경 추적 (v1 → v4 round 누적)").
+
+**Major (수용 — v3 → v4 전환 과정의 stale 잔재 4건)**:
+- §7 주의 사항 #4 "closure list 미결정 시 commit #1 본문 작성 불가" — v4 결정 완료로 무효화. "closure list ✅ v4 결정 완료 — SSOT commit #1 본문 작성 진입 가능 상태" 로 재기술.
+- §7 주의 사항 #5 "describe_subtree 의 EntityKind 자동 판별 risk" — closure #2 `tryFindEntity` 가 path 깊이로 EntityKind 자동 결정 + ApiDef vs Flow ambiguity 는 §4.6 / §4.5 kind 필드로 해소. "v4 해소" 라벨로 재기술.
+- §7.1 후속 cycle "find_by_name long-term clean — (a) ordinal → (c) sibling-unique" — closure #3 v4 폐기 + 출력 `[(kind, path)]` 격상으로 unique 4-way 의사결정 항목 자체 소멸. archive 라벨 (`~~취소선~~`) + 재검토 trigger (dotted-path apply 안정성) 1줄 보강.
+- §0.4 용어 사전의 envelope 정의 "top-level JSON object" — v4 §4.1 의 "JSON envelope 표현 정정 → format 무관" 결정과 직접 모순. "최상단 mapping (format 무관 — yaml/json 양쪽 동일). v4 키 enum 5개: protocol / project / systems / patch / view" 로 정정.
+
+**Minor (수용 — 가벼운 정합 보강 7건)**:
+- §0.1 읽기 순서 6번 line 에 "v4 결정 라벨 위치: §3.1 path notation / §3.2 표 라벨 / §4.1 envelope flag / §4.5 find_by_name 출력 / §4.6 thin lookup" 한 줄 보강.
+- §0.2 표 caption 에 "5건 + 부속 1건 (path notation, 표 하단)" 명시 — 결정이 5건 + 1건임을 시각적 명확화.
+- §3.1 의 "path 키 부재 = 전체" 와 "leading `.` 없는 path 도 동일 의미" 가 같은 단락에 혼재 — 두 다른 케이스 (i) 키 부재 vs (ii) leading 유무 무관 으로 분리 row 신설.
+- §3.1 의 `normalizePath` 진입 시 `TrimStart('.')` 적용 사양 명문화 — §4.6 segment 카운트 룰과 leading `.` 정합 (segment 카운트에 영향 없음, 어휘 강조 prefix 일 뿐).
+- §4.5 의 `kind` 필드 존재 의의 = ApiDef vs Flow 같은 동일 깊이 (System 직접 자식 3-segment) ambiguity disambiguation 목적 1줄 추가. `tryFindEntity` 내부 lookup 도 동일 ambiguity 해소 책임.
+- §3.1 의 "query 인자 미도입" bullet 에 본문 1줄 보강 (search semantic vs export 의 선언적 dump semantic 분리 사유).
+- §4.5 출력 path 예시 (정규형 = leading `.` + dot) vs §7.2 v4 closure #3 인용 (사용자 자연어 = `/proj/.../apidef1` slash) 의 비대칭 footnote 추가 — 정규화 후 dot 형으로 emit, slash 는 wire 입력 dual-accept 표기 예시.
+- §5.1 코드 변경 표의 `LlmTurnContext.cs:37,42,96` 라인 인용 정정 — line 37 은 validate cache TTL doc-comment, 실제 cache key 영역은 line 42 (`_validateCache` tuple), line 96 (RunRead 안 cache read/write). `LlmTurnContext.cs:42,96` 으로 정정 + line 37 (doc-comment 동기화 권장) 비고.
+
+**거부 / 보류 항목 (수용 안 함, 사유)**:
+- "§0.2 표 컬럼명 `v4 결정` 이 round 종속" 권고 — 본 Phase 6 의 closure 결정 모두 종결 상태. 후속 v5/v6 round 발생 가능성 낮음 (commit #1/#2 이후는 결정 변경이 아닌 구현 round). 후속 round 발생 시 컬럼명 일반화 또는 row prefix `v4:` 추가로 처리. 현 시점 보류.
+- "§7.2 v4 round 의 closure #2 결정 근거에 사용자 발화 인용 없음, closure #3 만 발화 직접 인용 → 비대칭" 권고 — closure #2 (path → entity 결정 메커니즘) 와 closure #3 (find_by_name 출력 spec) 에 대한 사용자 답변은 **단일 메시지 안에서 통합 발화** ("find_by_name 구현이지? 실제 chat LLM 이 하는 역할을 생각해 보고 결정하면 될 듯. ... proj.system.flow.work.call 순서이니..  오히려 사용자가 자연어에서 이름을 언급하면, 해당 item 이 어디에 있고, EntityKind 가 무엇인지 목록들을 반환해 주는게 맞지 않을까?"). 인용은 closure #3 절에 1회만 두고, 그 안에서 closure #2 (kind 인자 불필요) 도 자연 cover. 분리 인용은 단일 발화의 인위적 분리 → 거부.
+- "§0 머리말 worktree 절대 경로 `F:/Git/ds2/phase6-readsurface` hardcode — 다른 머신 인수 시 부적합" 권고 — 현 단일 사용자 환경. 후속 인수 시 정정 비용 낮음 (한 줄). 현 시점 보류.
+- "§5.1.1 신규 fact 6f-N 명명 컨벤션 적용 예시 (view: full|partial, tryFindEntity, pathOf 등) 1~2건 추가" 권고 — 실제 신규 모듈 (`ExportModelDocPathDepthTests.fs`) 작성은 commit #2 시점. fact 이름은 코드 작성과 함께 결정되어야 자연 정합. 메모에 가짜 예시 시기상조 → 거부.
+
+**검증 통과 사항 처리율**: Critical 1/1 + Major 4/4 + Minor 7/11 수용. Minor 4건 거부/보류 (사유 명시).
+
+**잔여 우려**: 없음. 본 메모는 인수자가 trigger 발화 후 SSOT commit #1 본문 작성에 진입할 정보 밀도를 갖추고 있음.
