@@ -54,46 +54,91 @@
 
 **진입 위치**:
 ```powershell
-# worktree 로 직접 진입 — main 의 메모는 v3 stale, worktree 의 메모만 v4 (현 절 포함) 보유.
+# worktree 로 직접 진입 — main 의 메모는 v3 stale, worktree 의 메모만 v5 (현 절 포함) 보유.
 cd F:\Git\ds2\phase6-readsurface
 git status   # 현 브랜치 phase6-read-surface-guid-cleanup, working tree clean 확인
+git log --oneline -10   # commit #1 (SSOT) 와 commit #2-chunk1 (코드 일부) 확인
 ```
 
-**현재 상태 (v4 시점)**:
+**현재 상태 (v5 시점, 2026-05-13)**:
 - ✅ closure list 5건 + 부속 1건 모두 사용자 결정 완료 (§0.2 + §7.2 v4 round).
-- ✅ Phase 4 변형 B 충돌 검증 통과 (§1.1, v2 시점 commit 완료).
-- ✅ 본 메모 v4 update + 3-reviewer 메타 review 처리 commit 완료 (§7.2 v4 round 말미).
-- ⏸ SSOT commit #1 본문 작성 대기 — 사용자 trigger 발화 "Phase 6 commit #1 진행" 필요.
+- ✅ Phase 4 변형 B 충돌 검증 통과 (§1.1).
+- ✅ **SSOT commit #1 완료** (`e85edba`): `yaml-protocol-v0.md` §1.7 결정 표 / §2.1 top-level 키 enum / §2.5.1 path resolver 절 / §2.7 룰 #7,#8 / §2.8 partial export view-only spec / §4 도구 시그니처 / §6 phase 표. `done-yaml-protocol-implementation.md` §2 phase 표 + §3.0 후속 cycle.
+- ✅ **commit #2 chunk-1 완료** (commit 직전, working tree 에 staged): chunk-1a (SSOT view 정책 정정 — full 허용/partial 거부/부재 허용 — round-trip 회귀 fix) + chunk-1b (read 4종 일소: `list_projects` / `list_systems` / `describe_system` / `describe_subtree` + 관련 helper). 자가 검열 + 3-reviewer review 통과 후 fix 4건 흡수 (자세히는 §7.2 v5 round).
+- ⏸ **commit #2 chunk-1c 부터 진입 대기** — 사용자 trigger 발화 "Phase 6 chunk-1c 진행" 또는 "Phase 6 commit #2 계속" 필요.
 
-**즉시 진입 가능 단계** (trigger 발화 수신 후):
-1. SSOT 본문 작성 = `Apps/Promaker/Docs/yaml-protocol-v0.md` 갱신:
-   - §2.0 top-level 키 enum 5개로 확장 (`protocol` / `project` / `systems` / `patch` / **`view`** 추가) — closure #1.
-   - §2.5 path resolver 절 신규 — `tryFindEntity` 시그니처 + path 깊이 ↔ EntityKind 매핑 + ApiDef vs Flow ambiguity 처리 + leading `.` strip 사양 (§3.1 / §4.6 본문 참조).
-   - §2.8 신규 — partial export view-only spec + `view: full | partial` flag 의 truncation 발생 여부 판정 (closure #4).
-   - §4 line 437 도구 시그니처 갱신 — 기존 `scope: "project" | "system:<name>"` enum 폐기 → `path?` + `depth?` (closure #1 / §3.1).
-   - line 469-471 LLM 노출 도구 카운트 10 → 6 + `yaml_to_json` 비노출 확정 (§3.3).
-   - §1.7 결정 표 — path resolver / find_by_name 출력 spec / view flag policy 추가.
-2. `Apps/Promaker/Docs/done-yaml-protocol-implementation.md` §3.0 후속 cycle 표 갱신 (closure #3 v4 archive / find_by_name long-term clean 폐기 반영).
-3. SSOT commit #1 — `--git-commit` 으로 위 2 파일만 commit. 코드 변경 없음 (Phase 5 패턴 답습 — §5.0 2-단계 commit 전략).
-4. commit #1 머지 후 → commit #2 코드/prompt/test 진입 trigger 발화 대기.
+**v5 시점 commit #2 chunk-1 까지의 실제 코드 변경 (참조용)**:
+- `Solutions/Core/Ds2.LlmAgent/ModelProtocol.fs`: `tryFindEntity : DsStore → string → (EntityKind * Guid) option` + `pathOf : DsStore → EntityKind → Guid → string` 신설 (line 803 근처). `apply` 의 `view` 키 처리 (full/부재 허용, partial 거부). `exportToJson` envelope 에 `view: "full"` emit.
+- `Solutions/Core/Ds2.LlmAgent/ToolOperations.fs`: `listProjects` / `listSystems` / `describeSystem` / `describeSubtree` / `formatProjectList` / `formatSystemList` / `formatFindResults` / `indent` / `arrowTypeName` 일소 (-171 line).
+- `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs`: `ListProjects` / `ListSystems` / `DescribeSystem` / `DescribeSubtree` / `ParseGuidOrThrow` 일소. `FindByName` 의 inline format 안에서 `ModelProtocol.pathOf` 호출로 정확한 dot path emit.
+- `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs`: `All` 배열 10 → 6 (read 4종 제거).
+- `Solutions/Tests/Ds2.LlmAgent.Tests/DescribeSubtreeTests.fs`: 통째 삭제 + fsproj 컴파일 목록에서 제거.
+- `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs`: sanity count 10 → 6 + 함수 이름 + 주석 + line 124-125 의 일소된 tool snake_case 단언 정리.
 
-**SSOT 본문 작성 시 즉시 참조 절**:
-- 최소 결정 spec — §0.2 closure list 표 + 부속 path notation 결정.
-- 본문 spec — §3.1 export 인자 / §3.2 흡수 매핑 / §3.3 풀세트 6종.
-- 결정 근거 — §4.1 (envelope) / §4.5 (find_by_name 출력) / §4.6 (resolver) / §4.7 (truncation) / §4.8 (validate_model scope).
-- 작업 단계 — §5.0 (2-단계 commit) / §5.1 (코드 변경 표) / §5.2 (SSOT 갱신 표) / §5.3 (Prompt 갱신 표).
-- 회귀 절차 — §5.4 (Rollback trigger) / §5.5 (자가 검열).
+**즉시 진입 가능 단계 (chunk-1c 부터)**:
 
-**branch 정책**:
-- main 브랜치의 본 메모 = v3 stale 그대로 둠 (phase6 작업 중에는 main 변경 0). phase6 commit #2 머지 시점에 v4 자연 흡수.
-- 새 세션이 main 위치에서 메모를 읽으면 v3 만 볼 수 있음 → 반드시 worktree 진입 후 작업.
+1. **chunk-1c — `exportToJsonScoped` 본체 + `validateModel` path scope** (큰 작업, 본 chunk 의 핵심):
+   - `ModelProtocol.fs`: 신규 `exportToJsonScoped : DsStore → string option → int option → JsonDocument`.
+     - path None + depth None → 기존 `exportToJson` 와 동등 (`view: full`, 50 budget 미적용).
+     - path Some → `tryFindEntity` 로 scope entity 결정 + 그 sub-tree 만 walk.
+     - depth Some N → N-level 절단 + `truncated: bool ref` set → `view: partial`.
+     - 50 entity budget — partial 진입점에서만 적용 (전체 export 는 무제한).
+     - 본 chunk-1b 가 사전 추가한 `exportToJsonScoped` skeleton 없음 — 현재 `exportToJson` 만 view: full emit. `exportToJsonScoped` 는 chunk-1c 에서 완전 신설.
+   - `ModelTools.cs`: `ExportModelDoc` 시그니처에 `path?: string`, `depth?: int` 인자 추가 + `exportToJsonScoped` 호출 + depth schema 사전 거부 (`< 0` reject).
+   - `ToolOperations.fs`: `resolveValidationScope` 시그니처 변경 — `Guid option` → `string option` (path). 내부에서 `ModelProtocol.tryFindEntity` 호출 (forward-ref 회피를 위해 ToolOperations 의 `validateModelByPath` 신설은 ModelTools 측 inline 처리 또는 ModelProtocol 측 helper 신설로 해결).
+   - `ModelTools.cs`: `ValidateModel` 의 'global' literal + GUID 분기 제거. scope 인자를 path 로 받음 + 부재 = 전체.
+   - `LlmTurnContext.cs`: `validate_model` cache key sentinel `""` 명문화 (line 42, 96).
+   - **3-reviewer outlier 보류 항목 통합 (chunk-1b 검열 결과)**:
+     - Outlier 2 (Logic): `pathOf` System 분기 일관성 — sprintf 직접 조립 vs 재귀 호출 통일. orphan System (project 미부착) 처리 — 1-segment path 가 `tryFindEntity` 역해석 시 Project 오인 → "" 반환 또는 sentinel.
+     - Outlier 3 (Design): `pathOf` 의 `| _ -> ""` fallback → `tryPathOf : ... -> string option` 또는 `invalidArg`. EntityKind enum 의 Button/Lamp/Condition/Action/ApiDefCategory/DeviceRoot 는 path-unsupported.
+     - Outlier 4 (Design): `tryFindEntity` ∘ `pathOf` round-trip identity test 신설 — DescribeSubtreeTests 일소 후 회귀 net 회복.
 
-**v4 시점 git log (참고)**:
-- `e214330` (main, base) — Docs: Phase 6 todo 초기 transfer 메모 (v3 까지 누적)
-- worktree HEAD = v4 update commit (closure 결정 + 메타 review 처리)
+2. **chunk-2 — `EditorChangeDigest.cs` 어휘 갱신** (작은 변경):
+   - `EditorChangeDigest.cs:18,142,165` — 런타임 합성 message 의 read 도구 어휘 갱신. list_projects/list_systems 권고 제거, validate_model 권고 유지.
+
+3. **chunk-3 — 테스트 (`ValidateModelTests.fs` 재작성 / `DriftTests` set equality 격상 / `ExportModelDocPathDepthTests.fs` 신규)** (큰 작업):
+   - `ValidateModelTests.fs` 재작성: 'global' literal fact 4개 제거 + path scope fact 신규 + scope 미지정 = 전체 fact 신규.
+   - `PromakerToolNamesDriftTests.fs` closure #5 v4 격상 (chunk-1b 에서 count 만 갱신, 본 chunk 에서 set equality + stale token 추가):
+     - `Assert.Equal(6, listed.Count)` → `Assert.Equal<Set<string>>(expectedSet, listed)` set equality.
+     - `opLayerStaleTokens` 에 read-4종 (`list_projects` / `list_systems` / `describe_system` / `describe_subtree`) 추가.
+   - `ExportModelDocPathDepthTests.fs` 신규: 회귀 fact 5건 (메모 §4.1):
+     - (a) `view: partial` emit — path 또는 depth 로 truncation 발생 시.
+     - (b) `view: full` emit — path 미지정 + depth 미지정 OR 큰 depth 인데 truncation 0건.
+     - (c) `view: partial` doc → `apply_model_doc` 입력 → ERROR + 메시지 lock (substring).
+     - (d) `path` 없이 `depth=999` (큰 정수, full 결과) → `view: full` emit.
+     - (e) `depth=-1` / `depth=1.5` / wire schema 위반 → 사전 거부 ERROR.
+   - 신규 fact 명명 컨벤션 = 한글 backtick + prefix `6f-N` (Phase 6 → 6f).
+
+4. **chunk-4 — Prompt 7 파일 sweep** (mechanical sweep):
+   - `Apps/Promaker/Promaker/LlmAgent/Prompts/3.tooling.md`: "현 도구 풀세트" 표 read 6 → 2. `export_model_doc` scope (path/depth) 사용 예시. 일소 도구 4종 어휘 sweep.
+   - `Apps/Promaker/Promaker/LlmAgent/Prompts/2.modeling.md` / `1.entities.md` / `4.attachments.md`: read 도구 어휘 sweep.
+   - `Apps/Promaker/Promaker/LlmAgent/Prompts/CLAUDE.md`: 풀세트 카운트 10 → 6.
+   - `Apps/Promaker/Promaker/LlmAgent/Prompts/chat-simulation/CLAUDE.md`: sibling drift 동기화.
+   - `Apps/Promaker/Promaker/LlmAgent/Prompts/9.environment.md`: read 도구 어휘 영향 확인.
+
+5. **chunk-5 — 외부 문서 sweep** (5+ 파일):
+   - `Apps/Promaker/Paper/paper.md:82`: "읽기" 도구 6종 → 2종 + `export_model_doc` path/depth 설명.
+   - `Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md`: §6.2 cold-start 룰 직격 — "snapshot 없는 첫 turn 에 `list_projects` 1회 cold-start 허용" → `export_model_doc(depth=0)`. line 16/281/288/291/293/370/491/524/578/589 sweep.
+   - `Apps/Promaker/Docs/Poc/e2e-cache-hit.fsx:79`: PoC script — read 도구 호출 갱신.
+   - `Solutions/Core/Ds2.LlmAgent/CLAUDE.md:115`: sibling fence — read 6종 → 2종 카운트.
+   - `Solutions/Core/Ds2.LlmAgent/doc/todo-*.md`, `done-batch-mcp-call.md`: historical 인지 활성 todo 인지 확인 후 sweep (현 권고: historical 은 그대로, 활성만 갱신).
+
+6. **chunk-6 — 광역 grep 잔재 0건 확인 + 자가 검열 + commit #2 confirm**:
+   - 광역 grep: `describe_system|describe_subtree|list_systems|list_projects` 잔재 0건 (parser fixture exclude).
+   - 자가 검열 (Agent 위임) — CLAUDE.md trigger ①②③④⑤ 모두 충족. 리포트 5요소.
+   - commit #2 사용자 confirm — 메시지 안 = "Phase 6 commit #2 — read surface GUID-free 정렬 (코드/test/prompt/외부 문서)".
 
 **Trigger 발화 형식 reminder** (§0.3):
-- 다음 step trigger = `Phase 6 commit #1 진행` 또는 `SSOT 작성`.
+- 다음 step trigger = `Phase 6 chunk-1c 진행` 또는 `Phase 6 commit #2 계속`.
+
+**branch 정책 (v5)**:
+- 본 메모 + commit #2 chunk-1 변경은 `phase6-read-surface-guid-cleanup` worktree (`F:/Git/ds2/phase6-readsurface`) 에 commit. main 머지는 commit #2 완료 + push 후.
+- main 의 본 메모 = v3 stale (phase6 작업 중 main 변경 0).
+
+**v5 시점 git log (참고)**:
+- `e85edba` (worktree HEAD) — Docs/Phase 6: SSOT commit #1 (설계만)
+- `1b20aa7` (main, base) — Docs: Phase 6 todo v4 — closure 결정 완료
+- 본 commit 전 staged + working tree = commit #2 chunk-1 (코드 + 테스트 + todo v5 update 포함)
 
 ### 0.4 용어 사전
 
@@ -695,3 +740,59 @@ SSOT commit #1 진입 직전 5건 closure 모두 결정 완료. + path notation 
 **검증 통과 사항 처리율**: Critical 1/1 + Major 4/4 + Minor 7/11 수용. Minor 4건 거부/보류 (사유 명시).
 
 **잔여 우려**: 없음. 본 메모는 인수자가 trigger 발화 후 SSOT commit #1 본문 작성에 진입할 정보 밀도를 갖추고 있음.
+
+#### v5 (commit #1 + commit #2 chunk-1 실행 round, 2026-05-13)
+
+사용자 trigger 발화 ("Phase 6 commit #1 진행" → "후속 작업 시작") 수신 후 본 메모의 spec 에 따라 단계적 실행. closure 결정 변경 없음 (v4 결정 그대로 적용) — 본 round 는 실행 round.
+
+**SSOT commit #1 완료** (`e85edba`):
+- `yaml-protocol-v0.md` 갱신: §1.7 결정 표 Phase 6 결정 7행 / §2.1 top-level 키 enum 5개 (`view` 추가) / §2.5.1 path resolver 절 신설 (`tryFindEntity` / `pathOf` 시그니처 + 깊이 ↔ EntityKind 매핑 + ApiDef vs Flow ambiguity + leading `.` strip) / §2.7 룰 #7,#8 신설 / §2.8 partial export view-only spec 신설 / §4 도구 시그니처 (export_model_doc path?/depth?, find_by_name [{kind, path}], validate_model path scope) + 풀세트 6종 / §6 phase 표 Phase 6 행.
+- `done-yaml-protocol-implementation.md`: §2 phase 표 Phase 6 행 추가 / §3.0 후속 cycle 갱신 (find_by_name long-term clean archive + ModelProtocol.fs SRP split 추가).
+- 자가 검열 (Agent 위임) Major 1 / Minor 2 발견. Major-1 (§6 phase 표 Phase 6 행 누락) + Minor-1 (§2.7 룰 #7,#8 ERROR prefix 비대칭) 본 commit 흡수. Minor-2 (§2.8 "50 entity budget" 출처) 는 commit #2 동기 처리.
+
+**commit #2 chunk-1 실행** (staged + working tree, 본 commit 안):
+
+- **chunk-1a (SSOT view 정책 정정)**: commit #1 본문의 §2.7 룰 #7 ("apply/validate 입력에 view: 키 존재 시 ERROR") 가 §2.8 ("view: full 인 export 결과는 apply/validate 재사용 가능") 와 직접 모순 — round-trip 시나리오 (자기 export 결과 재입력) 거부 문제. 정정:
+  - 룰 #7: "apply/validate 입력에 `view: partial` 키" → ERROR (view: full 또는 부재는 허용).
+  - 룰 #8: "apply/validate 입력의 `view:` 값이 full/partial 외" → ERROR.
+  - §2.8 본문: view: full 허용 / 부재 허용 / partial 거부 + apply 입력 view: full 호환 / legacy / 사용자 직접 작성 호환.
+  - §1.7 결정 표: "`view` flag 정책 (Phase 6)" row 통합 갱신.
+  - §4 line 533, 537 도구 시그니처 본문: "view: partial 시 사전 거부 / view: full 또는 부재는 허용" 로 정합 정정.
+- **chunk-1b (read 4종 일소)**:
+  - `ToolOperations.fs`: `listProjects` / `listSystems` / `describeSystem` / `describeSubtree` / `formatProjectList` / `formatSystemList` / `formatFindResults` / 부속 `indent` / `arrowTypeName` 모두 일소 (-171 line).
+  - `ModelProtocol.fs`: 신규 `tryFindEntity` (path 깊이로 EntityKind 자동 결정, ApiDef → Flow → None 순) + `pathOf` (root 까지 parent chain 추적, leading `.` prefix). `apply` 의 view 키 처리 분기 (full/부재 허용, partial 거부). `exportToJson` envelope 에 `view: "full"` emit.
+  - `ModelTools.cs`: `ListProjects` / `ListSystems` / `DescribeSystem` / `DescribeSubtree` 4 메서드 + 호출지점 0 된 `ParseGuidOrThrow` 일소. `FindByName` 의 inline format 안에서 `ModelProtocol.pathOf` 호출로 정확한 dot path emit (kind + path 만 emit — closure #3 v4 정합).
+  - `PromakerToolNames.cs`: `All` 배열 read 4종 제거 (10 → 6).
+  - `DescribeSubtreeTests.fs`: 통째 삭제 + `Ds2.LlmAgent.Tests.fsproj` 컴파일 목록 정리.
+  - `PromakerToolNamesDriftTests.fs`: sanity count 10 → 6 + 함수 이름 / 주석 / line 124-125 의 일소된 tool snake_case 단언 정리. set equality + opLayerStaleTokens 격상 (closure #5 v4) 은 chunk-3 의 ValidateModelTests 재작성과 함께 격상 예정.
+
+**자가 검열 + 3-reviewer review 처리** (chunk-1 commit 직전):
+
+- **자가 검열** (Agent general-purpose 위임): Major 2 (§6 phase 표 누락 — commit #1 단계에서 해소 / §2.7 ERROR prefix 비대칭 — commit #1 단계에서 해소) + Minor 2 (50 budget 출처 — chunk-1c 통합 / FindByName inline format path 부정확 — 본 round 해소).
+- **3-reviewer review** (사용자 제공, generalist + logic + design 합의):
+  - Critical A (DriftTests 미갱신, 합의 2/3) ✅ 수용 — sanity count 10 → 6 + 함수 이름 + 주석 + 일소된 tool snake_case 단언 정리.
+  - Critical B (FindByName path 부정확, 합의 3/3) ✅ 수용 — `ModelTools.cs` 의 inline format 에서 `ModelProtocol.pathOf` 호출로 정확한 dot path emit.
+  - Major C (tryFindEntity/pathOf dead code, 합의 2/3) ✅ 부분 해소 — B 처리로 pathOf 호출지점 1건 추가. tryFindEntity 는 chunk-1c.
+  - Major D (tryFindEntity 가 Queries.projectSystemsOf 미재활용, 합의 2/3) ✅ 수용 — inline `@` 결합 → `Queries.projectSystemsOf` 1줄 치환 (사용자 철학 90/10 정합).
+  - Outlier 1 (Generalist Major, view 거부 메시지에 "또는 view: 키 제거" 추가) ✅ 수용 — `ModelProtocol.fs` apply 의 view: partial 거부 메시지 보강.
+  - Outlier 2/3/4 (Logic/Design Major) ⏸ chunk-1c 통합 — pathOf System orphan / 재귀 일관성 / EntityKind exhaustive (`tryPathOf : ... -> string option` 또는 `invalidArg`) / round-trip identity test 신설은 모두 chunk-1c 의 pathOf 실 호출지점 확대 + ExportModelDocPathDepthTests 신규와 동기 처리.
+  - Outlier 5 (Design Minor, SSOT §2.7 룰 #7/#8 semantic swap deprecation marker) ✗ 반론 — 본 정정은 v3 → v4 round 의 신설 룰 본문 정합 강화이지 기존 정착 룰 semantic swap 아님. git blame 으로 추적 충분. SSOT 본문 deprecation marker 는 reader 부담만 ↑ — over-engineering.
+
+**코멘트 추적성 보강** (사용자 우려 반영, 본 round 추가 정정):
+- 본 PR 의 새 코멘트 안 closure 참조 (`closure #3 v4`, `§4.6 정합`) 가 어느 SSOT 의 § 인지 ambiguous → 파일 경로 명시.
+- 정정 위치 2곳:
+  - `ModelTools.cs:257` FindByName inline format 코멘트 — `(closure #3 v4)` → `(Phase 6 todo-read-surface-guid-cleanup.md closure #3 v4)`.
+  - `ModelProtocol.fs` tryFindEntity docstring — `(병존 — §4.6 정합)` → `(병존 — Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md §4.6 정합)`.
+- 기존 컨벤션 (module / file 머리에 SSOT 파일 경로 한 번 명시, 본문은 § 번호) 은 그대로 유지 — yaml-protocol-v0.md 참조는 ModelProtocol.fs:16 / ModelTools.cs:17, 133 의 머리 명시 덕에 자연 추적 가능.
+
+**검증**:
+- `dotnet build Solutions/Ds2.sln` — 오류 0건 (경고 1건 = OllamaSharp source generator 무관, 기존).
+- `dotnet test Solutions/Tests/Ds2.LlmAgent.Tests/Ds2.LlmAgent.Tests.fsproj` — 314/314 통과 (baseline 319 → -10 DescribeSubtreeTests fact 일소 - 2 일소 snake_case + 1 신규 ApiDef + ? 기존 회귀 무영향 = 314).
+
+**잔여 작업 (chunk-1c~6)** — §0.5 의 "즉시 진입 가능 단계 (chunk-1c 부터)" 표 참조. 핵심:
+- chunk-1c: `exportToJsonScoped` 본체 + `validateModel` path scope + reviewer Outlier 2/3/4 통합.
+- chunk-2: `EditorChangeDigest.cs` 어휘 sweep.
+- chunk-3: 테스트 (ValidateModelTests 재작성 / DriftTests set equality + opLayerStaleTokens 격상 / ExportModelDocPathDepthTests 신규).
+- chunk-4: Prompt 7 파일 sweep.
+- chunk-5: 외부 문서 sweep (paper / roundtrip / Poc / Solutions CLAUDE.md / doc historical).
+- chunk-6: 광역 grep 잔재 0건 확인 + 자가 검열 + commit #2 confirm.

@@ -120,7 +120,7 @@ LLM 의 강점과 약점을 다시 정리:
 | **Path resolver `tryFindEntity` (Phase 6)** | thin lookup `DsStore → string → (EntityKind * Guid) option`. **kind 인자 없음** — path 깊이 (`proj/system/flow/work/call` = 1~5 segment) 로 EntityKind 자동 결정. ApiDef vs Flow ambiguity (둘 다 System 직접 자식, 3-segment) 는 내부 lookup 순서 (ApiDef → Flow → None). Arrow path-addressable 아님 (출력 EntityKind 후보에 포함 안 됨). 신규 역방향 helper `pathOf` (find_by_name 출력 emit). 기존 `findSystemByName` / `findFlowByPath` 호출지점 그대로 유지 — 신규 resolver 는 신규 진입점 (export.path / validate_model.scope / find_by_name) 에만. 사용자 철학 (기존 코드 베이스 수정 최소화) 정합 |
 | **`find_by_name` 출력 = `[(kind, path)]` 목록 (Phase 6)** | unique path 강제 4-way (ordinal suffix / GUID tail / sibling invariant / sanitize) 의사결정 항목 자체 폐기. 자연어 이름 → 위치 목록 회신이 본질 — 동명 sibling 도 그대로 N건 노출. cross-kind 동명 (예: System "Run" + Flow "Run") 은 출력의 `kind` 필드로 자연 disambiguation. `findByName : (EntityKind * Guid * string) seq` → `(EntityKind * string) seq` (Guid 제거, path 추가) |
 | **`validate_model` scope = path / 미지정 (Phase 6)** | GUID scope 분기 + 'global' literal 입력 폐기. `scope?: string` (미지정 = 전체, path 명시 시 sub-tree). `LlmTurnContext` 의 cache key sentinel = `""` (empty path) 명문화. 출력 footer "(scope=global)" 같은 user-facing 한국어 표기는 가독성 유지 차원 그대로 (wire 입력에만 영향) |
-| **`view` flag legacy 정책 = 부재 시 ERROR (Phase 6)** | export 결과의 `view: full \| partial` 키 부재 시 ERROR (§2.7 룰 #8). v0 이전 export 호환성 미보장 — v0 도입 후 모든 export 는 `view:` 명시. apply / validate 입력에 `view:` 키 존재 시 ERROR (룰 #7). partial 결과는 view-only — apply/validate 재입력 거부. 본 결정은 alias fallback / cross-system arrow 의 misleading 회귀 차단 |
+| **`view` flag 정책 (Phase 6)** | export 결과 = 항상 `view: full` 또는 `view: partial` 명시. apply / validate 입력 = `view: partial` 거부 / `view: full` 허용 (자기 round-trip 시나리오) / 부재도 허용 (사용자 직접 작성 YAML / legacy 호환). `view: <other>` ERROR. partial 결과는 view-only — apply/validate 재입력 거부 (alias fallback / cross-system arrow 의 misleading 회귀 차단) |
 | **Path notation = dot 정규형 + leading `.` 절대 경로 (Phase 6 부속)** | wire 입력 dual-accept (`.` / `/` 모두 OK — 기존 `normalizePath` 동작 유지, 변경 0). 정규형 = dot. **root 절대 경로 = leading `.`** 권장 어휘 (예: `.Proj1.SysA.Flow1`). leading `.` 은 어휘 강조 prefix 일 뿐 segment 카운트에 영향 없음 (`TrimStart('.')` 진입 시 적용). 이름의 `.` 금지 invariant 유지 (변경 0) — leading `.` 와 이름 충돌 0건 |
 
 ---
@@ -336,8 +336,8 @@ patch:
 | 4 | ArrowBetweenCalls 의 source/target 이 중복 ApiDef Call 이름 참조 | `ERROR <yamlPath>.arrows: '{api}' 가 같은 Work 안에서 N회 호출되어 source/target 으로 식별 불가. 순차 chain 이면 중복 호출을 다른 Work 로 분리하세요.` |
 | 5 | arrow type 누락 | `ERROR <yamlPath>.arrows[i]: type 누락. '{from} -> {to} : <Type>' 형식 사용.` |
 | 6 | kind 와 키 불일치 | `ERROR systems[i]: kind=passive 인데 flow 키 존재 (또는 그 반대). 어느 한 쪽 수정.` |
-| 7 | apply / validate 입력에 `view:` 키 존재 | `ERROR view: apply/validate 입력 wire 에 view 키 등장 불가 — partial export 결과는 round-trip 재입력 의도가 아님.` |
-| 8 | export 결과에 `view:` 키 누락 | `ERROR view: 키 누락 — v0 이전 export 결과는 'view: full' 추가 후 재시도.` (legacy 입력 친절 에러) |
+| 7 | apply / validate 입력에 `view: partial` | `ERROR view: partial export 결과는 view-only — apply/validate 재입력 불가. 전체 export (view: full) 로 다시 호출하세요.` (view: full 또는 부재는 허용 — 자기 round-trip 시나리오 정합) |
+| 8 | apply / validate 입력의 `view:` 값이 `full` / `partial` 외 | `ERROR view: 값 '<value>' 인식 불가. 'full' 또는 'partial'.` |
 
 ### 2.8 Partial export view-only spec
 
@@ -371,10 +371,14 @@ walk 종료 후:
 - `apply_model_doc(view: partial)` → ERROR (alias fallback / cross-system arrow 의 misleading 회귀 차단)
 - `validate_model_doc(view: partial)` → ERROR (동일 — 진단 결과가 partial 일관성에 한정되어 오해 위험)
 - `view: full` 인 export 결과는 apply / validate 입력으로 재사용 가능 (자기 round-trip 검증 시나리오)
+- `view:` 키 부재도 허용 — 사용자가 직접 작성한 YAML / legacy export 결과 호환
 
-**legacy / unknown-key 정책**:
-- export 결과에 `view:` 키 부재 시 ERROR (§2.7 룰 #8) — v0 이전 export 호환성 미보장. v0 도입 후 모든 export 는 `view:` 명시.
-- apply 입력에 `view:` 키 존재 시 ERROR (§2.7 룰 #7).
+**Export 결과의 view 키 정책**:
+- v0 도입 후 모든 export 결과는 `view: full` 또는 `view: partial` 명시.
+- 사용자 / legacy 호환을 위해 apply 입력에서는 부재도 허용 (위 §2.7 룰 #7,#8 정합).
+
+**값 enum 외 처리**:
+- `view: <other>` (full / partial 외) → ERROR (§2.7 룰 #8).
 
 ---
 
@@ -526,11 +530,11 @@ mcp__promaker__apply_model_doc(model: object, dryRun: bool = false)
   → input: §2 schema 의 JSON object (LLM 의 tool_use input 으로 직접 전달, escape 0)
   → 성공: { commitId, opCount, summary, refs: {<name>: <guid> opt.} }
   → 실패: { errors: [{path, message, suggestion?}], ... }
-  → 입력에 'view:' 키 존재 시 사전 거부 (§2.7 룰 #7).
+  → 입력에 'view: partial' 시 사전 거부 / 'view: full' 또는 부재는 허용 (§2.7 룰 #7).
 
 mcp__promaker__validate_model_doc(model: object)
   → dry-run 결과만 (mutation 없음). LLM 의 사전 self-check 용.
-  → 입력에 'view:' 키 존재 시 사전 거부 (§2.7 룰 #7).
+  → 입력에 'view: partial' 시 사전 거부 / 'view: full' 또는 부재는 허용 (§2.7 룰 #7).
   ※ 기존 mcp__promaker__validate_model (모델 일관성 검사) 와 *별개 도구* — 이름 충돌 회피로 `_doc` 접미사.
 
 mcp__promaker__export_model_doc(path?: string, depth?: int, format: "json" | "yaml" = "yaml")
