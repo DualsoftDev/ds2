@@ -26,7 +26,8 @@ public partial class PropertyPanelState
                 dialog.ApiDefName,
                 dialog.ActionType,
                 dialog.TxGuid,
-                dialog.RxGuid));
+                dialog.RxGuid,
+                dialog.Description));
 
     [RelayCommand]
     private void AddSystemApiDef()

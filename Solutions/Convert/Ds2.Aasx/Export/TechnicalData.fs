@@ -1,8 +1,10 @@
 namespace Ds2.Aasx
 
 open System
+open System.Collections.Generic
 open AasCore.Aas3_1
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Aasx.AasxSemantics
 
 /// IDTA 02003 TechnicalData → AAS Submodel 직렬화
@@ -33,77 +35,7 @@ module internal AasxExportTechnicalData =
         (elem :> IHasSemantics).SemanticId <- mkSemanticRef semanticId
         elem
 
-    // ── GeneralInformation ────────────────────────────────────────────────
-    let private generalInfoToSmc (gi: TdGeneralInformation) : ISubmodelElement =
-        let elems : ISubmodelElement list = [
-            mkMlp  "ManufacturerName"               gi.ManufacturerName
-            mkMlp  "ManufacturerProductDesignation" gi.ManufacturerProductDesignation
-            mkProp "ManufacturerArticleNumber"      gi.ManufacturerArticleNumber
-            mkProp "ManufacturerOrderCode"          gi.ManufacturerOrderCode
-            yield! mkSmlProp "ProductImages" (gi.ProductImages |> Seq.map (fun s -> mkProp "ProductImage" s) |> Seq.toList) |> Option.toList
-        ]
-        mkSmc "GeneralInformation" elems
-
-    // ── ProductClassifications ────────────────────────────────────────────
-    let private classificationItemToSmc (c: TdProductClassificationItem) : ISubmodelElement =
-        mkSmc "ProductClassificationItem" [
-            mkProp "ProductClassificationSystem" c.ClassificationSystem
-            mkProp "ClassificationSystemVersion" c.ClassificationVersion
-            mkProp "ProductClassId"              c.ProductClassId
-        ]
-
-    let private classificationsToSmc (items: ResizeArray<TdProductClassificationItem>) : ISubmodelElement =
-        let children = items |> Seq.map classificationItemToSmc |> Seq.toList
-        if children.IsEmpty then
-            mkSmc "ProductClassifications" []
-        else
-            match mkSml "ProductClassifications" children with
-            | Some sml -> sml
-            | None -> mkSmc "ProductClassifications" []
-
-    // ── TechnicalProperties — 도메인 그룹 ─────────────────────────────────
-    let private sequenceCharacteristicsToSmc (s: TdSequenceCharacteristics) : ISubmodelElement =
-        mkSmc "SequenceCharacteristics" [
-            mkProp      "SequenceName"        s.SequenceName
-            mkProp      "SequenceVersion"     s.SequenceVersion
-            mkDoubleProp "CycleTimeNominal_s" s.CycleTimeNominal_s
-            mkDoubleProp "CycleTimeMin_s"     s.CycleTimeMin_s
-            mkDoubleProp "CycleTimeMax_s"     s.CycleTimeMax_s
-            mkIntProp   "StepCount"           s.StepCount
-            mkIntProp   "ParallelBranchCount" s.ParallelBranchCount
-            mkProp      "Ds2ModelHash"        s.Ds2ModelHash
-            mkProp      "SafetyCategory"      s.SafetyCategory
-        ]
-
-    let private ioCharacteristicsToSmc (io: TdIoCharacteristics) : ISubmodelElement =
-        let elems : ISubmodelElement list = [
-            mkIntProp "DigitalInputCount"  io.DigitalInputCount
-            mkIntProp "DigitalOutputCount" io.DigitalOutputCount
-            mkIntProp "AnalogInputCount"   io.AnalogInputCount
-            mkIntProp "AnalogOutputCount"  io.AnalogOutputCount
-            yield! mkSmlProp "FieldbusProtocols" (io.FieldbusProtocols |> Seq.map (fun p -> mkProp "Protocol" p) |> Seq.toList) |> Option.toList
-            mkIntProp "ScanCycle_ms"       io.ScanCycle_ms
-        ]
-        mkSmc "IOCharacteristics" elems
-
-    let private apiSurfaceToSmc (a: TdApiSurface) : ISubmodelElement =
-        let elems : ISubmodelElement list = [
-            mkIntProp "ApiCallCount" a.ApiCallCount
-            yield! mkSmlProp "ExposedActions"         (a.ExposedActions         |> Seq.map (fun s -> mkProp "Action" s)   |> Seq.toList) |> Option.toList
-            yield! mkSmlProp "ExposedReadProperties"  (a.ExposedReadProperties  |> Seq.map (fun s -> mkProp "ReadProperty" s)  |> Seq.toList) |> Option.toList
-            yield! mkSmlProp "ExposedWriteProperties" (a.ExposedWriteProperties |> Seq.map (fun s -> mkProp "WriteProperty" s) |> Seq.toList) |> Option.toList
-        ]
-        mkSmc "ApiSurface" elems
-
-    let private controllerInfoToSmc (c: TdControllerInfo) : ISubmodelElement =
-        mkSmc "ControllerInfo" [
-            mkProp "ControllerVendor" c.ControllerVendor
-            mkProp "ControllerModel"  c.ControllerModel
-            mkProp "FirmwareVersion"  c.FirmwareVersion
-            mkProp "EngineeringTool"  c.EngineeringTool
-        ]
-
-    // ── SimulationResults — 시뮬결과 박제 ─────────────────────────────────
+    // ── SimulationResults — 시뮬결과 박제 (SequenceSimulation 서브모델로 emit) ───
     let private simMetaToSmc (m: SimulationMeta) : ISubmodelElement =
         let elems : ISubmodelElement list = [
             mkProp    "SimulatorName"    m.SimulatorName
@@ -142,10 +74,50 @@ module internal AasxExportTechnicalData =
             mkDoubleProp "EfficiencyRate_pct"           k.EfficiencyRate_pct |> tagSim
         ]
 
-    let private cycleTimesToSmcGroup (items: ResizeArray<KpiCycleTime>) : ISubmodelElement option =
-        if items.Count = 0 then None
+    /// Active 시스템에 속한 entity 이름(work/call/flow/system 등) 의 단일 진실 set.
+    /// passive 시스템 의 KPI 항목을 필터링할 때 사용.
+    let mutable private activeNameSet : HashSet<string> = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+    /// 빈 set 또는 미초기화 시 모든 항목 통과(레거시 동작 보존).
+    let private isActiveName (name: string) : bool =
+        if String.IsNullOrEmpty name || activeNameSet.Count = 0 then true
         else
-            let children = items |> Seq.map cycleTimeToSmc |> Seq.toList
+            // 정확 매치 → fast path.
+            if activeNameSet.Contains name then true
+            else
+                // resource name 이 "{a}.{b}" 형태일 때 분해해 후보 매칭.
+                // 어느 부분 이름이라도 active set 에 있으면 active 로 간주.
+                let parts = name.Split([| '.'; '/'; ' ' |], StringSplitOptions.RemoveEmptyEntries)
+                parts |> Array.exists activeNameSet.Contains
+
+    /// 호출 측이 export 시작 시 한 번 호출 — active 시스템의 모든 하위 이름 수집.
+    let setActiveContext (store: DsStore) (project: Project) : unit =
+        let s = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sys in Queries.activeSystemsOf project.Id store do
+            s.Add sys.Name |> ignore
+            for flow in Queries.flowsOf sys.Id store do
+                s.Add flow.Name |> ignore
+                s.Add (sprintf "%s_%s" sys.Name flow.Name) |> ignore
+                s.Add (sprintf "%s.%s"  sys.Name flow.Name) |> ignore
+                for work in Queries.worksOf flow.Id store do
+                    s.Add work.Name |> ignore
+                    s.Add (sprintf "%s.%s" flow.Name work.Name) |> ignore
+                    s.Add (sprintf "%s_%s.%s" sys.Name flow.Name work.Name) |> ignore
+                    for call in Queries.callsOf work.Id store do
+                        s.Add call.Name |> ignore
+                        s.Add (sprintf "%s.%s" work.Name call.Name) |> ignore
+                        s.Add (sprintf "%s.%s" flow.Name call.Name) |> ignore
+                        s.Add (sprintf "%s_%s.%s" sys.Name flow.Name call.Name) |> ignore
+        activeNameSet <- s
+
+    let clearActiveContext () : unit =
+        activeNameSet <- HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+    let private cycleTimesToSmcGroup (items: ResizeArray<KpiCycleTime>) : ISubmodelElement option =
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.WorkName) |> Seq.toList
+        if filtered.IsEmpty then None
+        else
+            let children = filtered |> List.map cycleTimeToSmc
             mkSml "KPI_CycleTime" children
             |> Option.map (withSem SimKpiCycleTimeSemanticId)
 
@@ -162,9 +134,13 @@ module internal AasxExportTechnicalData =
         ]
 
     let private callCycleTimesToSmcGroup (items: ResizeArray<KpiCallCycleTime>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered =
+            items
+            |> Seq.filter (fun k -> isActiveName k.CallName || isActiveName k.ParentWorkName)
+            |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            let children = items |> Seq.map callCycleTimeToSmc |> Seq.toList
+            let children = filtered |> List.map callCycleTimeToSmc
             mkSml "KPI_CallCycleTime" children
 
     let private throughputToSmc (t: KpiThroughput) : ISubmodelElement =
@@ -247,9 +223,10 @@ module internal AasxExportTechnicalData =
         ]
 
     let private resourcesToSmcGroup (items: ResizeArray<KpiResourceItem>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.ResourceName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_ResourceUtilization" (items |> Seq.map resourceItemToSmc |> Seq.toList)
+            mkSml "KPI_ResourceUtilization" (filtered |> List.map resourceItemToSmc)
             |> Option.map (withSem SimKpiResourceUtilSemanticId)
 
     let private oeeItemToSmc (k: KpiOeeItem) : ISubmodelElement =
@@ -276,9 +253,10 @@ module internal AasxExportTechnicalData =
         ]
 
     let private oeeToSmcGroup (items: ResizeArray<KpiOeeItem>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.ResourceName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_OEE" (items |> Seq.map oeeItemToSmc |> Seq.toList)
+            mkSml "KPI_OEE" (filtered |> List.map oeeItemToSmc)
             |> Option.map (withSem SimKpiOeeSemanticId)
 
     let private perTokenWorkBreakdownToSmc (b: KpiPerTokenWorkBreakdown) : ISubmodelElement =
@@ -307,13 +285,15 @@ module internal AasxExportTechnicalData =
         mkSmc "PerTokenItem" baseElems
 
     let private perTokensToSmcGroup (items: ResizeArray<KpiPerToken>) : ISubmodelElement option =
-        if items.Count = 0 then None
+        let filtered = items |> Seq.filter (fun k -> isActiveName k.OriginName) |> Seq.toList
+        if filtered.IsEmpty then None
         else
-            mkSml "KPI_PerToken" (items |> Seq.map perTokenItemToSmc |> Seq.toList)
+            mkSml "KPI_PerToken" (filtered |> List.map perTokenItemToSmc)
             |> Option.map (withSem SimKpiPerTokenSemanticId)
 
-    /// 단일 SimulationResult SMC (없으면 None)
-    let private simulationResultToSmcOpt (resultOpt: SimulationScenario option) : ISubmodelElement option =
+    /// SimulationResult SMC — Project.SimulationResult 를 SequenceSimulation 서브모델 안에 emit.
+    /// 호출 측은 SequenceSimulation export 시 본 함수를 사용해 결과 SMC 를 SM elements 에 추가.
+    let simulationResultToSmcOpt (resultOpt: SimulationScenario option) : ISubmodelElement option =
         match resultOpt with
         | None -> None
         | Some s ->
@@ -330,36 +310,51 @@ module internal AasxExportTechnicalData =
             ]
             Some (withSem SimulationResultSemanticId (mkSmc "SimulationResult" elems))
 
-    // ── TechnicalProperties 컨테이너 ──────────────────────────────────────
-    let private technicalPropertiesToSmc (td: TechnicalData) : ISubmodelElement =
-        let elems : ISubmodelElement list = [
-            sequenceCharacteristicsToSmc td.SequenceCharacteristics
-            ioCharacteristicsToSmc       td.IoCharacteristics
-            apiSurfaceToSmc              td.ApiSurface
-            controllerInfoToSmc          td.ControllerInfo
-            yield! simulationResultToSmcOpt td.SimulationResult |> Option.toList
-        ]
-        mkSmc "TechnicalProperties" elems
-
-    // ── FurtherInformation ────────────────────────────────────────────────
-    let private furtherInfoToSmc (fi: TdFurtherInformation) : ISubmodelElement =
-        let elems : ISubmodelElement list = [
-            mkMlp  "TextStatement" fi.TextStatement
-            mkProp "ValidDate"     fi.ValidDate
-            yield! mkSmlProp "ReferenceDocuments" (fi.ReferenceDocuments |> Seq.map (fun s -> mkProp "Document" s) |> Seq.toList) |> Option.toList
-        ]
-        mkSmc "FurtherInformation" elems
-
-    // ── Submodel 진입점 ───────────────────────────────────────────────────
+    // ── Submodel 진입점 — Template-driven (IDTA 02003-2-0) ─────────────────
+    /// 임베디드 TechnicalData.aasx 템플릿이 GeneralInformation / ProductClassifications /
+    /// TechnicalPropertyAreas / FurtherInformation / SpecificDescriptions 구조를 정의.
+    /// ds2 TechnicalData 의 표준 3 블록(GeneralInformation/ProductClassifications/FurtherInformation)
+    /// 만 inject. SimulationResult 등 도메인 데이터는 SequenceSimulation SM 으로 분리됨.
+    ///
+    /// v1.x → v2.0 idShort 차이 매핑:
+    ///   ds2.GI.ManufacturerName → "ManufacturerName" (Property in v2, was MLP in v1)
+    ///   ds2.GI.ManufacturerProductDesignation → "ManufacturerProductDesignation" (MLP)
+    ///   ds2.GI.ManufacturerArticleNumber → "ManufacturerArticleNumber"
+    ///   ds2.GI.ManufacturerOrderCode → "ManufacturerOrderCode"
+    ///   ds2.PC[i].ClassificationSystem → "ClassificationSystem"
+    ///   ds2.PC[i].ClassificationVersion → "ClassificationSystemVersion"
+    ///   ds2.PC[i].ProductClassId → "ProductClassId"
+    ///   ds2.FI.TextStatement → "TextStatement" (MLP)
+    ///   ds2.FI.ValidDate → "ValidDate"
     let technicalDataToSubmodel (td: TechnicalData) (projectId: Guid) : Submodel =
-        let elems : ISubmodelElement list = [
-            generalInfoToSmc       td.GeneralInformation
-            classificationsToSmc   td.ProductClassifications
-            technicalPropertiesToSmc td
-            furtherInfoToSmc       td.FurtherInformation
-        ]
-        mkSubmodel
-            $"urn:dualsoft:technicaldata:{projectId}"
-            TechnicalDataSubmodelIdShort
-            TechnicalDataSemanticId
-            elems
+        let sm =
+            match AasxTemplateLoader.tryLoadSubmodel
+                    AasxTemplateLoader.TechnicalDataResource TechnicalDataSubmodelIdShort with
+            | Some sm -> sm :?> Submodel
+            | None ->
+                failwith "TechnicalData.aasx 템플릿을 임베디드 리소스에서 로드할 수 없습니다 (Concepts/Templates/TechnicalData.aasx)"
+
+        AasxTemplateScaffold.assignInstanceId sm $"urn:dualsoft:technicaldata:{projectId}"
+
+        // ── GeneralInformation ────────────────────────────────────────────
+        let gi = td.GeneralInformation
+        AasxTemplateScaffold.setProp sm "GeneralInformation/ManufacturerName" gi.ManufacturerName |> ignore
+        AasxTemplateScaffold.setMlpEn sm "GeneralInformation/ManufacturerProductDesignation" gi.ManufacturerProductDesignation |> ignore
+        AasxTemplateScaffold.setProp sm "GeneralInformation/ManufacturerArticleNumber" gi.ManufacturerArticleNumber |> ignore
+        AasxTemplateScaffold.setProp sm "GeneralInformation/ManufacturerOrderCode" gi.ManufacturerOrderCode |> ignore
+
+        // ── ProductClassifications SML ────────────────────────────────────
+        if td.ProductClassifications.Count > 0 then
+            AasxTemplateScaffold.expandSml sm "ProductClassifications" td.ProductClassifications.Count (Some "ProductClassification") |> ignore
+            td.ProductClassifications |> Seq.iteri (fun i c ->
+                let p = sprintf "ProductClassifications/ProductClassification%02d" i
+                AasxTemplateScaffold.setProp sm (p + "/ClassificationSystem") c.ClassificationSystem |> ignore
+                AasxTemplateScaffold.setProp sm (p + "/ClassificationSystemVersion") c.ClassificationVersion |> ignore
+                AasxTemplateScaffold.setProp sm (p + "/ProductClassId") c.ProductClassId |> ignore)
+
+        // ── FurtherInformation ────────────────────────────────────────────
+        let fi = td.FurtherInformation
+        AasxTemplateScaffold.setMlpEn sm "FurtherInformation/TextStatement" fi.TextStatement |> ignore
+        AasxTemplateScaffold.setProp sm "FurtherInformation/ValidDate" fi.ValidDate |> ignore
+
+        sm

@@ -14,6 +14,8 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenIoBatchDialog()
     {
+        if (!GuardSimulationSemanticEdit("I/O 조회"))
+            return;
         _dialogService.ShowDialog(new IoBatchSettingsDialog(_store, OpenFBTagMapEditFor));
     }
 

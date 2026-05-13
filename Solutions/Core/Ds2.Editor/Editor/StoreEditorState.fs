@@ -10,6 +10,9 @@ type internal StoreEditorState = {
     mutable SuppressEvents: bool
     mutable CurrentRecords: ResizeArray<UndoRecord> option
     mutable CurrentAffectedIds: ResizeArray<System.Guid> option
+    /// 직전 undo/redo 가 가벼운 이벤트로 처리된 트랜잭션이면 그 이벤트, 아니면 None.
+    /// C# 측에서 추가 RebuildAll 을 건너뛰는 데 사용한다.
+    mutable LastUndoRedoLightEvent: EditorEvent option
 }
 
 [<RequireQualifiedAccess>]
@@ -26,4 +29,5 @@ module internal StoreEditorState =
                     SuppressEvents = false
                     CurrentRecords = None
                     CurrentAffectedIds = None
+                    LastUndoRedoLightEvent = None
                 }))

@@ -122,7 +122,25 @@ namespace Promaker.Resources {
                 return ResourceManager.GetString("CallAddFailed", resourceCulture);
             }
         }
-        
+
+        /// <summary>
+        ///   닫기과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string CloseFile {
+            get {
+                return ResourceManager.GetString("CloseFile", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   프로젝트 닫기 (Ctrl+Shift+W)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string CloseFileTooltip {
+            get {
+                return ResourceManager.GetString("CloseFileTooltip", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   현재 프로젝트에 저장되지 않은 변경이 있습니다.
         ///저장하시겠습니까?과(와) 유사한 지역화된 문자열을 찾습니다.
@@ -546,7 +564,7 @@ namespace Promaker.Resources {
                 return ResourceManager.GetString("SaveFileAs", resourceCulture);
             }
         }
-        
+
         /// <summary>
         ///   저장 (Ctrl+S)과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
@@ -645,7 +663,25 @@ namespace Promaker.Resources {
                 return ResourceManager.GetString("StopSimulationTooltip", resourceCulture);
             }
         }
-        
+
+        /// <summary>
+        ///   원위치 — 실 PLC 라인 home 복귀과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string HomingTooltip {
+            get {
+                return ResourceManager.GetString("HomingTooltip", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   수동 컨트롤러 — 디바이스별 직접 ON/OFF 제어 (실 PLC 라인 동작)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ManualControlTooltip {
+            get {
+                return ResourceManager.GetString("ManualControlTooltip", resourceCulture);
+            }
+        }
+
         /// <summary>
         ///   다크 테마로 전환과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>

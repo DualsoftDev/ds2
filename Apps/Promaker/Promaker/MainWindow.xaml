@@ -3,6 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
+        xmlns:llm="clr-namespace:Promaker.Controls.Llm"
+        xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
         Title="{Binding Title}" Width="1688" Height="800"
@@ -18,6 +20,11 @@
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- 1d-4 D — LlmChatViewModel 을 LlmChatPanel 로 자동 매핑 (DataTemplate). -->
+        <DataTemplate DataType="{x:Type vm:LlmChatViewModel}">
+            <llm:LlmChatPanel/>
+        </DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -31,6 +38,7 @@
         <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}"/>
         <KeyBinding Key="F2" Command="{Binding FocusNameEditorCommand}"/>
         <KeyBinding Gesture="Ctrl+W" Command="{Binding Canvas.CloseActiveTabCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+W" Command="{Binding CloseFileCommand}"/>
         <KeyBinding Key="F1" Command="{x:Static help:HelpNavigator.NavigateCommand}" CommandParameter="general"/>
     </Window.InputBindings>
 
@@ -43,80 +51,111 @@
 
         <ctrl:MainToolbar Grid.Row="0"/>
 
-        <!-- Main content area with columns -->
+        <!-- Main content area: HasProject 에 따라 OpenLayout / WelcomeLayout 토글.
+             Open 시 기존 5 column 구조 그대로, Welcome 시 하단 가로 full span Log dock. -->
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320" MinWidth="150"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="280" MinWidth="150"/>
-            </Grid.ColumnDefinitions>
 
-            <ctrl:ExplorerPane Grid.Column="0"/>
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"/>
+            <!-- ============================ Open Layout (HasProject=true) ============================ -->
+            <Grid x:Name="OpenLayout">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasProject}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="320" MinWidth="150"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="280" MinWidth="150"/>
+                    <!-- 1d-4 D — LLM Chat dock column (default 0, ToggleLlmChatCommand 토글) -->
+                    <ColumnDefinition x:Name="LlmChatSplitterCol" Width="0"/>
+                    <ColumnDefinition x:Name="LlmChatPanelCol" Width="0" MinWidth="0"/>
+                </Grid.ColumnDefinitions>
 
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="4"/>
-                    <RowDefinition Height="200" MinHeight="80"/>
-                </Grid.RowDefinitions>
+                <ctrl:ExplorerPane Grid.Column="0"/>
+                <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"/>
 
-                <ctrl:SplitCanvasContainer x:Name="WorkspacePane" Grid.Row="0"/>
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="4"/>
+                        <RowDefinition Height="200" MinHeight="80"/>
+                    </Grid.RowDefinitions>
 
-                <GridSplitter Grid.Row="1"
-                              Height="4"
-                              HorizontalAlignment="Stretch"
-                              VerticalAlignment="Center"/>
+                    <ctrl:SplitCanvasContainer x:Name="WorkspacePane" Grid.Row="0"/>
 
-                <ctrl:SimulationPanel x:Name="SimulationPanelHost"
-                                      Grid.Row="2"
-                                      DataContext="{Binding Simulation}"/>
+                    <GridSplitter Grid.Row="1"
+                                  Height="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Center"/>
+
+                    <ctrl:SimulationPanel x:Name="SimulationPanelHost"
+                                          Grid.Row="2"
+                                          DataContext="{Binding Simulation}"/>
+                </Grid>
+
+                <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch"/>
+
+                <Grid Grid.Column="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="4"/>
+                        <RowDefinition Height="220" MinHeight="60"/>
+                    </Grid.RowDefinitions>
+
+                    <ctrl:PropertyPanel x:Name="PropertyPane" Grid.Row="0" DataContext="{Binding PropertyPanel}"/>
+
+                    <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+
+                    <Border Grid.Row="2" Style="{StaticResource PanelContainer}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Style="{StaticResource PanelHeader}">
+                                <Grid>
+                                    <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
+                                    <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
+                                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                            CommandParameter="history"/>
+                                </Grid>
+                            </Border>
+                            <ctrl:HistoryPanel Grid.Row="1"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- 1d-4 D — LLM Chat dock panel + splitter (column width 0 일 때 자동 비표시).
+                     GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피용 Thumb. -->
+                <Thumb Grid.Column="5" Width="4" HorizontalAlignment="Stretch"
+                       Cursor="SizeWE" DragDelta="LlmChatSplitter_DragDelta">
+                    <Thumb.Template>
+                        <ControlTemplate TargetType="Thumb">
+                            <Rectangle Fill="{DynamicResource BorderBrush}"/>
+                        </ControlTemplate>
+                    </Thumb.Template>
+                </Thumb>
+                <ContentControl Grid.Column="6" Content="{Binding LlmChatVm}"/>
             </Grid>
 
-            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch"/>
-
-            <Grid Grid.Column="4">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="4"/>
-                    <RowDefinition Height="220" MinHeight="60"/>
-                </Grid.RowDefinitions>
-
-                <ctrl:PropertyPanel x:Name="PropertyPane" Grid.Row="0" DataContext="{Binding PropertyPanel}"/>
-
-                <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-
-                <Border Grid.Row="2" Style="{StaticResource PanelContainer}">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <Border Style="{StaticResource PanelHeader}">
-                            <Grid>
-                                <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
-                                <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
-                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                        CommandParameter="history"/>
-                            </Grid>
-                        </Border>
-                        <ctrl:HistoryPanel Grid.Row="1"/>
-                    </Grid>
-                </Border>
-            </Grid>
-
-            <!-- Welcome screen when no project is open -->
-            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="5"
-                    Background="{DynamicResource PrimaryBackgroundBrush}" Panel.ZIndex="10"
-                    AllowDrop="True"
-                    DragEnter="Window_DragEnter"
-                    DragOver="Window_DragOver"
-                    DragLeave="Window_DragLeave"
-                    Drop="Window_Drop">
-                <Border.Style>
-                    <Style TargetType="Border">
+            <!-- ============================ Welcome Layout (HasProject=false) ============================
+                 좌측 메인(* / 안내 + SimulationPanel) + 우측 LLM Chat dock (default 0, 토글 시 노출).
+                 IsLlmChatVisible → MainWindow.xaml.cs.UpdateLlmChatColumnWidths 가 양쪽(Open/Welcome) ColumnDefinition 동시 갱신. -->
+            <Grid x:Name="WelcomeLayout"
+                  AllowDrop="True"
+                  DragEnter="Window_DragEnter"
+                  DragOver="Window_DragOver"
+                  DragLeave="Window_DragLeave"
+                  Drop="Window_Drop">
+                <Grid.Style>
+                    <Style TargetType="Grid">
                         <Setter Property="Visibility" Value="Visible"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding HasProject}" Value="True">
@@ -124,54 +163,77 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </Border.Style>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Ellipse Width="70" Height="70" Opacity="0.4" Margin="0,0,0,20"
-                             HorizontalAlignment="Center">
-                        <Ellipse.Fill>
-                            <RadialGradientBrush>
-                                <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
-                                <GradientStop Color="Transparent" Offset="1"/>
-                            </RadialGradientBrush>
-                        </Ellipse.Fill>
-                    </Ellipse>
-                    <iconPacks:PackIconMaterial Kind="FolderOpen" Width="48" Height="48" Margin="0,-72,0,40"
-                          HorizontalAlignment="Center"
-                          Foreground="{DynamicResource AccentBrush}"/>
-                    <TextBlock Text="기존 프로젝트 파일을 불러오세요"
-                               FontSize="22" FontWeight="Bold"
-                               Foreground="{DynamicResource PrimaryTextBrush}"
-                               HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBlock Text="프로젝트를 시작하려면 새로 만들거나 파일을 열어주세요"
-                               FontSize="13"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               HorizontalAlignment="Center" Margin="0,0,0,24"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <Button Command="{Binding NewProjectCommand}"
-                                Padding="16,10" Margin="0,0,12,0"
-                                FontSize="13" Cursor="Hand"
-                                Background="{DynamicResource AccentBrush}"
-                                Foreground="White" BorderThickness="0">
-                            <StackPanel Orientation="Horizontal">
-                                <iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="16" Height="16" Margin="0,0,6,0"
-                                      Foreground="White"/>
-                                <TextBlock Text="새로 만들기" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding OpenFileCommand}"
-                                Padding="16,10"
-                                FontSize="13" Cursor="Hand"
-                                Background="{DynamicResource AccentBrush}"
-                                Foreground="White" BorderThickness="0">
-                            <StackPanel Orientation="Horizontal">
-                                <iconPacks:PackIconMaterial Kind="FolderOpen" Width="16" Height="16" Margin="0,0,6,0"
-                                      Foreground="White"/>
-                                <TextBlock Text="프로젝트 열기" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                </Grid.Style>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="200"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition x:Name="WelcomeLlmChatSplitterCol" Width="0"/>
+                    <ColumnDefinition x:Name="WelcomeLlmChatPanelCol" Width="0" MinWidth="0"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource PrimaryBackgroundBrush}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <Ellipse Width="70" Height="70" Opacity="0.4" Margin="0,0,0,20"
+                                 HorizontalAlignment="Center">
+                            <Ellipse.Fill>
+                                <RadialGradientBrush>
+                                    <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
+                                    <GradientStop Color="Transparent" Offset="1"/>
+                                </RadialGradientBrush>
+                            </Ellipse.Fill>
+                        </Ellipse>
+                        <iconPacks:PackIconMaterial Kind="FolderOpen" Width="48" Height="48" Margin="0,-72,0,40"
+                              HorizontalAlignment="Center"
+                              Foreground="{DynamicResource AccentBrush}"/>
+                        <TextBlock Text="기존 프로젝트 파일을 불러오세요"
+                                   FontSize="22" FontWeight="Bold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBlock Text="프로젝트를 시작하려면 새로 만들거나 파일을 열어주세요"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button Command="{Binding NewProjectCommand}"
+                                    Padding="16,10" Margin="0,0,12,0"
+                                    FontSize="13" Cursor="Hand"
+                                    Background="{DynamicResource AccentBrush}"
+                                    Foreground="White" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="16" Height="16" Margin="0,0,6,0"
+                                          Foreground="White"/>
+                                    <TextBlock Text="새로 만들기" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding OpenFileCommand}"
+                                    Padding="16,10"
+                                    FontSize="13" Cursor="Hand"
+                                    Background="{DynamicResource AccentBrush}"
+                                    Foreground="White" BorderThickness="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <iconPacks:PackIconMaterial Kind="FolderOpen" Width="16" Height="16" Margin="0,0,6,0"
+                                          Foreground="White"/>
+                                    <TextBlock Text="프로젝트 열기" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
+
+                <ctrl:SimulationPanel Grid.Row="1" Grid.Column="0" DataContext="{Binding Simulation}"/>
+
+                <!-- Welcome 용 LLM Chat dock — column width 0 일 때 자동 비표시.
+                     표준 GridSplitter 사용 (Open 의 Thumb 는 Property/LLM 폭 trade-off 가 필요해서 custom 이었지만,
+                     Welcome 은 메인(*) 과 LLM 의 단순 trade-off 라 표준으로 충분). -->
+                <GridSplitter Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                              Width="4" HorizontalAlignment="Stretch"
+                              Background="{DynamicResource BorderBrush}"/>
+                <ContentControl Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                                Content="{Binding LlmChatVm}"/>
+            </Grid>
         </Grid>
 
         <StatusBar Grid.Row="2">
@@ -179,6 +241,55 @@
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>
         </StatusBar>
+
+        <!-- Busy overlay (파일 열기 등 무거운 작업 진행 중) -->
+        <Grid x:Name="BusyOverlay" Grid.RowSpan="3" Panel.ZIndex="200"
+              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+              Background="#80000000" IsHitTestVisible="True">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="40,28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" Opacity="0.4" BlurRadius="20" ShadowDepth="4"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid Width="36" Height="36" Margin="0,0,16,0">
+                        <Ellipse Stroke="{DynamicResource BorderBrush}" StrokeThickness="3"/>
+                        <Ellipse Stroke="{DynamicResource AccentBrush}" StrokeThickness="3"
+                                 StrokeDashArray="4 6" StrokeDashCap="Round"
+                                 RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform x:Name="BusySpinnerRotate" Angle="0"/>
+                            </Ellipse.RenderTransform>
+                            <Ellipse.Triggers>
+                                <EventTrigger RoutedEvent="Ellipse.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="BusySpinnerRotate"
+                                                             Storyboard.TargetProperty="Angle"
+                                                             From="0" To="360" Duration="0:0:1.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Ellipse.Triggers>
+                        </Ellipse>
+                    </Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="로딩 중..."
+                                   FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <TextBlock Text="{Binding BusyMessage}"
+                                   FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- File drag overlay -->
         <Grid x:Name="FileDragOverlay" Grid.RowSpan="3" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="100">

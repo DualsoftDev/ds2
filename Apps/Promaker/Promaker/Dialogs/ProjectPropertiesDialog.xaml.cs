@@ -21,6 +21,7 @@ public partial class ProjectPropertiesDialog : Window
     private static string SplitDeviceAasxSettingsPath        => Promaker.Services.SettingsPaths.SplitDeviceAasx;
     private static string IriPrefixSettingsPath              => Promaker.Services.SettingsPaths.IriPrefix;
     private static string CreateDefaultEntitiesSettingsPath  => Promaker.Services.SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
+    private static string AasxUserTemplatesFolderSettingsPath => Promaker.Services.SettingsPaths.AasxUserTemplatesFolder;
 
     private const string DefaultIriPrefix = "https://dualsoft.com/";
     private readonly string _initialProjectName;
@@ -33,6 +34,7 @@ public partial class ProjectPropertiesDialog : Window
     public string ResultIriPrefix { get; private set; } = "https://dualsoft.com/";
     public bool ResultSplitDeviceAasx { get; private set; }
     public bool ResultCreateDefaultEntities { get; private set; }
+    public string ResultAasxUserTemplatesFolder { get; private set; } = "";
 
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
@@ -54,6 +56,9 @@ public partial class ProjectPropertiesDialog : Window
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
         CreateDefaultEntitiesBox.IsChecked = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
+        AasxUserTemplatesFolderBox.Text = AppSettingStore.LoadStringOrDefault(
+            AasxUserTemplatesFolderSettingsPath,
+            Promaker.Services.SettingsPaths.DefaultAasxUserTemplatesDir);
 
         // PLC 설정 로드 — 빈 값 금지. 항상 effective 값(디폴트 자동 채움)을 표시.
         var plcCfg = PlcConfig.Settings;
@@ -186,6 +191,36 @@ public partial class ProjectPropertiesDialog : Window
         PresetMappingListBox.SelectedIndex = selectedIndex + 1;
     }
 
+    private void BrowseAasxUserTemplatesFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFolderDialog
+        {
+            Title = "AASX 사용자 템플릿 폴더 선택",
+            InitialDirectory = !string.IsNullOrWhiteSpace(AasxUserTemplatesFolderBox.Text) && Directory.Exists(AasxUserTemplatesFolderBox.Text)
+                ? AasxUserTemplatesFolderBox.Text
+                : Promaker.Services.SettingsPaths.DefaultAasxUserTemplatesDir,
+        };
+        if (dlg.ShowDialog(this) == true)
+            AasxUserTemplatesFolderBox.Text = dlg.FolderName;
+    }
+
+    private void OpenAasxUserTemplatesFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var path = AasxUserTemplatesFolderBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            Directory.CreateDirectory(path);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+                Verb = "open",
+            });
+        }
+        catch { /* 무시 */ }
+    }
+
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         ResultProjectName = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
@@ -202,6 +237,9 @@ public partial class ProjectPropertiesDialog : Window
 
         ResultCreateDefaultEntities = CreateDefaultEntitiesBox.IsChecked == true;
         AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, ResultCreateDefaultEntities);
+
+        ResultAasxUserTemplatesFolder = AasxUserTemplatesFolderBox.Text?.Trim() ?? "";
+        AppSettingStore.SaveString(AasxUserTemplatesFolderSettingsPath, ResultAasxUserTemplatesFolder);
 
         ResultPresetSystemTypes = PresetMappingListBox.Items
             .Cast<string>()

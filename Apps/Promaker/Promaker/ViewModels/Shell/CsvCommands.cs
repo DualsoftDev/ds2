@@ -17,6 +17,7 @@ public partial class MainViewModel
         _store.ReplaceStore(store);
         _store.ClearHistory();
         _currentFilePath = null;
+        _currentFileMTime = null;
         IsDirty = false;
         HasProject = true;
         UpdateTitle();

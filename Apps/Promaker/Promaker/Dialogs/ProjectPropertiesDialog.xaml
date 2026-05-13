@@ -1,6 +1,7 @@
 <Window x:Class="Promaker.Dialogs.ProjectPropertiesDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:b="clr-namespace:Promaker.Behaviors"
         Title="설정"
         Width="500" Height="600"
         ResizeMode="NoResize"
@@ -8,7 +9,8 @@
         ShowInTaskbar="False">
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
-            BorderThickness="1">
+            BorderThickness="1"
+            b:CtrlWheelZoom.IsEnabled="True">
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
@@ -81,7 +83,34 @@
                                       FontSize="12" Margin="0,0,0,2"/>
                             <TextBlock Text="저장할 때 엔티티에 도메인 서브모델 Properties가 없으면 자동으로 생성합니다 (Simulation, Control, Monitoring 등)"
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="20,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                                       Margin="20,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                            <!-- AASX User Templates Folder -->
+                            <TextBlock Text="AASX 사용자 템플릿 폴더"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="AasxUserTemplatesFolderBox" Grid.Column="0"
+                                         Padding="6,4" VerticalContentAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Content="찾아보기..."
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Margin="6,0,0,0"
+                                        Click="BrowseAasxUserTemplatesFolder_Click"/>
+                                <Button Grid.Column="2"
+                                        Content="폴더 열기"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Margin="6,0,0,0"
+                                        Click="OpenAasxUserTemplatesFolder_Click"/>
+                            </Grid>
+                            <TextBlock Text="이 폴더 안의 *.aasx 파일에 정의된 모든 Submodel 이 export 시 자동으로 첨부됩니다 (예: OperationData, 사내 표준 SM 등)."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

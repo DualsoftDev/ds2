@@ -1,0 +1,61 @@
+<UserControl x:Class="Promaker.Controls.ExpressionEditor.Views.ExpressionEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:le="clr-namespace:AAStoPLC.LadderEditor.Views;assembly=AAStoPLC.LadderEditor"
+             Foreground="{DynamicResource PrimaryTextBrush}"
+             Background="{DynamicResource SecondaryBackgroundBrush}">
+    <Grid Margin="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 조작 안내 배너 -->
+        <Border Grid.Row="0"
+                Margin="0,0,0,6"
+                Padding="10,6"
+                Background="{DynamicResource TertiaryBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="3">
+            <TextBlock TextWrapping="Wrap" FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}">
+                <Run FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">조작:</Run>
+                <Run> 접점 더블클릭 = 심볼 편집 ·</Run>
+                <Run> 빈 셀 더블클릭 = 신규 접점 ·</Run>
+                <Run> 접점 우클릭 = 종류 / 복사·붙여넣기 / 삭제 ·</Run>
+                <Run> 접점 드래그 → = 직렬 ·</Run>
+                <Run> 접점 드래그 ↓ = OR 분기 ·</Run>
+                <Run> Ctrl+Z/Y = Undo/Redo ·</Run>
+                <Run> Ctrl+휠 = 확대/축소</Run>
+            </TextBlock>
+        </Border>
+
+        <!-- ST 표현 (읽기 전용) -->
+        <Border Grid.Row="1"
+                Padding="8,4"
+                Margin="0,0,0,6"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                Background="{DynamicResource TertiaryBackgroundBrush}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="ST 표현:" FontSize="11" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="0,0,8,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <TextBlock x:Name="StPreviewText" Text="{Binding StPreview, FallbackValue=TRUE}"
+                           VerticalAlignment="Center" FontFamily="Consolas" FontSize="12"
+                           Foreground="{DynamicResource AccentBrush}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- LadderEditor — 단독 편집 화면. 드래그/우클릭/Ctrl+Z 활성. -->
+        <Border Grid.Row="2"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="3"
+                Background="{DynamicResource TertiaryBackgroundBrush}">
+            <le:LadderEditorControl x:Name="LdView" IsReadOnly="False"/>
+        </Border>
+    </Grid>
+</UserControl>

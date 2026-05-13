@@ -54,6 +54,12 @@
   <data name="SaveFileAs" xml:space="preserve">
     <value>Save As</value>
   </data>
+  <data name="CloseFile" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="CloseFileTooltip" xml:space="preserve">
+    <value>Close project (Ctrl+Shift+W)</value>
+  </data>
   <data name="ConfirmSaveChanges" xml:space="preserve">
     <value>There are unsaved changes in the current project.
 Do you want to save?</value>
@@ -245,6 +251,12 @@ Do you want to save?</value>
   </data>
   <data name="StopSimulationTooltip" xml:space="preserve">
     <value>Stop</value>
+  </data>
+  <data name="HomingTooltip" xml:space="preserve">
+    <value>Homing — hold to drive real PLC line to home (release to stop, deadman switch)</value>
+  </data>
+  <data name="ManualControlTooltip" xml:space="preserve">
+    <value>Manual Control — per-device direct ON/OFF control (drives real PLC line)</value>
   </data>
   <data name="ResetSimulationTooltip" xml:space="preserve">
     <value>Reset</value>

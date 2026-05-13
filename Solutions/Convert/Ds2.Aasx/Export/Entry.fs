@@ -23,7 +23,192 @@ module AasxExporter =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
-    let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+    // ─────────────────────────────────────────────────────────────────
+    // AASX 검증 통과용 방어적 정리 — 직렬화 직전에 환경 트리를 정규화한다.
+    //   • Description / DisplayName / MLP.Value : 동일 language 첫 등장만 보존 (AASd-022 / equiv)
+    //   • Qualifiers : 동일 (Type, ValueType, Value) 중복 1개만 보존 (AASd-021)
+    // 임베디드 템플릿이 동일 langString 을 두 번 가진 채 import 되거나, 빌더가 중복을 추가해도
+    // 최종 산출물은 spec-conformant 가 되도록 보장.
+    // ─────────────────────────────────────────────────────────────────
+    let private dedupeLangText (xs: ResizeArray<ILangStringTextType>) : ResizeArray<ILangStringTextType> =
+        if isNull xs then null
+        else
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<ILangStringTextType>()
+            for x in xs do
+                if not (isNull (box x)) then
+                    let lang = if isNull x.Language then "" else x.Language
+                    if seen.Add(lang) then result.Add(x)
+            result
+
+    let private dedupeLangName (xs: ResizeArray<ILangStringNameType>) : ResizeArray<ILangStringNameType> =
+        if isNull xs then null
+        else
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<ILangStringNameType>()
+            for x in xs do
+                if not (isNull (box x)) then
+                    let lang = if isNull x.Language then "" else x.Language
+                    if seen.Add(lang) then result.Add(x)
+            result
+
+    let private dedupeQualifiers (xs: ResizeArray<IQualifier>) : ResizeArray<IQualifier> =
+        if isNull xs then null
+        else
+            // AASd-021: 동일 Type 의 qualifier 1개만 허용. 중복 시 첫 entry 보존.
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let result = ResizeArray<IQualifier>()
+            for q in xs do
+                if not (isNull (box q)) then
+                    let t = if isNull q.Type then "" else q.Type
+                    if seen.Add(t) then result.Add(q)
+            result
+
+    /// Property.Value 가 ValueType 과 호환되도록 정규화 — 비어있거나 mismatch 면 타입별 안전 기본값.
+    let private normalizePropertyValue (p: Property) =
+        let v = if isNull p.Value then "" else p.Value
+        let dt = p.ValueType
+        let setIf condition fallback =
+            if not condition then p.Value <- fallback
+        match dt with
+        | DataTypeDefXsd.Boolean ->
+            setIf (v = "true" || v = "false") "false"
+        | DataTypeDefXsd.Int | DataTypeDefXsd.Integer
+        | DataTypeDefXsd.Long | DataTypeDefXsd.Short | DataTypeDefXsd.Byte
+        | DataTypeDefXsd.UnsignedInt | DataTypeDefXsd.UnsignedLong
+        | DataTypeDefXsd.UnsignedShort | DataTypeDefXsd.UnsignedByte
+        | DataTypeDefXsd.NonNegativeInteger | DataTypeDefXsd.PositiveInteger
+        | DataTypeDefXsd.NegativeInteger | DataTypeDefXsd.NonPositiveInteger ->
+            let mutable n = 0L
+            setIf (System.Int64.TryParse(v, &n)) "0"
+        | DataTypeDefXsd.Float | DataTypeDefXsd.Double | DataTypeDefXsd.Decimal ->
+            let mutable d = 0.0
+            let ok =
+                System.Double.TryParse(v, System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, &d)
+            setIf ok "0.0"
+        | DataTypeDefXsd.Date ->
+            // xs:date: YYYY-MM-DD. 빈 값/형식 mismatch 면 epoch.
+            let isDate =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}")
+            setIf isDate "1970-01-01"
+        | DataTypeDefXsd.DateTime ->
+            let isDt =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+            setIf isDt "1970-01-01T00:00:00Z"
+        | DataTypeDefXsd.Time ->
+            let isT =
+                not (System.String.IsNullOrWhiteSpace v)
+                && System.Text.RegularExpressions.Regex.IsMatch(v, @"^\d{2}:\d{2}:\d{2}")
+            setIf isT "00:00:00"
+        | DataTypeDefXsd.AnyUri ->
+            setIf (not (System.String.IsNullOrWhiteSpace v)) "urn:placeholder"
+        | _ -> ()
+
+    let private sanitizeReferable (r: IReferable) =
+        if not (isNull (box r)) then
+            r.Description <- dedupeLangText r.Description
+            r.DisplayName <- dedupeLangName r.DisplayName
+
+    let rec private sanitizeElement (e: ISubmodelElement) =
+        if isNull (box e) then ()
+        else
+            sanitizeReferable e
+            // ISubmodelElement 는 IQualifiable 를 항상 구현 — upcast 만.
+            (e :> IQualifiable).Qualifiers <- dedupeQualifiers (e :> IQualifiable).Qualifiers
+            match e with
+            | :? Property as p ->
+                normalizePropertyValue p
+            | :? MultiLanguageProperty as mlp ->
+                mlp.Value <- dedupeLangText mlp.Value
+            | :? SubmodelElementCollection as smc when not (isNull smc.Value) ->
+                for child in smc.Value do sanitizeElement child
+            | :? SubmodelElementList as sml when not (isNull sml.Value) ->
+                for child in sml.Value do sanitizeElement child
+            | :? Entity as ent when not (isNull ent.Statements) ->
+                for child in ent.Statements do sanitizeElement child
+            | :? AnnotatedRelationshipElement as are when not (isNull are.Annotations) ->
+                for child in are.Annotations do sanitizeElement (child :> ISubmodelElement)
+            | _ -> ()
+
+    let private sanitizeEnvironment (env: Environment) =
+        if not (isNull env) then
+            if not (isNull env.Submodels) then
+                for sm in env.Submodels do
+                    sanitizeReferable sm
+                    // Submodel 은 IQualifiable 를 항상 구현 — upcast 만.
+                    (sm :> IQualifiable).Qualifiers <- dedupeQualifiers (sm :> IQualifiable).Qualifiers
+                    if not (isNull sm.SubmodelElements) then
+                        for e in sm.SubmodelElements do sanitizeElement e
+            if not (isNull env.AssetAdministrationShells) then
+                for shell in env.AssetAdministrationShells do sanitizeReferable shell
+            if not (isNull env.ConceptDescriptions) then
+                for cd in env.ConceptDescriptions do sanitizeReferable cd
+
+    /// 사용자 정의 AASX 템플릿 폴더 — Promaker 등 호출 측이 export 전 setting.
+    /// None 이면 임베디드 템플릿만 사용. Some path 이면 그 폴더의 *.aasx 의 모든 SM 을
+    /// 추가로 첨부 (project ID 별 instance URN 으로 재할당).
+    let mutable UserTemplatesFolder : string option = None
+
+    /// 마지막 export 시 사용자 폴더 SM 이 ds2 표준 SM 을 override 한 항목 (fileName, idShort).
+    /// 매 export 시작 시 비워지고, 충돌 시 항목이 추가됨. 호출 측(Promaker 등)이
+    /// export 직후 읽어 사용자에게 안내.
+    let mutable LastUserTemplateOverrides : (string * string) list = []
+
+    /// 폴더 내 모든 .aasx 의 SM 을 추가 첨부 + CD 도 통합. project ID 로 instance ID 재할당.
+    /// 이미 등록된 SM idShort 와 충돌하면 폴더 SM 우선 (사용자 의도). override 항목은
+    /// `LastUserTemplateOverrides` 에 누적되어 호출 측이 사용자에게 안내.
+    let private appendUserTemplateSubmodels
+            (project: Project)
+            (submodels: ResizeArray<ISubmodel>)
+            (smRefs: ResizeArray<IReference>)
+            (extraConcepts: ResizeArray<IConceptDescription>) =
+        // 매 export 시작 시 override 기록 비움.
+        LastUserTemplateOverrides <- []
+        match UserTemplatesFolder with
+        | None -> ()
+        | Some folder ->
+            let scanned = AasxTemplateLoader.scanFolderSubmodels folder
+            if scanned.IsEmpty then ()
+            else
+                // 이미 등록된 idShort 추적 — 충돌 시 사용자 폴더 SM 으로 교체.
+                let existingByIdShort =
+                    let d = System.Collections.Generic.Dictionary<string, int>()
+                    submodels |> Seq.iteri (fun i sm -> d.[sm.IdShort] <- i)
+                    d
+                let overrides = ResizeArray<string * string>()
+                for (fileName, sms) in scanned do
+                    for sm in sms do
+                        // instance URN 으로 ID 재할당 (Project 별 unique).
+                        let safeShort = sm.IdShort
+                        sm.Id <- sprintf "urn:dualsoft:user:%s:%s" (safeShort.ToLowerInvariant()) (project.Id.ToString("N"))
+                        match existingByIdShort.TryGetValue(safeShort) with
+                        | true, idx ->
+                            log.Info($"[UserTemplates] {fileName} → {safeShort} 가 기본 SM 을 override")
+                            overrides.Add(fileName, safeShort)
+                            submodels.[idx] <- sm
+                            smRefs.[idx] <- mkSmRef sm
+                        | _ ->
+                            submodels.Add(sm)
+                            smRefs.Add(mkSmRef sm)
+                            log.Info($"[UserTemplates] {fileName} → {safeShort} 첨부")
+                LastUserTemplateOverrides <- overrides |> Seq.toList
+                // CD 도 통합 — id 중복은 첫 정의 우선.
+                let existingCdIds = System.Collections.Generic.HashSet<string>()
+                for cd in extraConcepts do
+                    match Option.ofObj cd.Id with
+                    | Some id -> existingCdIds.Add(id) |> ignore
+                    | None -> ()
+                for cd in AasxTemplateLoader.scanFolderConceptDescriptions folder do
+                    match Option.ofObj cd.Id with
+                    | Some id when not (existingCdIds.Contains id) ->
+                        extraConcepts.Add(cd)
+                        existingCdIds.Add(id) |> ignore
+                    | _ -> ()
+
+    let private appendProjectMetadataSubmodels (_store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
         let npSm = nameplateToSubmodel nameplate project.Id
         submodels.Add(npSm :> ISubmodel)
@@ -35,7 +220,7 @@ module AasxExporter =
         submodels.Add(docSm :> ISubmodel)
         smRefs.Add(mkSmRef docSm)
 
-        // TechnicalData (IDTA 02003) — 시뮬결과 박제 가능. 항상 추가하되 비어있으면 기본 골격만.
+        // TechnicalData (IDTA 02003) — 표준 3 블록 (얇은 컨테이너). 시뮬결과는 SequenceSimulation 으로 이동.
         let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
         let tdSm = technicalDataToSubmodel techData project.Id
         submodels.Add(tdSm :> ISubmodel)
@@ -172,8 +357,27 @@ module AasxExporter =
                 if propElements.IsEmpty then None
                 else Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) propElements))
 
+        // SequenceSimulation 서브모델 한정 — Project.SimulationResult (시뮬 KPI 박제) 를
+        // SystemProperties SMC 안에 추가 (System_<id> 형제 항목으로). 이전에는 TechnicalData
+        // 안에 있었음. {System/Flow/Work/Call}Properties 단일 구조로 통일.
+        // active 컨텍스트 set 후 KPI 항목 필터링이 KPI builder 내부에서 자동 적용.
+        let simulationResultElement : ISubmodelElement option =
+            match submodelType with
+            | SequenceSimulation ->
+                AasxExportTechnicalData.setActiveContext store project
+                let r = AasxExportTechnicalData.simulationResultToSmcOpt project.SimulationResult
+                AasxExportTechnicalData.clearActiveContext ()
+                r
+            | _ -> None
+
+        // SimulationResult 가 있으면 SystemProperties 안에 합치고, 없거나 비어있어도 빈 컨테이너 보장.
+        let mergedSystemProps =
+            match simulationResultElement with
+            | Some sim -> sysPropsWithRefs @ [ sim ]
+            | None     -> sysPropsWithRefs
+
         let elements =
-            [ if not sysPropsWithRefs.IsEmpty then yield mkSmc "SystemProperties" sysPropsWithRefs
+            [ if not mergedSystemProps.IsEmpty then yield mkSmc "SystemProperties" mergedSystemProps
               if not flowPropsWithRefs.IsEmpty then yield mkSmc "FlowProperties" flowPropsWithRefs
               if not workPropsWithRefs.IsEmpty then yield mkSmc "WorkProperties" workPropsWithRefs
               if not callPropsWithRefs.IsEmpty then yield mkSmc "CallProperties" callPropsWithRefs ]
@@ -347,7 +551,7 @@ module AasxExporter =
                     log.Warn($"원본 Environment 처리 실패: {ex.Message}. 새로운 Environment를 생성합니다.", ex)
                     let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
                     let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
-                    appendProjectMetadataSubmodels project submodels smRefs
+                    appendProjectMetadataSubmodels store project submodels smRefs
 
                     let globalAssetId = resolveGlobalAssetId prefix project.Name
                     let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
@@ -359,7 +563,7 @@ module AasxExporter =
             | None ->
                 let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
                 let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
-                appendProjectMetadataSubmodels project submodels smRefs
+                appendProjectMetadataSubmodels store project submodels smRefs
 
                 let globalAssetId = resolveGlobalAssetId prefix project.Name
                 let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
@@ -369,11 +573,17 @@ module AasxExporter =
 
                 (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions ())
 
+        // 사용자 정의 폴더의 추가 .aasx 템플릿 SM/CD 첨부 (UserTemplatesFolder set 시).
+        appendUserTemplateSubmodels project finalSubmodels
+            (finalShells.[0].Submodels)  // shell 의 SM refs 도 동기화
+            finalConceptDescs
+
         let env =
             Environment(
                 submodels = finalSubmodels,
                 assetAdministrationShells = finalShells,
                 conceptDescriptions = finalConceptDescs)
+        sanitizeEnvironment env
         writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries project)
 
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
@@ -409,6 +619,7 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
+        sanitizeEnvironment env
         let thumbnail = selectThumbnail None
         writeEnvironment env outputPath thumbnail None
 
@@ -451,7 +662,7 @@ module AasxExporter =
         let submodels = ResizeArray<ISubmodel>(allSubmodels |> List.map (fun sm -> sm :> ISubmodel))
         let smRefs = ResizeArray<IReference>(allSubmodels |> List.map mkSmRef)
 
-        appendProjectMetadataSubmodels project submodels smRefs
+        appendProjectMetadataSubmodels store project submodels smRefs
 
         let globalAssetId = resolveGlobalAssetId prefix project.Name
         let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)

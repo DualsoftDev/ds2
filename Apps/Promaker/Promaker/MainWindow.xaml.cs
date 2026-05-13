@@ -26,9 +26,47 @@ public partial class MainWindow : Window
         _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
+        // 1d-4 D — IsLlmChatVisible 토글 시 dock column width 조정 (collapsed 시 splitter 도 0).
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible))
+                UpdateLlmChatColumnWidths();
+        };
+
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
+        Activated += MainWindow_Activated;
+    }
+
+    // 외부 에디터 등으로 파일이 변경된 경우 포커스 복귀 시 사용자 confirm → reload.
+    // Window_Closing / OpenFilePath 와 동일하게 Dispatcher.BeginInvoke(Background) 로 분리 —
+    // activate cycle 안에서 modal Confirm 을 직접 호출하면 nested message pump 위험 + 다중 발화 비용.
+    private void MainWindow_Activated(object? sender, EventArgs e)
+    {
+        _ = Dispatcher.BeginInvoke(
+            new Action(_vm.CheckExternalFileChange),
+            System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private const double LlmChatColumnDefaultWidth = 380.0;
+    private const double LlmChatColumnMinWidth = 240.0;
+
+    private void UpdateLlmChatColumnWidths()
+    {
+        // OpenLayout / WelcomeLayout 양쪽 LLM Chat dock column 동시 갱신.
+        // HasProject 토글 시 layout 자체가 Collapsed/Visible 되지만 ColumnDefinition 은 미리 동기화해두어야 전환 직후 폭이 맞음.
+        var splitterW = _vm.IsLlmChatVisible ? new GridLength(4) : new GridLength(0);
+        var panelW    = _vm.IsLlmChatVisible ? new GridLength(LlmChatColumnDefaultWidth) : new GridLength(0);
+        var panelMinW = _vm.IsLlmChatVisible ? LlmChatColumnMinWidth : 0;
+
+        LlmChatSplitterCol.Width = splitterW;
+        LlmChatPanelCol.Width    = panelW;
+        LlmChatPanelCol.MinWidth = panelMinW;
+
+        WelcomeLlmChatSplitterCol.Width = splitterW;
+        WelcomeLlmChatPanelCol.Width    = panelW;
+        WelcomeLlmChatPanelCol.MinWidth = panelMinW;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -40,10 +78,53 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Window_Closing(object sender, CancelEventArgs e)
+    // GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피 — col 4/col 6 합계만 trade-off.
+    private void LlmChatSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
     {
-        if (!_vm.ConfirmDiscardChangesPublic())
+        var grid = (System.Windows.Controls.Grid)((System.Windows.Controls.Primitives.Thumb)sender).Parent;
+        var colProperties = grid.ColumnDefinitions[4];
+        var colLlm = grid.ColumnDefinitions[6];
+
+        double total = colProperties.ActualWidth + colLlm.ActualWidth;
+        double newProp = Math.Clamp(colProperties.ActualWidth + e.HorizontalChange,
+                                    colProperties.MinWidth, total - colLlm.MinWidth);
+
+        colProperties.Width = new GridLength(newProp);
+        colLlm.Width = new GridLength(total - newProp);
+    }
+
+    private bool _llmChatDisposed;
+
+    /// <summary>
+    /// 1d-5/1d-4 D — 명시적 cleanup 패턴: 첫 진입 시 close cancel + Dispose 후 Close() 재호출,
+    /// 두 번째 진입 시 (`_llmChatDisposed=true`) 통과. async void Closed fire-and-forget 회피.
+    ///
+    /// Hot-fix-9 v2: 한 번 X 클릭만으로 발생하는 IsClosing race —
+    /// `e.Cancel = true` 후 await 이 끝난 시점에 같은 close 사이클의 `IsClosing` 가 아직 남아있어
+    /// `Close()` 가 `VerifyNotClosing` throw. v1 의 try/catch 는 throw 를 흡수만 해서 첫 X 무반응 → 두 번째 X
+    /// 시 _llmChatDisposed=true 분기로 close. 정확한 fix = `Dispatcher.BeginInvoke(Close, Background)` 로
+    /// 다음 message pump cycle 에 close 큐 → WPF 가 첫 close 사이클 정리 끝낸 후 background priority 로 실행.
+    /// </summary>
+    private async void Window_Closing(object sender, CancelEventArgs e)
+    {
+        // 두 번째 진입(BeginInvoke 로 재큐된 Close)은 이미 confirm/dispose 완료 — 그대로 통과.
+        // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
+        if (_llmChatDisposed) return;
+
+        // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
+        // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
+        if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
+        {
             e.Cancel = true;
+            return;
+        }
+
+        e.Cancel = true;
+        _llmChatDisposed = true;
+        await _vm.DisposeLlmChatAsync();
+        // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
+        // fire-and-forget 의도 — DispatcherOperation 결과 무시.
+        _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private static readonly string[] SupportedExtensions =
@@ -159,6 +240,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
     }
 

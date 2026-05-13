@@ -203,16 +203,17 @@ module internal AasxConceptDescriptionCatalog =
           DefinitionKr = "비용 분석 속성을 담는 서브모델 (재료비/인건비/간접비)" }
     ]
 
-    // ── 시뮬레이션 결과 CD (TechnicalData 안 SimulationResult 그룹) ──────────────
+    // ── 시뮬레이션 결과 CD (SequenceSimulation 서브모델 내 SimulationResult SMC) ──
+    //    (이전엔 TechnicalData 안. AAS 표준 SM 분리 정책에 따라 SequenceSimulation 으로 이동.)
     let simulationConceptDescriptionInfos: ConceptDescriptionInfo list = [
         { Id = SimulationResultSemanticId
           PreferredNameDe = "Simulationsergebnis"
           PreferredNameEn = "Simulation result"
           PreferredNameKr = "시뮬레이션 결과"
           ShortName = "SimResult"
-          DefinitionDe = "Eingebettetes Simulationsergebnis (Meta + KPI-Gruppen) für einen einzelnen Lauf"
-          DefinitionEn = "Embedded simulation result (meta + KPI groups) for a single run"
-          DefinitionKr = "단일 시뮬레이션 실행 결과 (메타 + KPI 그룹) 의 임베디드 표현" }
+          DefinitionDe = "Eingebettetes Simulationsergebnis (Meta + KPI-Gruppen) für einen einzelnen Lauf; im SequenceSimulation-Submodell"
+          DefinitionEn = "Embedded simulation result (meta + KPI groups) for a single run; placed under SequenceSimulation submodel"
+          DefinitionKr = "단일 시뮬레이션 실행 결과 (메타 + KPI 그룹) 의 임베디드 표현; SequenceSimulation 서브모델 내 위치" }
 
         { Id = SimulationMetaSemanticId
           PreferredNameDe = "Simulationsmetadaten"

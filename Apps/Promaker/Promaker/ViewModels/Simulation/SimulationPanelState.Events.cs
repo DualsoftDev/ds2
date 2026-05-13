@@ -79,6 +79,7 @@ public partial class SimulationPanelState
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
         TryContinueSourceCycle(args.WorkGuid, args.NewState);
+        NotifyRuntimeIoChanged();
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)
@@ -92,6 +93,7 @@ public partial class SimulationPanelState
 
         _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
         RefreshSimulationProgressUi();
+        NotifyRuntimeIoChanged();
     }
 
     private void ApplyCallStateChangeToVisibleNode(CallStateChangedArgs args)
@@ -118,6 +120,8 @@ public partial class SimulationPanelState
             IsSimPaused = false;
             AddSimLog(SimText.Completed);
             UpdateSimClock();
+            // Stopped 시점엔 SimEngine 이 곧 disposed 되므로 명시적으로 null 스냅샷 전달.
+            RuntimeIoChanged?.Invoke(null);
         }
     }
 

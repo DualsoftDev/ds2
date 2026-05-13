@@ -1,25 +1,37 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
 using AAStoPLC.Ir;
+using AAStoPLC.LadderEditor.Adapters;
+using AAStoPLC.LadderEditor.Models;
+using AAStoPLC.LadderEditor.Rendering;
 using AAStoPLC.Pipeline;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
+using Promaker.Presentation;
 using Promaker.ViewModels;
 
 namespace Promaker.Dialogs;
 
+/// <summary>
+/// Call 조건 편집 다이얼로그 — 트리 입력 UI 제거 후 LadderEditor 단독 화면.
+/// 현재는 표시 + 인터랙션 만 — store 로의 역반영(save-back) 은 후속 작업.
+/// 변경 진입점은 그대로 Call drag-drop / 별도 ApiCall 추가 다이얼로그 사용.
+/// </summary>
 public partial class ConditionEditDialog : Window
 {
     private readonly DsStore _store;
     private readonly MainViewModel.PropertyPanelHost _host;
     private readonly Guid _callId;
     private readonly CallConditionType _condType;
+    private readonly ObservableCollection<RungViewModel> _rungs = new();
+    private readonly EditorContext _ctx = new() { GridCols = 14 };
+    private CoilRungViewModel? _rung;
+    private bool _isDirty;  // 사용자가 LadderEditor 에서 한 번이라도 편집했는지.
 
     public ConditionEditDialog(
         DsStore store,
@@ -33,418 +45,262 @@ public partial class ConditionEditDialog : Window
         _callId = callId;
         _condType = condType;
         SectionTitle.Text = $"{condType} 조건 편집";
-        ReloadList();
+        StatusText.Text   = "닫기 시 LadderEditor 변경 사항이 store 에 저장됩니다.";
+
+        EditorView.Context = _ctx;
+        EditorView.Rungs   = _rungs;
+        SyncTheme(ThemeManager.CurrentTheme);
+        ThemeManager.ThemeChanged += SyncTheme;
+        Closing += (_, _) => SaveBack();
+        Closed  += (_, _) => ThemeManager.ThemeChanged -= SyncTheme;
+
+        Refresh();
+
+        // 편집 발생 추적 — RungEdited 이벤트 + Condition 변경 알림.
+        Loaded += (_, _) =>
+        {
+            if (EditorView.Edit is { } edit) edit.RungEdited += (_, _) => OnEdited();
+        };
     }
 
-    private void ReloadList()
+    private void OnEdited()
     {
-        if (!_host.TryRef(
-                () => _store.GetCallConditionsForPanel(_callId),
-                out var allConditions))
-            return;
-
-        var filtered = allConditions
-            .Where(c => c.ConditionType == _condType)
-            .Select(c => new CallConditionItem(_callId, c))
-            .ToList();
-
-        ConditionList.ItemsSource = filtered;
-        EmptyHint.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        RefreshPreview();
+        _isDirty = true;
+        if (_rung is not null) UpdateSymbolProvider(_rung.Condition);
     }
 
-    /// <summary>
-    /// 사용자 편집 트리 → CoilCondition → CoilConditionView 에 binding.
-    /// AutoAux base 합성 없음 (Emit 의 PLC 합성과 분리).
+    /// <summary>편집된 CoilCondition 을 CallConditionTreeDto 로 재귀 매핑 후 ReplaceCallConditionTree 호출.
+    /// 중첩 And/Or 구조 보존. 알 수 없는 leaf 는 무시.
+    /// 안전장치: _isDirty=false 또는 매핑된 leaf 0 개면 skip — 기존 store 보존.
     /// </summary>
-    private void RefreshPreview()
+    private void SaveBack()
     {
-        if (!_host.TryRef(() => _store.Calls[_callId], out var call))
+        if (!_isDirty || _rung is null) return;
+        var nameToId = BuildDisplayNameToApiCallId();
+
+        var simp = CoilConditionModule.simplify(_rung.Condition);
+        var dto = ToDto(simp, nameToId);
+        if (dto is null) return;
+        // 매핑된 leaf 한 개도 없으면 skip — 빈 트리 저장 방지.
+        if (CountLeaves(dto) == 0) return;
+
+        _host.TryAction(() => _store.ReplaceCallConditionTree(_callId, _condType, dto));
+    }
+
+    /// <summary>CoilCondition → CallConditionTreeDto 재귀 변환.
+    /// per-leaf ContactKind, group IsInverted 모두 보존. 알 수 없는 leaf 는 drop.</summary>
+    private static CallConditionTreeDto? ToDto(CoilCondition c, Dictionary<string, Guid> nameToId)
+    {
+        // Leaf: 단일 leaf 를 isOR=false 그룹으로 감싸 단일화 처리.
+        // Not(Raw "") 인버터 placeholder 는 leaf 로 처리.
+        // Not(inner) 일반 NOT 은 IsInverted=true 그룹.
+        bool isOr = false;
+        bool isInverted = false;
+        IEnumerable<CoilCondition> ops;
+
+        switch (c)
         {
-            PreviewView.Condition = null;
-            PreviewView.OutputRising = false;
-            return;
+            case CoilCondition.Or o: isOr = true;  ops = o.operands; break;
+            case CoilCondition.And a: isOr = false; ops = a.operands; break;
+            case CoilCondition.Not n:
+                // Not(Raw "") = inverter placeholder leaf.
+                if (n.operand is CoilCondition.Raw r0 && string.IsNullOrEmpty(r0.expr))
+                {
+                    ops = new[] { c };
+                    break;
+                }
+                // 일반 Not — 그룹에 IsInverted=true 부여, 내부를 single-op AND 로 펼침.
+                isInverted = true;
+                ops = new[] { n.operand };
+                break;
+            case CoilCondition.Var or CoilCondition.NegVar
+                 or CoilCondition.Rising or CoilCondition.Falling
+                 or CoilCondition.Raw:
+                ops = new[] { c };
+                break;
+            default: return null;  // AlwaysTrue/False — drop
         }
 
-        var (condOpt, outputRising) = ConditionExprBuilder.buildPreview(_store, call, _condType);
-        PreviewView.Condition =
-            FSharpOption<CoilCondition>.get_IsSome(condOpt) ? condOpt.Value : null;
-        PreviewView.OutputRising = outputRising;
-    }
+        var apiCallIds = new List<Guid>();
+        var apiCallKinds = new List<ContactKind>();
+        var children = new List<CallConditionTreeDto>();
 
-    // ── Remove conditions ──
-    // ※ "+ 조건 추가" 버튼은 제거됨 — 조건 추가는 Call drag-drop 으로만.
-    //    드롭 시 기존 root 그룹이 있으면 거기에, 없으면 새로 생성 (ConditionDropHelper).
-
-    private void RemoveCondition_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        if (!_host.TryAction(() => _store.RemoveCallCondition(_callId, item.ConditionId)))
-            return;
-        ReloadList();
-    }
-
-    // ── Toggle OR / Rising ──
-
-    private void SetAnd_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        if (!item.IsOR) return;   // 이미 AND
-        _host.TryAction(() =>
-            _store.UpdateCallConditionSettings(_callId, item.ConditionId, false, item.IsRising));
-        ReloadList();
-    }
-
-    private void SetOr_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        if (item.IsOR) return;    // 이미 OR
-        _host.TryAction(() =>
-            _store.UpdateCallConditionSettings(_callId, item.ConditionId, true, item.IsRising));
-        ReloadList();
-    }
-
-    private void ToggleRising_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        _host.TryAction(() =>
-            _store.UpdateCallConditionSettings(_callId, item.ConditionId, item.IsOR, !item.IsRising));
-        ReloadList();
-    }
-
-    // ── Child conditions ──
-
-    private void AddChildCondition_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        _host.TryAction(() => _store.AddChildCondition(_callId, item.ConditionId, false));
-        ReloadList();
-    }
-
-    // ── ApiCall management ──
-
-    private void AddApiCallToCondition_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
-        if (!_store.Calls.TryGetValue(_callId, out var call)) return;
-
-        var available = call.ApiCalls
-            .Select(ac => new { ac.Id, ac.Name })
-            .ToList();
-
-        // 현재 Flow의 모든 ApiCalls
-        var flowApiCalls = new List<ApiCallPickItem>();
-        if (_store.Works.TryGetValue(call.ParentId, out var parentWork)
-            && _store.Flows.TryGetValue(parentWork.ParentId, out var parentFlow))
+        foreach (var op in ops)
         {
-            foreach (var w in _store.Works.Values.Where(w => w.ParentId == parentFlow.Id))
-                foreach (var c in _store.Calls.Values.Where(c => c.ParentId == w.Id))
-                    foreach (var ac in c.ApiCalls)
-                        flowApiCalls.Add(new ApiCallPickItem(ac.Id, ac.Name, $"{w.LocalName}/{c.Name}"));
+            if (TryClassifyLeaf(op, nameToId, out var leafId, out var leafKind))
+            {
+                apiCallIds.Add(leafId);
+                apiCallKinds.Add(leafKind);
+            }
+            else
+            {
+                var child = ToDto(op, nameToId);
+                if (child is not null) children.Add(child);
+            }
         }
+        return new CallConditionTreeDto(isOr, isInverted, apiCallIds, apiCallKinds, children);
+    }
 
-        // 전체 System의 ApiCalls (Flow에 없는 것만)
-        var flowIds = flowApiCalls.Select(x => x.Id).ToHashSet();
-        var systemApiCalls = new List<ApiCallPickItem>();
+    /// <summary>단일 노드가 leaf 인지 분류 + ContactKind 결정.
+    /// Not(Raw "") = Inverter placeholder.</summary>
+    private static bool TryClassifyLeaf(
+        CoilCondition c, Dictionary<string, Guid> nameToId,
+        out Guid id, out ContactKind kind)
+    {
+        switch (c)
+        {
+            case CoilCondition.Var v:
+                kind = ContactKind.NoContact;
+                return nameToId.TryGetValue(v.name, out id);
+            case CoilCondition.NegVar nv:
+                kind = ContactKind.NcContact;
+                return nameToId.TryGetValue(nv.name, out id);
+            case CoilCondition.Rising rs:
+                kind = ContactKind.RisingPulse;
+                return nameToId.TryGetValue(rs.name, out id);
+            case CoilCondition.Falling fl:
+                kind = ContactKind.FallingPulse;
+                return nameToId.TryGetValue(fl.name, out id);
+            case CoilCondition.Not n
+                when n.operand is CoilCondition.Raw r && string.IsNullOrEmpty(r.expr):
+                kind = ContactKind.Inverter;
+                id = Guid.Empty;
+                return true;
+            case CoilCondition.Raw raw when nameToId.TryGetValue(raw.expr, out id):
+                kind = ContactKind.NoContact;
+                return true;
+            default:
+                kind = ContactKind.NoContact;
+                id = Guid.Empty;
+                return false;
+        }
+    }
+
+    private static int CountLeaves(CallConditionTreeDto d) =>
+        d.ApiCallIds.Count + d.Children.Sum(CountLeaves);
+
+    /// <summary>buildPreview 와 동일한 `{System.Name}.{ApiDef.Name}` 포맷 → ApiCall.Id lookup.</summary>
+    private Dictionary<string, Guid> BuildDisplayNameToApiCallId()
+    {
+        var map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var ac in _store.ApiCalls.Values)
-            if (!flowIds.Contains(ac.Id))
-                systemApiCalls.Add(new ApiCallPickItem(ac.Id, ac.Name, ""));
-
-        ShowApiCallPicker(item.ConditionId, flowApiCalls, systemApiCalls);
-    }
-
-    private void RemoveApiCall_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: ConditionApiCallRow row }) return;
-        _host.TryAction(() => _store.RemoveApiCallFromCondition(_callId, row.ConditionId, row.ApiCallId));
-        ReloadList();
-    }
-
-    private void EditApiCallSpec_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: ConditionApiCallRow row }) return;
-        var dialog = new ApiCallSpecDialog(
-            row.ApiCallName,
-            row.OutputSpecText, row.OutputSpecTypeIndex,
-            row.InputSpecText, row.InputSpecTypeIndex);
-        dialog.Owner = this;
-        if (dialog.ShowDialog() != true) return;
-        _host.TryAction(() =>
-            _store.UpdateConditionApiCallOutputSpec(
-                _callId, row.ConditionId, row.ApiCallId,
-                dialog.OutSpecTypeIndex, dialog.OutSpecText));
-        _host.TryAction(() =>
-            _store.UpdateConditionApiCallInputSpec(
-                _callId, row.ConditionId, row.ApiCallId,
-                dialog.InSpecTypeIndex, dialog.InSpecText));
-        ReloadList();
-    }
-
-    // ── Recursive children template (code-behind because WPF can't self-reference DataTemplate) ──
-
-    private void ChildrenHost_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ItemsControl host) return;
-        host.ItemTemplate = BuildChildItemTemplate();
-    }
-
-    private DataTemplate BuildChildItemTemplate()
-    {
-        var template = new DataTemplate();
-        template.VisualTree = new FrameworkElementFactory(typeof(ContentControl));
-        template.VisualTree.SetValue(ContentControl.ContentProperty, new System.Windows.Data.Binding());
-        template.VisualTree.AddHandler(ContentControl.LoadedEvent, new RoutedEventHandler(ChildItem_Loaded));
-        return template;
-    }
-
-    private void ChildItem_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ContentControl cc || cc.Content is not CallConditionItem item) return;
-        cc.Content = null;
-        cc.Content = item;
-        cc.ContentTemplate = null;
-
-        var panel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
-
-        var headerPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
-
-        var removeBtn = CreateButton("x", "조건 삭제", item, RemoveCondition_Click);
-        headerPanel.Children.Add(removeBtn);
-
-        var fg = (Brush)FindResource("PrimaryTextBrush");
-        var andRadio = new RadioButton
         {
-            Content = "AND", IsChecked = !item.IsOR, Tag = item,
-            Foreground = fg,
-            Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11
-        };
-        andRadio.Click += SetAnd_Click;
-        headerPanel.Children.Add(andRadio);
+            if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
+            if (!_store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var def)) continue;
+            if (!_store.Systems.TryGetValue(def.ParentId, out var sys)) continue;
+            var key = $"{sys.Name}.{def.Name}";
+            if (!map.ContainsKey(key)) map[key] = ac.Id;
+        }
+        return map;
+    }
 
-        var orRadio = new RadioButton
+    /// <summary>이 Call 에 등록된 CallCondition 의 실제 ApiCall 심볼만 + 사용 여부 — Refresh 마다 갱신.</summary>
+    private void UpdateSymbolProvider(CoilCondition cond)
+    {
+        // 현재 rung 에서 사용 중인 심볼 set (used).
+        var usedSet = new HashSet<string>(
+            CoilAst.Leaves(cond).Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)),
+            StringComparer.OrdinalIgnoreCase);
+        // 이 Call 에 실제로 등록된 CallCondition 들의 ApiCall display name 만 추출.
+        var registered = new List<string>();
+        if (_host.TryRef(() => _store.GetCallConditionsForPanel(_callId), out var conds))
         {
-            Content = "OR", IsChecked = item.IsOR, Tag = item,
-            Foreground = fg,
-            Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11
-        };
-        orRadio.Click += SetOr_Click;
-        headerPanel.Children.Add(orRadio);
+            foreach (var c in conds)
+                CollectApiCallNames(c, registered);
+        }
+        // 현재 rung 에 있는데 conditions 에 안 보이는 leaf 도 포함 (drag 로 추가된 임시 심볼 등).
+        foreach (var u in usedSet)
+            if (!registered.Contains(u, StringComparer.OrdinalIgnoreCase))
+                registered.Add(u);
+        _ctx.SymbolProvider = new AnnotatedSymbolProvider(registered, usedSet);
+    }
 
-        // Rising 체크박스는 최상위 그룹에서만 노출 — 하위 그룹은 의미 없음 (출력 코일에만 적용).
+    private static void CollectApiCallNames(Ds2.Editor.CallConditionPanelItem c, List<string> acc)
+    {
+        foreach (var item in c.Items)
+            if (!acc.Contains(item.ApiDefDisplayName, StringComparer.OrdinalIgnoreCase))
+                acc.Add(item.ApiDefDisplayName);
+        foreach (var child in c.Children) CollectApiCallNames(child, acc);
+    }
 
-        var addChildBtn = CreateButton("+ 하위그룹", null, item, AddChildCondition_Click);
-        headerPanel.Children.Add(addChildBtn);
+    /// <summary>심볼 + 사용 상태 라벨. SymbolPopupEditor 가 \u2003 이후 상태 텍스트는 잘라냄.</summary>
+    private sealed class AnnotatedSymbolProvider : ISymbolProvider
+    {
+        private static readonly string[] BuiltIn = { "_ON", "_OFF" };
+        private const string SEP = "\u2003";  // em-space — 표시용 구분자
+        private readonly List<string> _displays; // 정렬: 미사용 먼저
+        private readonly HashSet<string> _known;
 
-        var addApiBtn = CreateButton("+", "ApiCall 추가", item, AddApiCallToCondition_Click);
-        addApiBtn.FontWeight = FontWeights.Bold;
-        headerPanel.Children.Add(addApiBtn);
-
-        panel.Children.Add(headerPanel);
-
-        foreach (var apiRow in item.Items)
+        public AnnotatedSymbolProvider(IEnumerable<string> all, HashSet<string> usedSet)
         {
-            var rowGrid = new Grid { Margin = new Thickness(12, 2, 0, 0) };
-            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var allList = BuiltIn
+                .Concat(all)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _known = new(allList, StringComparer.OrdinalIgnoreCase);
 
-            var delBtn = CreateButton("x", null, apiRow, RemoveApiCall_Click);
-            Grid.SetColumn(delBtn, 0);
-            rowGrid.Children.Add(delBtn);
-
-            var nameText = new TextBlock
-            {
-                Text = apiRow.ApiDefDisplayName, FontSize = 11,
-                Foreground = (Brush)FindResource("PrimaryTextBrush"),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0)
-            };
-            Grid.SetColumn(nameText, 1);
-            rowGrid.Children.Add(nameText);
-
-            var specText = new TextBlock
-            {
-                Text = apiRow.OutputSpecText, FontSize = 11,
-                Foreground = (Brush)FindResource("AccentBrush"),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0)
-            };
-            Grid.SetColumn(specText, 2);
-            rowGrid.Children.Add(specText);
-
-            var editBtn = CreateButton("ValueSpec 편집", null, apiRow, EditApiCallSpec_Click);
-            Grid.SetColumn(editBtn, 3);
-            rowGrid.Children.Add(editBtn);
-
-            panel.Children.Add(rowGrid);
+            // 미사용을 먼저 (사용자가 미배치 심볼을 우선 선택하도록 유도).
+            string Decorate(string s) => usedSet.Contains(s)
+                ? $"{s}{SEP}✓ 사용중"
+                : $"{s}{SEP}○ 미사용";
+            _displays = allList
+                .OrderBy(s => usedSet.Contains(s) ? 1 : 0)
+                .ThenBy(s => s, StringComparer.OrdinalIgnoreCase)
+                .Select(Decorate)
+                .ToList();
         }
 
-        if (item.Children.Count > 0)
+        public IEnumerable<string> Search(string prefixOrSubstring) =>
+            string.IsNullOrEmpty(prefixOrSubstring)
+                ? _displays
+                : _displays.Where(s => s.IndexOf(prefixOrSubstring, StringComparison.OrdinalIgnoreCase) >= 0);
+
+        public bool IsKnown(string symbol) => _known.Contains(symbol);
+    }
+
+
+    private void SyncTheme(AppTheme theme) =>
+        EditorView.Theme = theme == AppTheme.Dark ? new DefaultDarkTheme() : new DefaultLightTheme();
+
+    /// <summary>현재 store 상태 → CoilCondition → 단일 CoilRung 으로 표시.</summary>
+    private void Refresh()
+    {
+        if (!_host.TryRef(() => _store.Calls[_callId], out var call)) return;
+        var condOpt = ConditionExprBuilder.buildPreview(_store, call, _condType);
+        var cond = FSharpOption<CoilCondition>.get_IsSome(condOpt)
+            ? condOpt.Value : CoilCondition.AlwaysTrue;
+        const string coilName = "OUT";
+
+        if (_rung is null)
         {
-            var childHost = new ItemsControl
-            {
-                ItemsSource = item.Children,
-                Margin = new Thickness(20, 4, 0, 0)
-            };
-            childHost.Loaded += ChildrenHost_Loaded;
-            panel.Children.Add(childHost);
+            _rung = new CoilRungViewModel(cond, coilName);
+            _rungs.Clear();
+            _rungs.Add(_rung);
         }
-
-        var childBorder = new Border
+        else
         {
-            BorderThickness = new Thickness(1),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            Padding = new Thickness(6),
-            Margin = new Thickness(2),
-            Child = panel
-        };
-        cc.Content = childBorder;
-    }
-
-    private Button CreateButton(string content, string? toolTip, object tag, RoutedEventHandler handler)
-    {
-        var btn = new Button
-        {
-            Content = content, Tag = tag, Padding = new Thickness(6, 2, 6, 2), FontSize = 10,
-            Margin = new Thickness(0, 0, 4, 0)
-        };
-        if (Application.Current.TryFindResource("DarkButton") is Style s) btn.Style = s;
-        if (toolTip is not null) btn.ToolTip = toolTip;
-        btn.Click += handler;
-        return btn;
-    }
-
-    private void ShowApiCallPicker(
-        Guid conditionId,
-        List<ApiCallPickItem> flowItems,
-        List<ApiCallPickItem> systemItems)
-    {
-        var bg = Application.Current.TryFindResource("SecondaryBackgroundBrush") as Brush;
-        var fg = Application.Current.TryFindResource("PrimaryTextBrush") as Brush;
-        var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush;
-
-        var picker = new Window
-        {
-            Title = "ApiCall 선택",
-            Width = 400, Height = 460,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = this,
-            ShowInTaskbar = false,
-            ResizeMode = ResizeMode.NoResize
-        };
-        if (bg is not null) picker.Background = bg;
-
-        var mainPanel = new StackPanel { Margin = new Thickness(10) };
-
-        // 검색
-        var searchBox = new TextBox
-        {
-            Margin = new Thickness(0, 0, 0, 8),
-            Padding = new Thickness(6, 4, 6, 4),
-            FontSize = 12
-        };
-        if (bg is not null) searchBox.Background = bg;
-        if (fg is not null) searchBox.Foreground = fg;
-        if (borderBrush is not null) searchBox.BorderBrush = borderBrush;
-        mainPanel.Children.Add(searchBox);
-
-        // 탭
-        var tabControl = new TabControl { Height = 320 };
-        if (bg is not null) tabControl.Background = bg;
-
-        var flowTab = CreatePickerTab("현재 Flow", flowItems, bg, fg);
-        var systemTab = CreatePickerTab("전체 System", systemItems, bg, fg);
-        tabControl.Items.Add(flowTab.tab);
-        tabControl.Items.Add(systemTab.tab);
-        mainPanel.Children.Add(tabControl);
-
-        // 더블클릭 즉시 추가 — 단일 항목으로 곧장 추가하고 picker 닫음.
-        // SelectionMode.Multiple 에서는 첫 클릭이 토글 → SelectedItem 으로 판정 불가.
-        // OriginalSource 에서 ListBoxItem 을 hit-test 로 찾아 DataContext 추출.
-        void OnItemDoubleClick(object s, System.Windows.Input.MouseButtonEventArgs ev)
-        {
-            if (s is not ListBox lb) return;
-            var src = ev.OriginalSource as DependencyObject;
-            while (src is not null && src is not ListBoxItem)
-                src = System.Windows.Media.VisualTreeHelper.GetParent(src);
-            if (src is not ListBoxItem lbi || lbi.DataContext is not ApiCallPickItem pick) return;
-
-            _host.TryAction(() =>
-                _store.AddApiCallsToConditionBatch(_callId, conditionId, new List<Guid> { pick.Id }));
-            picker.DialogResult = false;   // 외부 ShowDialog 흐름의 multi-select 우회
-            picker.Close();
-            ReloadList();
+            _rung.Condition = cond;
+            _rung.CoilBit   = coilName;
         }
-        flowTab.listBox.MouseDoubleClick += OnItemDoubleClick;
-        systemTab.listBox.MouseDoubleClick += OnItemDoubleClick;
-
-        // 검색 필터
-        searchBox.TextChanged += (_, _) =>
-        {
-            var filter = searchBox.Text.Trim();
-            ApplyPickerFilter(flowTab.listBox, flowItems, filter);
-            ApplyPickerFilter(systemTab.listBox, systemItems, filter);
-        };
-
-        // 추가 버튼
-        var okBtn = new Button
-        {
-            Content = "추가", Padding = new Thickness(20, 6, 20, 6),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 8, 0, 0)
-        };
-        if (Application.Current.TryFindResource("DarkButton") is Style s)
-            okBtn.Style = s;
-        okBtn.Click += (_, _) => { picker.DialogResult = true; picker.Close(); };
-        mainPanel.Children.Add(okBtn);
-
-        picker.Content = mainPanel;
-        if (picker.ShowDialog() != true) return;
-
-        // 모든 탭에서 선택된 항목 수집
-        var selectedIds = new List<Guid>();
-        CollectSelected(flowTab.listBox, selectedIds);
-        CollectSelected(systemTab.listBox, selectedIds);
-
-        if (selectedIds.Count == 0) return;
-        _host.TryAction(() => _store.AddApiCallsToConditionBatch(_callId, conditionId, selectedIds));
-        ReloadList();
+        UpdateSymbolProvider(cond);
     }
 
-    private static (TabItem tab, ListBox listBox) CreatePickerTab(string header, List<ApiCallPickItem> items, Brush? bg, Brush? fg)
+    private void Save_Click(object sender, RoutedEventArgs e)
     {
-        var listBox = new ListBox
-        {
-            SelectionMode = SelectionMode.Multiple,
-            DisplayMemberPath = "Display",
-            FontSize = 12
-        };
-        if (bg is not null) listBox.Background = bg;
-        if (fg is not null) listBox.Foreground = fg;
-        listBox.ItemsSource = items;
+        if (_rung is null) { StatusText.Text = "rung 없음"; return; }
+        var nameToId = BuildDisplayNameToApiCallId();
+        var leaves = CoilAst.Leaves(_rung.Condition).Select(l => l.Name).ToList();
+        var matched = leaves.Where(n => nameToId.ContainsKey(n)).ToList();
+        var unmatched = leaves.Where(n => !nameToId.ContainsKey(n)).ToList();
 
-        var tab = new TabItem { Header = $"{header} ({items.Count})", Content = listBox };
-        return (tab, listBox);
-    }
+        _isDirty = true;
+        SaveBack();
+        _isDirty = false;
 
-    private static void ApplyPickerFilter(ListBox listBox, List<ApiCallPickItem> source, string filter)
-    {
-        listBox.ItemsSource = string.IsNullOrEmpty(filter)
-            ? source
-            : source.Where(a => a.Display.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-    }
-
-    private static void CollectSelected(ListBox listBox, List<Guid> ids)
-    {
-        foreach (var item in listBox.SelectedItems)
-            if (item is ApiCallPickItem pick)
-                ids.Add(pick.Id);
+        var msg = $"✓ 저장 — leaf {leaves.Count}, 매핑 {matched.Count}, 미매핑 {unmatched.Count}";
+        if (unmatched.Count > 0) msg += $" [미매핑: {string.Join(", ", unmatched.Take(3))}]";
+        StatusText.Text = msg;
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
-}
-
-internal sealed record ApiCallPickItem(Guid Id, string Name, string Context)
-{
-    public string Display => string.IsNullOrEmpty(Context) ? Name : $"{Name}  ({Context})";
 }

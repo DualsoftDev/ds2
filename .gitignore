@@ -14,7 +14,6 @@ x86/
 bld/
 [Ll]og/
 [Ll]ogs/
-[Dd]ocs/
 # Visual Studio
 .vs/
 .vscode/
@@ -25,6 +24,9 @@ bld/
 *.csproj.user
 *.fsproj.user
 *.userprefs
+
+
+**/*.*.sln
 
 # NuGet
 **/packages/
@@ -56,11 +58,11 @@ Desktop.ini
 *.DS_Store
 
 # AI / Claude Code
-.claude/
+!.claude/
 CHANGED.md
-CLAUDE.md
+#CLAUDE.md
 CRITIC.md
-AGENTS.md
+#AGENTS.md
 STRUCTURE.md
 
 # ci
@@ -77,6 +79,9 @@ scripts/scratch/
 *.tmp
 *.cache
 *~
+
+# Path-mangled temp files at repo root (U+F03A 등 ':' 대체 문자가 들어간 윈도 SFM 파일명 사고)
+/C*Users*
 
 # Samples
 [Ss]amples/
@@ -96,7 +101,6 @@ Apps/DSPilot/publish-tray/
 Apps/DSPilot/Output/
 
 
-docs/
 /Apps/CostSim/Installer/Output
 /Apps/AasxEditor/**/aas_metadata.db
 /Apps/AasxEditor/**/aas_metadata.db-journal
@@ -112,3 +116,4 @@ docs/
 /ExternalDlls/AAStoPLC.pdb
 /ExternalDlls/AAStoPLC.xml
 /ExternalDlls/AAStoPLC.LadderViewer.pdb
+/ExternalDlls/AAStoPLC.LadderEditor.pdb

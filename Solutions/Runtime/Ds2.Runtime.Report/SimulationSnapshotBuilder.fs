@@ -152,17 +152,11 @@ module SimulationSnapshotBuilder =
     let computeModelHashFor (project: Project) : string =
         computeModelHashWithStore project None
 
-    /// Project.TechnicalData.SimulationResult 를 단일 항목으로 설정.
-    /// TechnicalData 가 아직 없으면 신규 생성. 기존 결과는 덮어씀.
+    /// Project.SimulationResult 를 단일 항목으로 설정.
+    /// 이전엔 TechnicalData.SimulationResult 였음 — AAS SM 분리 정책에 따라 Project 레벨로 이동
+    /// (export 시 SequenceSimulation 서브모델 안의 SimulationResult SMC 로 emit).
     let setSimulationResult (project: Project) (scenario: SimulationScenario) : unit =
-        let td =
-            match project.TechnicalData with
-            | Some t -> t
-            | None ->
-                let t = TechnicalData()
-                project.TechnicalData <- Some t
-                t
-        td.SimulationResult <- Some scenario
+        project.SimulationResult <- Some scenario
 
     /// 부작용 없이 시나리오 빌드만 수행 (in-memory 누적 후 사용자가 선택할 때 사용).
     let buildScenarioOnly

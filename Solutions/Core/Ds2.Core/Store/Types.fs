@@ -58,24 +58,55 @@ module UiDefaults =
 /// ApiList: ';' 구분 API 이름 목록. DefaultFBName: XGI_Template.xml 의 FB 이름.
 /// Cylinder_N: 센서 N쌍 (LS_AdvN/LS_RetN) 을 가진 N-실린더 FB. XGI_Template 에 1/2/3/4/6/8/10 FB 존재.
 module DevicePresets =
-    let Entries3 : (string * string * string)[] = [|
-        ("Unit",        "ADV;RET",     "")
-        ("Cylinder_1",  "ADV;RET", "FB421_Com_Cylinder_1_v1")
-        ("Cylinder_2",  "ADV;RET", "FB422_Com_Cylinder_2_v1")
-        ("Cylinder_3",  "ADV;RET", "FB423_Com_Cylinder_3_v1")
-        ("Cylinder_4",  "ADV;RET", "FB424_Com_Cylinder_4_v1")
-        ("Cylinder_6",  "ADV;RET", "FB425_Com_Cylinder_6_v1")
-        ("Cylinder_8",  "ADV;RET", "FB426_Com_Cylinder_8_v1")
-        ("Cylinder_10", "ADV;RET", "FB427_Com_Cylinder_10_v1")
-        ("RobotWeldGrip",       "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK", "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼")
-        ("RobotWeldGripPallet", "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK;PLT1_IN_OK;PLT2_IN_OK;PLT3_IN_OK;PLT4_IN_OK;PLT1_COUNT_RST;PLT2_COUNT_RST;PLT3_COUNT_RST;PLT4_COUNT_RST", "FB496_Robot_Kawasaki_v3_260225_종합")
-        ("Part", "ADV;RET", "")
-        ("ModeStn", "", "FB402_Mode_Stn_v2")
+    /// SystemType preset entry — (SystemType, ApiList, DefaultFBName).
+    /// ApiList 는 ';' 구분 API 이름. DefaultFBName 은 XGI_Template.xml 의 FB 이름.
+    type Entry = string * string * string
+
+    /// 외부 모듈 (예: AAStoPLC.TagWizard) 이 동적으로 등록하는 entry — manifest/JSON 기반.
+    /// SystemType 을 key 로 dedup — 같은 SystemType 재등록 시 후입선출.
+    let private registered = System.Collections.Generic.Dictionary<string, Entry>(System.StringComparer.OrdinalIgnoreCase)
+
+    /// 외부에서 entry 추가/갱신. SystemType 중복은 후입선출 (idempotent).
+    let register (entries: Entry seq) =
+        for ((sysType, _, _) as e) in entries do
+            if not (System.String.IsNullOrEmpty sysType) then
+                registered.[sysType] <- e
+
+    /// 등록 초기화 — 테스트 / 재로드 용도.
+    let clearRegistered () = registered.Clear()
+
+    /// Ds2.Core 에 하드코딩된 기본 entry — manifest/JSON 외부 파일이 없는 타입들.
+    /// • Unit/Part: FB 없음 (passive marker)
+    /// • ModeStn: FB 있으나 임베디드 JSON 없음 (Operation Mode FB 단일)
+    /// • Cylinder_N: AAStoPLC.TagWizard.CylinderManifest 가 register
+    /// • Robot*: AAStoPLC.TagWizard.FBTagMapEmbeddedDefaults 의 ApiList scan 으로 register
+    let BaseEntries : Entry[] = [|
+        ("Unit",    "ADV;RET", "")
+        ("Part",    "ADV;RET", "")
+        ("ModeStn", "",        "FB402_Mode_Stn_v2")
     |]
 
+    /// 단일 진실원 — BaseEntries (하드코딩 3개: Unit/Part/ModeStn) + register 된 외부 entry 합산.
+    /// 호출 시점마다 평가 — register 가 늦게 호출돼도 즉시 반영됨.
+    /// 순서: "Unit" → 등록 entry (Cylinder_N + Robot* 등) → "Part" → "ModeStn".
+    /// register 와 BaseEntries 가 같은 SystemType 가지면 register 우선.
+    let Entries () : Entry[] =
+        let regEntries =
+            registered.Values
+            |> Seq.sortBy (fun (k, _, _) -> k)  // 안정적 순서 (SystemType 알파벳)
+            |> Seq.toArray
+        let regNames = registered.Keys |> Set.ofSeq
+        let unitArr  = BaseEntries |> Array.filter (fun (k, _, _) -> k = "Unit"    && not (regNames.Contains k))
+        let baseRest = BaseEntries |> Array.filter (fun (k, _, _) -> k <> "Unit"   && not (regNames.Contains k))
+        Array.concat [ unitArr; regEntries; baseRest ]
+
+    /// 호환용 별칭 — 옛 호출부 무수정 유지 (`Entries3` 가 함수가 아니라 배열인 점은 변함없음).
+    [<System.Obsolete("Use Entries() instead")>]
+    let Entries3 () = Entries ()
+
     /// SystemType → 기본 FB 이름 lookup (XGI_Template.xml 기준).
-    let DefaultFBNames : Map<string, string> =
-        Entries3
+    let DefaultFBNames () : Map<string, string> =
+        Entries ()
         |> Array.map (fun (sysType, _, fb) -> (sysType, fb))
         |> Map.ofArray
 

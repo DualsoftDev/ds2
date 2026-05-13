@@ -46,6 +46,12 @@ public partial class MainViewModel
 
     private static List<WorkOption> BuildTokenSpecPickerWorks(DsStore store)
     {
+        // Active System 에 속한 Work 만 노출 — Passive(Device) Work 는 TokenSpec 대상이 아님.
+        var activeWorkIds = Queries.allProjects(store)
+            .SelectMany(p => Queries.activeWorksOf(p.Id, store))
+            .Select(w => w.Id)
+            .ToHashSet();
+
         // 원본/레퍼런스 어느 쪽이든 Source Role 을 가지면 원본 Work 그룹을 Source 로 인식
         var sourceCanonicalIds = store.Works.Values
             .Where(w => w.TokenRole.HasFlag(TokenRole.Source))
@@ -55,6 +61,7 @@ public partial class MainViewModel
         return store.Works.Values
             .Select(w => Queries.resolveOriginalWorkId(w.Id, store))
             .Distinct()
+            .Where(activeWorkIds.Contains)
             .Select(workId => Queries.getWork(workId, store))
             .Where(work => work is not null)
             .Select(work => new WorkOption(
