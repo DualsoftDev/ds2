@@ -185,3 +185,17 @@ type DsStorePanelConditionExtensions =
                 targetApiCall.OutputSpec <- newSpec)
             true
         else false
+
+    [<Extension>]
+    static member UpdateConditionApiCallUseInputSensor(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, useInputSensor: bool) : bool =
+        Queries.requireNonReferenceCall callId store
+        StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}, useInputSensor={useInputSensor}")
+        let cond = StoreLog.requireCallCondition(store, callId, condId)
+        let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)
+        if ac.UseInputSensor <> useInputSensor then
+            DirectPanelOps.mutateCallProps store callId "조건 UseInputSensor 변경" (fun c ->
+                let targetCond = DirectPanelOps.requireCondition callId c condId
+                let targetApiCall = DirectPanelOps.requireApiCallInCondition callId condId targetCond apiCallId
+                targetApiCall.UseInputSensor <- useInputSensor)
+            true
+        else false
