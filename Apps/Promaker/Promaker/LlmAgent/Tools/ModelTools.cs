@@ -197,7 +197,7 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model. path/depth 인자 (Phase 6, GUID-free): path = dotted-path (예: '.Proj1.SysA') — 부재 = 전체. depth = 0 이상 정수 — 부재 = 무제한. 두 인자 모두 부재 = 전체 export (view: full). 둘 중 하나라도 명시 = 부분 export (실제 truncation 발생 시 view: partial). 일소된 list_projects/list_systems/describe_system/describe_subtree 흡수.")]
+    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model. path/depth 인자 (Phase 6, GUID-free): path = dotted-path (예: '.Proj1.SysA') — 부재 = 전체. depth = 0 이상 정수 — 부재 = 무제한. 두 인자 모두 부재 = 전체 export (view: full). 둘 중 하나라도 명시 = 부분 export (실제 truncation 발생 시 view: partial — apply/validate 재입력 금지).")]
     public static Task<string> ExportModelDoc(
         LlmTurnContextProvider turnProvider,
         [Description("출력 형식. 'yaml' (default) 또는 'json'.")] string format = "yaml",
