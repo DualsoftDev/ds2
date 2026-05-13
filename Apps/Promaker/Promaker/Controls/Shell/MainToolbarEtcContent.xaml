@@ -63,7 +63,38 @@
                     </Border>
                 </Popup>
             </Grid>
-<Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
+            <!-- B-1 (`Apps/Promaker/Docs/todo-dock-layout.md` §3.1 Q2) — 닫힌 anchor 복원 UI. 4 anchor 의 IsVisible 양방향 토글.
+                 닫힌 항목도 자연스럽게 unchecked 로 표시되어 ▼ 드롭다운 + 보기 메뉴 분리 안 대신 단일 popup 통합.
+                 LlmChat 은 IsLlmChatVisible SSOT 별도 + 별도 LLM toolbar 버튼 이미 존재 → 본 메뉴 제외. -->
+            <Grid>
+                <ToggleButton x:Name="ViewMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="패널 보기">
+                    <StackPanel Orientation="Vertical">
+                        <iconPacks:PackIconMaterial Kind="ViewDashboard" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                        <TextBlock Text="보기" Style="{StaticResource RibbonIconLabel}"/>
+                    </StackPanel>
+                </ToggleButton>
+                <Popup IsOpen="{Binding IsChecked, ElementName=ViewMenuToggle, Mode=TwoWay}"
+                       StaysOpen="False"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=ViewMenuToggle}"
+                       DataContext="{Binding DataContext, ElementName=ThisControl}">
+                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="4"
+                            MinWidth="200">
+                        <StackPanel>
+                            <TextBlock Text="패널 보기/숨김" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,6" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <CheckBox Content="Explorer"   IsChecked="{Binding ExplorerAnchor.IsVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="Properties" IsChecked="{Binding PropertyAnchor.IsVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="History"    IsChecked="{Binding HistoryAnchor.IsVisible,    Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="Simulation" IsChecked="{Binding SimulationAnchor.IsVisible, Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
+            <Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
                 <StackPanel Orientation="Vertical">
                     <Grid Width="18" Height="18" HorizontalAlignment="Center" Margin="0,0,0,2">
                         <iconPacks:PackIconMaterial Kind="WhiteBalanceSunny" Width="18" Height="18" Foreground="{DynamicResource IconGrayBrush}">
