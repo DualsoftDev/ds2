@@ -32,6 +32,8 @@ public partial class MainWindow : Window
     private static readonly GridLength SimulationDefaultH = new(200);
     private static readonly GridLength HistoryDefaultH = new(220);
     private static readonly GridLength RightDefaultW = new(280);
+    // v10 hotfix — llmChatPane / propertyPane 은 fill (마지막 pane) 이라 명시적 default 없음 → Star 로 복원.
+    private static readonly GridLength StarLength = new(1, GridUnitType.Star);
     private static readonly GridLength ZeroLength = new(0);
 
     public MainWindow()
@@ -138,6 +140,10 @@ public partial class MainWindow : Window
         explorerPane.DockWidth    = explorerAnchor.IsVisible    ? ExplorerDefaultW   : ZeroLength;
         simulationPane.DockHeight = simulationAnchor.IsVisible  ? SimulationDefaultH : ZeroLength;
         historyPane.DockHeight    = historyAnchor.IsVisible     ? HistoryDefaultH    : ZeroLength;
+        // v10 hotfix — llmChatPane / propertyPane 은 명시적 DockHeight 없는 fill pane (마지막 위치).
+        // anchor.IsVisible=false 만으로는 LayoutAnchorablePane 영역이 시각 잔존 (4.74.1 회귀) → pane DockHeight 도 toggle.
+        llmChatPane.DockHeight    = llmChatAnchor.IsVisible     ? StarLength         : ZeroLength;
+        propertyPane.DockHeight   = propertyAnchor.IsVisible    ? StarLength         : ZeroLength;
 
         // rightPanel 의 children (property/history/llm) 모두 hidden 시 column 자체 collapse.
         bool anyRightVisible = propertyAnchor.IsVisible || historyAnchor.IsVisible || llmChatAnchor.IsVisible;
@@ -190,6 +196,9 @@ public partial class MainWindow : Window
         // v7 PR-2a (검열 Major 1) — XAML 트리 / LayoutDocumentPane SelectedContentIndex 완전 unwound 이후 시점.
         // 생성자 InitializeComponent 직후 호출은 nondeterministic 위험.
         SyncWelcomeCanvasVisibility();
+        // hotfix — XAML 의 `IsVisible="False"` 가 4.74.1 의 LayoutAnchorable parent attach 시점 race 로
+        // 초기 1 frame 동안 visible 노출되는 회귀. IsLlmChatVisible (SSOT) 기준으로 다시 강제 set.
+        SyncLlmChatAnchorFromVm();
         // 초기 collapse 적용 (XAML 기본값 — llmChatAnchor IsVisible=False).
         OnAnchorIsVisibleChanged(null, EventArgs.Empty);
 

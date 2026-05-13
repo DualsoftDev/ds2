@@ -4,6 +4,7 @@
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ad="https://github.com/Dirkster99/AvalonDock"
         xmlns:adc="clr-namespace:AvalonDock.Controls;assembly=AvalonDock"
+        xmlns:adThemes="clr-namespace:AvalonDock.Themes;assembly=AvalonDock.Themes.Metro"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:llm="clr-namespace:Promaker.Controls.Llm"
         xmlns:vm="clr-namespace:Promaker.ViewModels"
@@ -13,6 +14,8 @@
         MinWidth="880" MinHeight="600"
         Icon="/Promaker;component/Assets/Promaker.ico"
         WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource PrimaryBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}"
         Closing="Window_Closing"
         AllowDrop="True"
         DragEnter="Window_DragEnter"
@@ -59,7 +62,16 @@
              ContentId 모든 항목 필수 (serialize/deserialize key). LlmChat 은 IsVisible=False 기본. -->
         <!-- dockManager x:Name 은 `Apps/Promaker/Docs/todo-dock-layout.md` §4 의 PR-3 (XmlLayoutSerializer Save/Restore) 진입 시 사용 예정 — 현재는 placeholder. -->
         <ad:DockingManager x:Name="dockManager" Grid.Row="1"
-                           AllowMixedOrientation="True">
+                           AllowMixedOrientation="True"
+                           Background="{DynamicResource PrimaryBackgroundBrush}"
+                           BorderThickness="0">
+            <!-- 다크 테마 hotfix — Promaker 자체 ThemeManager 와 별개로 AvalonDock 의 caption/탭/auto-hide brush 적용.
+                 PR-4 진입 시 `Apps/Promaker/Promaker/Themes/Theme.Controls.Dock.xaml` 자체 매핑으로 교체 예정.
+                 v10 추가 — Background/BorderThickness 명시: AvalonDock.Themes.Metro 가 Application.Resources 에 merge 되며
+                 default Window/dockManager 의 light gray background 가 노출되는 회귀 (image 4/5) 차단. -->
+            <ad:DockingManager.Theme>
+                <adThemes:MetroTheme/>
+            </ad:DockingManager.Theme>
             <!-- v7 PR-2a F7 — floating window 를 main 위에 강제 노출하지 않음 (VS 표준 동작).
                  LayoutFloatingWindowControl 은 abstract 라 derived 2종 각각 Style. -->
             <ad:DockingManager.Resources>
@@ -110,7 +122,9 @@
                     </ad:LayoutPanel>
 
                     <ad:LayoutPanel x:Name="rightPanel" Orientation="Vertical" DockWidth="280">
-                        <ad:LayoutAnchorablePane x:Name="propertyPane">
+                        <!-- v10 hotfix — fill pane 2개 (propertyPane / llmChatPane) 는 명시적 DockHeight="*" 로 C# 의
+                             `OnAnchorIsVisibleChanged` 의 StarLength toggle 과 SSOT 일치. 빈 pane 잔존 시 0 으로 toggle. -->
+                        <ad:LayoutAnchorablePane x:Name="propertyPane" DockHeight="*">
                             <ad:LayoutAnchorable x:Name="propertyAnchor"
                                                  ContentId="properties" Title="Properties"
                                                  CanClose="False" CanHide="True"
@@ -143,7 +157,7 @@
                                 </Border>
                             </ad:LayoutAnchorable>
                         </ad:LayoutAnchorablePane>
-                        <ad:LayoutAnchorablePane x:Name="llmChatPane">
+                        <ad:LayoutAnchorablePane x:Name="llmChatPane" DockHeight="*">
                             <ad:LayoutAnchorable x:Name="llmChatAnchor"
                                                  ContentId="llmchat" Title="LLM Chat"
                                                  CanClose="False" CanHide="True"
