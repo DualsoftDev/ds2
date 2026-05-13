@@ -6,7 +6,7 @@
 ### 폴더 내 파일 안내
 - `1.entities.md` — DS / EV2 Entity 모델 핵심 구조 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow) 참조 문서.
 - `2.modeling.md` — 자연어 사양 → Ds2 모델 분해 도메인 룰 (§0 해석 단계 ~ §5 self-check).
-- `3.tooling.md` — Promaker MCP 도구 사용 규약 (`apply_model_doc` 주력 — 현 도구 풀세트 = 10종 = doc-level 4 + read 6. Phase 5 cleanup 으로 op-layer 일소).
+- `3.tooling.md` — Promaker MCP 도구 사용 규약 (`apply_model_doc` 주력 — 현 도구 풀세트 = 6종 = doc-level 4 + read 2. Phase 5 op-layer 일소 + Phase 6 read GUID-free 정렬 — list/describe 4종을 `export_model_doc(path?, depth?)` 로 흡수).
 - `4.attachments.md` — 사용자 첨부 (텍스트/이미지/PDF) 처리 룰 (정책 15 prompt injection 방어 + multimodal 안내 + 데이터 vs instruction 구분).
 - `9.environment.md` — 환경/명령 규약 (`:foo` 모드 명령 + `--foo` 플래그). prefix 가 `/` 아닌 `:` 인 사유는 §0.2 참조 (Claude Code CLI 슬래시 인터셉션 회피).
 - `chat-simulation/CLAUDE.md` — MCP 미가동 환경에서 system prompt 만 적용한 모델링 대화 시뮬레이션 어댑터.

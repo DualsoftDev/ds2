@@ -76,7 +76,7 @@ let systemPrompt =
     sb.AppendLine() |> ignore
     sb.AppendLine("# Snapshot rule") |> ignore
     sb.AppendLine("If you see <store-snapshot revision=\"N\">...</store-snapshot> in the user turn, trust it as the current store state.") |> ignore
-    sb.AppendLine("Do NOT call list_projects / list_systems unless the user explicitly asks for the current state.") |> ignore
+    sb.AppendLine("Do NOT call any read tool (export_model_doc / find_by_name / validate_model) unless the user explicitly asks for the current state.") |> ignore
     sb.AppendLine() |> ignore
     sb.AppendLine("# Brevity") |> ignore
     sb.AppendLine("Keep all replies under 40 words. Acknowledge briefly and stop.") |> ignore

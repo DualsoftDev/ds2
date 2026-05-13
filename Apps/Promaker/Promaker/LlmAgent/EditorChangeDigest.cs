@@ -15,7 +15,7 @@ namespace Promaker.LlmAgent;
 /// - <see cref="EditorEvent.HistoryChanged"/> → "undo/redo 발생" 1줄.
 /// - <see cref="EditorEvent.StoreRefreshed"/> → store 전체 새로고침 신호. 누적된 세부 변경 폐기 후 1줄로 격상.
 /// - <see cref="MarkProjectReset"/> → UpdateStore 경로. 모든 누적 폐기 + PROJECT_RESET 한 줄로 대체.
-/// - 임계 (총 라인 수 <see cref="MaxTotalLines"/>) 초과 시 "상당한 변경 발생, validate_model 권장" 으로 축약.
+/// - 임계 (총 라인 수 <see cref="MaxTotalLines"/>) 초과 시 "상당한 변경 발생, export_model_doc / validate_model 권장" 으로 축약.
 ///
 /// Self-loop 필터 (LLM 자기 turn 의 ApplyImportPlan 결과) 는 본 클래스 책임이 아님 — 호출자가 차단.
 /// </summary>
@@ -139,7 +139,7 @@ public sealed class EditorChangeDigest
         if (_projectReset)
         {
             sb.Append("- 새 프로젝트로 전환됨. 이전 대화의 모델 가정은 무효합니다.\n");
-            sb.Append("필요 시 list_projects / list_systems / validate_model 로 현재 상태를 확인하세요.\n");
+            sb.Append("필요 시 export_model_doc / validate_model 로 현재 상태를 확인하세요.\n");
             sb.Append("</editor_changes>");
             return sb.ToString();
         }
@@ -162,7 +162,7 @@ public sealed class EditorChangeDigest
 
         if (lines.Count > MaxTotalLines)
         {
-            sb.Append("- 상당한 변경 발생 (요약 임계 초과). validate_model / list_systems 로 직접 확인하세요.\n");
+            sb.Append("- 상당한 변경 발생 (요약 임계 초과). export_model_doc / validate_model 로 직접 확인하세요.\n");
         }
         else
         {
