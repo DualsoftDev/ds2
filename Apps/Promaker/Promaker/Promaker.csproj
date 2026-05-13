@@ -31,6 +31,8 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="H.NotifyIcon.Wpf" />
+    <!-- AvalonDock (PR-1a). 테마 패키지는 PR-1b spike 결과 후 결정. -->
+    <PackageReference Include="Dirkster.AvalonDock" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->

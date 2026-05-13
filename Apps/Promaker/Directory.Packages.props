@@ -32,6 +32,10 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
+  <!-- AvalonDock — Dock layout (Ms-PL). 테마 패키지는 PR-1b spike 결과 후 결정. -->
+  <ItemGroup>
+    <PackageVersion Include="Dirkster.AvalonDock" Version="4.74.1" />
+  </ItemGroup>
 
   <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->
   <ItemGroup>

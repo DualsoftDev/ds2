@@ -34,6 +34,12 @@ public partial class App : Application
     /// </summary>
     internal static bool StartupMeasureThenExit { get; set; }
 
+    /// <summary>
+    /// `--dock-spike` 인자 — PR-1b 임시 모드. MainWindow 대신 DockSpikeWindow 만 띄움.
+    /// PR-2a 진입 시 본 옵션 + Spike 폴더 함께 제거 예정.
+    /// </summary>
+    internal static bool StartupDockSpike { get; set; }
+
     // 측정 자동화 fail-fast exit codes — 외부 측정 스크립트(run-pass5.fsx 등)가 이 값으로 실패 원인을 분기 식별.
     // 변경 시 측정 스크립트 측도 함께 갱신 필요.
     internal const int MeasureExitSendCommandUnavailable = 2;
@@ -73,6 +79,8 @@ public partial class App : Application
                 StartupMeasurePrompt = e.Args[i + 1];
                 i++;   // skip next (consumed as prompt value)
             }
+            else if (arg == "--dock-spike")
+                StartupDockSpike = true;
             else if (StartupFilePath == null && File.Exists(arg))
                 StartupFilePath = arg;
         }
@@ -140,6 +148,17 @@ public partial class App : Application
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
         Log.Info("=== Promaker startup ===");
+
+        if (StartupDockSpike)
+        {
+            // PR-1b — MainWindow.xaml StartupUri 우회. ShutdownMode=OnMainWindowClose 라
+            // MainWindow=spike 설정 후 spike close 시 종료.
+            var spike = new Promaker.Spike.DockSpikeWindow();
+            MainWindow = spike;
+            spike.Show();
+            return;
+        }
+
         base.OnStartup(e);
     }
 
