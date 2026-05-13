@@ -60,6 +60,9 @@ public partial class MainViewModel
                   $"계속하시겠습니까?"
                 : $"외부에서 파일이 변경되었습니다:\n  {fileName}\n\n다시 불러오시겠습니까?";
 
+            if (IsYaml(_currentFilePath))
+                alertMsg += "\n\n주의: .yaml 은 lossy 포맷 — 다시 불러오면 GUID·위치·alias·시뮬 결과가 재발행/소실됩니다.";
+
             if (!_dialogService.Confirm(alertMsg, "외부 파일 변경 감지"))
             {
                 // 사용자가 거절 — 다음 변경까지는 재질의 안 하도록 mtime 갱신.
