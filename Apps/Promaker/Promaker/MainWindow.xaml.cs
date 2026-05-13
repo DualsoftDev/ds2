@@ -974,7 +974,7 @@ public partial class MainWindow : Window
     }
 
     private static readonly string[] SupportedExtensions =
-        [FileExtensions.Sdf, FileExtensions.Json, FileExtensions.Aasx, FileExtensions.Mermaid, FileExtensions.MermaidAlt];
+        [FileExtensions.Sdf, FileExtensions.Json, FileExtensions.Aasx, FileExtensions.Mermaid, FileExtensions.MermaidAlt, FileExtensions.Yaml, FileExtensions.YamlAlt];
 
     private bool IsSupportedFileDrop(DragEventArgs e) =>
         e.Data.GetDataPresent(DataFormats.FileDrop)
@@ -998,6 +998,7 @@ public partial class MainWindow : Window
         if (ext == FileExtensions.Json) return "json";
         if (ext == FileExtensions.Aasx) return "aasx";
         if (ext == FileExtensions.Mermaid || ext == FileExtensions.MermaidAlt) return "mermaid";
+        if (ext == FileExtensions.Yaml || ext == FileExtensions.YamlAlt) return "yaml";
         return null;
     }
 
@@ -1110,6 +1111,7 @@ public partial class MainWindow : Window
         DragDropJsonIcon.Visibility = Visibility.Collapsed;
         DragDropAasxIcon.Visibility = Visibility.Collapsed;
         DragDropMermaidIcon.Visibility = Visibility.Collapsed;
+        DragDropYamlIcon.Visibility = Visibility.Collapsed;
 
         // Show appropriate icon and message based on file type
         switch (fileType)
@@ -1133,6 +1135,11 @@ public partial class MainWindow : Window
                 DragDropMermaidIcon.Visibility = Visibility.Visible;
                 DragDropMessage.Text = "Mermaid 파일을 여기에 놓으세요";
                 DragDropSubMessage.Text = "Mermaid 다이어그램 형식";
+                break;
+            case "yaml":
+                DragDropYamlIcon.Visibility = Visibility.Visible;
+                DragDropMessage.Text = "YAML 파일을 여기에 놓으세요";
+                DragDropSubMessage.Text = "lossy 공유 포맷 (GUID·위치 비저장)";
                 break;
         }
     }
