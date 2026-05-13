@@ -9,7 +9,12 @@
 > - v3: --review web 검증 + 본 환경 직접 검증 (DevExpress 24.1.7 로컬 feed 자동 등록 확인, 옵션 A 채택)
 > - v4: PR-1 spike 결과로 DevExpress.Wpf.Docking 24.1.7 도입 시 138 곳 모호 참조 + WinForms transitive + size 비용. AvalonDock 4.x 로 변경.
 > - v5: 5명 메타 reviewer (Generalist / 정확성 / 설계 / 영향범위 / 인터넷 검색) 통합 검증 반영. 핵심: 테마 NuGet 별도, 4.74.1 stable, ContentId e.Cancel 패턴, §3.4 헤더 API 3안 비교, §3.3 single-source-of-truth 모델, PR-2 분할, log4net C# 패턴(`Log.Info`) 정정.
-> - **v8 (현재, 2026-05-13)**: PR-2a 외곽 교체 + PR-2b SSOT 흡수 commit (`1479f74`) + PR-2a/2b Phase A commit (`89a23e2`) + 외부 reviewer (Generalist / Logic / Design) 검토 처리 working tree. 핵심 변경:
+> - **v9 (현재, 2026-05-13)**: B-1 (닫힌 anchor 복원 UI) Phase B 구현 working tree. 핵심 변경:
+>   - **§3.1 Q2 단일 popup 통합 안 채택** — v7/v8 의 "메인 메뉴 + ▼ 드롭다운 조합" 명세에서 ▼ 드롭다운 분리 안 폐기. 닫힌 anchor 도 unchecked 로 자연 표시되어 동일 UI 한 곳에서 확인/토글 가능 → UX 단순화. todo §3.1 v7 절 자체에 v9 정정 marker + §8 B-1 review 처리 표 신설.
+>   - **`MainViewModel.Dock.cs` partial 신규** — `[ObservableProperty] LayoutAnchorable?` 4종 (Explorer/Property/History/Simulation). MainToolbarEtcContent 가 별도 UserControl 이라 ElementName 으로 anchor 접근 불가 → VM mirror. LlmChat 은 IsLlmChatVisible SSOT 별도 + 별도 LLM 토글 버튼 이미 존재 → 본 메뉴 제외.
+>   - **`MainToolbarEtcContent.xaml`** — 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox (`IsChecked={Binding ...Anchor.IsVisible, Mode=TwoWay}` + `IsEnabled={Binding HasProject}`). LayoutAnchorable.IsVisible 자체가 INPC + setter → wrapper 불필요.
+>   - **외부 review 결과** — Minor 1 (ToggleButton 자체 IsEnabled 없음) / Minor 2 (VM 이 View type 보관) / Refactoring (4건 명시 합당) 3건 모두 현재 안 유지 합당 판단. 추가 발견 1건 — anchor 가 floating 상태에서 hide → re-show 시 복귀 위치 (4.74.1 spike 미검증) 은 Phase B 수동 회귀에 추가.
+> - **v8 (2026-05-13)**: PR-2a 외곽 교체 + PR-2b SSOT 흡수 commit (`1479f74`) + PR-2a/2b Phase A commit (`89a23e2`) + 외부 reviewer (Generalist / Logic / Design) 검토 처리 working tree. 핵심 변경:
 >   - **§3.1 보조 anchor 동기화 명세 보강** — Welcome 모드 (`HasProject=false`) 시 `explorerAnchor`/`propertyAnchor`/`historyAnchor`/`simulationAnchor` 의 `IsVisible=false` 토글 (외부 reviewer M1 — 이전 v7 까지는 "나머지 anchor 들" 로 모호 표기, 실구현이 누락하여 회귀 발생). LlmChat 은 IsLlmChatVisible SSOT 별도라 제외.
 >   - **§4 PR-2a / PR-2b 경계 정정 (외부 reviewer M2)** — v7 까지는 "PR-2a 는 minimal wiring 만, PR-2b 는 SSOT 완성" 분리. 실구현 (`1479f74` + `89a23e2`) 은 SSOT 가 PR-2a 안으로 흡수됨. revert 비현실 → 명세 정정. PR-2b 는 측정 자동화 검증 1건으로 축소.
 >   - **§3.3 변수명 통일** — `_suppressVmSync` → `_suppressLlmChatSync` (실구현 명명 채택). v6 까지 todo 표기는 정정.
@@ -273,13 +278,19 @@ AvalonDock 4.74.1 는 모든 anchor hidden 시 `LayoutAnchorablePane` 의 column
 - DockHeight 동일 패턴 (Simulation / History 의 가로 row).
 - 헬퍼: `Promaker.Presentation.Dock.PaneCollapser` 신규 클래스 또는 `MainWindow.xaml.cs` 의 attached behavior.
 
-#### v7 신규 정책 — 닫힌 anchor 복원 UI (Q2 결정)
+#### v7 신규 정책 — 닫힌 anchor 복원 UI (Q2 결정) — **v9 정정**
 
-ClosedPanelsBar 자동 노출 X (F1 발견). 사용자 결정 = **메인 메뉴 + 우측 상단 ▼ 드롭다운 조합**:
+ClosedPanelsBar 자동 노출 X (F1 발견). v7 까지의 명세 = **메인 메뉴 + 우측 상단 ▼ 드롭다운 조합**.
 
-1. **메인 메뉴 → 보기(View) 하위 메뉴 (PR-2a)**: 각 anchor 마다 `MenuItem.IsCheckable=true` + `IsChecked={Binding IsVisible}` (anchor.IsVisible 양방향 wiring). 6개 항목 (Explorer / Properties / History / Simulation / LlmChat / Welcome 은 HasProject 자동).
-2. **우측 상단 ▼ 드롭다운 (PR-2a)**: 닫힌 anchor 만 동적 목록. AvalonDock 의 `LayoutRoot.Hidden` collection 을 source 로 binding. 클릭 시 해당 anchor.Show() + IsActive=true.
-3. 토글 일관성: 메뉴와 드롭다운 모두 동일 anchor.IsVisible 을 read/write (SSOT 는 anchor 자체).
+**v9 정정 (Phase B 구현 후)**: ▼ 드롭다운 항목을 **단일 popup 으로 통합**. 닫힌 anchor 도 unchecked 로 자연 표시되어 동일 UI 한 곳에서 확인 + 토글 가능 → ▼ 드롭다운 별도 노출의 정보 가치가 적음.
+
+1. **Toolbar Etc section "보기" Popup (PR-2a/Phase B 완료)**: `MainToolbarEtcContent.xaml` 의 유틸 다음에 `ToggleButton` + `Popup`. Popup 안 4 CheckBox 명시 (Explorer/Properties/History/Simulation).
+   - `IsChecked={Binding ExplorerAnchor.IsVisible, Mode=TwoWay}` (LayoutAnchorable.IsVisible 자체가 binding source — INPC + setter).
+   - `IsEnabled={Binding HasProject}` (Welcome 모드 무의미 토글 차단).
+   - LlmChat 은 본 메뉴 제외 — `IsLlmChatVisible` SSOT 분리 + Toolbar Etc 의 별도 LLM 토글 버튼 이미 보장.
+2. **VM mirror** (`MainViewModel.Dock.cs` partial): `[ObservableProperty] LayoutAnchorable? ExplorerAnchor/PropertyAnchor/HistoryAnchor/SimulationAnchor`. MainWindow 생성자가 anchor 참조 4개 set. MainToolbarEtcContent 가 별도 UserControl 이라 ElementName 으로 anchor 접근 불가 → VM mirror 가 가장 짧음.
+3. **HasProject 토글이 사용자 user-toggle 을 reset**: `SyncWelcomeCanvasVisibility` 가 4 anchor IsVisible 을 HasProject 로 강제 set → 보기 메뉴에서 사용자가 close 한 anchor 는 다음 file open 시 visible 로 복귀. todo §3.1 안 A (Welcome 통합) 와 일치하는 의도된 동작. 사용자 수동 hide 상태 보존 필요해지면 별도 저장 필드 도입 (`Apps/Promaker/Docs/todo-dock-layout.md` §4 PR-3 이후 backlog).
+4. **▼ 드롭다운 별도 노출 폐기**: 단일 popup 통합으로 흡수. 추후 추가 가치 발견 시 부활 가능.
 
 #### v7 신규 정책 — Floating window TopMost 해제 (F7)
 
@@ -460,7 +471,7 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 - [ ] **수동 시나리오 검증** (Canvas/SimPanel/Property/History/Explorer dock·float·auto-hide·마그넷·Welcome 전환·FileDrag·BusyOverlay). → **Phase B**.
 - [ ] **PR-2a/PR-4 사이 헤더 중복 표시 기간 회피**: LayoutAnchorable.Title 정책. → **PR-4 와 stacked 머지** (Phase B 까지 임시 노출 OK).
 - [x] **v7 빈 column 자동 collapse 정책 (Q1)**: 5 anchor IsVisibleChanged listener 1개 핸들러 `OnAnchorIsVisibleChanged` — explorerPane / simulationPane / historyPane / rightPanel 의 DockWidth/DockHeight 를 default ↔ 0 toggle. rightPanel 은 property/history/llm 셋 다 hidden 일 때만 collapse.
-- [ ] **v7 닫힌 anchor 복원 UI (Q2)**: ① 메인 메뉴 보기 하위 + ② 우측 상단 ▼ 드롭다운. → **Phase B** (UI 신규 컨트롤 + 사용자 검증 필요).
+- [x] **v7 닫힌 anchor 복원 UI (Q2) — v9 단일 popup 통합 안 채택**: `MainToolbarEtcContent.xaml` 의 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox (Explorer/Properties/History/Simulation). `MainViewModel.Dock.cs` 신규 partial 로 4 anchor mirror (`[ObservableProperty] LayoutAnchorable?`). ▼ 드롭다운 분리 안 폐기 — 단일 popup 으로 흡수.
 - [ ] **v7 callback e.Cancel=true 명시 (F4)**: unknown ContentId 발생 시. → **PR-3 으로 이월**.
 - [x] **v7 floating window Topmost=false (F7)**: 안 (a) `DockingManager.Resources` 의 `LayoutAnchorableFloatingWindowControl` / `LayoutDocumentFloatingWindowControl` Style setter (Topmost=False) 적용. → **Phase B 수동 검증 필요** (Style 매핑 동작 여부).
 - [ ] **v7 PR-1b 수동 항목 본 코드 위 회귀 검증**: 5경로 차단 / WindowChrome 사용 여부 / Float cycle 메모리 delta. → **Phase B**.
@@ -557,14 +568,25 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 
 ## 8. 진행 체크포인트 (이어받는 세션용)
 
+- **plan v9 (2026-05-13)**. v8 → v9 핵심 변경: B-1 (닫힌 anchor 복원 UI) Phase B 구현 완료 — Toolbar Etc 의 "보기" 단일 popup 통합 안 채택 (▼ 드롭다운 분리 안 폐기). `MainViewModel.Dock.cs` partial 신규 (4 anchor mirror `[ObservableProperty] LayoutAnchorable?`).
 - **plan v8 (2026-05-13)**. v7 → v8 핵심 변경: 외부 reviewer M1/M2/M3 처리, PR-2a / PR-2b 경계 정정 (SSOT 가 PR-2a 안으로 흡수), Welcome 모드 보조 anchor 4종 동기화 추가, 변수명 `_suppressVmSync` → `_suppressLlmChatSync` 통일.
 - 현재 commit 상태 (branch `dock`):
   - `5e40fa6` Dock layout: PR-1a (AvalonDock 4.74.1) + PR-1b (Spike Window) + todo v7 (옛 시점). 패키지 추가 + spike 자동 검증.
   - `1479f74` Dock layout: PR-2a 외곽 DockingManager 교체 + PR-2b LlmChat SSOT (부분). MainWindow.xaml Grid → 6 anchor 트리, WelcomeView 신규 (`Apps/Promaker/Promaker/Controls/Shell/WelcomeView.xaml(.cs)`), SSOT 가드 + 3속성 set + Hiding 역동기화, workspaceDocs.Children Add/Remove 동적 관리, todo v5 → v7.
   - `89a23e2` Dock layout: PR-2a/2b Phase A — 빈 column 자동 collapse (5 anchor IsVisibleChanged → pane DockWidth/Height toggle) + DockingManager.Resources 의 LayoutAnchorableFloatingWindowControl/LayoutDocumentFloatingWindowControl Topmost=False Style + LlmChatVm null/IsLlmEnabled=false edge case + DispatcherPriority Loaded → ApplicationIdle + CloseAllFloatingWindows + PropertyPanel Loaded/Unloaded 자가 등록.
+  - `8a96e47` Dock layout: 외부 reviewer M1 수용 + todo v8.
 - working tree (--git-commit 대상, dock branch — remote 없음 → local commit only):
-  - 외부 reviewer 처리 turn 의 변경. `M Apps/Promaker/Docs/todo-dock-layout.md` + `M Apps/Promaker/Promaker/MainWindow.xaml` + `M Apps/Promaker/Promaker/MainWindow.xaml.cs` + `M Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs`.
-  - 내용: M1 수용 (`SyncWelcomeCanvasVisibility` 안에 보조 anchor 4종 IsVisible 동기화), M2 정책 정정 (todo PR-2a/PR-2b 경계 변경, SSOT 가 PR-2a 흡수), m2 변수명 통일, m3/m4 주석 (가드 부재 의도 / dockManager x:Name placeholder), 다른 파일 가리키는 참조 표현을 `Apps/Promaker/Docs/todo-dock-layout.md §X.Y` 형식으로 풀어쓰기.
+  - B-1 (닫힌 anchor 복원 UI) Phase B 구현. `M Apps/Promaker/Docs/todo-dock-layout.md` + `M Apps/Promaker/Promaker/MainWindow.xaml.cs` + `M Apps/Promaker/Promaker/Controls/Shell/MainToolbarEtcContent.xaml` + `?? Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.Dock.cs` (신규).
+  - 내용: `MainViewModel.Dock.cs` partial 4 anchor mirror, `MainWindow` 생성자가 anchor 4개 VM set, `MainToolbarEtcContent.xaml` 의 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox (Explorer/Properties/History/Simulation, TwoWay binding). 자가 검열 sub-agent Major 0/Minor 3 — 모두 의도된 동작 또는 본 PR 범위 외로 처리. todo v8 → v9.
+
+### B-1 (보기 메뉴) review 처리 내역 (v9 working tree 시점)
+
+| 항목 | reviewer 의견 | 처리 |
+|---|---|---|
+| Minor — "보기" ToggleButton 에 `IsEnabled` binding 없음 | Welcome 모드 (HasProject=false) 에서 ToggleButton 자체는 활성 → popup 은 열리지만 4 항목 모두 회색 disabled 라 UX trade-off. 일관성 안 (ToggleButton 도 IsEnabled={Binding HasProject}) 과 발견성 안 (현재) 모두 정당. | 현재 안 유지. 사용자가 명시적으로 개선 요청하기 전에는 그대로. 절충 옵션 (popup 상단에 "프로젝트를 먼저 열어주세요" 안내 텍스트 추가) 도 가능하나 본 PR 범위 외. |
+| Minor — VM 이 View 객체 (LayoutAnchorable) 를 보관 (MVVM 순수성 위반) | `MainViewModel.Dock.cs` 의 `[ObservableProperty] LayoutAnchorable?` 4종이 View type 을 VM 에 노출. | 의도된 단축. `MainViewModel.Dock.cs` 주석 + 본 문서 §3.1 v9 정정 절 양쪽에 trade-off 사유 명시 ("MainToolbarEtcContent 가 별도 UserControl 이라 ElementName 으로 anchor 직접 접근 불가 → VM mirror 가 가장 짧음"). 추상 인터페이스 (예: `IDockAnchorHandle`) 도입은 over-engineering. |
+| Refactoring — 4 anchor 의 ObservableProperty / VM set / CheckBox 가 동일 pattern 4번 반복 | ItemsControl + collection 일반화 시 IsEnabled/Content 변종 가능성으로 binding/XAML 오히려 복잡. | 현재 4건 명시 합당. partial 파일 위치 (`ViewModels/Shell/MainViewModel.Dock.cs`) 도 기존 `MainViewModel.LlmChat.cs` / `MainViewModel.History.cs` naming pattern 과 일관 OK. |
+| 추가 발견 — anchor 가 floating window 안에 있는 상태에서 CheckBox 로 hide → 다시 show 시 복귀 위치 | `IsVisible=false` 시 AvalonDock 가 floating window 도 close 처리 예상. 다시 `IsVisible=true` 시 직전 floating 위치 복귀 vs 원래 docked 위치 복귀 동작 4.74.1 미확정. spike 는 docked 상태 IsVisible round-trip 만 검증. | Phase B 수동 회귀 시나리오에 추가. 결과에 따라 추가 wiring 필요 여부 결정. |
 
 ### 외부 reviewer 처리 내역 (1479f74 시점 기준)
 
@@ -588,14 +610,16 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 1. ~~PR-1a~~ ✅ commit `5e40fa6`.
 2. ~~PR-1b 자동 검증~~ ✅ commit `5e40fa6`. 수동 검증 (5경로 차단 / WindowChrome / Float cycle) 은 Phase B 회귀.
 3. ~~PR-2a 외곽 교체 + PR-2b SSOT 흡수~~ ✅ commit `1479f74`.
-4. ~~PR-2a/2b Phase A~~ ✅ commit `89a23e2`. 외부 reviewer M1/M2/M3 처리는 본 turn working tree 의 다음 commit 으로 들어감.
-5. **Phase B 진행 대기**: 사용자 검증/UI 필요.
-   - 닫힌 anchor 복원 UI (Q2): 메인 메뉴 보기 하위 6개 항목 + 우측 상단 ▼ 드롭다운. `Apps/Promaker/Promaker/Controls/Shell/MainToolbarEtcContent.xaml` 또는 신규 보기 메뉴 추가.
+4. ~~PR-2a/2b Phase A~~ ✅ commit `89a23e2`.
+5. ~~외부 reviewer M1 수용 + todo v8~~ ✅ commit `8a96e47`.
+6. ~~B-1 (닫힌 anchor 복원 UI) Phase B~~ ✅ working tree (--git-commit 대상). 단일 popup 통합 안 채택 — ▼ 드롭다운 분리 안 폐기. 빌드 0/0 통과. 자가 검열 Major 0.
+7. **Phase B 잔여**: 사용자 검증 필요.
    - Ctrl+W / Ctrl+F4 충돌 fallback (anchor 모두 CanClose=False 라 현재 충돌 없는 것으로 추정 — 수동 회귀 후 결정).
    - 수동 시나리오 검증: dock·float·auto-hide·마그넷·Welcome 전환·FileDrag·BusyOverlay·floating Topmost=false 동작·5경로 차단·Float cycle 메모리·WindowChrome.
+   - **B-1 추가 검증** — anchor 를 floating window 로 이동한 상태에서 보기 메뉴의 CheckBox uncheck → re-check 시 복귀 위치 확인 (직전 floating 위치 vs 원래 docked 위치). 결과에 따라 추가 wiring 필요 여부 결정.
    - 측정 자동화 close 확인 (App.StartupAutoOpenLlm 시).
    - LayoutAnchorable.Title 정책 (PR-4 와 stacked 또는 임시 노출 유지).
-6. **PR-3 진행**: §3.2 결정 트리 적용.
+8. **PR-3 진행**: §3.2 결정 트리 적용.
    - `Apps/Promaker/Promaker/Persistence/DockLayoutPersistence.cs` (신규) — Save/Restore bool API.
    - atomic write (`write-temp` + `File.Replace`) + `FileShare.None`.
    - `dock-layout.xml` + `dock-layout.meta.xml` (version 1.0 박제) atomic 쌍.
@@ -606,8 +630,8 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
    - DPI / multi-monitor fallback (50% 교집합 미만 시 main 중앙 재배치 + `Log.Warn`).
    - 측정 모드 시 복원 skip 검증.
    - 외부 reviewer 후속 (m5 — Loaded 책임 분리, m6 — Closed 핸들러 해제 순서 race) 일괄 정리.
-7. **PR-4 진행**: §3.4 헤더 안 B (UserControl 컴포지션) conditional 또는 안 A (AnchorableTitleTemplate) setter 비교 후 채택. `Apps/Promaker/Promaker/Themes/Theme.Controls.Dock.xaml` (신규) 의 dock caption/tab/auto-hide brush 매핑 + `App.xaml` DockResources DynamicResource 머지.
-8. **PR-5 진행** (선택): KeyBinding floating 라우팅 — `EventManager.RegisterClassHandler(typeof(Window), Window.KeyDownEvent, ...)` 좁게 적용.
+9. **PR-4 진행**: §3.4 헤더 안 B (UserControl 컴포지션) conditional 또는 안 A (AnchorableTitleTemplate) setter 비교 후 채택. `Apps/Promaker/Promaker/Themes/Theme.Controls.Dock.xaml` (신규) 의 dock caption/tab/auto-hide brush 매핑 + `App.xaml` DockResources DynamicResource 머지.
+10. **PR-5 진행** (선택): KeyBinding floating 라우팅 — `EventManager.RegisterClassHandler(typeof(Window), Window.KeyDownEvent, ...)` 좁게 적용.
 
 ### 주의 사항
 - AvalonDock 4.74.1 API 6건은 **v7 spike 로 확정 완료** (§2 끝부분 표). 새 가정 추가 시 동일 절차로 spike 확인.

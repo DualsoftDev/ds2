@@ -41,6 +41,13 @@ public partial class MainWindow : Window
         // v7 PR-2a — _vm.FocusNameEditorRequested 슬롯 set 은 PropertyPane.xaml.cs 의 Loaded/Unloaded 자가 등록으로 이동.
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
+        // B-1 — 보기 메뉴 (`Apps/Promaker/Docs/todo-dock-layout.md` §3.1 Q2) anchor IsVisible TwoWay binding 용 VM expose.
+        // LlmChat 은 IsLlmChatVisible SSOT 별도라 제외 (toolbar 의 LLM 토글 버튼이 별도 UI).
+        _vm.ExplorerAnchor   = explorerAnchor;
+        _vm.PropertyAnchor   = propertyAnchor;
+        _vm.HistoryAnchor    = historyAnchor;
+        _vm.SimulationAnchor = simulationAnchor;
+
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         llmChatAnchor.Hiding += OnLlmChatHiding;
 
