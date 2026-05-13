@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Promaker.Presentation;
 using Promaker.ViewModels;
 
@@ -155,6 +156,87 @@ public partial class MainWindow : Window
         return null;
     }
 
+    // ── Drag overlay watchdog ────────────────────────────────────────
+    // WPF drop target 측엔 drag cancel (ESC) / 외부 release 이벤트가 없어
+    // DragEnter 후 DragLeave/Drop 가 둘 다 발화 안 되는 케이스에서 overlay stuck.
+    // 안전망: 짧은 폴링 타이머가 (1) 마우스 버튼 release (2) 일정 시간 동안 DragOver 미수신
+    // 둘 중 하나라도 잡으면 overlay 자동 collapse.
+    private DispatcherTimer? _overlayWatchdog;
+    private DateTime _lastDragOverAt;
+    // ESC 즉시 감지를 위해 짧게. 정상 drag 중엔 tick 당 일 거의 없음.
+    private static readonly TimeSpan OverlayWatchdogInterval = TimeSpan.FromMilliseconds(60);
+    private const int VkEscape = 0x1B;
+    private const int VkLButton = 0x01;
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X; public int Y; }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+
+    /// <summary>
+    /// Drag operation 중엔 mouse capture 가 OLE 측에 있어 <see cref="Mouse.GetPosition"/> 이
+    /// stale/부정확한 좌표 반환 → false-positive "outside window" 로 overlay 가 토글되며 깜빡임.
+    /// 대신 OS level 의 <c>GetCursorPos</c> + <c>PointFromScreen</c> 으로 정확한 hit-test.
+    /// </summary>
+    private bool IsCursorOutsideWindow()
+    {
+        if (!GetCursorPos(out var cursorPos)) return false; // 실패 시 보수적으로 inside 간주
+        try
+        {
+            var pt = PointFromScreen(new Point(cursorPos.X, cursorPos.Y));
+            return pt.X < 0 || pt.X > ActualWidth || pt.Y < 0 || pt.Y > ActualHeight;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void EnsureOverlayWatchdog()
+    {
+        if (_overlayWatchdog is not null) return;
+        _overlayWatchdog = new DispatcherTimer { Interval = OverlayWatchdogInterval };
+        _overlayWatchdog.Tick += OverlayWatchdog_Tick;
+    }
+
+    /// <summary>
+    /// Drag 종료 조건들을 폴링으로만 판단 — WPF 의 DragLeave 는 자식 컨트롤 transition 시
+    /// 부모로 bubble 되어 false-fire 가 잦아 신뢰할 수 없음 (가만히 있어도 layout 변화로
+    /// hit-test 가 바뀌면 leave 가 토글되며 깜빡임). 폴링이 단일 진실원.
+    /// </summary>
+    private void OverlayWatchdog_Tick(object? sender, EventArgs e)
+    {
+        // ESC — drag source 가 cancel. drop target 측엔 별도 이벤트 안 옴.
+        if ((GetAsyncKeyState(VkEscape) & 0x8000) != 0)
+        {
+            HideDragOverlay();
+            return;
+        }
+
+        // Mouse left button release — WPF Mouse.LeftButton 은 OLE drag 중 stale (false-released)
+        // 가 잦아 깜빡임 원흉이었음. Win32 GetAsyncKeyState 가 OS level 실시간 상태라 정확.
+        if ((GetAsyncKeyState(VkLButton) & 0x8000) == 0)
+        {
+            HideDragOverlay();
+            return;
+        }
+
+        // Mouse 가 window 밖으로 나감 — OS level cursor 위치로 hit-test.
+        if (IsCursorOutsideWindow())
+            HideDragOverlay();
+    }
+
+    private void HideDragOverlay()
+    {
+        FileDragOverlay.Visibility = Visibility.Collapsed;
+        _overlayWatchdog?.Stop();
+    }
+
     private void Window_DragEnter(object sender, DragEventArgs e)
     {
         var fileType = GetDragFileType(e);
@@ -162,6 +244,9 @@ public partial class MainWindow : Window
         {
             UpdateDragDropOverlay(fileType);
             FileDragOverlay.Visibility = Visibility.Visible;
+            _lastDragOverAt = DateTime.Now;
+            EnsureOverlayWatchdog();
+            _overlayWatchdog!.Start();
             e.Effects = DragDropEffects.Copy;
         }
     }
@@ -205,6 +290,12 @@ public partial class MainWindow : Window
         var fileType = GetDragFileType(e);
         if (fileType != null)
         {
+            // 매 frame sync — Enter 누락 / 자식 transition 후에도 시각 복귀 보장.
+            UpdateDragDropOverlay(fileType);
+            FileDragOverlay.Visibility = Visibility.Visible;
+            _lastDragOverAt = DateTime.Now;
+            EnsureOverlayWatchdog();
+            _overlayWatchdog!.Start();
             e.Effects = DragDropEffects.Copy;
         }
         else
@@ -216,12 +307,13 @@ public partial class MainWindow : Window
 
     private void Window_DragLeave(object sender, DragEventArgs e)
     {
-        FileDragOverlay.Visibility = Visibility.Collapsed;
+        // DragLeave 는 신뢰하지 않음 — 자식 transition / layout 변화로 false-fire 가 잦아 깜빡임 원인.
+        // 진짜 leave (mouse 가 window 밖) 는 watchdog 의 mouse position 폴링이 잡음.
     }
 
     private void Window_Drop(object sender, DragEventArgs e)
     {
-        FileDragOverlay.Visibility = Visibility.Collapsed;
+        HideDragOverlay();
 
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: 1 } files)
             return;
