@@ -91,6 +91,7 @@ A (Phase 2.5 refactor backlog), B (Phase 3 prompt 마이그레이션), D (todo o
 - **Phase 6 (진행 중)** — read surface GUID-free 정렬. §2 phase 표 행 참조. SSOT = `Apps/Promaker/Docs/todo-read-surface-guid-cleanup.md`. closure 5건 + 부속 1건 v4 결정 완료. 2-단계 commit (SSOT-only → 코드/prompt/test) 진행 중.
 
 **Phase 6 외 신규 후속 cycle 후보**:
+- **PathResolver 모듈 SRP split (Phase 6 v6 발견)** — Phase 6 chunk-1c 시점에 `ModelProtocol.fs` 의 `tryPathOf` / `tryFindEntity` / `pathSegments` 와 `ToolOperations.fs` 의 인라인 local resolver (`pathSegmentsForScope` / `trySystemPathLocal` / `tryFlowPathLocal`) 두 곳이 비슷한 로직을 중복 (fsproj 컴파일 순서상 forward-ref 회피 위해 인라인). 단일 PathResolver 모듈로 통합 시 (1) NFC 정규화 / dot-segment 분해 / kind 자동 판별이 한 곳에 모임, (2) Phase 7 이후 path 어휘 확장 (Work / Call segment) 시 sync drift 회피. 본 SRP split 은 아래 `ModelProtocol.fs` SRP split 작업과 묶어 진행 권고 (둘 다 동일 file split 영향).
 - **`patch.arrows.remove` 의 Arrow EntityKind 확장** — Phase 1.5 부터 미지원 (entity 단위 cascade 만 가능). Flow 안 *arrow 단발 제거* 시나리오 실 corpus 등장 시 dispatcher 분기 추가.
 - **doc-level dispatcher 의 name sanitize 도입** — `ModelTools.cs` 의 op-layer 진입점이 강제하던 `sanitizeName` (control char / RTL override / `@`·`$` prefix 거부) 정책이 `ModelProtocol.fs` dispatcher 에 미적용. systems/flow/work/api 이름 발견 시점에 `ToolOperations.sanitizeName` 호출 추가 권고. 실 corpus 에 비정상 이름 등장 시 보강.
 - **doc-level cascade quota 차감 재도입 검토** — Phase 5 cleanup 으로 `RunWithChargedQuota` 제거. `apply_model_doc` 한 호출이 N op 누적해도 quota 1로 카운트 → DoS 표면. 실 corpus 에서 N>2000 발행 시나리오 등장 시 ModelProtocol dispatcher 에 cascade 누적 차감 재도입.
