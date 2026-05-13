@@ -59,7 +59,8 @@ public partial class PropertyPanelState
                     "", dialog.OutputAddress,
                     "", dialog.InputAddress,
                     dialog.OutTypeIndex, dialog.OutSpecText,
-                    dialog.InTypeIndex, dialog.InSpecText),
+                    dialog.InTypeIndex, dialog.InSpecText,
+                    useInputSensor: true),
                 out var callId,
                 out Guid createdId,
                 fallback: default))
@@ -89,6 +90,7 @@ public partial class PropertyPanelState
     private bool TryUpdateSingleApiCall(
         Guid callId, CallApiCallItem item,
         int outTypeIndex, string outSpecText, int inTypeIndex, string inSpecText,
+        bool useInputSensor,
         bool setMissingApiDefStatus)
     {
         if (item.ApiDefId is not Guid apiDefId)
@@ -104,7 +106,8 @@ public partial class PropertyPanelState
                     item.Name,
                     item.OutputTagName, item.OutputAddress,
                     item.InputTagName, item.InputAddress,
-                    outTypeIndex, outSpecText, inTypeIndex, inSpecText),
+                    outTypeIndex, outSpecText, inTypeIndex, inSpecText,
+                    useInputSensor),
                 out var updated,
                 fallback: false))
             return false;
@@ -124,7 +127,8 @@ public partial class PropertyPanelState
             item.ValueSpecText,
             item.OutputSpecTypeIndex,
             item.InputValueSpecText,
-            item.InputSpecTypeIndex);
+            item.InputSpecTypeIndex,
+            item.UseInputSensor);
         if (!ShowOwnedDialog(dialog))
             return;
 
@@ -133,6 +137,7 @@ public partial class PropertyPanelState
                     selectedCallId, item,
                     dialog.OutSpecTypeIndex, dialog.OutSpecText,
                     dialog.InSpecTypeIndex, dialog.InSpecText,
+                    dialog.UseInputSensor,
                     setMissingApiDefStatus: true),
                 out var callId,
                 out bool updated,
@@ -168,6 +173,7 @@ public partial class PropertyPanelState
                         !TryUpdateSingleApiCall(callId, dirty,
                             dirty.OutputSpecTypeIndex, dirty.ValueSpecText,
                             dirty.InputSpecTypeIndex, dirty.InputValueSpecText,
+                            dirty.UseInputSensor,
                             setMissingApiDefStatus: false));
 
                     return (DirtyCount: dirtyItems.Count, FailCount: failCount, SelectedId: SelectedCallApiCall?.ApiCallId);

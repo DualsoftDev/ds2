@@ -47,8 +47,20 @@ public partial class ApiDefEditDialog : Window
             }
             else if (existing.ActionType.IsTimeTotal)
             {
-                TimeRadio.IsChecked = true;
-                TimeValueBox.Text = ((ApiDefActionType.TimeTotal)existing.ActionType).Item.ToString();
+                TimeTotalRadio.IsChecked = true;
+                TimeTotalMsBox.Text = ((ApiDefActionType.TimeTotal)existing.ActionType).Item.ToString();
+            }
+            else if (existing.ActionType.IsTimeAppend)
+            {
+                TimeAppendRadio.IsChecked = true;
+                TimeAppendMsBox.Text = ((ApiDefActionType.TimeAppend)existing.ActionType).Item.ToString();
+            }
+            else if (existing.ActionType.IsMultiAction)
+            {
+                MultiActionRadio.IsChecked = true;
+                var ma = (ApiDefActionType.MultiAction)existing.ActionType;
+                MultiActionCountBox.Text = ma.Item1.ToString();
+                MultiActionIntervalBox.Text = ma.Item2.ToString();
             }
             else // Normal
             {
@@ -93,14 +105,37 @@ public partial class ApiDefEditDialog : Window
         {
             ActionType = ApiDefActionType.Pulse;
         }
-        else if (TimeRadio.IsChecked == true)
+        else if (TimeTotalRadio.IsChecked == true)
         {
-            if (!int.TryParse(TimeValueBox.Text, out var timeMs) || timeMs <= 0)
+            if (!TryParsePositive(TimeTotalMsBox.Text, out var ms))
             {
-                DialogHelpers.Warn("Time 값은 양의 정수여야 합니다.");
+                DialogHelpers.Warn("TimeTotal ms 값은 양의 정수여야 합니다.");
                 return;
             }
-            ActionType = ApiDefActionType.NewTimeTotal(timeMs);
+            ActionType = ApiDefActionType.NewTimeTotal(ms);
+        }
+        else if (TimeAppendRadio.IsChecked == true)
+        {
+            if (!TryParsePositive(TimeAppendMsBox.Text, out var ms))
+            {
+                DialogHelpers.Warn("TimeAppend ms 값은 양의 정수여야 합니다.");
+                return;
+            }
+            ActionType = ApiDefActionType.NewTimeAppend(ms);
+        }
+        else if (MultiActionRadio.IsChecked == true)
+        {
+            if (!TryParsePositive(MultiActionCountBox.Text, out var count))
+            {
+                DialogHelpers.Warn("MultiAction count 값은 양의 정수여야 합니다.");
+                return;
+            }
+            if (!TryParsePositive(MultiActionIntervalBox.Text, out var interval))
+            {
+                DialogHelpers.Warn("MultiAction interval 값은 양의 정수여야 합니다.");
+                return;
+            }
+            ActionType = ApiDefActionType.NewMultiAction(count, interval);
         }
         else
         {
@@ -114,22 +149,43 @@ public partial class ApiDefEditDialog : Window
         DialogResult = true;
     }
 
-    private void TimeRadio_Checked(object sender, RoutedEventArgs e)
+    private static bool TryParsePositive(string text, out int value)
+        => int.TryParse(text, out value) && value > 0;
+
+    private void TimeTotalRadio_Checked(object sender, RoutedEventArgs e)
     {
-        if (TimeValueBox != null)
-            TimeValueBox.IsEnabled = true;
+        if (TimeTotalMsBox != null) TimeTotalMsBox.IsEnabled = true;
     }
 
-    private void TimeRadio_Unchecked(object sender, RoutedEventArgs e)
+    private void TimeTotalRadio_Unchecked(object sender, RoutedEventArgs e)
     {
-        if (TimeValueBox != null)
-            TimeValueBox.IsEnabled = false;
+        if (TimeTotalMsBox != null) TimeTotalMsBox.IsEnabled = false;
     }
 
-    private void TimeValueBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    private void TimeAppendRadio_Checked(object sender, RoutedEventArgs e)
     {
-        // Only allow digits
+        if (TimeAppendMsBox != null) TimeAppendMsBox.IsEnabled = true;
+    }
+
+    private void TimeAppendRadio_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (TimeAppendMsBox != null) TimeAppendMsBox.IsEnabled = false;
+    }
+
+    private void MultiActionRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (MultiActionCountBox != null) MultiActionCountBox.IsEnabled = true;
+        if (MultiActionIntervalBox != null) MultiActionIntervalBox.IsEnabled = true;
+    }
+
+    private void MultiActionRadio_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (MultiActionCountBox != null) MultiActionCountBox.IsEnabled = false;
+        if (MultiActionIntervalBox != null) MultiActionIntervalBox.IsEnabled = false;
+    }
+
+    private void DigitOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
         e.Handled = !Regex.IsMatch(e.Text, "^[0-9]+$");
     }
-
 }
