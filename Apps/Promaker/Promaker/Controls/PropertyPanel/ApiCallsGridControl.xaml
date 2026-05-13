@@ -146,6 +146,17 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <DataGridTemplateColumn Header="UseSensor" Width="80"
+                                            ToolTipService.ToolTip="UseInputSensor — 체크: 실 센서 감지, 해제: Work.Duration 흐름 후 가상 완료">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding UseInputSensor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <DataGridTemplateColumn Header="{x:Static core:Labels.InSpec}" Width="1.2*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>

@@ -111,7 +111,8 @@ type DsStorePanelApiCallExtensions =
         (store: DsStore, callId: Guid, apiDefId: Guid,
          outputTagName: string, outputAddress: string,
          inputTagName: string, inputAddress: string,
-         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
+         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string,
+         useInputSensor: bool)
         : Guid =
         Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiDefId={apiDefId}")
@@ -119,7 +120,7 @@ type DsStorePanelApiCallExtensions =
         let call = StoreLog.requireCall(store, callId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputTagName outputAddress inputTagName inputAddress None inputSpec outputSpec
+        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputTagName outputAddress inputTagName inputAddress None inputSpec outputSpec useInputSensor
         DirectPanelOps.withTransactionCallProps store callId "ApiCall 추가" (fun () ->
             DirectPanelOps.addApiCallToStore store call apiCall)
         apiCall.Id
@@ -129,7 +130,8 @@ type DsStorePanelApiCallExtensions =
         (store: DsStore, callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string,
          outputTagName: string, outputAddress: string,
          inputTagName: string, inputAddress: string,
-         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
+         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string,
+         useInputSensor: bool)
         : bool =
         Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiCallId={apiCallId}, apiDefId={apiDefId}")
@@ -138,7 +140,7 @@ type DsStorePanelApiCallExtensions =
         StoreLog.requireApiCallInCall(call, apiCallId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputTagName outputAddress inputTagName inputAddress (Some apiCallId) inputSpec outputSpec
+        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputTagName outputAddress inputTagName inputAddress (Some apiCallId) inputSpec outputSpec useInputSensor
         DirectPanelOps.withTransactionCallProps store callId "Update ApiCall" (fun () ->
             DirectPanelOps.removeApiCallFromStore store call apiCallId
             DirectPanelOps.addApiCallToStore store call updated)
