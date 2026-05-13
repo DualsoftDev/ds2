@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ad="https://github.com/Dirkster99/AvalonDock"
+        xmlns:adc="clr-namespace:AvalonDock.Controls;assembly=AvalonDock"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:llm="clr-namespace:Promaker.Controls.Llm"
         xmlns:vm="clr-namespace:Promaker.ViewModels"
@@ -58,10 +59,20 @@
              ContentId 모든 항목 필수 (serialize/deserialize key). LlmChat 은 IsVisible=False 기본. -->
         <ad:DockingManager x:Name="dockManager" Grid.Row="1"
                            AllowMixedOrientation="True">
+            <!-- v7 PR-2a F7 — floating window 를 main 위에 강제 노출하지 않음 (VS 표준 동작).
+                 LayoutFloatingWindowControl 은 abstract 라 derived 2종 각각 Style. -->
+            <ad:DockingManager.Resources>
+                <Style TargetType="{x:Type adc:LayoutAnchorableFloatingWindowControl}">
+                    <Setter Property="Topmost" Value="False"/>
+                </Style>
+                <Style TargetType="{x:Type adc:LayoutDocumentFloatingWindowControl}">
+                    <Setter Property="Topmost" Value="False"/>
+                </Style>
+            </ad:DockingManager.Resources>
             <ad:LayoutRoot>
                 <ad:LayoutPanel Orientation="Horizontal">
 
-                    <ad:LayoutAnchorablePane DockWidth="320">
+                    <ad:LayoutAnchorablePane x:Name="explorerPane" DockWidth="320">
                         <ad:LayoutAnchorable x:Name="explorerAnchor"
                                              ContentId="explorer" Title="Explorer"
                                              CanClose="False" CanHide="True"
@@ -86,7 +97,7 @@
                                 <ctrl:SplitCanvasContainer x:Name="WorkspacePane" MinHeight="120"/>
                             </ad:LayoutDocument>
                         </ad:LayoutDocumentPane>
-                        <ad:LayoutAnchorablePane DockHeight="200">
+                        <ad:LayoutAnchorablePane x:Name="simulationPane" DockHeight="200">
                             <ad:LayoutAnchorable x:Name="simulationAnchor"
                                                  ContentId="simulation" Title="Simulation"
                                                  CanClose="False" CanHide="True"
@@ -97,8 +108,8 @@
                         </ad:LayoutAnchorablePane>
                     </ad:LayoutPanel>
 
-                    <ad:LayoutPanel Orientation="Vertical" DockWidth="280">
-                        <ad:LayoutAnchorablePane>
+                    <ad:LayoutPanel x:Name="rightPanel" Orientation="Vertical" DockWidth="280">
+                        <ad:LayoutAnchorablePane x:Name="propertyPane">
                             <ad:LayoutAnchorable x:Name="propertyAnchor"
                                                  ContentId="properties" Title="Properties"
                                                  CanClose="False" CanHide="True"
@@ -107,7 +118,7 @@
                                                     DataContext="{Binding PropertyPanel}"/>
                             </ad:LayoutAnchorable>
                         </ad:LayoutAnchorablePane>
-                        <ad:LayoutAnchorablePane DockHeight="220">
+                        <ad:LayoutAnchorablePane x:Name="historyPane" DockHeight="220">
                             <ad:LayoutAnchorable x:Name="historyAnchor"
                                                  ContentId="history" Title="History"
                                                  CanClose="False" CanHide="True"
@@ -131,7 +142,7 @@
                                 </Border>
                             </ad:LayoutAnchorable>
                         </ad:LayoutAnchorablePane>
-                        <ad:LayoutAnchorablePane>
+                        <ad:LayoutAnchorablePane x:Name="llmChatPane">
                             <ad:LayoutAnchorable x:Name="llmChatAnchor"
                                                  ContentId="llmchat" Title="LLM Chat"
                                                  CanClose="False" CanHide="True"

@@ -432,32 +432,33 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 - [ ] 단일 commit (uncommitted — 사용자 명시 신호 대기).
 
 ### PR-2a — `MainWindow` Grid → DockingManager 외곽 교체 (구조) + LlmChat minimal wiring
-- [ ] `MainWindow.xaml` 외곽 Grid 통째 제거 → §3.1 트리 (Welcome/Canvas 통합 안 A).
-- [ ] `welcomeDoc` ↔ `canvasDoc` 의 `IsVisible` 을 `HasProject` 에 동기화 (단순 PropertyChanged 핸들러).
-- [ ] **LlmChat anchor minimal wiring (단독 머지 회귀 회피, v6 C2)**: `IsLlmChatVisible` PropertyChanged → `llmChatAnchor.IsVisible` 단순 양방향. SSOT 가드 / 3속성 set / autostart race 처리는 PR-2b. ToggleLlmChat 토글 동작 보장.
-- [ ] `LayoutSerializationCallback` 핸들러 등록 (ContentId → Content + e.Cancel 패턴, 단일 dictionary SSOT).
-- [ ] `ReconcileAnchors()` 헬퍼 도입 (callback 종료 직후 호출).
-- [ ] `WelcomeOverlay` / `FileDragOverlay` / `BusyOverlay` 형제 배치 (§3.5). Welcome 안 A 채택으로 `WelcomeOverlay` 의 drop target 역할이 dockManager 안으로 흡수되는지 검토.
-- [ ] `SplitCanvasContainer` `MinHeight` 부여 (LayoutDocument 0-height 방지).
-- [ ] `Ctrl+W` / `Ctrl+F4` vs AvalonDock close command 충돌 fallback 적용 (PR-1b 결과).
-- [ ] `MainWindow.xaml.cs`: `LlmChatSplitter_DragDelta` (line 83-95) 제거, `LlmChatSplitterCol`/`LlmChatPanelCol` 참조 제거, `UpdateLlmChatColumnWidths` 제거.
-- [ ] **PropertyPane wiring 정석 refactor (v6 M1)**: `_vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;` 제거. `PropertyPane.CommandBindings` 에 `FocusNameEditorCommand.Executed` 핸들러 등록.
-- [ ] 빌드 통과 + 수동 시나리오 (Canvas/SimPanel/Property/History/Explorer dock·float·auto-hide·마그넷·Welcome 전환·FileDrag·BusyOverlay).
-- [ ] **PR-2a/PR-4 사이 헤더 중복 표시 기간 회피**: LayoutAnchorable.Title 정책은 §3.4 결정안에 맞춰 미리 적용 (또는 PR-4 와 stacked 머지).
-- [ ] **v7 빈 column 자동 collapse 정책 (Q1)**: anchor 의 `IsVisibleChanged` listener → parent pane 의 모든 children hidden 시 `pane.DockWidth=GridLength(0)` set. 다른 anchor 가 dock 복귀 시 복원.
-- [ ] **v7 닫힌 anchor 복원 UI (Q2)**: ① 메인 메뉴(`MainToolbarEtcContent.xaml` 또는 신규 보기 메뉴) 에 6개 anchor toggle MenuItem + `IsChecked={Binding IsVisible}` 양방향. ② 우측 상단 ▼ 드롭다운 — `LayoutRoot.Hidden` 또는 `Descendents().OfType<LayoutAnchorable>().Where(!IsVisible)` 동적 목록.
-- [ ] **v7 callback e.Cancel=true 명시 (F4)**: unknown ContentId 발생 시 반드시 `e.Cancel=true` + `Log.Warn`. 미설정 시 ghost placeholder 잔존.
-- [ ] **v7 floating window Topmost=false (F7)**: 3 후보 (LayoutItemContainerStyle setter / FloatingWindowControlCreated 이벤트 / FloatingPropertiesUpdated 추적) 중 작동 안 채택. 본 코드 위 spike 1차 확인.
-- [ ] **v7 PR-1b 수동 항목 본 코드 위 회귀 검증**: 5경로 차단 / WindowChrome 사용 여부 / Float cycle 메모리 delta.
-- [ ] 단일 commit (revert 가능).
+- [x] `MainWindow.xaml` 외곽 Grid 통째 제거 → §3.1 트리 (Welcome/Canvas 통합 안 A). (commit 1479f74)
+- [x] `welcomeDoc` ↔ `canvasDoc` 의 `IsVisible` 을 `HasProject` 에 동기화 — LayoutDocument.IsVisible read-only 라 `workspaceDocs.Children` Add/Remove 동적 관리로. (commit 1479f74)
+- [x] **LlmChat anchor minimal wiring (단독 머지 회귀 회피, v6 C2)**: `IsLlmChatVisible` PropertyChanged → `llmChatAnchor.IsVisible` 단순 양방향. (commit 1479f74 — PR-2b SSOT 까지 같이 들어감)
+- [ ] `LayoutSerializationCallback` 핸들러 등록 (ContentId → Content + e.Cancel 패턴, 단일 dictionary SSOT). → **PR-3 으로 이월** (Serialize/Deserialize 도입 시).
+- [ ] `ReconcileAnchors()` 헬퍼 도입 (callback 종료 직후 호출). → **PR-3 으로 이월**.
+- [x] `WelcomeOverlay` / `FileDragOverlay` / `BusyOverlay` 형제 배치 (§3.5). WelcomeOverlay 의 drop target 역할 → Window 레벨 핸들러로 흡수 (FileDragOverlay 의 watchdog 그대로). (commit 1479f74)
+- [x] `SplitCanvasContainer` `MinHeight=120` 부여. (commit 1479f74)
+- [ ] `Ctrl+W` / `Ctrl+F4` vs AvalonDock close command 충돌 fallback. → **Phase B 또는 PR-5 후속**. (anchor 모두 CanClose=False 라 close command 자체 비활성 — 현 코드에서 충돌 없는 것으로 보임. 수동 회귀 후 결정.)
+- [x] `MainWindow.xaml.cs`: `LlmChatSplitter_DragDelta` 제거, `LlmChatSplitterCol`/`LlmChatPanelCol` 참조 제거, `UpdateLlmChatColumnWidths` 제거. (commit 1479f74)
+- [x] **PropertyPane wiring 정석 refactor (v6 M1)**: `_vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;` 제거. PropertyPanel.xaml.cs 의 Loaded/Unloaded 에서 자가 등록/해지 (`Application.Current.MainWindow.DataContext as MainViewModel`). RoutedCommand 안 대신 fallback 안 채택 — RelayCommand 라 CommandBinding(Executed) 가 부적합.
+- [x] 빌드 통과 (Phase A commit 시점 0/0).
+- [ ] **수동 시나리오 검증** (Canvas/SimPanel/Property/History/Explorer dock·float·auto-hide·마그넷·Welcome 전환·FileDrag·BusyOverlay). → **Phase B**.
+- [ ] **PR-2a/PR-4 사이 헤더 중복 표시 기간 회피**: LayoutAnchorable.Title 정책. → **PR-4 와 stacked 머지** (Phase B 까지 임시 노출 OK).
+- [x] **v7 빈 column 자동 collapse 정책 (Q1)**: 5 anchor IsVisibleChanged listener 1개 핸들러 `OnAnchorIsVisibleChanged` — explorerPane / simulationPane / historyPane / rightPanel 의 DockWidth/DockHeight 를 default ↔ 0 toggle. rightPanel 은 property/history/llm 셋 다 hidden 일 때만 collapse.
+- [ ] **v7 닫힌 anchor 복원 UI (Q2)**: ① 메인 메뉴 보기 하위 + ② 우측 상단 ▼ 드롭다운. → **Phase B** (UI 신규 컨트롤 + 사용자 검증 필요).
+- [ ] **v7 callback e.Cancel=true 명시 (F4)**: unknown ContentId 발생 시. → **PR-3 으로 이월**.
+- [x] **v7 floating window Topmost=false (F7)**: 안 (a) `DockingManager.Resources` 의 `LayoutAnchorableFloatingWindowControl` / `LayoutDocumentFloatingWindowControl` Style setter (Topmost=False) 적용. → **Phase B 수동 검증 필요** (Style 매핑 동작 여부).
+- [ ] **v7 PR-1b 수동 항목 본 코드 위 회귀 검증**: 5경로 차단 / WindowChrome 사용 여부 / Float cycle 메모리 delta. → **Phase B**.
+- [x] commit 분할: Phase A (이번 turn) + Phase B (UI 추가).
 
 ### PR-2b — LlmChat SSOT 완성 + 측정 자동화
-- [ ] §3.3 SSOT 모델 완성 적용 (3속성 동시 set, `_suppressVmSync` 양방향 가드).
-- [ ] `llmChatAnchor.Hiding` 또는 `Hidden` 이벤트 → VM 역방향 동기화 (PR-1b spike 3 결과로 정확한 이벤트 결정).
-- [ ] `LlmChatVm == null` / `ENABLE_LLM=false` edge case.
-- [ ] **Autostart race 해결**: `InitLlmAutostart()` 의 `DispatcherPriority.Loaded` → `ApplicationIdle` 변경. layout 복원 + ReconcileAnchors 완료 후 실행 보장.
-- [ ] 측정 자동화 시나리오: `App.StartupAutoOpenLlm` true 시 정상 close 확인.
-- [ ] **`Window_Closing` 순서 명시 (v6 R2.M4)**: (1) layout save → (2) `dockManager.FloatingWindows.ToList().ForEach(close)` → (3) `DisposeLlmChatAsync` → (4) `BeginInvoke(Close, Background)`. 두 번째 진입은 idempotent.
+- [x] §3.3 SSOT 모델 완성 적용 (3속성 동시 set / true·false 양 분기 / `_suppressLlmChatSync` 양방향 가드).
+- [x] `llmChatAnchor.Hiding` 이벤트 → VM 역방향 동기화 (`Hidden` 이벤트 부재 확정).
+- [x] `LlmChatVm == null` / `ENABLE_LLM=false` edge case — `SyncLlmChatAnchorFromVm` 안에서 `_vm.LlmChatVm != null && _vm.IsLlmEnabled` AND 조건으로 처리. anchor 자체는 layout 에 남김 (Phase B 의 복원 UI 메뉴에서 비활성 표시).
+- [x] **Autostart race 해결**: `InitLlmAutostart()` 의 `DispatcherPriority.Loaded` → `ApplicationIdle` 변경.
+- [ ] 측정 자동화 시나리오: `App.StartupAutoOpenLlm` true 시 정상 close 확인. → **Phase B 수동 검증**.
+- [x] **`Window_Closing` 순서 명시 (v6 R2.M4)**: (1) save [PR-3] → (2) `CloseAllFloatingWindows` (floating anchor 일괄 Hide) → (3) `DisposeLlmChatAsync` → (4) `BeginInvoke(Close, Background)`. `_llmChatDisposed=true` 가드로 idempotent.
 
 ### PR-3 — Layout 저장/복원 + DockThemeBridge + Reset
 - [ ] **`Promaker.Persistence.DockLayoutPersistence`** 헬퍼 추가 (§3.2 단순화 API).

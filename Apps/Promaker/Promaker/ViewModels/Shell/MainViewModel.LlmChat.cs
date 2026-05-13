@@ -84,7 +84,9 @@ public partial class MainViewModel
                 Log.Fatal($"autostart-llm 측정 모드에서 LlmChatVm 생성 실패 (consent 거부?). shutdown({App.MeasureExitLlmVmMissing}).");
                 Application.Current?.Shutdown(App.MeasureExitLlmVmMissing);
             }
-        }), DispatcherPriority.Loaded);
+            // v7 PR-2b — Loaded 가 아닌 ApplicationIdle 로 한 tick 더 미뤄야 dock layout 복원 + ReconcileAnchors 완료 보장.
+            // todo §3.3 Autostart race 해결.
+        }), DispatcherPriority.ApplicationIdle);
     }
 
     /// <summary>
