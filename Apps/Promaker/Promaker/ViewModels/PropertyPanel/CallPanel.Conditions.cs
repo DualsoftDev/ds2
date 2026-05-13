@@ -103,7 +103,7 @@ public partial class PropertyPanelState
             row.ApiDefDisplayName,
             row.OutputSpecText, row.OutputSpecTypeIndex,
             row.InputSpecText,  row.InputSpecTypeIndex,
-            row.UseInputSensor);
+            row.SkipInputSensor);
         ShowOwnedDialog(dialog);
         if (dialog.DialogResult != true) return;
 
@@ -116,9 +116,9 @@ public partial class PropertyPanelState
                 callId, row.ConditionId, row.ApiCallId,
                 dialog.InSpecTypeIndex, dialog.InSpecText));
         _host.TryAction(() =>
-            Store.UpdateConditionApiCallUseInputSensor(
+            Store.UpdateConditionApiCallSkipInputSensor(
                 callId, row.ConditionId, row.ApiCallId,
-                dialog.UseInputSensor));
+                dialog.SkipInputSensor));
         RefreshCallPanel(callId);
     }
 

@@ -285,7 +285,7 @@ module PanelTests =
                 "", "in-addr",
                 0, "",
                 0, "",
-                true)
+                false)
 
         let created = store.ApiCalls.[createdId]
         Assert.Equal("DeviceApi", created.Name)
