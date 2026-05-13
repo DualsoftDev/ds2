@@ -22,3 +22,4 @@
 - **코드 베이스 검증 범위** (상대 경로로 참조):
   - `../../../../../Solutions/Core/Ds2.Core/` 하부
   - `../../../../../Solutions/Runtime/Ds2.Runtime/` 하부
+  - `../../../../../Solutions/Convert/Ds2.JsonFormatter/json-format.md`
