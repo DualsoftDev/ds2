@@ -22,7 +22,7 @@ module ConditionCrudTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
-        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", true)
+        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", false)
         project, system, call, apiDef, apiCallId
 
     // ── ReplaceCallConditionTree round-trip ──────────────────────────────
@@ -42,7 +42,7 @@ module ConditionCrudTests =
         let store = createStore ()
         let _, system, call, _, ac1 = setupCallWithApiCall store
         let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", true)
+        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
 
         let tree = dto false [ ac1; ac2 ] []
         store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
@@ -57,7 +57,7 @@ module ConditionCrudTests =
         let store = createStore ()
         let _, system, call, _, ac1 = setupCallWithApiCall store
         let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", true)
+        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
 
         let tree = dto true [ ac1; ac2 ] []
         store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
@@ -72,9 +72,9 @@ module ConditionCrudTests =
         let store = createStore ()
         let _, system, call, _, ac1 = setupCallWithApiCall store
         let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", true)
+        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
         let apiDef3 = addApiDef store "Api3" system.Id
-        let ac3 = store.AddApiCallFromPanel(call.Id, apiDef3.Id, "", "", "", "", 0, "", 0, "", true)
+        let ac3 = store.AddApiCallFromPanel(call.Id, apiDef3.Id, "", "", "", "", 0, "", 0, "", false)
 
         // (ac1 AND ac2) OR ac3 — root is OR, child is AND group with ac1+ac2, leaf ac3.
         // 모델: top IsOR=true, items=[ac3], children=[{IsOR=false, items=[ac1,ac2]}]
@@ -165,7 +165,7 @@ module ConditionCrudTests =
         let store = createStore ()
         let _, system, call, _, ac1 = setupCallWithApiCall store
         let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", true)
+        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
         let tree = dtoEx false false [ ac1; ac2 ]
                           [ ContactKind.NcContact; ContactKind.RisingPulse ] []
         store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
@@ -216,7 +216,7 @@ module FormulaTextTests =
 
     let private aci (name: string) (spec: string) =
         CallConditionApiCallItem(Guid.NewGuid(), name, name, spec, 0, "", 0,
-                                 ContactKind.NoContact, ValueSpec.UndefinedValue, true)
+                                 ContactKind.NoContact, ValueSpec.UndefinedValue, false)
 
     let private panel isOr items children =
         CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux,

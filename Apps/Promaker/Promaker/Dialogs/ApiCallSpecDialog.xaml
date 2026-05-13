@@ -66,14 +66,14 @@
                                    Foreground="{DynamicResource AccentBrush}"
                                    VerticalAlignment="Center"/>
                         <CheckBox Grid.Column="1"
-                                  x:Name="UseInputSensorCheck"
-                                  Content="UseInputSensor (실 센서 사용)"
+                                  x:Name="SkipInputSensorCheck"
+                                  Content="SkipInputSensor (Work.Duration 으로 완료)"
                                   FontSize="11"
                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                   VerticalAlignment="Center"
-                                  Checked="UseInputSensorCheck_Changed"
-                                  Unchecked="UseInputSensorCheck_Changed"
-                                  ToolTip="체크: 실 센서(InTag) 감지로 완료 판정.&#x0a;해제: Work.Duration 흐름 후 가상 완료 (센서 없이)."/>
+                                  Checked="SkipInputSensorCheck_Changed"
+                                  Unchecked="SkipInputSensorCheck_Changed"
+                                  ToolTip="체크: 실 센서 스킵 — Work.Duration 흐름 후 가상 완료.&#x0a;해제 (기본): 실 센서(InTag) 감지로 완료 판정."/>
                     </Grid>
                     <ctrl:ValueSpecEditorControl x:Name="InSpecEditor"/>
                 </StackPanel>

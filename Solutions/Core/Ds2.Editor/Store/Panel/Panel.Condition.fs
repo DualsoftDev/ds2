@@ -187,15 +187,15 @@ type DsStorePanelConditionExtensions =
         else false
 
     [<Extension>]
-    static member UpdateConditionApiCallUseInputSensor(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, useInputSensor: bool) : bool =
+    static member UpdateConditionApiCallSkipInputSensor(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, skipInputSensor: bool) : bool =
         Queries.requireNonReferenceCall callId store
-        StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}, useInputSensor={useInputSensor}")
+        StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}, skipInputSensor={skipInputSensor}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)
-        if ac.UseInputSensor <> useInputSensor then
-            DirectPanelOps.mutateCallProps store callId "조건 UseInputSensor 변경" (fun c ->
+        if ac.SkipInputSensor <> skipInputSensor then
+            DirectPanelOps.mutateCallProps store callId "조건 SkipInputSensor 변경" (fun c ->
                 let targetCond = DirectPanelOps.requireCondition callId c condId
                 let targetApiCall = DirectPanelOps.requireApiCallInCondition callId condId targetCond apiCallId
-                targetApiCall.UseInputSensor <- useInputSensor)
+                targetApiCall.SkipInputSensor <- skipInputSensor)
             true
         else false
