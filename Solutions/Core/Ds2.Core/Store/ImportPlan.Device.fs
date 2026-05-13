@@ -240,7 +240,7 @@ module internal ImportPlanDeviceOps =
     /// `apiDefRefs` 의 입력 순서와 zip 하여 batch ref table 에 다중 등록한다. 순서 파괴 시 ref 가
     /// 다른 ApiDef 를 가리키는 silent miscompile 가능 → 본 보장은 contract.
     /// helper 는 *신규* device 생성 책임만 짐 — 동명 PassiveSystem 이 store 에 이미 존재하면 invalidOp.
-    /// 기존 device 재사용 시나리오는 LLM 이 사전에 find_by_name/list_systems 로 조회 후 primitive add_call 사용.
+    /// 기존 device 재사용 시나리오는 LLM 이 사전에 find_by_name/export_model_doc 로 조회 후 primitive add_call 사용.
     let internal buildPassiveDeviceCascade
         (store: DsStore)
         (projectId: Guid)
@@ -256,7 +256,7 @@ module internal ImportPlanDeviceOps =
             |> List.tryFind (fun s -> s.Name = name)
         match existing with
         | Some _ ->
-            invalidOp $"PassiveSystem '{name}' 이 이미 존재합니다 — find_by_name/list_systems 로 사전 조회 후 primitive add_call 로 기존 ApiDef.Id 참조 권장 (helper 는 신규 device 생성 책임)"
+            invalidOp $"PassiveSystem '{name}' 이 이미 존재합니다 — find_by_name/export_model_doc 로 사전 조회 후 primitive add_call 로 기존 ApiDef.Id 참조 권장 (helper 는 신규 device 생성 책임)"
         | None -> ()
         let system, deviceKey, stateWithSystem =
             ensureSystem store projectId name name (Some name) (Some deviceType) operations initialState
