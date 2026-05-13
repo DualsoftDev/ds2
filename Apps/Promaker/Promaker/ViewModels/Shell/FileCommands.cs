@@ -1,11 +1,13 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Ds2.LlmAgent;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
@@ -17,7 +19,7 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     private const string FileFilter =
-        "All Supported (*.sdf;*.json;*.aasx;*.md)|*.sdf;*.json;*.aasx;*.md|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
+        "All Supported (*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml)|*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md|YAML Files — lossy 공유 포맷 (*.yaml;*.yml)|*.yaml;*.yml";
 
     private static bool HasExtension(string path, string extension) =>
         Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
@@ -25,6 +27,15 @@ public partial class MainViewModel
     private static bool IsAasx(string path) => HasExtension(path, FileExtensions.Aasx);
 
     private static bool IsMermaid(string path) => HasExtension(path, FileExtensions.Mermaid);
+
+    private static bool IsYaml(string path) =>
+        HasExtension(path, FileExtensions.Yaml) || HasExtension(path, FileExtensions.YamlAlt);
+
+    /// <summary>
+    /// `.yaml` Open 직후 AfterFileLoad 가 IsDirty=false 로 덮어쓰지 않도록 lossy 표식.
+    /// CompleteOpen→AfterFileLoad chain 의 마지막에 IsDirty=true 강제 후 즉시 reset.
+    /// </summary>
+    private bool _loadedAsLossy;
 
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
@@ -140,7 +151,30 @@ public partial class MainViewModel
 
     private void OpenFilePathCore(string fileName)
     {
-        if (IsMermaid(fileName))
+        // _loadedAsLossy 는 yaml 분기에서만 set. 다른 분기 진입 직전 안전 reset.
+        _loadedAsLossy = false;
+
+        if (IsYaml(fileName))
+        {
+            TryRunFileOperation(
+                $"Open YAML '{fileName}'",
+                () =>
+                {
+                    var yamlText = File.ReadAllText(fileName, Encoding.UTF8);
+                    var result = ModelProtocolYamlIO.loadStoreFromYamlText(yamlText);
+                    if (!TryGetResult(
+                            result,
+                            err => $"YAML 불러오기 실패:\n\n{err}",
+                            out var store))
+                        return;
+
+                    PrepareForLoadedStore();
+                    _loadedAsLossy = true;
+                    ReplaceOpenedStore(fileName, store, "YAML");
+                },
+                ex => $"YAML 불러오기 실패: {ex.Message}");
+        }
+        else if (IsMermaid(fileName))
         {
             TryRunFileOperation(
                 $"Open Mermaid '{fileName}'",
@@ -212,6 +246,15 @@ public partial class MainViewModel
         // undo 항목을 생성할 수 있으므로, 로드 완료 후 초기 상태로 확정
         _store.ClearHistory();
         IsDirty = false;
+
+        // YAML lossy 재구성 — 시뮬 결과·position·alias 잃음. 사용자에게 "영구 보존은 .sdf SaveAs" 시그널.
+        // CompleteOpen→AfterFileLoad 가 IsDirty=false 로 덮어쓰는 race 의 후속 정정.
+        if (_loadedAsLossy)
+        {
+            IsDirty = true;
+            _loadedAsLossy = false;
+        }
+
         UpdateTitle();
     }
 
@@ -400,10 +443,17 @@ public partial class MainViewModel
         var suggestedName = _currentFilePath is not null
             ? Path.GetFileNameWithoutExtension(_currentFilePath)
             : (!projects.IsEmpty ? projects.Head.Name : "project");
+
+        // _currentFilePath 가 .yaml 인 상태에서 SaveAs default 가 .sdf 면 사용자 의도 위반 →
+        // 현 경로 확장자 기준 동적 선택. 신규 프로젝트는 기존대로 .sdf.
+        var defaultExt = _currentFilePath is null
+            ? FileExtensions.Sdf
+            : Path.GetExtension(_currentFilePath).ToLowerInvariant();
+
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,
-            DefaultExt = FileExtensions.Sdf,
+            DefaultExt = string.IsNullOrEmpty(defaultExt) ? FileExtensions.Sdf : defaultExt,
             FileName = suggestedName
         };
 
@@ -502,6 +552,36 @@ public partial class MainViewModel
             }
         }
 
+        if (IsYaml(filePath))
+        {
+            // 대형 store 의 yaml export 는 1-2초 소요 가능 → BusyOverlay.
+            // export 실패 시 ShowWarning (modal) 이 BusyOverlay 위에 겹치지 않도록, dialog 노출 직전
+            // BusyOverlay 복원. notice dialog (성공 분기) 도 같은 원칙 — overlay 해제 후 표시.
+            var prevBusy = IsBusy;
+            var prevMsg = BusyMessage;
+            BusyMessage = "YAML 저장 중...";
+            IsBusy = true;
+            try
+            {
+                var text = ModelProtocolYamlIO.exportStoreToYamlText(_store);
+                File.WriteAllText(filePath, text, new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                BusyMessage = prevMsg;
+                IsBusy = prevBusy;
+                Log.Error($"Save YAML '{filePath}' failed", ex);
+                _dialogService.ShowWarning($"YAML 저장 실패: {ex.Message}");
+                return false;
+            }
+            BusyMessage = prevMsg;
+            IsBusy = prevBusy;
+            if (!ShouldSuppressYamlSaveNotice())
+                ShowYamlSaveNoticeOnce();
+            CompleteSave(filePath, "YAML");
+            return true;
+        }
+
         try
         {
             _store.SaveToFile(filePath);
@@ -514,6 +594,36 @@ public partial class MainViewModel
             _dialogService.ShowWarning($"Failed to save file: {ex.Message}");
             return false;
         }
+    }
+
+    private static bool ShouldSuppressYamlSaveNotice() =>
+        AppSettingStore.LoadBoolOrDefault(SettingsPaths.YamlSaveNoticeShown, defaultValue: false);
+
+    /// <summary>
+    /// 최초 Save(.yaml) 1회 lossy 안내 dialog. "다시 보지 않기" 체크 시 AppSettingStore 에 영구 persistence.
+    /// 메시지 톤: 위협 아닌 가치-기반 (AASX 안내 dialog 패턴).
+    /// lossy 4-set = GUID / position / alias / 시뮬 결과 — SSOT / dialog / title bar 모두 sync.
+    /// </summary>
+    private static void ShowYamlSaveNoticeOnce()
+    {
+        const string Message =
+            ".yaml 저장은 모델의 선언적 표현만 보존합니다.\n" +
+            "  • GUID · 위치 · alias · 시뮬 결과는 저장되지 않으며, 다시 열 때 자동 재발행됩니다.\n\n" +
+            "영구 보존 / 시뮬 결과 공유 / 위치 보존이 필요하면 .sdf 를 사용하세요.\n" +
+            "YAML 은 사람이 읽고 LLM 이 다루기 좋은 공유 포맷입니다.";
+
+        DialogHelpers.ShowThemedMessageBox(
+            Application.Current?.MainWindow,
+            Message,
+            "YAML 저장 안내",
+            MessageBoxButton.OK,
+            DialogHelpers.IconInfo,
+            showDontShowAgain: true,
+            out var dontShowAgain,
+            dontShowAgainLabel: "다시 보지 않기 (이 PC 영구)");
+
+        if (dontShowAgain)
+            AppSettingStore.SaveBool(SettingsPaths.YamlSaveNoticeShown, true);
     }
 
     /// <summary>

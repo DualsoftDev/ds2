@@ -52,6 +52,7 @@ public partial class MainViewModel
 
         _currentFilePath = null;
         _currentFileMTime = null;
+        _loadedAsLossy = false;
         IsDirty = false;
         HasProject = false;
         CanUndo = false;
@@ -112,7 +113,15 @@ public partial class MainViewModel
     {
         var dirty = IsDirty ? " *" : "";
         var file = _currentFilePath is not null ? $" - {System.IO.Path.GetFileName(_currentFilePath)}" : "";
-        Title = $"{AppInfo.TitleBase}{file}{dirty}";
+        // .yaml 저장 경로일 때 silent overwrite UX 위험 차단 — 영구 [YAML, lossy] 배지.
+        // Ctrl+S 반복으로 IsDirty 해제 후에도 사용자가 lossy 의미를 즉시 인지 가능.
+        var ext = _currentFilePath is not null
+            ? System.IO.Path.GetExtension(_currentFilePath)
+            : "";
+        var isYaml = ext.Equals(Promaker.Presentation.FileExtensions.Yaml, System.StringComparison.OrdinalIgnoreCase)
+                     || ext.Equals(Promaker.Presentation.FileExtensions.YamlAlt, System.StringComparison.OrdinalIgnoreCase);
+        var lossyBadge = isYaml ? " [YAML, lossy]" : "";
+        Title = $"{AppInfo.TitleBase}{file}{lossyBadge}{dirty}";
     }
 
     internal void PrepareForLoadedStore()

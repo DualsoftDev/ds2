@@ -1271,6 +1271,28 @@ module ModelProtocol =
                                                 c.DevicesAlias
                                         w.WriteStringValue(sprintf "%s.%s" sysName c.ApiName)
                                     w.WriteEndArray()
+                                // arrows (Work 안 — ArrowBetweenCalls). round-trip 정합: apply 측 (line 617~) 의
+                                // callIdMap 키 (`sysName.apiName`) 와 동일한 normalized 표현 사용 → load 시 resolveCallId
+                                // 매칭 보장. 미 emit 시 work-level call 간 분기 (병렬/순차) 정보가 round-trip 에서 소실.
+                                let callArrows = Queries.arrowCallsOf wk.Id store
+                                if not callArrows.IsEmpty then
+                                    let toCallRef (c: Call) =
+                                        let sysName =
+                                            Queries.tryResolveCallTargetSystem c store
+                                            |> Option.map (fun sys -> sys.Name)
+                                            |> Option.defaultValue c.DevicesAlias
+                                        sprintf "%s.%s" sysName c.ApiName
+                                    w.WritePropertyName "arrows"
+                                    w.WriteStartArray()
+                                    for a in callArrows do
+                                        match Queries.getCall a.SourceId store, Queries.getCall a.TargetId store with
+                                        | Some sc, Some tc ->
+                                            w.WriteStringValue(
+                                                sprintf "%s -> %s : %s"
+                                                    (toCallRef sc) (toCallRef tc) (formatArrowType a.ArrowType))
+                                        | _ ->
+                                            log.Warn(sprintf "[exportToJson] ArrowBetweenCalls %O source/target Call resolution 실패 — emit 누락" a)
+                                    w.WriteEndArray()
                                 // Active Work duration override (default 500ms 와 다른 경우만 emit)
                                 match wk.Duration with
                                 | Some d when d <> TimeSpan.FromMilliseconds 500. ->

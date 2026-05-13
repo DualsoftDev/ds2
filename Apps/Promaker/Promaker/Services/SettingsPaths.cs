@@ -49,6 +49,9 @@ public static class SettingsPaths
     /// <summary>Log tab ComboBox 의 선택 LogLevelChoice (Debug/Info/Warn). AppLogState 가 세션 간 영속화.</summary>
     public static string LogFilterLevel                  => Of("logFilterLevel.txt");
 
+    /// <summary>`.yaml` 저장 시 lossy 안내 dialog 의 "다시 보지 않기" persistence. true 면 다음 호출부터 dialog skip.</summary>
+    public static string YamlSaveNoticeShown             => Of("yamlSaveNoticeShown.txt");
+
     /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
     public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
 
