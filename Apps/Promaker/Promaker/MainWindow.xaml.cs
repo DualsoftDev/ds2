@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     private const int DwmwaCaptionColor = 35;
     private const int DwmwaTextColor = 36;
 
+    // v7 PR-2a — VM ↔ View 동기화 재진입 가드. spike 결과 IsVisibleChanged 가 Hide()/Show() 1회당 3~4회 raise.
+    private bool _suppressLlmChatSync;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -30,12 +33,8 @@ public partial class MainWindow : Window
         _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
-        // 1d-4 D — IsLlmChatVisible 토글 시 dock column width 조정 (collapsed 시 splitter 도 0).
-        _vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible))
-                UpdateLlmChatColumnWidths();
-        };
+        _vm.PropertyChanged += OnViewModelPropertyChanged;
+        llmChatAnchor.Hiding += OnLlmChatHiding;
 
         // Tray 전환 콜백 wiring — Monitoring + RealPLC 시 PLAY 가 RequestTrayHide 호출.
         // STOP / 모드 전환 시 RequestTrayRestore 호출.
@@ -81,48 +80,83 @@ public partial class MainWindow : Window
             System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private const double LlmChatColumnDefaultWidth = 380.0;
-    private const double LlmChatColumnMinWidth = 240.0;
-
-    private void UpdateLlmChatColumnWidths()
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        // OpenLayout / WelcomeLayout 양쪽 LLM Chat dock column 동시 갱신.
-        // HasProject 토글 시 layout 자체가 Collapsed/Visible 되지만 ColumnDefinition 은 미리 동기화해두어야 전환 직후 폭이 맞음.
-        var splitterW = _vm.IsLlmChatVisible ? new GridLength(4) : new GridLength(0);
-        var panelW    = _vm.IsLlmChatVisible ? new GridLength(LlmChatColumnDefaultWidth) : new GridLength(0);
-        var panelMinW = _vm.IsLlmChatVisible ? LlmChatColumnMinWidth : 0;
+        switch (e.PropertyName)
+        {
+            case nameof(MainViewModel.IsLlmChatVisible):
+                SyncLlmChatAnchorFromVm();
+                break;
+            case nameof(MainViewModel.HasProject):
+                SyncWelcomeCanvasVisibility();
+                break;
+        }
+    }
 
-        LlmChatSplitterCol.Width = splitterW;
-        LlmChatPanelCol.Width    = panelW;
-        LlmChatPanelCol.MinWidth = panelMinW;
+    // VM → View 단방향 (3속성 동시 set). 재진입 가드로 IsVisibleChanged 중복 raise → VM 역류 차단.
+    private void SyncLlmChatAnchorFromVm()
+    {
+        if (_suppressLlmChatSync) return;
+        _suppressLlmChatSync = true;
+        try
+        {
+            if (_vm.IsLlmChatVisible)
+            {
+                llmChatAnchor.IsVisible = true;
+                llmChatAnchor.IsActive = true;
+                llmChatAnchor.IsSelected = true;
+            }
+            else
+            {
+                // false 분기도 IsActive/IsSelected 동시 false — 다음 Show 사이클의 첫 클릭 dead 회피.
+                llmChatAnchor.IsVisible = false;
+                llmChatAnchor.IsActive = false;
+                llmChatAnchor.IsSelected = false;
+            }
+        }
+        finally { _suppressLlmChatSync = false; }
+    }
 
-        WelcomeLlmChatSplitterCol.Width = splitterW;
-        WelcomeLlmChatPanelCol.Width    = panelW;
-        WelcomeLlmChatPanelCol.MinWidth = panelMinW;
+    // View → VM (X 버튼 = 사용자 명시 close 한 곳만). auto-hide / float 상태 변화는 무관.
+    // e.Cancel 은 기본값 false 유지 — hide 자체는 그대로 진행 + VM 만 동기화.
+    private void OnLlmChatHiding(object? sender, CancelEventArgs e)
+    {
+        if (_suppressLlmChatSync) return;
+        _suppressLlmChatSync = true;
+        try
+        {
+            _vm.IsLlmChatVisible = false;
+        }
+        finally { _suppressLlmChatSync = false; }
+    }
+
+    // HasProject 토글 시 welcomeDoc / canvasDoc 중 하나만 LayoutDocumentPane 에 attach.
+    // LayoutDocument.IsVisible 은 XAML/C# 양쪽 모두 read-only (CS0200) 라 anchor 와 달리 set 불가능 →
+    // workspaceDocs.Children Add/Remove 동적 관리로 처리.
+    //
+    // M1 (PR-1b 검열 발견) 잔여 우려: PR-3 의 XmlLayoutSerializer 도입 시 detach 된 LayoutDocument 인스턴스 가
+    // serialize 직전에 attach 되어 있어야 round-trip 정합. PR-3 진입 시 spike 1차 검증 필요.
+    private void SyncWelcomeCanvasVisibility()
+    {
+        var children = workspaceDocs.Children;
+        var (target, other) = _vm.HasProject ? (canvasDoc, welcomeDoc) : (welcomeDoc, canvasDoc);
+        if (children.Contains(other)) children.Remove(other);
+        if (!children.Contains(target)) children.Add(target);
+        target.IsActive = true;
+        target.IsSelected = true;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        // v7 PR-2a (검열 Major 1) — XAML 트리 / LayoutDocumentPane SelectedContentIndex 완전 unwound 이후 시점.
+        // 생성자 InitializeComponent 직후 호출은 nondeterministic 위험.
+        SyncWelcomeCanvasVisibility();
+
         if (App.StartupFilePath is { } path)
         {
             App.StartupFilePath = null;
             _vm.OpenFilePath(path);
         }
-    }
-
-    // GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피 — col 4/col 6 합계만 trade-off.
-    private void LlmChatSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
-    {
-        var grid = (System.Windows.Controls.Grid)((System.Windows.Controls.Primitives.Thumb)sender).Parent;
-        var colProperties = grid.ColumnDefinitions[4];
-        var colLlm = grid.ColumnDefinitions[6];
-
-        double total = colProperties.ActualWidth + colLlm.ActualWidth;
-        double newProp = Math.Clamp(colProperties.ActualWidth + e.HorizontalChange,
-                                    colProperties.MinWidth, total - colLlm.MinWidth);
-
-        colProperties.Width = new GridLength(newProp);
-        colLlm.Width = new GridLength(total - newProp);
     }
 
     private bool _llmChatDisposed;
@@ -382,6 +416,8 @@ public partial class MainWindow : Window
     {
         // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
+        _vm.PropertyChanged -= OnViewModelPropertyChanged;
+        llmChatAnchor.Hiding -= OnLlmChatHiding;
         // 트레이 아이콘 정리 — stale 잔존 방지.
         try { _trayService.Dispose(); } catch { /* ignore */ }
     }
