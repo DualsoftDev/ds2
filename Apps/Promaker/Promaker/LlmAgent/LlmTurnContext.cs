@@ -41,7 +41,10 @@ public sealed class LlmTurnContext
 
     /// <summary>validate_model 결과 short-lived cache. 같은 scope 가 ValidateCacheTtlMs 안 재호출 시 재사용.
     /// dispatcher.InvokeAsync 안에서만 read/write 되므로 별도 lock 불필요 (RunRead 가 work delegate 를
-    /// dispatcher 위에서 실행함을 가정 — ModelTools.RunRead 참조).</summary>
+    /// dispatcher 위에서 실행함을 가정 — ModelTools.RunRead 참조).
+    /// **scopeKey sentinel (Phase 6)**: empty string "" = global (전체 scope). 그 외 = dotted-path 문자열
+    /// (예: ".Proj1.SysA"). 'global' literal / GUID 형식은 Phase 6 에서 폐기 (ModelTools.ValidateModel
+    /// 참조). null/sentinel literal collision 회피 — `string.IsNullOrEmpty` 한 줄로 분기.</summary>
     private (string scopeKey, long tickMs, string result)? _validateCache;
 
     /// <summary>

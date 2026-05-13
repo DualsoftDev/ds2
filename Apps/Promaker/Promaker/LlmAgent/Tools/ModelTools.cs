@@ -197,14 +197,28 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model.")]
+    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model. path/depth 인자 (Phase 6, GUID-free): path = dotted-path (예: '.Proj1.SysA') — 부재 = 전체. depth = 0 이상 정수 — 부재 = 무제한. 두 인자 모두 부재 = 전체 export (view: full). 둘 중 하나라도 명시 = 부분 export (실제 truncation 발생 시 view: partial). 일소된 list_projects/list_systems/describe_system/describe_subtree 흡수.")]
     public static Task<string> ExportModelDoc(
         LlmTurnContextProvider turnProvider,
-        [Description("출력 형식. 'yaml' (default) 또는 'json'.")] string format = "yaml")
+        [Description("출력 형식. 'yaml' (default) 또는 'json'.")] string format = "yaml",
+        [Description("dotted-path scope (예: '.Proj1.SysA.Flow1'). leading '.' 권장. 부재 = 전체 export. 미존재 path 는 사전 거부.")] string? path = null,
+        [Description("path 또는 root 로부터 walk 깊이 (0 이상 정수). 0 = 해당 entity 자체만 (자식 빈 list). 부재 = 무제한.")] int? depth = null)
     {
+        // Phase 6 closure #4 / 회귀 fact (e): depth schema 사전 거부 — `< 0` reject.
+        // 비정수 / overflow 는 MCP framework 의 int? 바인딩이 사전 거부 (분리 분기 불요).
+        if (depth.HasValue && depth.Value < 0)
+            return Task.FromResult($"VALIDATION_ERROR: depth '{depth.Value}' 가 0 이상 정수가 아닙니다 (`depth >= 0` 필요).");
+
+        var pathArg = string.IsNullOrWhiteSpace(path)
+            ? Microsoft.FSharp.Core.FSharpOption<string>.None
+            : Microsoft.FSharp.Core.FSharpOption<string>.Some(path.Trim());
+        var depthArg = depth.HasValue
+            ? Microsoft.FSharp.Core.FSharpOption<int>.Some(depth.Value)
+            : Microsoft.FSharp.Core.FSharpOption<int>.None;
+
         return RunRead(turnProvider, "export_model_doc", ctx =>
         {
-            using var jdoc = ModelProtocol.exportToJson(ctx.Store);
+            using var jdoc = ModelProtocol.exportToJsonScoped(ctx.Store, pathArg, depthArg);
             var fmt = string.IsNullOrWhiteSpace(format) ? "yaml" : format.Trim().ToLowerInvariant();
             return fmt switch
             {
@@ -255,50 +269,60 @@ public static class ModelTools
             var rows = ToolOperations.findByName(ctx.Store, name.Trim(), fsKind);
             if (rows.Length == 0) return "(no matches)";
             // SSOT yaml-protocol-v0.md §2.5.1 / §4.5 (Phase 6 todo-read-surface-guid-cleanup.md closure #3 v4):
-            // 출력 = `[ {kind, path} ]` 목록. ModelProtocol.pathOf 가 entity → leading `.` + dot path 합성
-            // (root 까지 parent chain).
+            // 출력 = `[ {kind, path} ]` 목록. ModelProtocol.tryPathOf 가 entity → leading `.` + dot path 합성
+            // (root 까지 parent chain). orphan System (project 미부착) / path-unsupported kind 는 None →
+            // 빈 "" emit 대신 명시적 marker (`<orphan:Name>` / `<unsupported:Kind>`) 로 모호성 회피.
             var truncated = rows.Length > 50;
             var visible = truncated ? Microsoft.FSharp.Collections.ListModule.Truncate(50, rows) : rows;
             var sb = new System.Text.StringBuilder();
             foreach (var triple in visible)
             {
-                var path = ModelProtocol.pathOf(ctx.Store, triple.Item1, triple.Item2);
-                sb.AppendLine($"- {triple.Item1} (path={path})");
+                var kind2 = triple.Item1;
+                var id = triple.Item2;
+                var displayName = triple.Item3;
+                var pathOpt = ModelProtocol.tryPathOf(ctx.Store, kind2, id);
+                string pathLabel;
+                if (Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(pathOpt))
+                {
+                    pathLabel = pathOpt.Value;
+                }
+                else if (kind2 == Ds2.Core.Store.EntityKind.System)
+                {
+                    // orphan System (project 미부착) — 1-segment path 가 Project 로 round-trip 오인되는 회귀
+                    // 회피 위해 tryPathOf 가 None 반환. LLM 에 진단 marker 로 명시.
+                    pathLabel = $"<orphan:{displayName}>";
+                }
+                else
+                {
+                    // path-unsupported kind (Button/Lamp/... 등) — find_by_name 의 kind 필터에는 본래 없지만
+                    // 미래 enum 확장 대비 fail-safe marker.
+                    pathLabel = $"<unsupported:{kind2}>";
+                }
+                sb.AppendLine($"- {kind2} (path={pathLabel})");
             }
             if (truncated) sb.AppendLine("... (truncated at 50; refine the name)");
             return sb.ToString().TrimEnd();
         });
     }
 
-    [McpServerTool, Description("현재 모델의 일관성을 검사합니다. 카테고리: Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder. 위반 없으면 (no issues; scope=...). turn 종료 직전 1회 호출 권장 — 같은 scope 로 0.5초 안 재호출 시 캐시 결과 반환.")]
+    [McpServerTool, Description("현재 모델의 일관성을 검사합니다. 카테고리: Orphan / DanglingArrow / EmptyFlow / EmptyWork / DuplicateName / TodoPlaceholder. 위반 없으면 (no issues; scope=...). turn 종료 직전 1회 호출 권장 — 같은 scope 로 0.5초 안 재호출 시 캐시 결과 반환. scope = dotted-path (예: '.Proj1.SysA' 또는 '.Proj1.SysA.Flow1'). 부재 = 전체.")]
     public static Task<string> ValidateModel(
         LlmTurnContextProvider turnProvider,
-        [Description("검사 범위. 'global' (또는 미지정) = 모든 System. GUID 면 Project/System/Flow 중 자동 판별.")] string? scope = null)
+        [Description("검사 범위 dotted-path. 부재 = 전체 (global). Project path = 전체와 동등. System/Flow path = 해당 sub-tree.")] string? scope = null)
     {
-        var trimmed = scope?.Trim();
-        Guid? rootGuid = null;
-        string scopeKey;
-        if (string.IsNullOrEmpty(trimmed) || string.Equals(trimmed, "global", StringComparison.OrdinalIgnoreCase))
-        {
-            scopeKey = "global";
-        }
-        else
-        {
-            if (!Guid.TryParse(trimmed, out var g))
-                return Task.FromResult($"VALIDATION_ERROR: scope '{scope}' 가 'global' 또는 GUID 형식이 아닙니다.");
-            rootGuid = g;
-            scopeKey = g.ToString("D");
-        }
+        // Phase 6: 'global' literal + GUID 분기 폐기. cache key sentinel = "" (empty path).
+        var trimmed = scope?.Trim() ?? "";
+        var scopeKey = trimmed;  // "" sentinel = global (LlmTurnContext.cs cache key 명세 일치)
 
         return RunRead(turnProvider, "validate_model", ctx =>
         {
             var cached = ctx.TryGetValidateCache(scopeKey);
             if (cached is not null) return cached + $"\n(cached, <{LlmTurnContext.ValidateCacheTtlMs}ms)";
 
-            var fsRoot = rootGuid.HasValue
-                ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(rootGuid.Value)
-                : Microsoft.FSharp.Core.FSharpOption<Guid>.None;
-            var result = ToolOperations.validateModelByGuid(ctx.Store, fsRoot);
+            var fsPath = string.IsNullOrEmpty(trimmed)
+                ? Microsoft.FSharp.Core.FSharpOption<string>.None
+                : Microsoft.FSharp.Core.FSharpOption<string>.Some(trimmed);
+            var result = ToolOperations.validateModelByPath(ctx.Store, fsPath);
             ctx.SetValidateCache(scopeKey, result);
             return result;
         });
