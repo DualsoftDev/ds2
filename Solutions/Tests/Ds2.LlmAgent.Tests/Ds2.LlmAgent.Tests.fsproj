@@ -15,6 +15,7 @@
     <Compile Include="StreamJsonParserTests.fs" />
     <Compile Include="CodexStreamJsonParserTests.fs" />
     <Compile Include="ValidateModelTests.fs" />
+    <Compile Include="ExportModelDocPathDepthTests.fs" />
     <Compile Include="SanitizeNameTests.fs" />
     <Compile Include="PromakerToolNamesDriftTests.fs" />
     <Compile Include="RemoveRenameTests.fs" />

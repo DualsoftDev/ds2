@@ -860,27 +860,3 @@ module ToolOperations =
             let raw = rawPathOpt |> Option.defaultValue ""
             $"VALIDATION_ERROR: scope path \"{raw}\" 가 Project/System/Flow 에 해당하지 않습니다. `find_by_name` 으로 후보 확인 후 dotted-path 재시도."
 
-    /// **Deprecated (Phase 6 → chunk-3 에서 일소 예정)**: Guid 기반 scope 진입.
-    /// `validateModelByPath` 가 본격 entry. 본 함수는 ValidateModelTests.fs 가 chunk-3 에서 path 기반
-    /// 으로 재작성될 때까지의 backward-compat 만 — 사용 권장 X. C# `ModelTools.ValidateModel` 은
-    /// 이미 `validateModelByPath` 로 전환됨.
-    let validateModelByGuid (store: DsStore) (rootIdOpt: Guid option) : string =
-        let scopeOpt =
-            match rootIdOpt with
-            | None -> Some GlobalScope
-            | Some id ->
-                match Queries.getProject id store with
-                | Some _ -> Some GlobalScope
-                | None ->
-                    match Queries.getSystem id store with
-                    | Some _ -> Some (SystemScope id)
-                    | None ->
-                        match Queries.getFlow id store with
-                        | Some _ -> Some (FlowScope id)
-                        | None -> None
-        match scopeOpt with
-        | Some scope -> validateModel store scope
-        | None ->
-            let id = rootIdOpt.Value
-            $"VALIDATION_ERROR: scope id {id:D} 가 Project/System/Flow 어디에도 해당하지 않습니다."
-
