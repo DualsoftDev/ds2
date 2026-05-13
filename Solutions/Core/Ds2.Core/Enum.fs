@@ -75,7 +75,7 @@ type RuntimeMode =
 
 /// ApiDef 출력 인터페이스 특성 — "버튼을 어떻게 누를 것인가" 만 결정.
 /// 디바이스 내부 동작 시간 (Work.Duration) 과는 완전히 무관 (다른 차원).
-/// 완료 판정 (ApiCall.UseInputSensor) 과도 무관.
+/// 완료 판정 (ApiCall.SkipInputSensor) 과도 무관.
 /// 인자 의미: TimeTotal/TimeAppend = 출력 유지 ms, MultiAction = (반복 횟수, 간격 ms).
 type ApiDefActionType =
     | Normal                       // 조건 ON 동안 출력 ON (센서 감지 시 OFF)
