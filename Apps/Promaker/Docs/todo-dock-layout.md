@@ -9,7 +9,14 @@
 > - v3: --review web 검증 + 본 환경 직접 검증 (DevExpress 24.1.7 로컬 feed 자동 등록 확인, 옵션 A 채택)
 > - v4: PR-1 spike 결과로 DevExpress.Wpf.Docking 24.1.7 도입 시 138 곳 모호 참조 + WinForms transitive + size 비용. AvalonDock 4.x 로 변경.
 > - v5: 5명 메타 reviewer (Generalist / 정확성 / 설계 / 영향범위 / 인터넷 검색) 통합 검증 반영. 핵심: 테마 NuGet 별도, 4.74.1 stable, ContentId e.Cancel 패턴, §3.4 헤더 API 3안 비교, §3.3 single-source-of-truth 모델, PR-2 분할, log4net C# 패턴(`Log.Info`) 정정.
-> - **v9 (현재, 2026-05-13)**: B-1 (닫힌 anchor 복원 UI) Phase B 구현 working tree. 핵심 변경:
+> - **v10 (현재, 2026-05-13)**: Phase B 사용자 회귀 발견 hotfix working tree. 핵심 변경:
+>   - **버그 1 — AvalonDock 캡션/탭 색상 다크 테마 미적용** (사용자 보고 image 1, 2). 원인: `Dirkster.AvalonDock` 만 추가되어 AvalonDock 기본 (Generic.xaml) 흰색 caption 노출. PR-1a 의 "테마 패키지 결정" 미완료 항목과 동일 사안. **hotfix**: `Dirkster.AvalonDock.Themes.Metro` 4.74.1 NuGet 추가 + `MainWindow.xaml` 의 `DockingManager.Theme` 에 `MetroTheme` 단일 dark 톤 설정. PR-4 의 자체 `Themes/Theme.Controls.Dock.xaml` 매핑 안은 그대로 backlog (정확 brush 일치 + ThemeChanged 자동 갱신 필요 시).
+>     - assembly 이름 함정: type namespace `AvalonDock.Themes` + assembly 이름 `AvalonDock.Themes.Metro` (NuGet 패키지 이름 `Dirkster.AvalonDock.Themes.Metro` 와 다름). XAML namespace 선언 시 `assembly=AvalonDock.Themes.Metro` 명시.
+>   - **버그 2 — LLM Chat panel 초기 1 frame 노출** (사용자 보고 image 2). 원인: AvalonDock 4.74.1 의 LayoutAnchorable `IsVisible="False"` XAML attribute 가 parent attach race 로 초기 노출 회귀. v7 spike 의 IsVisible round-trip PASS 는 deserialize 후 round-trip 만 검증 (XAML 초기 set 동작은 spike 범위 외). **hotfix 1차**: `MainWindow_Loaded` 안 `SyncWelcomeCanvasVisibility()` 직후 `SyncLlmChatAnchorFromVm()` 1 line 추가. `IsLlmChatVisible=false` + `LlmChatVm==null` 조건이라 3속성 모두 false 강제.
+>   - **버그 3 (= 1차 hotfix 후 image 3 사용자 회귀) — 빈 llmChatPane 잔존 → 우측 가장자리 흰 띠**. 원인: v7 발견 F2 ("빈 column/pane 잔존, AvalonDock 4.74.1 가 LayoutAnchorablePane 의 children 이 모두 hidden 시 pane 자체 visibility 자동 처리 안 함") 의 fix 를 explorerPane / simulationPane / historyPane 셋에만 적용했고 **llmChatPane (fill, 마지막 pane) 누락**. 사용자가 이를 "LLM 활성화 안했는데 창 보이는 문제" 와 "외곽 테두리 흰색" 으로 인지. **hotfix 2차**: `OnAnchorIsVisibleChanged` 에 `llmChatPane.DockHeight` + `propertyPane.DockHeight` toggle 2 line 추가 + XAML 측 `DockHeight="*"` 명시 (SSOT 일치 — reviewer M1 수용).
+>   - **버그 4 (= 2차 hotfix 후 image 4/5 사용자 회귀) — 외곽 윈도우 chrome 흰색 1px line**. 원인 가설: `DockingManager.Theme=MetroTheme` setter 가 AvalonDock 4.x 의 알려진 동작으로 Application.Resources 에 ResourceDictionary merge → default Window/dockManager 의 light gray Background 가 외곽으로 노출. **hotfix 3차 (가설성, 미검증 working tree)**: `MainWindow.xaml` 의 `<Window>` 에 `Background="{DynamicResource PrimaryBackgroundBrush}"` + `Foreground="{DynamicResource PrimaryTextBrush}"`, `<DockingManager>` 에 `Background="{DynamicResource PrimaryBackgroundBrush}"` + `BorderThickness="0"` 명시.
+>   - **PR-1a 의 [ ] 테마 패키지 결정 항목** Metro 채택으로 체크 완료.
+> - **v9 (2026-05-13)**: B-1 (닫힌 anchor 복원 UI) Phase B 구현 working tree. 핵심 변경:
 >   - **§3.1 Q2 단일 popup 통합 안 채택** — v7/v8 의 "메인 메뉴 + ▼ 드롭다운 조합" 명세에서 ▼ 드롭다운 분리 안 폐기. 닫힌 anchor 도 unchecked 로 자연 표시되어 동일 UI 한 곳에서 확인/토글 가능 → UX 단순화. todo §3.1 v7 절 자체에 v9 정정 marker + §8 B-1 review 처리 표 신설.
 >   - **`MainViewModel.Dock.cs` partial 신규** — `[ObservableProperty] LayoutAnchorable?` 4종 (Explorer/Property/History/Simulation). MainToolbarEtcContent 가 별도 UserControl 이라 ElementName 으로 anchor 접근 불가 → VM mirror. LlmChat 은 IsLlmChatVisible SSOT 별도 + 별도 LLM 토글 버튼 이미 존재 → 본 메뉴 제외.
 >   - **`MainToolbarEtcContent.xaml`** — 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox (`IsChecked={Binding ...Anchor.IsVisible, Mode=TwoWay}` + `IsEnabled={Binding HasProject}`). LayoutAnchorable.IsVisible 자체가 INPC + setter → wrapper 불필요.
@@ -424,7 +431,7 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 
 ### PR-1a — 환경 검증 (작음, 빌드만) — ✅ 완료 (uncommitted, v7)
 - [x] **AvalonDock 패키지 추가**: `Dirkster.AvalonDock` **4.74.1** PackageVersion → `Apps/Promaker/Directory.Packages.props` + PackageReference → `Promaker.csproj`. ✓
-- [ ] **테마 패키지 결정**: PR-1b spike 의 brush key 5종 모두 도달성 확인 → **자체 ResourceDictionary 유지 안 채택 가능**. AvalonDock Themes.<X> NuGet 추가 없이 PR-4 의 DockResources 머지 만으로 통합 가능 여부는 PR-4 진입 시 최종 확정.
+- [x] **테마 패키지 결정 (v10 hotfix)**: `Dirkster.AvalonDock.Themes.Metro` 4.74.1 채택 (단일 dark 톤). 사용자 회귀 (image 1, 2 의 흰색 caption) 즉시 해결. PR-4 의 자체 `Themes/Theme.Controls.Dock.xaml` 매핑 안은 정확한 Promaker brush 일치 + ThemeChanged 동적 갱신이 필요해지면 진행 (선택). assembly 이름은 `AvalonDock.Themes.Metro` (NuGet 패키지명 `Dirkster.AvalonDock.Themes.Metro` 와 다름) — XAML namespace 선언 시 주의.
 - [x] **빌드 spike**: `dotnet build` 0 경고/0 오류 통과. ✓
 - [x] **transitive 검증**: WinForms/System.Drawing 0건 / `CommunityToolkit.Mvvm` 충돌 0 / `MahApps.Metro.IconPacks.Material` 충돌 0 / `Microsoft.Web.WebView2` 충돌 0 / `Microsoft.Xaml.Behaviors.Wpf` 미유입. ✓
 - [x] **출력 size 영향**: baseline 59,170,758 B → +AvalonDock 59,802,355 B (+617 KB, +1.07%). AvalonDock.dll 510 KB + locale satellite 4개. ✓
@@ -568,6 +575,11 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
 
 ## 8. 진행 체크포인트 (이어받는 세션용)
 
+- **plan v10 (2026-05-13)**. v9 → v10 핵심 변경: Phase B 사용자 회귀 hotfix 4건 누적 (commit 분할 권고 — reviewer m5 수용 시 분할, 단일 commit 시 통합):
+  - (1) `Dirkster.AvalonDock.Themes.Metro` 패키지 추가 + `DockingManager.Theme=MetroTheme` (PR-1a 테마 결정 미완료 항목 동시 해결, 다크 톤 통일).
+  - (2) `MainWindow_Loaded` 안 `SyncLlmChatAnchorFromVm()` 1 line — LLM panel 초기 1 frame 노출 회귀 차단.
+  - (3) `OnAnchorIsVisibleChanged` 에 `llmChatPane` / `propertyPane` DockHeight toggle (fill pane 빈 영역 시각 잔존 차단) + XAML 측 `DockHeight="*"` 명시 SSOT.
+  - (4) `Window` + `DockingManager` Background/Foreground/BorderThickness 명시 — Metro 테마 application-level merge 부작용으로 외곽 chrome 흰 line 노출 회귀의 가설성 fix (**미검증** — Promaker 실행 lock 으로 hot-build 회피).
 - **plan v9 (2026-05-13)**. v8 → v9 핵심 변경: B-1 (닫힌 anchor 복원 UI) Phase B 구현 완료 — Toolbar Etc 의 "보기" 단일 popup 통합 안 채택 (▼ 드롭다운 분리 안 폐기). `MainViewModel.Dock.cs` partial 신규 (4 anchor mirror `[ObservableProperty] LayoutAnchorable?`).
 - **plan v8 (2026-05-13)**. v7 → v8 핵심 변경: 외부 reviewer M1/M2/M3 처리, PR-2a / PR-2b 경계 정정 (SSOT 가 PR-2a 안으로 흡수), Welcome 모드 보조 anchor 4종 동기화 추가, 변수명 `_suppressVmSync` → `_suppressLlmChatSync` 통일.
 - 현재 commit 상태 (branch `dock`):
@@ -576,8 +588,10 @@ SimulationPanel 은 자체 헤더 없이 TabControl 직접 노출 → 별도 처
   - `89a23e2` Dock layout: PR-2a/2b Phase A — 빈 column 자동 collapse (5 anchor IsVisibleChanged → pane DockWidth/Height toggle) + DockingManager.Resources 의 LayoutAnchorableFloatingWindowControl/LayoutDocumentFloatingWindowControl Topmost=False Style + LlmChatVm null/IsLlmEnabled=false edge case + DispatcherPriority Loaded → ApplicationIdle + CloseAllFloatingWindows + PropertyPanel Loaded/Unloaded 자가 등록.
   - `8a96e47` Dock layout: 외부 reviewer M1 수용 + todo v8.
 - working tree (--git-commit 대상, dock branch — remote 없음 → local commit only):
-  - B-1 (닫힌 anchor 복원 UI) Phase B 구현. `M Apps/Promaker/Docs/todo-dock-layout.md` + `M Apps/Promaker/Promaker/MainWindow.xaml.cs` + `M Apps/Promaker/Promaker/Controls/Shell/MainToolbarEtcContent.xaml` + `?? Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.Dock.cs` (신규).
-  - 내용: `MainViewModel.Dock.cs` partial 4 anchor mirror, `MainWindow` 생성자가 anchor 4개 VM set, `MainToolbarEtcContent.xaml` 의 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox (Explorer/Properties/History/Simulation, TwoWay binding). 자가 검열 sub-agent Major 0/Minor 3 — 모두 의도된 동작 또는 본 PR 범위 외로 처리. todo v8 → v9.
+  - **v9 (B-1 보기 메뉴) 이미 commit 됨**: `77c8222` "Dock layout: B-1 (보기 메뉴) Phase B + todo v9" — `MainToolbarEtcContent.xaml` + `MainViewModel.Dock.cs` (신규) + `MainWindow.xaml.cs` 의 anchor 4개 VM set + todo v8→v9.
+  - **v10 hotfix 1~4 가 본 turn 의 commit 대상**: `Directory.Packages.props` + `Promaker.csproj` + `MainWindow.xaml` + `MainWindow.xaml.cs` + `Docs/todo-dock-layout.md`.
+  - 내용 요약: (v9) `MainViewModel.Dock.cs` partial 4 anchor mirror, `MainWindow` 생성자가 anchor 4개 VM set, `MainToolbarEtcContent.xaml` 의 유틸 다음에 "보기" ToggleButton + Popup + 4 CheckBox. (v10) AvalonDock Metro 테마 + LLM 초기 노출 fix + 빈 pane jiyeon fix + 외곽 chrome 가설성 fix.
+  - **버그 4 (외곽 chrome 흰 line) 의 fix 효과 미검증** — Promaker.exe 종료 후 재빌드/시각 확인 필요. 만약 fix 무효면 다음 단계: ① `MainWindow.xaml.cs` `ApplyWindowTheme` 의 `DwmwaBorderColor` set 값 / `BorderBrush` resource 색을 log4net 으로 dump 하여 진단, ② `dockManager.Theme` setter 우회 (Application.Resources merge 회피 방식 — `dockManager.Resources.MergedDictionaries.Add(Metro Theme.xaml uri)` 명시), ③ Metro 테마 폐기 + VS2013 Dark / Expression Dark 시도, ④ PR-4 자체 `Theme.Controls.Dock.xaml` 매핑 우선 착수.
 
 ### B-1 (보기 메뉴) review 처리 내역 (v9 working tree 시점)
 
