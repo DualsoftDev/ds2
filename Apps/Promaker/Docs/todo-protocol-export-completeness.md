@@ -1,6 +1,8 @@
 # TODO — ModelProtocol export 도메인 완결성 보강
 
 > 본 문서는 `done-yaml-save-format.md` 후속 작업. `.yaml`/`.json` 저장 경로의 *의도된 lossy 4-set* (GUID / position / alias / 시뮬 결과) 외에 **암묵적으로 누락되어 있는 도메인 데이터** 를 식별하고 emit/apply 양방향 보강.
+>
+> **2026-05-14 개정** — N=5 cross-validation review (`--inspect 5`) 결과 반영. §2 누락 항목 list 가 사용자 명시 4건에서 실제 누락 표면 9+ 카테고리로 확장. ArrowKind→ArrowType naming fix, Work.AuxKind 위치 정정, OperationConditions 코드베이스 미발견 → §7 격하, schema-shape 결정 phase (§4.1.5) 신설, default 매핑 표 (§6.3) / SSOT 갱신 책임 표 (§6.1) 신설, 자가 검열 trigger ②③④⑤ 4건 동시 충족 명시.
 
 ---
 
@@ -15,101 +17,264 @@
 
 ---
 
-## 2. 알려진 누락 항목 (사용자 명시)
+## 2. 누락 항목 list (cross-validation 검증 완료)
 
-| 항목 | 정의 위치 | 도메인 의미 | 우선순위 |
-|---|---|---|---|
-| **`ComAux`** (`CallConditionType.ComAux`) | `Ds2.Core/Enum.fs:17` | CallCondition 분기 조건 — "Com_X" 보조 코일 (게이팅 없음, `Ds2.Core/SequenceSubmodels/02_Control.fs:180,188`) | 高 |
-| **`AutoAux`** (`CallConditionType.AutoAux`) | `Ds2.Core/Enum.fs:16` | CallCondition 분기 조건 — "Auto_X" 보조 코일 (WorkGoing ∧ preds ∧ CallCondition.AutoAux, `02_Control.fs:179,187`) | 高 |
-| **`SkipUnmatch`** (`CallConditionType.SkipUnmatch`) | `Ds2.Core/Enum.fs:18` | CallCondition 분기 조건 — 추가 분기 (ComAux/AutoAux 와 형제) | 高 |
-| **`OperationConditions`** | (탐색 필요 — Enum.fs / Entities.fs / Panel.Condition.fs 후보) | 운전 조건 (시퀀스 실행 조건) | 中 |
+### 2.1 사용자 명시 (1차 baseline)
 
-추가 탐색 필요 항목들 (사용자 "..." 부분):
-- [ ] `ApiCall.ContactKind` 변형 (`NoContact`/`NcContact`/`RisingPulse`/`FallingPulse`/`Inverter` — Enum.fs:21-26) — emit 여부 확인
-- [ ] `Call.CallType` (`WaitForCompletion`/`SkipIfCompleted` — Enum.fs:36-38) — emit 여부 확인
-- [ ] `ArrowKind` enum 의 `StartReset`/`ResetReset`/`Group` (Enum.fs:10-12) — protocol 의 ArrowBetween 표현이 이들 분기를 모두 표현하는지
-- [ ] `Work.AuxKind` (`02_Control.fs:190`, "AutoAux"/"ComAux") — Work 차원의 aux 분류 emit 여부
-- [ ] `ApiCall` / `Call` / `Work` 의 기타 property — Entities.fs 전수 점검
+| 항목 | 정의 위치 | 도메인 의미 | 우선순위 | 분류 (§4.1) |
+|---|---|---|---|---|
+| **`CallConditionType.AutoAux`** | `Ds2.Core/Enum.fs:16` (`AutoAux = 0`) | CallCondition 분기 조건 — "Auto_X" 보조 코일 (WorkGoing ∧ preds ∧ CallCondition.AutoAux, `02_Control.fs:179,187`) | 高 | 必 |
+| **`CallConditionType.ComAux`** | `Ds2.Core/Enum.fs:17` (`ComAux = 1`) | CallCondition 분기 조건 — "Com_X" 보조 코일 (게이팅 없음, `02_Control.fs:180,188`) | 高 | 必 |
+| **`CallConditionType.SkipUnmatch`** | `Ds2.Core/Enum.fs:18` (`SkipUnmatch = 2`) | CallCondition 분기 조건 — 추가 분기 (ComAux/AutoAux 형제) | 高 | 必 |
+
+→ 위 3 case 는 단독 누락이 아니라 **`Call.CallConditions` 콜렉션 전체 + `CallCondition` entity 6 property 의 부분집합** (§2.2 1 행 참조).
+
+### 2.2 cross-validation 추가 발견 (review 산출 — 작업 진입 전 baseline 확장)
+
+`ModelProtocol.fs` grep 결과 emit 0건으로 확정된 추가 누락 항목.
+
+| 카테고리 | 항목 | 정의 위치 | 우선순위 | 분류 |
+|---|---|---|---|---|
+| **CallCondition tree** | `Call.CallConditions` 콜렉션 + `CallCondition` entity 6 property (`Id`/`Type`/`IsOR`/`IsInverted`/`Conditions`/`Children`) | `Entities.fs:94,143-152` | 高 | 必 |
+| **ApiCall property** | `ContactKind` (NoContact/NcContact/RisingPulse/FallingPulse/Inverter) | `Entities.fs:136`, `Enum.fs:21-26` | 高 | 必 |
+| | `SkipInputSensor` — Work.Duration / ApiDef.ActionType 과 직교한 완료 판정 정책 | `Entities.fs:139` | 高 | 必 |
+| | `InTag`/`OutTag`/`InputSpec`/`OutputSpec`/`ApiDefId`/`OriginFlowId` | `Entities.fs:133-138` | 中 | 必 (식별 후 확정) |
+| **Call property** | `CallType` (WaitForCompletion/SkipIfCompleted) | `Enum.fs:36-38` | 高 | 必 |
+| | `ReferenceOf` — Call aliasing | `Entities.fs` Call section | 中 | 必 (※ alias lossy 와 boundary case — §4.1 검토) |
+| **ApiDef property** | `ApiDefActionType` (Normal/Push/Pulse/TimeTotal/TimeAppend/MultiAction 6 case) | `Entities.fs:157`, `Enum.fs:80-86` | 高 | 必 |
+| | `Description` | `Entities.fs:158-160` | 低 | 必 |
+| | `TxGuid`/`RxGuid` | 同上 | — | 意 (GUID 4-set 정합) |
+| **Work property** | `TokenRole` / `ReferenceOf` | `Entities.fs:68-71` | 中 | 必 (※ `Status4` 는 시뮬 결과 lossy 정합 — 意) |
+| **Project meta** | `TokenSpecs` / `Author` / `Version` / `Nameplate` / `HandoverDocumentation` / `TechnicalData` | `Entities.fs:28-31` | 中 | 必 (재오픈 시 reset 회귀) |
+| | `SimulationResult` / `DateTime` | 同上 | — | 意 (시뮬 4-set 정합) |
+| **DsSystem property** | `IRI` | `Entities.fs:41` | 中 | 必 |
+| | `Properties` (SystemSubmodelProperty 콜렉션) | 同上 | 中 | 必 (§4.1 식별 단계에서 *派 도출 가능* 여부 판정) |
+| **PLC code-gen metadata** | `ControlSystemProperties` (FBTagMapPreset / AuxPortMapEntry / SignalPatternEntry / BaseAddressOverride / EnableHardwareControl / WorkTimeout 등) | `02_Control.fs:242-370` | 中 | **新 카테고리 — §4.1 (§4.1.6) 결정 필요** |
+| **Submodel property** | `Flow.Properties` / `Work.Properties` / `Call.Properties` (각 *SubmodelProperty 콜렉션) | `Entities.fs` 각 entity | 中 | 必/派 boundary (식별 후 결정) |
+
+### 2.3 검증 완료 — emit 정상 (제외 항목)
+
+다음 항목은 review 결과 *이미 정상 emit* 되므로 보강 대상에서 제외.
+
+| 항목 | 검증 근거 |
+|---|---|
+| `ArrowType` 6 case (Unspecified/Start/Reset/StartReset/ResetReset/Group) | `formatArrowType` (`ModelProtocol.fs:1194-1202`) + `parseArrowType` (`:176-184`) 양방향 round-trip 정상. ※ 본 todo 가 `ArrowKind` 로 표기했던 것은 실제 타입명 `ArrowType` (Enum.fs:6) — naming 오류 |
+
+### 2.4 라인 번호 silent drift 주의
+
+본 §2 표의 `파일:line` 표기는 작성 시점 기준. 코드 변경 시 line 번호 drift 발생 가능 — 작업 진입 전 *함수명/case 명 기준 grep 재확인* 필수.
 
 ---
 
 ## 3. Pre-check (구현 전 grep 점검)
 
-- [ ] **누락 항목 식별** — `ModelProtocol.exportToJson` 의 emit 코드 (ModelProtocol.fs) 와 `Ds2.Core/Entities.fs` / `Enum.fs` 의 property/case 를 cross-reference 하여 *현재 emit 되지 않는* 항목 전수 list 화
-- [ ] **SSOT 갱신 동반 결정** — `Apps/Promaker/Docs/yaml-protocol-v0.md` 의 §2 emit 키 표 / §4 apply 룰 갱신 책임
-- [ ] **테스트 baseline** — `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolTests.fs` 의 round-trip 8건이 누락 항목 변화에 어떻게 반응하는지 (현재 통과 = 누락 항목이 store↔JSON 양쪽 모두에서 동등하게 *없음* 으로 처리됨)
-- [ ] **lossy 4-set 갱신 여부** — 보강 후 lossy 4-set 라벨 (GUID/position/alias/시뮬) 유지. 보강 항목은 lossy 가 아닌 *원래 의도된 보존 대상*
+각 항목 통과 후 해당 §4 단계 진입 가능 (1:1 매핑).
+
+- [ ] **PC1 → §4.1**: `ModelProtocol.exportToJson` 의 emit 코드 전수 list 와 `Entities.fs` / `Enum.fs` / `02_Control.fs` 의 property·case 를 cross-reference → §2.2 표 외 추가 누락 발견 시 §2.2 누적
+- [ ] **PC2 → §4.1.5**: §2 항목별 wire schema shape 결정 (calls 배열 element 의 scalar→object 승격 vs sibling 키 신설) — 본 결정 자체가 SSOT breaking decision 이므로 별도 review
+- [ ] **PC3 → §4.2**: `yaml-protocol-v0.md` 의 §1.7 / §2.1 / §2.2 / §2.3 / §2.4 / §2.7 / §4 갱신 책임 배정 (§6.1 매핑 표 참조)
+- [ ] **PC4 → §4.3**: `ModelEquivalence.fs:247` 의 `captureShape` 가 신규 키를 cover 하도록 동시 보강 (capturer 미보강 시 round-trip 통과 = false-positive)
+- [ ] **PC5 → §4.3**: 현재 round-trip 8건 (ModelProtocolTests) + wiring 6건 (ModelProtocolYamlIOTests) 의 통과/실패 예상 분석. 누락 항목이 store↔JSON 양쪽 모두에서 *동등하게 없음* 으로 통과 중 → 보강 시 negative assertion 동반 추가
+- [ ] **PC6 → §6.3**: lossy 4-set 라벨 (GUID/position/alias/시뮬) 유지 + 보강 항목은 lossy 가 *아닌* 원래 의도된 보존 대상. 단 *이전 .yaml 이 사실 lossy 였던 retroactive note* changelog 별도 안내 (m5)
+- [ ] **PC7 → §4.2**: `ModelProtocol.Yaml.fs` / `ModelProtocol.YamlIO.fs` 의 generic transformer 가 emit 키 추가를 자동 흡수하는지 함수 단위 검증
 
 ---
 
 ## 4. 남은 할 일 (구현 순)
 
-### 4.1 식별 단계
-- [ ] `ModelProtocol.exportToJson` 의 emit 키 전수 list 작성
-- [ ] `Ds2.Core.Entities.fs` 의 모든 entity property 와 cross-check → diff = 누락 항목
-- [ ] 각 누락 항목의 *복원 필수성* 분류:
-  - **必 보존**: 모델 의미에 기여 (ComAux/AutoAux/OperationCondition 등 — 보강 대상)
-  - **派 보존**: 도출 가능 (RuntimeStatus, Revision 등 — 보강 불필요)
-  - **意 lossy**: 의도된 4-set (GUID/position/alias/시뮬)
+### 4.1 식별 단계 + 분류
 
-### 4.2 코드 변경 (예상)
-- [ ] `ModelProtocol.fs` — emit/apply 양쪽에 누락 항목 분기 추가
-- [ ] `ModelProtocol.Yaml.fs` — JSON ↔ YAML 변환은 generic 이라 자동 흡수 (확인 필요)
-- [ ] `yaml-protocol-v0.md` SSOT — §2 emit 키 표 갱신 + §4 apply 룰 갱신
+- [ ] §2.2 표 외 추가 누락 항목 grep 으로 확정 누적
+- [ ] 각 누락 항목의 *복원 필수성* 분류:
+  - **必 보존**: 모델 의미에 기여 (보강 대상)
+  - **派 보존**: 도출 가능 (RuntimeStatus 등 — 보강 불필요)
+  - **意 lossy**: 의도된 4-set (GUID/position/alias/시뮬)
+  - **メ PLC metadata**: PLC 코드 생성 메타 (FBTagMapPreset 등) — 사용자 명시 설정 부분 必, 도출 가능 부분 派
+
+→ 본 4분류는 §2 우선순위 (高/中/低) 와 **직교 차원**. 必 항목만 §2 표에 누적 후 우선순위 적용. 派/意/メ 항목은 §6.6 정책 부록에 단순 list.
+
+**Boundary handling sub-rule**:
+1. *fallback 으로 보존되는 派* (예: `Call.DevicesAlias` 가 `Queries.tryResolveCallTargetSystem` 실패 시 fallback emit, `ModelProtocol.fs:1270-1271`) → **必 으로 격상**
+2. *도출 식 자체가 PoC 가정 의존* (예: `workDuration` "첫 Work 만 대표", `ModelProtocol.fs:1363-1365`) → **必** (가정 깨질 위험 대비)
+3. *runtime-only / 단순 cache* → 派
+4. *4-set 명시 lossy* → 意
+5. *PLC 코드 생성 메타* → メ (사용자 명시 설정만 必 으로 격상)
+
+### 4.1.5 schema-shape 결정 phase (新)
+
+- [ ] §2.2 각 항목별 wire schema 결정:
+  - `calls` 배열 element: 현 `"<systemName>.<apiName>"` 문자열 scalar → **object 승격** (예: `{ ref: "Z1_C1.ADV", conditions: [...], contactKind: "NcContact", callType: "SkipIfCompleted" }`) 여부
+  - 또는 별도 sibling 키 (`callConditions: [...]`) 신설 여부
+- [ ] 결정 산출물: `yaml-protocol-v0.md §2.2 / §2.3` 의 신규 키 위치 + JSON shape 명시
+- [ ] **본 phase 통과 전 §4.2 코드 변경 진입 금지**
+- [ ] schema breaking decision → 자가 검열 trigger ④⑤ 발동, sub-agent 위임 의무
+
+### 4.2 코드 변경 (분류 별 분리 commit — §6.4 정책 정합)
+
+- [ ] **C-1 enum/string 변환 helper**: `formatArrowType` 패턴 답습 (`ModelProtocol.fs:1185~1210` 근처) — `formatCallConditionType` / `formatContactKind` / `formatCallType` / `formatApiDefActionType` + 대응 parser. *기존 dispatcher 재활용, 신설 아님* (CLAUDE.md "기존 함수 재활용 90점")
+- [ ] **C-2 SSOT 동시 갱신**: §6.1 매핑 표 기반 `yaml-protocol-v0.md` 7개 절 동시 갱신 (해당 분류 한정 부분만)
+- [ ] **C-3 CallCondition tree** (`Call.CallConditions` + `CallCondition` 6 property + ContactKind): emit/apply 양쪽에 entity-walker 신규 분기 추가 — trigger ④ 발동
+- [ ] **C-4 ApiCall 추가 property** (SkipInputSensor + InTag/OutTag/InputSpec/OutputSpec/ApiDefId/OriginFlowId): leaf 키 추가
+- [ ] **C-5 Call.CallType + ApiDef.ApiDefActionType**: leaf 키 추가 — C-3 의 schema 결정 (object 승격 vs sibling) 답습
+- [ ] **C-6 Work/Call.ReferenceOf, Project meta, DsSystem.IRI**: leaf 키 추가
+- [ ] **C-7 Submodel property + PLC metadata**: §4.1.5 결과에 따라 별도 phase 분할 (분량 클 경우 §4 단계 외부로 분리)
+- [ ] **C-8 ModelProtocol.Yaml.fs / YamlIO.fs**: PC7 자동 흡수 검증 (generic transformer 가정 확인) — 코드 변경 없어야 정상
+
+→ 의존 그래프: `C-1 → C-2 → C-3 → C-4 → C-5 → C-6 → (C-7 별도)`. C-3/C-4 는 schema 가 같이 묶이므로 같은 commit 권장.
 
 ### 4.3 테스트
-- [ ] `ModelProtocolTests.fs` 에 보강 항목 별 round-trip 1건씩 추가
-- [ ] `ModelProtocolYamlIOTests.fs` 의 GUID-무시 semantic equivalence 6번째 테스트가 보강 후에도 통과 검증
+
+- [ ] **TC-1 capturer 보강**: `Helpers/ModelEquivalence.fs:247` `captureShape` 가 신규 키 (callCondition / contactKind / callType / auxKind / apiDefActionType / 기타) 를 cover 하도록 동시 확장. **본 단계 미수행 시 round-trip 통과 = false-positive** (M4)
+- [ ] **TC-2 round-trip 보강**: 보강 항목 별 round-trip 1건씩 추가 (`ModelProtocolTests.fs`)
+- [ ] **TC-3 전수 property round-trip 매트릭스 (옵션, 권장)**: `genSampleStore` 가 각 entity 의 모든 mutable property 를 default 와 다른 값으로 세팅 → `exportToJson |> apply |> exportToJson` deep-equal (lossy 4-set 만 ignore). 본 baseline 통과 시 *§2 표 누락 자체* 가 테스트 실패로 자동 발견
+- [ ] **TC-4 negative assertion**: 보강 항목 명시 없는 .yaml 도 통과 (default 처리 정합) — `ModelProtocolTests.fs:654~657` 패턴 답습
+- [ ] **TC-5 fixture round-trip**: `WithCyl.json` 등 기존 fixture 가 보강 후 *새 키 emit 0건* 인지 확인 assertion 추가 (silent emit drift 차단)
+- [ ] **TC-6 wiring 6건 유지**: `ModelProtocolYamlIOTests.fs` 의 GUID-무시 semantic equivalence 테스트 통과 검증
 
 ### 4.4 자가 검열
-- [ ] CLAUDE.md trigger ⑤ (public API / SSOT 상수 갱신) 충족 → sub-agent 위임 review
+
+CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (cross-validation 결과):
+- **② 신규 함수/타입 3개 이상**: parser/formatter 페어 × 최소 4 enum × 2방향 = 8+ 신규 helper 예상
+- **③ 단일 파일 100 line 이상 변경 또는 2 file 이상 동시 변경**: `ModelProtocol.fs` (1,750 line) + `yaml-protocol-v0.md` (756 line) + `Helpers/ModelEquivalence.fs` 최소 3 file
+- **④ dispatch / control flow 재작성**: CallCondition entity walker 신규 dispatcher (단순 leaf 키 아님)
+- **⑤ public API / SSOT 상수 갱신**: `yaml-protocol-v0.md` 7개 절 (§1.7 / §2.1 / §2.2 / §2.3 / §2.4 / §2.7 / §4)
+
+- [ ] 위 4 trigger 동시 발동 — sub-agent 위임 review 의무. *schema-shape 결정 단계 (§4.1.5)* 와 *최종 commit 전* 2회 위임 권장
+- [ ] 검열 미수행 상태에서 commit / push / 다음 phase 진입 차단
 
 ---
 
 ## 5. 관련 파일
 
-| 파일 | 역할 |
-|---|---|
-| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.fs` | emit/apply dispatcher — 보강 대상 |
-| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.Yaml.fs` | JSON↔YAML transformer (generic) |
-| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.YamlIO.fs` | store↔YAML 합성 wrapper |
-| `Solutions/Core/Ds2.Core/Enum.fs` | CallConditionType / ContactKind / CallType / ArrowKind / Status4 |
-| `Solutions/Core/Ds2.Core/Entities.fs` | entity property 전수 (보강 항목 source) |
-| `Solutions/Core/Ds2.Core/SequenceSubmodels/02_Control.fs` | ComAux/AutoAux 의미 정의 + Work.AuxKind |
-| `Solutions/Core/Ds2.Editor/Store/Panel/Panel.Condition.fs` | CallCondition 의 Panel 측 처리 |
-| `Apps/Promaker/Docs/yaml-protocol-v0.md` | SSOT — §2 emit 키 표 / §4 apply 룰 갱신 책임 |
-| `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolTests.fs` | round-trip 8건 baseline |
-| `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolYamlIOTests.fs` | wiring 6건 + GUID-무시 equivalence |
+| 파일 | 역할 | 본 작업 영향 |
+|---|---|---|
+| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.fs` | emit/apply dispatcher | **주 변경 (C-1~C-7)** |
+| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.Yaml.fs` | JSON↔YAML transformer (generic) | PC7 자동 흡수 검증 (코드 변경 없음 기대) |
+| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.YamlIO.fs` | store↔YAML 합성 wrapper. `done-yaml-save-format.md` 의 `fc4f6c4` 후속으로 *이미 신규 commit 됨* — 본 작업은 emit/apply 분기 추가 | 코드 변경 가능성 (transformer 가 generic 아닐 경우) |
+| `Solutions/Core/Ds2.LlmAgent/ModelProtocol.Mermaid.fs` | Mermaid export — CallCondition 분기 표현 정책 미결 | **m8 결정 필요** |
+| `Solutions/Core/Ds2.LlmAgent/CLAUDE.md` | LLM prompt schema 안내 | 신규 키 등장 시 prompt 갱신 가능성 |
+| `Solutions/Core/Ds2.Core/Enum.fs` | CallConditionType / ContactKind / CallType / ArrowType / Status4 / ApiDefActionType | 참고 (변경 없음) |
+| `Solutions/Core/Ds2.Core/Entities.fs` | entity property 전수 (보강 항목 source) | 참고 (변경 없음) |
+| `Solutions/Core/Ds2.Core/SequenceSubmodels/02_Control.fs` | ComAux/AutoAux 의미 정의 + AuxPortMapEntry.AuxKind (※ Work property 아님 — naming 정정) | 참고 (변경 없음) |
+| `Solutions/Core/Ds2.Editor/Store/Panel/Panel.Condition.fs` | apply 측 기존 default 패턴 (`CallConditionType.AutoAux`, line 35) — §6.3 default 매핑 표 참조 source | **참고** (수정 아님) |
+| `Apps/Promaker/Docs/yaml-protocol-v0.md` | SSOT — 7개 절 갱신 (§6.1 매핑 표 참조) | **주 변경 (C-2)** |
+| `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` (line 164, 221) | C# interop — `apply` / `exportToJsonScoped` 호출처. partial export depth 와 신규 키 상호작용 검증 | **검증 대상** (m7) |
+| `Apps/Promaker/Promaker/ViewModels/Shell/FileCommands.cs` (line 540~564) | lossy 4-set 안내 dialog | 변경 없음, 단 retroactive note 별도 changelog 필요 (m5) |
+| `Solutions/Tests/Ds2.LlmAgent.Tests/Helpers/ModelEquivalence.fs` (line 247) | shape capturer | **주 변경 (TC-1)** — 미보강 시 round-trip false-positive |
+| `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolTests.fs` | round-trip 8건 baseline | **주 변경 (TC-2/3/4/5)** |
+| `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolYamlIOTests.fs` | wiring 6건 + GUID-무시 equivalence | TC-6 검증 |
+| `Solutions/Tests/Ds2.LlmAgent.Tests/ModelProtocolMermaidTests.fs` | Mermaid export 테스트 | 신규 키 무시 무해 검증 |
 
 ---
 
 ## 6. 주의 사항
 
-1. **SSOT 갱신 동반 필수** — protocol 의 emit 키 변경은 항상 `yaml-protocol-v0.md` 갱신 동반. SSOT/코드 drift 방지.
-2. **lossy 4-set 라벨 의미 유지** — 보강 항목은 lossy 가 *아닌* 의도된 보존 대상. dialog/title bar 의 "[YAML, lossy]" 배지 + "GUID·위치·alias·시뮬" 4-set 안내 메시지는 변경 없음.
-3. **기존 .yaml 파일 호환성** — 보강 항목 부재 시 default 값 처리 (apply 측 분기). 본 작업 이전에 저장된 .yaml 도 무 오류 reopen 가능해야 함.
-4. **점진 보강 권장** — 큰 single PR 대신 분류 별 (CallCondition / OperationCondition / AuxKind / ...) 분리 commit. 각 분류 별 자가 검열.
-5. **CLAUDE.md trigger** — emit/apply 양쪽 분기 추가 시 신규 함수/타입 3개 이상 가능성 → 자가 검열 의무.
-6. **누락 항목 발견 channel** — 본 todo 외에도 reviewer / 실 사용 중 누락 발견 시 본 문서 §2 표에 추가 누적.
+### 6.1 SSOT 갱신 책임 매핑 표
+
+`yaml-protocol-v0.md` 의 영향 절을 todo 변경 항목과 1:1 매핑. 누락 회귀 차단.
+
+| todo 변경 (§4.2) | yaml-protocol-v0.md 갱신 절 | 갱신 내용 |
+|---|---|---|
+| C-1 enum/string helper | §2.4 arrows / §2.1 top-level enum 표 | 신규 enum 라벨 표 추가 (CallConditionType / ContactKind / CallType / ApiDefActionType) |
+| C-3 CallCondition tree | §2.2 active works/calls 안 callCondition shape | §4.1.5 schema 결정 결과 반영 (object vs sibling) |
+| C-4 ApiCall property | §2.2 / §2.3 (passive apis 도 cover) | leaf 키 enumeration |
+| C-5 CallType / ApiDefActionType | §2.2 calls / §2.3 apis | leaf 키 enumeration |
+| C-6 ReferenceOf / Project meta / IRI | §2.2 / §2.3 / project root | leaf 키 enumeration |
+| C-7 PLC metadata | §2.1 view scope + §2.3 passive (분리 phase 가능) | 별도 키 group |
+| 전체 | §1.7 결정 사항 표 | 보강 항목 결정 배경 + 4분류 (必/派/意/メ) 정의 row 추가 |
+| 전체 | §2.7 validate 룰 | unknown 키 거부 분기에 신규 키 추가 |
+| 전체 | §4 apply 룰 | default fallback 정책 (§6.3 참조) 명문화 |
+
+→ §6.1 의 9 row 모두 갱신 완료 전까지 commit 금지. 자가 검열 trigger ⑤ 정합.
+
+### 6.2 lossy 4-set 라벨 의미 유지
+
+- 보강 항목은 lossy 가 *아닌* 의도된 보존 대상.
+- Dialog/title bar 의 `[YAML, lossy]` 배지 + "GUID·위치·alias·시뮬" 4-set 안내 메시지 (`FileCommands.cs:551`) 는 변경 없음.
+- 단 **retroactive note** (m5): 보강 *이전* 사용자에게 *이전 .yaml 의 의미 손실 가능성* (callCondition / contactKind / callType / apiDefActionType 등) 안내 → done 문서 또는 별도 changelog 에 1줄.
+
+### 6.3 기존 .yaml 호환성 + default 매핑 표 + silent fallback 금지 정책
+
+**Critical 정책 (C3)**: enum 0-default 가 **non-trivial 의미** (AutoAux / NoContact / WaitForCompletion) 인 경우 silent fallback 시 *원본 store 가 non-zero 였던 모델* 의 의미가 round-trip 후 변경됨 → §1 목표 "재오픈 시 모델 의미 동등" 과 모순.
+
+차단 메커니즘 (택 1 의무):
+- **(a) Diagnostic 발행**: apply 측이 새 키 부재 → default fallback 시 `Diagnostics.warn "key X missing — fallback to <default>"` 발행. silent 금지.
+- **(b) Default 생략 emit**: emit 측이 *store 값이 default 와 동일* 한 경우 키 자체 생략. apply 측은 키 부재 → default 적용 (이때는 emit 측이 동등성 보장).
+
+→ (b) 가 wire payload 도 작아 권장. SSOT §1.7 에 정책 채택 row 추가.
+
+**Default 매핑 표** (기존 store 패턴 인용 — CLAUDE.md "기존 함수 재활용 90점" 정합):
+
+| 항목 | default | 인용 source |
+|---|---|---|
+| `CallCondition.Type` | `CallConditionType.AutoAux` | `Panel.Condition.fs:35` `cond.Type \|> Option.defaultValue CallConditionType.AutoAux` |
+| `ApiCall.ContactKind` | `ContactKind.NoContact` | `Entities.fs:136` entity default |
+| `ApiCall.SkipInputSensor` | `false` | `Entities.fs:139` entity default |
+| `Call.CallType` | `CallType.WaitForCompletion` | `Entities.fs` Call section entity default |
+| `ApiDef.ApiDefActionType` | `Normal` | `Entities.fs:157` entity default |
+| `CallCondition.IsOR` / `IsInverted` | `false` | entity default |
+| 기타 | — | 신규 default 결정 시 별도 review trigger ⑤ |
+
+### 6.4 점진 보강 commit 분리 정책
+
+분류 별 (§4.2 C-1 ~ C-7) 분리 commit. 각 분류 별 자가 검열 (§4.4 trigger 평가) 독립 수행. 권장 순서:
+1. **C-1**: enum/string helper (no schema impact, 안전)
+2. **C-2**: SSOT 부분 갱신 (해당 분류 한정)
+3. **C-3 + C-4 + C-5**: schema 결정 (§4.1.5) 동반 (object 승격 시 같은 commit)
+4. **C-6**: leaf 키 추가
+5. **C-7**: PLC metadata (별도 phase 분할 가능)
+6. **TC-1 ~ TC-6**: 분류 별 commit 끝마다 동반 / 또는 최종 일괄
+
+### 6.5 자가 검열 trigger 종합 (§4.4 참조)
+
+본 작업은 trigger **②③④⑤** 4건 동시 충족. sub-agent 위임 review 의무 (§4.4).
+
+### 6.6 누락 항목 발견 channel
+
+본 todo 외에도 reviewer / 실 사용 중 누락 발견 시 §2.2 표에 추가 누적. §6.6 정책 정합.
 
 ---
 
-## 7. 진척 표
+## 7. 후속 결정 항목 (코드 진입 전 해결 필요)
+
+| 항목 | 현 상태 | 결정 필요 사항 |
+|---|---|---|
+| **`OperationConditions`** | **코드베이스 0건 매칭** (grep `Solutions/` 전체). 사용자 명시 항목이지만 실제 entity 정의 없음 — Panel.Condition.fs 도 `CallCondition` panel wrapper 일 뿐 | 사용자에게 (a) 다른 entity 명의 비공식 호칭인지 (b) 향후 도입 entity 인지 (c) `ControlSystemProperties.InterlockConditions` 등 별개 개념 혼동인지 확인. 미확정 시 본 보강 작업 scope 외 |
+| **Schema shape** (§4.1.5) | 미결 | `calls` element scalar→object 승격 vs sibling 키 신설 |
+| **partial export 상호작용** (m7) | 미결 | `exportToJsonScoped` depth=2 에서 work 내부 신규 키 절단 정책 |
+| **Mermaid export 표현** (m8) | 미결 | `ModelProtocol.Mermaid.fs` 가 CallCondition 분기를 graph 노드로 표현할지 |
+| **`Work.AuxKind` (PLC metadata)** | naming 혼동 정리 — 실제는 `AuxPortMapEntry.AuxKind: string` (02_Control.fs:190), Work entity property 아님 | §4.1 メ 카테고리 (PLC metadata) 로 분리. Work 차원이라는 표현 사용 금지 |
+
+---
+
+## 8. 진척 표
 
 | 단계 | 상태 |
 |---|---|
 | §1 작업 목표 정의 | ✅ 완료 |
-| §2 누락 항목 1차 list (사용자 명시) | ✅ 완료 (ComAux / AutoAux / SkipUnmatch / OperationConditions) |
-| §3 pre-check (전수 grep) | ⏳ |
-| §4.1 식별 단계 (emit 키 전수 list + entity diff) | ⏳ |
-| §4.2 코드 변경 + SSOT 갱신 | ⏳ |
-| §4.3 테스트 추가 | ⏳ |
-| §4.4 자가 검열 | ⏳ |
-| commit / push | ⏳ |
+| §2.1 사용자 명시 1차 list | ✅ 완료 (CallConditionType 3 case) |
+| §2.2 cross-validation 추가 발견 | ✅ 완료 (review 산출, baseline 확장) |
+| §2.3 emit 정상 항목 분리 (ArrowType) | ✅ 완료 |
+| §3 pre-check PC1~PC7 | ⏳ |
+| §4.1 식별 + 4분류 (必/派/意/メ) | ⏳ |
+| §4.1.5 schema-shape 결정 | ⏳ |
+| §4.2 C-1 enum/string helper | ⏳ |
+| §4.2 C-2 SSOT 부분 갱신 | ⏳ |
+| §4.2 C-3 CallCondition tree | ⏳ |
+| §4.2 C-4 ApiCall property | ⏳ |
+| §4.2 C-5 CallType / ApiDefActionType | ⏳ |
+| §4.2 C-6 leaf 키 (ReferenceOf / Project meta / IRI) | ⏳ |
+| §4.2 C-7 PLC metadata (별도 phase 가능) | ⏳ |
+| §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ⏳ |
+| §4.3 TC-1 capturer 보강 | ⏳ |
+| §4.3 TC-2~6 테스트 보강 | ⏳ |
+| §4.4 자가 검열 (trigger ②③④⑤) | ⏳ |
+| commit 제안 (사용자 승인 시) / push | ⏳ |
+| §7 후속 결정 항목 해결 | ⏳ (특히 OperationConditions 정체) |
 
 ---
 
-## 8. 참고 — 관련 done 문서
+## 9. 참고 — 관련 done 문서
 
 - `Apps/Promaker/Docs/done-yaml-save-format.md` — `.yaml` 저장 포맷 도입 (본 작업의 전제). lossy 4-set 라벨 / wiring / 자가 검열 결과 archive.
-- `Apps/Promaker/Docs/done-yaml-protocol-implementation.md` — protocol v0 Phase 0~3, 5 구현 history.
+- `Apps/Promaker/Docs/done-yaml-protocol-implementation.md` — protocol v0 Phase 0~3, 5~6 구현 history.
