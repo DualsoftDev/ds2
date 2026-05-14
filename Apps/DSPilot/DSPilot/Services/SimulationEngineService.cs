@@ -4,6 +4,7 @@ using DSPilot.Infrastructure;
 using DSPilot.Models;
 using DSPilot.Repositories;
 using Ds2.Core;
+using Ds2.Editor;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
@@ -194,8 +195,11 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
-    /// DsStore 의 모든 IOTag (Out + In) 를 plcTag 테이블에 INSERT — 한 번만.
+    /// DsStore 의 모든 IOTag (Out + In) + UserTag 주소를 plcTag 테이블에 INSERT — 한 번만.
     /// 캐시 _plcTagIdByAddress 채우기.
+    /// UserTag 주소는 IOMap 에 안 들어가지만 Hub 가 Promaker 쪽에서 함께 broadcast 하므로
+    /// 여기서도 plcTag 행을 만들어 줘야 plcTagLog INSERT 가 silent skip 되지 않는다
+    /// (UserTagAlertService 의 폴링 데이터 소스).
     /// </summary>
     private void BootstrapPlcTags(SignalIOMap ioMap)
     {
@@ -208,6 +212,22 @@ public sealed class SimulationEngineService : IDisposable
                 if (!string.IsNullOrEmpty(m.OutAddress)) allAddresses.Add(m.OutAddress);
                 if (!string.IsNullOrEmpty(m.InAddress)) allAddresses.Add(m.InAddress);
             }
+
+            // UserTag 주소 추가 — IOMap 과 중복되면 HashSet 이 자동 dedup.
+            try
+            {
+                var store = _projectService.GetStore();
+                foreach (var r in store.GetAllUserTagsForProject())
+                {
+                    if (!string.IsNullOrWhiteSpace(r.TagAddress))
+                        allAddresses.Add(r.TagAddress.Trim());
+                }
+            }
+            catch (Exception exUt)
+            {
+                _logger.LogWarning(exUt, "[Engine] UserTag 주소 수집 실패 (IOMap 만 plcTag 에 등록)");
+            }
+
             if (allAddresses.Count == 0) return;
 
             using var conn = new SqliteConnection($"Data Source={dbPath}");

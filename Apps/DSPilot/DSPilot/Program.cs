@@ -100,6 +100,10 @@ builder.Services.AddHostedService<PlcTagLogRetentionService>();
 // Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
 builder.Services.AddSingleton<SimulationEngineService>();
 
+// UserTag 알림 — AASX 정의 + plcTagLog 폴링 매칭 (UI: /user-tags)
+builder.Services.AddSingleton<UserTagAlertService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertService>());
+
 // Promaker SignalHub 클라이언트 — 기본 5051(Monitoring). Control(5050)/원격 전환은 Settings 페이지에서.
 var hubEnabled = builder.Configuration.GetValue<bool>("Hub:Enabled");
 if (hubEnabled)
