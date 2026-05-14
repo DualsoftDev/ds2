@@ -8,7 +8,8 @@ using Xunit;
 
 namespace Promaker.Tests;
 
-public sealed class IoBatchSettingsDialogTests
+public sealed class TagInspectorDialogTests
+// 구 이름 IoBatchSettingsDialogTests 와 동일 시나리오 (다이얼로그 클래스 리네임에 맞춰 이동)
 {
     private static IoBatchRow MakeRow(string flow, bool selected = false) =>
         new(Guid.NewGuid(), Guid.NewGuid(),
@@ -125,7 +126,7 @@ public sealed class IoBatchSettingsDialogTests
     }
 
     /// <summary>
-    /// IoBatchSettingsDialog 인스턴스 생성 → 다중 선택 후 RowCheckBox_Click 경로가
+    /// TagInspectorDialog 인스턴스 생성 → 다중 선택 후 RowCheckBox_Click 경로가
     /// 동일하게 동작하는지 확인 (통합 테스트). private 핸들러는 RoutedEvent 대신
     /// BatchDialogHelper 호출로 검증 — 핸들러가 호출하는 정확히 그 메서드.
     /// </summary>
@@ -138,9 +139,9 @@ public sealed class IoBatchSettingsDialogTests
             // 빈 store 에서 행이 0 개여도 RowCheckBox 경로는 grid 가 외부 source 일 때 검증되므로,
             //   여기서는 외부 grid 에 행을 직접 주입하는 단위 검증으로 대체.
             var store = DsStore.empty();
-            var dlg = new IoBatchSettingsDialog(store);
+            var dlg = new TagInspectorDialog(store);
 
-            var gridField = typeof(IoBatchSettingsDialog)
+            var gridField = typeof(TagInspectorDialog)
                 .GetField("IoGrid",
                     System.Reflection.BindingFlags.Instance |
                     System.Reflection.BindingFlags.NonPublic);

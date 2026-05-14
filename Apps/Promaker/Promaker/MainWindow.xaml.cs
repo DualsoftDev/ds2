@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Ds2.Core;
 using Promaker.Presentation;
 using Promaker.Services;
 using Promaker.ViewModels;
@@ -141,6 +142,23 @@ public partial class MainWindow : Window
         // 두 번째 진입(BeginInvoke 로 재큐된 Close)은 이미 confirm/dispose 완료 — 그대로 통과.
         // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
         if (_llmChatDisposed) return;
+
+        // 트레이에서 복원한 창을 다시 X 로 닫는 경우 — Monitoring + 실 PLC + 동작 중이면 종료가 아닌 백그라운드 복귀.
+        // 진짜 종료는 트레이 컨텍스트 메뉴 "종료" 사용. PLAY 시점과 동일한 TrayConsentDialog 재사용 — "다시 묻지 않기" 도 공유.
+        if (_vm.Simulation.SelectedRuntimeMode == RuntimeMode.Monitoring
+            && _vm.Simulation.IsRealPlcConnected
+            && _vm.Simulation.IsSimulating)
+        {
+            if (!Dialogs.TrayConsentDialog.ShowAndAskConsent())
+            {
+                e.Cancel = true;
+                return;
+            }
+            e.Cancel = true;
+            var tooltip = $"Promaker — Monitoring 동작중 (port {_vm.Simulation.MonitoringHubAddress})";
+            _trayService.HideToTray(this, tooltip);
+            return;
+        }
 
         // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
         // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.

@@ -140,7 +140,7 @@ public static string Save {
 - [ ] CsvExportDialog.xaml
 - [ ] CsvImportDialog.xaml
 - [ ] DurationBatchDialog.xaml
-- [ ] IoBatchSettingsDialog.xaml
+- [ ] TagInspectorDialog.xaml
 - [ ] MermaidImportDialog.xaml
 - [ ] ProjectPropertiesDialog.xaml
 - [ ] ValueSpecDialog.xaml
@@ -162,7 +162,7 @@ public static string Save {
 - [ ] NodeCommands.cs (3개)
 - [ ] MermaidImportCommands.cs (2개)
 - [ ] MainViewModel.cs (2개)
-- [ ] IoBatchCommands.cs
+- [ ] TagInspectorCommands.cs
 - [ ] DurationBatchCommands.cs
 - [ ] EditorGuards.cs
 

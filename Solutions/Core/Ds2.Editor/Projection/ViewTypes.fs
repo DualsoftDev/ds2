@@ -126,6 +126,30 @@ type ApiDefEditInfo(systemId: Guid, item: ApiDefPanelItem) =
     member _.SystemId = systemId
     member _.Item = item
 
+/// System 프로퍼티 패널 — UserTag 항목 (C# 소비용)
+/// Index 는 LoggingSystemProperties.UserTags ResizeArray 내 위치 (편집/삭제 식별자)
+[<Sealed>]
+type UserTagPanelItem(index: int, name: string, logLevel: string, tagAddress: string, valueType: string) =
+    member _.Index      = index
+    member _.Name       = name
+    member _.LogLevel   = logLevel
+    member _.TagAddress = tagAddress
+    member _.ValueType  = valueType
+
+/// 프로젝트 전체 UserTag 행 (Tag Inspector 의 사용자 태그 탭용)
+/// 어느 System 소속인지 표시하기 위해 SystemId / SystemName 동반.
+[<Sealed>]
+type ProjectUserTagRow
+    (systemId: Guid, systemName: string,
+     index: int, name: string, logLevel: string, tagAddress: string, valueType: string) =
+    member _.SystemId   = systemId
+    member _.SystemName = systemName
+    member _.Index      = index
+    member _.Name       = name
+    member _.LogLevel   = logLevel
+    member _.TagAddress = tagAddress
+    member _.ValueType  = valueType
+
 /// TX/RX Work 드롭다운 항목 (C# 소비용)
 [<Sealed>]
 type WorkDropdownItem(id: Guid, name: string, ?isNone: bool) =
