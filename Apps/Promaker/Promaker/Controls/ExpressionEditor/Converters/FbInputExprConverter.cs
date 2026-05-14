@@ -1,5 +1,5 @@
 using Ds2.Core;
-using Promaker.Controls.ExpressionEditor.Models;
+using AAStoPLC.LadderEditor.Expression;
 
 namespace Promaker.Controls.ExpressionEditor.Converters;
 
