@@ -347,36 +347,30 @@ module ModelProtocol =
     // ─── Plan / Call.Properties helpers (Phase 7 §4.2 C-3/C-5) ───────────────
     //
     // dispatchPassiveSystem / dispatchWork 양쪽에서 사용 — ApplyContext 정의 직후 위치 (forward-ref 회피).
+    //
+    // 본문이 picker 만 다르고 동일 패턴 → generic `tryFindInPlan` 으로 통합 (외부 review M-D —
+    // `ToolOperations.fs:86` 의 `tryFindInPlan` 패턴 답습). SSOT 분산 자체는 *module-private 경계 +
+    // 컴파일 순서* (ToolOperations 가 ModelProtocol 보다 앞 — fsproj `<Compile>` 순서) 사정상 유지하나,
+    // 두 모듈 내부 구조가 동일해 후속 internal module (e.g. `Ds2.LlmAgent.Internal.PlanLookup`) 통합 시
+    // 무손실 이전 가능 (follow-up #13).
+
+    let private tryFindInPlan (plan: ImportPlanBuilder) (picker: ImportPlanOperation -> 'T option) : 'T option =
+        plan.Operations |> Seq.tryPick picker
 
     let private tryFindCallInPlan (plan: ImportPlanBuilder) (callId: Guid) : Call option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddCall c when c.Id = callId -> Some c
-            | _ -> None)
+        tryFindInPlan plan (function AddCall c when c.Id = callId -> Some c | _ -> None)
 
     let private tryFindApiDefInPlan (plan: ImportPlanBuilder) (apiDefId: Guid) : ApiDef option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddApiDef ad when ad.Id = apiDefId -> Some ad
-            | _ -> None)
+        tryFindInPlan plan (function AddApiDef ad when ad.Id = apiDefId -> Some ad | _ -> None)
 
     let private tryFindProjectInPlan (plan: ImportPlanBuilder) (projectId: Guid) : Project option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddProject p when p.Id = projectId -> Some p
-            | _ -> None)
+        tryFindInPlan plan (function AddProject p when p.Id = projectId -> Some p | _ -> None)
 
     let private tryFindSystemInPlan (plan: ImportPlanBuilder) (sysId: Guid) : DsSystem option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddSystem s when s.Id = sysId -> Some s
-            | _ -> None)
+        tryFindInPlan plan (function AddSystem s when s.Id = sysId -> Some s | _ -> None)
 
     let private tryFindWorkInPlan (plan: ImportPlanBuilder) (workId: Guid) : Work option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddWork w when w.Id = workId -> Some w
-            | _ -> None)
+        tryFindInPlan plan (function AddWork w when w.Id = workId -> Some w | _ -> None)
 
     // ─── Plan+Store unified lookup (Phase 7 §4.2 helper 3종 추출) ─────────────
     //
@@ -806,7 +800,7 @@ module ModelProtocol =
                     match el.ValueKind with
                     | JsonValueKind.True -> target true
                     | JsonValueKind.False -> target false
-                    | _ -> ctx.Diagnostics.Add(path + "." + key, sprintf "bool 기대 (실제 %A)." el.ValueKind))
+                    | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "bool 기대 (실제 %A)." el.ValueKind))
             parseBoolKey "isOR" (fun b -> cond.IsOR <- b)
             parseBoolKey "isInverted" (fun b -> cond.IsInverted <- b)
             // conditions — ApiCall leaf list (dual format)
