@@ -30,6 +30,11 @@ public partial class CallCreateDialog : Window
     private readonly Func<string, IReadOnlyList<ApiCountSpec>>? _apiCountSpecsForSysType;
     private readonly Project? _project;
 
+    /// <summary>다이얼로그 오픈 직후 잔여 Enter 키 입력으로 IsDefault 추가 버튼이 즉시 트리거되는 것 방지.
+    /// Loaded 후 짧은 grace period 동안 commit 무시.</summary>
+    private System.DateTime _readyAt = System.DateTime.MaxValue;
+    private static readonly System.TimeSpan _commitGrace = System.TimeSpan.FromMilliseconds(400);
+
     // ─── 공통 출력 ───
     public CallCreateMode Mode { get; private set; }
 
@@ -74,6 +79,7 @@ public partial class CallCreateDialog : Window
             BasicAliasTextBox.Focus();
             RefreshApiDefList();
             RefreshSignalCountsPanel();
+            _readyAt = System.DateTime.UtcNow;
         };
     }
 
@@ -433,6 +439,9 @@ public partial class CallCreateDialog : Window
     // ─── 추가 버튼 ───
     private void Add_Click(object sender, RoutedEventArgs e)
     {
+        // 다이얼로그 오픈 직후 외부에서 눌린 Enter 가 IsDefault 추가 버튼을 트리거하는 경우 무시.
+        if (System.DateTime.UtcNow - _readyAt < _commitGrace) return;
+
         if (ModeTabControl.SelectedIndex == 0)
             CommitBasicTab();
         else
@@ -443,7 +452,7 @@ public partial class CallCreateDialog : Window
     {
         var alias = aliasBox.Text.Trim();
         var aliasResult = InputValidation.validateDevicesAlias(alias);
-        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return null; }
+        if (aliasResult.IsEmptyAlias) { return null; }
         if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null; }
 
         var apiResult = InputValidation.validateApiNames(apiNameBox.Text);
@@ -579,7 +588,7 @@ public partial class CallCreateDialog : Window
     {
         var alias = AdvAliasFilterBox.Text.Trim();
         var aliasResult = InputValidation.validateDevicesAlias(alias);
-        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return; }
+        if (aliasResult.IsEmptyAlias) { return; }
         if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return; }
 
         var apiName = AdvApiNameFilterBox.Text.Trim();

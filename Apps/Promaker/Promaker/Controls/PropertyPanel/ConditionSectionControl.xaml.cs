@@ -15,20 +15,12 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(HeaderText), typeof(string), typeof(ConditionSectionControl),
             new PropertyMetadata(string.Empty));
 
-    public static readonly DependencyProperty AddToolTipProperty =
-        DependencyProperty.Register(nameof(AddToolTip), typeof(string), typeof(ConditionSectionControl),
-            new PropertyMetadata(string.Empty));
-
     public static readonly DependencyProperty ItemsSourceProperty =
         DependencyProperty.Register(nameof(ItemsSource), typeof(IEnumerable), typeof(ConditionSectionControl),
             new PropertyMetadata(null, OnItemsSourceChanged));
 
-    public static readonly DependencyProperty AddCommandProperty =
-        DependencyProperty.Register(nameof(AddCommand), typeof(ICommand), typeof(ConditionSectionControl),
-            new PropertyMetadata(null));
-
-    public static readonly DependencyProperty AddCommandParameterProperty =
-        DependencyProperty.Register(nameof(AddCommandParameter), typeof(object), typeof(ConditionSectionControl),
+    public static readonly DependencyProperty ConditionTypeProperty =
+        DependencyProperty.Register(nameof(ConditionType), typeof(object), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
     public static readonly DependencyProperty RemoveConditionCommandProperty =
@@ -45,10 +37,6 @@ public partial class ConditionSectionControl : UserControl
 
     public static readonly DependencyProperty EditConditionsParameterProperty =
         DependencyProperty.Register(nameof(EditConditionsParameter), typeof(object), typeof(ConditionSectionControl),
-            new PropertyMetadata(null));
-
-    public static readonly DependencyProperty AddChildGroupCommandProperty =
-        DependencyProperty.Register(nameof(AddChildGroupCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
     public static readonly DependencyProperty DropCallCommandProperty =
@@ -77,15 +65,12 @@ public partial class ConditionSectionControl : UserControl
     }
 
     public string HeaderText { get => (string)GetValue(HeaderTextProperty); set => SetValue(HeaderTextProperty, value); }
-    public string AddToolTip { get => (string)GetValue(AddToolTipProperty); set => SetValue(AddToolTipProperty, value); }
     public IEnumerable? ItemsSource { get => (IEnumerable?)GetValue(ItemsSourceProperty); set => SetValue(ItemsSourceProperty, value); }
-    public ICommand? AddCommand { get => (ICommand?)GetValue(AddCommandProperty); set => SetValue(AddCommandProperty, value); }
-    public object? AddCommandParameter { get => GetValue(AddCommandParameterProperty); set => SetValue(AddCommandParameterProperty, value); }
+    public object? ConditionType { get => GetValue(ConditionTypeProperty); set => SetValue(ConditionTypeProperty, value); }
     public ICommand? RemoveConditionCommand { get => (ICommand?)GetValue(RemoveConditionCommandProperty); set => SetValue(RemoveConditionCommandProperty, value); }
     public string HelpTopic { get => (string)GetValue(HelpTopicProperty); set => SetValue(HelpTopicProperty, value); }
     public ICommand? EditConditionsCommand { get => (ICommand?)GetValue(EditConditionsCommandProperty); set => SetValue(EditConditionsCommandProperty, value); }
     public object? EditConditionsParameter { get => GetValue(EditConditionsParameterProperty); set => SetValue(EditConditionsParameterProperty, value); }
-    public ICommand? AddChildGroupCommand { get => (ICommand?)GetValue(AddChildGroupCommandProperty); set => SetValue(AddChildGroupCommandProperty, value); }
     public ICommand? DropCallCommand { get => (ICommand?)GetValue(DropCallCommandProperty); set => SetValue(DropCallCommandProperty, value); }
     public ICommand? DropCallToConditionItemCommand { get => (ICommand?)GetValue(DropCallToConditionItemCommandProperty); set => SetValue(DropCallToConditionItemCommandProperty, value); }
     public ICommand? NavigateConditionApiCallCommand { get => (ICommand?)GetValue(NavigateConditionApiCallCommandProperty); set => SetValue(NavigateConditionApiCallCommandProperty, value); }
@@ -135,7 +120,7 @@ public partial class ConditionSectionControl : UserControl
         if (ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
 
         DropCallCommand?.Execute(new ConditionDropInfo(
-            AddCommandParameter is Ds2.Core.CallConditionType ct ? ct : Ds2.Core.CallConditionType.ComAux,
+            ConditionType is Ds2.Core.CallConditionType ct ? ct : Ds2.Core.CallConditionType.ComAux,
             callNode.Id));
         e.Handled = true;
     }

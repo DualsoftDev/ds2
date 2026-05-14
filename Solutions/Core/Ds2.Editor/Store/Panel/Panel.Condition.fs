@@ -18,6 +18,10 @@ type CallConditionTreeDto = {
     ApiCallIds  : System.Collections.Generic.IReadOnlyList<Guid>
     /// ApiCallIds 와 평행 — leaf 별 접점 종류.
     ApiCallKinds: System.Collections.Generic.IReadOnlyList<ContactKind>
+    /// ApiCall 매핑 실패한 raw 심볼 (시스템 플래그 _ON/_OFF, 외부 비트 등) — 편집기 보존용.
+    RawSymbols     : System.Collections.Generic.IReadOnlyList<string>
+    /// RawSymbols 와 평행 — 각 심볼의 ContactKind.
+    RawSymbolKinds : System.Collections.Generic.IReadOnlyList<ContactKind>
     Children    : System.Collections.Generic.IReadOnlyList<CallConditionTreeDto>
 }
 
@@ -78,6 +82,17 @@ type DsStorePanelConditionExtensions =
                             copy.ContactKind <- kind
                             cc.Conditions.Add(copy)
                         | None -> ()
+                // raw 심볼(_ON/_OFF 등 ApiCall 외 leaf) → dummy ApiCall 로 변환하여 cc.Conditions 에 추가.
+                // Core 변경 없이 보존 — Inverter dummy 와 동일 패턴 (ApiCall(name) + ContactKind 설정).
+                // 로드 시 ConditionExprBuilder.leafCond 가 lookup 실패 → ac.Name fallback 으로 자동 처리.
+                let rawKinds = dto.RawSymbolKinds
+                let rn = dto.RawSymbols.Count
+                for i in 0 .. rn - 1 do
+                    let sym = dto.RawSymbols.[i]
+                    let kind = if i < rawKinds.Count then rawKinds.[i] else ContactKind.NoContact
+                    let dummy = ApiCall(sym)
+                    dummy.ContactKind <- kind
+                    cc.Conditions.Add(dummy)
                 for child in dto.Children do
                     cc.Children.Add(build child None)  // children 은 Type 미설정
                 cc
