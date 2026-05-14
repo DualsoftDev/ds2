@@ -1,5 +1,5 @@
 using System.Windows;
-using Promaker.Controls.ExpressionEditor.Models;
+using AAStoPLC.LadderEditor.Expression;
 using Promaker.Controls.ExpressionEditor.Providers;
 using Promaker.Controls.ExpressionEditor.ViewModels;
 

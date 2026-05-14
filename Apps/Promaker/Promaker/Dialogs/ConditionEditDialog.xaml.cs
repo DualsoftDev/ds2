@@ -132,6 +132,11 @@ public partial class ConditionEditDialog : Window
                 apiCallIds.Add(leafId);
                 apiCallKinds.Add(leafKind);
             }
+            else if (CoilAst.IsLeaf(op) || op is CoilCondition.Raw)
+            {
+                // 매핑 불가 leaf — drop (이름이 nameToId 에 없음). 재귀하면 무한 루프.
+                continue;
+            }
             else
             {
                 var child = ToDto(op, nameToId);

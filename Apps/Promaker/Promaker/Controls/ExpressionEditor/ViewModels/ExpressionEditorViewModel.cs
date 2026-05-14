@@ -4,8 +4,8 @@ using System.ComponentModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using AAStoPLC.LadderEditor.Expression;
 using Promaker.Controls.ExpressionEditor.Converters;
-using Promaker.Controls.ExpressionEditor.Models;
 using Promaker.Controls.ExpressionEditor.Providers;
 
 namespace Promaker.Controls.ExpressionEditor.ViewModels;
