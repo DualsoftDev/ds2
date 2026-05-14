@@ -490,6 +490,7 @@ module AasxExporter =
                     let sequenceIdShorts =
                         Set.ofList [
                             SubmodelModelIdShort
+                            LegacySubmodelIdShort
                             yield! SubmodelType.AllDomains |> List.map (fun t -> t.IdShort)
                         ]
 
