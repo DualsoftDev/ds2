@@ -173,6 +173,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -188,6 +189,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _isRealPlcConnected;
 
@@ -296,6 +298,17 @@ public partial class SimulationPanelState : ObservableObject
         // 모드 전환 시 트레이 상태가 남아있으면 정리 (Monitoring 외 모드에서는 트레이 무의미).
         if (value != RuntimeMode.Monitoring)
             FireTrayRestore();
+
+        // 전환 후 연속투입 비가용 모드면 토글 자동 해제 — stale on-state 가 다음 시뮬에 새어들지 않도록.
+        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
+            IsContinuousInjectionEnabled = false;
+    }
+
+    partial void OnIsRealPlcConnectedChanged(bool value)
+    {
+        // Control + 실 PLC 진입 시점에 연속투입 토글이 켜져 있으면 해제 (PLC owner 와 충돌 방지).
+        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
+            IsContinuousInjectionEnabled = false;
     }
 
     partial void OnHubAddressChanged(string value) =>
