@@ -1165,3 +1165,356 @@ let ``Phase 7 §4.2 C-3 — default case 는 string scalar 유지 (legacy 호환
     Assert.DoesNotContain("\"callCondition\"", json)
     // 기존 string scalar emit 유지 — calls 가 array of string
     Assert.Contains("\"calls\"", json)
+
+// ─── Phase 7 §4.2 C-4 — SkipInputSensor + InTag/OutTag dual format ──────────
+
+let private c4Yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              skipInputSensor: true
+              inTag: { name: ADV_LMT, address: X10 }
+              outTag: { name: ADV, address: Y10 }
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-4 — SkipInputSensor + InTag/OutTag round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store c4Yaml
+
+    let projects = Queries.allProjects store
+    let controller = Queries.activeSystemsOf projects.Head.Id store |> List.head
+    let runFlow = Queries.flowsOf controller.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let advCall = Queries.callsOf advWork.Id store |> List.head
+    let ac = advCall.ApiCalls.[0]
+
+    Assert.True(ac.SkipInputSensor)
+    Assert.True(ac.InTag.IsSome)
+    Assert.Equal("ADV_LMT", ac.InTag.Value.Name)
+    Assert.Equal("X10", ac.InTag.Value.Address)
+    Assert.True(ac.OutTag.IsSome)
+    Assert.Equal("ADV", ac.OutTag.Value.Name)
+    Assert.Equal("Y10", ac.OutTag.Value.Address)
+
+    // emit 시 모든 키 보존
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"skipInputSensor\":true", compact)
+    Assert.Contains("\"inTag\":{", compact)
+    Assert.Contains("\"name\":\"ADV_LMT\"", compact)
+    Assert.Contains("\"address\":\"X10\"", compact)
+    Assert.Contains("\"outTag\":{", compact)
+
+    // round-trip 의미 보존
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "C-4 round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("C-4 round-trip", plan2.Build())
+    let ctrl2 = Queries.activeSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
+    let flow2 = Queries.flowsOf ctrl2.Id store2 |> List.head
+    let work2 = Queries.worksOf flow2.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
+    let ac2 = (Queries.callsOf work2.Id store2 |> List.head).ApiCalls.[0]
+    Assert.True(ac2.SkipInputSensor)
+    Assert.Equal("X10", ac2.InTag.Value.Address)
+    Assert.Equal("Y10", ac2.OutTag.Value.Address)
+
+// ─── Phase 7 §4.2 C-5 — CallType + apiDetails (ApiDefActionType / Description) ──
+
+let private c5Yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callType: SkipIfCompleted
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    apiDetails:
+      ADV:
+        actionType: Pulse
+        description: "Advance command"
+      RET:
+        actionType: TimeTotal(800)
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-5 — CallType + apiDetails round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store c5Yaml
+
+    let projects = Queries.allProjects store
+    let controller = Queries.activeSystemsOf projects.Head.Id store |> List.head
+    let runFlow = Queries.flowsOf controller.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let advCall = Queries.callsOf advWork.Id store |> List.head
+
+    // SimulationCallProperties.CallType
+    let simCallType =
+        advCall.Properties
+        |> Seq.tryPick (function | SimulationCall p -> Some p.CallType | _ -> None)
+    Assert.Equal(Some CallType.SkipIfCompleted, simCallType)
+
+    // ApiDef.ApiDefActionType / Description
+    let cyl = Queries.passiveSystemsOf projects.Head.Id store |> List.head
+    let cylApiDefs = Queries.apiDefsOf cyl.Id store
+    let adv = cylApiDefs |> List.find (fun d -> d.Name = "ADV")
+    let ret = cylApiDefs |> List.find (fun d -> d.Name = "RET")
+    Assert.Equal(ApiDefActionType.Pulse, adv.ApiDefActionType)
+    Assert.Equal(Some "Advance command", adv.Description)
+    Assert.Equal(ApiDefActionType.TimeTotal 800, ret.ApiDefActionType)
+
+    // emit 시 모든 키 보존
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.ToString()
+    let compact = json.Replace(" ", "")
+    Assert.Contains("\"callType\":\"SkipIfCompleted\"", compact)
+    Assert.Contains("\"apiDetails\":{", compact)
+    Assert.Contains("\"actionType\":\"Pulse\"", compact)
+    Assert.Contains("\"actionType\":\"TimeTotal(800)\"", compact)
+    Assert.Contains("\"description\":\"Advance command\"", json)
+
+    // round-trip 의미 보존
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "C-5 round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("C-5 round-trip", plan2.Build())
+    let cyl2 = Queries.passiveSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
+    let adv2 = Queries.apiDefsOf cyl2.Id store2 |> List.find (fun d -> d.Name = "ADV")
+    Assert.Equal(ApiDefActionType.Pulse, adv2.ApiDefActionType)
+    Assert.Equal(Some "Advance command", adv2.Description)
+    let ret2 = Queries.apiDefsOf cyl2.Id store2 |> List.find (fun d -> d.Name = "RET")
+    Assert.Equal(ApiDefActionType.TimeTotal 800, ret2.ApiDefActionType)
+
+// ─── Phase 7 §4.2 C-6 — Project meta + DsSystem.IRI + Work.TokenRole ────────
+
+let private c6Yaml = """
+protocol: promaker/v0
+project: M1
+author: kwak
+version: "1.0.5"
+
+systems:
+  - system: Controller
+    kind: active
+    iri: "urn:dualsoft:ctrl1"
+    flow Run:
+      works:
+        Adv:
+          tokenRole: Source
+          calls: [Cyl1.ADV]
+        Ret:
+          tokenRole: Sink
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    iri: "urn:dualsoft:cyl1"
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-6 — Project meta + IRI + TokenRole round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store c6Yaml
+
+    let project = Queries.allProjects store |> List.head
+    Assert.Equal("kwak", project.Author)
+    Assert.Equal("1.0.5", project.Version)
+
+    let ctrl = Queries.activeSystemsOf project.Id store |> List.head
+    Assert.Equal(Some "urn:dualsoft:ctrl1", ctrl.IRI)
+    let cyl = Queries.passiveSystemsOf project.Id store |> List.head
+    Assert.Equal(Some "urn:dualsoft:cyl1", cyl.IRI)
+
+    let runFlow = Queries.flowsOf ctrl.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let retWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Ret")
+    Assert.Equal(TokenRole.Source, advWork.TokenRole)
+    Assert.Equal(TokenRole.Sink, retWork.TokenRole)
+
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"author\":\"kwak\"", compact)
+    Assert.Contains("\"version\":\"1.0.5\"", compact)
+    Assert.Contains("\"iri\":\"urn:dualsoft:ctrl1\"", compact)
+    Assert.Contains("\"iri\":\"urn:dualsoft:cyl1\"", compact)
+    Assert.Contains("\"tokenRole\":\"Source\"", compact)
+    Assert.Contains("\"tokenRole\":\"Sink\"", compact)
+
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "C-6 round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("C-6 round-trip", plan2.Build())
+
+    let project2 = Queries.allProjects store2 |> List.head
+    Assert.Equal("kwak", project2.Author)
+    Assert.Equal("1.0.5", project2.Version)
+    let ctrl2 = Queries.activeSystemsOf project2.Id store2 |> List.head
+    Assert.Equal(Some "urn:dualsoft:ctrl1", ctrl2.IRI)
+    let runFlow2 = Queries.flowsOf ctrl2.Id store2 |> List.head
+    let advWork2 = Queries.worksOf runFlow2.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(TokenRole.Source, advWork2.TokenRole)
+
+// ─── 외부 review M-E / M-B / m-5 / m-2 반영 — round-trip / 음성 / lock-in ───
+
+let private findAdvCall (store: DsStore) : Call =
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let w = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    Queries.callsOf w.Id store |> List.head
+
+let private nestedCallConditionYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callCondition:
+                type: ComAux
+                isInverted: true
+                conditions:
+                  - Cyl1.RET
+                children:
+                  - type: SkipUnmatch
+                    isOR: true
+                    conditions:
+                      - ref: Cyl1.ADV
+                        contactKind: NcContact
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``외부 review M-E — nested CallCondition children round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store nestedCallConditionYaml
+    let advCall = findAdvCall store
+    let root = advCall.CallConditions.[0]
+    Assert.Equal(Some CallConditionType.ComAux, root.Type)
+    Assert.True(root.IsInverted)
+    Assert.False(root.IsOR)
+    Assert.Equal(1, root.Conditions.Count)
+    Assert.Equal(1, root.Children.Count)
+    let child = root.Children.[0]
+    Assert.Equal(Some CallConditionType.SkipUnmatch, child.Type)
+    Assert.True(child.IsOR)
+    Assert.Equal(1, child.Conditions.Count)
+    Assert.Equal(ContactKind.NcContact, child.Conditions.[0].ContactKind)
+
+    // round-trip: nested children 보존 확인
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "nested round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("nested CC round-trip", plan2.Build())
+    let advCall2 = findAdvCall store2
+    let root2 = advCall2.CallConditions.[0]
+    Assert.Equal(Some CallConditionType.ComAux, root2.Type)
+    Assert.True(root2.IsInverted)
+    Assert.Equal(1, root2.Children.Count)
+    Assert.Equal(Some CallConditionType.SkipUnmatch, root2.Children.[0].Type)
+    Assert.True(root2.Children.[0].IsOR)
+    Assert.Equal(ContactKind.NcContact, root2.Children.[0].Conditions.[0].ContactKind)
+
+[<Fact>]
+let ``외부 review M-B — 빈 IOTag (Some empty) 는 emit / enhancement 모두 무시`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.ApiCalls.[0].InTag <- Some (IOTag())  // Name="" / Address="" empty instance
+
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.ToString()
+    // 빈 IOTag 은 callHasEnhancement 평가에서 무시 → object 승격 없음, inTag 키 emit 0건
+    Assert.DoesNotContain("\"inTag\"", json)
+    Assert.DoesNotContain("\"ref\"", json)
+
+let private emptyCallConditionYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callCondition: {}
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``외부 review m-5 — 빈 callCondition object 는 None 정규화`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store emptyCallConditionYaml
+    let advCall = findAdvCall store
+    // 빈 callCondition: {} 는 의미 0 의 CallCondition 추가 회피 → CallConditions 0건
+    Assert.Equal(0, advCall.CallConditions.Count)
+
+[<Fact>]
+let ``외부 review m-2 — 모든 default 만 있을 때 신규 키 emit 0건 (lock-in)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.ToString()
+    // Phase 7 §4.2 C-1~C-6 신규 키 모두 default-skip
+    Assert.DoesNotContain("\"author\"", json)
+    Assert.DoesNotContain("\"version\"", json)
+    Assert.DoesNotContain("\"iri\"", json)
+    Assert.DoesNotContain("\"tokenRole\"", json)
+    Assert.DoesNotContain("\"contactKind\"", json)
+    Assert.DoesNotContain("\"skipInputSensor\"", json)
+    Assert.DoesNotContain("\"inTag\"", json)
+    Assert.DoesNotContain("\"outTag\"", json)
+    Assert.DoesNotContain("\"callType\"", json)
+    Assert.DoesNotContain("\"callCondition\"", json)
+    Assert.DoesNotContain("\"apiDetails\"", json)

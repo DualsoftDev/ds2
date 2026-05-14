@@ -221,6 +221,16 @@ module ModelProtocol =
             @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$",
             System.Text.RegularExpressions.RegexOptions.Compiled)
 
+    // TokenRole — Flags enum (None=0 / Source=1 / Ignore=2 / Sink=4). PoC scope: 단일 flag 만 직접 지원.
+    // 복합 flag (예: `Source ||| Sink`) 인 store 값은 emit 시 forensic 라벨 (`Combined(<int>)`) 로 표현 — parse 측은 거부.
+    let parseTokenRole (raw: string) : Result<TokenRole, string> =
+        match raw.Trim() with
+        | "None" -> Ok TokenRole.None
+        | "Source" -> Ok TokenRole.Source
+        | "Ignore" -> Ok TokenRole.Ignore
+        | "Sink" -> Ok TokenRole.Sink
+        | other -> Error (sprintf "tokenRole '%s' 미지원. 허용: None|Source|Ignore|Sink (PoC scope — 단일 flag 만)." other)
+
     let parseApiDefActionType (raw: string) : Result<ApiDefActionType, string> =
         let trimmed = raw.Trim()
         let m = apiDefActionTypeRegex.Match(trimmed)
@@ -333,6 +343,64 @@ module ModelProtocol =
         Diagnostics = Diagnostics()
         Systems = Dictionary<string, SystemEntry>(StringComparer.Ordinal)
     }
+
+    // ─── Plan / Call.Properties helpers (Phase 7 §4.2 C-3/C-5) ───────────────
+    //
+    // dispatchPassiveSystem / dispatchWork 양쪽에서 사용 — ApplyContext 정의 직후 위치 (forward-ref 회피).
+
+    let private tryFindCallInPlan (plan: ImportPlanBuilder) (callId: Guid) : Call option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddCall c when c.Id = callId -> Some c
+            | _ -> None)
+
+    let private tryFindApiDefInPlan (plan: ImportPlanBuilder) (apiDefId: Guid) : ApiDef option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddApiDef ad when ad.Id = apiDefId -> Some ad
+            | _ -> None)
+
+    let private tryFindProjectInPlan (plan: ImportPlanBuilder) (projectId: Guid) : Project option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddProject p when p.Id = projectId -> Some p
+            | _ -> None)
+
+    let private tryFindSystemInPlan (plan: ImportPlanBuilder) (sysId: Guid) : DsSystem option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddSystem s when s.Id = sysId -> Some s
+            | _ -> None)
+
+    let private tryFindWorkInPlan (plan: ImportPlanBuilder) (workId: Guid) : Work option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddWork w when w.Id = workId -> Some w
+            | _ -> None)
+
+    /// Call.Properties 안 SimulationCallProperties 의 CallType 추출 (없으면 None).
+    let private callTypeOf (c: Call) : CallType option =
+        c.Properties
+        |> Seq.tryPick (function
+            | SimulationCall props -> Some props.CallType
+            | _ -> None)
+
+    /// Call.Properties 안 SimulationCallProperties 의 CallType 설정. 기존 SimulationCall 있으면 mutate, 없으면 append.
+    let private setCallType (c: Call) (ct: CallType) : unit =
+        let idxOpt =
+            c.Properties
+            |> Seq.indexed
+            |> Seq.tryPick (fun (i, p) ->
+                match p with SimulationCall _ -> Some i | _ -> None)
+        match idxOpt with
+        | Some i ->
+            match c.Properties.[i] with
+            | SimulationCall props -> props.CallType <- ct
+            | _ -> ()
+        | None ->
+            let props = SimulationCallProperties()
+            props.CallType <- ct
+            c.Properties.Add(SimulationCall props)
 
     /// `flow Run` 같은 prefix 키 매칭 (SSOT §2.5).
     /// grammar: `flow` WS+ identifier (ASCII).
@@ -515,10 +583,57 @@ module ModelProtocol =
                     with ex ->
                         ctx.Diagnostics.Add(path, ex.Message)
 
+        // Phase 7 §4.2 C-6: DsSystem.IRI (Passive — leaf 키)
+        match !entry.SystemId with
+        | Some sysId ->
+            tryProp sysEl "iri" |> Option.bind tryString
+            |> Option.iter (fun s ->
+                let sysOpt =
+                    tryFindSystemInPlan ctx.Plan sysId
+                    |> Option.orElseWith (fun () -> Queries.getSystem sysId ctx.Store)
+                sysOpt |> Option.iter (fun sys -> sys.IRI <- Some s))
+        | None -> ()
+
+        // apiDetails — ApiDef 별 추가 property (Phase 7 §4.2 C-5).
+        // device sugar 가 ApiDef 를 생성한 분기 (cylinder/clamp/robot/custom) 통과 후 적용.
+        // *device 키 부재 시 ApiDef 미생성* — apiDetails entry 가 모두 entry.ApiDefIds lookup 에 실패하여
+        // forensic diag 발생. SSOT §2.3 가 `apiDetails` 를 device sugar Passive 한정으로 명시 (외부 reviewer M-C).
+        tryProp sysEl "apiDetails"
+        |> Option.iter (fun detailsEl ->
+            if detailsEl.ValueKind <> JsonValueKind.Object then
+                ctx.Diagnostics.Add(path + ".apiDetails", sprintf "object 기대 (실제 %A)." detailsEl.ValueKind)
+            else
+                for prop in detailsEl.EnumerateObject() do
+                    let apiName = prop.Name
+                    let apiPath = sprintf "%s.apiDetails.%s" path apiName
+                    match entry.ApiDefIds.TryGetValue apiName with
+                    | true, apiId ->
+                        let apiDefOpt =
+                            tryFindApiDefInPlan ctx.Plan apiId
+                            |> Option.orElseWith (fun () -> Queries.getApiDef apiId ctx.Store)
+                        match apiDefOpt with
+                        | Some apiDef ->
+                            tryProp prop.Value "actionType"
+                            |> Option.bind tryString
+                            |> Option.iter (fun s ->
+                                match parseApiDefActionType s with
+                                | Ok at -> apiDef.ApiDefActionType <- at
+                                | Error msg -> ctx.Diagnostics.Add(apiPath + ".actionType", msg))
+                            // 외부 reviewer m-4 반영: 빈 string 도 set 하면 store 표면값 (`Some ""`) 이 emit 측 default-skip
+                            // 정책 (Some 이고 빈 아닐 때만 emit) 과 비대칭. apply 측에서도 빈 string → None 으로 정규화.
+                            tryProp prop.Value "description"
+                            |> Option.bind tryString
+                            |> Option.filter (fun s -> not (String.IsNullOrEmpty s))
+                            |> Option.iter (fun s -> apiDef.Description <- Some s)
+                        | None ->
+                            ctx.Diagnostics.Add(apiPath, "ApiDef instance 추적 실패 (forensic).")
+                    | false, _ ->
+                        ctx.Diagnostics.Add(apiPath, sprintf "ApiDef '%s' 가 system 의 apis 목록에 없음." apiName))
+
     let private dispatchActiveSystem
         (ctx: ApplyContext)
         (entry: SystemEntry)
-        (_sysEl: JsonElement)
+        (sysEl: JsonElement)
         (path: string) : unit =
 
         // M1 fix: active system 이름 sanitize 가드.
@@ -527,6 +642,13 @@ module ModelProtocol =
         try
             let id = ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
+            // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
+            tryProp sysEl "iri" |> Option.bind tryString
+            |> Option.iter (fun s ->
+                let sysOpt =
+                    tryFindSystemInPlan ctx.Plan id
+                    |> Option.orElseWith (fun () -> Queries.getSystem id ctx.Store)
+                sysOpt |> Option.iter (fun sys -> sys.IRI <- Some s))
         with ex ->
             ctx.Diagnostics.Add(path, ex.Message)
 
@@ -586,14 +708,26 @@ module ModelProtocol =
     // ─── CallCondition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
     //
     // SSOT yaml-protocol-v0.md §2.2.1 dual format — object 형태 call 의 보강 property.
-    // ToolOperations.queueAddCall 후 plan 에 추가된 Call instance 를 추출하여 직접 mutation.
-    // ToolOperations 의 동일 패턴 (`tryFindCallInPlan`) 답습 — ModelProtocol 내부 private 재선언.
+    // `tryFindCallInPlan` / `tryFindApiDefInPlan` / `callTypeOf` / `setCallType` 4 helper 는 본 dispatch
+    // helper (dispatchPassiveSystem / dispatchWork) 보다 *앞* 에서 호출되어야 하므로 ApplyContext 정의 직후 (위)
+    // 로 이동됨. 본 영역에는 resolveApiDef 의존 helper (parseCallCondition) 와 ApplyContext 의존 helper (parseIOTag) 만 유지.
 
-    let private tryFindCallInPlan (plan: ImportPlanBuilder) (callId: Guid) : Call option =
-        plan.Operations
-        |> Seq.tryPick (function
-            | AddCall c when c.Id = callId -> Some c
-            | _ -> None)
+    /// IOTag parse — emit 측 `writeIOTag` 의 거울 (Phase 7 §4.2 C-4 PoC scope: Name + Address).
+    /// 두 키 모두 부재 시 None — 빈 IOTag instance 생성 회피.
+    let private parseIOTag (ctx: ApplyContext) (el: JsonElement) (path: string) : IOTag option =
+        if el.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "IOTag object 기대 (실제 %A)." el.ValueKind)
+            None
+        else
+            let nameOpt = tryProp el "name" |> Option.bind tryString
+            let addressOpt = tryProp el "address" |> Option.bind tryString
+            match nameOpt, addressOpt with
+            | None, None -> None
+            | _ ->
+                let tag = IOTag()
+                nameOpt |> Option.iter (fun s -> tag.Name <- s)
+                addressOpt |> Option.iter (fun s -> tag.Address <- s)
+                Some tag
 
     /// CallCondition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
     /// conditions leaf 는 ApiCall — dual format (string scalar 또는 object{ref, contactKind?}).
@@ -601,6 +735,9 @@ module ModelProtocol =
     let rec private parseCallCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : CallCondition option =
         if condEl.ValueKind <> JsonValueKind.Object then
             ctx.Diagnostics.Add(path, sprintf "callCondition object 기대 (실제 %A)." condEl.ValueKind)
+            None
+        elif condEl.EnumerateObject() |> Seq.isEmpty then
+            // 외부 reviewer m-5 반영: 빈 `callCondition: {}` 는 의미 0 의 CallCondition 인스턴스 추가 회피 → None 으로 정규화.
             None
         else
             let cond = CallCondition()
@@ -702,6 +839,17 @@ module ModelProtocol =
             if tryProp workEl "duration" |> Option.isSome then
                 ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
+            // Phase 7 §4.2 C-6: Work.TokenRole (단순 leaf, default None 면 키 부재)
+            tryProp workEl "tokenRole" |> Option.bind tryString
+            |> Option.iter (fun s ->
+                match parseTokenRole s with
+                | Ok r ->
+                    let workOpt =
+                        tryFindWorkInPlan ctx.Plan workId
+                        |> Option.orElseWith (fun () -> Queries.getWork workId ctx.Store)
+                    workOpt |> Option.iter (fun work -> work.TokenRole <- r)
+                | Error msg -> ctx.Diagnostics.Add(path + ".tokenRole", msg))
+
             // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
             //   string scalar       → default case, callObjOpt = None
             //   object { ref, ... } → non-default case, callObjOpt = Some <full object>
@@ -778,14 +926,39 @@ module ModelProtocol =
                             | None ->
                                 ctx.Diagnostics.Add(callPath, "queueAddCall 후 plan 에서 Call instance 추적 실패 (forensic).")
                             | Some call ->
+                                // ApiCall 보강 (C-3 ContactKind + C-4 SkipInputSensor / InTag / OutTag). 1:1 invariant.
+                                let firstApiCallOpt =
+                                    if call.ApiCalls.Count > 0 then Some call.ApiCalls.[0] else None
                                 tryProp obj "contactKind"
                                 |> Option.bind tryString
                                 |> Option.iter (fun s ->
                                     match parseContactKind s with
-                                    | Ok k ->
-                                        if call.ApiCalls.Count > 0 then
-                                            call.ApiCalls.[0].ContactKind <- k
+                                    | Ok k -> firstApiCallOpt |> Option.iter (fun ac -> ac.ContactKind <- k)
                                     | Error msg -> ctx.Diagnostics.Add(callPath + ".contactKind", msg))
+                                tryProp obj "skipInputSensor"
+                                |> Option.iter (fun el ->
+                                    match el.ValueKind with
+                                    | JsonValueKind.True -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- true)
+                                    | JsonValueKind.False -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- false)
+                                    | _ -> ctx.Diagnostics.Add(callPath + ".skipInputSensor", sprintf "bool 기대 (실제 %A)." el.ValueKind))
+                                tryProp obj "inTag"
+                                |> Option.iter (fun el ->
+                                    match parseIOTag ctx el (callPath + ".inTag") with
+                                    | Some tag -> firstApiCallOpt |> Option.iter (fun ac -> ac.InTag <- Some tag)
+                                    | None -> ())
+                                tryProp obj "outTag"
+                                |> Option.iter (fun el ->
+                                    match parseIOTag ctx el (callPath + ".outTag") with
+                                    | Some tag -> firstApiCallOpt |> Option.iter (fun ac -> ac.OutTag <- Some tag)
+                                    | None -> ())
+                                // C-5: SimulationCallProperties.CallType (Call.Properties 콜렉션 mutation)
+                                tryProp obj "callType"
+                                |> Option.bind tryString
+                                |> Option.iter (fun s ->
+                                    match parseCallType s with
+                                    | Ok ct -> setCallType call ct
+                                    | Error msg -> ctx.Diagnostics.Add(callPath + ".callType", msg))
+                                // CallCondition tree (C-3)
                                 tryProp obj "callCondition"
                                 |> Option.iter (fun ccEl ->
                                     match parseCallCondition ctx ccEl (callPath + ".callCondition") with
@@ -1315,7 +1488,18 @@ module ModelProtocol =
             ctx.Diagnostics, Map.empty
         else
             // project 키 처리
-            let _projectId = resolveProjectKey ctx root
+            let projectIdOpt = resolveProjectKey ctx root
+
+            // Phase 7 §4.2 C-6: Project root-level meta — author / version (단순 leaf 키)
+            projectIdOpt |> Option.iter (fun projectId ->
+                let projectOpt =
+                    tryFindProjectInPlan ctx.Plan projectId
+                    |> Option.orElseWith (fun () -> Queries.getProject projectId ctx.Store)
+                projectOpt |> Option.iter (fun project ->
+                    tryProp root "author" |> Option.bind tryString
+                    |> Option.iter (fun s -> project.Author <- s)
+                    tryProp root "version" |> Option.bind tryString
+                    |> Option.iter (fun s -> project.Version <- s)))
 
             // systems 처리 (있으면)
             match tryProp root "systems" with
@@ -1409,6 +1593,14 @@ module ModelProtocol =
         | CallType.SkipIfCompleted -> "SkipIfCompleted"
         | other -> sprintf "Unknown(%d)" (int other)
 
+    let formatTokenRole (t: TokenRole) : string =
+        match t with
+        | TokenRole.None -> "None"
+        | TokenRole.Source -> "Source"
+        | TokenRole.Ignore -> "Ignore"
+        | TokenRole.Sink -> "Sink"
+        | combined -> sprintf "Combined(%d)" (int combined)
+
     let formatApiDefActionType (a: ApiDefActionType) : string =
         match a with
         | ApiDefActionType.Normal              -> "Normal"
@@ -1423,11 +1615,37 @@ module ModelProtocol =
     // dual format (§2.2.1) 의 emit 측 — store 값 inspection 후 default 인지 판단.
     // PoC 가정: Call.CallConditions 는 multiple root 가능하나 *첫 root 만 emit*. 후속 phase 가 multiple root 정책 결정.
 
+    /// IOTag 의 content 검사 — Name / Address 중 하나라도 non-empty 면 보강 대상.
+    /// emit 측 가드 (`writeIOTag` 진입 차단) + `callHasEnhancement` IOTag 검사 양쪽에서 사용 — 빈 IOTag 인스턴스가
+    /// `Some empty` ↔ `None` 비대칭으로 round-trip drift 발생하지 않도록 정합 (외부 reviewer M-B).
+    let private ioTagHasContent (tag: IOTag) : bool =
+        not (String.IsNullOrEmpty tag.Name) || not (String.IsNullOrEmpty tag.Address)
+
     let private callHasEnhancement (c: Call) : bool =
-        let hasCallCondition = c.CallConditions.Count > 0
-        let hasNonDefaultContactKind =
-            c.ApiCalls.Count > 0 && c.ApiCalls.[0].ContactKind <> ContactKind.NoContact
-        hasCallCondition || hasNonDefaultContactKind
+        let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
+        let exists pred = firstApiCall |> Option.exists pred
+        let hasNonDefaultCallType =
+            callTypeOf c |> Option.exists (fun ct -> ct <> CallType.WaitForCompletion)
+        // 외부 reviewer M-B 반영: IOTag.IsSome 만으로는 부족 — content 검사 (Name/Address 중 하나라도 non-empty).
+        // 빈 IOTag (Some empty) 가 emit 강제하면 parse 측 None 으로 정규화되어 비대칭 drift.
+        c.CallConditions.Count > 0
+        || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
+        || exists (fun ac -> ac.SkipInputSensor)
+        || exists (fun ac -> ac.InTag |> Option.exists ioTagHasContent)
+        || exists (fun ac -> ac.OutTag |> Option.exists ioTagHasContent)
+        || hasNonDefaultCallType
+
+    /// IOTag emit — Name + Address 두 키만 (Phase 7 §4.2 C-4 PoC scope).
+    /// DataType / Description / DefaultValue 등 IOTag 의 부속 property 는 후속 phase.
+    /// 호출자는 `ioTagHasContent` 통과 후에만 진입 — 둘 다 빈 string 인 경우 emit 자체 skip.
+    let private writeIOTag (w: Utf8JsonWriter) (key: string) (tag: IOTag) : unit =
+        w.WritePropertyName key
+        w.WriteStartObject()
+        if not (String.IsNullOrEmpty tag.Name) then
+            w.WriteString("name", tag.Name)
+        if not (String.IsNullOrEmpty tag.Address) then
+            w.WriteString("address", tag.Address)
+        w.WriteEndObject()
 
     /// CallCondition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
     /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default 면 string scalar, 아니면 object.
@@ -1485,6 +1703,11 @@ module ModelProtocol =
             | [] -> ()
             | p :: _ ->
                 w.WriteString("project", p.Name)
+                // Phase 7 §4.2 C-6: Project root-level meta (default "" / "1.0.0" 면 생략)
+                if not (String.IsNullOrEmpty p.Author) then
+                    w.WriteString("author", p.Author)
+                if not (String.IsNullOrEmpty p.Version) && p.Version <> "1.0.0" then
+                    w.WriteString("version", p.Version)
                 w.WriteStartArray("systems")
 
                 let actives = Queries.activeSystemsOf p.Id store
@@ -1494,6 +1717,8 @@ module ModelProtocol =
                     w.WriteStartObject()
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "active")
+                    // Phase 7 §4.2 C-6: DsSystem.IRI (Some 인 경우만 emit)
+                    s.IRI |> Option.iter (fun iri -> w.WriteString("iri", iri))
                     // flows (object)
                     let flows = Queries.flowsOf s.Id store
                     for f in flows do
@@ -1507,6 +1732,9 @@ module ModelProtocol =
                             for wk in works do
                                 w.WritePropertyName wk.LocalName
                                 w.WriteStartObject()
+                                // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략)
+                                if wk.TokenRole <> TokenRole.None then
+                                    w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
                                 let calls = Queries.callsOf wk.Id store
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
@@ -1552,9 +1780,23 @@ module ModelProtocol =
                                             w.WriteStartObject()
                                             w.WriteString("ref", callRef)
                                             if c.ApiCalls.Count > 0 then
-                                                let ck = c.ApiCalls.[0].ContactKind
-                                                if ck <> ContactKind.NoContact then
-                                                    w.WriteString("contactKind", formatContactKind ck)
+                                                let ac = c.ApiCalls.[0]
+                                                if ac.ContactKind <> ContactKind.NoContact then
+                                                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                                                if ac.SkipInputSensor then
+                                                    w.WriteBoolean("skipInputSensor", true)
+                                                // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
+                                                ac.InTag
+                                                |> Option.filter ioTagHasContent
+                                                |> Option.iter (writeIOTag w "inTag")
+                                                ac.OutTag
+                                                |> Option.filter ioTagHasContent
+                                                |> Option.iter (writeIOTag w "outTag")
+                                            // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략)
+                                            match callTypeOf c with
+                                            | Some ct when ct <> CallType.WaitForCompletion ->
+                                                w.WriteString("callType", formatCallType ct)
+                                            | _ -> ()
                                             if c.CallConditions.Count > 0 then
                                                 w.WritePropertyName "callCondition"
                                                 emitCallCondition w apiCallRef c.CallConditions.[0]
@@ -1617,6 +1859,8 @@ module ModelProtocol =
                     w.WriteStartObject()
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "passive")
+                    // Phase 7 §4.2 C-6: DsSystem.IRI (Some 인 경우만 emit)
+                    s.IRI |> Option.iter (fun iri -> w.WriteString("iri", iri))
                     let apis = Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name)
                     // device 추정 (Phase 2 §3.1 #5) — SystemType + apis 패턴 fingerprint 매칭.
                     // sugar fingerprint:
@@ -1675,6 +1919,30 @@ module ModelProtocol =
                     let inferredOpp = inferOpposing apis.Length resetResetCount
                     if inferredOpp <> defaultOpp then
                         w.WriteString("opposing", inferredOpp)
+                    // C-5: apiDetails — ApiDef 별 actionType / description (default 면 키 자체 생략).
+                    let apiDefEntities = Queries.apiDefsOf s.Id store
+                    let detailsEntries =
+                        apiDefEntities
+                        |> List.choose (fun ad ->
+                            let hasNonDefaultAction = ad.ApiDefActionType <> ApiDefActionType.Normal
+                            let hasDescription =
+                                ad.Description.IsSome
+                                && not (String.IsNullOrEmpty ad.Description.Value)
+                            if hasNonDefaultAction || hasDescription then Some ad else None)
+                    if not detailsEntries.IsEmpty then
+                        w.WritePropertyName "apiDetails"
+                        w.WriteStartObject()
+                        for ad in detailsEntries do
+                            w.WritePropertyName ad.Name
+                            w.WriteStartObject()
+                            if ad.ApiDefActionType <> ApiDefActionType.Normal then
+                                w.WriteString("actionType", formatApiDefActionType ad.ApiDefActionType)
+                            (match ad.Description with
+                             | Some s when not (String.IsNullOrEmpty s) ->
+                                 w.WriteString("description", s)
+                             | _ -> ())
+                            w.WriteEndObject()
+                        w.WriteEndObject()
                     w.WriteEndObject()
 
                 w.WriteEndArray()
