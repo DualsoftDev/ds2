@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -7,7 +8,10 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AvalonDock;
+using AvalonDock.Layout;
 using Ds2.Core;
+using log4net;
 using Promaker.Presentation;
 using Promaker.Services;
 using Promaker.ViewModels;
@@ -16,6 +20,7 @@ namespace Promaker;
 
 public partial class MainWindow : Window
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(MainWindow));
     private readonly MainViewModel _vm = new();
     private readonly TrayService _trayService = new();
     private const int DwmwaUseImmersiveDarkMode = 20;
@@ -23,19 +28,44 @@ public partial class MainWindow : Window
     private const int DwmwaCaptionColor = 35;
     private const int DwmwaTextColor = 36;
 
+    // v7 PR-2a — VM ↔ View 동기화 재진입 가드. spike 결과 IsVisibleChanged 가 Hide()/Show() 1회당 3~4회 raise.
+    private bool _suppressLlmChatSync;
+
+    // v7 PR-2a Q1 — 빈 column 자동 collapse 시 복원할 default 폭/높이.
+    private static readonly GridLength ExplorerDefaultW = new(320);
+    private static readonly GridLength SimulationDefaultH = new(200);
+    private static readonly GridLength HistoryDefaultH = new(220);
+    private static readonly GridLength RightDefaultW = new(280);
+    // v10 hotfix — llmChatPane / propertyPane 은 fill (마지막 pane) 이라 명시적 default 없음 → Star 로 복원.
+    private static readonly GridLength StarLength = new(1, GridUnitType.Star);
+    private static readonly GridLength ZeroLength = new(0);
+
+    // floating → docked 복원 wiring — AvalonDock 공개 hook 사용.
+    // 공식 동작:
+    //   - `Dock()` 는 PreviousContainer 가 없으면 LayoutAnchorable.InternalDock() 으로 fallback.
+    //   - fallback 은 활성/우측/첫 pane 순으로 선택하므로 Properties 가 Explorer tab 으로 들어갈 수 있음.
+    //   - `InternalDock()` / `Show()` 는 DockingManager.LayoutUpdateStrategy.BeforeInsertAnchorable 을 먼저 호출.
+    // 해결: main dock layout 안의 마지막 ILayoutPane/index 를 별도 기록하고, Dock 명령 및 BeforeInsertAnchorable 에서 그 위치로 직접 삽입.
+    private readonly Dictionary<LayoutAnchorable, DockAnchorPlacement> _dockPlacements = new();
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _vm;
-        _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
+        // v7 PR-2a — _vm.FocusNameEditorRequested 슬롯 set 은 PropertyPane.xaml.cs 의 Loaded/Unloaded 자가 등록으로 이동.
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
-        // 1d-4 D — IsLlmChatVisible 토글 시 dock column width 조정 (collapsed 시 splitter 도 0).
-        _vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible))
-                UpdateLlmChatColumnWidths();
-        };
+        // B-1 — 보기 메뉴 (`Apps/Promaker/Docs/todo-dock-layout.md` §3.1 Q2) anchor IsVisible TwoWay binding 용 VM expose.
+        // LlmChat 은 IsLlmChatVisible SSOT 별도라 제외 (toolbar 의 LLM 토글 버튼이 별도 UI).
+        _vm.ExplorerAnchor   = explorerAnchor;
+        _vm.PropertyAnchor   = propertyAnchor;
+        _vm.HistoryAnchor    = historyAnchor;
+        _vm.SimulationAnchor = simulationAnchor;
+
+        dockManager.LayoutUpdateStrategy = new DockLayoutUpdateStrategy(this);
+        dockManager.ContentDocking += OnDockManagerContentDocking;
+        _vm.PropertyChanged += OnViewModelPropertyChanged;
+        llmChatAnchor.Hiding += OnLlmChatHiding;
 
         // Tray 전환 콜백 wiring — Monitoring + RealPLC 시 PLAY 가 RequestTrayHide 호출.
         // STOP / 모드 전환 시 RequestTrayRestore 호출.
@@ -65,6 +95,22 @@ public partial class MainWindow : Window
             });
         };
 
+        // v7 PR-2a Q1 — 빈 column 자동 collapse listener. 5개 anchor 모두 동일 핸들러.
+        explorerAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        simulationAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        propertyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        historyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        llmChatAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+
+        // 매 docked 상태에서 pane/index capture — drag-floating 후 Dock() 시 직전 dock 위치 복원 보장.
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+        {
+            a.PropertyChanged += OnAnchorPropertyChanged;
+            CaptureDockPlacement(a);  // 초기 1회 (안전망 — Loaded 에도 다시)
+        }
+
+        Log.Debug($"[Dock] ctor init: explorer parent={PaneDesc(explorerAnchor.Parent)}, properties={PaneDesc(propertyAnchor.Parent)}, history={PaneDesc(historyAnchor.Parent)}, simulation={PaneDesc(simulationAnchor.Parent)}, llmchat={PaneDesc(llmChatAnchor.Parent)}");
+
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
@@ -81,48 +127,289 @@ public partial class MainWindow : Window
             System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private const double LlmChatColumnDefaultWidth = 380.0;
-    private const double LlmChatColumnMinWidth = 240.0;
-
-    private void UpdateLlmChatColumnWidths()
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        // OpenLayout / WelcomeLayout 양쪽 LLM Chat dock column 동시 갱신.
-        // HasProject 토글 시 layout 자체가 Collapsed/Visible 되지만 ColumnDefinition 은 미리 동기화해두어야 전환 직후 폭이 맞음.
-        var splitterW = _vm.IsLlmChatVisible ? new GridLength(4) : new GridLength(0);
-        var panelW    = _vm.IsLlmChatVisible ? new GridLength(LlmChatColumnDefaultWidth) : new GridLength(0);
-        var panelMinW = _vm.IsLlmChatVisible ? LlmChatColumnMinWidth : 0;
+        switch (e.PropertyName)
+        {
+            case nameof(MainViewModel.IsLlmChatVisible):
+                SyncLlmChatAnchorFromVm();
+                break;
+            case nameof(MainViewModel.HasProject):
+                SyncWelcomeCanvasVisibility();
+                break;
+        }
+    }
 
-        LlmChatSplitterCol.Width = splitterW;
-        LlmChatPanelCol.Width    = panelW;
-        LlmChatPanelCol.MinWidth = panelMinW;
+    // VM → View 단방향 (3속성 동시 set). 재진입 가드로 IsVisibleChanged 중복 raise → VM 역류 차단.
+    // Edge case (`Apps/Promaker/Docs/todo-dock-layout.md` §3.3): LlmChatVm==null (consent 거부) 또는 IsLlmEnabled=false → 안전 가드로 hide 유지.
+    private void SyncLlmChatAnchorFromVm()
+    {
+        if (_suppressLlmChatSync) return;
+        _suppressLlmChatSync = true;
+        try
+        {
+            bool show = _vm.IsLlmChatVisible && _vm.LlmChatVm != null && _vm.IsLlmEnabled;
+            llmChatAnchor.IsVisible = show;
+            llmChatAnchor.IsActive = show;
+            llmChatAnchor.IsSelected = show;
+        }
+        finally { _suppressLlmChatSync = false; }
+    }
 
-        WelcomeLlmChatSplitterCol.Width = splitterW;
-        WelcomeLlmChatPanelCol.Width    = panelW;
-        WelcomeLlmChatPanelCol.MinWidth = panelMinW;
+    // v7 PR-2a Q1/F2 — anchor 가 hidden 시 그 anchor 의 LayoutAnchorablePane DockWidth/DockHeight 잔존 문제.
+    // 각 anchor 의 IsVisible 에 따라 pane 의 default 폭/높이를 toggle. 매 raise 마다 호출되어도 멱등.
+    private void OnAnchorIsVisibleChanged(object? sender, EventArgs e)
+    {
+        explorerPane.DockWidth    = explorerAnchor.IsVisible    ? ExplorerDefaultW   : ZeroLength;
+        simulationPane.DockHeight = simulationAnchor.IsVisible  ? SimulationDefaultH : ZeroLength;
+        historyPane.DockHeight    = historyAnchor.IsVisible     ? HistoryDefaultH    : ZeroLength;
+        // v10 hotfix — llmChatPane / propertyPane 은 명시적 DockHeight 없는 fill pane (마지막 위치).
+        // anchor.IsVisible=false 만으로는 LayoutAnchorablePane 영역이 시각 잔존 (4.74.1 회귀) → pane DockHeight 도 toggle.
+        llmChatPane.DockHeight    = llmChatAnchor.IsVisible     ? StarLength         : ZeroLength;
+        propertyPane.DockHeight   = propertyAnchor.IsVisible    ? StarLength         : ZeroLength;
+
+        // rightPanel 의 children (property/history/llm) 모두 hidden 시 column 자체 collapse.
+        bool anyRightVisible = propertyAnchor.IsVisible || historyAnchor.IsVisible || llmChatAnchor.IsVisible;
+        rightPanel.DockWidth = anyRightVisible ? RightDefaultW : ZeroLength;
+    }
+
+    // floating → docked 복귀 시 직전 dock 위치 복원.
+    // docked 상태의 anchor (pane + index) 를 _dockPlacements 에 갱신하고,
+    // Dock command / Show fallback 이 들어오면 AvalonDock 기본 후보 대신 해당 위치로 직접 reparent.
+    // IsFloating=true 동안은 갱신 skip → 직전 docked 위치 보존.
+    private static string PaneDesc(object? parent)
+    {
+        if (parent == null) return "null";
+        if (parent is LayoutAnchorablePane p)
+            return $"AnchorablePane(n={p.Children.Count})";
+        return parent.GetType().Name;
+    }
+
+    private void OnAnchorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not LayoutAnchorable anchor) return;
+        if (e.PropertyName == "IsFloating")
+        {
+            Log.Debug($"[Dock] {anchor.ContentId}.IsFloating={anchor.IsFloating}, parent={PaneDesc(anchor.Parent)}");
+            return;
+        }
+        if (e.PropertyName != "Parent") return;
+        CaptureDockPlacement(anchor);
+    }
+
+    // anchor 가 main dock layout 안에 docked 상태일 때 그 pane + index 를 기록한다.
+    // - IsFloating=true / floating window pane / float 생성 중 transient pane(Root null): skip
+    // - LayoutDocumentPane 도 기록해 사용자가 canvas 쪽에 tab docking 한 위치를 보존
+    private void CaptureDockPlacement(LayoutAnchorable anchor)
+    {
+        if (anchor.IsFloating) return;
+        if (anchor.Parent is not ILayoutPane pane) return;
+        if (anchor.Parent is not ILayoutGroup paneGroup) return;
+        if (pane is not ILayoutElement paneElement) return;
+        if (paneElement.Root != dockManager.Layout) return;
+        if (paneElement.FindParent<LayoutFloatingWindow>() != null) return;
+
+        int idx = paneGroup.IndexOfChild(anchor);
+        if (idx < 0) return;
+
+        var parentGroup = paneElement.Parent as ILayoutGroup;
+        int paneIndex = parentGroup?.IndexOfChild(paneElement) ?? -1;
+        var parentGroupElement = parentGroup as ILayoutElement;
+        var parentParentGroup = parentGroupElement?.Parent as ILayoutGroup;
+        int parentGroupIndex = parentParentGroup?.IndexOfChild(parentGroupElement) ?? -1;
+
+        _dockPlacements[anchor] = new DockAnchorPlacement(
+            paneElement,
+            paneGroup,
+            parentGroup,
+            paneIndex,
+            idx,
+            parentGroupElement,
+            parentParentGroup,
+            parentGroupIndex);
+        Log.Debug($"[Dock] {anchor.ContentId}: dock placement captured parent={PaneDesc(paneElement)}, childIndex={idx}, paneIndex={paneIndex}");
+    }
+
+    private void OnDockManagerContentDocking(object? sender, ContentDockingEventArgs e)
+    {
+        if (e.Content is not LayoutAnchorable anchor) return;
+        if (!anchor.IsFloating) return;
+        if (!TryDockAnchorAtCapturedPlacement(anchor)) return;
+
+        e.Cancel = true;
+        dockManager.Layout?.CollectGarbage();
+    }
+
+    private bool TryDockAnchorAtCapturedPlacement(LayoutAnchorable anchor)
+    {
+        if (!_dockPlacements.TryGetValue(anchor, out var placement))
+            return false;
+
+        if (!EnsureDockPaneAttached(placement))
+            return false;
+
+        if (placement.PaneElement.FindParent<LayoutFloatingWindow>() != null)
+            return false;
+
+        if (ReferenceEquals(anchor.Parent, placement.PaneGroup))
+        {
+            anchor.IsSelected = true;
+            anchor.IsActive = true;
+            CaptureDockPlacement(anchor);
+            OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+            return true;
+        }
+
+        int insertIndex = Math.Clamp(placement.ChildIndex, 0, placement.PaneGroup.ChildrenCount);
+        placement.PaneGroup.InsertChildAt(insertIndex, anchor);
+        anchor.IsSelected = true;
+        anchor.IsActive = true;
+
+        CaptureDockPlacement(anchor);
+        OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        return true;
+    }
+
+    private static bool EnsureDockPaneAttached(DockAnchorPlacement placement)
+    {
+        if (placement.PaneElement.Parent != null
+            && placement.PaneElement.Root != null
+            && placement.PaneElement.FindParent<LayoutFloatingWindow>() == null)
+            return true;
+
+        if (placement.ParentGroup is null)
+            return false;
+
+        if (placement.ParentGroupElement is { Parent: null }
+            && placement.ParentParentGroup is not null)
+        {
+            int parentGroupIndex = placement.ParentGroupIndex;
+            if (parentGroupIndex < 0 || parentGroupIndex > placement.ParentParentGroup.ChildrenCount)
+                parentGroupIndex = placement.ParentParentGroup.ChildrenCount;
+
+            placement.ParentParentGroup.InsertChildAt(parentGroupIndex, placement.ParentGroupElement);
+        }
+
+        if (!ReferenceEquals(placement.PaneElement.Parent, placement.ParentGroup))
+        {
+            int paneIndex = placement.PaneIndex;
+            if (paneIndex < 0 || paneIndex > placement.ParentGroup.ChildrenCount)
+                paneIndex = placement.ParentGroup.ChildrenCount;
+
+            placement.ParentGroup.InsertChildAt(paneIndex, placement.PaneElement);
+        }
+
+        return placement.PaneElement.Parent != null
+            && placement.PaneElement.Root != null
+            && placement.PaneElement.FindParent<LayoutFloatingWindow>() == null;
+    }
+
+    private sealed class DockAnchorPlacement(
+        ILayoutElement paneElement,
+        ILayoutGroup paneGroup,
+        ILayoutGroup? parentGroup,
+        int paneIndex,
+        int childIndex,
+        ILayoutElement? parentGroupElement,
+        ILayoutGroup? parentParentGroup,
+        int parentGroupIndex)
+    {
+        public ILayoutElement PaneElement { get; } = paneElement;
+        public ILayoutGroup PaneGroup { get; } = paneGroup;
+        public ILayoutGroup? ParentGroup { get; } = parentGroup;
+        public int PaneIndex { get; } = paneIndex;
+        public int ChildIndex { get; } = childIndex;
+        public ILayoutElement? ParentGroupElement { get; } = parentGroupElement;
+        public ILayoutGroup? ParentParentGroup { get; } = parentParentGroup;
+        public int ParentGroupIndex { get; } = parentGroupIndex;
+    }
+
+    private sealed class DockLayoutUpdateStrategy(MainWindow owner) : ILayoutUpdateStrategy
+    {
+        public bool BeforeInsertAnchorable(
+            LayoutRoot layout,
+            LayoutAnchorable anchorableToShow,
+            ILayoutContainer destinationContainer)
+        {
+            return owner.TryDockAnchorAtCapturedPlacement(anchorableToShow);
+        }
+
+        public void AfterInsertAnchorable(LayoutRoot layout, LayoutAnchorable anchorableShown)
+        {
+            owner.CaptureDockPlacement(anchorableShown);
+            owner.OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        }
+
+        public bool BeforeInsertDocument(
+            LayoutRoot layout,
+            LayoutDocument anchorableToShow,
+            ILayoutContainer destinationContainer) => false;
+
+        public void AfterInsertDocument(LayoutRoot layout, LayoutDocument anchorableShown)
+        {
+        }
+    }
+
+    // View → VM (X 버튼 = 사용자 명시 close 한 곳만). auto-hide / float 상태 변화는 무관.
+    // e.Cancel 은 기본값 false 유지 — hide 자체는 그대로 진행 + VM 만 동기화.
+    private void OnLlmChatHiding(object? sender, CancelEventArgs e)
+    {
+        if (_suppressLlmChatSync) return;
+        _suppressLlmChatSync = true;
+        try
+        {
+            _vm.IsLlmChatVisible = false;
+        }
+        finally { _suppressLlmChatSync = false; }
+    }
+
+    // HasProject 토글 시 welcomeDoc / canvasDoc 중 하나만 LayoutDocumentPane 에 attach +
+    // `Apps/Promaker/Docs/todo-dock-layout.md` §3.1 안 A 명세대로 보조 anchor 4종 (Explorer/Property/History/Simulation) 도 함께 토글.
+    // LayoutDocument.IsVisible 은 XAML/C# 양쪽 모두 read-only (CS0200) 라 anchor 와 달리 set 불가능 →
+    // workspaceDocs.Children Add/Remove 동적 관리로 처리.
+    //
+    // 외부 reviewer M1 수용 — Welcome 모드 (HasProject=false) 에 보조 anchor 가 노출되면 동일 문서 §3.1 안 A 명세 drift
+    // + 이전 WelcomeLayout (전용 안내 화면) 대비 UX 회귀. LlmChat 은 IsLlmChatVisible SSOT 가 별도라 제외.
+    //
+    // 재진입 가드 없음 — anchor.IsVisible set 의 IsVisibleChanged 가 OnAnchorIsVisibleChanged 만 부르고
+    // VM ↔ View 역방향 없음. LlmChat 의 _suppressLlmChatSync 가드와 비대칭이 의도된 부분.
+    //
+    // PR-3 잔여 우려: XmlLayoutSerializer 도입 시 detach 된 LayoutDocument 인스턴스가
+    // serialize 직전에 attach 되어 있어야 round-trip 정합. PR-3 진입 시 spike 1차 검증 필요.
+    private void SyncWelcomeCanvasVisibility()
+    {
+        var children = workspaceDocs.Children;
+        var (target, other) = _vm.HasProject ? (canvasDoc, welcomeDoc) : (welcomeDoc, canvasDoc);
+        if (children.Contains(other)) children.Remove(other);
+        if (!children.Contains(target)) children.Add(target);
+        target.IsActive = true;
+        target.IsSelected = true;
+
+        explorerAnchor.IsVisible    = _vm.HasProject;
+        propertyAnchor.IsVisible    = _vm.HasProject;
+        historyAnchor.IsVisible     = _vm.HasProject;
+        simulationAnchor.IsVisible  = _vm.HasProject;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        // v7 PR-2a (검열 Major 1) — XAML 트리 / LayoutDocumentPane SelectedContentIndex 완전 unwound 이후 시점.
+        // 생성자 InitializeComponent 직후 호출은 nondeterministic 위험.
+        SyncWelcomeCanvasVisibility();
+        // hotfix — XAML 의 `IsVisible="False"` 가 4.74.1 의 LayoutAnchorable parent attach 시점 race 로
+        // 초기 1 frame 동안 visible 노출되는 회귀. IsLlmChatVisible (SSOT) 기준으로 다시 강제 set.
+        SyncLlmChatAnchorFromVm();
+        // 초기 collapse 적용 (XAML 기본값 — llmChatAnchor IsVisible=False).
+        OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        // XAML 트리 완성 후 pane/index 안전망 recapture.
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+            CaptureDockPlacement(a);
+
         if (App.StartupFilePath is { } path)
         {
             App.StartupFilePath = null;
             _vm.OpenFilePath(path);
         }
-    }
-
-    // GridSplitter PreviousAndNext 가 col 2(Workspace*) 까지 변동시키는 증상 회피 — col 4/col 6 합계만 trade-off.
-    private void LlmChatSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
-    {
-        var grid = (System.Windows.Controls.Grid)((System.Windows.Controls.Primitives.Thumb)sender).Parent;
-        var colProperties = grid.ColumnDefinitions[4];
-        var colLlm = grid.ColumnDefinitions[6];
-
-        double total = colProperties.ActualWidth + colLlm.ActualWidth;
-        double newProp = Math.Clamp(colProperties.ActualWidth + e.HorizontalChange,
-                                    colProperties.MinWidth, total - colLlm.MinWidth);
-
-        colProperties.Width = new GridLength(newProp);
-        colLlm.Width = new GridLength(total - newProp);
     }
 
     private bool _llmChatDisposed;
@@ -170,10 +457,29 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         _llmChatDisposed = true;
+
+        // v7 PR-2b — DisposeLlmChatAsync 전에 floating window 일괄 close.
+        // 순서 (todo R2.M4): (1) save [PR-3 도입] → (2) floating close → (3) Dispose → (4) Close.
+        CloseAllFloatingWindows();
+
         await _vm.DisposeLlmChatAsync();
         // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
         // fire-and-forget 의도 — DispatcherOperation 결과 무시.
         _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    // v7 PR-2b — Window 종료 직전 dockManager 의 floating anchor 들 일괄 close.
+    // anchor.IsFloating=true 인 항목 Hide → AvalonDock 가 빈 floating window 자동 정리.
+    // LlmChat 의 경우 SyncLlmChatAnchorFromVm 의 가드를 거치는 대신 직접 Hide (Window 종료 path).
+    private void CloseAllFloatingWindows()
+    {
+        if (dockManager.Layout == null) return;
+        var floatingAnchors = dockManager.Layout.Descendents()
+            .OfType<LayoutAnchorable>()
+            .Where(a => a.IsFloating)
+            .ToList();
+        foreach (var anchor in floatingAnchors)
+            anchor.Hide();
     }
 
     private static readonly string[] SupportedExtensions =
@@ -382,6 +688,20 @@ public partial class MainWindow : Window
     {
         // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
+        dockManager.ContentDocking -= OnDockManagerContentDocking;
+        _vm.PropertyChanged -= OnViewModelPropertyChanged;
+        llmChatAnchor.Hiding -= OnLlmChatHiding;
+
+        // v7 PR-2a Q1 — anchor IsVisibleChanged listener 해지.
+        explorerAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
+        simulationAnchor.IsVisibleChanged  -= OnAnchorIsVisibleChanged;
+        propertyAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
+        historyAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
+        llmChatAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
+
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+            a.PropertyChanged -= OnAnchorPropertyChanged;
+
         // 트레이 아이콘 정리 — stale 잔존 방지.
         try { _trayService.Dispose(); } catch { /* ignore */ }
     }

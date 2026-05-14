@@ -32,6 +32,12 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
+  <!-- AvalonDock — Dock layout (Ms-PL). Themes.Metro = 다크 톤 단일 테마 (Promaker 다크 테마 일치 hotfix).
+       추후 PR-4 진입 시 자체 `Themes/Theme.Controls.Dock.xaml` 로 정확 매핑하면 본 테마 패키지는 제거 가능. -->
+  <ItemGroup>
+    <PackageVersion Include="Dirkster.AvalonDock" Version="4.74.1" />
+    <PackageVersion Include="Dirkster.AvalonDock.Themes.Metro" Version="4.74.1" />
+  </ItemGroup>
 
   <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->
   <ItemGroup>
