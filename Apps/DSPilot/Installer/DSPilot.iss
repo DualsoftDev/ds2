@@ -183,8 +183,9 @@ begin
 end;
 
 // Write port to appsettings.Production.json after files are installed
-// ASP.NET Core automatically loads this and overrides appsettings.json
-// 업그레이드 시 기존 Production.json이 있으면 사용자 설정 보존 (신규 설치만 생성)
+// ASP.NET Core automatically loads this and overrides appsettings.json.
+// 매 설치마다 강제 갱신 — 옛 경로/옛 Hub 설정이 stale 하게 남아 문제 일으키는 것 방지.
+// Database/Hub 등 다른 섹션은 적지 않음: 코드 기본값(AppSettingsModel/HubSettings)이 단일 정답.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Port: String;
@@ -196,14 +197,10 @@ begin
     Port := GetPort('');
     UrlsValue := 'http://*:' + Port;
     ProdJsonPath := ExpandConstant('{app}\appsettings.Production.json');
-    if not FileExists(ProdJsonPath) then
-      SaveStringToFile(ProdJsonPath,
-        '{' + #13#10 +
-        '  "Urls": "' + UrlsValue + '",' + #13#10 +
-        '  "Database": {' + #13#10 +
-        '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
-        '  }' + #13#10 +
-        '}' + #13#10, False);
+    SaveStringToFile(ProdJsonPath,
+      '{' + #13#10 +
+      '  "Urls": "' + UrlsValue + '"' + #13#10 +
+      '}' + #13#10, False);
 
     // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
     SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),
@@ -218,12 +215,23 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
+  OldAppSettings: String;
+  OldProdSettings: String;
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(3000);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // 옛 appsettings 잔여물 제거 — 옛 plc.db 경로/옛 Hub 설정이 stale 하게 남아 신규 기본값을 가리는 사고 방지.
+  // appsettings.json 은 첫 부팅 시 AppSettingsService.EnsureSettingsFiles 가 현재 코드 기본값으로 재생성한다.
+  // appsettings.Production.json 은 CurStepChanged 에서 Urls 만 담아 새로 쓴다.
+  OldAppSettings := ExpandConstant('{app}\appsettings.json');
+  if FileExists(OldAppSettings) then DeleteFile(OldAppSettings);
+  OldProdSettings := ExpandConstant('{app}\appsettings.Production.json');
+  if FileExists(OldProdSettings) then DeleteFile(OldProdSettings);
+
   Sleep(1000);
   Result := '';
 end;
