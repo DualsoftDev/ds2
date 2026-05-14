@@ -2095,19 +2095,246 @@ systems:
     device: cylinder
 """
 
+// #19: bool / float / string|null type 위반 추가 (Theory case 3건)
+let private plcEnableSafetyNonBoolYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      enableSafetyInterlock: not-a-bool
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcSafetyTimeoutNonFloatYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      safetyTimeoutSeconds: not-a-float
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcTagPrefixNonStringOrNullYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      tagPrefix: 42
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
 [<Theory>]
 [<InlineData("plcNonObject",     "plc: Object 기대")>]                          // §2.7 룰 #25
 [<InlineData("plcUnknownKey",    "알 수 없는 plc 키 'noSuchKey'")>]              // §2.7 룰 #26
 [<InlineData("plcPortNonInt",    "int 기대")>]                                  // §2.7 룰 #27
 [<InlineData("plcTimeSpanInvalid", "TimeSpan 형식 위반")>]                       // §2.7 룰 #28
 [<InlineData("plcRuntimeKey",    "알 수 없는 plc 키 'currentState'")>]           // 派 분류 강제 (§2.7 룰 #26)
+[<InlineData("plcEnableSafetyNonBool", "bool 기대")>]                           // #19 — bool type 위반
+[<InlineData("plcSafetyTimeoutNonFloat", "float 기대")>]                         // #19 — float type 위반
+[<InlineData("plcTagPrefixNonStringOrNull", "string | null 기대")>]              // #19 — string|null type 위반
 let ``Phase 7 §4.2 C-7.1 — plc shape / type / runtime 진단 발행`` (tag: string) (expectedSubstr: string) =
     let yaml =
         match tag with
-        | "plcNonObject"        -> plcNonObjectYaml
-        | "plcUnknownKey"       -> plcUnknownKeyYaml
-        | "plcPortNonInt"       -> plcPortNonIntYaml
-        | "plcTimeSpanInvalid"  -> plcTimeSpanInvalidYaml
-        | "plcRuntimeKey"       -> plcRuntimeKeyYaml
+        | "plcNonObject"               -> plcNonObjectYaml
+        | "plcUnknownKey"              -> plcUnknownKeyYaml
+        | "plcPortNonInt"              -> plcPortNonIntYaml
+        | "plcTimeSpanInvalid"         -> plcTimeSpanInvalidYaml
+        | "plcRuntimeKey"              -> plcRuntimeKeyYaml
+        | "plcEnableSafetyNonBool"     -> plcEnableSafetyNonBoolYaml
+        | "plcSafetyTimeoutNonFloat"   -> plcSafetyTimeoutNonFloatYaml
+        | "plcTagPrefixNonStringOrNull" -> plcTagPrefixNonStringOrNullYaml
         | _ -> failwithf "unknown tag '%s'" tag
     assertDiagContains yaml expectedSubstr
+
+// ─── #17 — Passive system plc round-trip 직접 테스트 (C-7.1 follow-up) ──────
+
+let private plcPassiveSystemYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    plc:
+      plcVendor: Mitsubishi
+      plcIpAddress: 10.0.0.99
+      systemType: Actuator
+      tagPrefix: AUX_
+"""
+
+[<Fact>]
+let ``#17 — Passive system plc round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store plcPassiveSystemYaml
+    let proj = (Queries.allProjects store).Head
+    let cyl = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
+    let cp = cyl.GetControlProperties() |> Option.get
+    Assert.Equal("Mitsubishi", cp.PlcVendor)
+    Assert.Equal("10.0.0.99", cp.PlcIpAddress)
+    Assert.Equal(Some "Actuator", cp.SystemType)
+    Assert.Equal(Some "AUX_", cp.TagPrefix)
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+
+// ─── #18 — string|null leaf `Some ""` vs `None` 명시 round-trip (C-7.1) ────
+
+/// `Some ""` 와 `None` 의 명시 round-trip — capturer `optStr` 가 `""` ↔ `"<null>"` 구별.
+/// readStringOptKey 가 `""` → Some "" / null → None / 부재 → 부재. emit 측 writeStringOpt 는
+/// `Some _, when cur <> defv -> emit` (None default → `Some ""` 도 emit `""`). 양방향 정합.
+[<Fact>]
+let ``#18 — string|null leaf Some "" vs None 명시 round-trip`` () =
+    let yamlSomeEmpty = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      tagPrefix: ""
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yamlSomeEmpty
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let cp = ctrl.GetControlProperties() |> Option.get
+    // apply 결과 `Some ""` 보존 (PoC — readStringOptKey 정규화 없음)
+    Assert.Equal(Some "", cp.TagPrefix)
+    // round-trip — emit 측이 `Some ""` 를 `tagPrefix: ""` 로 다시 emit
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+    // 비교 대조군: `tagPrefix` 키 부재 → entity default None → emit 시 skip
+    let yamlNone = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store2 = DsStore()
+    let _ = parseApplyCommit store2 yamlNone
+    let proj2 = (Queries.allProjects store2).Head
+    let ctrl2 = Queries.activeSystemsOf proj2.Id store2 |> List.head
+    // ControlSystemProperties instance 자체가 생성 안 됨 (모든 plc 키 default) → None
+    Assert.Equal(None, ctrl2.GetControlProperties() |> Option.bind (fun p -> p.TagPrefix))
+    let a2, b2 = ModelEquivalence.roundTripShape store2
+    Assert.Equal<ModelEquivalence.StoreShape>(a2, b2)
+
+// ─── M1 외부 review — applyNonEmptyStringProp IRI 정책 (3 case) ─────────────
+
+/// IRI 의 `iri: ""` / `iri: null` / 키 부재 3 case 모두 IRI = None 으로 normalize 되는지 검증.
+/// applyNonEmptyStringProp 정책: wire 정규화 — null/빈 string/부재 모두 setter 미 호출 → entity default 유지.
+let private iriEmptyStringYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    iri: ""
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private iriNullYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    iri: null
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private iriAbsentYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Theory>]
+[<InlineData("iriEmptyString")>]   // iri: "" → None (wire 정규화)
+[<InlineData("iriNull")>]          // iri: null → None (reset semantic)
+[<InlineData("iriAbsent")>]        // 키 부재 → None (entity default)
+let ``M1 외부 review — IRI 3 case 모두 None 으로 normalize`` (tag: string) =
+    let yaml =
+        match tag with
+        | "iriEmptyString" -> iriEmptyStringYaml
+        | "iriNull"        -> iriNullYaml
+        | "iriAbsent"      -> iriAbsentYaml
+        | _ -> failwithf "unknown tag '%s'" tag
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    // 3 case 모두 IRI = None
+    Assert.Equal(None, ctrl.IRI)
+    // round-trip — emit 측이 IRI = None 이면 키 미 발행 → re-apply 결과도 None
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+    // emit 결과에 "iri" 키 부재 검증 (silent drift 차단)
+    use json = ModelProtocol.exportToJson store
+    let raw = json.RootElement.GetRawText()
+    Assert.DoesNotContain("\"iri\"", raw)

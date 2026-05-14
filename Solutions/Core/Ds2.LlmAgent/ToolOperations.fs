@@ -81,11 +81,6 @@ module ToolOperations =
         if String.IsNullOrWhiteSpace(value) then
             invalidArg paramName $"{label} 이 비어있습니다."
 
-    /// plan.Operations 안에서 특정 ImportPlanOperation 패턴을 찾는 generic helper.
-    /// `tryFindXxxInPlan` 4종의 본문이 picker 만 다르고 동일한 패턴이라 단일 진입점으로 통합.
-    let private tryFindInPlan (plan: ImportPlanBuilder) (picker: ImportPlanOperation -> 'T option) : 'T option =
-        plan.Operations |> Seq.tryPick picker
-
     /// store 우선 조회 → 없으면 plan 의 누적 operation 에서 fallback. None 이면 invalidOp.
     /// `requireSystem` / `requireFlow` / `requireWork` 의 공통 골격.
     let private requireFromStoreOrPlan
@@ -99,20 +94,13 @@ module ToolOperations =
             | Some x -> x
             | None -> invalidOp notFoundMsg
 
-    let private tryFindSystemInPlan (plan: ImportPlanBuilder) (id: Guid) : DsSystem option =
-        tryFindInPlan plan (function AddSystem s when s.Id = id -> Some s | _ -> None)
-
-    let private tryFindFlowInPlan (plan: ImportPlanBuilder) (id: Guid) : Flow option =
-        tryFindInPlan plan (function AddFlow f when f.Id = id -> Some f | _ -> None)
-
-    let private tryFindWorkInPlan (plan: ImportPlanBuilder) (id: Guid) : Work option =
-        tryFindInPlan plan (function AddWork w when w.Id = id -> Some w | _ -> None)
-
-    let private tryFindApiDefInPlan (plan: ImportPlanBuilder) (id: Guid) : ApiDef option =
-        tryFindInPlan plan (function AddApiDef d when d.Id = id -> Some d | _ -> None)
-
-    let private tryFindCallInPlan (plan: ImportPlanBuilder) (id: Guid) : Call option =
-        tryFindInPlan plan (function AddCall c when c.Id = id -> Some c | _ -> None)
+    // `tryFindXxxInPlan` 5종 SSOT 일원화 (#13) — `Ds2.LlmAgent.Internal.PlanLookup` 참조.
+    // file-scoped private 중복 제거 — ModelProtocol.fs 와 공유.
+    let private tryFindSystemInPlan = Internal.PlanLookup.tryFindSystem
+    let private tryFindFlowInPlan   = Internal.PlanLookup.tryFindFlow
+    let private tryFindWorkInPlan   = Internal.PlanLookup.tryFindWork
+    let private tryFindApiDefInPlan = Internal.PlanLookup.tryFindApiDef
+    let private tryFindCallInPlan   = Internal.PlanLookup.tryFindCall
 
     let private requireSystem (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : DsSystem =
         requireFromStoreOrPlan

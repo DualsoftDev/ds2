@@ -25,6 +25,7 @@
     <Compile Include="CodexCliProvider.fs" />
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
+    <Compile Include="PlanLookup.fs" />
     <Compile Include="KnownSugars.fs" />
     <Compile Include="ToolOperations.fs" />
     <Compile Include="ModelProtocol.Yaml.fs" />
