@@ -583,6 +583,94 @@ module ModelProtocol =
                 sprintf "'%s' 형식 위반. '<System>.<ApiDef>' 형식 필요." rawRef)
             None
 
+    // ─── CallCondition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
+    //
+    // SSOT yaml-protocol-v0.md §2.2.1 dual format — object 형태 call 의 보강 property.
+    // ToolOperations.queueAddCall 후 plan 에 추가된 Call instance 를 추출하여 직접 mutation.
+    // ToolOperations 의 동일 패턴 (`tryFindCallInPlan`) 답습 — ModelProtocol 내부 private 재선언.
+
+    let private tryFindCallInPlan (plan: ImportPlanBuilder) (callId: Guid) : Call option =
+        plan.Operations
+        |> Seq.tryPick (function
+            | AddCall c when c.Id = callId -> Some c
+            | _ -> None)
+
+    /// CallCondition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
+    /// conditions leaf 는 ApiCall — dual format (string scalar 또는 object{ref, contactKind?}).
+    /// PoC scope 가정: leaf 의 ApiCall 은 ApiDefId + ContactKind 만 set (IO tag binding 은 C-4 phase).
+    let rec private parseCallCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : CallCondition option =
+        if condEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "callCondition object 기대 (실제 %A)." condEl.ValueKind)
+            None
+        else
+            let cond = CallCondition()
+            // type — AutoAux default 면 키 부재
+            tryProp condEl "type"
+            |> Option.bind tryString
+            |> Option.iter (fun s ->
+                match parseCallConditionType s with
+                | Ok t -> cond.Type <- Some t
+                | Error msg -> ctx.Diagnostics.Add(path + ".type", msg))
+            // isOR / isInverted — bool false default
+            let parseBoolKey key target =
+                tryProp condEl key
+                |> Option.iter (fun el ->
+                    match el.ValueKind with
+                    | JsonValueKind.True -> target true
+                    | JsonValueKind.False -> target false
+                    | _ -> ctx.Diagnostics.Add(path + "." + key, sprintf "bool 기대 (실제 %A)." el.ValueKind))
+            parseBoolKey "isOR" (fun b -> cond.IsOR <- b)
+            parseBoolKey "isInverted" (fun b -> cond.IsInverted <- b)
+            // conditions — ApiCall leaf list (dual format)
+            tryProp condEl "conditions"
+            |> Option.iter (fun condsEl ->
+                if condsEl.ValueKind = JsonValueKind.Array then
+                    let mutable idx = 0
+                    for leafEl in condsEl.EnumerateArray() do
+                        let leafPath = sprintf "%s.conditions[%d]" path idx
+                        let apiCall = ApiCall("")
+                        let mutable validLeaf = false
+                        match leafEl.ValueKind with
+                        | JsonValueKind.String ->
+                            let refStr = leafEl.GetString()
+                            match resolveApiDef ctx refStr leafPath with
+                            | Some apiDefId ->
+                                apiCall.ApiDefId <- Some apiDefId
+                                validLeaf <- true
+                            | None -> ()
+                        | JsonValueKind.Object ->
+                            (match tryProp leafEl "ref" |> Option.bind tryString with
+                             | Some refStr ->
+                                 match resolveApiDef ctx refStr (leafPath + ".ref") with
+                                 | Some apiDefId ->
+                                     apiCall.ApiDefId <- Some apiDefId
+                                     validLeaf <- true
+                                 | None -> ()
+                             | None ->
+                                 ctx.Diagnostics.Add(leafPath, "object element 는 'ref' 키 필수."))
+                            tryProp leafEl "contactKind"
+                            |> Option.bind tryString
+                            |> Option.iter (fun s ->
+                                match parseContactKind s with
+                                | Ok k -> apiCall.ContactKind <- k
+                                | Error msg -> ctx.Diagnostics.Add(leafPath + ".contactKind", msg))
+                        | _ ->
+                            ctx.Diagnostics.Add(leafPath, sprintf "string 또는 object 기대 (실제 %A)." leafEl.ValueKind)
+                        if validLeaf then cond.Conditions.Add(apiCall)
+                        idx <- idx + 1)
+            // children — nested CallCondition list (recursive)
+            tryProp condEl "children"
+            |> Option.iter (fun chEl ->
+                if chEl.ValueKind = JsonValueKind.Array then
+                    let mutable idx = 0
+                    for childEl in chEl.EnumerateArray() do
+                        let childPath = sprintf "%s.children[%d]" path idx
+                        match parseCallCondition ctx childEl childPath with
+                        | Some child -> cond.Children.Add(child)
+                        | None -> ()
+                        idx <- idx + 1)
+            Some cond
+
     let private dispatchWork
         (ctx: ApplyContext)
         (sysEntry: SystemEntry)
@@ -614,13 +702,28 @@ module ModelProtocol =
             if tryProp workEl "duration" |> Option.isSome then
                 ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
-            // calls 처리
-            let callsList =
+            // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
+            //   string scalar       → default case, callObjOpt = None
+            //   object { ref, ... } → non-default case, callObjOpt = Some <full object>
+            let callsList : (string * JsonElement option) list =
                 tryProp workEl "calls"
                 |> Option.bind (fun el ->
                     if el.ValueKind = JsonValueKind.Array then
                         el.EnumerateArray()
-                        |> Seq.choose tryString
+                        |> Seq.indexed
+                        |> Seq.choose (fun (idx, callEl) ->
+                            let callPath = sprintf "%s.calls[%d]" path idx
+                            match callEl.ValueKind with
+                            | JsonValueKind.String -> Some (callEl.GetString(), None)
+                            | JsonValueKind.Object ->
+                                match tryProp callEl "ref" |> Option.bind tryString with
+                                | Some s -> Some (s, Some callEl)
+                                | None ->
+                                    ctx.Diagnostics.Add(callPath, "object element 는 'ref' 키 필수.")
+                                    None
+                            | _ ->
+                                ctx.Diagnostics.Add(callPath, sprintf "string 또는 object 기대 (실제 %A)." callEl.ValueKind)
+                                None)
                         |> Seq.toList
                         |> Some
                     else None)
@@ -640,8 +743,8 @@ module ModelProtocol =
                 |> Option.defaultValue []
             // 중복 ApiDef Call 검출
             let callCounts = Dictionary<string, int>(StringComparer.Ordinal)
-            for c in callsList do
-                let normalized = normalizePath c
+            for (callRef, _) in callsList do
+                let normalized = normalizePath callRef
                 callCounts.[normalized] <- (if callCounts.ContainsKey normalized then callCounts.[normalized] + 1 else 1)
             let hasDup = callCounts.Values |> Seq.exists (fun n -> n > 1)
             // review C3: 사용자 의도 판정은 *arrows 키 자체의 존재 여부* 로 — parse 성공한 entry 만 보면
@@ -652,7 +755,7 @@ module ModelProtocol =
             // calls 추가 — call name → callId 매핑 (arrows 의 source/target 식별용)
             let callIdMap = Dictionary<string, ResizeArray<Guid>>(StringComparer.Ordinal)
             let mutable callIdx = 0
-            for callRef in callsList do
+            for (callRef, callObjOpt) in callsList do
                 let callPath = sprintf "%s.calls[%d]" path callIdx
                 match resolveApiDef ctx callRef callPath with
                 | None -> ()
@@ -667,6 +770,27 @@ module ModelProtocol =
                         if not (callIdMap.ContainsKey normalized) then
                             callIdMap.[normalized] <- ResizeArray()
                         callIdMap.[normalized].Add(callId)
+                        // 보강 property apply (Phase 7 §4.2 C-3) — object 형태일 때만.
+                        // ContactKind: queueAddCall 가 1:1 invariant 로 call.ApiCalls[0] 생성 → 직접 set.
+                        // CallCondition: recursive parse 후 call.CallConditions 에 추가.
+                        callObjOpt |> Option.iter (fun obj ->
+                            match tryFindCallInPlan ctx.Plan callId with
+                            | None ->
+                                ctx.Diagnostics.Add(callPath, "queueAddCall 후 plan 에서 Call instance 추적 실패 (forensic).")
+                            | Some call ->
+                                tryProp obj "contactKind"
+                                |> Option.bind tryString
+                                |> Option.iter (fun s ->
+                                    match parseContactKind s with
+                                    | Ok k ->
+                                        if call.ApiCalls.Count > 0 then
+                                            call.ApiCalls.[0].ContactKind <- k
+                                    | Error msg -> ctx.Diagnostics.Add(callPath + ".contactKind", msg))
+                                tryProp obj "callCondition"
+                                |> Option.iter (fun ccEl ->
+                                    match parseCallCondition ctx ccEl (callPath + ".callCondition") with
+                                    | Some cc -> call.CallConditions.Add(cc)
+                                    | None -> ()))
                     with ex ->
                         ctx.Diagnostics.Add(callPath, ex.Message)
                 callIdx <- callIdx + 1
@@ -1294,6 +1418,52 @@ module ModelProtocol =
         | ApiDefActionType.TimeAppend ms       -> sprintf "TimeAppend(%d)" ms
         | ApiDefActionType.MultiAction(c, ms)  -> sprintf "MultiAction(%d, %d)" c ms
 
+    // ─── CallCondition / ContactKind emit helpers (Phase 7 §4.2 C-3) ─────────
+    //
+    // dual format (§2.2.1) 의 emit 측 — store 값 inspection 후 default 인지 판단.
+    // PoC 가정: Call.CallConditions 는 multiple root 가능하나 *첫 root 만 emit*. 후속 phase 가 multiple root 정책 결정.
+
+    let private callHasEnhancement (c: Call) : bool =
+        let hasCallCondition = c.CallConditions.Count > 0
+        let hasNonDefaultContactKind =
+            c.ApiCalls.Count > 0 && c.ApiCalls.[0].ContactKind <> ContactKind.NoContact
+        hasCallCondition || hasNonDefaultContactKind
+
+    /// CallCondition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
+    /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default 면 string scalar, 아니면 object.
+    let rec private emitCallCondition
+        (w: Utf8JsonWriter)
+        (apiCallRef: ApiCall -> string)
+        (cond: CallCondition) : unit =
+        w.WriteStartObject()
+        // type — AutoAux default 면 생략
+        (match cond.Type with
+         | Some t when t <> CallConditionType.AutoAux ->
+             w.WriteString("type", formatCallConditionType t)
+         | _ -> ())
+        if cond.IsOR then w.WriteBoolean("isOR", true)
+        if cond.IsInverted then w.WriteBoolean("isInverted", true)
+        if cond.Conditions.Count > 0 then
+            w.WritePropertyName "conditions"
+            w.WriteStartArray()
+            for ac in cond.Conditions do
+                let leafRef = apiCallRef ac
+                if ac.ContactKind <> ContactKind.NoContact then
+                    w.WriteStartObject()
+                    w.WriteString("ref", leafRef)
+                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                    w.WriteEndObject()
+                else
+                    w.WriteStringValue(leafRef)
+            w.WriteEndArray()
+        if cond.Children.Count > 0 then
+            w.WritePropertyName "children"
+            w.WriteStartArray()
+            for child in cond.Children do
+                emitCallCondition w apiCallRef child
+            w.WriteEndArray()
+        w.WriteEndObject()
+
     /// Passive system 의 internal Flow 의 ResetReset arrow 갯수 → opposing 추정.
     /// chain: N-1 / all-pairs: N*(N-1)/2 / none: 0
     let private inferOpposing (apiCount: int) (resetResetCount: int) : string =
@@ -1341,6 +1511,18 @@ module ModelProtocol =
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
                                     w.WriteStartArray()
+                                    // CallCondition.Conditions leaf (ApiCall) → path 도출 람다. ApiDefId/getApiDef/getSystem
+                                    // 어느 단계든 실패 시 ApiCall.Name fallback (데이터 무결성 깨진 케이스).
+                                    let apiCallRef (ac: ApiCall) : string =
+                                        match ac.ApiDefId with
+                                        | Some apiDefId ->
+                                            match Queries.getApiDef apiDefId store with
+                                            | Some apiDef ->
+                                                match Queries.getSystem apiDef.ParentId store with
+                                                | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
+                                                | None -> ac.Name
+                                            | None -> ac.Name
+                                        | None -> ac.Name
                                     for c in calls do
                                         // SSOT §1.7: Call 참조는 DevicesAlias 가 아닌 *Passive system 이름* 으로 emit.
                                         // ApiDef.ParentId → system.Name 으로 정정. GUI 사용자가 부여한 alias 는
@@ -1362,7 +1544,23 @@ module ModelProtocol =
                                             | None ->
                                                 log.Warn(sprintf "[exportToJson] call '%s.%s' systemName resolution 실패 — DevicesAlias fallback" c.DevicesAlias c.ApiName)
                                                 c.DevicesAlias
-                                        w.WriteStringValue(sprintf "%s.%s" sysName c.ApiName)
+                                        let callRef = sprintf "%s.%s" sysName c.ApiName
+                                        // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
+                                        // 있으면 object 승격 + 보강 property (현 phase: contactKind / callCondition).
+                                        // CallType / SkipInputSensor / InTag/OutTag/etc 는 C-4/C-5 phase.
+                                        if callHasEnhancement c then
+                                            w.WriteStartObject()
+                                            w.WriteString("ref", callRef)
+                                            if c.ApiCalls.Count > 0 then
+                                                let ck = c.ApiCalls.[0].ContactKind
+                                                if ck <> ContactKind.NoContact then
+                                                    w.WriteString("contactKind", formatContactKind ck)
+                                            if c.CallConditions.Count > 0 then
+                                                w.WritePropertyName "callCondition"
+                                                emitCallCondition w apiCallRef c.CallConditions.[0]
+                                            w.WriteEndObject()
+                                        else
+                                            w.WriteStringValue(callRef)
                                     w.WriteEndArray()
                                 // arrows (Work 안 — ArrowBetweenCalls). round-trip 정합: apply 측 (line 617~) 의
                                 // callIdMap 키 (`sysName.apiName`) 와 동일한 normalized 표현 사용 → load 시 resolveCallId

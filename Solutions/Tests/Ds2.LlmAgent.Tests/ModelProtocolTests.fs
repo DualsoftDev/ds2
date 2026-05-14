@@ -1065,3 +1065,103 @@ let ``multi-stage rollback — patch.add 성공 후 후속 단계 실패 시 pat
     Assert.True(diag.HasErrors, "후속 단계 실패 시 HasErrors")
     // M5 fix lock-in: patch.add 의 system op 도 rollback — plan 비어있음.
     Assert.Equal(0, plan.Operations |> Seq.length)
+
+// ─── Phase 7 §4.2 C-3 — CallCondition tree + ContactKind dual format ────────
+//
+// SSOT yaml-protocol-v0.md §2.2.1 dual format. enhanced calls 의 emit/apply round-trip 검증.
+
+let private callConditionYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              contactKind: NcContact
+              callCondition:
+                type: ComAux
+                isOR: true
+                conditions:
+                  - ref: Cyl1.RET
+                    contactKind: RisingPulse
+                  - Cyl1.ADV
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-3 — CallCondition + ContactKind dual format round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store callConditionYaml
+
+    // Adv work 의 Call (Cyl1.ADV) — ContactKind + CallCondition 적용 확인
+    let projects = Queries.allProjects store
+    let controller = Queries.activeSystemsOf projects.Head.Id store |> List.head
+    let runFlow = Queries.flowsOf controller.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let advCall = Queries.callsOf advWork.Id store |> List.head
+
+    // ContactKind (1:1 invariant — ApiCalls[0])
+    Assert.NotEmpty(advCall.ApiCalls)
+    Assert.Equal(ContactKind.NcContact, advCall.ApiCalls.[0].ContactKind)
+
+    // CallCondition root 1개
+    Assert.Equal(1, advCall.CallConditions.Count)
+    let cond = advCall.CallConditions.[0]
+    Assert.Equal(Some CallConditionType.ComAux, cond.Type)
+    Assert.True(cond.IsOR)
+    Assert.False(cond.IsInverted)
+    Assert.Equal(2, cond.Conditions.Count)
+    Assert.Equal(ContactKind.RisingPulse, cond.Conditions.[0].ContactKind)
+    Assert.Equal(ContactKind.NoContact, cond.Conditions.[1].ContactKind)  // string scalar = default
+
+    // emit 시 enhanced 형태 (object) 확인
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"contactKind\":\"NcContact\"", compact)
+    Assert.Contains("\"type\":\"ComAux\"", compact)
+    Assert.Contains("\"isOR\":true", compact)
+    Assert.Contains("\"contactKind\":\"RisingPulse\"", compact)
+
+    // round-trip 의미 보존: 다시 새 store 에 apply
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("C-3 round-trip", plan2.Build())
+
+    let controller2 = Queries.activeSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
+    let runFlow2 = Queries.flowsOf controller2.Id store2 |> List.head
+    let advWork2 = Queries.worksOf runFlow2.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
+    let advCall2 = Queries.callsOf advWork2.Id store2 |> List.head
+    Assert.Equal(ContactKind.NcContact, advCall2.ApiCalls.[0].ContactKind)
+    Assert.Equal(1, advCall2.CallConditions.Count)
+    let cond2 = advCall2.CallConditions.[0]
+    Assert.Equal(Some CallConditionType.ComAux, cond2.Type)
+    Assert.True(cond2.IsOR)
+    Assert.Equal(2, cond2.Conditions.Count)
+    Assert.Equal(ContactKind.RisingPulse, cond2.Conditions.[0].ContactKind)
+
+[<Fact>]
+let ``Phase 7 §4.2 C-3 — default case 는 string scalar 유지 (legacy 호환)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml  // 보강 0 — 기존 fixture
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.ToString()
+    // 보강 0 인 경우 object 승격 없음 — 신규 키 등장 0건
+    Assert.DoesNotContain("\"ref\"", json)
+    Assert.DoesNotContain("\"contactKind\"", json)
+    Assert.DoesNotContain("\"callCondition\"", json)
+    // 기존 string scalar emit 유지 — calls 가 array of string
+    Assert.Contains("\"calls\"", json)

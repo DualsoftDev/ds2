@@ -128,8 +128,8 @@
 ### 4.2 코드 변경 (분류 별 분리 commit — §6.4 정책 정합)
 
 - [x] **C-1 enum/string 변환 helper** (2026-05-14 완료): `ModelProtocol.fs` 에 `formatArrowType` 패턴 답습으로 8 helper 추가 (`parseCallConditionType`/`formatCallConditionType` × CallConditionType, ContactKind, CallType, ApiDefActionType). ApiDefActionType 은 DU 인자 grammar (`TimeTotal(500)`/`MultiAction(3, 100)`) regex parser 포함. 호출처 연결은 C-3~C-5 phase. 빌드 통과 (경고 0 / 오류 0). 자가 검열 통과 (Critical/Major 0, Minor 3 현 상태 수용)
-- [ ] **C-2 SSOT 동시 갱신**: §6.1 매핑 표 기반 `yaml-protocol-v0.md` 7개 절 동시 갱신 (해당 분류 한정 부분만)
-- [ ] **C-3 CallCondition tree** (`Call.CallConditions` + `CallCondition` 6 property + ContactKind): emit/apply 양쪽에 entity-walker 신규 분기 추가 — trigger ④ 발동
+- [x] **C-2 SSOT 동시 갱신** (2026-05-14 완료): `yaml-protocol-v0.md` §1.7 결정 row 4건 추가 (4분류 必/派/意/メ + 옵션 C dual format + SSOT 갱신 책임 표 + drift caveat) + §2.4.1 'Enum 라벨 사전' 신설. 자가 검열 통과 (Critical/Major 0건, Minor 3건 후속 phase 동반 처리 가능)
+- [x] **C-3 CallCondition tree** (2026-05-14 완료): `ModelProtocol.fs` 의 `dispatchWork` calls 처리 + `exportToJson` calls emit 양쪽에 dual format 구현 (옵션 C). `parseCallCondition` / `emitCallCondition` recursive helper 추가. `tryFindCallInPlan` helper + `callHasEnhancement` 검사. PoC scope: `Call.CallConditions[0]` 만 emit (multiple root 후속 phase). SSOT §2.2 / §2.2.1 동반 갱신. ModelProtocolTests 72/72 통과 (기존 70 + 신규 2: round-trip + legacy compat). 자가 검열 통과 (Critical/Major 0건, Minor 4건 모두 수용)
 - [ ] **C-4 ApiCall 추가 property** (SkipInputSensor + InTag/OutTag/InputSpec/OutputSpec/ApiDefId/OriginFlowId): leaf 키 추가
 - [ ] **C-5 Call.CallType + ApiDef.ApiDefActionType**: leaf 키 추가 — C-3 의 schema 결정 (object 승격 vs sibling) 답습
 - [ ] **C-6 Work/Call.ReferenceOf, Project meta, DsSystem.IRI**: leaf 키 추가
@@ -274,8 +274,8 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.1 식별 + 4분류 (必/派/意/メ) | ✅ 완료 (2026-05-14) — boundary handling sub-rule 적용 (DevicesAlias 意 유지, Work.Duration 必 격상, PLC metadata メ 분리) |
 | §4.1.5 schema-shape 결정 | ✅ 완료 (2026-05-14) — 옵션 C 채택 (dual format) |
 | §4.2 C-1 enum/string helper | ✅ 완료 (2026-05-14) — 8 helper + ApiDefActionType regex parser. 빌드 통과 / 자가 검열 통과 |
-| §4.2 C-2 SSOT 부분 갱신 | ⏳ |
-| §4.2 C-3 CallCondition tree | ⏳ |
+| §4.2 C-2 SSOT 부분 갱신 | ✅ 완료 (2026-05-14) — §1.7 결정 row 4건 + §2.4.1 enum 사전 신설 |
+| §4.2 C-3 CallCondition tree | ✅ 완료 (2026-05-14) — dual format dispatcher + parse/emit recursive helper + round-trip 테스트 2건 추가 (72/72 통과) + SSOT §2.2/§2.2.1 갱신 |
 | §4.2 C-4 ApiCall property | ⏳ |
 | §4.2 C-5 CallType / ApiDefActionType | ⏳ |
 | §4.2 C-6 leaf 키 (ReferenceOf / Project meta / IRI) | ⏳ |
