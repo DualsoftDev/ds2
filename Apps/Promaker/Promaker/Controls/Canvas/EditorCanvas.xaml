@@ -56,9 +56,9 @@
             <Border x:Name="SlideContainer"
                     Width="3000" Height="2000"
                     Background="{DynamicResource CanvasBackgroundBrush}"
-                    BorderBrush="{DynamicResource AccentBrush}"
-                    BorderThickness="2"
-                    CornerRadius="2">
+                    BorderBrush="{DynamicResource CanvasGridBrush}"
+                    BorderThickness="0"
+                    CornerRadius="0">
                 <Border.RenderTransform>
                     <TransformGroup>
                         <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
