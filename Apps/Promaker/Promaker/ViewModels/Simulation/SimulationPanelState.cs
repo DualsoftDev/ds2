@@ -197,6 +197,9 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
+    [NotifyPropertyChangedFor(nameof(IsHubHost))]
+    [NotifyPropertyChangedFor(nameof(EffectiveHubAddress))]
+    [NotifyPropertyChangedFor(nameof(HubHostingLabel))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _isRealPlcConnected;
 
@@ -236,28 +239,33 @@ public partial class SimulationPanelState : ObservableObject
 
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
 
-    /// <summary>Control + Monitoring 둘 다 Promaker 자체가 Hub 호스트.
-    /// Control 은 read/write, Monitoring 은 SignalHub read-only flag 로 write 차단.
-    /// VirtualPlant 만 외부 Hub 에 client 로 붙음.</summary>
+    /// <summary>Control 은 항상 Promaker 자체가 Hub 호스트.
+    /// Monitoring 은 실 PLC 연결 시에만 self-host (5051, read-only) — PLC 미연결이면
+    /// 기존 동작대로 외부 Control hub (5050) 에 client 로 붙는다.
+    /// VirtualPlant 는 항상 외부 Hub client.</summary>
     public bool IsHubHost =>
         SelectedRuntimeMode == RuntimeMode.Control
-        || SelectedRuntimeMode == RuntimeMode.Monitoring;
+        || (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected);
 
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
 
-    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring 은 MonitoringHubAddress, 그 외는 HubAddress.
-    /// TextBox 가 mode 별 올바른 backing field 를 편집하도록 한 단계 dispatch.</summary>
+    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring + 실 PLC self-host 만 MonitoringHubAddress,
+    /// 그 외(Monitoring PLC 미연결 포함)는 HubAddress. TextBox 가 mode 별 올바른 backing field 를 편집하도록 dispatch.</summary>
     public string EffectiveHubAddress
     {
-        get => SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
+        get => IsMonitoringSelfHost ? MonitoringHubAddress : HubAddress;
         set
         {
-            if (SelectedRuntimeMode == RuntimeMode.Monitoring)
+            if (IsMonitoringSelfHost)
                 MonitoringHubAddress = value;
             else
                 HubAddress = value;
         }
     }
+
+    /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
+    private bool IsMonitoringSelfHost =>
+        SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
 
     public string HubStatusText =>
         IsHubConnected ? "Hub 연결됨"

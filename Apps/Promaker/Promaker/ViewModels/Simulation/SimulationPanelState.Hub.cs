@@ -56,13 +56,14 @@ public partial class SimulationPanelState
         _hubConnectionCts = null;
     }
 
-    /// <summary>현재 모드에 해당하는 host:port 문자열. Monitoring 은 MonitoringHubAddress, 그 외는 HubAddress.</summary>
+    /// <summary>현재 모드/PLC 옵션에 해당하는 host:port. Monitoring + 실 PLC self-host 만 MonitoringHubAddress(5051),
+    /// Monitoring 이라도 PLC 미연결이면 외부 Control hub 에 붙으므로 HubAddress(5050).</summary>
     private string ActiveHubAddress =>
-        SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
+        IsHubHost && SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
 
     private int ParseHubPort()
     {
-        var defaultPort = SelectedRuntimeMode == RuntimeMode.Monitoring ? 5051 : 5050;
+        var defaultPort = IsHubHost && SelectedRuntimeMode == RuntimeMode.Monitoring ? 5051 : 5050;
         return ActiveHubAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p)
             ? p
             : defaultPort;
@@ -84,17 +85,9 @@ public partial class SimulationPanelState
 
             if (IsHubHost)
             {
+                // IsHubHost == true 인 Monitoring 은 IsRealPlcConnected 보장 (IsHubHost 조건상).
+                // Monitoring + PLC 미연결은 IsHubHost == false → 이 분기 자체를 거치지 않고 외부 Control hub 에 client 로 붙는다.
                 var isMonitoring = SelectedRuntimeMode == RuntimeMode.Monitoring;
-                // Monitoring 은 외부 PLC 데이터 캡처가 본질 — 실 PLC 미연결이면 빈 Hub 만 뜨는 무의미한 상태가 되므로 차단.
-                // Control 은 수동 컨트롤러로 PLC 없이도 의미가 있어 허용 유지.
-                if (isMonitoring && !IsRealPlcConnected)
-                {
-                    AddSimLog(
-                        "Monitoring 모드는 실제 PLC 연결이 필요합니다. Runtime 설정에서 ‘실제 PLC 와 연결’ 체크 + PLC 설정을 완료해 주세요.",
-                        LogSeverity.Error);
-                    _setStatusText("Monitoring — PLC 미연결로 시작 불가");
-                    return false;
-                }
                 if (IsRealPlcConnected)
                 {
                     // 태그 매핑은 AASX IO 설정에서 자동 import.

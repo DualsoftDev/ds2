@@ -84,6 +84,11 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DspDatabaseService
 // plc.db 라이프사이클 (삭제 + 재로딩 + 엔진 재시작) — Settings UI 에서 호출
 builder.Services.AddSingleton<DatabaseLifecycleService>();
 
+// 공유 AASX 파일 감시 — 콘텐츠(SHA256) 변경 시 UI 알림.
+//   - 미로드 상태(초기 설치)에서 첫 AASX 감지 시 자동 DB 재구축
+//   - 이후 변경은 알림만, 사용자가 Settings 에서 수동 재구축
+builder.Services.AddHostedService<AasxFileWatcherService>();
+
 // Real-time monitoring broadcast service
 builder.Services.AddHostedService<MonitoringBroadcastService>();
 

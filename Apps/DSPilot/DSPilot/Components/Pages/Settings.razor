@@ -1,4 +1,5 @@
 @page "/settings"
+@implements IDisposable
 @inject AppSettingsService SettingsService
 @inject IDatabasePathResolver DatabasePathResolver
 @inject IFlowMetricsService FlowMetricsService
@@ -245,6 +246,7 @@ else
     private bool _aasxExists;
     private long _aasxSize;
     private DateTime? _aasxWriteUtc;
+    private string? _aasxCurrentSha256;
 
     // MaxCycleTimeMs ↔ 시/분/초 변환
     private int MaxCycleHours
@@ -273,6 +275,16 @@ else
         {
             if (!_aasxExists) return "—";
             if (ProjectService.LastLoadedUtc is null) return "미로드";
+
+            var loadedSha = ProjectService.LastLoadedSha256;
+            // 해시 비교를 우선 — 동일 모델 재 export(zip 타임스탬프만 다름) 오탐 방지.
+            // 해시를 못 구한 경우만 mtime 으로 폴백.
+            if (loadedSha is not null && _aasxCurrentSha256 is not null)
+            {
+                return string.Equals(loadedSha, _aasxCurrentSha256, StringComparison.OrdinalIgnoreCase)
+                    ? "최신"
+                    : "외부 변경 감지됨";
+            }
             if (_aasxWriteUtc is null) return "최신";
             return _aasxWriteUtc > ProjectService.LastLoadedUtc ? "외부 변경 감지됨" : "최신";
         }
@@ -288,6 +300,26 @@ else
         _settings = SettingsService.LoadSettings();
         ParseConnectionString(_settings.Database.ConnectionString);
         RefreshAasxStatus();
+        ProjectService.AasxExternallyChanged += OnAasxExternallyChanged;
+    }
+
+    public void Dispose()
+    {
+        ProjectService.AasxExternallyChanged -= OnAasxExternallyChanged;
+    }
+
+    private async void OnAasxExternallyChanged()
+    {
+        try
+        {
+            RefreshAasxStatus();
+            await InvokeAsync(StateHasChanged);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                "Promaker 에서 AASX 모델이 변경되었습니다. 반영하려면 \"AASX 모델 다시 불러오기\" 를 누르세요.",
+                "info");
+        }
+        catch (ObjectDisposedException) { /* 페이지 이탈 */ }
+        catch { /* best effort */ }
     }
 
     private void RefreshAasxStatus()
@@ -301,11 +333,13 @@ else
                 var info = new FileInfo(path);
                 _aasxSize = info.Length;
                 _aasxWriteUtc = info.LastWriteTimeUtc;
+                _aasxCurrentSha256 = ProjectService.GetAasxFileSha256();
             }
             else
             {
                 _aasxSize = 0;
                 _aasxWriteUtc = null;
+                _aasxCurrentSha256 = null;
             }
         }
         catch
@@ -313,6 +347,7 @@ else
             _aasxExists = false;
             _aasxSize = 0;
             _aasxWriteUtc = null;
+            _aasxCurrentSha256 = null;
         }
     }
 
