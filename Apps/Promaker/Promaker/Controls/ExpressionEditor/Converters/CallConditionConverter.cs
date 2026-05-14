@@ -3,7 +3,7 @@ using System.Linq;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Promaker.Controls.ExpressionEditor.Models;
+using AAStoPLC.LadderEditor.Expression;
 
 namespace Promaker.Controls.ExpressionEditor.Converters;
 
