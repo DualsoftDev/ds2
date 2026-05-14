@@ -71,6 +71,14 @@
     flex-shrink: 0;
 }
 
+/* 내부에 자체 가로 스크롤 영역(2320px Gantt SVG)을 가진 페이지는 위 규칙을 해제 —
+   페이지 자체가 자식의 인트린식 폭에 끌려가 .main-content 가로 스크롤을 만드는 것을 막는다.
+   가로 스크롤은 페이지 안의 .gantt-chart-container 내부에서만 발생해야 함. */
+.container > .cycle-time-analysis {
+    flex-shrink: 1;
+    min-width: 0;
+}
+
 .spacer { flex: 1; }
 
 /* Header page title (centered in app-bar) */
