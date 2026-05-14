@@ -204,9 +204,9 @@ type LoggingSystemProperties() =
     member val LogFilePath = "./logs/history" with get, set
     member val RetentionDays = 90 with get, set
 
-    // 에러 정의 (System 당 N개, 형식: "에러이름|태그주소|값타입")
+    // 에러 정의 (System 당 N개, 형식: "이름|레벨|태그주소|값타입")
     // 예: "Motor_Overload|M901|Bit", "Vacuum_Low|D100|Word"
-    member val ErrorDefinitions = ResizeArray<string>() with get, set
+    member val ErrorDefinitions = ResizeArray<string>() with get, set   //UserTagDefinitions
 
 /// Flow-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingFlowProperties() =

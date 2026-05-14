@@ -487,20 +487,30 @@ public sealed class SimulationEngineService : IDisposable
         var enteringGoing = args.PreviousState != Status4.Going && args.NewState == Status4.Going;
         var leavingGoing  = args.PreviousState == Status4.Going && args.NewState != Status4.Going;
 
+        // DB write 실패는 in-memory snapshot 과 divergence 를 만들 수 있으므로 명시적 Warn 로그.
+        // (이후 1초 폴링이 snapshot 을 DB 값으로 덮어쓰면서 UI 깜빡임 가능 — 원인 추적 용이하게 기록.)
+        bool dbOk;
         if (enteringGoing)
         {
             RecordGoingStart(callGuid, now);
-            await _dspRepository.UpdateCallStateAsync(callGuid, next);
+            dbOk = await _dspRepository.UpdateCallStateAsync(callGuid, next);
         }
         else if (leavingGoing)
         {
             var (durMs, avg, stdDev) = RecordGoingFinish(callGuid, now);
-            await _dspRepository.UpdateCallWithStatisticsAsync(
+            dbOk = await _dspRepository.UpdateCallWithStatisticsAsync(
                 callGuid, next, durMs, avg, stdDev);
         }
         else
         {
-            await _dspRepository.UpdateCallStateAsync(callGuid, next);
+            dbOk = await _dspRepository.UpdateCallStateAsync(callGuid, next);
+        }
+
+        if (!dbOk)
+        {
+            _logger.LogWarning(
+                "[Engine] dspCall DB write failed: Call={Call} ({Prev}→{New}) — snapshot may diverge until next poll",
+                callName, prev, next);
         }
 
         // 2. Flow 이름 조회 + dspFlow.state 동기화 (디바운스 — micro-gap 점멸 방지)

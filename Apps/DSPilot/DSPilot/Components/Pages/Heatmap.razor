@@ -451,10 +451,23 @@
     private bool _disposed;
     private const int AutoRefreshThrottleMs = 5000;
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>첫 렌더 후 1회만 초기 데이터 로드를 시도하기 위한 플래그.</summary>
+    private bool _pendingInitialLoad = true;
+
+    protected override void OnInitialized()
     {
+        // Lazy load: OnInitialized 에서는 이벤트 구독만. 무거운 통계/DB 쿼리는 OnAfterRenderAsync 로 이동.
+        // 이렇게 해야 페이지 골격이 즉시 표시되고, 데이터는 그 위에서 로딩 스피너와 함께 채워진다.
         DbService.OnDataChanged += OnDbDataChanged;
-        await LoadDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _pendingInitialLoad)
+        {
+            _pendingInitialLoad = false;
+            await LoadDataAsync();
+        }
     }
 
     private void OnDbDataChanged()
@@ -659,8 +672,10 @@
 
             if (CallExecutionHistory.Count > 0)
             {
+                // canvas 는 Count > 0 일 때만 DOM 에 들어가므로, JS interop 전 반드시 render + DOM 적용
+                // 대기 필요. Task.Delay(50) 은 SignalR 라운드트립 + 클라이언트 DOM 적용 시간 buffer.
                 StateHasChanged();
-                await Task.Delay(50); // canvas 렌더링 대기
+                await Task.Delay(50);
 
                 var chartData = CallExecutionHistory.Select(r => new
                 {
