@@ -370,6 +370,18 @@ module ModelProtocol =
     // / `Author` / `Version` / `actionType` / `description` 등) 에서 5+ 회 누적 사용.
 
     // generic 2-stage fallback (#15 — todo §10.2). plan operations 우선 + store fallback.
+    //
+    // **사용 시나리오 (apply 단계 — leaf 키 setter)**: YAML 입력 적용 중 외부 GUID 참조 해결.
+    // 이번 turn 새로 add 된 entity 는 아직 store commit 전이므로 `ImportPlanBuilder` 의 누적
+    // operation 에서만 발견됨 → plan 측을 *우선* 검색. 기존 store entity (이전 turn commit) 는
+    // store fallback. 부재 시 `None` 반환 — 호출자는 silent skip + entity-default fallback 정합
+    // (SSOT §4 default 정책). leaf 키 setter (`IRI` / `actionType` / `description` 등) 6+ 회 사용.
+    //
+    // **`ToolOperations.requireFromStoreOrPlan` 와 의도된 비대칭** (외부 reviewer M4 — 통합 보류):
+    //   * 본 helper: plan-first → store. Optional 반환. silent skip 정합 (apply 단계).
+    //   * `requireFromStoreOrPlan`: store-first → plan. invalidOp 발생. fail-fast 정합 (commit 단계).
+    // 검색 순서 통일 시 한쪽이 stale entity 를 lookup 가능 (apply 측이 store-first 면 같은 turn
+    // 신규 add 미반영) — 두 helper 분리 유지 정책. 통합 의향이 있다면 시점/반환타입 차이 우선 해소 필요.
     let private lookupById
         (planFinder: ImportPlanBuilder -> Guid -> 'T option)
         (storeFinder: Guid -> DsStore -> 'T option)
@@ -588,90 +600,14 @@ module ModelProtocol =
 
     // ─── PLC metadata leaf SSOT (#20 — todo §10.2) ───────────────────────────
     //
-    // emit / apply / hasNonDefault 3 위치 분산 → 1 위치로 통합. capturer (ModelEquivalence) 는
-    // test project 라 internal 모듈 분리 필요 — 별도 후속.
+    // **#25 (todo §10.2)** — leaves table 정의는 `Ds2.LlmAgent.Internal.PlcMetadata`
+    // 로 분리 (capturer 도 같은 SSOT 참조). PlcLeafKind / PlcLeaf / 4 leaves table 모두
+    // 본 module 안 type/list 정의 *제거됨* — `open PlcMetadata` 로 case 직접 사용.
     //
     // type-default 비교: `defaultCp` 매개변수 (entity 의 빈 instance — 생성자 결과) 와 cur 비교.
-    // SSOT: leaves table 만 entity 별 정의. emit/apply/hasNonDefault 는 generic helper 가 처리.
+    // emit/apply/hasNonDefault generic helper 는 본 module 안 ApplyContext 의존성 때문에 유지.
 
-    type private PlcLeafKind<'cp> =
-        | LBool        of getter: ('cp -> bool)            * setter: ('cp -> bool -> unit)
-        | LInt         of getter: ('cp -> int)             * setter: ('cp -> int -> unit)
-        | LFloat       of getter: ('cp -> float)           * setter: ('cp -> float -> unit)
-        | LString      of getter: ('cp -> string)          * setter: ('cp -> string -> unit)
-        | LStringOpt   of getter: ('cp -> string option)   * setter: ('cp -> string option -> unit)
-        | LIntOpt      of getter: ('cp -> int option)      * setter: ('cp -> int option -> unit)
-        | LFloatOpt    of getter: ('cp -> float option)    * setter: ('cp -> float option -> unit)
-        | LTimeSpan    of getter: ('cp -> TimeSpan)        * setter: ('cp -> TimeSpan -> unit)
-        | LTimeSpanOpt of getter: ('cp -> TimeSpan option) * setter: ('cp -> TimeSpan option -> unit)
-
-    type private PlcLeaf<'cp> = { Key: string; Kind: PlcLeafKind<'cp> }
-
-    let private plcSystemLeaves : PlcLeaf<ControlSystemProperties> list = [
-        { Key = "enableAutoTagGeneration"; Kind = LBool      ((fun cp -> cp.EnableAutoTagGeneration),  (fun cp v -> cp.EnableAutoTagGeneration <- v)) }
-        { Key = "tagPrefix";               Kind = LStringOpt ((fun cp -> cp.TagPrefix),                (fun cp v -> cp.TagPrefix <- v)) }
-        { Key = "tagNamingFormat";         Kind = LString    ((fun cp -> cp.TagNamingFormat),          (fun cp v -> cp.TagNamingFormat <- v)) }
-        { Key = "nameTransform";           Kind = LString    ((fun cp -> cp.NameTransform),            (fun cp v -> cp.NameTransform <- v)) }
-        { Key = "plcVendor";               Kind = LString    ((fun cp -> cp.PlcVendor),                (fun cp v -> cp.PlcVendor <- v)) }
-        { Key = "plcIpAddress";            Kind = LString    ((fun cp -> cp.PlcIpAddress),             (fun cp v -> cp.PlcIpAddress <- v)) }
-        { Key = "plcPort";                 Kind = LInt       ((fun cp -> cp.PlcPort),                  (fun cp v -> cp.PlcPort <- v)) }
-        { Key = "communicationTimeout";    Kind = LTimeSpan  ((fun cp -> cp.CommunicationTimeout),     (fun cp v -> cp.CommunicationTimeout <- v)) }
-        { Key = "retryAttempts";           Kind = LInt       ((fun cp -> cp.RetryAttempts),            (fun cp v -> cp.RetryAttempts <- v)) }
-        { Key = "tagMatchMode";            Kind = LString    ((fun cp -> cp.TagMatchMode),             (fun cp v -> cp.TagMatchMode <- v)) }
-        { Key = "enableAddressValidation"; Kind = LBool      ((fun cp -> cp.EnableAddressValidation),  (fun cp v -> cp.EnableAddressValidation <- v)) }
-        { Key = "caseSensitiveMatching";   Kind = LBool      ((fun cp -> cp.CaseSensitiveMatching),    (fun cp v -> cp.CaseSensitiveMatching <- v)) }
-        { Key = "enableSafetyInterlock";   Kind = LBool      ((fun cp -> cp.EnableSafetyInterlock),    (fun cp v -> cp.EnableSafetyInterlock <- v)) }
-        { Key = "emergencyStopEnabled";    Kind = LBool      ((fun cp -> cp.EmergencyStopEnabled),     (fun cp v -> cp.EmergencyStopEnabled <- v)) }
-        { Key = "safetyDoorCheck";         Kind = LBool      ((fun cp -> cp.SafetyDoorCheck),          (fun cp v -> cp.SafetyDoorCheck <- v)) }
-        { Key = "lightCurtainCheck";       Kind = LBool      ((fun cp -> cp.LightCurtainCheck),        (fun cp v -> cp.LightCurtainCheck <- v)) }
-        { Key = "twoHandControl";          Kind = LBool      ((fun cp -> cp.TwoHandControl),           (fun cp v -> cp.TwoHandControl <- v)) }
-        { Key = "safetyTimeoutSeconds";    Kind = LFloat     ((fun cp -> cp.SafetyTimeoutSeconds),     (fun cp v -> cp.SafetyTimeoutSeconds <- v)) }
-        { Key = "enableHealthCheck";       Kind = LBool      ((fun cp -> cp.EnableHealthCheck),        (fun cp v -> cp.EnableHealthCheck <- v)) }
-        { Key = "healthCheckInterval";     Kind = LTimeSpan  ((fun cp -> cp.HealthCheckInterval),      (fun cp v -> cp.HealthCheckInterval <- v)) }
-        { Key = "enableHeartbeat";         Kind = LBool      ((fun cp -> cp.EnableHeartbeat),          (fun cp v -> cp.EnableHeartbeat <- v)) }
-        { Key = "heartbeatInterval";       Kind = LTimeSpan  ((fun cp -> cp.HeartbeatInterval),        (fun cp v -> cp.HeartbeatInterval <- v)) }
-        { Key = "systemType";              Kind = LStringOpt ((fun cp -> cp.SystemType),               (fun cp v -> cp.SystemType <- v)) }
-    ]
-
-    let private plcFlowLeaves : PlcLeaf<ControlFlowProperties> list = [
-        { Key = "flowControlEnabled";      Kind = LBool      ((fun cp -> cp.FlowControlEnabled),       (fun cp v -> cp.FlowControlEnabled <- v)) }
-        { Key = "flowPriority";            Kind = LInt       ((fun cp -> cp.FlowPriority),             (fun cp v -> cp.FlowPriority <- v)) }
-    ]
-
-    let private plcWorkLeaves : PlcLeaf<ControlWorkProperties> list = [
-        { Key = "enableHardwareControl";   Kind = LBool        ((fun cp -> cp.EnableHardwareControl),   (fun cp v -> cp.EnableHardwareControl <- v)) }
-        { Key = "controlMode";             Kind = LString      ((fun cp -> cp.ControlMode),             (fun cp v -> cp.ControlMode <- v)) }
-        { Key = "inTagName";               Kind = LStringOpt   ((fun cp -> cp.InTagName),               (fun cp v -> cp.InTagName <- v)) }
-        { Key = "inTagAddress";            Kind = LStringOpt   ((fun cp -> cp.InTagAddress),            (fun cp v -> cp.InTagAddress <- v)) }
-        { Key = "outTagName";              Kind = LStringOpt   ((fun cp -> cp.OutTagName),              (fun cp v -> cp.OutTagName <- v)) }
-        { Key = "outTagAddress";           Kind = LStringOpt   ((fun cp -> cp.OutTagAddress),           (fun cp v -> cp.OutTagAddress <- v)) }
-        { Key = "callDirection";           Kind = LString      ((fun cp -> cp.CallDirection),           (fun cp v -> cp.CallDirection <- v)) }
-        { Key = "workTimeout";             Kind = LTimeSpanOpt ((fun cp -> cp.WorkTimeout),             (fun cp v -> cp.WorkTimeout <- v)) }
-        { Key = "enableTimeout";           Kind = LBool        ((fun cp -> cp.EnableTimeout),           (fun cp v -> cp.EnableTimeout <- v)) }
-        { Key = "timeoutAction";           Kind = LString      ((fun cp -> cp.TimeoutAction),           (fun cp v -> cp.TimeoutAction <- v)) }
-        { Key = "requiresSafetyCheck";     Kind = LBool        ((fun cp -> cp.RequiresSafetyCheck),     (fun cp v -> cp.RequiresSafetyCheck <- v)) }
-        { Key = "enableMotionControl";     Kind = LBool        ((fun cp -> cp.EnableMotionControl),     (fun cp v -> cp.EnableMotionControl <- v)) }
-        { Key = "motionControlMode";       Kind = LStringOpt   ((fun cp -> cp.MotionControlMode),       (fun cp v -> cp.MotionControlMode <- v)) }
-        { Key = "targetPosition";          Kind = LFloatOpt    ((fun cp -> cp.TargetPosition),          (fun cp v -> cp.TargetPosition <- v)) }
-        { Key = "targetVelocity";          Kind = LFloatOpt    ((fun cp -> cp.TargetVelocity),          (fun cp v -> cp.TargetVelocity <- v)) }
-        { Key = "acceleration";            Kind = LFloatOpt    ((fun cp -> cp.Acceleration),            (fun cp v -> cp.Acceleration <- v)) }
-        { Key = "deceleration";            Kind = LFloatOpt    ((fun cp -> cp.Deceleration),            (fun cp v -> cp.Deceleration <- v)) }
-        { Key = "usePulseControl";         Kind = LBool        ((fun cp -> cp.UsePulseControl),         (fun cp v -> cp.UsePulseControl <- v)) }
-        { Key = "pulseWidthMs";            Kind = LIntOpt      ((fun cp -> cp.PulseWidthMs),            (fun cp v -> cp.PulseWidthMs <- v)) }
-        { Key = "pulseIntervalMs";         Kind = LIntOpt      ((fun cp -> cp.PulseIntervalMs),         (fun cp v -> cp.PulseIntervalMs <- v)) }
-        { Key = "pulseCount";              Kind = LIntOpt      ((fun cp -> cp.PulseCount),              (fun cp v -> cp.PulseCount <- v)) }
-    ]
-
-    let private plcCallLeaves : PlcLeaf<ControlCallProperties> list = [
-        { Key = "callDirection";           Kind = LString      ((fun cp -> cp.CallDirection),           (fun cp v -> cp.CallDirection <- v)) }
-        { Key = "enableRetry";             Kind = LBool        ((fun cp -> cp.EnableRetry),             (fun cp v -> cp.EnableRetry <- v)) }
-        { Key = "maxRetryCount";           Kind = LInt         ((fun cp -> cp.MaxRetryCount),           (fun cp v -> cp.MaxRetryCount <- v)) }
-        { Key = "retryDelayMs";            Kind = LInt         ((fun cp -> cp.RetryDelayMs),            (fun cp v -> cp.RetryDelayMs <- v)) }
-        { Key = "callTimeout";             Kind = LTimeSpanOpt ((fun cp -> cp.CallTimeout),             (fun cp v -> cp.CallTimeout <- v)) }
-        { Key = "waitForCompletion";       Kind = LBool        ((fun cp -> cp.WaitForCompletion),       (fun cp v -> cp.WaitForCompletion <- v)) }
-        { Key = "enableConditional";       Kind = LBool        ((fun cp -> cp.EnableConditional),       (fun cp v -> cp.EnableConditional <- v)) }
-        { Key = "conditionExpression";     Kind = LStringOpt   ((fun cp -> cp.ConditionExpression),     (fun cp v -> cp.ConditionExpression <- v)) }
-    ]
+    open Ds2.LlmAgent.Internal.PlcMetadata
 
     /// leaves 기반 apply — 미지의 키 진단 발행 포함.
     let private parsePlcLeaves

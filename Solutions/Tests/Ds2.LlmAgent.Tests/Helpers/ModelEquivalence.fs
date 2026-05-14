@@ -5,6 +5,7 @@ open Ds2.Core
 open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.LlmAgent
+open Ds2.LlmAgent.Internal  // PlcMetadata — production / capturer 공유 leaves SSOT (#25)
 
 /// Phase 1 YAML protocol round-trip 의미-동등 비교 (todo §3.1 Step 9, M13).
 ///
@@ -166,88 +167,45 @@ let private optInt (v: int option) : string =
 let private optTs (v: System.TimeSpan option) : string =
     v |> Option.map (fun ts -> ts.ToString("c")) |> Option.defaultValue "<null>"
 
-let private summarizePlcSystem (cp: ControlSystemProperties option) : string =
+/// Phase 7 §4.2 #25 — PLC leaf 의 Kind 별 stringify (capturer SSOT 공유, getter 만 사용).
+/// production 측 emit/apply 의 setter 는 무시 (`_`). 형식은 기존 capturer 출력과 동일 보존.
+let private leafToString (cp: 'cp) (kind: PlcMetadata.PlcLeafKind<'cp>) : string =
+    match kind with
+    | PlcMetadata.LBool        (g, _) -> string (g cp)
+    | PlcMetadata.LInt         (g, _) -> string (g cp)
+    | PlcMetadata.LFloat       (g, _) -> sprintf "%f" (g cp)
+    | PlcMetadata.LString      (g, _) -> g cp
+    | PlcMetadata.LStringOpt   (g, _) -> optStr (g cp)
+    | PlcMetadata.LIntOpt      (g, _) -> optInt (g cp)
+    | PlcMetadata.LFloatOpt    (g, _) -> optFloat (g cp)
+    | PlcMetadata.LTimeSpan    (g, _) -> (g cp).ToString("c")
+    | PlcMetadata.LTimeSpanOpt (g, _) -> optTs (g cp)
+
+/// generic plc summarizer — leaves 4종 모두 본 helper 로 처리. None → `<none>`,
+/// Some cp → leaves table traverse 후 `summarizeLeafs` 직렬화. 4 entity (System/Flow/Work/Call)
+/// 의 hardcode list 4개를 중복 제거 (todo §10.2 #25). production 측 leaves 변경이 capturer
+/// 에도 자동 반영 — silent drift 차단.
+let private summarizePlcLeaves (cp: 'cp option) (leaves: PlcMetadata.PlcLeaf<'cp> list) : string =
     match cp with
     | None -> "<none>"
     | Some cp ->
-        summarizeLeafs [
-            "enableAutoTagGeneration", string cp.EnableAutoTagGeneration
-            "tagPrefix", optStr cp.TagPrefix
-            "tagNamingFormat", cp.TagNamingFormat
-            "nameTransform", cp.NameTransform
-            "plcVendor", cp.PlcVendor
-            "plcIpAddress", cp.PlcIpAddress
-            "plcPort", string cp.PlcPort
-            "communicationTimeout", cp.CommunicationTimeout.ToString("c")
-            "retryAttempts", string cp.RetryAttempts
-            "tagMatchMode", cp.TagMatchMode
-            "enableAddressValidation", string cp.EnableAddressValidation
-            "caseSensitiveMatching", string cp.CaseSensitiveMatching
-            "enableSafetyInterlock", string cp.EnableSafetyInterlock
-            "emergencyStopEnabled", string cp.EmergencyStopEnabled
-            "safetyDoorCheck", string cp.SafetyDoorCheck
-            "lightCurtainCheck", string cp.LightCurtainCheck
-            "twoHandControl", string cp.TwoHandControl
-            "safetyTimeoutSeconds", sprintf "%f" cp.SafetyTimeoutSeconds
-            "enableHealthCheck", string cp.EnableHealthCheck
-            "healthCheckInterval", cp.HealthCheckInterval.ToString("c")
-            "enableHeartbeat", string cp.EnableHeartbeat
-            "heartbeatInterval", cp.HeartbeatInterval.ToString("c")
-            "systemType", optStr cp.SystemType
-        ]
+        leaves
+        |> List.map (fun leaf -> leaf.Key, leafToString cp leaf.Kind)
+        |> summarizeLeafs
+
+let private summarizePlcSystem (cp: ControlSystemProperties option) : string =
+    summarizePlcLeaves cp PlcMetadata.plcSystemLeaves
 
 let private summarizePlcFlow (cp: ControlFlowProperties option) : string =
-    match cp with
-    | None -> "<none>"
-    | Some cp ->
-        summarizeLeafs [
-            "flowControlEnabled", string cp.FlowControlEnabled
-            "flowPriority", string cp.FlowPriority
-        ]
+    summarizePlcLeaves cp PlcMetadata.plcFlowLeaves
 
+// Runtime-only (CurrentState / LastExecutionTime / ExecutionCount / ErrorCount) 4건은
+// production 측 plcWorkLeaves 에서 *제외* — leaves SSOT 한 위치에서 결정. capturer 자동 정합.
 let private summarizePlcWork (cp: ControlWorkProperties option) : string =
-    match cp with
-    | None -> "<none>"
-    | Some cp ->
-        // Runtime-only (CurrentState / LastExecutionTime / ExecutionCount / ErrorCount) 제외.
-        summarizeLeafs [
-            "enableHardwareControl", string cp.EnableHardwareControl
-            "controlMode", cp.ControlMode
-            "inTagName", optStr cp.InTagName
-            "inTagAddress", optStr cp.InTagAddress
-            "outTagName", optStr cp.OutTagName
-            "outTagAddress", optStr cp.OutTagAddress
-            "callDirection", cp.CallDirection
-            "workTimeout", optTs cp.WorkTimeout
-            "enableTimeout", string cp.EnableTimeout
-            "timeoutAction", cp.TimeoutAction
-            "requiresSafetyCheck", string cp.RequiresSafetyCheck
-            "enableMotionControl", string cp.EnableMotionControl
-            "motionControlMode", optStr cp.MotionControlMode
-            "targetPosition", optFloat cp.TargetPosition
-            "targetVelocity", optFloat cp.TargetVelocity
-            "acceleration", optFloat cp.Acceleration
-            "deceleration", optFloat cp.Deceleration
-            "usePulseControl", string cp.UsePulseControl
-            "pulseWidthMs", optInt cp.PulseWidthMs
-            "pulseIntervalMs", optInt cp.PulseIntervalMs
-            "pulseCount", optInt cp.PulseCount
-        ]
+    summarizePlcLeaves cp PlcMetadata.plcWorkLeaves
 
 let private summarizePlcCall (cp: ControlCallProperties option) : string =
-    match cp with
-    | None -> "<none>"
-    | Some cp ->
-        summarizeLeafs [
-            "callDirection", cp.CallDirection
-            "enableRetry", string cp.EnableRetry
-            "maxRetryCount", string cp.MaxRetryCount
-            "retryDelayMs", string cp.RetryDelayMs
-            "callTimeout", optTs cp.CallTimeout
-            "waitForCompletion", string cp.WaitForCompletion
-            "enableConditional", string cp.EnableConditional
-            "conditionExpression", optStr cp.ConditionExpression
-        ]
+    summarizePlcLeaves cp PlcMetadata.plcCallLeaves
 
 /// Phase 7 §4.2 TC-1 — Call → CallDetail 평탄화. ApiCalls 는 1:1 매핑 PoC scope (`ApiCalls.[0]` 만).
 let private callDetailOf (store: DsStore) (c: Call) : CallDetail =

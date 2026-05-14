@@ -2027,14 +2027,19 @@ systems:
     device: cylinder
 """
 
-let private plcUnknownKeyYaml = """
+/// #24 (m3 외부 review) — System 차원 `plc:` 안 단일 키 negative theory case 의 공통 frame 압축.
+/// Controller(active) + Cyl1(passive cylinder) + Adv→Cyl1.ADV 호출 골조 hardcode. fixture 별
+/// 차이는 `plc:` 안 한 줄 키/값뿐 — `plcKeyValue` 인자로만 전달. 6 fixture × ~14 line 중복 제거.
+/// 비교 대상이 *키 자체* 임을 더 또렷이 가시화 (frame 잡음 제거).
+/// sprintf 대신 Replace 사용 — yaml 안 임의 character 의 `%X` placeholder 오인 회피.
+let private plcSystemNegFrame = """
 protocol: promaker/v0
 project: M1
 systems:
   - system: Controller
     kind: active
     plc:
-      noSuchKey: 42
+      __KEY__
     flow Run:
       works:
         Adv:
@@ -2044,39 +2049,12 @@ systems:
     device: cylinder
 """
 
-let private plcPortNonIntYaml = """
-protocol: promaker/v0
-project: M1
-systems:
-  - system: Controller
-    kind: active
-    plc:
-      plcPort: not-a-number
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
+let private mkPlcSystemNegYaml (plcKeyValue: string) : string =
+    plcSystemNegFrame.Replace("__KEY__", plcKeyValue)
 
-let private plcTimeSpanInvalidYaml = """
-protocol: promaker/v0
-project: M1
-systems:
-  - system: Controller
-    kind: active
-    plc:
-      communicationTimeout: not-a-timespan
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
+let private plcUnknownKeyYaml      = mkPlcSystemNegYaml "noSuchKey: 42"
+let private plcPortNonIntYaml      = mkPlcSystemNegYaml "plcPort: not-a-number"
+let private plcTimeSpanInvalidYaml = mkPlcSystemNegYaml "communicationTimeout: not-a-timespan"
 
 let private plcRuntimeKeyYaml = """
 protocol: promaker/v0
@@ -2095,57 +2073,10 @@ systems:
     device: cylinder
 """
 
-// #19: bool / float / string|null type 위반 추가 (Theory case 3건)
-let private plcEnableSafetyNonBoolYaml = """
-protocol: promaker/v0
-project: M1
-systems:
-  - system: Controller
-    kind: active
-    plc:
-      enableSafetyInterlock: not-a-bool
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
-
-let private plcSafetyTimeoutNonFloatYaml = """
-protocol: promaker/v0
-project: M1
-systems:
-  - system: Controller
-    kind: active
-    plc:
-      safetyTimeoutSeconds: not-a-float
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
-
-let private plcTagPrefixNonStringOrNullYaml = """
-protocol: promaker/v0
-project: M1
-systems:
-  - system: Controller
-    kind: active
-    plc:
-      tagPrefix: 42
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
+// #19: bool / float / string|null type 위반 추가 (Theory case 3건). #24 frame helper 활용.
+let private plcEnableSafetyNonBoolYaml      = mkPlcSystemNegYaml "enableSafetyInterlock: not-a-bool"
+let private plcSafetyTimeoutNonFloatYaml    = mkPlcSystemNegYaml "safetyTimeoutSeconds: not-a-float"
+let private plcTagPrefixNonStringOrNullYaml = mkPlcSystemNegYaml "tagPrefix: 42"
 
 [<Theory>]
 [<InlineData("plcNonObject",     "plc: Object 기대")>]                          // §2.7 룰 #25
