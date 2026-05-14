@@ -11,6 +11,9 @@
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
 #define MyDefaultPort "80"
+; Promaker · DSPilot 공유 AASX 경로 (DSPilot/Infrastructure/SharedPaths.cs 와 동일)
+#define MySharedDir "{commonappdata}\DualSoft\Shared"
+#define MySharedAasxName "project.aasx"
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -33,6 +36,11 @@ MinVersion=10.0
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Dirs]
+; Promaker · DSPilot 공유 폴더. Users 그룹에 modify 권한 부여 →
+; DSPilot(SYSTEM 서비스)과 Promaker(일반 사용자) 양쪽이 같은 파일을 읽고 쓸 수 있도록.
+Name: "{#MySharedDir}"; Permissions: users-modify
+
 [Files]
 ; Publish output (self-contained, all dependencies included)
 ; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 별도 처리하므로 제외
@@ -43,8 +51,9 @@ Source: "..\publish\wwwroot\uploads\layout-data.json"; DestDir: "{app}\wwwroot\u
 Source: "..\publish\wwwroot\uploads\layout-data.json.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
-; AASX data file (placed in parent directory: ../DsCSV_0318_C.aasx)
-Source: "..\DsCSV_0318_C.aasx"; DestDir: "{app}\.."; Flags: ignoreversion
+; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
+; 운영 시점에 모델 파일이 생성/갱신됨. 파일이 없을 때 DSPilot 은 빈 상태로 부팅되며
+; Settings 페이지에 "파일 없음 — Promaker 에서 먼저 저장하세요" 안내가 표시됨.
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{code:GetAppURL}"
@@ -191,9 +200,6 @@ begin
       SaveStringToFile(ProdJsonPath,
         '{' + #13#10 +
         '  "Urls": "' + UrlsValue + '",' + #13#10 +
-        '  "DsPilot": {' + #13#10 +
-        '    "AasxFilePath": "../DsCSV_0318_C.aasx"' + #13#10 +
-        '  },' + #13#10 +
         '  "Database": {' + #13#10 +
         '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
         '  }' + #13#10 +

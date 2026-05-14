@@ -129,6 +129,24 @@ public partial class SimulationPanelState
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
 
+            // Hub 모드 진입 직전 — 현재 store 를 DSPilot 공유 AASX 경로에 자동 export.
+            // DSPilot 은 같은 파일을 읽어 dspFlow/dspCall 을 생성하므로, 사용자가 별도로 "공유 위치에 저장"
+            // 을 누르지 않아도 모니터링 시작과 동시에 두 앱이 같은 모델을 보게 된다.
+            // 실패해도 시뮬 시작은 막지 않음 — DSPilot 동기화는 부가 기능.
+            if (SelectedRuntimeMode != RuntimeMode.Simulation && PublishAasxForHubMode is not null)
+            {
+                try
+                {
+                    var published = PublishAasxForHubMode();
+                    if (!published)
+                        AddSimLog("DSPilot 공유 경로 AASX 자동 저장 건너뜀 (프로젝트 없음/저장 실패)", LogSeverity.Warn);
+                }
+                catch (Exception ex)
+                {
+                    AddSimLog($"DSPilot 공유 경로 AASX 자동 저장 실패: {ex.Message}", LogSeverity.Warn);
+                }
+            }
+
             // Hub 시작/연결 (Simulation 모드 이외)
             if (!TryStartHub())
                 return;

@@ -102,9 +102,10 @@
                                 <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" Foreground="{DynamicResource IconGrayBrush}"/>
                             </ToggleButton>
                             <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=SaveMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
-                                <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="220">
                                     <StackPanel>
                                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup"><TextBlock Text="{x:Static res:Strings.SaveAs}"/></Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseSavePopup" ToolTip="%ProgramData%\DualSoft\Shared\project.aasx 로 저장합니다. DSPilot 서비스가 같은 경로를 읽어 자동 동기화됩니다."><TextBlock Text="공유 위치에 저장 (DSPilot 동기화)"/></Button>
                                     </StackPanel>
                                 </Border>
                             </Popup>

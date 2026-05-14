@@ -1,6 +1,7 @@
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using DSPilot.Infrastructure;
 using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
@@ -9,29 +10,28 @@ public class DsProjectService
 {
     private readonly DsStore _store;
     private readonly ILogger<DsProjectService> _logger;
-    private readonly string? _aasxFilePath;
 
+    public string AasxFilePath { get; } = SharedPaths.AasxFilePath;
     public bool IsLoaded { get; private set; }
+    public DateTime? LastLoadedUtc { get; private set; }
 
     public DsStore GetStore() => _store;
 
-    public DsProjectService(IConfiguration configuration, ILogger<DsProjectService> logger)
+    public DsProjectService(ILogger<DsProjectService> logger)
     {
         _logger = logger;
         _store = new DsStore();
-        var configPath = configuration["DsPilot:AasxFilePath"];
-        _logger.LogInformation("[DsProject] Raw config AasxFilePath = '{ConfigPath}'", configPath ?? "(null)");
-        _aasxFilePath = string.IsNullOrEmpty(configPath) ? null : Path.GetFullPath(configPath);
-        _logger.LogInformation("[DsProject] Resolved AasxFilePath = '{Path}', Exists = {Exists}",
-            _aasxFilePath ?? "(null)", _aasxFilePath != null && File.Exists(_aasxFilePath));
 
-        if (!string.IsNullOrEmpty(_aasxFilePath) && File.Exists(_aasxFilePath))
+        _logger.LogInformation("[DsProject] AASX path = '{Path}', exists = {Exists}",
+            AasxFilePath, File.Exists(AasxFilePath));
+
+        if (File.Exists(AasxFilePath))
         {
-            LoadProject(_aasxFilePath);
+            LoadProject(AasxFilePath);
         }
-        else if (!string.IsNullOrEmpty(_aasxFilePath))
+        else
         {
-            _logger.LogWarning("AASX file not found: {Path}", _aasxFilePath);
+            _logger.LogWarning("AASX file not found: {Path}. Promaker 에서 같은 경로에 저장하면 자동 인식됩니다.", AasxFilePath);
         }
     }
 
@@ -41,6 +41,7 @@ public class DsProjectService
         {
             var result = Ds2.Aasx.AasxImporter.importIntoStore(_store, path);
             IsLoaded = result;
+            LastLoadedUtc = DateTime.UtcNow;
             if (result)
                 _logger.LogInformation("Project loaded from: {Path}", path);
             else
@@ -50,6 +51,23 @@ public class DsProjectService
         {
             _logger.LogError(ex, "Error loading AASX file: {Path}", path);
             IsLoaded = false;
+        }
+    }
+
+    /// <summary>
+    /// 디스크의 AASX 파일이 마지막으로 수정된 시각(UTC). 존재하지 않으면 null.
+    /// </summary>
+    public DateTime? GetAasxFileWriteTimeUtc()
+    {
+        try
+        {
+            return File.Exists(AasxFilePath)
+                ? File.GetLastWriteTimeUtc(AasxFilePath)
+                : null;
+        }
+        catch
+        {
+            return null;
         }
     }
 
