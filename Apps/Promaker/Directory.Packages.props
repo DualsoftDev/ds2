@@ -33,6 +33,11 @@
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
 
+  <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->
+  <ItemGroup>
+    <PackageVersion Include="H.NotifyIcon.Wpf" Version="2.3.0" />
+  </ItemGroup>
+
   <!-- SignalR Client -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.5" />

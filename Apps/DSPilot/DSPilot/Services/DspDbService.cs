@@ -73,6 +73,18 @@ public class DspDbService : IDisposable
             return;
         }
 
+        // 서버 시작 직후 1초간 snapshot 이 비어있어 첫 페이지 진입이 공백으로 보이는 문제 방지.
+        // PollLoopAsync 가 fire-and-forget 으로 첫 TryRefresh 를 호출하지만 그게 끝나기 전에
+        // Blazor 가 페이지를 렌더하면 빈 상태. 동기 1회 사전 로드로 첫 렌더부터 데이터가 보장됨.
+        try
+        {
+            TryRefresh();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Initial DspDbService snapshot load failed — polling will retry");
+        }
+
         _ = PollLoopAsync(_cts.Token);
         _ = ConsumeChannelAsync(_cts.Token);
         _ = ProgressUpdateLoopAsync(_cts.Token);
