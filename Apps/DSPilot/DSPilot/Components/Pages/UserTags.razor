@@ -31,6 +31,68 @@
         </div>
     </section>
 
+    <section class="card user-tags-panel">
+        <div class="user-tags-panel-header">
+            <div>
+                <h6 class="typo-h6">실시간 알림 (@_alerts.Count)</h6>
+                <div class="typo-caption user-tags-muted">최신 알림이 위에 표시됩니다 (실시간 갱신)</div>
+            </div>
+            <div class="user-tags-alert-controls">
+                <input class="form-field" @bind="_searchText" @bind:event="oninput" placeholder="이름 / 주소 / System 검색..." />
+                <select class="form-field" @bind="_levelFilter">
+                    <option value="">전체 레벨</option>
+                    <option value="Info">Info</option>
+                    <option value="Warning">Warning</option>
+                    <option value="Error">Error</option>
+                </select>
+                <button class="btn btn-sm btn-outlined" @onclick="ExportCsvAsync" disabled="@(_alerts.Count == 0)">
+                    CSV 내보내기
+                </button>
+            </div>
+        </div>
+
+        @if (FilteredAlerts.Count == 0)
+        {
+            <div class="ut-empty">
+                <span class="material-icons">notifications_none</span>
+                <p>아직 수신된 UserTag 알림이 없습니다.</p>
+                <p class="typo-caption" style="color:var(--color-text-secondary);">
+                    PLC 에서 정의된 주소가 모니터링되면 자동으로 위에 표시됩니다.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="ut-table-wrapper ut-alerts-scroll">
+                <table class="ut-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 170px;">시각</th>
+                            <th>레벨</th>
+                            <th>System</th>
+                            <th>이름</th>
+                            <th>태그 주소</th>
+                            <th>값</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in FilteredAlerts)
+                        {
+                            <tr class="@LevelRowClass(a.LogLevel)">
+                                <td><span class="ut-time">@a.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</span></td>
+                                <td><span class="chip @LevelChipClass(a.LogLevel)">@a.LogLevel</span></td>
+                                <td>@a.SystemName</td>
+                                <td><strong>@a.Name</strong></td>
+                                <td><code>@a.TagAddress</code></td>
+                                <td><code>@a.Value</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
     @if (!ProjectService.IsLoaded)
     {
         <section class="card user-tags-panel user-tags-empty">
@@ -103,68 +165,6 @@
             }
         </section>
     }
-
-    <section class="card user-tags-panel">
-        <div class="user-tags-panel-header">
-            <div>
-                <h6 class="typo-h6">실시간 알림 (@_alerts.Count)</h6>
-                <div class="typo-caption user-tags-muted">최신 알림이 위에 표시됩니다 (실시간 갱신)</div>
-            </div>
-            <div class="user-tags-alert-controls">
-                <input class="form-field" @bind="_searchText" @bind:event="oninput" placeholder="이름 / 주소 / System 검색..." />
-                <select class="form-field" @bind="_levelFilter">
-                    <option value="">전체 레벨</option>
-                    <option value="Info">Info</option>
-                    <option value="Warning">Warning</option>
-                    <option value="Error">Error</option>
-                </select>
-                <button class="btn btn-sm btn-outlined" @onclick="ExportCsvAsync" disabled="@(_alerts.Count == 0)">
-                    CSV 내보내기
-                </button>
-            </div>
-        </div>
-
-        @if (FilteredAlerts.Count == 0)
-        {
-            <div class="ut-empty">
-                <span class="material-icons">notifications_none</span>
-                <p>아직 수신된 UserTag 알림이 없습니다.</p>
-                <p class="typo-caption" style="color:var(--color-text-secondary);">
-                    PLC 에서 정의된 주소가 모니터링되면 자동으로 위에 표시됩니다.
-                </p>
-            </div>
-        }
-        else
-        {
-            <div class="ut-table-wrapper ut-alerts-scroll">
-                <table class="ut-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 170px;">시각</th>
-                            <th>레벨</th>
-                            <th>System</th>
-                            <th>이름</th>
-                            <th>태그 주소</th>
-                            <th>값</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var a in FilteredAlerts)
-                        {
-                            <tr class="@LevelRowClass(a.LogLevel)">
-                                <td><span class="ut-time">@a.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</span></td>
-                                <td><span class="chip @LevelChipClass(a.LogLevel)">@a.LogLevel</span></td>
-                                <td>@a.SystemName</td>
-                                <td><strong>@a.Name</strong></td>
-                                <td><code>@a.TagAddress</code></td>
-                                <td><code>@a.Value</code></td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </section>
 </div>
 
 @code {
