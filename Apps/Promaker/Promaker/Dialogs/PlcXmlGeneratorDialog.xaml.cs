@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using AAStoPLC.Ir;
+using AAStoPLC.LadderEditor.Adapters;
 using AAStoPLC.LadderEditor.Models;
 using AAStoPLC.LadderEditor.Rendering;
 using Ds2.Core.Store;
@@ -148,21 +149,8 @@ public partial class PlcXmlGeneratorDialog : Window
         var program = _irProject.Programs.FirstOrDefault(p => p.Name == name);
         if (program == null) return;
         foreach (var r in program.Rungs)
-            _rungs.Add(IrRungToViewModel(r));
+            _rungs.Add(IrRungAdapter.ToViewModel(r));
     }
-
-    /// <summary>IR Rung (CoilRung / FbCallRung) → LadderEditor 의 RungViewModel 변환. 설명문 포함.</summary>
-    private static RungViewModel IrRungToViewModel(Rung rung) => rung switch
-    {
-        Rung.CoilRung c   => new CoilRungViewModel(c.cond, c.bit)
-                                { CommentText = OptStr(c.comment) },
-        Rung.FbCallRung f => new FbCallRungViewModel(f.Item)
-                                { CommentText = OptStr(f.Item.Comment) },
-        _ => new CoilRungViewModel(CoilCondition.AlwaysTrue, ""),
-    };
-
-    private static string? OptStr(Microsoft.FSharp.Core.FSharpOption<string>? opt) =>
-        opt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(opt) ? opt.Value : null;
 
     private void ClearLadder()
     {
