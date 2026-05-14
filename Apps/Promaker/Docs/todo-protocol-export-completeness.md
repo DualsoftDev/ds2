@@ -2,7 +2,7 @@
 
 > 본 문서는 `done-yaml-save-format.md` 후속 작업. `.yaml`/`.json` 저장 경로의 *의도된 lossy 4-set* (GUID / position / alias / 시뮬 결과) 외에 **암묵적으로 누락되어 있는 도메인 데이터** 를 식별하고 emit/apply 양방향 보강.
 >
-> **2026-05-14 개정** — N=5 cross-validation review (`--inspect 5`) 결과 반영. §2 누락 항목 list 가 사용자 명시 4건에서 실제 누락 표면 9+ 카테고리로 확장. ArrowKind→ArrowType naming fix, Work.AuxKind 위치 정정, OperationConditions 코드베이스 미발견 → §7 격하, schema-shape 결정 phase (§4.1.5) 신설, default 매핑 표 (§6.3) / SSOT 갱신 책임 표 (§6.1) 신설, 자가 검열 trigger ②③④⑤ 4건 동시 충족 명시.
+> **2026-05-14 개정** — N=5 cross-validation review (`--inspect 5`) 결과 반영. §2 누락 항목 list 가 사용자 명시 3 case 에서 실제 누락 표면 9+ 카테고리로 확장. ArrowKind→ArrowType naming fix, Work.AuxKind 위치 정정, schema-shape 결정 phase (§4.1.5) 신설, default 매핑 표 (§6.3) / SSOT 갱신 책임 표 (§6.1) 신설, 자가 검열 trigger ②③④⑤ 4건 동시 충족 명시.
 
 ---
 
@@ -100,18 +100,34 @@
 4. *4-set 명시 lossy* → 意
 5. *PLC 코드 생성 메타* → メ (사용자 명시 설정만 必 으로 격상)
 
-### 4.1.5 schema-shape 결정 phase (新)
+### 4.1.5 schema-shape 결정 phase
 
-- [ ] §2.2 각 항목별 wire schema 결정:
-  - `calls` 배열 element: 현 `"<systemName>.<apiName>"` 문자열 scalar → **object 승격** (예: `{ ref: "Z1_C1.ADV", conditions: [...], contactKind: "NcContact", callType: "SkipIfCompleted" }`) 여부
-  - 또는 별도 sibling 키 (`callConditions: [...]`) 신설 여부
-- [ ] 결정 산출물: `yaml-protocol-v0.md §2.2 / §2.3` 의 신규 키 위치 + JSON shape 명시
-- [ ] **본 phase 통과 전 §4.2 코드 변경 진입 금지**
-- [ ] schema breaking decision → 자가 검열 trigger ④⑤ 발동, sub-agent 위임 의무
+- [x] **결정 채택: 옵션 C — dual format (default 시 string scalar 유지 / non-default 시 object 승격)** — 2026-05-14 phase 1 산출
+  - 사유: 기존 schema 무변경 (legacy .yaml 호환 100%) + apply 측 dispatcher 추가 분기 1건 (`JsonValueKind.String → 기존 처리, Object → 신규 처리`) + LLM 부담 0 증가 (default 케이스는 기존 string 그대로) + `§6.3 (b) "default 생략 emit" 정책` 완벽 정합
+- [x] 검토한 대안:
+  - 옵션 A (object 강제 승격): SSOT 정합 ↑ but wire breaking, legacy 거부
+  - 옵션 B (sibling 키 신설 `callConditions:` 등): 기존 schema 무변경 but 같은 ApiDef N회 호출 (§1.7 "ApiDef 중복 Call 허용") 시 식별 불가
+- [x] 산출 shape (Active calls 안 — non-default 1개 이상 시 object 승격):
+  ```yaml
+  calls:
+    - Z1_C1.ADV                              # default → string scalar (legacy 동일)
+    - ref: Z2_C2.SENSOR                      # non-default → object
+      contactKind: NcContact                 # ApiCall.ContactKind (1:1 invariant)
+      skipInputSensor: true                  # ApiCall.SkipInputSensor
+      callType: SkipIfCompleted              # SimulationCallProperties.CallType
+      callCondition:                         # Call.CallConditions[0]
+        type: ComAux                         # AutoAux default 면 생략
+        isOR: false
+        isInverted: false
+        conditions: [<ApiCall path/object>]  # recursive
+        children: [...]
+  ```
+- [x] 추가 신규 키: `apiDetails` (Passive ApiDef 별 actionType/description), `iri` (System), `duration`/`tokenRole`/`referenceOf` (Work), `author`/`version`/`tokenSpecs` (Project root)
+- [x] schema breaking decision → 자가 검열 trigger ④⑤ 발동, sub-agent 위임 의무 — phase 1 §4.1.5 결정 단계 review 1회 수행 완료
 
 ### 4.2 코드 변경 (분류 별 분리 commit — §6.4 정책 정합)
 
-- [ ] **C-1 enum/string 변환 helper**: `formatArrowType` 패턴 답습 (`ModelProtocol.fs:1185~1210` 근처) — `formatCallConditionType` / `formatContactKind` / `formatCallType` / `formatApiDefActionType` + 대응 parser. *기존 dispatcher 재활용, 신설 아님* (CLAUDE.md "기존 함수 재활용 90점")
+- [x] **C-1 enum/string 변환 helper** (2026-05-14 완료): `ModelProtocol.fs` 에 `formatArrowType` 패턴 답습으로 8 helper 추가 (`parseCallConditionType`/`formatCallConditionType` × CallConditionType, ContactKind, CallType, ApiDefActionType). ApiDefActionType 은 DU 인자 grammar (`TimeTotal(500)`/`MultiAction(3, 100)`) regex parser 포함. 호출처 연결은 C-3~C-5 phase. 빌드 통과 (경고 0 / 오류 0). 자가 검열 통과 (Critical/Major 0, Minor 3 현 상태 수용)
 - [ ] **C-2 SSOT 동시 갱신**: §6.1 매핑 표 기반 `yaml-protocol-v0.md` 7개 절 동시 갱신 (해당 분류 한정 부분만)
 - [ ] **C-3 CallCondition tree** (`Call.CallConditions` + `CallCondition` 6 property + ContactKind): emit/apply 양쪽에 entity-walker 신규 분기 추가 — trigger ④ 발동
 - [ ] **C-4 ApiCall 추가 property** (SkipInputSensor + InTag/OutTag/InputSpec/OutputSpec/ApiDefId/OriginFlowId): leaf 키 추가
@@ -239,7 +255,6 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 | 항목 | 현 상태 | 결정 필요 사항 |
 |---|---|---|
-| **`OperationConditions`** | **코드베이스 0건 매칭** (grep `Solutions/` 전체). 사용자 명시 항목이지만 실제 entity 정의 없음 — Panel.Condition.fs 도 `CallCondition` panel wrapper 일 뿐 | 사용자에게 (a) 다른 entity 명의 비공식 호칭인지 (b) 향후 도입 entity 인지 (c) `ControlSystemProperties.InterlockConditions` 등 별개 개념 혼동인지 확인. 미확정 시 본 보강 작업 scope 외 |
 | **Schema shape** (§4.1.5) | 미결 | `calls` element scalar→object 승격 vs sibling 키 신설 |
 | **partial export 상호작용** (m7) | 미결 | `exportToJsonScoped` depth=2 에서 work 내부 신규 키 절단 정책 |
 | **Mermaid export 표현** (m8) | 미결 | `ModelProtocol.Mermaid.fs` 가 CallCondition 분기를 graph 노드로 표현할지 |
@@ -255,10 +270,10 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §2.1 사용자 명시 1차 list | ✅ 완료 (CallConditionType 3 case) |
 | §2.2 cross-validation 추가 발견 | ✅ 완료 (review 산출, baseline 확장) |
 | §2.3 emit 정상 항목 분리 (ArrowType) | ✅ 완료 |
-| §3 pre-check PC1~PC7 | ⏳ |
-| §4.1 식별 + 4분류 (必/派/意/メ) | ⏳ |
-| §4.1.5 schema-shape 결정 | ⏳ |
-| §4.2 C-1 enum/string helper | ⏳ |
+| §3 pre-check PC1~PC7 | ✅ 완료 (2026-05-14) — PC2/PC3/PC6 은 §4.1.5/§6.1/§6.2 산출물로 흡수, PC7 generic transformer 검증 통과 (Yaml.fs/YamlIO.fs 코드 변경 불필요) |
+| §4.1 식별 + 4분류 (必/派/意/メ) | ✅ 완료 (2026-05-14) — boundary handling sub-rule 적용 (DevicesAlias 意 유지, Work.Duration 必 격상, PLC metadata メ 분리) |
+| §4.1.5 schema-shape 결정 | ✅ 완료 (2026-05-14) — 옵션 C 채택 (dual format) |
+| §4.2 C-1 enum/string helper | ✅ 완료 (2026-05-14) — 8 helper + ApiDefActionType regex parser. 빌드 통과 / 자가 검열 통과 |
 | §4.2 C-2 SSOT 부분 갱신 | ⏳ |
 | §4.2 C-3 CallCondition tree | ⏳ |
 | §4.2 C-4 ApiCall property | ⏳ |
@@ -270,7 +285,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.3 TC-2~6 테스트 보강 | ⏳ |
 | §4.4 자가 검열 (trigger ②③④⑤) | ⏳ |
 | commit 제안 (사용자 승인 시) / push | ⏳ |
-| §7 후속 결정 항목 해결 | ⏳ (특히 OperationConditions 정체) |
+| §7 후속 결정 항목 해결 | ⏳ |
 
 ---
 
