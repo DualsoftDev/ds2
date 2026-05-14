@@ -186,9 +186,9 @@ public partial class PropertyPanelState
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.SkipUnmatch, "SkipUnmatch", "Add SkipUnmatch"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.AutoAux, "AutoAux", "Add AutoAux"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.ComAux, "ComAux", "Add ComAux"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.SkipUnmatch, "SkipUnmatch"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.AutoAux, "AutoAux"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.ComAux, "ComAux"));
     }
 
     /// <summary>

@@ -29,9 +29,11 @@ module ConditionCrudTests =
     let private dtoEx isOr isInverted (ids: Guid list) (kinds: ContactKind list)
                        (children: CallConditionTreeDto list) : CallConditionTreeDto =
         { IsOR = isOr; IsInverted = isInverted
-          ApiCallIds   = ids   :> System.Collections.Generic.IReadOnlyList<_>
-          ApiCallKinds = kinds :> System.Collections.Generic.IReadOnlyList<_>
-          Children     = children :> System.Collections.Generic.IReadOnlyList<_> }
+          ApiCallIds     = ids   :> System.Collections.Generic.IReadOnlyList<_>
+          ApiCallKinds   = kinds :> System.Collections.Generic.IReadOnlyList<_>
+          RawSymbols     = ([]: string list)      :> System.Collections.Generic.IReadOnlyList<_>
+          RawSymbolKinds = ([]: ContactKind list) :> System.Collections.Generic.IReadOnlyList<_>
+          Children       = children :> System.Collections.Generic.IReadOnlyList<_> }
 
     let private dto isOr (ids: Guid list) (children: CallConditionTreeDto list) : CallConditionTreeDto =
         let kinds = List.replicate ids.Length ContactKind.NoContact
