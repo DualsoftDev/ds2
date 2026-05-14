@@ -378,6 +378,69 @@ module ModelProtocol =
             | AddWork w when w.Id = workId -> Some w
             | _ -> None)
 
+    // ─── Plan+Store unified lookup (Phase 7 §4.2 helper 3종 추출) ─────────────
+    //
+    // `tryFindXxxInPlan` (본 turn add) + `Queries.getXxx` (기존 store) 의 2-stage fallback chain
+    // 통합. 본 turn 새로 add 된 entity 는 plan operations 에서 추적되고, 기존 store entity 는
+    // Queries 에서 lookup. 양쪽 모두 None 이면 None.
+    //
+    // 명명: 기존 `resolveApiDef` (name 기반, line 677) / `resolveProjectKey` (line 457) 와 충돌
+    // 회피 위해 `lookupXxxById` 명명 사용 — apply 측 leaf 키 setter 패턴 (`IRI` / `TokenRole`
+    // / `Author` / `Version` / `actionType` / `description` 등) 에서 5+ 회 누적 사용.
+
+    let private lookupSystemById (ctx: ApplyContext) (sysId: Guid) : DsSystem option =
+        tryFindSystemInPlan ctx.Plan sysId
+        |> Option.orElseWith (fun () -> Queries.getSystem sysId ctx.Store)
+
+    let private lookupCallById (ctx: ApplyContext) (callId: Guid) : Call option =
+        tryFindCallInPlan ctx.Plan callId
+        |> Option.orElseWith (fun () -> Queries.getCall callId ctx.Store)
+
+    let private lookupApiDefById (ctx: ApplyContext) (apiId: Guid) : ApiDef option =
+        tryFindApiDefInPlan ctx.Plan apiId
+        |> Option.orElseWith (fun () -> Queries.getApiDef apiId ctx.Store)
+
+    let private lookupProjectById (ctx: ApplyContext) (projectId: Guid) : Project option =
+        tryFindProjectInPlan ctx.Plan projectId
+        |> Option.orElseWith (fun () -> Queries.getProject projectId ctx.Store)
+
+    let private lookupWorkById (ctx: ApplyContext) (workId: Guid) : Work option =
+        tryFindWorkInPlan ctx.Plan workId
+        |> Option.orElseWith (fun () -> Queries.getWork workId ctx.Store)
+
+    // ─── Property apply helpers (Phase 7 §4.2 — leaf 키 setter 패턴 통합) ─────
+    //
+    // `tryProp + tryString + Option.iter` (또는 + parser) 3~4-step 패턴이 6+ 회 누적 — 통합.
+
+    /// `tryProp el key + tryString + setter` — string property 적용.
+    /// 키 부재 → no-op (entity-default fallback 정합, SSOT §4). 키 존재 + non-string → diag 발행
+    /// (SSOT §2.7 룰 #21~#24 silent skip 금지 정책 정합 — 외부 reviewer M-F).
+    let private applyStringProp
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string)
+        (setter: string -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun valEl ->
+            match tryString valEl with
+            | Some s -> setter s
+            | None ->
+                ctx.Diagnostics.Add(path + "." + key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+
+    /// `tryProp el key + tryString + parser + setter` — enum property 적용.
+    /// 키 부재 → no-op. 키 존재 + non-string → diag (#23). parse 실패 → diag (#19/#20).
+    let private applyEnumProp
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string)
+        (parser: string -> Result<'a, string>)
+        (setter: 'a -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun valEl ->
+            match tryString valEl with
+            | Some s ->
+                match parser s with
+                | Ok v -> setter v
+                | Error msg -> ctx.Diagnostics.Add(path + "." + key, msg)
+            | None ->
+                ctx.Diagnostics.Add(path + "." + key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+
     /// Call.Properties 안 SimulationCallProperties 의 CallType 추출 (없으면 None).
     let private callTypeOf (c: Call) : CallType option =
         c.Properties
@@ -586,12 +649,8 @@ module ModelProtocol =
         // Phase 7 §4.2 C-6: DsSystem.IRI (Passive — leaf 키)
         match !entry.SystemId with
         | Some sysId ->
-            tryProp sysEl "iri" |> Option.bind tryString
-            |> Option.iter (fun s ->
-                let sysOpt =
-                    tryFindSystemInPlan ctx.Plan sysId
-                    |> Option.orElseWith (fun () -> Queries.getSystem sysId ctx.Store)
-                sysOpt |> Option.iter (fun sys -> sys.IRI <- Some s))
+            applyStringProp ctx path sysEl "iri" (fun s ->
+                lookupSystemById ctx sysId |> Option.iter (fun sys -> sys.IRI <- Some s))
         | None -> ()
 
         // apiDetails — ApiDef 별 추가 property (Phase 7 §4.2 C-5).
@@ -608,17 +667,9 @@ module ModelProtocol =
                     let apiPath = sprintf "%s.apiDetails.%s" path apiName
                     match entry.ApiDefIds.TryGetValue apiName with
                     | true, apiId ->
-                        let apiDefOpt =
-                            tryFindApiDefInPlan ctx.Plan apiId
-                            |> Option.orElseWith (fun () -> Queries.getApiDef apiId ctx.Store)
-                        match apiDefOpt with
+                        match lookupApiDefById ctx apiId with
                         | Some apiDef ->
-                            tryProp prop.Value "actionType"
-                            |> Option.bind tryString
-                            |> Option.iter (fun s ->
-                                match parseApiDefActionType s with
-                                | Ok at -> apiDef.ApiDefActionType <- at
-                                | Error msg -> ctx.Diagnostics.Add(apiPath + ".actionType", msg))
+                            applyEnumProp ctx apiPath prop.Value "actionType" parseApiDefActionType (fun at -> apiDef.ApiDefActionType <- at)
                             // 외부 reviewer m-4 반영: 빈 string 도 set 하면 store 표면값 (`Some ""`) 이 emit 측 default-skip
                             // 정책 (Some 이고 빈 아닐 때만 emit) 과 비대칭. apply 측에서도 빈 string → None 으로 정규화.
                             tryProp prop.Value "description"
@@ -643,12 +694,8 @@ module ModelProtocol =
             let id = ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
             // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
-            tryProp sysEl "iri" |> Option.bind tryString
-            |> Option.iter (fun s ->
-                let sysOpt =
-                    tryFindSystemInPlan ctx.Plan id
-                    |> Option.orElseWith (fun () -> Queries.getSystem id ctx.Store)
-                sysOpt |> Option.iter (fun sys -> sys.IRI <- Some s))
+            applyStringProp ctx path sysEl "iri" (fun s ->
+                lookupSystemById ctx id |> Option.iter (fun sys -> sys.IRI <- Some s))
         with ex ->
             ctx.Diagnostics.Add(path, ex.Message)
 
@@ -761,7 +808,10 @@ module ModelProtocol =
             // conditions — ApiCall leaf list (dual format)
             tryProp condEl "conditions"
             |> Option.iter (fun condsEl ->
-                if condsEl.ValueKind = JsonValueKind.Array then
+                if condsEl.ValueKind <> JsonValueKind.Array then
+                    // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
+                    ctx.Diagnostics.Add(path + ".conditions", sprintf "array 기대 (실제 %A). leaf ApiCall list 또는 nested CallCondition list 형식 사용." condsEl.ValueKind)
+                else
                     let mutable idx = 0
                     for leafEl in condsEl.EnumerateArray() do
                         let leafPath = sprintf "%s.conditions[%d]" path idx
@@ -798,7 +848,10 @@ module ModelProtocol =
             // children — nested CallCondition list (recursive)
             tryProp condEl "children"
             |> Option.iter (fun chEl ->
-                if chEl.ValueKind = JsonValueKind.Array then
+                if chEl.ValueKind <> JsonValueKind.Array then
+                    // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
+                    ctx.Diagnostics.Add(path + ".children", sprintf "array 기대 (실제 %A). nested CallCondition list 형식 사용." chEl.ValueKind)
+                else
                     let mutable idx = 0
                     for childEl in chEl.EnumerateArray() do
                         let childPath = sprintf "%s.children[%d]" path idx
@@ -840,15 +893,8 @@ module ModelProtocol =
                 ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
             // Phase 7 §4.2 C-6: Work.TokenRole (단순 leaf, default None 면 키 부재)
-            tryProp workEl "tokenRole" |> Option.bind tryString
-            |> Option.iter (fun s ->
-                match parseTokenRole s with
-                | Ok r ->
-                    let workOpt =
-                        tryFindWorkInPlan ctx.Plan workId
-                        |> Option.orElseWith (fun () -> Queries.getWork workId ctx.Store)
-                    workOpt |> Option.iter (fun work -> work.TokenRole <- r)
-                | Error msg -> ctx.Diagnostics.Add(path + ".tokenRole", msg))
+            applyEnumProp ctx path workEl "tokenRole" parseTokenRole (fun r ->
+                lookupWorkById ctx workId |> Option.iter (fun work -> work.TokenRole <- r))
 
             // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
             //   string scalar       → default case, callObjOpt = None
@@ -1492,14 +1538,9 @@ module ModelProtocol =
 
             // Phase 7 §4.2 C-6: Project root-level meta — author / version (단순 leaf 키)
             projectIdOpt |> Option.iter (fun projectId ->
-                let projectOpt =
-                    tryFindProjectInPlan ctx.Plan projectId
-                    |> Option.orElseWith (fun () -> Queries.getProject projectId ctx.Store)
-                projectOpt |> Option.iter (fun project ->
-                    tryProp root "author" |> Option.bind tryString
-                    |> Option.iter (fun s -> project.Author <- s)
-                    tryProp root "version" |> Option.bind tryString
-                    |> Option.iter (fun s -> project.Version <- s)))
+                lookupProjectById ctx projectId |> Option.iter (fun project ->
+                    applyStringProp ctx "" root "author" (fun s -> project.Author <- s)
+                    applyStringProp ctx "" root "version" (fun s -> project.Version <- s)))
 
             // systems 처리 (있으면)
             match tryProp root "systems" with

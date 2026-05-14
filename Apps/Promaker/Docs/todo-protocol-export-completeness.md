@@ -294,12 +294,13 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-4 ApiCall property | ✅ 완료 (2026-05-14) — SkipInputSensor + InTag/OutTag (IOTag) emit/apply. InputSpec/OutputSpec 별도 phase |
 | §4.2 C-5 CallType / ApiDefActionType | ✅ 완료 (2026-05-14) — SimulationCallProperties.CallType + Passive apiDetails (actionType / description) |
 | §4.2 C-6 leaf 키 (단순) | ✅ 완료 (2026-05-14) — Project.Author/Version + DsSystem.IRI + Work.TokenRole. ReferenceOf / Project.TokenSpecs 등 복잡 항목 별도 phase |
-| §4.2 C-7 PLC metadata (별도 phase 가능) | ⏳ |
-| §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ⏳ |
-| §4.3 TC-1 capturer 보강 | ⏳ |
-| §4.3 TC-2~6 테스트 보강 | ⏳ |
-| §4.4 자가 검열 (trigger ②③④⑤) | ⏳ |
-| commit 제안 (사용자 승인 시) / push | ⏳ |
+| §4.2 C-7 PLC metadata (별도 phase) | ⏳ |
+| §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ✅ 완료 (PC7 산출물 — generic transformer / wiring only 확정) |
+| §4.3 TC-1 capturer 보강 | ⏳ — round-trip false-positive 위험 잔존 |
+| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 테스트 9건 추가 (C-3 2건 + C-4/5/6 각 1건 + 외부 review 4건). ModelProtocolTests 79/79 통과 |
+| §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / negative assertion / fixture / wiring |
+| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (4회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review 반영. 모두 Critical/Major 0건) |
+| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review). upstream 미설정 — push 보류 |
 | §7 후속 결정 항목 해결 | ⏳ |
 
 ---
@@ -308,3 +309,128 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 - `Apps/Promaker/Docs/done-yaml-save-format.md` — `.yaml` 저장 포맷 도입 (본 작업의 전제). lossy 4-set 라벨 / wiring / 자가 검열 결과 archive.
 - `Apps/Promaker/Docs/done-yaml-protocol-implementation.md` — protocol v0 Phase 0~3, 5~6 구현 history.
+
+---
+
+## 10. 다음 세션 이어받기 가이드 (transfer entry point)
+
+> 본 sub-section 은 `--transfer` (2026-05-14) 산출 — 새 Claude Code 세션이 본 todo 를 이어받아 작업을 계속할 수 있도록 *남은 할 일* 중심으로 정리. 본 가이드만 읽고도 진입 가능하도록 핵심 컨텍스트 포함.
+
+### 10.1 현재 상태 (2026-05-14 기준)
+
+**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료**:
+- C-1 enum/string helper 8개 + ApiDefActionType regex parser
+- C-2 SSOT §1.7 결정 row 4건 + §2.4.1 'Enum 라벨 사전' 신설
+- C-3 CallCondition tree + ContactKind dual format dispatcher (옵션 C)
+- C-4 ApiCall.SkipInputSensor + InTag/OutTag (IOTag: Name/Address PoC scope)
+- C-5 SimulationCallProperties.CallType + Passive apiDetails (ApiDef.ApiDefActionType / Description)
+- C-6 Project.Author/Version + DsSystem.IRI + Work.TokenRole 단순 leaf
+- 외부 review (`--inspect-diff 5`) 결과 6건 fix 동반 반영 + 테스트 4건 추가
+
+**Git history** (branch `yaml-save`, upstream 미설정):
+- `906b327` Phase 7 §4.2 C-1/C-2 — enum helper + SSOT 갱신
+- `5d01ca8` Phase 7 §4.2 C-3 — CallCondition tree + ContactKind dual format
+- `322c7ca` Phase 7 §4.2 C-4/C-5/C-6 + 외부 review 반영
+
+**테스트**: `ModelProtocolTests` 79/79 통과 (기존 70 + Phase 7 신규 9). 회귀 0건.
+
+**`--inspect-diff 5` cross-validation 결과** (2026-05-14, HEAD = `322c7ca` 기준 unstaged + staged 변경 +521/-54 검토):
+- Critical 0건. Major 1건 실효 (`applyStringProp` path 빈 string → 진단 키 leading-dot, R1/R2/R3/R4 4/5 합의) + Major 2건 후속 trace (helper 통합 M-2, description normalize 흡수 M-3, enum/IRI parser-error 테스트 누락 M-4).
+- Minor 5건: `ApiCalls[0]` PoC invariant guard 부재 (4/5 합의), `lookupCallById` dead code, M-F 단일 `[<Fact>]` 7분기 묶음, C-8 trace 보강, `summarizeCallCondition` 정렬 패턴 3회 반복.
+- 종합 판정: commit/push 진행 가능. 본 commit 직전 권장 = M-1 leading-dot fix (~2 line). 잔여는 todo §10.2 후속 phase 흡수.
+
+### 10.2 다음 진입 후보 (우선순위 순)
+
+| # | 작업 | 분량 | 사유 |
+|---|---|---|---|
+| **0** | **`--inspect-diff 5` M-1 leading-dot fix** — `ModelProtocol.fs` `applyStringProp` 내부 path 합성에 `if path = "" then key else path + "." + key` 분기 추가 (라인 426, 440, 442). 또는 Project author/version 호출(line 1542-1543)에서 `"$"` sentinel 사용. R1/R2/R3/R4 4/5 합의 Major. 사용자 가시 진단 메시지 직결 | 小 (~2 line) | 진단 키 `".author"` leading-dot 일관성 위반. 다른 호출처(`systems[i].iri`)와 비대칭 |
+| **1** | **§2.7 unknown 키 거부 룰 갱신** — SSOT `yaml-protocol-v0.md` §2.7 표 에 신규 키 11개 (`author`, `version`, `iri`, `tokenRole`, `apiDetails`, `ref`, `contactKind`, `skipInputSensor`, `inTag`, `outTag`, `callType`, `callCondition`) validate 룰 항목 추가 | 小 (doc only) | SSOT 정합 누락 — 미반영 시 사용자가 unknown 키 입력 시 진단 메시지 미제공 |
+| **2** | **§4 apply 룰 default fallback 정책 명문화** — SSOT `yaml-protocol-v0.md` §4 (apply 룰) 에 §6.3 (b) "default 생략 emit" 정책 명문화 row 추가 | 小 (doc only) | §6.3 (b) 정책이 코드에 반영됐으나 SSOT §4 apply 룰에 명시 안 됨 |
+| **3** | **외부 review M-D 별도 phase — helper 3종 추출** — `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 패턴 통합. `resolveSystem/Call/ApiDef/Project/Work` (fallback 포함), `applyStringProp`, `applyEnumProp` 추출 | 中 (refactor) | 후속 leaf 키 추가 시 누적 효과 ↑. CLAUDE.md "3줄 이상 반복 패턴" 정합 |
+| **4** | **외부 review M-F 별도 phase — negative-test 묶음** — `parseTokenRole` / `parseIOTag` non-object / `skipInputSensor` non-bool / `apiDetails` non-object / unknown ApiDef name / `parseCallCondition` non-array `conditions` 등 7개 분기 `[<Theory>]` + `[<InlineData>]` 묶음 1건 | 中 (test) | 진단 회귀 보호 부재. `parseCallCondition` 의 silent skip 도 진단 추가가 정석 |
+| **5** | **§4.3 TC-1 capturer 보강** — `Helpers/ModelEquivalence.fs:247` 의 `captureShape` 가 신규 키 (callCondition / contactKind / callType / inTag / outTag / skipInputSensor / tokenRole / apiDetails / iri / author / version) 미커버 → round-trip 통과 = false-positive | 中 (test infra) | 회귀 보호. 미보강 시 emit/apply 양쪽이 동시에 누락이면 shape diff 0 → silent regress |
+| **6** | **§4.2 C-7 PLC metadata** — `ControlSystemProperties` (FBTagMapPreset / AuxPortMapEntry / BaseAddressOverride / EnableHardwareControl / WorkTimeout / SignalPatternEntry 등) 사용자 명시 설정 부분 必 격상 emit/apply | 大 (별도 phase 분량) | §4.1 メ 분류 결정 필요. 별도 phase 분할 가능 |
+| **7** | **별도 phase 분리 항목** (외부 review 등록 — 본 todo §4.2 외부 review 항목 참조) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / tryFindCallInPlan SSOT 분산 / 테스트 helper 일반화 |
+| **8** | **`--inspect-diff 5` 후속 — `ApiCalls[0]` PoC invariant guard** — `Helpers/ModelEquivalence.fs:138` 1:1 매핑 가정에 명시적 guard 추가. `WorkShape` 에 `ApiCallCount: Map<callRef,int>` 추가하여 invariant break 시 즉시 fail (R1/R2/R3/R5 4/5 합의 Minor → 향후 multi-ApiCall 확장 시 silent regression 방어) | 小 (~5 line) | 회귀 보호 |
+| **9** | **`--inspect-diff 5` 후속 — enum parser-error / IRI non-string negative test** — `tokenRole: NoSuchRole`, `actionType: NoSuchType`, `iri: 42`, `iri: ""` 등 invalid value 케이스 추가. §10.2 #4 negative-test 묶음과 동반 진행 가능 | 小 (test only) | `applyEnumProp` Error 분기 회귀 보호 부재 |
+| **10** | **`--inspect-diff 5` 후속 — M-F 7분기 `[<Theory>]` 분리** — `ModelProtocolTests.fs:1659` 단일 `[<Fact>]` 에 7개 assert 직렬 → 첫 실패 시 나머지 6분기 결과 미확보. `[<Theory>]` + `MemberData` 분리 | 小 (test refactor) | 진단 회귀 가시성 ↑ |
+
+### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
+
+**Helper 위치 invariant** (forward-ref 회피 — `ModelProtocol.fs`):
+- `ApplyContext` 정의 직후 (line ~322): `tryFindCallInPlan` / `tryFindApiDefInPlan` / `tryFindProjectInPlan` / `tryFindSystemInPlan` / `tryFindWorkInPlan` / `callTypeOf` / `setCallType` — `dispatchPassiveSystem` / `dispatchActiveSystem` / `dispatchWork` 모두 본 위치 이후라 사용 가능.
+- `resolveApiDef` (line ~555) 정의 직후: `parseIOTag` / `parseCallCondition` — `ApplyContext` + `resolveApiDef` 의존.
+- emit 측 (line ~1565 부근): `ioTagHasContent` → `callHasEnhancement` → `writeIOTag` → `emitCallCondition` 순. `ioTagHasContent` 가 `callHasEnhancement` 보다 앞이어야 함.
+
+**Dual format 정책 (`SSOT §2.2.1`)**:
+- store 의 Call entity 가 모든 보강 property 가 entity-default → `calls` element 는 string scalar (legacy 동일)
+- 하나라도 non-default → object 승격 (`ref` + 보강 키들)
+- emit 측 `callHasEnhancement` 가 분기 판정. apply 측 `callsList` 가 tuple `(callRef, callObjOpt)` 로 dual 처리
+- **wire normalization**: object{ref-only} 형태 input 은 emit 시 string 으로 압축 — 입력 형태 보존 안 함, store 값 기준 canonical emit
+
+**PoC scope 가정** (회귀 시 invariant 깨질 위험):
+- `Call.ApiCalls` 는 *1:1 매핑* (cylinder/clamp/robot sugar 한정). `ApiCalls[0]` 의 ContactKind / SkipInputSensor / InTag / OutTag 만 emit/apply.
+- `Call.CallConditions` 는 multiple root 가능하나 *첫 root 만 emit*. Apply 측도 `callCondition` 단일 키로 받음 — multiple root 입력 미지원.
+- `TokenRole` 복합 Flags (e.g. `Source ||| Sink`) 는 emit 시 forensic `Combined(<int>)` 으로 표기, parse 측은 즉시 거부 → round-trip 비대칭 (의도). 후속 phase 가 pipe 표기 dual 처리.
+- `apiDetails` 는 device sugar (cylinder/clamp/robot/custom) 가 있는 Passive 한정. device 키 부재인 Passive 는 ApiDef 미생성 → apiDetails entry 가 모두 forensic diag 거부.
+- `IOTag` 는 Name/Address 두 키만 emit. `Some empty` IOTag 는 emit 자체 skip (`ioTagHasContent` 가드).
+- `Project.Version="1.0.0"` / `CallType.WaitForCompletion` / `ApiDefActionType.Normal` / `TokenRole.None` / `ContactKind.NoContact` / `CallConditionType.AutoAux` 등 entity-default 는 emit 시 키 생략. apply 측은 키 부재 → entity-default 적용.
+
+**별도 phase 분리된 보강 항목** (SSOT §2.2.1 / §2.3 명시):
+- `ApiCall.InputSpec` / `OutputSpec` (`ValueSpec` union 12 case + Ranges 변형) — wire 표현 복잡
+- `Work` / `Call.ReferenceOf` (`Guid option`) — path resolution mechanism 필요 (`pathOf` helper SSOT §2.5.1)
+- `Project.TokenSpecs` / `Nameplate` / `HandoverDocumentation` / `TechnicalData` (복잡 Submodel objects)
+- `Project.SimulationResult` (意 시뮬 4-set 정합 — 보강 대상 아님)
+- `IOTag` 부속 property (Description / DataType BOOL/SINT/INT/.../ DefaultValue)
+- 복합 Flags `TokenRole` (`Source ||| Sink` 등 pipe 표기)
+- `Call.CallConditions` multiple root 정책
+
+### 10.4 빌드 / 테스트 명령
+
+```bash
+# 빌드
+cd /f/Git/ds2/yaml-save && dotnet build Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj --nologo -v minimal
+
+# 테스트 (Phase 7 신규)
+cd /f/Git/ds2/yaml-save && dotnet test Solutions/Tests/Ds2.LlmAgent.Tests/Ds2.LlmAgent.Tests.fsproj --nologo --filter "FullyQualifiedName~ModelProtocolTests"
+```
+
+### 10.5 신규 round-trip 테스트 추가 패턴
+
+```fsharp
+let private xxYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              <보강 키>: <값>
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-N — 보강 항목 round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store xxYaml
+    // 1. store inspect — 보강 값 적용 확인
+    // 2. exportToJson — emit 키 등장 확인 (Assert.Contains compact 패턴)
+    // 3. round-trip — 새 store apply → 의미 동등 확인
+```
+
+기존 테스트 끝 (`ModelProtocolTests.fs` 의 `findAdvCall` helper 다음) 에 추가. **child Type 이 default 면 emit 측이 키 생략 → re-apply 시 None 으로 normalize** — `Some AutoAux ↔ None` 비대칭 trap 주의 (M-E 검증 사례).
+
+### 10.6 진입 전 추가 권장 작업
+
+- 본 `--transfer` 시점에 **§4.3 TC-1 (capturer 보강)** 가 *우선순위 5* 이지만, *후속 phase 진입 시 false-positive 회귀 위험* 측면에서 가장 빨리 해결할수록 안전. 단순 doc 갱신 (#1 / #2) 끝나면 곧바로 진행 권장.
+- 본 todo 의 **§7 후속 결정 항목 표** 에 *partial export (`exportToJsonScoped` depth) 와 신규 키 상호작용* / *Mermaid export 가 CallCondition 분기 표현 정책* / *Work.AuxKind PLC metadata 카테고리 분리* 등이 미해결 — C-7 진입 전 의사 결정.

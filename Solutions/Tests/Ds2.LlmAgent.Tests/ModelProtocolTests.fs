@@ -1518,3 +1518,153 @@ let ``외부 review m-2 — 모든 default 만 있을 때 신규 키 emit 0건 (
     Assert.DoesNotContain("\"callType\"", json)
     Assert.DoesNotContain("\"callCondition\"", json)
     Assert.DoesNotContain("\"apiDetails\"", json)
+
+// ─── 외부 review M-F — shape 위반 7분기 진단 발행 (Phase 7 §4.2 후속) ───
+
+/// 진단 발행 확인 helper — yaml 적용 시 에러 진단이 *expected substring* 을 포함하는지 검증.
+/// SSOT §2.7 룰 #16/#21/#22/#23/#24 의 silent skip 금지 정책 정합 (외부 reviewer M-F).
+let private assertDiagContains (yaml: string) (expected: string) : unit =
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, sprintf "에러 진단 발행 기대 (expected=%s, yaml=%s)" expected yaml)
+    let formatted = diag.Format()
+    Assert.True(formatted.Contains(expected), sprintf "기대 substring '%s' 미포함. 실제 진단:\n%s" expected formatted)
+
+let private tokenRoleNonStringYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          tokenRole: 123
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private inTagNonObjectYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              inTag: "should-be-object"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private skipInputSensorNonBoolYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              skipInputSensor: "yes"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private apiDetailsNonObjectYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    apiDetails: "should-be-object"
+"""
+
+let private apiDetailsUnknownApiYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    apiDetails:
+      NoSuchApi:
+        actionType: Pulse
+"""
+
+let private callConditionConditionsNonArrayYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callCondition:
+                type: ComAux
+                conditions: "should-be-array"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private callConditionChildrenNonArrayYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callCondition:
+                type: ComAux
+                children: "should-be-array"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 외부 review M-F — shape 위반 7분기 진단 발행`` () =
+    // 1. tokenRole non-string → SSOT §2.7 룰 #23
+    assertDiagContains tokenRoleNonStringYaml "string 기대"
+    // 2. inTag non-object → SSOT §2.7 룰 #22 (parseIOTag)
+    assertDiagContains inTagNonObjectYaml "IOTag object 기대"
+    // 3. skipInputSensor non-bool → SSOT §2.7 룰 #21
+    assertDiagContains skipInputSensorNonBoolYaml "bool 기대"
+    // 4. apiDetails non-object → SSOT §2.7 룰 #24
+    assertDiagContains apiDetailsNonObjectYaml "object 기대"
+    // 5. apiDetails entry 가 apis 목록에 없음 → SSOT §2.7 룰 #18 (외부 reviewer M-C 정합)
+    assertDiagContains apiDetailsUnknownApiYaml "system 의 apis 목록에 없음"
+    // 6. callCondition.conditions non-array → SSOT §2.7 룰 #16 (외부 reviewer M-F)
+    assertDiagContains callConditionConditionsNonArrayYaml "array 기대"
+    // 7. callCondition.children non-array → SSOT §2.7 룰 #16 (외부 reviewer M-F)
+    assertDiagContains callConditionChildrenNonArrayYaml "array 기대"
