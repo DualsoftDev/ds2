@@ -1,9 +1,11 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@using DSPilot.Services
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 @inject ThemeService ThemeService
 @inject DspDbService DbService
+@inject UserTagAlertService AlertService
 @inject IJSRuntime JS
 
 <div class="layout @ThemeService.GetThemeClass()">
@@ -28,6 +30,15 @@
                 <span>데이터 수집 중</span>
             </div>
         }
+        <button class="header-usertag-badge level-@_topAlertLevel @(_totalAlertCount == 0 ? "is-empty" : "")"
+                @onclick="@(() => Nav.NavigateTo("/user-tags"))"
+                title="UserTag 알림 (Info @_infoCount / Warn @_warnCount / Err @_errorCount)">
+            <span class="material-icons">@(_totalAlertCount == 0 ? "notifications_none" : "notifications_active")</span>
+            @if (_totalAlertCount > 0)
+            {
+                <span class="header-usertag-count">@(_totalAlertCount > 99 ? "99+" : _totalAlertCount.ToString())</span>
+            }
+        </button>
         <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
             <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
         </button>
@@ -55,6 +66,12 @@
     private string _projectName = "DSPilot";
     private string _currentPath = "/";
 
+    private int _infoCount;
+    private int _warnCount;
+    private int _errorCount;
+    private int _totalAlertCount;
+    private string _topAlertLevel = "none";
+
     protected override void OnInitialized()
     {
         var project = ProjectService.GetProject();
@@ -63,6 +80,9 @@
 
         _currentPath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
+
+        RefreshAlertCounts();
+        AlertService.AlertsChanged += OnAlertsChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -76,6 +96,35 @@
         {
             ThemeService.SetDarkMode(true);
         }
+    }
+
+    private void OnAlertsChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            RefreshAlertCounts();
+            StateHasChanged();
+        });
+    }
+
+    private void RefreshAlertCounts()
+    {
+        var alerts = AlertService.GetAlerts();
+        int info = 0, warn = 0, err = 0;
+        foreach (var a in alerts)
+        {
+            switch (a.LogLevel)
+            {
+                case "Error": err++; break;
+                case "Warning": warn++; break;
+                default: info++; break;
+            }
+        }
+        _infoCount = info;
+        _warnCount = warn;
+        _errorCount = err;
+        _totalAlertCount = info + warn + err;
+        _topAlertLevel = err > 0 ? "error" : warn > 0 ? "warning" : info > 0 ? "info" : "none";
     }
 
     private void OnDbDataChanged() => InvokeAsync(StateHasChanged);
@@ -118,5 +167,6 @@
         Nav.LocationChanged -= OnLocationChanged;
         ThemeService.OnThemeChanged -= OnThemeChanged;
         DbService.OnDataChanged -= OnDbDataChanged;
+        AlertService.AlertsChanged -= OnAlertsChanged;
     }
 }

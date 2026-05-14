@@ -1,81 +1,123 @@
 .user-tags-page {
-    padding: 20px;
-    max-width: 100%;
-    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: calc(100vh - 100px);
 }
 
-.page-header {
+.user-tags-hero {
+    padding: 20px 24px;
+    background:
+        radial-gradient(circle at top left, rgba(0, 155, 180, 0.10), transparent 32%),
+        linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.05), var(--color-surface));
+}
+
+.user-tags-hero-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.user-tags-eyebrow {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+.user-tags-title {
+    margin: 6px 0 0;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.user-tags-subtitle {
+    margin-top: 8px;
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+}
+
+.user-tags-hero-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+    min-width: 280px;
+}
+
+.user-tags-counter-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.user-tags-panel {
+    padding: 18px 20px;
+}
+
+.user-tags-panel-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 20px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid var(--color-lines);
     gap: 16px;
-    flex-wrap: wrap;
+    margin-bottom: 16px;
 }
 
-.page-header h3 {
-    margin: 0 0 4px 0;
-    color: var(--color-text-primary);
-    font-size: 1.5rem;
+.user-tags-section-toggle {
+    cursor: pointer;
+    user-select: none;
 }
 
-.page-subtitle {
-    margin: 0;
+.user-tags-muted {
     color: var(--color-text-secondary);
-    font-size: 0.875rem;
 }
 
-.header-actions {
+.user-tags-alert-controls {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
     flex-wrap: wrap;
-}
-
-.ut-section {
-    background: var(--color-surface);
-    border: 1px solid var(--color-lines);
-    border-radius: 12px;
-    padding: 16px 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.ut-section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-    cursor: default;
-}
-
-.ut-section-header h4 {
-    margin: 0;
-    color: var(--color-text-primary);
-    font-size: 1.05rem;
-}
-
-.ut-filter-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex: 1;
     justify-content: flex-end;
-    min-width: 240px;
+    min-width: 320px;
 }
 
-.ut-filter-row .form-field {
-    min-width: 140px;
+.user-tags-alert-controls .form-field {
+    min-width: 160px;
 }
 
+.user-tags-empty {
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary);
+    min-height: 200px;
+    text-align: center;
+}
+
+.user-tags-empty .material-icons {
+    font-size: 44px;
+    color: var(--color-primary);
+}
+
+/* ───────── 표 ───────── */
 .ut-table-wrapper {
     overflow-x: auto;
-    max-height: 60vh;
     overflow-y: auto;
+}
+
+.ut-definitions-scroll {
+    max-height: 32vh;
+}
+
+/* 실시간 알림 영역: 정의 표보다 크고, 화면 안에서 적당히 고정 */
+.ut-alerts-scroll {
+    max-height: calc(100vh - 460px);
+    min-height: 240px;
 }
 
 .ut-table {
@@ -182,4 +224,18 @@ code {
     border-radius: 4px;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 0.8125rem;
+}
+
+@media (max-width: 900px) {
+    .user-tags-hero-top {
+        flex-direction: column;
+    }
+
+    .user-tags-hero-actions,
+    .user-tags-alert-controls {
+        min-width: 0;
+        width: 100%;
+        align-items: stretch;
+        justify-content: flex-start;
+    }
 }

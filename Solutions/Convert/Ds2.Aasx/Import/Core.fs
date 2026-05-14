@@ -100,33 +100,63 @@ module internal AasxImportCore =
         let tryP (parse: string -> bool * 'a) (wrap: 'a -> obj) =
             match parse value with true, v -> set (wrap v) | _ -> None
 
-        match propType with
-        | t when t = typeof<string>                -> set value
-        | t when t = typeof<string option>         -> set (box (Some value))
-        | t when t = typeof<bool>                  -> tryP Boolean.TryParse box
-        | t when t = typeof<bool option>           -> tryP Boolean.TryParse (Some >> box)
-        | t when t = typeof<int>                   -> tryP Int32.TryParse box
-        | t when t = typeof<int option>            -> tryP Int32.TryParse (Some >> box)
-        | t when t = typeof<int64>                 -> tryP Int64.TryParse box
-        | t when t = typeof<int64 option>          -> tryP Int64.TryParse (Some >> box)
-        | t when t = typeof<float>                 -> tryP Double.TryParse box
-        | t when t = typeof<float option>          -> tryP Double.TryParse (Some >> box)
-        | t when t = typeof<Guid>                  -> tryP Guid.TryParse box
-        | t when t = typeof<DateTime>              -> tryP DateTime.TryParse box
-        | t when t = typeof<DateTime option>       -> tryP DateTime.TryParse (Some >> box)
-        | t when t = typeof<DateTimeOffset>        -> tryP DateTimeOffset.TryParse box
-        | t when t = typeof<DateTimeOffset option> -> tryP DateTimeOffset.TryParse (Some >> box)
-        | t when t = typeof<TimeSpan> ->
-            match tryParseIsoDuration value with
-            | Some v -> set (box v)
-            | None   -> tryP TimeSpan.TryParse box
-        | t when t = typeof<TimeSpan option> ->
-            match tryParseIsoDuration value with
-            | Some v -> set (box (Some v))
-            | None   -> tryP TimeSpan.TryParse (Some >> box)
-        | t when t.IsEnum ->
-            try set (Enum.Parse(t, value)) with _ -> None
-        | _ -> None
+        // 구버전 호환: ResizeArray<string|Guid> 가 단일 JSON Property 로 저장된 경우 디시리얼라이즈.
+        // (신버전 export 는 SubmodelElementList 로 내보내며, 그건 trySetResizeArray 가 처리.)
+        // 구버전 호환: ResizeArray<string|Guid> 가 단일 JSON Property 로 저장된 경우 디시리얼라이즈.
+        // (신버전 export 는 SubmodelElementList 로 내보내며, 그건 trySetResizeArray 가 처리.)
+        let tryJsonResizeArray () : unit option =
+            if propType.IsGenericType
+               && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+                let elemType = propType.GetGenericArguments().[0]
+                if elemType = typeof<string> then
+                    try
+                        let arr = Ds2.Serialization.JsonConverter.deserialize<ResizeArray<string>> value
+                        let target' = pi.GetValue(target) :?> ResizeArray<string>
+                        target'.Clear()
+                        target'.AddRange(arr)
+                        Some ()
+                    with _ -> None
+                elif elemType = typeof<Guid> then
+                    try
+                        let arr = Ds2.Serialization.JsonConverter.deserialize<ResizeArray<Guid>> value
+                        let target' = pi.GetValue(target) :?> ResizeArray<Guid>
+                        target'.Clear()
+                        target'.AddRange(arr)
+                        Some ()
+                    with _ -> None
+                else None
+            else None
+
+        let tryScalar () : unit option =
+            match propType with
+            | t when t = typeof<string>                -> set value
+            | t when t = typeof<string option>         -> set (box (Some value))
+            | t when t = typeof<bool>                  -> tryP Boolean.TryParse box
+            | t when t = typeof<bool option>           -> tryP Boolean.TryParse (Some >> box)
+            | t when t = typeof<int>                   -> tryP Int32.TryParse box
+            | t when t = typeof<int option>            -> tryP Int32.TryParse (Some >> box)
+            | t when t = typeof<int64>                 -> tryP Int64.TryParse box
+            | t when t = typeof<int64 option>          -> tryP Int64.TryParse (Some >> box)
+            | t when t = typeof<float>                 -> tryP Double.TryParse box
+            | t when t = typeof<float option>          -> tryP Double.TryParse (Some >> box)
+            | t when t = typeof<Guid>                  -> tryP Guid.TryParse box
+            | t when t = typeof<DateTime>              -> tryP DateTime.TryParse box
+            | t when t = typeof<DateTime option>       -> tryP DateTime.TryParse (Some >> box)
+            | t when t = typeof<DateTimeOffset>        -> tryP DateTimeOffset.TryParse box
+            | t when t = typeof<DateTimeOffset option> -> tryP DateTimeOffset.TryParse (Some >> box)
+            | t when t = typeof<TimeSpan> ->
+                match tryParseIsoDuration value with
+                | Some v -> set (box v)
+                | None   -> tryP TimeSpan.TryParse box
+            | t when t = typeof<TimeSpan option> ->
+                match tryParseIsoDuration value with
+                | Some v -> set (box (Some v))
+                | None   -> tryP TimeSpan.TryParse (Some >> box)
+            | t when t.IsEnum ->
+                try set (Enum.Parse(t, value)) with _ -> None
+            | _ -> None
+
+        tryJsonResizeArray () |> Option.orElseWith tryScalar
 
     // ── elementsToProps ──────────────────────────────────────────────────────
 

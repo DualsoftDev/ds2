@@ -3,6 +3,11 @@
     max-width: 100%;
     margin: 0 auto;
     min-height: 100vh;
+    /* 페이지 자체 가로 스크롤 방지 — Gantt 차트는 내부 컨테이너(.gantt-chart-container)
+       에서만 가로 스크롤되도록 한다. flex 부모(.container)에서 자식이 의도치 않게
+       퍼지는 것도 함께 차단. */
+    min-width: 0;
+    overflow-x: hidden;
 }
 
 .page-header {
@@ -53,6 +58,11 @@
     gap: 15px;
     align-items: flex-end;
     margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    min-width: 0;
 }
 
 .filter-group {
@@ -131,6 +141,12 @@
     align-items: center;
     gap: 10px;
     margin-left: 12px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.gantt-info-controls .gap-picker-select {
+    max-width: 100%;
 }
 
 .gantt-info-label {

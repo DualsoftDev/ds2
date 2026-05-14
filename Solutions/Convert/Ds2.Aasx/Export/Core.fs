@@ -171,7 +171,16 @@ module internal AasxExportCore =
                 let resizeArr = value :?> System.Collections.IEnumerable
                 let items = resizeArr |> Seq.cast<obj> |> Seq.toList
                 if items.IsEmpty then None
-                else Some (mkJsonProp name value)
+                else
+                    // string/Guid 원소는 SubmodelElementList 로 내보내야 import 의 trySetResizeArray 가 복원 가능.
+                    // (전엔 JSON Property 로 내보내서 import 가 silently drop — UserTags/MonitoringTags 등 손실 원인.)
+                    let elemType = propType.GetGenericArguments().[0]
+                    if elemType = typeof<string> then
+                        mkSmlProp name (items |> Seq.cast<string> |> Seq.map (fun s -> mkProp "Tag" s) |> Seq.toList)
+                    elif elemType = typeof<Guid> then
+                        mkSmlProp name (items |> Seq.cast<Guid> |> Seq.map (fun id -> mkGuidProp "Id" id) |> Seq.toList)
+                    else
+                        Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))
             else None)
         |> Array.toList

@@ -136,6 +136,70 @@
     to { transform: rotate(360deg); }
 }
 
+/* ── 헤더 UserTag 알림 배지 ── */
+.header-usertag-badge {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-appbar-text);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.header-usertag-badge:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+.header-usertag-badge .material-icons {
+    font-size: 22px;
+}
+.header-usertag-badge.is-empty {
+    opacity: 0.7;
+}
+.header-usertag-badge.level-error .material-icons {
+    color: #ff8a80;
+}
+.header-usertag-badge.level-warning .material-icons {
+    color: #ffd180;
+}
+.header-usertag-badge.level-info .material-icons {
+    color: #82b1ff;
+}
+.header-usertag-count {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: #c62828;
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--color-appbar-bg);
+}
+.header-usertag-badge.level-warning .header-usertag-count {
+    background: #ef6c00;
+}
+.header-usertag-badge.level-info .header-usertag-count {
+    background: #1976d2;
+}
+@keyframes header-usertag-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+}
+.header-usertag-badge.level-error .material-icons,
+.header-usertag-badge.level-warning .material-icons {
+    animation: header-usertag-pulse 1.8s ease-in-out infinite;
+}
+
 .divider {
     border: none;
     border-top: 1px solid var(--color-lines);
