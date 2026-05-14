@@ -1652,12 +1652,31 @@ systems:
     device: cylinder
 """
 
-/// Phase 7 외부 review M-F — shape 위반 진단 7분기. 각 case 가 별도 테스트 ID 를 갖도록
-/// `[<Theory>] + [<InlineData>]` 로 분리 (todo §10.2 #10 — 1 실패 시 나머지 6 결과 가시성 ↑).
+// todo §10.2 #4 — outTag non-object (inTagNonObject 대칭 분기).
+let private outTagNonObjectYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              outTag: "should-be-object"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+/// Phase 7 외부 review M-F — shape 위반 진단 8분기. 각 case 가 별도 테스트 ID 를 갖도록
+/// `[<Theory>] + [<InlineData>]` 로 분리 (todo §10.2 #10 — 1 실패 시 나머지 결과 가시성 ↑).
 /// 케이스 이름은 컴파일 타임 상수 만 가능하므로 `tag` 로 매핑 dispatch.
 [<Theory>]
 [<InlineData("tokenRoleNonString",          "string 기대")>]              // SSOT §2.7 룰 #23
 [<InlineData("inTagNonObject",              "IOTag object 기대")>]         // SSOT §2.7 룰 #22
+[<InlineData("outTagNonObject",             "IOTag object 기대")>]         // SSOT §2.7 룰 #22 (todo §10.2 #4)
 [<InlineData("skipInputSensorNonBool",      "bool 기대")>]                // SSOT §2.7 룰 #21
 [<InlineData("apiDetailsNonObject",         "object 기대")>]              // SSOT §2.7 룰 #24
 [<InlineData("apiDetailsUnknownApi",        "system 의 apis 목록에 없음")>] // SSOT §2.7 룰 #18 (M-C)
@@ -1668,6 +1687,7 @@ let ``Phase 7 외부 review M-F — shape 위반 진단 발행`` (tag: string) (
         match tag with
         | "tokenRoleNonString"              -> tokenRoleNonStringYaml
         | "inTagNonObject"                  -> inTagNonObjectYaml
+        | "outTagNonObject"                 -> outTagNonObjectYaml
         | "skipInputSensorNonBool"          -> skipInputSensorNonBoolYaml
         | "apiDetailsNonObject"             -> apiDetailsNonObjectYaml
         | "apiDetailsUnknownApi"            -> apiDetailsUnknownApiYaml
@@ -1731,17 +1751,76 @@ systems:
     device: cylinder
 """
 
-/// todo §10.2 #9 — enum parser Error 분기 / IRI non-string 회귀 보호.
+// todo §10.2 #4 — 추가 enum 라벨 위반 3건 (parseCallConditionType / parseContactKind / parseCallType).
+let private callConditionTypeInvalidLabelYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callCondition:
+                type: NoSuchType
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private contactKindInvalidLabelYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              contactKind: NoSuchKind
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private callTypeInvalidLabelYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              callType: NoSuchCallType
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+/// todo §10.2 #9/#4 — enum parser Error 분기 / IRI non-string 회귀 보호.
 /// 각 case 가 별도 테스트 ID 를 갖도록 `[<Theory>] + [<InlineData>]` 분리.
 [<Theory>]
-[<InlineData("tokenRoleInvalidLabel",   "tokenRole 'NoSuchRole' 미지원")>]            // SSOT §2.7 룰 #19
-[<InlineData("apiDefActionTypeInvalid", "case 이름과 인자 개수 불일치")>]              // SSOT §2.7 룰 #20
-[<InlineData("iriNonString",            "string 기대")>]                              // applyStringProp non-string
+[<InlineData("tokenRoleInvalidLabel",         "tokenRole 'NoSuchRole' 미지원")>]                // SSOT §2.7 룰 #19
+[<InlineData("apiDefActionTypeInvalid",       "case 이름과 인자 개수 불일치")>]                  // SSOT §2.7 룰 #20
+[<InlineData("iriNonString",                  "string 기대")>]                                  // applyStringProp non-string
+[<InlineData("callConditionTypeInvalidLabel", "callCondition type 'NoSuchType' 미지원")>]       // SSOT §2.7 룰 #19 (todo §10.2 #4)
+[<InlineData("contactKindInvalidLabel",       "contactKind 'NoSuchKind' 미지원")>]              // SSOT §2.7 룰 #19 (todo §10.2 #4)
+[<InlineData("callTypeInvalidLabel",          "callType 'NoSuchCallType' 미지원")>]             // SSOT §2.7 룰 #19 (todo §10.2 #4)
 let ``todo §10.2 #9 — parser-error / non-string 진단 발행`` (tag: string) (expectedSubstr: string) =
     let yaml =
         match tag with
-        | "tokenRoleInvalidLabel"   -> tokenRoleInvalidLabelYaml
-        | "apiDefActionTypeInvalid" -> apiDefActionTypeInvalidYaml
-        | "iriNonString"            -> iriNonStringYaml
+        | "tokenRoleInvalidLabel"         -> tokenRoleInvalidLabelYaml
+        | "apiDefActionTypeInvalid"       -> apiDefActionTypeInvalidYaml
+        | "iriNonString"                  -> iriNonStringYaml
+        | "callConditionTypeInvalidLabel" -> callConditionTypeInvalidLabelYaml
+        | "contactKindInvalidLabel"       -> contactKindInvalidLabelYaml
+        | "callTypeInvalidLabel"          -> callTypeInvalidLabelYaml
         | _ -> failwithf "unknown tag '%s'" tag
     assertDiagContains yaml expectedSubstr

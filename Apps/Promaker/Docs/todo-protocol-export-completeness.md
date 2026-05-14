@@ -297,10 +297,10 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-7 PLC metadata (별도 phase) | ⏳ |
 | §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ✅ 완료 (PC7 산출물 — generic transformer / wiring only 확정) |
 | §4.3 TC-1 capturer 보강 | ✅ 완료 (`8e360aa`) — `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장 |
-| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + 본 phase 후속 [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard. **ModelProtocolTests 89/89 통과** (전체 355/355) |
+| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + `9d12093` [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard + 본 추가 phase negative test 4건. **ModelProtocolTests 93/93 통과** (전체 359/359) |
 | §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / fixture / wiring 부분 잔존 |
-| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 5회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / 본 phase 후속. 모두 Critical/Major 0건) |
-| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review, `8e360aa` apply helper / 진단 강화, **본 phase 후속 — `--gc` 대기**). upstream 미설정 — push 보류 |
+| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 6회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / `9d12093` 후속 / 본 추가 phase. 모두 Critical/Major 0건) |
+| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review, `8e360aa` apply helper / 진단 강화, `9d12093` leading-dot/Theory/invariant, **본 추가 phase — `--gc` 대기**). upstream 미설정 — push 보류 |
 | §7 후속 결정 항목 해결 | ⏳ |
 
 ---
@@ -318,7 +318,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 ### 10.1 현재 상태 (2026-05-14 기준)
 
-**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료** + **`8e360aa` apply helper / 진단 강화** + **본 phase 후속 (todo §10.2 #0/#8/#9/#10) 완료**:
+**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료** + **`8e360aa` apply helper / 진단 강화** + **`9d12093` leading-dot fix / Theory 분리 / invariant guard** + **본 추가 phase (todo §10.2 #3 부분 / #4 / #11 / #12) 완료**:
 - C-1 enum/string helper 8개 + ApiDefActionType regex parser
 - C-2 SSOT §1.7 결정 row 4건 + §2.4.1 'Enum 라벨 사전' 신설
 - C-3 CallCondition tree + ContactKind dual format dispatcher (옵션 C)
@@ -327,38 +327,46 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - C-6 Project.Author/Version + DsSystem.IRI + Work.TokenRole 단순 leaf
 - 외부 review (`--inspect-diff 5`) 결과 6건 fix 동반 반영 + 테스트 4건 추가
 - **`8e360aa`**: `applyStringProp` / `applyEnumProp` / `lookup*ById` 5종 helper 추출 + M-F 7분기 진단 + capturer 보강 + SSOT §2.7 룰 #10~#24 / §6.3 default fallback 표
-- **본 phase 후속 — #0 leading-dot fix** (`joinDiagKey` helper), **#10 M-F [<Theory>] + [<InlineData>] 7건 분리**, **#9 parser-error / non-string negative test 3건** (`tokenRole: NoSuchRole` / `actionType: NoSuchType` / `iri: 42`), **#8 `ApiCallCount: int` PoC invariant guard** (multi-ApiCall silent regression 방어)
+- **`9d12093` 후속 — #0 leading-dot fix** (`joinDiagKey` helper), **#10 M-F [<Theory>] + [<InlineData>] 7건 분리**, **#9 parser-error / non-string negative test 3건** (`tokenRole: NoSuchRole` / `actionType: NoSuchType` / `iri: 42`), **#8 `ApiCallCount: int` PoC invariant guard** (multi-ApiCall silent regression 방어)
+- **본 추가 phase — #3 부분 helper SSOT 일원화** (`ModelProtocol.fs` 의 `tryFindXxxInPlan` 5종 본문을 generic `tryFindInPlan` + picker 로 통합 — `ToolOperations.fs:86` 답습), **#11 line 801 `joinDiagKey` 치환** (parseBoolKey 일관성), **#4 추가 negative-test 4건** (`callConditionTypeInvalidLabel` / `contactKindInvalidLabel` / `callTypeInvalidLabel` / `outTagNonObject`)
 
 **Git history** (branch `yaml-save`, upstream 미설정):
 - `906b327` Phase 7 §4.2 C-1/C-2 — enum helper + SSOT 갱신
 - `5d01ca8` Phase 7 §4.2 C-3 — CallCondition tree + ContactKind dual format
 - `322c7ca` Phase 7 §4.2 C-4/C-5/C-6 + 외부 review 반영
 - `8e360aa` Phase 7 §4.2 후속 — apply helper 추출 + 진단 강화 + transfer 가이드
-- **본 phase — `--gc` 대기**: leading-dot fix + [<Theory>] 분리 + negative test + ApiCallCount guard
+- `9d12093` Phase 7 §4.2 후속 — leading-dot fix + Theory 분리 + invariant guard
+- **본 추가 phase — `--gc` 대기**: helper SSOT 부분 일원화 + parseBoolKey joinDiagKey + negative-test 4건
 
-**테스트**: `ModelProtocolTests` 89/89 통과 (전체 `Ds2.LlmAgent.Tests` 355/355). 회귀 0건.
+**테스트**: `ModelProtocolTests` 93/93 통과 (전체 `Ds2.LlmAgent.Tests` 359/359). 회귀 0건.
 
-**본 phase 자가 검열** (CLAUDE.md trigger ③ — 3 file 동시 변경): sub-agent (general-purpose) 위임 1회 완료. Critical/Major 0건, Minor 2건 (`ModelProtocol.fs:809` 직접 `path + "." + key` 일관성 — root path 호출 아니라 leading-dot 위험 없음 → skip / Theory dispatch 매칭 부담 → 현 패턴 유지 권장). `--review` 후속 3 권고 (joinDiagKey root-level 호출 검증 / Theory dispatch / ApiCallCount baseline) 모두 검증 완료.
+**본 추가 phase 자가 검열** (CLAUDE.md trigger ③ — 2 file 동시 변경): sub-agent (general-purpose) 위임 1회 완료. Critical/Major 0건, Minor 3건 모두 의도된 deferral 로 follow-up 등록 — M-N1 (`parseCallCondition` 내 line 793/809/849 잔여 `joinDiagKey` 치환 → #14), M-N2 (namespace internal module 신설 → #13), M-N3 (`lookup*ById` 5종 generic 통합 → #15).
+
+**`--inspect-diff 3` review 반영** (본 추가 phase 후속): R1·R2 consensus "머지 가능", R3 Minor 4건. M-1 즉시 정정 (`ModelProtocol.fs:351-353` 주석 "namespace 경계" → "*module-private 경계 + 컴파일 순서*" 정확화), M-2/M-4 todo priming (#14 "회귀 위험 0" 단언 완화 → "호출 path grep 1차 확인 필수" 명시 / #4 in/out 비대칭 방어 사유 1줄 추가). M-3 (test substring 식별성) 은 defer (후속 helper 확장 시 함께).
 
 ### 10.2 다음 진입 후보 (우선순위 순)
 
-> **본 phase 산출** (2026-05-14 후속): #0/#8/#9/#10 완료. #1/#2/#5 는 commit `8e360aa` 에서 이미 완료된 상태로 확인 (이전 §10.2 표 outdated). 남은 항목 우선순위 재정렬.
+> **2026-05-14 추가 phase 산출** (`9d12093` 후속 turn): #3 부분 / #4 부분 / #11 완료. 잔여 follow-up 신설 (#13~#15 — 자가 검열 Minor 3건). 남은 항목 우선순위 재정렬.
 
 | # | 작업 | 분량 | 사유 |
 |---|---|---|---|
-| ~~0~~ | ~~`--inspect-diff 5` M-1 leading-dot fix~~ | ✅ 완료 (본 phase) | `joinDiagKey` helper 추출 — `path = ""` (root-level `author`/`version`) 호출 site cover. grep 검증 — line 1546/1547 실제 root-level 호출 존재, dead branch 아님 |
+| ~~0~~ | ~~`--inspect-diff 5` M-1 leading-dot fix~~ | ✅ 완료 | `joinDiagKey` helper 추출 — `path = ""` (root-level `author`/`version`) 호출 site cover |
 | ~~1~~ | ~~§2.7 unknown 키 거부 룰 갱신~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md §2.7 룰 #10~#24 신규 키 11개 모두 반영 |
 | ~~2~~ | ~~§4 apply 룰 default fallback 정책 명문화~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md line 707~737 명문화 + default 매핑 표 |
-| **3** | **외부 review M-D 별도 phase — helper 3종 추출** — `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 패턴 통합. `resolveSystem/Call/ApiDef/Project/Work` (fallback 포함) 추출. `applyStringProp`/`applyEnumProp` 는 `8e360aa` 에서 이미 추출됨 | 中 (refactor) | 후속 leaf 키 추가 시 누적 효과 ↑. CLAUDE.md "3줄 이상 반복 패턴" 정합 |
-| **4** | **외부 review M-F 별도 phase — 추가 negative-test 묶음** — 이미 본 phase 에서 [<Theory>] 7건 (`tokenRoleNonString` / `inTagNonObject` / `skipInputSensorNonBool` / `apiDetailsNonObject` / `apiDetailsUnknownApi` / `callConditionConditionsNonArray` / `callConditionChildrenNonArray`) + parser-error 3건 추가 완료. 후속 = `parseIOTag` non-object 외 추가 분기 (e.g. `iri: ""` 빈 string 정규화 / `callCondition.type` 라벨 위반 / `outTag` non-object 등) | 中 (test) | 진단 회귀 보호 추가 분기 |
-| ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa`) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장. 본 phase 에서 `ApiCallCount: int` 추가 (PoC invariant guard) |
+| ~~3~~ | ~~외부 review M-D — helper SSOT 부분 일원화~~ | ✅ 부분 완료 (본 추가 phase) | `ModelProtocol.fs` 의 `tryFindXxxInPlan` 5종 본문을 generic `tryFindInPlan` + picker 로 통합 (`ToolOperations.fs:86` 답습). 완전 일원화 (namespace internal module 신설) 는 #13 으로 분리 |
+| ~~4~~ | ~~M-F 별도 phase — 추가 negative-test 4건~~ | ✅ 완료 (본 추가 phase) | enum 라벨 위반 3건 (`callConditionType` / `contactKind` / `callType`) + shape 위반 1건 (`outTag` non-object — in/out dispatch 비대칭 회귀 방어, `inTag` 와 동일 룰 #22 메시지지만 별개 분기 회귀 보호 의도). 359/359 통과 |
+| ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa`) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장 |
 | **6** | **§4.2 C-7 PLC metadata** — `ControlSystemProperties` (FBTagMapPreset / AuxPortMapEntry / BaseAddressOverride / EnableHardwareControl / WorkTimeout / SignalPatternEntry 등) 사용자 명시 설정 부분 必 격상 emit/apply | 大 (별도 phase 분량) | §4.1 メ 분류 결정 필요. 별도 phase 분할 가능 |
-| **7** | **별도 phase 분리 항목** (외부 review 등록 — 본 todo §4.2 외부 review 항목 참조) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / `tryFindCallInPlan` SSOT 분산 / 테스트 helper 일반화 |
-| ~~8~~ | ~~`--inspect-diff 5` 후속 — `ApiCalls[0]` PoC invariant guard~~ | ✅ 완료 (본 phase) | `CallDetail.ApiCallCount: int` 필드 추가 — multi-ApiCall (≥ 2) 확장 시 round-trip diff 로 즉시 가시화 |
-| ~~9~~ | ~~enum parser-error / IRI non-string negative test~~ | ✅ 완료 (본 phase) | [<Theory>] 3건 (`tokenRoleInvalidLabel` / `apiDefActionTypeInvalid` / `iriNonString`) |
-| ~~10~~ | ~~M-F 7분기 `[<Theory>]` 분리~~ | ✅ 완료 (본 phase) | 단일 [<Fact>] → [<Theory>] + [<InlineData>] 7건 분리. tag→yaml dispatch 패턴 |
-| **11** | **`ModelProtocol.fs:809` 일관성 — `parseCallCondition` 내부 `parseBoolKey` 진단 키 합성** — `path + "." + key` 를 `joinDiagKey path key` 로 치환. 본 호출처는 root path 아님 (leading-dot 위험 없음) — ROI 낮으나 일관성 차원 | 小 (1 line) | 일관성 (본 phase 자가 검열 Minor m1) |
-| **12** | **`callCondition.type` 라벨 위반 / IRI 빈 string 정규화 검증** — 본 phase 후속 잔여 negative test. `applyEnumProp` 의 parse Error 분기 일부만 cover, 빈 string IRI 는 emit/apply 비대칭 가능성 | 小 (test) | 회귀 보호 미진 분기 |
+| **7** | **별도 phase 분리 항목** (외부 review 등록) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / 테스트 helper 일반화 |
+| ~~8~~ | ~~`ApiCalls[0]` PoC invariant guard~~ | ✅ 완료 | `CallDetail.ApiCallCount: int` 필드 추가 |
+| ~~9~~ | ~~enum parser-error / IRI non-string negative test~~ | ✅ 완료 | [<Theory>] 3건 |
+| ~~10~~ | ~~M-F 7분기 `[<Theory>]` 분리~~ | ✅ 완료 | 단일 [<Fact>] → [<Theory>] + [<InlineData>] 7건 분리 |
+| ~~11~~ | ~~`ModelProtocol.fs:801` `joinDiagKey` 치환 (parseBoolKey)~~ | ✅ 완료 (본 추가 phase) | line 801 1줄 치환. 동일 함수 내 다른 호출처 (793/809/849) 는 #14 로 분리 |
+| ~~12~~ | ~~`callCondition.type` 라벨 위반 검증~~ | ✅ 완료 (본 추가 phase, #4 흡수) | `parseCallConditionType` Error 분기 cover (`callConditionTypeInvalidLabel` InlineData) |
+| **13** | **namespace internal module 신설 — `tryFindXxxInPlan` SSOT 완전 일원화** — `ToolOperations.fs` + `ModelProtocol.fs` 양쪽 file-scoped private 중복 제거. 새 internal module (e.g. `Ds2.LlmAgent.Internal.PlanLookup`) 신설 후 양쪽에서 참조. fsproj 컴파일 순서 검토 (ToolOperations 보다 *앞*) | 中 (cross-module refactor) | 자가 검열 Minor M-N2 — 의도된 deferral. 본 추가 phase 코멘트 (line 351-353) 에 "후속 module 통합 시 무손실 이전 가능" 명시 |
+| **14** | **`parseCallCondition` 진단 키 합성 일관성 — 잔여 3건 `joinDiagKey` 치환** — line 793/809/849 의 `path + "." + key` 를 `joinDiagKey path key` 로 통일. **진입 전 호출 path grep 1차 확인 필수** — 현 호출자가 path="" (root) 를 전달하는 분기가 있다면 진단 키가 `.type` → `type` 으로 leading-dot 제거되어 *변경됨* (회귀 위험 가능). 모든 호출 path 가 non-empty 임을 grep 으로 확인 후 치환 (외부 reviewer M-2) | 小 (3 line + 검증) | 자가 검열 Minor M-N1 — 의도된 deferral. follow-up |
+| **15** | **`lookup*ById` 5종 generic 통합** — `let private lookupById planFind storeFind ctx id = planFind ctx.Plan id \|> Option.orElseWith (fun () -> storeFind id ctx.Store)` + 5 wrapper. 가독성 손실 없이 -5 line. `Queries.getXxx` 매개변수 순서 일관성 사전 검증 필요 | 小 (refactor) | 자가 검열 Minor M-N3 — 의도된 deferral. follow-up |
+| **16** | **IRI 빈 string 정규화 정책 결정** — `Some ""` ↔ entity-default 비대칭 가능성. emit-skip 정책 (default-skip) vs apply 정규화 (`Option.filter (not << IsNullOrEmpty)` — description 패턴 답습) 중 선택 | 小 (정책 + 1-2 line) | 회귀 보호 미진 분기 — todo #12 잔여 |
 
 ### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
 
