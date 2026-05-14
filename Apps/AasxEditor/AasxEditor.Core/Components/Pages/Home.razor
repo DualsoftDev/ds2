@@ -301,7 +301,7 @@
                             {
                                 var sel = _selectedNode;
                                 var selCss = IconClass(sel);
-                                var isErrorDef = sel.NodeType == "SML" && sel.Label == "ErrorDefinitions";
+                                var isUserTags = sel.NodeType == "SML" && sel.Label == "UserTags";
 
                                 <div class="finder-preview">
                                     <div class="finder-preview-icon-area">
@@ -335,7 +335,7 @@
                                     }
 
                                     @* Value editor for leaf *@
-                                    @if (!isErrorDef && sel.Children.Count == 0 && sel.Properties.ContainsKey("value"))
+                                    @if (!isUserTags && sel.Children.Count == 0 && sel.Properties.ContainsKey("value"))
                                     {
                                         var vt = sel.Properties.GetValueOrDefault("valueType") ?? "String";
                                         var val = sel.Properties.GetValueOrDefault("value") ?? "";
@@ -421,12 +421,12 @@
                                     }
 
                                     @* Container: leaf properties *@
-                                    @if (!isErrorDef && sel.Children.Count > 0)
+                                    @if (!isUserTags && sel.Children.Count > 0)
                                     {
                                         var leafKids = sel.Children.Where(c => c.Children.Count == 0
-                                            && !(c.NodeType == "SML" && c.Label == "ErrorDefinitions")).ToList();
+                                            && !(c.NodeType == "SML" && c.Label == "UserTags")).ToList();
                                         var containerKids = sel.Children.Where(c => c.Children.Count > 0
-                                            && !(c.NodeType == "SML" && c.Label == "ErrorDefinitions")).ToList();
+                                            && !(c.NodeType == "SML" && c.Label == "UserTags")).ToList();
 
                                         @if (leafKids.Count > 0)
                                         {
@@ -488,59 +488,61 @@
                                             </div>
                                         }
 
-                                        @* ErrorDefinitions inline in parent *@
-                                        @foreach (var errChild in sel.Children.Where(c => c.NodeType == "SML" && c.Label == "ErrorDefinitions"))
+                                        @* UserTags inline in parent *@
+                                        @foreach (var tagChild in sel.Children.Where(c => c.NodeType == "SML" && c.Label == "UserTags"))
                                         {
-                                            var inlineErr = errChild;
+                                            var inlineTag = tagChild;
                                             <div class="finder-preview-section">
                                                 <div class="finder-error-header">
-                                                    <span class="finder-preview-section-title" style="border:none;margin:0;padding:0">에러 정의 (@(errChild.Children.Count)건)</span>
+                                                    <span class="finder-preview-section-title" style="border:none;margin:0;padding:0">사용자 태그 (@(tagChild.Children.Count)건)</span>
                                                     <div class="finder-error-actions">
                                                         <button class="btn btn-sm btn-outline-primary"
-                                                                @onclick="() => { SelectNode(inlineErr); OnAddErrorDef(); }">+ 추가</button>
+                                                                @onclick="() => { SelectNode(inlineTag); OnAddUserTag(); }">+ 추가</button>
                                                         <button class="btn btn-sm btn-outline-secondary"
-                                                                @onclick="() => { SelectNode(inlineErr); _ = OnExportErrorDefCsv(inlineErr); }">CSV 내보내기</button>
+                                                                @onclick="() => { SelectNode(inlineTag); _ = OnExportUserTagCsv(inlineTag); }">CSV 내보내기</button>
                                                         <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer">
                                                             CSV 추가
-                                                            <InputFile OnChange="@(e => OnCsvAddForNode(e, inlineErr))" accept=".csv" style="display:none" />
+                                                            <InputFile OnChange="@(e => OnCsvAddForNode(e, inlineTag))" accept=".csv" style="display:none" />
                                                         </label>
                                                         <button class="btn btn-sm btn-outline-warning"
-                                                                @onclick="() => { SelectNode(inlineErr); _csvReplaceTargetNode = inlineErr; _showCsvReplaceConfirm = true; }">CSV 교체</button>
+                                                                @onclick="() => { SelectNode(inlineTag); _csvReplaceTargetNode = inlineTag; _showCsvReplaceConfirm = true; }">CSV 교체</button>
                                                     </div>
                                                 </div>
-                                                @if (errChild.Children.Count > 0)
+                                                @if (tagChild.Children.Count > 0)
                                                 {
                                                     <table class="finder-error-table">
                                                         <thead>
                                                             <tr>
-                                                                <td style="width:35%">이름</td>
-                                                                <td style="width:30%">태그 주소</td>
+                                                                <td style="width:30%">이름</td>
+                                                                <td style="width:15%">로그 레벨</td>
+                                                                <td style="width:25%">태그 주소</td>
                                                                 <td style="width:15%">값 타입</td>
-                                                                <td style="width:20%;text-align:right"></td>
+                                                                <td style="width:15%;text-align:right"></td>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             @{
-                                                                var inlineErrDefs = errChild.Children
+                                                                var inlineUserTags = tagChild.Children
                                                                     .Select(c => c.Properties.GetValueOrDefault("value") ?? "")
                                                                     .Where(v => !string.IsNullOrWhiteSpace(v))
-                                                                    .Select(v => { var p = v.Split('|'); return p.Length >= 3 ? (p[0].Trim(), p[1].Trim(), p[2].Trim()) : p.Length == 2 ? (p[0].Trim(), p[1].Trim(), "Bit") : ("", "", ""); })
+                                                                    .Select(v => { var p = v.Split('|'); return p.Length >= 4 ? (p[0].Trim(), p[1].Trim(), p[2].Trim(), p[3].Trim()) : ("", "", "", ""); })
                                                                     .Where(x => x.Item1 != "")
                                                                     .ToList();
                                                             }
-                                                            @for (var ei = 0; ei < inlineErrDefs.Count; ei++)
+                                                            @for (var ei = 0; ei < inlineUserTags.Count; ei++)
                                                             {
                                                                 var idx = ei;
-                                                                var (eName, eTag, eVt) = inlineErrDefs[ei];
+                                                                var (eName, eLevel, eTag, eVt) = inlineUserTags[ei];
                                                                 <tr>
                                                                     <td>@eName</td>
+                                                                    <td class="err-table-vt">@eLevel</td>
                                                                     <td class="err-table-tag">@eTag</td>
                                                                     <td class="err-table-vt">@eVt</td>
                                                                     <td style="text-align:right">
                                                                         <button class="btn-icon" title="편집"
-                                                                                @onclick="() => { SelectNode(inlineErr); OnEditErrorDef(idx); }">&#9998;</button>
+                                                                                @onclick="() => { SelectNode(inlineTag); OnEditUserTag(idx); }">&#9998;</button>
                                                                         <button class="btn-icon btn-icon-danger" title="삭제"
-                                                                                @onclick="() => { SelectNode(inlineErr); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
+                                                                                @onclick="() => { SelectNode(inlineTag); _ = OnDeleteUserTag(idx); }">&#10005;</button>
                                                                     </td>
                                                                 </tr>
                                                             }
@@ -549,30 +551,30 @@
                                                 }
                                                 else
                                                 {
-                                                    <div class="err-empty">에러 정의가 없습니다. + 추가를 눌러 추가하세요.</div>
+                                                    <div class="err-empty">사용자 태그가 없습니다. + 추가를 눌러 추가하세요.</div>
                                                 }
                                             </div>
                                         }
                                     }
 
-                                    @* ErrorDefinitions *@
-                                    @if (isErrorDef)
+                                    @* UserTags *@
+                                    @if (isUserTags)
                                     {
-                                        var capturedErrNode = sel;
+                                        var capturedTagNode = sel;
                                         <div class="finder-preview-section">
                                             <div class="finder-error-header">
-                                                <span class="finder-preview-section-title" style="border:none;margin:0;padding:0">에러 정의 (@(sel.Children.Count)건)</span>
+                                                <span class="finder-preview-section-title" style="border:none;margin:0;padding:0">사용자 태그 (@(sel.Children.Count)건)</span>
                                                 <div class="finder-error-actions">
                                                     <button class="btn btn-sm btn-outline-primary"
-                                                            @onclick="() => { SelectNode(capturedErrNode); OnAddErrorDef(); }">+ 추가</button>
+                                                            @onclick="() => { SelectNode(capturedTagNode); OnAddUserTag(); }">+ 추가</button>
                                                     <button class="btn btn-sm btn-outline-secondary"
-                                                            @onclick="() => { SelectNode(capturedErrNode); _ = OnExportErrorDefCsv(capturedErrNode); }">CSV 내보내기</button>
+                                                            @onclick="() => { SelectNode(capturedTagNode); _ = OnExportUserTagCsv(capturedTagNode); }">CSV 내보내기</button>
                                                     <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer">
                                                         CSV 추가
                                                         <InputFile OnChange="OnCsvAddFileSelected" accept=".csv" style="display:none" />
                                                     </label>
                                                     <button class="btn btn-sm btn-outline-warning"
-                                                            @onclick="() => { SelectNode(capturedErrNode); _csvReplaceTargetNode = capturedErrNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
+                                                            @onclick="() => { SelectNode(capturedTagNode); _csvReplaceTargetNode = capturedTagNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
                                                 </div>
                                             </div>
                                             @if (sel.Children.Count > 0)
@@ -580,34 +582,36 @@
                                                 <table class="finder-error-table">
                                                     <thead>
                                                         <tr>
-                                                            <td style="width:35%">이름</td>
-                                                            <td style="width:30%">태그 주소</td>
+                                                            <td style="width:30%">이름</td>
+                                                            <td style="width:15%">로그 레벨</td>
+                                                            <td style="width:25%">태그 주소</td>
                                                             <td style="width:15%">값 타입</td>
-                                                            <td style="width:20%;text-align:right"></td>
+                                                            <td style="width:15%;text-align:right"></td>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         @{
-                                                            var errDefs = sel.Children
+                                                            var userTags = sel.Children
                                                                 .Select(c => c.Properties.GetValueOrDefault("value") ?? "")
                                                                 .Where(v => !string.IsNullOrWhiteSpace(v))
-                                                                .Select(v => { var p = v.Split('|'); return p.Length >= 3 ? (p[0].Trim(), p[1].Trim(), p[2].Trim()) : p.Length == 2 ? (p[0].Trim(), p[1].Trim(), "Bit") : ("", "", ""); })
+                                                                .Select(v => { var p = v.Split('|'); return p.Length >= 4 ? (p[0].Trim(), p[1].Trim(), p[2].Trim(), p[3].Trim()) : ("", "", "", ""); })
                                                                 .Where(x => x.Item1 != "")
                                                                 .ToList();
                                                         }
-                                                        @for (var ei = 0; ei < errDefs.Count; ei++)
+                                                        @for (var ei = 0; ei < userTags.Count; ei++)
                                                         {
                                                             var idx = ei;
-                                                            var (eName, eTag, eVt) = errDefs[ei];
+                                                            var (eName, eLevel, eTag, eVt) = userTags[ei];
                                                             <tr>
                                                                 <td>@eName</td>
+                                                                <td class="err-table-vt">@eLevel</td>
                                                                 <td class="err-table-tag">@eTag</td>
                                                                 <td class="err-table-vt">@eVt</td>
                                                                 <td style="text-align:right">
                                                                     <button class="btn-icon" title="편집"
-                                                                            @onclick="() => { SelectNode(capturedErrNode); OnEditErrorDef(idx); }">&#9998;</button>
+                                                                            @onclick="() => { SelectNode(capturedTagNode); OnEditUserTag(idx); }">&#9998;</button>
                                                                     <button class="btn-icon btn-icon-danger" title="삭제"
-                                                                            @onclick="() => { SelectNode(capturedErrNode); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
+                                                                            @onclick="() => { SelectNode(capturedTagNode); _ = OnDeleteUserTag(idx); }">&#10005;</button>
                                                                 </td>
                                                             </tr>
                                                         }
@@ -616,7 +620,7 @@
                                             }
                                             else
                                             {
-                                                <div class="err-empty">에러 정의가 없습니다.</div>
+                                                <div class="err-empty">사용자 태그가 없습니다.</div>
                                             }
                                         </div>
                                     }
@@ -909,24 +913,33 @@
     </div>
 }
 
-@if (_showErrorDefEditor)
+@if (_showUserTagEditor)
 {
     <div class="modal-overlay">
         <div class="modal-dialog" style="width:420px">
-            <div class="modal-title">@(_editingErrorDefIndex >= 0 ? "에러 정의 수정" : "에러 정의 추가")</div>
+            <div class="modal-title">@(_editingUserTagIndex >= 0 ? "사용자 태그 수정" : "사용자 태그 추가")</div>
             <div class="modal-body">
                 <div class="form-field">
-                    <label class="form-label">에러 이름</label>
-                    <input class="form-input" type="text" @bind="_errorDefName" placeholder="Motor_Overload" />
+                    <label class="form-label">태그 이름</label>
+                    <input class="form-input" type="text" @bind="_userTagName" placeholder="Motor_Overload" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">로그 레벨</label>
+                    <select class="form-input" @bind="_userTagLogLevel">
+                        @foreach (var lv in UserTagLogLevels)
+                        {
+                            <option value="@lv">@lv</option>
+                        }
+                    </select>
                 </div>
                 <div class="form-field">
                     <label class="form-label">태그 주소</label>
-                    <input class="form-input" type="text" @bind="_errorDefTag" placeholder="M901" />
+                    <input class="form-input" type="text" @bind="_userTagAddress" placeholder="M901" />
                 </div>
                 <div class="form-field">
                     <label class="form-label">값 타입</label>
-                    <select class="form-input" @bind="_errorDefValueType">
-                        @foreach (var vt in ErrorValueTypes)
+                    <select class="form-input" @bind="_userTagValueType">
+                        @foreach (var vt in PlcValueTypes)
                         {
                             <option value="@vt">@vt</option>
                         }
@@ -934,8 +947,8 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-primary btn-sm" @onclick="OnSaveErrorDef">저장</button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showErrorDefEditor = false">취소</button>
+                <button class="btn btn-primary btn-sm" @onclick="OnSaveUserTag">저장</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showUserTagEditor = false">취소</button>
             </div>
         </div>
     </div>
@@ -947,8 +960,8 @@
         <div class="modal-dialog" style="width:400px">
             <div class="modal-title">CSV 교체 확인</div>
             <div class="modal-body">
-                <p class="dialog-danger">기존에 추가한 에러 정의를 모두 삭제하고 CSV 파일의 내용으로 덮어씁니다.</p>
-                <p class="dialog-subtext">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 정의가 삭제됩니다. 계속하시겠습니까?</p>
+                <p class="dialog-danger">기존에 추가한 사용자 태그를 모두 삭제하고 CSV 파일의 내용으로 덮어씁니다.</p>
+                <p class="dialog-subtext">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 태그가 삭제됩니다. 계속하시겠습니까?</p>
             </div>
             <div class="modal-actions">
                 <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer">

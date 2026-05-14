@@ -10,118 +10,125 @@ namespace AasxEditor.Components.Pages;
 
 public partial class Home
 {
-    // ===== Error Definition Editor State =====
-    private bool _showErrorDefEditor;
-    private string _errorDefName = "";
-    private string _errorDefTag = "";
-    private string _errorDefValueType = "Bit";
-    private int _editingErrorDefIndex = -1; // -1 = new, >= 0 = editing existing
+    // ===== User Tag Editor State =====
+    private bool _showUserTagEditor;
+    private string _userTagName = "";
+    private string _userTagLogLevel = "Info";
+    private string _userTagAddress = "";
+    private string _userTagValueType = "Bit";
+    private int _editingUserTagIndex = -1; // -1 = new, >= 0 = editing existing
     private bool _csvImportReplace; // true = 교체, false = 추가
     private bool _showCsvReplaceConfirm;
     private AasTreeNode? _csvReplaceTargetNode;
     private AasTreeNode? _csvTargetNode; // CSV 작업 대상 노드 (추가/교체 공용)
 
-    private static readonly string[] ErrorValueTypes =
+    private static readonly string[] PlcValueTypes =
         ["Bit", "Byte", "Word", "DWord", "Int16", "Int32", "Real", "String"];
 
-    /// <summary>
-    /// 현재 선택된 노드가 ErrorDefinitions SML인지 판별
-    /// </summary>
-    private bool IsErrorDefinitionsSml =>
-        _selectedNode is { NodeType: "SML" } &&
-        _selectedNode.Label == "ErrorDefinitions";
+    private static readonly string[] UserTagLogLevels =
+        ["Info", "Warning", "Error"];
 
     /// <summary>
-    /// 현재 ErrorDefinitions의 자식 Property 값 목록 파싱
+    /// 현재 선택된 노드가 UserTags SML인지 판별
     /// </summary>
-    private List<(string Name, string Tag, string ValueType)> GetErrorDefinitions()
+    private bool IsUserTagsSml =>
+        _selectedNode is { NodeType: "SML" } &&
+        _selectedNode.Label == "UserTags";
+
+    /// <summary>
+    /// 현재 UserTags의 자식 Property 값 목록 파싱
+    /// </summary>
+    private List<(string Name, string LogLevel, string Tag, string ValueType)> GetUserTags()
     {
         if (_selectedNode?.Children is null) return [];
         return _selectedNode.Children
             .Select(c => c.Properties.GetValueOrDefault("value") ?? "")
             .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(ParseErrorDef)
+            .Select(ParseUserTag)
             .Where(x => x.HasValue)
             .Select(x => x!.Value)
             .ToList();
     }
 
-    private static (string Name, string Tag, string ValueType)? ParseErrorDef(string encoded)
+    private static (string Name, string LogLevel, string Tag, string ValueType)? ParseUserTag(string encoded)
     {
         var parts = encoded.Split('|');
-        if (parts.Length >= 3)
-            return (parts[0].Trim(), parts[1].Trim(), parts[2].Trim());
-        if (parts.Length == 2)
-            return (parts[0].Trim(), parts[1].Trim(), "Bit");
+        if (parts.Length >= 4)
+            return (parts[0].Trim(), parts[1].Trim(), parts[2].Trim(), parts[3].Trim());
         return null;
     }
 
-    private static string FormatErrorDef(string name, string tag, string valueType)
-        => $"{name}|{tag}|{valueType}";
+    private static string FormatUserTag(string name, string logLevel, string tag, string valueType)
+        => $"{name}|{logLevel}|{tag}|{valueType}";
 
     // ===== UI Handlers =====
 
-    private void OnAddErrorDef()
+    private void OnAddUserTag()
     {
-        _editingErrorDefIndex = -1;
-        _errorDefName = "";
-        _errorDefTag = "";
-        _errorDefValueType = "Bit";
-        _showErrorDefEditor = true;
+        _editingUserTagIndex = -1;
+        _userTagName = "";
+        _userTagLogLevel = "Info";
+        _userTagAddress = "";
+        _userTagValueType = "Bit";
+        _showUserTagEditor = true;
     }
 
-    private void OnEditErrorDef(int index)
+    private void OnEditUserTag(int index)
     {
-        var defs = GetErrorDefinitions();
-        if (index < 0 || index >= defs.Count) return;
-        var (name, tag, vt) = defs[index];
-        _editingErrorDefIndex = index;
-        _errorDefName = name;
-        _errorDefTag = tag;
-        _errorDefValueType = vt;
-        _showErrorDefEditor = true;
+        var tags = GetUserTags();
+        if (index < 0 || index >= tags.Count) return;
+        var (name, level, tag, vt) = tags[index];
+        _editingUserTagIndex = index;
+        _userTagName = name;
+        _userTagLogLevel = level;
+        _userTagAddress = tag;
+        _userTagValueType = vt;
+        _showUserTagEditor = true;
     }
 
-    private async Task OnDeleteErrorDef(int index)
+    private async Task OnDeleteUserTag(int index)
     {
         if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
 
         var children = _selectedNode.Children;
         if (index < 0 || index >= children.Count) return;
 
-        PushUndo("에러 정의 삭제");
+        PushUndo("사용자 태그 삭제");
 
-        // JSON에서 해당 항목 제거
-        var smlPath = _selectedNode.JsonPath; // e.g., "submodels[3].submodelElements[0].value[2]"
+        var smlPath = _selectedNode.JsonPath;
         var updatedJson = RemoveSmlItem(_currentJson, smlPath, index);
         if (updatedJson is null) return;
 
         _currentEnv = Converter.JsonToEnvironment(updatedJson);
         await SyncJsonToEditorAsync(updatedJson);
         RebuildTree();
-        RestoreErrorDefNode(smlPath);
+        RestoreUserTagNode(smlPath);
 
-        SetStatus("에러 정의가 삭제되었습니다", "success");
+        SetStatus("사용자 태그가 삭제되었습니다", "success");
     }
 
-    private async Task OnSaveErrorDef()
+    private async Task OnSaveUserTag()
     {
-        if (string.IsNullOrWhiteSpace(_errorDefName) || string.IsNullOrWhiteSpace(_errorDefTag))
+        if (string.IsNullOrWhiteSpace(_userTagName) || string.IsNullOrWhiteSpace(_userTagAddress))
         {
-            SetStatus("에러 이름과 태그 주소를 입력하세요", "error");
+            SetStatus("태그 이름과 태그 주소를 입력하세요", "error");
             return;
         }
 
         if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
 
-        PushUndo(_editingErrorDefIndex >= 0 ? "에러 정의 수정" : "에러 정의 추가");
+        PushUndo(_editingUserTagIndex >= 0 ? "사용자 태그 수정" : "사용자 태그 추가");
 
-        var encoded = FormatErrorDef(_errorDefName.Trim(), _errorDefTag.Trim(), _errorDefValueType);
+        var encoded = FormatUserTag(
+            _userTagName.Trim(),
+            _userTagLogLevel,
+            _userTagAddress.Trim(),
+            _userTagValueType);
         var smlPath = _selectedNode.JsonPath;
 
         string? updatedJson;
-        if (_editingErrorDefIndex >= 0)
-            updatedJson = UpdateSmlItem(_currentJson, smlPath, _editingErrorDefIndex, encoded);
+        if (_editingUserTagIndex >= 0)
+            updatedJson = UpdateSmlItem(_currentJson, smlPath, _editingUserTagIndex, encoded);
         else
             updatedJson = AddSmlItem(_currentJson, smlPath, encoded);
 
@@ -134,21 +141,20 @@ public partial class Home
         _currentEnv = Converter.JsonToEnvironment(updatedJson);
         await SyncJsonToEditorAsync(updatedJson);
         RebuildTree();
-        RestoreErrorDefNode(smlPath);
+        RestoreUserTagNode(smlPath);
 
-        _showErrorDefEditor = false;
-        SetStatus(_editingErrorDefIndex >= 0 ? "에러 정의가 수정되었습니다" : "에러 정의가 추가되었습니다", "success");
+        _showUserTagEditor = false;
+        SetStatus(_editingUserTagIndex >= 0 ? "사용자 태그가 수정되었습니다" : "사용자 태그가 추가되었습니다", "success");
     }
 
     /// <summary>
-    /// RebuildTree 후 ErrorDefinitions SML 노드를 다시 선택하고 Explorer 경로를 복원
+    /// RebuildTree 후 UserTags SML 노드를 다시 선택하고 Explorer 경로를 복원
     /// </summary>
-    private void RestoreErrorDefNode(string smlJsonPath)
+    private void RestoreUserTagNode(string smlJsonPath)
     {
         var restoredNode = FindNodeByJsonPath(_treeNodes, smlJsonPath);
         if (restoredNode is null) return;
         SelectNode(restoredNode);
-        // Explorer 경로 복원: 해당 노드의 부모 경로를 재구성
         var path = new List<AasTreeNode>();
         if (FindPathToNode(_treeNodes, restoredNode, path))
             _explorerPath = path;
@@ -156,22 +162,22 @@ public partial class Home
 
     // ===== CSV Export / Import =====
 
-    private async Task OnExportErrorDefCsv(AasTreeNode errNode)
+    private async Task OnExportUserTagCsv(AasTreeNode tagNode)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("이름,태그 주소,값 타입");
+        sb.AppendLine("이름,로그 레벨,태그 주소,값 타입");
 
-        foreach (var child in errNode.Children)
+        foreach (var child in tagNode.Children)
         {
             var val = child.Properties.GetValueOrDefault("value") ?? "";
-            var parsed = ParseErrorDef(val);
+            var parsed = ParseUserTag(val);
             if (parsed is null) continue;
-            var (name, tag, vt) = parsed.Value;
-            sb.AppendLine($"{CsvEscape(name)},{CsvEscape(tag)},{CsvEscape(vt)}");
+            var (name, level, tag, vt) = parsed.Value;
+            sb.AppendLine($"{CsvEscape(name)},{CsvEscape(level)},{CsvEscape(tag)},{CsvEscape(vt)}");
         }
 
         var base64 = Convert.ToBase64String(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray());
-        await JS.InvokeVoidAsync("MonacoInterop.downloadFile", "ErrorDefinitions.csv", base64);
+        await JS.InvokeVoidAsync("MonacoInterop.downloadFile", "UserTags.csv", base64);
         SetStatus("CSV 내보내기 완료", "success");
     }
 
@@ -180,9 +186,9 @@ public partial class Home
             ? $"\"{value.Replace("\"", "\"\"")}\""
             : value;
 
-    private void OnImportErrorDefCsv(bool replace, AasTreeNode errNode)
+    private void OnImportUserTagCsv(bool replace, AasTreeNode tagNode)
     {
-        _csvTargetNode = errNode;
+        _csvTargetNode = tagNode;
         _csvImportReplace = replace;
     }
 
@@ -214,10 +220,8 @@ public partial class Home
             var file = e.File;
             if (file is null) return;
 
-            // CSV 교체 확인 모달 닫기 (파일 선택 후 안전하게 닫음)
             _showCsvReplaceConfirm = false;
 
-            // 대상 노드 결정: _csvTargetNode 우선, 없으면 _selectedNode
             var targetNode = _csvTargetNode ?? _selectedNode;
             if (targetNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
             SelectNode(targetNode);
@@ -233,16 +237,19 @@ public partial class Home
             if (lines.Count > 0 && (lines[0].Contains("이름") || lines[0].StartsWith("Name", StringComparison.OrdinalIgnoreCase)))
                 startIdx = 1;
 
-            var entries = new List<(string Name, string Tag, string ValueType)>();
+            var entries = new List<(string Name, string LogLevel, string Tag, string ValueType)>();
             for (var i = startIdx; i < lines.Count; i++)
             {
                 var parts = CsvParseLine(lines[i]);
-                if (parts.Count < 2) continue;
+                if (parts.Count < 4) continue;
                 var name = parts[0].Trim();
-                var tag = parts[1].Trim();
-                var vt = parts.Count >= 3 ? parts[2].Trim() : "Bit";
+                var level = parts[1].Trim();
+                var tag = parts[2].Trim();
+                var vt = parts[3].Trim();
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(tag)) continue;
-                entries.Add((name, tag, vt));
+                if (string.IsNullOrWhiteSpace(level)) level = "Info";
+                if (string.IsNullOrWhiteSpace(vt)) vt = "Bit";
+                entries.Add((name, level, tag, vt));
             }
 
             if (entries.Count == 0)
@@ -258,9 +265,9 @@ public partial class Home
 
             string? updatedJson;
             if (_csvImportReplace)
-                updatedJson = ReplaceSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatErrorDef(e2.Name, e2.Tag, e2.ValueType)).ToList());
+                updatedJson = ReplaceSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType)).ToList());
             else
-                updatedJson = AddSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatErrorDef(e2.Name, e2.Tag, e2.ValueType)).ToList());
+                updatedJson = AddSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType)).ToList());
 
             if (updatedJson is null)
             {
@@ -271,7 +278,7 @@ public partial class Home
             _currentEnv = Converter.JsonToEnvironment(updatedJson);
             await SyncJsonToEditorAsync(updatedJson);
             RebuildTree();
-            RestoreErrorDefNode(smlPath);
+            RestoreUserTagNode(smlPath);
 
             _csvTargetNode = null;
             SetStatus($"CSV {csvAction} 완료: {entries.Count}건", "success");
@@ -417,12 +424,10 @@ public partial class Home
 
                     if (pp == $"{targetPath}.value" && prop.Value.ValueKind == JsonValueKind.Array)
                     {
-                        // SML의 value 배열에 새 Property 추가
                         w.WriteStartArray();
                         foreach (var item in prop.Value.EnumerateArray())
                             item.WriteTo(w);
 
-                        // 새 Property 객체 추가
                         w.WriteStartObject();
                         w.WriteString("modelType", "Property");
                         w.WriteString("valueType", "xs:string");
@@ -436,7 +441,6 @@ public partial class Home
                         WriteSmlWithNewItem(w, prop.Value, targetPath, value, pp);
                     }
                 }
-                // value 배열이 아예 없는 경우 (빈 SML)
                 if (currentPath == targetPath && !elem.EnumerateObject().Any(p => p.Name == "value"))
                 {
                     w.WritePropertyName("value");
@@ -487,7 +491,6 @@ public partial class Home
                         {
                             if (i == targetIndex)
                             {
-                                // 해당 인덱스의 Property value만 교체
                                 w.WriteStartObject();
                                 foreach (var ip in item.EnumerateObject())
                                 {
@@ -611,7 +614,6 @@ public partial class Home
                         WriteSmlWithReplacedItems(w, prop.Value, targetPath, values, pp);
                     }
                 }
-                // value 배열이 없는 경우 (빈 SML)
                 if (currentPath == targetPath && !hasValue)
                 {
                     w.WritePropertyName("value");
@@ -646,50 +648,47 @@ public partial class Home
         }
     }
 
-    // ===== AASX 로드 시 누락된 ErrorDefinitions 자동 생성 =====
+    // ===== AASX 로드 시 누락된 UserTags 자동 생성 =====
 
     /// <summary>
-    /// SequenceLogging 서브모델의 SystemProperties SMC에 ErrorDefinitions SML이 없으면 빈 SML을 추가
+    /// SequenceLogging 서브모델의 SystemProperties SMC에 UserTags SML이 없으면 빈 SML을 추가
     /// </summary>
-    private static void EnsureErrorDefinitions(Env env)
+    private static void EnsureUserTags(Env env)
     {
         if (env.Submodels is null) return;
 
         foreach (var sm in env.Submodels)
         {
-            // SequenceLogging 서브모델 식별 (idShort 기반)
             if (sm.IdShort is null || !sm.IdShort.Contains("Logging", StringComparison.OrdinalIgnoreCase))
                 continue;
             if (sm.SubmodelElements is null) continue;
 
-            // SystemProperties SMC 찾기
             foreach (var elem in sm.SubmodelElements)
             {
                 if (elem is not SubmodelElementCollection sysPropsSmc) continue;
                 if (sysPropsSmc.IdShort is null || !sysPropsSmc.IdShort.Contains("SystemProperties")) continue;
                 if (sysPropsSmc.Value is null) continue;
 
-                // 각 System SMC 안에 ErrorDefinitions가 있는지 확인
                 foreach (var sysElem in sysPropsSmc.Value)
                 {
                     if (sysElem is not SubmodelElementCollection sysSmc) continue;
-                    EnsureErrorDefinitionsInSmc(sysSmc);
+                    EnsureUserTagsInSmc(sysSmc);
                 }
             }
         }
     }
 
-    private static void EnsureErrorDefinitionsInSmc(SubmodelElementCollection smc)
+    private static void EnsureUserTagsInSmc(SubmodelElementCollection smc)
     {
         smc.Value ??= new List<ISubmodelElement>();
 
-        var hasErrorDefs = smc.Value.Any(e => e.IdShort == "ErrorDefinitions");
-        if (hasErrorDefs) return;
+        var hasUserTags = smc.Value.Any(e => e.IdShort == "UserTags");
+        if (hasUserTags) return;
 
         var sml = new SubmodelElementList(
             typeValueListElement: AasSubmodelElements.Property,
             valueTypeListElement: DataTypeDefXsd.String);
-        sml.IdShort = "ErrorDefinitions";
+        sml.IdShort = "UserTags";
         sml.Value = new List<ISubmodelElement>();
 
         smc.Value.Add(sml);
