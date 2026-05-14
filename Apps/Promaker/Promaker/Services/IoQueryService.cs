@@ -251,16 +251,4 @@ public static class IoQueryService
         return keys;
     }
 
-    /// <summary>Device 컬럼이 비어있을 때 "Api_None" 으로 표기 — 그리드에서 식별 가능하게.</summary>
-    private static IoBatchRow WithDevicePlaceholder(IoBatchRow src) =>
-        new IoBatchRow(
-            callId: src.CallId, apiCallId: src.ApiCallId,
-            flow: src.Flow, work: src.Work,
-            device: IoConstants.ApiNoneSentinel,
-            api: src.Api,
-            inAddress: src.InAddress, inSymbol: src.InSymbol,
-            outAddress: src.OutAddress, outSymbol: src.OutSymbol,
-            outDataType: src.OutDataType, inDataType: src.InDataType);
 }
-
-// DiagnosticSeverity / IoRowKey / DiagnosticItem — AAStoPLC.TagWizard.Models 으로 이관됨.
