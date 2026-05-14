@@ -93,9 +93,16 @@ module MxAdapter =
     let private log = log4net.LogManager.GetLogger("MxAdapter")
 
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
-        // F# 모듈 함수: curried 시그니처. 인자 셋을 차례로 적용.
+        // Defaults.config 로 base 를 만든 뒤, Transport 만 사용자 선택값으로 교체해 새 config 생성.
+        // 다른 필드(FrameType, AccessRoute, MonitoringTimer 등) 는 라이브러리 default 유지.
         let baseCfg = Constants.Defaults.config cfg.Name cfg.IpAddress cfg.Port
-        let connector = new MxConnector(baseCfg)
+        let protocol =
+            match cfg.Transport with
+            | PlcTransport.Udp -> TransportProtocol.UDP
+            | PlcTransport.Tcp -> TransportProtocol.TCP
+        let mxCfg = { baseCfg with Protocol = protocol }
+        log.Info($"MX [{cfg.Name}] transport={mxCfg.Protocol}, frame={mxCfg.FrameType}")
+        let connector = new MxConnector(mxCfg)
         { new IPlcConnectorAdapter with
             member _.Name = cfg.Name
             member _.IsConnected = connector.IsConnected

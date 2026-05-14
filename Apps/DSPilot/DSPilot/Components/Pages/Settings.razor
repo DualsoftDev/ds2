@@ -142,6 +142,53 @@
                 </div>
             </div>
 
+            @* Hub 구독 섹션 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">hub</span>
+                    <h6 class="typo-h6">Promaker Hub 구독</h6>
+                </div>
+                <div class="card-content">
+                    <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
+                        <small style="color: var(--color-text-secondary); line-height:1.5;">
+                            Promaker SignalHub 구독 설정. 기본 5051 (Promaker Monitoring 모드).<br/>
+                            Control 모드 직접 구독 시 5050 으로 변경. <strong>변경 후 DSPilot 서비스 재시작 필요.</strong>
+                        </small>
+                    </div>
+                    <label class="switch mb-3">
+                        <input type="checkbox" @bind="_settings.Hub.Enabled" />
+                        Hub 구독 활성화
+                    </label>
+                    <div class="form-group mb-3">
+                        <label class="form-label">Hub URL</label>
+                        <input class="form-field" @bind="_settings.Hub.Url"
+                               placeholder="http://localhost:5051/hub/signal" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            Promaker 가 호스팅하는 SignalR Hub 주소.
+                            Monitoring=5051 / Control=5050 / 원격=&lt;host&gt;:&lt;port&gt;
+                        </small>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="form-label">수신 허용 source (쉼표 구분)</label>
+                        <input class="form-field" @bind="HubAcceptedSourcesText"
+                               placeholder="control, virtualplant, plc" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            화이트리스트에 없는 source 의 OnTagChanged 신호는 무시.
+                        </small>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:8px;">
+                        <button class="btn btn-outlined" style="flex:1;"
+                                @onclick="@(() => _settings.Hub.Url = "http://localhost:5051/hub/signal")">
+                            Monitoring 기본 (5051)
+                        </button>
+                        <button class="btn btn-outlined" style="flex:1;"
+                                @onclick="@(() => _settings.Hub.Url = "http://localhost:5050/hub/signal")">
+                            Control (5050)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             @* UI 설정 섹션 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
@@ -412,6 +459,18 @@ else
     private string _dbDir = "";
     private int _dbBusyTimeout = 20000;
     private const string DbFileName = "plc.db";
+
+    /// <summary>Hub.AcceptedSources 배열을 쉼표 구분 문자열로 양방향 편집.</summary>
+    private string HubAcceptedSourcesText
+    {
+        get => _settings is null ? "" : string.Join(", ", _settings.Hub.AcceptedSources);
+        set
+        {
+            if (_settings is null) return;
+            _settings.Hub.AcceptedSources = (value ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+    }
 
     protected override void OnInitialized()
     {

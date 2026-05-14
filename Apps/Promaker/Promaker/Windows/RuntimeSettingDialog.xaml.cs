@@ -47,13 +47,14 @@ public partial class RuntimeSettingDialog : Window
         UpdatePlcRowVisibility();
     }
 
-    /// <summary>Control 모드일 때만 PLC 옵션 행 노출.</summary>
+    /// <summary>Control/Monitoring 모드에서 PLC 옵션 행 노출 — 둘 다 실 PLC 직접 연결.</summary>
     private void UpdatePlcRowVisibility()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
-        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
-        PlcOptionRow.Visibility = isControl ? System.Windows.Visibility.Visible
-                                            : System.Windows.Visibility.Collapsed;
+        var requiresPlc = selected is not null
+            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+        PlcOptionRow.Visibility = requiresPlc ? System.Windows.Visibility.Visible
+                                              : System.Windows.Visibility.Collapsed;
     }
 
     private void RealPlcCheckBox_Toggled(object sender, RoutedEventArgs e)
@@ -242,9 +243,10 @@ public partial class RuntimeSettingDialog : Window
         if (selected != null)
             _vm.Simulation.SelectedRuntimeMode = selected.Mode;
         // HubAddress 는 TextBox 가 TwoWay 바인딩이라 자동 반영됨.
-        // PLC 토글은 Control 모드일 때만 의미가 있음 — 다른 모드 선택 시엔 자동 해제.
-        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
-        _vm.Simulation.IsRealPlcConnected = isControl && RealPlcCheckBox.IsChecked == true;
+        // PLC 토글은 Control/Monitoring 모드에서만 의미가 있음 — 다른 모드 선택 시엔 자동 해제.
+        var requiresPlc = selected is not null
+            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+        _vm.Simulation.IsRealPlcConnected = requiresPlc && RealPlcCheckBox.IsChecked == true;
 
         DialogResult = true;
         Close();

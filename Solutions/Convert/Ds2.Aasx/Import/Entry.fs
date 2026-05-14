@@ -182,7 +182,8 @@ module AasxImporter =
                 let result =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
-                        if sm.IdShort = SubmodelModelIdShort then submodelToProjectStore sm (Some mainDir)
+                        if sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort then
+                            submodelToProjectStore sm (Some mainDir)
                         else None)
 
                 let (project, imported) =

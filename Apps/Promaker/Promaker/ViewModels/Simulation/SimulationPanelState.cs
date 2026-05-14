@@ -175,6 +175,11 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
+
+    /// <summary>Monitoring 모드가 self-host 할 때 사용할 주소. Control(5050) 과 별도 포트로 두 Promaker 가
+    /// 같은 머신에서 Control + Monitoring 으로 동시 운용될 수 있도록 분리.</summary>
+    [ObservableProperty] private string _monitoringHubAddress = "localhost:5051";
+
     [ObservableProperty] private bool _isHubHosting;
 
     /// <summary>Control 모드에서 실 PLC 와 연결할지 여부. 체크 해제면 BackendHost 가 PLC 게이트웨이 idle 로 동작.</summary>
@@ -221,13 +226,40 @@ public partial class SimulationPanelState : ObservableObject
     private bool _isHubReconnecting;
 
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
-    public bool IsHubHost => SelectedRuntimeMode == RuntimeMode.Control;
+
+    /// <summary>Control + Monitoring 둘 다 Promaker 자체가 Hub 호스트.
+    /// Control 은 read/write, Monitoring 은 SignalHub read-only flag 로 write 차단.
+    /// VirtualPlant 만 외부 Hub 에 client 로 붙음.</summary>
+    public bool IsHubHost =>
+        SelectedRuntimeMode == RuntimeMode.Control
+        || SelectedRuntimeMode == RuntimeMode.Monitoring;
+
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
+
+    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring 은 MonitoringHubAddress, 그 외는 HubAddress.
+    /// TextBox 가 mode 별 올바른 backing field 를 편집하도록 한 단계 dispatch.</summary>
+    public string EffectiveHubAddress
+    {
+        get => SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
+        set
+        {
+            if (SelectedRuntimeMode == RuntimeMode.Monitoring)
+                MonitoringHubAddress = value;
+            else
+                HubAddress = value;
+        }
+    }
 
     public string HubStatusText =>
         IsHubConnected ? "Hub 연결됨"
         : IsHubReconnecting ? "Hub 재연결 시도 중"
         : "Hub 끊김";
+
+    /// <summary>툴바에 표시할 hosting 상태 — self-host 인 모드일 때만 의미. Monitoring 은 [RO] 표시.</summary>
+    public string HubHostingLabel =>
+        !IsHubHost ? ""
+        : SelectedRuntimeMode == RuntimeMode.Monitoring ? "Self-Hosted [읽기전용]"
+        : "Self-Hosted";
 
     private RuntimeMode _previousRuntimeMode = RuntimeMode.Simulation;
     private bool _suppressRuntimeModeChangeHandler;
@@ -256,9 +288,17 @@ public partial class SimulationPanelState : ObservableObject
         _previousRuntimeMode = value;
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(IsHubHost));
+        OnPropertyChanged(nameof(EffectiveHubAddress));
+        OnPropertyChanged(nameof(HubHostingLabel));
         SetHubStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
     }
+
+    partial void OnHubAddressChanged(string value) =>
+        OnPropertyChanged(nameof(EffectiveHubAddress));
+
+    partial void OnMonitoringHubAddressChanged(string value) =>
+        OnPropertyChanged(nameof(EffectiveHubAddress));
 
     partial void OnIsSimulatingChanged(bool value)
     {

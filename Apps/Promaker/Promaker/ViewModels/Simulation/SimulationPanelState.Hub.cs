@@ -56,12 +56,21 @@ public partial class SimulationPanelState
         _hubConnectionCts = null;
     }
 
-    private int ParseHubPort() =>
-        HubAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p) ? p : 5050;
+    /// <summary>현재 모드에 해당하는 host:port 문자열. Monitoring 은 MonitoringHubAddress, 그 외는 HubAddress.</summary>
+    private string ActiveHubAddress =>
+        SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
+
+    private int ParseHubPort()
+    {
+        var defaultPort = SelectedRuntimeMode == RuntimeMode.Monitoring ? 5051 : 5050;
+        return ActiveHubAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p)
+            ? p
+            : defaultPort;
+    }
 
     private string BuildHubUrl() => IsHubHost
         ? BackendHost.getHubUrl(ParseHubPort())
-        : $"http://{HubAddress}/hub/signal";
+        : $"http://{ActiveHubAddress}/hub/signal";
 
     private bool TryStartHub()
     {
@@ -75,6 +84,17 @@ public partial class SimulationPanelState
 
             if (IsHubHost)
             {
+                var isMonitoring = SelectedRuntimeMode == RuntimeMode.Monitoring;
+                // Monitoring 은 외부 PLC 데이터 캡처가 본질 — 실 PLC 미연결이면 빈 Hub 만 뜨는 무의미한 상태가 되므로 차단.
+                // Control 은 수동 컨트롤러로 PLC 없이도 의미가 있어 허용 유지.
+                if (isMonitoring && !IsRealPlcConnected)
+                {
+                    AddSimLog(
+                        "Monitoring 모드는 실제 PLC 연결이 필요합니다. Runtime 설정에서 ‘실제 PLC 와 연결’ 체크 + PLC 설정을 완료해 주세요.",
+                        LogSeverity.Error);
+                    _setStatusText("Monitoring — PLC 미연결로 시작 불가");
+                    return false;
+                }
                 if (IsRealPlcConnected)
                 {
                     // 태그 매핑은 AASX IO 설정에서 자동 import.
@@ -86,9 +106,13 @@ public partial class SimulationPanelState
                         _setStatusText("PLC 설정 오류 — Hub 시작 중단");
                         return false;
                     }
-                    _hubHost = BackendHost.startWithPlcConfig(ParseHubPort(), plcConfig);
+                    // Monitoring 은 readOnly 진입점으로 — SignalHub 가 클라이언트 WriteTag/WriteTags 거부.
+                    _hubHost = isMonitoring
+                        ? BackendHost.startWithPlcConfigReadOnly(ParseHubPort(), plcConfig)
+                        : BackendHost.startWithPlcConfig(ParseHubPort(), plcConfig);
+                    var roTag = isMonitoring ? " [read-only]" : "";
                     AddSimLog(
-                        $"SignalR Hub + PLC 게이트웨이 시작 (port={ParseHubPort()}, vendor={PlcSettings.Vendor}, ip={PlcSettings.IpAddress}:{PlcSettings.Port})",
+                        $"SignalR Hub + PLC 게이트웨이 시작{roTag} (port={ParseHubPort()}, vendor={PlcSettings.Vendor}, ip={PlcSettings.IpAddress}:{PlcSettings.Port})",
                         LogSeverity.System);
                 }
                 else
