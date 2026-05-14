@@ -130,9 +130,24 @@
 - [x] **C-1 enum/string 변환 helper** (2026-05-14 완료): `ModelProtocol.fs` 에 `formatArrowType` 패턴 답습으로 8 helper 추가 (`parseCallConditionType`/`formatCallConditionType` × CallConditionType, ContactKind, CallType, ApiDefActionType). ApiDefActionType 은 DU 인자 grammar (`TimeTotal(500)`/`MultiAction(3, 100)`) regex parser 포함. 호출처 연결은 C-3~C-5 phase. 빌드 통과 (경고 0 / 오류 0). 자가 검열 통과 (Critical/Major 0, Minor 3 현 상태 수용)
 - [x] **C-2 SSOT 동시 갱신** (2026-05-14 완료): `yaml-protocol-v0.md` §1.7 결정 row 4건 추가 (4분류 必/派/意/メ + 옵션 C dual format + SSOT 갱신 책임 표 + drift caveat) + §2.4.1 'Enum 라벨 사전' 신설. 자가 검열 통과 (Critical/Major 0건, Minor 3건 후속 phase 동반 처리 가능)
 - [x] **C-3 CallCondition tree** (2026-05-14 완료): `ModelProtocol.fs` 의 `dispatchWork` calls 처리 + `exportToJson` calls emit 양쪽에 dual format 구현 (옵션 C). `parseCallCondition` / `emitCallCondition` recursive helper 추가. `tryFindCallInPlan` helper + `callHasEnhancement` 검사. PoC scope: `Call.CallConditions[0]` 만 emit (multiple root 후속 phase). SSOT §2.2 / §2.2.1 동반 갱신. ModelProtocolTests 72/72 통과 (기존 70 + 신규 2: round-trip + legacy compat). 자가 검열 통과 (Critical/Major 0건, Minor 4건 모두 수용)
-- [ ] **C-4 ApiCall 추가 property** (SkipInputSensor + InTag/OutTag/InputSpec/OutputSpec/ApiDefId/OriginFlowId): leaf 키 추가
-- [ ] **C-5 Call.CallType + ApiDef.ApiDefActionType**: leaf 키 추가 — C-3 의 schema 결정 (object 승격 vs sibling) 답습
-- [ ] **C-6 Work/Call.ReferenceOf, Project meta, DsSystem.IRI**: leaf 키 추가
+- [x] **C-4 ApiCall 추가 property** (2026-05-14 완료): `SkipInputSensor` (bool) + `InTag` / `OutTag` (IOTag — Name/Address 두 키 PoC scope) emit/apply 추가. `parseIOTag` / `writeIOTag` helper 신설. round-trip 테스트 1건 (73/73 통과). `InputSpec` / `OutputSpec` (ValueSpec union 12 case) + ApiCall.ApiDefId/OriginFlowId (派 도출) 은 **별도 phase 분리** — SSOT §2.2.1 명시
+- [x] **C-5 CallType + ApiDefActionType + Description** (2026-05-14 완료): `SimulationCallProperties.CallType` (Call.Properties 콜렉션 mutation) emit/apply + Passive `apiDetails.<ApiDef>.actionType` / `description` 신설. `callTypeOf` / `setCallType` helper + `tryFindApiDefInPlan` helper. SSOT §2.3 apiDetails sub-section + §2.2.1 callType. round-trip 테스트 1건 (74/74 통과)
+- [x] **C-6 Project meta + DsSystem.IRI + Work.TokenRole** (2026-05-14 완료): `Project.Author` / `Version` + `DsSystem.IRI` + `Work.TokenRole` 단순 leaf 키 (PoC scope: 단일 Flags 만). `parseTokenRole` / `formatTokenRole` helper + `tryFindProjectInPlan` / `tryFindSystemInPlan` / `tryFindWorkInPlan` helper. SSOT §2.1 / §2.2 / §2.4.1 (TokenRole row) 갱신. round-trip 테스트 1건 (75/75 통과). **별도 phase 분리**: `Work/Call.ReferenceOf` (path resolution) / `Project.TokenSpecs` / `Project.Nameplate` / `HandoverDocumentation` / `TechnicalData` (복잡 Submodel objects) / 복합 Flags TokenRole — SSOT 미명시 (todo 만 표기)
+- [x] **C-4/5/6 통합 자가 검열 통과** (2026-05-14): Critical/Major 0건. Minor 4건 모두 의도된 PoC scope 또는 후속 phase 위임
+- [x] **외부 review (`--inspect-diff 5`) 반영** (2026-05-14): Critical 0건, Major 6건 + Minor 다수. 본 phase 동반 처리 6건:
+  - **TokenRole 복합 Flags round-trip 불가 경고**: `formatTokenRole` 이 복합 (`Source ||| Sink` 등) store 값을 forensic `Combined(<int>)` 로 emit, `parseTokenRole` 은 즉시 거부 — round-trip 비대칭. SSOT §2.4.1 TokenRole row 에 "복합 Flags = round-trip 불가 (의도된 PoC 제약)" 1줄 추가. 후속 phase 가 `"Source|Sink"` pipe 표기 dual 처리 도입.
+  - **빈 IOTag (`Some empty`) emit 가드**: `Name`/`Address` 모두 빈 string 인 IOTag 인스턴스가 emit `{}` 으로 출력되고 `parseIOTag` 는 None 반환하여 `Some empty ↔ None` 비대칭. `ioTagHasContent` 헬퍼 (`callHasEnhancement` 전 위치) 추출하여 emit 자체 skip + `callHasEnhancement` 의 IOTag 검사 강화 (`Option.exists ioTagHasContent`).
+  - **`apiDetails` 적용 범위 정정**: `device` 키 부재 Passive 는 ApiDef 미생성이라 `apiDetails` entry 가 모두 entry.ApiDefIds lookup 실패 → forensic diag 거부. 코드 주석 정정 + SSOT §2.2.1 `apiDetails` 정의에 "device sugar 가 있는 Passive 한정" 명시.
+  - **빈 `callCondition: {}` 정규화**: 빈 object 가 의미 0 의 CallCondition 인스턴스 추가하지 않도록 `parseCallCondition` 진입 시 `EnumerateObject() |> Seq.isEmpty` 체크 → None 반환.
+  - **`description` 빈 string apply 정규화**: apply 측이 `Some ""` 로 set 하면 emit 측 default-skip 정책 (Some 이고 빈 string 아닐 때만 emit) 과 비대칭 → 2-pass round-trip drift. apply 측 `Option.filter (not << IsNullOrEmpty)` 로 빈 string → None 정규화.
+  - **테스트 4건 추가**: nested CallCondition children round-trip (children Type 은 `SkipUnmatch` non-default 로 설계 — `AutoAux` default-skip 의 비대칭 회피) / 빈 IOTag emit-skip 검증 / 빈 `callCondition: {}` None 정규화 검증 / 모든 default 시 신규 키 emit 0건 종합 lock-in. ModelProtocolTests 79/79 통과 (기존 75 + 신규 4)
+- [x] **외부 review — 별도 phase 분리 (todo §7 후속 결정 등록)**:
+  - **helper 3종 추출**: `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 → `resolveSystem` / `resolveCall` / `resolveApiDef` / `resolveProject` / `resolveWork` (fallback 포함), `applyStringProp`, `applyEnumProp` 추출. 후속 leaf 키 추가 시 누적 효과.
+  - **negative-test 묶음**: `parseTokenRole` / `parseIOTag` non-object / `skipInputSensor` non-bool / `apiDetails` non-object / unknown ApiDef name / `parseCallCondition` non-array `conditions` 등 7개 분기 `[<Theory>]` + `[<InlineData>]` 묶음. `parseCallCondition` 의 `conditions` 분기에 ValueKind != Array silent skip 도 진단 추가가 정석.
+  - **SSOT magic literal 분리**: `Project.Version="1.0.0"` / `CallType.WaitForCompletion` / `ApiDefActionType.Normal` 등 entity-default 와 SSOT 의 hardcode 듀얼 SSOT — 후속 phase 에서 단일 source 화.
+  - **`tryFindCallInPlan` SSOT 분산**: `ToolOperations.fs:114` + `ModelProtocol.fs` 양쪽 file-scoped private 으로 중복 — helper 3종 추출 시 일원화.
+  - **IRI 처리 시점 Active/Passive 비대칭**: Active 는 `try` 블록 안, Passive 는 별도 블록 — helper 3종 추출 시 자동 해소.
+  - **테스트 helper Queries 체이닝 패턴**: 신규 테스트 4건에서 `proj/ctrl/flow/work/call` 체이닝 4줄 반복 — `findAdvCall` 만 일부 흡수했으나 generic test helper 미완성.
 - [ ] **C-7 Submodel property + PLC metadata**: §4.1.5 결과에 따라 별도 phase 분할 (분량 클 경우 §4 단계 외부로 분리)
 - [ ] **C-8 ModelProtocol.Yaml.fs / YamlIO.fs**: PC7 자동 흡수 검증 (generic transformer 가정 확인) — 코드 변경 없어야 정상
 
@@ -276,9 +291,9 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-1 enum/string helper | ✅ 완료 (2026-05-14) — 8 helper + ApiDefActionType regex parser. 빌드 통과 / 자가 검열 통과 |
 | §4.2 C-2 SSOT 부분 갱신 | ✅ 완료 (2026-05-14) — §1.7 결정 row 4건 + §2.4.1 enum 사전 신설 |
 | §4.2 C-3 CallCondition tree | ✅ 완료 (2026-05-14) — dual format dispatcher + parse/emit recursive helper + round-trip 테스트 2건 추가 (72/72 통과) + SSOT §2.2/§2.2.1 갱신 |
-| §4.2 C-4 ApiCall property | ⏳ |
-| §4.2 C-5 CallType / ApiDefActionType | ⏳ |
-| §4.2 C-6 leaf 키 (ReferenceOf / Project meta / IRI) | ⏳ |
+| §4.2 C-4 ApiCall property | ✅ 완료 (2026-05-14) — SkipInputSensor + InTag/OutTag (IOTag) emit/apply. InputSpec/OutputSpec 별도 phase |
+| §4.2 C-5 CallType / ApiDefActionType | ✅ 완료 (2026-05-14) — SimulationCallProperties.CallType + Passive apiDetails (actionType / description) |
+| §4.2 C-6 leaf 키 (단순) | ✅ 완료 (2026-05-14) — Project.Author/Version + DsSystem.IRI + Work.TokenRole. ReferenceOf / Project.TokenSpecs 등 복잡 항목 별도 phase |
 | §4.2 C-7 PLC metadata (별도 phase 가능) | ⏳ |
 | §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ⏳ |
 | §4.3 TC-1 capturer 보강 | ⏳ |
