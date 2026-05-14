@@ -41,12 +41,6 @@
                             Style="{DynamicResource InlineListButton}"
                             Command="{Binding EditConditionsCommand, ElementName=Root}"
                             CommandParameter="{Binding EditConditionsParameter, ElementName=Root}"/>
-                    <Button Grid.Column="2"
-                            Content="+"
-                            ToolTip="{Binding AddToolTip, ElementName=Root}"
-                            Style="{DynamicResource InlineListButton}"
-                            Command="{Binding AddCommand, ElementName=Root}"
-                            CommandParameter="{Binding AddCommandParameter, ElementName=Root}"/>
                 </Grid>
             </Border>
 
@@ -73,8 +67,8 @@
                                         Command="{Binding RemoveConditionCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"/>
 
-                                <!-- 그룹 안의 ApiCall 신호 리스트 — 각 행: 이름 + ValueSpec + 편집/삭제 버튼 -->
-                                <ItemsControl ItemsSource="{Binding Items}" Margin="14,0,0,0">
+                                <!-- 그룹 안의 ApiCall 신호 리스트 — 중첩(NOT/AND/OR) 포함 평탄화. -->
+                                <ItemsControl ItemsSource="{Binding AllLeafRows}" Margin="14,0,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Grid Margin="0,1">
@@ -144,7 +138,7 @@
 
             <!-- Drop hint (shown when empty) -->
             <TextBlock x:Name="DropHint"
-                       Text="Call을 여기로 드래그하세요"
+                       Text="Tree에서 Call을 여기로 드래그하세요"
                        FontSize="10"
                        FontStyle="Italic"
                        Foreground="{DynamicResource SecondaryTextBrush}"

@@ -271,17 +271,15 @@ public sealed class ConditionApiCallRow : ObservableObject
 
 public sealed class ConditionSectionItem : ObservableObject
 {
-    public ConditionSectionItem(CallConditionType conditionType, string title, string addToolTip)
+    public ConditionSectionItem(CallConditionType conditionType, string title)
     {
         ConditionType = conditionType;
         Title = title;
-        AddToolTip = addToolTip;
         Conditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Header));
     }
 
     public CallConditionType ConditionType { get; }
     public string Title { get; }
-    public string AddToolTip { get; }
     public ObservableCollection<CallConditionItem> Conditions { get; } = [];
     public string Header => $"{Title} [{Conditions.Count}]";
     public string HelpTopic => ConditionType switch
