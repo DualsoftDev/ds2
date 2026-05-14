@@ -412,6 +412,10 @@ module ModelProtocol =
     //
     // `tryProp + tryString + Option.iter` (또는 + parser) 3~4-step 패턴이 6+ 회 누적 — 통합.
 
+    /// 진단 키 합성 — path 가 빈 string (root-level) 인 경우 leading-dot 회피 (외부 review M-1).
+    let private joinDiagKey (path: string) (key: string) : string =
+        if path = "" then key else path + "." + key
+
     /// `tryProp el key + tryString + setter` — string property 적용.
     /// 키 부재 → no-op (entity-default fallback 정합, SSOT §4). 키 존재 + non-string → diag 발행
     /// (SSOT §2.7 룰 #21~#24 silent skip 금지 정책 정합 — 외부 reviewer M-F).
@@ -423,7 +427,7 @@ module ModelProtocol =
             match tryString valEl with
             | Some s -> setter s
             | None ->
-                ctx.Diagnostics.Add(path + "." + key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
 
     /// `tryProp el key + tryString + parser + setter` — enum property 적용.
     /// 키 부재 → no-op. 키 존재 + non-string → diag (#23). parse 실패 → diag (#19/#20).
@@ -437,9 +441,9 @@ module ModelProtocol =
             | Some s ->
                 match parser s with
                 | Ok v -> setter v
-                | Error msg -> ctx.Diagnostics.Add(path + "." + key, msg)
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path key, msg)
             | None ->
-                ctx.Diagnostics.Add(path + "." + key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
 
     /// Call.Properties 안 SimulationCallProperties 의 CallType 추출 (없으면 None).
     let private callTypeOf (c: Call) : CallType option =

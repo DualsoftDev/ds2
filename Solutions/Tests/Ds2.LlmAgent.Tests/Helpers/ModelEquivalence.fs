@@ -32,6 +32,9 @@ type SystemShape = {
 /// 핵심 가드 (emit / apply 양쪽 동시 누락 시 shape diff 0 회피).
 type CallDetail = {
     Ref: string                            // "{devicesAlias}.{apiName}"
+    /// todo §10.2 #8 — `ApiCalls[0]` 1:1 매핑 PoC scope invariant guard.
+    /// PoC scope = 0 또는 1. multi-ApiCall (≥ 2) 확장 시 round-trip diff 로 즉시 가시화 → silent regression 차단.
+    ApiCallCount: int
     ContactKind: ContactKind
     SkipInputSensor: bool
     CallType: CallType option              // None = Properties 미설정
@@ -145,6 +148,7 @@ let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
         |> Seq.tryPick (function | SimulationCall props -> Some props.CallType | _ -> None)
     {
         Ref = sprintf "%s.%s" c.DevicesAlias c.ApiName
+        ApiCallCount = c.ApiCalls.Count
         ContactKind = contactKind
         SkipInputSensor = skipInputSensor
         CallType = callTypeOpt

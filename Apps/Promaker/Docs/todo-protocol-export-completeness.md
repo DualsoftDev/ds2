@@ -296,11 +296,11 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-6 leaf 키 (단순) | ✅ 완료 (2026-05-14) — Project.Author/Version + DsSystem.IRI + Work.TokenRole. ReferenceOf / Project.TokenSpecs 등 복잡 항목 별도 phase |
 | §4.2 C-7 PLC metadata (별도 phase) | ⏳ |
 | §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ✅ 완료 (PC7 산출물 — generic transformer / wiring only 확정) |
-| §4.3 TC-1 capturer 보강 | ⏳ — round-trip false-positive 위험 잔존 |
-| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 테스트 9건 추가 (C-3 2건 + C-4/5/6 각 1건 + 외부 review 4건). ModelProtocolTests 79/79 통과 |
-| §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / negative assertion / fixture / wiring |
-| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (4회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review 반영. 모두 Critical/Major 0건) |
-| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review). upstream 미설정 — push 보류 |
+| §4.3 TC-1 capturer 보강 | ✅ 완료 (`8e360aa`) — `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장 |
+| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + 본 phase 후속 [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard. **ModelProtocolTests 89/89 통과** (전체 355/355) |
+| §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / fixture / wiring 부분 잔존 |
+| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 5회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / 본 phase 후속. 모두 Critical/Major 0건) |
+| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review, `8e360aa` apply helper / 진단 강화, **본 phase 후속 — `--gc` 대기**). upstream 미설정 — push 보류 |
 | §7 후속 결정 항목 해결 | ⏳ |
 
 ---
@@ -318,7 +318,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 ### 10.1 현재 상태 (2026-05-14 기준)
 
-**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료**:
+**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료** + **`8e360aa` apply helper / 진단 강화** + **본 phase 후속 (todo §10.2 #0/#8/#9/#10) 완료**:
 - C-1 enum/string helper 8개 + ApiDefActionType regex parser
 - C-2 SSOT §1.7 결정 row 4건 + §2.4.1 'Enum 라벨 사전' 신설
 - C-3 CallCondition tree + ContactKind dual format dispatcher (옵션 C)
@@ -326,34 +326,39 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - C-5 SimulationCallProperties.CallType + Passive apiDetails (ApiDef.ApiDefActionType / Description)
 - C-6 Project.Author/Version + DsSystem.IRI + Work.TokenRole 단순 leaf
 - 외부 review (`--inspect-diff 5`) 결과 6건 fix 동반 반영 + 테스트 4건 추가
+- **`8e360aa`**: `applyStringProp` / `applyEnumProp` / `lookup*ById` 5종 helper 추출 + M-F 7분기 진단 + capturer 보강 + SSOT §2.7 룰 #10~#24 / §6.3 default fallback 표
+- **본 phase 후속 — #0 leading-dot fix** (`joinDiagKey` helper), **#10 M-F [<Theory>] + [<InlineData>] 7건 분리**, **#9 parser-error / non-string negative test 3건** (`tokenRole: NoSuchRole` / `actionType: NoSuchType` / `iri: 42`), **#8 `ApiCallCount: int` PoC invariant guard** (multi-ApiCall silent regression 방어)
 
 **Git history** (branch `yaml-save`, upstream 미설정):
 - `906b327` Phase 7 §4.2 C-1/C-2 — enum helper + SSOT 갱신
 - `5d01ca8` Phase 7 §4.2 C-3 — CallCondition tree + ContactKind dual format
 - `322c7ca` Phase 7 §4.2 C-4/C-5/C-6 + 외부 review 반영
+- `8e360aa` Phase 7 §4.2 후속 — apply helper 추출 + 진단 강화 + transfer 가이드
+- **본 phase — `--gc` 대기**: leading-dot fix + [<Theory>] 분리 + negative test + ApiCallCount guard
 
-**테스트**: `ModelProtocolTests` 79/79 통과 (기존 70 + Phase 7 신규 9). 회귀 0건.
+**테스트**: `ModelProtocolTests` 89/89 통과 (전체 `Ds2.LlmAgent.Tests` 355/355). 회귀 0건.
 
-**`--inspect-diff 5` cross-validation 결과** (2026-05-14, HEAD = `322c7ca` 기준 unstaged + staged 변경 +521/-54 검토):
-- Critical 0건. Major 1건 실효 (`applyStringProp` path 빈 string → 진단 키 leading-dot, R1/R2/R3/R4 4/5 합의) + Major 2건 후속 trace (helper 통합 M-2, description normalize 흡수 M-3, enum/IRI parser-error 테스트 누락 M-4).
-- Minor 5건: `ApiCalls[0]` PoC invariant guard 부재 (4/5 합의), `lookupCallById` dead code, M-F 단일 `[<Fact>]` 7분기 묶음, C-8 trace 보강, `summarizeCallCondition` 정렬 패턴 3회 반복.
-- 종합 판정: commit/push 진행 가능. 본 commit 직전 권장 = M-1 leading-dot fix (~2 line). 잔여는 todo §10.2 후속 phase 흡수.
+**본 phase 자가 검열** (CLAUDE.md trigger ③ — 3 file 동시 변경): sub-agent (general-purpose) 위임 1회 완료. Critical/Major 0건, Minor 2건 (`ModelProtocol.fs:809` 직접 `path + "." + key` 일관성 — root path 호출 아니라 leading-dot 위험 없음 → skip / Theory dispatch 매칭 부담 → 현 패턴 유지 권장). `--review` 후속 3 권고 (joinDiagKey root-level 호출 검증 / Theory dispatch / ApiCallCount baseline) 모두 검증 완료.
 
 ### 10.2 다음 진입 후보 (우선순위 순)
 
+> **본 phase 산출** (2026-05-14 후속): #0/#8/#9/#10 완료. #1/#2/#5 는 commit `8e360aa` 에서 이미 완료된 상태로 확인 (이전 §10.2 표 outdated). 남은 항목 우선순위 재정렬.
+
 | # | 작업 | 분량 | 사유 |
 |---|---|---|---|
-| **0** | **`--inspect-diff 5` M-1 leading-dot fix** — `ModelProtocol.fs` `applyStringProp` 내부 path 합성에 `if path = "" then key else path + "." + key` 분기 추가 (라인 426, 440, 442). 또는 Project author/version 호출(line 1542-1543)에서 `"$"` sentinel 사용. R1/R2/R3/R4 4/5 합의 Major. 사용자 가시 진단 메시지 직결 | 小 (~2 line) | 진단 키 `".author"` leading-dot 일관성 위반. 다른 호출처(`systems[i].iri`)와 비대칭 |
-| **1** | **§2.7 unknown 키 거부 룰 갱신** — SSOT `yaml-protocol-v0.md` §2.7 표 에 신규 키 11개 (`author`, `version`, `iri`, `tokenRole`, `apiDetails`, `ref`, `contactKind`, `skipInputSensor`, `inTag`, `outTag`, `callType`, `callCondition`) validate 룰 항목 추가 | 小 (doc only) | SSOT 정합 누락 — 미반영 시 사용자가 unknown 키 입력 시 진단 메시지 미제공 |
-| **2** | **§4 apply 룰 default fallback 정책 명문화** — SSOT `yaml-protocol-v0.md` §4 (apply 룰) 에 §6.3 (b) "default 생략 emit" 정책 명문화 row 추가 | 小 (doc only) | §6.3 (b) 정책이 코드에 반영됐으나 SSOT §4 apply 룰에 명시 안 됨 |
-| **3** | **외부 review M-D 별도 phase — helper 3종 추출** — `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 패턴 통합. `resolveSystem/Call/ApiDef/Project/Work` (fallback 포함), `applyStringProp`, `applyEnumProp` 추출 | 中 (refactor) | 후속 leaf 키 추가 시 누적 효과 ↑. CLAUDE.md "3줄 이상 반복 패턴" 정합 |
-| **4** | **외부 review M-F 별도 phase — negative-test 묶음** — `parseTokenRole` / `parseIOTag` non-object / `skipInputSensor` non-bool / `apiDetails` non-object / unknown ApiDef name / `parseCallCondition` non-array `conditions` 등 7개 분기 `[<Theory>]` + `[<InlineData>]` 묶음 1건 | 中 (test) | 진단 회귀 보호 부재. `parseCallCondition` 의 silent skip 도 진단 추가가 정석 |
-| **5** | **§4.3 TC-1 capturer 보강** — `Helpers/ModelEquivalence.fs:247` 의 `captureShape` 가 신규 키 (callCondition / contactKind / callType / inTag / outTag / skipInputSensor / tokenRole / apiDetails / iri / author / version) 미커버 → round-trip 통과 = false-positive | 中 (test infra) | 회귀 보호. 미보강 시 emit/apply 양쪽이 동시에 누락이면 shape diff 0 → silent regress |
+| ~~0~~ | ~~`--inspect-diff 5` M-1 leading-dot fix~~ | ✅ 완료 (본 phase) | `joinDiagKey` helper 추출 — `path = ""` (root-level `author`/`version`) 호출 site cover. grep 검증 — line 1546/1547 실제 root-level 호출 존재, dead branch 아님 |
+| ~~1~~ | ~~§2.7 unknown 키 거부 룰 갱신~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md §2.7 룰 #10~#24 신규 키 11개 모두 반영 |
+| ~~2~~ | ~~§4 apply 룰 default fallback 정책 명문화~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md line 707~737 명문화 + default 매핑 표 |
+| **3** | **외부 review M-D 별도 phase — helper 3종 추출** — `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 패턴 통합. `resolveSystem/Call/ApiDef/Project/Work` (fallback 포함) 추출. `applyStringProp`/`applyEnumProp` 는 `8e360aa` 에서 이미 추출됨 | 中 (refactor) | 후속 leaf 키 추가 시 누적 효과 ↑. CLAUDE.md "3줄 이상 반복 패턴" 정합 |
+| **4** | **외부 review M-F 별도 phase — 추가 negative-test 묶음** — 이미 본 phase 에서 [<Theory>] 7건 (`tokenRoleNonString` / `inTagNonObject` / `skipInputSensorNonBool` / `apiDetailsNonObject` / `apiDetailsUnknownApi` / `callConditionConditionsNonArray` / `callConditionChildrenNonArray`) + parser-error 3건 추가 완료. 후속 = `parseIOTag` non-object 외 추가 분기 (e.g. `iri: ""` 빈 string 정규화 / `callCondition.type` 라벨 위반 / `outTag` non-object 등) | 中 (test) | 진단 회귀 보호 추가 분기 |
+| ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa`) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장. 본 phase 에서 `ApiCallCount: int` 추가 (PoC invariant guard) |
 | **6** | **§4.2 C-7 PLC metadata** — `ControlSystemProperties` (FBTagMapPreset / AuxPortMapEntry / BaseAddressOverride / EnableHardwareControl / WorkTimeout / SignalPatternEntry 등) 사용자 명시 설정 부분 必 격상 emit/apply | 大 (별도 phase 분량) | §4.1 メ 분류 결정 필요. 별도 phase 분할 가능 |
-| **7** | **별도 phase 분리 항목** (외부 review 등록 — 본 todo §4.2 외부 review 항목 참조) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / tryFindCallInPlan SSOT 분산 / 테스트 helper 일반화 |
-| **8** | **`--inspect-diff 5` 후속 — `ApiCalls[0]` PoC invariant guard** — `Helpers/ModelEquivalence.fs:138` 1:1 매핑 가정에 명시적 guard 추가. `WorkShape` 에 `ApiCallCount: Map<callRef,int>` 추가하여 invariant break 시 즉시 fail (R1/R2/R3/R5 4/5 합의 Minor → 향후 multi-ApiCall 확장 시 silent regression 방어) | 小 (~5 line) | 회귀 보호 |
-| **9** | **`--inspect-diff 5` 후속 — enum parser-error / IRI non-string negative test** — `tokenRole: NoSuchRole`, `actionType: NoSuchType`, `iri: 42`, `iri: ""` 등 invalid value 케이스 추가. §10.2 #4 negative-test 묶음과 동반 진행 가능 | 小 (test only) | `applyEnumProp` Error 분기 회귀 보호 부재 |
-| **10** | **`--inspect-diff 5` 후속 — M-F 7분기 `[<Theory>]` 분리** — `ModelProtocolTests.fs:1659` 단일 `[<Fact>]` 에 7개 assert 직렬 → 첫 실패 시 나머지 6분기 결과 미확보. `[<Theory>]` + `MemberData` 분리 | 小 (test refactor) | 진단 회귀 가시성 ↑ |
+| **7** | **별도 phase 분리 항목** (외부 review 등록 — 본 todo §4.2 외부 review 항목 참조) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / `tryFindCallInPlan` SSOT 분산 / 테스트 helper 일반화 |
+| ~~8~~ | ~~`--inspect-diff 5` 후속 — `ApiCalls[0]` PoC invariant guard~~ | ✅ 완료 (본 phase) | `CallDetail.ApiCallCount: int` 필드 추가 — multi-ApiCall (≥ 2) 확장 시 round-trip diff 로 즉시 가시화 |
+| ~~9~~ | ~~enum parser-error / IRI non-string negative test~~ | ✅ 완료 (본 phase) | [<Theory>] 3건 (`tokenRoleInvalidLabel` / `apiDefActionTypeInvalid` / `iriNonString`) |
+| ~~10~~ | ~~M-F 7분기 `[<Theory>]` 분리~~ | ✅ 완료 (본 phase) | 단일 [<Fact>] → [<Theory>] + [<InlineData>] 7건 분리. tag→yaml dispatch 패턴 |
+| **11** | **`ModelProtocol.fs:809` 일관성 — `parseCallCondition` 내부 `parseBoolKey` 진단 키 합성** — `path + "." + key` 를 `joinDiagKey path key` 로 치환. 본 호출처는 root path 아님 (leading-dot 위험 없음) — ROI 낮으나 일관성 차원 | 小 (1 line) | 일관성 (본 phase 자가 검열 Minor m1) |
+| **12** | **`callCondition.type` 라벨 위반 / IRI 빈 string 정규화 검증** — 본 phase 후속 잔여 negative test. `applyEnumProp` 의 parse Error 분기 일부만 cover, 빈 string IRI 는 emit/apply 비대칭 가능성 | 小 (test) | 회귀 보호 미진 분기 |
 
 ### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
 
