@@ -185,70 +185,83 @@ module LoggingHelpers =
         let getStats (state: CallStatsState) : IncrementalStatsResult = state.Stats
 
     // -------------------------------------------------------------------------
-    // Error Definition Helpers
+    // User Tag Helpers
     // -------------------------------------------------------------------------
 
-    module ErrorDefinitionHelpers =
+    module UserTagHelpers =
 
         let private separator = '|'
 
-        /// ErrorValueType → 문자열 변환
+        /// PlcValueType → 문자열 변환
         let valueTypeToString = function
-            | ErrorValueType.Bit -> "Bit"
-            | ErrorValueType.Byte -> "Byte"
-            | ErrorValueType.Word -> "Word"
-            | ErrorValueType.DWord -> "DWord"
-            | ErrorValueType.Int16 -> "Int16"
-            | ErrorValueType.Int32 -> "Int32"
-            | ErrorValueType.Real -> "Real"
-            | ErrorValueType.StringType -> "String"
+            | PlcValueType.Bit -> "Bit"
+            | PlcValueType.Byte -> "Byte"
+            | PlcValueType.Word -> "Word"
+            | PlcValueType.DWord -> "DWord"
+            | PlcValueType.Int16 -> "Int16"
+            | PlcValueType.Int32 -> "Int32"
+            | PlcValueType.Real -> "Real"
+            | PlcValueType.StringType -> "String"
 
-        /// 문자열 → ErrorValueType 파싱
-        let parseValueType (s: string) : ErrorValueType =
+        /// 문자열 → PlcValueType 파싱
+        let parseValueType (s: string) : PlcValueType =
             match s.Trim().ToUpperInvariant() with
-            | "BIT" | "BOOL" -> ErrorValueType.Bit
-            | "BYTE" -> ErrorValueType.Byte
-            | "WORD" | "UINT16" -> ErrorValueType.Word
-            | "DWORD" | "UINT32" -> ErrorValueType.DWord
-            | "INT16" | "INT" | "SHORT" -> ErrorValueType.Int16
-            | "INT32" | "DINT" | "LONG" -> ErrorValueType.Int32
-            | "REAL" | "FLOAT" -> ErrorValueType.Real
-            | "STRING" | "STR" -> ErrorValueType.StringType
-            | _ -> ErrorValueType.Bit
+            | "BIT" | "BOOL" -> PlcValueType.Bit
+            | "BYTE" -> PlcValueType.Byte
+            | "WORD" | "UINT16" -> PlcValueType.Word
+            | "DWORD" | "UINT32" -> PlcValueType.DWord
+            | "INT16" | "INT" | "SHORT" -> PlcValueType.Int16
+            | "INT32" | "DINT" | "LONG" -> PlcValueType.Int32
+            | "REAL" | "FLOAT" -> PlcValueType.Real
+            | "STRING" | "STR" -> PlcValueType.StringType
+            | _ -> PlcValueType.Bit
 
-        /// 구조화 문자열 → ErrorDefinition 파싱
-        /// 형식: "에러이름|태그주소|값타입"
-        let parse (encoded: string) : ErrorDefinition option =
+        /// UserTagLogLevel → 문자열 변환
+        let logLevelToString = function
+            | UserTagLogLevel.Info -> "Info"
+            | UserTagLogLevel.Warning -> "Warning"
+            | UserTagLogLevel.Error -> "Error"
+
+        /// 문자열 → UserTagLogLevel 파싱 (미일치 시 Info)
+        let parseLogLevel (s: string) : UserTagLogLevel =
+            match s.Trim().ToUpperInvariant() with
+            | "INFO" -> UserTagLogLevel.Info
+            | "WARN" | "WARNING" -> UserTagLogLevel.Warning
+            | "ERROR" | "ERR" -> UserTagLogLevel.Error
+            | _ -> UserTagLogLevel.Info
+
+        /// 구조화 문자열 → UserTag 파싱
+        /// 형식: "이름|로그레벨|태그주소|값타입"
+        let parse (encoded: string) : UserTag option =
             if String.IsNullOrWhiteSpace(encoded) then None
             else
                 let parts = encoded.Split(separator)
-                if parts.Length >= 3 then
+                if parts.Length >= 4 then
                     Some {
                         Name = parts.[0].Trim()
-                        TagAddress = parts.[1].Trim()
-                        ValueType = parseValueType parts.[2]
-                    }
-                elif parts.Length = 2 then
-                    Some {
-                        Name = parts.[0].Trim()
-                        TagAddress = parts.[1].Trim()
-                        ValueType = Bit
+                        LogLevel = parseLogLevel parts.[1]
+                        TagAddress = parts.[2].Trim()
+                        ValueType = parseValueType parts.[3]
                     }
                 else
                     None
 
-        /// ErrorDefinition → 구조화 문자열 직렬화
-        let format (def: ErrorDefinition) : string =
-            sprintf "%s%c%s%c%s" def.Name separator def.TagAddress separator (valueTypeToString def.ValueType)
+        /// UserTag → 구조화 문자열 직렬화
+        let format (tag: UserTag) : string =
+            sprintf "%s%c%s%c%s%c%s"
+                tag.Name separator
+                (logLevelToString tag.LogLevel) separator
+                tag.TagAddress separator
+                (valueTypeToString tag.ValueType)
 
-        /// Flow의 ErrorDefinitions 전체 파싱
-        let parseAll (encodedList: ResizeArray<string>) : ErrorDefinition list =
+        /// System의 UserTags 전체 파싱
+        let parseAll (encodedList: ResizeArray<string>) : UserTag list =
             encodedList
             |> Seq.choose parse
             |> Seq.toList
 
-        /// ErrorDefinition 리스트 → ResizeArray<string> 직렬화
-        let formatAll (definitions: ErrorDefinition list) : ResizeArray<string> =
-            definitions
+        /// UserTag 리스트 → ResizeArray<string> 직렬화
+        let formatAll (tags: UserTag list) : ResizeArray<string> =
+            tags
             |> List.map format
             |> ResizeArray

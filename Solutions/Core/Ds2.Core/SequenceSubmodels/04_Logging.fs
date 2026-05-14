@@ -6,19 +6,19 @@ open System
 // SEQUENCE LOGGING SUBMODEL
 // =============================================================================
 //
-// 역할: 실행 이력 기록, 통계 분석, 에러 정의 (Historical data logging, analysis, error definitions)
+// 역할: 실행 이력 기록, 통계 분석, 사용자 태그 정의 (Historical data logging, analysis, user tag definitions)
 //
 // 핵심 기능:
 //   - Call/Work 실행 이력 기록
 //   - Welford's Algorithm 기반 O(1) 증분 통계
 //   - 병목 구간 탐지 (CriticalPath, LongDuration, FrequentExecution)
 //   - 성능 메트릭 계산 (평균, 표준편차, CV)
-//   - Flow 단위 에러 정의 (이름, 태그, 값타입)
+//   - System 단위 사용자 태그 정의 (이름, 로그레벨, 태그, 값타입)
 //   - Gantt/Heatmap 데이터 생성
 //
 // 다른 모듈과의 관계:
 //   - 03_Monitoring.fs: Logging은 과거(PAST), Monitoring은 현재(NOW)
-//   - 05_Maintenance.fs: Logging은 정상 실행 통계 + 에러 정의, Maintenance는 에러 추적/처리
+//   - 05_Maintenance.fs: Logging은 정상 실행 통계 + 사용자 태그 정의, Maintenance는 에러 추적/처리
 //
 // =============================================================================
 
@@ -53,8 +53,8 @@ type BucketSize =
     | Min10     // 10분 버킷
     | Hour1     // 1시간 버킷
 
-/// 에러 태그 값 타입 (PLC 데이터 타입)
-type ErrorValueType =
+/// PLC 데이터 타입
+type PlcValueType =
     | Bit           // 1-bit (on/off)
     | Byte          // 8-bit unsigned
     | Word          // 16-bit unsigned
@@ -63,6 +63,13 @@ type ErrorValueType =
     | Int32         // signed 32-bit
     | Real          // 32-bit float
     | StringType    // 문자열
+
+/// 사용자 태그 로그 레벨
+[<RequireQualifiedAccess>]
+type UserTagLogLevel =
+    | Info          // 정보 (정상 이벤트)
+    | Warning       // 경고
+    | Error         // 에러
 
 
 // =============================================================================
@@ -169,14 +176,15 @@ type HeatmapCell = {
 
 
 // =============================================================================
-// TYPE DEFINITIONS: Error Definitions
+// TYPE DEFINITIONS: User Tag Definitions
 // =============================================================================
 
-/// System 단위 에러 정의 (파싱된 구조체)
-type ErrorDefinition = {
-    Name: string                // 에러 이름 (예: "Motor_Overload")
-    TagAddress: string          // PLC 태그 주소 (예: "M901")
-    ValueType: ErrorValueType   // 값 타입 (예: Bit)
+/// System 단위 사용자 태그 정의 (파싱된 구조체)
+type UserTag = {
+    Name: string                  // 태그 이름 (예: "Motor_Overload")
+    LogLevel: UserTagLogLevel     // 로그 레벨 (Info / Warning / Error)
+    TagAddress: string            // PLC 태그 주소 (예: "M901")
+    ValueType: PlcValueType       // 값 타입 (예: Bit)
 }
 
 
@@ -204,9 +212,9 @@ type LoggingSystemProperties() =
     member val LogFilePath = "./logs/history" with get, set
     member val RetentionDays = 90 with get, set
 
-    // 에러 정의 (System 당 N개, 형식: "이름|레벨|태그주소|값타입")
-    // 예: "Motor_Overload|M901|Bit", "Vacuum_Low|D100|Word"
-    member val ErrorDefinitions = ResizeArray<string>() with get, set   //UserTagDefinitions
+    // 사용자 태그 정의 (System 당 N개, 형식: "이름|로그레벨|태그주소|값타입")
+    // 예: "Motor_Overload|Error|M901|Bit", "DoorOpen|Warning|M100|Bit", "CycleStart|Info|M200|Bit"
+    member val UserTags = ResizeArray<string>() with get, set
 
 /// Flow-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingFlowProperties() =
