@@ -463,6 +463,266 @@ module ModelProtocol =
             props.CallType <- ct
             c.Properties.Add(SimulationCall props)
 
+    // ─── PLC metadata apply (Phase 7 §4.2 C-7.1) ─────────────────────────────
+    //
+    // SSOT §2.2.2 (C-7.1): entity 안 `plc:` sub-section — ControlSystemProperties /
+    // ControlFlowProperties / ControlWorkProperties / ControlCallProperties 의 단순
+    // leaf scalar 만 처리 (복합 collection 은 C-7.2 후속 phase).
+    //
+    // **Default 정책**: 키 부재 → no-op (type-default 유지). 키 존재 → mutate.
+    // emit 측이 type-default 와 다른 값만 emit 하므로 round-trip 정합.
+    //
+    // **TimeSpan**: `TimeSpan.TryParse` — `"00:00:05"` / `"00:00:00.005"` (ms) 모두 지원.
+    //
+    // **Runtime-only 제외** (派 분류): CurrentState / LastExecutionTime / ExecutionCount /
+    // ErrorCount (Work) — emit 안 하므로 plc 키 진단에서 unknown 으로 거부 (round-trip 0건).
+
+    let private readBoolKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: bool -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.True -> setter true
+            | JsonValueKind.False -> setter false
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "bool 기대 (실제 %A)." v.ValueKind))
+
+    let private readIntKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: int -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            if v.ValueKind = JsonValueKind.Number then
+                let ok, n = v.TryGetInt32()
+                if ok then setter n
+                else ctx.Diagnostics.Add(joinDiagKey path key, "int 기대 (overflow 또는 not integer).")
+            else
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "int 기대 (실제 %A)." v.ValueKind))
+
+    let private readFloatKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: float -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            if v.ValueKind = JsonValueKind.Number then
+                let ok, n = v.TryGetDouble()
+                if ok then setter n
+                else ctx.Diagnostics.Add(joinDiagKey path key, "float 기대.")
+            else
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "float 기대 (실제 %A)." v.ValueKind))
+
+    let private readStringKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: string -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match tryString v with
+            | Some s -> setter s
+            | None -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." v.ValueKind))
+
+    /// string | null → Some s / None. 빈 string ("") 은 그대로 Some "" (정규화 없음 — PoC).
+    let private readStringOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: string option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.String -> setter (Some (v.GetString()))
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readIntOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: int option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.Number ->
+                let ok, n = v.TryGetInt32()
+                if ok then setter (Some n)
+                else ctx.Diagnostics.Add(joinDiagKey path key, "int 기대 (overflow 또는 not integer).")
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "int | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readFloatOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: float option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.Number ->
+                let ok, n = v.TryGetDouble()
+                if ok then setter (Some n)
+                else ctx.Diagnostics.Add(joinDiagKey path key, "float 기대.")
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "float | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readTimeSpanKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: TimeSpan -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match tryString v with
+            | Some s ->
+                let ok, ts = TimeSpan.TryParse s
+                if ok then setter ts
+                else ctx.Diagnostics.Add(joinDiagKey path key, sprintf "TimeSpan 형식 위반 ('%s')." s)
+            | None -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." v.ValueKind))
+
+    let private readTimeSpanOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: TimeSpan option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.String ->
+                let s = v.GetString()
+                let ok, ts = TimeSpan.TryParse s
+                if ok then setter (Some ts)
+                else ctx.Diagnostics.Add(joinDiagKey path key, sprintf "TimeSpan 형식 위반 ('%s')." s)
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string | null 기대 (실제 %A)." v.ValueKind))
+
+    /// 알려진 키 외 entry → 진단 발행 (SSOT §2.7 unknown 키 거부 정합).
+    let private warnUnknownPlcKeys
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (known: Set<string>) : unit =
+        for prop in el.EnumerateObject() do
+            if not (Set.contains prop.Name known) then
+                ctx.Diagnostics.Add(joinDiagKey path prop.Name, sprintf "알 수 없는 plc 키 '%s'." prop.Name)
+
+    let private plcSystemKnownKeys =
+        Set.ofList [
+            "enableAutoTagGeneration"; "tagPrefix"; "tagNamingFormat"; "nameTransform"
+            "plcVendor"; "plcIpAddress"; "plcPort"; "communicationTimeout"; "retryAttempts"
+            "tagMatchMode"; "enableAddressValidation"; "caseSensitiveMatching"
+            "enableSafetyInterlock"; "emergencyStopEnabled"; "safetyDoorCheck"
+            "lightCurtainCheck"; "twoHandControl"; "safetyTimeoutSeconds"
+            "enableHealthCheck"; "healthCheckInterval"; "enableHeartbeat"; "heartbeatInterval"
+            "systemType"
+        ]
+
+    let private plcFlowKnownKeys =
+        Set.ofList [ "flowControlEnabled"; "flowPriority" ]
+
+    let private plcWorkKnownKeys =
+        Set.ofList [
+            "enableHardwareControl"; "controlMode"
+            "inTagName"; "inTagAddress"; "outTagName"; "outTagAddress"; "callDirection"
+            "workTimeout"; "enableTimeout"; "timeoutAction"
+            "requiresSafetyCheck"
+            "enableMotionControl"; "motionControlMode"
+            "targetPosition"; "targetVelocity"; "acceleration"; "deceleration"
+            "usePulseControl"; "pulseWidthMs"; "pulseIntervalMs"; "pulseCount"
+        ]
+
+    let private plcCallKnownKeys =
+        Set.ofList [
+            "callDirection"; "enableRetry"; "maxRetryCount"; "retryDelayMs"
+            "callTimeout"; "waitForCompletion"
+            "enableConditional"; "conditionExpression"
+        ]
+
+    let private parsePlcSystem
+        (ctx: ApplyContext) (path: string) (sys: DsSystem) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match sys.GetControlProperties() with
+                | Some cp -> cp
+                | None ->
+                    let cp = ControlSystemProperties()
+                    sys.SetControlProperties(cp)
+                    cp
+            readBoolKey ctx path plcEl "enableAutoTagGeneration" (fun v -> cp.EnableAutoTagGeneration <- v)
+            readStringOptKey ctx path plcEl "tagPrefix" (fun v -> cp.TagPrefix <- v)
+            readStringKey ctx path plcEl "tagNamingFormat" (fun v -> cp.TagNamingFormat <- v)
+            readStringKey ctx path plcEl "nameTransform" (fun v -> cp.NameTransform <- v)
+            readStringKey ctx path plcEl "plcVendor" (fun v -> cp.PlcVendor <- v)
+            readStringKey ctx path plcEl "plcIpAddress" (fun v -> cp.PlcIpAddress <- v)
+            readIntKey ctx path plcEl "plcPort" (fun v -> cp.PlcPort <- v)
+            readTimeSpanKey ctx path plcEl "communicationTimeout" (fun v -> cp.CommunicationTimeout <- v)
+            readIntKey ctx path plcEl "retryAttempts" (fun v -> cp.RetryAttempts <- v)
+            readStringKey ctx path plcEl "tagMatchMode" (fun v -> cp.TagMatchMode <- v)
+            readBoolKey ctx path plcEl "enableAddressValidation" (fun v -> cp.EnableAddressValidation <- v)
+            readBoolKey ctx path plcEl "caseSensitiveMatching" (fun v -> cp.CaseSensitiveMatching <- v)
+            readBoolKey ctx path plcEl "enableSafetyInterlock" (fun v -> cp.EnableSafetyInterlock <- v)
+            readBoolKey ctx path plcEl "emergencyStopEnabled" (fun v -> cp.EmergencyStopEnabled <- v)
+            readBoolKey ctx path plcEl "safetyDoorCheck" (fun v -> cp.SafetyDoorCheck <- v)
+            readBoolKey ctx path plcEl "lightCurtainCheck" (fun v -> cp.LightCurtainCheck <- v)
+            readBoolKey ctx path plcEl "twoHandControl" (fun v -> cp.TwoHandControl <- v)
+            readFloatKey ctx path plcEl "safetyTimeoutSeconds" (fun v -> cp.SafetyTimeoutSeconds <- v)
+            readBoolKey ctx path plcEl "enableHealthCheck" (fun v -> cp.EnableHealthCheck <- v)
+            readTimeSpanKey ctx path plcEl "healthCheckInterval" (fun v -> cp.HealthCheckInterval <- v)
+            readBoolKey ctx path plcEl "enableHeartbeat" (fun v -> cp.EnableHeartbeat <- v)
+            readTimeSpanKey ctx path plcEl "heartbeatInterval" (fun v -> cp.HeartbeatInterval <- v)
+            readStringOptKey ctx path plcEl "systemType" (fun v -> cp.SystemType <- v)
+            warnUnknownPlcKeys ctx path plcEl plcSystemKnownKeys
+
+    let private parsePlcFlow
+        (ctx: ApplyContext) (path: string) (flow: Flow) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match flow.GetControlProperties() with
+                | Some cp -> cp
+                | None ->
+                    let cp = ControlFlowProperties()
+                    flow.SetControlProperties(cp)
+                    cp
+            readBoolKey ctx path plcEl "flowControlEnabled" (fun v -> cp.FlowControlEnabled <- v)
+            readIntKey ctx path plcEl "flowPriority" (fun v -> cp.FlowPriority <- v)
+            warnUnknownPlcKeys ctx path plcEl plcFlowKnownKeys
+
+    let private parsePlcWork
+        (ctx: ApplyContext) (path: string) (wk: Work) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match wk.GetControlProperties() with
+                | Some cp -> cp
+                | None ->
+                    let cp = ControlWorkProperties()
+                    wk.SetControlProperties(cp)
+                    cp
+            readBoolKey ctx path plcEl "enableHardwareControl" (fun v -> cp.EnableHardwareControl <- v)
+            readStringKey ctx path plcEl "controlMode" (fun v -> cp.ControlMode <- v)
+            readStringOptKey ctx path plcEl "inTagName" (fun v -> cp.InTagName <- v)
+            readStringOptKey ctx path plcEl "inTagAddress" (fun v -> cp.InTagAddress <- v)
+            readStringOptKey ctx path plcEl "outTagName" (fun v -> cp.OutTagName <- v)
+            readStringOptKey ctx path plcEl "outTagAddress" (fun v -> cp.OutTagAddress <- v)
+            readStringKey ctx path plcEl "callDirection" (fun v -> cp.CallDirection <- v)
+            readTimeSpanOptKey ctx path plcEl "workTimeout" (fun v -> cp.WorkTimeout <- v)
+            readBoolKey ctx path plcEl "enableTimeout" (fun v -> cp.EnableTimeout <- v)
+            readStringKey ctx path plcEl "timeoutAction" (fun v -> cp.TimeoutAction <- v)
+            readBoolKey ctx path plcEl "requiresSafetyCheck" (fun v -> cp.RequiresSafetyCheck <- v)
+            readBoolKey ctx path plcEl "enableMotionControl" (fun v -> cp.EnableMotionControl <- v)
+            readStringOptKey ctx path plcEl "motionControlMode" (fun v -> cp.MotionControlMode <- v)
+            readFloatOptKey ctx path plcEl "targetPosition" (fun v -> cp.TargetPosition <- v)
+            readFloatOptKey ctx path plcEl "targetVelocity" (fun v -> cp.TargetVelocity <- v)
+            readFloatOptKey ctx path plcEl "acceleration" (fun v -> cp.Acceleration <- v)
+            readFloatOptKey ctx path plcEl "deceleration" (fun v -> cp.Deceleration <- v)
+            readBoolKey ctx path plcEl "usePulseControl" (fun v -> cp.UsePulseControl <- v)
+            readIntOptKey ctx path plcEl "pulseWidthMs" (fun v -> cp.PulseWidthMs <- v)
+            readIntOptKey ctx path plcEl "pulseIntervalMs" (fun v -> cp.PulseIntervalMs <- v)
+            readIntOptKey ctx path plcEl "pulseCount" (fun v -> cp.PulseCount <- v)
+            warnUnknownPlcKeys ctx path plcEl plcWorkKnownKeys
+
+    let private parsePlcCall
+        (ctx: ApplyContext) (path: string) (c: Call) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match c.GetControlProperties() with
+                | Some cp -> cp
+                | None ->
+                    let cp = ControlCallProperties()
+                    c.SetControlProperties(cp)
+                    cp
+            readStringKey ctx path plcEl "callDirection" (fun v -> cp.CallDirection <- v)
+            readBoolKey ctx path plcEl "enableRetry" (fun v -> cp.EnableRetry <- v)
+            readIntKey ctx path plcEl "maxRetryCount" (fun v -> cp.MaxRetryCount <- v)
+            readIntKey ctx path plcEl "retryDelayMs" (fun v -> cp.RetryDelayMs <- v)
+            readTimeSpanOptKey ctx path plcEl "callTimeout" (fun v -> cp.CallTimeout <- v)
+            readBoolKey ctx path plcEl "waitForCompletion" (fun v -> cp.WaitForCompletion <- v)
+            readBoolKey ctx path plcEl "enableConditional" (fun v -> cp.EnableConditional <- v)
+            readStringOptKey ctx path plcEl "conditionExpression" (fun v -> cp.ConditionExpression <- v)
+            warnUnknownPlcKeys ctx path plcEl plcCallKnownKeys
+
     /// `flow Run` 같은 prefix 키 매칭 (SSOT §2.5).
     /// grammar: `flow` WS+ identifier (ASCII).
     let private flowKeyRegex =
@@ -645,10 +905,16 @@ module ModelProtocol =
                         ctx.Diagnostics.Add(path, ex.Message)
 
         // Phase 7 §4.2 C-6: DsSystem.IRI (Passive — leaf 키)
+        // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System)
         match !entry.SystemId with
         | Some sysId ->
             applyStringProp ctx path sysEl "iri" (fun s ->
                 lookupSystemById ctx sysId |> Option.iter (fun sys -> sys.IRI <- Some s))
+            tryProp sysEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupSystemById ctx sysId
+                |> Option.iter (fun sys ->
+                    parsePlcSystem ctx (joinDiagKey path "plc") sys plcEl))
         | None -> ()
 
         // apiDetails — ApiDef 별 추가 property (Phase 7 §4.2 C-5).
@@ -694,6 +960,12 @@ module ModelProtocol =
             // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
             applyStringProp ctx path sysEl "iri" (fun s ->
                 lookupSystemById ctx id |> Option.iter (fun sys -> sys.IRI <- Some s))
+            // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Active System)
+            tryProp sysEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupSystemById ctx id
+                |> Option.iter (fun sys ->
+                    parsePlcSystem ctx (joinDiagKey path "plc") sys plcEl))
         with ex ->
             ctx.Diagnostics.Add(path, ex.Message)
 
@@ -894,6 +1166,13 @@ module ModelProtocol =
             applyEnumProp ctx path workEl "tokenRole" parseTokenRole (fun r ->
                 lookupWorkById ctx workId |> Option.iter (fun work -> work.TokenRole <- r))
 
+            // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키
+            tryProp workEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupWorkById ctx workId
+                |> Option.iter (fun work ->
+                    parsePlcWork ctx (joinDiagKey path "plc") work plcEl))
+
             // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
             //   string scalar       → default case, callObjOpt = None
             //   object { ref, ... } → non-default case, callObjOpt = Some <full object>
@@ -1007,7 +1286,11 @@ module ModelProtocol =
                                 |> Option.iter (fun ccEl ->
                                     match parseCallCondition ctx ccEl (callPath + ".callCondition") with
                                     | Some cc -> call.CallConditions.Add(cc)
-                                    | None -> ()))
+                                    | None -> ())
+                                // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키
+                                tryProp obj "plc"
+                                |> Option.iter (fun plcEl ->
+                                    parsePlcCall ctx (joinDiagKey callPath "plc") call plcEl))
                     with ex ->
                         ctx.Diagnostics.Add(callPath, ex.Message)
                 callIdx <- callIdx + 1
@@ -1093,6 +1376,14 @@ module ModelProtocol =
                 try
                     let flowId = ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                     sysEntry.FlowIds.[flowName] <- flowId
+
+                    // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
+                    tryProp flowEl "plc"
+                    |> Option.iter (fun plcEl ->
+                        tryFindInPlan ctx.Plan (function AddFlow f when f.Id = flowId -> Some f | _ -> None)
+                        |> Option.orElseWith (fun () -> Queries.getFlow flowId ctx.Store)
+                        |> Option.iter (fun flow ->
+                            parsePlcFlow ctx (joinDiagKey flowPath "plc") flow plcEl))
 
                     // works (mapping)
                     let worksEl = tryProp flowEl "works"
@@ -1660,6 +1951,23 @@ module ModelProtocol =
     let private ioTagHasContent (tag: IOTag) : bool =
         not (String.IsNullOrEmpty tag.Name) || not (String.IsNullOrEmpty tag.Address)
 
+    /// Call 의 PLC metadata 가 non-default 인지 — dual format 분기 판단용 (callHasEnhancement 합성).
+    /// emit 측 `emitPlcCall` 의 writeXxx 조건과 *정확히 동일한 비교* 사용 — SSOT 분산 수용 (같은 file 인접).
+    /// PoC scope: Option 타입은 cur=None 면 skip 정합 (emit 측 None default 시 키 자체 미 발행).
+    let private plcCallHasNonDefault (c: Call) : bool =
+        match c.GetControlProperties() with
+        | None -> false
+        | Some cp ->
+            let def = ControlCallProperties()
+            cp.CallDirection <> def.CallDirection
+            || cp.EnableRetry <> def.EnableRetry
+            || cp.MaxRetryCount <> def.MaxRetryCount
+            || cp.RetryDelayMs <> def.RetryDelayMs
+            || (cp.CallTimeout.IsSome && cp.CallTimeout <> def.CallTimeout)
+            || cp.WaitForCompletion <> def.WaitForCompletion
+            || cp.EnableConditional <> def.EnableConditional
+            || (cp.ConditionExpression.IsSome && cp.ConditionExpression <> def.ConditionExpression)
+
     let private callHasEnhancement (c: Call) : bool =
         let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
         let exists pred = firstApiCall |> Option.exists pred
@@ -1673,6 +1981,7 @@ module ModelProtocol =
         || exists (fun ac -> ac.InTag |> Option.exists ioTagHasContent)
         || exists (fun ac -> ac.OutTag |> Option.exists ioTagHasContent)
         || hasNonDefaultCallType
+        || plcCallHasNonDefault c
 
     /// IOTag emit — Name + Address 두 키만 (Phase 7 §4.2 C-4 PoC scope).
     /// DataType / Description / DefaultValue 등 IOTag 의 부속 property 는 후속 phase.
@@ -1721,6 +2030,175 @@ module ModelProtocol =
             w.WriteEndArray()
         w.WriteEndObject()
 
+    // ─── PLC metadata emit (Phase 7 §4.2 C-7.1) ─────────────────────────────
+    //
+    // SSOT §2.2.2 (C-7.1): entity 안 `plc:` sub-section. ControlSystemProperties /
+    // ControlFlowProperties / ControlWorkProperties / ControlCallProperties 의 단순 leaf
+    // scalar 만 emit (복합 collection 은 C-7.2 후속 phase).
+    //
+    // **Default 정책**: type-default (= 빈 생성자 호출 결과) 와 다른 값만 emit.
+    // 모든 leaf default 면 plc 키 자체 생략 — dual format §4.1.5 옵션 C 정합.
+    //
+    // **TimeSpan**: `ToString("c")` = `[-][d.]hh:mm:ss[.fffffff]`. ms 표현 가능.
+    //
+    // **Runtime-only 제외** (派 분류): CurrentState / LastExecutionTime / ExecutionCount /
+    // ErrorCount (Work) — 시뮬 lossy 4-set 유사. emit 안 함.
+    //
+    // **call dual format**: Call 의 plc 변경 시 `callHasEnhancement` true → object 승격.
+
+    let private emitPlcSystem (w: Utf8JsonWriter) (cp: ControlSystemProperties) : unit =
+        let def = ControlSystemProperties()
+        let mutable opened = false
+        let openIfNeeded () =
+            if not opened then
+                w.WritePropertyName "plc"
+                w.WriteStartObject()
+                opened <- true
+        let writeBool (key: string) (cur: bool) (defv: bool) =
+            if cur <> defv then openIfNeeded(); w.WriteBoolean(key, cur)
+        let writeInt (key: string) (cur: int) (defv: int) =
+            if cur <> defv then openIfNeeded(); w.WriteNumber(key, cur)
+        let writeFloat (key: string) (cur: float) (defv: float) =
+            if cur <> defv then openIfNeeded(); w.WriteNumber(key, cur)
+        let writeString (key: string) (cur: string) (defv: string) =
+            if cur <> defv then openIfNeeded(); w.WriteString(key, cur)
+        let writeStringOpt (key: string) (cur: string option) (defv: string option) =
+            // None default 가정 — cur = Some 일 때만 emit. cur = None 이면 def 와 같음 → skip.
+            match cur, defv with
+            | Some s, _ when cur <> defv -> openIfNeeded(); w.WriteString(key, s)
+            | _ -> ()
+        let writeTimeSpan (key: string) (cur: TimeSpan) (defv: TimeSpan) =
+            if cur <> defv then openIfNeeded(); w.WriteString(key, cur.ToString("c"))
+
+        writeBool "enableAutoTagGeneration" cp.EnableAutoTagGeneration def.EnableAutoTagGeneration
+        writeStringOpt "tagPrefix" cp.TagPrefix def.TagPrefix
+        writeString "tagNamingFormat" cp.TagNamingFormat def.TagNamingFormat
+        writeString "nameTransform" cp.NameTransform def.NameTransform
+        writeString "plcVendor" cp.PlcVendor def.PlcVendor
+        writeString "plcIpAddress" cp.PlcIpAddress def.PlcIpAddress
+        writeInt "plcPort" cp.PlcPort def.PlcPort
+        writeTimeSpan "communicationTimeout" cp.CommunicationTimeout def.CommunicationTimeout
+        writeInt "retryAttempts" cp.RetryAttempts def.RetryAttempts
+        writeString "tagMatchMode" cp.TagMatchMode def.TagMatchMode
+        writeBool "enableAddressValidation" cp.EnableAddressValidation def.EnableAddressValidation
+        writeBool "caseSensitiveMatching" cp.CaseSensitiveMatching def.CaseSensitiveMatching
+        writeBool "enableSafetyInterlock" cp.EnableSafetyInterlock def.EnableSafetyInterlock
+        writeBool "emergencyStopEnabled" cp.EmergencyStopEnabled def.EmergencyStopEnabled
+        writeBool "safetyDoorCheck" cp.SafetyDoorCheck def.SafetyDoorCheck
+        writeBool "lightCurtainCheck" cp.LightCurtainCheck def.LightCurtainCheck
+        writeBool "twoHandControl" cp.TwoHandControl def.TwoHandControl
+        writeFloat "safetyTimeoutSeconds" cp.SafetyTimeoutSeconds def.SafetyTimeoutSeconds
+        writeBool "enableHealthCheck" cp.EnableHealthCheck def.EnableHealthCheck
+        writeTimeSpan "healthCheckInterval" cp.HealthCheckInterval def.HealthCheckInterval
+        writeBool "enableHeartbeat" cp.EnableHeartbeat def.EnableHeartbeat
+        writeTimeSpan "heartbeatInterval" cp.HeartbeatInterval def.HeartbeatInterval
+        writeStringOpt "systemType" cp.SystemType def.SystemType
+
+        if opened then w.WriteEndObject()
+
+    let private emitPlcFlow (w: Utf8JsonWriter) (cp: ControlFlowProperties) : unit =
+        let def = ControlFlowProperties()
+        let mutable opened = false
+        let openIfNeeded () =
+            if not opened then
+                w.WritePropertyName "plc"
+                w.WriteStartObject()
+                opened <- true
+        let writeBool (key: string) (cur: bool) (defv: bool) =
+            if cur <> defv then openIfNeeded(); w.WriteBoolean(key, cur)
+        let writeInt (key: string) (cur: int) (defv: int) =
+            if cur <> defv then openIfNeeded(); w.WriteNumber(key, cur)
+        writeBool "flowControlEnabled" cp.FlowControlEnabled def.FlowControlEnabled
+        writeInt "flowPriority" cp.FlowPriority def.FlowPriority
+        if opened then w.WriteEndObject()
+
+    let private emitPlcWork (w: Utf8JsonWriter) (cp: ControlWorkProperties) : unit =
+        let def = ControlWorkProperties()
+        let mutable opened = false
+        let openIfNeeded () =
+            if not opened then
+                w.WritePropertyName "plc"
+                w.WriteStartObject()
+                opened <- true
+        let writeBool (key: string) (cur: bool) (defv: bool) =
+            if cur <> defv then openIfNeeded(); w.WriteBoolean(key, cur)
+        let writeString (key: string) (cur: string) (defv: string) =
+            if cur <> defv then openIfNeeded(); w.WriteString(key, cur)
+        let writeStringOpt (key: string) (cur: string option) (defv: string option) =
+            match cur, defv with
+            | Some s, _ when cur <> defv -> openIfNeeded(); w.WriteString(key, s)
+            | _ -> ()
+        let writeFloatOpt (key: string) (cur: float option) (defv: float option) =
+            match cur, defv with
+            | Some n, _ when cur <> defv -> openIfNeeded(); w.WriteNumber(key, n)
+            | _ -> ()
+        let writeIntOpt (key: string) (cur: int option) (defv: int option) =
+            match cur, defv with
+            | Some n, _ when cur <> defv -> openIfNeeded(); w.WriteNumber(key, n)
+            | _ -> ()
+        let writeTimeSpanOpt (key: string) (cur: TimeSpan option) (defv: TimeSpan option) =
+            match cur, defv with
+            | Some s, _ when cur <> defv -> openIfNeeded(); w.WriteString(key, s.ToString("c"))
+            | _ -> ()
+
+        writeBool "enableHardwareControl" cp.EnableHardwareControl def.EnableHardwareControl
+        writeString "controlMode" cp.ControlMode def.ControlMode
+        writeStringOpt "inTagName" cp.InTagName def.InTagName
+        writeStringOpt "inTagAddress" cp.InTagAddress def.InTagAddress
+        writeStringOpt "outTagName" cp.OutTagName def.OutTagName
+        writeStringOpt "outTagAddress" cp.OutTagAddress def.OutTagAddress
+        writeString "callDirection" cp.CallDirection def.CallDirection
+        writeTimeSpanOpt "workTimeout" cp.WorkTimeout def.WorkTimeout
+        writeBool "enableTimeout" cp.EnableTimeout def.EnableTimeout
+        writeString "timeoutAction" cp.TimeoutAction def.TimeoutAction
+        writeBool "requiresSafetyCheck" cp.RequiresSafetyCheck def.RequiresSafetyCheck
+        writeBool "enableMotionControl" cp.EnableMotionControl def.EnableMotionControl
+        writeStringOpt "motionControlMode" cp.MotionControlMode def.MotionControlMode
+        writeFloatOpt "targetPosition" cp.TargetPosition def.TargetPosition
+        writeFloatOpt "targetVelocity" cp.TargetVelocity def.TargetVelocity
+        writeFloatOpt "acceleration" cp.Acceleration def.Acceleration
+        writeFloatOpt "deceleration" cp.Deceleration def.Deceleration
+        writeBool "usePulseControl" cp.UsePulseControl def.UsePulseControl
+        writeIntOpt "pulseWidthMs" cp.PulseWidthMs def.PulseWidthMs
+        writeIntOpt "pulseIntervalMs" cp.PulseIntervalMs def.PulseIntervalMs
+        writeIntOpt "pulseCount" cp.PulseCount def.PulseCount
+
+        if opened then w.WriteEndObject()
+
+    let private emitPlcCall (w: Utf8JsonWriter) (cp: ControlCallProperties) : unit =
+        let def = ControlCallProperties()
+        let mutable opened = false
+        let openIfNeeded () =
+            if not opened then
+                w.WritePropertyName "plc"
+                w.WriteStartObject()
+                opened <- true
+        let writeBool (key: string) (cur: bool) (defv: bool) =
+            if cur <> defv then openIfNeeded(); w.WriteBoolean(key, cur)
+        let writeInt (key: string) (cur: int) (defv: int) =
+            if cur <> defv then openIfNeeded(); w.WriteNumber(key, cur)
+        let writeString (key: string) (cur: string) (defv: string) =
+            if cur <> defv then openIfNeeded(); w.WriteString(key, cur)
+        let writeStringOpt (key: string) (cur: string option) (defv: string option) =
+            match cur, defv with
+            | Some s, _ when cur <> defv -> openIfNeeded(); w.WriteString(key, s)
+            | _ -> ()
+        let writeTimeSpanOpt (key: string) (cur: TimeSpan option) (defv: TimeSpan option) =
+            match cur, defv with
+            | Some s, _ when cur <> defv -> openIfNeeded(); w.WriteString(key, s.ToString("c"))
+            | _ -> ()
+
+        writeString "callDirection" cp.CallDirection def.CallDirection
+        writeBool "enableRetry" cp.EnableRetry def.EnableRetry
+        writeInt "maxRetryCount" cp.MaxRetryCount def.MaxRetryCount
+        writeInt "retryDelayMs" cp.RetryDelayMs def.RetryDelayMs
+        writeTimeSpanOpt "callTimeout" cp.CallTimeout def.CallTimeout
+        writeBool "waitForCompletion" cp.WaitForCompletion def.WaitForCompletion
+        writeBool "enableConditional" cp.EnableConditional def.EnableConditional
+        writeStringOpt "conditionExpression" cp.ConditionExpression def.ConditionExpression
+
+        if opened then w.WriteEndObject()
+
     /// Passive system 의 internal Flow 의 ResetReset arrow 갯수 → opposing 추정.
     /// chain: N-1 / all-pairs: N*(N-1)/2 / none: 0
     let private inferOpposing (apiCount: int) (resetResetCount: int) : string =
@@ -1758,11 +2236,15 @@ module ModelProtocol =
                     w.WriteString("kind", "active")
                     // Phase 7 §4.2 C-6: DsSystem.IRI (Some 인 경우만 emit)
                     s.IRI |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Active System)
+                    s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     // flows (object)
                     let flows = Queries.flowsOf s.Id store
                     for f in flows do
                         w.WritePropertyName(sprintf "flow %s" f.Name)
                         w.WriteStartObject()
+                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
+                        f.GetControlProperties() |> Option.iter (emitPlcFlow w)
                         // works
                         let works = Queries.worksOf f.Id store
                         if not works.IsEmpty then
@@ -1774,6 +2256,8 @@ module ModelProtocol =
                                 // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략)
                                 if wk.TokenRole <> TokenRole.None then
                                     w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
+                                // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키
+                                wk.GetControlProperties() |> Option.iter (emitPlcWork w)
                                 let calls = Queries.callsOf wk.Id store
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
@@ -1839,6 +2323,8 @@ module ModelProtocol =
                                             if c.CallConditions.Count > 0 then
                                                 w.WritePropertyName "callCondition"
                                                 emitCallCondition w apiCallRef c.CallConditions.[0]
+                                            // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 (dual format object 승격 안)
+                                            c.GetControlProperties() |> Option.iter (emitPlcCall w)
                                             w.WriteEndObject()
                                         else
                                             w.WriteStringValue(callRef)
@@ -1900,6 +2386,8 @@ module ModelProtocol =
                     w.WriteString("kind", "passive")
                     // Phase 7 §4.2 C-6: DsSystem.IRI (Some 인 경우만 emit)
                     s.IRI |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System)
+                    s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     let apis = Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name)
                     // device 추정 (Phase 2 §3.1 #5) — SystemType + apis 패턴 fingerprint 매칭.
                     // sugar fingerprint:

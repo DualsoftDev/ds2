@@ -26,6 +26,9 @@ type SystemShape = {
     /// Phase 7 §4.2 C-5: ApiDef 별 보강 property (`actionType` / `description`) 평탄화.
     /// key = ApiDef.Name, value = "<actionType>|<description>" — 직렬화.
     ApiDefDetails: Map<string, string>
+    /// Phase 7 §4.2 C-7.1 — ControlSystemProperties leaf 평탄화. `<none>` = instance 미설정.
+    /// 모든 23 leaf (runtime-only 제외 — System 에는 runtime property 없음) 를 정렬된 key=value list 로 직렬화.
+    PlcSystemSummary: string
 }
 
 /// Phase 7 §4.2 TC-1 — call 별 보강 property 평탄화. 본 type 이 false-positive 회귀의
@@ -42,6 +45,8 @@ type CallDetail = {
     OutTag: (string * string) option
     /// CallCondition recursive 평탄화 (sorted). 빈 콜렉션 → "".
     CallConditionSummary: string
+    /// Phase 7 §4.2 C-7.1 — ControlCallProperties leaf 평탄화. `<none>` = instance 미설정.
+    PlcCallSummary: string
 }
 
 type WorkShape = {
@@ -50,6 +55,11 @@ type WorkShape = {
     SystemName: string
     Calls: CallDetail list                 // 순서 무관 비교를 위해 Ref 기준 sort (Phase 7 §4.2 TC-1)
     TokenRole: TokenRole                   // Phase 7 §4.2 C-6
+    /// Phase 7 §4.2 C-7.1 — ControlWorkProperties leaf 평탄화 (runtime-only 4건 제외). `<none>` = instance 미설정.
+    PlcWorkSummary: string
+    /// Phase 7 §4.2 C-7.1 — Work 의 부모 Flow 의 ControlFlowProperties leaf 평탄화. 같은 Flow 안
+    /// 모든 Work 가 동일 값 공유 (중복 표기지만 Set 비교 정합).
+    PlcFlowSummary: string
 }
 
 type ArrowShape = {
@@ -136,6 +146,109 @@ let private ioTagTuple (tagOpt: IOTag option) : (string * string) option =
         if System.String.IsNullOrEmpty(t.Name) && System.String.IsNullOrEmpty(t.Address) then None
         else Some (t.Name, t.Address))
 
+/// Phase 7 §4.2 C-7.1 — PLC leaf 평탄화 helper. (key, value) list 를 정렬해서 `key=value|...` 직렬화.
+/// emit/apply 가 같은 leaf 를 정확히 복원해야 round-trip 통과 — false-positive 방어.
+let private summarizeLeafs (pairs: (string * string) list) : string =
+    pairs
+    |> List.sortBy fst
+    |> List.map (fun (k, v) -> sprintf "%s=%s" k v)
+    |> String.concat "|"
+
+let private optStr (v: string option) : string =
+    v |> Option.defaultValue "<null>"
+
+let private optFloat (v: float option) : string =
+    v |> Option.map (sprintf "%f") |> Option.defaultValue "<null>"
+
+let private optInt (v: int option) : string =
+    v |> Option.map string |> Option.defaultValue "<null>"
+
+let private optTs (v: System.TimeSpan option) : string =
+    v |> Option.map (fun ts -> ts.ToString("c")) |> Option.defaultValue "<null>"
+
+let private summarizePlcSystem (cp: ControlSystemProperties option) : string =
+    match cp with
+    | None -> "<none>"
+    | Some cp ->
+        summarizeLeafs [
+            "enableAutoTagGeneration", string cp.EnableAutoTagGeneration
+            "tagPrefix", optStr cp.TagPrefix
+            "tagNamingFormat", cp.TagNamingFormat
+            "nameTransform", cp.NameTransform
+            "plcVendor", cp.PlcVendor
+            "plcIpAddress", cp.PlcIpAddress
+            "plcPort", string cp.PlcPort
+            "communicationTimeout", cp.CommunicationTimeout.ToString("c")
+            "retryAttempts", string cp.RetryAttempts
+            "tagMatchMode", cp.TagMatchMode
+            "enableAddressValidation", string cp.EnableAddressValidation
+            "caseSensitiveMatching", string cp.CaseSensitiveMatching
+            "enableSafetyInterlock", string cp.EnableSafetyInterlock
+            "emergencyStopEnabled", string cp.EmergencyStopEnabled
+            "safetyDoorCheck", string cp.SafetyDoorCheck
+            "lightCurtainCheck", string cp.LightCurtainCheck
+            "twoHandControl", string cp.TwoHandControl
+            "safetyTimeoutSeconds", sprintf "%f" cp.SafetyTimeoutSeconds
+            "enableHealthCheck", string cp.EnableHealthCheck
+            "healthCheckInterval", cp.HealthCheckInterval.ToString("c")
+            "enableHeartbeat", string cp.EnableHeartbeat
+            "heartbeatInterval", cp.HeartbeatInterval.ToString("c")
+            "systemType", optStr cp.SystemType
+        ]
+
+let private summarizePlcFlow (cp: ControlFlowProperties option) : string =
+    match cp with
+    | None -> "<none>"
+    | Some cp ->
+        summarizeLeafs [
+            "flowControlEnabled", string cp.FlowControlEnabled
+            "flowPriority", string cp.FlowPriority
+        ]
+
+let private summarizePlcWork (cp: ControlWorkProperties option) : string =
+    match cp with
+    | None -> "<none>"
+    | Some cp ->
+        // Runtime-only (CurrentState / LastExecutionTime / ExecutionCount / ErrorCount) 제외.
+        summarizeLeafs [
+            "enableHardwareControl", string cp.EnableHardwareControl
+            "controlMode", cp.ControlMode
+            "inTagName", optStr cp.InTagName
+            "inTagAddress", optStr cp.InTagAddress
+            "outTagName", optStr cp.OutTagName
+            "outTagAddress", optStr cp.OutTagAddress
+            "callDirection", cp.CallDirection
+            "workTimeout", optTs cp.WorkTimeout
+            "enableTimeout", string cp.EnableTimeout
+            "timeoutAction", cp.TimeoutAction
+            "requiresSafetyCheck", string cp.RequiresSafetyCheck
+            "enableMotionControl", string cp.EnableMotionControl
+            "motionControlMode", optStr cp.MotionControlMode
+            "targetPosition", optFloat cp.TargetPosition
+            "targetVelocity", optFloat cp.TargetVelocity
+            "acceleration", optFloat cp.Acceleration
+            "deceleration", optFloat cp.Deceleration
+            "usePulseControl", string cp.UsePulseControl
+            "pulseWidthMs", optInt cp.PulseWidthMs
+            "pulseIntervalMs", optInt cp.PulseIntervalMs
+            "pulseCount", optInt cp.PulseCount
+        ]
+
+let private summarizePlcCall (cp: ControlCallProperties option) : string =
+    match cp with
+    | None -> "<none>"
+    | Some cp ->
+        summarizeLeafs [
+            "callDirection", cp.CallDirection
+            "enableRetry", string cp.EnableRetry
+            "maxRetryCount", string cp.MaxRetryCount
+            "retryDelayMs", string cp.RetryDelayMs
+            "callTimeout", optTs cp.CallTimeout
+            "waitForCompletion", string cp.WaitForCompletion
+            "enableConditional", string cp.EnableConditional
+            "conditionExpression", optStr cp.ConditionExpression
+        ]
+
 /// Phase 7 §4.2 TC-1 — Call → CallDetail 평탄화. ApiCalls 는 1:1 매핑 PoC scope (`ApiCalls.[0]` 만).
 let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
     let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
@@ -155,6 +268,7 @@ let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
         InTag = inTag
         OutTag = outTag
         CallConditionSummary = summarizeCallConditions store c
+        PlcCallSummary = summarizePlcCall (c.GetControlProperties())
     }
 
 /// Phase 7 §4.2 TC-1 — ApiDef → ("<actionType>|<description>") 평탄화.
@@ -200,6 +314,7 @@ let captureShape (store: DsStore) : StoreShape =
                     ApiDefNames = apiDefs |> List.map (fun d -> d.Name) |> Set.ofList
                     ApiDefCount = apiDefs.Length
                     ApiDefDetails = apiDefDetails
+                    PlcSystemSummary = summarizePlcSystem (s.GetControlProperties())
                 })
             |> Set.ofList
 
@@ -208,6 +323,7 @@ let captureShape (store: DsStore) : StoreShape =
             |> List.collect (fun (s, _) ->
                 Queries.flowsOf s.Id store
                 |> List.collect (fun f ->
+                    let plcFlow = summarizePlcFlow (f.GetControlProperties())
                     Queries.worksOf f.Id store
                     |> List.map (fun w ->
                         let calls =
@@ -220,6 +336,8 @@ let captureShape (store: DsStore) : StoreShape =
                             SystemName = s.Name
                             Calls = calls
                             TokenRole = w.TokenRole
+                            PlcWorkSummary = summarizePlcWork (w.GetControlProperties())
+                            PlcFlowSummary = plcFlow
                         })))
             |> Set.ofList
 

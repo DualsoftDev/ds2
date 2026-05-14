@@ -1824,3 +1824,290 @@ let ``todo §10.2 #9 — parser-error / non-string 진단 발행`` (tag: string)
         | "callTypeInvalidLabel"          -> callTypeInvalidLabelYaml
         | _ -> failwithf "unknown tag '%s'" tag
     assertDiagContains yaml expectedSubstr
+
+// ─── Phase 7 §4.2 C-7.1 — PLC metadata round-trip + negative test ───────────
+
+let private plcSystemYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      plcVendor: Siemens
+      plcIpAddress: 10.0.0.42
+      plcPort: 5020
+      communicationTimeout: 00:00:10
+      retryAttempts: 5
+      enableSafetyInterlock: false
+      safetyTimeoutSeconds: 45.5
+      tagPrefix: PLC1_
+      systemType: Unit
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-7.1 — ControlSystemProperties round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store plcSystemYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let cp = ctrl.GetControlProperties() |> Option.get
+    // 적용 확인
+    Assert.Equal("Siemens", cp.PlcVendor)
+    Assert.Equal("10.0.0.42", cp.PlcIpAddress)
+    Assert.Equal(5020, cp.PlcPort)
+    Assert.Equal(System.TimeSpan.FromSeconds(10.0), cp.CommunicationTimeout)
+    Assert.Equal(5, cp.RetryAttempts)
+    Assert.False(cp.EnableSafetyInterlock)
+    Assert.Equal(45.5, cp.SafetyTimeoutSeconds)
+    Assert.Equal(Some "PLC1_", cp.TagPrefix)
+    Assert.Equal(Some "Unit", cp.SystemType)
+    // round-trip 의미-동등
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+
+let private plcFlowYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      plc:
+        flowControlEnabled: true
+        flowPriority: 7
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-7.1 — ControlFlowProperties round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store plcFlowYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let cp = f.GetControlProperties() |> Option.get
+    Assert.True(cp.FlowControlEnabled)
+    Assert.Equal(7, cp.FlowPriority)
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+
+let private plcWorkYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          plc:
+            enableHardwareControl: true
+            controlMode: Parallel
+            workTimeout: 00:00:05
+            enableTimeout: true
+            timeoutAction: Retry
+            enableMotionControl: true
+            targetPosition: 100.5
+            acceleration: 2.5
+            usePulseControl: true
+            pulseWidthMs: 50
+            pulseCount: 10
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-7.1 — ControlWorkProperties round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store plcWorkYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let w = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let cp = w.GetControlProperties() |> Option.get
+    Assert.True(cp.EnableHardwareControl)
+    Assert.Equal("Parallel", cp.ControlMode)
+    Assert.Equal(Some (System.TimeSpan.FromSeconds(5.0)), cp.WorkTimeout)
+    Assert.True(cp.EnableTimeout)
+    Assert.Equal("Retry", cp.TimeoutAction)
+    Assert.True(cp.EnableMotionControl)
+    Assert.Equal(Some 100.5, cp.TargetPosition)
+    Assert.Equal(Some 2.5, cp.Acceleration)
+    Assert.True(cp.UsePulseControl)
+    Assert.Equal(Some 50, cp.PulseWidthMs)
+    Assert.Equal(Some 10, cp.PulseCount)
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+
+let private plcCallYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              plc:
+                enableRetry: true
+                maxRetryCount: 5
+                retryDelayMs: 2000
+                callTimeout: 00:00:03
+                waitForCompletion: false
+                enableConditional: true
+                conditionExpression: "sensor1 AND NOT sensor2"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 7 §4.2 C-7.1 — ControlCallProperties round-trip + dual format`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store plcCallYaml
+    let call = findAdvCall store
+    let cp = call.GetControlProperties() |> Option.get
+    Assert.True(cp.EnableRetry)
+    Assert.Equal(5, cp.MaxRetryCount)
+    Assert.Equal(2000, cp.RetryDelayMs)
+    Assert.Equal(Some (System.TimeSpan.FromSeconds(3.0)), cp.CallTimeout)
+    Assert.False(cp.WaitForCompletion)
+    Assert.True(cp.EnableConditional)
+    Assert.Equal(Some "sensor1 AND NOT sensor2", cp.ConditionExpression)
+    // emit 측이 dual format object 승격 — `"ref":` 와 `"plc":` 키 모두 등장.
+    use json = ModelProtocol.exportToJson store
+    let compact = json.RootElement.GetRawText().Replace(" ", "").Replace("\n", "").Replace("\r", "")
+    Assert.Contains("\"ref\":\"Cyl1.ADV\"", compact)
+    Assert.Contains("\"plc\":{", compact)
+    Assert.Contains("\"enableRetry\":true", compact)
+    let a, b = ModelEquivalence.roundTripShape store
+    Assert.Equal<ModelEquivalence.StoreShape>(a, b)
+
+/// 모든 leaf default 시 plc 키 emit 0건 — silent emit drift 차단.
+[<Fact>]
+let ``Phase 7 §4.2 C-7.1 — all-default 시 plc 키 emit 0건`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    use json = ModelProtocol.exportToJson store
+    let raw = json.RootElement.GetRawText()
+    Assert.DoesNotContain("\"plc\":", raw)
+
+// negative — plc shape 위반 진단 발행 검증
+
+let private plcNonObjectYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc: "not-object"
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcUnknownKeyYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      noSuchKey: 42
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcPortNonIntYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      plcPort: not-a-number
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcTimeSpanInvalidYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    plc:
+      communicationTimeout: not-a-timespan
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+let private plcRuntimeKeyYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          plc:
+            currentState: Running
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Theory>]
+[<InlineData("plcNonObject",     "plc: Object 기대")>]                          // §2.7 룰 #25
+[<InlineData("plcUnknownKey",    "알 수 없는 plc 키 'noSuchKey'")>]              // §2.7 룰 #26
+[<InlineData("plcPortNonInt",    "int 기대")>]                                  // §2.7 룰 #27
+[<InlineData("plcTimeSpanInvalid", "TimeSpan 형식 위반")>]                       // §2.7 룰 #28
+[<InlineData("plcRuntimeKey",    "알 수 없는 plc 키 'currentState'")>]           // 派 분류 강제 (§2.7 룰 #26)
+let ``Phase 7 §4.2 C-7.1 — plc shape / type / runtime 진단 발행`` (tag: string) (expectedSubstr: string) =
+    let yaml =
+        match tag with
+        | "plcNonObject"        -> plcNonObjectYaml
+        | "plcUnknownKey"       -> plcUnknownKeyYaml
+        | "plcPortNonInt"       -> plcPortNonIntYaml
+        | "plcTimeSpanInvalid"  -> plcTimeSpanInvalidYaml
+        | "plcRuntimeKey"       -> plcRuntimeKeyYaml
+        | _ -> failwithf "unknown tag '%s'" tag
+    assertDiagContains yaml expectedSubstr
