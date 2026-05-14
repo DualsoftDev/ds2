@@ -294,13 +294,14 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-4 ApiCall property | ✅ 완료 (2026-05-14) — SkipInputSensor + InTag/OutTag (IOTag) emit/apply. InputSpec/OutputSpec 별도 phase |
 | §4.2 C-5 CallType / ApiDefActionType | ✅ 완료 (2026-05-14) — SimulationCallProperties.CallType + Passive apiDetails (actionType / description) |
 | §4.2 C-6 leaf 키 (단순) | ✅ 완료 (2026-05-14) — Project.Author/Version + DsSystem.IRI + Work.TokenRole. ReferenceOf / Project.TokenSpecs 등 복잡 항목 별도 phase |
-| §4.2 C-7 PLC metadata (별도 phase) | ⏳ |
+| §4.2 C-7.1 PLC metadata leaf scalar | ✅ 완료 (2026-05-14) — 4 entity (ControlSystem/Flow/Work/Call) leaf scalar 54건 emit/apply. type-default 비교 + dual format (Call) + TimeSpan ISO grammar (`"00:00:05"`). runtime-only 4건 제외 (派). 복합 collection (`FBTagMapPresets` / `BaseAddressOverride` / `InterlockConditions` / `SignalCounts`) **별도 phase (C-7.2)** 로 분리 |
+| §4.2 C-7.2 PLC 복합 collection | ⏳ — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — 복합 객체 + ResizeArray 다중) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`). C-7.1 진입 전 §4.1.5 schema-shape 재결정 필요 (FBTagMapPreset 자체가 IwPatterns / QwPatterns / MwPatterns / AuxPortMap 등 ResizeArray 컴포지트 — wire 표현 복잡도 크다) |
 | §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ✅ 완료 (PC7 산출물 — generic transformer / wiring only 확정) |
-| §4.3 TC-1 capturer 보강 | ✅ 완료 (`8e360aa`) — `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장 |
-| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + `9d12093` [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard + 본 추가 phase negative test 4건. **ModelProtocolTests 93/93 통과** (전체 359/359) |
+| §4.3 TC-1 capturer 보강 | ✅ 완료 (`8e360aa` + C-7.1) — `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` + 4 entity `PlcXxxSummary` 비교 확장 |
+| §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-14) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + `9d12093` [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard + 본 추가 phase negative test 4건 + C-7.1 round-trip 4건 + all-default 1건 + plc negative theory 5건. **ModelProtocolTests 103/103 통과** (전체 369/369) |
 | §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / fixture / wiring 부분 잔존 |
-| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 6회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / `9d12093` 후속 / 본 추가 phase. 모두 Critical/Major 0건) |
-| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review, `8e360aa` apply helper / 진단 강화, `9d12093` leading-dot/Theory/invariant, **본 추가 phase — `--gc` 대기**). upstream 미설정 — push 보류 |
+| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 7회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / `9d12093` 후속 / `71ee9fa` 후속 / C-7.1. 모두 Critical/Major 0건) |
+| commit (사용자 명시 시) | ✅ 완료 (`906b327` C-1/C-2, `5d01ca8` C-3, `322c7ca` C-4/5/6 + 외부 review, `8e360aa` apply helper / 진단 강화, `9d12093` leading-dot/Theory/invariant, `71ee9fa` helper SSOT 일원화 + negative-test, **C-7.1 PLC metadata — `--gc` 대기**). upstream 미설정 — push 보류 |
 | §7 후속 결정 항목 해결 | ⏳ |
 
 ---
@@ -318,7 +319,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 ### 10.1 현재 상태 (2026-05-14 기준)
 
-**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 반영 모두 완료** + **`8e360aa` apply helper / 진단 강화** + **`9d12093` leading-dot fix / Theory 분리 / invariant guard** + **본 추가 phase (todo §10.2 #3 부분 / #4 / #11 / #12) 완료**:
+**Phase 7 §4.2 C-1 ~ C-6 + 외부 review 6건 + `8e360aa` / `9d12093` / `71ee9fa` 후속 + C-7.1 PLC metadata leaf scalar 완료**:
 - C-1 enum/string helper 8개 + ApiDefActionType regex parser
 - C-2 SSOT §1.7 결정 row 4건 + §2.4.1 'Enum 라벨 사전' 신설
 - C-3 CallCondition tree + ContactKind dual format dispatcher (옵션 C)
@@ -327,8 +328,9 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - C-6 Project.Author/Version + DsSystem.IRI + Work.TokenRole 단순 leaf
 - 외부 review (`--inspect-diff 5`) 결과 6건 fix 동반 반영 + 테스트 4건 추가
 - **`8e360aa`**: `applyStringProp` / `applyEnumProp` / `lookup*ById` 5종 helper 추출 + M-F 7분기 진단 + capturer 보강 + SSOT §2.7 룰 #10~#24 / §6.3 default fallback 표
-- **`9d12093` 후속 — #0 leading-dot fix** (`joinDiagKey` helper), **#10 M-F [<Theory>] + [<InlineData>] 7건 분리**, **#9 parser-error / non-string negative test 3건** (`tokenRole: NoSuchRole` / `actionType: NoSuchType` / `iri: 42`), **#8 `ApiCallCount: int` PoC invariant guard** (multi-ApiCall silent regression 방어)
-- **본 추가 phase — #3 부분 helper SSOT 일원화** (`ModelProtocol.fs` 의 `tryFindXxxInPlan` 5종 본문을 generic `tryFindInPlan` + picker 로 통합 — `ToolOperations.fs:86` 답습), **#11 line 801 `joinDiagKey` 치환** (parseBoolKey 일관성), **#4 추가 negative-test 4건** (`callConditionTypeInvalidLabel` / `contactKindInvalidLabel` / `callTypeInvalidLabel` / `outTagNonObject`)
+- **`9d12093` 후속 — #0 leading-dot fix** (`joinDiagKey` helper), **#10 M-F [<Theory>] + [<InlineData>] 7건 분리**, **#9 parser-error / non-string negative test 3건**, **#8 `ApiCallCount: int` PoC invariant guard**
+- **`71ee9fa` 후속 — #3 부분 helper SSOT 일원화** (`tryFindXxxInPlan` 5종 generic 통합), **#11 line 801 `joinDiagKey` 치환**, **#4 추가 negative-test 4건**
+- **C-7.1 PLC metadata leaf scalar (2026-05-14)** — 4 entity (`ControlSystemProperties` 23 leaf / `ControlFlowProperties` 2 / `ControlWorkProperties` 21 / `ControlCallProperties` 8 = 54 leaf) emit/apply. **Wire 위치**: entity 안 `plc:` sub-section (System/Flow/Work/Call 4 레벨 — Project 차원 아님). **Default 정책**: type-default 와 다른 값만 emit (Option C dual format 정합 — 모두 default 면 `plc:` 키 자체 생략). **TimeSpan grammar**: `TimeSpan.ToString("c")` = `"00:00:05"` / `"00:00:00.005"` (ms). **Runtime-only 4건 제외 (派)**: `CurrentState` / `LastExecutionTime` / `ExecutionCount` / `ErrorCount` (Work). **Call dual format 합성**: `plcCallHasNonDefault` 가 `callHasEnhancement` 에 추가됨 — Call 의 plc 변경 시 string scalar → object 승격. **복합 collection (FBTagMapPresets / BaseAddressOverride / InterlockConditions / SignalCounts) 별도 phase C-7.2 로 분리**. 자가 검열 (sub-agent general-purpose) 위임 1회 — Critical/Major 0건, Minor 4건 모두 defer 권장 (Passive plc round-trip 직접 테스트 누락 / `Some ""` vs `None` 명시 round-trip 누락 / bool/float 위반 negative 누락 / SSOT 4 위치 분산 — 모두 동일 helper 경로 → silent drift 위험 낮음). SSOT 갱신: §1.7 결정 row 신설 / §2.2 schema 안 plc 키 / §2.2.2 신설 (4 entity leaf 표 — 54 leaf 정의) / §2.3 passive plc / §2.4.1 TimeSpan grammar 추가 / §2.7 룰 #25~#28 / §6.3 default 매핑 표 확장
 
 **Git history** (branch `yaml-save`, upstream 미설정):
 - `906b327` Phase 7 §4.2 C-1/C-2 — enum helper + SSOT 갱신
@@ -336,27 +338,25 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - `322c7ca` Phase 7 §4.2 C-4/C-5/C-6 + 외부 review 반영
 - `8e360aa` Phase 7 §4.2 후속 — apply helper 추출 + 진단 강화 + transfer 가이드
 - `9d12093` Phase 7 §4.2 후속 — leading-dot fix + Theory 분리 + invariant guard
-- **본 추가 phase — `--gc` 대기**: helper SSOT 부분 일원화 + parseBoolKey joinDiagKey + negative-test 4건
+- `71ee9fa` Phase 7 §4.2 후속 — helper SSOT 부분 일원화 + negative-test 보강
+- **C-7.1 — `--gc` 대기**: PLC metadata leaf scalar (4 entity, 54 leaf) emit/apply + dual format 합성 + SSOT 갱신 (§1.7/§2.2/§2.2.2/§2.3/§2.4.1/§2.7 룰 #25~#28/§6.3) + capturer 4 entity 비교 확장 + 신규 테스트 10건
 
-**테스트**: `ModelProtocolTests` 93/93 통과 (전체 `Ds2.LlmAgent.Tests` 359/359). 회귀 0건.
-
-**본 추가 phase 자가 검열** (CLAUDE.md trigger ③ — 2 file 동시 변경): sub-agent (general-purpose) 위임 1회 완료. Critical/Major 0건, Minor 3건 모두 의도된 deferral 로 follow-up 등록 — M-N1 (`parseCallCondition` 내 line 793/809/849 잔여 `joinDiagKey` 치환 → #14), M-N2 (namespace internal module 신설 → #13), M-N3 (`lookup*ById` 5종 generic 통합 → #15).
-
-**`--inspect-diff 3` review 반영** (본 추가 phase 후속): R1·R2 consensus "머지 가능", R3 Minor 4건. M-1 즉시 정정 (`ModelProtocol.fs:351-353` 주석 "namespace 경계" → "*module-private 경계 + 컴파일 순서*" 정확화), M-2/M-4 todo priming (#14 "회귀 위험 0" 단언 완화 → "호출 path grep 1차 확인 필수" 명시 / #4 in/out 비대칭 방어 사유 1줄 추가). M-3 (test substring 식별성) 은 defer (후속 helper 확장 시 함께).
+**테스트**: `ModelProtocolTests` 103/103 통과 (전체 `Ds2.LlmAgent.Tests` 369/369). 회귀 0건.
 
 ### 10.2 다음 진입 후보 (우선순위 순)
 
-> **2026-05-14 추가 phase 산출** (`9d12093` 후속 turn): #3 부분 / #4 부분 / #11 완료. 잔여 follow-up 신설 (#13~#15 — 자가 검열 Minor 3건). 남은 항목 우선순위 재정렬.
+> **2026-05-14 추가 phase 산출** (C-7.1 PLC metadata leaf scalar 완료): #6 부분 (C-7.1 = leaf scalar 만, 복합 collection 은 #6.2 로 분리). 자가 검열 Minor 4건 follow-up 등록 (#17~#20).
 
 | # | 작업 | 분량 | 사유 |
 |---|---|---|---|
 | ~~0~~ | ~~`--inspect-diff 5` M-1 leading-dot fix~~ | ✅ 완료 | `joinDiagKey` helper 추출 — `path = ""` (root-level `author`/`version`) 호출 site cover |
 | ~~1~~ | ~~§2.7 unknown 키 거부 룰 갱신~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md §2.7 룰 #10~#24 신규 키 11개 모두 반영 |
 | ~~2~~ | ~~§4 apply 룰 default fallback 정책 명문화~~ | ✅ 완료 (`8e360aa`) | yaml-protocol-v0.md line 707~737 명문화 + default 매핑 표 |
-| ~~3~~ | ~~외부 review M-D — helper SSOT 부분 일원화~~ | ✅ 부분 완료 (본 추가 phase) | `ModelProtocol.fs` 의 `tryFindXxxInPlan` 5종 본문을 generic `tryFindInPlan` + picker 로 통합 (`ToolOperations.fs:86` 답습). 완전 일원화 (namespace internal module 신설) 는 #13 으로 분리 |
-| ~~4~~ | ~~M-F 별도 phase — 추가 negative-test 4건~~ | ✅ 완료 (본 추가 phase) | enum 라벨 위반 3건 (`callConditionType` / `contactKind` / `callType`) + shape 위반 1건 (`outTag` non-object — in/out dispatch 비대칭 회귀 방어, `inTag` 와 동일 룰 #22 메시지지만 별개 분기 회귀 보호 의도). 359/359 통과 |
-| ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa`) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` 비교 확장 |
-| **6** | **§4.2 C-7 PLC metadata** — `ControlSystemProperties` (FBTagMapPreset / AuxPortMapEntry / BaseAddressOverride / EnableHardwareControl / WorkTimeout / SignalPatternEntry 등) 사용자 명시 설정 부분 必 격상 emit/apply | 大 (별도 phase 분량) | §4.1 メ 분류 결정 필요. 별도 phase 분할 가능 |
+| ~~3~~ | ~~외부 review M-D — helper SSOT 부분 일원화~~ | ✅ 부분 완료 (`71ee9fa`) | `ModelProtocol.fs` 의 `tryFindXxxInPlan` 5종 본문을 generic `tryFindInPlan` + picker 로 통합. 완전 일원화 (namespace internal module 신설) 는 #13 으로 분리 |
+| ~~4~~ | ~~M-F 별도 phase — 추가 negative-test 4건~~ | ✅ 완료 (`71ee9fa`) | enum 라벨 위반 3건 + shape 위반 1건. 359/359 통과 |
+| ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa` + C-7.1) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` + 4 entity `PlcXxxSummary` 비교 확장 |
+| ~~6.1~~ | ~~**C-7.1 PLC metadata leaf scalar (4 entity × 54 leaf)**~~ | ✅ 완료 (`--gc` 대기) | 4 entity (System 23 / Flow 2 / Work 21 / Call 8) 단순 leaf scalar emit/apply. type-default 비교 + `plc:` sub-section + TimeSpan `"00:00:05"` grammar + Call dual format 합성 + runtime 4건 제외 (派). SSOT §1.7/§2.2.2 신설/§2.7 룰 #25~#28 + capturer 4 entity + 신규 테스트 10건. 자가 검열 통과 (Critical/Major 0건) |
+| **6.2** | **C-7.2 PLC 복합 collection** — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — IwPatterns/QwPatterns/MwPatterns/AuxPortMap 다중 ResizeArray 포함) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`) | 大 (별도 phase 분량) | §4.1.5 schema-shape 재결정 필요 — FBTagMapPreset 자체가 IwPatterns/QwPatterns/MwPatterns + AuxPortMapEntry/SignalPatternEntry/FBBaseAddressSet 복합. 진입 전 wire 표현 검토 (dict-of-object vs array-of-pair 등) |
 | **7** | **별도 phase 분리 항목** (외부 review 등록) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / 테스트 helper 일반화 |
 | ~~8~~ | ~~`ApiCalls[0]` PoC invariant guard~~ | ✅ 완료 | `CallDetail.ApiCallCount: int` 필드 추가 |
 | ~~9~~ | ~~enum parser-error / IRI non-string negative test~~ | ✅ 완료 | [<Theory>] 3건 |
@@ -367,6 +367,10 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | **14** | **`parseCallCondition` 진단 키 합성 일관성 — 잔여 3건 `joinDiagKey` 치환** — line 793/809/849 의 `path + "." + key` 를 `joinDiagKey path key` 로 통일. **진입 전 호출 path grep 1차 확인 필수** — 현 호출자가 path="" (root) 를 전달하는 분기가 있다면 진단 키가 `.type` → `type` 으로 leading-dot 제거되어 *변경됨* (회귀 위험 가능). 모든 호출 path 가 non-empty 임을 grep 으로 확인 후 치환 (외부 reviewer M-2) | 小 (3 line + 검증) | 자가 검열 Minor M-N1 — 의도된 deferral. follow-up |
 | **15** | **`lookup*ById` 5종 generic 통합** — `let private lookupById planFind storeFind ctx id = planFind ctx.Plan id \|> Option.orElseWith (fun () -> storeFind id ctx.Store)` + 5 wrapper. 가독성 손실 없이 -5 line. `Queries.getXxx` 매개변수 순서 일관성 사전 검증 필요 | 小 (refactor) | 자가 검열 Minor M-N3 — 의도된 deferral. follow-up |
 | **16** | **IRI 빈 string 정규화 정책 결정** — `Some ""` ↔ entity-default 비대칭 가능성. emit-skip 정책 (default-skip) vs apply 정규화 (`Option.filter (not << IsNullOrEmpty)` — description 패턴 답습) 중 선택 | 小 (정책 + 1-2 line) | 회귀 보호 미진 분기 — todo #12 잔여 |
+| **17** | **C-7.1 후속 — Passive system 의 `plc:` round-trip 직접 테스트** | 小 (테스트 1건) | C-7.1 자가 검열 Minor — Active 만 round-trip 검증. emit 측 `dispatchPassiveSystem` 분기와 apply 측 Passive 분기에 helper 호출 추가됐으나 직접 테스트 없음. 동일 helper 경로 → 위험 낮음 but coverage 강화 |
+| **18** | **C-7.1 후속 — `string \| null` leaf 의 `Some ""` vs `None` 명시 round-trip** | 小 (테스트 1건) | capturer `optStr` 가 둘을 구별 (`""` ↔ `"<null>"`) — 우연 catch 가능. 명시 round-trip 추가 시 silent drift 직접 가시화 |
+| **19** | **C-7.1 후속 — plc type 위반 negative 추가 (bool/float/string\|null)** | 小 (Theory case 3건) | 현재 `int 기대` 1 case 만. helper 동일 패턴이라 silent drift 위험 낮음 but Theory case 3건 추가로 coverage 강화 |
+| **20** | **C-7.1 후속 — PLC SSOT 4 위치 분산 통합** — emit/apply/hasNonDefault/capturer 의 leaf list 중복. leaf 메타 table (`[(name, getter, setter, default, emitter, parser, summarizer)]`) 통합 후보 | 中 (refactor) | 54 leaf × 4 위치 = 200+ line 중복. C-7.2 (복합 collection) 진입 시 같은 metadata table 패턴이 더 큰 ROI — C-7.2 와 함께 도입 권장 |
 
 ### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
 
