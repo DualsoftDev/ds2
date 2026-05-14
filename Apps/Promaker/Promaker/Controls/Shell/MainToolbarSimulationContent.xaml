@@ -539,13 +539,20 @@
                         </Ellipse.Style>
                     </Ellipse>
                 </StackPanel>
-                <TextBox Text="{Binding Simulation.HubAddress, UpdateSourceTrigger=PropertyChanged}"
+                <!-- Self-host 배지 — Control/Monitoring 일 때만 노출, Monitoring 은 [읽기전용] 표시 -->
+                <TextBlock Text="{Binding Simulation.HubHostingLabel}"
+                           FontSize="9"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,1,0,0"
+                           Visibility="{Binding Simulation.IsHubHost, Converter={StaticResource BoolToVis}}"/>
+                <TextBox Text="{Binding Simulation.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
                          Width="130" MinHeight="24" FontSize="11"
                          Margin="0,3,0,0"
                          Padding="6,2"
                          VerticalContentAlignment="Center"
                          IsEnabled="{Binding Simulation.CanChangeMode}"
-                         ToolTip="Hub 주소 (host:port) — Sim 외 모드에서 입력"
+                         ToolTip="Hub 주소 (host:port) — Control 5050 / Monitoring 5051 / VirtualPlant 외부"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </StackPanel>

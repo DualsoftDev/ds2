@@ -100,7 +100,7 @@ builder.Services.AddHostedService<PlcTagLogRetentionService>();
 // Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
 builder.Services.AddSingleton<SimulationEngineService>();
 
-// Promaker SignalHub(localhost:5050/hub/signal) 클라이언트 — Control/VirtualPlant 모니터링 입력
+// Promaker SignalHub 클라이언트 — 기본 5051(Monitoring). Control(5050)/원격 전환은 Settings 페이지에서.
 var hubEnabled = builder.Configuration.GetValue<bool>("Hub:Enabled");
 if (hubEnabled)
 {

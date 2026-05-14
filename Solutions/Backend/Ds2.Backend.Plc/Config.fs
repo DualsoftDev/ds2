@@ -21,6 +21,13 @@ type PlcTagDef = {
     DataType   : CoreDataTypesModule.PlcDataType
 }
 
+/// 미쓰비시 MELSEC Ethernet 전송 방식 — Q/iQ-R 의 MC 프로토콜은 TCP 와 UDP 양쪽 지원.
+/// LS XGi/XGk 는 항상 TCP 라 이 값은 Mitsubishi 일 때만 의미가 있다.
+[<RequireQualifiedAccess>]
+type PlcTransport =
+    | Tcp
+    | Udp
+
 type PlcConnectionConfig = {
     Name        : string
     Vendor      : PlcVendor
@@ -31,6 +38,8 @@ type PlcConnectionConfig = {
     /// MX 전용 — 기본값은 0,255,1023,0 (자국 CPU).
     NetworkNumber : byte
     StationNumber : byte
+    /// MX 전용 — TCP/UDP 선택. LS 에서는 무시 (항상 TCP).
+    Transport   : PlcTransport
     /// 통신 timeout (ms)
     TimeoutMs   : int
     /// 스캔 주기. None 이면 스캔 안 함 (write-only 게이트웨이).
@@ -52,6 +61,7 @@ module PlcConnectionConfig =
         LocalEthernet = true
         NetworkNumber = 0uy
         StationNumber = 0uy
+        Transport = PlcTransport.Tcp
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         Tags = []
@@ -65,6 +75,7 @@ module PlcConnectionConfig =
         LocalEthernet = true
         NetworkNumber = 0uy
         StationNumber = 0xFFuy
+        Transport = PlcTransport.Tcp
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         Tags = []

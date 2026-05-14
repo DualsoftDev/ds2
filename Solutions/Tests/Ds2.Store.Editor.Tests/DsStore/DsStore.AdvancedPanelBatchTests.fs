@@ -186,7 +186,7 @@ module BatchTests =
         store.AddCallsWithDevice(project.Id, controlWork.Id, [ "Dev.Api" ], true, None)
         let controlCall = Queries.callsOf controlWork.Id store |> List.head
         let apiDef = addApiDef store "Api1" passiveSystem.Id
-        store.AddApiCallFromPanel(controlCall.Id, apiDef.Id, "", "", "", "", 0, "", 0, "") |> ignore
+        store.AddApiCallFromPanel(controlCall.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", false) |> ignore
 
         let rows = store.GetAllWorkDurationRows()
         let controlRow = rows |> List.find (fun row -> row.WorkId = controlWork.Id)
@@ -236,7 +236,7 @@ module BatchTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
-        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "outAddr", "", "inAddr", 0, "", 0, "")
+        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "outAddr", "", "inAddr", 0, "", 0, "", false)
 
         let rows = store.GetAllApiCallIORows()
         Assert.True(rows.Length >= 1)
@@ -256,7 +256,7 @@ module BatchTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
-        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
+        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", false)
 
         store.UpdateApiCallIOTagsBatch([ struct(apiCallId, IOTag("inSym", "newIn", ""), IOTag("outSym", "newOut", "")) ])
 
@@ -284,7 +284,7 @@ module BatchTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
-        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
+        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", false)
 
         store.UpdateApiCallIOTagsBatch([ struct(apiCallId, IOTag("InSensor", "192.168.0.1", ""), IOTag("OutActuator", "192.168.0.2", "")) ])
 
