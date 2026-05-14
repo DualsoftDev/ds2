@@ -20,9 +20,14 @@ module BackendHost =
     /// BackendHost 시작.
     /// - port: SignalR Hub 포트. None 이면 5050.
     /// - plcConfig: 실 PLC 연동 설정. None 이면 PLC 게이트웨이 등록만 하고 idle.
-    let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) =
+    /// - readOnly: true 면 SignalHub 가 클라이언트 WriteTag/WriteTags 를 거부 — Monitoring 모드용.
+    let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) (readOnly: bool) =
         let p = port |> Option.defaultValue defaultPort
         SignalHub.ClearTagCache()
+        SignalHub.SetReadOnly(readOnly)
+        // Monitoring(read-only) 은 초기 동기 PLC 스캔 생략 — PLC 응답 지연이 UI 를 freeze 시키는 문제 차단.
+        // Control 은 원위치 추론용 cache populate 가 필요하므로 기존 동작 유지 (false).
+        PlcScanService.SetSkipInitialScan(readOnly)
 
         let builder = WebApplication.CreateBuilder()
         builder.Services.AddSignalR() |> ignore
@@ -41,11 +46,15 @@ module BackendHost =
 
     /// 기존 호출자 호환 entry — PLC 미연결 모드.
     let start (port: int option) =
-        startWithPlc port None
+        startWithPlc port None false
 
-    /// C# 호출 편의용 — int / config 를 unwrap 형태로 받는다.
+    /// C# 호출 편의용 — int / config 를 unwrap 형태로 받는다 (Control 모드: read/write).
     let startWithPlcConfig (port: int) (plcConfig: PlcGatewayConfig) =
-        startWithPlc (Some port) (Some plcConfig)
+        startWithPlc (Some port) (Some plcConfig) false
+
+    /// Monitoring 모드용 — PLC 스캔만 하고 클라이언트 write 는 거부.
+    let startWithPlcConfigReadOnly (port: int) (plcConfig: PlcGatewayConfig) =
+        startWithPlc (Some port) (Some plcConfig) true
 
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()
