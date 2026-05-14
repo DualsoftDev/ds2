@@ -183,6 +183,63 @@ module ModelProtocol =
         | "Unspecified" -> Ok ArrowType.Unspecified
         | other -> Error (sprintf "arrow type '%s' 미지원. 허용: Start|Reset|StartReset|ResetReset|Group|Unspecified." other)
 
+    // ─── Enum parse helpers (Phase 7 §4.2 C-1) ───────────────────────────────
+    //
+    // SSOT yaml-protocol-v0.md §2.x 의 enum 라벨 ↔ Ds2.Core enum 변환.
+    // CallConditionType / ContactKind / CallType / ApiDefActionType — emit/apply 양쪽 호출
+    // 예정 (C-3 ~ C-5). 본 phase 는 helper 만 추가 — 기존 동작 영향 0건.
+    // 형식은 parseArrowType 패턴 답습 (Result<_, string>) — error 메시지에 허용 라벨 enumerate.
+
+    let parseCallConditionType (raw: string) : Result<CallConditionType, string> =
+        match raw.Trim() with
+        | "AutoAux" -> Ok CallConditionType.AutoAux
+        | "ComAux" -> Ok CallConditionType.ComAux
+        | "SkipUnmatch" -> Ok CallConditionType.SkipUnmatch
+        | other -> Error (sprintf "callCondition type '%s' 미지원. 허용: AutoAux|ComAux|SkipUnmatch." other)
+
+    let parseContactKind (raw: string) : Result<ContactKind, string> =
+        match raw.Trim() with
+        | "NoContact" -> Ok ContactKind.NoContact
+        | "NcContact" -> Ok ContactKind.NcContact
+        | "RisingPulse" -> Ok ContactKind.RisingPulse
+        | "FallingPulse" -> Ok ContactKind.FallingPulse
+        | "Inverter" -> Ok ContactKind.Inverter
+        | other -> Error (sprintf "contactKind '%s' 미지원. 허용: NoContact|NcContact|RisingPulse|FallingPulse|Inverter." other)
+
+    let parseCallType (raw: string) : Result<CallType, string> =
+        match raw.Trim() with
+        | "WaitForCompletion" -> Ok CallType.WaitForCompletion
+        | "SkipIfCompleted" -> Ok CallType.SkipIfCompleted
+        | other -> Error (sprintf "callType '%s' 미지원. 허용: WaitForCompletion|SkipIfCompleted." other)
+
+    // ApiDefActionType — DU 변형. 표기 grammar (device DU literal §2.3 패턴 답습):
+    //   - 인자 없음: "Normal" / "Push" / "Pulse"
+    //   - 1 인자  : "TimeTotal(500)" / "TimeAppend(200)"  (ms)
+    //   - 2 인자  : "MultiAction(3, 100)"                  (count, ms)
+    let private apiDefActionTypeRegex =
+        System.Text.RegularExpressions.Regex(
+            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$",
+            System.Text.RegularExpressions.RegexOptions.Compiled)
+
+    let parseApiDefActionType (raw: string) : Result<ApiDefActionType, string> =
+        let trimmed = raw.Trim()
+        let m = apiDefActionTypeRegex.Match(trimmed)
+        if not m.Success then
+            Error (sprintf "apiDefActionType '%s' 인식 불가. 형식: Normal|Push|Pulse|TimeTotal(<ms>)|TimeAppend(<ms>)|MultiAction(<count>, <ms>)." raw)
+        else
+            let caseName = m.Groups.[1].Value
+            let arg1Ok = m.Groups.[2].Success
+            let arg2Ok = m.Groups.[3].Success
+            match caseName, arg1Ok, arg2Ok with
+            | "Normal",      false, _    -> Ok ApiDefActionType.Normal
+            | "Push",        false, _    -> Ok ApiDefActionType.Push
+            | "Pulse",       false, _    -> Ok ApiDefActionType.Pulse
+            | "TimeTotal",   true,  false -> Ok (ApiDefActionType.TimeTotal  (int m.Groups.[2].Value))
+            | "TimeAppend",  true,  false -> Ok (ApiDefActionType.TimeAppend (int m.Groups.[2].Value))
+            | "MultiAction", true,  true  -> Ok (ApiDefActionType.MultiAction (int m.Groups.[2].Value, int m.Groups.[3].Value))
+            | _ ->
+                Error (sprintf "apiDefActionType '%s' — case 이름과 인자 개수 불일치. Normal/Push/Pulse 는 인자 없음, TimeTotal/TimeAppend 는 (ms), MultiAction 은 (count, ms)." raw)
+
     // ─── Arrow 표기 parse: "A -> B : Type" ──────────────────────────────────
 
     /// "A -> B : Type" / "A -> B" (type 누락 — validate 에러) 분해.
@@ -1200,6 +1257,42 @@ module ModelProtocol =
         | ArrowType.Group -> "Group"
         | ArrowType.Unspecified -> "Unspecified"
         | other -> sprintf "Unknown(%d)" (int other)
+
+    // ─── Enum format helpers (Phase 7 §4.2 C-1) — 위 parse* 함수의 거울 ────
+    //
+    // 각 enum 의 format 측. parse 측과 1:1 round-trip. unknown case 는 forensic
+    // 단서로 `Unknown(<int>)` (formatArrowType 패턴 답습).
+
+    let formatCallConditionType (t: CallConditionType) : string =
+        match t with
+        | CallConditionType.AutoAux -> "AutoAux"
+        | CallConditionType.ComAux -> "ComAux"
+        | CallConditionType.SkipUnmatch -> "SkipUnmatch"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatContactKind (k: ContactKind) : string =
+        match k with
+        | ContactKind.NoContact -> "NoContact"
+        | ContactKind.NcContact -> "NcContact"
+        | ContactKind.RisingPulse -> "RisingPulse"
+        | ContactKind.FallingPulse -> "FallingPulse"
+        | ContactKind.Inverter -> "Inverter"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatCallType (t: CallType) : string =
+        match t with
+        | CallType.WaitForCompletion -> "WaitForCompletion"
+        | CallType.SkipIfCompleted -> "SkipIfCompleted"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatApiDefActionType (a: ApiDefActionType) : string =
+        match a with
+        | ApiDefActionType.Normal              -> "Normal"
+        | ApiDefActionType.Push                -> "Push"
+        | ApiDefActionType.Pulse               -> "Pulse"
+        | ApiDefActionType.TimeTotal  ms       -> sprintf "TimeTotal(%d)" ms
+        | ApiDefActionType.TimeAppend ms       -> sprintf "TimeAppend(%d)" ms
+        | ApiDefActionType.MultiAction(c, ms)  -> sprintf "MultiAction(%d, %d)" c ms
 
     /// Passive system 의 internal Flow 의 ResetReset arrow 갯수 → opposing 추정.
     /// chain: N-1 / all-pairs: N*(N-1)/2 / none: 0

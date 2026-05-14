@@ -122,6 +122,9 @@ LLM 의 강점과 약점을 다시 정리:
 | **`validate_model` scope = path / 미지정 (Phase 6)** | GUID scope 분기 + 'global' literal 입력 폐기. `scope?: string` (미지정 = 전체, path 명시 시 sub-tree). `LlmTurnContext` 의 cache key sentinel = `""` (empty path) 명문화. 출력 footer "(scope=global)" 같은 user-facing 한국어 표기는 가독성 유지 차원 그대로 (wire 입력에만 영향) |
 | **`view` flag 정책 (Phase 6)** | export 결과 = 항상 `view: full` 또는 `view: partial` 명시. apply / validate 입력 = `view: partial` 거부 / `view: full` 허용 (자기 round-trip 시나리오) / 부재도 허용 (사용자 직접 작성 YAML / legacy 호환). `view: <other>` ERROR. partial 결과는 view-only — apply/validate 재입력 거부 (alias fallback / cross-system arrow 의 misleading 회귀 차단) |
 | **Path notation = dot 정규형 + leading `.` 절대 경로 (Phase 6 부속)** | wire 입력 dual-accept (`.` / `/` 모두 OK — 기존 `normalizePath` 동작 유지, 변경 0). 정규형 = dot. **root 절대 경로 = leading `.`** 권장 어휘 (예: `.Proj1.SysA.Flow1`). leading `.` 은 어휘 강조 prefix 일 뿐 segment 카운트에 영향 없음 (`TrimStart('.')` 진입 시 적용). 이름의 `.` 금지 invariant 유지 (변경 0) — leading `.` 와 이름 충돌 0건 |
+| **export 완결성 4분류 (Phase 7 §4.1)** | export 항목을 4분류로 정리 — **必** (모델 의미 기여, 보강 필수) / **派** (도출 가능, 보강 불필요) / **意** (의도된 lossy 4-set = GUID·position·alias·시뮬결과) / **メ** (PLC 코드 생성 메타데이터, 사용자 명시 설정 부분만 必 격상). 본 분류는 *우선순위 라벨 (高/中/低)* 와 직교 — 必 항목만 우선순위 적용. boundary handling sub-rule: ① fallback 으로 보존되는 派 의 forensic 단서는 의미 분류 의 意 우선 유지 (`Call.DevicesAlias` alias-fallback) ② PoC 가정 의존 도출 (`workDuration "첫 work 만 대표"`) 은 必 격상 ③ runtime-only / 단순 cache 는 派 ④ 4-set 명시 lossy 는 意 ⑤ PLC 코드 생성 메타는 メ — 사용자 명시 설정만 必 |
+| **Call object dual format (Phase 7 §4.1.5 — 옵션 C 채택)** | `calls:` 배열 element 표기를 **default 시 string scalar 유지 / non-default 시 object 승격** 의 dual format 으로 결정. `calls: [Z1_C1.ADV, ...]` 형태는 *모든 보강 property 가 entity-default* 일 때 그대로 보존 (legacy .yaml 호환 100%). 하나라도 non-default (`contactKind` / `skipInputSensor` / `callType` / `callCondition` / `inTag` / `outTag` 등) 가 있을 때만 `- ref: <System>.<ApiDef>` + 추가 키 형태의 object 로 승격. 사유: 기존 schema 무변경 (wire breaking 0) + apply 측 dispatcher 분기 1건 추가만 필요 + LLM 부담 0 증가 (default case 는 기존 string 그대로) + §6.3 (b) "default 생략 emit" 정책 완벽 정합. 대안 (옵션 A — object 강제 / 옵션 B — sibling 키 신설) 모두 호환성 또는 ApiDef 중복 호출 식별 불가 문제로 기각 |
+| **SSOT 갱신 책임 표 — §6.1 매핑 (Phase 7)** | export 보강 작업은 SSOT 의 *여러 절 동시 갱신* 강제. todo 변경 항목 ↔ SSOT 절을 1:1 매핑하는 책임 표를 todo §6.1 에 명세. 매핑 표 9 row 모두 갱신 전에는 commit 금지 — 자가 검열 trigger ⑤ (SSOT 상수 갱신) 정합. 본 §1.7 row 자체도 매핑 표의 "전체 → §1.7" row 산출물 |
 
 ---
 
@@ -242,6 +245,26 @@ Parse regex: `^([A-Za-z][A-Za-z0-9_]*)(?:\(([A-Za-z][A-Za-z0-9_]*)\))?$`. ASCII-
 - `Type` 누락 시 validate 에러 (default 두지 않음 — 의도 명시 강제). 단 *명시적 미정* 의도면 `: Unspecified` 로 표기 — *키 누락* (parse 에러) 와 *명시적 미정* (도메인 의미) 의 의도 분리
 - `<From>` / `<To>` 는 *현재 scope* (Work 안 arrows = Call 식별자, Flow 안 arrows = Work 식별자)
 - cross-scope 가 필요하면 full dotted-path
+
+### 2.4.1 Enum 라벨 사전 (Phase 7 §4.2 C-1)
+
+ArrowType 외 export 보강에 도입되는 enum 라벨 — `calls` object 승격 시 (§2.2 dual format) 의 sub-key 값으로 등장. parser / formatter 는 `ModelProtocol.fs` 의 `parseXxx` / `formatXxx` 페어 (`formatArrowType` 패턴 답습) — 1:1 round-trip 보장. unknown 값 은 `Unknown(<int>)` 으로 forensic emit (parse 시점에 reject).
+
+| Enum | 허용 라벨 | default | 사용 위치 |
+|---|---|---|---|
+| **CallConditionType** | `AutoAux` \| `ComAux` \| `SkipUnmatch` | `AutoAux` | `calls[].callCondition.type` |
+| **ContactKind** | `NoContact` \| `NcContact` \| `RisingPulse` \| `FallingPulse` \| `Inverter` | `NoContact` | `calls[].contactKind` + `calls[].callCondition.conditions[].contactKind` (recursive leaf) |
+| **CallType** | `WaitForCompletion` \| `SkipIfCompleted` | `WaitForCompletion` | `calls[].callType` |
+| **ApiDefActionType** | `Normal` \| `Push` \| `Pulse` \| `TimeTotal(<ms>)` \| `TimeAppend(<ms>)` \| `MultiAction(<count>, <ms>)` | `Normal` | `apiDetails.<ApiDef>.actionType` (Passive system) |
+
+**ApiDefActionType grammar** (DU 인자 case):
+- regex: `^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$`
+- 인자 없음: `Normal` / `Push` / `Pulse`
+- 1 인자 (ms): `TimeTotal(500)` / `TimeAppend(200)`
+- 2 인자 (count, ms): `MultiAction(3, 100)`
+- 인자 개수 불일치 (예: `Normal(500)` / `TimeTotal` / `MultiAction(3)`) → validate 에러
+
+**default 처리** (Phase 7 §6.3 (b) 정합): emit 측이 *store 값이 entity-default 와 동일* 한 경우 키 자체 생략. apply 측은 키 부재 → entity-default 적용. 따라서 enum 0-default (AutoAux / NoContact / WaitForCompletion / Normal) 인 경우 wire 에 등장 안 함 → silent semantic drift 차단.
 
 ### 2.5 Path 룰
 
