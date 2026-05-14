@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -7,8 +8,10 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AvalonDock;
 using AvalonDock.Layout;
 using Ds2.Core;
+using log4net;
 using Promaker.Presentation;
 using Promaker.Services;
 using Promaker.ViewModels;
@@ -17,6 +20,7 @@ namespace Promaker;
 
 public partial class MainWindow : Window
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(MainWindow));
     private readonly MainViewModel _vm = new();
     private readonly TrayService _trayService = new();
     private const int DwmwaUseImmersiveDarkMode = 20;
@@ -36,6 +40,14 @@ public partial class MainWindow : Window
     private static readonly GridLength StarLength = new(1, GridUnitType.Star);
     private static readonly GridLength ZeroLength = new(0);
 
+    // floating → docked 복원 wiring — AvalonDock 공개 hook 사용.
+    // 공식 동작:
+    //   - `Dock()` 는 PreviousContainer 가 없으면 LayoutAnchorable.InternalDock() 으로 fallback.
+    //   - fallback 은 활성/우측/첫 pane 순으로 선택하므로 Properties 가 Explorer tab 으로 들어갈 수 있음.
+    //   - `InternalDock()` / `Show()` 는 DockingManager.LayoutUpdateStrategy.BeforeInsertAnchorable 을 먼저 호출.
+    // 해결: main dock layout 안의 마지막 ILayoutPane/index 를 별도 기록하고, Dock 명령 및 BeforeInsertAnchorable 에서 그 위치로 직접 삽입.
+    private readonly Dictionary<LayoutAnchorable, DockAnchorPlacement> _dockPlacements = new();
+
     public MainWindow()
     {
         InitializeComponent();
@@ -50,6 +62,8 @@ public partial class MainWindow : Window
         _vm.HistoryAnchor    = historyAnchor;
         _vm.SimulationAnchor = simulationAnchor;
 
+        dockManager.LayoutUpdateStrategy = new DockLayoutUpdateStrategy(this);
+        dockManager.ContentDocking += OnDockManagerContentDocking;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         llmChatAnchor.Hiding += OnLlmChatHiding;
 
@@ -87,6 +101,15 @@ public partial class MainWindow : Window
         propertyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         historyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         llmChatAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+
+        // 매 docked 상태에서 pane/index capture — drag-floating 후 Dock() 시 직전 dock 위치 복원 보장.
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+        {
+            a.PropertyChanged += OnAnchorPropertyChanged;
+            CaptureDockPlacement(a);  // 초기 1회 (안전망 — Loaded 에도 다시)
+        }
+
+        Log.Debug($"[Dock] ctor init: explorer parent={PaneDesc(explorerAnchor.Parent)}, properties={PaneDesc(propertyAnchor.Parent)}, history={PaneDesc(historyAnchor.Parent)}, simulation={PaneDesc(simulationAnchor.Parent)}, llmchat={PaneDesc(llmChatAnchor.Parent)}");
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
@@ -150,6 +173,183 @@ public partial class MainWindow : Window
         rightPanel.DockWidth = anyRightVisible ? RightDefaultW : ZeroLength;
     }
 
+    // floating → docked 복귀 시 직전 dock 위치 복원.
+    // docked 상태의 anchor (pane + index) 를 _dockPlacements 에 갱신하고,
+    // Dock command / Show fallback 이 들어오면 AvalonDock 기본 후보 대신 해당 위치로 직접 reparent.
+    // IsFloating=true 동안은 갱신 skip → 직전 docked 위치 보존.
+    private static string PaneDesc(object? parent)
+    {
+        if (parent == null) return "null";
+        if (parent is LayoutAnchorablePane p)
+            return $"AnchorablePane(n={p.Children.Count})";
+        return parent.GetType().Name;
+    }
+
+    private void OnAnchorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not LayoutAnchorable anchor) return;
+        if (e.PropertyName == "IsFloating")
+        {
+            Log.Debug($"[Dock] {anchor.ContentId}.IsFloating={anchor.IsFloating}, parent={PaneDesc(anchor.Parent)}");
+            return;
+        }
+        if (e.PropertyName != "Parent") return;
+        CaptureDockPlacement(anchor);
+    }
+
+    // anchor 가 main dock layout 안에 docked 상태일 때 그 pane + index 를 기록한다.
+    // - IsFloating=true / floating window pane / float 생성 중 transient pane(Root null): skip
+    // - LayoutDocumentPane 도 기록해 사용자가 canvas 쪽에 tab docking 한 위치를 보존
+    private void CaptureDockPlacement(LayoutAnchorable anchor)
+    {
+        if (anchor.IsFloating) return;
+        if (anchor.Parent is not ILayoutPane pane) return;
+        if (anchor.Parent is not ILayoutGroup paneGroup) return;
+        if (pane is not ILayoutElement paneElement) return;
+        if (paneElement.Root != dockManager.Layout) return;
+        if (paneElement.FindParent<LayoutFloatingWindow>() != null) return;
+
+        int idx = paneGroup.IndexOfChild(anchor);
+        if (idx < 0) return;
+
+        var parentGroup = paneElement.Parent as ILayoutGroup;
+        int paneIndex = parentGroup?.IndexOfChild(paneElement) ?? -1;
+        var parentGroupElement = parentGroup as ILayoutElement;
+        var parentParentGroup = parentGroupElement?.Parent as ILayoutGroup;
+        int parentGroupIndex = parentParentGroup?.IndexOfChild(parentGroupElement) ?? -1;
+
+        _dockPlacements[anchor] = new DockAnchorPlacement(
+            paneElement,
+            paneGroup,
+            parentGroup,
+            paneIndex,
+            idx,
+            parentGroupElement,
+            parentParentGroup,
+            parentGroupIndex);
+        Log.Debug($"[Dock] {anchor.ContentId}: dock placement captured parent={PaneDesc(paneElement)}, childIndex={idx}, paneIndex={paneIndex}");
+    }
+
+    private void OnDockManagerContentDocking(object? sender, ContentDockingEventArgs e)
+    {
+        if (e.Content is not LayoutAnchorable anchor) return;
+        if (!anchor.IsFloating) return;
+        if (!TryDockAnchorAtCapturedPlacement(anchor)) return;
+
+        e.Cancel = true;
+        dockManager.Layout?.CollectGarbage();
+    }
+
+    private bool TryDockAnchorAtCapturedPlacement(LayoutAnchorable anchor)
+    {
+        if (!_dockPlacements.TryGetValue(anchor, out var placement))
+            return false;
+
+        if (!EnsureDockPaneAttached(placement))
+            return false;
+
+        if (placement.PaneElement.FindParent<LayoutFloatingWindow>() != null)
+            return false;
+
+        if (ReferenceEquals(anchor.Parent, placement.PaneGroup))
+        {
+            anchor.IsSelected = true;
+            anchor.IsActive = true;
+            CaptureDockPlacement(anchor);
+            OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+            return true;
+        }
+
+        int insertIndex = Math.Clamp(placement.ChildIndex, 0, placement.PaneGroup.ChildrenCount);
+        placement.PaneGroup.InsertChildAt(insertIndex, anchor);
+        anchor.IsSelected = true;
+        anchor.IsActive = true;
+
+        CaptureDockPlacement(anchor);
+        OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        return true;
+    }
+
+    private static bool EnsureDockPaneAttached(DockAnchorPlacement placement)
+    {
+        if (placement.PaneElement.Parent != null
+            && placement.PaneElement.Root != null
+            && placement.PaneElement.FindParent<LayoutFloatingWindow>() == null)
+            return true;
+
+        if (placement.ParentGroup is null)
+            return false;
+
+        if (placement.ParentGroupElement is { Parent: null }
+            && placement.ParentParentGroup is not null)
+        {
+            int parentGroupIndex = placement.ParentGroupIndex;
+            if (parentGroupIndex < 0 || parentGroupIndex > placement.ParentParentGroup.ChildrenCount)
+                parentGroupIndex = placement.ParentParentGroup.ChildrenCount;
+
+            placement.ParentParentGroup.InsertChildAt(parentGroupIndex, placement.ParentGroupElement);
+        }
+
+        if (!ReferenceEquals(placement.PaneElement.Parent, placement.ParentGroup))
+        {
+            int paneIndex = placement.PaneIndex;
+            if (paneIndex < 0 || paneIndex > placement.ParentGroup.ChildrenCount)
+                paneIndex = placement.ParentGroup.ChildrenCount;
+
+            placement.ParentGroup.InsertChildAt(paneIndex, placement.PaneElement);
+        }
+
+        return placement.PaneElement.Parent != null
+            && placement.PaneElement.Root != null
+            && placement.PaneElement.FindParent<LayoutFloatingWindow>() == null;
+    }
+
+    private sealed class DockAnchorPlacement(
+        ILayoutElement paneElement,
+        ILayoutGroup paneGroup,
+        ILayoutGroup? parentGroup,
+        int paneIndex,
+        int childIndex,
+        ILayoutElement? parentGroupElement,
+        ILayoutGroup? parentParentGroup,
+        int parentGroupIndex)
+    {
+        public ILayoutElement PaneElement { get; } = paneElement;
+        public ILayoutGroup PaneGroup { get; } = paneGroup;
+        public ILayoutGroup? ParentGroup { get; } = parentGroup;
+        public int PaneIndex { get; } = paneIndex;
+        public int ChildIndex { get; } = childIndex;
+        public ILayoutElement? ParentGroupElement { get; } = parentGroupElement;
+        public ILayoutGroup? ParentParentGroup { get; } = parentParentGroup;
+        public int ParentGroupIndex { get; } = parentGroupIndex;
+    }
+
+    private sealed class DockLayoutUpdateStrategy(MainWindow owner) : ILayoutUpdateStrategy
+    {
+        public bool BeforeInsertAnchorable(
+            LayoutRoot layout,
+            LayoutAnchorable anchorableToShow,
+            ILayoutContainer destinationContainer)
+        {
+            return owner.TryDockAnchorAtCapturedPlacement(anchorableToShow);
+        }
+
+        public void AfterInsertAnchorable(LayoutRoot layout, LayoutAnchorable anchorableShown)
+        {
+            owner.CaptureDockPlacement(anchorableShown);
+            owner.OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        }
+
+        public bool BeforeInsertDocument(
+            LayoutRoot layout,
+            LayoutDocument anchorableToShow,
+            ILayoutContainer destinationContainer) => false;
+
+        public void AfterInsertDocument(LayoutRoot layout, LayoutDocument anchorableShown)
+        {
+        }
+    }
+
     // View → VM (X 버튼 = 사용자 명시 close 한 곳만). auto-hide / float 상태 변화는 무관.
     // e.Cancel 은 기본값 false 유지 — hide 자체는 그대로 진행 + VM 만 동기화.
     private void OnLlmChatHiding(object? sender, CancelEventArgs e)
@@ -201,6 +401,9 @@ public partial class MainWindow : Window
         SyncLlmChatAnchorFromVm();
         // 초기 collapse 적용 (XAML 기본값 — llmChatAnchor IsVisible=False).
         OnAnchorIsVisibleChanged(null, EventArgs.Empty);
+        // XAML 트리 완성 후 pane/index 안전망 recapture.
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+            CaptureDockPlacement(a);
 
         if (App.StartupFilePath is { } path)
         {
@@ -485,6 +688,7 @@ public partial class MainWindow : Window
     {
         // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
+        dockManager.ContentDocking -= OnDockManagerContentDocking;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
         llmChatAnchor.Hiding -= OnLlmChatHiding;
 
@@ -494,6 +698,9 @@ public partial class MainWindow : Window
         propertyAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
         historyAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
         llmChatAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
+
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+            a.PropertyChanged -= OnAnchorPropertyChanged;
 
         // 트레이 아이콘 정리 — stale 잔존 방지.
         try { _trayService.Dispose(); } catch { /* ignore */ }
