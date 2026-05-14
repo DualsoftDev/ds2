@@ -54,6 +54,13 @@ public partial class SimulationPanelState : ObservableObject
     /// </summary>
     public Action<IReadOnlyDictionary<Guid, string>?>? RuntimeIoChanged { get; set; }
 
+    /// <summary>
+    /// Hub 모드(Control/VirtualPlant/Monitoring) 시뮬레이션이 시작되기 직전에 호출되는 후크.
+    /// MainViewModel 이 현재 store 를 DSPilot 공유 AASX 경로에 export 해 두 앱이 동일 모델로 동기화되도록 함.
+    /// 반환값: 성공 시 true, 프로젝트 미보유/실패 시 false. (실패해도 시뮬 시작은 계속.)
+    /// </summary>
+    public Func<bool>? PublishAasxForHubMode { get; set; }
+
     private void NotifyRuntimeIoChanged()
     {
         if (RuntimeIoChanged is null) return;
@@ -396,12 +403,16 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
-    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.</summary>
+    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.
+    /// UserTag 주소도 함께 PLC 스캔 대상으로 포함 — 그래야 DSPilot 의 UserTag 알림이
+    /// 동작 (Hub 에 그 주소 변화가 흘러야 plcTagLog 에 기록됨).</summary>
     public Ds2.Backend.Plc.PlcGatewayConfig? BuildPlcGatewayConfig(out System.Collections.Generic.List<string> errors)
     {
         var store = _storeProvider();
         var iomap = SignalIOMapModule.build(store);
-        return PlcSettings.BuildGatewayConfig(iomap, out errors);
+        var userTagAddresses = store.GetAllUserTagsForProject()
+            .Select(r => r.TagAddress);
+        return PlcSettings.BuildGatewayConfig(iomap, out errors, userTagAddresses);
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;

@@ -1,0 +1,185 @@
+.user-tags-page {
+    padding: 20px;
+    max-width: 100%;
+    min-height: 100vh;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--color-lines);
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.page-header h3 {
+    margin: 0 0 4px 0;
+    color: var(--color-text-primary);
+    font-size: 1.5rem;
+}
+
+.page-subtitle {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+}
+
+.header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.ut-section {
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.ut-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    cursor: default;
+}
+
+.ut-section-header h4 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: 1.05rem;
+}
+
+.ut-filter-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 240px;
+}
+
+.ut-filter-row .form-field {
+    min-width: 140px;
+}
+
+.ut-table-wrapper {
+    overflow-x: auto;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.ut-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.ut-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--color-surface);
+    border-bottom: 2px solid var(--color-lines);
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    z-index: 1;
+}
+
+.ut-table tbody td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-lines);
+    color: var(--color-text-primary);
+    vertical-align: middle;
+}
+
+.ut-table tbody tr:hover {
+    background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+.ut-row-warning {
+    background: rgba(255, 152, 0, 0.06);
+}
+
+.ut-row-error {
+    background: rgba(244, 67, 54, 0.08);
+}
+
+.ut-row-error:hover {
+    background: rgba(244, 67, 54, 0.12) !important;
+}
+
+.ut-time {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+}
+
+.ut-last-time {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+}
+
+.ut-empty {
+    text-align: center;
+    padding: 36px 12px;
+    color: var(--color-text-secondary);
+}
+
+.ut-empty .material-icons {
+    font-size: 48px;
+    opacity: 0.4;
+}
+
+.ut-empty p {
+    margin: 6px 0;
+}
+
+/* 레벨 칩 — Promaker UI 톤과 비슷한 색상 */
+.chip-level-info {
+    background: rgba(33, 150, 243, 0.15);
+    color: #1976d2;
+    border: 1px solid rgba(33, 150, 243, 0.35);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.chip-level-warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ef6c00;
+    border: 1px solid rgba(255, 152, 0, 0.4);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.chip-level-error {
+    background: rgba(244, 67, 54, 0.15);
+    color: #c62828;
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+code {
+    background: rgba(0, 0, 0, 0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+}
