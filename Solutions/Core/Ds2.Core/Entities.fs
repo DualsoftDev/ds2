@@ -134,9 +134,9 @@ and ApiCall [<JsonConstructor>] internal (name) =
     [<AasxField("OutputSpec")>]   member val OutputSpec   : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OriginFlowId")>] member val OriginFlowId : Guid option  = None           with get, set
     [<AasxField("ContactKind")>]  member val ContactKind  : ContactKind  = ContactKind.NoContact with get, set
-    /// 완료 판정 — true: 실 센서 (InTag) 감지, false: Work.Duration 흐름 후 RxWork 관찰 (가상 센서).
+    /// 완료 판정 — false (기본): 실 센서 (InTag) 감지, true: Work.Duration 흐름 후 RxWork 관찰 (가상 센서, 실 센서 스킵).
     /// ApiDef.ApiDefActionType (출력 인터페이스) 및 Work.Duration (디바이스 내부 시간) 과 직교 — 독립적 정책.
-    [<AasxField("UseInputSensor")>] member val UseInputSensor : bool = true with get, set
+    [<AasxField("SkipInputSensor")>] member val SkipInputSensor : bool = false with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 

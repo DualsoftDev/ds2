@@ -10,9 +10,29 @@ public class AppSettingsModel
     public FlowCycleSettings FlowCycle { get; set; } = new();
     public PlcDatabaseSettings PlcDatabase { get; set; } = new();
     public DspTablesSettings DspTables { get; set; } = new();
+    public HubSettings Hub { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
     public HistoryViewSettings HistoryView { get; set; } = new();
+}
+
+/// <summary>
+/// Promaker SignalHub 구독 설정 — 어느 Promaker 인스턴스(Control 5050 / Monitoring 5051 / 원격)
+/// 에 client 로 붙을지 결정. 변경은 appsettings.json 저장 후 DSPilot 서비스 재시작 시 적용.
+/// </summary>
+public class HubSettings
+{
+    /// <summary>false 면 HubSubscriberService 자체를 등록하지 않음 (DI 단계에서 제외).</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Promaker SignalHub URL. 기본 5051(Monitoring) — Control(5050) 구독 시 수동 변경.</summary>
+    public string Url { get; set; } = "http://localhost:5051/hub/signal";
+
+    /// <summary>수신을 받아들일 source 화이트리스트. 명시되지 않으면 control/virtualplant/plc 기본.</summary>
+    public string[] AcceptedSources { get; set; } = ["control", "virtualplant", "plc"];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 public class DsPilotSettings

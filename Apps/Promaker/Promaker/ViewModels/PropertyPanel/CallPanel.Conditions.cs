@@ -102,7 +102,8 @@ public partial class PropertyPanelState
         var dialog = new ApiCallSpecDialog(
             row.ApiDefDisplayName,
             row.OutputSpecText, row.OutputSpecTypeIndex,
-            row.InputSpecText,  row.InputSpecTypeIndex);
+            row.InputSpecText,  row.InputSpecTypeIndex,
+            row.SkipInputSensor);
         ShowOwnedDialog(dialog);
         if (dialog.DialogResult != true) return;
 
@@ -114,6 +115,10 @@ public partial class PropertyPanelState
             Store.UpdateConditionApiCallInputSpec(
                 callId, row.ConditionId, row.ApiCallId,
                 dialog.InSpecTypeIndex, dialog.InSpecText));
+        _host.TryAction(() =>
+            Store.UpdateConditionApiCallSkipInputSensor(
+                callId, row.ConditionId, row.ApiCallId,
+                dialog.SkipInputSensor));
         RefreshCallPanel(callId);
     }
 

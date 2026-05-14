@@ -146,6 +146,17 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <DataGridTemplateColumn Header="SkipSensor" Width="82"
+                                            ToolTipService.ToolTip="SkipInputSensor — 체크: 실 센서 스킵, Work.Duration 흐름 후 가상 완료.&#x0a;해제 (기본): 실 센서(InTag) 감지로 완료 판정.">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding SkipInputSensor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <DataGridTemplateColumn Header="{x:Static core:Labels.InSpec}" Width="1.2*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>

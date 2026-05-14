@@ -159,7 +159,8 @@ type CallApiCallPanelItem
         valueSpecText: string,
         inputValueSpecText: string,
         outputSpecTypeIndex: int,
-        inputSpecTypeIndex: int
+        inputSpecTypeIndex: int,
+        skipInputSensor: bool
     ) =
     member _.ApiCallId = apiCallId
     member _.Name = name
@@ -174,13 +175,15 @@ type CallApiCallPanelItem
     member _.InputValueSpecText = inputValueSpecText
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
     member _.InputSpecTypeIndex  = inputSpecTypeIndex
+    member _.SkipInputSensor     = skipInputSensor
 
 [<Sealed>]
 type CallConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
      inputSpecText: string, inputSpecTypeIndex: int,
-     contactKind: ContactKind, inputSpec: ValueSpec) =
+     contactKind: ContactKind, inputSpec: ValueSpec,
+     skipInputSensor: bool) =
     member _.ApiCallId          = apiCallId
     member _.ApiCallName        = apiCallName
     member _.ApiDefDisplayName  = apiDefDisplayName
@@ -191,6 +194,7 @@ type CallConditionApiCallItem
     member _.ContactKind        = contactKind
     /// 시뮬 IO 값 매칭 검사용 — 패널에 [현재:X / 기대:Y] 표시할 때 evaluate 에 그대로 전달.
     member _.InputSpec          = inputSpec
+    member _.SkipInputSensor    = skipInputSensor
 
 [<Sealed>]
 type CallConditionPanelItem

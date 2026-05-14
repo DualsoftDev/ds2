@@ -5,10 +5,11 @@ using Microsoft.AspNetCore.SignalR.Client;
 namespace DSPilot.Services;
 
 /// <summary>
-/// Promaker SignalHub(localhost:5050/hub/signal) 클라이언트.
-/// OnTagChanged 신호를 채널 큐에 enqueue → 단일 컨슈머가 순차적으로 SimulationEngineService 로 위임.
-/// SignalR client 의 콜백 동시 진입 가능성에 대비한 defense-in-depth + Promaker idle 시
-/// 30초 server-timeout 으로 인한 잡음 reconnect 차단.
+/// Promaker SignalHub 클라이언트. 기본 URL = http://localhost:5051/hub/signal (Promaker Monitoring 모드).
+/// Control 모드(5050) 또는 원격 인스턴스 구독으로 전환하려면 Settings 페이지 'Hub' 섹션에서 URL 변경 후
+/// DSPilot 서비스 재시작. OnTagChanged 신호는 채널 큐에 enqueue → 단일 컨슈머가 순차적으로
+/// SimulationEngineService 로 위임. SignalR client 의 콜백 동시 진입 가능성에 대비한 defense-in-depth
+/// + Promaker idle 시 30초 server-timeout 으로 인한 잡음 reconnect 차단.
 /// </summary>
 public sealed class HubSubscriberService : BackgroundService
 {
@@ -34,7 +35,7 @@ public sealed class HubSubscriberService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var hubUrl = _configuration["Hub:Url"] ?? "http://localhost:5050/hub/signal";
+        var hubUrl = _configuration["Hub:Url"] ?? "http://localhost:5051/hub/signal";
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
             ?? new[] { HubSource.Control, HubSource.VirtualPlant, HubSource.Plc };
         _acceptedSources = new HashSet<string>(configuredSources, StringComparer.OrdinalIgnoreCase);

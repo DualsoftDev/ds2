@@ -34,6 +34,9 @@ public partial class PlcSettingsDialog : Window
         LocalEthernetBox.IsChecked = _vm.LocalEthernet;
         NetworkNumberBox.Text = _vm.NetworkNumber.ToString(CultureInfo.InvariantCulture);
         StationNumberBox.Text = _vm.StationNumber.ToString(CultureInfo.InvariantCulture);
+        // MX 전송 방식 — UDP 가 true 면 UDP, 아니면 TCP (기본).
+        if (_vm.IsUdp) RbTransportUdp.IsChecked = true;
+        else RbTransportTcp.IsChecked = true;
 
         TagSummaryText.Text = autoImportedTagCount switch
         {
@@ -127,6 +130,7 @@ public partial class PlcSettingsDialog : Window
         _vm.LocalEthernet = LocalEthernetBox.IsChecked == true;
         _vm.NetworkNumber = net;
         _vm.StationNumber = stn;
+        _vm.IsUdp = RbTransportUdp.IsChecked == true;
 
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();

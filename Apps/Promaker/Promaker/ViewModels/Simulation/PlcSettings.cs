@@ -34,6 +34,11 @@ public partial class PlcSettings : ObservableObject
     [ObservableProperty] private byte _networkNumber = 0;        // MX only
     [ObservableProperty] private byte _stationNumber = 0xFF;     // MX only
 
+    /// <summary>Mitsubishi 전송 방식 — true=UDP, false=TCP. LS 에서는 무시 (LS 는 항상 TCP).
+    /// 미쓰비시 MC 프로토콜은 PLC 측 Ethernet 모듈 파라미터(GX Works)에서 TCP/UDP 를 정해두면
+    /// 클라이언트가 그 모드로 붙어야 함 — 모니터링 통신용으로 UDP 를 쓰는 현장이 흔하다.</summary>
+    [ObservableProperty] private bool _isUdp = false;
+
     partial void OnVendorChanged(PlcVendorChoice value)
     {
         // 벤더 전환 시 기본 포트 자동 적용 (이전 값이 다른 벤더 기본값일 때만 덮어써 의도치 않은 손상 방지).
@@ -82,6 +87,7 @@ public partial class PlcSettings : ObservableObject
                 PlcAddressInfer.dataType(fsVendor, a)))
             .ToList();
 
+        var transport = IsUdp ? PlcTransport.Udp : PlcTransport.Tcp;
         var connection = new PlcConnectionConfig(
             Name,
             fsVendor,
@@ -90,6 +96,7 @@ public partial class PlcSettings : ObservableObject
             LocalEthernet,
             NetworkNumber,
             StationNumber,
+            transport,
             TimeoutMs,
             FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(ScanIntervalMs)),
             Microsoft.FSharp.Collections.ListModule.OfSeq(tags));
@@ -114,6 +121,7 @@ public partial class PlcSettings : ObservableObject
         public bool LocalEthernet { get; set; } = true;
         public byte NetworkNumber { get; set; } = 0;
         public byte StationNumber { get; set; } = 0xFF;
+        public bool IsUdp { get; set; } = false;
     }
 
     private static readonly JsonSerializerOptions _jsonOpts = new()
@@ -144,6 +152,7 @@ public partial class PlcSettings : ObservableObject
             s.LocalEthernet = data.LocalEthernet;
             s.NetworkNumber = data.NetworkNumber;
             s.StationNumber = data.StationNumber;
+            s.IsUdp = data.IsUdp;
         }
         catch
         {
@@ -172,6 +181,7 @@ public partial class PlcSettings : ObservableObject
                 LocalEthernet = LocalEthernet,
                 NetworkNumber = NetworkNumber,
                 StationNumber = StationNumber,
+                IsUdp = IsUdp,
             };
             var text = JsonSerializer.Serialize(data, _jsonOpts);
             File.WriteAllText(path, text);

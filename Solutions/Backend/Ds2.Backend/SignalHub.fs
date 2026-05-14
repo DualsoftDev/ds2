@@ -22,12 +22,22 @@ and SignalHub(gateway: IPlcGateway) =
     /// PLC scan service 의 broadcast 도 이 캐시를 갱신해 둠.
     static let tagCache = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
 
+    /// Monitoring 모드 read-only flag. true 면 클라이언트 WriteTag/WriteTags 가 no-op.
+    /// PlcScanService 의 PLC→Hub broadcast 는 영향 없음 (broadcaster 가 직접 SendAsync).
+    static let mutable readOnlyMode = false
+
     static member ClearTagCache() =
         tagCache.Clear()
 
     /// PlcScanService broadcaster 가 캐시를 직접 갱신하기 위한 internal 진입점.
     static member internal UpdateTagCache(address: string, value: string) =
         tagCache.[address] <- value
+
+    /// Monitoring 모드 진입 시 host bootstrap 에서 true 로 set — 클라이언트 write 차단.
+    static member SetReadOnly(value: bool) =
+        readOnlyMode <- value
+
+    static member IsReadOnly = readOnlyMode
 
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// source = "plc" 인 경우(=PLC 가 우리에게 알려준 변화)는 다시 PLC 로 echo 하지 않는다.
@@ -47,15 +57,23 @@ and SignalHub(gateway: IPlcGateway) =
             } |> ignore
 
     member this.WriteTag(address: string, value: string, source: string) : Task =
-        log.Debug($"WriteTag: {address}={value} source={source}")
-        tagCache.[address] <- value
-        this.ForwardToPlc(address, value, source)
-        this.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, source)
+        if readOnlyMode then
+            log.Debug($"WriteTag suppressed (read-only): {address}={value} source={source}")
+            Task.CompletedTask
+        else
+            log.Debug($"WriteTag: {address}={value} source={source}")
+            tagCache.[address] <- value
+            this.ForwardToPlc(address, value, source)
+            this.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, source)
 
     /// Batch 송신 — 여러 태그 변경을 한 프레임으로 받아 한 프레임으로 fan-out.
     /// Per-tag WriteTag 호출 대비 SignalR 프레임 수 / 직렬화 비용 감소.
     member this.WriteTags(items: TagWrite[]) : Task =
-        if isNull items || items.Length = 0 then
+        if readOnlyMode then
+            let cnt = if isNull items then 0 else items.Length
+            log.Debug($"WriteTags suppressed (read-only): count={cnt}")
+            Task.CompletedTask
+        elif isNull items || items.Length = 0 then
             Task.CompletedTask
         else
             for it in items do

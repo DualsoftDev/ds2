@@ -4,7 +4,7 @@
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         Title="ApiCall Spec 편집"
         Width="420"
-        Height="400"
+        Height="450"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -54,11 +54,27 @@
                     Padding="10,8"
                     Margin="0,0,0,8">
                 <StackPanel>
-                    <TextBlock Text="In 대상"
-                               FontSize="11"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource AccentBrush}"
-                               Margin="0,0,0,6"/>
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="In 대상"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   VerticalAlignment="Center"/>
+                        <CheckBox Grid.Column="1"
+                                  x:Name="SkipInputSensorCheck"
+                                  Content="SkipInputSensor (Work.Duration 으로 완료)"
+                                  FontSize="11"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  VerticalAlignment="Center"
+                                  Checked="SkipInputSensorCheck_Changed"
+                                  Unchecked="SkipInputSensorCheck_Changed"
+                                  ToolTip="체크: 실 센서 스킵 — Work.Duration 흐름 후 가상 완료.&#x0a;해제 (기본): 실 센서(InTag) 감지로 완료 판정."/>
+                    </Grid>
                     <ctrl:ValueSpecEditorControl x:Name="InSpecEditor"/>
                 </StackPanel>
             </Border>
