@@ -50,7 +50,7 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 조회"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagInspectorCommand}" Click="CloseUtilPopup"><TextBlock Text="IO·태그 확인"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}"
                                     Command="{Binding OpenPlcXmlGeneratorCommand}"
                                     Click="CloseUtilPopup">

@@ -116,7 +116,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AddCallCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(AutoLayoutCommand))]
-    [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenTagInspectorCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
