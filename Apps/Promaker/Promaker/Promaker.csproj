@@ -6,22 +6,19 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
-    <Version>0.0.0.18</Version>
-    <AssemblyVersion>0.0.0.18</AssemblyVersion>
-    <FileVersion>0.0.0.18</FileVersion>
+    <Version>0.0.0.21</Version>
+    <AssemblyVersion>0.0.0.21</AssemblyVersion>
+    <FileVersion>0.0.0.21</FileVersion>
     <ApplicationIcon>Assets\Promaker.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OtherFlags>
     </OtherFlags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- CS9057: OllamaSharp 5.4.25 의 분석기 어셈블리 OllamaSharp.SourceGenerators.dll 이 Roslyn 5.0.0.0 을
-         요구하지만 현재 .NET SDK 9.0.301 의 Roslyn 은 4.14.0.0. 분석기가 로드되지 않을 뿐 본 코드는
-         [OllamaTool] attribute 미사용 (MCP 경유 tool 호출) — 런타임 무해.
-         **회수 조건** (R7 cross-check 2026-05-11 — Microsoft Learn Roslyn version mapping 기준): (a) .NET
-         SDK 가 Roslyn 5.0+ 포함 — Roslyn 5.0.0 은 **VS 2026 (18.0) / .NET 10 SDK** 부터 (VS 17.x 계열은
-         영원히 4.x 라인), 또는 (b) OllamaSharp 가 Roslyn 4.x 호환 분석기로 downgrade. 둘 다 미충족 시
-         NoWarn 유지. -->
+    <!-- CS9057: OllamaSharp 5.4.25 ???브쑴苑띷묾???곷띺뇡遺얄봺 OllamaSharp.SourceGenerators.dll ??Roslyn 5.0.0.0 ??         ?遺쎈럡???筌??袁⑹삺 .NET SDK 9.0.301 ??Roslyn ?? 4.14.0.0. ?브쑴苑띷묾怨? 嚥≪뮆諭??? ??놁뱽 ??癰??꾨뗀諭??         [OllamaTool] attribute 沃섎챷沅??(MCP 野껋럩? tool ?紐꾪뀱) ???怨????얜똾鍮?
+         **???땾 鈺곌퀗援?* (R7 cross-check 2026-05-11 ??Microsoft Learn Roslyn version mapping 疫꿸퀣?): (a) .NET
+         SDK 揶쎛 Roslyn 5.0+ ??釉???Roslyn 5.0.0 ?? **VS 2026 (18.0) / .NET 10 SDK** ?봔??(VS 17.x ?④쑴肉??
+         ?怨몄뜚??4.x ??깆뵥), ?癒?뮉 (b) OllamaSharp 揶쎛 Roslyn 4.x ?紐낆넎 ?브쑴苑띷묾怨뺤쨮 downgrade. ????沃섎챷?먫????         NoWarn ?醫?. -->
     <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
@@ -31,20 +28,20 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="H.NotifyIcon.Wpf" />
-    <!-- AvalonDock (PR-1a) + Metro 테마 (다크 hotfix — 추후 PR-4 자체 ResourceDictionary 머지 시 교체). -->
+    <!-- AvalonDock (PR-1a) + Metro ???춳 (??쎄쾿 hotfix ???곕???PR-4 ?癒?퍥 ResourceDictionary ?믩챷? ???대Ŋ猿?. -->
     <PackageReference Include="Dirkster.AvalonDock" />
     <PackageReference Include="Dirkster.AvalonDock.Themes.Metro" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
+    <!-- LLM Chat 筌ｂ뫀? (review F3) ??App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
-    <!-- Phase 2 — API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
+    <!-- Phase 2 ??API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
     <PackageReference Include="Anthropic" />
     <PackageReference Include="OpenAI" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
-    <!-- LLM Chat 첨부 Phase 3b — PDF 페이지 수 추출 (LlmChatViewModel.Attachments.cs 의 LoadAcceptedAttachments). -->
+    <!-- LLM Chat 筌ｂ뫀? Phase 3b ??PDF ??륁뵠筌왖 ???곕뗄??(LlmChatViewModel.Attachments.cs ??LoadAcceptedAttachments). -->
     <PackageReference Include="PdfPig" />
   </ItemGroup>
   <ItemGroup>
@@ -71,24 +68,21 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
-    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
+    <!-- LLM system prompt ??LlmAgent/Prompts/*.md (?癒?염 ?類ｌ졊 ??concat). PromptLoader 筌〓㈇?? -->
     <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
     <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 커스텀 모델 프리뷰 도구 + 스펙 문서 -->
+    <!-- ?뚣끉??? 筌뤴뫀???袁ⓥ봺???袁㏓럡 + ??쎈읃 ?얜챷苑?-->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
-
-    <!-- AAStoXGI 산출물 — XGI_Template.xml / IECFunctionInfo.json 모두 AAStoPLC.dll 의
-         EmbeddedResource. 첫 실행 시 PlcConfig 가 AppData\PlcTemplate\ 로 추출. -->
-
+    <!-- AAStoXGI ?怨쀭뀱????XGI_Template.xml / IECFunctionInfo.json 筌뤴뫀紐?AAStoPLC.dll ??         EmbeddedResource. 筌???쎈뻬 ??PlcConfig 揶쎛 AppData\PlcTemplate\ 嚥??곕뗄?? -->
   </ItemGroup>
   <ItemGroup>
-    <!-- AAStoPLC, AAStoPLC.LadderEditor 는 별도 저장소(dsev2cpu) 빌드 산출물.
-         빌드 시 ExternalDlls 로 게시되며, 여기서는 그 dll 만 파일 참조. -->
+    <!-- AAStoPLC, AAStoPLC.LadderEditor ??癰귢쑬猷????關??dsev2cpu) ??슢諭??怨쀭뀱??
+         ??슢諭???ExternalDlls 嚥?野껊슣???렽? ??由??뺣뮉 域?dll 筌????뵬 筌〓챷?? -->
     <Reference Include="AAStoPLC">
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.dll</HintPath>
       <Private>true</Private>
@@ -97,8 +91,8 @@
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderEditor.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <!-- PLC 게이트웨이가 Ev2.PLC.Common 의 PlcDataType 을 노출하므로,
-         PlcSettings 모델 빌드 시 C# 측에서도 동일 타입을 참조 가능해야 한다. -->
+    <!-- PLC 野껊슣??紐꾩띃??? Ev2.PLC.Common ??PlcDataType ???紐꾪뀱???嚥?
+         PlcSettings 筌뤴뫀????슢諭???C# 筌β돦肉??뺣즲 ??덉뵬 ????놁뱽 筌〓챷??揶쎛?館鍮????뺣뼄. -->
     <Reference Include="Ev2.PLC.Common.FS">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
       <Private>true</Private>

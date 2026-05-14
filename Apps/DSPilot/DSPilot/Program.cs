@@ -109,12 +109,9 @@ builder.Services.AddSingleton<SimulationEngineService>();
 builder.Services.AddSingleton<UserTagAlertService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertService>());
 
-// Promaker SignalHub 클라이언트 — 기본 5051(Monitoring). Control(5050)/원격 전환은 Settings 페이지에서.
-var hubEnabled = builder.Configuration.GetValue<bool>("Hub:Enabled");
-if (hubEnabled)
-{
-    builder.Services.AddHostedService<HubSubscriberService>();
-}
+// Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
+// URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
+builder.Services.AddHostedService<HubSubscriberService>();
 
 var app = builder.Build();
 

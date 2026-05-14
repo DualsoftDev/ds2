@@ -36,7 +36,7 @@ echo.
 
 :: Step 3: Publish DSPilot (self-contained)
 echo [3/4] Publishing DSPilot (self-contained, win-x64)...
-dotnet publish "%PROJECT_DIR%\DSPilot.csproj" -c Release -r win-x64 --self-contained true -o "%PUBLISH_DIR%" -p:PublishSingleFile=false -p:IncludeAllContentForSelfExtract=true
+dotnet publish "%PROJECT_DIR%\DSPilot.csproj" -c Release -r win-x64 --self-contained true -o "%PUBLISH_DIR%" -p:PublishSingleFile=false -p:IncludeAllContentForSelfExtract=true -m:1
 if !errorlevel! neq 0 goto :fail_publish
 
 echo       Done.
