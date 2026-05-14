@@ -8,6 +8,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Promaker.Presentation;
+using Promaker.Services;
 using Promaker.ViewModels;
 
 namespace Promaker;
@@ -15,6 +16,7 @@ namespace Promaker;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
+    private readonly TrayService _trayService = new();
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaBorderColor = 34;
     private const int DwmwaCaptionColor = 35;
@@ -32,6 +34,34 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible))
                 UpdateLlmChatColumnWidths();
+        };
+
+        // Tray 전환 콜백 wiring — Monitoring + RealPLC 시 PLAY 가 RequestTrayHide 호출.
+        // STOP / 모드 전환 시 RequestTrayRestore 호출.
+        _vm.Simulation.RequestTrayHide = () =>
+        {
+            var tooltip = $"Promaker — Monitoring 동작중 (port {_vm.Simulation.MonitoringHubAddress})";
+            _trayService.HideToTray(this, tooltip);
+        };
+        _vm.Simulation.RequestTrayRestore = () => _trayService.RestoreWindow();
+
+        _trayService.StopRequested += () =>
+        {
+            // 트레이 컨텍스트 메뉴 "STOP" — 시뮬 정지 + 윈도우 복원 (StopSimulation 가 FireTrayRestore 호출).
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_vm.Simulation.StopSimulationCommand.CanExecute(null))
+                    _vm.Simulation.StopSimulationCommand.Execute(null);
+            });
+        };
+        _trayService.ExitRequested += () =>
+        {
+            // 트레이 컨텍스트 메뉴 "종료" — 정상 close 흐름 진입.
+            Dispatcher.BeginInvoke(() =>
+            {
+                _trayService.RestoreWindow(); // close 흐름에서 confirm 다이얼로그 보이게
+                Close();
+            });
         };
 
         SourceInitialized += MainWindow_SourceInitialized;
@@ -334,6 +364,8 @@ public partial class MainWindow : Window
     {
         // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
+        // 트레이 아이콘 정리 — stale 잔존 방지.
+        try { _trayService.Dispose(); } catch { /* ignore */ }
     }
 
     private void ThemeManager_ThemeChanged(AppTheme theme)

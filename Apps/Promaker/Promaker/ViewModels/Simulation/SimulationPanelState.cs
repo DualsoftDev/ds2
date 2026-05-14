@@ -292,6 +292,10 @@ public partial class SimulationPanelState : ObservableObject
         OnPropertyChanged(nameof(HubHostingLabel));
         SetHubStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
+
+        // 모드 전환 시 트레이 상태가 남아있으면 정리 (Monitoring 외 모드에서는 트레이 무의미).
+        if (value != RuntimeMode.Monitoring)
+            FireTrayRestore();
     }
 
     partial void OnHubAddressChanged(string value) =>
