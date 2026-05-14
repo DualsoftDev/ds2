@@ -51,7 +51,7 @@ public class AppSettingsService
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "DspTables", "Logging", "Ui", "HistoryView" })
+            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "DspTables", "Hub", "Logging", "Ui", "HistoryView" })
             {
                 if (prod[key] is not null)
                     root[key] = prod[key]!.DeepClone();
@@ -65,6 +65,7 @@ public class AppSettingsService
             FlowCycle = Deserialize<FlowCycleSettings>(root["FlowCycle"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
             DspTables = Deserialize<DspTablesSettings>(root["DspTables"]),
+            Hub = Deserialize<HubSettings>(root["Hub"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
             HistoryView = Deserialize<HistoryViewSettings>(root["HistoryView"]),
@@ -80,6 +81,7 @@ public class AppSettingsService
         root["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
         root["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
+        root["Hub"] = JsonSerializer.SerializeToNode(model.Hub, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
         root["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
@@ -93,6 +95,7 @@ public class AppSettingsService
         prod["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         prod["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
         prod["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
+        prod["Hub"] = JsonSerializer.SerializeToNode(model.Hub, JsonOptions);
         prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
         prod["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);

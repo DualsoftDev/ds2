@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
         Title="ApiDef 편집"
-        Width="380" Height="430"
+        Width="420" Height="540"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -34,25 +34,60 @@
                 <TextBlock Text="타입"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,4"/>
-                <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
+
+                <!-- Normal / Push / Pulse: 인자 없음 -->
+                <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="ActionType" IsChecked="True" Margin="0,2,0,2"/>
+                <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="ActionType" Margin="0,2,0,2"/>
+                <RadioButton x:Name="PulseRadio" Content="{x:Static core:Labels.Pulse}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="ActionType" Margin="0,2,0,2"/>
+
+                <!-- TimeTotal: 지정 시간만큼 절대 출력 ON -->
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="TimeTotalRadio" Content="{x:Static core:Labels.TimeTotal}"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" IsChecked="True" Margin="0,0,12,0"/>
-                    <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Margin="0,0,12,0"/>
-                    <RadioButton x:Name="PulseRadio" Content="Pulse"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Margin="0,0,12,0"/>
-                    <RadioButton x:Name="TimeRadio" Content="Time"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Margin="0,0,8,0"
-                                 Checked="TimeRadio_Checked" Unchecked="TimeRadio_Unchecked"/>
-                    <TextBox x:Name="TimeValueBox" Width="50" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="1000" PreviewTextInput="TimeValueBox_PreviewTextInput"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
+                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
+                                 Checked="TimeTotalRadio_Checked" Unchecked="TimeTotalRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="TimeTotalMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="1000" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+
+                <!-- TimeAppend: 센서 감지 후 +N ms 추가 출력 -->
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="TimeAppendRadio" Content="{x:Static core:Labels.TimeAppend}"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
+                                 Checked="TimeAppendRadio_Checked" Unchecked="TimeAppendRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="TimeAppendMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+
+                <!-- MultiAction: N회 · 간격 ms 로 출력 반복 -->
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="MultiActionRadio" Content="{x:Static core:Labels.MultiAction}"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
+                                 Checked="MultiActionRadio_Checked" Unchecked="MultiActionRadio_Unchecked"/>
+                    <TextBlock Text="count" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="MultiActionCountBox" Width="40" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="3" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                    <TextBlock Text="interval(ms)" VerticalAlignment="Center" Margin="8,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="MultiActionIntervalBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"/>
                 </StackPanel>
             </StackPanel>
 

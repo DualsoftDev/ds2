@@ -35,7 +35,8 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
-            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec)
+            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
+            apiCall.SkipInputSensor)
 
     let toConditionApiCallItem (store: DsStore) (apiCall: ApiCall) : CallConditionApiCallItem =
         let _, displayName = resolveApiDefDisplay store apiCall.ApiDefId
@@ -46,7 +47,8 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
             apiCall.ContactKind,
-            apiCall.InputSpec)
+            apiCall.InputSpec,
+            apiCall.SkipInputSensor)
 
     let buildApiCall
         (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)
@@ -54,6 +56,7 @@ module internal DirectPanelOps =
         (inputTagName: string) (inputAddress: string)
         (apiCallId: Guid option)
         (inputSpec: ValueSpec) (outputSpec: ValueSpec)
+        (skipInputSensor: bool)
         : ApiCall =
         let resolvedName =
             match apiCallNameOpt with
@@ -72,6 +75,7 @@ module internal DirectPanelOps =
             apiCall.InTag <- Some(IOTag((if isNull inputTagName then "" else inputTagName.Trim()), (if isNull inputAddress then "" else inputAddress.Trim()), ""))
         apiCall.InputSpec <- inputSpec
         apiCall.OutputSpec <- outputSpec
+        apiCall.SkipInputSensor <- skipInputSensor
         apiCall
 
     let withTransactionCallProps (store: DsStore) callId label (action: unit -> unit) =

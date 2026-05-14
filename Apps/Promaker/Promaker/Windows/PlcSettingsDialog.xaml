@@ -132,21 +132,42 @@
                 </Grid>
 
                 <!-- MX 전용 -->
-                <Grid x:Name="MxOnlyPanel" Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="100"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="100"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Network No." Style="{StaticResource LabelStyle}"/>
-                    <TextBox  Grid.Column="1" x:Name="NetworkNumberBox" Style="{StaticResource FieldBoxStyle}"
-                              ToolTip="기본 0 (자국)"/>
-                    <TextBlock Grid.Column="2" Text="Station No." Style="{StaticResource LabelStyle}"/>
-                    <TextBox  Grid.Column="3" x:Name="StationNumberBox" Style="{StaticResource FieldBoxStyle}"
-                              ToolTip="기본 255 (자국 CPU, hex FF)"/>
-                </Grid>
+                <StackPanel x:Name="MxOnlyPanel" Margin="0,0,0,12">
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Network No." Style="{StaticResource LabelStyle}"/>
+                        <TextBox  Grid.Column="1" x:Name="NetworkNumberBox" Style="{StaticResource FieldBoxStyle}"
+                                  ToolTip="기본 0 (자국)"/>
+                        <TextBlock Grid.Column="2" Text="Station No." Style="{StaticResource LabelStyle}"/>
+                        <TextBox  Grid.Column="3" x:Name="StationNumberBox" Style="{StaticResource FieldBoxStyle}"
+                                  ToolTip="기본 255 (자국 CPU, hex FF)"/>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="전송 방식" Style="{StaticResource LabelStyle}"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton x:Name="RbTransportTcp" Content="TCP"
+                                         GroupName="MxTransport" Margin="0,0,16,0"
+                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                         VerticalAlignment="Center"
+                                         ToolTip="MC 프로토콜 TCP (기본). PLC Ethernet 모듈이 TCP 로 설정된 경우."/>
+                            <RadioButton x:Name="RbTransportUdp" Content="UDP"
+                                         GroupName="MxTransport"
+                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                         VerticalAlignment="Center"
+                                         ToolTip="MC 프로토콜 UDP. PLC Ethernet 모듈이 UDP 로 설정된 경우 (모니터링에 흔함)."/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
 
                 <!-- 태그 매핑은 AASX IO 설정에서 자동 import — 수동 입력 불필요. -->
                 <Border Background="{DynamicResource SecondaryBackgroundBrush}"

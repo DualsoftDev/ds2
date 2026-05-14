@@ -426,6 +426,13 @@ module ApiDefActionTypeTests =
         Assert.Equal(value, actual)
 
     [<Fact>]
+    let ``JsonConverter should deserialize legacy ApiDefActionType Time as TimeTotal`` () =
+        // 옛 저장본 호환 — Case:"Time" → TimeTotal 로 마이그레이션
+        let legacyJson = """{"Case":"Time","Fields":[1500]}"""
+        let actual = JsonConverter.deserialize<ApiDefActionType> legacyJson
+        Assert.Equal(ApiDefActionType.TimeTotal 1500, actual)
+
+    [<Fact>]
     let ``DsSystem should roundtrip SystemType option`` () =
         let system = DsSystem("TestSystem")
         system.SystemType <- Some "ConveyorBelt"

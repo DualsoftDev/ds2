@@ -20,6 +20,12 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
 
     static let log = log4net.LogManager.GetLogger("PlcScanService")
 
+    /// Monitoring(read-only) 모드에서는 초기 동기 스캔을 건너뛴다.
+    /// 이유: 초기 스캔은 Control 의 원위치 추론용 cache populate 가 목적이라 Monitoring 에 불필요.
+    /// PLC 가 응답 없을 때 수백 태그 × per-tag timeout 만큼 UI 가 freeze 되는 문제 방지.
+    /// 백그라운드 scan loop 가 자체 재연결 + cache 채움.
+    static let mutable skipInitialScan = false
+
     let stoppingCts = new CancellationTokenSource()
     let mutable loopTask : Task = null
 
@@ -80,13 +86,21 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                 return ()
         } :> Task
 
+    /// BackendHost.startWithPlc 에서 readOnly(=Monitoring) 진입 시 true 로 set — 초기 동기 스캔 생략.
+    static member SetSkipInitialScan(value: bool) =
+        skipInitialScan <- value
+
     interface IHostedService with
         /// app.StartAsync 가 이 task 의 완료까지 기다림 → initial scan 끝난 후에야
         /// BackendHost.start 가 반환되어, 이후 Hub client 가 query 하면 cache hit.
+        /// skipInitialScan=true (Monitoring) 인 경우 초기 동기 스캔을 생략하고 즉시 background loop 시작.
         member _.StartAsync (cancellationToken: CancellationToken) =
             task {
-                do! initialConnectAndScan cancellationToken
-                // initial scan 완료 후 background 로 주기 scan loop 시작.
+                if skipInitialScan then
+                    log.Info("PLC initial scan skipped (read-only / monitoring) — background loop will populate cache asynchronously.")
+                else
+                    do! initialConnectAndScan cancellationToken
+                // initial scan 완료(또는 skip) 후 background 로 주기 scan loop 시작.
                 loopTask <- Task.Run(fun () -> runScanLoop stoppingCts.Token)
             } :> Task
 
