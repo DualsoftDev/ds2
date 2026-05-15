@@ -198,14 +198,14 @@ public partial class MainWindow : Window
     }
 
     // VM → View 단방향 (3속성 동시 set). 재진입 가드로 IsVisibleChanged 중복 raise → VM 역류 차단.
-    // Edge case (`Apps/Promaker/Docs/todo-dock-layout.md` §3.3): LlmChatVm==null (consent 거부) 또는 IsLlmEnabled=false → 안전 가드로 hide 유지.
+    // Edge case (`Apps/Promaker/Docs/todo-dock-layout.md` §3.3): LlmChatVm==null (consent 거부) → 안전 가드로 hide 유지.
     private void SyncLlmChatAnchorFromVm()
     {
         if (_suppressLlmChatSync) return;
         _suppressLlmChatSync = true;
         try
         {
-            bool show = _vm.IsLlmChatVisible && _vm.LlmChatVm != null && _vm.IsLlmEnabled;
+            bool show = _vm.IsLlmChatVisible && _vm.LlmChatVm != null;
             llmChatAnchor.IsVisible = show;
             llmChatAnchor.IsActive = show;
             llmChatAnchor.IsSelected = show;
