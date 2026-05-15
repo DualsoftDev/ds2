@@ -61,7 +61,7 @@ if errorlevel 1 (
 echo.
 
 echo [3/5] Publish...
-dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 --self-contained %SELF_CONTAINED% -o "%PUBLISH_DIR%" -p:DebugType=none -p:DebugSymbols=false
+dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 --self-contained %SELF_CONTAINED% -o "%PUBLISH_DIR%" -p:DebugType=none -p:DebugSymbols=false -m:1
 if errorlevel 1 (
     echo [ERROR] Publish failed.
     exit /b 1

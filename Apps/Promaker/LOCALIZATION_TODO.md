@@ -134,8 +134,8 @@
   - [ ] 리소스 파일 업데이트
   - [ ] 빌드 테스트
 
-### 9. IoBatchSettingsDialog.xaml
-- **경로**: `/mnt/c/ds/ds2/Apps/Promaker/Promaker/Dialogs/IoBatchSettingsDialog.xaml`
+### 9. TagInspectorDialog.xaml
+- **경로**: `/mnt/c/ds/ds2/Apps/Promaker/Promaker/Dialogs/TagInspectorDialog.xaml`
 - **예상 한글 텍스트**: ~25개
 - **예상 소요 시간**: 50분
 - **리소스 예시**:
@@ -403,8 +403,8 @@
   - [ ] 리소스 파일 업데이트
   - [ ] 빌드 테스트
 
-### 5. IoBatchCommands.cs
-- **경로**: `/mnt/c/ds/ds2/Apps/Promaker/Promaker/ViewModels/Shell/IoBatchCommands.cs`
+### 5. TagInspectorCommands.cs
+- **경로**: `/mnt/c/ds/ds2/Apps/Promaker/Promaker/ViewModels/Shell/TagInspectorCommands.cs`
 - **예상 한글 문자열**: ~15개
 - **예상 소요 시간**: 30분
 - **리소스 예시**:

@@ -50,8 +50,15 @@ public partial class PlcSettings : ObservableObject
     /// SignalIOMap 의 OUT/IN 주소를 그대로 PLC 태그 리스트로 자동 채워 F# PlcGatewayConfig 빌드.
     /// 검증 실패 시 errors 에 사유 누적 후 null 반환. ioMap.Mappings 가 비어 있어도 connection 은 만들지만
     /// 태그 0 개라 실 효과는 없음 — 사용자에게 경고 추가.
+    /// <para>
+    /// <paramref name="extraAddresses"/>: UserTag 처럼 IOMap 에는 없지만 모니터링이 필요한 주소.
+    /// PLC 스캔 + Hub 브로드캐스트 대상에 포함되며, IOMap 주소와 중복되면 자동 dedup.
+    /// </para>
     /// </summary>
-    public PlcGatewayConfig? BuildGatewayConfig(SignalIOMap ioMap, out List<string> errors)
+    public PlcGatewayConfig? BuildGatewayConfig(
+        SignalIOMap ioMap,
+        out List<string> errors,
+        IEnumerable<string>? extraAddresses = null)
     {
         errors = new();
         if (string.IsNullOrWhiteSpace(IpAddress)) errors.Add("IP 주소를 입력하세요.");
@@ -73,6 +80,14 @@ public partial class PlcSettings : ObservableObject
             if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr);
         foreach (var addr in ioMap.InAddressToMappings.Keys)
             if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr);
+
+        // UserTag 등 추가 주소 — IOMap 에 없으면 PLC 스캔 안 돼 알림이 안 잡힘.
+        // dedup 은 HashSet 이 알아서 처리, OUT/IN 과 같은 주소면 그쪽 데이터타입 추론 한 번이면 충분.
+        if (extraAddresses is not null)
+        {
+            foreach (var addr in extraAddresses)
+                if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr.Trim());
+        }
 
         if (addresses.Count == 0)
             errors.Add("AASX IO 매핑에서 OUT/IN 주소가 발견되지 않았습니다. ApiCall 의 OutTag/InTag 주소를 먼저 설정하세요.");

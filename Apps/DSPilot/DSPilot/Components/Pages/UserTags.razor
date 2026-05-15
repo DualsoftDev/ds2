@@ -1,0 +1,317 @@
+@page "/user-tags"
+@using DSPilot.Services
+@inject UserTagAlertService AlertService
+@inject DsProjectService ProjectService
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>UserTag 알림 - DSPilot</PageTitle>
+
+<div class="user-tags-page">
+    <section class="card user-tags-hero">
+        <div class="user-tags-hero-top">
+            <div>
+                <div class="user-tags-eyebrow">UserTag Alerts</div>
+                <h4 class="user-tags-title">UserTag 알림</h4>
+                <div class="user-tags-subtitle">
+                    AASX 에 정의된 사용자 태그가 PLC 에서 모니터링될 때 발생한 알림 목록입니다.
+                </div>
+            </div>
+            <div class="user-tags-hero-actions">
+                <div class="user-tags-counter-row">
+                    <span class="chip chip-level-info" title="Info">INFO @_countByLevel.GetValueOrDefault("Info", 0)</span>
+                    <span class="chip chip-level-warning" title="Warning">WARN @_countByLevel.GetValueOrDefault("Warning", 0)</span>
+                    <span class="chip chip-level-error" title="Error">ERR @_countByLevel.GetValueOrDefault("Error", 0)</span>
+                </div>
+                <button class="btn btn-outlined" @onclick="ClearAlertsAsync" disabled="@(_alerts.Count == 0)">
+                    <span class="material-icons" style="font-size:18px;">delete_sweep</span>
+                    알림 비우기
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <section class="card user-tags-panel">
+        <div class="user-tags-panel-header">
+            <div>
+                <h6 class="typo-h6">실시간 알림 (@_alerts.Count)</h6>
+                <div class="typo-caption user-tags-muted">최신 알림이 위에 표시됩니다 (실시간 갱신)</div>
+            </div>
+            <div class="user-tags-alert-controls">
+                <input class="form-field" @bind="_searchText" @bind:event="oninput" placeholder="이름 / 주소 / System 검색..." />
+                <select class="form-field" @bind="_levelFilter">
+                    <option value="">전체 레벨</option>
+                    <option value="Info">Info</option>
+                    <option value="Warning">Warning</option>
+                    <option value="Error">Error</option>
+                </select>
+                <button class="btn btn-sm btn-outlined" @onclick="ExportCsvAsync" disabled="@(_alerts.Count == 0)">
+                    CSV 내보내기
+                </button>
+            </div>
+        </div>
+
+        @if (FilteredAlerts.Count == 0)
+        {
+            <div class="ut-empty">
+                <span class="material-icons">notifications_none</span>
+                <p>아직 수신된 UserTag 알림이 없습니다.</p>
+                <p class="typo-caption" style="color:var(--color-text-secondary);">
+                    PLC 에서 정의된 주소가 모니터링되면 자동으로 위에 표시됩니다.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="ut-table-wrapper ut-alerts-scroll">
+                <table class="ut-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 170px;">시각</th>
+                            <th>레벨</th>
+                            <th>System</th>
+                            <th>이름</th>
+                            <th>태그 주소</th>
+                            <th>값</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in FilteredAlerts)
+                        {
+                            <tr class="@LevelRowClass(a.LogLevel)">
+                                <td><span class="ut-time">@a.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</span></td>
+                                <td><span class="chip @LevelChipClass(a.LogLevel)">@a.LogLevel</span></td>
+                                <td>@a.SystemName</td>
+                                <td><strong>@a.Name</strong></td>
+                                <td><code>@a.TagAddress</code></td>
+                                <td><code>@a.Value</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    @if (!ProjectService.IsLoaded)
+    {
+        <section class="card user-tags-panel user-tags-empty">
+            <span class="material-icons">info</span>
+            <div class="typo-h6 mt-2">프로젝트가 로드되지 않았습니다.</div>
+            <div class="typo-body2 mt-1">AASX 파일을 인식하면 자동으로 사용자 태그 정의가 표시됩니다.</div>
+        </section>
+    }
+    else if (_definitions.Count == 0)
+    {
+        <section class="card user-tags-panel user-tags-empty">
+            <span class="material-icons">info</span>
+            <div class="typo-h6 mt-2">정의된 UserTag 가 없습니다.</div>
+            <div class="typo-body2 mt-1">Promaker 에서 System 의 사용자 태그를 추가하세요.</div>
+        </section>
+    }
+    else
+    {
+        <section class="card user-tags-panel">
+            <div class="user-tags-panel-header user-tags-section-toggle" @onclick="ToggleDefinitions">
+                <div>
+                    <h6 class="typo-h6">정의된 UserTag (@_definitions.Count)</h6>
+                    <div class="typo-caption user-tags-muted">AASX 의 System 정의를 기반으로 모니터링되는 태그 목록</div>
+                </div>
+                <span class="material-icons" style="font-size:22px;">
+                    @(_showDefinitions ? "expand_more" : "chevron_right")
+                </span>
+            </div>
+            @if (_showDefinitions)
+            {
+                <div class="ut-table-wrapper ut-definitions-scroll">
+                    <table class="ut-table">
+                        <thead>
+                            <tr>
+                                <th>System</th>
+                                <th>이름</th>
+                                <th>로그 레벨</th>
+                                <th>태그 주소</th>
+                                <th>값 타입</th>
+                                <th>최근 알림</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in _definitions)
+                            {
+                                var last = _lastAlertByAddress.GetValueOrDefault(d.TagAddress);
+                                <tr>
+                                    <td>@d.SystemName</td>
+                                    <td><strong>@d.Name</strong></td>
+                                    <td>
+                                        <span class="chip @LevelChipClass(d.LogLevel)">@d.LogLevel</span>
+                                    </td>
+                                    <td><code>@d.TagAddress</code></td>
+                                    <td>@d.ValueType</td>
+                                    <td>
+                                        @if (last is not null)
+                                        {
+                                            <span class="ut-last-time">@last.Timestamp.ToString("MM-dd HH:mm:ss.fff")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="typo-caption" style="color:var(--color-tertiary);">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<UserTagDefinition> _definitions = Array.Empty<UserTagDefinition>();
+    private IReadOnlyList<UserTagAlert> _alerts = Array.Empty<UserTagAlert>();
+    private Dictionary<string, UserTagAlert> _lastAlertByAddress =
+        new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, int> _countByLevel = new(StringComparer.OrdinalIgnoreCase);
+    private bool _showDefinitions = true;
+
+    private string _searchText = string.Empty;
+    private string _levelFilter = string.Empty;
+
+    private List<UserTagAlert> FilteredAlerts
+    {
+        get
+        {
+            IEnumerable<UserTagAlert> q = _alerts;
+            if (!string.IsNullOrWhiteSpace(_levelFilter))
+                q = q.Where(a => string.Equals(a.LogLevel, _levelFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(_searchText))
+            {
+                var s = _searchText.Trim();
+                q = q.Where(a =>
+                    (a.Name?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.TagAddress?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.SystemName?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+            return q.ToList();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        RefreshSnapshot();
+        AlertService.AlertsChanged += OnAlertsChanged;
+    }
+
+    private void OnAlertsChanged()
+    {
+        // BackgroundService 스레드 → UI 디스패처로 전환
+        _ = InvokeAsync(() =>
+        {
+            RefreshSnapshot();
+            StateHasChanged();
+        });
+    }
+
+    private void RefreshSnapshot()
+    {
+        _definitions = AlertService.GetDefinitions();
+        _alerts = AlertService.GetAlerts();
+
+        var lastMap = new Dictionary<string, UserTagAlert>(StringComparer.OrdinalIgnoreCase);
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in _alerts)
+        {
+            // _alerts 는 최신순 — 첫 항목이 그 주소의 최신 알림.
+            if (!lastMap.ContainsKey(a.TagAddress)) lastMap[a.TagAddress] = a;
+            counts.TryGetValue(a.LogLevel ?? "Info", out var c);
+            counts[a.LogLevel ?? "Info"] = c + 1;
+        }
+        _lastAlertByAddress = lastMap;
+        _countByLevel = counts;
+    }
+
+    private void ToggleDefinitions() => _showDefinitions = !_showDefinitions;
+
+    private async Task ClearAlertsAsync()
+    {
+        if (_alerts.Count == 0) return;
+
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"수신된 UserTag 알림 {_alerts.Count}건을 모두 지울까요?");
+        if (!confirmed) return;
+
+        AlertService.ClearAlerts();
+        // ClearAlerts → AlertsChanged 이벤트 → OnAlertsChanged 가 다시 그림.
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        if (_alerts.Count == 0) return;
+
+        var rows = FilteredAlerts;
+        if (rows.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Timestamp,LogLevel,System,Name,TagAddress,Value");
+
+        foreach (var a in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                CsvEscape(a.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")),
+                CsvEscape(a.LogLevel ?? ""),
+                CsvEscape(a.SystemName ?? ""),
+                CsvEscape(a.Name ?? ""),
+                CsvEscape(a.TagAddress ?? ""),
+                CsvEscape(a.Value ?? "")));
+        }
+
+        var fileName = $"UserTagAlerts_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var bytes = System.Text.Encoding.UTF8.GetPreamble()
+            .Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))
+            .ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
+    }
+
+    private static string LevelChipClass(string? level) => level switch
+    {
+        "Error" => "chip-level-error",
+        "Warning" => "chip-level-warning",
+        _ => "chip-level-info",
+    };
+
+    private static string LevelRowClass(string? level) => level switch
+    {
+        "Error" => "ut-row-error",
+        "Warning" => "ut-row-warning",
+        _ => "",
+    };
+
+    public void Dispose()
+    {
+        AlertService.AlertsChanged -= OnAlertsChanged;
+    }
+}

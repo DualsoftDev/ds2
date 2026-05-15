@@ -5,6 +5,25 @@ using Microsoft.AspNetCore.SignalR.Client;
 namespace DSPilot.Services;
 
 /// <summary>
+/// SignalR 클라이언트 무한 재연결 정책. 기본 WithAutomaticReconnect 는 4회(0/2/10/30s) 후 포기 →
+/// Promaker 가 42초 넘게 다운되면 DSPilot 영구 disconnected. 운영상 Promaker 가 임의 시점에 재시작될 수
+/// 있으므로 절대 포기하지 않는 정책 사용 — 초기엔 짧은 간격, 이후 1분 간격으로 계속 시도.
+/// </summary>
+internal sealed class InfinitePromakerRetryPolicy : IRetryPolicy
+{
+    public TimeSpan? NextRetryDelay(RetryContext retryContext) =>
+        retryContext.PreviousRetryCount switch
+        {
+            0 => TimeSpan.FromSeconds(0),
+            1 => TimeSpan.FromSeconds(2),
+            2 => TimeSpan.FromSeconds(5),
+            3 => TimeSpan.FromSeconds(10),
+            4 => TimeSpan.FromSeconds(30),
+            _ => TimeSpan.FromSeconds(60),
+        };
+}
+
+/// <summary>
 /// Promaker SignalHub 클라이언트. 기본 URL = http://localhost:5051/hub/signal (Promaker Monitoring 모드).
 /// Control 모드(5050) 또는 원격 인스턴스 구독으로 전환하려면 Settings 페이지 'Hub' 섹션에서 URL 변경 후
 /// DSPilot 서비스 재시작. OnTagChanged 신호는 채널 큐에 enqueue → 단일 컨슈머가 순차적으로
@@ -50,9 +69,10 @@ public sealed class HubSubscriberService : BackgroundService
         // 단일 컨슈머 시작 — Hub 콜백이 어떤 동시성으로 호출되든 직렬화 보장
         var consumerTask = Task.Run(() => ConsumeSignalsAsync(stoppingToken), stoppingToken);
 
+        // 무한 재시도 정책 — Promaker 가 언제 재시작되어도 자동으로 다시 붙도록.
         _connection = new HubConnectionBuilder()
             .WithUrl(hubUrl)
-            .WithAutomaticReconnect()
+            .WithAutomaticReconnect(new InfinitePromakerRetryPolicy())
             .Build();
 
         // Promaker idle 시 30초 server-timeout reconnect 잡음 차단 — 5분으로 완화

@@ -12,25 +12,29 @@ using System.Windows.Input;
 using System.Windows.Media;
 using AAStoPLC.TagWizard;
 using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.Win32;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
 
 /// <summary>
-/// I/O 조회 다이얼로그 — 읽기 전용. 편집은 TAG Wizard.
-/// store 를 받아 IoQueryService 로 직접 행을 생성/새로고침하며, 표시·필터링·CSV 내보내기만 담당한다.
-/// 호출부는 DsStore 만 들고 다이얼로그를 띄우면 된다.
+/// IO·태그 확인 다이얼로그 — 읽기 전용 검증 도구. 편집은 TAG Wizard / PropertyPanel.
+/// store 를 받아 IoQueryService 로 직접 행을 생성/새로고침하며, 표시·필터링·CSV 내보내기·진단만 담당한다.
+/// 탭: IO 신호 / Dummy 신호 / 사용자 태그.
 /// </summary>
-public partial class IoBatchSettingsDialog : Window
+public partial class TagInspectorDialog : Window
 {
     private readonly DsStore _store;
     private readonly Action<string?>? _openFBTagMapEdit;
     private readonly ObservableCollection<IoBatchRow> _rows = new();
     private readonly ObservableCollection<DummySignalRow> _dummyRows = new();
     private readonly ObservableCollection<DiagnosticItemViewModel> _diagnostics = new();
+    private readonly ObservableCollection<ProjectUserTagRow> _userTagRows = new();
     private readonly ICollectionView _view;
+    private readonly ICollectionView _userTagView;
     private readonly RowFilterDebouncer _filterDebouncer;
+    private string _userTagSearch = string.Empty;
 
     private bool _showOnlyUnmatched;
     private int _unmatchedCount;
@@ -50,7 +54,7 @@ public partial class IoBatchSettingsDialog : Window
     /// <paramref name="openFBTagMapEdit"/> 가 주어지면 진단 카드의 "FBTagMap 편집" 버튼이 활성화되어
     /// SystemType 식별자와 함께 호출자에게 전달한다 (TAG Wizard 진입 등). 호출 후 자동 새로고침된다.
     /// </summary>
-    public IoBatchSettingsDialog(DsStore store, Action<string?>? openFBTagMapEdit = null)
+    public TagInspectorDialog(DsStore store, Action<string?>? openFBTagMapEdit = null)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -61,6 +65,10 @@ public partial class IoBatchSettingsDialog : Window
         IoGrid.ItemsSource = _view;
         DummyGrid.ItemsSource = _dummyRows;
         DiagnosticsList.ItemsSource = _diagnostics;
+
+        _userTagView = CollectionViewSource.GetDefaultView(_userTagRows);
+        _userTagView.Filter = FilterUserTagRow;
+        UserTagsGrid.ItemsSource = _userTagView;
 
         _filterDebouncer = new RowFilterDebouncer(() => _view.Refresh());
 
@@ -93,9 +101,15 @@ public partial class IoBatchSettingsDialog : Window
             _dummyRows.Clear();
             foreach (var d in qr.DummyRows) _dummyRows.Add(d);
 
+            // UserTags 행 갱신 — 프로젝트 전체 평탄화.
+            _userTagRows.Clear();
+            foreach (var u in _store.GetAllUserTagsForProject())
+                _userTagRows.Add(u);
+
             // 탭 헤더에 카운트 부착.
-            IoTab.Header    = $"IO 신호 ({_rows.Count})";
-            DummyTab.Header = $"Dummy 신호 ({_dummyRows.Count})";
+            IoTab.Header       = $"IO 신호 ({_rows.Count})";
+            DummyTab.Header    = $"Dummy 신호 ({_dummyRows.Count})";
+            UserTagsTab.Header = $"사용자 태그 ({_userTagRows.Count})";
 
             _unmatchedCount = qr.Unmatched.Count;
             _errorCount = qr.ErrorCount;
@@ -108,11 +122,75 @@ public partial class IoBatchSettingsDialog : Window
 
             BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
             _view.Refresh();
+            _userTagView.Refresh();
         }
         finally
         {
             Cursor = prev;
         }
+    }
+
+    // ── UserTags 탭 ───────────────────────────────────────────────────────
+
+    private bool FilterUserTagRow(object obj)
+    {
+        if (string.IsNullOrWhiteSpace(_userTagSearch)) return true;
+        if (obj is not ProjectUserTagRow r) return false;
+        var q = _userTagSearch;
+        return (r.SystemName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.TagAddress?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.LogLevel?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.ValueType?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void UserTagSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox tb) return;
+        _userTagSearch = tb.Text?.Trim() ?? string.Empty;
+        _userTagView.Refresh();
+    }
+
+    private void UserTagCsvExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_userTagRows.Count == 0)
+        {
+            MessageBox.Show(this, "내보낼 사용자 태그가 없습니다.", "CSV 내보내기",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "사용자 태그 CSV 내보내기",
+            FileName = "UserTags.csv",
+            Filter = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
+            DefaultExt = "csv"
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("System,이름,로그 레벨,태그 주소,값 타입");
+            foreach (var r in _userTagRows)
+                sb.AppendLine($"{CsvEscape(r.SystemName)},{CsvEscape(r.Name)},{CsvEscape(r.LogLevel)},{CsvEscape(r.TagAddress)},{CsvEscape(r.ValueType)}");
+
+            File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"CSV 내보내기 실패: {ex.Message}", "오류",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private static string CsvEscape(string? value)
+    {
+        var v = value ?? string.Empty;
+        return v.Contains(',') || v.Contains('"') || v.Contains('\n')
+            ? $"\"{v.Replace("\"", "\"\"")}\""
+            : v;
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => LoadFromStore();
@@ -465,7 +543,7 @@ public partial class IoBatchSettingsDialog : Window
 }
 
 /// <summary>
-/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched/HasError 만 변경 가능.
+/// IO·태그 확인용 IO 행 — 표시 + 매칭 강조용 IsUnmatched/HasError 만 변경 가능.
 /// IoQueryService.Generate 이 채워서 반환한다.
 /// </summary>
 public sealed class IoBatchRow : BatchRowBase

@@ -428,11 +428,12 @@
                         </StackPanel>
                     </Button>
                     <!-- 연속투입: Token 과 같은 padding/외곽선/baseline. IsChecked=True 일 때 AccentBrush 배경 + 흰글씨로 "눌린 이펙트". -->
+                    <!-- Monitoring 또는 Control+실 PLC 일 때는 외부 owner 가 토큰 투입 — 비활성. HasProject 게이트는 부모 Grid 가 처리. -->
                     <ToggleButton x:Name="ContinuousInjectionToggle"
                                   IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
-                                  IsEnabled="{Binding HasProject}"
+                                  IsEnabled="{Binding Simulation.IsContinuousInjectionAvailable}"
                                   Margin="6,0,0,0"
-                                  ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다.">
+                                  ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다. (Monitoring / Control+실 PLC 에서는 비활성)">
                         <ToggleButton.Style>
                             <Style TargetType="ToggleButton">
                                 <Setter Property="Background" Value="Transparent"/>

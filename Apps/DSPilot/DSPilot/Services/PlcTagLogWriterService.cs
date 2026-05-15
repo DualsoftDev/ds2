@@ -21,6 +21,10 @@ public sealed class PlcTagLogWriterService : BackgroundService
     private readonly IDatabasePathResolver _pathResolver;
     private readonly ILogger<PlcTagLogWriterService> _logger;
 
+    // 실패 누적 통계 — silent drop 으로 분석 페이지가 부정확해지는 케이스를 추적하기 위함.
+    private long _totalDropped;
+    private int _consecutiveFailures;
+
     public PlcTagLogWriterService(
         IDatabasePathResolver pathResolver,
         ILogger<PlcTagLogWriterService> logger)
@@ -110,10 +114,27 @@ public sealed class PlcTagLogWriterService : BackgroundService
 
             tx.Commit();
             _logger.LogTrace("[plcTagLog] flushed {Count} entries", entries.Count);
+
+            // 연속 실패 카운터 리셋 — 회복 시점을 명확히 로그.
+            if (_consecutiveFailures > 0)
+            {
+                _logger.LogInformation(
+                    "[plcTagLog] write recovered after {Failures} consecutive failures (total dropped so far={Dropped})",
+                    _consecutiveFailures, _totalDropped);
+                _consecutiveFailures = 0;
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[plcTagLog] flush failed for {Count} entries", entries.Count);
+            // silent drop — 시계열 데이터는 영구 손실되므로 분석 페이지(Heatmap/CycleTimeAnalysis) 정확도에
+            // 영향. 누적 dropped 카운트와 시각 범위를 함께 로그해 forensic 추적 가능하게.
+            Interlocked.Add(ref _totalDropped, entries.Count);
+            _consecutiveFailures++;
+            var oldest = entries[0].Timestamp;
+            var newest = entries[entries.Count - 1].Timestamp;
+            _logger.LogError(ex,
+                "[plcTagLog] flush failed: dropped={Count}, range={Oldest:HH:mm:ss.fff}~{Newest:HH:mm:ss.fff}, consecutive={Consec}, totalDropped={Total}",
+                entries.Count, oldest, newest, _consecutiveFailures, _totalDropped);
         }
     }
 }

@@ -54,6 +54,13 @@ public partial class SimulationPanelState : ObservableObject
     /// </summary>
     public Action<IReadOnlyDictionary<Guid, string>?>? RuntimeIoChanged { get; set; }
 
+    /// <summary>
+    /// Hub 모드(Control/VirtualPlant/Monitoring) 시뮬레이션이 시작되기 직전에 호출되는 후크.
+    /// MainViewModel 이 현재 store 를 DSPilot 공유 AASX 경로에 export 해 두 앱이 동일 모델로 동기화되도록 함.
+    /// 반환값: 성공 시 true, 프로젝트 미보유/실패 시 false. (실패해도 시뮬 시작은 계속.)
+    /// </summary>
+    public Func<bool>? PublishAasxForHubMode { get; set; }
+
     private void NotifyRuntimeIoChanged()
     {
         if (RuntimeIoChanged is null) return;
@@ -173,6 +180,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -188,6 +196,10 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
+    [NotifyPropertyChangedFor(nameof(IsHubHost))]
+    [NotifyPropertyChangedFor(nameof(EffectiveHubAddress))]
+    [NotifyPropertyChangedFor(nameof(HubHostingLabel))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _isRealPlcConnected;
 
@@ -227,28 +239,33 @@ public partial class SimulationPanelState : ObservableObject
 
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
 
-    /// <summary>Control + Monitoring 둘 다 Promaker 자체가 Hub 호스트.
-    /// Control 은 read/write, Monitoring 은 SignalHub read-only flag 로 write 차단.
-    /// VirtualPlant 만 외부 Hub 에 client 로 붙음.</summary>
+    /// <summary>Control 은 항상 Promaker 자체가 Hub 호스트.
+    /// Monitoring 은 실 PLC 연결 시에만 self-host (5051, read-only) — PLC 미연결이면
+    /// 기존 동작대로 외부 Control hub (5050) 에 client 로 붙는다.
+    /// VirtualPlant 는 항상 외부 Hub client.</summary>
     public bool IsHubHost =>
         SelectedRuntimeMode == RuntimeMode.Control
-        || SelectedRuntimeMode == RuntimeMode.Monitoring;
+        || (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected);
 
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
 
-    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring 은 MonitoringHubAddress, 그 외는 HubAddress.
-    /// TextBox 가 mode 별 올바른 backing field 를 편집하도록 한 단계 dispatch.</summary>
+    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring + 실 PLC self-host 만 MonitoringHubAddress,
+    /// 그 외(Monitoring PLC 미연결 포함)는 HubAddress. TextBox 가 mode 별 올바른 backing field 를 편집하도록 dispatch.</summary>
     public string EffectiveHubAddress
     {
-        get => SelectedRuntimeMode == RuntimeMode.Monitoring ? MonitoringHubAddress : HubAddress;
+        get => IsMonitoringSelfHost ? MonitoringHubAddress : HubAddress;
         set
         {
-            if (SelectedRuntimeMode == RuntimeMode.Monitoring)
+            if (IsMonitoringSelfHost)
                 MonitoringHubAddress = value;
             else
                 HubAddress = value;
         }
     }
+
+    /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
+    private bool IsMonitoringSelfHost =>
+        SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
 
     public string HubStatusText =>
         IsHubConnected ? "Hub 연결됨"
@@ -292,6 +309,21 @@ public partial class SimulationPanelState : ObservableObject
         OnPropertyChanged(nameof(HubHostingLabel));
         SetHubStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
+
+        // 모드 전환 시 트레이 상태가 남아있으면 정리 (Monitoring 외 모드에서는 트레이 무의미).
+        if (value != RuntimeMode.Monitoring)
+            FireTrayRestore();
+
+        // 전환 후 연속투입 비가용 모드면 토글 자동 해제 — stale on-state 가 다음 시뮬에 새어들지 않도록.
+        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
+            IsContinuousInjectionEnabled = false;
+    }
+
+    partial void OnIsRealPlcConnectedChanged(bool value)
+    {
+        // Control + 실 PLC 진입 시점에 연속투입 토글이 켜져 있으면 해제 (PLC owner 와 충돌 방지).
+        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
+            IsContinuousInjectionEnabled = false;
     }
 
     partial void OnHubAddressChanged(string value) =>
@@ -379,12 +411,16 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
-    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.</summary>
+    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.
+    /// UserTag 주소도 함께 PLC 스캔 대상으로 포함 — 그래야 DSPilot 의 UserTag 알림이
+    /// 동작 (Hub 에 그 주소 변화가 흘러야 plcTagLog 에 기록됨).</summary>
     public Ds2.Backend.Plc.PlcGatewayConfig? BuildPlcGatewayConfig(out System.Collections.Generic.List<string> errors)
     {
         var store = _storeProvider();
         var iomap = SignalIOMapModule.build(store);
-        return PlcSettings.BuildGatewayConfig(iomap, out errors);
+        var userTagAddresses = store.GetAllUserTagsForProject()
+            .Select(r => r.TagAddress);
+        return PlcSettings.BuildGatewayConfig(iomap, out errors, userTagAddresses);
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;

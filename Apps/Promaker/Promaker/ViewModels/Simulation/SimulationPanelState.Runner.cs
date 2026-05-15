@@ -77,6 +77,11 @@ public partial class SimulationPanelState
             return;
         }
 
+        // Monitoring + 실 PLC 시 트레이 전환 동의 확인 — 사용자가 취소하면 시작 중단.
+        // 동의 시 TrayTransitionPending=true 로 두고, 시작 흐름 끝에 FireTrayTransitionIfPending() 호출.
+        if (!TryAcquireTrayConsent())
+            return;
+
         try
         {
             var index = SimIndexModule.build(Store, 10);
@@ -123,6 +128,24 @@ public partial class SimulationPanelState
 
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
+
+            // Hub 모드 진입 직전 — 현재 store 를 DSPilot 공유 AASX 경로에 자동 export.
+            // DSPilot 은 같은 파일을 읽어 dspFlow/dspCall 을 생성하므로, 사용자가 별도로 "공유 위치에 저장"
+            // 을 누르지 않아도 모니터링 시작과 동시에 두 앱이 같은 모델을 보게 된다.
+            // 실패해도 시뮬 시작은 막지 않음 — DSPilot 동기화는 부가 기능.
+            if (SelectedRuntimeMode != RuntimeMode.Simulation && PublishAasxForHubMode is not null)
+            {
+                try
+                {
+                    var published = PublishAasxForHubMode();
+                    if (!published)
+                        AddSimLog("DSPilot 공유 경로 AASX 자동 저장 건너뜀 (프로젝트 없음/저장 실패)", LogSeverity.Warn);
+                }
+                catch (Exception ex)
+                {
+                    AddSimLog($"DSPilot 공유 경로 AASX 자동 저장 실패: {ex.Message}", LogSeverity.Warn);
+                }
+            }
 
             // Hub 시작/연결 (Simulation 모드 이외)
             if (!TryStartHub())
@@ -300,11 +323,16 @@ public partial class SimulationPanelState
                     : isPassive ? $"{SelectedRuntimeMode} 모드 — Hub 신호 대기" : SimText.Started);
             if (!hasHoming)
                 SimStatusText = isPassive ? "Hub 신호 대기 중..." : SimText.Running;
+
+            // 시작 정상 종료 — Monitoring + RealPLC 동의가 있었으면 트레이로 전환.
+            FireTrayTransitionIfPending();
         }
         catch (Exception ex)
         {
             SimLog.Error("Simulation start failed", ex);
             _setStatusText(SimText.SimulationError(ex.Message));
+            // 시작 실패 시 트레이 보류 플래그 해제 — 다음 시도 때 다시 confirm.
+            TrayTransitionPending = false;
         }
     }
 
@@ -391,6 +419,9 @@ public partial class SimulationPanelState
         // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
         // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
         ResetTraversalTracking();
+
+        // 트레이 모드였다면 윈도우 복원 + 아이콘 제거. 평소 모드면 no-op.
+        FireTrayRestore();
     }
 
     private void InitSceneEventHandler()

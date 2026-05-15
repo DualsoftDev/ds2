@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DSPilot.Models;
-using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Data.Sqlite;
 
 namespace DSPilot.Services;
@@ -10,9 +9,11 @@ public class AppSettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    private static readonly string[] ManagedSections =
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView"];
+
     private readonly string _filePath;
     private readonly string _productionFilePath;
-    private readonly string _projectDir;
     private readonly ILogger<AppSettingsService> _logger;
 
     public AppSettingsService(
@@ -21,9 +22,6 @@ public class AppSettingsService
     {
         _filePath = Path.Combine(env.ContentRootPath, "appsettings.json");
         _productionFilePath = Path.Combine(env.ContentRootPath, "appsettings.Production.json");
-        _projectDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DSPilot", "project");
         _logger = logger;
     }
 
@@ -51,7 +49,7 @@ public class AppSettingsService
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "DspTables", "Hub", "Logging", "Ui", "HistoryView" })
+            foreach (var key in ManagedSections)
             {
                 if (prod[key] is not null)
                     root[key] = prod[key]!.DeepClone();
@@ -60,10 +58,8 @@ public class AppSettingsService
 
         return new AppSettingsModel
         {
-            DsPilot = Deserialize<DsPilotSettings>(root["DsPilot"]),
             Database = Deserialize<DatabaseSettings>(root["Database"]),
             FlowCycle = Deserialize<FlowCycleSettings>(root["FlowCycle"]),
-            PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
             DspTables = Deserialize<DspTablesSettings>(root["DspTables"]),
             Hub = Deserialize<HubSettings>(root["Hub"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
@@ -75,32 +71,25 @@ public class AppSettingsService
     public void SaveSettings(AppSettingsModel model)
     {
         var root = LoadRaw(_filePath);
-
-        root["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
-        root["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
-        root["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
-        root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        root["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
-        root["Hub"] = JsonSerializer.SerializeToNode(model.Hub, JsonOptions);
-        root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
-        root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
-        root["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
-
+        WriteSections(root, model);
         SaveRaw(_filePath, root);
 
         // Production.json에 사용자 설정 전체 동기화 (재설치 시 appsettings.json이 덮어씌워져도 유지)
         var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
-        prod["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
-        prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
-        prod["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
-        prod["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        prod["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
-        prod["Hub"] = JsonSerializer.SerializeToNode(model.Hub, JsonOptions);
-        prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
-        prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
-        prod["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
+        WriteSections(prod, model);
         SaveRaw(_productionFilePath, prod);
         _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
+    }
+
+    private static void WriteSections(JsonObject target, AppSettingsModel model)
+    {
+        target["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
+        target["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
+        target["DspTables"] = JsonSerializer.SerializeToNode(model.DspTables, JsonOptions);
+        target["Hub"] = JsonSerializer.SerializeToNode(model.Hub, JsonOptions);
+        target["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
+        target["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
+        target["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)
@@ -164,19 +153,6 @@ public class AppSettingsService
         var settings = LoadSettings();
         settings.FlowCycle.Overrides.Clear();
         SaveSettings(settings);
-    }
-
-    public async Task<string> UploadAasxFileAsync(IBrowserFile file)
-    {
-        Directory.CreateDirectory(_projectDir);
-        var destPath = Path.Combine(_projectDir, file.Name);
-
-        await using var stream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
-        await using var fs = new FileStream(destPath, FileMode.Create);
-        await stream.CopyToAsync(fs);
-
-        _logger.LogInformation("AASX 파일 업로드: {Path}", destPath);
-        return destPath;
     }
 
     /// <summary>
