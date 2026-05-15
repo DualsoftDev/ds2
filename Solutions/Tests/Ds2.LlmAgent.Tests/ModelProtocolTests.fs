@@ -6,6 +6,7 @@ open Ds2.Core
 open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.LlmAgent
+open Ds2.LlmAgent.Internal
 
 /// Phase 1 YAML protocol PoC 테스트.
 /// SSOT: Apps/Promaker/Docs/yaml-protocol-v0.md §3.1 / §3.2 (round-trip 통과).
@@ -2269,3 +2270,304 @@ let ``M1 외부 review — IRI 3 case 모두 None 으로 normalize`` (tag: strin
     use json = ModelProtocol.exportToJson store
     let raw = json.RootElement.GetRawText()
     Assert.DoesNotContain("\"iri\"", raw)
+
+// ─── Phase 7 §10.2 #31 (S4) — modeling level emit / apply round-trip ──────
+//
+// **scope**: Read level + modeling-level patch merge SSOT 의 round-trip 검증.
+// - 의미: modeling export → wire 에 A_Modeling 만 등장 (B/C/D + workDuration + apiDetails.description 생략).
+// - 의미: modeling apply → 기존 store entity reuse + missing 키 = no-op (B/C/D 보존, silent destructive 차단).
+// - 의미: B/C/D 키 wire 등장 시 사전 거부 (룰 #30) / level: <other> 사전 거부 (룰 #29).
+// - 의미: view: partial 거부 우선 검사 (C2) — partial + modeling 조합 시 view 메시지 우선.
+
+let private enhancedYaml = """
+protocol: promaker/v0
+project: M1
+author: kwak
+version: 2.0.0
+systems:
+  - system: Controller
+    kind: active
+    iri: http://example.com/controller
+    flow Run:
+      works:
+        Adv:
+          tokenRole: Source
+          workDuration: 250ms
+          calls:
+            - ref: Cyl1.ADV
+              contactKind: NcContact
+              callType: SkipIfCompleted
+              inTag: { name: ADV_LMT, address: '%X10' }
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    iri: http://example.com/cyl1
+    apiDetails:
+      ADV:
+        actionType: Push
+        description: cylinder advance
+"""
+
+[<Fact>]
+let ``#31 S4-T1 — modeling export 시 A_Modeling 만 emit (B/C/D + workDuration + description 생략)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+
+    use json = ModelProtocol.exportToJsonWithLevel store ModelingCategory.Modeling
+    let raw = json.RootElement.GetRawText()
+
+    // level: modeling 키 명시 (self-tagged)
+    Assert.Contains("\"level\":\"modeling\"", raw)
+
+    // B_Addressing 키 부재
+    Assert.DoesNotContain("\"inTag\"", raw)
+    Assert.DoesNotContain("\"outTag\"", raw)
+
+    // C_Meta 키 부재 (author / version / iri / description / workDuration)
+    Assert.DoesNotContain("\"author\"", raw)
+    Assert.DoesNotContain("\"version\"", raw)
+    Assert.DoesNotContain("\"iri\"", raw)
+    Assert.DoesNotContain("\"workDuration\"", raw)
+    Assert.DoesNotContain("\"description\"", raw)
+
+    // A_Modeling 키 등장 검증
+    Assert.Contains("\"tokenRole\":\"Source\"", raw)
+    Assert.Contains("\"contactKind\":\"NcContact\"", raw)
+    Assert.Contains("\"callType\":\"SkipIfCompleted\"", raw)
+    Assert.Contains("\"actionType\":\"Push\"", raw)
+
+[<Fact>]
+let ``#31 S4-T2 — modeling export 의 callHasEnhancement 분기 (B/C/D-only Call 은 string scalar 유지)`` () =
+    // Cyl1.RET 은 보강 0 → string scalar. Cyl1.ADV 는 A_Modeling 보강 (contactKind/callType) → object.
+    // wire 에 modeling 시 inTag/outTag/plc 만 있는 Call 이 있다면 string scalar 로 정상 fallback 검증.
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              inTag: { name: ADV_LMT, address: '%X10' }   # B_Addressing 만 — modeling 시 emit 0
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    use json = ModelProtocol.exportToJsonWithLevel store ModelingCategory.Modeling
+    let raw = json.RootElement.GetRawText()
+    // modeling 시 Adv 의 Call 도 string scalar (보강 키가 B 만이라 modeling 에선 enhancement 0)
+    Assert.Contains("\"Cyl1.ADV\"", raw)
+    Assert.DoesNotContain("\"inTag\"", raw)
+    // ref: 키도 없어야 — object 승격 없음
+    Assert.DoesNotContain("\"ref\"", raw)
+
+[<Fact>]
+let ``#31 S4-T3 — modeling apply silent destructive 차단 (기존 B/C/D 보존)`` () =
+    // 1. Full apply 로 enhanced store 생성 (B/C/D 모두 set)
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    Assert.Equal("kwak", proj.Author)
+    Assert.Equal("2.0.0", proj.Version)
+    Assert.Equal(Some "http://example.com/controller", ctrl.IRI)
+
+    // 2. modeling export → modeling wire
+    use modelingDoc = ModelProtocol.exportToJsonWithLevel store ModelingCategory.Modeling
+    let modelingWire = ModelProtocolYaml.jsonElementToYaml modelingDoc.RootElement
+
+    // 3. modeling wire 를 *기존 store* 에 다시 apply — silent destructive 가 일어나는지 확인
+    let _ = parseApplyCommit store modelingWire
+
+    // 4. B/C/D 보존 검증 — silent destructive 안 일어났어야 함
+    let projAfter = (Queries.allProjects store).Head
+    let ctrlAfter = Queries.activeSystemsOf projAfter.Id store |> List.head
+    Assert.Equal("kwak", projAfter.Author)
+    Assert.Equal("2.0.0", projAfter.Version)
+    Assert.Equal(Some "http://example.com/controller", ctrlAfter.IRI)
+
+[<Fact>]
+let ``#31 S4-T4 — modeling wire 의 B/C/D 키 등장 시 사전 거부 (룰 #30)`` () =
+    let yaml = """
+protocol: promaker/v0
+level: modeling
+project: M1
+author: kwak                    # C_Meta — modeling 에서 등장 금지
+systems:
+  - system: Controller
+    kind: active
+    iri: http://example.com     # C_Meta — modeling 에서 등장 금지
+    flow Run:
+      works:
+        Adv:
+          calls: [Cyl1.ADV]
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "B/C/D 키 등장 시 diag 발행 기대")
+    let msg = diag.Format()
+    Assert.Contains("author", msg)
+    Assert.Contains("iri", msg)
+    Assert.Contains("level: modeling", msg)
+
+[<Fact>]
+let ``#31 S4-T5 — level 키 unknown 값 사전 거부 (룰 #29)`` () =
+    let yaml = """
+protocol: promaker/v0
+level: bogus
+project: M1
+systems: []
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "unknown level 값 거부 기대")
+    let msg = diag.Format()
+    Assert.Contains("'bogus'", msg)
+    Assert.Contains("'full' 또는 'modeling'", msg)
+
+[<Fact>]
+let ``#31 S4-T6 — view: partial + level: modeling 조합 시 view 거부 우선 (C2)`` () =
+    let yaml = """
+protocol: promaker/v0
+view: partial
+level: modeling
+project: M1
+systems: []
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    let msg = diag.Format()
+    // partial 거부 메시지가 먼저 (룰 #7) — level 검사 skip 으로 메시지 중복 회피
+    Assert.Contains("partial export 결과는 view-only", msg)
+
+[<Fact>]
+let ``#31 S4-T7 — exportToJson (Full default) 시 level 키 부재 (회귀 가드)`` () =
+    // 기존 호출처 (exportToJson wrapper) 가 Full delegate — wire payload 에 level 키 부재 (legacy 호환)
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    use json = ModelProtocol.exportToJson store
+    let raw = json.RootElement.GetRawText()
+    Assert.DoesNotContain("\"level\"", raw)
+    // 기존 B/C/D 키는 정상 emit (Full level)
+    Assert.Contains("\"author\":\"kwak\"", raw)
+    Assert.Contains("\"iri\":\"http://example.com/controller\"", raw)
+
+[<Fact>]
+let ``#31 S4-T8 — modeling round-trip 멱등성 (modeling → apply → modeling export 동일)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    use modelingDoc1 = ModelProtocol.exportToJsonWithLevel store ModelingCategory.Modeling
+    let raw1 = modelingDoc1.RootElement.GetRawText()
+    let modelingWire = ModelProtocolYaml.jsonElementToYaml modelingDoc1.RootElement
+    // re-apply
+    let _ = parseApplyCommit store modelingWire
+    use modelingDoc2 = ModelProtocol.exportToJsonWithLevel store ModelingCategory.Modeling
+    let raw2 = modelingDoc2.RootElement.GetRawText()
+    // modeling wire 의 A 키 등장 동등 (멱등성 — 2번 apply 후에도 export 결과 같음)
+    Assert.Equal(raw1, raw2)
+
+[<Fact>]
+let ``#31 S4-T9 — modeling 시 entity kind 변경 금지 (Passive → Active wire) 진단`` () =
+    // 1. 빈 store 에 enhancedYaml 로 base (Cyl1=passive cylinder)
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    // 2. modeling wire 에 Cyl1 을 active 로 명시 (kind 변경 시도) → diag
+    let badYaml = """
+protocol: promaker/v0
+level: modeling
+project: M1
+systems:
+  - system: Cyl1
+    kind: active
+    flow Run:
+      works:
+        X:
+          calls: []
+"""
+    let diag, _, _ = parseAndApply store badYaml
+    Assert.True(diag.HasErrors, "kind 변경 시 diag 발행 기대")
+    let msg = diag.Format()
+    Assert.Contains("Cyl1", msg)
+    Assert.Contains("entity kind 변경 금지", msg)
+
+[<Fact>]
+let ``#31 S4-T10 — modeling apply 로 apiDetails.actionType 변경 (A_Modeling round-trip)`` () =
+    // 1. enhancedYaml 로 base — Cyl1 의 ADV.actionType = Push
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    let proj = (Queries.allProjects store).Head
+    let cyl1 = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
+    let adv = Queries.apiDefsOf cyl1.Id store |> List.find (fun d -> d.Name = "ADV")
+    Assert.Equal(ApiDefActionType.Push, adv.ApiDefActionType)
+
+    // 2. modeling wire 로 actionType: Push → Pulse 변경
+    let mutationYaml = """
+protocol: promaker/v0
+level: modeling
+project: M1
+systems:
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+    apiDetails:
+      ADV:
+        actionType: Pulse
+"""
+    let _ = parseApplyCommit store mutationYaml
+    // 3. store 의 ADV.ApiDefActionType 가 Pulse 로 변경 검증
+    let advAfter = Queries.apiDefsOf cyl1.Id store |> List.find (fun d -> d.Name = "ADV")
+    Assert.Equal(ApiDefActionType.Pulse, advAfter.ApiDefActionType)
+
+[<Fact>]
+let ``#31 S4-T11 — modeling apply 로 Work.tokenRole 변경 (A_Modeling round-trip)`` () =
+    // 1. singleCylinderYaml 로 base — Adv.TokenRole = None (entity-default)
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let run = Queries.flowsOf ctrl.Id store |> List.head
+    let adv = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(TokenRole.None, adv.TokenRole)
+
+    // 2. modeling wire 로 tokenRole: None → Source 변경
+    let mutationYaml = """
+protocol: promaker/v0
+level: modeling
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          tokenRole: Source
+          calls: [Cyl1.ADV]
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let _ = parseApplyCommit store mutationYaml
+    // 3. store 의 Adv.TokenRole 가 Source 로 변경 검증
+    let advAfter = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(TokenRole.Source, advAfter.TokenRole)

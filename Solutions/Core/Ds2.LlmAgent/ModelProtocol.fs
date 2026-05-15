@@ -341,6 +341,10 @@ module ModelProtocol =
         Diagnostics: Diagnostics
         /// system name → SystemEntry. forward-ref 해소용.
         Systems: Dictionary<string, SystemEntry>
+        /// Phase 7 §10.2 #31 S3b — wire 의 `level:` 키가 결정. apply 진입부에서 mutable 1회 set.
+        /// Modeling 시 dispatch helper 가 *lookup-first* 분기 (기존 store entity 발견 시 reuse +
+        /// leaf-only mutate, missing 키 = no-op). Full 시 기존 동작 (queueAddXxx 중복 throw).
+        Level: Internal.ModelingCategory.ExportLevel ref
     }
 
     let private newContext (plan: ImportPlanBuilder) (store: DsStore) : ApplyContext = {
@@ -348,6 +352,7 @@ module ModelProtocol =
         Store = store
         Diagnostics = Diagnostics()
         Systems = Dictionary<string, SystemEntry>(StringComparer.Ordinal)
+        Level = ref Internal.ModelingCategory.Full
     }
 
     // ─── Plan / Call.Properties helpers (Phase 7 §4.2 C-3/C-5) ───────────────
@@ -778,6 +783,47 @@ module ModelProtocol =
         | Custom _         -> KnownSugars.customDefaultApis, KnownSugars.customDefaultOpposing, KnownSugars.customDefaultDuration
         | UnknownSugar raw -> failwithf "deviceDefaults: UnknownSugar '%s' 는 호출처에서 분기 처리되어야 합니다." raw
 
+    // S3b — dispatch helper 의 modeling lookup-first 분기가 사용하므로 이 위치에 위치.
+    // 기존에는 line 1478~ (applyPatch 영역 인근) 에 정의됐으나 dispatchActiveSystem / dispatchPassiveSystem
+    // 보다 *뒤* 였음 — forward-ref 회피로 이동.
+    /// 단일 segment system path → store 안의 DsSystem 검색 (active + passive 합집합).
+    let private findSystemByName (store: DsStore) (sysName: string) : DsSystem option =
+        Queries.allProjects store
+        |> List.collect (fun p ->
+            (Queries.activeSystemsOf p.Id store)
+            @ (Queries.passiveSystemsOf p.Id store))
+        |> List.tryFind (fun s -> s.Name = sysName)
+
+    /// `<system>.<flow>` 형식 path → store 안의 Flow 검색.
+    let private findFlowByPath (store: DsStore) (rawPath: string) : Flow option =
+        match pathSegments rawPath with
+        | [ sysName; flowName ] ->
+            findSystemByName store sysName
+            |> Option.bind (fun s ->
+                Queries.flowsOf s.Id store
+                |> List.tryFind (fun f -> f.Name = flowName))
+        | _ -> None
+
+    /// S3b — modeling level Arrow lookup-first 용. 같은 (source, target, ArrowType) Work 간 arrow 가
+    /// store 에 이미 있는지 검사. parent system 은 source Work → parent Flow → parent System chain.
+    let private arrowWorkExists (store: DsStore) (s: Guid) (t: Guid) (aType: ArrowType) : bool =
+        match Queries.getWork s store with
+        | None -> false
+        | Some srcW ->
+            match Queries.getFlow srcW.ParentId store with
+            | None -> false
+            | Some srcF ->
+                Queries.arrowWorksOf srcF.ParentId store
+                |> List.exists (fun a -> a.SourceId = s && a.TargetId = t && a.ArrowType = aType)
+
+    /// S3b — modeling level Arrow lookup-first 용. Call 간 arrow 의 parent = source Call.ParentId (= Work.Id).
+    let private arrowCallExists (store: DsStore) (s: Guid) (t: Guid) (aType: ArrowType) : bool =
+        match Queries.getCall s store with
+        | None -> false
+        | Some srcC ->
+            Queries.arrowCallsOf srcC.ParentId store
+            |> List.exists (fun a -> a.SourceId = s && a.TargetId = t && a.ArrowType = aType)
+
     let private dispatchPassiveSystem
         (ctx: ApplyContext)
         (entry: SystemEntry)
@@ -817,48 +863,104 @@ module ModelProtocol =
                     ctx.Diagnostics.Add(joinDiagKey path "workDuration", msg)
                     None
 
-        match deviceRaw with
-        | None ->
-            // device 키 부재 — 단순 Passive 만 생성 (SSOT §5 매핑 표 잠정 허용).
-            try
-                let id = ToolOperations.queueAddPassiveSystem ctx.Plan ctx.Store entry.Name "Unit"
-                entry.SystemId := Some id
-            with ex -> ctx.Diagnostics.Add(path, ex.Message)
-        | Some raw ->
-            match parseDevice raw with
-            | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "device", msg)
-            | Ok lit ->
-                match lit with
-                | UnknownSugar bare ->
-                    ctx.Diagnostics.Add(
-                        joinDiagKey path "device",
-                        sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
-                | _ ->
-                    let defApis, defOpp, defDur = deviceDefaults lit
-                    let apis = apisRaw |> Option.defaultValue defApis
-                    let opposing = opposingRaw |> Option.defaultValue defOpp
-                    let duration = workDuration |> Option.orElseWith (fun () -> Some defDur)
-                    try
-                        let id, apiPairs =
-                            match lit with
-                            | KnownCylinder ->
-                                ToolOperations.queueAddCylinder ctx.Plan ctx.Store entry.Name apis duration
-                            | KnownClamp ->
-                                ToolOperations.queueAddClamp ctx.Plan ctx.Store entry.Name apis duration
-                            | KnownRobot ->
-                                if apis.IsEmpty then
-                                    invalidOp "robot 은 apis 명시 필수."
-                                ToolOperations.queueAddRobot ctx.Plan ctx.Store entry.Name apis opposing duration
-                            | Custom typeName ->
-                                if apis.IsEmpty then
-                                    invalidOp (sprintf "custom(%s) 는 apis 명시 필수." typeName)
-                                ToolOperations.queueAddDevice ctx.Plan ctx.Store entry.Name typeName apis opposing duration
-                            | UnknownSugar _ -> failwith "unreachable — UnknownSugar 는 위 분기에서 처리됨"
-                        entry.SystemId := Some id
-                        for (apiName, apiId) in apiPairs do
-                            entry.ApiDefIds.[apiName] <- apiId
-                    with ex ->
-                        ctx.Diagnostics.Add(path, ex.Message)
+        // S3b — modeling level 시 lookup-first. 기존 Passive 발견 시 device cascade skip +
+        // store 의 ApiDef 목록을 entry.ApiDefIds 에 누적 (forward-ref 해소용 — Active 의 calls 가
+        // `<Passive>.<ApiDef>` 로 참조 시 resolveApiDef 가 lookup 가능).
+        // **M-2 (sub-agent review)**: wire 의 device 키가 store 의 SystemType 매핑과 mismatch
+        // 시 silent ignore 회피 — 진단 발행. modeling level 은 device 변경 금지 (cascade 는 store
+        // 그대로). apis / opposing / workDuration 도 mismatch 검사 가능하나 현 PoC 는 device 만
+        // (가장 빈번한 사용자 입력 변경 = device sugar — apis 변경 시나리오 드물고 검증 분기 복잡).
+        let modelingReuseHit =
+            match !ctx.Level with
+            | Modeling ->
+                match findSystemByName ctx.Store entry.Name with
+                | Some sys ->
+                    let isPassiveInStore =
+                        Queries.allProjects ctx.Store
+                        |> List.exists (fun p -> p.PassiveSystemIds.Contains sys.Id)
+                    if not isPassiveInStore then
+                        ctx.Diagnostics.Add(path,
+                            sprintf "system '%s' 가 store 에서 active 인데 wire 에 kind=passive 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
+                        None
+                    else
+                        // **M-2**: device mismatch 검증 — wire 의 device 키가 기존 cascade 와
+                        // 다른 sugar 명시 시 진단. parseDevice 결과의 sugar literal 과 store 의
+                        // SystemType 매핑 (cylinder/clamp -> "Unit", robot -> "Robot", custom -> raw)
+                        // 비교. SystemType=None 인 store (비정상) 는 검증 skip.
+                        deviceRaw |> Option.iter (fun raw ->
+                            match parseDevice raw with
+                            | Error _ -> ()  // device 키 자체 형식 오류는 본 분기 외에서 처리
+                            | Ok lit ->
+                                match lit with
+                                | UnknownSugar bare ->
+                                    // **사용자 review Minor #1**: modeling reuse 분기에서 UnknownSugar
+                                    // silent skip 회피 — 사용자 오타 (`cylindar` 등) 인지 가능하도록
+                                    // wire 입력 검증. reuse 자체는 store entity 정상 사용이라 entity
+                                    // 의미 정합. 진단은 사용자 wire 표기 정정 유도.
+                                    ctx.Diagnostics.Add(joinDiagKey path "device",
+                                        sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
+                                | _ ->
+                                    let wireSystemType =
+                                        match lit with
+                                        | KnownCylinder | KnownClamp -> Some "Unit"
+                                        | KnownRobot -> Some "Robot"
+                                        | Custom typeName -> Some typeName
+                                        | UnknownSugar _ -> None  // 위 분기에서 처리됨
+                                    match wireSystemType, sys.SystemType with
+                                    | Some wireT, Some storeT when wireT <> storeT ->
+                                        ctx.Diagnostics.Add(joinDiagKey path "device",
+                                            sprintf "modeling level 은 device 변경 금지 (store SystemType='%s', wire 매핑='%s'). patch DSL 또는 level: full 사용." storeT wireT)
+                                    | _ -> ())
+                        entry.SystemId := Some sys.Id
+                        for apiDef in Queries.apiDefsOf sys.Id ctx.Store do
+                            entry.ApiDefIds.[apiDef.Name] <- apiDef.Id
+                        Some sys
+                | None -> None
+            | Full -> None
+
+        if modelingReuseHit.IsNone then
+            match deviceRaw with
+            | None ->
+                // device 키 부재 — 단순 Passive 만 생성 (SSOT §5 매핑 표 잠정 허용).
+                try
+                    let id = ToolOperations.queueAddPassiveSystem ctx.Plan ctx.Store entry.Name "Unit"
+                    entry.SystemId := Some id
+                with ex -> ctx.Diagnostics.Add(path, ex.Message)
+            | Some raw ->
+                match parseDevice raw with
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "device", msg)
+                | Ok lit ->
+                    match lit with
+                    | UnknownSugar bare ->
+                        ctx.Diagnostics.Add(
+                            joinDiagKey path "device",
+                            sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
+                    | _ ->
+                        let defApis, defOpp, defDur = deviceDefaults lit
+                        let apis = apisRaw |> Option.defaultValue defApis
+                        let opposing = opposingRaw |> Option.defaultValue defOpp
+                        let duration = workDuration |> Option.orElseWith (fun () -> Some defDur)
+                        try
+                            let id, apiPairs =
+                                match lit with
+                                | KnownCylinder ->
+                                    ToolOperations.queueAddCylinder ctx.Plan ctx.Store entry.Name apis duration
+                                | KnownClamp ->
+                                    ToolOperations.queueAddClamp ctx.Plan ctx.Store entry.Name apis duration
+                                | KnownRobot ->
+                                    if apis.IsEmpty then
+                                        invalidOp "robot 은 apis 명시 필수."
+                                    ToolOperations.queueAddRobot ctx.Plan ctx.Store entry.Name apis opposing duration
+                                | Custom typeName ->
+                                    if apis.IsEmpty then
+                                        invalidOp (sprintf "custom(%s) 는 apis 명시 필수." typeName)
+                                    ToolOperations.queueAddDevice ctx.Plan ctx.Store entry.Name typeName apis opposing duration
+                                | UnknownSugar _ -> failwith "unreachable — UnknownSugar 는 위 분기에서 처리됨"
+                            entry.SystemId := Some id
+                            for (apiName, apiId) in apiPairs do
+                                entry.ApiDefIds.[apiName] <- apiId
+                        with ex ->
+                            ctx.Diagnostics.Add(path, ex.Message)
 
         // Phase 7 §4.2 C-6: DsSystem.IRI (Passive — leaf 키)
         // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System)
@@ -911,7 +1013,23 @@ module ModelProtocol =
         if not (tryValidateName ctx (path + ".system") "System name" entry.Name) then () else
 
         try
-            let id = ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
+            // S3b — modeling level 시 lookup-first (기존 store 의 같은 이름 Active 발견 시 reuse).
+            // 기존 system 발견 시 queueAddActiveSystem 호출 skip — 중복 throw 회피 + 기존 leaf 보존.
+            // wire 의 iri / plc 키는 modeling level walk (S3a) 가 사전 거부 — 본 분기 시 등장 0.
+            let id =
+                match !ctx.Level with
+                | Modeling ->
+                    match findSystemByName ctx.Store entry.Name with
+                    | Some sys ->
+                        // 기존 active 인지 검증 — Passive 인데 wire 가 active 로 명시면 의미 충돌.
+                        let isActiveInStore =
+                            Queries.allProjects ctx.Store
+                            |> List.exists (fun p -> p.ActiveSystemIds.Contains sys.Id)
+                        if not isActiveInStore then
+                            invalidOp (sprintf "system '%s' 가 store 에서 passive 인데 wire 에 kind=active 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
+                        sys.Id
+                    | None -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
+                | Full -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
             // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
             applyNonEmptyStringProp ctx path sysEl "iri" (fun s ->
@@ -1109,7 +1227,15 @@ module ModelProtocol =
                     | Error msg ->
                         ctx.Diagnostics.Add(joinDiagKey path "workDuration", msg)
                         None)
-            let workId = ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
+            // S3b — modeling level 시 lookup-first (기존 store 의 같은 (flowId, workLocalName) Work reuse).
+            // wire 의 workDuration 키는 modeling walk (S3a) 가 사전 거부 — durationOpt 는 None 보장.
+            let workId =
+                match !ctx.Level with
+                | Modeling ->
+                    match Queries.worksOf flowId ctx.Store |> List.tryFind (fun w -> w.LocalName = workLocalName) with
+                    | Some w -> w.Id
+                    | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
+                | Full -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
             // WorkIds 누적
             if not (sysEntry.WorkIds.ContainsKey flowName) then
                 sysEntry.WorkIds.[flowName] <- Dictionary<string, Guid>(StringComparer.Ordinal)
@@ -1188,11 +1314,27 @@ module ModelProtocol =
                 | None -> ()
                 | Some apiDefId ->
                     try
+                        // S3b — modeling level 시 lookup-first. 같은 (workId, apiDefId) Call 발견 시 reuse.
+                        // 보강 property (contactKind / callCondition / callType 등) mutate 는 그대로 진행 (lookupCallById 가 store + plan 양쪽 lookup).
                         let callId =
-                            if useAllowDup then
-                                ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
-                            else
-                                ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
+                            match !ctx.Level with
+                            | Modeling ->
+                                let foundOpt =
+                                    Queries.callsOf workId ctx.Store
+                                    |> List.tryFind (fun c ->
+                                        c.ApiCalls.Count > 0 && c.ApiCalls.[0].ApiDefId = Some apiDefId)
+                                match foundOpt with
+                                | Some c -> c.Id
+                                | None ->
+                                    if useAllowDup then
+                                        ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
+                                    else
+                                        ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
+                            | Full ->
+                                if useAllowDup then
+                                    ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
+                                else
+                                    ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
                         let normalized = normalizePath callRef
                         if not (callIdMap.ContainsKey normalized) then
                             callIdMap.[normalized] <- ResizeArray()
@@ -1201,9 +1343,11 @@ module ModelProtocol =
                         // ContactKind: queueAddCall 가 1:1 invariant 로 call.ApiCalls[0] 생성 → 직접 set.
                         // CallCondition: recursive parse 후 call.CallConditions 에 추가.
                         callObjOpt |> Option.iter (fun obj ->
-                            match tryFindCallInPlan ctx.Plan callId with
+                            // S3b — modeling reuse 시 Call 이 store 에 이미 있으므로 store + plan 양쪽 lookup.
+                            // Full path 에서는 plan 측 lookup 이 우선 — `lookupCallById` 가 plan 우선 동작.
+                            match lookupCallById ctx callId with
                             | None ->
-                                ctx.Diagnostics.Add(callPath, "queueAddCall 후 plan 에서 Call instance 추적 실패 (forensic).")
+                                ctx.Diagnostics.Add(callPath, "Call instance 추적 실패 (forensic).")
                             | Some call ->
                                 // ApiCall 보강 (C-3 ContactKind + C-4 SkipInputSensor / InTag / OutTag). 1:1 invariant.
                                 let firstApiCallOpt =
@@ -1283,10 +1427,16 @@ module ModelProtocol =
                             let tgtOpt = resolveCallId spec.ToRaw (arrowPath + ".to")
                             match srcOpt, tgtOpt with
                             | Some s, Some t ->
-                                try
-                                    ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                with ex ->
-                                    ctx.Diagnostics.Add(arrowPath, ex.Message)
+                                // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
+                                let skipDup =
+                                    match !ctx.Level with
+                                    | Modeling -> arrowCallExists ctx.Store s t aType
+                                    | Full -> false
+                                if not skipDup then
+                                    try
+                                        ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                    with ex ->
+                                        ctx.Diagnostics.Add(arrowPath, ex.Message)
                             | _ -> ()
 
             let mutable arrowIdx = 0
@@ -1330,7 +1480,14 @@ module ModelProtocol =
                 // M1 fix: flow 이름 sanitize 가드.
                 if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
                 try
-                    let flowId = ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                    // S3b — modeling level 시 lookup-first (기존 store 의 같은 (sysId, flowName) Flow reuse).
+                    let flowId =
+                        match !ctx.Level with
+                        | Modeling ->
+                            match Queries.flowsOf sysId ctx.Store |> List.tryFind (fun f -> f.Name = flowName) with
+                            | Some f -> f.Id
+                            | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                        | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                     sysEntry.FlowIds.[flowName] <- flowId
 
                     // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
@@ -1392,10 +1549,16 @@ module ModelProtocol =
                                     let tgtOpt = resolveWorkId spec.ToRaw (arrowPath + ".to")
                                     match srcOpt, tgtOpt with
                                     | Some s, Some t ->
-                                        try
-                                            ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                        with ex ->
-                                            ctx.Diagnostics.Add(arrowPath, ex.Message)
+                                        // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
+                                        let skipDup =
+                                            match !ctx.Level with
+                                            | Modeling -> arrowWorkExists ctx.Store s t aType
+                                            | Full -> false
+                                        if not skipDup then
+                                            try
+                                                ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                            with ex ->
+                                                ctx.Diagnostics.Add(arrowPath, ex.Message)
                                     | _ -> ()
                     let mutable aIdx = 0
                     for arrowResult in arrowsList do
@@ -1426,24 +1589,6 @@ module ModelProtocol =
     //
     // 본 PoC 는 schema 의 add / arrows.add / rename / remove 4 종 dispatch.
     // 자세한 구현은 후속 cycle — patch path 는 store 가 이미 채워져 있는 경우 주력 시나리오.
-
-    /// 단일 segment system path → store 안의 DsSystem 검색 (active + passive 합집합).
-    let private findSystemByName (store: DsStore) (sysName: string) : DsSystem option =
-        Queries.allProjects store
-        |> List.collect (fun p ->
-            (Queries.activeSystemsOf p.Id store)
-            @ (Queries.passiveSystemsOf p.Id store))
-        |> List.tryFind (fun s -> s.Name = sysName)
-
-    /// `<system>.<flow>` 형식 path → store 안의 Flow 검색.
-    let private findFlowByPath (store: DsStore) (rawPath: string) : Flow option =
-        match pathSegments rawPath with
-        | [ sysName; flowName ] ->
-            findSystemByName store sysName
-            |> Option.bind (fun s ->
-                Queries.flowsOf s.Id store
-                |> List.tryFind (fun f -> f.Name = flowName))
-        | _ -> None
 
     /// SSOT §2.5.1 — dotted-path → (EntityKind, Guid) 변환. path 깊이로 EntityKind 자동 결정.
     /// 1 seg = Project / 2 = System / 3 = ApiDef 또는 Flow (System 직접 자식 ambiguity) /
@@ -1811,6 +1956,9 @@ module ModelProtocol =
 
         if not ctx.Diagnostics.HasErrors && wireLevel = Some Modeling then
             walkAndRejectNonModelingKeys "" root
+
+        // S3b — wireLevel 확정 후 ctx.Level set. dispatch helper 가 lookup-first 분기 결정 시 참조.
+        wireLevel |> Option.iter (fun lvl -> ctx.Level := lvl)
 
         if ctx.Diagnostics.HasErrors then
             // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
