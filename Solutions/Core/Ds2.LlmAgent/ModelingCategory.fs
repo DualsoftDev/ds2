@@ -19,10 +19,12 @@ namespace Ds2.LlmAgent.Internal
 
 /// **visibility note** — module 자체는 *public* (internal 아님). 사유: `ExportLevel` 이
 /// `ModelProtocol.exportToJsonWithLevel` / `exportToJsonScopedWithLevel` public 함수의
-/// 매개변수 type 으로 노출됨 (wire schema 의 일부). `Category` / `isEmittedIn` / `categoryOfPlcLeaf`
-/// 도 capturer (test project) 에서 직접 사용 가능 (`InternalsVisibleTo` 의존 0건).
+/// 매개변수 type 으로 노출됨 (wire schema 의 일부). `Category` / `isEmittedIn` 도 capturer
+/// (test project) 에서 직접 사용 가능 (`InternalsVisibleTo` 의존 0건).
 /// namespace `Ds2.LlmAgent.Internal` 은 이름 convention — assembly visibility 와 직교.
-/// `PlanLookup.fs` 의 namespace 정책 docstring (m6 외부 review 산출) 도 S4 phase 에서 갱신 예정.
+/// `PlanLookup.fs` 의 namespace 정책 docstring (m6 외부 review 산출) 갱신은 후속 phase
+/// (todo §10.2 M-1 후속 phase 와 함께 처리 — 본 module 의 public 노출 사실 + 후속 module
+/// 추가 시 정책 review trigger).
 module ModelingCategory =
 
     /// 4 카테고리 — modeling level 시 A_Modeling 만 emit, 나머지 생략.
