@@ -1,3 +1,14 @@
 <Project>
   <Import Project="../../Solutions/Directory.Build.props" />
+
+  <!-- BuildVersion.txt 가 Promaker 버전의 SSOT. csproj 의 <Version> 라인은 두지 않는다 —
+       매 빌드 시 이 props 가 BuildVersion.txt 값을 읽어 Version / AssemblyVersion /
+       FileVersion 세 곳에 동시 주입한다. bump-buildversion.sh 가 BuildVersion.txt 만
+       갱신하면 csproj 는 자동 sync. -->
+  <PropertyGroup>
+    <PromakerVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)BuildVersion.txt').Trim())</PromakerVersion>
+    <Version>$(PromakerVersion)</Version>
+    <AssemblyVersion>$(PromakerVersion)</AssemblyVersion>
+    <FileVersion>$(PromakerVersion)</FileVersion>
+  </PropertyGroup>
 </Project>
