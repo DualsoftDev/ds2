@@ -873,12 +873,20 @@ module ModelProtocol =
         let modelingReuseHit =
             match !ctx.Level with
             | Modeling ->
-                match findSystemByName ctx.Store entry.Name with
+                // #32 — store + plan 합집합 (같은 turn 안 다른 source 가 add 한 Passive 도 reuse).
+                let storeHit = findSystemByName ctx.Store entry.Name
+                let combinedHit =
+                    storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
+                match combinedHit with
                 | Some sys ->
                     let isPassiveInStore =
                         Queries.allProjects ctx.Store
                         |> List.exists (fun p -> p.PassiveSystemIds.Contains sys.Id)
-                    if not isPassiveInStore then
+                    let isPassiveInPlan =
+                        Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
+                        |> Option.map not
+                        |> Option.defaultValue false   // LinkSystemToProject 부재 = "passive 아님" 으로 fail-safe (store-only 신뢰)
+                    if not (isPassiveInStore || isPassiveInPlan) then
                         ctx.Diagnostics.Add(path,
                             sprintf "system '%s' 가 store 에서 active 인데 wire 에 kind=passive 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
                         None
@@ -914,6 +922,12 @@ module ModelProtocol =
                         entry.SystemId := Some sys.Id
                         for apiDef in Queries.apiDefsOf sys.Id ctx.Store do
                             entry.ApiDefIds.[apiDef.Name] <- apiDef.Id
+                        // #32 — plan 측 ApiDef 도 누적 (같은 turn 안 add 된 ApiDef 도 cross-system call 에서 reuse)
+                        for op in ctx.Plan.Operations do
+                            match op with
+                            | AddApiDef d when d.ParentId = sys.Id ->
+                                entry.ApiDefIds.[d.Name] <- d.Id
+                            | _ -> ()
                         Some sys
                 | None -> None
             | Full -> None
@@ -1019,13 +1033,24 @@ module ModelProtocol =
             let id =
                 match !ctx.Level with
                 | Modeling ->
-                    match findSystemByName ctx.Store entry.Name with
+                    // #32 — store + plan 합집합 (같은 turn 안 patch 또는 다른 systems entry 가 add 한
+                    // entity 도 reuse). store 우선, 미발견 시 plan 측 fallback.
+                    let storeHit = findSystemByName ctx.Store entry.Name
+                    let combinedHit =
+                        storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
+                    match combinedHit with
                     | Some sys ->
                         // 기존 active 인지 검증 — Passive 인데 wire 가 active 로 명시면 의미 충돌.
+                        // plan 측 hit 은 isActive 판정이 LinkSystemToProject op 으로만 결정 — store 검색만
+                        // 으로 충분 (storeHit Some 이면 store 측 isActive 검사 / storeHit None + planHit Some
+                        // 이면 plan 의 LinkSystemToProject 추적).
                         let isActiveInStore =
                             Queries.allProjects ctx.Store
                             |> List.exists (fun p -> p.ActiveSystemIds.Contains sys.Id)
-                        if not isActiveInStore then
+                        let isActiveInPlan =
+                            Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
+                            |> Option.defaultValue false   // LinkSystemToProject 부재 = "active 아님" 으로 fail-safe (store-only 신뢰)
+                        if not (isActiveInStore || isActiveInPlan) then
                             invalidOp (sprintf "system '%s' 가 store 에서 passive 인데 wire 에 kind=active 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
                         sys.Id
                     | None -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
@@ -1229,10 +1254,17 @@ module ModelProtocol =
                         None)
             // S3b — modeling level 시 lookup-first (기존 store 의 같은 (flowId, workLocalName) Work reuse).
             // wire 의 workDuration 키는 modeling walk (S3a) 가 사전 거부 — durationOpt 는 None 보장.
+            // #32 — store + plan 합집합. plan-only Work 도 reuse.
             let workId =
                 match !ctx.Level with
                 | Modeling ->
-                    match Queries.worksOf flowId ctx.Store |> List.tryFind (fun w -> w.LocalName = workLocalName) with
+                    let storeHit =
+                        Queries.worksOf flowId ctx.Store
+                        |> List.tryFind (fun w -> w.LocalName = workLocalName)
+                    let combinedHit =
+                        storeHit
+                        |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindWorkByLocalName ctx.Plan flowId workLocalName)
+                    match combinedHit with
                     | Some w -> w.Id
                     | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
                 | Full -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
@@ -1315,15 +1347,19 @@ module ModelProtocol =
                 | Some apiDefId ->
                     try
                         // S3b — modeling level 시 lookup-first. 같은 (workId, apiDefId) Call 발견 시 reuse.
+                        // #32 — store + plan 합집합. plan-only Call 도 reuse.
                         // 보강 property (contactKind / callCondition / callType 등) mutate 는 그대로 진행 (lookupCallById 가 store + plan 양쪽 lookup).
                         let callId =
                             match !ctx.Level with
                             | Modeling ->
-                                let foundOpt =
+                                let storeHit =
                                     Queries.callsOf workId ctx.Store
                                     |> List.tryFind (fun c ->
                                         c.ApiCalls.Count > 0 && c.ApiCalls.[0].ApiDefId = Some apiDefId)
-                                match foundOpt with
+                                let combinedHit =
+                                    storeHit
+                                    |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindCallByApiDef ctx.Plan workId apiDefId)
+                                match combinedHit with
                                 | Some c -> c.Id
                                 | None ->
                                     if useAllowDup then
@@ -1481,10 +1517,17 @@ module ModelProtocol =
                 if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
                 try
                     // S3b — modeling level 시 lookup-first (기존 store 의 같은 (sysId, flowName) Flow reuse).
+                    // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
                     let flowId =
                         match !ctx.Level with
                         | Modeling ->
-                            match Queries.flowsOf sysId ctx.Store |> List.tryFind (fun f -> f.Name = flowName) with
+                            let storeHit =
+                                Queries.flowsOf sysId ctx.Store
+                                |> List.tryFind (fun f -> f.Name = flowName)
+                            let combinedHit =
+                                storeHit
+                                |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindFlowByName ctx.Plan sysId flowName)
+                            match combinedHit with
                             | Some f -> f.Id
                             | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                         | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
