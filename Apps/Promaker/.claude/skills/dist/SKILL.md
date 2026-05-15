@@ -121,6 +121,7 @@ Destructive 스텝(빌드 / ReleaseNote 파일 수정 / commit / zip / scp / tag
 
 ## 제약 / 주의
 
+- **Commit/Push 사전 confirm 면제 (글로벌 규칙 예외)** — 글로벌 `CLAUDE.md` 및 [[feedback_commit_authorization]] 메모리는 "임의 git commit 금지 / multi-step plan 의 'go' 동의로 commit 까지 묶지 말 것" 을 강제하지만, `/dist` 는 **사용자가 명시적으로 본 skill 을 호출한 시점에 Step 9 (commit) / Step 14 (push) 까지의 전체 워크플로 실행을 승인한 것** 으로 간주한다. 따라서 `/dist` 실행 중에는 commit / push 직전에 별도 confirm 을 요구하지 않으며, Step 1~15 를 끊김 없이 진행한다. (단 `/dist dry` 는 기존대로 destructive 스텝 전부 skip — 본 예외는 정식 `/dist` 에만 적용)
 - **`make dist` 는 notice-only 로 비활성화** — 우발적 배포 방지를 위해 Makefile 이 notice 메시지만 출력하고 종료한다. 강제로 legacy 동작 (scp + bump, ReleaseNote/commit/tag/push 없음) 이 필요하면 `make dist-force` 사용. 정식 배포는 반드시 본 `/dist` skill 사용.
 - `/dist` 는 **Promaker 단독 배포 전용**. ds2 의 다른 컴포넌트(DSPilot 등) 가 추후 같은 구조를 도입하더라도 각자의 `/dist` 를 갖는다.
 - **fd 모드는 `/dist` 자동 배포 대상이 아님** — 필요 시 `MODE=fd make -C installer/Apps/Promaker dist-installer` 로 수동 빌드만 한다 (산출물은 로컬 보존, scp 대상은 sc).
