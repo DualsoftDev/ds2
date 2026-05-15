@@ -64,7 +64,7 @@ public static class PropertyDescriptions
         ["CallProperties"] = "Call 수준 설정 (호출 단위)",
 
         // 기타 구조
-        ["ErrorDefinitions"] = "에러 정의 목록 (이름|태그주소|값타입)",
+        ["UserTags"] = "사용자 태그 목록 (이름|로그레벨|태그주소|값타입)",
 
         // =====================================================================
         // 공통 메타데이터 (System-level 공유)
@@ -307,7 +307,7 @@ public static class PropertyDescriptions
         ["LogToDatabase"] = "데이터베이스 로깅 활성화",
         ["LogFilePath"] = "로그 파일 경로",
         ["RetentionDays"] = "로그 보존 기간 (일)",
-        ["ErrorDefinitions"] = "에러 정의 목록 (이름|태그주소|값타입)",
+        ["UserTags"] = "사용자 태그 목록 (이름|로그레벨|태그주소|값타입)",
 
         // -- Flow --
         ["BottleneckThresholdMultiplier"] = "병목 감지 배수 (평균 × N배 초과 시 병목)",

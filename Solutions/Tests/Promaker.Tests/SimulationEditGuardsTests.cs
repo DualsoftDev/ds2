@@ -241,7 +241,7 @@ public sealed class SimulationEditGuardsTests
     }
 
     [Fact]
-    public void OpenIoBatchDialog_during_simulation_opens_dialog_without_guard()
+    public void OpenTagInspector_during_simulation_opens_dialog_without_guard()
     {
         StaTestRunner.Run(() =>
         {
@@ -252,9 +252,9 @@ public sealed class SimulationEditGuardsTests
             vm.NewProjectCommand.Execute(null);
             vm.Simulation.IsSimulating = true;
 
-            vm.OpenIoBatchDialogCommand.Execute(null);
+            vm.OpenTagInspectorCommand.Execute(null);
 
-            // OpenIoBatchDialog 는 안열림
+            // TagInspector 는 안열림 (시뮬 가드)
             Assert.True(vm.Simulation.IsSimulating);
             Assert.Single(dialog.WarningMessages);
         });

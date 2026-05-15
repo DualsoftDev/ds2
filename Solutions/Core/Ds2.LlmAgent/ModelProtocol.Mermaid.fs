@@ -62,12 +62,15 @@ module ModelProtocolMermaid =
             "UNCLP"; "UNCLAMP"; "TILT_DOWN"
         ]
 
-    // Reset 계열 → 점선 connector. 의미 분리 — Reset(2): target만, StartReset(3): src bullet + target,
-    // ResetReset(4): src/tgt 모두 arrow. 그 외 (Start / Group / Unspecified) → 실선.
+    // Arrow 시각 구분 — line weight + style 로 4종 분리.
+    //   Reset:      얇은 점선 (-.->)            — target 측만 arrow head
+    //   StartReset: 두꺼운 실선 (==>)           — Reset 과 line weight 로 구분 (mermaid 가 source-side rect marker 미지원이라 weight 로 대체)
+    //   ResetReset: 얇은 점선 양방향 (<-.->)    — src/tgt 양쪽 arrow head
+    //   그 외 (Start / Group / Unspecified) → 얇은 실선 (-->).
     let private resetConnectors =
         let d = Dictionary<string, string>(StringComparer.Ordinal)
         d.Add("Reset",      "-.->")
-        d.Add("StartReset", "o-.->")
+        d.Add("StartReset", "==>")
         d.Add("ResetReset", "<-.->")
         d
     let private defaultConnector = "-->"
@@ -196,6 +199,15 @@ module ModelProtocolMermaid =
 
     // ── Mermaid 1: Work flow ─────────────────────────────────────────────────
 
+    /// StartReset 색 — Tailwind orange-400 (retract class 와 일관). 두꺼운 실선 (`==>`) 위에 색만 override.
+    let private startResetLinkStyle = "stroke:#fb923c,stroke-width:2.5px"
+
+    /// 누적된 StartReset edge index 들을 한 줄 linkStyle 로 모아 emit (없으면 skip).
+    let private emitStartResetLinkStyle (lines: ResizeArray<string>) (indent: string) (indices: ResizeArray<int>) : unit =
+        if indices.Count > 0 then
+            let idxStr = String.Join(",", indices |> Seq.map string)
+            lines.Add (sprintf "%slinkStyle %s %s;" indent idxStr startResetLinkStyle)
+
     /// 모든 active system 의 Flow 안 Work 노드 + work-scope arrows 를 한 mermaid 로.
     /// (system, flow) 쌍마다 subgraph 묶음. arrows 가 없어도 work 노드만 있으면 emit.
     /// active 가 0건이거나 (work 0건 + arrow 0건) 이면 None — 호출처는 block 자체 skip.
@@ -206,6 +218,8 @@ module ModelProtocolMermaid =
             let lines = ResizeArray<string>()
             emitHeader lines "TD"
             let mutable rendered = false
+            let mutable arrowIdx = 0
+            let startResetIndices = ResizeArray<int>()
             for (sysName, sysEl) in activeSystems do
                 for (flowName, flowEl) in collectFlows sysEl do
                     let works = collectWorks flowEl
@@ -222,7 +236,10 @@ module ModelProtocolMermaid =
                             let frId = sanitizeId (subId + "__" + fr)
                             let toId = sanitizeId (subId + "__" + t)
                             emitArrowLine lines "    " frId (connectorFor atype) (edgeLabel atype) toId
+                            if atype = "StartReset" then startResetIndices.Add arrowIdx
+                            arrowIdx <- arrowIdx + 1
                         lines.Add "  end"
+            emitStartResetLinkStyle lines "  " startResetIndices
             if rendered then
                 Some (String.Join("\n", lines))
             else
@@ -251,10 +268,15 @@ module ModelProtocolMermaid =
                                 let id = sanitizeId call
                                 let cls = actionClass call
                                 lines.Add (sprintf "  %s[\"%s\"]:::%s" id call cls)
+                        let mutable arrowIdx = 0
+                        let startResetIndices = ResizeArray<int>()
                         for (fr, t, atype) in arrows do
                             let frId = sanitizeId fr
                             let toId = sanitizeId t
                             emitArrowLine lines "  " frId (connectorFor atype) (edgeLabel atype) toId
+                            if atype = "StartReset" then startResetIndices.Add arrowIdx
+                            arrowIdx <- arrowIdx + 1
+                        emitStartResetLinkStyle lines "  " startResetIndices
                         let title = sprintf "%s.%s.%s" sysName flowName workName
                         blocks.Add { Title = title; Mermaid = String.Join("\n", lines) }
         blocks |> List.ofSeq

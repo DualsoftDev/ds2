@@ -1,6 +1,8 @@
+using System.Security.Cryptography;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using DSPilot.Infrastructure;
 using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
@@ -9,29 +11,43 @@ public class DsProjectService
 {
     private readonly DsStore _store;
     private readonly ILogger<DsProjectService> _logger;
-    private readonly string? _aasxFilePath;
 
+    public string AasxFilePath { get; } = SharedPaths.AasxFilePath;
     public bool IsLoaded { get; private set; }
+    public DateTime? LastLoadedUtc { get; private set; }
+
+    /// <summary>
+    /// 마지막으로 LoadProject 호출 시점에 계산된 AASX 파일 SHA256 (대문자 hex).
+    /// 디스크 파일 변경 감지를 mtime 대신 콘텐츠 해시로 판정하기 위해 사용.
+    /// 동일 모델을 재 export 해도 (zip 타임스탬프 차이로 mtime 은 갱신되지만) hash 는 동일하므로 오탐 방지.
+    /// </summary>
+    public string? LastLoadedSha256 { get; private set; }
+
+    /// <summary>
+    /// 외부에서 AASX 파일 콘텐츠가 변경됐을 때 발생. AasxFileWatcherService 가 발행.
+    /// Settings 페이지가 구독해서 동기화 배지/토스트를 갱신.
+    /// </summary>
+    public event Action? AasxExternallyChanged;
+
+    public void RaiseAasxExternallyChanged() => AasxExternallyChanged?.Invoke();
 
     public DsStore GetStore() => _store;
 
-    public DsProjectService(IConfiguration configuration, ILogger<DsProjectService> logger)
+    public DsProjectService(ILogger<DsProjectService> logger)
     {
         _logger = logger;
         _store = new DsStore();
-        var configPath = configuration["DsPilot:AasxFilePath"];
-        _logger.LogInformation("[DsProject] Raw config AasxFilePath = '{ConfigPath}'", configPath ?? "(null)");
-        _aasxFilePath = string.IsNullOrEmpty(configPath) ? null : Path.GetFullPath(configPath);
-        _logger.LogInformation("[DsProject] Resolved AasxFilePath = '{Path}', Exists = {Exists}",
-            _aasxFilePath ?? "(null)", _aasxFilePath != null && File.Exists(_aasxFilePath));
 
-        if (!string.IsNullOrEmpty(_aasxFilePath) && File.Exists(_aasxFilePath))
+        _logger.LogInformation("[DsProject] AASX path = '{Path}', exists = {Exists}",
+            AasxFilePath, File.Exists(AasxFilePath));
+
+        if (File.Exists(AasxFilePath))
         {
-            LoadProject(_aasxFilePath);
+            LoadProject(AasxFilePath);
         }
-        else if (!string.IsNullOrEmpty(_aasxFilePath))
+        else
         {
-            _logger.LogWarning("AASX file not found: {Path}", _aasxFilePath);
+            _logger.LogWarning("AASX file not found: {Path}. Promaker 에서 같은 경로에 저장하면 자동 인식됩니다.", AasxFilePath);
         }
     }
 
@@ -41,8 +57,10 @@ public class DsProjectService
         {
             var result = Ds2.Aasx.AasxImporter.importIntoStore(_store, path);
             IsLoaded = result;
+            LastLoadedUtc = DateTime.UtcNow;
+            LastLoadedSha256 = ComputeFileSha256(path);
             if (result)
-                _logger.LogInformation("Project loaded from: {Path}", path);
+                _logger.LogInformation("Project loaded from: {Path} (sha256={Sha})", path, LastLoadedSha256 ?? "<n/a>");
             else
                 _logger.LogWarning("Failed to import AASX (구 포맷일 수 있음 — ds2 에디터에서 다시 Export 필요): {Path}", path);
         }
@@ -50,6 +68,46 @@ public class DsProjectService
         {
             _logger.LogError(ex, "Error loading AASX file: {Path}", path);
             IsLoaded = false;
+        }
+    }
+
+    /// <summary>
+    /// 디스크의 AASX 파일이 마지막으로 수정된 시각(UTC). 존재하지 않으면 null.
+    /// </summary>
+    public DateTime? GetAasxFileWriteTimeUtc()
+    {
+        try
+        {
+            return File.Exists(AasxFilePath)
+                ? File.GetLastWriteTimeUtc(AasxFilePath)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 현재 디스크의 AASX 파일 SHA256 (대문자 hex). 파일 없거나 읽기 실패 시 null.
+    /// 호출 비용은 파일 크기에 비례 — UI 가 자주 호출하지 않도록 캐시 권장.
+    /// </summary>
+    public string? GetAasxFileSha256()
+    {
+        return File.Exists(AasxFilePath) ? ComputeFileSha256(AasxFilePath) : null;
+    }
+
+    private static string? ComputeFileSha256(string path)
+    {
+        try
+        {
+            using var sha = SHA256.Create();
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            return Convert.ToHexString(sha.ComputeHash(stream));
+        }
+        catch
+        {
+            return null;
         }
     }
 

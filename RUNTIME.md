@@ -862,15 +862,15 @@ FileCommands.cs의 Open/Save 공통 코드는 헬퍼 메서드와 전용 Flow �
   └─ EmitRefreshAndHistory()
 ```
 
-### 12.2 I/O 태그 일괄편집
+### 12.2 IO·태그 확인 (조회 전용)
 
 ```
-[C# — IoBatchCommands.cs]
- OpenIoBatchDialog()
+[C# — TagInspectorCommands.cs]
+ OpenTagInspector()
   └─ _store.GetAllApiCallIORows() → ApiCallIOBatchRow list
-  └─ IoBatchSettingsDialog(rows) — DataGrid UI
-  └─ dialog.ChangedRows → (apiCallId, inTag: IOTag, outTag: IOTag) 변경분
-  └─ _store.UpdateApiCallIOTagsBatch(changes)
+  └─ _store.GetAllUserTagsForProject() → ProjectUserTagRow list
+  └─ TagInspectorDialog(store) — TabControl (IO 신호 / Dummy 신호 / 사용자 태그)
+  └─ 읽기 전용. 편집은 PropertyPanel(UserTag) / TAG Wizard(IO).
         │
         ▼
 [F# — Ds2.Editor/Store/Panel/Panel/Batch.fs]

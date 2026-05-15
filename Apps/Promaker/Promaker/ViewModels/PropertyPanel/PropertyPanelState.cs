@@ -276,6 +276,7 @@ public partial class PropertyPanelState : ObservableObject
         if (IsSystemSelected && selected is not null)
         {
             RefreshSystemPanel(selected.Id);
+            RefreshUserTagsPanel(selected.Id);
 
             // Load SystemType
             var systemOpt = Queries.getSystem(selected.Id, Store);
@@ -296,6 +297,8 @@ public partial class PropertyPanelState : ObservableObject
         else
         {
             SystemApiDefs.Clear();
+            UserTags.Clear();
+            OnPropertyChanged(nameof(UserTagsHeader));
             _originalSystemType = string.Empty;
             SystemType = string.Empty;
             IsSystemTypeDirty = false;

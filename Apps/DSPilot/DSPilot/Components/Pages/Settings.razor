@@ -1,8 +1,9 @@
 @page "/settings"
+@implements IDisposable
 @inject AppSettingsService SettingsService
 @inject IDatabasePathResolver DatabasePathResolver
 @inject IFlowMetricsService FlowMetricsService
-@inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
+@inject DsProjectService ProjectService
 @inject DatabaseLifecycleService DbLifecycle
 @inject IJSRuntime JS
 
@@ -20,47 +21,62 @@
     </div>
 
     <div class="grid" style="gap: 16px;">
-        @* 왼쪽 열: 프로젝트 + DSP 데이터베이스 *@
+        @* 왼쪽 열 *@
         <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
-            @* DsPilot 섹션 *@
+
+            @* AASX 모델 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
-                    <span class="material-icons mr-2">folder_open</span>
-                    <h6 class="typo-h6">프로젝트 (DsPilot)</h6>
+                    <span class="material-icons mr-2">schema</span>
+                    <h6 class="typo-h6">AASX 모델</h6>
                 </div>
                 <div class="card-content">
-                    <div class="form-group mb-3">
-                        <label class="form-label">경로 직접 입력</label>
-                        <input class="form-field" @bind="_settings.DsPilot.AasxFilePath" placeholder="AASX 파일 경로" />
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            서버 PC에 있는 AASX 파일의 상대 또는 절대 경로
+                    <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
+                        <small style="color: var(--color-text-secondary); line-height:1.5;">
+                            Promaker 와 공유하는 AASX 모델 파일. 경로는 두 앱 공통 고정값으로 운영됩니다.<br/>
+                            <strong>Promaker 에서 같은 경로에 저장</strong>한 뒤 아래 "모델 다시 불러오기" 를 누르면 dspilot 에 반영됩니다.
                         </small>
                     </div>
-                    <hr class="divider mb-3" />
+
                     <div class="form-group mb-2">
-                        <label class="form-label">또는 파일 업로드</label>
-                        <label class="btn btn-outlined" style="width:100%; cursor:pointer; justify-content:center;">
-                            <span class="material-icons" style="font-size:18px;">cloud_upload</span>
-                            AASX 파일 선택
-                            <InputFile OnChange="@(e => OnAasxFileUploaded(e.File))" accept=".aasx" style="display:none;" />
-                        </label>
+                        <label class="form-label">파일 경로 (고정)</label>
+                        <input class="form-field" value="@ProjectService.AasxFilePath" readonly
+                               style="background:var(--color-surface-variant, #f7f7f7); font-family:monospace; font-size:12px;" />
                     </div>
-                    @if (!string.IsNullOrEmpty(_uploadedFileName))
-                    {
-                        <div class="alert alert-success mt-2" style="padding:6px 12px; font-size:0.85rem;">
-                            업로드됨: @_uploadedFileName
-                        </div>
-                    }
-                    @if (_uploading)
-                    {
-                        <div class="progress-bar mt-2" style="height:4px;">
-                            <div style="width:100%; animation: indeterminate 1.5s infinite;"></div>
-                        </div>
-                    }
+
+                    <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:13px; margin:8px 0 12px;">
+                        <span style="color:var(--color-text-secondary);">파일 상태</span>
+                        @if (_aasxExists)
+                        {
+                            <span style="color:#27ae60;">존재함 (@FormatBytes(_aasxSize))</span>
+                        }
+                        else
+                        {
+                            <span style="color:#c0392b;">파일 없음 — Promaker 에서 먼저 저장하세요</span>
+                        }
+
+                        <span style="color:var(--color-text-secondary);">파일 수정</span>
+                        <span>@FormatTime(_aasxWriteUtc)</span>
+
+                        <span style="color:var(--color-text-secondary);">마지막 로드</span>
+                        <span>@FormatTime(ProjectService.LastLoadedUtc)</span>
+
+                        <span style="color:var(--color-text-secondary);">동기화</span>
+                        <span style="color:@SyncBadgeColor;">@SyncBadgeText</span>
+                    </div>
+
+                    <button class="btn btn-outlined" style="width:100%;" @onclick="ReloadAasxModel" disabled="@(!_aasxExists)">
+                        <span class="material-icons" style="font-size:18px;">refresh</span>
+                        AASX 모델 다시 불러오기 (DB 재구축)
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
+                        디스크의 AASX 파일을 다시 읽고 dspFlow / dspCall 을 재생성합니다.
+                        통계/히스토리는 모두 초기화됩니다. 서비스 재시작 불필요.
+                    </small>
                 </div>
             </div>
 
-            @* 데이터베이스 섹션 *@
+            @* 데이터베이스 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">storage</span>
@@ -70,126 +86,47 @@
                     <div class="form-group mb-3">
                         <label class="form-label">DB 저장 폴더</label>
                         <input class="form-field" @bind="_dbDir"
-                               placeholder="%ProgramData%/DualSoft/DSPilot" />
+                               placeholder="%ProgramData%/DualSoft/Shared" />
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            plc.db 파일이 저장될 폴더 (/ 또는 \ 모두 사용 가능)<br/>
-                            서비스 환경 권장: %ProgramData%, %SystemDrive% (서비스 모드에서 %APPDATA%는 SYSTEM 계정 경로로 해석됨)
+                            plc.db 파일이 저장될 폴더. 서비스 모드에서 <code>%APPDATA%</code> 는 SYSTEM 계정 경로로 해석되므로 사용 금지.
                         </small>
                     </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">BusyTimeout (ms)</label>
-                        <input type="number" class="form-field" @bind="_dbBusyTimeout"
-                               min="0" max="600000" placeholder="20000" />
-                    </div>
                     <hr class="divider my-3" />
-                    <div style="display:flex; gap:12px;">
-                        <button class="btn btn-outlined" style="flex:1; color:#e67e22; border-color:#e67e22;" @onclick="ClearFlowHistory">
-                            <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
-                        </button>
-                        <button class="btn btn-outlined" style="flex:1; color:#c0392b; border-color:#c0392b; font-weight:600;" @onclick="DeleteDatabase">
-                            <span class="material-icons" style="font-size:18px;">delete_forever</span> 데이터베이스 삭제
-                        </button>
-                    </div>
+                    <button class="btn btn-outlined" style="width:100%; color:#e67e22; border-color:#e67e22;" @onclick="ClearFlowHistory">
+                        <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
+                        dspFlowHistory 와 Call 통계만 초기화. Flow/Call 정의와 AASX 는 유지.
+                    </small>
                     <small style="color: var(--color-text-secondary); margin-top: 8px; display: block;">
                         현재 DB: @GetDatabasePath()
                     </small>
                 </div>
             </div>
 
-            @* 로깅 섹션 *@
+            @* 로깅 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">bug_report</span>
                     <h6 class="typo-h6">로깅</h6>
                 </div>
                 <div class="card-content">
-                    <div class="form-group mb-3">
-                        <label class="form-label">기본 (Default)</label>
+                    <div class="form-group">
+                        <label class="form-label">로그 수준</label>
                         <select class="form-select" @bind="_settings.Logging.LogLevel.Default">
                             @foreach (var level in _logLevels)
                             {
                                 <option value="@level">@level</option>
                             }
                         </select>
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">Microsoft.AspNetCore</label>
-                        <select class="form-select" @bind="_settings.Logging.LogLevel.MicrosoftAspNetCore">
-                            @foreach (var level in _logLevels)
-                            {
-                                <option value="@level">@level</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">DSPilot.Services</label>
-                        <select class="form-select" @bind="_settings.Logging.LogLevel.DsPilotServices">
-                            @foreach (var level in _logLevels)
-                            {
-                                <option value="@level">@level</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">DSPilot.Repositories</label>
-                        <select class="form-select" @bind="_settings.Logging.LogLevel.DsPilotRepositories">
-                            @foreach (var level in _logLevels)
-                            {
-                                <option value="@level">@level</option>
-                            }
-                        </select>
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집.
+                        </small>
                     </div>
                 </div>
             </div>
 
-            @* Hub 구독 섹션 *@
-            <div class="card" style="box-shadow: var(--shadow-2);">
-                <div class="card-header">
-                    <span class="material-icons mr-2">hub</span>
-                    <h6 class="typo-h6">Promaker Hub 구독</h6>
-                </div>
-                <div class="card-content">
-                    <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
-                        <small style="color: var(--color-text-secondary); line-height:1.5;">
-                            Promaker SignalHub 구독 설정. 기본 5051 (Promaker Monitoring 모드).<br/>
-                            Control 모드 직접 구독 시 5050 으로 변경. <strong>변경 후 DSPilot 서비스 재시작 필요.</strong>
-                        </small>
-                    </div>
-                    <label class="switch mb-3">
-                        <input type="checkbox" @bind="_settings.Hub.Enabled" />
-                        Hub 구독 활성화
-                    </label>
-                    <div class="form-group mb-3">
-                        <label class="form-label">Hub URL</label>
-                        <input class="form-field" @bind="_settings.Hub.Url"
-                               placeholder="http://localhost:5051/hub/signal" />
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            Promaker 가 호스팅하는 SignalR Hub 주소.
-                            Monitoring=5051 / Control=5050 / 원격=&lt;host&gt;:&lt;port&gt;
-                        </small>
-                    </div>
-                    <div class="form-group mb-2">
-                        <label class="form-label">수신 허용 source (쉼표 구분)</label>
-                        <input class="form-field" @bind="HubAcceptedSourcesText"
-                               placeholder="control, virtualplant, plc" />
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            화이트리스트에 없는 source 의 OnTagChanged 신호는 무시.
-                        </small>
-                    </div>
-                    <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button class="btn btn-outlined" style="flex:1;"
-                                @onclick="@(() => _settings.Hub.Url = "http://localhost:5051/hub/signal")">
-                            Monitoring 기본 (5051)
-                        </button>
-                        <button class="btn btn-outlined" style="flex:1;"
-                                @onclick="@(() => _settings.Hub.Url = "http://localhost:5050/hub/signal")">
-                            Control (5050)
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            @* UI 설정 섹션 *@
+            @* UI *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">settings</span>
@@ -201,38 +138,20 @@
                         PLC 디버그 페이지 표시
                     </label>
                     <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                        왼쪽 메뉴에서 PLC 디버그 메뉴 항목을 표시하거나 숨깁니다.
-                    </small>
-                </div>
-            </div>
-
-            <div class="card" style="box-shadow: var(--shadow-2);">
-                <div class="card-header">
-                    <span class="material-icons mr-2">restart_alt</span>
-                    <h6 class="typo-h6">Flow CT 기준</h6>
-                </div>
-                <div class="card-content">
-                    <div class="form-group mb-2">
-                        <label class="form-label">AASX 기준 복원</label>
-                        <button class="btn btn-outlined" style="width:100%;" @onclick="ReloadFlowCycleDefaultsFromAasxAsync">
-                            <span class="material-icons" style="font-size:18px;">restart_alt</span>
-                            Flow CT 기준 AASX로부터 다시 가져오기
-                        </button>
-                    </div>
-                    <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                        Flow별 사용자 start/end Call override를 모두 제거하고, AASX 해석 결과를 다시 적용합니다.
+                        왼쪽 메뉴에 PLC 디버그 항목을 노출합니다.
                     </small>
                 </div>
             </div>
         </div>
 
-        @* 오른쪽 열: 히스토리 필터 + PLC 데이터베이스 *@
+        @* 오른쪽 열 *@
         <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
-            @* 필터 설정 (히스토리 보기 + 유휴 사이클 판정) *@
+
+            @* 이상치 필터 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">filter_list</span>
-                    <h6 class="typo-h6">필터</h6>
+                    <h6 class="typo-h6">이상치 필터</h6>
                 </div>
                 <div class="card-content">
                     <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
@@ -241,70 +160,12 @@
                         </small>
                     </div>
 
-                    @* 히스토리 보기 *@
-                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
-                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">history</span>
-                        히스토리 보기
-                    </h6>
-                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
-                        대시보드와 동작편차 페이지에 표시되는 데이터 범위를 설정합니다.
-                    </small>
-                    <div class="form-group mb-3">
-                        <label class="form-label">필터 기준</label>
-                        <select class="form-select" @bind="_settings.HistoryView.FilterMode">
-                            <option value="None">없음</option>
-                            <option value="Cycles">사이클</option>
-                            <option value="Days">일자</option>
-                            <option value="StartTime">시작시간</option>
-                        </select>
-                    </div>
-                    @if (_settings.HistoryView.FilterMode == "Cycles")
-                    {
-                        <div class="form-group mb-3">
-                            <label class="form-label">최근 사이클 수</label>
-                            <input type="number" class="form-field" @bind="_settings.HistoryView.MaxCycles"
-                                   min="10" max="10000" placeholder="100" />
-                            <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                                표시할 최근 사이클 개수 (기본: 100)
-                            </small>
-                        </div>
-                    }
-                    @if (_settings.HistoryView.FilterMode == "Days")
-                    {
-                        <div class="form-group mb-3">
-                            <label class="form-label">최근 일수</label>
-                            <input type="number" class="form-field" @bind="_settings.HistoryView.MaxDays"
-                                   min="1" max="365" placeholder="7" />
-                            <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                                표시할 최근 일수 (기본: 7일)
-                            </small>
-                        </div>
-                    }
-                    @if (_settings.HistoryView.FilterMode == "StartTime")
-                    {
-                        <div class="form-group mb-3">
-                            <label class="form-label">시작 날짜</label>
-                            <input type="date" class="form-field" @bind="StartTimeDate" />
-                        </div>
-                        <div class="form-group mb-3">
-                            <label class="form-label">시작 시간</label>
-                            <input type="time" class="form-field" @bind="StartTimeTime" />
-                            <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                                지정한 날짜/시간 이후의 히스토리만 표시
-                            </small>
-                        </div>
-                    }
-
-                    <hr style="border:none; border-top:1px solid var(--color-lines, #e0e0e0); margin:16px 0;" />
-
-                    @* 비가동 사이클 판정 *@
-                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
+                    <h6 class="typo-subtitle2" style="margin-bottom:8px;">
                         <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">timer_off</span>
                         비가동 사이클 판정
                     </h6>
                     <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
-                        CT가 제한값을 초과하면 비가동 사이클로 판정합니다.
-                        대시보드·동작편차·Flow 평균에서 제외되며, 사이클 분석에서는 회색 배경으로 표시됩니다.
+                        CT가 제한값을 초과하면 비가동 사이클로 판정. 대시보드·동작편차·Flow 평균에서 제외, 사이클 분석에서 회색 배경 표시.
                     </small>
                     <div class="form-group">
                         <label class="form-label">사이클 시간 제한</label>
@@ -326,19 +187,18 @@
                             </div>
                         </div>
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            가장 긴 Flow의 평균 CT + 여유시간으로 설정하세요. 모두 0이면 비활성
+                            가장 긴 Flow 의 평균 CT + 여유시간 권장. 모두 0이면 비활성.
                         </small>
                     </div>
 
                     <hr style="border:none; border-top:1px solid var(--color-lines, #e0e0e0); margin:16px 0;" />
 
-                    @* 개별 Call 최대 실행시간 *@
-                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
+                    <h6 class="typo-subtitle2" style="margin-bottom:8px;">
                         <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">speed</span>
                         개별 Call 최대 실행시간
                     </h6>
                     <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
-                        개별 Call의 GoingTime이 이 값을 초과하면 동작편차 통계에서 제외합니다.
+                        GoingTime 이 이 값을 초과하면 동작편차 통계에서 제외.
                     </small>
                     <div class="form-group">
                         <label class="form-label">최대 실행시간 (ms)</label>
@@ -352,46 +212,25 @@
                 </div>
             </div>
 
+            @* Flow CT 기준 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
-                    <span class="material-icons mr-2">storage</span>
-                    <h6 class="typo-h6">PLC 데이터베이스</h6>
+                    <span class="material-icons mr-2">restart_alt</span>
+                    <h6 class="typo-h6">Flow CT 기준</h6>
                 </div>
                 <div class="card-content">
-                    <div class="form-group mb-3">
-                        <label class="form-label">읽기 간격 (ms)</label>
-                        <input type="number" class="form-field" @bind="_settings.PlcDatabase.ReadIntervalMs"
-                               min="100" max="60000" placeholder="읽기 간격 (ms)" />
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            PLC 데이터 폴링 간격 (밀리초)
-                        </small>
-                    </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">태그 매칭 모드</label>
-                        <select class="form-select" @bind="_settings.PlcDatabase.TagMatchMode">
-                            <option value="Address">Address</option>
-                            <option value="Name">Name</option>
-                        </select>
-                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            PLC 태그 매칭 방식
-                        </small>
-                    </div>
-                    @* 시뮬레이션 모드 – 현재 숨김 처리
-                    <label class="switch">
-                        <input type="checkbox" @bind="_settings.PlcDatabase.SimulationMode" />
-                        시뮬레이션 모드
-                    </label>
-                    *@
+                    <button class="btn btn-outlined" style="width:100%;" @onclick="ReloadFlowCycleDefaultsFromAasxAsync">
+                        <span class="material-icons" style="font-size:18px;">restart_alt</span>
+                        AASX 기준으로 복원
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
+                        Flow 별 사용자 start/end Call override 를 모두 제거하고 AASX 해석 결과로 되돌립니다.
+                        통계/히스토리는 보존.
+                    </small>
                 </div>
             </div>
 
         </div>
-
-    </div>
-
-    <div class="alert alert-info mt-4">
-        <span class="material-icons">info</span>
-        설정 변경 후 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.
     </div>
 }
 else
@@ -401,54 +240,25 @@ else
 
 @code {
     private AppSettingsModel? _settings;
-    private bool _uploading;
-    private string? _uploadedFileName;
     private readonly string[] _logLevels = { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
 
-    // StartTime 날짜/시간 분리 편집용 프로퍼티
-    private DateOnly StartTimeDate
-    {
-        get => _settings?.HistoryView.StartTime is DateTime dt
-            ? DateOnly.FromDateTime(dt)
-            : DateOnly.FromDateTime(DateTime.Now);
-        set
-        {
-            if (_settings is null) return;
-            var time = _settings.HistoryView.StartTime is DateTime dt
-                ? TimeOnly.FromDateTime(dt)
-                : new TimeOnly(0, 0);
-            _settings.HistoryView.StartTime = value.ToDateTime(time);
-        }
-    }
+    // AASX 파일 상태 캐시 (페이지 진입 시점 스냅샷)
+    private bool _aasxExists;
+    private long _aasxSize;
+    private DateTime? _aasxWriteUtc;
+    private string? _aasxCurrentSha256;
 
-    private TimeOnly StartTimeTime
-    {
-        get => _settings?.HistoryView.StartTime is DateTime dt
-            ? TimeOnly.FromDateTime(dt)
-            : new TimeOnly(0, 0);
-        set
-        {
-            if (_settings is null) return;
-            var date = _settings.HistoryView.StartTime is DateTime dt
-                ? DateOnly.FromDateTime(dt)
-                : DateOnly.FromDateTime(DateTime.Now);
-            _settings.HistoryView.StartTime = date.ToDateTime(value);
-        }
-    }
-
-    // MaxCycleTimeMs ↔ 시/분/초 변환 프로퍼티
+    // MaxCycleTimeMs ↔ 시/분/초 변환
     private int MaxCycleHours
     {
         get => _settings?.HistoryView.MaxCycleTimeMs / 3_600_000 ?? 0;
         set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = value * 3_600_000 + MaxCycleMinutes * 60_000 + MaxCycleSeconds * 1_000; }
     }
-
     private int MaxCycleMinutes
     {
         get => (_settings?.HistoryView.MaxCycleTimeMs ?? 0) % 3_600_000 / 60_000;
         set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = MaxCycleHours * 3_600_000 + value * 60_000 + MaxCycleSeconds * 1_000; }
     }
-
     private int MaxCycleSeconds
     {
         get => (_settings?.HistoryView.MaxCycleTimeMs ?? 0) % 60_000 / 1_000;
@@ -457,39 +267,114 @@ else
 
     // DB ConnectionString 분리 편집용 필드
     private string _dbDir = "";
-    private int _dbBusyTimeout = 20000;
     private const string DbFileName = "plc.db";
 
-    /// <summary>Hub.AcceptedSources 배열을 쉼표 구분 문자열로 양방향 편집.</summary>
-    private string HubAcceptedSourcesText
+    private string SyncBadgeText
     {
-        get => _settings is null ? "" : string.Join(", ", _settings.Hub.AcceptedSources);
-        set
+        get
         {
-            if (_settings is null) return;
-            _settings.Hub.AcceptedSources = (value ?? "")
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (!_aasxExists) return "—";
+            if (ProjectService.LastLoadedUtc is null) return "미로드";
+
+            var loadedSha = ProjectService.LastLoadedSha256;
+            // 해시 비교를 우선 — 동일 모델 재 export(zip 타임스탬프만 다름) 오탐 방지.
+            // 해시를 못 구한 경우만 mtime 으로 폴백.
+            if (loadedSha is not null && _aasxCurrentSha256 is not null)
+            {
+                return string.Equals(loadedSha, _aasxCurrentSha256, StringComparison.OrdinalIgnoreCase)
+                    ? "최신"
+                    : "외부 변경 감지됨";
+            }
+            if (_aasxWriteUtc is null) return "최신";
+            return _aasxWriteUtc > ProjectService.LastLoadedUtc ? "외부 변경 감지됨" : "최신";
         }
     }
+
+    private string SyncBadgeColor =>
+        SyncBadgeText == "외부 변경 감지됨" ? "#e67e22"
+        : SyncBadgeText == "최신" ? "#27ae60"
+        : "var(--color-text-secondary)";
 
     protected override void OnInitialized()
     {
         _settings = SettingsService.LoadSettings();
         ParseConnectionString(_settings.Database.ConnectionString);
+        RefreshAasxStatus();
+        ProjectService.AasxExternallyChanged += OnAasxExternallyChanged;
+    }
+
+    public void Dispose()
+    {
+        ProjectService.AasxExternallyChanged -= OnAasxExternallyChanged;
+    }
+
+    private async void OnAasxExternallyChanged()
+    {
+        try
+        {
+            RefreshAasxStatus();
+            await InvokeAsync(StateHasChanged);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                "Promaker 에서 AASX 모델이 변경되었습니다. 반영하려면 \"AASX 모델 다시 불러오기\" 를 누르세요.",
+                "info");
+        }
+        catch (ObjectDisposedException) { /* 페이지 이탈 */ }
+        catch { /* best effort */ }
+    }
+
+    private void RefreshAasxStatus()
+    {
+        try
+        {
+            var path = ProjectService.AasxFilePath;
+            _aasxExists = File.Exists(path);
+            if (_aasxExists)
+            {
+                var info = new FileInfo(path);
+                _aasxSize = info.Length;
+                _aasxWriteUtc = info.LastWriteTimeUtc;
+                _aasxCurrentSha256 = ProjectService.GetAasxFileSha256();
+            }
+            else
+            {
+                _aasxSize = 0;
+                _aasxWriteUtc = null;
+                _aasxCurrentSha256 = null;
+            }
+        }
+        catch
+        {
+            _aasxExists = false;
+            _aasxSize = 0;
+            _aasxWriteUtc = null;
+            _aasxCurrentSha256 = null;
+        }
+    }
+
+    private static string FormatTime(DateTime? utc)
+    {
+        if (utc is null) return "—";
+        return utc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
     }
 
     private void ReloadSettings()
     {
         _settings = SettingsService.LoadSettings();
         ParseConnectionString(_settings!.Database.ConnectionString);
-        _uploadedFileName = null;
+        RefreshAasxStatus();
         _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정을 다시 불러왔습니다.", "info");
     }
 
     private void ParseConnectionString(string connStr)
     {
         _dbDir = "";
-        _dbBusyTimeout = 20000;
 
         if (string.IsNullOrWhiteSpace(connStr)) return;
 
@@ -502,46 +387,19 @@ else
 
             if (key.Equals("Data Source", StringComparison.OrdinalIgnoreCase))
             {
-                // Data Source에서 디렉토리만 추출 (plc.db 제거)
                 var normalized = val.Replace('\\', '/');
                 if (normalized.EndsWith($"/{DbFileName}", StringComparison.OrdinalIgnoreCase))
                     _dbDir = val[..^(DbFileName.Length + 1)];
                 else
                     _dbDir = val;
             }
-            else if (key.Equals("BusyTimeout", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var bt))
-                _dbBusyTimeout = bt;
         }
     }
 
     private string BuildConnectionString()
     {
         var dir = _dbDir.TrimEnd('/', '\\');
-        return $"Data Source={dir}/{DbFileName};Version=3;BusyTimeout={_dbBusyTimeout}";
-    }
-
-    private async Task OnAasxFileUploaded(IBrowserFile file)
-    {
-        if (file is null || _settings is null) return;
-
-        _uploading = true;
-        StateHasChanged();
-
-        try
-        {
-            _settings.DsPilot.AasxFilePath = await SettingsService.UploadAasxFileAsync(file);
-            _uploadedFileName = file.Name;
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"파일 업로드 완료: {file.Name}", "success");
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"업로드 실패: {ex.Message}", "error");
-        }
-        finally
-        {
-            _uploading = false;
-            StateHasChanged();
-        }
+        return $"Data Source={dir}/{DbFileName};Version=3;BusyTimeout=20000";
     }
 
     private void SaveSettings()
@@ -552,7 +410,7 @@ else
             _settings.Database.ConnectionString = BuildConnectionString();
             SettingsService.SaveSettings(_settings);
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar",
-                "설정이 저장되었습니다. 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.",
+                "설정이 저장되었습니다. 서비스 재시작이 필요한 항목은 자동 안내됩니다.",
                 "success");
         }
         catch (Exception ex)
@@ -563,14 +421,8 @@ else
 
     private string GetDatabasePath()
     {
-        try
-        {
-            return DatabasePathResolver.GetSharedDbPath();
-        }
-        catch
-        {
-            return "알 수 없음";
-        }
+        try { return DatabasePathResolver.GetSharedDbPath(); }
+        catch { return "알 수 없음"; }
     }
 
     private async Task ClearFlowHistory()
@@ -588,17 +440,17 @@ else
             rebuild.Success ? "success" : "error");
     }
 
-    private async Task DeleteDatabase()
+    private async Task ReloadAasxModel()
     {
-        var dbPath = GetDatabasePath();
         var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
-            "데이터베이스 초기화",
-            $"DSP 데이터베이스를 삭제하고 AASX 기준으로 재생성합니다.\n\n경로: {dbPath}\n\n• 모든 통계/히스토리/태그 로그 삭제\n• 스키마 + dspFlow / dspCall 자동 재생성\n• 엔진 자동 재시작\n• 서버 재시작 불필요",
-            "초기화", "취소");
+            "AASX 모델 다시 불러오기",
+            $"디스크의 AASX 파일을 다시 읽고 DB 를 재구축합니다.\n\n경로: {ProjectService.AasxFilePath}\n\n• AASX 재파싱 → dspFlow / dspCall 재생성\n• 모든 통계 / 히스토리 / 태그 로그 삭제\n• 엔진 자동 재시작\n• 서비스 재시작 불필요",
+            "다시 불러오기", "취소");
 
         if (!result) return;
 
         var rebuild = await DbLifecycle.RebuildDatabaseAsync();
+        RefreshAasxStatus();
         await JS.InvokeVoidAsync("uiUtils.showSnackbar",
             rebuild.Message,
             rebuild.Success ? "success" : "error");
@@ -611,10 +463,7 @@ else
             "Flow별 사용자 start/end Call override를 모두 제거하고 AASX 기준으로 다시 적용하시겠습니까?",
             "복원", "취소");
 
-        if (!result)
-        {
-            return;
-        }
+        if (!result) return;
 
         try
         {
@@ -629,5 +478,4 @@ else
             await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"복원 실패: {ex.Message}", "error");
         }
     }
-
 }

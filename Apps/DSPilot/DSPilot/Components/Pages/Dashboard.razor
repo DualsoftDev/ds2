@@ -873,25 +873,8 @@ else
     {
         try
         {
-            var settings = SettingsService.LoadSettings();
-            var filter = settings.HistoryView;
-            if (filter.FilterMode == "Cycles")
-            {
-                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, filter.MaxCycles);
-            }
-            else if (filter.FilterMode == "Days")
-            {
-                _flowHistory = await DspRepository.GetFlowHistoryByDaysAsync(flowName, filter.MaxDays);
-            }
-            else if (filter.FilterMode == "StartTime" && filter.StartTime.HasValue)
-            {
-                _flowHistory = await DspRepository.GetFlowHistoryByStartTimeAsync(flowName, filter.StartTime.Value);
-            }
-            else
-            {
-                // None: 제한 없이 로드 (안전 상한 10000)
-                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
-            }
+            // 안전 상한 10000 으로 최근 히스토리 로드 (필터 옵션 제거됨)
+            _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
 
             // 비가동 사이클 제외
             _flowHistory = _flowHistory.Where(h => !h.IsIdle).ToList();

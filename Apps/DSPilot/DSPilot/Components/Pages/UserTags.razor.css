@@ -1,0 +1,241 @@
+.user-tags-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: calc(100vh - 100px);
+}
+
+.user-tags-hero {
+    padding: 20px 24px;
+    background:
+        radial-gradient(circle at top left, rgba(0, 155, 180, 0.10), transparent 32%),
+        linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.05), var(--color-surface));
+}
+
+.user-tags-hero-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.user-tags-eyebrow {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+.user-tags-title {
+    margin: 6px 0 0;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.user-tags-subtitle {
+    margin-top: 8px;
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+}
+
+.user-tags-hero-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+    min-width: 280px;
+}
+
+.user-tags-counter-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.user-tags-panel {
+    padding: 18px 20px;
+}
+
+.user-tags-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.user-tags-section-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.user-tags-muted {
+    color: var(--color-text-secondary);
+}
+
+.user-tags-alert-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 320px;
+}
+
+.user-tags-alert-controls .form-field {
+    min-width: 160px;
+}
+
+.user-tags-empty {
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary);
+    min-height: 200px;
+    text-align: center;
+}
+
+.user-tags-empty .material-icons {
+    font-size: 44px;
+    color: var(--color-primary);
+}
+
+/* ───────── 표 ───────── */
+.ut-table-wrapper {
+    overflow-x: auto;
+    overflow-y: auto;
+}
+
+.ut-definitions-scroll {
+    max-height: 32vh;
+}
+
+/* 실시간 알림 영역: 정의 표보다 크고, 화면 안에서 적당히 고정 */
+.ut-alerts-scroll {
+    max-height: calc(100vh - 460px);
+    min-height: 240px;
+}
+
+.ut-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.ut-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--color-surface);
+    border-bottom: 2px solid var(--color-lines);
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    z-index: 1;
+}
+
+.ut-table tbody td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-lines);
+    color: var(--color-text-primary);
+    vertical-align: middle;
+}
+
+.ut-table tbody tr:hover {
+    background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+.ut-row-warning {
+    background: rgba(255, 152, 0, 0.06);
+}
+
+.ut-row-error {
+    background: rgba(244, 67, 54, 0.08);
+}
+
+.ut-row-error:hover {
+    background: rgba(244, 67, 54, 0.12) !important;
+}
+
+.ut-time {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+}
+
+.ut-last-time {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+}
+
+.ut-empty {
+    text-align: center;
+    padding: 36px 12px;
+    color: var(--color-text-secondary);
+}
+
+.ut-empty .material-icons {
+    font-size: 48px;
+    opacity: 0.4;
+}
+
+.ut-empty p {
+    margin: 6px 0;
+}
+
+/* 레벨 칩 — Promaker UI 톤과 비슷한 색상 */
+.chip-level-info {
+    background: rgba(33, 150, 243, 0.15);
+    color: #1976d2;
+    border: 1px solid rgba(33, 150, 243, 0.35);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.chip-level-warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ef6c00;
+    border: 1px solid rgba(255, 152, 0, 0.4);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.chip-level-error {
+    background: rgba(244, 67, 54, 0.15);
+    color: #c62828;
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+code {
+    background: rgba(0, 0, 0, 0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 900px) {
+    .user-tags-hero-top {
+        flex-direction: column;
+    }
+
+    .user-tags-hero-actions,
+    .user-tags-alert-controls {
+        min-width: 0;
+        width: 100%;
+        align-items: stretch;
+        justify-content: flex-start;
+    }
+}

@@ -61,6 +61,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[Dirs]
+; Promaker · DSPilot 공유 폴더. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴와
+; DSPilot 서비스(SYSTEM)가 같은 경로(%ProgramData%\DualSoft\Shared\project.aasx)를 읽기/쓰기.
+; Users 그룹 modify 권한이 있어야 일반 사용자로 실행되는 Promaker 가 덮어쓸 수 있음.
+Name: "{commonappdata}\DualSoft\Shared"; Permissions: users-modify
+
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; SDF 파일 전용 아이콘 복사

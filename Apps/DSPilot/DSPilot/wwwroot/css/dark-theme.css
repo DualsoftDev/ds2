@@ -10,6 +10,7 @@
     /* Background */
     --color-background: #121212;
     --color-surface: #1E1E1E;
+    --color-surface-variant: #2C2C2C;
 
     /* Primary / Accent — 밝은 파스텔 블루 */
     --color-primary: #81D4FA;
