@@ -24,6 +24,12 @@ module ModelProtocol =
 
     let private VALIDATION_ERROR = "VALIDATION_ERROR"
 
+    /// #7 (todo §10.2 옵션 a) — `Project.Version` 의 entity default SSOT 단일화.
+    /// emit 측 default 비교 (`p.Version <> defaultProjectVersion`) 가 hardcode `"1.0.0"` 와
+    /// dual SSOT 였던 문제 해소 — Entities.fs 의 `Project.Version` default 변경 시 자동 추적.
+    /// `Project` 의 internal constructor 가 `name: string` 받으므로 dummy `""` — Version 만 사용.
+    let private defaultProjectVersion = Project("").Version
+
     /// validate / dispatch 단계의 진단 메시지 누적용.
     type DiagnosticEntry = {
         Path: string
@@ -608,6 +614,7 @@ module ModelProtocol =
     // emit/apply/hasNonDefault generic helper 는 본 module 안 ApplyContext 의존성 때문에 유지.
 
     open Ds2.LlmAgent.Internal.PlcMetadata
+    open Ds2.LlmAgent.Internal.ModelingCategory
 
     /// leaves 기반 apply — 미지의 키 진단 발행 포함.
     let private parsePlcLeaves
@@ -1750,6 +1757,8 @@ module ModelProtocol =
 
         // SSOT §2.7 룰 #7 / §2.8: view: partial 은 view-only — apply/validate 재입력 거부.
         // view: full 은 round-trip 시나리오 (self export → apply) 정합으로 허용. unknown 값은 사전 거부.
+        // **검사 순서 (C2 sub-agent review)**: partial 거부가 level 검사 *전* — partial 발견 시 level
+        // 검사 skip (메시지 중복 회피).
         match tryProp root "view" |> Option.bind tryString with
         | Some "full" -> ()
         | Some "partial" ->
@@ -1764,6 +1773,44 @@ module ModelProtocol =
         | Some _ ->
             ctx.Diagnostics.Add("summary", "summary 는 partial export 진단 metadata 전용 — apply/validate 재입력 불가. 'summary:' 키를 제거하세요.")
         | None -> ()
+
+        // SSOT §2.7 룰 #29 / Phase 7 §10.2 #31 (S3) — level 키 검증.
+        // wire 의 `level:` 키가 SSOT — `apply` 자체에 별도 level 인자 없음 (C1 fix 자동 해소).
+        // 'full' 또는 부재 = 기존 apply 동작. 'modeling' = wire walk + B/C/D 키 사전 거부 mode.
+        let wireLevel =
+            match tryProp root "level" |> Option.bind tryString with
+            | Some "full" -> Some Full
+            | Some "modeling" -> Some Modeling
+            | Some other ->
+                ctx.Diagnostics.Add("level", sprintf "값 '%s' 인식 불가. 'full' 또는 'modeling'." other)
+                None
+            | None -> Some Full
+
+        // SSOT §2.7 룰 #30 / Phase 7 §10.2 #31 (S3) — modeling level wire 에 B/C/D 키 등장 거부.
+        // 골격 키 / A_Modeling 키 는 ModelingCategory.nonModelingKeys 부재 → 허용 통과.
+        // 재귀 walk — 모든 object property name 점검 (array element 의 path 는 [idx] suffix).
+        // **검사 순서 (C2)**: view: partial 거부가 먼저 — 이미 HasErrors 면 본 walk skip 으로 메시지 중복 회피.
+        let rec walkAndRejectNonModelingKeys (path: string) (el: JsonElement) : unit =
+            match el.ValueKind with
+            | JsonValueKind.Object ->
+                for prop in el.EnumerateObject() do
+                    let propPath = joinDiagKey path prop.Name
+                    match Map.tryFind prop.Name nonModelingKeys with
+                    | Some cat ->
+                        ctx.Diagnostics.Add(propPath,
+                            sprintf "키 '%s' 는 level: modeling 입력에서 등장 금지 (분류 = %s — §2.4.1 Category 사전 참조). level 을 'full' 로 변경하거나 키를 제거하세요."
+                                prop.Name (categoryLabel cat))
+                    | None ->
+                        walkAndRejectNonModelingKeys propPath prop.Value
+            | JsonValueKind.Array ->
+                let mutable idx = 0
+                for item in el.EnumerateArray() do
+                    walkAndRejectNonModelingKeys (sprintf "%s[%d]" path idx) item
+                    idx <- idx + 1
+            | _ -> ()
+
+        if not ctx.Diagnostics.HasErrors && wireLevel = Some Modeling then
+            walkAndRejectNonModelingKeys "" root
 
         if ctx.Diagnostics.HasErrors then
             // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
@@ -1921,20 +1968,28 @@ module ModelProtocol =
         | None -> false
         | Some cp -> plcHasNonDefault cp (ControlCallProperties()) plcCallLeaves
 
-    let private callHasEnhancement (c: Call) : bool =
+    /// Phase 7 §10.2 #31 — level 인자 추가. Modeling level 시 B/C/D 보강은 제외하여 dual format
+    /// object 승격을 차단 (B/C/D 만 있는 Call 은 string scalar 유지). A_Modeling 보강 (CallCondition /
+    /// ContactKind / SkipInputSensor / CallType) 만 승격 판단.
+    let private callHasEnhancement (level: ExportLevel) (c: Call) : bool =
         let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
         let exists pred = firstApiCall |> Option.exists pred
         let hasNonDefaultCallType =
             callTypeOf c |> Option.exists (fun ct -> ct <> CallType.WaitForCompletion)
         // 외부 reviewer M-B 반영: IOTag.IsSome 만으로는 부족 — content 검사 (Name/Address 중 하나라도 non-empty).
         // 빈 IOTag (Some empty) 가 emit 강제하면 parse 측 None 으로 정규화되어 비대칭 drift.
-        c.CallConditions.Count > 0
-        || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
-        || exists (fun ac -> ac.SkipInputSensor)
-        || exists (fun ac -> ac.InTag |> Option.exists ioTagHasContent)
-        || exists (fun ac -> ac.OutTag |> Option.exists ioTagHasContent)
-        || hasNonDefaultCallType
-        || plcCallHasNonDefault c
+        let aLevel =
+            c.CallConditions.Count > 0
+            || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
+            || exists (fun ac -> ac.SkipInputSensor)
+            || hasNonDefaultCallType
+        match level with
+        | Modeling -> aLevel   // B/C/D 보강은 modeling 에서 emit 안 됨 → 승격 불요
+        | Full ->
+            aLevel
+            || exists (fun ac -> ac.InTag |> Option.exists ioTagHasContent)
+            || exists (fun ac -> ac.OutTag |> Option.exists ioTagHasContent)
+            || plcCallHasNonDefault c
 
     /// IOTag emit — Name + Address 두 키만 (Phase 7 §4.2 C-4 PoC scope).
     /// DataType / Description / DefaultValue 등 IOTag 의 부속 property 는 후속 phase.
@@ -2058,7 +2113,10 @@ module ModelProtocol =
         elif resetResetCount = apiCount * (apiCount - 1) / 2 then "all-pairs"
         else "none"  // unknown shape — conservative
 
-    let exportToJson (store: DsStore) : JsonDocument =
+    /// Phase 7 §10.2 #31 — `level` 인자 추가 entry. 기존 `exportToJson` 은 thin wrapper.
+    /// Modeling level 시 A_Modeling 만 emit (B/C/D + workDuration + apiDetails.description 생략)
+    /// + wire 에 `level: modeling` 키 추가 (Full 시 키 부재 — wire payload 최소화 / 기존 호환).
+    let exportToJsonWithLevel (store: DsStore) (level: ExportLevel) : JsonDocument =
         let projects = Queries.allProjects store
         let ms = new MemoryStream()
         do
@@ -2067,15 +2125,22 @@ module ModelProtocol =
             w.WriteString("protocol", "promaker/v0")
             // SSOT §2.8 — 전체 export 는 항상 view: full. partial 변형은 별도 함수 (Phase 6 후속 commit).
             w.WriteString("view", "full")
+            // Phase 7 §10.2 #31 (S1.1) — level 키는 Modeling 일 때만 emit (Full = default 라 생략).
+            // wire 의 `level: modeling` flag = self-tagged — apply 측이 modeling-mode 진입 강제.
+            if level = Modeling then
+                w.WriteString("level", formatLevel level)
             match projects with
             | [] -> ()
             | p :: _ ->
                 w.WriteString("project", p.Name)
-                // Phase 7 §4.2 C-6: Project root-level meta (default "" / "1.0.0" 면 생략)
-                if not (String.IsNullOrEmpty p.Author) then
-                    w.WriteString("author", p.Author)
-                if not (String.IsNullOrEmpty p.Version) && p.Version <> "1.0.0" then
-                    w.WriteString("version", p.Version)
+                // Phase 7 §4.2 C-6: Project root-level meta (default "" / "1.0.0" 면 생략).
+                // #7 옵션 a — Version default 비교는 entity SSOT (`defaultProjectVersion`) 사용.
+                // #31 — author/version 은 C_Meta — Modeling 시 emit 생략.
+                if isEmittedIn level C_Meta then
+                    if not (String.IsNullOrEmpty p.Author) then
+                        w.WriteString("author", p.Author)
+                    if not (String.IsNullOrEmpty p.Version) && p.Version <> defaultProjectVersion then
+                        w.WriteString("version", p.Version)
                 w.WriteStartArray("systems")
 
                 let actives = Queries.activeSystemsOf p.Id store
@@ -2086,18 +2151,23 @@ module ModelProtocol =
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "active")
                     // Phase 7 §4.2 C-6: DsSystem.IRI (Some non-empty 인 경우만 emit — #16 Some "" 가드)
-                    s.IRI
-                    |> Option.filter (not << String.IsNullOrEmpty)
-                    |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // #31 — iri 는 C_Meta — Modeling 시 emit 생략.
+                    if isEmittedIn level C_Meta then
+                        s.IRI
+                        |> Option.filter (not << String.IsNullOrEmpty)
+                        |> Option.iter (fun iri -> w.WriteString("iri", iri))
                     // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Active System)
-                    s.GetControlProperties() |> Option.iter (emitPlcSystem w)
+                    // #31 — plc 는 D_Plc — Modeling 시 emit 생략.
+                    if isEmittedIn level D_Plc then
+                        s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     // flows (object)
                     let flows = Queries.flowsOf s.Id store
                     for f in flows do
                         w.WritePropertyName(sprintf "flow %s" f.Name)
                         w.WriteStartObject()
-                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
-                        f.GetControlProperties() |> Option.iter (emitPlcFlow w)
+                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키 — #31 D_Plc
+                        if isEmittedIn level D_Plc then
+                            f.GetControlProperties() |> Option.iter (emitPlcFlow w)
                         // works
                         let works = Queries.worksOf f.Id store
                         if not works.IsEmpty then
@@ -2106,11 +2176,12 @@ module ModelProtocol =
                             for wk in works do
                                 w.WritePropertyName wk.LocalName
                                 w.WriteStartObject()
-                                // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략)
+                                // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략) — #31 A_Modeling (그대로 emit)
                                 if wk.TokenRole <> TokenRole.None then
                                     w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
-                                // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키
-                                wk.GetControlProperties() |> Option.iter (emitPlcWork w)
+                                // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
+                                if isEmittedIn level D_Plc then
+                                    wk.GetControlProperties() |> Option.iter (emitPlcWork w)
                                 let calls = Queries.callsOf wk.Id store
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
@@ -2152,32 +2223,38 @@ module ModelProtocol =
                                         // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
                                         // 있으면 object 승격 + 보강 property (현 phase: contactKind / callCondition).
                                         // CallType / SkipInputSensor / InTag/OutTag/etc 는 C-4/C-5 phase.
-                                        if callHasEnhancement c then
+                                        // #31 — callHasEnhancement level 인자로 modeling 시 B/C/D 무시 (string scalar 유지).
+                                        if callHasEnhancement level c then
                                             w.WriteStartObject()
                                             w.WriteString("ref", callRef)
                                             if c.ApiCalls.Count > 0 then
                                                 let ac = c.ApiCalls.[0]
+                                                // A_Modeling (그대로 emit)
                                                 if ac.ContactKind <> ContactKind.NoContact then
                                                     w.WriteString("contactKind", formatContactKind ac.ContactKind)
                                                 if ac.SkipInputSensor then
                                                     w.WriteBoolean("skipInputSensor", true)
+                                                // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
                                                 // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
-                                                ac.InTag
-                                                |> Option.filter ioTagHasContent
-                                                |> Option.iter (writeIOTag w "inTag")
-                                                ac.OutTag
-                                                |> Option.filter ioTagHasContent
-                                                |> Option.iter (writeIOTag w "outTag")
-                                            // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략)
+                                                if isEmittedIn level B_Addressing then
+                                                    ac.InTag
+                                                    |> Option.filter ioTagHasContent
+                                                    |> Option.iter (writeIOTag w "inTag")
+                                                    ac.OutTag
+                                                    |> Option.filter ioTagHasContent
+                                                    |> Option.iter (writeIOTag w "outTag")
+                                            // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략) — A_Modeling
                                             match callTypeOf c with
                                             | Some ct when ct <> CallType.WaitForCompletion ->
                                                 w.WriteString("callType", formatCallType ct)
                                             | _ -> ()
+                                            // A_Modeling (그대로 emit)
                                             if c.CallConditions.Count > 0 then
                                                 w.WritePropertyName "callCondition"
                                                 emitCallCondition w apiCallRef c.CallConditions.[0]
-                                            // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 (dual format object 승격 안)
-                                            c.GetControlProperties() |> Option.iter (emitPlcCall w)
+                                            // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
+                                            if isEmittedIn level D_Plc then
+                                                c.GetControlProperties() |> Option.iter (emitPlcCall w)
                                             w.WriteEndObject()
                                         else
                                             w.WriteStringValue(callRef)
@@ -2205,10 +2282,12 @@ module ModelProtocol =
                                             log.Warn(sprintf "[exportToJson] ArrowBetweenCalls %O source/target Call resolution 실패 — emit 누락" a)
                                     w.WriteEndArray()
                                 // Active Work duration override (default 500ms 와 다른 경우만 emit)
-                                match wk.Duration with
-                                | Some d when d <> TimeSpan.FromMilliseconds 500. ->
-                                    w.WriteString("workDuration", formatDuration d)
-                                | _ -> ()
+                                // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
+                                if isEmittedIn level C_Meta then
+                                    match wk.Duration with
+                                    | Some d when d <> TimeSpan.FromMilliseconds 500. ->
+                                        w.WriteString("workDuration", formatDuration d)
+                                    | _ -> ()
                                 w.WriteEndObject()
                             w.WriteEndObject()
                         // arrows (Flow 안 — ArrowBetweenWorks)
@@ -2238,11 +2317,14 @@ module ModelProtocol =
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "passive")
                     // Phase 7 §4.2 C-6: DsSystem.IRI (Some non-empty 인 경우만 emit — #16 Some "" 가드)
-                    s.IRI
-                    |> Option.filter (not << String.IsNullOrEmpty)
-                    |> Option.iter (fun iri -> w.WriteString("iri", iri))
-                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System)
-                    s.GetControlProperties() |> Option.iter (emitPlcSystem w)
+                    // #31 — iri 는 C_Meta — Modeling 시 emit 생략.
+                    if isEmittedIn level C_Meta then
+                        s.IRI
+                        |> Option.filter (not << String.IsNullOrEmpty)
+                        |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System) — #31 D_Plc
+                    if isEmittedIn level D_Plc then
+                        s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     let apis = Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name)
                     // device 추정 (Phase 2 §3.1 #5) — SystemType + apis 패턴 fingerprint 매칭.
                     // sugar fingerprint:
@@ -2287,10 +2369,12 @@ module ModelProtocol =
                         internalFlow
                         |> Option.bind (fun f -> Queries.worksOf f.Id store |> List.tryHead)
                         |> Option.bind (fun w -> w.Duration)
-                    match firstWorkDur with
-                    | Some d when d <> TimeSpan.FromMilliseconds 500. ->
-                        w.WriteString("workDuration", formatDuration d)
-                    | _ -> ()
+                    // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
+                    if isEmittedIn level C_Meta then
+                        match firstWorkDur with
+                        | Some d when d <> TimeSpan.FromMilliseconds 500. ->
+                            w.WriteString("workDuration", formatDuration d)
+                        | _ -> ()
                     // opposing: 내부 Flow 의 ResetReset arrow 갯수 → 추정 → device default 와 다르면 emit.
                     let resetResetCount =
                         if internalFlow.IsSome then
@@ -2302,13 +2386,17 @@ module ModelProtocol =
                     if inferredOpp <> defaultOpp then
                         w.WriteString("opposing", inferredOpp)
                     // C-5: apiDetails — ApiDef 별 actionType / description (default 면 키 자체 생략).
+                    // #31 — actionType 은 A_Modeling, description 은 C_Meta (사용자 결정).
+                    // Modeling 시 description 키 제외 + description 만 있는 entry 자체 skip.
+                    let emitDescription = isEmittedIn level C_Meta
                     let apiDefEntities = Queries.apiDefsOf s.Id store
                     let detailsEntries =
                         apiDefEntities
                         |> List.choose (fun ad ->
                             let hasNonDefaultAction = ad.ApiDefActionType <> ApiDefActionType.Normal
                             let hasDescription =
-                                ad.Description.IsSome
+                                emitDescription
+                                && ad.Description.IsSome
                                 && not (String.IsNullOrEmpty ad.Description.Value)
                             if hasNonDefaultAction || hasDescription then Some ad else None)
                     if not detailsEntries.IsEmpty then
@@ -2319,10 +2407,11 @@ module ModelProtocol =
                             w.WriteStartObject()
                             if ad.ApiDefActionType <> ApiDefActionType.Normal then
                                 w.WriteString("actionType", formatApiDefActionType ad.ApiDefActionType)
-                            (match ad.Description with
-                             | Some s when not (String.IsNullOrEmpty s) ->
-                                 w.WriteString("description", s)
-                             | _ -> ())
+                            if emitDescription then
+                                (match ad.Description with
+                                 | Some s when not (String.IsNullOrEmpty s) ->
+                                     w.WriteString("description", s)
+                                 | _ -> ())
                             w.WriteEndObject()
                         w.WriteEndObject()
                     w.WriteEndObject()
@@ -2332,6 +2421,12 @@ module ModelProtocol =
             w.Flush()
         ms.Position <- 0L
         JsonDocument.Parse(ms.ToArray())
+
+    /// Phase 7 §10.2 #31 — 후방 호환 wrapper. 기존 호출처 (테스트 / YamlIO / Mermaid / ModelTools 등)
+    /// 시그니처 변경 없이 `Full` 으로 delegate. 새 호출처는 `exportToJsonWithLevel` 또는
+    /// `exportToJsonScoped` (level 인자) 직접 호출.
+    let exportToJson (store: DsStore) : JsonDocument =
+        exportToJsonWithLevel store Full
 
     // ─── exportToJsonScoped (Phase 6 chunk-1c) ───────────────────────────────
     //
@@ -2612,13 +2707,15 @@ module ModelProtocol =
                     systemsArr.RemoveAt(systemsArr.Count - 1)
         | _ -> ()
 
-    /// `exportToJsonScoped` — partial export entry (SSOT §2.8).
-    /// 두 인자 모두 None → `exportToJson` delegate (`view: full`, budget 0, 무제한).
-    /// 그 외 partial entry — full export 받아 path/depth/budget post-process, 실제 truncation
-    /// 1건 이상 시 `view: partial`. path Some + 미존재 = fail-fast (VALIDATION_ERROR).
-    let exportToJsonScoped (store: DsStore) (pathOpt: string option) (depthOpt: int option) : JsonDocument =
+    /// `exportToJsonScopedWithLevel` — Phase 7 §10.2 #31 — level 인자 entry. 기존 `exportToJsonScoped`
+    /// 는 `Full` delegate (후방 호환). Modeling level 시 wire 의 `level: modeling` 키는
+    /// `exportToJsonWithLevel` 안에서 emit — partial post-process 는 level 무관 (path/depth 절단은
+    /// 카테고리 마스킹과 직교, S1.5 표 정합).
+    let exportToJsonScopedWithLevel
+            (store: DsStore) (pathOpt: string option) (depthOpt: int option)
+            (level: ExportLevel) : JsonDocument =
         match pathOpt, depthOpt with
-        | None, None -> exportToJson store
+        | None, None -> exportToJsonWithLevel store level
         | _ ->
             // path 미존재 사전 거부
             let scopeOpt =
@@ -2630,7 +2727,7 @@ module ModelProtocol =
                     | None ->
                         invalidOp (sprintf "VALIDATION_ERROR: path \"%s\" 가 store 에 존재하지 않습니다 (fail-fast). 근사 후보는 `find_by_name` 도구로 확인하세요." path)
 
-            use fullDoc = exportToJson store
+            use fullDoc = exportToJsonWithLevel store level
             let root =
                 match JsonNode.Parse(fullDoc.RootElement.GetRawText()) with
                 | :? JsonObject as o -> o
@@ -2689,3 +2786,8 @@ module ModelProtocol =
                 root.["summary"] <- summary
 
             JsonDocument.Parse(root.ToJsonString())
+
+    /// Phase 7 §10.2 #31 — 후방 호환 wrapper. 기존 호출처 (테스트 / ModelTools 등) 시그니처
+    /// 변경 없이 `Full` delegate. 새 호출처는 `exportToJsonScopedWithLevel` 직접 호출.
+    let exportToJsonScoped (store: DsStore) (pathOpt: string option) (depthOpt: int option) : JsonDocument =
+        exportToJsonScopedWithLevel store pathOpt depthOpt Full
