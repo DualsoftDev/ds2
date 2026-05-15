@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Promaker — LLM Chat 으로 모델링</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --r-background-color: #fafbfc;
+  --r-main-font: 'Noto Sans KR', sans-serif;
+  --r-heading-font: 'Noto Sans KR', sans-serif;
+  --r-main-font-size: 28px;
+  --r-heading-color: #1a1a2e;
+  --r-main-color: #2d2d44;
+  --r-link-color: #3a6b8c;
+  --accent-blue: #3a6b8c;
+  --accent-teal: #5a8da8;
+  --accent-orange: #b07a50;
+  --accent-purple: #7a8a9a;
+  --accent-green: #5a8da8;
+  --pastel-blue: #edf2f7;
+  --pastel-teal: #edf2f7;
+  --pastel-orange: #f3ede6;
+  --pastel-purple: #f0f2f4;
+  --pastel-green: #edf2f7;
+  --pastel-gray: #f0f2f4;
+}
+
+.reveal { font-family: 'Noto Sans KR', sans-serif; }
+.reveal .slides { text-align: left; }
+.reveal .slides section {
+  padding: 20px 40px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  max-height: 100%;
+}
+.reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-weight: 700;
+  text-transform: none;
+  text-align: left;
+}
+.reveal h1 { font-size: 1.8em; }
+.reveal h2 { font-size: 1.4em; margin-bottom: 0.5em; }
+.reveal h3 { font-size: 1.1em; color: var(--accent-blue); }
+.reveal p, .reveal li { font-size: 0.75em; line-height: 1.6; }
+.reveal ul { margin-left: 0.5em; }
+.reveal li { margin-bottom: 0.3em; }
+
+/* Navigation bar */
+#slide-nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 2px solid #e2e8f0;
+  display: flex; align-items: center;
+  padding: 0 10px; height: 40px;
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 12px;
+  overflow-x: auto; white-space: nowrap; gap: 2px;
+}
+#slide-nav a {
+  color: #64748b; text-decoration: none;
+  padding: 6px 10px; border-radius: 6px;
+  transition: all 0.2s; cursor: pointer; flex-shrink: 0;
+}
+#slide-nav a:hover { background: var(--pastel-blue); color: var(--accent-blue); }
+#slide-nav a.active { background: var(--accent-blue); color: white; font-weight: 700; }
+.reveal .slides { margin-top: 40px; }
+
+/* Title slide */
+.title-slide {
+  text-align: center !important;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center; align-items: center;
+}
+.title-slide h1 {
+  text-align: center;
+  font-size: 1.6em !important;
+  color: var(--accent-blue);
+  margin-bottom: 0.2em;
+}
+.title-slide .subtitle {
+  font-size: 1.1em;
+  color: var(--accent-teal);
+  font-weight: 500;
+  margin-bottom: 1.5em;
+}
+.title-slide .meta { font-size: 0.8em; color: #64748b; }
+
+/* Cards / Boxes */
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 10px 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-left: 4px solid var(--accent-blue);
+}
+.card.teal { border-left-color: var(--accent-teal); }
+.card.orange { border-left-color: var(--accent-orange); }
+.card.purple { border-left-color: var(--accent-purple); }
+.card.green { border-left-color: var(--accent-green); }
+.card h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.85em;
+  color: var(--accent-blue);
+}
+.card.teal h4 { color: var(--accent-teal); }
+.card.orange h4 { color: var(--accent-orange); }
+.card.purple h4 { color: var(--accent-purple); }
+.card.green h4 { color: var(--accent-green); }
+.card p, .card li { font-size: 0.7em !important; margin: 0; }
+
+/* Badge */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.65em;
+  font-weight: 700;
+  margin: 2px;
+}
+.badge-llm { background: #e4edf5; color: #3a6b8c; }
+.badge-pmk { background: #f2ece2; color: #8a6d4b; }
+.badge-mcp { background: #e6eeea; color: #4a7a6a; }
+.badge-doc { background: #ece8f0; color: #6a5a7a; }
+.badge-step { background: #3a6b8c; color: white; }
+
+/* Tables */
+.reveal table {
+  font-size: 0.6em;
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+.reveal table th {
+  background: var(--accent-blue);
+  color: white;
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 500;
+}
+.reveal table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.reveal table tr:nth-child(even) td { background: #f8fafc; }
+
+/* Grid layouts */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 0; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 10px 0; }
+
+/* Pipeline arrow */
+.pipeline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.pipeline-step {
+  background: var(--pastel-blue);
+  padding: 14px 20px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 0.7em;
+  font-weight: 500;
+  min-width: 120px;
+}
+.pipeline-step.highlight { background: var(--accent-blue); color: white; }
+.pipeline-step.teal { background: var(--accent-teal); color: white; }
+.pipeline-arrow {
+  font-size: 1.4em;
+  color: var(--accent-blue);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Mermaid */
+.mermaid { font-size: 0.75em; margin: 15px 0; text-align: center; }
+
+/* Code */
+.reveal pre {
+  font-size: 0.55em;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.reveal code { font-family: 'Consolas', 'Monaco', monospace; }
+.reveal pre code { padding: 16px !important; max-height: 420px; }
+
+/* Highlight */
+.hl { background: linear-gradient(transparent 60%, #e0d8c4 60%); padding: 0 2px; }
+.hl-blue { background: linear-gradient(transparent 60%, #c8d8e8 60%); }
+
+/* File flow */
+.file-flow {
+  display: flex; align-items: center; gap: 6px;
+  margin: 8px 0; font-size: 0.65em; flex-wrap: wrap;
+}
+.file-box {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.file-box.input { background: #f3ede6; color: #8a6d4b; border: 1px solid #e0d0b8; }
+.file-box.script { background: var(--accent-blue); color: white; }
+.file-box.output { background: #e6eeea; color: #4a7a6a; border: 1px solid #c0d8cc; }
+.file-box.model { background: #ece8f0; color: #6a5a7a; border: 1px solid #d0c8dc; }
+.file-arrow { color: var(--accent-blue); font-size: 1.2em; flex-shrink: 0; }
+
+/* Step number */
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  color: white;
+  font-weight: 700;
+  font-size: 0.75em;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+.step-num.opt { background: var(--accent-orange); }
+
+/* Chat bubble */
+.chat-row { display: flex; margin: 8px 0; }
+.chat-row.user { justify-content: flex-end; }
+.chat-row.assistant { justify-content: flex-start; }
+.chat-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 0.65em;
+  line-height: 1.5;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  white-space: pre-wrap;
+}
+.chat-bubble.user { background: var(--accent-blue); color: white; }
+.chat-bubble.assistant { background: #f0f2f4; color: #2d2d44; }
+.chat-bubble.tool { background: #fff8e8; color: #6a5030; border: 1px dashed #d0b070; font-family: 'Consolas','Monaco',monospace; font-size: 0.6em; }
+.chat-bubble small { display: block; opacity: 0.7; margin-top: 4px; font-size: 0.85em; }
+
+/* vs-table */
+.vs-grid {
+  display: grid;
+  grid-template-columns: 1fr 80px 1fr;
+  gap: 8px;
+  align-items: stretch;
+  margin: 10px 0;
+}
+.vs-col {
+  background: white;
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.vs-col.llm { border-top: 4px solid var(--accent-blue); }
+.vs-col.pmk { border-top: 4px solid var(--accent-orange); }
+.vs-col h4 { margin: 0 0 6px 0; font-size: 0.85em; }
+.vs-col ul { font-size: 0.7em; margin-left: 0.5em; }
+.vs-col li { margin-bottom: 0.25em; }
+.vs-mid {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4em; color: var(--accent-purple); font-weight: 700;
+}
+
+/* Section divider */
+.section-divider {
+  text-align: center !important;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center; align-items: center;
+}
+.section-divider h2 {
+  text-align: center;
+  font-size: 1.6em !important;
+  color: var(--accent-blue);
+}
+.section-divider p { text-align: center; color: #64748b; }
+
+@media (max-width: 900px) {
+  #slide-nav { font-size: 10px; }
+  #slide-nav a { padding: 4px 6px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation Bar -->
+<nav id="slide-nav">
+  <a data-slide="0">표지</a>
+  <a data-slide="1">왜 LLM Chat?</a>
+  <a data-slide="2">LLM vs Promaker</a>
+  <a data-slide="3">결합 전략</a>
+  <a data-slide="4">동작 방식 개요</a>
+  <a data-slide="5">자연어 분해</a>
+  <a data-slide="6">상태 공유</a>
+  <a data-slide="7">선언적 모델</a>
+  <a data-slide="8">1 Turn 흐름</a>
+  <a data-slide="9">안전·신뢰</a>
+  <a data-slide="10">매뉴얼1: 시작</a>
+  <a data-slide="11">매뉴얼2: 첫 모델링</a>
+  <a data-slide="12">매뉴얼3: 결과 시각화</a>
+  <a data-slide="13">매뉴얼4: 점진 편집</a>
+  <a data-slide="14">매뉴얼5: 첨부·명령</a>
+  <a data-slide="15">활용 팁</a>
+</nav>
+
+<div class="reveal">
+<div class="slides">
+
+<!-- ==================== SLIDE 0: 표지 ==================== -->
+<section class="title-slide" data-background-gradient="linear-gradient(135deg, #edf2f7 0%, #edf2f7 100%)">
+  <div style="width:100%; height:100%; display:flex; flex-direction:column; justify-content:space-between; min-height:600px;">
+    <p style="text-align:left; font-size:0.5em; color:#94a3b8; letter-spacing:0.08em; margin:-10px 0 0 0;">Promaker</p>
+
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+      <h1 style="font-size:2.4em; line-height:1.3; margin-bottom:0.15em;">LLM Chat 으로 Promaker 모델링</h1>
+      <p style="font-size:0.85em; color:#4a5568; margin-top:0; margin-bottom:0; font-weight:500;">자연어 사양에서 실행 가능한 설비 모델까지 — 동작 원리와 사용 매뉴얼</p>
+      <div class="meta" style="margin-top:40px;">
+        <p>대화로 모델링하는 새로운 작업 흐름</p>
+      </div>
+    </div>
+
+    <div style="text-align:right; margin-top:auto; padding-bottom:4px;">
+      <div style="font-size:0.55em; color:#64748b; margin-bottom:6px;">
+        대화 &rarr; 의미 분해 &rarr; 선언적 모델 &rarr; 검증·반영 &rarr; 1 단계 되돌리기
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 1: 왜 LLM Chat? — 장점 ==================== -->
+<section>
+  <h2><span class="step-num">1</span>왜 LLM Chat 으로 모델링 하는가?</h2>
+  <p style="color:#64748b; font-size:0.7em;">사용자는 <strong>도메인 어휘</strong> (구역 / 실린더 / 펀치 / 후진) 로 말하고, LLM 이 모델 요소로 분해합니다.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4>① 도메인 어휘 그대로 입력</h4>
+      <ul>
+        <li>"두 개 실린더가 순차 전진 후 후진" — 한 줄 그대로 입력</li>
+        <li>Flow / Work / Call / Arrow 같은 모델링 어휘를 <em>사용자가 외울 필요 없음</em></li>
+        <li>LLM 이 <span class="hl">현장 어휘 ↔ 모델 어휘</span> 매핑을 담당</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h4>② 반복 작업 자동화</h4>
+      <ul>
+        <li>"실린더" 한 마디가 전진/후진 동작 한 쌍 + 인터페이스 + 연결선까지 자동 구성</li>
+        <li>3 구역 × N 실린더 × 펀처 같은 대량 구성도 한 발행에 완성</li>
+        <li>GUI 라면 수십~수백 클릭이 필요한 작업을 문장 하나로</li>
+      </ul>
+    </div>
+    <div class="card orange">
+      <h4>③ 의도 기반 점진 편집</h4>
+      <ul>
+        <li>"3구역 다음에 4구역 추가, 실린더 두 개 순차 전진" — 기존 모델 보존하며 추가</li>
+        <li>이름 변경 / 제거 / 연결 추가 — 관련 요소 자동 정리</li>
+        <li>1 대화 turn = 1 되돌리기 단계 (실수해도 Ctrl+Z 한 번)</li>
+      </ul>
+    </div>
+    <div class="card purple">
+      <h4>④ GUI / Chat 자유 혼용</h4>
+      <ul>
+        <li>GUI 에서 수동 편집한 내역은 자동으로 LLM 에 전달 — 같은 모델을 두 채널이 공유</li>
+        <li>현재 모델 상태를 LLM 이 매번 다시 조회할 필요 없음 (자동 첨부)</li>
+        <li>대량 변경은 Chat, 미세 수정은 GUI 가 빠름 — 자유롭게 교대 사용</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:6px;">
+    <div class="card green">
+      <h4>⑤ Greenfield Modeling — 백지에서 시작</h4>
+      <p>아무 것도 없는 상태에서 자연어 채팅만으로 설비 모델링을 시작할 수 있습니다. 사양만 있고 코드/도면/주소가 아직 없는 단계에서, LLM 이 모델 골격을 한 번에 분해합니다.</p>
+    </div>
+    <div class="card">
+      <h4>⑥ 발행 결과 즉시 시각화</h4>
+      <p>LLM 이 만든 모델은 채팅창에 <strong>YAML</strong> (사람이 읽는 표기) 과 <strong>Mermaid 다이어그램</strong> (구조 시각화) 두 가지로 함께 표시 — 사용자는 적용 전 / 적용 후 결과를 한눈에 검토합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 2: LLM 강점 vs Promaker 강점 ==================== -->
+<section>
+  <h2><span class="step-num">2</span>LLM 강점 vs Promaker 강점</h2>
+  <p style="color:#64748b; font-size:0.7em;">두 시스템의 책임이 명확히 나뉘어야 결합이 의미를 가집니다.</p>
+
+  <div class="vs-grid">
+    <div class="vs-col llm">
+      <h4><span class="badge badge-llm">LLM</span> 잘 하는 일</h4>
+      <ul>
+        <li><strong>자연어 의미 분해</strong>: "두 실린더 동시 전진 후 펀치" → 동시 동작 + 합류 흐름 추론</li>
+        <li><strong>도메인 패턴 일반화</strong>: 실린더 / 클램프 / 푸셔 / 로봇 어휘를 표준 디바이스 타입으로 분류</li>
+        <li><strong>이름 추론 / 기본값</strong>: 사용자가 미명시한 이름을 사양 단서에서 자연스럽게 추출</li>
+        <li><strong>모호 사양 명확화</strong>: 한 번의 질문으로 부족한 정보 회수 — 현장 어휘로 풀어 질문</li>
+        <li><strong>사양 클러스터링</strong>: 한 작업 영역 안의 sub-action 들을 적절히 묶음</li>
+        <li><strong>이미지 · PDF 사양 해석</strong>: 도면 / 표 / 손그림 직접 인식</li>
+      </ul>
+    </div>
+    <div class="vs-mid">&plus;</div>
+    <div class="vs-col pmk">
+      <h4><span class="badge badge-pmk">Promaker</span> 잘 하는 일</h4>
+      <ul>
+        <li><strong>스키마 / 제약 검증</strong>: 발행 전 사전 검증 + 오류 시 유사 후보 자동 제안</li>
+        <li><strong>cascade / 트랜잭션</strong>: 디바이스 한 줄이 흐름·작업·인터페이스·연결선까지 일관 생성. 실패 시 일관 rollback</li>
+        <li><strong>식별자 / 일관성 관리</strong>: LLM 은 이름만 다루고, 내부 식별자와 참조 무결성은 Promaker 가 책임</li>
+        <li><strong>되돌리기 / 왕복 보존</strong>: 1 turn = 1 undo. 모델 → 문서 → 모델 왕복 시 형태 보존</li>
+        <li><strong>시각 편집 / 3D 뷰</strong>: 시뮬레이션, 수동 제어, 캔버스 드래그</li>
+        <li><strong>물리 / 런타임 연결</strong>: PLC 주소 binding, IO 태그, 다중 실행 모드</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:6px;">
+    <h4>책임 경계 — 한 줄 요약</h4>
+    <p><strong>LLM 책임 = 자연어 → 선언적 모델 정규화</strong> (이름·구조·연결 종류 결정).<br>
+    <strong>Promaker 책임 = 모델 구성·일관성·트랜잭션</strong> — LLM 이 직접 만져서는 안 되는 영역입니다.</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 3: 결합 전략 — 협업 계약 ==================== -->
+<section>
+  <h2><span class="step-num">3</span>결합 전략 — 선언적 모델 = 협업 계약</h2>
+  <p style="color:#64748b; font-size:0.7em;">두 시스템 사이에 놓인 <strong>선언적 모델 문서</strong>가 협업 계약 (contract) 역할을 합니다.</p>
+
+  <div class="mermaid">
+flowchart LR
+  USER["👤 사용자<br/>(도메인 어휘)"]
+  subgraph LLM_BOX["LLM (정규화)"]
+    LLM["🧠 자연어 분해<br/>이름·구조·연결 결정"]
+  end
+  DOC["📄 선언적 모델<br/>(YAML 표기)"]
+  subgraph MCP_BOX["Promaker (실행)"]
+    APPLY["검증 + 발행"]
+    CASCADE["자동 구성<br/>(흐름/작업/연결)"]
+    TX["1 turn = 1 undo"]
+  end
+  STORE["모델 저장소"]
+  GUI["🖥️ GUI<br/>캔버스 / 3D / 시뮬레이션"]
+
+  USER -->|"자연어 채팅"| LLM
+  LLM -->|"발행"| DOC
+  DOC --> APPLY
+  APPLY --> CASCADE
+  CASCADE --> TX
+  TX --> STORE
+  STORE -->|"현재 상태<br/>+ 변경 알림"| LLM
+  STORE <-->|"양방향 편집"| GUI
+  GUI -.->|"수동 편집 알림"| LLM
+
+  style LLM fill:#3a6b8c,stroke:#1a3a5c,color:#fff,stroke-width:3px
+  style DOC fill:#f3ede6,stroke:#b07a50,color:#5a4030,stroke-width:2px
+  style APPLY fill:#5a8da8,stroke:#3a6b8c,color:#fff
+  style STORE fill:#ece8f0,stroke:#7a8a9a,color:#3a3a4a
+  </div>
+
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card">
+      <h4>왜 선언적 모델인가?</h4>
+      <ul>
+        <li><strong>LLM 친화</strong>: 들여쓰기와 의미 구조가 명확</li>
+        <li><strong>왕복 보존</strong>: 같은 모델을 발행 ↔ 다시 읽기 했을 때 형태 동형 — 다음 turn 에 LLM 이 일관되게 이어 작업</li>
+        <li><strong>내부 식별자 노출 0</strong>: 모든 참조는 사람이 읽는 점-경로 (<code>제어기.실행.구역1</code>)</li>
+        <li><strong>YAML 표기 / 내부 전송 형식 분리</strong>: 사용자에겐 가독성, 시스템에는 결정성</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h4>결합 효과 — 1 + 1 &gt; 2</h4>
+      <ul>
+        <li>LLM 의 <em>추론 자유도</em> + Promaker 의 <em>제약 엄정성</em></li>
+        <li>실수해도 1 undo. 검증 오류 시 LLM 이 후보 제안을 받아 자가 정정</li>
+        <li>사양 변경 시 부분 발행으로 점진 진화 — 전체 재작성 불필요</li>
+        <li>LLM provider 선택 자유 — 계약이 동일하므로 결과 비교가 직접 가능</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 4: 동작 방식 개요 ==================== -->
+<section>
+  <h2><span class="step-num">4</span>동작 방식 개요 — 5 단계 파이프라인</h2>
+  <p style="color:#64748b; font-size:0.7em;">사용자 한 메시지가 채팅창에서 모델 저장소까지 도달하는 다섯 단계</p>
+
+  <div class="mermaid">
+flowchart TB
+  subgraph L1["① 입력"]
+    INPUT["채팅 패널<br/>(텍스트 + 첨부)"]
+  end
+  subgraph L2["② 컨텍스트 합성"]
+    CTX["현재 상태 자동 첨부<br/>+ GUI 변경 알림"]
+  end
+  subgraph L3["③ LLM 분해"]
+    LLM["선언적 모델 발행<br/>(검증 후보 / 후보 제안)"]
+  end
+  subgraph L4["④ Promaker 실행"]
+    APPLY["스키마 검증"]
+    CASCADE["자동 구성"]
+    TX["트랜잭션"]
+  end
+  subgraph L5["⑤ 반영"]
+    STORE["모델 저장소<br/>+ 1 단계 되돌리기"]
+  end
+
+  INPUT --> CTX
+  CTX --> LLM
+  LLM --> APPLY
+  APPLY --> CASCADE
+  CASCADE --> TX
+  TX --> STORE
+  STORE -.->|"다음 turn"| CTX
+
+  style LLM fill:#3a6b8c,stroke:#1a3a5c,color:#fff,stroke-width:2px
+  style APPLY fill:#5a8da8,stroke:#3a6b8c,color:#fff
+  style STORE fill:#ece8f0,stroke:#7a8a9a,color:#3a3a4a
+  </div>
+
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card">
+      <h4>LLM 에 노출되는 도구 — 6 종</h4>
+      <table>
+        <thead><tr><th>역할</th><th>설명</th></tr></thead>
+        <tbody>
+          <tr><td>발행 (주력)</td><td>선언적 모델을 적용 — 모든 변경의 진입점</td></tr>
+          <tr><td>사전 검증</td><td>적용 없이 dry-run + 유사 후보 제안</td></tr>
+          <tr><td>내보내기</td><td>현재 모델을 YAML 로 — 영역·깊이 지정 가능</td></tr>
+          <tr><td>형식 변환</td><td>표기 / 전송 형식 사이 변환 보조</td></tr>
+          <tr><td>이름 검색</td><td>대소문자 무시 부분 일치 → 점-경로</td></tr>
+          <tr><td>일관성 검사</td><td>고아 / 끊어진 연결 / 중복 이름 점검</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card teal">
+      <h4>다양한 LLM provider 지원</h4>
+      <ul>
+        <li><strong>CLI 구독형</strong>: Claude CLI, Codex CLI — 사용자 구독을 그대로 활용</li>
+        <li><strong>API 종량형</strong>: Anthropic API, OpenAI API, Groq API — 키 등록 후 사용</li>
+        <li><strong>로컬 무료</strong>: Ollama — 사내망 / 오프라인 환경 지원</li>
+        <li>모두 동일한 계약(선언적 모델)을 만들어내므로 결과를 직접 비교 가능</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 5: 자연어 분해 — 도메인 룰 ==================== -->
+<section>
+  <h2><span class="step-num">5</span>자연어 분해 — 도메인 룰</h2>
+  <p style="color:#64748b; font-size:0.7em;">LLM 이 어떤 원칙으로 자연어를 모델로 분해하는지 — 핵심 7 원칙</p>
+
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h4>① 한 station = 1 작업 단위</h4>
+        <p>"구역" / "공정" / "스테이션" = 부품이 머무는 한 station = <strong>작업 단위 1 개</strong>. 그 안의 <em>전진 / 펀치 / 후진</em> 은 같은 작업 안의 sub-action 으로 묶입니다. 페이즈마다 작업을 쪼개지 않습니다.</p>
+      </div>
+      <div class="card teal">
+        <h4>② 능동 / 수동 명시</h4>
+        <p>제어 로직을 가진 시스템(능동)과 제어를 받는 디바이스(수동)를 분리. LLM 이 추론으로 결정하지 않고 항상 명시 — 사양에 단서가 없으면 사용자에게 1회 질문.</p>
+      </div>
+      <div class="card orange">
+        <h4>③ 디바이스 short-form</h4>
+        <p>실린더 / 클램프 / 로봇 — 한 마디로 표준 동작 한 쌍 + 인터페이스가 자동 생성. 그 외 디바이스는 타입과 동작 목록을 명시 (예: 푸셔 — 펀치 동작 하나).</p>
+      </div>
+    </div>
+    <div>
+      <div class="card purple">
+        <h4>④ 연결 종류 명시 강제</h4>
+        <p>"A 끝나면 B 시작" (순차) / "A 시작하면 B 리셋" (배타) — 6 종 연결 타입 중 하나를 항상 명시. 의도가 모호하면 명시적 미정 상태로 표시 (자동 추측 금지).</p>
+      </div>
+      <div class="card green">
+        <h4>⑤ 사양 외 정보는 추측 없이 비워두기</h4>
+        <p>현재 단계의 도구 범위가 아닌 세부 (물리 주소, 타이밍 값, 외부 시스템 식별자 등) 는 <strong>추측으로 채우지 않습니다</strong>. "TODO" / "127.0.0.1" 같은 placeholder 를 조용히 끼워 넣지 않으며, 해당 항목은 후속 단계에서 별도로 보강합니다 — 사용자에게 굳이 묻지도 않습니다.</p>
+      </div>
+      <div class="card">
+        <h4>⑥ 질문은 꼭 필요할 때만</h4>
+        <p>기본은 <em>자동 진행</em> — 이름이나 흐름 구조는 사양 단서에서 자동으로 결정합니다. 질문을 던지는 경우는 두 가지뿐:</p>
+        <ul>
+          <li><strong><code>:plan</code> 모드</strong>가 활성화된 경우 — 사용자가 사전 설계 단계를 명시한 상황</li>
+          <li><strong>모델을 만드는 데 필수적인 사양</strong>이 모호하거나 누락된 경우 (예: 한 부품을 처리하는 1회용인지, 부품이 계속 들어오는 라인인지)</li>
+        </ul>
+        <p style="margin-top:4px;">질문할 때는 현장 어휘로 풀어서 — 모델링 용어를 노출하지 않습니다.</p>
+      </div>
+      <div class="card teal">
+        <h4>⑦ 결정성 / 결과 요약</h4>
+        <p>같은 입력 → 같은 출력 정렬. 발행 결과는 한 줄 요약 (변경 항목 수)으로 사용자에게 보고.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 6: 상태 공유 ==================== -->
+<section>
+  <h2><span class="step-num">6</span>상태 공유 — 매 turn 자동 동기화</h2>
+  <p style="color:#64748b; font-size:0.7em;">LLM 이 매번 현재 상태를 조회하지 않도록 — 시스템이 알아서 최신 상태를 LLM 에 전달합니다.</p>
+
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h4>① 현재 모델 상태 자동 첨부</h4>
+        <p>모델이 변경된 시점에만 현재 상태 요약이 LLM 에 자동 전달됩니다. 같은 상태가 유지되면 침묵 — 토큰 / 비용 절감.</p>
+        <pre style="font-size:0.55em; margin:6px 0 0 0;"><code>현재 모델 (개정 42):
+  Project: M1
+  Systems:
+    - 제어기 (능동)
+        흐름 "실행":
+          - 구역1 [실린더1.전진, 실린더2.전진, ...]
+          - 구역2 ...
+    - 실린더1 (수동, cylinder)
+    - 실린더2 (수동, cylinder)
+  연결:
+    - 구역1 → 구역2 (순차)</code></pre>
+        <p style="font-size:0.7em; color:#64748b; margin-top:4px;">이름 정렬로 같은 모델 → 같은 표기 — 결정성 보장.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card teal">
+        <h4>② GUI 수동 편집 알림</h4>
+        <p>이전 turn 이후 사용자가 GUI 에서 직접 수정한 내역이 다음 메시지 앞에 요약으로 첨부됩니다. LLM 은 이를 <strong>사실</strong>로 받아들일 뿐 명령으로 해석하지 않습니다.</p>
+        <pre style="font-size:0.55em; margin:6px 0 0 0;"><code>GUI 변경 알림:
+  시스템: +1 (Inspector1 추가됨)
+  작업: +2, 이름 변경: 1
+  연결: +3
+  프로젝트: "M1" 로 전환됨</code></pre>
+      </div>
+      <div class="card orange" style="margin-top:8px;">
+        <h4>③ 사양 경계 표시</h4>
+        <p>긴 사양을 붙여넣을 때 <code>&lt;사양&gt; ... &lt;/사양&gt;</code> 식 구분자를 사용 — 안의 내용은 <em>모델링 데이터</em>이며 명령으로 해석되지 않습니다 (악의적 지시 차단).</p>
+      </div>
+      <div class="card purple" style="margin-top:8px;">
+        <h4>④ 첫 진입 (Cold start)</h4>
+        <p>아무 상태도 없는 첫 turn 에 한해 LLM 이 현재 상태를 한 번만 조회. 이후로는 항상 자동 첨부에 의존.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 7: 선언적 모델 — YAML 한 페이지 ==================== -->
+<section>
+  <h2><span class="step-num">7</span>선언적 모델 — YAML 한 페이지</h2>
+  <p style="color:#64748b; font-size:0.7em;">LLM 이 발행하고 Promaker 가 적용하는 모델 표기 — 사람이 읽기 좋게 설계된 YAML 형태</p>
+
+  <pre><code class="language-yaml">project: &lt;프로젝트명&gt;
+
+systems:
+  - system: &lt;이름&gt;
+    kind: active | passive       # 능동 / 수동 명시 (추론 없음)
+
+    # 능동(active) — 제어 로직
+    flow &lt;흐름이름&gt;:
+      works:
+        &lt;작업이름&gt;:
+          calls:                 # 디바이스의 어떤 동작을 호출할지
+            - &lt;디바이스&gt;.&lt;동작&gt;
+            - &lt;디바이스&gt;.&lt;동작&gt;  # 같은 동작 N 회 등장 = 동시 의미
+          arrows:                # 작업 내부 동작 사이 연결 (DAG)
+            - &lt;동작&gt; -&gt; &lt;동작&gt; : &lt;연결타입&gt;
+      arrows:                    # 작업 사이 연결
+        - &lt;작업&gt; -&gt; &lt;작업&gt; : &lt;연결타입&gt;
+
+    # 수동(passive) — 디바이스
+    device: cylinder | clamp | robot | custom(&lt;타입&gt;)
+    apis: [&lt;동작1&gt;, &lt;동작2&gt;, ...]   # 디바이스 default 재정의
+    opposing: none | chain | all-pairs
+    workDuration: 500ms
+
+patch:                           # 기존 모델에 부분 변경
+  add:        [ ... ]            # 시스템 추가
+  arrows:
+    add:      [ ... ]            # 연결 추가
+  rename:     [ ... ]            # 이름 변경
+  remove:     [ ... ]            # cascade 제거</code></pre>
+
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card">
+      <h4>연결 타입 — 6 종</h4>
+      <table>
+        <thead><tr><th>값</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td>Start</td><td>source 완료 → target 시작</td></tr>
+          <tr><td>Reset</td><td>source 시작 → target 리셋</td></tr>
+          <tr><td>StartReset</td><td>완료 → 시작 + 시작 → 리셋</td></tr>
+          <tr><td>ResetReset</td><td>opposing 쌍 / 순환 리셋 (전진↔후진)</td></tr>
+          <tr><td>Group</td><td>UI 그룹 hint (실행 의미 없음)</td></tr>
+          <tr><td>Unspecified</td><td>명시적 미정 — 의도 표시</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card teal">
+      <h4>디바이스 단축 표기</h4>
+      <table>
+        <thead><tr><th>case</th><th>기본 동작</th><th>opposing</th></tr></thead>
+        <tbody>
+          <tr><td>cylinder</td><td>전진 / 후진</td><td>chain</td></tr>
+          <tr><td>clamp</td><td>클램프 / 해제</td><td>chain</td></tr>
+          <tr><td>robot</td><td>사용자 지정</td><td>none</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.7em;">그 외 디바이스 (푸셔 / 컨베이어 / AGV / 그리퍼 등) 는 <code>custom(&lt;타입&gt;) + apis: [...]</code> 로 명시.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 8: 1 turn 흐름 ==================== -->
+<section>
+  <h2><span class="step-num">8</span>1 Turn 흐름 — 메시지 입력 ~ 반영</h2>
+  <p style="color:#64748b; font-size:0.7em;">한 사용자 메시지가 거치는 단계 — 모든 변경은 하나의 되돌리기 단위로 묶입니다.</p>
+
+  <div class="mermaid">
+sequenceDiagram
+  participant U as 사용자
+  participant Chat as 채팅 패널
+  participant LLM as LLM
+  participant PMK as Promaker
+  participant Store as 모델 저장소
+
+  U->>Chat: 텍스트 + 첨부
+  Chat->>Chat: 현재 모델 상태 자동 첨부<br/>+ GUI 변경 알림 첨부
+  Chat->>LLM: 1 turn 요청
+  loop 도구 호출 반복
+    LLM->>PMK: 발행 요청 (선언적 모델)
+    PMK->>PMK: 스키마 검증 + 자동 구성
+    PMK-->>LLM: 결과 요약 (변경 N건)
+  end
+  LLM-->>Chat: 최종 답변 + 발행 미리보기
+  Chat->>Store: 일괄 적용 (1 단계 되돌리기)
+  Store-->>Chat: 다음 turn 에 새 상태 자동 첨부
+  Chat-->>U: 응답 + 변경 요약
+  </div>
+
+  <div class="grid-2" style="margin-top:6px;">
+    <div class="card">
+      <h4>핵심 정책</h4>
+      <ul>
+        <li><strong>Turn 종료 시점에 일괄 commit</strong> — 같은 turn 안에서는 모델 변경이 아직 보이지 않음 (방금 발행한 항목을 같은 turn 에 재조회 금지)</li>
+        <li><strong>1 turn = 1 발행</strong>이 기본 — 별개 의도면 여러 번 가능</li>
+        <li>발행 결과는 한 줄 요약 (변경 항목 수 / 영향 범위) 으로 인용</li>
+      </ul>
+    </div>
+    <div class="card orange">
+      <h4>실패 / 재시도</h4>
+      <ul>
+        <li>스키마 검증 실패 → 유사 후보 제안 → LLM 자가 정정 → 재발행</li>
+        <li>적용 실패 → 모델 무변경 → 다음 turn 에 상태 재첨부</li>
+        <li>취소 시 누적 변경 폐기 — 부분 적용 없음</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 9: 안전 / 신뢰 ==================== -->
+<section>
+  <h2><span class="step-num">9</span>안전 · 신뢰 — 3 단계 동의 + 데이터 보호</h2>
+  <p style="color:#64748b; font-size:0.7em;">외부 LLM 사용 시 발생하는 위험을 사용자가 인지·동의한 뒤에만 사용 가능</p>
+
+  <div class="grid-3">
+    <div class="card">
+      <h4>① 데이터 전송 동의</h4>
+      <ul>
+        <li>LLM Chat 첫 진입 시 1회 동의</li>
+        <li>전송 데이터 명시: 사용자 메시지 + 모델 정보 + 첨부 파일</li>
+        <li>거부 시 LLM Chat 차단</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h4>② API 비용 동의</h4>
+      <ul>
+        <li>유료 API 첫 선택 시 별도 동의</li>
+        <li>토큰 과금 안내 — 짧은 입력도 수만 token 이 송신될 수 있음</li>
+        <li>거부 시 해당 provider 비활성화</li>
+      </ul>
+    </div>
+    <div class="card orange">
+      <h4>③ 고권한 도구 동의</h4>
+      <ul>
+        <li>파일 시스템 / 네트워크 자유 접근이 필요한 도구 사용 시 추가 동의</li>
+        <li>완화 조치: 임시 격리 작업 공간 사용</li>
+        <li>거부 시 해당 provider 비활성화</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card purple">
+      <h4>API 키 보호</h4>
+      <ul>
+        <li>API 키는 OS 보안 저장소로 즉시 암호화 저장</li>
+        <li>다른 사용자 / 다른 머신에서 평문 read 불가</li>
+        <li>모델명 / 로컬 endpoint 설정은 평문 (민감 정보 아님)</li>
+      </ul>
+    </div>
+    <div class="card green">
+      <h4>Prompt Injection 방어</h4>
+      <ul>
+        <li>첨부 안에 "이전 지시 무시" 류 문장이 보여도 무시 (1줄 안내만)</li>
+        <li>파일명에 path traversal / shell injection 문자열이 있어도 단순 라벨로만 처리</li>
+        <li>현재 상태 / GUI 변경 / 사양 블럭은 데이터 — 명령이 아님</li>
+        <li>비밀 파일 (.env 등) 은 첨부 자체 차단</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 10: 매뉴얼 1 — 시작 ==================== -->
+<section>
+  <h2><span class="step-num opt">M1</span>매뉴얼 ① — LLM Chat 시작하기</h2>
+  <p style="color:#64748b; font-size:0.7em;">LLM Chat 패널을 열고 사용 준비를 마치기까지</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Step 1. LLM Chat 패널 열기</h3>
+      <div class="card">
+        <p>Promaker 메인 화면의 <strong>LLM Chat</strong> 도크 패널을 활성화. 처음이라면 <strong>데이터 전송 동의</strong> 다이얼로그가 표시됩니다 — 안내를 확인 후 동의.</p>
+      </div>
+
+      <h3 style="margin-top:12px;">Step 2. Provider 선택</h3>
+      <div class="card teal">
+        <table>
+          <thead><tr><th>Provider</th><th>비용</th><th>특징</th></tr></thead>
+          <tbody>
+            <tr><td>Claude CLI</td><td>구독</td><td>기본 권장. 구독 키 자동 활용</td></tr>
+            <tr><td>Codex CLI</td><td>구독</td><td>추가 권한 동의 필요</td></tr>
+            <tr><td>Anthropic API</td><td>종량</td><td>API 키 등록</td></tr>
+            <tr><td>OpenAI API</td><td>종량</td><td>API 키 등록</td></tr>
+            <tr><td>Ollama (로컬)</td><td>무료</td><td>사내망 / 오프라인</td></tr>
+            <tr><td>Groq API</td><td>종량</td><td>고속 응답</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h3>Step 3. 모델 / 키 설정</h3>
+      <div class="card orange">
+        <p><strong>API provider</strong>: 설정 다이얼로그에서 API 키 입력 (즉시 암호화 저장). 모델명은 권장 기본값이 미리 채워져 있어 그대로 사용 가능.</p>
+        <p style="margin-top:6px;"><strong>CLI provider</strong>: 별도 키 입력 불필요 — 사용자 계정의 CLI 구독을 그대로 사용.</p>
+        <p style="margin-top:6px;"><strong>Ollama</strong>: 로컬 endpoint 주소 + 모델명 (예: llama3.1) 설정.</p>
+      </div>
+
+      <h3 style="margin-top:12px;">Step 4. Smoke test</h3>
+      <div class="card purple">
+        <pre style="font-size:0.85em;"><code>"안녕"
+&rarr; 응답: 인사 + 현재 모델 상태 한 줄 요약
+   (빈 상태면 "프로젝트가 비어 있음")</code></pre>
+      </div>
+
+      <h3 style="margin-top:12px;">상태 표시</h3>
+      <div class="card green">
+        <p>패널 헤더에 provider 준비 상태 / 모델명이 표시됩니다. CLI 미설치 / API 키 누락 같은 문제가 있으면 명확한 안내 메시지가 노출됩니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 11: 매뉴얼 2 — 첫 모델링 ==================== -->
+<section>
+  <h2><span class="step-num opt">M2</span>매뉴얼 ② — 첫 모델링 (Greenfield)</h2>
+  <p style="color:#64748b; font-size:0.7em;">빈 프로젝트에서 자연어 한 줄로 시작하는 예시</p>
+
+  <div class="chat-row user">
+    <div class="chat-bubble user">새 프로젝트 생성해서 두 개의 실린더가 순차로 전진하고, 다시 두 개의 실린더가 순차로 후진하는 시스템 모델링<small>사용자</small></div>
+  </div>
+  <div class="chat-row assistant">
+    <div class="chat-bubble assistant">새 프로젝트 <code>M1</code> 을 만들고 실린더 2 개 (<code>Cyl1</code>, <code>Cyl2</code>) 순차 전진 → 순차 후진 모델을 발행합니다.<small>assistant — 한 줄 요약</small></div>
+  </div>
+  <div class="chat-row assistant">
+    <div class="chat-bubble tool">발행 미리보기:
+project: M1
+systems:
+  - system: 제어기
+    kind: active
+    flow 실행:
+      works:
+        전진1: { calls: [Cyl1.ADV] }
+        전진2: { calls: [Cyl2.ADV] }
+        후진1: { calls: [Cyl1.RET] }
+        후진2: { calls: [Cyl2.RET] }
+      arrows:
+        - 전진1 -> 전진2 : Start
+        - 전진2 -> 후진1 : Start
+        - 후진1 -> 후진2 : Start
+  - { system: Cyl1, kind: passive, device: cylinder }
+  - { system: Cyl2, kind: passive, device: cylinder }
+<span style="color:#888;">→ 변경 ~20 항목 / 1 되돌리기 단계</span><small>발행 결과</small></div>
+  </div>
+
+  <div class="grid-2" style="margin-top:6px;">
+    <div class="card">
+      <h4>발행 결과 — 자동 구성</h4>
+      <ul>
+        <li>프로젝트 <code>M1</code></li>
+        <li>능동 시스템 <code>제어기</code> (흐름 <code>실행</code> + 작업 × 4 + 연결 × 3)</li>
+        <li>수동 시스템 <code>Cyl1</code>, <code>Cyl2</code> — 각각 <strong>전진/후진 동작 + 인터페이스 + opposing 연결</strong> 이 자동 구성</li>
+        <li>총 ~20 항목이 1 되돌리기 단위로 적용됨</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h4>후속 메시지 — 점진 확장</h4>
+      <pre style="font-size:0.85em;"><code>"Cyl3 도 추가해 줘. 1, 2 와 같이
+ 전진/후진 수행하게"
+
+&rarr; 기존 Cyl1, Cyl2 는 보존
+&rarr; Cyl3 만 부분 발행으로 추가
+&rarr; 관련 작업과 연결도 자동 보강</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 12: 매뉴얼 3 — 발행 결과 시각화 ==================== -->
+<section>
+  <h2><span class="step-num opt">M3</span>매뉴얼 ③ — 발행 결과 시각화 (YAML + Mermaid)</h2>
+  <p style="color:#64748b; font-size:0.7em;">LLM 이 발행한 모델을 사용자가 한눈에 검토할 수 있도록 — 두 가지 표현이 채팅창에 함께 표시됩니다.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>① YAML 표기 — 정확한 사양</h3>
+      <div class="card">
+        <pre style="font-size:0.42em; margin:0;"><code class="language-yaml">project: M1
+systems:
+  - system: 제어기
+    kind: active
+    flow 실행:
+      works:
+        구역1:
+          calls: [Cyl1.ADV, Cyl2.ADV, P1.PUNCH, Cyl1.RET, Cyl2.RET]
+          arrows:
+            - Cyl1.ADV -> P1.PUNCH : Start
+            - Cyl2.ADV -> P1.PUNCH : Start
+            - P1.PUNCH -> Cyl1.RET : Start
+            - P1.PUNCH -> Cyl2.RET : Start
+        구역2: ...
+      arrows:
+        - 구역1 -> 구역2 : Start
+  - { system: Cyl1, kind: passive, device: cylinder }
+  - { system: Cyl2, kind: passive, device: cylinder }
+  - { system: P1, kind: passive,
+      device: custom(Pusher), apis: [PUNCH] }</code></pre>
+        <ul style="font-size:0.7em; margin-top:8px;">
+          <li>모든 항목 / 연결을 빠짐없이 표현 — <em>결정성</em> 보장</li>
+          <li>그대로 복사해서 다른 곳에 붙여 넣어도 동일 모델 재현</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <h3>② Mermaid 다이어그램 — 한눈에 구조 파악</h3>
+      <div class="card teal">
+        <div class="mermaid" style="font-size:0.6em;">
+flowchart LR
+  subgraph Z1["구역1"]
+    A1["Cyl1.ADV"]
+    A2["Cyl2.ADV"]
+    P1["P1.PUNCH"]
+    R1["Cyl1.RET"]
+    R2["Cyl2.RET"]
+    A1 --> P1
+    A2 --> P1
+    P1 --> R1
+    P1 --> R2
+  end
+  subgraph Z2["구역2"]
+    Z2X["..."]
+  end
+  Z1 --> Z2
+  style P1 fill:#3a6b8c,color:#fff
+  style A1 fill:#edf2f7
+  style A2 fill:#edf2f7
+  style R1 fill:#f3ede6
+  style R2 fill:#f3ede6
+        </div>
+        <ul style="font-size:0.7em; margin-top:6px;">
+          <li>흐름·연결 구조를 즉시 인지 — 복잡한 다이어그램도 가독성 ↑</li>
+          <li>잘못된 합류 / 누락 / 순환을 시각적으로 빠르게 발견</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-3" style="margin-top:6px;">
+    <div class="card orange">
+      <h4>활용 ① 적용 전 검토</h4>
+      <p>발행 미리보기 단계에서 두 표현을 함께 확인 — 의도와 다르면 자연어로 수정 요청 후 재발행.</p>
+    </div>
+    <div class="card purple">
+      <h4>활용 ② 적용 후 보고</h4>
+      <p>LLM 이 변경 요약과 함께 갱신된 다이어그램을 다시 표시 — 모델이 어떻게 자랐는지 즉시 확인.</p>
+    </div>
+    <div class="card green">
+      <h4>활용 ③ 인쇄 / 공유</h4>
+      <p>YAML 은 사양 문서로, Mermaid 는 발표/리뷰 자료로 그대로 활용 — 별도 도구 불필요.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 13: 매뉴얼 4 — 점진 편집 ==================== -->
+<section>
+  <h2><span class="step-num opt">M4</span>매뉴얼 ④ — 점진 편집 (Patch)</h2>
+  <p style="color:#64748b; font-size:0.7em;">전체 재작성 없이 부분 발행만으로 추가 / 변경 / 제거 — 1 turn = 1 되돌리기</p>
+
+  <h3>Patch 시나리오 4 종</h3>
+  <pre style="font-size:0.65em; max-width:760px;"><code class="language-yaml">patch:
+  add:                             # ① 시스템 추가
+    - { system: 검사기1, kind: passive, device: custom(Sensor), apis: [TRIGGER] }
+  arrows:
+    add:                           # ② 연결 추가
+      - in: 제어기.실행
+        entries:
+          - 구역3 -> 구역1 : Reset
+  rename:                          # ③ 이름 변경
+    - Cyl1: 좌측실린더1
+  remove:                          # ④ cascade 제거 — 관련 호출/연결 자동 정리
+    - Cyl4</code></pre>
+
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card">
+      <h4>지원 범위</h4>
+      <ul>
+        <li><strong>지원</strong>: 시스템 추가 / 작업-연결 추가 / 이름 변경 / cascade 제거</li>
+        <li><strong>현재 제한</strong>: 부분 발행으로 처리하기 어려운 케이스는 모델 전체를 재발행 — 사용자 입장에선 동일한 문장으로 처리되므로 차이를 인지할 필요 없음</li>
+      </ul>
+    </div>
+    <div class="card teal">
+      <h4>한 patch 안 add + remove 자유 조합</h4>
+      <p>기존 항목 제거 + 새 항목 추가를 같은 patch 에서 자유롭게 묶을 수 있습니다 (방금 추가한 항목을 곧바로 제거하는 자기 모순만 제외).</p>
+    </div>
+    <div class="card orange">
+      <h4>실수했을 때</h4>
+      <p><strong>Ctrl+Z 한 번</strong> — 1 turn 의 모든 변경이 단일 되돌리기 단계. GUI 편집과 같은 되돌리기 스택을 공유합니다.</p>
+    </div>
+    <div class="card purple">
+      <h4>프로젝트 전환 보호</h4>
+      <p>이미 다른 프로젝트가 열린 상태에서 새 프로젝트로 발행 시도 시 LLM 이 "파일 &gt; 닫기" 를 안내. LLM 이 사용자 작업물을 자의로 닫지 않습니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 14: 매뉴얼 5 — 첨부 / 명령 ==================== -->
+<section>
+  <h2><span class="step-num opt">M5</span>매뉴얼 ⑤ — 첨부 · 모드 명령</h2>
+  <p style="color:#64748b; font-size:0.7em;">텍스트 / 이미지 / PDF 첨부, 모드 명령, 사양 경계 표시</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>① 첨부 (drag &amp; drop)</h3>
+      <div class="card">
+        <h4>텍스트 / 코드</h4>
+        <pre style="font-size:0.85em;"><code>```yaml filename="layout.yaml"
+zones: 3
+cylinders_per_zone: [2, 3, 4]
+puncher: yes
+```</code></pre>
+        <p>fenced block 으로 사용자 메시지에 포함됩니다. 파일명은 라벨일 뿐 — 디스크 접근은 발생하지 않습니다.</p>
+      </div>
+      <div class="card teal" style="margin-top:8px;">
+        <h4>이미지 / PDF</h4>
+        <ul>
+          <li>PNG / JPEG / GIF / WebP, PDF — 모델의 비전 기능으로 직접 해석</li>
+          <li>OCR 별도 추출 없이 도면 / 사양표 / 손그림 직접 인식</li>
+        </ul>
+      </div>
+      <div class="card orange" style="margin-top:8px;">
+        <h4>차단되는 첨부</h4>
+        <p>비밀 정보 파일 (.env, credentials.json 등) 은 첨부 자체가 차단됩니다 — 사용자 의도와 무관하게 일관 적용.</p>
+      </div>
+    </div>
+    <div>
+      <h3>② 모드 명령</h3>
+      <div class="card purple">
+        <pre style="font-size:0.85em;"><code>:plan
+- 공정: 구역1, 구역2, 구역3
+- 로봇 Rb1: Home, Work1, ..., Work9
+- 실린더: [Z{i}Cyl{j}]
+Part 가 구역1 ~ 구역3 순차 이동 ...</code></pre>
+        <ul>
+          <li><strong>:plan</strong> — 디바이스 선지정 모드. 큰 사양을 단계 분리</li>
+          <li>:reset / :redo 등 채팅 세션 제어 명령</li>
+        </ul>
+      </div>
+
+      <h3 style="margin-top:12px;">③ 사양 경계 표시</h3>
+      <div class="card green">
+        <pre style="font-size:0.85em;"><code>&lt;사양&gt;
+구역1 의 실린더 두 개가 동시 전진,
+펀처가 펀치 후 두 실린더가 동시 후진.
+...
+&lt;/사양&gt;
+위 사양으로 모델 만들어 줘.</code></pre>
+        <p>긴 사양의 경계를 명확히 — 안의 내용은 데이터로만 취급되고 시스템 지시로 해석되지 않습니다.</p>
+      </div>
+
+      <h3 style="margin-top:12px;">④ 명확화 응답 패턴</h3>
+      <div class="card">
+        <p>모호한 사양에 대해 LLM 이 1회 질문 — 현장 어휘로 풀어서 묻습니다. 답변하면 자동으로 발행이 이어집니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 15: 활용 팁 ==================== -->
+<section>
+  <h2><span class="step-num opt">M6</span>매뉴얼 ⑥ — 활용 팁 · Best Practice</h2>
+  <p style="color:#64748b; font-size:0.7em;">실제 사용을 거치며 축적된 패턴</p>
+
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h4>① "한 station = 1 작업" 명심</h4>
+        <ul>
+          <li>"구역" / "공정" / "스테이션" = 부품이 머무는 한 station = <strong>작업 1 개</strong></li>
+          <li>그 station 안의 <em>전진 / 펀치 / 후진</em> = 같은 작업 안의 sub-action 들</li>
+          <li>페이즈마다 작업 분리는 <span class="hl">반례</span></li>
+        </ul>
+      </div>
+      <div class="card teal" style="margin-top:8px;">
+        <h4>② Plan mode 로 선지정</h4>
+        <pre style="font-size:0.85em;"><code>:plan
+- 공정: 구역1, 구역2, 구역3
+- 로봇 Rb1: Home, Work1..Work9
+- 실린더: [Z{i}Cyl{j}]</code></pre>
+        <p>큰 사양은 plan + 점진 발행으로 결정성과 안정성을 높이고, 이름 충돌 / 누락을 사전 방지할 수 있습니다.</p>
+      </div>
+      <div class="card orange" style="margin-top:8px;">
+        <h4>③ 디바이스 단축 표기 적극 활용</h4>
+        <ul>
+          <li>실린더 / 클램프 / 로봇은 한 마디로 표준 동작 한 쌍 자동 구성</li>
+          <li>그 외 디바이스는 타입 + 동작 목록 명시</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card purple">
+        <h4>④ 내보내기로 왕복 검증</h4>
+        <p>"현재 모델을 YAML 로 보여줘" — LLM 이 현재 상태를 YAML 로 정리해 보여줍니다. 발행 ↔ 내보내기가 동형이라 그대로 부분 발행 자료로 사용 가능.</p>
+      </div>
+      <div class="card green" style="margin-top:8px;">
+        <h4>⑤ GUI / Chat 자유 혼용</h4>
+        <ul>
+          <li>이름 미세 수정 / 위치 조정은 GUI 가 빠름</li>
+          <li>대량 추가 / 구조 변경은 Chat 이 빠름</li>
+          <li>GUI 변경 알림이 자동 동기화 — LLM 이 사용자 GUI 작업을 인지</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:8px;">
+        <h4>⑥ 잘 안 될 때</h4>
+        <ul>
+          <li>모호한 사양 → LLM 이 1회 질문 — 답변 후 자동 재발행</li>
+          <li>검증 오류 → LLM 이 후보 제안을 받아 자가 정정 — 사용자는 보통 추가 작업 없음</li>
+          <li>결과가 의도와 다르면 <strong>Ctrl+Z</strong> 후 다시 자연어로 수정 요청</li>
+        </ul>
+      </div>
+      <div class="card teal" style="margin-top:8px;">
+        <h4>⑦ Provider 비교 활용</h4>
+        <p>같은 사양을 여러 provider 에 발행하여 결과를 비교할 수 있습니다 — 모두 동일한 선언적 모델 표기를 만들어내므로 그대로 직접 비교 가능.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- .slides -->
+</div><!-- .reveal -->
+
+<!-- reveal.js -->
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+
+<!-- Mermaid.js -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+
+<script>
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#edf2f7',
+    primaryTextColor: '#1a1a2e',
+    primaryBorderColor: '#3a6b8c',
+    lineColor: '#3a6b8c',
+    secondaryColor: '#f0f2f4',
+    tertiaryColor: '#f0f2f4',
+    fontFamily: 'Noto Sans KR, sans-serif',
+    fontSize: '14px'
+  },
+  flowchart: { curve: 'basis', padding: 12 },
+  sequence: { mirrorActors: false, messageMargin: 30 }
+});
+
+Reveal.initialize({
+  hash: true,
+  slideNumber: true,
+  width: 1200,
+  height: 700,
+  margin: 0.04,
+  minScale: 0.2,
+  maxScale: 2.0,
+  scrollActivationWidth: null,
+  transition: 'fade',
+  transitionSpeed: 'fast',
+  plugins: [RevealHighlight, RevealNotes],
+  disableLayout: false
+}).then(() => {
+  renderMermaidDiagrams();
+  setupNav();
+});
+
+async function renderMermaidDiagrams() {
+  const mermaidDivs = document.querySelectorAll('.mermaid');
+  for (let i = 0; i < mermaidDivs.length; i++) {
+    const div = mermaidDivs[i];
+    const graphDef = div.textContent.trim();
+    div.textContent = '';
+    try {
+      const { svg } = await mermaid.render('mermaid-' + i, graphDef);
+      div.innerHTML = svg;
+    } catch (e) {
+      div.innerHTML = '<pre style="color:red;font-size:0.6em;">Mermaid render error: ' + e.message + '</pre>';
+    }
+  }
+}
+
+function setupNav() {
+  const navLinks = document.querySelectorAll('#slide-nav a');
+
+  function updateActiveNav() {
+    const current = Reveal.getIndices().h;
+    navLinks.forEach(link => {
+      const idx = parseInt(link.getAttribute('data-slide'));
+      link.classList.toggle('active', idx === current);
+    });
+    const activeLink = document.querySelector('#slide-nav a.active');
+    if (activeLink) {
+      activeLink.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  navLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const idx = parseInt(link.getAttribute('data-slide'));
+      Reveal.slide(idx);
+    });
+  });
+
+  Reveal.on('slidechanged', updateActiveNav);
+  updateActiveNav();
+}
+</script>
+</body>
+</html>
