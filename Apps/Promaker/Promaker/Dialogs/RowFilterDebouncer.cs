@@ -5,7 +5,7 @@ namespace Promaker.Dialogs;
 
 /// <summary>
 /// 그리드 필터 입력의 150ms 디바운스 — 빠른 타이핑 중 매 키마다 전체 행 재평가하는
-/// 비용을 회피한다. TagWizardDialog / IoBatchSettingsDialog 양쪽이 동일 패턴이라 공용 헬퍼로 추출.
+/// 비용을 회피한다. TagWizardDialog / TagInspectorDialog 양쪽이 동일 패턴이라 공용 헬퍼로 추출.
 /// </summary>
 internal sealed class RowFilterDebouncer
 {

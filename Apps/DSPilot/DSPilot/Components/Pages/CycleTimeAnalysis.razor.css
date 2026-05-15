@@ -1,8 +1,10 @@
 .cycle-time-analysis {
     padding: 20px;
-    max-width: 100%;
+    width: 100%;
     margin: 0 auto;
     min-height: 100vh;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .page-header {
@@ -53,6 +55,11 @@
     gap: 15px;
     align-items: flex-end;
     margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    min-width: 0;
 }
 
 .filter-group {
@@ -131,6 +138,12 @@
     align-items: center;
     gap: 10px;
     margin-left: 12px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.gantt-info-controls .gap-picker-select {
+    max-width: 100%;
 }
 
 .gantt-info-label {

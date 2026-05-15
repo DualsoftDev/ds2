@@ -329,6 +329,71 @@ public partial class MainViewModel
         TrySaveFileAs();
     }
 
+    /// <summary>
+    /// Promaker · DSPilot 공유 경로 (%ProgramData%\DualSoft\Shared\project.aasx) 로 AASX 저장.
+    /// DSPilot 서비스가 같은 경로를 읽으므로 별도 업로드/설정 없이 모델이 동기화된다.
+    /// 폴더가 없으면 자동 생성 (인스톨러가 보장하지만 클린 환경 대비).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void SaveToSharedLocation()
+    {
+        try
+        {
+            Directory.CreateDirectory(SharedPaths.SharedDirectory);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"공유 폴더 생성 실패: {SharedPaths.SharedDirectory}", ex);
+            _dialogService.ShowWarning($"공유 폴더를 만들 수 없습니다:\n{SharedPaths.SharedDirectory}\n\n{ex.Message}");
+            return;
+        }
+
+        var ok = SaveToPath(SharedPaths.AasxFilePath);
+        if (ok)
+        {
+            RecentFilesManager.AddRecentFile(SharedPaths.AasxFilePath);
+            _dispatcher.InvokeAsync(LoadRecentFiles);
+            StatusText = $"DSPilot 공유 경로에 저장됨: {SharedPaths.AasxFilePath}";
+        }
+    }
+
+    /// <summary>
+    /// Hub 모드(Control/VirtualPlant/Monitoring) 시뮬레이션 시작 직전에 호출되는 자동 publish.
+    /// 현재 store 를 DSPilot 공유 AASX 경로로 silent export — 다이얼로그/StatusText 변경 없음.
+    /// 호출자(SimulationPanelState)가 실패 로그를 sim event log 로 남긴다.
+    /// </summary>
+    internal bool TryPublishAasxToSharedForDspilot()
+    {
+        if (!HasProject)
+            return false;
+
+        try
+        {
+            Directory.CreateDirectory(SharedPaths.SharedDirectory);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"공유 폴더 생성 실패 (auto publish): {SharedPaths.SharedDirectory}", ex);
+            return false;
+        }
+
+        try
+        {
+            var exported = AasxExporter.exportFromStore(
+                _store, SharedPaths.AasxFilePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
+            if (exported)
+                Log.Info($"AASX auto-published to DSPilot shared path: {SharedPaths.AasxFilePath}");
+            else
+                Log.Warn($"AASX auto-publish: no project to export ({SharedPaths.AasxFilePath})");
+            return exported;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"AASX auto-publish 실패: {SharedPaths.AasxFilePath}", ex);
+            return false;
+        }
+    }
+
     private bool TrySaveFileAs()
     {
         var projects = Queries.allProjects(_store);

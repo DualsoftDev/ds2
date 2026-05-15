@@ -481,7 +481,7 @@ Robot (Generic), Robot_6Axis (6축 산업용), Robot_SCARA, Robot_Delta, Robot_G
 | `MermaidImportCommands.cs` | Mermaid 다이어그램 가져오기 |
 | `CsvCommands.cs` | CSV 가져오기/내보내기 |
 | `DurationBatchCommands.cs` | Duration 일괄 설정 |
-| `IoBatchCommands.cs` | I/O 태그 일괄 설정 |
+| `TagInspectorCommands.cs` | IO·태그 확인 (조회 전용) |
 | `TokenSpecCommands.cs` | TokenSpec 관리 |
 | `ToolbarState.cs` | 툴바 상태 관리 |
 | `DiscardChangesFlow.cs` | 미저장 변경사항 확인/폐기 흐름 |
@@ -570,7 +570,7 @@ Robot (Generic), Robot_6Axis (6축 산업용), Robot_SCARA, Robot_Delta, Robot_G
 | `ProjectPropertiesDialog.xaml(.cs)` | 프로젝트 속성 편집 |
 | `TokenSpecDialog.xaml(.cs)` | TokenSpec 편집 |
 | `DurationBatchDialog.xaml(.cs)` | Duration 일괄 설정 |
-| `IoBatchSettingsDialog.xaml(.cs)` | I/O 태그 일괄 설정 |
+| `TagInspectorDialog.xaml(.cs)` | IO·태그 확인 (IO/Dummy/UserTag 조회 + 진단 + CSV) |
 | `ValueSpecDialog.xaml(.cs)` | ValueSpec 독립 편집 |
 | `ConditionEditDialog.xaml(.cs)` | 조건 편집 다이얼로그 |
 | `TagWizardDialog.xaml(.cs)` | 태그 위저드 메인 다이얼로그 |

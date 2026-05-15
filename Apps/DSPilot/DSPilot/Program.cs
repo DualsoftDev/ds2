@@ -84,6 +84,11 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DspDatabaseService
 // plc.db 라이프사이클 (삭제 + 재로딩 + 엔진 재시작) — Settings UI 에서 호출
 builder.Services.AddSingleton<DatabaseLifecycleService>();
 
+// 공유 AASX 파일 감시 — 콘텐츠(SHA256) 변경 시 UI 알림.
+//   - 미로드 상태(초기 설치)에서 첫 AASX 감지 시 자동 DB 재구축
+//   - 이후 변경은 알림만, 사용자가 Settings 에서 수동 재구축
+builder.Services.AddHostedService<AasxFileWatcherService>();
+
 // Real-time monitoring broadcast service
 builder.Services.AddHostedService<MonitoringBroadcastService>();
 
@@ -100,12 +105,13 @@ builder.Services.AddHostedService<PlcTagLogRetentionService>();
 // Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
 builder.Services.AddSingleton<SimulationEngineService>();
 
-// Promaker SignalHub 클라이언트 — 기본 5051(Monitoring). Control(5050)/원격 전환은 Settings 페이지에서.
-var hubEnabled = builder.Configuration.GetValue<bool>("Hub:Enabled");
-if (hubEnabled)
-{
-    builder.Services.AddHostedService<HubSubscriberService>();
-}
+// UserTag 알림 — AASX 정의 + plcTagLog 폴링 매칭 (UI: /user-tags)
+builder.Services.AddSingleton<UserTagAlertService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertService>());
+
+// Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
+// URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
+builder.Services.AddHostedService<HubSubscriberService>();
 
 var app = builder.Build();
 

@@ -11,7 +11,9 @@
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
 #define MyDefaultPort "80"
-#define MyTrayExeName "DSPilot.Tray.exe"
+; Promaker · DSPilot 공유 AASX 경로 (DSPilot/Infrastructure/SharedPaths.cs 와 동일)
+#define MySharedDir "{commonappdata}\DualSoft\Shared"
+#define MySharedAasxName "project.aasx"
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -34,6 +36,11 @@ MinVersion=10.0
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Dirs]
+; Promaker · DSPilot 공유 폴더. Users 그룹에 modify 권한 부여 →
+; DSPilot(SYSTEM 서비스)과 Promaker(일반 사용자) 양쪽이 같은 파일을 읽고 쓸 수 있도록.
+Name: "{#MySharedDir}"; Permissions: users-modify
+
 [Files]
 ; Publish output (self-contained, all dependencies included)
 ; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 별도 처리하므로 제외
@@ -42,12 +49,11 @@ Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cr
 Source: "..\publish\wwwroot\uploads\blueprint.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
 Source: "..\publish\wwwroot\uploads\layout-data.json"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
 Source: "..\publish\wwwroot\uploads\layout-data.json.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
-; Tray application (self-contained)
-Source: "..\publish-tray\*"; DestDir: "{app}\Tray"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
-; AASX data file (placed in parent directory: ../DsCSV_0318_C.aasx)
-Source: "..\DsCSV_0318_C.aasx"; DestDir: "{app}\.."; Flags: ignoreversion
+; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
+; 운영 시점에 모델 파일이 생성/갱신됨. 파일이 없을 때 DSPilot 은 빈 상태로 부팅되며
+; Settings 페이지에 "파일 없음 — Promaker 에서 먼저 저장하세요" 안내가 표시됨.
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{code:GetAppURL}"
@@ -55,8 +61,6 @@ Name: "{group}\{#MyAppName} 서비스 시작"; Filename: "{sys}\sc.exe"; Paramet
 Name: "{group}\{#MyAppName} 서비스 중지"; Filename: "{sys}\sc.exe"; Parameters: "stop {#MyServiceName}"
 Name: "{group}\{#MyAppName} 제거"; Filename: "{uninstallexe}"
 ; 바탕화면 바로가기는 [Code] 섹션에서 .url 파일로 직접 생성 (아이콘 포함)
-; 시작 프로그램에 트레이 아이콘 등록
-Name: "{userstartup}\{#MyAppName} Tray"; Filename: "{app}\Tray\{#MyTrayExeName}"
 
 [Run]
 ; Install and configure the Windows Service (no --urls, port is in appsettings.json)
@@ -89,11 +93,6 @@ Filename: "{sys}\sc.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "서비스 시작 중..."
 
-; Launch tray icon after install
-Filename: "{app}\Tray\{#MyTrayExeName}"; \
-  Description: "DSPilot 트레이 아이콘 실행"; \
-  Flags: postinstall nowait skipifsilent runascurrentuser
-
 ; Open browser after install (optional)
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
@@ -103,12 +102,6 @@ Filename: "{code:GetAppURL}"; \
 Type: files; Name: "{autodesktop}\{#MyAppName}.url"
 
 [UninstallRun]
-; Kill tray app before uninstall
-Filename: "{cmd}"; \
-  Parameters: "/c taskkill /F /IM {#MyTrayExeName} >nul 2>&1"; \
-  Flags: runhidden waituntilterminated; \
-  RunOnceId: "KillTray"
-
 ; Stop the service before uninstall
 Filename: "{sys}\sc.exe"; \
   Parameters: "stop {#MyServiceName}"; \
@@ -190,8 +183,9 @@ begin
 end;
 
 // Write port to appsettings.Production.json after files are installed
-// ASP.NET Core automatically loads this and overrides appsettings.json
-// 업그레이드 시 기존 Production.json이 있으면 사용자 설정 보존 (신규 설치만 생성)
+// ASP.NET Core automatically loads this and overrides appsettings.json.
+// 매 설치마다 강제 갱신 — 옛 경로/옛 Hub 설정이 stale 하게 남아 문제 일으키는 것 방지.
+// Database/Hub 등 다른 섹션은 적지 않음: 코드 기본값(AppSettingsModel/HubSettings)이 단일 정답.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Port: String;
@@ -203,23 +197,10 @@ begin
     Port := GetPort('');
     UrlsValue := 'http://*:' + Port;
     ProdJsonPath := ExpandConstant('{app}\appsettings.Production.json');
-    if not FileExists(ProdJsonPath) then
-      SaveStringToFile(ProdJsonPath,
-        '{' + #13#10 +
-        '  "Urls": "' + UrlsValue + '",' + #13#10 +
-        '  "DsPilot": {' + #13#10 +
-        '    "AasxFilePath": "../DsCSV_0318_C.aasx"' + #13#10 +
-        '  },' + #13#10 +
-        '  "Database": {' + #13#10 +
-        '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
-        '  }' + #13#10 +
-        '}' + #13#10, False);
-    // Tray 앱에도 동일한 설정 파일 복사 (포트 정보 공유)
-    if not FileExists(ExpandConstant('{app}\Tray\appsettings.Production.json')) then
-      SaveStringToFile(ExpandConstant('{app}\Tray\appsettings.Production.json'),
-        '{' + #13#10 +
-        '  "Urls": "' + UrlsValue + '"' + #13#10 +
-        '}' + #13#10, False);
+    SaveStringToFile(ProdJsonPath,
+      '{' + #13#10 +
+      '  "Urls": "' + UrlsValue + '"' + #13#10 +
+      '}' + #13#10, False);
 
     // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
     SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),
@@ -234,14 +215,23 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
+  OldAppSettings: String;
+  OldProdSettings: String;
 begin
-  // 업그레이드 시 트레이 앱 종료
-  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM {#MyTrayExeName} >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(3000);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // 옛 appsettings 잔여물 제거 — 옛 plc.db 경로/옛 Hub 설정이 stale 하게 남아 신규 기본값을 가리는 사고 방지.
+  // appsettings.json 은 첫 부팅 시 AppSettingsService.EnsureSettingsFiles 가 현재 코드 기본값으로 재생성한다.
+  // appsettings.Production.json 은 CurStepChanged 에서 Urls 만 담아 새로 쓴다.
+  OldAppSettings := ExpandConstant('{app}\appsettings.json');
+  if FileExists(OldAppSettings) then DeleteFile(OldAppSettings);
+  OldProdSettings := ExpandConstant('{app}\appsettings.Production.json');
+  if FileExists(OldProdSettings) then DeleteFile(OldProdSettings);
+
   Sleep(1000);
   Result := '';
 end;

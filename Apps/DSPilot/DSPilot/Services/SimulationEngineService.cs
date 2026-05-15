@@ -4,6 +4,7 @@ using DSPilot.Infrastructure;
 using DSPilot.Models;
 using DSPilot.Repositories;
 using Ds2.Core;
+using Ds2.Editor;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
@@ -194,8 +195,11 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
-    /// DsStore 의 모든 IOTag (Out + In) 를 plcTag 테이블에 INSERT — 한 번만.
+    /// DsStore 의 모든 IOTag (Out + In) + UserTag 주소를 plcTag 테이블에 INSERT — 한 번만.
     /// 캐시 _plcTagIdByAddress 채우기.
+    /// UserTag 주소는 IOMap 에 안 들어가지만 Hub 가 Promaker 쪽에서 함께 broadcast 하므로
+    /// 여기서도 plcTag 행을 만들어 줘야 plcTagLog INSERT 가 silent skip 되지 않는다
+    /// (UserTagAlertService 의 폴링 데이터 소스).
     /// </summary>
     private void BootstrapPlcTags(SignalIOMap ioMap)
     {
@@ -208,6 +212,22 @@ public sealed class SimulationEngineService : IDisposable
                 if (!string.IsNullOrEmpty(m.OutAddress)) allAddresses.Add(m.OutAddress);
                 if (!string.IsNullOrEmpty(m.InAddress)) allAddresses.Add(m.InAddress);
             }
+
+            // UserTag 주소 추가 — IOMap 과 중복되면 HashSet 이 자동 dedup.
+            try
+            {
+                var store = _projectService.GetStore();
+                foreach (var r in store.GetAllUserTagsForProject())
+                {
+                    if (!string.IsNullOrWhiteSpace(r.TagAddress))
+                        allAddresses.Add(r.TagAddress.Trim());
+                }
+            }
+            catch (Exception exUt)
+            {
+                _logger.LogWarning(exUt, "[Engine] UserTag 주소 수집 실패 (IOMap 만 plcTag 에 등록)");
+            }
+
             if (allAddresses.Count == 0) return;
 
             using var conn = new SqliteConnection($"Data Source={dbPath}");
@@ -487,20 +507,30 @@ public sealed class SimulationEngineService : IDisposable
         var enteringGoing = args.PreviousState != Status4.Going && args.NewState == Status4.Going;
         var leavingGoing  = args.PreviousState == Status4.Going && args.NewState != Status4.Going;
 
+        // DB write 실패는 in-memory snapshot 과 divergence 를 만들 수 있으므로 명시적 Warn 로그.
+        // (이후 1초 폴링이 snapshot 을 DB 값으로 덮어쓰면서 UI 깜빡임 가능 — 원인 추적 용이하게 기록.)
+        bool dbOk;
         if (enteringGoing)
         {
             RecordGoingStart(callGuid, now);
-            await _dspRepository.UpdateCallStateAsync(callGuid, next);
+            dbOk = await _dspRepository.UpdateCallStateAsync(callGuid, next);
         }
         else if (leavingGoing)
         {
             var (durMs, avg, stdDev) = RecordGoingFinish(callGuid, now);
-            await _dspRepository.UpdateCallWithStatisticsAsync(
+            dbOk = await _dspRepository.UpdateCallWithStatisticsAsync(
                 callGuid, next, durMs, avg, stdDev);
         }
         else
         {
-            await _dspRepository.UpdateCallStateAsync(callGuid, next);
+            dbOk = await _dspRepository.UpdateCallStateAsync(callGuid, next);
+        }
+
+        if (!dbOk)
+        {
+            _logger.LogWarning(
+                "[Engine] dspCall DB write failed: Call={Call} ({Prev}→{New}) — snapshot may diverge until next poll",
+                callName, prev, next);
         }
 
         // 2. Flow 이름 조회 + dspFlow.state 동기화 (디바운스 — micro-gap 점멸 방지)

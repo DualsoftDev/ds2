@@ -1,0 +1,90 @@
+<Window x:Class="Promaker.Spike.DockSpikeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ad="https://github.com/Dirkster99/AvalonDock"
+        Title="Dock Spike — PR-1b" Height="700" Width="1100">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="260"/>
+        </Grid.RowDefinitions>
+
+        <ad:DockingManager x:Name="dockManager"
+                           Grid.Row="0"
+                           AllowMixedOrientation="True">
+            <ad:LayoutRoot>
+                <ad:LayoutPanel Orientation="Horizontal">
+                    <ad:LayoutAnchorablePane DockWidth="240">
+                        <ad:LayoutAnchorable x:Name="explorerAnchor"
+                                             ContentId="explorer" Title="Explorer"
+                                             CanClose="False" CanHide="True"
+                                             CanFloat="True" CanAutoHide="True">
+                            <TextBlock Text="Explorer (anchor)" Margin="8"/>
+                        </ad:LayoutAnchorable>
+                    </ad:LayoutAnchorablePane>
+
+                    <ad:LayoutPanel Orientation="Vertical">
+                        <ad:LayoutDocumentPane>
+                            <ad:LayoutDocument x:Name="canvasDoc"
+                                               ContentId="canvas" Title="Workspace (CanFloat=False, CanClose=False)"
+                                               CanClose="False" CanFloat="False">
+                                <TextBlock Text="Canvas LayoutDocument — 5경로 차단 검증 대상" Margin="8"/>
+                            </ad:LayoutDocument>
+                        </ad:LayoutDocumentPane>
+                        <ad:LayoutAnchorablePane DockHeight="160">
+                            <ad:LayoutAnchorable x:Name="simulationAnchor"
+                                                 ContentId="simulation" Title="Simulation"
+                                                 CanClose="False" CanHide="True" CanFloat="True" CanAutoHide="True">
+                                <TextBlock Text="Simulation (anchor)" Margin="8"/>
+                            </ad:LayoutAnchorable>
+                        </ad:LayoutAnchorablePane>
+                    </ad:LayoutPanel>
+
+                    <ad:LayoutPanel Orientation="Vertical" DockWidth="240">
+                        <ad:LayoutAnchorablePane>
+                            <ad:LayoutAnchorable x:Name="propertyAnchor"
+                                                 ContentId="properties" Title="Properties"
+                                                 CanClose="False" CanHide="True" CanFloat="True" CanAutoHide="True">
+                                <TextBlock Text="Properties (anchor)" Margin="8"/>
+                            </ad:LayoutAnchorable>
+                        </ad:LayoutAnchorablePane>
+                        <ad:LayoutAnchorablePane DockHeight="200">
+                            <ad:LayoutAnchorable x:Name="historyAnchor"
+                                                 ContentId="history" Title="History"
+                                                 CanClose="False" CanHide="True" CanFloat="True" CanAutoHide="True">
+                                <TextBlock Text="History (anchor)" Margin="8"/>
+                            </ad:LayoutAnchorable>
+                        </ad:LayoutAnchorablePane>
+                        <ad:LayoutAnchorablePane>
+                            <ad:LayoutAnchorable x:Name="llmChatAnchor"
+                                                 ContentId="llmchat" Title="LLM Chat"
+                                                 CanClose="False" CanHide="True" CanFloat="True" CanAutoHide="True"
+                                                 IsVisible="False">
+                                <TextBlock Text="LLM Chat — IsVisible=False 검증 대상" Margin="8"/>
+                            </ad:LayoutAnchorable>
+                        </ad:LayoutAnchorablePane>
+                    </ad:LayoutPanel>
+                </ad:LayoutPanel>
+            </ad:LayoutRoot>
+        </ad:DockingManager>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4">
+            <TextBlock Text="수동 검증: 캡션 drag / 우클릭 / double-click / Ctrl+drag / Ctrl+F4 / Ctrl+W 로 LayoutDocument(Workspace) 5경로 차단 확인. "
+                       VerticalAlignment="Center" Margin="2,0,8,0" Foreground="DarkSlateGray"/>
+            <Button x:Name="btnRunAll" Content="자동 검증 재실행" Margin="2" Padding="6,2" Click="RunAllChecks_Click"/>
+            <Button x:Name="btnSerialize" Content="Serialize" Margin="2" Padding="6,2" Click="Serialize_Click"/>
+            <Button x:Name="btnDeserialize" Content="Deserialize + Reconcile" Margin="2" Padding="6,2" Click="Deserialize_Click"/>
+            <Button x:Name="btnToggleLlmChat" Content="Toggle LlmChat IsVisible" Margin="2" Padding="6,2" Click="ToggleLlmChat_Click"/>
+            <Button x:Name="btnFloatCycle" Content="Float 5회 cycle (메모리)" Margin="2" Padding="6,2" Click="FloatCycle_Click"/>
+            <Button x:Name="btnCopyLog" Content="로그 복사" Margin="2" Padding="6,2" Click="CopyLog_Click"/>
+        </StackPanel>
+
+        <TextBox x:Name="logBox" Grid.Row="2"
+                 FontFamily="Consolas" FontSize="11"
+                 IsReadOnly="True" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto"
+                 TextWrapping="NoWrap"/>
+    </Grid>
+</Window>

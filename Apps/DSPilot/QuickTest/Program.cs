@@ -1,7 +1,6 @@
 using Ds2.Core;
 using DSPilot.Services;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 var loggerFactory = LoggerFactory.Create(builder =>
@@ -14,18 +13,11 @@ var loggerFactory = LoggerFactory.Create(builder =>
     builder.SetMinimumLevel(LogLevel.Warning);
 });
 
-var configPath = Path.GetFullPath("../DSPilot/appsettings.json", Environment.CurrentDirectory);
-var configuration = new ConfigurationBuilder()
-    .SetBasePath(Path.GetDirectoryName(configPath)!)
-    .AddJsonFile(Path.GetFileName(configPath), optional: false)
-    .Build();
-
 var dbPath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
     "Dualsoft", "DSPilot", "plc.db");
 
 Console.WriteLine($"DB Path: {dbPath}");
-Console.WriteLine($"AppSettings: {configPath}");
 Console.WriteLine();
 
 using var connection = new SqliteConnection($"Data Source={dbPath}");
@@ -35,7 +27,7 @@ await PrintTableCounts(connection);
 await PrintLogValueSummary(connection);
 var recentTransitionAddress = await PrintRecentTransitionSummary(connection);
 
-var projectService = new DsProjectService(configuration, loggerFactory.CreateLogger<DsProjectService>());
+var projectService = new DsProjectService(loggerFactory.CreateLogger<DsProjectService>());
 await PrintSignalMappingSummary(connection, projectService);
 
 if (!string.IsNullOrWhiteSpace(recentTransitionAddress))

@@ -36,6 +36,9 @@ public static class SettingsPaths
     /// <summary>실 PLC 연결 다이얼로그가 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을 저장.
     /// Promaker 재실행 시 같은 값으로 다시 채워져 사용자 입력 부담 감소.</summary>
     public static string PlcConnection                   => Of("PlcConnection.json");
+    /// <summary>Monitoring 모드 PLAY 시 트레이 전환 확인 다이얼로그의 "다시 묻지 않기" 상태.
+    /// 단순 boolean (파일 존재 = true) — 사용자가 다시 묻고 싶으면 파일 삭제.</summary>
+    public static string TrayConsentSuppress             => Of("trayConsentSuppress.txt");
     public static string SplitDeviceAasx                 => Of("splitDeviceAasx.txt");
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");

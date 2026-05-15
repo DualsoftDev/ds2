@@ -306,6 +306,15 @@
     private List<int>? _displayLaneOrderCache;
     private List<GanttChartItem>? _sortedItemsForDisplayCache;
 
+    // Lane 별 GoingStartTime 정렬 캐시 — 바 클릭(SelectItem) 마다 CalculateItemGaps(item) 가
+    // 같은 Lane 의 아이템을 filter + sort + FindIndex 했는데, 데이터가 변하지 않으면 매번 동일 결과.
+    // 데이터 로드/Flow 변경 시 한 번만 빌드하고 클릭 시에는 dictionary lookup 만.
+    private Dictionary<int, List<GanttChartItem>>? _itemsByLaneSortedCache;
+
+    // (TagAddress, EventType) 별 GoingStartTime 정렬 캐시 — AutoMatchCycleTime 이 매 클릭마다
+    // 전체 _ganttData.Items 를 filter + sort 했던 hot path 제거. 정렬된 리스트에서 binary search 로 다음 발생 찾기.
+    private Dictionary<(string TagAddress, IOEventType EventType), List<GanttChartItem>>? _itemsByTagEventCache;
+
     // 차트 base SVG (bars + axis + lanes + idle regions). 데이터/정렬 변경 시에만 재구성.
     // 외부 <svg> 태그까지 포함해 통째로 MarkupString 으로 갈아끼움 — SVG inner content 의
     // namespace diff 문제(동일 SVG 안에 MarkupString 만 바뀌어도 시각적으로 갱신이 안 되는 케이스) 회피.
@@ -337,26 +346,36 @@
     {
         _displayLaneOrderCache = null;
         _sortedItemsForDisplayCache = null;
+        _itemsByLaneSortedCache = null;
+        _itemsByTagEventCache = null;
     }
 
     protected override async Task OnInitializedAsync()
     {
+        // Lazy load: 페이지 렌더를 블록하지 않도록 무거운 DB 쿼리는 firstRender 뒤로 미룬다.
+        // OnInitializedAsync 에서는 in-memory 항목(Flow 리스트) 만 채워 페이지 골격이 즉시 표시되게 함.
+        // 실제 Gantt 데이터는 OnAfterRenderAsync(firstRender=true) 에서 background 로드 → StateHasChanged.
         await LoadFlows();
-
-        // 첫 번째 Flow가 자동 선택된 경우 1회만 로딩 (이후 자동 갱신 없음 — 사용자 선택 시에만 새로고침)
-        if (!string.IsNullOrEmpty(_selectedFlowName))
-        {
-            // 디폴트 범위: DB 최신 로그 시각 - 1분 ~ 최신 로그 시각.
-            // (실시간 + 이력 데이터 양쪽에서 의미 있음 — DB 가 비었으면 DateTime.Now 폴백)
-            _chartEndTime = await GetEffectiveLatestTimeAsync();
-            _chartStartTime = _chartEndTime.AddMinutes(-1);
-
-            await LoadGanttData();
-        }
     }
+
+    /// <summary>첫 렌더 후 1회만 초기 Gantt 데이터 로드를 시도하기 위한 플래그.</summary>
+    private bool _pendingInitialLoad = true;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && _pendingInitialLoad)
+        {
+            _pendingInitialLoad = false;
+            if (!string.IsNullOrEmpty(_selectedFlowName))
+            {
+                // 첫 화면이 그려진 다음에 실제 데이터 로드 — 사용자 입장에서는 페이지가 먼저 뜨고
+                // 그 위에서 로딩 스피너가 보임 (Blazor Server 의 OnInitializedAsync 블록 회피).
+                _chartEndTime = await GetEffectiveLatestTimeAsync();
+                _chartStartTime = _chartEndTime.AddMinutes(-1);
+                await LoadGanttData();
+            }
+        }
+
         if (_needsCrosshairInit && _ganttData != null && _ganttData.Items.Any())
         {
             _needsCrosshairInit = false;
@@ -925,18 +944,33 @@
     {
         if (_ganttData == null) return;
 
-        var nextOccurrence = _ganttData.Items
-            .Where(i => i.TagAddress == item.TagAddress
-                      && i.EventType == item.EventType
-                      && i.GoingStartTime > item.GoingStartTime)
-            .OrderBy(i => i.GoingStartTime)
-            .FirstOrDefault();
-
-        if (nextOccurrence != null)
+        // 데이터가 바뀌지 않으면 (TagAddress, EventType) 별 정렬은 동일 — 1회 빌드 후 binary search.
+        if (_itemsByTagEventCache is null)
         {
-            _comparisonItem = nextOccurrence;
-            _comparisonGap = (nextOccurrence.GoingStartTime - item.GoingStartTime).TotalMilliseconds;
+            _itemsByTagEventCache = _ganttData.Items
+                .GroupBy(i => (i.TagAddress, i.EventType))
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(i => i.GoingStartTime).ToList());
         }
+
+        if (!_itemsByTagEventCache.TryGetValue((item.TagAddress, item.EventType), out var sortedGroup))
+            return;
+
+        // 정렬된 리스트에서 item.GoingStartTime 보다 큰 첫 번째 항목 binary search.
+        var pivot = item.GoingStartTime;
+        int lo = 0, hi = sortedGroup.Count;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) >>> 1;
+            if (sortedGroup[mid].GoingStartTime > pivot) hi = mid;
+            else lo = mid + 1;
+        }
+        if (lo >= sortedGroup.Count) return;
+
+        var nextOccurrence = sortedGroup[lo];
+        _comparisonItem = nextOccurrence;
+        _comparisonGap = (nextOccurrence.GoingStartTime - item.GoingStartTime).TotalMilliseconds;
     }
 
     private void CalculateItemGaps(GanttChartItem item)
@@ -948,13 +982,20 @@
 
         if (_ganttData == null) return;
 
-        // 같은 Lane 내에서만 이전/다음 아이템을 찾아 gap 계산 (병렬 Lane 간 무의미한 gap 제외)
-        var sameLaneItems = _ganttData.Items
-            .Where(i => i.Lane == item.Lane)
-            .OrderBy(i => i.GoingStartTime)
-            .ToList();
+        // 같은 Lane 내에서만 이전/다음 아이템을 찾아 gap 계산 (병렬 Lane 간 무의미한 gap 제외).
+        // 데이터가 바뀌지 않으면 정렬 결과가 동일하므로 Lane→List 캐시 1회 빌드 후 클릭 시 lookup 만.
+        if (_itemsByLaneSortedCache is null)
+        {
+            _itemsByLaneSortedCache = _ganttData.Items
+                .GroupBy(i => i.Lane)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(i => i.GoingStartTime).ToList());
+        }
+        if (!_itemsByLaneSortedCache.TryGetValue(item.Lane, out var sameLaneItems))
+            return;
 
-        var index = sameLaneItems.FindIndex(i => i == item);
+        var index = sameLaneItems.FindIndex(i => ReferenceEquals(i, item));
         if (index == -1) return;
 
         if (index > 0)

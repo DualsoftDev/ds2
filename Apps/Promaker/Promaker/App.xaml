@@ -8,6 +8,14 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/Theme.Dark.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <!-- v16 — AvalonDock Metro theme 의 BaseColor1(White) / BaseColor7(#EEEEEE) 가
+                 document pane 과 splitter 주변에 두꺼운 흰 선으로 노출되는 문제를 앱 배경색으로 억제. -->
+            <SolidColorBrush x:Key="AvalonDock_ThemeMetro_BaseColor1" Color="{DynamicResource PrimaryBackgroundColor}"/>
+            <SolidColorBrush x:Key="AvalonDock_ThemeMetro_BaseColor7" Color="{DynamicResource PrimaryBackgroundColor}"/>
+            <!-- v13 — AvalonDock Metro theme floating window inactive title text 가 BaseColor2(Black) 로 하드코딩되어
+                 다크 배경 위에서 안 보이는 문제. App level 에서 같은 key 로 SolidColorBrush 재정의 (DynamicResource lookup
+                 으로 floating Window 에도 propagate). -->
+            <SolidColorBrush x:Key="AvalonDock_ThemeMetro_BaseColor2" Color="#CCCCCC"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

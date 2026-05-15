@@ -31,7 +31,7 @@ public partial class Home
                 var env = Converter.ReadEnvironmentFromBytes(originalBytes);
                 if (env is null) { SetStatus($"{file.Name}: 읽기 실패", "error"); continue; }
 
-                EnsureErrorDefinitions(env);
+                EnsureUserTags(env);
                 var json = Converter.EnvironmentToJson(env);
                 await ApplyEnvironmentAsync(env, json, file.Name);
                 _isExternalAasx = !IsDsAasx(env);
@@ -58,7 +58,7 @@ public partial class Home
             var env = Converter.JsonToEnvironment(json);
             if (env is null) return;
 
-            EnsureErrorDefinitions(env);
+            EnsureUserTags(env);
             json = Converter.EnvironmentToJson(env);
             await ApplyEnvironmentAsync(env, json, lastFile.FileName);
             _currentFileId = lastFile.Id;

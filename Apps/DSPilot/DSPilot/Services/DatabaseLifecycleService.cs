@@ -14,6 +14,7 @@ public sealed class DatabaseLifecycleService
     private readonly DspDbService _dspDbService;
     private readonly DspDatabaseServiceAdapter _bootstrap;
     private readonly DspRepositoryAdapter _dspRepository;
+    private readonly DsProjectService _projectService;
     private readonly AppSettingsService _settingsService;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly IHubContext<MonitoringHub> _hubContext;
@@ -25,6 +26,7 @@ public sealed class DatabaseLifecycleService
         DspDbService dspDbService,
         DspDatabaseServiceAdapter bootstrap,
         DspRepositoryAdapter dspRepository,
+        DsProjectService projectService,
         AppSettingsService settingsService,
         IDatabasePathResolver pathResolver,
         IHubContext<MonitoringHub> hubContext,
@@ -34,6 +36,7 @@ public sealed class DatabaseLifecycleService
         _dspDbService = dspDbService;
         _bootstrap = bootstrap;
         _dspRepository = dspRepository;
+        _projectService = projectService;
         _settingsService = settingsService;
         _pathResolver = pathResolver;
         _hubContext = hubContext;
@@ -63,7 +66,17 @@ public sealed class DatabaseLifecycleService
             var dbPath = _pathResolver.GetSharedDbPath();
             _settingsService.DeleteDatabase(dbPath);
 
-            // 4. 스키마 + AASX 재적재 — DspDatabaseServiceAdapter.BootstrapAsync 가 다 처리
+            // 4. AASX 디스크 재로딩 — Promaker 가 갱신한 모델을 in-memory DsStore 에 반영
+            if (File.Exists(_projectService.AasxFilePath))
+            {
+                _projectService.LoadProject(_projectService.AasxFilePath);
+            }
+            else
+            {
+                _logger.LogWarning("[DBLifecycle] AASX 파일이 없습니다: {Path}", _projectService.AasxFilePath);
+            }
+
+            // 5. 스키마 + AASX → dspFlow/dspCall 재적재
             var ok = await _bootstrap.BootstrapAsync();
             if (!ok)
             {
@@ -71,10 +84,10 @@ public sealed class DatabaseLifecycleService
                 return new RebuildResult(false, "AASX 재로딩 실패 — 로그 확인");
             }
 
-            // 5. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
+            // 6. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
             _engineService.TryEnsureInitialized();
 
-            // 6. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
+            // 7. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
             try
             {
                 await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");

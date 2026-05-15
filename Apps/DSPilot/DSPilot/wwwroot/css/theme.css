@@ -20,6 +20,7 @@
     /* Surfaces */
     --color-background: #F5F5F5;
     --color-surface: #FFFFFF;
+    --color-surface-variant: #F5F5F5;
     --color-lines: rgba(0, 0, 0, 0.12);
 
     /* AppBar */
