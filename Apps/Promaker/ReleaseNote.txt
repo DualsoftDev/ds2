@@ -1,2 +1,15 @@
 # Promaker Release Notes
 
+--------------------------------------------------
+[v0.1.1] 2026-05-15 14:27:27
+Previous: vPromaker_0.0.0.21
+--------------------------------------------------
+Promaker v0.1.1 배포
+
+- 모델링 / 데이터 포맷
+  - Promaker .yaml 저장 포맷 도입 (JSON ↔ YAML round-trip 폐쇄성 회복)
+  - Protocol export 완결성 보강 (PLC metadata / CallCondition / IRI 정규화 / enum helper / ApiCall / TokenRole)
+- LLM Chat 활성화 기본 ON (ENABLE_LLM 환경변수 가드 제거)
+- AAS → PLC 변환 통합 (AAStoPLC)
+- Dock layout 안정화: floating dock 후 main 활성화 (#155)
+
