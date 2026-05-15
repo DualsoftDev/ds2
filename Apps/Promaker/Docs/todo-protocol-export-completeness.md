@@ -100,6 +100,17 @@
 4. *4-set 명시 lossy* → 意
 5. *PLC 코드 생성 메타* → メ (사용자 명시 설정만 必 으로 격상)
 
+**Read-time 노출 분류 (보존 4분류와 직교한 차원, 2026-05-15 plan 산출)**:
+
+본 4분류 (必/派/意/メ) 는 *export 보존 정책* (round-trip 시 의미 손실 차단) 차원. 이와 직교한 **read-time 노출 분류** (LLM 모델링 부담 최소화) 가 별도 차원으로 존재.
+
+- **modeling**: A 그룹 — LLM 의 모델 동작 의미 표현에 직결 (CallCondition / ContactKind / SkipInputSensor / CallType / ApiDefActionType / TokenRole). default 시 emit 생략은 그대로.
+- **addressing**: B 그룹 — IOTag 등 PLC 어드레스 매핑. *modeling 의미와 별개* 지만 round-trip 보존 필요.
+- **메타**: C 그룹 — `author` / `version` / `iri` / `description` / `apiDetails.description`. 동작 무관.
+- **PLC runtime 설정**: D 그룹 — `plc:` sub-section (4 entity 54 leaf). 동작 무관 (회색 지대 `waitForCompletion` 등은 §7 후속 결정).
+
+본 분류는 본 todo (`todo-protocol-export-completeness.md`) §10.2 #31 `export_model_doc.level` 옵션 구현 시 emit filter 의 SSOT. 보존 4분류 (必/派/意/メ) 는 *어떤 키를 store↔wire round-trip 에서 보존할지*, read-time 분류는 *어떤 키를 LLM 의 modeling-only view 에 노출할지* — 두 차원이 직교하므로 같은 키가 (必 + modeling 제외) 조합도 가능 (예: `workDuration` 은 PoC 가정 의존으로 必, but modeling level 에서는 제외).
+
 ### 4.1.5 schema-shape 결정 phase
 
 - [x] **결정 채택: 옵션 C — dual format (default 시 string scalar 유지 / non-default 시 object 승격)** — 2026-05-14 phase 1 산출
@@ -274,6 +285,8 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | **partial export 상호작용** (m7) | 미결 | `exportToJsonScoped` depth=2 에서 work 내부 신규 키 절단 정책 |
 | **Mermaid export 표현** (m8) | 미결 | `ModelProtocol.Mermaid.fs` 가 CallCondition 분기를 graph 노드로 표현할지 |
 | **`Work.AuxKind` (PLC metadata)** | naming 혼동 정리 — 실제는 `AuxPortMapEntry.AuxKind: string` (02_Control.fs:190), Work entity property 아님 | §4.1 メ 카테고리 (PLC metadata) 로 분리. Work 차원이라는 표현 사용 금지 |
+| **D 회색 지대 — `Call.waitForCompletion` ↔ `calls[].callType.WaitForCompletion`** (2026-05-15 결정) | 명백 의미 중복 (이름·의미 동일). `Call.waitForCompletion` 은 D PLC group (`yaml-protocol-v0.md` §2.2.2 Call plc table) 의 leaf, `callType` 은 A 必 group (`yaml-protocol-v0.md` §2.2.1 / §2.4.1 CallType enum) | **결정 완료**: `waitForCompletion` 은 modeling level 노출 *제외* (D PLC group 의 일부로 처리). full level 에서는 round-trip 보존 위해 노출 유지. SSOT 통일은 후속 phase (양쪽 store mutation 동기화 필요) |
+| **D 회색 지대 잔여 6 항목** — Work pulse 4 (`usePulseControl` 등) / Work IOTag 4 (`inTagName` 등) / Work timeout 3 / Work `controlMode` / `callDirection` / Call `enableConditional`+`conditionExpression` (모두 `yaml-protocol-v0.md` §2.2.2 Work/Call plc table) | A 필수와 의미 중복 또는 동작 의미 가능성 | 본 plan scope 외 — `waitForCompletion` 결정 패턴 답습 가능 (modeling 제외, full 보존). 의미 통일은 별도 SSOT 정리 phase |
 
 ---
 
@@ -295,13 +308,13 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | §4.2 C-5 CallType / ApiDefActionType | ✅ 완료 (2026-05-14) — SimulationCallProperties.CallType + Passive apiDetails (actionType / description) |
 | §4.2 C-6 leaf 키 (단순) | ✅ 완료 (2026-05-14) — Project.Author/Version + DsSystem.IRI + Work.TokenRole. ReferenceOf / Project.TokenSpecs 등 복잡 항목 별도 phase |
 | §4.2 C-7.1 PLC metadata leaf scalar | ✅ 완료 (2026-05-14) — 4 entity (ControlSystem/Flow/Work/Call) leaf scalar 54건 emit/apply. type-default 비교 + dual format (Call) + TimeSpan ISO grammar (`"00:00:05"`). runtime-only 4건 제외 (派). 복합 collection (`FBTagMapPresets` / `BaseAddressOverride` / `InterlockConditions` / `SignalCounts`) **별도 phase (C-7.2)** 로 분리 |
-| §4.2 C-7.2 PLC 복합 collection | ⏳ — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — 복합 객체 + ResizeArray 다중) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`). C-7.1 진입 전 §4.1.5 schema-shape 재결정 필요 (FBTagMapPreset 자체가 IwPatterns / QwPatterns / MwPatterns / AuxPortMap 등 ResizeArray 컴포지트 — wire 표현 복잡도 크다) |
+| §4.2 C-7.2 PLC 복합 collection | ⏸ **보류 (당분간 구현 계획 없음, 2026-05-15)** — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — 복합 객체 + ResizeArray 다중) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`). 진입 시 §4.1.5 schema-shape 재결정 필요 (FBTagMapPreset 자체가 IwPatterns / QwPatterns / MwPatterns / AuxPortMap 등 ResizeArray 컴포지트 — wire 표현 복잡도 크다). 본 turn 산출 안 (§10.6 참조): **안 1 권장** — C-7.2a (SignalCounts/InterlockConditions/BaseAddressOverride) + C-7.2b (FBTagMapPresets 별도) 분리. 재진입 시 본 안 검토부터 |
 | §4.2 C-8 Yaml/YamlIO 자동 흡수 검증 | ✅ 완료 (PC7 산출물 — generic transformer / wiring only 확정) |
 | §4.3 TC-1 capturer 보강 | ✅ 완료 (`8e360aa` + C-7.1) — `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` + 4 entity `PlcXxxSummary` 비교 확장 |
 | §4.3 TC-2 round-trip 테스트 | ✅ 완료 (2026-05-15) — Phase 7 신규 9건 + `8e360aa` 후속 M-F 7분기 + `9d12093` [<Theory>] 분리 / negative test 3건 / `ApiCallCount` guard + 추가 negative test 4건 + C-7.1 round-trip 4건 + all-default 1건 + plc negative theory 5건 + **#17/#18/#19** (Passive plc round-trip + `Some ""` vs `None` + plc type 위반 3건) + **M1 IRI 3 case Theory** (`""` / `null` / 부재). **ModelProtocolTests 111/111 통과** (전체 377/377) |
 | §4.3 TC-3~6 추가 보강 | ⏳ — 전수 매트릭스 / fixture / wiring 부분 잔존 |
-| §4.4 자가 검열 (trigger ②③④⑤) | ✅ 완료 (총 8회 위임 — C-1/C-2 / C-3 / C-4-5-6 / 외부 review / `9d12093` / `71ee9fa` / C-7.1 / **#13~#20 통합 + M-1**. 모두 Critical/Major 0건. **2026-05-15 외부 메타리뷰** (`--review` N=3) 산출 Major 4 / Minor 9 — M1/M2/M3/R2 본 phase 처리, M4 반론 docstring 만 후속, 나머지 #21~#26 등록) |
-| commit (사용자 명시 시) | ✅ 완료 (`906b327` / `5d01ca8` / `322c7ca` / `8e360aa` / `9d12093` / `71ee9fa` / `bb82365` C-7.1, **2026-05-15 #13~#20 + M-1 + 외부 메타리뷰 후속 — `--gc` 대기**). upstream 미설정 — push 보류 |
+| §4.4 자가 검열 (trigger ②③④⑤) | ⚠ **부분 완료 — 본 turn `a65ce25` (PlcMetadata SSOT 분리) sub-agent review 미수행**. 이전 8회 위임 (C-1/C-2 / C-3 / C-4-5-6 / 외부 review / `9d12093` / `71ee9fa` / C-7.1 / `1a726fd`) 모두 Critical/Major 0건. 본 turn 트리거 ②③ 충족 (5 신규 + 7 file) — 사용자 지시 시 sub-agent 위임 |
+| commit (사용자 명시 시) | ✅ 완료 (`906b327` / `5d01ca8` / `322c7ca` / `8e360aa` / `9d12093` / `71ee9fa` / `bb82365` C-7.1 / `1a726fd` #13~#20 통합 / **`a65ce25` 본 turn #22/#26/#25/#24** (2026-05-15)). **#7 옵션 a (`Project.Version` SSOT 통합) 코드 변경 완료, commit 미완 (`--gc` 대기)**. upstream 미설정 — push 보류 |
 | §7 후속 결정 항목 해결 | ⏳ |
 
 ---
@@ -319,7 +332,20 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 ### 10.1 현재 상태 (2026-05-15 기준)
 
-**2026-05-15 추가 turn — `1~8 까지 연속 진행` 사용자 지시로 follow-up 8건 + M-1 + 외부 메타리뷰 (`--review` N=3) Major 4/Minor 9 처리**:
+**2026-05-15 plan 산출 — Read level 옵션 + Write 누락 방지 plan 확정 (`--plan` 모드)**: 본 todo (`todo-protocol-export-completeness.md`) §2 분류 (A 必 / B IOTag / C 메타 / D PLC) 기반의 *read-time 노출 분류* 직교 차원 도입 결정. `export_model_doc.level: "modeling" | "full"` (R1 — 2단) + `view: modeling` apply 시 *patch merge semantic* (missing 키 = 변경 없음) 신설. Write 누락 방지는 W1 (LLM_PROMPT 강화 `Apps/Promaker/Promaker/LlmAgent/Prompts/*.md`) + W2 (SSOT `yaml-protocol-v0.md` §2.4.1 enum 동작 의미 컬럼) 조합. **사용자 결정사항** (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 `waitForCompletion` 도 modeling 제외 (본 todo §7 결정 row 등록). modeling 결과의 생략 안내 metadata 부재 (LLM_PROMPT 로 정책 일임). 본 todo §10.2 #29/#30/#31 후속 phase 등록.
+
+**2026-05-15 추가 turn 2 — A/B/C 카테고리 진입 (`a65ce25` + #7-a 코드 변경)**:
+- **카테고리 A (C-7.2 + SourceGenerator) 보류 결정** — schema-shape 재결정 단계 산출만 (todo §10.6 안 1/2/3). C-7.2 자체는 당분간 구현 계획 없음 — 재진입 시 안 1 (C-7.2a/C-7.2b 분리) 부터 검토.
+- **카테고리 C (#22/#26/#24)** — 모두 docstring/test boilerplate 류, 빠르게 처리.
+  - **#22** `lookupById` vs `requireFromStoreOrPlan` 의도된 비대칭 (plan-first/Optional vs store-first/invalidOp) docstring. 통합 보류 — 시점/반환타입 차이 우선 해소 필요.
+  - **#26** `Ds2.LlmAgent.Internal` namespace 책임 경계 (assembly 내부 한정 / public 노출 금지 / 위치 가이드) docstring 추가 — `PlanLookup.fs` 첫머리.
+  - **#24** `mkPlcSystemNegYaml` (Replace 기반, sprintf 회피) helper 로 negative theory 6 fixture frame 압축. **F# sprintf 의 yaml 안 character `%X` placeholder 오인 회피** 위해 sprintf 대신 placeholder Replace 사용 (todo §10.6 신규 가이드 추가).
+- **카테고리 B (#25)** — `PlcMetadata.fs` (internal namespace) 신설 (PlcLeafKind/PlcLeaf + 4 leaves table 54건) → ModelProtocol/ModelEquivalence 양측 hardcode 제거. SSOT 4 위치 → 1 위치 완전 통합 (production 3 + capturer 1). InternalsVisibleTo 정책: 이미 `[<assembly: InternalsVisibleTo("Ds2.LlmAgent.Tests")>]` 설정 — 추가 결정 불필요.
+- **#7 (옵션 a)** `defaultProjectVersion = Project("").Version` 모듈 상단 + emit 측 비교 통일. `Project` 의 internal constructor `(name: string)` 이라 dummy `""` 인자 필요. 옵션 b (enum default 통일) 는 type-safe SSOT 라 ROI 낮음 — 보류.
+- **commit `a65ce25`** — #22/#26/#25/#24 묶음 (7 file, 199+/240−). #7-a 는 별도 commit 미완.
+- **카테고리 A 보류 결정**: 재진입 시 todo §10.6 안 1/2/3 검토부터. wire 표현 권장표 (안 1 채택 시 — SignalCounts dict-of-int / InterlockConditions array / BaseAddressOverride nested object) 본 turn 산출 — todo 본문에는 반영 안 함 (재진입 시 다시 논의).
+
+**2026-05-15 추가 turn 1 — `1~8 까지 연속 진행` 사용자 지시로 follow-up 8건 + M-1 + 외부 메타리뷰 (`--review` N=3) Major 4/Minor 9 처리**:
 - **#14** `parseCallCondition` 진단 키 잔여 3건 `joinDiagKey` 치환 + **M-1 follow-up 14건** 일괄 (`path + "." + key` SSOT 전부 통일)
 - **#15** `lookup*ById` 5종 → generic `lookupById` + 5 wrapper alias (`Queries.getXxx` 시그니처 일관성 활용)
 - **#16** IRI 빈 string 정규화 — `applyStringOptProp` 신설 (description 패턴 답습) + emit 측 `Option.filter` 가드. **외부 review M1+M2 반영**: `applyNonEmptyStringProp` 으로 rename + null 분기 추가 (reset semantic) + docstring 강화. IRI 3 case Theory 1건 (3 InlineData) 추가
@@ -352,7 +378,9 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - `9d12093` Phase 7 §4.2 후속 — leading-dot fix + Theory 분리 + invariant guard
 - `71ee9fa` Phase 7 §4.2 후속 — helper SSOT 부분 일원화 + negative-test 보강
 - `bb82365` Phase 7 §4.2 C-7.1 — PLC metadata leaf scalar (54 leaf) emit/apply + SSOT 갱신
-- **2026-05-15 — `--gc` 대기**: follow-up 8건 (#13~#20) + M-1 (`path + "." + key` 14건 일괄) + 외부 메타리뷰 후속 (M1+M2 rename / M3 doc / R2 invariant)
+- `1a726fd` Phase 7 §4.2 후속 #13~#20 통합 — PlanLookup module / lookup* generic / PLC SSOT metadata table / IRI 정규화 (turn 1 산출)
+- `a65ce25` Phase 7 §4.2 후속 #22/#26/#25/#24 — docstring + PlcMetadata SSOT internal 분리 (turn 2 산출)
+- **2026-05-15 — `--gc` 대기**: #7 옵션 a (`defaultProjectVersion = Project("").Version` + emit 측 비교 통일). 1 hunk 추가 + 1 hunk 변경
 
 **테스트**: `ModelProtocolTests` 111/111 통과 (전체 `Ds2.LlmAgent.Tests` 377/377). 회귀 0건.
 
@@ -369,7 +397,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | ~~4~~ | ~~M-F 별도 phase — 추가 negative-test 4건~~ | ✅ 완료 (`71ee9fa`) | enum 라벨 위반 3건 + shape 위반 1건. 359/359 통과 |
 | ~~5~~ | ~~§4.3 TC-1 capturer 보강~~ | ✅ 완료 (`8e360aa` + C-7.1) | `CallDetail` + `ApiDefDetails` + `SystemShape.IRI` + `StoreShape.ProjectAuthor·Version` + 4 entity `PlcXxxSummary` 비교 확장 |
 | ~~6.1~~ | ~~**C-7.1 PLC metadata leaf scalar (4 entity × 54 leaf)**~~ | ✅ 완료 (`--gc` 대기) | 4 entity (System 23 / Flow 2 / Work 21 / Call 8) 단순 leaf scalar emit/apply. type-default 비교 + `plc:` sub-section + TimeSpan `"00:00:05"` grammar + Call dual format 합성 + runtime 4건 제외 (派). SSOT §1.7/§2.2.2 신설/§2.7 룰 #25~#28 + capturer 4 entity + 신규 테스트 10건. 자가 검열 통과 (Critical/Major 0건) |
-| **6.2** | **C-7.2 PLC 복합 collection** — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — IwPatterns/QwPatterns/MwPatterns/AuxPortMap 다중 ResizeArray 포함) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`) | 大 (별도 phase 분량) | §4.1.5 schema-shape 재결정 필요 — FBTagMapPreset 자체가 IwPatterns/QwPatterns/MwPatterns + AuxPortMapEntry/SignalPatternEntry/FBBaseAddressSet 복합. 진입 전 wire 표현 검토 (dict-of-object vs array-of-pair 등) |
+| **6.2** | ⏸ **보류 (당분간 구현 계획 없음, 2026-05-15)** **C-7.2 PLC 복합 collection** — `FBTagMapPresets` (System, `Dictionary<string, FBTagMapPreset>` — IwPatterns/QwPatterns/MwPatterns/AuxPortMap 다중 ResizeArray 포함) / `BaseAddressOverride` (Flow, `FBBaseAddressSet option`) / `InterlockConditions` (Work, `string array`) / `SignalCounts` (Call, `Dictionary<string, int>`) | 大 (별도 phase 분량) | 재진입 시 §10.6 안 1 (C-7.2a/C-7.2b 분리) 검토부터. wire 표현 권장 (안 1 채택 시): SignalCounts dict-of-int / InterlockConditions array / BaseAddressOverride nested object / FBTagMapPresets 별도 phase. 진입 시 §4.1.5 schema-shape 재결정 + sub-agent review 의무 |
 | **7** | **별도 phase 분리 항목** (외부 review 등록) | 中~大 | SSOT magic literal 분리 / IRI 시점 비대칭 / 테스트 helper 일반화 |
 | ~~8~~ | ~~`ApiCalls[0]` PoC invariant guard~~ | ✅ 완료 | `CallDetail.ApiCallCount: int` 필드 추가 |
 | ~~9~~ | ~~enum parser-error / IRI non-string negative test~~ | ✅ 완료 | [<Theory>] 3건 |
@@ -385,16 +413,25 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | **19** | **C-7.1 후속 — plc type 위반 negative 추가 (bool/float/string\|null)** | 小 (Theory case 3건) | 현재 `int 기대` 1 case 만. helper 동일 패턴이라 silent drift 위험 낮음 but Theory case 3건 추가로 coverage 강화 |
 | ~~20~~ | ~~C-7.1 후속 — PLC SSOT 4 위치 분산 통합~~ | ✅ 부분 완료 (2026-05-15) | production 측 3 위치 (emit/apply/hasNonDefault) → 1 위치 (`PlcLeaf<'cp>` SSOT) 통합. capturer (test project) 는 **#25** 로 분리 |
 | **21** | **M1+M2 외부 review** | ✅ 완료 (2026-05-15) | `applyStringOptProp` → `applyNonEmptyStringProp` rename + null 분기 추가 + docstring 강화. IRI 3 case (`""` / `null` / 부재) Theory 1건 (3 InlineData) — round-trip + emit 시 `iri` 키 부재 검증 포함 |
-| **22** | **M4 외부 review — plan-first vs store-first SSOT 분산** — `ModelProtocol.lookupById` (plan-first → store) vs `ToolOperations.requireFromStoreOrPlan` (store-first → plan) 두 정책 합리적 의도된 비대칭 (apply 단계 vs commit 후 require). **반론**: 통합 시 의미 손실 위험. docstring 명문화 만 권장 (각 helper 의 사용 시나리오 명시) | 小 (docstring 만) | 통합 시 의미 통일 손실. helper 통합은 보류 — 사용 시점 docstring 추가 정도 |
-| **23** | **m1 외부 review — leaves table getter/setter mirror lambda 108개 압축** — F# 8 reflection 한계상 현 형태 합리. 후속 SourceGenerator 도입 시 자동 생성 후보 | 大 (SourceGenerator 도입) | F# 8 LangVersion 제약 — type provider 또는 별도 build step 필요 |
-| **24** | **m3 외부 review — plc Theory 신규 case Controller/Cyl1 boilerplate** — `mkPlcYaml` helper 압축 후보. 가독성 trade-off | 小 (test helper) | 8 yaml fixture 의 공통 부분 압축 — yaml string template helper 도입 |
-| **25** | **capturer (test project `ModelEquivalence`) leaves table 통합** — production 측 #20 후속. test project 가 `Ds2.LlmAgent.Internal` 참조 가능하면 같은 leaves table 재사용 검토 (internal scope 노출 정책 결정 필요). 또는 `[<assembly: InternalsVisibleTo("Ds2.LlmAgent.Tests")>]` 추가 | 中 (정책 + refactor) | SSOT 4 위치 → 1 위치 완전 통합. ROI = capturer 54 leaf 중복 제거 |
-| **26** | **m6 외부 review — `Ds2.LlmAgent.Internal` namespace 책임 경계 docstring** — `PlanLookup.fs` 가 첫 inhabitant. namespace 정책 (assembly 내부 한정, public API 노출 금지) 명문화 | 小 (docstring) | 첫 사용 시점에 정책 정립 — 후속 internal helper 위치 결정 가이드 |
+| ~~22~~ | ~~M4 외부 review — plan-first vs store-first SSOT 분산~~ | ✅ 완료 (`a65ce25`) | `lookupById` + `requireFromStoreOrPlan` 두 helper 의 의도된 비대칭 (검색 순서/반환타입 차이) docstring 명문화. 통합 시 의미 손실 위험 명시 — 통합은 시점/반환타입 차이 해소 후에만 |
+| **23** | **m1 외부 review — leaves table getter/setter mirror lambda 108개 압축** — F# 8 reflection 한계상 현 형태 합리. 후속 SourceGenerator 도입 시 자동 생성 후보. **카테고리 A 보류 (2026-05-15)** | 大 (SourceGenerator 도입) | F# 8 LangVersion 제약 — type provider 또는 별도 build step 필요. 본 turn 보류 결정 |
+| ~~24~~ | ~~m3 외부 review — plc Theory 신규 case Controller/Cyl1 boilerplate~~ | ✅ 완료 (`a65ce25`) | `plcSystemNegFrame` + `mkPlcSystemNegYaml` (Replace 기반, sprintf 회피) helper 로 6 fixture 압축. **F# sprintf 의 yaml 안 character 가 `%X` placeholder 로 오인되는 이슈** (예: `kind:` 의 `:` 처리 등) 회피 — Replace 사용. 가독성 trade-off 균형: frame 잡음 제거가 더 큼 |
+| ~~25~~ | ~~capturer (test project `ModelEquivalence`) leaves table 통합~~ | ✅ 완료 (`a65ce25`) | `PlcMetadata.fs` (namespace `Ds2.LlmAgent.Internal`) 신설 — PlcLeafKind/PlcLeaf + 4 leaves table 54건 SSOT. ModelProtocol 자체 정의 제거 + `open` alias. ModelEquivalence 의 `summarizePlcXxx` 4함수 → `summarizePlcLeaves` + `leafToString` 1쌍으로 SSOT 통합. SSOT 4 위치 → 1 위치 완전 통합. InternalsVisibleTo 이미 설정됨 (정책 결정 불필요) |
+| ~~26~~ | ~~m6 외부 review — `Ds2.LlmAgent.Internal` namespace 책임 경계 docstring~~ | ✅ 완료 (`a65ce25`) | `PlanLookup.fs` 첫머리에 namespace 정책 (assembly 내부 한정, public API 노출 금지, 위치 가이드, 후속 module 추가 시 docstring 갱신 의무) 명문화 |
+| ~~27~~ | ~~**#7 옵션 a — `Project.Version` SSOT 통합**~~ | ✅ 코드 변경 완료 (`--gc` 대기) | `defaultProjectVersion = Project("").Version` 모듈 상단 + emit 측 `p.Version <> defaultProjectVersion`. `Project` 의 internal constructor `(name: string)` 이라 dummy `""` 인자. Entities.fs 의 default 변경 시 자동 추적. 옵션 b (enum default 통일 — `defaultCall = Call()` 등 5 entity instance 추가) 는 type-safe SSOT 라 ROI 낮음 — 보류 |
+| **28** | **자가 검열 sub-agent review (`a65ce25`)** — trigger ②③ 충족 (5 신규 + 7 file). PlcMetadata SSOT 분리는 ModelProtocol/ModelEquivalence 양측 동시 영향 — 누락 leaf / 동작 차이 검증 의무. **사용자 지시 시 위임** | 中 (위임 1회 + 결과 반영) | trigger ④ (dispatch 재작성) ⑤ (public API/SSOT 갱신) 미충족이라 위임 *권장*. 다만 SSOT 분리 자체가 silent drift 위험 영역이라 review 가치 있음 |
+| **29** | **Read level 옵션 + Write 누락 방지 plan W2 — `yaml-protocol-v0.md` §2.4.1 enum 동작 의미 컬럼 신설** — A 5 enum (CallConditionType / ContactKind / CallType / ApiDefActionType / TokenRole) 에 *제어 동작 의미* 컬럼 신설. AutoAux/ComAux 의 `02_Control.fs:179,187` 게이팅 차이 / ContactKind 5종의 신호 평가 방식 / CallType 의 시퀀스 진행 정책 / ApiDefActionType 6종의 동작 종류 / TokenRole 의 Petri-net 의미 명문화. LLM_PROMPT (본 todo §10.2 #30) 가 본 표 인용 가능. 비파괴 SSOT 갱신 | 小 (`yaml-protocol-v0.md` 갱신만) | W2 단독 — wire schema / 코드 변경 0. 본 todo §10.2 #30/#31 의 사전 작업 |
+| **30** | **Write 누락 방지 plan W1 — `Apps/Promaker/Promaker/LlmAgent/Prompts/*.md` 강화** — 3 항목: ① A 必 7 항목 분류 표 (`yaml-protocol-v0.md` §2.4.1 인용) + non-default 명시 의무 / ② `export_model_doc(level: "modeling")` 결과 의미 (B/C/D/workDuration 영역 생략, modify 시 보존) / ③ `apply_model_doc` 의 `view: modeling` patch merge semantic (missing 키 = 변경 없음, entity 제거/rename 은 `patch:` DSL 사용). 진입 시 Prompts 폴더 Glob 으로 대상 file 산출 후 phase 분할 결정 | 中 (Promaker app 측 file — protocol SSOT 와 별도 PR 권장) | W1 의 핵심 — modeling level 결과의 *생략 안내 metadata 부재* 보완 포함. 본 todo §10.2 #31 정착 후 진입 권장 (level 정책 SSOT 확정 후 prompt 작성) |
+| **31** | **Read level + modeling-level patch merge 도입 (R1 + 신규 apply 분기)** — `export_model_doc.level: "modeling" \| "full" = "full"` 인자 추가. `ModelProtocol.fs` emit 측 A/B/C/D 분류 set + level filter (`yaml-protocol-v0.md` §2.2.2 C-7.1 의 `PlcLeaf` SSOT 패턴 답습 — `PlcMetadata.fs` 참조). `view: modeling` flag 신설. `ModelProtocol.fs` apply 측 `view: modeling` → *patch merge mode* — A 항목 + 골격 mutate, B/C/D/workDuration 영역 store 값 보존 (missing = no-op). `yaml-protocol-v0.md` 7개 절 갱신 (§1.7 / §2.1 / §2.4.1 / §2.6 / §2.8 / §4 / §6.3). `ModelEquivalence.fs` capturer 분기 (level 별 비교 mask) + `ModelProtocolTests.fs` 신규 round-trip 테스트 (modeling round-trip + modeling-then-full merge 시나리오 + full level 회귀 가드). **sub-phase 분할**: 31-S1 SSOT schema 결정 (sub-agent review 1회 의무) / 31-S2 emit filter / 31-S3 apply merge / 31-S4 SSOT 본문 + 테스트 (sub-agent review 1회 의무) | 大 (public API + SSOT 다절 + 신규 apply 의미 분기) | 자가 검열 trigger ②③④⑤ 4건 모두 충족 — sub-agent review **2회 의무** (S1 schema 결정 시점 + S4 최종 commit 전). sub-phase 단위 분리 commit 권장. **신규 entity 추가 시 B/C/D 처리**: type-default 자동 적용 (기존 `ControlXxxProperties()` 빈 생성자 호출 패턴 답습 — `02_Control.fs`) |
 
 ### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
 
-**Helper 위치 invariant** (forward-ref 회피 — `ModelProtocol.fs`. **2026-05-15 갱신**: #13/#15/#20 + M3 외부 review 반영. line range 는 추가 refactor 후 재산출):
-- **PlanLookup module (`PlanLookup.fs`, namespace `Ds2.LlmAgent.Internal`, #13 신설)**: `tryFindInPlan` / `tryFindSystem` / `tryFindFlow` / `tryFindWork` / `tryFindApiDef` / `tryFindCall` / `tryFindProject` 7종. `ToolOperations.fs` + `ModelProtocol.fs` 양쪽이 file-scoped alias 로 참조.
+**Helper 위치 invariant** (forward-ref 회피 — `ModelProtocol.fs`. **2026-05-15 갱신 (turn 2)**: #13/#15/#20/#25 + M3/m6 외부 review 반영. line range 는 추가 refactor 후 재산출):
+- **`Ds2.LlmAgent.Internal` namespace (assembly 내부 한정, m6 외부 review docstring)**:
+  - `PlanLookup.fs` (namespace `Ds2.LlmAgent.Internal.PlanLookup`, #13 신설): `tryFindInPlan` / `tryFindSystem` / `tryFindFlow` / `tryFindWork` / `tryFindApiDef` / `tryFindCall` / `tryFindProject` 7종.
+  - `PlcMetadata.fs` (namespace `Ds2.LlmAgent.Internal.PlcMetadata`, **#25 신설 turn 2**): `PlcLeafKind<'cp>` DU (9 case) + `PlcLeaf<'cp>` record + 4 leaves table (`plcSystemLeaves` 23 / `plcFlowLeaves` 2 / `plcWorkLeaves` 21 / `plcCallLeaves` 8 = 54 leaf). `ModelProtocol.fs` 는 `open PlcMetadata` 로 case 직접 사용. `ModelEquivalence.fs` (test) 는 `open Ds2.LlmAgent.Internal` 후 `PlcMetadata.plcSystemLeaves` 등 참조 — `[<assembly: InternalsVisibleTo("Ds2.LlmAgent.Tests")>]` 으로 노출.
+  - fsproj `Compile Include` 순서: `PlanLookup.fs` → `PlcMetadata.fs` → `KnownSugars.fs` → `ToolOperations.fs` → `ModelProtocol.Yaml.fs` → `ModelProtocol.fs`.
+- **`defaultProjectVersion` (모듈 상단, **turn 2 #7-a**)**: `let private defaultProjectVersion = Project("").Version` — `Project` 의 `internal (name)` constructor 호출 (Ds2.Core InternalsVisibleTo 가 Ds2.LlmAgent 포함). emit 측 비교 통일 SSOT.
 - `ApplyContext` 정의 직후 (line ~340): `tryFindCallInPlan` / `tryFindApiDefInPlan` / `tryFindProjectInPlan` / `tryFindSystemInPlan` / `tryFindWorkInPlan` / `tryFindFlowInPlan` (6종 — PlanLookup alias) / `callTypeOf` / `setCallType`.
 - **`lookupXxxById` 6종 (#15 generic 통합 + #13 후속 lookupFlowById 추가 — M3 외부 review)**: line ~395 즈음. `lookupById planFinder storeFinder ctx id` generic helper + 6 wrapper (`lookupSystemById` / `lookupCallById` / `lookupApiDefById` / `lookupProjectById` / `lookupWorkById` / `lookupFlowById`).
 - `joinDiagKey` / `applyStringProp` / `applyEnumProp` / `applyNonEmptyStringProp` (line ~410~440): leaf 키 setter 패턴 통합. **#16/M1/M2 외부 review**: `applyNonEmptyStringProp` (구 `applyStringOptProp`) 는 IRI 등 wire 정규화 정책 — `null`/`""`/부재 모두 None. `readStringOptKey` (plc) 와 정반대 정책 (PoC 보존). 같은 `string option` 도메인이라도 *wire 정규화 vs PoC 보존* 두 정책 공존.
@@ -452,7 +489,7 @@ cd /f/Git/ds2/yaml-save && dotnet test Solutions/Tests/Ds2.LlmAgent.Tests/Ds2.Ll
 cd /f/Git/ds2/yaml-save && dotnet test Solutions/Tests/Ds2.LlmAgent.Tests/Ds2.LlmAgent.Tests.fsproj --nologo
 ```
 
-**현재 baseline** (commit `bb82365` 기준): ModelProtocolTests 103/103 / 전체 Ds2.LlmAgent.Tests 369/369 통과. 빌드 경고 0 / 오류 0.
+**현재 baseline** (commit `a65ce25` 기준 + 미커밋 #7-a 1 hunk): ModelProtocolTests 111/111 / 전체 Ds2.LlmAgent.Tests 377/377 통과. 빌드 경고 0 / 오류 0.
 
 ### 10.5 신규 round-trip 테스트 추가 패턴
 
@@ -493,8 +530,29 @@ let ``Phase 7 §4.2 C-N — 보강 항목 round-trip`` () =
 
 ### 10.6 진입 전 추가 권장 작업
 
-- **C-7.2 진입 전 schema-shape 재결정 필수**: 복합 collection 4종 — `FBTagMapPresets` (Dictionary<string, FBTagMapPreset>) / `BaseAddressOverride` (FBBaseAddressSet option) / `InterlockConditions` (string array) / `SignalCounts` (Dictionary<string, int>). 각 wire 표현 후보 (dict-of-object / array-of-pair / nested object / 단순 array) 검토 + dual format 확장 정책. 단순 leaf scalar (C-7.1) 와 달리 wire 표현 자유도 크고 LLM 부담 증가 가능 — schema 결정 단계 (§4.1.5 식 별도 phase) 권장.
-- **C-7.1 후속 SSOT 통합 검토 (#20)**: emit/apply/hasNonDefault/capturer 의 54 leaf list 중복. C-7.2 진입 시 metadata table (`[(name, getter, setter, default, emitter, parser, summarizer)]`) 패턴 도입 — C-7.2 의 복합 collection 도 같은 table 로 통합 가능. ROI 가 더 큼.
+- **C-7.2 ⏸ 보류 (당분간 구현 계획 없음, 2026-05-15)**. 재진입 시 schema-shape 재결정 단계부터 — 복합 collection 4종 — `FBTagMapPresets` (Dictionary<string, FBTagMapPreset>) / `BaseAddressOverride` (FBBaseAddressSet option) / `InterlockConditions` (string array) / `SignalCounts` (Dictionary<string, int>). 각 wire 표현 후보 (dict-of-object / array-of-pair / nested object / 단순 array) 검토 + dual format 확장 정책.
+
+  **재진입 시 검토할 안 (turn 2 산출, 채택 보류)**:
+  - **안 1 (권장 — 분리)**: C-7.2a (SignalCounts/InterlockConditions/BaseAddressOverride 3 collection) + C-7.2b (FBTagMapPresets 단독 phase). C-7.2a 는 `PlcLeafKind` 에 `LStringArray` / `LIntDict` / `LBaseAddressOverride` 3 case 추가로 `PlcLeaf` 패턴 자연 확장. C-7.2b 는 별도 dispatcher (FBTagMapPreset 자체가 9 property + 3 ResizeArray of complex record + Dictionary + AST option 의 깊은 nested). PoC 단계 사용 빈도 낮은 FBTagMapPresets 분리.
+  - **안 2 (4 collection 일괄, 大 분량)**: 모두 한 phase. helper 갯수 폭증 (15+), 자가 검열 trigger ②③④⑤ 모두 강하게 충족, sub-agent review 의무.
+  - **안 3 (JSON pass-through, 反대)**: 복합 collection 을 store 의 `JsonConvert.SerializeObject` 결과로 wire 박아넣음. Promaker schema 의도 (declarative YAML) 위배 + LLM 부담 ↑ + SSOT (yaml-protocol-v0.md §1.1) 모순 — **반대 권장**.
+
+  **wire 표현 권장 (안 1 채택 시, C-7.2a 한정)**:
+  | Collection | Wire | default 정책 |
+  |---|---|---|
+  | `SignalCounts` (Call) | `signalCounts: { ADV: 4, RET: 2 }` (dict-of-int) | 비어있으면 키 생략. apply 측 `OrdinalIgnoreCase` 보존 |
+  | `InterlockConditions` (Work) | `interlockConditions: [str1, str2]` (array) | 빈 array 면 키 생략 |
+  | `BaseAddressOverride` (Flow) | `baseAddressOverride: { input: %IW0.0.0, output: %QW0.0.0, memory: %MW100 }` (nested object) | None 이면 키 생략 |
+
+  → 모두 entity 의 `plc:` sub-section 안 (C-7.1 정합).
+
+- **C-7.1 후속 SSOT 통합 (#20/#25)**: ✅ **완료** (`1a726fd` + `a65ce25`). production 측 3 위치 + capturer 1 위치 모두 1 위치 (`PlcLeaf<'cp>` SSOT in `PlcMetadata.fs`) 로 통합. C-7.2 재진입 시 같은 `PlcLeaf` 패턴 (또는 신규 `PlcCollectionKind` DU) 자연 확장.
 - 본 todo 의 **§7 후속 결정 항목 표** 에 *partial export (`exportToJsonScoped` depth) 와 신규 키 상호작용 — m7* / *Mermaid export 가 CallCondition 분기 표현 정책 — m8* 등이 미해결. C-7.2 와 직접 연관성 없으나 별도 결정 필요. `Work.AuxKind` 카테고리는 C-7.1 진입 전 `AuxPortMapEntry.AuxKind` 로 정리 완료 — `FBTagMapPreset.AuxPortMap` 의 복합 객체 안 property 라 C-7.2 scope.
-- **C-7.1 follow-up 4건 (#17~#20)**: Passive plc round-trip 직접 테스트 (#17) / `Some ""` vs `None` 명시 round-trip (#18) / plc type 위반 negative 3건 추가 (#19, bool/float/string|null) / SSOT 4 위치 분산 통합 (#20). 모두 Minor — C-7.2 직전에 일괄 처리 권장 (helper 통합 ROI 와 함께).
+- **C-7.1 follow-up 4건 (#17~#20)**: ✅ **모두 완료** (turn 1 `1a726fd` 일괄 처리). Passive plc round-trip / `Some ""` vs `None` 명시 round-trip / plc type 위반 negative 3건 / SSOT 통합 (production 3→1).
+
+### 10.7 코드 작성 가이드 (turn 2 산출)
+
+- **F# `sprintf` + triple-quoted yaml string 사용 금지** (#24 산출). yaml 안 임의 character 가 `%X` placeholder 로 추론될 수 있어 sprintf 가 partial application 으로 잘못 컴파일됨 (예: `mkPlcSystemNegYaml` 시 `string -> string` warning + 잘못된 결과). **대안**: `let frame = """..."""` 분리 + `frame.Replace("__KEY__", value)`. test fixture / yaml builder 헬퍼 작성 시 일괄 답습.
+- **`Project` 등 entity 의 internal constructor 호출** (#7-a 산출): `Ds2.Core` 의 `[<assembly: InternalsVisibleTo("Ds2.LlmAgent")>]` 덕분에 `Project("")` / `DsSystem("")` 등 dummy name 호출 가능. entity-default SSOT 로 사용 시 dummy 인자 (`""`) 정합 — Version/IRI 등 별도 property 만 사용.
+- **`Ds2.LlmAgent.Internal` namespace 신규 module 추가 시** (m6 외부 review #26 정합): module 정의 자체는 `module internal Xxx`, 외부 노출 의도 없음. 첫 사용 시점에 `PlanLookup.fs` docstring 의 "위치 가이드" row 도 함께 갱신. 두 개 이상의 file-scoped private helper 가 동일 의도/시그니처로 중복 시 본 namespace 로 승격 — 단일 파일 helper 는 그대로 유지.
 - **#13~#16 (이전 phase follow-up)**: namespace internal module (`tryFindXxxInPlan` SSOT 완전 일원화 — #13) / `parseCallCondition` joinDiagKey 잔여 3건 (#14) / `lookup*ById` generic 통합 (#15) / IRI 빈 string 정규화 정책 (#16). C-7.2 진입 전 정리 권장 — `parsePlcXxx` 가 `lookup*ById` 패턴과 유사 (entity get-or-create + Properties mutate) 하므로 SSOT 통합 효과 ↑.
