@@ -2536,6 +2536,103 @@ systems:
     Assert.Equal(ApiDefActionType.Pulse, advAfter.ApiDefActionType)
 
 [<Fact>]
+let ``#31 TC-3 — enhancedYaml 전수 property full-level round-trip (ModelEquivalence)`` () =
+    // 보강 항목 (author / version / iri / tokenRole / workDuration / contactKind / callType /
+    // inTag / apiDetails.actionType / apiDetails.description) 모두 default 와 다른 값 세팅.
+    // exportToJson → apply → captureShape 양쪽 동등 검증.
+    // **TC-3 의 핵심 의도** (todo §4.3): genSampleStore + roundTripShape 가 lossy 4-set 외 모든
+    // mutable property 를 cover — 본 phase 의 보강 키가 captureShape 에 반영되므로 round-trip 누락 자동 발견.
+    let store = DsStore()
+    let _ = parseApplyCommit store enhancedYaml
+    let a, b = ModelEquivalence.roundTripShape store
+    let diffs = ModelEquivalence.diff a b
+    Assert.True(diffs.IsEmpty, sprintf "round-trip shape mismatch: %A" diffs)
+
+[<Fact>]
+let ``#31 TC-4 — modeling 키 부재 wire 는 full level 의 정상 round-trip 통과 (legacy 호환)`` () =
+    // Phase 7 의 modeling level 도입이 *modeling 키 없는 legacy wire* 의 동작을 변경하지 않음을 보장.
+    // singleCylinderYaml (Phase 7 보강 키 0건) apply → 정상 commit + roundTripShape 동등.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let a, b = ModelEquivalence.roundTripShape store
+    let diffs = ModelEquivalence.diff a b
+    Assert.True(diffs.IsEmpty, sprintf "legacy shape mismatch: %A" diffs)
+    // emit wire 에 Phase 7 의 *기본값* 으로 등장하는 키 (level 자체) 부재 검증
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    Assert.DoesNotContain("\"level\"", raw)
+
+[<Fact>]
+let ``#32 — modeling level cross-system call resolve (plan-only ApiDef reuse 시나리오)`` () =
+    // **#32 reproducer (사용자 review 권장)**: 빈 store + modeling level wire 한 안에서
+    // Passive (Cyl1) 와 Active (Controller) 동시 정의 + Controller.work.calls 가 Cyl1.ADV 참조.
+    // 처리 순서: buildSystems → Cyl1 cascade (plan 에 ApiDef add) → buildActiveFlows → Controller
+    // work.calls resolve → resolveApiDef 가 ctx.Systems."Cyl1".ApiDefIds 에서 ADV.Id lookup.
+    // 본 시나리오는 plan-by-name fallback 의 직접 hit 은 아니나 (entry.ApiDefIds 가 누적된 결과 사용),
+    // modeling level 의 cross-system call resolve 정합성을 보장 — #32 변경 후에도 정상 동작.
+    let yaml = """
+protocol: promaker/v0
+level: modeling
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Adv:
+          calls:
+            - ref: Cyl1.ADV
+              contactKind: NcContact
+        Ret:
+          calls: [Cyl1.RET]
+      arrows:
+        - Adv -> Ret : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let cyl1 = Queries.passiveSystemsOf proj.Id store |> List.head
+    let run = Queries.flowsOf ctrl.Id store |> List.head
+    let adv = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    let advCall = Queries.callsOf adv.Id store |> List.head
+    let cyl1Adv = Queries.apiDefsOf cyl1.Id store |> List.find (fun d -> d.Name = "ADV")
+    // Call 의 ApiCalls[0].ApiDefId 가 Cyl1 의 ADV ApiDef Id 와 일치 (cross-system resolve 성공)
+    Assert.True(advCall.ApiCalls.Count > 0, "Adv Call 의 ApiCalls 비어있음")
+    Assert.Equal(Some cyl1Adv.Id, advCall.ApiCalls.[0].ApiDefId)
+    // A_Modeling 보강 (contactKind) 도 적용
+    Assert.Equal(ContactKind.NcContact, advCall.ApiCalls.[0].ContactKind)
+
+[<Fact>]
+let ``#31 TC-5 — singleCylinderYaml fixture emit 에 Phase 7 신규 키 부재 (silent emit drift 차단)`` () =
+    // 기존 legacy fixture (Phase 7 보강 키 0건) 가 round-trip 후에도 *새 키 emit 0* 보장.
+    // 보강 키 누군가가 default 변경 시 본 테스트 즉시 실패 — silent drift 차단 회귀 가드.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    use exported = ModelProtocol.exportToJson store
+    let raw = exported.RootElement.GetRawText()
+    // Phase 7 §10.2 #31 신규 키 부재
+    Assert.DoesNotContain("\"level\"", raw)
+    // Phase 7 §4.2 C-3~C-6 신규 키 부재 — singleCylinderYaml 에서 보강 0 이므로 default-skip 정책 정합
+    Assert.DoesNotContain("\"tokenRole\"", raw)
+    Assert.DoesNotContain("\"contactKind\"", raw)
+    Assert.DoesNotContain("\"skipInputSensor\"", raw)
+    Assert.DoesNotContain("\"callType\"", raw)
+    Assert.DoesNotContain("\"callCondition\"", raw)
+    Assert.DoesNotContain("\"inTag\"", raw)
+    Assert.DoesNotContain("\"outTag\"", raw)
+    Assert.DoesNotContain("\"author\"", raw)
+    Assert.DoesNotContain("\"version\"", raw)
+    Assert.DoesNotContain("\"iri\"", raw)
+    Assert.DoesNotContain("\"apiDetails\"", raw)
+    Assert.DoesNotContain("\"plc\"", raw)
+    // Call dual format 도 string scalar 유지 (object 승격 0)
+    Assert.DoesNotContain("\"ref\"", raw)
+
+[<Fact>]
 let ``#31 S4-T11 — modeling apply 로 Work.tokenRole 변경 (A_Modeling round-trip)`` () =
     // 1. singleCylinderYaml 로 base — Adv.TokenRole = None (entity-default)
     let store = DsStore()

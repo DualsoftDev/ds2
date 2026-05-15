@@ -1,4 +1,6 @@
-# TODO — ModelProtocol export 도메인 완결성 보강
+# DONE — ModelProtocol export 도메인 완결성 보강
+
+> **상태**: Phase 7 §4.2 (C-1 ~ C-7.1) + §10.2 #31 (Read level + modeling-level patch merge) + #32 (modeling lookup plan/store 합집합) + TC-3~6 완료. 미완료 항목 (#6.2 PLC 복합 collection / #23 SourceGenerator / #29 §2.4.1 enum 동작 의미 컬럼 / #30 LLM_PROMPT 강화 / §7 후속 결정 m7/m8/D 회색 지대 6 항목) 은 §10.2 잔여 list 참조. todo → done 전환 (2026-05-15) 산출 — 본 보강의 *기능적 완결성* 도달 (modeling level emit/apply round-trip + silent destructive 차단 + 388→392 test 통과).
 
 > 본 문서는 `done-yaml-save-format.md` 후속 작업. `.yaml`/`.json` 저장 경로의 *의도된 lossy 4-set* (GUID / position / alias / 시뮬 결과) 외에 **암묵적으로 누락되어 있는 도메인 데이터** 를 식별하고 emit/apply 양방향 보강.
 >
@@ -109,7 +111,7 @@
 - **메타**: C 그룹 — `author` / `version` / `iri` / `description` / `apiDetails.description`. 동작 무관.
 - **PLC runtime 설정**: D 그룹 — `plc:` sub-section (4 entity 54 leaf). 동작 무관 (회색 지대 `waitForCompletion` 등은 §7 후속 결정).
 
-본 분류는 본 todo (`todo-protocol-export-completeness.md`) §10.2 #31 `export_model_doc.level` 옵션 구현 시 emit filter 의 SSOT. 보존 4분류 (必/派/意/メ) 는 *어떤 키를 store↔wire round-trip 에서 보존할지*, read-time 분류는 *어떤 키를 LLM 의 modeling-only view 에 노출할지* — 두 차원이 직교하므로 같은 키가 (必 + modeling 제외) 조합도 가능 (예: `workDuration` 은 PoC 가정 의존으로 必, but modeling level 에서는 제외).
+본 분류는 본 todo (`done-protocol-export-completeness.md`) §10.2 #31 `export_model_doc.level` 옵션 구현 시 emit filter 의 SSOT. 보존 4분류 (必/派/意/メ) 는 *어떤 키를 store↔wire round-trip 에서 보존할지*, read-time 분류는 *어떤 키를 LLM 의 modeling-only view 에 노출할지* — 두 차원이 직교하므로 같은 키가 (必 + modeling 제외) 조합도 가능 (예: `workDuration` 은 PoC 가정 의존으로 必, but modeling level 에서는 제외).
 
 ### 4.1.5 schema-shape 결정 phase
 
@@ -332,7 +334,17 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 ### 10.1 현재 상태 (2026-05-15 기준)
 
-**2026-05-15 turn 3 — Phase 7 §10.2 #31 Read level + modeling-level patch merge 본구현 완료 (`2ff0caf` + 본 turn `--gc` 대기)**:
+**2026-05-15 turn 4 — Phase 7 §10.2 #32 (modeling lookup plan/store 합집합) + TC-3~6 (회귀 가드 보강) 완료 (`--gc` 대기)**:
+- **#32** — `Ds2.LlmAgent.Internal.PlanLookup` 에 name-by-plan helper 5종 (`tryFindSystemByName` / `tryFindFlowByName` / `tryFindWorkByLocalName` / `tryFindApiDefByName` / `tryFindCallByApiDef`) 신설. `ModelProtocol.fs` 의 5 dispatch lookup-first 분기 (`dispatchActiveSystem` / `dispatchPassiveSystem` / `dispatchActiveFlows` Flow / `dispatchWork` Work / `dispatchWork` Call) 가 모두 *store + plan 합집합* (Option.orElseWith chain). `dispatchPassiveSystem` modeling reuse 시 `entry.ApiDefIds` 누적이 plan 측 `AddApiDef` 도 포함 (cross-system forward-ref 회귀 가드). Active/Passive kind 충돌 검증에 `LinkSystemToProject` plan op 추적 추가. 현 회귀 시나리오 부재 (collectSystems wire invariant + 2-pass forward-ref 가 cover) — *방어적 SSOT* 역할 + future-proof (multi-stage apply / cross-call ApiDef forward-ref 도입 시 회귀 차단).
+- **TC-3** — `enhancedYaml` (보강 키 모두 default-non-default) round-trip ModelEquivalence 동등 검증 (full level). genSampleStore 패턴 부분 흡수 — A_Modeling 보강 키 round-trip 회귀 가드.
+- **TC-4** — `singleCylinderYaml` (Phase 7 보강 키 0건) round-trip ModelEquivalence 동등 + emit wire 의 `level` 키 부재 검증 (legacy 호환).
+- **TC-5** — `singleCylinderYaml` fixture 의 emit wire 에 Phase 7 신규 키 12개 (`level` / `tokenRole` / `contactKind` / `skipInputSensor` / `callType` / `callCondition` / `inTag` / `outTag` / `author` / `version` / `iri` / `apiDetails` / `plc` / `ref`) 모두 부재 검증. silent emit drift 차단 회귀 가드.
+- **TC-6** — `ModelProtocolYamlIOTests` 6/6 통과 (기존 wiring 회귀 0건).
+- **외부 review round 3 처리**: ① `defaultValue false` 비대칭 fail-safe 주석 추가 (2 site, Active/Passive) / ③ `LinkSystemToProject` 추적 중복 → `PlanLookup.tryFindSystemLinkKind` helper 추출 (2 site 치환, F# Option chain `Option.map not |> Option.defaultValue false` 패턴). dead code (`tryFindApiDefByName`) 유지 (대칭 SSOT 가치 + future-proof docstring 강화). Flow/Work helper 추출 / plan 누적 비용 — 현 상태 유지 (사용자 권고 정합).
+- **테스트**: `ModelProtocolTests` 122 → **126/126 통과** (신규 4 — TC-3/TC-4/TC-5 + #32 reproducer). 전체 `Ds2.LlmAgent.Tests` 388 → **392/392 통과**. 회귀 0건.
+- **자가 검열 trigger**: ②③④ 충족 / ⑤ 약함 (PlanLookup internal — public API 표면 변경 0, SSOT yaml-protocol-v0.md 변경 0). sub-agent review 의무 약함 — 사용자 직접 review (3 round) 로 대체 + Critical 0건 확인.
+
+**2026-05-15 turn 3 — Phase 7 §10.2 #31 Read level + modeling-level patch merge 본구현 완료 (`2ff0caf` + `7284cf9`)**:
 - **S1 schema 결정** (sub-agent review 1회 의무) — view/level 직교 2-키 / 4 카테고리 (A_Modeling / B_Addressing / C_Meta / D_Plc) / patch-merge mode (missing 키 no-op + entity lookup-first) / B/C/D 키 wire 등장 사전 거부. **사용자 결정사항 5건 (D1~D5)** + sub-agent review Critical 2 / Major 5 / Minor 6 / 반론 2 처리 — Major-1 (apply 측 patch-merge mode 미구현 silent destructive) 옵션 A 채택 (진짜 patch-merge 구현). C1 (modeling export → full apply silent destructive) 은 apply 측 별도 level 인자 부재 → wire 의 level 키가 self-tagged SSOT → C1 자동 해소.
 - **S2 emit filter** (`2ff0caf` commit 완료) — `ModelingCategory.fs` (public module, namespace `Ds2.LlmAgent.Internal`) 신설. `Category` DU (4 case) + `ExportLevel` DU (Full/Modeling) + `isEmittedIn` / `formatLevel` / `tryParseLevel` / `nonModelingKeys` Map / `categoryLabel`. `ModelProtocol.fs` 의 emit 13 site 에 `if isEmittedIn level X` 가드 + `callHasEnhancement` level 인자 + `exportToJson(Scoped)WithLevel` 신규 public API + 후방 호환 wrapper. `ModelTools.cs` 의 `ExportModelDoc` 에 `level` 인자 추가 + 사전 거부.
 - **S3a wire 거부 가드** (`2ff0caf` commit 완료) — apply 진입부에 `level` 키 검증 (룰 #29) + modeling level wire 의 B/C/D 키 재귀 walk (`walkAndRejectNonModelingKeys`) + 사전 거부 (룰 #30). 검사 순서 (C2): view: partial 우선 → level → B/C/D walk.
@@ -345,7 +357,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 
 
 
-**2026-05-15 plan 산출 — Read level 옵션 + Write 누락 방지 plan 확정 (`--plan` 모드)**: 본 todo (`todo-protocol-export-completeness.md`) §2 분류 (A 必 / B IOTag / C 메타 / D PLC) 기반의 *read-time 노출 분류* 직교 차원 도입 결정. `export_model_doc.level: "modeling" | "full"` (R1 — 2단) + `view: modeling` apply 시 *patch merge semantic* (missing 키 = 변경 없음) 신설. Write 누락 방지는 W1 (LLM_PROMPT 강화 `Apps/Promaker/Promaker/LlmAgent/Prompts/*.md`) + W2 (SSOT `yaml-protocol-v0.md` §2.4.1 enum 동작 의미 컬럼) 조합. **사용자 결정사항** (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 `waitForCompletion` 도 modeling 제외 (본 todo §7 결정 row 등록). modeling 결과의 생략 안내 metadata 부재 (LLM_PROMPT 로 정책 일임). 본 todo §10.2 #29/#30/#31 후속 phase 등록.
+**2026-05-15 plan 산출 — Read level 옵션 + Write 누락 방지 plan 확정 (`--plan` 모드)**: 본 todo (`done-protocol-export-completeness.md`) §2 분류 (A 必 / B IOTag / C 메타 / D PLC) 기반의 *read-time 노출 분류* 직교 차원 도입 결정. `export_model_doc.level: "modeling" | "full"` (R1 — 2단) + `view: modeling` apply 시 *patch merge semantic* (missing 키 = 변경 없음) 신설. Write 누락 방지는 W1 (LLM_PROMPT 강화 `Apps/Promaker/Promaker/LlmAgent/Prompts/*.md`) + W2 (SSOT `yaml-protocol-v0.md` §2.4.1 enum 동작 의미 컬럼) 조합. **사용자 결정사항** (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 `waitForCompletion` 도 modeling 제외 (본 todo §7 결정 row 등록). modeling 결과의 생략 안내 metadata 부재 (LLM_PROMPT 로 정책 일임). 본 todo §10.2 #29/#30/#31 후속 phase 등록.
 
 **2026-05-15 추가 turn 2 — A/B/C 카테고리 진입 (`a65ce25` + #7-a 코드 변경)**:
 - **카테고리 A (C-7.2 + SourceGenerator) 보류 결정** — schema-shape 재결정 단계 산출만 (todo §10.6 안 1/2/3). C-7.2 자체는 당분간 구현 계획 없음 — 재진입 시 안 1 (C-7.2a/C-7.2b 분리) 부터 검토.
@@ -394,7 +406,8 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 - `1a726fd` Phase 7 §4.2 후속 #13~#20 통합 — PlanLookup module / lookup* generic / PLC SSOT metadata table / IRI 정규화 (turn 1 산출)
 - `a65ce25` Phase 7 §4.2 후속 #22/#26/#25/#24 — docstring + PlcMetadata SSOT internal 분리 (turn 2 산출)
 - `2ff0caf` Phase 7 §10.2 #31 S2/S3a — modeling level emit + apply 거부 + Project.Version SSOT (#7-a 흡수, turn 3 첫 commit)
-- **2026-05-15 turn 3 — `--gc` 대기**: #31 S3b (apply patch-merge 본구현 — 5 dispatch lookup-first + Arrow lookup-first + device mismatch 진단) + #31 S4 (SSOT 7개 절 + 신규 테스트 11건) + sub-agent review S4 처리 (M-2/M-3 + Minor #1) + todo §10.2 #31 완료 표시 + #32 (M-1 defer) 등록.
+- `7284cf9` Phase 7 §10.2 #31 S3b/S4 — apply patch-merge + SSOT 7개 절 + 테스트 11건 (turn 3 두번째 commit)
+- **2026-05-15 turn 4 — `--gc` 대기**: #32 (modeling lookup plan/store 합집합 — PlanLookup name-by-plan 5종 + 5 dispatch site 합집합 chain + LinkSystemToProject helper) + TC-3/4/5/#32 reproducer 테스트 4건 + 외부 review round 3 처리 (fail-safe 주석 + helper 추출) + todo→done rename.
 
 **테스트**: `ModelProtocolTests` 111/111 통과 (전체 `Ds2.LlmAgent.Tests` 377/377). 회귀 0건.
 
@@ -437,7 +450,7 @@ CLAUDE.md trigger 평가 — 본 작업은 **②③④⑤ 4건 동시 충족** (
 | **29** | **Read level 옵션 + Write 누락 방지 plan W2 — `yaml-protocol-v0.md` §2.4.1 enum 동작 의미 컬럼 신설** — A 5 enum (CallConditionType / ContactKind / CallType / ApiDefActionType / TokenRole) 에 *제어 동작 의미* 컬럼 신설. AutoAux/ComAux 의 `02_Control.fs:179,187` 게이팅 차이 / ContactKind 5종의 신호 평가 방식 / CallType 의 시퀀스 진행 정책 / ApiDefActionType 6종의 동작 종류 / TokenRole 의 Petri-net 의미 명문화. LLM_PROMPT (본 todo §10.2 #30) 가 본 표 인용 가능. 비파괴 SSOT 갱신 | 小 (`yaml-protocol-v0.md` 갱신만) | W2 단독 — wire schema / 코드 변경 0. 본 todo §10.2 #30/#31 의 사전 작업 |
 | **30** | **Write 누락 방지 plan W1 — `Apps/Promaker/Promaker/LlmAgent/Prompts/*.md` 강화** — 3 항목: ① A 必 7 항목 분류 표 (`yaml-protocol-v0.md` §2.4.1 인용) + non-default 명시 의무 / ② `export_model_doc(level: "modeling")` 결과 의미 (B/C/D/workDuration 영역 생략, modify 시 보존) / ③ `apply_model_doc` 의 `view: modeling` patch merge semantic (missing 키 = 변경 없음, entity 제거/rename 은 `patch:` DSL 사용). 진입 시 Prompts 폴더 Glob 으로 대상 file 산출 후 phase 분할 결정 | 中 (Promaker app 측 file — protocol SSOT 와 별도 PR 권장) | W1 의 핵심 — modeling level 결과의 *생략 안내 metadata 부재* 보완 포함. 본 todo §10.2 #31 정착 후 진입 권장 (level 정책 SSOT 확정 후 prompt 작성) |
 | ~~31~~ | ~~Read level + modeling-level patch merge 도입~~ | ✅ **S1~S4 완료** (sub-agent review 2회 통과 — Critical 0 / Major 처리됨). `ModelingCategory.fs` (4 카테고리 + ExportLevel SSOT) + `exportToJson(Scoped)WithLevel` + apply 측 wire `level:` 키 self-tagged dispatch (별도 인자 없음 — Major-1 해소) + 5 dispatch helper lookup-first + Arrow lookup-first (T8 회귀 발견 fix) + device mismatch 진단 (M-2) + 테스트 11건 (S4-T1~T11). SSOT §1.7 / §2.1 / §2.4.1 / §2.6 / §2.7 룰 #29~#30 / §2.8 4 case 표 / §4 / §6.3. **388/388 통과**. **후속 #32 등록 (M-1 defer)** |
-| **32** | **M-1 후속 — modeling lookup-first 의 plan/store 합집합** | 中 (5 dispatch site + name-by-plan helper) | sub-agent review S4 산출. 현 회귀 시나리오 부재 (`collectSystems` wire invariant + 2-pass forward-ref 가 cover) 로 defer. 후속 phase 가 *multi-stage apply* (예: turn 안 patch + systems 동시 명시) 또는 *cross-call ApiDef forward-ref via plan-only ApiDef* 도입 시 회귀 가능. 처리 방식: 5 dispatch helper 의 modeling 분기에 `tryFindXxxInPlan` (이미 존재 — Guid 기반) + 신규 name-by-plan helper 5종 (system/flow/work/call/apiDef) 추가. `dispatchActiveSystem` / `dispatchPassiveSystem` / `dispatchActiveFlows` Flow / `dispatchWork` Work / `dispatchWork` Call 분기에 `tryFind<X>InPlanByName plan name |> Option.orElseWith (fun () -> findFromStore ...)` chain. 또한 `Ds2.LlmAgent.Internal.PlanLookup` 의 namespace 정책 docstring 도 함께 갱신 (m6 외부 review + ModelingCategory.fs visibility 노출 사실 반영) |
+| ~~32~~ | ~~M-1 후속 — modeling lookup-first 의 plan/store 합집합~~ | ✅ **완료 (2026-05-15 turn 4, `--gc` 대기)** | PlanLookup name-by-plan 5종 (`tryFindSystemByName` / `tryFindFlowByName` / `tryFindWorkByLocalName` / `tryFindApiDefByName` / `tryFindCallByApiDef`) + `tryFindSystemLinkKind` (외부 review m-3) 신설. 5 dispatch helper modeling 분기에 `Option.orElseWith` chain 으로 합집합. `dispatchPassiveSystem` modeling reuse 시 plan 측 `AddApiDef` 도 `entry.ApiDefIds` 누적. kind 충돌 검증에 `LinkSystemToProject` plan op 추적. dead code (`tryFindApiDefByName`) 는 대칭 SSOT 유지 (외부 review #1) — 후속 phase (cross-call ApiDef forward-ref via plan-only) 시점에 호출 발생 가능. **PlanLookup namespace policy docstring 갱신은 본 #32 와 함께 *defer* — `ModelingCategory.fs` visibility 노출 사실 반영은 후속 phase** (PlanLookup 본문에는 `module internal` 그대로 유지, `ModelingCategory.fs` 도 visibility note docstring 그대로). |
 
 ### 10.3 진입 전 필독 — 코드 invariant + PoC scope 가정
 
