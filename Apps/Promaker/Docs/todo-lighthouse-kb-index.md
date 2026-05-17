@@ -11,6 +11,7 @@
 | r3-transfer | 2026-05-17 | 다음 세션 이어받기용 §0 신설. 코드 변경은 여전히 0 (전체 작업은 --plan 모드 안). |
 | r4 | 2026-05-17 | n×m KB 운영 도입 — collection = 사용자가 임의 폴더 선택 (path-based, project 종속 X). 한 폴더 = 1 collection. LlmConfig.KbCollections (OS 사용자 전역) 에 등록. SQLite ATTACH 로 m 개 active union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼) 신설. 원본 사본 정책 폐기 (사용자 폴더 안 원본이 SSOT, `.lighthouse-kb/` 은 index.db + Phase 2 image blob 만). read-only collection: read OK, write (색인/재색인) fail. dock 패널 §4.7 폐기 — KB UI 는 dialog 전용. |
 | r5 | 2026-05-17 | **대안 B 채택 — Phase 1 의 §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 SKIP** (server phase 흡수). parent Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 까지만. Promaker 측 통합 전체는 `todo-lighthouse-kb-server.md` Phase S5 가 단일 SSOT. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway 라 yo-yo / migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 6건 회피. `--inspect-diff 5` 사후 사용자 추가 검증으로 도출. |
+| r6 | 2026-05-17 | `--inspect 3` reviewer 결과 반영 (Critical 6 + Major 23 + Minor 15 = 44건). 주요 갱신: (1) §3.18.2 채택안 (a) r5 SKIP marker 강화 — Phase 1 의 결정사항 아님 명시 (CR1/MA9), (2) §0 보류 항목 표 5→3행 — §4.5 의존 2행 server §4.3 로 이전 (CR1/MA2), (3) 진입 박스 7→9 row 보강 (§3.17/§3.18 추가, §4.6 신설 row, MA10), (4) §3.9 의 ad-hoc Q1/Q2/Q3/D-1 표기에 `r4-` prefix — server §0 D-id namespace 충돌 회피 (MA1), (5) §5 수정 목록을 "Phase 1 본체" vs "r5 SKIP — server phase 흡수" 두 sub-section 으로 분리 (CR1), (6) §7 다음 세션 행동 r5 박제 + grep checklist 강화, (7) §4.8 lib unit test 시나리오 구체화 (a/b/c/d 4 sub-section: parser/FTS5/multi-collection/cross-PR) (MA21), (8) §6.13 박제 fresh marker (2026-05-17) (mn10), (9) §3.15.3 `.promaker-kb/` 잔재 → `.lighthouse-kb/` (mn1), (10) §4.1 의 무관 grep task 제거 (mn5), (11) §4.2a 에 ImageFormat 호출처 전수 grep task 추가 (mn14). server.md 와 동시 갱신 (s0-r3). |
 
 ---
 
@@ -21,14 +22,17 @@
 > | 회귀 단원 | service 도입 후 (요약 hint) |
 > |---|---|
 > | §3.9 (사용자 폴더 = SSOT, 사본 X) | server-side `Collections\<guid>-<title>\` 가 SSOT, 사용자 폴더에 흔적 0 |
-> | §3.10 (MCP tool host = Promaker) | host 위치만 service 로 이동 (tool surface 자체는 동일) |
-> | §3.18.2 (`LlmTurnContext` 에 `KnowledgeBase` 주입) | read-path 가 service 측이라 LlmTurnContext 와 무관 |
+> | §3.10 (MCP tool host = Promaker) | host 위치만 service 로 이동, tool 이름/인자 변경 0, 호출 context 만 session 헤더로 갈음 |
+> | §3.17 (SQLite 운영 — WAL/PRAGMA/재색인) | client write-path SSOT 유지, service read-path 는 read-only ATTACH 만 |
+> | §3.18 (KnowledgeBase facade) | client 측 Indexer facade / service 측 Searcher facade 양분 (`kb-server.md §3.1.2`) |
+> | §3.18.2 (`LlmTurnContext` 에 `KnowledgeBase` 주입) | **회피** — read-path 가 service 측이라 LlmTurnContext 와 무관 |
 > | §4.1 첫 task (`.gitignore` 에 `.lighthouse-kb/` 추가) | **삭제** (사용자 폴더에 안 생김) |
 > | §4.5 (Promaker `AttachmentTools.cs` / `LlmConfig.KbCollections` schema 등) | 큰 폭 재작성 — `kb-server.md` §3.13 참조 |
+> | §4.6 (`5.knowledge-base.md`) | server-side host 명시 + MCP host 2개 정책 (`kb-server.md §3.1.3`) 포함하여 신설 |
 > | §6 m15 (PII 위험) | 강화 (multi-tenant α flat 이라 위험 ↑) |
 > | §6 m16 (schema 불일치) | 완화 (server IndexerVersion gate 가 흡수) |
 >
-> **본 매트릭스는 진입용 hint** — 전체 회귀 매트릭스 SSOT 는 `kb-server.md` §3.14 (10 행). r5 통합 시점에 본 박스 ↔ `kb-server.md` §3.14 동시 갱신 의무.
+> **본 매트릭스는 진입용 hint** — 전체 회귀 매트릭스 SSOT 는 `kb-server.md` §3.14 (11 행, r6/s0-r3 에서 §4.6 row 신설). r5 통합 시점에 본 박스 ↔ `kb-server.md` §3.14 동시 갱신 의무.
 >
 > **본 문서 Phase 1 진입 시점에는 위 회귀를 무시하고 r4 결정대로 진행**. service phase 진입 시점에 본 문서를 r5 로 통합 또는 `kb-server.md` 와 병존 결정.
 
@@ -37,9 +41,9 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: r4 (review 4 round + 사용자 추가 입력 n×m KB 운영 누적 — 6 + 3 + 1 + 1 reviewer = 총 11 reviewer 검증 + r4 design 입력 반영)
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0) — service 도입 design 박제 (r4 위에 얹는 incremental). 본 todo Phase 1 (in-process MVP) 완료 후 진입.
-- **모드**: `--plan` 만 수행 (코드 변경 0, 본 todo 만 갱신). 이전 세션은 본 todo 작성 + 갱신만 진행.
+- **현재 rev**: **r6** (r5 대안 B 위에 `--inspect 3` reviewer Critical 6 + Major 23 + Minor 15 반영. r0~r3 외부 reviewer 11명 + r4/r5 사용자 design 입력 + r6 reviewer 3명 = 누계 14 reviewer 검증)
+- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제 (r5 대안 B 위에 얹는 incremental). 본 todo Phase 1 (lib 본체 + lib unit test 만) 완료 후 진입.
+- **모드**: `--plan` 만 수행 (코드 변경 0, 본 todo 만 갱신).
 - **신규 코드 / 신규 파일 / git stage 변경 — 모두 0**.
 
 ### 사용자가 명시적으로 동의한 결정 (이전 세션에서 확정)
@@ -56,14 +60,19 @@
 11. **n×m KB 운영** (r4) — collection = 사용자 임의 폴더 선택 (path-based, project 종속 X). LlmConfig.KbCollections (OS 사용자 전역) 에 등록. m 개 active → SQLite ATTACH union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼). 원본 사본 없음. read-only collection 은 read OK, write fail.
 12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
 
-### 다음 세션에서 확정해야 할 보류 항목
+### 다음 세션에서 확정해야 할 보류 항목 (Phase 1 lib 본체에 한정)
+
+대안 B (r5) 로 §4.5 / §4.6 SKIP — 그 단원 의존 보류 항목은 본 표에서 제거하고 `kb-server.md §4.3` 미확정 표로 이전.
+
 | 항목 | 위치 | 권장 default | 확정 시점 |
 |---|---|---|---|
 | KnowledgeBase facade 형식 (record-of-functions vs interface) | §3.18.1 | record-of-functions (F# idiomatic) | Phase 1 4.4 진입 |
-| `attachment_*` 의 KB root 도달 경로 — `LlmTurnContext` 확장 (KbCollections 주입) | §3.18.2 | (a) LlmTurnContext 확장 + active collection paths 주입 | Phase 1 4.5 진입 |
 | 본 todo 파일 위치 git mv 여부 (Apps/Promaker/Docs/ → Solutions/Core/Ds2.LightHouse/doc/) | §6.14 | Phase 1 진입 commit 직전 mv | Phase 1 4.1 진입 직전 |
-| ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 업그레이드 여부 | §2, §4.1 | 별 release note 검토 후 결정 | Phase 1 4.1 진입 |
-| SQLite ATTACH limit (default 10) 초과 시 사용자 안내 — UI 경고 vs hard cap | §3.18.2, §4.5 | UI 경고 (Active toggle 시 10번째까지만 허용) | Phase 1 4.5 진입 |
+| ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 업그레이드 여부 (출처 + breaking change 확인) | §2, §4.1 | 별 release note 검토 + nuget list 후 결정 | Phase 1 4.1 진입 |
+
+**server phase 로 이전된 항목** (`kb-server.md §4.3` 미확정 표 참조):
+- `attachment_*` 의 KB root 도달 경로 — server `§3.8` session-based routing 으로 대체 (parent §3.18.2 의 채택안 (a) 는 r5 SKIP)
+- SQLite ATTACH limit (10) 초과 시 안내 — server `§3.8` Q2 의 hard fail 가드로 흡수
 
 ### 다음 세션 즉시 할 일 (4 step)
 1. **본 todo 정독** — 특히 §0 / §3.0 / §3.11 / §3.18.2 / §6 주의 사항 14건
@@ -80,13 +89,11 @@
 - `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active, 318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 진행 중. Phase 1 4.2a 진입 전 그 todo 의 최근 commit 동기화 의무 (§6.12).
 - `Apps/Promaker/Docs/todo-dock-layout.md` — Phase 1 4.7 (Attachments dock 패널) 진입 시 anchor 추가 동시 PR (§6 m9).
 
-### 본 turn 까지의 review 결과 처리 통계
-- Critical 정정: r1 의 3건 + r2 의 5건 + r3 의 0 (= 8건)
-- Major 정정: r1 의 10건 + r2 의 5건 + r3 의 3건 (= 18건)
-- Minor 정정: r1 의 25건 + r2 의 10건 + r3 의 2건 (= 37건)
-- 충돌 정리: r1 의 F1 (R6 의 FTS5 bundle 기각) 1건
-- **누계: Critical 8 / Major 18 / Minor 37 / 충돌 1 = 64건 모두 본 todo 에 반영**
-- r4 는 사용자 추가 design 입력 (n×m KB 운영) — review 결과 아님. §3.0/§3.5/§3.9/§3.10/§3.12/§3.18.2/§4.1/§4.4/§4.5/§4.7/§4.8 다수 단원 영향.
+### 본 turn 까지의 review 결과 처리 통계 (외부 reviewer 만)
+- r1~r3 누계: Critical 8 / Major 18 / Minor 37 / 충돌 1 = 64건
+- r6 `--inspect 3` 누계: Critical 6 / Major 23 / Minor 15 = 44건 (hallucination 기각 0, consensus 2건: CR1 = 3/3, MA1/MA9 = 2/3)
+- **외부 reviewer 총 누계: Critical 14 / Major 41 / Minor 52 / 충돌 1 = 108건 반영**
+- r4 (n×m KB) / r5 (대안 B) 는 사용자 design 입력 — review 결과 아님 (별도 추적).
 
 ---
 
@@ -219,6 +226,8 @@ citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
 
 > ⚠ **service 도입 시 전면 회귀** — collection 식별이 사용자 폴더 path → server-side guid 로 바뀌고, 사용자 폴더에 흔적 0 (사본 정책 부활). 본 단원의 layout / `.gitignore` 정책 / read-only NAS 시나리오 모두 `kb-server.md` §3.5 (사본 정책) + §3.10 (server storage layout) 으로 대체.
 
+> ℹ️ **id namespace 주의**: 본 §3.9 본문에서 사용하는 `r4-D1` / `r4-Q2` 등 임시 결정 식별자는 r4 시점의 *parent 내부 ad-hoc* 식별자다. `kb-server.md §0` 의 D-id 정의표 (R1/Q1-Q4/D1-D7/α/N5/N6/L1/L2) 와 **별개 namespace** — server.md 의 D-id 와 의미 매핑 없음.
+
 **collection 의 정의**: 사용자가 KbManagerDialog 의 folder picker 로 선택한 임의 폴더 1개 = 1 collection. project 와 무관 (회사 공유 폴더 / 로컬 폴더 / 네트워크 드라이브 모두 OK).
 
 **물리 layout** — 사용자 폴더 안에 LightHouse 가 자동 생성한 hidden subfolder:
@@ -239,16 +248,16 @@ citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
 
 **registry 와 active 셋**:
 - 사용자가 등록한 collection path 목록은 `LlmConfig.KbCollections` (OS 사용자 전역, `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json`) 에 persist
-- 형식: `[ { path: string, active: bool } ]` (alias 없음 — Q3)
-- 한 사용자가 어느 Promaker project 를 열든 같은 collection list 가 보임 (D-1 채택)
-- project 와 무관 (사용자 Q1 의 "project 종속 X" 결정)
+- 형식: `[ { path: string, active: bool } ]` (alias 없음 — r4-Q3)
+- 한 사용자가 어느 Promaker project 를 열든 같은 collection list 가 보임 (r4-D1)
+- project 와 무관 (r4-Q1 의 "project 종속 X" 결정)
 
-**read-only collection 정책** (Q2 채택):
+**read-only collection 정책** (r4-Q2):
 - write (최초 색인 / 재색인 / IndexerVersion bump 자동 재색인) → fail + 사용자 안내. 자동 trigger 금지.
 - read (search / `attachment_read`) → OK. SQLite `Mode=ReadOnly` 로 open.
 - 시나리오: 회사 IT 가 한 번 색인 → `\\server\사양서\라인A\.lighthouse-kb\index.db` 까지 만들어 둠 → 각 엔지니어가 read-only 로 attach.
 
-**`.gitignore`**: 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택했을 때를 위해 root `.gitignore` 에 `.lighthouse-kb/` (또는 `*/.lighthouse-kb/`) 추가 — §4.1 첫 task.
+**`.gitignore`** *(r5 SKIP — server phase 흡수)*: 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택했을 때를 위해 root `.gitignore` 에 `.lighthouse-kb/` 추가 — **§4.1 첫 task 였으나 대안 B 로 SKIP**. server phase 진입 후엔 사용자 폴더에 흔적 0 정책이라 영구 불필요.
 
 **cross-collection 공유**:
 - image blob (sha256) 은 각 collection 의 `.lighthouse-kb/blobs/images/` 안 분리 (cross-collection 공유 X, 단순함 우선)
@@ -475,8 +484,8 @@ LLM 이 답변 정확도를 위해 도면 추론이 필요할 때만 발생.
 #### 3.15.3 lazy 캐싱 전략 (Phase 2 "cached lazy" 구성, 3 layer)
 
 1. **image blob + sha256 keying** (Phase 2 색인 시점에 추출/저장)
-   - `<project>/.promaker-kb/blobs/images/<sha256>.<ext>`
-   - 같은 도면이 한 프로젝트 안 여러 문서/페이지에 중복 등장해도 1개 blob (cross-document, cross-project 는 별도 — §3.9)
+   - `<collection-root>/.lighthouse-kb/blobs/images/<sha256>.<ext>` (r4 — 폴더 이름 정정. 이전 rev 의 `.promaker-kb/` 잔재 제거)
+   - 같은 도면이 한 collection 안 여러 문서/페이지에 중복 등장해도 1개 blob (cross-collection 은 §3.9 — collection 별 분리)
 2. **Anthropic prompt cache** — 같은 채팅 5분 TTL
    - cache_control breakpoint 를 image content block 뒤에 둠
    - ⚠ **Anthropic 전용** (OpenAI/Ollama 미지원). cache write premium 1.25× → 재사용 ≥ 2회 시만 net 이득.
@@ -536,9 +545,11 @@ PRAGMA foreign_keys = ON;
 
 #### 3.18.2 attachment_* 도구의 active collection 도달 경로 (r4 단순화)
 
-> ⚠ **service 도입 시 회귀** — read-path 가 service 측이라 LlmTurnContext 의 KnowledgeBase 주입 자체가 불필요. 본 단원의 채택안 (a) (LlmTurnContext 확장) 은 service phase 에서 **만들지 않음**. 대체 모델은 `kb-server.md` §3.8 (session 기반 routing) + §3.13 (client 단순화 — KnowledgeBase 필드 미도입).
+> ⛔ **대안 B / r5: 본 채택안 (a) 는 Phase 1 에서 실현되지 않음**. parent r5 결정 12 로 §4.5 통째 SKIP → `LlmTurnContext` 확장 task / `MainViewModel.LlmChat.cs` 의 `openCollections` 주입 모두 Phase 1 에서 진행 안 함. server phase 진입 시 `kb-server.md §3.8` (session 기반 routing) + §3.13 (client 단순화 — KnowledgeBase 필드 미도입) 가 직접 대체. 본 단원 본문 (채택안 a 의 구체적 wire) 은 **r4 시점 historical reference 박제용**. 다음 세션이 본 단원을 읽고 Phase 1 의 결정사항으로 오해하지 말 것.
+>
+> 즉 parent Phase 1 의 `KnowledgeBase` facade (§4.4) 는 **`Ds2.LightHouse.Tests` 가 유일한 호출처**. server phase 진입 시 `Ds2.LightHouseService` 가 두 번째 호출처로 합류.
 
-**채택안 (a) — `LlmTurnContext` 확장**:
+**채택안 (a) — `LlmTurnContext` 확장 [r5 SKIP — historical reference]**:
 - `LlmTurnContext.cs:57` 의 생성자에 `KnowledgeBase kb` (또는 `string[] activeCollectionPaths` + LightHouse facade) 인자 추가
 - `MainViewModel.LlmChat.cs` 가 turn 시작 시:
   1. `LlmConfig.Load()` → `KbCollections.Where(c => c.Active).Select(c => c.Path)` 로 active paths 추출
@@ -568,7 +579,6 @@ PRAGMA foreign_keys = ON;
 
 - [ ] ~~**선행 (코드보다 먼저)** — root `.gitignore` 에 `.lighthouse-kb/` 추가 (r4 — 폴더 이름 변경, project 무관). 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택할 경우를 위한 보호. 4.4 의 SqliteStore 가 동작하는 순간 그 폴더 안에 index.db (+ Phase 2 부터 image blob) 자동 생성.~~ **(r5 SKIP — server phase 흡수)**
 - [ ] 사전 grep — `Directory.Packages.props` 가 Solutions/Apps/Promaker 두 위치 어떻게 분리되어 있는지 (CPM 적용 범위) 확정
-- [ ] 사전 grep — `Anthropic` / `OpenAI` / `OllamaSharp` 패키지 ID 정확 변형 (Anthropic 공식 SDK vs Anthropic.SDK 등 ID 혼동 회피)
 - [ ] sln **2개** 모두 갱신 — `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (실재 확인). 새 project (`Solutions/Core/Ds2.LightHouse`) + 테스트 (`Solutions/Tests/Ds2.LightHouse.Tests`) 가 Solutions/ 하위라 `Solutions/Ds2.sln` 누락 시 CI/전체 빌드에서 빠짐.
 - [ ] `Solutions/Core/Ds2.LightHouse/Ds2.LightHouse.fsproj` 생성 (net9.0)
 - [ ] `dotnet sln Apps/Promaker/Promaker.sln add Solutions/Core/Ds2.LightHouse/Ds2.LightHouse.fsproj`
@@ -581,6 +591,7 @@ PRAGMA foreign_keys = ON;
 **4.2 부분 통합 (LightHouse 로 이전 — 3 commit sub-grouping)**
 
 *4.2a (이전)*
+- [ ] **사전 grep — `ImageFormat` 호출처 전수 확인** (F# + C#). LlmMessage.fs 외 다른 곳 (예: `LlmChatViewModel.Attachments.cs` 의 image 첨부 logic) 에서도 사용 시 alias / open 으로 호환 처리 누락 회피.
 - [ ] `Ds2.LlmAgent/LlmMessage.fs:4` 의 `ImageFormat` 을 `Ds2.LightHouse.ImageFormat` 으로 신설. LlmAgent 측은 `type ImageFormat = Ds2.LightHouse.ImageFormat` alias 또는 `open Ds2.LightHouse` 로 호환.
 - [ ] `AttachmentClassifier.fs` 의 `detectEncoding` + 부속 (`isStrictDecodable`, `tryCp949`, `TextEncodingDetect`, `Log.provider` 의존) 을 `Ds2.LightHouse/TextEncoding.fs` 로 신설 (LightHouse 자체 logger).
 - [ ] `Ds2.LlmAgent.fsproj` 에 `Ds2.LightHouse` ProjectReference 추가.
@@ -656,19 +667,33 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 > ⚠ **대안 B (r5) — 본 §4.8 의 일부 항목 SKIP**. Promaker 통합 (§4.5) 에 의존하는 테스트는 본 Phase 1 에서 수행 불가. **lib 자체 unit test 만** 진행. SKIP 항목은 `~~취소선~~` 표시. server phase Phase S5 에서 in-process 동등 시나리오를 service 경로로 검증.
 
-**진행 항목 (lib 자체 unit test)**:
-- [ ] `Solutions/Tests/Ds2.LightHouse.Tests/` 신설 (xunit + FsCheck). 4.2 의 부분 통합 무영향 회귀 보호.
-- [ ] **한국어 회귀 테스트** — query "컨베이어" 가 본문 "컨베이어가/를/는" 포함 페이지 hit (trigram tokenizer 검증)
-- [ ] FileHash idempotent 재첨부 검증
-- [ ] IndexerVersion bump 자동 재색인 검증
-- [ ] WAL 동시성 — 색인 중 search 호출 가능 검증
-- [ ] **AttachmentClassifierDriftTests (현행 Fact 13건) 통과 유지** (4.2 무영향 보장. 신규 case 추가 시 본 todo 갱신)
-- [ ] **multi-collection ATTACH 검증** (r4) — Promaker UI 무관, `Searcher.fs` 의 단위 테스트로 2~3 collection 동시 ATTACH 시 UNION 검색 결과의 fileId cross-collection unique 보장. 10번째 active 시 가드 (단 Promaker UI 경로 는 SKIP — lib 단위 ATTACH limit 가드 만)
-- [ ] **read-only collection 검증** (r4) — `SqliteStore.fs` 의 read-only open 단위 테스트. `Mode=ReadOnly` 로 미리 색인된 index.db attach → search/read OK / write 시도는 명확한 fail 메시지. (Promaker UI 경로 는 SKIP)
+**진행 항목 (lib 자체 unit test)** — `Solutions/Tests/Ds2.LightHouse.Tests/` 신설 (xunit + FsCheck). 4.2 의 부분 통합 무영향 회귀 보호.
+
+*4.8a (parser / chunker / locator — 결정적 변환)*:
+- [ ] **RefLocator parser round-trip** (§3.13) — 저장형 ("p=14", "slide=5", "sheet=BOM!A1:D40", "p=14#img=2") → parsed → 저장형 동일성. EBNF 규칙 위반 입력 (예: "page=14") 거부
+- [ ] **Chunker boundary 검증** (§3.8) — 정확히 199/200/500/501 token 입력 시 chunk 분할 위치 결정성. 빈 입력 / 단일 token / 매우 긴 단일 단락
+- [ ] **PdfExtractor** — 정상 PDF + bookmark / 손상 PDF (`log + skip`, §3.16 fail-safe 정책) / 암호화 PDF (`log + skip`) / TOC 없는 PDF / 한자 PDF / 빈 페이지 다수
+- [ ] **OoxmlExtractor (docx)** — heading 깊이 5단계 + 빈 paragraph + 표 + 한국어/한자/영문 혼합
+- [ ] **TextExtractor + detectEncoding** — UTF-8 BOM / UTF-8 no-BOM / CP949 / UTF-16 LE/BE / 깨진 byte stream
+
+*4.8b (FTS5 / SQLite 운영)*:
+- [ ] **한국어 trigram 회귀** — query "컨베이어" 가 본문 "컨베이어가/를/는/도" 포함 페이지 hit. "컨베" 2-char 만 hit 여부. 영문/한글 혼합 ("CV01 컨베이어"). 한자 ("運転") boundary
+- [ ] **FileHash idempotent** 재첨부 검증 (같은 파일 두 번 ingest → Documents.Id 1개 유지)
+- [ ] **IndexerVersion bump** 자동 재색인 검증 (Meta.indexer_version 불일치 시 shadow rebuild → atomic rename)
+- [ ] **WAL 동시성** — 색인 중 search 호출 가능 검증
+- [ ] **0-doc collection** — 빈 폴더 ingest → valid index.db + search empty 정상 응답 (MA18)
+- [ ] **0-byte 파일 / extensionless / 미지원 ext** — Extractor 가 log + skip (Documents 테이블에 status='extract_failed' 박제 — 정책 명문화)
+
+*4.8c (multi-collection lib API)*:
+- [ ] **multi-collection ATTACH** — `Searcher.fs` 의 단위 테스트로 2~3 collection 동시 ATTACH 시 UNION 검색 결과의 fileId cross-collection unique 보장 (fileId 형태는 MA23 의 `<collection-guid>:<documents-id>` 또는 lib 단위에서는 인덱스 기반 OK — server phase 에서 guid 로 합성). **9/10/11 boundary test** (MA17, SQLITE_MAX_ATTACHED 확인 후)
+
+*4.8d (cross-PR 회귀 보호)*:
+- [ ] **AttachmentClassifierDriftTests (현행 Fact 13건) 통과 유지** — LlmAgent 측 SSOT 회귀 보호. 본 lib 와 별개 project (`Solutions/Tests/Ds2.LlmAgent.Tests/`) 라 LightHouse.Tests 와 분리. 4.2 의 부분 통합 무영향 보장. 신규 case 추가 시 본 todo 갱신.
 
 **SKIP 항목 (대안 B / r5 — Promaker 통합 의존, server phase Phase S5 가 흡수)**:
-- [ ] ~~LLM 이 `attachment_search` 호출 → citation 포함 응답 생성 — chat-sim (`Prompts/chat-simulation/`) 으로 round-trip~~ **(SKIP — attachment_* tool 자체가 Promaker MCP 에 등록 안 됨)**
-- [ ] ~~**LlmConfig.KbCollections persist round-trip** — KbManagerDialog 에서 추가 → close → 재실행 → 그대로 복원. atomic save / corrupt fallback 동작 (기존 `LlmConfig.Save` 패턴).~~ **(SKIP — KbManagerDialog / LlmConfig.KbCollections schema 자체가 §4.5 SKIP)**
+- ~~LLM 이 `attachment_search` 호출 → citation 포함 응답 생성~~ → server phase S5 의 IntegrationTests
+- ~~LlmConfig.KbCollections persist round-trip~~ → server phase S5
+- ~~read-only collection 검증 (r4)~~ → server phase 에서는 사용자 폴더 읽기 자체 없음 (server-side storage), 폐기. parent §3.18.2 회피와 함께.
 
 ### Phase 2 — 포맷 확대 + 이미지 인프라 신설 + cached lazy
 - [ ] schema 확장 — `ImageCache` / `ImageReferences` 테이블 (3.12 의 주석 처리 블록 활성) + `Chunks.ImageCount` 컬럼 (ALTER TABLE) + IndexerVersion bump
@@ -719,23 +744,26 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 - `Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md`
 - **`Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)`** (r4 — collection 등록/관리 UI)
 
-### 수정
+### 수정 (Phase 1 — lib 본체 + 부분 통합)
 - `Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs` (detectEncoding forward 만, 표면 무변경)
 - `Solutions/Core/Ds2.LlmAgent/LlmMessage.fs` (ImageFormat 을 LightHouse alias 로)
 - `Solutions/Core/Ds2.LlmAgent/Ds2.LlmAgent.fsproj` (LightHouse 참조 + 컴파일 순서)
-- **`Solutions/Core/Ds2.LlmAgent/CLAUDE.md`** (line 70/71/170 SSOT 박제 갱신 — 4.2a 와 같은 commit)
+- **`Solutions/Core/Ds2.LlmAgent/CLAUDE.md`** (ImageFormat / AttachmentClassifier SSOT 박제 갱신 — 4.2a 와 같은 commit, line 진입 시 grep 재확인)
 - `Solutions/Directory.Packages.props` (DocumentFormat.OpenXml 신규, PdfPig 이전)
 - `Apps/Promaker/Directory.Packages.props` (PdfPig 제거)
 - `Apps/Promaker/Promaker/Promaker.csproj` (LightHouse 참조, PdfPig 직접 참조 제거)
 - `Apps/Promaker/Promaker.sln` (LightHouse + Tests 추가)
 - **`Solutions/Ds2.sln`** (LightHouse + Tests 추가 — sln 2개 모두 갱신, §4.1)
-- `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` (`All` 배열에 attachment 4종 추가, §4.5)
-- `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` (Tools/*.cs 전체 스캔 확장 + expectedSet 6→10, §4.5)
-- `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` (KnowledgeBase 필드 추가 — multi-collection, §3.18.2)
-- `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs` (turn 시작 시 LlmConfig.KbCollections active 필터 → LightHouse.openCollections 후 turn context 주입, §4.5)
-- **`Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs`** (r4 — `KbCollections : List<KbCollectionEntry>` 필드 추가)
-- **`Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)`** (r4 — LLM 탭에 "KB 관리..." 버튼 추가)
-- **root** `.gitignore` (`.lighthouse-kb/` 추가 — §4.1 첫 task, r4)
+
+### 수정 (r5 SKIP — server phase Phase S5 가 흡수)
+대안 B 로 본 Phase 1 에서 진행 안 함. server phase 진입 시 server SSOT 에 맞춰 신설/갱신:
+- ~~`Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` (`All` 배열에 attachment 4종 추가)~~ — Phase 1 에서 등록 안 함. server phase 도 host 위치가 service 측이라 *Promaker 측은 영구 미추가*. 현 6종 (`expectedSet`) 유지 확인만.
+- ~~`Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` (expectedSet 6→10)~~ — 위와 동일 사유. **확인만** (현 6종 유지)
+- ~~`Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` (KnowledgeBase 필드 추가)~~ — server phase 에서도 **회피** (`kb-server.md §3.13`, read-path 가 service 측)
+- ~~`Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs` (turn 시작 시 LightHouse.openCollections 주입)~~ — server phase 에서 session 발급/해제 코드로 재설계 (`kb-server.md §4.2 Phase S5`)
+- ~~`Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs` (`KbCollections : List<KbCollectionEntry>` 필드 추가)~~ — server phase 에서 `{CollectionId, DisplayName, Active}` + `LightHouseService {BaseUrl, ApiKeyEncrypted}` schema 로 신설
+- ~~`Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` (LLM 탭에 "KB 관리..." 버튼)~~ — server phase 에서 신설 (`kb-server.md §4.2 Phase S5`)
+- ~~root `.gitignore` (`.lighthouse-kb/` 추가)~~ — server phase 에서는 사용자 폴더에 흔적 0 정책이라 영구 불필요
 
 ### 동기화 의무 (수정 안 하지만 cross-PR 추적 필요)
 - **active** `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 책임 진행 중. Phase 1 4.2a 진입 전 최근 commit 동기화 확인 (§6.12). 본 작업 commit 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
@@ -767,6 +795,7 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 11. **MEMORY.md `## Project` 등록 트리거** — Phase 1 진입 commit 직후 본 todo 항목을 메모리에 등록.
 12. **active todo-llm-chat-attachment.md 동기화 의무** — Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` 의 최근 commit 확인. AttachmentClassifier / ImageFormat 의 wire 책임이 진행 중일 수 있어 본 작업과 cross-PR 충돌 가능. 본 작업 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
 13. **본 todo 의 line 번호 박제 (예: LlmMessage.fs:4, App.xaml.cs:148, LlmChatViewModel.Attachments.cs:265 등) 는 stale 위험** — `todo-dock-layout.md` v6 의 `MainWindow.xaml.cs:108-109` stale 화 전례. 진입 시 grep 으로 재확인. 가능한 곳은 symbol 기반 (함수/클래스명) 참조로 약화 검토.
+    > **본 grep 시점 (2026-05-17, r6 commit 시점)**: 박제 8종 (Fact 13건 / PdfPig / LlmTurnContext.cs:57 / App.xaml.cs:148 / LlmChatViewModel.Attachments.cs:265-360 / Promaker.csproj PdfPig:43 / Directory.Packages.props 2위치 / PromakerToolNamesDriftTests expectedSet 6종) 모두 fresh. 다음 r7 진입 시 재검증 trigger.
 14. **`Apps/Promaker/Docs/` 위치 vs Solutions 무게중심 불일치** — 실제 신규 코드 산출물의 80% 가 `Solutions/Core/Ds2.LightHouse/` 임에도 본 todo 는 Apps/Promaker/Docs/. 기존 관례 (`Solutions/Core/Ds2.LlmAgent/doc/todo-*.md` 4건) 와 다름. Phase 1 진입 commit 직전에 `git mv` 검토 (대안: 현 위치 유지 + 본 항목 stale 표기).
 15. **r4 — collection 의 PII / 보안** — 사용자가 임의 폴더를 collection 으로 등록 → LLM 이 search/read 로 폴더 안 모든 파일 내용 접근. 사용자가 무심코 비밀 문서 (`.env`, 인사기록, 영업비밀) 가 든 폴더를 등록하면 LLM 외부 전송 시 누출. `5.knowledge-base.md` 의 system prompt 에 "KB 내용은 LLM provider 로 송신될 수 있음" 명시 + `KbExtensions` filter 가 `.env` 등 거부 + KbManagerDialog 첫 등록 시 consent 다이얼로그 권장.
 
@@ -780,15 +809,19 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 ## 7. 다음 세션 첫 행동 권장
 
-1. 본 문서 정독.
-2. 진입 시 grep / 사실 재확인:
-   - `ModelContextProtocol.AspNetCore` 버전 (1.2.0 → 1.3.0 업그레이드 여부)
+**대안 B (r5/r6) 적용 후 Phase 1 = lib 본체 + lib unit test 만**. §4.5/§4.6/§4.1 첫 task/§4.8 일부는 SKIP — server phase (`todo-lighthouse-kb-server.md`) 가 흡수.
+
+1. **본 문서 + `todo-lighthouse-kb-server.md` 의 §0 D-id 정의표 + §3.14 회귀 매트릭스** 동시 정독 (§0 의 진행 상태 요약 부터).
+2. 진입 시 grep / 사실 재확인 (§6.13 박제 stale 위험):
+   - `ModelContextProtocol.AspNetCore` 버전 (nuget list 로 최신 stable + breaking change 확인)
    - `Directory.Packages.props` 두 위치 (Solutions / Apps/Promaker) 의 CPM 적용 범위 + PdfPig 위치
-   - `Promaker.sln` 외 별도 sln 존재 여부
-   - WPF DI 컨테이너 (KnowledgeBase facade lifecycle 결정 — §3.18)
-3. **Phase 1 의 4.1 (project 생성) 부터 순차 진행**. 큰 변경 직전마다 사용자 confirm.
-4. Phase 1 의 4.2 (부분 통합) 는 commit 3개로 분리 (4.2a 이전 / 4.2b LlmAgent slim / 4.2c 참조갱신). 각 commit 마다 `AttachmentClassifierDriftTests` (현행 13건) 통과 확인. 필요 시 별도 PR 분리 — `done-llm-chat-attachment.md:222` 전례.
-5. MEMORY.md `## Project` 에 본 todo 등록 (주의 사항 11).
-6. Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active, 318 line) 의 최근 commit 동기화 (주의 사항 12).
-7. ~~Phase 1 4.7 진입 시 todo-dock-layout.md 에 Attachments anchor 추가~~ — r4 에서 §4.7 dock 패널 폐기 결정으로 *무효*. todo-dock-layout.md 갱신 불필요.
-8. commit message — (i) 키워드 LightHouse/KB/MCP/attachment_search 포함 (4줄 이내), (ii) "(주의) SQLite 는 Microsoft.Data.Sqlite 채택 — 글로벌 선호와 다름, 진입 시 재확인" 1줄 권장, (iii) rev r0 → r2 의 "외부 reviewer 9명 (6+3) 검증 반영 통합본" 명시.
+   - `Promaker.sln` 외 `Solutions/Ds2.sln` 존재 확인
+   - WPF DI 컨테이너 (KnowledgeBase facade lifecycle 결정 — §3.18.1) — grep `AddSingleton|AddTransient|ServiceCollection`
+   - `AttachmentClassifierDriftTests.fs` 의 `^\[<Fact>]` count = 현재 13건 유지 확인 (§6.7 박제 stale 점검)
+3. **Phase 1 의 §4.1 진입 confirm** (`.gitignore` 첫 task 는 SKIP, 나머지 = sln 2개 + LightHouse project 생성 + NuGet 등록 진행).
+4. **Phase 1 의 §4.2 (부분 통합)** 는 commit 3개 분리 (4.2a 이전 / 4.2b LlmAgent slim / 4.2c 참조갱신). 각 commit 마다 `AttachmentClassifierDriftTests` 통과 확인. 필요 시 별도 PR 분리.
+5. **Phase 1 의 §4.3/§4.4/§4.8 lib unit test** 까지 진행. §4.5 (Promaker 통합) / §4.6 (`5.knowledge-base.md`) 는 진행 *금지* — server phase 흡수.
+6. MEMORY.md `## Project` 에 본 todo 등록 (주의 사항 11).
+7. Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active) 의 최근 commit 동기화 (주의 사항 12).
+8. Phase 1 lib 본체 완료 → server phase 진입 confirm 받기 (`todo-lighthouse-kb-server.md` Phase S0 → S1).
+9. commit message — (i) 키워드 LightHouse/KB/MCP/attachment_search 포함 (4줄 이내), (ii) SQLite 채택 관련 안내는 §6.4 SSOT 참조, (iii) rev 표 footnote 로 "외부 reviewer N명 검증 반영 통합본" 명시.

@@ -8,6 +8,7 @@
 | s0 | 2026-05-17 | 초안 — plan 모드 논의 결과 박제. 코드 변경 0. parent r4 의 결정 일부 회귀 (사본 정책 / MCP 호스트 위치 / search 경로 등). |
 | s0-r | 2026-05-17 | --inspect-diff 5 reviewer 결과 반영 (16건): (1) D-id / 결정 enum 정의표 §0 신설, (2) §3.1 sub-section 분리 (책임/lib 양분/MCP host 2개), (3) §3.2 통신 흐름 다이어그램 보강, (4) §3.7 mTLS 단원 참조 정정 (S4→S7), (5) §3.8 `unindexableIds` 처리 명시, (6) §3.13 ↔ Phase S5 중복 분리 (사유 vs 체크리스트), (7) §3.14 가 parent ↔ service 회귀 SSOT 임을 명시, (8) parent 패턴 정렬을 위해 단원 번호 환원 (이전 §5/§6/§7/§8 → §5/§6/§7), (9) Phase S1~S7 별 DoD 1줄 추가, (10) `LlmConfig.KbCollections` schema migration 정책을 §4.3 미확정에 추가. |
 | s0-r2 | 2026-05-17 | parent r5 의 **대안 B 채택** 반영: (1) §4.1 Phase S0 에 "parent §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 정상 skip 확인" 추가, (2) §4.3 schema migration default 를 "(c) parent §4.5 skip 이라 migration 불필요" 로 갱신, (3) §0 의 선행 의존 항목에 parent r5 결정 12 박제. parent Phase 1 산출물의 60%+ throwaway 문제 해소. |
+| s0-r3 | 2026-05-17 | `--inspect 3` reviewer 결과 (parent 와 동시 작업) 의 server 측 영향분 반영. 주요 갱신: **Critical**: (CR1) §3.13/§3.14/§4.2 Phase S5 의 "환원/제외" 어휘 → "애초 미추가 — 신규 등록만", §3.14 회귀 매트릭스에 §4.6 (`5.knowledge-base.md`) row 신설 (10→11행); (CR2) **§3.3.1 `meta.json` schema SSOT 신설** (camelCase + 필드별 생성 주체 + `id` 출처); (CR3) §3.4 D3 강화 — id 발급 주체 = server (첫 POST 응답에 반환); (CR4) §3.7 **PSK DPAPI 의무화** (server: LocalMachine, client: CurrentUser, `ApiKey` → `ApiKeyEncrypted`), plain HTTP 거부, `X-User-Identity` 헤더; (CR5) **§3.9.1 신설 — registry mutation SemaphoreSlim 직렬화**; (CR6) **§3.8 session 401/403 자동 회복** (L3 신설). **Major**: §0 D-id 표에 L3/P1/P2 row 추가, α → T1 통일, §3.11 config 의 schemaVersion / logRetentionDays / auditRetentionDays / indexerVersionRange 추가, Phase S1~S5 DoD 일제 강화 (install script / paired-release / blob regex / zip body abort / 0-doc / swap 동시성 / ATTACH boundary / fileId guid 합성 / Integration test / 연결 테스트 버튼), §4.3 미확정 표 16행으로 확장 + dep column, §5 산출물 목록 7건 추가 (IntegrationTests / install scripts / KbManagerDialog 등 "최초 도입" marker), §6 주의 사항 16~20 신설 (PSK 단일 실패점 / audit / restart 회복 / registry race / paired-release). **Minor**: §0 의 T1 통일, §4.2 Phase S7 의 T2/T3 명명, §3.10 storage layout 의 `Audit\` 디렉토리 추가. parent r6 와 동시 갱신. |
 
 ---
 
@@ -31,16 +32,19 @@
 | Q4 | active 셋 sync = lazy reject driven (Promaker 가 그대로 보내고 server reject 시 sync) | §3.8 |
 | D1 | 사본 정책 = **1회성 import** (등록 시점 snapshot, 자동 drift 감지 X) | §3.5 |
 | D2 | server 디렉토리 = `Collections\<guid>-<sanitized-title>\` (guid 식별 + title hint) | §3.4, §3.10 |
-| D3 | collection 식별 SSOT = **guid v4** | §3.4 |
+| D3 | collection 식별 SSOT = **guid v4**, **id 발급 주체 = server** (첫 POST 응답에 반환) | §3.4 |
 | D4 | client → server upload = **multipart zip** (사용자 폴더 통째 포함) | §3.3, §3.9 |
 | D5 | drift 갱신 = 사용자 명시 "새 버전 업로드" trigger 만 (FileSystemWatcher X) | §3.5 |
 | D6 | citation 클릭 시 원문 보기 = **server 가 stream 응답** (LAN 가정) | §3.9, §4.2 Phase S4 |
 | D7 | `DELETE /collections/{id}` = `Collections\<id>\` 전체 purge | §3.9 |
-| α | multi-tenant 정책 = **flat** (누구나 모든 collection 보기, β/γ 미채택) | §3.6 |
+| T1 (옛 α) | multi-tenant 정책 = **flat** (누구나 모든 collection 보기). β/γ → T2/T3 (Phase S7 옵션, §4.2 Phase S7) | §3.6 |
 | N5 | server 가 색인 안 함 → 색인 진행률 polling API 불필요 | §3.1.1, §4.2 Phase S7 |
 | N6 | `maxUploadBytes` = **10 GB** (외부 config 노출 상수) | §3.11 |
 | L1 | session 생성 trigger = Promaker LLM chat panel **open 시 1회** (chat lifetime) | §3.8 |
 | L2 | session 해제 = **3중 cleanup** (panel close / process exit / server idle TTL) | §3.8 |
+| L3 | session 401/403 자동 회복 = client 가 `POST /sessions` 재발급 + 동일 호출 1회 retry | §3.8 |
+| P1 | (parent dependency) facade 양분 형태 = parent §3.18.1 결정 후 확정 (S1 진입 시 unblock) | §3.1.2, §4.3 |
+| P2 | (parent dependency) ModelContextProtocol.AspNetCore 버전 align = parent §4.1 결정 따라 | §3.7, §4.2 Phase S3 |
 
 ---
 
@@ -60,7 +64,7 @@ LightHouse 의 색인 결과물을 central Windows Service 에 보관 / 다중 c
 | 다중 Promaker instance 가 같은 KB 사용 | 각자 in-process Kestrel + MCP host + `.mcp-config` 중복 발행 | **단일 service endpoint 공유** |
 | 회사 NAS 의 공용 사양서 검색 | r4 §3.9 의 read-only NAS ATTACH (SMB + SQLite WAL fragility) | **LAN service** 가 자연 흡수 |
 | Phase 4 embedding 모델 warm cache | Promaker 시작마다 load (수백MB~GB) | (client 측 색인 시점에 발생 — service 무관) |
-| KB 가 사내 공용 자원화 | 가능하나 file-share 의존 | **multi-tenant α flat** 자연 |
+| KB 가 사내 공용 자원화 | 가능하나 file-share 의존 | **multi-tenant T1 flat** 자연 |
 
 note: 이전 세션 중간 논의에서 "service 가 색인까지 수행" 안도 있었으나 **사용자 결정 R1 으로 service = storage + search 호스트만**. 색인 (Extract/Chunk/FTS5/index.db 생성) 은 client 측 `Ds2.LightHouse` lib 의 write-path 가 책임.
 
@@ -83,7 +87,7 @@ note: 이전 세션 중간 논의에서 "service 가 색인까지 수행" 안도
 | Phase 2/5 caption | ✓ | ✗ |
 | zip 패키징 | ✓ | ✗ |
 | **upload 수신 + storage** | ✗ | ✓ |
-| **multi-tenant share (α flat)** | ✗ | ✓ |
+| **multi-tenant share (T1 flat)** | ✗ | ✓ |
 | **MCP search host** (`attachment_*` 4종) | ✗ | ✓ |
 | **session routing** (active 셋) | ✗ | ✓ |
 | **file serving** (citation 원문 stream) | ✗ | ✓ |
@@ -154,39 +158,72 @@ client ↔ service 의 정합 SSOT:
 
 ```
 <zip root>/
-  meta.json                  # { indexer_version, schema_version, originalFileCount, sourceTitle, ... }
+  meta.json                  # 필드 정의는 §3.3.1 SSOT
   source/
     plant-spec-v3.pdf        # 원본 파일 사본 (사용자 폴더 통째)
     io-list-2026.xlsx
   .lighthouse-kb/
     index.db                 # FTS5 완성품 (client 가 색인 끝낸 SQLite)
-    blobs/images/<sha>.<ext> # Phase 2 이미지 blob (client 추출분)
+    blobs/images/<sha256>.<ext>  # Phase 2 이미지 blob (client 추출분, ext ∈ {png,jpg,jpeg,webp,tif,jp2})
 ```
 
 service 는 zip 받으면:
-1. **sanitize** (entry path `..` traversal 가드, 절대경로 거부, 전개 후 storage root 하위인지 verify)
-2. **zip bomb 가드** (누적 해제 byte / 압축 byte 비율 = `zipBombRatioLimit` 외부 설정)
-3. **`.lighthouse-kb/index.db` 의 `Meta.indexer_version` / `Meta.schema_version` 호환성 검증** (§3.12)
-4. **atomic move** → `Collections\<guid>-<title>\`
+1. **sanitize** (entry path `..` traversal 가드, 절대경로 거부, symlink 거부, 전개 후 storage root 하위인지 verify)
+2. **blob path regex 강제** — `blobs/images/` 하위 entry 는 `^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$` 매치 의무
+3. **zip bomb 가드** (누적 해제 byte / 압축 byte 비율 = `zipBombRatioLimit` 외부 설정, default `50` = 50:1)
+4. **`.lighthouse-kb/index.db` 의 `Meta.indexer_version` / `Meta.schema_version` 호환성 검증** (§3.12)
+5. **request body 도착 byte < Content-Length 면 즉시 abort + Staging entry 삭제 + 4xx 응답** (10 GB upload 중 단절 회복)
+6. **atomic move** → `Collections\<guid>-<sanitized-title>\` (guid = server 가 부여, §3.4)
+
+### 3.3.1 `meta.json` schema SSOT
+
+client (CollectionPackager) ↔ service (sanitize + import) 사이 단일 schema. 필드명 = **camelCase** (JSON 통례). client 가 채우는 필드 / server 가 import 시 추가하는 필드 구분.
+
+```json
+{
+  "schemaVersion": 1,                    // [client] meta.json 의 schema 자체 버전 (본 SSOT 의 rev)
+  "indexerVersion": "1.0.0",             // [client] index.db 생성 시 사용한 Ds2.LightHouse lib version (§3.12 gate key)
+  "title": "라인A 사양서 v3",            // [client] 사용자 표시 이름 (KbManagerDialog 입력)
+  "sourcePathHint": "C:\\Users\\...\\라인A", // [client] 색인 원본 폴더 경로 (감사/진단용 hint, server 미사용)
+  "fileCount": 42,                       // [client] source/ 안 원본 파일 개수
+  "totalSourceBytes": 1234567890,        // [client] source/ 안 원본 byte 합 (zip bomb 가드 비교용)
+  "createdAt": "2026-05-17T13:45:00Z",   // [client] zip 패키징 시점 (ISO-8601 UTC)
+  "clientHost": "WIN-ABC123",            // [client] 색인 머신 식별 (audit hint, 필수 아님)
+  "clientUser": "kwak@dualsoft.com",     // [client] 색인 사용자 (audit hint, §6 m11 audit 추가 시 활용)
+
+  // ── server 가 import 시 추가 (client 가 보낸 값 무시) ──
+  "id": "550e8400-e29b-41d4-a716-446655440000", // [server] guid v4 (D3, 첫 POST 응답에 반환)
+  "importedAt": "2026-05-17T13:45:30Z",         // [server] storage 배치 완료 시점
+  "importedBy": "kwak@dualsoft.com",            // [server] X-User-Identity 헤더 박제 (§6 m11)
+  "storageRelPath": "Collections\\550e8400-...\\" // [server] storage root 기준 상대경로
+}
+```
+
+- 양쪽이 enumerate 하는 자리 (§3.10, §4.2 Phase S2) 는 본 SSOT 참조로 축약 — 필드 추가/변경 시 본 §3.3.1 만 갱신.
+- 미정의 필드는 forward-compat 차원에서 보존 (이후 schemaVersion bump 까지). server 는 미인식 필드 reject 안 함.
+- `clientUser` / `importedBy` 가 분리된 이유: 색인은 사용자 A 가 했어도 upload 는 사용자 B 의 머신 (예: 회사 IT 가 batch 색인 후 upload). 둘 다 audit log 에 기록.
 
 ### 3.4 collection 식별 체계
 
 - **server-side stable id = guid v4 (D3)** — 정렬·식별 SSOT
+- **id 발급 주체 = server** (D3 강화) — client 가 `POST /collections` (multipart zip + title) 호출 시 **server 가 guid 생성** → 첫 응답 body `{"id": "<guid>", ...}` 로 반환. client 는 받은 id 를 `LlmConfig.KbCollections[].CollectionId` 에 박제 후 재업로드 (`POST /collections/{id}/payload`) 시 사용.
+  - 사유: client 생성 모델은 두 client 가 같은 guid 동시 등록 race 처리 필요 / `meta.json` 의 `id` 필드를 client 가 알기 전 채워야 함. server 부여 모델은 atomic + 단순.
+  - `meta.json` 의 `id` 필드는 server import 시점에 server 가 채워서 storage 의 `meta.json` 에 박제 (zip 안 client `meta.json` 의 `id` 필드는 비워서 보냄. server 가 발견 시 무시).
 - 디렉토리 명 = `<guid>-<sanitized-title>` (D2) — 디스크 list 시 사람 가독, 정렬은 guid prefix
 - `meta.json` 의 `title` 필드가 표시 SSOT (디렉토리 명은 단순 hint)
-- client 측 `LlmConfig.KbCollections` schema (parent r4 의 `{path, active}` 폐기):
+- client 측 `LlmConfig.KbCollections` schema (parent r5 SKIP 으로 `{path, active}` schema 자체가 prod 미존재 — migration 부담 0):
   ```json
   {
     "KbCollections": [
-      { "CollectionId": "<guid>", "DisplayName": "라인A 사양서 v3", "Active": true }
+      { "CollectionId": "550e8400-e29b-41d4-a716-446655440000", "DisplayName": "라인A 사양서 v3", "Active": true }
     ],
     "LightHouseService": {
       "BaseUrl": "https://service.company.local:8443",
-      "ApiKey": "<PSK>"
+      "ApiKeyEncrypted": "<DPAPI(CurrentUser) base64 of PSK>"
     }
   }
   ```
-  (parent r4 의 `LlmConfig.cs` 직렬화 관례 = PascalCase. JSON property name attribute 적용 위치는 §4.2 Phase S5 결정.)
+  (parent r4 의 `LlmConfig.cs` 직렬화 관례 = PascalCase. JSON property name attribute 적용 위치 + 기존 필드 직렬화 관례 일관성 = §4.2 Phase S5 DoD 에 round-trip 검증 포함.)
 
 ### 3.5 사용자 폴더 ↔ server 사본 정책
 
@@ -194,7 +231,7 @@ service 는 zip 받으면:
 - **drift 자동 감지 X (D5)** — KbManagerDialog 의 명시 "새 버전 업로드" trigger 만. FileSystemWatcher 사용 안 함.
 - **사용자 폴더 안 흔적 0** — `.lighthouse-kb/` 가 사용자 폴더에 안 생김. parent r4 §4.1 의 "`.gitignore` 에 `.lighthouse-kb/` 추가" task 본 phase 진입 시 무효.
 
-### 3.6 multi-tenant 정책 — α flat
+### 3.6 multi-tenant 정책 — T1 flat
 
 사용자 결정: **flat — 누구나 모든 collection 보기** (사내 공유 KB 모델).
 
@@ -207,14 +244,23 @@ service 는 zip 받으면:
 ### 3.7 인증 / 보안
 
 - **TLS 필수** (HTTPS bind, self-signed 도 OK, 회사 deployment 면 사내 CA 발급 권장)
+  - **plain HTTP 요청은 거부** (Kestrel HTTPS-only listener). Phase S1 DoD 강제.
+  - PSK 는 TLS 종단 안에서만 의미 — TLS 없으면 packet capture 로 영구 재사용 가능.
 - **PSK (Pre-Shared Key)** — service 설치 시 발급, Promaker 설정에 수동 입력
-  - 모든 API 호출에 `Authorization: Bearer <PSK>`
-  - 회전 정책: service config 갱신 + 모든 client 재입력 (운영 부담 — **Phase S7 에서 mTLS 검토**)
+  - 모든 API 호출에 `Authorization: Bearer <decrypted PSK>` + fixed-time compare (timing attack 방어)
+  - **저장 형식 의무** (CR4):
+    - server: `config.json` 의 `preSharedKey` 는 **DPAPI (LocalMachine scope)** base64 — install script 가 평문 입력받아 즉시 암호화하여 저장. tlsCertPassword 도 동일.
+    - client (`LlmConfig.LightHouseService.ApiKeyEncrypted`): **DPAPI (CurrentUser scope)** base64 — ApplicationSettingsDialog 입력 즉시 암호화하여 persist. **평문 `ApiKey` 키 사용 금지** (LlmConfig load/save 시 항상 암호화된 값으로만 직렬화).
+  - 회전 정책: service config 갱신 + 모든 client 재입력 (운영 부담 — **Phase S7 에서 mTLS 검토**, 사내 deployment 권장 default = mTLS Phase S7 우선 진입)
+  - **PSK = 유일 인증 자산** (mTLS 까지) — leak 1건 = 사내 KB 전체 노출. multi-tenant T1 flat 의 단일 실패점. §6 m9 SSOT.
 - **session token** 은 별도 routing key (§3.8). PSK 와 역할 분리:
   - PSK = "이 호출자가 신뢰된 client" (LAN 인증)
   - session token = "어느 active 셋 routing" (chat lifetime)
-- **zip sanitize** — `..` traversal, 절대경로 entry 거부. `Collections\<id>\` 하위로만 전개 강제.
-- **zip bomb 가드** — 누적 압축 해제 byte 한도 (외부 설정).
+- **`X-User-Identity` 헤더 의무** (M11/§6 m11) — PSK 만으로는 호출자 식별 불가 → client 가 `X-User-Identity: <username>` (Windows username 또는 LlmConfig 의 user identifier) 동봉. server 가 audit log 에 박제.
+- **replay 방어** — TLS 가 1차 방어. 추가 필요 시 Phase S7 mTLS 또는 HMAC-SHA256 (timestamp + nonce) 채택.
+- **zip sanitize** — `..` traversal, 절대경로 entry 거부, symlink 거부. `Collections\<id>\` 하위로만 전개 강제.
+- **zip bomb 가드** — 누적 압축 해제 byte 한도 (`zipBombRatioLimit`, default 50:1).
+- **blob path regex 강제** — `blobs/images/` 하위 entry = `^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$` (§3.3).
 
 ### 3.8 session model (L1/L2/Q1/Q3/Q4 정합)
 
@@ -253,12 +299,28 @@ Promaker:
 - 같은 collection 이 여러 session 에 등장해도 각자 별 connection (SQLite WAL multi-reader 라 file lock 부담 없음)
 - pool 도입은 Phase S7
 
+**Session 401/403 자동 회복 (CR6 / L3)**:
+- service restart / idle TTL 만료 / 일시 network drop 모두 client 입장에서 동일 — MCP 응답 401/403.
+- `LightHouseClient` 가 401/403 받으면:
+  1. 현재 `LlmConfig.KbCollections.Where(Active).Select(CollectionId)` 로 `POST /sessions` 재발급
+  2. 새 token 으로 동일 MCP 호출 **1회 retry**
+  3. 재 401/403 이면 사용자/LLM 에게 명확한 fail 보고 (chip + log)
+- session token 은 in-memory (§3.8 의 SessionRegistry) 라 service restart 시 invalid. 본 회복 정책이 chat lifetime 전체에 걸쳐 투명성을 보장.
+- Phase S3 DoD 에 "service restart 중 진행 chat 의 MCP 호출이 자동 회복" test 포함.
+- Phase S5 DoD 에 "service kill → 재시작 → 진행 chat 의 다음 attachment_search 가 즉시 회복" 시나리오 포함.
+
+**ATTACH limit (Q2) boundary 명확화 (MA17)**:
+- `Microsoft.Data.Sqlite` 의 `bundle_e_sqlite3` 가 사용하는 SQLite SQLITE_MAX_ATTACHED default = 10 (main DB 제외 *추가* 10개). 즉 active 셋 최대 10 collection.
+- 정확한 boundary 는 Phase S1 진입 시점에 `PRAGMA compile_options` 로 재검증 (bundle 빌드 옵션 의존).
+- session 별 connection 격리 (Q3) 라 다른 session 의 ATTACH 수와 무관, session 내 active 셋 길이만 가드.
+- Phase S3 DoD 에 "active 10개 정확 정상 / 11개 hard fail / 동시에 같은 collection 을 2 session 이 ATTACH" test 포함.
+
 ### 3.9 API surface
 
 | API | 용도 | 호출 시점 |
 |---|---|---|
 | `POST /collections` (multipart: zip + title) | 신규 collection 등록 (client 가 색인한 폴더 zip, D4) | KbManagerDialog 의 "추가" / lighthouse-cli upload |
-| `GET /collections` | registry list (α flat 이라 전체 응답) | Promaker startup (Q1) / KbManagerDialog open / session reject 시 sync |
+| `GET /collections` | registry list (T1 flat 이라 전체 응답) | Promaker startup (Q1) / KbManagerDialog open / session reject 시 sync |
 | `GET /collections/{id}/status` | 단일 collection 상태 (idle / error / not-found) | UI polling (필요 시) |
 | `POST /collections/{id}/payload` | 재업로드 — 같은 id 에 새 zip swap | KbManagerDialog 의 "새 버전 업로드" (D5) |
 | `DELETE /collections/{id}` | 제거 (`Collections\<id>\` 전체 purge, D7) | KbManagerDialog 의 "제거" |
@@ -272,24 +334,35 @@ Promaker:
 - `Authorization: Bearer <PSK>`
 - `X-LightHouse-Session: <token>` (session API 와 MCP 만)
 
+### 3.9.1 registry.json 동시성 (CR5)
+
+`POST /collections` / `DELETE /collections/{id}` / `POST /collections/{id}/payload` 모두 registry.json read-modify-write. Kestrel 다중 thread 환경에서 race 회피:
+
+- **service 내 `SemaphoreSlim(1, 1)` 으로 mutation 직렬화**. read-only 조회 (`GET /collections`, `GET /collections/{id}/status`) 는 lock 불필요 (read-time snapshot).
+- atomic save 패턴 (write to `.tmp` → fsync → rename) + lock 으로 이중 가드.
+- parent `LlmConfig.Save` 는 single-process WPF UI thread 가정이라 패턴만 차용, 동시성 가드는 추가 의무.
+- Phase S2 DoD 에 "두 client 동시 `POST /collections` race 후 두 entry 모두 보존" test 포함.
+
 ### 3.10 server-side storage layout
 
 ```
 %PROGRAMDATA%\Dualsoft\LightHouseService\
   config.json                # 외부 설정 (§3.11)
-  registry.json              # collection 목록 SSOT (atomic save 패턴, parent r4 LlmConfig.Save 와 동형)
+  registry.json              # { schemaVersion: 1, collections: [...] } — SemaphoreSlim 직렬화 (§3.9.1)
   Collections\
     <guid>-<sanitized-title>\
-      meta.json              # { id, title, sourcePathHint, importedAt, fileCount, indexerVersion, ... }
+      meta.json              # 필드 정의 = §3.3.1 SSOT
       source\
         plant-spec-v3.pdf
         io-list-2026.xlsx
       .lighthouse-kb\
         index.db
-        blobs\images\<sha>.<ext>   # Phase 2+
+        blobs\images\<sha256>.<ext>   # Phase 2+, ext ∈ {png,jpg,jpeg,webp,tif,jp2}
   Logs\
-    service-YYYYMMDD.log     # log4net file appender
-  Staging\                   # multipart upload 임시 영역, sweep 대상
+    service-YYYYMMDD.log     # log4net RollingFileAppender, logRetentionDays default 30 (§3.11)
+  Audit\
+    audit-YYYYMMDD.log       # 등록 / 삭제 / search query — user / collection / timestamp (§6 m11)
+  Staging\                   # multipart upload 임시 영역, sweep 대상 (incomplete upload 즉시 cleanup + 주기 sweep)
     <upload-guid>.tmp
 ```
 
@@ -298,19 +371,28 @@ Promaker:
 ```json
 // %PROGRAMDATA%\Dualsoft\LightHouseService\config.json
 {
-  "listenUrl": "https://0.0.0.0:8443",
+  "schemaVersion": 1,                  // service config schema 자체 버전. service binary upgrade 시 migration trigger
+  "listenUrl": "https://0.0.0.0:8443", // HTTPS 만 — plain HTTP listener 미바인드 (§3.7 강제)
   "tlsCertPath": "C:\\...\\service.pfx",
-  "tlsCertPassword": "...",            // 또는 DPAPI 보호
-  "preSharedKey": "...",
+  "tlsCertPasswordEncrypted": "...",   // DPAPI (LocalMachine scope) base64 — 평문 저장 금지 (CR4)
+  "preSharedKeyEncrypted": "...",      // DPAPI (LocalMachine scope) base64 — 평문 저장 금지 (CR4)
   "storageRoot": "%PROGRAMDATA%\\Dualsoft\\LightHouseService\\Collections",
-  "maxUploadBytes": 10737418240,       // 10 GB (N6)
-  "zipBombRatioLimit": 50,             // 압축 해제 시 누적 / 압축 byte 비율 상한
-  "sessionIdleTtlMinutes": 60,
-  "stagingSweepIntervalMinutes": 10
+  "maxUploadBytes": 10737418240,       // 10 GB (N6). Kestrel MaxRequestBodySize = 본 값
+  "zipBombRatioLimit": 50,             // 50:1 (해제 byte / 압축 byte). 50 = 압축률 약 98% 이상 zip 거부
+  "sessionIdleTtlMinutes": 240,        // 4시간 default (사용자 점심/회의 대비, CR6 자동 회복과 함께)
+  "stagingSweepIntervalMinutes": 10,
+  "logRetentionDays": 30,              // log4net RollingFileAppender — size + date rolling, retention 30일
+  "logMaxSizeMB": 100,                 // 단일 log 파일 한도
+  "auditRetentionDays": 365,           // Audit\ 별도 retention (보안 추적 필요)
+  "indexerVersionRange": {             // §3.12 IndexerVersion gate
+    "min": "1.0.0",
+    "max": "1.99.99"
+  }
 }
 ```
 
-Kestrel `MaxRequestBodySize` = `maxUploadBytes`.
+- `schemaVersion` 가 service binary 가 인식하는 값보다 낮으면 in-place migration (backup → upgrade), 높으면 fail-fast.
+- Phase S1 DoD 에 schema_version check + migration hook 포함.
 
 ### 3.12 IndexerVersion 호환성 — server gate
 
@@ -333,31 +415,32 @@ POST /collections
 
 본 단원은 변경 사유 SSOT. **실제 변경 항목 체크리스트는 §4.2 Phase S5 가 SSOT** (중복 회피).
 
-**왜 변경하는가**:
-- attachment_* read tool 의 host 가 service 측으로 이동 → Promaker 측 in-process MCP 가 read tool 호스팅 책임 해제 (`AttachmentTools.cs` 미도입)
-- read-path 가 service → Promaker 의 `LlmTurnContext` 에 `KnowledgeBase` 주입 불필요 (parent §3.18.2 채택안 (a) 회귀)
-- multi-tenant + LAN → `LlmConfig` 에 service endpoint (`BaseUrl` + `ApiKey`) 추가, 기존 `KbCollections` schema 의 path → guid 식별 전환 (§3.4)
-- 색인 자체는 여전히 client → `AttachmentIngestService` 유지, 단 색인 끝나면 **zip 패키징 + upload** 단계 추가
+**왜 변경하는가** (parent r5 대안 B 후, 본 phase 에서 *최초 도입*):
+- attachment_* read tool 의 host = service 측. Promaker 측 in-process MCP 는 read tool 을 **애초 host 안 함** (parent r5 SKIP 으로 `AttachmentTools.cs` 자체가 Phase 1 에서 미생성)
+- read-path = service 측 → Promaker 의 `LlmTurnContext` 에 `KnowledgeBase` 주입 회피 (parent §3.18.2 채택안 (a) 자체가 r5 에서 SKIP — 본 phase 에서도 *추가하지 않음*)
+- multi-tenant + LAN → `LlmConfig` 에 service endpoint (`BaseUrl` + `ApiKeyEncrypted`) 추가, `KbCollections` schema = `{CollectionId(guid), DisplayName, Active}` (§3.4) — **본 phase 에서 최초 도입** (parent r5 SKIP 이라 `{path, active}` schema 도 prod 에 깔린 적 없음 → migration 부담 0)
+- 색인 자체는 여전히 client → `AttachmentIngestService` 본 phase 에서 **최초 신설**, 색인 후 zip 패키징 + upload 흐름
 
 **부수 효과**:
-- `PromakerToolNames.All` 의 attachment_* 4종은 parent r4 Phase 1 진입 시 추가되었다가, 본 phase 진입 시 다시 제외 (Promaker 측 MCP 가 host 안 함). DriftTests 의 expectedSet 환원.
-- parent §3.0 의 두 경로 분리 invariant (chat image drop ≠ KB ingest) 유지 — service 도입이 KB 경로 만 영향, chat 경로 무관.
+- `PromakerToolNames.All` 의 attachment_* 4종은 parent r5 SKIP 으로 *애초 미추가* — 본 phase 진입 후에도 Promaker 측 MCP 가 host 안 함. 현 6종 (`expectedSet = {apply_model_doc, validate_model_doc, export_model_doc, json_to_yaml, find_by_name, validate_model}`) **그대로 유지** (DriftTests 의 expectedSet 변경 task 자체 불필요 — 본 phase 진입 시점에 grep 으로 6종 fresh 확인만).
+- parent §3.0 의 두 경로 분리 invariant (chat image drop ≠ KB ingest) 유지 — service 도입이 KB 경로만 영향, chat 경로 무관.
 
 ### 3.14 parent ↔ service 회귀 매트릭스 (전체 SSOT)
 
-본 매트릭스가 parent ↔ service 회귀의 단일 SSOT. parent 진입 박스의 7행은 *진입 hint* (요약), 본 표가 *전체*.
+본 매트릭스가 parent ↔ service 회귀의 단일 SSOT (11행). parent 진입 박스의 9행은 *진입 hint* (요약), 본 표가 *전체*.
 
 | parent 단원 | 회귀 내용 |
 |---|---|
 | §3.9 (저장 위치 — path-based 사용자 자유) | **재작성** — collection = server-side guid, 사용자 폴더 안 사본 X |
-| §3.10 (MCP tool surface — server 측 active 셋 fix) | tool surface 자체는 그대로. host 위치만 service 로 이동 (본 문서 §3.1.1 / §3.1.3) |
+| §3.10 (MCP tool surface — server 측 active 셋 fix) | tool 이름/인자 자체는 그대로. host 위치만 service 로 신설 (본 문서 §3.1.1 / §3.1.3). 호출 context 는 `X-LightHouse-Session` 헤더로 갈음 (§3.8). quota 가드 `maxCallsPerTurn` 은 `maxCallsPerSession` 으로 의미 갱신 |
 | §3.17 (SQLite 운영 — WAL/동시성/재색인) | client 측 색인 build 의 SSOT 로 유지. service read 측은 read-only ATTACH 만 |
 | §3.18 (DI / lifecycle — KnowledgeBase facade) | client 측은 Indexer facade, service 측은 Searcher facade 로 양분 (본 문서 §3.1.2). r4 의 단일 facade 가정 변경 |
-| §3.18.2 (LlmTurnContext 에 KnowledgeBase 주입) | **회피** — read-path 가 service 측이라 turn context 의 KB 주입 자체 불필요 |
-| §4.1 첫 task (`.gitignore .lighthouse-kb/`) | **삭제** — 사용자 폴더에 안 생김 |
-| §4.5 (Promaker 측 통합 — `AttachmentTools.cs` / KbManagerDialog / LlmConfig 등) | **재작성** — 본 문서 §3.13 (사유) + §4.2 Phase S5 (체크리스트) |
+| §3.18.2 (LlmTurnContext 에 KnowledgeBase 주입) | **회피** — parent r5 SKIP 으로 *애초 추가 안 함*. service 측은 session 기반 routing (§3.8) 으로 대체 |
+| §4.1 첫 task (`.gitignore .lighthouse-kb/`) | **삭제** — 사용자 폴더에 안 생김 (parent r5 SKIP, 본 phase 에서도 영구 불필요) |
+| §4.5 (Promaker 측 통합 — `AttachmentTools.cs` / KbManagerDialog / LlmConfig 등) | **신설** (parent r5 SKIP 으로 prod 미존재) — 본 문서 §3.13 (사유) + §4.2 Phase S5 (체크리스트). KbManagerDialog / LlmConfig.KbCollections / ApplicationSettingsDialog 의 KB 버튼 = 본 phase 가 *최초 도입처* |
+| §4.6 (`5.knowledge-base.md` 시스템 prompt) | **신설** (parent r5 SKIP 으로 미생성) — 본 phase 에서 server-side host 명시 + MCP host 2개 정책 (§3.1.3) 포함하여 작성. citation 표시형 / quota / `attachment_search → attachment_read` 흐름 등은 parent §3.14/§3.10 SSOT 참조 |
 | §4.7 (UI dock 패널 폐기 결정) | 유지 (영향 없음) |
-| §6 m15 (PII / 보안 — collection 등록 시 consent) | **강화** — multi-tenant α flat 이라 위험 ↑. 등록 시 "이 collection 은 다른 사용자도 검색 가능" 명시 의무화 (본 문서 §6 m2) |
+| §6 m15 (PII / 보안 — collection 등록 시 consent) | **강화** — multi-tenant T1 flat 이라 위험 ↑. 등록 시 "이 collection 은 다른 사용자도 검색 가능" 명시 + consent 의무화 (본 문서 §6 m2) |
 | §6 m16 (ATTACH 된 collection schema 불일치) | **완화** — service 의 IndexerVersion gate (본 문서 §3.12) + paired-release (본 문서 §6 m1) 가 흡수 |
 
 ---
@@ -377,90 +460,102 @@ POST /collections
 
 #### Phase S1 — service 기반 host
 
-**DoD**: TLS bind 성공 + PSK 인증 미들웨어가 빈 `GET /collections` 요청에 200 응답 (registry 비어있음). `Collections\` / `Staging\` / `Logs\` 초기화 완료. log4net file appender 가 첫 로그 라인 기록. EventLog 에 service start 이벤트 등록.
+**DoD**: TLS bind 성공 + plain HTTP 거부 + DPAPI 로 PSK 복호화 + PSK 인증 미들웨어가 빈 `GET /collections` 요청에 200 응답 (registry 비어있음). `Collections\` / `Staging\` / `Logs\` / `Audit\` 초기화 완료. log4net RollingFileAppender (size + date) 가 첫 로그 라인 기록. EventLog 에 service start 이벤트 등록. config schema_version check 통과. install/uninstall script 산출물 동작 검증.
 
-- [ ] 신규 project `Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj` (또는 C# host)
+- [ ] 신규 project `Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj` (또는 C# host — §4.3 결정 따라)
   - TargetFramework `net9.0` (`-r win-x64 --self-contained` publish 권장)
   - `Microsoft.Extensions.Hosting.WindowsServices` + `UseWindowsService()`
-  - `Ds2.LightHouse` ProjectReference (read-path 사용)
-- [ ] config 로드 — `%PROGRAMDATA%\Dualsoft\LightHouseService\config.json` (§3.11)
-- [ ] TLS 바인드 — Kestrel HTTPS, `tlsCertPath` 로드
-- [ ] PSK auth middleware — `Authorization: Bearer` 검증 + fixed-time compare (parent r4 의 `McpHostService` 의 nonce 검증 패턴 재활용)
-- [ ] storage layout (`Collections\` / `Staging\` / `Logs\`) 초기화
-- [ ] log4net 설정 — `Logs\service-YYYYMMDD.log` + EventLog 병행
+  - `Ds2.LightHouse` ProjectReference (read-path 사용, write-path 는 dead-link OK 단 P1 결정 따라)
+- [ ] config 로드 — `%PROGRAMDATA%\Dualsoft\LightHouseService\config.json` (§3.11) + **schema_version check** (낮으면 in-place migration, 높으면 fail-fast — MA16)
+- [ ] **DPAPI 복호화** — `tlsCertPasswordEncrypted` / `preSharedKeyEncrypted` (LocalMachine scope, CR4)
+- [ ] TLS 바인드 — Kestrel HTTPS-only, `tlsCertPath` 로드. **plain HTTP listener 미바인드 + listenUrl 의 `http://` prefix fail-fast** (§3.7)
+- [ ] PSK auth middleware — `Authorization: Bearer` 검증 + fixed-time compare. **PSK 패턴은 parent `McpHostService` 의 nonce 검증과 다름** (PSK 는 per-request 동일 값 → TLS 안에서만 의미, M8)
+- [ ] **`X-User-Identity` 헤더 의무 middleware** — 누락 시 401 (M11 audit 추적용)
+- [ ] storage layout (`Collections\` / `Staging\` / `Logs\` / `Audit\`) 초기화 + permission 확인
+- [ ] log4net RollingFile + Date + size policy 설정 — `Logs\service-YYYYMMDD.log` + `Audit\audit-YYYYMMDD.log` (별도 appender) + EventLog 병행. `logRetentionDays` / `auditRetentionDays` 강제 (MA14)
+- [ ] **install / uninstall script 신설** (MA13) — `scripts/install-service.ps1` (PSK 평문 입력 → DPAPI 암호화 → config.json 저장 → sc.exe create) / `scripts/uninstall-service.ps1` / `config.json.template`
 - [ ] sln 등록 — `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (parent r4 §4.1 의 sln 2개 정책 동일)
+- [ ] **paired-release manifest hash hook** (MA7) — `Ds2.LightHouse.dll` 의 `InformationalVersion` 비교를 dist post-build target 에 박제. config 의 `indexerVersionRange` 와 client 의 `Ds2.LightHouse.dll.InformationalVersion` mismatch 시 build fail
 
 #### Phase S2 — collection 관리 API
 
-**DoD**: 최소 zip (`source/` + `.lighthouse-kb/index.db` 최소형 + `meta.json`) 으로 `POST /collections` 성공 → `Collections\<guid>-<title>\` 배치 → `GET /collections` 1행 응답. sanitize (`..` traversal) / zip bomb (10x ratio) / IndexerVersion gate (호환 / too-low / too-high 3 케이스) unit test 통과. `POST /collections/{id}/payload` swap rollback 시나리오 통과.
+**DoD**: 최소 zip (`source/` + `.lighthouse-kb/index.db` 최소형 + `meta.json`) 으로 `POST /collections` 성공 → server 가 guid 부여 → `{id}` 응답 → `Collections\<guid>-<title>\` 배치 → `GET /collections` 1행 응답. sanitize (`..` traversal / 절대경로 / symlink / blob regex) / zip bomb (50x ratio) / IndexerVersion gate (호환 / too-low / too-high 3 케이스) / 도착 byte 부족 abort / 동시 race (두 client 동시 POST 후 두 entry 보존) / swap 중 active session 잔존 / 0-doc collection 등록 / Staging incomplete cleanup unit test 통과. `POST /collections/{id}/payload` swap rollback 시나리오 통과.
 
-- [ ] `POST /collections` — multipart 수신 + Staging\ 임시 저장
-- [ ] zip sanitize — entry path `..` 가드 + 절대경로 거부 + Collections\<id>\ 하위 verify
-- [ ] zip bomb 가드 — `zipBombRatioLimit` 기반 누적 byte 한도
-- [ ] IndexerVersion 호환성 검증 (§3.12) — 415 응답 시 명확한 안내
-- [ ] atomic move (Staging → Collections\<guid>-<title>\)
-- [ ] `registry.json` upsert (parent r4 의 `LlmConfig.Save` atomic 패턴 재활용)
-- [ ] `GET /collections` — registry 응답 (α flat)
-- [ ] `GET /collections/{id}/status` — 단일 collection 상태
-- [ ] `POST /collections/{id}/payload` — 재업로드 swap (기존 Collections\<id>\ → `<id>.old\` rename → 신 zip 전개 → 검증 OK 면 `<id>.old\` purge / fail 시 rollback)
-- [ ] `DELETE /collections/{id}` — Collections\<id>\ 전체 purge (D7)
-- [ ] Staging\ stale sweep (process exit 시 incomplete upload / timeout)
+- [ ] `POST /collections` — multipart 수신 + Staging\ 임시 저장 + **request body 도착 byte < Content-Length 면 즉시 abort + Staging entry 삭제 + 4xx 응답** (MA12). 응답 body 에 **server 가 발급한 `{id}`** 동봉 (CR3, D3)
+- [ ] zip sanitize — entry path `..` 가드 + 절대경로 거부 + symlink 거부 + Collections\<id>\ 하위 verify + **`blobs/images/` regex 강제** (`^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$`, mn11)
+- [ ] zip bomb 가드 — `zipBombRatioLimit` (50:1 default) 기반 누적 byte 한도
+- [ ] IndexerVersion 호환성 검증 (§3.12) — 415 응답 + body 에 `{currentClientVersion, hostingRange, suggestedAction}` 명시 (mn8 — client KbManagerDialog 에 명확 안내)
+- [ ] atomic move (Staging → Collections\<guid>-<title>\) + `meta.json` 의 server 필드 (`id`, `importedAt`, `importedBy`, `storageRelPath`) 채움
+- [ ] **`registry.json` upsert with SemaphoreSlim** (CR5, §3.9.1) — atomic save + 직렬화 가드
+- [ ] **0-doc collection 처리 정책** (MA18) — `Documents` 0건 zip 도 등록 허용 (운영자 사전 등록 시나리오). search 시 empty 정상 응답
+- [ ] `GET /collections` — registry 응답 (T1 flat) + ETag 캐시 권장
+- [ ] `GET /collections/{id}/status` — `{status: idle|indexing|error, errorReason?, lastImportedAt}` (MA10)
+- [ ] `POST /collections/{id}/payload` — 재업로드 swap. **swap 시 active session 정책** (MA6): 해당 collection 을 ATTACH 한 모든 session 의 connection 에서 detach → 신 zip 전개/검증 → 검증 OK 면 active session 의 다음 MCP call 시점에 lazy re-attach (새 index.db) / fail 시 rollback + active session 들 기존 index.db 로 자동 복귀
+- [ ] `DELETE /collections/{id}` — Collections\<id>\ 전체 purge (D7) + active session 들에 detach 신호 (해당 session 의 다음 호출이 unknownIds 응답 받음)
+- [ ] `DELETE /uploads/{stagingId}` — client cancel hook 용 (MA14, Phase S5 KbManagerDialog cancel button 과 짝)
+- [ ] Staging\ stale sweep — incomplete upload 즉시 cleanup + 주기 sweep (`stagingSweepIntervalMinutes`) backstop
+- [ ] **Audit log 기록** — 모든 mutation (register/payload-swap/delete) + caller (`X-User-Identity`) (M11, §6 m17)
 
 #### Phase S3 — session + MCP search host
 
-**DoD**: `POST /sessions { collectionIds }` → token 발급. unknownIds / unindexableIds 응답 unit test 통과. ATTACH limit 10 hard fail (Q2) 통과. LLM client (codex 가능) 가 MCP `attachment_list` 호출 시 active 셋 union 응답. session 헤더 누락 시 401. idle TTL sweep 후 connection dispose 통과.
+**DoD**: `POST /sessions { collectionIds }` → token 발급. unknownIds / unindexableIds 응답 unit test 통과. ATTACH limit boundary (9/10/11 + 동시에 같은 collection 을 2 session) 통과. service restart 중 진행 chat 의 MCP 호출 자동 회복 (L3) 통과. LLM client (codex 가능) 가 MCP `attachment_list` 호출 시 active 셋 union 응답. session 헤더 누락 시 401. idle TTL sweep 후 connection dispose 통과.
 
-- [ ] `POST /sessions` — collectionIds validate (registry 부분집합) + ATTACH limit 10 가드 (Q2) + token 발급
-- [ ] `SessionRegistry` (in-memory) — `{token, activePaths, attachedAliases, connection, lastUsedAt}`
+- [ ] `POST /sessions` — collectionIds validate (registry 부분집합) + **ATTACH limit boundary 검증** (MA17, `PRAGMA compile_options` 로 SQLITE_MAX_ATTACHED 재확인) + token 발급
+- [ ] `SessionRegistry` (in-memory) — `{token, activeCollectionIds, attachedAliases, connection, lastUsedAt, userIdentity}`
 - [ ] per-session `SqliteConnection` 격리 (Q3) — open + ATTACH `kb0..kbN-1` lazy on first MCP call
-- [ ] idle TTL sweep (`sessionIdleTtlMinutes`) — connection dispose + registry 제거 (L2-3)
+- [ ] idle TTL sweep (`sessionIdleTtlMinutes` default 240) — connection dispose + registry 제거 (L2-3)
 - [ ] `DELETE /sessions/{token}` — 명시 해제
-- [ ] MCP server host — `ModelContextProtocol.AspNetCore` `WithHttpTransport()` + `WithToolsFromAssembly()` (parent r4 의 `McpHostService` 패턴 동일)
-- [ ] `AttachmentTools` (서버측 신설) — 4종 (`attachment_list/_outline/_search/_read`). session 헤더로 `SessionState` lookup → 그 connection 으로 `Ds2.LightHouse.Searcher` 호출
-- [ ] fileId 합성 — `<collection-index>:<documents-id>` (parent r4 §3.10 그대로)
+- [ ] MCP server host — `ModelContextProtocol.AspNetCore` `WithHttpTransport()` + `WithToolsFromAssembly()` (parent r4 의 `McpHostService` 패턴 동일, P2 의 버전 align 결정 따라)
+- [ ] `AttachmentTools` (서버측 신설) — 4종 (`attachment_list/_outline/_search/_read`). session 헤더로 `SessionState` lookup → 그 connection 으로 `Ds2.LightHouse.Searcher` 호출. **quota 가드는 session 누적 enforce** (parent §3.10 의 `maxCallsPerTurn` 은 `maxCallsPerSession` 으로 의미 갱신, mn12)
+- [ ] fileId 합성 — **`<collection-guid>:<documents-id>`** (MA23, D3 guid 와 정합. parent §3.10 의 `<collection-index>` 형은 폐기 — turn 간 stable 보장 약함)
 - [ ] 응답에 unknownIds / unindexableIds 동봉 (active 셋 sync 용, §3.8)
+- [ ] **service restart 시 in-memory SessionRegistry 손실 → client (L3) 자동 회복 test 통과** (CR6)
 
 #### Phase S4 — file serving (citation 원문)
 
-**DoD**: `GET /collections/{id}/files/{fileId}` 가 `Collections\<id>\source\` 의 원본 byte stream 반환 (D6). Content-Type 추정 OK (PDF / DOCX / XLSX / PPTX / TXT / MD 케이스). 존재하지 않는 fileId 는 404. 권한 (PSK) 없으면 401.
+**DoD**: `GET /collections/{id}/files/{fileId}` 가 `Collections\<id>\source\` 의 원본 byte stream 반환 (D6). HTTP Range 지원 (대용량 PDF) + ETag = FileHash. Content-Type 추정 OK (PDF / DOCX / XLSX / PPTX / TXT / MD 케이스). 존재하지 않는 fileId 는 404. 권한 (PSK) 없으면 401.
 
-- [ ] `GET /collections/{id}/files/{fileId}` — Collections\<id>\source\ 의 원본 stream (Content-Type 추정)
+- [ ] `GET /collections/{id}/files/{fileId}` — Collections\<id>\source\ 의 원본 stream (Content-Type 추정 + **HTTP Range 지원** + **ETag = FileHash** for client cache, MA8)
+- [ ] viewer 채택 결정 (MA8) — Phase S5 의 citation 클릭 UX 가 (a) OS default app 호출 vs (b) 내장 viewer. 권장 default: PDF/DOCX/XLSX 는 (a), TXT/MD 는 (b)
 - [ ] (옵션) `GET /collections/{id}/files/{fileId}/thumbnail` — PDF page 0 / Office 파일 첫 슬라이드 등 작은 미리보기
 - [ ] (옵션) `GET /collections/{id}/files/{fileId}/page/{n}.png` — Phase 2 PDF page 렌더
 
 #### Phase S5 — Promaker (client) 통합
 
-**DoD**: Promaker 가 service 에 PSK 로 인증 → KbManagerDialog 에서 폴더 추가 → 색인 → upload → chat 시작 시 session 발급 → LLM 이 attachment_search 호출 → citation 포함 응답 생성. parent r4 의 in-process MCP 시나리오와 동등 UX 도달. KbManagerDialog 에서 active 토글 → 다음 chat 부터 반영 (L1) 확인.
+**DoD**: Promaker 가 service 에 PSK (DPAPI 저장) 로 인증 → KbManagerDialog 에서 폴더 추가 (consent dialog) → 색인 → upload (cancel button 동작) → chat 시작 시 session 발급 → LLM 이 attachment_search 호출 → citation 포함 응답 생성. service kill → 재시작 → 진행 chat 의 다음 호출 자동 회복 (L3). KbManagerDialog 에서 active 토글 → 다음 chat 부터 반영 (L1) 확인. **`Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` 의 client↔server round-trip suite 통과** (MA22). `LlmConfig.cs` round-trip 시 기존 필드와 직렬화 관례 동일 (MA4). `ApplicationSettingsDialog` 의 "연결 테스트" 버튼 동작 확인.
 
-- [ ] `LlmConfig.cs` 확장:
-  - `KbCollections` schema 변경: `List<KbCollectionEntry>` = `{CollectionId, DisplayName, Active}` (§3.4)
-  - `LightHouseService` 신설: `{BaseUrl, ApiKey}` (§3.4)
-  - atomic save / corrupt fallback 패턴 유지
-  - schema migration 처리 (§4.3 결정 따라)
+- [ ] `LlmConfig.cs` 확장 — **본 phase 가 KbCollections 최초 도입처** (parent r5 SKIP 으로 prod 미존재):
+  - `KbCollections` schema 신설: `List<KbCollectionEntry>` = `{CollectionId(guid), DisplayName, Active}` (§3.4)
+  - `LightHouseService` 신설: `{BaseUrl, ApiKeyEncrypted(DPAPI base64, CurrentUser scope)}` (§3.4, §3.7)
+  - atomic save / corrupt fallback 패턴 유지 (parent r4 `LlmConfig.Save` 동형)
+  - schema migration = **불필요** (§4.3 default c — parent r5 SKIP 으로 `{path, active}` 형태 데이터 prod 미존재)
+  - 직렬화 관례 = grep 으로 기존 `LlmConfig` 필드 (PascalCase vs camelCase) 확인 후 정합 ⚠ DoD 에 round-trip 검증 포함
 - [ ] `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` 신설 — HTTP client wrapper
-  - `UploadCollectionAsync(title, zipStream)` → guid
+  - `UploadCollectionAsync(title, zipStream, CancellationToken)` → `{collectionId(guid)}` (server 가 발급, §3.4 D3)
   - `ListCollectionsAsync()` → CollectionInfo[] (Promaker startup 호출 — Q1)
   - `DeleteCollectionAsync(id)`
   - `CreateSessionAsync(collectionIds)` → `{token, unknownIds[], unindexableIds[]}` (§3.8)
   - `DeleteSessionAsync(token)`
-  - 모든 요청에 `Authorization: Bearer <PSK>` 자동 동봉
-- [ ] `Apps/Promaker/Promaker/Knowledge/CollectionPackager.cs` 신설 — folder → zip (`source/` + `.lighthouse-kb/` + `meta.json`)
-- [ ] `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs` 갱신 — 색인 완료 후 zip 패키징 + LightHouseClient 로 upload
-- [ ] `Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)` 갱신 (parent r4 §4.5 의 KbManagerDialog 와 큰 폭 다름):
-  - 추가: folder picker → 색인 진행률 (client 측) → upload 진행률 (HTTP) → 완료
-  - 제거: 색인 자체 storage 관리 (server 가 흡수)
+  - 모든 요청에 `Authorization: Bearer <DPAPI-decrypted PSK>` 자동 동봉 + TLS 강제 (plain HTTP 거부, §3.7)
+  - **MCP 호출 응답 401/403 시 `CreateSessionAsync` 자동 재발급 + 동일 호출 1회 retry** (CR6, §3.8)
+- [ ] `Apps/Promaker/Promaker/Knowledge/CollectionPackager.cs` 신설 — folder → zip (`source/` + `.lighthouse-kb/` + `meta.json` per §3.3.1 SSOT)
+- [ ] `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs` **신설** — 색인 (Ds2.LightHouse Indexer in-process) → zip 패키징 → LightHouseClient.UploadCollectionAsync. cancel button hook (HTTP request abort + 즉시 `DELETE /uploads/{stagingId}` 호출)
+- [ ] `Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)` **신설** (parent r5 SKIP 으로 미존재 — 본 phase 가 *최초 도입*):
+  - folder picker → 색인 진행률 (client 측) → upload 진행률 (HTTP) → 완료
   - active 토글 → `LlmConfig.KbCollections[i].Active` 변경만 (server 무영향, 다음 chat 부터 반영)
   - chip 안내 "변경은 다음 chat 부터" (§3.8)
-- [ ] `Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` 갱신 — LLM 탭에 "LightHouse Service" section (BaseUrl / PSK 입력)
+  - **consent dialog 강제** — folder 추가 직전 "이 collection 은 multi-tenant T1 flat 정책상 다른 사용자도 검색 가능. 비밀 문서 포함 폴더 등록 금지" 표시, 매 등록마다 (§6 m2 SSOT)
+  - service 미연결 시 안내 chip ("LightHouse Service 에 연결할 수 없습니다. ApplicationSettingsDialog 의 BaseUrl/PSK 확인")
+- [ ] `Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` **신설/확장** — LLM 탭에 "LightHouse Service" section (BaseUrl / PSK 입력 + DPAPI 암호화 저장) + **"연결 테스트" 버튼** (`GET /collections` 1회 → 결과 chip)
 - [ ] `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs` 갱신:
   - `InitializeAsync` 에서 `LightHouseClient.CreateSessionAsync` 호출 + 응답 처리 (unknownIds/unindexableIds sync — §3.8)
   - `.mcp-config` 작성 시 lighthouse server 항목 추가 (service URL + session header)
   - chat panel close / Dispose 시 `DeleteSessionAsync` (L2-1)
 - [ ] `Apps/Promaker/Promaker/App.xaml.cs` process exit hook — 살아있는 token 일괄 DELETE (L2-2)
-- [ ] `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` — attachment_* 4종 **제외** (parent r4 Phase 1 추가분을 본 phase 진입 시 다시 제외)
-- [ ] `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` — service 도입 시 attachment_* 가 Promaker 측 ModelTools 에 없음을 확인. expectedSet 은 parent r4 의 doc-level 4 + read 2 = **6종** 으로 환원 (현 상태 grep 후 확정)
-- [ ] (parent §4.5 의) `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — 본 phase 에서 **만들지 않음** (service 측 신설)
-- [ ] (parent §4.5 의) `LlmTurnContext.cs` 의 `KnowledgeBase` 필드 — 본 phase 에서 **만들지 않음** (read-path 가 service 라 회피)
+- [ ] `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` — attachment_* 4종 **추가 안 함** (현 6종 유지). parent r5 SKIP 으로 *애초 추가 안 됨* → 본 phase 에서도 변경 0 (grep 으로 fresh 확인만)
+- [ ] `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` — `expectedSet` **변경 없음 확인** (현 6종 fresh). 본 task = grep + 확인만, 코드 변경 0
+- (parent r5 SKIP 후) `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — 본 phase 에서도 **만들지 않음** (service 측 신설, §4.2 Phase S3)
+- (parent r5 SKIP 후) `LlmTurnContext.cs` 의 `KnowledgeBase` 필드 — 본 phase 에서도 **만들지 않음** (read-path 가 service 측이라 회피)
 
 #### Phase S6 — CLI 도구 (옵션, 회사 IT 운영용)
 
@@ -480,22 +575,32 @@ POST /collections
 - [ ] resume 가능한 chunked upload (tus-protocol 등) — 대용량 (수 GB) zip 실패 시 재전송 부담 완화
 - [ ] **mTLS** (PSK 회전 부담 완화 — §3.7 참조)
 - [ ] multi-service routing — 사용자가 동시에 회사 service + 개인 PC service 두 군데 등록 가능. `LlmConfig.LightHouseServices : List<...>`
-- [ ] β/γ multi-tenant 확장 (PII 격리 요구 발생 시)
+- [ ] T2/T3 (옛 β/γ) multi-tenant 확장 (PII 격리 요구 발생 시) — T2 = per-user namespace, T3 = collection 별 ACL
 - [ ] connection pool (Q3 격리 정책 완화) — 메모리 압박 시점에 검토
 
 ### 4.3 미확정 항목 (Phase S 진입 시 결정)
 
-| 항목 | 위치 | 권장 default | 확정 시점 |
-|---|---|---|---|
-| service host 언어 — F# vs C# | §4.2 Phase S1 | F# (LightHouse 와 동일 stack) | S1 진입 |
-| TLS 인증서 발급 운영 — self-signed vs 사내 CA | §3.7 | self-signed (사내 신뢰 root 추가) | S1 진입 |
-| PSK 회전 정책 | §3.7 | 수동 (mTLS 는 Phase S7) | S1 진입 |
-| ATTACH connection lazy open vs eager | §3.8 | lazy on first MCP call | S3 진입 |
-| `Ds2.LightHouse` lib facade 의 양분 형태 (parent §3.18.1 결정 후 facade 가 read-only mode 옵션 받는지) | §3.1.2 | facade 에 `readonly: bool` 파라미터 추가 | S1 진입 |
-| Promaker 의 in-process search fallback 제공 여부 (service 미가동 시) | §3.13 | **fallback 안 함** (SSOT 일관성) | S5 진입 |
-| `lighthouse-cli` 의 Phase 진입 시점 | §4.2 Phase S6 | **Phase S5 완료 후 별도** (단순화) | S5 진입 |
-| **`LlmConfig.KbCollections` schema migration** — parent r4 의 `{path,active}` 데이터 처리 | §3.4 / Phase S5 | **(c) 마이그레이션 불필요** — parent r5 결정 12 (대안 B) 로 parent Phase 1 에서 §4.5 SKIP. `KbCollections` 자체가 prod 에 깔린 적 없음. fallback (사용자가 어떤 경로로든 `{path,active}` 형태 data 보유 시): (a) 자동 폐기 + chip 안내. default = (c) | S5 진입 직전 (Phase S0 의 잔재 점검 항목과 함께 확인) |
-| `LightHouseService` config 의 JSON property attribute 적용 (PascalCase 직렬화 vs camelCase) | §3.4 / Phase S5 | parent r4 `LlmConfig.cs` 의 현 직렬화 관례 grep 후 정합 | S5 진입 |
+dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과에 의존 (P-id, §0 표 참조).
+
+| 항목 | 위치 | 권장 default | 확정 시점 | dep |
+|---|---|---|---|---|
+| ⚠ P1: `Ds2.LightHouse` lib facade 의 양분 형태 (parent §3.18.1 의 record-of-functions vs interface 결정 후) | §3.1.2 | facade 에 `readonly: bool` 파라미터 추가 (record-of-functions 가정) | S1 진입 | parent §3.18.1 |
+| service host 언어 — F# vs C# | §4.2 Phase S1 | F# (LightHouse 와 동일 stack) | S1 진입 | P1 (facade native 여부 영향) |
+| TLS 인증서 발급 운영 — self-signed vs 사내 CA | §3.7 | 사내 CA (deployment) / self-signed (PoC) | S1 진입 | — |
+| PSK 회전 정책 | §3.7 | 수동 (사내 deployment 면 **mTLS Phase S7 우선 진입** 권장) | S1 진입 | — |
+| ATTACH connection lazy open vs eager | §3.8 | lazy on first MCP call | S3 진입 | — |
+| ATTACH limit boundary (main 포함 10 vs 추가 10) | §3.8, MA17 | `PRAGMA compile_options` 로 SQLITE_MAX_ATTACHED 재확인 후 결정 | S1 진입 (Microsoft.Data.Sqlite bundle 옵션 확인) | — |
+| Promaker 의 in-process search fallback 제공 여부 (service 미가동 시) | §3.13 | **fallback 안 함** (SSOT 일관성, §6 m8) | S5 진입 | — |
+| `lighthouse-cli` 의 Phase 진입 시점 | §4.2 Phase S6 | **Phase S5 완료 후 별도** (단순화) | S5 진입 | — |
+| CLI 인증 모델 (별도 PSK vs GUI 와 동일) | §4.2 Phase S6, mn9 | 별도 PSK 또는 mTLS client cert 권장 (leak 부담 격리) | S6 진입 | — |
+| `LlmConfig.KbCollections` schema migration — parent r4 의 `{path,active}` 데이터 처리 | §3.4 / Phase S5 | **(c) 마이그레이션 불필요** (parent r5 SKIP 으로 prod 미존재). fallback: (a) 자동 폐기 + chip 안내 | S5 진입 직전 (Phase S0 의 잔재 점검 항목과 함께 확인) | — |
+| `LightHouseService` config 의 JSON property attribute 적용 (PascalCase 직렬화 vs camelCase) — 기존 `LlmConfig.cs` 와 정합 | §3.4 / Phase S5 | grep 으로 기존 LlmConfig 필드 직렬화 관례 확인 후 정합. Phase S5 DoD 에 round-trip 검증 (MA4) | S5 진입 직전 (sln 갱신 commit 직전) | — |
+| ⚠ P2: `ModelContextProtocol.AspNetCore` 버전 — parent §4.1 결정 따라 | §4.2 Phase S3 | parent 결정 그대로 align | S3 진입 | parent §4.1 |
+| `lighthouse` endpoint version prefix (`/v1/collections` 등) | §3.9, mn13 | 도입 권장 (서비스 v2 시 dual host 여지) | S2 진입 | — |
+| viewer 채택 (citation 클릭) — OS default app vs 내장 | §4.2 Phase S4/S5, MA8 | PDF/DOCX/XLSX = OS default, TXT/MD = 내장 | S5 진입 | — |
+| paired-release manifest hash 정의 (PE 헤더 vs InformationalVersion vs 별도 manifest) | MA7, §3.12, §6 m1 | `InformationalVersion` 비교 (post-build target) | S1 진입 (dist hook 결정 단계) | — |
+| consent dialog 문구 SSOT + persist 위치 (audit log 행 박제 vs LlmConfig 행) | §3.6, §6 m2 | audit log 박제 (per-등록) + consent 거부 시 등록 중단 | S5 진입 | — |
+| backup / DR 정책 (Collections\ + registry.json snapshot 도구) | §6 m3 (신설) | 운영자 책임 (VSS / robocopy /mir + flush). 또는 Phase S7 `POST /admin/backup` endpoint | S5 진입 (운영 가이드 문서화 시점) | — |
 
 ---
 
@@ -505,9 +610,17 @@ POST /collections
 
 - `Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj` + 본체 (.fs)
 - `Solutions/Tools/Ds2.LightHouse.Cli/Ds2.LightHouse.Cli.fsproj` (옵션, Phase S6)
-- `Solutions/Tests/Ds2.LightHouseService.Tests/`
-- `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` (HTTP wrapper)
-- `Apps/Promaker/Promaker/Knowledge/CollectionPackager.cs` (folder → zip)
+- `Solutions/Tests/Ds2.LightHouseService.Tests/` (unit)
+- `Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` (client↔server round-trip, WebApplicationFactory 또는 TestContainers, MA22)
+- `Solutions/Tools/Ds2.LightHouseService/scripts/install-service.ps1` (PSK 평문 입력 → DPAPI 암호화, MA13)
+- `Solutions/Tools/Ds2.LightHouseService/scripts/uninstall-service.ps1`
+- `Solutions/Tools/Ds2.LightHouseService/scripts/config.json.template`
+- `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` (HTTP wrapper, CR6 L3 자동 회복 포함)
+- `Apps/Promaker/Promaker/Knowledge/CollectionPackager.cs` (folder → zip per §3.3.1)
+- `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs` (parent r5 SKIP 으로 본 phase 가 *최초 도입*)
+- `Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)` (parent r5 SKIP 으로 *최초 도입*, consent dialog 포함)
+- `Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` 의 "LightHouse Service" section + "연결 테스트" 버튼 (parent r5 SKIP 으로 *최초 도입*)
+- `Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md` (parent §4.6 SKIP 으로 *최초 도입*, server-side host + MCP host 2개 정책 포함)
 
 ### 수정
 
@@ -540,7 +653,7 @@ POST /collections
 ## 6. 주의 사항
 
 1. **paired-release 강제** — Promaker 와 service 의 `Ds2.LightHouse` lib version 이 다르면 schema 의미 drift. dist 워크플로 (`make dist`) 에서 manifest hash 비교 후 mismatch 시 build fail.
-2. **multi-tenant α flat 의 PII 위험** — 사용자가 등록한 collection 은 모든 사용자가 검색 가능. KbManagerDialog 의 "추가" 클릭 시 **consent dialog 의무화** ("이 collection 의 내용은 다른 사용자도 검색 가능합니다. 비밀 문서 포함 폴더는 등록 금지"). parent r4 §6 m15 의 강화판.
+2. **multi-tenant T1 flat 의 PII 위험** — 사용자가 등록한 collection 은 모든 사용자가 검색 가능. KbManagerDialog 의 "추가" 클릭 시 **consent dialog 의무화** ("이 collection 의 내용은 다른 사용자도 검색 가능합니다. 비밀 문서 포함 폴더는 등록 금지"). parent r4 §6 m15 의 강화판.
 3. **zip sanitize 우선** — entry path `..` traversal / 절대경로 / symlink (있을 경우) 모두 거부. `Collections\<id>\` 하위로만 전개. 누적 byte 한도 (`zipBombRatioLimit`) 가드.
 4. **chat panel lifetime = session lifetime (L1)** — turn 마다 재발급 X. 사용자가 KbManagerDialog 에서 active 토글해도 현 chat 영향 0. UI chip "변경은 다음 chat 부터" 강제.
 5. **session 3중 cleanup (L2)** — panel close (1차) + process exit (2차) + idle TTL (3차). leak 차단.
@@ -554,6 +667,11 @@ POST /collections
 13. **line number 박제 회피** — 본 문서의 parent 참조 (예: `LlmChatViewModel.InitializeAsync` 의 `_mcpHost.StartAsync` 호출 line) 는 가능한 symbol 기반. 진입 시 grep 재확인. parent r4 §6 m13 와 동일 정책.
 14. **parent §3.0 두 경로 분리 invariant 유지** — service 도입은 KB ingest 경로만 영향. chat image/text drop 경로 (`AttachmentClassifier`) 와 무관. `todo-llm-chat-attachment.md` 와의 cross-PR 충돌 없음.
 15. **MEMORY.md `## Project` 등록** — Phase S1 진입 commit 직후 본 todo 항목을 메모리에 등록 (parent r4 §6 m11 의 본 phase 판).
+16. **PSK = 유일 인증 자산 (단일 실패점)** — mTLS Phase S7 까지 PSK 만이 인증 수단. leak 1건 = multi-tenant T1 flat 전체 collection 노출. server `config.json` 의 `preSharedKey` + client `LlmConfig.LightHouseService.ApiKeyEncrypted` 둘 다 **DPAPI 의무** (§3.7 CR4). 평문 키 저장 절대 금지. 사내 deployment 면 Phase S7 mTLS 우선 진입 권장.
+17. **audit log SSOT** — `Audit\audit-YYYYMMDD.log` (server-side, log4net 별도 appender). 기록 항목: `{timestamp, user(X-User-Identity), action(register/delete/search/payload-swap), collectionId, queryText(검색 시 첫 200자), result(success/fail), errorReason}`. PII consent 결과도 동일 log 에 박제 (등록 시점). 보관 기간 = `auditRetentionDays` (default 365, §3.11).
+18. **service restart 자동 회복 (CR6 / L3)** — `LightHouseClient` 가 MCP 응답 401/403 받으면 `POST /sessions` 재발급 + 동일 호출 1회 retry. 사용자/LLM 입장에서 service restart / idle TTL 만료 / 일시 network drop 모두 투명 회복. 이 정책 누락 시 chat 회복 불가 (parent §3.18.2 회피로 LLM 단순 "MCP 실패" 만 받음).
+19. **registry mutation 직렬화 (CR5)** — service 내 `SemaphoreSlim(1,1)` 으로 registry.json read-modify-write 가드. parent `LlmConfig.Save` 의 single-thread 가정과 다름 (Kestrel 다중 thread). Phase S2 DoD 에 동시 race test 포함.
+20. **paired-release manifest hash (M1 강화)** — `Ds2.LightHouse.dll` 의 `InformationalVersion` 비교 + service `HostingRange.min..max` 와 client lib version 의 호환성 검증. dist 워크플로 (`make dist`) 의 post-build target 에서 강제. mismatch 시 build fail. 구현 위치 = §4.3 미확정 표 추가 후 결정.
 
 ---
 
