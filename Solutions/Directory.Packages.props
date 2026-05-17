@@ -17,6 +17,11 @@
     <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): yaml↔json 양방향 변환. wire = JSON object, view = YAML. -->
     <PackageVersion Include="YamlDotNet" Version="16.2.0" />
   </ItemGroup>
+  <!-- Ds2.LightHouse — KB 색인 base 인프라 (todo-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
+  <ItemGroup>
+    <PackageVersion Include="PdfPig" Version="0.1.14" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+  </ItemGroup>
   <!-- F# 핵심 라이브러리 -->
   <ItemGroup>
     <PackageVersion Include="FSharp.Core" Version="9.0.100" />
