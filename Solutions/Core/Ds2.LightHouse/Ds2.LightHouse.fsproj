@@ -10,6 +10,14 @@
     <Compile Include="Logging.fs" />
     <Compile Include="ImageFormat.fs" />
     <Compile Include="TextEncoding.fs" />
+    <Compile Include="Models.fs" />
+    <Compile Include="RefLocator.fs" />
+    <Compile Include="Classifier.fs" />
+    <Compile Include="Extractors\IExtractor.fs" />
+    <Compile Include="Extractors\TextExtractor.fs" />
+    <Compile Include="Extractors\PdfExtractor.fs" />
+    <Compile Include="Extractors\OoxmlExtractor.fs" />
+    <Compile Include="Chunker.fs" />
   </ItemGroup>
 
   <ItemGroup>
