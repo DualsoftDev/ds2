@@ -12,6 +12,7 @@
 | r4 | 2026-05-17 | n×m KB 운영 도입 — collection = 사용자가 임의 폴더 선택 (path-based, project 종속 X). 한 폴더 = 1 collection. LlmConfig.KbCollections (OS 사용자 전역) 에 등록. SQLite ATTACH 로 m 개 active union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼) 신설. 원본 사본 정책 폐기 (사용자 폴더 안 원본이 SSOT, `.lighthouse-kb/` 은 index.db + Phase 2 image blob 만). read-only collection: read OK, write (색인/재색인) fail. dock 패널 §4.7 폐기 — KB UI 는 dialog 전용. |
 | r5 | 2026-05-17 | **대안 B 채택 — Phase 1 의 §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 SKIP** (server phase 흡수). parent Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 까지만. Promaker 측 통합 전체는 `todo-lighthouse-kb-server.md` Phase S5 가 단일 SSOT. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway 라 yo-yo / migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 6건 회피. `--inspect-diff 5` 사후 사용자 추가 검증으로 도출. |
 | r6 | 2026-05-17 | `--inspect 3` reviewer 결과 반영 (Critical 6 + Major 23 + Minor 15 = 44건). 주요 갱신: (1) §3.18.2 채택안 (a) r5 SKIP marker 강화 — Phase 1 의 결정사항 아님 명시 (CR1/MA9), (2) §0 보류 항목 표 5→3행 — §4.5 의존 2행 server §4.3 로 이전 (CR1/MA2), (3) 진입 박스 7→9 row 보강 (§3.17/§3.18 추가, §4.6 신설 row, MA10), (4) §3.9 의 ad-hoc Q1/Q2/Q3/D-1 표기에 `r4-` prefix — server §0 D-id namespace 충돌 회피 (MA1), (5) §5 수정 목록을 "Phase 1 본체" vs "r5 SKIP — server phase 흡수" 두 sub-section 으로 분리 (CR1), (6) §7 다음 세션 행동 r5 박제 + grep checklist 강화, (7) §4.8 lib unit test 시나리오 구체화 (a/b/c/d 4 sub-section: parser/FTS5/multi-collection/cross-PR) (MA21), (8) §6.13 박제 fresh marker (2026-05-17) (mn10), (9) §3.15.3 `.promaker-kb/` 잔재 → `.lighthouse-kb/` (mn1), (10) §4.1 의 무관 grep task 제거 (mn5), (11) §4.2a 에 ImageFormat 호출처 전수 grep task 추가 (mn14). server.md 와 동시 갱신 (s0-r3). |
+| r7 | 2026-05-17 | **§4.1 진입 commit (`bccb0ea`) + §4.2a 진입 commit (본 turn)**. 사용자 결정: (a) Solutions/Ds2.sln 갱신 SKIP — `Apps/Promaker/Promaker.sln` 만 갱신 (§4.1 박제 "sln 2개" → 1개로 좁힘), (b) `ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0` 업그레이드는 본 Phase 1 보류 — server phase Phase S3 P2 결정 시 함께, (c) 본 todo 파일 git mv 보류 (Phase 1 완료 후 별도 결정). **§4.2c "C# 무영향 확인" 가정 정정**: F# type abbreviation 이 C# interop 작동 안 함 — C# 3 파일 (`LlmChatViewModel.Attachments.cs` / `LlmChatPanel.xaml.cs` / `ApiTurnContentBuilderTests.cs`) `using Ds2.LightHouse;` 추가 + `Ds2.LlmAgent.ImageFormat.Png` → `Ds2.LightHouse.ImageFormat.Png` namespace 갱신 필요 (수행 완료). §4.1 의 `Solutions/Directory.Packages.props` 에 PdfPig 0.1.14 + DocumentFormat.OpenXml **3.5.1** (최신 stable, 자가 검열 minor) 등록. §4.2a 추가 grep 발견 — `ClaudeStreamJsonInputTests.fs:33,74` 의 `Png` constructor 도 `open Ds2.LightHouse` 추가 (총 F# Test 3 파일). |
 
 ---
 
@@ -41,10 +42,12 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r6** (r5 대안 B 위에 `--inspect 3` reviewer Critical 6 + Major 23 + Minor 15 반영. r0~r3 외부 reviewer 11명 + r4/r5 사용자 design 입력 + r6 reviewer 3명 = 누계 14 reviewer 검증)
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제 (r5 대안 B 위에 얹는 incremental). 본 todo Phase 1 (lib 본체 + lib unit test 만) 완료 후 진입.
-- **모드**: `--plan` 만 수행 (코드 변경 0, 본 todo 만 갱신).
-- **신규 코드 / 신규 파일 / git stage 변경 — 모두 0**.
+- **현재 rev**: **r7** (Phase 1 실 코드 진입 — §4.1 + §4.2a commit. r0~r3 외부 reviewer 11명 + r4/r5/r7 사용자 design 입력 + r6 reviewer 3명 = 누계 14 reviewer 검증, 사용자 결정 누적)
+- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제. 본 todo Phase 1 (lib 본체 + lib unit test 만) 완료 후 진입.
+- **모드**: `--plan` 종료. 실 코드 작업 진입 (§4.1/§4.2a 완료, §4.2b 부터 다음 세션 이어받기).
+- **본 세션까지 commit 누적**:
+  - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)
+  - **(다음 commit)** — §4.2a: ImageFormat + TextEncoding → LightHouse 이전 + C# interop namespace 갱신 + AttachmentClassifierDriftTests 13 (전체 41) 통과 + CLAUDE.md SSOT 박제 line 70 갱신
 
 ### 사용자가 명시적으로 동의한 결정 (이전 세션에서 확정)
 1. **신규 F# project 명 `Ds2.LightHouse`** — `Solutions/Core/` 하 신설, base 의미 (§3.1)
@@ -67,22 +70,23 @@
 | 항목 | 위치 | 권장 default | 확정 시점 |
 |---|---|---|---|
 | KnowledgeBase facade 형식 (record-of-functions vs interface) | §3.18.1 | record-of-functions (F# idiomatic) | Phase 1 4.4 진입 |
-| 본 todo 파일 위치 git mv 여부 (Apps/Promaker/Docs/ → Solutions/Core/Ds2.LightHouse/doc/) | §6.14 | Phase 1 진입 commit 직전 mv | Phase 1 4.1 진입 직전 |
-| ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 업그레이드 여부 (출처 + breaking change 확인) | §2, §4.1 | 별 release note 검토 + nuget list 후 결정 | Phase 1 4.1 진입 |
+| 본 todo 파일 위치 git mv 여부 (Apps/Promaker/Docs/ → Solutions/Core/Ds2.LightHouse/doc/) | §6.14 | Phase 1 완료 commit 직전 mv | **r7 보류 박제** — Phase 1 완료 후 별도 confirm |
+| ~~ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 업그레이드 여부~~ | §2, §4.1 | ~~별 release note 검토 + nuget list 후 결정~~ | **r7 결정**: 본 Phase 1 (lib only — MCP 무관) 무관, server phase Phase S3 P2 결정 시 함께 |
 
 **server phase 로 이전된 항목** (`kb-server.md §4.3` 미확정 표 참조):
 - `attachment_*` 의 KB root 도달 경로 — server `§3.8` session-based routing 으로 대체 (parent §3.18.2 의 채택안 (a) 는 r5 SKIP)
 - SQLite ATTACH limit (10) 초과 시 안내 — server `§3.8` Q2 의 hard fail 가드로 흡수
 
-### 다음 세션 즉시 할 일 (4 step)
-1. **본 todo 정독** — 특히 §0 / §3.0 / §3.11 / §3.18.2 / §6 주의 사항 14건
-2. **사실 재확인** — §7 의 grep 항목 일괄 실행 (line 박제 stale 위험 §6.13). 특히:
-   - `AttachmentClassifier` 호출처 (4.2 진입 전 동기화 의무 §6.12)
-   - `active todo-llm-chat-attachment.md` 최근 commit 동기화
-   - `PromakerToolNamesDriftTests.fs:18` 의 modelToolsPath 단일 vs 전체 스캔 현황
-   - `LlmTurnContext.cs:57` 의 현재 생성자 signature
-3. **Phase 1 4.1 진입 confirm** 받기 — `.gitignore` 격상 + project 생성 + sln 2개 + NuGet 등록.
-4. **commit 은 별도 confirm** (memory: `feedback_commit_authorization` — multi-step plan 의 "go" 동의에 commit 까지 묶지 말 것)
+### 다음 세션 즉시 할 일 (r7 갱신)
+
+§4.1 + §4.2a commit 완료. 다음 = **§4.2b 부터**.
+
+1. **본 todo 정독** — 특히 §0 / §3.0 / §3.11 / §3.18.2 / §6 주의 사항 14건 / **r7 박제 (§4.1 사용자 결정 + §4.2c C# 정정)**
+2. **§4.2b 진입** — `Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs` 의 `detectEncoding` + 부속 (`TextEncodingDetect` record / `tryCp949` / `isStrictDecodable` / `Log.provider.Warn`) 본체 제거. shim 잔류 (`let detectEncoding bytes = Ds2.LightHouse.TextEncoding.detectEncoding bytes`) — 호출처 (`LlmChatViewModel.Attachments.cs:360`) 무영향 + AttachmentClassifierDriftTests 13건 유지.
+   - 동시에 CLAUDE.md 의 line 71 (AttachmentClassifier 의 detectEncoding 잔재 박제) + line 170 (line:38-83 박제) 갱신 — 본 commit 으로 함께
+3. **§4.3 / §4.4 / §4.8 진입** — LightHouse 본체 (Models / Extractors / Chunker / Classifier / SqliteStore / Searcher / Indexer / KnowledgeBase facade) + lib unit test. §4.5/§4.6 는 r5 SKIP 그대로.
+4. **commit 은 별도 confirm** (memory: `feedback_commit_authorization`)
+5. **MEMORY.md `## Project` 등록** (§6.11) — Phase 1 §4.2b 통합 후 한 번에
 
 ### 본 작업이 영향을 줄 다른 활성 todo (cross-PR)
 - `Apps/Promaker/Docs/todo-lighthouse-kb-server.md` (s0, 후속 phase) — service 도입 design. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
@@ -573,9 +577,11 @@ PRAGMA foreign_keys = ON;
 
 ### Phase 1 — MVP (환원판: PDF + DOCX + TXT + MD, FTS5 trigram only, 4 tools, **이미지 미처리**)
 
-**4.1 Ds2.LightHouse project 생성**
+**4.1 Ds2.LightHouse project 생성** *(r7: commit `bccb0ea` 완료)*
 
-> ⛔ **대안 B (r5) — 첫 task `.gitignore` 는 SKIP**. server phase 가 사용자 폴더에 흔적 0 정책이라 in-process MVP 단계에서도 prod 사용자 노출 없음 (§4.5 skip 이라 사용자가 KbManagerDialog 로 collection 등록 불가). lib 자체 unit test 만으로는 사용자 폴더 직접 사용 안 함. **하단 첫 task 줄에 line-through 표시**, 그 외 task (project 생성 / sln / NuGet 등록) 는 정상 진행.
+> ⛔ **대안 B (r5) — 첫 task `.gitignore` 는 SKIP**. server phase 가 사용자 폴더에 흔적 0 정책이라 in-process MVP 단계에서도 prod 사용자 노출 없음 (§4.5 skip 이라 사용자가 KbManagerDialog 로 collection 등록 불가). lib 자체 unit test 만으로는 사용자 폴더 직접 사용 안 함.
+>
+> ⛔ **r7 사용자 결정**: (a) sln 갱신 = **`Apps/Promaker/Promaker.sln` 만** (Solutions/Ds2.sln SKIP). (b) `ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0` 업그레이드 = **본 Phase 1 보류** (lib only — MCP 무관 / server phase Phase S3 P2 결정 시 함께). (c) 본 todo 파일 git mv = **Phase 1 완료 commit 직전 별도 confirm**.
 
 - [ ] ~~**선행 (코드보다 먼저)** — root `.gitignore` 에 `.lighthouse-kb/` 추가 (r4 — 폴더 이름 변경, project 무관). 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택할 경우를 위한 보호. 4.4 의 SqliteStore 가 동작하는 순간 그 폴더 안에 index.db (+ Phase 2 부터 image blob) 자동 생성.~~ **(r5 SKIP — server phase 흡수)**
 - [ ] 사전 grep — `Directory.Packages.props` 가 Solutions/Apps/Promaker 두 위치 어떻게 분리되어 있는지 (CPM 적용 범위) 확정
@@ -588,7 +594,11 @@ PRAGMA foreign_keys = ON;
   - 이미 등록 (재사용): `Microsoft.Data.Sqlite`, `System.Text.Encoding.CodePages`, `log4net`, `FSharp.Core`
 - [ ] (검토) ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 (2026-05-08 출시) 업그레이드 여부
 
-**4.2 부분 통합 (LightHouse 로 이전 — 3 commit sub-grouping)**
+**4.2 부분 통합 (LightHouse 로 이전 — 3 commit sub-grouping)** *(r7: §4.2a commit 완료 본 turn, §4.2b 부터 next)*
+
+> ⛔ **r7 정정 — §4.2c "C# 무영향 확인" 가정 폐기**: F# type abbreviation (`type X = Y`) 이 C# interop 작동 안 함 (.NET metadata 에 X type 미생성). §4.2a 에서 C# 3 파일에 `using Ds2.LightHouse;` 추가 + `Ds2.LlmAgent.ImageFormat.Png` → `Ds2.LightHouse.ImageFormat.Png` namespace 갱신 수행 완료. §4.2c 의 "호출 경로 무영향" 박제는 더 이상 SSOT 아님.
+>
+> r7 추가 grep 발견: §4.2a 본문이 누락한 `ClaudeStreamJsonInputTests.fs:33,74` 의 `Png` constructor 도 `open Ds2.LightHouse` 추가 (F# Test 총 3 파일 — AttachmentClassifierDriftTests / LlmUserMessageOpsTests / ClaudeStreamJsonInputTests).
 
 *4.2a (이전)*
 - [ ] **사전 grep — `ImageFormat` 호출처 전수 확인** (F# + C#). LlmMessage.fs 외 다른 곳 (예: `LlmChatViewModel.Attachments.cs` 의 image 첨부 logic) 에서도 사용 시 alias / open 으로 호환 처리 누락 회피.
