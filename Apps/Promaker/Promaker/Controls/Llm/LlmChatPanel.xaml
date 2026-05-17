@@ -230,10 +230,11 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header — title 좌측 + provider ComboBox 우측 (Phase 2 Claude/Codex dispatch) -->
+        <!-- Header — title 좌측 + provider ComboBox + ⚙ 설정 (LLM 탭으로 진입, AS-2) -->
         <Grid Grid.Row="0" Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12"
@@ -244,6 +245,13 @@
                       IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
                       MinWidth="80"
                       ToolTip="LLM provider 선택. 변경 시 새 CLI 검출 + 세션 초기화."/>
+            <Button Grid.Column="2"
+                    Content="⚙"
+                    Style="{StaticResource DarkButton}"
+                    Margin="4,0,0,0"
+                    Padding="6,2"
+                    Command="{Binding DataContext.ShowLlmSettingsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    ToolTip="LLM 설정 (API 키 / 모델 / 사용자 지침)"/>
         </Grid>
 
         <!-- Status + Thinking indicator (PR-F). Ev2.Oracle 의 3-dot blink 패턴 — IsSending 시 우측에 표시.

@@ -336,13 +336,27 @@ public partial class MainViewModel
     /// 환경(앱 전역) 설정 편집 — AASX / PLC / LLM / 프리셋. 프로젝트와 무관, 항상 활성.
     /// </summary>
     [RelayCommand]
-    private void ShowApplicationSettings()
+    private void ShowApplicationSettings() => OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab.Aasx);
+
+    /// <summary>
+    /// LLM Chat 패널 헤더의 ⚙ 버튼에서 호출. 같은 ApplicationSettingsDialog 를 LLM 탭으로 바로 열기.
+    /// (AS-2: 진입점 통일 + 별도 mini dialog 신설 회피)
+    /// </summary>
+    [RelayCommand]
+    private void ShowLlmSettings() => OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab.Llm);
+
+    private void OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab initialTab)
     {
-        var dlg = new ApplicationSettingsDialog();
+        var dlg = new ApplicationSettingsDialog(initialTab);
         var accepted = _dialogService.ShowDialog(dlg) == true;
+
+        // UserPromptsTouched: 디스크 *.md 변경 가능성은 OK/Cancel 무관 — 사용자가 폴더에서 이미 편집했을 수 있음.
+        // RefreshPrompts() 는 Codex instructions.md 재기록만 (다른 provider 는 Phase1c 가 매 호출 LoadComposed 라 자동 반영).
+        if (dlg.UserPromptsTouched) LlmChatVm?.RefreshPrompts();
+
         if (!accepted) return;
 
-        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload.
+        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload (provider 재구성 포함).
         if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
 
         // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)

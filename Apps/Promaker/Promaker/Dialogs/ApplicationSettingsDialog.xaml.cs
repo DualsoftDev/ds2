@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -40,6 +41,13 @@ public partial class ApplicationSettingsDialog : Window
     /// <summary>OK 시 LlmConfig 변경 사항이 disk 에 저장되었는지. 호출자가 LlmChatVm.ReloadConfig() 호출 트리거로 사용.</summary>
     public bool LlmConfigChanged { get; private set; }
 
+    /// <summary>
+    /// 사용자가 user prompts 폴더를 열어본 신호 — 폴더 안 *.md 변경 가능성. LlmConfig 자체와 무관.
+    /// 호출자는 LlmConfigChanged 와 별개로 본 flag 도 확인해 LlmChatVm.RefreshPrompts() 호출 (provider 재구성 불필요).
+    /// Cancel(취소) 시에도 사용자가 이미 디스크에서 편집한 prompts 는 다음 chat 에서 반영되어야 하므로 본 flag 는 OK/Cancel 무관 적용.
+    /// </summary>
+    public bool UserPromptsTouched { get; private set; }
+
     /// <summary>모델 ComboBox (IsEditable=True) 의 후보 목록. 사용자는 선택 또는 직접 입력 가능.</summary>
     private static readonly string[] AnthropicModelCandidates =
     {
@@ -61,6 +69,22 @@ public partial class ApplicationSettingsDialog : Window
         "mistral-small",
         "qwen2.5",
     };
+
+    /// <summary>탭 SSOT — XAML 의 TabItem 순서와 일치 (Aasx=0, Plc=1, Llm=2, Preset=3).</summary>
+    public enum SettingsTab { Aasx = 0, Plc = 1, Llm = 2, Preset = 3 }
+
+    /// <summary>
+    /// <paramref name="initialTab"/> 으로 특정 탭을 선택해서 열 수 있음. LLM Chat 패널의 ⚙ 버튼이 LLM 탭으로 진입할 때 사용.
+    /// 유효 범위 밖이면 ArgumentOutOfRangeException — silent fallback 안 함 (fail-fast, XAML 재배치 시 즉시 발견).
+    /// </summary>
+    public ApplicationSettingsDialog(SettingsTab initialTab) : this()
+    {
+        var idx = (int)initialTab;
+        if (idx < 0 || idx >= SettingsTabControl.Items.Count)
+            throw new ArgumentOutOfRangeException(nameof(initialTab), idx,
+                $"SettingsTabControl.Items.Count={SettingsTabControl.Items.Count} — XAML TabItem 순서/개수 불일치?");
+        SettingsTabControl.SelectedIndex = idx;
+    }
 
     public ApplicationSettingsDialog()
     {
@@ -219,8 +243,37 @@ public partial class ApplicationSettingsDialog : Window
         // Ollama base URL
         LlmOllamaBaseUrlBox.Text = _llmConfig.OllamaBaseUrl;
 
+        // User Prompts dir 경로 표시 (read-only) — SettingsPaths SSOT
+        LlmUserPromptsDirBox.Text = SettingsPaths.UserPromptsDir;
+
         // Consent 상태
         UpdateConsentStatus();
+    }
+
+    private static readonly log4net.ILog _log =
+        log4net.LogManager.GetLogger(typeof(ApplicationSettingsDialog));
+
+    /// <summary>
+    /// 사용자 추가 지침 폴더를 Explorer 에서 열기. 편집은 OS 기본 .md 핸들러에 위임 (P2).
+    /// 폴더 열기 = 변경 가능성 신호 → <see cref="UserPromptsTouched"/> 마킹 (LlmConfigChanged 와 분리 — provider 재구성 회피).
+    /// 호출자(FileCommands)가 dialog close 후 LlmChatVm.RefreshPrompts() 호출 → Codex instructions.md 재기록 + 다음 chat 부터 반영.
+    /// </summary>
+    private void LlmOpenUserPromptsFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = SettingsPaths.UserPromptsDir;
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+            _log.Info($"user prompts 폴더 열기: {dir}");
+        }
+        catch (Exception ex)
+        {
+            // 외부 환경 사유 (정책 차단 / shell association 누락 등) — log + UI 안내, silent swallow 안 함.
+            _log.Warn($"user prompts 폴더 열기 실패: {dir}", ex);
+            DialogHelpers.Warn($"폴더를 열 수 없습니다: {dir}\n\n{ex.Message}");
+        }
+        UserPromptsTouched = true;
     }
 
     // ─── Hot-fix-8 v3: 후보 선택 ContextMenu (TextBox + ▾ Button 패턴) ─────────

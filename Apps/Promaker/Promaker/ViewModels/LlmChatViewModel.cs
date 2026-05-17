@@ -792,6 +792,22 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// 사용자가 user prompts dir 의 *.md 를 편집한 신호. provider 재구성은 불필요 — system prompt 텍스트만 다음 호출 시
+    /// 자동 반영 (SystemPromptText.Phase1c 가 매 호출 LoadComposed → 디스크 재읽기).
+    ///
+    /// Codex provider 만 별도 처리 필요: <see cref="_codexInstructionsPath"/> 에 1회 write 한 파일을 사용하므로
+    /// Refresh 시점에 동일 파일을 새 Phase1c 로 덮어쓰지 않으면 Codex 세션이 옛 prompt 그대로 사용 (provider 비대칭).
+    /// </summary>
+    public void RefreshPrompts()
+    {
+        if (_codexInstructionsPath != null && System.IO.File.Exists(_codexInstructionsPath))
+        {
+            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, System.Text.Encoding.UTF8);
+            Log.Info($"Codex instructions.md 재기록 (user prompts 변경 반영) — {_codexInstructionsPath}");
+        }
+    }
+
+    /// <summary>
     /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
     /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
     ///
