@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <!-- Windows Service host + Kestrel HTTPS + DPAPI 모두 Windows-specific.
+         self-contained publish 권장 (sc.exe binPath 단순화). -->
+    <RuntimeIdentifier Condition="'$(PublishProfile)' != ''">win-x64</RuntimeIdentifier>
+    <UseAppHost>true</UseAppHost>
+    <RootNamespace>Ds2.LightHouseService</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Logging.fs" />
+    <Compile Include="Config.fs" />
+    <Compile Include="Storage.fs" />
+    <Compile Include="Middleware.fs" />
+    <Compile Include="Endpoints.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- read-path 만 사용 (Searcher / KnowledgeBase facade). Phase S0-3 결정 — server 가 KnowledgeBase 의
+         read-only surface 만 호출, Indexer 는 dead-link OK. P1 의 readonly:bool 파라미터 추가 안 함. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="scripts\install-service.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="scripts\uninstall-service.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="scripts\config.json.template" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="log4net.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Paired-release manifest hash hook (S1.7 / §6 m1 SSOT).
+       본 Target = placeholder. 본격 검증 (Ds2.LightHouse.dll 의 InformationalVersion vs config indexerVersionRange.max
+       mismatch 시 build fail) 은 dist 워크플로 (`make dist`) 진입 시 추가.
+       dist target 진입 위치 = `scripts/check-paired-release.ps1` 신설 + dist skill 의 build step 사이.
+       현 단계에서는 LightHouse.dll 의 InformationalVersion 을 message 로만 노출 — drift detection 책임은 dist 측. -->
+  <Target Name="PairedReleaseCheck" AfterTargets="Build">
+    <GetAssemblyIdentity AssemblyFiles="$(OutputPath)Ds2.LightHouse.dll">
+      <Output TaskParameter="Assemblies" ItemName="LightHouseAssembly" />
+    </GetAssemblyIdentity>
+    <Message Text="Paired-release: Ds2.LightHouse %(LightHouseAssembly.Version) — TODO: dist post-build hook (S1.7 / §6 m1)" Importance="normal" />
+  </Target>
+
+</Project>
