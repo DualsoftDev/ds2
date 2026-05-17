@@ -17,6 +17,13 @@
     <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): yaml↔json 양방향 변환. wire = JSON object, view = YAML. -->
     <PackageVersion Include="YamlDotNet" Version="16.2.0" />
   </ItemGroup>
+  <!-- Ds2.LightHouseService (todo-lighthouse-kb-server.md Phase S1). Windows Service + Kestrel HTTPS + DPAPI. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <!-- DPAPI (LocalMachine / CurrentUser scope) — Windows-only. CR4 의 preSharedKey / tlsCertPassword 암호화 SSOT. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
   <!-- Ds2.LightHouse — KB 색인 base 인프라 (todo-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
   <ItemGroup>
     <PackageVersion Include="PdfPig" Version="0.1.14" />

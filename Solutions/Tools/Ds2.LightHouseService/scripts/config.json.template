@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "listenUrl": "https://0.0.0.0:8443",
+  "tlsCertPath": "C:\\ProgramData\\Dualsoft\\LightHouseService\\service.pfx",
+  "tlsCertPasswordEncrypted": "REPLACED_BY_INSTALL_SCRIPT",
+  "preSharedKeyEncrypted": "REPLACED_BY_INSTALL_SCRIPT",
+  "storageRoot": "%PROGRAMDATA%\\Dualsoft\\LightHouseService",
+  "maxUploadBytes": 10737418240,
+  "zipBombRatioLimit": 50,
+  "sessionIdleTtlMinutes": 240,
+  "stagingSweepIntervalMinutes": 10,
+  "logRetentionDays": 30,
+  "logMaxSizeMB": 100,
+  "auditRetentionDays": 365,
+  "indexerVersionRange": {
+    "min": "1.0.0",
+    "max": "1.99.99"
+  }
+}
