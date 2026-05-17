@@ -11,6 +11,10 @@
     <Compile Include="StorageTests.fs" />
     <Compile Include="DpapiRoundTripTests.fs" />
     <Compile Include="AuthMiddlewareTests.fs" />
+    <Compile Include="RegistryTests.fs" />
+    <Compile Include="MetaJsonTests.fs" />
+    <Compile Include="ZipImportTests.fs" />
+    <Compile Include="StagingSweepTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

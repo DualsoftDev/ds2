@@ -67,6 +67,11 @@ let main argv =
     let builder = WebApplication.CreateBuilder()
     builder.Services.AddRouting() |> ignore
     builder.Services.AddSingleton(cfg) |> ignore
+    // Phase S2 lifecycle notifier — S3 진입 시 SessionRegistry impl 로 swap.
+    builder.Services.AddSingleton<ICollectionLifecycleNotifier>(fun _ ->
+        LoggingCollectionLifecycleNotifier() :> ICollectionLifecycleNotifier) |> ignore
+    // Phase S2 — staging sweep BackgroundService.
+    builder.Services.AddHostedService<StagingSweepService>() |> ignore
 
     // Kestrel HTTPS-only — config 의 listenUrl 에서 host/port 추출 후 HTTPS endpoint 만 바인드.
     // plain HTTP listener 는 *애초 바인드 안 함* (§3.7). scheme check 는 Config.validateHttpsOnly 가 이미 강제 (review m12).
@@ -107,8 +112,9 @@ let main argv =
     // 2. 인증 middleware — Bearer PSK + X-User-Identity 검증
     app.Use(AuthMiddleware.middleware psk) |> ignore
 
-    // 3. 인증 통과 endpoint
-    Endpoints.mapAuthenticated app
+    // 3. 인증 통과 endpoint — Phase S2 collection 관리 API
+    let notifier = app.Services.GetRequiredService<ICollectionLifecycleNotifier>()
+    CollectionEndpoints.map app cfg notifier
 
     Log.service.Info(sprintf "Kestrel HTTPS listen 시작 — %s (maxUploadBytes=%d)"
         cfg.ListenUrl cfg.MaxUploadBytes)
