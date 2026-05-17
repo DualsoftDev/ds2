@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <!--
+    Phase S5a scaffold (todo-lighthouse-kb-server.md §4.2 Phase S5 / §5 신규).
+
+    본 phase = placeholder. 본격 e2e (LightHouseClient ↔ service Program 부팅 → POST /collections →
+    GET /collections → DELETE round-trip + citation file 다운로드) 는 Phase S5c 진입 시 추가.
+    Phase S5c 진입 시 Program.fs 의 WebApplication 빌드 로직을 별 entry helper 로 export 하거나,
+    `WebApplicationFactory<TEntryPoint>` 정합 가능하도록 partial Program/test fixture 도입.
+
+    review IM-7 (s3-r1) 도 본 project 가 흡수 — CollectionEndpoints unit test 0건 → WebApplicationFactory 기반 시험.
+  -->
+
+  <ItemGroup>
+    <Compile Include="ScaffoldSentinelTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Tools\Ds2.LightHouseService\Ds2.LightHouseService.fsproj" />
+  </ItemGroup>
+
+</Project>

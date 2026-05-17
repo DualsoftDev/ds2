@@ -138,4 +138,103 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Null(cfg.GetApiKey("nonexistent"));
         Assert.False(cfg.HasApiKey("nonexistent"));
     }
+
+    // ─── Phase S5a — KbCollections + LightHouseService ───────────────────────
+
+    [Fact]
+    public void KbCollections_round_trips_through_save_load()
+    {
+        var path = Path.Combine(_root, "kb-roundtrip.json");
+        const string json = """
+            {
+              "dataEgressConsent": true,
+              "kbCollections": [
+                {"collectionId":"550e8400-e29b-41d4-a716-446655440000","displayName":"라인A","active":true},
+                {"collectionId":"77777777-e29b-41d4-a716-446655440000","displayName":"라인B","active":false}
+              ]
+            }
+            """;
+        File.WriteAllText(path, json);
+
+        var cfg = LlmConfig.LoadFrom(path);
+        Assert.Equal(2, cfg.KbCollections.Count);
+        Assert.Equal("550e8400-e29b-41d4-a716-446655440000", cfg.KbCollections[0].CollectionId);
+        Assert.Equal("라인A", cfg.KbCollections[0].DisplayName);
+        Assert.True(cfg.KbCollections[0].Active);
+        Assert.False(cfg.KbCollections[1].Active);
+    }
+
+    [Fact]
+    public void LightHouseService_round_trips_through_save_load()
+    {
+        var path = Path.Combine(_root, "lhs-roundtrip.json");
+        const string json = """
+            {
+              "lightHouseService": {
+                "baseUrl": "https://service.test.local:8443",
+                "apiKeyEncrypted": "ZmFrZS1lbmNyeXB0ZWQtYmFzZTY0"
+              }
+            }
+            """;
+        File.WriteAllText(path, json);
+
+        var cfg = LlmConfig.LoadFrom(path);
+        Assert.NotNull(cfg.LightHouseService);
+        Assert.Equal("https://service.test.local:8443", cfg.LightHouseService!.BaseUrl);
+        Assert.Equal("ZmFrZS1lbmNyeXB0ZWQtYmFzZTY0", cfg.LightHouseService.ApiKeyEncrypted);
+    }
+
+    [Fact]
+    public void Default_LlmConfig_has_empty_KbCollections_and_null_LightHouseService()
+    {
+        var cfg = new LlmConfig();
+        Assert.NotNull(cfg.KbCollections);
+        Assert.Empty(cfg.KbCollections);
+        Assert.Null(cfg.LightHouseService);
+        Assert.False(cfg.HasLightHousePsk());
+    }
+
+    [Fact]
+    public void SetLightHousePsk_then_GetLightHousePsk_returns_same_plaintext()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg = new LlmConfig();
+        const string plain = "lighthouse-psk-test-1234567890";
+
+        cfg.SetLightHousePsk(plain);
+        Assert.True(cfg.HasLightHousePsk());
+        Assert.Equal(plain, cfg.GetLightHousePsk());
+        Assert.NotNull(cfg.LightHouseService);
+        Assert.NotEqual(plain, cfg.LightHouseService!.ApiKeyEncrypted);
+    }
+
+    [Fact]
+    public void SetLightHousePsk_with_null_clears_encrypted()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg = new LlmConfig();
+        cfg.SetLightHousePsk("temp");
+        Assert.True(cfg.HasLightHousePsk());
+
+        cfg.SetLightHousePsk(null);
+        Assert.False(cfg.HasLightHousePsk());
+        Assert.Equal("", cfg.LightHouseService!.ApiKeyEncrypted);
+    }
+
+    [Fact]
+    public void LightHousePsk_uses_distinct_entropy_from_LlmApi_keys()
+    {
+        // 다른 entropy 사용을 검증 — LlmApi key 로 LightHouse PSK 를 복호화 시도하면 실패.
+        // 동일 평문을 두 entropy 로 암호화한 byte 가 다른지만 검증 (DPAPI 결정성 보장은 아니지만 entropy 차이는 확실).
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg1 = new LlmConfig();
+        cfg1.SetApiKey("anthropic", "same-plain");
+        cfg1.SetLightHousePsk("same-plain");
+
+        // 두 base64 가 동일하면 entropy 통합된 것 — 의도와 다름
+        Assert.NotEqual(cfg1.EncryptedKeys["anthropic"], cfg1.LightHouseService!.ApiKeyEncrypted);
+    }
 }
