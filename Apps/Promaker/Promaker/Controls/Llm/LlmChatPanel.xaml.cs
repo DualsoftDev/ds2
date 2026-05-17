@@ -123,7 +123,7 @@ public partial class LlmChatPanel : UserControl
             if (pngBytes is { Length: > 0 })
             {
                 e.CancelCommand();
-                _ = vm.AddImageBytesAsync(pngBytes, Ds2.LlmAgent.ImageFormat.Png, PasteFileName());
+                _ = vm.AddImageBytesAsync(pngBytes, Ds2.LightHouse.ImageFormat.Png, PasteFileName());
                 return;
             }
         }
@@ -174,7 +174,7 @@ public partial class LlmChatPanel : UserControl
             .ContinueWith(t =>
             {
                 if (t.IsCompletedSuccessfully && t.Result is { Length: > 0 } bytes)
-                    _ = vm.AddImageBytesAsync(bytes, Ds2.LlmAgent.ImageFormat.Png, name);
+                    _ = vm.AddImageBytesAsync(bytes, Ds2.LightHouse.ImageFormat.Png, name);
             }, uiScheduler);
     }
 

@@ -3,6 +3,7 @@ namespace Ds2.LlmAgent
 open System
 open System.IO
 open System.Text
+open Ds2.LightHouse  // ImageFormat (Png/Jpeg/Gif/Webp) — todo §4.2a 이전 후 SSOT
 
 /// 첨부물 분류 결과 (정책 19 SSOT). UI Drop/Paste handler 는 본 분류만으로 의사결정.
 type Classification =

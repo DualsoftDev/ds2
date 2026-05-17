@@ -40,6 +40,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\Ds2.Editor\Ds2.Editor.fsproj" />
+    <!-- 첨부물/문서 base 인프라 (todo-lighthouse-kb-index.md §3.2). ImageFormat enum / TextEncoding.detectEncoding 의 SSOT. -->
+    <ProjectReference Include="..\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

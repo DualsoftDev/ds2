@@ -2,6 +2,7 @@ module LlmUserMessageOpsTests
 
 open System
 open Xunit
+open Ds2.LightHouse  // ImageFormat (Png/Jpeg/Gif/Webp) — todo §4.2a 이전
 open Ds2.LlmAgent
 
 /// commit-6b — `LlmUserMessageOps.EnforceCapabilityOrFail` strict 모드 회귀.
