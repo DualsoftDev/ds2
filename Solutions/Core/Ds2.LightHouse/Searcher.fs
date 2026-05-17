@@ -1,0 +1,291 @@
+namespace Ds2.LightHouse
+
+open System
+open System.IO
+open System.Text
+open Microsoft.Data.Sqlite
+
+/// FTS5 trigram 검색 — multi-collection ATTACH UNION (todo-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
+///
+/// Phase 1 = BM25 lexical-only (FTS5 trigram). Phase 4 = hybrid (BM25 + vector RRF) 로 확장.
+/// 본 모듈은 검색 path 만 — write (ingest / 재색인) 은 `Indexer` 책임 (§3.0 두 경로 분리 SSOT 와 별개로 read/write 분리).
+[<RequireQualifiedAccess>]
+module Searcher =
+
+    /// MCP `attachment_search` 의 excerpt 한도 (§3.10 quota 가드). 호출자 (server / Promaker) 가 enforce.
+    [<Literal>]
+    let DefaultMaxExcerptTokens = 4000
+
+    /// FTS5 query 빌드 — 공백/탭으로 토큰화 후 각 토큰을 phrase 로 감쌈 (review M1).
+    ///
+    /// 통상 검색 의도 = 여러 단어 implicit AND. 단일 phrase quoting 은 "정확 연속" 만 매칭 → 의도 어긋남.
+    /// 토큰 안 `"` 는 `""` escape (FTS5 syntax). 한국어 trigram 은 phrase 가 자연 (3-gram 단위).
+    let private buildFtsQuery (raw: string) : string =
+        raw.Split([| ' '; '\t'; '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map (fun token -> "\"" + token.Replace("\"", "\"\"") + "\"")
+        |> String.concat " "
+
+    /// "<kbIdx>:<docId>" → (kbIdx, docId) parse. parse 실패 시 None.
+    let private parseFileId (fileId: string) : (int * int64) option =
+        if String.IsNullOrEmpty fileId then None
+        else
+            let parts = fileId.Split(':')
+            if parts.Length <> 2 then None
+            else
+                let okIdx, kbIdx = Int32.TryParse parts.[0]
+                let okDoc, docId = Int64.TryParse parts.[1]
+                if okIdx && okDoc then Some (kbIdx, docId) else None
+
+    let private composeFileId (kbIdx: int) (docId: int64) : string =
+        sprintf "%d:%d" kbIdx docId
+
+    /// 한 collection (alias) 분의 SELECT 생성. UNION ALL 로 결합.
+    /// `kbIdx` 가 fileId composition / score 보존에 쓰임. alias = `kb0`/`kb1`/... (SqliteStore.MaxAttachedDbs 안).
+    let private buildCollectionSelect (kbIdx: int) (alias: string) (fileIdFilter: (int * int64) option) : string =
+        let docFilter =
+            match fileIdFilter with
+            | Some (filterKb, filterDoc) when filterKb = kbIdx -> sprintf " AND c.DocumentId = %d" filterDoc
+            | Some _ -> " AND 1 = 0"  // 다른 kbIdx 한정 → 본 collection 결과 0
+            | None -> ""
+        sprintf """
+            SELECT
+                %d                                 AS KbIdx,
+                c.DocumentId                       AS DocumentId,
+                c.RefLocator                       AS RefLocator,
+                c.TokenCount                       AS TokenCount,
+                c.Text                             AS Text,
+                d.OriginalPath                     AS OriginalPath,
+                d.Title                            AS Title,
+                o.Label                            AS OutlineLabel,
+                bm25(%s.ChunksFts)                 AS Score
+            FROM %s.ChunksFts
+            JOIN %s.Chunks       AS c ON c.Id = %s.ChunksFts.rowid
+            JOIN %s.Documents    AS d ON d.Id = c.DocumentId
+            LEFT JOIN %s.OutlineNodes AS o ON o.Id = c.OutlineId
+            WHERE %s.ChunksFts MATCH $q%s
+        """ kbIdx alias alias alias alias alias alias alias docFilter
+
+    /// SearchHit.Excerpt 의 token 한도 보장. estimateTokens 가 한도 안이면 그대로,
+    /// 초과 시 char 단위 절단 (한국어 char/2 가중 기준 — 대략 token×2 char).
+    let private truncateExcerpt (text: string) (maxTokens: int) : string =
+        if Chunker.estimateTokens text <= maxTokens then text
+        else
+            // 한국어 가중 — token 1 ≈ char 2. ASCII 는 char 4.
+            // 보수적으로 char 2 기준 cutoff (한국어 보장).
+            let limit = maxTokens * 2
+            if text.Length <= limit then text
+            else text.Substring(0, limit) + "..."
+
+    /// outline → display path. Phase 1 단순화 — 직속 outline 의 Label 만 (no parent walk).
+    /// Phase 2 강화 시 OutlineNodes ParentId chain 따라 "root > parent > self" 조립.
+    let private outlinePath (label: obj) : string =
+        if isNull label || label = (box DBNull.Value) then ""
+        else string label
+
+    /// filename (citation 표시용) — OriginalPath 에서 파일명만 추출.
+    let private fileNameOf (originalPath: string) : string =
+        if String.IsNullOrEmpty originalPath then "" else Path.GetFileName originalPath
+
+    /// active 셋 union 검색 (§3.10 / §4.4 r4).
+    ///
+    /// `aliases` = ATTACH 된 collection 의 alias 배열 (kb0, kb1, ..., kbN-1, N ≤ §3.18.2 limit). 길이 0 = empty result.
+    /// `query.FileId` Some 시 해당 collection 의 해당 docId 한정. 다른 collection 은 0-hit.
+    /// 정렬: BM25 ASC (FTS5 의 bm25 가 낮을수록 hit 강도). multi-collection UNION 후 전체 정렬 → top-K.
+    let search
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (query: Query)
+        (maxExcerptTokens: int)
+        : SearchResults =
+
+        if aliases.Length = 0 || String.IsNullOrWhiteSpace query.Text then
+            { Results = [||]; MoreAvailable = false; Hint = None }
+        else
+            // fileId Some 시 parse 실패는 *명시 한정 검색의 의도와 다른 결과* 위험 → silent fallback 금지 (review M3).
+            // 사용자 의도 (특정 문서 한정) 보존을 위해 빈 결과 + warn log.
+            let fileIdFilter, fileIdInvalid =
+                match query.FileId with
+                | None -> None, false
+                | Some fid ->
+                    match parseFileId fid with
+                    | Some parsed -> Some parsed, false
+                    | None ->
+                        Log.lighthouse.Warn(
+                            sprintf "Searcher.search: fileId parse 실패 — '%s' (format = '<kbIdx>:<docId>')" fid)
+                        None, true
+
+            if fileIdInvalid then
+                { Results = [||]; MoreAvailable = false; Hint = Some "invalid fileId" }
+            else
+
+            let topK = max 1 query.TopK
+
+            // 1+ extra 로 over-fetch — MoreAvailable 판별.
+            let fetchLimit = topK + 1
+
+            let collectionSelects =
+                aliases
+                |> Array.mapi (fun i alias -> buildCollectionSelect i alias fileIdFilter)
+
+            let unionSql =
+                if collectionSelects.Length = 1 then collectionSelects.[0]
+                else
+                    collectionSelects
+                    |> String.concat "\nUNION ALL\n"
+
+            let sql =
+                sprintf """
+                    %s
+                    ORDER BY Score ASC
+                    LIMIT $limit
+                """ unionSql
+
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sql
+            cmd.Parameters.AddWithValue("$q", buildFtsQuery query.Text) |> ignore
+            cmd.Parameters.AddWithValue("$limit", fetchLimit) |> ignore
+
+            let hits = ResizeArray<SearchHit>()
+            use reader = cmd.ExecuteReader()
+            while reader.Read() do
+                let kbIdx       = reader.GetInt32(0)
+                let docId       = reader.GetInt64(1)
+                let refLocator  = reader.GetString(2)
+                let tokenCount  = reader.GetInt32(3)
+                let text        = reader.GetString(4)
+                let origPath    = if reader.IsDBNull(5) then "" else reader.GetString(5)
+                let title       = if reader.IsDBNull(6) then None else Some (reader.GetString(6))
+                let outlineLabel : obj = reader.GetValue(7)
+                let score       = reader.GetDouble(8)
+
+                let displayName =
+                    match title with
+                    | Some t when not (String.IsNullOrWhiteSpace t) -> t
+                    | _ -> fileNameOf origPath
+
+                hits.Add {
+                    FileId      = composeFileId kbIdx docId
+                    FileName    = displayName
+                    Ref         = refLocator
+                    OutlinePath = outlinePath outlineLabel
+                    // FTS5 bm25() 는 음수 (낮을수록 hit 강도). caller 측 통념상 "높을수록 좋음" 정합을 위해 부호 반전 (review M6).
+                    Score       = -score
+                    Excerpt     = truncateExcerpt text maxExcerptTokens
+                    TokenCount  = tokenCount
+                    HasImages   = false   // Phase 1 — 이미지 인프라 미도입 (§3.15.2)
+                }
+
+            let totalFetched = hits.Count
+            let moreAvailable = totalFetched > topK
+            let trimmed =
+                if moreAvailable then hits.GetRange(0, topK).ToArray()
+                else hits.ToArray()
+
+            let hint =
+                if trimmed.Length = 0 then Some "synonym retry"
+                else None
+
+            {
+                Results       = trimmed
+                MoreAvailable = moreAvailable
+                Hint          = hint
+            }
+
+    /// 등록 문서 목록 — `attachment_list` (§3.10) 의 lib 측 구현.
+    /// active 셋 union — 각 collection 의 Documents 전체. fileId 형식은 search 결과와 동일.
+    let listDocuments (conn: SqliteConnection) (aliases: string array) : (string * string * FileKind * int option) array =
+        if aliases.Length = 0 then [||]
+        else
+            let selects =
+                aliases
+                |> Array.mapi (fun i alias ->
+                    sprintf "SELECT %d AS KbIdx, Id, OriginalPath, DocType, PageOrSheetCnt FROM %s.Documents" i alias)
+            let unionSql = selects |> String.concat "\nUNION ALL\n"
+
+            let parseDocType (s: string) : FileKind =
+                match s with
+                | "pdf"  -> Pdf
+                | "docx" -> Docx
+                | "pptx" -> Pptx
+                | "xlsx" -> Xlsx
+                | "txt"  -> Text
+                | "md"   -> Markdown
+                | other  -> Unsupported other
+
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- unionSql
+            use reader = cmd.ExecuteReader()
+            let acc = ResizeArray<string * string * FileKind * int option>()
+            while reader.Read() do
+                let kbIdx = reader.GetInt32(0)
+                let docId = reader.GetInt64(1)
+                let path  = reader.GetString(2)
+                let kind  = parseDocType (reader.GetString(3))
+                let pages = if reader.IsDBNull(4) then None else Some (reader.GetInt32(4))
+                acc.Add (composeFileId kbIdx docId, path, kind, pages)
+            acc.ToArray()
+
+    /// outline 트리 — `attachment_outline(fileId)` (§3.10).
+    /// 본 함수는 raw rows 반환 — 트리 조립은 호출자 책임.
+    let getOutline (conn: SqliteConnection) (aliases: string array) (fileId: string) : (int64 * int64 option * int * OutlineNodeType * string * string) array =
+        match parseFileId fileId with
+        | None -> [||]
+        | Some (kbIdx, _) when kbIdx < 0 || kbIdx >= aliases.Length -> [||]
+        | Some (kbIdx, docId) ->
+            let alias = aliases.[kbIdx]
+            let parseNodeType (s: string) : OutlineNodeType =
+                // qualified case (SqliteStore.outlineNodeTypeToString 와 동일 사유 — RefUnit case 와 이름 충돌).
+                match s with
+                | "section" -> OutlineNodeType.Section
+                | "page"    -> OutlineNodeType.Page
+                | "sheet"   -> OutlineNodeType.Sheet
+                | "slide"   -> OutlineNodeType.Slide
+                | _         -> OutlineNodeType.Heading
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sprintf """
+                SELECT Id, ParentId, Ordinal, NodeType, Label, RefLocator
+                FROM %s.OutlineNodes
+                WHERE DocumentId = $doc
+                ORDER BY Ordinal
+            """ alias
+            cmd.Parameters.AddWithValue("$doc", docId) |> ignore
+            use reader = cmd.ExecuteReader()
+            let acc = ResizeArray<int64 * int64 option * int * OutlineNodeType * string * string>()
+            while reader.Read() do
+                let id      = reader.GetInt64(0)
+                let parent  = if reader.IsDBNull(1) then None else Some (reader.GetInt64(1))
+                let ord     = reader.GetInt32(2)
+                let nodeT   = parseNodeType (reader.GetString(3))
+                let label   = reader.GetString(4)
+                let refLoc  = reader.GetString(5)
+                acc.Add (id, parent, ord, nodeT, label, refLoc)
+            acc.ToArray()
+
+    /// 특정 ref (저장형) 의 chunk 본문 — `attachment_read(fileId, ref)` (§3.10).
+    /// 한 ref 안 여러 chunk → ordinal 순서대로 concat. token 한도 절단.
+    let readByRef
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (fileId: string)
+        (refLocator: string)
+        (maxExcerptTokens: int)
+        : string =
+        match parseFileId fileId with
+        | None -> ""
+        | Some (kbIdx, _) when kbIdx < 0 || kbIdx >= aliases.Length -> ""
+        | Some (kbIdx, docId) ->
+            let alias = aliases.[kbIdx]
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sprintf """
+                SELECT Text FROM %s.Chunks
+                WHERE DocumentId = $doc AND RefLocator = $ref
+                ORDER BY Ordinal
+            """ alias
+            cmd.Parameters.AddWithValue("$doc", docId) |> ignore
+            cmd.Parameters.AddWithValue("$ref", refLocator) |> ignore
+            use reader = cmd.ExecuteReader()
+            let sb = StringBuilder()
+            while reader.Read() do
+                if sb.Length > 0 then sb.Append("\n\n") |> ignore
+                sb.Append(reader.GetString(0)) |> ignore
+            truncateExcerpt (sb.ToString()) maxExcerptTokens
