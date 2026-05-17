@@ -45,9 +45,9 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r10** (Phase 1 lib 본체 + lib unit test 종결 — §4.4 commit `00b72eb` + §4.8 commit `9736237` 완료. 95 → 99 Fact, 100% 통과. lib 본체 잠재 버그 3건 (FTS5 SQL / SqliteConnection pool / UTF-8 BOM) 발견·fix. r0~r3 외부 reviewer 11명 + r6 reviewer 3명 + r8 외부 메타리뷰 + r9 자가 검열 + r9 외부 --review + r10 자가 검열 = 누계 ≈ **24 reviewer 검증**, 사용자 결정 누적)
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제. **Phase 1 lib 본체 + lib unit test 종결 — server phase 진입 confirm 대기**.
-- **모드**: Phase 1 종결. server phase (`todo-lighthouse-kb-server.md` Phase S0 → S1) 진입 confirm 대기.
+- **현재 rev**: **r10** (Phase 1 lib 본체 + lib unit test 종결). **server phase 는 별도 todo (`todo-lighthouse-kb-server.md` s1-r0)** — Phase S1 진입 완료 (commit `1be3ab8`). 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.5 / §6 m15 / §6 m16 의 회귀 매트릭스 항목은 server.md 의 s1-r0 박제 참조.
+- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (**s1-r0**, Phase S1 commit `1be3ab8` 완료) — Phase S2 (collection 관리 API) 진입 대기.
+- **모드**: Phase 1 종결. server phase 진입 후 본 todo 는 회귀 매트릭스 SSOT (§4.1 보류 박스 + server.md §3.14 동시 참조) 로 잔류.
 - **본 세션까지 commit 누적**:
   - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)
   - `cfc2c29` — §4.2a: ImageFormat + TextEncoding → LightHouse 이전 + C# interop namespace 갱신 + AttachmentClassifierDriftTests 13 통과 + CLAUDE.md SSOT 박제 line 70 갱신
