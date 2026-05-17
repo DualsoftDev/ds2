@@ -14,8 +14,14 @@
     <Compile Include="Logging.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Storage.fs" />
+    <Compile Include="Registry.fs" />
+    <Compile Include="MetaJson.fs" />
+    <Compile Include="ZipImport.fs" />
+    <Compile Include="CollectionLifecycle.fs" />
+    <Compile Include="StagingSweep.fs" />
     <Compile Include="Middleware.fs" />
     <Compile Include="Endpoints.fs" />
+    <Compile Include="CollectionEndpoints.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -25,6 +31,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <PackageReference Include="log4net" />
+    <!-- Ds2.LightHouse 의 PrivateAssets=all 우회 — ZipImport.probeIndexerVersion 의 SqliteConnection.ClearPool 직접 호출. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>

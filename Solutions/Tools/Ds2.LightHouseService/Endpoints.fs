@@ -33,10 +33,7 @@ module Endpoints =
             do! ctx.Response.WriteAsync "ok"
         } :> _
 
-    /// 인증 통과 endpoint 등록. middleware 뒤에 매핑.
-    let mapAuthenticated (app: IEndpointRouteBuilder) =
-        app.MapGet("/collections", RequestDelegate(getCollectionsStub)) |> ignore
-
     /// 인증 무관 endpoint 등록 — health probe 등. middleware 진입 전에 매핑.
+    /// Phase S2 진입 후 `GET /collections` 는 CollectionEndpoints.map 으로 이동 — 본 모듈은 public health 만 책임.
     let mapPublic (app: IEndpointRouteBuilder) =
         app.MapGet("/healthz", RequestDelegate(getHealth)) |> ignore

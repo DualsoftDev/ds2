@@ -105,6 +105,19 @@ let ``Bearer 형식 위반 (prefix 없음) → 401`` () = task {
 }
 
 [<Fact>]
+let ``X-User-Identity 다중 값 거부 → 401 (review m2)`` () = task {
+    let ctx = DefaultHttpContext()
+    ctx.Request.Path <- PathString "/collections"
+    ctx.Request.Headers.["Authorization"] <- Microsoft.Extensions.Primitives.StringValues "Bearer test-psk"
+    ctx.Request.Headers.["X-User-Identity"] <-
+        Microsoft.Extensions.Primitives.StringValues [| "kwak"; "attacker@evil.com" |]
+    ctx.Response.Body <- new IO.MemoryStream()
+    let! nextCalled = runMiddleware "test-psk" ctx
+    Assert.False(nextCalled, "다중 X-User-Identity 거부")
+    Assert.Equal(401, ctx.Response.StatusCode)
+}
+
+[<Fact>]
 let ``public path /healthz → 인증 skip + next 호출 (review M8)`` () = task {
     let ctx = newCtx "/healthz" []
     let! nextCalled = runMiddleware "test-psk" ctx

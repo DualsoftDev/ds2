@@ -79,15 +79,17 @@ module AuthMiddleware =
                         ctx.Response.StatusCode <- 401
                         do! ctx.Response.CompleteAsync()
                     | Some _ ->
-                        // 2차 — X-User-Identity 헤더 의무 (CR4 / M11)
+                        // 2차 — X-User-Identity 헤더 의무 (CR4 / M11).
+                        // multi-value 거부 (review m2) — `kwak, attacker@evil.com` 형태로 두 값 보내면 401.
+                        // StringValues.ToString() 이 `,` join 하므로 .Count 로 명시 단일 검증.
                         let userIdentity =
                             match ctx.Request.Headers.TryGetValue UserIdentityHeader with
-                            | true, v ->
-                                let s = v.ToString()
+                            | true, v when v.Count = 1 ->
+                                let s = v.[0]
                                 if String.IsNullOrWhiteSpace s then "" else s.Trim()
                             | _ -> ""
                         if String.IsNullOrEmpty userIdentity then
-                            Log.audit.Warn(sprintf "auth: X-User-Identity 헤더 누락 — path=%s remoteIp=%s" path remoteIp)
+                            Log.audit.Warn(sprintf "auth: X-User-Identity 누락/다중 — path=%s remoteIp=%s" path remoteIp)
                             ctx.Response.StatusCode <- 401
                             do! ctx.Response.CompleteAsync()
                         else
