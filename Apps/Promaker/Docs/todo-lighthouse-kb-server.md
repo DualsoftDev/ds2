@@ -8,16 +8,18 @@
 | s0 | 2026-05-17 | 초안 — plan 모드 논의 결과 박제. 코드 변경 0. parent r4 의 결정 일부 회귀 (사본 정책 / MCP 호스트 위치 / search 경로 등). |
 | s0-r | 2026-05-17 | --inspect-diff 5 reviewer 결과 반영 (16건): (1) D-id / 결정 enum 정의표 §0 신설, (2) §3.1 sub-section 분리 (책임/lib 양분/MCP host 2개), (3) §3.2 통신 흐름 다이어그램 보강, (4) §3.7 mTLS 단원 참조 정정 (S4→S7), (5) §3.8 `unindexableIds` 처리 명시, (6) §3.13 ↔ Phase S5 중복 분리 (사유 vs 체크리스트), (7) §3.14 가 parent ↔ service 회귀 SSOT 임을 명시, (8) parent 패턴 정렬을 위해 단원 번호 환원 (이전 §5/§6/§7/§8 → §5/§6/§7), (9) Phase S1~S7 별 DoD 1줄 추가, (10) `LlmConfig.KbCollections` schema migration 정책을 §4.3 미확정에 추가. |
 | s0-r2 | 2026-05-17 | parent r5 의 **대안 B 채택** 반영: (1) §4.1 Phase S0 에 "parent §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 정상 skip 확인" 추가, (2) §4.3 schema migration default 를 "(c) parent §4.5 skip 이라 migration 불필요" 로 갱신, (3) §0 의 선행 의존 항목에 parent r5 결정 12 박제. parent Phase 1 산출물의 60%+ throwaway 문제 해소. |
+| s1-r0 | 2026-05-17 | **Phase S1 진입 commit (`1be3ab8`) 완료**. (i) 신규 project `Solutions/Tools/Ds2.LightHouseService` (F# Windows Service host) — 7 F# 파일 (Logging/Config/Storage/Middleware/Endpoints/Program ≈ 360 line) + `log4net.config` + install/uninstall ps1 + config.json.template + paired-release Target placeholder. (ii) 신규 `Solutions/Tests/Ds2.LightHouseService.Tests` (24 Fact 100%) — Config 7 / Storage 4 / DpapiRoundTrip 4 / AuthMiddleware 9. (iii) Phase S0 점검 4 task 전부 통과 — parent commit chain (`fddfbbf` 까지) + §4.5/§4.6 SKIP 확인 + lib facade read/write 분리 가능 + 사용자 머신 `.lighthouse-kb/` 잔재 0. (iv) **§4.3 미확정 16 행 중 S1 진입 결정 6 행 확정** — P1 (lib facade 양분 — 현 `KnowledgeBase` facade 가 이미 read-only surface, `readonly:bool` 파라미터 **추가 안 함** — §4.3 default 갱신), service host = F#, TLS = self-signed PoC, PSK 회전 = mTLS Phase S7, ATTACH limit boundary = parent r4 박제 `MaxAttachedDbs = 10` 유지, paired-release manifest hash = `Ds2.LightHouse.dll` InformationalVersion 비교 (dist post-build target, 본 phase 는 placeholder). (v) **자가 검열 (sub-agent general-purpose)** Critical 3 / Major 8 / Minor 14 → **15 건 적용**: **(C1)** AuthMiddleware 시그니처 mismatch `Func<HttpContext, RequestDelegate, Task>` (ASP.NET Core 9 미존재 오버로드) → `Func<HttpContext, Func<Task>, Task>` 표준형 / **(C2)** `compareBearerSecret` 단순화 — `CryptographicOperations.FixedTimeEquals` 가 BCL contract 상 length mismatch 시 const-time false → buffer normalize 불요 / **(C3)** AuthMiddleware unit test 9 Fact 신설 (DefaultHttpContext 직접 invoke) / **(M4)** Kestrel default URL (`http://localhost:5000`) 차단 `builder.WebHost.UseUrls("")` / **(M7)** log4net.config 미존재 fail-fast / **(M8)** `/healthz` path skip — health probe 가 auth middleware 에 401 잠재 bug 차단 / **(M1)** install script `obj= LocalSystem` 명시 / **(M2/m11)** EventLog Source install 등록 + uninstall 제거 / **(M3)** log4net retention 주석 Phase S2 IHostedService 이연 / **(m10)** EventLog threshold INFO→WARN + service start Warn 명시 / **(M5/m6)** `0.0.0.0` startup Warn + hostname 명시 fail / **(m12)** Program.fs scheme check 중복 제거 (Config.validateHttpsOnly 로 통일). M3/M6 (PFX path 검증) / m1/m5/m7/m8/m13/m14 = Phase S2 / Phase 2 보류. (vi) sln 2개 + `Solutions/Directory.Packages.props` 갱신 (Microsoft.Extensions.Hosting + Hosting.WindowsServices + System.Security.Cryptography.ProtectedData 신규). |
 | s0-r3 | 2026-05-17 | `--inspect 3` reviewer 결과 (parent 와 동시 작업) 의 server 측 영향분 반영. 주요 갱신: **Critical**: (CR1) §3.13/§3.14/§4.2 Phase S5 의 "환원/제외" 어휘 → "애초 미추가 — 신규 등록만", §3.14 회귀 매트릭스에 §4.6 (`5.knowledge-base.md`) row 신설 (10→11행); (CR2) **§3.3.1 `meta.json` schema SSOT 신설** (camelCase + 필드별 생성 주체 + `id` 출처); (CR3) §3.4 D3 강화 — id 발급 주체 = server (첫 POST 응답에 반환); (CR4) §3.7 **PSK DPAPI 의무화** (server: LocalMachine, client: CurrentUser, `ApiKey` → `ApiKeyEncrypted`), plain HTTP 거부, `X-User-Identity` 헤더; (CR5) **§3.9.1 신설 — registry mutation SemaphoreSlim 직렬화**; (CR6) **§3.8 session 401/403 자동 회복** (L3 신설). **Major**: §0 D-id 표에 L3/P1/P2 row 추가, α → T1 통일, §3.11 config 의 schemaVersion / logRetentionDays / auditRetentionDays / indexerVersionRange 추가, Phase S1~S5 DoD 일제 강화 (install script / paired-release / blob regex / zip body abort / 0-doc / swap 동시성 / ATTACH boundary / fileId guid 합성 / Integration test / 연결 테스트 버튼), §4.3 미확정 표 16행으로 확장 + dep column, §5 산출물 목록 7건 추가 (IntegrationTests / install scripts / KbManagerDialog 등 "최초 도입" marker), §6 주의 사항 16~20 신설 (PSK 단일 실패점 / audit / restart 회복 / registry race / paired-release). **Minor**: §0 의 T1 통일, §4.2 Phase S7 의 T2/T3 명명, §3.10 storage layout 의 `Audit\` 디렉토리 추가. parent r6 와 동시 갱신. |
 
 ---
 
 ## 0. 현재 상태 / 본 문서 위치
 
-- **모드**: `--plan` 만 수행. 코드 변경 0.
-- **선행 의존**: parent 의 Phase 1 **lib 본체만** 완료 (대안 B / parent r5 결정 12). parent §4.2 (부분 통합) + §4.3 (Extractor / Chunker) + §4.4 (SqliteStore / Searcher / Indexer / KnowledgeBase facade) + §4.8 의 lib unit test 만. parent §4.5 (Promaker 통합) / §4.1 첫 task (`.gitignore`) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 의존 테스트는 **본 phase (Phase S5) 가 흡수**.
+- **모드**: **Phase S1 진입 완료** (commit `1be3ab8`). 본격 코드 작성 시작. 다음 = **Phase S2 (collection 관리 API)** 진입 confirm 대기.
+- **선행 의존**: parent 의 Phase 1 **lib 본체 + lib unit test** 완료 (대안 B / parent r5 결정 12, parent r10 박제 `fddfbbf`). parent §4.5 (Promaker 통합) / §4.1 첫 task (`.gitignore`) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 의존 테스트는 **본 phase (Phase S5) 가 흡수**.
 - parent Phase 1 의 schema (§3.12) / RefLocator EBNF (§3.13) / PRAGMA (§3.17) / facade 결정 (§3.18.1) 등은 본 문서에서도 그대로 SSOT.
-- **본 문서가 parent r5 로 통합될지, 별도 todo 로 유지될지**: service 도입 phase 진입 시점에 재결정. 통합 시 parent 의 §3.9 / §3.10 / §3.18 / §4.1 / §4.5 / §6 다수 단원이 본 문서 결정으로 큰 폭 재작성됨.
+- **본 문서가 parent r5 로 통합될지, 별도 todo 로 유지될지**: Phase S5 (Promaker 통합) 진입 시점에 재결정. 현 시점 (S1 종결) 까지는 별도 todo 유지.
+- **본 phase commit 누적**: `1be3ab8` (S1 service host scaffold, 24 Fact, 자가 검열 15건 반영).
 
 ### 본 세션 결정 enum (D-id 정의표)
 
@@ -447,35 +449,35 @@ POST /collections
 
 ## 4. 남은 할 일 (Phase 별)
 
-### 4.1 Phase S0 — 진입 전 확인 (선행 의존)
+### 4.1 Phase S0 — 진입 전 확인 (선행 의존) *(s1-r0: 4 task 전부 통과)*
 
-- [ ] parent r4 의 Phase 1 **lib 본체** 완료 — §4.2 / §4.3 / §4.4 / §4.8 의 lib unit test 까지. 본 phase 진입 직전 status 점검
-- [ ] **parent §4.5 / §4.1 첫 task / §4.6 / §4.8 의 Promaker 의존 테스트가 정상적으로 SKIP 되었는지 확인** (대안 B / parent r5 결정 12). prod 에 `LlmConfig.KbCollections : List<{path, active}>` schema 가 깔리지 않았어야 schema migration 부담 0 (§4.3 default (c) 의 전제)
-- [ ] parent r4 의 `Ds2.LightHouse` lib 가 read-path / write-path 분리 가능한 facade 형태인지 점검. parent §3.18.1 의 "record-of-functions vs interface" 결정에 따라 양분 비용 달라짐
-- [ ] 사용자 머신에 parent Phase 1 의 시험 산출물 (`<폴더>/.lighthouse-kb/`) 잔재가 있는지 확인 — 있으면 cleanup 정책 결정 (대안 B 의도상 잔재 0 이어야)
+- [x] parent r4 의 Phase 1 **lib 본체** 완료 — §4.2 / §4.3 / §4.4 / §4.8 의 lib unit test 까지. commit chain `bccb0ea → cfc2c29 → b8c747c → 16b50c3 → 00b72eb → 9736237 → fddfbbf`
+- [x] **parent §4.5 / §4.1 첫 task / §4.6 / §4.8 의 Promaker 의존 테스트가 정상적으로 SKIP** — `AttachmentTools.cs` / `Knowledge/` / `KbManagerDialog` / `5.knowledge-base.md` / `KbCollections` / `.lighthouse-kb/` 모두 prod 미존재 확인 (grep 0 hit)
+- [x] parent r4 의 `Ds2.LightHouse` lib facade read/write 분리 가능 확인 — 현 lib 이미 양분 (`Searcher` / `KnowledgeBase` = read-only surface, `Indexer` = write module). **§4.3 P1 결정: `readonly:bool` 파라미터 추가 *불요*** (server 가 KnowledgeBase facade 그대로 ProjectReference, Indexer 는 dead-link OK)
+- [x] 사용자 머신에 parent Phase 1 의 시험 산출물 (`<폴더>/.lighthouse-kb/`) 잔재 0 확인
 
 ### 4.2 Phase S1~S7
 
 각 phase 헤더의 **DoD** = 완료 정의 (acceptance criteria).
 
-#### Phase S1 — service 기반 host
+#### Phase S1 — service 기반 host *(s1-r0: commit `1be3ab8` 완료 — 24 Fact 100%)*
 
 **DoD**: TLS bind 성공 + plain HTTP 거부 + DPAPI 로 PSK 복호화 + PSK 인증 미들웨어가 빈 `GET /collections` 요청에 200 응답 (registry 비어있음). `Collections\` / `Staging\` / `Logs\` / `Audit\` 초기화 완료. log4net RollingFileAppender (size + date) 가 첫 로그 라인 기록. EventLog 에 service start 이벤트 등록. config schema_version check 통과. install/uninstall script 산출물 동작 검증.
 
-- [ ] 신규 project `Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj` (또는 C# host — §4.3 결정 따라)
-  - TargetFramework `net9.0` (`-r win-x64 --self-contained` publish 권장)
-  - `Microsoft.Extensions.Hosting.WindowsServices` + `UseWindowsService()`
-  - `Ds2.LightHouse` ProjectReference (read-path 사용, write-path 는 dead-link OK 단 P1 결정 따라)
-- [ ] config 로드 — `%PROGRAMDATA%\Dualsoft\LightHouseService\config.json` (§3.11) + **schema_version check** (낮으면 in-place migration, 높으면 fail-fast — MA16)
-- [ ] **DPAPI 복호화** — `tlsCertPasswordEncrypted` / `preSharedKeyEncrypted` (LocalMachine scope, CR4)
-- [ ] TLS 바인드 — Kestrel HTTPS-only, `tlsCertPath` 로드. **plain HTTP listener 미바인드 + listenUrl 의 `http://` prefix fail-fast** (§3.7)
-- [ ] PSK auth middleware — `Authorization: Bearer` 검증 + fixed-time compare. **PSK 패턴은 parent `McpHostService` 의 nonce 검증과 다름** (PSK 는 per-request 동일 값 → TLS 안에서만 의미, M8)
-- [ ] **`X-User-Identity` 헤더 의무 middleware** — 누락 시 401 (M11 audit 추적용)
-- [ ] storage layout (`Collections\` / `Staging\` / `Logs\` / `Audit\`) 초기화 + permission 확인
-- [ ] log4net RollingFile + Date + size policy 설정 — `Logs\service-YYYYMMDD.log` + `Audit\audit-YYYYMMDD.log` (별도 appender) + EventLog 병행. `logRetentionDays` / `auditRetentionDays` 강제 (MA14)
-- [ ] **install / uninstall script 신설** (MA13) — `scripts/install-service.ps1` (PSK 평문 입력 → DPAPI 암호화 → config.json 저장 → sc.exe create) / `scripts/uninstall-service.ps1` / `config.json.template`
-- [ ] sln 등록 — `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (parent r4 §4.1 의 sln 2개 정책 동일)
-- [ ] **paired-release manifest hash hook** (MA7) — `Ds2.LightHouse.dll` 의 `InformationalVersion` 비교를 dist post-build target 에 박제. config 의 `indexerVersionRange` 와 client 의 `Ds2.LightHouse.dll.InformationalVersion` mismatch 시 build fail
+- [x] 신규 project `Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj` (F# 채택 — §4.3 결정)
+  - TargetFramework `net9.0`, `Microsoft.NET.Sdk.Web`
+  - `Microsoft.Extensions.Hosting.WindowsServices` + `builder.Host.UseWindowsService()` (콘솔 실행 시 자동 fallback)
+  - `Ds2.LightHouse` ProjectReference (read-path 만 사용 — §4.3 P1 결정: `readonly:bool` 파라미터 추가 안 함)
+- [x] config 로드 (`Config.fs`) — `%PROGRAMDATA%\Dualsoft\LightHouseService\config.json` + schema_version check (낮으면 명시 fail-fast, 향후 bump 시 in-place migration 분기 추가 박제 — Minor m8 보류)
+- [x] **DPAPI 복호화** (`Config.decryptDpapi`) — `tlsCertPasswordEncrypted` / `preSharedKeyEncrypted` LocalMachine scope. 빈 입력 ArgumentException, 잘못된 base64 FormatException (DpapiRoundTripTests 4 Fact)
+- [x] TLS 바인드 (`Program.fs`) — Kestrel HTTPS-only, `X509CertificateLoader.LoadPkcs12FromFile`. `Config.validateHttpsOnly` + `WebHost.UseUrls("")` 로 default URL 차단 (review M4)
+- [x] PSK auth middleware (`Middleware.fs`) — `Authorization: Bearer` + `CryptographicOperations.FixedTimeEquals` (BCL 의 length-mismatch const-time 보장, review C2). 시그니처 = `Func<HttpContext, Func<Task>, Task>` (ASP.NET Core 9 표준, review C1)
+- [x] **`X-User-Identity` 헤더 의무 middleware** — 누락 시 401 + audit log warn (`HttpContext.Items.[UserIdentityItemKey]` 박제)
+- [x] storage layout (`Storage.fs`) — `Collections/Staging/Logs/Audit` subdir 자동 생성 + 쓰기 가능 probe (Logs/.probe-<guid> 파일 생성/삭제)
+- [x] log4net (`log4net.config`) — `ServiceRollingFile` (size+date) + `AuditRollingFile` (date) + `EventLog` (WARN, review m10). `Audit` logger `additivity=false` + LoggerMatchFilter cross-write 차단. **retention sweep (date-based)** 는 Phase S2 IHostedService 이연 (review M3)
+- [x] **install / uninstall script** (`scripts/install-service.ps1` + `uninstall-service.ps1` + `config.json.template`) — PSK / cert pw SecureString 입력 → `ProtectedData.Protect LocalMachine` → config.json + EventLog Source 등록 + `sc.exe create obj= LocalSystem` (review M1/M2/m11)
+- [x] sln 등록 — `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln`
+- [x] **paired-release manifest hash hook** (placeholder) — fsproj 의 `PairedReleaseCheck` Target 이 `GetAssemblyIdentity` 로 `Ds2.LightHouse.dll` version 추출 + Message 박제. 본격 검증 (drift 시 build fail) 은 dist 워크플로 (`make dist`) 진입 시 `scripts/check-paired-release.ps1` 신설 + dist skill 의 build step 사이
 
 #### Phase S2 — collection 관리 API
 
@@ -584,12 +586,12 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 
 | 항목 | 위치 | 권장 default | 확정 시점 | dep |
 |---|---|---|---|---|
-| ⚠ P1: `Ds2.LightHouse` lib facade 의 양분 형태 (parent §3.18.1 의 record-of-functions vs interface 결정 후) | §3.1.2 | facade 에 `readonly: bool` 파라미터 추가 (record-of-functions 가정) | S1 진입 | parent §3.18.1 |
-| service host 언어 — F# vs C# | §4.2 Phase S1 | F# (LightHouse 와 동일 stack) | S1 진입 | P1 (facade native 여부 영향) |
-| TLS 인증서 발급 운영 — self-signed vs 사내 CA | §3.7 | 사내 CA (deployment) / self-signed (PoC) | S1 진입 | — |
-| PSK 회전 정책 | §3.7 | 수동 (사내 deployment 면 **mTLS Phase S7 우선 진입** 권장) | S1 진입 | — |
+| ~~⚠ P1: `Ds2.LightHouse` lib facade 의 양분 형태~~ | §3.1.2 | ~~facade 에 `readonly: bool` 파라미터 추가~~ | **s1-r0 결정**: `readonly:bool` 파라미터 **추가 안 함**. 현 `KnowledgeBase` facade 가 이미 read-only surface (Search/List/Outline/Read/ActivePaths/Dispose), `Indexer` 는 별 module → server 가 KnowledgeBase 만 ProjectReference, Indexer 는 dead-link OK | parent §3.18.1 |
+| ~~service host 언어 — F# vs C#~~ | §4.2 Phase S1 | ~~F# (LightHouse 와 동일 stack)~~ | **s1-r0 결정**: F# 채택 (`Microsoft.NET.Sdk.Web`) | P1 |
+| TLS 인증서 발급 운영 — self-signed vs 사내 CA | §3.7 | **s1-r0 결정**: self-signed (PoC). deployment 시 사내 CA 전환 | S1 진입 → 정책 박제 | — |
+| PSK 회전 정책 | §3.7 | **s1-r0 결정**: 수동 + Phase S7 mTLS 우선 진입 | S1 진입 → 정책 박제 | — |
 | ATTACH connection lazy open vs eager | §3.8 | lazy on first MCP call | S3 진입 | — |
-| ATTACH limit boundary (main 포함 10 vs 추가 10) | §3.8, MA17 | `PRAGMA compile_options` 로 SQLITE_MAX_ATTACHED 재확인 후 결정 | S1 진입 (Microsoft.Data.Sqlite bundle 옵션 확인) | — |
+| ~~ATTACH limit boundary (main 포함 10 vs 추가 10)~~ | §3.8, MA17 | **s1-r0 결정**: parent r4 박제 `MaxAttachedDbs = 10` 그대로 사용. `PRAGMA compile_options` 재확인은 Phase S3 진입 시 (실 ATTACH 위치) | S3 진입 | — |
 | Promaker 의 in-process search fallback 제공 여부 (service 미가동 시) | §3.13 | **fallback 안 함** (SSOT 일관성, §6 m8) | S5 진입 | — |
 | `lighthouse-cli` 의 Phase 진입 시점 | §4.2 Phase S6 | **Phase S5 완료 후 별도** (단순화) | S5 진입 | — |
 | CLI 인증 모델 (별도 PSK vs GUI 와 동일) | §4.2 Phase S6, mn9 | 별도 PSK 또는 mTLS client cert 권장 (leak 부담 격리) | S6 진입 | — |
@@ -598,7 +600,7 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | ⚠ P2: `ModelContextProtocol.AspNetCore` 버전 — parent §4.1 결정 따라 | §4.2 Phase S3 | parent 결정 그대로 align | S3 진입 | parent §4.1 |
 | `lighthouse` endpoint version prefix (`/v1/collections` 등) | §3.9, mn13 | 도입 권장 (서비스 v2 시 dual host 여지) | S2 진입 | — |
 | viewer 채택 (citation 클릭) — OS default app vs 내장 | §4.2 Phase S4/S5, MA8 | PDF/DOCX/XLSX = OS default, TXT/MD = 내장 | S5 진입 | — |
-| paired-release manifest hash 정의 (PE 헤더 vs InformationalVersion vs 별도 manifest) | MA7, §3.12, §6 m1 | `InformationalVersion` 비교 (post-build target) | S1 진입 (dist hook 결정 단계) | — |
+| ~~paired-release manifest hash 정의 (PE 헤더 vs InformationalVersion vs 별도 manifest)~~ | MA7, §3.12, §6 m1 | **s1-r0 결정**: `Ds2.LightHouse.dll` 의 `Version` (AssemblyVersion) 비교. Service fsproj 의 `PairedReleaseCheck` Target placeholder + dist 워크플로 (`make dist`) 진입 시 `scripts/check-paired-release.ps1` 신설 (build fail 강제) | dist 진입 | — |
 | consent dialog 문구 SSOT + persist 위치 (audit log 행 박제 vs LlmConfig 행) | §3.6, §6 m2 | audit log 박제 (per-등록) + consent 거부 시 등록 중단 | S5 진입 | — |
 | backup / DR 정책 (Collections\ + registry.json snapshot 도구) | §6 m3 (신설) | 운영자 책임 (VSS / robocopy /mir + flush). 또는 Phase S7 `POST /admin/backup` endpoint | S5 진입 (운영 가이드 문서화 시점) | — |
 
