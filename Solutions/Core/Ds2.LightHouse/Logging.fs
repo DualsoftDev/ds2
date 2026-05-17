@@ -7,4 +7,8 @@ namespace Ds2.LightHouse
 [<RequireQualifiedAccess>]
 module internal Log =
 
+    /// 공통 LightHouse logger — Extractor / Chunker / Classifier 등 KB ingest 파이프라인 진단.
+    let lighthouse = log4net.LogManager.GetLogger("Ds2.LightHouse")
+
+    /// TextEncoding 전용 — chat / KB 두 경로 공유 SSOT. detectEncoding 의 strict fallback 추적.
     let textEncoding = log4net.LogManager.GetLogger("Ds2.LightHouse.TextEncoding")

@@ -31,7 +31,9 @@
     <PackageReference Include="Dirkster.AvalonDock.Themes.Metro" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <!-- App.xaml.cs OnStartup 의 CodePagesEncodingProvider.RegisterProvider entry-point 책임 (todo §4.2c). transitive 는 Ds2.LightHouse. -->
+    <!-- App.xaml.cs OnStartup 의 CodePagesEncodingProvider.RegisterProvider entry-point 책임 (todo §4.2c).
+         기능상 transitive (Ds2.LightHouse) 로 충분하나, entry-point assembly 의 *명시적 자기 의존* 으로 잔류 —
+         미래에 LightHouse 가 CodePages 의존 끊으면 본 line 이 NuGet restore 단계에서 fail-fast 안전망 역할 (review M2). -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
     <!-- Phase 2 ??API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
     <PackageReference Include="Anthropic" />
