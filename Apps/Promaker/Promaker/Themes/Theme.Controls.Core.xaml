@@ -84,6 +84,14 @@
         <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
     </Style>
 
+    <!-- PasswordBox — TextBox 와 동일 룩. WPF 가 기본 스타일 제공 안 하므로 명시. -->
+    <Style TargetType="PasswordBox">
+        <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
+    </Style>
+
     <!-- Button: DarkButton -->
     <Style x:Key="DarkButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
