@@ -18,6 +18,10 @@
     <Compile Include="Extractors\PdfExtractor.fs" />
     <Compile Include="Extractors\OoxmlExtractor.fs" />
     <Compile Include="Chunker.fs" />
+    <Compile Include="SqliteStore.fs" />
+    <Compile Include="Searcher.fs" />
+    <Compile Include="Indexer.fs" />
+    <Compile Include="KnowledgeBase.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,12 +29,15 @@
     <PackageReference Include="log4net" />
     <!-- 첨부물/문서 base 인프라 — KB 색인 + 공통 텍스트 인프라. todo §3.4 (detectEncoding) 의 CP949 fallback. -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
-    <!-- KB 색인 — SQLite (FTS5 trigram + WAL). bundle_e_sqlite3 가 FTS5/JSON1/R*Tree 기본 포함. todo §6.4 SSOT. -->
-    <PackageReference Include="Microsoft.Data.Sqlite" />
-    <!-- KB 추출기 — PDF (todo §3.6 / §4.3 PdfExtractor.fs). -->
-    <PackageReference Include="PdfPig" />
-    <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs). -->
-    <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- KB 색인 — SQLite (FTS5 trigram + WAL). bundle_e_sqlite3 가 FTS5/JSON1/R*Tree 기본 포함. todo §6.4 SSOT.
+         PrivateAssets=all — LlmAgent/Promaker 가 SqliteConnection 직접 import 불가 (캡슐화 / r8 메타리뷰 m2). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" PrivateAssets="all" />
+    <!-- KB 추출기 — PDF (todo §3.6 / §4.3 PdfExtractor.fs).
+         PrivateAssets=all — PdfDocument 등 PdfPig type 의 transitive 노출 차단 (r8 m2). -->
+    <PackageReference Include="PdfPig" PrivateAssets="all" />
+    <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs).
+         PrivateAssets=all — WordprocessingDocument 등 OpenXml type transitive 차단 (r8 m2). -->
+    <PackageReference Include="DocumentFormat.OpenXml" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
