@@ -127,6 +127,9 @@ module Indexer =
     /// shadow rebuild — IndexerVersion drift 시 새 DB 만들고 모든 파일 재색인 → atomic rename (§3.17).
     ///
     /// 호출 전제: 기존 DB connection 닫힘. 본 함수가 shadow DB 의 lifecycle 전부 책임.
+    ///
+    /// 주의 — Microsoft.Data.Sqlite 의 connection pool 이 dispose 후에도 underlying handle 을 보존
+    /// → File.Replace 시 source 파일 lock 충돌. `SqliteConnection.ClearPool` 명시 호출로 swap 직전 해제.
     let private rebuildShadow
         (collectionRoot: string)
         (extractors: IExtractor list)
@@ -139,13 +142,16 @@ module Indexer =
         if File.Exists shadowPath then File.Delete shadowPath
 
         Log.lighthouse.Info(sprintf "Indexer: shadow rebuild 시작 — collection=%s files=%d" collectionRoot files.Length)
+        let conn = SqliteStore.openConnection shadowPath false
         let results =
-            use conn = SqliteStore.openConnection shadowPath false
-            SqliteStore.ensureSchema conn
-            SqliteStore.stampVersion conn
-            let r = ingestFiles conn extractors files progress ct
-            conn.Close()
-            r
+            try
+                SqliteStore.ensureSchema conn
+                SqliteStore.stampVersion conn
+                ingestFiles conn extractors files progress ct
+            finally
+                conn.Close()
+                SqliteConnection.ClearPool conn
+                conn.Dispose()
         // atomic swap.
         SqliteStore.swapShadow collectionRoot
         Log.lighthouse.Info(sprintf "Indexer: shadow rebuild 완료 — collection=%s" collectionRoot)
@@ -177,17 +183,32 @@ module Indexer =
 
         if dbExists then
             let needsRebuild =
-                use probeConn = SqliteStore.openConnection dbPath false
-                SqliteStore.needsRebuild probeConn
+                let probeConn = SqliteStore.openConnection dbPath false
+                try SqliteStore.needsRebuild probeConn
+                finally
+                    probeConn.Close()
+                    SqliteConnection.ClearPool probeConn  // swap 직전 dbPath lock 해제 (rebuildShadow 의존)
+                    probeConn.Dispose()
             if needsRebuild then
                 rebuildShadow collectionRoot extractors files progress ct
             else
-                use conn = SqliteStore.openConnection dbPath false
+                // 정상 경로도 ClearPool — 호출자가 곧바로 rebuildShadow 단독 호출 시 dbPath lock 보호 (review M2).
+                let conn = SqliteStore.openConnection dbPath false
+                try
+                    SqliteStore.ensureSchema conn
+                    SqliteStore.stampVersion conn
+                    ingestFiles conn extractors files progress ct
+                finally
+                    conn.Close()
+                    SqliteConnection.ClearPool conn
+                    conn.Dispose()
+        else
+            let conn = SqliteStore.openConnection dbPath false
+            try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
                 ingestFiles conn extractors files progress ct
-        else
-            use conn = SqliteStore.openConnection dbPath false
-            SqliteStore.ensureSchema conn
-            SqliteStore.stampVersion conn
-            ingestFiles conn extractors files progress ct
+            finally
+                conn.Close()
+                SqliteConnection.ClearPool conn
+                conn.Dispose()

@@ -41,6 +41,10 @@ module Searcher =
 
     /// 한 collection (alias) 분의 SELECT 생성. UNION ALL 로 결합.
     /// `kbIdx` 가 fileId composition / score 보존에 쓰임. alias = `kb0`/`kb1`/... (SqliteStore.MaxAttachedDbs 안).
+    ///
+    /// FTS5 의 auxiliary function (`bm25()`) 과 MATCH 는 *unqualified FTS5 table name* 만 받음 — alias / schema-qualified 모두 거부.
+    /// (`bm25(kb0.ChunksFts)` / `bm25(ft)` → SQLite Error 1 "no such column".)
+    /// FROM 절에서만 schema-qualify 가능. UNION ALL 의 각 SELECT 는 독립 컴파일이라 ambiguous 없음.
     let private buildCollectionSelect (kbIdx: int) (alias: string) (fileIdFilter: (int * int64) option) : string =
         let docFilter =
             match fileIdFilter with
@@ -57,13 +61,13 @@ module Searcher =
                 d.OriginalPath                     AS OriginalPath,
                 d.Title                            AS Title,
                 o.Label                            AS OutlineLabel,
-                bm25(%s.ChunksFts)                 AS Score
+                bm25(ChunksFts)                    AS Score
             FROM %s.ChunksFts
-            JOIN %s.Chunks       AS c ON c.Id = %s.ChunksFts.rowid
+            JOIN %s.Chunks       AS c ON c.Id = ChunksFts.rowid
             JOIN %s.Documents    AS d ON d.Id = c.DocumentId
             LEFT JOIN %s.OutlineNodes AS o ON o.Id = c.OutlineId
-            WHERE %s.ChunksFts MATCH $q%s
-        """ kbIdx alias alias alias alias alias alias alias docFilter
+            WHERE ChunksFts MATCH $q%s
+        """ kbIdx alias alias alias alias docFilter
 
     /// SearchHit.Excerpt 의 token 한도 보장. estimateTokens 가 한도 안이면 그대로,
     /// 초과 시 char 단위 절단 (한국어 char/2 가중 기준 — 대략 token×2 char).

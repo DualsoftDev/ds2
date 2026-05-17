@@ -44,7 +44,12 @@ type TextExtractor() =
             ct.ThrowIfCancellationRequested()
             let bytes = File.ReadAllBytes path
             let detect = TextEncoding.detectEncoding bytes
-            let content = detect.Encoding.GetString bytes
+            // .NET 의 Encoding.GetString 은 BOM 을 소비하지 않고 첫 char 로 보존 (U+FEFF).
+            // chunk 본문 / search excerpt / read 결과 모두 보이지 않는 leading char 가 끼어 들어가 회귀 위험.
+            let raw = detect.Encoding.GetString bytes
+            let content =
+                if raw.Length > 0 && raw.[0] = '﻿' then raw.Substring(1)
+                else raw
 
             let kind =
                 match Path.GetExtension(path).ToLowerInvariant() with

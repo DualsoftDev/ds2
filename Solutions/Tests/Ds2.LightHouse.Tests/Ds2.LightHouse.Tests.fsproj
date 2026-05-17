@@ -7,6 +7,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="TestInit.fs" />
+    <Compile Include="RefLocatorTests.fs" />
+    <Compile Include="ChunkerTests.fs" />
+    <Compile Include="ClassifierTests.fs" />
+    <Compile Include="TextEncodingTests.fs" />
+    <Compile Include="TextExtractorTests.fs" />
+    <Compile Include="OoxmlExtractorTests.fs" />
+    <Compile Include="PdfExtractorTests.fs" />
+    <Compile Include="SqliteStoreTests.fs" />
+    <Compile Include="IndexerTests.fs" />
+    <Compile Include="KnowledgeBaseTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -16,6 +27,14 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- CP949 활성화 — TestInit.fs 가 CodePagesEncodingProvider 등록. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- OoxmlExtractorTests 의 docx fixture 생성 — LightHouse 가 PrivateAssets=all 로 차단하므로 직접 의존. -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- SqliteStoreTests 의 직접 SqliteException catch — LightHouse 가 PrivateAssets=all 로 차단하므로 직접 의존. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- PdfExtractorTests + Indexer 의 PdfExtractor 활성화 — runtime assembly 필요. PrivateAssets=all 차단 우회. -->
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
 
   <ItemGroup>
