@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+    <!-- 첨부물/문서 base 인프라 — KB 색인 + 공통 텍스트 인프라. todo §3.4 (detectEncoding) 의 CP949 fallback. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- KB 색인 — SQLite (FTS5 trigram + WAL). bundle_e_sqlite3 가 FTS5/JSON1/R*Tree 기본 포함. todo §6.4 SSOT. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- KB 추출기 — PDF (todo §3.6 / §4.3 PdfExtractor.fs). -->
+    <PackageReference Include="PdfPig" />
+    <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs). -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
+  </ItemGroup>
+
+</Project>
