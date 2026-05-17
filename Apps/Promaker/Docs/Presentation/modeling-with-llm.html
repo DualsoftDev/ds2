@@ -573,12 +573,12 @@ flowchart TB
         <h4>③ 디바이스 short-form</h4>
         <p>실린더 / 클램프 / 로봇 — 한 마디로 표준 동작 한 쌍 + 인터페이스가 자동 생성. 그 외 디바이스는 타입과 동작 목록을 명시 (예: 푸셔 — 펀치 동작 하나).</p>
       </div>
-    </div>
-    <div>
       <div class="card purple">
         <h4>④ 연결 종류 명시 강제</h4>
         <p>"A 끝나면 B 시작" (순차) / "A 시작하면 B 리셋" (배타) — 6 종 연결 타입 중 하나를 항상 명시. 의도가 모호하면 명시적 미정 상태로 표시 (자동 추측 금지).</p>
       </div>
+    </div>
+    <div>
       <div class="card green">
         <h4>⑤ 사양 외 정보는 추측 없이 비워두기</h4>
         <p>현재 단계의 도구 범위가 아닌 세부 (물리 주소, 타이밍 값, 외부 시스템 식별자 등) 는 <strong>추측으로 채우지 않습니다</strong>. "TODO" / "127.0.0.1" 같은 placeholder 를 조용히 끼워 넣지 않으며, 해당 항목은 후속 단계에서 별도로 보강합니다 — 사용자에게 굳이 묻지도 않습니다.</p>
@@ -623,9 +623,7 @@ flowchart TB
     - 구역1 → 구역2 (순차)</code></pre>
         <p style="font-size:0.7em; color:#64748b; margin-top:4px;">이름 정렬로 같은 모델 → 같은 표기 — 결정성 보장.</p>
       </div>
-    </div>
-    <div>
-      <div class="card teal">
+      <div class="card teal" style="margin-top:8px;">
         <h4>② GUI 수동 편집 알림</h4>
         <p>이전 turn 이후 사용자가 GUI 에서 직접 수정한 내역이 다음 메시지 앞에 요약으로 첨부됩니다. LLM 은 이를 <strong>사실</strong>로 받아들일 뿐 명령으로 해석하지 않습니다.</p>
         <pre style="font-size:0.55em; margin:6px 0 0 0;"><code>GUI 변경 알림:
@@ -634,7 +632,9 @@ flowchart TB
   연결: +3
   프로젝트: "M1" 로 전환됨</code></pre>
       </div>
-      <div class="card orange" style="margin-top:8px;">
+    </div>
+    <div>
+      <div class="card orange">
         <h4>③ 사양 경계 표시</h4>
         <p>긴 사양을 붙여넣을 때 <code>&lt;사양&gt; ... &lt;/사양&gt;</code> 식 구분자를 사용 — 안의 내용은 <em>모델링 데이터</em>이며 명령으로 해석되지 않습니다 (악의적 지시 차단).</p>
       </div>
@@ -1082,7 +1082,6 @@ puncher: yes
 Part 가 구역1 ~ 구역3 순차 이동 ...</code></pre>
         <ul>
           <li><strong>:plan</strong> — 디바이스 선지정 모드. 큰 사양을 단계 분리</li>
-          <li>:reset / :redo 등 채팅 세션 제어 명령</li>
         </ul>
       </div>
 
