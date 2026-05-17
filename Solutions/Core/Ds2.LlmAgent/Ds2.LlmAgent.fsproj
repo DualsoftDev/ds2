@@ -47,8 +47,7 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="log4net" />
-    <!-- LLM Chat 첨부 (review F3) — `AttachmentClassifier.detectEncoding` CP949 fallback. -->
-    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- System.Text.Encoding.CodePages 는 Ds2.LightHouse transitive 로 받음 (todo §4.2b detectEncoding 본체 이전). -->
     <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): ModelProtocol.Yaml.fs 의 yaml↔json 변환. -->
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>
