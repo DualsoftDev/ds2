@@ -34,6 +34,40 @@ type KnowledgeBase = {
 [<RequireQualifiedAccess>]
 module KnowledgeBase =
 
+    /// SQLite ATTACH 제한 (`SqliteStore.MaxAttachedDbs` SSOT 의 facade alias).
+    /// review IM-6 — caller (Ds2.LightHouseService) 가 SqliteStore 직접 참조하는 우회 통합.
+    /// 값 drift 회피 — SqliteStore.MaxAttachedDbs 변경 시 본 Literal 도 동시 갱신 의무.
+    [<Literal>]
+    let MaxAttachedDbs = 10
+
+    /// collection root → `.lighthouse-kb/index.db` 존재 여부.
+    ///
+    /// review IM-6 (2/7 reviewer) — caller (Ds2.LightHouseService) 가 SqliteStore 의 KbFolderName / DbFileName
+    /// 직접 참조하던 우회 통합. lib 의 PrivateAssets=all 정책 유지 (caller 가 Microsoft.Data.Sqlite 직접 의존 회피).
+    let isIndexed (collectionRoot: string) : bool =
+        File.Exists (SqliteStore.dbPath collectionRoot)
+
+    /// collection root → `.lighthouse-kb/index.db` 의 `Meta.indexer_version` 값.
+    /// 미존재 / open 실패 시 None. SqliteConnection.ClearPool 까지 finally 에서 처리 (parent r10 F2 정합).
+    ///
+    /// review IM-6 통합 — Ds2.LightHouseService.ZipImport.probeIndexerVersion 가 SqliteStore.openConnection +
+    /// getMeta + ClearPool 직접 호출하던 우회 흡수. caller 측 Microsoft.Data.Sqlite PackageReference 제거 가능.
+    let probeIndexerVersion (collectionRoot: string) : string option =
+        if not (isIndexed collectionRoot) then None
+        else
+            let dbPath = SqliteStore.dbPath collectionRoot
+            try
+                let conn = SqliteStore.openConnection dbPath true
+                try
+                    SqliteStore.getMeta conn "indexer_version"
+                finally
+                    conn.Close()
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn   // parent r10 lib fix F2 정합
+                    conn.Dispose()
+            with ex ->
+                Log.lighthouse.Warn(sprintf "probeIndexerVersion: %s 열기 실패 — %s" dbPath ex.Message)
+                None
+
     /// ATTACH URI 변환 — Windows backslash → forward slash + `?mode=ro` 강제.
     /// read-only ATTACH 라 *색인 중에도* 검색 가능 (WAL + ro mode).
     let private toAttachUri (path: string) : string =

@@ -73,3 +73,18 @@ let ``Supports — Text / Markdown only`` () =
     Assert.False(ext.Supports Pdf)
     Assert.False(ext.Supports Docx)
     Assert.False(ext.Supports (Unsupported ".dwg"))
+
+[<Fact>]
+let ``UTF-8 BOM 첫 char strip — parent r10 lib fix F3 회귀 보호 (review IM-8)`` () =
+    // BOM (EF BB BF) + 한국어 본문. Encoding.UTF8.GetString 이 BOM 을 U+FEFF 로 보존 → leading char strip 필수.
+    let bom = [| 0xEFuy; 0xBBuy; 0xBFuy |]
+    let body = Encoding.UTF8.GetBytes "본문 첫 줄\n\n둘째 단락"
+    let bytes = Array.append bom body
+    withTempFile ".txt" bytes (fun path ->
+        use ext = new TextExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.NotEmpty(result.Segments)
+        let firstChar = result.Segments.[0].Text.[0]
+        // R2/R4 m1 권장: invisible char literal 회피 → '﻿' escape 사용.
+        Assert.NotEqual('﻿', firstChar)
+        Assert.Equal('본', firstChar))

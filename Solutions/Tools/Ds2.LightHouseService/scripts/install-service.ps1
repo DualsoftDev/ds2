@@ -26,7 +26,9 @@
 param(
   [Parameter(Mandatory=$true)][string]$ExePath,
   [Parameter(Mandatory=$true)][string]$TlsCertPath,
-  [string]$ListenUrl = "https://0.0.0.0:8443",
+  # review IM-10 (4/7 reviewer): default = loopback. 사내 LAN bind 의도 시 명시 지정 (`-ListenUrl https://<lan-ip>:8443`).
+  # 0.0.0.0 default 는 의도치 않은 외부 노출 위험 — 운영자가 명시적으로 LAN IP 선택.
+  [string]$ListenUrl = "https://127.0.0.1:8443",
   [string]$ServiceName = "Ds2.LightHouseService",
   [string]$DisplayName = "Ds2 LightHouse KB Service"
 )
@@ -38,22 +40,34 @@ if (-not (Test-Path $TlsCertPath))  { throw "TlsCertPath 미존재 — $TlsCertP
 if ($ListenUrl -notmatch '^https://') { throw "listenUrl 은 https:// 만 허용 — $ListenUrl" }
 
 # PSK / TLS cert password 평문 입력 → DPAPI(LocalMachine) 암호화
+# review IM-10 (4/7 reviewer): BSTR 변환 후 ZeroFreeBSTR 의무 — 평문이 unmanaged memory 에 잔존하면 dump 위험.
 Add-Type -AssemblyName System.Security
 
-$psk = Read-Host -Prompt "Pre-Shared Key (PSK)" -AsSecureString
-$pskPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($psk))
-
-$certPwd = Read-Host -Prompt "TLS 인증서 (.pfx) 비밀번호" -AsSecureString
-$certPwdPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($certPwd))
+function Read-SecretAsPlain([string]$prompt) {
+  $sec = Read-Host -Prompt $prompt -AsSecureString
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+  try {
+    return [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+  } finally {
+    # review IM-10: BSTR 의 unmanaged memory 즉시 zero + free.
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  }
+}
 
 function Protect-DpapiLocalMachine([string]$plain) {
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
-  $cipher = [System.Security.Cryptography.ProtectedData]::Protect(
-    $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
-  return [System.Convert]::ToBase64String($cipher)
+  try {
+    $cipher = [System.Security.Cryptography.ProtectedData]::Protect(
+      $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
+    return [System.Convert]::ToBase64String($cipher)
+  } finally {
+    # review IM-10: 평문 byte buffer 도 zero (best-effort, .NET GC 잔재 차단)
+    [Array]::Clear($bytes, 0, $bytes.Length)
+  }
 }
+
+$pskPlain = Read-SecretAsPlain "Pre-Shared Key (PSK)"
+$certPwdPlain = Read-SecretAsPlain "TLS 인증서 (.pfx) 비밀번호"
 
 $pskEnc = Protect-DpapiLocalMachine $pskPlain
 $certPwdEnc = Protect-DpapiLocalMachine $certPwdPlain
@@ -80,7 +94,10 @@ $config = @{
   indexerVersionRange = @{ min = "1.0.0"; max = "1.99.99" }
 }
 
-$config | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
+# review IM-10 (4/7 reviewer): PowerShell 5.1 의 Set-Content -Encoding UTF8 은 BOM 동봉 → System.Text.Json
+# 은 BOM tolerant 하지만 외부 reader (jq / 일부 editor) 가 깨질 수 있음. WriteAllText 의 default UTF8Encoding(false) 사용.
+$configJson = $config | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($configPath, $configJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "config.json 저장: $configPath"
 
 # EventLog Source 등록 (log4net EventLogAppender 의 첫 호출 권한 회피, review M2)

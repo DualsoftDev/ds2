@@ -71,11 +71,11 @@ module AuthMiddleware =
 
                     match extractBearer authHeader with
                     | None ->
-                        Log.audit.Warn(sprintf "auth: Bearer 헤더 누락 — path=%s remoteIp=%s" path remoteIp)
+                        Log.audit.Warn(sprintf "auth: Bearer 헤더 누락 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
                         ctx.Response.StatusCode <- 401
                         do! ctx.Response.CompleteAsync()
                     | Some psk when not (compareBearerSecret expectedPsk psk) ->
-                        Log.audit.Warn(sprintf "auth: PSK 불일치 — path=%s remoteIp=%s" path remoteIp)
+                        Log.audit.Warn(sprintf "auth: PSK 불일치 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
                         ctx.Response.StatusCode <- 401
                         do! ctx.Response.CompleteAsync()
                     | Some _ ->
@@ -89,10 +89,60 @@ module AuthMiddleware =
                                 if String.IsNullOrWhiteSpace s then "" else s.Trim()
                             | _ -> ""
                         if String.IsNullOrEmpty userIdentity then
-                            Log.audit.Warn(sprintf "auth: X-User-Identity 누락/다중 — path=%s remoteIp=%s" path remoteIp)
+                            Log.audit.Warn(sprintf "auth: X-User-Identity 누락/다중 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
                             ctx.Response.StatusCode <- 401
                             do! ctx.Response.CompleteAsync()
                         else
                             ctx.Items.[UserIdentityItemKey] <- box userIdentity
                             do! next.Invoke()
+            } :> Task)
+
+
+/// Phase S3 session 검증 미들웨어 (todo-lighthouse-kb-server.md §3.8 / CR6 L3).
+///
+/// MCP HTTP transport (`/mcp` prefix) 호출에만 적용 — `app.UseWhen(path startsWith /mcp, ...)`.
+/// session 관리 endpoint (POST/DELETE /sessions) 는 본 미들웨어 통과 안 함 (token 발급 자체가 본 endpoint).
+///
+/// 동작:
+/// 1. `X-LightHouse-Session` 헤더 추출 → SessionRegistry.TryGet
+/// 2. 누락 / NotFound → 401 + audit warn. **client (LightHouseClient) 가 401 받으면 자동 재발급 + 1회 retry (L3)**.
+/// 3. Active → `SessionState` 를 `HttpContext.Items` 에 박제 (AttachmentTools 가 lookup 회피)
+///
+/// 401 응답은 body 없이 — client 의 L3 자동 회복은 status code 만 보면 됨.
+[<RequireQualifiedAccess>]
+module SessionAuth =
+
+    /// `HttpContext.Items` 의 SessionState key — AttachmentTools 가 본 key 로 active session 얻음.
+    [<Literal>]
+    let SessionItemKey = "Ds2.LightHouseService.Session"
+
+    /// 미들웨어 본체. caller (`Program.fs`) 가 `app.UseWhen` 으로 MCP path prefix 에만 적용.
+    let middleware (registry: ISessionRegistry) : Func<HttpContext, Func<Task>, Task> =
+        Func<HttpContext, Func<Task>, Task>(fun (ctx: HttpContext) (next: Func<Task>) ->
+            task {
+                let token =
+                    match ctx.Request.Headers.TryGetValue AuthMiddleware.SessionHeader with
+                    | true, v when v.Count = 1 ->
+                        let s = v.[0]
+                        if String.IsNullOrWhiteSpace s then "" else s.Trim()
+                    | _ -> ""
+                let path = ctx.Request.Path.Value
+                let remoteIp = ctx.Connection.RemoteIpAddress |> string
+
+                if String.IsNullOrEmpty token then
+                    Log.audit.Warn(sprintf "session-auth: X-LightHouse-Session 헤더 누락 — path=%s remoteIp=%s"
+                        (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
+                    ctx.Response.StatusCode <- 401
+                    do! ctx.Response.CompleteAsync()
+                else
+                    match registry.TryGet token with
+                    | SessionLookup.NotFound ->
+                        // review IM-11: token fingerprint 만 박제 (평문 박제 시 log leak 위험).
+                        Log.audit.Warn(sprintf "session-auth: token unknown — path=%s remoteIp=%s token=%s"
+                            (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp) (Log.tokenFingerprint token))
+                        ctx.Response.StatusCode <- 401
+                        do! ctx.Response.CompleteAsync()
+                    | SessionLookup.Active state ->
+                        ctx.Items.[SessionItemKey] <- box state
+                        do! next.Invoke()
             } :> Task)

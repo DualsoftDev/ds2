@@ -6,9 +6,11 @@ open System.Net
 open System.Security.Cryptography.X509Certificates
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
+open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Server.Kestrel.Core
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
+open ModelContextProtocol.AspNetCore
 
 /// Phase S1 entry — config 로드 → DPAPI 복호화 → storage 초기화 → Kestrel HTTPS bind → auth middleware → endpoint.
 ///
@@ -67,11 +69,30 @@ let main argv =
     let builder = WebApplication.CreateBuilder()
     builder.Services.AddRouting() |> ignore
     builder.Services.AddSingleton(cfg) |> ignore
-    // Phase S2 lifecycle notifier — S3 진입 시 SessionRegistry impl 로 swap.
-    builder.Services.AddSingleton<ICollectionLifecycleNotifier>(fun _ ->
-        LoggingCollectionLifecycleNotifier() :> ICollectionLifecycleNotifier) |> ignore
+    builder.Services.AddHttpContextAccessor() |> ignore   // Phase S3 — AttachmentTools 의 HttpContext 접근 (SDK 1.2.0 자동 DI 검출).
+
+    // Phase S3 — SessionRegistry 가 ICollectionLifecycleNotifier 의 SSOT impl (S2 의 Logging swap).
+    // resolver 는 storage 의 collection 디렉토리 조립 (Registry + Storage + ZipImport.collectionDirName).
+    let attachmentResolver = AttachmentResolver.fromRegistry (Config.expandEnv cfg.StorageRoot)
+    builder.Services.AddSingleton<AttachmentResolver>(attachmentResolver) |> ignore
+    let sessionRegistry = SessionRegistry(attachmentResolver)
+    builder.Services.AddSingleton<ISessionRegistry>(sessionRegistry :> ISessionRegistry) |> ignore
+    // ICollectionLifecycleNotifier 도 같은 instance — Phase S2 collection mutation API 가 본 notifier 호출.
+    builder.Services.AddSingleton<ICollectionLifecycleNotifier>(fun sp ->
+        sp.GetRequiredService<ISessionRegistry>() :> ICollectionLifecycleNotifier) |> ignore
+
     // Phase S2 — staging sweep BackgroundService.
     builder.Services.AddHostedService<StagingSweepService>() |> ignore
+    // Phase S3 — session idle TTL sweep BackgroundService (L2-3).
+    builder.Services.AddHostedService<SessionSweepService>() |> ignore
+
+    // Phase S3 — MCP server host (todo-lighthouse-kb-server.md §3.1.3 / §4.2 Phase S3).
+    // `ModelContextProtocol.AspNetCore 1.2.0` (D-S3-2, Promaker alignment).
+    // `WithToolsFromAssembly()` 가 본 assembly 의 [<McpServerToolType>] 발견 — AttachmentTools 자동 등록.
+    builder.Services
+        .AddMcpServer()
+        .WithHttpTransport()
+        .WithToolsFromAssembly() |> ignore
 
     // Kestrel HTTPS-only — config 의 listenUrl 에서 host/port 추출 후 HTTPS endpoint 만 바인드.
     // plain HTTP listener 는 *애초 바인드 안 함* (§3.7). scheme check 는 Config.validateHttpsOnly 가 이미 강제 (review m12).
@@ -109,12 +130,23 @@ let main argv =
     app.UseRouting() |> ignore
     Endpoints.mapPublic app
 
-    // 2. 인증 middleware — Bearer PSK + X-User-Identity 검증
+    // 2. 인증 middleware — Bearer PSK + X-User-Identity 검증 (모든 인증 endpoint 공통)
     app.Use(AuthMiddleware.middleware psk) |> ignore
 
-    // 3. 인증 통과 endpoint — Phase S2 collection 관리 API
+    // 3. 인증 통과 endpoint — Phase S2 collection 관리 API + Phase S3 session 발급/해제
     let notifier = app.Services.GetRequiredService<ICollectionLifecycleNotifier>()
+    let registry = app.Services.GetRequiredService<ISessionRegistry>()
     CollectionEndpoints.map app cfg notifier
+    SessionEndpoints.map app registry
+
+    // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
+    //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).
+    app.UseWhen(
+        (fun ctx -> ctx.Request.Path.StartsWithSegments(PathString "/mcp")),
+        (fun (app2: IApplicationBuilder) ->
+            app2.Use(SessionAuth.middleware registry) |> ignore)
+    ) |> ignore
+    app.MapMcp("/mcp") |> ignore
 
     Log.service.Info(sprintf "Kestrel HTTPS listen 시작 — %s (maxUploadBytes=%d)"
         cfg.ListenUrl cfg.MaxUploadBytes)

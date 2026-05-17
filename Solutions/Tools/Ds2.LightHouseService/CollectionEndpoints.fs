@@ -21,8 +21,10 @@ open Microsoft.Extensions.DependencyInjection
 [<RequireQualifiedAccess>]
 module CollectionEndpoints =
 
-    let private jsonOptions () =
-        JsonSerializerOptions(WriteIndented = false)
+    /// review IM-2 (3/7 reviewer): hot-path response — module-level singleton.
+    /// 매 endpoint 호출마다 신규 JsonSerializerOptions allocation 방지.
+    let private jsonResponseOpts = JsonSerializerOptions(WriteIndented = false)
+    let private jsonOptions () = jsonResponseOpts
 
     /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 가 박제).
     let private userIdentityOf (ctx: HttpContext) : string =
@@ -74,11 +76,16 @@ module CollectionEndpoints =
             match! parseMultipart ctx with
             | Error (status, msg) ->
                 do! writeError ctx status msg
-            | Ok (title, zip) ->
+            | Ok (rawTitle, zip) ->
                 // server 가 guid 발급 (D3 / CR3)
                 let collectionId = Guid.NewGuid().ToString("D")
                 let stagingId = collectionId
                 let stagingPath = Path.Combine(Storage.stagingDir storageRoot, stagingId)
+
+                // review IC-2 (3/7 reviewer): title sanitize SSOT 일원화.
+                // parseMultipart 직후 1회 산출 → meta.Title / Registry.DisplayName / storageRelPath / 모든 로그 일관.
+                // raw title 의 unicode bidi / control char / CR-LF 가 audit log 를 spoofing 하는 위험 차단 + swap path 의 path drift 차단.
+                let title = ZipImport.sanitizeTitle rawTitle
 
                 Log.audit.Info(sprintf "collection upload 시작 — id=%s title=%s by=%s size=%d"
                     collectionId title user zip.Length)
@@ -92,10 +99,12 @@ module CollectionEndpoints =
                     Log.service.Info(sprintf "zip extracted — collection=%s compressed=%d decompressed=%d"
                         collectionId zip.Length decompressed)
 
-                    // meta.json 검증 + server 필드 stamp
+                    // meta.json 검증 + server 필드 stamp.
+                    // safeTitle (`title`) 로 clientMeta.Title 도 overwrite — Registry / 디렉토리명과 일관.
                     let clientMeta = MetaJson.load stagingPath
                     let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
-                    let serverMeta = MetaJson.stampServerFields collectionId user storageRelPath clientMeta
+                    let serverMeta =
+                        MetaJson.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
                     MetaJson.save stagingPath serverMeta
 
                     // IndexerVersion gate (§3.12)
@@ -185,11 +194,16 @@ module CollectionEndpoints =
                 match! parseMultipart ctx with
                 | Error (status, msg) ->
                     do! writeError ctx status msg
-                | Ok (title, zip) ->
+                | Ok (rawTitle, zip) ->
                     let stagingId = Guid.NewGuid().ToString("D")
                     let stagingPath = Path.Combine(Storage.stagingDir storageRoot, stagingId)
-                    Log.audit.Info(sprintf "collection payload swap 시작 — id=%s by=%s size=%d"
-                        id user zip.Length)
+                    // review IC-2 (swap path 변형): title 은 첫 upload 시점에 고정 — swap 은 payload (zip 안 source/ + .lighthouse-kb/) 만 교체.
+                    // 새 rawTitle 입력은 (a) audit 진단 hint 로만 sanitize 후 박제, (b) 디렉토리/meta SSOT 는 existing.DisplayName.
+                    // title rename 은 별도 endpoint (PUT /collections/{id}) 책임 — Phase S7 옵션. 본 phase 의 swap = payload-only.
+                    let titleHint = ZipImport.sanitizeTitle rawTitle
+                    let title = existing.DisplayName   // SSOT = registry. swap 이 dir/meta 의 title 을 변경하지 않음.
+                    Log.audit.Info(sprintf "collection payload swap 시작 — id=%s title=%s hint=%s by=%s size=%d"
+                        id title titleHint user zip.Length)
 
                     try
                         Directory.CreateDirectory stagingPath |> ignore
@@ -198,16 +212,18 @@ module CollectionEndpoints =
 
                         let clientMeta = MetaJson.load stagingPath
                         // payload swap 도 id 는 server 가 *기존* id 유지 — client meta 의 id 무시.
+                        // Title 은 existing 그대로 (registry SSOT) — client meta.Title 도 overwrite.
                         let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName id title)
-                        let serverMeta = MetaJson.stampServerFields id user storageRelPath clientMeta
+                        let serverMeta =
+                            MetaJson.stampServerFields id user storageRelPath { clientMeta with Title = title }
                         MetaJson.save stagingPath serverMeta
 
                         let clientVer = ZipImport.probeIndexerVersion stagingPath
                         let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
                         match gate with
                         | IndexerVersionGateResult.Compatible ->
-                            // existing.DisplayName 으로 swap 대상 폴더 이름 산출. payload 의 title 이 같지 않으면 폴더 이름이 바뀜 — registry 갱신.
-                            let target = ZipImport.swapCollectionPayload storageRoot stagingPath id existing.DisplayName
+                            // existing.DisplayName 으로 swap 대상 폴더 이름 산출 — IC-2 fix 후 title=existing.DisplayName 라 동일 결과.
+                            let target = ZipImport.swapCollectionPayload storageRoot stagingPath id title
                             let entry = MetaJson.toRegistryEntry serverMeta
                             do! Registry.upsertAsync storageRoot entry
                             notifier.OnPayloadSwapped id
