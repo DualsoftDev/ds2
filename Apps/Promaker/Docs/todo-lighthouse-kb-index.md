@@ -9,6 +9,7 @@
 | r2 | 2026-05-17 | --review 3 reviewer 재검증 반영: drift fact 9→13 정정, PromptLoader 묘사 (glob+3-tier+facts 포함 6 baseline) 정정, LightHouse 의 Ds2.Editor 미참조 invariant 추가, Ds2.LlmAgent/CLAUDE.md SSOT 갱신 task, active todo-llm-chat-attachment.md cross-PR 동기화, .gitignore .promaker-kb/ 를 §4.1 첫 task 로 격상, INDEX 5종 + external content mirror 명명 정정, App.xaml.cs line 정정 외 minor |
 | r3 | 2026-05-17 | --review 1 reviewer 추가 반영 (4건): (1) PromakerToolNames.All 6→10 + DriftTests Tools/*.cs 전체 스캔 확장 (allowlist drift 자동 검출) (2) KB root/index 주입 경로 — `LlmTurnContext` 확장 또는 별도 DI singleton 결정 + `AttachmentTools` 가 어떻게 도달할지 (3) `Solutions/Ds2.sln` 갱신 누락 차단 (sln 2개 모두 등록) (4) r2 잔류 stale 정정 (line 448 "Fact 9건", line 452 "App.xaml.cs:147") |
 | r3-transfer | 2026-05-17 | 다음 세션 이어받기용 §0 신설. 코드 변경은 여전히 0 (전체 작업은 --plan 모드 안). |
+| r4 | 2026-05-17 | n×m KB 운영 도입 — collection = 사용자가 임의 폴더 선택 (path-based, project 종속 X). 한 폴더 = 1 collection. LlmConfig.KbCollections (OS 사용자 전역) 에 등록. SQLite ATTACH 로 m 개 active union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼) 신설. 원본 사본 정책 폐기 (사용자 폴더 안 원본이 SSOT, `.lighthouse-kb/` 은 index.db + Phase 2 image blob 만). read-only collection: read OK, write (색인/재색인) fail. dock 패널 §4.7 폐기 — KB UI 는 dialog 전용. |
 
 ---
 
@@ -30,14 +31,16 @@
 8. **Phase 3↔4 swap** — Phase 3 = OCR, Phase 4 = embedding (§3.15.2)
 9. **이미지 처리는 cached lazy** — 3 layer 캐싱 (blob/prompt cache/caption cache) (§3.15.3, §3.15.4)
 10. **FTS5 tokenizer trigram** (한국어 필수) (§3.7, §3.12)
+11. **n×m KB 운영** (r4) — collection = 사용자 임의 폴더 선택 (path-based, project 종속 X). LlmConfig.KbCollections (OS 사용자 전역) 에 등록. m 개 active → SQLite ATTACH union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼). 원본 사본 없음. read-only collection 은 read OK, write fail.
 
 ### 다음 세션에서 확정해야 할 보류 항목
 | 항목 | 위치 | 권장 default | 확정 시점 |
 |---|---|---|---|
 | KnowledgeBase facade 형식 (record-of-functions vs interface) | §3.18.1 | record-of-functions (F# idiomatic) | Phase 1 4.4 진입 |
-| `attachment_*` 의 KB root 도달 경로 3 옵션 | §3.18.2 | (a) LlmTurnContext 확장 | Phase 1 4.5 진입 |
+| `attachment_*` 의 KB root 도달 경로 — `LlmTurnContext` 확장 (KbCollections 주입) | §3.18.2 | (a) LlmTurnContext 확장 + active collection paths 주입 | Phase 1 4.5 진입 |
 | 본 todo 파일 위치 git mv 여부 (Apps/Promaker/Docs/ → Solutions/Core/Ds2.LightHouse/doc/) | §6.14 | Phase 1 진입 commit 직전 mv | Phase 1 4.1 진입 직전 |
 | ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0 업그레이드 여부 | §2, §4.1 | 별 release note 검토 후 결정 | Phase 1 4.1 진입 |
+| SQLite ATTACH limit (default 10) 초과 시 사용자 안내 — UI 경고 vs hard cap | §3.18.2, §4.5 | UI 경고 (Active toggle 시 10번째까지만 허용) | Phase 1 4.5 진입 |
 
 ### 다음 세션 즉시 할 일 (4 step)
 1. **본 todo 정독** — 특히 §0 / §3.0 / §3.11 / §3.18.2 / §6 주의 사항 14건
@@ -59,6 +62,7 @@
 - Minor 정정: r1 의 25건 + r2 의 10건 + r3 의 2건 (= 37건)
 - 충돌 정리: r1 의 F1 (R6 의 FTS5 bundle 기각) 1건
 - **누계: Critical 8 / Major 18 / Minor 37 / 충돌 1 = 64건 모두 본 todo 에 반영**
+- r4 는 사용자 추가 design 입력 (n×m KB 운영) — review 결과 아님. §3.0/§3.5/§3.9/§3.10/§3.12/§3.18.2/§4.1/§4.4/§4.5/§4.7/§4.8 다수 단원 영향.
 
 ---
 
@@ -161,7 +165,7 @@ LightHouse 의 public API 는 다음 타입을 인자/반환에 사용하지 않
 - `Ds2.Core` 의 entity 타입 (`Project`, `DsSystem`, `Flow`, `Work`, `Call`, `ApiDef`, `Arrow` 등)
 - `Ds2.Editor` 의 editor-domain 타입 (`SaveSession`, `EditorState` 등)
 
-프로젝트 식별은 `string projectKbRoot` (또는 동등한 path 문자열) 만 받음. MCP tool 4종은 `projectId : string` 인자 또는 MCP attach 시점 1회 주입 (DI) 으로 전달.
+**r4 갱신** — collection 식별은 단일 `projectKbRoot` 가 아닌 `string[] activeCollectionPaths` 만 받음 (사용자가 LlmConfig 에 등록한 collection path 들의 active subset). MCP tool 4종은 인자에 collection 정보 없음 — 서버 측이 active 셋 fix (§3.10). Promaker 측 turn 시작 시 LightHouse 에 active paths 주입.
 
 ### 3.6 색인 구조 — 3-layer
 ```
@@ -187,22 +191,55 @@ PDF 페이지, PPT 슬라이드, Excel 시트 단위 우선 → 너무 크면 �
 - **xlsx**: 컬럼 헤더 + 행 그룹 (10~50 행 packed) 패턴. 빈 행 / 머지 셀 / 표 영역 자동 인식.
 citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
 
-### 3.9 저장 위치 — per-Project 동반
-- `<project>/.promaker-kb/index.db`
-- `<project>/.promaker-kb/blobs/<sha256>.<ext>` (원본 사본)
-- `<project>/.promaker-kb/blobs/images/<sha256>.<ext>` (Phase 2 부터)
-- `.gitignore` 에 `.promaker-kb/` 추가
-- FileHash UNIQUE 로 idempotent ingest. IndexerVersion 으로 schema 변경 시 자동 재색인.
-- cross-document 공유는 **단일 프로젝트 안** 한정. cross-project 캐시는 Phase 5+ 보류.
+### 3.9 저장 위치 — path-based 사용자 자유 (r4 전면 재작성)
+
+**collection 의 정의**: 사용자가 KbManagerDialog 의 folder picker 로 선택한 임의 폴더 1개 = 1 collection. project 와 무관 (회사 공유 폴더 / 로컬 폴더 / 네트워크 드라이브 모두 OK).
+
+**물리 layout** — 사용자 폴더 안에 LightHouse 가 자동 생성한 hidden subfolder:
+```
+<사용자 선택 폴더>/                    ← 사용자가 임의 선택 (path-based)
+  ├─ plant-spec-v3.pdf               ← 원본 (사용자가 둔 것, 그대로 SSOT)
+  ├─ io-list-2026.xlsx
+  ├─ manual.docx
+  └─ .lighthouse-kb/                  ← LightHouse 가 자동 생성 (hidden)
+      ├─ index.db                     ← SQLite (Phase 1 필수)
+      └─ blobs/images/<sha256>.png    ← Phase 2 부터: PDF/PPTX 안에서 추출한 raster 이미지만
+```
+
+**원본 사본 정책 변경 (r4)**:
+- 원본 PDF/DOCX/PPTX/XLSX/TXT/MD 등은 **사용자 폴더 안에 그대로** — 사본 보관 X
+- `Documents.OriginalPath` = collection root 기준 상대경로 또는 절대경로 (구현 시 결정). `Documents.StoredPath` 컬럼 자체 폐기.
+- FileHash 는 *원본 파일의* hash. 변경 감지 / idempotent ingest 의 key.
+
+**registry 와 active 셋**:
+- 사용자가 등록한 collection path 목록은 `LlmConfig.KbCollections` (OS 사용자 전역, `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json`) 에 persist
+- 형식: `[ { path: string, active: bool } ]` (alias 없음 — Q3)
+- 한 사용자가 어느 Promaker project 를 열든 같은 collection list 가 보임 (D-1 채택)
+- project 와 무관 (사용자 Q1 의 "project 종속 X" 결정)
+
+**read-only collection 정책** (Q2 채택):
+- write (최초 색인 / 재색인 / IndexerVersion bump 자동 재색인) → fail + 사용자 안내. 자동 trigger 금지.
+- read (search / `attachment_read`) → OK. SQLite `Mode=ReadOnly` 로 open.
+- 시나리오: 회사 IT 가 한 번 색인 → `\\server\사양서\라인A\.lighthouse-kb\index.db` 까지 만들어 둠 → 각 엔지니어가 read-only 로 attach.
+
+**`.gitignore`**: 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택했을 때를 위해 root `.gitignore` 에 `.lighthouse-kb/` (또는 `*/.lighthouse-kb/`) 추가 — §4.1 첫 task.
+
+**cross-collection 공유**:
+- image blob (sha256) 은 각 collection 의 `.lighthouse-kb/blobs/images/` 안 분리 (cross-collection 공유 X, 단순함 우선)
+- cross-collection 캐시는 Phase 5+ 보류 (기존 §3.9 정책 유지)
 
 ### 3.10 MCP tool surface — 4종
 
 | 도구 | 목적 |
 |---|---|
-| `attachment_list()` | 등록 문서 목록 + 메타 |
+| `attachment_list()` | 등록 문서 목록 + 메타 (active 셋의 union) |
 | `attachment_outline(fileId)` | TOC / 시트명 / 슬라이드 제목 트리 |
-| `attachment_search(query, fileId?, k=5)` | (Phase 1) FTS5 trigram → (Phase 4) hybrid |
+| `attachment_search(query, fileId?, k=5)` | (Phase 1) FTS5 trigram → (Phase 4) hybrid. active 셋 union 검색 (서버 측 fix) |
 | `attachment_read(fileId, ref, includeImages?, caption_only?)` | 특정 page/sheet/slide raw text (+ Phase 2 부터 image 동봉/캡션) |
+
+**r4 결정 — tool surface 변경 0**: collection 선택은 *사용자가 LlmConfig 에서 active toggle* 함. LLM 은 어떤 collection 이 있는지 모르고, 활성 셋만 결과로 받음 (서버 측 fix). `collectionIds[]` 같은 인자 추가 없음 — LLM 인지 부담 0, system prompt `5.knowledge-base.md` 변경 없음.
+
+**fileId 의 unique 보장**: m 개 collection ATTACH 시 각 collection 의 `Documents.Id` 는 같은 값 가능. fileId 는 `<collection-index>:<documents-id>` 또는 `<collection-name>:<documents-id>` 형태로 합성하여 cross-collection unique 보장 (구현 시 확정, §4.4).
 
 모두 read-only → `LlmTurnContext` 의 mutation visibility 규칙 무관. `PlanVisibilityHint` 불필요.
 
@@ -255,9 +292,8 @@ citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
 -- ── Phase 1 (MVP) ─────────────────────────────────────────────────────
 CREATE TABLE Documents (
   Id              INTEGER PRIMARY KEY,
-  FileHash        TEXT NOT NULL UNIQUE,         -- SHA-256
-  OriginalPath    TEXT NOT NULL,
-  StoredPath      TEXT NOT NULL,                -- blobs/<sha256>.<ext>
+  FileHash        TEXT NOT NULL UNIQUE,         -- SHA-256 (원본 파일의 hash)
+  OriginalPath    TEXT NOT NULL,                -- collection root 기준 상대경로 (cross-collection 이동 가능)
   DocType         TEXT NOT NULL,                -- pdf|docx|pptx|xlsx|txt|md
   SizeBytes       INTEGER NOT NULL,
   PageOrSheetCnt  INTEGER,
@@ -266,7 +302,8 @@ CREATE TABLE Documents (
   IndexerVersion  TEXT NOT NULL,                -- schema 변경 시 자동 재색인 트리거
   IngestedAt      TEXT NOT NULL                 -- ISO-8601
 );
-CREATE UNIQUE INDEX IX_Documents_Hash ON Documents(FileHash);
+-- StoredPath 컬럼 폐기 (r4) — 원본 사본 보관 안 함, OriginalPath 가 사용자 폴더 안 실제 파일을 가리킴.
+-- IX_Documents_Hash 는 UNIQUE 컬럼 제약과 중복 — 명시 INDEX 제거, UNIQUE 만 유지.
 
 CREATE TABLE OutlineNodes (
   Id          INTEGER PRIMARY KEY,
@@ -345,7 +382,7 @@ CREATE TABLE Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
 2. `Chunks.ImageCount` 갱신 책임 = Phase 2 도입 시 ImageReferences trigger 또는 ingest 시 명시 update
 3. FTS5 trigger 본문 3종 명시 (AI/AD/AU, 위 SQL 참조)
 4. ON DELETE: Documents → CASCADE, OutlineNodes → SET NULL (chunk 는 보존)
-5. 필수 INDEX 5종 명시 (IX_Documents_Hash, IX_Outline_Doc, IX_Outline_Parent, IX_Chunks_Doc, IX_Chunks_Outline). ⚠ `IX_Documents_Hash` 는 `UNIQUE` 컬럼 제약과 중복 (SQLite 자동 sqlite_autoindex_Documents_1) — 명시 INDEX 또는 컬럼 제약 중 *하나로 통일* (구현 시 명시 INDEX 제거 권장, UNIQUE 만 유지).
+5. 필수 INDEX 4종 (r4 정정 — IX_Documents_Hash 제거 후): IX_Outline_Doc, IX_Outline_Parent, IX_Chunks_Doc, IX_Chunks_Outline. `Documents.FileHash` 의 UNIQUE 제약이 sqlite_autoindex 자동 생성 → 명시 INDEX 불필요.
 
 ### 3.13 RefLocator SSOT — 저장형 vs 표시형
 
@@ -469,20 +506,25 @@ PRAGMA foreign_keys = ON;
 - `openProject(projectKbRoot)` 의 lifecycle: per-project singleton vs request-scoped + IDisposable
 - WPF DI 컨테이너 (현재 Promaker 는 어떤 컨테이너 사용 중인지 확인 필요)
 
-#### 3.18.2 attachment_* 도구의 KB root 도달 경로 (필수 결정)
-**문제**: `AttachmentTools.cs` 의 `[McpServerTool]` 핸들러가 *현재 프로젝트의* `projectKbRoot` 를 어떻게 알아내는가? 현재 `LlmTurnContext.cs:57` 는 `(DsStore store, IUiDispatcher dispatcher)` 만 받고, `McpHostService.cs:65` 는 `TurnProvider` 만 DI 등록.
+#### 3.18.2 attachment_* 도구의 active collection 도달 경로 (r4 단순화)
 
-**3 옵션**:
+**채택안 (a) — `LlmTurnContext` 확장**:
+- `LlmTurnContext.cs:57` 의 생성자에 `KnowledgeBase kb` (또는 `string[] activeCollectionPaths` + LightHouse facade) 인자 추가
+- `MainViewModel.LlmChat.cs` 가 turn 시작 시:
+  1. `LlmConfig.Load()` → `KbCollections.Where(c => c.Active).Select(c => c.Path)` 로 active paths 추출
+  2. `LightHouse.openCollections(activePaths)` → multi-db SQLite ATTACH + UNION facade
+  3. 결과 `KnowledgeBase` instance 를 `LlmTurnContext` 에 주입
+- turn end 시 dispose 또는 cache (§3.18.1 의 lifecycle 결정 따라)
 
-| # | 방식 | 장점 | 단점 |
-|---|---|---|---|
-| (a) | `LlmTurnContext` 에 `KnowledgeBase` (또는 `string projectKbRoot`) 필드 추가. `MainViewModel.LlmChat.cs` 가 turn 시작 시 주입. | 기존 DI 패턴 (TurnProvider) 그대로 활용. `ModelTools` 처럼 tool 인자에서 자동 검출. | `LlmTurnContext` 가 KB 도메인 의존 — 책임 경계 미미하게 확장. |
-| (b) | 별도 singleton `IKnowledgeBaseProvider` 를 `McpHostService.AddSingleton` 등록. `AttachmentTools` 가 인자로 받음. `MainViewModel` 이 프로젝트 open/close 시 `setCurrentProject(path)` 호출. | `LlmTurnContext` 무관 — KB 와 turn 의 책임 분리. | DI 추가 + project switch 시 thread-safety 책임. |
-| (c) | MCP tool 인자에 `projectId: string` 명시. `MainViewModel` 이 system prompt 또는 turn 시작 메시지에 현재 projectId 주입 → LLM 이 매 호출에 동봉. | 가장 명시적, server stateless. | LLM 이 projectId 잊으면 fail — turn budget ↑, hallucination 위험. |
+**multi-db ATTACH 동작**:
+- 각 collection 의 `.lighthouse-kb/index.db` 를 main DB 에 ATTACH (alias = `kb0`, `kb1`, ..., `kbN-1`)
+- 검색 시 `SELECT ... FROM kb0.ChunksFts UNION ALL SELECT ... FROM kb1.ChunksFts ...` 동적 생성
+- SQLite default ATTACH limit = 10 → UI 가 active toggle 시 10번째까지만 허용 (§0 보류 항목)
+- 첫 collection 만 read-write open 권한 필요 (재색인 시), 나머지는 read-only ATTACH 가능
 
-**권장: (a) `LlmTurnContext` 확장** — 기존 패턴 정합, single-project-per-turn 가정 자연스러움 (Promaker UI 도 단일 프로젝트 동시 open). turn 시작 시 active project 의 `projectKbRoot` 를 LightHouse 에 open 한 후 `KnowledgeBase` instance 를 turn context 에 주입. turn end 시 dispose 또는 cache.
-
-**LightHouse 측 invariant**: `KnowledgeBase` instance 는 한 프로젝트에 lock-in. 다른 프로젝트 root 호출 시 새 instance 필요 (cross-project 캐시는 §3.9 의 Phase 5+ 보류).
+**LightHouse 측 invariant**:
+- `KnowledgeBase` instance 는 한 active 셋에 lock-in. 사용자가 active 토글하면 turn 종료 후 다음 turn 시작 시 새 instance.
+- in-progress turn 중 active 셋 변경은 무시 (다음 turn 부터 반영) — race 회피.
 
 ---
 
@@ -491,7 +533,7 @@ PRAGMA foreign_keys = ON;
 ### Phase 1 — MVP (환원판: PDF + DOCX + TXT + MD, FTS5 trigram only, 4 tools, **이미지 미처리**)
 
 **4.1 Ds2.LightHouse project 생성**
-- [ ] **선행 (코드보다 먼저)** — root `.gitignore` 에 `.promaker-kb/` 추가. *project 경로가 임의 user folder* 이므로 `Apps/Promaker/.gitignore` 아닌 **root** `.gitignore` 가 정답. 4.4 의 SqliteStore 가 동작하는 순간 임의 위치에 수십~수백 MB sqlite + blob 자동 생성 → 격상 안 하면 repo 영구 오염 위험.
+- [ ] **선행 (코드보다 먼저)** — root `.gitignore` 에 `.lighthouse-kb/` 추가 (r4 — 폴더 이름 변경, project 무관). 사용자가 collection 으로 *Promaker repo 안 폴더* 를 선택할 경우를 위한 보호. 4.4 의 SqliteStore 가 동작하는 순간 그 폴더 안에 index.db (+ Phase 2 부터 image blob) 자동 생성.
 - [ ] 사전 grep — `Directory.Packages.props` 가 Solutions/Apps/Promaker 두 위치 어떻게 분리되어 있는지 (CPM 적용 범위) 확정
 - [ ] 사전 grep — `Anthropic` / `OpenAI` / `OllamaSharp` 패키지 ID 정확 변형 (Anthropic 공식 SDK vs Anthropic.SDK 등 ID 혼동 회피)
 - [ ] sln **2개** 모두 갱신 — `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (실재 확인). 새 project (`Solutions/Core/Ds2.LightHouse`) + 테스트 (`Solutions/Tests/Ds2.LightHouse.Tests`) 가 Solutions/ 하위라 `Solutions/Ds2.sln` 누락 시 CI/전체 빌드에서 빠짐.
@@ -531,21 +573,25 @@ PRAGMA foreign_keys = ON;
 - [ ] `Classifier.fs` — `classifyForKb : string -> FileKind`
 
 **4.4 LightHouse 본체 — 저장 / 검색 (Phase 1)**
-- [ ] `SqliteStore.fs` — 3.12 의 schema + 3.17 PRAGMA + IndexerVersion 자동 재색인 + shadow rebuild + batch commit (500/commit) + CancellationToken
-- [ ] `Searcher.fs` — FTS5 BM25 (trigram), k 제한, excerpt 생성 (≤ maxExcerptTokens), `hasImages: false` (Phase 1)
+- [ ] `SqliteStore.fs` — 3.12 의 schema + 3.17 PRAGMA + IndexerVersion 자동 재색인 + shadow rebuild + batch commit (500/commit) + CancellationToken. **read-only 폴더 처리**: open 시점에 폴더 쓰기 권한 probe → write 시도 (색인/재색인) 면 fail+안내, read 만 (search) 이면 `Mode=ReadOnly` 로 open.
+- [ ] `Searcher.fs` — FTS5 BM25 (trigram), k 제한, excerpt 생성 (≤ maxExcerptTokens), `hasImages: false` (Phase 1). **multi-db UNION 동적 생성** (r4) — m 개 ATTACH 된 collection 의 `ChunksFts` 를 UNION ALL 로 결합 후 BM25 점수 정렬. **fileId 합성** — `<collection-index>:<documents-id>` 형태로 cross-collection unique 보장.
 - [ ] `Indexer.fs` — Extract → Chunk → Store 파이프라인 orchestrator
-- [ ] `KnowledgeBase.fs` — 외부 진입점 facade. **`string projectKbRoot` 만 받음 (Ds2.Core entity 미참조)**. DI lifecycle = §3.18 에서 결정.
+- [ ] `KnowledgeBase.fs` — 외부 진입점 facade. **`openCollections(activePaths: string[]) -> KnowledgeBase`** (r4 — multi-collection). 내부에 SQLite ATTACH (alias `kb0`/`kb1`/.../`kbN-1`) + UNION search. `Ds2.Core` entity 미참조. DI lifecycle = §3.18.1 에서 결정.
+- [ ] **ATTACH limit 가드** — active 셋 길이 > 10 시 사전 fail (사용자 UI 가 active toggle 단계에서 막아야 정상)
 
-**4.5 Promaker 측 통합**
-- [ ] `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — `[McpServerToolType]` 4종 tool wrapper. quota hard enforce (3.10). `LlmTurnContext` 인자 자동 검출 (§3.18.2 의 권장 (a) 패턴).
-- [ ] `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs` — UI ↔ Indexer 큐 / 진행률 (background worker) / CancellationToken
-- [ ] **`Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` 확장** (§3.18.2) — `KnowledgeBase` (또는 `string projectKbRoot`) 필드 추가 + 생성자 갱신. `MainViewModel.LlmChat.cs` 의 turn 시작 코드가 active project 의 `projectKbRoot` 로 `LightHouse.openProject` 후 turn context 에 주입. turn end 시 dispose/cache 정책 §3.18.1 따라.
+**4.5 Promaker 측 통합 (r4 — multi-collection + KbManagerDialog)**
+- [ ] `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — `[McpServerToolType]` 4종 tool wrapper. quota hard enforce (3.10). `LlmTurnContext` 인자 자동 검출 (§3.18.2 의 채택안 a). collection 인자 없음 (서버 측 active 셋 fix).
+- [ ] `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs` — KbManagerDialog ↔ Indexer 큐 / 진행률 (background worker) / CancellationToken. collection 단위 색인 진행률 (n개 문서 중 k번째 진행).
+- [ ] **`Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` 확장** (§3.18.2) — `KnowledgeBase kb` 필드 추가 + 생성자 갱신. `MainViewModel.LlmChat.cs` 의 turn 시작 코드가 `LlmConfig.KbCollections.Where(c => c.Active).Select(c => c.Path)` → `LightHouse.openCollections(activePaths)` 호출 결과를 주입. turn end 시 dispose/cache 정책 §3.18.1 따라.
+- [ ] **`Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs` 확장** (r4) — `[JsonPropertyName("kbCollections")] public List<KbCollectionEntry> KbCollections { get; set; } = new();` 추가 + `KbCollectionEntry { string Path; bool Active; }` 정의. 기존 atomic Save / corrupt fallback / OS 사용자 전역 path 그대로 활용.
+- [ ] **`Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)` 신설** (r4) — collection 등록 list (path 표시) / "추가" (folder picker) / "제거" / "재색인" / "활성 토글" / 색인 진행률 표시. ATTACH limit 10 시점에 toggle 막음 (사용자 안내).
+- [ ] **`Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` 의 LLM 탭에 "KB 관리..." 버튼 추가** (r4) — 클릭 시 KbManagerDialog 띄움 (modal).
 - [ ] **`Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs:16-29` 의 `All` 배열에 attachment 4종 추가** — `mcp__promaker__attachment_list`, `..._outline`, `..._search`, `..._read`. ⚠ 빠뜨리면 `ClaudeCliProvider` 의 `--allowed-tools` 화이트리스트에서 누락 → MCP 등록되어도 Claude CLI 가 silent 차단.
 - [ ] **`Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` 확장** — 현재 `modelToolsPath` 만 파싱하는 `extractMcpServerToolMethods` 를 `Tools/*.cs` 전체 스캔으로 확대. `expectedSet` (line 87-91) 을 doc-level 4 + read 2 + attachment 4 = **10종** 으로 갱신. snake_case 단위 테스트 (line 132-141) 에 attachment 4종 추가 (`attachment_list`/`_outline`/`_search`/`_read`).
 - [ ] Promaker.csproj 에 `Ds2.LightHouse` ProjectReference 추가
 - [ ] Promaker.csproj 의 `<PackageReference Include="PdfPig" />` (line 43) 제거 — LightHouse transitive 로 받음
-- [ ] 프로젝트 open 시 `.promaker-kb/index.db` 자동 attach (없으면 생성). `MainViewModel.LlmChat.cs` 의 active project 변경 hook 과 동기 (3.18.2 의 LightHouse open 과 같은 trigger).
-- (`.gitignore` 의 `.promaker-kb/` 추가는 §4.1 첫 task 로 격상됨)
+- (`.gitignore` 의 `.lighthouse-kb/` 추가는 §4.1 첫 task 로 격상됨)
+- (~~project open 시 .promaker-kb 자동 attach~~ — r4 폐기, KB 가 project 와 무관)
 
 **4.6 System prompt**
 - [ ] `Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md` 신설:
@@ -557,11 +603,14 @@ PRAGMA foreign_keys = ON;
   - Phase 2 부터: `hasImages=true` 면 vision 확인 권장. `caption_only` 우선 → 부족 시 `includeImages`
 - [ ] `Promaker.csproj` 의 `EmbeddedResource Include="LlmAgent\Prompts\*.md"` 가 자동 포함 — 별도 등록 불필요
 
-**4.7 UI (간단)**
-- [ ] Dock 패널 "Attachments" — drag-drop, 목록, 진행률 표시 / 취소 버튼 (CancellationToken 트리거)
-  - `todo-dock-layout.md` 와 정합 유지
-- [ ] (3.0 SSOT 명시) 채팅 입력란의 chip drop 영역은 기존 chat 첨부 경로 — KB 패널과 시각적/물리적 분리
-- [ ] (Phase 2 로 미뤄도 됨) 채팅 입력란 옆 📎 버튼
+**4.7 UI — 폐기 (r4)**
+
+dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 이유:
+- collection 등록/제거/재색인/active 토글이 dock 패널보다 modal dialog 에 더 자연스러움 (자주 보는 화면 X)
+- chat 첨부 chip 표시는 기존 chat UI 가 이미 처리 — KB 별도 dock 불필요
+- §3.0 의 두 경로 분리 SSOT 와 정합 (chat 첨부 ≠ KB)
+
+따라서 `todo-dock-layout.md` 에 Attachments anchor 추가도 불필요 (§6 m9 / §7 step 7 무효화).
 
 **4.8 검증 / 테스트**
 - [ ] `Solutions/Tests/Ds2.LightHouse.Tests/` 신설 (xunit + FsCheck). 4.2 의 부분 통합 무영향 회귀 보호.
@@ -571,6 +620,9 @@ PRAGMA foreign_keys = ON;
 - [ ] WAL 동시성 — 색인 중 search 호출 가능 검증
 - [ ] **AttachmentClassifierDriftTests (현행 Fact 13건) 통과 유지** (4.2 무영향 보장. 신규 case 추가 시 본 todo 갱신)
 - [ ] LLM 이 `attachment_search` 호출 → citation 포함 응답 생성 — chat-sim (`Prompts/chat-simulation/`) 으로 round-trip
+- [ ] **multi-collection ATTACH 검증** (r4) — 2~3 collection 동시 active 시 UNION 검색 결과의 fileId cross-collection unique 보장. 10번째 active toggle 시 UI 가 막는지. read-only collection 1개 + write OK collection 1개 mixed 환경에서 둘 다 검색 가능.
+- [ ] **read-only collection 검증** (r4) — `\\share\readonly\.lighthouse-kb\` 에 미리 색인된 index.db 를 `Mode=ReadOnly` 로 attach → search/read OK / 색인/재색인 시도는 명확한 fail 메시지.
+- [ ] **LlmConfig.KbCollections persist round-trip** — KbManagerDialog 에서 추가 → close → 재실행 → 그대로 복원. atomic save / corrupt fallback 동작 (기존 `LlmConfig.Save` 패턴).
 
 ### Phase 2 — 포맷 확대 + 이미지 인프라 신설 + cached lazy
 - [ ] schema 확장 — `ImageCache` / `ImageReferences` 테이블 (3.12 의 주석 처리 블록 활성) + `Chunks.ImageCount` 컬럼 (ALTER TABLE) + IndexerVersion bump
@@ -619,6 +671,7 @@ PRAGMA foreign_keys = ON;
 - `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs`
 - `Apps/Promaker/Promaker/Knowledge/AttachmentIngestService.cs`
 - `Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md`
+- **`Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml(.cs)`** (r4 — collection 등록/관리 UI)
 
 ### 수정
 - `Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs` (detectEncoding forward 만, 표면 무변경)
@@ -632,9 +685,11 @@ PRAGMA foreign_keys = ON;
 - **`Solutions/Ds2.sln`** (LightHouse + Tests 추가 — sln 2개 모두 갱신, §4.1)
 - `Apps/Promaker/Promaker/LlmAgent/PromakerToolNames.cs` (`All` 배열에 attachment 4종 추가, §4.5)
 - `Solutions/Tests/Ds2.LlmAgent.Tests/PromakerToolNamesDriftTests.fs` (Tools/*.cs 전체 스캔 확장 + expectedSet 6→10, §4.5)
-- `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` (KnowledgeBase 또는 projectKbRoot 필드 추가, §3.18.2)
-- `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs` (turn 시작 시 LightHouse.openProject 후 turn context 주입, §4.5)
-- **root** `.gitignore` (`.promaker-kb/` 추가 — §4.1 첫 task)
+- `Apps/Promaker/Promaker/LlmAgent/LlmTurnContext.cs` (KnowledgeBase 필드 추가 — multi-collection, §3.18.2)
+- `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel.LlmChat.cs` (turn 시작 시 LlmConfig.KbCollections active 필터 → LightHouse.openCollections 후 turn context 주입, §4.5)
+- **`Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs`** (r4 — `KbCollections : List<KbCollectionEntry>` 필드 추가)
+- **`Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)`** (r4 — LLM 탭에 "KB 관리..." 버튼 추가)
+- **root** `.gitignore` (`.lighthouse-kb/` 추가 — §4.1 첫 task, r4)
 
 ### 동기화 의무 (수정 안 하지만 cross-PR 추적 필요)
 - **active** `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 책임 진행 중. Phase 1 4.2a 진입 전 최근 commit 동기화 확인 (§6.12). 본 작업 commit 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
@@ -666,6 +721,8 @@ PRAGMA foreign_keys = ON;
 12. **active todo-llm-chat-attachment.md 동기화 의무** — Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` 의 최근 commit 확인. AttachmentClassifier / ImageFormat 의 wire 책임이 진행 중일 수 있어 본 작업과 cross-PR 충돌 가능. 본 작업 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
 13. **본 todo 의 line 번호 박제 (예: LlmMessage.fs:4, App.xaml.cs:148, LlmChatViewModel.Attachments.cs:265 등) 는 stale 위험** — `todo-dock-layout.md` v6 의 `MainWindow.xaml.cs:108-109` stale 화 전례. 진입 시 grep 으로 재확인. 가능한 곳은 symbol 기반 (함수/클래스명) 참조로 약화 검토.
 14. **`Apps/Promaker/Docs/` 위치 vs Solutions 무게중심 불일치** — 실제 신규 코드 산출물의 80% 가 `Solutions/Core/Ds2.LightHouse/` 임에도 본 todo 는 Apps/Promaker/Docs/. 기존 관례 (`Solutions/Core/Ds2.LlmAgent/doc/todo-*.md` 4건) 와 다름. Phase 1 진입 commit 직전에 `git mv` 검토 (대안: 현 위치 유지 + 본 항목 stale 표기).
+15. **r4 — collection 의 PII / 보안** — 사용자가 임의 폴더를 collection 으로 등록 → LLM 이 search/read 로 폴더 안 모든 파일 내용 접근. 사용자가 무심코 비밀 문서 (`.env`, 인사기록, 영업비밀) 가 든 폴더를 등록하면 LLM 외부 전송 시 누출. `5.knowledge-base.md` 의 system prompt 에 "KB 내용은 LLM provider 로 송신될 수 있음" 명시 + `KbExtensions` filter 가 `.env` 등 거부 + KbManagerDialog 첫 등록 시 consent 다이얼로그 권장.
+16. **r4 — ATTACH 된 collection 의 index.db schema 버전 불일치** — 두 collection 이 다른 `IndexerVersion` 으로 색인되었으면 UNION 검색 결과의 column 의미가 다를 수 있음. open 시 모든 active collection 의 `Meta.indexer_version` 비교 → 불일치 시 사용자 안내 + 해당 collection 비활성 fallback.
 
 ---
 
@@ -681,5 +738,5 @@ PRAGMA foreign_keys = ON;
 4. Phase 1 의 4.2 (부분 통합) 는 commit 3개로 분리 (4.2a 이전 / 4.2b LlmAgent slim / 4.2c 참조갱신). 각 commit 마다 `AttachmentClassifierDriftTests` (현행 13건) 통과 확인. 필요 시 별도 PR 분리 — `done-llm-chat-attachment.md:222` 전례.
 5. MEMORY.md `## Project` 에 본 todo 등록 (주의 사항 11).
 6. Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active, 318 line) 의 최근 commit 동기화 (주의 사항 12).
-7. Phase 1 4.7 진입 시 `todo-dock-layout.md` 에 "Attachments" anchor 추가 동시 PR (m9).
+7. ~~Phase 1 4.7 진입 시 todo-dock-layout.md 에 Attachments anchor 추가~~ — r4 에서 §4.7 dock 패널 폐기 결정으로 *무효*. todo-dock-layout.md 갱신 불필요.
 8. commit message — (i) 키워드 LightHouse/KB/MCP/attachment_search 포함 (4줄 이내), (ii) "(주의) SQLite 는 Microsoft.Data.Sqlite 채택 — 글로벌 선호와 다름, 진입 시 재확인" 1줄 권장, (iii) rev r0 → r2 의 "외부 reviewer 9명 (6+3) 검증 반영 통합본" 명시.
