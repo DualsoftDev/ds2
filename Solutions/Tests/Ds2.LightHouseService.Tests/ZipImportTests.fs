@@ -41,6 +41,39 @@ let ``sanitizeTitle — 80 char 길이 한도`` () =
     Assert.Equal(80, (ZipImport.sanitizeTitle raw).Length)
 
 [<Fact>]
+let ``sanitizeTitle — idempotency 검증 (review IC-2 SSOT 보호)`` () =
+    // 다양한 입력에 대해 sanitize(sanitize(x)) = sanitize(x) — directory path drift 방지의 핵심 invariant.
+    let inputs = [
+        "normal-title"
+        "a<b>c|d"
+        "foo:bar/baz\\qux"
+        "tailing space  "
+        "tailing dot."
+        "tailing dot space . "
+        "  leading space"
+        String.replicate 100 "x"
+        String.replicate 200 "한국어"   // 80 char 한도 + 멀티바이트
+        "‮hidden-bidi"
+        "control\t\n\r"
+        ""
+        "   "
+    ]
+    for input in inputs do
+        let once = ZipImport.sanitizeTitle input
+        let twice = ZipImport.sanitizeTitle once
+        Assert.Equal(once, twice)
+
+[<Fact>]
+let ``sanitizeTitle — unicode bidi / control char → underscore (audit log spoofing 차단, IC-2)`` () =
+    // RTL override (U+202E) 는 Char.IsControl 에서 true (Cc category) → '_' 치환 보장
+    let result = ZipImport.sanitizeTitle "alice‮.exe"
+    Assert.DoesNotContain('‮', result)
+    // CR/LF 도 IsControl → '_'
+    let crlf = ZipImport.sanitizeTitle "line1\r\nline2"
+    Assert.DoesNotContain('\r', crlf)
+    Assert.DoesNotContain('\n', crlf)
+
+[<Fact>]
 let ``collectionDirName — guid + sanitized title`` () =
     let id = "550e8400-e29b-41d4-a716-446655440000"
     Assert.Equal(id + "-line-A", ZipImport.collectionDirName id "line-A")

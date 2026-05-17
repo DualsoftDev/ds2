@@ -45,8 +45,8 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r10** (Phase 1 lib 본체 + lib unit test 종결). **server phase 는 별도 todo (`todo-lighthouse-kb-server.md` s1-r0)** — Phase S1 진입 완료 (commit `1be3ab8`). 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.5 / §6 m15 / §6 m16 의 회귀 매트릭스 항목은 server.md 의 s1-r0 박제 참조.
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (**s1-r0**, Phase S1 commit `1be3ab8` 완료) — Phase S2 (collection 관리 API) 진입 대기.
+- **현재 rev**: **r11** (Phase 1 lib 본체 + lib unit test 종결 + server review IM-6/IM-8 흡수). server.md s3-r1 의 `--review` 처리에서 본 lib 도 일부 변경: **(IM-6)** `KnowledgeBase.fs` 에 `isIndexed` / `probeIndexerVersion` / `MaxAttachedDbs` (Literal) facade 추가 — caller (Ds2.LightHouseService) 의 SqliteStore 직접 참조 우회 제거. **(IM-8)** `TextExtractorTests.fs` 에 BOM strip 회귀 test 1 Fact 추가 (parent r10 F3 fix 보호). lib test 99→**100/100 통과**. **server phase 는 별도 todo (`todo-lighthouse-kb-server.md` s3-r1)** — Phase S3 풀스택 + review 처리 완료 (commit 대기).
+- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (**s3-r1**, Phase S3 commit 대기 + 92/92 service test 통과) — Phase S4 (file serving) 또는 Phase S5 (Promaker 통합) 진입 confirm 대기.
 - **모드**: Phase 1 종결. server phase 진입 후 본 todo 는 회귀 매트릭스 SSOT (§4.1 보류 박스 + server.md §3.14 동시 참조) 로 잔류.
 - **본 세션까지 commit 누적**:
   - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)

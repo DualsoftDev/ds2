@@ -39,15 +39,22 @@ module ZipImport =
     let private blobRegex =
         Regex(@"^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$", RegexOptions.Compiled)
 
-    /// Windows 파일명 invalid char (`<>:"/\|?*` + control + trailing dot/space).
+    /// Windows 파일명 invalid char (`<>:"/\|?*` + control + format(Cf) + trailing dot/space).
     /// title sanitize 시 underscore 로 치환. 길이 한도 80 자 (Collections\<guid>-<sanitized> 의 디스크 path 한도 고려).
+    ///
+    /// review IC-2 (1/7 reviewer): unicode bidi override (U+202E 등) 는 `Char.IsControl` 가 false (Cf 분류).
+    /// audit log spoofing / OS file picker 우회 차단을 위해 Format category 도 함께 거부 →
+    /// `System.Globalization.CharUnicodeInfo.GetUnicodeCategory` 로 Cf 검출.
     let sanitizeTitle (raw: string) : string =
         if String.IsNullOrWhiteSpace raw then "untitled"
         else
             let invalidChars = Set.ofArray (Path.GetInvalidFileNameChars())
+            let isFormat (ch: char) =
+                System.Globalization.CharUnicodeInfo.GetUnicodeCategory ch
+                    = System.Globalization.UnicodeCategory.Format
             let sb = System.Text.StringBuilder()
             for ch in raw do
-                if invalidChars.Contains ch || Char.IsControl ch then
+                if invalidChars.Contains ch || Char.IsControl ch || isFormat ch then
                     sb.Append '_' |> ignore
                 else
                     sb.Append ch |> ignore
@@ -175,22 +182,11 @@ module ZipImport =
     ///
     /// host 의 `indexerVersionRange.min`/`max` 와 SemVer 비교. 단순 문자열 비교 (semver lexical OK for x.y.z digits up to single-digit).
     /// `0-doc collection` (Documents 0건) 도 index.db 자체는 있어야 함 (Phase 1 의 SqliteStore.ensureSchema + stampVersion 결과).
+    ///
+    /// review IM-6 (2/7 reviewer): SqliteStore 직접 호출 우회 제거 → Ds2.LightHouse.KnowledgeBase.probeIndexerVersion delegation.
+    /// service 의 Microsoft.Data.Sqlite PackageReference 제거 가능 (lib 의 PrivateAssets=all 정합).
     let probeIndexerVersion (collectionDir: string) : string option =
-        let dbPath = Path.Combine(collectionDir, ".lighthouse-kb", "index.db")
-        if not (File.Exists dbPath) then None
-        else
-            // SqliteStore.openConnection 으로 read-only 조회. SQLite WAL + ro mode 라 service-side 만 read 안전.
-            try
-                let conn = Ds2.LightHouse.SqliteStore.openConnection dbPath true
-                try
-                    Ds2.LightHouse.SqliteStore.getMeta conn "indexer_version"
-                finally
-                    conn.Close()
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn  // parent r10 lib fix F2 정합
-                    conn.Dispose()
-            with ex ->
-                Log.service.Warn(sprintf "probeIndexerVersion: %s 열기 실패 — %s" dbPath ex.Message)
-                None
+        Ds2.LightHouse.KnowledgeBase.probeIndexerVersion collectionDir
 
     /// SemVer 단순 비교 (digit-only 가정 — parent IndexerVersion.Current = "1.0.0").
     /// version 문자열 lexical compare 가 1.0.0 < 1.99.99 < 2.0.0 인데, 1.10.0 vs 1.9.0 같은 multi-digit
@@ -255,6 +251,11 @@ module ZipImport =
     /// 미리 stagingPath/meta.json 에 박아둠. 본 함수는 디렉토리 단위 swap 만.
     /// rollback: target 의 기존 source\ + .lighthouse-kb\ 를 `*.bak` 으로 rename → staging 내용 move → 성공 시 .bak 삭제.
     /// 실패 시 .bak 복귀.
+    ///
+    /// **review IC-1 강화 (3/7 reviewer 합의)**: 부분 실패 안전성 보강.
+    /// - target 부분 잔재 cleanup 실패 시 silent swallow 금지 → `<target>.broken-<timestamp>` rename 으로 별도 격리
+    /// - backup 복귀 시 target 이미 존재 분기 처리 — rollback path 의 모든 실패는 운영자 sentinel + fatal log
+    /// - 원래 ex 보존 위해 `ExceptionDispatchInfo` 사용 (reraise 가 새 ex 로 덮이는 회귀 차단)
     let swapCollectionPayload
         (storageRoot: string)
         (stagingPath: string)
@@ -279,13 +280,48 @@ module ZipImport =
             Directory.Delete(backup, true)
             target
         with ex ->
-            // rollback — target 의 부분 상태 정리 후 backup 복귀
-            Log.service.Error(sprintf "swapCollectionPayload 실패 — rollback. ex=%s" ex.Message)
+            // 원래 ex 보존 — reraise() 가 rollback 도중 새 ex 로 덮이는 회귀 차단 (review IC-1).
+            let edi = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture ex
+            Log.service.Error(sprintf "swapCollectionPayload 실패 — rollback 시작. ex=%s" ex.Message)
+            Log.audit.Warn(sprintf "swap rollback: id=%s target=%s ex=%s" collectionId target ex.Message)
+
+            // 1. target 부분 잔재 정리 — 실패 시 별도 격리 ('.broken-<ts>' rename) 로 backup 복귀 path 보호.
             if Directory.Exists target then
-                try Directory.Delete(target, true) with _ -> ()
+                try
+                    Directory.Delete(target, true)
+                with cleanupEx ->
+                    let ts = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff")
+                    let broken = sprintf "%s.broken-%s" target ts
+                    Log.service.Error(
+                        sprintf "swap rollback: target cleanup 실패 — '%s'.broken-%s 로 격리 시도. cleanupEx=%s"
+                            target ts cleanupEx.Message)
+                    try
+                        Directory.Move(target, broken)
+                        Log.audit.Warn(
+                            sprintf "swap rollback SENTINEL — id=%s broken=%s 운영자 수동 확인 필요" collectionId broken)
+                    with renameEx ->
+                        Log.service.Error(
+                            sprintf "swap rollback: broken rename 도 실패 — target 잔재 + backup 보존. renameEx=%s"
+                                renameEx.Message)
+                        Log.audit.Warn(
+                            sprintf "swap rollback FATAL — id=%s target=%s backup=%s 둘 다 잔재. 운영자 즉시 개입 필요"
+                                collectionId target backup)
+                        edi.Throw()   // 원래 ex 보존하고 즉시 throw — backup 복귀 시도 회피 (target 이 비지 않음)
+
+            // 2. backup 복귀 — target 이 비어있어야 정상. 비어있지 않으면 위 fatal 분기에서 이미 throw 됨.
             if Directory.Exists backup then
-                Directory.Move(backup, target)
-            reraise()
+                try
+                    Directory.Move(backup, target)
+                    Log.service.Info(sprintf "swap rollback: backup 복귀 완료 — %s" target)
+                with restoreEx ->
+                    Log.service.Error(
+                        sprintf "swap rollback: backup 복귀 실패 — backup 잔재 유지. restoreEx=%s" restoreEx.Message)
+                    Log.audit.Warn(
+                        sprintf "swap rollback SENTINEL — id=%s backup=%s 별도 존재. registry storageRelPath dead link 위험. 운영자 수동 복구"
+                            collectionId backup)
+            // 원래 ex 그대로 throw (caller 의 catch 가 본 ex 만 봄, rollback 의 noise 없이)
+            edi.Throw()
+            target    // unreachable — edi.Throw() 이후 도달 안 함. F# 타입 정합용.
 
     /// collection 전체 purge (§3.9 D7). DELETE /collections/{id}.
     let purgeCollection (storageRoot: string) (collectionId: string) (rawTitle: string) =

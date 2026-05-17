@@ -19,9 +19,13 @@
     <Compile Include="ZipImport.fs" />
     <Compile Include="CollectionLifecycle.fs" />
     <Compile Include="StagingSweep.fs" />
+    <Compile Include="SessionRegistry.fs" />
+    <Compile Include="SessionSweep.fs" />
     <Compile Include="Middleware.fs" />
     <Compile Include="Endpoints.fs" />
     <Compile Include="CollectionEndpoints.fs" />
+    <Compile Include="SessionEndpoints.fs" />
+    <Compile Include="AttachmentTools.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -31,8 +35,14 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <PackageReference Include="log4net" />
-    <!-- Ds2.LightHouse 의 PrivateAssets=all 우회 — ZipImport.probeIndexerVersion 의 SqliteConnection.ClearPool 직접 호출. -->
+    <!-- review IM-6 (2/7 reviewer) 부분 적용: 코드 측 SqliteStore 직접 호출 제거 (probeIndexerVersion/isIndexed → KnowledgeBase facade). -->
+    <!-- 단 lib 의 PrivateAssets=all 정책상 native SQLite runtime asset 이 caller 의 output 에 자동 copy 안 됨 →
+         lib facade 호출 시점에 SqliteConnection load fail. 따라서 service binary 가 직접 PackageReference 유지 (runtime 보강).
+         lib 의 PrivateAssets=all 의 의도 = caller 의 *compile-time API 노출 차단*, runtime asset 분리는 별 정책. -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker alignment). attachment_* 4종 server-side host. -->
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>

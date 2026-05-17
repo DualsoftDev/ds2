@@ -23,6 +23,9 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
     <!-- DPAPI (LocalMachine / CurrentUser scope) — Windows-only. CR4 의 preSharedKey / tlsCertPassword 암호화 SSOT. -->
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker `Apps/Promaker/Directory.Packages.props` 와 동일). -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
   </ItemGroup>
   <!-- Ds2.LightHouse — KB 색인 base 인프라 (todo-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
   <ItemGroup>

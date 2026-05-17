@@ -15,6 +15,9 @@
     <Compile Include="MetaJsonTests.fs" />
     <Compile Include="ZipImportTests.fs" />
     <Compile Include="StagingSweepTests.fs" />
+    <Compile Include="SessionRegistryTests.fs" />
+    <Compile Include="SessionAuthTests.fs" />
+    <Compile Include="AttachmentToolsTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
