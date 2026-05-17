@@ -14,6 +14,7 @@
 | r6 | 2026-05-17 | `--inspect 3` reviewer 결과 반영 (Critical 6 + Major 23 + Minor 15 = 44건). 주요 갱신: (1) §3.18.2 채택안 (a) r5 SKIP marker 강화 — Phase 1 의 결정사항 아님 명시 (CR1/MA9), (2) §0 보류 항목 표 5→3행 — §4.5 의존 2행 server §4.3 로 이전 (CR1/MA2), (3) 진입 박스 7→9 row 보강 (§3.17/§3.18 추가, §4.6 신설 row, MA10), (4) §3.9 의 ad-hoc Q1/Q2/Q3/D-1 표기에 `r4-` prefix — server §0 D-id namespace 충돌 회피 (MA1), (5) §5 수정 목록을 "Phase 1 본체" vs "r5 SKIP — server phase 흡수" 두 sub-section 으로 분리 (CR1), (6) §7 다음 세션 행동 r5 박제 + grep checklist 강화, (7) §4.8 lib unit test 시나리오 구체화 (a/b/c/d 4 sub-section: parser/FTS5/multi-collection/cross-PR) (MA21), (8) §6.13 박제 fresh marker (2026-05-17) (mn10), (9) §3.15.3 `.promaker-kb/` 잔재 → `.lighthouse-kb/` (mn1), (10) §4.1 의 무관 grep task 제거 (mn5), (11) §4.2a 에 ImageFormat 호출처 전수 grep task 추가 (mn14). server.md 와 동시 갱신 (s0-r3). |
 | r7 | 2026-05-17 | **§4.1 진입 commit (`bccb0ea`) + §4.2a 진입 commit (본 turn)**. 사용자 결정: (a) Solutions/Ds2.sln 갱신 SKIP — `Apps/Promaker/Promaker.sln` 만 갱신 (§4.1 박제 "sln 2개" → 1개로 좁힘), (b) `ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0` 업그레이드는 본 Phase 1 보류 — server phase Phase S3 P2 결정 시 함께, (c) 본 todo 파일 git mv 보류 (Phase 1 완료 후 별도 결정). **§4.2c "C# 무영향 확인" 가정 정정**: F# type abbreviation 이 C# interop 작동 안 함 — C# 3 파일 (`LlmChatViewModel.Attachments.cs` / `LlmChatPanel.xaml.cs` / `ApiTurnContentBuilderTests.cs`) `using Ds2.LightHouse;` 추가 + `Ds2.LlmAgent.ImageFormat.Png` → `Ds2.LightHouse.ImageFormat.Png` namespace 갱신 필요 (수행 완료). §4.1 의 `Solutions/Directory.Packages.props` 에 PdfPig 0.1.14 + DocumentFormat.OpenXml **3.5.1** (최신 stable, 자가 검열 minor) 등록. §4.2a 추가 grep 발견 — `ClaudeStreamJsonInputTests.fs:33,74` 의 `Png` constructor 도 `open Ds2.LightHouse` 추가 (총 F# Test 3 파일). |
 | r8 | 2026-05-17 | **§4.2b/§4.2c commit (`b8c747c`) 완료 + §4.3 전체 (lib 본체 — 추출/청킹/분류 layer) 작성 완료** (commit 보류, 본 박제로 transfer). (i) §4.2b: AttachmentClassifier.detectEncoding 본체+부속 (TextEncodingDetect/tryCp949/isStrictDecodable/Log.provider.Warn) 제거, shim 1줄 잔류 + 영구 호환 표기. (ii) §4.2c: LlmAgent.fsproj 의 System.Text.Encoding.CodePages 직접 참조 제거 (LightHouse transitive). Promaker.csproj 는 entry-point assembly 의 명시적 자기 의존 + fail-fast 안전망으로 직접 참조 유지. (iii) §4.3: 신규 8 F# 파일 (Models 155 / RefLocator 143 / Classifier 71 / Chunker 136 / IExtractor 22 / TextExtractor 89 / PdfExtractor 68 / OoxmlExtractor 124 = 793 line) + Logging.fs `Log.lighthouse` 추가 + fsproj Compile Include 8. **자가 검열 1차 (sub-agent)** Critical 0 / Major 3 / Minor 5 → M1 (Chunker sentence regex)/M2 (splitBySentences self-contained)/M3 (OoxmlExtractor 한정 catch 4종) 즉시 적용 + 3 Phase 2 보류 (heading depth stack / outline region / extract_status DU) + 1 명문화 (surrogate pair) + 1 미적용 (RefLocator parseFragment 단순화). **--review 메타리뷰 (외부, b8c747c)** Critical 0 / Major 3 / Minor 4 → M1 (shim type annotation + 영구 호환 docstring) / M2 (Promaker.csproj 주석 보강 + (a) 안 채택) / M3 (ImageFormat.fs 주석 정정 — wildcard 분기로 컴파일 강제 안 됨 명시) + m1 (logger 변경 박제 CLAUDE.md Logging.fs 행) + m3 (CLAUDE.md AttachmentClassifier 행 line 박제 → 함수명 anchor 약화) 모두 적용. m2 (LightHouse → KB 패키지 transitive 비대화 — `<PrivateAssets>all</PrivateAssets>` 적용 여부) 는 §4.4 facade 진입 후 결정 박제 (보류 항목 표 추가). m4 (todo 진행 표시 갱신 누락) 는 본 r8 박제로 흡수. |
+| r10 | 2026-05-17 | **§4.4 commit (`00b72eb`) + §4.8 commit (`9736237`) 완료 — Phase 1 lib 본체 + lib unit test 전부 종결**. (i) §4.8 신규 11 F# test 파일 (TestInit + RefLocator 9 / Chunker 9 / Classifier 9 / TextEncoding 9 / TextExtractor 5 / OoxmlExtractor 3 / PdfExtractor 3 / SqliteStore 14 / Indexer 8 / KnowledgeBase 13 = **99 Fact, 100% 통과**). fsproj 갱신 (Compile Include 11 + PackageReference 4 — `System.Text.Encoding.CodePages` / `Microsoft.Data.Sqlite` / `DocumentFormat.OpenXml` / `PdfPig` 직접 의존, LightHouse 의 PrivateAssets=all 우회). (ii) §4.4 lib 본체 잠재 버그 3건 발견/fix (test 가 노출): **(F1) Searcher.fs FTS5 SQL 호환성** — `bm25(kb0.ChunksFts)` / `bm25(<alias>)` 둘 다 `SQLite Error 1: no such column` → FTS5 의 auxiliary function 과 MATCH 는 *unqualified table name* 만 받음. FROM 절만 schema-qualify, JOIN/WHERE/bm25 는 모두 unqualified `ChunksFts`. **(F2) Indexer.fs SqliteConnection pool 의 lock 보존** — Microsoft.Data.Sqlite 가 dispose 후에도 native handle pool 보존 → `File.Replace` (shadow swap) 시 source/target lock 충돌. `SqliteConnection.ClearPool` 명시 호출을 3 경로 (probe / shadow rebuild / 정상 ingest) 모두 적용. **(F3) TextExtractor.fs UTF-8 BOM 첫 char 잔류** — `Encoding.UTF8.GetString` 이 BOM 을 U+FEFF 로 보존 → chunk 본문 / FTS5 색인 / search excerpt / read 결과 invisible char 회귀. leading U+FEFF strip. (iii) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 3 / Minor 9 → M1 (빈 active 셋 search/list empty 검증) + §4.8c boundary 10 ATTACH 검증 + m4 (OoxmlExtractor segment count brittleness 완화) + m9 (FTS5 AU trigger 검증 — r9 자가 검열 M2 잔여 우려의 마지막 분기) + §4.8a 정확 boundary 200/501 token + M2 (정상 ingest 경로 ClearPool 방어적) **6건 즉시 적용**. M3 (swapShadow try-finally 바깥 — 현 SSOT 명문화) / m1/m2/m3/m6/m7/m8/r9 C1 drift 보호 / r9 M4 cross-talk 보호 = Phase 2 보류. (iv) **AttachmentClassifierDriftTests 13/13 통과 유지** (§4.8d, 별 project, 무영향 확인). (v) **Phase 1 lib 본체 + lib unit test 종결** — server phase (`todo-lighthouse-kb-server.md` Phase S0 → S1) 진입 confirm 대기. |
 | r9 | 2026-05-17 | **§4.3 commit (`16b50c3`) 완료 + §4.4 전체 (lib 본체 — 저장/검색/orchestrator/facade) 작성 완료** (commit 진입 직전). (i) 진입 직전 보류 2건 사용자 결정 — **(a) facade 형식 = record-of-functions** (todo 권장 default, §3.18.1), **(b) PrivateAssets=all 적용 범위 = PdfPig + Microsoft.Data.Sqlite + DocumentFormat.OpenXml 3 package 한정** (r8 m2). (ii) §4.4 신규 4 F# 파일 (SqliteStore ~270 / Searcher ~280 / Indexer ~175 / KnowledgeBase ~105 ≈ 830 line) + fsproj Compile Include 4 + PrivateAssets attribute 3. (iii) **자가 검열 (sub-agent general-purpose)** Critical 1 / Major 6 / Minor 8 → C2 (ATTACH path parameter binding 불가 → inline + single-quote escape) / M1 (FTS5 token split + per-token phrase quoting / implicit AND) / M3 (Dispose with _ swallow → Log.Warn 박제) / M4 (`:memory:` cache=Shared cross-talk → cache=private + unique URI `lhmain-<guid>`) / M5 (SHA-256 stream 주석 정정) / M6 (BM25 부호 반전 — 높을수록 hit 강도) / m6 (`ingest` 시그니처 `(string * FileIngestResult) array` 반환) / m8 (Dispose swallow log 흡수) **9건 적용**, m1/m2/m3/m5/m7/C1 (probe reopen 실측 OK) 6건 Phase 2 refactor 보류. (iv) **--review 메타리뷰 (외부)** Critical 1 / Major 3 / Minor 5 → **C1 (KnowledgeBase.openCollections ATTACH 실패 시 conn 누수)** = try-with reraise + Dispose / **M3 (Searcher fileId parse 실패 silent fallback)** = log warn + 명시 빈 결과 (`Hint = "invalid fileId"`) / **m1 (SqliteStore.deleteDocument 미사용)** = 보존 사유 주석 (매뉴얼 purge / unit test cleanup) / **m5 (.bak 즉시 삭제 정책)** = todo §3.17 미명시이나 idempotent + atomic 안전 주석. M1/M2/m3 는 자가 검열에서 이미 반영. (v) **OpenXml 3.1.1 ↔ 3.5.1 transitive 충돌 경고** (`Apps/Promaker/Promaker.csproj` 빌드 시 MSB3277 2건) — 본 §4.4 scope 외, 다른 패키지의 transitive (PdfPig 가 OpenXml 3.1.1 끌어옴 추정). `Apps/Promaker/Directory.Packages.props` 에 OpenXml 3.5.1 명시 검토 = **§0 보류 항목 표 신설 (Phase 1 완료 직전 또는 server phase Phase S3 결정 시 함께)**. (vi) 빌드 검증 — LightHouse 0 경고/0 오류, LlmAgent + Tests 0 경고/0 오류, AttachmentClassifierDriftTests 13/13 통과, Promaker 빌드 성공 (transitive 충돌 경고 2건만). |
 
 ---
@@ -44,18 +45,16 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r9** (Phase 1 lib 본체 §4.3 + §4.4 코드 작성 완료. §4.2b/§4.2c commit `b8c747c` 완료. §4.3 + §4.4 commit 은 본 박제 + --gc 진입 시점에 단일 commit 으로 묶기. r0~r3 외부 reviewer 11명 + r6 reviewer 3명 + r8 외부 메타리뷰 (3 R) + r9 자가 검열 (sub-agent) + r9 외부 --review = 누계 ≈ 22 reviewer 검증, 사용자 결정 누적)
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제. 본 todo Phase 1 (lib 본체 + lib unit test 만) 완료 후 진입.
-- **모드**: 실 코드 작업 (§4.1/§4.2a/§4.2b/§4.2c commit 완료, §4.3 + §4.4 코드 작성 완료 — 단일 commit 진입 직전. §4.8 lib unit test 미진입).
+- **현재 rev**: **r10** (Phase 1 lib 본체 + lib unit test 종결 — §4.4 commit `00b72eb` + §4.8 commit `9736237` 완료. 95 → 99 Fact, 100% 통과. lib 본체 잠재 버그 3건 (FTS5 SQL / SqliteConnection pool / UTF-8 BOM) 발견·fix. r0~r3 외부 reviewer 11명 + r6 reviewer 3명 + r8 외부 메타리뷰 + r9 자가 검열 + r9 외부 --review + r10 자가 검열 = 누계 ≈ **24 reviewer 검증**, 사용자 결정 누적)
+- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (s0-r3) — service 도입 design 박제. **Phase 1 lib 본체 + lib unit test 종결 — server phase 진입 confirm 대기**.
+- **모드**: Phase 1 종결. server phase (`todo-lighthouse-kb-server.md` Phase S0 → S1) 진입 confirm 대기.
 - **본 세션까지 commit 누적**:
   - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)
   - `cfc2c29` — §4.2a: ImageFormat + TextEncoding → LightHouse 이전 + C# interop namespace 갱신 + AttachmentClassifierDriftTests 13 통과 + CLAUDE.md SSOT 박제 line 70 갱신
   - `b8c747c` — §4.2b/§4.2c: AttachmentClassifier.detectEncoding shim 화 + CodePages 참조 정리 (LlmAgent.fsproj 직접 참조 제거, Promaker.csproj 안전망 유지). 13/13 통과
   - `16b50c3` — §4.3 lib 본체: 신규 8 F# 파일 (Models / RefLocator / Classifier / Chunker / IExtractor / TextExtractor / PdfExtractor / OoxmlExtractor = 793 line) + Logging.fs `Log.lighthouse` + fsproj Compile Include 8 + r8 박제 (자가 검열 sub-agent + 외부 메타리뷰 5건 반영)
-  - **(commit 진행 중 — r9)** — §4.4 단일 commit:
-    - §4.4: 신규 4 F# 파일 (SqliteStore ~270 / Searcher ~280 / Indexer ~175 / KnowledgeBase ~105 ≈ 830 line) + fsproj Compile Include 4 + PrivateAssets="all" 3 package
-    - 자가 검열 (sub-agent) + 외부 --review 누적 9 + 4 = **13건 적용** (C2/M1/M3/M4/M5/M6/m6/m8 자가 + C1/M3/m1/m5 review)
-    - 빌드 0 경고 / 0 오류 + AttachmentClassifierDriftTests 13/13 통과
+  - `00b72eb` — §4.4 lib 본체: 신규 4 F# 파일 (SqliteStore ~270 / Searcher ~280 / Indexer ~175 / KnowledgeBase ~105 ≈ 830 line) + fsproj Compile Include 4 + PrivateAssets="all" 3 package + r9 자가 검열 + 외부 --review 13건 반영. 빌드 0 경고/0 오류, drift tests 13/13.
+  - `9736237` — §4.8 lib unit test: 신규 11 F# test 파일 (TestInit + 10 test = 99 Fact, 100% 통과) + fsproj PackageReference 4 + lib 본체 잠재 버그 3건 fix (Searcher FTS5 unqualified-name / Indexer SqliteConnection.ClearPool / TextExtractor UTF-8 BOM strip) + r10 자가 검열 6건 반영
 
 ### 사용자가 명시적으로 동의한 결정 (이전 세션에서 확정)
 1. **신규 F# project 명 `Ds2.LightHouse`** — `Solutions/Core/` 하 신설, base 의미 (§3.1)
@@ -87,21 +86,33 @@
 - `attachment_*` 의 KB root 도달 경로 — server `§3.8` session-based routing 으로 대체 (parent §3.18.2 의 채택안 (a) 는 r5 SKIP)
 - SQLite ATTACH limit (10) 초과 시 안내 — server `§3.8` Q2 의 hard fail 가드로 흡수
 
-### 다음 세션 즉시 할 일 (r9 갱신)
+### 다음 세션 즉시 할 일 (r10 갱신)
 
-§4.3 + §4.4 단일 commit 완료 진입 직전. 다음 = **§4.8 lib unit test 진입**.
+**Phase 1 lib 본체 + lib unit test 종결 — server phase 진입 confirm 대기**.
 
-1. **본 todo 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r9 박제 (§4.4 lib 본체 저장/검색/facade + 자가 검열 + --review 13건 반영 + OpenXml transitive 충돌 신규 보류 항목)**
-2. **§4.8 lib unit test 진입** — `Solutions/Tests/Ds2.LightHouse.Tests/` 신설 (xunit + FsCheck). 4 sub-section:
-   - (a) parser / chunker / locator — RefLocator round-trip / Chunker boundary / PdfExtractor / OoxmlExtractor / TextExtractor + detectEncoding
-   - (b) FTS5 / SQLite 운영 — 한국어 trigram 회귀 / FileHash idempotent / IndexerVersion bump / WAL 동시성 / 0-doc / 0-byte
-   - (c) multi-collection lib API — 2~3 collection ATTACH UNION 검색 / fileId cross-collection unique / **ATTACH parameter binding 실측 검증 (r9 review C2 잔여 우려)** / **FTS5 external-content trigger 검증 (r9 자가 검열 M2 잔여 우려)**
-   - (d) cross-PR 회귀 보호 — AttachmentClassifierDriftTests 13 통과 유지
-   Promaker 통합 의존 항목은 r5 SKIP
-3. **§4.4 진입 결정 정합 확인** — facade 형식 (record-of-functions), PrivateAssets=all (3 package), fileId 합성 (`<kbIdx>:<docId>`), BM25 부호 반전 (Score 높을수록 좋음), `:memory:` private cache + unique URI
-4. **commit 은 단계별 별도 confirm** (memory: `feedback_commit_authorization`)
-5. **MEMORY.md `## Project` 등록** (§6.11) — Phase 1 §4.8 통합 후 한 번에
-6. **OpenXml transitive 충돌** (r9 보류 신설) — `Apps/Promaker/Directory.Packages.props` 에 3.5.1 명시 검토. Phase 1 완료 직전 또는 server phase 진입 시 함께.
+1. **본 todo + `todo-lighthouse-kb-server.md` 동시 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r10 박제 (§4.8 lib unit test 99 Fact 통과 + lib 본체 잠재 버그 3건 fix + 자가 검열 6건 반영)**
+2. **(보류 사용자 confirm)** **server phase 진입 결정** — `todo-lighthouse-kb-server.md` Phase S0 → S1 (또는 본 todo 의 r5 통합 vs 별도 todo 유지 재결정). 진입 시점에 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 적용 (§4.1 보류 박스 매트릭스 + `kb-server.md §3.14`).
+3. **(보류 사용자 confirm)** **본 todo 파일 git mv** — `Apps/Promaker/Docs/` → `Solutions/Core/Ds2.LightHouse/doc/` (§6.14). Phase 1 완료 시점 결정 박제 (r7 보류 박제).
+4. **(보류 사용자 confirm)** **OpenXml transitive 충돌** (r9 보류 신설) — `Apps/Promaker/Directory.Packages.props` 에 3.5.1 명시 검토 (MSB3277 2건). Phase 1 완료 직전 또는 server phase 진입 시 함께.
+5. **(완료)** ~~MEMORY.md `## Project` 등록 (§6.11)~~ — r10 박제 시점에 등록 완료 ([Phase 1 LightHouse lib + tests 종결](lighthouse-phase1-lib-tests-done.md)).
+6. **r10 자가 검열 잔여 (Phase 2 보류)** — M3 (swapShadow try-finally 바깥 docstring) / m1/m2/m3/m6/m7/m8 / r9 C1 drift 보호 (ATTACH 강제 실패 + conn 누수 0 검증) / r9 M4 cross-talk 보호 (2 KB instance 병렬 open) — 모두 Phase 2 (server phase 진입 후 또는 별도 보강 PR).
+7. **commit 은 단계별 별도 confirm** (memory: `feedback_commit_authorization`)
+
+### r10 자가 검열 (sub-agent general-purpose) 처리 결과
+**리포트 통계**: Critical 0 / Major 3 / Minor 9
+- M1 (KnowledgeBaseTests 빈 active 셋 — search/list empty 검증 누락) — **적용**: `kb.Search` + `kb.List` empty 검증 추가 (3 line) + IDisposable wrap 제거
+- M2 (Indexer 정상 ingest 경로에도 ClearPool 필요) — **적용**: `use conn` → `try ... finally Close + ClearPool + Dispose` 패턴을 dbExists/!needsRebuild + new DB 두 분기에 추가 (방어적, 미래 회귀 차단)
+- M3 (swapShadow try-finally 바깥) — **보류 (SSOT 명문화)**: 현 SSOT (§3.17 swap 실패 → reraise → caller retry) 가 이미 명시. docstring 보강만 Phase 2.
+- §4.8c 누락 (boundary 9/10 ATTACH) — **적용**: `MaxAttachedDbs = 10` 까지 실 색인된 10 collection 동시 ATTACH 통과 Fact 추가
+- §4.8a 누락 (Chunker 정확 200/500/501 token) — **적용**: 정확 한도 token = 1 chunk / 한도+1 token = ≥2 chunk 2 Fact 추가
+- m4 (OoxmlExtractor segment count brittleness) — **적용**: `Assert.Equal(5, ...)` → `Assert.True(>= 5) + Assert.Contains` 약화
+- m9 (FTS5 AU trigger 검증 누락 — r9 자가 검열 M2 잔여 우려 마지막 분기) — **적용**: Chunks UPDATE → ChunksFts AU trigger 동기 갱신 Fact 추가
+- m1 (IDisposable wrap redundant `()`) — **흡수**: M1 적용 시 함께 제거
+- m2/m3 (Assert.Throws `|> ignore` 이중 / null bytes 검증 약함) — **보류 Phase 2**: 사소
+- m6 (test cleanup swallow log) — **보류 Phase 2**: silent 누수 시 다음 빌드에서 인지
+- m7 (TestInit `bool` return → unit) — **보류 Phase 2**: 의미 미흡하지만 동작 무영향
+- m8 (chat path cross-PR BOM strip 검토) — **보류 cross-PR 후보**: `Ds2.LlmAgent.AttachmentClassifier` 의 chat text 첨부도 동일 leading U+FEFF 위험. `todo-llm-chat-attachment.md` 와 함께 별도 commit 검토.
+- **r9 박제 결정 정합 확인**: r9 C1 drift 보호 (ATTACH 강제 실패 + conn 누수 0) + r9 M4 cross-talk 보호 (2 KB instance 병렬) → **Phase 2 보류** (test 추가 권장이나 본 PR scope 외).
 
 ### r9 외부 --review 처리 결과
 - C1 (KnowledgeBase.openCollections ATTACH 실패 시 conn 누수) — **적용**: try-with reraise + conn.Dispose() (`KnowledgeBase.fs:73-94`)
@@ -711,32 +722,37 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 따라서 `todo-dock-layout.md` 에 Attachments anchor 추가도 불필요 (§6 m9 / §7 step 7 무효화).
 
-**4.8 검증 / 테스트**
+**4.8 검증 / 테스트** *(r10: commit `9736237` 완료 — 99 Fact 100% 통과)*
 
 > ⚠ **대안 B (r5) — 본 §4.8 의 일부 항목 SKIP**. Promaker 통합 (§4.5) 에 의존하는 테스트는 본 Phase 1 에서 수행 불가. **lib 자체 unit test 만** 진행. SKIP 항목은 `~~취소선~~` 표시. server phase Phase S5 에서 in-process 동등 시나리오를 service 경로로 검증.
 
-**진행 항목 (lib 자체 unit test)** — `Solutions/Tests/Ds2.LightHouse.Tests/` 신설 (xunit + FsCheck). 4.2 의 부분 통합 무영향 회귀 보호.
+**진행 항목 (lib 자체 unit test)** — `Solutions/Tests/Ds2.LightHouse.Tests/` (xunit, 11 파일, 99 Fact). 4.2 의 부분 통합 무영향 회귀 보호.
 
 *4.8a (parser / chunker / locator — 결정적 변환)*:
-- [ ] **RefLocator parser round-trip** (§3.13) — 저장형 ("p=14", "slide=5", "sheet=BOM!A1:D40", "p=14#img=2") → parsed → 저장형 동일성. EBNF 규칙 위반 입력 (예: "page=14") 거부
-- [ ] **Chunker boundary 검증** (§3.8) — 정확히 199/200/500/501 token 입력 시 chunk 분할 위치 결정성. 빈 입력 / 단일 token / 매우 긴 단일 단락
-- [ ] **PdfExtractor** — 정상 PDF + bookmark / 손상 PDF (`log + skip`, §3.16 fail-safe 정책) / 암호화 PDF (`log + skip`) / TOC 없는 PDF / 한자 PDF / 빈 페이지 다수
-- [ ] **OoxmlExtractor (docx)** — heading 깊이 5단계 + 빈 paragraph + 표 + 한국어/한자/영문 혼합
-- [ ] **TextExtractor + detectEncoding** — UTF-8 BOM / UTF-8 no-BOM / CP949 / UTF-16 LE/BE / 깨진 byte stream
+- [x] **RefLocator parser round-trip** (§3.13) — 저장형 ("p=14", "slide=5", "sheet=BOM!A1:D40", "p=14#img=2") → parsed → 저장형 동일성. EBNF 규칙 위반 입력 (예: "page=14") 거부 (`RefLocatorTests` 9 Fact)
+- [x] **Chunker boundary 검증** (§3.8) — 정확 한도 (DefaultMaxTokens) token = 1 chunk 유지 / 한도+1 token = ≥2 chunk 분할 결정성. 빈 입력 / 단일 token / 매우 긴 단일 단락 (`ChunkerTests` 9 Fact, r10 자가 검열 §4.8a 정확 boundary 추가)
+- [x] **PdfExtractor fail-safe** — 손상 PDF / 빈 파일 fail-safe 빈 결과 (`PdfExtractorTests` 3 Fact). 정상 PDF fixture 는 PdfPig read-only 라 Phase 2 보류
+- [x] **OoxmlExtractor (docx)** — heading + paragraph + table InnerText + 손상 docx fail-safe (`OoxmlExtractorTests` 3 Fact). 5단계 깊이 / 한자 혼합은 Phase 2
+- [x] **TextExtractor + detectEncoding** — UTF-8 BOM / UTF-8 no-BOM / CP949 / UTF-16 LE/BE / 깨진 byte stream / null / 빈 (`TextEncodingTests` 9 Fact + `TextExtractorTests` 5 Fact)
 
 *4.8b (FTS5 / SQLite 운영)*:
-- [ ] **한국어 trigram 회귀** — query "컨베이어" 가 본문 "컨베이어가/를/는/도" 포함 페이지 hit. "컨베" 2-char 만 hit 여부. 영문/한글 혼합 ("CV01 컨베이어"). 한자 ("運転") boundary
-- [ ] **FileHash idempotent** 재첨부 검증 (같은 파일 두 번 ingest → Documents.Id 1개 유지)
-- [ ] **IndexerVersion bump** 자동 재색인 검증 (Meta.indexer_version 불일치 시 shadow rebuild → atomic rename)
-- [ ] **WAL 동시성** — 색인 중 search 호출 가능 검증
-- [ ] **0-doc collection** — 빈 폴더 ingest → valid index.db + search empty 정상 응답 (MA18)
-- [ ] **0-byte 파일 / extensionless / 미지원 ext** — Extractor 가 log + skip (Documents 테이블에 status='extract_failed' 박제 — 정책 명문화)
+- [x] **한국어 trigram 회귀** — query "컨베이어" 가 본문 "컨베이어가/를" 포함 페이지 hit (`KnowledgeBaseTests`)
+- [x] **FileHash idempotent** 재첨부 검증 (`IndexerTests`)
+- [x] **IndexerVersion bump** 자동 재색인 검증 — drift → shadow rebuild → atomic rename (`IndexerTests` + r10 lib fix F2 `SqliteConnection.ClearPool`)
+- [x] **WAL 동시성** — 색인 중 별 connection 으로 read 가능 (`SqliteStoreTests`)
+- [x] **0-doc collection** — 빈 폴더 ingest → valid index.db + Documents 0 (`IndexerTests`)
+- [x] **0-byte 파일 / 미지원 ext / rejected ext** — Extractor 가 log + skip (`IndexerTests`). extensionless 텍스트 (`README` 등) 와 Documents.extract_status DU 박제는 Phase 2 보류
+- [x] **FTS5 trigger AI/AD/AU** sync (`SqliteStoreTests` 3 Fact, r10 자가 검열 m9 AU 추가 — r9 자가 검열 M2 잔여 우려 해소)
 
 *4.8c (multi-collection lib API)*:
-- [ ] **multi-collection ATTACH** — `Searcher.fs` 의 단위 테스트로 2~3 collection 동시 ATTACH 시 UNION 검색 결과의 fileId cross-collection unique 보장 (fileId 형태는 MA23 의 `<collection-guid>:<documents-id>` 또는 lib 단위에서는 인덱스 기반 OK — server phase 에서 guid 로 합성). **9/10/11 boundary test** (MA17, SQLITE_MAX_ATTACHED 확인 후)
+- [x] **multi-collection ATTACH** — 2 collection 동시 ATTACH 시 UNION 검색 + fileId `<kbIdx>:<docId>` cross-collection unique (`KnowledgeBaseTests`)
+- [x] **ATTACH boundary 10** — `MaxAttachedDbs = 10` 까지 실 색인된 collection 동시 ATTACH 정상 (r10 자가 검열 §4.8c boundary 추가)
+- [x] **ATTACH limit 초과 11** — `InvalidOperationException` (`KnowledgeBaseTests`)
+- [x] **ATTACH parameter binding 실측** (r9 review C2 잔여 우려) — 폴더명에 작은따옴표 포함 시 single-quote escape 정상 hit (`KnowledgeBaseTests`)
+- [x] **빈 active 셋** — `openCollections [||]` 정상 + search/list empty (r10 자가 검열 M1 추가)
 
 *4.8d (cross-PR 회귀 보호)*:
-- [ ] **AttachmentClassifierDriftTests (현행 Fact 13건) 통과 유지** — LlmAgent 측 SSOT 회귀 보호. 본 lib 와 별개 project (`Solutions/Tests/Ds2.LlmAgent.Tests/`) 라 LightHouse.Tests 와 분리. 4.2 의 부분 통합 무영향 보장. 신규 case 추가 시 본 todo 갱신.
+- [x] **AttachmentClassifierDriftTests (Fact 13건) 통과 유지** — 본 PR scope 외 별 project (`Solutions/Tests/Ds2.LlmAgent.Tests/`). r10 commit `9736237` 후 13/13 통과 확인. 4.2 의 부분 통합 무영향 보장
 
 **SKIP 항목 (대안 B / r5 — Promaker 통합 의존, server phase Phase S5 가 흡수)**:
 - ~~LLM 이 `attachment_search` 호출 → citation 포함 응답 생성~~ → server phase S5 의 IntegrationTests
