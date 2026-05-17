@@ -31,7 +31,7 @@
     <PackageReference Include="Dirkster.AvalonDock.Themes.Metro" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <!-- LLM Chat 筌ｂ뫀? (review F3) ??App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
+    <!-- App.xaml.cs OnStartup 의 CodePagesEncodingProvider.RegisterProvider entry-point 책임 (todo §4.2c). transitive 는 Ds2.LightHouse. -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
     <!-- Phase 2 ??API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
     <PackageReference Include="Anthropic" />

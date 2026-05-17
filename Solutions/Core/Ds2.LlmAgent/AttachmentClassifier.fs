@@ -2,8 +2,7 @@ namespace Ds2.LlmAgent
 
 open System
 open System.IO
-open System.Text
-open Ds2.LightHouse  // ImageFormat (Png/Jpeg/Gif/Webp) — todo §4.2a 이전 후 SSOT
+open Ds2.LightHouse  // ImageFormat (Png/Jpeg/Gif/Webp) + TextEncoding.detectEncoding — todo §4.2a/§4.2b 이전 후 SSOT
 
 /// 첨부물 분류 결과 (정책 19 SSOT). UI Drop/Paste handler 는 본 분류만으로 의사결정.
 type Classification =
@@ -110,54 +109,7 @@ module AttachmentClassifier =
                     else RejectUnknown
                 else RejectUnknown
 
-    /// 텍스트 인코딩 추정 결과. ConfidenceHigh = BOM 또는 strict UTF-8 통과.
-    /// 정책 §3.6 — UTF-8 → CP949 → UTF-16 fallback. CP949 는 .NET Core 환경에서
-    /// `Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)` 사전 등록 필요 — Promaker `App.OnStartup` 에서 1회.
-    /// 미등록 환경 (CodePages 미참조) 은 ArgumentException → UTF-16 LE 로 fallback.
-    type TextEncodingDetect = {
-        Encoding: Encoding
-        ConfidenceHigh: bool
-    }
-
-    /// CP949 (Windows-949) lazy probe. CodePagesEncodingProvider 등록 안 된 환경이면 None.
-    /// 명칭 "cp949" 는 .NET 미인식 — code page 번호 949 사용.
-    /// `EncoderExceptionFallback` 인자는 GetEncoding signature 필수 (decode 흐름에 무영향, encoder fallback 정책).
-    let private tryCp949 () : Encoding option =
-        try Some (Encoding.GetEncoding(949, EncoderExceptionFallback(), DecoderExceptionFallback()))
-        with :? System.ArgumentException -> None
-
-    /// bytes 가 strict 모드의 enc 로 디코딩 가능한지. invalid sequence 발견 시 false.
-    let private isStrictDecodable (enc: Encoding) (bytes: byte[]) : bool =
-        try
-            enc.GetCharCount(bytes, 0, bytes.Length) |> ignore
-            true
-        with :? DecoderFallbackException -> false
-
-    /// bytes 의 텍스트 인코딩 추정. BOM 우선, 다음 strict UTF-8, 다음 strict CP949 (한국어 환경), 마지막 UTF-8 replacement.
-    /// review 2차 M3: 모든 strict 시도 실패 시 fallback 을 UTF-16 LE → UTF-8 replacement 로 변경.
-    /// ASCII 부분은 살아남고 비-UTF-8 부분만 U+FFFD 로 대체 → 사용자 측 mojibake 인지 가능 + LLM 입력 손상 최소화.
-    let detectEncoding (bytes: byte[]) : TextEncodingDetect =
-        if isNull bytes then
-            { Encoding = Encoding.UTF8; ConfidenceHigh = false }
-        elif bytes.Length >= 3 && bytes.[0] = 0xEFuy && bytes.[1] = 0xBBuy && bytes.[2] = 0xBFuy then
-            { Encoding = Encoding.UTF8; ConfidenceHigh = true }
-        elif bytes.Length >= 4 && bytes.[0] = 0xFFuy && bytes.[1] = 0xFEuy && bytes.[2] = 0x00uy && bytes.[3] = 0x00uy then
-            { Encoding = Encoding.UTF32; ConfidenceHigh = true }
-        elif bytes.Length >= 2 && bytes.[0] = 0xFFuy && bytes.[1] = 0xFEuy then
-            { Encoding = Encoding.Unicode; ConfidenceHigh = true }
-        elif bytes.Length >= 2 && bytes.[0] = 0xFEuy && bytes.[1] = 0xFFuy then
-            { Encoding = Encoding.BigEndianUnicode; ConfidenceHigh = true }
-        else
-            let utf8Strict = Encoding.GetEncoding("utf-8", EncoderExceptionFallback(), DecoderExceptionFallback())
-            if isStrictDecodable utf8Strict bytes then
-                { Encoding = Encoding.UTF8; ConfidenceHigh = false }
-            else
-                match tryCp949 () with
-                | Some cp949 when isStrictDecodable cp949 bytes ->
-                    // 한국어 Windows 의 .txt / .log 흔한 케이스. confidence low — invalid UTF-8 가 우연히 CP949 로
-                    // 통과한 random binary 도 가능. UI 측 안내 문구로 보강.
-                    { Encoding = cp949; ConfidenceHigh = false }
-                | _ ->
-                    // 모든 strict 시도 실패 → fallback. UTF-8 replacement 로 ASCII 부분만 살리고 나머지는 U+FFFD.
-                    Log.provider.Warn("AttachmentClassifier.detectEncoding — strict UTF-8/CP949 모두 실패, UTF-8 replacement fallback")
-                    { Encoding = Encoding.UTF8; ConfidenceHigh = false }
+    /// 텍스트 인코딩 추정 — todo-lighthouse-kb-index.md §4.2b 에서 본체 `Ds2.LightHouse.TextEncoding` 로 이전.
+    /// 본 함수는 C# 호출처 (`LlmChatViewModel.Attachments.cs:361`) + drift test 호환을 위한 shim.
+    /// 새 동작 추가 / 변경은 `Ds2.LightHouse/TextEncoding.fs` SSOT 에서 수행.
+    let detectEncoding (bytes: byte[]) = TextEncoding.detectEncoding bytes
