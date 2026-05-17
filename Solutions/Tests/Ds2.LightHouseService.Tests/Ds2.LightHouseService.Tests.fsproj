@@ -18,6 +18,7 @@
     <Compile Include="SessionRegistryTests.fs" />
     <Compile Include="SessionAuthTests.fs" />
     <Compile Include="AttachmentToolsTests.fs" />
+    <Compile Include="FileServingTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

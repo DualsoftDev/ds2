@@ -138,6 +138,8 @@ let main argv =
     let registry = app.Services.GetRequiredService<ISessionRegistry>()
     CollectionEndpoints.map app cfg notifier
     SessionEndpoints.map app registry
+    // Phase S4 — file serving (citation 원문 stream, §3.9 / §4.2 Phase S4 / D6).
+    FileServing.map app (Config.expandEnv cfg.StorageRoot)
 
     // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
     //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).

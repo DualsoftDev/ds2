@@ -263,6 +263,21 @@ CREATE TABLE IF NOT EXISTS Meta (
         if isNull r || r = (box DBNull.Value) then None
         else Some (Convert.ToInt64 r)
 
+    /// documents.Id → (OriginalPath, FileHash, SizeBytes). 미존재 시 None.
+    /// Phase S4 file serving 의 SQL layer — `KnowledgeBase.lookupDocument` facade 가 호출.
+    /// review IM-6 정합 — caller (Ds2.LightHouseService) 가 SqliteStore 직접 참조 우회 통합.
+    let findDocumentById (conn: SqliteConnection) (documentId: int64) : (string * string * int64) option =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT OriginalPath, FileHash, SizeBytes FROM Documents WHERE Id = $id"
+        cmd.Parameters.AddWithValue("$id", documentId) |> ignore
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            let path = reader.GetString 0
+            let hash = reader.GetString 1
+            let size = reader.GetInt64 2
+            Some (path, hash, size)
+        else None
+
     /// 한 문서 + 그 종속 행 (OutlineNodes / Chunks / ChunksFts) 전부 삭제. CASCADE / trigger 가 sync.
     ///
     /// 현재 Indexer 의 정상 경로는 idempotent skip — 본 함수 미사용. 향후 매뉴얼 purge (사용자가 collection 안 파일 삭제)

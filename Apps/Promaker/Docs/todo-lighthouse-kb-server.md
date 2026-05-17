@@ -5,6 +5,7 @@
 
 | rev | 일자 | 주요 변경 |
 |---|---|---|
+| s4-r0 | 2026-05-18 | **Phase S4 진입 — file serving (citation 원문 stream, D6) 풀스택 + 자가 검열 4건 즉시 적용 + commit 대기**. (i) 신규 운영 1 (`FileServing.fs` ~150 line — `contentTypeOf` / `findSourceFile` / `getFile` / `map`). (ii) 수정 운영 2 (`Program.fs` — `FileServing.map` 호출 1줄 추가 + 주석 / `fsproj` Compile 1줄). (iii) 신규 lib 2 함수 (`SqliteStore.findDocumentById` — Documents.Id → (OriginalPath, FileHash, SizeBytes) / `KnowledgeBase.lookupDocument` facade — connection lifecycle 자체 관리, review IM-6 정합). (iv) 신규 test 1 (`FileServingTests.fs` ~310 line, **19 Fact**: contentTypeOf 4 + findSourceFile 5 + getFile 10). (v) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 5 / Minor 8 → **즉시 적용 4건**: **(S4-M1)** `findSourceFile` path traversal 가드 강화 — prefix-only `OrdinalIgnoreCase` 가 `source` ↔ `source-evil` 형제 디렉토리 false-positive 가능 → `Path.DirectorySeparatorChar` 명시 부착 (paranoid double check 정합 강화) / **(S4-M2)** `If-None-Match: *` RFC 7232 §3.2 정합 — any-match (unconditional 304) 분기 추가 + Fact 1건 / **(S4-m7)** html/htm 의 `text/html` → `application/octet-stream` 강제 다운로드 (citation source 가 inline render 시 `<script>` XSS 위험 차단) + Fact 1건 / **(S4-m1)** `KnowledgeBase.lookupDocument` 의 `catch ex` 박제에 `ex.GetType().Name` 추가 (SQLite 손상 디버깅 가치). (vi) **commit 후 follow-up 박제 (S4 안)**: **(S4-M3)** 200/304 분기의 ETag 헤더 형식 일관성 + test 강화 — 현재 304 만 명시 박제, 200 은 `Results.File` 의 직렬화에 의존 / **(S4-m3)** `userIdentityOf` 의 "unknown" fallback 이 사실 invariant 위반 (AuthMiddleware 통과시 반드시 박제) → `Log.audit.Warn` anomaly 박제 권장 / **(S4-m4)** fileId SSOT 주석에 todo 항목 번호 추가 (§3.10 / §4.2 Phase S4) / **(S4-m6)** 416 (invalid range) / If-Range Fact 1-2건 추가 — ASP.NET Core 위임 정합 박제 / **(S4-m8)** `Path.GetExtension` null-safe 가드 잉여 정리. (vii) **Phase S5 / Phase 2 이연**: **(S4-M4)** `findSourceFile` recursive walk latency — Phase S5 CollectionPackager 의 source/ layout (flat vs nested) 결정 후 단축 검토 / **(S4-M5)** basename + size 매칭의 충돌 위험 (FileHash 미사용) — Phase S5 의 source/ 평면화로 자동 해소 또는 stream open 시 첫 64KB SHA256 prefix 비교 backlog / **(S4-m2)** audit log 폭증 (viewer click 매번 `Log.audit.Info`) — Phase 2 operational hardening (INFO → DEBUG 분기) / **(S4-m5)** `SqliteConnection.ClearPool` 잦은 호출 — Phase 2 lib pool 캐싱 검토. (viii) **결과 검증**: `dotnet build LightHouseService` 0 경고/0 오류, `dotnet test LightHouseService.Tests` **111/111** (S1 24 + S2 41 + S3 27 + **S4 19**), `dotnet test LightHouse.Tests` **100/100** (회귀 0). 이전 92/92 → 111/111 (+19) + lib 100/100 변경 0. |
 | s0 | 2026-05-17 | 초안 — plan 모드 논의 결과 박제. 코드 변경 0. parent r4 의 결정 일부 회귀 (사본 정책 / MCP 호스트 위치 / search 경로 등). |
 | s0-r | 2026-05-17 | --inspect-diff 5 reviewer 결과 반영 (16건): (1) D-id / 결정 enum 정의표 §0 신설, (2) §3.1 sub-section 분리 (책임/lib 양분/MCP host 2개), (3) §3.2 통신 흐름 다이어그램 보강, (4) §3.7 mTLS 단원 참조 정정 (S4→S7), (5) §3.8 `unindexableIds` 처리 명시, (6) §3.13 ↔ Phase S5 중복 분리 (사유 vs 체크리스트), (7) §3.14 가 parent ↔ service 회귀 SSOT 임을 명시, (8) parent 패턴 정렬을 위해 단원 번호 환원 (이전 §5/§6/§7/§8 → §5/§6/§7), (9) Phase S1~S7 별 DoD 1줄 추가, (10) `LlmConfig.KbCollections` schema migration 정책을 §4.3 미확정에 추가. |
 | s0-r2 | 2026-05-17 | parent r5 의 **대안 B 채택** 반영: (1) §4.1 Phase S0 에 "parent §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 정상 skip 확인" 추가, (2) §4.3 schema migration default 를 "(c) parent §4.5 skip 이라 migration 불필요" 로 갱신, (3) §0 의 선행 의존 항목에 parent r5 결정 12 박제. parent Phase 1 산출물의 60%+ throwaway 문제 해소. |
@@ -18,7 +19,7 @@
 
 ## 0. 현재 상태 / 본 문서 위치
 
-- **모드**: **Phase S3 풀스택 + `--review` 7 reviewer 메타 리뷰 처리 완료 — commit 대기** (s3-r1). 92/92 service test + 100/100 lib test 모두 통과. Phase S2 = commit `8661fb5` (s2-r0 박제) 완료.
+- **모드**: **Phase S4 풀스택 (file serving) + 자가 검열 4건 즉시 적용 완료 — commit 대기** (s4-r0). 111/111 service test + 100/100 lib test 모두 통과. Phase S3 = commit `986f533` (s3-r0/s3-r1 박제) 완료.
 - **선행 의존**: parent 의 Phase 1 **lib 본체 + lib unit test** 완료 (대안 B / parent r5 결정 12, parent r10 박제 `fddfbbf`). parent §4.5 (Promaker 통합) / §4.1 첫 task (`.gitignore`) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 의존 테스트는 **본 phase (Phase S5) 가 흡수**.
 - parent Phase 1 의 schema (§3.12) / RefLocator EBNF (§3.13) / PRAGMA (§3.17) / facade 결정 (§3.18.1) 등은 본 문서에서도 그대로 SSOT.
 - **본 문서가 parent r5 로 통합될지, 별도 todo 로 유지될지**: Phase S5 (Promaker 통합) 진입 시점에 재결정. 현 시점 (S2 진입) 까지는 별도 todo 유지.
@@ -520,14 +521,29 @@ POST /collections
 - [ ] 응답에 unknownIds / unindexableIds 동봉 (active 셋 sync 용, §3.8)
 - [ ] **service restart 시 in-memory SessionRegistry 손실 → client (L3) 자동 회복 test 통과** (CR6)
 
-#### Phase S4 — file serving (citation 원문)
+#### Phase S4 — file serving (citation 원문) *(s4-r0: commit 직전 — 19 Fact 100%)*
 
 **DoD**: `GET /collections/{id}/files/{fileId}` 가 `Collections\<id>\source\` 의 원본 byte stream 반환 (D6). HTTP Range 지원 (대용량 PDF) + ETag = FileHash. Content-Type 추정 OK (PDF / DOCX / XLSX / PPTX / TXT / MD 케이스). 존재하지 않는 fileId 는 404. 권한 (PSK) 없으면 401.
 
-- [ ] `GET /collections/{id}/files/{fileId}` — Collections\<id>\source\ 의 원본 stream (Content-Type 추정 + **HTTP Range 지원** + **ETag = FileHash** for client cache, MA8)
-- [ ] viewer 채택 결정 (MA8) — Phase S5 의 citation 클릭 UX 가 (a) OS default app 호출 vs (b) 내장 viewer. 권장 default: PDF/DOCX/XLSX 는 (a), TXT/MD 는 (b)
-- [ ] (옵션) `GET /collections/{id}/files/{fileId}/thumbnail` — PDF page 0 / Office 파일 첫 슬라이드 등 작은 미리보기
-- [ ] (옵션) `GET /collections/{id}/files/{fileId}/page/{n}.png` — Phase 2 PDF page 렌더
+- [x] `GET /collections/{id}/files/{fileId}` — `FileServing.fs` 신설. `Results.File(physicalPath, contentType, fileDownloadName, lastModified, entityTag, enableRangeProcessing=true)` 위임 → ASP.NET Core 의 PhysicalFileHttpResult 가 Range / Last-Modified / Content-Length 자동 처리. ETag = `"<sha256-hex>"` (FileHash). path 의 `{id}` = collection guid, `{fileId}` = `documents.Id` (Int64). AttachmentTools 의 외부 `<guid>:<docId>` 형식을 client (Promaker, Phase S5) 가 split 후 본 endpoint 호출 (MA23).
+- [x] `KnowledgeBase.lookupDocument` (lib facade 신설) — single collection 의 `documents.Id` → `(OriginalPath, FileHash, SizeBytes)` lookup. read-only connection 자체 lifecycle (`open → query → close → ClearPool → Dispose`, parent r10 F2 정합). review IM-6 정합 — service 의 SqliteStore 직접 참조 회피.
+- [x] `findSourceFile` (source/ 안 basename + size match recursive walk) + path traversal 가드 (separator 명시 부착, review S4-M1)
+- [x] `contentTypeOf` (PDF/DOCX/XLSX/PPTX/TXT/MD/CSV/JSON/XML 매핑, html/htm 강제 octet-stream — review S4-m7 XSS 방어)
+- [x] If-None-Match 처리 — `*` (RFC 7232 §3.2 unconditional 304) + hash substring match → 304 + body 없음. (review S4-M2)
+- [x] viewer 채택 결정 (MA8) → **Phase S5 의 KbManagerDialog citation UX 와 함께 결정** (S5 진입 시 OS default vs 내장 분기). 본 phase 는 server-side stream 만 책임. **§4.3 미확정 표 유지** — "viewer 채택 (citation 클릭)" 행이 그대로 S5 진입 시점 결정으로 남음.
+- [ ] (옵션) `GET /collections/{id}/files/{fileId}/thumbnail` — PDF page 0 / Office 파일 첫 슬라이드 등 작은 미리보기 — **Phase S7 옵션** (DoD 미포함, 본 phase 진입 안 함)
+- [ ] (옵션) `GET /collections/{id}/files/{fileId}/page/{n}.png` — Phase 2 PDF page 렌더 — **Phase S7 옵션**
+
+**s4-r0 잔여 follow-up (Phase S4 안 + Phase S5/Phase 2 이연)**:
+- (S4-M3) 200/304 분기의 ETag 헤더 직렬화 형식 일관성 + test 강화 — S4 안
+- (S4-m3) `userIdentityOf` "unknown" anomaly 박제 — S4 안
+- (S4-m4) fileId SSOT 주석에 todo 항목 번호 — S4 안
+- (S4-m6) 416 / If-Range Fact 추가 — S4 안
+- (S4-m8) `Path.GetExtension` 가드 잉여 정리 — S4 안
+- (S4-M4) `findSourceFile` recursive walk latency — Phase S5 CollectionPackager 의 source/ layout 결정 후
+- (S4-M5) basename + size 충돌 위험 (FileHash 미사용) — Phase S5 와 함께
+- (S4-m2) audit log 폭증 — Phase 2 operational hardening
+- (S4-m5) `ClearPool` 잦은 호출 — Phase 2 lib pool 캐싱
 
 #### Phase S5 — Promaker (client) 통합
 
@@ -688,26 +704,36 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 
 ## 7. 다음 세션 첫 행동
 
-**현 상태 (s3-r1 박제 시점)**: Phase S3 풀스택 작성 완료 + `--review` 7 reviewer 처리 완료. **commit 0건** — 사용자 confirm 대기.
+**현 상태 (s4-r0 박제 시점)**: Phase S4 풀스택 (file serving / citation 원문) 작성 완료 + 자가 검열 4건 즉시 적용 완료. **commit 0건** — 사용자 confirm 대기.
 
-1. **본 문서 정독** — 특히 **s3-r1 rev** (review 처리 결과 + 보류 분류) + **s3-r0 rev** (결정 4건 D-S3-1~4) + §0 D-id 표 (R1/Q1~Q4/D1~D7/T1/N5/N6/L1~L3/P1/P2/D-S3-1~4 모두 SSOT).
+1. **본 문서 정독** — 특히 **s4-r0 rev** (Phase S4 진입 박제 + 자가 검열 적용/보류 분류) + §0 D-id 표 (R1/Q1~Q4/D1~D7/T1/N5/N6/L1~L3/P1/P2/D-S3-1~4 모두 SSOT, 본 phase 에서 신규 D-id 추가 없음).
 2. **현 working tree 변경 점검** — `git status` 로 변경 파일 확인. 미commit 산출물:
-   - 신규 운영 (4): `Solutions/Tools/Ds2.LightHouseService/{SessionRegistry,SessionEndpoints,SessionSweep,AttachmentTools}.fs`
-   - 수정 운영 (8): `Program.fs` (MCP host + DI), `Middleware.fs` (SessionAuth 추가 + IM-11 audit log helper), `Logging.fs` (tokenFingerprint + sanitizeForLog), `CollectionEndpoints.fs` (IC-2 title SSOT + IM-2 singleton), `ZipImport.fs` (IC-1 rollback + IM-6 delegation + IC-2 Cf 거부), `Endpoints.fs` (IM-3 dead code 제거), `Ds2.LightHouseService.fsproj` (4 신규 + MCP 1.2.0), `scripts/install-service.ps1` (IM-10 ZeroFreeBSTR + UTF-8 no-BOM + 127.0.0.1)
-   - 신규 lib (1): `Solutions/Core/Ds2.LightHouse/KnowledgeBase.fs` 확장 (probeIndexerVersion / isIndexed / MaxAttachedDbs)
-   - 신규 test (3): `SessionRegistryTests.fs` / `SessionAuthTests.fs` / `AttachmentToolsTests.fs` (27 Fact)
-   - 수정 test (2): `ZipImportTests.fs` (sanitizeTitle 2 추가) / `TextExtractorTests.fs` (BOM 회귀 1 추가)
-   - 수정 sln/cfg (3): `Solutions/Directory.Packages.props` (MCP 1.2.0), `Ds2.LightHouseService.Tests.fsproj` (3 신규 Compile), `todo-lighthouse-kb-server.md` (s3-r0 + s3-r1 박제)
-3. **commit 진입 결정** — 단일 commit 또는 sub-step 분리:
-   - 옵션 A: 단일 commit "S3 session + MCP search host (27 fact) + review 8건 + s3-r1 박제"
-   - 옵션 B: 두 commit — (a) "S3 풀스택 + s3-r0" + (b) "--review 8건 + s3-r1"
-   - 권장 = **B (review 처리가 phase 본체와 의미적으로 별개)**.
-4. **Phase S4 (file serving) 또는 Phase S5 (Promaker 통합) 진입 confirm**:
-   - Phase S4 = `GET /collections/{id}/files/{fileId}` + HTTP Range + ETag (citation 원문 stream, D6) — 소규모
-   - Phase S5 = Promaker 측 LightHouseClient + KbManagerDialog + LlmConfig.KbCollections + AttachmentIngestService — 대규모 (parent §4.5 흡수, S5 가 IM-7 IntegrationTests 도 흡수)
+   - 신규 운영 (1): `Solutions/Tools/Ds2.LightHouseService/FileServing.fs` (~150 line)
+   - 수정 운영 (2): `Program.fs` (FileServing.map 1줄 + 주석), `Ds2.LightHouseService.fsproj` (Compile 1줄)
+   - 수정 lib (2): `Solutions/Core/Ds2.LightHouse/SqliteStore.fs` (findDocumentById ~14 line), `Solutions/Core/Ds2.LightHouse/KnowledgeBase.fs` (lookupDocument ~17 line — S4-m1 ex type 박제 포함)
+   - 신규 test (1): `Solutions/Tests/Ds2.LightHouseService.Tests/FileServingTests.fs` (~320 line, 19 Fact)
+   - 수정 test cfg (1): `Ds2.LightHouseService.Tests.fsproj` (Compile 1줄)
+   - 수정 doc (1): `todo-lighthouse-kb-server.md` (s4-r0 박제)
+3. **commit 진입 결정** — 단일 commit 권장 (review 처리가 phase 본체와 분리될 만큼 별개 아님, S3 의 r0/r1 분리는 review 가 별 사이클이었지만 S4 는 phase 진입 turn 안에서 검열 4건 즉시 적용 → 의미상 단일 unit):
+   - 권장 = "S4 file serving (citation 원문 stream) + ETag + Range + 19 fact + 자가 검열 4건 적용 + s4-r0 박제"
+4. **Phase S5 (Promaker 통합) 진입 confirm** — 본 phase 종결 후 자연 다음 단계.
+   - Phase S5 = Promaker 측 LightHouseClient + KbManagerDialog + LlmConfig.KbCollections + AttachmentIngestService — 대규모 (parent §4.5 흡수, S5 가 IM-7 IntegrationTests 도 흡수, S4-M4/S4-M5 의 source/ layout 결정도 흡수). 분할 진입 검토: S5a (LlmConfig + LightHouseClient + IntegrationTests scaffold) / S5b (KbManagerDialog + Settings UI) / S5c (ChatViewModel + 5.knowledge-base.md + App exit hook).
 5. **commit 은 단계별 별도 confirm** (memory: `feedback_commit_authorization`).
 
-**s3-r1 review 잔여 우려 (Phase 2 / S5 follow-up)**:
+**s4-r0 review 잔여 우려 (Phase S4 안 / Phase S5 / Phase 2 이연)** — 본 phase 안 follow-up:
+- (S4-M3) 200/304 분기 ETag 헤더 형식 일관성 + test 강화 — S4 안
+- (S4-m3) userIdentityOf "unknown" anomaly 박제 — S4 안
+- (S4-m4) fileId SSOT 주석 항목 번호 — S4 안
+- (S4-m6) 416 / If-Range Fact 추가 — S4 안
+- (S4-m8) Path.GetExtension 가드 잉여 정리 — S4 안
+
+**s4-r0 review 잔여 (Phase S5 / Phase 2 이연)**:
+- (S4-M4) `findSourceFile` recursive walk latency — Phase S5 의 source/ layout 결정 후
+- (S4-M5) basename + size 매칭 충돌 위험 — Phase S5 의 평면화 정책으로 자동 해소 또는 stream open prefix hash
+- (S4-m2) audit log 폭증 (file get 매번 INFO) — Phase 2 operational hardening
+- (S4-m5) ClearPool 잦은 호출 — Phase 2 lib pool 캐싱
+
+**s3-r1 review 잔여 우려 (Phase 2 / S5 follow-up)** — 본 phase 이전 박제:
 - IM-1 endpoint try/with 5-way 헬퍼 압축 (Phase 2)
 - IM-4 MetaJson.load schemaVersion 주석 정정 (backlog)
 - IM-5 PSK byte cache + Array.Clear (별 PR, 복잡도)

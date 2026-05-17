@@ -68,6 +68,29 @@ module KnowledgeBase =
                 Log.lighthouse.Warn(sprintf "probeIndexerVersion: %s 열기 실패 — %s" dbPath ex.Message)
                 None
 
+    /// 단일 collection 의 documents.Id → (OriginalPath, FileHash, SizeBytes). Phase S4 file serving 용.
+    /// `<collection-root>/.lighthouse-kb/index.db` 미존재 / open 실패 / row 미존재 시 None.
+    ///
+    /// read-only connection 자체 lifecycle 관리 (open → query → close → ClearPool → Dispose).
+    /// `probeIndexerVersion` 와 동일 패턴 — review IM-6 정합 (caller 가 SqliteStore 직접 참조 회피).
+    let lookupDocument (collectionRoot: string) (documentId: int64) : (string * string * int64) option =
+        if not (isIndexed collectionRoot) then None
+        else
+            let dbPath = SqliteStore.dbPath collectionRoot
+            try
+                let conn = SqliteStore.openConnection dbPath true
+                try
+                    SqliteStore.findDocumentById conn documentId
+                finally
+                    conn.Close()
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
+                    conn.Dispose()
+            with ex ->
+                // review S4-m1: ex.Message 만 박제 시 SQLite 손상 디버깅 어려움 — type name 추가.
+                Log.lighthouse.Warn(sprintf "lookupDocument: %s 열기 실패 — %s: %s"
+                    dbPath (ex.GetType().Name) ex.Message)
+                None
+
     /// ATTACH URI 변환 — Windows backslash → forward slash + `?mode=ro` 강제.
     /// read-only ATTACH 라 *색인 중에도* 검색 가능 (WAL + ro mode).
     let private toAttachUri (path: string) : string =

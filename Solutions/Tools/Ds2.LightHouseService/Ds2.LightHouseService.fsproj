@@ -25,6 +25,7 @@
     <Compile Include="Endpoints.fs" />
     <Compile Include="CollectionEndpoints.fs" />
     <Compile Include="SessionEndpoints.fs" />
+    <Compile Include="FileServing.fs" />
     <Compile Include="AttachmentTools.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
