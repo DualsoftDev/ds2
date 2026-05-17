@@ -20,6 +20,11 @@
     <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- review S5a-m4: Promaker.Tests 가 LightHouseClient 의 internal ctor 호출 (mock HttpClient 주입).
+         reflection 우회 대신 명시 InternalsVisibleTo — 향후 internal API 변경 시 compile-time 검출. -->
+    <InternalsVisibleTo Include="Promaker.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />

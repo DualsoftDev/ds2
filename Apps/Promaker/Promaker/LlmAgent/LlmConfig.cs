@@ -31,6 +31,11 @@ public sealed class LlmConfig
     private static readonly ILog Log = LogManager.GetLogger(typeof(LlmConfig));
     private static readonly object _saveLock = new();
     private static readonly byte[] DpapiEntropy = Encoding.UTF8.GetBytes("Promaker.LlmApi.v1");
+    /// <summary>
+    /// LightHouse Service PSK 의 DPAPI entropy. LLM provider key 의 <see cref="DpapiEntropy"/> 와 분리 —
+    /// 의미가 다르고 (LAN service 인증 vs 외부 LLM provider) leak 시 영향 범위도 다름. 별 entropy 로 영구 격리.
+    /// </summary>
+    private static readonly byte[] LightHousePskEntropy = Encoding.UTF8.GetBytes("Promaker.LightHouseService.v1");
 
     public static string ConfigPath => SettingsPaths.Of("llm-config.json");
 
@@ -85,6 +90,23 @@ public sealed class LlmConfig
 
     [JsonPropertyName("ollamaBaseUrl")]
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+
+    // ─── LightHouse Service (todo-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5) ────────────────
+
+    /// <summary>
+    /// 등록된 KB collection 의 active 셋 (T1 flat). Promaker startup 시 1회 GET /collections 로 server registry sync.
+    /// chat panel open 시 Active=true 인 entry 의 CollectionId 만 POST /sessions 의 collectionIds 로 전달.
+    /// parent r5 SKIP 으로 본 schema 가 prod 최초 도입 (migration 부담 0).
+    /// </summary>
+    [JsonPropertyName("kbCollections")]
+    public List<KbCollectionEntry> KbCollections { get; set; } = new();
+
+    /// <summary>
+    /// LightHouse Service 엔드포인트 + 인증 정보 (DPAPI 암호화 PSK). null = service 미설정.
+    /// ApplicationSettingsDialog "LightHouse Service" section 에서 사용자가 BaseUrl + PSK 입력 시 즉시 채워짐.
+    /// </summary>
+    [JsonPropertyName("lightHouseService")]
+    public LightHouseServiceConfig? LightHouseService { get; set; }
 
     // ─── I/O ─────────────────────────────────────────────────────────────────
 
@@ -312,6 +334,84 @@ public sealed class LlmConfig
     }
 
     public bool HasApiKey(string providerKey) => !string.IsNullOrEmpty(GetApiKey(providerKey));
+
+    // ─── LightHouse PSK helpers (DPAPI / CurrentUser) ─────────────────────────────
+
+    /// <summary>
+    /// `LightHouseService.ApiKeyEncrypted` 를 DPAPI 로 복호화한 평문 PSK 반환. 미설정 / 복호화 실패 시 null.
+    /// 호출자 (LightHouseClient) 는 매 요청마다 평문 PSK 를 헤더에 박지만, 메모리 잔존 최소화를 위해
+    /// 변수 lifetime 을 짧게 유지할 것 (review S4-r1 IM-5 backlog).
+    /// </summary>
+    public string? GetLightHousePsk()
+    {
+        if (LightHouseService is null || string.IsNullOrEmpty(LightHouseService.ApiKeyEncrypted))
+            return null;
+        try
+        {
+            var encrypted = Convert.FromBase64String(LightHouseService.ApiKeyEncrypted);
+            var plain = ProtectedData.Unprotect(encrypted, LightHousePskEntropy, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(plain);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"LlmConfig.GetLightHousePsk 복호화 실패: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 평문 PSK 를 DPAPI 로 암호화 후 `LightHouseService.ApiKeyEncrypted` 박제. null / 빈 입력 시 박제 제거.
+    /// LightHouseService 가 null 이면 신규 생성.
+    /// </summary>
+    public void SetLightHousePsk(string? psk)
+    {
+        LightHouseService ??= new LightHouseServiceConfig();
+        if (string.IsNullOrEmpty(psk))
+        {
+            LightHouseService.ApiKeyEncrypted = "";
+            return;
+        }
+        var plain = Encoding.UTF8.GetBytes(psk);
+        var encrypted = ProtectedData.Protect(plain, LightHousePskEntropy, DataProtectionScope.CurrentUser);
+        LightHouseService.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+    }
+
+    public bool HasLightHousePsk() => !string.IsNullOrEmpty(GetLightHousePsk());
+}
+
+/// <summary>
+/// LlmConfig.KbCollections 의 entry (todo-lighthouse-kb-server.md §3.4).
+///
+/// CollectionId = server 가 첫 POST /collections 응답에 발급한 guid v4 (D3).
+/// DisplayName = 사용자 표시 이름 (사용자가 KbManagerDialog 에 입력. server 의 displayName 과 정합 유지).
+/// Active = chat panel open 시 ATTACH 대상 여부. T1 flat 이라 모든 사용자가 토글 가능.
+/// </summary>
+public sealed class KbCollectionEntry
+{
+    [JsonPropertyName("collectionId")]
+    public string CollectionId { get; set; } = "";
+
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = "";
+
+    [JsonPropertyName("active")]
+    public bool Active { get; set; }
+}
+
+/// <summary>
+/// LightHouse Service 연결 정보 (todo-lighthouse-kb-server.md §3.4 / §3.7).
+///
+/// BaseUrl = HTTPS-only (plain HTTP 거부, §3.7). 사내 service URL (e.g. https://service.company.local:8443).
+/// ApiKeyEncrypted = DPAPI(CurrentUser) base64 of PSK. 평문 ApiKey 키 사용 금지 (CR4).
+/// LightHouseClient 가 매 요청 시 GetLightHousePsk() 로 복호화 + Authorization: Bearer 동봉.
+/// </summary>
+public sealed class LightHouseServiceConfig
+{
+    [JsonPropertyName("baseUrl")]
+    public string BaseUrl { get; set; } = "";
+
+    [JsonPropertyName("apiKeyEncrypted")]
+    public string ApiKeyEncrypted { get; set; } = "";
 }
 
 /// <summary>

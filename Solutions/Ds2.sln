@@ -93,6 +93,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouseService", "To
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouseService.Tests", "Tests\Ds2.LightHouseService.Tests\Ds2.LightHouseService.Tests.fsproj", "{B04FFEF4-B7D5-4E82-B907-019FAE369634}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouseService.IntegrationTests", "Tests\Ds2.LightHouseService.IntegrationTests\Ds2.LightHouseService.IntegrationTests.fsproj", "{6491B646-99DC-4DBB-A350-40D69DF6666E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -487,6 +489,18 @@ Global
 		{B04FFEF4-B7D5-4E82-B907-019FAE369634}.Release|x64.Build.0 = Release|Any CPU
 		{B04FFEF4-B7D5-4E82-B907-019FAE369634}.Release|x86.ActiveCfg = Release|Any CPU
 		{B04FFEF4-B7D5-4E82-B907-019FAE369634}.Release|x86.Build.0 = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|x64.Build.0 = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Debug|x86.Build.0 = Debug|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|x64.ActiveCfg = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|x64.Build.0 = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|x86.ActiveCfg = Release|Any CPU
+		{6491B646-99DC-4DBB-A350-40D69DF6666E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -525,6 +539,7 @@ Global
 		{77CB9F52-F1D0-403F-994B-CAF87CB48371} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{80A035DC-67AB-4500-B663-C5FAAF2F1219} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{B04FFEF4-B7D5-4E82-B907-019FAE369634} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{6491B646-99DC-4DBB-A350-40D69DF6666E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A49302DB-99F4-474D-AE19-63536BB9F072}

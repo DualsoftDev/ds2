@@ -5,6 +5,7 @@
 
 | rev | 일자 | 주요 변경 |
 |---|---|---|
+| s5a-r0 | 2026-05-18 | **Phase S5a 진입 — LlmConfig + LightHouseClient + IntegrationTests scaffold + 자가 검열 4건 즉시 적용 + commit 대기**. (i) **수정 운영 2** — `LlmConfig.cs` 에 `KbCollections` (List of `{CollectionId(guid), DisplayName, Active}`) + `LightHouseService` (`{BaseUrl, ApiKeyEncrypted DPAPI(CurrentUser)}`) schema 신설 + `LightHousePskEntropy = "Promaker.LightHouseService.v1"` (LLM API key entropy 와 분리) + `GetLightHousePsk` / `SetLightHousePsk` / `HasLightHousePsk` helper + 두 신규 DTO type (`KbCollectionEntry`, `LightHouseServiceConfig`). `Promaker.csproj` 에 `InternalsVisibleTo("Promaker.Tests")` 추가 (review S5a-m4). (ii) **신규 운영 1** — `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` (~330 line) — HTTPS-only HttpClient wrapper, `Authorization: Bearer <DPAPI 복호화 PSK>` + `X-User-Identity` 자동 동봉, 5 endpoint (`UploadCollectionAsync` / `ListCollectionsAsync` / `DeleteCollectionAsync` / `CreateSessionAsync` / `DeleteSessionAsync`) + `RecoverSessionAsync` L3 자동 회복 hook + 6 DTO + 2 Exception (`LightHouseAuthException` / `LightHouseProtocolException`). (iii) **신규 test project (scaffold)** — `Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` (fsproj + Program.fs + `ScaffoldSentinelTests.fs` 1 Fact). 2 sln (Promaker.sln / Ds2.sln) 등록. 본격 e2e (WebApplicationFactory round-trip) 는 Phase S5c 진입 시 추가. (iv) **신규 test 1** — `Solutions/Tests/Promaker.Tests/LightHouseClientTests.cs` (~310 line, **15 Fact**: HTTPS-only 3 + 헤더/multipart 2 + List/Delete 2 + Session 2 + 4xx/5xx 4 + L3 hook 2 + 결함 1 + StatusCode 노출 1). (v) **수정 test 1** — `LlmConfigTests.cs` 에 **7 Fact 추가** (KbCollections round-trip / LightHouseService round-trip / default state / DPAPI roundtrip / null clear / entropy 분리). (vi) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 4 / Minor 10 → **즉시 적용 4건**: **(S5a-M2)** `LightHouseProtocolException` 에 `HttpStatusCode? StatusCode` property 추가 — caller (KbManagerDialog Phase S5b) 가 415 (IndexerVersion gate) / 409 (Conflict) / 5xx 별 사용자 안내 분기 가능 + Fact 1건 (415 UploadCollectionAsync) / **(S5a-m4)** `[InternalsVisibleTo("Promaker.Tests")]` 박제 + test 의 reflection ctor 호출 제거 → internal API 변경 시 compile-time 검출 / **(S5a-M1 docstring)** `UploadCollectionAsync` 의 `zipStream` ownership 명시 — `MultipartFormDataContent.Dispose` 가 child stream 까지 dispose → caller 의 `using FileStream` double-dispose 위험 사용자 안내 / **(S5a-M3 docstring)** `RecoverSessionAsync` 의 caller orchestration SSOT (§3.8 L3 "1회 retry") 명시 — 무한 retry storm 방지. (vii) **Phase S5b/S5c 이연 (s5a-r0 follow-up)**: **(S5a-M1 test)** `MemoryStream` 양도 후 caller 의 `ObjectDisposedException` 시험 1건 — S5b 진입 시 / **(S5a-M4)** `CollectionInfo` 의 server `CollectionEntry` 대비 누락 필드 (CreatedAt / ImportedBy / TotalSourceBytes / StorageRelPath / ImportedAt) → S5b KbManagerDialog 진입 시 표시 필드 SSOT 점검 + forward-compat Fact 1건 / **(S5a-m1)** HTTPS scheme 비교 paranoid double-check 옵션 — backlog / **(S5a-m2)** PSK byte buffer + Array.Clear (S3 IM-5 backlog 와 함께) — Phase S6 보안 hardening / **(S5a-m3)** 메서드별 HttpRequestMessage Timeout override — backlog / **(S5a-m6)** 빈 active set L3 회복 의미 검토 — S5c 진입 시 / **(S5a-m8)** IntegrationTests 의 round-trip 진입 — Phase S5c / **(S5a-m9)** JsonException → LightHouseProtocolException wrap — backlog / **(S5a-m10)** SetApiKey / SetLightHousePsk 의 DPAPI helper refactor — Phase S5b 또는 S6 / **(잔여 우려)** DPAPI entropy v2 마이그레이션 패턴 — backlog (todo §3.7). (viii) **§4.3 미확정 표 결정 박제**: "**LightHouseService config 의 JSON property attribute 적용 = camelCase**" (기존 LlmConfig 의 `[JsonPropertyName("camelCase")]` 명시 정합). "**LlmConfig.KbCollections schema migration = 불필요**" (parent r5 SKIP, 본 phase 가 prod 최초 도입). (ix) **결과 검증**: `dotnet build Promaker` 0 오류 / 5 경고 (기존 transitive 의존 충돌, 본 phase 무관), `Promaker.Tests` **180/180** (+22 vs S4 직후 158), `Ds2.LightHouseService.IntegrationTests` **1/1** (scaffold sentinel), `Ds2.LightHouseService.Tests` **111/111** (회귀 0), `Ds2.LightHouse.Tests` **100/100** (회귀 0). |
 | s4-r0 | 2026-05-18 | **Phase S4 진입 — file serving (citation 원문 stream, D6) 풀스택 + 자가 검열 4건 즉시 적용 + commit 대기**. (i) 신규 운영 1 (`FileServing.fs` ~150 line — `contentTypeOf` / `findSourceFile` / `getFile` / `map`). (ii) 수정 운영 2 (`Program.fs` — `FileServing.map` 호출 1줄 추가 + 주석 / `fsproj` Compile 1줄). (iii) 신규 lib 2 함수 (`SqliteStore.findDocumentById` — Documents.Id → (OriginalPath, FileHash, SizeBytes) / `KnowledgeBase.lookupDocument` facade — connection lifecycle 자체 관리, review IM-6 정합). (iv) 신규 test 1 (`FileServingTests.fs` ~310 line, **19 Fact**: contentTypeOf 4 + findSourceFile 5 + getFile 10). (v) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 5 / Minor 8 → **즉시 적용 4건**: **(S4-M1)** `findSourceFile` path traversal 가드 강화 — prefix-only `OrdinalIgnoreCase` 가 `source` ↔ `source-evil` 형제 디렉토리 false-positive 가능 → `Path.DirectorySeparatorChar` 명시 부착 (paranoid double check 정합 강화) / **(S4-M2)** `If-None-Match: *` RFC 7232 §3.2 정합 — any-match (unconditional 304) 분기 추가 + Fact 1건 / **(S4-m7)** html/htm 의 `text/html` → `application/octet-stream` 강제 다운로드 (citation source 가 inline render 시 `<script>` XSS 위험 차단) + Fact 1건 / **(S4-m1)** `KnowledgeBase.lookupDocument` 의 `catch ex` 박제에 `ex.GetType().Name` 추가 (SQLite 손상 디버깅 가치). (vi) **commit 후 follow-up 박제 (S4 안)**: **(S4-M3)** 200/304 분기의 ETag 헤더 형식 일관성 + test 강화 — 현재 304 만 명시 박제, 200 은 `Results.File` 의 직렬화에 의존 / **(S4-m3)** `userIdentityOf` 의 "unknown" fallback 이 사실 invariant 위반 (AuthMiddleware 통과시 반드시 박제) → `Log.audit.Warn` anomaly 박제 권장 / **(S4-m4)** fileId SSOT 주석에 todo 항목 번호 추가 (§3.10 / §4.2 Phase S4) / **(S4-m6)** 416 (invalid range) / If-Range Fact 1-2건 추가 — ASP.NET Core 위임 정합 박제 / **(S4-m8)** `Path.GetExtension` null-safe 가드 잉여 정리. (vii) **Phase S5 / Phase 2 이연**: **(S4-M4)** `findSourceFile` recursive walk latency — Phase S5 CollectionPackager 의 source/ layout (flat vs nested) 결정 후 단축 검토 / **(S4-M5)** basename + size 매칭의 충돌 위험 (FileHash 미사용) — Phase S5 의 source/ 평면화로 자동 해소 또는 stream open 시 첫 64KB SHA256 prefix 비교 backlog / **(S4-m2)** audit log 폭증 (viewer click 매번 `Log.audit.Info`) — Phase 2 operational hardening (INFO → DEBUG 분기) / **(S4-m5)** `SqliteConnection.ClearPool` 잦은 호출 — Phase 2 lib pool 캐싱 검토. (viii) **결과 검증**: `dotnet build LightHouseService` 0 경고/0 오류, `dotnet test LightHouseService.Tests` **111/111** (S1 24 + S2 41 + S3 27 + **S4 19**), `dotnet test LightHouse.Tests` **100/100** (회귀 0). 이전 92/92 → 111/111 (+19) + lib 100/100 변경 0. |
 | s0 | 2026-05-17 | 초안 — plan 모드 논의 결과 박제. 코드 변경 0. parent r4 의 결정 일부 회귀 (사본 정책 / MCP 호스트 위치 / search 경로 등). |
 | s0-r | 2026-05-17 | --inspect-diff 5 reviewer 결과 반영 (16건): (1) D-id / 결정 enum 정의표 §0 신설, (2) §3.1 sub-section 분리 (책임/lib 양분/MCP host 2개), (3) §3.2 통신 흐름 다이어그램 보강, (4) §3.7 mTLS 단원 참조 정정 (S4→S7), (5) §3.8 `unindexableIds` 처리 명시, (6) §3.13 ↔ Phase S5 중복 분리 (사유 vs 체크리스트), (7) §3.14 가 parent ↔ service 회귀 SSOT 임을 명시, (8) parent 패턴 정렬을 위해 단원 번호 환원 (이전 §5/§6/§7/§8 → §5/§6/§7), (9) Phase S1~S7 별 DoD 1줄 추가, (10) `LlmConfig.KbCollections` schema migration 정책을 §4.3 미확정에 추가. |
@@ -19,7 +20,7 @@
 
 ## 0. 현재 상태 / 본 문서 위치
 
-- **모드**: **Phase S4 풀스택 (file serving) + 자가 검열 4건 즉시 적용 완료 — commit 대기** (s4-r0). 111/111 service test + 100/100 lib test 모두 통과. Phase S3 = commit `986f533` (s3-r0/s3-r1 박제) 완료.
+- **모드**: **Phase S5a 진입 (Promaker 통합 1차 — LlmConfig + LightHouseClient + IntegrationTests scaffold) + 자가 검열 4건 즉시 적용 완료 — commit 대기** (s5a-r0). 180/180 Promaker.Tests + 1/1 IntegrationTests scaffold + 111/111 service test + 100/100 lib test 모두 통과. Phase S4 = commit `273007c` (s4-r0 박제) 완료.
 - **선행 의존**: parent 의 Phase 1 **lib 본체 + lib unit test** 완료 (대안 B / parent r5 결정 12, parent r10 박제 `fddfbbf`). parent §4.5 (Promaker 통합) / §4.1 첫 task (`.gitignore`) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 의존 테스트는 **본 phase (Phase S5) 가 흡수**.
 - parent Phase 1 의 schema (§3.12) / RefLocator EBNF (§3.13) / PRAGMA (§3.17) / facade 결정 (§3.18.1) 등은 본 문서에서도 그대로 SSOT.
 - **본 문서가 parent r5 로 통합될지, 별도 todo 로 유지될지**: Phase S5 (Promaker 통합) 진입 시점에 재결정. 현 시점 (S2 진입) 까지는 별도 todo 유지.
@@ -545,17 +546,19 @@ POST /collections
 - (S4-m2) audit log 폭증 — Phase 2 operational hardening
 - (S4-m5) `ClearPool` 잦은 호출 — Phase 2 lib pool 캐싱
 
-#### Phase S5 — Promaker (client) 통합
+#### Phase S5 — Promaker (client) 통합 *(S5a: s5a-r0 — commit 직전, S5b/S5c 미진입)*
 
-**DoD**: Promaker 가 service 에 PSK (DPAPI 저장) 로 인증 → KbManagerDialog 에서 폴더 추가 (consent dialog) → 색인 → upload (cancel button 동작) → chat 시작 시 session 발급 → LLM 이 attachment_search 호출 → citation 포함 응답 생성. service kill → 재시작 → 진행 chat 의 다음 호출 자동 회복 (L3). KbManagerDialog 에서 active 토글 → 다음 chat 부터 반영 (L1) 확인. **`Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` 의 client↔server round-trip suite 통과** (MA22). `LlmConfig.cs` round-trip 시 기존 필드와 직렬화 관례 동일 (MA4). `ApplicationSettingsDialog` 의 "연결 테스트" 버튼 동작 확인.
+**S5a DoD** (본 sub-phase): LlmConfig 의 `KbCollections` + `LightHouseService` 신설 + DPAPI roundtrip + `LightHouseClient` 의 protocol contract (HTTPS-only / Bearer / X-User-Identity / 5 endpoint + L3 hook + 4xx/5xx 분기) 통과 + IntegrationTests scaffold 진입.
 
-- [ ] `LlmConfig.cs` 확장 — **본 phase 가 KbCollections 최초 도입처** (parent r5 SKIP 으로 prod 미존재):
+**S5 전체 DoD**: Promaker 가 service 에 PSK (DPAPI 저장) 로 인증 → KbManagerDialog 에서 폴더 추가 (consent dialog) → 색인 → upload (cancel button 동작) → chat 시작 시 session 발급 → LLM 이 attachment_search 호출 → citation 포함 응답 생성. service kill → 재시작 → 진행 chat 의 다음 호출 자동 회복 (L3). KbManagerDialog 에서 active 토글 → 다음 chat 부터 반영 (L1) 확인. **`Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` 의 client↔server round-trip suite 통과** (MA22). `LlmConfig.cs` round-trip 시 기존 필드와 직렬화 관례 동일 (MA4). `ApplicationSettingsDialog` 의 "연결 테스트" 버튼 동작 확인.
+
+- [x] **(S5a)** `LlmConfig.cs` 확장 — **본 phase 가 KbCollections 최초 도입처** (parent r5 SKIP 으로 prod 미존재):
   - `KbCollections` schema 신설: `List<KbCollectionEntry>` = `{CollectionId(guid), DisplayName, Active}` (§3.4)
-  - `LightHouseService` 신설: `{BaseUrl, ApiKeyEncrypted(DPAPI base64, CurrentUser scope)}` (§3.4, §3.7)
-  - atomic save / corrupt fallback 패턴 유지 (parent r4 `LlmConfig.Save` 동형)
+  - `LightHouseService` 신설: `{BaseUrl, ApiKeyEncrypted(DPAPI base64, CurrentUser scope)}` (§3.4, §3.7) — **entropy 분리** `"Promaker.LightHouseService.v1"` (LLM API key `"Promaker.LlmApi.v1"` 와 격리, leak surface 분리)
+  - atomic save / corrupt fallback 패턴 유지 (기존 LlmConfig.Save 동형)
   - schema migration = **불필요** (§4.3 default c — parent r5 SKIP 으로 `{path, active}` 형태 데이터 prod 미존재)
-  - 직렬화 관례 = grep 으로 기존 `LlmConfig` 필드 (PascalCase vs camelCase) 확인 후 정합 ⚠ DoD 에 round-trip 검증 포함
-- [ ] `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` 신설 — HTTP client wrapper
+  - 직렬화 관례 = **camelCase** (`[JsonPropertyName("camelCase")]` 명시, 기존 LlmConfig 정합) — §4.3 미확정 표 결정 박제
+- [x] **(S5a)** `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` 신설 — HTTP client wrapper
   - `UploadCollectionAsync(title, zipStream, CancellationToken)` → `{collectionId(guid)}` (server 가 발급, §3.4 D3)
   - `ListCollectionsAsync()` → CollectionInfo[] (Promaker startup 호출 — Q1)
   - `DeleteCollectionAsync(id)`
@@ -621,7 +624,7 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `lighthouse-cli` 의 Phase 진입 시점 | §4.2 Phase S6 | **Phase S5 완료 후 별도** (단순화) | S5 진입 | — |
 | CLI 인증 모델 (별도 PSK vs GUI 와 동일) | §4.2 Phase S6, mn9 | 별도 PSK 또는 mTLS client cert 권장 (leak 부담 격리) | S6 진입 | — |
 | `LlmConfig.KbCollections` schema migration — parent r4 의 `{path,active}` 데이터 처리 | §3.4 / Phase S5 | **(c) 마이그레이션 불필요** (parent r5 SKIP 으로 prod 미존재). fallback: (a) 자동 폐기 + chip 안내 | S5 진입 직전 (Phase S0 의 잔재 점검 항목과 함께 확인) | — |
-| `LightHouseService` config 의 JSON property attribute 적용 (PascalCase 직렬화 vs camelCase) — 기존 `LlmConfig.cs` 와 정합 | §3.4 / Phase S5 | grep 으로 기존 LlmConfig 필드 직렬화 관례 확인 후 정합. Phase S5 DoD 에 round-trip 검증 (MA4) | S5 진입 직전 (sln 갱신 commit 직전) | — |
+| ~~`LightHouseService` config 의 JSON property attribute 적용 (PascalCase 직렬화 vs camelCase)~~ | §3.4 / Phase S5 | ~~grep 으로 기존 LlmConfig 필드 직렬화 관례 확인 후 정합~~ | **s5a-r0 결정**: camelCase — 기존 LlmConfig 의 모든 필드가 `[JsonPropertyName("camelCase")]` 명시 정합. `KbCollectionEntry` / `LightHouseServiceConfig` 두 신 type 동일 패턴. Phase S5a DoD round-trip Fact 7건 통과 (MA4) | — |
 | ~~⚠ P2: `ModelContextProtocol.AspNetCore` 버전~~ | §4.2 Phase S3 | ~~parent 결정 그대로 align~~ | **s3-r0 결정 (D-S3-2)**: 1.2.0 (Promaker 와 동일, parent r7 박제 정합). 1.3.0 업그레이드는 양쪽 동시 진입 별도 PR 보류 | parent §4.1 |
 | `lighthouse` endpoint version prefix (`/v1/collections` 등) | §3.9, mn13 | 도입 권장 (서비스 v2 시 dual host 여지) | S2 진입 | — |
 | viewer 채택 (citation 클릭) — OS default app vs 내장 | §4.2 Phase S4/S5, MA8 | PDF/DOCX/XLSX = OS default, TXT/MD = 내장 | S5 진입 | — |
@@ -704,23 +707,39 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 
 ## 7. 다음 세션 첫 행동
 
-**현 상태 (s4-r0 박제 시점)**: Phase S4 풀스택 (file serving / citation 원문) 작성 완료 + 자가 검열 4건 즉시 적용 완료. **commit 0건** — 사용자 confirm 대기.
+**현 상태 (s5a-r0 박제 시점)**: Phase S5a (LlmConfig + LightHouseClient + IntegrationTests scaffold) 작성 완료 + 자가 검열 4건 즉시 적용 완료. **commit 0건** — 사용자 confirm 대기. Phase S5 = sub-phase 분할 진입 (S5a 본 commit / S5b KbManagerDialog + Settings UI / S5c ChatViewModel + IntegrationTests round-trip + App exit hook).
 
-1. **본 문서 정독** — 특히 **s4-r0 rev** (Phase S4 진입 박제 + 자가 검열 적용/보류 분류) + §0 D-id 표 (R1/Q1~Q4/D1~D7/T1/N5/N6/L1~L3/P1/P2/D-S3-1~4 모두 SSOT, 본 phase 에서 신규 D-id 추가 없음).
+1. **본 문서 정독** — 특히 **s5a-r0 rev** (Phase S5a 진입 박제 + 자가 검열 적용/보류 분류) + **s4-r0 rev** (직전 phase) + §0 D-id 표 (R1/Q1~Q4/D1~D7/T1/N5/N6/L1~L3/P1/P2/D-S3-1~4 모두 SSOT, 본 phase 에서 신규 D-id 추가 없음).
 2. **현 working tree 변경 점검** — `git status` 로 변경 파일 확인. 미commit 산출물:
-   - 신규 운영 (1): `Solutions/Tools/Ds2.LightHouseService/FileServing.fs` (~150 line)
-   - 수정 운영 (2): `Program.fs` (FileServing.map 1줄 + 주석), `Ds2.LightHouseService.fsproj` (Compile 1줄)
-   - 수정 lib (2): `Solutions/Core/Ds2.LightHouse/SqliteStore.fs` (findDocumentById ~14 line), `Solutions/Core/Ds2.LightHouse/KnowledgeBase.fs` (lookupDocument ~17 line — S4-m1 ex type 박제 포함)
-   - 신규 test (1): `Solutions/Tests/Ds2.LightHouseService.Tests/FileServingTests.fs` (~320 line, 19 Fact)
-   - 수정 test cfg (1): `Ds2.LightHouseService.Tests.fsproj` (Compile 1줄)
-   - 수정 doc (1): `todo-lighthouse-kb-server.md` (s4-r0 박제)
-3. **commit 진입 결정** — 단일 commit 권장 (review 처리가 phase 본체와 분리될 만큼 별개 아님, S3 의 r0/r1 분리는 review 가 별 사이클이었지만 S4 는 phase 진입 turn 안에서 검열 4건 즉시 적용 → 의미상 단일 unit):
-   - 권장 = "S4 file serving (citation 원문 stream) + ETag + Range + 19 fact + 자가 검열 4건 적용 + s4-r0 박제"
-4. **Phase S5 (Promaker 통합) 진입 confirm** — 본 phase 종결 후 자연 다음 단계.
-   - Phase S5 = Promaker 측 LightHouseClient + KbManagerDialog + LlmConfig.KbCollections + AttachmentIngestService — 대규모 (parent §4.5 흡수, S5 가 IM-7 IntegrationTests 도 흡수, S4-M4/S4-M5 의 source/ layout 결정도 흡수). 분할 진입 검토: S5a (LlmConfig + LightHouseClient + IntegrationTests scaffold) / S5b (KbManagerDialog + Settings UI) / S5c (ChatViewModel + 5.knowledge-base.md + App exit hook).
+   - 수정 운영 (2): `Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + DPAPI helper + 두 신 type, ~90 line), `Apps/Promaker/Promaker/Promaker.csproj` (InternalsVisibleTo 3 line)
+   - 신규 운영 (1): `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` (~340 line)
+   - 신규 test project (3 파일): `Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` — fsproj / Program.fs / ScaffoldSentinelTests.fs (~40 line total)
+   - 신규 test 1: `Solutions/Tests/Promaker.Tests/LightHouseClientTests.cs` (~310 line, 15 Fact)
+   - 수정 test 1: `Solutions/Tests/Promaker.Tests/LlmConfigTests.cs` (7 Fact 추가, ~90 line)
+   - 수정 sln (2): `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (IntegrationTests project 등록)
+   - 수정 doc (1): `todo-lighthouse-kb-server.md` (s5a-r0 박제 + §4.2 Phase S5 부분 체크 + §4.3 미확정 표 결정)
+3. **commit 진입 결정** — 단일 commit 권장:
+   - 권장 = "S5a Promaker 통합 1차 (LlmConfig KbCollections/LightHouseService + LightHouseClient HTTP wrapper + IntegrationTests scaffold) + 22 fact + 자가 검열 4건 + s5a-r0 박제"
+4. **Phase S5b 진입 confirm** — 본 sub-phase 종결 후 자연 다음 단계.
+   - Phase S5b = `KbManagerDialog.xaml(.cs)` 신설 (folder picker + 색인 진행률 + upload + consent dialog) + `ApplicationSettingsDialog` 의 "LightHouse Service" section + "연결 테스트" 버튼 + `AttachmentIngestService.cs` 신설 (색인 + zip + upload + cancel hook) + `CollectionPackager.cs` 신설 (folder → zip per §3.3.1). 규모 大 (WPF UI 변경). Phase S5b 진입 시 S5a-M1 (zip stream double-dispose 시험) / S5a-M4 (CollectionInfo SSOT drift) 도 흡수.
+   - 또는 Phase S5c 우선 진입: ChatViewModel 의 session 발급 + .mcp-config 작성 + IntegrationTests round-trip + App exit hook. S5c 가 e2e 보장 후 S5b 의 UI 작업이 더 안전. 권장 = **S5b 먼저** (사용자 가시 가치 + S5c 의 ChatViewModel 통합이 KbManagerDialog 의 active set 의존이므로 순서 자연).
 5. **commit 은 단계별 별도 confirm** (memory: `feedback_commit_authorization`).
 
-**s4-r0 review 잔여 우려 (Phase S4 안 / Phase S5 / Phase 2 이연)** — 본 phase 안 follow-up:
+**s5a-r0 review 잔여 (Phase S5b / S5c 이연)** — 본 phase 이후 follow-up:
+- (S5a-M1 test) zipStream double-dispose 시험 1건 — Phase S5b (AttachmentIngestService 진입 시 caller 패턴 확정)
+- (S5a-M4) `CollectionInfo` 의 server `CollectionEntry` 대비 누락 필드 (CreatedAt / ImportedBy / TotalSourceBytes / StorageRelPath / ImportedAt) — Phase S5b KbManagerDialog 표시 필드 SSOT 점검 + forward-compat Fact 1건
+- (S5a-m1) HTTPS scheme paranoid double-check — backlog
+- (S5a-m6) 빈 active set L3 회복 의미 — Phase S5c
+- (S5a-m8) IntegrationTests round-trip 진입 — Phase S5c
+
+**s5a-r0 review 잔여 (Phase 2 / backlog)**:
+- (S5a-m2) PSK byte buffer + Array.Clear (S3 IM-5 backlog 와 함께) — Phase S6 보안 hardening
+- (S5a-m3) 메서드별 HttpRequestMessage Timeout override — backlog
+- (S5a-m9) JsonException → LightHouseProtocolException wrap — backlog
+- (S5a-m10) `SetApiKey` / `SetLightHousePsk` 의 DPAPI helper refactor — Phase S5b 또는 S6
+- DPAPI entropy v2 마이그레이션 패턴 — backlog (todo §3.7)
+
+**s4-r0 review 잔여 우려 (Phase S4 안 / Phase S5 / Phase 2 이연)** — 본 phase 이전 박제:
 - (S4-M3) 200/304 분기 ETag 헤더 형식 일관성 + test 강화 — S4 안
 - (S4-m3) userIdentityOf "unknown" anomaly 박제 — S4 안
 - (S4-m4) fileId SSOT 주석 항목 번호 — S4 안
