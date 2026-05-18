@@ -47,10 +47,36 @@ module Indexer =
             let fname = Path.GetFileNameWithoutExtension path
             if String.IsNullOrWhiteSpace fname then None else Some fname
 
+    /// **Phase 2 task C1 (s6-r12)** — extracted image array → ImageStore 박제 dispatch.
+    ///
+    /// 각 image 에 대해: sha256 산출 → blob 파일 저장 (idempotent) → ImageCache upsert (INSERT OR IGNORE) →
+    /// ImageReferences 박제 (복합 PK 4 키 idempotent). per-collection dedup (parent §3.15.5 MR2) —
+    /// 같은 hash 가 두 번 호출되어도 ImageCache 1 row + ImageReferences 만 (DocumentId, RefLocator, Ordinal) 별로 추가.
+    ///
+    /// ChunkId 매핑은 Phase 2 task C4 (segment → chunk 결정 후) 진입 시 강화 — 현 시점 항상 None.
+    /// 빈 배열 (`images = [||]`) = no-op (Phase 1 extractor 의 default).
+    ///
+    /// 본 함수는 transaction 직접 열지 않음 — caller (`ingestFile`) 또는 별 batching layer 가 결정.
+    let ingestImagesIntoStore
+        (conn: SqliteConnection)
+        (collectionRoot: string)
+        (documentId: int64)
+        (images: ExtractedImage array)
+        : unit =
+        for img in images do
+            let hash = ImageStore.computeSha256 img.Bytes
+            let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
+            ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
+            ImageStore.addImageReference conn documentId None hash img.RefLocator img.Ordinal
+
     /// 단일 파일 ingest. caller 가 connection / extractor list 제공.
     /// 본 함수는 transaction 직접 열지 않음 — `insertChunks` 내부 batch txn 만.
+    ///
+    /// `collectionRoot` (s6-r12 추가) = ImageStore.saveBlob 의 blob 저장 위치 산출 위해 필요.
+    /// Phase 1 extractor (images=[||]) 경로는 ingestImagesIntoStore 가 no-op 이라 collectionRoot 사용 안 됨.
     let ingestFile
         (conn: SqliteConnection)
+        (collectionRoot: string)
         (extractors: IExtractor list)
         (path: string)
         (ct: CancellationToken)
@@ -90,9 +116,12 @@ module Indexer =
                     let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
                     let chunks = Chunker.chunkify extracted.Segments
                     SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
+                    // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
+                    // Phase 1 extractor 의 images=[||] 는 no-op.
+                    ingestImagesIntoStore conn collectionRoot docId extracted.Images
                     Log.lighthouse.Info(
-                        sprintf "Indexer: ingested — path=%s docId=%d segments=%d chunks=%d"
-                            path docId extracted.Segments.Length chunks.Length)
+                        sprintf "Indexer: ingested — path=%s docId=%d segments=%d chunks=%d images=%d"
+                            path docId extracted.Segments.Length chunks.Length extracted.Images.Length)
                     Ingested docId
 
     /// collection 폴더 안 모든 지원 파일 enumerate (`.lighthouse-kb/` 자체는 제외).
@@ -107,8 +136,10 @@ module Indexer =
         |> Seq.toArray
 
     /// 한 connection 위에서 파일들을 순차 ingest. 진행률 콜백 호출. 결과 array 반환 (review m6).
+    /// `collectionRoot` (s6-r12) = ImageStore.saveBlob 의 blob 저장 위치 — ingestFile 로 propagate.
     let private ingestFiles
         (conn: SqliteConnection)
+        (collectionRoot: string)
         (extractors: IExtractor list)
         (files: string array)
         (progress: IngestProgress -> unit)
@@ -120,7 +151,7 @@ module Indexer =
             ct.ThrowIfCancellationRequested()
             let path = files.[i]
             progress { TotalFiles = files.Length; CompletedFiles = i; CurrentFile = Some path }
-            results.Add (path, ingestFile conn extractors path ct)
+            results.Add (path, ingestFile conn collectionRoot extractors path ct)
         progress { TotalFiles = files.Length; CompletedFiles = files.Length; CurrentFile = None }
         results.ToArray()
 
@@ -147,7 +178,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn extractors files progress ct
+                ingestFiles conn collectionRoot extractors files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn
@@ -197,7 +228,7 @@ module Indexer =
                 try
                     SqliteStore.ensureSchema conn
                     SqliteStore.stampVersion conn
-                    ingestFiles conn extractors files progress ct
+                    ingestFiles conn collectionRoot extractors files progress ct
                 finally
                     conn.Close()
                     SqliteConnection.ClearPool conn
@@ -207,7 +238,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn extractors files progress ct
+                ingestFiles conn collectionRoot extractors files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn

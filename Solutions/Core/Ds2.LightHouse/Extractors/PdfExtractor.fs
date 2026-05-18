@@ -34,7 +34,7 @@ type PdfExtractor() =
                     Log.lighthouse.Warn(sprintf "PdfExtractor: PdfDocument.Open 실패 — path=%s, ex=%s" path ex.Message)
 
                 if isNull doc then
-                    { DocType = Pdf; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+                    { DocType = Pdf; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
                 else
                     let pageCount = doc.NumberOfPages
                     let title =
@@ -61,6 +61,7 @@ type PdfExtractor() =
                         Title = title
                         Outline = [||]
                         Segments = segments.ToArray()
+                        Images = [||]   // Phase 2 task C2 (별 turn) 진입 시 PdfPig page.GetImages + TryGetPng 박제.
                     }
             finally
                 if not (isNull doc) then doc.Dispose()

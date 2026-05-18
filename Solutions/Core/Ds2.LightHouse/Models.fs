@@ -101,9 +101,29 @@ type ExtractedChunk = {
     Text: string
 }
 
+/// Phase 2 task C (s6-r12) — extractor 가 추출한 단일 image staging.
+///
+/// `Bytes` = raw image bytes (sha256 산출 + blob 저장 원본). format 화이트리스트 (ImageFormat) 외 image
+/// (예: PDF JPX/JBIG2) 는 extractor 가 skip 또는 PNG re-encode 후 본 record 박제.
+/// `RefLocator` = 저장형 (`p=14#img=2`, §3.13). `Ordinal` = 같은 RefLocator 안 N번째.
+/// `Width` / `Height` = pixel dim (extractor 가 header parse 한 값, 미상 시 None).
+///
+/// Indexer.ingestImagesIntoStore 가 본 array 를 받아 ImageStore.computeSha256 + saveBlob + upsertImageCache +
+/// addImageReference 로 dispatch. ChunkId 매핑은 Phase 2 task C4 (segment→chunk 결정 후) 진입 시 강화.
+type ExtractedImage = {
+    Bytes: byte[]
+    Format: ImageFormat
+    Width: int option
+    Height: int option
+    RefLocator: string
+    Ordinal: int
+}
+
 /// Extractor 출력 단위 (한 문서당 1개).
 ///
-/// 빈 outline / 빈 segments 도 valid (예: 빈 PDF / extract_failed 의 정책 명문화) — Indexer 가 빈 문서를 정상 commit.
+/// 빈 outline / 빈 segments / 빈 images 도 valid (예: 빈 PDF / extract_failed 의 정책 명문화) —
+/// Indexer 가 빈 문서를 정상 commit.
+/// `Images` = Phase 2 task C (s6-r12) 추가. Phase 1 extractor 는 항상 `[||]` 박제 (이미지 추출 미진입).
 type ExtractedDocument = {
     DocType: FileKind
     /// PDF 페이지 수 / xlsx 시트 수 / pptx 슬라이드 수. txt/md 는 None.
@@ -112,6 +132,8 @@ type ExtractedDocument = {
     Title: string option
     Outline: ExtractedOutlineNode array
     Segments: ExtractedSegment array
+    /// 추출된 image staging — Phase 2 task C 진입 후 PdfExtractor/OoxmlExtractor 가 박제. 빈 배열 = "이미지 추출 안 함".
+    Images: ExtractedImage array
 }
 
 /// MCP `attachment_search` 의 query parameter (§3.10).
