@@ -86,9 +86,13 @@ public partial class SimulationPanelState
         {
             var index = SimIndexModule.build(Store, 10);
 
-            // 토큰 역할이 설정되어 있으면 PLAY 전 자동 검증
+            // 토큰 역할이 설정되어 있으면 PLAY 전 자동 검증.
+            // 단 원위치(BeginHoming) 세션은 deadman switch 라 모달 다이얼로그와 양립 불가 —
+            // ShowGraphWarnings 의 모달이 mouse capture 를 가로채면 LostMouseCapture →
+            // EndHoming 이 발화해 _homingOnlyMode 가 꺼진 상태로 StartSimulation 이 그대로 완주,
+            // 결과적으로 원위치 버튼이 일반 PLAY 와 동일하게 동작한다. 검증은 PLAY 경로 전용.
             var hasPreStartWarnings = false;
-            if (HasAnyTokenRole(index))
+            if (!_homingOnlyMode && HasAnyTokenRole(index))
             {
                 var sections = RunGraphValidation(index);
                 if (sections.Count > 0)
