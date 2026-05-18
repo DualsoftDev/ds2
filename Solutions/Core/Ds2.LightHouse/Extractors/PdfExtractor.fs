@@ -65,11 +65,16 @@ type PdfExtractor() =
                                 Text = text
                             }
 
-                        // Phase 2 task C2: 페이지 안 image 추출.
+                        // Phase 2 task C2 (s6-r13) + C3 RefLocator SSOT 정정 (s6-r14): 페이지 안 image 추출.
                         // PdfPig 의 TryGetPng 은 화이트리스트 외 image (JPX / JBIG2 decode 미지원) 에 대해 false 반환 →
                         // 자연 skip (m6 결론 = extractor primary 가드, ExtractedDocument.Images 미포함).
                         // 성공 시 PNG 통일 박제 (ImageFormat.Png) — 원본이 JPEG 라도 PdfPig 가 PNG 로 re-encode.
+                        //
+                        // RefLocator scheme (s6-r14 M-r13-1 옵션 B 결정): `p=%d` (page 단위, segment 와 동일 scheme) +
+                        // Ordinal 이 page 안 image 순번 (1..N). Models.fs §108 SSOT 정합 ("같은 RefLocator 안 N번째").
+                        // page 마다 ord reset (= 다음 page 의 첫 image 가 Ordinal=1 부터 시작).
                         let mutable ord = 1
+                        let pageRef = sprintf "p=%d" i
                         for img in page.GetImages() do
                             try
                                 let success, pngBytes = img.TryGetPng()
@@ -81,14 +86,14 @@ type PdfExtractor() =
                                         Format = Png
                                         Width = w
                                         Height = h
-                                        RefLocator = sprintf "p=%d#img=%d" i ord
+                                        RefLocator = pageRef
                                         Ordinal = ord
                                     }
                                     ord <- ord + 1
                             with ex ->
                                 // M2 결론 (per-image fail-safe): decode exception → log + skip, ordinal 증가 안 함.
                                 Log.lighthouse.Warn(
-                                    sprintf "PdfExtractor: page=%d 의 image (ord=%d) 추출 실패 — path=%s, ex=%s"
+                                    sprintf "PdfExtractor: page=%d 의 image (try-ord=%d) 추출 실패 — path=%s, ex=%s"
                                         i ord path ex.Message)
 
                     {
