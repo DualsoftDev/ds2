@@ -268,10 +268,11 @@ module ZipImport =
         if not (Directory.Exists target) then
             raise (InvalidOperationException(sprintf "swap 대상 collection 디렉토리 미존재 — %s" target))
 
-        let backup = target + ".bak"
-        if Directory.Exists backup then
-            // 이전 swap 실패 잔재 — cleanup.
-            Directory.Delete(backup, true)
+        // **K1 (외부 review R2 합의)**: backup suffix 를 per-호출 unique guid 로 분리 — 동일 collectionId 동시 swap 시
+        // A 의 backup 을 B 가 무조건 삭제 → A rollback 가 빈 backup 진입 → target 영구 손실 회피.
+        // 이전 fixed `.bak` 의 "잔재 cleanup" 분기 제거됨 — 각 호출이 자체 suffix 갖음. stale `.bak-*` 잔재 sweep 은
+        // staging sweep 정책 차원에서 별 turn 박제 (follow-up).
+        let backup = sprintf "%s.bak-%s" target (Guid.NewGuid().ToString("N").Substring(0, 12))
 
         try
             Directory.Move(target, backup)
