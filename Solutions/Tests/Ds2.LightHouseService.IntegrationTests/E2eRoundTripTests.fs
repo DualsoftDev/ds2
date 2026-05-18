@@ -173,5 +173,31 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
             Assert.True(threw, sprintf "http:// 요청이 거부되지 않음 — Kestrel 가 HTTPS-only bind 가 아님 (url=%s)" httpUrl)
         }
 
+    // ── Fact 8 (s6-r2): IPv6 ::1 접속 거부 — Kestrel IPv4 단일 bind 정합 ─
+    [<Fact>]
+    member _.``IPv6 [::1] 접속 시 connection refused — Kestrel IPv4 단일 bind`` () =
+        task {
+            // fixture cfg.ListenUrl = "https://127.0.0.1:0" → Kestrel 가 IPv4 loopback 만 listen.
+            // 동일 port 를 IPv6 [::1] 로 시도하면 별 listen socket 부재 → connection refused 예상.
+            // 만약 Kestrel 가 dual-stack bind 회귀 시 본 fact 가 검출 (보안/정합 회귀 차단).
+            use handler = new HttpClientHandler()
+            handler.ServerCertificateCustomValidationCallback <-
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            use client = new HttpClient(handler, disposeHandler = false)
+            // 짧은 timeout — connection refused 가 즉시 발생, 단 fallback 회귀 시 hang 차단
+            client.Timeout <- TimeSpan.FromSeconds 5.0
+            let ipv6Url = sprintf "https://[::1]:%d/healthz" fixture.BaseAddress.Port
+            let mutable threw = false
+            try
+                let! _ = client.GetAsync(ipv6Url)
+                ()
+            with
+            | :? HttpRequestException -> threw <- true
+            | :? System.IO.IOException -> threw <- true
+            | :? System.Net.Sockets.SocketException -> threw <- true
+            | :? System.Threading.Tasks.TaskCanceledException -> threw <- true   // timeout 회귀 분기 (dual-stack 미회복 시)
+            Assert.True(threw, sprintf "IPv6 [::1] 접속 통과 — Kestrel 가 IPv4-only bind 아님 (url=%s)" ipv6Url)
+        }
+
     interface IClassFixture<ServiceFixture>
 
