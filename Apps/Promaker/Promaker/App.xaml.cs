@@ -168,6 +168,17 @@ public partial class App : Application
         {
             try { TimeEndPeriod(TimerPeriodMs); } catch { }
         }
+
+        // Phase S5c — 살아있는 LightHouse session 일괄 DELETE + client Dispose (§3.8 L2-2).
+        // OnExit 는 sync 만 허용 → GetAwaiter().GetResult() 로 짧게 block (best-effort, timeout 3s).
+        try
+        {
+            var task = Promaker.Knowledge.LightHouseClientHolder.DisposeAllAsync();
+            if (!task.Wait(TimeSpan.FromSeconds(3)))
+                Log.Warn("LightHouseClientHolder.DisposeAllAsync 3초 timeout — process exit 진행 (session 일부 잔존 가능, server idle TTL backstop).");
+        }
+        catch (Exception ex) { Log.Warn("LightHouseClientHolder.DisposeAllAsync 실패 (best-effort)", ex); }
+
         Log.Info("=== Promaker shutdown ===");
         base.OnExit(e);
     }

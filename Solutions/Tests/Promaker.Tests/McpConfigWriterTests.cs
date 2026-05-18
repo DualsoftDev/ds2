@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text.Json;
 using Promaker.LlmAgent;
 using Xunit;
 
@@ -149,5 +152,49 @@ public sealed class McpConfigWriterTests : IDisposable
         McpConfigWriter.SweepStale();
 
         Assert.True(File.Exists(path));
+    }
+
+    // ─── Phase S5c — CreateMulti (promaker + lighthouse 두 server 등록) ───────
+
+    [Fact]
+    public void CreateMulti_emits_two_servers_with_distinct_headers()
+    {
+        var entries = new[]
+        {
+            new McpServerEntry("promaker", "http://127.0.0.1:50000/",
+                new Dictionary<string, string> { ["X-Promaker-Nonce"] = "nonce-1" }),
+            new McpServerEntry("lighthouse", "https://service.local:8443/mcp",
+                new Dictionary<string, string> { ["X-LightHouse-Session"] = "session-token-xyz" }),
+        };
+
+        using var writer = McpConfigWriter.CreateMulti(entries);
+        Assert.True(File.Exists(writer.Path));
+        var content = File.ReadAllText(writer.Path);
+
+        using var doc = JsonDocument.Parse(content);
+        var servers = doc.RootElement.GetProperty("mcpServers");
+        Assert.Equal(2, servers.EnumerateObject().Count());
+        Assert.Equal("http://127.0.0.1:50000/", servers.GetProperty("promaker").GetProperty("url").GetString());
+        Assert.Equal("nonce-1", servers.GetProperty("promaker").GetProperty("headers")
+            .GetProperty("X-Promaker-Nonce").GetString());
+        Assert.Equal("https://service.local:8443/mcp", servers.GetProperty("lighthouse").GetProperty("url").GetString());
+        Assert.Equal("session-token-xyz", servers.GetProperty("lighthouse").GetProperty("headers")
+            .GetProperty("X-LightHouse-Session").GetString());
+        // ServerName legacy 필드는 첫 entry.
+        Assert.Equal("promaker", writer.ServerName);
+    }
+
+    [Fact]
+    public void CreateMulti_rejects_empty_or_duplicate_names()
+    {
+        Assert.Throws<ArgumentException>(() => McpConfigWriter.CreateMulti(Array.Empty<McpServerEntry>()));
+        var dup = new[]
+        {
+            new McpServerEntry("x", "http://a", null),
+            new McpServerEntry("x", "http://b", null),
+        };
+        Assert.Throws<ArgumentException>(() => McpConfigWriter.CreateMulti(dup));
+        var blank = new[] { new McpServerEntry(" ", "http://a", null) };
+        Assert.Throws<ArgumentException>(() => McpConfigWriter.CreateMulti(blank));
     }
 }

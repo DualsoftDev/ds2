@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.Versioning;
@@ -40,8 +41,27 @@ public sealed class McpConfigWriter : IDisposable
     /// `mcpServers.<serverName>.{type:http, url, headers:{X-Promaker-Nonce: nonce}}` 항목 1개를 가진 임시 파일을 작성.
     /// 호출자가 Dispose 시 파일 삭제.
     /// </summary>
-    public static McpConfigWriter Create(string serverName, string url, string handshakeNonce)
+    public static McpConfigWriter Create(string serverName, string url, string handshakeNonce) =>
+        CreateMulti(new[] { new McpServerEntry(serverName, url, new Dictionary<string, string>
+        {
+            ["X-Promaker-Nonce"] = handshakeNonce,
+        }) });
+
+    /// <summary>
+    /// 다중 server 박제 (Phase S5c — promaker loopback + lighthouse LAN 동시 등록).
+    /// 항목 0개 또는 server name 중복은 throw. 파일명 / ACL 정책은 단일 server 와 동일.
+    /// <see cref="ServerName"/> 은 첫 번째 entry 의 이름 (legacy field).
+    /// </summary>
+    public static McpConfigWriter CreateMulti(IReadOnlyList<McpServerEntry> servers)
     {
+        if (servers is null || servers.Count == 0) throw new ArgumentException("servers 비어 있음.", nameof(servers));
+        var distinct = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in servers)
+        {
+            if (string.IsNullOrWhiteSpace(s.Name)) throw new ArgumentException("server name 빈 값 금지.");
+            if (!distinct.Add(s.Name)) throw new ArgumentException($"server name 중복 — {s.Name}");
+        }
+
         var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Promaker");
         Directory.CreateDirectory(dir);
 
@@ -50,30 +70,25 @@ public sealed class McpConfigWriter : IDisposable
         var fileName = $"mcp-{sessionId}-{pid}-{Guid.NewGuid():N}.json";
         var path = System.IO.Path.Combine(dir, fileName);
 
-        var doc = new
+        var mcpServers = new Dictionary<string, object>(servers.Count);
+        foreach (var s in servers)
         {
-            mcpServers = new System.Collections.Generic.Dictionary<string, object>
+            mcpServers[s.Name] = new
             {
-                [serverName] = new
-                {
-                    type = "http",
-                    url = url,
-                    headers = new System.Collections.Generic.Dictionary<string, string>
-                    {
-                        ["X-Promaker-Nonce"] = handshakeNonce,
-                    },
-                },
-            },
-        };
+                type = "http",
+                url = s.Url,
+                headers = s.Headers ?? new Dictionary<string, string>(),
+            };
+        }
 
+        var doc = new { mcpServers };
         var json = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
 
         // M1 — write→ACL race 제거: 파일 생성 시점부터 owner-only ACL 적용 후 write.
-        // 같은 user 의 다른 process 가 nonce 평문을 ms window 안에 read 하는 경로 차단.
         WriteWithOwnerOnlyAcl(path, json);
-        Log.Info($"McpConfigWriter 작성 — {path}");
+        Log.Info($"McpConfigWriter 작성 — {path} (servers={servers.Count})");
 
-        return new McpConfigWriter(path, serverName);
+        return new McpConfigWriter(path, servers[0].Name);
     }
 
     internal static void WriteWithOwnerOnlyAcl(string path, string json)
@@ -220,3 +235,6 @@ public sealed class McpConfigWriter : IDisposable
     }
 
 }
+
+/// <summary>McpConfigWriter.CreateMulti 입력 — 한 `mcpServers.<Name>` 항목 정의 (Phase S5c).</summary>
+public sealed record McpServerEntry(string Name, string Url, IReadOnlyDictionary<string, string>? Headers);

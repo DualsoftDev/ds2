@@ -357,7 +357,10 @@ public partial class LlmChatPanel : UserControl
             Owner = Window.GetWindow(this),
         };
         dlg.ShowDialog();
-        // ConfigChanged 활용은 Phase S5c (ChatViewModel.ReloadConfig + 다음 chat 의 session 재발급) 에서 흡수.
+        // Phase S5c — KbCollections 변경 시 ViewModel 의 _config snapshot 동기화.
+        // active 토글은 *현 chat* 영향 0 (§3.8 L1) — 다음 chat panel 부터 새 session 으로 반영.
+        if (dlg.ConfigChanged && DataContext is LlmChatViewModel vm)
+            vm.ReloadKbConfig();
     }
 }
 
