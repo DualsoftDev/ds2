@@ -15,7 +15,7 @@
     <UserControl.Resources>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-        <!-- todo-llm-markdown.md Phase 1: ChatTurn.Text + IsStreaming MultiBinding → ChatSegment list.
+        <!-- done-llm-markdown.md Phase 1: ChatTurn.Text + IsStreaming MultiBinding → ChatSegment list.
              Streaming 중에는 단일 Plain segment, 종료 시 1회 split. -->
         <p:TextToSegmentsConverter x:Key="TextToSegmentsConverter"/>
 
@@ -134,7 +134,7 @@
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Style.Triggers>
-                <!-- todo-llm-markdown.md Phase 2: DataTrigger 는 outer ChatTurn.Role 을 ListBoxItem ancestor 로 참조.
+                <!-- done-llm-markdown.md Phase 2: DataTrigger 는 outer ChatTurn.Role 을 ListBoxItem ancestor 로 참조.
                      PlainSegmentTemplate 안에서 DataContext=ChatSegment 인 경우에도 styling 유지하기 위함.
                      기존 outer DataTemplate (DataContext=ChatTurn) 에서도 동일하게 동작. -->
                 <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="user">
@@ -167,7 +167,7 @@
             </Style.Triggers>
         </Style>
 
-        <!-- todo-llm-markdown.md Phase 2: segment templates + selector.
+        <!-- done-llm-markdown.md Phase 2: segment templates + selector.
              ChatBubbleTextStyle 보다 *뒤*에 정의해야 StaticResource forward 참조 오류 회피. -->
         <DataTemplate x:Key="PlainSegmentTemplate">
             <!-- Plain segment = 기존 read-only TextBox 패턴 그대로 (부분 selection + Ctrl+C).
@@ -360,7 +360,7 @@
                              review #2 fix: TextBox 의 기본 ContextMenu (잘라내기/복사/붙여넣기) 를 비활성화해
                              우클릭 시 visual tree 상위 ListBox.ContextMenu (전체 복사 / export) 가 표시되도록.
                              chat-ui boost: model-doc-button role 일 때만 TextBox 가 hide → Button 표시. 두 컨트롤 동시 Grid 에 배치.
-                             todo-llm-markdown.md Phase 2: 단일 TextBox 를 segments ItemsControl 로 교체.
+                             done-llm-markdown.md Phase 2: 단일 TextBox 를 segments ItemsControl 로 교체.
                              ```md ``` fence 가 자동으로 MarkdownScrollViewer 로 렌더. ModelDocButton 분기는
                              outer Grid level 에서 그대로 공존 (segment 모델 일반화는 본 PR 범위 외). -->
                         <Grid>

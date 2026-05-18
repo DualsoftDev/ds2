@@ -7,7 +7,7 @@ namespace Promaker.Presentation;
 
 /// <summary>
 /// ChatTurn (Text, IsStreaming, Role) MultiBinding → 단일 ChatSegment.
-/// 정책 (todo-llm-markdown.md 옵션 1 / A1 전환):
+/// 정책 (done-llm-markdown.md 옵션 1 / A1 전환):
 ///  - streaming 중 (IsStreaming=true) → Plain (token 단위 MdXaml 재파싱 회피)
 ///  - assistant role + 종료 → Markdown (전체 응답 MdXaml 렌더, fence-split 없음)
 ///  - 그 외 role (user/system/tool/thinking/error) → Plain

@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!--
         MdXaml MarkdownScrollViewer 의 MarkdownStyle 로 주입할 다크 테마 FlowDocument 스타일.
-        todo-llm-markdown.md Phase 2.
+        done-llm-markdown.md Phase 2.
         WPF 정석: Resources 는 DependencyProperty 가 아니므로 <Setter Property="Resources"> 불가.
         <Style.Resources> (자식 element) 로 keyed sub-style 주입.
         MdXaml 1.27 의 sub-style key 규약: element 의 Tag 로 "Heading1"~"Heading6" / "CodeSpan" /
