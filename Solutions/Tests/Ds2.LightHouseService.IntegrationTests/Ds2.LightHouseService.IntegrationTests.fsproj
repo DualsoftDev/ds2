@@ -19,8 +19,10 @@
 
   <ItemGroup>
     <Compile Include="ServiceFixture.fs" />
+    <Compile Include="ZipBuilders.fs" />
     <Compile Include="ScaffoldSentinelTests.fs" />
     <Compile Include="E2eRoundTripTests.fs" />
+    <Compile Include="NegativeRoundTripTests.fs" />
     <Compile Include="CliUploadTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
