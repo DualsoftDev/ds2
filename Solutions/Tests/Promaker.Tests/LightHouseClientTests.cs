@@ -328,4 +328,51 @@ public sealed class LightHouseClientTests
         using var zip = new MemoryStream(new byte[] { 1 });
         await Assert.ThrowsAsync<LightHouseProtocolException>(() => client.UploadCollectionAsync("t", zip));
     }
+
+
+    // ── Phase S5b — 재업로드 (POST /collections/{id}/payload, §3.9 / D5) ──────
+
+    [Fact]
+    public async Task ReuploadCollectionPayloadAsync_targets_id_path_with_bearer_and_userIdentity()
+    {
+        var (client, handler) = MakeClient(psk: "psk-r", userIdentity: "bob@ex.com");
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.NoContent);
+
+        using var zip = new MemoryStream(new byte[] { 9, 9 });
+        await client.ReuploadCollectionPayloadAsync("550e8400-e29b-41d4-a716-446655440000", zip);
+
+        var req = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Post, req.Method);
+        Assert.Equal(BaseUrl + "collections/550e8400-e29b-41d4-a716-446655440000/payload",
+            req.RequestUri!.ToString());
+        Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.Equal("psk-r", req.Headers.Authorization.Parameter);
+        Assert.Equal("bob@ex.com", req.Headers.GetValues("X-User-Identity").Single());
+        // multipart 안 zip part 박제 — title field 는 본 endpoint 에서 안 보냄.
+        Assert.Contains("name=zip", handler.RequestBodies.Single());
+        Assert.DoesNotContain("name=title", handler.RequestBodies.Single());
+    }
+
+    [Fact]
+    public async Task ReuploadCollectionPayloadAsync_404_throws_protocol()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent("collection not found", Encoding.UTF8, "text/plain"),
+        };
+        using var zip = new MemoryStream(new byte[] { 1 });
+        var ex = await Assert.ThrowsAsync<LightHouseProtocolException>(
+            () => client.ReuploadCollectionPayloadAsync("missing-id", zip));
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReuploadCollectionPayloadAsync_empty_id_throws()
+    {
+        var (client, _) = MakeClient();
+        using var zip = new MemoryStream(new byte[] { 1 });
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => client.ReuploadCollectionPayloadAsync("", zip));
+    }
 }

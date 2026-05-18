@@ -160,6 +160,32 @@ public sealed class LightHouseClient : IDisposable
         return body.Id;
     }
 
+    /// <summary>
+    /// `POST /collections/{id}/payload` — 기존 collection 의 zip swap (재업로드, §3.9 / D5).
+    /// title 변경은 본 호출로 안 함 (server-side display name 유지). `UploadCollectionAsync` 와 동일한 zip ownership 정책
+    /// (caller 가 `MultipartFormDataContent.Dispose` 로 child stream 까지 dispose 됨을 인지).
+    /// </summary>
+    public async Task ReuploadCollectionPayloadAsync(
+        string collectionId,
+        Stream zipStream,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(collectionId))
+            throw new ArgumentException("collectionId 필수.", nameof(collectionId));
+        if (zipStream is null) throw new ArgumentNullException(nameof(zipStream));
+
+        using var content = new MultipartFormDataContent();
+        var zip = new StreamContent(zipStream);
+        zip.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+        content.Add(zip, "zip", "payload.zip");
+
+        using var req = NewRequest(HttpMethod.Post, $"collections/{Uri.EscapeDataString(collectionId)}/payload");
+        req.Content = content;
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, $"POST /collections/{collectionId}/payload", ct).ConfigureAwait(false);
+    }
+
     /// <summary>`GET /collections` — registry list (T1 flat).</summary>
     public async Task<CollectionListResponse> ListCollectionsAsync(CancellationToken ct = default)
     {

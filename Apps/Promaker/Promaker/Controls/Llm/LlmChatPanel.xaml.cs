@@ -345,6 +345,20 @@ public partial class LlmChatPanel : UserControl
         // fire-and-forget — UI thread 블록하지 않음. AddPathsAsync 는 내부에서 background marshalling 처리.
         _ = vm.AddPathsAsync(paths);
     }
+
+    /// <summary>
+    /// Header 의 "📚 KB 관리" 버튼 — KbManagerDialog 진입 (Phase S5b).
+    /// 다이얼로그가 active set 변경 시 ConfigChanged=true 반환 → caller 가 reload trigger.
+    /// </summary>
+    private void KbManager_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Promaker.Dialogs.KbManagerDialog
+        {
+            Owner = Window.GetWindow(this),
+        };
+        dlg.ShowDialog();
+        // ConfigChanged 활용은 Phase S5c (ChatViewModel.ReloadConfig + 다음 chat 의 session 재발급) 에서 흡수.
+    }
 }
 
 public sealed class InverseBoolConverter : IValueConverter
