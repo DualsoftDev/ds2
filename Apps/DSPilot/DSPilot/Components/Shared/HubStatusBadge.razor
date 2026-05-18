@@ -1,0 +1,54 @@
+@implements IDisposable
+@using Microsoft.AspNetCore.SignalR.Client
+@inject HubSubscriberService HubSubscriber
+
+<div class="header-hub-badge header-hub-badge-@StateClass" title="@Tooltip">
+    <span class="header-hub-dot"></span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="header-hub-label">@Label</span>
+    }
+</div>
+
+@code {
+    private HubConnectionState _state;
+
+    protected override void OnInitialized()
+    {
+        _state = HubSubscriber.CurrentStatus;
+        HubSubscriber.StatusChanged += OnStatusChanged;
+    }
+
+    private void OnStatusChanged(HubConnectionState s)
+    {
+        _state = s;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => HubSubscriber.StatusChanged -= OnStatusChanged;
+
+    private string StateClass => _state switch
+    {
+        HubConnectionState.Connected => "ok",
+        HubConnectionState.Connecting => "pending",
+        HubConnectionState.Reconnecting => "pending",
+        _ => "down"
+    };
+
+    // Connected 일 때는 라벨 없이 점만 — 정상 상태는 헤더를 시각적으로 어지럽히지 않음.
+    private string? Label => _state switch
+    {
+        HubConnectionState.Connecting => "연결 중",
+        HubConnectionState.Reconnecting => "재연결 중",
+        HubConnectionState.Disconnected => "Promaker 끊김",
+        _ => null
+    };
+
+    private string Tooltip => _state switch
+    {
+        HubConnectionState.Connected => "Promaker 모니터링 허브 연결됨",
+        HubConnectionState.Connecting => "Promaker 모니터링 허브 연결 시도 중",
+        HubConnectionState.Reconnecting => "Promaker 모니터링 허브 재연결 중",
+        _ => "Promaker 5051 모니터링 허브 연결 없음 — Promaker 가 실행 중이고 모니터링이 켜져 있는지 확인하세요"
+    };
+}

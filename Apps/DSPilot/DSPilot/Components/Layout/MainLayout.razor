@@ -23,6 +23,7 @@
             <a href="heatmap" class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
             <a href="cycle-time-analysis" class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
         </nav>
+        <HubStatusBadge />
         @if (!DbService.HasData)
         {
             <div class="header-loading-indicator" title="PLC 데이터 수집 중">
