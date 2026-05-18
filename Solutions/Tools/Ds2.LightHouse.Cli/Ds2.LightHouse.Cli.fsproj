@@ -8,6 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="LightHouseClient.fs" />
+    <Compile Include="Packager.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
