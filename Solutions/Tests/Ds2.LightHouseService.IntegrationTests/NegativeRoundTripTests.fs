@@ -1,0 +1,144 @@
+module Ds2.LightHouseService.IntegrationTests.NegativeRoundTripTests
+
+open System
+open System.Net
+open System.Net.Http
+open System.Net.Http.Headers
+open System.Text
+open System.Text.Json
+open Xunit
+open Ds2.LightHouseService.IntegrationTests
+
+/// Phase S6 P2 — server-side input validation / sanitize 회귀 차단 7 Fact.
+///
+/// 검증 범위 (모두 `POST /collections` + 1건 DELETE):
+/// - F1: Content-Type=text/plain (not multipart)            → 415 "multipart/form-data 필수"
+/// - F2: multipart 인데 title 필드 누락                       → 400 "title 필드 필수"
+/// - F3: multipart 인데 zip 파일 누락                          → 400 "zip 파일 필드 필수"
+/// - F4: zip 안 meta.json 부재                                → 400 "meta.json 누락"
+/// - F5: zip bomb (ratio 50 초과)                              → 400 "zip sanitize 실패"
+/// - F6: garbage bytes (not a zip)                            → 400 "zip 구조 결함"
+/// - F7: DELETE /collections/{미존재 guid}                    → 404 "collection 미존재"
+///
+/// 모든 negative path = server-side state 변경 0 (Registry 무영향, staging 자동 cleanup).
+/// fact 간 ordering-independent — fixture 의 Registry 공유 안전.
+
+type NegativeRoundTripTests(fixture: ServiceFixture) =
+    let userIdentity = fixture.UserIdentity
+
+    /// multipart POST helper — title+zip 둘 다 받음. None 인자는 해당 part 생략.
+    let postCollectionsMultipart
+        (client: HttpClient)
+        (titleOpt: string option)
+        (zipBytesOpt: byte[] option)
+        =
+        task {
+            use content = new MultipartFormDataContent()
+            titleOpt
+            |> Option.iter (fun t -> content.Add(new StringContent(t), "title"))
+            zipBytesOpt
+            |> Option.iter (fun b ->
+                let zc = new ByteArrayContent(b)
+                zc.Headers.ContentType <- MediaTypeHeaderValue.Parse "application/zip"
+                content.Add(zc, "file", "payload.zip"))
+            return! client.PostAsync("/collections", content)
+        }
+
+    // ── F1: Content-Type=text/plain → 415 ────────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — Content-Type text/plain 415 (multipart 필수)`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            use content = new StringContent("not multipart at all", Encoding.UTF8, "text/plain")
+            let! resp = client.PostAsync("/collections", content)
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            Assert.Contains("multipart", body)
+        }
+
+    // ── F2: title 누락 → 400 ─────────────────────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — title 필드 누락 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let zipBytes = ZipBuilders.buildMinimalZip "ignored-title" userIdentity
+            let! resp = postCollectionsMultipart client None (Some zipBytes)
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            Assert.Contains("title", body)
+        }
+
+    // ── F3: zip 파일 누락 → 400 ───────────────────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — zip 파일 누락 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "no-zip-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let! resp = postCollectionsMultipart client (Some title) None
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            Assert.Contains("zip", body)
+        }
+
+    // ── F4: zip 안 meta.json 누락 → 400 ───────────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — meta.json 누락 zip 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "no-meta-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let zipBytes = ZipBuilders.buildZipWithoutMeta ()
+            let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            // server CollectionEndpoints 의 FileNotFoundException catch 분기가
+            // "zip 구조 결함 — meta.json 누락" 응답 → "meta.json" 키워드만 박제 (한글 의존 회피).
+            Assert.Contains("meta.json", body)
+        }
+
+    // ── F5: zip bomb (ratio 50 초과) → 400 ────────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — zip bomb ratio 50 초과 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "zipbomb-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let zipBytes = ZipBuilders.buildZipBomb ()
+            let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            // ZipImport.extractAll → SanitizeException(ZipBombExceeded) → catch → "zip sanitize 실패: ZipBombExceeded(...)"
+            Assert.Contains("sanitize", body)
+        }
+
+    // ── F6: garbage bytes (not a zip) → 400 ───────────────────────────────
+    [<Fact>]
+    member _.``POST /collections — garbage bytes (not a zip) 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "garbage-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let zipBytes = ZipBuilders.buildGarbageZip ()
+            let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
+            Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            // `new ZipArchive(stream, Read)` → InvalidDataException → catch → "zip 구조 결함: ..."
+            // 자가 검열 m3: "zip" 키워드 만으론 F2/F3/F5 와 공유라 F6 특이성 부족. JSON parse 후
+            // error 필드에서 "구조" 키워드 박제 (raw body 는 unicode escape `구조` 으로 인코딩됨).
+            // JsonSerializer.Deserialize 가 escape 를 자동 unescape → "구조" 매칭 OK.
+            use doc = JsonDocument.Parse body
+            let errorMsg = doc.RootElement.GetProperty("error").GetString()
+            Assert.Contains("zip", errorMsg)
+            Assert.Contains("구조", errorMsg)
+        }
+
+    // ── F7: DELETE /collections/{미존재 guid} → 404 ──────────────────────
+    [<Fact>]
+    member _.``DELETE /collections/{미존재 guid} 404`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let randomId = Guid.NewGuid().ToString("D")
+            let! resp = client.DeleteAsync(sprintf "/collections/%s" randomId)
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            Assert.Contains(randomId, body)
+        }
+
+    interface IClassFixture<ServiceFixture>

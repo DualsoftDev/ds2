@@ -1,19 +1,13 @@
 module Ds2.LightHouseService.IntegrationTests.E2eRoundTripTests
 
 open System
-open System.IO
-open System.IO.Compression
 open System.Net
 open System.Net.Http
 open System.Runtime.ExceptionServices
 open System.Security.Authentication
 open System.Text
 open System.Text.Json
-open System.Threading
 open Xunit
-open Ds2.LightHouse
-open Ds2.LightHouse.Extractors
-open Ds2.LightHouseService
 open Ds2.LightHouseService.IntegrationTests
 
 /// Phase S5e — 본격 e2e round-trip suite (MA22).
@@ -30,60 +24,6 @@ open Ds2.LightHouseService.IntegrationTests
 type E2eRoundTripTests(fixture: ServiceFixture) =
     let psk = fixture.Psk
     let userIdentity = fixture.UserIdentity
-
-    /// minimal valid zip — Ds2.LightHouse Indexer 로 실 색인 후 source/ + .lighthouse-kb/ + meta.json 패키징.
-    /// title 은 caller 가 지정 (중복 등록 분리). 반환 = (zip byte array, expectedIndexerVersion).
-    let buildMinimalZip (title: string) : byte[] * string =
-        let stagingDir = Path.Combine(Path.GetTempPath(), "lhs-zip-" + Guid.NewGuid().ToString("N"))
-        let sourceDir = Path.Combine(stagingDir, "source")
-        Directory.CreateDirectory sourceDir |> ignore
-        try
-            // dummy text file 1개 → TextExtractor 가 색인
-            let sampleTxt = Path.Combine(sourceDir, "sample.txt")
-            File.WriteAllText(sampleTxt, "# Heading\n\nSample content for e2e round-trip.\n", Encoding.UTF8)
-            let sampleBytes = (new FileInfo(sampleTxt)).Length
-
-            // in-process 색인 — `.lighthouse-kb/index.db` 생성
-            let extractors : IExtractor list = [ new TextExtractor() :> IExtractor ]
-            let progressCb (_: IngestProgress) = ()
-            let results = Indexer.ingest stagingDir extractors progressCb CancellationToken.None
-            // s5e-m5 follow-up: `Ingested` variant 존재 명시 검증 — Skipped/Failed 만 반환되면
-            // build 는 통과해도 server upload 후 attachment_search 가 0 hit (회귀). 1+ Ingested 강제.
-            let ingestedCount =
-                results
-                |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false)
-                |> Array.length
-            Assert.True(
-                ingestedCount >= 1,
-                sprintf "Indexer.ingest 결과에 Ingested variant 없음 — %A" results)
-
-            // meta.json 작성 — §3.3.1 SSOT. server 필드 (id/importedAt/...) 는 null/공백 (server 가 stamp).
-            let meta : MetaJson = {
-                SchemaVersion = MetaJsonSchema.Current
-                IndexerVersion = IndexerVersion.Current
-                Title = title
-                SourcePathHint = sourceDir
-                FileCount = 1
-                TotalSourceBytes = sampleBytes
-                CreatedAt = DateTime.UtcNow.ToString("o", Globalization.CultureInfo.InvariantCulture)
-                ClientHost = "integration-test-host"
-                ClientUser = userIdentity
-                // server 가 채울 필드 (client 가 빈 값 보내도 server 가 stampServerFields 로 덮어씀)
-                Id = ""
-                ImportedAt = ""
-                ImportedBy = ""
-                StorageRelPath = ""
-            }
-            MetaJson.save stagingDir meta
-
-            // zip 패키징 — stagingDir 통째로 ZipFile.CreateFromDirectory (relative path = zip entry)
-            let zipPath = Path.Combine(Path.GetTempPath(), "lhs-zip-" + Guid.NewGuid().ToString("N") + ".zip")
-            ZipFile.CreateFromDirectory(stagingDir, zipPath, CompressionLevel.Fastest, false)
-            let bytes = File.ReadAllBytes zipPath
-            File.Delete zipPath
-            bytes, IndexerVersion.Current
-        finally
-            try Directory.Delete(stagingDir, true) with _ -> ()
 
     /// multipart/form-data POST — `file` field 에 zip + filename. Bearer + X-User-Identity 자동 동봉.
     let postCollectionAsync (client: HttpClient) (title: string) (zipBytes: byte[]) : System.Threading.Tasks.Task<HttpResponseMessage> =
@@ -156,7 +96,7 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
         task {
             use client = fixture.CreateAuthClient()
             let title = "e2e-roundtrip-" + Guid.NewGuid().ToString("N").Substring(0, 8)
-            let zipBytes, _ = buildMinimalZip title
+            let zipBytes = ZipBuilders.buildMinimalZip title userIdentity
 
             // (1) POST /collections — 201 + body.id 발급
             let! postResp = postCollectionAsync client title zipBytes

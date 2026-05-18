@@ -26,7 +26,8 @@
 
 ## 0. 현재 상태 / 본 문서 위치
 
-- **모드**: **Phase S6 P1 — `lighthouse-cli index --upload` 본격 구현 + CliUploadTests 4 Fact + 자가 검열 2건 즉시 적용 — commit 대기** (s6-r0). HTTPS-only + multipart + PSK auth + exit code mapping (D-S6-5 신설). IntegrationTests 8→12 (+4). 누적 **426 Fact** (lib 100 + service 111 + IntegrationTests 12 + Promaker 203).
+- **모드**: **Phase S6 P2 — server-side negative path 회귀 차단 7 Fact + ZipBuilders 공용 module 추출 + E2eRoundTripTests 리팩터링 + 자가 검열 4건 즉시 적용 — commit 대기** (s6-r1). multipart/title/zip 누락 + meta.json 누락 + zip bomb + garbage bytes + DELETE 미존재 7 분기 박제. IntegrationTests 12→19 (+7). 누적 **433 Fact** (lib 100 + service 111 + IntegrationTests 19 + Promaker 203).
+- **이전 모드** (참고): **Phase S6 P1** (commit `62ecb2b`, s6-r0) — `lighthouse-cli index --upload` 본격 구현 + CliUploadTests 4 Fact + 자가 검열 2건. HTTPS-only + multipart + PSK auth + exit code mapping (D-S6-5).
 - **이전 모드** (참고): **Phase S6 scaffold (s5f-r0)** → s5e-r0. `Program.configureApp` pure 함수 export + `ServiceFixture` (in-memory self-signed cert + Kestrel localhost:0) + 6 Fact 본격 e2e (실 Kestrel HTTPS round-trip). 누적 **421 Fact** (Promaker 203 + service 111 + IntegrationTests 7 + lib 100, +6 vs s5d-r0). s5c-r0 (vii) 의 이연 박제 해소 — 우회 mechanism = C 안 (configureApp export + in-memory cert + 신뢰 우회 HttpClient).
 - **이전 모드** (참고): s5d-r0 (commit `18d8d90`, Phase S5 종결 + dist 진입 준비 — paired-release drift detector 신설) → s5c-r1 (commit `83cd464` UI 테마 정합) → Phase S5c (commit `79ee30b` s5c-r0). **§4.2 Phase S5 100%** (PromakerToolNames + Drift test fresh + s5d-r0 paired-release + s5e-r0 IntegrationTests 본격 e2e 모두 ✓).
 - **선행 의존**: parent 의 Phase 1 **lib 본체 + lib unit test** 완료 (대안 B / parent r5 결정 12, parent r10 박제 `fddfbbf`). parent §4.5 (Promaker 통합) / §4.1 첫 task (`.gitignore`) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 의존 테스트는 **본 phase (Phase S5) 가 흡수**.
@@ -744,14 +745,15 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `18d8d90` | s5d-r0 | Phase S5 종결 + dist 진입 준비 (paired-release drift detector 신설) + s1-r0 Errata + 자가 검열 1건 |
 | `4593d04` | s5e-r0 | 본격 IntegrationTests round-trip (MA22) 박제 해제 — Program.configureApp export + ServiceFixture (in-memory cert + Kestrel localhost:0) + 6 e2e Fact |
 | `2d45c88` | s5f-r0 | Phase S6 scaffold (`Ds2.LightHouse.Cli`) + s5e follow-up 3건 (M2/m5/I — 8 Fact) + N3-A MSB3277 해소 + N5 parent §3.15.5 흡수 |
-| (본 commit) | s6-r0 | Phase S6 P1 — `lighthouse-cli index --upload` + LightHouseClient.fs + Packager.fs + CliUploadTests 4 Fact + 자가 검열 C1/M1 즉시 적용 |
+| `62ecb2b` | s6-r0 | Phase S6 P1 — `lighthouse-cli index --upload` + LightHouseClient.fs + Packager.fs + CliUploadTests 4 Fact + 자가 검열 C1/M1 즉시 적용 |
+| (본 commit) | s6-r1 | Phase S6 P2 — server-side negative path 7 Fact (F1~F7) + ZipBuilders 공용 module 추출 + E2eRoundTripTests local helper 흡수 + 자가 검열 M1/M2/m1/m3 즉시 적용 |
 
 **테스트 누적**:
-- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 (s5f/s6 회귀 0)
-- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 (sentinel 1 + e2e 6) → s5f 8 (+ HTTPS-only Fact 1) → s6 12 (+ CliUploadTests 4)
-- service Tests: 111 (S1 24 + S2 41 + S3 27 + S4 19, s5f/s6 회귀 0)
-- lib Tests: 100 (s5f/s6 회귀 0)
-- **누적 426 Fact** (Promaker 203 + service 111 + IntegrationTests 12 + lib 100, +4 vs s5f-r0)
+- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 (s5f/s6/s6-r1 회귀 0)
+- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 (sentinel 1 + e2e 6) → s5f 8 (+ HTTPS-only Fact 1) → s6 12 (+ CliUploadTests 4) → **s6-r1 19** (+ NegativeRoundTripTests 7)
+- service Tests: 111 (S1 24 + S2 41 + S3 27 + S4 19, s5f/s6/s6-r1 회귀 0)
+- lib Tests: 100 (s5f/s6/s6-r1 회귀 0)
+- **누적 433 Fact** (Promaker 203 + service 111 + IntegrationTests 19 + lib 100, +7 vs s6-r0)
 
 ### 7.2 새 세션 진입 즉시 행동
 
@@ -788,22 +790,28 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 - todo-lighthouse-handover.md 폐기 → 본 §7 단일화
 ```
 
-### 7.4 다음 세션 진입 후 권장 작업 (우선순위) — s5f-r0 transfer 시점 갱신
+### 7.4 다음 세션 진입 후 권장 작업 (우선순위) — s6-r1 transfer 시점 갱신
 
-**즉시 진입 가능 — Phase S5 100% 종결 + Phase S6 scaffold 완료 + Phase 2 사전 결정 박제 흡수 + dist 진입 준비 완료**.
+**즉시 진입 가능 — Phase S5 100% + Phase S6 P1/P2 완료 + Phase 2 사전 결정 박제 흡수 + dist 진입 준비 완료 + server-side negative path 회귀 차단 19 Fact**.
 
-**N1 (재진입). dist 본격 실행** — `/dist` skill **사용자 직접 호출** (외부 영향: scp + tag + push, 본 세션 자체 호출 안 함). paired-release drift detector + IntegrationTests 8 Fact + 자가 검열 통과 = dist 직전 안전망 제공.
+**N1 (재진입). dist 본격 실행** — `/dist` skill **사용자 직접 호출** (외부 영향: scp + tag + push, 본 세션 자체 호출 안 함). paired-release drift detector + IntegrationTests 19 Fact + 자가 검열 통과 = dist 직전 안전망 제공.
 
-**처리 완료 (본 turn s5f-r0)**:
+**처리 완료 (s5f-r0)**:
 - N2 (s5e follow-up): M2 + m5 + I 3건 적용 — IntegrationTests 8 Fact 통과
 - N3-A (parent r12 MSB3277 해소): OpenXml 3.5.1 직접 노출
 - N3-B (todo git mv): 사용자 결정 취소
 - N4 (Phase S6 scaffold): `lighthouse-cli index` 색인만 + smoke test 통과
 - N5 (Phase 2 plan): parent §3.15.5 sub-section 흡수 (별 doc 폐기)
 
-**다음 권장 (s5f-r0 이후)**:
-- **(P1)** Phase S6 follow-up — `--upload <url> --psk <key> --title <name>` 본격 구현 + LightHouseClient F# 작성 + IntegrationTests round-trip 1 Fact. 규모 ~200 line + 3-5 Fact.
-- **(P2)** s5e follow-up 잔여 추가 fact (L3 자동 회복 / IndexerVersion gate 415 / zip bomb 거부 / IPv4 vs IPv6 localhost / multipart 누락) — 별 PR, 5-10 Fact.
+**처리 완료 (s6-r0)**:
+- (P1) Phase S6 P1 — `lighthouse-cli index --upload` 본격 구현 + LightHouseClient.fs + Packager.fs + CliUploadTests 4 Fact + 자가 검열 C1/M1 즉시 적용. IntegrationTests 8→12.
+
+**처리 완료 (s6-r1, 본 turn)**:
+- (P2 부분) s5e follow-up 잔여 — server-side negative path 7 Fact (F1~F7: multipart 누락 415 / title 누락 400 / zip 누락 400 / meta.json 누락 400 / zip bomb 400 / garbage bytes 400 / DELETE 미존재 404). ZipBuilders 공용 module 추출 + E2eRoundTripTests local helper 흡수 + 자가 검열 M1/M2/m1/m3 적용. IntegrationTests 12→19.
+
+**다음 권장 (s6-r1 이후)**:
+- **(P2-r2)** s5e follow-up 잔여 — **IndexerVersion gate 415 Fact 2건** (TooLow/TooHigh). 본 PR scope 외였던 사유: index.db 의 `Meta.indexer_version` 행 override 가 `Ds2.LightHouse` 의 PrivateAssets=all 정합 (lib 의 `Microsoft.Data.Sqlite` transitive 차단) + lib 측 test-friendly stamp API 부재. 진입 시 `Ds2.LightHouse.KnowledgeBase.stampIndexerVersion (kbRoot: string) (version: string) : unit` 또는 `SqliteStore.setMetaValue` 신설 후 진입. 규모 ~50 line + 2-3 Fact.
+- **(P2-r3)** s5e follow-up 잔여 — L3 자동 회복 (LightHouseClient retry) / IPv4 vs IPv6 localhost binding. C# Promaker 측 retry 검토 필요 (F# CLI 측은 retry 없음, 단순 raise). 규모 ~80 line + 2-3 Fact.
 - **(P3)** Phase 2 진입 confirm — parent §3.15.5 사전 결정 10건 사용자 confirm 시 본격 진입.
 - **(P4)** Phase S7 (mTLS / SSE / multi-service) — 보안/UX 우선 시 Phase 2 와 병렬 진입.
 - **(P5)** s5d-r0 박제 잔여 (s5d-M1 4-part version normalize / s5d-m1 Write-Error+exit 통일 / s5d-m3 Resolve-Path 가드) — Phase 2 이연.
