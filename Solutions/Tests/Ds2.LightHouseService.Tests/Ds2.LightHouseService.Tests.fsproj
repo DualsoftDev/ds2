@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="TestFixtures.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="StorageTests.fs" />
     <Compile Include="DpapiRoundTripTests.fs" />

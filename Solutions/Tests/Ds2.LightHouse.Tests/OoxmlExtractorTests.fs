@@ -102,20 +102,8 @@ let ``Supports — Docx only (Pptx/Xlsx Phase 2)`` () =
 
 // ── Phase 2 task C3 (s6-r14): OoxmlExtractor 의 docx ImageParts 추출 회귀 차단 ──
 
-/// 1×1 PNG raw bytes (IndexerTests.samplePngBytes 의 mirror — Tests common module 도입은 backlog).
-let private samplePngBytes : byte[] =
-    [|
-        0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy
-        0x00uy; 0x00uy; 0x00uy; 0x0Duy; 0x49uy; 0x48uy; 0x44uy; 0x52uy
-        0x00uy; 0x00uy; 0x00uy; 0x01uy; 0x00uy; 0x00uy; 0x00uy; 0x01uy
-        0x08uy; 0x06uy; 0x00uy; 0x00uy; 0x00uy
-        0x1Fuy; 0x15uy; 0xC4uy; 0x89uy
-        0x00uy; 0x00uy; 0x00uy; 0x0Auy; 0x49uy; 0x44uy; 0x41uy; 0x54uy
-        0x78uy; 0x9Cuy; 0x63uy; 0x00uy; 0x01uy; 0x00uy; 0x00uy; 0x05uy; 0x00uy; 0x01uy
-        0x0Duy; 0x0Auy; 0x2Duy; 0xB4uy
-        0x00uy; 0x00uy; 0x00uy; 0x00uy; 0x49uy; 0x45uy; 0x4Euy; 0x44uy
-        0xAEuy; 0x42uy; 0x60uy; 0x82uy
-    |]
+/// 1×1 PNG raw bytes — `Ds2.LightHouse.Tests.SamplePng.bytes` SSOT (s6-r22 mn7).
+let private samplePngBytes : byte[] = Ds2.LightHouse.Tests.SamplePng.bytes
 
 /// docx 에 ImagePart 한 개 박제 + paragraph 1개. image 가 inline drawing 으로 묶이지 않아도
 /// `MainDocumentPart.ImageParts` 에서 enumerate 됨 — paragraph 매핑은 C4 의무 (옵션 B trade-off).
@@ -314,3 +302,125 @@ let ``docx + header image — s6-r21 backlog 해소, RefLocator="header=1"`` () 
         Assert.Equal(1, img.Ordinal)
         Assert.Equal(Png, img.Format)
         Assert.Equal(samplePngBytes.Length, img.Bytes.Length))
+
+
+/// **s6-r22 task 5 (s6-r16 backlog 해소)** — table cell 안 inline Drawing 박제 docx.
+/// body 본문 1 + table (row 1 / cell 1 의 paragraph 1 에 image 1장).
+let private makeDocxWithTableCellImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let imgPart = main.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = main.GetIdOfPart(imgPart)
+
+    let body = Body()
+    // paragraph 1 (table 직전 본문).
+    let p1 = Paragraph()
+    let r1 = Run()
+    r1.AppendChild(Text("앞 본문")) |> ignore
+    p1.AppendChild(r1) |> ignore
+    body.AppendChild(p1) |> ignore
+
+    // table — 1 row × 2 cell. cell 1 = image+caption / cell 2 = 사양 텍스트.
+    let tbl = Table()
+    let tr = TableRow()
+
+    // cell 1: paragraph 1 (image), paragraph 2 (caption).
+    let tc1 = TableCell()
+    let cp1 = Paragraph()
+    let cr1 = Run()
+    let drawingXml =
+        sprintf """<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="1" name="CellPic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="CellPic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>""" relId
+    let drawing = Drawing(drawingXml)
+    cr1.AppendChild(drawing) |> ignore
+    cp1.AppendChild(cr1) |> ignore
+    tc1.AppendChild(cp1) |> ignore
+    let cp2 = Paragraph()
+    let cr2 = Run()
+    cr2.AppendChild(Text("그림 A")) |> ignore
+    cp2.AppendChild(cr2) |> ignore
+    tc1.AppendChild(cp2) |> ignore
+    tr.AppendChild(tc1) |> ignore
+
+    // cell 2: paragraph 1 (텍스트 only).
+    let tc2 = TableCell()
+    let cp3 = Paragraph()
+    let cr3 = Run()
+    cr3.AppendChild(Text("표 사양 컨베이어")) |> ignore
+    cp3.AppendChild(cr3) |> ignore
+    tc2.AppendChild(cp3) |> ignore
+    tr.AppendChild(tc2) |> ignore
+
+    tbl.AppendChild(tr) |> ignore
+    body.AppendChild(tbl) |> ignore
+
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+[<Fact>]
+let ``docx + table cell image — s6-r22 task 5, RefLocator scheme p=N.cell=M.p=K`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithTableCellImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // image 정확히 1장 박제 — 기존 (table block 단위) `p=2` scheme 이 아니라 cell scheme.
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        // table block 의 paraOrdinal = 2 (paragraph1 직후). cell 1 의 paragraph 1 에 image.
+        Assert.Equal("p=2.cell=1.p=1", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(Png, img.Format))
+
+
+/// **s6-r22 자가 검열 C1 정합** — nested table 안 image silent drift 차단 fixture.
+/// outer table 의 cell 1 안에 nested table (1×1) — nested cell 의 paragraph 에 inline Drawing 1장.
+/// 의도된 결과 = image 0장 박제 (nested scheme 미지원, Warn log 만).
+let private makeDocxWithNestedTableImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let imgPart = main.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = main.GetIdOfPart(imgPart)
+
+    let body = Body()
+
+    // outer table — 1 row × 1 cell. cell 안에 nested table 만.
+    let outerTbl = Table()
+    let outerRow = TableRow()
+    let outerCell = TableCell()
+    // nested table.
+    let innerTbl = Table()
+    let innerRow = TableRow()
+    let innerCell = TableCell()
+    let innerP = Paragraph()
+    let innerR = Run()
+    let drawingXml =
+        sprintf """<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="1" name="NestedPic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="NestedPic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>""" relId
+    innerR.AppendChild(Drawing(drawingXml)) |> ignore
+    innerP.AppendChild(innerR) |> ignore
+    innerCell.AppendChild(innerP) |> ignore
+    innerRow.AppendChild(innerCell) |> ignore
+    innerTbl.AppendChild(innerRow) |> ignore
+
+    outerCell.AppendChild(innerTbl) |> ignore
+    outerRow.AppendChild(outerCell) |> ignore
+    outerTbl.AppendChild(outerRow) |> ignore
+    body.AppendChild(outerTbl) |> ignore
+
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+[<Fact>]
+let ``docx + nested table image — s6-r22 C1 정합, silent drift 차단 (image 0장)`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithNestedTableImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // nested table scheme 미지원 → image 0장 박제. outer cell scheme 도 inner cell 좌표를 평면화하지 않음.
+        Assert.Equal(0, result.Images.Length))

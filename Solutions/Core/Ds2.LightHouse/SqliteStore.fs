@@ -17,11 +17,17 @@ module IndexerVersion =
     // 로 본 literal 을 추출 + service config 의 indexerVersionRange 정합 검증.
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
+    // s6-r22 mn3: 1.2.0 → 1.3.0 — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' schema 정합.
+    //   shadow rebuild trigger (기존 collection 의 MimeType NULL row → 재색인 시 NOT NULL DEFAULT 적용).
+    //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange = [1.0.0, 1.99.99]
+    //   안 검증 → 1.3.0 ∈ in range OK.
     [<Literal>]
-    let Current = "1.2.0"
+    let Current = "1.3.0"
 
+    // s6-r22 mn3: SchemaVersion 2 → 3 — ImageCache.MimeType column constraint 변경 (NULL → NOT NULL DEFAULT).
+    //   기존 DB 의 IF NOT EXISTS skip 으로 옛 schema 보존되더라도 IndexerVersion bump 가 shadow rebuild 강제.
     [<Literal>]
-    let SchemaVersion = "2"
+    let SchemaVersion = "3"
 
     [<Literal>]
     let Tokenizer = "trigram"
@@ -171,10 +177,13 @@ CREATE TABLE IF NOT EXISTS Meta (
 -- backward-compat: 신규 테이블만 IF NOT EXISTS, Chunks.ImageCount ALTER 는 ensureSchema 의 분기 처리.
 -- ImageCache: cross-document 공유 cache. PK = sha256 (ImageHash).
 -- ImageReferences: 문서 안 image 사용 위치 (page/slide 박제). PK = 복합 4 키 (parent §3.12 결함 5항 1).
+-- s6-r22 mn3: MimeType NOT NULL DEFAULT 'application/octet-stream' — `Indexer.ingestImagesIntoStore` 가
+-- `ImageStore.mimeOf` 로 항상 박제하나 legacy zip / 외부 source 안전망. AttachmentTools.inferMimeFromPath
+-- fallback 의 본질 해결 (caller 가 NULL/empty 분기 처리 부담 완화).
 CREATE TABLE IF NOT EXISTS ImageCache (
     ImageHash    TEXT PRIMARY KEY,
     StoredPath   TEXT NOT NULL,
-    MimeType     TEXT,
+    MimeType     TEXT NOT NULL DEFAULT 'application/octet-stream',
     Width        INTEGER,
     Height       INTEGER,
     CaptionText  TEXT,
