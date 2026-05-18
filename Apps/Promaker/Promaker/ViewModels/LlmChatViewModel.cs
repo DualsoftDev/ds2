@@ -259,6 +259,10 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         }
         catch (LightHouseAuthException)
         {
+            // L3 caller orchestration 정책 (§3.8 / LightHouseClient.cs:238-241): session 발급 *자체* 의
+            // 401/403 은 PSK 오류 → RecoverSessionAsync 재시도 무의미 (동일 PSK 로 같은 결과). chip 안내 후
+            // 비활성. L3 retry 의 진짜 sweet spot 은 MCP `/mcp` endpoint 의 token 만료 401 — MCP client
+            // orchestration layer 책임.
             Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = "⚠ LightHouse 인증 실패 (PSK 확인 필요) — Knowledge Base 비활성." });
             return null;
         }
