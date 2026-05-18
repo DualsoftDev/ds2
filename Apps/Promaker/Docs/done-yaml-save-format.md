@@ -1,7 +1,8 @@
-# TODO — Promaker `.yaml` 저장 포맷 도입
+# DONE — Promaker `.yaml` 저장 포맷 도입
 
-> 본 문서는 *논의 단계* (`--plan`) 에서 결정된 설계를 이어받기 위한 transfer 메모입니다.
-> 다음 세션에서 본 문서 + [`yaml-protocol-v0.md`](./yaml-protocol-v0.md) (※ **phase6-readsurface worktree 의 최신본**, `F:\Git\ds2\phase6-readsurface\Apps\Promaker\Docs\yaml-protocol-v0.md`) 를 함께 읽고 진입.
+> ✅ 작업 완료 (commit `fc4f6c4` + 자가검열 후속 fix). 본 문서는 작업 종료 시점 archive.
+>
+> 진척 표는 §7 참조. 설계 결정 (§3 D1~D9) / 코드 변경 (§4.2 D0~D7) / wiring 테스트 (§4.3) / 자가 검열 (§4.4) 전부 완료.
 >
 > **r1 review 반영 완료** — 5인 reviewer 의 외부 review (C1~C4 / M1~M12 / m1~m11) 를 §8 에 처리 내역으로 풀어 적었습니다. 본문 §2~§7 은 review 후 정정된 내용 기준.
 
@@ -247,12 +248,30 @@ Open(`.yaml`) 거부 dialog (view: partial 인 경우):
 
 | 단계 | 상태 |
 |---|---|
-| §3 설계 결정 (논의) + r1 review 반영 | ✅ 완료 (본 transfer commit 시점) |
-| §4.1 pre-check (public surface / view 부재 동작 / heal 무해성 / ExternalFileWatcher / DialogHelpers) | ⏳ |
-| §4.2 코드 변경 (D0~D7) | ⏳ |
-| §4.3 테스트 추가 (wiring 책임 한정) | ⏳ |
-| §4.4 자가 검열 (sub-agent review) | ⏳ |
-| commit / push | ⏳ |
+| §3 설계 결정 (논의) + r1 review 반영 | ✅ 완료 |
+| §4.1 pre-check (public surface / view 부재 동작 / heal 무해성 / ExternalFileWatcher / DialogHelpers) | ✅ 완료 (post-`fc4f6c4` self-driven 검증) |
+| §4.2 코드 변경 (D0~D7) | ✅ 완료 (commit `fc4f6c4`) |
+| §4.3 테스트 추가 (wiring 책임 한정) | ✅ 완료 (`ModelProtocolYamlIOTests.fs` 6건 + view: partial 친절 에러 substring assert 보강) |
+| §4.4 자가 검열 (sub-agent review) | ✅ 완료 (general-purpose agent — Major 1 / Minor 3 발견 → M1 / m2 / m3 수용 적용, m1 반론) |
+| commit / push | ✅ commit `fc4f6c4` + 자가검열 후속 fix |
+
+### 7.1 §4.1 pre-check 결과 (self-driven 검증)
+
+- **view: 키 부재 통과** — `ModelProtocol.fs:1122` `| None -> ()` 직접 확인. SSOT 룰 #8 (부재 거부) 미적용 — 본 작업 default (실 코드 답습) 정합. SSOT/코드 갭은 별도 cycle.
+- **heal 무해성** — `ToolOperations.fs:298-301` 의 `queueAddCall` 가 `apiCall.OriginFlowId <- Some work.ParentId` 명시 set. `ImportPlanApplyApiCallTests.fs` 의 OriginFlowId binding 4건 통과 → YAML apply 경로 (ImportPlanBuilder → ModelProtocol.apply → ApplyImportPlan) 통과 시점 OriginFlowId 항상 set → `healed = 0` 가정 정당. **무해 확인**. 단 silent 가시성 위해 `healed > 0` 시 `Log.Warn` 격상 (자가검열 M1 반영).
+- **ExternalFileWatcher** — `CheckExternalFileChange` 가 확장자 무관 watch + reload 진입은 `OpenFilePath` → `OpenFilePathCore` 의 `IsYaml` 분기 통과 → 동작 정합. 다만 reload prompt 의 silent UX 위험 → dialog 메시지에 lossy 안내 추가 (자가검열 외 self-driven).
+- **DialogHelpers** — "다시 보지 않기" 영구 persistence helper 도입 완료 (`DialogHelpers.cs:+9`, `AppSettingStore.SaveBool`).
+- **public surface** — `ModelProtocolYamlIO.fs` 합성 wrapper 2개 신설 (`exportStoreToYamlText` / `loadStoreFromYamlText`). 비즈니스 로직 0, 합성 chain.
+
+### 7.2 자가검열 후속 fix (자가 검열 §4.4 결과)
+
+| 항목 | 처리 |
+|---|---|
+| Major M1 — heal 가시성 | ✅ `healed > 0` 시 `Log.Info` → `Log.Warn` 격상 (FileCommands.cs:95, :227) |
+| Minor m1 — BusyMessage try/finally 통합 | ❌ 반론 (원 코드 주석 "dialog 노출 직전 BusyOverlay 복원" 의도와 충돌) |
+| Minor m2 — `DefaultExt` 점 제거 | ✅ `TrimStart('.')` 적용 (FileCommands.cs:386, 392) |
+| Minor m3 — view: partial 친절 에러 substring assert 강화 | ✅ `view-only` + `apply/validate 재입력 불가` 토큰 추가 검증 |
+| 추가 — ExternalFileWatcher lossy reload 안내 | ✅ `.yaml` 일 때 reload prompt 에 lossy 4-set 경고 한 줄 추가 |
 
 ---
 

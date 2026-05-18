@@ -235,10 +235,13 @@ internal static class DialogHelpers
         bool showDontShowAgain, out bool dontShowAgain) =>
         ShowThemedMessageBox(Application.Current.MainWindow, message, title, buttons, icon, showDontShowAgain, out dontShowAgain);
 
-    /// <summary>"다시 보지 않기" 체크박스 포함 오버로드</summary>
+    /// <summary>"다시 보지 않기" 체크박스 포함 오버로드. <paramref name="dontShowAgainLabel"/>
+    /// 미지정 시 기존 hardcode 라벨 ("다음 시뮬레이션까지 다시 보지 않기") — 시뮬 회기 scope 가 아닌
+    /// 영구 persistence 가 필요한 호출자는 호출자 측에서 라벨 + AppSettingStore 결합.</summary>
     internal static MessageBoxResult ShowThemedMessageBox(
         Window? owner, string message, string title, MessageBoxButton buttons, string icon,
-        bool showDontShowAgain, out bool dontShowAgain)
+        bool showDontShowAgain, out bool dontShowAgain,
+        string? dontShowAgainLabel = null)
     {
         var result = MessageBoxResult.None;
         dontShowAgain = false;
@@ -285,7 +288,7 @@ internal static class DialogHelpers
         {
             dontShowCheck = new CheckBox
             {
-                Content = "다음 시뮬레이션까지 다시 보지 않기",
+                Content = dontShowAgainLabel ?? "다음 시뮬레이션까지 다시 보지 않기",
                 IsChecked = true,
                 Foreground = (System.Windows.Media.Brush?)Application.Current.TryFindResource("SecondaryTextBrush")
                              ?? System.Windows.SystemColors.ControlTextBrush,

@@ -129,7 +129,6 @@
                  Click 시 ToggleLlmChatCommand 가 lazy 생성 + consent 검사 + IsLlmChatVisible 토글. -->
             <Button Style="{StaticResource RibbonFlatButton}"
                     Command="{Binding ToggleLlmChatCommand}"
-                    Visibility="{Binding IsLlmEnabled, Converter={StaticResource BoolToVis}}"
                     ToolTip="LLM Chat 패널 토글">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Robot" Width="18" Height="18" HorizontalAlignment="Center">

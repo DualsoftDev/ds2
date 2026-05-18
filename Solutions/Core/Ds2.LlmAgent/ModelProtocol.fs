@@ -24,6 +24,12 @@ module ModelProtocol =
 
     let private VALIDATION_ERROR = "VALIDATION_ERROR"
 
+    /// #7 (todo §10.2 옵션 a) — `Project.Version` 의 entity default SSOT 단일화.
+    /// emit 측 default 비교 (`p.Version <> defaultProjectVersion`) 가 hardcode `"1.0.0"` 와
+    /// dual SSOT 였던 문제 해소 — Entities.fs 의 `Project.Version` default 변경 시 자동 추적.
+    /// `Project` 의 internal constructor 가 `name: string` 받으므로 dummy `""` — Version 만 사용.
+    let private defaultProjectVersion = Project("").Version
+
     /// validate / dispatch 단계의 진단 메시지 누적용.
     type DiagnosticEntry = {
         Path: string
@@ -183,6 +189,73 @@ module ModelProtocol =
         | "Unspecified" -> Ok ArrowType.Unspecified
         | other -> Error (sprintf "arrow type '%s' 미지원. 허용: Start|Reset|StartReset|ResetReset|Group|Unspecified." other)
 
+    // ─── Enum parse helpers (Phase 7 §4.2 C-1) ───────────────────────────────
+    //
+    // SSOT yaml-protocol-v0.md §2.x 의 enum 라벨 ↔ Ds2.Core enum 변환.
+    // CallConditionType / ContactKind / CallType / ApiDefActionType — emit/apply 양쪽 호출
+    // 예정 (C-3 ~ C-5). 본 phase 는 helper 만 추가 — 기존 동작 영향 0건.
+    // 형식은 parseArrowType 패턴 답습 (Result<_, string>) — error 메시지에 허용 라벨 enumerate.
+
+    let parseCallConditionType (raw: string) : Result<CallConditionType, string> =
+        match raw.Trim() with
+        | "AutoAux" -> Ok CallConditionType.AutoAux
+        | "ComAux" -> Ok CallConditionType.ComAux
+        | "SkipUnmatch" -> Ok CallConditionType.SkipUnmatch
+        | other -> Error (sprintf "callCondition type '%s' 미지원. 허용: AutoAux|ComAux|SkipUnmatch." other)
+
+    let parseContactKind (raw: string) : Result<ContactKind, string> =
+        match raw.Trim() with
+        | "NoContact" -> Ok ContactKind.NoContact
+        | "NcContact" -> Ok ContactKind.NcContact
+        | "RisingPulse" -> Ok ContactKind.RisingPulse
+        | "FallingPulse" -> Ok ContactKind.FallingPulse
+        | "Inverter" -> Ok ContactKind.Inverter
+        | other -> Error (sprintf "contactKind '%s' 미지원. 허용: NoContact|NcContact|RisingPulse|FallingPulse|Inverter." other)
+
+    let parseCallType (raw: string) : Result<CallType, string> =
+        match raw.Trim() with
+        | "WaitForCompletion" -> Ok CallType.WaitForCompletion
+        | "SkipIfCompleted" -> Ok CallType.SkipIfCompleted
+        | other -> Error (sprintf "callType '%s' 미지원. 허용: WaitForCompletion|SkipIfCompleted." other)
+
+    // ApiDefActionType — DU 변형. 표기 grammar (device DU literal §2.3 패턴 답습):
+    //   - 인자 없음: "Normal" / "Push" / "Pulse"
+    //   - 1 인자  : "TimeTotal(500)" / "TimeAppend(200)"  (ms)
+    //   - 2 인자  : "MultiAction(3, 100)"                  (count, ms)
+    let private apiDefActionTypeRegex =
+        System.Text.RegularExpressions.Regex(
+            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$",
+            System.Text.RegularExpressions.RegexOptions.Compiled)
+
+    // TokenRole — Flags enum (None=0 / Source=1 / Ignore=2 / Sink=4). PoC scope: 단일 flag 만 직접 지원.
+    // 복합 flag (예: `Source ||| Sink`) 인 store 값은 emit 시 forensic 라벨 (`Combined(<int>)`) 로 표현 — parse 측은 거부.
+    let parseTokenRole (raw: string) : Result<TokenRole, string> =
+        match raw.Trim() with
+        | "None" -> Ok TokenRole.None
+        | "Source" -> Ok TokenRole.Source
+        | "Ignore" -> Ok TokenRole.Ignore
+        | "Sink" -> Ok TokenRole.Sink
+        | other -> Error (sprintf "tokenRole '%s' 미지원. 허용: None|Source|Ignore|Sink (PoC scope — 단일 flag 만)." other)
+
+    let parseApiDefActionType (raw: string) : Result<ApiDefActionType, string> =
+        let trimmed = raw.Trim()
+        let m = apiDefActionTypeRegex.Match(trimmed)
+        if not m.Success then
+            Error (sprintf "apiDefActionType '%s' 인식 불가. 형식: Normal|Push|Pulse|TimeTotal(<ms>)|TimeAppend(<ms>)|MultiAction(<count>, <ms>)." raw)
+        else
+            let caseName = m.Groups.[1].Value
+            let arg1Ok = m.Groups.[2].Success
+            let arg2Ok = m.Groups.[3].Success
+            match caseName, arg1Ok, arg2Ok with
+            | "Normal",      false, _    -> Ok ApiDefActionType.Normal
+            | "Push",        false, _    -> Ok ApiDefActionType.Push
+            | "Pulse",       false, _    -> Ok ApiDefActionType.Pulse
+            | "TimeTotal",   true,  false -> Ok (ApiDefActionType.TimeTotal  (int m.Groups.[2].Value))
+            | "TimeAppend",  true,  false -> Ok (ApiDefActionType.TimeAppend (int m.Groups.[2].Value))
+            | "MultiAction", true,  true  -> Ok (ApiDefActionType.MultiAction (int m.Groups.[2].Value, int m.Groups.[3].Value))
+            | _ ->
+                Error (sprintf "apiDefActionType '%s' — case 이름과 인자 개수 불일치. Normal/Push/Pulse 는 인자 없음, TimeTotal/TimeAppend 는 (ms), MultiAction 은 (count, ms)." raw)
+
     // ─── Arrow 표기 parse: "A -> B : Type" ──────────────────────────────────
 
     /// "A -> B : Type" / "A -> B" (type 누락 — validate 에러) 분해.
@@ -268,6 +341,10 @@ module ModelProtocol =
         Diagnostics: Diagnostics
         /// system name → SystemEntry. forward-ref 해소용.
         Systems: Dictionary<string, SystemEntry>
+        /// Phase 7 §10.2 #31 S3b — wire 의 `level:` 키가 결정. apply 진입부에서 mutable 1회 set.
+        /// Modeling 시 dispatch helper 가 *lookup-first* 분기 (기존 store entity 발견 시 reuse +
+        /// leaf-only mutate, missing 키 = no-op). Full 시 기존 동작 (queueAddXxx 중복 throw).
+        Level: Internal.ModelingCategory.ExportLevel ref
     }
 
     let private newContext (plan: ImportPlanBuilder) (store: DsStore) : ApplyContext = {
@@ -275,7 +352,337 @@ module ModelProtocol =
         Store = store
         Diagnostics = Diagnostics()
         Systems = Dictionary<string, SystemEntry>(StringComparer.Ordinal)
+        Level = ref Internal.ModelingCategory.Full
     }
+
+    // ─── Plan / Call.Properties helpers (Phase 7 §4.2 C-3/C-5) ───────────────
+    //
+    // dispatchPassiveSystem / dispatchWork 양쪽에서 사용 — ApplyContext 정의 직후 위치 (forward-ref 회피).
+    //
+    // #13 (todo §10.2) — `tryFindXxxInPlan` SSOT 완전 일원화. `Ds2.LlmAgent.Internal.PlanLookup`
+    // 신규 module 신설 (PlanLookup.fs) → ToolOperations.fs + 본 파일 양쪽 file-scoped 중복 제거.
+    // local alias 만 노출 (private scope 유지 — 도메인 의미 변화 없음).
+
+    let private tryFindCallInPlan   = Internal.PlanLookup.tryFindCall
+    let private tryFindApiDefInPlan = Internal.PlanLookup.tryFindApiDef
+    let private tryFindProjectInPlan= Internal.PlanLookup.tryFindProject
+    let private tryFindSystemInPlan = Internal.PlanLookup.tryFindSystem
+    let private tryFindWorkInPlan   = Internal.PlanLookup.tryFindWork
+    let private tryFindFlowInPlan   = Internal.PlanLookup.tryFindFlow
+
+    // ─── Plan+Store unified lookup (Phase 7 §4.2 helper 3종 추출) ─────────────
+    //
+    // `tryFindXxxInPlan` (본 turn add) + `Queries.getXxx` (기존 store) 의 2-stage fallback chain
+    // 통합. 본 turn 새로 add 된 entity 는 plan operations 에서 추적되고, 기존 store entity 는
+    // Queries 에서 lookup. 양쪽 모두 None 이면 None.
+    //
+    // 명명: 기존 `resolveApiDef` (name 기반, line 677) / `resolveProjectKey` (line 457) 와 충돌
+    // 회피 위해 `lookupXxxById` 명명 사용 — apply 측 leaf 키 setter 패턴 (`IRI` / `TokenRole`
+    // / `Author` / `Version` / `actionType` / `description` 등) 에서 5+ 회 누적 사용.
+
+    // generic 2-stage fallback (#15 — todo §10.2). plan operations 우선 + store fallback.
+    //
+    // **사용 시나리오 (apply 단계 — leaf 키 setter)**: YAML 입력 적용 중 외부 GUID 참조 해결.
+    // 이번 turn 새로 add 된 entity 는 아직 store commit 전이므로 `ImportPlanBuilder` 의 누적
+    // operation 에서만 발견됨 → plan 측을 *우선* 검색. 기존 store entity (이전 turn commit) 는
+    // store fallback. 부재 시 `None` 반환 — 호출자는 silent skip + entity-default fallback 정합
+    // (SSOT §4 default 정책). leaf 키 setter (`IRI` / `actionType` / `description` 등) 6+ 회 사용.
+    //
+    // **`ToolOperations.requireFromStoreOrPlan` 와 의도된 비대칭** (외부 reviewer M4 — 통합 보류):
+    //   * 본 helper: plan-first → store. Optional 반환. silent skip 정합 (apply 단계).
+    //   * `requireFromStoreOrPlan`: store-first → plan. invalidOp 발생. fail-fast 정합 (commit 단계).
+    // 검색 순서 통일 시 한쪽이 stale entity 를 lookup 가능 (apply 측이 store-first 면 같은 turn
+    // 신규 add 미반영) — 두 helper 분리 유지 정책. 통합 의향이 있다면 시점/반환타입 차이 우선 해소 필요.
+    let private lookupById
+        (planFinder: ImportPlanBuilder -> Guid -> 'T option)
+        (storeFinder: Guid -> DsStore -> 'T option)
+        (ctx: ApplyContext) (id: Guid) : 'T option =
+        planFinder ctx.Plan id
+        |> Option.orElseWith (fun () -> storeFinder id ctx.Store)
+
+    let private lookupSystemById  ctx id = lookupById tryFindSystemInPlan  Queries.getSystem  ctx id
+    let private lookupCallById    ctx id = lookupById tryFindCallInPlan    Queries.getCall    ctx id
+    let private lookupApiDefById  ctx id = lookupById tryFindApiDefInPlan  Queries.getApiDef  ctx id
+    let private lookupProjectById ctx id = lookupById tryFindProjectInPlan Queries.getProject ctx id
+    let private lookupWorkById    ctx id = lookupById tryFindWorkInPlan    Queries.getWork    ctx id
+    let private lookupFlowById    ctx id = lookupById tryFindFlowInPlan    Queries.getFlow    ctx id
+
+    // ─── Property apply helpers (Phase 7 §4.2 — leaf 키 setter 패턴 통합) ─────
+    //
+    // `tryProp + tryString + Option.iter` (또는 + parser) 3~4-step 패턴이 6+ 회 누적 — 통합.
+
+    /// 진단 키 합성 — path 가 빈 string (root-level) 인 경우 leading-dot 회피 (외부 review M-1).
+    let private joinDiagKey (path: string) (key: string) : string =
+        if path = "" then key else path + "." + key
+
+    /// `tryProp el key + tryString + setter` — string property 적용.
+    /// 키 부재 → no-op (entity-default fallback 정합, SSOT §4). 키 존재 + non-string → diag 발행
+    /// (SSOT §2.7 룰 #21~#24 silent skip 금지 정책 정합 — 외부 reviewer M-F).
+    let private applyStringProp
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string)
+        (setter: string -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun valEl ->
+            match tryString valEl with
+            | Some s -> setter s
+            | None ->
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+
+    /// `string option` 도메인 leaf 의 *wire 정규화* 적용 (#16 — M1/M2 외부 review 반영).
+    ///
+    /// **정책**: `null` / `""` / 키 부재 — 3 case 모두 setter 미 호출 → store 표면값 = entity-default (대부분 `None`).
+    /// emit 측 `Option.filter (not << String.IsNullOrEmpty)` 가드와 짝 → wire round-trip 정합.
+    /// → 외부 도구가 IRI 등을 reset 하려면 키 *제거* 권장. `iri: null` / `iri: ""` 도 동일 결과 (silent skip).
+    ///
+    /// **비대칭 주의** (SSOT §6.3): `readStringOptKey` (plc leaf) 는 정반대 정책 — `null → Some None`,
+    /// `"" → Some ""` 모두 보존. 같은 `string option` 도메인이라도 *wire 정규화 vs PoC 보존* 두 정책 공존.
+    /// 호출자는 entity 의 domain semantic 에 맞춰 helper 선택 (외부 reviewer M2 — 함수명으로 구별 가시화).
+    let private applyNonEmptyStringProp
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string)
+        (setter: string -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun valEl ->
+            match valEl.ValueKind with
+            | JsonValueKind.Null -> ()  // null → None 정규화 (reset semantic)
+            | _ ->
+                match tryString valEl with
+                | Some s when not (String.IsNullOrEmpty s) -> setter s
+                | Some _ -> ()  // 빈 string → None 정규화
+                | None ->
+                    ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+
+    /// `tryProp el key + tryString + parser + setter` — enum property 적용.
+    /// 키 부재 → no-op. 키 존재 + non-string → diag (#23). parse 실패 → diag (#19/#20).
+    let private applyEnumProp
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string)
+        (parser: string -> Result<'a, string>)
+        (setter: 'a -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun valEl ->
+            match tryString valEl with
+            | Some s ->
+                match parser s with
+                | Ok v -> setter v
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path key, msg)
+            | None ->
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." valEl.ValueKind))
+
+    /// Call.Properties 안 SimulationCallProperties 의 CallType 추출 (없으면 None).
+    let private callTypeOf (c: Call) : CallType option =
+        c.Properties
+        |> Seq.tryPick (function
+            | SimulationCall props -> Some props.CallType
+            | _ -> None)
+
+    /// Call.Properties 안 SimulationCallProperties 의 CallType 설정. 기존 SimulationCall 있으면 mutate, 없으면 append.
+    let private setCallType (c: Call) (ct: CallType) : unit =
+        let idxOpt =
+            c.Properties
+            |> Seq.indexed
+            |> Seq.tryPick (fun (i, p) ->
+                match p with SimulationCall _ -> Some i | _ -> None)
+        match idxOpt with
+        | Some i ->
+            match c.Properties.[i] with
+            | SimulationCall props -> props.CallType <- ct
+            | _ -> ()
+        | None ->
+            let props = SimulationCallProperties()
+            props.CallType <- ct
+            c.Properties.Add(SimulationCall props)
+
+    // ─── PLC metadata apply (Phase 7 §4.2 C-7.1) ─────────────────────────────
+    //
+    // SSOT §2.2.2 (C-7.1): entity 안 `plc:` sub-section — ControlSystemProperties /
+    // ControlFlowProperties / ControlWorkProperties / ControlCallProperties 의 단순
+    // leaf scalar 만 처리 (복합 collection 은 C-7.2 후속 phase).
+    //
+    // **Default 정책**: 키 부재 → no-op (type-default 유지). 키 존재 → mutate.
+    // emit 측이 type-default 와 다른 값만 emit 하므로 round-trip 정합.
+    //
+    // **TimeSpan**: `TimeSpan.TryParse` — `"00:00:05"` / `"00:00:00.005"` (ms) 모두 지원.
+    //
+    // **Runtime-only 제외** (派 분류): CurrentState / LastExecutionTime / ExecutionCount /
+    // ErrorCount (Work) — emit 안 하므로 plc 키 진단에서 unknown 으로 거부 (round-trip 0건).
+
+    let private readBoolKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: bool -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.True -> setter true
+            | JsonValueKind.False -> setter false
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "bool 기대 (실제 %A)." v.ValueKind))
+
+    let private readIntKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: int -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            if v.ValueKind = JsonValueKind.Number then
+                let ok, n = v.TryGetInt32()
+                if ok then setter n
+                else ctx.Diagnostics.Add(joinDiagKey path key, "int 기대 (overflow 또는 not integer).")
+            else
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "int 기대 (실제 %A)." v.ValueKind))
+
+    let private readFloatKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: float -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            if v.ValueKind = JsonValueKind.Number then
+                let ok, n = v.TryGetDouble()
+                if ok then setter n
+                else ctx.Diagnostics.Add(joinDiagKey path key, "float 기대.")
+            else
+                ctx.Diagnostics.Add(joinDiagKey path key, sprintf "float 기대 (실제 %A)." v.ValueKind))
+
+    let private readStringKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: string -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match tryString v with
+            | Some s -> setter s
+            | None -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." v.ValueKind))
+
+    /// string | null → Some s / None. 빈 string ("") 은 그대로 Some "" (정규화 없음 — PoC).
+    let private readStringOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: string option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.String -> setter (Some (v.GetString()))
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readIntOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: int option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.Number ->
+                let ok, n = v.TryGetInt32()
+                if ok then setter (Some n)
+                else ctx.Diagnostics.Add(joinDiagKey path key, "int 기대 (overflow 또는 not integer).")
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "int | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readFloatOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: float option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.Number ->
+                let ok, n = v.TryGetDouble()
+                if ok then setter (Some n)
+                else ctx.Diagnostics.Add(joinDiagKey path key, "float 기대.")
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "float | null 기대 (실제 %A)." v.ValueKind))
+
+    let private readTimeSpanKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: TimeSpan -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match tryString v with
+            | Some s ->
+                let ok, ts = TimeSpan.TryParse s
+                if ok then setter ts
+                else ctx.Diagnostics.Add(joinDiagKey path key, sprintf "TimeSpan 형식 위반 ('%s')." s)
+            | None -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string 기대 (실제 %A)." v.ValueKind))
+
+    let private readTimeSpanOptKey
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (key: string) (setter: TimeSpan option -> unit) : unit =
+        tryProp el key
+        |> Option.iter (fun v ->
+            match v.ValueKind with
+            | JsonValueKind.Null -> setter None
+            | JsonValueKind.String ->
+                let s = v.GetString()
+                let ok, ts = TimeSpan.TryParse s
+                if ok then setter (Some ts)
+                else ctx.Diagnostics.Add(joinDiagKey path key, sprintf "TimeSpan 형식 위반 ('%s')." s)
+            | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "string | null 기대 (실제 %A)." v.ValueKind))
+
+    /// 알려진 키 외 entry → 진단 발행 (SSOT §2.7 unknown 키 거부 정합).
+    let private warnUnknownPlcKeys
+        (ctx: ApplyContext) (path: string) (el: JsonElement) (known: Set<string>) : unit =
+        for prop in el.EnumerateObject() do
+            if not (Set.contains prop.Name known) then
+                ctx.Diagnostics.Add(joinDiagKey path prop.Name, sprintf "알 수 없는 plc 키 '%s'." prop.Name)
+
+    // ─── PLC metadata leaf SSOT (#20 — todo §10.2) ───────────────────────────
+    //
+    // **#25 (todo §10.2)** — leaves table 정의는 `Ds2.LlmAgent.Internal.PlcMetadata`
+    // 로 분리 (capturer 도 같은 SSOT 참조). PlcLeafKind / PlcLeaf / 4 leaves table 모두
+    // 본 module 안 type/list 정의 *제거됨* — `open PlcMetadata` 로 case 직접 사용.
+    //
+    // type-default 비교: `defaultCp` 매개변수 (entity 의 빈 instance — 생성자 결과) 와 cur 비교.
+    // emit/apply/hasNonDefault generic helper 는 본 module 안 ApplyContext 의존성 때문에 유지.
+
+    open Ds2.LlmAgent.Internal.PlcMetadata
+    open Ds2.LlmAgent.Internal.ModelingCategory
+
+    /// leaves 기반 apply — 미지의 키 진단 발행 포함.
+    let private parsePlcLeaves
+        (ctx: ApplyContext) (path: string) (plcEl: JsonElement)
+        (cp: 'cp) (leaves: PlcLeaf<'cp> list) : unit =
+        for leaf in leaves do
+            match leaf.Kind with
+            | LBool        (_, setter) -> readBoolKey ctx path plcEl leaf.Key (setter cp)
+            | LInt         (_, setter) -> readIntKey ctx path plcEl leaf.Key (setter cp)
+            | LFloat       (_, setter) -> readFloatKey ctx path plcEl leaf.Key (setter cp)
+            | LString      (_, setter) -> readStringKey ctx path plcEl leaf.Key (setter cp)
+            | LStringOpt   (_, setter) -> readStringOptKey ctx path plcEl leaf.Key (setter cp)
+            | LIntOpt      (_, setter) -> readIntOptKey ctx path plcEl leaf.Key (setter cp)
+            | LFloatOpt    (_, setter) -> readFloatOptKey ctx path plcEl leaf.Key (setter cp)
+            | LTimeSpan    (_, setter) -> readTimeSpanKey ctx path plcEl leaf.Key (setter cp)
+            | LTimeSpanOpt (_, setter) -> readTimeSpanOptKey ctx path plcEl leaf.Key (setter cp)
+        let known = leaves |> List.map (fun l -> l.Key) |> Set.ofList
+        warnUnknownPlcKeys ctx path plcEl known
+
+    /// entity 별 wrapper — shape 검사 + ControlXxxProperties 인스턴스 ensure + parsePlcLeaves 위임.
+    let private parsePlcSystem
+        (ctx: ApplyContext) (path: string) (sys: DsSystem) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match sys.GetControlProperties() with
+                | Some cp -> cp
+                | None -> let cp = ControlSystemProperties() in sys.SetControlProperties(cp); cp
+            parsePlcLeaves ctx path plcEl cp plcSystemLeaves
+
+    let private parsePlcFlow
+        (ctx: ApplyContext) (path: string) (flow: Flow) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match flow.GetControlProperties() with
+                | Some cp -> cp
+                | None -> let cp = ControlFlowProperties() in flow.SetControlProperties(cp); cp
+            parsePlcLeaves ctx path plcEl cp plcFlowLeaves
+
+    let private parsePlcWork
+        (ctx: ApplyContext) (path: string) (wk: Work) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match wk.GetControlProperties() with
+                | Some cp -> cp
+                | None -> let cp = ControlWorkProperties() in wk.SetControlProperties(cp); cp
+            parsePlcLeaves ctx path plcEl cp plcWorkLeaves
+
+    let private parsePlcCall
+        (ctx: ApplyContext) (path: string) (c: Call) (plcEl: JsonElement) : unit =
+        if plcEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "plc: Object 기대 (실제 %A)." plcEl.ValueKind)
+        else
+            let cp =
+                match c.GetControlProperties() with
+                | Some cp -> cp
+                | None -> let cp = ControlCallProperties() in c.SetControlProperties(cp); cp
+            parsePlcLeaves ctx path plcEl cp plcCallLeaves
 
     /// `flow Run` 같은 prefix 키 매칭 (SSOT §2.5).
     /// grammar: `flow` WS+ identifier (ASCII).
@@ -299,7 +706,7 @@ module ModelProtocol =
                 | None -> ctx.Diagnostics.Add(path, "'system' 키 누락 (이름 필수).")
                 | Some nameEl ->
                     match tryString nameEl with
-                    | None -> ctx.Diagnostics.Add(path + ".system", "string 기대.")
+                    | None -> ctx.Diagnostics.Add(joinDiagKey path "system", "string 기대.")
                     | Some name ->
                         let kindRaw =
                             tryProp sysEl "kind"
@@ -308,7 +715,7 @@ module ModelProtocol =
                         | None ->
                             ctx.Diagnostics.Add(path, "kind 누락. 'active' 또는 'passive' 명시 필요.")
                         | Some kind when kind <> "active" && kind <> "passive" ->
-                            ctx.Diagnostics.Add(path + ".kind", sprintf "'%s' 미지원. 'active' 또는 'passive' 만 허용." kind)
+                            ctx.Diagnostics.Add(joinDiagKey path "kind", sprintf "'%s' 미지원. 'active' 또는 'passive' 만 허용." kind)
                         | Some kind ->
                             // kind 와 키 정합성 체크 (SSOT §2.7 룰 6)
                             let hasFlowKey =
@@ -322,7 +729,7 @@ module ModelProtocol =
                             if kind = "active" && hasDeviceKey then
                                 ctx.Diagnostics.Add(path, "kind=active 인데 device 키 존재. 어느 한쪽 수정.")
                             if ctx.Systems.ContainsKey name then
-                                ctx.Diagnostics.Add(path + ".system", sprintf "'%s' 시스템 이름 중복." name)
+                                ctx.Diagnostics.Add(joinDiagKey path "system", sprintf "'%s' 시스템 이름 중복." name)
                             else
                                 ctx.Systems.[name] <- newSystemEntry name kind
                 idx <- idx + 1
@@ -376,6 +783,47 @@ module ModelProtocol =
         | Custom _         -> KnownSugars.customDefaultApis, KnownSugars.customDefaultOpposing, KnownSugars.customDefaultDuration
         | UnknownSugar raw -> failwithf "deviceDefaults: UnknownSugar '%s' 는 호출처에서 분기 처리되어야 합니다." raw
 
+    // S3b — dispatch helper 의 modeling lookup-first 분기가 사용하므로 이 위치에 위치.
+    // 기존에는 line 1478~ (applyPatch 영역 인근) 에 정의됐으나 dispatchActiveSystem / dispatchPassiveSystem
+    // 보다 *뒤* 였음 — forward-ref 회피로 이동.
+    /// 단일 segment system path → store 안의 DsSystem 검색 (active + passive 합집합).
+    let private findSystemByName (store: DsStore) (sysName: string) : DsSystem option =
+        Queries.allProjects store
+        |> List.collect (fun p ->
+            (Queries.activeSystemsOf p.Id store)
+            @ (Queries.passiveSystemsOf p.Id store))
+        |> List.tryFind (fun s -> s.Name = sysName)
+
+    /// `<system>.<flow>` 형식 path → store 안의 Flow 검색.
+    let private findFlowByPath (store: DsStore) (rawPath: string) : Flow option =
+        match pathSegments rawPath with
+        | [ sysName; flowName ] ->
+            findSystemByName store sysName
+            |> Option.bind (fun s ->
+                Queries.flowsOf s.Id store
+                |> List.tryFind (fun f -> f.Name = flowName))
+        | _ -> None
+
+    /// S3b — modeling level Arrow lookup-first 용. 같은 (source, target, ArrowType) Work 간 arrow 가
+    /// store 에 이미 있는지 검사. parent system 은 source Work → parent Flow → parent System chain.
+    let private arrowWorkExists (store: DsStore) (s: Guid) (t: Guid) (aType: ArrowType) : bool =
+        match Queries.getWork s store with
+        | None -> false
+        | Some srcW ->
+            match Queries.getFlow srcW.ParentId store with
+            | None -> false
+            | Some srcF ->
+                Queries.arrowWorksOf srcF.ParentId store
+                |> List.exists (fun a -> a.SourceId = s && a.TargetId = t && a.ArrowType = aType)
+
+    /// S3b — modeling level Arrow lookup-first 용. Call 간 arrow 의 parent = source Call.ParentId (= Work.Id).
+    let private arrowCallExists (store: DsStore) (s: Guid) (t: Guid) (aType: ArrowType) : bool =
+        match Queries.getCall s store with
+        | None -> false
+        | Some srcC ->
+            Queries.arrowCallsOf srcC.ParentId store
+            |> List.exists (fun a -> a.SourceId = s && a.TargetId = t && a.ArrowType = aType)
+
     let private dispatchPassiveSystem
         (ctx: ApplyContext)
         (entry: SystemEntry)
@@ -403,7 +851,7 @@ module ModelProtocol =
 
         // duration 키 발견 시 친절 메시지 (SSOT 폐기 표기).
         if tryProp sysEl "duration" |> Option.isSome then
-            ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
+            ctx.Diagnostics.Add(joinDiagKey path "duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
         let workDuration =
             match workDurRaw with
@@ -412,64 +860,211 @@ module ModelProtocol =
                 match parseDuration s with
                 | Ok ts -> Some ts
                 | Error msg ->
-                    ctx.Diagnostics.Add(path + ".workDuration", msg)
+                    ctx.Diagnostics.Add(joinDiagKey path "workDuration", msg)
                     None
 
-        match deviceRaw with
-        | None ->
-            // device 키 부재 — 단순 Passive 만 생성 (SSOT §5 매핑 표 잠정 허용).
-            try
-                let id = ToolOperations.queueAddPassiveSystem ctx.Plan ctx.Store entry.Name "Unit"
-                entry.SystemId := Some id
-            with ex -> ctx.Diagnostics.Add(path, ex.Message)
-        | Some raw ->
-            match parseDevice raw with
-            | Error msg -> ctx.Diagnostics.Add(path + ".device", msg)
-            | Ok lit ->
-                match lit with
-                | UnknownSugar bare ->
-                    ctx.Diagnostics.Add(
-                        path + ".device",
-                        sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
-                | _ ->
-                    let defApis, defOpp, defDur = deviceDefaults lit
-                    let apis = apisRaw |> Option.defaultValue defApis
-                    let opposing = opposingRaw |> Option.defaultValue defOpp
-                    let duration = workDuration |> Option.orElseWith (fun () -> Some defDur)
-                    try
-                        let id, apiPairs =
-                            match lit with
-                            | KnownCylinder ->
-                                ToolOperations.queueAddCylinder ctx.Plan ctx.Store entry.Name apis duration
-                            | KnownClamp ->
-                                ToolOperations.queueAddClamp ctx.Plan ctx.Store entry.Name apis duration
-                            | KnownRobot ->
-                                if apis.IsEmpty then
-                                    invalidOp "robot 은 apis 명시 필수."
-                                ToolOperations.queueAddRobot ctx.Plan ctx.Store entry.Name apis opposing duration
-                            | Custom typeName ->
-                                if apis.IsEmpty then
-                                    invalidOp (sprintf "custom(%s) 는 apis 명시 필수." typeName)
-                                ToolOperations.queueAddDevice ctx.Plan ctx.Store entry.Name typeName apis opposing duration
-                            | UnknownSugar _ -> failwith "unreachable — UnknownSugar 는 위 분기에서 처리됨"
-                        entry.SystemId := Some id
-                        for (apiName, apiId) in apiPairs do
-                            entry.ApiDefIds.[apiName] <- apiId
-                    with ex ->
-                        ctx.Diagnostics.Add(path, ex.Message)
+        // S3b — modeling level 시 lookup-first. 기존 Passive 발견 시 device cascade skip +
+        // store 의 ApiDef 목록을 entry.ApiDefIds 에 누적 (forward-ref 해소용 — Active 의 calls 가
+        // `<Passive>.<ApiDef>` 로 참조 시 resolveApiDef 가 lookup 가능).
+        // **M-2 (sub-agent review)**: wire 의 device 키가 store 의 SystemType 매핑과 mismatch
+        // 시 silent ignore 회피 — 진단 발행. modeling level 은 device 변경 금지 (cascade 는 store
+        // 그대로). apis / opposing / workDuration 도 mismatch 검사 가능하나 현 PoC 는 device 만
+        // (가장 빈번한 사용자 입력 변경 = device sugar — apis 변경 시나리오 드물고 검증 분기 복잡).
+        let modelingReuseHit =
+            match !ctx.Level with
+            | Modeling ->
+                // #32 — store + plan 합집합 (같은 turn 안 다른 source 가 add 한 Passive 도 reuse).
+                let storeHit = findSystemByName ctx.Store entry.Name
+                let combinedHit =
+                    storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
+                match combinedHit with
+                | Some sys ->
+                    let isPassiveInStore =
+                        Queries.allProjects ctx.Store
+                        |> List.exists (fun p -> p.PassiveSystemIds.Contains sys.Id)
+                    let isPassiveInPlan =
+                        Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
+                        |> Option.map not
+                        |> Option.defaultValue false   // LinkSystemToProject 부재 = "passive 아님" 으로 fail-safe (store-only 신뢰)
+                    if not (isPassiveInStore || isPassiveInPlan) then
+                        ctx.Diagnostics.Add(path,
+                            sprintf "system '%s' 가 store 에서 active 인데 wire 에 kind=passive 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
+                        None
+                    else
+                        // **M-2**: device mismatch 검증 — wire 의 device 키가 기존 cascade 와
+                        // 다른 sugar 명시 시 진단. parseDevice 결과의 sugar literal 과 store 의
+                        // SystemType 매핑 (cylinder/clamp -> "Unit", robot -> "Robot", custom -> raw)
+                        // 비교. SystemType=None 인 store (비정상) 는 검증 skip.
+                        deviceRaw |> Option.iter (fun raw ->
+                            match parseDevice raw with
+                            | Error _ -> ()  // device 키 자체 형식 오류는 본 분기 외에서 처리
+                            | Ok lit ->
+                                match lit with
+                                | UnknownSugar bare ->
+                                    // **사용자 review Minor #1**: modeling reuse 분기에서 UnknownSugar
+                                    // silent skip 회피 — 사용자 오타 (`cylindar` 등) 인지 가능하도록
+                                    // wire 입력 검증. reuse 자체는 store entity 정상 사용이라 entity
+                                    // 의미 정합. 진단은 사용자 wire 표기 정정 유도.
+                                    ctx.Diagnostics.Add(joinDiagKey path "device",
+                                        sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
+                                | _ ->
+                                    let wireSystemType =
+                                        match lit with
+                                        | KnownCylinder | KnownClamp -> Some "Unit"
+                                        | KnownRobot -> Some "Robot"
+                                        | Custom typeName -> Some typeName
+                                        | UnknownSugar _ -> None  // 위 분기에서 처리됨
+                                    match wireSystemType, sys.SystemType with
+                                    | Some wireT, Some storeT when wireT <> storeT ->
+                                        ctx.Diagnostics.Add(joinDiagKey path "device",
+                                            sprintf "modeling level 은 device 변경 금지 (store SystemType='%s', wire 매핑='%s'). patch DSL 또는 level: full 사용." storeT wireT)
+                                    | _ -> ())
+                        entry.SystemId := Some sys.Id
+                        for apiDef in Queries.apiDefsOf sys.Id ctx.Store do
+                            entry.ApiDefIds.[apiDef.Name] <- apiDef.Id
+                        // #32 — plan 측 ApiDef 도 누적 (같은 turn 안 add 된 ApiDef 도 cross-system call 에서 reuse)
+                        for op in ctx.Plan.Operations do
+                            match op with
+                            | AddApiDef d when d.ParentId = sys.Id ->
+                                entry.ApiDefIds.[d.Name] <- d.Id
+                            | _ -> ()
+                        Some sys
+                | None -> None
+            | Full -> None
+
+        if modelingReuseHit.IsNone then
+            match deviceRaw with
+            | None ->
+                // device 키 부재 — 단순 Passive 만 생성 (SSOT §5 매핑 표 잠정 허용).
+                try
+                    let id = ToolOperations.queueAddPassiveSystem ctx.Plan ctx.Store entry.Name "Unit"
+                    entry.SystemId := Some id
+                with ex -> ctx.Diagnostics.Add(path, ex.Message)
+            | Some raw ->
+                match parseDevice raw with
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "device", msg)
+                | Ok lit ->
+                    match lit with
+                    | UnknownSugar bare ->
+                        ctx.Diagnostics.Add(
+                            joinDiagKey path "device",
+                            sprintf "'%s' 는 sugar 미정의. device: custom(<Type>), apis: [...] long-form 사용." bare)
+                    | _ ->
+                        let defApis, defOpp, defDur = deviceDefaults lit
+                        let apis = apisRaw |> Option.defaultValue defApis
+                        let opposing = opposingRaw |> Option.defaultValue defOpp
+                        let duration = workDuration |> Option.orElseWith (fun () -> Some defDur)
+                        try
+                            let id, apiPairs =
+                                match lit with
+                                | KnownCylinder ->
+                                    ToolOperations.queueAddCylinder ctx.Plan ctx.Store entry.Name apis duration
+                                | KnownClamp ->
+                                    ToolOperations.queueAddClamp ctx.Plan ctx.Store entry.Name apis duration
+                                | KnownRobot ->
+                                    if apis.IsEmpty then
+                                        invalidOp "robot 은 apis 명시 필수."
+                                    ToolOperations.queueAddRobot ctx.Plan ctx.Store entry.Name apis opposing duration
+                                | Custom typeName ->
+                                    if apis.IsEmpty then
+                                        invalidOp (sprintf "custom(%s) 는 apis 명시 필수." typeName)
+                                    ToolOperations.queueAddDevice ctx.Plan ctx.Store entry.Name typeName apis opposing duration
+                                | UnknownSugar _ -> failwith "unreachable — UnknownSugar 는 위 분기에서 처리됨"
+                            entry.SystemId := Some id
+                            for (apiName, apiId) in apiPairs do
+                                entry.ApiDefIds.[apiName] <- apiId
+                        with ex ->
+                            ctx.Diagnostics.Add(path, ex.Message)
+
+        // Phase 7 §4.2 C-6: DsSystem.IRI (Passive — leaf 키)
+        // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System)
+        match !entry.SystemId with
+        | Some sysId ->
+            applyNonEmptyStringProp ctx path sysEl "iri" (fun s ->
+                lookupSystemById ctx sysId |> Option.iter (fun sys -> sys.IRI <- Some s))
+            tryProp sysEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupSystemById ctx sysId
+                |> Option.iter (fun sys ->
+                    parsePlcSystem ctx (joinDiagKey path "plc") sys plcEl))
+        | None -> ()
+
+        // apiDetails — ApiDef 별 추가 property (Phase 7 §4.2 C-5).
+        // device sugar 가 ApiDef 를 생성한 분기 (cylinder/clamp/robot/custom) 통과 후 적용.
+        // *device 키 부재 시 ApiDef 미생성* — apiDetails entry 가 모두 entry.ApiDefIds lookup 에 실패하여
+        // forensic diag 발생. SSOT §2.3 가 `apiDetails` 를 device sugar Passive 한정으로 명시 (외부 reviewer M-C).
+        tryProp sysEl "apiDetails"
+        |> Option.iter (fun detailsEl ->
+            if detailsEl.ValueKind <> JsonValueKind.Object then
+                ctx.Diagnostics.Add(joinDiagKey path "apiDetails", sprintf "object 기대 (실제 %A)." detailsEl.ValueKind)
+            else
+                for prop in detailsEl.EnumerateObject() do
+                    let apiName = prop.Name
+                    let apiPath = sprintf "%s.apiDetails.%s" path apiName
+                    match entry.ApiDefIds.TryGetValue apiName with
+                    | true, apiId ->
+                        match lookupApiDefById ctx apiId with
+                        | Some apiDef ->
+                            applyEnumProp ctx apiPath prop.Value "actionType" parseApiDefActionType (fun at -> apiDef.ApiDefActionType <- at)
+                            // 외부 reviewer m-4 반영: 빈 string 도 set 하면 store 표면값 (`Some ""`) 이 emit 측 default-skip
+                            // 정책 (Some 이고 빈 아닐 때만 emit) 과 비대칭. apply 측에서도 빈 string → None 으로 정규화.
+                            tryProp prop.Value "description"
+                            |> Option.bind tryString
+                            |> Option.filter (fun s -> not (String.IsNullOrEmpty s))
+                            |> Option.iter (fun s -> apiDef.Description <- Some s)
+                        | None ->
+                            ctx.Diagnostics.Add(apiPath, "ApiDef instance 추적 실패 (forensic).")
+                    | false, _ ->
+                        ctx.Diagnostics.Add(apiPath, sprintf "ApiDef '%s' 가 system 의 apis 목록에 없음." apiName))
 
     let private dispatchActiveSystem
         (ctx: ApplyContext)
         (entry: SystemEntry)
-        (_sysEl: JsonElement)
+        (sysEl: JsonElement)
         (path: string) : unit =
 
         // M1 fix: active system 이름 sanitize 가드.
         if not (tryValidateName ctx (path + ".system") "System name" entry.Name) then () else
 
         try
-            let id = ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
+            // S3b — modeling level 시 lookup-first (기존 store 의 같은 이름 Active 발견 시 reuse).
+            // 기존 system 발견 시 queueAddActiveSystem 호출 skip — 중복 throw 회피 + 기존 leaf 보존.
+            // wire 의 iri / plc 키는 modeling level walk (S3a) 가 사전 거부 — 본 분기 시 등장 0.
+            let id =
+                match !ctx.Level with
+                | Modeling ->
+                    // #32 — store + plan 합집합 (같은 turn 안 patch 또는 다른 systems entry 가 add 한
+                    // entity 도 reuse). store 우선, 미발견 시 plan 측 fallback.
+                    let storeHit = findSystemByName ctx.Store entry.Name
+                    let combinedHit =
+                        storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
+                    match combinedHit with
+                    | Some sys ->
+                        // 기존 active 인지 검증 — Passive 인데 wire 가 active 로 명시면 의미 충돌.
+                        // plan 측 hit 은 isActive 판정이 LinkSystemToProject op 으로만 결정 — store 검색만
+                        // 으로 충분 (storeHit Some 이면 store 측 isActive 검사 / storeHit None + planHit Some
+                        // 이면 plan 의 LinkSystemToProject 추적).
+                        let isActiveInStore =
+                            Queries.allProjects ctx.Store
+                            |> List.exists (fun p -> p.ActiveSystemIds.Contains sys.Id)
+                        let isActiveInPlan =
+                            Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
+                            |> Option.defaultValue false   // LinkSystemToProject 부재 = "active 아님" 으로 fail-safe (store-only 신뢰)
+                        if not (isActiveInStore || isActiveInPlan) then
+                            invalidOp (sprintf "system '%s' 가 store 에서 passive 인데 wire 에 kind=active 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
+                        sys.Id
+                    | None -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
+                | Full -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
+            // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
+            applyNonEmptyStringProp ctx path sysEl "iri" (fun s ->
+                lookupSystemById ctx id |> Option.iter (fun sys -> sys.IRI <- Some s))
+            // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Active System)
+            tryProp sysEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupSystemById ctx id
+                |> Option.iter (fun sys ->
+                    parsePlcSystem ctx (joinDiagKey path "plc") sys plcEl))
         with ex ->
             ctx.Diagnostics.Add(path, ex.Message)
 
@@ -526,6 +1121,115 @@ module ModelProtocol =
                 sprintf "'%s' 형식 위반. '<System>.<ApiDef>' 형식 필요." rawRef)
             None
 
+    // ─── CallCondition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
+    //
+    // SSOT yaml-protocol-v0.md §2.2.1 dual format — object 형태 call 의 보강 property.
+    // `tryFindCallInPlan` / `tryFindApiDefInPlan` / `callTypeOf` / `setCallType` 4 helper 는 본 dispatch
+    // helper (dispatchPassiveSystem / dispatchWork) 보다 *앞* 에서 호출되어야 하므로 ApplyContext 정의 직후 (위)
+    // 로 이동됨. 본 영역에는 resolveApiDef 의존 helper (parseCallCondition) 와 ApplyContext 의존 helper (parseIOTag) 만 유지.
+
+    /// IOTag parse — emit 측 `writeIOTag` 의 거울 (Phase 7 §4.2 C-4 PoC scope: Name + Address).
+    /// 두 키 모두 부재 시 None — 빈 IOTag instance 생성 회피.
+    let private parseIOTag (ctx: ApplyContext) (el: JsonElement) (path: string) : IOTag option =
+        if el.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "IOTag object 기대 (실제 %A)." el.ValueKind)
+            None
+        else
+            let nameOpt = tryProp el "name" |> Option.bind tryString
+            let addressOpt = tryProp el "address" |> Option.bind tryString
+            match nameOpt, addressOpt with
+            | None, None -> None
+            | _ ->
+                let tag = IOTag()
+                nameOpt |> Option.iter (fun s -> tag.Name <- s)
+                addressOpt |> Option.iter (fun s -> tag.Address <- s)
+                Some tag
+
+    /// CallCondition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
+    /// conditions leaf 는 ApiCall — dual format (string scalar 또는 object{ref, contactKind?}).
+    /// PoC scope 가정: leaf 의 ApiCall 은 ApiDefId + ContactKind 만 set (IO tag binding 은 C-4 phase).
+    let rec private parseCallCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : CallCondition option =
+        if condEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "callCondition object 기대 (실제 %A)." condEl.ValueKind)
+            None
+        elif condEl.EnumerateObject() |> Seq.isEmpty then
+            // 외부 reviewer m-5 반영: 빈 `callCondition: {}` 는 의미 0 의 CallCondition 인스턴스 추가 회피 → None 으로 정규화.
+            None
+        else
+            let cond = CallCondition()
+            // type — AutoAux default 면 키 부재
+            tryProp condEl "type"
+            |> Option.bind tryString
+            |> Option.iter (fun s ->
+                match parseCallConditionType s with
+                | Ok t -> cond.Type <- Some t
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "type", msg))
+            // isOR / isInverted — bool false default
+            let parseBoolKey key target =
+                tryProp condEl key
+                |> Option.iter (fun el ->
+                    match el.ValueKind with
+                    | JsonValueKind.True -> target true
+                    | JsonValueKind.False -> target false
+                    | _ -> ctx.Diagnostics.Add(joinDiagKey path key, sprintf "bool 기대 (실제 %A)." el.ValueKind))
+            parseBoolKey "isOR" (fun b -> cond.IsOR <- b)
+            parseBoolKey "isInverted" (fun b -> cond.IsInverted <- b)
+            // conditions — ApiCall leaf list (dual format)
+            tryProp condEl "conditions"
+            |> Option.iter (fun condsEl ->
+                if condsEl.ValueKind <> JsonValueKind.Array then
+                    // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
+                    ctx.Diagnostics.Add(joinDiagKey path "conditions", sprintf "array 기대 (실제 %A). leaf ApiCall list 또는 nested CallCondition list 형식 사용." condsEl.ValueKind)
+                else
+                    let mutable idx = 0
+                    for leafEl in condsEl.EnumerateArray() do
+                        let leafPath = sprintf "%s.conditions[%d]" path idx
+                        let apiCall = ApiCall("")
+                        let mutable validLeaf = false
+                        match leafEl.ValueKind with
+                        | JsonValueKind.String ->
+                            let refStr = leafEl.GetString()
+                            match resolveApiDef ctx refStr leafPath with
+                            | Some apiDefId ->
+                                apiCall.ApiDefId <- Some apiDefId
+                                validLeaf <- true
+                            | None -> ()
+                        | JsonValueKind.Object ->
+                            (match tryProp leafEl "ref" |> Option.bind tryString with
+                             | Some refStr ->
+                                 match resolveApiDef ctx refStr (leafPath + ".ref") with
+                                 | Some apiDefId ->
+                                     apiCall.ApiDefId <- Some apiDefId
+                                     validLeaf <- true
+                                 | None -> ()
+                             | None ->
+                                 ctx.Diagnostics.Add(leafPath, "object element 는 'ref' 키 필수."))
+                            tryProp leafEl "contactKind"
+                            |> Option.bind tryString
+                            |> Option.iter (fun s ->
+                                match parseContactKind s with
+                                | Ok k -> apiCall.ContactKind <- k
+                                | Error msg -> ctx.Diagnostics.Add(joinDiagKey leafPath "contactKind", msg))
+                        | _ ->
+                            ctx.Diagnostics.Add(leafPath, sprintf "string 또는 object 기대 (실제 %A)." leafEl.ValueKind)
+                        if validLeaf then cond.Conditions.Add(apiCall)
+                        idx <- idx + 1)
+            // children — nested CallCondition list (recursive)
+            tryProp condEl "children"
+            |> Option.iter (fun chEl ->
+                if chEl.ValueKind <> JsonValueKind.Array then
+                    // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
+                    ctx.Diagnostics.Add(joinDiagKey path "children", sprintf "array 기대 (실제 %A). nested CallCondition list 형식 사용." chEl.ValueKind)
+                else
+                    let mutable idx = 0
+                    for childEl in chEl.EnumerateArray() do
+                        let childPath = sprintf "%s.children[%d]" path idx
+                        match parseCallCondition ctx childEl childPath with
+                        | Some child -> cond.Children.Add(child)
+                        | None -> ()
+                        idx <- idx + 1)
+            Some cond
+
     let private dispatchWork
         (ctx: ApplyContext)
         (sysEntry: SystemEntry)
@@ -546,24 +1250,65 @@ module ModelProtocol =
                     match parseDuration s with
                     | Ok ts -> Some ts
                     | Error msg ->
-                        ctx.Diagnostics.Add(path + ".workDuration", msg)
+                        ctx.Diagnostics.Add(joinDiagKey path "workDuration", msg)
                         None)
-            let workId = ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
+            // S3b — modeling level 시 lookup-first (기존 store 의 같은 (flowId, workLocalName) Work reuse).
+            // wire 의 workDuration 키는 modeling walk (S3a) 가 사전 거부 — durationOpt 는 None 보장.
+            // #32 — store + plan 합집합. plan-only Work 도 reuse.
+            let workId =
+                match !ctx.Level with
+                | Modeling ->
+                    let storeHit =
+                        Queries.worksOf flowId ctx.Store
+                        |> List.tryFind (fun w -> w.LocalName = workLocalName)
+                    let combinedHit =
+                        storeHit
+                        |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindWorkByLocalName ctx.Plan flowId workLocalName)
+                    match combinedHit with
+                    | Some w -> w.Id
+                    | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
+                | Full -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
             // WorkIds 누적
             if not (sysEntry.WorkIds.ContainsKey flowName) then
                 sysEntry.WorkIds.[flowName] <- Dictionary<string, Guid>(StringComparer.Ordinal)
             sysEntry.WorkIds.[flowName].[workLocalName] <- workId
 
             if tryProp workEl "duration" |> Option.isSome then
-                ctx.Diagnostics.Add(path + ".duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
+                ctx.Diagnostics.Add(joinDiagKey path "duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
 
-            // calls 처리
-            let callsList =
+            // Phase 7 §4.2 C-6: Work.TokenRole (단순 leaf, default None 면 키 부재)
+            applyEnumProp ctx path workEl "tokenRole" parseTokenRole (fun r ->
+                lookupWorkById ctx workId |> Option.iter (fun work -> work.TokenRole <- r))
+
+            // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키
+            tryProp workEl "plc"
+            |> Option.iter (fun plcEl ->
+                lookupWorkById ctx workId
+                |> Option.iter (fun work ->
+                    parsePlcWork ctx (joinDiagKey path "plc") work plcEl))
+
+            // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
+            //   string scalar       → default case, callObjOpt = None
+            //   object { ref, ... } → non-default case, callObjOpt = Some <full object>
+            let callsList : (string * JsonElement option) list =
                 tryProp workEl "calls"
                 |> Option.bind (fun el ->
                     if el.ValueKind = JsonValueKind.Array then
                         el.EnumerateArray()
-                        |> Seq.choose tryString
+                        |> Seq.indexed
+                        |> Seq.choose (fun (idx, callEl) ->
+                            let callPath = sprintf "%s.calls[%d]" path idx
+                            match callEl.ValueKind with
+                            | JsonValueKind.String -> Some (callEl.GetString(), None)
+                            | JsonValueKind.Object ->
+                                match tryProp callEl "ref" |> Option.bind tryString with
+                                | Some s -> Some (s, Some callEl)
+                                | None ->
+                                    ctx.Diagnostics.Add(callPath, "object element 는 'ref' 키 필수.")
+                                    None
+                            | _ ->
+                                ctx.Diagnostics.Add(callPath, sprintf "string 또는 object 기대 (실제 %A)." callEl.ValueKind)
+                                None)
                         |> Seq.toList
                         |> Some
                     else None)
@@ -583,8 +1328,8 @@ module ModelProtocol =
                 |> Option.defaultValue []
             // 중복 ApiDef Call 검출
             let callCounts = Dictionary<string, int>(StringComparer.Ordinal)
-            for c in callsList do
-                let normalized = normalizePath c
+            for (callRef, _) in callsList do
+                let normalized = normalizePath callRef
                 callCounts.[normalized] <- (if callCounts.ContainsKey normalized then callCounts.[normalized] + 1 else 1)
             let hasDup = callCounts.Values |> Seq.exists (fun n -> n > 1)
             // review C3: 사용자 의도 판정은 *arrows 키 자체의 존재 여부* 로 — parse 성공한 entry 만 보면
@@ -595,21 +1340,93 @@ module ModelProtocol =
             // calls 추가 — call name → callId 매핑 (arrows 의 source/target 식별용)
             let callIdMap = Dictionary<string, ResizeArray<Guid>>(StringComparer.Ordinal)
             let mutable callIdx = 0
-            for callRef in callsList do
+            for (callRef, callObjOpt) in callsList do
                 let callPath = sprintf "%s.calls[%d]" path callIdx
                 match resolveApiDef ctx callRef callPath with
                 | None -> ()
                 | Some apiDefId ->
                     try
+                        // S3b — modeling level 시 lookup-first. 같은 (workId, apiDefId) Call 발견 시 reuse.
+                        // #32 — store + plan 합집합. plan-only Call 도 reuse.
+                        // 보강 property (contactKind / callCondition / callType 등) mutate 는 그대로 진행 (lookupCallById 가 store + plan 양쪽 lookup).
                         let callId =
-                            if useAllowDup then
-                                ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
-                            else
-                                ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
+                            match !ctx.Level with
+                            | Modeling ->
+                                let storeHit =
+                                    Queries.callsOf workId ctx.Store
+                                    |> List.tryFind (fun c ->
+                                        c.ApiCalls.Count > 0 && c.ApiCalls.[0].ApiDefId = Some apiDefId)
+                                let combinedHit =
+                                    storeHit
+                                    |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindCallByApiDef ctx.Plan workId apiDefId)
+                                match combinedHit with
+                                | Some c -> c.Id
+                                | None ->
+                                    if useAllowDup then
+                                        ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
+                                    else
+                                        ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
+                            | Full ->
+                                if useAllowDup then
+                                    ToolOperations.queueAddCallAllowDup ctx.Plan ctx.Store workId apiDefId
+                                else
+                                    ToolOperations.queueAddCall ctx.Plan ctx.Store workId apiDefId
                         let normalized = normalizePath callRef
                         if not (callIdMap.ContainsKey normalized) then
                             callIdMap.[normalized] <- ResizeArray()
                         callIdMap.[normalized].Add(callId)
+                        // 보강 property apply (Phase 7 §4.2 C-3) — object 형태일 때만.
+                        // ContactKind: queueAddCall 가 1:1 invariant 로 call.ApiCalls[0] 생성 → 직접 set.
+                        // CallCondition: recursive parse 후 call.CallConditions 에 추가.
+                        callObjOpt |> Option.iter (fun obj ->
+                            // S3b — modeling reuse 시 Call 이 store 에 이미 있으므로 store + plan 양쪽 lookup.
+                            // Full path 에서는 plan 측 lookup 이 우선 — `lookupCallById` 가 plan 우선 동작.
+                            match lookupCallById ctx callId with
+                            | None ->
+                                ctx.Diagnostics.Add(callPath, "Call instance 추적 실패 (forensic).")
+                            | Some call ->
+                                // ApiCall 보강 (C-3 ContactKind + C-4 SkipInputSensor / InTag / OutTag). 1:1 invariant.
+                                let firstApiCallOpt =
+                                    if call.ApiCalls.Count > 0 then Some call.ApiCalls.[0] else None
+                                tryProp obj "contactKind"
+                                |> Option.bind tryString
+                                |> Option.iter (fun s ->
+                                    match parseContactKind s with
+                                    | Ok k -> firstApiCallOpt |> Option.iter (fun ac -> ac.ContactKind <- k)
+                                    | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "contactKind", msg))
+                                tryProp obj "skipInputSensor"
+                                |> Option.iter (fun el ->
+                                    match el.ValueKind with
+                                    | JsonValueKind.True -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- true)
+                                    | JsonValueKind.False -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- false)
+                                    | _ -> ctx.Diagnostics.Add(joinDiagKey callPath "skipInputSensor", sprintf "bool 기대 (실제 %A)." el.ValueKind))
+                                tryProp obj "inTag"
+                                |> Option.iter (fun el ->
+                                    match parseIOTag ctx el (callPath + ".inTag") with
+                                    | Some tag -> firstApiCallOpt |> Option.iter (fun ac -> ac.InTag <- Some tag)
+                                    | None -> ())
+                                tryProp obj "outTag"
+                                |> Option.iter (fun el ->
+                                    match parseIOTag ctx el (callPath + ".outTag") with
+                                    | Some tag -> firstApiCallOpt |> Option.iter (fun ac -> ac.OutTag <- Some tag)
+                                    | None -> ())
+                                // C-5: SimulationCallProperties.CallType (Call.Properties 콜렉션 mutation)
+                                tryProp obj "callType"
+                                |> Option.bind tryString
+                                |> Option.iter (fun s ->
+                                    match parseCallType s with
+                                    | Ok ct -> setCallType call ct
+                                    | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "callType", msg))
+                                // CallCondition tree (C-3)
+                                tryProp obj "callCondition"
+                                |> Option.iter (fun ccEl ->
+                                    match parseCallCondition ctx ccEl (callPath + ".callCondition") with
+                                    | Some cc -> call.CallConditions.Add(cc)
+                                    | None -> ())
+                                // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키
+                                tryProp obj "plc"
+                                |> Option.iter (fun plcEl ->
+                                    parsePlcCall ctx (joinDiagKey callPath "plc") call plcEl))
                     with ex ->
                         ctx.Diagnostics.Add(callPath, ex.Message)
                 callIdx <- callIdx + 1
@@ -646,10 +1463,16 @@ module ModelProtocol =
                             let tgtOpt = resolveCallId spec.ToRaw (arrowPath + ".to")
                             match srcOpt, tgtOpt with
                             | Some s, Some t ->
-                                try
-                                    ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                with ex ->
-                                    ctx.Diagnostics.Add(arrowPath, ex.Message)
+                                // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
+                                let skipDup =
+                                    match !ctx.Level with
+                                    | Modeling -> arrowCallExists ctx.Store s t aType
+                                    | Full -> false
+                                if not skipDup then
+                                    try
+                                        ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                    with ex ->
+                                        ctx.Diagnostics.Add(arrowPath, ex.Message)
                             | _ -> ()
 
             let mutable arrowIdx = 0
@@ -693,15 +1516,36 @@ module ModelProtocol =
                 // M1 fix: flow 이름 sanitize 가드.
                 if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
                 try
-                    let flowId = ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                    // S3b — modeling level 시 lookup-first (기존 store 의 같은 (sysId, flowName) Flow reuse).
+                    // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
+                    let flowId =
+                        match !ctx.Level with
+                        | Modeling ->
+                            let storeHit =
+                                Queries.flowsOf sysId ctx.Store
+                                |> List.tryFind (fun f -> f.Name = flowName)
+                            let combinedHit =
+                                storeHit
+                                |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindFlowByName ctx.Plan sysId flowName)
+                            match combinedHit with
+                            | Some f -> f.Id
+                            | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                        | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                     sysEntry.FlowIds.[flowName] <- flowId
+
+                    // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
+                    tryProp flowEl "plc"
+                    |> Option.iter (fun plcEl ->
+                        lookupFlowById ctx flowId
+                        |> Option.iter (fun flow ->
+                            parsePlcFlow ctx (joinDiagKey flowPath "plc") flow plcEl))
 
                     // works (mapping)
                     let worksEl = tryProp flowEl "works"
                     match worksEl with
                     | None -> ()
                     | Some w when w.ValueKind <> JsonValueKind.Object ->
-                        ctx.Diagnostics.Add(flowPath + ".works", "Object 기대.")
+                        ctx.Diagnostics.Add(joinDiagKey flowPath "works", "Object 기대.")
                     | Some w ->
                         for prop in w.EnumerateObject() do
                             let workPath = sprintf "%s.works.%s" flowPath prop.Name
@@ -748,10 +1592,16 @@ module ModelProtocol =
                                     let tgtOpt = resolveWorkId spec.ToRaw (arrowPath + ".to")
                                     match srcOpt, tgtOpt with
                                     | Some s, Some t ->
-                                        try
-                                            ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                        with ex ->
-                                            ctx.Diagnostics.Add(arrowPath, ex.Message)
+                                        // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
+                                        let skipDup =
+                                            match !ctx.Level with
+                                            | Modeling -> arrowWorkExists ctx.Store s t aType
+                                            | Full -> false
+                                        if not skipDup then
+                                            try
+                                                ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                            with ex ->
+                                                ctx.Diagnostics.Add(arrowPath, ex.Message)
                                     | _ -> ()
                     let mutable aIdx = 0
                     for arrowResult in arrowsList do
@@ -782,24 +1632,6 @@ module ModelProtocol =
     //
     // 본 PoC 는 schema 의 add / arrows.add / rename / remove 4 종 dispatch.
     // 자세한 구현은 후속 cycle — patch path 는 store 가 이미 채워져 있는 경우 주력 시나리오.
-
-    /// 단일 segment system path → store 안의 DsSystem 검색 (active + passive 합집합).
-    let private findSystemByName (store: DsStore) (sysName: string) : DsSystem option =
-        Queries.allProjects store
-        |> List.collect (fun p ->
-            (Queries.activeSystemsOf p.Id store)
-            @ (Queries.passiveSystemsOf p.Id store))
-        |> List.tryFind (fun s -> s.Name = sysName)
-
-    /// `<system>.<flow>` 형식 path → store 안의 Flow 검색.
-    let private findFlowByPath (store: DsStore) (rawPath: string) : Flow option =
-        match pathSegments rawPath with
-        | [ sysName; flowName ] ->
-            findSystemByName store sysName
-            |> Option.bind (fun s ->
-                Queries.flowsOf s.Id store
-                |> List.tryFind (fun f -> f.Name = flowName))
-        | _ -> None
 
     /// SSOT §2.5.1 — dotted-path → (EntityKind, Guid) 변환. path 깊이로 EntityKind 자동 결정.
     /// 1 seg = Project / 2 = System / 3 = ApiDef 또는 Flow (System 직접 자식 ambiguity) /
@@ -1113,6 +1945,8 @@ module ModelProtocol =
 
         // SSOT §2.7 룰 #7 / §2.8: view: partial 은 view-only — apply/validate 재입력 거부.
         // view: full 은 round-trip 시나리오 (self export → apply) 정합으로 허용. unknown 값은 사전 거부.
+        // **검사 순서 (C2 sub-agent review)**: partial 거부가 level 검사 *전* — partial 발견 시 level
+        // 검사 skip (메시지 중복 회피).
         match tryProp root "view" |> Option.bind tryString with
         | Some "full" -> ()
         | Some "partial" ->
@@ -1128,13 +1962,60 @@ module ModelProtocol =
             ctx.Diagnostics.Add("summary", "summary 는 partial export 진단 metadata 전용 — apply/validate 재입력 불가. 'summary:' 키를 제거하세요.")
         | None -> ()
 
+        // SSOT §2.7 룰 #29 / Phase 7 §10.2 #31 (S3) — level 키 검증.
+        // wire 의 `level:` 키가 SSOT — `apply` 자체에 별도 level 인자 없음 (C1 fix 자동 해소).
+        // 'full' 또는 부재 = 기존 apply 동작. 'modeling' = wire walk + B/C/D 키 사전 거부 mode.
+        let wireLevel =
+            match tryProp root "level" |> Option.bind tryString with
+            | Some "full" -> Some Full
+            | Some "modeling" -> Some Modeling
+            | Some other ->
+                ctx.Diagnostics.Add("level", sprintf "값 '%s' 인식 불가. 'full' 또는 'modeling'." other)
+                None
+            | None -> Some Full
+
+        // SSOT §2.7 룰 #30 / Phase 7 §10.2 #31 (S3) — modeling level wire 에 B/C/D 키 등장 거부.
+        // 골격 키 / A_Modeling 키 는 ModelingCategory.nonModelingKeys 부재 → 허용 통과.
+        // 재귀 walk — 모든 object property name 점검 (array element 의 path 는 [idx] suffix).
+        // **검사 순서 (C2)**: view: partial 거부가 먼저 — 이미 HasErrors 면 본 walk skip 으로 메시지 중복 회피.
+        let rec walkAndRejectNonModelingKeys (path: string) (el: JsonElement) : unit =
+            match el.ValueKind with
+            | JsonValueKind.Object ->
+                for prop in el.EnumerateObject() do
+                    let propPath = joinDiagKey path prop.Name
+                    match Map.tryFind prop.Name nonModelingKeys with
+                    | Some cat ->
+                        ctx.Diagnostics.Add(propPath,
+                            sprintf "키 '%s' 는 level: modeling 입력에서 등장 금지 (분류 = %s — §2.4.1 Category 사전 참조). level 을 'full' 로 변경하거나 키를 제거하세요."
+                                prop.Name (categoryLabel cat))
+                    | None ->
+                        walkAndRejectNonModelingKeys propPath prop.Value
+            | JsonValueKind.Array ->
+                let mutable idx = 0
+                for item in el.EnumerateArray() do
+                    walkAndRejectNonModelingKeys (sprintf "%s[%d]" path idx) item
+                    idx <- idx + 1
+            | _ -> ()
+
+        if not ctx.Diagnostics.HasErrors && wireLevel = Some Modeling then
+            walkAndRejectNonModelingKeys "" root
+
+        // S3b — wireLevel 확정 후 ctx.Level set. dispatch helper 가 lookup-first 분기 결정 시 참조.
+        wireLevel |> Option.iter (fun lvl -> ctx.Level := lvl)
+
         if ctx.Diagnostics.HasErrors then
             // protocol 거부 시점 — 본 path 는 plan 미변경이라 truncate no-op. 일관성 위해 호출.
             plan.TruncateTo(snapshotCount)
             ctx.Diagnostics, Map.empty
         else
             // project 키 처리
-            let _projectId = resolveProjectKey ctx root
+            let projectIdOpt = resolveProjectKey ctx root
+
+            // Phase 7 §4.2 C-6: Project root-level meta — author / version (단순 leaf 키)
+            projectIdOpt |> Option.iter (fun projectId ->
+                lookupProjectById ctx projectId |> Option.iter (fun project ->
+                    applyStringProp ctx "" root "author" (fun s -> project.Author <- s)
+                    applyStringProp ctx "" root "version" (fun s -> project.Version <- s)))
 
             // systems 처리 (있으면)
             match tryProp root "systems" with
@@ -1201,6 +2082,220 @@ module ModelProtocol =
         | ArrowType.Unspecified -> "Unspecified"
         | other -> sprintf "Unknown(%d)" (int other)
 
+    // ─── Enum format helpers (Phase 7 §4.2 C-1) — 위 parse* 함수의 거울 ────
+    //
+    // 각 enum 의 format 측. parse 측과 1:1 round-trip. unknown case 는 forensic
+    // 단서로 `Unknown(<int>)` (formatArrowType 패턴 답습).
+
+    let formatCallConditionType (t: CallConditionType) : string =
+        match t with
+        | CallConditionType.AutoAux -> "AutoAux"
+        | CallConditionType.ComAux -> "ComAux"
+        | CallConditionType.SkipUnmatch -> "SkipUnmatch"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatContactKind (k: ContactKind) : string =
+        match k with
+        | ContactKind.NoContact -> "NoContact"
+        | ContactKind.NcContact -> "NcContact"
+        | ContactKind.RisingPulse -> "RisingPulse"
+        | ContactKind.FallingPulse -> "FallingPulse"
+        | ContactKind.Inverter -> "Inverter"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatCallType (t: CallType) : string =
+        match t with
+        | CallType.WaitForCompletion -> "WaitForCompletion"
+        | CallType.SkipIfCompleted -> "SkipIfCompleted"
+        | other -> sprintf "Unknown(%d)" (int other)
+
+    let formatTokenRole (t: TokenRole) : string =
+        match t with
+        | TokenRole.None -> "None"
+        | TokenRole.Source -> "Source"
+        | TokenRole.Ignore -> "Ignore"
+        | TokenRole.Sink -> "Sink"
+        | combined -> sprintf "Combined(%d)" (int combined)
+
+    let formatApiDefActionType (a: ApiDefActionType) : string =
+        match a with
+        | ApiDefActionType.Normal              -> "Normal"
+        | ApiDefActionType.Push                -> "Push"
+        | ApiDefActionType.Pulse               -> "Pulse"
+        | ApiDefActionType.TimeTotal  ms       -> sprintf "TimeTotal(%d)" ms
+        | ApiDefActionType.TimeAppend ms       -> sprintf "TimeAppend(%d)" ms
+        | ApiDefActionType.MultiAction(c, ms)  -> sprintf "MultiAction(%d, %d)" c ms
+
+    // ─── CallCondition / ContactKind emit helpers (Phase 7 §4.2 C-3) ─────────
+    //
+    // dual format (§2.2.1) 의 emit 측 — store 값 inspection 후 default 인지 판단.
+    // PoC 가정: Call.CallConditions 는 multiple root 가능하나 *첫 root 만 emit*. 후속 phase 가 multiple root 정책 결정.
+
+    /// IOTag 의 content 검사 — Name / Address 중 하나라도 non-empty 면 보강 대상.
+    /// emit 측 가드 (`writeIOTag` 진입 차단) + `callHasEnhancement` IOTag 검사 양쪽에서 사용 — 빈 IOTag 인스턴스가
+    /// `Some empty` ↔ `None` 비대칭으로 round-trip drift 발생하지 않도록 정합 (외부 reviewer M-B).
+    let private ioTagHasContent (tag: IOTag) : bool =
+        not (String.IsNullOrEmpty tag.Name) || not (String.IsNullOrEmpty tag.Address)
+
+    /// leaves 기반 hasNonDefault — emit 측 `emitPlcLeaves` 의 skip 조건과 *정확히 동일* (#20 SSOT 통합).
+    /// **invariant** (R2 외부 review): `plcHasNonDefault cp def leaves = true` ⟺ `emitPlcLeaves` 가
+    /// 동일 인자로 1+ leaf 발행. leaves table 변경 시 두 helper 가 같은 leaves 를 dispatch 하므로 자동 보존.
+    let private plcHasNonDefault (cp: 'cp) (defaultCp: 'cp) (leaves: PlcLeaf<'cp> list) : bool =
+        leaves |> List.exists (fun leaf ->
+            match leaf.Kind with
+            | LBool        (g, _) -> g cp <> g defaultCp
+            | LInt         (g, _) -> g cp <> g defaultCp
+            | LFloat       (g, _) -> g cp <> g defaultCp
+            | LString      (g, _) -> g cp <> g defaultCp
+            | LStringOpt   (g, _) -> (g cp).IsSome && g cp <> g defaultCp
+            | LIntOpt      (g, _) -> (g cp).IsSome && g cp <> g defaultCp
+            | LFloatOpt    (g, _) -> (g cp).IsSome && g cp <> g defaultCp
+            | LTimeSpan    (g, _) -> g cp <> g defaultCp
+            | LTimeSpanOpt (g, _) -> (g cp).IsSome && g cp <> g defaultCp)
+
+    /// Call 의 PLC metadata 가 non-default 인지 — dual format 분기 판단용 (callHasEnhancement 합성).
+    let private plcCallHasNonDefault (c: Call) : bool =
+        match c.GetControlProperties() with
+        | None -> false
+        | Some cp -> plcHasNonDefault cp (ControlCallProperties()) plcCallLeaves
+
+    /// Phase 7 §10.2 #31 — level 인자 추가. Modeling level 시 B/C/D 보강은 제외하여 dual format
+    /// object 승격을 차단 (B/C/D 만 있는 Call 은 string scalar 유지). A_Modeling 보강 (CallCondition /
+    /// ContactKind / SkipInputSensor / CallType) 만 승격 판단.
+    let private callHasEnhancement (level: ExportLevel) (c: Call) : bool =
+        let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
+        let exists pred = firstApiCall |> Option.exists pred
+        let hasNonDefaultCallType =
+            callTypeOf c |> Option.exists (fun ct -> ct <> CallType.WaitForCompletion)
+        // 외부 reviewer M-B 반영: IOTag.IsSome 만으로는 부족 — content 검사 (Name/Address 중 하나라도 non-empty).
+        // 빈 IOTag (Some empty) 가 emit 강제하면 parse 측 None 으로 정규화되어 비대칭 drift.
+        let aLevel =
+            c.CallConditions.Count > 0
+            || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
+            || exists (fun ac -> ac.SkipInputSensor)
+            || hasNonDefaultCallType
+        match level with
+        | Modeling -> aLevel   // B/C/D 보강은 modeling 에서 emit 안 됨 → 승격 불요
+        | Full ->
+            aLevel
+            || exists (fun ac -> ac.InTag |> Option.exists ioTagHasContent)
+            || exists (fun ac -> ac.OutTag |> Option.exists ioTagHasContent)
+            || plcCallHasNonDefault c
+
+    /// IOTag emit — Name + Address 두 키만 (Phase 7 §4.2 C-4 PoC scope).
+    /// DataType / Description / DefaultValue 등 IOTag 의 부속 property 는 후속 phase.
+    /// 호출자는 `ioTagHasContent` 통과 후에만 진입 — 둘 다 빈 string 인 경우 emit 자체 skip.
+    let private writeIOTag (w: Utf8JsonWriter) (key: string) (tag: IOTag) : unit =
+        w.WritePropertyName key
+        w.WriteStartObject()
+        if not (String.IsNullOrEmpty tag.Name) then
+            w.WriteString("name", tag.Name)
+        if not (String.IsNullOrEmpty tag.Address) then
+            w.WriteString("address", tag.Address)
+        w.WriteEndObject()
+
+    /// CallCondition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
+    /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default 면 string scalar, 아니면 object.
+    let rec private emitCallCondition
+        (w: Utf8JsonWriter)
+        (apiCallRef: ApiCall -> string)
+        (cond: CallCondition) : unit =
+        w.WriteStartObject()
+        // type — AutoAux default 면 생략
+        (match cond.Type with
+         | Some t when t <> CallConditionType.AutoAux ->
+             w.WriteString("type", formatCallConditionType t)
+         | _ -> ())
+        if cond.IsOR then w.WriteBoolean("isOR", true)
+        if cond.IsInverted then w.WriteBoolean("isInverted", true)
+        if cond.Conditions.Count > 0 then
+            w.WritePropertyName "conditions"
+            w.WriteStartArray()
+            for ac in cond.Conditions do
+                let leafRef = apiCallRef ac
+                if ac.ContactKind <> ContactKind.NoContact then
+                    w.WriteStartObject()
+                    w.WriteString("ref", leafRef)
+                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                    w.WriteEndObject()
+                else
+                    w.WriteStringValue(leafRef)
+            w.WriteEndArray()
+        if cond.Children.Count > 0 then
+            w.WritePropertyName "children"
+            w.WriteStartArray()
+            for child in cond.Children do
+                emitCallCondition w apiCallRef child
+            w.WriteEndArray()
+        w.WriteEndObject()
+
+    // ─── PLC metadata emit (Phase 7 §4.2 C-7.1) ─────────────────────────────
+    //
+    // SSOT §2.2.2 (C-7.1): entity 안 `plc:` sub-section. ControlSystemProperties /
+    // ControlFlowProperties / ControlWorkProperties / ControlCallProperties 의 단순 leaf
+    // scalar 만 emit (복합 collection 은 C-7.2 후속 phase).
+    //
+    // **Default 정책**: type-default (= 빈 생성자 호출 결과) 와 다른 값만 emit.
+    // 모든 leaf default 면 plc 키 자체 생략 — dual format §4.1.5 옵션 C 정합.
+    //
+    // **TimeSpan**: `ToString("c")` = `[-][d.]hh:mm:ss[.fffffff]`. ms 표현 가능.
+    //
+    // **Runtime-only 제외** (派 분류): CurrentState / LastExecutionTime / ExecutionCount /
+    // ErrorCount (Work) — 시뮬 lossy 4-set 유사. emit 안 함.
+    //
+    // **call dual format**: Call 의 plc 변경 시 `callHasEnhancement` true → object 승격.
+
+    /// emit generic — leaves table 순회 + type-default 비교. 모든 leaf default 면 `plc:` 키 미 emit.
+    let private emitPlcLeaves
+        (w: Utf8JsonWriter) (cp: 'cp) (defaultCp: 'cp) (leaves: PlcLeaf<'cp> list) : unit =
+        let mutable opened = false
+        let openIfNeeded () =
+            if not opened then
+                w.WritePropertyName "plc"
+                w.WriteStartObject()
+                opened <- true
+        for leaf in leaves do
+            match leaf.Kind with
+            | LBool (g, _) ->
+                let c = g cp in if c <> g defaultCp then openIfNeeded(); w.WriteBoolean(leaf.Key, c)
+            | LInt (g, _) ->
+                let c = g cp in if c <> g defaultCp then openIfNeeded(); w.WriteNumber(leaf.Key, c)
+            | LFloat (g, _) ->
+                let c = g cp in if c <> g defaultCp then openIfNeeded(); w.WriteNumber(leaf.Key, c)
+            | LString (g, _) ->
+                let c = g cp in if c <> g defaultCp then openIfNeeded(); w.WriteString(leaf.Key, c)
+            | LStringOpt (g, _) ->
+                match g cp with
+                | Some s when g cp <> g defaultCp -> openIfNeeded(); w.WriteString(leaf.Key, s)
+                | _ -> ()
+            | LIntOpt (g, _) ->
+                match g cp with
+                | Some n when g cp <> g defaultCp -> openIfNeeded(); w.WriteNumber(leaf.Key, n)
+                | _ -> ()
+            | LFloatOpt (g, _) ->
+                match g cp with
+                | Some n when g cp <> g defaultCp -> openIfNeeded(); w.WriteNumber(leaf.Key, n)
+                | _ -> ()
+            | LTimeSpan (g, _) ->
+                let c = g cp in if c <> g defaultCp then openIfNeeded(); w.WriteString(leaf.Key, c.ToString("c"))
+            | LTimeSpanOpt (g, _) ->
+                match g cp with
+                | Some s when g cp <> g defaultCp -> openIfNeeded(); w.WriteString(leaf.Key, s.ToString("c"))
+                | _ -> ()
+        if opened then w.WriteEndObject()
+
+    let private emitPlcSystem (w: Utf8JsonWriter) (cp: ControlSystemProperties) : unit =
+        emitPlcLeaves w cp (ControlSystemProperties()) plcSystemLeaves
+
+    let private emitPlcFlow (w: Utf8JsonWriter) (cp: ControlFlowProperties) : unit =
+        emitPlcLeaves w cp (ControlFlowProperties()) plcFlowLeaves
+
+    let private emitPlcWork (w: Utf8JsonWriter) (cp: ControlWorkProperties) : unit =
+        emitPlcLeaves w cp (ControlWorkProperties()) plcWorkLeaves
+
+    let private emitPlcCall (w: Utf8JsonWriter) (cp: ControlCallProperties) : unit =
+        emitPlcLeaves w cp (ControlCallProperties()) plcCallLeaves
+
     /// Passive system 의 internal Flow 의 ResetReset arrow 갯수 → opposing 추정.
     /// chain: N-1 / all-pairs: N*(N-1)/2 / none: 0
     let private inferOpposing (apiCount: int) (resetResetCount: int) : string =
@@ -1209,7 +2304,10 @@ module ModelProtocol =
         elif resetResetCount = apiCount * (apiCount - 1) / 2 then "all-pairs"
         else "none"  // unknown shape — conservative
 
-    let exportToJson (store: DsStore) : JsonDocument =
+    /// Phase 7 §10.2 #31 — `level` 인자 추가 entry. 기존 `exportToJson` 은 thin wrapper.
+    /// Modeling level 시 A_Modeling 만 emit (B/C/D + workDuration + apiDetails.description 생략)
+    /// + wire 에 `level: modeling` 키 추가 (Full 시 키 부재 — wire payload 최소화 / 기존 호환).
+    let exportToJsonWithLevel (store: DsStore) (level: ExportLevel) : JsonDocument =
         let projects = Queries.allProjects store
         let ms = new MemoryStream()
         do
@@ -1218,10 +2316,22 @@ module ModelProtocol =
             w.WriteString("protocol", "promaker/v0")
             // SSOT §2.8 — 전체 export 는 항상 view: full. partial 변형은 별도 함수 (Phase 6 후속 commit).
             w.WriteString("view", "full")
+            // Phase 7 §10.2 #31 (S1.1) — level 키는 Modeling 일 때만 emit (Full = default 라 생략).
+            // wire 의 `level: modeling` flag = self-tagged — apply 측이 modeling-mode 진입 강제.
+            if level = Modeling then
+                w.WriteString("level", formatLevel level)
             match projects with
             | [] -> ()
             | p :: _ ->
                 w.WriteString("project", p.Name)
+                // Phase 7 §4.2 C-6: Project root-level meta (default "" / "1.0.0" 면 생략).
+                // #7 옵션 a — Version default 비교는 entity SSOT (`defaultProjectVersion`) 사용.
+                // #31 — author/version 은 C_Meta — Modeling 시 emit 생략.
+                if isEmittedIn level C_Meta then
+                    if not (String.IsNullOrEmpty p.Author) then
+                        w.WriteString("author", p.Author)
+                    if not (String.IsNullOrEmpty p.Version) && p.Version <> defaultProjectVersion then
+                        w.WriteString("version", p.Version)
                 w.WriteStartArray("systems")
 
                 let actives = Queries.activeSystemsOf p.Id store
@@ -1231,11 +2341,24 @@ module ModelProtocol =
                     w.WriteStartObject()
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "active")
+                    // Phase 7 §4.2 C-6: DsSystem.IRI (Some non-empty 인 경우만 emit — #16 Some "" 가드)
+                    // #31 — iri 는 C_Meta — Modeling 시 emit 생략.
+                    if isEmittedIn level C_Meta then
+                        s.IRI
+                        |> Option.filter (not << String.IsNullOrEmpty)
+                        |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Active System)
+                    // #31 — plc 는 D_Plc — Modeling 시 emit 생략.
+                    if isEmittedIn level D_Plc then
+                        s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     // flows (object)
                     let flows = Queries.flowsOf s.Id store
                     for f in flows do
                         w.WritePropertyName(sprintf "flow %s" f.Name)
                         w.WriteStartObject()
+                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키 — #31 D_Plc
+                        if isEmittedIn level D_Plc then
+                            f.GetControlProperties() |> Option.iter (emitPlcFlow w)
                         // works
                         let works = Queries.worksOf f.Id store
                         if not works.IsEmpty then
@@ -1244,10 +2367,28 @@ module ModelProtocol =
                             for wk in works do
                                 w.WritePropertyName wk.LocalName
                                 w.WriteStartObject()
+                                // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략) — #31 A_Modeling (그대로 emit)
+                                if wk.TokenRole <> TokenRole.None then
+                                    w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
+                                // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
+                                if isEmittedIn level D_Plc then
+                                    wk.GetControlProperties() |> Option.iter (emitPlcWork w)
                                 let calls = Queries.callsOf wk.Id store
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
                                     w.WriteStartArray()
+                                    // CallCondition.Conditions leaf (ApiCall) → path 도출 람다. ApiDefId/getApiDef/getSystem
+                                    // 어느 단계든 실패 시 ApiCall.Name fallback (데이터 무결성 깨진 케이스).
+                                    let apiCallRef (ac: ApiCall) : string =
+                                        match ac.ApiDefId with
+                                        | Some apiDefId ->
+                                            match Queries.getApiDef apiDefId store with
+                                            | Some apiDef ->
+                                                match Queries.getSystem apiDef.ParentId store with
+                                                | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
+                                                | None -> ac.Name
+                                            | None -> ac.Name
+                                        | None -> ac.Name
                                     for c in calls do
                                         // SSOT §1.7: Call 참조는 DevicesAlias 가 아닌 *Passive system 이름* 으로 emit.
                                         // ApiDef.ParentId → system.Name 으로 정정. GUI 사용자가 부여한 alias 는
@@ -1269,13 +2410,75 @@ module ModelProtocol =
                                             | None ->
                                                 log.Warn(sprintf "[exportToJson] call '%s.%s' systemName resolution 실패 — DevicesAlias fallback" c.DevicesAlias c.ApiName)
                                                 c.DevicesAlias
-                                        w.WriteStringValue(sprintf "%s.%s" sysName c.ApiName)
+                                        let callRef = sprintf "%s.%s" sysName c.ApiName
+                                        // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
+                                        // 있으면 object 승격 + 보강 property (현 phase: contactKind / callCondition).
+                                        // CallType / SkipInputSensor / InTag/OutTag/etc 는 C-4/C-5 phase.
+                                        // #31 — callHasEnhancement level 인자로 modeling 시 B/C/D 무시 (string scalar 유지).
+                                        if callHasEnhancement level c then
+                                            w.WriteStartObject()
+                                            w.WriteString("ref", callRef)
+                                            if c.ApiCalls.Count > 0 then
+                                                let ac = c.ApiCalls.[0]
+                                                // A_Modeling (그대로 emit)
+                                                if ac.ContactKind <> ContactKind.NoContact then
+                                                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                                                if ac.SkipInputSensor then
+                                                    w.WriteBoolean("skipInputSensor", true)
+                                                // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
+                                                // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
+                                                if isEmittedIn level B_Addressing then
+                                                    ac.InTag
+                                                    |> Option.filter ioTagHasContent
+                                                    |> Option.iter (writeIOTag w "inTag")
+                                                    ac.OutTag
+                                                    |> Option.filter ioTagHasContent
+                                                    |> Option.iter (writeIOTag w "outTag")
+                                            // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략) — A_Modeling
+                                            match callTypeOf c with
+                                            | Some ct when ct <> CallType.WaitForCompletion ->
+                                                w.WriteString("callType", formatCallType ct)
+                                            | _ -> ()
+                                            // A_Modeling (그대로 emit)
+                                            if c.CallConditions.Count > 0 then
+                                                w.WritePropertyName "callCondition"
+                                                emitCallCondition w apiCallRef c.CallConditions.[0]
+                                            // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
+                                            if isEmittedIn level D_Plc then
+                                                c.GetControlProperties() |> Option.iter (emitPlcCall w)
+                                            w.WriteEndObject()
+                                        else
+                                            w.WriteStringValue(callRef)
+                                    w.WriteEndArray()
+                                // arrows (Work 안 — ArrowBetweenCalls). round-trip 정합: apply 측 (line 617~) 의
+                                // callIdMap 키 (`sysName.apiName`) 와 동일한 normalized 표현 사용 → load 시 resolveCallId
+                                // 매칭 보장. 미 emit 시 work-level call 간 분기 (병렬/순차) 정보가 round-trip 에서 소실.
+                                let callArrows = Queries.arrowCallsOf wk.Id store
+                                if not callArrows.IsEmpty then
+                                    let toCallRef (c: Call) =
+                                        let sysName =
+                                            Queries.tryResolveCallTargetSystem c store
+                                            |> Option.map (fun sys -> sys.Name)
+                                            |> Option.defaultValue c.DevicesAlias
+                                        sprintf "%s.%s" sysName c.ApiName
+                                    w.WritePropertyName "arrows"
+                                    w.WriteStartArray()
+                                    for a in callArrows do
+                                        match Queries.getCall a.SourceId store, Queries.getCall a.TargetId store with
+                                        | Some sc, Some tc ->
+                                            w.WriteStringValue(
+                                                sprintf "%s -> %s : %s"
+                                                    (toCallRef sc) (toCallRef tc) (formatArrowType a.ArrowType))
+                                        | _ ->
+                                            log.Warn(sprintf "[exportToJson] ArrowBetweenCalls %O source/target Call resolution 실패 — emit 누락" a)
                                     w.WriteEndArray()
                                 // Active Work duration override (default 500ms 와 다른 경우만 emit)
-                                match wk.Duration with
-                                | Some d when d <> TimeSpan.FromMilliseconds 500. ->
-                                    w.WriteString("workDuration", formatDuration d)
-                                | _ -> ()
+                                // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
+                                if isEmittedIn level C_Meta then
+                                    match wk.Duration with
+                                    | Some d when d <> TimeSpan.FromMilliseconds 500. ->
+                                        w.WriteString("workDuration", formatDuration d)
+                                    | _ -> ()
                                 w.WriteEndObject()
                             w.WriteEndObject()
                         // arrows (Flow 안 — ArrowBetweenWorks)
@@ -1304,6 +2507,15 @@ module ModelProtocol =
                     w.WriteStartObject()
                     w.WriteString("system", s.Name)
                     w.WriteString("kind", "passive")
+                    // Phase 7 §4.2 C-6: DsSystem.IRI (Some non-empty 인 경우만 emit — #16 Some "" 가드)
+                    // #31 — iri 는 C_Meta — Modeling 시 emit 생략.
+                    if isEmittedIn level C_Meta then
+                        s.IRI
+                        |> Option.filter (not << String.IsNullOrEmpty)
+                        |> Option.iter (fun iri -> w.WriteString("iri", iri))
+                    // Phase 7 §4.2 C-7.1: ControlSystemProperties plc 키 (Passive System) — #31 D_Plc
+                    if isEmittedIn level D_Plc then
+                        s.GetControlProperties() |> Option.iter (emitPlcSystem w)
                     let apis = Queries.apiDefsOf s.Id store |> List.map (fun d -> d.Name)
                     // device 추정 (Phase 2 §3.1 #5) — SystemType + apis 패턴 fingerprint 매칭.
                     // sugar fingerprint:
@@ -1348,10 +2560,12 @@ module ModelProtocol =
                         internalFlow
                         |> Option.bind (fun f -> Queries.worksOf f.Id store |> List.tryHead)
                         |> Option.bind (fun w -> w.Duration)
-                    match firstWorkDur with
-                    | Some d when d <> TimeSpan.FromMilliseconds 500. ->
-                        w.WriteString("workDuration", formatDuration d)
-                    | _ -> ()
+                    // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
+                    if isEmittedIn level C_Meta then
+                        match firstWorkDur with
+                        | Some d when d <> TimeSpan.FromMilliseconds 500. ->
+                            w.WriteString("workDuration", formatDuration d)
+                        | _ -> ()
                     // opposing: 내부 Flow 의 ResetReset arrow 갯수 → 추정 → device default 와 다르면 emit.
                     let resetResetCount =
                         if internalFlow.IsSome then
@@ -1362,6 +2576,35 @@ module ModelProtocol =
                     let inferredOpp = inferOpposing apis.Length resetResetCount
                     if inferredOpp <> defaultOpp then
                         w.WriteString("opposing", inferredOpp)
+                    // C-5: apiDetails — ApiDef 별 actionType / description (default 면 키 자체 생략).
+                    // #31 — actionType 은 A_Modeling, description 은 C_Meta (사용자 결정).
+                    // Modeling 시 description 키 제외 + description 만 있는 entry 자체 skip.
+                    let emitDescription = isEmittedIn level C_Meta
+                    let apiDefEntities = Queries.apiDefsOf s.Id store
+                    let detailsEntries =
+                        apiDefEntities
+                        |> List.choose (fun ad ->
+                            let hasNonDefaultAction = ad.ApiDefActionType <> ApiDefActionType.Normal
+                            let hasDescription =
+                                emitDescription
+                                && ad.Description.IsSome
+                                && not (String.IsNullOrEmpty ad.Description.Value)
+                            if hasNonDefaultAction || hasDescription then Some ad else None)
+                    if not detailsEntries.IsEmpty then
+                        w.WritePropertyName "apiDetails"
+                        w.WriteStartObject()
+                        for ad in detailsEntries do
+                            w.WritePropertyName ad.Name
+                            w.WriteStartObject()
+                            if ad.ApiDefActionType <> ApiDefActionType.Normal then
+                                w.WriteString("actionType", formatApiDefActionType ad.ApiDefActionType)
+                            if emitDescription then
+                                (match ad.Description with
+                                 | Some s when not (String.IsNullOrEmpty s) ->
+                                     w.WriteString("description", s)
+                                 | _ -> ())
+                            w.WriteEndObject()
+                        w.WriteEndObject()
                     w.WriteEndObject()
 
                 w.WriteEndArray()
@@ -1369,6 +2612,12 @@ module ModelProtocol =
             w.Flush()
         ms.Position <- 0L
         JsonDocument.Parse(ms.ToArray())
+
+    /// Phase 7 §10.2 #31 — 후방 호환 wrapper. 기존 호출처 (테스트 / YamlIO / Mermaid / ModelTools 등)
+    /// 시그니처 변경 없이 `Full` 으로 delegate. 새 호출처는 `exportToJsonWithLevel` 또는
+    /// `exportToJsonScoped` (level 인자) 직접 호출.
+    let exportToJson (store: DsStore) : JsonDocument =
+        exportToJsonWithLevel store Full
 
     // ─── exportToJsonScoped (Phase 6 chunk-1c) ───────────────────────────────
     //
@@ -1649,13 +2898,15 @@ module ModelProtocol =
                     systemsArr.RemoveAt(systemsArr.Count - 1)
         | _ -> ()
 
-    /// `exportToJsonScoped` — partial export entry (SSOT §2.8).
-    /// 두 인자 모두 None → `exportToJson` delegate (`view: full`, budget 0, 무제한).
-    /// 그 외 partial entry — full export 받아 path/depth/budget post-process, 실제 truncation
-    /// 1건 이상 시 `view: partial`. path Some + 미존재 = fail-fast (VALIDATION_ERROR).
-    let exportToJsonScoped (store: DsStore) (pathOpt: string option) (depthOpt: int option) : JsonDocument =
+    /// `exportToJsonScopedWithLevel` — Phase 7 §10.2 #31 — level 인자 entry. 기존 `exportToJsonScoped`
+    /// 는 `Full` delegate (후방 호환). Modeling level 시 wire 의 `level: modeling` 키는
+    /// `exportToJsonWithLevel` 안에서 emit — partial post-process 는 level 무관 (path/depth 절단은
+    /// 카테고리 마스킹과 직교, S1.5 표 정합).
+    let exportToJsonScopedWithLevel
+            (store: DsStore) (pathOpt: string option) (depthOpt: int option)
+            (level: ExportLevel) : JsonDocument =
         match pathOpt, depthOpt with
-        | None, None -> exportToJson store
+        | None, None -> exportToJsonWithLevel store level
         | _ ->
             // path 미존재 사전 거부
             let scopeOpt =
@@ -1667,7 +2918,7 @@ module ModelProtocol =
                     | None ->
                         invalidOp (sprintf "VALIDATION_ERROR: path \"%s\" 가 store 에 존재하지 않습니다 (fail-fast). 근사 후보는 `find_by_name` 도구로 확인하세요." path)
 
-            use fullDoc = exportToJson store
+            use fullDoc = exportToJsonWithLevel store level
             let root =
                 match JsonNode.Parse(fullDoc.RootElement.GetRawText()) with
                 | :? JsonObject as o -> o
@@ -1726,3 +2977,8 @@ module ModelProtocol =
                 root.["summary"] <- summary
 
             JsonDocument.Parse(root.ToJsonString())
+
+    /// Phase 7 §10.2 #31 — 후방 호환 wrapper. 기존 호출처 (테스트 / ModelTools 등) 시그니처
+    /// 변경 없이 `Full` delegate. 새 호출처는 `exportToJsonScopedWithLevel` 직접 호출.
+    let exportToJsonScoped (store: DsStore) (pathOpt: string option) (depthOpt: int option) : JsonDocument =
+        exportToJsonScopedWithLevel store pathOpt depthOpt Full

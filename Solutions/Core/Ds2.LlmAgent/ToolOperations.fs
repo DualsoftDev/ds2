@@ -81,13 +81,20 @@ module ToolOperations =
         if String.IsNullOrWhiteSpace(value) then
             invalidArg paramName $"{label} 이 비어있습니다."
 
-    /// plan.Operations 안에서 특정 ImportPlanOperation 패턴을 찾는 generic helper.
-    /// `tryFindXxxInPlan` 4종의 본문이 picker 만 다르고 동일한 패턴이라 단일 진입점으로 통합.
-    let private tryFindInPlan (plan: ImportPlanBuilder) (picker: ImportPlanOperation -> 'T option) : 'T option =
-        plan.Operations |> Seq.tryPick picker
-
     /// store 우선 조회 → 없으면 plan 의 누적 operation 에서 fallback. None 이면 invalidOp.
     /// `requireSystem` / `requireFlow` / `requireWork` 의 공통 골격.
+    ///
+    /// **사용 시나리오 (commit 후 require — operation 의 parent 종속성 강제)**: Apply 가 다음 operation
+    /// 을 실행하기 직전 parent entity (System/Flow/Work) 가 *반드시* 존재함을 검증. 이미 commit 된
+    /// 이전 turn entity 가 다수이므로 store *우선* — plan fallback 은 같은 batch 안 신규 add 케이스만 cover.
+    /// 부재 시 `invalidOp` (예외) — operation abort 가 정석 (작업 종속성 미충족 = 입력 오류).
+    ///
+    /// **`ModelProtocol.lookupById` 와 의도된 비대칭** (외부 reviewer M4 — 통합 보류):
+    ///   * 본 helper: store-first → plan. invalidOp 발생. fail-fast 정합 (commit 단계).
+    ///   * `lookupById`: plan-first → store. Optional 반환. silent skip 정합 (apply 단계).
+    /// 검색 순서가 다른 이유 — commit 단계는 이미 store 에 다수 entity 가 있어 store 우선이 성능/정합 모두
+    /// 유리, apply 단계 leaf setter 는 같은 turn 신규 entity 가 plan 에만 있어 plan 우선 필요. 두 helper
+    /// 통합 시 한쪽 시나리오의 의미 손실 위험. 통합은 시점/반환타입 차이 해소 후에만.
     let private requireFromStoreOrPlan
         (storeLookup: unit -> 'T option)
         (planLookup: unit -> 'T option)
@@ -99,20 +106,13 @@ module ToolOperations =
             | Some x -> x
             | None -> invalidOp notFoundMsg
 
-    let private tryFindSystemInPlan (plan: ImportPlanBuilder) (id: Guid) : DsSystem option =
-        tryFindInPlan plan (function AddSystem s when s.Id = id -> Some s | _ -> None)
-
-    let private tryFindFlowInPlan (plan: ImportPlanBuilder) (id: Guid) : Flow option =
-        tryFindInPlan plan (function AddFlow f when f.Id = id -> Some f | _ -> None)
-
-    let private tryFindWorkInPlan (plan: ImportPlanBuilder) (id: Guid) : Work option =
-        tryFindInPlan plan (function AddWork w when w.Id = id -> Some w | _ -> None)
-
-    let private tryFindApiDefInPlan (plan: ImportPlanBuilder) (id: Guid) : ApiDef option =
-        tryFindInPlan plan (function AddApiDef d when d.Id = id -> Some d | _ -> None)
-
-    let private tryFindCallInPlan (plan: ImportPlanBuilder) (id: Guid) : Call option =
-        tryFindInPlan plan (function AddCall c when c.Id = id -> Some c | _ -> None)
+    // `tryFindXxxInPlan` 5종 SSOT 일원화 (#13) — `Ds2.LlmAgent.Internal.PlanLookup` 참조.
+    // file-scoped private 중복 제거 — ModelProtocol.fs 와 공유.
+    let private tryFindSystemInPlan = Internal.PlanLookup.tryFindSystem
+    let private tryFindFlowInPlan   = Internal.PlanLookup.tryFindFlow
+    let private tryFindWorkInPlan   = Internal.PlanLookup.tryFindWork
+    let private tryFindApiDefInPlan = Internal.PlanLookup.tryFindApiDef
+    let private tryFindCallInPlan   = Internal.PlanLookup.tryFindCall
 
     let private requireSystem (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : DsSystem =
         requireFromStoreOrPlan
