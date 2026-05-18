@@ -13,13 +13,25 @@
 - ListBox `CopyAllCommand` / `ExportCommand` 가 ContextMenu 에 있음 (raw `Text` 기반 — 변경 불필요)
 - **`ChatTurn` 정의 위치**: `Promaker/ViewModels/LlmChatViewModel.cs:1022` 의 동일 파일 내 `partial class ChatTurn`. `Roles` static class 도 같은 파일 line 1028~1040. 별도 `ViewModels/Llm/` 폴더는 존재하지 않음.
 
-## 결정된 설계 — 권장안 (A2 + B1)
+## 결정된 설계 — A1 + B1 (옵션 1 — 2026-05-18 전환)
 
-### A2. 렌더 트리거 = ` ```md ``` ` fence 자동 인식
-- assistant turn 의 `Text` 를 regex 로 split → `[plain, mdSegment, plain, mdSegment, …]`
-- 평문 segment 는 기존 `TextBox` 스타일 그대로
-- markdown segment 만 `MarkdownScrollViewer` 로 렌더
-- 시스템 프롬프트에 "긴 설명/도움말/매뉴얼 형태 응답은 ` ```md ` … ` ``` ` 로 감싸라" 지시 추가 필요 (단 YAML 발행 양식 제외 — 아래 Phase 3 참조)
+### 전환 사유
+초기 권장안은 A2 (` ```md ``` ` fence 자동 인식) 였으나, 실제 실행에서 LLM (Claude) 이 시스템 프롬프트 지시를 *부분만* 채택. 두 번째 응답에서 표/디바이스 요약만 ` ```md ``` ` 으로 감싸고, 그 앞의 "발행 완료" 와 뒤의 "⚠ 참고할 부분 ..." 은 평문으로 둠. 결과적으로 raw `**bold**` 가 평문 영역에 노출. LLM 의지에 의존하는 fence-based 방식의 본질적 한계.
+
+→ **A1 (전체 assistant 자동 markdown 렌더)** 로 전환. fence 없이도 assistant role 의 Text 전체가 `MarkdownScrollViewer` 로 렌더.
+
+### A1. 렌더 트리거 = role 기반 (fence 무관)
+- assistant role + !IsStreaming → 단일 Markdown segment (`MarkdownScrollViewer` 직행)
+- assistant role + IsStreaming → 단일 Plain segment (token 단위 MdXaml 재파싱 회피)
+- 그 외 role (user/system/tool/thinking/error) → 단일 Plain segment
+- model-doc-button role → `ItemsControl` Visibility=Collapsed + 기존 Button 분기 (변경 없음)
+
+### A2 대비 트레이드오프
+- ✅ LLM 의지에 의존 없음
+- ✅ 시스템 프롬프트 단순화 (`10.output-format.md` 삭제)
+- ✅ raw `**bold**` 노출 회귀 원천 차단
+- ⚠ YAML 오파싱 위험 — `model-doc-button` 으로 이미 분리되어 영향 없음
+- ⚠ 평문 응답 ("안녕하세요!") 도 MdXaml 통과 — markdown 문법 없는 텍스트는 평문과 거의 동일하게 렌더, 문제 없음
 
 ### B1. 렌더 엔진 = MdXaml
 - NuGet: `MdXaml` 1.27.0 (Markdig 파서 + FlowDocument, AvalonEdit syntax highlight)
@@ -173,6 +185,20 @@
 - **assistant 평문 segment 폰트**: 현재 `ChatBubbleTextStyle` 의 assistant role 트리거가 전체 monospace (line 148~150). markdown segment 도입 후 평문 segment 와 markdown segment 의 폰트 mismatch 발생 가능 → 평문 segment 는 자연어 가독성 위해 proportional 로 환원, markdown 내부 fenced code 만 mono 유지 검토.
 
 - **commit 권한**: CLAUDE.md `feedback_commit_authorization` 메모리 — multi-step 작업 종료 후 commit 은 별도 confirm 필요.
+
+## 보류 / 후속 작업 (2026-05-18 리뷰 반영)
+
+### 본 PR scope 밖, dist 전 검증
+- **가로 overflow 시각 검증**: `MarkdownScrollViewer.HorizontalScrollBarVisibility="Auto"` 로 전환 완료. 긴 URL / unwrap-able token 응답 1건으로 실제 가로 스크롤 동작 확인 필요.
+- **Light/Dark brush lookup**: `LlmMarkdownStyle` 이 참조하는 `PrimaryTextBrush` / `SecondaryBackgroundBrush` / `HoverBackgroundBrush` / `AccentTextBrush` / `AccentBrush` / `BorderBrush` 6종이 Light/Dark 양 테마 사전에 존재함은 grep 으로 확인. MdXaml FlowDocument 가 별도 visual tree 호스트일 때의 DynamicResource lookup 실제 동작은 테마 전환 + assistant 응답으로 시각 검증 필요.
+- **Streaming fluidity**: `TextToSegmentsConverter` 가 매 token flush (≈200ms) 마다 새 `ChatSegment[]` 반환 → `ItemsControl` rebuild 가능성. 기존 단일 TextBox 의 incremental update 대비 GC pressure / fluidity regression 우려. 긴 응답 (수십 KB) 1건으로 체감 측정.
+- **MdXaml 파싱 freeze**: `IsStreaming=false` 전환 시 1회 동기 파싱. 매우 긴 응답 (≈20 KB+) UI freeze 가능. 임계 초과 시 Plain fallback 정책 검토.
+- **Hyperlink 보안**: MdXaml 의 `Hyperlink` 자동 활성화. LLM 응답에 악성 URL (`file://`, `javascript:`) 클릭 시 동작 미검증. dist 전 보안 검토.
+
+### 본 PR scope 밖, 별건 작업
+- **단위 테스트 프로젝트 신설**: `Promaker.sln` 에 C# xUnit 프로젝트 없음. `ChatSegment` 정책 분기 함수 추출 + 단위 테스트는 별건 PR.
+- **ItemsControl → ContentControl 추상화 단순화**: 현재 length=1 segment array 반환 — `TextToSegmentsConverter` 가 의도적 wrapper (향후 fence-split 재도입 시 교체점). 단순화 필요시 별건.
+- **시스템 프롬프트 `10.output-format.md`**: 초기 v1 todo 의 Phase 3 task 였으나 옵션 1 (A1) 전환으로 *생성도 안 함* (commit 이력에 흔적 없음). fence-based 가정의 지시는 A1 에서 불필요.
 
 ## 트레이드오프 (감안하고 진행)
 

@@ -28,6 +28,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
+    <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="H.NotifyIcon.Wpf" />
