@@ -16,6 +16,7 @@
     <Compile Include="OoxmlExtractorTests.fs" />
     <Compile Include="PdfExtractorTests.fs" />
     <Compile Include="SqliteStoreTests.fs" />
+    <Compile Include="ImageStoreTests.fs" />
     <Compile Include="IndexerTests.fs" />
     <Compile Include="KnowledgeBaseTests.fs" />
     <Compile Include="Program.fs" />
@@ -39,6 +40,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- s6-r11 (자가 검열 M1): ImageStore.mimeOf ↔ Attachment.mimeOf cross-drift Fact 위해 LlmAgent 직접 참조.
+         dependency 방향 정합 — lib graph (Ds2.LightHouse) 에는 LlmAgent 의존성 없음 (test 측만 양쪽 참조). -->
+    <ProjectReference Include="..\..\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
   </ItemGroup>
 
 </Project>
