@@ -890,23 +890,15 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 - **(P3 Phase 2 task D) ← 다음 진입 후보**: `attachment_read` image 모드 (`caption_only` / `includeImages`) + VLM caption (Anthropic 1차) — D-S6-2 권장 default 정합. MCP relay tool 의 응답 schema 확장 + LlmConfig 의 VLM provider 박제 + ImageCache.CaptionText 채움 path.
 - **(P3 Phase 2 task E)**: LlmConfig cost gate (daily token cap 10K + soft warning + hard cutoff) — MR4 default 정합.
 - **(s6-r16 backlog)**: image-only paragraph 박제 분기 분리 (산업 매뉴얼 docx caption 시나리오) / table cell 단위 매핑 / header/footer/comments Drawing 커버 — 모두 OoxmlExtractor 강화 별 task.
-- **(s6-r12-followup, s6-r13 코드 박제 완료 — 이력 참조)** M2/m6 결론:
-    - **M2 결론 — (a) per-image try/catch fail-safe 채택** (ingestFile outer txn 도입 안 함). 근거: ① ImageStore 3 함수 (saveBlob / upsertImageCache / addImageReference) 모두 idempotent (File.Exists skip + INSERT OR IGNORE) → 재실행 시 자동 회복 / ② 사용자 철학 정합 — 외부 환경 (corrupt embedded image, JPX/JBIG2 decode 실패, disk full) = log + skip, 프로그램 자체 결함 = exception / ③ chunks autocommit 과 정합 (M13 ingestFile outer txn 도입은 R5 outlier perf backlog 와 묶음 — 그 turn 에서 image 도 함께 묶음 재검토) / ④ orphan blob = 다음 색인의 sha256 dedup 흡수 + Phase 3 GC job (backlog).
-      - **C2 코드 박제 (Indexer.fs)**: `ingestImagesIntoStore` 의 per-image loop 를 `try .. with` 로 감싸고, catch 분기에서 `logWarn` (DocumentId + image ordinal + 원인 message + "skipping") 박제. exception 재발생 안 함. 회귀 차단 Fact 1건 (synthetic ImageStore.saveBlob mock 실패 → 다른 image 색인 정상 통과 검증).
-    - **m6 결론 — (a) + (b) 양쪽 박제** (extractor primary + ingestImagesIntoStore defensive). 근거: ① extractor 가 well-formed ExtractedImage 책임 보유 / ② defensive 2차 가드는 future extractor 분기 망각 + extractor 회귀 차단.
-      - **C2 코드 박제 (Indexer.fs `ingestImagesIntoStore` per-image loop 진입)**: `if img.Bytes.Length = 0 then logWarn "skip empty bytes (doc=%s ordinal=%d)" + continue`. M2 try/catch 박제 안쪽 (skip 시 try 통과).
-      - **C2 코드 박제 (PdfExtractor.fs)**: `TryGetPng(out bytes)` false 또는 `bytes = null` 또는 `bytes.Length = 0` 분기는 `ExtractedDocument.Images` 에 미포함 (continue). 화이트리스트 외 (JPX/JBIG2) 도 동일 분기.
-      - **C3 코드 박제 (OoxmlExtractor.fs)**: `ImagePart.GetStream()` `Length = 0` 시 미포함. ContentType 화이트리스트 외도 동일.
-      - **회귀 차단 Fact 1건**: synthetic ExtractedImage record 의 `Bytes = [||]` 호출 → `ingestImagesIntoStore` no-op (ImageCache row 0 + ImageReferences row 0 + blob 파일 0) + logWarn 호출 확인 (log4net memory appender 또는 결과 row count 만 검증).
-    - **M2/m6 결론의 paired-release 영향 0**: schema 변경 없음 (IndexerVersion bump 없음).
-- **(P3 Phase 2 task C3)**: `OoxmlExtractor.fs` (docx) 가 `MainDocumentPart.ImageParts` 로 image 추출. `ContentType` 화이트리스트 매칭. 규모 ~60 line + Fact 3-4건.
-- **(P3 Phase 2 task C4)**: `Chunks.ImageCount` 갱신 + `ExtractedImage.ChunkIndex` (segment → chunk 매핑) 박제. `ingestImagesIntoStore` 시그니처에 ChunkId Some 박제. 규모 ~50 line + Fact 3-4건.
-- **(P3 Phase 2 task D)**: `attachment_read` image 모드 (`caption_only` / `includeImages`) + VLM caption (Anthropic 1차) — D-S6-2 권장 default 정합.
-- **(P3 Phase 2 task C)** PdfExtractor / OoxmlExtractor 가 이미지 raw 추출 + ImageStore 호출. PdfPig DCT/JPX/JBIG2 decode 추가 NuGet 필요 시 확인.
-- **(P3 Phase 2 task D)** `attachment_read` image 모드 두 가지 (`caption_only` / `includeImages`) + VLM caption (Anthropic 1차) — D-S6-2 권장 default 정합.
-- **(P3 Phase 2 task E)** LlmConfig cost gate (daily token cap 10K + soft warning + hard cutoff) — MR4 default 정합.
+- **(s6-r12-followup, s6-r13 코드 박제 완료)** M2 (per-image try/catch fail-safe) + m6 (extractor primary + Indexer defensive 2차 가드) 결론 — 모두 §7.1 s6-r13 row + Indexer.fs / PdfExtractor.fs / OoxmlExtractor.fs doc-comment 박제 완료. 추후 image extractor 추가 시 동일 정책 정합.
 - **(P4 Phase S7)** mTLS / SSE / multi-service routing — D-S7-1~5 사전 박제 완료, 사용자 우선순위 결정 시 본격 진입. Phase 2 와 병렬 진입 가능.
 - **(P7)** P2-r3 facade 실 caller 등장 시 (MCP relay or proxy) wrapper 통합 검증.
+
+**Phase 2 task D 본격 진입 전 결정 의무 (s6-r17 결론 박제 turn)**:
+- **(D-Q1)** VLM provider 1차 선택 = Anthropic 비전 (Claude Sonnet 4.6 / Opus 4.7) vs Ollama 비전 (llava 등 local). LlmConfig.LlmService 기존 박제 정합.
+- **(D-Q2)** caption 채우는 시점 = (i) eager 색인 시 (모든 image 색인 시점에 VLM 호출 + cost) / (ii) lazy on-demand (`attachment_read` 의 caption_only 모드 호출 시점에 VLM + cache 박제).
+- **(D-Q3)** `attachment_read` 응답 schema 의 image 모드 — `caption_only` (text only, image bytes 미포함) vs `includeImages` (base64 image bytes + caption). MCP message size 정책 (KB 한도) 박제 의무.
+- **(D-Q4)** ImageCache.CaptionText 채움 transaction — 단일 image VLM 실패 시 fail-safe (M2 정책 정합) vs eager fail (cost gate 트리거).
 
 **잔여 박제 (s6-r8 follow-up — backlog)**:
 - (s6-r8 m1) IndexerVersion compare 정책 — 현 §3.17 "다르면 무조건 재색인" 정합 = 1.0.0 → 1.1.0 진입 시 기존 collection 전수 재색인 비용. major/minor 분리 정책 (major=재색인 강제 / minor=ALTER forward-compat) 박제 검토 — 별 turn 의 parent §3.17 정정.
