@@ -247,8 +247,37 @@ let ``swapCollectionPayload — 정상 swap`` () = withTempDir (fun storageRoot 
     let target = ZipImport.swapCollectionPayload storageRoot staging id "title"
     Assert.True(File.Exists (Path.Combine(target, "new.txt")))
     Assert.False(File.Exists (Path.Combine(target, "old.txt")))
-    Assert.False(Directory.Exists (oldTarget + ".bak"))
+    // K1 fix: backup suffix 가 per-호출 unique guid 라 정상 swap 후 `.bak*` 잔재 0.
+    let leftoverBak =
+        Directory.EnumerateDirectories(collectionsDir, "*.bak*", SearchOption.TopDirectoryOnly)
+        |> Seq.toArray
+    Assert.Empty leftoverBak
     Assert.False(Directory.Exists staging))
+
+[<Fact>]
+let ``makeBackupPath — per-호출 unique suffix `.bak-<hex12>` (K1 회귀 차단)`` () =
+    // **K1 회귀 차단 Fact (s6-r10)** — fixed `.bak` 회귀 시 동일 target 의 두 swap 이 같은 backup path 산출 →
+    // 첫 swap 의 rollback 도중 두번째 swap 이 backup 을 삭제 → target 영구 손실 risk.
+    // 본 Fact = `makeBackupPath` 가 동일 target 입력에 대해 모든 호출이 서로 다른 unique suffix 산출 + suffix 형식 강제 검증.
+    //
+    // race 시뮬레이션 (Task.WhenAll) 은 swap 자체의 catch 분기 robustness (별 부담) 와 얽혀 flaky.
+    // unit-level invariant 검증 만으로 K1 본질 (suffix 충돌 0) 박제 충분 — race timing 무관 deterministic.
+    let target = @"C:\some\Collections\550e8400-x-title"
+    let pattern = System.Text.RegularExpressions.Regex(@"^.+\.bak-[0-9a-f]{12}$")
+    let n = 200
+    let paths = [| for _ in 1..n -> ZipImport.makeBackupPath target |]
+
+    // 모든 결과가 unique
+    let uniqueCount = paths |> Set.ofArray |> Set.count
+    Assert.Equal(n, uniqueCount)
+
+    // suffix 형식 = .bak-<12 hex 소문자>
+    for p in paths do
+        Assert.True(
+            pattern.IsMatch p,
+            sprintf "backup path suffix 형식 위반 (.bak-<hex12> 미준수) — %s" p)
+        // target 자체 path 가 prefix
+        Assert.StartsWith(target + ".bak-", p)
 
 [<Fact>]
 let ``purgeCollection — Collections\<id-title> 전체 삭제`` () = withTempDir (fun storageRoot ->

@@ -141,3 +141,7 @@ type ServiceFixture() =
     member _.Psk = psk
     member _.UserIdentity = userIdentity
     member _.StorageRoot = storageRoot
+
+    /// `configureApp` 빌드 결과 의 DI container 노출 — K2 회귀 차단 Fact 의
+    /// `IOptions<FormOptions>` 추출 surface (E2eRoundTripTests).
+    member _.Services = app.Services

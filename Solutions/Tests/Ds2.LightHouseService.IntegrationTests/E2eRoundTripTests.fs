@@ -7,6 +7,9 @@ open System.Runtime.ExceptionServices
 open System.Security.Authentication
 open System.Text
 open System.Text.Json
+open Microsoft.AspNetCore.Http.Features
+open Microsoft.Extensions.DependencyInjection
+open Microsoft.Extensions.Options
 open Xunit
 open Ds2.LightHouseService.IntegrationTests
 
@@ -198,6 +201,24 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
             | :? System.Threading.Tasks.TaskCanceledException -> threw <- true   // timeout 회귀 분기 (dual-stack 미회복 시)
             Assert.True(threw, sprintf "IPv6 [::1] 접속 통과 — Kestrel 가 IPv4-only bind 아님 (url=%s)" ipv6Url)
         }
+
+    // ── Fact 9 (s6-r10): K2 회귀 차단 — FormOptions.MultipartBodyLengthLimit 가 cfg.MaxUploadBytes 정합 ─
+    //
+    // **K2 회귀 차단 Fact** — ASP.NET Core FormOptions default = MultipartBodyLengthLimit 134,217,728 (128MB).
+    // Kestrel MaxRequestBodySize 만 박제하고 FormOptions 미설정 시 `ReadFormAsync()` 가 cfg.MaxUploadBytes (10GB) 의
+    // 128MB 초과 multipart 를 InvalidDataException 으로 reject → cfg 한도와 어긋남.
+    // `Program.configureApp` 의 `services.Configure<FormOptions>` 박제가 회귀되면 본 Fact 가 detect.
+    //
+    // 검증 방식 — DI container 에서 IOptions<FormOptions> 추출 후 cfg.MaxUploadBytes (fixture default 10GB) 와 동일 박제 확인.
+    // 실 부담 큰 multipart upload e2e 회피 (디스크/시간 cost).
+    [<Fact>]
+    member _.``FormOptions.MultipartBodyLengthLimit = cfg.MaxUploadBytes (K2 회귀 차단)`` () =
+        let formOpts = fixture.Services.GetRequiredService<IOptions<FormOptions>>().Value
+        // fixture cfg.MaxUploadBytes = 10737418240L (10GB, ServiceFixture.buildConfig)
+        Assert.Equal(10737418240L, formOpts.MultipartBodyLengthLimit)
+        // K2 fix 의 추가 박제 — value length / multipart header length 도 cfg 정합 의도.
+        Assert.Equal(Int32.MaxValue, formOpts.ValueLengthLimit)
+        Assert.Equal(32768, formOpts.MultipartHeadersLengthLimit)
 
     interface IClassFixture<ServiceFixture>
 
