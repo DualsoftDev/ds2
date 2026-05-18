@@ -241,7 +241,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         {
             // Var 빈 노드만 있으면 조건 제거 (간소화)
             var node = dlg.Result;
-            if (node.Kind == Promaker.Controls.ExpressionEditor.Models.ExprKind.Var
+            if (node.Kind == AAStoPLC.LadderEditor.Expression.ExprKind.Var
                 && string.IsNullOrWhiteSpace(node.Symbol)
                 && node.Children.Count == 0)
                 row.PreFbCondition = null;
@@ -270,7 +270,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         if (dlg.ShowDialog() == true && dlg.Result != null)
         {
             var node = dlg.Result;
-            if (node.Kind == Promaker.Controls.ExpressionEditor.Models.ExprKind.Var
+            if (node.Kind == AAStoPLC.LadderEditor.Expression.ExprKind.Var
                 && string.IsNullOrWhiteSpace(node.Symbol)
                 && node.Children.Count == 0)
                 row.Condition = null;
@@ -889,7 +889,7 @@ public class SignalPatternRow : CommunityToolkit.Mvvm.ComponentModel.ObservableO
         {
             if (_preFbCondition == null) return "";
             var node = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(_preFbCondition);
-            return Promaker.Controls.ExpressionEditor.Converters.CoilConditionConverter.ToStPreview(node);
+            return AAStoPLC.LadderEditor.Expression.CoilConditionConverter.ToStPreview(node);
         }
     }
 
@@ -1089,7 +1089,7 @@ public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
         {
             if (_condition == null) return "";
             var node = Promaker.Controls.ExpressionEditor.Converters.FbInputExprConverter.FromCore(_condition);
-            return Promaker.Controls.ExpressionEditor.Converters.CoilConditionConverter.ToStPreview(node);
+            return AAStoPLC.LadderEditor.Expression.CoilConditionConverter.ToStPreview(node);
         }
     }
 
@@ -1122,7 +1122,7 @@ public sealed record AuxPortClipboardItem(
     string TargetFBPort,
     string Kind,
     string AuxKind,
-    Promaker.Controls.ExpressionEditor.Models.ExprNode? Condition);
+    AAStoPLC.LadderEditor.Expression.ExprNode? Condition);
 
 /// <summary>
 /// EndPortMap 행 — API 이름 → 완료 FB 출력 포트 매핑.
@@ -1161,7 +1161,7 @@ public sealed record SignalRowClipboardItem(
     bool   SkipAddressAlloc,
     bool   IsSpare,
     string UserDataType,
-    Promaker.Controls.ExpressionEditor.Models.ExprNode? PreFbCondition);
+    AAStoPLC.LadderEditor.Expression.ExprNode? PreFbCondition);
 
 /// <summary>
 /// 오류 표시 항목 (ListBox 바인딩용)

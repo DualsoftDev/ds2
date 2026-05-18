@@ -25,10 +25,14 @@
     <Compile Include="CodexCliProvider.fs" />
     <Compile Include="UiDispatcher.fs" />
     <Compile Include="ImportPlanBuilder.fs" />
+    <Compile Include="PlanLookup.fs" />
+    <Compile Include="PlcMetadata.fs" />
+    <Compile Include="ModelingCategory.fs" />
     <Compile Include="KnownSugars.fs" />
     <Compile Include="ToolOperations.fs" />
     <Compile Include="ModelProtocol.Yaml.fs" />
     <Compile Include="ModelProtocol.fs" />
+    <Compile Include="ModelProtocol.YamlIO.fs" />
     <Compile Include="ModelProtocol.Mermaid.fs" />
     <Compile Include="StoreSnapshot.fs" />
   </ItemGroup>

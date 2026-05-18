@@ -1,10 +1,11 @@
 ; Promaker installer script
 ; Requires: Inno Setup 6.4+
-; Build steps:
-; 1) Run publish.bat
-; 2) Or publish manually:
-;    dotnet publish ..\Promaker\Promaker.csproj -c Release -r win-x64 --self-contained false -o ..\Promaker\bin\Release\net9.0-windows\win-x64\publish
-; 3) Open this file in Inno Setup and build
+; Build entry point:
+;   make -C installer/Apps/Promaker dist-installer        ; .exe only
+;   /dist skill                                           ; full release (zip + scp + tag + push)
+; This .iss accepts PublishDir / SelfContainedMode / OutputSuffix
+; as /D arguments (see #ifndef defaults below).
+; Direct ISCC compile: caller (Makefile) must run `dotnet publish` first.
 
 ; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치)
 #include "CodeDependencies.iss"

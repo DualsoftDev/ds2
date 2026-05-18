@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Ds2.Core.Store;
 using Ds2.LlmAgent;
+using Ds2.LlmAgent.Internal;
 using log4net;
 using ModelContextProtocol.Server;
 
@@ -197,17 +198,25 @@ public static class ModelTools
         });
     }
 
-    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model. path/depth 인자 (Phase 6, GUID-free): path = dotted-path (예: '.Proj1.SysA') — 부재 = 전체. depth = 0 이상 정수 — 부재 = 무제한. 두 인자 모두 부재 = 전체 export (view: full). 둘 중 하나라도 명시 = 부분 export (실제 truncation 발생 시 view: partial — apply/validate 재입력 금지).")]
+    [McpServerTool, Description("현재 store 의 entity graph 를 schema v0 의 선언적 표현으로 export. format=yaml(default, 사람 친화 view) | json(wire 와 동일). round-trip 검증의 SSOT — apply(export(model)) ≡ model. path/depth 인자 (Phase 6, GUID-free): path = dotted-path (예: '.Proj1.SysA') — 부재 = 전체. depth = 0 이상 정수 — 부재 = 무제한. 두 인자 모두 부재 = 전체 export (view: full). 둘 중 하나라도 명시 = 부분 export (실제 truncation 발생 시 view: partial — apply/validate 재입력 금지). level (Phase 7 §10.2 #31): 'full' (default — 전체 카테고리) | 'modeling' (A_Modeling 만 — LLM 동작 의미 직결 키만, B/C/D + workDuration + apiDetails.description 생략). modeling 결과는 wire 에 'level: modeling' 명시 — apply 측이 patch-merge mode 강제.")]
     public static Task<string> ExportModelDoc(
         LlmTurnContextProvider turnProvider,
         [Description("출력 형식. 'yaml' (default) 또는 'json'.")] string format = "yaml",
         [Description("dotted-path scope (예: '.Proj1.SysA.Flow1'). leading '.' 권장. 부재 = 전체 export. 미존재 path 는 사전 거부.")] string? path = null,
-        [Description("path 또는 root 로부터 walk 깊이 (0 이상 정수). 0 = 해당 entity 자체만 (자식 빈 list). 부재 = 무제한.")] int? depth = null)
+        [Description("path 또는 root 로부터 walk 깊이 (0 이상 정수). 0 = 해당 entity 자체만 (자식 빈 list). 부재 = 무제한.")] int? depth = null,
+        [Description("category filter level. 'full' (default — 전체) | 'modeling' (A_Modeling 만). modeling = LLM 모델링 부담 최소화 — B/C/D + workDuration + apiDetails.description 생략. 결과 wire 의 'level: modeling' 키가 apply 시 patch-merge mode 강제.")] string level = "full")
     {
         // Phase 6 closure #4 / 회귀 fact (e): depth schema 사전 거부 — `< 0` reject.
         // 비정수 / overflow 는 MCP framework 의 int? 바인딩이 사전 거부 (분리 분기 불요).
         if (depth.HasValue && depth.Value < 0)
             return Task.FromResult($"VALIDATION_ERROR: depth '{depth.Value}' 가 0 이상 정수가 아닙니다 (`depth >= 0` 필요).");
+
+        // Phase 7 §10.2 #31 (S1.2) — level 인자 사전 거부. SSOT §2.7 룰 #29 정합.
+        var levelRaw = string.IsNullOrWhiteSpace(level) ? "full" : level.Trim().ToLowerInvariant();
+        var levelOpt = ModelingCategory.tryParseLevel(levelRaw);
+        if (Microsoft.FSharp.Core.FSharpOption<ModelingCategory.ExportLevel>.get_IsNone(levelOpt))
+            return Task.FromResult($"VALIDATION_ERROR: level '{level}' 인식 불가. 'full' 또는 'modeling' 사용.");
+        var levelArg = levelOpt.Value;
 
         var pathArg = string.IsNullOrWhiteSpace(path)
             ? Microsoft.FSharp.Core.FSharpOption<string>.None
@@ -218,7 +227,7 @@ public static class ModelTools
 
         return RunRead(turnProvider, "export_model_doc", ctx =>
         {
-            using var jdoc = ModelProtocol.exportToJsonScoped(ctx.Store, pathArg, depthArg);
+            using var jdoc = ModelProtocol.exportToJsonScopedWithLevel(ctx.Store, pathArg, depthArg, levelArg);
             var fmt = string.IsNullOrWhiteSpace(format) ? "yaml" : format.Trim().ToLowerInvariant();
             return fmt switch
             {

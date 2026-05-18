@@ -10,81 +10,301 @@
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         ResizeMode="CanResize">
+    <Window.Resources>
+        <Style x:Key="TbBtn" TargetType="Button">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinWidth" Value="42"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+    </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
         <Grid Margin="14">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>   <!-- 0: 제목 -->
                 <RowDefinition Height="6"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>   <!-- 2: 모드 -->
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="Auto"/>   <!-- 4: 문법 도움말 -->
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="*"/>      <!-- 6: LadderEditor (위쪽) -->
                 <RowDefinition Height="10"/>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>   <!-- 8: Quick Insert -->
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="Auto"/>   <!-- 10: ST 표현 (아래쪽) -->
                 <RowDefinition Height="10"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>   <!-- 12: Footer -->
             </Grid.RowDefinitions>
 
-            <!-- Header -->
-            <TextBlock Grid.Row="0"
-                       x:Name="SectionTitle"
-                       FontSize="16"
-                       FontWeight="SemiBold"
+            <!-- Row 0: 제목 -->
+            <TextBlock Grid.Row="0" x:Name="SectionTitle"
+                       FontSize="16" FontWeight="SemiBold"
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        VerticalAlignment="Center"/>
 
-            <!-- 조작 안내 배너 -->
+            <!-- Row 2: 모드 + Format + Apply -->
             <Border Grid.Row="2"
                     Background="{DynamicResource TertiaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="3"
                     Padding="10,6">
-                <TextBlock TextWrapping="Wrap" FontSize="11"
-                           Foreground="{DynamicResource SecondaryTextBrush}">
-                    <Run FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">조작:</Run>
-                    <Run> 접점 더블클릭 = 심볼 편집 ·</Run>
-                    <Run> 빈 셀 더블클릭 = 신규 접점 ·</Run>
-                    <Run> 접점 우클릭 = 종류(NO/NC/Pulse) / 복사·붙여넣기 / 삭제 ·</Run>
-                    <Run> 접점 드래그 → = 직렬 추가 ·</Run>
-                    <Run> 접점 드래그 ↓ = OR 분기 ·</Run>
-                    <Run> Ctrl+Z/Y = Undo/Redo ·</Run>
-                    <Run> Ctrl+휠 = 확대/축소</Run>
-                </TextBlock>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="모드:" FontWeight="SemiBold" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,10,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <RadioButton Grid.Column="1" x:Name="ModeLadder" Content="🪜 래더 편집"
+                                 GroupName="CondEditMode" IsChecked="True"
+                                 VerticalAlignment="Center" Margin="0,0,12,0"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 Checked="ModeLadder_Checked"/>
+                    <RadioButton Grid.Column="2" x:Name="ModeText" Content="✏ 텍스트(ST) 편집"
+                                 GroupName="CondEditMode"
+                                 VerticalAlignment="Center"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 Checked="ModeText_Checked"/>
+                    <TextBlock Grid.Column="3" x:Name="ModeHint" Margin="16,0,0,0" FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Button Grid.Column="4" x:Name="FormatBtn" Content="📐 Format"
+                            Style="{StaticResource TbBtn}" MinWidth="80"
+                            ToolTip="parse → simplify → 정규 표기 (Alt+F)"
+                            Visibility="Collapsed"
+                            Click="FormatBtn_Click"/>
+                    <Button Grid.Column="5" x:Name="ApplyBtn" Content="✓ 적용 (Ctrl+Enter)"
+                            Padding="10,3" MinWidth="130"
+                            IsEnabled="False" Visibility="Collapsed"
+                            Click="ApplyBtn_Click"/>
+                </Grid>
             </Border>
 
-            <!-- LadderEditor — 전체 영역. 드래그/우클릭/Ctrl+Z 모두 활성. -->
-            <Border Grid.Row="4"
+            <!-- Row 8: Quick Insert 툴바 (ST 표현 직전) -->
+            <Border Grid.Row="8" x:Name="QuickInsertBar"
+                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="3"
+                    Padding="10,5"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="삽입:" FontWeight="SemiBold" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,10,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Button Style="{StaticResource TbBtn}" Content="AND" Click="InsertAnd_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="OR"  Click="InsertOr_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="NOT" Click="InsertNot_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="( )" MinWidth="36" Click="InsertParen_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="R_TRIG()" MinWidth="74" Click="InsertRTrig_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="F_TRIG()" MinWidth="74" Click="InsertFTrig_Click"/>
+                    <Separator Margin="6,2"/>
+                    <Button Style="{StaticResource TbBtn}" Content="🔍 심볼…" MinWidth="72"
+                            ToolTip="ApiCall 심볼 선택 (Ctrl+Space)"
+                            Click="SymbolPicker_Click"/>
+                    <Button Style="{StaticResource TbBtn}" Content="↺ 원복 (ESC)" MinWidth="92"
+                            Click="Revert_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Row 10: ST 표현 (래더 아래) -->
+            <Border Grid.Row="10"
+                    Padding="8,6"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="3"
+                    Background="{DynamicResource TertiaryBackgroundBrush}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="ST 표현:" FontSize="11" FontWeight="SemiBold"
+                               VerticalAlignment="Top" Margin="0,4,8,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Border Grid.Row="0" Grid.Column="1"
+                            x:Name="TextBoxBorder"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            CornerRadius="2">
+                        <Grid>
+                            <Border x:Name="StHighlightOverlay"
+                                    Background="#1F2A3A"
+                                    Padding="6,4" CornerRadius="2">
+                                <Grid>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <TextBlock x:Name="StHighlight"
+                                                   FontFamily="Consolas" FontSize="12"
+                                                   TextWrapping="Wrap" MinHeight="80"/>
+                                    </ScrollViewer>
+                                    <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Background="#33000000"
+                                            CornerRadius="2"
+                                            Padding="4,1" Margin="0,2,2,0">
+                                        <TextBlock Text="🔒 read-only" FontSize="9"
+                                                   Foreground="#A8B0BD"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                            <TextBox x:Name="StTextBox"
+                                     MinHeight="90" MaxHeight="240"
+                                     FontFamily="Consolas" FontSize="12"
+                                     IsReadOnly="True"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     Padding="6,4"
+                                     Visibility="Collapsed"
+                                     TextChanged="StTextBox_TextChanged"
+                                     PreviewKeyDown="StTextBox_PreviewKeyDown"
+                                     SelectionChanged="StTextBox_SelectionChanged"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1"
+                               x:Name="StStatus"
+                               Margin="0,4,0,0" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text=""/>
+
+                    <!-- 인라인 자동완성 Popup — 타이핑 중 caret 근처에 표시 -->
+                    <Popup x:Name="AutoCompletePopup" Grid.Row="0" Grid.Column="1"
+                           PlacementTarget="{Binding ElementName=StTextBox}"
+                           Placement="Relative"
+                           AllowsTransparency="True"
+                           StaysOpen="True"
+                           Focusable="False">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource AccentBrush}"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="2">
+                            <ListBox x:Name="AutoCompleteList"
+                                     FontFamily="Consolas" FontSize="11"
+                                     MinWidth="200" MaxHeight="180"
+                                     Focusable="False"
+                                     PreviewMouseLeftButtonUp="AutoCompleteList_MouseUp"/>
+                        </Border>
+                    </Popup>
+
+                    <!-- 심볼 픽커 Popup -->
+                    <Popup x:Name="SymbolPopup" Grid.Row="0" Grid.Column="1"
+                           PlacementTarget="{Binding ElementName=TextBoxBorder}"
+                           Placement="Bottom"
+                           AllowsTransparency="True"
+                           StaysOpen="False">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="3" Padding="6">
+                            <Grid Width="320" Height="280">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBox Grid.Row="0" x:Name="SymbolFilter"
+                                         FontFamily="Consolas" FontSize="11"
+                                         Margin="0,0,0,4" Padding="4,2"
+                                         TextChanged="SymbolFilter_TextChanged"
+                                         PreviewKeyDown="SymbolFilter_PreviewKeyDown"/>
+                                <ListBox Grid.Row="1" x:Name="SymbolList"
+                                         FontFamily="Consolas" FontSize="11"
+                                         MouseDoubleClick="SymbolList_MouseDoubleClick"
+                                         PreviewKeyDown="SymbolList_PreviewKeyDown"/>
+                                <TextBlock Grid.Row="2" FontSize="10"
+                                           Margin="0,4,0,0"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Text="↑↓ 이동 · Enter / 더블클릭 = 삽입 · Esc = 닫기"/>
+                            </Grid>
+                        </Border>
+                    </Popup>
+                </Grid>
+            </Border>
+
+            <!-- Row 4: 문법 도움말 / 조작 (모드 아래, 래더 위) -->
+            <Expander Grid.Row="4" Header="문법 / 조작 도움말" FontSize="11"
+                      Foreground="{DynamicResource SecondaryTextBrush}">
+                <Border Background="{DynamicResource TertiaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1" Padding="10,6">
+                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}">
+                        <Run FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">문법:</Run>
+                        <Run> AND = </Run><Run FontFamily="Consolas">AND/&amp;&amp;/&amp;/*</Run>
+                        <Run>  ·  OR = </Run><Run FontFamily="Consolas">OR/||/|/+</Run>
+                        <Run>  ·  NOT = </Run><Run FontFamily="Consolas">NOT/!/~</Run>
+                        <Run>  ·  Edge = </Run><Run FontFamily="Consolas">R_TRIG()/F_TRIG()</Run>
+                        <LineBreak/>
+                        <Run> 우선순위: NOT &gt; AND &gt; OR  ·  예: </Run>
+                        <Run FontFamily="Consolas">A AND !B OR R_TRIG(C)</Run>
+                        <LineBreak/>
+                        <Run FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}">단축키:</Run>
+                        <Run> Ctrl+Enter / F5 = 적용  ·  ESC = 원복  ·  Ctrl+Space = 심볼  ·  Alt+F = Format</Run>
+                    </TextBlock>
+                </Border>
+            </Expander>
+
+            <!-- Row 6: LadderEditor (위쪽 — 메인 화면) -->
+            <Border Grid.Row="6"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="3"
                     Background="{DynamicResource TertiaryBackgroundBrush}">
                 <le:LadderEditorControl x:Name="EditorView" IsReadOnly="False"/>
             </Border>
 
-            <!-- Footer -->
-            <Grid Grid.Row="6">
+            <!-- Row 12: Footer + 상태바 -->
+            <Grid Grid.Row="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="StatusText"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           VerticalAlignment="Center"
-                           FontSize="11"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Content="저장"
-                            Style="{StaticResource DarkButton}"
-                            Padding="20,6"
-                            MinWidth="80"
-                            Margin="0,0,8,0"
-                            Click="Save_Click"/>
-                    <Button Content="닫기"
-                            Style="{StaticResource DarkButton}"
-                            Padding="20,6"
-                            MinWidth="80"
-                            IsCancel="True"
-                            Click="Close_Click"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="StatusText"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               VerticalAlignment="Center" FontSize="11"
+                               Margin="0,0,16,0"/>
+                    <TextBlock x:Name="StatusModeLabel" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,12,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text="🪜 래더 모드"/>
+                    <TextBlock x:Name="StatusCursorLabel" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,12,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text=""/>
+                    <TextBlock x:Name="StatusLeafLabel" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,12,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text="leaf 0개"/>
+                    <TextBlock x:Name="StatusValidationLabel" FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="#57C06D" Text="✓"/>
                 </StackPanel>
+                <Button Grid.Column="3" Content="저장"
+                        Style="{StaticResource DarkButton}"
+                        Padding="20,6" MinWidth="80" Margin="8,0,8,0"
+                        Click="Save_Click"/>
+                <Button Grid.Column="4" Content="닫기"
+                        Style="{StaticResource DarkButton}"
+                        Padding="20,6" MinWidth="80"
+                        IsCancel="True" Click="Close_Click"/>
             </Grid>
         </Grid>
     </Border>

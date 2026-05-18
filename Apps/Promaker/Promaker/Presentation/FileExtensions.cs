@@ -8,5 +8,7 @@ internal static class FileExtensions
     public const string Aasx    = ".aasx";
     public const string Mermaid = ".md";
     public const string MermaidAlt = ".mmd";
+    public const string Yaml    = ".yaml";
+    public const string YamlAlt = ".yml";
     public const string Csv     = ".csv";
 }
