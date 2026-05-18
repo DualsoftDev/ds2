@@ -246,11 +246,24 @@ module ZipImport =
         Directory.Move(stagingPath, target)
         target
 
+    /// K1 backup suffix 의 hex 길이 SSOT (자가 검열 m1, s6-r10).
+    /// 48 bit (12 hex) 엔트로피 = 동시 swap N≤1000 가정에서 충돌 확률 무시 가능.
+    /// 변경 시 `ZipImportTests` 의 suffix regex (`[0-9a-f]{12}`) 도 동기 갱신 의무.
+    [<Literal>]
+    let BackupSuffixHexLen = 12
+
+    /// **K1 회귀 차단 helper (s6-r10)** — swap rollback backup path 의 per-호출 unique suffix 생성.
+    /// SSOT: `<target>.bak-<guidN>` (N = `BackupSuffixHexLen`). 동일 collectionId 동시 swap 시 backup 충돌 차단 = K1 의 본질.
+    /// 본 helper 분리 = unit test 의 deterministic 검증 surface (ZipImportTests `makeBackupPath ... unique suffix`).
+    /// production caller = `swapCollectionPayload` 단일.
+    let makeBackupPath (target: string) : string =
+        sprintf "%s.bak-%s" target (Guid.NewGuid().ToString("N").Substring(0, BackupSuffixHexLen))
+
     /// payload swap — 기존 collection 디렉토리의 source/ + .lighthouse-kb/ 만 새 staging 내용으로 교체.
     /// meta.json 의 server 필드 (id / importedAt / importedBy / storageRelPath) 는 caller 가 stampServerFields 로
     /// 미리 stagingPath/meta.json 에 박아둠. 본 함수는 디렉토리 단위 swap 만.
-    /// rollback: target 의 기존 source\ + .lighthouse-kb\ 를 `*.bak` 으로 rename → staging 내용 move → 성공 시 .bak 삭제.
-    /// 실패 시 .bak 복귀.
+    /// rollback: target 의 기존 source\ + .lighthouse-kb\ 를 `*.bak-<guid12>` 로 rename → staging 내용 move → 성공 시 .bak-* 삭제.
+    /// 실패 시 .bak-* 복귀.
     ///
     /// **review IC-1 강화 (3/7 reviewer 합의)**: 부분 실패 안전성 보강.
     /// - target 부분 잔재 cleanup 실패 시 silent swallow 금지 → `<target>.broken-<timestamp>` rename 으로 별도 격리
@@ -271,8 +284,8 @@ module ZipImport =
         // **K1 (외부 review R2 합의)**: backup suffix 를 per-호출 unique guid 로 분리 — 동일 collectionId 동시 swap 시
         // A 의 backup 을 B 가 무조건 삭제 → A rollback 가 빈 backup 진입 → target 영구 손실 회피.
         // 이전 fixed `.bak` 의 "잔재 cleanup" 분기 제거됨 — 각 호출이 자체 suffix 갖음. stale `.bak-*` 잔재 sweep 은
-        // staging sweep 정책 차원에서 별 turn 박제 (follow-up).
-        let backup = sprintf "%s.bak-%s" target (Guid.NewGuid().ToString("N").Substring(0, 12))
+        // staging sweep 정책 차원에서 별 turn 박제 (follow-up). 회귀 차단 Fact = `makeBackupPath` unit test.
+        let backup = makeBackupPath target
 
         try
             Directory.Move(target, backup)
