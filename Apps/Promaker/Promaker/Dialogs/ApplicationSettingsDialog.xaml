@@ -11,6 +11,23 @@
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             b:CtrlWheelZoom.IsEnabled="True">
+        <Border.Resources>
+            <!-- s5c-r1 — dark theme 정합. TextBox/PasswordBox default light style 차단 (사용자 보고 cosmetic). -->
+            <Style TargetType="{x:Type TextBox}">
+                <Setter Property="Background" Value="#2D2D30"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
+            </Style>
+            <Style TargetType="{x:Type PasswordBox}">
+                <Setter Property="Background" Value="#2D2D30"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
+            </Style>
+        </Border.Resources>
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>

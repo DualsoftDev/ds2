@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Microsoft.Win32;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
@@ -40,6 +41,17 @@ public partial class ApplicationSettingsDialog : Window
     private LlmConfig _llmConfig = LlmConfig.Load();
     /// <summary>OK 시 LlmConfig 변경 사항이 disk 에 저장되었는지. 호출자가 LlmChatVm.ReloadConfig() 호출 트리거로 사용.</summary>
     public bool LlmConfigChanged { get; private set; }
+
+    // s5c-r1 — 연결/테스트 결과 색상 SSOT (사용자 보고 cosmetic). dark theme 에서 잘 보이는 light blue / red.
+    // Freeze 로 GC + thread 부담 최소화.
+    private static readonly Brush SuccessBrush = MakeFrozen(0x4F, 0xC3, 0xF7);   // light blue
+    private static readonly Brush FailureBrush = MakeFrozen(0xEF, 0x53, 0x50);   // light red
+    private static Brush MakeFrozen(byte r, byte g, byte b)
+    {
+        var br = new SolidColorBrush(Color.FromRgb(r, g, b));
+        br.Freeze();
+        return br;
+    }
 
     /// <summary>모델 ComboBox (IsEditable=True) 의 후보 목록. 사용자는 선택 또는 직접 입력 가능.</summary>
     private static readonly string[] AnthropicModelCandidates =
@@ -294,33 +306,46 @@ public partial class ApplicationSettingsDialog : Window
         var psk = LhPskBox.Password ?? "";
         if (string.IsNullOrEmpty(url))
         {
-            LhTestResult.Text = "❌ Base URL 이 비어있습니다.";
+            SetTestResult(LhTestResult, "❌ Base URL 이 비어있습니다.", success: false);
             return;
         }
         if (string.IsNullOrEmpty(psk))
         {
-            LhTestResult.Text = "❌ PSK 가 비어있습니다.";
+            SetTestResult(LhTestResult, "❌ PSK 가 비어있습니다.", success: false);
             return;
         }
-        LhTestResult.Text = "확인 중…";
+        SetTestResult(LhTestResult, "확인 중…", success: null);
         try
         {
             using var client = new LightHouseClient(url, () => psk, Environment.UserName);
             var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
-            LhTestResult.Text = $"✅ 연결 성공 — collection {resp.Collections.Count}건";
+            SetTestResult(LhTestResult, $"✅ 연결 성공 — collection {resp.Collections.Count}건", success: true);
         }
         catch (LightHouseAuthException ex)
         {
-            LhTestResult.Text = $"❌ 인증 실패 — PSK 확인 필요 ({(int)ex.StatusCode})";
+            SetTestResult(LhTestResult, $"❌ 인증 실패 — PSK 확인 필요 ({(int)ex.StatusCode})", success: false);
         }
         catch (LightHouseProtocolException ex)
         {
-            LhTestResult.Text = $"❌ protocol 오류 — {ex.Message}";
+            SetTestResult(LhTestResult, $"❌ protocol 오류 — {ex.Message}", success: false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or ArgumentException)
         {
-            LhTestResult.Text = $"❌ 연결 실패 — {ex.Message}";
+            SetTestResult(LhTestResult, $"❌ 연결 실패 — {ex.Message}", success: false);
         }
+    }
+
+    /// <summary>
+    /// s5c-r1 — Test 결과 TextBlock 의 색상 + 텍스트 동시 갱신. success=null = 진행 중 (default 색상).
+    /// LhTestResult / LlmOllamaTestResult 의 공통 핸들러.
+    /// </summary>
+    private static void SetTestResult(TextBlock target, string text, bool? success)
+    {
+        target.Text = text;
+        target.ClearValue(TextBlock.ForegroundProperty);
+        if (success is true) target.Foreground = SuccessBrush;
+        else if (success is false) target.Foreground = FailureBrush;
+        // null = default (DynamicResource SecondaryTextBrush) 복원
     }
 
     private async void LlmTestOllama_Click(object sender, RoutedEventArgs e)
@@ -328,10 +353,10 @@ public partial class ApplicationSettingsDialog : Window
         var url = (LlmOllamaBaseUrlBox.Text ?? "").Trim();
         if (string.IsNullOrEmpty(url))
         {
-            LlmOllamaTestResult.Text = "❌ URL 이 비어있습니다.";
+            SetTestResult(LlmOllamaTestResult, "❌ URL 이 비어있습니다.", success: false);
             return;
         }
-        LlmOllamaTestResult.Text = "확인 중…";
+        SetTestResult(LlmOllamaTestResult, "확인 중…", success: null);
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -341,17 +366,17 @@ public partial class ApplicationSettingsDialog : Window
             if (resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
-                LlmOllamaTestResult.Text = $"✅ 연결 성공 — {body.Trim()}";
+                SetTestResult(LlmOllamaTestResult, $"✅ 연결 성공 — {body.Trim()}", success: true);
             }
             else
             {
-                LlmOllamaTestResult.Text = $"❌ 응답 status {(int)resp.StatusCode} {resp.ReasonPhrase}";
+                SetTestResult(LlmOllamaTestResult, $"❌ 응답 status {(int)resp.StatusCode} {resp.ReasonPhrase}", success: false);
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
         {
             // review (3): OOM/StackOverflow 등 시스템 예외는 흡수하지 않고 즉시 throw → 진단 용이성 보존.
-            LlmOllamaTestResult.Text = $"❌ 연결 실패: {ex.Message}";
+            SetTestResult(LlmOllamaTestResult, $"❌ 연결 실패: {ex.Message}", success: false);
         }
     }
 

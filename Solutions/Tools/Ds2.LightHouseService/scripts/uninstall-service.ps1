@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Ds2.LightHouseService 제거 — service stop + sc.exe delete.
 

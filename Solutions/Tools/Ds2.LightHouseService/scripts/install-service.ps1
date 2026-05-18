@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Ds2.LightHouseService 설치 — PSK 평문 입력 → DPAPI(LocalMachine) 암호화 → config.json 저장 → sc.exe 등록.
 

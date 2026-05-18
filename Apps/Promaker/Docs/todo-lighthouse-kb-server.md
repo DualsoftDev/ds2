@@ -712,58 +712,116 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 
 ---
 
-## 7. 다음 세션 첫 행동
+## 7. 다음 세션 첫 행동 (이어받기 SSOT)
 
-**현 상태 (s5a-r0 박제 시점)**: Phase S5a (LlmConfig + LightHouseClient + IntegrationTests scaffold) 작성 완료 + 자가 검열 4건 즉시 적용 완료. **commit 0건** — 사용자 confirm 대기. Phase S5 = sub-phase 분할 진입 (S5a 본 commit / S5b KbManagerDialog + Settings UI / S5c ChatViewModel + IntegrationTests round-trip + App exit hook).
+**현 상태 (s5c-r1 commit 직후 갱신 예정 / 본 단원이 handover 단일 진입점)**:
+- 본 phase 의 전체 Phase S5 본체 task **모두 ✓** (S5a/b/c 누적 commit).
+- **service e2e 실 부팅 검증 완료** — `make install` → `sc start Ds2.LightHouseService` → `curl https://localhost:8443/collections` 200 OK + JSON body.
+- 본격 IntegrationTests round-trip (MA22) 는 **Phase 2 / dist 직전 이연**.
+- **새 세션 진입 시 본 §7 + §0 / §3 / §4.2 / §4.3 정독 충분** (별도 handover 문서 없음 — 본 §7 가 SSOT).
 
-1. **본 문서 정독** — 특히 **s5a-r0 rev** (Phase S5a 진입 박제 + 자가 검열 적용/보류 분류) + **s4-r0 rev** (직전 phase) + §0 D-id 표 (R1/Q1~Q4/D1~D7/T1/N5/N6/L1~L3/P1/P2/D-S3-1~4 모두 SSOT, 본 phase 에서 신규 D-id 추가 없음).
-2. **현 working tree 변경 점검** — `git status` 로 변경 파일 확인. 미commit 산출물:
-   - 수정 운영 (2): `Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + DPAPI helper + 두 신 type, ~90 line), `Apps/Promaker/Promaker/Promaker.csproj` (InternalsVisibleTo 3 line)
-   - 신규 운영 (1): `Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs` (~340 line)
-   - 신규 test project (3 파일): `Solutions/Tests/Ds2.LightHouseService.IntegrationTests/` — fsproj / Program.fs / ScaffoldSentinelTests.fs (~40 line total)
-   - 신규 test 1: `Solutions/Tests/Promaker.Tests/LightHouseClientTests.cs` (~310 line, 15 Fact)
-   - 수정 test 1: `Solutions/Tests/Promaker.Tests/LlmConfigTests.cs` (7 Fact 추가, ~90 line)
-   - 수정 sln (2): `Apps/Promaker/Promaker.sln` + `Solutions/Ds2.sln` (IntegrationTests project 등록)
-   - 수정 doc (1): `todo-lighthouse-kb-server.md` (s5a-r0 박제 + §4.2 Phase S5 부분 체크 + §4.3 미확정 표 결정)
-3. **commit 진입 결정** — 단일 commit 권장:
-   - 권장 = "S5a Promaker 통합 1차 (LlmConfig KbCollections/LightHouseService + LightHouseClient HTTP wrapper + IntegrationTests scaffold) + 22 fact + 자가 검열 4건 + s5a-r0 박제"
-4. **Phase S5b 진입 confirm** — 본 sub-phase 종결 후 자연 다음 단계.
-   - Phase S5b = `KbManagerDialog.xaml(.cs)` 신설 (folder picker + 색인 진행률 + upload + consent dialog) + `ApplicationSettingsDialog` 의 "LightHouse Service" section + "연결 테스트" 버튼 + `AttachmentIngestService.cs` 신설 (색인 + zip + upload + cancel hook) + `CollectionPackager.cs` 신설 (folder → zip per §3.3.1). 규모 大 (WPF UI 변경). Phase S5b 진입 시 S5a-M1 (zip stream double-dispose 시험) / S5a-M4 (CollectionInfo SSOT drift) 도 흡수.
-   - 또는 Phase S5c 우선 진입: ChatViewModel 의 session 발급 + .mcp-config 작성 + IntegrationTests round-trip + App exit hook. S5c 가 e2e 보장 후 S5b 의 UI 작업이 더 안전. 권장 = **S5b 먼저** (사용자 가시 가치 + S5c 의 ChatViewModel 통합이 KbManagerDialog 의 active set 의존이므로 순서 자연).
-5. **commit 은 단계별 별도 confirm** (memory: `feedback_commit_authorization`).
+### 7.1 commit 누적 chain
 
-**s5a-r0 review 잔여 (Phase S5b / S5c 이연)** — 본 phase 이후 follow-up:
-- (S5a-M1 test) zipStream double-dispose 시험 1건 — Phase S5b (AttachmentIngestService 진입 시 caller 패턴 확정)
-- (S5a-M4) `CollectionInfo` 의 server `CollectionEntry` 대비 누락 필드 (CreatedAt / ImportedBy / TotalSourceBytes / StorageRelPath / ImportedAt) — Phase S5b KbManagerDialog 표시 필드 SSOT 점검 + forward-compat Fact 1건
-- (S5a-m1) HTTPS scheme paranoid double-check — backlog
-- (S5a-m6) 빈 active set L3 회복 의미 — Phase S5c
-- (S5a-m8) IntegrationTests round-trip 진입 — Phase S5c
+| commit | rev | 내용 |
+|---|---|---|
+| `1be3ab8` | s1-r0 | S1 service host scaffold (24 Fact) |
+| `8661fb5` | s2-r0 | S2 collection 관리 API (37 Fact) |
+| `986f533` | s3-r0/r1 | S3 session + MCP search host (27 Fact + IC-1~2 + IM-3/6/8/11/10) |
+| `273007c` | s4-r0 | S4 file serving (19 Fact) |
+| `82b4e6a` | s5a-r0 | S5a Promaker LlmConfig + LightHouseClient + IntegrationTests scaffold (22 Fact) |
+| `5c8da12` | s5b-r0 | S5b KbManagerDialog + CollectionPackager + AttachmentIngestService (12 Fact) |
+| `79ee30b` | s5c-r0 | S5c ChatViewModel session + Holder singleton + multi-server .mcp-config + App exit hook (11 Fact) |
+| (대기) | s5c-r1 | UI 테마 정합 + Makefile install/light-house + howto 문서 + .ps1 BOM + 사용자 e2e 검증 박제 |
 
-**s5a-r0 review 잔여 (Phase 2 / backlog)**:
-- (S5a-m2) PSK byte buffer + Array.Clear (S3 IM-5 backlog 와 함께) — Phase S6 보안 hardening
-- (S5a-m3) 메서드별 HttpRequestMessage Timeout override — backlog
-- (S5a-m9) JsonException → LightHouseProtocolException wrap — backlog
-- (S5a-m10) `SetApiKey` / `SetLightHousePsk` 의 DPAPI helper refactor — Phase S5b 또는 S6
-- DPAPI entropy v2 마이그레이션 패턴 — backlog (todo §3.7)
+**테스트 누적** (Promaker.Tests): S4 158 → S5a 180 → S5b 192 → S5c 203.
 
-**s4-r0 review 잔여 우려 (Phase S4 안 / Phase S5 / Phase 2 이연)** — 본 phase 이전 박제:
-- (S4-M3) 200/304 분기 ETag 헤더 형식 일관성 + test 강화 — S4 안
-- (S4-m3) userIdentityOf "unknown" anomaly 박제 — S4 안
-- (S4-m4) fileId SSOT 주석 항목 번호 — S4 안
-- (S4-m6) 416 / If-Range Fact 추가 — S4 안
-- (S4-m8) Path.GetExtension 가드 잉여 정리 — S4 안
+### 7.2 새 세션 진입 즉시 행동
 
-**s4-r0 review 잔여 (Phase S5 / Phase 2 이연)**:
-- (S4-M4) `findSourceFile` recursive walk latency — Phase S5 의 source/ layout 결정 후
-- (S4-M5) basename + size 매칭 충돌 위험 — Phase S5 의 평면화 정책으로 자동 해소 또는 stream open prefix hash
-- (S4-m2) audit log 폭증 (file get 매번 INFO) — Phase 2 operational hardening
-- (S4-m5) ClearPool 잦은 호출 — Phase 2 lib pool 캐싱
+```bash
+cd /f/Git/ds2/light-house
+git status                              # 미commit 변경 검토 (있으면 §7.3 참조)
+git log --oneline -8                    # commit chain 검증
+cat Apps/Promaker/Docs/howto-connect-lighthouse-service.md  # 사용자 가이드
+```
 
-**s3-r1 review 잔여 우려 (Phase 2 / S5 follow-up)** — 본 phase 이전 박제:
-- IM-1 endpoint try/with 5-way 헬퍼 압축 (Phase 2)
-- IM-4 MetaJson.load schemaVersion 주석 정정 (backlog)
-- IM-5 PSK byte cache + Array.Clear (별 PR, 복잡도)
-- IM-7 CollectionEndpoints unit test 0건 → Phase S5 WebApplicationFactory IntegrationTests 흡수
-- IM-9 StagingSweep `.in-progress` sentinel (Phase 2)
-- Minor 18건 일괄 정리 (Phase 2)
-- Phase S3 자가 검열의 잔여 — M5 (MCP attribute reflection e2e 검증) / M9 (Config.validate SessionIdleTtlMinutes 상한) / M10 (Phase S5 LightHouseClient L3 catch 검증) / m13 (Resolver caching) / m15 (ModelContextProtocol transitive 정리)
+### 7.3 s5c-r1 (현 working tree 미commit 시점 — commit 후 본 단원 정정)
+
+**미commit 산출물 (10 파일)**:
+- 신규 doc (2): `howto-connect-lighthouse-service.md` (사용자 가이드), `(handover 폐기 — 본 §7 통합)`
+- 신규 운영 (1): `Solutions/Tools/Ds2.LightHouseService/scripts/generate-dev-cert.ps1` (~85 line, self-signed PFX)
+- 수정 운영 (3): `Apps/Promaker/Promaker/Controls/Llm/LlmChatPanel.xaml` (KB 관리 버튼 ChatButtonStyle 박제), `Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml` (Border.Resources 의 GridViewColumnHeader/ListViewItem dark theme), `Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml(.cs)` (Border.Resources 의 TextBox/PasswordBox dark theme + SuccessBrush/FailureBrush 동적 색상 + SetTestResult helper)
+- 수정 운영 (1): `Apps/Promaker/Makefile` (LH_* 변수 + install/light-house target + help, service 이름 `Ds2.` prefix 정정, echo ASCII 정합)
+- 수정 ps1 (2 BOM 추가): `install-service.ps1`, `uninstall-service.ps1` (PowerShell 5.1 cp949 fallback 차단)
+- 수정 doc (1): `todo-lighthouse-kb-server.md` (본 §7 갱신)
+
+**권장 commit message (단일)**:
+```
+s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 BOM
+
+- LlmChatPanel "KB 관리" Button + KbManagerDialog GridViewColumnHeader/ListViewItem dark theme
+- ApplicationSettingsDialog 의 TextBox/PasswordBox dark theme (Border.Resources implicit Style)
+- 연결/Ollama 테스트 결과 동적 색상 (SuccessBrush #4FC3F7 / FailureBrush #EF5350) + SetTestResult helper
+- Makefile install (cert+publish+register) / light-house (console run) + help + Ds2. prefix 정정
+- generate-dev-cert.ps1 신설 (LocalMachine self-signed PFX, dev/PoC)
+- install/uninstall/generate-dev-cert.ps1 에 UTF-8 BOM (PowerShell 5.1 cp949 fallback 차단)
+- howto-connect-lighthouse-service.md 신설 (사용자 setup 가이드, 트러블슈팅 박제)
+- todo-lighthouse-handover.md 폐기 → 본 §7 단일화
+```
+
+### 7.4 다음 세션 진입 후 권장 작업 (우선순위)
+
+**P1. 사용자 e2e 검증 (UI 테마)** — Promaker 종료/재실행 후 KB 관리 + Settings dialog 의 입력창 dark theme 정상 + 연결 테스트 light-blue/red 동적 색상 확인.
+
+**P2. self-signed cert 신뢰 — `LightHouseClient` dev-only bypass flag** (사용자가 §4.2 우회 의존 안 하려면). 작업:
+- `LightHouseClient` ctor 에 `bool allowInvalidCerts = false` 추가
+- true 시 `HttpClientHandler { ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }`
+- `LlmConfig.LightHouseService.AllowSelfSignedCert` 평문 bool + ApplicationSettingsDialog 에 "⚠ 자체 서명 인증서 허용 (dev only)" 체크박스
+- `LightHouseClientHolder.EnsureCreated` 도 flag 전달
+- chip 안내: "⚠ TLS 인증서 검증 우회 중 (dev 모드)"
+- 규모 ~80 line + Fact 2-3건.
+
+**P3. 본격 IntegrationTests round-trip (MA22)** — Phase 2 / dist 직전. 작업:
+- F# Program.fs 의 production main 분리 — DPAPI / TLS / Kestrel HTTPS bind 우회 helper `Bootstrap.buildTestApp` 신설
+- `LightHouseClient` HTTPS-only 검사 우회 internal test mode
+- `WebApplicationFactory<Program>` 또는 `TestServer` in-memory
+- 시나리오 = 등록 / session 발급 / DELETE / L3 회복
+- 규모 ~300 line + 5-10 Fact.
+
+**P4. KbManagerDialog 의 CollectionInfo 미표시 필드 추가** (S5a-M4 / S5b 잔여) — server `CollectionEntry` 대비 CreatedAt / ImportedBy / TotalSourceBytes / StorageRelPath / ImportedAt 5필드. ListView column / tooltip / expander 결정. forward-compat Fact 1건. 규모 ~50 line.
+
+**P5. s5c 잔여 follow-up**:
+- (S5c-m1) `App.OnExit` 의 serial DELETE → `Task.WhenAll` 병렬화 (N≥4 진입 시점)
+- (S5c-m2) `LightHouseClientHolder._lastPskHash` salt 없는 SHA256 → first8hex fingerprint
+- (S5c-m3) Holder static singleton test 의 `[Collection("Sequential")]` 명시 (cross-file Holder test 추가 시)
+- (S5c-m4) `McpConfigWriter.ServerName` legacy 필드 deprecate 후보
+- (S5b-m1) `LightHouseClient.SendZipMultipartAsync` helper 추출 (Upload/Reupload 중복)
+- (S5b-m2) `KbManagerDialog.Register_Click / Reupload_Click` 의 consent+validate+RunIngestAsync 패턴 압축
+- (S5a-m6) 빈 active set L3 회복 의미 검토
+- (S5a-m10) `LlmConfig.SetApiKey/SetLightHousePsk` 의 DPAPI helper refactor
+
+**P6. S4 안 follow-up (이전 phase 부채, 5건)**:
+- (S4-M3) 200/304 분기 ETag 헤더 일관성 + test
+- (S4-m3) `userIdentityOf` "unknown" anomaly 박제 (Log.audit.Warn)
+- (S4-m4) fileId SSOT 주석에 todo 항목 번호
+- (S4-m6) 416 / If-Range Fact 추가
+- (S4-m8) `Path.GetExtension` 가드 잉여 정리
+
+**P7+ 후속**:
+- Phase S6 — `lighthouse-cli` 무인 batch (handover P5 와 별 분리)
+- Phase S7 — SSE `/events` / resumable upload / mTLS / multi-service / T2/T3 multi-tenant
+- Phase 2 — parent backlog 잔여 (s2 C3 trailing backslash / s3 M5/M9/M10/m13/m15 / s4 M4/M5/m2/m5 / s3-r1 IM-1/4/5/7/9 + Minor 18)
+
+### 7.5 commit 정책 (재확인)
+
+- multi-step plan 의 "go" 동의를 commit step 까지 묶지 말 것 — commit 은 별도 confirm (memory `feedback_commit_authorization`).
+- `--gc` 플래그 사용 시 진행 (CLAUDE.md). remote branch 부재 (`light-house` local only) → push skip.
+- `Co-Authored-By` 기입 안 함.
+- 자가 검열 trigger 충족 (CLAUDE.md SSOT) 시 sub-agent 검열 미수행 상태에서 commit/다음 phase 진입/사용자 confirm 질의 금지.
+
+### 7.6 알려진 PoC 함정 (howto §9 trubleshooting 도 참조)
+
+1. `sc start LightHouseService` → "지정된 서비스가 설치된 서비스로는 없습니다" — 정확한 이름은 `Ds2.LightHouseService` (prefix 포함).
+2. PowerShell 5.1 의 한글 깨짐 — `.ps1` 의 UTF-8 BOM 누락. s5c-r1 에서 `install/uninstall/generate-dev-cert.ps1` 3종에 BOM 추가.
+3. `SEC_E_UNTRUSTED_ROOT` — Trusted Root 에 cert import 안 됨. `Import-Certificate -CertStoreLocation Cert:\LocalMachine\Root` 진행.
+4. `SEC_E_WRONG_PRINCIPAL` — cert CN=`localhost` 인데 client 가 `127.0.0.1` 로 접속. **`localhost` 사용 의무** (또는 cert 재발급 시 SAN 에 IP 추가).
+5. Makefile 의 echo 한글 — `cp949 ↔ UTF-8` 경계 깨짐. Makefile 상단 규약 = "echo/printf 출력은 ASCII 전용 — 한글은 주석에만 둘 것". s5c-r1 에서 install rule 의 echo 한글 → 영문 변경.
