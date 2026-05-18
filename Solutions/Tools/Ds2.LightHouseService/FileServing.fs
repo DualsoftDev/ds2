@@ -29,10 +29,15 @@ module FileServing =
     let private jsonResponseOpts = JsonSerializerOptions(WriteIndented = false)
 
     /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 가 박제).
+    /// review S4-m3 (P6): "unknown" fallback 은 사실 invariant 위반 — AuthMiddleware 가 통과시켰다면
+    /// `UserIdentityItemKey` 박제 의무. fallback 도달 자체가 anomaly → `Log.audit.Warn` 한 줄 박제.
+    /// (storm 방지: caller 가 단일 endpoint 안에서 1회만 호출. 매 endpoint 통상 1 call.)
     let private userIdentityOf (ctx: HttpContext) : string =
         match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
         | true, v when not (isNull v) -> string v
-        | _ -> "unknown"
+        | _ ->
+            Log.audit.Warn "X-User-Identity invariant 위반 — AuthMiddleware 통과 후 UserIdentityItemKey 부재"
+            "unknown"
 
     let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
         ctx.Response.StatusCode <- status
@@ -42,6 +47,10 @@ module FileServing =
 
     /// 파일 확장자 → MIME content-type (§4.2 Phase S4 DoD: PDF/DOCX/XLSX/PPTX/TXT/MD).
     /// 미인식 확장자 → `application/octet-stream` (browser 가 download 처리).
+    ///
+    /// review S4-m8 (P6 검토 결과): `String.IsNullOrEmpty` 가드는 *잉여 아님* — `Path.GetExtension(null)` 은
+    /// .NET 8 에서 `null` 반환 (실제 throw 안 함). 이후 `null.ToLowerInvariant()` 가 NRE → 본 가드가 NRE 차단.
+    /// 박제 유지 (잉여 정리 거부).
     let contentTypeOf (fileName: string) : string =
         let ext =
             if String.IsNullOrEmpty fileName then ""
@@ -112,6 +121,9 @@ module FileServing =
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
             | Some entry ->
                 // fileId parse — Int64 (documents.Id).
+                // review S4-m4 (P6): fileId SSOT = todo-lighthouse-kb-server.md §3.10 (server-side storage layout)
+                // + §4.2 Phase S4 DoD + MA23 (AttachmentTools.exportFileId `<collection-guid>:<docId>` 합성).
+                // client (Promaker) 는 외부 fileId 의 `:` 로 split 한 후 본 endpoint 의 path 두 segment 로 전달.
                 match Int64.TryParse fileIdRaw with
                 | false, _ ->
                     Log.audit.Info(sprintf "file get: fileId parse 실패 — id=%s fileId=%s by=%s"

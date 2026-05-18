@@ -351,3 +351,76 @@ let ``getFile — ETag 헤더 박제 (sha256 hex)`` () = withTempRoot (fun root 
     let etag = ctx.Response.Headers.["ETag"].ToString()
     Assert.Contains(fileHash, etag)
 })
+
+
+// ── P6 follow-up (s6-r6): 200/304 ETag 일관성 + 416 / If-Range ──────────
+// 자가 검열 m2: 416 / If-Range Fact 3건은 ASP.NET Core 9.0 Results.File 위임 가정 — major upgrade 시 재검증.
+
+[<Fact>]
+let ``getFile — 304 분기에도 ETag 헤더 박제 (P6-M3 200/304 일관성)`` () = withTempRoot (fun root -> task {
+    // review S4-M3: 304 응답에서도 caller 가 ETag 확인 가능해야 함 (RFC 7232 §4.1).
+    let collectionId = Guid.NewGuid().ToString("D")
+    let body = Array.replicate 50 (byte 0x44)
+    let docId, fileHash, _ = setupCollection root collectionId "Coll" body None
+    do! registerCollection root collectionId "Coll"
+
+    let ctx = newCtx
+                (sprintf "/collections/%s/files/%d" collectionId docId)
+                [ "If-None-Match", sprintf "\"%s\"" fileHash ]
+    do! FileServing.getFile root collectionId (string docId) ctx
+    Assert.Equal(304, ctx.Response.StatusCode)
+    let etag = ctx.Response.Headers.["ETag"].ToString()
+    Assert.Contains(fileHash, etag)
+    // 304 분기와 200 분기의 ETag 형식 일관성 — 둘 다 quoted hash.
+    Assert.StartsWith("\"", etag)
+    Assert.EndsWith("\"", etag)
+})
+
+[<Fact>]
+let ``getFile — Range 가 파일 크기 초과 → 416 Range Not Satisfiable (P6-m6)`` () = withTempRoot (fun root -> task {
+    // review S4-m6: ASP.NET Core Results.File 위임 정합 박제 — invalid Range 분기.
+    let collectionId = Guid.NewGuid().ToString("D")
+    let body = Array.init 100 (fun i -> byte i)
+    let docId, _, _ = setupCollection root collectionId "Coll" body None
+    do! registerCollection root collectionId "Coll"
+
+    let ctx = newCtx
+                (sprintf "/collections/%s/files/%d" collectionId docId)
+                [ "Range", "bytes=500-999" ]  // file size = 100, 500-999 은 범위 밖
+    do! FileServing.getFile root collectionId (string docId) ctx
+    Assert.Equal(416, ctx.Response.StatusCode)
+})
+
+[<Fact>]
+let ``getFile — If-Range ETag 매치 → 206 partial (P6-m6)`` () = withTempRoot (fun root -> task {
+    // review S4-m6: If-Range 가 현재 ETag 와 일치 → Range 처리 → 206.
+    let collectionId = Guid.NewGuid().ToString("D")
+    let body = Array.init 100 (fun i -> byte i)
+    let docId, fileHash, _ = setupCollection root collectionId "Coll" body None
+    do! registerCollection root collectionId "Coll"
+
+    let ctx = newCtx
+                (sprintf "/collections/%s/files/%d" collectionId docId)
+                [ "Range", "bytes=0-9"
+                  "If-Range", sprintf "\"%s\"" fileHash ]
+    do! FileServing.getFile root collectionId (string docId) ctx
+    Assert.Equal(206, ctx.Response.StatusCode)
+    Assert.Equal(10L, ctx.Response.Body.Length)
+})
+
+[<Fact>]
+let ``getFile — If-Range ETag 불일치 → 200 full body (P6-m6)`` () = withTempRoot (fun root -> task {
+    // review S4-m6: If-Range 가 stale ETag → Range 무시 → 200 + 전체 body.
+    let collectionId = Guid.NewGuid().ToString("D")
+    let body = Array.init 100 (fun i -> byte i)
+    let docId, _, _ = setupCollection root collectionId "Coll" body None
+    do! registerCollection root collectionId "Coll"
+
+    let ctx = newCtx
+                (sprintf "/collections/%s/files/%d" collectionId docId)
+                [ "Range", "bytes=0-9"
+                  "If-Range", "\"stale-etag-value\"" ]
+    do! FileServing.getFile root collectionId (string docId) ctx
+    Assert.Equal(200, ctx.Response.StatusCode)
+    Assert.Equal(int64 body.Length, ctx.Response.Body.Length)
+})

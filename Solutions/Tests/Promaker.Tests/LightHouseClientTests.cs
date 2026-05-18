@@ -375,4 +375,135 @@ public sealed class LightHouseClientTests
         await Assert.ThrowsAsync<ArgumentException>(
             () => client.ReuploadCollectionPayloadAsync("", zip));
     }
+
+
+    // ── P2-r3 (s6-r6): ExecuteWithSessionRetryAsync facade ──────────────────
+
+    [Fact]
+    public async Task ExecuteWithSessionRetry_without_provider_throws()
+    {
+        // recover provider 미설정 시 wrapper 자체 거부 — 의도된 retry 비활성 fail-loud.
+        var (client, _) = MakeClient(recover: null);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.ExecuteWithSessionRetryAsync<int>((_, _) => Task.FromResult(0)));
+    }
+
+    [Fact]
+    public async Task ExecuteWithSessionRetry_first_call_succeeds_no_retry()
+    {
+        // operation 이 첫 token 으로 성공 → RecoverSession 1회 + operation 1회 = HTTP 1회.
+        var (client, handler) = MakeClient(recover: () => new[] { "id-1" });
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"token":"tok-1","acceptedCollectionIds":["id-1"],"unknownIds":[],"unindexableIds":[]}""",
+                Encoding.UTF8, "application/json"),
+        };
+
+        string capturedToken = "";
+        var result = await client.ExecuteWithSessionRetryAsync(async (tok, _ct) =>
+        {
+            capturedToken = tok;
+            return await Task.FromResult("ok");
+        });
+
+        Assert.Equal("ok", result);
+        Assert.Equal("tok-1", capturedToken);
+        // HTTP 호출 = RecoverSession 1회만 (operation lambda 는 in-process, HTTP 무관).
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteWithSessionRetry_on_401_recovers_and_retries_once()
+    {
+        // 첫 operation 호출 = 401 throw → wrapper 가 RecoverSession 재호출 → 새 token 으로 재시도 → 성공.
+        var (client, handler) = MakeClient(recover: () => new[] { "id-1" });
+        var sessionCallCount = 0;
+        handler.Responder = _ =>
+        {
+            sessionCallCount++;
+            var tok = sessionCallCount == 1 ? "tok-A" : "tok-B";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $$"""{"token":"{{tok}}","acceptedCollectionIds":["id-1"],"unknownIds":[],"unindexableIds":[]}""",
+                    Encoding.UTF8, "application/json"),
+            };
+        };
+
+        var attempt = 0;
+        var seenTokens = new List<string>();
+        var result = await client.ExecuteWithSessionRetryAsync<string>(async (tok, _ct) =>
+        {
+            seenTokens.Add(tok);
+            attempt++;
+            if (attempt == 1)
+                throw new LightHouseAuthException("simulated 401", HttpStatusCode.Unauthorized);
+            return await Task.FromResult($"ok-on-{tok}");
+        });
+
+        Assert.Equal("ok-on-tok-B", result);
+        Assert.Equal(2, attempt);
+        Assert.Equal(new[] { "tok-A", "tok-B" }, seenTokens);
+        Assert.Equal(2, sessionCallCount);  // RecoverSession 2회 (첫 + retry)
+    }
+
+    [Fact]
+    public async Task ExecuteWithSessionRetry_OperationCanceled_skips_retry_and_propagates()
+    {
+        // 자가 검열 M2: operation 안에서 OCE throw → wrapper 가 retry 진입 차단 후 그대로 전파.
+        // ct 는 None — RecoverSession 단계에서 OCE 가 먼저 발생하면 wrapper 본체 catch 검증 불가.
+        var (client, handler) = MakeClient(recover: () => new[] { "id-1" });
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"token":"tok-1","acceptedCollectionIds":["id-1"],"unknownIds":[],"unindexableIds":[]}""",
+                Encoding.UTF8, "application/json"),
+        };
+
+        var attempt = 0;
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            client.ExecuteWithSessionRetryAsync<string>((tok, _opCt) =>
+            {
+                attempt++;
+                throw new OperationCanceledException("simulated cancel inside op");
+            }, CancellationToken.None));
+
+        // operation 첫 호출 1회만 — wrapper 가 LightHouseAuthException catch 만 처리, OCE 는 즉시 전파.
+        Assert.Equal(1, attempt);
+        // RecoverSession 1회 (첫 token 발급) 만 — retry 진입 안 함.
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteWithSessionRetry_recover_step_failing_with_401_throws()
+    {
+        // 첫 op 401 → wrapper 가 RecoverSession 재호출 → RecoverSession 자체 401 (PSK 결함 의심) → wrapper throw.
+        var (client, handler) = MakeClient(recover: () => new[] { "id-1" });
+        var sessionCallCount = 0;
+        handler.Responder = _ =>
+        {
+            sessionCallCount++;
+            if (sessionCallCount == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"token":"tok-A","acceptedCollectionIds":["id-1"],"unknownIds":[],"unindexableIds":[]}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            // 2nd RecoverSession 호출 = 401 응답 → EnsureSuccessOrThrow 가 LightHouseAuthException throw.
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("psk rejected", Encoding.UTF8, "text/plain"),
+            };
+        };
+
+        var ex = await Assert.ThrowsAsync<LightHouseAuthException>(() =>
+            client.ExecuteWithSessionRetryAsync<string>((tok, _ct) =>
+                throw new LightHouseAuthException("simulated 401", HttpStatusCode.Unauthorized)));
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
+        Assert.Contains("RecoverSession 자체 실패", ex.Message);
+    }
 }
