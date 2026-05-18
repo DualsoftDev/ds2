@@ -28,11 +28,9 @@ namespace Promaker.Dialogs;
 public partial class KbManagerDialog : Window
 {
     private readonly LlmConfig _config;
-    private readonly LightHouseClient? _client;
-    private readonly AttachmentIngestService? _ingest;
     private readonly ObservableCollection<CollectionRow> _rows = new();
     private CancellationTokenSource? _cts;
-    /// <summary>review M2 — in-flight ingest task. OnClosed 가 await 후 _client.Dispose 호출하여 SendAsync race 회피.</summary>
+    /// <summary>review M2 — in-flight ingest task. OnClosed 가 await 후 종료 (s5c 변경: client dispose 는 holder 책임).</summary>
     private Task? _inflightIngestTask;
 
     /// <summary>다이얼로그 닫힐 때 호출자에게 LlmConfig.KbCollections 변경 알림 (active 토글 / 등록 / 제거).</summary>
@@ -43,25 +41,12 @@ public partial class KbManagerDialog : Window
         InitializeComponent();
         _config = LlmConfig.Load();
 
-        var url = _config.LightHouseService?.BaseUrl ?? "";
-        var psk = _config.GetLightHousePsk();
-        if (!string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(psk))
-        {
-            try
-            {
-                _client = new LightHouseClient(
-                    url,
-                    () => _config.GetLightHousePsk(),
-                    Environment.UserName,
-                    () => _config.KbCollections.Where(k => k.Active).Select(k => k.CollectionId).ToList());
-                _ingest = new AttachmentIngestService(_client, Environment.UserName);
-            }
-            catch (ArgumentException ex)
-            {
-                StatusChip.Text = $"⚠ LightHouse Service 설정 오류 — {ex.Message}. 설정 > LLM 탭에서 BaseUrl/PSK 확인.";
-            }
-        }
-        else
+        // Phase S5c — LightHouseClient 는 process singleton (LightHouseClientHolder SSOT, §3.8 L2-2 정합).
+        // **review s5c M1**: client/ingest 를 필드로 잡지 않고 매 사용 시점 holder.Current 재조회 —
+        // Settings dialog 가 BaseUrl/PSK 변경 시 holder.Invalidate 호출 후 본 다이얼로그가 stale instance 를
+        // 잡고 있으면 ObjectDisposedException. modal 가정에 의존하지 않는 1차 안전망.
+        LightHouseClientHolder.EnsureCreated(_config);
+        if (LightHouseClientHolder.Current is null)
         {
             StatusChip.Text = "⚠ LightHouse Service 미설정 — 설정 > LLM 탭에서 BaseUrl + PSK 입력 후 \"연결 테스트\" 통과 필요.";
         }
@@ -70,15 +55,29 @@ public partial class KbManagerDialog : Window
         Loaded += async (_, _) => await RefreshAsync();
     }
 
+    /// <summary>
+    /// 매 사용 시점 holder.Current 재조회 (review s5c M1). null = LightHouseService 미설정 또는 Invalidate 후.
+    /// caller 가 null 분기 (chip 안내) 처리. holder.EnsureCreated 도 안전 — config 변경 시 자동 재생성.
+    /// </summary>
+    private LightHouseClient? CurrentClient => LightHouseClientHolder.EnsureCreated(_config);
+
+    /// <summary>
+    /// AttachmentIngestService 도 매 호출 시점 신규 생성 (cost 미미 — HttpClient 는 holder 공유).
+    /// review s5c M1 정합 — caller 의 stale 참조 제거.
+    /// </summary>
+    private AttachmentIngestService? CurrentIngest =>
+        CurrentClient is { } c ? new AttachmentIngestService(c, Environment.UserName) : null;
+
     // ── refresh / sync ────────────────────────────────────────────────────────
 
     private async Task RefreshAsync()
     {
-        if (_client is null) return;
+        var client = CurrentClient;
+        if (client is null) return;
         StatusChip.Text = "registry 조회 중…";
         try
         {
-            var resp = await _client.ListCollectionsAsync().ConfigureAwait(true);
+            var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
             StatusChip.Text = $"✅ 연결됨 — server registry {resp.Collections.Count}건";
             RebuildRows(resp.Collections);
             ReconcileLlmConfig(resp.Collections);
@@ -185,8 +184,10 @@ public partial class KbManagerDialog : Window
 
     private async void Register_Click(object sender, RoutedEventArgs e)
     {
-        // review M3 — `_client` 단일 기준으로 null check 통일 (_ingest 는 _client 의 부산물).
-        if (_client is null || _ingest is null)
+        // review M3 (s5b) — `_client` 단일 기준 null check.
+        // review s5c M1 — holder.Current 매 사용 시점 재조회.
+        var ingest = CurrentIngest;
+        if (ingest is null)
         {
             MessageBox.Show(this, "LightHouse Service 미설정 — 설정 > LLM 탭에서 BaseUrl/PSK 입력 후 재시도.",
                 "등록 불가", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -216,7 +217,7 @@ public partial class KbManagerDialog : Window
 
         await RunIngestAsync(async (ct, progress) =>
         {
-            var collectionId = await _ingest.IngestAndUploadAsync(folder, title, progress, ct).ConfigureAwait(true);
+            var collectionId = await ingest.IngestAndUploadAsync(folder, title, progress, ct).ConfigureAwait(true);
             _config.KbCollections.Add(new KbCollectionEntry
             {
                 CollectionId = collectionId,
@@ -236,7 +237,8 @@ public partial class KbManagerDialog : Window
 
     private async void Reupload_Click(object sender, RoutedEventArgs e)
     {
-        if (_client is null || _ingest is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        var ingest = CurrentIngest;
+        if (ingest is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
         var picker = new OpenFolderDialog
         {
             Title = $"\"{row.DisplayName}\" 의 새 폴더 선택 (payload swap)",
@@ -251,7 +253,7 @@ public partial class KbManagerDialog : Window
 
         await RunIngestAsync(async (ct, progress) =>
         {
-            await _ingest.ReingestAndReuploadAsync(row.CollectionId, picker.FolderName, row.DisplayName, progress, ct)
+            await ingest.ReingestAndReuploadAsync(row.CollectionId, picker.FolderName, row.DisplayName, progress, ct)
                 .ConfigureAwait(true);
             StatusChip.Text = $"✅ 재업로드 완료 — {row.DisplayName}";
             await RefreshAsync().ConfigureAwait(true);
@@ -260,7 +262,8 @@ public partial class KbManagerDialog : Window
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        if (_client is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        var client = CurrentClient;
+        if (client is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
         var consent = MessageBox.Show(this,
             $"\"{row.DisplayName}\" 를 server 에서 영구 제거합니다.\n등록 디렉토리 (`Collections\\<id>\\`) 가 디스크에서 purge 됩니다.\n\n계속하시겠습니까?",
             "Collection 제거", MessageBoxButton.YesNo, MessageBoxImage.Warning);
@@ -269,7 +272,7 @@ public partial class KbManagerDialog : Window
         try
         {
             RegisterButton.IsEnabled = false;
-            await _client.DeleteCollectionAsync(row.CollectionId).ConfigureAwait(true);
+            await client.DeleteCollectionAsync(row.CollectionId).ConfigureAwait(true);
             _config.KbCollections.RemoveAll(k => k.CollectionId == row.CollectionId);
             _config.Save();
             ConfigChanged = true;
@@ -363,14 +366,13 @@ public partial class KbManagerDialog : Window
 
     protected override async void OnClosed(EventArgs e)
     {
-        // review M2 — cancel 신호 → in-flight ingest 종료까지 await → 그제서야 client dispose.
-        // HttpClient.SendAsync 가 ObjectDisposedException 으로 죽는 race 회피.
+        // review M2 (s5b-r0) — cancel 신호 → in-flight ingest 종료까지 await. _client 는 본 dialog 가 소유 안 함
+        // (Phase S5c 변경 — LightHouseClientHolder 가 process singleton).
         _cts?.Cancel();
         if (_inflightIngestTask is { } t)
         {
             try { await t.ConfigureAwait(true); } catch { /* swallow — body 의 try/catch 가 이미 처리 */ }
         }
-        _client?.Dispose();
         base.OnClosed(e);
     }
 

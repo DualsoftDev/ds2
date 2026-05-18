@@ -396,6 +396,7 @@ public partial class ApplicationSettingsDialog : Window
         _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
 
         // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 config 자체 제거.
+        var lhDirty = newLhBaseUrl != oldLhBaseUrl || newLhPsk != oldLhPsk;
         if (string.IsNullOrEmpty(newLhBaseUrl) && string.IsNullOrEmpty(newLhPsk))
         {
             _llmConfig.LightHouseService = null;
@@ -409,6 +410,8 @@ public partial class ApplicationSettingsDialog : Window
 
         _llmConfig.Save();
         LlmConfigChanged = true;
+        // Phase S5c — LightHouse 변경 시 process singleton 무효화 → 다음 chat 진입 시 새 BaseUrl/PSK 로 재생성.
+        if (lhDirty) LightHouseClientHolder.Invalidate();
     }
 
     // ── OK 처리 ──────────────────────────────────────────────────────────────

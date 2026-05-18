@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.LlmAgent;
+using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Promaker.LlmAgent.Api;
 using log4net;
@@ -58,6 +59,11 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private readonly Dispatcher _wpfDispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
+    /// <summary>
+    /// Phase S5c — LightHouse session token. chat panel lifetime 동안 1회 발급, 재사용 (§3.8 L1).
+    /// null = LightHouseService 미설정 또는 발급 실패.
+    /// </summary>
+    private string? _lightHouseSession;
     /// <summary>
     /// Codex 격리 워크스페이스 디렉토리 (`%TEMP%/Promaker/codex-workspace-&lt;guid&gt;/`). lazy 생성 (Codex provider
     /// 첫 선택 시), DisposeAsync 시 재귀 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
@@ -182,8 +188,12 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await _mcpHost.StartAsync().ConfigureAwait(true);
-            _mcpConfig = McpConfigWriter.Create("promaker", _mcpHost.ServerUrl, _mcpHost.HandshakeNonce);
 
+            // Phase S5c — LightHouse session 발급 시도 (LightHouseService 설정 + active collection 있을 때만).
+            // 실패 시 KB 만 비활성, chat 자체는 정상 진행 (사용자에게 chip 안내).
+            var lhEntry = await TryCreateLightHouseSessionAsync().ConfigureAwait(true);
+
+            _mcpConfig = BuildMcpConfig(lhEntry);
             await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -196,6 +206,79 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
             await _mcpHost.StopAsync().ConfigureAwait(true);
         }
+    }
+
+    /// <summary>
+    /// LightHouse session 1회 발급 + unknownIds / unindexableIds lazy sync (todo §3.8 Q4). 반환 = .mcp-config 에
+    /// 박제할 lighthouse server entry (또는 null = KB 비활성). 어떤 실패도 chat 자체를 막지 않음.
+    /// </summary>
+    private async Task<McpServerEntry?> TryCreateLightHouseSessionAsync()
+    {
+        var client = LightHouseClientHolder.EnsureCreated(_config);
+        if (client is null)
+        {
+            // LightHouseService 미설정 — 정상 분기 (Knowledge Base 비활성). chip 안내 없음 (정보 과잉 회피).
+            return null;
+        }
+        var psk = _config.GetLightHousePsk();
+        if (string.IsNullOrEmpty(psk))
+        {
+            // ApiKey 복호화 실패 — singleton 은 살아있어도 PSK 없으면 매 요청 401. KB 비활성.
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = "⚠ LightHouse PSK 복호화 실패 — Knowledge Base 비활성." });
+            return null;
+        }
+        var activeIds = _config.KbCollections.Where(k => k.Active).Select(k => k.CollectionId).ToList();
+        try
+        {
+            var resp = await client.CreateSessionAsync(activeIds).ConfigureAwait(true);
+            _lightHouseSession = resp.Token;
+            LightHouseClientHolder.RegisterSession(resp.Token);
+
+            var changed = false;
+            if (resp.UnknownIds.Count > 0)
+            {
+                // server 가 폐기한 collection — LlmConfig 정리.
+                foreach (var id in resp.UnknownIds)
+                    _config.KbCollections.RemoveAll(k => string.Equals(k.CollectionId, id, StringComparison.OrdinalIgnoreCase));
+                changed = true;
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ server 에 없는 collection {resp.UnknownIds.Count}건 LlmConfig 에서 제거." });
+            }
+            if (resp.UnindexableIds.Count > 0)
+            {
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ 색인 실패 collection {resp.UnindexableIds.Count}건 제외 (재시도 가능)." });
+            }
+            if (changed) _config.Save();
+
+            var baseUrl = _config.LightHouseService!.BaseUrl.TrimEnd('/');
+            return new McpServerEntry("lighthouse", baseUrl + "/mcp",
+                new Dictionary<string, string>
+                {
+                    ["Authorization"] = "Bearer " + psk,
+                    ["X-LightHouse-Session"] = resp.Token,
+                });
+        }
+        catch (LightHouseAuthException)
+        {
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = "⚠ LightHouse 인증 실패 (PSK 확인 필요) — Knowledge Base 비활성." });
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"LightHouse session 발급 실패: {ex.Message}");
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse session 발급 실패 — Knowledge Base 비활성 ({ex.Message})." });
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// `.mcp-config` 작성 — promaker (필수) + lighthouse (옵션) 두 server. lighthouse 가 null 이면 legacy single-server.
+    /// </summary>
+    private McpConfigWriter BuildMcpConfig(McpServerEntry? lighthouse)
+    {
+        var promaker = new McpServerEntry("promaker", _mcpHost.ServerUrl,
+            new Dictionary<string, string> { ["X-Promaker-Nonce"] = _mcpHost.HandshakeNonce });
+        var entries = lighthouse is null ? new[] { promaker } : new[] { promaker, lighthouse };
+        return McpConfigWriter.CreateMulti(entries);
     }
 
     /// <summary>
@@ -792,6 +875,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// Phase S5c — KbManagerDialog close 후 caller 가 호출 (ConfigChanged=true 일 때). LlmConfig 만 새로 로드.
+    /// **현 session 영향 0** — active 토글은 다음 chat panel 부터 반영 (§3.8 L1 chat-scoped invariant).
+    /// chip 안내는 KbManagerDialog 가 이미 표시. 본 메서드는 향후 인덱스 변경 인지 등의 hook 자리.
+    /// </summary>
+    public void ReloadKbConfig()
+    {
+        _config = LlmConfig.Load();
+    }
+
+    /// <summary>
     /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
     /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
     ///
@@ -981,6 +1074,25 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _assistantFlushTimer?.Stop();
         _editorSubscription?.Dispose();
         _editorSubscription = null;
+
+        // Phase S5c — LightHouse session 해제 (§3.8 L2-1). client 자체 dispose 는 App.OnExit (LightHouseClientHolder).
+        //
+        // **review s5c M2 — 의도된 silent skip**: holder.Current 가 null 인 경우 (Settings dialog 가 BaseUrl/PSK
+        // 변경 후 Invalidate 호출하여 stale instance 가 폐기된 시나리오) DELETE skip → server idle TTL backstop
+        // (§3.8 L2-3) 가 정리. 새 BaseUrl 의 LightHouseClient 로 DELETE 시도하면 token 이 다른 server context →
+        // 의미 없음. 정합 fail-safe.
+        if (!string.IsNullOrEmpty(_lightHouseSession))
+        {
+            var client = LightHouseClientHolder.Current;
+            if (client is not null)
+            {
+                try { await client.DeleteSessionAsync(_lightHouseSession).ConfigureAwait(false); }
+                catch (Exception ex) { Log.Warn($"LightHouse DeleteSessionAsync 실패 (best-effort): {ex.Message}"); }
+            }
+            LightHouseClientHolder.UnregisterSession(_lightHouseSession);
+            _lightHouseSession = null;
+        }
+
         if (_provider is IAsyncDisposable apiAsync)
         {
             try { await apiAsync.DisposeAsync().ConfigureAwait(false); }
