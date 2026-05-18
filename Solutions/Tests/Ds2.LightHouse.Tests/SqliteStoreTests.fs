@@ -197,3 +197,133 @@ let ``WAL 동시성 — 색인 중 별 connection 으로 read 가능`` () =
         use cmd = readConn.CreateCommand()
         cmd.CommandText <- "SELECT count(*) FROM Chunks"
         Assert.Equal(1, Convert.ToInt32 (cmd.ExecuteScalar())))
+
+
+// ── Phase 2 (s6-r8): schema 확장 (ImageCache / ImageReferences / Chunks.ImageCount) ──
+// parent §3.12 의 Phase 2 주석 처리 블록 활성. backward-compat (CREATE IF NOT EXISTS + ALTER DEFAULT 0).
+
+/// helper: PRAGMA table_info 로 컬럼 목록 추출.
+let private tableColumns (conn: SqliteConnection) (table: string) : string list =
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- sprintf "PRAGMA table_info(%s)" table
+    use reader = cmd.ExecuteReader()
+    let mutable cols = []
+    while reader.Read() do
+        cols <- reader.GetString(1) :: cols
+    List.rev cols
+
+/// helper: 테이블 존재 확인.
+let private tableExists (conn: SqliteConnection) (table: string) : bool =
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=$n"
+    cmd.Parameters.AddWithValue("$n", table) |> ignore
+    Convert.ToInt32 (cmd.ExecuteScalar()) = 1
+
+[<Fact>]
+let ``Phase 2 schema — IndexerVersion 1.1.0 / SchemaVersion 2 bump`` () =
+    // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
+    Assert.Equal("1.1.0", IndexerVersion.Current)
+    Assert.Equal("2", IndexerVersion.SchemaVersion)
+
+[<Fact>]
+let ``Phase 2 schema — ImageCache 테이블 + 8 컬럼 PK=ImageHash`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        Assert.True(tableExists conn "ImageCache")
+        let cols = tableColumns conn "ImageCache"
+        // parent §3.12 정합 — ImageHash / StoredPath / MimeType / Width / Height / CaptionText / CaptionAt / CaptionModel.
+        Assert.Equal<string list>(
+            [ "ImageHash"; "StoredPath"; "MimeType"; "Width"; "Height"; "CaptionText"; "CaptionAt"; "CaptionModel" ],
+            cols))
+
+[<Fact>]
+let ``Phase 2 schema — ImageReferences 복합 PK 4 키 + FK Documents/Chunks/ImageCache`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        Assert.True(tableExists conn "ImageReferences")
+        // PK 복합 검증 — sqlite_master 의 CREATE TABLE SQL parse.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT sql FROM sqlite_master WHERE type='table' AND name='ImageReferences'"
+        let sql = cmd.ExecuteScalar() :?> string
+        Assert.Contains("PRIMARY KEY (DocumentId, ImageHash, RefLocator, Ordinal)", sql)
+        // FK 3 종 검증.
+        Assert.Contains("REFERENCES Documents(Id)", sql)
+        Assert.Contains("REFERENCES Chunks(Id)", sql)
+        Assert.Contains("REFERENCES ImageCache(ImageHash)", sql))
+
+[<Fact>]
+let ``Phase 2 schema — Chunks.ImageCount 컬럼 추가 (DEFAULT 0) + INSERT 시 자동 0`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let cols = tableColumns conn "Chunks"
+        Assert.Contains("ImageCount", cols)
+        // DEFAULT 0 동작 확인 — ImageCount 미지정 INSERT 시 자동 0.
+        let docId = SqliteStore.insertDocument conn "H-img" "a.txt" Text 10L None None
+        SqliteStore.insertChunks conn docId [||]
+            [| { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 0; TokenCount = 1; Text = "txt" } |]
+            SqliteStore.DefaultBatchSize CancellationToken.None
+        use sel = conn.CreateCommand()
+        sel.CommandText <- "SELECT ImageCount FROM Chunks WHERE DocumentId = $d"
+        sel.Parameters.AddWithValue("$d", docId) |> ignore
+        Assert.Equal(0, Convert.ToInt32 (sel.ExecuteScalar())))
+
+[<Fact>]
+let ``Phase 2 schema — IX_ImgRef_Chunk index 존재`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='IX_ImgRef_Chunk'"
+        Assert.Equal(1, Convert.ToInt32 (cmd.ExecuteScalar())))
+
+[<Fact>]
+let ``Phase 2 schema — ensureColumn idempotent (재호출 시 no-op)`` () =
+    // ensureSchema 자체가 ensureColumn 호출 — 같은 connection 에서 2회 호출도 안전.
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        SqliteStore.ensureSchema conn   // 2회
+        SqliteStore.ensureSchema conn   // 3회
+        let cols = tableColumns conn "Chunks"
+        // ImageCount 가 정확히 1개 (중복 ALTER 회피).
+        let count = cols |> List.filter (fun c -> c = "ImageCount") |> List.length
+        Assert.Equal(1, count))
+
+[<Fact>]
+let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 ImageCount + Image* 자동 추가`` () =
+    // Phase 1 색인된 collection 의 index.db 에 새 lib (s6-r8) 으로 ensureSchema 호출 — 자동 forward-compat.
+    withTempDir (fun dir ->
+        let dbPath = SqliteStore.dbPath dir
+        // (a) Phase 1 환원 schema 만 직접 작성 (Image* 없음, ImageCount 없음).
+        let phase1Sql = """
+            CREATE TABLE Documents (
+              Id INTEGER PRIMARY KEY, FileHash TEXT NOT NULL UNIQUE, OriginalPath TEXT NOT NULL,
+              DocType TEXT NOT NULL, SizeBytes INTEGER NOT NULL, PageOrSheetCnt INTEGER,
+              Title TEXT, SummaryText TEXT, IndexerVersion TEXT NOT NULL, IngestedAt TEXT NOT NULL);
+            CREATE TABLE OutlineNodes (
+              Id INTEGER PRIMARY KEY, DocumentId INTEGER NOT NULL REFERENCES Documents(Id) ON DELETE CASCADE,
+              ParentId INTEGER REFERENCES OutlineNodes(Id) ON DELETE CASCADE,
+              Ordinal INTEGER NOT NULL, NodeType TEXT NOT NULL, Label TEXT NOT NULL, RefLocator TEXT NOT NULL);
+            CREATE TABLE Chunks (
+              Id INTEGER PRIMARY KEY, DocumentId INTEGER NOT NULL REFERENCES Documents(Id) ON DELETE CASCADE,
+              OutlineId INTEGER REFERENCES OutlineNodes(Id) ON DELETE SET NULL,
+              RefLocator TEXT NOT NULL, Ordinal INTEGER NOT NULL, TokenCount INTEGER NOT NULL, Text TEXT NOT NULL);
+            CREATE TABLE Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
+        """
+        do
+            use seed = SqliteStore.openConnection dbPath false
+            use cmd = seed.CreateCommand()
+            cmd.CommandText <- phase1Sql
+            cmd.ExecuteNonQuery() |> ignore
+            // ImageCount + Image* 미존재 확인.
+            Assert.DoesNotContain("ImageCount", tableColumns seed "Chunks")
+            Assert.False(tableExists seed "ImageCache")
+        // (b) 새 lib 의 ensureSchema 호출 → ImageCount + Image* 자동 추가.
+        use upgraded = SqliteStore.openConnection dbPath false
+        SqliteStore.ensureSchema upgraded
+        Assert.Contains("ImageCount", tableColumns upgraded "Chunks")
+        Assert.True(tableExists upgraded "ImageCache")
+        Assert.True(tableExists upgraded "ImageReferences")
+        // 자가 검열 M1: ensureSchema 만으로는 schema_version stale (Phase 1 = "1" 잔존).
+        // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
+        SqliteStore.stampVersion upgraded
+        Assert.Equal(Some "2", SqliteStore.getMeta upgraded "schema_version")
+        Assert.Equal(Some "1.1.0", SqliteStore.getMeta upgraded "indexer_version"))
