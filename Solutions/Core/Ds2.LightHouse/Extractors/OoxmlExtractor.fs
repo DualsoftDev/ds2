@@ -33,7 +33,7 @@ type OoxmlExtractor() =
         use doc = WordprocessingDocument.Open(path, false)
         let mainPart = doc.MainDocumentPart
         if isNull mainPart || isNull mainPart.Document || isNull mainPart.Document.Body then
-            { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+            { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
         else
             let body = mainPart.Document.Body
             // Title 추출은 Phase 1 skip — OpenXml 3.x 의 `PackageProperties` 가 experimental (FS0044/FS0057).
@@ -89,6 +89,7 @@ type OoxmlExtractor() =
                 Title = title
                 Outline = outline.ToArray()
                 Segments = segments.ToArray()
+                Images = [||]   // Phase 2 task C3 (별 turn) 진입 시 docx ImageParts 박제.
             }
 
     interface IExtractor with
@@ -110,15 +111,15 @@ type OoxmlExtractor() =
             with
             | :? FileFormatException as ex ->
                 Log.lighthouse.Warn(sprintf "OoxmlExtractor: docx 패키지 손상 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
             | :? OpenXmlPackageException as ex ->
                 Log.lighthouse.Warn(sprintf "OoxmlExtractor: OpenXml 패키지 일관성 위반 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
             | :? InvalidDataException as ex ->
                 Log.lighthouse.Warn(sprintf "OoxmlExtractor: 손상 압축 stream — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
             | :? IOException as ex ->
                 Log.lighthouse.Warn(sprintf "OoxmlExtractor: 파일 접근 실패 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||] }
+                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
 
         member _.Dispose () = ()

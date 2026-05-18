@@ -89,6 +89,7 @@ type TextExtractor() =
                 Title = None
                 Outline = outline
                 Segments = segments
+                Images = [||]   // Phase 2 task C — TextExtractor 는 image 추출 무관 (텍스트 전용).
             }
 
         member _.Dispose () = ()
