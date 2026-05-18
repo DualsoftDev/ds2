@@ -14,6 +14,10 @@ public partial class SimulationPanelState
     /// <summary>STOP 또는 모드 전환 시 호출 — 트레이 활성 상태면 윈도우 복원 + 아이콘 제거.</summary>
     public Action? RequestTrayRestore { get; set; }
 
+    /// <summary>Monitoring + IsRealPlcConnected PLAY 가 성공해 트레이 전환이 발생한 직후 호출 —
+    /// DSPilot 웹 대시보드를 기본 브라우저로 띄운다. 트레이 아이콘의 "DSPilot 접속" 메뉴와 동일 동작.</summary>
+    public Action? RequestDspilotOpen { get; set; }
+
     /// <summary>StartSimulation 진입 시 사용자가 트레이 전환에 동의했는지. 단발성 — 시작 성공 후 reset.</summary>
     internal bool TrayTransitionPending { get; set; }
 
@@ -32,13 +36,16 @@ public partial class SimulationPanelState
         return true;
     }
 
-    /// <summary>StartSimulation 의 정상 종료 직전 호출 — 보류된 트레이 전환 트리거.</summary>
+    /// <summary>StartSimulation 의 정상 종료 직전 호출 — 보류된 트레이 전환 트리거.
+    /// 트레이 전환과 동시에 DSPilot 브라우저 접속도 발화 (Monitoring + 실 PLC PLAY 만 도달하는 경로).</summary>
     internal void FireTrayTransitionIfPending()
     {
         if (!TrayTransitionPending) return;
         TrayTransitionPending = false;
         try { RequestTrayHide?.Invoke(); }
         catch (Exception ex) { SimLog.Error("RequestTrayHide threw", ex); }
+        try { RequestDspilotOpen?.Invoke(); }
+        catch (Exception ex) { SimLog.Error("RequestDspilotOpen threw", ex); }
     }
 
     /// <summary>StopSimulation 또는 모드 전환 시 호출.</summary>

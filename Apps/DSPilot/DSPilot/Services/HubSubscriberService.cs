@@ -39,6 +39,11 @@ public sealed class HubSubscriberService : BackgroundService
     private HubConnection? _connection;
     private HashSet<string> _acceptedSources = new(StringComparer.OrdinalIgnoreCase);
 
+    // StartAsync 호출 직렬화 — 시작용 retry loop 와 NudgeConnectAsync 가 동시에 StartAsync 를
+    // 호출하면 SignalR client 가 InvalidOperationException("Cannot start the connection while it
+    // is in the Connecting state.") 던진다.
+    private readonly SemaphoreSlim _startGate = new(1, 1);
+
     private readonly Channel<HubSignal> _signalChannel = Channel.CreateUnbounded<HubSignal>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
@@ -134,8 +139,10 @@ public sealed class HubSubscriberService : BackgroundService
 
         while (!ct.IsCancellationRequested && connection.State == HubConnectionState.Disconnected)
         {
+            await _startGate.WaitAsync(ct);
             try
             {
+                if (connection.State != HubConnectionState.Disconnected) return;
                 _logger.LogInformation("[Hub] Connecting to {Url}", hubUrl);
                 await connection.StartAsync(ct);
                 _logger.LogInformation("[Hub] Connected");
@@ -150,10 +157,56 @@ public sealed class HubSubscriberService : BackgroundService
                 _logger.LogWarning(
                     "[Hub] Connect failed ({Msg}) — retry in {DelayMs}ms",
                     ex.Message, delayMs);
-                try { await Task.Delay(delayMs, ct); }
-                catch (OperationCanceledException) { return; }
-                delayMs = Math.Min(delayMs * 2, maxDelayMs);
             }
+            finally
+            {
+                _startGate.Release();
+            }
+
+            try { await Task.Delay(delayMs, ct); }
+            catch (OperationCanceledException) { return; }
+            delayMs = Math.Min(delayMs * 2, maxDelayMs);
+        }
+    }
+
+    /// <summary>
+    /// 브라우저 클라이언트가 모니터링 페이지에 접속했을 때 호출 — 현재 Disconnected 상태면
+    /// 다음 주기 대기를 건너뛰고 즉시 StartAsync 한 번 시도. 이미 Connected/Connecting 이거나
+    /// SignalR auto-reconnect 가 백오프 중(Reconnecting)이면 no-op. 동시 호출은 게이트로 직렬화.
+    /// </summary>
+    public async Task NudgeConnectAsync(CancellationToken ct = default)
+    {
+        var conn = _connection;
+        if (conn is null) return;
+
+        var state = conn.State;
+        if (state != HubConnectionState.Disconnected) return;
+
+        // 게이트가 이미 점유 중이면(= 다른 StartAsync 가 in-flight) 그쪽이 처리하도록 양보.
+        if (!await _startGate.WaitAsync(0, ct)) return;
+        try
+        {
+            // 게이트 획득 후 재확인 — 대기 중 다른 경로가 상태를 바꿨을 수 있음.
+            if (conn.State != HubConnectionState.Disconnected) return;
+
+            _logger.LogInformation("[Hub] Connect nudged by client visit");
+            try
+            {
+                await conn.StartAsync(ct);
+                _logger.LogInformation("[Hub] Connected (via client-visit nudge)");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // shutdown
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Hub] Nudge connect failed — periodic retry continues");
+            }
+        }
+        finally
+        {
+            _startGate.Release();
         }
     }
 

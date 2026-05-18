@@ -111,7 +111,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertServic
 
 // Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
 // URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
-builder.Services.AddHostedService<HubSubscriberService>();
+// Singleton + HostedService 패턴 — MonitoringHub 가 NudgeConnectAsync 호출용으로 동일 인스턴스 주입.
+builder.Services.AddSingleton<HubSubscriberService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<HubSubscriberService>());
 
 var app = builder.Build();
 

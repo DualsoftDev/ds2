@@ -1,3 +1,4 @@
+using DSPilot.Services;
 using Microsoft.AspNetCore.SignalR;
 
 namespace DSPilot.Hubs;
@@ -9,15 +10,23 @@ namespace DSPilot.Hubs;
 public class MonitoringHub : Hub
 {
     private readonly ILogger<MonitoringHub> _logger;
+    private readonly HubSubscriberService _hubSubscriber;
 
-    public MonitoringHub(ILogger<MonitoringHub> logger)
+    public MonitoringHub(ILogger<MonitoringHub> logger, HubSubscriberService hubSubscriber)
     {
         _logger = logger;
+        _hubSubscriber = hubSubscriber;
     }
 
     public override async Task OnConnectedAsync()
     {
         _logger.LogInformation("Client connected: {ConnectionId}", Context.ConnectionId);
+
+        // 사용자가 dspilot 페이지를 열어 모니터링 hub 에 붙은 시점 — Promaker(5051) 연결이
+        // Disconnected 라면 다음 주기 대기를 건너뛰고 한 번 즉시 시도. fire-and-forget 으로
+        // negotiate 응답을 막지 않음.
+        _ = _hubSubscriber.NudgeConnectAsync();
+
         await base.OnConnectedAsync();
     }
 
