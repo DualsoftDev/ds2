@@ -248,6 +248,63 @@ public sealed class LightHouseClient : IDisposable
         return await CreateSessionAsync(ids, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// **L3 자동 회복 wrapper (P2-r3 facade)** — caller 가 session token-bound 작업을 lambda 로 넘기면
+    /// 401/403 발생 시 본 wrapper 가 <see cref="RecoverSessionAsync"/> 1회 호출 후 새 token 으로 재시도.
+    /// 재시도까지 실패하면 원본 <see cref="LightHouseAuthException"/> 을 재throw (caller 에 명확 fail 보고).
+    ///
+    /// <para>**의도된 사용처 (Phase S7 / future MCP relay)**: Promaker 자체의 LightHouseClient 호출은 PSK 만
+    /// 사용하므로 401 = PSK 결함 = retry 무의미 (§3.8 L3 caller 정책 박제, LlmChatViewModel.cs 의 catch 분기 정합).
+    /// 본 wrapper 의 sweet spot 은 *session-bound MCP relay* — lighthouse `/mcp` endpoint 가 stale token 401 받을 때
+    /// proxy/relay layer 가 본 wrapper 로 caller op 를 감싸서 자동 retry. 본 phase (s6-r6) 에서는 facade 만 박제.</para>
+    ///
+    /// <para>**계약**: <paramref name="operation"/> lambda 는 신선한 session token 을 받아 작업 수행 + 결과 반환.
+    /// 첫 호출 token 은 신규 발급. 재시도 token 은 RecoverSessionAsync 의 응답. 무한 retry 금지 (1회 retry only).</para>
+    /// </summary>
+    /// <typeparam name="T">operation 의 결과 type.</typeparam>
+    /// <param name="operation">신선 token 받아서 호출하는 async 작업. 401/403 시 wrapper 가 catch.</param>
+    /// <param name="ct">caller 의 CancellationToken — RecoverSession + retry 모두 전파.</param>
+    /// <returns>operation 의 결과. retry 까지 실패 시 LightHouseAuthException throw.</returns>
+    public async Task<T> ExecuteWithSessionRetryAsync<T>(
+        Func<string, CancellationToken, Task<T>> operation,
+        CancellationToken ct = default)
+    {
+        if (operation is null) throw new ArgumentNullException(nameof(operation));
+        if (_activeCollectionIdsProvider is null)
+            throw new InvalidOperationException(
+                "activeCollectionIdsProvider 미설정 — L3 자동 회복 비활성 (LightHouseClient ctor 시 박제 필요).");
+
+        // 첫 token 발급.
+        var sess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await operation(sess.Token, ct).ConfigureAwait(false);
+        }
+        // 자가 검열 M2: caller 의 cancellation 의도는 retry 우선 — OCE 는 retry 진입 차단 후 그대로 전파.
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (LightHouseAuthException firstFail)
+        {
+            // 1회 retry — 새 session 발급 후 재시도. CR6 L3 sweet spot.
+            Log.Warn($"session-bound op 401/403 — retry 1회 (status={firstFail.StatusCode}).");
+            SessionCreateResponse retrySess;
+            try
+            {
+                retrySess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+            }
+            catch (LightHouseAuthException recoverFail)
+            {
+                // RecoverSession 자체 401 = PSK 결함 → retry 의미 없음. 원본 firstFail 박제 + recover 결합.
+                throw new LightHouseAuthException(
+                    $"L3 retry 의 RecoverSession 자체 실패 (PSK 결함 의심) — first={firstFail.Message} recover={recoverFail.Message}",
+                    recoverFail.StatusCode);
+            }
+            return await operation(retrySess.Token, ct).ConfigureAwait(false);
+        }
+    }
+
     private static async Task EnsureSuccessOrThrow(HttpResponseMessage resp, string operation, CancellationToken ct)
     {
         if (resp.IsSuccessStatusCode) return;

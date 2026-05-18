@@ -169,6 +169,10 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             // 자가 검열 M1: F8 의 hostingRange.min 박제 대칭 — hostingRange.max 박제 추가
             let hostingRange = doc.RootElement.GetProperty("hostingRange")
             Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            // P5 (s6-r6): suggestedAction 의미론 정정 — service 업그레이드 OR client lib 다운그레이드 양 옵션 박제.
+            let suggestedAction = doc.RootElement.GetProperty("suggestedAction").GetString()
+            Assert.Contains("service 업그레이드", suggestedAction)
+            Assert.Contains("다운그레이드", suggestedAction)
         }
 
     // ── F7: DELETE /collections/{미존재 guid} → 404 ──────────────────────

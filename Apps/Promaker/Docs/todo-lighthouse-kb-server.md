@@ -754,14 +754,15 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `1cc3f1f` | s6-r2 | (b) IPv6 [::1] 접속 거부 Fact — Kestrel IPv4 단일 bind 정합 |
 | `3a3d89c` | s6-r3 | (d) check-paired-release.ps1 s5d 박제 잔여 3건 + [System.Version] 비교 quirk CompareTo 우회 |
 | `66890e7` | s6-r4 | (c) L3 caller orchestration 정책 주석 박제 (LlmChatViewModel) |
-| (본 commit) | s6-r5 | (a) IndexerVersion gate 415 Fact 2건 (F8/F9) + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 |
+| `e91b2e7` | s6-r5 | (a) IndexerVersion gate 415 Fact 2건 (F8/F9) + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 |
+| (본 commit) | s6-r6 | **P5/P6/P2-r3 묶음** — (P5) TooHigh suggestedAction 의미론 정정 (service 업그레이드 OR client lib 다운그레이드 양 옵션) + F9 Fact 강화 / (P6) S4 follow-up 5건 — userIdentityOf "unknown" Log.audit.Warn + fileId §3.10/§4.2/MA23 SSOT 박제 + contentTypeOf 가드 유지 사유 박제 + 304 ETag 일관성 Fact + 416/If-Range Fact 3건 / (P2-r3) `LightHouseClient.ExecuteWithSessionRetryAsync<T>` facade + 5 Fact (Phase S7 또는 future MCP relay 진입용, 본 phase facade only) + 자가 검열 M2 (OCE catch) + m2 (.NET 9 위임 가정 박제) 즉시 적용 |
 
 **테스트 누적**:
-- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 (s5f/s6 series 회귀 0)
-- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → **s6-r5 22** (+ F8/F9 IndexerVersion gate)
-- service Tests: 111 (s5f/s6 series 회귀 0)
-- lib Tests: 100 → **s6-r5 102** (+ stampIndexerVersion 2 Fact)
-- **누적 438 Fact** (Promaker 203 + service 111 + IntegrationTests 22 + lib 102, +5 vs s6-r4)
+- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 → **s6-r6 208** (+ P2-r3 5 Fact: ExecuteWithSessionRetryAsync)
+- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → s6-r5 22 (s6-r6 회귀 0, F9 강화)
+- service Tests: 111 → **s6-r6 115** (+ P6 4 Fact: 304 ETag + 416 / If-Range)
+- lib Tests: 100 → s6-r5 102 (s6-r6 회귀 0)
+- **누적 447 Fact** (Promaker 208 + service 115 + IntegrationTests 22 + lib 102, +9 vs s6-r5)
 
 ### 7.2 새 세션 진입 즉시 행동
 
@@ -822,15 +823,24 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 
 **처리 완료 (s6-r4)**: (c) L3 caller orchestration 정책 주석 — LightHouseClient.RecoverSessionAsync hook + unit test 2 Fact 이미 완비. LlmChatViewModel catch 분기에 의도 박제 주석만 추가 (session 발급 자체 401 = retry 무의미, L3 sweet spot 은 MCP token 만료 시나리오).
 
-**처리 완료 (s6-r5, 본 turn)**: (a) IndexerVersion gate 415 Fact 2건 (F8 TooLow / F9 TooHigh) + KnowledgeBase.stampIndexerVersion lib facade 신설 + lib unit test 2 Fact + 자가 검열 M1/M2/M3 적용.
+**처리 완료 (s6-r5)**: (a) IndexerVersion gate 415 Fact 2건 (F8 TooLow / F9 TooHigh) + KnowledgeBase.stampIndexerVersion lib facade 신설 + lib unit test 2 Fact + 자가 검열 M1/M2/M3 적용.
 
-**다음 권장 (s6-r5 이후)**:
+**처리 완료 (s6-r6, 본 turn)**: P5 + P6 + P2-r3 묶음 (사용자 "1~3 진행").
+- **(P5)** CollectionEndpoints.fs `postCollections` TooHigh `suggestedAction` 의미론 정정 — `"service 업그레이드"` → `"service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드"` (양 회복 경로 박제) + NegativeRoundTripTests F9 Fact 에 양 옵션 substring 검증 4줄 추가.
+- **(P6)** FileServing.fs S4 follow-up 5건 — (S4-m3) `userIdentityOf` "unknown" fallback 시 `Log.audit.Warn` 박제 (invariant 위반 anomaly) / (S4-m4) fileId Int64 parse 위치에 §3.10 / §4.2 Phase S4 / MA23 SSOT 항목 박제 / (S4-m8) `contentTypeOf` `String.IsNullOrEmpty` 가드 *잉여 정리 거부* 사유 박제 (Path.GetExtension(null) → NRE 차단) / (S4-M3) 304 ETag 헤더 박제 Fact 1건 / (S4-m6) 416 invalid Range + If-Range ETag match/mismatch Fact 3건. service Tests **115/115** (+4).
+- **(P2-r3)** LightHouseClient.cs `ExecuteWithSessionRetryAsync<T>` facade 신설 (~62 line) — caller op 가 LightHouseAuthException throw 시 RecoverSession 1회 + retry. 의도된 사용처는 Phase S7 또는 future MCP relay (본 phase facade only — Promaker 자체 호출은 PSK 사용이라 401 retry 무의미). LightHouseClientTests **5 Fact** 추가 (provider 미설정 / 첫 호출 성공 / 401 → recover + retry 성공 / recover 자체 401 → throw / OCE 즉시 전파). Promaker.Tests **208/208** (+5).
+- **자가 검열 (sub-agent general-purpose)** Major 2 / Minor 3 → **즉시 적용 2건**: **(M2)** `ExecuteWithSessionRetryAsync` 에 `catch (OperationCanceledException) { throw; }` 박제 + 회귀 차단 Fact 1건 / **(m2)** FileServingTests 의 416/If-Range 3 Fact 위에 `.NET 9 Results.File 위임 가정` 1줄 박제.
+
+**잔여 박제 (s6-r6 follow-up — 별 turn S7-P5b 또는 Phase 2 이연)**:
+- **(s6-r6 M1)** P5 비대칭 잔존 — `postCollections` TooLow 분기 `suggestedAction` 은 client lib 업그레이드 한쪽만 박제 (운영 정책상 service 다운그레이드 옵션 의미 낮아 의도적). `postCollectionPayload` (재업로드 swap) 의 TooLow / TooHigh 분기 두 곳은 `suggestedAction` 키 자체 부재 — SSOT 불일치. 별 turn S7-P5b 일괄 정비.
+- **(s6-r6 m1)** P6-m3 `Log.audit.Warn` storm 위험 — AuthMiddleware 결함 발생 시 매 file GET 마다 1 warn. 통상 0 호출 기대 + 단일 invariant 위반 박제 의도라 본 phase 차단 사유 아님. Phase S7+ rate-limit policy 도입 시 일괄 처리.
+- **(s6-r6 m3)** P2-r3 docstring 의 "401/403" → `LightHouseAuthException` 이 둘 다 매핑되어 정합이나 caller 가독성 minor. backlog.
+
+**다음 권장 (s6-r6 이후)**:
 - **(N1 재진입)** dist 본격 실행 — `/dist` skill **사용자 직접 호출** (외부 영향: scp + tag + push). paired-release drift detector + IntegrationTests 22 Fact + 자가 검열 누적 통과 = dist 직전 안전망 완비.
-- **(P2-r3 잔여)** L3 자동 회복의 MCP layer 통합 — MCP client 가 stale token 401 시 RecoverSessionAsync 호출하여 새 token 재시도. 현 hook 은 직접 호출용 — MCP client 측 자동 retry 미통합. 규모 ~50 line + 2-3 Fact (MCP client orchestration test).
 - **(P3)** Phase 2 진입 confirm — parent §3.15.5 사전 결정 10건 사용자 confirm 시 본격 진입.
-- **(P4)** Phase S7 (mTLS / SSE / multi-service / T2/T3 multi-tenant) — 보안/UX 우선 시 Phase 2 와 병렬 진입.
-- **(P5)** 사용자 SuggestedAction 의미론 개선 — server CollectionEndpoints 의 TooHigh 응답 `suggestedAction = "service 업그레이드"` 가 부정확 (client lib 다운그레이드 옵션 누락). M4 별 turn 처리.
-- **(P6)** server-side ETag 일관성 / 416 If-Range 등 S4 follow-up (P6 with 다섯 항목, parent backlog).
+- **(P4)** Phase S7 (mTLS / SSE / multi-service / T2/T3 multi-tenant) — 보안/UX 우선 시 Phase 2 와 병렬 진입. S7-P5b (suggestedAction SSOT 일괄 정비) 도 본 phase 진입 시 흡수.
+- **(P7)** P2-r3 facade 의 실 caller 등장 시 (MCP relay or proxy) wrapper 통합 검증 — 본 phase 는 facade only.
 
 **(과거 권장사항, 상태 갱신)**:
 

@@ -126,7 +126,10 @@ module CollectionEndpoints =
                     | IndexerVersionGateResult.TooHigh(v, m) ->
                         Log.audit.Warn(sprintf "indexerVersion gate too-high — id=%s client=%s hostMax=%s" collectionId v m)
                         StagingSweep.removeStaging storageRoot stagingId |> ignore
-                        do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "service 업그레이드" |}
+                        // suggestedAction: 두 회복 경로 모두 안내 (P5).
+                        // (a) host 측: Ds2.LightHouseService 업그레이드 (IndexerVersionRange.Max 확대)
+                        // (b) client 측: Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드
+                        do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
                     | IndexerVersionGateResult.Missing reason ->
                         Log.audit.Warn(sprintf "indexerVersion gate missing — id=%s reason=%s" collectionId reason)
                         StagingSweep.removeStaging storageRoot stagingId |> ignore
