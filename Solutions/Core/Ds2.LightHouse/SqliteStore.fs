@@ -18,7 +18,7 @@ module IndexerVersion =
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
     [<Literal>]
-    let Current = "1.1.0"
+    let Current = "1.2.0"
 
     [<Literal>]
     let SchemaVersion = "2"
