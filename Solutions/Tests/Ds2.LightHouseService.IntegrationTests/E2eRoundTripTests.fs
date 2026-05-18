@@ -5,6 +5,8 @@ open System.IO
 open System.IO.Compression
 open System.Net
 open System.Net.Http
+open System.Runtime.ExceptionServices
+open System.Security.Authentication
 open System.Text
 open System.Text.Json
 open System.Threading
@@ -42,10 +44,18 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
             let sampleBytes = (new FileInfo(sampleTxt)).Length
 
             // in-process 색인 — `.lighthouse-kb/index.db` 생성
-            let extractors : IExtractor list = [ TextExtractor() :> IExtractor ]
+            let extractors : IExtractor list = [ new TextExtractor() :> IExtractor ]
             let progressCb (_: IngestProgress) = ()
             let results = Indexer.ingest stagingDir extractors progressCb CancellationToken.None
-            Assert.NotEmpty(results)
+            // s5e-m5 follow-up: `Ingested` variant 존재 명시 검증 — Skipped/Failed 만 반환되면
+            // build 는 통과해도 server upload 후 attachment_search 가 0 hit (회귀). 1+ Ingested 강제.
+            let ingestedCount =
+                results
+                |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false)
+                |> Array.length
+            Assert.True(
+                ingestedCount >= 1,
+                sprintf "Indexer.ingest 결과에 Ingested variant 없음 — %A" results)
 
             // meta.json 작성 — §3.3.1 SSOT. server 필드 (id/importedAt/...) 는 null/공백 (server 가 stamp).
             let meta : MetaJson = {
@@ -189,9 +199,38 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
                 // (5) DELETE /sessions/{token} → 204
                 let! delSessionResp = client.DeleteAsync(sprintf "/sessions/%s" token)
                 Assert.Equal(HttpStatusCode.NoContent, delSessionResp.StatusCode)
-            finally
-                // (6) cleanup — DELETE /collections/{id} → 204 (fact 격리)
-                client.DeleteAsync(sprintf "/collections/%s" collectionId).Result.Dispose()
+            with ex ->
+                // s5e-M2 follow-up: try/finally `.Result.Dispose()` (async-over-sync) →
+                // try/with + ExceptionDispatchInfo (F# task CE 가 reraise 직접 호출 금지).
+                let edi = ExceptionDispatchInfo.Capture(ex)
+                let! cleanupResp = client.DeleteAsync(sprintf "/collections/%s" collectionId)
+                cleanupResp.Dispose()
+                edi.Throw()
+            // (6) cleanup (정상 경로) — DELETE /collections/{id} → 204 (fact 격리)
+            let! cleanupResp = client.DeleteAsync(sprintf "/collections/%s" collectionId)
+            cleanupResp.Dispose()
+        }
+
+    // ── Fact 7 (s5e-I): HTTPS-only 검증 — http:// scheme → connection refused / SSL exception ─
+    [<Fact>]
+    member _.``http:// scheme — Kestrel HTTPS-only bind 차단`` () =
+        task {
+            // fixture 의 baseAddress 는 `https://127.0.0.1:<port>` — 동일 port 를 http:// 로 시도하면
+            // Kestrel 가 HTTPS handshake 만 listen 하므로 connection 실패 또는 SSL exception 예상.
+            use handler = new HttpClientHandler()
+            handler.ServerCertificateCustomValidationCallback <-
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            use client = new HttpClient(handler, disposeHandler = false)
+            let httpUrl = sprintf "http://%s:%d/healthz" fixture.BaseAddress.Host fixture.BaseAddress.Port
+            let mutable threw = false
+            try
+                let! _ = client.GetAsync(httpUrl)
+                ()
+            with
+            | :? HttpRequestException -> threw <- true
+            | :? System.IO.IOException -> threw <- true
+            | :? AuthenticationException -> threw <- true
+            Assert.True(threw, sprintf "http:// 요청이 거부되지 않음 — Kestrel 가 HTTPS-only bind 가 아님 (url=%s)" httpUrl)
         }
 
     interface IClassFixture<ServiceFixture>

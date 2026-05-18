@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Ds2.LightHouse.Cli</RootNamespace>
+    <AssemblyName>lighthouse-cli</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <!-- LightHouse 의 PrivateAssets=all 정책상 native/library runtime asset 이 caller 의 output 에 자동 copy 안 됨.
+         service binary 와 동일 패턴 (Ds2.LightHouseService.fsproj 참조) — write-path 4 의존 직접 노출.
+         - PdfPig: PdfExtractor 의 PDF text extraction
+         - DocumentFormat.OpenXml: OoxmlExtractor 의 .docx/.pptx/.xlsx text extraction
+         - Microsoft.Data.Sqlite: SqliteStore 의 FTS5 index DB
+         - System.Text.Encoding.CodePages: TextEncoding 의 CP949 fallback (Main 에서 register 의무) -->
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- write-path (Indexer / KnowledgeBase) — Phase S6 의 lighthouse-cli index 명령용. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+  </ItemGroup>
+
+</Project>

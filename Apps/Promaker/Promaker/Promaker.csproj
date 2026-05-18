@@ -48,6 +48,9 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <!-- LLM Chat 筌ｂ뫀? Phase 3b ??PDF ??륁뵠筌왖 ???곕뗄??(LlmChatViewModel.Attachments.cs ??LoadAcceptedAttachments). -->
     <PackageReference Include="PdfPig" />
+    <!-- todo-lighthouse-kb-index.md r11/s5e-r0 결정: PdfPig 0.1.14 의 OpenXml 3.1.1 transitive 와
+         Ds2.LightHouse 의 3.5.1 충돌 (MSB3277) 해소용 명시. CPM 의 3.5.1 적용. -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">

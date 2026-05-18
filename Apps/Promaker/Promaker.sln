@@ -45,6 +45,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouseService.Tests
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouseService.IntegrationTests", "..\..\Solutions\Tests\Ds2.LightHouseService.IntegrationTests\Ds2.LightHouseService.IntegrationTests.fsproj", "{CE8F1C11-92AB-40EE-82BD-B01A5A083C42}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouse.Cli", "..\..\Solutions\Tools\Ds2.LightHouse.Cli\Ds2.LightHouse.Cli.fsproj", "{208CF100-9398-40C6-A50E-FC4EF102B18D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -259,6 +261,18 @@ Global
 		{CE8F1C11-92AB-40EE-82BD-B01A5A083C42}.Release|x64.Build.0 = Release|Any CPU
 		{CE8F1C11-92AB-40EE-82BD-B01A5A083C42}.Release|x86.ActiveCfg = Release|Any CPU
 		{CE8F1C11-92AB-40EE-82BD-B01A5A083C42}.Release|x86.Build.0 = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|x64.Build.0 = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Debug|x86.Build.0 = Debug|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|x64.ActiveCfg = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|x64.Build.0 = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|x86.ActiveCfg = Release|Any CPU
+		{208CF100-9398-40C6-A50E-FC4EF102B18D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
