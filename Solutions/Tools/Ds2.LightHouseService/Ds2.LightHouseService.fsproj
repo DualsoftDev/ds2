@@ -60,15 +60,19 @@
   </ItemGroup>
 
   <!-- Paired-release manifest hash hook (S1.7 / §6 m1 SSOT).
-       본 Target = placeholder. 본격 검증 (Ds2.LightHouse.dll 의 InformationalVersion vs config indexerVersionRange.max
-       mismatch 시 build fail) 은 dist 워크플로 (`make dist`) 진입 시 추가.
-       dist target 진입 위치 = `scripts/check-paired-release.ps1` 신설 + dist skill 의 build step 사이.
-       현 단계에서는 LightHouse.dll 의 InformationalVersion 을 message 로만 노출 — drift detection 책임은 dist 측. -->
+       본 Target = informational message 만 노출. 실 drift 검증은 dist 워크플로 책임.
+       drift detection 진입점 = `Apps/Promaker/scripts/check-paired-release.ps1` (s5d-r0 신설)
+         + `/dist` skill 의 Step 3.5 (빌드 직후).
+       검증 의미 (s5d-r0 박제 — s1-r0 의 "AssemblyVersion 비교" 정정):
+         lib 의 `Ds2.LightHouse.SqliteStore.IndexerVersion.Current` literal (= "1.0.0")
+         ∈ service `config.json.template` 의 `indexerVersionRange.[min,max]` 정합.
+         F# `[<Literal>]` 은 compile-time const inline → reflection 불가 → source regex 추출이 SSOT.
+       AssemblyVersion 노출 = build 단계의 lib dll 진입 확인용 (drift 강제 안 함). -->
   <Target Name="PairedReleaseCheck" AfterTargets="Build">
     <GetAssemblyIdentity AssemblyFiles="$(OutputPath)Ds2.LightHouse.dll">
       <Output TaskParameter="Assemblies" ItemName="LightHouseAssembly" />
     </GetAssemblyIdentity>
-    <Message Text="Paired-release: Ds2.LightHouse %(LightHouseAssembly.Version) — TODO: dist post-build hook (S1.7 / §6 m1)" Importance="normal" />
+    <Message Text="Paired-release: Ds2.LightHouse.dll AssemblyVersion=%(LightHouseAssembly.Version) — 실 drift 검증은 /dist Step 3.5 (check-paired-release.ps1, IndexerVersion.Current ↔ indexerVersionRange 정합) 책임" Importance="normal" />
   </Target>
 
 </Project>
