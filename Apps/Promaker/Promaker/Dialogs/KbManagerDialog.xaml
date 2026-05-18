@@ -10,6 +10,21 @@
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             b:CtrlWheelZoom.IsEnabled="True">
+        <Border.Resources>
+            <!-- s5c-r1 — ListView GridViewColumnHeader 의 default light theme 차단. dark resource brush 정합. -->
+            <Style TargetType="{x:Type GridViewColumnHeader}">
+                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                <Setter Property="Padding" Value="6,4"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            </Style>
+            <Style TargetType="{x:Type ListViewItem}">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            </Style>
+        </Border.Resources>
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

@@ -241,6 +241,7 @@
             <TextBlock Grid.Column="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12"
                        VerticalAlignment="Center"/>
             <Button Grid.Column="1" Content="📚 KB 관리"
+                    Style="{StaticResource ChatButtonStyle}"
                     Padding="8,2"
                     Click="KbManager_Click"
                     ToolTip="LightHouse Knowledge Base 관리 (등록 / 활성 / 제거)"/>
