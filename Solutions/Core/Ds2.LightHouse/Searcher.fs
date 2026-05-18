@@ -265,6 +265,44 @@ module Searcher =
                 acc.Add (id, parent, ord, nodeT, label, refLoc)
             acc.ToArray()
 
+    /// Phase 2 task D-iv (s6-r20) — 특정 ref 의 image references (`attachment_read` includeImages mode).
+    ///
+    /// 반환 = (ImageHash, MimeType, StoredPath, CaptionText option) array. Ordinal asc 정렬.
+    /// fileId / refLocator 가 해당 collection 에서 빈 결과 → 빈 배열.
+    ///
+    /// caller (Ds2.LightHouseService.AttachmentTools) 가 StoredPath → File.ReadAllBytes + size 정책 검사 후
+    /// base64 inline 박제 또는 caption_only 강등 결정. 본 함수는 metadata 만 — bytes IO 책임 분리 정합.
+    let readImagesByRef
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (fileId: string)
+        (refLocator: string)
+        : (string * string * string * string option) array =
+        match parseFileId fileId with
+        | None -> [||]
+        | Some (kbIdx, _) when kbIdx < 0 || kbIdx >= aliases.Length -> [||]
+        | Some (kbIdx, docId) ->
+            let alias = aliases.[kbIdx]
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sprintf """
+                SELECT ic.ImageHash, ic.MimeType, ic.StoredPath, ic.CaptionText
+                FROM %s.ImageReferences ir
+                JOIN %s.ImageCache ic ON ir.ImageHash = ic.ImageHash
+                WHERE ir.DocumentId = $doc AND ir.RefLocator = $ref
+                ORDER BY ir.Ordinal
+            """ alias alias
+            cmd.Parameters.AddWithValue("$doc", docId) |> ignore
+            cmd.Parameters.AddWithValue("$ref", refLocator) |> ignore
+            use reader = cmd.ExecuteReader()
+            let acc = ResizeArray<string * string * string * string option>()
+            while reader.Read() do
+                let hash = reader.GetString 0
+                let mime = if reader.IsDBNull 1 then "" else reader.GetString 1
+                let path = if reader.IsDBNull 2 then "" else reader.GetString 2
+                let caption = if reader.IsDBNull 3 then None else Some (reader.GetString 3)
+                acc.Add (hash, mime, path, caption)
+            acc.ToArray()
+
     /// 특정 ref (저장형) 의 chunk 본문 — `attachment_read(fileId, ref)` (§3.10).
     /// 한 ref 안 여러 chunk → ordinal 순서대로 concat. token 한도 절단.
     let readByRef

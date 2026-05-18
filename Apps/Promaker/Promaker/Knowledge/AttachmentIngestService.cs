@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Ds2.LightHouse;
@@ -7,6 +8,7 @@ using Ds2.LightHouse.Extractors;
 using log4net;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
+using Promaker.LlmAgent;
 // F# 도구 — IExtractor list (ListModule.OfArray), IngestProgress -> unit (FuncConvert.FromAction),
 // IngestProgress.CurrentFile : Option<string> (FSharpOption<string>.get_IsSome).
 
@@ -28,13 +30,28 @@ public sealed class AttachmentIngestService
 
     private readonly LightHouseClient _client;
     private readonly string _userIdentity;
+    private readonly LlmConfig _llmConfig;
 
-    public AttachmentIngestService(LightHouseClient client, string userIdentity)
+    /// <summary>
+    /// process singleton HttpClient — VLM caption 호출용. Indexer 의 captionGen closure 가 capture.
+    /// per-request HttpClient 생성은 socket exhaustion risk (Phase 2 task D-iii s6-r20 박제 정합).
+    /// </summary>
+    private static readonly HttpClient _vlmHttp = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(60),
+    };
+
+    /// <summary>
+    /// s6-r20 (D-iii): LlmConfig 주입 — captionGen build 의 VLM provider / API key / model 결정 SSOT.
+    /// caller (KbManagerDialog) 가 매 ingest 시점 생성. cost gate hard cutoff 처리 (E-i) 도 본 단원 책임.
+    /// </summary>
+    public AttachmentIngestService(LightHouseClient client, string userIdentity, LlmConfig llmConfig)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _userIdentity = string.IsNullOrWhiteSpace(userIdentity)
             ? throw new ArgumentException("userIdentity 필수.", nameof(userIdentity))
             : userIdentity;
+        _llmConfig = llmConfig ?? throw new ArgumentNullException(nameof(llmConfig));
     }
 
     /// <summary>
@@ -148,11 +165,58 @@ public sealed class AttachmentIngestService
             };
             var fsProgress = FuncConvert.FromAction(onProgress);
 
-            // s6-r19: captionGen 인자 추가 (D-2-2 eager). D-iii 단계 (LlmConfig.VlmProvider 진입) 에서
-            // 실 Anthropic captionGen 으로 치환 의무 — 현재 noop = caption 미생성. Phase 2 task D 미완 상태.
-            var results = Indexer.ingest(stagingDir, extractors, CaptionGenerator.noop, fsProgress, ct);
+            // s6-r19: captionGen 인자 추가 (D-2-2 eager). s6-r20 (D-iii): noop → BuildCaptionGen 실 치환.
+            // VLM 비활성 (provider="none" / API key 미박제) 시 자동 noop fallback — Phase 1 회귀 0.
+            var captionGen = BuildCaptionGen(ct);
+            var results = Indexer.ingest(stagingDir, extractors, captionGen, fsProgress, ct);
             Log.Info($"AttachmentIngestService: 색인 완료 — files={results.Length} staging={stagingDir}");
         }, ct);
+    }
+
+    /// <summary>
+    /// s6-r20 (D-iii / E-i): LlmConfig 의 VLM 설정 → Indexer.ingestImagesIntoStore 에 전달할 captionGen closure.
+    ///
+    /// 정책 (D-2-1 / D-2-2 / D-2-5 / E-i MR4):
+    /// - VLM 비활성 (`IsVlmEnabled() = false`) → CaptionGenerator.noop 그대로
+    /// - cost gate hard cap 도달 (`VisionCostGate.CanAfford(300) = false`) → SkippedCaption "cost gate"
+    /// - 정상 경로 → `CaptionGenerator.callAnthropic` 호출 + 성공 시 `VisionCostGate.Consume(300)`
+    /// - per-image fail-safe (D-2-4) → callAnthropic 의 FailedCaption 반환 그대로 (NULL 유지)
+    ///
+    /// 사후 save: cost gate 상태 변동 시 caller 가 LlmConfig.Save 책임. 본 closure 가 매 image 마다 save 면
+    /// disk write 증폭 → caller 가 RunIndexerAsync 종료 시점 1회 save. (cost gate snapshot 다중 process race 는
+    /// 본 정책 의도 외 — single Promaker instance 가정.)
+    /// </summary>
+    private FSharpFunc<byte[], FSharpFunc<ImageFormat, CaptionResult>> BuildCaptionGen(CancellationToken ct)
+    {
+        if (!_llmConfig.IsVlmEnabled())
+        {
+            return CaptionGenerator.noop;
+        }
+        var apiKey = _llmConfig.GetVlmApiKey();
+        var model = _llmConfig.VlmModel;
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+        {
+            return CaptionGenerator.noop;
+        }
+        var gate = _llmConfig.VisionCostGate;
+        var perImageTokens = VisionCostGate.AverageTokensPerImage;
+        return FuncConvert.FromFunc<byte[], ImageFormat, CaptionResult>(
+            (Func<byte[], ImageFormat, CaptionResult>)((bytes, fmt) =>
+            {
+                if (!gate.CanAfford(perImageTokens))
+                {
+                    return CaptionResult.NewSkippedCaption("cost gate hard cap");
+                }
+                var result = CaptionGenerator.callAnthropic(_vlmHttp, apiKey, model, bytes, fmt, ct);
+                // 자가 검열 M2 정책 SSOT (s6-r20): Captioned 분기만 Consume. FailedCaption / SkippedCaption 시 cost 0.
+                // Anthropic 측 실 차감과의 drift 가능성 인지함 (4xx/5xx 가 token billing 되는 경우 등) — 정책상
+                // "응답 미수신 / 사용 불가" 결과에 사용자 cost 부담 면제 의도. 정밀 회계는 Phase 4 (cost gate v2) backlog.
+                if (result is CaptionResult.Captioned)
+                {
+                    gate.Consume(perImageTokens);
+                }
+                return result;
+            }));
     }
 
     private FileStream PackagePayload(

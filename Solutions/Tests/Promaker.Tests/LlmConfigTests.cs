@@ -237,4 +237,130 @@ public sealed class LlmConfigTests : IDisposable
         // 두 base64 가 동일하면 entropy 통합된 것 — 의도와 다름
         Assert.NotEqual(cfg1.EncryptedKeys["anthropic"], cfg1.LightHouseService!.ApiKeyEncrypted);
     }
+
+    // ─── Phase 2 task D-iii / E-i (s6-r20) — VLM provider/model + VisionCostGate ─────────────
+
+    [Fact]
+    public void Vlm_defaults_anthropic_sonnet_4_6()
+    {
+        var cfg = new LlmConfig();
+        Assert.Equal("anthropic", cfg.VlmProvider);
+        Assert.Equal("claude-sonnet-4-6", cfg.VlmModel);
+        Assert.NotNull(cfg.VisionCostGate);
+        Assert.Equal(10_000, cfg.VisionCostGate.DailyTokenCap);
+        Assert.Equal(0, cfg.VisionCostGate.TokensUsedToday);
+    }
+
+    [Fact]
+    public void Vlm_fields_round_trip_through_save_load()
+    {
+        var path = Path.Combine(_root, "vlm-roundtrip.json");
+        const string json = """
+            {
+              "vlmProvider": "none",
+              "vlmModel": "claude-opus-4-7",
+              "visionCostGate": {
+                "dailyTokenCap": 50000,
+                "lastResetUtc": "2026-05-18",
+                "tokensUsedToday": 1234
+              }
+            }
+            """;
+        File.WriteAllText(path, json);
+
+        var cfg = LlmConfig.LoadFrom(path);
+        Assert.Equal("none", cfg.VlmProvider);
+        Assert.Equal("claude-opus-4-7", cfg.VlmModel);
+        Assert.Equal(50000, cfg.VisionCostGate.DailyTokenCap);
+        Assert.Equal("2026-05-18", cfg.VisionCostGate.LastResetUtc);
+        Assert.Equal(1234, cfg.VisionCostGate.TokensUsedToday);
+    }
+
+    [Fact]
+    public void IsVlmEnabled_requires_provider_and_apikey()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg = new LlmConfig();
+        // no apikey → false
+        Assert.False(cfg.IsVlmEnabled());
+
+        cfg.SetApiKey("anthropic", "sk-vlm-fake");
+        Assert.True(cfg.IsVlmEnabled());
+
+        cfg.VlmProvider = "none";
+        Assert.False(cfg.IsVlmEnabled());
+    }
+
+    [Fact]
+    public void GetVlmApiKey_env_var_takes_precedence()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        const string envVar = "LIGHTHOUSE_VLM_API_KEY";
+        var prior = Environment.GetEnvironmentVariable(envVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(envVar, "env-override-key");
+            var cfg = new LlmConfig();
+            cfg.SetApiKey("anthropic", "config-key");
+            Assert.Equal("env-override-key", cfg.GetVlmApiKey());
+
+            // env clear → config 값 fallback
+            Environment.SetEnvironmentVariable(envVar, null);
+            Assert.Equal("config-key", cfg.GetVlmApiKey());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envVar, prior);
+        }
+    }
+
+    [Fact]
+    public void VisionCostGate_CanAfford_respects_daily_cap()
+    {
+        var gate = new VisionCostGate { DailyTokenCap = 1000 };
+        Assert.True(gate.CanAfford(500));
+        gate.Consume(500);
+        Assert.True(gate.CanAfford(500));   // 정확히 한도까지
+        gate.Consume(500);
+        Assert.False(gate.CanAfford(1));    // 초과
+    }
+
+    [Fact]
+    public void VisionCostGate_Status_thresholds()
+    {
+        var gate = new VisionCostGate { DailyTokenCap = 1000 };
+        Assert.Equal(VisionCostGateStatus.Normal, gate.Status);
+        gate.Consume(799);
+        Assert.Equal(VisionCostGateStatus.Normal, gate.Status);
+        gate.Consume(1);    // 800 / 1000 = 80%
+        Assert.Equal(VisionCostGateStatus.SoftWarning, gate.Status);
+        gate.Consume(199);
+        Assert.Equal(VisionCostGateStatus.SoftWarning, gate.Status);
+        gate.Consume(1);    // 1000 도달
+        Assert.Equal(VisionCostGateStatus.HardCap, gate.Status);
+    }
+
+    [Fact]
+    public void VisionCostGate_RolloverIfNeeded_resets_on_new_day()
+    {
+        var gate = new VisionCostGate
+        {
+            DailyTokenCap = 1000,
+            TokensUsedToday = 950,
+            LastResetUtc = "2020-01-01",   // 과거 날짜
+        };
+        gate.RolloverIfNeeded();
+        Assert.Equal(0, gate.TokensUsedToday);
+        Assert.Equal(DateTime.UtcNow.ToString("yyyy-MM-dd"), gate.LastResetUtc);
+    }
+
+    [Fact]
+    public void VisionCostGate_EstimateTokens_uses_average_300_per_image()
+    {
+        Assert.Equal(0, VisionCostGate.EstimateTokens(0));
+        Assert.Equal(300, VisionCostGate.EstimateTokens(1));
+        Assert.Equal(3000, VisionCostGate.EstimateTokens(10));
+    }
 }

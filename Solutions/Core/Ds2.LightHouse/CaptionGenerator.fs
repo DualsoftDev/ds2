@@ -66,10 +66,16 @@ module CaptionGenerator =
         FuncConvert.FromFunc<byte[], ImageFormat, CaptionResult>(
             System.Func<byte[], ImageFormat, CaptionResult>(fun _ _ -> SkippedCaption "no caption gen"))
 
-    /// vision API 호출 가능한 image 인지 사전 검증 (Anthropic 5MB/image 한도, D-2-3 정합).
-    /// 한도 초과 시 SkippedCaption — caller 가 별도 강등 경로 책임 안 짐.
+    /// vision API 호출 가능한 image 인지 사전 검증 (Anthropic 5MB/image **body** 한도, D-2-3 / s6-r20 정합).
+    ///
+    /// **s6-r20 정정 (m-r19-1)** — s6-r19 의 초기 박제 `5 * 1024 * 1024` 는 *원본 bytes* 기준으로 검증했으나,
+    /// 실제 Anthropic 한도는 **base64 인코딩된 body** 기준 5MB. base64 팽창 ~1.333배 (4/3) → 원본 bytes 가 5MB 면
+    /// body 가 ~6.67MB → 413 가능. 보수적으로 `5MB * 3 / 4 = 3.75MB` 원본 한도 박제 (5MB body cap 정합).
+    ///
+    /// caller (D-iv AttachmentTools `attachment_read`) 의 size 정책 가드도 본 SSOT 참조 — 단일 image ≤ `MaxImageBytes`
+    /// (원본 기준) 초과 시 caption_only 강등 자동.
     [<Literal>]
-    let MaxImageBytes = 5 * 1024 * 1024
+    let MaxImageBytes = 5 * 1024 * 1024 * 3 / 4    // = 3,932,160 bytes (~3.75 MB) — base64 팽창 후 ~5 MB body
 
     /// JSON request body 구성. System.Text.Json 자체 직렬화 — 외부 의존 0.
     let private buildRequestJson (model: string) (mediaType: string) (base64: string) : string =
@@ -133,7 +139,8 @@ module CaptionGenerator =
     /// Anthropic messages API 호출 (1회, 재시도 없음 — caller 가 cost-aware retry 책임).
     ///
     /// **D-2-1** = model = "claude-sonnet-4-6" default (caller 가 결정).
-    /// **D-2-4** = exception catch → FailedCaption. 5MB 초과 image → SkippedCaption (pre-validate).
+    /// **D-2-4** = exception catch → FailedCaption. `MaxImageBytes` 초과 image → SkippedCaption (pre-validate).
+    ///   원본 bytes 한도 ≈ 3.75 MB (base64 팽창 후 ~5 MB body, Anthropic vision 한도 정합 — s6-r20 정정).
     /// **D-2-6** = HttpClient 자체 wire. caller 가 HttpClient lifecycle (singleton 권장) 관리.
     let callAnthropic
         (http: HttpClient)

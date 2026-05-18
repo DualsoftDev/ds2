@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="LightHouseClient.fs" />
+    <Compile Include="Vlm.fs" />
     <Compile Include="Packager.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

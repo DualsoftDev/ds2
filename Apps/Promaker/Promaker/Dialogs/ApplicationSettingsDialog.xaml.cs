@@ -44,8 +44,10 @@ public partial class ApplicationSettingsDialog : Window
 
     // s5c-r1 — 연결/테스트 결과 색상 SSOT (사용자 보고 cosmetic). dark theme 에서 잘 보이는 light blue / red.
     // Freeze 로 GC + thread 부담 최소화.
+    // s6-r20 --review M6 — WarningBrush 신설 (SoftWarning 의 Success(파랑) 매핑 anomaly 차단). 주황색.
     private static readonly Brush SuccessBrush = MakeFrozen(0x4F, 0xC3, 0xF7);   // light blue
     private static readonly Brush FailureBrush = MakeFrozen(0xEF, 0x53, 0x50);   // light red
+    private static readonly Brush WarningBrush = MakeFrozen(0xFF, 0xA7, 0x26);   // amber/orange
     private static Brush MakeFrozen(byte r, byte g, byte b)
     {
         var br = new SolidColorBrush(Color.FromRgb(r, g, b));
@@ -73,6 +75,14 @@ public partial class ApplicationSettingsDialog : Window
         "llama3.2",
         "mistral-small",
         "qwen2.5",
+    };
+
+    /// <summary>s6-r20 (D-iii): VLM 모델 후보 — Sonnet 4.6 default + Opus 4.7 (escalation Phase 4) + Haiku 4.5 (cost).</summary>
+    private static readonly string[] VlmModelCandidates =
+    {
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
+        "claude-haiku-4-5-20251001",
     };
 
     public ApplicationSettingsDialog()
@@ -236,8 +246,51 @@ public partial class ApplicationSettingsDialog : Window
         LhBaseUrlBox.Text = _llmConfig.LightHouseService?.BaseUrl ?? "";
         LhPskBox.Password = _llmConfig.GetLightHousePsk() ?? "";
 
+        // VLM (Phase 2 task D / E, s6-r20)
+        var prov = (_llmConfig.VlmProvider ?? "anthropic").Trim().ToLowerInvariant();
+        VlmProviderBox.SelectedIndex = prov switch { "anthropic" => 0, _ => 1 };
+        VlmModelBox.Text = _llmConfig.VlmModel ?? "claude-sonnet-4-6";
+        VlmDailyTokenCapBox.Text = _llmConfig.VisionCostGate.DailyTokenCap.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        UpdateVlmCostGateStatus();
+
         // Consent 상태
         UpdateConsentStatus();
+    }
+
+    // ─── VLM (Phase 2 task D / E, s6-r20) ────────────────────────────────────
+
+    private void VlmModelCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, VlmModelBox, VlmModelCandidates);
+
+    private void VlmResetCostGate_Click(object sender, RoutedEventArgs e)
+    {
+        _llmConfig.VisionCostGate.TokensUsedToday = 0;
+        _llmConfig.VisionCostGate.LastResetUtc = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        _llmConfig.Save();
+        LlmConfigChanged = true;
+        UpdateVlmCostGateStatus();
+    }
+
+    private void UpdateVlmCostGateStatus()
+    {
+        var gate = _llmConfig.VisionCostGate;
+        gate.RolloverIfNeeded();
+        var reset = string.IsNullOrEmpty(gate.LastResetUtc) ? "(reset 안 됨)" : gate.LastResetUtc;
+        var statusLabel = gate.Status switch
+        {
+            VisionCostGateStatus.Disabled => "비활성 (cap ≤ 0)",
+            VisionCostGateStatus.Normal => "정상",
+            VisionCostGateStatus.SoftWarning => "⚠ 80% 초과",
+            VisionCostGateStatus.HardCap => "🔒 hard cap — caption skip 중",
+            _ => gate.Status.ToString(),
+        };
+        VlmCostGateStatusText.Text =
+            $"누적 {gate.TokensUsedToday:N0} / {gate.DailyTokenCap:N0} token (reset = {reset} UTC, 상태 = {statusLabel})";
+        VlmCostGateStatusText.ClearValue(TextBlock.ForegroundProperty);
+        // --review M6 정합 — SoftWarning 은 WarningBrush(주황), HardCap 은 FailureBrush(빨강).
+        // 이전 SoftWarning 의 SuccessBrush(파랑) 매핑은 의미 충돌이라 정정. m10 UTC 표기도 동시 적용.
+        if (gate.Status == VisionCostGateStatus.SoftWarning) VlmCostGateStatusText.Foreground = WarningBrush;
+        else if (gate.Status == VisionCostGateStatus.HardCap) VlmCostGateStatusText.Foreground = FailureBrush;
     }
 
     // ─── Hot-fix-8 v3: 후보 선택 ContextMenu (TextBox + ▾ Button 패턴) ─────────
@@ -401,6 +454,15 @@ public partial class ApplicationSettingsDialog : Window
         var oldLhBaseUrl = _llmConfig.LightHouseService?.BaseUrl ?? "";
         var oldLhPsk     = _llmConfig.GetLightHousePsk() ?? "";
 
+        // s6-r20 (D-iii / E-i): VLM provider / model / daily token cap dirty 비교.
+        var newVlmProvider = ((VlmProviderBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "anthropic").Trim();
+        var newVlmModel = string.IsNullOrWhiteSpace(VlmModelBox.Text) ? fallback.VlmModel : VlmModelBox.Text.Trim();
+        var oldVlmDailyCap = _llmConfig.VisionCostGate.DailyTokenCap;
+        var newVlmDailyCap =
+            int.TryParse(VlmDailyTokenCapBox.Text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Max(0, parsed) : oldVlmDailyCap;
+
         var dirty =
             newAnthropicModel != _llmConfig.AnthropicModel
             || newOpenAiModel    != _llmConfig.OpenAiModel
@@ -409,7 +471,10 @@ public partial class ApplicationSettingsDialog : Window
             || newAnthropicKey   != (_llmConfig.GetApiKey(ApiProviderFactory.AnthropicKey) ?? "")
             || newOpenAiKey      != (_llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey)    ?? "")
             || newLhBaseUrl      != oldLhBaseUrl
-            || newLhPsk          != oldLhPsk;
+            || newLhPsk          != oldLhPsk
+            || newVlmProvider    != _llmConfig.VlmProvider
+            || newVlmModel       != _llmConfig.VlmModel
+            || newVlmDailyCap    != oldVlmDailyCap;
 
         if (!dirty) return;
 
@@ -419,6 +484,9 @@ public partial class ApplicationSettingsDialog : Window
         _llmConfig.OpenAiModel    = newOpenAiModel;
         _llmConfig.OllamaModel    = newOllamaModel;
         _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
+        _llmConfig.VlmProvider = newVlmProvider;
+        _llmConfig.VlmModel = newVlmModel;
+        _llmConfig.VisionCostGate.DailyTokenCap = newVlmDailyCap;
 
         // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 config 자체 제거.
         var lhDirty = newLhBaseUrl != oldLhBaseUrl || newLhPsk != oldLhPsk;

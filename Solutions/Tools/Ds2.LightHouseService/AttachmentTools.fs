@@ -2,8 +2,10 @@ namespace Ds2.LightHouseService
 
 open System
 open System.ComponentModel
+open System.IO
 open System.Text.Json
 open Microsoft.AspNetCore.Http
+open ModelContextProtocol.Protocol
 open ModelContextProtocol.Server
 
 /// Phase S3 MCP tool host — server 측 4종 (todo-lighthouse-kb-server.md §3.1.3 / §3.10 / §4.2 Phase S3).
@@ -30,6 +32,14 @@ type AttachmentTools() =
         let opts = JsonSerializerOptions(WriteIndented = false)
         opts.Converters.Add(System.Text.Json.Serialization.JsonStringEnumConverter())
         opts
+
+    /// Phase 2 task D-iv (s6-r20) — single image bytes 한도. lib `Ds2.LightHouse.CaptionGenerator.MaxImageBytes`
+    /// 직접 참조 (자가 검열 m1 정합) — SSOT drift 차단. F# `[<Literal>]` cross-assembly 참조 OK.
+    static let MaxSingleImageBytes = Ds2.LightHouse.CaptionGenerator.MaxImageBytes
+
+    /// Phase 2 task D-iv (s6-r20) — `attachment_read` 응답 한 응답당 image 최대 5장 (D-2-3 정합).
+    [<Literal>]
+    static let MaxImagesPerResponse = 5
 
     /// HttpContext.Items 의 SessionState 추출. 누락 시 InvalidOperationException (방어 — SessionAuth 가 항상 박제 의무).
     static let activeSession (accessor: IHttpContextAccessor) : SessionState =
@@ -215,10 +225,23 @@ type AttachmentTools() =
                     jsonOptions))
 
 
-    /// `attachment_read` — 특정 ref 의 chunk 본문 concat (token 한도 절단).
-    /// 응답: plain text. fileId active 셋 밖 → 빈 문자열.
+    /// `attachment_read` — 특정 ref 의 chunk 본문 concat + optional image content blocks (Phase 2 task D-iv, s6-r20).
+    ///
+    /// **시그니처 확장 (s6-r20)**: 기존 `(fileId, ref) -> string` → `(fileId, ref, includeImages, captionOnly) -> ContentBlock[]`.
+    /// breaking change — 기존 caller grep 0 (lib 내부 만). MCP 표준 ContentBlock 분리 (D-2-7) 로 LLM client 의 native
+    /// vision 인식 활성.
+    ///
+    /// **응답 분기**:
+    /// - `captionOnly = true` (default 우선) — text block 1개 = chunk 본문 + (이미지가 있으면) caption 텍스트 enumeration.
+    ///   "[image#1 caption: ...]" 식으로 inline append. image binary 미동봉, token 절약.
+    /// - `includeImages = true && captionOnly = false` — text block + image content blocks 분리. 각 image 는
+    ///   base64 inline + MIME type. **size 정책 가드** (D-2-3):
+    ///     - 단일 image > MaxSingleImageBytes (~3.75MB 원본) → 자동 skip + oversize text 박제
+    ///     - 응답당 image 수 > MaxImagesPerResponse (5장) → 자동 caption_only 전체 강등
+    ///     - 모든 image skip 시에도 text block + skip 사유 박제 (silent drop 금지 정합)
+    /// - 두 flag 모두 false → 기본 caption_only 동작 (back-compat 의도, 새 caller 가 명시 false 시 의도 표명).
     [<McpServerTool>]
-    [<Description("Read concatenated chunk text of a specific ref in a document. Returns plain text (token-limited).")>]
+    [<Description("Read chunk text of a ref + optional image content blocks. captionOnly=true (default) returns text+caption enumeration; includeImages=true with captionOnly=false returns text + base64 image blocks (size-policy gated).")>]
     static member attachment_read
         (
             accessor: IHttpContextAccessor,
@@ -226,10 +249,100 @@ type AttachmentTools() =
             [<Description("File identifier (from attachment_search hit.fileId)")>]
             fileId: string,
             [<Description("Ref locator (from attachment_search hit.ref)")>]
-            ref: string
-        ) : string =
+            ref: string,
+            [<Description("Include image content blocks (base64 inline). Subject to size policy: single ≤5MB body, ≤5 images per response, else auto-degrade to captionOnly.")>]
+            includeImages: bool,
+            [<Description("Caption-only mode: text block + inline caption enumeration (no base64 binary).")>]
+            captionOnly: bool
+        ) : ContentBlock array =
         withKb accessor resolver (fun kb ->
             let s = activeSession accessor
             match importFileId s fileId with
-            | None -> ""
-            | Some libFileId -> kb.Read libFileId ref)
+            | None ->
+                [| TextContentBlock(Text = "") :> ContentBlock |]
+            | Some libFileId ->
+                let chunkText = kb.Read libFileId ref
+                let imgRefs = kb.ReadImages libFileId ref
+
+                // size 정책: image 수 초과 → 전체 caption_only 강등 marker.
+                let degradedByCount = imgRefs.Length > MaxImagesPerResponse
+
+                // 효과적 mode (precedence): captionOnly=true / degraded / image 0개 → captionOnly path
+                // (자가 검열 M8 정합 — 0-image 시 includeImages path 의 ResizeArray + counter 가 redundant).
+                // 그 외 includeImages flag 명시 시 분리 path.
+                let effectiveCaptionOnly =
+                    captionOnly || degradedByCount || not includeImages || imgRefs.Length = 0
+
+                let textBuilder = System.Text.StringBuilder()
+                textBuilder.Append(chunkText) |> ignore
+
+                if degradedByCount then
+                    if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
+                    textBuilder.AppendLine() |> ignore
+                    textBuilder.AppendFormat(
+                        "[oversize_image_count={0}, max={1} — auto caption_only degrade]",
+                        imgRefs.Length, MaxImagesPerResponse) |> ignore
+
+                if effectiveCaptionOnly then
+                    // text block + caption enumeration. image binary 미동봉.
+                    if imgRefs.Length > 0 then
+                        if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendLine("[images]") |> ignore
+                        for i = 0 to imgRefs.Length - 1 do
+                            let (hash, _, _, caption) = imgRefs.[i]
+                            let captionStr =
+                                match caption with
+                                | Some c -> c
+                                | None -> "(caption 미생성)"
+                            textBuilder.AppendFormat(
+                                "  #{0} hash={1} — {2}", i + 1, hash.Substring(0, min 12 hash.Length), captionStr)
+                                |> ignore
+                            textBuilder.AppendLine() |> ignore
+                    [| TextContentBlock(Text = textBuilder.ToString()) :> ContentBlock |]
+                else
+                    // includeImages mode: text block + per-image base64 / oversize text 박제.
+                    let blocks = ResizeArray<ContentBlock>()
+                    let mutable oversizeCount = 0
+                    let mutable skipReadFailCount = 0
+                    let imgBlocks = ResizeArray<ContentBlock>()
+
+                    for i = 0 to imgRefs.Length - 1 do
+                        let (_, mime, storedPath, _) = imgRefs.[i]
+                        try
+                            let fi = FileInfo storedPath
+                            if not fi.Exists then
+                                skipReadFailCount <- skipReadFailCount + 1
+                            elif fi.Length > int64 MaxSingleImageBytes then
+                                oversizeCount <- oversizeCount + 1
+                            else
+                                let bytes = File.ReadAllBytes storedPath
+                                // SDK 1.2.0 의 `ImageContentBlock.Data` 는 *base64-encoded UTF-8 bytes* SSOT
+                                // (XML doc 명시). raw bytes 를 직접 박으면 wire 의 image data 가 invalid base64
+                                // 로 전달되어 client 측 디코딩 실패 (--review C1 검증 결과).
+                                // `FromBytes(bytes, mime)` factory 가 raw → DecodedData 박제 + Data 슬롯에
+                                // lazy base64 인코딩 — 정합 SSOT.
+                                let block = ImageContentBlock.FromBytes(ReadOnlyMemory<byte>(bytes), mime)
+                                imgBlocks.Add(block :> ContentBlock)
+                        with ex ->
+                            // per-image fail-safe — log skip + 후속 image 진행 (자가 검열 m4 정합).
+                            skipReadFailCount <- skipReadFailCount + 1
+                            Log.service.Warn(
+                                sprintf "AttachmentTools.attachment_read: image read 실패 (skip) — path=%s ex=%s: %s"
+                                    storedPath (ex.GetType().Name) ex.Message)
+
+                    if oversizeCount > 0 then
+                        if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendFormat(
+                            "[oversize_image_count={0}, max_single_bytes={1} — skipped]",
+                            oversizeCount, MaxSingleImageBytes) |> ignore
+                    if skipReadFailCount > 0 then
+                        if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendLine() |> ignore
+                        textBuilder.AppendFormat(
+                            "[image_read_fail_count={0} — skipped]", skipReadFailCount) |> ignore
+
+                    blocks.Add(TextContentBlock(Text = textBuilder.ToString()) :> ContentBlock)
+                    for b in imgBlocks do blocks.Add b
+                    blocks.ToArray())
