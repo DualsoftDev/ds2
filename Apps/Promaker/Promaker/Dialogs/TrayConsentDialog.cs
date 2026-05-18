@@ -27,8 +27,8 @@ internal static class TrayConsentDialog
         var dialog = new Window
         {
             Title = "백그라운드 전환 안내",
-            Width = 460,
-            Height = 260,
+            Width = 480,
+            Height = 320,
             SizeToContent = SizeToContent.Manual,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Application.Current.MainWindow,
@@ -38,8 +38,9 @@ internal static class TrayConsentDialog
 
         var msg = new TextBlock
         {
-            Text = "Monitoring 모드 + PLC 캡쳐 시작 시\n메인 창이 백그라운드(트레이)로 전환됩니다.\n\n"
-                 + "시스템 트레이 아이콘을 더블클릭하면 언제든 창을 다시 열 수 있습니다.\n\n"
+            Text = "Monitoring 모드 + PLC 캡쳐 시작 시\n메인 창이 백그라운드(트레이)로 전환되며\nDSPilot 웹 대시보드가 기본 브라우저로 열립니다.\n\n"
+                 + "시스템 트레이 아이콘을 더블클릭하면 언제든 창을 다시 열 수 있고,\n"
+                 + "트레이 우클릭 → \"DSPilot 접속\" 으로 다시 브라우저를 띄울 수 있습니다.\n\n"
                  + "계속하시겠습니까?",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(20, 20, 20, 12),

@@ -31,6 +31,9 @@ public sealed class TrayService : IDisposable
     /// <summary>"열기" 메뉴 또는 더블클릭 시 호출. 기본 동작(윈도우 복원) 은 RestoreWindow 가 처리.</summary>
     public event Action? OpenRequested;
 
+    /// <summary>"DSPilot 접속" 메뉴 클릭 시 호출. 호출자가 브라우저 실행을 결정 (Dspilot 의 실제 URL 해석은 호출자 책임).</summary>
+    public event Action? DspilotOpenRequested;
+
     /// <summary>
     /// 트레이로 전환. 윈도우를 숨기고 NotifyIcon 표시.
     /// 이미 활성 상태면 no-op.
@@ -59,15 +62,18 @@ public sealed class TrayService : IDisposable
             Log.Warn($"Tray icon load failed: {ex.Message}");
         }
 
-        // 컨텍스트 메뉴: 열기 / STOP / 종료
+        // 컨텍스트 메뉴: 열기 / DSPilot 접속 / STOP / 종료
         var menu = new ContextMenu();
         var openItem = new MenuItem { Header = "열기" };
         openItem.Click += (_, _) => OnOpen();
+        var dspilotItem = new MenuItem { Header = "DSPilot 접속 (브라우저)" };
+        dspilotItem.Click += (_, _) => DspilotOpenRequested?.Invoke();
         var stopItem = new MenuItem { Header = "STOP (시뮬레이션 정지)" };
         stopItem.Click += (_, _) => StopRequested?.Invoke();
-        var exitItem = new MenuItem { Header = "종료" };
+        var exitItem = new MenuItem { Header = "Promaker 종료" };
         exitItem.Click += (_, _) => ExitRequested?.Invoke();
         menu.Items.Add(openItem);
+        menu.Items.Add(dspilotItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(stopItem);
         menu.Items.Add(exitItem);
