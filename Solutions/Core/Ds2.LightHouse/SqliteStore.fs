@@ -18,10 +18,10 @@ module IndexerVersion =
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
     [<Literal>]
-    let Current = "1.0.0"
+    let Current = "1.1.0"
 
     [<Literal>]
-    let SchemaVersion = "1"
+    let SchemaVersion = "2"
 
     [<Literal>]
     let Tokenizer = "trigram"
@@ -166,6 +166,31 @@ CREATE TABLE IF NOT EXISTS Meta (
     Key   TEXT PRIMARY KEY,
     Value TEXT NOT NULL
 );
+
+-- ── Phase 2 (s6-r8): 이미지 인프라 schema (parent §3.12 의 주석 처리 블록 활성) ──
+-- backward-compat: 신규 테이블만 IF NOT EXISTS, Chunks.ImageCount ALTER 는 ensureSchema 의 분기 처리.
+-- ImageCache: cross-document 공유 cache. PK = sha256 (ImageHash).
+-- ImageReferences: 문서 안 image 사용 위치 (page/slide 박제). PK = 복합 4 키 (parent §3.12 결함 5항 1).
+CREATE TABLE IF NOT EXISTS ImageCache (
+    ImageHash    TEXT PRIMARY KEY,
+    StoredPath   TEXT NOT NULL,
+    MimeType     TEXT,
+    Width        INTEGER,
+    Height       INTEGER,
+    CaptionText  TEXT,
+    CaptionAt    TEXT,
+    CaptionModel TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ImageReferences (
+    DocumentId INTEGER NOT NULL REFERENCES Documents(Id) ON DELETE CASCADE,
+    ChunkId    INTEGER REFERENCES Chunks(Id) ON DELETE SET NULL,
+    ImageHash  TEXT NOT NULL REFERENCES ImageCache(ImageHash),
+    RefLocator TEXT NOT NULL,
+    Ordinal    INTEGER NOT NULL,
+    PRIMARY KEY (DocumentId, ImageHash, RefLocator, Ordinal)
+);
+CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
 """
 
     /// PRAGMA SSOT (§3.17). DB open 직후 1회 실행. read-only mode 도 동일 set (writeMode 와 무관).
@@ -199,12 +224,38 @@ CREATE TABLE IF NOT EXISTS Meta (
         applyPragmas conn
         conn
 
+    /// SQLite 의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 — `PRAGMA table_info` 로 idempotent 분기.
+    /// table 안에 column 가 이미 있으면 no-op, 없으면 `ALTER TABLE` 실행 (Phase 2 schema bump 정합).
+    let private ensureColumn
+        (conn: SqliteConnection)
+        (table: string)
+        (column: string)
+        (ddl: string)
+        : unit =
+        use probe = conn.CreateCommand()
+        probe.CommandText <- sprintf "PRAGMA table_info(%s)" table
+        use reader = probe.ExecuteReader()
+        let mutable found = false
+        while reader.Read() do
+            let name = reader.GetString(1)
+            if String.Equals(name, column, StringComparison.OrdinalIgnoreCase) then
+                found <- true
+        reader.Close()
+        if not found then
+            use alter = conn.CreateCommand()
+            alter.CommandText <- ddl
+            alter.ExecuteNonQuery() |> ignore
+
     /// schema (§3.12) 초기화 — idempotent. 신규 DB / 기존 DB 모두 안전.
+    /// Phase 2 (s6-r8) — `Chunks.ImageCount` ALTER 도 동반 (backward-compat, DEFAULT 0).
     /// Meta key (`schema_version`/`indexer_version`/`tokenizer`/`created_at`) 도 동시 기록.
     let ensureSchema (conn: SqliteConnection) =
         use cmd = conn.CreateCommand()
         cmd.CommandText <- schemaSql
         cmd.ExecuteNonQuery() |> ignore
+        // Phase 2 ALTER (SQLite IF NOT EXISTS 미지원) — Phase 1 색인 DB 에서도 안전 forward-compat.
+        ensureColumn conn "Chunks" "ImageCount"
+            "ALTER TABLE Chunks ADD COLUMN ImageCount INTEGER NOT NULL DEFAULT 0"
 
     /// Meta key-value get. 미존재 시 None.
     let getMeta (conn: SqliteConnection) (key: string) : string option =

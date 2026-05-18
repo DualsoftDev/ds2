@@ -770,15 +770,16 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `3a3d89c` | s6-r3 | (d) check-paired-release.ps1 s5d 박제 잔여 3건 + [System.Version] 비교 quirk CompareTo 우회 |
 | `66890e7` | s6-r4 | (c) L3 caller orchestration 정책 주석 박제 (LlmChatViewModel) |
 | `e91b2e7` | s6-r5 | (a) IndexerVersion gate 415 Fact 2건 (F8/F9) + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 |
-| (본 commit) | s6-r7 | **1+2+3+P3 묶음** — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 (CollectionEndpoints.fs) + test 1 파일 (NegativeRoundTripTests.fs) + doc 3 파일. 자가 검열 trigger 미충족 (단일 파일 100 line+ 미만, 신규 함수 0, control flow 변경 0). |
+| `a1c0c90` | s6-r7 | **1+2+3+P3 묶음** — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 + test 1 파일 + doc 3 파일. 자가 검열 sub-agent (Critical/Major 0 / Minor 4) → m1 (SSE event enum 보강) + m2 (tus 미채택 사유 박제) 즉시 적용. |
+| (본 commit) | s6-r8 | **Phase 2 task A 본격 진입 — schema 확장** (parent §4 Phase 2 첫 task). (i) **수정 운영 1** — `Solutions/Core/Ds2.LightHouse/SqliteStore.fs` (+55/-2): `IndexerVersion.Current` 1.0.0→**1.1.0** (minor — backward-compat) + `SchemaVersion` 1→**2** (parent §3.17 정합). `schemaSql` 확장 = `ImageCache` 테이블 (PK ImageHash, 8 컬럼) + `ImageReferences` 테이블 (복합 PK 4 키 (DocumentId, ImageHash, RefLocator, Ordinal) + FK 3종 Documents/Chunks/ImageCache) + `IX_ImgRef_Chunk` index. (ii) **신규 함수 1** — `ensureColumn conn table column ddl` (SQLite의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 → `PRAGMA table_info` 로 idempotent 분기). `ensureSchema` 가 `Chunks.ImageCount` DEFAULT 0 forward-compat ALTER 동반. (iii) **신규 test 7 Fact + 자가 검열 M1 보강 1 assertion** — `SqliteStoreTests.fs` (+125 line): IndexerVersion bump 검증 / ImageCache 8 컬럼 / ImageReferences 복합 PK + FK 3종 / Chunks.ImageCount DEFAULT 0 INSERT 검증 / IX_ImgRef_Chunk / ensureColumn idempotent / Phase 1 DB → ensureSchema forward-compat upgrade (+ M1: stampVersion 후 Meta.schema_version="2" / indexer_version="1.1.0" 일치 assertion). (iv) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 1 (M1 = forward-compat Fact 의 Meta.schema_version stale 가능성 보강 — 즉시 적용) / Minor 3 (m1 minor bump 재색인 정책 박제 backlog / m2 reader.Close() 명시성 / m3 PRAGMA table_info column 위치 hardcode = safe). **즉시 적용 1건 (M1 보강)**. (v) **결과 검증**: lib Tests **102→109** (+7) + service Tests 115/115 + IntegrationTests 24/24 회귀 0 + paired-release detector pass (1.1.0 ∈ [1.0.0, 1.99.99]). **누적 456 Fact** (Promaker 208 + service 115 + IT 24 + lib 109, +7 vs s6-r7). (vi) **parent 박제**: `todo-lighthouse-kb-index.md` §4 Phase 2 첫 task ✓ marker. | — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 (CollectionEndpoints.fs) + test 1 파일 (NegativeRoundTripTests.fs) + doc 3 파일. 자가 검열 trigger 미충족 (단일 파일 100 line+ 미만, 신규 함수 0, control flow 변경 0). |
 | `c2f0866` | s6-r6 | **P5/P6/P2-r3 묶음** — (P5) TooHigh suggestedAction 의미론 정정 (service 업그레이드 OR client lib 다운그레이드 양 옵션) + F9 Fact 강화 / (P6) S4 follow-up 5건 — userIdentityOf "unknown" Log.audit.Warn + fileId §3.10/§4.2/MA23 SSOT 박제 + contentTypeOf 가드 유지 사유 박제 + 304 ETag 일관성 Fact + 416/If-Range Fact 3건 / (P2-r3) `LightHouseClient.ExecuteWithSessionRetryAsync<T>` facade + 5 Fact (Phase S7 또는 future MCP relay 진입용, 본 phase facade only) + 자가 검열 M2 (OCE catch) + m2 (.NET 9 위임 가정 박제) 즉시 적용 |
 
 **테스트 누적**:
-- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 → s6-r6 208 (s6-r7 회귀 0)
-- IntegrationTests: S5a 1 → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → s6-r5 22 → **s6-r7 24** (+ M1 정정 swap 415 2 Fact)
-- service Tests: 111 → s6-r6 115 (s6-r7 회귀 0)
-- lib Tests: 100 → s6-r5 102 (s6-r7 회귀 0)
-- **누적 449 Fact** (Promaker 208 + service 115 + IntegrationTests 24 + lib 102, +2 vs s6-r6)
+- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 → s6-r6 208 (s6-r7/r8 회귀 0)
+- IntegrationTests: S5a 1 → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → s6-r5 22 → s6-r7 24 (s6-r8 회귀 0)
+- service Tests: 111 → s6-r6 115 (s6-r7/r8 회귀 0)
+- lib Tests: 100 → s6-r5 102 → **s6-r8 109** (+ Phase 2 schema 7 Fact + 자가 검열 M1 보강)
+- **누적 456 Fact** (Promaker 208 + service 115 + IntegrationTests 24 + lib 109, +7 vs s6-r7)
 
 ### 7.2 새 세션 진입 즉시 행동
 
@@ -858,11 +859,19 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 - **(3)** Phase S7 사전 설계 박제 — §0 D-id 표에 **D-S6-1~5** (이미 박제된 CLI 결정) + **D-S7-1~5** (mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) 신설. §4.2 Phase S7 task 표 갱신 (사전 박제 marker + S7-P5b 흡수 + L3 MCP relay 통합 task 추가).
 - **(P3)** Phase 2 진입 confirm — parent §3.15.5 의 10건 default 사용자 confirm 박제 (✓ s6-r7) + parent §4 Phase 2 진입 marker (첫 task = schema 확장). **본격 코드 진입은 별 turn 의 명시 지시 후** (대규모 변경: PdfPig 이미지 raw 추출 + VLM caption + LlmConfig cost gate).
 
-**다음 권장 (s6-r7 이후)**:
-- **(N1 재진입)** dist 본격 실행 — `/dist` skill **사용자 직접 호출** (외부 영향: scp + tag + push). 본 세션 자체 호출 안 함.
-- **(P3 본격 코드 진입)** Phase 2 첫 task = parent §4 의 schema 확장 (`ImageCache` / `ImageReferences` 테이블 + `Chunks.ImageCount` ALTER + IndexerVersion bump). 사용자 명시 진입 지시 시 본 task 부터 sub-phase 분할.
+**처리 완료 (s6-r8, 본 turn)**: P3 Phase 2 본격 진입 — task A (schema 확장). parent §4 Phase 2 의 첫 task `schema 확장 — ImageCache / ImageReferences / Chunks.ImageCount + IndexerVersion bump` ✓ marker. 다음 task = `ImageStore.fs` 신설.
+
+**다음 권장 (s6-r8 이후)**:
+- **(N1 재진입)** dist 본격 실행 — `/dist` skill **사용자 직접 호출**. 본 세션 자체 호출 안 함.
+- **(P3 Phase 2 task B)** `ImageStore.fs` — sha256 + blob 저장 + ImageCache/ImageReferences upsert (cross-document 공유, 단일 collection 안). 본 phase 의 schema 확장 (task A) 위에 build. 규모 ~150 line + Fact 5-7건.
+- **(P3 Phase 2 task C)** PdfExtractor / OoxmlExtractor 가 이미지 raw 추출 + ImageStore 호출. PdfPig DCT/JPX/JBIG2 decode 추가 NuGet 필요 시 확인.
+- **(P3 Phase 2 task D)** `attachment_read` image 모드 두 가지 (`caption_only` / `includeImages`) + VLM caption (Anthropic 1차) — D-S6-2 권장 default 정합.
+- **(P3 Phase 2 task E)** LlmConfig cost gate (daily token cap 10K + soft warning + hard cutoff) — MR4 default 정합.
 - **(P4 Phase S7)** mTLS / SSE / multi-service routing — D-S7-1~5 사전 박제 완료, 사용자 우선순위 결정 시 본격 진입. Phase 2 와 병렬 진입 가능.
 - **(P7)** P2-r3 facade 실 caller 등장 시 (MCP relay or proxy) wrapper 통합 검증.
+
+**잔여 박제 (s6-r8 follow-up — backlog)**:
+- (s6-r8 m1) IndexerVersion compare 정책 — 현 §3.17 "다르면 무조건 재색인" 정합 = 1.0.0 → 1.1.0 진입 시 기존 collection 전수 재색인 비용. major/minor 분리 정책 (major=재색인 강제 / minor=ALTER forward-compat) 박제 검토 — 별 turn 의 parent §3.17 정정.
 
 **(과거 권장사항, 상태 갱신)**:
 

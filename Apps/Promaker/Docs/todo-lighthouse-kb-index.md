@@ -790,7 +790,7 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 **진입 marker (s6-r7)**: §3.15.5 의 10건 default 사용자 confirm 완료. 본 phase 의 첫 task = 아래 schema 확장. **본격 코드 진입은 별 turn 의 명시 지시 후** (대규모 변경 — PdfPig 이미지 raw 추출 + VLM caption provider integration + LlmConfig cost gate). server todo §7.4 의 다음 권장 = 본 phase 첫 task 진입.
 
-- [ ] schema 확장 — `ImageCache` / `ImageReferences` 테이블 (3.12 의 주석 처리 블록 활성) + `Chunks.ImageCount` 컬럼 (ALTER TABLE) + IndexerVersion bump
+- [x] schema 확장 — `ImageCache` / `ImageReferences` 테이블 (3.12 의 주석 처리 블록 활성) + `Chunks.ImageCount` 컬럼 (ALTER TABLE) + IndexerVersion bump **(s6-r8 완료)**: `SqliteStore.IndexerVersion.Current` 1.0.0→1.1.0 (minor) + `SchemaVersion` 1→2. ensureColumn helper 신설 (SQLite의 ALTER ADD COLUMN IF NOT EXISTS 미지원 → PRAGMA table_info 분기). ensureSchema 가 Chunks.ImageCount DEFAULT 0 forward-compat ALTER 동반. lib Tests **102→109** (+7 Phase 2 schema Fact + 자가 검열 M1 보강 1 assertion). paired-release detector pass (1.1.0 ∈ [1.0.0, 1.99.99]). service Tests 115/115 + IntegrationTests 24/24 회귀 0.
 - [ ] `ImageStore.fs` — sha256 + blob 저장 + ImageCache/ImageReferences upsert (cross-document 공유, 단일 프로젝트 안)
 - [ ] PdfExtractor / OoxmlExtractor 가 이미지 raw 추출 + ImageStore 호출 (Phase 1 무변경 분리)
   - PdfPig DCT/JPX/JBIG2 decode 는 별도 NuGet 필요 — 진입 시 확인
