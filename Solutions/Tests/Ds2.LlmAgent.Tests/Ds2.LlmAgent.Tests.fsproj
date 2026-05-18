@@ -31,6 +31,7 @@
     <Compile Include="ModelProtocolTests.fs" />
     <Compile Include="ModelProtocolMermaidTests.fs" />
     <Compile Include="ModelProtocolYamlIOTests.fs" />
+    <Compile Include="SiblingUniquenessTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

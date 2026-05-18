@@ -787,6 +787,9 @@ module ModelProtocol =
     // 기존에는 line 1478~ (applyPatch 영역 인근) 에 정의됐으나 dispatchActiveSystem / dispatchPassiveSystem
     // 보다 *뒤* 였음 — forward-ref 회피로 이동.
     /// 단일 segment system path → store 안의 DsSystem 검색 (active + passive 합집합).
+    /// **Scope 주의**: store 전체 projects 를 walk — 단일 project PoC scope (Promaker 는 SDI, `resolveFirstProjectId`
+    /// 가 첫 project 만 사용) 에서는 effectively single-project lookup. 장기 multi-project 확장 시 projectId 인자
+    /// 추가 필요 (review M-D — `ToolOperations.findSystemNameClashInProject` 와의 의미 정렬).
     let private findSystemByName (store: DsStore) (sysName: string) : DsSystem option =
         Queries.allProjects store
         |> List.collect (fun p ->
@@ -1027,34 +1030,27 @@ module ModelProtocol =
         if not (tryValidateName ctx (path + ".system") "System name" entry.Name) then () else
 
         try
-            // S3b — modeling level 시 lookup-first (기존 store 의 같은 이름 Active 발견 시 reuse).
-            // 기존 system 발견 시 queueAddActiveSystem 호출 skip — 중복 throw 회피 + 기존 leaf 보존.
-            // wire 의 iri / plc 키는 modeling level walk (S3a) 가 사전 거부 — 본 분기 시 등장 0.
+            // Lookup-first — modeling/Full 양 level 통합 (사용자 요청 rev2):
+            // 기존 store/plan 에 같은 이름 Active 발견 시 silent reuse — queueAddActiveSystem 호출 skip.
+            // 다른 이름 active 가 같은 project 에 이미 있는데 wire 가 또 다른 active 추가 시도는 queueAddActiveSystem 단의
+            // PLC 1 controller guard 가 fail 처리. wire 의 iri / plc 키는 modeling level walk (S3a) 가 사전 거부.
             let id =
-                match !ctx.Level with
-                | Modeling ->
-                    // #32 — store + plan 합집합 (같은 turn 안 patch 또는 다른 systems entry 가 add 한
-                    // entity 도 reuse). store 우선, 미발견 시 plan 측 fallback.
-                    let storeHit = findSystemByName ctx.Store entry.Name
-                    let combinedHit =
-                        storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
-                    match combinedHit with
-                    | Some sys ->
-                        // 기존 active 인지 검증 — Passive 인데 wire 가 active 로 명시면 의미 충돌.
-                        // plan 측 hit 은 isActive 판정이 LinkSystemToProject op 으로만 결정 — store 검색만
-                        // 으로 충분 (storeHit Some 이면 store 측 isActive 검사 / storeHit None + planHit Some
-                        // 이면 plan 의 LinkSystemToProject 추적).
-                        let isActiveInStore =
-                            Queries.allProjects ctx.Store
-                            |> List.exists (fun p -> p.ActiveSystemIds.Contains sys.Id)
-                        let isActiveInPlan =
-                            Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
-                            |> Option.defaultValue false   // LinkSystemToProject 부재 = "active 아님" 으로 fail-safe (store-only 신뢰)
-                        if not (isActiveInStore || isActiveInPlan) then
-                            invalidOp (sprintf "system '%s' 가 store 에서 passive 인데 wire 에 kind=active 로 명시 — modeling level 은 entity kind 변경 금지. patch 사용." entry.Name)
-                        sys.Id
-                    | None -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
-                | Full -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
+                let storeHit = findSystemByName ctx.Store entry.Name
+                let combinedHit =
+                    storeHit |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindSystemByName ctx.Plan entry.Name)
+                match combinedHit with
+                | Some sys ->
+                    // 기존 active 인지 검증 — Passive 인데 wire 가 active 로 명시면 의미 충돌. silent reuse 거부.
+                    let isActiveInStore =
+                        Queries.allProjects ctx.Store
+                        |> List.exists (fun p -> p.ActiveSystemIds.Contains sys.Id)
+                    let isActiveInPlan =
+                        Internal.PlanLookup.tryFindSystemLinkKind ctx.Plan sys.Id
+                        |> Option.defaultValue false   // LinkSystemToProject 부재 = "active 아님" 으로 fail-safe (store-only 신뢰)
+                    if not (isActiveInStore || isActiveInPlan) then
+                        invalidOp (sprintf "system '%s' 가 store 에서 passive 인데 wire 에 kind=active 로 명시 — entity kind 변경 금지 (silent reuse 불가). patch 사용 또는 다른 이름 사용." entry.Name)
+                    sys.Id
+                | None -> ToolOperations.queueAddActiveSystem ctx.Plan ctx.Store entry.Name
             entry.SystemId := Some id
             // Phase 7 §4.2 C-6: DsSystem.IRI — Active / Passive 공통 leaf 키
             applyNonEmptyStringProp ctx path sysEl "iri" (fun s ->

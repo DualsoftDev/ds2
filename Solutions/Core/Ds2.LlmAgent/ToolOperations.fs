@@ -164,6 +164,57 @@ module ToolOperations =
             (fun () -> Queries.apiDefsOf systemId store |> List.exists (fun d -> d.Name = name))
             (function AddApiDef d -> d.ParentId = systemId && d.Name = name | _ -> false)
 
+    /// plan 의 AddSystem op 만 1회 fold — sid → name map. 본 module 의 sibling guard 들이 공용 사용.
+    /// nested Seq.tryPick (O(N²)) 회피 + 가독성. 같은 turn 안 plan.Operations 가 변하므로 호출 시점마다 재구축.
+    let private buildPlanSystemNameMap (plan: ImportPlanBuilder) : Map<Guid, string> =
+        plan.Operations
+        |> Seq.choose (function AddSystem s -> Some(s.Id, s.Name) | _ -> None)
+        |> Map.ofSeq
+
+    /// Plan + store 합산: 특정 project 안 System (active+passive 통합 namespace) 이름 중복?
+    /// 충돌 발견 시 충돌 system 의 kind ("active" / "passive") 반환 — 호출처가 메시지 분기에 활용.
+    /// store 우선 (kind 확정 가능), plan 측 LinkSystemToProject 의 isActive 로 fallback.
+    let private findSystemNameClashInProject (plan: ImportPlanBuilder) (store: DsStore) (projectId: Guid) (name: string) : string option =
+        let storeHit =
+            (Queries.activeSystemsOf projectId store |> List.tryFind (fun s -> s.Name = name) |> Option.map (fun _ -> "active"))
+            |> Option.orElseWith (fun () ->
+                Queries.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = name) |> Option.map (fun _ -> "passive"))
+        storeHit |> Option.orElseWith (fun () ->
+            let planNameOf = buildPlanSystemNameMap plan
+            plan.Operations
+            |> Seq.tryPick (function
+                | LinkSystemToProject(pid, sid, isActive) when pid = projectId && Map.tryFind sid planNameOf = Some name ->
+                    Some (if isActive then "active" else "passive")
+                | _ -> None))
+
+    /// `findSystemNameClashInProject` 의 bool wrapper — 메시지 분기 불필요한 호출처용.
+    let private hasSystemNameClashInProject (plan: ImportPlanBuilder) (store: DsStore) (projectId: Guid) (name: string) : bool =
+        (findSystemNameClashInProject plan store projectId name).IsSome
+
+    /// Sibling clash 통일 메시지 SSOT — active/passive 둘 다 cover. 호출처는 kind 분기 불필요.
+    /// $3.tooling.md "Sibling Uniqueness — MCP 자동 검사" 참조.
+    let private formatSystemClashMessage (name: string) (clashKind: string) : string =
+        sprintf "Project 안에 '%s' System 이 이미 존재합니다 (kind=%s). 기존 active 라면 doc 의 systems entry 이름을 그대로 두십시오 (silent reuse), 기존 passive 라면 systems entry 를 제거하고 Active calls 의 <system>.<api> dotted-path 만 참조하십시오. 교체 의도면 patch 의 rename:/remove: 사용. find_by_name/export_model_doc 으로 사전 조회 권장." name clashKind
+
+    /// Plan + store 합산: 특정 project 에 이미 등록된 active system 의 이름. 없으면 None.
+    /// PLC 1 controller 규약 — Active 가 이미 있는데 다른 이름 Active 추가 시도 차단용.
+    /// **Invariant fail-fast**: project 안 active 가 N>1 이면 store invariant 위반 — 즉시 invalidOp.
+    /// (entity 모델은 N 개 허용하나 도메인 룰로 1 개 강제 — $1.entities.md §3)
+    let private tryExistingActiveSystemName (plan: ImportPlanBuilder) (store: DsStore) (projectId: Guid) : string option =
+        let storeActives = Queries.activeSystemsOf projectId store
+        match storeActives with
+        | [] ->
+            // store 측 없음 — plan 측 LinkSystemToProject 의 isActive=true entry fallback.
+            let planNameOf = buildPlanSystemNameMap plan
+            plan.Operations
+            |> Seq.tryPick (function
+                | LinkSystemToProject(pid, sid, true) when pid = projectId -> Map.tryFind sid planNameOf
+                | _ -> None)
+        | [ s ] -> Some s.Name
+        | many ->
+            let names = many |> List.map (fun s -> s.Name) |> String.concat ", "
+            invalidOp $"Store invariant 위반 — Project 안에 active system 이 {many.Length} 개 존재 (1개만 허용, $1.entities.md §3). 이름: [{names}]. GUI 에서 정리 후 재시도."
+
     // ─── Mutation queue (Phase 1c~1d) ────────────────────────────────────────
 
     /// add_project mutation tool. Pass 5 에서 추가 — fresh store 에서 LLM 이 자율적으로 모델
@@ -198,9 +249,17 @@ module ToolOperations =
 
     /// add_active_system mutation tool. 첫 project 에 active 로 부착.
     /// 반환: 새로 생성된 system Id.
+    /// Sibling uniqueness guard — 같은 project 안 동일 이름 System 또는 다른 active 존재 시 fail.
     let queueAddActiveSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) : Guid =
         requireNonEmpty (nameof name) name "System name"
         let projectId = resolveFirstProjectId plan store
+        match findSystemNameClashInProject plan store projectId name with
+        | Some kind -> invalidOp (formatSystemClashMessage name kind)
+        | None -> ()
+        match tryExistingActiveSystemName plan store projectId with
+        | Some existing ->
+            invalidOp $"Project 에 이미 active system '{existing}' 이 있습니다. 추가 active system '{name}' 발행 거부 — PLC 1 controller 규약 ($1.entities.md §3). 기존을 사용하려면 entry 의 system 이름을 '{existing}' 으로 변경, 다른 active 로 교체하려면 patch 의 rename:/remove: 사용."
+        | None -> ()
         let sys = DsSystem(name)
         plan.Add(AddSystem sys)
         plan.Add(LinkSystemToProject(projectId, sys.Id, true))
@@ -209,10 +268,14 @@ module ToolOperations =
     /// add_passive_system mutation tool. 첫 project 에 passive 로 부착 + SystemType 설정.
     /// deviceType: cylinder/clamp/lifter → "Unit", robot → "Robot", conveyor → "Conveyor" 등 (KnownNames).
     /// 반환: 새로 생성된 system Id.
+    /// Sibling uniqueness guard — 같은 project 안 동일 이름 System 존재 시 fail.
     let queueAddPassiveSystem (plan: ImportPlanBuilder) (store: DsStore) (name: string) (deviceType: string) : Guid =
         requireNonEmpty (nameof name) name "System name"
         requireNonEmpty (nameof deviceType) deviceType "System deviceType"
         let projectId = resolveFirstProjectId plan store
+        match findSystemNameClashInProject plan store projectId name with
+        | Some kind -> invalidOp (formatSystemClashMessage name kind)
+        | None -> ()
         let sys = DsSystem(name)
         sys.SystemType <- Some deviceType
         plan.Add(AddSystem sys)
@@ -373,6 +436,11 @@ module ToolOperations =
             if not (dupSet.Add apiName) then
                 invalidOp $"apiNames 에 중복 항목 '{apiName}' 이 포함되어 있습니다."
         let projectId = resolveFirstProjectId plan store
+        // Sibling uniqueness guard — 같은 project 안 동일 이름 System (active+passive 통합) 존재 시 cascade 진입 거부.
+        // ImportPlan.Device.fs:259 의 passive-only 검사보다 한 단계 앞서 active 도 검사. 통일 메시지로 LLM 자가복구 명확.
+        match findSystemNameClashInProject plan store projectId name with
+        | Some kind -> invalidOp (formatSystemClashMessage name kind)
+        | None -> ()
         let buffer = ResizeArray<ImportPlanOperation>()
         let result =
             ImportPlanDeviceOps.buildPassiveDeviceCascade

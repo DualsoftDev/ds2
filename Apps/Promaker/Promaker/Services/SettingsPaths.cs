@@ -58,6 +58,14 @@ public static class SettingsPaths
     /// <summary>PLC 템플릿 사용자 복사본 폴더 — AppData\Dualsoft\Promaker\PlcTemplate</summary>
     public static string PlcTemplateDir => Path.Combine(AppDataRoot, "PlcTemplate");
 
+    /// <summary>사용자 추가 LLM system prompt 폴더 — AppData\Dualsoft\Promaker\Prompts. *.md 자동 흡수 (PromptLoader user-tier).</summary>
+    public static string UserPromptsDir => Path.Combine(AppDataRoot, "Prompts");
+
+    /// <summary>v0.x 사용자 prompts 폴더 — Dualsoft 누락된 옛 경로. 부트 시 존재 감지용 (마이그레이션 안내).</summary>
+    public static string LegacyUserPromptsDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Promaker", "Prompts");
+
     /// <summary>PlcConfig 미존재 시 동봉 XGI_Template.xml 가 복사될 기본 위치.</summary>
     public static string DefaultXgiTemplate => Path.Combine(PlcTemplateDir, "XGI_Template.xml");
 
