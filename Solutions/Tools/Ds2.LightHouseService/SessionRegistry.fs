@@ -198,13 +198,28 @@ type SessionRegistry(resolver: AttachmentResolver) =
     /// 모든 session 에서 해당 collection 폐기 — D-S3-3 두 단계 모델의 server-side 구현.
     /// 1) activeCollectionIds 에서 제거
     /// 2) Kb 이미 open 이면 Dispose (다음 MCP call 시 lazy re-open)
+    ///
+    /// **K5 (외부 review R5 합의)**: 큰 session 수 + long-running search 진행 중 collection delete 시
+    /// lock 안에서 dispose 직렬 호출하면 N×search-time block. lock 안에서는 active 셋 제거 + KB ref snapshot 만,
+    /// 실 `SessionKb.dispose` 는 lock 밖 (해당 session 의 KB ref 가 *현 lock 으로 보호된 시점* 의 snapshot 이라
+    /// 다음 attach 시 새 instance — race-free). 정합성 = SessionKb.dispose 가 idempotent 가정.
     let purgeCollectionFromSessions (collectionId: string) =
+        // (Phase 1) lock 안에서는 active 셋 갱신 + KB snapshot 만.
+        let kbsToDispose = ResizeArray<Ds2.LightHouse.KnowledgeBase>()
         for kvp in sessions do
             let s = kvp.Value
             lock s.SyncRoot (fun () ->
                 if s.CollectionIds |> Array.contains collectionId then
                     s.CollectionIds <- s.CollectionIds |> Array.filter (fun id -> id <> collectionId)
-                    SessionKb.dispose s)
+                    match s.Kb with
+                    | Some kb ->
+                        kbsToDispose.Add kb
+                        s.Kb <- None
+                    | None -> ())
+        // (Phase 2) lock 밖에서 dispose — long-running KB 의 file/connection close 가 다른 search lock 차단 안 함.
+        for kb in kbsToDispose do
+            try kb.Dispose()
+            with ex -> Log.service.Warn(sprintf "purgeCollection: KB dispose 실패 (swallow) — ex=%s" ex.Message)
 
     interface ISessionRegistry with
 
@@ -297,9 +312,19 @@ type SessionRegistry(resolver: AttachmentResolver) =
             // swap 도 동일 처리 — 다음 MCP call 시 새 path 의 새 index.db 로 lazy re-attach.
             // (CollectionIds 에서 제거 *안 함* — swap 은 같은 id 의 새 payload 라 active 셋 보존.)
             // KB 만 폐기 → 다음 attach 시 같은 paths 로 재 open.
+            // K5 (외부 review R5 합의): purgeCollectionFromSessions 와 동일 패턴 — lock 안에서는 ref snapshot,
+            // dispose 는 lock 밖. long-running search 동안 swap 호출이 N×search-time block 차단.
             Log.audit.Info(sprintf "lifecycle: OnPayloadSwapped → SessionRegistry KB 폐기 (lazy re-attach) — id=%s" collectionId)
+            let kbsToDispose = ResizeArray<Ds2.LightHouse.KnowledgeBase>()
             for kvp in sessions do
                 let s = kvp.Value
                 lock s.SyncRoot (fun () ->
                     if s.CollectionIds |> Array.contains collectionId then
-                        SessionKb.dispose s)
+                        match s.Kb with
+                        | Some kb ->
+                            kbsToDispose.Add kb
+                            s.Kb <- None
+                        | None -> ())
+            for kb in kbsToDispose do
+                try kb.Dispose()
+                with ex -> Log.service.Warn(sprintf "OnPayloadSwapped: KB dispose 실패 (swallow) — ex=%s" ex.Message)

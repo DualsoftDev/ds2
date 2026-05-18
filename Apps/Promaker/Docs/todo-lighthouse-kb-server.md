@@ -771,15 +771,16 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `66890e7` | s6-r4 | (c) L3 caller orchestration 정책 주석 박제 (LlmChatViewModel) |
 | `e91b2e7` | s6-r5 | (a) IndexerVersion gate 415 Fact 2건 (F8/F9) + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 |
 | `a1c0c90` | s6-r7 | **1+2+3+P3 묶음** — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 + test 1 파일 + doc 3 파일. 자가 검열 sub-agent (Critical/Major 0 / Minor 4) → m1 (SSE event enum 보강) + m2 (tus 미채택 사유 박제) 즉시 적용. |
-| (본 commit) | s6-r8 | **Phase 2 task A 본격 진입 — schema 확장** (parent §4 Phase 2 첫 task). (i) **수정 운영 1** — `Solutions/Core/Ds2.LightHouse/SqliteStore.fs` (+55/-2): `IndexerVersion.Current` 1.0.0→**1.1.0** (minor — backward-compat) + `SchemaVersion` 1→**2** (parent §3.17 정합). `schemaSql` 확장 = `ImageCache` 테이블 (PK ImageHash, 8 컬럼) + `ImageReferences` 테이블 (복합 PK 4 키 (DocumentId, ImageHash, RefLocator, Ordinal) + FK 3종 Documents/Chunks/ImageCache) + `IX_ImgRef_Chunk` index. (ii) **신규 함수 1** — `ensureColumn conn table column ddl` (SQLite의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 → `PRAGMA table_info` 로 idempotent 분기). `ensureSchema` 가 `Chunks.ImageCount` DEFAULT 0 forward-compat ALTER 동반. (iii) **신규 test 7 Fact + 자가 검열 M1 보강 1 assertion** — `SqliteStoreTests.fs` (+125 line): IndexerVersion bump 검증 / ImageCache 8 컬럼 / ImageReferences 복합 PK + FK 3종 / Chunks.ImageCount DEFAULT 0 INSERT 검증 / IX_ImgRef_Chunk / ensureColumn idempotent / Phase 1 DB → ensureSchema forward-compat upgrade (+ M1: stampVersion 후 Meta.schema_version="2" / indexer_version="1.1.0" 일치 assertion). (iv) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 1 (M1 = forward-compat Fact 의 Meta.schema_version stale 가능성 보강 — 즉시 적용) / Minor 3 (m1 minor bump 재색인 정책 박제 backlog / m2 reader.Close() 명시성 / m3 PRAGMA table_info column 위치 hardcode = safe). **즉시 적용 1건 (M1 보강)**. (v) **결과 검증**: lib Tests **102→109** (+7) + service Tests 115/115 + IntegrationTests 24/24 회귀 0 + paired-release detector pass (1.1.0 ∈ [1.0.0, 1.99.99]). **누적 456 Fact** (Promaker 208 + service 115 + IT 24 + lib 109, +7 vs s6-r7). (vi) **parent 박제**: `todo-lighthouse-kb-index.md` §4 Phase 2 첫 task ✓ marker. | — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 (CollectionEndpoints.fs) + test 1 파일 (NegativeRoundTripTests.fs) + doc 3 파일. 자가 검열 trigger 미충족 (단일 파일 100 line+ 미만, 신규 함수 0, control flow 변경 0). |
+| (본 commit) | s6-r9 | **외부 --inspect-diff 7 reviewer 종합 review 처리** — Critical 6 중 4건 즉시 적용 + Major 26 + Minor 50+ 분류 박제. (i) **K1** ZipImport.fs `swapCollectionPayload` 의 `backup = target + ".bak"` 고정 suffix → `target + ".bak-<guid12>"` per-호출 unique 변경 (동시 swap race 차단 — R2 합의). (ii) **K2** Program.fs builder 에 `services.Configure<FormOptions>` 박제 — `MultipartBodyLengthLimit = cfg.MaxUploadBytes` + `ValueLengthLimit = Int32.MaxValue` (ASP.NET default 134MB ↔ cfg 10GB 정합, R5 합의). (iii) **K3** config.json.template `listenUrl` default `0.0.0.0:8443` → `127.0.0.1:8443` + `_listenUrl_note` 박제 (R6 합의 외부 IP override 의무 안내). (iv) **K5** SessionRegistry.fs `purgeCollectionFromSessions` + `OnPayloadSwapped` — lock 안에서는 active 셋 갱신 + KB ref snapshot 만, 실 `kb.Dispose()` 는 lock 밖 (R5 합의 N×search-time block 차단). (v) **K4/K6 + Major 26건 + Minor 50+ 분류 박제 (§7.7)** — K4 Protocol SSOT 통합 = Phase S7 묶음 / K6 + M9/M10/M11/M12 = 보안 sweep 1턴 / M1+M2 ClearPool / withConnection helper = Phase S7 / M5 415 structured 분기 = 별 turn (s6-r10 후보) / M7~M26 outlier = 각 specialist 관점 backlog 분류. (vi) **반론 (기각 3건)**: M8 (dist SKILL.md installer/ path drift) = parent r4 deploy repo SSOT 정합 / M18 (MaxAttachedDbs SSOT drift) = KnowledgeBase 의 박제가 SqliteStore 직접 참조 / M21 (stampIndexerVersion test-only API) = 향후 server-side restore tool 진입 시 박제. (vii) **결과 검증**: service Tests 115/115 + IntegrationTests 24/24 + lib Tests 109/109 회귀 0. 회귀 차단 Fact (K1 unique suffix / K2 FormOptions e2e) = s6-r9 follow-up 의무. |
+| `13e4f93` | s6-r8 | **Phase 2 task A 본격 진입 — schema 확장** (parent §4 Phase 2 첫 task). (i) **수정 운영 1** — `Solutions/Core/Ds2.LightHouse/SqliteStore.fs` (+55/-2): `IndexerVersion.Current` 1.0.0→**1.1.0** (minor — backward-compat) + `SchemaVersion` 1→**2** (parent §3.17 정합). `schemaSql` 확장 = `ImageCache` 테이블 (PK ImageHash, 8 컬럼) + `ImageReferences` 테이블 (복합 PK 4 키 (DocumentId, ImageHash, RefLocator, Ordinal) + FK 3종 Documents/Chunks/ImageCache) + `IX_ImgRef_Chunk` index. (ii) **신규 함수 1** — `ensureColumn conn table column ddl` (SQLite의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 → `PRAGMA table_info` 로 idempotent 분기). `ensureSchema` 가 `Chunks.ImageCount` DEFAULT 0 forward-compat ALTER 동반. (iii) **신규 test 7 Fact + 자가 검열 M1 보강 1 assertion** — `SqliteStoreTests.fs` (+125 line): IndexerVersion bump 검증 / ImageCache 8 컬럼 / ImageReferences 복합 PK + FK 3종 / Chunks.ImageCount DEFAULT 0 INSERT 검증 / IX_ImgRef_Chunk / ensureColumn idempotent / Phase 1 DB → ensureSchema forward-compat upgrade (+ M1: stampVersion 후 Meta.schema_version="2" / indexer_version="1.1.0" 일치 assertion). (iv) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 1 (M1 = forward-compat Fact 의 Meta.schema_version stale 가능성 보강 — 즉시 적용) / Minor 3 (m1 minor bump 재색인 정책 박제 backlog / m2 reader.Close() 명시성 / m3 PRAGMA table_info column 위치 hardcode = safe). **즉시 적용 1건 (M1 보강)**. (v) **결과 검증**: lib Tests **102→109** (+7) + service Tests 115/115 + IntegrationTests 24/24 회귀 0 + paired-release detector pass (1.1.0 ∈ [1.0.0, 1.99.99]). **누적 456 Fact** (Promaker 208 + service 115 + IT 24 + lib 109, +7 vs s6-r7). (vi) **parent 박제**: `todo-lighthouse-kb-index.md` §4 Phase 2 첫 task ✓ marker. | — (1) doc 정합 정비 (§7.1 row commit hash 갱신 + 변경 이력 표 s6-r1~r6 박제 누락 row 추가) / (2) M1 정정 — `CollectionEndpoints.postCollectionPayload` swap 경로 TooLow/TooHigh 분기에 `hostingRange` + `suggestedAction` SSOT 4 키 박제 + Log.audit.Warn 정합 + IntegrationTests 415 Fact 2건 추가 (24/24) / (3) Phase S7 사전 설계 박제 (D-S7-1~5 = mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) + §4.2 Phase S7 task 표 갱신 / (P3) parent §3.15.5 Phase 2 default 10건 사용자 confirm 박제 + parent §4 Phase 2 진입 marker. 본 turn 코드 변경 = service 1 파일 (CollectionEndpoints.fs) + test 1 파일 (NegativeRoundTripTests.fs) + doc 3 파일. 자가 검열 trigger 미충족 (단일 파일 100 line+ 미만, 신규 함수 0, control flow 변경 0). |
 | `c2f0866` | s6-r6 | **P5/P6/P2-r3 묶음** — (P5) TooHigh suggestedAction 의미론 정정 (service 업그레이드 OR client lib 다운그레이드 양 옵션) + F9 Fact 강화 / (P6) S4 follow-up 5건 — userIdentityOf "unknown" Log.audit.Warn + fileId §3.10/§4.2/MA23 SSOT 박제 + contentTypeOf 가드 유지 사유 박제 + 304 ETag 일관성 Fact + 416/If-Range Fact 3건 / (P2-r3) `LightHouseClient.ExecuteWithSessionRetryAsync<T>` facade + 5 Fact (Phase S7 또는 future MCP relay 진입용, 본 phase facade only) + 자가 검열 M2 (OCE catch) + m2 (.NET 9 위임 가정 박제) 즉시 적용 |
 
 **테스트 누적**:
-- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 → s6-r6 208 (s6-r7/r8 회귀 0)
-- IntegrationTests: S5a 1 → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → s6-r5 22 → s6-r7 24 (s6-r8 회귀 0)
-- service Tests: 111 → s6-r6 115 (s6-r7/r8 회귀 0)
-- lib Tests: 100 → s6-r5 102 → **s6-r8 109** (+ Phase 2 schema 7 Fact + 자가 검열 M1 보강)
-- **누적 456 Fact** (Promaker 208 + service 115 + IntegrationTests 24 + lib 109, +7 vs s6-r7)
+- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 → s6-r6 208 (s6-r7/r8/r9 회귀 0)
+- IntegrationTests: S5a 1 → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → s6-r5 22 → s6-r7 24 (s6-r8/r9 회귀 0)
+- service Tests: 111 → s6-r6 115 (s6-r7/r8/r9 회귀 0)
+- lib Tests: 100 → s6-r5 102 → s6-r8 109 (s6-r9 회귀 0)
+- **누적 456 Fact** (Promaker 208 + service 115 + IntegrationTests 24 + lib 109). s6-r9 = 회귀 0 + 신규 Fact 0 (review 처리만, follow-up Fact 별 turn 의무).
 
 ### 7.2 새 세션 진입 즉시 행동
 
@@ -859,9 +860,11 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 - **(3)** Phase S7 사전 설계 박제 — §0 D-id 표에 **D-S6-1~5** (이미 박제된 CLI 결정) + **D-S7-1~5** (mTLS / SSE schema / multi-service routing / T2/T3 mode / resumable upload) 신설. §4.2 Phase S7 task 표 갱신 (사전 박제 marker + S7-P5b 흡수 + L3 MCP relay 통합 task 추가).
 - **(P3)** Phase 2 진입 confirm — parent §3.15.5 의 10건 default 사용자 confirm 박제 (✓ s6-r7) + parent §4 Phase 2 진입 marker (첫 task = schema 확장). **본격 코드 진입은 별 turn 의 명시 지시 후** (대규모 변경: PdfPig 이미지 raw 추출 + VLM caption + LlmConfig cost gate).
 
-**처리 완료 (s6-r8, 본 turn)**: P3 Phase 2 본격 진입 — task A (schema 확장). parent §4 Phase 2 의 첫 task `schema 확장 — ImageCache / ImageReferences / Chunks.ImageCount + IndexerVersion bump` ✓ marker. 다음 task = `ImageStore.fs` 신설.
+**처리 완료 (s6-r8)**: P3 Phase 2 본격 진입 — task A (schema 확장). parent §4 Phase 2 의 첫 task `schema 확장 — ImageCache / ImageReferences / Chunks.ImageCount + IndexerVersion bump` ✓ marker. 다음 task = `ImageStore.fs` 신설.
 
-**다음 권장 (s6-r8 이후)**:
+**처리 완료 (s6-r9, 본 turn)**: 외부 --inspect-diff 7 reviewer 종합 review 처리 — Critical 6 중 4건 즉시 적용 (K1 swap backup race / K2 multipart FormOptions / K3 config.json.template loopback / K5 purge lock 밖 dispose). K4/K6 + Major 26건 분류 박제 (§7.7 참조). 본 turn 코드 변경 = service 4 파일 + doc 1 파일 (todo). lib/service/IntegrationTests 회귀 0.
+
+**다음 권장 (s6-r9 이후)**:
 - **(N1 재진입)** dist 본격 실행 — `/dist` skill **사용자 직접 호출**. 본 세션 자체 호출 안 함.
 - **(P3 Phase 2 task B)** `ImageStore.fs` — sha256 + blob 저장 + ImageCache/ImageReferences upsert (cross-document 공유, 단일 collection 안). 본 phase 의 schema 확장 (task A) 위에 build. 규모 ~150 line + Fact 5-7건.
 - **(P3 Phase 2 task C)** PdfExtractor / OoxmlExtractor 가 이미지 raw 추출 + ImageStore 호출. PdfPig DCT/JPX/JBIG2 decode 추가 NuGet 필요 시 확인.
@@ -872,6 +875,75 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 
 **잔여 박제 (s6-r8 follow-up — backlog)**:
 - (s6-r8 m1) IndexerVersion compare 정책 — 현 §3.17 "다르면 무조건 재색인" 정합 = 1.0.0 → 1.1.0 진입 시 기존 collection 전수 재색인 비용. major/minor 분리 정책 (major=재색인 강제 / minor=ALTER forward-compat) 박제 검토 — 별 turn 의 parent §3.17 정정.
+
+---
+
+### 7.7 외부 --inspect-diff 7 reviewer 종합 review 처리 (s6-r9, 2026-05-18)
+
+본 단원 = `00b72eb..HEAD` (Phase S1~S6-r7) 외부 7 reviewer (#1 generalist / #2 정확성 / #3 설계 / #4 영향범위 / #5 성능 / #6 보안 / #7 테스트) 종합 review 의 처리 박제. Critical 6 / Major 26 / Minor 50+ — 모두 표본 검증 시 hallucination 0 확인 후 분류.
+
+**즉시 적용 (s6-r9 본 turn, 4건)** — Critical 6 중 4건:
+
+- **K1 (swap backup race)** — `ZipImport.swapCollectionPayload` 의 `backup = target + ".bak"` 고정 suffix → 동일 collectionId 동시 swap 시 A 의 backup 을 B 가 무조건 삭제하여 A rollback path 가 빈 backup 으로 진입 → target 영구 손실 risk. **fix**: `backup = target + ".bak-<guid12>"` per-호출 unique suffix. 이전 fixed `.bak` 의 stale cleanup 분기 제거됨 — 각 호출이 자체 suffix 보유. stale `.bak-*` 잔재 sweep 은 staging sweep 정책 차원 별 turn.
+- **K2 (10GB multipart spool)** — `CollectionEndpoints.postCollections` 의 `ReadFormAsync()` 가 ASP.NET FormOptions default (MultipartBodyLengthLimit = 134MB) 적용 → `cfg.MaxUploadBytes=10GB` (N6) 와 어긋남 → `InvalidDataException` 또는 temp disk 2배 점유 risk. **fix**: `Program.fs` 의 builder 에 `services.Configure<FormOptions>` 추가 — `MultipartBodyLengthLimit = cfg.MaxUploadBytes` + `ValueLengthLimit = Int32.MaxValue` + `MultipartHeadersLengthLimit = 32768` 박제. *MultipartReader streaming 으로의 전환 (R5 권장 backlog)* 은 본 phase 차단 사유 0, Phase S7 묶음.
+- **K3 (config.json.template 0.0.0.0:8443 default)** — install script 가 template 을 덮어쓰지 않는 경로 (dev/PoC) 에서 모든 NIC bind → PSK 단독 보호로 외부 노출 risk. **fix**: `listenUrl` default 를 `127.0.0.1:8443` (loopback) 으로 정정 + `_listenUrl_note` 박제 (install-service.ps1 -ListenUrl 인자로 외부 IP override 의무 안내).
+- **K5 (purgeCollectionFromSessions per-session lock 직렬)** — `SessionRegistry.purgeCollectionFromSessions` 및 `OnPayloadSwapped` 가 `for kvp in sessions do lock s.SyncRoot { ... SessionKb.dispose ... }` 패턴 — 큰 session 수 + long-running search 진행 중 collection delete 시 N×search-time block. **fix**: lock 안에서는 active 셋 갱신 + KB ref snapshot 만, 실 `kb.Dispose()` 는 lock 밖. SessionKb.dispose 의 idempotent 가정 정합.
+
+**즉시 fix 불가 — 박제 사유 (Critical 6 중 2건)**:
+
+- **K4 (LightHouseClient C# / F# 이중 구현 — wire SSOT 컴파일 강제 0)** — Promaker `LightHouseClient.cs` ↔ cli `LightHouseClient.fs` 의 의도된 분리 (Phase S5a 결정). 통합안 = `Solutions/Core/Ds2.LightHouse.Protocol` 신규 project (wire 상수 + MetaJson schema SSOT 통합). **결정**: Phase S7 묶음 (K4/M22/M5 동시) — 본격 refactor 부담, wire-level Fact 양쪽 검증 완비라 본 phase 차단 사유 0.
+- **K6 (registry.json tampering)** — admin 침해 가정 위협 모델. registry 로드 직후 displayName == sanitizeTitle(displayName) 강제 검증 + storageRelPath segment 검증 필요 (~15 line). **결정**: 보안 sweep 1턴 (K6 + M9 PSK lifetime + M10 ACL + M12 staging ACL) 별 turn. %PROGRAMDATA% ACL 이 Admins write 보장 시 본 위협 = system 권한 위협 모델 외부 (defense-in-depth 가치만, 차단 risk 낮음).
+
+**즉시 fix 불가 — Major 분류 박제**:
+
+**합의 다수 (≥2 reviewers, Phase S7 묶음 또는 별 turn 후보)**:
+
+- **M1** (Indexer/KnowledgeBase 의 ClearPool 부수효과 — 정상 경로에서도 process-wide pool 비움, 5+ 위치 동일 패턴) — 3/7 합의 (R1, R2, R5). M2 의 withConnection helper 추출과 함께 묶음 정비. Phase S7 또는 Phase 2 task B/C 진입 시 흡수.
+- **M2** (lib `withConnection` helper 추출 — try {} finally { Close + ClearPool + Dispose } 5중복) — 2/7 합의. M1 과 동시 정비.
+- **M3** (ExecuteWithSessionRetryAsync facade 무력화 + caller 0 + cancellation 분기 fact 부재) — 2/7 합의. s6-r6 의 P2-r3 박제 = facade only 의도 정합. caller = Phase S7 의 MCP relay 진입 시. cancellation Fact 는 s6-r6 자가 검열 M2 에서 *이미 1건 추가됨* — review 결과는 추가 분기 (timeout / network) Fact 누락 지적, backlog.
+- **M4** (LightHouseClientHolder lock granularity + Invalidate 가 `_liveSessions.Clear()` 안 함) — 2/7 합의. Phase S7 의 multi-service routing (D-S7-3) 진입 시 흡수 — Holder 자체가 refactor 대상.
+- **M5** (KbManagerDialog / cli `runUpload` 의 415 structured 분기 부재 — `LightHouseProtocolException` 단일 type, `suggestedAction` body 파싱 안 됨) — 2/7 합의. UX 직결. **별 turn (s6-r10 후보)** — 본 phase 의 K1~K5 즉시 fix 와 분리하여 UI 변경 + LlmConfig client lib 측 변경 부담 격리. cli runUpload + KbManagerDialog ProtocolException catch 분기에 415 → `JsonDocument.Parse(body).GetProperty("suggestedAction")` 출력 추가 (~30 line + Fact 2건).
+- **M6** (IPv6 [::1] Fact 의 dual-stack false-positive — TaskCanceledException 도 success 분기) — 2/7 합의. 회귀 detection 강화 backlog.
+
+**Outlier Major (1/7 — 검증 통과, 각 specialist 관점, 별 turn 후보)**:
+
+- **M7** (`FileServing.findSourceFile` basename + size 만 비교, fileHash 검증 누락) — R1 outlier. Phase S5 의 CollectionPackager source/ flat 정책 결정 후 강화 후보. 잘못된 파일 서빙 + ETag mismatch risk. backlog.
+- **M8** (dist SKILL.md 의 `installer/Apps/Promaker/scripts/check-paired-release.ps1` ↔ 신규 ps1 실제 위치 drift) — R4 outlier. SKILL.md 의 `installer/` prefix 는 외부 wrapper deploy repo 의 mount 가정. parent r4 박제 정합. **반론**: drift 아님, deploy repo SSOT.
+- **M9** (PSK in-memory lifetime — string immutable + GC 비결정적, process dump 노출) — R6 outlier. K6 보안 sweep 1턴 묶음.
+- **M10** (%PROGRAMDATA%\...\registry.json 의 ACL 미설정) — R6 outlier. 보안 sweep 묶음.
+- **M11** (`attachment_search` 의 topK upper bound + query length limit 부재 — DoS amplification) — R6 outlier. 보안 sweep 묶음. service-side input validation 강화 별 turn.
+- **M12** (staging `%TEMP%\promaker-kb-*` 의 사용자 원본 평문 + ACL 미설정) — R6 outlier. 보안 sweep 묶음.
+- **M13** (`Indexer.ingestFile` outer transaction 부재 — Document/Outline insert 매 autocommit fsync) — R5 outlier. 색인 perf 강화 backlog. Phase 2 task B (`ImageStore.fs`) 진입 시 transaction 정합 동시 검토.
+- **M14** (`SqliteStore.insertChunks` per-chunk CreateCommand — prepared statement reuse 누락) — R5 outlier. 색인 perf backlog.
+- **M15** (`AttachmentIngestService` + `CollectionPackager` 의 같은 staging dir 4회 walk) — R5 outlier. Phase S5 client 측 perf backlog.
+- **M16** (`Searcher.search UNION ALL` 의 per-collection LIMIT 누락 — 큰 KB 전 매칭 row 가 in-memory sort) — R5 outlier. search perf backlog.
+- **M17** (`TextExtractor.Extract` File.ReadAllBytes 전량 적재 + UTF-16 변환 + Substring(1) — 200MB 파일 working set 1GB peak) — R5 outlier. extract perf backlog.
+- **M18** (`KnowledgeBase.MaxAttachedDbs` SSOT drift 위험 — `SqliteStore.MaxAttachedDbs` alias 박제만, 컴파일 강제력 없음) — R2 outlier. F# `[<Literal>]` 재export. **반론**: 현재 KnowledgeBase 의 `MaxAttachedDbs` 는 `SqliteStore.MaxAttachedDbs` 를 직접 참조 (값 단일). SSOT drift risk 없음. **기각**.
+- **M19** (Searcher.fs unqualified `ChunksFts.rowid` ambiguity 회귀 위험) — R2 outlier. Phase 2 multi-table FTS 진입 시 강화 backlog.
+- **M20** (`TextExtractor.fs:46-50` BOM 부분 처리 — leading char 만, multi-section 잔존 U+FEFF 누수) — R2 outlier. 다중 BOM 입력 시나리오 backlog.
+- **M21** (`KnowledgeBase.stampIndexerVersion` test-only API 가 lib production surface 에 노출) — R3 outlier. s6-r5 박제 — production caller 없음. **반론**: 향후 server-side restore tool 진입 시 사용 가능, 박제 의도. **기각**.
+- **M22** (ZipBuilders ↔ CollectionPackagerTests ↔ cli production 의 zip layout SSOT 3중 박제) — R3 outlier. K4 Protocol SSOT 통합 시 동시 흡수.
+- **M23** (Phase 2 schema — IndexerVersion 1.1.0 박제 의 cross-cfg invariant fact 부재 — Current ∈ [Min, Max]) — R7 outlier. paired-release detector 가 build/dist 시점에 강제 + s6-r8 Phase 2 task A 의 paired-release pass 검증 박제. lib test 의 invariant Fact 추가 backlog.
+- **M24** (fact count drift — commit message "421 Fact" ↔ doc "422 Fact" ↔ lib +2 stamp) — R7 outlier. 다중 phase 누적 시 commit message ↔ §7.1 표 drift 가능성. backlog 정합.
+- **M25** (NegativeRoundTripTests swap 415 Fact 의 cleanup try/with 누락 — fixture drift 위험) — R2 outlier. s6-r7 박제에서 finally → try 끝 명시 cleanup 변환 (F# task CE finally let! 불가) — 가정 실패 시 stale registry entry 가능. **반론**: fixture.DisposeAsync 의 temp dir 재귀 delete 가 흡수, 각 Fact 의 title GUID prefix 로 후속 Fact 와 충돌 0. 정합 박제. backlog.
+- **M26** (Promaker Microsoft.Data.Sqlite 직접 PackageReference 부재 — lib transitive 의존, native asset 회귀 risk) — R4 outlier. s3-r1 의 IM-6 박제 정합 — service 에는 직접 노출, Promaker 는 lib transitive. 본 Promaker 가 SQLite 직접 사용 0 (in-process Indexer 만 호출) 이라 native asset 의 SqliteConnection load 시점 = service 한정. **반론**: Promaker 가 in-process Indexer 사용 = Microsoft.Data.Sqlite native asset 필요. transitive 의존만으로 충분한지 검증 backlog. (s5a-r0 의 lib ProjectReference 박제 시 동작 확인됨.)
+
+**Minor 50+ 분류** (각 reviewer 본문 박제, 본 단원 요약):
+
+- (F# pattern, ~15 항목) — Indexer ClearPool 5중복 / F# unreachable expression / sanitizeTitle 길이 byte vs char / 등 → Phase S7 묶음 또는 Phase 2 task B 진입 시 흡수.
+- (Logging/Audit, ~10 항목) — `Log.audit.Info` 의 culture-invariant format / `tokenFingerprint` 32-bit search space / raw title 잔존 path / 등 → 보안 sweep 묶음.
+- (테스트 키워드 의존성, ~8 항목) — Korean keyword "zip" / "구조" 의 `Assert.Contains` 비정밀 → 테스트 보강 별 turn.
+- (운영, ~10 항목) — delayed-auto start / RecoveryActions / TLS minimum version 명시 / secret deny-list → install-service.ps1 강화 별 turn.
+
+**즉시 적용 후 결과 검증**:
+- service Tests 115/115 (회귀 0)
+- IntegrationTests 24/24 (회귀 0)
+- build 0 경고 / 0 오류
+- K1/K2/K3/K5 즉시 적용 — 코드 5 파일 (ZipImport.fs / config.json.template / Program.fs / SessionRegistry.fs) + 새 Fact 0 (회귀 차단은 기존 Fact 가 cover, K1 의 unique suffix 회귀 차단 Fact 는 s6-r9 follow-up 보강 의무).
+
+**follow-up 박제 (s6-r9 의무)**:
+- **(s6-r9 의무 1)** K1 fix 의 회귀 차단 Fact — 동일 collectionId 동시 swap 2회가 race 없이 둘 다 성공 (또는 둘 다 fail 후 target 보존). 본 turn 박제 미진행, 별 turn 의 NegativeRoundTripTests 또는 SessionRegistry unit test 에 1-2건 추가.
+- **(s6-r9 의무 2)** K2 fix 의 10GB upload e2e Fact — 실 10GB 부담은 IntegrationTests 에 부적합 (test 시간 + temp disk). 134MB ~ 1GB 사이의 중간 사이즈 multipart upload 1건으로 FormOptions 정합 회귀 차단 Fact 권장. backlog.
 
 **(과거 권장사항, 상태 갱신)**:
 

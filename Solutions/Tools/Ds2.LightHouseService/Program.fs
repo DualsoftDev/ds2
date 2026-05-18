@@ -44,6 +44,15 @@ let configureApp
     builder.Services.AddSingleton(cfg) |> ignore
     builder.Services.AddHttpContextAccessor() |> ignore   // Phase S3 — AttachmentTools 의 HttpContext 접근 (SDK 1.2.0 자동 DI 검출).
 
+    // **K2 (외부 review R5 합의)**: ASP.NET Core FormOptions default = MultipartBodyLengthLimit 134MB / ValueLengthLimit int.MaxValue.
+    // Kestrel MaxRequestBodySize 만 박제하면 ReadFormAsync() 가 134MB 초과 시 InvalidDataException → 10GB upload (N6) 와 어긋남.
+    // cfg.MaxUploadBytes 와 정합 박제 — multipart body 전체를 cfg 한도까지 허용.
+    builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(fun (opts: Microsoft.AspNetCore.Http.Features.FormOptions) ->
+        opts.MultipartBodyLengthLimit <- cfg.MaxUploadBytes
+        opts.ValueLengthLimit <- Int32.MaxValue
+        opts.MultipartHeadersLengthLimit <- 32768
+    ) |> ignore
+
     // Phase S3 — SessionRegistry 가 ICollectionLifecycleNotifier 의 SSOT impl (S2 의 Logging swap).
     // resolver 는 storage 의 collection 디렉토리 조립 (Registry + Storage + ZipImport.collectionDirName).
     let attachmentResolver = AttachmentResolver.fromRegistry storageRoot
