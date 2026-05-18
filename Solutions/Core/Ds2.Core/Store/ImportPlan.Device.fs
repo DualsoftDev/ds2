@@ -251,6 +251,9 @@ module internal ImportPlanDeviceOps =
         (workDuration: TimeSpan option)
         (wiringMode: WiringMode)
         : Guid * (string * Guid) list =
+        // D9 정책 (rev 12 신설) — passive-only 검사. LlmAgent 측 진입 경로 (`ToolOperations.runDeviceCascade`) 는
+        // active+passive 통합 sibling guard (`hasSystemNameClashInProject`) 로 한 단계 앞서 fail 처리하므로 본 분기는
+        // LlmAgent 호출 시 unreachable. 본 검사는 Editor/Mermaid/CSV import 등 LlmAgent 외 호출자 보호용으로 유지.
         let existing =
             Queries.passiveSystemsOf projectId store
             |> List.tryFind (fun s -> s.Name = name)

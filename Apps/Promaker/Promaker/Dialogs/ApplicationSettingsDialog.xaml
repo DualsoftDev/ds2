@@ -18,7 +18,7 @@
             </Grid.RowDefinitions>
 
             <!-- 탭 컨트롤 -->
-            <TabControl Grid.Row="0" Margin="0,0,0,10">
+            <TabControl x:Name="SettingsTabControl" Grid.Row="0" Margin="0,0,0,10">
                 <!-- 탭 1: AASX -->
                 <TabItem Header="AASX">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
@@ -217,6 +217,31 @@
                             <TextBlock x:Name="LlmOllamaTestResult"
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,16" FontStyle="Italic"/>
+
+                            <!-- User Prompts (사용자 추가 지침) — %APPDATA%\Dualsoft\Promaker\Prompts\*.md 자동 흡수.
+                                 폴더 열기 → OS Explorer. 편집은 .md 기본 핸들러에 위임 (P2). 다음 새 대화부터 반영 (R2b). -->
+                            <TextBlock Text="사용자 추가 지침 (User Prompts)"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="LlmUserPromptsDirBox" Grid.Column="0"
+                                         Padding="6,4" FontFamily="Consolas" FontSize="11"
+                                         IsReadOnly="True"
+                                         Background="{DynamicResource PrimaryBackgroundBrush}"
+                                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                                <Button Grid.Column="2" Content="폴더 열기"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LlmOpenUserPromptsFolder_Click"/>
+                            </Grid>
+                            <TextBlock Text="폴더에 *.md 파일을 떨궈두면 system prompt 끝에 자동 합쳐집니다 (다음 LLM 호출부터 반영). 편집은 기본 .md 에디터로 진행."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
 
                             <!-- Consent -->
                             <TextBlock Text="데이터 전송 동의"

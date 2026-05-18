@@ -2,13 +2,15 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using Promaker.Services;
 
 namespace Promaker.LlmAgent;
 
 /// <summary>
 /// 3-tier system prompt 로더.
-/// baseline (assembly embedded) + operator (exedir/Prompts) + user (%APPDATA%/Promaker/Prompts).
+/// baseline (assembly embedded) + operator (exedir/Prompts) + user (<see cref="SettingsPaths.UserPromptsDir"/>).
 /// 각 tier 의 *.md 를 자연 정렬(natural sort) 하여 concat, baseline 뒤에 operator/user 를 append.
+/// 본 클래스는 순수 reader — CreateDirectory side-effect 없음 (UI 측에서 책임).
 /// </summary>
 internal static class PromptLoader
 {
@@ -21,11 +23,16 @@ internal static class PromptLoader
 
     static readonly Regex NumericPart = new(@"\d+", RegexOptions.Compiled);
 
+    /// <summary>옛 경로 (%APPDATA%\Promaker\Prompts) 안내 로그를 process lifetime 동안 1회만 출력.</summary>
+    static bool _legacyWarned;
+
     public static string LoadComposed()
     {
         var (baselineText, baselineCount) = LoadEmbeddedAll();
         var (operatorText, operatorCount) = LoadDirectoryAll(GetOperatorDir());
-        var (userText, userCount)         = LoadDirectoryAll(GetUserDir());
+        var (userText, userCount)         = LoadDirectoryAll(SettingsPaths.UserPromptsDir);
+
+        WarnIfLegacyDirHasFiles();
 
         Log.Info($"prompt sources: baseline ({baselineCount}) + operator ({operatorCount}) + user ({userCount})");
 
@@ -41,6 +48,22 @@ internal static class PromptLoader
             sb.Append(userText);
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// v0.x 에서 (Dualsoft 누락된) 옛 user-tier 폴더에 *.md 가 남아있으면 1회 안내 — silent ignore 방지.
+    /// 자동 마이그레이션은 안 함 (옛 path 사용자 거의 0 + 사용자 의도 파악 어려움). 메시지만 보고 옮기도록.
+    /// </summary>
+    static void WarnIfLegacyDirHasFiles()
+    {
+        if (_legacyWarned) return;
+        _legacyWarned = true;
+        var legacy = SettingsPaths.LegacyUserPromptsDir;
+        if (!Directory.Exists(legacy)) return;
+        var legacyFiles = Directory.GetFiles(legacy, "*.md");
+        if (legacyFiles.Length == 0) return;
+        Log.Warn($"옛 user prompts 폴더 발견 ({legacyFiles.Length}개): {legacy} — silent ignore. " +
+                 $"새 위치({SettingsPaths.UserPromptsDir})로 옮기면 자동 흡수됩니다.");
     }
 
     static (string text, int fileCount) LoadEmbeddedAll()
@@ -100,11 +123,6 @@ internal static class PromptLoader
 
     static string GetOperatorDir() =>
         Path.Combine(AppContext.BaseDirectory, "Prompts");
-
-    static string GetUserDir() =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Promaker", "Prompts");
 
     /// <summary>
     /// 자연 정렬 비교자. "1.x" < "2.x" < "10.x" 순서 보장. 숫자 외 부분은 ordinal.
