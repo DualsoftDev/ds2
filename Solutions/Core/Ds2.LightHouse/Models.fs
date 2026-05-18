@@ -104,9 +104,12 @@ type ExtractedChunk = {
 /// Phase 2 task C (s6-r12) — extractor 가 추출한 단일 image staging.
 ///
 /// `Bytes` = raw image bytes (sha256 산출 + blob 저장 원본). format 화이트리스트 (ImageFormat) 외 image
-/// (예: PDF JPX/JBIG2) 는 extractor 가 skip 또는 PNG re-encode 후 본 record 박제.
-/// `RefLocator` = 저장형 (`p=14#img=2`, §3.13). `Ordinal` = 같은 RefLocator 안 N번째.
-/// `Width` / `Height` = pixel dim (extractor 가 header parse 한 값, 미상 시 None).
+/// (예: PDF JPX/JBIG2 / docx EMF/WMF/BMP) 는 extractor 가 skip 또는 PNG re-encode 후 본 record 박제.
+/// `RefLocator` = 저장형 (§3.13) — s6-r14 옵션 B 결정:
+///   - PdfExtractor: `"p=%d"` (page 단위, segment scheme 과 동일)
+///   - OoxmlExtractor: `"body"` (전체 docx grouping — paragraph 매핑은 Phase 2 task C4 의무).
+/// `Ordinal` = 같은 RefLocator 안 N번째 (1..N).
+/// `Width` / `Height` = pixel dim (extractor 가 header parse 한 값, 미상 시 None — OpenXml ImagePart 는 항상 None).
 ///
 /// Indexer.ingestImagesIntoStore 가 본 array 를 받아 ImageStore.computeSha256 + saveBlob + upsertImageCache +
 /// addImageReference 로 dispatch. ChunkId 매핑은 Phase 2 task C4 (segment→chunk 결정 후) 진입 시 강화.

@@ -173,7 +173,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
             Format = Png
             Width = Some 1
             Height = Some 1
-            RefLocator = "p=14#img=2"
+            RefLocator = "p=14"
             Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docId [| img |]
@@ -193,7 +193,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
         Assert.Single refs |> ignore
         let (refHash, refLoc, refOrd, refChunk) = refs.[0]
         Assert.Equal(hash, refHash)
-        Assert.Equal("p=14#img=2", refLoc)
+        Assert.Equal("p=14", refLoc)
         Assert.Equal(1, refOrd)
         Assert.Equal(None, refChunk))   // Phase 2 task C4 진입 전에는 항상 None.
 
@@ -212,8 +212,8 @@ let ``ingestImagesIntoStore — 같은 image 가 두 document 에 dispatch 시 p
             RefLocator = refLoc
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docA [| imgFor "p=1#img=1" |]
-        Indexer.ingestImagesIntoStore conn dir docB [| imgFor "p=5#img=3" |]
+        Indexer.ingestImagesIntoStore conn dir docA [| imgFor "p=1" |]
+        Indexer.ingestImagesIntoStore conn dir docB [| imgFor "p=5" |]
         // ImageCache 1 row.
         use count = conn.CreateCommand()
         count.CommandText <- "SELECT count(*) FROM ImageCache"
@@ -233,7 +233,7 @@ let ``ingestImagesIntoStore — 동일 PK 4 키 중복 호출은 INSERT OR IGNOR
             Format = Png
             Width = None
             Height = None
-            RefLocator = "p=1#img=1"
+            RefLocator = "p=1"
             Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docId [| img; img; img |]
@@ -252,7 +252,7 @@ let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정�
             Format = Png
             Width = None
             Height = None
-            RefLocator = "p=1#img=1"
+            RefLocator = "p=1"
             Ordinal = 1
         }
         let imgValid = {
@@ -260,7 +260,7 @@ let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정�
             Format = Png
             Width = Some 1
             Height = Some 1
-            RefLocator = "p=2#img=1"
+            RefLocator = "p=2"
             Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docId [| imgEmpty; imgValid |]
@@ -268,7 +268,7 @@ let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정�
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Single refs |> ignore
         let (_, refLoc, _, _) = refs.[0]
-        Assert.Equal("p=2#img=1", refLoc)
+        Assert.Equal("p=2", refLoc)
         // ImageCache 도 1 row (valid 만) — empty Bytes 는 sha256 산출 직전 skip 이라 cache 항목 0.
         use count = conn.CreateCommand()
         count.CommandText <- "SELECT count(*) FROM ImageCache"

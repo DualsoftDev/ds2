@@ -131,16 +131,16 @@ let ``addImageReference — 복합 PK 4 키 중복 시 INSERT OR IGNORE (PK coun
         let docId = SqliteStore.insertDocument conn "HASH-DOC1" "a.pdf" Pdf 1024L (Some 5) None
         // 같은 (doc, hash, ref, ord) 4건 호출 — 1건만 박제.
         for _ in 1..4 do
-            ImageStore.addImageReference conn docId None hash "p=14#img=2" 0
+            ImageStore.addImageReference conn docId None hash "p=14" 1
         // ChunkId 만 다른 호출 — PK 4 키 중 ChunkId 없음 → 여전히 1건 (idempotent 박제 SSOT).
-        ImageStore.addImageReference conn docId (Some 99L) hash "p=14#img=2" 0
+        ImageStore.addImageReference conn docId (Some 99L) hash "p=14" 1
         // Ordinal 만 다르면 별 행 — PK 4 키 중 Ordinal 다르므로 신규 row.
-        ImageStore.addImageReference conn docId None hash "p=14#img=2" 1
+        ImageStore.addImageReference conn docId None hash "p=14" 2
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Equal(2, refs.Length)
         // ordinal asc 정렬 검증 — lookupReferencesByDocument SSOT.
-        Assert.Equal(0, refs.[0] |> fun (_, _, o, _) -> o)
-        Assert.Equal(1, refs.[1] |> fun (_, _, o, _) -> o))
+        Assert.Equal(1, refs.[0] |> fun (_, _, o, _) -> o)
+        Assert.Equal(2, refs.[1] |> fun (_, _, o, _) -> o))
 
 [<Fact>]
 let ``addImageReference — cross-document 공유 (같은 image 가 두 document 의 refs 에 박제)`` () =
@@ -152,8 +152,8 @@ let ``addImageReference — cross-document 공유 (같은 image 가 두 document
         ImageStore.upsertImageCache conn hash "x" Png None None
         let docA = SqliteStore.insertDocument conn "HASH-A" "a.pdf" Pdf 100L None None
         let docB = SqliteStore.insertDocument conn "HASH-B" "b.pdf" Pdf 200L None None
-        ImageStore.addImageReference conn docA None hash "p=1#img=1" 0
-        ImageStore.addImageReference conn docB None hash "p=5#img=3" 0
+        ImageStore.addImageReference conn docA None hash "p=1" 1
+        ImageStore.addImageReference conn docB None hash "p=5" 1
         // ImageCache 행은 그대로 1개 (per-collection dedup SSOT).
         use count = conn.CreateCommand()
         count.CommandText <- "SELECT count(*) FROM ImageCache WHERE ImageHash = $h"
@@ -172,7 +172,7 @@ let ``addImageReference — FK 위반 차단 (ImageCache 미존재 hash)`` () =
         let docId = SqliteStore.insertDocument conn "HASH-X" "x.pdf" Pdf 10L None None
         // ImageCache upsert 누락 — 직접 addImageReference 호출 시 FK 위반으로 SqliteException.
         Assert.Throws<SqliteException>(fun () ->
-            ImageStore.addImageReference conn docId None "deadbeef" "p=1" 0) |> ignore)
+            ImageStore.addImageReference conn docId None "deadbeef" "p=1" 1) |> ignore)
 
 [<Fact>]
 let ``getImageCache — 미존재 hash 조회 시 None (자가 검열 m3-c)`` () =
@@ -211,7 +211,7 @@ let ``ImageReferences ON DELETE CASCADE — Documents 삭제 시 refs 도 자동
         let hash = ImageStore.computeSha256 pngBytes
         ImageStore.upsertImageCache conn hash "x" Png None None
         let docId = SqliteStore.insertDocument conn "HASH-DEL" "d.pdf" Pdf 10L None None
-        ImageStore.addImageReference conn docId None hash "p=1" 0
+        ImageStore.addImageReference conn docId None hash "p=1" 1
         Assert.Equal(1, (ImageStore.lookupReferencesByDocument conn docId).Length)
         // Document 삭제 → ImageReferences 자동 CASCADE.
         SqliteStore.deleteDocument conn docId
