@@ -18,7 +18,9 @@
   -->
 
   <ItemGroup>
+    <Compile Include="ServiceFixture.fs" />
     <Compile Include="ScaffoldSentinelTests.fs" />
+    <Compile Include="E2eRoundTripTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -32,6 +34,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Tools\Ds2.LightHouseService\Ds2.LightHouseService.fsproj" />
+    <!-- Phase S5e — helper 가 in-process Indexer 호출로 minimal valid zip (source/ + .lighthouse-kb/index.db) 생성. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
   </ItemGroup>
 
 </Project>
