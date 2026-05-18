@@ -88,9 +88,9 @@ let private runIndex (folder: string) : int =
                 eprintfn "  [%d%%] %d/%d — %s" pct p.CompletedFiles p.TotalFiles current
                 lastReported <- pct
         printfn "색인 시작 — %s" folder
-        // s6-r19: captionGen 인자 추가 (D-2-2 eager). lighthouse-cli 의 LIGHTHOUSE_VLM_API_KEY env var
-        // 활성 시 실 Anthropic helper 로 치환 의무 (Phase S6 P5 정합) — 현재 noop = caption 미생성.
-        let results = Indexer.ingest folder extractors CaptionGenerator.noop progressCb CancellationToken.None
+        // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
+        let captionGen = Vlm.buildCaptionGen CancellationToken.None
+        let results = Indexer.ingest folder extractors captionGen progressCb CancellationToken.None
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
         let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length

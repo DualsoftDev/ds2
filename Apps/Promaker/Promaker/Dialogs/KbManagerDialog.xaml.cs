@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using log4net;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
 
@@ -27,6 +28,8 @@ namespace Promaker.Dialogs;
 /// </summary>
 public partial class KbManagerDialog : Window
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(KbManagerDialog));
+
     private readonly LlmConfig _config;
     private readonly ObservableCollection<CollectionRow> _rows = new();
     private CancellationTokenSource? _cts;
@@ -66,7 +69,7 @@ public partial class KbManagerDialog : Window
     /// review s5c M1 정합 — caller 의 stale 참조 제거.
     /// </summary>
     private AttachmentIngestService? CurrentIngest =>
-        CurrentClient is { } c ? new AttachmentIngestService(c, Environment.UserName) : null;
+        CurrentClient is { } c ? new AttachmentIngestService(c, Environment.UserName, _config) : null;
 
     // ── refresh / sync ────────────────────────────────────────────────────────
 
@@ -325,6 +328,12 @@ public partial class KbManagerDialog : Window
         }
         finally
         {
+            // s6-r20 (E-i): captionGen 의 VisionCostGate.Consume 누적이 disk 에 반영되도록 1회 save.
+            // body 의 normal 경로에서 _config.Save() 가 이미 호출된 경우도 cost gate 의 최신 누적 snapshot 보존
+            // (idempotent). single Promaker instance 가정 — 다중 process race 는 정책 의도 외.
+            // 자가 검열 m3 정합 — Debug.WriteLine → log4net Log.Warn 박제 (production silent 방지).
+            try { _config.Save(); }
+            catch (Exception ex) { Log.Warn($"KbManagerDialog: cost gate save 실패 (best-effort) — {ex.Message}"); }
             ProgressPanel.Visibility = Visibility.Collapsed;
             ProgressBarMain.IsIndeterminate = false;
             RegisterButton.IsEnabled = true;

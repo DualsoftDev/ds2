@@ -20,6 +20,10 @@ type KnowledgeBase = {
     Outline: string -> (int64 * int64 option * int * OutlineNodeType * string * string) array
     /// 특정 ref 의 chunk 본문 concat. `maxExcerptTokens` 한도 절단.
     Read: string -> string -> string
+    /// Phase 2 task D-iv (s6-r20) — 특정 ref 의 image references.
+    /// 반환 = (ImageHash, MimeType, StoredPath, CaptionText option) array. Ordinal asc 정렬.
+    /// caller (server AttachmentTools) 가 StoredPath → File.ReadAllBytes + size 정책 검사 책임.
+    ReadImages: string -> string -> (string * string * string * string option) array
     /// 활성 active 셋 — caller 가 LlmConfig 의 path 와 매칭할 때 사용.
     ActivePaths: string array
     /// 명시적 dispose. `using` / `IDisposable` 대신 record 의 함수 필드로 (F# idiomatic).
@@ -183,6 +187,7 @@ module KnowledgeBase =
             List        = fun () -> Searcher.listDocuments conn aliases
             Outline     = fun fileId -> Searcher.getOutline conn aliases fileId
             Read        = fun fileId ref -> Searcher.readByRef conn aliases fileId ref Searcher.DefaultMaxExcerptTokens
+            ReadImages  = fun fileId ref -> Searcher.readImagesByRef conn aliases fileId ref
             ActivePaths = activePaths
             Dispose     = fun () ->
                 // 외부 환경 사유 (DB lock 충돌 등) 외에는 예외 X — log 박제 (review M3/m8).

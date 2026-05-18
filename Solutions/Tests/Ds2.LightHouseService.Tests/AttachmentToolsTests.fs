@@ -168,7 +168,7 @@ let ``attachment_outline — fileId active 셋 밖 → "[]"`` () =
 
 
 [<Fact>]
-let ``attachment_read — fileId active 셋 밖 → 빈 문자열`` () =
+let ``attachment_read — fileId active 셋 밖 → 빈 text content block`` () =
     let collId = Guid.NewGuid().ToString("D")
     let dir = newCollectionWithText "본문"
     try
@@ -179,8 +179,72 @@ let ``attachment_read — fileId active 셋 밖 → 빈 문자열`` () =
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
             let bogus = sprintf "%s:1" (Guid.NewGuid().ToString("D"))
-            let result = AttachmentTools.attachment_read(accessor, resolver, bogus, "p=1")
-            Assert.Equal("", result)
+            // s6-r20: attachment_read 시그니처 확장 — (fileId, ref, includeImages, captionOnly) → ContentBlock[].
+            let blocks = AttachmentTools.attachment_read(accessor, resolver, bogus, "p=1", false, true)
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock as tb -> Assert.Equal("", tb.Text)
+            | _ -> Assert.Fail "TextContentBlock 기대"
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
+[<Fact>]
+let ``attachment_read — captionOnly mode → 단일 TextContentBlock + chunk 본문 포함 (s6-r20)`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "라인A 컨베이어 사양서 — 동작 설명 본문."
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            // 먼저 fileId 와 ref 를 list / search 로 획득.
+            let listJson = AttachmentTools.attachment_list(accessor, resolver)
+            let listDoc = JsonDocument.Parse listJson
+            let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
+            let searchJson = AttachmentTools.attachment_search(accessor, resolver, "컨베이어", 5, null)
+            let searchDoc = JsonDocument.Parse searchJson
+            let refLoc = searchDoc.RootElement.GetProperty("results").[0].GetProperty("ref").GetString()
+            // captionOnly=true (image binary 미동봉).
+            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, false, true)
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
+                Assert.Contains("컨베이어", tb.Text)
+            | _ -> Assert.Fail "TextContentBlock 기대"
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
+[<Fact>]
+let ``attachment_read — includeImages mode, image 0개 → text block 만 (s6-r20)`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "본문만 있는 txt 문서 — 이미지 없음."
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            let listJson = AttachmentTools.attachment_list(accessor, resolver)
+            let listDoc = JsonDocument.Parse listJson
+            let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
+            let searchJson = AttachmentTools.attachment_search(accessor, resolver, "이미지", 5, null)
+            let searchDoc = JsonDocument.Parse searchJson
+            let results = searchDoc.RootElement.GetProperty("results")
+            Assert.True(results.GetArrayLength() >= 1)
+            let refLoc = results.[0].GetProperty("ref").GetString()
+            // includeImages=true, captionOnly=false — TextExtractor 산물이라 image 0개, 결과 text block 만.
+            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock -> ()
+            | _ -> Assert.Fail "image 가 없으면 image content block 없어야 함"
             lock s.SyncRoot (fun () -> SessionKb.dispose s)
         | _ -> Assert.Fail "Active 기대"
     finally cleanupDirs [ dir ]

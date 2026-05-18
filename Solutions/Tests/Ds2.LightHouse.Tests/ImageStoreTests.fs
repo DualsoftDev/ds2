@@ -262,6 +262,12 @@ let ``CaptionGenerator.noop — 항상 SkippedCaption 반환 (Phase 1 회귀 0 +
     | _ -> Assert.Fail(sprintf "noop 이 SkippedCaption 외 반환 — %A" r2)
 
 [<Fact>]
+let ``CaptionGenerator.MaxImageBytes — s6-r20 정정 후 ~3.75MB (base64 팽창 후 ~5MB body) 정합`` () =
+    // m-r19-1 정정 박제 회귀 차단 — 원본 bytes 한도 = 5MB * 3/4 = 3,932,160.
+    Assert.Equal(3932160, CaptionGenerator.MaxImageBytes)
+    // 정확히 5MB body 와의 대응 — base64(N) = ceil(N/3)*4. N=3932160 → base64 = 5242880 = 5MB.
+
+[<Fact>]
 let ``ImageReferences ON DELETE CASCADE — Documents 삭제 시 refs 도 자동 삭제`` () =
     // parent §3.12 결함 5항 4 (ON DELETE: Documents → CASCADE). ImageCache 는 보존 (cross-document dedup SSOT).
     withTempDir (fun dir ->

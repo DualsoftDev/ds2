@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
 using log4net;
+using Promaker.LlmAgent.Api;
 using Promaker.Services;
 
 namespace Promaker.LlmAgent;
@@ -90,6 +91,44 @@ public sealed class LlmConfig
 
     [JsonPropertyName("ollamaBaseUrl")]
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+
+    // ─── VLM (Vision Language Model) — Phase 2 task D (s6-r20) ────────────────────────────────────
+    //
+    // **D-2-1 / D-2-5 / D-2-6 SSOT** (todo-lighthouse-kb-server.md §0):
+    //   - 1차 default = Anthropic + Sonnet 4.6 (parent CR2 정합)
+    //   - client-side 색인 시점 호출 (eager at indexing time, D-2-2)
+    //   - VLM API key = 본 LlmConfig 의 EncryptedKeys (DPAPI per-user) 재활용
+    //     → 별 키 격리 안 함 — Anthropic API key 가 chat + VLM 양쪽 공용 (사용자 관점 단순 + cost 분리는 console 측)
+    //   - lighthouse-cli 무인 batch path = LIGHTHOUSE_VLM_API_KEY env var fallback (Phase S6 P5)
+    //
+    // 평문 필드 (Provider / Model) — DPAPI 미적용. 모델 식별자는 비밀 아님.
+
+    /// <summary>
+    /// VLM provider 식별자 — 현재 "anthropic" 만 지원 (D-2-1 결정). 향후 "openai" 추가 가능하지만 본 phase 미박제.
+    /// 빈 문자열 또는 "none" = VLM 비활성 (CaptionGenerator.noop 사용 — Phase 1 회귀 0).
+    /// </summary>
+    [JsonPropertyName("vlmProvider")]
+    public string VlmProvider { get; set; } = "anthropic";
+
+    /// <summary>
+    /// VLM 모델 ID. anthropic 인 경우 messages API 의 `model` 필드 — default "claude-sonnet-4-6" (D-2-1 cost 균형).
+    /// "claude-opus-4-7" escalation 은 Phase 4 (사용자 명시 "더 정밀하게" path) — 본 phase default 아님.
+    /// </summary>
+    [JsonPropertyName("vlmModel")]
+    public string VlmModel { get; set; } = "claude-sonnet-4-6";
+
+    // ─── Vision Cost Gate — Phase 2 task E (s6-r20, MR4 정합) ─────────────────────────────────────
+    //
+    // **MR4 SSOT** (todo-lighthouse-kb-index.md §3.15.5):
+    //   - daily 한도 (default 10K token) → 초과 시 caption 생성 skip (NULL 유지, 다음 day 재시도)
+    //   - soft warning 80% 도달 시 KbManagerDialog chip 안내 (UI 측 hook)
+    //   - 색인 진입 전 confirm dialog (예상 token = image 수 × 평균 300 token 산정)
+    //
+    // DPAPI 미적용 평문 — daily reset 가 사용자 가시화 필요 (수동 reset / 한도 변경 시각 명확).
+    // 다중 process race = 본 정책의 의도 외 (single Promaker instance 가정 충분, cli 는 자체 cost-aware caller 책임).
+
+    [JsonPropertyName("visionCostGate")]
+    public VisionCostGate VisionCostGate { get; set; } = new();
 
     // ─── LightHouse Service (todo-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5) ────────────────
 
@@ -377,6 +416,119 @@ public sealed class LlmConfig
     }
 
     public bool HasLightHousePsk() => !string.IsNullOrEmpty(GetLightHousePsk());
+
+    // ─── VLM helpers (Phase 2 task D, s6-r20) ───────────────────────────────────
+
+    /// <summary>
+    /// VLM 활성 여부. provider 가 "anthropic" 이면서 해당 provider API key 가 박제 된 경우만 true.
+    /// Phase 4 등에서 provider 확장 시 본 메서드의 분기 갱신 의무 (현재 anthropic 만).
+    /// </summary>
+    public bool IsVlmEnabled()
+    {
+        if (string.IsNullOrWhiteSpace(VlmProvider)) return false;
+        var prov = VlmProvider.Trim().ToLowerInvariant();
+        if (prov == "none" || prov == "off") return false;
+        if (prov == "anthropic") return HasApiKey(ApiProviderFactory.AnthropicKey);
+        return false;
+    }
+
+    /// <summary>
+    /// 활성 VLM provider 의 API key 반환. anthropic 인 경우 EncryptedKeys["anthropic"] (DPAPI 복호화).
+    /// LIGHTHOUSE_VLM_API_KEY env var 가 박제 되어 있으면 env 가 우선 — lighthouse-cli 무인 batch path 정합.
+    /// 미설정 시 null.
+    ///
+    /// **--review M2 정합 (s6-r20)** — 기존 `ApiProviderFactory_AnthropicKey` const mirror 제거 + Api 네임스페이스
+    /// 직접 참조. 같은 root namespace (Promaker.LlmAgent) 안이라 의존 사이클 없음 — SSOT 단일화.
+    /// </summary>
+    public string? GetVlmApiKey()
+    {
+        var envKey = Environment.GetEnvironmentVariable("LIGHTHOUSE_VLM_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envKey)) return envKey;
+        if (string.IsNullOrWhiteSpace(VlmProvider)) return null;
+        var prov = VlmProvider.Trim().ToLowerInvariant();
+        if (prov == "anthropic") return GetApiKey(ApiProviderFactory.AnthropicKey);
+        return null;
+    }
+}
+
+/// <summary>
+/// Vision Cost Gate (MR4) — daily token cap 박제. Phase 2 task E (s6-r20).
+///
+/// 정책: caller (`AttachmentIngestService`) 가 색인 진입 전 본 클래스의 `EnsureBudgetAsync` 호출하여
+/// 예상 token (image 수 × 300) 가 daily cap 안에 들어오는지 확인. 80% 도달 시 KbManagerDialog chip 갱신.
+/// hard cutoff 시 captionGen 이 SkippedCaption 반환 (caller 가 별도 진입 차단 안 함 — per-image granularity).
+///
+/// LastResetUtc 가 오늘 (UTC) 과 다르면 자동 reset (TokensUsedToday=0 + LastResetUtc=오늘 자정).
+/// </summary>
+public sealed class VisionCostGate
+{
+    [JsonPropertyName("dailyTokenCap")]
+    public int DailyTokenCap { get; set; } = 10_000;
+
+    /// <summary>마지막 reset (UTC date, ISO-8601 yyyy-MM-dd). 빈 문자열 = 아직 reset 한 적 없음.</summary>
+    [JsonPropertyName("lastResetUtc")]
+    public string LastResetUtc { get; set; } = "";
+
+    /// <summary>오늘 누적 token (caller 가 caption 호출 직후 추정 token 으로 증분).</summary>
+    [JsonPropertyName("tokensUsedToday")]
+    public int TokensUsedToday { get; set; }
+
+    /// <summary>
+    /// UTC 기준 day rollover 처리. caller 가 매 caption 호출 직전 호출 의무 — 본 메서드가 disk save 는 하지 않음
+    /// (caller 가 cluster 호출 후 1회 save 책임).
+    /// </summary>
+    public void RolloverIfNeeded()
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        if (LastResetUtc != today)
+        {
+            LastResetUtc = today;
+            TokensUsedToday = 0;
+        }
+    }
+
+    /// <summary>요청 token 만큼 한도가 남는지 (hard cutoff 검사). caller 가 호출 직전 사용.</summary>
+    public bool CanAfford(int requestedTokens)
+    {
+        RolloverIfNeeded();
+        return TokensUsedToday + requestedTokens <= DailyTokenCap;
+    }
+
+    /// <summary>caption 호출 성공 시 누적. caller 책임 — Indexer 측 captionGen wrapper 에서 호출.</summary>
+    public void Consume(int tokens)
+    {
+        RolloverIfNeeded();
+        TokensUsedToday += tokens;
+    }
+
+    /// <summary>UI chip 안내용 — 80% 도달 시 warning, hard cap 시 hard.</summary>
+    public VisionCostGateStatus Status
+    {
+        get
+        {
+            RolloverIfNeeded();
+            if (DailyTokenCap <= 0) return VisionCostGateStatus.Disabled;
+            if (TokensUsedToday >= DailyTokenCap) return VisionCostGateStatus.HardCap;
+            // --review m4 정합 — `* 100` / `* 80` int 곱 overflow 차단 (DailyTokenCap ≥ ~21M 일 때 발생).
+            // long cast 로 안전. 정확도 손실 없음 (정수 비교).
+            if ((long)TokensUsedToday * 100 >= (long)DailyTokenCap * 80) return VisionCostGateStatus.SoftWarning;
+            return VisionCostGateStatus.Normal;
+        }
+    }
+
+    /// <summary>예상 token (image 수 × 평균 300 token / image) — 색인 진입 confirm dialog 의 표시값 산정 SSOT.</summary>
+    [JsonIgnore]
+    public const int AverageTokensPerImage = 300;
+
+    public static int EstimateTokens(int imageCount) => imageCount * AverageTokensPerImage;
+}
+
+public enum VisionCostGateStatus
+{
+    Disabled,
+    Normal,
+    SoftWarning,
+    HardCap,
 }
 
 /// <summary>

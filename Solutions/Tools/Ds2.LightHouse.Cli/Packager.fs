@@ -85,10 +85,9 @@ module Packager =
             new OoxmlExtractor() :> IExtractor
         ]
         let progressCb (_: IngestProgress) = ()
-        // s6-r19: D-2-2 eager — Packager 의 staging 색인 path 는 무인 (Promaker upload 흐름의 일부),
-        // 현재 noop = caption 미생성. LIGHTHOUSE_VLM_API_KEY env var 활성 시 실 Anthropic helper
-        // 로 치환 의무 (Phase S6 P5 정합 / s6-r19 followup 박제).
-        let results = Indexer.ingest stagingDir extractors CaptionGenerator.noop progressCb ct
+        // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
+        let captionGen = Vlm.buildCaptionGen ct
+        let results = Indexer.ingest stagingDir extractors captionGen progressCb ct
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         ingested
 
