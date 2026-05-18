@@ -247,8 +247,33 @@ public partial class ApplicationSettingsDialog : Window
         LhPskBox.Password = _llmConfig.GetLightHousePsk() ?? "";
 
         // VLM (Phase 2 task D / E, s6-r20)
+        // --review M5 정합 (s6-r21): 미지원 provider (openai / ollama 등 향후 확장 후보) 가 JSON 에 박혀있으면
+        // ComboBox 에 "unrecognized: <name>" 항목을 동적으로 추가하여 silent downgrade 차단.
+        // 사용자가 명시적으로 anthropic/none 으로 변경하지 않는 한 disk 의 값 보존.
+        //
+        // 자가 검열 mn4 정합 — LoadLlmTab 재호출 시 이전에 추가된 unrecognized 항목 (`Tag is string`) 정리.
+        // 정적 XAML 항목 (Tag null) 은 보존.
+        for (int i = VlmProviderBox.Items.Count - 1; i >= 0; i--)
+        {
+            if (VlmProviderBox.Items[i] is ComboBoxItem item && item.Tag is string)
+                VlmProviderBox.Items.RemoveAt(i);
+        }
         var prov = (_llmConfig.VlmProvider ?? "anthropic").Trim().ToLowerInvariant();
-        VlmProviderBox.SelectedIndex = prov switch { "anthropic" => 0, _ => 1 };
+        if (prov == "anthropic")
+        {
+            VlmProviderBox.SelectedIndex = 0;
+        }
+        else if (prov == "none" || prov == "off" || string.IsNullOrEmpty(prov))
+        {
+            VlmProviderBox.SelectedIndex = 1;
+        }
+        else
+        {
+            // 미지원 provider — disk 값 보존. ComboBox 끝에 동적 항목 추가 + 선택.
+            var preserveItem = new ComboBoxItem { Content = $"unrecognized: {prov}", Tag = prov };
+            VlmProviderBox.Items.Add(preserveItem);
+            VlmProviderBox.SelectedItem = preserveItem;
+        }
         VlmModelBox.Text = _llmConfig.VlmModel ?? "claude-sonnet-4-6";
         VlmDailyTokenCapBox.Text = _llmConfig.VisionCostGate.DailyTokenCap.ToString(System.Globalization.CultureInfo.InvariantCulture);
         UpdateVlmCostGateStatus();
@@ -455,7 +480,11 @@ public partial class ApplicationSettingsDialog : Window
         var oldLhPsk     = _llmConfig.GetLightHousePsk() ?? "";
 
         // s6-r20 (D-iii / E-i): VLM provider / model / daily token cap dirty 비교.
-        var newVlmProvider = ((VlmProviderBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "anthropic").Trim();
+        // --review M5 정합: unrecognized 항목의 Content="unrecognized: <prov>" 일 때 Tag 의 원본 값 사용.
+        var vlmSelectedItem = VlmProviderBox.SelectedItem as ComboBoxItem;
+        var newVlmProvider =
+            (vlmSelectedItem?.Tag as string)
+            ?? (vlmSelectedItem?.Content?.ToString() ?? "anthropic").Trim();
         var newVlmModel = string.IsNullOrWhiteSpace(VlmModelBox.Text) ? fallback.VlmModel : VlmModelBox.Text.Trim();
         var oldVlmDailyCap = _llmConfig.VisionCostGate.DailyTokenCap;
         var newVlmDailyCap =

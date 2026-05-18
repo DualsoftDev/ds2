@@ -329,11 +329,31 @@ public partial class KbManagerDialog : Window
         finally
         {
             // s6-r20 (E-i): captionGen 의 VisionCostGate.Consume 누적이 disk 에 반영되도록 1회 save.
-            // body 의 normal 경로에서 _config.Save() 가 이미 호출된 경우도 cost gate 의 최신 누적 snapshot 보존
-            // (idempotent). single Promaker instance 가정 — 다중 process race 는 정책 의도 외.
-            // 자가 검열 m3 정합 — Debug.WriteLine → log4net Log.Warn 박제 (production silent 방지).
-            try { _config.Save(); }
-            catch (Exception ex) { Log.Warn($"KbManagerDialog: cost gate save 실패 (best-effort) — {ex.Message}"); }
+            // 자가 검열 m3 정합 — Debug.WriteLine → log4net Log.Warn.
+            //
+            // **--review M4 정합 (s6-r21) — cap 덮어쓰기 1 시나리오만 해결**:
+            //   ApplicationSettingsDialog 가 동시에 열려 cost gate cap (DailyTokenCap) 을 변경 후 저장한 경우,
+            //   stale snapshot 덮어쓰기 차단. disk 의 최신 LlmConfig 를 reload 한 후 cost gate 의 *누적 필드*
+            //   (TokensUsedToday / LastResetUtc) 만 본 인스턴스 값으로 덮어쓰고 Save.
+            //
+            // **잔여 race (자가 검열 s6-r21 MJ1)** — `Load` → modify → `Save` 사이가 `_saveLock` 로 보호 안 됨
+            //   (`_saveLock` 는 `Save()` 의 file write 만 직렬화). 두 인스턴스가 거의 동시에 Load 하면
+            //   `TokensUsedToday` 누적분 중 일부 손실. 본질 해결 = file lock 또는 LlmConfig 전체 transaction —
+            //   별 turn backlog (MJ1).
+            //
+            // **MJ2 정합** — `LastResetUtc` 는 두 값 중 더 최근 UTC date (사전순 max) 채택. 본 인스턴스가
+            // 오늘 자정 전 시작 + disk 가 자정 후 reload 된 시나리오에서 어제 값으로 덮어쓰기 회귀 차단.
+            try
+            {
+                var latest = LlmConfig.Load();
+                latest.VisionCostGate.TokensUsedToday = _config.VisionCostGate.TokensUsedToday;
+                latest.VisionCostGate.LastResetUtc =
+                    string.CompareOrdinal(latest.VisionCostGate.LastResetUtc, _config.VisionCostGate.LastResetUtc) >= 0
+                        ? latest.VisionCostGate.LastResetUtc
+                        : _config.VisionCostGate.LastResetUtc;
+                latest.Save();
+            }
+            catch (Exception ex) { Log.Warn($"KbManagerDialog: cost gate merge-save 실패 (best-effort) — {ex.Message}"); }
             ProgressPanel.Visibility = Visibility.Collapsed;
             ProgressBarMain.IsIndeterminate = false;
             RegisterButton.IsEnabled = true;
