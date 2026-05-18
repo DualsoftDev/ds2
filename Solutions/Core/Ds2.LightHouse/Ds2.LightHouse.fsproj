@@ -19,6 +19,7 @@
     <Compile Include="Extractors\OoxmlExtractor.fs" />
     <Compile Include="Chunker.fs" />
     <Compile Include="SqliteStore.fs" />
+    <Compile Include="ImageStore.fs" />
     <Compile Include="Searcher.fs" />
     <Compile Include="Indexer.fs" />
     <Compile Include="KnowledgeBase.fs" />
