@@ -37,7 +37,7 @@ let private extractors () : IExtractor list = [ new TextExtractor() :> IExtracto
 let private noProgress (_: IngestProgress) = ()
 
 let private ingestAll (dir: string) =
-    Indexer.ingest dir (extractors()) noProgress CancellationToken.None |> ignore
+    Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None |> ignore
 
 [<Fact>]
 let ``빈 active 셋 — empty result, no throw`` () =

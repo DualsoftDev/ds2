@@ -148,7 +148,9 @@ public sealed class AttachmentIngestService
             };
             var fsProgress = FuncConvert.FromAction(onProgress);
 
-            var results = Indexer.ingest(stagingDir, extractors, fsProgress, ct);
+            // s6-r19: captionGen 인자 추가 (D-2-2 eager). D-iii 단계 (LlmConfig.VlmProvider 진입) 에서
+            // 실 Anthropic captionGen 으로 치환 의무 — 현재 noop = caption 미생성. Phase 2 task D 미완 상태.
+            var results = Indexer.ingest(stagingDir, extractors, CaptionGenerator.noop, fsProgress, ct);
             Log.Info($"AttachmentIngestService: 색인 완료 — files={results.Length} staging={stagingDir}");
         }, ct);
     }

@@ -220,9 +220,11 @@ let private tableExists (conn: SqliteConnection) (table: string) : bool =
     Convert.ToInt32 (cmd.ExecuteScalar()) = 1
 
 [<Fact>]
-let ``Phase 2 schema — IndexerVersion 1.1.0 / SchemaVersion 2 bump`` () =
+let ``Phase 2 schema — IndexerVersion 1.2.0 / SchemaVersion 2 (D-2-2 eager caption s6-r19)`` () =
     // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
-    Assert.Equal("1.1.0", IndexerVersion.Current)
+    // s6-r19 (D-2-2 eager): 1.1.0 → 1.2.0 minor bump — CaptionText 채움 정책 변경 (lazy → eager).
+    //   SchemaVersion 은 그대로 ("2") — ImageCache schema 형식 변경 0, 컬럼 의미만 변경.
+    Assert.Equal("1.2.0", IndexerVersion.Current)
     Assert.Equal("2", IndexerVersion.SchemaVersion)
 
 [<Fact>]
@@ -326,4 +328,4 @@ let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 
         // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
         SqliteStore.stampVersion upgraded
         Assert.Equal(Some "2", SqliteStore.getMeta upgraded "schema_version")
-        Assert.Equal(Some "1.1.0", SqliteStore.getMeta upgraded "indexer_version"))
+        Assert.Equal(Some "1.2.0", SqliteStore.getMeta upgraded "indexer_version"))

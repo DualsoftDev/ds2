@@ -67,7 +67,7 @@
 6. **AttachmentClassifier 부분 통합 축소** — `detectEncoding` / `ImageFormat` 만 LightHouse 이전, `Classification` 표면 무변경 (§3.11)
 7. **Phase 1 환원** — 순수 FTS5 + text + outline + 4 tools, 이미지 인프라 Phase 2 로 이동 (§3.12, Phase 1)
 8. **Phase 3↔4 swap** — Phase 3 = OCR, Phase 4 = embedding (§3.15.2)
-9. **이미지 처리는 cached lazy** — 3 layer 캐싱 (blob/prompt cache/caption cache) (§3.15.3, §3.15.4)
+9. **이미지 처리는 eager-at-indexing** — 색인 시점에 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. chat 시점은 cache hit 만 (사용자 명시 "더 정밀하게" 요청 시 model escalation 별 path). **s6-r18 (2026-05-18) 정정** — 이전 r0~s6-r17 박제의 "cached lazy" 원칙은 server todo `todo-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = "색인 = 분석 완료" 단순 일관 mental model) 으로 정정됨. (§3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 단원 본문 sweep 은 별 turn 의무, marker 만 박제)
 10. **FTS5 tokenizer trigram** (한국어 필수) (§3.7, §3.12)
 11. **n×m KB 운영** (r4) — collection = 사용자 임의 폴더 선택 (path-based, project 종속 X). LlmConfig.KbCollections (OS 사용자 전역) 에 등록. m 개 active → SQLite ATTACH union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼). 원본 사본 없음. read-only collection 은 read OK, write fail.
 12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
@@ -506,6 +506,8 @@ SubKey       = "img" | ...
 7. 0-hit 처리: `{results:[], hint:"synonym retry"}` → 동의어 재검색 → 그래도 없으면 사용자 안내
 
 ### 3.15 이미지 처리 정책 (Phase 2 부터 — 본 단원의 모든 결정은 Phase 1 무관)
+
+> ⚠ **s6-r18 (2026-05-18) 단원 정정 marker** — 본 단원 §3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 의 모든 "cached lazy" / "on-demand caption cache" / "Phase 5 격하" 박제는 server todo `todo-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = **eager at indexing time** — 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + ImageCache.CaptionText 영구 저장) 으로 **정정됨**. 단원 본문 sweep (lazy 흐름 → eager 흐름 재작성) 은 별 turn 의 doc sweep 의무 (정정 marker 만 박제). 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 본 정정에 따라 §3.15.4 의 "trade-off 거의 없음" 항목과 §3.15.5 의 mr4 ("Phase 5 진입 = 보류") 박제는 의미 변경 — Phase 5 의 선제 batch caption 안 = **본 결정의 본질** (격하 해제). MR3 (CaptionModel invalidation) 정합, MR4 (cost gate) 의미 강해짐 (색인 시점 일괄 비용 가시화 의무).
 
 사양서에는 plant layout, 시퀀스 차트, wiring diagram, 표/그래프가 raster 로 박힌 경우가 빈번 →
 모델링 의사결정의 직접 근거가 되므로 *언젠가는* 필요. Phase 2 부터 도입.

@@ -203,6 +203,64 @@ let ``ImageStore.mimeOf ≡ Attachment.mimeOf — 4 case SSOT cross-drift 잠금
         | _      -> failwithf "unknown case %s" caseName
     Assert.Equal(Ds2.LlmAgent.Attachment.mimeOf fmt, ImageStore.mimeOf fmt)
 
+// ── Phase 2 task D (s6-r19): caption getCaption / updateCaption / CaptionGenerator.noop 회귀 차단 ──
+
+[<Fact>]
+let ``getCaption — caption 미존재 시 None (upsertImageCache 직후)`` () =
+    // D-2-2 eager 의 dedup 가드 SSOT — getCaption 이 None 반환해야 captionGen 호출 분기 진입.
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "x" Png None None
+        // upsertImageCache 만으로는 CaptionText / CaptionModel 모두 NULL 박제 — getCaption = None.
+        Assert.True((ImageStore.getCaption conn hash).IsNone))
+
+[<Fact>]
+let ``getCaption + updateCaption round-trip — caption 갱신 후 정확히 반환`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "x" Png None None
+        ImageStore.updateCaption conn hash "압력 센서 CV01 도면" "claude-sonnet-4-6"
+        match ImageStore.getCaption conn hash with
+        | Some (text, model) ->
+            Assert.Equal("압력 센서 CV01 도면", text)
+            Assert.Equal("claude-sonnet-4-6", model)
+        | None -> Assert.Fail("getCaption 이 None 반환 — updateCaption 후에도 caption 미박제")
+        // CaptionAt 도 채워졌는지 (raw SQL 검증).
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT CaptionAt FROM ImageCache WHERE ImageHash=$h"
+        cmd.Parameters.AddWithValue("$h", hash) |> ignore
+        let at = cmd.ExecuteScalar() :?> string
+        Assert.False(String.IsNullOrWhiteSpace at, "CaptionAt NULL — updateCaption 의 ISO timestamp 누락"))
+
+[<Fact>]
+let ``updateCaption — 두 번 호출 시 overwrite (latest model 박제)`` () =
+    // MR3 invalidation 정합 — model tier 변경 시 caption 재생성 + cache 덮어쓰기.
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "x" Png None None
+        ImageStore.updateCaption conn hash "sonnet 캡션" "claude-sonnet-4-6"
+        ImageStore.updateCaption conn hash "opus 캡션" "claude-opus-4-7"
+        match ImageStore.getCaption conn hash with
+        | Some (text, model) ->
+            Assert.Equal("opus 캡션", text)
+            Assert.Equal("claude-opus-4-7", model)
+        | None -> Assert.Fail("getCaption None"))
+
+[<Fact>]
+let ``CaptionGenerator.noop — 항상 SkippedCaption 반환 (Phase 1 회귀 0 + 비활성 환경)`` () =
+    // D-2-2 의 noop default 정합 — caption 미사용 caller (lib tests / 무인 cli) 가 박제 의무.
+    let r1 = CaptionGenerator.noop pngBytes Png
+    let r2 = CaptionGenerator.noop [| 1uy; 2uy; 3uy |] Jpeg
+    match r1 with
+    | SkippedCaption reason -> Assert.Equal("no caption gen", reason)
+    | _ -> Assert.Fail(sprintf "noop 이 SkippedCaption 외 반환 — %A" r1)
+    match r2 with
+    | SkippedCaption _ -> ()
+    | _ -> Assert.Fail(sprintf "noop 이 SkippedCaption 외 반환 — %A" r2)
+
 [<Fact>]
 let ``ImageReferences ON DELETE CASCADE — Documents 삭제 시 refs 도 자동 삭제`` () =
     // parent §3.12 결함 5항 4 (ON DELETE: Documents → CASCADE). ImageCache 는 보존 (cross-document dedup SSOT).

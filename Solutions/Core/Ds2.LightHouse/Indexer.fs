@@ -47,11 +47,19 @@ module Indexer =
             let fname = Path.GetFileNameWithoutExtension path
             if String.IsNullOrWhiteSpace fname then None else Some fname
 
-    /// **Phase 2 task C1 (s6-r12) + C2 fail-safe (s6-r13) + C4 ChunkId 매핑 (s6-r15)** — extracted image array → ImageStore 박제 dispatch.
+    /// **Phase 2 task C1 (s6-r12) + C2 fail-safe (s6-r13) + C4 ChunkId 매핑 (s6-r15) + D-2-2 eager caption (s6-r19)** —
+    /// extracted image array → ImageStore 박제 dispatch + 색인 시점 VLM caption 채움.
     ///
     /// 각 image 에 대해: sha256 산출 → blob 파일 저장 (idempotent) → ImageCache upsert (INSERT OR IGNORE) →
+    /// **caption 미존재 시 captionGen 호출 + updateCaption 박제 (D-2-2 eager at indexing time)** →
     /// ImageReferences 박제 (복합 PK 4 키 idempotent). per-collection dedup (parent §3.15.5 MR2) —
     /// 같은 hash 가 두 번 호출되어도 ImageCache 1 row + ImageReferences 만 (DocumentId, RefLocator, Ordinal) 별로 추가.
+    ///
+    /// **D-2-2 eager caption (s6-r19)** — getCaption 으로 사전 dedup (cross-document 같은 image dedup + 재색인
+    /// idempotent) → 미존재 시 caller 제공 `captionGen` 호출 → Captioned (text, model) 시 updateCaption /
+    /// SkippedCaption (cost gate / no key) 시 NULL 유지 (다음 색인 시 재시도) / FailedCaption (VLM error) 시 logWarn +
+    /// NULL 유지 (D-2-4 per-image fail-safe). captionGen = `CaptionGenerator.noop` 면 항상 SkippedCaption — Phase 1
+    /// 회귀 0 + caption 비활성 환경 정합.
     ///
     /// **ChunkId 매핑 (C4 Q1 옵션 1, s6-r15)** — `refToChunkId` map (caller 가 SqliteStore.lookupChunkIdsByDocument
     /// 으로 빌드) 에서 image 의 RefLocator 와 같은 chunk 의 첫 ID 를 `Some` 으로 채움. 한 RefLocator 가 N chunks
@@ -73,6 +81,7 @@ module Indexer =
         (collectionRoot: string)
         (documentId: int64)
         (refToChunkId: Map<string, int64>)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (images: ExtractedImage array)
         : unit =
         for img in images do
@@ -86,6 +95,23 @@ module Indexer =
                     let hash = ImageStore.computeSha256 img.Bytes
                     let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
                     ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
+                    // D-2-2 eager caption: 미존재 시만 captionGen 호출 (cross-doc dedup + 재색인 idempotent).
+                    match ImageStore.getCaption conn hash with
+                    | Some _ -> () // 이미 caption 채워짐.
+                    | None ->
+                        match captionGen img.Bytes img.Format with
+                        | Captioned (text, model) ->
+                            ImageStore.updateCaption conn hash text model
+                        | SkippedCaption reason ->
+                            // cost gate / no key / explicit off — NULL 유지, 다음 색인 시 재시도.
+                            Log.lighthouse.Debug(
+                                sprintf "Indexer: caption skip — hash=%s ref=%s reason=%s"
+                                    hash img.RefLocator reason)
+                        | FailedCaption reason ->
+                            // D-2-4 per-image fail-safe — log + NULL 유지.
+                            Log.lighthouse.Warn(
+                                sprintf "Indexer: caption fail (skip) — hash=%s ref=%s reason=%s"
+                                    hash img.RefLocator reason)
                     let chunkIdOpt = Map.tryFind img.RefLocator refToChunkId
                     ImageStore.addImageReference conn documentId chunkIdOpt hash img.RefLocator img.Ordinal
                 with ex ->
@@ -94,15 +120,19 @@ module Indexer =
                         sprintf "Indexer.ingestImagesIntoStore: image dispatch 실패 (skip) — doc=%d ref=%s ord=%d ex=%s"
                             documentId img.RefLocator img.Ordinal ex.Message)
 
-    /// 단일 파일 ingest. caller 가 connection / extractor list 제공.
+    /// 단일 파일 ingest. caller 가 connection / extractor list / captionGen 제공.
     /// 본 함수는 transaction 직접 열지 않음 — `insertChunks` 내부 batch txn 만.
     ///
     /// `collectionRoot` (s6-r12 추가) = ImageStore.saveBlob 의 blob 저장 위치 산출 위해 필요.
     /// Phase 1 extractor (images=[||]) 경로는 ingestImagesIntoStore 가 no-op 이라 collectionRoot 사용 안 됨.
+    ///
+    /// `captionGen` (s6-r19 추가, D-2-2 eager 정합) = 색인 시점 VLM caption 채움 함수. 비활성 환경 +
+    /// caption 미사용 caller (lib tests / 무인 cli) = `CaptionGenerator.noop` 전달 (Phase 1 회귀 0).
     let ingestFile
         (conn: SqliteConnection)
         (collectionRoot: string)
         (extractors: IExtractor list)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (path: string)
         (ct: CancellationToken)
         : FileIngestResult =
@@ -144,8 +174,9 @@ module Indexer =
                     // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
                     // Phase 1 extractor 의 images=[||] 는 no-op.
                     // C4 (s6-r15): chunks 인서트 직후 RefLocator → 첫 chunk Id map 빌드 → ChunkId 채움.
+                    // D (s6-r19): captionGen 전달 — eager caption 채움 (noop 이면 SkippedCaption 누적).
                     let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
-                    ingestImagesIntoStore conn collectionRoot docId refToChunkId extracted.Images
+                    ingestImagesIntoStore conn collectionRoot docId refToChunkId captionGen extracted.Images
                     // C4 Q3 옵션 X — image dispatch 완료 후 Chunks.ImageCount post-update.
                     // images=[||] 인 Phase 1 경로에서도 모든 chunks 의 ImageCount=0 으로 갱신 (idempotent — DEFAULT 0 정합).
                     SqliteStore.updateChunkImageCounts conn docId
@@ -167,10 +198,12 @@ module Indexer =
 
     /// 한 connection 위에서 파일들을 순차 ingest. 진행률 콜백 호출. 결과 array 반환 (review m6).
     /// `collectionRoot` (s6-r12) = ImageStore.saveBlob 의 blob 저장 위치 — ingestFile 로 propagate.
+    /// `captionGen` (s6-r19) — ingestFile 로 propagate.
     let private ingestFiles
         (conn: SqliteConnection)
         (collectionRoot: string)
         (extractors: IExtractor list)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (files: string array)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
@@ -181,7 +214,7 @@ module Indexer =
             ct.ThrowIfCancellationRequested()
             let path = files.[i]
             progress { TotalFiles = files.Length; CompletedFiles = i; CurrentFile = Some path }
-            results.Add (path, ingestFile conn collectionRoot extractors path ct)
+            results.Add (path, ingestFile conn collectionRoot extractors captionGen path ct)
         progress { TotalFiles = files.Length; CompletedFiles = files.Length; CurrentFile = None }
         results.ToArray()
 
@@ -194,6 +227,7 @@ module Indexer =
     let private rebuildShadow
         (collectionRoot: string)
         (extractors: IExtractor list)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (files: string array)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
@@ -208,7 +242,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn collectionRoot extractors files progress ct
+                ingestFiles conn collectionRoot extractors captionGen files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn
@@ -230,6 +264,7 @@ module Indexer =
     let ingest
         (collectionRoot: string)
         (extractors: IExtractor list)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
         : (string * FileIngestResult) array =
@@ -251,14 +286,14 @@ module Indexer =
                     SqliteConnection.ClearPool probeConn  // swap 직전 dbPath lock 해제 (rebuildShadow 의존)
                     probeConn.Dispose()
             if needsRebuild then
-                rebuildShadow collectionRoot extractors files progress ct
+                rebuildShadow collectionRoot extractors captionGen files progress ct
             else
                 // 정상 경로도 ClearPool — 호출자가 곧바로 rebuildShadow 단독 호출 시 dbPath lock 보호 (review M2).
                 let conn = SqliteStore.openConnection dbPath false
                 try
                     SqliteStore.ensureSchema conn
                     SqliteStore.stampVersion conn
-                    ingestFiles conn collectionRoot extractors files progress ct
+                    ingestFiles conn collectionRoot extractors captionGen files progress ct
                 finally
                     conn.Close()
                     SqliteConnection.ClearPool conn
@@ -268,7 +303,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn collectionRoot extractors files progress ct
+                ingestFiles conn collectionRoot extractors captionGen files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn

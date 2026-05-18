@@ -35,7 +35,7 @@ let private noProgress (_: IngestProgress) = ()
 [<Fact>]
 let ``0-doc collection — 빈 폴더 정상 ingest (index.db 생성 + Documents 0)`` () =
     withTempDir (fun dir ->
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         Assert.Empty(results)
         Assert.True(File.Exists (SqliteStore.dbPath dir)))
 
@@ -44,7 +44,7 @@ let ``기본 흐름 — txt/md 파일 색인`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "첫 문서 본문" |> ignore
         writeFile dir "b.md" "# 헤더\n\n본문" |> ignore
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         Assert.Equal(2, results.Length)
         for (_, r) in results do
             match r with
@@ -55,8 +55,8 @@ let ``기본 흐름 — txt/md 파일 색인`` () =
 let ``FileHash idempotent — 같은 파일 두 번 ingest → Documents 1개`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
-        let results2 = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results2 = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         Assert.Single(results2) |> ignore
         match snd results2.[0] with
         | Skipped reason -> Assert.Contains("already ingested", reason)
@@ -66,7 +66,7 @@ let ``FileHash idempotent — 같은 파일 두 번 ingest → Documents 1개`` 
 let ``미지원 ext (.dwg) — Skipped`` () =
     withTempDir (fun dir ->
         let path = writeFile dir "design.dwg" "binary-ish"
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         let pair = results |> Array.find (fun (p, _) -> p = path)
         match snd pair with
         | Skipped reason -> Assert.Contains("unsupported ext", reason)
@@ -76,7 +76,7 @@ let ``미지원 ext (.dwg) — Skipped`` () =
 let ``rejected ext (.env) — Skipped`` () =
     withTempDir (fun dir ->
         let path = writeFile dir "secrets.env" "API_KEY=xxx"
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         let pair = results |> Array.find (fun (p, _) -> p = path)
         match snd pair with
         | Skipped reason -> Assert.Contains("rejected ext", reason)
@@ -87,7 +87,7 @@ let ``0-byte 파일 — extractor 가 빈 결과로 처리 (Ingested with 0 segm
     withTempDir (fun dir ->
         let path = Path.Combine(dir, "empty.txt")
         File.WriteAllBytes(path, [||])
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         Assert.Single(results) |> ignore
         match snd results.[0] with
         | Ingested _ -> ()
@@ -97,7 +97,7 @@ let ``0-byte 파일 — extractor 가 빈 결과로 처리 (Ingested with 0 segm
 let ``IndexerVersion drift → shadow rebuild 발생`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
 
         // drift 유도
         let dbPath = SqliteStore.dbPath dir
@@ -107,7 +107,7 @@ let ``IndexerVersion drift → shadow rebuild 발생`` () =
         )
 
         // 재 ingest → shadow rebuild → indexer_version 이 Current 로 복귀
-        let _ = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         use conn = SqliteStore.openConnection dbPath false
         Assert.Equal(Some IndexerVersion.Current, SqliteStore.getMeta conn "indexer_version"))
 
@@ -116,13 +116,13 @@ let ``.lighthouse-kb 폴더 자체는 색인 대상에서 제외`` () =
     withTempDir (fun dir ->
         // 첫 ingest 후 .lighthouse-kb/index.db 가 생성됨
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
 
         // .lighthouse-kb 안에 가짜 txt 추가 — 재 ingest 시 enumerate 에서 제외 확인
         let kbDir = SqliteStore.kbDir dir
         let bogus = Path.Combine(kbDir, "inside.txt")
         File.WriteAllText(bogus, "should not be ingested", Encoding.UTF8)
-        let results = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         // 새 파일이 .lighthouse-kb 안이라 enumerate 단계에서 제외 — results 에 inside.txt 없음
         let touched = results |> Array.exists (fun (p, _) -> p = bogus)
         Assert.False(touched, "inside .lighthouse-kb/ 파일은 enumerate 에서 제외되어야 함"))
@@ -158,7 +158,7 @@ let ``ingestImagesIntoStore — 빈 배열은 no-op (Phase 1 extractor default)`
     withTempDir (fun dir ->
         use conn = openFreshAt dir
         let docId = SqliteStore.insertDocument conn "H-empty" "a.pdf" Pdf 1L None None
-        Indexer.ingestImagesIntoStore conn dir docId Map.empty [||]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop [||]
         Assert.Empty(ImageStore.lookupReferencesByDocument conn docId)
         // blob 디렉토리 자체도 생성 안 됨 (saveBlob 미호출).
         Assert.False(Directory.Exists (ImageStore.blobsImagesDir dir)))
@@ -176,7 +176,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
             RefLocator = "p=14"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| img |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop [| img |]
         // blob 파일 disk 박제.
         let hash = ImageStore.computeSha256 samplePngBytes
         Assert.True(File.Exists (ImageStore.blobFilePath dir hash Png))
@@ -212,8 +212,8 @@ let ``ingestImagesIntoStore — 같은 image 가 두 document 에 dispatch 시 p
             RefLocator = refLoc
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docA Map.empty [| imgFor "p=1" |]
-        Indexer.ingestImagesIntoStore conn dir docB Map.empty [| imgFor "p=5" |]
+        Indexer.ingestImagesIntoStore conn dir docA Map.empty CaptionGenerator.noop [| imgFor "p=1" |]
+        Indexer.ingestImagesIntoStore conn dir docB Map.empty CaptionGenerator.noop [| imgFor "p=5" |]
         // ImageCache 1 row.
         use count = conn.CreateCommand()
         count.CommandText <- "SELECT count(*) FROM ImageCache"
@@ -236,7 +236,7 @@ let ``ingestImagesIntoStore — 동일 PK 4 키 중복 호출은 INSERT OR IGNOR
             RefLocator = "p=1"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| img; img; img |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop [| img; img; img |]
         Assert.Equal(1, (ImageStore.lookupReferencesByDocument conn docId).Length))
 
 [<Fact>]
@@ -263,7 +263,7 @@ let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정�
             RefLocator = "p=2"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| imgEmpty; imgValid |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop [| imgEmpty; imgValid |]
         // empty skip — ImageReferences 1 row (valid 만), RefLocator = valid 의 위치.
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Single refs |> ignore
@@ -283,7 +283,7 @@ let ``Indexer.ingest e2e — Phase 1 extractor (Images=[||]) 경로는 ImageCach
     // Phase 1 extractor 의 default Images=[||] 회귀 차단 — 본 turn 이후에도 phase 1 e2e flow 가 이미지 무영향 보장.
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문 텍스트" |> ignore
-        let _ = Indexer.ingest dir (extractors()) noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
         use conn = SqliteStore.openConnection (SqliteStore.dbPath dir) false
         use cmd = conn.CreateCommand()
         cmd.CommandText <- "SELECT (SELECT count(*) FROM ImageCache), (SELECT count(*) FROM ImageReferences)"
@@ -322,7 +322,7 @@ let ``ingestImagesIntoStore — image RefLocator 가 chunks 와 매칭 시 Chunk
             RefLocator = "p=14"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [| img |]
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId CaptionGenerator.noop [| img |]
         // ImageReferences row 의 ChunkId 가 p=14 chunk 의 ID.
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Single refs |> ignore
@@ -346,7 +346,7 @@ let ``ingestImagesIntoStore — image RefLocator 가 chunks 에 없으면 ChunkI
             RefLocator = "p=14"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [| img |]
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId CaptionGenerator.noop [| img |]
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Single refs |> ignore
         let (_, _, _, refChunk) = refs.[0]
@@ -395,7 +395,7 @@ let ``updateChunkImageCounts — image dispatch 후 Chunks.ImageCount post-updat
             Ordinal = ord
         }
         // 같은 image (동일 sha256) 가 PK 4 키 (RefLocator/Ordinal) 만 다르면 ImageReferences 신규 row.
-        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [|
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId CaptionGenerator.noop [|
             mkImg "p=1" 1; mkImg "p=1" 2; mkImg "p=2" 1
         |]
         SqliteStore.updateChunkImageCounts conn docId
@@ -410,3 +410,82 @@ let ``updateChunkImageCounts — image dispatch 후 Chunks.ImageCount post-updat
         Assert.True(reader.Read())
         Assert.Equal("p=2", reader.GetString 0)
         Assert.Equal(1, reader.GetInt32 1))
+
+// ── Phase 2 task D (s6-r19): Indexer.ingestImagesIntoStore 의 eager caption 채움 회귀 차단 ──
+
+/// mock captionGen 빌더 — Captioned / SkippedCaption / FailedCaption 셋 다 시뮬레이션 +
+/// 호출 횟수 카운터 (cross-document dedup 검증용).
+let private mkMockCaption (result: CaptionResult) =
+    let count = ref 0
+    let gen =
+        Microsoft.FSharp.Core.FuncConvert.FromFunc<byte[], ImageFormat, CaptionResult>(
+            System.Func<byte[], ImageFormat, CaptionResult>(fun _ _ ->
+                count.Value <- count.Value + 1
+                result))
+    gen, count
+
+[<Fact>]
+let ``ingestImagesIntoStore — captionGen Captioned 반환 시 ImageCache.CaptionText/CaptionModel 박제 (D-2-2 eager)`` () =
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-cap" "a.pdf" Pdf 1L None None
+        let img = {
+            Bytes = Array.copy samplePngBytes
+            Format = Png; Width = None; Height = None
+            RefLocator = "p=1"; Ordinal = 1
+        }
+        let cap, count = mkMockCaption (Captioned ("도면 CV01 설명", "claude-sonnet-4-6"))
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty cap [| img |]
+        Assert.Equal(1, count.Value)
+        let hash = ImageStore.computeSha256 samplePngBytes
+        match ImageStore.getCaption conn hash with
+        | Some (text, model) ->
+            Assert.Equal("도면 CV01 설명", text)
+            Assert.Equal("claude-sonnet-4-6", model)
+        | None -> Assert.Fail("getCaption 이 None — Captioned 분기 후 updateCaption 미박제"))
+
+[<Fact>]
+let ``ingestImagesIntoStore — captionGen FailedCaption 시 CaptionText NULL 유지 + 후속 image dispatch 정상 (D-2-4 fail-safe)`` () =
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-fail" "a.pdf" Pdf 1L None None
+        let img1 = {
+            Bytes = Array.copy samplePngBytes
+            Format = Png; Width = None; Height = None
+            RefLocator = "p=1"; Ordinal = 1
+        }
+        let img2 = {
+            Bytes = [| for b in samplePngBytes -> b ^^^ 0xFFuy |]   // 다른 sha256
+            Format = Png; Width = None; Height = None
+            RefLocator = "p=2"; Ordinal = 1
+        }
+        let cap, count = mkMockCaption (FailedCaption "HTTP 500")
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty cap [| img1; img2 |]
+        // captionGen 은 두 image 모두에 호출 (per-image fail-safe — 후속 차단 안 함).
+        Assert.Equal(2, count.Value)
+        // 두 image 모두 ImageCache row 박제 (caption 만 NULL).
+        let hash1 = ImageStore.computeSha256 img1.Bytes
+        let hash2 = ImageStore.computeSha256 img2.Bytes
+        Assert.True((ImageStore.getImageCache conn hash1).IsSome)
+        Assert.True((ImageStore.getImageCache conn hash2).IsSome)
+        // CaptionText NULL 유지 — getCaption None.
+        Assert.True((ImageStore.getCaption conn hash1).IsNone)
+        Assert.True((ImageStore.getCaption conn hash2).IsNone))
+
+[<Fact>]
+let ``ingestImagesIntoStore — 같은 hash 가 두 document 에 dispatch 시 captionGen 1회만 호출 (cross-doc dedup)`` () =
+    // D-2-2 정합 — getCaption pre-check 가 cross-document dedup 가드. 재색인 idempotent 정합.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docA = SqliteStore.insertDocument conn "H-A" "a.pdf" Pdf 1L None None
+        let docB = SqliteStore.insertDocument conn "H-B" "b.pdf" Pdf 1L None None
+        let img = {
+            Bytes = Array.copy samplePngBytes
+            Format = Png; Width = None; Height = None
+            RefLocator = "p=1"; Ordinal = 1
+        }
+        let cap, count = mkMockCaption (Captioned ("공유 도면", "claude-sonnet-4-6"))
+        Indexer.ingestImagesIntoStore conn dir docA Map.empty cap [| img |]
+        Indexer.ingestImagesIntoStore conn dir docB Map.empty cap [| img |]
+        // captionGen 은 단 1회만 호출 (두 번째 호출은 getCaption Some 분기로 skip).
+        Assert.Equal(1, count.Value))

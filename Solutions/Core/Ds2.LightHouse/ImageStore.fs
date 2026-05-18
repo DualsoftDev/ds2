@@ -156,6 +156,50 @@ module ImageStore =
             Some (path, mime, w, h)
         else None
 
+    /// Phase 2 task D (s6-r19) — caption 조회. 미존재 시 None.
+    /// 반환 = (captionText, captionModel) — 둘 다 NULL 이면 None, text 만 NULL 이면 None (model alone 무의미).
+    /// CaptionAt 컬럼은 본 표면 미노출 — invalidation 정책은 model tier 만 (MR3).
+    /// caller (`Indexer.ingestImagesIntoStore` 의 eager 분기) 가 본 함수 None 반환 시 captionGen 호출 결정.
+    let getCaption
+        (conn: SqliteConnection)
+        (imageHash: string)
+        : (string * string) option =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT CaptionText, CaptionModel
+            FROM ImageCache
+            WHERE ImageHash = $hash
+        """
+        cmd.Parameters.AddWithValue("$hash", imageHash) |> ignore
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            if reader.IsDBNull 0 || reader.IsDBNull 1 then None
+            else Some (reader.GetString 0, reader.GetString 1)
+        else None
+
+    /// Phase 2 task D (s6-r19) — caption 갱신. ImageCache row 가 이미 존재 가정 (upsertImageCache 후).
+    /// `CaptionAt` = UTC ISO-8601 (SqliteStore.toIsoString 동일 형식).
+    ///
+    /// idempotent: 같은 hash 두 번 호출 시 overwrite (latest model 박제). caller 는
+    /// 같은 hash 가 두 번 caption 호출 안 되도록 getCaption 으로 사전 dedup 의무.
+    let updateCaption
+        (conn: SqliteConnection)
+        (imageHash: string)
+        (captionText: string)
+        (captionModel: string)
+        : unit =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            UPDATE ImageCache
+            SET CaptionText = $text, CaptionModel = $model, CaptionAt = $at
+            WHERE ImageHash = $hash
+        """
+        cmd.Parameters.AddWithValue("$hash",  imageHash) |> ignore
+        cmd.Parameters.AddWithValue("$text",  captionText) |> ignore
+        cmd.Parameters.AddWithValue("$model", captionModel) |> ignore
+        cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+
     /// 한 문서가 참조하는 모든 image — (ImageHash, RefLocator, Ordinal, ChunkId option).
     /// PK 순서 정렬 (Ordinal asc) — page 순회 자연스러움.
     let lookupReferencesByDocument

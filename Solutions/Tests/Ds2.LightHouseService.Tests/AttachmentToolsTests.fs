@@ -30,7 +30,7 @@ let private newCollectionWithText (text: string) : string =
     File.WriteAllText(f, text, Encoding.UTF8)
     let extractors : IExtractor list = [ new TextExtractor() :> IExtractor ]
     let noProgress (_: IngestProgress) = ()
-    Indexer.ingest dir extractors noProgress CancellationToken.None |> ignore
+    Indexer.ingest dir extractors CaptionGenerator.noop noProgress CancellationToken.None |> ignore
     dir
 
 /// 본 test 의 resolver — 외부 collection id → 미리 ingest 된 dir 매핑.
