@@ -68,6 +68,7 @@ let private writeSampleAndIngest (stagingDir: string) (content: string) : int64 
     sampleBytes
 
 /// §3.3.1 SSOT meta.json — server 가 stamp 할 필드 (id/importedAt/...) 는 빈 값.
+/// `indexerVersion` 인자: 통상은 `IndexerVersion.Current`. IndexerVersion gate 415 시나리오에서만 다른 값.
 let private writeDefaultMeta
     (stagingDir: string)
     (title: string)
@@ -75,10 +76,11 @@ let private writeDefaultMeta
     (fileCount: int)
     (totalBytes: int64)
     (clientUser: string)
+    (indexerVersion: string)
     =
     let meta : MetaJson = {
         SchemaVersion = MetaJsonSchema.Current
-        IndexerVersion = IndexerVersion.Current
+        IndexerVersion = indexerVersion
         Title = title
         SourcePathHint = sourceDir
         FileCount = fileCount
@@ -102,7 +104,26 @@ let buildMinimalZip (title: string) (clientUser: string) : byte[] =
         let sampleBytes =
             writeSampleAndIngest stagingDir
                 "# Heading\n\nSample content for integration round-trip.\n"
-        writeDefaultMeta stagingDir title sourceDir 1 sampleBytes clientUser
+        writeDefaultMeta stagingDir title sourceDir 1 sampleBytes clientUser IndexerVersion.Current
+        packageStagingToZip stagingDir)
+
+/// 색인 후 `.lighthouse-kb/index.db` 의 Meta.indexer_version 행을 임의 값으로 override.
+/// meta.json 의 indexerVersion 도 동일 값 (client meta consistency). IndexerVersion gate 415 (§3.12)
+/// 시나리오 검증용. production 색인 경로는 `IndexerVersion.Current` 만 stamp 하므로 override 는 test 전용.
+let buildZipWithIndexerVersion
+    (title: string)
+    (clientUser: string)
+    (indexerVersion: string)
+    : byte[] =
+    withStagingDir (fun stagingDir ->
+        let sourceDir = Path.Combine(stagingDir, "source")
+        let sampleBytes =
+            writeSampleAndIngest stagingDir
+                "# Heading\n\nIndexerVersion gate test content.\n"
+        // index.db 안 Meta.indexer_version 행 override (lib facade)
+        KnowledgeBase.stampIndexerVersion stagingDir indexerVersion
+        // meta.json 도 동일 값 — server 가 향후 meta dual-check 시 정합 + audit 일관성
+        writeDefaultMeta stagingDir title sourceDir 1 sampleBytes clientUser indexerVersion
         packageStagingToZip stagingDir)
 
 /// meta.json 누락 zip — source/ + .lighthouse-kb/ 만. server `MetaJson.load` 가 FileNotFoundException.

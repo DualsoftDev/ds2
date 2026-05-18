@@ -26,7 +26,11 @@
 
 ## 0. 현재 상태 / 본 문서 위치
 
-- **모드**: **Phase S6 P2 — server-side negative path 회귀 차단 7 Fact + ZipBuilders 공용 module 추출 + E2eRoundTripTests 리팩터링 + 자가 검열 4건 즉시 적용 — commit 대기** (s6-r1). multipart/title/zip 누락 + meta.json 누락 + zip bomb + garbage bytes + DELETE 미존재 7 분기 박제. IntegrationTests 12→19 (+7). 누적 **433 Fact** (lib 100 + service 111 + IntegrationTests 19 + Promaker 203).
+- **모드**: **Phase S6 P5 — IndexerVersion gate 415 Fact 2건 + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 — commit 대기** (s6-r5). lib 102 (+2) / IntegrationTests 22 (+2). 누적 **438 Fact**. parent §3.18 facade 표면 확장 (write 대칭 추가).
+- **이전 모드** (참고): **Phase S6 P4 — L3 caller orchestration 정책 주석 박제** (commit `66890e7`, s6-r4). LightHouseClient.RecoverSessionAsync hook + LightHouseAuthException + unit test 2 Fact 이미 완비. LlmChatViewModel 의 catch 분기에 주석만 1건 추가.
+- **이전 모드** (참고): **Phase S6 P3 — check-paired-release.ps1 s5d 박제 잔여 3건 + 비교 quirk fix** (commit `3a3d89c`, s6-r3). s5d-M1 Assert-NumericVersion + s5d-m1 Fail-Drift + s5d-m3 Resolve-Path 가드 + [System.Version] -ge/-le quirk CompareTo 우회.
+- **이전 모드** (참고): **Phase S6 P2 binding Fact** (commit `1cc3f1f`, s6-r2). E2eRoundTripTests Fact 8 — IPv6 [::1] 접속 거부 Kestrel IPv4-only bind 회귀 차단.
+- **이전 모드** (참고): **Phase S6 P2** (commit `97a6f1e`, s6-r1) — server-side negative path 7 Fact + ZipBuilders 공용 module 추출 + 자가 검열 M1/M2/m1/m3 즉시 적용.
 - **이전 모드** (참고): **Phase S6 P1** (commit `62ecb2b`, s6-r0) — `lighthouse-cli index --upload` 본격 구현 + CliUploadTests 4 Fact + 자가 검열 2건. HTTPS-only + multipart + PSK auth + exit code mapping (D-S6-5).
 - **이전 모드** (참고): **Phase S6 scaffold (s5f-r0)** → s5e-r0. `Program.configureApp` pure 함수 export + `ServiceFixture` (in-memory self-signed cert + Kestrel localhost:0) + 6 Fact 본격 e2e (실 Kestrel HTTPS round-trip). 누적 **421 Fact** (Promaker 203 + service 111 + IntegrationTests 7 + lib 100, +6 vs s5d-r0). s5c-r0 (vii) 의 이연 박제 해소 — 우회 mechanism = C 안 (configureApp export + in-memory cert + 신뢰 우회 HttpClient).
 - **이전 모드** (참고): s5d-r0 (commit `18d8d90`, Phase S5 종결 + dist 진입 준비 — paired-release drift detector 신설) → s5c-r1 (commit `83cd464` UI 테마 정합) → Phase S5c (commit `79ee30b` s5c-r0). **§4.2 Phase S5 100%** (PromakerToolNames + Drift test fresh + s5d-r0 paired-release + s5e-r0 IntegrationTests 본격 e2e 모두 ✓).
@@ -746,14 +750,18 @@ dep = 결정 dependence (먼저 해결되어야 함). ⚠ = parent 결정 결과
 | `4593d04` | s5e-r0 | 본격 IntegrationTests round-trip (MA22) 박제 해제 — Program.configureApp export + ServiceFixture (in-memory cert + Kestrel localhost:0) + 6 e2e Fact |
 | `2d45c88` | s5f-r0 | Phase S6 scaffold (`Ds2.LightHouse.Cli`) + s5e follow-up 3건 (M2/m5/I — 8 Fact) + N3-A MSB3277 해소 + N5 parent §3.15.5 흡수 |
 | `62ecb2b` | s6-r0 | Phase S6 P1 — `lighthouse-cli index --upload` + LightHouseClient.fs + Packager.fs + CliUploadTests 4 Fact + 자가 검열 C1/M1 즉시 적용 |
-| (본 commit) | s6-r1 | Phase S6 P2 — server-side negative path 7 Fact (F1~F7) + ZipBuilders 공용 module 추출 + E2eRoundTripTests local helper 흡수 + 자가 검열 M1/M2/m1/m3 즉시 적용 |
+| `97a6f1e` | s6-r1 | Phase S6 P2 — server-side negative path 7 Fact (F1~F7) + ZipBuilders 공용 module 추출 + E2eRoundTripTests local helper 흡수 + 자가 검열 M1/M2/m1/m3 즉시 적용 |
+| `1cc3f1f` | s6-r2 | (b) IPv6 [::1] 접속 거부 Fact — Kestrel IPv4 단일 bind 정합 |
+| `3a3d89c` | s6-r3 | (d) check-paired-release.ps1 s5d 박제 잔여 3건 + [System.Version] 비교 quirk CompareTo 우회 |
+| `66890e7` | s6-r4 | (c) L3 caller orchestration 정책 주석 박제 (LlmChatViewModel) |
+| (본 commit) | s6-r5 | (a) IndexerVersion gate 415 Fact 2건 (F8/F9) + KnowledgeBase.stampIndexerVersion lib facade + 자가 검열 M1/M2/M3 즉시 적용 |
 
 **테스트 누적**:
-- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 (s5f/s6/s6-r1 회귀 0)
-- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 (sentinel 1 + e2e 6) → s5f 8 (+ HTTPS-only Fact 1) → s6 12 (+ CliUploadTests 4) → **s6-r1 19** (+ NegativeRoundTripTests 7)
-- service Tests: 111 (S1 24 + S2 41 + S3 27 + S4 19, s5f/s6/s6-r1 회귀 0)
-- lib Tests: 100 (s5f/s6/s6-r1 회귀 0)
-- **누적 433 Fact** (Promaker 203 + service 111 + IntegrationTests 19 + lib 100, +7 vs s6-r0)
+- Promaker.Tests: S4 158 → S5a 180 → S5b 192 → S5c 203 (s5f/s6 series 회귀 0)
+- IntegrationTests: S5a 1 (scaffold sentinel) → S5e 7 → s5f 8 → s6 12 → s6-r1 19 → s6-r2 20 → **s6-r5 22** (+ F8/F9 IndexerVersion gate)
+- service Tests: 111 (s5f/s6 series 회귀 0)
+- lib Tests: 100 → **s6-r5 102** (+ stampIndexerVersion 2 Fact)
+- **누적 438 Fact** (Promaker 203 + service 111 + IntegrationTests 22 + lib 102, +5 vs s6-r4)
 
 ### 7.2 새 세션 진입 즉시 행동
 
@@ -806,15 +814,23 @@ s5c-r1 UI 테마 정합 + Makefile dev install/run + howto 문서 + .ps1 UTF-8 B
 **처리 완료 (s6-r0)**:
 - (P1) Phase S6 P1 — `lighthouse-cli index --upload` 본격 구현 + LightHouseClient.fs + Packager.fs + CliUploadTests 4 Fact + 자가 검열 C1/M1 즉시 적용. IntegrationTests 8→12.
 
-**처리 완료 (s6-r1, 본 turn)**:
-- (P2 부분) s5e follow-up 잔여 — server-side negative path 7 Fact (F1~F7: multipart 누락 415 / title 누락 400 / zip 누락 400 / meta.json 누락 400 / zip bomb 400 / garbage bytes 400 / DELETE 미존재 404). ZipBuilders 공용 module 추출 + E2eRoundTripTests local helper 흡수 + 자가 검열 M1/M2/m1/m3 적용. IntegrationTests 12→19.
+**처리 완료 (s6-r1)**: server-side negative path 7 Fact (F1~F7) + ZipBuilders 공용 module 추출.
 
-**다음 권장 (s6-r1 이후)**:
-- **(P2-r2)** s5e follow-up 잔여 — **IndexerVersion gate 415 Fact 2건** (TooLow/TooHigh). 본 PR scope 외였던 사유: index.db 의 `Meta.indexer_version` 행 override 가 `Ds2.LightHouse` 의 PrivateAssets=all 정합 (lib 의 `Microsoft.Data.Sqlite` transitive 차단) + lib 측 test-friendly stamp API 부재. 진입 시 `Ds2.LightHouse.KnowledgeBase.stampIndexerVersion (kbRoot: string) (version: string) : unit` 또는 `SqliteStore.setMetaValue` 신설 후 진입. 규모 ~50 line + 2-3 Fact.
-- **(P2-r3)** s5e follow-up 잔여 — L3 자동 회복 (LightHouseClient retry) / IPv4 vs IPv6 localhost binding. C# Promaker 측 retry 검토 필요 (F# CLI 측은 retry 없음, 단순 raise). 규모 ~80 line + 2-3 Fact.
+**처리 완료 (s6-r2)**: (b) IPv6 [::1] 접속 거부 Fact — E2eRoundTripTests Fact 8. dual-stack bind 회귀 차단.
+
+**처리 완료 (s6-r3)**: (d) check-paired-release.ps1 s5d 박제 잔여 3건 — Assert-NumericVersion / Fail-Drift / Resolve-Path 가드 + [System.Version] 비교 quirk CompareTo 우회 (의도치 않은 bug fix).
+
+**처리 완료 (s6-r4)**: (c) L3 caller orchestration 정책 주석 — LightHouseClient.RecoverSessionAsync hook + unit test 2 Fact 이미 완비. LlmChatViewModel catch 분기에 의도 박제 주석만 추가 (session 발급 자체 401 = retry 무의미, L3 sweet spot 은 MCP token 만료 시나리오).
+
+**처리 완료 (s6-r5, 본 turn)**: (a) IndexerVersion gate 415 Fact 2건 (F8 TooLow / F9 TooHigh) + KnowledgeBase.stampIndexerVersion lib facade 신설 + lib unit test 2 Fact + 자가 검열 M1/M2/M3 적용.
+
+**다음 권장 (s6-r5 이후)**:
+- **(N1 재진입)** dist 본격 실행 — `/dist` skill **사용자 직접 호출** (외부 영향: scp + tag + push). paired-release drift detector + IntegrationTests 22 Fact + 자가 검열 누적 통과 = dist 직전 안전망 완비.
+- **(P2-r3 잔여)** L3 자동 회복의 MCP layer 통합 — MCP client 가 stale token 401 시 RecoverSessionAsync 호출하여 새 token 재시도. 현 hook 은 직접 호출용 — MCP client 측 자동 retry 미통합. 규모 ~50 line + 2-3 Fact (MCP client orchestration test).
 - **(P3)** Phase 2 진입 confirm — parent §3.15.5 사전 결정 10건 사용자 confirm 시 본격 진입.
-- **(P4)** Phase S7 (mTLS / SSE / multi-service) — 보안/UX 우선 시 Phase 2 와 병렬 진입.
-- **(P5)** s5d-r0 박제 잔여 (s5d-M1 4-part version normalize / s5d-m1 Write-Error+exit 통일 / s5d-m3 Resolve-Path 가드) — Phase 2 이연.
+- **(P4)** Phase S7 (mTLS / SSE / multi-service / T2/T3 multi-tenant) — 보안/UX 우선 시 Phase 2 와 병렬 진입.
+- **(P5)** 사용자 SuggestedAction 의미론 개선 — server CollectionEndpoints 의 TooHigh 응답 `suggestedAction = "service 업그레이드"` 가 부정확 (client lib 다운그레이드 옵션 누락). M4 별 turn 처리.
+- **(P6)** server-side ETag 일관성 / 416 If-Range 등 S4 follow-up (P6 with 다섯 항목, parent backlog).
 
 **(과거 권장사항, 상태 갱신)**:
 
