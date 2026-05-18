@@ -36,7 +36,7 @@
     <PackageVersion Include="MahApps.Metro.IconPacks.Material" Version="6.0.0" />
   </ItemGroup>
   <!-- Markdown 렌더 — LLM chat assistant 응답 내 ```md ``` fence 자동 인식 + FlowDocument inline 렌더.
-       todo-llm-markdown.md 권장안 B1. Markdig 파서 + AvalonEdit syntax highlight. MIT. -->
+       done-llm-markdown.md 권장안 B1. Markdig 파서 + AvalonEdit syntax highlight. MIT. -->
   <ItemGroup>
     <PackageVersion Include="MdXaml" Version="1.27.0" />
   </ItemGroup>
