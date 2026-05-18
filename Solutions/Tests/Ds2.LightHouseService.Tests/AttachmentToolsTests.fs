@@ -33,20 +33,8 @@ let private newCollectionWithText (text: string) : string =
     Indexer.ingest dir extractors CaptionGenerator.noop noProgress CancellationToken.None |> ignore
     dir
 
-/// **s6-r21 (--review 실 image fixture)** — 1×1 px PNG deterministic bytes (ImageStoreTests mirror).
-let private samplePngBytes : byte[] =
-    [|
-        0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy
-        0x00uy; 0x00uy; 0x00uy; 0x0Duy; 0x49uy; 0x48uy; 0x44uy; 0x52uy
-        0x00uy; 0x00uy; 0x00uy; 0x01uy; 0x00uy; 0x00uy; 0x00uy; 0x01uy
-        0x08uy; 0x06uy; 0x00uy; 0x00uy; 0x00uy
-        0x1Fuy; 0x15uy; 0xC4uy; 0x89uy
-        0x00uy; 0x00uy; 0x00uy; 0x0Auy; 0x49uy; 0x44uy; 0x41uy; 0x54uy
-        0x78uy; 0x9Cuy; 0x63uy; 0x00uy; 0x01uy; 0x00uy; 0x00uy; 0x05uy; 0x00uy; 0x01uy
-        0x0Duy; 0x0Auy; 0x2Duy; 0xB4uy
-        0x00uy; 0x00uy; 0x00uy; 0x00uy; 0x49uy; 0x45uy; 0x4Euy; 0x44uy
-        0xAEuy; 0x42uy; 0x60uy; 0x82uy
-    |]
+/// 1×1 px PNG deterministic bytes — `Ds2.LightHouseService.Tests.SamplePng.bytes` SSOT (s6-r22 mn7).
+let private samplePngBytes : byte[] = Ds2.LightHouseService.Tests.SamplePng.bytes
 
 /// **s6-r21 fixture** — 본문 text ingest 후 ImageStore primitives 로 image fixture 박제.
 /// `text` 안 RefLocator (TextExtractor 의 `body` 가 default) 에 image N 장 + caption 박제.
@@ -406,6 +394,67 @@ let ``attachment_read — 6장+ image → 전량 caption_only 강등 + oversize_
                 Assert.Contains("oversize_image_count=6", tb.Text)
                 Assert.Contains("max=5", tb.Text)
                 Assert.Contains("[images]", tb.Text)
+            | _ -> Assert.Fail "TextContentBlock 기대"
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
+/// **s6-r22 task 4 (image fixture oversize)** — 단일 image > MaxSingleImageBytes fixture.
+/// blob 파일 size 가 lib `CaptionGenerator.MaxImageBytes` 초과하도록 dummy bytes 박제.
+/// PNG signature 만 head 에 박제 (mime 추론은 path extension 기반이라 무관).
+let private newCollectionWithOversizeImage (text: string) : string =
+    let dir = newCollectionWithText text
+    let dbPath = SqliteStore.dbPath dir
+    let conn = SqliteStore.openConnection dbPath false
+    try
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT d.Id, c.RefLocator FROM Documents d
+            JOIN Chunks c ON c.DocumentId = d.Id
+            ORDER BY d.Id, c.Id LIMIT 1
+        """
+        use reader = cmd.ExecuteReader()
+        if not (reader.Read()) then failwith "fixture: chunks 미박제"
+        let docId = reader.GetInt64 0
+        let refLoc = reader.GetString 1
+        reader.Close()
+        // MaxImageBytes 초과 dummy bytes. (= 3.75MB + 1KB).
+        let oversize = Array.create (Ds2.LightHouse.CaptionGenerator.MaxImageBytes + 1024) 0xAAuy
+        // PNG signature head 박제 (mime 추론 정합 — `.png` extension).
+        let sig0 = [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |]
+        Array.blit sig0 0 oversize 0 sig0.Length
+        let hash = ImageStore.computeSha256 oversize
+        let storedPath = ImageStore.saveBlob dir hash Png oversize
+        ImageStore.upsertImageCache conn hash storedPath Png (Some 1) (Some 1)
+        ImageStore.addImageReference conn docId None hash refLoc 1
+        ImageStore.updateCaption conn hash "대용량 image" "claude-sonnet-4-6"
+    finally
+        conn.Close()
+        Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
+        conn.Dispose()
+    dir
+
+[<Fact>]
+let ``attachment_read — 단일 image > MaxSingleImageBytes → skip + oversize_image_count footer (s6-r22 task 4)`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithOversizeImage "라인C 대용량 image 사양서."
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "eve")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            let fileId, refLoc = resolveFileIdAndRef accessor resolver "대용량"
+            // includeImages=true → text block + oversize footer (image binary 미동봉 — skip).
+            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            // image binary 미동봉 — text block 만 (1개).
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
+                Assert.Contains("oversize_image_count=1", tb.Text)
+                Assert.Contains("max_single_bytes=", tb.Text)
             | _ -> Assert.Fail "TextContentBlock 기대"
             lock s.SyncRoot (fun () -> SessionKb.dispose s)
         | _ -> Assert.Fail "Active 기대"

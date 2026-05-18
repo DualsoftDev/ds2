@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="TestInit.fs" />
+    <Compile Include="TestFixtures.fs" />
     <Compile Include="RefLocatorTests.fs" />
     <Compile Include="ChunkerTests.fs" />
     <Compile Include="ClassifierTests.fs" />

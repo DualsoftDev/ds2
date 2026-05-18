@@ -220,12 +220,30 @@ let private tableExists (conn: SqliteConnection) (table: string) : bool =
     Convert.ToInt32 (cmd.ExecuteScalar()) = 1
 
 [<Fact>]
-let ``Phase 2 schema — IndexerVersion 1.2.0 / SchemaVersion 2 (D-2-2 eager caption s6-r19)`` () =
+let ``Phase 2 schema — IndexerVersion 1.3.0 / SchemaVersion 3 (s6-r22 mn3 ImageCache.MimeType NOT NULL DEFAULT)`` () =
     // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
-    // s6-r19 (D-2-2 eager): 1.1.0 → 1.2.0 minor bump — CaptionText 채움 정책 변경 (lazy → eager).
-    //   SchemaVersion 은 그대로 ("2") — ImageCache schema 형식 변경 0, 컬럼 의미만 변경.
-    Assert.Equal("1.2.0", IndexerVersion.Current)
-    Assert.Equal("2", IndexerVersion.SchemaVersion)
+    // s6-r22 (mn3): 1.2.0 → 1.3.0 minor bump — `ImageCache.MimeType` 컬럼 제약 NULL → NOT NULL DEFAULT 'application/octet-stream'.
+    //   SchemaVersion 도 "2" → "3" 동반 bump (column constraint 형식 변경).
+    Assert.Equal("1.3.0", IndexerVersion.Current)
+    Assert.Equal("3", IndexerVersion.SchemaVersion)
+
+[<Fact>]
+let ``Phase 2 schema — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' (s6-r22 mn3)`` () =
+    // sqlite_master 의 CREATE TABLE SQL parse — column constraint 박제 검증.
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT sql FROM sqlite_master WHERE type='table' AND name='ImageCache'"
+        let sql = cmd.ExecuteScalar() :?> string
+        Assert.Contains("MimeType", sql)
+        Assert.Contains("NOT NULL DEFAULT 'application/octet-stream'", sql)
+        // DEFAULT 동작 검증: 명시 박제 없이 INSERT (`MimeType` 미 specify) 시 default 적용.
+        use ins = conn.CreateCommand()
+        ins.CommandText <- "INSERT INTO ImageCache(ImageHash, StoredPath) VALUES('h', 'p')"
+        ins.ExecuteNonQuery() |> ignore
+        use sel = conn.CreateCommand()
+        sel.CommandText <- "SELECT MimeType FROM ImageCache WHERE ImageHash = 'h'"
+        Assert.Equal("application/octet-stream", string (sel.ExecuteScalar())))
 
 [<Fact>]
 let ``Phase 2 schema — ImageCache 테이블 + 8 컬럼 PK=ImageHash`` () =
@@ -327,5 +345,5 @@ let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 
         // 자가 검열 M1: ensureSchema 만으로는 schema_version stale (Phase 1 = "1" 잔존).
         // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
         SqliteStore.stampVersion upgraded
-        Assert.Equal(Some "2", SqliteStore.getMeta upgraded "schema_version")
-        Assert.Equal(Some "1.2.0", SqliteStore.getMeta upgraded "indexer_version"))
+        Assert.Equal(Some "3", SqliteStore.getMeta upgraded "schema_version")
+        Assert.Equal(Some "1.3.0", SqliteStore.getMeta upgraded "indexer_version"))

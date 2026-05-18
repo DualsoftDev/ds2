@@ -42,9 +42,12 @@ type AttachmentTools() =
     static let MaxImagesPerResponse = 5
 
     /// **--review M3 정합 (s6-r21)** — `ImageCache.MimeType` 빈/NULL row 의 mime 추론 (확장자 기반).
-    /// 정상 색인 경로 (`Indexer.ingestImagesIntoStore`) 는 항상 mime 박제 (`ImageStore.mimeOf`). 다만 legacy zip
-    /// import / 외부 source 의 row 가 빈 mime 일 수 있어 fallback 필요. blob 파일 경로의 확장자로 추론.
-    /// 미지원 확장자 → `"application/octet-stream"` 반환 (caller 가 skip 결정 보강 가능).
+    /// 정상 색인 경로 (`Indexer.ingestImagesIntoStore`) 는 항상 mime 박제 (`ImageStore.mimeOf`).
+    ///
+    /// **s6-r22 mn3 갱신**: 신규 collection 의 `ImageCache.MimeType` 은 NOT NULL DEFAULT 'application/octet-stream'
+    /// 로 제약되어 NULL/empty 자연 발생 0. 그러나 (a) IndexerVersion 1.2.0 이하 legacy DB 의 IF NOT EXISTS skip 잔재
+    /// row (shadow rebuild 전), (b) 외부 source 의 zip import 결함 row 에 대한 backstop 으로 본 helper 유지.
+    /// dead code 아님 — 명시 안전망. 미지원 확장자 → `"application/octet-stream"` 반환.
     static let inferMimeFromPath (storedPath: string) : string =
         if String.IsNullOrEmpty storedPath then "application/octet-stream"
         else
