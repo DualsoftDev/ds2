@@ -174,7 +174,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
             Width = Some 1
             Height = Some 1
             RefLocator = "p=14#img=2"
-            Ordinal = 0
+            Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docId [| img |]
         // blob 파일 disk 박제.
@@ -194,7 +194,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
         let (refHash, refLoc, refOrd, refChunk) = refs.[0]
         Assert.Equal(hash, refHash)
         Assert.Equal("p=14#img=2", refLoc)
-        Assert.Equal(0, refOrd)
+        Assert.Equal(1, refOrd)
         Assert.Equal(None, refChunk))   // Phase 2 task C4 진입 전에는 항상 None.
 
 [<Fact>]
@@ -210,7 +210,7 @@ let ``ingestImagesIntoStore — 같은 image 가 두 document 에 dispatch 시 p
             Width = None
             Height = None
             RefLocator = refLoc
-            Ordinal = 0
+            Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docA [| imgFor "p=1#img=1" |]
         Indexer.ingestImagesIntoStore conn dir docB [| imgFor "p=5#img=3" |]
@@ -234,10 +234,49 @@ let ``ingestImagesIntoStore — 동일 PK 4 키 중복 호출은 INSERT OR IGNOR
             Width = None
             Height = None
             RefLocator = "p=1#img=1"
-            Ordinal = 0
+            Ordinal = 1
         }
         Indexer.ingestImagesIntoStore conn dir docId [| img; img; img |]
         Assert.Equal(1, (ImageStore.lookupReferencesByDocument conn docId).Length))
+
+[<Fact>]
+let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정상 (empty Bytes 와 valid Bytes 혼합)`` () =
+    // m6 결론 회귀 차단 — extractor primary 가드 (PdfExtractor TryGetPng false 분기) 회귀 시
+    //   ingestImagesIntoStore 의 defensive 2차 가드가 empty Bytes 를 잡아 skip.
+    // M2 결론 의미 검증 — single image skip 이 후속 image dispatch 차단 안 함 (per-image fail-safe).
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-mix" "mix.pdf" Pdf 1L None None
+        let imgEmpty = {
+            Bytes = [||]
+            Format = Png
+            Width = None
+            Height = None
+            RefLocator = "p=1#img=1"
+            Ordinal = 1
+        }
+        let imgValid = {
+            Bytes = samplePngBytes
+            Format = Png
+            Width = Some 1
+            Height = Some 1
+            RefLocator = "p=2#img=1"
+            Ordinal = 1
+        }
+        Indexer.ingestImagesIntoStore conn dir docId [| imgEmpty; imgValid |]
+        // empty skip — ImageReferences 1 row (valid 만), RefLocator = valid 의 위치.
+        let refs = ImageStore.lookupReferencesByDocument conn docId
+        Assert.Single refs |> ignore
+        let (_, refLoc, _, _) = refs.[0]
+        Assert.Equal("p=2#img=1", refLoc)
+        // ImageCache 도 1 row (valid 만) — empty Bytes 는 sha256 산출 직전 skip 이라 cache 항목 0.
+        use count = conn.CreateCommand()
+        count.CommandText <- "SELECT count(*) FROM ImageCache"
+        Assert.Equal(1, Convert.ToInt32(count.ExecuteScalar()))
+        // blob 디렉토리는 valid 처리 시 saveBlob 가 생성 — 존재 + 정확히 1 파일.
+        let blobsDir = ImageStore.blobsImagesDir dir
+        Assert.True(Directory.Exists blobsDir)
+        Assert.Equal(1, Directory.GetFiles(blobsDir).Length))
 
 [<Fact>]
 let ``Indexer.ingest e2e — Phase 1 extractor (Images=[||]) 경로는 ImageCache 0 + ImageReferences 0 박제`` () =
