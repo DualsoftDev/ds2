@@ -158,7 +158,7 @@ let ``ingestImagesIntoStore — 빈 배열은 no-op (Phase 1 extractor default)`
     withTempDir (fun dir ->
         use conn = openFreshAt dir
         let docId = SqliteStore.insertDocument conn "H-empty" "a.pdf" Pdf 1L None None
-        Indexer.ingestImagesIntoStore conn dir docId [||]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty [||]
         Assert.Empty(ImageStore.lookupReferencesByDocument conn docId)
         // blob 디렉토리 자체도 생성 안 됨 (saveBlob 미호출).
         Assert.False(Directory.Exists (ImageStore.blobsImagesDir dir)))
@@ -176,7 +176,7 @@ let ``ingestImagesIntoStore — 단일 image dispatch 후 ImageCache + ImageRefe
             RefLocator = "p=14"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId [| img |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| img |]
         // blob 파일 disk 박제.
         let hash = ImageStore.computeSha256 samplePngBytes
         Assert.True(File.Exists (ImageStore.blobFilePath dir hash Png))
@@ -212,8 +212,8 @@ let ``ingestImagesIntoStore — 같은 image 가 두 document 에 dispatch 시 p
             RefLocator = refLoc
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docA [| imgFor "p=1" |]
-        Indexer.ingestImagesIntoStore conn dir docB [| imgFor "p=5" |]
+        Indexer.ingestImagesIntoStore conn dir docA Map.empty [| imgFor "p=1" |]
+        Indexer.ingestImagesIntoStore conn dir docB Map.empty [| imgFor "p=5" |]
         // ImageCache 1 row.
         use count = conn.CreateCommand()
         count.CommandText <- "SELECT count(*) FROM ImageCache"
@@ -236,7 +236,7 @@ let ``ingestImagesIntoStore — 동일 PK 4 키 중복 호출은 INSERT OR IGNOR
             RefLocator = "p=1"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId [| img; img; img |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| img; img; img |]
         Assert.Equal(1, (ImageStore.lookupReferencesByDocument conn docId).Length))
 
 [<Fact>]
@@ -263,7 +263,7 @@ let ``ingestImagesIntoStore — m6 defensive 가드 + M2 single-skip 후속 정�
             RefLocator = "p=2"
             Ordinal = 1
         }
-        Indexer.ingestImagesIntoStore conn dir docId [| imgEmpty; imgValid |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty [| imgEmpty; imgValid |]
         // empty skip — ImageReferences 1 row (valid 만), RefLocator = valid 의 위치.
         let refs = ImageStore.lookupReferencesByDocument conn docId
         Assert.Single refs |> ignore
@@ -292,4 +292,121 @@ let ``Indexer.ingest e2e — Phase 1 extractor (Images=[||]) 경로는 ImageCach
         Assert.Equal(0, reader.GetInt32 0)
         Assert.Equal(0, reader.GetInt32 1)
         // blob 디렉토리 자체도 미생성.
-        Assert.False(Directory.Exists (ImageStore.blobsImagesDir dir)))
+        Assert.False(Directory.Exists (ImageStore.blobsImagesDir dir))
+        // C4 (s6-r15) — Phase 1 e2e 회귀 차단: 모든 chunks 의 ImageCount=0 (DEFAULT 0 + post-update 0).
+        use sumCmd = conn.CreateCommand()
+        sumCmd.CommandText <- "SELECT COALESCE(SUM(ImageCount), 0) FROM Chunks"
+        Assert.Equal(0, Convert.ToInt32(sumCmd.ExecuteScalar())))
+
+// ── Phase 2 task C4 (s6-r15): ChunkId 매핑 (Q1=1) + ImageCount post-update (Q3=X) 회귀 차단 ──
+
+[<Fact>]
+let ``ingestImagesIntoStore — image RefLocator 가 chunks 와 매칭 시 ChunkId Some (C4 Q1 옵션 1)`` () =
+    // C4 결정: refToChunkId map 이 image 의 RefLocator 와 같은 chunk 의 첫 ID 를 Some 으로 채움.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-chk" "a.pdf" Pdf 1L None None
+        // chunks 인서트 — 두 RefLocator (p=14, p=99) 박제.
+        let chunks : ExtractedChunk array = [|
+            { OutlineIndex = None; RefLocator = "p=14"; Ordinal = 0; TokenCount = 10; Text = "page 14 본문" }
+            { OutlineIndex = None; RefLocator = "p=99"; Ordinal = 0; TokenCount = 10; Text = "page 99 본문" }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        Assert.Equal(2, refToChunkId.Count)
+        let img = {
+            Bytes = samplePngBytes
+            Format = Png
+            Width = None
+            Height = None
+            RefLocator = "p=14"
+            Ordinal = 1
+        }
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [| img |]
+        // ImageReferences row 의 ChunkId 가 p=14 chunk 의 ID.
+        let refs = ImageStore.lookupReferencesByDocument conn docId
+        Assert.Single refs |> ignore
+        let (_, _, _, refChunk) = refs.[0]
+        Assert.Equal(Map.tryFind "p=14" refToChunkId, refChunk))
+
+[<Fact>]
+let ``ingestImagesIntoStore — image RefLocator 가 chunks 에 없으면 ChunkId None`` () =
+    // 정합: segment text 0 인 page (chunk 미생성) 의 image 는 ChunkId None.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-no-chk" "a.pdf" Pdf 1L None None
+        // 빈 chunks (image only document 시뮬레이션).
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        Assert.Equal(0, refToChunkId.Count)
+        let img = {
+            Bytes = samplePngBytes
+            Format = Png
+            Width = None
+            Height = None
+            RefLocator = "p=14"
+            Ordinal = 1
+        }
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [| img |]
+        let refs = ImageStore.lookupReferencesByDocument conn docId
+        Assert.Single refs |> ignore
+        let (_, _, _, refChunk) = refs.[0]
+        Assert.Equal(None, refChunk))
+
+[<Fact>]
+let ``lookupChunkIdsByDocument — 한 RefLocator N chunks 분할 시 첫 chunk (MIN(Id)) 만 매핑 (C4 Q1 옵션 1)`` () =
+    // Chunker token 한도 초과 분할 시뮬레이션 — 같은 RefLocator p=1 의 두 chunk (Ordinal 0, 1).
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-split" "a.pdf" Pdf 1L None None
+        let chunks : ExtractedChunk array = [|
+            { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 0; TokenCount = 100; Text = "첫 chunk" }
+            { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 1; TokenCount = 100; Text = "둘째 chunk" }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        // 매핑 1건 (RefLocator p=1 의 첫 chunk = MIN(Id)).
+        Assert.Equal(1, refToChunkId.Count)
+        // MIN(Id) 가 sequential INSERT 의 첫 row Id 정합 검증.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT MIN(Id) FROM Chunks WHERE RefLocator='p=1' AND DocumentId=$d"
+        cmd.Parameters.AddWithValue("$d", docId) |> ignore
+        let firstChunkId = Convert.ToInt64(cmd.ExecuteScalar())
+        Assert.Equal(Some firstChunkId, Map.tryFind "p=1" refToChunkId))
+
+[<Fact>]
+let ``updateChunkImageCounts — image dispatch 후 Chunks.ImageCount post-update SUM 정합 (C4 Q3 옵션 X)`` () =
+    // 의미: COUNT(*) FROM ImageReferences WHERE ChunkId = Chunks.Id. image 미참조 chunk 는 0.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-cnt" "a.pdf" Pdf 1L None None
+        let chunks : ExtractedChunk array = [|
+            { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 0; TokenCount = 10; Text = "p1" }
+            { OutlineIndex = None; RefLocator = "p=2"; Ordinal = 0; TokenCount = 10; Text = "p2" }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        // p=1 에 2 image / p=2 에 1 image — Ordinal 차이로 dedup 회피.
+        let mkImg refLoc ord = {
+            Bytes = Array.copy samplePngBytes   // 동일 bytes (sha256 동일) — addImageReference PK 4 키 RefLocator/Ordinal 차이로 dedup 회피.
+            Format = Png
+            Width = None
+            Height = None
+            RefLocator = refLoc
+            Ordinal = ord
+        }
+        // 같은 image (동일 sha256) 가 PK 4 키 (RefLocator/Ordinal) 만 다르면 ImageReferences 신규 row.
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId [|
+            mkImg "p=1" 1; mkImg "p=1" 2; mkImg "p=2" 1
+        |]
+        SqliteStore.updateChunkImageCounts conn docId
+        // p=1 chunk = ImageCount 2, p=2 chunk = ImageCount 1.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT RefLocator, ImageCount FROM Chunks WHERE DocumentId=$d ORDER BY RefLocator"
+        cmd.Parameters.AddWithValue("$d", docId) |> ignore
+        use reader = cmd.ExecuteReader()
+        Assert.True(reader.Read())
+        Assert.Equal("p=1", reader.GetString 0)
+        Assert.Equal(2, reader.GetInt32 1)
+        Assert.True(reader.Read())
+        Assert.Equal("p=2", reader.GetString 0)
+        Assert.Equal(1, reader.GetInt32 1))

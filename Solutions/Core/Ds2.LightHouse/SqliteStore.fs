@@ -452,3 +452,52 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
                 try batchTxn.Rollback() with _ -> ()
                 batchTxn.Dispose()
             reraise()
+
+    /// **Phase 2 task C4 (s6-r15)** — Chunks 의 RefLocator → 첫 chunk Id 맵 빌드.
+    ///
+    /// Indexer.ingestImagesIntoStore 가 image 의 `RefLocator` 와 같은 chunk 의 ChunkId 를 채우기 위해 사용.
+    /// 한 RefLocator 가 N chunks 로 분할된 경우 (Chunker 의 token 한도 초과) **첫 chunk** (= MIN(Ordinal) =
+    /// MIN(Id), sequential INSERT 가정) 만 매핑 — C4 Q1 옵션 1 결정 (s6-r15 박제).
+    ///
+    /// 본 함수는 chunks 인서트 직후 호출 — 빈 chunks 도 valid (빈 Map 반환).
+    let lookupChunkIdsByDocument
+        (conn: SqliteConnection)
+        (documentId: int64)
+        : Map<string, int64> =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT RefLocator, MIN(Id) AS FirstChunkId
+            FROM Chunks
+            WHERE DocumentId = $doc
+            GROUP BY RefLocator
+        """
+        cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
+        use reader = cmd.ExecuteReader()
+        let mutable m = Map.empty
+        while reader.Read() do
+            let refLoc = reader.GetString 0
+            let chunkId = reader.GetInt64 1
+            m <- Map.add refLoc chunkId m
+        m
+
+    /// **Phase 2 task C4 (s6-r15)** — `Chunks.ImageCount` post-update.
+    ///
+    /// 의미 (Q3 옵션 X) = 자기 chunk 의 ImageReferences row 수 (`COUNT(*) WHERE ChunkId = Chunks.Id`).
+    /// image 미참조 chunk 는 0 (DEFAULT 0 유지). image dispatch 완료 후 1회 호출.
+    ///
+    /// scope = `WHERE DocumentId = $doc` — re-ingest 시점에 다른 document 의 chunks 영향 없음.
+    let updateChunkImageCounts
+        (conn: SqliteConnection)
+        (documentId: int64)
+        : unit =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            UPDATE Chunks
+            SET ImageCount = (
+                SELECT COUNT(*) FROM ImageReferences ir
+                WHERE ir.ChunkId = Chunks.Id
+            )
+            WHERE DocumentId = $doc
+        """
+        cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
+        cmd.ExecuteNonQuery() |> ignore

@@ -47,13 +47,16 @@ module Indexer =
             let fname = Path.GetFileNameWithoutExtension path
             if String.IsNullOrWhiteSpace fname then None else Some fname
 
-    /// **Phase 2 task C1 (s6-r12) + C2 fail-safe 강화 (s6-r12-followup)** — extracted image array → ImageStore 박제 dispatch.
+    /// **Phase 2 task C1 (s6-r12) + C2 fail-safe (s6-r13) + C4 ChunkId 매핑 (s6-r15)** — extracted image array → ImageStore 박제 dispatch.
     ///
     /// 각 image 에 대해: sha256 산출 → blob 파일 저장 (idempotent) → ImageCache upsert (INSERT OR IGNORE) →
     /// ImageReferences 박제 (복합 PK 4 키 idempotent). per-collection dedup (parent §3.15.5 MR2) —
     /// 같은 hash 가 두 번 호출되어도 ImageCache 1 row + ImageReferences 만 (DocumentId, RefLocator, Ordinal) 별로 추가.
     ///
-    /// ChunkId 매핑은 Phase 2 task C4 (segment → chunk 결정 후) 진입 시 강화 — 현 시점 항상 None.
+    /// **ChunkId 매핑 (C4 Q1 옵션 1, s6-r15)** — `refToChunkId` map (caller 가 SqliteStore.lookupChunkIdsByDocument
+    /// 으로 빌드) 에서 image 의 RefLocator 와 같은 chunk 의 첫 ID 를 `Some` 으로 채움. 한 RefLocator 가 N chunks
+    /// 분할 시 **첫 chunk 만** 매핑 (image 의 의미상 위치 = 시작 chunk). RefLocator 가 map 에 없으면 None (segment
+    /// 없는 image RefLocator — 예: empty body 의 image, 또는 chunk text 길이 0 으로 skip 된 RefLocator).
     /// 빈 배열 (`images = [||]`) = no-op (Phase 1 extractor 의 default).
     ///
     /// **M2 결론 (per-image fail-safe)** — 단일 image dispatch 실패 (saveBlob disk full / DB row 결함 등) 시
@@ -69,6 +72,7 @@ module Indexer =
         (conn: SqliteConnection)
         (collectionRoot: string)
         (documentId: int64)
+        (refToChunkId: Map<string, int64>)
         (images: ExtractedImage array)
         : unit =
         for img in images do
@@ -82,7 +86,8 @@ module Indexer =
                     let hash = ImageStore.computeSha256 img.Bytes
                     let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
                     ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
-                    ImageStore.addImageReference conn documentId None hash img.RefLocator img.Ordinal
+                    let chunkIdOpt = Map.tryFind img.RefLocator refToChunkId
+                    ImageStore.addImageReference conn documentId chunkIdOpt hash img.RefLocator img.Ordinal
                 with ex ->
                     // M2 per-image fail-safe — log + skip, exception 재발생 안 함.
                     Log.lighthouse.Warn(
@@ -138,7 +143,12 @@ module Indexer =
                     SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
                     // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
                     // Phase 1 extractor 의 images=[||] 는 no-op.
-                    ingestImagesIntoStore conn collectionRoot docId extracted.Images
+                    // C4 (s6-r15): chunks 인서트 직후 RefLocator → 첫 chunk Id map 빌드 → ChunkId 채움.
+                    let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+                    ingestImagesIntoStore conn collectionRoot docId refToChunkId extracted.Images
+                    // C4 Q3 옵션 X — image dispatch 완료 후 Chunks.ImageCount post-update.
+                    // images=[||] 인 Phase 1 경로에서도 모든 chunks 의 ImageCount=0 으로 갱신 (idempotent — DEFAULT 0 정합).
+                    SqliteStore.updateChunkImageCounts conn docId
                     Log.lighthouse.Info(
                         sprintf "Indexer: ingested — path=%s docId=%d segments=%d chunks=%d images=%d"
                             path docId extracted.Segments.Length chunks.Length extracted.Images.Length)
