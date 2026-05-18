@@ -47,7 +47,7 @@ module Indexer =
             let fname = Path.GetFileNameWithoutExtension path
             if String.IsNullOrWhiteSpace fname then None else Some fname
 
-    /// **Phase 2 task C1 (s6-r12)** — extracted image array → ImageStore 박제 dispatch.
+    /// **Phase 2 task C1 (s6-r12) + C2 fail-safe 강화 (s6-r12-followup)** — extracted image array → ImageStore 박제 dispatch.
     ///
     /// 각 image 에 대해: sha256 산출 → blob 파일 저장 (idempotent) → ImageCache upsert (INSERT OR IGNORE) →
     /// ImageReferences 박제 (복합 PK 4 키 idempotent). per-collection dedup (parent §3.15.5 MR2) —
@@ -55,6 +55,14 @@ module Indexer =
     ///
     /// ChunkId 매핑은 Phase 2 task C4 (segment → chunk 결정 후) 진입 시 강화 — 현 시점 항상 None.
     /// 빈 배열 (`images = [||]`) = no-op (Phase 1 extractor 의 default).
+    ///
+    /// **M2 결론 (per-image fail-safe)** — 단일 image dispatch 실패 (saveBlob disk full / DB row 결함 등) 시
+    /// `logWarn` + skip. exception 재발생 안 함 — 다른 image 와 chunks 색인 차단 안 됨. ImageStore 3 함수
+    /// (saveBlob / upsertImageCache / addImageReference) 가 idempotent (File.Exists skip + INSERT OR IGNORE) 라
+    /// 재실행 시 자동 회복. orphan blob risk = 다음 색인 의 sha256 dedup + Phase 3 GC job 흡수.
+    ///
+    /// **m6 결론 (defensive 2차 가드)** — `img.Bytes.Length = 0` 시 `logWarn` + skip. extractor primary 가드
+    /// (PdfExtractor: TryGetPng false / empty 분기에서 미포함) 의 future 회귀 + 신규 extractor 분기 망각 차단.
     ///
     /// 본 함수는 transaction 직접 열지 않음 — caller (`ingestFile`) 또는 별 batching layer 가 결정.
     let ingestImagesIntoStore
@@ -64,10 +72,22 @@ module Indexer =
         (images: ExtractedImage array)
         : unit =
         for img in images do
-            let hash = ImageStore.computeSha256 img.Bytes
-            let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
-            ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
-            ImageStore.addImageReference conn documentId None hash img.RefLocator img.Ordinal
+            if img.Bytes.Length = 0 then
+                // m6 defensive 가드 — extractor primary 가드 회귀 차단.
+                Log.lighthouse.Warn(
+                    sprintf "Indexer.ingestImagesIntoStore: 빈 Bytes skip — doc=%d ref=%s ord=%d"
+                        documentId img.RefLocator img.Ordinal)
+            else
+                try
+                    let hash = ImageStore.computeSha256 img.Bytes
+                    let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
+                    ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
+                    ImageStore.addImageReference conn documentId None hash img.RefLocator img.Ordinal
+                with ex ->
+                    // M2 per-image fail-safe — log + skip, exception 재발생 안 함.
+                    Log.lighthouse.Warn(
+                        sprintf "Indexer.ingestImagesIntoStore: image dispatch 실패 (skip) — doc=%d ref=%s ord=%d ex=%s"
+                            documentId img.RefLocator img.Ordinal ex.Message)
 
     /// 단일 파일 ingest. caller 가 connection / extractor list 제공.
     /// 본 함수는 transaction 직접 열지 않음 — `insertChunks` 내부 batch txn 만.
