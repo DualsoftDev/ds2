@@ -136,30 +136,73 @@ let private makeDocxWithImage (path: string) (contentType: string) (bytes: byte[
     main.Document.Save()
 
 [<Fact>]
-let ``docx + PNG ImagePart — 화이트리스트 매칭 + 추출`` () =
+let ``docx + orphan ImagePart (Drawing 미참조) — C4-Q2 skip`` () =
+    // s6-r16 의미 변경: 기존 (s6-r14) 에서는 mainPart.ImageParts iter 가 orphan 도 박제했으나,
+    // C4-Q2 (s6-r16) 부터는 body.Descendants<Blip>() iter 가 Drawing 참조 image 만 박제. orphan = skip.
     withTempPath ".docx" (fun path ->
         makeDocxWithImage path "image/png" samplePngBytes
         use ext = new OoxmlExtractor() :> IExtractor
         let result = ext.Extract(path, CancellationToken.None)
-        Assert.Equal(1, result.Images.Length)
-        let img = result.Images.[0]
-        Assert.Equal(Png, img.Format)
-        // RefLocator = "body" (옵션 B, paragraph 매핑은 C4 의무).
-        Assert.Equal("body", img.RefLocator)
-        Assert.Equal(1, img.Ordinal)
-        // Width/Height 는 OpenXml ImagePart 가 노출 안 함 — None.
-        Assert.Equal(None, img.Width)
-        Assert.Equal(None, img.Height)
-        // Bytes round-trip — FeedData 박제 bytes 가 그대로 복원.
-        Assert.Equal(samplePngBytes.Length, img.Bytes.Length))
+        Assert.Empty(result.Images))
 
 [<Fact>]
-let ``docx + BMP ImagePart — 화이트리스트 외 (vector/raster 비대상) 자연 skip`` () =
-    // m6 primary 가드 — BMP / x-emf / x-wmf 등 ContentType match _ -> None 분기 검증.
+let ``docx + BMP orphan ImagePart — 화이트리스트 외 + Drawing 미참조 두 가드 둘 다 skip`` () =
+    // C4-Q2 + m6 primary 가드 — orphan 이라도 BMP 는 화이트리스트 외라 더더욱 skip 정합.
     withTempPath ".docx" (fun path ->
-        // BMP minimal header — content 검증 안 함 (skip 분기는 ContentType 매칭에서 분기, bytes 무관).
         let bmpStub = [| 0x42uy; 0x4Duy; 0x10uy; 0x00uy; 0x00uy; 0x00uy |]
         makeDocxWithImage path "image/bmp" bmpStub
         use ext = new OoxmlExtractor() :> IExtractor
         let result = ext.Extract(path, CancellationToken.None)
         Assert.Empty(result.Images))
+
+/// inline Drawing (Blip embed) 박제 docx. paragraph 1 = 일반 본문 / paragraph 2 = 본문 + inline Drawing image.
+let private makeDocxWithInlineImage (path: string) (contentType: string) (bytes: byte[]) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let imgPart = main.AddImagePart(contentType)
+    use ms = new MemoryStream(bytes)
+    imgPart.FeedData(ms)
+    let relId = main.GetIdOfPart(imgPart)
+
+    let body = Body()
+    // paragraph 1 — 일반 본문.
+    let p1 = Paragraph()
+    let r1 = Run()
+    r1.AppendChild(Text("앞 paragraph 본문")) |> ignore
+    p1.AppendChild(r1) |> ignore
+    body.AppendChild(p1) |> ignore
+
+    // paragraph 2 — 본문 + inline Drawing.
+    let p2 = Paragraph()
+    let r2 = Run()
+    r2.AppendChild(Text("이미지 있는 paragraph")) |> ignore
+    // inline Drawing 박제 — minimal namespace 박제.
+    let drawingXml =
+        sprintf """<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="1" name="Pic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="Pic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>""" relId
+    let drawing = Drawing(drawingXml)
+    r2.AppendChild(drawing) |> ignore
+    p2.AppendChild(r2) |> ignore
+    body.AppendChild(p2) |> ignore
+
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+[<Fact>]
+let ``docx + inline Drawing PNG — C4-Q2 paragraph 단위 RefLocator 매핑`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithInlineImage path "image/png" samplePngBytes
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        Assert.Equal(Png, img.Format)
+        // RefLocator = "p=2" — paragraph 1 (앞 본문) 박제 후 paragraph 2 (image) 박제. paraOrdinal 1-based.
+        Assert.Equal("p=2", img.RefLocator)
+        // Ordinal = 1 (같은 paragraph 안 첫 image).
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(samplePngBytes.Length, img.Bytes.Length)
+        // segment 도 정합 — paragraph 2 의 segment RefLocator 와 image RefLocator 일치.
+        let p2Segment = result.Segments |> Array.tryFind (fun s -> s.RefLocator = "p=2")
+        Assert.True(p2Segment.IsSome, "p=2 segment 가 박제되어 ChunkId 매핑 가능해야 함"))

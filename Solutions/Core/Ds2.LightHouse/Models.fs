@@ -105,9 +105,10 @@ type ExtractedChunk = {
 ///
 /// `Bytes` = raw image bytes (sha256 산출 + blob 저장 원본). format 화이트리스트 (ImageFormat) 외 image
 /// (예: PDF JPX/JBIG2 / docx EMF/WMF/BMP) 는 extractor 가 skip 또는 PNG re-encode 후 본 record 박제.
-/// `RefLocator` = 저장형 (§3.13) — s6-r14 옵션 B 결정:
-///   - PdfExtractor: `"p=%d"` (page 단위, segment scheme 과 동일)
-///   - OoxmlExtractor: `"body"` (전체 docx grouping — paragraph 매핑은 Phase 2 task C4 의무).
+/// `RefLocator` = 저장형 (§3.13):
+///   - PdfExtractor (s6-r14 옵션 B): `"p=%d"` (page 단위, segment scheme 과 동일)
+///   - OoxmlExtractor (s6-r16 C4-Q2 강화): `"p=%d"` (paragraph ordinal 1-based, segment scheme 통일).
+///     같은 paragraph 안 inline Drawing 들은 동일 RefLocator + `Ordinal` 만 다름.
 /// `Ordinal` = 같은 RefLocator 안 N번째 (1..N).
 /// `Width` / `Height` = pixel dim (extractor 가 header parse 한 값, 미상 시 None — OpenXml ImagePart 는 항상 None).
 ///
