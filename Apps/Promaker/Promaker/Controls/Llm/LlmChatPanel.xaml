@@ -230,15 +230,21 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header — title 좌측 + provider ComboBox 우측 (Phase 2 Claude/Codex dispatch) -->
+        <!-- Header — title 좌측 + KB 관리 + provider ComboBox 우측 (Phase 2 Claude/Codex dispatch / Phase S5b KB 관리) -->
         <Grid Grid.Row="0" Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12"
                        VerticalAlignment="Center"/>
-            <ComboBox Grid.Column="1"
+            <Button Grid.Column="1" Content="📚 KB 관리"
+                    Padding="8,2"
+                    Click="KbManager_Click"
+                    ToolTip="LightHouse Knowledge Base 관리 (등록 / 활성 / 제거)"/>
+            <ComboBox Grid.Column="3"
                       ItemsSource="{Binding AvailableProviders}"
                       SelectedItem="{Binding SelectedProvider}"
                       IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"

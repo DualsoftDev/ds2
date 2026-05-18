@@ -218,6 +218,40 @@
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,16" FontStyle="Italic"/>
 
+                            <!-- LightHouse Service (todo-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5b) -->
+                            <TextBlock Text="LightHouse Service (Knowledge Base)"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <TextBlock Text="Base URL (HTTPS — plain HTTP 거부)" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <TextBox x:Name="LhBaseUrlBox" Padding="6,4" FontFamily="Consolas"
+                                     Margin="0,0,0,8"
+                                     ToolTip="예: https://service.company.local:8443"/>
+
+                            <TextBlock Text="Pre-Shared Key (DPAPI 암호화 저장)" FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="LhPskBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                <Button Grid.Column="2" Content="지우기"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LhClearPsk_Click"/>
+                                <Button Grid.Column="4" Content="연결 테스트"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="LhTestConnection_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="LhTestResult"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+
                             <!-- Consent -->
                             <TextBlock Text="데이터 전송 동의"
                                        FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"

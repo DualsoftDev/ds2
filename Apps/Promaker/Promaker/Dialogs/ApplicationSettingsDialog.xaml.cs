@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Promaker.LlmAgent.Api;
 using Promaker.Presentation;
@@ -219,6 +220,10 @@ public partial class ApplicationSettingsDialog : Window
         // Ollama base URL
         LlmOllamaBaseUrlBox.Text = _llmConfig.OllamaBaseUrl;
 
+        // LightHouse Service — BaseUrl / PSK (Phase S5b)
+        LhBaseUrlBox.Text = _llmConfig.LightHouseService?.BaseUrl ?? "";
+        LhPskBox.Password = _llmConfig.GetLightHousePsk() ?? "";
+
         // Consent 상태
         UpdateConsentStatus();
     }
@@ -279,6 +284,45 @@ public partial class ApplicationSettingsDialog : Window
         DialogHelpers.Warn("동의가 철회되었습니다. LLM Chat 패널이 열려 있다면 다음 진입 시 다시 동의 다이얼로그가 표시됩니다.");
     }
 
+    // ─── LightHouse Service (Phase S5b) ──────────────────────────────────────
+
+    private void LhClearPsk_Click(object sender, RoutedEventArgs e) => LhPskBox.Password = "";
+
+    private async void LhTestConnection_Click(object sender, RoutedEventArgs e)
+    {
+        var url = (LhBaseUrlBox.Text ?? "").Trim();
+        var psk = LhPskBox.Password ?? "";
+        if (string.IsNullOrEmpty(url))
+        {
+            LhTestResult.Text = "❌ Base URL 이 비어있습니다.";
+            return;
+        }
+        if (string.IsNullOrEmpty(psk))
+        {
+            LhTestResult.Text = "❌ PSK 가 비어있습니다.";
+            return;
+        }
+        LhTestResult.Text = "확인 중…";
+        try
+        {
+            using var client = new LightHouseClient(url, () => psk, Environment.UserName);
+            var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
+            LhTestResult.Text = $"✅ 연결 성공 — collection {resp.Collections.Count}건";
+        }
+        catch (LightHouseAuthException ex)
+        {
+            LhTestResult.Text = $"❌ 인증 실패 — PSK 확인 필요 ({(int)ex.StatusCode})";
+        }
+        catch (LightHouseProtocolException ex)
+        {
+            LhTestResult.Text = $"❌ protocol 오류 — {ex.Message}";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or ArgumentException)
+        {
+            LhTestResult.Text = $"❌ 연결 실패 — {ex.Message}";
+        }
+    }
+
     private async void LlmTestOllama_Click(object sender, RoutedEventArgs e)
     {
         var url = (LlmOllamaBaseUrlBox.Text ?? "").Trim();
@@ -326,13 +370,21 @@ public partial class ApplicationSettingsDialog : Window
         var newOllamaModel    = string.IsNullOrWhiteSpace(LlmOllamaModelBox.Text)    ? fallback.OllamaModel    : LlmOllamaModelBox.Text.Trim();
         var newOllamaBaseUrl  = string.IsNullOrWhiteSpace(LlmOllamaBaseUrlBox.Text)  ? fallback.OllamaBaseUrl  : LlmOllamaBaseUrlBox.Text.Trim();
 
+        // LightHouse Service (Phase S5b) — BaseUrl + PSK dirty 비교.
+        var newLhBaseUrl = (LhBaseUrlBox.Text ?? "").Trim();
+        var newLhPsk     = LhPskBox.Password ?? "";
+        var oldLhBaseUrl = _llmConfig.LightHouseService?.BaseUrl ?? "";
+        var oldLhPsk     = _llmConfig.GetLightHousePsk() ?? "";
+
         var dirty =
             newAnthropicModel != _llmConfig.AnthropicModel
             || newOpenAiModel    != _llmConfig.OpenAiModel
             || newOllamaModel    != _llmConfig.OllamaModel
             || newOllamaBaseUrl  != _llmConfig.OllamaBaseUrl
             || newAnthropicKey   != (_llmConfig.GetApiKey(ApiProviderFactory.AnthropicKey) ?? "")
-            || newOpenAiKey      != (_llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey)    ?? "");
+            || newOpenAiKey      != (_llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey)    ?? "")
+            || newLhBaseUrl      != oldLhBaseUrl
+            || newLhPsk          != oldLhPsk;
 
         if (!dirty) return;
 
@@ -342,6 +394,18 @@ public partial class ApplicationSettingsDialog : Window
         _llmConfig.OpenAiModel    = newOpenAiModel;
         _llmConfig.OllamaModel    = newOllamaModel;
         _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
+
+        // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 config 자체 제거.
+        if (string.IsNullOrEmpty(newLhBaseUrl) && string.IsNullOrEmpty(newLhPsk))
+        {
+            _llmConfig.LightHouseService = null;
+        }
+        else
+        {
+            _llmConfig.LightHouseService ??= new LightHouseServiceConfig();
+            _llmConfig.LightHouseService.BaseUrl = newLhBaseUrl;
+            _llmConfig.SetLightHousePsk(newLhPsk);
+        }
 
         _llmConfig.Save();
         LlmConfigChanged = true;
