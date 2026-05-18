@@ -12,6 +12,11 @@ open Microsoft.Data.Sqlite
 /// schema (§3.12) / Chunker / Extractor 의 *결과물* 변경 시 bump. SQL 비호환 변경은 SchemaVersion 도 동반 bump.
 [<RequireQualifiedAccess>]
 module IndexerVersion =
+    // SSOT: 본 `Current` literal 은 module 의 첫 [<Literal>] 위치 유지 의무.
+    // `Apps/Promaker/scripts/check-paired-release.ps1` (s5d-r0 박제) 가 source regex
+    // 로 본 literal 을 추출 + service config 의 indexerVersionRange 정합 검증.
+    // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
+    // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
     [<Literal>]
     let Current = "1.0.0"
 
