@@ -44,6 +44,27 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             return! client.PostAsync("/collections", content)
         }
 
+    /// s6-r7 (M1): swap 경로 helper — F# class 정의의 `let` 바인딩은 member 앞에 위치 의무.
+    let registerCollectionForSwap (client: HttpClient) (title: string) =
+        task {
+            let okZip = ZipBuilders.buildMinimalZip title userIdentity
+            let! resp = postCollectionsMultipart client (Some title) (Some okZip)
+            Assert.Equal(HttpStatusCode.Created, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            use doc = JsonDocument.Parse body
+            return doc.RootElement.GetProperty("id").GetString()
+        }
+
+    let postSwapMultipart (client: HttpClient) (id: string) (zipBytes: byte[]) =
+        task {
+            use content = new MultipartFormDataContent()
+            let zc = new ByteArrayContent(zipBytes)
+            zc.Headers.ContentType <- MediaTypeHeaderValue.Parse "application/zip"
+            content.Add(zc, "file", "payload.zip")
+            content.Add(new StringContent("ignored-title"), "title")
+            return! client.PostAsync(sprintf "/collections/%s/payload" id, content)
+        }
+
     // ── F1: Content-Type=text/plain → 415 ────────────────────────────────
     [<Fact>]
     member _.``POST /collections — Content-Type text/plain 415 (multipart 필수)`` () =
@@ -185,6 +206,54 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode)
             let! body = resp.Content.ReadAsStringAsync()
             Assert.Contains(randomId, body)
+        }
+
+    // ── s6-r7 (M1): payload swap 의 IndexerVersion gate negative path 정합 ──
+    // postCollections 의 F8/F9 와 동일 의미론을 swap 경로 (POST /collections/{id}/payload) 도 박제.
+    // SSOT = error/clientVersion/hostingRange/suggestedAction 4 키 모두 일관.
+    [<Fact>]
+    member _.``POST /collections/{id}/payload — IndexerVersion too-low 415 + SSOT 4 키 박제`` () =
+        // cleanup = try/finally 의 finally 안에서 task `let!` 사용 불가 (F# CE) → try 끝에 명시.
+        // 가정 실패 시 registry 에 stale entry 남지만 fixture.DisposeAsync 의 temp dir 재귀 delete 가 흡수.
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "swap-low-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let! id = registerCollectionForSwap client title
+            let lowZip = ZipBuilders.buildZipWithIndexerVersion title userIdentity "0.5.0"
+            let! resp = postSwapMultipart client id lowZip
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            use doc = JsonDocument.Parse body
+            Assert.Contains("too low", doc.RootElement.GetProperty("error").GetString())
+            Assert.Equal("0.5.0", doc.RootElement.GetProperty("clientVersion").GetString())
+            let hostingRange = doc.RootElement.GetProperty("hostingRange")
+            Assert.Equal("1.0.0", hostingRange.GetProperty("min").GetString())
+            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            Assert.Contains("업그레이드", doc.RootElement.GetProperty("suggestedAction").GetString())
+            let! _ = client.DeleteAsync(sprintf "/collections/%s" id)
+            ()
+        }
+
+    [<Fact>]
+    member _.``POST /collections/{id}/payload — IndexerVersion too-high 415 + suggestedAction 양 옵션`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "swap-high-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let! id = registerCollectionForSwap client title
+            let highZip = ZipBuilders.buildZipWithIndexerVersion title userIdentity "9.99.99"
+            let! resp = postSwapMultipart client id highZip
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            use doc = JsonDocument.Parse body
+            Assert.Contains("too high", doc.RootElement.GetProperty("error").GetString())
+            Assert.Equal("9.99.99", doc.RootElement.GetProperty("clientVersion").GetString())
+            let hostingRange = doc.RootElement.GetProperty("hostingRange")
+            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            let suggestedAction = doc.RootElement.GetProperty("suggestedAction").GetString()
+            Assert.Contains("service 업그레이드", suggestedAction)
+            Assert.Contains("다운그레이드", suggestedAction)
+            let! _ = client.DeleteAsync(sprintf "/collections/%s" id)
+            ()
         }
 
     interface IClassFixture<ServiceFixture>

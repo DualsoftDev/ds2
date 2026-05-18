@@ -232,12 +232,16 @@ module CollectionEndpoints =
                             notifier.OnPayloadSwapped id
                             Log.audit.Info(sprintf "collection payload swapped — id=%s by=%s target=%s" id user target)
                             do! writeJson ctx 200 {| id = id; storageRelPath = entry.StorageRelPath |}
-                        | IndexerVersionGateResult.TooLow(v, _) ->
+                        | IndexerVersionGateResult.TooLow(v, m) ->
+                            // s6-r7 (M1): swap 경로도 postCollections 와 동일 SSOT 박제 — hostingRange + suggestedAction.
+                            Log.audit.Warn(sprintf "indexerVersion gate too-low (swap) — id=%s client=%s hostMin=%s" id v m)
                             StagingSweep.removeStaging storageRoot stagingId |> ignore
-                            do! writeJson ctx 415 {| error = "indexerVersion too low"; clientVersion = v |}
-                        | IndexerVersionGateResult.TooHigh(v, _) ->
+                            do! writeJson ctx 415 {| error = "indexerVersion too low"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "client Ds2.LightHouse lib 업그레이드 후 재색인 / 재업로드" |}
+                        | IndexerVersionGateResult.TooHigh(v, m) ->
+                            // s6-r7 (M1): postCollections 의 P5 정정 정합 — 양 회복 옵션 박제.
+                            Log.audit.Warn(sprintf "indexerVersion gate too-high (swap) — id=%s client=%s hostMax=%s" id v m)
                             StagingSweep.removeStaging storageRoot stagingId |> ignore
-                            do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v |}
+                            do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
                         | IndexerVersionGateResult.Missing reason ->
                             StagingSweep.removeStaging storageRoot stagingId |> ignore
                             do! writeError ctx 400 (sprintf "indexerVersion 미존재 — %s" reason)

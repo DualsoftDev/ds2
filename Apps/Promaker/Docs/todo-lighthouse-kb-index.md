@@ -564,6 +564,8 @@ LLM 이 답변 정확도를 위해 도면 추론이 필요할 때만 발생.
 
 본 표는 Phase 2 본격 진입 전 사용자 confirm 의무 항목. 진입 시점에 별 todo 신설하지 말고 본 표를 기점 SSOT 로 사용.
 
+**✓ s6-r7 (2026-05-18) 사용자 confirm 완료 — 10건 default 전부 채택**. 본격 코드 진입 = parent §4 Phase 2 첫 task (`schema 확장 — ImageCache / ImageReferences / IndexerVersion bump`). server todo §7.4 의 P3 marker 동시 갱신. 본 confirm 은 의미론적 진입 — 실 코드 작업은 별 turn 의 명시 지시 후 개시.
+
 | id | 항목 | 권장 default | dep |
 |---|---|---|---|
 | CR1 | 이미지 추출 backend | PdfPig (PDF) + DocumentFormat.OpenXml (PPTX/DOCX/XLSX) — 본 단원 Phase 1 stack 정합 | — |
@@ -785,6 +787,9 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 - ~~read-only collection 검증 (r4)~~ → server phase 에서는 사용자 폴더 읽기 자체 없음 (server-side storage), 폐기. parent §3.18.2 회피와 함께.
 
 ### Phase 2 — 포맷 확대 + 이미지 인프라 신설 + cached lazy
+
+**진입 marker (s6-r7)**: §3.15.5 의 10건 default 사용자 confirm 완료. 본 phase 의 첫 task = 아래 schema 확장. **본격 코드 진입은 별 turn 의 명시 지시 후** (대규모 변경 — PdfPig 이미지 raw 추출 + VLM caption provider integration + LlmConfig cost gate). server todo §7.4 의 다음 권장 = 본 phase 첫 task 진입.
+
 - [ ] schema 확장 — `ImageCache` / `ImageReferences` 테이블 (3.12 의 주석 처리 블록 활성) + `Chunks.ImageCount` 컬럼 (ALTER TABLE) + IndexerVersion bump
 - [ ] `ImageStore.fs` — sha256 + blob 저장 + ImageCache/ImageReferences upsert (cross-document 공유, 단일 프로젝트 안)
 - [ ] PdfExtractor / OoxmlExtractor 가 이미지 raw 추출 + ImageStore 호출 (Phase 1 무변경 분리)
