@@ -220,3 +220,25 @@ let ``Searcher.buildFtsQuery — 공백 분리 multi-token implicit AND (review 
                 Assert.Contains("alpha", h.Excerpt)
                 Assert.Contains("beta", h.Excerpt)
         finally kb.Dispose())
+
+// ── stampIndexerVersion (test-only override facade — IndexerVersion gate 415 시나리오용) ────
+
+[<Fact>]
+let ``stampIndexerVersion — 색인 후 indexer_version 행 override → probeIndexerVersion 반영`` () =
+    withDirs 1 (fun dirs ->
+        writeFile dirs.[0] "a.txt" "stamp test content" |> ignore
+        ingestAll dirs.[0]
+        // 색인 직후의 baseline = IndexerVersion.Current
+        let before = KnowledgeBase.probeIndexerVersion dirs.[0]
+        Assert.Equal(Some IndexerVersion.Current, before)
+        // override
+        KnowledgeBase.stampIndexerVersion dirs.[0] "0.5.0"
+        let after = KnowledgeBase.probeIndexerVersion dirs.[0]
+        Assert.Equal(Some "0.5.0", after))
+
+[<Fact>]
+let ``stampIndexerVersion — index.db 미존재 시 InvalidOperationException`` () =
+    withDirs 1 (fun dirs ->
+        // 색인 안 함 → .lighthouse-kb/index.db 부재
+        Assert.Throws<InvalidOperationException>(fun () ->
+            KnowledgeBase.stampIndexerVersion dirs.[0] "1.0.0") |> ignore)

@@ -68,6 +68,31 @@ module KnowledgeBase =
                 Log.lighthouse.Warn(sprintf "probeIndexerVersion: %s 열기 실패 — %s" dbPath ex.Message)
                 None
 
+    /// `Meta.indexer_version` 행을 override (write). `probeIndexerVersion` 의 대칭.
+    ///
+    /// 용도: **test 한정** — IndexerVersion gate 415 시나리오 검증 (server-side §3.12) 시 zip 안
+    /// `.lighthouse-kb/index.db` 의 indexer_version 행을 임의 값 ("0.5.0" / "9.99.99") 으로 갈아끼우는
+    /// helper. production 색인 경로 (`Indexer.ingest`) 는 `IndexerVersion.Current` 만 stamp.
+    /// **production 호출 금지** — `Indexer.ingest` 가 stamp 한 `IndexerVersion.Current` 를 강제 override
+    /// 시 schema/version drift + 색인 결과와 메타 불일치 회귀 (server 가 호환 잘못 판정).
+    ///
+    /// `collectionRoot/.lighthouse-kb/index.db` 미존재 시 InvalidOperationException — caller fail-fast.
+    /// `Microsoft.Data.Sqlite.SqliteConnection.ClearPool` 까지 finally 처리 (parent r10 F2 정합).
+    let stampIndexerVersion (collectionRoot: string) (version: string) : unit =
+        if not (isIndexed collectionRoot) then
+            raise (InvalidOperationException(
+                sprintf "stampIndexerVersion: %s 의 index.db 미존재 — 색인 후 호출 의무" collectionRoot))
+        if String.IsNullOrWhiteSpace version then
+            invalidArg (nameof version) "version 빈 값 금지."
+        let dbPath = SqliteStore.dbPath collectionRoot
+        let conn = SqliteStore.openConnection dbPath false   // write 가능
+        try
+            SqliteStore.setMeta conn "indexer_version" version
+        finally
+            conn.Close()
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
+            conn.Dispose()
+
     /// 단일 collection 의 documents.Id → (OriginalPath, FileHash, SizeBytes). Phase S4 file serving 용.
     /// `<collection-root>/.lighthouse-kb/index.db` 미존재 / open 실패 / row 미존재 시 None.
     ///

@@ -129,6 +129,48 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             Assert.Contains("구조", errorMsg)
         }
 
+    // ── F8 (s6-r5): IndexerVersion gate too-low → 415 + clientVersion 박제 ─
+    [<Fact>]
+    member _.``POST /collections — IndexerVersion too-low 415`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "ver-low-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            // fixture cfg.IndexerVersionRange = [1.0.0, 1.99.99] → "0.5.0" 은 hostMin 미만
+            let zipBytes = ZipBuilders.buildZipWithIndexerVersion title userIdentity "0.5.0"
+            let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            use doc = JsonDocument.Parse body
+            let errorMsg = doc.RootElement.GetProperty("error").GetString()
+            Assert.Contains("too low", errorMsg)
+            let clientVer = doc.RootElement.GetProperty("clientVersion").GetString()
+            Assert.Equal("0.5.0", clientVer)
+            // hostingRange 박제 검증 — server config 정합
+            let hostingRange = doc.RootElement.GetProperty("hostingRange")
+            Assert.Equal("1.0.0", hostingRange.GetProperty("min").GetString())
+        }
+
+    // ── F9 (s6-r5): IndexerVersion gate too-high → 415 ────────────────────
+    [<Fact>]
+    member _.``POST /collections — IndexerVersion too-high 415`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+            let title = "ver-high-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            // fixture cfg.IndexerVersionRange.Max = "1.99.99" → "9.99.99" 는 초과
+            let zipBytes = ZipBuilders.buildZipWithIndexerVersion title userIdentity "9.99.99"
+            let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
+            let! body = resp.Content.ReadAsStringAsync()
+            use doc = JsonDocument.Parse body
+            let errorMsg = doc.RootElement.GetProperty("error").GetString()
+            Assert.Contains("too high", errorMsg)
+            let clientVer = doc.RootElement.GetProperty("clientVersion").GetString()
+            Assert.Equal("9.99.99", clientVer)
+            // 자가 검열 M1: F8 의 hostingRange.min 박제 대칭 — hostingRange.max 박제 추가
+            let hostingRange = doc.RootElement.GetProperty("hostingRange")
+            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+        }
+
     // ── F7: DELETE /collections/{미존재 guid} → 404 ──────────────────────
     [<Fact>]
     member _.``DELETE /collections/{미존재 guid} 404`` () =
