@@ -21,6 +21,7 @@
     <Compile Include="ServiceFixture.fs" />
     <Compile Include="ScaffoldSentinelTests.fs" />
     <Compile Include="E2eRoundTripTests.fs" />
+    <Compile Include="CliUploadTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -36,6 +37,8 @@
     <ProjectReference Include="..\..\Tools\Ds2.LightHouseService\Ds2.LightHouseService.fsproj" />
     <!-- Phase S5e — helper 가 in-process Indexer 호출로 minimal valid zip (source/ + .lighthouse-kb/index.db) 생성. -->
     <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- Phase S6 P1 — CLI 의 LightHouseClient + Packager in-process round-trip 검증 (CliUploadTests.fs). -->
+    <ProjectReference Include="..\..\Tools\Ds2.LightHouse.Cli\Ds2.LightHouse.Cli.fsproj" />
   </ItemGroup>
 
 </Project>
