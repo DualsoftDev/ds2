@@ -55,7 +55,6 @@ public partial class EditorCanvas
             }
 
             var dragNodes = VM.Selection.PrepareCanvasDragSelection(node, ctrlPressed, shiftPressed);
-
             VM.Selection.ClearArrowSelection();
 
             if (!ctrlPressed && !shiftPressed)
@@ -151,7 +150,6 @@ public partial class EditorCanvas
 
         // 드래그 중에는 경계를 실제로 넘어설 때만 확장. 축소는 MouseUp에서 일괄 처리.
         EnsureCanvasFits(maxRight, maxBottom);
-
         UpdateDragArrows(_drag);
     }
 
@@ -319,7 +317,6 @@ public partial class EditorCanvas
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         VM.Selection.ClearNodeSelection();
-
         var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is not null)
             VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: ctrlPressed || shiftPressed);
@@ -346,7 +343,6 @@ public partial class EditorCanvas
 
         var isWorkMode = ActiveCanvasState!.ActiveTab is { } tab && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
         var menu = new System.Windows.Controls.ContextMenu();
-
         var selectedIds = VM.Selection.OrderedArrowSelection.ToList();
         var isMulti = selectedIds.Count >= 2;
 
@@ -375,9 +371,7 @@ public partial class EditorCanvas
                 : $"{label}(으)로 변경";
         }
         else
-        {
             changeTypeHeader = isMulti ? $"타입 변경 ({selectedIds.Count}개)" : "타입 변경";
-        }
 
         var changeType = new System.Windows.Controls.MenuItem { Header = changeTypeHeader };
         changeType.Click += (_, _) =>
