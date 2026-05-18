@@ -47,6 +47,27 @@ public sealed class HubSubscriberService : BackgroundService
     private readonly Channel<HubSignal> _signalChannel = Channel.CreateUnbounded<HubSignal>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
+    /// <summary>
+    /// 현재 Promaker hub 연결 상태. UI 헤더가 표시용으로 읽음.
+    /// _connection 이 아직 생성되지 않은 부팅 초기 구간은 Disconnected 로 본다.
+    /// </summary>
+    public HubConnectionState CurrentStatus =>
+        _connection?.State ?? HubConnectionState.Disconnected;
+
+    /// <summary>
+    /// 연결 상태 전이 시 발화. Blazor 헤더 배지가 구독해 StateHasChanged 호출.
+    /// SignalR 의 Reconnecting/Reconnected/Closed 이벤트 + 우리 retry-loop / nudge 의 StartAsync
+    /// 성공 시점 5개소에서 발화 — Connected 진입은 SignalR 의 Reconnected 가 "재연결" 만 커버하므로
+    /// 첫 연결 성공도 수동으로 함께 발화해야 누락 없음.
+    /// </summary>
+    public event Action<HubConnectionState>? StatusChanged;
+
+    private void RaiseStatusChanged()
+    {
+        try { StatusChanged?.Invoke(CurrentStatus); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Hub] StatusChanged subscriber threw"); }
+    }
+
     public HubSubscriberService(
         ILogger<HubSubscriberService> logger,
         IConfiguration configuration,
@@ -91,16 +112,19 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.Reconnecting += ex =>
         {
             _logger.LogWarning(ex, "[Hub] Reconnecting...");
+            RaiseStatusChanged();
             return Task.CompletedTask;
         };
         _connection.Reconnected += _ =>
         {
             _logger.LogInformation("[Hub] Reconnected");
+            RaiseStatusChanged();
             return Task.CompletedTask;
         };
         _connection.Closed += ex =>
         {
             _logger.LogWarning(ex, "[Hub] Closed");
+            RaiseStatusChanged();
             return Task.CompletedTask;
         };
 
@@ -146,6 +170,7 @@ public sealed class HubSubscriberService : BackgroundService
                 _logger.LogInformation("[Hub] Connecting to {Url}", hubUrl);
                 await connection.StartAsync(ct);
                 _logger.LogInformation("[Hub] Connected");
+                RaiseStatusChanged();
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -194,6 +219,7 @@ public sealed class HubSubscriberService : BackgroundService
             {
                 await conn.StartAsync(ct);
                 _logger.LogInformation("[Hub] Connected (via client-visit nudge)");
+                RaiseStatusChanged();
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

@@ -144,6 +144,50 @@
     to { transform: rotate(360deg); }
 }
 
+/* ── 헤더 Promaker Hub 연결 배지 ── */
+.header-hub-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-appbar-text);
+}
+.header-hub-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+.header-hub-badge-ok {
+    color: #4caf50;
+    background: rgba(76, 175, 80, 0.12);
+}
+.header-hub-badge-pending {
+    color: #ffb74d;
+    background: rgba(255, 183, 77, 0.16);
+}
+.header-hub-badge-pending .header-hub-dot {
+    animation: header-hub-pulse 1.2s ease-in-out infinite;
+}
+.header-hub-badge-down {
+    color: #ef5350;
+    background: rgba(239, 83, 80, 0.16);
+}
+.header-hub-badge-down .header-hub-dot {
+    animation: header-hub-pulse 1.6s ease-in-out infinite;
+}
+@keyframes header-hub-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
 /* ── 헤더 UserTag 알림 배지 ── */
 .header-usertag-badge {
     position: relative;
