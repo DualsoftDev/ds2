@@ -1,6 +1,7 @@
 module Ds2.LightHouse.Tests.OoxmlExtractorTests
 
 open System.IO
+open System.Text
 open System.Threading
 open Xunit
 open Ds2.LightHouse
@@ -206,3 +207,110 @@ let ``docx + inline Drawing PNG — C4-Q2 paragraph 단위 RefLocator 매핑`` (
         // segment 도 정합 — paragraph 2 의 segment RefLocator 와 image RefLocator 일치.
         let p2Segment = result.Segments |> Array.tryFind (fun s -> s.RefLocator = "p=2")
         Assert.True(p2Segment.IsSome, "p=2 segment 가 박제되어 ChunkId 매핑 가능해야 함"))
+
+
+/// **s6-r21 (s6-r16 backlog 해소)** — image-only paragraph (text=0 + Drawing) 박제 docx.
+/// paragraph 1 = 일반 본문 / paragraph 2 = Drawing 만 (text 없음) / paragraph 3 = 후속 본문 (caption).
+let private makeDocxWithImageOnlyParagraph (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let imgPart = main.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = main.GetIdOfPart(imgPart)
+
+    let body = Body()
+    // paragraph 1 — 일반 본문.
+    let p1 = Paragraph()
+    let r1 = Run()
+    r1.AppendChild(Text("앞 본문")) |> ignore
+    p1.AppendChild(r1) |> ignore
+    body.AppendChild(p1) |> ignore
+
+    // paragraph 2 — Drawing only (text 없음).
+    let p2 = Paragraph()
+    let r2 = Run()
+    let drawingXml =
+        sprintf """<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="1" name="Pic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="Pic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>""" relId
+    let drawing = Drawing(drawingXml)
+    r2.AppendChild(drawing) |> ignore
+    p2.AppendChild(r2) |> ignore
+    body.AppendChild(p2) |> ignore
+
+    // paragraph 3 — caption (image 직후 본문).
+    let p3 = Paragraph()
+    let r3 = Run()
+    r3.AppendChild(Text("그림 1. 컨베이어 사양")) |> ignore
+    p3.AppendChild(r3) |> ignore
+    body.AppendChild(p3) |> ignore
+
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+[<Fact>]
+let ``docx + image-only paragraph — s6-r21 backlog 해소, paraOrdinal 증가 + image 박제`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithImageOnlyParagraph path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // image 1장 박제 (이전엔 자연 skip 됨).
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        // image-only paragraph 가 paraOrdinal 2 차지. caption (p3) 은 p=3 segment.
+        Assert.Equal("p=2", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        // segment 는 paragraph 1 + paragraph 3 만 (image-only paragraph 2 는 text=0).
+        let segRefs = result.Segments |> Array.map (fun s -> s.RefLocator) |> Array.distinct |> Array.sort
+        Assert.Equal<string[]>([| "p=1"; "p=3" |], segRefs)
+        // image 와 caption (p=3) 인접 — 검색 시 매칭 가능.
+        let captionSeg = result.Segments |> Array.find (fun s -> s.RefLocator = "p=3")
+        Assert.Contains("그림 1", captionSeg.Text))
+
+
+/// **s6-r21 (s6-r16 backlog 해소)** — header Drawing 박제 docx.
+/// body 본문 1개 + header 안 image 1장 (회사 로고 시나리오).
+let private makeDocxWithHeaderImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+
+    // body 본문.
+    let body = Body()
+    let p = Paragraph()
+    let r = Run()
+    r.AppendChild(Text("본문 텍스트")) |> ignore
+    p.AppendChild(r) |> ignore
+    body.AppendChild(p) |> ignore
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+    // header part + image.
+    let headerPart = main.AddNewPart<DocumentFormat.OpenXml.Packaging.HeaderPart>()
+    let imgPart = headerPart.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = headerPart.GetIdOfPart(imgPart)
+
+    let headerXml =
+        sprintf """<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="2" name="HeaderPic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="2" name="HeaderPic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:hdr>""" relId
+    use hdrStream = headerPart.GetStream(FileMode.Create, FileAccess.Write)
+    use writer = new System.IO.StreamWriter(hdrStream, Encoding.UTF8)
+    writer.Write(headerXml)
+    writer.Flush()
+
+[<Fact>]
+let ``docx + header image — s6-r21 backlog 해소, RefLocator="header=1"`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithHeaderImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // body 본문 segment 1 + header image 1.
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        Assert.Equal("header=1", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(Png, img.Format)
+        Assert.Equal(samplePngBytes.Length, img.Bytes.Length))

@@ -126,6 +126,10 @@ type OoxmlExtractor() =
                                     sprintf "OoxmlExtractor: Drawing image 추출 실패 (paraOrd=%d try-ord=%d relId=%s) — path=%s, ex=%s"
                                         paraOrd imgOrdInBlock relId path ex.Message)
 
+            // helper: block 안 Drawing.Blip 존재 여부 — image-only 분리 분기 검사.
+            let hasInlineDrawing (block: OpenXmlElement) : bool =
+                block.Descendants<Blip>() |> Seq.exists (fun b -> not (isNull b.Embed) && b.Embed.HasValue)
+
             for elem in body.ChildElements do
                 ct.ThrowIfCancellationRequested()
                 match elem with
@@ -153,6 +157,14 @@ type OoxmlExtractor() =
                         // C4-Q2: 같은 paragraph 안의 inline Drawing → 같은 RefLocator 의 image 박제.
                         extractImagesFromBlock p (paraOrdinal + 1)
                         paraOrdinal <- paraOrdinal + 1
+                    elif hasInlineDrawing p then
+                        // **s6-r21 (s6-r16 backlog 해소)** — image-only paragraph (text=0 + Drawing 있음).
+                        // 산업 매뉴얼 docx 의 caption 직전 image-only paragraph 시나리오.
+                        // segment 는 미박제 (text=0) 이나 paraOrdinal 증가 + image 박제 → caption 검색 시
+                        // 인접 paragraph (text=N 의 다음 p=K+1 caption) 와 매칭 가능. ChunkId 매핑은 None
+                        // (segment 가 없는 paragraph 라 chunks 도 없음) — 의도된 정합.
+                        extractImagesFromBlock p (paraOrdinal + 1)
+                        paraOrdinal <- paraOrdinal + 1
                 | :? Table as tbl ->
                     let text =
                         let raw = tbl.InnerText
@@ -164,9 +176,75 @@ type OoxmlExtractor() =
                             RefLocator = sprintf "p=%d" (paraOrdinal + 1)
                             Text = text
                         }
+                        // **table cell 단위 매핑 미지원 backlog (s6-r16 잔여)** — `tbl.Descendants<Blip>()` 가
+                        // cell 안 image 까지 enumerate 하지만 RefLocator 는 table block 의 paraOrdinal 로 통일.
+                        // cell 단위 grounding 손실. scheme 확장 (`p=%d.cell=%d.p=%d`) 별 turn 박제 의무.
+                        extractImagesFromBlock tbl (paraOrdinal + 1)
+                        paraOrdinal <- paraOrdinal + 1
+                    elif hasInlineDrawing tbl then
+                        // image-only table (text=0 + Drawing) — 본격 시나리오는 드물지만 paragraph 와 동일 정합.
                         extractImagesFromBlock tbl (paraOrdinal + 1)
                         paraOrdinal <- paraOrdinal + 1
                 | _ -> ()
+
+            // **s6-r21 (s6-r16 backlog 해소)** — header / footer Drawing 커버.
+            // 일반 산업 docx 의 로고/머리말 image. RefLocator scheme = `header=%d` / `footer=%d` (1-based,
+            // mainPart.HeaderParts / FooterParts 순서). chunks 와의 매칭은 미보장 (header text 가 chunk 화 안 됨)
+            // — image-only 시나리오와 동일 정합 (ChunkId None).
+            //
+            // **comments / footnotes / endnotes Drawing**: 산업 docx 에서 빈도 매우 낮고 ContentType 분포도
+            // 다양 (메타 image 류) — 본 phase scope 외, 별 turn 박제. (HeaderParts/FooterParts 만 진입.)
+            let extractImagesFromOpenXmlPart (part: OpenXmlPart) (refLocator: string) =
+                let imgMap =
+                    part.Parts
+                    |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
+                    |> Map.ofSeq
+                let mutable ord = 1
+                if not (isNull part.RootElement) then
+                    for blip in part.RootElement.Descendants<Blip>() do
+                        if not (isNull blip.Embed) && blip.Embed.HasValue then
+                            let relId = blip.Embed.Value
+                            match Map.tryFind relId imgMap with
+                            | None -> ()
+                            | Some imgPart ->
+                                try
+                                    let fmtOpt =
+                                        match imgPart.ContentType with
+                                        | "image/png"  -> Some Png
+                                        | "image/jpeg" -> Some Jpeg
+                                        | "image/gif"  -> Some Gif
+                                        | "image/webp" -> Some Webp
+                                        | _ -> None
+                                    match fmtOpt with
+                                    | None -> ()
+                                    | Some fmt ->
+                                        use stream = imgPart.GetStream()
+                                        use ms = new MemoryStream()
+                                        stream.CopyTo(ms)
+                                        let bytes = ms.ToArray()
+                                        if bytes.Length > 0 then
+                                            images.Add {
+                                                Bytes = bytes
+                                                Format = fmt
+                                                Width = None
+                                                Height = None
+                                                RefLocator = refLocator
+                                                Ordinal = ord
+                                            }
+                                            ord <- ord + 1
+                                with ex ->
+                                    Log.lighthouse.Warn(
+                                        sprintf "OoxmlExtractor: header/footer image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
+                                            refLocator ord relId path ex.Message)
+
+            let mutable headerOrd = 1
+            for hp in mainPart.HeaderParts do
+                extractImagesFromOpenXmlPart hp (sprintf "header=%d" headerOrd)
+                headerOrd <- headerOrd + 1
+            let mutable footerOrd = 1
+            for fp in mainPart.FooterParts do
+                extractImagesFromOpenXmlPart fp (sprintf "footer=%d" footerOrd)
+                footerOrd <- footerOrd + 1
 
             {
                 DocType = Docx

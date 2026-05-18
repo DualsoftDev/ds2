@@ -41,6 +41,21 @@ type AttachmentTools() =
     [<Literal>]
     static let MaxImagesPerResponse = 5
 
+    /// **--review M3 정합 (s6-r21)** — `ImageCache.MimeType` 빈/NULL row 의 mime 추론 (확장자 기반).
+    /// 정상 색인 경로 (`Indexer.ingestImagesIntoStore`) 는 항상 mime 박제 (`ImageStore.mimeOf`). 다만 legacy zip
+    /// import / 외부 source 의 row 가 빈 mime 일 수 있어 fallback 필요. blob 파일 경로의 확장자로 추론.
+    /// 미지원 확장자 → `"application/octet-stream"` 반환 (caller 가 skip 결정 보강 가능).
+    static let inferMimeFromPath (storedPath: string) : string =
+        if String.IsNullOrEmpty storedPath then "application/octet-stream"
+        else
+            let ext = System.IO.Path.GetExtension(storedPath).TrimStart('.').ToLowerInvariant()
+            match ext with
+            | "png"  -> "image/png"
+            | "jpg" | "jpeg" -> "image/jpeg"
+            | "gif"  -> "image/gif"
+            | "webp" -> "image/webp"
+            | _      -> "application/octet-stream"
+
     /// HttpContext.Items 의 SessionState 추출. 누락 시 InvalidOperationException (방어 — SessionAuth 가 항상 박제 의무).
     static let activeSession (accessor: IHttpContextAccessor) : SessionState =
         let ctx = accessor.HttpContext
@@ -317,12 +332,17 @@ type AttachmentTools() =
                                 oversizeCount <- oversizeCount + 1
                             else
                                 let bytes = File.ReadAllBytes storedPath
+                                // --review M3 정합 (s6-r21) — mime 빈/NULL row 시 확장자 추론 fallback.
+                                // 정상 색인 경로는 mime 항상 박제. legacy zip / 외부 source 안전망.
+                                let effectiveMime =
+                                    if String.IsNullOrWhiteSpace mime then inferMimeFromPath storedPath
+                                    else mime
                                 // SDK 1.2.0 의 `ImageContentBlock.Data` 는 *base64-encoded UTF-8 bytes* SSOT
                                 // (XML doc 명시). raw bytes 를 직접 박으면 wire 의 image data 가 invalid base64
                                 // 로 전달되어 client 측 디코딩 실패 (--review C1 검증 결과).
                                 // `FromBytes(bytes, mime)` factory 가 raw → DecodedData 박제 + Data 슬롯에
                                 // lazy base64 인코딩 — 정합 SSOT.
-                                let block = ImageContentBlock.FromBytes(ReadOnlyMemory<byte>(bytes), mime)
+                                let block = ImageContentBlock.FromBytes(ReadOnlyMemory<byte>(bytes), effectiveMime)
                                 imgBlocks.Add(block :> ContentBlock)
                         with ex ->
                             // per-image fail-safe — log skip + 후속 image 진행 (자가 검열 m4 정합).
