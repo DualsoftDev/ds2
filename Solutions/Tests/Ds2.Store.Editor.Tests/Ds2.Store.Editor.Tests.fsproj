@@ -20,6 +20,13 @@
     <Compile Include="SimulationTests.fs" />
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
+    <Compile Include="RuntimeCommandPolicyTests.fs" />
+    <Compile Include="RuntimeModeTransitionTests.fs" />
+    <Compile Include="StepPrimingPlanTests.fs" />
+    <Compile Include="GraphValidatorProjectionTests.fs" />
+    <Compile Include="SimulationProjectionTests.fs" />
+    <Compile Include="TokenTraversalSessionTests.fs" />
+    <Compile Include="EngineAwareHomingPlanTests.fs" />
     <Compile Include="UndoMergeTests.fs" />
     <Compile Include="StoreRevisionTests.fs" />
     <Compile Include="Program.fs" />

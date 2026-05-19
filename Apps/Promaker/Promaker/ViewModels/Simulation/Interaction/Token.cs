@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Model;
 using Ds2.Core.Store;
 
@@ -31,8 +32,13 @@ public partial class SimulationPanelState
         AddSimLog($"토큰 수동 투입: {SelectedTokenSource.Name} ← {FormatTokenDisplay(token)}");
     }
 
-    private bool CanSeedToken() => IsSimulating && !IsSimPaused && !IsHomingPhase && SelectedTokenSource is not null
-        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring);
+    private bool CanSeedToken() =>
+        RuntimeCommandPolicy.canSeedToken(
+            IsSimulating,
+            IsSimPaused,
+            IsHomingPhase,
+            SelectedRuntimeMode,
+            SelectedTokenSource is not null);
 
     private void InitTokenSources()
     {

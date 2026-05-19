@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.IO;
 using Ds2.Runtime.Model;
 using Ds2.Runtime.Report;
@@ -285,13 +286,18 @@ public partial class SimulationPanelState : ObservableObject
     {
         if (_suppressRuntimeModeChangeHandler) return;
 
-        // Simulation 외 모드는 외부 Hub 신호 + I/O 매핑 필수.
-        // I/O 미설정 상태에서 Control/VP/Monitoring 진입하면 시뮬 진행 불가 → 경고 + 이전 모드 revert.
-        if (value != RuntimeMode.Simulation && !HasIOConfigured())
+        // 결정 (I/O 미설정 차단 + 메시지 + cleanup 플래그) 은 F# 에 위임.
+        var decision = RuntimeModeTransition.evaluate(
+            value,
+            HasIOConfigured(),
+            IsRealPlcConnected,
+            IsContinuousInjectionEnabled);
+
+        if (!decision.Accepted)
         {
+            var msg = decision.RejectionMessage?.Value ?? "";
             Dialogs.DialogHelpers.ShowThemedMessageBox(
-                $"{value} 모드는 I/O 매핑 (ApiCall 의 OutTag/InTag 주소) 이 설정되어야 사용할 수 있습니다.\n\n" +
-                "프로젝트에 I/O 를 먼저 설정한 후 다시 시도해 주세요.",
+                msg,
                 "I/O 미설정",
                 System.Windows.MessageBoxButton.OK,
                 Dialogs.DialogHelpers.IconWarn);
@@ -310,12 +316,10 @@ public partial class SimulationPanelState : ObservableObject
         SetHubStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
 
-        // 모드 전환 시 트레이 상태가 남아있으면 정리 (Monitoring 외 모드에서는 트레이 무의미).
-        if (value != RuntimeMode.Monitoring)
+        if (decision.ShouldRestoreTray)
             FireTrayRestore();
 
-        // 전환 후 연속투입 비가용 모드면 토글 자동 해제 — stale on-state 가 다음 시뮬에 새어들지 않도록.
-        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
+        if (decision.ShouldDisableContinuousInjection)
             IsContinuousInjectionEnabled = false;
     }
 

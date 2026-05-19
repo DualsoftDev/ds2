@@ -143,7 +143,7 @@ public partial class SimulationPanelState
         }
     }
 
-    private void AddSimNode(SimIndexedEntry entry)
+    private void AddSimNode(SimulationProjection.SimulationEntry entry)
     {
         SimNodes.Add(new SimNodeRow
         {
@@ -180,7 +180,7 @@ public partial class SimulationPanelState
 
     private void ApplyWarningsToCanvas()
     {
-        var visibleWarningGuids = ExpandWarningGroups(_warningGuids);
+        var visibleWarningGuids = GraphWarningProjection.expandWarningTargets(Store, _warningGuids).ToHashSet();
         foreach (var node in _allCanvasNodes())
             node.IsWarning = visibleWarningGuids.Contains(node.Id);
         foreach (var node in _allTreeNodes())
@@ -190,11 +190,9 @@ public partial class SimulationPanelState
     /// <summary>노드 클릭 시 해당 노드의 경고를 해제합니다.</summary>
     internal void ClearWarning(Guid nodeId)
     {
-        var clearTargets = _warningGuids
-            .Where(warningGuid => ExpandWarningGroup(warningGuid).Contains(nodeId))
-            .ToList();
+        var clearTargets = GraphWarningProjection.warningGuidsForTarget(Store, _warningGuids, nodeId);
 
-        if (clearTargets.Count == 0)
+        if (clearTargets.Length == 0)
             return;
 
         _warningGuids.ExceptWith(clearTargets);
@@ -206,95 +204,6 @@ public partial class SimulationPanelState
         _warningGuids.Clear();
         foreach (var node in _allCanvasNodes().Concat(_allTreeNodes()))
             node.IsWarning = false;
-    }
-
-    private HashSet<Guid> ExpandWarningGroups(IEnumerable<Guid> warningGuids)
-    {
-        var expanded = new HashSet<Guid>();
-        foreach (var warningGuid in warningGuids)
-            expanded.UnionWith(ExpandWarningGroup(warningGuid));
-        return expanded;
-    }
-
-    private HashSet<Guid> ExpandWarningGroup(Guid warningGuid)
-    {
-        if (Store.Works.ContainsKey(warningGuid))
-            return ExpandWorkWarningGroup(warningGuid);
-
-        if (Store.Calls.ContainsKey(warningGuid))
-            return ExpandCallWarningGroup(warningGuid);
-
-        return [warningGuid];
-    }
-
-    private HashSet<Guid> ExpandWorkWarningGroup(Guid warningGuid)
-    {
-        var originalId = Queries.resolveOriginalWorkId(warningGuid, Store);
-        var expanded = Store.Works.Values
-            .Where(work =>
-                work.Id == originalId
-                || OptionEquals(work.ReferenceOf, originalId))
-            .Select(work => work.Id)
-            .ToHashSet();
-
-        expanded.UnionWith(ExpandCallsReferencingWork(originalId));
-        return expanded;
-    }
-
-    private HashSet<Guid> ExpandCallWarningGroup(Guid warningGuid)
-    {
-        var originalId = Queries.resolveOriginalCallId(warningGuid, Store);
-        return [.. Store.Calls.Values
-            .Where(call =>
-                call.Id == originalId
-                || OptionEquals(call.ReferenceOf, originalId))
-            .Select(call => call.Id)];
-    }
-
-    private HashSet<Guid> ExpandCallsReferencingWork(Guid originalWorkId)
-    {
-        var originalCallIds = Store.Calls.Values
-            .Where(call => CallReferencesWork(call, originalWorkId))
-            .Select(call => Queries.resolveOriginalCallId(call.Id, Store))
-            .ToHashSet();
-
-        return [.. Store.Calls.Values
-            .Where(call => originalCallIds.Contains(Queries.resolveOriginalCallId(call.Id, Store)))
-            .Select(call => call.Id)];
-    }
-
-    private bool CallReferencesWork(Call call, Guid originalWorkId)
-    {
-        foreach (var apiCall in call.ApiCalls)
-        {
-            if (!TryGetGuid(apiCall.ApiDefId, out var apiDefId))
-                continue;
-
-            if (!Store.ApiDefs.TryGetValue(apiDefId, out var apiDef))
-                continue;
-
-            if (OptionEquals(apiDef.TxGuid, originalWorkId) || OptionEquals(apiDef.RxGuid, originalWorkId))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool OptionEquals(FSharpOption<Guid>? option, Guid expected) =>
-        option is { } some
-        && FSharpOption<Guid>.get_IsSome(some)
-        && some.Value == expected;
-
-    private static bool TryGetGuid(FSharpOption<Guid>? option, out Guid value)
-    {
-        if (option is { } some && FSharpOption<Guid>.get_IsSome(some))
-        {
-            value = some.Value;
-            return true;
-        }
-
-        value = default;
-        return false;
     }
 
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)
@@ -312,49 +221,10 @@ public partial class SimulationPanelState
             GanttChart.AddEntry(entry.Id, entry.Name, entry.Kind, entry.ParentWorkId, entry.SystemName);
     }
 
-    private IEnumerable<SimIndexedEntry> EnumerateSimulationEntries()
+    private IEnumerable<SimulationProjection.SimulationEntry> EnumerateSimulationEntries()
     {
-        if (_simEngine is null) yield break;
-
-        var index = _simEngine.Index;
-        var activeSystemNames = index.ActiveSystemNames;
-        foreach (var workGuid in index.AllWorkGuids)
-        {
-            // Reference Work는 간트에서 제외 (원본에서 동일 정보 표시)
-            var canonical = index.WorkCanonicalGuids.TryFind(workGuid);
-            if (canonical != null && canonical.Value != workGuid)
-                continue;
-
-            var workName = index.WorkName.TryFind(workGuid);
-            var systemName = index.WorkSystemName.TryFind(workGuid);
-            if (workName == null || systemName == null) continue;
-            // Device System(ADV, RET 등)의 Work/Call은 Gantt/SimNode에서 제외
-            if (!activeSystemNames.Contains(systemName.Value)) continue;
-
-            yield return new SimIndexedEntry(workGuid, workName.Value, EntityKind.Work, systemName.Value);
-
-            var callGuids = index.WorkCallGuids.TryFind(workGuid);
-            if (callGuids == null) continue;
-
-            foreach (var callGuid in callGuids.Value)
-            {
-                // Reference Call은 간트에서 제외 (원본에서 동일 정보 표시)
-                var callCanonical = index.CallCanonicalGuids.TryFind(callGuid);
-                if (callCanonical != null && callCanonical.Value != callGuid)
-                    continue;
-
-                var call = Queries.getCall(callGuid, Store);
-                if (call == null) continue;
-
-                yield return new SimIndexedEntry(callGuid, call.Value.Name, EntityKind.Call, systemName.Value, workGuid);
-            }
-        }
+        return _simEngine is null
+            ? []
+            : SimulationProjection.indexedEntries(_simEngine.Index);
     }
-
-    private readonly record struct SimIndexedEntry(
-        Guid Id,
-        string Name,
-        EntityKind Kind,
-        string SystemName,
-        Guid? ParentWorkId = null);
 }
