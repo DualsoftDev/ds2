@@ -527,11 +527,11 @@ public sealed class LightHouseClientTests
         await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
 
         Assert.Equal(3, received.Count);
-        Assert.Equal("keepalive", received[0].Event);
+        Assert.Equal(ServerEventNames.Keepalive, received[0].Event);
         Assert.Null(received[0].CollectionId);
-        Assert.Equal("collection-added", received[1].Event);
+        Assert.Equal(ServerEventNames.CollectionAdded, received[1].Event);
         Assert.Equal("abc-123", received[1].CollectionId);
-        Assert.Equal("collection-deleted", received[2].Event);
+        Assert.Equal(ServerEventNames.CollectionDeleted, received[2].Event);
 
         // 헤더 검증 — Bearer + X-User-Identity 자동 동봉.
         var req = handler.Requests.Single();
@@ -572,7 +572,7 @@ public sealed class LightHouseClientTests
         await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
 
         Assert.Single(received);
-        Assert.Equal("collection-added", received[0].Event);
+        Assert.Equal(ServerEventNames.CollectionAdded, received[0].Event);
     }
 
     [Fact]
@@ -603,6 +603,77 @@ public sealed class LightHouseClientTests
         await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
 
         Assert.Single(received);
-        Assert.Equal("keepalive", received[0].Event);
+        Assert.Equal(ServerEventNames.Keepalive, received[0].Event);
+    }
+
+
+    // ── D-S7-2c PublishCaptionProgressAsync ─────────────────────────────────────
+
+    [Fact]
+    public async Task PublishCaptionProgressAsync_sends_body_and_headers()
+    {
+        var (client, handler) = MakeClient(psk: "psk-cp", userIdentity: "cp@ex.com");
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.NoContent);
+
+        await client.PublishCaptionProgressAsync("col-xyz", 42, "5/120 image");
+
+        var req = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Post, req.Method);
+        Assert.Equal(BaseUrl + "events/caption-progress", req.RequestUri!.ToString());
+        Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.Equal("psk-cp", req.Headers.Authorization.Parameter);
+        Assert.Equal("cp@ex.com", req.Headers.GetValues("X-User-Identity").Single());
+
+        var body = handler.RequestBodies.Single();
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("col-xyz", doc.RootElement.GetProperty("collectionId").GetString());
+        Assert.Equal(42, doc.RootElement.GetProperty("progress").GetInt32());
+        Assert.Equal("5/120 image", doc.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task PublishCaptionProgressAsync_omits_null_message()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.NoContent);
+
+        await client.PublishCaptionProgressAsync("c1", 0);
+
+        var body = handler.RequestBodies.Single();
+        using var doc = JsonDocument.Parse(body);
+        // JsonOptions.DefaultIgnoreCondition = WhenWritingNull → message 필드 wire 누락.
+        Assert.False(doc.RootElement.TryGetProperty("message", out _));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public async Task PublishCaptionProgressAsync_progress_out_of_range_throws(int progress)
+    {
+        var (client, _) = MakeClient();
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            client.PublishCaptionProgressAsync("c1", progress));
+    }
+
+    [Fact]
+    public async Task PublishCaptionProgressAsync_empty_collectionId_throws()
+    {
+        var (client, _) = MakeClient();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.PublishCaptionProgressAsync("", 50));
+    }
+
+    [Fact]
+    public async Task PublishCaptionProgressAsync_401_throws_LightHouseAuthException()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("psk rejected"),
+        };
+
+        var ex = await Assert.ThrowsAsync<LightHouseAuthException>(() =>
+            client.PublishCaptionProgressAsync("c1", 50));
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
     }
 }
