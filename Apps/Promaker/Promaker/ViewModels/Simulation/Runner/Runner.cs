@@ -36,7 +36,7 @@ public partial class SimulationPanelState
         _simEngine = null;
         _runtimeSession = null;
         _passiveInference = null;
-        ClearContinuousSourceCycle();
+        ContinuousInjection.ClearCycle();
 
         try
         {
@@ -79,12 +79,11 @@ public partial class SimulationPanelState
     // 사용자가 "Pause = 라인 멈춤" 으로 오해하는 안전 위험 차단. 실 라인 정지는 STOP 사용
     // (BroadcastClearOwnOutputsAsync 로 모든 OUT 을 false 송출 → 솔레노이드 OFF).
     private bool CanPauseSimulation() =>
-        RuntimeCommandPolicy.canPauseSimulation(
-            IsSimulating,
-            IsSimPaused,
-            IsHomingPhase,
-            SelectedRuntimeMode,
-            IsRealPlcConnected);
+        SimulationCommandFacade.IsAccepted(DecidePause());
+
+    private SimulationCommandFacade.Decision DecidePause() =>
+        SimulationCommandFacade.DecidePause(
+            IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode, IsRealPlcConnected);
 
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
@@ -98,10 +97,10 @@ public partial class SimulationPanelState
         if (_simEngine is not null)
             _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
         IsHomingPhase = false;
-        StopHub();
+        Hub.Stop();
         ClearSimStateFromCanvas();
         ClearAllWarnings();
-        ClearContinuousSourceCycle();
+        ContinuousInjection.ClearCycle();
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
@@ -124,22 +123,22 @@ public partial class SimulationPanelState
         {
             // 활성 traversal 들을 finalize → KPI 집계가 모든 토큰을 본다.
             // (분기 도중 stuck 된 branch 까지 포함; 완주 branch 가 있으면 그 max 시각으로 기록.)
-            FinalizePendingTraversals();
+            TokenTraversal.FinalizePending();
             if (SelectedRuntimeMode == RuntimeMode.Simulation)
-                TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
+                Report.TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
         }
         catch { /* best-effort */ }
 
         // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
         // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
-        ResetTraversalTracking();
+        TokenTraversal.Reset();
 
         // 트레이 모드였다면 윈도우 복원 + 아이콘 제거. 평소 모드면 no-op.
-        FireTrayRestore();
+        Tray.FireRestore();
     }
 
     private bool CanStopSimulation() =>
-        RuntimeCommandPolicy.canStopSimulation(IsSimulating);
+        SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideStop(IsSimulating));
 
     private void InitSceneEventHandler()
     {
@@ -168,7 +167,7 @@ public partial class SimulationPanelState
     }
 
     private bool CanResetSimulation() =>
-        RuntimeCommandPolicy.canResetSimulation(IsSimulating);
+        SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideReset(IsSimulating));
 
     private void DisposeSimEngine()
     {
@@ -182,8 +181,7 @@ public partial class SimulationPanelState
     private void ApplySimulationResetUiState(bool clearCollections)
     {
         GanttChart.IsRunning = false;
-        _stateChangeRecords.Clear();
-        HasReportData = false;
+        Report.Clear();
         SimClock = SimText.ClockZero;
         SelectedSimWork = null;
         IsSimulating = false;
@@ -194,7 +192,7 @@ public partial class SimulationPanelState
         SimStatusText = SimText.Stopped;
         _stateCache.Clear();
         _suppressedWarnings.Clear();
-        ClearContinuousSourceCycle();
+        ContinuousInjection.ClearCycle();
         ClearSimStateFromCanvas();
 
         if (clearCollections)

@@ -49,36 +49,41 @@ public partial class MainViewModel
 
         if (addedId is { } id)
         {
+            // 엔티티 추가 — Tree 확장 + RebuildAll + 시뮬 store 변경 알림. RefreshScope 는 All 매핑이지만
+            // 추가 노드를 확장/선택하는 hook (ExpandAndSelectNode) 가 RebuildAll 콜백에 필요해 명시 처리.
             RequestRebuildAll(() => Selection.ExpandAndSelectNode(id));
             Simulation.NotifyStoreChanged();
             return;
         }
 
+        // ── ID/payload 가 필요하거나 RefreshScope 외 부수효과가 있는 case ─────────────────────
         switch (evt)
         {
             case EditorEvent.EntityRenamed ren:
+                // 이름만 갱신 — 전체 재구축 없이 tree/canvas/property panel 의 name 필드만 직접 patch.
                 ApplyEntityRename(ren.id, ren.newName, ren.treeName);
                 return;
 
             case EditorEvent.HistoryChanged h:
                 RebuildHistoryItems(h.undoLabels, h.redoLabels);
                 UpdateTitle();
-                return;
-
-            case EditorEvent.WorkPropsChanged:
-            case EditorEvent.ApiDefPropsChanged:
-                PropertyPanel.Refresh();
-                Simulation.NotifyStoreChanged();
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 return;
 
             case EditorEvent.SystemPropsChanged:
-                PropertyPanel.Refresh();
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 Simulation.NotifyStoreChanged();
                 ResyncView3DIfOpen();
                 return;
 
+            case EditorEvent.WorkPropsChanged:
+            case EditorEvent.ApiDefPropsChanged:
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
+                Simulation.NotifyStoreChanged();
+                return;
+
             case EditorEvent.CallPropsChanged cp:
-                PropertyPanel.Refresh();
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 RefreshCallConditionBadge(cp.id);
                 Simulation.NotifyStoreChanged();
                 return;
@@ -88,43 +93,42 @@ public partial class MainViewModel
             case EditorEvent.ArrowCallAdded:
             case EditorEvent.ArrowCallRemoved:
             case { IsConnectionsChanged: true }:
-                // 노드 visual을 보존하고 화살표 set만 diff(add/remove/replace) 적용.
-                // 노드 100+ 환경에서 ContentPresenter 전체 재생성 비용을 회피.
+                // 노드 visual을 보존하고 화살표 set만 diff 적용 (ApplyRefreshScope 의 Canvas 분기).
+                // 추가로 시뮬 + 화살표 선택 visual 동기화.
                 Simulation.NotifyConnectionsChanged();
-                CanvasManager.ApplyConnectionsChangedToAllPanes();
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 Selection.ApplyArrowSelectionVisuals();
                 return;
 
             case EditorEvent.EntitiesMoved moved:
-                // 노드 위치만 변경된 경량 이벤트: 트리/visual tree 재구축 없이
-                // 이동된 노드 위치 + 인접 화살표 path만 갱신 (드래그 끝 hitch 제거).
+                // 이동된 노드 ID 가 payload — RefreshScope 로 일반화 불가, 직접 처리.
                 CanvasManager.ApplyEntitiesMovedToAllPanes(new HashSet<Guid>(moved.ids));
                 PropertyPanel.Refresh();
                 return;
 
             case { IsStoreRefreshed: true }:
-                // LLM ApplyImportPlan 이후 store 가 갱신되면 HasProject 도 동기화 — Welcome overlay 자동 닫힘 / CloseFileCommand CanExecute 갱신.
+                // LLM ApplyImportPlan 이후 store 갱신 — HasProject 동기화 후 RefreshScope.All 로 RebuildAll.
                 HasProject = Queries.allProjects(_store).Any();
-                RequestRebuildAll();
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 return;
         }
 
-        if (!TryEditorFunc(
-                () => _store.IsTreeStructuralEvent(evt),
-                out var isTreeStructuralEvent,
-                fallback: false))
-            return;
+        // ── 그 외 모든 EditorEvent — RefreshScopeDecision 매핑 기반 단일 분기 ───────────────────
+        var scope = RefreshScopeDecision.ForEditorEvent(evt);
 
-        if (isTreeStructuralEvent)
+        if (scope == RefreshScope.None)
         {
+            Log.Warn($"Unhandled event: {evt.GetType().Name}");
+            StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
             RequestRebuildAll();
-            Simulation.NotifyStoreChanged();
             return;
         }
 
-        Log.Warn($"Unhandled event: {evt.GetType().Name}");
-        StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
-        RequestRebuildAll();
+        ApplyRefreshScope(scope);
+
+        // Tree structural 변경 (System/Flow/Work/Call/ApiDef Added/Removed 등 — scope = All) 은 시뮬 store 갱신 알림.
+        if (scope.Contains(RefreshScope.Tree) && scope.Contains(RefreshScope.PropertyPanel))
+            Simulation.NotifyStoreChanged();
     }
 
     private void RefreshCallConditionBadge(Guid callId)

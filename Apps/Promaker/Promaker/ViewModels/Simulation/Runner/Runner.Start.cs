@@ -31,8 +31,8 @@ public partial class SimulationPanelState
         }
 
         // Monitoring + 실 PLC 시 트레이 전환 동의 확인 — 사용자가 취소하면 시작 중단.
-        // 동의 시 TrayTransitionPending=true 로 두고, 시작 흐름 끝에 FireTrayTransitionIfPending() 호출.
-        if (!TryAcquireTrayConsent())
+        // 동의 시 TransitionPending=true 로 두고, 시작 흐름 끝에 Tray.FireTransitionIfPending() 호출.
+        if (!Tray.TryAcquireConsent())
             return;
 
         try
@@ -87,24 +87,24 @@ public partial class SimulationPanelState
             }
 
             // Hub 시작/연결 (Simulation 모드 이외)
-            if (!TryStartHub())
+            if (!Hub.TryStart())
                 return;
 
             Action<string, string>? writeTagAction = null;
-            if (_hubConnection is not null && SelectedRuntimeMode == RuntimeMode.Control)
+            if (Hub.Connection is not null && SelectedRuntimeMode == RuntimeMode.Control)
             {
-                var hub = _hubConnection;
-                var hubGeneration = CurrentHubGeneration;
-                var sender = _hubBatchSender;
+                var hub = Hub.Connection;
+                var hubGeneration = Hub.CurrentGeneration;
+                var sender = Hub.BatchSender;
                 writeTagAction = (address, value) =>
                 {
-                    if (!IsCurrentHubConnection(hubGeneration, hub))
+                    if (!Hub.IsCurrentConnection(hubGeneration, hub))
                         return;
 
                     var state = hub.State;
                     _ = _dispatcher.BeginInvoke(() =>
                     {
-                        if (IsCurrentHubConnection(hubGeneration, hub))
+                        if (Hub.IsCurrentConnection(hubGeneration, hub))
                             AddSimLog($"[Ctrl→] Out {address}={value} (hub={state})", LogSeverity.Going);
                     });
 
@@ -174,10 +174,9 @@ public partial class SimulationPanelState
             InitSceneEventHandler();
 
             _simStartTime = DateTime.Now;
-            _stateChangeRecords.Clear();
+            Report.Clear();
             _suppressedWarnings.Clear();
             _stepPrimingDone = false;
-            HasReportData = false;
             SimEventLog.Clear();
 
             GanttChart.Reset(_simStartTime);
@@ -194,10 +193,10 @@ public partial class SimulationPanelState
             // Control 모드: Hub Tag 캐시에서 실제 IO 값 조회 → Device Work 초기 상태 싱크
             //   엔진 Start 전에 완료해야 executeApiCall 첫 호출 시 반영됨 → 동기 대기 (최대 5초)
             //   Hub 연결이 비동기라 Start 시점엔 Connecting 상태일 수 있음 → 내부에서 Connected 대기
-            if (_hubConnection is not null && _runtimeSession?.RequiresHubSnapshotSync == true)
+            if (Hub.Connection is not null && _runtimeSession?.RequiresHubSnapshotSync == true)
             {
-                var hub = _hubConnection;
-                var hubGeneration = CurrentHubGeneration;
+                var hub = Hub.Connection;
+                var hubGeneration = Hub.CurrentGeneration;
                 var runtimeSession = _runtimeSession;
                 try
                 {
@@ -207,13 +206,13 @@ public partial class SimulationPanelState
                         // Hub 연결 대기 (최대 3초)
                         var waitStart = DateTime.Now;
                         while (hub.State != HubConnectionState.Connected
-                               && IsCurrentHubConnection(hubGeneration, hub)
+                               && Hub.IsCurrentConnection(hubGeneration, hub)
                                && runtimeSession is not null
                                && (DateTime.Now - waitStart).TotalMilliseconds < runtimeSession.HubConnectionWaitTimeoutMs)
                         {
                             await Task.Delay(50);
                         }
-                        if (hub.State != HubConnectionState.Connected || !IsCurrentHubConnection(hubGeneration, hub))
+                        if (hub.State != HubConnectionState.Connected || !Hub.IsCurrentConnection(hubGeneration, hub))
                             return false;
                         if (runtimeSession is null)
                             return false;
@@ -264,17 +263,18 @@ public partial class SimulationPanelState
                 SimStatusText = isPassive ? "Hub 신호 대기 중..." : SimText.Running;
 
             // 시작 정상 종료 — Monitoring + RealPLC 동의가 있었으면 트레이로 전환.
-            FireTrayTransitionIfPending();
+            Tray.FireTransitionIfPending();
         }
         catch (Exception ex)
         {
             SimLog.Error("Simulation start failed", ex);
             _setStatusText(SimText.SimulationError(ex.Message));
             // 시작 실패 시 트레이 보류 플래그 해제 — 다음 시도 때 다시 confirm.
-            TrayTransitionPending = false;
+            Tray.TransitionPending = false;
         }
     }
 
     private bool CanStartSimulation() =>
-        RuntimeCommandPolicy.canStartSimulation(IsSimulating, IsSimPaused, IsHomingPhase);
+        SimulationCommandFacade.IsAccepted(
+            SimulationCommandFacade.DecideStart(IsSimulating, IsSimPaused, IsHomingPhase));
 }

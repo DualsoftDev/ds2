@@ -19,7 +19,7 @@ public partial class MainViewModel
     {
         _store.ClearHistory();
         _currentFilePath = filePath;
-        RecordCurrentFileMTime();
+        FileWatcher.RecordMTime();
         IsDirty = false;
         HasProject = true;
         LlmChatVm?.OnProjectOpened();
@@ -50,7 +50,7 @@ public partial class MainViewModel
     private void CompleteSave(string filePath, string kind)
     {
         _currentFilePath = filePath;
-        RecordCurrentFileMTime();
+        FileWatcher.RecordMTime();
         IsDirty = false;
         UpdateTitle();
         StatusText = "Saved.";
@@ -105,7 +105,7 @@ public partial class MainViewModel
         // _loadedAsLossy 는 yaml 분기에서만 set. 다른 분기 진입 직전 안전 reset.
         _loadedAsLossy = false;
 
-        if (IsYaml(fileName))
+        if (FileTypeProbe.IsYaml(fileName))
         {
             TryRunFileOperation(
                 $"Open YAML '{fileName}'",
@@ -125,7 +125,7 @@ public partial class MainViewModel
                 },
                 ex => $"YAML 불러오기 실패: {ex.Message}");
         }
-        else if (IsMermaid(fileName))
+        else if (FileTypeProbe.IsMermaid(fileName))
         {
             TryRunFileOperation(
                 $"Open Mermaid '{fileName}'",
@@ -142,7 +142,7 @@ public partial class MainViewModel
                 },
                 ex => $"Mermaid 불러오기 실패: {ex.Message}");
         }
-        else if (IsAasx(fileName))
+        else if (FileTypeProbe.IsAasx(fileName))
         {
             TryRunFileOperation(
                 $"Open AASX '{fileName}'",

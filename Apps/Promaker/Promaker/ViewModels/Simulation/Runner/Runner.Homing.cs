@@ -153,7 +153,7 @@ public partial class SimulationPanelState
                 if (!string.IsNullOrWhiteSpace(addr)) allInAddrs.Add(addr);
         foreach (var addr in allInAddrs)
         {
-            var v = await QueryTagFromManualAsync(addr);
+            var v = await Hub.QueryTagFromManualAsync(addr);
             inValues[addr] = v == "true";
         }
 
@@ -216,7 +216,7 @@ public partial class SimulationPanelState
         foreach (var addr in plan.OutsToFire)
         {
             if (!IsHomingPressed) break;   // release 시 즉시 중단
-            var ok = await WriteTagFromManualAsync(addr, "true");
+            var ok = await Hub.WriteTagFromManualAsync(addr, "true");
             if (!ok)
                 AddSimLog($"[engine-aware homing] 송신 실패: {addr}", LogSeverity.Warn);
         }
@@ -241,12 +241,9 @@ public partial class SimulationPanelState
 
     /// <summary>BeginHoming 진입 가능 조건 — XAML 측 Visibility/Enabled 와 별개로 백엔드 가드.</summary>
     public bool CanBeginHoming() =>
-        RuntimeCommandPolicy.canBeginHoming(
-            SelectedRuntimeMode,
-            IsRealPlcConnected,
-            IsSimulating,
-            IsHomingPhase,
-            IsHomingPressed);
+        SimulationCommandFacade.IsAccepted(
+            SimulationCommandFacade.DecideBeginHoming(
+                SelectedRuntimeMode, IsRealPlcConnected, IsSimulating, IsHomingPhase, IsHomingPressed));
 
     private void OnHomingPhaseCompleted(object? sender, EventArgs e)
     {

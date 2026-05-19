@@ -78,7 +78,7 @@ public partial class SimulationPanelState
 #endif
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
-        TryContinueSourceCycle(args.WorkGuid, args.NewState);
+        ContinuousInjection.TryContinue(args.WorkGuid, args.NewState);
         NotifyRuntimeIoChanged();
     }
 
@@ -107,7 +107,7 @@ public partial class SimulationPanelState
         UpdateSimNodeState(canonicalId, args.NewState);
         GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
-        RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
+        Report.RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
 
@@ -155,7 +155,7 @@ public partial class SimulationPanelState
         _stateCache.Set(nodeGuid, newState);
         UpdateSimNodeState(nodeGuid, newState);
         GanttChart.UpdateNodeState(nodeGuid, newState, timestamp);
-        RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
+        Report.RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
         UpdateSimClock();
     }
 
@@ -169,7 +169,7 @@ public partial class SimulationPanelState
         UpdateSimNodeState(canonicalId, args.NewState);
         GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
 
-        RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
+        Report.RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
 

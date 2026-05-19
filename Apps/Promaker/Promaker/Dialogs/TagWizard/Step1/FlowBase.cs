@@ -5,6 +5,7 @@ using System.Windows;
 using AAStoPLC.TagWizard;
 using Ds2.Core;
 using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
@@ -14,6 +15,7 @@ public partial class TagWizardDialog
     /// <summary>
     /// Flow 주소 로드 — ACTIVE 시스템에 속한 Flow 만 대상.
     /// (Passive 시스템의 Flow 는 PLC 주소 설정 대상이 아님)
+    /// 1000 단위 자동 할당 룰은 F# TagWizardBaseAddress 단일 source.
     /// </summary>
     private void LoadFlowBase()
     {
@@ -33,33 +35,17 @@ public partial class TagWizardDialog
                 .OrderBy(n => n)
                 .ToList();
 
-            // 기존 flow_base.txt 파일에서 설정 읽기
-            var existingConfig = ParseFlowBaseFile();
+            var existingConfig = ReadFlowBaseOverrides();
+            var assignments = TagWizardBaseAddress.AssignDefaultFlowBases(flowNames, existingConfig);
 
-            // 각 Flow에 대해 행 생성 (1000 단위로 자동 할당)
-            for (int i = 0; i < flowNames.Count; i++)
-            {
-                var flowName = flowNames[i];
-                var row = new FlowBaseRow { FlowName = flowName };
-
-                if (existingConfig.TryGetValue(flowName, out var config))
+            foreach (var a in assignments)
+                _flowBaseRows.Add(new FlowBaseRow
                 {
-                    // 기존 설정이 있으면 사용
-                    row.IW_Base = config.IW_Base?.ToString() ?? "";
-                    row.QW_Base = config.QW_Base?.ToString() ?? "";
-                    row.MW_Base = config.MW_Base?.ToString() ?? "";
-                }
-                else
-                {
-                    // 기존 설정이 없으면 1000 단위로 자동 할당 (0, 1000, 2000, ...)
-                    int baseAddress = i * 1000;
-                    row.IW_Base = baseAddress.ToString();
-                    row.QW_Base = baseAddress.ToString();
-                    row.MW_Base = baseAddress.ToString();
-                }
-
-                _flowBaseRows.Add(row);
-            }
+                    FlowName = a.FlowName,
+                    IW_Base = a.IwBase,
+                    QW_Base = a.QwBase,
+                    MW_Base = a.MwBase,
+                });
 
             Step1Section.FlowBaseStatusText.Text = flowNames.Count > 0
                 ? $"{flowNames.Count}개의 Flow를 찾았습니다."
@@ -71,12 +57,11 @@ public partial class TagWizardDialog
         }
     }
 
-    /// <summary>
-    /// Flow 별 BaseAddressOverride 를 ControlFlowProperties 에서 직접 읽어온다 (외부 파일 불필요).
-    /// </summary>
-    private Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)> ParseFlowBaseFile()
+    /// <summary>Flow 별 BaseAddressOverride 를 ControlFlowProperties 에서 직접 읽어온다.
+    /// 정수 파싱은 F# TagWizardBaseAddress.TryParseFirstNumeric 단일 source.</summary>
+    private IReadOnlyDictionary<string, TagWizardBaseAddress.FlowBaseExisting> ReadFlowBaseOverrides()
     {
-        var result = new Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, TagWizardBaseAddress.FlowBaseExisting>(StringComparer.OrdinalIgnoreCase);
         foreach (var flow in _store.Flows.Values)
         {
             var cfpOpt = flow.GetControlProperties();
@@ -84,7 +69,10 @@ public partial class TagWizardDialog
             var ov = cfpOpt.Value.BaseAddressOverride;
             if (!FSharpOption<FBBaseAddressSet>.get_IsSome(ov)) continue;
             var ba = ov.Value;
-            result[flow.Name] = (TryParseNum(ba.InputBase), TryParseNum(ba.OutputBase), TryParseNum(ba.MemoryBase));
+            result[flow.Name] = new TagWizardBaseAddress.FlowBaseExisting(
+                TagWizardBaseAddress.TryParseFirstNumeric(ba.InputBase),
+                TagWizardBaseAddress.TryParseFirstNumeric(ba.OutputBase),
+                TagWizardBaseAddress.TryParseFirstNumeric(ba.MemoryBase));
         }
         return result;
     }

@@ -33,12 +33,10 @@ public partial class SimulationPanelState
     }
 
     private bool CanSeedToken() =>
-        RuntimeCommandPolicy.canSeedToken(
-            IsSimulating,
-            IsSimPaused,
-            IsHomingPhase,
-            SelectedRuntimeMode,
-            SelectedTokenSource is not null);
+        SimulationCommandFacade.IsAccepted(
+            SimulationCommandFacade.DecideSeedToken(
+                IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode,
+                SelectedTokenSource is not null));
 
     private void InitTokenSources()
     {
@@ -67,8 +65,8 @@ public partial class SimulationPanelState
 
     private void OnTokenEvent(TokenEventArgs args)
     {
-        // 토큰별 traversal 시간 추적 (혼류 KPI 집계용)
-        OnTokenEventForTraversal(args);
+        // 토큰별 traversal 시간 추적 (혼류 KPI 집계용) — F# session 위임은 collaborator 가 처리.
+        TokenTraversal.OnTokenEvent(args);
 
         var label = FormatTokenDisplay(args.Token);
         var target = args.TargetWorkName is not null

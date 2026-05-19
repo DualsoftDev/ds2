@@ -40,8 +40,41 @@ public partial class SimulationPanelState : ObservableObject
     private ISimulationEngine? _simEngine;
     internal ISimulationEngine? SimEngine => _simEngine;
     private DateTime _simStartTime = DateTime.Now;
-    private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
+
+    /// <summary>시뮬 결과 누적/박제/내보내기 collaborator. XAML 바인딩 path 는 Report.Xxx 로 노출.</summary>
+    public SimulationReportOrchestrator Report { get; }
+
+    /// <summary>Monitoring + 실 PLC 트레이 전환 흐름 controller. 외부 wire-up 은 Tray.RequestXxx 콜백.</summary>
+    public SimulationTrayController Tray { get; }
+
+    /// <summary>토큰별 traversal 시간 추적 collaborator. F# TokenTraversalSession 위임 + origin/specLabel 결정.</summary>
+    public SimulationTokenTraversalTracker TokenTraversal { get; }
+
+    /// <summary>SignalR Hub + PLC gateway lifecycle collaborator + XAML 바인딩 표면 (IsConnected/IsReconnecting/IsHosting/StatusText/HostingLabel/IsHubHost/EffectiveHubAddress) 통합 소유. XAML 은 Simulation.Hub.X 직접 바인딩.</summary>
+    public SimulationHubBridge Hub { get; }
+
+    /// <summary>연속 토큰 투입 controller. XAML 바인딩 path 는 ContinuousInjection.IsEnabled / IsAvailable.</summary>
+    public SimulationContinuousInjectionController ContinuousInjection { get; }
+
+    // ── Hub collaborator 주입용 helper (RuntimeSession/IOMap 접근 wrapping) ─────
+    private bool HasRuntimeSession() => _runtimeSession is not null;
+
+    private bool ShouldIgnoreHubSource(string address, string value, string source) =>
+        _runtimeSession?.ShouldIgnoreHubSource(source) ?? false;
+
+    private IEnumerable<Ds2.Runtime.Engine.Passive.RuntimeHubEffect> HandleHubTag(string address, string value, string source) =>
+        _runtimeSession?.HandleHubTag(address, value, source)
+            ?? System.Linq.Enumerable.Empty<Ds2.Runtime.Engine.Passive.RuntimeHubEffect>();
+
+    private bool HasIoMap() => _simEngine?.IOMap is not null;
+
+    private IEnumerable<string> TxOutAddresses()
+    {
+        var ioMap = _simEngine?.IOMap;
+        if (ioMap is null) return System.Linq.Enumerable.Empty<string>();
+        return ioMap.TxWorkToOutAddresses.SelectMany(kv => kv.Value);
+    }
     private readonly HashSet<string> _suppressedWarnings = [];
     private readonly HashSet<Guid> _warningGuids = [];
     private bool _isStepMode;
@@ -121,6 +154,68 @@ public partial class SimulationPanelState : ObservableObject
         _allCanvasNodes = allCanvasNodes;
         _allTreeNodes = allTreeNodes;
         _setStatusText = setStatusText;
+
+        _clockInterpolator = new SimulationClockInterpolator(
+            engine:       () => _simEngine,
+            simStart:     () => _simStartTime,
+            isSimulating: () => IsSimulating,
+            isSimPaused:  () => IsSimPaused,
+            simSpeed:     () => SimSpeed);
+
+        TokenTraversal = new SimulationTokenTraversalTracker(
+            storeProvider:         storeProvider,
+            engineProvider:        () => _simEngine,
+            simStartTimeProvider:  () => _simStartTime);
+
+        Report = new SimulationReportOrchestrator(
+            engineProvider:        () => _simEngine,
+            simStartTimeProvider:  () => _simStartTime,
+            storeProvider:         storeProvider,
+            setStatusText:         setStatusText,
+            traversalsProvider:    () => TokenTraversal.Snapshot());
+
+        Tray = new SimulationTrayController(
+            runtimeModeProvider:        () => SelectedRuntimeMode,
+            isRealPlcConnectedProvider: () => IsRealPlcConnected);
+
+        ContinuousInjection = new SimulationContinuousInjectionController(
+            runtimeMode:          () => SelectedRuntimeMode,
+            isRealPlcConnected:   () => IsRealPlcConnected,
+            isSimulating:         () => IsSimulating,
+            isSimPaused:          () => IsSimPaused,
+            isHomingPhase:        () => IsHomingPhase,
+            engineProvider:       () => _simEngine,
+            storeProvider:        storeProvider,
+            addSimLog:            AddSimLog);
+
+        // RuntimeMode/PLC 토글 시 ContinuousInjection.IsAvailable 갱신 (RuntimeCommandPolicy 입력 변화).
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SelectedRuntimeMode) || e.PropertyName == nameof(IsRealPlcConnected))
+                ContinuousInjection.RaiseIsAvailableChanged();
+        };
+
+        Hub = new SimulationHubBridge(
+            runtimeMode:              () => SelectedRuntimeMode,
+            isRealPlcConnected:       () => IsRealPlcConnected,
+            isSimulating:             () => IsSimulating,
+            hubAddress:               () => HubAddress,
+            monitoringHubAddress:     () => MonitoringHubAddress,
+            setHubAddress:            v => HubAddress = v,
+            setMonitoringHubAddress:  v => MonitoringHubAddress = v,
+            plcSettings:              () => PlcSettings,
+            buildPlcGatewayConfig:    BuildPlcGatewayConfig,
+            hasRuntimeSession:        HasRuntimeSession,
+            shouldIgnoreHubSource:    ShouldIgnoreHubSource,
+            handleHubTag:             HandleHubTag,
+            resolveRuntimeHubSource:  ResolveRuntimeHubSource,
+            hasIoMap:                 HasIoMap,
+            txOutAddresses:           TxOutAddresses,
+            dispatcher:               dispatcher,
+            addSimLog:                AddSimLog,
+            setStatusText:            setStatusText,
+            setSimStatusText:         v => SimStatusText = v,
+            applyRuntimeHubEffects:   ApplyRuntimeHubEffects);
     }
 
     private DsStore Store => _storeProvider();
@@ -181,7 +276,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
-    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -189,7 +283,6 @@ public partial class SimulationPanelState : ObservableObject
     /// 같은 머신에서 Control + Monitoring 으로 동시 운용될 수 있도록 분리.</summary>
     [ObservableProperty] private string _monitoringHubAddress = "localhost:5051";
 
-    [ObservableProperty] private bool _isHubHosting;
 
     /// <summary>Control 모드에서 실 PLC 와 연결할지 여부. 체크 해제면 BackendHost 가 PLC 게이트웨이 idle 로 동작.</summary>
     [ObservableProperty]
@@ -197,10 +290,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
-    [NotifyPropertyChangedFor(nameof(IsContinuousInjectionAvailable))]
-    [NotifyPropertyChangedFor(nameof(IsHubHost))]
-    [NotifyPropertyChangedFor(nameof(EffectiveHubAddress))]
-    [NotifyPropertyChangedFor(nameof(HubHostingLabel))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _isRealPlcConnected;
 
@@ -230,54 +319,9 @@ public partial class SimulationPanelState : ObservableObject
     /// 마지막 입력값은 AppData 의 PlcConnection.json 에 저장돼 다음 실행 시 자동 로드.</summary>
     public PlcSettings PlcSettings { get; } = PlcSettings.LoadOrDefault();
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HubStatusText))]
-    private bool _isHubConnected;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HubStatusText))]
-    private bool _isHubReconnecting;
-
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
 
-    /// <summary>Control 은 항상 Promaker 자체가 Hub 호스트.
-    /// Monitoring 은 실 PLC 연결 시에만 self-host (5051, read-only) — PLC 미연결이면
-    /// 기존 동작대로 외부 Control hub (5050) 에 client 로 붙는다.
-    /// VirtualPlant 는 항상 외부 Hub client.</summary>
-    public bool IsHubHost =>
-        SelectedRuntimeMode == RuntimeMode.Control
-        || (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected);
-
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
-
-    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring + 실 PLC self-host 만 MonitoringHubAddress,
-    /// 그 외(Monitoring PLC 미연결 포함)는 HubAddress. TextBox 가 mode 별 올바른 backing field 를 편집하도록 dispatch.</summary>
-    public string EffectiveHubAddress
-    {
-        get => IsMonitoringSelfHost ? MonitoringHubAddress : HubAddress;
-        set
-        {
-            if (IsMonitoringSelfHost)
-                MonitoringHubAddress = value;
-            else
-                HubAddress = value;
-        }
-    }
-
-    /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
-    private bool IsMonitoringSelfHost =>
-        SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
-
-    public string HubStatusText =>
-        IsHubConnected ? "Hub 연결됨"
-        : IsHubReconnecting ? "Hub 재연결 시도 중"
-        : "Hub 끊김";
-
-    /// <summary>툴바에 표시할 hosting 상태 — self-host 인 모드일 때만 의미. Monitoring 은 [RO] 표시.</summary>
-    public string HubHostingLabel =>
-        !IsHubHost ? ""
-        : SelectedRuntimeMode == RuntimeMode.Monitoring ? "Self-Hosted [읽기전용]"
-        : "Self-Hosted";
 
     private RuntimeMode _previousRuntimeMode = RuntimeMode.Simulation;
     private bool _suppressRuntimeModeChangeHandler;
@@ -291,7 +335,7 @@ public partial class SimulationPanelState : ObservableObject
             value,
             HasIOConfigured(),
             IsRealPlcConnected,
-            IsContinuousInjectionEnabled);
+            ContinuousInjection.IsEnabled);
 
         if (!decision.Accepted)
         {
@@ -310,75 +354,42 @@ public partial class SimulationPanelState : ObservableObject
 
         _previousRuntimeMode = value;
         OnPropertyChanged(nameof(NeedsHubConnection));
-        OnPropertyChanged(nameof(IsHubHost));
-        OnPropertyChanged(nameof(EffectiveHubAddress));
-        OnPropertyChanged(nameof(HubHostingLabel));
-        SetHubStatus(connected: false, reconnecting: false);
+        Hub.RaiseHostingDependentsChanged();
+        Hub.SetStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
 
         if (decision.ShouldRestoreTray)
-            FireTrayRestore();
+            Tray.FireRestore();
 
         if (decision.ShouldDisableContinuousInjection)
-            IsContinuousInjectionEnabled = false;
+            ContinuousInjection.IsEnabled = false;
     }
 
     partial void OnIsRealPlcConnectedChanged(bool value)
     {
         // Control + 실 PLC 진입 시점에 연속투입 토글이 켜져 있으면 해제 (PLC owner 와 충돌 방지).
-        if (IsContinuousInjectionEnabled && !IsContinuousInjectionAvailable)
-            IsContinuousInjectionEnabled = false;
+        if (ContinuousInjection.IsEnabled && !ContinuousInjection.IsAvailable)
+            ContinuousInjection.IsEnabled = false;
+        // IsHubHost / EffectiveHubAddress / HostingLabel 은 IsRealPlcConnected 의존 → collaborator 재발화.
+        Hub.RaiseHostingDependentsChanged();
     }
 
     partial void OnHubAddressChanged(string value) =>
-        OnPropertyChanged(nameof(EffectiveHubAddress));
+        Hub.RaiseEffectiveAddressChanged();
 
     partial void OnMonitoringHubAddressChanged(string value) =>
-        OnPropertyChanged(nameof(EffectiveHubAddress));
+        Hub.RaiseEffectiveAddressChanged();
 
     partial void OnIsSimulatingChanged(bool value)
     {
-        ResetSimClockInterpolationBase();
+        _clockInterpolator.ResetBase();
         RefreshGanttTimeSource();
     }
 
     // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
-    partial void OnIsSimPausedChanged(bool value) => ResetSimClockInterpolationBase();
+    partial void OnIsSimPausedChanged(bool value) => _clockInterpolator.ResetBase();
 
-    // ── Sim clock interpolation (Gantt 빨간선 부드러운 진행용) ──
-    // sim clock 은 event-driven 이라 due 시점에만 update → 그대로 쓰면 빨간선 점프.
-    // 마지막으로 관측한 sim clock 을 base 로 잡고 (그 시점의 wall 도 함께 기록),
-    // 매 frame 에 wall 경과 × speed 만큼 sim clock 을 보간 추정해서 빨간선이 부드럽게 진행.
-    private DateTime _interpBaseWall = DateTime.Now;
-    private TimeSpan _interpBaseSim = TimeSpan.Zero;
-
-    private void ResetSimClockInterpolationBase()
-    {
-        _interpBaseWall = DateTime.Now;
-        _interpBaseSim = _simEngine?.State.Clock ?? TimeSpan.Zero;
-    }
-
-    private DateTime EstimateSimClockNow()
-    {
-        var engine = _simEngine;
-        if (engine is null) return _simStartTime + _interpBaseSim;
-
-        var actualSim = engine.State.Clock;
-        // 엔진이 새 sim clock 으로 advance → base 갱신 (이후 보간은 그 지점부터 다시 측정)
-        if (actualSim != _interpBaseSim)
-        {
-            _interpBaseSim = actualSim;
-            _interpBaseWall = DateTime.Now;
-        }
-
-        // Pause 중에는 보간 정지 — 마지막 base 그대로 반환
-        if (IsSimPaused || !IsSimulating) return _simStartTime + _interpBaseSim;
-
-        var wallElapsed = DateTime.Now - _interpBaseWall;
-        var speed = SimSpeed > 0 ? SimSpeed : 1.0;
-        var simDelta = TimeSpan.FromTicks((long)(wallElapsed.Ticks * speed));
-        return _simStartTime + _interpBaseSim + simDelta;
-    }
+    private readonly SimulationClockInterpolator _clockInterpolator;
 
     /// <summary>
     /// Gantt 빨간선의 시간 source 를 현재 모드/시뮬 상태에 맞게 갱신.
@@ -389,53 +400,18 @@ public partial class SimulationPanelState : ObservableObject
     private void RefreshGanttTimeSource()
     {
         if (IsSimulating && SelectedRuntimeMode == RuntimeMode.Simulation)
-            GanttChart.NowOverride = EstimateSimClockNow;
+            GanttChart.NowOverride = _clockInterpolator.EstimateNow;
         else
             GanttChart.NowOverride = null;
     }
 
-    private bool HasIOConfigured()
-    {
-        var store = _storeProvider();
-        var iomap = SignalIOMapModule.build(store);
-        return iomap.Mappings.Length > 0;
-    }
-
-    /// <summary>현재 IO 매핑에서 dedup 된 PLC 주소 개수 — PLC 설정 다이얼로그 안내용.</summary>
-    public int CountAutoImportablePlcAddresses()
-    {
-        var store = _storeProvider();
-        var iomap = SignalIOMapModule.build(store);
-        var set = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        foreach (var k in iomap.OutAddressToMappings.Keys)
-            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
-        foreach (var k in iomap.InAddressToMappings.Keys)
-            if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
-        return set.Count;
-    }
-
-    /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
-    /// PLAY 시점 (TryStartHub) 에서 호출. 검증 실패 시 errors 채워 null 반환.
-    /// UserTag 주소도 함께 PLC 스캔 대상으로 포함 — 그래야 DSPilot 의 UserTag 알림이
-    /// 동작 (Hub 에 그 주소 변화가 흘러야 plcTagLog 에 기록됨).</summary>
-    public Ds2.Backend.Plc.PlcGatewayConfig? BuildPlcGatewayConfig(out System.Collections.Generic.List<string> errors)
-    {
-        var store = _storeProvider();
-        var iomap = SignalIOMapModule.build(store);
-        var userTagAddresses = store.GetAllUserTagsForProject()
-            .Select(r => r.TagAddress);
-        return PlcSettings.BuildGatewayConfig(iomap, out errors, userTagAddresses);
-    }
+    // PLC IO 헬퍼는 SimulationPanelState.PlcConfig.cs partial 참조.
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
 
     [ObservableProperty] private double _simSpeed = 1.0;
     [ObservableProperty] private bool _simTimeIgnore;
     [ObservableProperty] private string _simClock = SimText.ClockZero;
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CaptureScenarioToProjectCommand))]
-    private bool _hasReportData;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]

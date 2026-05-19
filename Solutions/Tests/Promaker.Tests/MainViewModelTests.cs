@@ -34,7 +34,7 @@ public sealed class MainViewModelTests
             vm.Selection.SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);
             vm.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
 
-            vm.Simulation.HasReportData = true;
+            vm.Simulation.Report.HasReportData = true;
             vm.Simulation.SimNodes.Add(new SimNodeRow
             {
                 NodeGuid = nodeId,
@@ -66,7 +66,7 @@ public sealed class MainViewModelTests
             Assert.Empty(vm.Selection.OrderedNodeSelection);
             Assert.Empty(vm.Selection.OrderedArrowSelection);
             Assert.Empty(clipboard);
-            Assert.False(vm.Simulation.HasReportData);
+            Assert.False(vm.Simulation.Report.HasReportData);
             Assert.Empty(vm.Simulation.SimNodes);
             Assert.Empty(vm.Simulation.SimEventLog);
             Assert.Empty(vm.Simulation.SimWorkItems);

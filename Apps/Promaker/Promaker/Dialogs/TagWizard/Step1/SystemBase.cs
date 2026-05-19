@@ -6,6 +6,7 @@ using AAStoPLC.TagWizard;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -153,21 +154,20 @@ public partial class TagWizardDialog
         {
             var ba = kv.Value.BaseAddresses;
             if (ba == null) continue;
-            var iw = TryParseNum(ba.InputBase);
-            var qw = TryParseNum(ba.OutputBase);
-            var mw = TryParseNum(ba.MemoryBase);
+            var iw = ParseBaseInt(ba.InputBase);
+            var qw = ParseBaseInt(ba.OutputBase);
+            var mw = ParseBaseInt(ba.MemoryBase);
             if (iw == null && qw == null && mw == null) continue;
             result[kv.Key] = (iw, qw, mw);
         }
         return result;
     }
 
-    /// <summary>"%IW1234.0.0" / "4000" 등에서 첫 정수를 추출. 실패 시 null.</summary>
-    private static int? TryParseNum(string? s)
+    /// <summary>"%IW1234.0.0" / "4000" 등에서 첫 정수를 추출 — F# TagWizardBaseAddress 단일 source 위임.</summary>
+    private static int? ParseBaseInt(string? s)
     {
-        if (string.IsNullOrWhiteSpace(s)) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(s, @"\d+");
-        return m.Success && int.TryParse(m.Value, out var n) ? n : null;
+        var opt = TagWizardBaseAddress.TryParseFirstNumeric(s ?? "");
+        return FSharpOption<int>.get_IsSome(opt) ? opt.Value : null;
     }
 
     /// <summary>SystemBase 행을 FBTagMapPresets 에 직접 반영 — 텍스트 round-trip 불필요.</summary>

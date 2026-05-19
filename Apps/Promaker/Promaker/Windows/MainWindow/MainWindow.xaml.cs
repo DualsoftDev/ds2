@@ -93,16 +93,16 @@ public partial class MainWindow : Window
 
         // Tray 전환 콜백 wiring — Monitoring + RealPLC 시 PLAY 가 RequestTrayHide 호출.
         // STOP / 모드 전환 시 RequestTrayRestore 호출.
-        _vm.Simulation.RequestTrayHide = () =>
+        _vm.Simulation.Tray.RequestTrayHide = () =>
         {
             var tooltip = $"Promaker — Monitoring 동작중 (port {_vm.Simulation.MonitoringHubAddress})";
             _trayService.HideToTray(this, tooltip);
         };
-        _vm.Simulation.RequestTrayRestore = () => _trayService.RestoreWindow();
+        _vm.Simulation.Tray.RequestTrayRestore = () => _trayService.RestoreWindow();
 
         // Monitoring + 실 PLC PLAY 가 성공하면 DSPilot 웹 대시보드 자동 실행.
         // 트레이 컨텍스트 메뉴 "DSPilot 접속" 도 동일 동작 → 동일 launcher 사용.
-        _vm.Simulation.RequestDspilotOpen = DspilotLauncher.Open;
+        _vm.Simulation.Tray.RequestDspilotOpen = DspilotLauncher.Open;
         _trayService.DspilotOpenRequested += DspilotLauncher.Open;
 
         _trayService.StopRequested += () =>
