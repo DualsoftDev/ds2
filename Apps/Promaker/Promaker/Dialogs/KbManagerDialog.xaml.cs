@@ -15,30 +15,27 @@ using Promaker.LlmAgent;
 namespace Promaker.Dialogs;
 
 /// <summary>
-/// LightHouse KB collection 관리 — folder picker + 색인+upload + active 토글 + 제거 + 재업로드
-/// (todo-lighthouse-kb-server.md §4.2 Phase S5 / §3.6 consent / §3.8 active set / §3.9 API surface).
+/// LightHouse KB collection 관리 — multi-service TabControl + per-tab ListView (D-S7-3c, s6-r31).
+///
+/// **D-S7-3c 변경**: 단일 ListView → TabControl (각 tab = active service) + 단일 CollectionsList (선택 tab 의
+/// service 의 collection 만 표시). per-service `_rowsByServiceId` dict 로 다중 service 의 row 분리. SSE event 의
+/// `evt.ServiceId` 로 source service 식별 후 해당 service 의 rows 만 refresh.
+///
+/// orphan KbCollection (소속 service 가 Settings 에서 삭제된 entry) 정리 버튼 — 동의 후 일괄 제거.
 ///
 /// 진입: LLM Chat 패널 의 "📚 KB 관리" 버튼 (Phase S5b).
-///
-/// 책임:
-/// - server `GET /collections` 호출 + `LlmConfig.KbCollections` 와 sync (Q1 lazy reject driven)
-/// - 신규 folder 등록 시 **consent dialog 의무** (§6 m2 SSOT — multi-tenant T1 flat PII 위험 안내)
-/// - Active 토글은 즉시 LlmConfig.Save (server 무영향, 다음 chat 부터 반영 — chip 안내 §3.8 L1)
-/// - cancel button → CancellationToken trigger → ingest 중단 + staging cleanup (AttachmentIngestService 책임)
 /// </summary>
 public partial class KbManagerDialog : Window
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(KbManagerDialog));
 
     private readonly LlmConfig _config;
-    private readonly ObservableCollection<CollectionRow> _rows = new();
-    private CancellationTokenSource? _cts;
-    /// <summary>review M2 — in-flight ingest task. OnClosed 가 await 후 종료 (s5c 변경: client dispose 는 holder 책임).</summary>
-    private Task? _inflightIngestTask;
 
-    // **s6-r24 작업 2 (MJ1)** — ingest 시작 시점의 TokensUsedToday snapshot.
-    //   delta 누적 계산용 — finally 에서 (현재 - snapshot) 만 disk 에 합산.
-    //   day rollover SSOT 는 인스턴스의 *현재* `_config.VisionCostGate.LastResetUtc` 가 충분 — snapshot 불필요.
+    /// <summary>**D-S7-3c (s6-r31)** — per-service collection rows. key = ServiceId.</summary>
+    private readonly Dictionary<string, ObservableCollection<CollectionRow>> _rowsByServiceId = new();
+
+    private CancellationTokenSource? _cts;
+    private Task? _inflightIngestTask;
     private int _tokensUsedAtIngestStart;
 
     /// <summary>다이얼로그 닫힐 때 호출자에게 LlmConfig.KbCollections 변경 알림 (active 토글 / 등록 / 제거).</summary>
@@ -49,121 +46,181 @@ public partial class KbManagerDialog : Window
         InitializeComponent();
         _config = LlmConfig.Load();
 
-        // Phase S5c — LightHouseClient 는 process singleton (LightHouseClientHolder SSOT, §3.8 L2-2 정합).
-        // **review s5c M1**: client/ingest 를 필드로 잡지 않고 매 사용 시점 holder.Current 재조회 —
-        // Settings dialog 가 BaseUrl/PSK 변경 시 holder.Invalidate 호출 후 본 다이얼로그가 stale instance 를
-        // 잡고 있으면 ObjectDisposedException. modal 가정에 의존하지 않는 1차 안전망.
-        // D-S7-3b — multi-instance Holder. 본 dialog 는 단일 service path 유지 (D-S7-3c TabControl 진입 시 분리).
+        // D-S7-3c — multi-instance Holder 의 모든 active service client 보장.
         var clients = LightHouseClientHolder.EnsureCreated(_config);
         if (clients.Count == 0)
         {
             StatusChip.Text = "⚠ LightHouse Service 미설정 — 설정 > LLM 탭에서 BaseUrl + PSK 입력 후 \"연결 테스트\" 통과 필요.";
         }
 
-        CollectionsList.ItemsSource = _rows;
+        BuildServiceTabs();
         Loaded += async (_, _) => await RefreshAsync();
 
-        // D-S7-2b (s6-r28) — server SSE event 수신 시 collection list 자동 refresh.
-        // keepalive 는 silent skip. handler 가 UI thread 외부에서 호출되므로 Dispatcher 로 marshal.
+        // D-S7-2b (s6-r28) + D-S7-3c (s6-r31, ServiceId tagging) — SSE event 수신 시 해당 service 의 rows refresh.
         LightHouseClientHolder.EventReceived += OnSseEventReceived;
     }
 
     /// <summary>
-    /// D-S7-2b (s6-r28) — SSE event handler. collection-added/updated/deleted 수신 시 server registry 재조회.
-    /// keepalive 는 silent skip (stream 활성 확인 의도, UI 영향 없음).
+    /// **D-S7-3c (s6-r31)** — active service 별 TabItem 동적 생성. Tab.Header = DisplayName, Tab.Tag = ServiceId.
+    /// SelectionChanged 가 CollectionsList.ItemsSource 갱신.
+    /// </summary>
+    private void BuildServiceTabs()
+    {
+        ServicesTabControl.Items.Clear();
+        var active = _config.LightHouseServices.Where(s => s.Active).ToList();
+        foreach (var svc in active)
+        {
+            ServicesTabControl.Items.Add(new TabItem
+            {
+                Header = string.IsNullOrEmpty(svc.DisplayName) ? "(unnamed)" : svc.DisplayName,
+                Tag = svc.ServiceId,
+            });
+            if (!_rowsByServiceId.ContainsKey(svc.ServiceId))
+                _rowsByServiceId[svc.ServiceId] = new ObservableCollection<CollectionRow>();
+        }
+        if (ServicesTabControl.Items.Count > 0) ServicesTabControl.SelectedIndex = 0;
+    }
+
+    /// <summary>**D-S7-3c (s6-r31)** — 선택된 tab 의 ServiceId. tab 0개일 때 빈 문자열.</summary>
+    private string SelectedServiceId =>
+        (ServicesTabControl.SelectedItem is TabItem ti ? ti.Tag as string : null) ?? "";
+
+    /// <summary>**D-S7-3c (s6-r31)** — 선택된 tab 의 service client. null = service 미설정 또는 holder skip.</summary>
+    private LightHouseClient? SelectedClient
+    {
+        get
+        {
+            var sid = SelectedServiceId;
+            return string.IsNullOrEmpty(sid) ? null : LightHouseClientHolder.GetClient(sid);
+        }
+    }
+
+    /// <summary>**D-S7-3c (s6-r31)** — 선택된 tab 의 service 의 AttachmentIngestService.</summary>
+    private AttachmentIngestService? SelectedIngest =>
+        SelectedClient is { } c ? new AttachmentIngestService(c, Environment.UserName, _config) : null;
+
+    /// <summary>
+    /// SSE event handler — evt.ServiceId 로 source service 식별 후 해당 service 의 rows 만 refresh.
     /// </summary>
     private void OnSseEventReceived(ServerEventDto evt)
     {
         if (evt is null || string.IsNullOrEmpty(evt.Event)) return;
         if (evt.Event == "keepalive") return;
-        // collection-added / collection-updated / collection-deleted → registry 재조회.
-        // M1 (s6-r28 자가 검열 review) — close 직전 fire 된 event 가 BeginInvoke queue 에 들어가 close
-        // 후 dispatch 되면 closed window 의 UI element 갱신 — IsLoaded 체크로 race window 차단.
+        var sourceServiceId = evt.ServiceId;
         Dispatcher.BeginInvoke(new Action(async () =>
         {
             if (!IsLoaded) return;
-            try { await RefreshAsync(); }
+            try
+            {
+                if (!string.IsNullOrEmpty(sourceServiceId))
+                    await RefreshServiceAsync(sourceServiceId);
+                else
+                    await RefreshAsync();
+            }
             catch (Exception ex) { StatusChip.Text = $"⚠ SSE refresh 결함 — {ex.Message}"; }
         }));
     }
 
-    /// <summary>
-    /// 매 사용 시점 holder 재조회 (review s5c M1). null = active LightHouse service 미설정 또는 Invalidate 후.
-    /// caller 가 null 분기 (chip 안내) 처리. holder.EnsureCreated 도 안전 — config 변경 시 자동 재생성.
-    /// <para/>
-    /// **D-S7-3b (s6-r30) 임시 path** — 본 dialog 는 단일 service 가정 (첫 active service 의 client 사용).
-    /// D-S7-3c 진입 시 TabControl 분리하여 각 tab 의 service 별 GetClient(serviceId) 사용 의무.
-    /// </summary>
-    private LightHouseClient? CurrentClient => LightHouseClientHolder.EnsureCreated(_config).FirstOrDefault();
-
-    /// <summary>
-    /// AttachmentIngestService 도 매 호출 시점 신규 생성 (cost 미미 — HttpClient 는 holder 공유).
-    /// review s5c M1 정합 — caller 의 stale 참조 제거.
-    /// </summary>
-    private AttachmentIngestService? CurrentIngest =>
-        CurrentClient is { } c ? new AttachmentIngestService(c, Environment.UserName, _config) : null;
+    private void ServiceTab_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var sid = SelectedServiceId;
+        if (string.IsNullOrEmpty(sid))
+        {
+            CollectionsList.ItemsSource = null;
+            return;
+        }
+        if (!_rowsByServiceId.TryGetValue(sid, out var rows))
+        {
+            rows = new ObservableCollection<CollectionRow>();
+            _rowsByServiceId[sid] = rows;
+        }
+        CollectionsList.ItemsSource = rows;
+    }
 
     // ── refresh / sync ────────────────────────────────────────────────────────
 
+    /// <summary>**D-S7-3c (s6-r31)** — 모든 active service refresh. status chip 은 첫 결함 한 줄만 표시.</summary>
     private async Task RefreshAsync()
     {
-        var client = CurrentClient;
+        var active = _config.LightHouseServices.Where(s => s.Active).ToList();
+        if (active.Count == 0)
+        {
+            StatusChip.Text = "⚠ LightHouse Service 미설정 — 설정 > LLM 탭에서 추가하세요.";
+            UpdateOrphanButton();
+            return;
+        }
+        StatusChip.Text = $"registry 조회 중… ({active.Count} services)";
+        var failures = new List<string>();
+        foreach (var svc in active)
+        {
+            try { await RefreshServiceAsync(svc.ServiceId); }
+            catch (Exception ex) { failures.Add($"[{svc.DisplayName}] {ex.Message}"); }
+        }
+        StatusChip.Text = failures.Count == 0
+            ? $"✅ 연결됨 — {active.Count} services"
+            : $"⚠ {active.Count - failures.Count}/{active.Count} services 정상 / 결함: {failures[0]}";
+        UpdateOrphanButton();
+    }
+
+    /// <summary>**D-S7-3c (s6-r31)** — 단일 service refresh. ListCollectionsAsync + per-service rows 갱신 + KbCollections sync.</summary>
+    private async Task RefreshServiceAsync(string serviceId)
+    {
+        var client = LightHouseClientHolder.GetClient(serviceId);
         if (client is null) return;
-        StatusChip.Text = "registry 조회 중…";
-        try
+        var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
+        if (!_rowsByServiceId.TryGetValue(serviceId, out var rows))
         {
-            var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
-            StatusChip.Text = $"✅ 연결됨 — server registry {resp.Collections.Count}건";
-            RebuildRows(resp.Collections);
-            ReconcileLlmConfig(resp.Collections);
+            rows = new ObservableCollection<CollectionRow>();
+            _rowsByServiceId[serviceId] = rows;
         }
-        catch (LightHouseAuthException)
+        RebuildServiceRows(serviceId, rows, resp.Collections);
+        ReconcileServiceLlmConfig(serviceId, resp.Collections);
+        // 선택된 tab 이면 ListView 갱신 — ObservableCollection 변경은 자동 반영, ItemsSource 가 본 dict 인지 확인.
+        if (SelectedServiceId == serviceId && CollectionsList.ItemsSource != rows)
         {
-            StatusChip.Text = "❌ 인증 실패 — PSK 확인 필요. 설정 > LLM 탭의 \"연결 테스트\" 로 검증.";
-        }
-        catch (Exception ex)
-        {
-            StatusChip.Text = $"❌ registry 조회 실패 — {ex.Message}";
+            CollectionsList.ItemsSource = rows;
         }
     }
 
-    private void RebuildRows(IEnumerable<CollectionInfo> serverRows)
+    private void RebuildServiceRows(string serviceId, ObservableCollection<CollectionRow> rows, IEnumerable<CollectionInfo> serverRows)
     {
-        _rows.Clear();
+        rows.Clear();
         foreach (var info in serverRows)
         {
-            var active = _config.KbCollections.FirstOrDefault(k =>
-                string.Equals(k.CollectionId, info.Id, StringComparison.OrdinalIgnoreCase))?.Active ?? false;
-            _rows.Add(new CollectionRow
+            var entry = _config.KbCollections.FirstOrDefault(k =>
+                string.Equals(k.CollectionId, info.Id, StringComparison.OrdinalIgnoreCase)
+                && k.ServiceId == serviceId);
+            rows.Add(new CollectionRow
             {
                 CollectionId = info.Id,
                 DisplayName = info.DisplayName,
                 Status = info.Status,
                 FileCount = info.FileCount,
                 IndexerVersion = info.IndexerVersion,
-                Active = active,
+                Active = entry?.Active ?? false,
+                ServiceId = serviceId,
             });
         }
     }
 
-    /// <summary>
-    /// server registry 와 LlmConfig.KbCollections 양방향 sync (Q1 / Q4):
-    /// - server 에 없는 entry 는 폐기 (server 가 영구 제거)
-    /// - server 의 새 entry 는 LlmConfig 에 추가 (DisplayName / Active=false 로)
-    /// </summary>
-    private void ReconcileLlmConfig(List<CollectionInfo> serverRows)
+    /// <summary>**D-S7-3c (s6-r31)** — server registry 와 LlmConfig.KbCollections 의 per-service sync.</summary>
+    private void ReconcileServiceLlmConfig(string serviceId, List<CollectionInfo> serverRows)
     {
         var serverIds = new HashSet<string>(serverRows.Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
         var changed = false;
 
-        var stale = _config.KbCollections.Where(k => !serverIds.Contains(k.CollectionId)).ToList();
+        var stale = _config.KbCollections
+            .Where(k => k.ServiceId == serviceId && !serverIds.Contains(k.CollectionId))
+            .ToList();
         if (stale.Count > 0)
         {
             foreach (var s in stale) _config.KbCollections.Remove(s);
             changed = true;
         }
 
-        var localIds = new HashSet<string>(_config.KbCollections.Select(k => k.CollectionId), StringComparer.OrdinalIgnoreCase);
+        var localIds = new HashSet<string>(
+            _config.KbCollections.Where(k => k.ServiceId == serviceId).Select(k => k.CollectionId),
+            StringComparer.OrdinalIgnoreCase);
         foreach (var info in serverRows.Where(c => !localIds.Contains(c.Id)))
         {
             _config.KbCollections.Add(new KbCollectionEntry
@@ -171,6 +228,7 @@ public partial class KbManagerDialog : Window
                 CollectionId = info.Id,
                 DisplayName = info.DisplayName,
                 Active = false,
+                ServiceId = serviceId,
             });
             changed = true;
         }
@@ -184,12 +242,53 @@ public partial class KbManagerDialog : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    // ── orphan cleanup (D-S7-3c, s6-r31) ──────────────────────────────────────
+
+    /// <summary>orphan 탐지 — KbCollection.ServiceId 가 현재 active service 와 match 안 되는 entry 수. 0 이면 버튼 숨김.</summary>
+    private void UpdateOrphanButton()
+    {
+        var orphanCount = CountOrphans();
+        OrphanCleanupButton.Visibility = orphanCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (orphanCount > 0)
+        {
+            OrphanCleanupButton.Content = $"orphan 정리 ({orphanCount})";
+        }
+    }
+
+    private int CountOrphans() => KbCollectionOrphanHelper.CountOrphans(_config);
+
+    private void OrphanCleanup_Click(object sender, RoutedEventArgs e)
+    {
+        var orphans = KbCollectionOrphanHelper.FindOrphans(_config);
+        if (orphans.Count == 0)
+        {
+            UpdateOrphanButton();
+            return;
+        }
+        var preview = string.Join("\n", orphans.Take(10).Select(o => $"  • {o.DisplayName} ({o.CollectionId[..Math.Min(8, o.CollectionId.Length)]}…)"));
+        var more = orphans.Count > 10 ? $"\n  …외 {orphans.Count - 10}건" : "";
+        var consent = MessageBox.Show(this,
+            $"다음 {orphans.Count} 건의 collection 의 소속 service 가 삭제되었습니다.\n" +
+            "LlmConfig.KbCollections 에서 제거하시겠습니까? (server-side 의 collection 자체는 영향 없음)\n\n" +
+            preview + more,
+            "orphan collection 정리", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (consent != MessageBoxResult.Yes) return;
+
+        foreach (var o in orphans) _config.KbCollections.Remove(o);
+        _config.Save();
+        ConfigChanged = true;
+        var count = orphans.Count;
+        StatusChip.Text = $"✅ orphan {count}건 정리 완료.";
+        UpdateOrphanButton();
+    }
+
     // ── active toggle ─────────────────────────────────────────────────────────
 
     private void ActiveToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox cb || cb.DataContext is not CollectionRow row) return;
-        var entry = _config.KbCollections.FirstOrDefault(k => k.CollectionId == row.CollectionId);
+        var entry = _config.KbCollections.FirstOrDefault(k =>
+            k.CollectionId == row.CollectionId && k.ServiceId == row.ServiceId);
         if (entry is null) return;
         if (entry.Active == row.Active) return;
         entry.Active = row.Active;
@@ -219,10 +318,9 @@ public partial class KbManagerDialog : Window
 
     private async void Register_Click(object sender, RoutedEventArgs e)
     {
-        // review M3 (s5b) — `_client` 단일 기준 null check.
-        // review s5c M1 — holder.Current 매 사용 시점 재조회.
-        var ingest = CurrentIngest;
-        if (ingest is null)
+        var sid = SelectedServiceId;
+        var ingest = SelectedIngest;
+        if (ingest is null || string.IsNullOrEmpty(sid))
         {
             MessageBox.Show(this, "LightHouse Service 미설정 — 설정 > LLM 탭에서 BaseUrl/PSK 입력 후 재시도.",
                 "등록 불가", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -241,9 +339,9 @@ public partial class KbManagerDialog : Window
             return;
         }
 
-        // §6 m2 SSOT — multi-tenant T1 flat 의 PII 위험 안내. 매 등록마다 의무.
+        var svcDisplayName = ((TabItem?)ServicesTabControl.SelectedItem)?.Header?.ToString() ?? "(unnamed)";
         var consent = MessageBox.Show(this,
-            "이 collection 은 LightHouse Service 의 모든 사용자가 검색 가능합니다 (T1 flat 정책).\n\n" +
+            $"이 collection 은 LightHouse Service [{svcDisplayName}] 의 모든 사용자가 검색 가능합니다 (T1 flat 정책).\n\n" +
             "비밀 문서 / 개인 정보 / 회사 기밀 등이 포함된 폴더는 등록하지 마십시오.\n\n" +
             $"폴더: {folder}\n이름: {title}\n\n계속 진행하시겠습니까?",
             "Knowledge Base 등록 동의 (T1 flat)",
@@ -258,13 +356,14 @@ public partial class KbManagerDialog : Window
                 CollectionId = collectionId,
                 DisplayName = title,
                 Active = true,
+                ServiceId = sid,
             });
             _config.Save();
             ConfigChanged = true;
-            StatusChip.Text = $"✅ 등록 완료 — {title} ({collectionId})";
+            StatusChip.Text = $"✅ 등록 완료 — [{svcDisplayName}] {title} ({collectionId})";
             NewFolderBox.Text = "";
             NewTitleBox.Text = "";
-            await RefreshAsync().ConfigureAwait(true);
+            await RefreshServiceAsync(sid).ConfigureAwait(true);
         });
     }
 
@@ -272,8 +371,10 @@ public partial class KbManagerDialog : Window
 
     private async void Reupload_Click(object sender, RoutedEventArgs e)
     {
-        var ingest = CurrentIngest;
-        if (ingest is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        if (sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        var client = LightHouseClientHolder.GetClient(row.ServiceId);
+        if (client is null) return;
+        var ingest = new AttachmentIngestService(client, Environment.UserName, _config);
         var picker = new OpenFolderDialog
         {
             Title = $"\"{row.DisplayName}\" 의 새 폴더 선택 (payload swap)",
@@ -291,14 +392,15 @@ public partial class KbManagerDialog : Window
             await ingest.ReingestAndReuploadAsync(row.CollectionId, picker.FolderName, row.DisplayName, progress, ct)
                 .ConfigureAwait(true);
             StatusChip.Text = $"✅ 재업로드 완료 — {row.DisplayName}";
-            await RefreshAsync().ConfigureAwait(true);
+            await RefreshServiceAsync(row.ServiceId).ConfigureAwait(true);
         });
     }
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        var client = CurrentClient;
-        if (client is null || sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        if (sender is not Button btn || btn.Tag is not CollectionRow row) return;
+        var client = LightHouseClientHolder.GetClient(row.ServiceId);
+        if (client is null) return;
         var consent = MessageBox.Show(this,
             $"\"{row.DisplayName}\" 를 server 에서 영구 제거합니다.\n등록 디렉토리 (`Collections\\<id>\\`) 가 디스크에서 purge 됩니다.\n\n계속하시겠습니까?",
             "Collection 제거", MessageBoxButton.YesNo, MessageBoxImage.Warning);
@@ -308,11 +410,12 @@ public partial class KbManagerDialog : Window
         {
             RegisterButton.IsEnabled = false;
             await client.DeleteCollectionAsync(row.CollectionId).ConfigureAwait(true);
-            _config.KbCollections.RemoveAll(k => k.CollectionId == row.CollectionId);
+            _config.KbCollections.RemoveAll(k =>
+                k.CollectionId == row.CollectionId && k.ServiceId == row.ServiceId);
             _config.Save();
             ConfigChanged = true;
             StatusChip.Text = $"✅ 제거 완료 — {row.DisplayName}";
-            await RefreshAsync().ConfigureAwait(true);
+            await RefreshServiceAsync(row.ServiceId).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -326,28 +429,18 @@ public partial class KbManagerDialog : Window
 
     // ── ingest 진행 ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// ingest 실행 wrapper — Progress reporter / Cancel / progress bar 표시 + finally cleanup.
-    /// caller (Register_Click / Reupload_Click) 는 본문만 작성.
-    /// </summary>
     private async Task RunIngestAsync(Func<CancellationToken, IProgress<IngestStageProgress>, Task> body)
     {
         _cts = new CancellationTokenSource();
         ProgressPanel.Visibility = Visibility.Visible;
         RegisterButton.IsEnabled = false;
-        // review M1 — Total 변동 (Indexer walk 후 결정) 중 bar 후퇴 회피.
         ProgressBarMain.IsIndeterminate = true;
         ProgressBarMain.Value = 0;
         ProgressLabel.Text = "준비 중…";
 
-        // **s6-r24 작업 2 (MJ1 본질 해결)** — ingest 시작 시점의 TokensUsedToday snapshot.
-        //   finally 에서 (현재 누적값 - snapshot) = delta 를 disk 의 latest 에 누적 (덮어쓰기 아님).
-        //   다른 process 가 동시에 caption 호출해서 TokensUsedToday 를 늘렸어도 그 누적분 보존.
         _tokensUsedAtIngestStart = _config.VisionCostGate.TokensUsedToday;
 
         var progress = new Progress<IngestStageProgress>(UpdateProgress);
-        // review M2 — _inflightIngestTask 박제로 OnClosed 가 await 가능. caller (Register/Reupload_Click) 는
-        // body 의 await 결과를 그대로 받음.
         var task = body(_cts.Token, progress);
         _inflightIngestTask = task;
         try
@@ -365,32 +458,18 @@ public partial class KbManagerDialog : Window
         }
         finally
         {
-            // s6-r20 (E-i): captionGen 의 VisionCostGate.Consume 누적이 disk 에 반영되도록 1회 save.
-            // 자가 검열 m3 정합 — Debug.WriteLine → log4net Log.Warn.
-            //
-            // **s6-r24 작업 2 (MJ1 본질 해결)**:
-            //   `LlmConfig.ModifyWithLock` 가 cross-process file lock 으로 `Load → mutate → Save` critical section 직렬화.
-            //   본 인스턴스의 누적분은 **delta** (현재 TokensUsedToday - ingest 시작 시점 snapshot) 로 합산 —
-            //   다른 process 가 동시에 caption 을 호출해 disk 의 TokensUsedToday 를 늘렸다면 그 누적분 보존.
-            //   cap (DailyTokenCap) 은 disk SSOT 유지 (본 인스턴스 값 무시 — ApplicationSettingsDialog 가 SSOT).
-            //
-            // **MJ2 정합 유지** — `LastResetUtc` 는 두 값 중 더 최근 UTC date (사전순 max). day rollover race
-            //   (오늘 자정 전 ingest 시작 + 자정 넘어 disk 가 새 date 로 reset) 시 어제 값으로 덮어쓰기 회귀 차단.
-            //   본 인스턴스가 day rollover 후 reset 한 경우 → snapshot LastResetUtc 와 다름 →
-            //   본 인스턴스 값으로 latest 덮어쓰기 + delta 그대로 합산.
+            // s6-r24 작업 2 (MJ1) — cost gate merge-save (delta 누적 + day rollover SSOT 보존).
             try
             {
                 var deltaTokens = _config.VisionCostGate.TokensUsedToday - _tokensUsedAtIngestStart;
                 var instanceLastReset = _config.VisionCostGate.LastResetUtc;
                 LlmConfig.ModifyWithLock(latest =>
                 {
-                    // day rollover SSOT: 본 인스턴스가 ingest 도중 새 day 로 reset 했으면 disk 도 새 date.
                     if (string.CompareOrdinal(instanceLastReset, latest.VisionCostGate.LastResetUtc) > 0)
                     {
                         latest.VisionCostGate.LastResetUtc = instanceLastReset;
                         latest.VisionCostGate.TokensUsedToday = 0;
                     }
-                    // delta 누적 — 음수 (인스턴스 reset 등 비정상) 시 0 으로 클램프.
                     if (deltaTokens > 0)
                     {
                         latest.VisionCostGate.TokensUsedToday += deltaTokens;
@@ -420,7 +499,6 @@ public partial class KbManagerDialog : Window
         };
         if (p.Total > 0)
         {
-            // review M1 — Total 보고 시점부터 determinate 전환. 이전 stage 의 잔여 후퇴 회피 위해 Max 누적.
             ProgressBarMain.IsIndeterminate = false;
             var newVal = (double)p.Completed / p.Total;
             if (newVal > ProgressBarMain.Value) ProgressBarMain.Value = newVal;
@@ -439,21 +517,17 @@ public partial class KbManagerDialog : Window
 
     protected override async void OnClosed(EventArgs e)
     {
-        // D-S7-2b (s6-r28) — SSE handler 해제 의무. unsubscribe 안 하면 dialog 인스턴스가 GC 안 되고
-        // Dispatcher.BeginInvoke 가 닫힌 dialog 의 UI element 를 건드림.
         LightHouseClientHolder.EventReceived -= OnSseEventReceived;
 
-        // review M2 (s5b-r0) — cancel 신호 → in-flight ingest 종료까지 await. _client 는 본 dialog 가 소유 안 함
-        // (Phase S5c 변경 — LightHouseClientHolder 가 process singleton).
         _cts?.Cancel();
         if (_inflightIngestTask is { } t)
         {
-            try { await t.ConfigureAwait(true); } catch { /* swallow — body 의 try/catch 가 이미 처리 */ }
+            try { await t.ConfigureAwait(true); } catch { /* swallow */ }
         }
         base.OnClosed(e);
     }
 
-    /// <summary>ListView 의 한 행 — server CollectionInfo + LlmConfig 의 Active 플래그 join.</summary>
+    /// <summary>**D-S7-3c (s6-r31)** — ListView 의 한 행 + ServiceId (소속 service 식별).</summary>
     public sealed class CollectionRow
     {
         public string CollectionId { get; set; } = "";
@@ -462,5 +536,6 @@ public partial class KbManagerDialog : Window
         public int FileCount { get; set; }
         public string IndexerVersion { get; set; } = "";
         public bool Active { get; set; }
+        public string ServiceId { get; set; } = "";
     }
 }

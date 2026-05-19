@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -41,6 +44,19 @@ public partial class ApplicationSettingsDialog : Window
     private LlmConfig _llmConfig = LlmConfig.Load();
     /// <summary>OK 시 LlmConfig 변경 사항이 disk 에 저장되었는지. 호출자가 LlmChatVm.ReloadConfig() 호출 트리거로 사용.</summary>
     public bool LlmConfigChanged { get; private set; }
+
+    /// <summary>
+    /// **D-S7-3c (s6-r31)** — DataGrid binding 의 working copy. _llmConfig.LightHouseServices 의 deep clone.
+    /// LoadLlmTab 에서 채워지고, ApplyLlmTab 에서 commit. Cancel 시 _llmConfig 무변경.
+    /// </summary>
+    private readonly ObservableCollection<LightHouseServiceConfig> _lhServicesWorking = new();
+
+    /// <summary>
+    /// **D-S7-3c (s6-r31)** — PSK 평문 dialog 입력 임시 저장. key = ServiceId, value = 평문 PSK. ApplyLlmTab 시점에
+    /// _llmConfig.SetLightHousePsk(serviceId, plain) 호출 + Save. dict 자체는 dialog modal lifetime 동안만 유지 →
+    /// 평문 보존 risk 최소화.
+    /// </summary>
+    private readonly Dictionary<string, string> _pskChanges = new();
 
     // s5c-r1 — 연결/테스트 결과 색상 SSOT (사용자 보고 cosmetic). dark theme 에서 잘 보이는 light blue / red.
     // Freeze 로 GC + thread 부담 최소화.
@@ -242,13 +258,23 @@ public partial class ApplicationSettingsDialog : Window
         // Ollama base URL
         LlmOllamaBaseUrlBox.Text = _llmConfig.OllamaBaseUrl;
 
-        // LightHouse Service — BaseUrl / PSK (Phase S5b → D-S7-3a active service path).
-        // 본 dialog 는 단일 service 만 표시. multi-service UI 는 D-S7-3c 진입.
-        var activeLhService = _llmConfig.LightHouseServices.FirstOrDefault(s => s.Active);
-        LhBaseUrlBox.Text = activeLhService?.BaseUrl ?? "";
-        LhPskBox.Password = activeLhService is null
-            ? ""
-            : (_llmConfig.GetLightHousePsk(activeLhService.ServiceId) ?? "");
+        // **D-S7-3c (s6-r31) — LightHouse Services DataGrid binding**.
+        // _llmConfig.LightHouseServices 의 deep clone → working copy. ApplyLlmTab 시점에 _pskChanges 와 함께 commit.
+        // Cancel 시 _llmConfig 무변경 (DataGrid 의 add/remove/edit 는 working copy 만 mutate).
+        _lhServicesWorking.Clear();
+        foreach (var src in _llmConfig.LightHouseServices)
+        {
+            _lhServicesWorking.Add(new LightHouseServiceConfig
+            {
+                ServiceId = src.ServiceId,
+                DisplayName = src.DisplayName,
+                BaseUrl = src.BaseUrl,
+                ApiKeyEncrypted = src.ApiKeyEncrypted,
+                Active = src.Active,
+            });
+        }
+        _pskChanges.Clear();
+        LhServicesGrid.ItemsSource = _lhServicesWorking;
 
         // VLM (Phase 2 task D / E, s6-r20)
         // --review M5 정합 (s6-r21): 미지원 provider (openai / ollama 등 향후 확장 후보) 가 JSON 에 박혀있으면
@@ -384,42 +410,104 @@ public partial class ApplicationSettingsDialog : Window
         DialogHelpers.Warn("동의가 철회되었습니다. LLM Chat 패널이 열려 있다면 다음 진입 시 다시 동의 다이얼로그가 표시됩니다.");
     }
 
-    // ─── LightHouse Service (Phase S5b) ──────────────────────────────────────
+    // ─── LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid handlers ─────────
 
-    private void LhClearPsk_Click(object sender, RoutedEventArgs e) => LhPskBox.Password = "";
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid 의 "+ Add Service" 버튼. 새 LightHouseServiceConfig (ServiceId 자동 발급, Active=true, DisplayName "새 Service") 를 working copy 에 추가.</summary>
+    private void LhAddService_Click(object sender, RoutedEventArgs e)
+    {
+        var svc = new LightHouseServiceConfig
+        {
+            ServiceId = Guid.NewGuid().ToString(),
+            DisplayName = "새 Service",
+            BaseUrl = "https://",
+            Active = true,
+        };
+        _lhServicesWorking.Add(svc);
+        LhServicesGrid.Items.Refresh();
+    }
 
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "제거" 버튼. Button.Tag = ServiceId. working entry 제거 + _pskChanges 정리.</summary>
+    private void LhRemoveService_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string serviceId) return;
+        var idx = _lhServicesWorking.ToList().FindIndex(s => s.ServiceId == serviceId);
+        if (idx < 0) return;
+        _lhServicesWorking.RemoveAt(idx);
+        _pskChanges.Remove(serviceId);
+        LhServicesGrid.Items.Refresh();
+    }
+
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "PSK 설정..." 버튼. 별 dialog 로 평문 PSK 입력 (DataGrid cell 에 평문 비노출). OK 시 _pskChanges 에 임시 저장.</summary>
+    private void LhEditPsk_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string serviceId) return;
+        var svc = _lhServicesWorking.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null) return;
+        var dlg = new PskEditDialog(string.IsNullOrEmpty(svc.DisplayName) ? "(unnamed)" : svc.DisplayName)
+        {
+            Owner = this,
+        };
+        if (dlg.ShowDialog() == true && dlg.Result is not null)
+        {
+            _pskChanges[serviceId] = dlg.Result;
+            SetTestResult(LhTestResult,
+                string.IsNullOrEmpty(dlg.Result)
+                    ? $"ℹ️ [{svc.DisplayName}] PSK 제거 (저장 시 반영)"
+                    : $"ℹ️ [{svc.DisplayName}] PSK 변경됨 ({dlg.Result.Length} 문자, 저장 시 반영)",
+                success: null);
+        }
+    }
+
+    /// <summary>
+    /// **D-S7-3c (s6-r31)** — DataGrid row 의 "테스트" 버튼. Button.Tag = ServiceId. 본 row 의 BaseUrl + (_pskChanges 의 평문 또는 기존 ciphertext 복호화) 로 LightHouseClient 생성 후 ListCollectionsAsync.
+    /// </summary>
     private async void LhTestConnection_Click(object sender, RoutedEventArgs e)
     {
-        var url = (LhBaseUrlBox.Text ?? "").Trim();
-        var psk = LhPskBox.Password ?? "";
-        if (string.IsNullOrEmpty(url))
+        if (sender is not Button btn || btn.Tag is not string serviceId) return;
+        var svc = _lhServicesWorking.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null) return;
+
+        var url = (svc.BaseUrl ?? "").Trim();
+        // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화 (deep clone 한 ApiKeyEncrypted 로부터 _llmConfig 의 GetLightHousePsk 호출).
+        string psk;
+        if (_pskChanges.TryGetValue(serviceId, out var pendingPlain))
         {
-            SetTestResult(LhTestResult, "❌ Base URL 이 비어있습니다.", success: false);
+            psk = pendingPlain;
+        }
+        else
+        {
+            // 기존 service 에 박제된 ApiKeyEncrypted 가 있으면 복호화 — disk 의 _llmConfig 의 같은 ServiceId entry 사용.
+            psk = _llmConfig.GetLightHousePsk(serviceId) ?? "";
+        }
+
+        if (string.IsNullOrEmpty(url) || url == "https://")
+        {
+            SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] Base URL 이 비어있습니다.", success: false);
             return;
         }
         if (string.IsNullOrEmpty(psk))
         {
-            SetTestResult(LhTestResult, "❌ PSK 가 비어있습니다.", success: false);
+            SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] PSK 가 비어있습니다.", success: false);
             return;
         }
-        SetTestResult(LhTestResult, "확인 중…", success: null);
+        SetTestResult(LhTestResult, $"[{svc.DisplayName}] 확인 중…", success: null);
         try
         {
             using var client = new LightHouseClient(url, () => psk, Environment.UserName);
             var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
-            SetTestResult(LhTestResult, $"✅ 연결 성공 — collection {resp.Collections.Count}건", success: true);
+            SetTestResult(LhTestResult, $"✅ [{svc.DisplayName}] 연결 성공 — collection {resp.Collections.Count}건", success: true);
         }
         catch (LightHouseAuthException ex)
         {
-            SetTestResult(LhTestResult, $"❌ 인증 실패 — PSK 확인 필요 ({(int)ex.StatusCode})", success: false);
+            SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] 인증 실패 — PSK 확인 필요 ({(int)ex.StatusCode})", success: false);
         }
         catch (LightHouseProtocolException ex)
         {
-            SetTestResult(LhTestResult, $"❌ protocol 오류 — {ex.Message}", success: false);
+            SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] protocol 오류 — {ex.Message}", success: false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or ArgumentException)
         {
-            SetTestResult(LhTestResult, $"❌ 연결 실패 — {ex.Message}", success: false);
+            SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] 연결 실패 — {ex.Message}", success: false);
         }
     }
 
@@ -483,14 +571,8 @@ public partial class ApplicationSettingsDialog : Window
         var newOllamaModel    = string.IsNullOrWhiteSpace(LlmOllamaModelBox.Text)    ? fallback.OllamaModel    : LlmOllamaModelBox.Text.Trim();
         var newOllamaBaseUrl  = string.IsNullOrWhiteSpace(LlmOllamaBaseUrlBox.Text)  ? fallback.OllamaBaseUrl  : LlmOllamaBaseUrlBox.Text.Trim();
 
-        // LightHouse Service (Phase S5b → D-S7-3a active service path) — BaseUrl + PSK dirty 비교.
-        var newLhBaseUrl = (LhBaseUrlBox.Text ?? "").Trim();
-        var newLhPsk     = LhPskBox.Password ?? "";
-        var oldActiveLhService = _llmConfig.LightHouseServices.FirstOrDefault(s => s.Active);
-        var oldLhBaseUrl = oldActiveLhService?.BaseUrl ?? "";
-        var oldLhPsk     = oldActiveLhService is null
-            ? ""
-            : (_llmConfig.GetLightHousePsk(oldActiveLhService.ServiceId) ?? "");
+        // **D-S7-3c (s6-r31)** — LightHouse Services dirty 비교 (working copy vs _llmConfig.LightHouseServices + _pskChanges).
+        var lhDirty = LhWorkingCopyDirty();
 
         // s6-r20 (D-iii / E-i): VLM provider / model / daily token cap dirty 비교.
         // --review M5 정합: unrecognized 항목의 Content="unrecognized: <prov>" 일 때 Tag 의 원본 값 사용.
@@ -512,13 +594,15 @@ public partial class ApplicationSettingsDialog : Window
             || newOllamaBaseUrl  != _llmConfig.OllamaBaseUrl
             || newAnthropicKey   != (_llmConfig.GetApiKey(ApiProviderFactory.AnthropicKey) ?? "")
             || newOpenAiKey      != (_llmConfig.GetApiKey(ApiProviderFactory.OpenAiKey)    ?? "")
-            || newLhBaseUrl      != oldLhBaseUrl
-            || newLhPsk          != oldLhPsk
+            || lhDirty
             || newVlmProvider    != _llmConfig.VlmProvider
             || newVlmModel       != _llmConfig.VlmModel
             || newVlmDailyCap    != oldVlmDailyCap;
 
         if (!dirty) return;
+
+        // **D-S7-3c (s6-r31)** — lh dirty 시 uniqueness 검증 먼저. 중복 displayName 있으면 dialog + 저장 차단.
+        if (lhDirty && !ValidateLhUniqueness()) return;
 
         _llmConfig.SetApiKey(ApiProviderFactory.AnthropicKey, newAnthropicKey);
         _llmConfig.SetApiKey(ApiProviderFactory.OpenAiKey,    newOpenAiKey);
@@ -530,23 +614,75 @@ public partial class ApplicationSettingsDialog : Window
         _llmConfig.VlmModel = newVlmModel;
         _llmConfig.VisionCostGate.DailyTokenCap = newVlmDailyCap;
 
-        // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 active service entry 제거 (D-S7-3a).
-        var lhDirty = newLhBaseUrl != oldLhBaseUrl || newLhPsk != oldLhPsk;
-        if (string.IsNullOrEmpty(newLhBaseUrl) && string.IsNullOrEmpty(newLhPsk))
+        // **D-S7-3c (s6-r31)** — LightHouse Services commit: working copy → _llmConfig.LightHouseServices 일괄 대체 +
+        // _pskChanges 의 평문 PSK 를 per-service entropy 로 암호화.
+        if (lhDirty)
         {
-            _llmConfig.ClearActiveService();
-        }
-        else
-        {
-            var svc = _llmConfig.EnsureActiveService();
-            svc.BaseUrl = newLhBaseUrl;
-            _llmConfig.SetLightHousePsk(svc.ServiceId, newLhPsk);
+            _llmConfig.LightHouseServices.Clear();
+            foreach (var src in _lhServicesWorking)
+            {
+                _llmConfig.LightHouseServices.Add(new LightHouseServiceConfig
+                {
+                    ServiceId = src.ServiceId,
+                    DisplayName = (src.DisplayName ?? "").Trim(),
+                    BaseUrl = (src.BaseUrl ?? "").Trim(),
+                    ApiKeyEncrypted = src.ApiKeyEncrypted ?? "",
+                    Active = src.Active,
+                });
+            }
+            foreach (var (sid, plain) in _pskChanges)
+            {
+                // _llmConfig.LightHouseServices 안에 sid 가 없으면 (remove 후 PSK 변경 이전) skip.
+                if (_llmConfig.LightHouseServices.Any(s => s.ServiceId == sid))
+                {
+                    _llmConfig.SetLightHousePsk(sid, plain);
+                }
+            }
+            _pskChanges.Clear();
         }
 
         _llmConfig.Save();
         LlmConfigChanged = true;
-        // Phase S5c — LightHouse 변경 시 process singleton 무효화 → 다음 chat 진입 시 새 BaseUrl/PSK 로 재생성.
+        // Phase S5c → D-S7-3c — LightHouse 변경 시 process holder 의 모든 entry 무효화 → 다음 chat 진입 시 N 개 재생성.
         if (lhDirty) LightHouseClientHolder.Invalidate();
+    }
+
+    /// <summary>
+    /// **D-S7-3c (s6-r31)** — DataGrid working copy 와 _llmConfig.LightHouseServices 의 deep compare + _pskChanges 비어있지 않으면 dirty.
+    /// </summary>
+    private bool LhWorkingCopyDirty()
+    {
+        if (_pskChanges.Count > 0) return true;
+        var working = _lhServicesWorking;
+        var current = _llmConfig.LightHouseServices;
+        if (working.Count != current.Count) return true;
+        for (int i = 0; i < working.Count; i++)
+        {
+            var w = working[i];
+            var c = current[i];
+            if (w.ServiceId != c.ServiceId
+                || (w.DisplayName ?? "").Trim() != (c.DisplayName ?? "")
+                || (w.BaseUrl ?? "").Trim() != (c.BaseUrl ?? "")
+                || w.Active != c.Active
+                || (w.ApiKeyEncrypted ?? "") != (c.ApiKeyEncrypted ?? ""))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// **D-S7-3c (s6-r31)** — Save 시점 displayName uniqueness 검증. <see cref="LightHouseServiceValidator"/> SSOT
+    /// 호출 — drift 회피 (Promaker.Tests 와 동일 로직 검증).
+    /// </summary>
+    private bool ValidateLhUniqueness()
+    {
+        var (ok, reason) = LightHouseServiceValidator.ValidateDisplayNames(_lhServicesWorking);
+        if (ok) return true;
+        var msg = reason == "(빈 값)"
+            ? "LightHouse Service 의 Display Name 이 비어 있습니다 — 이름을 입력 후 다시 저장하세요."
+            : $"LightHouse Service 의 Display Name 중복: \"{reason}\" — 수정 후 다시 저장하세요.";
+        MessageBox.Show(this, msg, "displayName 검증", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return false;
     }
 
     // ── OK 처리 ──────────────────────────────────────────────────────────────
