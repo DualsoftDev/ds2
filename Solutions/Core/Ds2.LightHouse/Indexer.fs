@@ -23,7 +23,8 @@ type FileIngestResult =
 
 /// Extract → Chunk → Store 파이프라인 orchestrator (todo-lighthouse-kb-index.md §4.4).
 ///
-/// 단일 collection 의 색인 일관성 보장 — IndexerVersion mismatch 시 shadow rebuild,
+/// 단일 collection 의 색인 일관성 보장 — SchemaVersion drift 시 shadow rebuild (s6-r26 정합 — SQL
+/// 비호환 변경 시점만 rebuild, IndexerVersion minor / patch bump 는 ALTER forward-compat 으로 흡수),
 /// FileHash 로 idempotent (같은 파일 두 번 ingest 시 1개 Document), CancellationToken 지원.
 [<RequireQualifiedAccess>]
 module Indexer =
@@ -218,7 +219,7 @@ module Indexer =
         progress { TotalFiles = files.Length; CompletedFiles = files.Length; CurrentFile = None }
         results.ToArray()
 
-    /// shadow rebuild — IndexerVersion drift 시 새 DB 만들고 모든 파일 재색인 → atomic rename (§3.17).
+    /// shadow rebuild — SchemaVersion drift 시 새 DB 만들고 모든 파일 재색인 → atomic rename (§3.17, s6-r26).
     ///
     /// 호출 전제: 기존 DB connection 닫힘. 본 함수가 shadow DB 의 lifecycle 전부 책임.
     ///
@@ -256,10 +257,10 @@ module Indexer =
     ///
     /// 단계:
     /// 1. write 가능 여부 probe → read-only 면 fail-fast (§3.9 r4)
-    /// 2. DB 존재 / IndexerVersion 검증
+    /// 2. DB 존재 / SchemaVersion 검증 (s6-r26 — needsRebuild SSOT 정합)
     ///    - 신규 (DB 미존재) → 일반 색인
-    ///    - drift → shadow rebuild
-    ///    - 정상 → 신규 파일만 색인 (idempotent)
+    ///    - SchemaVersion drift → shadow rebuild (SQL 비호환 변경)
+    ///    - 정상 (SchemaVersion 일치, IndexerVersion minor/patch bump 무관) → 신규 파일만 색인 (idempotent)
     /// 3. 진행률 콜백
     let ingest
         (collectionRoot: string)

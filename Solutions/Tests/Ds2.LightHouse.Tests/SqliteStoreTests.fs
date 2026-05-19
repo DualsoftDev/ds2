@@ -31,16 +31,36 @@ let ``ensureSchema idempotent — 2회 호출 OK`` () =
         SqliteStore.ensureSchema conn)
 
 [<Fact>]
-let ``stampVersion / needsRebuild — Current 와 일치 시 false`` () =
+let ``stampVersion / needsRebuild — SchemaVersion 일치 시 false (s6-r26)`` () =
     withTempDir (fun dir ->
         use conn = openFresh dir
         Assert.False(SqliteStore.needsRebuild conn))
 
 [<Fact>]
-let ``Meta drift — indexer_version 다르면 needsRebuild true`` () =
+let ``needsRebuild — schema_version drift 시 true (s6-r26 major-only rebuild trigger)`` () =
     withTempDir (fun dir ->
         use conn = openFresh dir
-        SqliteStore.setMeta conn "indexer_version" "0.0.0"
+        // SchemaVersion bump 시뮬레이션 — 기존 "2" 박제된 DB 가 현재 "3" 와 drift.
+        SqliteStore.setMeta conn "schema_version" "2"
+        Assert.True(SqliteStore.needsRebuild conn))
+
+[<Fact>]
+let ``needsRebuild — indexer_version 만 drift + schema_version 일치 시 false (forward-compat SSOT)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        // s6-r8 m1 박제 해소 — IndexerVersion minor / patch bump 시 ALTER forward-compat 로 흡수,
+        // shadow rebuild 회피. schema_version 그대로 + indexer_version 만 옛 값.
+        SqliteStore.setMeta conn "indexer_version" "1.0.0"  // 기존 박제, current="1.3.0"
+        Assert.False(SqliteStore.needsRebuild conn))
+
+[<Fact>]
+let ``needsRebuild — Meta.schema_version 누락 시 true (pre-stamp / 손상 DB 안전)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        // schema_version Meta row 명시 제거.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "DELETE FROM Meta WHERE Key = 'schema_version'"
+        cmd.ExecuteNonQuery() |> ignore
         Assert.True(SqliteStore.needsRebuild conn))
 
 [<Fact>]
