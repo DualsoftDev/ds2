@@ -1,0 +1,100 @@
+namespace Ds2.LightHouseService
+
+open System
+open System.Text
+open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
+open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Http
+open Microsoft.AspNetCore.Routing
+open Microsoft.Extensions.DependencyInjection
+
+/// Phase S7 D-S7-2 — `GET /events` SSE endpoint (todo-lighthouse-kb-server.md §3.7, s6-r27).
+///
+/// 동작:
+/// - **인증**: AuthMiddleware (Bearer PSK + X-User-Identity) 가 본 endpoint 진입 전 강제. 401 분기는 middleware 책임.
+/// - **transport**: text/event-stream (RFC 6202 / EventSource API 호환). 단순 ndjson `data: {json}\n\n` 형식.
+/// - **lifecycle**: `EventBus.Subscribe()` 로 per-request Channel reader 발급 → loop 안에서 reader 가 새 event
+///   읽을 때마다 stream 에 write + flush. client disconnect 시 `HttpContext.RequestAborted` token 이 signal.
+/// - **keepalive**: 30s heartbeat — proxy/firewall 의 idle disconnect 회피. `keepalive` 별 event type 으로 emit
+///   (subscriber 가 last-seen 시각 갱신용).
+/// - **content type**: `text/event-stream; charset=utf-8` + `Cache-Control: no-cache` + `X-Accel-Buffering: no`
+///   (nginx 등 reverse proxy 가 buffering 안 함). HTTP/1.1 chunked transfer-encoding 은 Kestrel 자동.
+[<RequireQualifiedAccess>]
+module EventsEndpoint =
+
+    /// keepalive heartbeat 간격. 30s = proxy 의 통상 idle timeout (60s) 의 절반.
+    [<Literal>]
+    let private KeepaliveSeconds = 30
+
+    /// SSE 응답 헤더 박제. ResponseStartedTimeout (Kestrel default 30s) 이전에 모두 set 의무 — first write 전.
+    let private setSseHeaders (ctx: HttpContext) : unit =
+        ctx.Response.StatusCode <- 200
+        ctx.Response.ContentType <- "text/event-stream; charset=utf-8"
+        ctx.Response.Headers.["Cache-Control"] <- "no-cache"
+        ctx.Response.Headers.["X-Accel-Buffering"] <- "no"
+        ctx.Response.Headers.["Connection"] <- "keep-alive"
+
+    let private jsonOpts = JsonSerializerOptions(WriteIndented = false)
+
+    /// 단일 event → SSE wire format. `data: {json}\n\n` (EventSource API 정합).
+    let private writeEvent (ctx: HttpContext) (evt: ServerEvent) : Task =
+        task {
+            let json = JsonSerializer.Serialize(evt, jsonOpts)
+            let line = sprintf "data: %s\n\n" json
+            let bytes = Encoding.UTF8.GetBytes line
+            do! ctx.Response.Body.WriteAsync(ReadOnlyMemory<byte>(bytes), ctx.RequestAborted)
+            do! ctx.Response.Body.FlushAsync ctx.RequestAborted
+        } :> Task
+
+    /// `GET /events` handler. 인증은 middleware 가 처리.
+    let private handle (bus: EventBus) (ctx: HttpContext) : Task =
+        task {
+            setSseHeaders ctx
+            // m2 (s6-r27 자가 검열 review) — Subscribe 를 first-write 보다 먼저.
+            // 이전 순서 (first keepalive write → Subscribe) 는 µs window race — 그 사이 publish 된 event 가 본
+            // subscriber 의 channel 에 들어가지 못함. Subscribe 후 first keepalive write 면 race window 0.
+            let id, reader = bus.Subscribe()
+            // first write — client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입).
+            do! writeEvent ctx (ServerEvent.keepalive())
+            try
+                use keepaliveCts = CancellationTokenSource.CreateLinkedTokenSource ctx.RequestAborted
+                // keepalive timer task — 30s 마다 keepalive event publish (모든 active subscriber 에게 fan-out
+                // 되지만 단일 instance scenario 에서 self-receive 가 의미적으로 keepalive 정합).
+                let keepaliveLoop () = task {
+                    while not keepaliveCts.IsCancellationRequested do
+                        try
+                            do! Task.Delay(TimeSpan.FromSeconds(float KeepaliveSeconds), keepaliveCts.Token)
+                            if not keepaliveCts.IsCancellationRequested then
+                                bus.Publish(ServerEvent.keepalive())
+                        with
+                        | :? OperationCanceledException -> ()
+                }
+                let keepaliveTask = keepaliveLoop()
+
+                // reader loop — disconnect 시 WaitToReadAsync 가 false 또는 OperationCanceledException 으로 종료.
+                try
+                    let mutable continueLoop = true
+                    while continueLoop do
+                        let! hasMore = reader.WaitToReadAsync ctx.RequestAborted
+                        if not hasMore then
+                            continueLoop <- false
+                        else
+                            let mutable evt = Unchecked.defaultof<ServerEvent>
+                            while reader.TryRead &evt do
+                                do! writeEvent ctx evt
+                with
+                | :? OperationCanceledException -> ()  // client disconnect — 정상 종료
+
+                keepaliveCts.Cancel()
+                // keepalive task 의 cancel 처리 완료 대기 (best-effort, 짧음).
+                try do! keepaliveTask
+                with :? OperationCanceledException -> ()
+            finally
+                bus.Unsubscribe id
+        } :> Task
+
+    /// `GET /events` endpoint 등록. AuthMiddleware 뒤에 매핑.
+    let map (app: IEndpointRouteBuilder) (bus: EventBus) =
+        app.MapGet("/events", RequestDelegate(handle bus)) |> ignore

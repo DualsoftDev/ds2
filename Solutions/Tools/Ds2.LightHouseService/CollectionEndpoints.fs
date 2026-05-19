@@ -64,11 +64,12 @@ module CollectionEndpoints =
 
     /// POST /collections — multipart zip + title → guid 발급 + 전개 + IndexerVersion gate + 등록.
     /// notifier 는 본 endpoint 에서 미사용 — payload swap / delete 가 호출. 신규 등록은 detach 불요.
-    /// 함수 시그니처 일관성 차원에서 인자 보존.
+    /// bus (s6-r27, D-S7-2) — Compatible 분기 성공 시 `collection-added` event publish.
     let private postCollections
         (cfg: ServiceConfig)
         (storageRoot: string)
         (_notifier: ICollectionLifecycleNotifier)
+        (bus: EventBus)
         (ctx: HttpContext)
         : Task =
         task {
@@ -117,6 +118,7 @@ module CollectionEndpoints =
                         let entry = MetaJson.toRegistryEntry serverMeta
                         do! Registry.upsertAsync storageRoot entry
                         Log.audit.Info(sprintf "collection registered — id=%s by=%s target=%s" collectionId user target)
+                        bus.Publish(ServerEvent.collectionAdded collectionId)  // D-S7-2 s6-r27
                         do! writeJson ctx 201 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
                     | IndexerVersionGateResult.TooLow(v, m) ->
                         Log.audit.Warn(sprintf "indexerVersion gate too-low — id=%s client=%s hostMin=%s" collectionId v m)
@@ -181,10 +183,12 @@ module CollectionEndpoints =
         } :> Task
 
     /// POST /collections/{id}/payload — 재업로드 swap.
+    /// bus (s6-r27, D-S7-2) — Compatible 분기 swap 성공 시 `collection-updated` event publish.
     let private postCollectionPayload
         (cfg: ServiceConfig)
         (storageRoot: string)
         (notifier: ICollectionLifecycleNotifier)
+        (bus: EventBus)
         (id: string)
         (ctx: HttpContext)
         : Task =
@@ -231,6 +235,7 @@ module CollectionEndpoints =
                             do! Registry.upsertAsync storageRoot entry
                             notifier.OnPayloadSwapped id
                             Log.audit.Info(sprintf "collection payload swapped — id=%s by=%s target=%s" id user target)
+                            bus.Publish(ServerEvent.collectionUpdated id)  // D-S7-2 s6-r27
                             do! writeJson ctx 200 {| id = id; storageRelPath = entry.StorageRelPath |}
                         | IndexerVersionGateResult.TooLow(v, m) ->
                             // s6-r7 (M1): swap 경로도 postCollections 와 동일 SSOT 박제 — hostingRange + suggestedAction.
@@ -262,9 +267,11 @@ module CollectionEndpoints =
         } :> Task
 
     /// DELETE /collections/{id} — registry 제거 + Collections\<dir> purge + active session detach 신호.
+    /// bus (s6-r27, D-S7-2) — registry 제거 성공 시 `collection-deleted` event publish.
     let private deleteCollection
         (storageRoot: string)
         (notifier: ICollectionLifecycleNotifier)
+        (bus: EventBus)
         (id: string)
         (ctx: HttpContext)
         : Task =
@@ -279,6 +286,7 @@ module CollectionEndpoints =
                 let! _ = Registry.removeAsync storageRoot id
                 ZipImport.purgeCollection storageRoot id entry.DisplayName
                 Log.audit.Info(sprintf "collection deleted — id=%s by=%s" id user)
+                bus.Publish(ServerEvent.collectionDeleted id)  // D-S7-2 s6-r27
                 ctx.Response.StatusCode <- 204
         } :> Task
 
@@ -292,24 +300,26 @@ module CollectionEndpoints =
         } :> Task
 
     /// 인증 통과 endpoint 등록. AuthMiddleware 뒤에 매핑.
+    /// bus (s6-r27, D-S7-2) — collection mutation event publisher. DI singleton 으로 caller 가 전달.
     let map
         (app: IEndpointRouteBuilder)
         (cfg: ServiceConfig)
         (notifier: ICollectionLifecycleNotifier)
+        (bus: EventBus)
         =
         let storageRoot = Config.expandEnv cfg.StorageRoot
 
-        app.MapPost("/collections", RequestDelegate(postCollections cfg storageRoot notifier)) |> ignore
+        app.MapPost("/collections", RequestDelegate(postCollections cfg storageRoot notifier bus)) |> ignore
         app.MapGet("/collections", RequestDelegate(getCollectionsList storageRoot)) |> ignore
         app.MapGet("/collections/{id}/status", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
             getCollectionStatus storageRoot id ctx)) |> ignore
         app.MapPost("/collections/{id}/payload", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
-            postCollectionPayload cfg storageRoot notifier id ctx)) |> ignore
+            postCollectionPayload cfg storageRoot notifier bus id ctx)) |> ignore
         app.MapDelete("/collections/{id}", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
-            deleteCollection storageRoot notifier id ctx)) |> ignore
+            deleteCollection storageRoot notifier bus id ctx)) |> ignore
         app.MapDelete("/uploads/{stagingId}", RequestDelegate(fun ctx ->
             let stagingId = ctx.Request.RouteValues.["stagingId"] |> string
             deleteUpload storageRoot stagingId ctx)) |> ignore
