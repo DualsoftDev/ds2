@@ -93,7 +93,12 @@ let ``정상 PDF (PdfDocumentBuilder fixture) + image 1장 — 추출 회귀 차
         Assert.Equal(Png, img.Format)
         Assert.Equal("p=1", img.RefLocator)
         Assert.Equal(1, img.Ordinal)
-        Assert.True(img.Bytes.Length > 0, "image bytes 비어있으면 안 됨"))
+        // s6-r24 m2 (s6-r23 자가 검열 박제 해소) — bytes 결정성 보강. PdfPig 의 zlib 압축이 비결정성 (compression level
+        // 환경 따라 변동) 이라 sha256 정확 박제 부적합. 대신 PNG signature head 8 byte 검증 — TryGetPng 가 항상 표준
+        // PNG 컨테이너 산출 (RFC 2083 §3.1: `\x89PNG\r\n\x1a\n` magic) 정합.
+        Assert.True(img.Bytes.Length > 16, "PNG signature + IHDR 최소 16 byte 의무")
+        let sig0 = [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |]
+        Assert.Equal<byte[]>(sig0, img.Bytes.[0 .. 7]))
 
 [<Fact>]
 let ``정상 PDF + image 3장 — Ordinal 1..3 + 동일 page RefLocator 박제 (s6-r23 묶음 3)`` () =

@@ -507,60 +507,59 @@ SubKey       = "img" | ...
 
 ### 3.15 이미지 처리 정책 (Phase 2 부터 — 본 단원의 모든 결정은 Phase 1 무관)
 
-> ⚠ **s6-r18 (2026-05-18) 단원 정정 marker** — 본 단원 §3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 의 모든 "cached lazy" / "on-demand caption cache" / "Phase 5 격하" 박제는 server todo `todo-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = **eager at indexing time** — 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + ImageCache.CaptionText 영구 저장) 으로 **정정됨**. 단원 본문 sweep (lazy 흐름 → eager 흐름 재작성) 은 별 turn 의 doc sweep 의무 (정정 marker 만 박제). 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 본 정정에 따라 §3.15.4 의 "trade-off 거의 없음" 항목과 §3.15.5 의 mr4 ("Phase 5 진입 = 보류") 박제는 의미 변경 — Phase 5 의 선제 batch caption 안 = **본 결정의 본질** (격하 해제). MR3 (CaptionModel invalidation) 정합, MR4 (cost gate) 의미 강해짐 (색인 시점 일괄 비용 가시화 의무).
+> ✅ **s6-r24 (2026-05-19) sweep 완료** — 본 단원이 **eager at indexing time** (D-2-2, server todo `todo-lighthouse-kb-server.md` §0) 으로 본문 재작성됨. 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 이전 박제의 "cached lazy / on-demand caption cache / Phase 5 격하" 흐름은 본 sweep 으로 모두 정합 정정.
 
 사양서에는 plant layout, 시퀀스 차트, wiring diagram, 표/그래프가 raster 로 박힌 경우가 빈번 →
-모델링 의사결정의 직접 근거가 되므로 *언젠가는* 필요. Phase 2 부터 도입.
+모델링 의사결정의 직접 근거가 되므로 색인 시점에 caption 박제. Phase 2 부터 도입.
 
 #### 3.15.1 vision token 발생 시점 (정확한 분해)
 
 | 단계 | 처리 주체 | vision token |
 |---|---|---|
+| **(0) 색인 시점 caption 생성** (D-2-2 eager) | LightHouse 색인 (client-side) | **이미지당 1회** — 영구 cache 박제 |
 | (a) 자연어 query → text 검색 (FTS5 trigram) | LightHouse / Searcher | **0** |
 | (b) hit 결과 LLM 에 전달 (excerpt + `hasImages=true` 메타) | MCP tool 응답 | **0** |
 | (c) LLM 응답 안 citation `[파일.pdf p.14]` | LLM 텍스트 출력 | **0** |
 | (d) UI 가 사용자에게 image 표시 (citation 클릭 / 결과 패널) | WPF UI | **0** (LLM 무관) |
-| (e) LLM 이 *이미지 자체 해석 필요* 판단 → `attachment_read(includeImages=true)` | LLM ↔ MCP | **여기서 1회 발생** |
+| (e) LLM 이 *이미지 자체 해석 필요* 판단 → `attachment_read(includeImages=true)` | LLM ↔ MCP | image binary base64 inline — caption 은 cache hit 으로 추가 호출 0 |
 
-즉 통상 텍스트 사양 질의는 vision 0. (e) 는 사용자가 도면 자체를 추궁할 때나
-LLM 이 답변 정확도를 위해 도면 추론이 필요할 때만 발생.
+즉 vision token 의 burden 은 **(0) 색인 시점 1회 / 이미지당** 으로 집중. query/turn 시점은 caption cache hit 으로 vision token 0 (base64 image binary 의 1회 input cost 만 — caption 생성 안 함). (e) 의 includeImages 모드는 D-2-3 size 정책 (≤5MB/장, ≤5장/응답) 가드 통과 시.
 
 #### 3.15.2 Phase 별 방식 비교
 
-| Phase | 방식 | 색인 시점 LLM 호출 | (e) 시점 vision token | 비고 |
+| Phase | 방식 | 색인 시점 vision token | (e) 시점 vision token | 비고 |
 |---|---|---|---|---|
 | 1 (MVP) | **이미지 미처리** | 0 | — (e) 미지원 | 페이지 본문/캡션 텍스트로 페이지 *위치* 까지 도달. ImageCache/ImageReferences 도 schema 없음. |
-| 2 ⭐ | **cached lazy 첨부** — `attachment_read(includeImages|caption_only)` | 0 | 이미지당 *모델 generation 당 1회* (caption cache miss 시) | (e) 일어난 turn 만 vision. caption cache hit 시 0. |
-| 3 | **OCR (Tesseract.NET + 한글 traineddata)** | 0 (로컬 CPU) | 영향 없음 | 도면 라벨 / I/O 번호 (CV01, DI12) → `ChunkTags(TagKind="ocr")` 또는 `Chunks.Text` 보강. ⚠ Tesseract 한영혼합 산업도면 CER ~0.31 한계 → PaddleOCR microservice 폴백 또는 Phase 2 LLM vision caption 흡수 검토 |
+| 2 ⭐ | **eager at indexing time** — 색인 시점 caption 영구 박제 + `attachment_read(includeImages\|caption_only)` | **이미지당 1회** (전수) | caption cache hit → 0 (includeImages 시 image binary input cost 만) | D-2-2 정합. MR4 cost gate 가 색인 시점 token 누적 통제. caption_only 모드는 0. |
+| 3 | **OCR (Tesseract.NET + 한글 traineddata)** | 0 (로컬 CPU) | 영향 없음 | 도면 라벨 / I/O 번호 (CV01, DI12) → `ChunkTags(TagKind="ocr")` 또는 `Chunks.Text` 보강. ⚠ Tesseract 한영혼합 산업도면 CER ~0.31 한계 → PaddleOCR microservice 폴백 또는 Phase 2 VLM caption 흡수 검토 |
 | 4 | **embedding / hybrid retrieval** | 이미지당 임베딩 1회 (선택) | — | swap 됨: OCR 이 embedding 앞에 와야 한국어 도메인 어휘가 retrieval 에 반영 |
-| 5 (옵션) | **선제 batch caption / 자동 모델링** | 이미지당 1회 (전수) | 이후 0 | 통상 Phase 2 cached lazy 가 우월. 특수 시나리오만. |
 | 보류 | **Multimodal embedding (CLIP/SigLIP)** | 이미지당 임베딩 1회 | — | SigLIP 2 (2025) 로 일반 한국어 개선, 단 산업 도메인 한국어 약점 잔존 → VLM 캡션 + text embedding 이 통상 더 우수 |
 
-#### 3.15.3 lazy 캐싱 전략 (Phase 2 "cached lazy" 구성, 3 layer)
+#### 3.15.3 eager 색인 전략 (Phase 2 구성, 3 layer)
 
 1. **image blob + sha256 keying** (Phase 2 색인 시점에 추출/저장)
-   - `<collection-root>/.lighthouse-kb/blobs/images/<sha256>.<ext>` (r4 — 폴더 이름 정정. 이전 rev 의 `.promaker-kb/` 잔재 제거)
+   - `<collection-root>/.lighthouse-kb/blobs/images/<sha256>.<ext>` (r4 SSOT)
    - 같은 도면이 한 collection 안 여러 문서/페이지에 중복 등장해도 1개 blob (cross-collection 은 §3.9 — collection 별 분리)
-2. **Anthropic prompt cache** — 같은 채팅 5분 TTL
-   - cache_control breakpoint 를 image content block 뒤에 둠
+2. **eager caption cache** (D-2-2) — sha256 → caption text **색인 시점에 영구 박제**
+   - 색인 단계에서 추출한 모든 image 에 대해 VLM 1회 호출 (D-2-1 = Anthropic Sonnet 4.6 default) → `ImageCache.CaptionText` 박제
+   - per-image fail-safe (D-2-4) — VLM 호출 실패 / cost gate hard cap 시 NULL 유지 + 다음 재색인 시 재시도
+   - **invalidation policy** (MR3): `CaptionModel` 의 generation tier (예: `claude-sonnet-4-6` → `claude-opus-4-7`) 가 다르면 재생성. Patch/release 차이는 재생성 X.
+   - **cost gate** (MR4): daily token cap (default 10K) — 색인 시점에 누적 visible (Promaker UI 의 chip 으로 사용자 안내). 초과 시 hard cutoff (해당 image 만 SkippedCaption, 다른 image 진행).
+3. **Anthropic prompt cache** (optional, Phase 4+) — 같은 채팅 5분 TTL
+   - cache_control breakpoint 를 image content block 뒤에 둠. base64 inline image 가 자주 reuse 되는 multi-turn 시 vision token 절감.
    - ⚠ **Anthropic 전용** (OpenAI/Ollama 미지원). cache write premium 1.25× → 재사용 ≥ 2회 시만 net 이득.
-   - 같은 image 를 5분 안에 재전송 시 vision token 약 1/10
-3. **on-demand caption cache** — sha256 → caption text 영구 저장
-   - 최초 (e) 시점에 "이 이미지를 1~2문장으로 설명" LLM 호출 → `ImageCache.CaptionText` 저장
-   - 다음부터 `caption_only=true` 모드는 vision 호출 0, 텍스트 갈음
-   - `includeImages=true` 모드도 caption 을 hint 로 동반
-   - **invalidation policy**: `CaptionModel` 의 generation tier (예: "claude-opus-4-7") 가 다르면 재생성. Patch/release 차이는 재생성 X.
 
-#### 3.15.4 핵심 결정 — Phase 2 cached lazy 우선
+#### 3.15.4 핵심 결정 — Phase 2 eager at indexing time (D-2-2)
 
 이유:
-1. **색인 변경 0** (Phase 2 의 image schema 도입 외) — Phase 1 인프라 위에 image blob 저장 + `attachment_read` 옵션 추가
-2. **LLM native vision 활용** — query 시점의 모델이 *문맥에 맞게* 해석 (색인 시점에 미리 결정 ×)
-3. **모델 교체 시 vision 품질 자동 개선** (caption cache 의 invalidation policy 와 정합)
-4. **vision 비용 최소** — 이미지당 *모델 generation 당 1회* (caption 생성 시) + 사용자 명시 추궁 시 (prompt cache 로 추가 절감)
-5. **trade-off 거의 없음** — 첫 (e) 시점의 약간의 latency (UX 적, 비용 아님) 외 단점 없음
+1. **사용자 mental model 단순화** — "색인 = 분석 완료" 일관 model. 사용자가 색인하기로 결정한 파일 = 의도적 분석 대상 (사용자 의도, s6-r18 박제).
+2. **query/turn 시점 latency 0** — caption 이 이미 박제됨. `attachment_search` hit 의 caption 도 즉시 노출. lazy 안의 첫 (e) latency 문제 제거.
+3. **cost 가시성 강화** — 색인 시점에 token 누적이 발생하므로 사용자가 색인 진입 전 cost gate chip (MR4) 으로 비용 예상 가능. lazy 안의 "사용 안 해도 0 / 사용 시 N" 의 비가시성 trade-off 해소.
+4. **MR3 invalidation 정합** — 모델 generation tier 변경 시 재색인 trigger 로 ImageCache.CaptionText 가 자동 갱신 (`IndexerVersion` mismatch → shadow rebuild). lazy 의 per-turn invalidation 보다 SSOT 명확.
 
-→ Phase 5 의 선제 batch caption 은 사용 안 해도 발생하는 전수 비용 사유로 격하 (특수 시나리오만).
+trade-off:
+- **사용 안 한 image 에도 cost 발생** — 사용자가 색인한 모든 image 의 caption 비용. cost gate (MR4) 의 daily cap 으로 통제.
+- **VLM down / API key 미박제 시 색인 진행 보장** (D-2-4) — per-image fail-safe 로 caption NULL 유지, 다음 재색인 시 재시도. 색인 자체는 차단 안 함.
 
 #### 3.15.5 Phase 2 진입 사전 결정 표 (r12 — 간략 박제)
 
@@ -579,11 +578,11 @@ LLM 이 답변 정확도를 위해 도면 추론이 필요할 때만 발생.
 | mr1 | OCR engine (Phase 3) | Tesseract.NET 1차, 임계 미달 시 PaddleOCR 폴백 | — |
 | mr2 | embedding provider (Phase 4) | OpenAI text-embedding-3-large 또는 차세대 Anthropic | — |
 | mr3 | sqlite-vec 배포 | vec0.dll service runtime 동봉 | mr2 |
-| mr4 | Phase 5 진입 | 보류 — Phase 2 cached lazy 가 우월 | CR2, MR4 |
+| mr4 | Phase 5 진입 | ~~보류 — Phase 2 cached lazy 가 우월~~ → **s6-r18 D-2-2 정정**: Phase 5 의 "선제 batch caption" = **Phase 2 본 결정의 본질** (격하 해제). 별 Phase 분리 불필요 — Phase 2 자체가 eager indexing. | CR2, MR4 |
 
 **진입 trigger**: 사용자가 도면 자체를 추궁하는 use case 누적 발생 + 위 10건 결정.
 
-**cost forecast (간략)**: Phase 2 + 4 조합 ≈ $1.25 / 1000 turn (vision $0.60 + embedding $0.65). Phase 5 batch ≈ $15 / 1000 turn (75배, 비추). 실 단가는 vendor pricing 으로 재검증.
+**cost forecast (간략)**: Phase 2 eager indexing 의 색인 시점 비용 = 이미지 수 × Sonnet 4.6 input cost (~$0.003 / image, 1280×1280 정합). 통상 manual ≈ 100 image / collection ≈ $0.3 / 색인. query 시점은 (e) includeImages 만 vision input cost (caption 생성 추가 호출 0). Phase 4 embedding $0.65 / 1000 turn 그대로. 실 단가는 vendor pricing 으로 재검증.
 
 **진입 순서**: Phase 2 → 3 (OCR) → 4 (embedding) — parent r1 swap 결정 (OCR 이 embedding 앞에) 정합. Phase S7 (mTLS / SSE) 는 병렬 진입 가능.
 

@@ -36,6 +36,11 @@ public partial class KbManagerDialog : Window
     /// <summary>review M2 — in-flight ingest task. OnClosed 가 await 후 종료 (s5c 변경: client dispose 는 holder 책임).</summary>
     private Task? _inflightIngestTask;
 
+    // **s6-r24 작업 2 (MJ1)** — ingest 시작 시점의 TokensUsedToday snapshot.
+    //   delta 누적 계산용 — finally 에서 (현재 - snapshot) 만 disk 에 합산.
+    //   day rollover SSOT 는 인스턴스의 *현재* `_config.VisionCostGate.LastResetUtc` 가 충분 — snapshot 불필요.
+    private int _tokensUsedAtIngestStart;
+
     /// <summary>다이얼로그 닫힐 때 호출자에게 LlmConfig.KbCollections 변경 알림 (active 토글 / 등록 / 제거).</summary>
     public bool ConfigChanged { get; private set; }
 
@@ -308,6 +313,11 @@ public partial class KbManagerDialog : Window
         ProgressBarMain.Value = 0;
         ProgressLabel.Text = "준비 중…";
 
+        // **s6-r24 작업 2 (MJ1 본질 해결)** — ingest 시작 시점의 TokensUsedToday snapshot.
+        //   finally 에서 (현재 누적값 - snapshot) = delta 를 disk 의 latest 에 누적 (덮어쓰기 아님).
+        //   다른 process 가 동시에 caption 호출해서 TokensUsedToday 를 늘렸어도 그 누적분 보존.
+        _tokensUsedAtIngestStart = _config.VisionCostGate.TokensUsedToday;
+
         var progress = new Progress<IngestStageProgress>(UpdateProgress);
         // review M2 — _inflightIngestTask 박제로 OnClosed 가 await 가능. caller (Register/Reupload_Click) 는
         // body 의 await 결과를 그대로 받음.
@@ -331,27 +341,34 @@ public partial class KbManagerDialog : Window
             // s6-r20 (E-i): captionGen 의 VisionCostGate.Consume 누적이 disk 에 반영되도록 1회 save.
             // 자가 검열 m3 정합 — Debug.WriteLine → log4net Log.Warn.
             //
-            // **--review M4 정합 (s6-r21) — cap 덮어쓰기 1 시나리오만 해결**:
-            //   ApplicationSettingsDialog 가 동시에 열려 cost gate cap (DailyTokenCap) 을 변경 후 저장한 경우,
-            //   stale snapshot 덮어쓰기 차단. disk 의 최신 LlmConfig 를 reload 한 후 cost gate 의 *누적 필드*
-            //   (TokensUsedToday / LastResetUtc) 만 본 인스턴스 값으로 덮어쓰고 Save.
+            // **s6-r24 작업 2 (MJ1 본질 해결)**:
+            //   `LlmConfig.ModifyWithLock` 가 cross-process file lock 으로 `Load → mutate → Save` critical section 직렬화.
+            //   본 인스턴스의 누적분은 **delta** (현재 TokensUsedToday - ingest 시작 시점 snapshot) 로 합산 —
+            //   다른 process 가 동시에 caption 을 호출해 disk 의 TokensUsedToday 를 늘렸다면 그 누적분 보존.
+            //   cap (DailyTokenCap) 은 disk SSOT 유지 (본 인스턴스 값 무시 — ApplicationSettingsDialog 가 SSOT).
             //
-            // **잔여 race (자가 검열 s6-r21 MJ1)** — `Load` → modify → `Save` 사이가 `_saveLock` 로 보호 안 됨
-            //   (`_saveLock` 는 `Save()` 의 file write 만 직렬화). 두 인스턴스가 거의 동시에 Load 하면
-            //   `TokensUsedToday` 누적분 중 일부 손실. 본질 해결 = file lock 또는 LlmConfig 전체 transaction —
-            //   별 turn backlog (MJ1).
-            //
-            // **MJ2 정합** — `LastResetUtc` 는 두 값 중 더 최근 UTC date (사전순 max) 채택. 본 인스턴스가
-            // 오늘 자정 전 시작 + disk 가 자정 후 reload 된 시나리오에서 어제 값으로 덮어쓰기 회귀 차단.
+            // **MJ2 정합 유지** — `LastResetUtc` 는 두 값 중 더 최근 UTC date (사전순 max). day rollover race
+            //   (오늘 자정 전 ingest 시작 + 자정 넘어 disk 가 새 date 로 reset) 시 어제 값으로 덮어쓰기 회귀 차단.
+            //   본 인스턴스가 day rollover 후 reset 한 경우 → snapshot LastResetUtc 와 다름 →
+            //   본 인스턴스 값으로 latest 덮어쓰기 + delta 그대로 합산.
             try
             {
-                var latest = LlmConfig.Load();
-                latest.VisionCostGate.TokensUsedToday = _config.VisionCostGate.TokensUsedToday;
-                latest.VisionCostGate.LastResetUtc =
-                    string.CompareOrdinal(latest.VisionCostGate.LastResetUtc, _config.VisionCostGate.LastResetUtc) >= 0
-                        ? latest.VisionCostGate.LastResetUtc
-                        : _config.VisionCostGate.LastResetUtc;
-                latest.Save();
+                var deltaTokens = _config.VisionCostGate.TokensUsedToday - _tokensUsedAtIngestStart;
+                var instanceLastReset = _config.VisionCostGate.LastResetUtc;
+                LlmConfig.ModifyWithLock(latest =>
+                {
+                    // day rollover SSOT: 본 인스턴스가 ingest 도중 새 day 로 reset 했으면 disk 도 새 date.
+                    if (string.CompareOrdinal(instanceLastReset, latest.VisionCostGate.LastResetUtc) > 0)
+                    {
+                        latest.VisionCostGate.LastResetUtc = instanceLastReset;
+                        latest.VisionCostGate.TokensUsedToday = 0;
+                    }
+                    // delta 누적 — 음수 (인스턴스 reset 등 비정상) 시 0 으로 클램프.
+                    if (deltaTokens > 0)
+                    {
+                        latest.VisionCostGate.TokensUsedToday += deltaTokens;
+                    }
+                });
             }
             catch (Exception ex) { Log.Warn($"KbManagerDialog: cost gate merge-save 실패 (best-effort) — {ex.Message}"); }
             ProgressPanel.Visibility = Visibility.Collapsed;
