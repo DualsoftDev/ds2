@@ -29,6 +29,7 @@
     <Compile Include="Queries\SelectionSummary.fs" />
     <Compile Include="Queries\NameEditorParts.fs" />
     <Compile Include="Queries\CanvasContextMenuState.fs" />
+    <Compile Include="Queries\ConditionSymbolQueries.fs" />
     <Compile Include="Queries\ConnectionQueries.fs" />
     <Compile Include="Store\Log.fs" />
     <Compile Include="Store\Nodes\Remove.fs" />
@@ -49,6 +50,8 @@
     <Compile Include="Store\Panel\PanelSelectionStates.fs" />
     <Compile Include="Store\Panel\PanelEditApply.fs" />
     <Compile Include="Store\Panel\EditorSelectionProjection.fs" />
+    <Compile Include="Projection\RefreshScope.fs" />
+    <Compile Include="TagWizard\TagWizardBaseAddress.fs" />
     <Compile Include="Editor\ImportPlanApply.fs" />
   </ItemGroup>
 

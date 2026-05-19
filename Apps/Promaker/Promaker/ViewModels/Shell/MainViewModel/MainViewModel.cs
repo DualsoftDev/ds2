@@ -41,6 +41,13 @@ public partial class MainViewModel : ObservableObject
 
         // Initialize services
         _dialogService = new DialogService();
+        FileWatcher = new ExternalFileChangeWatcher(
+            currentFilePath:       () => _currentFilePath,
+            isDirty:               () => IsDirty,
+            isBusy:                () => IsBusy,
+            dialogService:         _dialogService,
+            confirmDiscardChanges: ConfirmDiscardChanges,
+            openFilePath:          OpenFilePath);
 
         Selection = new SelectionState(new SelectionHost(this));
         CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
@@ -49,13 +56,14 @@ public partial class MainViewModel : ObservableObject
             () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes),
             () => FlattenTree(ControlTreeRoots).Concat(FlattenTree(DeviceTreeRoots)),
             value => StatusText = value);
-        // "시뮬레이션 결과 보기" 활성 조건은 Simulation.HasReportData 와 연동.
-        Simulation.PropertyChanged += (_, e) =>
+        // "시뮬레이션 결과 보기" 활성 조건은 Simulation.Report.HasReportData 와 연동.
+        Simulation.Report.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(SimulationPanelState.HasReportData))
+            if (e.PropertyName == nameof(SimulationReportOrchestrator.HasReportData))
                 ShowSimulationScenariosCommand.NotifyCanExecuteChanged();
         };
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        _editorCommandRefresher = new EditorCommandRefresher(this, CanvasManager, PropertyPanel);
         Simulation.RuntimeIoChanged = ioValues => PropertyPanel.RefreshConditionRuntime(ioValues);
         // Hub 모드 시작 직전, 현재 store 를 DSPilot 공유 AASX 경로에 자동 export — 사용자가
         // "공유 위치에 저장" 을 누르지 않아도 모니터링 시작과 동시에 DSPilot 이 같은 모델을 본다.
@@ -65,9 +73,7 @@ public partial class MainViewModel : ObservableObject
         RefreshThemeState();
         RefreshLanguageState();
         LoadRecentFiles();
-        LoadSplitDeviceAasxSetting();
-        LoadCreateDefaultEntitiesSetting();
-        LoadIriPrefixSetting();
+        AppSettings.LoadAll();
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
@@ -95,6 +101,16 @@ public partial class MainViewModel : ObservableObject
     public SplitCanvasManager CanvasManager { get; }
     public CanvasWorkspaceState Canvas => CanvasManager.Canvas;
     public SimulationPanelState Simulation { get; }
+
+    /// <summary>디스크에 저장되는 사용자 설정 (AASX export 옵션 + IRI prefix). 다이얼로그가 변경 시 SetXxx 로 반영.</summary>
+    public MainAppSettings AppSettings { get; } = new();
+
+    /// <summary>현재 열린 파일의 외부 변경 감시 collaborator. MainWindow 가 포커스 복귀 시 CheckChange 호출.</summary>
+    public ExternalFileChangeWatcher FileWatcher { get; }
+
+    /// <summary>외부 진입점 — MainWindow.xaml.cs 가 IInputElement.GotFocus 등에서 호출.
+    /// 기존 시그니처 유지 (this.CheckExternalFileChange) — 내부는 FileWatcher 위임.</summary>
+    internal void CheckExternalFileChange() => FileWatcher.CheckChange();
     public PropertyPanelState PropertyPanel { get; }
     public SelectionState Selection { get; }
 

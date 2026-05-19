@@ -21,16 +21,6 @@ public partial class MainViewModel
     private const string FileFilter =
         "All Supported (*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml)|*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md|YAML Files — lossy 공유 포맷 (*.yaml;*.yml)|*.yaml;*.yml";
 
-    private static bool HasExtension(string path, string extension) =>
-        Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsAasx(string path) => HasExtension(path, FileExtensions.Aasx);
-
-    private static bool IsMermaid(string path) => HasExtension(path, FileExtensions.Mermaid);
-
-    private static bool IsYaml(string path) =>
-        HasExtension(path, FileExtensions.Yaml) || HasExtension(path, FileExtensions.YamlAlt);
-
     /// <summary>
     /// `.yaml` Open 직후 AfterFileLoad 가 IsDirty=false 로 덮어쓰지 않도록 lossy 표식.
     /// CompleteOpen→AfterFileLoad chain 의 마지막에 IsDirty=true 강제 후 즉시 reset.
@@ -72,7 +62,7 @@ public partial class MainViewModel
     /// "시뮬레이션 결과 보기" 활성 조건 — "출력" 버튼과 동일하게 시뮬 결과 데이터가 있을 때만 활성.
     /// (HasProject 는 HasReportData 가 true 인 시점에는 자명하므로 별도 검사 생략 가능하지만 안전 차원에서 함께 체크.)
     /// </summary>
-    private bool CanShowSimulationScenarios() => HasProject && Simulation.HasReportData;
+    private bool CanShowSimulationScenarios() => HasProject && Simulation.Report.HasReportData;
 
     [RelayCommand(CanExecute = nameof(CanShowSimulationScenarios))]
     private void ShowSimulationScenarios()
@@ -157,9 +147,9 @@ public partial class MainViewModel
         if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
 
         // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
-        SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
-        SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
-        SetIriPrefix(dlg.ResultIriPrefix);
+        AppSettings.SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+        AppSettings.SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
+        AppSettings.SetIriPrefix(dlg.ResultIriPrefix);
         // PresetSystemTypes / PlcConfig / LlmConfig 는 Dialog 내부에서 이미 파일에 저장됨
 
         StatusText = "환경 설정이 변경되었습니다.";

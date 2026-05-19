@@ -21,6 +21,8 @@
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
     <Compile Include="RuntimeCommandPolicyTests.fs" />
+    <Compile Include="SimulationCommandFacadeTests.fs" />
+    <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
     <Compile Include="StepPrimingPlanTests.fs" />
     <Compile Include="BasicMacroIoTests.fs" />

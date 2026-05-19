@@ -53,19 +53,17 @@ public partial class SimulationPanelState
         }
 
         if (SimIndexModule.isTokenSource(engine.Index, selectedWork.Guid))
-            DisarmContinuousSource(selectedWork.Guid);
+            ContinuousInjection.Disarm(selectedWork.Guid);
 
         engine.ForceWorkState(selectedWork.Guid, Status4.Ready);
         AddSimLog(SimText.ManualWorkReset(selectedWork.Name), LogSeverity.Ready);
     }
 
     private bool CanForceWork() =>
-        RuntimeCommandPolicy.canForceWork(
-            IsSimulating,
-            IsSimPaused,
-            IsHomingPhase,
-            SelectedRuntimeMode,
-            SelectedSimWork is not null);
+        SimulationCommandFacade.IsAccepted(
+            SimulationCommandFacade.DecideForceWork(
+                IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode,
+                SelectedSimWork is not null));
 
     private (Guid SelectedSourceGuid, bool AutoStartSources) GetStepAdvanceSelection()
     {
@@ -111,7 +109,7 @@ public partial class SimulationPanelState
             startedSourceGuids.Add(sourceGuid);
         }
 
-        ArmContinuousSources(startedSourceGuids);
+        ContinuousInjection.Arm(startedSourceGuids);
         AddSimLog("Source Work 일괄 시작", LogSeverity.Going);
     }
 
@@ -123,7 +121,7 @@ public partial class SimulationPanelState
         if (!TryPrepareWorkStart(engine, selectedWork)) return;
         if (SimIndexModule.isTokenSource(engine.Index, guid))
         {
-            ArmContinuousSource(guid);
+            ContinuousInjection.Arm(guid);
             engine.StartSourceWork(guid);
         }
         else

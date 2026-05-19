@@ -117,11 +117,9 @@ public partial class SimulationPanelState
     // STEP 은 Simulation 모드 전용. Control 은 외부 Hub 신호로 진행되어 단계적 advance 의미 없음,
     // VP/Monitoring 도 외부 신호 owner 라 STEP 부적절.
     private bool CanStepSimulation() =>
-        RuntimeCommandPolicy.canStepSimulation(
-            IsSimulating,
-            IsSimPaused,
-            IsHomingPhase,
-            SelectedRuntimeMode);
+        SimulationCommandFacade.IsAccepted(
+            SimulationCommandFacade.DecideStep(
+                IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode));
 
     private static void ApplyStepPrimingAction(ISimulationEngine engine, StepPrimingAction action)
     {

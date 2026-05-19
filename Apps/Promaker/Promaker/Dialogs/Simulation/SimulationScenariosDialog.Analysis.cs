@@ -27,7 +27,7 @@ public partial class SimulationScenariosDialog
             return;
         }
 
-        var report = _sim.CurrentReport();
+        var report = _sim.Report.CurrentReport();
         if (report is null || report.Entries is null)
         {
             ClearCallTimeline($"{row.WorkName} — 시뮬레이션 raw 리포트 없음 (시뮬을 먼저 실행해 주세요).");

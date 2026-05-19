@@ -17,6 +17,7 @@
     <Compile Include="Engine\Core\WorkConditionChecker.fs" />
     <Compile Include="Engine\Core\StepSemantics.fs" />
     <Compile Include="Engine\Core\RuntimeCommandPolicy.fs" />
+    <Compile Include="Engine\Core\SimulationCommandFacade.fs" />
     <Compile Include="Engine\Core\RuntimeModeTransition.fs" />
     <Compile Include="Engine\Core\StepPrimingPlan.fs" />
     <Compile Include="Engine\Core\DurationTracker.fs" />

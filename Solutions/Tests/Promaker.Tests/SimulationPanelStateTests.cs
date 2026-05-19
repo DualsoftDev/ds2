@@ -41,7 +41,7 @@ public sealed class SimulationPanelStateTests
             var state = CreateState();
             var workId = Guid.NewGuid();
 
-            state.HasReportData = true;
+            state.Report.HasReportData = true;
             state.IsSimulating = true;
             state.IsSimPaused = true;
             state.SimSpeed = 5.0;
@@ -60,7 +60,7 @@ public sealed class SimulationPanelStateTests
 
             state.ResetForNewStore();
 
-            Assert.False(state.HasReportData);
+            Assert.False(state.Report.HasReportData);
             Assert.False(state.IsSimulating);
             Assert.False(state.IsSimPaused);
             Assert.Equal(1.0, state.SimSpeed);

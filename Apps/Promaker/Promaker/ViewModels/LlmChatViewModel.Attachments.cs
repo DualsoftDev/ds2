@@ -156,7 +156,7 @@ public partial class LlmChatViewModel
 
         var chip = await Task.Run(() =>
         {
-            var (w, h) = TryReadImageDimFromBytes(bytes);
+            var (w, h) = LlmImageDimReader.TryFromBytes(bytes);
             var tok = TokenEstimator.anthropicImageTokens(w, h, TokenEstimator.opus47ImageCap);
             var att = Attachment.NewImage(suggestedName, bytes, format);
             return new AttachmentChipVm(suggestedName, bytes.Length, tok.Item1, att);
@@ -348,7 +348,7 @@ public partial class LlmChatViewModel
                 if (cls is Classification.AcceptImage img)
                 {
                     var bytes = File.ReadAllBytes(path);
-                    var (w, h) = TryReadImageDimFromPath(path);
+                    var (w, h) = LlmImageDimReader.TryFromPath(path);
                     var tok = TokenEstimator.anthropicImageTokens(w, h, TokenEstimator.opus47ImageCap);
                     // rev 18 m3: ImageFormat 직접 보유 — mime 변환은 wire 시점 (Attachment.mimeOf SSOT).
                     var att = Attachment.NewImage(name, bytes, img.Item);
@@ -437,33 +437,7 @@ public partial class LlmChatViewModel
         return sb.ToString();
     }
 
-    private static (int W, int H) TryReadImageDimFromPath(string path)
-    {
-        try
-        {
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return ReadImageDim(fs);
-        }
-        catch { return (0, 0); }
-    }
-
-    private static (int W, int H) TryReadImageDimFromBytes(byte[] bytes)
-    {
-        try
-        {
-            using var ms = new MemoryStream(bytes, writable: false);
-            return ReadImageDim(ms);
-        }
-        catch { return (0, 0); }
-    }
-
-    private static (int W, int H) ReadImageDim(Stream stream)
-    {
-        // metadata-only: BitmapCreateOptions.IgnoreColorProfile + BitmapCacheOption.None.
-        var dec = BitmapDecoder.Create(stream, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.None);
-        var f = dec.Frames.FirstOrDefault();
-        return f is null ? (0, 0) : (f.PixelWidth, f.PixelHeight);
-    }
+    // 이미지 dim metadata-only 읽기는 LlmImageDimReader.TryFromPath / TryFromBytes 로 분리.
 
     /// <summary>review m10 — 사용자 표시용 확장자 (.jpg 등). ToString() 의 "Jpeg" 보다 친숙.
     /// rev 18 review 후속: F# <c>Attachment.extOf</c> SSOT 위임 — 종전 IsPng/IsJpeg/IsGif/IsWebp 4 case

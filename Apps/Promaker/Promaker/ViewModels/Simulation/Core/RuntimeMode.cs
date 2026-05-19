@@ -103,7 +103,7 @@ public partial class SimulationPanelState
             return;
 
         var runtimeSource = ResolveRuntimeHubSource();
-        var hubGeneration = CurrentHubGeneration;
+        var hubGeneration = Hub.CurrentGeneration;
         foreach (var batch in RuntimeHubEffectPipeline.Build(effects))
         {
             if (batch.DelayMs <= 0)
@@ -140,7 +140,7 @@ public partial class SimulationPanelState
         bool awaitWrites,
         bool requiresExclusiveImmediateLane)
     {
-        if (!ReferenceEquals(_simEngine, engine) || !IsCurrentHubGeneration(hubGeneration))
+        if (!ReferenceEquals(_simEngine, engine) || !Hub.IsCurrentGeneration(hubGeneration))
             return;
 
         if (!requiresExclusiveImmediateLane)
@@ -167,8 +167,8 @@ public partial class SimulationPanelState
     /// </summary>
     private void FlushBatchSenderSynchronously(int hubGeneration)
     {
-        var sender = _hubBatchSender;
-        if (sender is null || !IsCurrentHubGeneration(hubGeneration)) return;
+        var sender = Hub.BatchSender;
+        if (sender is null || !Hub.IsCurrentGeneration(hubGeneration)) return;
         try { sender.FlushAsync().Wait(TimeSpan.FromSeconds(2)); }
         catch { /* best-effort */ }
     }
@@ -180,7 +180,7 @@ public partial class SimulationPanelState
         RuntimeHubEffect effect,
         bool awaitWrite)
     {
-        if (!ReferenceEquals(_simEngine, engine) || !IsCurrentHubGeneration(hubGeneration))
+        if (!ReferenceEquals(_simEngine, engine) || !Hub.IsCurrentGeneration(hubGeneration))
             return;
 
         switch (effect.Kind)
@@ -208,19 +208,19 @@ public partial class SimulationPanelState
                 return;
 
             case RuntimeHubEffectKind.WriteTag:
-                if (_hubConnection is not null
-                    && IsCurrentHubConnection(hubGeneration, _hubConnection)
+                if (Hub.Connection is not null
+                    && Hub.IsCurrentConnection(hubGeneration, Hub.Connection)
                     && !string.IsNullOrEmpty(effect.Address))
                 {
                     // Batch sender 가 짧은 윈도우 내 WriteTag 들을 묶어 1개 SignalR 프레임으로 송신.
-                    _hubBatchSender?.Enqueue(effect.Address, effect.Value, runtimeSource);
+                    Hub.BatchSender?.Enqueue(effect.Address, effect.Value, runtimeSource);
                 }
                 return;
 
             case RuntimeHubEffectKind.PassiveObserve:
                 _dispatcher.BeginInvoke(() =>
                 {
-                    if (ReferenceEquals(_simEngine, engine) && IsCurrentHubGeneration(hubGeneration))
+                    if (ReferenceEquals(_simEngine, engine) && Hub.IsCurrentGeneration(hubGeneration))
                         ObserveAndInferPassiveState(effect.Address, effect.Value);
                 });
                 return;
@@ -270,13 +270,13 @@ public partial class SimulationPanelState
         if (_simEngine is null) return;
         try
         {
-            if (!IsCurrentHubConnection(hubGeneration, hub))
+            if (!Hub.IsCurrentConnection(hubGeneration, hub))
                 return;
 
             var tagValues = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var address in runtimeSession.BuildHubSnapshotQueryAddresses())
             {
-                if (!IsCurrentHubConnection(hubGeneration, hub))
+                if (!Hub.IsCurrentConnection(hubGeneration, hub))
                     return;
                 tagValues[address] = await hub.InvokeAsync<string>(HubMethod.QueryTag, address);
             }

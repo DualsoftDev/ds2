@@ -2,6 +2,10 @@ namespace Ds2.Runtime.Engine.Core
 
 open Ds2.Core
 
+/// <summary>
+/// 시뮬레이션 runtime 의 *공유 mode 분류* (passive / real-line control) + 연속 주입 (ContinuousInjection)
+/// 가용성/지속 조건. 다른 Can* command 결정은 <c>SimulationCommandFacade</c> 의 typed Decision 으로 이관됨.
+/// </summary>
 module RuntimeCommandPolicy =
 
     let isPassiveMode (runtimeMode: RuntimeMode) =
@@ -10,81 +14,6 @@ module RuntimeCommandPolicy =
 
     let isRealLineControl (runtimeMode: RuntimeMode) (isRealPlcConnected: bool) =
         runtimeMode = RuntimeMode.Control && isRealPlcConnected
-
-    let canStartSimulation (isSimulating: bool) (isSimPaused: bool) (isHomingPhase: bool) =
-        (not isSimulating || isSimPaused) && not isHomingPhase
-
-    let canPauseSimulation
-        (isSimulating: bool)
-        (isSimPaused: bool)
-        (isHomingPhase: bool)
-        (runtimeMode: RuntimeMode)
-        (isRealPlcConnected: bool)
-        =
-        isSimulating
-        && not isSimPaused
-        && not isHomingPhase
-        && not (isPassiveMode runtimeMode)
-        && not (isRealLineControl runtimeMode isRealPlcConnected)
-
-    let canStopSimulation (isSimulating: bool) =
-        isSimulating
-
-    let canResetSimulation (isSimulating: bool) =
-        isSimulating
-
-    let canStepSimulation
-        (isSimulating: bool)
-        (isSimPaused: bool)
-        (isHomingPhase: bool)
-        (runtimeMode: RuntimeMode)
-        =
-        (not isSimulating || isSimPaused)
-        && not isHomingPhase
-        && runtimeMode = RuntimeMode.Simulation
-
-    let canUseManualSimulationControl
-        (isSimulating: bool)
-        (isSimPaused: bool)
-        (isHomingPhase: bool)
-        (runtimeMode: RuntimeMode)
-        =
-        isSimulating
-        && not isSimPaused
-        && not isHomingPhase
-        && not (isPassiveMode runtimeMode)
-
-    let canForceWork
-        (isSimulating: bool)
-        (isSimPaused: bool)
-        (isHomingPhase: bool)
-        (runtimeMode: RuntimeMode)
-        (hasSelectedWork: bool)
-        =
-        canUseManualSimulationControl isSimulating isSimPaused isHomingPhase runtimeMode
-        && hasSelectedWork
-
-    let canSeedToken
-        (isSimulating: bool)
-        (isSimPaused: bool)
-        (isHomingPhase: bool)
-        (runtimeMode: RuntimeMode)
-        (hasSelectedTokenSource: bool)
-        =
-        canUseManualSimulationControl isSimulating isSimPaused isHomingPhase runtimeMode
-        && hasSelectedTokenSource
-
-    let canBeginHoming
-        (runtimeMode: RuntimeMode)
-        (isRealPlcConnected: bool)
-        (isSimulating: bool)
-        (isHomingPhase: bool)
-        (isHomingPressed: bool)
-        =
-        isRealLineControl runtimeMode isRealPlcConnected
-        && not isSimulating
-        && not isHomingPhase
-        && not isHomingPressed
 
     let isContinuousInjectionAvailable
         (runtimeMode: RuntimeMode)

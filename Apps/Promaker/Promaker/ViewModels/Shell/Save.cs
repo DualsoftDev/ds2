@@ -90,7 +90,7 @@ public partial class MainViewModel
         try
         {
             var exported = AasxExporter.exportFromStore(
-                _store, SharedPaths.AasxFilePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
+                _store, SharedPaths.AasxFilePath, AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
             if (exported)
                 Log.Info($"AASX auto-published to DSPilot shared path: {SharedPaths.AasxFilePath}");
             else
@@ -132,7 +132,7 @@ public partial class MainViewModel
 
     private bool SaveToPath(string filePath)
     {
-        if (IsMermaid(filePath))
+        if (FileTypeProbe.IsMermaid(filePath))
         {
             try
             {
@@ -150,14 +150,14 @@ public partial class MainViewModel
             }
         }
 
-        if (IsAasx(filePath))
+        if (FileTypeProbe.IsAasx(filePath))
         {
             try
             {
                 // 시뮬 데이터가 있으면 AASX export 직전 자동으로 시나리오 박제 → Ds2.Core.TechnicalDataTypes.TechnicalData.SimulationResults
                 try
                 {
-                    var captured = Simulation?.TryCaptureScenario(
+                    var captured = Simulation?.Report.TryCaptureScenario(
                         $"AutoCapture_{DateTime.Now:yyyyMMdd_HHmmss}");
                     if (captured != null)
                         Log.Info($"AASX 저장 전 시뮬 시나리오 박제됨: {captured.Meta.ScenarioName}");
@@ -176,7 +176,7 @@ public partial class MainViewModel
                         ? Microsoft.FSharp.Core.FSharpOption<string>.None
                         : Microsoft.FSharp.Core.FSharpOption<string>.Some(userTplFolder);
 
-                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
+                var exported = AasxExporter.exportFromStore(_store, filePath, AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
 
                 AasxExporter.UserTemplatesFolder = prevTplFolder;
 
@@ -220,7 +220,7 @@ public partial class MainViewModel
             }
         }
 
-        if (IsYaml(filePath))
+        if (FileTypeProbe.IsYaml(filePath))
         {
             // 대형 store 의 yaml export 는 1-2초 소요 가능 → BusyOverlay.
             // export 실패 시 ShowWarning (modal) 이 BusyOverlay 위에 겹치지 않도록, dialog 노출 직전

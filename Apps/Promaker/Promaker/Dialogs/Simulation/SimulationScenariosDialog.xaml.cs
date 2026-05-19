@@ -136,7 +136,7 @@ public partial class SimulationScenariosDialog : Window
         _eligibleWorkNames = BuildEligibleWorkNames();
 
         // CapturedRuns 가 비어있으면 (예: AASX 신규 import 후), 기존 SimulationResult 로 1줄 hydrate.
-        var sources = _sim.CapturedRuns.ToList();
+        var sources = _sim.Report.CapturedRuns.ToList();
         if (sources.Count == 0
             && Microsoft.FSharp.Core.FSharpOption<Scenario>.get_IsSome(_project.SimulationResult))
         {
@@ -188,7 +188,7 @@ public partial class SimulationScenariosDialog : Window
             r.IsSelected = ReferenceEquals(r, row);
         _suppressCheck = false;
 
-        _sim.ApplySelectedScenario(row.Scenario);
+        _sim.Report.ApplySelectedScenario(row.Scenario);
         ShowDetails(row.Scenario);
     }
 
@@ -262,7 +262,7 @@ public partial class SimulationScenariosDialog : Window
         if (!DialogHelpers.Confirm(this, "누적된 시뮬레이션 결과를 모두 삭제하시겠습니까?\n(시나리오·토큰별·Work별 모두 초기화)", "확인")) return;
 
         // 누적 Run 큐 초기화
-        _sim.ClearAllCapturedRuns();
+        _sim.Report.ClearAllCapturedRuns();
 
         // TechnicalData.SimulationResult 초기화 — 그렇지 않으면 Reload 가 이 값으로 1줄 hydrate 하여
         //   토큰별/Work별 그리드가 비워지지 않음.
