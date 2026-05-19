@@ -61,6 +61,29 @@ public partial class KbManagerDialog : Window
 
         CollectionsList.ItemsSource = _rows;
         Loaded += async (_, _) => await RefreshAsync();
+
+        // D-S7-2b (s6-r28) — server SSE event 수신 시 collection list 자동 refresh.
+        // keepalive 는 silent skip. handler 가 UI thread 외부에서 호출되므로 Dispatcher 로 marshal.
+        LightHouseClientHolder.EventReceived += OnSseEventReceived;
+    }
+
+    /// <summary>
+    /// D-S7-2b (s6-r28) — SSE event handler. collection-added/updated/deleted 수신 시 server registry 재조회.
+    /// keepalive 는 silent skip (stream 활성 확인 의도, UI 영향 없음).
+    /// </summary>
+    private void OnSseEventReceived(ServerEventDto evt)
+    {
+        if (evt is null || string.IsNullOrEmpty(evt.Event)) return;
+        if (evt.Event == "keepalive") return;
+        // collection-added / collection-updated / collection-deleted → registry 재조회.
+        // M1 (s6-r28 자가 검열 review) — close 직전 fire 된 event 가 BeginInvoke queue 에 들어가 close
+        // 후 dispatch 되면 closed window 의 UI element 갱신 — IsLoaded 체크로 race window 차단.
+        Dispatcher.BeginInvoke(new Action(async () =>
+        {
+            if (!IsLoaded) return;
+            try { await RefreshAsync(); }
+            catch (Exception ex) { StatusChip.Text = $"⚠ SSE refresh 결함 — {ex.Message}"; }
+        }));
     }
 
     /// <summary>
@@ -412,6 +435,10 @@ public partial class KbManagerDialog : Window
 
     protected override async void OnClosed(EventArgs e)
     {
+        // D-S7-2b (s6-r28) — SSE handler 해제 의무. unsubscribe 안 하면 dialog 인스턴스가 GC 안 되고
+        // Dispatcher.BeginInvoke 가 닫힌 dialog 의 UI element 를 건드림.
+        LightHouseClientHolder.EventReceived -= OnSseEventReceived;
+
         // review M2 (s5b-r0) — cancel 신호 → in-flight ingest 종료까지 await. _client 는 본 dialog 가 소유 안 함
         // (Phase S5c 변경 — LightHouseClientHolder 가 process singleton).
         _cts?.Cancel();
