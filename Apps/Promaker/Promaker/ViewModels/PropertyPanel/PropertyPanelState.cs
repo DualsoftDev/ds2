@@ -169,11 +169,8 @@ public partial class PropertyPanelState : ObservableObject
             return;
         }
 
-        var changes = selectedWorkIds
-            .Select(workId => new ValueTuple<Guid, bool>(workId, value.Value))
-            .ToList();
-
-        if (!_host.TryAction(() => Store.UpdateWorkIsFinishedBatch(changes)))
+        // store 조회 + tuple list 구성 + batch 호출은 F# PanelEditApply 위임.
+        if (!_host.TryAction(() => Store.ApplyIsFinishedBatch(selectedWorkIds, value.Value)))
         {
             Refresh();
             return;
@@ -202,16 +199,8 @@ public partial class PropertyPanelState : ObservableObject
             return;
         }
 
-        var changes = selectedWorkIds
-            .Select(workId =>
-            {
-                var currentRole = Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None;
-                var nextRole = TokenRoleOps.computeNextTokenRole(currentRole, flag, value.Value);
-                return new ValueTuple<Guid, TokenRole>(workId, nextRole);
-            })
-            .ToList();
-
-        if (!_host.TryAction(() => Store.UpdateWorkTokenRolesBatch(changes)))
+        // 각 Work 의 현재 role 조회 + computeNextTokenRole + batch 호출은 F# PanelEditApply 위임.
+        if (!_host.TryAction(() => Store.ApplyTokenRoleFlagBatch(selectedWorkIds, flag, value.Value)))
         {
             Refresh();
             return;
@@ -238,15 +227,8 @@ public partial class PropertyPanelState : ObservableObject
             return;
         }
 
-        if (!_host.TryAction(() =>
-        {
-            foreach (var callId in selectedCallIds)
-            {
-                var call = Queries.getCall(callId, Store)?.Value;
-                if (call != null && (call.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion) != value)
-                    Store.UpdateCallType(callId, value);
-            }
-        }))
+        // Call 조회 + simulation property dereference + 변경 필요한 것만 UpdateCallType 호출은 F# 위임.
+        if (!_host.TryAction(() => Store.ApplyCallTypeChange(selectedCallIds, value)))
         {
             Refresh();
             return;

@@ -12,6 +12,7 @@ using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
+using Promaker.Presentation;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -60,7 +61,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     public System.Collections.ObjectModel.ObservableCollection<System.Collections.ObjectModel.ObservableCollection<IndexedPatternRow>> QwChunks { get; } = new();
     public System.Collections.ObjectModel.ObservableCollection<System.Collections.ObjectModel.ObservableCollection<IndexedPatternRow>> MwChunks { get; } = new();
 
-    // ── Step 3 IoSignalPreviewGrid 컬럼 헤더 내장 필터 ───────────────
+    // ── Step 3 Step3Section.IoSignalPreviewGrid 컬럼 헤더 내장 필터 ───────────────
     private string _pvFlow = "", _pvDevice = "", _pvApi = "", _pvOutSym = "", _pvOutAddr = "", _pvInSym = "", _pvInAddr = "";
     public string PvFlowFilter       { get => _pvFlow;     set => SetPv(ref _pvFlow, value, nameof(PvFlowFilter)); }
     public string PvDeviceFilter     { get => _pvDevice;   set => SetPv(ref _pvDevice, value, nameof(PvDeviceFilter)); }
@@ -131,27 +132,27 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         // Setup CollectionView with filtering
         _ioView = CollectionViewSource.GetDefaultView(_ioRows);
         _ioView.Filter = FilterIoRow;
-        IoSignalPreviewGrid.ItemsSource = _ioView;
+        Step3Section.IoSignalPreviewGrid.ItemsSource = _ioView;
 
         _pvDebounce = new RowFilterDebouncer(() => _ioView?.Refresh());
 
         _dummyView = CollectionViewSource.GetDefaultView(_dummyRows);
         _dummyView.Filter = FilterDummyRow;
         _dmDebounce = new RowFilterDebouncer(() => _dummyView?.Refresh());
-        DummySignalPreviewGrid.ItemsSource = _dummyView;
-        UnmatchedSignalGrid.ItemsSource = _unmatchedRows;
-        ErrorsListBox.ItemsSource = _errorItems;
+        Step3Section.DummySignalPreviewGrid.ItemsSource = _dummyView;
+        Step3Section.UnmatchedSignalGrid.ItemsSource = _unmatchedRows;
+        Step3Section.ErrorsListBox.ItemsSource = _errorItems;
 
         // Bind DataGrids
-        SystemBaseGrid.ItemsSource = _systemBaseRows;
-        FlowBaseGrid.ItemsSource = _flowBaseRows;
-        IwSignalGrid.ItemsSource = _iwSignalRows;
-        QwSignalGrid.ItemsSource = _qwSignalRows;
-        MwSignalGrid.ItemsSource = _mwSignalRows;
-        if (AuxPortGrid != null)
-            AuxPortGrid.ItemsSource = _auxPortRows;
-        if (EndPortGrid != null)
-            EndPortGrid.ItemsSource = _endPortRows;
+        Step1Section.SystemBaseGrid.ItemsSource = _systemBaseRows;
+        Step1Section.FlowBaseGrid.ItemsSource = _flowBaseRows;
+        Step2Section.IwSignalGrid.ItemsSource = _iwSignalRows;
+        Step2Section.QwSignalGrid.ItemsSource = _qwSignalRows;
+        Step2Section.MwSignalGrid.ItemsSource = _mwSignalRows;
+        if (Step2Section.AuxPortGrid != null)
+            Step2Section.AuxPortGrid.ItemsSource = _auxPortRows;
+        if (Step2Section.EndPortGrid != null)
+            Step2Section.EndPortGrid.ItemsSource = _endPortRows;
 
         // FB 타입 목록 로드 (XGI_Template.xml 의 UserFB) — 콤보 바인딩 전에 선행
         WizFBTypes = FBPortCatalog.GetFBTypeNames();
@@ -160,8 +161,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         ReloadWizApiNames();
 
         // 글로벌 FB 타입 콤보 초기화 — SystemType 당 1개 FB 선택
-        if (GlobalFBTypeCombo != null)
-            GlobalFBTypeCombo.ItemsSource = WizFBTypes;
+        if (Step2Section.GlobalFBTypeCombo != null)
+            Step2Section.GlobalFBTypeCombo.ItemsSource = WizFBTypes;
 
         // Bind filter text boxes
         // 필터는 컬럼 헤더 내장 TextBox 가 DataContext.Pv*Filter 에 바인딩 → INPC setter 가 Refresh
@@ -235,9 +236,9 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     // ── End 포트 (EndPortMap) — API → 완료 OUT 포트 매핑 ────────────────────
     private readonly ObservableCollection<EndPortRow> _endPortRows = new();
 
-    private void AddEndPortRow_Click(object sender, RoutedEventArgs e)
+    internal void AddEndPortRow_Click(object sender, RoutedEventArgs e)
     {
-        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var fb = Step2Section.GlobalFBTypeCombo?.SelectedItem as string ?? "";
         var sysType = _currentDeviceTemplateFile;
         _endPortRows.Add(HookAutoSave(new EndPortRow
         {
@@ -249,10 +250,10 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         PersistCurrentPreset();
     }
 
-    private void RemoveEndPortRow_Click(object sender, RoutedEventArgs e)
+    internal void RemoveEndPortRow_Click(object sender, RoutedEventArgs e)
     {
-        if (EndPortGrid == null) return;
-        var selected = EndPortGrid.SelectedItems.Cast<EndPortRow>().ToList();
+        if (Step2Section.EndPortGrid == null) return;
+        var selected = Step2Section.EndPortGrid.SelectedItems.Cast<EndPortRow>().ToList();
         if (selected.Count == 0) return;
         foreach (var row in selected) _endPortRows.Remove(row);
         PersistCurrentPreset();
@@ -279,16 +280,16 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
 
     private System.Windows.Controls.DataGrid? FindFocusedGrid()
     {
-        foreach (var g in new[] { IwSignalGrid, QwSignalGrid, MwSignalGrid, AuxPortGrid })
+        foreach (var g in new[] { Step2Section.IwSignalGrid, Step2Section.QwSignalGrid, Step2Section.MwSignalGrid, Step2Section.AuxPortGrid })
             if (g != null && g.IsKeyboardFocusWithin) return g;
         return null;
     }
 
-    private void AuxFilter_Changed(object sender, System.Windows.RoutedEventArgs e)
+    internal void AuxFilter_Changed(object sender, System.Windows.RoutedEventArgs e)
     {
         AuxPortDirectionFilter mode;
-        if (AuxFilterInput?.IsChecked == true)       mode = AuxPortDirectionFilter.Input;
-        else if (AuxFilterOutput?.IsChecked == true) mode = AuxPortDirectionFilter.Output;
+        if (Step2Section.AuxFilterInput?.IsChecked == true)       mode = AuxPortDirectionFilter.Input;
+        else if (Step2Section.AuxFilterOutput?.IsChecked == true) mode = AuxPortDirectionFilter.Output;
         else                                          mode = AuxPortDirectionFilter.All;
         AuxPortRow.SetDirectionFilter(mode);
     }
@@ -297,9 +298,9 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     /// 글로벌 FB 타입 콤보 변경 시 — AuxPortRow 및 IW/QW/MW 신호 행의 TargetFBType 을 일괄 갱신해
     /// PortOptions 가 새 FB 의 포트로 바뀌게 하고, 현재 SystemType 의 Preset 에 즉시 저장(자동 persist).
     /// </summary>
-    private void GlobalFBType_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    internal void GlobalFBType_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        var fbType = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var fbType = Step2Section.GlobalFBTypeCombo?.SelectedItem as string ?? "";
         foreach (var row in _auxPortRows)
             row.TargetFBType = fbType;
         foreach (var row in _endPortRows)
@@ -321,15 +322,15 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
             presetDto.FBTagMapName = fbType;
             FBTagMapStore.Save(_store, systemType, presetDto);
 
-            if (DeviceTemplateStatusText != null)
-                DeviceTemplateStatusText.Text = string.IsNullOrEmpty(fbType)
+            if (Step2Section.DeviceTemplateStatusText != null)
+                Step2Section.DeviceTemplateStatusText.Text = string.IsNullOrEmpty(fbType)
                     ? $"✓ '{systemType}' FB 지정 해제"
                     : $"✓ '{systemType}' FB → {fbType} 저장";
         }
     }
 
 /// <summary>32점 단위 보기 토글 — IW/QW/MW 각 섹션 독립.</summary>
-    private void ChunkedToggle_Changed(object sender, RoutedEventArgs e)
+    internal void ChunkedToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox cb) return;
         var sec = AllSections().FirstOrDefault(s => s.ChunkedToggle == cb);
@@ -378,11 +379,8 @@ public partial class TagWizardDialog
     // Step 4 는 이제 요약창이므로 신호 매핑 편집 관련 메서드는 모두 제거됨.
     // FB 바인딩은 Step 2 신호 템플릿(Phase 2 예정) 또는 I/O 일괄 편집에서 처리.
 
-    internal ControlSystemProperties? GetOrCreateControlProps()
-    {
-        var opt = Queries.getOrCreatePrimaryControlProps(_store);
-        return Microsoft.FSharp.Core.FSharpOption<ControlSystemProperties>.get_IsSome(opt) ? opt.Value : null;
-    }
+    internal ControlSystemProperties? GetOrCreateControlProps() =>
+        Queries.getOrCreatePrimaryControlProps(_store).GetOrNull();
 
     private bool FilterDummyRow(object obj)
     {

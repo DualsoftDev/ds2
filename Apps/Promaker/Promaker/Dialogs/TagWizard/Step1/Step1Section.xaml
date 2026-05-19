@@ -1,0 +1,243 @@
+<UserControl x:Class="Promaker.Dialogs.TagWizardStep1Section"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Promaker.Dialogs">
+    <Grid Margin="30,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="15"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Step 1: 프로젝트 확인 + 선두 주소 설정"
+                   FontSize="22"
+                   FontWeight="Bold"
+                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+        <!-- 프로젝트 요약 (압축 뷰) -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource PrimaryBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="16,10"
+                Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="📊 프로젝트: "
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="Flow " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="6,0,2,0"/>
+                <TextBlock x:Name="FlowCountText" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" · Work " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="WorkCountText" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" · Call " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="CallCountText" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text=" · Device " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="DeviceCountText" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryTextBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 선두 주소 설정 -->
+        <Grid Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>      <!-- Flow 헤더 -->
+                <RowDefinition Height="Auto"/>      <!-- Flow 안내 -->
+                <RowDefinition Height="5*" MinHeight="180"/>   <!-- Flow 그리드 -->
+                <RowDefinition Height="Auto"/>      <!-- System 헤더 -->
+                <RowDefinition Height="5*" MinHeight="260"/>   <!-- System 영역 (확대) -->
+                <RowDefinition Height="Auto"/>      <!-- 상태바 -->
+            </Grid.RowDefinitions>
+
+            <!-- 헤더: Flow 주소 (기본) -->
+            <Border Grid.Row="0"
+                    Background="{DynamicResource PrimaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="20,12">
+                <Grid>
+                    <TextBlock Text="📊 Flow 주소 (기본)"
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                    <Button Content="💾 Flow 주소 저장"
+                            Style="{StaticResource WizardButton}"
+                            Padding="12,6" HorizontalAlignment="Right"
+                            Click="SaveFlowBase_Click"/>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1"
+                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="15,10">
+                <TextBlock FontSize="11"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextWrapping="Wrap"
+                           Text="💡 Flow 별 IW/QW/MW 시작 주소를 설정합니다. 특정 시스템 타입 오버라이드가 필요하면 아래 '🔧 시스템 주소 추가' 를 펼치세요."/>
+            </Border>
+
+            <DataGrid x:Name="FlowBaseGrid"
+                      Grid.Row="2"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      CanUserSortColumns="True"
+                      SelectionMode="Single"
+                      GridLinesVisibility="All"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      BorderThickness="1"
+                      Foreground="{DynamicResource PrimaryTextBrush}"
+                      Background="{DynamicResource SecondaryBackgroundBrush}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Flow 이름" Width="150" IsReadOnly="True"
+                                        Binding="{Binding FlowName}"/>
+                    <DataGridTextColumn Header="IW_BASE" Width="*"
+                                        Binding="{Binding IW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                    <DataGridTextColumn Header="QW_BASE" Width="*"
+                                        Binding="{Binding QW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                    <DataGridTextColumn Header="MW_BASE" Width="*"
+                                        Binding="{Binding MW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- System 주소: 항상 표시, 콤보 추가/삭제 방식 -->
+            <Border Grid.Row="3"
+                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,1,0,1"
+                    Padding="20,10" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="🔧 시스템 타입별 주소 오버라이드"
+                               FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="💾 시스템 주소 저장"
+                            Style="{StaticResource WizardButton}"
+                            Padding="12,6"
+                            Click="SaveSystemBase_Click"/>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 추가 입력 툴바: 타입 ▼ + IW + QW + MW + [추가] [선택 삭제] -->
+                <Border Grid.Row="0"
+                        Background="{DynamicResource PrimaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,0,0,1"
+                        Padding="15,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="2*" MinWidth="180"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*" MinWidth="90"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*" MinWidth="90"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*" MinWidth="90"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="타입:"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <ComboBox Grid.Column="1" x:Name="NewSystemTypeCombo"
+                                  ItemsSource="{Binding AvailableSystemTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  IsEditable="True"
+                                  VerticalAlignment="Center"/>
+
+                        <TextBlock Grid.Column="3" Text="IW_BASE:"
+                                   VerticalAlignment="Center" Margin="0,0,4,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox   Grid.Column="4" x:Name="NewSystemIwBox"
+                                   VerticalAlignment="Center"/>
+
+                        <TextBlock Grid.Column="6" Text="QW_BASE:"
+                                   VerticalAlignment="Center" Margin="0,0,4,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox   Grid.Column="7" x:Name="NewSystemQwBox"
+                                   VerticalAlignment="Center"/>
+
+                        <TextBlock Grid.Column="9" Text="MW_BASE:"
+                                   VerticalAlignment="Center" Margin="0,0,4,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox   Grid.Column="10" x:Name="NewSystemMwBox"
+                                   VerticalAlignment="Center"/>
+
+                        <Button Grid.Column="12" Content="➕ 추가"
+                                Style="{StaticResource DarkButton}"
+                                Padding="14,6"
+                                Click="AddSystemBaseRow_Click"/>
+                        <Button Grid.Column="14" Content="🗑 선택 삭제"
+                                Style="{StaticResource DarkButton}"
+                                Padding="14,6"
+                                Click="RemoveSystemBaseRow_Click"/>
+                    </Grid>
+                </Border>
+
+                <DataGrid x:Name="SystemBaseGrid"
+                          Grid.Row="1"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          SelectionMode="Single"
+                          SelectionUnit="FullRow"
+                          GridLinesVisibility="All"
+                          BorderBrush="{DynamicResource BorderBrush}"
+                          BorderThickness="1"
+                          MinHeight="140"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.CanContentScroll="True"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          Background="{DynamicResource SecondaryBackgroundBrush}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="시스템 타입" Width="160" IsReadOnly="True"
+                                            Binding="{Binding SystemType}"/>
+                        <DataGridTextColumn Header="IW_BASE" Width="*"
+                                            Binding="{Binding IW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                        <DataGridTextColumn Header="QW_BASE" Width="*"
+                                            Binding="{Binding QW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                        <DataGridTextColumn Header="MW_BASE" Width="*"
+                                            Binding="{Binding MW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+
+            <!-- 상태바 -->
+            <Border Grid.Row="5"
+                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Padding="15,10">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="FlowBaseStatusText"
+                               Text="Flow별 선두 주소를 설정합니다."
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,16,0"/>
+                    <TextBlock x:Name="SystemBaseStatusText"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

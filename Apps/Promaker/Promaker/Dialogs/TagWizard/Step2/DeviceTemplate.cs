@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using AAStoPLC.TagWizard;
+using Ds2.Editor;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -20,48 +21,40 @@ public partial class TagWizardDialog
     {
         try
         {
-            DeviceTemplateListBox.Items.Clear();
+            Step2Section.DeviceTemplateListBox.Items.Clear();
 
-            var names = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            // '#' 포함 SystemType 은 AddCall 용 템플릿 — TagWizard 의 구체 FB 매핑 대상이 아니므로 제외.
-            static bool IsTemplate(string n) => !string.IsNullOrEmpty(n) && n.Contains('#');
-            // 1순위: 프로젝트 속성 프리셋
-            foreach (var t in SystemTypePresetProvider.GetSystemTypes())
-                if (!IsTemplate(t)) names.Add(t);
-            // 2순위: 이미 AASX 안에 존재하는 FBTagMap Preset 키 (프리셋에 없는 사용자 추가분)
-            foreach (var kv in FBTagMapStore.LoadAll(_store))
-                if (!IsTemplate(kv.Key)) names.Add(kv.Key);
+            // 1순위: 프로젝트 속성 프리셋 / 2순위: AASX preset key. '#' 템플릿은 제외.
+            // 합집합 + 대소문자 무시 dedup + 정렬은 F# SystemTypePreset 위임.
+            var names = SystemTypePreset.mergeDeviceTemplateNames(
+                SystemTypePresetProvider.GetSystemTypes(),
+                FBTagMapStore.LoadAll(_store).Keys).ToList();
 
             if (names.Count == 0)
             {
-                DeviceTemplateStatusText.Text = "등록된 SystemType 프리셋이 없습니다. 프로젝트 속성에서 프리셋을 추가하세요.";
+                Step2Section.DeviceTemplateStatusText.Text = "등록된 SystemType 프리셋이 없습니다. 프로젝트 속성에서 프리셋을 추가하세요.";
                 return;
             }
 
-            // 사전 seed — FBTagMapStore.LoadAll → RebuildPresetsFromJson 가
-            // 모든 SystemType 의 preset 을 임베디드 JSON 으로 통째 재생성하므로 별도 호출 불필요.
-            _ = FBTagMapStore.LoadAll(_store);
-
             foreach (var n in names)
-                DeviceTemplateListBox.Items.Add(n);
+                Step2Section.DeviceTemplateListBox.Items.Add(n);
 
             // 기본 선택: 첫 항목 (정렬된 상태)
-            DeviceTemplateListBox.SelectedItem = names.First();
+            Step2Section.DeviceTemplateListBox.SelectedItem = names[0];
 
-            DeviceTemplateStatusText.Text = $"{names.Count}개의 SystemType 이 발견되었습니다.";
+            Step2Section.DeviceTemplateStatusText.Text = $"{names.Count}개의 SystemType 이 발견되었습니다.";
         }
         catch (Exception ex)
         {
-            DeviceTemplateStatusText.Text = $"목록 로드 실패: {ex.Message}";
+            Step2Section.DeviceTemplateStatusText.Text = $"목록 로드 실패: {ex.Message}";
         }
     }
 
     /// <summary>
     /// 장치 템플릿 선택 시 내용 로드. ListBox 항목은 순수 SystemType 이름.
     /// </summary>
-    private void DeviceTemplateListBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    internal void DeviceTemplateListBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (DeviceTemplateListBox.SelectedItem is string systemType)
+        if (Step2Section.DeviceTemplateListBox.SelectedItem is string systemType)
         {
             LoadDeviceTemplate(systemType);
         }
@@ -82,7 +75,7 @@ public partial class TagWizardDialog
                 systemType = Path.GetFileNameWithoutExtension(systemType);
 
             _currentDeviceTemplateFile = systemType; // SystemType 식별자
-            CurrentDeviceTemplateText.Text = systemType;
+            Step2Section.CurrentDeviceTemplateText.Text = systemType;
 
             // 행을 먼저 비운다 — WizApiNames 변경으로 인한 ComboBox 재바인딩 시
             // 옛 SystemType 의 ApiName 이 새 list 에 없어 SelectedItem=null 트리거되는 race 방지.
@@ -103,12 +96,12 @@ public partial class TagWizardDialog
 
             // SystemType 별 preset 의 FBTagMapName 이 진실원 — 콤보 선택을 그에 맞게 즉시 동기화.
             var currentFb = presetDto.FBTagMapName ?? "";
-            if (GlobalFBTypeCombo != null)
+            if (Step2Section.GlobalFBTypeCombo != null)
             {
-                GlobalFBTypeCombo.SelectionChanged -= GlobalFBType_Changed;
-                GlobalFBTypeCombo.SelectedItem =
+                Step2Section.GlobalFBTypeCombo.SelectionChanged -= GlobalFBType_Changed;
+                Step2Section.GlobalFBTypeCombo.SelectedItem =
                     string.IsNullOrEmpty(currentFb) ? null : WizFBTypes.FirstOrDefault(x => x == currentFb);
-                GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
+                Step2Section.GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
             }
 
             // 행은 이미 try 블록 진입 시 Clear 됨. 모든 섹션 일괄 로드.
@@ -124,7 +117,7 @@ public partial class TagWizardDialog
             int qwSpare = presetDto.QwPatterns.Count(p => p.IsSpare);
             int mwSpare = presetDto.MwPatterns.Count(p => p.IsSpare);
             string SparePart(int n) => n > 0 ? $" ({n} 예비)" : "";
-            DeviceTemplateStatusText.Text =
+            Step2Section.DeviceTemplateStatusText.Text =
                 $"✓ 로드 완료 | IW: {presetDto.IwPatterns.Count}{SparePart(iwSpare)}, " +
                 $"QW: {presetDto.QwPatterns.Count}{SparePart(qwSpare)}, " +
                 $"MW: {presetDto.MwPatterns.Count}{SparePart(mwSpare)} | 총 {totalCount}개 신호";
@@ -149,7 +142,7 @@ public partial class TagWizardDialog
                 MessageBoxButton.OK,
                 "✖");
 
-            DeviceTemplateStatusText.Text = $"로드 실패: {ex.Message}";
+            Step2Section.DeviceTemplateStatusText.Text = $"로드 실패: {ex.Message}";
             ClearSignalGrids();
         }
         finally
@@ -250,12 +243,12 @@ public partial class TagWizardDialog
         }
 
         // 글로벌 FB 타입 콤보 동기화 (이벤트 미발화 상태에서 선택 — 후속 AuxPortRow 주입과 충돌 방지)
-        if (GlobalFBTypeCombo != null)
+        if (Step2Section.GlobalFBTypeCombo != null)
         {
-            GlobalFBTypeCombo.SelectionChanged -= GlobalFBType_Changed;
-            GlobalFBTypeCombo.SelectedItem =
+            Step2Section.GlobalFBTypeCombo.SelectionChanged -= GlobalFBType_Changed;
+            Step2Section.GlobalFBTypeCombo.SelectedItem =
                 string.IsNullOrEmpty(fbType) ? null : WizFBTypes.FirstOrDefault(x => x == fbType);
-            GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
+            Step2Section.GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
         }
 
         // Preset 의 기존 entry 만 표시 — 자동 빈 행 추가 X (사용자가 ➕ 행 추가 로 수동 추가).
@@ -317,7 +310,7 @@ public partial class TagWizardDialog
         // LoadOne — 단일 SystemType DTO 만 가져옴 (debounced auto-save 빈번 호출 최적화).
         var presetDto = FBTagMapStore.LoadOne(_store, systemType) ?? new FBTagMapPresetDto();
 
-        var selectedFb = GlobalFBTypeCombo?.SelectedItem as string;
+        var selectedFb = Step2Section.GlobalFBTypeCombo?.SelectedItem as string;
         if (!string.IsNullOrWhiteSpace(selectedFb))
             presetDto.FBTagMapName = selectedFb;
 
@@ -358,35 +351,35 @@ public partial class TagWizardDialog
     /// <summary>섹션 1개에 빈 행 추가 — 기본 패턴은 SignalSectionInfo 가 보유.</summary>
     private void AddSignalRow(SignalSectionInfo sec)
     {
-        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        var fb = Step2Section.GlobalFBTypeCombo?.SelectedItem as string ?? "";
         sec.Rows.Add(HookAutoSave(new SignalPatternRow {
             ApiName = DefaultApiName(), Pattern = sec.DefaultPattern, TargetFBType = fb }));
         PersistCurrentPreset();
     }
 
-    private void AddIwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[0]);
-    private void AddQwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[1]);
-    private void AddMwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[2]);
+    internal void AddIwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[0]);
+    internal void AddQwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[1]);
+    internal void AddMwRow_Click(object sender, RoutedEventArgs e) => AddSignalRow(AllSections()[2]);
 
-    private void RemoveIwRow_Click(object sender, RoutedEventArgs e) =>
-        RemoveSelectedAndAdvance(IwSignalGrid, _iwSignalRows);
-    private void RemoveQwRow_Click(object sender, RoutedEventArgs e) =>
-        RemoveSelectedAndAdvance(QwSignalGrid, _qwSignalRows);
-    private void RemoveMwRow_Click(object sender, RoutedEventArgs e) =>
-        RemoveSelectedAndAdvance(MwSignalGrid, _mwSignalRows);
+    internal void RemoveIwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(Step2Section.IwSignalGrid, _iwSignalRows);
+    internal void RemoveQwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(Step2Section.QwSignalGrid, _qwSignalRows);
+    internal void RemoveMwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(Step2Section.MwSignalGrid, _mwSignalRows);
 
-    private void MoveIwUp_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(IwSignalGrid, _iwSignalRows, up: true);
-    private void MoveIwDown_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(IwSignalGrid, _iwSignalRows, up: false);
-    private void MoveQwUp_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(QwSignalGrid, _qwSignalRows, up: true);
-    private void MoveQwDown_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(QwSignalGrid, _qwSignalRows, up: false);
-    private void MoveMwUp_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(MwSignalGrid, _mwSignalRows, up: true);
-    private void MoveMwDown_Click(object sender, RoutedEventArgs e) =>
-        MoveSelected(MwSignalGrid, _mwSignalRows, up: false);
+    internal void MoveIwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.IwSignalGrid, _iwSignalRows, up: true);
+    internal void MoveIwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.IwSignalGrid, _iwSignalRows, up: false);
+    internal void MoveQwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.QwSignalGrid, _qwSignalRows, up: true);
+    internal void MoveQwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.QwSignalGrid, _qwSignalRows, up: false);
+    internal void MoveMwUp_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.MwSignalGrid, _mwSignalRows, up: true);
+    internal void MoveMwDown_Click(object sender, RoutedEventArgs e) =>
+        MoveSelected(Step2Section.MwSignalGrid, _mwSignalRows, up: false);
 
     /// <summary>선택된 행을 위/아래로 1칸 이동. 다중 선택 시 그룹 전체 이동.
     /// up=true 면 인덱스 오름차순으로 (위 행과 swap), 아래로는 내림차순으로 처리해 안전하게 이동.</summary>

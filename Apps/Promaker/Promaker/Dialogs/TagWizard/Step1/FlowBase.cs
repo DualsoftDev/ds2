@@ -61,13 +61,13 @@ public partial class TagWizardDialog
                 _flowBaseRows.Add(row);
             }
 
-            FlowBaseStatusText.Text = flowNames.Count > 0
+            Step1Section.FlowBaseStatusText.Text = flowNames.Count > 0
                 ? $"{flowNames.Count}개의 Flow를 찾았습니다."
                 : "프로젝트에 Flow가 없습니다.";
         }
         catch (Exception ex)
         {
-            FlowBaseStatusText.Text = $"로드 실패: {ex.Message}";
+            Step1Section.FlowBaseStatusText.Text = $"로드 실패: {ex.Message}";
         }
     }
 
@@ -90,7 +90,7 @@ public partial class TagWizardDialog
     }
 
     /// <summary>FlowBase 행을 ControlFlowProperties.BaseAddressOverride 에 직접 반영 — 텍스트 round-trip 불필요.</summary>
-    private void SaveFlowBase_Click(object sender, RoutedEventArgs e)
+    internal void SaveFlowBase_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -117,13 +117,13 @@ public partial class TagWizardDialog
                 if (int.TryParse(row.MW_Base, out _)) ba.MemoryBase = row.MW_Base;
                 cfp.BaseAddressOverride = FSharpOption<FBBaseAddressSet>.Some(ba);
             }
-            FlowBaseStatusText.Text = $"✓ 저장 완료 | {DateTime.Now:HH:mm:ss}";
+            Step1Section.FlowBaseStatusText.Text = $"✓ 저장 완료 | {DateTime.Now:HH:mm:ss}";
             DialogHelpers.ShowThemedMessageBox("Flow 주소 설정이 저장되었습니다.", "저장 완료", MessageBoxButton.OK, "✓");
         }
         catch (Exception ex)
         {
             DialogHelpers.ShowThemedMessageBox($"저장 실패:\n\n{ex.Message}", "오류", MessageBoxButton.OK, "✖");
-            FlowBaseStatusText.Text = $"저장 실패: {ex.Message}";
+            Step1Section.FlowBaseStatusText.Text = $"저장 실패: {ex.Message}";
         }
     }
 }

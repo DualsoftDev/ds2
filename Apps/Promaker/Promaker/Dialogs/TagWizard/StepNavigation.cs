@@ -19,10 +19,10 @@ public partial class TagWizardDialog
         var calls = works.SelectMany(w => Queries.callsOf(w.Id, _store)).ToArray();
         var allApiCalls = Queries.allApiCalls(_store);
 
-        FlowCountText.Text = $"{flows.Length}";
-        WorkCountText.Text = $"{works.Length}";
-        CallCountText.Text = $"{calls.Length}";
-        DeviceCountText.Text = $"{allApiCalls.Length}";
+        Step1Section.FlowCountText.Text = $"{flows.Length}";
+        Step1Section.WorkCountText.Text = $"{works.Length}";
+        Step1Section.CallCountText.Text = $"{calls.Length}";
+        Step1Section.DeviceCountText.Text = $"{allApiCalls.Length}";
 
         // Step 1 이 곧바로 선두 주소 설정 편집 화면이므로 Flow/System base 데이터를 즉시 로드
         // (내부적으로 LoadSystemBase + LoadFlowBase 를 수행)
@@ -89,9 +89,9 @@ public partial class TagWizardDialog
         if (step != 3) _appliedInStep3 = false;
 
         // 컨텐츠 표시
-        Step1Content.Visibility = step == 1 ? Visibility.Visible : Visibility.Collapsed;
-        Step2Content.Visibility = step == 2 ? Visibility.Visible : Visibility.Collapsed;
-        Step3Content.Visibility = step == 3 ? Visibility.Visible : Visibility.Collapsed;
+        Step1Section.Visibility = step == 1 ? Visibility.Visible : Visibility.Collapsed;
+        Step2Section.Visibility = step == 2 ? Visibility.Visible : Visibility.Collapsed;
+        Step3Section.Visibility = step == 3 ? Visibility.Visible : Visibility.Collapsed;
 
         // 단계 인디케이터 업데이트
         UpdateStepIndicators();

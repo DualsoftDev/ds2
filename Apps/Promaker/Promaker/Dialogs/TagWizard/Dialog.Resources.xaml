@@ -1,0 +1,347 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:Promaker.Dialogs">
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+
+    <!-- Step 3 IoSignalPreviewGrid 컬럼 헤더 내장 필터 템플릿 ───────────── -->
+    <DataTemplate x:Key="PvHeaderFlow">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Flow" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvFlowFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PvHeaderDevice">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Device" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvDeviceFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PvHeaderApi">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Api" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvApiFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PvHeaderOutTag">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Out Tag" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvOutSymbolFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PvHeaderOutAddress">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Out Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvOutAddressFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PvHeaderInTag">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="In Tag" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvInSymbolFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <!-- Dummy 신호 그리드 컬럼 헤더 필터 -->
+    <DataTemplate x:Key="DmHeaderFlow">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Flow" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmFlowFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderWork">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Work" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmWorkFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderCall">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Call" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmCallFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderSymbol">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Symbol" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmSymbolFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderAddress">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmAddressFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderArea">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="영역" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmAreaFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="DmHeaderDataType">
+        <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="데이터타입" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2"
+                       Text="{Binding DataContext.DmDataTypeFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="PvHeaderInAddress">
+        <Grid HorizontalAlignment="Stretch"
+              Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="In Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
+            <TextBox   Grid.Row="1" Padding="4,2" HorizontalAlignment="Stretch"
+                       Text="{Binding DataContext.PvInAddressFilter, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>
+    </DataTemplate>
+
+    <Style x:Key="WizardButton" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AlwaysLightTextBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="20,10"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SecondaryButton" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="20,10"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="StepIndicator" TargetType="Border">
+        <Setter Property="Width" Value="40"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="CornerRadius" Value="20"/>
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+
+    <Style x:Key="ActiveStepIndicator" TargetType="Border" BasedOn="{StaticResource StepIndicator}">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+
+    <Style x:Key="CompletedStepIndicator" TargetType="Border" BasedOn="{StaticResource StepIndicator}">
+        <Setter Property="Background" Value="{DynamicResource GreenAccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource GreenAccentBrush}"/>
+    </Style>
+
+    <Style x:Key="WizardGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+        <Setter Property="GridLinesVisibility" Value="All"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+    </Style>
+
+    <!-- Step Progress Bar — 상단 1/2/3 단계 표시. Background/Foreground/FontWeight 는
+         code-behind ApplyStepStyle 이 active/done 상태에 따라 직접 set 한다. -->
+    <Style x:Key="WizardStepBarStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0,0,1,0"/>
+    </Style>
+
+    <Style x:Key="WizardStepTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 카드형 정보 박스 (프로젝트 요약 등). 둘러친 박스 + 둥근 모서리. -->
+    <Style x:Key="WizardCardBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="16,10"/>
+    </Style>
+
+    <!-- ────────────────────────────────────────────────────────────────────
+         IW/QW/MW 신호 그리드 셀 템플릿 — 세 그리드가 거의 동일한 column 정의를
+         공유. CellTemplate 만 추출해 3× 중복 제거.
+         ──────────────────────────────────────────────────────────────────── -->
+
+    <DataTemplate x:Key="WizSignalApiNameCellTemplate">
+        <ComboBox ItemsSource="{Binding DataContext.WizApiNames, RelativeSource={RelativeSource AncestorType=Window}}"
+                  SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  IsEditable="False"
+                  IsEnabled="{Binding IsEditable}"
+                  IsSynchronizedWithCurrentItem="False"/>
+    </DataTemplate>
+
+    <DataTemplate x:Key="WizSignalPatternCellTemplate">
+        <TextBox Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                 IsEnabled="{Binding IsEditable}"
+                 BorderThickness="0" Background="Transparent"/>
+    </DataTemplate>
+
+    <DataTemplate x:Key="WizSignalFbPortCellTemplate">
+        <ComboBox ItemsSource="{Binding PortOptions}"
+                  SelectedItem="{Binding TargetFBPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  IsEnabled="{Binding IsEditable}"
+                  IsSynchronizedWithCurrentItem="False"/>
+    </DataTemplate>
+
+    <DataTemplate x:Key="WizSignalDataTypeCellTemplate">
+        <Grid>
+            <!-- FB 설정됨: read-only 텍스트 -->
+            <TextBlock Text="{Binding DataType, Mode=OneWay}"
+                       VerticalAlignment="Center"
+                       Padding="4,0"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       Visibility="{Binding IsDataTypeFromFb, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <!-- FB 미설정: 드롭다운 선택 콤보 -->
+            <ComboBox ItemsSource="{x:Static local:SignalPatternRow.StandardDataTypes}"
+                      SelectedItem="{Binding UserDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      Visibility="{Binding IsDataTypeUserEditable, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+        </Grid>
+    </DataTemplate>
+
+    <!-- PreFbCondition cell template: 인라인 Click handler 가 들어가야 해서 ResourceDictionary
+         로 옮길 수 없음 (그러면 x:Class 가 강제됨). 각 그리드에 인라인 유지. -->
+
+    <!-- Dummy/Preview Grid 의 TextBlock cell — Foreground 만 통일. -->
+    <Style x:Key="WizPrimaryTextCellStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+    </Style>
+
+    <!-- Filter 헤더 그리드 공용 ColumnHeaderStyle — Stretch + Padding=0. -->
+    <Style x:Key="WizFilterColumnHeaderStyle" TargetType="DataGridColumnHeader"
+           BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Padding" Value="0"/>
+    </Style>
+
+    <!-- 신호 입력용 그리드 (IW/QW/MW/AUX/End) 의 공용 기본 속성 묶음.
+         AutoGenerate=False, ManualAdd/Delete=False, ManualSort=False, SelectionMode=Extended,
+         그리드 라인/색 톤 + 가상화 권장 옵션까지 한꺼번에. -->
+    <Style x:Key="WizSignalGridStyle" TargetType="DataGrid"
+           BasedOn="{StaticResource {x:Type DataGrid}}">
+        <Setter Property="AutoGenerateColumns" Value="False"/>
+        <Setter Property="CanUserAddRows" Value="False"/>
+        <Setter Property="CanUserDeleteRows" Value="False"/>
+        <Setter Property="CanUserSortColumns" Value="False"/>
+        <Setter Property="SelectionMode" Value="Extended"/>
+        <Setter Property="GridLinesVisibility" Value="All"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="AlternationCount" Value="0"/>
+        <Setter Property="AlternatingRowBackground" Value="{x:Null}"/>
+        <Setter Property="EnableRowVirtualization" Value="True"/>
+        <Setter Property="EnableColumnVirtualization" Value="True"/>
+        <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+        <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel"/>
+    </Style>
+
+    <!-- IW/QW/MW 의 IsSpare 행 강조. -->
+    <Style x:Key="WizSpareRowHighlightStyle" TargetType="DataGridRow">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSpare}" Value="True">
+                <Setter Property="Background" Value="#55D08040"/>
+                <Setter Property="Opacity" Value="0.75"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- IW/QW/MW chunked view (32행 묶음 read-only) 의 단일 패턴 행 — Index Pattern 한 줄. -->
+    <DataTemplate x:Key="WizSignalChunkedPatternItemTemplate">
+        <TextBlock FontFamily="Consolas" FontSize="11" Padding="4,1">
+            <Run Text="{Binding IndexLabel, Mode=OneWay}"
+                 Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <Run Text=" "/>
+            <Run Text="{Binding Pattern, Mode=OneWay}"
+                 Foreground="{DynamicResource PrimaryTextBrush}"/>
+        </TextBlock>
+    </DataTemplate>
+</ResourceDictionary>

@@ -23,6 +23,13 @@
     <Compile Include="RuntimeCommandPolicyTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
     <Compile Include="StepPrimingPlanTests.fs" />
+    <Compile Include="BasicMacroIoTests.fs" />
+    <Compile Include="SystemTypePresetTests.fs" />
+    <Compile Include="ApiCallCandidatesTests.fs" />
+    <Compile Include="SelectionSummaryTests.fs" />
+    <Compile Include="NameEditorPartsTests.fs" />
+    <Compile Include="CanvasContextMenuStateTests.fs" />
+    <Compile Include="EditorSelectionProjectionTests.fs" />
     <Compile Include="GraphValidatorProjectionTests.fs" />
     <Compile Include="SimulationProjectionTests.fs" />
     <Compile Include="TokenTraversalSessionTests.fs" />

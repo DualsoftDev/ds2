@@ -296,16 +296,18 @@ public partial class ExplorerPane : UserControl
 
         const double doubleClickZoom = 0.52;
 
-        if (node.EntityType == EntityKind.Call)
+        // 더블클릭 → action 분류는 F# EditorNavigation 위임. UI dispatch 만 C# 에 남김.
+        var action = EditorNavigation.ClassifyTreeDoubleClick(node.EntityType);
+        if (action.IsFocusInParentCanvas)
             ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: 1.0);
-        else if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
+        else if (action.IsOpenCanvasTab)
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
             Dispatcher.InvokeAsync(
                 () => ViewModel?.Canvas.ApplyZoomCenteredRequested?.Invoke(doubleClickZoom),
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
-        else if (node.EntityType == EntityKind.ApiDef)
+        else if (action.IsEditApiDef)
             ViewModel.EditApiDefNode(node.Id);
 
         e.Handled = true;

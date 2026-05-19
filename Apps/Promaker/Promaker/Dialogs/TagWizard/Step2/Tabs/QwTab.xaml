@@ -1,0 +1,120 @@
+<UserControl x:Class="Promaker.Dialogs.TagWizardQwTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Promaker.Dialogs">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <!-- 툴바 -->
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Button Content="➕ 행 추가"
+                                                                        Padding="10,5"
+                                                                        Margin="0,0,5,0"
+                                                                        Background="{DynamicResource AccentBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource AccentBrush}"
+                                                                        Click="AddQwRow_Click"/>
+                                                                <Button Content="➖ 선택 행 삭제"
+                                                                        Padding="10,5"
+                                                                        Margin="0,0,5,0"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                                        Click="RemoveQwRow_Click"/>
+                                                                <Button Content="▲" Padding="8,5" Margin="0,0,2,0"
+                                                                        ToolTip="선택 행 위로 이동"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                                        Click="MoveQwUp_Click"/>
+                                                                <Button Content="▼" Padding="8,5" Margin="0,0,15,0"
+                                                                        ToolTip="선택 행 아래로 이동"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                                        Click="MoveQwDown_Click"/>
+                                                                <CheckBox x:Name="QwChunkedToggle"
+                                                                          Content="IO정보만 보기"
+                                                                          VerticalAlignment="Center"
+                                                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                          Checked="ChunkedToggle_Changed"
+                                                                          Unchecked="ChunkedToggle_Changed"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <!-- QW 그리드 -->
+                                                        <DataGrid x:Name="QwSignalGrid" Grid.Row="1"
+                                                                  Style="{StaticResource WizSignalGridStyle}"
+                                                                  RowStyle="{StaticResource WizSpareRowHighlightStyle}">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTemplateColumn Header="API 이름" Width="140"
+                                                                                        CellTemplate="{StaticResource WizSignalApiNameCellTemplate}"/>
+                                                                <DataGridTemplateColumn Header="신호 패턴" Width="*"
+                                                                                        CellTemplate="{StaticResource WizSignalPatternCellTemplate}"/>
+                                                                <DataGridTemplateColumn Header="FB Local Label" Width="170"
+                                                                                        CellTemplate="{StaticResource WizSignalFbPortCellTemplate}"/>
+                                                                <DataGridTemplateColumn Header="데이터타입" Width="90"
+                                                                                        CellTemplate="{StaticResource WizSignalDataTypeCellTemplate}"/>
+                                                                <DataGridTemplateColumn Header="조건식" Width="180">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <Button Content="{Binding PreFbConditionSummary}" Tag="{Binding}"
+                                                                                    Click="EditPreFbCondition_Click"
+                                                                                    HorizontalContentAlignment="Left" Padding="6,2"
+                                                                                    BorderThickness="0" Background="Transparent"
+                                                                                    Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                    ToolTip="식 편집 열기 (비어있으면 단일 변수 와이어)"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridCheckBoxColumn Header="주소제외"
+                                                                                        Binding="{Binding SkipAddressAlloc, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="80"
+                                                                                        ToolTipService.ToolTip="체크 시 주소 할당 미진행 (외부 정의 변수/리터럴: _T1S, T#200MS 등)"/>
+                                                                <DataGridCheckBoxColumn Header="예비"
+                                                                                        Binding="{Binding IsSpare, UpdateSourceTrigger=PropertyChanged}"
+                                                                                        Width="50"
+                                                                                        ToolTipService.ToolTip="체크 시 예비(Spare) 슬롯 — 주소 1비트 예약, 신호 미생성."/>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+
+                                                        <!-- QW chunked 모드 -->
+                                                        <ScrollViewer x:Name="QwChunkedView" Grid.Row="1"
+                                                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                                                      Visibility="Collapsed">
+                                                            <ItemsControl ItemsSource="{Binding QwChunks}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                                                Margin="0,0,4,0" Padding="2" MinWidth="280">
+                                                                            <ItemsControl ItemsSource="{Binding}">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <TextBlock FontFamily="Consolas" FontSize="11" Padding="4,1">
+                                                                                            <Run Text="{Binding IndexLabel, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                                                            <Run Text=" "/>
+                                                                                            <Run Text="{Binding Pattern, Mode=OneWay}"
+                                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                                                        </TextBlock>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
+                                                    </Grid>
+</UserControl>

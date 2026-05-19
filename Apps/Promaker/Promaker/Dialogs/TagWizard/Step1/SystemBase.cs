@@ -5,6 +5,7 @@ using System.Windows;
 using AAStoPLC.TagWizard;
 using Ds2.Core;
 using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -12,28 +13,15 @@ namespace Promaker.Dialogs;
 public partial class TagWizardDialog
 {
     /// <summary>
-    /// "Cylinder_5" → "Cylinder_#" 로 정규화. 그 외는 원본.
+    /// "Cylinder_5" → "Cylinder_#" 로 정규화 (F# 위임).
     /// 사용자 표시는 systemTypePreset 의 템플릿명을 따른다.
     /// </summary>
-    private static string NormalizeSystemTypeForDisplay(string name)
-    {
-        if (string.IsNullOrEmpty(name)) return name;
-        const string prefix = "Cylinder_";
-        if (name.StartsWith(prefix, StringComparison.Ordinal)
-            && int.TryParse(name.AsSpan(prefix.Length), out _))
-            return prefix + "#";
-        return name;
-    }
+    private static string NormalizeSystemTypeForDisplay(string name) =>
+        SystemTypePreset.normalizeSystemTypeForDisplay(name);
 
-    /// <summary>"Cylinder_#" → ["Cylinder_1".."Cylinder_10"]. 그 외 원본 1개.</summary>
-    private static IEnumerable<string> ExpandSystemTypeTemplate(string name)
-    {
-        if (string.Equals(name, "Cylinder_#", StringComparison.Ordinal))
-            return Ds2.Core.Store.DevicePresets.Entries()
-                .Select(t => t.Item1)
-                .Where(s => s.StartsWith("Cylinder_") && int.TryParse(s.AsSpan("Cylinder_".Length), out _));
-        return new[] { name };
-    }
+    /// <summary>"Cylinder_#" → ["Cylinder_1".."Cylinder_10"] (F# 위임). 그 외 원본 1개.</summary>
+    private static IEnumerable<string> ExpandSystemTypeTemplate(string name) =>
+        SystemTypePreset.expandSystemTypeTemplate(name);
 
     /// <summary>
     /// 시스템 주소 로드 — Cylinder_N 은 Cylinder_# 단일 행으로 묶어 표시.
@@ -72,11 +60,11 @@ public partial class TagWizardDialog
             }
 
             RefreshAvailableSystemTypes(systemTypes);
-            SystemBaseStatusText.Text = $"{_systemBaseRows.Count}개 추가됨 (가용 타입 {systemTypes.Count}개)";
+            Step1Section.SystemBaseStatusText.Text = $"{_systemBaseRows.Count}개 추가됨 (가용 타입 {systemTypes.Count}개)";
         }
         catch (Exception ex)
         {
-            SystemBaseStatusText.Text = $"로드 실패: {ex.Message}";
+            Step1Section.SystemBaseStatusText.Text = $"로드 실패: {ex.Message}";
         }
     }
 
@@ -105,17 +93,17 @@ public partial class TagWizardDialog
                 AvailableSystemTypes.Add(t);
     }
 
-    private void AddSystemBaseRow_Click(object sender, RoutedEventArgs e)
+    internal void AddSystemBaseRow_Click(object sender, RoutedEventArgs e)
     {
-        var sysType = NewSystemTypeCombo.Text?.Trim() ?? "";
+        var sysType = Step1Section.NewSystemTypeCombo.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(sysType))
         {
-            SystemBaseStatusText.Text = "⚠ 시스템 타입을 선택하거나 입력하세요.";
+            Step1Section.SystemBaseStatusText.Text = "⚠ 시스템 타입을 선택하거나 입력하세요.";
             return;
         }
         if (_systemBaseRows.Any(r => r.SystemType.Equals(sysType, StringComparison.OrdinalIgnoreCase)))
         {
-            SystemBaseStatusText.Text = $"⚠ '{sysType}' 은(는) 이미 추가되어 있습니다.";
+            Step1Section.SystemBaseStatusText.Text = $"⚠ '{sysType}' 은(는) 이미 추가되어 있습니다.";
             return;
         }
 
@@ -123,33 +111,33 @@ public partial class TagWizardDialog
         {
             SystemType = sysType,
             IsEnabled  = true,
-            IW_Base    = NewSystemIwBox.Text?.Trim() ?? "",
-            QW_Base    = NewSystemQwBox.Text?.Trim() ?? "",
-            MW_Base    = NewSystemMwBox.Text?.Trim() ?? "",
+            IW_Base    = Step1Section.NewSystemIwBox.Text?.Trim() ?? "",
+            QW_Base    = Step1Section.NewSystemQwBox.Text?.Trim() ?? "",
+            MW_Base    = Step1Section.NewSystemMwBox.Text?.Trim() ?? "",
         });
 
         // 입력 필드 리셋
-        NewSystemTypeCombo.Text = "";
-        NewSystemIwBox.Text = "";
-        NewSystemQwBox.Text = "";
-        NewSystemMwBox.Text = "";
+        Step1Section.NewSystemTypeCombo.Text = "";
+        Step1Section.NewSystemIwBox.Text = "";
+        Step1Section.NewSystemQwBox.Text = "";
+        Step1Section.NewSystemMwBox.Text = "";
 
         RefreshAvailableSystemTypes();
-        SystemBaseStatusText.Text = $"✓ '{sysType}' 추가됨 ({_systemBaseRows.Count}개)";
+        Step1Section.SystemBaseStatusText.Text = $"✓ '{sysType}' 추가됨 ({_systemBaseRows.Count}개)";
     }
 
-    private void RemoveSystemBaseRow_Click(object sender, RoutedEventArgs e)
+    internal void RemoveSystemBaseRow_Click(object sender, RoutedEventArgs e)
     {
-        if (SystemBaseGrid.SelectedItem is SystemBaseRow row)
+        if (Step1Section.SystemBaseGrid.SelectedItem is SystemBaseRow row)
         {
             var name = row.SystemType;
             _systemBaseRows.Remove(row);
             RefreshAvailableSystemTypes();
-            SystemBaseStatusText.Text = $"✓ '{name}' 삭제됨 ({_systemBaseRows.Count}개)";
+            Step1Section.SystemBaseStatusText.Text = $"✓ '{name}' 삭제됨 ({_systemBaseRows.Count}개)";
         }
         else
         {
-            SystemBaseStatusText.Text = "⚠ 삭제할 행을 먼저 선택하세요.";
+            Step1Section.SystemBaseStatusText.Text = "⚠ 삭제할 행을 먼저 선택하세요.";
         }
     }
 
@@ -183,7 +171,7 @@ public partial class TagWizardDialog
     }
 
     /// <summary>SystemBase 행을 FBTagMapPresets 에 직접 반영 — 텍스트 round-trip 불필요.</summary>
-    private void SaveSystemBase_Click(object sender, RoutedEventArgs e)
+    internal void SaveSystemBase_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -206,7 +194,7 @@ public partial class TagWizardDialog
                         preset.BaseAddresses = ba;
                     }
             }
-            SystemBaseStatusText.Text = $"✓ 저장 완료 ({enabled.Count}개 시스템) | {DateTime.Now:HH:mm:ss}";
+            Step1Section.SystemBaseStatusText.Text = $"✓ 저장 완료 ({enabled.Count}개 시스템) | {DateTime.Now:HH:mm:ss}";
             DialogHelpers.ShowThemedMessageBox(
                 $"시스템 주소 설정이 저장되었습니다.\n\n사용 중인 시스템: {enabled.Count}개",
                 "저장 완료", MessageBoxButton.OK, "✓");
@@ -214,7 +202,7 @@ public partial class TagWizardDialog
         catch (Exception ex)
         {
             DialogHelpers.ShowThemedMessageBox($"저장 실패:\n\n{ex.Message}", "오류", MessageBoxButton.OK, "✖");
-            SystemBaseStatusText.Text = $"저장 실패: {ex.Message}";
+            Step1Section.SystemBaseStatusText.Text = $"저장 실패: {ex.Message}";
         }
     }
 }

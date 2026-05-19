@@ -6,10 +6,10 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Ds2.CSV;
+using Promaker.Presentation;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
-using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -118,7 +118,7 @@ Assembly,PartOut,Ejector,Assembly_Ejector,Return,,X20E1,,Y20F1";
     }
 
     private static string OptionText(FSharpOption<string> value) =>
-        FSharpOption<string>.get_IsSome(value) ? value.Value : "";
+        value.GetOrDefault("");
 
     private static CsvRowViewModel ToRowViewModel(CsvEntry entry) =>
         new()
