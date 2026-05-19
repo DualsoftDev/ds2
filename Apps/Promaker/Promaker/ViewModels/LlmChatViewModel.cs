@@ -239,11 +239,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             .GroupBy(k => k.ServiceId)
             .ToDictionary(g => g.Key, g => g.Select(k => k.CollectionId).ToList());
 
-        // **자가 검열 Major-3 적용 (s6-r30 review)** — KbCollections 중 ServiceId 가 *현재 어떤 active service 와도 match 안*
-        // 되는 entry (사용자가 Settings 에서 service 삭제 + collection 정리 안 한 경우) 진단 chip 안내.
-        var activeServiceIds = new HashSet<string>(_config.LightHouseServices.Where(s => s.Active).Select(s => s.ServiceId));
-        var orphanCount = _config.KbCollections.Count(k =>
-            k.Active && !string.IsNullOrEmpty(k.ServiceId) && !activeServiceIds.Contains(k.ServiceId));
+        // **자가 검열 Major-3 (s6-r30 review) + D-S7-3c helper SSOT (s6-r31)** — KbCollectionOrphanHelper 호출.
+        var orphanCount = KbCollectionOrphanHelper.CountActiveOrphans(_config);
         if (orphanCount > 0)
         {
             Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ 소속 service 없는 collection {orphanCount}건 (Settings 에서 service 삭제됨) — 정리 권장." });

@@ -29,6 +29,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -41,10 +42,12 @@
                        Margin="0,0,0,8" TextWrapping="Wrap"
                        Text="LightHouse Service 상태 확인 중…"/>
 
-            <!-- 등록된 collection 목록 헤더 -->
+            <!-- 등록된 collection 목록 헤더 + Refresh + Orphan 정리 (D-S7-3c) -->
             <Grid Grid.Row="1" Margin="0,0,0,4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="6"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="등록된 Collection (Active = chat 진입 시 검색 대상)"
@@ -52,10 +55,23 @@
                 <Button Grid.Column="1" Content="새로고침"
                         Style="{StaticResource DarkButton}"
                         Padding="10,2" Click="Refresh_Click"/>
+                <Button Grid.Column="3" x:Name="OrphanCleanupButton" Content="orphan 정리"
+                        Style="{StaticResource DarkButton}"
+                        Padding="10,2" Click="OrphanCleanup_Click"
+                        Visibility="Collapsed"
+                        ToolTip="삭제된 service 에 속한 collection 을 정리합니다."/>
             </Grid>
 
+            <!-- D-S7-3c (s6-r31) — Service TabControl. 각 tab = active service. tab 변경 시 CollectionsList ItemsSource 갱신. -->
+            <TabControl Grid.Row="2" x:Name="ServicesTabControl"
+                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        Margin="0,0,0,4"
+                        MinHeight="32"
+                        SelectionChanged="ServiceTab_SelectionChanged"/>
+
             <!-- collection ListView -->
-            <ListView Grid.Row="2" x:Name="CollectionsList"
+            <ListView Grid.Row="3" x:Name="CollectionsList"
                       BorderBrush="{DynamicResource BorderBrush}"
                       Background="{DynamicResource SecondaryBackgroundBrush}"
                       Margin="0,0,0,8">
@@ -98,7 +114,7 @@
             </ListView>
 
             <!-- 새 폴더 등록 영역 -->
-            <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+            <Border Grid.Row="4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     Padding="10" Margin="0,0,0,8">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -145,7 +161,7 @@
             </Border>
 
             <!-- 진행률 영역 (작업 중에만 표시) -->
-            <Grid Grid.Row="4" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,0,0,8">
+            <Grid Grid.Row="5" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,0,0,8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -167,7 +183,7 @@
             </Grid>
 
             <!-- 닫기 -->
-            <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="닫기"
                         Style="{StaticResource DarkButton}"
                         Padding="12,4" IsCancel="True" Click="Close_Click"/>

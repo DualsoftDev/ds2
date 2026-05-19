@@ -286,35 +286,68 @@
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
 
-                            <!-- LightHouse Service (todo-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5b) -->
-                            <TextBlock Text="LightHouse Service (Knowledge Base)"
+                            <!-- LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid -->
+                            <TextBlock Text="LightHouse Services (Knowledge Base)"
                                        FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,8"/>
+                            <TextBlock Text="여러 LightHouse Service 에 동시 접속할 수 있습니다. 같은 displayName 의 service 가 둘 이상이면 저장 불가."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,4"/>
 
-                            <TextBlock Text="Base URL (HTTPS — plain HTTP 거부)" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <TextBox x:Name="LhBaseUrlBox" Padding="6,4" FontFamily="Consolas"
-                                     Margin="0,0,0,8"
-                                     ToolTip="예: https://service.company.local:8443"/>
-
-                            <TextBlock Text="Pre-Shared Key (DPAPI 암호화 저장)" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                            <DataGrid x:Name="LhServicesGrid"
+                                      AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                      HeadersVisibility="Column" GridLinesVisibility="None"
+                                      RowHeaderWidth="0" SelectionMode="Single" SelectionUnit="FullRow"
+                                      Background="{DynamicResource BackgroundBrush}"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      RowBackground="{DynamicResource BackgroundBrush}"
+                                      AlternatingRowBackground="{DynamicResource SurfaceBrush}"
+                                      MinHeight="100" MaxHeight="220" Margin="0,0,0,4">
+                                <DataGrid.Columns>
+                                    <DataGridCheckBoxColumn Header="Active" Binding="{Binding Active, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                                    <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                    <DataGridTextColumn Header="Base URL (HTTPS)" Binding="{Binding BaseUrl, UpdateSourceTrigger=PropertyChanged}" Width="2*"/>
+                                    <DataGridTemplateColumn Header="PSK" Width="120">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="설정..." Style="{StaticResource DarkButton}"
+                                                        Padding="6,2" Margin="2"
+                                                        Click="LhEditPsk_Click"
+                                                        Tag="{Binding ServiceId}"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="연결 테스트" Width="100">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="테스트" Style="{StaticResource DarkButton}"
+                                                        Padding="6,2" Margin="2"
+                                                        Click="LhTestConnection_Click"
+                                                        Tag="{Binding ServiceId}"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="" Width="70">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="제거" Style="{StaticResource DarkButton}"
+                                                        Padding="6,2" Margin="2"
+                                                        Click="LhRemoveService_Click"
+                                                        Tag="{Binding ServiceId}"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
                             <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="LhPskBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="지우기"
+                                <Button Grid.Column="0" Content="+ Add Service"
                                         Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LhClearPsk_Click"/>
-                                <Button Grid.Column="4" Content="연결 테스트"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LhTestConnection_Click"/>
+                                        Padding="10,4" Click="LhAddService_Click"/>
                             </Grid>
                             <TextBlock x:Name="LhTestResult"
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
