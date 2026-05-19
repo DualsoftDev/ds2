@@ -8,6 +8,7 @@ open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open Xunit
+open Ds2.LightHouseService
 open Ds2.LightHouseService.IntegrationTests
 
 /// **Phase S7 D-S7-2 (s6-r27) — `GET /events` SSE round-trip Fact**.
@@ -74,7 +75,7 @@ type EventsSseTests(fixture: ServiceFixture) =
             Assert.True(data.IsSome, "first SSE data line 미수신 (3s 타임아웃)")
             use doc = JsonDocument.Parse data.Value
             let evt = doc.RootElement.GetProperty("event").GetString()
-            Assert.Equal("keepalive", evt)
+            Assert.Equal(ServerEventNames.Keepalive, evt)
         }
 
     /// Fact 3 — round-trip — POST /collections 후 SSE 에 `collection-added` event 수신.
@@ -116,7 +117,7 @@ type EventsSseTests(fixture: ServiceFixture) =
                 | Some json ->
                     use doc = JsonDocument.Parse json
                     let evt = doc.RootElement.GetProperty("event").GetString()
-                    if evt = "collection-added" then
+                    if evt = ServerEventNames.CollectionAdded then
                         let mutable idEl = Unchecked.defaultof<JsonElement>
                         if doc.RootElement.TryGetProperty("collectionId", &idEl) then
                             Assert.Equal(collectionId, idEl.GetString())
@@ -129,6 +130,79 @@ type EventsSseTests(fixture: ServiceFixture) =
             let! delResp = publisher.DeleteAsync(sprintf "/collections/%s" collectionId)
             Assert.True(delResp.IsSuccessStatusCode, sprintf "cleanup DELETE 실패 status=%d" (int delResp.StatusCode))
             delResp.Dispose()
+        }
+
+    /// Fact 4 — **D-S7-2c (s6-r32)** — POST /events/caption-progress 가 caption-progress event 를 publish.
+    /// publisher 가 진행률 publish → subscriber SSE 가 동일 collectionId + progress + message 박제 event 수신.
+    [<Fact>]
+    member _.``round-trip — POST /events/caption-progress → SSE caption-progress publish`` () =
+        task {
+            use subscriber = fixture.CreateAuthClient()
+            use publisher = fixture.CreateAuthClient()
+
+            use! resp = subscriber.GetAsync("/events", HttpCompletionOption.ResponseHeadersRead)
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode)
+            use! stream = resp.Content.ReadAsStreamAsync()
+            use reader = new StreamReader(stream)
+            let! keepalive = readEventDataAsync reader 3000
+            Assert.True(keepalive.IsSome, "구독 시작 직후 keepalive 미수신")
+
+            let collectionId = sprintf "fake-col-%d" (DateTime.UtcNow.Ticks)
+            let payload =
+                sprintf """{"collectionId":"%s","progress":42,"message":"5/120 image"}""" collectionId
+            use content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+            use! postResp = publisher.PostAsync("/events/caption-progress", content)
+            Assert.Equal(HttpStatusCode.NoContent, postResp.StatusCode)
+
+            let mutable found = false
+            let mutable attempt = 0
+            while not found && attempt < 10 do
+                let! data = readEventDataAsync reader 1000
+                match data with
+                | Some json ->
+                    use doc = JsonDocument.Parse json
+                    let evt = doc.RootElement.GetProperty("event").GetString()
+                    if evt = ServerEventNames.CaptionProgress then
+                        let idEl = doc.RootElement.GetProperty("collectionId")
+                        let progressEl = doc.RootElement.GetProperty("progress")
+                        let messageEl = doc.RootElement.GetProperty("message")
+                        Assert.Equal(collectionId, idEl.GetString())
+                        Assert.Equal(42, progressEl.GetInt32())
+                        Assert.Equal("5/120 image", messageEl.GetString())
+                        found <- true
+                | None -> ()
+                attempt <- attempt + 1
+            Assert.True(found, "caption-progress event 미수신")
+        }
+
+    /// Fact 5 — **D-S7-2c (s6-r32)** — POST /events/caption-progress body 검증 (progress 범위 + collectionId).
+    [<Fact>]
+    member _.``POST /events/caption-progress — body 검증 400`` () =
+        task {
+            use client = fixture.CreateAuthClient()
+
+            // (a) collectionId 빈 값.
+            use bad1 = new StringContent("""{"collectionId":"","progress":50}""",
+                                         System.Text.Encoding.UTF8, "application/json")
+            use! r1 = client.PostAsync("/events/caption-progress", bad1)
+            Assert.Equal(HttpStatusCode.BadRequest, r1.StatusCode)
+
+            // (b) progress 음수.
+            use bad2 = new StringContent("""{"collectionId":"x","progress":-1}""",
+                                         System.Text.Encoding.UTF8, "application/json")
+            use! r2 = client.PostAsync("/events/caption-progress", bad2)
+            Assert.Equal(HttpStatusCode.BadRequest, r2.StatusCode)
+
+            // (c) progress > 100.
+            use bad3 = new StringContent("""{"collectionId":"x","progress":101}""",
+                                         System.Text.Encoding.UTF8, "application/json")
+            use! r3 = client.PostAsync("/events/caption-progress", bad3)
+            Assert.Equal(HttpStatusCode.BadRequest, r3.StatusCode)
+
+            // (d) JSON 결함.
+            use bad4 = new StringContent("not json", System.Text.Encoding.UTF8, "application/json")
+            use! r4 = client.PostAsync("/events/caption-progress", bad4)
+            Assert.Equal(HttpStatusCode.BadRequest, r4.StatusCode)
         }
 
     interface IClassFixture<ServiceFixture>

@@ -10,23 +10,23 @@
 ## 1. 작업 목표
 
 Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + central Windows Service share + MCP search host. Phase 1 (LightHouse lib 본체) / Phase S1~S6 (Windows Service + Promaker 통합 + Phase 2 image VLM caption + cli upload + paired-release) 종결. **Phase S7 진행 중**:
-- ~~D-S7-2a/b (SSE server + client subscribe)~~ → s6-r27/r28 완료
+- ~~D-S7-2a/b/c (SSE server + client subscribe + 정합 묶음)~~ → s6-r27/r28/r32 완료 (D-S7-2 시리즈 종결)
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
-- **잔여**: D-S7-1 (mTLS) / D-S7-2c (SSE 정합 묶음) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
+- **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
 ## 2. 현재 commit state (본 transfer 박제 시점)
 
-- **본 turn = s6-r31** (commit 대기) — Phase S7 **D-S7-3c** UI multi-service (DataGrid + TabControl + orphan 정리). ApplicationSettingsDialog 의 LightHouse section 이 단일 BaseUrl/PSK TextBox → **DataGrid** (DisplayName/BaseUrl/PSK button/Active/Test/Remove + Add Service). PSK 편집 = **PskEditDialog modal** (평문 비노출). KbManagerDialog 단일 ListView → **TabControl** (active service 별 tab) + per-tab `_rowsByServiceId` dict + per-service `RebuildServiceRows` / `ReconcileServiceLlmConfig`. SSE event `evt.ServiceId` 로 source tab refresh. **OrphanCleanupButton** (KbCollectionOrphanHelper SSOT) + 동의 dialog. displayName uniqueness 검증 (LightHouseServiceValidator SSOT, Save 차단). **SSOT helper 2 종 신설** (`LightHouseServiceValidator` + `KbCollectionOrphanHelper`). 사용자 결정 5건 박제 (DataGrid column / TabControl tab / Save uniqueness / 동의 orphan / Settings 무변경). 자가 검열 review Critical 0 / Major 3 / Minor 6 → 즉시 적용 m5 (1-line refactor) + m2 doc 박제, 거부 8건 (Major fragile path / Minor cosmetic). 5 modified + 6 new = 11 파일, +~824 line net. Promaker.Tests **+14 Fact** (Validator 7 + OrphanHelper 7), Promaker 261→**275** / lib 154 / service 125 / IT 31 = **누적 585 Fact**. **D-S7-3 (3a/3b/3c) phase 전체 완료**. 자세한 SSOT = server.md §3.16.8 / §7.1 row.
-- **직전 = s6-r30 (`51ded94`)** — Phase S7 D-S7-3b Holder multi-instance + N session + MCP multi-server. 9 파일 변경, +732/-256 line. Promaker 241→261. 누적 **571 Fact**. `LightHouseClientHolder` 전면 재작성 (단일 `_instance` → `ConcurrentDictionary<serviceId, ServiceClientEntry>`, `EnsureCreated` return `IReadOnlyList<LightHouseClient>` breaking + `GetClient(serviceId)` 신설 + `Current` [Obsolete] backward-compat). SSE callback 안에서 `evt.ServiceId` client-side tagging (`[JsonIgnore]`, server 변경 0). `RegisterSession/UnregisterSession/LiveSessions` per-service breaking signature. `LightHouseServerNaming.cs` 신설 (`McpEntryName` + `SanitizeDisplayName` SSOT). `LlmChatViewModel._lightHouseSessions: Dictionary<serviceId, token>` + `TryCreateLightHouseSessionsAsync` 복수 N session 발급 + `KbCollections.GroupBy(ServiceId)` routing + `BuildMcpConfig(IReadOnlyList<>)` 다중 entry. `KbManagerDialog.CurrentClient = EnsureCreated().FirstOrDefault()` 임시 (D-S7-3c TabControl 분리까지). 자가 검열 Major-1/2/3 + Minor-5/7 즉시 적용 (invariant doc + dedup chip + orphan chip + thread-affinity doc + `_` 치환 fact). 거부 5건 (D-S7-2c / D-S7-3c 묶음 backlog + caller 0 검증). 7 파일 변경 (5 modified + 2 new), +474/-240 line. Promaker 241→**261** / lib 154 / service 125 / IT 31 = **누적 571 Fact**. 자세한 SSOT = server.md §3.16.7 / §7.1 row.
-- **그 직전 = s6-r29 (`b2492ae`)** — Phase S7 D-S7-3a multi-service routing schema 확장 + migration. 10 파일 변경, +535/-69 line. Promaker 230→241. 누적 **551 Fact**.
+- **본 turn = s6-r32** (commit 대기) — Phase S7 **D-S7-2c** SSE 정합 묶음 (ServerEventNames SSOT + exponential backoff + StopSseLoop timeout + caption-progress wire + using var resp docstring). magic string SSOT 양분 (server F# `module ServerEventNames` [<Literal>] 5종 + client C# `static class ServerEventNames` const 5종, K4 통합 전 양분 유지). `SseReconnectBackoff` helper 신설 (exponential 1→2→4→8→16→30 cap + 60s stable reset + log throttle ≤3/5배수, Func<DateTime> clock injection). `LightHouseClientHolder.StartSseLoopLocked` 가 fixed 5s 폐기 후 본 helper 사용. `StopSseLoop` Wait 1s→3s (s6-r30 review Minor-1 흡수). `POST /events/caption-progress` 신설 (body schema + 검증 400 + `ServerEvent.captionProgress` factory + EventBus.Publish + 204). client `LightHouseClient.PublishCaptionProgressAsync` 신설. `OpenEventsStreamAsync` doc-comment `using var resp` 의도 박제 (s6-r28 review m-3 흡수). KbManagerDialog / Tests 의 magic string 모두 SSOT 참조. 12 파일 변경 (production 6 + test 4 + doc 2). Promaker.Tests **+12 Fact** (SseReconnectBackoff 6 + PublishCaptionProgress 6) + IT **+2 Fact** (round-trip + body 400), Promaker 275→**287** / lib 154 / service 125 / IT 31→**33** = **누적 599 Fact**. **D-S7-2 (2a/2b/2c) phase 전체 완료** — SSE 시리즈 종결. 자세한 SSOT = server.md §0 / §7.1 s6-r32 row / §7.4 D-S7-2c marker.
+- **직전 = s6-r31 (`1c086b0`)** — Phase S7 D-S7-3c UI multi-service (DataGrid + TabControl + orphan 정리). 11 파일 변경, +~824 line net. Promaker 261→275. 누적 **585 Fact**. ApplicationSettingsDialog 의 LightHouse section 이 단일 BaseUrl/PSK TextBox → DataGrid + PskEditDialog modal. KbManagerDialog 단일 ListView → TabControl + per-tab `_rowsByServiceId` dict. OrphanCleanupButton + 동의 dialog. displayName uniqueness 검증. SSOT helper 2 종 신설 (LightHouseServiceValidator + KbCollectionOrphanHelper). 자세한 SSOT = server.md §3.16.8 / §7.1 row.
+- **그 직전 = s6-r30 (`51ded94`)** — Phase S7 D-S7-3b Holder multi-instance + N session + MCP multi-server. Promaker 241→261. 누적 **571 Fact**.
 
-`git log --oneline -20` 으로 s6-r0 ~ s6-r31 전체 commit chain 확인 가능. server.md §7.1 표 가 의미적 SSOT.
+`git log --oneline -20` 으로 s6-r0 ~ s6-r32 전체 commit chain 확인 가능. server.md §7.1 표 가 의미적 SSOT.
 
 ## 3. 새 세션 진입 시 읽기 순서
 
 1. **본 doc** (현재 위치 + 핵심 backlog 박제 만)
 2. `todo-lighthouse-kb-server.md` §0 — 모드 박제 + D-id 결정 표 (D-S7-1~5 / D-2-1~7 포함)
-3. `todo-lighthouse-kb-server.md` §7.1 — commit chain 표, 가장 최근 row (s6-r31 → s6-r0) 부터 역순으로 5~10개 정독
+3. `todo-lighthouse-kb-server.md` §7.1 — commit chain 표, 가장 최근 row (s6-r32 → s6-r0) 부터 역순으로 5~10개 정독
 4. `todo-lighthouse-kb-server.md` §3.16 multi-service routing — D-S7-3a/b/c 의 sub-section 3건 (§3.16.1~8). 새 세션에서 multi-service mental model 파악 의무.
 5. `todo-lighthouse-kb-server.md` §7.4 — backlog 표 (처리 완료 marker + 잔여 D-S7-1/2c/4/5)
 6. `todo-lighthouse-kb-index.md` §0 — parent rev 박제 + 사용자 동의 결정
@@ -38,7 +38,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 
 | # | 항목 | 위치 | 진입 마커 |
 |---|---|---|---|
-| A1 | **Phase S7 — mTLS / SSE / multi-service routing** | server.md §7.4 "P4 Phase S7" | D-S7-1~5 사전 박제 완료. ~~D-S7-2a/b~~ → s6-r27/r28 완료. ~~D-S7-3a/b/c (multi-service routing 전체)~~ → **s6-r29/r30/r31 완료** (§3.16). 잔여 = **D-S7-1** (mTLS) / **D-S7-2c** (caption-progress + reconnect exponential backoff + magic string SSOT + s6-r30 review m-1/m-2 묶음) / **D-S7-4** (T2/T3) / **D-S7-5** (resumable upload). |
+| A1 | **Phase S7 — mTLS / multi-tenant / resumable upload** | server.md §7.4 "P4 Phase S7" | D-S7-1~5 사전 박제 완료. ~~D-S7-2a/b/c (SSE 시리즈 전체)~~ → s6-r27/r28/r32 완료. ~~D-S7-3a/b/c (multi-service routing 전체)~~ → s6-r29/r30/r31 완료 (§3.16). 잔여 = **D-S7-1** (mTLS) / **D-S7-4** (T2/T3) / **D-S7-5** (resumable upload). |
 | A2 | **K4 Protocol SSOT 통합** | server.md §7.7 K4 박제 | `Solutions/Core/Ds2.LightHouse.Protocol` 신규 project — wire 상수 + MetaJson schema SSOT 통합. LightHouseClient C# / F# 이중 구현 → 단일 SSOT 의존. Phase S7 묶음. |
 | A3 | **보안 sweep 1턴 (K6 + M9/M10/M11/M12)** | server.md §7.7 K6 + Major outlier | registry.json tampering 검증 + PSK in-memory lifetime + %PROGRAMDATA% ACL + DoS guards (topK upper bound / query length). admin 권한 위협 모델 한정 (defense-in-depth). |
 | A4 | **Phase 2 후속 (Phase 3 OCR / Phase 4 Embedding)** | parent §3.15 / `todo-lighthouse-kb-index.md` Phase 3 / Phase 4 | Phase 2 eager VLM caption 완료 후 OCR (Tesseract.NET + 한글) 또는 embedding (sqlite-vec) 진입. 별 PR. |
@@ -73,7 +73,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **server** = `Solutions/Tools/Ds2.LightHouseService/` (F# Kestrel HTTPS service — Program.fs configureApp export / Storage / Registry / Sessions / ZipImport / FileServing / AttachmentTools (MCP 4 tool))
 - **cli** = `Solutions/Tools/Ds2.LightHouse.Cli/` (F# console — index --upload, LIGHTHOUSE_VLM_API_KEY env var fallback)
 - **Promaker 통합** = `Apps/Promaker/Promaker/` 의 `Knowledge/` 폴더 (LightHouseClient.cs / LightHouseClientHolder.cs / AttachmentIngestService.cs / CollectionPackager.cs), `Dialogs/KbManagerDialog.xaml(.cs)` + `Dialogs/ApplicationSettingsDialog.xaml(.cs)` (LightHouse Service + VLM section), `LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + VisionCostGate + ModifyWithLock)
-- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 154) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 125) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli, 31) / `Solutions/Tests/Promaker.Tests` (Promaker, 275) = **누적 585 Fact**
+- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 154) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 125) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli, 33) / `Solutions/Tests/Promaker.Tests` (Promaker, 287) = **누적 599 Fact**
 - **doc** = `Apps/Promaker/Docs/` (본 transfer + 두 SSOT todo + done-* archive + howto)
 - **scripts** = `Apps/Promaker/scripts/check-paired-release.ps1` (paired-release drift detector)
 
@@ -88,20 +88,19 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 
 ## 7. 본 transfer 박제 시점 git status
 
-(s6-r31 commit 직전 상태 — Phase S7 D-S7-3c UI multi-service 본 turn 변경 5 modified + 6 new = 11 production/test 파일 + transfer/server doc 갱신 2 파일 = 13 파일 staged 대상)
+(s6-r32 commit 직전 상태 — Phase S7 D-S7-2c SSE 정합 묶음 본 turn 변경 = production 6 (server 2 + client 4) + test 4 + doc 2 = 12 파일 staged 대상)
 
 ```
  M Apps/Promaker/Docs/todo-lighthouse-kb-server.md
  M Apps/Promaker/Docs/todo-lighthouse-next-session.md
- M Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml
- M Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml.cs
- M Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml
  M Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml.cs
- M Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs
-?? Apps/Promaker/Promaker/Dialogs/PskEditDialog.xaml
-?? Apps/Promaker/Promaker/Dialogs/PskEditDialog.xaml.cs
-?? Apps/Promaker/Promaker/Knowledge/KbCollectionOrphanHelper.cs
-?? Apps/Promaker/Promaker/Knowledge/LightHouseServiceValidator.cs
-?? Solutions/Tests/Promaker.Tests/KbCollectionOrphanHelperTests.cs
-?? Solutions/Tests/Promaker.Tests/LightHouseServiceValidatorTests.cs
+ M Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs
+ M Apps/Promaker/Promaker/Knowledge/LightHouseClientHolder.cs
+ M Solutions/Tests/Ds2.LightHouseService.IntegrationTests/EventsSseTests.fs
+ M Solutions/Tests/Promaker.Tests/LightHouseClientTests.cs
+ M Solutions/Tools/Ds2.LightHouseService/EventBus.fs
+ M Solutions/Tools/Ds2.LightHouseService/EventsEndpoint.fs
+?? Apps/Promaker/Promaker/Knowledge/ServerEventNames.cs
+?? Apps/Promaker/Promaker/Knowledge/SseReconnectBackoff.cs
+?? Solutions/Tests/Promaker.Tests/SseReconnectBackoffTests.cs
 ```

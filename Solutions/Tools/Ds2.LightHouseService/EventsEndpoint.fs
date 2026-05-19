@@ -95,6 +95,61 @@ module EventsEndpoint =
                 bus.Unsubscribe id
         } :> Task
 
-    /// `GET /events` endpoint 등록. AuthMiddleware 뒤에 매핑.
+    // ── D-S7-2c (s6-r32) — POST /events/caption-progress ─────────────────────────
+    // Phase 2 vision caption indexing 진행률을 client (Promaker / lighthouse-cli) 가 server 로 publish.
+    // server 는 검증 후 EventBus 로 fan-out — 다른 client (예: codex / 별 Promaker instance) 가 본 SSE 로 수신.
+
+    /// POST body schema — caption-progress publish.
+    [<CLIMutable>]
+    type CaptionProgressRequest =
+        { [<System.Text.Json.Serialization.JsonPropertyName("collectionId")>]
+          CollectionId: string
+          [<System.Text.Json.Serialization.JsonPropertyName("progress")>]
+          Progress: int
+          [<System.Text.Json.Serialization.JsonPropertyName("message")>]
+          Message: string }
+
+    let private requestJsonOpts =
+        let o = JsonSerializerOptions()
+        o.PropertyNameCaseInsensitive <- true
+        o
+
+    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
+        ctx.Response.StatusCode <- status
+        ctx.Response.ContentType <- "application/json; charset=utf-8"
+        let json = JsonSerializer.Serialize({| error = message |})
+        ctx.Response.WriteAsync json
+
+    /// POST /events/caption-progress — body 검증 후 `caption-progress` event publish + 204.
+    /// 검증: collectionId 빈 값 → 400, progress 0~100 외 → 400. body json 결함 → 400.
+    /// message 는 선택 (빈 값 / null 허용).
+    let private postCaptionProgress (bus: EventBus) (ctx: HttpContext) : Task =
+        task {
+            let mutable body = Unchecked.defaultof<CaptionProgressRequest>
+            let mutable parseFail = false
+            try
+                let! parsed =
+                    JsonSerializer.DeserializeAsync<CaptionProgressRequest>(
+                        ctx.Request.Body, requestJsonOpts, ctx.RequestAborted).AsTask()
+                body <- parsed
+            with
+            | :? JsonException -> parseFail <- true
+            | :? System.IO.InvalidDataException -> parseFail <- true
+
+            if parseFail || isNull (box body) then
+                do! writeError ctx 400 "request body JSON 결함"
+            elif System.String.IsNullOrWhiteSpace body.CollectionId then
+                do! writeError ctx 400 "collectionId 필수"
+            elif body.Progress < 0 || body.Progress > 100 then
+                do! writeError ctx 400 "progress 는 0~100 범위"
+            else
+                let msg = if isNull body.Message then "" else body.Message
+                bus.Publish(ServerEvent.captionProgress body.CollectionId body.Progress msg)
+                ctx.Response.StatusCode <- 204
+        } :> Task
+
+    /// `GET /events` + `POST /events/caption-progress` endpoint 등록. AuthMiddleware 뒤에 매핑.
     let map (app: IEndpointRouteBuilder) (bus: EventBus) =
         app.MapGet("/events", RequestDelegate(handle bus)) |> ignore
+        app.MapPost("/events/caption-progress",
+            RequestDelegate(postCaptionProgress bus)) |> ignore

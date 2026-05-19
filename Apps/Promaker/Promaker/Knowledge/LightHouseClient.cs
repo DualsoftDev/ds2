@@ -340,6 +340,13 @@ public sealed class LightHouseClient : IDisposable
     /// (401/403) 은 본 호출 진입 시점에 `LightHouseAuthException` throw.
     ///
     /// **D-S7-2b (s6-r28)** — server-side D-S7-2a (`9e9698e`) 의 ndjson schema 정합.
+    ///
+    /// **`using var resp` 의도 (s6-r28 review m-3, s6-r32 docstring 박제)**: 일반 endpoint 와 달리 본 호출은
+    /// long-running stream — `using var` 가 함수 종료 시점까지 response (+ 본인 소유 stream) 보유. caller 의
+    /// CancellationToken 또는 server-side close 로 ReadLine loop 가 종료되면 함수 exit 시점에 dispose.
+    /// `try/finally` 의 `resp.Dispose()` 가 명시 — 본 path 는 stream 의 lifetime 보장 명료성을 위해 일반 `using var`
+    /// 가 아닌 explicit dispose 패턴 채택 (HttpCompletionOption.ResponseHeadersRead 의 body stream 이 response
+    /// 와 lifetime 결합인 점 박제).
     /// </summary>
     public async Task OpenEventsStreamAsync(
         Func<ServerEventDto, Task> onEvent,
@@ -376,6 +383,35 @@ public sealed class LightHouseClient : IDisposable
             }
         }
         finally { resp.Dispose(); }
+    }
+
+    /// <summary>
+    /// **D-S7-2c (s6-r32)** — `POST /events/caption-progress` — Phase 2 vision caption 진행률 client → server publish.
+    /// server 는 검증 (collectionId / progress 0~100) 후 EventBus 로 fan-out — 다른 subscriber (codex / 별 Promaker
+    /// instance) 가 본 SSE 로 진행률 수신.
+    /// <para/>
+    /// caller 정책: 매 image (또는 batch) caption 완료 시점에 0~100 progress 호출. `progress` 가 100 도달 시 caller
+    /// 는 본 publish 직후 별 ReuploadCollectionPayloadAsync 호출 — server 는 본 publish 자체로 collection state 변경 X.
+    /// <para/>
+    /// 400 (request body 결함) 시 <see cref="LightHouseProtocolException"/>, 401/403 시 <see cref="LightHouseAuthException"/>.
+    /// </summary>
+    public async Task PublishCaptionProgressAsync(
+        string collectionId,
+        int progress,
+        string? message = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(collectionId))
+            throw new ArgumentException("collectionId 필수.", nameof(collectionId));
+        if (progress < 0 || progress > 100)
+            throw new ArgumentOutOfRangeException(nameof(progress), progress, "progress 는 0~100 범위.");
+
+        using var req = NewRequest(HttpMethod.Post, "events/caption-progress");
+        req.Content = JsonContent.Create(
+            new CaptionProgressRequest { CollectionId = collectionId, Progress = progress, Message = message },
+            options: JsonOptions);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, "POST /events/caption-progress", ct).ConfigureAwait(false);
     }
 }
 
@@ -432,6 +468,14 @@ public sealed class ServerEventDto
 internal sealed class SessionCreateRequest
 {
     [JsonPropertyName("collectionIds")] public IReadOnlyList<string> CollectionIds { get; set; } = Array.Empty<string>();
+}
+
+/// <summary>**D-S7-2c (s6-r32)** — POST /events/caption-progress request body. server-side `CaptionProgressRequest` 정합.</summary>
+internal sealed class CaptionProgressRequest
+{
+    [JsonPropertyName("collectionId")] public string CollectionId { get; set; } = "";
+    [JsonPropertyName("progress")] public int Progress { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
 }
 
 public sealed class SessionCreateResponse

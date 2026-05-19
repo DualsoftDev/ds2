@@ -105,7 +105,7 @@ public partial class KbManagerDialog : Window
     private void OnSseEventReceived(ServerEventDto evt)
     {
         if (evt is null || string.IsNullOrEmpty(evt.Event)) return;
-        if (evt.Event == "keepalive") return;
+        if (evt.Event == ServerEventNames.Keepalive) return;
         var sourceServiceId = evt.ServiceId;
         Dispatcher.BeginInvoke(new Action(async () =>
         {

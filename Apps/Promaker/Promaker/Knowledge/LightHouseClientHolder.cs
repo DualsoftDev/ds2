@@ -245,8 +245,11 @@ public static class LightHouseClientHolder
     }
 
     /// <summary>
-    /// **D-S7-3b (s6-r30)** — entry 별 SSE subscription Task 시작. 호출은 _mutationLock 안에서.
-    /// SSE callback 안에서 evt.ServiceId = entry.ServiceId 박제 후 publish. 단절 시 5s backoff + 무한 재연결.
+    /// **D-S7-3b (s6-r30) → D-S7-2c (s6-r32)** — entry 별 SSE subscription Task 시작. 호출은 _mutationLock 안에서.
+    /// SSE callback 안에서 evt.ServiceId = entry.ServiceId 박제 후 publish.
+    /// <para/>
+    /// **reconnect 정책 (s6-r32)**: <see cref="SseReconnectBackoff"/> SSOT — exponential 1→2→4→8→16→30 cap +
+    /// 60s stable reset + log throttle (≤3 또는 매 5회). 이전 (s6-r28~s6-r31) fixed 5s 정책은 폐기.
     /// </summary>
     private static void StartSseLoopLocked(ServiceClientEntry entry)
     {
@@ -255,6 +258,7 @@ public static class LightHouseClientHolder
         var ct = cts.Token;
         var client = entry.Client;
         var ownerServiceId = entry.ServiceId;
+        var backoff = new SseReconnectBackoff();
         entry.SseTask = Task.Run(async () =>
         {
             while (!ct.IsCancellationRequested)
@@ -281,19 +285,30 @@ public static class LightHouseClientHolder
                     || ex is LightHouseAuthException
                     || ex is LightHouseProtocolException)
                 {
-                    Log.Warn($"SSE stream 끊김 (serviceId={ownerServiceId}) — {ex.GetType().Name}: {ex.Message}. 5초 후 재연결.");
-                    try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+                    var (delay, shouldLog) = backoff.NextDelay();
+                    if (shouldLog)
+                    {
+                        Log.Warn($"SSE stream 끊김 (serviceId={ownerServiceId}, attempt={backoff.Attempt}) — "
+                            + $"{ex.GetType().Name}: {ex.Message}. {delay.TotalSeconds:0.#}초 후 재연결.");
+                    }
+                    try { await Task.Delay(delay, ct).ConfigureAwait(false); }
                     catch (OperationCanceledException) { return; }
                 }
             }
         }, ct);
     }
 
+    /// <summary>
+    /// SSE loop 종료 + cleanup. <para/>
+    /// **timeout 정책 (s6-r32, s6-r30 review Minor-1)**: Wait 3s — 이전 1s 는 SSE catch 안의 Task.Delay (cap 30s)
+    /// 와 cancellation token signal 처리 사이 race 에 짧음. Cancel() 직후 Task.Delay 의 OCE catch 진입 + return 까지
+    /// 의 여유 박제. 3s 미초과 시 caller (Invalidate / EnsureCreated) 가 다음 step 진입.
+    /// </summary>
     private static void StopSseLoop(ServiceClientEntry entry)
     {
         if (entry.SseCts is null) return;
         try { entry.SseCts.Cancel(); } catch (ObjectDisposedException) { }
-        try { entry.SseTask?.Wait(TimeSpan.FromSeconds(1)); }
+        try { entry.SseTask?.Wait(TimeSpan.FromSeconds(3)); }
         catch (AggregateException) { }
         try { entry.SseCts.Dispose(); } catch (ObjectDisposedException) { }
         entry.SseCts = null;
