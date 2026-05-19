@@ -51,6 +51,12 @@
     <!-- todo-lighthouse-kb-index.md r11/s5e-r0 결정: PdfPig 0.1.14 의 OpenXml 3.1.1 transitive 와
          Ds2.LightHouse 의 3.5.1 충돌 (MSB3277) 해소용 명시. CPM 의 3.5.1 적용. -->
     <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension load 의무, lib 의 PrivateAssets=all 우회).
+         Promaker 가 AttachmentIngestService 안에서 lib 의 Indexer 호출 → lib 의 SqliteStore 가 LoadExtension("vec0")
+         → vec0.dll 이 Promaker publish output 에 있어야 함.
+         ExcludeAssets=contentFiles — sqlite-vec NuGet 의 Vector.cs C# wrapper (SqliteConnection 직접 의존) compile
+         차단. lib (F#) 가 raw LoadExtension + SQL string path 만 사용 — Vector.cs wrapper 미사용. -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">

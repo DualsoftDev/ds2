@@ -26,6 +26,9 @@
     <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension load 의무, lib 의 PrivateAssets=all 우회).
+         ExcludeAssets=contentFiles — Vector.cs C# wrapper inject 차단 (F# 환경). -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
   </ItemGroup>
 
   <ItemGroup>

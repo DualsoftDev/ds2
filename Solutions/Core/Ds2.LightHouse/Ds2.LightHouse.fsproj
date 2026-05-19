@@ -40,6 +40,11 @@
     <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs).
          PrivateAssets=all — WordprocessingDocument 등 OpenXml type transitive 차단 (r8 m2). -->
     <PackageReference Include="DocumentFormat.OpenXml" PrivateAssets="all" />
+    <!-- Phase 4 — sqlite-vec extension (vec0 virtual table). native binary 자동 배포.
+         lib 의 SqliteStore (F#) 가 connection open 후 raw LoadExtension("vec0") + SQL string 으로 직접 호출.
+         PrivateAssets=all — caller 는 본 native binary 만 transitive 로 받고 type API 노출 X (LoadExtension 호출 path 는 lib 한정).
+         ExcludeAssets=contentFiles — sqlite-vec NuGet 의 Vector.cs C# wrapper (SqliteConnection 직접 의존) inject 차단. F# 환경 무관. -->
+    <PackageReference Include="sqlite-vec" PrivateAssets="all" ExcludeAssets="contentFiles" />
   </ItemGroup>
 
 </Project>
