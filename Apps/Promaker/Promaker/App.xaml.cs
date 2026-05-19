@@ -179,6 +179,11 @@ public partial class App : Application
         }
         catch (Exception ex) { Log.Warn("LightHouseClientHolder.DisposeAllAsync 실패 (best-effort)", ex); }
 
+        // s6-r25 (M1) — stale LlmConfig.lock 파일 best-effort cleanup.
+        // 정상 종료 시 본 instance 가 마지막 holder 면 lock file 삭제. 다른 instance 가 살아있으면 swallow.
+        try { Promaker.LlmAgent.LlmConfig.TryCleanupStaleLockFile(); }
+        catch (Exception ex) { Log.Warn("LlmConfig.TryCleanupStaleLockFile 실패 (best-effort)", ex); }
+
         Log.Info("=== Promaker shutdown ===");
         base.OnExit(e);
     }

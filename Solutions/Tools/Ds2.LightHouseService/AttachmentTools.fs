@@ -41,6 +41,14 @@ type AttachmentTools() =
     [<Literal>]
     static let MaxImagesPerResponse = 5
 
+    /// **s6-r25 (m2)** — `[marker]` text 를 textBuilder 끝에 blank line 분리해서 append. 본문이 비어
+    /// 있으면 (length=0) 첫 줄에 marker 시작, 본문이 있으면 두 줄 띄우고 marker 진입. attachment_read 의
+    /// degraded / oversize / read_fail 3 marker 패턴 SSOT.
+    static let appendMarker (sb: System.Text.StringBuilder) (markerText: string) =
+        if sb.Length > 0 then sb.AppendLine() |> ignore
+        sb.AppendLine() |> ignore
+        sb.Append(markerText: string) |> ignore
+
     /// **--review M3 정합 (s6-r21)** — `ImageCache.MimeType` 빈/NULL row 의 mime 추론 (확장자 기반).
     /// 정상 색인 경로 (`Indexer.ingestImagesIntoStore`) 는 항상 mime 박제 (`ImageStore.mimeOf`).
     ///
@@ -268,9 +276,9 @@ type AttachmentTools() =
             fileId: string,
             [<Description("Ref locator (from attachment_search hit.ref)")>]
             ref: string,
-            [<Description("Include image content blocks (base64 inline). Subject to size policy: single ≤5MB body, ≤5 images per response, else auto-degrade to captionOnly.")>]
+            [<Description("Include image content blocks (base64 inline). Default false. Subject to size policy: single ≤5MB body, ≤5 images per response, else auto-degrade to captionOnly.")>]
             includeImages: bool,
-            [<Description("Caption-only mode: text block + inline caption enumeration (no base64 binary).")>]
+            [<Description("Caption-only mode: text block + inline caption enumeration (no base64 binary). Default true (effective when both flags false — back-compat caption_only path).")>]
             captionOnly: bool
         ) : ContentBlock array =
         withKb accessor resolver (fun kb ->
@@ -295,11 +303,9 @@ type AttachmentTools() =
                 textBuilder.Append(chunkText) |> ignore
 
                 if degradedByCount then
-                    if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
-                    textBuilder.AppendLine() |> ignore
-                    textBuilder.AppendFormat(
-                        "[oversize_image_count={0}, max={1} — auto caption_only degrade]",
-                        imgRefs.Length, MaxImagesPerResponse) |> ignore
+                    appendMarker textBuilder (
+                        sprintf "[oversize_image_count=%d, max=%d — auto caption_only degrade]"
+                            imgRefs.Length MaxImagesPerResponse)
 
                 if effectiveCaptionOnly then
                     // text block + caption enumeration. image binary 미동봉.
@@ -355,16 +361,12 @@ type AttachmentTools() =
                                     storedPath (ex.GetType().Name) ex.Message)
 
                     if oversizeCount > 0 then
-                        if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
-                        textBuilder.AppendLine() |> ignore
-                        textBuilder.AppendFormat(
-                            "[oversize_image_count={0}, max_single_bytes={1} — skipped]",
-                            oversizeCount, MaxSingleImageBytes) |> ignore
+                        appendMarker textBuilder (
+                            sprintf "[oversize_image_count=%d, max_single_bytes=%d — skipped]"
+                                oversizeCount MaxSingleImageBytes)
                     if skipReadFailCount > 0 then
-                        if textBuilder.Length > 0 then textBuilder.AppendLine() |> ignore
-                        textBuilder.AppendLine() |> ignore
-                        textBuilder.AppendFormat(
-                            "[image_read_fail_count={0} — skipped]", skipReadFailCount) |> ignore
+                        appendMarker textBuilder (
+                            sprintf "[image_read_fail_count=%d — skipped]" skipReadFailCount)
 
                     blocks.Add(TextContentBlock(Text = textBuilder.ToString()) :> ContentBlock)
                     for b in imgBlocks do blocks.Add b

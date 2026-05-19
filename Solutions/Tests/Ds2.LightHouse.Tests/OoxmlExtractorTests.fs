@@ -282,12 +282,12 @@ let private makeDocxWithHeaderImage (path: string) =
     imgPart.FeedData(ms)
     let relId = headerPart.GetIdOfPart(imgPart)
 
-    let headerXml =
+    // s6-r25 (mn5) — OpenXml SDK 정석: HeaderPart.Header property 객체 할당. raw stream write 우회 폐기
+    // (SDK internal state 와 race 잠재). SDK Header 의 ctor(string outerXml) 사용 — w:hdr root 포함.
+    let headerOuterXml =
         sprintf """<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="2" name="HeaderPic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="2" name="HeaderPic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:hdr>""" relId
-    use hdrStream = headerPart.GetStream(FileMode.Create, FileAccess.Write)
-    use writer = new System.IO.StreamWriter(hdrStream, Encoding.UTF8)
-    writer.Write(headerXml)
-    writer.Flush()
+    headerPart.Header <- DocumentFormat.OpenXml.Wordprocessing.Header(headerOuterXml)
+    headerPart.Header.Save()
 
 [<Fact>]
 let ``docx + header image — s6-r21 backlog 해소, RefLocator="header=1"`` () =

@@ -113,6 +113,8 @@ module CaptionGenerator =
 
     /// 응답 JSON 에서 caption text 추출. Anthropic 응답 형식:
     /// `{ "content":[{"type":"text","text":"..."}], "model":"...", ... }`
+    /// **catch 좁힘 (s6-r25, m8)**: 본 함수가 흡수해야 할 결함 = malformed JSON 또는 예상 schema 불일치만.
+    /// 그 외 결함 (e.g. OutOfMemory) 은 caller 의 wide catch 까지 전파.
     let private extractCaptionText (json: string) : string option =
         try
             use doc = JsonDocument.Parse(json)
@@ -134,7 +136,9 @@ module CaptionGenerator =
                                 found <- Some (t.Trim())
                 found
             else None
-        with _ -> None
+        with
+        | :? JsonException -> None
+        | :? InvalidOperationException -> None  // JsonElement API 의 contract 위반 (wrong ValueKind)
 
     /// Anthropic messages API 호출 (1회, 재시도 없음 — caller 가 cost-aware retry 책임).
     ///
@@ -179,4 +183,7 @@ module CaptionGenerator =
                     | None -> FailedCaption "response has no text content"
             with
             | :? OperationCanceledException -> reraise ()
+            // 의도된 fail-safe wide catch (s6-r25 m8 박제) — 본 callAnthropic 가 throw 하면 색인 전체 중단,
+            // per-image granularity 보존 의무. 가능한 결함 = HttpRequestException / IOException /
+            // ArgumentException / JsonException / 기타 transient. type name 을 메시지에 박제로 진단 보존.
             | ex -> FailedCaption (sprintf "%s: %s" (ex.GetType().Name) ex.Message)

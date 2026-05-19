@@ -207,6 +207,13 @@ public sealed class LlmConfig
     /// **test 전용** — ConfigPath override. Promaker.Tests 가 fact 별 임시 path 박제로 production
     /// `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json` 침투 회피.
     /// production code 는 null 그대로 (`EffectiveConfigPath = ConfigPath`).
+    /// <para/>
+    /// **process-static 정합 (s6-r25, m3)**: 본 property 는 process-wide 단일 상태. 동시에 여러 test
+    /// class 가 set 하면 cross-class race 발생 — 모든 caller 는 같은 xUnit Collection
+    /// (`[Collection("LlmConfigOverride")]`, `LlmConfigModifyWithLockTests` 박제) 에 묶어 직렬화 필수.
+    /// 또한 `internal` 가시성이라 `Promaker.Tests` 외부 assembly 에서 사용 시 `[InternalsVisibleTo]`
+    /// 추가 + 같은 collection 합류 의무. 위반 시 Save 가 다른 test 의 override path 로 직렬화되어
+    /// collection 일부가 영구 누락.
     /// </summary>
     internal static string? TestConfigPathOverride { get; set; }
 
@@ -214,6 +221,30 @@ public sealed class LlmConfig
 
     /// <summary>cross-process file lock path. ConfigPath 와 sibling.</summary>
     private static string LockPath => EffectiveConfigPath + ".lock";
+
+    /// <summary>
+    /// **s6-r25 (M1) — stale lock 파일 best-effort cleanup**. `App.OnExit` 또는 `OnStartup` 가 호출.
+    /// <para/>
+    /// 동작: lock file 을 <c>FileShare.None</c> 으로 short-open 시도. 성공 = 다른 process 가 잡고 있지
+    /// 않음 → delete. 실패 (IOException, 다른 Promaker instance 가 lock 보유 중) = swallow. lock file
+    /// 잔재가 production user-visible artifact 라 uninstall / clean state 의무 — 그러나 기능 결함 0
+    /// (다음 ModifyWithLock 호출이 OpenOrCreate 로 reuse).
+    /// </summary>
+    public static void TryCleanupStaleLockFile()
+    {
+        var lockPath = LockPath;
+        if (!File.Exists(lockPath)) return;
+        try
+        {
+            using (var stream = new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                // 잡힘 — free 상태 확인됨.
+            }
+            File.Delete(lockPath);
+        }
+        catch (IOException) { /* 다른 instance 가 보유 중 — skip */ }
+        catch (UnauthorizedAccessException) { /* ACL 결함 — skip */ }
+    }
 
     /// <summary>
     /// **s6-r24 작업 2 — MJ1 (multi-instance read-modify-write race) 본질 해결**.
@@ -225,15 +256,18 @@ public sealed class LlmConfig
     /// 즉시 Save. mutate 콜백 안에서는 다른 process 의 mutation 결과를 본 인스턴스의 값으로 *덮어쓰기 안 함*
     /// (caller 책임 = delta 누적 또는 max 선택). cap 같이 disk SSOT 인 필드는 본 인스턴스 값 무시.</para>
     ///
-    /// <para>retry: lock 충돌 (IOException) 시 100ms / 200 / 400 / 800 / 1600ms exponential backoff
-    /// 5회. 모두 실패 시 caller 에 throw — best-effort 컨텍스트 (예: KbManagerDialog finally) 는 catch 후
-    /// log 권장.</para>
+    /// <para>retry (s6-r25, m2 cap ↑): lock 충돌 (IOException) 시 7회 exponential backoff +
+    /// per-attempt jitter (0~base/2 random). base = 100 / 200 / 400 / 800 / 1600 / 3200 / 6400ms.
+    /// 누적 worst ≈ 12.7s + jitter. 이전 5회 (cap 3.1s) 는 CI 부하 + 4×50 trips contention 시 flaky 위험.
+    /// jitter 는 thundering herd (동시 retry 충돌) 회피. 모두 실패 시 caller 에 throw — best-effort
+    /// 컨텍스트 (예: KbManagerDialog finally) 는 catch 후 log 권장. STA UI thread 호출 시 worst-case
+    /// freeze 회피 위해 `Task.Run` async wrap 권고 (s6-r25 자가 검열 review Minor-1).</para>
     /// </summary>
     /// <returns>Save 직후의 LlmConfig (caller 가 본 인스턴스 자체 state 갱신 시 활용).</returns>
     public static LlmConfig ModifyWithLock(Action<LlmConfig> mutate)
     {
         if (mutate is null) throw new ArgumentNullException(nameof(mutate));
-        const int maxAttempts = 5;
+        const int maxAttempts = 7;
         var path = EffectiveConfigPath;
         var lockPath = LockPath;
         Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
@@ -251,7 +285,9 @@ public sealed class LlmConfig
             catch (IOException)
             {
                 if (attempt == maxAttempts - 1) throw;
-                Thread.Sleep(100 << attempt);  // 100 / 200 / 400 / 800 / 1600 ms
+                var baseDelay = 100 << attempt;  // 100 / 200 / 400 / 800 / 1600 / 3200 / 6400 ms
+                var jitter = Random.Shared.Next(0, baseDelay / 2 + 1);
+                Thread.Sleep(baseDelay + jitter);
             }
         }
         throw new IOException($"LlmConfig.ModifyWithLock: lock 획득 실패 ({maxAttempts}회 retry, path={lockPath})");
@@ -514,6 +550,14 @@ public sealed class LlmConfig
     {
         var envKey = Environment.GetEnvironmentVariable("LIGHTHOUSE_VLM_API_KEY");
         if (!string.IsNullOrWhiteSpace(envKey)) return envKey;
+        // DPAPI fallback 은 Windows-only (CurrentUser scope, ProtectedData). WPF Promaker 는 Windows 한정이라
+        // 통상 redundant 이나, PromakerLlmAgent assembly 가 cross-platform host 에 reuse 되는 향후 use case 가드.
+        // env var 미박제 + 비-Windows = silent null + warn (caller 가 SkippedCaption 분기 진입).
+        if (!OperatingSystem.IsWindows())
+        {
+            Log.Warn("GetVlmApiKey: LIGHTHOUSE_VLM_API_KEY env var 미박제 + Windows 외 OS — DPAPI fallback 불가, null 반환.");
+            return null;
+        }
         if (string.IsNullOrWhiteSpace(VlmProvider)) return null;
         var prov = VlmProvider.Trim().ToLowerInvariant();
         if (prov == "anthropic") return GetApiKey(ApiProviderFactory.AnthropicKey);
@@ -539,9 +583,23 @@ public sealed class VisionCostGate
     [JsonPropertyName("lastResetUtc")]
     public string LastResetUtc { get; set; } = "";
 
-    /// <summary>오늘 누적 token (caller 가 caption 호출 직후 추정 token 으로 증분).</summary>
+    /// <summary>
+    /// 오늘 누적 token (caller 가 caption 호출 직후 추정 token 으로 증분).
+    /// <para/>
+    /// thread-safe 보호 — read/write 모두 <see cref="_gateLock"/> 하에 직렬화 (s6-r25 M1, 자가 검열
+    /// review Major-1 정합). property setter 도 lock 안에서 호출되어야 정합.
+    /// </summary>
     [JsonPropertyName("tokensUsedToday")]
     public int TokensUsedToday { get; set; }
+
+    /// <summary>
+    /// **thread-safe rollover + Consume 직렬화 lock** (s6-r25, 자가 검열 review Major-1 정합).
+    /// <para/>
+    /// 이전 `Interlocked.Add` 만으로는 day-rollover 경계에서 race — RolloverIfNeeded 의
+    /// `TokensUsedToday = 0` setter 가 동시 Add 결과를 덮어쓰기 가능. 본 lock 으로 reset + accumulate
+    /// 를 단일 critical section 으로 묶음. private field 라 System.Text.Json 직렬화 자연 제외.
+    /// </summary>
+    private readonly object _gateLock = new();
 
     /// <summary>
     /// UTC 기준 day rollover 처리. caller 가 매 caption 호출 직전 호출 의무 — 본 메서드가 disk save 는 하지 않음
@@ -550,33 +608,64 @@ public sealed class VisionCostGate
     public void RolloverIfNeeded()
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        if (LastResetUtc != today)
+        lock (_gateLock)
         {
-            LastResetUtc = today;
-            TokensUsedToday = 0;
+            if (LastResetUtc != today)
+            {
+                LastResetUtc = today;
+                TokensUsedToday = 0;
+            }
         }
     }
 
     /// <summary>요청 token 만큼 한도가 남는지 (hard cutoff 검사). caller 가 호출 직전 사용.</summary>
     public bool CanAfford(int requestedTokens)
     {
-        RolloverIfNeeded();
-        return TokensUsedToday + requestedTokens <= DailyTokenCap;
+        lock (_gateLock)
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            if (LastResetUtc != today)
+            {
+                LastResetUtc = today;
+                TokensUsedToday = 0;
+            }
+            return TokensUsedToday + requestedTokens <= DailyTokenCap;
+        }
     }
 
-    /// <summary>caption 호출 성공 시 누적. caller 책임 — Indexer 측 captionGen wrapper 에서 호출.</summary>
+    /// <summary>
+    /// caption 호출 성공 시 누적. caller 책임 — Indexer 측 captionGen wrapper 에서 호출.
+    /// <para/>
+    /// **thread-safe 누적 + rollover (s6-r25 M1 + 자가 검열 review Major-1)**: 단일 critical section
+    /// 안에서 rollover check + reset + accumulate. Phase 4 perf (parallel extractor) 진입 시 의무 —
+    /// 단일 thread Indexer 가정 폐기 가드.
+    /// </summary>
     public void Consume(int tokens)
     {
-        RolloverIfNeeded();
-        TokensUsedToday += tokens;
+        lock (_gateLock)
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            if (LastResetUtc != today)
+            {
+                LastResetUtc = today;
+                TokensUsedToday = 0;
+            }
+            TokensUsedToday += tokens;
+        }
     }
 
-    /// <summary>UI chip 안내용 — 80% 도달 시 warning, hard cap 시 hard.</summary>
+    /// <summary>
+    /// UI chip 안내용 — 80% 도달 시 warning, hard cap 시 hard.
+    /// <para/>
+    /// **side-effect free (s6-r25 m3)**: 본 getter 는 pure — 이전 RolloverIfNeeded 호출 제거. caller 는
+    /// 정확한 status 가 필요한 시점에 `RolloverIfNeeded()` 또는 `CanAfford` / `Consume` (둘 다 내부에서
+    /// rollover 호출) 을 명시적으로 선행 호출할 의무. day rollover 가 일어나지 않은 채 어제 token
+    /// 누적이 그대로 read 되는 risk 회피.
+    /// </summary>
     public VisionCostGateStatus Status
     {
         get
         {
-            RolloverIfNeeded();
             if (DailyTokenCap <= 0) return VisionCostGateStatus.Disabled;
             if (TokensUsedToday >= DailyTokenCap) return VisionCostGateStatus.HardCap;
             // --review m4 정합 — `* 100` / `* 80` int 곱 overflow 차단 (DailyTokenCap ≥ ~21M 일 때 발생).

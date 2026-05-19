@@ -20,6 +20,7 @@
     <Compile Include="SessionAuthTests.fs" />
     <Compile Include="AttachmentToolsTests.fs" />
     <Compile Include="FileServingTests.fs" />
+    <Compile Include="LiteralDriftTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
