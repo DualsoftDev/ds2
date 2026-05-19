@@ -4,121 +4,13 @@ open System
 open Ds2.Core
 open Ds2.Core.Store
 
-type ConditionEntry = {
-    RxWorkGuid: Guid
-    ApiCallGuid: Guid option
-    InputSpec: ValueSpec
-}
-
-/// CallCondition 트리 구조 보존 — isOR 플래그를 evaluate 단계까지 전달.
-/// And/Or 중첩으로 사용자 모델의 `A | (B|C)` 같은 표현 정확히 평가.
-/// 빈 And 는 true (= 조건 없음 통과), 빈 Or 는 false.
-type ConditionExpression =
-    | Leaf of ConditionEntry
-    | And of ConditionExpression list
-    | Or of ConditionExpression list
-
-type SimIndex = {
-    Store: DsStore
-    AllWorkGuids: Guid list
-    AllCallGuids: Guid list
-    AllFlowGuids: Guid list
-    WorkCanonicalGuids: Map<Guid, Guid>
-    WorkCallGuids: Map<Guid, Guid list>
-    mutable WorkStartPreds: Map<Guid, Guid list>
-    mutable WorkPureStartPreds: Map<Guid, Guid list>
-    mutable WorkResetPreds: Map<Guid, Guid list>
-    mutable WorkDuration: Map<Guid, float>
-    WorkSystemName: Map<Guid, string>
-    WorkName: Map<Guid, string>
-    WorkFlowGuid: Map<Guid, Guid>
-    mutable CallStartPreds: Map<Guid, Guid list>
-    CallWorkGuid: Map<Guid, Guid>
-    CallApiCallGuids: Map<Guid, Guid list>
-    CallAutoAuxConditions: Map<Guid, ConditionExpression>
-    CallComAuxConditions: Map<Guid, ConditionExpression>
-    CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
-    WorkReferenceGroups: Map<Guid, Guid list>
-    WorkGroupSets: Map<Guid, Set<Guid>>
-    CallCanonicalGuids: Map<Guid, Guid>
-    CallReferenceGroups: Map<Guid, Guid list>
-    ActiveSystemNames: Set<string>
-    TickMs: int
-    WorkTokenRole: Map<Guid, TokenRole>
-    mutable WorkTokenSuccessors: Map<Guid, Guid list>
-    TokenSourceGuids: Guid list
-    TokenSinkGuids: Set<Guid>
-    mutable TokenPathGuids: Set<Guid>
-    CallRaceExclusions: Map<Guid, Set<Guid>>
-    CallTypeMap: Map<Guid, CallType>
-    CallTimeoutMap: Map<Guid, TimeSpan>
-}
-
-module SimIndex =
+module internal SimIndexBuild =
 
     let private log = log4net.LogManager.GetLogger("SimIndex")
 
-    type private BuildState = {
-        mutable AllWorkGuids: Guid list
-        mutable AllCallGuids: Guid list
-        mutable AllFlowGuids: Guid list
-        mutable WorkCallGuids: Map<Guid, Guid list>
-        mutable WorkStartPreds: Map<Guid, Guid list>
-        mutable WorkPureStartPreds: Map<Guid, Guid list>
-        mutable WorkResetPreds: Map<Guid, Guid list>
-        mutable WorkDuration: Map<Guid, float>
-        mutable WorkSystemName: Map<Guid, string>
-        mutable WorkName: Map<Guid, string>
-        mutable WorkFlowGuid: Map<Guid, Guid>
-        mutable CallStartPreds: Map<Guid, Guid list>
-        mutable CallWorkGuid: Map<Guid, Guid>
-        mutable CallApiCallGuids: Map<Guid, Guid list>
-        mutable CallAutoAuxConditions: Map<Guid, ConditionExpression>
-        mutable CallComAuxConditions: Map<Guid, ConditionExpression>
-        mutable CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
-        mutable CallTypeMap: Map<Guid, CallType>
-        mutable CallTimeoutMap: Map<Guid, TimeSpan>
-    }
-
-    let findOrEmpty key map =
-        map |> Map.tryFind key |> Option.defaultValue []
-
-    let canonicalWorkGuid (index: SimIndex) (workGuid: Guid) =
-        index.WorkCanonicalGuids
-        |> Map.tryFind workGuid
-        |> Option.defaultValue workGuid
-
-    let referenceGroupOf (index: SimIndex) (workGuid: Guid) =
-        let canonical = canonicalWorkGuid index workGuid
-        index.WorkReferenceGroups
-        |> Map.tryFind canonical
-        |> Option.defaultValue [ canonical ]
-
-    let workGroupOf (index: SimIndex) (workGuid: Guid) =
-        index.WorkGroupSets |> Map.tryFind workGuid |> Option.defaultValue Set.empty
-
-    let canonicalCallGuid (index: SimIndex) (callGuid: Guid) =
-        index.CallCanonicalGuids
-        |> Map.tryFind callGuid
-        |> Option.defaultValue callGuid
-
-    let callReferenceGroupOf (index: SimIndex) (callGuid: Guid) =
-        let canonical = canonicalCallGuid index callGuid
-        index.CallReferenceGroups
-        |> Map.tryFind canonical
-        |> Option.defaultValue [ canonical ]
-
-    let isTokenSource (index: SimIndex) (workGuid: Guid) =
-        let canonical = canonicalWorkGuid index workGuid
-        index.TokenSourceGuids |> List.contains canonical
+    let private findOrEmpty = SimIndexAlgorithms.findOrEmpty
 
     let private resolveApiDefGuids = SimIndexAlgorithms.resolveApiDefGuids
-
-    let txWorkGuids (index: SimIndex) (callGuid: Guid) =
-        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.TxGuid)
-
-    let rxWorkGuids (index: SimIndex) (callGuid: Guid) =
-        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.RxGuid)
 
     let private toEntry (data: SimIndexAlgorithms.ConditionEntryData) : ConditionEntry = {
         RxWorkGuid = data.RxWorkGuid
@@ -161,7 +53,7 @@ module SimIndex =
         let mutable tokenSuccMap = Map.empty<Guid, Guid list>
         let mutable workGroupSets = Map.empty<Guid, Set<Guid>>
 
-        let state = {
+        let state : SimIndexBuildState = {
             AllWorkGuids = []
             AllCallGuids = []
             AllFlowGuids = []
@@ -399,114 +291,3 @@ module SimIndex =
             CallTypeMap = state.CallTypeMap
             CallTimeoutMap = state.CallTimeoutMap
         }
-
-    type ConnectionSnapshot = {
-        WorkStartPreds: Map<Guid, Guid list>
-        WorkPureStartPreds: Map<Guid, Guid list>
-        WorkResetPreds: Map<Guid, Guid list>
-        CallStartPreds: Map<Guid, Guid list>
-        WorkTokenSuccessors: Map<Guid, Guid list>
-        TokenPathGuids: Set<Guid>
-    }
-
-    let snapshotConnections (index: SimIndex) = {
-        WorkStartPreds = index.WorkStartPreds
-        WorkPureStartPreds = index.WorkPureStartPreds
-        WorkResetPreds = index.WorkResetPreds
-        CallStartPreds = index.CallStartPreds
-        WorkTokenSuccessors = index.WorkTokenSuccessors
-        TokenPathGuids = index.TokenPathGuids
-    }
-
-    let reloadConnections (index: SimIndex) =
-        let previous = snapshotConnections index
-        let rebuilt = build index.Store index.TickMs
-        index.WorkStartPreds <- rebuilt.WorkStartPreds
-        index.WorkPureStartPreds <- rebuilt.WorkPureStartPreds
-        index.WorkResetPreds <- rebuilt.WorkResetPreds
-        index.CallStartPreds <- rebuilt.CallStartPreds
-        index.WorkTokenSuccessors <- rebuilt.WorkTokenSuccessors
-        index.TokenPathGuids <- rebuilt.TokenPathGuids
-        previous, snapshotConnections index
-
-    let reloadDurations (index: SimIndex) (skipGuids: Set<Guid>) =
-        index.WorkDuration <-
-            SimIndexAlgorithms.reloadDurations
-                index.Store
-                index.WorkCallGuids
-                index.AllWorkGuids
-                index.WorkDuration
-                skipGuids
-
-    let private activeWorkDeviceCalls (index: SimIndex) =
-        let allWorkGuids = index.AllWorkGuids |> Set.ofList
-        let resolveDeviceSystemId (call: Call) =
-            call.ApiCalls
-            |> Seq.tryHead
-            |> Option.bind (fun apiCall -> apiCall.ApiDefId)
-            |> Option.bind (fun defId -> Queries.getApiDef defId index.Store)
-            |> Option.map (fun apiDef -> apiDef.ParentId)
-        let toDeviceCall (call: Call) : SimIndexAutoHoming.DeviceCall = {
-            CallGuid = call.Id
-            DeviceSystemId = resolveDeviceSystemId call
-            RxWorkGuids =
-                call.ApiCalls
-                |> Seq.map (fun apiCall -> apiCall.Id)
-                |> Seq.toList
-                |> fun apiCallGuids -> resolveApiDefGuids index.Store apiCallGuids (fun d -> d.RxGuid)
-                |> List.filter allWorkGuids.Contains
-        }
-        Queries.allProjects index.Store
-        |> List.collect (fun project -> Queries.activeSystemsOf project.Id index.Store)
-        |> List.collect (fun system -> Queries.flowsOf system.Id index.Store)
-        |> List.collect (fun flow -> Queries.worksOf flow.Id index.Store)
-        |> List.map (fun activeWork -> Queries.callsOf activeWork.Id index.Store |> List.map toDeviceCall)
-
-    let computeAutoHomingTargets (index: SimIndex) : Set<Guid> =
-        SimIndexAutoHoming.computeAutoHomingTargets index.CallStartPreds (activeWorkDeviceCalls index)
-
-    let computeAutoHomingPlan (index: SimIndex) : Set<Guid> * Set<Guid> =
-        SimIndexAutoHoming.computeAutoHomingPlan index.CallStartPreds (activeWorkDeviceCalls index)
-
-    let computeAutoHomingCallPlan (index: SimIndex) : Set<Guid> * Set<Guid> =
-        SimIndexAutoHoming.computeAutoHomingCallPlan index.CallStartPreds (activeWorkDeviceCalls index)
-
-    let findHomingEntryPoints (index: SimIndex) (readyTargets: Set<Guid>) : Guid list * string list =
-        SimIndexAutoHoming.findHomingEntryPoints
-            (fun workGuid -> index.WorkName |> Map.tryFind workGuid |> Option.defaultValue (string workGuid))
-            index.WorkResetPreds
-            index.WorkStartPreds
-            (fun workGuid ->
-                index.Store.ApiDefs.Values
-                |> Seq.exists (fun apiDef -> apiDef.TxGuid = Some workGuid || apiDef.RxGuid = Some workGuid))
-            readyTargets
-
-    let findInitialFlagRxWorkGuids (index: SimIndex) : Set<Guid> =
-        let isFinishedWorks =
-            index.AllWorkGuids
-            |> List.filter (fun workGuid ->
-                Queries.getWork workGuid index.Store
-                |> Option.bind (fun work -> work.GetSimulationProperties())
-                |> Option.map (fun simProps -> simProps.IsFinished)
-                |> Option.defaultValue false)
-        if not isFinishedWorks.IsEmpty then
-            isFinishedWorks |> Set.ofList
-        else
-            let autoTargets = computeAutoHomingTargets index
-            if not autoTargets.IsEmpty then
-                autoTargets
-            else
-                let isRetDirection callGuid =
-                    rxWorkGuids index callGuid
-                    |> List.exists (fun rxGuid ->
-                        Queries.getWork rxGuid index.Store
-                        |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
-                        |> Option.defaultValue false)
-                index.AllCallGuids
-                |> List.filter isRetDirection
-                |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
-                |> Set.ofSeq
-
-    let hasAnyTokenRole (index: SimIndex) : bool =
-        index.WorkTokenRole
-        |> Map.exists (fun _ role -> role.HasFlag(TokenRole.Source) || role.HasFlag(TokenRole.Ignore))
