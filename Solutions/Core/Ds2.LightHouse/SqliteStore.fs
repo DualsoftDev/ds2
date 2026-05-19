@@ -3,6 +3,7 @@ namespace Ds2.LightHouse
 open System
 open System.Globalization
 open System.IO
+open System.Runtime.InteropServices
 open System.Threading
 open Microsoft.Data.Sqlite
 
@@ -17,18 +18,21 @@ module IndexerVersion =
     // 로 본 literal 을 추출 + service config 의 indexerVersionRange 정합 검증.
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
+    // s6-r34 P4-A: 1.3.0 → 2.0.0 — **major bump (Phase 4 Chunks_Vectors virtual table 신설)**.
+    //   sqlite-vec extension 의존 추가 + vector embedding 색인 path 도입. SQL 비호환 (구 lib 가 신 index.db 열기 시
+    //   ChunksFts trigger 와 schema_version mismatch → needsRebuild trigger).
+    //   `Apps/Promaker/scripts/check-paired-release.ps1` + service `config.json.template` 의 indexerVersionRange
+    //   동시 갱신 의무 (max = "2.99.99" 박제, legacy 1.x.x backward-compat 도 유지).
     // s6-r22 mn3: 1.2.0 → 1.3.0 — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' schema 정합.
-    //   shadow rebuild trigger (기존 collection 의 MimeType NULL row → 재색인 시 NOT NULL DEFAULT 적용).
-    //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange = [1.0.0, 1.99.99]
-    //   안 검증 → 1.3.0 ∈ in range OK.
+    //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange 안 검증.
     [<Literal>]
-    let Current = "1.3.0"
+    let Current = "2.0.0"
 
+    // s6-r34 P4-A: SchemaVersion 3 → 4 — Chunks_Vectors virtual table (sqlite-vec vec0) 신설.
+    //   needsRebuild trigger — 기존 collection (SchemaVersion 3) 가 신 lib 로 열릴 때 shadow rebuild 강제.
     // s6-r22 mn3: SchemaVersion 2 → 3 — ImageCache.MimeType column constraint 변경 (NULL → NOT NULL DEFAULT).
-    //   기존 DB 의 IF NOT EXISTS skip 으로 옛 schema 보존되더라도 SchemaVersion bump 가 shadow rebuild 강제
-    //   (s6-r26 — needsRebuild SSOT 정합). IndexerVersion 동반 bump 는 paired-release 호환 / Meta stamp 용.
     [<Literal>]
-    let SchemaVersion = "3"
+    let SchemaVersion = "4"
 
     [<Literal>]
     let Tokenizer = "trigram"
@@ -203,6 +207,20 @@ CREATE TABLE IF NOT EXISTS ImageReferences (
 CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
 """
 
+    /// **Phase 4 (s6-r34) — sqlite-vec virtual table SSOT** (parent §3.7 / §3.15.2).
+    ///
+    /// vec0 virtual table 은 LoadExtension("vec0") 후에만 CREATE 가능 — schemaSql 와 분리.
+    /// `Chunks_Vectors.ChunkId` 가 PRIMARY KEY (rowid 역할) + Chunks.Id 와 1:1 매핑 SSOT.
+    /// embedding dim = caller 의 `IEmbeddingProvider.Dimension` 정합 의무 — 본 lib default = 1024
+    /// (bge-m3 / multilingual-e5-large / jina-v3 모두 1024). dim 변경 시 SchemaVersion bump 동반 의무.
+    [<Literal>]
+    let private vec0SchemaSql =
+        "CREATE VIRTUAL TABLE IF NOT EXISTS Chunks_Vectors USING vec0(ChunkId INTEGER PRIMARY KEY, embedding float[1024])"
+
+    /// Chunks_Vectors 의 embedding dim — 본 lib default 박제. caller 의 IEmbeddingProvider.Dimension 정합 의무.
+    [<Literal>]
+    let EmbeddingDimension = 1024
+
     /// PRAGMA SSOT (§3.17). DB open 직후 1회 실행. read-only mode 도 동일 set (writeMode 와 무관).
     let private applyPragmas (conn: SqliteConnection) =
         use cmd = conn.CreateCommand()
@@ -214,11 +232,43 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         """
         cmd.ExecuteNonQuery() |> ignore
 
+    /// **Phase 4 (s6-r34) — sqlite-vec extension 절대 path 산출** (SQLite OS LoadLibrary API 의 path 자동 search 부재 회피).
+    ///
+    /// SQLite 의 `LoadExtension` 은 OS native API (LoadLibrary on Windows / dlopen on Linux/macOS) 직접 호출 —
+    /// `.NET runtime asset` (`runtimes/<rid>/native/`) 의 자동 search path 무관. 절대 path 명시 의무 (Microsoft 공식
+    /// doc 박제: "SQLite can't leverage .NET's logic for locating native libraries; it calls the platform API directly").
+    let private resolveVec0Path () : string =
+        let rid =
+            if RuntimeInformation.IsOSPlatform OSPlatform.Windows then "win-x64"
+            elif RuntimeInformation.IsOSPlatform OSPlatform.Linux then "linux-x64"
+            elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then "osx-x64"
+            else
+                raise (PlatformNotSupportedException(
+                    sprintf "sqlite-vec 미지원 platform — OSDescription=%s" RuntimeInformation.OSDescription))
+        let fileName =
+            if RuntimeInformation.IsOSPlatform OSPlatform.Windows then "vec0.dll"
+            elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then "vec0.dylib"
+            else "vec0.so"
+        Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", fileName)
+
+    /// **Phase 4 (s6-r34)** — sqlite-vec extension load. open 직후 1회 호출 + ATTACH 별도 connection 도 호출.
+    ///
+    /// `vec0.dll` (Windows) / `libvec0.so` (Linux) / `libvec0.dylib` (macOS) 가 caller 의 publish output 의
+    /// `runtimes/<rid>/native/` 에 있어야 함 (sqlite-vec NuGet 0.1.7-alpha.2.1 박제 의무, s6-r33 검증).
+    ///
+    /// Microsoft.Data.Sqlite 의 `LoadExtension` 은 SqliteConnection 의 method — `EnableExtensions(true)` 자동 호출.
+    /// extension load 실패 시 SqliteException throw — caller (Indexer / Searcher) 가 명확 fail-fast.
+    let loadVec0Extension (conn: SqliteConnection) : unit =
+        conn.LoadExtension(resolveVec0Path())
+
     /// SQLite connection 단일 진입점 (§3.17 SSOT). 다른 곳에서 직접 `new SqliteConnection` 금지.
     ///
     /// `readOnly = true` 시 `Mode=ReadOnly` (§3.9 r4 read-only collection). 부모 디렉토리 미존재 시:
     ///   - read-write: 폴더 자동 생성 (Indexer 가 .lighthouse-kb/ 최초 생성)
     ///   - read-only: open 실패 그대로 throw (caller fail-fast)
+    ///
+    /// **Phase 4 (s6-r34)**: open 후 sqlite-vec extension (vec0) load — read/write 양쪽. Chunks_Vectors
+    /// virtual table 접근 (read 측 hybrid retrieval / write 측 색인 INSERT) 의무.
     let openConnection (path: string) (readOnly: bool) : SqliteConnection =
         if not readOnly then
             let dir = Path.GetDirectoryName path
@@ -232,6 +282,7 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         let conn = new SqliteConnection(csb.ToString())
         conn.Open()
         applyPragmas conn
+        loadVec0Extension conn  // Phase 4 — vec0 extension active 의무 (Chunks_Vectors 접근)
         conn
 
     /// SQLite 의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 — `PRAGMA table_info` 로 idempotent 분기.
@@ -258,6 +309,7 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
 
     /// schema (§3.12) 초기화 — idempotent. 신규 DB / 기존 DB 모두 안전.
     /// Phase 2 (s6-r8) — `Chunks.ImageCount` ALTER 도 동반 (backward-compat, DEFAULT 0).
+    /// Phase 4 (s6-r34) — `Chunks_Vectors` vec0 virtual table 신설 (caller 가 LoadExtension("vec0") 후 호출 — openConnection 보장).
     /// Meta key (`schema_version`/`indexer_version`/`tokenizer`/`created_at`) 도 동시 기록.
     let ensureSchema (conn: SqliteConnection) =
         use cmd = conn.CreateCommand()
@@ -266,6 +318,10 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         // Phase 2 ALTER (SQLite IF NOT EXISTS 미지원) — Phase 1 색인 DB 에서도 안전 forward-compat.
         ensureColumn conn "Chunks" "ImageCount"
             "ALTER TABLE Chunks ADD COLUMN ImageCount INTEGER NOT NULL DEFAULT 0"
+        // Phase 4 — vec0 virtual table (sqlite-vec extension 의존, openConnection 의 loadVec0Extension 박제 정합).
+        use vecCmd = conn.CreateCommand()
+        vecCmd.CommandText <- vec0SchemaSql
+        vecCmd.ExecuteNonQuery() |> ignore
 
     /// Meta key-value get. 미존재 시 None.
     let getMeta (conn: SqliteConnection) (key: string) : string option =
@@ -519,3 +575,54 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         """
         cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
         cmd.ExecuteNonQuery() |> ignore
+
+    /// **Phase 4 (s6-r34)** — Document 의 모든 Chunks Id (ORDER BY Id ASC, sequential INSERT 정합).
+    /// embedder dispatch 시 chunks 배열과 같은 순서로 매핑하기 위한 helper. chunks 빈 document 도 빈 array OK.
+    let listChunkIdsByDocument
+        (conn: SqliteConnection)
+        (documentId: int64)
+        : int64[] =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT Id FROM Chunks WHERE DocumentId = $doc ORDER BY Id ASC"
+        cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
+        use reader = cmd.ExecuteReader()
+        let result = ResizeArray<int64>()
+        while reader.Read() do
+            result.Add (reader.GetInt64 0)
+        result.ToArray()
+
+    /// **Phase 4 (s6-r34)** — Chunks_Vectors 의 chunk embedding upsert.
+    ///
+    /// sqlite-vec 0.1.x 표준 wire = JSON 배열 string (`"[1.0, 2.0, ...]"`). vec0 가 parse 후 float[N] storage.
+    /// **vec0 virtual table 은 ON CONFLICT UPSERT 미지원** → DELETE + INSERT 패턴 (동일 ChunkId 재색인 시 idempotent).
+    ///
+    /// 의무: embedding.Length == SqliteStore.EmbeddingDimension (caller 의 IEmbeddingProvider.Dimension 정합).
+    /// length mismatch 시 sqlite-vec 가 SqliteException throw — caller fail-fast.
+    let upsertChunkEmbedding
+        (conn: SqliteConnection)
+        (chunkId: int64)
+        (embedding: float32[])
+        : unit =
+        // F# 배열 → JSON 배열 string. System.Text.Json 사용 (Newtonsoft 의존 회피, lib 외부 의존 0 정합).
+        let json = System.Text.Json.JsonSerializer.Serialize(embedding)
+        // DELETE + INSERT — vec0 의 UPSERT 미지원 우회. 동일 ChunkId 재색인 시 idempotent.
+        use del = conn.CreateCommand()
+        del.CommandText <- "DELETE FROM Chunks_Vectors WHERE ChunkId = $cid"
+        del.Parameters.AddWithValue("$cid", chunkId) |> ignore
+        del.ExecuteNonQuery() |> ignore
+        use ins = conn.CreateCommand()
+        ins.CommandText <- "INSERT INTO Chunks_Vectors(ChunkId, embedding) VALUES($cid, $emb)"
+        ins.Parameters.AddWithValue("$cid", chunkId) |> ignore
+        ins.Parameters.AddWithValue("$emb", json) |> ignore
+        ins.ExecuteNonQuery() |> ignore
+
+    /// **Phase 4 (s6-r34)** — N chunks 의 embedding batch upsert. 외부 transaction 안에서 호출 가능.
+    /// caller (Indexer) 가 `lookupChunkIdsByDocument` 로 ChunkId 받은 후 매핑하여 호출.
+    let upsertChunkEmbeddingsBatch
+        (conn: SqliteConnection)
+        (chunkIdToEmbedding: (int64 * float32[]) array)
+        (ct: CancellationToken)
+        : unit =
+        for (cid, emb) in chunkIdToEmbedding do
+            ct.ThrowIfCancellationRequested()
+            upsertChunkEmbedding conn cid emb

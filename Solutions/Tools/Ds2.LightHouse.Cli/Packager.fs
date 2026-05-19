@@ -87,7 +87,8 @@ module Packager =
         let progressCb (_: IngestProgress) = ()
         // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
         let captionGen = Vlm.buildCaptionGen ct
-        let results = Indexer.ingest stagingDir extractors captionGen progressCb ct
+        // Phase 4 (s6-r34): embedderOpt = None — Packager 는 P4-B 진입 시 caller (lighthouse-cli) 로부터 Ollama adapter 주입.
+        let results = Indexer.ingest stagingDir extractors captionGen None progressCb ct
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         ingested
 

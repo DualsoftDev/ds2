@@ -90,7 +90,8 @@ let private runIndex (folder: string) : int =
         printfn "색인 시작 — %s" folder
         // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
         let captionGen = Vlm.buildCaptionGen CancellationToken.None
-        let results = Indexer.ingest folder extractors captionGen progressCb CancellationToken.None
+        // Phase 4 (s6-r34): embedderOpt = None — CLI 본격 embedding 통합은 P4-B 의 --no-embedding flag + Ollama adapter 진입 시.
+        let results = Indexer.ingest folder extractors captionGen None progressCb CancellationToken.None
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
         let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length

@@ -156,7 +156,7 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
         task {
             use client = fixture.CreateAuthClient()
             let title = "ver-low-" + Guid.NewGuid().ToString("N").Substring(0, 8)
-            // fixture cfg.IndexerVersionRange = [1.0.0, 1.99.99] → "0.5.0" 은 hostMin 미만
+            // fixture cfg.IndexerVersionRange = [1.0.0, 2.99.99] (s6-r34 P4-A major bump) → "0.5.0" 은 hostMin 미만
             let zipBytes = ZipBuilders.buildZipWithIndexerVersion title userIdentity "0.5.0"
             let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
             Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
@@ -177,7 +177,7 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
         task {
             use client = fixture.CreateAuthClient()
             let title = "ver-high-" + Guid.NewGuid().ToString("N").Substring(0, 8)
-            // fixture cfg.IndexerVersionRange.Max = "1.99.99" → "9.99.99" 는 초과
+            // fixture cfg.IndexerVersionRange.Max = "2.99.99" → "9.99.99" 는 초과
             let zipBytes = ZipBuilders.buildZipWithIndexerVersion title userIdentity "9.99.99"
             let! resp = postCollectionsMultipart client (Some title) (Some zipBytes)
             Assert.Equal(HttpStatusCode.UnsupportedMediaType, resp.StatusCode)
@@ -189,7 +189,7 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             Assert.Equal("9.99.99", clientVer)
             // 자가 검열 M1: F8 의 hostingRange.min 박제 대칭 — hostingRange.max 박제 추가
             let hostingRange = doc.RootElement.GetProperty("hostingRange")
-            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            Assert.Equal("2.99.99", hostingRange.GetProperty("max").GetString())
             // P5 (s6-r6): suggestedAction 의미론 정정 — service 업그레이드 OR client lib 다운그레이드 양 옵션 박제.
             let suggestedAction = doc.RootElement.GetProperty("suggestedAction").GetString()
             Assert.Contains("service 업그레이드", suggestedAction)
@@ -228,7 +228,7 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             Assert.Equal("0.5.0", doc.RootElement.GetProperty("clientVersion").GetString())
             let hostingRange = doc.RootElement.GetProperty("hostingRange")
             Assert.Equal("1.0.0", hostingRange.GetProperty("min").GetString())
-            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            Assert.Equal("2.99.99", hostingRange.GetProperty("max").GetString())
             Assert.Contains("업그레이드", doc.RootElement.GetProperty("suggestedAction").GetString())
             let! _ = client.DeleteAsync(sprintf "/collections/%s" id)
             ()
@@ -248,7 +248,7 @@ type NegativeRoundTripTests(fixture: ServiceFixture) =
             Assert.Contains("too high", doc.RootElement.GetProperty("error").GetString())
             Assert.Equal("9.99.99", doc.RootElement.GetProperty("clientVersion").GetString())
             let hostingRange = doc.RootElement.GetProperty("hostingRange")
-            Assert.Equal("1.99.99", hostingRange.GetProperty("max").GetString())
+            Assert.Equal("2.99.99", hostingRange.GetProperty("max").GetString())
             let suggestedAction = doc.RootElement.GetProperty("suggestedAction").GetString()
             Assert.Contains("service 업그레이드", suggestedAction)
             Assert.Contains("다운그레이드", suggestedAction)

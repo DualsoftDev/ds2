@@ -35,7 +35,7 @@ let private noProgress (_: IngestProgress) = ()
 [<Fact>]
 let ``0-doc collection — 빈 폴더 정상 ingest (index.db 생성 + Documents 0)`` () =
     withTempDir (fun dir ->
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         Assert.Empty(results)
         Assert.True(File.Exists (SqliteStore.dbPath dir)))
 
@@ -44,7 +44,7 @@ let ``기본 흐름 — txt/md 파일 색인`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "첫 문서 본문" |> ignore
         writeFile dir "b.md" "# 헤더\n\n본문" |> ignore
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         Assert.Equal(2, results.Length)
         for (_, r) in results do
             match r with
@@ -55,8 +55,8 @@ let ``기본 흐름 — txt/md 파일 색인`` () =
 let ``FileHash idempotent — 같은 파일 두 번 ingest → Documents 1개`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
-        let results2 = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        let results2 = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         Assert.Single(results2) |> ignore
         match snd results2.[0] with
         | Skipped reason -> Assert.Contains("already ingested", reason)
@@ -66,7 +66,7 @@ let ``FileHash idempotent — 같은 파일 두 번 ingest → Documents 1개`` 
 let ``미지원 ext (.dwg) — Skipped`` () =
     withTempDir (fun dir ->
         let path = writeFile dir "design.dwg" "binary-ish"
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         let pair = results |> Array.find (fun (p, _) -> p = path)
         match snd pair with
         | Skipped reason -> Assert.Contains("unsupported ext", reason)
@@ -76,7 +76,7 @@ let ``미지원 ext (.dwg) — Skipped`` () =
 let ``rejected ext (.env) — Skipped`` () =
     withTempDir (fun dir ->
         let path = writeFile dir "secrets.env" "API_KEY=xxx"
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         let pair = results |> Array.find (fun (p, _) -> p = path)
         match snd pair with
         | Skipped reason -> Assert.Contains("rejected ext", reason)
@@ -87,7 +87,7 @@ let ``0-byte 파일 — extractor 가 빈 결과로 처리 (Ingested with 0 segm
     withTempDir (fun dir ->
         let path = Path.Combine(dir, "empty.txt")
         File.WriteAllBytes(path, [||])
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         Assert.Single(results) |> ignore
         match snd results.[0] with
         | Ingested _ -> ()
@@ -97,7 +97,7 @@ let ``0-byte 파일 — extractor 가 빈 결과로 처리 (Ingested with 0 segm
 let ``IndexerVersion drift → shadow rebuild 발생`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
 
         // drift 유도
         let dbPath = SqliteStore.dbPath dir
@@ -107,7 +107,7 @@ let ``IndexerVersion drift → shadow rebuild 발생`` () =
         )
 
         // 재 ingest → shadow rebuild → indexer_version 이 Current 로 복귀
-        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         use conn = SqliteStore.openConnection dbPath false
         Assert.Equal(Some IndexerVersion.Current, SqliteStore.getMeta conn "indexer_version"))
 
@@ -116,13 +116,13 @@ let ``.lighthouse-kb 폴더 자체는 색인 대상에서 제외`` () =
     withTempDir (fun dir ->
         // 첫 ingest 후 .lighthouse-kb/index.db 가 생성됨
         writeFile dir "a.txt" "본문" |> ignore
-        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
 
         // .lighthouse-kb 안에 가짜 txt 추가 — 재 ingest 시 enumerate 에서 제외 확인
         let kbDir = SqliteStore.kbDir dir
         let bogus = Path.Combine(kbDir, "inside.txt")
         File.WriteAllText(bogus, "should not be ingested", Encoding.UTF8)
-        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         // 새 파일이 .lighthouse-kb 안이라 enumerate 단계에서 제외 — results 에 inside.txt 없음
         let touched = results |> Array.exists (fun (p, _) -> p = bogus)
         Assert.False(touched, "inside .lighthouse-kb/ 파일은 enumerate 에서 제외되어야 함"))
@@ -271,7 +271,7 @@ let ``Indexer.ingest e2e — Phase 1 extractor (Images=[||]) 경로는 ImageCach
     // Phase 1 extractor 의 default Images=[||] 회귀 차단 — 본 turn 이후에도 phase 1 e2e flow 가 이미지 무영향 보장.
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문 텍스트" |> ignore
-        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop noProgress CancellationToken.None
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         use conn = SqliteStore.openConnection (SqliteStore.dbPath dir) false
         use cmd = conn.CreateCommand()
         cmd.CommandText <- "SELECT (SELECT count(*) FROM ImageCache), (SELECT count(*) FROM ImageReferences)"
@@ -477,3 +477,60 @@ let ``ingestImagesIntoStore — 같은 hash 가 두 document 에 dispatch 시 ca
         Indexer.ingestImagesIntoStore conn dir docB Map.empty cap [| img |]
         // captionGen 은 단 1회만 호출 (두 번째 호출은 getCaption Some 분기로 skip).
         Assert.Equal(1, count.Value))
+
+
+// ── Phase 4 (s6-r34) — Indexer embedder dispatch ──
+
+/// fixed-vector mock IEmbeddingProvider — 모든 input 에 같은 vector 반환.
+/// dim = SqliteStore.EmbeddingDimension (1024).
+type private MockEmbedder(callCount: ref<int>) =
+    interface IEmbeddingProvider with
+        member _.Dimension = SqliteStore.EmbeddingDimension
+        member _.GenerateAsync(inputs, _ct) =
+            callCount.Value <- callCount.Value + 1
+            let dim = SqliteStore.EmbeddingDimension
+            let vectors =
+                inputs |> Array.map (fun s ->
+                    // 단순 deterministic 박제 — 문자열 hash 기반 1차 element + 나머지 0.
+                    let h = float32 (s.GetHashCode() % 100) * 0.01f
+                    Array.init dim (fun i -> if i = 0 then h else 0.0f))
+            System.Threading.Tasks.Task.FromResult(vectors)
+
+let private countVectors (dir: string) : int =
+    let conn = SqliteStore.openConnection (SqliteStore.dbPath dir) true
+    try
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT COUNT(*) FROM Chunks_Vectors"
+        Convert.ToInt32 (cmd.ExecuteScalar())
+    finally
+        conn.Close()
+        Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
+        conn.Dispose()
+
+[<Fact>]
+let ``Phase 4 — embedder=None 시 Chunks_Vectors 빈 row (BM25 fallback path)`` () =
+    withTempDir (fun dir ->
+        writeFile dir "a.txt" "hello world. another sentence." |> ignore
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        Assert.Equal(0, countVectors dir))
+
+[<Fact>]
+let ``Phase 4 — embedder=Some 시 모든 chunk 의 embedding INSERT`` () =
+    withTempDir (fun dir ->
+        writeFile dir "a.txt" "hello world. second sentence. third one." |> ignore
+        let cc = ref 0
+        let mock = MockEmbedder(cc) :> IEmbeddingProvider
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop (Some mock) noProgress CancellationToken.None
+        // chunks 수 (chunker 정합) 와 Chunks_Vectors row 수 일치 — 정확 chunks 수 = chunker 박제이라 >= 1 만 검증.
+        let vCount = countVectors dir
+        Assert.True(vCount >= 1, sprintf "Chunks_Vectors row 수=%d (expected >= 1)" vCount)
+        // embedder.GenerateAsync 가 1회 이상 호출 (file 별 1회).
+        Assert.True(cc.Value >= 1, sprintf "embedder call count=%d (expected >= 1)" cc.Value))
+
+[<Fact>]
+let ``Phase 4 — embedder=Some 빈 collection 시 GenerateAsync 호출 0`` () =
+    withTempDir (fun dir ->
+        let cc = ref 0
+        let mock = MockEmbedder(cc) :> IEmbeddingProvider
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop (Some mock) noProgress CancellationToken.None
+        Assert.Equal(0, cc.Value))

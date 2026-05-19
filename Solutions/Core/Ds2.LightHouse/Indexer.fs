@@ -129,11 +129,57 @@ module Indexer =
     ///
     /// `captionGen` (s6-r19 추가, D-2-2 eager 정합) = 색인 시점 VLM caption 채움 함수. 비활성 환경 +
     /// caption 미사용 caller (lib tests / 무인 cli) = `CaptionGenerator.noop` 전달 (Phase 1 회귀 0).
+    /// **Phase 4 (s6-r34)** — chunks insert 후 embedder.IsSome 면 batch embedding 생성 + Chunks_Vectors INSERT.
+    /// chunks=[||] (empty document) 도 빈 array OK — no-op. embedder=None 이면 hybrid retrieval 시 BM25 only fallback.
+    ///
+    /// **failure policy** — embedder.GenerateAsync throw 시 본 호출 reraise (caller `ingestFile` 의 transaction 무관 —
+    /// chunks INSERT 는 이미 commit 된 별 batch). caller 가 색인 abort 또는 backoff retry. 부분 색인 상태 가능
+    /// (chunks 있고 embedding 없음) → 다음 색인 호출 시 idempotent skip (hash) → 본 chunk 의 embedding 미생성
+    /// 잔존. 사용자 `--no-embedding` opt-out 또는 shadow rebuild 로 해소.
+    let private dispatchEmbeddings
+        (conn: SqliteConnection)
+        (embedderOpt: IEmbeddingProvider option)
+        (documentId: int64)
+        (chunks: ExtractedChunk array)
+        (ct: CancellationToken)
+        : unit =
+        match embedderOpt with
+        | None -> ()  // hybrid retrieval 의 BM25 fallback path. Chunks_Vectors empty.
+        | Some _ when chunks.Length = 0 -> ()  // 빈 document — no-op.
+        | Some embedder ->
+            let chunkIds = SqliteStore.listChunkIdsByDocument conn documentId
+            if chunkIds.Length <> chunks.Length then
+                // sequential INSERT 정합 위반 — fail-fast (caller / lib 결함, 사용자 환경 결함 아님).
+                raise (InvalidOperationException(
+                    sprintf "Chunks_Vectors dispatch — chunkIds.Length=%d ≠ chunks.Length=%d (docId=%d)"
+                        chunkIds.Length chunks.Length documentId))
+            let texts = chunks |> Array.map (fun c -> c.Text)
+            // batch embedding 호출 — backend (Ollama 등) 가 N 개 input 한 번에 처리.
+            // Task 동기 wait — caller (ingestFile) 가 sync API 라 정합. CancellationToken 전파.
+            let task = embedder.GenerateAsync(texts, ct)
+            let vectors = task.GetAwaiter().GetResult()
+            if vectors.Length <> chunks.Length then
+                raise (InvalidOperationException(
+                    sprintf "embedder.GenerateAsync 결함 — 반환 vector 수=%d ≠ inputs 수=%d (docId=%d)"
+                        vectors.Length chunks.Length documentId))
+            // dim 검증 — 모든 vector 가 embedder.Dimension 정합 의무.
+            for v in vectors do
+                if v.Length <> embedder.Dimension then
+                    raise (InvalidOperationException(
+                        sprintf "embedder vector dim 결함 — vector.Length=%d ≠ embedder.Dimension=%d (docId=%d)"
+                            v.Length embedder.Dimension documentId))
+            let pairs = Array.zip chunkIds vectors
+            SqliteStore.upsertChunkEmbeddingsBatch conn pairs ct
+            Log.lighthouse.Debug(
+                sprintf "Indexer: embeddings dispatched — docId=%d chunks=%d dim=%d"
+                    documentId chunks.Length embedder.Dimension)
+
     let ingestFile
         (conn: SqliteConnection)
         (collectionRoot: string)
         (extractors: IExtractor list)
         (captionGen: byte[] -> ImageFormat -> CaptionResult)
+        (embedderOpt: IEmbeddingProvider option)
         (path: string)
         (ct: CancellationToken)
         : FileIngestResult =
@@ -172,6 +218,8 @@ module Indexer =
                     let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
                     let chunks = Chunker.chunkify extracted.Segments
                     SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
+                    // Phase 4 (s6-r34) — chunks insert 직후 embedder dispatch (None 이면 no-op).
+                    dispatchEmbeddings conn embedderOpt docId chunks ct
                     // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
                     // Phase 1 extractor 의 images=[||] 는 no-op.
                     // C4 (s6-r15): chunks 인서트 직후 RefLocator → 첫 chunk Id map 빌드 → ChunkId 채움.
@@ -205,6 +253,7 @@ module Indexer =
         (collectionRoot: string)
         (extractors: IExtractor list)
         (captionGen: byte[] -> ImageFormat -> CaptionResult)
+        (embedderOpt: IEmbeddingProvider option)
         (files: string array)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
@@ -215,7 +264,7 @@ module Indexer =
             ct.ThrowIfCancellationRequested()
             let path = files.[i]
             progress { TotalFiles = files.Length; CompletedFiles = i; CurrentFile = Some path }
-            results.Add (path, ingestFile conn collectionRoot extractors captionGen path ct)
+            results.Add (path, ingestFile conn collectionRoot extractors captionGen embedderOpt path ct)
         progress { TotalFiles = files.Length; CompletedFiles = files.Length; CurrentFile = None }
         results.ToArray()
 
@@ -229,6 +278,7 @@ module Indexer =
         (collectionRoot: string)
         (extractors: IExtractor list)
         (captionGen: byte[] -> ImageFormat -> CaptionResult)
+        (embedderOpt: IEmbeddingProvider option)
         (files: string array)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
@@ -243,7 +293,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn collectionRoot extractors captionGen files progress ct
+                ingestFiles conn collectionRoot extractors captionGen embedderOpt files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn
@@ -266,6 +316,7 @@ module Indexer =
         (collectionRoot: string)
         (extractors: IExtractor list)
         (captionGen: byte[] -> ImageFormat -> CaptionResult)
+        (embedderOpt: IEmbeddingProvider option)
         (progress: IngestProgress -> unit)
         (ct: CancellationToken)
         : (string * FileIngestResult) array =
@@ -287,14 +338,14 @@ module Indexer =
                     SqliteConnection.ClearPool probeConn  // swap 직전 dbPath lock 해제 (rebuildShadow 의존)
                     probeConn.Dispose()
             if needsRebuild then
-                rebuildShadow collectionRoot extractors captionGen files progress ct
+                rebuildShadow collectionRoot extractors captionGen embedderOpt files progress ct
             else
                 // 정상 경로도 ClearPool — 호출자가 곧바로 rebuildShadow 단독 호출 시 dbPath lock 보호 (review M2).
                 let conn = SqliteStore.openConnection dbPath false
                 try
                     SqliteStore.ensureSchema conn
                     SqliteStore.stampVersion conn
-                    ingestFiles conn collectionRoot extractors captionGen files progress ct
+                    ingestFiles conn collectionRoot extractors captionGen embedderOpt files progress ct
                 finally
                     conn.Close()
                     SqliteConnection.ClearPool conn
@@ -304,7 +355,7 @@ module Indexer =
             try
                 SqliteStore.ensureSchema conn
                 SqliteStore.stampVersion conn
-                ingestFiles conn collectionRoot extractors captionGen files progress ct
+                ingestFiles conn collectionRoot extractors captionGen embedderOpt files progress ct
             finally
                 conn.Close()
                 SqliteConnection.ClearPool conn
