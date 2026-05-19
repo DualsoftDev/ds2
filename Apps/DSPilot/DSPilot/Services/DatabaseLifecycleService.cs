@@ -87,7 +87,13 @@ public sealed class DatabaseLifecycleService
             // 6. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
             _engineService.TryEnsureInitialized();
 
-            // 7. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
+            // 7. 새 DB 로딩 완료 시점에 OnDataChanged 한 번 더 발화 — step 2 의 Reset 은 DB
+            // 삭제 직전이라 그 시점에 페이지가 reload 해도 빈 결과. BootstrapAsync 가 끝나고
+            // 새 dspFlow / dspCall 이 채워진 지금 발화해야 Heatmap / Dashboard 등이 fresh 데이터로
+            // 자동 재구성된다. (CycleTimeAnalysis 도 OnDataChanged 구독 — 동일 경로)
+            _dspDbService.Reset();
+
+            // 8. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
             try
             {
                 await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");
