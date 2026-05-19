@@ -25,7 +25,8 @@ module IndexerVersion =
     let Current = "1.3.0"
 
     // s6-r22 mn3: SchemaVersion 2 → 3 — ImageCache.MimeType column constraint 변경 (NULL → NOT NULL DEFAULT).
-    //   기존 DB 의 IF NOT EXISTS skip 으로 옛 schema 보존되더라도 IndexerVersion bump 가 shadow rebuild 강제.
+    //   기존 DB 의 IF NOT EXISTS skip 으로 옛 schema 보존되더라도 SchemaVersion bump 가 shadow rebuild 강제
+    //   (s6-r26 — needsRebuild SSOT 정합). IndexerVersion 동반 bump 는 paired-release 호환 / Meta stamp 용.
     [<Literal>]
     let SchemaVersion = "3"
 
@@ -294,11 +295,19 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
             setMeta conn "created_at" (DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture))
         | Some _ -> ()
 
-    /// 코드의 현재 IndexerVersion 과 DB 의 Meta.indexer_version 불일치 여부 (§3.17).
-    /// true 면 호출자 (Indexer) 가 shadow rebuild 트리거.
+    /// 코드의 현재 SchemaVersion 과 DB 의 Meta.schema_version 불일치 여부 (§3.17 s6-r26 정정).
+    ///
+    /// **정책 — major/minor 분리 (s6-r8 m1 박제 해소, s6-r26)**:
+    /// 본 함수는 SchemaVersion drift 만 rebuild 강제. IndexerVersion (1.3.0 → 1.4.0 minor / patch
+    /// bump) 은 `ensureSchema` 의 ALTER forward-compat 으로 흡수 + `stampVersion` 으로 Meta 갱신.
+    /// SchemaVersion bump = SQL 비호환 변경 (column constraint 변경 / FK 추가 / DROP 등) 시점 한정 —
+    /// 기존 collection 재색인 cost 회피. SchemaVersion / IndexerVersion 동시 박제 책임 = lib 개발자
+    /// (s6-r22 mn3 패턴 — IndexerVersion 1.2.0→1.3.0 + SchemaVersion 2→3 동반 bump 정합).
+    ///
+    /// Meta 미존재 (None) = pre-stamp DB 또는 손상 → 안전하게 rebuild.
     let needsRebuild (conn: SqliteConnection) : bool =
-        match getMeta conn "indexer_version" with
-        | Some v -> v <> IndexerVersion.Current
+        match getMeta conn "schema_version" with
+        | Some v -> v <> IndexerVersion.SchemaVersion
         | None -> true
 
     /// shadow rebuild 의 atomic swap — `index.db.new` → `index.db` (§3.17).
