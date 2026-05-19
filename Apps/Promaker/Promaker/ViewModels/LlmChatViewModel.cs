@@ -61,7 +61,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private McpConfigWriter? _mcpConfig;
     /// <summary>
     /// Phase S5c — LightHouse session token. chat panel lifetime 동안 1회 발급, 재사용 (§3.8 L1).
-    /// null = LightHouseService 미설정 또는 발급 실패.
+    /// null = active LightHouse service 미설정 또는 발급 실패 (D-S7-3a path).
     /// </summary>
     private string? _lightHouseSession;
     /// <summary>
@@ -189,7 +189,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         {
             await _mcpHost.StartAsync().ConfigureAwait(true);
 
-            // Phase S5c — LightHouse session 발급 시도 (LightHouseService 설정 + active collection 있을 때만).
+            // Phase S5c → D-S7-3a — LightHouse session 발급 시도 (active service 설정 + active collection 있을 때만).
             // 실패 시 KB 만 비활성, chat 자체는 정상 진행 (사용자에게 chip 안내).
             var lhEntry = await TryCreateLightHouseSessionAsync().ConfigureAwait(true);
 
@@ -217,10 +217,17 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         var client = LightHouseClientHolder.EnsureCreated(_config);
         if (client is null)
         {
-            // LightHouseService 미설정 — 정상 분기 (Knowledge Base 비활성). chip 안내 없음 (정보 과잉 회피).
+            // active LightHouse service 미설정 — 정상 분기 (Knowledge Base 비활성). chip 안내 없음 (정보 과잉 회피).
             return null;
         }
-        var psk = _config.GetLightHousePsk();
+        // D-S7-3a (s6-r29) — active service 의 ServiceId 명시 사용. multi-service path 는 D-S7-3b.
+        var activeService = _config.LightHouseServices.FirstOrDefault(s => s.Active);
+        if (activeService is null)
+        {
+            // Holder 가 client 만들 때는 있었으나 race 로 사라진 경우. 정상 분기.
+            return null;
+        }
+        var psk = _config.GetLightHousePsk(activeService.ServiceId);
         if (string.IsNullOrEmpty(psk))
         {
             // ApiKey 복호화 실패 — singleton 은 살아있어도 PSK 없으면 매 요청 401. KB 비활성.
@@ -249,7 +256,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             }
             if (changed) _config.Save();
 
-            var baseUrl = _config.LightHouseService!.BaseUrl.TrimEnd('/');
+            var baseUrl = activeService.BaseUrl.TrimEnd('/');
             return new McpServerEntry("lighthouse", baseUrl + "/mcp",
                 new Dictionary<string, string>
                 {

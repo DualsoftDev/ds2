@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -142,11 +143,30 @@ public sealed class LlmConfig
     public List<KbCollectionEntry> KbCollections { get; set; } = new();
 
     /// <summary>
-    /// LightHouse Service 엔드포인트 + 인증 정보 (DPAPI 암호화 PSK). null = service 미설정.
-    /// ApplicationSettingsDialog "LightHouse Service" section 에서 사용자가 BaseUrl + PSK 입력 시 즉시 채워짐.
+    /// **D-S7-3a (s6-r29) — legacy singular field (backward-compat load only)**.
+    /// <para/>
+    /// 단수 시절 (s6-r28 이전) 의 disk JSON 호환 — <see cref="MigrateLegacyLightHouseService"/> 가 load 시점에
+    /// 단수를 <see cref="LightHouseServices"/>[0] 로 변환 + null clear. Save 시 null = <c>JsonIgnore(WhenWritingNull)</c>
+    /// 로 disk JSON 에서 자동 누락. 즉 새 caller 는 본 필드를 사용하지 말고 <see cref="LightHouseServices"/> +
+    /// <see cref="EnsureActiveService"/> / <see cref="ClearActiveService"/> 사용.
     /// </summary>
     [JsonPropertyName("lightHouseService")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LightHouseServiceConfig? LightHouseService { get; set; }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29) — multi-service routing SSOT** (todo-lighthouse-kb-server.md §3.16 D-S7-3).
+    /// <para/>
+    /// LightHouse service 의 N개 동시 보유. 각 entry 는 <see cref="LightHouseServiceConfig.ServiceId"/> guid v4 로
+    /// 식별. <see cref="KbCollectionEntry.ServiceId"/> 가 본 list 의 ServiceId 를 참조하여 collection 의 소속 service
+    /// 결정. <c>Active=true</c> 인 service 만 session 발급 대상 (UI 표시는 모두 노출).
+    /// <para/>
+    /// **migration**: 단수 시절 (s6-r28 이전) 의 <see cref="LightHouseService"/> 가 load 시 자동으로 본 list 의 [0]
+    /// 으로 변환 (ServiceId 자동 발급 / DisplayName "기본 서비스" / Active=true). 동시에 기존 PSK ciphertext 는
+    /// per-service entropy 로 재암호화.
+    /// </summary>
+    [JsonPropertyName("lightHouseServices")]
+    public List<LightHouseServiceConfig> LightHouseServices { get; set; } = new();
 
     // ─── I/O ─────────────────────────────────────────────────────────────────
 
@@ -165,10 +185,12 @@ public sealed class LlmConfig
         try
         {
             var json = File.ReadAllText(path, Encoding.UTF8);
-            return JsonSerializer.Deserialize<LlmConfig>(json, new JsonSerializerOptions
+            var cfg = JsonSerializer.Deserialize<LlmConfig>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
             }) ?? new LlmConfig();
+            cfg.MigrateLegacyLightHouseService();
+            return cfg;
         }
         catch (JsonException ex)
         {
@@ -483,45 +505,188 @@ public sealed class LlmConfig
     // ─── LightHouse PSK helpers (DPAPI / CurrentUser) ─────────────────────────────
 
     /// <summary>
-    /// `LightHouseService.ApiKeyEncrypted` 를 DPAPI 로 복호화한 평문 PSK 반환. 미설정 / 복호화 실패 시 null.
-    /// 호출자 (LightHouseClient) 는 매 요청마다 평문 PSK 를 헤더에 박지만, 메모리 잔존 최소화를 위해
-    /// 변수 lifetime 을 짧게 유지할 것 (review S4-r1 IM-5 backlog).
+    /// **D-S7-3a (s6-r29) — per-service DPAPI entropy builder** (결정 #4 정합).
+    /// <para/>
+    /// serviceId 가 비어있으면 legacy entropy (<see cref="LightHousePskEntropy"/>) 반환 — migration 전 단수
+    /// 시절 ciphertext 복호화 호환. 비어있지 않으면 <c>Promaker.LightHouseService.v1.{serviceId}</c> per-service
+    /// entropy 반환 — service A 의 PSK ciphertext 가 service B 의 entropy 로 복호화 안 됨 (defense-in-depth).
+    /// <para/>
+    /// **silent contract 박제 (자가 검열 Minor-1, s6-r29 review)**: <c>BuildLightHousePskEntropy("")</c> ≡
+    /// <see cref="LightHousePskEntropy"/> (byte-equal) 가 migration path 의 legacy ciphertext 복호화 invariant.
+    /// 본 entropy 문자열 (`Promaker.LightHouseService.v1`) 의 v2 bump 시 legacy 호환 깨짐 — 단수 시절 사용자의
+    /// 모든 PSK 가 ProtectedData.Unprotect 에서 throw → catch 분기의 ApiKeyEncrypted="" clear 진입 → 사용자
+    /// 전체 재입력 의무. v 정정 시 반드시 별 turn 의 migration v2 path 신설 의무 (paired-release 검출 outside scope).
     /// </summary>
-    public string? GetLightHousePsk()
+    private static byte[] BuildLightHousePskEntropy(string serviceId)
     {
-        if (LightHouseService is null || string.IsNullOrEmpty(LightHouseService.ApiKeyEncrypted))
-            return null;
+        if (string.IsNullOrEmpty(serviceId)) return LightHousePskEntropy;
+        return Encoding.UTF8.GetBytes($"Promaker.LightHouseService.v1.{serviceId}");
+    }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29)** — 지정 service 의 PSK 평문 복호화. 미설정 / 복호화 실패 시 null.
+    /// 호출자는 평문 PSK 의 메모리 잔존 최소화 위해 변수 lifetime 을 짧게 유지 (review S4-r1 IM-5 backlog).
+    /// </summary>
+    public string? GetLightHousePsk(string serviceId)
+    {
+        if (string.IsNullOrEmpty(serviceId)) return null;
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null || string.IsNullOrEmpty(svc.ApiKeyEncrypted)) return null;
         try
         {
-            var encrypted = Convert.FromBase64String(LightHouseService.ApiKeyEncrypted);
-            var plain = ProtectedData.Unprotect(encrypted, LightHousePskEntropy, DataProtectionScope.CurrentUser);
+            var encrypted = Convert.FromBase64String(svc.ApiKeyEncrypted);
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            var plain = ProtectedData.Unprotect(encrypted, entropy, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(plain);
         }
         catch (Exception ex)
         {
-            Log.Warn($"LlmConfig.GetLightHousePsk 복호화 실패: {ex.Message}");
+            Log.Warn($"LlmConfig.GetLightHousePsk({serviceId}) 복호화 실패: {ex.Message}");
             return null;
         }
     }
 
     /// <summary>
-    /// 평문 PSK 를 DPAPI 로 암호화 후 `LightHouseService.ApiKeyEncrypted` 박제. null / 빈 입력 시 박제 제거.
-    /// LightHouseService 가 null 이면 신규 생성.
+    /// **D-S7-3a (s6-r29) backward-compat overload** — active service 의 PSK 반환. 다음 phase (D-S7-3b/c)
+    /// 에서 caller (Holder / Settings / ChatViewModel) 가 ServiceId 명시 path 로 마이그레이션 완료 시 제거 후보.
     /// </summary>
-    public void SetLightHousePsk(string? psk)
+    public string? GetLightHousePsk()
     {
-        LightHouseService ??= new LightHouseServiceConfig();
+        var svc = LightHouseServices.FirstOrDefault(s => s.Active);
+        return svc is null ? null : GetLightHousePsk(svc.ServiceId);
+    }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29)** — 지정 service 의 ApiKeyEncrypted 갱신. null / 빈 입력 = 박제 제거.
+    /// service entry 가 list 에 없으면 <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public void SetLightHousePsk(string serviceId, string? psk)
+    {
+        if (string.IsNullOrEmpty(serviceId)) throw new ArgumentException("serviceId required", nameof(serviceId));
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId)
+                  ?? throw new InvalidOperationException($"LightHouseServices entry not found: {serviceId}");
         if (string.IsNullOrEmpty(psk))
         {
-            LightHouseService.ApiKeyEncrypted = "";
+            svc.ApiKeyEncrypted = "";
             return;
         }
         var plain = Encoding.UTF8.GetBytes(psk);
-        var encrypted = ProtectedData.Protect(plain, LightHousePskEntropy, DataProtectionScope.CurrentUser);
-        LightHouseService.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        var entropy = BuildLightHousePskEntropy(serviceId);
+        var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
+        svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+    }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29) backward-compat overload** — active service 가 있으면 PSK 갱신, 없으면 신규 service
+    /// (Active=true) 생성. UI / Holder 가 D-S7-3c 진입 시 명시 ServiceId 사용으로 마이그레이션 후 제거 후보.
+    /// </summary>
+    public void SetLightHousePsk(string? psk)
+    {
+        var svc = EnsureActiveService();
+        SetLightHousePsk(svc.ServiceId, psk);
     }
 
     public bool HasLightHousePsk() => !string.IsNullOrEmpty(GetLightHousePsk());
+
+    // ─── D-S7-3a multi-service helpers ───────────────────────────────────────────
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29)** — active service 보장. 없으면 신규 entry 생성 (ServiceId 자동 발급 + DisplayName
+    /// "기본 서비스" + Active=true) 후 추가. caller (Settings dialog) 가 BaseUrl / PSK 입력 직전 호출.
+    /// </summary>
+    public LightHouseServiceConfig EnsureActiveService(string defaultDisplayName = "기본 서비스")
+    {
+        var svc = LightHouseServices.FirstOrDefault(s => s.Active);
+        if (svc is not null) return svc;
+        svc = new LightHouseServiceConfig
+        {
+            ServiceId = Guid.NewGuid().ToString(),
+            DisplayName = defaultDisplayName,
+            Active = true,
+        };
+        LightHouseServices.Add(svc);
+        return svc;
+    }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29)** — active service entry 제거 (BaseUrl 빈 입력 등 "서비스 해제" 시점). 해당 service
+    /// 소속 collection 들의 ServiceId 는 *그대로 보존* — 사용자가 다시 동일 service 등록 시 ServiceId 재매핑
+    /// 의무는 별 turn (D-S7-3c UI) 박제.
+    /// </summary>
+    public void ClearActiveService()
+    {
+        var svc = LightHouseServices.FirstOrDefault(s => s.Active);
+        if (svc is not null) LightHouseServices.Remove(svc);
+    }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29) — backward-compat migration**. load 시점에 호출.
+    /// <para/>
+    /// 단수 시절 disk JSON 에 <c>lightHouseService</c> 가 있고 복수 <c>lightHouseServices</c> 가 비어 있으면,
+    /// 단수 entry 를 복수[0] 으로 자동 변환:
+    /// <list type="bullet">
+    /// <item>ServiceId 자동 발급 (Guid v4) — 결정 #2.</item>
+    /// <item>DisplayName 미지정 시 "기본 서비스" 채움.</item>
+    /// <item>Active=true 강제 — 단수 시절 service 는 default active 가정.</item>
+    /// <item>ApiKeyEncrypted (legacy entropy 로 암호화) 를 복호화 후 per-service entropy 로 재암호화. 복호화 실패
+    /// 시 빈 문자열 clear (사용자 재입력 안내).</item>
+    /// <item>KbCollections 의 ServiceId 가 빈 entry 는 새 ServiceId 로 채움 — 단수 시절 collection 은 모두 본
+    /// service 소속.</item>
+    /// </list>
+    /// 변환 완료 후 <see cref="LightHouseService"/> 는 null clear → 다음 Save 시 <c>JsonIgnore(WhenWritingNull)</c>
+    /// 로 disk JSON 에서 자동 누락.
+    /// <para/>
+    /// **단수 + 복수 동시 박제 시**: 복수 우선, 단수 무시 (warn 로그 + null clear). 결정 #1 (자동 변환 조용히)
+    /// 정합 — 사용자 dialog 진입 0.
+    /// </summary>
+    internal void MigrateLegacyLightHouseService()
+    {
+        if (LightHouseService is null) return;
+        if (LightHouseServices.Count > 0)
+        {
+            Log.Warn("LlmConfig — lightHouseService(단수) + lightHouseServices(복수) 동시 박제. 복수 우선, 단수 무시.");
+            // **자가 검열 Major-1 적용 (s6-r29 review)** — coexist 분기에서 단수의 ApiKeyEncrypted 가 비어있지
+            // 않으면 사용자 PSK 가 silent 폐기됨 → 정보 손실 알림 1줄 추가. disk JSON 백업 후 복원 권고.
+            if (!string.IsNullOrEmpty(LightHouseService.ApiKeyEncrypted))
+            {
+                Log.Warn("LlmConfig — coexist 분기에서 단수 lightHouseService.ApiKeyEncrypted 가 폐기됨. disk JSON 백업 후 복원 권고.");
+            }
+            LightHouseService = null;
+            return;
+        }
+
+        var migrated = LightHouseService;
+        if (string.IsNullOrEmpty(migrated.ServiceId)) migrated.ServiceId = Guid.NewGuid().ToString();
+        if (string.IsNullOrEmpty(migrated.DisplayName)) migrated.DisplayName = "기본 서비스";
+        migrated.Active = true;
+
+        if (!string.IsNullOrEmpty(migrated.ApiKeyEncrypted))
+        {
+            try
+            {
+                var legacyBytes = Convert.FromBase64String(migrated.ApiKeyEncrypted);
+                var plain = ProtectedData.Unprotect(legacyBytes, LightHousePskEntropy, DataProtectionScope.CurrentUser);
+                var newEntropy = BuildLightHousePskEntropy(migrated.ServiceId);
+                var reencrypted = ProtectedData.Protect(plain, newEntropy, DataProtectionScope.CurrentUser);
+                migrated.ApiKeyEncrypted = Convert.ToBase64String(reencrypted);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"LlmConfig migration — legacy PSK 재암호화 실패 ({ex.Message}). 사용자 재입력 필요.");
+                migrated.ApiKeyEncrypted = "";
+            }
+        }
+
+        LightHouseServices.Add(migrated);
+
+        foreach (var c in KbCollections)
+        {
+            if (string.IsNullOrEmpty(c.ServiceId)) c.ServiceId = migrated.ServiceId;
+        }
+
+        LightHouseService = null;
+        Log.Info($"LlmConfig — lightHouseService(단수) → lightHouseServices[0] 자동 변환 (ServiceId={migrated.ServiceId}).");
+    }
 
     // ─── VLM helpers (Phase 2 task D, s6-r20) ───────────────────────────────────
 
@@ -707,22 +872,48 @@ public sealed class KbCollectionEntry
 
     [JsonPropertyName("active")]
     public bool Active { get; set; }
+
+    /// <summary>
+    /// **D-S7-3a (s6-r29)** — 본 collection 의 소속 LightHouse service ID (<see cref="LightHouseServiceConfig.ServiceId"/>).
+    /// migration 시 단수 lightHouseService 시절 collection 은 모두 단수 service 의 새 ServiceId 로 채워짐.
+    /// </summary>
+    [JsonPropertyName("serviceId")]
+    public string ServiceId { get; set; } = "";
 }
 
 /// <summary>
-/// LightHouse Service 연결 정보 (todo-lighthouse-kb-server.md §3.4 / §3.7).
+/// LightHouse Service 연결 정보 (todo-lighthouse-kb-server.md §3.4 / §3.7 / §3.16 D-S7-3).
 ///
 /// BaseUrl = HTTPS-only (plain HTTP 거부, §3.7). 사내 service URL (e.g. https://service.company.local:8443).
 /// ApiKeyEncrypted = DPAPI(CurrentUser) base64 of PSK. 평문 ApiKey 키 사용 금지 (CR4).
-/// LightHouseClient 가 매 요청 시 GetLightHousePsk() 로 복호화 + Authorization: Bearer 동봉.
+/// LightHouseClient 가 매 요청 시 <see cref="LlmConfig.GetLightHousePsk(string)"/> 로 복호화 + Authorization: Bearer 동봉.
+/// <para/>
+/// **D-S7-3a (s6-r29) — multi-service routing 확장**: 단일 LlmConfig 가 여러 LightHouse service 를 동시 보유.
+/// <list type="bullet">
+/// <item><c>ServiceId</c> = client 자체 발급 guid v4 (결정 D-S7-3 #2). per-service DPAPI entropy 격리 키.</item>
+/// <item><c>DisplayName</c> = KbManagerDialog tab / Settings dialog row 의 사용자 표시명.</item>
+/// <item><c>Active</c> = "session 발급 대상" 단일 의미 (결정 D-S7-3 #3). UI 표시는 active 여부와 무관 (inactive 도 표시, dim 처리).</item>
+/// </list>
 /// </summary>
 public sealed class LightHouseServiceConfig
 {
+    /// <summary>**D-S7-3a (s6-r29)** — client 가 발급한 guid v4. per-service DPAPI entropy 키. migration 시 자동 발급.</summary>
+    [JsonPropertyName("serviceId")]
+    public string ServiceId { get; set; } = "";
+
+    /// <summary>**D-S7-3a (s6-r29)** — UI 표시명. migration 시 단수 entry 는 "기본 서비스" 로 채움.</summary>
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = "";
+
     [JsonPropertyName("baseUrl")]
     public string BaseUrl { get; set; } = "";
 
     [JsonPropertyName("apiKeyEncrypted")]
     public string ApiKeyEncrypted { get; set; } = "";
+
+    /// <summary>**D-S7-3a (s6-r29)** — session 발급 대상 여부 (결정 #3). default true (신규 생성 시 즉시 사용 의도).</summary>
+    [JsonPropertyName("active")]
+    public bool Active { get; set; } = true;
 }
 
 /// <summary>

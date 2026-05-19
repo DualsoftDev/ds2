@@ -53,14 +53,20 @@ public static class LightHouseClientHolder
     }
 
     /// <summary>
-    /// LlmConfig 의 LightHouseService 가 설정되어 있으면 client 보장. BaseUrl/PSK 변경 감지 시 재생성.
-    /// 미설정 시 null 반환 (caller 가 "LightHouse 비활성" 분기).
+    /// LlmConfig 의 active LightHouse service (D-S7-3a: <c>LightHouseServices.FirstOrDefault(s => s.Active)</c>)
+    /// 가 설정되어 있으면 client 보장. BaseUrl/PSK 변경 감지 시 재생성. 미설정 시 null 반환.
+    /// <para/>
+    /// **D-S7-3a (s6-r29) 임시 path** — 단일 client 만 유지 (active service 1개 한정 가정). D-S7-3b 에서 multi-instance
+    /// dictionary 로 재설계 예정. active service 가 *여러* 개인 경우 본 path 는 **첫 entry 만** 사용 — 다른 active
+    /// service 는 무시됨 (UI 가 active=true 1개 보장 의무).
     /// </summary>
     public static LightHouseClient? EnsureCreated(LlmConfig config)
     {
         if (config is null) throw new ArgumentNullException(nameof(config));
-        var url = config.LightHouseService?.BaseUrl ?? "";
-        var psk = config.GetLightHousePsk() ?? "";
+        var activeService = config.LightHouseServices.FirstOrDefault(s => s.Active);
+        var url = activeService?.BaseUrl ?? "";
+        var serviceId = activeService?.ServiceId ?? "";
+        var psk = string.IsNullOrEmpty(serviceId) ? "" : (config.GetLightHousePsk(serviceId) ?? "");
         if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(psk)) return null;
 
         var pskHash = ComputeHash(psk);
@@ -74,12 +80,12 @@ public static class LightHouseClientHolder
             {
                 _instance = new LightHouseClient(
                     url,
-                    () => config.GetLightHousePsk(),
+                    () => config.GetLightHousePsk(serviceId),
                     Environment.UserName,
                     () => config.KbCollections.Where(k => k.Active).Select(k => k.CollectionId).ToList());
                 _lastBaseUrl = url;
                 _lastPskHash = pskHash;
-                Log.Info($"LightHouseClientHolder created — {url}");
+                Log.Info($"LightHouseClientHolder created — {url} (serviceId={serviceId})");
                 StartSseLoopLocked(_instance);  // D-S7-2b (s6-r28)
                 return _instance;
             }

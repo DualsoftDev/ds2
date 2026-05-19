@@ -87,7 +87,7 @@ public partial class KbManagerDialog : Window
     }
 
     /// <summary>
-    /// 매 사용 시점 holder.Current 재조회 (review s5c M1). null = LightHouseService 미설정 또는 Invalidate 후.
+    /// 매 사용 시점 holder.Current 재조회 (review s5c M1). null = active LightHouse service 미설정 또는 Invalidate 후 (D-S7-3a).
     /// caller 가 null 분기 (chip 안내) 처리. holder.EnsureCreated 도 안전 — config 변경 시 자동 재생성.
     /// </summary>
     private LightHouseClient? CurrentClient => LightHouseClientHolder.EnsureCreated(_config);

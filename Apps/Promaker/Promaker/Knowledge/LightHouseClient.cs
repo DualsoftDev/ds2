@@ -24,7 +24,7 @@ namespace Promaker.Knowledge;
 /// - session CRUD (`POST /sessions` / `DELETE /sessions/{token}`)
 /// - **401/403 자동 회복 (CR6 L3)** — MCP 호출은 본 client 가 wrap 안 하지만 session 발급 retry hook 제공
 ///
-/// PSK lifetime: 매 요청마다 `LlmConfig.GetLightHousePsk()` 호출 → 평문 byte 변수 lifetime 짧게 유지.
+/// PSK lifetime: 매 요청마다 `LlmConfig.GetLightHousePsk(serviceId)` 호출 → 평문 byte 변수 lifetime 짧게 유지 (D-S7-3a per-service path).
 /// HttpClient 자체는 long-lived (caller 가 DI / single instance) — DNS / connection pool 정합.
 ///
 /// 본 phase (S5a) 의 surface 는 protocol contract 만. UI 통합 (KbManagerDialog) 은 Phase S5b.
@@ -51,7 +51,7 @@ public sealed class LightHouseClient : IDisposable
 
     /// <summary>
     /// production constructor — `HttpClient` 생성 + BaseUrl 박제. caller 가 Dispose.
-    /// `LlmConfig.LightHouseService.BaseUrl` 가 HTTPS 가 아니면 ArgumentException (§3.7 plain HTTP 거부).
+    /// `LightHouseServiceConfig.BaseUrl` 가 HTTPS 가 아니면 ArgumentException (§3.7 plain HTTP 거부).
     /// </summary>
     /// <param name="baseUrl">HTTPS URL (e.g. "https://service.company.local:8443").</param>
     /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생).</param>

@@ -13,11 +13,11 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 
 ## 2. 현재 commit state (본 transfer 박제 시점)
 
-- **본 turn = s6-r26** (commit 대기) — IndexerVersion compare 정책 변경 (s6-r8 m1 박제 해소). `SqliteStore.needsRebuild` 의 비교 기준 `indexer_version` → `schema_version` 변경. 4 파일 변경 (lib 2 + lib.Tests 1 + parent doc 1). lib 152→154 / service 125 / IT 28 / Promaker 225 = **누적 532 Fact**.
-- **직전 = s6-r25 (`c575390`)** — backlog 묶음 17건 + 자가 검열 review Major-1 (VisionCostGate rollover race lock 변경). 10 파일, +130/-39 line. **누적 530 Fact**.
-- **그 직전 = s6-r24 (`d519375`)** — Phase 2 cosmetic + MJ1 multi-instance race + parent §3.15 sweep. 9 파일, +342/-56 line. **누적 529 Fact**.
+- **본 turn = s6-r29** (commit 대기) — Phase S7 D-S7-3a multi-service routing schema 확장 + migration. `LlmConfig.LightHouseServices : List<LightHouseServiceConfig>` 신설 + `LightHouseServiceConfig` 확장 (ServiceId/DisplayName/Active) + `KbCollectionEntry.ServiceId` + `MigrateLegacyLightHouseService` + per-service DPAPI entropy + `Get/SetLightHousePsk(serviceId, ...)` overload + `EnsureActiveService` / `ClearActiveService`. caller 임시 마이그레이션 (Holder / Settings / ChatViewModel). 자가 검열 Major-1 + Minor-1/2/4 즉시 적용. 8 파일 변경, +535/-69 line. Promaker 230→**241** / lib 154 / service 125 / IT 31 = **누적 551 Fact**. 자세한 SSOT = server.md §3.16 / §7.1 row.
+- **직전 = s6-r28 (`0368b4f`)** — Phase S7 D-S7-2b Promaker client SSE subscribe + KbManagerDialog 자동 refresh. 4 파일 변경, +260/-7 line. Promaker 225→230. 누적 **540 Fact**.
+- **그 직전 = s6-r27 (`9e9698e`)** — Phase S7 D-S7-2a server-side `/events` SSE endpoint + EventBus. IT 28→31. 누적 **535 Fact**.
 
-`git log --oneline -20` 으로 s6-r0 ~ s6-r26 전체 commit chain 확인 가능. server.md §7.1 표 가 의미적 SSOT.
+`git log --oneline -20` 으로 s6-r0 ~ s6-r29 전체 commit chain 확인 가능. server.md §7.1 표 가 의미적 SSOT.
 
 ## 3. 새 세션 진입 시 읽기 순서
 
@@ -34,7 +34,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 
 | # | 항목 | 위치 | 진입 마커 |
 |---|---|---|---|
-| A1 | **Phase S7 — mTLS / SSE / multi-service routing** | server.md §7.4 "P4 Phase S7" | D-S7-1~5 사전 박제 완료, 사용자 우선순위 결정 시 본격 진입. Phase 2 와 병렬 진입 가능. |
+| A1 | **Phase S7 — mTLS / SSE / multi-service routing** | server.md §7.4 "P4 Phase S7" | D-S7-1~5 사전 박제 완료. ~~D-S7-2a/b~~ → s6-r27/r28 완료. ~~D-S7-3a~~ → s6-r29 완료 (§3.16). 잔여 = **D-S7-3b** (Holder multi-instance + N session + MCP multi-server) / **D-S7-3c** (UI DataGrid+Tab + KbCollection.ServiceId 재매핑) / **D-S7-1** (mTLS) / **D-S7-2c** (caption-progress + reconnect backoff + magic string SSOT) / **D-S7-4** (T2/T3) / **D-S7-5** (resumable upload). |
 | A2 | **K4 Protocol SSOT 통합** | server.md §7.7 K4 박제 | `Solutions/Core/Ds2.LightHouse.Protocol` 신규 project — wire 상수 + MetaJson schema SSOT 통합. LightHouseClient C# / F# 이중 구현 → 단일 SSOT 의존. Phase S7 묶음. |
 | A3 | **보안 sweep 1턴 (K6 + M9/M10/M11/M12)** | server.md §7.7 K6 + Major outlier | registry.json tampering 검증 + PSK in-memory lifetime + %PROGRAMDATA% ACL + DoS guards (topK upper bound / query length). admin 권한 위협 모델 한정 (defense-in-depth). |
 | A4 | **Phase 2 후속 (Phase 3 OCR / Phase 4 Embedding)** | parent §3.15 / `todo-lighthouse-kb-index.md` Phase 3 / Phase 4 | Phase 2 eager VLM caption 완료 후 OCR (Tesseract.NET + 한글) 또는 embedding (sqlite-vec) 진입. 별 PR. |
@@ -69,7 +69,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **server** = `Solutions/Tools/Ds2.LightHouseService/` (F# Kestrel HTTPS service — Program.fs configureApp export / Storage / Registry / Sessions / ZipImport / FileServing / AttachmentTools (MCP 4 tool))
 - **cli** = `Solutions/Tools/Ds2.LightHouse.Cli/` (F# console — index --upload, LIGHTHOUSE_VLM_API_KEY env var fallback)
 - **Promaker 통합** = `Apps/Promaker/Promaker/` 의 `Knowledge/` 폴더 (LightHouseClient.cs / LightHouseClientHolder.cs / AttachmentIngestService.cs / CollectionPackager.cs), `Dialogs/KbManagerDialog.xaml(.cs)` + `Dialogs/ApplicationSettingsDialog.xaml(.cs)` (LightHouse Service + VLM section), `LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + VisionCostGate + ModifyWithLock)
-- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 154) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 125) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli, 28) / `Solutions/Tests/Promaker.Tests` (Promaker, 225) = **누적 532 Fact**
+- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 154) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 125) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli, 31) / `Solutions/Tests/Promaker.Tests` (Promaker, 241) = **누적 551 Fact**
 - **doc** = `Apps/Promaker/Docs/` (본 transfer + 두 SSOT todo + done-* archive + howto)
 - **scripts** = `Apps/Promaker/scripts/check-paired-release.ps1` (paired-release drift detector)
 
@@ -84,15 +84,17 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 
 ## 7. 본 transfer 박제 시점 git status
 
-(s6-r26 commit 직전 상태 — 본 transfer doc + 정책 변경 4 파일 = 5 파일 unstaged)
+(s6-r29 commit 직전 상태 — Phase S7 D-S7-3a multi-service routing schema 확장 + migration 본 turn 변경 8 파일 + transfer/server doc 갱신 2 파일 = 10 파일 unstaged)
 
 ```
- M Apps/Promaker/Docs/todo-lighthouse-kb-index.md
  M Apps/Promaker/Docs/todo-lighthouse-kb-server.md
- M Solutions/Core/Ds2.LightHouse/Indexer.fs
- M Solutions/Core/Ds2.LightHouse/SqliteStore.fs
- M Solutions/Tests/Ds2.LightHouse.Tests/SqliteStoreTests.fs
-?? Apps/Promaker/Docs/todo-lighthouse-next-session.md
+ M Apps/Promaker/Docs/todo-lighthouse-next-session.md
+ M Apps/Promaker/Promaker/Dialogs/ApplicationSettingsDialog.xaml.cs
+ M Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml.cs
+ M Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs
+ M Apps/Promaker/Promaker/Knowledge/LightHouseClientHolder.cs
+ M Apps/Promaker/Promaker/LlmAgent/LlmConfig.cs
+ M Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.cs
+ M Solutions/Tests/Promaker.Tests/LightHouseClientHolderTests.cs
+ M Solutions/Tests/Promaker.Tests/LlmConfigTests.cs
 ```
-
-본 transfer doc 은 git track 대상 — `--ga` 또는 명시 add 시점에 staged.
