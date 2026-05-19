@@ -57,7 +57,7 @@ let private writeSampleAndIngest (stagingDir: string) (content: string) : int64 
 
     let extractors : IExtractor list = [ new TextExtractor() :> IExtractor ]
     let progressCb (_: IngestProgress) = ()
-    let results = Indexer.ingest stagingDir extractors CaptionGenerator.noop progressCb CancellationToken.None
+    let results = Indexer.ingest stagingDir extractors CaptionGenerator.noop None progressCb CancellationToken.None
     let ingestedCount =
         results
         |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false)

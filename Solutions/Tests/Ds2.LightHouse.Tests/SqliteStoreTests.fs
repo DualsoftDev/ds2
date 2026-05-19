@@ -240,12 +240,13 @@ let private tableExists (conn: SqliteConnection) (table: string) : bool =
     Convert.ToInt32 (cmd.ExecuteScalar()) = 1
 
 [<Fact>]
-let ``Phase 2 schema — IndexerVersion 1.3.0 / SchemaVersion 3 (s6-r22 mn3 ImageCache.MimeType NOT NULL DEFAULT)`` () =
+let ``Phase 4 schema — IndexerVersion 2.0.0 / SchemaVersion 4 (s6-r34 P4-A Chunks_Vectors virtual table)`` () =
     // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
-    // s6-r22 (mn3): 1.2.0 → 1.3.0 minor bump — `ImageCache.MimeType` 컬럼 제약 NULL → NOT NULL DEFAULT 'application/octet-stream'.
-    //   SchemaVersion 도 "2" → "3" 동반 bump (column constraint 형식 변경).
-    Assert.Equal("1.3.0", IndexerVersion.Current)
-    Assert.Equal("3", IndexerVersion.SchemaVersion)
+    // s6-r34 (P4-A): 1.3.0 → 2.0.0 major bump — Chunks_Vectors virtual table (sqlite-vec vec0) 신설.
+    //   SchemaVersion 도 "3" → "4" 동반 bump (SQL 비호환 변경 — sqlite-vec extension 의존).
+    // s6-r22 (mn3) 박제 (이전 모드): 1.2.0 → 1.3.0 minor + SchemaVersion 2 → 3 (ImageCache.MimeType NOT NULL DEFAULT).
+    Assert.Equal("2.0.0", IndexerVersion.Current)
+    Assert.Equal("4", IndexerVersion.SchemaVersion)
 
 [<Fact>]
 let ``Phase 2 schema — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' (s6-r22 mn3)`` () =
@@ -365,5 +366,86 @@ let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 
         // 자가 검열 M1: ensureSchema 만으로는 schema_version stale (Phase 1 = "1" 잔존).
         // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
         SqliteStore.stampVersion upgraded
-        Assert.Equal(Some "3", SqliteStore.getMeta upgraded "schema_version")
-        Assert.Equal(Some "1.3.0", SqliteStore.getMeta upgraded "indexer_version"))
+        Assert.Equal(Some "4", SqliteStore.getMeta upgraded "schema_version")
+        Assert.Equal(Some "2.0.0", SqliteStore.getMeta upgraded "indexer_version"))
+
+
+// ── Phase 4 (s6-r34) — sqlite-vec / Chunks_Vectors schema + upsertChunkEmbedding ──
+
+[<Fact>]
+let ``Phase 4 schema — Chunks_Vectors virtual table 존재 (sqlite-vec vec0)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        Assert.True(tableExists conn "Chunks_Vectors"))
+
+[<Fact>]
+let ``Phase 4 schema — EmbeddingDimension SSOT = 1024 (bge-m3 정합)`` () =
+    Assert.Equal(1024, SqliteStore.EmbeddingDimension)
+
+[<Fact>]
+let ``Phase 4 upsertChunkEmbedding — INSERT 후 SELECT 검증`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let docId =
+            SqliteStore.insertDocument conn "h-emb-1" "/path/a.txt" Text 100L None (Some "A")
+        // chunk INSERT — embedding 의 ChunkId 외래키 의무.
+        let chunks = [|
+            { Text = "hello world"; RefLocator = "p=1"; Ordinal = 1; TokenCount = 2; OutlineIndex = None }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let chunkIds = SqliteStore.listChunkIdsByDocument conn docId
+        Assert.Equal(1, chunkIds.Length)
+        // 1024 dim float32 vector.
+        let vector = Array.init SqliteStore.EmbeddingDimension (fun i -> float32 i * 0.001f)
+        SqliteStore.upsertChunkEmbedding conn chunkIds.[0] vector
+        // SELECT count 검증.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT COUNT(*) FROM Chunks_Vectors WHERE ChunkId = $cid"
+        cmd.Parameters.AddWithValue("$cid", chunkIds.[0]) |> ignore
+        let n = Convert.ToInt32 (cmd.ExecuteScalar())
+        Assert.Equal(1, n))
+
+[<Fact>]
+let ``Phase 4 upsertChunkEmbedding — REPLACE 동일 ChunkId 재호출 시 덮어쓰기 (idempotent)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let docId = SqliteStore.insertDocument conn "h-emb-2" "/path/b.txt" Text 100L None None
+        let chunks = [|
+            { Text = "x"; RefLocator = "p=1"; Ordinal = 1; TokenCount = 1; OutlineIndex = None }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let cid = (SqliteStore.listChunkIdsByDocument conn docId).[0]
+        let v1 = Array.create SqliteStore.EmbeddingDimension 0.1f
+        let v2 = Array.create SqliteStore.EmbeddingDimension 0.9f
+        SqliteStore.upsertChunkEmbedding conn cid v1
+        SqliteStore.upsertChunkEmbedding conn cid v2
+        // row 수 1 만 (REPLACE 의무).
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT COUNT(*) FROM Chunks_Vectors WHERE ChunkId = $cid"
+        cmd.Parameters.AddWithValue("$cid", cid) |> ignore
+        Assert.Equal(1, Convert.ToInt32 (cmd.ExecuteScalar())))
+
+[<Fact>]
+let ``Phase 4 listChunkIdsByDocument — ORDER BY Id ASC sequential 정합`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let docId = SqliteStore.insertDocument conn "h-list-1" "/path/c.txt" Text 100L None None
+        let chunks = [|
+            { Text = "c1"; RefLocator = "p=1"; Ordinal = 1; TokenCount = 1; OutlineIndex = None }
+            { Text = "c2"; RefLocator = "p=1"; Ordinal = 2; TokenCount = 1; OutlineIndex = None }
+            { Text = "c3"; RefLocator = "p=2"; Ordinal = 1; TokenCount = 1; OutlineIndex = None }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        let ids = SqliteStore.listChunkIdsByDocument conn docId
+        Assert.Equal(3, ids.Length)
+        // ASC 정합 — sequential INSERT 보장.
+        Assert.True(ids.[0] < ids.[1])
+        Assert.True(ids.[1] < ids.[2]))
+
+[<Fact>]
+let ``Phase 4 listChunkIdsByDocument — chunks 없는 document 는 빈 array`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let docId = SqliteStore.insertDocument conn "h-empty" "/path/d.txt" Text 0L None None
+        let ids = SqliteStore.listChunkIdsByDocument conn docId
+        Assert.Empty(ids))

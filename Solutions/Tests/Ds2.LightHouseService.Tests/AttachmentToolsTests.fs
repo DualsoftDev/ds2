@@ -30,7 +30,7 @@ let private newCollectionWithText (text: string) : string =
     File.WriteAllText(f, text, Encoding.UTF8)
     let extractors : IExtractor list = [ new TextExtractor() :> IExtractor ]
     let noProgress (_: IngestProgress) = ()
-    Indexer.ingest dir extractors CaptionGenerator.noop noProgress CancellationToken.None |> ignore
+    Indexer.ingest dir extractors CaptionGenerator.noop None noProgress CancellationToken.None |> ignore
     dir
 
 /// 1×1 px PNG deterministic bytes — `Ds2.LightHouseService.Tests.SamplePng.bytes` SSOT (s6-r22 mn7).

@@ -168,7 +168,10 @@ public sealed class AttachmentIngestService
             // s6-r19: captionGen 인자 추가 (D-2-2 eager). s6-r20 (D-iii): noop → BuildCaptionGen 실 치환.
             // VLM 비활성 (provider="none" / API key 미박제) 시 자동 noop fallback — Phase 1 회귀 0.
             var captionGen = BuildCaptionGen(ct);
-            var results = Indexer.ingest(stagingDir, extractors, captionGen, fsProgress, ct);
+            // Phase 4 (s6-r34): embedderOpt = None — Promaker 의 본격 embedding 통합은 P4-B 의 --no-embedding flag
+            // + Settings dialog 의 Ollama URL/모델 입력 + LlmConfig 박제 진입 시.
+            var embedderOpt = Microsoft.FSharp.Core.FSharpOption<IEmbeddingProvider>.None;
+            var results = Indexer.ingest(stagingDir, extractors, captionGen, embedderOpt, fsProgress, ct);
             Log.Info($"AttachmentIngestService: 색인 완료 — files={results.Length} staging={stagingDir}");
         }, ct);
     }

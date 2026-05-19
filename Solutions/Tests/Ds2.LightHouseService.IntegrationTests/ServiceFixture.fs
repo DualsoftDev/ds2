@@ -75,7 +75,7 @@ type ServiceFixture() =
             LogRetentionDays = 30
             LogMaxSizeMB = 100
             AuditRetentionDays = 365
-            IndexerVersionRange = { Min = "1.0.0"; Max = "1.99.99" }
+            IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
         }
 
     interface IAsyncLifetime with
