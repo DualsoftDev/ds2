@@ -151,7 +151,10 @@ module SessionKb =
             // resolve 시점에 storage 외부 변경 (예: 디렉토리 직접 삭제) 으로 unindexable / unknown 새로 발생할 수 있음.
             // 그 경우 본 호출자 (MCP) 는 empty / partial 결과로 동작. CollectionIds 자체는 갱신 안 함
             // (다음 lifecycle 이벤트 OnDeleted 가 와야 SessionState 정합 회복).
-            let kb = Ds2.LightHouse.KnowledgeBase.openCollections resolved.Paths
+            // Phase 4 (s6-r35) — server 측은 embedder 미주입 (BM25-only fallback). embedder 주입 시점은
+            // P4-C/D 박제 (OllamaSharp adapter + server-side config). Chunks_Vectors 색인 자체는 client 측
+            // (Promaker/cli) 가 채우므로 server 의 facade 는 backend-neutral 유지.
+            let kb = Ds2.LightHouse.KnowledgeBase.openCollections resolved.Paths None
             s.Kb <- Some kb
             kb
 

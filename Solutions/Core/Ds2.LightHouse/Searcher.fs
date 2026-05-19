@@ -3,11 +3,14 @@ namespace Ds2.LightHouse
 open System
 open System.IO
 open System.Text
+open System.Threading
 open Microsoft.Data.Sqlite
 
 /// FTS5 trigram 검색 — multi-collection ATTACH UNION (todo-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
 ///
-/// Phase 1 = BM25 lexical-only (FTS5 trigram). Phase 4 = hybrid (BM25 + vector RRF) 로 확장.
+/// Phase 1 = BM25 lexical-only (FTS5 trigram). **Phase 4 (s6-r35) = hybrid (BM25 + vector RRF)** —
+/// `search` 시그니처에 `embedderOpt: IEmbeddingProvider option` 추가. None 시 BM25-only (기존 동작),
+/// Some 시 BM25 + vector KNN (sqlite-vec MATCH) 결과를 RRF (Reciprocal Rank Fusion, k_rrf=60 standard) 로 결합.
 /// 본 모듈은 검색 path 만 — write (ingest / 재색인) 은 `Indexer` 책임 (§3.0 두 경로 분리 SSOT 와 별개로 read/write 분리).
 [<RequireQualifiedAccess>]
 module Searcher =
@@ -15,6 +18,21 @@ module Searcher =
     /// MCP `attachment_search` 의 excerpt 한도 (§3.10 quota 가드). 호출자 (server / Promaker) 가 enforce.
     [<Literal>]
     let DefaultMaxExcerptTokens = 4000
+
+    /// **Phase 4 (s6-r35)** — RRF (Reciprocal Rank Fusion) k 상수. standard 값 = 60 (Cormack et al. 2009).
+    ///
+    /// `RRF_score(d) = sum over systems of 1/(k_rrf + rank_i(d))` — rank 0-based.
+    /// k=60 은 top rank 의 영향력 (1/60 ≈ 0.0167) 과 lower rank tail (1/100 ≈ 0.01) 의 비율을 적당히 유지하여
+    /// 한 system 의 outlier 가 다른 system 결과를 압도하지 않도록 함. 변경 시 hybrid quality 재검증 의무.
+    [<Literal>]
+    let RrfK = 60.0
+
+    /// **Phase 4 (s6-r35)** — hybrid 시 각 system (BM25 / vector) 의 over-fetch 배수.
+    ///
+    /// topK 의 N배 까지 fetch 후 RRF fusion → top-K. N=2 가 RRF literature standard (양쪽 system 의
+    /// 후보 union 이 적절히 큰 pool 형성). topK=10 시 양쪽 각각 20 fetch, fusion 후 10 반환.
+    [<Literal>]
+    let HybridFetchMultiplier = 2
 
     /// FTS5 query 빌드 — 공백/탭으로 토큰화 후 각 토큰을 phrase 로 감쌈 (review M1).
     ///
@@ -45,6 +63,9 @@ module Searcher =
     /// FTS5 의 auxiliary function (`bm25()`) 과 MATCH 는 *unqualified FTS5 table name* 만 받음 — alias / schema-qualified 모두 거부.
     /// (`bm25(kb0.ChunksFts)` / `bm25(ft)` → SQLite Error 1 "no such column".)
     /// FROM 절에서만 schema-qualify 가능. UNION ALL 의 각 SELECT 는 독립 컴파일이라 ambiguous 없음.
+    ///
+    /// **Phase 4 (s6-r35)** — `c.Id AS ChunkId` 추가. hybrid retrieval 의 RRF dedup key (`<kbIdx>:<ChunkId>`)
+    /// 산출 + vector KNN 결과와 같은 row 인지 매칭하기 위함. BM25-only path 도 동일 column (column 위치 1 신설).
     let private buildCollectionSelect (kbIdx: int) (alias: string) (fileIdFilter: (int * int64) option) : string =
         let docFilter =
             match fileIdFilter with
@@ -54,6 +75,7 @@ module Searcher =
         sprintf """
             SELECT
                 %d                                 AS KbIdx,
+                c.Id                               AS ChunkId,
                 c.DocumentId                       AS DocumentId,
                 c.RefLocator                       AS RefLocator,
                 c.TokenCount                       AS TokenCount,
@@ -68,6 +90,46 @@ module Searcher =
             LEFT JOIN %s.OutlineNodes AS o ON o.Id = c.OutlineId
             WHERE ChunksFts MATCH $q%s
         """ kbIdx alias alias alias alias docFilter
+
+    /// **Phase 4 (s6-r35)** — vector KNN 의 한 collection (alias) 분 SELECT.
+    ///
+    /// sqlite-vec 0.1.x KNN syntax — vec0 virtual table 의 MATCH 는 JOIN / 외부 column filter 와 직접 결합 시
+    /// "near 'ORDER': syntax error" 와 같이 vtable xBestIndex 가 거부. **subquery 격리 (표준 패턴)** — KNN 결과를
+    /// inner SELECT 로 격리 후 outer 에서 평범한 JOIN. JSON 배열 wire (`upsertChunkEmbedding` 와 동일 —
+    /// `System.Text.Json` serialize 결과). v.distance ASC (낮을수록 가까움) — RRF rank 산출 시 그대로 사용.
+    ///
+    /// fileId 한정 (`fileIdFilter`) 시 `c.DocumentId = filterDoc` outer WHERE 박제 — vec0 KNN 은 항상 top-N
+    /// 가져온 후 application-level filter (post-filter). collection 작은 시점이라 회귀 0. column 순서 =
+    /// buildCollectionSelect 와 동일 (KbIdx, ChunkId, ..., Score=distance).
+    let private buildVectorSelect (kbIdx: int) (alias: string) (fileIdFilter: (int * int64) option) (limit: int) : string =
+        let docFilter =
+            match fileIdFilter with
+            | Some (filterKb, filterDoc) when filterKb = kbIdx -> sprintf " WHERE c.DocumentId = %d" filterDoc
+            | Some _ -> " WHERE 1 = 0"  // 다른 kbIdx 한정 → 본 collection 결과 0
+            | None -> ""
+        sprintf """
+            SELECT
+                %d                                 AS KbIdx,
+                c.Id                               AS ChunkId,
+                c.DocumentId                       AS DocumentId,
+                c.RefLocator                       AS RefLocator,
+                c.TokenCount                       AS TokenCount,
+                c.Text                             AS Text,
+                d.OriginalPath                     AS OriginalPath,
+                d.Title                            AS Title,
+                o.Label                            AS OutlineLabel,
+                knn.distance                       AS Score
+            FROM (
+                SELECT ChunkId, distance
+                FROM %s.Chunks_Vectors
+                WHERE embedding MATCH $emb
+                ORDER BY distance
+                LIMIT %d
+            ) AS knn
+            JOIN %s.Chunks       AS c ON c.Id = knn.ChunkId
+            JOIN %s.Documents    AS d ON d.Id = c.DocumentId
+            LEFT JOIN %s.OutlineNodes AS o ON o.Id = c.OutlineId%s
+        """ kbIdx alias limit alias alias alias docFilter
 
     /// SearchHit.Excerpt 의 token 한도 보장. estimateTokens 가 한도 안이면 그대로,
     /// 초과 시 char 단위 절단 (한국어 char/2 가중 기준 — 대략 token×2 char).
@@ -90,14 +152,162 @@ module Searcher =
     let private fileNameOf (originalPath: string) : string =
         if String.IsNullOrEmpty originalPath then "" else Path.GetFileName originalPath
 
+    /// **Phase 4 (s6-r35)** — reader row → (kbIdx, chunkId, hit, rawScore) 변환 helper.
+    /// `rawScore` = BM25 path 의 `bm25()` 음수 / vector path 의 `v.distance` 양수. caller (RRF or BM25-only)
+    /// 가 의미 부여.
+    let private readHit (reader: SqliteDataReader) (maxExcerptTokens: int) : int * int64 * SearchHit * float =
+        let kbIdx       = reader.GetInt32(0)
+        let chunkId     = reader.GetInt64(1)
+        let docId       = reader.GetInt64(2)
+        let refLocator  = reader.GetString(3)
+        let tokenCount  = reader.GetInt32(4)
+        let text        = reader.GetString(5)
+        let origPath    = if reader.IsDBNull(6) then "" else reader.GetString(6)
+        let title       = if reader.IsDBNull(7) then None else Some (reader.GetString(7))
+        let outlineLabel : obj = reader.GetValue(8)
+        let rawScore    = reader.GetDouble(9)
+
+        let displayName =
+            match title with
+            | Some t when not (String.IsNullOrWhiteSpace t) -> t
+            | _ -> fileNameOf origPath
+
+        let hit = {
+            FileId      = composeFileId kbIdx docId
+            FileName    = displayName
+            Ref         = refLocator
+            OutlinePath = outlinePath outlineLabel
+            Score       = 0.0   // caller 가 finalize
+            Excerpt     = truncateExcerpt text maxExcerptTokens
+            TokenCount  = tokenCount
+            HasImages   = false   // Phase 1 — 이미지 인프라 미도입 (§3.15.2)
+        }
+        kbIdx, chunkId, hit, rawScore
+
+    /// **Phase 4 (s6-r35)** — BM25 UNION ALL 결과를 dedup key (`<kbIdx>:<ChunkId>`) 순서로 반환.
+    /// 반환 = ordered list of (key, hit). rank = list index.
+    let private runBm25
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (fileIdFilter: (int * int64) option)
+        (queryText: string)
+        (limit: int)
+        (maxExcerptTokens: int)
+        : (string * SearchHit) list =
+        let selects =
+            aliases
+            |> Array.mapi (fun i alias -> buildCollectionSelect i alias fileIdFilter)
+        let unionSql =
+            if selects.Length = 1 then selects.[0]
+            else selects |> String.concat "\nUNION ALL\n"
+        let sql =
+            sprintf """
+                %s
+                ORDER BY Score ASC
+                LIMIT $limit
+            """ unionSql
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- sql
+        cmd.Parameters.AddWithValue("$q", buildFtsQuery queryText) |> ignore
+        cmd.Parameters.AddWithValue("$limit", limit) |> ignore
+        let acc = ResizeArray<string * SearchHit>()
+        use reader = cmd.ExecuteReader()
+        while reader.Read() do
+            let kbIdx, chunkId, hit, rawScore = readHit reader maxExcerptTokens
+            // FTS5 bm25() 는 음수 (낮을수록 hit 강도). caller 통념 양수 정합 위해 부호 반전 (review M6).
+            let finalized = { hit with Score = -rawScore }
+            let key = sprintf "%d:%d" kbIdx chunkId
+            acc.Add (key, finalized)
+        acc |> List.ofSeq
+
+    /// **Phase 4 (s6-r35)** — vector KNN UNION ALL 결과를 dedup key 순서 (distance ASC) 로 반환.
+    /// 반환 = ordered list of (key, hit). rank = list index.
+    let private runVector
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (fileIdFilter: (int * int64) option)
+        (queryVector: float32[])
+        (perAliasLimit: int)
+        (maxExcerptTokens: int)
+        : (string * SearchHit) list =
+        // sqlite-vec wire = JSON 배열 string (SqliteStore.upsertChunkEmbedding 와 동일).
+        let embJson = System.Text.Json.JsonSerializer.Serialize(queryVector)
+        let selects =
+            aliases
+            |> Array.mapi (fun i alias -> buildVectorSelect i alias fileIdFilter perAliasLimit)
+        let unionSql =
+            if selects.Length = 1 then selects.[0]
+            else selects |> String.concat "\nUNION ALL\n"
+        // multi-collection UNION 후 전체 distance ASC 재정렬 → top-N (perAliasLimit × aliases 의 union 안에서).
+        let totalLimit = perAliasLimit * (max 1 aliases.Length)
+        let sql =
+            sprintf """
+                %s
+                ORDER BY Score ASC
+                LIMIT %d
+            """ unionSql totalLimit
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- sql
+        cmd.Parameters.AddWithValue("$emb", embJson) |> ignore
+        let acc = ResizeArray<string * SearchHit>()
+        use reader = cmd.ExecuteReader()
+        while reader.Read() do
+            let kbIdx, chunkId, hit, distance = readHit reader maxExcerptTokens
+            // distance = sqlite-vec 의 L2 또는 cosine — 낮을수록 hit. RRF 단계에서 rank 만 사용하므로 Score 자체는
+            // caller 미사용. 임시 박제 (이후 RRF 단계에서 finalize).
+            let withDistance = { hit with Score = distance }
+            let key = sprintf "%d:%d" kbIdx chunkId
+            acc.Add (key, withDistance)
+        acc |> List.ofSeq
+
+    /// **Phase 4 (s6-r35)** — Reciprocal Rank Fusion. BM25 결과 + vector 결과를 RRF score 로 통합.
+    ///
+    /// `RRF_score(key) = sum_over_systems(1 / (k_rrf + rank_in_system(key)))` — rank 0-based.
+    /// 한 system 에만 등장한 key 도 다른 system 의 rank 항만 누락. SearchHit metadata 는 두 system 중
+    /// 먼저 등장 (BM25 우선 — text snippet 일관성). 반환 = topK 만 trim, RRF score 가 최종 SearchHit.Score.
+    let private rrfMerge
+        (bm25: (string * SearchHit) list)
+        (vector: (string * SearchHit) list)
+        (topK: int)
+        : (string * SearchHit) list * bool =
+        let mutable acc : Map<string, SearchHit * float> = Map.empty
+        let addRank (results: (string * SearchHit) list) =
+            results
+            |> List.iteri (fun rank (key, hit) ->
+                let contribution = 1.0 / (RrfK + float rank)
+                match Map.tryFind key acc with
+                | Some (existing, score) ->
+                    // 기존 hit metadata 보존 (BM25 우선 진입 — excerpt / displayName 일관).
+                    acc <- Map.add key (existing, score + contribution) acc
+                | None ->
+                    acc <- Map.add key (hit, contribution) acc)
+        addRank bm25
+        addRank vector
+        // RRF score DESC 정렬.
+        let merged =
+            acc
+            |> Map.toList
+            |> List.map (fun (key, (hit, score)) -> key, { hit with Score = score })
+            |> List.sortByDescending (fun (_, h) -> h.Score)
+        let totalFetched = merged.Length
+        let moreAvailable = totalFetched > topK
+        let trimmed = merged |> List.truncate topK
+        trimmed, moreAvailable
+
     /// active 셋 union 검색 (§3.10 / §4.4 r4).
     ///
     /// `aliases` = ATTACH 된 collection 의 alias 배열 (kb0, kb1, ..., kbN-1, N ≤ §3.18.2 limit). 길이 0 = empty result.
     /// `query.FileId` Some 시 해당 collection 의 해당 docId 한정. 다른 collection 은 0-hit.
-    /// 정렬: BM25 ASC (FTS5 의 bm25 가 낮을수록 hit 강도). multi-collection UNION 후 전체 정렬 → top-K.
+    ///
+    /// **`embedderOpt` (Phase 4 s6-r35)**:
+    /// - `None` → BM25 lexical-only path (기존 동작, Phase 1 과 동일). Chunks_Vectors 가 비어 있어도 안전.
+    /// - `Some embedder` → query → `embedder.GenerateAsync` 로 1 vector 산출 + vector KNN UNION + BM25 UNION
+    ///   → RRF (k_rrf=60) fusion → top-K. Chunks_Vectors 가 비어 있어도 BM25 결과는 그대로 (vector contribution 0).
+    /// 정렬: BM25-only path = BM25 ASC, hybrid path = RRF score DESC.
     let search
         (conn: SqliteConnection)
         (aliases: string array)
+        (embedderOpt: IEmbeddingProvider option)
         (query: Query)
         (maxExcerptTokens: int)
         : SearchResults =
@@ -124,76 +334,46 @@ module Searcher =
 
             let topK = max 1 query.TopK
 
-            // 1+ extra 로 over-fetch — MoreAvailable 판별.
-            let fetchLimit = topK + 1
-
-            let collectionSelects =
-                aliases
-                |> Array.mapi (fun i alias -> buildCollectionSelect i alias fileIdFilter)
-
-            let unionSql =
-                if collectionSelects.Length = 1 then collectionSelects.[0]
-                else
-                    collectionSelects
-                    |> String.concat "\nUNION ALL\n"
-
-            let sql =
-                sprintf """
-                    %s
-                    ORDER BY Score ASC
-                    LIMIT $limit
-                """ unionSql
-
-            use cmd = conn.CreateCommand()
-            cmd.CommandText <- sql
-            cmd.Parameters.AddWithValue("$q", buildFtsQuery query.Text) |> ignore
-            cmd.Parameters.AddWithValue("$limit", fetchLimit) |> ignore
-
-            let hits = ResizeArray<SearchHit>()
-            use reader = cmd.ExecuteReader()
-            while reader.Read() do
-                let kbIdx       = reader.GetInt32(0)
-                let docId       = reader.GetInt64(1)
-                let refLocator  = reader.GetString(2)
-                let tokenCount  = reader.GetInt32(3)
-                let text        = reader.GetString(4)
-                let origPath    = if reader.IsDBNull(5) then "" else reader.GetString(5)
-                let title       = if reader.IsDBNull(6) then None else Some (reader.GetString(6))
-                let outlineLabel : obj = reader.GetValue(7)
-                let score       = reader.GetDouble(8)
-
-                let displayName =
-                    match title with
-                    | Some t when not (String.IsNullOrWhiteSpace t) -> t
-                    | _ -> fileNameOf origPath
-
-                hits.Add {
-                    FileId      = composeFileId kbIdx docId
-                    FileName    = displayName
-                    Ref         = refLocator
-                    OutlinePath = outlinePath outlineLabel
-                    // FTS5 bm25() 는 음수 (낮을수록 hit 강도). caller 측 통념상 "높을수록 좋음" 정합을 위해 부호 반전 (review M6).
-                    Score       = -score
-                    Excerpt     = truncateExcerpt text maxExcerptTokens
-                    TokenCount  = tokenCount
-                    HasImages   = false   // Phase 1 — 이미지 인프라 미도입 (§3.15.2)
-                }
-
-            let totalFetched = hits.Count
-            let moreAvailable = totalFetched > topK
-            let trimmed =
-                if moreAvailable then hits.GetRange(0, topK).ToArray()
-                else hits.ToArray()
-
-            let hint =
-                if trimmed.Length = 0 then Some "synonym retry"
-                else None
-
-            {
-                Results       = trimmed
-                MoreAvailable = moreAvailable
-                Hint          = hint
-            }
+            match embedderOpt with
+            | None ->
+                // BM25-only path — 기존 동작 (over-fetch +1 로 MoreAvailable 판별).
+                let fetchLimit = topK + 1
+                let bm25Hits = runBm25 conn aliases fileIdFilter query.Text fetchLimit maxExcerptTokens
+                let totalFetched = bm25Hits.Length
+                let moreAvailable = totalFetched > topK
+                let trimmed =
+                    bm25Hits
+                    |> List.truncate topK
+                    |> List.map snd
+                    |> List.toArray
+                let hint =
+                    if trimmed.Length = 0 then Some "synonym retry"
+                    else None
+                { Results = trimmed; MoreAvailable = moreAvailable; Hint = hint }
+            | Some embedder ->
+                // hybrid path — BM25 top-N + vector top-N (N = topK*HybridFetchMultiplier) → RRF fusion → top-K.
+                let perSystemLimit = topK * HybridFetchMultiplier
+                let bm25Hits = runBm25 conn aliases fileIdFilter query.Text perSystemLimit maxExcerptTokens
+                // query embedding 생성 — 단일 input. Task 동기 wait — caller (server / Promaker MCP handler) 가
+                // sync API 라 정합 (s6-r34 Indexer.dispatchEmbeddings 와 동일 패턴).
+                let task = embedder.GenerateAsync([| query.Text |], CancellationToken.None)
+                let queryVectors = task.GetAwaiter().GetResult()
+                if queryVectors.Length <> 1 then
+                    raise (InvalidOperationException(
+                        sprintf "embedder.GenerateAsync 결함 — query vector 수=%d ≠ 1" queryVectors.Length))
+                let queryVector = queryVectors.[0]
+                if queryVector.Length <> embedder.Dimension then
+                    raise (InvalidOperationException(
+                        sprintf "embedder vector dim 결함 — vector.Length=%d ≠ embedder.Dimension=%d"
+                            queryVector.Length embedder.Dimension))
+                let vectorHits =
+                    runVector conn aliases fileIdFilter queryVector perSystemLimit maxExcerptTokens
+                let merged, moreAvailable = rrfMerge bm25Hits vectorHits topK
+                let trimmed = merged |> List.map snd |> List.toArray
+                let hint =
+                    if trimmed.Length = 0 then Some "synonym retry"
+                    else None
+                { Results = trimmed; MoreAvailable = moreAvailable; Hint = hint }
 
     /// 등록 문서 목록 — `attachment_list` (§3.10) 의 lib 측 구현.
     /// active 셋 union — 각 collection 의 Documents 전체. fileId 형식은 search 결과와 동일.
