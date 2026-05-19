@@ -48,6 +48,14 @@ public class DspDbService : IDisposable
 
     public event Action? OnDataChanged;
 
+    /// <summary>
+    /// 구조적 변경(DB 재구축, Flow 히스토리/통계 reset 등) 발생 시 발화.
+    /// OnDataChanged 와 달리 매 사이클이 아닌 명시적 reset 시점에만 발화하므로,
+    /// 무거운 페이지(CycleTimeAnalysis 등)가 안전하게 구독해 Flow 목록 재구성 +
+    /// 데이터 재조회를 트리거할 수 있다.
+    /// </summary>
+    public event Action? OnStructuralChange;
+
     public DspDbService(
         IConfiguration configuration,
         IDatabasePathResolver pathResolver,
@@ -640,6 +648,8 @@ public class DspDbService : IDisposable
             _goingStartTimes.Clear();
         }
         OnDataChanged?.Invoke();
+        try { OnStructuralChange?.Invoke(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "OnStructuralChange subscriber threw"); }
         _logger.LogInformation("DspDbService snapshot reset");
     }
 

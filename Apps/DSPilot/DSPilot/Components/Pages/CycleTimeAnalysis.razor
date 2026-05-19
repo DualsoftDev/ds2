@@ -8,6 +8,8 @@
 @inject CycleAnalysisService CycleAnalysis
 @inject IFlowMetricsService FlowMetrics
 @inject AppSettingsService SettingsService
+@inject DspDbService DspDb
+@inject ILogger<CycleTimeAnalysis> Logger
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -356,7 +358,34 @@
         // OnInitializedAsync 에서는 in-memory 항목(Flow 리스트) 만 채워 페이지 골격이 즉시 표시되게 함.
         // 실제 Gantt 데이터는 OnAfterRenderAsync(firstRender=true) 에서 background 로드 → StateHasChanged.
         await LoadFlows();
+
+        // Settings 의 "AASX 모델 다시 불러오기" / "Flow 히스토리 삭제" 후 자동으로 Flow 목록 + Gantt 재구성.
+        // OnDataChanged(매 사이클 발화) 가 아니라 OnStructuralChange 만 구독 — 무거운 페이지라 매 사이클
+        // reload 는 부적절. 사용자가 명시적으로 DB 를 reset 한 시점에만 fresh 로드.
+        DspDb.OnStructuralChange += OnDbStructuralChange;
     }
+
+    private async void OnDbStructuralChange()
+    {
+        if (_disposed) return;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadFlows();
+                if (!string.IsNullOrEmpty(_selectedFlowName))
+                    await RefreshLatestAsync();
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException) { /* page navigated away */ }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[CycleTimeAnalysis] Structural change auto-refresh failed");
+        }
+    }
+
+    private bool _disposed;
 
     /// <summary>첫 렌더 후 1회만 초기 Gantt 데이터 로드를 시도하기 위한 플래그.</summary>
     private bool _pendingInitialLoad = true;
@@ -476,6 +505,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
+        DspDb.OnStructuralChange -= OnDbStructuralChange;
+
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
