@@ -187,18 +187,34 @@ public sealed class AttachmentIngestService
     /// 본 정책 의도 외 — single Promaker instance 가정.)
     /// </summary>
     private FSharpFunc<byte[], FSharpFunc<ImageFormat, CaptionResult>> BuildCaptionGen(CancellationToken ct)
+        => BuildCaptionGenStatic(_llmConfig, _vlmHttp, ct);
+
+    /// <summary>
+    /// **s6-r23 묶음 4** — `BuildCaptionGen` 의 static 형태 (instance fields `_llmConfig` / `_vlmHttp` 를 method arg 로 노출).
+    /// Promaker.Tests 가 mock <see cref="HttpClient"/> + 임의 <see cref="LlmConfig"/> 박제로 cost gate hard cap /
+    /// disabled / FailedCaption / Captioned 분기 회귀 차단 fact 박제 가능.
+    /// <para>policy SSOT (s6-r20 M2 정합)</para>
+    /// <list type="bullet">
+    ///   <item>VLM disabled → <see cref="CaptionGenerator.noop"/></item>
+    ///   <item>cost gate hard cap → <c>SkippedCaption("cost gate hard cap")</c> (no http call)</item>
+    ///   <item>callAnthropic 의 Captioned → <c>VisionCostGate.Consume(perImageTokens)</c></item>
+    ///   <item>callAnthropic 의 FailedCaption / SkippedCaption → cost 0 (정책 의도)</item>
+    /// </list>
+    /// </summary>
+    internal static FSharpFunc<byte[], FSharpFunc<ImageFormat, CaptionResult>> BuildCaptionGenStatic(
+        LlmConfig llmConfig, HttpClient http, CancellationToken ct)
     {
-        if (!_llmConfig.IsVlmEnabled())
+        if (!llmConfig.IsVlmEnabled())
         {
             return CaptionGenerator.noop;
         }
-        var apiKey = _llmConfig.GetVlmApiKey();
-        var model = _llmConfig.VlmModel;
+        var apiKey = llmConfig.GetVlmApiKey();
+        var model = llmConfig.VlmModel;
         if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
         {
             return CaptionGenerator.noop;
         }
-        var gate = _llmConfig.VisionCostGate;
+        var gate = llmConfig.VisionCostGate;
         var perImageTokens = VisionCostGate.AverageTokensPerImage;
         return FuncConvert.FromFunc<byte[], ImageFormat, CaptionResult>(
             (Func<byte[], ImageFormat, CaptionResult>)((bytes, fmt) =>
@@ -207,7 +223,7 @@ public sealed class AttachmentIngestService
                 {
                     return CaptionResult.NewSkippedCaption("cost gate hard cap");
                 }
-                var result = CaptionGenerator.callAnthropic(_vlmHttp, apiKey, model, bytes, fmt, ct);
+                var result = CaptionGenerator.callAnthropic(http, apiKey, model, bytes, fmt, ct);
                 // 자가 검열 M2 정책 SSOT (s6-r20): Captioned 분기만 Consume. FailedCaption / SkippedCaption 시 cost 0.
                 // Anthropic 측 실 차감과의 drift 가능성 인지함 (4xx/5xx 가 token billing 되는 경우 등) — 정책상
                 // "응답 미수신 / 사용 불가" 결과에 사용자 cost 부담 면제 의도. 정밀 회계는 Phase 4 (cost gate v2) backlog.

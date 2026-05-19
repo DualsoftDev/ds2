@@ -84,15 +84,26 @@ type OoxmlExtractor() =
                 |> Seq.map (fun ip -> mainPart.GetIdOfPart(ip), ip)
                 |> Map.ofSeq
 
-            // helper: block 안 inline Drawing → image 박제. caller 가 RefLocator 산출.
-            // Ordinal 은 같은 호출 안 image 순번 (caller 마다 1부터 reset — `Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
-            // s6-r22 task 5 (table cell scheme): RefLocator 가 caller 결정 — `p=%d` (paragraph) / `p=%d.cell=%d.p=%d` (table cell).
-            let extractImagesAtRefLocator (block: OpenXmlElement) (refLocator: string) =
+            // **s6-r23 m2 helper 통합 (s6-r22 자가 검열 m2 적용)** — body / header / footer 의 동일 패턴
+            // (Blip enumerate → relId → ImagePart 매핑 → ContentType 화이트리스트 → byte[] 추출 → ExtractedImage 박제)
+            // 을 단일 `extractImagesAtRefLocator` 로 통합.
+            //
+            // signature: `(container, resolveImagePart, refLocator)`.
+            //  - `container` = enumerate 대상 OpenXmlElement (paragraph / table cell / part RootElement).
+            //  - `resolveImagePart` = relId → ImagePart option (body 는 `imgPartByRelId` map, header/footer 는 별 map).
+            //  - `refLocator` = caller 가 결정한 RefLocator (`p=%d` / `p=%d.cell=%d.p=%d` / `header=%d` / `footer=%d`).
+            //
+            // Ordinal 은 caller 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
+            // M2 per-image fail-safe — decode exception → log + skip. 다른 image 진행 차단 안 함.
+            let extractImagesAtRefLocator
+                (container: OpenXmlElement)
+                (resolveImagePart: string -> ImagePart option)
+                (refLocator: string) =
                 let mutable imgOrdInBlock = 1
-                for blip in block.Descendants<Blip>() do
+                for blip in container.Descendants<Blip>() do
                     if not (isNull blip.Embed) && blip.Embed.HasValue then
                         let relId = blip.Embed.Value
-                        match Map.tryFind relId imgPartByRelId with
+                        match resolveImagePart relId with
                         | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
                         | Some imgPart ->
                             try
@@ -127,9 +138,12 @@ type OoxmlExtractor() =
                                     sprintf "OoxmlExtractor: Drawing image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
                                         refLocator imgOrdInBlock relId path ex.Message)
 
+            // body 측 resolver — mainPart 안 ImagePart map.
+            let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
+
             // helper: Paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`).
             let extractImagesFromBlock (block: OpenXmlElement) (paraOrd: int) =
-                extractImagesAtRefLocator block (sprintf "p=%d" paraOrd)
+                extractImagesAtRefLocator block resolveBodyImagePart (sprintf "p=%d" paraOrd)
 
             // **s6-r22 task 5 (s6-r16 backlog 해소)** — table cell 단위 매핑.
             // RefLocator scheme = `p=<table-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>` (모두 1-based).
@@ -149,7 +163,7 @@ type OoxmlExtractor() =
                         let mutable paraInCell = 1
                         for cellPara in cell.Elements<Paragraph>() do
                             let refLoc = sprintf "p=%d.cell=%d.p=%d" paraOrd cellOrd paraInCell
-                            extractImagesAtRefLocator cellPara refLoc
+                            extractImagesAtRefLocator cellPara resolveBodyImagePart refLoc
                             paraInCell <- paraInCell + 1
                         // nested table 안 image silent drift 차단 — outer cell 의 직속 Table 자식 enumerate 후 Warn.
                         for nestedTbl in cell.Elements<Table>() do
@@ -228,48 +242,16 @@ type OoxmlExtractor() =
             //
             // **comments / footnotes / endnotes Drawing**: 산업 docx 에서 빈도 매우 낮고 ContentType 분포도
             // 다양 (메타 image 류) — 본 phase scope 외, 별 turn 박제. (HeaderParts/FooterParts 만 진입.)
+            // **s6-r23 m2** — header/footer 의 ImagePart resolver 만 다르고 enumerate/박제 로직은 body 와 동일.
+            // `extractImagesAtRefLocator` 의 resolver argument 로 통합.
             let extractImagesFromOpenXmlPart (part: OpenXmlPart) (refLocator: string) =
-                let imgMap =
-                    part.Parts
-                    |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
-                    |> Map.ofSeq
-                let mutable ord = 1
                 if not (isNull part.RootElement) then
-                    for blip in part.RootElement.Descendants<Blip>() do
-                        if not (isNull blip.Embed) && blip.Embed.HasValue then
-                            let relId = blip.Embed.Value
-                            match Map.tryFind relId imgMap with
-                            | None -> ()
-                            | Some imgPart ->
-                                try
-                                    let fmtOpt =
-                                        match imgPart.ContentType with
-                                        | "image/png"  -> Some Png
-                                        | "image/jpeg" -> Some Jpeg
-                                        | "image/gif"  -> Some Gif
-                                        | "image/webp" -> Some Webp
-                                        | _ -> None
-                                    match fmtOpt with
-                                    | None -> ()
-                                    | Some fmt ->
-                                        use stream = imgPart.GetStream()
-                                        use ms = new MemoryStream()
-                                        stream.CopyTo(ms)
-                                        let bytes = ms.ToArray()
-                                        if bytes.Length > 0 then
-                                            images.Add {
-                                                Bytes = bytes
-                                                Format = fmt
-                                                Width = None
-                                                Height = None
-                                                RefLocator = refLocator
-                                                Ordinal = ord
-                                            }
-                                            ord <- ord + 1
-                                with ex ->
-                                    Log.lighthouse.Warn(
-                                        sprintf "OoxmlExtractor: header/footer image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                                            refLocator ord relId path ex.Message)
+                    let imgMap =
+                        part.Parts
+                        |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
+                        |> Map.ofSeq
+                    let resolve relId = Map.tryFind relId imgMap
+                    extractImagesAtRefLocator part.RootElement resolve refLocator
 
             let mutable headerOrd = 1
             for hp in mainPart.HeaderParts do
