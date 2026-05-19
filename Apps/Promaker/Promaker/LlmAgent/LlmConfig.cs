@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Windows;
 using log4net;
 using Promaker.LlmAgent.Api;
@@ -192,6 +193,75 @@ public sealed class LlmConfig
         lock (_saveLock)
         {
             var path = ConfigPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            var tmp = path + ".tmp-" + Environment.ProcessId;
+            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.Move(tmp, path, overwrite: true);
+        }
+    }
+
+    // ─── s6-r24 작업 2 (MJ1 해소) — cross-process atomic Load→mutate→Save ──────────────
+
+    /// <summary>
+    /// **test 전용** — ConfigPath override. Promaker.Tests 가 fact 별 임시 path 박제로 production
+    /// `%APPDATA%\Dualsoft\Promaker\Settings\llm-config.json` 침투 회피.
+    /// production code 는 null 그대로 (`EffectiveConfigPath = ConfigPath`).
+    /// </summary>
+    internal static string? TestConfigPathOverride { get; set; }
+
+    private static string EffectiveConfigPath => TestConfigPathOverride ?? ConfigPath;
+
+    /// <summary>cross-process file lock path. ConfigPath 와 sibling.</summary>
+    private static string LockPath => EffectiveConfigPath + ".lock";
+
+    /// <summary>
+    /// **s6-r24 작업 2 — MJ1 (multi-instance read-modify-write race) 본질 해결**.
+    ///
+    /// <para>Promaker 다중 인스턴스가 동시에 `Load → modify → Save` 시 stale snapshot 덮어쓰기 차단.
+    /// cross-process file lock (lock 파일을 <c>FileShare.None</c> 으로 open 유지) 으로 critical section 직렬화.</para>
+    ///
+    /// <para>호출 시 disk 의 최신 LlmConfig 를 reload → caller 의 <paramref name="mutate"/> 호출 →
+    /// 즉시 Save. mutate 콜백 안에서는 다른 process 의 mutation 결과를 본 인스턴스의 값으로 *덮어쓰기 안 함*
+    /// (caller 책임 = delta 누적 또는 max 선택). cap 같이 disk SSOT 인 필드는 본 인스턴스 값 무시.</para>
+    ///
+    /// <para>retry: lock 충돌 (IOException) 시 100ms / 200 / 400 / 800 / 1600ms exponential backoff
+    /// 5회. 모두 실패 시 caller 에 throw — best-effort 컨텍스트 (예: KbManagerDialog finally) 는 catch 후
+    /// log 권장.</para>
+    /// </summary>
+    /// <returns>Save 직후의 LlmConfig (caller 가 본 인스턴스 자체 state 갱신 시 활용).</returns>
+    public static LlmConfig ModifyWithLock(Action<LlmConfig> mutate)
+    {
+        if (mutate is null) throw new ArgumentNullException(nameof(mutate));
+        const int maxAttempts = 5;
+        var path = EffectiveConfigPath;
+        var lockPath = LockPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                using var lockStream = new FileStream(
+                    lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                var cfg = LoadFrom(path);
+                mutate(cfg);
+                cfg.SaveTo(path);
+                return cfg;
+            }
+            catch (IOException)
+            {
+                if (attempt == maxAttempts - 1) throw;
+                Thread.Sleep(100 << attempt);  // 100 / 200 / 400 / 800 / 1600 ms
+            }
+        }
+        throw new IOException($"LlmConfig.ModifyWithLock: lock 획득 실패 ({maxAttempts}회 retry, path={lockPath})");
+    }
+
+    /// <summary>**test 전용** — 명시 path 로 atomic write. <see cref="Save"/> 의 path override 형식.</summary>
+    internal void SaveTo(string path)
+    {
+        lock (_saveLock)
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             var tmp = path + ".tmp-" + Environment.ProcessId;
