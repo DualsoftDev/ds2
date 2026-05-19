@@ -144,7 +144,7 @@ module internal SimIndexAlgorithms =
             | None -> None)
         |> Seq.toList
 
-    let private findOrEmpty key map =
+    let findOrEmpty key map =
         map |> Map.tryFind key |> Option.defaultValue []
 
     let private computeWorkDuration (store: DsStore) (workCallGuids: Map<Guid, Guid list>) (workGuid: Guid) : float =
