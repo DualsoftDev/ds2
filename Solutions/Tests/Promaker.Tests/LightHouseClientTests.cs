@@ -506,4 +506,103 @@ public sealed class LightHouseClientTests
         Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
         Assert.Contains("RecoverSession 자체 실패", ex.Message);
     }
+
+
+    // ── D-S7-2b OpenEventsStreamAsync (SSE) ─────────────────────────────────────
+
+    [Fact]
+    public async Task OpenEventsStreamAsync_parses_data_lines_in_order()
+    {
+        var (client, handler) = MakeClient(psk: "psk-sse", userIdentity: "sse@ex.com");
+        var ndjsonBody =
+            "data: {\"event\":\"keepalive\",\"timestamp\":\"2026-05-19T00:00:00Z\"}\n\n" +
+            "data: {\"event\":\"collection-added\",\"collectionId\":\"abc-123\",\"timestamp\":\"2026-05-19T00:00:01Z\"}\n\n" +
+            "data: {\"event\":\"collection-deleted\",\"collectionId\":\"abc-123\",\"timestamp\":\"2026-05-19T00:00:02Z\"}\n\n";
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(ndjsonBody, Encoding.UTF8, "text/event-stream"),
+        };
+
+        var received = new List<ServerEventDto>();
+        await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
+
+        Assert.Equal(3, received.Count);
+        Assert.Equal("keepalive", received[0].Event);
+        Assert.Null(received[0].CollectionId);
+        Assert.Equal("collection-added", received[1].Event);
+        Assert.Equal("abc-123", received[1].CollectionId);
+        Assert.Equal("collection-deleted", received[2].Event);
+
+        // 헤더 검증 — Bearer + X-User-Identity 자동 동봉.
+        var req = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Get, req.Method);
+        Assert.Equal(BaseUrl + "events", req.RequestUri!.ToString());
+        Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.Equal("psk-sse", req.Headers.Authorization.Parameter);
+        Assert.Equal("sse@ex.com", req.Headers.GetValues("X-User-Identity").Single());
+    }
+
+    [Fact]
+    public async Task OpenEventsStreamAsync_401_throws_LightHouseAuthException()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("psk rejected", Encoding.UTF8, "text/plain"),
+        };
+
+        var ex = await Assert.ThrowsAsync<LightHouseAuthException>(() =>
+            client.OpenEventsStreamAsync(_ => Task.CompletedTask));
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpenEventsStreamAsync_skips_malformed_json_line()
+    {
+        var (client, handler) = MakeClient();
+        var ndjsonBody =
+            "data: {malformed json\n\n" +  // 1줄 skip
+            "data: {\"event\":\"collection-added\",\"collectionId\":\"x\",\"timestamp\":\"t\"}\n\n";
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(ndjsonBody, Encoding.UTF8, "text/event-stream"),
+        };
+
+        var received = new List<ServerEventDto>();
+        await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
+
+        Assert.Single(received);
+        Assert.Equal("collection-added", received[0].Event);
+    }
+
+    [Fact]
+    public async Task OpenEventsStreamAsync_null_callback_throws()
+    {
+        var (client, _) = MakeClient();
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            client.OpenEventsStreamAsync(null!));
+    }
+
+    [Fact]
+    public async Task OpenEventsStreamAsync_ignores_non_data_lines()
+    {
+        var (client, handler) = MakeClient();
+        // SSE 표준상 comment (`:` prefix) / event: / id: / retry: 등 future-compat — `data:` 만 parse.
+        var ndjsonBody =
+            ": this is a comment\n" +
+            "event: ignored\n" +
+            "id: 12345\n" +
+            "\n" +  // empty separator
+            "data: {\"event\":\"keepalive\",\"timestamp\":\"t\"}\n\n";
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(ndjsonBody, Encoding.UTF8, "text/event-stream"),
+        };
+
+        var received = new List<ServerEventDto>();
+        await client.OpenEventsStreamAsync(evt => { received.Add(evt); return Task.CompletedTask; });
+
+        Assert.Single(received);
+        Assert.Equal("keepalive", received[0].Event);
+    }
 }

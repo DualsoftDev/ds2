@@ -326,6 +326,57 @@ public sealed class LightHouseClient : IDisposable
 
     private static string Truncate(string s, int limit) =>
         string.IsNullOrEmpty(s) ? "" : (s.Length <= limit ? s : s.Substring(0, limit) + "…");
+
+    /// <summary>
+    /// `GET /events` SSE stream 을 subscribe — long-running (CancellationToken 으로 종료).
+    ///
+    /// **wire**: text/event-stream + `data: {json}\n\n` per line. ndjson 형식의 `data:` prefix 만 parse,
+    /// 그 외 (빈 line / comment / event:/id: 등) 는 silent skip (server 가 emit 안 하므로 무관, future-compat).
+    ///
+    /// **lifecycle**: `onEvent` callback 이 각 event 마다 호출됨. callback 안에서 long task 는 self-await
+    /// 하지 말 것 (read loop 진행 중단). UI thread marshalling 은 caller 책임.
+    ///
+    /// **종료**: `ct.Cancel()` 또는 server-side close → `OperationCanceledException` reraise. 인증 결함
+    /// (401/403) 은 본 호출 진입 시점에 `LightHouseAuthException` throw.
+    ///
+    /// **D-S7-2b (s6-r28)** — server-side D-S7-2a (`9e9698e`) 의 ndjson schema 정합.
+    /// </summary>
+    public async Task OpenEventsStreamAsync(
+        Func<ServerEventDto, Task> onEvent,
+        CancellationToken ct = default)
+    {
+        if (onEvent is null) throw new ArgumentNullException(nameof(onEvent));
+
+        using var req = NewRequest(HttpMethod.Get, "events");
+        // SSE 는 long-running — HttpClient.Timeout 의 default 가 lock 가능. caller 가 PER-호출 timeout 회피.
+        // BaseAddress timeout (10분) 우회 — server-side keepalive 가 disconnect 검출 SSOT.
+        var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        try
+        {
+            await EnsureSuccessOrThrow(resp, "GET /events", ct).ConfigureAwait(false);
+
+            using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var reader = new StreamReader(stream);
+
+            while (!ct.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                if (line is null) break;
+                if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+                var json = line.Substring(6);
+                ServerEventDto? evt;
+                try { evt = JsonSerializer.Deserialize<ServerEventDto>(json, JsonOptions); }
+                catch (JsonException ex)
+                {
+                    // wire 결함 fail-safe — 1줄 skip + 다음 line 진행. server 박제 결함이면 모든 line fail 이라 빠른 진단.
+                    Log.Warn($"OpenEventsStreamAsync: malformed JSON 1줄 skip — {ex.Message}");
+                    continue;
+                }
+                if (evt is not null) await onEvent(evt).ConfigureAwait(false);
+            }
+        }
+        finally { resp.Dispose(); }
+    }
 }
 
 // ── Response DTOs (camelCase 직렬화) ─────────────────────────────────────────
@@ -351,6 +402,19 @@ public sealed class CollectionListResponse
 {
     [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; }
     [JsonPropertyName("collections")] public List<CollectionInfo> Collections { get; set; } = new();
+}
+
+/// <summary>
+/// `GET /events` SSE payload (D-S7-2b s6-r28). server-side `EventBus.ServerEvent` 정합.
+/// `event` = "collection-added" / "collection-updated" / "collection-deleted" / "keepalive".
+/// </summary>
+public sealed class ServerEventDto
+{
+    [JsonPropertyName("event")] public string Event { get; set; } = "";
+    [JsonPropertyName("collectionId")] public string? CollectionId { get; set; }
+    [JsonPropertyName("progress")] public int? Progress { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
+    [JsonPropertyName("timestamp")] public string Timestamp { get; set; } = "";
 }
 
 internal sealed class SessionCreateRequest

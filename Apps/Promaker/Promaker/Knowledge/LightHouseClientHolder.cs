@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using log4net;
 using Promaker.LlmAgent;
@@ -30,6 +31,20 @@ public static class LightHouseClientHolder
     private static string _lastBaseUrl = "";
     private static string _lastPskHash = "";  // DPAPI ciphertext 의 해시는 의미 없음 → 평문 PSK 의 해시 비교
     private static readonly ConcurrentDictionary<string, byte> _liveSessions = new();
+
+    // D-S7-2b (s6-r28) — SSE subscription lifecycle. EnsureCreated 가 새 client 생성 시 _sseTask 시작 +
+    // _sseCts 보유. Invalidate / DisposeAllAsync 가 cancel. 단절 시 5초 backoff + 자동 재연결.
+    private static CancellationTokenSource? _sseCts;
+    private static Task? _sseTask;
+
+    /// <summary>
+    /// SSE event aggregator (D-S7-2b s6-r28). caller (예: KbManagerDialog) 가 subscribe → 모든 active client
+    /// 의 server event 가 본 이벤트로 fan-out. handler 안의 UI thread marshalling 은 caller 책임 (`Dispatcher.Invoke`).
+    /// <para/>
+    /// **lifetime**: process-wide. handler 가 unsubscribe 안 하면 dead reference 유지 → caller 의 panel
+    /// close 시점에 명시 unsubscribe 의무.
+    /// </summary>
+    public static event Action<ServerEventDto>? EventReceived;
 
     /// <summary>현재 살아있는 client (또는 null). 외부 caller 는 <see cref="EnsureCreated"/> 사용 권장.</summary>
     public static LightHouseClient? Current
@@ -65,6 +80,7 @@ public static class LightHouseClientHolder
                 _lastBaseUrl = url;
                 _lastPskHash = pskHash;
                 Log.Info($"LightHouseClientHolder created — {url}");
+                StartSseLoopLocked(_instance);  // D-S7-2b (s6-r28)
                 return _instance;
             }
             catch (ArgumentException ex)
@@ -138,9 +154,68 @@ public static class LightHouseClientHolder
     private static void DisposeInstanceLocked()
     {
         if (_instance is null) return;
+        StopSseLoopLocked();  // D-S7-2b — instance dispose 전 SSE cancel.
         try { _instance.Dispose(); }
         catch (Exception ex) { Log.Warn($"LightHouseClient.Dispose 실패: {ex.Message}"); }
         _instance = null;
+    }
+
+    /// <summary>
+    /// D-S7-2b (s6-r28) — SSE subscription Task 시작. lock 안에서 호출 (`EnsureCreated`).
+    /// 단절 (server restart / network blip) 시 5초 backoff + 자동 재연결 무한 loop. CancellationToken 으로 종료.
+    /// </summary>
+    private static void StartSseLoopLocked(LightHouseClient client)
+    {
+        StopSseLoopLocked();  // 안전: 이전 task 잔존 시 cleanup
+        _sseCts = new CancellationTokenSource();
+        var ct = _sseCts.Token;
+        _sseTask = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await client.OpenEventsStreamAsync(evt =>
+                    {
+                        var handler = EventReceived;
+                        if (handler is not null)
+                        {
+                            try { handler(evt); }
+                            catch (Exception ex) { Log.Warn($"EventReceived handler 결함 (skip): {ex.Message}"); }
+                        }
+                        return Task.CompletedTask;
+                    }, ct).ConfigureAwait(false);
+                    // OpenEventsStreamAsync 가 정상 반환 = server-side 정상 close. 다음 loop 가 즉시 재연결.
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) when (
+                    ex is System.Net.Http.HttpRequestException
+                    || ex is System.IO.IOException
+                    || ex is TaskCanceledException
+                    || ex is LightHouseAuthException
+                    || ex is LightHouseProtocolException)
+                {
+                    // M2 (s6-r28 자가 검열 review) — network / protocol 결함만 swallow + reconnect.
+                    // OutOfMemoryException / StackOverflowException 등 process-fatal 은 propagate.
+                    Log.Warn($"SSE stream 끊김 — {ex.GetType().Name}: {ex.Message}. 5초 후 재연결 시도.");
+                    try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
+                }
+            }
+        }, ct);
+    }
+
+    /// <summary>SSE Task cancel + 종료 대기 (best-effort 1s). lock 안에서 호출.</summary>
+    private static void StopSseLoopLocked()
+    {
+        if (_sseCts is null) return;
+        try { _sseCts.Cancel(); } catch (ObjectDisposedException) { }
+        // task 가 cancellation 까지 완전히 정리되는 데 최대 1초 대기. lock 안에서 호출이므로 짧게.
+        try { _sseTask?.Wait(TimeSpan.FromSeconds(1)); }
+        catch (AggregateException) { }
+        try { _sseCts.Dispose(); } catch (ObjectDisposedException) { }
+        _sseCts = null;
+        _sseTask = null;
     }
 
     private static string ComputeHash(string plain)
