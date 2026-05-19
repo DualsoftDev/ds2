@@ -31,7 +31,7 @@ public sealed class SimulationPanelStateRuntimeTests
 
             SetSimEngine(state, engine);
             state.IsSimulating = true;
-            state.IsContinuousInjectionEnabled = true;
+            state.ContinuousInjection.IsEnabled = true;
             state.SelectedSimWork = new SimWorkItem(sourceWorkId, "Source");
 
             Assert.True(state.ForceWorkStartCommand.CanExecute(null));

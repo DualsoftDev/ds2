@@ -42,7 +42,7 @@
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="Duration 편집"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="시뮬레이션" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 출력"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.Report.ExportReportCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 출력"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ShowSimulationScenariosCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 결과 보기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>

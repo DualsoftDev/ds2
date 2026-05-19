@@ -20,6 +20,7 @@
     <Compile Include="KpiAggregator.Helpers.fs" />
     <Compile Include="KpiAggregator.Builders.fs" />
     <Compile Include="KpiAggregator.fs" />
+    <Compile Include="TokenTraversalSession.fs" />
     <Compile Include="SimulationSnapshotBuilder.fs" />
   </ItemGroup>
 
