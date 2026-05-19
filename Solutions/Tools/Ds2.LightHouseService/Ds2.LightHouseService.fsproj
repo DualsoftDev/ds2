@@ -43,6 +43,10 @@
          lib facade 호출 시점에 SqliteConnection load fail. 따라서 service binary 가 직접 PackageReference 유지 (runtime 보강).
          lib 의 PrivateAssets=all 의 의도 = caller 의 *compile-time API 노출 차단*, runtime asset 분리는 별 정책. -->
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- Phase 4 — sqlite-vec native binary 직접 의존 (review IM-6 정책 동일).
+         lib 의 PrivateAssets="all" 이라 native runtime asset transitive 안 됨 → service publish output 에 직접 의무.
+         ExcludeAssets=contentFiles — Vector.cs C# wrapper inject 차단 (lib 의 F# SqliteStore 가 raw API 사용, wrapper 미사용). -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
     <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker alignment). attachment_* 4종 server-side host. -->
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />

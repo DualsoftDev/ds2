@@ -37,6 +37,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <!-- PdfExtractorTests + Indexer 의 PdfExtractor 활성화 — runtime assembly 필요. PrivateAssets=all 차단 우회. -->
     <PackageReference Include="PdfPig" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension). lib 의 PrivateAssets=all 우회.
+         ExcludeAssets=contentFiles — Vector.cs C# wrapper inject 차단 (F# 환경). -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
   </ItemGroup>
 
   <ItemGroup>

@@ -14,6 +14,10 @@
     <!-- todo-lighthouse-kb-index.md r9 보류 신설 → r11/s5e-r0 결정: Solutions/Directory.Packages.props 의 LightHouse 와 동일 3.5.1 명시.
          PdfPig 0.1.14 가 transitive 로 OpenXml 3.1.1 을 끌어와 LightHouse 의 3.5.1 과 MSB3277 충돌 → Promaker scope 에서도 3.5.1 로 통일. -->
     <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension). lib 의 PrivateAssets="all" 이라 native asset
+         transitive 안 됨 → Promaker publish output 에 직접 의무. version SSOT = Solutions/Directory.Packages.props
+         의 sqlite-vec 와 동일 0.1.7-alpha.2.1 (drift 의무 cross-PR 추적). -->
+    <PackageVersion Include="sqlite-vec" Version="0.1.7-alpha.2.1" />
   </ItemGroup>
   <!-- LLM API Providers (Phase 2) — Anthropic / OpenAI / OllamaSharp + Microsoft.Extensions.AI 공통 추상 -->
   <ItemGroup>
