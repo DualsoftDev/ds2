@@ -25,6 +25,7 @@
     <Compile Include="NegativeRoundTripTests.fs" />
     <Compile Include="CliUploadTests.fs" />
     <Compile Include="CliVlmTests.fs" />
+    <Compile Include="EventsSseTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

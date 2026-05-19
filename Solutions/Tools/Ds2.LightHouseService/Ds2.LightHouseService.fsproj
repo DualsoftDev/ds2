@@ -23,10 +23,12 @@
     <Compile Include="SessionSweep.fs" />
     <Compile Include="Middleware.fs" />
     <Compile Include="Endpoints.fs" />
+    <Compile Include="EventBus.fs" />
     <Compile Include="CollectionEndpoints.fs" />
     <Compile Include="SessionEndpoints.fs" />
     <Compile Include="FileServing.fs" />
     <Compile Include="AttachmentTools.fs" />
+    <Compile Include="EventsEndpoint.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

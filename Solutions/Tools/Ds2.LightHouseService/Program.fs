@@ -68,6 +68,9 @@ let configureApp
     // Phase S3 — session idle TTL sweep BackgroundService (L2-3).
     builder.Services.AddHostedService<SessionSweepService>() |> ignore
 
+    // Phase S7 D-S7-2 (s6-r27) — in-memory EventBus (SSE pub-sub). process-wide singleton.
+    builder.Services.AddSingleton<EventBus>() |> ignore
+
     // Phase S3 — MCP server host (todo-lighthouse-kb-server.md §3.1.3 / §4.2 Phase S3).
     // `ModelContextProtocol.AspNetCore 1.2.0` (D-S3-2, Promaker alignment).
     // `WithToolsFromAssembly()` 가 본 assembly 의 [<McpServerToolType>] 발견 — AttachmentTools 자동 등록.
@@ -118,10 +121,13 @@ let configureApp
     // 3. 인증 통과 endpoint — Phase S2 collection 관리 API + Phase S3 session 발급/해제
     let notifier = app.Services.GetRequiredService<ICollectionLifecycleNotifier>()
     let registry = app.Services.GetRequiredService<ISessionRegistry>()
-    CollectionEndpoints.map app cfg notifier
+    let eventBus = app.Services.GetRequiredService<EventBus>()  // Phase S7 D-S7-2 (s6-r27)
+    CollectionEndpoints.map app cfg notifier eventBus
     SessionEndpoints.map app registry
     // Phase S4 — file serving (citation 원문 stream, §3.9 / §4.2 Phase S4 / D6).
     FileServing.map app storageRoot
+    // Phase S7 D-S7-2 (s6-r27) — `GET /events` SSE endpoint (collection-added/updated/deleted + keepalive).
+    EventsEndpoint.map app eventBus
 
     // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
     //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).
