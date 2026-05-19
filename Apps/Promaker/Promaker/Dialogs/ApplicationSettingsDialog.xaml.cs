@@ -287,6 +287,9 @@ public partial class ApplicationSettingsDialog : Window
     private void VlmModelCandidates_Click(object sender, RoutedEventArgs e)
         => ShowCandidatesMenu(sender, VlmModelBox, VlmModelCandidates);
 
+    // semantic SSOT (s6-r25, m9): 사용자 명시 강제 reset. day rollover 자동 reset (RolloverIfNeeded — lazy,
+    // 매 Consume/Status 호출 시점) 과 다른 path. soft-warning 도달 후 즉시 cap 해제하고 색인 재개 use case.
+    // LastResetUtc 를 오늘 날짜로 stamp → 다음 자동 rollover 는 익일 00:00 UTC 이후 첫 호출.
     private void VlmResetCostGate_Click(object sender, RoutedEventArgs e)
     {
         _llmConfig.VisionCostGate.TokensUsedToday = 0;
@@ -301,9 +304,10 @@ public partial class ApplicationSettingsDialog : Window
         var gate = _llmConfig.VisionCostGate;
         gate.RolloverIfNeeded();
         var reset = string.IsNullOrEmpty(gate.LastResetUtc) ? "(reset 안 됨)" : gate.LastResetUtc;
+        // m11 (s6-r25) — 0 입력 UI 안내 명확화: Disabled (cap ≤ 0) 시 "VLM caption 미생성" 명시.
         var statusLabel = gate.Status switch
         {
-            VisionCostGateStatus.Disabled => "비활성 (cap ≤ 0)",
+            VisionCostGateStatus.Disabled => "⚠ 비활성 (cap ≤ 0 — VLM caption 미생성, 색인 시 image 는 caption NULL 유지)",
             VisionCostGateStatus.Normal => "정상",
             VisionCostGateStatus.SoftWarning => "⚠ 80% 초과",
             VisionCostGateStatus.HardCap => "🔒 hard cap — caption skip 중",
@@ -314,8 +318,10 @@ public partial class ApplicationSettingsDialog : Window
         VlmCostGateStatusText.ClearValue(TextBlock.ForegroundProperty);
         // --review M6 정합 — SoftWarning 은 WarningBrush(주황), HardCap 은 FailureBrush(빨강).
         // 이전 SoftWarning 의 SuccessBrush(파랑) 매핑은 의미 충돌이라 정정. m10 UTC 표기도 동시 적용.
+        // m11 (s6-r25): Disabled 도 WarningBrush — 사용자가 0 입력으로 cost gate 의도적 비활성화 명시.
         if (gate.Status == VisionCostGateStatus.SoftWarning) VlmCostGateStatusText.Foreground = WarningBrush;
         else if (gate.Status == VisionCostGateStatus.HardCap) VlmCostGateStatusText.Foreground = FailureBrush;
+        else if (gate.Status == VisionCostGateStatus.Disabled) VlmCostGateStatusText.Foreground = WarningBrush;
     }
 
     // ─── Hot-fix-8 v3: 후보 선택 ContextMenu (TextBox + ▾ Button 패턴) ─────────

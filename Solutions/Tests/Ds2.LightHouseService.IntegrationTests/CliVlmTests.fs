@@ -49,7 +49,7 @@ type CliVlmTests() =
                 Assert.Fail (sprintf "whitespace 가드 noop 기대, 실제 %A" other))
 
     [<Fact>]
-    member _.``LIGHTHOUSE_VLM_API_KEY 박제 → noop 가 아닌 callAnthropic 분기 (fake key 로 FailedCaption / 응답 결함)`` () =
+    member _.``LIGHTHOUSE_VLM_API_KEY 박제 → noop 가 아닌 callAnthropic 분기 (FailedCaption 또는 다른 SkippedCaption — "no caption gen" 미반환 SSOT)`` () =
         // fake key 박제 — callAnthropic 진입. 외부 네트워크 실 호출이라 (a) 4xx (b) network 실패 (c) timeout
         // 어느 경우든 noop "no caption gen" 분기 아닌 다른 결과 박제. SSOT = noop 분기 미진입 검증.
         // 본 fact 는 cli e2e 환경에서 external network 도달 시점에 actually FailedCaption 분기. fail-safe 보장됨.
