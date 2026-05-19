@@ -45,7 +45,7 @@ type CliUploadTests(fixture: ServiceFixture) =
             Assert.Equal(1, fileCount)
             Assert.True(totalBytes > 0L)
 
-            let ingested = Packager.runIngestInStaging stagingDir CancellationToken.None
+            let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
             Assert.True(ingested >= 1, sprintf "ingested >= 1 기대, 실제 %d" ingested)
 
             Packager.writeMeta stagingDir "cli-test" srcFolder fileCount totalBytes userIdentity
@@ -76,7 +76,7 @@ type CliUploadTests(fixture: ServiceFixture) =
             let mutable ediOpt : ExceptionDispatchInfo option = None
             try
                 let fileCount, totalBytes = Packager.copyToStaging srcFolder stagingDir
-                let ingested = Packager.runIngestInStaging stagingDir CancellationToken.None
+                let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
                 Assert.True(ingested >= 1)
                 let title = "cli-upload-" + Guid.NewGuid().ToString("N").Substring(0, 8)
                 Packager.writeMeta stagingDir title srcFolder fileCount totalBytes userIdentity
@@ -117,7 +117,7 @@ type CliUploadTests(fixture: ServiceFixture) =
             let mutable zipPath = ""
             try
                 let fileCount, totalBytes = Packager.copyToStaging srcFolder stagingDir
-                let ingested = Packager.runIngestInStaging stagingDir CancellationToken.None
+                let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
                 Assert.True(ingested >= 1)
                 Packager.writeMeta stagingDir "auth-fail" srcFolder fileCount totalBytes userIdentity
                 zipPath <- Packager.createZip stagingDir

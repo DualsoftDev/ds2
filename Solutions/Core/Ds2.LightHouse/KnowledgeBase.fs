@@ -26,9 +26,14 @@ type KnowledgeBase = {
     ReadImages: string -> string -> (string * string * string * string option) array
     /// 활성 active 셋 — caller 가 LlmConfig 의 path 와 매칭할 때 사용.
     ActivePaths: string array
-    /// 명시적 dispose. `using` / `IDisposable` 대신 record 의 함수 필드로 (F# idiomatic).
+    /// 명시적 dispose. record field 형태 유지 (F# idiomatic, mock 친화). `IDisposable` interface 도 박제
+    /// (s6-r35 외부 --review L-Maj-4) — C# caller (server SessionKb.dispose 등) 가 `using` 키워드 자동 호출
+    /// 가능. interface impl 은 본 field 위임.
     Dispose: unit -> unit
 }
+with
+    interface System.IDisposable with
+        member this.Dispose() = this.Dispose ()
 
 
 /// KnowledgeBase facade 진입점.
@@ -143,7 +148,12 @@ module KnowledgeBase =
     /// 4. ATTACH 가드 — §3.18.2 한계 초과 시 fail-fast
     ///
     /// 빈 active 셋 (`activePaths.Length = 0`) → 모든 search/list 가 empty 반환하는 valid facade.
-    let openCollections (activePaths: string array) : KnowledgeBase =
+    ///
+    /// **`embedderOpt` (Phase 4 s6-r35)**: `None` 시 `Search` 가 BM25-only path (기존 동작), `Some embedder`
+    /// 시 hybrid (BM25 + vector RRF). server 측 (LightHouseService) 는 embedder 주입 시점 (P4-C 박제) 까지
+    /// None 박제 — `Chunks_Vectors` 가 있어도 BM25-only fallback (회귀 0). Promaker client 측은 OllamaSharp
+    /// adapter 도입 후 (P4-C/D) Some 박제 가능.
+    let openCollections (activePaths: string array) (embedderOpt: IEmbeddingProvider option) : KnowledgeBase =
         if activePaths.Length > SqliteStore.MaxAttachedDbs then
             raise (InvalidOperationException(
                 sprintf "ATTACH 제한 초과 — active collection %d 개, SQLite default %d 까지 (§3.18.2)."
@@ -156,6 +166,10 @@ module KnowledgeBase =
         csb.Mode <- SqliteOpenMode.Memory
         let conn = new SqliteConnection(csb.ToString())
         conn.Open()
+        // Phase 4 (s6-r35) — main connection 에도 vec0 extension load. ATTACH 된 DB 의 Chunks_Vectors 를
+        // query 할 때 SQLite 는 *main connection 의* extension list 만 본다 — ATTACH 된 DB 의 module 자체는
+        // 공유되나, hybrid retrieval 시 vec0 MATCH expression 을 compile 하려면 main 에 vec0 module 박제 의무.
+        SqliteStore.loadVec0Extension conn
 
         // ATTACH 도중 실패 (DB 파일 손상 / SQLite limit / 권한 등) 시 conn 누수 방지 — Dispose 후 reraise (review C1).
         let aliases =
@@ -183,7 +197,7 @@ module KnowledgeBase =
                 reraise()
 
         {
-            Search      = fun query -> Searcher.search conn aliases query Searcher.DefaultMaxExcerptTokens
+            Search      = fun query -> Searcher.search conn aliases embedderOpt query Searcher.DefaultMaxExcerptTokens
             List        = fun () -> Searcher.listDocuments conn aliases
             Outline     = fun fileId -> Searcher.getOutline conn aliases fileId
             Read        = fun fileId ref -> Searcher.readByRef conn aliases fileId ref Searcher.DefaultMaxExcerptTokens

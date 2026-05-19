@@ -618,11 +618,27 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
 
     /// **Phase 4 (s6-r34)** — N chunks 의 embedding batch upsert. 외부 transaction 안에서 호출 가능.
     /// caller (Indexer) 가 `lookupChunkIdsByDocument` 로 ChunkId 받은 후 매핑하여 호출.
+    ///
+    /// **s6-r35 외부 --review 적용 (L-Maj-1)** — 본 함수가 자체 transaction wrap. 각 `upsertChunkEmbedding` 가
+    /// DELETE + INSERT (2 statement) 라 autocommit 모드 시 매 chunk 마다 fsync 2회 → N chunk 시 disk IO 2N
+    /// 회 + race window (DELETE 와 INSERT 사이 다른 connection 의 read). single transaction commit 으로 N
+    /// 개 statement 묶음 → fsync 1회 + atomic. insertChunks 의 batch transaction 패턴 정합. `upsertChunkEmbedding`
+    /// 안 SqliteCommand 는 transaction 명시 박제 없어도 active transaction 자동 inherit (Microsoft.Data.Sqlite 표준).
     let upsertChunkEmbeddingsBatch
         (conn: SqliteConnection)
         (chunkIdToEmbedding: (int64 * float32[]) array)
         (ct: CancellationToken)
         : unit =
-        for (cid, emb) in chunkIdToEmbedding do
-            ct.ThrowIfCancellationRequested()
-            upsertChunkEmbedding conn cid emb
+        if chunkIdToEmbedding.Length = 0 then ()
+        else
+            let txn = conn.BeginTransaction()
+            try
+                for (cid, emb) in chunkIdToEmbedding do
+                    ct.ThrowIfCancellationRequested()
+                    upsertChunkEmbedding conn cid emb
+                txn.Commit()
+                txn.Dispose()
+            with _ ->
+                try txn.Rollback() with _ -> ()
+                txn.Dispose()
+                reraise()

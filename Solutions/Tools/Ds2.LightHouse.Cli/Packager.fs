@@ -78,7 +78,14 @@ module Packager =
         count, bytes
 
     /// staging dir 안 색인 (Indexer.ingest) — `<staging>/.lighthouse-kb/index.db` 생성.
-    let runIngestInStaging (stagingDir: string) (ct: CancellationToken) : int =
+    ///
+    /// **Phase 4 (s6-r35) P4-B.2**: `embedderOpt` parameter 추가 — caller (Program.runUpload) 가 `--no-embedding`
+    /// flag 분기로 None / Some 결정. 현재 안 A 정합 default 도 None (OllamaSharp adapter 도입은 P4-C).
+    let runIngestInStaging
+        (stagingDir: string)
+        (embedderOpt: IEmbeddingProvider option)
+        (ct: CancellationToken)
+        : int =
         let extractors : IExtractor list = [
             new TextExtractor() :> IExtractor
             new PdfExtractor() :> IExtractor
@@ -87,8 +94,7 @@ module Packager =
         let progressCb (_: IngestProgress) = ()
         // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
         let captionGen = Vlm.buildCaptionGen ct
-        // Phase 4 (s6-r34): embedderOpt = None — Packager 는 P4-B 진입 시 caller (lighthouse-cli) 로부터 Ollama adapter 주입.
-        let results = Indexer.ingest stagingDir extractors captionGen None progressCb ct
+        let results = Indexer.ingest stagingDir extractors captionGen embedderOpt progressCb ct
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         ingested
 

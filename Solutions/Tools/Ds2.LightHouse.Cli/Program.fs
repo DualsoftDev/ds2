@@ -24,10 +24,11 @@ open Ds2.LightHouse.Cli
 
 let private usage () =
     eprintfn "usage:"
-    eprintfn "  lighthouse-cli index <folder> [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
+    eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
+    eprintfn "  --no-embedding             vector embedding 생성 skip (BM25-only 색인). default = embedding 사용 (P4-C 도입 후)"
     eprintfn "  --upload <url>             LightHouseService base URL (https://host:port)"
     eprintfn "  --psk <key>                PSK (DPAPI 미적용 평문 — env var LIGHTHOUSE_PSK 권장)"
     eprintfn "  --title <name>             collection 표시 이름 (생략 시 폴더명)"
@@ -70,7 +71,17 @@ let private defaultUserIdentity () =
         | u -> u
     sprintf "%s@%s" user Environment.MachineName
 
-let private runIndex (folder: string) : int =
+/// **Phase 4 (s6-r35) P4-B.2** — embedder backend 선택. `noEmbedding=true` 시 강제 None (BM25-only path).
+/// 본 turn 의 P4-B 안 A 박제 정합 — OllamaSharp adapter 도입은 P4-C 박제. 따라서 본 turn 의 default 도 None
+/// (caller 가 P4-C 진입 시점에 noEmbedding=false 분기에서 OllamaSharp 등 backend wire). 향후 default-on
+/// 변경 시에도 `--no-embedding` 사용자 opt-out 보장.
+let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
+    if noEmbedding then None
+    else
+        // P4-C 진입 후: OllamaSharp adapter / OpenAI / ONNX wrapper 분기. 현재는 default None (BM25-only).
+        None
+
+let private runIndex (folder: string) (noEmbedding: bool) : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
         11
@@ -87,11 +98,12 @@ let private runIndex (folder: string) : int =
                 let current = p.CurrentFile |> Option.defaultValue ""
                 eprintfn "  [%d%%] %d/%d — %s" pct p.CompletedFiles p.TotalFiles current
                 lastReported <- pct
-        printfn "색인 시작 — %s" folder
+        printfn "색인 시작 — %s%s" folder (if noEmbedding then " (--no-embedding)" else "")
         // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
         let captionGen = Vlm.buildCaptionGen CancellationToken.None
-        // Phase 4 (s6-r34): embedderOpt = None — CLI 본격 embedding 통합은 P4-B 의 --no-embedding flag + Ollama adapter 진입 시.
-        let results = Indexer.ingest folder extractors captionGen None progressCb CancellationToken.None
+        // Phase 4 (s6-r35) P4-B.2: --no-embedding flag wire — resolveEmbedder 가 backend 선택 SSOT.
+        let embedder = resolveEmbedder noEmbedding
+        let results = Indexer.ingest folder extractors captionGen embedder progressCb CancellationToken.None
         let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
         let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
         let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
@@ -107,6 +119,7 @@ let private runUpload
         (title: string)
         (userIdentity: string)
         (allowInvalidCerts: bool)
+        (noEmbedding: bool)
         : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
@@ -124,7 +137,8 @@ let private runUpload
                     12
                 else
                     eprintfn "  색인 시작 — %d 파일 (%d bytes)" fileCount totalBytes
-                    let ingested = Packager.runIngestInStaging stagingDir CancellationToken.None
+                    let embedder = resolveEmbedder noEmbedding
+                    let ingested = Packager.runIngestInStaging stagingDir embedder CancellationToken.None
                     if ingested = 0 then
                         eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단"
                         12
@@ -190,14 +204,16 @@ let main args =
                         |> Option.filter (String.IsNullOrWhiteSpace >> not)
                         |> Option.defaultWith defaultUserIdentity
                     let allowInvalidCerts = Map.containsKey "allow-invalid-certs" flags
-                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts
+                    let noEmbedding = Map.containsKey "no-embedding" flags
+                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding
             | Some _ ->
                 // 자가 검열 C1 — `--upload` 가 value 없거나 빈 string 이면 silent `runIndex` fallback 차단.
                 // 사용자 의도는 upload 였으므로 explicit reject 후 exit 10 (usage hint).
                 eprintfn "오류: --upload <url> 인자 누락"
                 10
             | None ->
-                runIndex folder
+                let noEmbedding = Map.containsKey "no-embedding" flags
+                runIndex folder noEmbedding
         | _ ->
             usage ()
             10
