@@ -26,10 +26,12 @@ public sealed class LightHouseClientHolderTests : IDisposable
 
     private static LlmConfig MakeConfig(string? baseUrl = TestBaseUrl, string? psk = TestPsk)
     {
+        // **D-S7-3a (s6-r29)** — 새 multi-service path. EnsureActiveService 가 ServiceId 자동 발급 + Active=true.
         var c = new LlmConfig();
         if (!string.IsNullOrEmpty(baseUrl))
         {
-            c.LightHouseService = new LightHouseServiceConfig { BaseUrl = baseUrl };
+            var svc = c.EnsureActiveService();
+            svc.BaseUrl = baseUrl;
             if (!string.IsNullOrEmpty(psk)) c.SetLightHousePsk(psk);
         }
         return c;
@@ -59,7 +61,7 @@ public sealed class LightHouseClientHolderTests : IDisposable
         var cfg = MakeConfig();
         var c1 = LightHouseClientHolder.EnsureCreated(cfg);
 
-        cfg.LightHouseService!.BaseUrl = "https://other.local:9443";
+        cfg.LightHouseServices[0].BaseUrl = "https://other.local:9443";
         var c2 = LightHouseClientHolder.EnsureCreated(cfg);
         Assert.NotNull(c1);
         Assert.NotNull(c2);
@@ -119,11 +121,11 @@ public sealed class LightHouseClientHolderTests : IDisposable
     [Fact]
     public void EnsureCreated_returns_null_when_psk_missing()
     {
-        // BaseUrl 만 있고 PSK 미설정
-        var cfg = new LlmConfig
-        {
-            LightHouseService = new LightHouseServiceConfig { BaseUrl = TestBaseUrl, ApiKeyEncrypted = "" },
-        };
+        // BaseUrl 만 있고 PSK 미설정. D-S7-3a — EnsureActiveService 로 entry 생성, PSK 미설정.
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        svc.BaseUrl = TestBaseUrl;
+        svc.ApiKeyEncrypted = "";
         Assert.Null(LightHouseClientHolder.EnsureCreated(cfg));
     }
 
@@ -131,10 +133,9 @@ public sealed class LightHouseClientHolderTests : IDisposable
     public void EnsureCreated_returns_null_when_baseUrl_invalid_https_check()
     {
         // plain HTTP — LightHouseClient ctor 가 ArgumentException → holder 가 catch 후 null.
-        var cfg = new LlmConfig
-        {
-            LightHouseService = new LightHouseServiceConfig { BaseUrl = "http://insecure.local:8080" },
-        };
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        svc.BaseUrl = "http://insecure.local:8080";
         cfg.SetLightHousePsk(TestPsk);
         Assert.Null(LightHouseClientHolder.EnsureCreated(cfg));
     }

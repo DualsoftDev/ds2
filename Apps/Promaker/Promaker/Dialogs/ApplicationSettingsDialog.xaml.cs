@@ -242,9 +242,13 @@ public partial class ApplicationSettingsDialog : Window
         // Ollama base URL
         LlmOllamaBaseUrlBox.Text = _llmConfig.OllamaBaseUrl;
 
-        // LightHouse Service — BaseUrl / PSK (Phase S5b)
-        LhBaseUrlBox.Text = _llmConfig.LightHouseService?.BaseUrl ?? "";
-        LhPskBox.Password = _llmConfig.GetLightHousePsk() ?? "";
+        // LightHouse Service — BaseUrl / PSK (Phase S5b → D-S7-3a active service path).
+        // 본 dialog 는 단일 service 만 표시. multi-service UI 는 D-S7-3c 진입.
+        var activeLhService = _llmConfig.LightHouseServices.FirstOrDefault(s => s.Active);
+        LhBaseUrlBox.Text = activeLhService?.BaseUrl ?? "";
+        LhPskBox.Password = activeLhService is null
+            ? ""
+            : (_llmConfig.GetLightHousePsk(activeLhService.ServiceId) ?? "");
 
         // VLM (Phase 2 task D / E, s6-r20)
         // --review M5 정합 (s6-r21): 미지원 provider (openai / ollama 등 향후 확장 후보) 가 JSON 에 박혀있으면
@@ -479,11 +483,14 @@ public partial class ApplicationSettingsDialog : Window
         var newOllamaModel    = string.IsNullOrWhiteSpace(LlmOllamaModelBox.Text)    ? fallback.OllamaModel    : LlmOllamaModelBox.Text.Trim();
         var newOllamaBaseUrl  = string.IsNullOrWhiteSpace(LlmOllamaBaseUrlBox.Text)  ? fallback.OllamaBaseUrl  : LlmOllamaBaseUrlBox.Text.Trim();
 
-        // LightHouse Service (Phase S5b) — BaseUrl + PSK dirty 비교.
+        // LightHouse Service (Phase S5b → D-S7-3a active service path) — BaseUrl + PSK dirty 비교.
         var newLhBaseUrl = (LhBaseUrlBox.Text ?? "").Trim();
         var newLhPsk     = LhPskBox.Password ?? "";
-        var oldLhBaseUrl = _llmConfig.LightHouseService?.BaseUrl ?? "";
-        var oldLhPsk     = _llmConfig.GetLightHousePsk() ?? "";
+        var oldActiveLhService = _llmConfig.LightHouseServices.FirstOrDefault(s => s.Active);
+        var oldLhBaseUrl = oldActiveLhService?.BaseUrl ?? "";
+        var oldLhPsk     = oldActiveLhService is null
+            ? ""
+            : (_llmConfig.GetLightHousePsk(oldActiveLhService.ServiceId) ?? "");
 
         // s6-r20 (D-iii / E-i): VLM provider / model / daily token cap dirty 비교.
         // --review M5 정합: unrecognized 항목의 Content="unrecognized: <prov>" 일 때 Tag 의 원본 값 사용.
@@ -523,17 +530,17 @@ public partial class ApplicationSettingsDialog : Window
         _llmConfig.VlmModel = newVlmModel;
         _llmConfig.VisionCostGate.DailyTokenCap = newVlmDailyCap;
 
-        // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 config 자체 제거.
+        // LightHouse Service — BaseUrl + PSK 양쪽 빈 값이면 active service entry 제거 (D-S7-3a).
         var lhDirty = newLhBaseUrl != oldLhBaseUrl || newLhPsk != oldLhPsk;
         if (string.IsNullOrEmpty(newLhBaseUrl) && string.IsNullOrEmpty(newLhPsk))
         {
-            _llmConfig.LightHouseService = null;
+            _llmConfig.ClearActiveService();
         }
         else
         {
-            _llmConfig.LightHouseService ??= new LightHouseServiceConfig();
-            _llmConfig.LightHouseService.BaseUrl = newLhBaseUrl;
-            _llmConfig.SetLightHousePsk(newLhPsk);
+            var svc = _llmConfig.EnsureActiveService();
+            svc.BaseUrl = newLhBaseUrl;
+            _llmConfig.SetLightHousePsk(svc.ServiceId, newLhPsk);
         }
 
         _llmConfig.Save();
