@@ -17,8 +17,7 @@ public partial class SimulationPanelState
     /// <summary>연속투입 토글 사용 가능 여부. Monitoring 또는 Control+실 PLC 에서는 외부(PLC/원격 호스트) 가
     /// 토큰 투입 owner 이므로 시뮬 로컬 자동 투입이 의미 없고 충돌 위험 → 비활성.</summary>
     public bool IsContinuousInjectionAvailable =>
-        SelectedRuntimeMode != RuntimeMode.Monitoring
-        && !(SelectedRuntimeMode == RuntimeMode.Control && IsRealPlcConnected);
+        RuntimeCommandPolicy.isContinuousInjectionAvailable(SelectedRuntimeMode, IsRealPlcConnected);
 
     partial void OnIsContinuousInjectionEnabledChanged(bool value)
     {
@@ -52,11 +51,12 @@ public partial class SimulationPanelState
 
     private void TryContinueSourceCycle(Guid workGuid, Status4 newState)
     {
-        if (!IsContinuousInjectionEnabled
-            || !IsSimulating
-            || IsSimPaused
-            || IsHomingPhase
-            || newState != Status4.Ready
+        if (!RuntimeCommandPolicy.canContinueSourceCycle(
+                IsContinuousInjectionEnabled,
+                IsSimulating,
+                IsSimPaused,
+                IsHomingPhase,
+                newState)
             || _simEngine is not { } engine)
             return;
 

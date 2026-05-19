@@ -153,26 +153,12 @@ public partial class SimulationPanelState
 
     private void CollectRaceConditionWarning(List<GraphWarningSection> sections, SimIndex index)
     {
-        if (index.CallRaceExclusions.Count == 0) return;
+        var warnings = GraphWarningProjection.findRaceConditionWarnings(index).ToList();
+        if (warnings.Count == 0) return;
 
-        var lines = new List<string>();
-        var reported = new HashSet<string>();
-        foreach (var kv in index.CallRaceExclusions)
-        {
-            var callGuid = kv.Key;
-            var callName = Store.Calls.TryGetValue(callGuid, out var c) ? c.Name : "?";
-            var workGuid = index.CallWorkGuid.TryGetValue(callGuid, out var wg) ? wg : Guid.Empty;
-            var workName = index.WorkName.TryFind(workGuid)?.Value ?? "?";
-            foreach (var exGuid in kv.Value)
-            {
-                var exName = Store.Calls.TryGetValue(exGuid, out var ec) ? ec.Name : "?";
-                var pairKey = string.Join(",", new[] { callGuid.ToString(), exGuid.ToString() }.OrderBy(x => x));
-                if (reported.Add(pairKey))
-                    lines.Add($"  - {workName}: {callName} ↔ {exName}");
-            }
-        }
-
-        if (lines.Count == 0) return;
+        var lines = warnings
+            .Select(warning => $"  - {warning.WorkName}: {warning.LeftCallName} ↔ {warning.RightCallName}")
+            .ToList();
 
         sections.Add(new GraphWarningSection(
             $"Race Condition ({lines.Count}쌍)", WarningSeverity.Yellow, lines,
@@ -181,31 +167,16 @@ public partial class SimulationPanelState
 
     private void CollectDurationWarning(List<GraphWarningSection> sections, SimIndex index)
     {
-        var lines = new List<string>();
-        foreach (var workGuid in index.AllWorkGuids)
-        {
-            var workOpt = Queries.getWork(workGuid, index.Store);
-            if (workOpt is null) continue;
+        var warnings = GraphWarningProjection.findDurationLessThanCriticalPathWarnings(index).ToList();
+        foreach (var warning in warnings)
+            _warningGuids.Add(warning.WorkGuid);
 
-            var periodOpt = workOpt.Value.Duration;
-            var userMs = periodOpt != null && Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>.get_IsSome(periodOpt)
-                ? (int)periodOpt.Value.TotalMilliseconds
-                : 0;
+        if (warnings.Count == 0) return;
 
-            var deviceOpt = Queries.tryGetDeviceDurationMs(workGuid, index.Store);
-            if (deviceOpt is null) continue;
-            var deviceMs = deviceOpt.Value;
-
-            if (userMs > 0 && userMs < deviceMs)
-            {
-                var sysName = index.WorkSystemName.TryFind(workGuid)?.Value ?? "";
-                var wName = index.WorkName.TryFind(workGuid)?.Value ?? "";
-                _warningGuids.Add(workGuid);
-                lines.Add($"  - {sysName}.{wName} (설정: {userMs}ms, Critical Path: {deviceMs}ms)");
-            }
-        }
-
-        if (lines.Count == 0) return;
+        var lines = warnings
+            .Select(warning =>
+                $"  - {warning.SystemName}.{warning.WorkName} (설정: {warning.ConfiguredMs}ms, Critical Path: {warning.CriticalPathMs}ms)")
+            .ToList();
 
         sections.Add(new GraphWarningSection(
             "Work Duration < Critical Path", WarningSeverity.Yellow, lines,
@@ -228,24 +199,13 @@ public partial class SimulationPanelState
 
     private void CollectTokenSpecWarning(List<GraphWarningSection> sections, SimIndex index)
     {
-        var specs = Queries.getTokenSpecs(Store);
-        var specWorkIds = new HashSet<Guid>(
-            specs
-                .Where(s => s.WorkId != null)
-                .Select(s => Queries.resolveOriginalWorkId(s.WorkId.Value, Store)));
-
-        var missing = index.TokenSourceGuids
-            .Where(g => !specWorkIds.Contains(g))
-            .Select(g => index.WorkName.TryFind(g))
-            .Where(n => n != null)
-            .Select(n => n!.Value)
-            .ToList();
+        var missing = GraphWarningProjection.findTokenSourcesWithoutSpecs(index).ToList();
 
         if (missing.Count == 0) return;
 
         sections.Add(new GraphWarningSection(
             "TokenSpec 미설정", WarningSeverity.Yellow,
-            missing.Select(n => $"  - {n}").ToList(),
+            missing.Select(warning => $"  - {warning.WorkName}").ToList(),
             "(토큰 이름이 \"Work이름#번호\" 형식으로 표시됩니다)"));
     }
 }
