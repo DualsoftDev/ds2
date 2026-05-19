@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AAStoPLC.TagWizard;
 using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.Controls.ExpressionEditor.Providers;
 
@@ -82,8 +83,9 @@ public sealed class SignalPatternSymbolProvider : IExpressionSymbolProvider
             if (string.IsNullOrEmpty(sysType)) continue;
             if (!presets.TryGetValue(sysType, out var preset) || preset == null) continue;
 
-            var (flowName, _) = FlowWorkName(store, call);
-            var sysName = ActiveSystemName(store, call);
+            // store traversal + 매크로 치환은 F# ConditionSymbolQueries 위임.
+            var (flowName, _) = ConditionSymbolQueries.ResolveFlowWorkName(store, call).ToValueTuple();
+            var sysName = ConditionSymbolQueries.ResolveActiveSystemName(store, call);
             var device = call.DevicesAlias ?? "";
             var groupLabel = $"FB OUT / {(string.IsNullOrEmpty(flowName) ? "?" : flowName)} {device}";
 
@@ -94,7 +96,7 @@ public sealed class SignalPatternSymbolProvider : IExpressionSymbolProvider
                     if (e == null || e.IsSpare) continue;
                     if (string.IsNullOrWhiteSpace(e.Pattern)) continue;
                     if (string.IsNullOrWhiteSpace(e.TargetFBPort)) continue;
-                    var resolved = Substitute(e.Pattern, flowName, device, e.ApiName ?? "", sysName);
+                    var resolved = ConditionSymbolQueries.SubstituteMacros(e.Pattern, flowName, device, e.ApiName ?? "", sysName);
                     if (string.IsNullOrWhiteSpace(resolved)) continue;
                     if (seen.Add(resolved))
                         output.Add(new SymbolCandidate(resolved, null, groupLabel));
@@ -106,44 +108,12 @@ public sealed class SignalPatternSymbolProvider : IExpressionSymbolProvider
         return output;
     }
 
-    private static string ResolveCallSystemType(DsStore store, Ds2.Core.Call call)
-    {
-        foreach (var ac in call.ApiCalls)
-        {
-            if (ac.ApiDefId == null || !Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
-            var apiDefId = ac.ApiDefId.Value;
-            if (!store.ApiDefs.TryGetValue(apiDefId, out var def)) continue;
-            if (!store.Systems.TryGetValue(def.ParentId, out var sys)) continue;
-            if (sys.SystemType != null
-                && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(sys.SystemType)
-                && !string.IsNullOrEmpty(sys.SystemType.Value))
-                return sys.SystemType.Value;
-        }
-        return "";
-    }
+    private static string ResolveCallSystemType(DsStore store, Ds2.Core.Call call) =>
+        ConditionSymbolQueries.ResolveCallSystemType(store, call);
+}
 
-    private static (string flow, string work) FlowWorkName(DsStore store, Ds2.Core.Call call)
-    {
-        if (!store.Works.TryGetValue(call.ParentId, out var work)) return ("", "");
-        if (!store.Flows.TryGetValue(work.ParentId, out var flow)) return ("", work.Name ?? "");
-        return (flow.Name ?? "", work.Name ?? "");
-    }
-
-    private static string ActiveSystemName(DsStore store, Ds2.Core.Call call)
-    {
-        if (!store.Works.TryGetValue(call.ParentId, out var work)) return "";
-        if (!store.Flows.TryGetValue(work.ParentId, out var flow)) return "";
-        if (!store.Systems.TryGetValue(flow.ParentId, out var sys)) return "";
-        return sys.Name ?? "";
-    }
-
-    private static string Substitute(string pattern, string flow, string device, string api, string system)
-    {
-        if (string.IsNullOrEmpty(pattern)) return "";
-        return pattern
-            .Replace("$(F)", flow ?? "")
-            .Replace("$(D)", device ?? "")
-            .Replace("$(A)", api ?? "")
-            .Replace("$(S)", system ?? "");
-    }
+internal static class ConditionSymbolQueriesCSharpHelpers
+{
+    /// <summary>F# struct tuple → C# ValueTuple 변환.</summary>
+    public static (string Flow, string Work) ToValueTuple(this System.ValueTuple<string, string> t) => t;
 }

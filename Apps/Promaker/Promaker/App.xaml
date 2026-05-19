@@ -1,12 +1,13 @@
 <Application x:Class="Promaker.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml"
+             StartupUri="Windows/MainWindow/MainWindow.xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/Theme.Dark.xaml"/>
+                <ResourceDictionary Source="Dialogs/TagWizard/Dialog.Resources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <!-- v16 — AvalonDock Metro theme 의 BaseColor1(White) / BaseColor7(#EEEEEE) 가
                  document pane 과 splitter 주변에 두꺼운 흰 선으로 노출되는 문제를 앱 배경색으로 억제. -->

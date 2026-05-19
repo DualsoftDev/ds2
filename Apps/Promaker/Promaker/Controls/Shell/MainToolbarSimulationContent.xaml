@@ -430,8 +430,8 @@
                     <!-- 연속투입: Token 과 같은 padding/외곽선/baseline. IsChecked=True 일 때 AccentBrush 배경 + 흰글씨로 "눌린 이펙트". -->
                     <!-- Monitoring 또는 Control+실 PLC 일 때는 외부 owner 가 토큰 투입 — 비활성. HasProject 게이트는 부모 Grid 가 처리. -->
                     <ToggleButton x:Name="ContinuousInjectionToggle"
-                                  IsChecked="{Binding Simulation.IsContinuousInjectionEnabled}"
-                                  IsEnabled="{Binding Simulation.IsContinuousInjectionAvailable}"
+                                  IsChecked="{Binding Simulation.ContinuousInjection.IsEnabled}"
+                                  IsEnabled="{Binding Simulation.ContinuousInjection.IsAvailable}"
                                   Margin="6,0,0,0"
                                   ToolTip="Source START 후 Ready 복귀 시 다음 토큰을 자동으로 다시 투입합니다. (Monitoring / Control+실 PLC 에서는 비활성)">
                         <ToggleButton.Style>
@@ -524,15 +524,15 @@
                     <Ellipse Width="8" Height="8" Margin="6,0,0,0"
                              VerticalAlignment="Center"
                              Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
-                             ToolTip="{Binding Simulation.HubStatusText}">
+                             ToolTip="{Binding Simulation.Hub.StatusText}">
                         <Ellipse.Style>
                             <Style TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{DynamicResource IconRedBrush}"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Simulation.IsHubReconnecting}" Value="True">
+                                    <DataTrigger Binding="{Binding Simulation.Hub.IsReconnecting}" Value="True">
                                         <Setter Property="Fill" Value="{DynamicResource IconOrangeBrush}"/>
                                     </DataTrigger>
-                                    <DataTrigger Binding="{Binding Simulation.IsHubConnected}" Value="True">
+                                    <DataTrigger Binding="{Binding Simulation.Hub.IsConnected}" Value="True">
                                         <Setter Property="Fill" Value="{DynamicResource IconGreenBrush}"/>
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -541,13 +541,13 @@
                     </Ellipse>
                 </StackPanel>
                 <!-- Self-host 배지 — Control/Monitoring 일 때만 노출, Monitoring 은 [읽기전용] 표시 -->
-                <TextBlock Text="{Binding Simulation.HubHostingLabel}"
+                <TextBlock Text="{Binding Simulation.Hub.HostingLabel}"
                            FontSize="9"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center"
                            Margin="0,1,0,0"
-                           Visibility="{Binding Simulation.IsHubHost, Converter={StaticResource BoolToVis}}"/>
-                <TextBox Text="{Binding Simulation.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
+                           Visibility="{Binding Simulation.Hub.IsHubHost, Converter={StaticResource BoolToVis}}"/>
+                <TextBox Text="{Binding Simulation.Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
                          Width="130" MinHeight="24" FontSize="11"
                          Margin="0,3,0,0"
                          Padding="6,2"

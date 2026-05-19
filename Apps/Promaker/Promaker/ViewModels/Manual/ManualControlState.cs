@@ -72,7 +72,7 @@ public partial class ManualControlState : ObservableObject
                 actionName: actionName,
                 outAddress: m.OutAddress,
                 inAddress: m.InAddress,
-                writeTag: _sim.WriteTagFromManualAsync);
+                writeTag: _sim.Hub.WriteTagFromManualAsync);
             // 같은 device group 의 sibling 인지 토글 시 mutex 처리할 수 있도록 owning group 연결.
             row.Group = group;
             group.Calls.Add(row);
@@ -102,7 +102,7 @@ public partial class ManualControlState : ObservableObject
     public async Task AttachAsync()
     {
         if (_attached) return;
-        _sim.HubTagBroadcast += OnHubTag;
+        _sim.Hub.TagBroadcast += OnHubTag;
         _sim.AttachManualControlState(this);
         _attached = true;
         StatusText = "Hub broadcast 구독 — 초기 값 조회 중";
@@ -110,7 +110,7 @@ public partial class ManualControlState : ObservableObject
         // 초기 OUT/IN 값을 hub 캐시에서 한 번 가져옴.
         foreach (var (addr, rows) in _byAddress)
         {
-            var v = await _sim.QueryTagFromManualAsync(addr);
+            var v = await _sim.Hub.QueryTagFromManualAsync(addr);
             foreach (var row in rows)
             {
                 if (string.Equals(row.OutAddress, addr, StringComparison.OrdinalIgnoreCase)) row.OutValue = v == "true" || v == "1";
@@ -126,7 +126,7 @@ public partial class ManualControlState : ObservableObject
     public void Detach()
     {
         if (!_attached) return;
-        _sim.HubTagBroadcast -= OnHubTag;
+        _sim.Hub.TagBroadcast -= OnHubTag;
         _sim.DetachManualControlState(this);
         _attached = false;
         IsHubConnected = false;

@@ -72,7 +72,7 @@ public sealed class MainToolbarVisualTests
             toggle.IsChecked = true;
             toolbar.UpdateLayout();
 
-            Assert.True(vm.Simulation.IsContinuousInjectionEnabled);
+            Assert.True(vm.Simulation.ContinuousInjection.IsEnabled);
         });
     }
 

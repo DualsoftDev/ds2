@@ -1,0 +1,142 @@
+<UserControl x:Class="Promaker.Dialogs.TagWizardAuxTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Promaker.Dialogs">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel>
+                                                                <TextBlock Text="API → FB 입력 포트 매핑. 와이어 종류: AuxCoil (CallCondition ∧ entry.Condition 으로 보조 코일 생성 → FB 핀에 라벨 와이어), DirectFB (ApiDef 신호를 FB 핀에 직접 와이어 — 로봇 류). AuxKind: AutoAux=CallCondition.AutoAux 합성, ComAux=CallCondition.ComAux 합성, None=조건식만. 인과 조건(선행 Call End)은 조건식의 FB OUT 라벨로 직접 선택. 한 API 에 여러 포트 매핑 가능."
+                                                                           VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                           FontSize="11"
+                                                                           TextWrapping="Wrap"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                                    <Button Content="➕ 행 추가" Padding="10,4" Margin="0,0,4,0"
+                                                                            Background="{DynamicResource AccentBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource AccentBrush}"
+                                                                            Click="AddAuxPortRow_Click"/>
+                                                                    <Button Content="➖ 선택 행 삭제" Padding="10,4" Margin="0,0,5,0"
+                                                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                                            Click="RemoveAuxPortRow_Click"/>
+                                                                    <Button Content="▲" Padding="8,4" Margin="0,0,2,0"
+                                                                            ToolTip="선택 행 위로 이동"
+                                                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                                            Click="MoveAuxRowUp_Click"/>
+                                                                    <Button Content="▼" Padding="8,4" Margin="0,0,15,0"
+                                                                            ToolTip="선택 행 아래로 이동"
+                                                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                                            Click="MoveAuxRowDown_Click"/>
+                                                                    <TextBlock Text="(행 선택 후 Ctrl+C / Ctrl+V — 동일 타입 그리드끼리)"
+                                                                               VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                               FontSize="10"/>
+                                                                </StackPanel>
+                                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                                    <TextBlock Text="포트 표시:" VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                               FontSize="11" Margin="0,0,8,0"/>
+                                                                    <RadioButton x:Name="AuxFilterInput"  GroupName="AuxFilter"
+                                                                                 Content="입력부" Margin="0,0,10,0"
+                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                 Checked="AuxFilter_Changed"/>
+                                                                    <RadioButton x:Name="AuxFilterOutput" GroupName="AuxFilter"
+                                                                                 Content="출력부" Margin="0,0,10,0"
+                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                 Checked="AuxFilter_Changed"/>
+                                                                    <RadioButton x:Name="AuxFilterAll"    GroupName="AuxFilter"
+                                                                                 Content="전체" IsChecked="True"
+                                                                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                 Checked="AuxFilter_Changed"/>
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <DataGrid x:Name="AuxPortGrid" Grid.Row="1"
+                                                                  Style="{StaticResource WizSignalGridStyle}"
+                                                                  SelectionUnit="FullRow">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTemplateColumn Header="심볼" Width="240">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{Binding ApiOptions}"
+                                                                                      SelectedItem="{Binding ApiName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsSynchronizedWithCurrentItem="False"
+                                                                                      ToolTip="IW/QW/MW 패턴에서 심볼 선택 — 코일 비트로 사용됨."/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="FB 입력 포트" Width="240">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{Binding PortOptions}"
+                                                                                      SelectedItem="{Binding TargetFBPort, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsSynchronizedWithCurrentItem="False"
+                                                                                      IsEditable="False"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="와이어 종류" Width="110">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{x:Static local:AuxPortRow.KindOptions}"
+                                                                                      SelectedItem="{Binding Kind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      ToolTip="DirectFB: FB 포트에 변수 직접 와이어 (코일 없음). AuxCoil: 별도 코일 비트 emit + FB 포트가 비트 읽음."/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="AuxKind" Width="100">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <ComboBox ItemsSource="{x:Static local:AuxPortRow.AuxKindOptions}"
+                                                                                      SelectedItem="{Binding AuxKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      IsEnabled="{Binding IsAuxCoil}"
+                                                                                      ToolTip="AutoAux: CallCondition.AutoAux ∧ entry.Condition / ComAux: CallCondition.ComAux ∧ entry.Condition / None: entry.Condition 만. 인과(선행 Call End) 접점은 조건식의 FB OUT 후보에서 직접 선택. DirectFB 면 비활성."/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <DataGridTemplateColumn Header="조건식 (수식)" Width="200">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <Button Content="{Binding ConditionSummary}"
+                                                                                    Tag="{Binding}"
+                                                                                    Click="EditAuxPortCondition_Click"
+                                                                                    HorizontalContentAlignment="Left"
+                                                                                    Padding="6,2"
+                                                                                    BorderThickness="0"
+                                                                                    Background="Transparent"
+                                                                                    Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                    ToolTip="추가 조건식 편집 — DirectFB 는 식이 직접 와이어, AuxCoil 은 자동 조건과 AND 결합"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                                <!-- 행 선택 트리거 — 빈 셀 클릭 시 row select. Ctrl+C/V 호환. -->
+                                                                <DataGridTemplateColumn Header="선택" Width="*" CanUserResize="False">
+                                                                    <DataGridTemplateColumn.CellTemplate>
+                                                                        <DataTemplate>
+                                                                            <Border Background="Transparent"
+                                                                                    Cursor="Hand"
+                                                                                    ToolTip="클릭 시 행 선택 — Ctrl+클릭 다중 선택, Ctrl+C / Ctrl+V 복사 붙여넣기"
+                                                                                    PreviewMouseLeftButtonDown="AuxRowSelector_PreviewMouseLeftButtonDown"/>
+                                                                        </DataTemplate>
+                                                                    </DataGridTemplateColumn.CellTemplate>
+                                                                </DataGridTemplateColumn>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
+</UserControl>

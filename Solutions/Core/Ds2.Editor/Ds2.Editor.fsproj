@@ -11,6 +11,7 @@
     <Compile Include="Commands\UndoRedoManager.fs" />
     <Compile Include="Projection\ViewTypes.fs" />
     <Compile Include="Projection\ConditionFormulaProjection.fs" />
+    <Compile Include="Projection\ApiCallCandidates.fs" />
     <Compile Include="Editor\StoreEditorState.fs" />
     <Compile Include="Editor\Authoring.fs" />
     <Compile Include="Geometry\ArrowPathCalculator.fs" />
@@ -25,6 +26,10 @@
     <Compile Include="Queries\AddTargetQueries.fs" />
     <Compile Include="Queries\EntityKindRules.fs" />
     <Compile Include="Queries\SelectionQueries.fs" />
+    <Compile Include="Queries\SelectionSummary.fs" />
+    <Compile Include="Queries\NameEditorParts.fs" />
+    <Compile Include="Queries\CanvasContextMenuState.fs" />
+    <Compile Include="Queries\ConditionSymbolQueries.fs" />
     <Compile Include="Queries\ConnectionQueries.fs" />
     <Compile Include="Store\Log.fs" />
     <Compile Include="Store\Nodes\Remove.fs" />
@@ -40,6 +45,13 @@
     <Compile Include="Store\Panel\Api.fs" />
     <Compile Include="Store\Panel\UserTags.fs" />
     <Compile Include="Store\Panel\Batch.fs" />
+    <Compile Include="Store\Panel\BasicMacroIo.fs" />
+    <Compile Include="Store\Panel\SystemTypePreset.fs" />
+    <Compile Include="Store\Panel\PanelSelectionStates.fs" />
+    <Compile Include="Store\Panel\PanelEditApply.fs" />
+    <Compile Include="Store\Panel\EditorSelectionProjection.fs" />
+    <Compile Include="Projection\RefreshScope.fs" />
+    <Compile Include="TagWizard\TagWizardBaseAddress.fs" />
     <Compile Include="Editor\ImportPlanApply.fs" />
   </ItemGroup>
 
