@@ -407,6 +407,11 @@ public sealed class CollectionListResponse
 /// <summary>
 /// `GET /events` SSE payload (D-S7-2b s6-r28). server-side `EventBus.ServerEvent` 정합.
 /// `event` = "collection-added" / "collection-updated" / "collection-deleted" / "keepalive".
+/// <para/>
+/// **D-S7-3b (s6-r30) — ServiceId client-side tagging**. server 측 변경 없음 (결정 #4) —
+/// server 는 본인의 serviceId 모름. `LightHouseClientHolder` 의 SSE callback 안에서 stream
+/// 의 owner ServiceId 를 evt 에 박제 후 publish. wire 에는 본 필드 누락 (JsonIgnore) — server
+/// 가 본 필드 deserialize 시 ignore.
 /// </summary>
 public sealed class ServerEventDto
 {
@@ -415,6 +420,13 @@ public sealed class ServerEventDto
     [JsonPropertyName("progress")] public int? Progress { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
     [JsonPropertyName("timestamp")] public string Timestamp { get; set; } = "";
+
+    /// <summary>
+    /// **D-S7-3b (s6-r30)** — client-side tag (wire 송수신 아님). holder 의 SSE callback 안에서
+    /// stream owner ServiceId 박제. KbManagerDialog 등 caller 가 어느 service tab 을 갱신할지 결정.
+    /// </summary>
+    [JsonIgnore]
+    public string ServiceId { get; set; } = "";
 }
 
 internal sealed class SessionCreateRequest

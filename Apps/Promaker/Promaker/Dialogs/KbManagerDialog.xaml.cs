@@ -53,8 +53,9 @@ public partial class KbManagerDialog : Window
         // **review s5c M1**: client/ingest 를 필드로 잡지 않고 매 사용 시점 holder.Current 재조회 —
         // Settings dialog 가 BaseUrl/PSK 변경 시 holder.Invalidate 호출 후 본 다이얼로그가 stale instance 를
         // 잡고 있으면 ObjectDisposedException. modal 가정에 의존하지 않는 1차 안전망.
-        LightHouseClientHolder.EnsureCreated(_config);
-        if (LightHouseClientHolder.Current is null)
+        // D-S7-3b — multi-instance Holder. 본 dialog 는 단일 service path 유지 (D-S7-3c TabControl 진입 시 분리).
+        var clients = LightHouseClientHolder.EnsureCreated(_config);
+        if (clients.Count == 0)
         {
             StatusChip.Text = "⚠ LightHouse Service 미설정 — 설정 > LLM 탭에서 BaseUrl + PSK 입력 후 \"연결 테스트\" 통과 필요.";
         }
@@ -87,10 +88,13 @@ public partial class KbManagerDialog : Window
     }
 
     /// <summary>
-    /// 매 사용 시점 holder.Current 재조회 (review s5c M1). null = active LightHouse service 미설정 또는 Invalidate 후 (D-S7-3a).
+    /// 매 사용 시점 holder 재조회 (review s5c M1). null = active LightHouse service 미설정 또는 Invalidate 후.
     /// caller 가 null 분기 (chip 안내) 처리. holder.EnsureCreated 도 안전 — config 변경 시 자동 재생성.
+    /// <para/>
+    /// **D-S7-3b (s6-r30) 임시 path** — 본 dialog 는 단일 service 가정 (첫 active service 의 client 사용).
+    /// D-S7-3c 진입 시 TabControl 분리하여 각 tab 의 service 별 GetClient(serviceId) 사용 의무.
     /// </summary>
-    private LightHouseClient? CurrentClient => LightHouseClientHolder.EnsureCreated(_config);
+    private LightHouseClient? CurrentClient => LightHouseClientHolder.EnsureCreated(_config).FirstOrDefault();
 
     /// <summary>
     /// AttachmentIngestService 도 매 호출 시점 신규 생성 (cost 미미 — HttpClient 는 holder 공유).
