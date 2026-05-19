@@ -55,12 +55,12 @@ public partial class TagWizardDialog
             var env = System.Text.Json.JsonSerializer.Deserialize<ClipboardEnvelope>(raw);
             if (env == null) return;
 
-            var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+            var fb = Step2Section.GlobalFBTypeCombo?.SelectedItem as string ?? "";
             var sysType = _currentDeviceTemplateFile;
 
             // SignalPatternRow → IW/QW/MW 그리드끼리 호환.
             if (env.Type == "SignalPatternRow"
-                && (grid == IwSignalGrid || grid == QwSignalGrid || grid == MwSignalGrid))
+                && (grid == Step2Section.IwSignalGrid || grid == Step2Section.QwSignalGrid || grid == Step2Section.MwSignalGrid))
             {
                 var sec = AllSections().FirstOrDefault(s => s.Grid == grid);
                 if (sec == null) return;
@@ -82,7 +82,7 @@ public partial class TagWizardDialog
                 PersistCurrentPreset();
             }
             // AuxPortRow → AUX 그리드만.
-            else if (env.Type == "AuxPortRow" && grid == AuxPortGrid)
+            else if (env.Type == "AuxPortRow" && grid == Step2Section.AuxPortGrid)
             {
                 var items = System.Text.Json.JsonSerializer.Deserialize<List<AuxPortClipboardItem>>(env.Json) ?? new();
                 var apiOpts = BuildAuxApiOptions(sysType);

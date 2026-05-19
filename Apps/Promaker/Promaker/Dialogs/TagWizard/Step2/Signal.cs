@@ -37,16 +37,16 @@ public partial class TagWizardDialog
     {
         new SignalSectionInfo {
             Name = "IW", Rows = _iwSignalRows, DefaultPattern = "W_$(F)_WRS_$(D)_$(A)",
-            SectionOf = dto => dto.IwPatterns, Grid = IwSignalGrid,
-            ChunkedToggle = IwChunkedToggle, ChunkedView = IwChunkedView, Chunks = IwChunks },
+            SectionOf = dto => dto.IwPatterns, Grid = Step2Section.IwSignalGrid,
+            ChunkedToggle = Step2Section.IwChunkedToggle, ChunkedView = Step2Section.IwChunkedView, Chunks = IwChunks },
         new SignalSectionInfo {
             Name = "QW", Rows = _qwSignalRows, DefaultPattern = "W_$(F)_SOL_$(D)_$(A)",
-            SectionOf = dto => dto.QwPatterns, Grid = QwSignalGrid,
-            ChunkedToggle = QwChunkedToggle, ChunkedView = QwChunkedView, Chunks = QwChunks },
+            SectionOf = dto => dto.QwPatterns, Grid = Step2Section.QwSignalGrid,
+            ChunkedToggle = Step2Section.QwChunkedToggle, ChunkedView = Step2Section.QwChunkedView, Chunks = QwChunks },
         new SignalSectionInfo {
             Name = "MW", Rows = _mwSignalRows, DefaultPattern = "W_$(F)_M_$(D)_$(A)",
-            SectionOf = dto => dto.MwPatterns, Grid = MwSignalGrid,
-            ChunkedToggle = MwChunkedToggle, ChunkedView = MwChunkedView, Chunks = MwChunks },
+            SectionOf = dto => dto.MwPatterns, Grid = Step2Section.MwSignalGrid,
+            ChunkedToggle = Step2Section.MwChunkedToggle, ChunkedView = Step2Section.MwChunkedView, Chunks = MwChunks },
     };
 
     /// <summary>DTO entry → SignalPatternRow (currentFbType 주입). 레거시 ApiName="-" 도 IsSpare 로 흡수.</summary>
@@ -160,7 +160,7 @@ public partial class TagWizardDialog
             UpdateUnmatchedTab();
 
             var unmatched = _unmatchedRows.Count;
-            GenerationStatusText.Text = unmatched > 0
+            Step3Section.GenerationStatusText.Text = unmatched > 0
                 ? $"✅ IO 신호 {_ioRows.Count}개, Dummy 신호 {_dummyRows.Count}개 생성 | ⚠ 매칭 실패 {unmatched}개"
                 : $"✅ IO 신호 {_ioRows.Count}개, Dummy 신호 {_dummyRows.Count}개가 생성되었습니다. 모든 신호가 매칭되었습니다.";
 
@@ -186,12 +186,12 @@ public partial class TagWizardDialog
     {
         if (_unmatchedRows.Count > 0)
         {
-            UnmatchedTabItem.Visibility = Visibility.Visible;
-            UnmatchedCountText.Text = _unmatchedRows.Count.ToString();
+            Step3Section.UnmatchedTabItem.Visibility = Visibility.Visible;
+            Step3Section.UnmatchedCountText.Text = _unmatchedRows.Count.ToString();
         }
         else
         {
-            UnmatchedTabItem.Visibility = Visibility.Collapsed;
+            Step3Section.UnmatchedTabItem.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -200,7 +200,7 @@ public partial class TagWizardDialog
     /// <summary>
     /// "패턴 적용" 버튼 — 명시적 동의 후 ApiCall 에 일괄 덮어쓰기.
     /// </summary>
-    private void ApplyPatterns_Click(object sender, RoutedEventArgs e) => ConfirmAndApplyPatterns();
+    internal void ApplyPatterns_Click(object sender, RoutedEventArgs e) => ConfirmAndApplyPatterns();
 
     /// <summary>
     /// 단일 확인 → 적용 → 단일 통합 리포트.
@@ -335,7 +335,7 @@ public partial class TagWizardDialog
         foreach (var msg in messages.Distinct())
             _errorItems.Add(new ErrorDisplayItem { ErrorType = "오류", Message = msg });
 
-        ErrorsTabItem.Visibility = _errorItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        ErrorCountText.Text = _errorItems.Count.ToString();
+        Step3Section.ErrorsTabItem.Visibility = _errorItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        Step3Section.ErrorCountText.Text = _errorItems.Count.ToString();
     }
 }

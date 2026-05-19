@@ -1,0 +1,304 @@
+<UserControl x:Class="Promaker.Dialogs.TagWizardStep3Section"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Promaker.Dialogs">
+                    <Grid Margin="40,30">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="20"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0">
+                            <TextBlock Text="Step 3: 신호 생성 및 미리보기"
+                                       FontSize="22"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                            <TextBlock x:Name="GenerationStatusText"
+                                       Text="프리뷰를 확인하세요. 모든 ApiCall 에 일괄 반영하려면 아래 '패턴 적용' 버튼을 누르세요. '다음' 은 적용 없이 다음 단계로만 이동합니다."
+                                       FontSize="14"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- 패턴 적용 버튼 (명시적 덮어쓰기 — IoBatch 와의 충돌 방지 위해 분리) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button x:Name="ApplyPatternsButton"
+                                        Content="⚠ 패턴 적용 (ApiCall 덮어쓰기)"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="14,8"
+                                        FontWeight="SemiBold"
+                                        Click="ApplyPatterns_Click"/>
+                                <TextBlock Text="이 버튼을 누르면 IoBatch 에서 수동 설정한 이름이 모두 덮어써집니다."
+                                           VerticalAlignment="Center"
+                                           Margin="12,0,0,0"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TabControl Grid.Row="2"
+                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    BorderThickness="0">
+                            <!-- IO 신호 탭 -->
+                            <TabItem Header="IO 신호"
+                                     Foreground="{DynamicResource PrimaryTextBrush}">
+                                <DataGrid x:Name="IoSignalPreviewGrid"
+                                          AutoGenerateColumns="False"
+                                          IsReadOnly="True"
+                                          CanUserSortColumns="True"
+                                          CanUserReorderColumns="True"
+                                          CanUserResizeColumns="True"
+                                          SelectionMode="Extended"
+                                          Style="{StaticResource WizardGridStyle}"
+                                          ColumnHeaderStyle="{StaticResource WizFilterColumnHeaderStyle}"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                          Background="{DynamicResource SecondaryBackgroundBrush}">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Binding="{Binding Flow}"       Width="100"
+                                                            HeaderTemplate="{StaticResource PvHeaderFlow}"/>
+                                        <DataGridTextColumn Binding="{Binding Device}"     Width="120"
+                                                            HeaderTemplate="{StaticResource PvHeaderDevice}"/>
+                                        <DataGridTextColumn Binding="{Binding Api}"        Width="120"
+                                                            HeaderTemplate="{StaticResource PvHeaderApi}"/>
+                                        <DataGridTextColumn Binding="{Binding InSymbol}"   Width="1.5*"
+                                                            HeaderTemplate="{StaticResource PvHeaderInTag}"/>
+                                        <DataGridTextColumn Binding="{Binding InAddress}"  Width="120"
+                                                            HeaderTemplate="{StaticResource PvHeaderInAddress}"/>
+                                        <DataGridTextColumn Binding="{Binding OutSymbol}"  Width="1.5*"
+                                                            HeaderTemplate="{StaticResource PvHeaderOutTag}"/>
+                                        <DataGridTextColumn Binding="{Binding OutAddress}" Width="120"
+                                                            HeaderTemplate="{StaticResource PvHeaderOutAddress}"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </TabItem>
+
+                            <!-- Dummy 신호 탭 -->
+                            <TabItem Header="Dummy 신호"
+                                     Foreground="{DynamicResource PrimaryTextBrush}">
+                                <DataGrid x:Name="DummySignalPreviewGrid"
+                                          AutoGenerateColumns="False"
+                                          IsReadOnly="True"
+                                          CanUserSortColumns="True"
+                                          CanUserReorderColumns="True"
+                                          CanUserResizeColumns="True"
+                                          SelectionMode="Extended"
+                                          Style="{StaticResource WizardGridStyle}"
+                                          ColumnHeaderStyle="{StaticResource WizFilterColumnHeaderStyle}"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                          Background="{DynamicResource SecondaryBackgroundBrush}">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Binding="{Binding Flow}"     Width="80"
+                                                            HeaderTemplate="{StaticResource DmHeaderFlow}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding Work}"     Width="100"
+                                                            HeaderTemplate="{StaticResource DmHeaderWork}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding Call}"     Width="120"
+                                                            HeaderTemplate="{StaticResource DmHeaderCall}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding Symbol}"   Width="2*"
+                                                            HeaderTemplate="{StaticResource DmHeaderSymbol}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding Address}"  Width="110"
+                                                            HeaderTemplate="{StaticResource DmHeaderAddress}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding Type}"     Width="60"
+                                                            HeaderTemplate="{StaticResource DmHeaderArea}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                        <DataGridTextColumn Binding="{Binding DataType}" Width="90"
+                                                            HeaderTemplate="{StaticResource DmHeaderDataType}"
+                                                            ElementStyle="{StaticResource WizPrimaryTextCellStyle}"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </TabItem>
+
+                            <!-- 매칭 실패 탭 -->
+                            <TabItem x:Name="UnmatchedTabItem"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     Visibility="Collapsed">
+                                <TabItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="⚠ 매칭 실패 (" Foreground="{DynamicResource OrangeAccentBrush}"/>
+                                        <TextBlock x:Name="UnmatchedCountText" Text="0" Foreground="{DynamicResource OrangeAccentBrush}" FontWeight="Bold"/>
+                                        <TextBlock Text=")" Foreground="{DynamicResource OrangeAccentBrush}"/>
+                                    </StackPanel>
+                                </TabItem.Header>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- 안내 메시지 -->
+                                    <Border Grid.Row="0"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource OrangeAccentBrush}"
+                                            BorderThickness="0,0,0,2"
+                                            Padding="15,12">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="⚠ "/>
+                                            <Run Text="아래 항목들은 DS2 모델과 매칭되지 않았습니다. Flow, Device, Api 이름이 정확히 일치하는지 확인하세요."/>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <!-- 매칭 실패 항목 그리드 -->
+                                    <DataGrid x:Name="UnmatchedSignalGrid"
+                                              Grid.Row="1"
+                                              AutoGenerateColumns="False"
+                                              IsReadOnly="True"
+                                              CanUserSortColumns="True"
+                                              CanUserReorderColumns="True"
+                                              CanUserResizeColumns="True"
+                                              SelectionMode="Extended"
+                                              Style="{StaticResource WizardGridStyle}"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              Background="{DynamicResource SecondaryBackgroundBrush}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Flow" Binding="{Binding Flow}" Width="100">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="120">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Api" Binding="{Binding Api}" Width="140">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="In Tag" Binding="{Binding InSymbol}" Width="1.5*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="In Address" Binding="{Binding InAddress}" Width="110">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Out Tag" Binding="{Binding OutSymbol}" Width="1.5*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress}" Width="110">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="매칭 실패 이유" Binding="{Binding FailureReason}" Width="1.5*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
+                                                        <Setter Property="TextWrapping" Value="Wrap"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </TabItem>
+
+                            <!-- 오류 탭 -->
+                            <TabItem x:Name="ErrorsTabItem"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     Visibility="Collapsed">
+                                <TabItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="✖ 오류 (" Foreground="{DynamicResource RedAccentBrush}"/>
+                                        <TextBlock x:Name="ErrorCountText" Text="0" Foreground="{DynamicResource RedAccentBrush}" FontWeight="Bold"/>
+                                        <TextBlock Text=")" Foreground="{DynamicResource RedAccentBrush}"/>
+                                    </StackPanel>
+                                </TabItem.Header>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- 안내 메시지 -->
+                                    <Border Grid.Row="0"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource RedAccentBrush}"
+                                            BorderThickness="0,0,0,2"
+                                            Padding="15,12">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="✖ "/>
+                                            <Run Text="신호 생성 중 오류가 발생했습니다. 템플릿 설정을 확인하세요."/>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <!-- 오류 항목 리스트 -->
+                                    <ListBox x:Name="ErrorsListBox"
+                                             Grid.Row="1"
+                                             Background="{DynamicResource PrimaryBackgroundBrush}"
+                                             BorderThickness="0"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource RedAccentBrush}"
+                                                        BorderThickness="1,0,0,0"
+                                                        Padding="15,12"
+                                                        Margin="5">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="✖"
+                                                                   FontSize="16"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{DynamicResource RedAccentBrush}"
+                                                                   VerticalAlignment="Top"
+                                                                   Margin="0,0,15,0"/>
+
+                                                        <StackPanel Grid.Column="1">
+                                                            <TextBlock Text="{Binding ErrorType}"
+                                                                       FontSize="13"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource RedAccentBrush}"
+                                                                       Margin="0,0,0,5"/>
+                                                            <TextBlock Text="{Binding Message}"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+</UserControl>

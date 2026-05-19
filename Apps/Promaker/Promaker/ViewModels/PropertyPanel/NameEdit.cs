@@ -16,24 +16,16 @@ public partial class PropertyPanelState
     {
         if (SelectedNode is { Id: var selectedId } && selectedId == entityId)
         {
-            if (SelectedNode.EntityType == EntityKind.Work && newName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+            // entity kind 별 prefix/editable/suffix 분해는 F# NameEditorParts 위임.
+            var parts = SelectedNode.EntityType switch
             {
-                NamePrefix = newName[..(dotIdx + 1)];
-                NameEditorText = newName[(dotIdx + 1)..];
-                NameSuffix = string.Empty;
-            }
-            else if (SelectedNode.EntityType == EntityKind.Call && newName.LastIndexOf('.') is var callDotIdx && callDotIdx >= 0)
-            {
-                NamePrefix = string.Empty;
-                NameEditorText = newName[..callDotIdx];
-                NameSuffix = newName[callDotIdx..];
-            }
-            else
-            {
-                NamePrefix = string.Empty;
-                NameEditorText = newName;
-                NameSuffix = string.Empty;
-            }
+                EntityKind.Work => NameEditorParts.ForWork(newName),
+                EntityKind.Call => NameEditorParts.ForCall(newName),
+                _ => NameEditorParts.ForFallback(newName),
+            };
+            NamePrefix = parts.Prefix;
+            NameEditorText = parts.Editable;
+            NameSuffix = parts.Suffix;
             IsNameDirty = false;
             IsNameEditHighlighted = false;
         }
@@ -52,35 +44,21 @@ public partial class PropertyPanelState
         }
 
         var fullName = SelectedNode.Name ?? string.Empty;
+        // Work 는 Store 에서 full name 조회 후 분해, Call/Other 는 raw name.
         if (SelectedNode.EntityType == EntityKind.Work)
         {
             var workName = Queries.tryGetWorkFullName(SelectedNode.Id, Store);
             if (workName != null) fullName = workName.Value;
-            if (fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
-            {
-                NamePrefix = fullName[..(dotIdx + 1)];
-                NameEditorText = fullName[(dotIdx + 1)..];
-                NameSuffix = string.Empty;
-            }
-            else
-            {
-                NamePrefix = string.Empty;
-                NameEditorText = fullName;
-                NameSuffix = string.Empty;
-            }
         }
-        else if (SelectedNode.EntityType == EntityKind.Call && fullName.LastIndexOf('.') is var callDotIdx && callDotIdx >= 0)
+        var parts = SelectedNode.EntityType switch
         {
-            NamePrefix = string.Empty;
-            NameEditorText = fullName[..callDotIdx];
-            NameSuffix = fullName[callDotIdx..];
-        }
-        else
-        {
-            NamePrefix = string.Empty;
-            NameEditorText = fullName;
-            NameSuffix = string.Empty;
-        }
+            EntityKind.Work => NameEditorParts.ForWork(fullName),
+            EntityKind.Call => NameEditorParts.ForCall(fullName),
+            _ => NameEditorParts.ForFallback(fullName),
+        };
+        NamePrefix = parts.Prefix;
+        NameEditorText = parts.Editable;
+        NameSuffix = parts.Suffix;
 
         IsNameDirty = false;
         IsNameEditHighlighted = false;

@@ -86,17 +86,18 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
-        // Flow 더블클릭 → 부모 System 탭에서 해당 Flow의 Work만 하이라이트 (토글)
+        // Flow 더블클릭 → 부모 System 탭에서 해당 Flow의 Work만 하이라이트 (토글).
+        // System 탭 fallback 결정은 F# EditorNavigation 위임.
         if (entityType == EntityKind.Flow)
         {
-            var flow = Queries.getFlow(entityId, Store);
-            if (flow == null) return;
+            var systemInfo = EditorNavigation.TryOpenSystemTabForFlowOrNull(Store, entityId);
+            if (systemInfo is null) return;
 
             // 같은 Flow 다시 더블클릭 → 하이라이트 해제 (토글)
             var toggle = HighlightedFlowId == entityId;
 
             // System 탭을 먼저 열고 (HighlightedFlowId=null 초기화 포함)
-            OpenCanvasTab(flow.Value.ParentId, EntityKind.System, expandTree);
+            OpenCanvasTab(systemInfo.RootId, EntityKind.System, expandTree);
 
             if (!toggle)
             {

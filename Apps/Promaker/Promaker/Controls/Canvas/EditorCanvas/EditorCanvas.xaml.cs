@@ -121,23 +121,23 @@ public partial class EditorCanvas : UserControl
             return;
         }
 
-        // 탭 종류별 메뉴 항목 가시성
-        AddWorkMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.System
-            ? Visibility.Visible : Visibility.Collapsed;
-        AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
-            ? Visibility.Visible : Visibility.Collapsed;
+        // 메뉴 가시성/TokenRole 체크 상태 결정은 F# CanvasContextMenuState 위임.
+        var selectedNode = VM?.SelectedNode;
+        var store = VM?.PropertyPanel.Host.Store;
+        var menuState = store is not null
+            ? CanvasContextMenuState.Build(
+                store,
+                tabKind,
+                selectedNode?.EntityType,
+                selectedNode?.Id)
+            : CanvasContextMenuState.Empty;
+
+        AddWorkMenuItem.Visibility = menuState.ShowAddWork ? Visibility.Visible : Visibility.Collapsed;
+        AddCallMenuItem.Visibility = menuState.ShowAddCall ? Visibility.Visible : Visibility.Collapsed;
         AddWorkMenuItem.IsEnabled = VM?.AddWorkCommand.CanExecute(null) == true;
         AddCallMenuItem.IsEnabled = VM?.AddCallCommand.CanExecute(null) == true;
-        // 레퍼런스 노드: Work가 선택된 상태 + Flow/System 탭에서만
-        AddRefWorkMenuItem.Visibility =
-            VM?.SelectedNode?.EntityType == EntityKind.Work
-            && tabKind is Ds2.Editor.TabKind.System or Ds2.Editor.TabKind.Flow
-                ? Visibility.Visible : Visibility.Collapsed;
-        // 레퍼런스 Call: Call이 선택된 상태 + Work 탭에서만
-        AddRefCallMenuItem.Visibility =
-            VM?.SelectedNode?.EntityType == EntityKind.Call
-            && tabKind == Ds2.Editor.TabKind.Work
-                ? Visibility.Visible : Visibility.Collapsed;
+        AddRefWorkMenuItem.Visibility = menuState.ShowAddRefWork ? Visibility.Visible : Visibility.Collapsed;
+        AddRefCallMenuItem.Visibility = menuState.ShowAddRefCall ? Visibility.Visible : Visibility.Collapsed;
 
         // 선택 상태에 따라 연결/복사/삭제 가시성 및 활성화 갱신
         bool hasNodeSelection = VM?.SelectedNode is not null || (VM?.Selection.OrderedNodeSelection.Count ?? 0) > 0;
@@ -156,17 +156,13 @@ public partial class EditorCanvas : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         PasteMenuItem.IsEnabled = VM?.PasteCopiedCommand.CanExecute(null) == true;
 
-        // Work 선택 시에만 TokenRole 메뉴 표시 + 체크 상태 반영
-        var isWorkSelected = VM?.SelectedNode is { EntityType: EntityKind.Work };
-        TokenRoleMenuItem.Visibility = isWorkSelected == true ? Visibility.Visible : Visibility.Collapsed;
+        TokenRoleMenuItem.Visibility = menuState.ShowTokenRole ? Visibility.Visible : Visibility.Collapsed;
         SepBeforeTokenRole.Visibility = TokenRoleMenuItem.Visibility;
-        if (isWorkSelected == true && VM?.SelectedNode is { } workNode)
+        if (menuState.ShowTokenRole)
         {
-            var store = VM.PropertyPanel.Host.Store;
-            var role = Queries.getWork(workNode.Id, store)?.Value.TokenRole ?? TokenRole.None;
-            TokenRoleSourceItem.Header = (role.HasFlag(TokenRole.Source) ? "✔ " : "    ") + "Source";
-            TokenRoleIgnoreItem.Header = (role.HasFlag(TokenRole.Ignore) ? "✔ " : "    ") + "Ignore";
-            TokenRoleSinkItem.Header = (role.HasFlag(TokenRole.Sink) ? "✔ " : "    ") + "Sink";
+            TokenRoleSourceItem.Header = (menuState.TokenRoleSourceChecked ? "✔ " : "    ") + "Source";
+            TokenRoleIgnoreItem.Header = (menuState.TokenRoleIgnoreChecked ? "✔ " : "    ") + "Ignore";
+            TokenRoleSinkItem.Header = (menuState.TokenRoleSinkChecked ? "✔ " : "    ") + "Sink";
         }
 
         // 연속/선행/후행 구분선 정리
