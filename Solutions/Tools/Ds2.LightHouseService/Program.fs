@@ -232,13 +232,16 @@ let configureApp
     let app = builder.Build()
 
     // **s6-r48 #4** — production singleton embedder 의 graceful shutdown Dispose 박제.
-    // IHostApplicationLifetime.ApplicationStopping 가 SIGTERM / Ctrl+C / Stop-Service 시 호출. process kill
-    // (taskkill /F) 시는 hook 안 호출 — OS 회수 정합. override path 박제 시 본 ref 가 None 이라 hook 박제 안 함.
+    // IHostApplicationLifetime.ApplicationStopped 가 모든 in-flight request drain + Kestrel listener 종료 후 호출
+    // (30s graceful drain 안전). process kill (taskkill /F) 시는 hook 안 호출 — OS 회수 정합.
+    // override path 박제 시 본 ref 가 None 이라 hook 박제 안 함.
+    // **s6-r70 review C-9**: ApplicationStopping → ApplicationStopped 정정 — Stopping 은 drain 시작 시점이라
+    // in-flight embedder.GenerateAsync 호출 중 HttpClient dispose race 가능. Stopped 는 모든 request drain 후 안전.
     match singletonEmbedderForLifetime with
     | Some disposable ->
         let lifetime = app.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>()
-        lifetime.ApplicationStopping.Register(fun () ->
-            Log.service.Info("#4: ApplicationStopping — service-singleton embedder Dispose")
+        lifetime.ApplicationStopped.Register(fun () ->
+            Log.service.Info("#4: ApplicationStopped — service-singleton embedder Dispose")
             try disposable.Dispose() with ex ->
                 Log.service.Warn(sprintf "#4: singleton embedder Dispose 실패 — %s: %s" (ex.GetType().Name) ex.Message)) |> ignore
     | None -> ()
@@ -248,7 +251,8 @@ let configureApp
     Endpoints.mapPublic app
 
     // 2. 인증 middleware — Bearer PSK + X-User-Identity 검증 (모든 인증 endpoint 공통)
-    app.Use(AuthMiddleware.middleware psk) |> ignore
+    // **s6-r70 review C-3**: cfg 인자 추가 — mtls.mode != off 시 cert subject CN ↔ X-User-Identity 강제 검증.
+    app.Use(AuthMiddleware.middleware cfg psk) |> ignore
 
     // 3. 인증 통과 endpoint — Phase S2 collection 관리 API + Phase S3 session 발급/해제
     let notifier = app.Services.GetRequiredService<ICollectionLifecycleNotifier>()
@@ -258,9 +262,11 @@ let configureApp
     // **s6-r66 D-S7-4** — SessionEndpoints.map 시그니처 변경 (cfg 인자 추가, multi-tenant filter SSOT).
     SessionEndpoints.map app cfg registry
     // Phase S4 — file serving (citation 원문 stream, §3.9 / §4.2 Phase S4 / D6).
-    FileServing.map app storageRoot
+    // **s6-r70 review C-1**: cfg 인자 추가 (multi-tenant filter SSOT).
+    FileServing.map app cfg storageRoot
     // Phase S7 D-S7-2 (s6-r27) — `GET /events` SSE endpoint (collection-added/updated/deleted + keepalive).
-    EventsEndpoint.map app eventBus
+    // **s6-r70 review C-2** — cfg + storageRoot 인자 추가 (multi-tenant filter SSOT).
+    EventsEndpoint.map app cfg storageRoot eventBus
     // Phase S7 D-S7-5 (s6-r60) — resumable chunked upload endpoint scaffold (POST/PATCH/finalize/GET/DELETE).
     UploadsEndpoint.map app cfg storageRoot eventBus
 

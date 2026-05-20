@@ -74,11 +74,19 @@ let private parseArgs (args: string array) : Map<string, string> * string list =
     let mutable flags = Map.empty
     let mutable positional = []
     let mutable i = 0
+    // **s6-r70 review C-17** — boolean flag set 분리 (다음 토큰 흡수 차단).
+    // 예: `--no-embedding <folder>` 가 folder 를 no-embedding 의 value 로 흡수했던 결함. boolean flag 는
+    // value 없는 형식으로만 처리, 다음 토큰은 positional 또는 별 flag 로 그대로 분리.
+    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts ]
     while i < args.Length do
         let arg = args.[i]
         if arg.StartsWith "--" then
             let key = arg.Substring 2
-            if i + 1 < args.Length && not (args.[i + 1].StartsWith "--") then
+            if booleanFlags.Contains key then
+                // boolean flag — 다음 토큰 흡수 안 함 (presence-only).
+                flags <- Map.add key "" flags
+                i <- i + 1
+            elif i + 1 < args.Length && not (args.[i + 1].StartsWith "--") then
                 flags <- Map.add key args.[i + 1] flags
                 i <- i + 2
             else

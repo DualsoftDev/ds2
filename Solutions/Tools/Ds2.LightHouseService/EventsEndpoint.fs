@@ -65,15 +65,42 @@ module EventsEndpoint =
             | :? ObjectDisposedException -> return false  // response stream disposed
         }
 
+    /// **s6-r70 review C-2** — multi-tenant SSE tenant filter helper. T2/T3 모드 시 각 event 의 CollectionId 가
+    /// 본 caller user 에게 visible 한지 검증. T1 모드 / `keepalive` / `upload-progress` 는 통과 (filter 대상 외).
+    ///
+    /// upload-progress 의 CollectionId 는 *uploadId* (registry 미존재) — owner-only routing 은 별 phase backlog
+    /// (UploadsEndpoint.publish 가 owner 표시 의무).
+    let private isEventVisibleTo (cfg: ServiceConfig) (storageRoot: string) (user: string) (evt: ServerEvent) : bool =
+        if cfg.MultiTenant.Mode = MultiTenantMode.T1 then true
+        elif String.IsNullOrEmpty evt.CollectionId then true
+        elif evt.Event = ServerEventNames.Keepalive then true
+        elif evt.Event = ServerEventNames.UploadProgress then true   // backlog: owner-only routing 별 phase
+        else
+            match Registry.tryFindById storageRoot evt.CollectionId with
+            | None -> true   // collection-deleted 등 registry 에서 이미 제거 — leak 차단 의미 0, 통과 (race)
+            | Some entry ->
+                match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user entry with
+                | MultiTenantPolicy.AccessDecision.Hidden -> false
+                | _ -> true
+
+    /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 박제).
+    let private userIdentityOf (ctx: HttpContext) : string =
+        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
+        | true, v when not (isNull v) -> string v
+        | _ -> "unknown"
+
     /// `GET /events` handler. 인증은 middleware 가 처리.
     ///
     /// **s6-r56 ⑲ — client-write keepalive 강화**: keepalive 가 EventBus fan-out 대신 *direct write*.
     /// 박제 의도: (i) multi-instance 시 다른 subscriber 의 keepalive 와 무관 — 각 SSE 가 자체 keepalive timer.
     /// (ii) EventBus drop-oldest 정책에 keepalive 가 차지하는 capacity 절감. (iii) self-receive 의 lazy
     /// fan-out cost 절감 (N subscribers × 30s 마다 N publish → N timer × N self-write 만).
-    let private handle (bus: EventBus) (ctx: HttpContext) : Task =
+    ///
+    /// **s6-r70 review C-2**: cfg + storageRoot 인자 추가. reader loop 안 evt 마다 isEventVisibleTo 호출.
+    let private handle (cfg: ServiceConfig) (storageRoot: string) (bus: EventBus) (ctx: HttpContext) : Task =
         task {
             setSseHeaders ctx
+            let user = userIdentityOf ctx
             // m2 (s6-r27 자가 검열 review) — Subscribe 를 first-write 보다 먼저.
             // 이전 순서 (first keepalive write → Subscribe) 는 µs window race — 그 사이 publish 된 event 가 본
             // subscriber 의 channel 에 들어가지 못함. Subscribe 후 first keepalive write 면 race window 0.
@@ -111,8 +138,10 @@ module EventsEndpoint =
                             else
                                 let mutable evt = Unchecked.defaultof<ServerEvent>
                                 while continueLoop && reader.TryRead &evt do
-                                    let! ok = tryWriteEvent ctx evt
-                                    if not ok then continueLoop <- false
+                                    // **s6-r70 review C-2** — T2/T3 모드 시 tenant filter. Hidden = skip (caller 가 안 받음).
+                                    if isEventVisibleTo cfg storageRoot user evt then
+                                        let! ok = tryWriteEvent ctx evt
+                                        if not ok then continueLoop <- false
                             // keepalive timer 가 disconnect 검출했으면 loop 종료 (background path 정합)
                             if disconnectSignal.Task.IsCompleted then continueLoop <- false
                     with
@@ -179,7 +208,8 @@ module EventsEndpoint =
         } :> Task
 
     /// `GET /events` + `POST /events/caption-progress` endpoint 등록. AuthMiddleware 뒤에 매핑.
-    let map (app: IEndpointRouteBuilder) (bus: EventBus) =
-        app.MapGet("/events", RequestDelegate(handle bus)) |> ignore
+    /// **s6-r70 review C-2** — cfg + storageRoot 인자 추가 (multi-tenant filter).
+    let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string) (bus: EventBus) =
+        app.MapGet("/events", RequestDelegate(handle cfg storageRoot bus)) |> ignore
         app.MapPost("/events/caption-progress",
             RequestDelegate(postCaptionProgress bus)) |> ignore

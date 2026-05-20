@@ -108,6 +108,11 @@ public partial class ApplicationSettingsDialog : Window
     {
         InitializeComponent();
 
+        // **s6-r70 review C-11** — Cancel / X close path 의 _pskChanges 평문 cleanup. ApplyLlmTab path 는 자체 Clear.
+        // Closed event 가 OK / Cancel / X 모두 통과 — 시점 OK button click 후의 _pskChanges 는 이미 Clear 된 상태,
+        // Cancel/X 의 경우만 평문 잔존 → 즉시 Clear (GC 시점까지의 평문 lifetime 단축).
+        Closed += (_, _) => _pskChanges.Clear();
+
         // 앱 설정에서 로드
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
@@ -506,22 +511,32 @@ public partial class ApplicationSettingsDialog : Window
                 "Client Certificate 선택",
                 $"[{svc.DisplayName}] LightHouse Service 에 mTLS 로 연결할 때 사용할 client cert.",
                 X509SelectionFlag.SingleSelection);
-            if (selected is null || selected.Count == 0) return;
-            var cert = selected[0];
-            svc.ClientCertThumbprint = cert.Thumbprint;
-            LhServicesGrid.Items.Refresh();
-            // **B5 phase 3 (s6-r68)** — CertValidator 호출. 만료/임박/유효 분기 즉시 안내.
-            var diag = Promaker.Knowledge.CertValidator.Validate(cert.Thumbprint);
-            var msg = Promaker.Knowledge.CertValidator.FormatMessage(diag);
-            bool? success = diag.Result switch
+            // **s6-r70 review C-12** — X509Certificate2 element dispose (CryptoApi unmanaged handle 누수 차단).
+            try
             {
-                Promaker.Knowledge.CertValidator.ValidationResult.Valid => null,
-                Promaker.Knowledge.CertValidator.ValidationResult.ExpiringSoon => null,
-                _ => false,
-            };
-            SetTestResult(LhTestResult,
-                $"ℹ️ [{svc.DisplayName}] cert 선택됨 — {msg}",
-                success: success);
+                if (selected is null || selected.Count == 0) return;
+                var cert = selected[0];
+                svc.ClientCertThumbprint = cert.Thumbprint;
+                LhServicesGrid.Items.Refresh();
+                // **B5 phase 3 (s6-r68)** — CertValidator 호출. 만료/임박/유효 분기 즉시 안내.
+                var diag = Promaker.Knowledge.CertValidator.Validate(cert.Thumbprint);
+                var msg = Promaker.Knowledge.CertValidator.FormatMessage(diag);
+                bool? success = diag.Result switch
+                {
+                    Promaker.Knowledge.CertValidator.ValidationResult.Valid => null,
+                    Promaker.Knowledge.CertValidator.ValidationResult.ExpiringSoon => null,
+                    _ => false,
+                };
+                SetTestResult(LhTestResult,
+                    $"ℹ️ [{svc.DisplayName}] cert 선택됨 — {msg}",
+                    success: success);
+            }
+            finally
+            {
+                // SelectFromCollection 결과의 모든 element dispose — caller 책임 (collection 자체는 IDisposable 미구현).
+                if (selected is not null)
+                    foreach (var c in selected) c?.Dispose();
+            }
         }
         catch (Exception ex)
         {
@@ -671,6 +686,8 @@ public partial class ApplicationSettingsDialog : Window
         var newOllamaBaseUrl  = string.IsNullOrWhiteSpace(LlmOllamaBaseUrlBox.Text)  ? fallback.OllamaBaseUrl  : LlmOllamaBaseUrlBox.Text.Trim();
 
         // **D-S7-3c (s6-r31)** — LightHouse Services dirty 비교 (working copy vs _llmConfig.LightHouseServices + _pskChanges).
+        // **s6-r70 review C-13** — SaveEmbeddingUiToWorking 호출은 caller 책임 (LhWorkingCopyDirty 자체는 read-only).
+        SaveEmbeddingUiToWorking();
         var lhDirty = LhWorkingCopyDirty();
 
         // s6-r20 (D-iii / E-i): VLM provider / model / daily token cap dirty 비교.
@@ -760,14 +777,13 @@ public partial class ApplicationSettingsDialog : Window
     /// <summary>
     /// **D-S7-3c (s6-r31)** — DataGrid working copy 와 _llmConfig.LightHouseServices 의 deep compare + _pskChanges 비어있지 않으면 dirty.
     /// <para/>
-    /// **s6-r38 P4-C.2** — Embedding UI 변경도 dirty 박제. dirty check 진입 시 SaveEmbeddingUiToWorking 우선 호출 →
-    /// working copy 의 Embedding 박제 후 deep compare 안 Embedding 도 박제.
+    /// **s6-r38 P4-C.2** — Embedding UI 변경도 dirty 박제.
+    /// **s6-r70 review C-13**: SaveEmbeddingUiToWorking 호출 (working copy mutate) 제거. 본 method 는 read-only 계약 —
+    /// caller 가 dirty 비교 전에 SaveEmbeddingUiToWorking 직접 호출 의무. read-only 보장.
+    /// **s6-r70 review C-14**: ClientCertThumbprint 비교 추가 — cert 만 변경 후 OK 시 silent data loss 차단.
     /// </summary>
     private bool LhWorkingCopyDirty()
     {
-        // Embedding UI 변경 박제 위해 우선 working copy 의 active service 의 Embedding 갱신.
-        SaveEmbeddingUiToWorking();
-
         if (_pskChanges.Count > 0) return true;
         var working = _lhServicesWorking;
         var current = _llmConfig.LightHouseServices;
@@ -780,7 +796,9 @@ public partial class ApplicationSettingsDialog : Window
                 || (w.DisplayName ?? "").Trim() != (c.DisplayName ?? "").Trim()
                 || (w.BaseUrl ?? "").Trim() != (c.BaseUrl ?? "").Trim()
                 || w.Active != c.Active
-                || (w.ApiKeyEncrypted ?? "") != (c.ApiKeyEncrypted ?? ""))
+                || (w.ApiKeyEncrypted ?? "") != (c.ApiKeyEncrypted ?? "")
+                // **s6-r70 review C-14** — ClientCertThumbprint dirty 비교 누락 정정.
+                || (w.ClientCertThumbprint ?? "") != (c.ClientCertThumbprint ?? ""))
                 return true;
             if (!EmbeddingConfigEquals(w.Embedding, c.Embedding))
                 return true;

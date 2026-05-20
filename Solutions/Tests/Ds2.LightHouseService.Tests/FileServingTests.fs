@@ -30,6 +30,29 @@ let private withTempRoot (action: string -> Task<'r>) : Task<'r> = task {
         try Directory.Delete(dir, true) with _ -> ()
 }
 
+/// **s6-r70 review C-1** — `FileServing.getFile` signature 에 cfg 추가 (multi-tenant filter SSOT).
+/// FileServingTests 는 multi-tenant T1 mode (현행 회귀 0) 만 검증 — Mode="T1" 만 박제. T2/T3 e2e 는 별 turn.
+let private testCfg (storageRoot: string) : ServiceConfig =
+    {
+        SchemaVersion = ConfigSchema.Current
+        ListenUrl = "https://127.0.0.1:0"
+        TlsCertPath = ""
+        TlsCertPasswordEncrypted = ""
+        PreSharedKeyEncrypted = ""
+        StorageRoot = storageRoot
+        MaxUploadBytes = 10737418240L
+        ZipBombRatioLimit = 50
+        SessionIdleTtlMinutes = 240
+        StagingSweepIntervalMinutes = 10
+        LogRetentionDays = 30
+        LogMaxSizeMB = 100
+        AuditRetentionDays = 365
+        IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
+        Embedding = { Enabled = false; BaseUrl = "http://localhost:11434"; Model = "bge-m3"; Dimension = 1024 }
+        Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
+        MultiTenant = { Mode = MultiTenantMode.T1 }
+    }
+
 /// 한 collection 의 minimal index.db 생성. Documents 1행 INSERT 후 (id, originalPath, fileHash, sizeBytes) 반환.
 let private setupCollection
     (storageRoot: string)
@@ -214,7 +237,7 @@ let ``getFile — 정상 stream + 200 + Content-Type + body bytes match`` () = w
     do! registerCollection root collectionId "MyDocs"
 
     let ctx = newCtx (sprintf "/collections/%s/files/%d" collectionId docId) []
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
 
     Assert.Equal(200, ctx.Response.StatusCode)
     Assert.Equal("application/pdf", ctx.Response.ContentType)
@@ -230,7 +253,7 @@ let ``getFile — 정상 stream + 200 + Content-Type + body bytes match`` () = w
 [<Fact>]
 let ``getFile — collection 미존재 → 404`` () = withTempRoot (fun root -> task {
     let ctx = newCtx "/collections/ghost/files/1" []
-    do! FileServing.getFile root "ghost" "1" ctx
+    do! FileServing.getFile (testCfg root) root "ghost" "1" ctx
     Assert.Equal(404, ctx.Response.StatusCode)
 })
 
@@ -242,7 +265,7 @@ let ``getFile — fileId Int64 아님 → 400`` () = withTempRoot (fun root -> t
     setupCollection root collectionId "MyDocs" body None |> ignore
 
     let ctx = newCtx (sprintf "/collections/%s/files/not-a-number" collectionId) []
-    do! FileServing.getFile root collectionId "not-a-number" ctx
+    do! FileServing.getFile (testCfg root) root collectionId "not-a-number" ctx
     Assert.Equal(400, ctx.Response.StatusCode)
 })
 
@@ -254,7 +277,7 @@ let ``getFile — documents.Id 미존재 → 404`` () = withTempRoot (fun root -
     do! registerCollection root collectionId "MyDocs"
 
     let ctx = newCtx (sprintf "/collections/%s/files/99999" collectionId) []
-    do! FileServing.getFile root collectionId "99999" ctx
+    do! FileServing.getFile (testCfg root) root collectionId "99999" ctx
     Assert.Equal(404, ctx.Response.StatusCode)
 })
 
@@ -272,7 +295,7 @@ let ``getFile — db row 있지만 source 파일 없음 → 404`` () = withTempR
     File.Delete sourceFile
 
     let ctx = newCtx (sprintf "/collections/%s/files/%d" collectionId docId) []
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(404, ctx.Response.StatusCode)
 })
 
@@ -286,7 +309,7 @@ let ``getFile — If-None-Match: * → 304 (review S4-M2 RFC 7232)`` () = withTe
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "If-None-Match", "*" ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(304, ctx.Response.StatusCode)
     Assert.Equal(0L, ctx.Response.Body.Length)
 })
@@ -301,7 +324,7 @@ let ``getFile — If-None-Match 일치 → 304 + body 없음`` () = withTempRoot
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "If-None-Match", sprintf "\"%s\"" fileHash ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(304, ctx.Response.StatusCode)
     Assert.Equal(0L, ctx.Response.Body.Length)
 })
@@ -316,7 +339,7 @@ let ``getFile — If-None-Match 불일치 → 정상 200 stream`` () = withTempR
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "If-None-Match", "\"different-hash-value\"" ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(200, ctx.Response.StatusCode)
     Assert.Equal(int64 body.Length, ctx.Response.Body.Length)
 })
@@ -331,7 +354,7 @@ let ``getFile — Range 헤더 처리 (bytes=0-9) → 206 + 10 byte body`` () = 
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "Range", "bytes=0-9" ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(206, ctx.Response.StatusCode)
     Assert.Equal(10L, ctx.Response.Body.Length)
     ctx.Response.Body.Position <- 0L
@@ -347,7 +370,7 @@ let ``getFile — ETag 헤더 박제 (sha256 hex)`` () = withTempRoot (fun root 
     do! registerCollection root collectionId "Coll"
 
     let ctx = newCtx (sprintf "/collections/%s/files/%d" collectionId docId) []
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(200, ctx.Response.StatusCode)
     let etag = ctx.Response.Headers.["ETag"].ToString()
     Assert.Contains(fileHash, etag)
@@ -368,7 +391,7 @@ let ``getFile — 304 분기에도 ETag 헤더 박제 (P6-M3 200/304 일관성)`
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "If-None-Match", sprintf "\"%s\"" fileHash ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(304, ctx.Response.StatusCode)
     let etag = ctx.Response.Headers.["ETag"].ToString()
     Assert.Contains(fileHash, etag)
@@ -388,7 +411,7 @@ let ``getFile — Range 가 파일 크기 초과 → 416 Range Not Satisfiable (
     let ctx = newCtx
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "Range", "bytes=500-999" ]  // file size = 100, 500-999 은 범위 밖
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(416, ctx.Response.StatusCode)
 })
 
@@ -404,7 +427,7 @@ let ``getFile — If-Range ETag 매치 → 206 partial (P6-m6)`` () = withTempRo
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "Range", "bytes=0-9"
                   "If-Range", sprintf "\"%s\"" fileHash ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(206, ctx.Response.StatusCode)
     Assert.Equal(10L, ctx.Response.Body.Length)
 })
@@ -421,7 +444,7 @@ let ``getFile — If-Range ETag 불일치 → 200 full body (P6-m6)`` () = withT
                 (sprintf "/collections/%s/files/%d" collectionId docId)
                 [ "Range", "bytes=0-9"
                   "If-Range", "\"stale-etag-value\"" ]
-    do! FileServing.getFile root collectionId (string docId) ctx
+    do! FileServing.getFile (testCfg root) root collectionId (string docId) ctx
     Assert.Equal(200, ctx.Response.StatusCode)
     Assert.Equal(int64 body.Length, ctx.Response.Body.Length)
 })

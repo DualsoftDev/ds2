@@ -71,12 +71,12 @@ module UploadsEndpoint =
     let private acquireLock (uploadId: string) : SemaphoreSlim =
         uploadLocks.GetOrAdd(uploadId, fun _ -> new SemaphoreSlim(1, 1))
 
-    /// finalize 성공 / DELETE 진입 시 호출 — lock dispose. lock entry 누적 회피 (race-free —
-    /// removeLock 전 PATCH 진입한 caller 가 acquireLock 으로 새 entry 생성 — 무해, 단순히 잠깐의 entry 가 2개).
+    /// finalize 성공 / DELETE 진입 시 호출 — dictionary entry 만 제거. SemaphoreSlim 자체는 lazy GC.
+    /// **s6-r70 review C-5**: 직전 Dispose 박제는 진행 중인 다른 caller 의 WaitAsync 와 race → ObjectDisposedException
+    /// 가능. 진행 중인 caller 가 보유 reference 는 그대로 정상 동작 (Release/Wait), 새 caller 는 acquireLock 으로 새 instance
+    /// 생성 — 무해, 단순히 잠깐의 entry 가 2개. Dispose 책임은 GC 가 SafeHandle finalizer 처리.
     let private removeLock (uploadId: string) : unit =
-        match uploadLocks.TryRemove uploadId with
-        | true, sem -> try sem.Dispose() with _ -> ()
-        | _ -> ()
+        uploadLocks.TryRemove uploadId |> ignore
 
     let private writeJson (ctx: HttpContext) (status: int) (body: obj) : Task =
         ctx.Response.StatusCode <- status
@@ -152,6 +152,15 @@ module UploadsEndpoint =
         | true, v when not (isNull v) -> string v
         | _ -> "unknown"
 
+    /// **s6-r70 review C-4** — meta.UserIdentity ↔ caller X-User-Identity cross-check.
+    /// uploadId 노출 시 다른 user 가 PATCH/GET/DELETE/finalize 탈취 차단. T1 모드 도 동일 — uploadId 발급한 user 만
+    /// 해당 upload 진행 가능 (multi-tenant 정책과 무관, upload 책임 격리).
+    /// `case-insensitive ordinal` 비교 — Windows username 정합.
+    let private isUploadOwnedBy (meta: UploadMeta) (callerUser: string) : bool =
+        // 빈 메타 (legacy upload — 본 hotfix 이전 created) 는 보수적으로 거부 (전체 403). 정합성 우선.
+        if String.IsNullOrEmpty meta.UserIdentity then false
+        else String.Equals(meta.UserIdentity, callerUser, StringComparison.OrdinalIgnoreCase)
+
     /// `POST /uploads-rs { title, totalBytes }` — 신규 upload 시작. uploadId (guid v4 N) 발급 + staging dir 생성.
     let private postStart (cfg: ServiceConfig) (storageRoot: string) (_eventBus: EventBus) (ctx: HttpContext) : Task =
         task {
@@ -213,17 +222,24 @@ module UploadsEndpoint =
 
     /// `PATCH /uploads-rs/{id}` — chunk append. Content-Range 의 start 가 현 offset 와 일치 의무 (409 미일치).
     /// **D-S7-5 phase 2 (1)+(2)+(3)** — per-uploadId lock + body size 검증 + crash 회복.
+    /// **s6-r70 review C-4**: meta.UserIdentity cross-check.
     let private patchChunk (storageRoot: string) (eventBus: EventBus) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
+                let caller = userIdentityOf ctx
                 let lock = acquireLock uploadId
                 do! lock.WaitAsync(ctx.RequestAborted)
                 try
                     let dir = uploadDir storageRoot uploadId
                     match readMetaReconciled dir with
                     | None -> do! writeError ctx 404 "uploadId 미존재"
+                    | Some meta when not (isUploadOwnedBy meta caller) ->
+                        Log.audit.Warn(
+                            sprintf "D-S7-5 C-4: PATCH owner mismatch — uploadId=%s caller=%s owner=%s"
+                                uploadId (Log.sanitizeForLog caller) (Log.sanitizeForLog meta.UserIdentity))
+                        do! writeError ctx 403 "upload owner mismatch"
                     | Some meta ->
                         let cr =
                             if ctx.Request.Headers.ContainsKey "Content-Range" then
@@ -249,6 +265,7 @@ module UploadsEndpoint =
                             else
                                 let mutable actualWritten = 0L
                                 let mutable appendOk = false
+                                let mutable clientDisconnect = false
                                 try
                                     use fs = new FileStream(partialPath dir, FileMode.Open, FileAccess.Write, FileShare.None)
                                     fs.Seek(meta.Offset, SeekOrigin.Begin) |> ignore
@@ -262,11 +279,22 @@ module UploadsEndpoint =
                                         fs.Flush()
                                     else
                                         appendOk <- true
-                                with ex ->
+                                with
+                                | :? OperationCanceledException ->
+                                    // **s6-r70 review C-8** — client disconnect / ct cancel. 정보 level log + writeError 시도 X
+                                    // (응답 자체가 OCE 재발). caller 가 다음 PATCH 재시도 시 readMetaReconciled 가 truncate 회복.
+                                    clientDisconnect <- true
+                                    Log.service.Info(
+                                        sprintf "D-S7-5: PATCH client disconnect — uploadId=%s offset=%d written=%d"
+                                            uploadId meta.Offset actualWritten)
+                                | ex ->
                                     Log.service.Warn(
                                         sprintf "D-S7-5: PATCH append 실패 — uploadId=%s ex=%s" uploadId ex.Message)
 
-                                if not appendOk then
+                                if clientDisconnect then
+                                    // 응답 시도 안 함 — connection 이 이미 끊김. ASP.NET Core 가 connection abort 후 응답 시도 시 OCE.
+                                    ()
+                                elif not appendOk then
                                     do! writeError ctx 400
                                             (sprintf "body size mismatch — actual=%d ≠ Content-Range length=%d"
                                                 actualWritten chunkLen)
@@ -287,35 +315,61 @@ module UploadsEndpoint =
         } :> Task
 
     /// `GET /uploads-rs/{id}` — 현 offset 조회 (resume 진입 hook).
+    /// **s6-r70 review C-4 + C-6**: meta.UserIdentity cross-check + acquireLock (readMetaReconciled 의 FileShare.None
+    /// 충돌 차단, PATCH 진행 중 GET 시 race 회피).
     let private getStatus (storageRoot: string) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
-                let dir = uploadDir storageRoot uploadId
-                match readMetaReconciled dir with
-                | None -> do! writeError ctx 404 "uploadId 미존재"
-                | Some meta ->
-                    do! writeJson ctx 200
-                            {| uploadId = uploadId; offset = meta.Offset; totalBytes = meta.TotalBytes; title = meta.Title |}
+                let caller = userIdentityOf ctx
+                let lock = acquireLock uploadId
+                do! lock.WaitAsync(ctx.RequestAborted)
+                try
+                    let dir = uploadDir storageRoot uploadId
+                    match readMetaReconciled dir with
+                    | None -> do! writeError ctx 404 "uploadId 미존재"
+                    | Some meta when not (isUploadOwnedBy meta caller) ->
+                        Log.audit.Warn(
+                            sprintf "D-S7-5 C-4: GET owner mismatch — uploadId=%s caller=%s owner=%s"
+                                uploadId (Log.sanitizeForLog caller) (Log.sanitizeForLog meta.UserIdentity))
+                        do! writeError ctx 403 "upload owner mismatch"
+                    | Some meta ->
+                        do! writeJson ctx 200
+                                {| uploadId = uploadId; offset = meta.Offset; totalBytes = meta.TotalBytes; title = meta.Title |}
+                finally
+                    lock.Release() |> ignore
         } :> Task
 
-    /// `DELETE /uploads-rs/{id}` — cancel. staging dir 제거 + lock dispose.
+    /// `DELETE /uploads-rs/{id}` — cancel. staging dir 제거 + lock entry 제거.
+    /// **s6-r70 review C-4**: meta.UserIdentity cross-check.
     let private deleteUpload (storageRoot: string) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
+                let caller = userIdentityOf ctx
                 let lock = acquireLock uploadId
                 do! lock.WaitAsync(ctx.RequestAborted)
                 try
                     let dir = uploadDir storageRoot uploadId
-                    if Directory.Exists dir then
-                        try Directory.Delete(dir, true)
-                        with ex ->
-                            Log.service.Warn(sprintf "D-S7-5: DELETE cleanup 실패 — %s: %s" (ex.GetType().Name) ex.Message)
-                        Log.audit.Info(sprintf "D-S7-5: DELETE /uploads-rs — uploadId=%s" uploadId)
-                    ctx.Response.StatusCode <- 204
+                    // meta 검증 — owner mismatch 시 403, dir 보존.
+                    let owned =
+                        match readMeta dir with
+                        | Some meta -> isUploadOwnedBy meta caller
+                        | None -> true   // meta 부재 = staging 결손. caller 가 본인 인지 무관, 그대로 cleanup 허용.
+                    if not owned then
+                        Log.audit.Warn(
+                            sprintf "D-S7-5 C-4: DELETE owner mismatch — uploadId=%s caller=%s"
+                                uploadId (Log.sanitizeForLog caller))
+                        do! writeError ctx 403 "upload owner mismatch"
+                    else
+                        if Directory.Exists dir then
+                            try Directory.Delete(dir, true)
+                            with ex ->
+                                Log.service.Warn(sprintf "D-S7-5: DELETE cleanup 실패 — %s: %s" (ex.GetType().Name) ex.Message)
+                            Log.audit.Info(sprintf "D-S7-5: DELETE /uploads-rs — uploadId=%s" uploadId)
+                        ctx.Response.StatusCode <- 204
                 finally
                     lock.Release() |> ignore
                     removeLock uploadId
@@ -342,8 +396,14 @@ module UploadsEndpoint =
                 do! lock.WaitAsync(ctx.RequestAborted)
                 try
                     let dir = uploadDir storageRoot uploadId
+                    let caller = userIdentityOf ctx
                     match readMetaReconciled dir with
                     | None -> do! writeError ctx 404 "uploadId 미존재"
+                    | Some meta when not (isUploadOwnedBy meta caller) ->
+                        Log.audit.Warn(
+                            sprintf "D-S7-5 C-4: finalize owner mismatch — uploadId=%s caller=%s owner=%s"
+                                uploadId (Log.sanitizeForLog caller) (Log.sanitizeForLog meta.UserIdentity))
+                        do! writeError ctx 403 "upload owner mismatch"
                     | Some meta ->
                         if meta.Offset <> meta.TotalBytes then
                             do! writeError ctx 409
@@ -393,6 +453,15 @@ module UploadsEndpoint =
                                         try Directory.Delete(dir, true) with _ -> ()
                                     do! writeJson ctx 201
                                             {| id = collectionId; storageRelPath = entry.StorageRelPath |}
+                                else
+                                    // **s6-r70 review C-7** — indexerVersion gate false 분기 (TooLow/TooHigh/Missing 모두 영구 fail).
+                                    // collStaging 은 processStagingExtractGate 가 이미 removeStaging 처리. uploadId staging 도
+                                    // 즉시 cleanup — retry 의미 없음 (client lib 변경 의무, 동일 partial 재시도 무효). 디스크 leak 차단.
+                                    if Directory.Exists dir then
+                                        try Directory.Delete(dir, true) with _ -> ()
+                                    Log.audit.Info(
+                                        sprintf "D-S7-5 C-7: finalize gate fail — uploadId staging cleanup. uploadId=%s collectionId=%s"
+                                            uploadId collectionId)
                             with
                             | SanitizeException err ->
                                 Log.audit.Warn(
