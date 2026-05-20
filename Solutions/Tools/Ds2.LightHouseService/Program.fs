@@ -30,10 +30,14 @@ open ModelContextProtocol.AspNetCore
 ///
 /// storageRoot 는 cfg.StorageRoot 의 expandEnv 결과를 caller (main 또는 fixture) 가 미리 산출 후 cfg 에 박아 전달.
 /// 본 함수 안에서는 추가 envvar 전개 안 함 (test 가 임의 temp dir 전달 시 envvar 우회).
+/// **s6-r45 (C1)**: `embedderFactoryOverride` 인자 신규 — IT 의 mock IEmbeddingProvider 주입 path.
+/// `None` 박제 시 cfg.Embedding 기반 OllamaEmbedder 정상 path (production main). `Some f` 박제 시 cfg.Embedding
+/// 무시하고 본 factory 사용 — IT 가 daemon 의존 0 mock factory 박제 + hybrid retrieval round-trip 검증 가능.
 let configureApp
         (cfg: ServiceConfig)
         (psk: string)
         (tlsCert: X509Certificate2)
+        (embedderFactoryOverride: (unit -> Ds2.LightHouse.IEmbeddingProvider option) option)
         : WebApplication =
 
     let storageRoot = Config.expandEnv cfg.StorageRoot
@@ -58,28 +62,35 @@ let configureApp
     let attachmentResolver = AttachmentResolver.fromRegistry storageRoot
     builder.Services.AddSingleton<AttachmentResolver>(attachmentResolver) |> ignore
 
-    // s6-r39 P4-C.3 — server-side hybrid retrieval 의 embedder factory.
-    // Enabled=false / config null → factory 가 항상 None (BM25-only fallback, Phase 1 동작 유지).
-    // Enabled=true → 매 SessionKb.attach 마다 새 OllamaEmbedder 생성 (per-session lifecycle, KB facade own).
-    // backend 결함 (Ollama daemon down 등) 은 색인/검색 시점 lazy fail-fast (factory throw 안 함).
+    // s6-r39 P4-C.3 / s6-r45 C1 — server-side hybrid retrieval 의 embedder factory.
+    // override 박제 시 cfg.Embedding 무시 + 본 factory 사용 (IT mock path).
+    // override 미박제 시 cfg.Embedding 기반 정상 path:
+    //   - Enabled=false / config null → factory 가 항상 None (BM25-only fallback, Phase 1 동작 유지).
+    //   - Enabled=true → 매 SessionKb.attach 마다 새 OllamaEmbedder 생성 (per-session lifecycle, KB facade own).
+    //   - backend 결함 (Ollama daemon down 등) 은 색인/검색 시점 lazy fail-fast (factory throw 안 함).
     let embedderFactory : unit -> Ds2.LightHouse.IEmbeddingProvider option =
-        let emb = cfg.Embedding
-        if not emb.Enabled then
-            fun () -> None
-        elif String.IsNullOrWhiteSpace emb.BaseUrl
-             || String.IsNullOrWhiteSpace emb.Model
-             || emb.Dimension <= 0 then
-            Log.service.Warn(
-                sprintf "P4-C.3: embedding config validation 실패 (baseUrl='%s' model='%s' dim=%d) — BM25-only fallback"
-                    emb.BaseUrl emb.Model emb.Dimension)
-            fun () -> None
-        else
-            Log.service.Info(
-                sprintf "P4-C.3: server-side embedding 활성 — baseUrl=%s model=%s dim=%d"
-                    emb.BaseUrl emb.Model emb.Dimension)
-            fun () ->
-                let e = new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
-                Some (e :> Ds2.LightHouse.IEmbeddingProvider)
+        match embedderFactoryOverride with
+        | Some f ->
+            Log.service.Info("C1: embedderFactory override 박제 (test path) — cfg.Embedding 무시")
+            f
+        | None ->
+            let emb = cfg.Embedding
+            if not emb.Enabled then
+                fun () -> None
+            elif String.IsNullOrWhiteSpace emb.BaseUrl
+                 || String.IsNullOrWhiteSpace emb.Model
+                 || emb.Dimension <= 0 then
+                Log.service.Warn(
+                    sprintf "P4-C.3: embedding config validation 실패 (baseUrl='%s' model='%s' dim=%d) — BM25-only fallback"
+                        emb.BaseUrl emb.Model emb.Dimension)
+                fun () -> None
+            else
+                Log.service.Info(
+                    sprintf "P4-C.3: server-side embedding 활성 — baseUrl=%s model=%s dim=%d"
+                        emb.BaseUrl emb.Model emb.Dimension)
+                fun () ->
+                    let e = new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
+                    Some (e :> Ds2.LightHouse.IEmbeddingProvider)
 
     let sessionRegistry = SessionRegistry(attachmentResolver, embedderFactory)
     builder.Services.AddSingleton<ISessionRegistry>(sessionRegistry :> ISessionRegistry) |> ignore
@@ -209,7 +220,7 @@ let main argv =
         tlsCert.Subject tlsCert.Thumbprint)
 
     // Phase S5e — production 부팅의 (a)~(e) 단계 완료 후 pure builder 함수에 위임.
-    let app = configureApp cfg psk tlsCert
+    let app = configureApp cfg psk tlsCert None  // s6-r45 C1: production = cfg 기반 embedderFactory (override 미박제)
 
     Log.service.Info(sprintf "Kestrel HTTPS listen 시작 — %s (maxUploadBytes=%d)"
         cfg.ListenUrl cfg.MaxUploadBytes)
