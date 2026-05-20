@@ -2,6 +2,7 @@ namespace Ds2.LightHouse.Extractors
 
 open System
 open System.IO
+open System.Text
 open System.Threading
 open Ds2.LightHouse
 open DocumentFormat.OpenXml
@@ -10,6 +11,11 @@ open DocumentFormat.OpenXml.Wordprocessing
 
 /// Wordprocessing.ParagraphProperties 가 Drawing.ParagraphProperties 와 동명 → fully qualified 로만 사용.
 type private Blip = DocumentFormat.OpenXml.Drawing.Blip
+
+/// **Task 1 (r2 Minor 5)** — DrawingML 의 `Paragraph` / `Text` 가 Wordprocessing 측과 동명 → file top alias.
+/// PPTX 의 SlideText / NotesSlide 에서 paragraph break 보존 enumerate 시 사용.
+type private DrawingParagraph = DocumentFormat.OpenXml.Drawing.Paragraph
+type private DrawingText = DocumentFormat.OpenXml.Drawing.Text
 
 /// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (todo-lighthouse-kb-index.md §4.3 / xlsx-pptx-images r2).
 ///
@@ -342,21 +348,173 @@ type OoxmlExtractor() =
             Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A XML 파싱 실패 (lazy deferred) — path=%s, ex=%s" docType path ex.Message)
             emptyResult ()
 
+    /// **Task 1 — PPTX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 1)
+    ///
+    /// 활성 박제:
+    /// - SlideIdList SSOT 순회 (r1 Critical-5, MS Learn 공식) — `presentationPart.SlideParts` 직접 enumerate
+    ///   금지 (zip relationship 순서라 reorder/insert 시 정렬 어긋남).
+    /// - SlideIdList null guard (r2 Major-1) — 빈/손상 pptx 의 NRE 차단 (ExtractWithFailSafe 의 5 catch 가
+    ///   NRE 안 잡음).
+    /// - slideId.RelationshipId null guard (r2 Minor 3) — 손상 pptx 의 NRE 차단.
+    /// - title + CenteredTitle placeholder 모두 매칭 (r1 M4, ECMA-376) — `<ph type="title">` 와 `<ph type="ctrTitle">`.
+    ///   EnumValue 직접 비교 (`PlaceholderValues.Title` / `PlaceholderValues.CenteredTitle`).
+    /// - title 부재 슬라이드 fallback = "슬라이드 N" literal (r1 M11).
+    /// - paragraph break 보존 (r1 M5) — `Slide.InnerText` 직접 사용 금지 (bullet 들러붙음).
+    ///   `Descendants<DrawingParagraph>()` enumerate + `\n` 명시 삽입.
+    /// - speaker notes 합성 (r1 M10) — body + `--- 노트 ---` marker + notes 단일 segment. RefLocator = `slide=N`.
+    /// - image — `slide=N` RefLocator + Ordinal 1..M. `SlidePart.ImageParts` 의 relId map resolver.
+    /// - slide loop `ct.ThrowIfCancellationRequested()` (r2 Minor 6) — 100+ slide deck cancel 응답성.
+    /// - PageOrSheetCnt = 전체 슬라이드 수 (빈 pptx = Some 0).
+    ///
+    /// 명시 skip:
+    /// - SlideMaster / SlideLayout placeholder text — `SlidePart` 직속 enumerate 만, master/layout 진입 안 함.
+    /// - comments / notes master — Phase 3 backlog.
+    /// - Title (`PackageProperties`) — DOCX 와 동일 OpenXml 3.x experimental 회피, None 박제 (r1 M7).
+    static member private ExtractPptx (path: string) (ct: CancellationToken) : ExtractedDocument =
+        ct.ThrowIfCancellationRequested()
+        use doc = PresentationDocument.Open(path, false)
+        let presentationPart = doc.PresentationPart
+        if isNull presentationPart || isNull presentationPart.Presentation then
+            { DocType = Pptx; PageOrSheetCnt = Some 0; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
+        else
+            let pres = presentationPart.Presentation
+            let outline = ResizeArray<ExtractedOutlineNode>()
+            let segments = ResizeArray<ExtractedSegment>()
+            let images = ResizeArray<ExtractedImage>()
+            // r2 Major-1: SlideIdList null guard. 빈/손상 pptx 의 NRE 차단.
+            let slideIds : seq<DocumentFormat.OpenXml.Presentation.SlideId> =
+                if isNull pres.SlideIdList then Seq.empty
+                else pres.SlideIdList.Elements<DocumentFormat.OpenXml.Presentation.SlideId>()
+            let mutable slideNo = 1
+            for slideId in slideIds do
+                ct.ThrowIfCancellationRequested()   // r2 Minor 6
+                // r2 Minor 3: 손상 pptx 의 RelationshipId null guard.
+                if isNull slideId.RelationshipId || not slideId.RelationshipId.HasValue then
+                    Log.lighthouse.Warn(
+                        sprintf "ExtractPptx: slideId(no=%d) RelationshipId null — path=%s" slideNo path)
+                    slideNo <- slideNo + 1
+                else
+                    let relId = slideId.RelationshipId.Value
+                    match presentationPart.GetPartById(relId) with
+                    | :? SlidePart as slidePart ->
+                        OoxmlExtractor.IngestPptxSlide path slidePart slideNo outline segments images
+                        slideNo <- slideNo + 1
+                    | other ->
+                        Log.lighthouse.Warn(
+                            sprintf "ExtractPptx: relId=%s 가 SlidePart 아님 (%A) — path=%s" relId (other.GetType().Name) path)
+                        slideNo <- slideNo + 1
+            {
+                DocType = Pptx
+                PageOrSheetCnt = Some (slideNo - 1)
+                Title = None
+                Outline = outline.ToArray()
+                Segments = segments.ToArray()
+                Images = images.ToArray()
+            }
+
+    /// **Task 1** — 단일 슬라이드 ingest helper.
+    /// outline (slide 라벨) + segment (body + notes 합성) + image 박제 후 caller 가 slideNo 증가.
+    static member private IngestPptxSlide
+        (path: string)
+        (slidePart: SlidePart)
+        (slideNo: int)
+        (outline: ResizeArray<ExtractedOutlineNode>)
+        (segments: ResizeArray<ExtractedSegment>)
+        (images: ResizeArray<ExtractedImage>) : unit =
+        let slide = slidePart.Slide
+        let refLoc = sprintf "slide=%d" slideNo
+        // ── Title placeholder (title + ctrTitle) ──
+        let titleLabel =
+            let fallback = sprintf "슬라이드 %d" slideNo
+            if isNull slide || isNull slide.CommonSlideData || isNull slide.CommonSlideData.ShapeTree then fallback
+            else
+                let titleShape =
+                    slide.CommonSlideData.ShapeTree.Elements<DocumentFormat.OpenXml.Presentation.Shape>()
+                    |> Seq.tryFind (fun shape ->
+                        let nv = shape.NonVisualShapeProperties
+                        if isNull nv then false
+                        else
+                            let appNv = nv.ApplicationNonVisualDrawingProperties
+                            if isNull appNv then false
+                            else
+                                let ph = appNv.PlaceholderShape
+                                if isNull ph || isNull ph.Type || not ph.Type.HasValue then false
+                                else
+                                    let t = ph.Type.Value
+                                    t = DocumentFormat.OpenXml.Presentation.PlaceholderValues.Title
+                                    || t = DocumentFormat.OpenXml.Presentation.PlaceholderValues.CenteredTitle)
+                match titleShape with
+                | None -> fallback
+                | Some sh ->
+                    let sb = StringBuilder()
+                    for p in sh.Descendants<DrawingParagraph>() do
+                        let txt =
+                            p.Descendants<DrawingText>()
+                            |> Seq.map (fun t -> t.Text)
+                            |> String.concat ""
+                        if txt.Length > 0 then sb.AppendLine(txt) |> ignore
+                    let s = sb.ToString().Trim()
+                    if s.Length = 0 then fallback else s
+        outline.Add {
+            ParentIndex = None
+            Ordinal = outline.Count
+            NodeType = OutlineNodeType.Slide
+            Label = titleLabel
+            RefLocator = refLoc
+        }
+        let outlineIdx = outline.Count - 1
+        // ── Segment text — slide 전체 paragraph break 보존 + speaker notes 합성 (r1 M5 + M10) ──
+        let textBuilder = StringBuilder()
+        if not (isNull slide) then
+            for paragraph in slide.Descendants<DrawingParagraph>() do
+                let paraText =
+                    paragraph.Descendants<DrawingText>()
+                    |> Seq.map (fun t -> t.Text)
+                    |> String.concat ""
+                if paraText.Length > 0 then
+                    textBuilder.AppendLine(paraText) |> ignore
+        if not (isNull slidePart.NotesSlidePart) && not (isNull slidePart.NotesSlidePart.NotesSlide) then
+            let notesBuilder = StringBuilder()
+            for paragraph in slidePart.NotesSlidePart.NotesSlide.Descendants<DrawingParagraph>() do
+                let paraText =
+                    paragraph.Descendants<DrawingText>()
+                    |> Seq.map (fun t -> t.Text)
+                    |> String.concat ""
+                if paraText.Length > 0 then
+                    notesBuilder.AppendLine(paraText) |> ignore
+            let notesText = notesBuilder.ToString().Trim()
+            if notesText.Length > 0 then
+                textBuilder.AppendLine("--- 노트 ---").AppendLine(notesText) |> ignore
+        let combined = textBuilder.ToString().Trim()
+        if combined.Length > 0 then
+            segments.Add {
+                OutlineIndex = Some outlineIdx
+                RefLocator = refLoc
+                Text = combined
+            }
+        // ── Image — SlidePart 안 Blip enumerate ──
+        let imgPartByRelId =
+            slidePart.ImageParts
+            |> Seq.map (fun ip -> slidePart.GetIdOfPart(ip), ip)
+            |> Map.ofSeq
+        let resolveSlideImagePart relId = Map.tryFind relId imgPartByRelId
+        if not (isNull slide) then
+            OoxmlExtractor.ExtractImagesAtRefLocator slide resolveSlideImagePart "slide" refLoc images path
+
     interface IExtractor with
         member _.Supports kind =
             match kind with
-            | Docx -> true
-            | _ -> false  // Pptx / Xlsx Phase 2 task — Task 1/2 진입 시 활성
+            | Docx | Pptx -> true
+            | _ -> false  // Xlsx Phase 2 Task 2 진입 시 활성
 
         member _.Extract (path, ct) =
             ct.ThrowIfCancellationRequested()
-            // Task 0 Critical-1 — 진정한 dispatch. 현 시점 Supports=Docx only 라 routeExtractor 가 본 extractor 로
-            // Pptx/Xlsx 라우팅 안 함 → `| _ ->` 분기는 미진입 상태. Task 1/2 에서 Supports 분기 확대 + ExtractPptx/
-            // ExtractXlsx 신설하면 자연스럽게 활성.
+            // Task 0 Critical-1 — 진정한 dispatch.
             let kind = Classifier.classifyForKb path
             OoxmlExtractor.ExtractWithFailSafe kind path (fun () ->
                 match kind with
                 | Docx -> OoxmlExtractor.ExtractDocx path ct
+                | Pptx -> OoxmlExtractor.ExtractPptx path ct
                 | _ ->
                     failwith (sprintf "OoxmlExtractor.Extract: Supports invariant 위반 — kind=%A path=%s" kind path))
 

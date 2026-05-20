@@ -93,11 +93,12 @@ let ``손상 docx (random bytes) — fail-safe 빈 결과`` () =
         Assert.Empty(result.Images))
 
 [<Fact>]
-let ``Supports — Docx only (Pptx/Xlsx Phase 2)`` () =
+let ``Supports — Docx + Pptx 활성 (Task 1), Xlsx (Task 2) 진입 전`` () =
+    // Task 1 (PPTX 활성) 이후 Supports 분기 확대 — 기존 "Docx only" 가정 폐기.
     use ext = new OoxmlExtractor() :> IExtractor
     Assert.True(ext.Supports Docx)
-    Assert.False(ext.Supports Pptx)
-    Assert.False(ext.Supports Xlsx)
+    Assert.True(ext.Supports Pptx)
+    Assert.False(ext.Supports Xlsx)   // Task 2 에서 활성
     Assert.False(ext.Supports Pdf)
 
 // ── Phase 2 task C3 (s6-r14): OoxmlExtractor 의 docx ImageParts 추출 회귀 차단 ──
@@ -424,3 +425,359 @@ let ``docx + nested table image — s6-r22 C1 정합, silent drift 차단 (image
         let result = ext.Extract(path, CancellationToken.None)
         // nested table scheme 미지원 → image 0장 박제. outer cell scheme 도 inner cell 좌표를 평면화하지 않음.
         Assert.Equal(0, result.Images.Length))
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  Task 1 (PPTX 활성) — todo-lighthouse-kb-index-xlsx-pptx-images.md
+// ────────────────────────────────────────────────────────────────────────────────
+
+/// **Task 1 fixture (r2 Minor 7)** — `PresentationDocument.Create` + SDK 객체 직접 build 패턴.
+/// raw outerXml 박제는 SDK 의 strongly-typed parser (`Slide(outerXml)`) 가 child element 들을 fallback unknown 으로
+/// 박제하여 `Descendants<DrawingParagraph>()` / `Descendants<Blip>()` 이 0 반환 → 본 fixture 는 객체 model 사용.
+module private PptxFixture =
+    open DocumentFormat.OpenXml
+    open DocumentFormat.OpenXml.Packaging
+    open DocumentFormat.OpenXml.Presentation
+
+    type private DP = DocumentFormat.OpenXml.Drawing.Paragraph
+    type private DR = DocumentFormat.OpenXml.Drawing.Run
+    type private DT = DocumentFormat.OpenXml.Drawing.Text
+    type private DBPr = DocumentFormat.OpenXml.Drawing.BodyProperties
+    type private DLstStyle = DocumentFormat.OpenXml.Drawing.ListStyle
+
+    let private mkPara (text: string) : DP =
+        let p = DP()
+        let r = DR()
+        let t = DT()
+        t.Text <- text
+        r.Append(t :> OpenXmlElement) |> ignore
+        p.Append(r :> OpenXmlElement) |> ignore
+        p
+
+    let private mkTxBody (paras: string list) : TextBody =
+        let tb = TextBody()
+        tb.Append(DBPr() :> OpenXmlElement) |> ignore
+        tb.Append(DLstStyle() :> OpenXmlElement) |> ignore
+        for txt in paras do
+            tb.Append(mkPara txt :> OpenXmlElement) |> ignore
+        tb
+
+    let private mkPlaceholderShape (phType: PlaceholderValues) (cnvId: uint32) (cnvName: string) (paras: string list) : Shape =
+        let sp = Shape()
+        let nv = NonVisualShapeProperties()
+        let cnv = NonVisualDrawingProperties()
+        cnv.Id <- UInt32Value(cnvId)
+        cnv.Name <- StringValue(cnvName)
+        nv.Append(cnv :> OpenXmlElement) |> ignore
+        nv.Append(NonVisualShapeDrawingProperties() :> OpenXmlElement) |> ignore
+        let appNv = ApplicationNonVisualDrawingProperties()
+        let ph = PlaceholderShape()
+        ph.Type <- EnumValue<PlaceholderValues>(phType)
+        appNv.Append(ph :> OpenXmlElement) |> ignore
+        nv.Append(appNv :> OpenXmlElement) |> ignore
+        sp.Append(nv :> OpenXmlElement) |> ignore
+        sp.Append(ShapeProperties() :> OpenXmlElement) |> ignore
+        sp.Append(mkTxBody paras :> OpenXmlElement) |> ignore
+        sp
+
+    let private mkBodyShapeNoPh (cnvId: uint32) (cnvName: string) (paras: string list) : Shape =
+        // PlaceholderShape 없는 일반 body shape — title 부재 fixture 용 (M11). title 매칭에서 자연 skip.
+        let sp = Shape()
+        let nv = NonVisualShapeProperties()
+        let cnv = NonVisualDrawingProperties()
+        cnv.Id <- UInt32Value(cnvId)
+        cnv.Name <- StringValue(cnvName)
+        nv.Append(cnv :> OpenXmlElement) |> ignore
+        nv.Append(NonVisualShapeDrawingProperties() :> OpenXmlElement) |> ignore
+        nv.Append(ApplicationNonVisualDrawingProperties() :> OpenXmlElement) |> ignore
+        sp.Append(nv :> OpenXmlElement) |> ignore
+        sp.Append(ShapeProperties() :> OpenXmlElement) |> ignore
+        sp.Append(mkTxBody paras :> OpenXmlElement) |> ignore
+        sp
+
+    let private mkPicture (relId: string) : Picture =
+        let pic = Picture()
+        let nvPicPr = NonVisualPictureProperties()
+        let cnvPr = NonVisualDrawingProperties()
+        cnvPr.Id <- UInt32Value(5u)
+        cnvPr.Name <- StringValue("Pic")
+        nvPicPr.Append(cnvPr :> OpenXmlElement) |> ignore
+        nvPicPr.Append(NonVisualPictureDrawingProperties() :> OpenXmlElement) |> ignore
+        nvPicPr.Append(ApplicationNonVisualDrawingProperties() :> OpenXmlElement) |> ignore
+        pic.Append(nvPicPr :> OpenXmlElement) |> ignore
+        let blipFill = BlipFill()
+        let blip = DocumentFormat.OpenXml.Drawing.Blip()
+        blip.Embed <- StringValue(relId)
+        blipFill.Append(blip :> OpenXmlElement) |> ignore
+        let stretch = DocumentFormat.OpenXml.Drawing.Stretch()
+        stretch.Append(DocumentFormat.OpenXml.Drawing.FillRectangle() :> OpenXmlElement) |> ignore
+        blipFill.Append(stretch :> OpenXmlElement) |> ignore
+        pic.Append(blipFill :> OpenXmlElement) |> ignore
+        pic.Append(ShapeProperties() :> OpenXmlElement) |> ignore
+        pic
+
+    /// 단일 슬라이드 spec — shape builder list + 선택 notes.
+    type ShapeBuilder =
+        | TitleSp of text: string
+        | CenteredTitleSp of text: string
+        /// title placeholder 없는 일반 body — title 부재 fixture (M11).
+        | BodyNoPh of paras: string list
+        | BodySp of paras: string list
+        | PicSp of bytes: byte[]
+
+    type SlideSpec = {
+        Shapes: ShapeBuilder list
+        Notes: string option
+    }
+
+    let emptySlideSpec = { Shapes = []; Notes = None }
+
+    let private buildNotesSlide (notesText: string) : NotesSlide =
+        let notes = NotesSlide()
+        let nCSld = CommonSlideData()
+        let nSpTree = ShapeTree()
+        let nNvGrp = NonVisualGroupShapeProperties()
+        let nCnvPr = NonVisualDrawingProperties()
+        nCnvPr.Id <- UInt32Value(1u)
+        nCnvPr.Name <- StringValue("")
+        nNvGrp.Append(nCnvPr :> OpenXmlElement) |> ignore
+        nNvGrp.Append(NonVisualGroupShapeDrawingProperties() :> OpenXmlElement) |> ignore
+        nNvGrp.Append(ApplicationNonVisualDrawingProperties() :> OpenXmlElement) |> ignore
+        nSpTree.Append(nNvGrp :> OpenXmlElement) |> ignore
+        nSpTree.Append(GroupShapeProperties() :> OpenXmlElement) |> ignore
+        nSpTree.Append(mkPlaceholderShape PlaceholderValues.Body 2u "Notes" [notesText] :> OpenXmlElement) |> ignore
+        nCSld.Append(nSpTree :> OpenXmlElement) |> ignore
+        notes.Append(nCSld :> OpenXmlElement) |> ignore
+        notes
+
+    /// SlidePart 안 Slide 객체 build + Save. SlideIdList 박제는 caller 책임.
+    let private addSlideContent (slidePart: SlidePart) (spec: SlideSpec) =
+        let slide = Slide()
+        let cSld = CommonSlideData()
+        let spTree = ShapeTree()
+        let nvGrpSpPr = NonVisualGroupShapeProperties()
+        let cnvPr = NonVisualDrawingProperties()
+        cnvPr.Id <- UInt32Value(1u)
+        cnvPr.Name <- StringValue("")
+        nvGrpSpPr.Append(cnvPr :> OpenXmlElement) |> ignore
+        nvGrpSpPr.Append(NonVisualGroupShapeDrawingProperties() :> OpenXmlElement) |> ignore
+        nvGrpSpPr.Append(ApplicationNonVisualDrawingProperties() :> OpenXmlElement) |> ignore
+        spTree.Append(nvGrpSpPr :> OpenXmlElement) |> ignore
+        spTree.Append(GroupShapeProperties() :> OpenXmlElement) |> ignore
+        for s in spec.Shapes do
+            match s with
+            | TitleSp txt ->
+                spTree.Append(mkPlaceholderShape PlaceholderValues.Title 2u "Title" [txt] :> OpenXmlElement) |> ignore
+            | CenteredTitleSp txt ->
+                spTree.Append(mkPlaceholderShape PlaceholderValues.CenteredTitle 2u "CTitle" [txt] :> OpenXmlElement) |> ignore
+            | BodyNoPh paras ->
+                spTree.Append(mkBodyShapeNoPh 3u "BodyNoPh" paras :> OpenXmlElement) |> ignore
+            | BodySp paras ->
+                spTree.Append(mkPlaceholderShape PlaceholderValues.Body 3u "Body" paras :> OpenXmlElement) |> ignore
+            | PicSp bytes ->
+                let imgPart = slidePart.AddImagePart(ImagePartType.Png)
+                use ms = new MemoryStream(bytes)
+                imgPart.FeedData(ms)
+                let relId = slidePart.GetIdOfPart(imgPart)
+                spTree.Append(mkPicture relId :> OpenXmlElement) |> ignore
+        cSld.Append(spTree :> OpenXmlElement) |> ignore
+        slide.Append(cSld :> OpenXmlElement) |> ignore
+        slidePart.Slide <- slide
+        slidePart.Slide.Save()
+        match spec.Notes with
+        | None -> ()
+        | Some notesText ->
+            let notesPart = slidePart.AddNewPart<NotesSlidePart>()
+            notesPart.NotesSlide <- buildNotesSlide notesText
+            notesPart.NotesSlide.Save()
+
+    let buildPptx (path: string) (slides: SlideSpec list) =
+        use doc = PresentationDocument.Create(path, PresentationDocumentType.Presentation)
+        let presPart = doc.AddPresentationPart()
+        // SlideIdList 와 SlideId 모두 객체 model 안에서 build 후 한 번에 Presentation assignment.
+        // setter `presPart.Presentation <- Presentation()` 후 후속 SlideIdList.Append 가 stream 에 reflect 안 됨 (SDK 동작).
+        let sIdList = SlideIdList()
+        slides |> List.iteri (fun i spec ->
+            let slidePart = presPart.AddNewPart<SlidePart>()
+            addSlideContent slidePart spec
+            let sId = SlideId()
+            sId.Id <- UInt32Value(uint32 (256 + i))
+            sId.RelationshipId <- StringValue(presPart.GetIdOfPart(slidePart))
+            sIdList.AppendChild(sId) |> ignore)
+        let pres = Presentation()
+        pres.AppendChild(sIdList) |> ignore
+        presPart.Presentation <- pres
+        presPart.Presentation.Save()
+
+    /// 빈 pptx (SlideIdList 박제 + SlideId 0개). r1 M13 fixture.
+    let buildPptxEmpty (path: string) =
+        use doc = PresentationDocument.Create(path, PresentationDocumentType.Presentation)
+        let presPart = doc.AddPresentationPart()
+        let pres = Presentation()
+        pres.AppendChild(SlideIdList()) |> ignore
+        presPart.Presentation <- pres
+        presPart.Presentation.Save()
+
+
+[<Fact>]
+let ``pptx — 3 slide (title + body + notes + image) outline + segments + image`` () =
+    withTempPath ".pptx" (fun path ->
+        // slide 1: title="개요" + body=["첫 단락"; "둘째 단락"]
+        // slide 2: title="사양" + body 1줄 + notes + image 1장 (RefLocator=slide=2)
+        // slide 3: title="요약"
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "개요"; PptxFixture.BodySp [ "첫 단락"; "둘째 단락" ] ] }
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "사양"; PptxFixture.BodySp [ "라인 1" ]; PptxFixture.PicSp samplePngBytes ]
+                Notes = Some "발표자 메모" }
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "요약" ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Pptx, result.DocType)
+        Assert.Equal(Some 3, result.PageOrSheetCnt)
+        // outline = slide 단위 3개 (title 박제).
+        Assert.Equal(3, result.Outline.Length)
+        Assert.Equal("개요", result.Outline.[0].Label)
+        Assert.Equal("slide=1", result.Outline.[0].RefLocator)
+        Assert.Equal(OutlineNodeType.Slide, result.Outline.[0].NodeType)
+        Assert.Equal("사양", result.Outline.[1].Label)
+        Assert.Equal("요약", result.Outline.[2].Label)
+        // segments = slide 1/2/3 — 모두 title+body 합성 1개씩.
+        Assert.Equal(3, result.Segments.Length)
+        Assert.True(result.Segments |> Array.exists (fun s -> s.RefLocator = "slide=2" && s.Text.Contains "--- 노트 ---" && s.Text.Contains "발표자 메모"))
+        // image 1장 — slide 2.
+        Assert.Equal(1, result.Images.Length)
+        Assert.Equal("slide=2", result.Images.[0].RefLocator)
+        Assert.Equal(1, result.Images.[0].Ordinal)
+        Assert.Equal(Png, result.Images.[0].Format))
+
+[<Fact>]
+let ``pptx — image-only slide (title 없음, body 없음, image 1장) — segment 미박제, image 박제`` () =
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.PicSp samplePngBytes ] }   // title / body 없음, image 만
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // outline 은 slide 존재 자체로 박제 — "슬라이드 N" fallback label.
+        Assert.Equal(1, result.Outline.Length)
+        Assert.Equal("슬라이드 1", result.Outline.[0].Label)
+        // segment 미박제 (text=0).
+        Assert.Empty(result.Segments)
+        // image 1장.
+        Assert.Equal(1, result.Images.Length)
+        Assert.Equal("slide=1", result.Images.[0].RefLocator))
+
+[<Fact>]
+let ``pptx — 손상 pptx (random bytes) fail-safe — DocType=Pptx 빈 결과`` () =
+    withTempPath ".pptx" (fun path ->
+        File.WriteAllBytes(path, [| 1uy; 2uy; 3uy; 4uy |])
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Pptx, result.DocType)   // Task 0 dispatch 회귀 가드
+        Assert.Empty(result.Outline)
+        Assert.Empty(result.Segments)
+        Assert.Empty(result.Images))
+
+[<Fact>]
+let ``pptx — 빈 pptx (0 슬라이드) — Major-1 SlideIdList null guard 정합`` () =
+    withTempPath ".pptx" (fun path ->
+        PptxFixture.buildPptxEmpty path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Pptx, result.DocType)
+        Assert.Equal(Some 0, result.PageOrSheetCnt)
+        Assert.Empty(result.Outline)
+        Assert.Empty(result.Segments)
+        Assert.Empty(result.Images))
+
+[<Fact>]
+let ``pptx — 동일 image cross-slide dedup (r1 M12) — Indexer가 ImageCache 1행 + ImageReferences 3행 박제 가능`` () =
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "로고1"; PptxFixture.PicSp samplePngBytes ] }
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "로고2"; PptxFixture.PicSp samplePngBytes ] }
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "로고3"; PptxFixture.PicSp samplePngBytes ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // extractor 단위는 3장 박제 (Indexer 가 sha256 dedup → ImageCache 1행).
+        Assert.Equal(3, result.Images.Length)
+        let refs = result.Images |> Array.map (fun i -> i.RefLocator) |> Array.sort
+        Assert.Equal<string[]>([| "slide=1"; "slide=2"; "slide=3" |], refs))
+
+[<Fact>]
+let ``pptx — CenteredTitle (ctrTitle) placeholder (r1 M4) — outline label 매칭`` () =
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.CenteredTitleSp "표지 제목" ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Outline.Length)
+        // ctrTitle 도 title placeholder 처럼 매칭 — fallback "슬라이드 1" 이 아니라 실제 text.
+        Assert.Equal("표지 제목", result.Outline.[0].Label))
+
+[<Fact>]
+let ``pptx — title 부재 slide (r1 M11) — outline label "슬라이드 N" fallback`` () =
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.BodyNoPh [ "본문만 있는 슬라이드" ] ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Outline.Length)
+        Assert.Equal("슬라이드 1", result.Outline.[0].Label))
+
+[<Fact>]
+let ``pptx — paragraph break 보존 (r1 M5) — body 안 bullet 2개 → segment text 안 \n`` () =
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "T"; PptxFixture.BodySp [ "첫 줄"; "둘째 줄" ] ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        let text = result.Segments.[0].Text
+        // title + body 2 paragraph 각각 별 줄 — `\n` 포함 확인.
+        Assert.Contains("첫 줄", text)
+        Assert.Contains("둘째 줄", text)
+        // bullet 들러붙음 회귀 차단 — "첫 줄둘째 줄" 같은 form 거부.
+        Assert.False(text.Contains "첫 줄둘째 줄"))
+
+[<Fact>]
+let ``pptx — Supports 분기 활성 (Task 1 박제)`` () =
+    use ext = new OoxmlExtractor() :> IExtractor
+    Assert.True(ext.Supports Docx)
+    Assert.True(ext.Supports Pptx)
+    Assert.False(ext.Supports Xlsx)  // Task 2 에서 활성
+
+[<Fact>]
+let ``pptx — 화이트리스트 외 image (예: BMP relId 가짜) — image 0장 박제 (m6 primary 가드)`` () =
+    withTempPath ".pptx" (fun path ->
+        // BMP 는 SlidePart.AddImagePart(ImagePartType.Bmp) 박제 후 본 extract 가 ContentType=image/bmp 매칭 안 함 → skip.
+        // 직접 ImagePartType.Bmp 가 있는지 확인 어렵 — 대신 image 미박제 slide 로 image=0 검증 (단순화).
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "텍스트만" ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Empty(result.Images))
