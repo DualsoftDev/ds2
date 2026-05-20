@@ -89,10 +89,10 @@ if ($LASTEXITCODE -ne 0) {
   Write-Host "ACL 강화 완료: $configDir (Administrators+SYSTEM only)"
 }
 
-# s6-r53 D-S7-1: schemaVersion 3 + mtls 섹션 박제 (현행 PSK 단독 인증 default).
-# load path 의 1→2→3 migration chain 으로 schemaVersion=1 도 회귀 0 이나, 신규 설치는 직접 schema 3 박제.
+# s6-r66 D-S7-4: schemaVersion 4 + multiTenant 섹션 박제 (default mode="T1" flat — 현행 동작 유지).
+# in-place migration chain 제거 (s6-r66 scope 확장) — schemaVersion ≠ 4 의 stale config 는 reinstall 의무.
 $config = @{
-  schemaVersion = 3
+  schemaVersion = 4
   listenUrl = $ListenUrl
   tlsCertPath = $TlsCertPath
   tlsCertPasswordEncrypted = $certPwdEnc
@@ -115,6 +115,9 @@ $config = @{
   mtls = @{
     mode = "off"
     allowedThumbprints = @()
+  }
+  multiTenant = @{
+    mode = "T1"
   }
 }
 

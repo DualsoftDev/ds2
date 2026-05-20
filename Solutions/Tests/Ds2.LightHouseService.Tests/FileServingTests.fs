@@ -87,6 +87,7 @@ let private registerCollection
         Status = "idle"
         ErrorReason = null
         LastImportedAt = "2026-05-17T00:00:00Z"
+        Acl = Unchecked.defaultof<CollectionAcl>
     }
     do! Registry.upsertAsync storageRoot entry
 }

@@ -11,8 +11,10 @@ let private writeTempConfig (json: string) : string =
     File.WriteAllText(path, json, Encoding.UTF8)
     path
 
+// **s6-r66 D-S7-4 (scope 확장)** — in-place migration chain 제거. fresh config = schemaVersion=4 정합 +
+// embedding/mtls/multiTenant 모든 section 직접 박제 의무. legacy schemaVersion 의 stale config 는 fail-fast.
 let private validConfigJson () = """{
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "listenUrl": "https://0.0.0.0:8443",
   "tlsCertPath": "C:\\test\\service.pfx",
   "tlsCertPasswordEncrypted": "AAAA",
@@ -25,59 +27,42 @@ let private validConfigJson () = """{
   "logRetentionDays": 30,
   "logMaxSizeMB": 100,
   "auditRetentionDays": 365,
-  "indexerVersionRange": { "min": "1.0.0", "max": "1.99.99" }
+  "indexerVersionRange": { "min": "1.0.0", "max": "1.99.99" },
+  "embedding": { "enabled": false, "baseUrl": "http://localhost:11434", "model": "bge-m3", "dimension": 1024 },
+  "mtls": { "mode": "off", "allowedThumbprints": [] },
+  "multiTenant": { "mode": "T1" }
 }"""
 
 [<Fact>]
-let ``load — 정상 config 역직렬화 (s6-r53 D-S7-1 schema 1→3 chain migration)`` () =
+let ``load — fresh schemaVersion=4 config 역직렬화 (s6-r66 D-S7-4)`` () =
     let path = writeTempConfig (validConfigJson())
     try
         let cfg = Config.load path
-        // s6-r53 D-S7-1: schemaVersion 1 → 2 → 3 chain in-place migration. Embedding (Enabled=false) + Mtls
-        // (Mode="off") 자동 채움 — 회귀 0 (BM25-only + PSK 단독 인증 현행 동작 유지).
-        Assert.Equal(3, cfg.SchemaVersion)
+        Assert.Equal(4, cfg.SchemaVersion)
         Assert.Equal("https://0.0.0.0:8443", cfg.ListenUrl)
         Assert.Equal(10737418240L, cfg.MaxUploadBytes)
         Assert.Equal("1.0.0", cfg.IndexerVersionRange.Min)
         Assert.Equal("1.99.99", cfg.IndexerVersionRange.Max)
-        // P4-C.3 migration 의 Embedding default 검증 — Enabled=false (BM25-only fallback 유지).
         Assert.False(cfg.Embedding.Enabled)
         Assert.Equal("http://localhost:11434", cfg.Embedding.BaseUrl)
         Assert.Equal("bge-m3", cfg.Embedding.Model)
         Assert.Equal(1024, cfg.Embedding.Dimension)
-        // D-S7-1 migration 의 Mtls default 검증 — Mode="off" (PSK 단독 인증 현행 유지).
         Assert.Equal(MtlsMode.Off, cfg.Mtls.Mode)
         Assert.Empty(cfg.Mtls.AllowedThumbprints)
+        // D-S7-4 multiTenant section — default Mode="T1" 박제.
+        Assert.Equal(MultiTenantMode.T1, cfg.MultiTenant.Mode)
     finally File.Delete path
 
 [<Fact>]
-let ``load — schemaVersion 2 (legacy embedding 박제) → 3 단일 step migration`` () =
-    // schemaVersion 2 (Embedding 박제됨) → 3 (Mtls 자동 채움). embedding 값 보존 검증.
-    let json = """{
-  "schemaVersion": 2,
-  "listenUrl": "https://127.0.0.1:8443",
-  "tlsCertPath": "C:\\test\\service.pfx",
-  "tlsCertPasswordEncrypted": "AAAA",
-  "preSharedKeyEncrypted": "BBBB",
-  "storageRoot": "%TEMP%\\lhs-test",
-  "maxUploadBytes": 10737418240,
-  "zipBombRatioLimit": 50,
-  "sessionIdleTtlMinutes": 240,
-  "stagingSweepIntervalMinutes": 10,
-  "logRetentionDays": 30,
-  "logMaxSizeMB": 100,
-  "auditRetentionDays": 365,
-  "indexerVersionRange": { "min": "1.0.0", "max": "2.99.99" },
-  "embedding": { "enabled": true, "baseUrl": "http://server:11434", "model": "bge-m3", "dimension": 1024 }
-}"""
-    let path = writeTempConfig json
-    try
-        let cfg = Config.load path
-        Assert.Equal(3, cfg.SchemaVersion)
-        Assert.True(cfg.Embedding.Enabled)  // 보존
-        Assert.Equal("http://server:11434", cfg.Embedding.BaseUrl)  // 보존
-        Assert.Equal(MtlsMode.Off, cfg.Mtls.Mode)  // default 채움
-    finally File.Delete path
+let ``load — legacy schemaVersion=1/2/3 stale config 는 fail-fast (reinstall 안내)`` () =
+    // s6-r66 D-S7-4 scope 확장: in-place migration chain 제거 — schemaVersion ≠ Current (=4) 면 모두 fail-fast.
+    // paired-release `/dist` 실행 0회 = prod 배포 0건 = legacy schema 의 config.json 인스턴스 0건 (dead code 정합).
+    for stale in [1; 2; 3] do
+        let json = (validConfigJson()).Replace("\"schemaVersion\": 4", sprintf "\"schemaVersion\": %d" stale)
+        let path = writeTempConfig json
+        try
+            Assert.Throws<InvalidDataException>(fun () -> Config.load path |> ignore) |> ignore
+        finally File.Delete path
 
 [<Fact>]
 let ``validateMtls — 부적합 mode fail-fast`` () =
@@ -128,10 +113,45 @@ let ``load — 미존재 path 는 FileNotFoundException`` () =
 
 [<Fact>]
 let ``load — schemaVersion 이 service binary 보다 높으면 fail-fast`` () =
-    let json = (validConfigJson()).Replace("\"schemaVersion\": 1", "\"schemaVersion\": 999")
+    let json = (validConfigJson()).Replace("\"schemaVersion\": 4", "\"schemaVersion\": 999")
     let path = writeTempConfig json
     try
         Assert.Throws<InvalidDataException>(fun () -> Config.load path |> ignore) |> ignore
+    finally File.Delete path
+
+[<Fact>]
+let ``validateMultiTenant — 부적합 mode fail-fast (s6-r66 D-S7-4)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        let cfg = { baseCfg with MultiTenant = { Mode = "T9" } }
+        Assert.Throws<InvalidDataException>(fun () -> Config.validateMultiTenant cfg |> ignore) |> ignore
+    finally File.Delete path
+
+[<Fact>]
+let ``validateMultiTenant — null/빈 mode → T1 default (s6-r66 D-S7-4)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        // null Mode (record 안 null reference) → T1 default.
+        let cfg = { baseCfg with MultiTenant = { Mode = null } }
+        let result = Config.validateMultiTenant cfg
+        Assert.Equal(MultiTenantMode.T1, result.MultiTenant.Mode)
+        // 빈 string + 공백 동일.
+        let cfg2 = { baseCfg with MultiTenant = { Mode = "  " } }
+        let result2 = Config.validateMultiTenant cfg2
+        Assert.Equal(MultiTenantMode.T1, result2.MultiTenant.Mode)
+    finally File.Delete path
+
+[<Fact>]
+let ``validateMultiTenant — 소문자 mode normalize → 대문자 (s6-r66 D-S7-4)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        for raw, expected in [ "t1", MultiTenantMode.T1; "t2", MultiTenantMode.T2; "t3", MultiTenantMode.T3 ] do
+            let cfg = { baseCfg with MultiTenant = { Mode = raw } }
+            let result = Config.validateMultiTenant cfg
+            Assert.Equal(expected, result.MultiTenant.Mode)
     finally File.Delete path
 
 [<Fact>]

@@ -8,10 +8,28 @@ open System.Text.Json.Serialization
 open System.Threading
 open System.Threading.Tasks
 
+/// **Phase S7 D-S7-4 (s6-r66)** — T3 mode 의 collection ACL.
+///
+/// `Users` = X-User-Identity 화이트리스트. 빈 배열 = 전체 공개 (legacy entry / 미설정 default 정합).
+/// `ReadOnly` = true 면 visible 한 user 도 mutation (payload swap / delete) reject. 검색은 허용.
+///
+/// T1/T2 모드 시 본 필드 무시. T3 모드일 때만 검증 의무. registry.json 의 collections[] 안 inline 박제
+/// (별 acl.json 파일 분리 안 함 — 단일 SemaphoreSlim mutationLock 의 atomic save 정합).
+[<NoComparison; NoEquality>]
+type CollectionAcl = {
+    [<JsonPropertyName("users")>] Users: string array
+    [<JsonPropertyName("readOnly")>] ReadOnly: bool
+}
+
 /// `registry.json` 의 한 collection entry (todo-lighthouse-kb-server.md §3.10 / §3.3.1).
 ///
 /// id 발급 주체 = server (D3, CR3 강화). client 가 `POST /collections` 시 server 가 guid v4 생성.
 /// `meta.json` SSOT (§3.3.1) 와 1:1 — registry 는 list view + status, meta 는 storage 안 단일 source.
+///
+/// **s6-r66 D-S7-4**: `Acl` 필드 — T3 mode 시 검증. null = 전체 공개 (legacy entry / T1·T2 모드 정합).
+/// JSON 직렬화 시 null 허용 (`Newtonsoft.Json` 의 nullable POCO 정합 — F# record nullable 필드는 reference type
+/// `CollectionAcl` 이라 직렬화 시 null OK). `ImportedBy` = T2 mode 의 owner identity 의미 재사용 (별도 OwnerIdentity
+/// 필드 신설 안 함 — schema 단순 유지, 사용자 결정 정합).
 [<NoComparison; NoEquality>]
 type CollectionEntry = {
     [<JsonPropertyName("id")>] Id: string
@@ -27,6 +45,8 @@ type CollectionEntry = {
     [<JsonPropertyName("status")>] Status: string
     [<JsonPropertyName("errorReason")>] ErrorReason: string
     [<JsonPropertyName("lastImportedAt")>] LastImportedAt: string
+    /// **s6-r66 D-S7-4** — T3 mode ACL. null = 전체 공개. T1/T2 모드 시 무시.
+    [<JsonPropertyName("acl")>] Acl: CollectionAcl
 }
 
 /// `registry.json` root 형식.

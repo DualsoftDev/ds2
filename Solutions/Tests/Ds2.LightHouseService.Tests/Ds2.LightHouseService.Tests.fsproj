@@ -13,6 +13,7 @@
     <Compile Include="DpapiRoundTripTests.fs" />
     <Compile Include="AuthMiddlewareTests.fs" />
     <Compile Include="RegistryTests.fs" />
+    <Compile Include="MultiTenantPolicyTests.fs" />
     <Compile Include="MetaJsonTests.fs" />
     <Compile Include="ZipImportTests.fs" />
     <Compile Include="StagingSweepTests.fs" />

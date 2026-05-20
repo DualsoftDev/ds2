@@ -178,29 +178,38 @@ module CollectionEndpoints =
                     do! writeError ctx 500 "internal error"
         } :> Task
 
-    /// GET /collections — registry list (T1 flat).
-    let private getCollectionsList (storageRoot: string) (ctx: HttpContext) : Task =
+    /// GET /collections — registry list. **s6-r66 D-S7-4**: T2/T3 모드에서 visible filter.
+    /// T1 = 전체 (현행). T2 = ImportedBy=user / legacy entry 만. T3 = acl 검증.
+    let private getCollectionsList (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) : Task =
         task {
+            let user = userIdentityOf ctx
             let entries = Registry.listSnapshot storageRoot
+            let visible = MultiTenantPolicy.filterVisible cfg.MultiTenant.Mode user entries
             do! writeJson ctx 200 {|
                 schemaVersion = RegistrySchema.Current
-                collections = entries
+                collections = visible
             |}
         } :> Task
 
-    /// GET /collections/{id}/status
-    let private getCollectionStatus (storageRoot: string) (id: string) (ctx: HttpContext) : Task =
+    /// GET /collections/{id}/status — **s6-r66 D-S7-4**: Hidden 시 404 (acl reject ↔ 미존재 구분 안 함, 정보 leak 차단).
+    let private getCollectionStatus (cfg: ServiceConfig) (storageRoot: string) (id: string) (ctx: HttpContext) : Task =
         task {
+            let user = userIdentityOf ctx
             match Registry.tryFindById storageRoot id with
             | None ->
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
             | Some entry ->
-                do! writeJson ctx 200 {|
-                    id = entry.Id
-                    status = entry.Status
-                    errorReason = entry.ErrorReason
-                    lastImportedAt = entry.LastImportedAt
-                |}
+                match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user entry with
+                | MultiTenantPolicy.AccessDecision.Hidden ->
+                    Log.audit.Warn(sprintf "GET /collections/%s/status: acl reject — user=%s mode=%s" id user cfg.MultiTenant.Mode)
+                    do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+                | _ ->
+                    do! writeJson ctx 200 {|
+                        id = entry.Id
+                        status = entry.Status
+                        errorReason = entry.ErrorReason
+                        lastImportedAt = entry.LastImportedAt
+                    |}
         } :> Task
 
     /// POST /collections/{id}/payload — 재업로드 swap.
@@ -218,6 +227,17 @@ module CollectionEndpoints =
             match Registry.tryFindById storageRoot id with
             | None ->
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+            | Some existing when
+                (match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user existing with
+                 | MultiTenantPolicy.AccessDecision.Hidden -> true
+                 | _ -> false) ->
+                // **s6-r66 D-S7-4** — Hidden 은 404 (acl reject ↔ 미존재 정보 leak 차단). Audit 박제.
+                Log.audit.Warn(sprintf "POST /collections/%s/payload: acl reject (hidden) — user=%s mode=%s" id user cfg.MultiTenant.Mode)
+                do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+            | Some existing when not (MultiTenantPolicy.canMutate cfg.MultiTenant.Mode user existing) ->
+                // **s6-r66 D-S7-4** — ReadOnly 는 403 (visible 이지만 mutation 거부, T3 acl.readOnly=true).
+                Log.audit.Warn(sprintf "POST /collections/%s/payload: acl reject (readOnly) — user=%s mode=%s" id user cfg.MultiTenant.Mode)
+                do! writeError ctx 403 (sprintf "read-only collection — id=%s" id)
             | Some existing ->
                 match! parseMultipart ctx with
                 | Error (status, msg) ->
@@ -278,6 +298,7 @@ module CollectionEndpoints =
     /// DELETE /collections/{id} — registry 제거 + Collections\<dir> purge + active session detach 신호.
     /// bus (s6-r27, D-S7-2) — registry 제거 성공 시 `collection-deleted` event publish.
     let private deleteCollection
+        (cfg: ServiceConfig)
         (storageRoot: string)
         (notifier: ICollectionLifecycleNotifier)
         (bus: EventBus)
@@ -290,13 +311,22 @@ module CollectionEndpoints =
             | None ->
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
             | Some entry ->
-                // 순서: 1) active session detach 신호 (Phase S3 시점에 실 detach) → 2) registry 제거 → 3) 디스크 purge
-                notifier.OnDeleted id
-                let! _ = Registry.removeAsync storageRoot id
-                ZipImport.purgeCollection storageRoot id entry.DisplayName
-                Log.audit.Info(sprintf "collection deleted — id=%s by=%s" id user)
-                bus.Publish(ServerEvent.collectionDeleted id)  // D-S7-2 s6-r27
-                ctx.Response.StatusCode <- 204
+                // **s6-r66 D-S7-4** — Hidden / ReadOnly 모두 mutation reject. 404 / 403 분기.
+                match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user entry with
+                | MultiTenantPolicy.AccessDecision.Hidden ->
+                    Log.audit.Warn(sprintf "DELETE /collections/%s: acl reject (hidden) — user=%s mode=%s" id user cfg.MultiTenant.Mode)
+                    do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+                | MultiTenantPolicy.AccessDecision.ReadOnly ->
+                    Log.audit.Warn(sprintf "DELETE /collections/%s: acl reject (readOnly) — user=%s mode=%s" id user cfg.MultiTenant.Mode)
+                    do! writeError ctx 403 (sprintf "read-only collection — id=%s" id)
+                | MultiTenantPolicy.AccessDecision.Allow ->
+                    // 순서: 1) active session detach 신호 (Phase S3 시점에 실 detach) → 2) registry 제거 → 3) 디스크 purge
+                    notifier.OnDeleted id
+                    let! _ = Registry.removeAsync storageRoot id
+                    ZipImport.purgeCollection storageRoot id entry.DisplayName
+                    Log.audit.Info(sprintf "collection deleted — id=%s by=%s" id user)
+                    bus.Publish(ServerEvent.collectionDeleted id)  // D-S7-2 s6-r27
+                    ctx.Response.StatusCode <- 204
         } :> Task
 
     /// DELETE /uploads/{stagingId} — client cancel hook.
@@ -319,16 +349,16 @@ module CollectionEndpoints =
         let storageRoot = Config.expandEnv cfg.StorageRoot
 
         app.MapPost("/collections", RequestDelegate(postCollections cfg storageRoot notifier bus)) |> ignore
-        app.MapGet("/collections", RequestDelegate(getCollectionsList storageRoot)) |> ignore
+        app.MapGet("/collections", RequestDelegate(getCollectionsList cfg storageRoot)) |> ignore
         app.MapGet("/collections/{id}/status", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
-            getCollectionStatus storageRoot id ctx)) |> ignore
+            getCollectionStatus cfg storageRoot id ctx)) |> ignore
         app.MapPost("/collections/{id}/payload", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
             postCollectionPayload cfg storageRoot notifier bus id ctx)) |> ignore
         app.MapDelete("/collections/{id}", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
-            deleteCollection storageRoot notifier bus id ctx)) |> ignore
+            deleteCollection cfg storageRoot notifier bus id ctx)) |> ignore
         app.MapDelete("/uploads/{stagingId}", RequestDelegate(fun ctx ->
             let stagingId = ctx.Request.RouteValues.["stagingId"] |> string
             deleteUpload storageRoot stagingId ctx)) |> ignore

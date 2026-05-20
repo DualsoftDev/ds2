@@ -15,6 +15,7 @@
     <Compile Include="Config.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Registry.fs" />
+    <Compile Include="MultiTenantPolicy.fs" />
     <Compile Include="MetaJson.fs" />
     <Compile Include="ZipImport.fs" />
     <Compile Include="CollectionLifecycle.fs" />
