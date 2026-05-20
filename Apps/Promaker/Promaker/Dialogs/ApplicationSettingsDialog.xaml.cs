@@ -510,9 +510,18 @@ public partial class ApplicationSettingsDialog : Window
             var cert = selected[0];
             svc.ClientCertThumbprint = cert.Thumbprint;
             LhServicesGrid.Items.Refresh();
+            // **B5 phase 3 (s6-r68)** — CertValidator 호출. 만료/임박/유효 분기 즉시 안내.
+            var diag = Promaker.Knowledge.CertValidator.Validate(cert.Thumbprint);
+            var msg = Promaker.Knowledge.CertValidator.FormatMessage(diag);
+            bool? success = diag.Result switch
+            {
+                Promaker.Knowledge.CertValidator.ValidationResult.Valid => null,
+                Promaker.Knowledge.CertValidator.ValidationResult.ExpiringSoon => null,
+                _ => false,
+            };
             SetTestResult(LhTestResult,
-                $"ℹ️ [{svc.DisplayName}] client cert 선택됨 — subject={cert.Subject}, thumbprint={cert.Thumbprint}",
-                success: null);
+                $"ℹ️ [{svc.DisplayName}] cert 선택됨 — {msg}",
+                success: success);
         }
         catch (Exception ex)
         {
@@ -520,6 +529,32 @@ public partial class ApplicationSettingsDialog : Window
                 $"❌ [{svc.DisplayName}] cert 선택 실패 — {ex.GetType().Name}: {ex.Message}",
                 success: false);
         }
+    }
+
+    /// <summary>
+    /// **B5 phase 3 (s6-r68)** — DataGrid row 의 "검증" 버튼. Button.Tag = ServiceId. 박제된 thumbprint 의 cert validity
+    /// (LocalMachine\My / CurrentUser\My 일치 + NotAfter > now + 만료 임박 경고) 진단 + 사용자 표시.
+    /// <para/>
+    /// 본 button 은 X509Store 선택 dialog (LhSelectCert_Click) 와 분리 — 사용자가 thumbprint 직접 paste 편집 (column 안
+    /// TextBox) 후 검증 trigger 또는 기존 thumbprint 의 만료 여부 점검 path.
+    /// </summary>
+    private void LhValidateCert_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string serviceId) return;
+        var svc = _lhServicesWorking.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null) return;
+        var diag = Promaker.Knowledge.CertValidator.Validate(svc.ClientCertThumbprint);
+        var msg = Promaker.Knowledge.CertValidator.FormatMessage(diag);
+        bool? success = diag.Result switch
+        {
+            Promaker.Knowledge.CertValidator.ValidationResult.Valid => true,
+            Promaker.Knowledge.CertValidator.ValidationResult.ExpiringSoon => null,
+            _ => false,
+        };
+        var icon = diag.Result == Promaker.Knowledge.CertValidator.ValidationResult.Valid ? "✅"
+                 : diag.Result == Promaker.Knowledge.CertValidator.ValidationResult.ExpiringSoon ? "⚠️"
+                 : "❌";
+        SetTestResult(LhTestResult, $"{icon} [{svc.DisplayName}] {msg}", success);
     }
 
     /// <summary>
