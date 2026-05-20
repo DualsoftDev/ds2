@@ -360,7 +360,23 @@ module internal EventDrivenCompositionContext =
         GetCallState = stateManager.GetCallState
         ApplyWorkTransition = applyWorkTransition
         GetMaxSensingAppendMs = fun workGuid ->
-            // v10 §10: SensingType.Virtual(Some Append ms) 는 해당 completion Work 의 Duration+n 이다.
+            let virtualAppendMs (apiDef: ApiDef) =
+                [
+                    match apiDef.ActionType with
+                    | ActionType.Virtual (Some (Append n)) -> yield n
+                    | _ -> ()
+                    match apiDef.SensingType with
+                    | SensingType.Virtual (Some (Append n)) -> yield n
+                    | _ -> ()
+                ]
+
+            let maxVirtualAppendMs apiDef =
+                virtualAppendMs apiDef
+                |> List.sortDescending
+                |> List.tryHead
+
+            // v10: Virtual(Some Append ms) 는 해당 completion Work 의 Duration+n 이다.
+            // Action/Sensing 양쪽 모두 같은 시간 축에 표시되므로 중복 합산하지 않고 max 로 처리한다.
             // 일반 Device ApiDef 는 Tx/Rx Work 에 적용하고, Tx/Rx 가 없는 pure virtual wait 은 parent Work 에 적용한다.
             let boundAppend =
                 index.Store.ApiDefs.Values
@@ -369,9 +385,7 @@ module internal EventDrivenCompositionContext =
                         apiDef.RxGuid = Some workGuid
                         || (apiDef.RxGuid.IsNone && apiDef.TxGuid = Some workGuid)
                     if isCompletionWork then
-                        match apiDef.SensingType with
-                        | SensingType.Virtual (Some (Append n)) -> Some n
-                        | _ -> None
+                        maxVirtualAppendMs apiDef
                     else
                         None)
                 |> Seq.toList
@@ -388,9 +402,7 @@ module internal EventDrivenCompositionContext =
                         |> Option.bind (fun apiDefId -> Queries.getApiDef apiDefId store)
                         |> Option.bind (fun apiDef ->
                             if apiDef.TxGuid.IsNone && apiDef.RxGuid.IsNone then
-                                match apiDef.SensingType with
-                                | SensingType.Virtual (Some (Append n)) -> Some n
-                                | _ -> None
+                                maxVirtualAppendMs apiDef
                             else
                                 None)))
             boundAppend @ unboundAppend

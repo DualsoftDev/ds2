@@ -12,23 +12,17 @@ module internal SimIndexBuild =
 
     let private resolveApiDefGuids = SimIndexAlgorithms.resolveApiDefGuids
 
-    let private toEntry (data: SimIndexAlgorithms.ConditionEntryData) : ConditionEntry = {
-        RxWorkGuid = data.RxWorkGuid
-        ApiCallGuid = data.ApiCallGuid
-        InputSpec = data.InputSpec
-    }
-
-    /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR 보존.
+    /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR / cc.IsInverted 보존.
     /// 여러 condition (top-level) 끼리는 AND (모두 충족 필요).
     /// Call/Work 공용 — `conditions` 컬렉션만 받음.
     let private buildConditionExpression store (conditionType: ConditionType) (conditions: ResizeArray<Condition>) : ConditionExpression =
         let rec convertOne (cc: Condition) : ConditionExpression =
             let leafExprs =
-                SimIndexAlgorithms.convertApiCallsToEntries store cc.ApiCalls
-                |> List.map (toEntry >> Leaf)
+                SimIndexAlgorithms.convertApiCallsToExpressions store cc.ApiCalls
             let childExprs = cc.Children |> Seq.map convertOne |> Seq.toList
             let all = leafExprs @ childExprs
-            if cc.IsOR then Or all else And all
+            let grouped = if cc.IsOR then Or all else And all
+            if cc.IsInverted then Not grouped else grouped
 
         let topExprs =
             conditions

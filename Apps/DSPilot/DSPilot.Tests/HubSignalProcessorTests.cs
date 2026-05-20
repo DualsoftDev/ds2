@@ -15,6 +15,7 @@ public class HubSignalProcessorTests
         Action<string, string, string>? handle = null,
         IEnumerable<string>? accepted = null,
         int maxRetries = 3,
+        int channelCapacity = 1024,
         Func<int, TimeSpan>? retryDelay = null,
         Action<string, long>? onDrop = null,
         Action<string, Exception, int, int>? onRetry = null,
@@ -23,6 +24,7 @@ public class HubSignalProcessorTests
             acceptedSources: accepted ?? HubSource.DefaultAcceptedSources,
             handleSignal: handle ?? ((_, _, _) => { }),
             maxRetries: maxRetries,
+            channelCapacity: channelCapacity,
             retryDelay: retryDelay ?? (_ => TimeSpan.Zero), // 테스트 빠르게
             onDrop: onDrop,
             onRetry: onRetry,
@@ -88,6 +90,25 @@ public class HubSignalProcessorTests
         Assert.Equal(5, dropAddresses.Count);
         Assert.Equal("addr0", dropAddresses[0]);
         Assert.Equal("addr4", dropAddresses[4]);
+    }
+
+    [Fact]
+    public void TryEnqueue_When_channel_is_full_returns_Dropped_and_increments_count()
+    {
+        var dropped = new List<(string address, long total)>();
+        var proc = CreateProcessor(
+            accepted: new[] { HubSource.Plc },
+            channelCapacity: 2,
+            onDrop: (addr, total) => dropped.Add((addr, total)));
+
+        Assert.Equal(EnqueueResult.Accepted, proc.TryEnqueue("addr1", "true", HubSource.Plc));
+        Assert.Equal(EnqueueResult.Accepted, proc.TryEnqueue("addr2", "true", HubSource.Plc));
+        Assert.Equal(EnqueueResult.Dropped, proc.TryEnqueue("addr3", "true", HubSource.Plc));
+
+        Assert.Equal(1L, proc.DropCount);
+        var item = Assert.Single(dropped);
+        Assert.Equal("addr3", item.address);
+        Assert.Equal(1L, item.total);
     }
 
     // ── 3. Retry → success ──────────────────────────────────────────────

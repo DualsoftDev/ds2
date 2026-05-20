@@ -19,6 +19,7 @@ public sealed class HubSignalProcessor
     private readonly Action<string, string, string, Exception, long>? _onDeadLetter;
     private readonly int _maxRetries;
     private readonly Func<int, TimeSpan> _retryDelay;
+    private const int DefaultChannelCapacity = 1024;
 
     public Channel<HubSignal> SignalChannel { get; }
     public long DropCount       => Interlocked.Read(ref _dropCount);
@@ -31,11 +32,15 @@ public sealed class HubSignalProcessor
         IEnumerable<string> acceptedSources,
         Action<string, string, string> handleSignal,
         int maxRetries = 3,
+        int channelCapacity = DefaultChannelCapacity,
         Func<int, TimeSpan>? retryDelay = null,
         Action<string, long>? onDrop = null,
         Action<string, Exception, int, int>? onRetry = null,
         Action<string, string, string, Exception, long>? onDeadLetter = null)
     {
+        if (channelCapacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(channelCapacity), "Channel capacity must be positive.");
+
         _acceptedSources = new HashSet<string>(acceptedSources, StringComparer.OrdinalIgnoreCase);
         _handleSignal    = handleSignal ?? throw new ArgumentNullException(nameof(handleSignal));
         _maxRetries      = maxRetries;
@@ -44,10 +49,11 @@ public sealed class HubSignalProcessor
         _onRetry         = onRetry;
         _onDeadLetter    = onDeadLetter;
 
-        SignalChannel = Channel.CreateUnbounded<HubSignal>(new UnboundedChannelOptions
+        SignalChannel = Channel.CreateBounded<HubSignal>(new BoundedChannelOptions(channelCapacity)
         {
             SingleReader = true,
             SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait,
         });
     }
 
