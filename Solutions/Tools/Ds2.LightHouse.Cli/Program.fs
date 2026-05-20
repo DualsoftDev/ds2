@@ -7,6 +7,7 @@ open System.Threading
 open Ds2.LightHouse
 open Ds2.LightHouse.Extractors
 open Ds2.LightHouse.Cli
+open Ds2.LightHouse.Ollama
 
 /// Phase S6 — todo-lighthouse-kb-server.md §4.2 Phase S6.
 ///
@@ -46,7 +47,8 @@ let private usage () =
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
-    eprintfn "  --no-embedding             vector embedding 생성 skip (BM25-only 색인). default = embedding 사용 (P4-C 도입 후)"
+    eprintfn "  --no-embedding             vector embedding 생성 skip (BM25-only 색인). default = Ollama bge-m3 / 1024 dim"
+    eprintfn "                             env: LIGHTHOUSE_OLLAMA_URL / LIGHTHOUSE_OLLAMA_MODEL / LIGHTHOUSE_OLLAMA_DIM 으로 override"
     eprintfn "  --upload <url>             LightHouseService base URL (https://host:port)"
     eprintfn "  --psk <key>                PSK (DPAPI 미적용 평문 — env var LIGHTHOUSE_PSK 권장)"
     eprintfn "  --title <name>             collection 표시 이름 (생략 시 폴더명)"
@@ -89,15 +91,35 @@ let private defaultUserIdentity () =
         | u -> u
     sprintf "%s@%s" user Environment.MachineName
 
-/// **Phase 4 (s6-r35) P4-B.2** — embedder backend 선택. `noEmbedding=true` 시 강제 None (BM25-only path).
-/// 본 turn 의 P4-B 안 A 박제 정합 — OllamaSharp adapter 도입은 P4-C 박제. 따라서 본 turn 의 default 도 None
-/// (caller 가 P4-C 진입 시점에 noEmbedding=false 분기에서 OllamaSharp 등 backend wire). 향후 default-on
-/// 변경 시에도 `--no-embedding` 사용자 opt-out 보장.
+/// **Phase 4 (s6-r37) P4-C.1** — embedder backend 선택 본격화. `noEmbedding=true` 시 강제 None (BM25-only).
+///
+/// default backend = **OllamaSharp adapter** (`OllamaEmbedder` — bge-m3 / 1024 dim / http://localhost:11434).
+/// env var override 의무:
+///   - `LIGHTHOUSE_OLLAMA_URL` → default `OllamaDefaults.BaseUrl`
+///   - `LIGHTHOUSE_OLLAMA_MODEL` → default `OllamaDefaults.Model`
+///   - `LIGHTHOUSE_OLLAMA_DIM` → default `OllamaDefaults.Dimension`
+///
+/// 사용자 명시 `--no-embedding` 이 최우선 (BM25-only path). env var 없으면 default. backend 검증 (Ollama
+/// daemon up / 모델 미설치) 은 색인 첫 chunk 호출 시점에 진입 (lazy fail-fast — backend down 시 색인 abort).
 let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
     if noEmbedding then None
     else
-        // P4-C 진입 후: OllamaSharp adapter / OpenAI / ONNX wrapper 분기. 현재는 default None (BM25-only).
-        None
+        let envOrDefault (name: string) (defaultValue: string) =
+            match Environment.GetEnvironmentVariable name with
+            | null | "" -> defaultValue
+            | v -> v
+        let baseUrl = envOrDefault "LIGHTHOUSE_OLLAMA_URL" OllamaDefaults.BaseUrl
+        let model = envOrDefault "LIGHTHOUSE_OLLAMA_MODEL" OllamaDefaults.Model
+        let dim =
+            let raw = envOrDefault "LIGHTHOUSE_OLLAMA_DIM" (string OllamaDefaults.Dimension)
+            match Int32.TryParse raw with
+            | true, v when v > 0 -> v
+            | _ ->
+                eprintfn "경고: LIGHTHOUSE_OLLAMA_DIM 값 '%s' parse 실패 — default %d 사용" raw OllamaDefaults.Dimension
+                OllamaDefaults.Dimension
+        let embedder = new OllamaEmbedder(baseUrl, model, dim) :> IEmbeddingProvider
+        eprintfn "  embedding backend = Ollama (%s, model=%s, dim=%d)" baseUrl model dim
+        Some embedder
 
 let private runIndex (folder: string) (noEmbedding: bool) : int =
     if not (Directory.Exists folder) then
@@ -119,14 +141,17 @@ let private runIndex (folder: string) (noEmbedding: bool) : int =
         printfn "색인 시작 — %s%s" folder (if noEmbedding then " (--no-embedding)" else "")
         // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
         let captionGen = Vlm.buildCaptionGen CancellationToken.None
-        // Phase 4 (s6-r35) P4-B.2: --no-embedding flag wire — resolveEmbedder 가 backend 선택 SSOT.
+        // Phase 4 (s6-r37) P4-C.1: embedder lifecycle — Some 시 색인 종료 후 dispose 의무 (HttpClient 자원).
         let embedder = resolveEmbedder noEmbedding
-        let results = Indexer.ingest folder extractors captionGen embedder progressCb CancellationToken.None
-        let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
-        let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
-        let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
-        printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
-        0
+        try
+            let results = Indexer.ingest folder extractors captionGen embedder progressCb CancellationToken.None
+            let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
+            let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
+            let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
+            printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
+            0
+        finally
+            embedder |> Option.iter (fun e -> e.Dispose())
 
 /// `--upload` 본격 분기 — staging copy + 색인 + zip + POST /collections.
 /// exit code (D-S6-4): 0/1/2/3/11/12/99.
@@ -156,25 +181,28 @@ let private runUpload
                 else
                     eprintfn "  색인 시작 — %d 파일 (%d bytes)" fileCount totalBytes
                     let embedder = resolveEmbedder noEmbedding
-                    let ingested = Packager.runIngestInStaging stagingDir embedder CancellationToken.None
-                    if ingested = 0 then
-                        eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단"
-                        12
-                    else
-                        eprintfn "  색인 완료 — ingested=%d" ingested
-                        Packager.writeMeta stagingDir title folder fileCount totalBytes userIdentity
-                        zipPath <- Packager.createZip stagingDir
-                        let zipBytes = (FileInfo zipPath).Length
-                        eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
-                        use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
-                        use stream = File.OpenRead zipPath
-                        eprintfn "  POST /collections → %s" baseUrl
-                        let id =
-                            LightHouseClient.uploadCollection
-                                client psk userIdentity title stream CancellationToken.None
-                            |> fun t -> t.GetAwaiter().GetResult()
-                        printfn "업로드 완료 — collectionId=%s" id
-                        0
+                    try
+                        let ingested = Packager.runIngestInStaging stagingDir embedder CancellationToken.None
+                        if ingested = 0 then
+                            eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단"
+                            12
+                        else
+                            eprintfn "  색인 완료 — ingested=%d" ingested
+                            Packager.writeMeta stagingDir title folder fileCount totalBytes userIdentity
+                            zipPath <- Packager.createZip stagingDir
+                            let zipBytes = (FileInfo zipPath).Length
+                            eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
+                            use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
+                            use stream = File.OpenRead zipPath
+                            eprintfn "  POST /collections → %s" baseUrl
+                            let id =
+                                LightHouseClient.uploadCollection
+                                    client psk userIdentity title stream CancellationToken.None
+                                |> fun t -> t.GetAwaiter().GetResult()
+                            printfn "업로드 완료 — collectionId=%s" id
+                            0
+                    finally
+                        embedder |> Option.iter (fun e -> e.Dispose())
             with
             | LightHouseAuthError(msg, status) ->
                 eprintfn "인증 실패 (HTTP %d) — %s" (int status) msg
