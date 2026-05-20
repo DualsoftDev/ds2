@@ -66,6 +66,9 @@ module Searcher =
     ///
     /// **Phase 4 (s6-r35)** — `c.Id AS ChunkId` 추가. hybrid retrieval 의 RRF dedup key (`<kbIdx>:<ChunkId>`)
     /// 산출 + vector KNN 결과와 같은 row 인지 매칭하기 위함. BM25-only path 도 동일 column (column 위치 1 신설).
+    ///
+    /// **s6-r57 C7** — `c.ImageCount AS ImageCount` 추가 (column 10, Score 다음). SearchHit.HasImages 정합:
+    /// `ImageCount > 0` 시 true. Phase 2 의 `Chunks.ImageCount` 박제 활용 (s6-r15 박제 SSOT).
     let private buildCollectionSelect (kbIdx: int) (alias: string) (fileIdFilter: (int * int64) option) : string =
         let docFilter =
             match fileIdFilter with
@@ -83,7 +86,8 @@ module Searcher =
                 d.OriginalPath                     AS OriginalPath,
                 d.Title                            AS Title,
                 o.Label                            AS OutlineLabel,
-                bm25(ChunksFts)                    AS Score
+                bm25(ChunksFts)                    AS Score,
+                c.ImageCount                       AS ImageCount
             FROM %s.ChunksFts
             JOIN %s.Chunks       AS c ON c.Id = ChunksFts.rowid
             JOIN %s.Documents    AS d ON d.Id = c.DocumentId
@@ -118,7 +122,8 @@ module Searcher =
                 d.OriginalPath                     AS OriginalPath,
                 d.Title                            AS Title,
                 o.Label                            AS OutlineLabel,
-                knn.distance                       AS Score
+                knn.distance                       AS Score,
+                c.ImageCount                       AS ImageCount
             FROM (
                 SELECT ChunkId, distance
                 FROM %s.Chunks_Vectors
@@ -176,6 +181,10 @@ module Searcher =
         let title       = if reader.IsDBNull(7) then None else Some (reader.GetString(7))
         let outlineLabel : obj = reader.GetValue(8)
         let rawScore    = reader.GetDouble(9)
+        // **s6-r57 C7** — Chunks.ImageCount 박제 (s6-r15 SSOT). 0 = chunk 의 RefLocator 와 매칭된 ImageReference 없음.
+        // legacy DB (s6-r8 schema 2 이전) 의 ImageCount column 부재 시는 ensureSchema ALTER 가 DEFAULT 0 박제.
+        let imageCount =
+            if reader.IsDBNull(10) then 0 else reader.GetInt32(10)
 
         let displayName =
             match title with
@@ -190,7 +199,7 @@ module Searcher =
             Score       = 0.0   // caller 가 finalize
             Excerpt     = truncateExcerpt text maxExcerptTokens
             TokenCount  = tokenCount
-            HasImages   = false   // Phase 1 — 이미지 인프라 미도입 (§3.15.2)
+            HasImages   = imageCount > 0   // **C7 (s6-r57)** — Chunks.ImageCount > 0 정합 (§3.15.2 Phase 2 박제 활용)
         }
         { KbIdx = kbIdx; ChunkId = chunkId; Hit = hit; RawScore = rawScore }
 
