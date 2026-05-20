@@ -22,6 +22,24 @@ open Ds2.LightHouse.Cli
 ///   12 ingested=0 (등록 가치 0 — server 거부 사전 차단)
 ///   99 기타
 
+// **CLI flag key SSOT (s6-r36 P4-C.0)** — usage / parseArgs / call site 가 같은 literal 참조 의무.
+// 외부 --review L-Min-3 / 자가 검열 m3 박제 — call site drift 회귀 차단.
+// nested module 대신 top-level [<Literal>] 박제 (F# 9 strict-indentation 정합 단순화).
+[<Literal>]
+let private FlagNoEmbedding = "no-embedding"
+[<Literal>]
+let private FlagUpload = "upload"
+[<Literal>]
+let private FlagPsk = "psk"
+[<Literal>]
+let private FlagTitle = "title"
+[<Literal>]
+let private FlagUser = "user"
+[<Literal>]
+let private FlagAllowInvalidCerts = "allow-invalid-certs"
+[<Literal>]
+let private FlagVersion = "version"
+
 let private usage () =
     eprintfn "usage:"
     eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
@@ -182,29 +200,29 @@ let main args =
     // CP949 등 legacy code page 활성화 — TextEncoding 의 fallback (LightHouseService Program.fs 와 동일 패턴).
     System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance)
     let flags, positional = parseArgs args
-    if Map.containsKey "version" flags then
+    if Map.containsKey FlagVersion flags then
         printfn "lighthouse-cli 0.1.0 (Phase S6)"
         0
     else
         match positional with
         | "index" :: folder :: _ ->
-            match Map.tryFind "upload" flags with
+            match Map.tryFind FlagUpload flags with
             | Some baseUrl when not (String.IsNullOrWhiteSpace baseUrl) ->
-                match resolvePsk (Map.tryFind "psk" flags) with
+                match resolvePsk (Map.tryFind FlagPsk flags) with
                 | None ->
                     eprintfn "오류: --psk 또는 LIGHTHOUSE_PSK 환경 변수 필수"
                     10
                 | Some psk ->
                     let title =
-                        Map.tryFind "title" flags
+                        Map.tryFind FlagTitle flags
                         |> Option.filter (String.IsNullOrWhiteSpace >> not)
                         |> Option.defaultWith (fun () -> Path.GetFileName(Path.GetFullPath folder))
                     let userIdentity =
-                        Map.tryFind "user" flags
+                        Map.tryFind FlagUser flags
                         |> Option.filter (String.IsNullOrWhiteSpace >> not)
                         |> Option.defaultWith defaultUserIdentity
-                    let allowInvalidCerts = Map.containsKey "allow-invalid-certs" flags
-                    let noEmbedding = Map.containsKey "no-embedding" flags
+                    let allowInvalidCerts = Map.containsKey FlagAllowInvalidCerts flags
+                    let noEmbedding = Map.containsKey FlagNoEmbedding flags
                     runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding
             | Some _ ->
                 // 자가 검열 C1 — `--upload` 가 value 없거나 빈 string 이면 silent `runIndex` fallback 차단.
@@ -212,7 +230,7 @@ let main args =
                 eprintfn "오류: --upload <url> 인자 누락"
                 10
             | None ->
-                let noEmbedding = Map.containsKey "no-embedding" flags
+                let noEmbedding = Map.containsKey FlagNoEmbedding flags
                 runIndex folder noEmbedding
         | _ ->
             usage ()

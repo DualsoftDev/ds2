@@ -1,5 +1,6 @@
 namespace Ds2.LightHouse
 
+open System
 open System.Threading
 open System.Threading.Tasks
 
@@ -20,7 +21,15 @@ open System.Threading.Tasks
 ///
 /// **batch API 의무**: `GenerateAsync` 는 N 개 input 을 한 번에 처리 (Ollama / OpenAI 모두 batch 지원).
 /// caller 가 batch 크기 결정 — lib 은 단순히 chunks 배열 통째로 호출 (Indexer 가 batching policy 결정).
+///
+/// **lifecycle (s6-r36 P4-C.0)**: `IDisposable` 상속 — backend (OllamaSharp HttpClient 등) 가
+/// unmanaged resource 보유 시 caller 가 결정. `KnowledgeBase.Dispose` 가 own 한 embedderOpt 를 동반 dispose
+/// (ownership SSOT — facade 에 주입된 provider 의 lifecycle = facade 와 동일). caller 가 provider 를
+/// 외부에서 별도 lifecycle 로 관리하고 싶으면 facade 에 wrapper (`NonOwning`) 박제 패턴 권장. backend 가
+/// stateless (mock) 시 `Dispose` no-op OK.
 type IEmbeddingProvider =
+    inherit IDisposable
+
     /// 본 backend 의 vector dimension. Chunks_Vectors schema 와 정합 의무.
     abstract member Dimension: int
 

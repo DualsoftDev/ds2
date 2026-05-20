@@ -13,7 +13,9 @@ open Microsoft.Data.Sqlite
 /// (transitive NuGet 의 `PrivateAssets=all` 정합, r8 메타리뷰 m2 결정).
 type KnowledgeBase = {
     /// active 셋 union 검색 (BM25 trigram). `Query.FileId` 로 특정 문서 한정 가능.
-    Search: Query -> SearchResults
+    /// **s6-r36 P4-C.0** — ct 전파 path 추가 (hybrid path 의 embedder.GenerateAsync 호출 cancel).
+    /// caller 가 cancel 의무 없으면 `CancellationToken.None` 전달.
+    Search: Query -> System.Threading.CancellationToken -> SearchResults
     /// 등록된 모든 문서 메타 — (fileId, originalPath, kind, pageOrSheetCnt).
     List: unit -> (string * string * FileKind * int option) array
     /// 한 문서의 outline tree raw rows — (id, parentId, ordinal, nodeType, label, ref).
@@ -197,7 +199,7 @@ module KnowledgeBase =
                 reraise()
 
         {
-            Search      = fun query -> Searcher.search conn aliases embedderOpt query Searcher.DefaultMaxExcerptTokens
+            Search      = fun query ct -> Searcher.search conn aliases embedderOpt query Searcher.DefaultMaxExcerptTokens ct
             List        = fun () -> Searcher.listDocuments conn aliases
             Outline     = fun fileId -> Searcher.getOutline conn aliases fileId
             Read        = fun fileId ref -> Searcher.readByRef conn aliases fileId ref Searcher.DefaultMaxExcerptTokens
@@ -210,4 +212,12 @@ module KnowledgeBase =
                 with ex ->
                     Log.lighthouse.Warn(sprintf "KnowledgeBase.Dispose: close 실패 — %s" ex.Message)
                 conn.Dispose()
+                // s6-r36 P4-C.0 — embedderOpt ownership SSOT (facade 와 동일 lifecycle).
+                // backend (OllamaSharp HttpClient 등) 의 unmanaged resource 회수. mock 은 no-op.
+                match embedderOpt with
+                | None -> ()
+                | Some embedder ->
+                    try embedder.Dispose()
+                    with ex ->
+                        Log.lighthouse.Warn(sprintf "KnowledgeBase.Dispose: embedder dispose 실패 — %s" ex.Message)
         }

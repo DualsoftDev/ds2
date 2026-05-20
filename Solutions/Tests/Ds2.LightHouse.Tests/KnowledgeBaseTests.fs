@@ -44,7 +44,7 @@ let ``빈 active 셋 — empty result, no throw`` () =
     let kb = KnowledgeBase.openCollections [||] None
     try
         // openCollections 자체 throw 없으면 OK + search/list 가 facade contract 대로 empty 반환 (review M1).
-        Assert.Empty((kb.Search { Text = "anything"; TopK = 5; FileId = None }).Results)
+        Assert.Empty((kb.Search { Text = "anything"; TopK = 5; FileId = None } CancellationToken.None).Results)
         Assert.Empty(kb.List())
     finally kb.Dispose()
 
@@ -69,7 +69,7 @@ let ``single collection — search hit`` () =
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             Assert.Contains("컨베이어", r.Results.[0].Excerpt)
         finally kb.Dispose())
@@ -83,7 +83,7 @@ let ``2 collection UNION — 각 collection 의 hit 합산`` () =
         ingestAll dirs.[1]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "컨베이어"; TopK = 10; FileId = None }
+            let r = kb.Search { Text = "컨베이어"; TopK = 10; FileId = None } CancellationToken.None
             Assert.Equal(2, r.Results.Length)
             // fileId 모두 unique
             let ids = r.Results |> Array.map (fun h -> h.FileId)
@@ -124,7 +124,7 @@ let ``fileId 한정 검색 — 다른 collection 은 0-hit`` () =
             // kb0 의 첫 문서 fileId 알아내기
             let docs = kb.List()
             let fileId0 = docs |> Array.find (fun (id, _, _, _) -> id.StartsWith "0:") |> fun (id, _, _, _) -> id
-            let r = kb.Search { Text = "alpha"; TopK = 10; FileId = Some fileId0 }
+            let r = kb.Search { Text = "alpha"; TopK = 10; FileId = Some fileId0 } CancellationToken.None
             Assert.NotEmpty(r.Results)
             for h in r.Results do
                 Assert.True(h.FileId.StartsWith "0:", sprintf "fileId 한정 위반 — %s" h.FileId)
@@ -137,7 +137,7 @@ let ``fileId parse 실패 — 빈 결과 + Hint "invalid fileId"`` () =
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "본문"; TopK = 5; FileId = Some "broken-fileid" }
+            let r = kb.Search { Text = "본문"; TopK = 5; FileId = Some "broken-fileid" } CancellationToken.None
             Assert.Empty(r.Results)
             Assert.Equal(Some "invalid fileId", r.Hint)
         finally kb.Dispose())
@@ -160,7 +160,7 @@ let ``ATTACH path 의 single-quote escape — 폴더명에 작은따옴표 허�
         ingestAll dir
         let kb = KnowledgeBase.openCollections [| dir |] None
         try
-            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
         finally kb.Dispose()
     finally
@@ -186,7 +186,7 @@ let ``한국어 trigram 회귀 — "컨베이어" query 가 "컨베이어가/를
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
         finally kb.Dispose())
 
@@ -197,7 +197,7 @@ let ``BM25 부호 반전 — Score 높을수록 hit 강도 (양수)`` () =
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             // FTS5 bm25() 의 음수 → Searcher 가 부호 반전 → caller 통념상 양수 (높을수록 hit)
             Assert.True(r.Results.[0].Score >= 0.0,
@@ -213,7 +213,7 @@ let ``Searcher.buildFtsQuery — 공백 분리 multi-token implicit AND (review 
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "alpha beta"; TopK = 10; FileId = None }
+            let r = kb.Search { Text = "alpha beta"; TopK = 10; FileId = None } CancellationToken.None
             // "alpha beta" 두 token AND → "alpha beta gamma" 만 hit
             Assert.NotEmpty(r.Results)
             for h in r.Results do
@@ -267,6 +267,8 @@ type private QueryFriendlyEmbedder() =
                     v.[1] <- 1.0f - h
                     v)
             System.Threading.Tasks.Task.FromResult(vectors)
+    interface System.IDisposable with
+        member _.Dispose() = ()
 
 [<Fact>]
 let ``hybrid — embedderOpt=None (BM25-only path) 기존 동작 회귀 0`` () =
@@ -275,7 +277,7 @@ let ``hybrid — embedderOpt=None (BM25-only path) 기존 동작 회귀 0`` () =
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
-            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             // BM25-only path — Score 가 부호 반전 후 양수 (review M6).
             Assert.True(r.Results.[0].Score >= 0.0,
@@ -294,7 +296,7 @@ let ``hybrid — embedderOpt=Some (BM25 + vector RRF) Chunks_Vectors 채워진 c
         // 검색도 embedder=Some — hybrid path 진입.
         let kb = KnowledgeBase.openCollections dirs (Some embedder)
         try
-            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             // RRF score — 0 보다 큼 (양 system 에서 hit 시 더 큰 값). 1/(60+0) ≈ 0.0167 정도.
             Assert.True(r.Results.[0].Score > 0.0,
@@ -311,7 +313,7 @@ let ``hybrid — embedderOpt=Some 이지만 Chunks_Vectors 빈 collection (legac
         let embedder = QueryFriendlyEmbedder() :> IEmbeddingProvider
         let kb = KnowledgeBase.openCollections dirs (Some embedder)
         try
-            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None }
+            let r = kb.Search { Text = "alpha"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             // RRF contribution = BM25 (rank 0) 만 — 1/(60+0) ≈ 0.0167.
             let expectedTop = 1.0 / (Searcher.RrfK + 0.0)
@@ -331,7 +333,7 @@ let ``hybrid — fileId 한정 검색 시 다른 collection 의 vector hit 도 0
         try
             let docs = kb.List()
             let fileId0 = docs |> Array.find (fun (id, _, _, _) -> id.StartsWith "0:") |> fun (id, _, _, _) -> id
-            let r = kb.Search { Text = "alpha"; TopK = 10; FileId = Some fileId0 }
+            let r = kb.Search { Text = "alpha"; TopK = 10; FileId = Some fileId0 } CancellationToken.None
             Assert.NotEmpty(r.Results)
             for h in r.Results do
                 Assert.True(h.FileId.StartsWith "0:",
@@ -344,7 +346,7 @@ let ``hybrid — empty query / 빈 active 셋 정합`` () =
     // 빈 active 셋 — embedder 가 호출되지 않고 즉시 empty 반환.
     let kb = KnowledgeBase.openCollections [||] (Some embedder)
     try
-        Assert.Empty((kb.Search { Text = "something"; TopK = 5; FileId = None }).Results)
+        Assert.Empty((kb.Search { Text = "something"; TopK = 5; FileId = None } CancellationToken.None).Results)
     finally kb.Dispose()
     // 빈 query text — 마찬가지로 즉시 empty.
     withDirs 1 (fun dirs ->
@@ -352,5 +354,5 @@ let ``hybrid — empty query / 빈 active 셋 정합`` () =
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs (Some embedder)
         try
-            Assert.Empty((kb.Search { Text = "   "; TopK = 5; FileId = None }).Results)
+            Assert.Empty((kb.Search { Text = "   "; TopK = 5; FileId = None } CancellationToken.None).Results)
         finally kb.Dispose())
