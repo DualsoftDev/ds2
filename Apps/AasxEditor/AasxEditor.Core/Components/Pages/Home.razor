@@ -945,6 +945,25 @@
                         }
                     </select>
                 </div>
+                <div class="form-field">
+                    <label class="form-label">매칭 조건 (비워두면 자동: Bit=RisingEdge / 그 외=Changed)</label>
+                    <select class="form-input" @bind="_userTagMatchOp">
+                        <option value="">(기본값)</option>
+                        <option value="RisingEdge">RisingEdge (0 → 1)</option>
+                        <option value="FallingEdge">FallingEdge (1 → 0)</option>
+                        <option value="Changed">Changed (값 변경 시)</option>
+                        <option value="Eq">Eq (= 기준값)</option>
+                        <option value="Neq">Neq (≠ 기준값)</option>
+                        <option value="Gt">Gt (&gt; 기준값)</option>
+                        <option value="Gte">Gte (≥ 기준값)</option>
+                        <option value="Lt">Lt (&lt; 기준값)</option>
+                        <option value="Lte">Lte (≤ 기준값)</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="form-label">기준값 (Eq/Neq/Gt/Gte/Lt/Lte 에서만 사용)</label>
+                    <input class="form-input" type="text" @bind="_userTagMatchValue" placeholder="예: 1, 85.0, ERROR" />
+                </div>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-primary btn-sm" @onclick="OnSaveUserTag">저장</button>

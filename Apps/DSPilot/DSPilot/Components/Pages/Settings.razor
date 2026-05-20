@@ -67,11 +67,12 @@
 
                     <button class="btn btn-outlined" style="width:100%;" @onclick="ReloadAasxModel" disabled="@(!_aasxExists)">
                         <span class="material-icons" style="font-size:18px;">refresh</span>
-                        AASX 모델 다시 불러오기 (DB 재구축)
+                        AASX 모델 다시 불러오기
                     </button>
                     <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
-                        디스크의 AASX 파일을 다시 읽고 dspFlow / dspCall 을 재생성합니다.
-                        통계/히스토리는 모두 초기화됩니다. 서비스 재시작 불필요.
+                        디스크의 AASX 파일을 다시 읽어 메모리 모델을 갱신합니다.
+                        DB / 통계 / 히스토리는 그대로 유지됩니다.
+                        모델 정의가 바뀌었다면 아래 "DB 재구축" 도 함께 실행하세요.
                     </small>
                 </div>
             </div>
@@ -91,6 +92,14 @@
                             plc.db 파일이 저장될 폴더. 서비스 모드에서 <code>%APPDATA%</code> 는 SYSTEM 계정 경로로 해석되므로 사용 금지.
                         </small>
                     </div>
+                    <hr class="divider my-3" />
+                    <button class="btn btn-outlined" style="width:100%; color:#c0392b; border-color:#c0392b;" @onclick="RebuildDatabase">
+                        <span class="material-icons" style="font-size:18px;">build_circle</span> DB 재구축
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
+                        plc.db 삭제 → 스키마 재생성 → 현재 메모리 AASX 로부터 dspFlow / dspCall 재적재 → 엔진 재시작.
+                        통계 / 히스토리 / 태그 로그 모두 삭제. 서비스 재시작 불필요.
+                    </small>
                     <hr class="divider my-3" />
                     <button class="btn btn-outlined" style="width:100%; color:#e67e22; border-color:#e67e22;" @onclick="ClearFlowHistory">
                         <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
@@ -444,8 +453,24 @@ else
     {
         var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
             "AASX 모델 다시 불러오기",
-            $"디스크의 AASX 파일을 다시 읽고 DB 를 재구축합니다.\n\n경로: {ProjectService.AasxFilePath}\n\n• AASX 재파싱 → dspFlow / dspCall 재생성\n• 모든 통계 / 히스토리 / 태그 로그 삭제\n• 엔진 자동 재시작\n• 서비스 재시작 불필요",
+            $"디스크의 AASX 파일을 다시 읽어 메모리 모델을 갱신합니다.\n\n경로: {ProjectService.AasxFilePath}\n\n• AASX 재파싱 → 메모리 DsStore 갱신\n• DB / 통계 / 히스토리는 그대로 유지\n• 모델 정의가 바뀌었다면 이어서 \"DB 재구축\" 실행 필요",
             "다시 불러오기", "취소");
+
+        if (!result) return;
+
+        var reload = await DbLifecycle.ReloadAasxAsync();
+        RefreshAasxStatus();
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+            reload.Message,
+            reload.Success ? "success" : "error");
+    }
+
+    private async Task RebuildDatabase()
+    {
+        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "DB 재구축",
+            "plc.db 를 삭제하고 현재 메모리 AASX 모델로부터 다시 구축합니다.\n\n• 스키마 재생성 → dspFlow / dspCall 재적재\n• 모든 통계 / 히스토리 / 태그 로그 삭제\n• 엔진 자동 재시작\n• 서비스 재시작 불필요\n\n디스크 AASX 가 변경된 경우 먼저 \"AASX 모델 다시 불러오기\" 를 실행하세요.",
+            "재구축", "취소");
 
         if (!result) return;
 

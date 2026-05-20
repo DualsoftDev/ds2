@@ -125,13 +125,19 @@ public sealed class AasxFileWatcherService : BackgroundService
         }
 
         // 케이스 1: DSPilot 이 AASX 를 한 번도 로드한 적 없음
-        //   → 초기 설치/배포 직후 처음 AASX 가 떨어진 상황. 통계/히스토리가 아직 없으므로 자동 재구축이 안전.
+        //   → 초기 설치/배포 직후 처음 AASX 가 떨어진 상황. 통계/히스토리가 아직 없으므로 자동 로드 + DB 재구축이 안전.
         if (!_projectService.IsLoaded)
         {
-            _logger.LogInformation("[AasxWatcher] 미로드 상태에서 AASX 감지 → 자동 DB 재구축 시작 ({Path})", path);
+            _logger.LogInformation("[AasxWatcher] 미로드 상태에서 AASX 감지 → 자동 로드 + DB 재구축 시작 ({Path})", path);
             try
             {
                 var lifecycle = _services.GetRequiredService<DatabaseLifecycleService>();
+                var reload = await lifecycle.ReloadAasxAsync();
+                if (!reload.Success)
+                {
+                    _logger.LogWarning("[AasxWatcher] 자동 AASX 로드 실패: {Message}", reload.Message);
+                    return;
+                }
                 var result = await lifecycle.RebuildDatabaseAsync();
                 _logger.LogInformation("[AasxWatcher] 자동 재구축 결과: {Success} / {Message}", result.Success, result.Message);
             }
@@ -150,8 +156,8 @@ public sealed class AasxFileWatcherService : BackgroundService
             return;
         }
 
-        // 케이스 3: 콘텐츠 변경 — 자동 재구축은 하지 않고 UI 알림만.
-        //   사용자가 Settings 페이지에서 명시적으로 "AASX 모델 다시 불러오기" 클릭해야 통계가 초기화됨.
+        // 케이스 3: 콘텐츠 변경 — 자동 처리 없이 UI 알림만.
+        //   사용자가 Settings 페이지에서 "AASX 모델 다시 불러오기" 로 모델 갱신 → 필요 시 "DB 재구축" 으로 통계 초기화.
         _logger.LogInformation("[AasxWatcher] 외부 변경 감지 (sha256 변경): {Old} → {New}", lastHash ?? "<none>", currentHash);
 
         try

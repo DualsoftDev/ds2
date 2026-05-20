@@ -106,8 +106,11 @@ builder.Services.AddHostedService<PlcTagLogRetentionService>();
 builder.Services.AddSingleton<SimulationEngineService>();
 
 // UserTag 알림 — AASX 정의 + plcTagLog 폴링 매칭 (UI: /user-tags)
+builder.Services.AddScoped<IUserTagAlertRepository, UserTagAlertRepository>();
 builder.Services.AddSingleton<UserTagAlertService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertService>());
+// userTagAlertLog 보관 + 일별 집계 (기본 60일, UserTagAlert:RetentionDays appsettings)
+builder.Services.AddHostedService<UserTagAlertRetentionService>();
 
 // Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
 // URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
