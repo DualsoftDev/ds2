@@ -132,7 +132,7 @@ type ServiceFixture() =
                 // 4. configureApp + StartAsync — embedderFactory override 박제 (C1 mock path).
                 let mockFactory : unit -> IEmbeddingProvider option =
                     fun () -> Some (new MockEmbedder() :> IEmbeddingProvider)
-                let webApp = Program.configureApp cfg psk cert (Some mockFactory)
+                let webApp = Program.configureApp cfg psk cert (Some mockFactory) None
                 do! webApp.StartAsync()
                 app <- webApp
 

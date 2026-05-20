@@ -22,9 +22,15 @@ open ModelContextProtocol.AspNetCore
 ///
 /// validation: (a) chain valid (cert.Verify() — 사내 CA root trust 의존) + (b) whitelist 박제 시 thumbprint match.
 /// validation 실패 시 false → Kestrel 가 connection abort (HTTP 응답 자체 안 옴, audit log 박제 후).
-let private configureMtls (mtls: MtlsConfigSection) (httpsOpts: HttpsConnectionAdapterOptions) : unit =
+/// **B5 phase 4 (s6-r69)** — `validationOverride` = test 친화 hook. None 박제 시 현행 production path (chain.Build +
+/// whitelist) 사용. Some 박제 시 본 callback 만 사용 — IT 가 self-signed client cert 의 chain 부재를 우회하여
+/// mTLS handshake 자체의 round-trip 검증 가능. production main 의 진입점 (configureApp 호출) 은 항상 None.
+let private configureMtls
+        (mtls: MtlsConfigSection)
+        (validationOverride: (X509Certificate2 -> X509Chain -> SslPolicyErrors -> bool) option)
+        (httpsOpts: HttpsConnectionAdapterOptions) : unit =
     let whitelist = mtls.AllowedThumbprints |> Set.ofArray
-    let validateCert (cert: X509Certificate2) (chain: X509Chain) (_errors: SslPolicyErrors) : bool =
+    let productionValidate (cert: X509Certificate2) (chain: X509Chain) (_errors: SslPolicyErrors) : bool =
         // chain valid 가 1차 — 사내 CA root trust 의존. self-signed dev cert 는 root trust 등록 의무 (사용자 책임).
         let chainValid =
             try chain.Build(cert)
@@ -57,6 +63,10 @@ let private configureMtls (mtls: MtlsConfigSection) (httpsOpts: HttpsConnectionA
                 Log.audit.Warn(sprintf "mtls: whitelist 미일치 — subject=%s thumbprint=%s"
                     (Log.sanitizeForLog cert.Subject) normalized)
                 false
+    let validateCert =
+        match validationOverride with
+        | Some f -> f
+        | None -> productionValidate
     match mtls.Mode with
     | MtlsMode.Off ->
         httpsOpts.ClientCertificateMode <- ClientCertificateMode.NoCertificate
@@ -95,6 +105,7 @@ let configureApp
         (psk: string)
         (tlsCert: X509Certificate2)
         (embedderFactoryOverride: (unit -> Ds2.LightHouse.IEmbeddingProvider option) option)
+        (mtlsValidationOverride: (X509Certificate2 -> X509Chain -> SslPolicyErrors -> bool) option)
         : WebApplication =
 
     let storageRoot = Config.expandEnv cfg.StorageRoot
@@ -212,7 +223,7 @@ let configureApp
             // "optional"/"required" 시 ClientCertificateMode + validation callback 박제. validateMtls 가
             // main 단계에서 mode 정합 + AllowedThumbprints normalize 처리 완료.
             listenOptions.UseHttps(tlsCert, fun (httpsOpts: HttpsConnectionAdapterOptions) ->
-                configureMtls cfg.Mtls httpsOpts) |> ignore)
+                configureMtls cfg.Mtls mtlsValidationOverride httpsOpts) |> ignore)
     ) |> ignore
 
     // Windows Service host — 콘솔 실행 시 자동 fallback (UseWindowsService 가 SCM 미검출 시 console lifetime)
@@ -315,7 +326,9 @@ let main argv =
         tlsCert.Subject tlsCert.Thumbprint)
 
     // Phase S5e — production 부팅의 (a)~(e) 단계 완료 후 pure builder 함수에 위임.
-    let app = configureApp cfg psk tlsCert None  // s6-r45 C1: production = cfg 기반 embedderFactory (override 미박제)
+    // s6-r45 C1 — embedderFactoryOverride=None (cfg 기반 production path).
+    // s6-r69 B5 phase 4 — mtlsValidationOverride=None (chain.Build + whitelist production path).
+    let app = configureApp cfg psk tlsCert None None
 
     Log.service.Info(sprintf "Kestrel HTTPS listen 시작 — %s (maxUploadBytes=%d)"
         cfg.ListenUrl cfg.MaxUploadBytes)
