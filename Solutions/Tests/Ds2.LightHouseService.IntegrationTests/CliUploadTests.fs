@@ -11,10 +11,10 @@ open Xunit
 open Ds2.LightHouse.Cli
 open Ds2.LightHouseService.IntegrationTests
 
-/// Phase S6 P1 — CLI upload e2e suite.
+/// Phase S6 P1 — CLI upload e2e suite (옵션 P + 보관 정책 in-place 색인).
 ///
 /// 검증 범위:
-/// - `Packager.{createStaging, copyToStaging, runIngestInStaging, writeMeta, createZip}` in-process round-trip
+/// - `Packager.{resetKbDir, runIngest, summarize, countIngested, writeMeta, createZip}` in-process round-trip
 /// - `LightHouseClient.uploadCollection` 의 multipart wire 정합 (PSK Bearer + X-User-Identity + server 발급 guid)
 /// - 인증 실패 (잘못된 PSK) → `LightHouseAuthError`
 /// - 인증 통과 + plain HTTP 거부 (HTTPS-only enforcement)
@@ -35,34 +35,35 @@ type CliUploadTests(fixture: ServiceFixture) =
             Encoding.UTF8)
         dir
 
-    /// 1 source 폴더 → staging copy → 색인 → meta.json → zip 통째 round-trip.
+    /// 3 Fact 공용 in-place pipeline (외부 --review Mj-7 정합 — 5-step 반복 제거).
+    /// resetKbDir → runIngest → summarize → ingested ≥ 1 assertion → writeMeta → createZip.
+    let prepareInPlaceZip (srcFolder: string) (title: string) : string * Packager.IngestSummary =
+        Packager.resetKbDir srcFolder
+        let results = Packager.runIngest srcFolder None CancellationToken.None
+        let summary = Packager.summarize results
+        Assert.True(summary.IngestedCount >= 1, sprintf "ingested >= 1 기대, 실제 %d" summary.IngestedCount)
+        Packager.writeMeta srcFolder title srcFolder summary.FileCount summary.TotalBytes userIdentity
+        Packager.createZip srcFolder, summary
+
+    /// 1 source 폴더 → in-place 색인 → meta.json → zip 통째 round-trip.
     [<Fact>]
-    member _.``Packager — staging + 색인 + meta + zip 통과`` () =
+    member _.``Packager — in-place 색인 + meta + zip 통과`` () =
         let srcFolder = buildSourceFolder ()
-        let stagingDir = Packager.createStaging ()
         try
-            let fileCount, totalBytes = Packager.copyToStaging srcFolder stagingDir
-            Assert.Equal(1, fileCount)
-            Assert.True(totalBytes > 0L)
-
-            let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
-            Assert.True(ingested >= 1, sprintf "ingested >= 1 기대, 실제 %d" ingested)
-
-            Packager.writeMeta stagingDir "cli-test" srcFolder fileCount totalBytes userIdentity
-            let metaPath = Path.Combine(stagingDir, "meta.json")
-            Assert.True(File.Exists metaPath)
-            let metaText = File.ReadAllText metaPath
-            Assert.Contains("\"title\": \"cli-test\"", metaText)
-            Assert.Contains("\"schemaVersion\": 1", metaText)
-
-            let zipPath = Packager.createZip stagingDir
+            let zipPath, summary = prepareInPlaceZip srcFolder "cli-test"
             try
+                Assert.Equal(1, summary.FileCount)
+                Assert.True(summary.TotalBytes > 0L)
+                let metaPath = Path.Combine(srcFolder, ".lighthouse-kb", "meta.json")
+                Assert.True(File.Exists metaPath, sprintf "meta.json 미생성 — %s" metaPath)
+                let metaText = File.ReadAllText metaPath
+                Assert.Contains("\"title\": \"cli-test\"", metaText)
+                Assert.Contains("\"schemaVersion\": 1", metaText)
                 Assert.True(File.Exists zipPath)
                 Assert.True((FileInfo zipPath).Length > 0L)
             finally
                 Packager.safeDelete zipPath
         finally
-            Packager.safeDelete stagingDir
             Packager.safeDelete srcFolder
 
     /// LightHouseClient.uploadCollection 정상 → server 발급 guid.
@@ -70,17 +71,13 @@ type CliUploadTests(fixture: ServiceFixture) =
     member _.``LightHouseClient.uploadCollection — 정상 PSK + 발급 guid`` () =
         task {
             let srcFolder = buildSourceFolder ()
-            let stagingDir = Packager.createStaging ()
             let mutable zipPath = ""
             let mutable collectionId = ""
             let mutable ediOpt : ExceptionDispatchInfo option = None
             try
-                let fileCount, totalBytes = Packager.copyToStaging srcFolder stagingDir
-                let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
-                Assert.True(ingested >= 1)
                 let title = "cli-upload-" + Guid.NewGuid().ToString("N").Substring(0, 8)
-                Packager.writeMeta stagingDir title srcFolder fileCount totalBytes userIdentity
-                zipPath <- Packager.createZip stagingDir
+                let zp, _ = prepareInPlaceZip srcFolder title
+                zipPath <- zp
 
                 use client =
                     LightHouseClient.createHttpClient
@@ -96,7 +93,6 @@ type CliUploadTests(fixture: ServiceFixture) =
                 ediOpt <- Some (ExceptionDispatchInfo.Capture ex)
             // local fs cleanup
             Packager.safeDelete zipPath
-            Packager.safeDelete stagingDir
             Packager.safeDelete srcFolder
             // server cleanup (async) — Fact 격리
             if not (String.IsNullOrEmpty collectionId) then
@@ -113,14 +109,10 @@ type CliUploadTests(fixture: ServiceFixture) =
     member _.``LightHouseClient.uploadCollection — 잘못된 PSK 401 AuthError`` () =
         task {
             let srcFolder = buildSourceFolder ()
-            let stagingDir = Packager.createStaging ()
             let mutable zipPath = ""
             try
-                let fileCount, totalBytes = Packager.copyToStaging srcFolder stagingDir
-                let ingested = Packager.runIngestInStaging stagingDir None CancellationToken.None
-                Assert.True(ingested >= 1)
-                Packager.writeMeta stagingDir "auth-fail" srcFolder fileCount totalBytes userIdentity
-                zipPath <- Packager.createZip stagingDir
+                let zp, _ = prepareInPlaceZip srcFolder "auth-fail"
+                zipPath <- zp
 
                 use client =
                     LightHouseClient.createHttpClient
@@ -140,7 +132,6 @@ type CliUploadTests(fixture: ServiceFixture) =
                 Assert.Equal(HttpStatusCode.Unauthorized, status)
             finally
                 Packager.safeDelete zipPath
-                Packager.safeDelete stagingDir
                 Packager.safeDelete srcFolder
         }
 

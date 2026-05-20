@@ -209,18 +209,22 @@ server idle TTL → backstop
 
 ### 3.3 zip layout SSOT (D4)
 
-client ↔ service 의 정합 SSOT:
+client ↔ service 의 정합 SSOT (s6-r55+ 옵션 P — `meta.json` 위치 `.lighthouse-kb/` 이전):
 
 ```
 <zip root>/
-  meta.json                  # 필드 정의는 §3.3.1 SSOT
   source/
     plant-spec-v3.pdf        # 원본 파일 사본 (사용자 폴더 통째)
     io-list-2026.xlsx
   .lighthouse-kb/
+    meta.json                # 필드 정의는 §3.3.1 SSOT (이전: zip root — 옵션 P 결과 sub-dir 이전)
     index.db                 # FTS5 완성품 (client 가 색인 끝낸 SQLite)
     blobs/images/<sha256>.<ext>  # Phase 2 이미지 blob (client 추출분, ext ∈ {png,jpg,jpeg,webp,tif,jp2})
 ```
+
+이전 storage (s6-r55 이전 build 로 색인된 collection) 의 `meta.json` 은 collection root — 본 변경 후 server 는
+`.lighthouse-kb/meta.json` 만 봄. **storage wipe 의무** (마이그레이션 정책 (가)). CLI client (`lighthouse-cli index --upload`) 는
+in-place 색인 정책으로 `<source>/.lighthouse-kb/` 폴더 1개에 산출물 (meta.json + index.db) 모음 — 관리 단위 통일.
 
 service 는 zip 받으면:
 1. **sanitize** (entry path `..` traversal 가드, 절대경로 거부, symlink 거부, 전개 후 storage root 하위인지 verify)
@@ -406,11 +410,11 @@ Promaker:
   registry.json              # { schemaVersion: 1, collections: [...] } — SemaphoreSlim 직렬화 (§3.9.1)
   Collections\
     <guid>-<sanitized-title>\
-      meta.json              # 필드 정의 = §3.3.1 SSOT
       source\
         plant-spec-v3.pdf
         io-list-2026.xlsx
       .lighthouse-kb\
+        meta.json            # 필드 정의 = §3.3.1 SSOT (s6-r55+ — collection root → .lighthouse-kb/ 이전)
         index.db
         blobs\images\<sha256>.<ext>   # Phase 2+, ext ∈ {png,jpg,jpeg,webp,tif,jp2}
   Logs\

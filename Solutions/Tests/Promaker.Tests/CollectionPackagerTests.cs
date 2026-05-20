@@ -74,7 +74,7 @@ public sealed class CollectionPackagerTests : IDisposable
 
         using var archive = new ZipArchive(zip, ZipArchiveMode.Read, leaveOpen: true);
         var entries = archive.Entries.Select(e => e.FullName).ToList();
-        Assert.Contains("meta.json", entries);
+        Assert.Contains(".lighthouse-kb/meta.json", entries);
         Assert.Contains(entries, n => n.StartsWith("source/"));
         Assert.Contains(entries, n => n.StartsWith(".lighthouse-kb/"));
     }
@@ -85,7 +85,7 @@ public sealed class CollectionPackagerTests : IDisposable
         SeedStaging(sourceFileCount: 4, sourceBytesEach: 10);
         using var zip = CollectionPackager.Package(_stagingDir, _zipPath, DefaultInputs());
         using var archive = new ZipArchive(zip, ZipArchiveMode.Read);
-        var meta = archive.GetEntry("meta.json");
+        var meta = archive.GetEntry(".lighthouse-kb/meta.json");
         Assert.NotNull(meta);
         using var sr = new StreamReader(meta!.Open());
         var json = sr.ReadToEnd();
@@ -187,6 +187,6 @@ public sealed class CollectionPackagerTests : IDisposable
         using var zip = CollectionPackager.Package(_stagingDir, _zipPath, DefaultInputs());
         // 새 zip 은 valid archive — stale-content 가 아닌 정상 zip 으로 대체됨.
         using var archive = new ZipArchive(zip, ZipArchiveMode.Read, leaveOpen: true);
-        Assert.NotNull(archive.GetEntry("meta.json"));
+        Assert.NotNull(archive.GetEntry(".lighthouse-kb/meta.json"));
     }
 }
