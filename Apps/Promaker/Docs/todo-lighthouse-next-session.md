@@ -15,13 +15,36 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - ~~D-S7-4 T2/T3 multi-tenant~~ → s6-r66 완료 (MultiTenantPolicy SSOT + config migration chain 제거)
 - ~~D-S7-5 resumable upload phase 1~3 (scaffold + production + auto chunked)~~ → s6-r60/r63/r67 완료
-- **잔여**: A2 K4 Protocol SSOT 통합 / A4 Phase 3 OCR / D-S7-4 admin endpoint (T2 owner stamp + T3 acl 편집) / D-S7-5 phase 4 swap chunked / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
+- ~~**A2 K4 Protocol SSOT 통합**~~ → s6-r71 종결 (`53c939f`)
+- ~~**D-S7-4 admin endpoint**~~ → s6-r72 종결 (`1d2f1f9`)
+- ~~**A4 Phase 3 OCR**~~ → **drop 결정 (사용자, 2026-05-20)** — Phase 2 D-2-2 eager VLM caption (Sonnet 4.6) 가 image 안 한/영 text 도 caption 으로 추출 → Tesseract.NET 별도 통합은 redundant. backlog 폐기.
+- ~~**B-S7-5 phase 4 swap chunked**~~ → s6-r74 종결 (`e8391dd`)
+- ~~**B-R14 MultiTenant T2/T3 round-trip IT**~~ → s6-r74 종결 (`e8391dd`)
+- ~~**N-1 CertValidator.Normalize SSOT 통합**~~ → s6-r75 종결 (`f104374`)
+- **잔여**: B2 OoxmlExtractor 강화 (comments/footnotes/endnotes Drawing) / B3 image-only paragraph 분기 분리 / R12 잔여 4건 / external review backlog Major 5 (R5-M2 EventBus lifecycle / R2-M1 OriginalPath idx / R8-M2 jitter / R8-M5 LlmConfig 비대칭 / R6-M1 validateMtls null) + Minor 7 / A2 m3 caller routing (Middleware.fs / EventsSseTests Protocol HeaderNames/MimeTypes 정합 + C-15 EndpointHelpers 추출) / B PR M-3 acl users element 정규화 / B-S7-4 admin-only ACL 분리.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r66~r70 + doc-r3/r4 종결, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r71~r75 종결, 2026-05-21)
 
-**Phase S7 본격 종결 + 15-reviewer Critical 16 + Major 1 일괄 처리** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **708 Fact** (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+**B-S7-5 phase 4 swap chunked + B-R14 MultiTenant T2/T3 IT + N-1 CertValidator.Normalize SSOT 통합** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **721 Fact** (lib 177 / service **162** / IT **55** / Promaker 327). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
-**s6-r70 누적 (본 turn, 2026-05-20)**:
+**s6-r74 ~ s6-r75 누적 (본 turn, 2026-05-21)**:
+- **`e8391dd` s6-r74 B-S7-5 phase 4 swap chunked + B-R14 MultiTenant T2/T3 round-trip IT** — (b1) `UploadsEndpoint.postFinalize` 가 `FinalizeBody.swapTargetCollectionId` 분기 — Registry.tryFindById 검증 (404 미존재) + MultiTenantPolicy.evaluate (Hidden=404 / ReadOnly=403) + ZipImport.swapCollectionPayload (s6-r9 K1 rollback-safe atomic) + Registry.upsertAsync (existing entry 갱신 + Acl 보존) + notifier.OnPayloadSwapped + EventBus.collectionUpdated. map 시그니처 변경 — notifier 인자 추가 (Program.fs caller 정합). LightHouseClient.FinalizeResumableUploadAsync + UploadCollectionResumableAsync 에 optional swapTargetCollectionId + 신규 ResumableFinalizeBody DTO. AttachmentIngestService.ReingestAndReuploadAsync 가 zip size > 256 MiB 시 chunked swap path 자동 진입. (b2) 신규 MultiTenantFixture.fs (T2/T3 두 fixture, ~180 line) + MultiTenantRoundTripTests.fs (T2 4 fact + T3 3 fact, ~140 line) + UploadsResumableTests swap 2 fact (chunked swap round-trip + 404). Promaker CollectionPackagerTests 1 fact s6-r71 K4 follow-up (JsonIgnoreCondition.Never 후 server-side 필드 빈 string 직렬화 검증). IT 46→55 (+9). 자가 검열 sub-agent — Critical 0 / Major 0 / Minor 3 (M1 fixture body 중복 trade-off / M2 setAcl helper SSOT 통합 별 turn / M3 user literal 의도). +395/-96 line / 9 files.
+- **`f104374` s6-r75 N-1 CertValidator.Normalize SSOT 통합 — Protocol 단일 routing** — Solutions/Core/Ds2.LightHouse.Protocol/CertValidator.fs 신설 (`module CertValidator` + `[<CompiledName("Normalize")>] normalize`). strict 정합 (client behavior 채택): hex char + separator (`:` / 공백 / hyphen / tab) 외 non-hex 발견 시 빈 string + 길이 40 (SHA-1) / 64 (SHA-256) 검증. server Config.normalizeThumbprint + Promaker CertValidator.Normalize 둘 다 Protocol routing — client/server 의 silent strip ↔ strict empty 의미 drift 차단. Config.validateMtls 가 silent skip → strict reject (정합 결함 시 InvalidDataException, mtls.mode="required" 시 service 시작 fail-fast). 신규 ConfigTests fact 1건 (`validateMtls — non-hex 문자 fail-fast (N-1, Protocol CertValidator SSOT)`) → service 161→162. Promaker CertValidatorTests 9 fact 회귀 0 (Protocol routing 후 strict 의미 정합 검증). 자가 검열 inline (scope ~150 line / 5 파일) — Critical 0 / Major 0 / Minor 0.
+
+**누적 사용자 turn 전체 통계 (본 turn s6-r74 + s6-r75 + doc-r5)**: 3 commit / +550+ line / +10 Fact (IT 9 + service 1) / 회귀 0.
+
+**이전 turn (참고 — 직전 transfer 박제)**:
+
+**s6-r71~r73 누적 (이전 turn, 2026-05-20 ~ 2026-05-21)**:
+- **`53c939f` s6-r71 A2 K4 Protocol SSOT 통합** — `Solutions/Core/Ds2.LightHouse.Protocol` 신규 fsproj (F# net9.0, dependency 0 base). `ServerEventNames` module (Literal 6종, server F# + client C# 양분 → 단일) / `MetaJson` [<CLIMutable>] record (14 필드, JsonPropertyName camelCase) + `MetaJsonSchema.Current=1` + `MetaJsonIO` module (FileName / SubDir / path / load / save / stampServerFields / jsonOptions, F# 의 record-module 동명 자동 `MetaJsonModule` IL suffix 회피 → `MetaJsonIO` 명시 rename) / `ZipLayout` (SourceFolderName / KbFolderName) + `HeaderNames` (UserIdentity / IndexerVersion) + `MimeTypes` (Json / OctetStream / EventStream). server `MetaJson.fs` 의 `toRegistryEntry` 만 `MetaJsonRegistry` server-internal helper 로 잔류 (`CollectionEntry` / `CollectionAcl` Registry 의존 박제). Promaker `ServerEventNames.cs` 삭제 + caller (KbManagerDialog / LightHouseClientTests) `using Ds2.LightHouse.Protocol` 추가. Promaker `CollectionPackager.MetaPayload` private class 폐기 → Protocol `MetaJson` 사용 (CLIMutable + JsonPropertyName C# 호환). cli `Packager.MetaDto` 폐기 → Protocol `MetaJson` 사용. lib `SqliteStore.KbFolderName` 가 `ZipLayout.KbFolderName` SSOT inline (M22 zip layout 3중 박제 흡수 완성). 자가 검열 sub-agent 위임 — Critical 0 / Major 1 (M22 흡수) / Minor 3 (m1 dead `emptyClientFill` 제거 / m2 Promaker `JsonOptions.Never` 통일 / m3 caller routing backlog). +375/-248 line / 23 files.
+- **`1d2f1f9` s6-r72 B PR 1~4 — 보안/perf/admin endpoint 일괄** — (B6) `LightHouseClient.NewRequest` 의 PSK 평문 lifetime 단축 (`psk = null` defense-in-depth, `HeaderNames.UserIdentity` Protocol SSOT 사용) + `StagingSession` ctor 의 explicit DirectorySecurity ACL 박제 (current user FullControl + protect inheritance, Windows 한정 best-effort fallback). (B1) `Indexer.ingestFile` 의 Document + OutlineNodes outer transaction (autocommit fsync N+1→1, `insertChunks` batch txn 은 nested 차단으로 별 scope 유지, Microsoft.Data.Sqlite ambient txn 자동 인식 정합). (B-R12 3건) `vec0PathLazy` System.Lazy cache (매 openConnection 의 RuntimeInformation + Path.Combine 반복 cost 회피) + `buildVec0WireFormat` StringBuilder 직접 wire (JsonSerializer<float32[]> reflection cost 회피, R round-trip format) + `rrfMerge` Map (immutable copy O(log N)) → Dictionary (O(1) mutable). (B-S7-4) 신규 `AdminEndpoints.fs` (~123 line, `POST /admin/collections/{id}/owner` ImportedBy stamp + `PUT /admin/collections/{id}/acl` Acl 갱신 + `Log.audit.Info` 추적, body schema = OwnerBody / AclBody `[<CLIMutable>]` 비-private record, single trust pool — 별 admin-only ACL 분리는 backlog). 신규 `AdminEndpointsTests.fs` (~95 line, 3 Fact = owner 갱신 / acl 갱신 / 잘못된 id 404). + EventsSseTests.fs A2 `open Ds2.LightHouse.Protocol` 누락 정합. 자가 검열 sub-agent 위임 — Critical 0 / Major 3 (M-1 jsonOpts singleton + M-2 writeJson options 전달 즉시 적용, M-3 acl users 정규화 backlog) / Minor 5. +336/-21 line / 11 files / +3 IT Fact = **+711 누적**.
+- **`a5c82e0` s6-r73 external review hotfix — SSE race + mTLS IT wrongCert lifetime** — (R5-M1, production-blocking) `EventsEndpoint.handle` 의 keepalive task + reader loop 동시 `ctx.Response.Body.WriteAsync` race (ASP.NET Core chunk encoding 손상 → client SSE parse 실패 회귀) → per-context `SemaphoreSlim writeLock` + `tryWriteEventSerialized` helper (3 caller: firstWrite / keepalive / reader 모두 lock 통과). (N-2, IT 의미 회복) `MtlsRequiredFixture` 의 `CreateMtlsClientWithWrongCert` 안 `use wrongCert` 가 method return 시점 Dispose → handler 가 disposed cert handle 보유 → handshake reject 이유가 "disposed cert" wash-out → mutable field `wrongCert : X509Certificate2` + lazy 생성 + DisposeAsync 회수 (fixture-managed lifetime). +40/-5 line / 2 files / 회귀 0.
+
+**누적 사용자 turn 전체 통계**: 3 commit (s6-r71/r72/r73) / +751/-274 line / +3 Fact / 회귀 0.
+
+**이전 turn (참고 — 직전 transfer 박제)**:
+
+**s6-r70 누적 (이전 turn, 2026-05-20)**:
 - **`60a2f6a` s6-r70 15-reviewer Critical 16 + Major 1 일괄 처리** — D-S7-4 multi-tenant 격리가 4 surface (FileServing / SSE / Middleware / UploadsEndpoint) 무력화 결함을 본 turn 일괄 해소.
   - **보안/multi-tenant**: C-1 FileServing.getFile 에 `MultiTenantPolicy.evaluate` filter (Hidden=404 정보 leak 차단, cfg 인자 추가) / C-2 EventsEndpoint SSE per-subscriber tenant filter (`isEventVisibleTo` helper, T2/T3 모드 시 Hidden event skip, T1 회귀 0) / C-3 AuthMiddleware mTLS subject CN ↔ X-User-Identity 강제 (`verifyMtlsIdentity` + cfg 인자 추가, mtls.mode != off 시 mismatch 401) / C-4 UploadsEndpoint UserIdentity cross-check (`isUploadOwnedBy` helper, PATCH/GET/DELETE/finalize 4 endpoint 의 owner mismatch 403)
   - **Upload race/lifecycle**: C-5 SemaphoreSlim.Dispose race 정정 (removeLock 의 Dispose 폐기, lazy GC) / C-6 getStatus acquireLock 추가 (PATCH 진행 중 race 차단) / C-7 finalize indexerVersion gate fail 시 uploadId staging cleanup (디스크 leak 차단) / C-8 patchChunk OCE 분리 catch (client disconnect 시 misleading log / writeError 재발 OCE 차단) / C-9 ApplicationStopping → ApplicationStopped (graceful drain 동안 embedder race 차단)
@@ -81,53 +104,69 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r66~r70 + doc-r3/r4 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r71~r75 종결 후, 2026-05-21)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 누적 6 commit — 사용자 "b 제외 일괄 진행" → "1, 2 진행" → "--review" → "본 turn 에서 반론건 제외하고 한꺼번에 처리" 흐름]
-- c01af8f s6-r66 D-S7-4 T2/T3 multi-tenant + config migration chain 제거 (사용자 옵션 #2 scope 확장) — MultiTenantPolicy module + Config schema 3→4 + Registry CollectionAcl + SessionEndpoints/CollectionEndpoints filter + +18 service Fact (자가 검열 sub-agent 위임)
-- 3ed6c1e s6-r67 D-S7-5 phase 3 — chunked path 자동 선택 (LightHouseClient.ResumableUploadThresholdBytes=256 MiB const SSOT) + AttachmentIngestService.UploadAsync 분기 + +1 Promaker Fact
-- 77c8a88 s6-r68 B5 phase 3 — CertValidator helper (Normalize/Validate/FormatMessage 4 분기 ValidationResult enum) + DataGrid edit TextBox + '검증' 버튼 + +10 Promaker Fact
-- 901975f s6-r69 B5 phase 4 — configureApp 시그니처 mtlsValidationOverride 추가 + MtlsRequiredFixture (server/client self-signed 2 cert + ClientCertificates wire) + +3 IT Fact (valid/미박제/wrong cert handshake)
-- 60a2f6a s6-r70 15-reviewer Critical 16 + Major 1 일괄 처리 — D-S7-4 multi-tenant 격리 4 surface 무력화 결함 hotfix (C-1 FileServing / C-2 SSE / C-3 mTLS subject CN / C-4 Uploads UserIdentity) + Upload race 5건 (C-5~C-9) + Promaker UI 5건 (C-10~C-14) + Minor 3건 (C-16/C-17/R1-M1). 반론 2건 (R15-M2 RegistrySchema bump / C-15 EndpointHelpers SSOT K4 phase 묶음). 회귀 0
-- (doc-r3/r4) 본 prompt 박제
+[직전 turn 사용자 흐름 — "(a) → (b) → (c) 순서로 진행" → (a) E2 doc 갱신 → (b) "둘 다 한 PR 로 묶음" → "A" (옵션 B finalize 인자 분기 + 옵션 ① MultiTenantFixture 단일 fixture 분리) → s6-r74 commit → (c) N-1 CertValidator.Normalize SSOT 통합 → s6-r75 commit → "--transfer, --gc" 통합 doc-r5 박제]
+- e8391dd s6-r74 B-S7-5 phase 4 swap chunked + B-R14 MultiTenant T2/T3 round-trip IT — UploadsEndpoint.postFinalize 의 FinalizeBody.swapTargetCollectionId 분기 (Registry validation + MultiTenantPolicy + ZipImport.swapCollectionPayload + Acl 보존 + notifier.OnPayloadSwapped + EventBus.collectionUpdated). LightHouseClient + AttachmentIngestService 가 zip > 256 MiB 시 chunked swap path 자동 진입. MultiTenantFixture.fs (T2/T3) + MultiTenantRoundTripTests.fs (T2 4 fact + T3 3 fact) + UploadsResumableTests swap 2 fact. IT 46→55 (+9). Promaker CollectionPackagerTests 1 fact s6-r71 K4 follow-up. 자가 검열 sub-agent — Critical 0 / Major 0 / Minor 3 거부. 회귀 0 + 누적 720 Fact.
+- f104374 s6-r75 N-1 CertValidator.Normalize SSOT 통합 — Protocol 단일 routing — Solutions/Core/Ds2.LightHouse.Protocol/CertValidator.fs 신설 ([<CompiledName("Normalize")>] normalize, strict 정합: hex+separator 외 non-hex empty + 길이 40/64 검증). server Config.normalizeThumbprint + Promaker CertValidator.Normalize 둘 다 Protocol routing. validateMtls 가 silent strip → strict reject. service 161→162 (+1 N-1 strict reject fact). Promaker CertValidatorTests 9 fact 회귀 0. 자가 검열 inline — Critical 0 / Major 0 / Minor 0. 누적 721 Fact.
 
 [그 이전 turn 누적]
-- s6-r62~r65: markdown view cherry-pick 4 + C6 citation UI + D-S7-5 phase 2 + B5 phase 2 + light-house-meta-in-kb squash merge + doc-r1/r2
+- s6-r71~r73 + doc-r4: K4 Protocol SSOT 통합 + B 보안/perf/admin endpoint + external review hotfix (SSE race + mTLS IT wrongCert lifetime)
+- s6-r66~r70 + doc-r3: D-S7-4 multi-tenant 본격 + D-S7-5 phase 3 chunked auto + B5 phase 3/4 cert + mTLS IT + 15-reviewer Critical 16 hotfix
+- s6-r62~r65: markdown view cherry-pick 4 + C6 citation UI + D-S7-5 phase 2 + B5 phase 2 + light-house-meta-in-kb squash merge
 - s6-r53~r61: D-S7-1 mTLS server-side / 보안 sweep / ⑱ purge helper / C7 hasImages / C4 ref EBNF / C5 image mode / D-S7-5 scaffold / B5 client cert
 - Phase 4 P4-A~P4-C: sqlite-vec + IEmbeddingProvider + Indexer + Searcher hybrid + OllamaSharp adapter + Promaker LlmConfig.Embedding + server-side embedder + IT round-trip
 
-누적 708 Fact (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. branch = light-house (local-only).
+누적 721 Fact (lib 177 / service 162 / IT 55 / Promaker 327). 회귀 0. branch = light-house (local-only).
 paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
-Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-2 SSE / D-S7-3 multi-service / D-S7-4 multi-tenant / D-S7-5 resumable phase 1~3).
+Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-2 SSE / D-S7-3 multi-service / D-S7-4 multi-tenant + admin endpoint / D-S7-5 resumable phase 1~4 swap chunked).
+K4 Protocol SSOT = wire 상수 + N-1 CertValidator.Normalize SSOT 박제 완료, 잔여 helper SSOT (C-15 EndpointHelpers / A2 m3 caller routing) 은 다음 phase 의무.
 
-잔여 작업 (s6-r69 + doc-r3 종결 후, 다음 turn 박제):
-- A. large phase (단독 turn, sub-agent 위임 의무):
-  - A2 K4 Protocol SSOT 통합 (Solutions/Core/Ds2.LightHouse.Protocol 신규 project) — wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT)
-  - A4 Phase 3 OCR (Tesseract.NET + 한글)
-- B. medium 별 turn:
-  - **D-S7-4 admin endpoint 후속** (T2 ImportedBy stamp + T3 acl 편집) — multi-tenant 실 활용 path
-  - **D-S7-5 phase 4 swap chunked** — ReingestAndReuploadAsync 의 큰 zip swap chunked path
-  - B1 M13 Indexer.ingestFile outer transaction (perf)
-  - B2 OoxmlExtractor 강화 (comments/footnotes/endnotes Drawing)
-  - B3 image-only paragraph 분기 분리
-  - B6 보안 sweep 잔여 (M9 PSK lifetime / M12 Promaker staging %TEMP% ACL)
-- C. 소량 cosmetic:
+잔여 작업 (s6-r75 종결 후, 다음 turn 박제):
+
+A. B PR 잔여:
+  - **B2 OoxmlExtractor 강화** — comments/footnotes/endnotes Drawing 커버. 산업 docx 빈도 낮음, 별 turn.
+  - **B3 image-only paragraph 분기 분리** — 산업 매뉴얼 docx caption 시나리오.
+  - **R12 잔여 4건** — 사용자 명시 미박제 (vec0/RRF/embedding 외 4건). 명세 박제 의무 (다음 turn 사용자 input 필요).
+
+B. external review backlog Major 5 (s6-r74/r75 미반영, 다음 turn 의무):
+  - **R5-M2 EventBus DropOldest lifecycle event loss** — collection-added/updated/deleted 와 progress event 분리 채널.
+  - **R2-M1 Documents.OriginalPath idx 부재** — mtime fast-skip O(N²) 회귀.
+  - **R8-M2 SseReconnectBackoff jitter 누락** — thundering herd.
+  - **R8-M5 LlmConfig Save/ModifyWithLock 비대칭** — semantic OK 비대칭 정합.
+  - **R6-M1 validateMtls null guard 비대칭** — 실 NRE risk 0 (schema=4 의무), defense-in-depth.
+
+   external review backlog Minor:
+  - **C-14 INotifyPropertyChanged** — DataGrid cell 단위 real-time validation 요구 시점 의무.
+  - **N-M1~N-M6** — CertValidator + MtlsRoundTrip 정밀화 (TryFind 다중 매칭 / store dispose 후 cert 반환 / IsHandshakeReject swallow / DisposeAsync swallow / cfg DRY / chain.Build 의 IT 우회).
+  - **R6-M3 IPv6 listenUrl** — 일부 해소 (runtime OK / link-local zone 만 거부).
+
+C. 자가 검열 미적용 backlog:
+  - **A2 m3 caller routing** — Middleware.fs / EventsSseTests.fs 의 magic string (X-User-Identity / application/json / text/event-stream / 5 endpoint helper) Protocol HeaderNames/MimeTypes 정합 (C-15 EndpointHelpers 추출 묶음).
+  - **B PR M-3 acl users element 정규화** — defense-in-depth.
+  - **B-S7-4 admin-only ACL 분리** — config.adminUsers SSOT + requireAdmin helper. 현재 PSK 인증된 user 전체 = admin (single trust pool).
+  - **(s6-r74 b 검열 Minor 2 잔여)** — M1 fixture body 중복 (xunit IClassFixture 한계 + 가독성 trade-off 거부) / M2 setAcl helper SSOT 통합 (AdminEndpointsTests 와 의미 중복 — 별 turn scope).
+
+D. 소량 cosmetic / 정책 결정:
   - (string * SearchHit) list → KeyedHit record (lib internal refactor)
-  - C1 mn6 fixture 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용
+  - mn6 fixture 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용
   - s6-r66 자가 검열 Minor 5건 backlog
-- D. 정책 결정 (사용자 confirm):
   - D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
-- E. 외부 / 운영:
-  - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill)
-  - E2 server.md §7.7 Minor outliers ~13건
 
-우선순위 (a) A2 K4 Protocol SSOT 통합 (large phase, sub-agent 위임 의무 — 사용자 confirm 후 진입)
-       (b) E1 /dist 실행 (paired-release 정합, 사용자 직접 호출 의무)
-       (c) D-S7-4 admin endpoint 또는 D-S7-5 phase 4 (선택 medium, multi-tenant / chunked swap 실 활용 path)
+E. 외부 / 운영:
+  - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill)
+  - **E2 doc 갱신 (doc-r6)** — todo-lighthouse-kb-server.md §7.1 commit chain 의 doc-r5 hash 정정 + 본 turn 박제 row 갱신. 다음 turn doc-r commit 묶음.
+  - E3 server.md §7.7 Minor outliers ~13건
+
+우선순위 (a) E2 doc 갱신 (doc-r5 hash 정정 + 본 turn 의 진행 추가 박제)
+       (b) external review backlog Major (R5-M2 EventBus lifecycle / R2-M1 idx / R8-M2 jitter — medium)
+       (c) A2 m3 caller routing + C-15 EndpointHelpers 추출 (자가 검열 backlog 묶음)
+       (d) B2 OoxmlExtractor 강화 또는 B3 image-only paragraph
+       (e) E1 /dist 실행 (paired-release 정합, 사용자 직접 호출 의무)
        — 선택 부탁드립니다.
 ```
 
@@ -223,7 +262,8 @@ Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-2 SSE / D-S7-3 multi-service / D-S7-4
 - **server** = `Solutions/Tools/Ds2.LightHouseService/` (F# Kestrel HTTPS service — Program.fs configureApp export / Storage / Registry / Sessions / ZipImport / FileServing / AttachmentTools (MCP 4 tool))
 - **cli** = `Solutions/Tools/Ds2.LightHouse.Cli/` (F# console — index --upload, LIGHTHOUSE_VLM_API_KEY env var fallback)
 - **Promaker 통합** = `Apps/Promaker/Promaker/` 의 `Knowledge/` 폴더 (LightHouseClient.cs / LightHouseClientHolder.cs / AttachmentIngestService.cs / CollectionPackager.cs), `Dialogs/KbManagerDialog.xaml(.cs)` + `Dialogs/ApplicationSettingsDialog.xaml(.cs)` (LightHouse Service + VLM section), `LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + VisionCostGate + ModifyWithLock)
-- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 177) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 161) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli + mTLS, 43) / `Solutions/Tests/Promaker.Tests` (Promaker, 327) = **누적 708 Fact**
+- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 177) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 161) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli + mTLS + admin, 46) / `Solutions/Tests/Promaker.Tests` (Promaker, 327) = **누적 711 Fact**
+- **Protocol** = `Solutions/Core/Ds2.LightHouse.Protocol/` (F# net9.0, dependency 0 base — s6-r71 신설) — wire 상수 + MetaJson schema + ServerEventNames 단일 SSOT
 - **doc** = `Apps/Promaker/Docs/` (본 transfer + 두 SSOT todo + done-* archive + howto)
 - **scripts** = `Apps/Promaker/scripts/check-paired-release.ps1` (paired-release drift detector)
 
