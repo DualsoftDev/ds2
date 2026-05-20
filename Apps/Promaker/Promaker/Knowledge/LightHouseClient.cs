@@ -265,7 +265,8 @@ public sealed class LightHouseClient : IDisposable
     public async Task<CollectionListResponse> ListCollectionsAsync(CancellationToken ct = default)
     {
         using var req = NewRequest(HttpMethod.Get, "collections");
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        // **s6-r70 review C-16**: 다른 10 메서드와 정합 — HttpCompletionOption.ResponseHeadersRead 박제 (body stream 지연 read).
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         await EnsureSuccessOrThrow(resp, "GET /collections", ct).ConfigureAwait(false);
         return await resp.Content.ReadFromJsonAsync<CollectionListResponse>(JsonOptions, ct).ConfigureAwait(false)
             ?? throw new LightHouseProtocolException("GET /collections response body 빈 값.");
@@ -483,20 +484,33 @@ public sealed class LightHouseClient : IDisposable
     /// **D-S7-5 phase 2** — `PATCH /uploads-rs/{id}` — chunk append.
     /// `chunk.Length` == `endByte - startByte + 1` 의무. server-side Content-Length 검증 (400 mismatch).
     /// </summary>
-    public async Task<ResumableUploadStatus> PatchResumableChunkAsync(
+    public Task<ResumableUploadStatus> PatchResumableChunkAsync(
         string uploadId, byte[] chunk, long startByte, long endByte, long totalBytes,
+        CancellationToken ct = default)
+        => PatchResumableChunkAsync(uploadId, chunk, chunk?.Length ?? 0, startByte, endByte, totalBytes, ct);
+
+    /// <summary>
+    /// **D-S7-5 phase 2 + s6-r70 review C-10** — `PATCH /uploads-rs/{id}` — buffer + length 명시 overload.
+    /// `buffer.Length` ≥ `effectiveLength` 의무 — ArrayPool.Rent 결과 (요청 size 보다 큰 buffer) 박제 path.
+    /// `ByteArrayContent(buffer, 0, effectiveLength)` 가 정확 byte 만 wire 로 보내고 traditional buffer.Length 무시.
+    /// </summary>
+    public async Task<ResumableUploadStatus> PatchResumableChunkAsync(
+        string uploadId, byte[] buffer, int effectiveLength, long startByte, long endByte, long totalBytes,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
-        if (chunk is null) throw new ArgumentNullException(nameof(chunk));
+        if (buffer is null) throw new ArgumentNullException(nameof(buffer));
+        if (effectiveLength < 0 || effectiveLength > buffer.Length)
+            throw new ArgumentOutOfRangeException(nameof(effectiveLength),
+                $"effectiveLength={effectiveLength} 가 0 또는 buffer.Length={buffer.Length} 와 충돌");
         var expected = endByte - startByte + 1L;
-        if (chunk.Length != expected)
+        if ((long)effectiveLength != expected)
             throw new ArgumentException(
-                $"chunk.Length={chunk.Length} ≠ Content-Range length={expected}", nameof(chunk));
+                $"effectiveLength={effectiveLength} ≠ Content-Range length={expected}", nameof(effectiveLength));
 
         using var req = NewRequest(HttpMethod.Patch, $"uploads-rs/{Uri.EscapeDataString(uploadId)}");
-        var content = new ByteArrayContent(chunk);
-        content.Headers.ContentLength = chunk.Length;
+        var content = new ByteArrayContent(buffer, 0, effectiveLength);
+        content.Headers.ContentLength = effectiveLength;
         content.Headers.Add("Content-Range", $"bytes {startByte}-{endByte}/{totalBytes}");
         req.Content = content;
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
@@ -562,9 +576,12 @@ public sealed class LightHouseClient : IDisposable
 
         var totalBytes = zipStream.Length;
         var start = await StartResumableUploadAsync(title, totalBytes, ct).ConfigureAwait(false);
+        // **s6-r70 review C-10** — ArrayPool 박제 (LOH 압박 회피). 10GB upload 시 ~2500 chunks × 4MB = 10GB LOH allocation
+        // (chunk 마다 new byte[chunkSize]) 정정. ArrayPool.Rent 1회 + try/finally Return + PatchResumableChunkAsync 가
+        // ByteArrayContent(buf, 0, len) overload 로 length 명시 → buffer 의 traditional length 무시.
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(chunkSize);
         try
         {
-            var buffer = new byte[chunkSize];
             long offset = 0;
             while (offset < totalBytes)
             {
@@ -579,10 +596,9 @@ public sealed class LightHouseClient : IDisposable
                     if (r == 0) throw new IOException($"zipStream EOF 조기 도달 — offset={offset} read={readTotal}/{thisChunkLen}");
                     readTotal += r;
                 }
-                var chunk = new byte[thisChunkLen];
-                Buffer.BlockCopy(buffer, 0, chunk, 0, thisChunkLen);
+                // PatchResumableChunkAsync 에 buffer + length 직접 전달 (per-chunk new byte[] 폐기).
                 var status = await PatchResumableChunkAsync(
-                    start.UploadId, chunk, offset, offset + thisChunkLen - 1, totalBytes, ct).ConfigureAwait(false);
+                    start.UploadId, buffer, thisChunkLen, offset, offset + thisChunkLen - 1, totalBytes, ct).ConfigureAwait(false);
                 offset = status.Offset;
                 progress?.Report((offset, totalBytes));
             }
@@ -600,6 +616,11 @@ public sealed class LightHouseClient : IDisposable
             try { await DeleteResumableUploadAsync(start.UploadId, CancellationToken.None).ConfigureAwait(false); }
             catch (Exception delEx) { Log.Warn($"DeleteResumableUpload cleanup 실패 (best-effort): {delEx.Message}"); }
             throw;
+        }
+        finally
+        {
+            // **s6-r70 review C-10** — ArrayPool buffer Return. clearArray=false (next Rent 시 caller 가 read 전 overwrite).
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

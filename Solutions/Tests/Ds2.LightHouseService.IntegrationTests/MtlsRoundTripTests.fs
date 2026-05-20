@@ -29,7 +29,9 @@ type MtlsRequiredFixture() =
     let mutable clientCert : X509Certificate2 = null
     let mutable baseAddress : Uri = null
     let psk = "test-psk-mtls-" + Guid.NewGuid().ToString("N")
-    let userIdentity = "mtls-it@dualsoft.com"
+    // **s6-r70 review C-3** — AuthMiddleware 가 mtls.mode != off 시 cert subject CN ↔ X-User-Identity 강제.
+    // fixture 의 client cert subject = `CN=<userIdentity>` 로 박제 (handshake-level 통과 + AuthMiddleware 통과).
+    let userIdentity = "mtls-it-client"
 
     /// in-memory self-signed cert with EKU.
     static let createCert (subject: string) (eku: string) : X509Certificate2 =
@@ -56,7 +58,8 @@ type MtlsRequiredFixture() =
                 Storage.initialize storageRoot |> ignore
                 // server cert = ServerAuthentication EKU. client cert = ClientAuthentication EKU.
                 serverCert <- createCert "CN=localhost" "1.3.6.1.5.5.7.3.1"
-                clientCert <- createCert "CN=mtls-it-client" "1.3.6.1.5.5.7.3.2"
+                // **s6-r70 review C-3** — client cert CN = userIdentity (AuthMiddleware mtls subject 강제 정합).
+                clientCert <- createCert (sprintf "CN=%s" userIdentity) "1.3.6.1.5.5.7.3.2"
                 // server cfg — Mtls.Mode="required" + AllowedThumbprints = [clientCert thumbprint]
                 let clientThumb = Config.normalizeThumbprint clientCert.Thumbprint
                 let cfg : ServiceConfig = {

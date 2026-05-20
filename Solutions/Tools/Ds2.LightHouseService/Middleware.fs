@@ -51,12 +51,38 @@ module AuthMiddleware =
     let private isPublicPath (path: PathString) : bool =
         path.StartsWithSegments(PathString "/healthz")
 
-    /// middleware 본체 — DI 컨테이너 등록 시 `app.Use(authMiddleware expectedPsk)` 형태로 wire.
+    /// **s6-r70 review C-3** — cert subject CN 추출. `CN=name, OU=...` 형식의 첫 RDN 만 파싱.
+    /// distinguished name 안에 `,` 가 escape 되어 있으면 (`\,`) 그대로 보존. 단순 split — 본 사용 path 는
+    /// "CN=username" prefix 만 검증.
+    let private extractCommonName (subject: string) : string =
+        if String.IsNullOrEmpty subject then ""
+        else
+            // RDN 들이 `,` 로 구분. CN= 시작 RDN 식별.
+            let rdns = subject.Split(',') |> Array.map (fun s -> s.Trim())
+            match rdns |> Array.tryFind (fun s -> s.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)) with
+            | Some rdn -> rdn.Substring(3).Trim()
+            | None -> ""
+
+    /// **s6-r70 review C-3** — mTLS subject CN ↔ X-User-Identity 강제 검증. mtls.mode != "off" 시점 진입.
+    /// mismatch 시 false (caller 401). subject CN 빈 값 또는 cert 미박제 = false.
+    /// case-insensitive ordinal 비교 (Windows username 정합).
+    let private verifyMtlsIdentity (ctx: HttpContext) (claimedUser: string) : bool =
+        let cert = ctx.Connection.ClientCertificate
+        if isNull cert then false
+        else
+            let cn = extractCommonName cert.Subject
+            if String.IsNullOrEmpty cn then false
+            else String.Equals(cn, claimedUser, StringComparison.OrdinalIgnoreCase)
+
+    /// middleware 본체 — DI 컨테이너 등록 시 `app.Use(authMiddleware cfg expectedPsk)` 형태로 wire.
     ///
     /// ASP.NET Core 9 표준 시그니처 `Func<HttpContext, Func<Task>, Task>` (review C1).
     /// 401 응답 시 body 미반환 (정보 leak 방지). audit log 만 박제.
     /// `/healthz` 등 public path 는 인증 skip + next 직접 호출.
-    let middleware (expectedPsk: string) : Func<HttpContext, Func<Task>, Task> =
+    ///
+    /// **s6-r70 review C-3**: cfg 인자 추가. mtls.mode != "off" 시 client cert subject CN ↔ X-User-Identity
+    /// 강제 검증 — T2/T3 격리 정책의 fundamental 약점 (X-User-Identity 위변조) 해소.
+    let middleware (cfg: ServiceConfig) (expectedPsk: string) : Func<HttpContext, Func<Task>, Task> =
         Func<HttpContext, Func<Task>, Task>(fun (ctx: HttpContext) (next: Func<Task>) ->
             task {
                 if isPublicPath ctx.Request.Path then
@@ -90,6 +116,17 @@ module AuthMiddleware =
                             | _ -> ""
                         if String.IsNullOrEmpty userIdentity then
                             Log.audit.Warn(sprintf "auth: X-User-Identity 누락/다중 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
+                            ctx.Response.StatusCode <- 401
+                            do! ctx.Response.CompleteAsync()
+                        // **s6-r70 review C-3** — mTLS 활성 시 cert subject CN ↔ X-User-Identity 강제. mismatch=401.
+                        elif cfg.Mtls.Mode <> MtlsMode.Off && not (verifyMtlsIdentity ctx userIdentity) then
+                            let cnRaw =
+                                let cert = ctx.Connection.ClientCertificate
+                                if isNull cert then "(no-cert)" else extractCommonName cert.Subject
+                            Log.audit.Warn(
+                                sprintf "auth: mTLS subject CN ↔ X-User-Identity mismatch — path=%s claimed=%s cn=%s remoteIp=%s"
+                                    (Log.sanitizeForLog path) (Log.sanitizeForLog userIdentity)
+                                    (Log.sanitizeForLog cnRaw) (Log.sanitizeForLog remoteIp))
                             ctx.Response.StatusCode <- 401
                             do! ctx.Response.CompleteAsync()
                         else

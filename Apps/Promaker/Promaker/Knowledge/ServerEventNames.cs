@@ -21,4 +21,11 @@ public static class ServerEventNames
     /// Phase 2 vision caption indexing 진행률 박제 path.
     /// </summary>
     public const string CaptionProgress = "caption-progress";
+
+    /// <summary>
+    /// **D-S7-5 phase 1 (s6-r60)** — server publish (UploadsEndpoint) → subscriber fan-out.
+    /// resumable upload 진행률 박제 path. server F# `EventBus.fs` 의 `ServerEventNames.UploadProgress` 정합.
+    /// **s6-r70 review R1-M1**: client SSOT 1 line drift 정정.
+    /// </summary>
+    public const string UploadProgress = "upload-progress";
 }

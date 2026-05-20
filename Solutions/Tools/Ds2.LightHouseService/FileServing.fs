@@ -106,7 +106,11 @@ module FileServing =
 
     /// `GET /collections/{id}/files/{fileId}` handler.
     /// test 단위 시험 위해 public (production caller 는 `map` 만 사용 의도).
+    ///
+    /// **s6-r70 review C-1**: cfg 인자 추가 + `MultiTenantPolicy.evaluate` filter. T2/T3 모드에서 Hidden 분기는 404
+    /// (acl reject ↔ 미존재 정보 leak 차단). ReadOnly 도 visible 셋 — file read 는 mutation 아니므로 통과.
     let getFile
+        (cfg: ServiceConfig)
         (storageRoot: string)
         (id: string)
         (fileIdRaw: string)
@@ -118,6 +122,14 @@ module FileServing =
             | None ->
                 Log.audit.Info(sprintf "file get: collection 미존재 — id=%s by=%s"
                     (Log.sanitizeForLog id) (Log.sanitizeForLog user))
+                do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+            | Some entry when
+                (match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user entry with
+                 | MultiTenantPolicy.AccessDecision.Hidden -> true
+                 | _ -> false) ->
+                // **s6-r70 review C-1** — T2/T3 acl reject. cross-tenant download 차단 (Hidden = 404 정보 leak 0).
+                Log.audit.Warn(sprintf "file get: acl reject (hidden) — id=%s by=%s mode=%s"
+                    (Log.sanitizeForLog id) (Log.sanitizeForLog user) cfg.MultiTenant.Mode)
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
             | Some entry ->
                 // fileId parse — Int64 (documents.Id).
@@ -184,8 +196,9 @@ module FileServing =
         } :> Task
 
     /// endpoint 등록. AuthMiddleware 뒤에 매핑.
-    let map (app: IEndpointRouteBuilder) (storageRoot: string) =
+    /// **s6-r70 review C-1**: cfg 인자 추가 (multi-tenant filter SSOT).
+    let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string) =
         app.MapGet("/collections/{id}/files/{fileId}", RequestDelegate(fun ctx ->
             let id = ctx.Request.RouteValues.["id"] |> string
             let fileId = ctx.Request.RouteValues.["fileId"] |> string
-            getFile storageRoot id fileId ctx)) |> ignore
+            getFile cfg storageRoot id fileId ctx)) |> ignore
