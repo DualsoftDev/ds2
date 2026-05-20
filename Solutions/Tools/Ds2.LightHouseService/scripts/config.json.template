@@ -32,5 +32,7 @@
   "_multiTenant_note": "s6-r66 D-S7-4: T1 (default flat) = 모든 user 가 모든 collection visible+writable / T2 = entry.importedBy 가 X-User-Identity 와 일치하는 entry 만 visible+writable (legacy entry = importedBy 빈 값은 전체 공개) / T3 = registry.json 의 collections[].acl = {users:[...], readOnly:bool} 검증, acl 누락/빈 users = 전체 공개. T2/T3 전환 시 기존 entry 의 owner/acl 박제는 admin 책임.",
   "multiTenant": {
     "mode": "T1"
-  }
+  },
+  "_adminUsers_note": "s6-r80 B-S7-4 (15-reviewer A4 부분): /admin/* endpoint (POST owner / PUT acl) 호출 권한 user 화이트리스트. null/빈 array = backward-compat (single trust pool, PSK 인증된 모든 user = admin). T3 모드 + adminUsers 비어있으면 ACL 격리 효과 0 — T3 진입 시 본 list 명시 의무. case-insensitive ordinal 비교 (Windows AD username 정합).",
+  "adminUsers": []
 }

@@ -156,6 +156,11 @@ module Config =
         Path.Combine(programData, "Dualsoft", "LightHouseService", "config.json")
 
     let private jsonOptions () =
+        // **A3 반론 (s6-r84, 15-reviewer Critical)** — UnmappedMemberHandling.Disallow 박제는 운영자 친화
+        // 박제 (`_*_note` field 들) 와 충돌 — config.json.template 의 `_listenUrl_note` / `_embedding_note` /
+        // `_mtls_note` / `_multiTenant_note` 4건 모두 schema reject 회귀. 의도된 안전망은 별 박제 path
+        // (audit warn + 알려진 field key set 비교 helper, 별 turn 박제) 권장. silent skip 정합 유지.
+        // 의도된 strict 검증은 validateMtls / validateMultiTenant 같은 field-by-field 검증으로 일부 흡수.
         let opts = JsonSerializerOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)
         opts.Converters.Add(JsonStringEnumConverter())
         opts
