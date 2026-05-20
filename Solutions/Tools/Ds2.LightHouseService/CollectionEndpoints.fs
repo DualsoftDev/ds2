@@ -22,16 +22,8 @@ open Ds2.LightHouse.Protocol
 [<RequireQualifiedAccess>]
 module CollectionEndpoints =
 
-    /// review IM-2 (3/7 reviewer): hot-path response — module-level singleton.
-    /// 매 endpoint 호출마다 신규 JsonSerializerOptions allocation 방지.
-    let private jsonResponseOpts = JsonSerializerOptions(WriteIndented = false)
-    let private jsonOptions () = jsonResponseOpts
-
-    /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 가 박제).
-    let private userIdentityOf (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
-        | true, v when not (isNull v) -> string v
-        | _ -> "unknown"
+    // **C-15 (s6-r79)** — 4 helper 폐기 → `EndpointHelpers` SSOT 통과 alias. caller 변경 0 (signature 정합).
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
 
     /// multipart form 의 "title" 필드 + "zip" 파일 추출.
     /// title 누락 시 400. zip 누락 시 400.
@@ -54,14 +46,8 @@ module CollectionEndpoints =
                     return Ok (title.Trim(), zip)
     }
 
-    let private writeJson (ctx: HttpContext) (status: int) (body: obj) : Task =
-        ctx.Response.StatusCode <- status
-        ctx.Response.ContentType <- "application/json; charset=utf-8"
-        let json = JsonSerializer.Serialize(body, jsonOptions())
-        ctx.Response.WriteAsync json
-
-    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
-        writeJson ctx status {| error = message |}
+    let private writeJson = EndpointHelpers.writeJson
+    let private writeError = EndpointHelpers.writeError
 
     /// **IndexerVersion gate 분기 처리 SSOT (s6-r43 / 외부 --review L-Maj-5 정정)** — `postCollections` /
     /// `postCollectionPayload` 양쪽 박제 중복 (415 응답 4 키 + Log.audit.Warn + removeStaging) 흡수.

@@ -40,25 +40,8 @@ module AdminEndpoints =
         [<JsonPropertyName("readOnly")>] ReadOnly: bool
     }
 
-    /// module-level singleton — System.Text.Json 의 `JsonSerializerOptions` 는 frozen 후 thread-safe + reflection
-    /// cache instance-bound. 매 호출 재생성 시 cache miss 누적 (자가 검열 M-1 정합).
-    let private jsonOpts = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-
-    let private writeJson (resp: HttpResponse) (status: int) (payload: obj) : Task = task {
-        resp.StatusCode <- status
-        resp.ContentType <- MimeTypes.Json
-        // 자가 검열 M-2: options 명시 — 응답 일관성 (CollectionEndpoints / UploadsEndpoint 의 PropertyNamingPolicy 정합).
-        let json = JsonSerializer.Serialize(payload, jsonOpts)
-        do! resp.WriteAsync(json)
-    }
-
-    let private writeErr (resp: HttpResponse) (status: int) (msg: string) : Task =
-        writeJson resp status (box {| error = msg |})
-
-    let private callerIdentity (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue(AuthMiddleware.UserIdentityItemKey) with
-        | true, (:? string as s) when not (String.IsNullOrEmpty s) -> s
-        | _ -> "unknown"
+    // **C-15 (s6-r79)** — jsonOpts / writeJson / writeError / callerIdentity 4 helper 폐기 → `EndpointHelpers` SSOT 통과.
+    // body deserialize 의 PropertyNameCaseInsensitive=true 박제도 `EndpointHelpers.DefaultJsonOpts` 통과 정합.
 
     let private readBody (ctx: HttpContext) : Task<string> = task {
         use reader = new StreamReader(ctx.Request.Body, System.Text.Encoding.UTF8)
@@ -73,26 +56,26 @@ module AdminEndpoints =
                     let! body = readBody ctx
                     let parsed =
                         try
-                            let p = JsonSerializer.Deserialize<OwnerBody>(body, jsonOpts)
+                            let p = JsonSerializer.Deserialize<OwnerBody>(body, EndpointHelpers.DefaultJsonOpts)
                             if obj.ReferenceEquals(p, null) then None else Some p
                         with _ -> None
                     match parsed with
                     | None ->
-                        do! writeErr ctx.Response 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
+                        do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
                     | Some p when String.IsNullOrWhiteSpace p.User ->
-                        do! writeErr ctx.Response 400 "body.user 필수"
+                        do! EndpointHelpers.writeError ctx 400 "body.user 필수"
                     | Some p ->
                         match Registry.tryFindById storageRoot id with
                         | None ->
-                            do! writeErr ctx.Response 404 (sprintf "collection not found — id=%s" id)
+                            do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
                         | Some entry ->
                             let newOwner = p.User.Trim()
                             let updated = { entry with ImportedBy = newOwner }
                             do! Registry.upsertAsync storageRoot updated
                             Log.audit.Info(
                                 sprintf "admin.owner: id=%s prev=%s next=%s caller=%s"
-                                    id entry.ImportedBy newOwner (callerIdentity ctx))
-                            do! writeJson ctx.Response 200 (box {| id = id; importedBy = newOwner |})
+                                    id entry.ImportedBy newOwner (EndpointHelpers.userIdentityOf ctx))
+                            do! EndpointHelpers.writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
                 } :> Task)) |> ignore
 
         // PUT /admin/collections/{id}/acl — body { "users": [...], "readOnly": bool } → Acl 갱신.
@@ -102,16 +85,16 @@ module AdminEndpoints =
                     let! body = readBody ctx
                     let parsed =
                         try
-                            let p = JsonSerializer.Deserialize<AclBody>(body, jsonOpts)
+                            let p = JsonSerializer.Deserialize<AclBody>(body, EndpointHelpers.DefaultJsonOpts)
                             if obj.ReferenceEquals(p, null) then None else Some p
                         with _ -> None
                     match parsed with
                     | None ->
-                        do! writeErr ctx.Response 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
+                        do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
                     | Some p ->
                         match Registry.tryFindById storageRoot id with
                         | None ->
-                            do! writeErr ctx.Response 404 (sprintf "collection not found — id=%s" id)
+                            do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
                         | Some entry ->
                             let users = if isNull p.Users then Array.empty else p.Users
                             let newAcl : CollectionAcl = { Users = users; ReadOnly = p.ReadOnly }
@@ -119,6 +102,6 @@ module AdminEndpoints =
                             do! Registry.upsertAsync storageRoot updated
                             Log.audit.Info(
                                 sprintf "admin.acl: id=%s users=%d readOnly=%b caller=%s"
-                                    id users.Length p.ReadOnly (callerIdentity ctx))
-                            do! writeJson ctx.Response 200 (box {| id = id; acl = newAcl |})
+                                    id users.Length p.ReadOnly (EndpointHelpers.userIdentityOf ctx))
+                            do! EndpointHelpers.writeJson ctx 200 (box {| id = id; acl = newAcl |})
                 } :> Task)) |> ignore

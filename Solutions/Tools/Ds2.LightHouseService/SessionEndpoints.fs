@@ -25,27 +25,11 @@ module SessionEndpoints =
         [<JsonPropertyName("collectionIds")>] CollectionIds: string array
     }
 
-    /// review IM-2 (3/7 reviewer): hot-path module-level singleton.
-    let private jsonResponseOpts =
-        JsonSerializerOptions(
-            PropertyNameCaseInsensitive = true,
-            WriteIndented = false,
-            DefaultIgnoreCondition = JsonIgnoreCondition.Never)
-    let private jsonOptions () = jsonResponseOpts
-
-    let private userIdentityOf (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
-        | true, v when not (isNull v) -> string v
-        | _ -> "unknown"
-
-    let private writeJson (ctx: HttpContext) (status: int) (body: obj) : Task =
-        ctx.Response.StatusCode <- status
-        ctx.Response.ContentType <- "application/json; charset=utf-8"
-        let json = JsonSerializer.Serialize(body, jsonOptions())
-        ctx.Response.WriteAsync json
-
-    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
-        writeJson ctx status {| error = message |}
+    // **C-15 (s6-r79)** — 5 helper 폐기 → `EndpointHelpers` SSOT 통과 alias. signature 정합 (PropertyNameCaseInsensitive=true
+    // + WriteIndented=false + DefaultIgnoreCondition.Never 박제 일치). caller 변경 0.
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
+    let private writeJson = EndpointHelpers.writeJson
+    let private writeError = EndpointHelpers.writeError
 
     /// `POST /sessions` — collectionIds validate (Registry 부분집합) + ATTACH limit 가드 + token 발급.
     /// unknownIds / unindexableIds 응답 동봉 (§3.8 Q4 lazy sync).
@@ -64,7 +48,7 @@ module SessionEndpoints =
             let! payload =
                 task {
                     try
-                        let! req = JsonSerializer.DeserializeAsync<CreateSessionRequest>(ctx.Request.Body, jsonOptions())
+                        let! req = JsonSerializer.DeserializeAsync<CreateSessionRequest>(ctx.Request.Body, EndpointHelpers.DefaultJsonOpts)
                         return Ok req
                     with
                     | :? JsonException as ex -> return Error ex.Message
