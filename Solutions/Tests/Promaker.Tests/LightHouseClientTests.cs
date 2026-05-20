@@ -676,4 +676,71 @@ public sealed class LightHouseClientTests
             client.PublishCaptionProgressAsync("c1", 50));
         Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
     }
+
+    // ── B5 D-S7-1 후속 (s6-r61) — client cert thumbprint normalize / X509Store lookup ───────────
+
+    [Theory]
+    [InlineData("aa:bb:cc:dd", "AABBCCDD")]
+    [InlineData("AA BB CC", "AABBCC")]
+    [InlineData("aa-bb-cc", "AABBCC")]
+    [InlineData("  abcdef  ", "ABCDEF")]
+    [InlineData("", "")]
+    public void NormalizeThumbprint_strips_separators_and_uppercases(string input, string expected)
+    {
+        // B5: thumbprint normalize = hex 추출 + 대문자 (':' / 공백 / hyphen 제거). server-side Config.normalizeThumbprint 정합.
+        Assert.Equal(expected, LightHouseClient.NormalizeThumbprint(input));
+    }
+
+    [Fact]
+    public void LookupClientCert_invalid_length_throws()
+    {
+        // SHA-1=40 / SHA-256=64 외 길이 거부 (config 결함 fail-fast).
+        Assert.Throws<InvalidOperationException>(() =>
+            LightHouseClient.LookupClientCert("DEADBEEF"));
+    }
+
+    [Fact]
+    public void LookupClientCert_nonexistent_thumbprint_throws_with_hint()
+    {
+        // 임의 thumbprint (40 hex, X509Store 에 존재하지 않을 가능성 매우 높음).
+        var bogus = new string('A', 40);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            LightHouseClient.LookupClientCert(bogus));
+        // 사용자 안내 hint 박제 검증 (PowerShell Import-PfxCertificate / MMC).
+        Assert.Contains("Import-PfxCertificate", ex.Message);
+    }
+
+    [Fact]
+    public void LightHouseServiceConfig_ClientCertThumbprint_round_trip()
+    {
+        // B5: LlmConfig 의 새 필드 round-trip (JSON 직렬화 → 역직렬화 보존).
+        var svc = new Promaker.LlmAgent.LightHouseServiceConfig
+        {
+            ServiceId = "test-svc-id",
+            DisplayName = "test",
+            BaseUrl = "https://example.local:8443",
+            ClientCertThumbprint = "AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD",
+        };
+        var json = JsonSerializer.Serialize(svc);
+        Assert.Contains("clientCertThumbprint", json);
+        var restored = JsonSerializer.Deserialize<Promaker.LlmAgent.LightHouseServiceConfig>(json);
+        Assert.NotNull(restored);
+        Assert.Equal(svc.ClientCertThumbprint, restored!.ClientCertThumbprint);
+    }
+
+    [Fact]
+    public void LightHouseServiceConfig_ClientCertThumbprint_null_omitted_in_json()
+    {
+        // null 시 JSON 출력에서 누락 (back-compat — legacy disk JSON 에 본 필드 부재).
+        var svc = new Promaker.LlmAgent.LightHouseServiceConfig
+        {
+            ServiceId = "test-svc-id",
+            DisplayName = "test",
+            BaseUrl = "https://example.local:8443",
+            ClientCertThumbprint = null,
+        };
+        var json = JsonSerializer.Serialize(svc,
+            new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
+        Assert.DoesNotContain("clientCertThumbprint", json);
+    }
 }

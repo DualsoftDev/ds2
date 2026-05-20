@@ -916,6 +916,23 @@ public sealed class LightHouseServiceConfig
     public bool Active { get; set; } = true;
 
     /// <summary>
+    /// **B5 D-S7-1 후속 (s6-r61)** — mTLS client cert thumbprint (SHA-1 또는 SHA-256, hex, ':'/공백/hyphen 허용).
+    /// <para/>
+    /// nullable / 빈 값 시 mTLS 미적용 (PSK 단독 인증, 현행). 박제 시 LightHouseClient 가 LocalMachine\My X509Store
+    /// 에서 cert 찾기 + HttpClientHandler.ClientCertificates 박제. cert 미존재 시 client 측 fail-fast.
+    /// <para/>
+    /// **발급/관리 정책** (사용자 박제 의무):
+    ///   - 사내 CA 발급 cert → LocalMachine\My import (PowerShell `Import-PfxCertificate` 또는 MMC certificate snap-in).
+    ///   - 사용자 manual 입력 (cert subject / thumbprint copy) — UI X509Store 선택 dialog 는 별 turn (B5 phase 2).
+    ///   - DPAPI 미적용 — thumbprint 는 식별자 (평문 정합), 실 cert private key 는 X509Store 가 OS-level protect.
+    /// <para/>
+    /// **server-side (D-S7-1 s6-r53 박제)**: `config.json` 의 `mtls.mode = "optional"|"required"` + 선택
+    /// `allowedThumbprints` whitelist. mode="required" 시 cert 미박제 = TLS handshake 거부.
+    /// </summary>
+    [JsonPropertyName("clientCertThumbprint")]
+    public string? ClientCertThumbprint { get; set; }
+
+    /// <summary>
     /// **Phase 4 P4-C.2 (s6-r38)** — 본 service 안 색인 시 사용할 embedding backend 박제.
     /// <para/>
     /// nullable — 미박제 / Enabled=false 시 BM25-only fallback. 추천안 정합 (사용자 결정):

@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -57,12 +58,14 @@ public sealed class LightHouseClient : IDisposable
     /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생).</param>
     /// <param name="userIdentity">`X-User-Identity` 헤더 값. 일반 = `Environment.UserName` 또는 LlmConfig 의 user 식별자.</param>
     /// <param name="activeCollectionIdsProvider">L3 자동 회복 시 재발급에 사용할 active 셋. null = 회복 비활성.</param>
+    /// <param name="clientCertThumbprint">**B5 D-S7-1 후속 (s6-r61)** — mTLS client cert thumbprint (SHA-1 40 / SHA-256 64 hex). null/빈 값 = PSK 단독.</param>
     public LightHouseClient(
         string baseUrl,
         Func<string?> pskProvider,
         string userIdentity,
-        Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null)
-        : this(BuildHttp(baseUrl), pskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
+        Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null,
+        string? clientCertThumbprint = null)
+        : this(BuildHttp(baseUrl, clientCertThumbprint), pskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
     {
     }
 
@@ -93,7 +96,14 @@ public sealed class LightHouseClient : IDisposable
         _ownsHttp = ownsHttp;
     }
 
-    private static HttpClient BuildHttp(string baseUrl)
+    /// <summary>
+    /// **B5 D-S7-1 후속 (s6-r61)** — HttpClient 빌더 (mTLS client cert optional 박제).
+    /// <para/>
+    /// `clientCertThumbprint` null/빈 값 시 기존 동작 (HttpClient default). 박제 시 LocalMachine\My X509Store
+    /// 에서 thumbprint match cert 1건 lookup → <see cref="HttpClientHandler.ClientCertificates"/> 박제.
+    /// cert 미존재 시 <see cref="InvalidOperationException"/> — caller (Holder) 가 사용자 안내.
+    /// </summary>
+    private static HttpClient BuildHttp(string baseUrl, string? clientCertThumbprint)
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
             throw new ArgumentException("baseUrl 빈 값 금지.", nameof(baseUrl));
@@ -101,12 +111,67 @@ public sealed class LightHouseClient : IDisposable
         if (uri.Scheme != Uri.UriSchemeHttps)
             throw new ArgumentException(
                 $"baseUrl 이 HTTPS 가 아님 — {baseUrl} (plain HTTP 거부, §3.7).", nameof(baseUrl));
-        var client = new HttpClient
+
+        HttpMessageHandler handler;
+        if (string.IsNullOrWhiteSpace(clientCertThumbprint))
+        {
+            handler = new HttpClientHandler();
+        }
+        else
+        {
+            var cert = LookupClientCert(clientCertThumbprint);
+            var h = new HttpClientHandler();
+            h.ClientCertificateOptions = ClientCertificateOption.Manual;
+            h.ClientCertificates.Add(cert);
+            handler = h;
+        }
+
+        var client = new HttpClient(handler, disposeHandler: true)
         {
             BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/"),
             Timeout = TimeSpan.FromMinutes(10),  // 큰 zip upload 대비
         };
         return client;
+    }
+
+    /// <summary>
+    /// **B5 D-S7-1 후속 (s6-r61)** — LocalMachine\My X509Store 에서 thumbprint match cert 조회.
+    /// thumbprint normalize = hex 추출 + 대문자 (':' / 공백 / hyphen 제거). validOnly=false (만료된 cert 도
+    /// 시각화 의도 — server 측 chain.Build 가 거부 path SSOT).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">미존재 / 다중 매칭 시.</exception>
+    internal static X509Certificate2 LookupClientCert(string thumbprint)
+    {
+        var normalized = NormalizeThumbprint(thumbprint);
+        if (normalized.Length != 40 && normalized.Length != 64)
+            throw new InvalidOperationException(
+                $"client cert thumbprint 길이={normalized.Length} (SHA-1=40 / SHA-256=64 hex 필요).");
+
+        using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+        store.Open(OpenFlags.ReadOnly);
+        var matches = store.Certificates.Find(X509FindType.FindByThumbprint, normalized, validOnly: false);
+        if (matches.Count == 0)
+            throw new InvalidOperationException(
+                $"LocalMachine\\My X509Store 에서 client cert 미존재 — thumbprint={normalized}. " +
+                $"사내 CA 발급 cert 의 .pfx import (PowerShell Import-PfxCertificate 또는 MMC) 의무.");
+        if (matches.Count > 1)
+            throw new InvalidOperationException(
+                $"client cert thumbprint 다중 매칭={matches.Count} — thumbprint={normalized}. " +
+                $"동일 thumbprint cert 가 store 에 여러 개 — 정리 의무.");
+        return matches[0];
+    }
+
+    /// <summary>thumbprint normalize — hex 추출 + 대문자 (':' / 공백 / hyphen 제거). server-side `Config.normalizeThumbprint` 정합.</summary>
+    internal static string NormalizeThumbprint(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var ch in s)
+        {
+            if ((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f'))
+                sb.Append(char.ToUpperInvariant(ch));
+        }
+        return sb.ToString();
     }
 
     public void Dispose()
