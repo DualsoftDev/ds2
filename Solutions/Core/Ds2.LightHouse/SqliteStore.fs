@@ -534,36 +534,46 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         (chunks: ExtractedChunk array)
         (batchSize: int)
         (ct: CancellationToken) =
+        // **s6-r51 #5 ⑰ 외부 --review** — cmd 1회 생성 + Prepare + parameters 재사용. 매 chunk 마다 cmd
+        // allocation + SQL parse + Parameters.Add 회피. N=1000+ chunks 환경에서 perf 정정.
+        // batchTxn 변경 시 cmd.Transaction 재할당 의무 (Microsoft.Data.Sqlite 의 SqliteCommand 는 transaction
+        // setter 단순 — prepared statement 재계산 없음).
         let mutable batchTxn : SqliteTransaction = null
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            INSERT INTO Chunks(DocumentId, OutlineId, RefLocator, Ordinal, TokenCount, Text)
+            VALUES($doc, $out, $ref, $ord, $tok, $text);
+        """
+        let pDoc = cmd.Parameters.Add("$doc", SqliteType.Integer)
+        let pOut = cmd.Parameters.Add("$out", SqliteType.Integer)
+        let pRef = cmd.Parameters.Add("$ref", SqliteType.Text)
+        let pOrd = cmd.Parameters.Add("$ord", SqliteType.Integer)
+        let pTok = cmd.Parameters.Add("$tok", SqliteType.Integer)
+        let pText = cmd.Parameters.Add("$text", SqliteType.Text)
         try
             for i = 0 to chunks.Length - 1 do
                 ct.ThrowIfCancellationRequested()
                 if isNull batchTxn then
                     batchTxn <- conn.BeginTransaction()
+                    cmd.Transaction <- batchTxn
 
                 let c = chunks.[i]
-                use cmd = conn.CreateCommand()
-                cmd.Transaction <- batchTxn
-                cmd.CommandText <- """
-                    INSERT INTO Chunks(DocumentId, OutlineId, RefLocator, Ordinal, TokenCount, Text)
-                    VALUES($doc, $out, $ref, $ord, $tok, $text);
-                """
-                let outlineIdParam : obj =
+                pDoc.Value <- documentId
+                pOut.Value <-
                     match c.OutlineIndex with
                     | Some idx when idx >= 0 && idx < outlineDbIds.Length -> box outlineDbIds.[idx]
                     | _ -> box DBNull.Value
-                cmd.Parameters.AddWithValue("$doc",  documentId) |> ignore
-                cmd.Parameters.AddWithValue("$out",  outlineIdParam) |> ignore
-                cmd.Parameters.AddWithValue("$ref",  c.RefLocator) |> ignore
-                cmd.Parameters.AddWithValue("$ord",  c.Ordinal) |> ignore
-                cmd.Parameters.AddWithValue("$tok",  c.TokenCount) |> ignore
-                cmd.Parameters.AddWithValue("$text", c.Text) |> ignore
+                pRef.Value <- c.RefLocator
+                pOrd.Value <- c.Ordinal
+                pTok.Value <- c.TokenCount
+                pText.Value <- c.Text
                 cmd.ExecuteNonQuery() |> ignore
 
                 if (i + 1) % batchSize = 0 then
                     batchTxn.Commit()
                     batchTxn.Dispose()
                     batchTxn <- null
+                    cmd.Transaction <- null  // 신 batch 진입 시 재할당
 
             if not (isNull batchTxn) then
                 batchTxn.Commit()
