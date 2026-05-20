@@ -11,40 +11,45 @@ open DocumentFormat.OpenXml.Wordprocessing
 /// Wordprocessing.ParagraphProperties 가 Drawing.ParagraphProperties 와 동명 → fully qualified 로만 사용.
 type private Blip = DocumentFormat.OpenXml.Drawing.Blip
 
-/// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (todo-lighthouse-kb-index.md §4.3).
+/// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (todo-lighthouse-kb-index.md §4.3 / xlsx-pptx-images r2).
 ///
-/// Phase 1 활성: docx 만. heading 깊이 (Heading1~Heading6) 를 outline 으로, paragraph + table 의 InnerText 를 segment 로.
-/// pptx / xlsx 는 Phase 2 — `Supports` false 반환하여 Indexer routing 에서 자연스럽게 누락 → 다른 extractor 로 fallback.
+/// **Phase 1 활성**: docx — heading 깊이 (Heading1~Heading6) 를 outline 으로, paragraph + table 의 InnerText 를 segment 로.
 ///
-/// **Phase 2 task C3 (s6-r14) + C4-Q2 강화 (s6-r16)**: `Body` 의 paragraph/table iter 안에서 `Descendants<Blip>()`
-/// 분석 → `Blip.Embed` (relationship id) → ImagePart 매핑 → ExtractedImage 박제. `ContentType` 화이트리스트
-/// (image/png / image/jpeg / image/gif / image/webp) 외 (EMF/WMF/x-emf/x-wmf/BMP/TIFF 등) 는 자연 skip
-/// (m6 primary 가드). per-image try/catch fail-safe (M2 결론).
+/// **Phase 2 활성 (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 0~2)**:
+///   - Task 0 (본 turn): `Extract` 진정한 dispatch + `ExtractWithFailSafe` wrapper + `ImagePartToFormat` helper +
+///     closure 4종 (`ExtractImagesAtRefLocator` / `CollectValidBlips` / `ExtractImagesFromBlips` /
+///     `ExtractImagesFromOpenXmlPart`) static 승격. DOCX 동작 회귀 0. PPTX/XLSX 진입 직전 정리.
+///   - Task 1: `ExtractPptx` 신설 — slide outline + paragraph break + speaker notes + 내부 이미지.
+///   - Task 2: `ExtractXlsx` 신설 — sheet outline + sparse cell row + SST + 내부 이미지.
 ///
-/// ContentType **lowercase 가정** (OpenXml SDK 규약 — Image*ContentType 상수가 항상 lowercase). 외부에서 손으로
-/// 작성된 ContentTypes.xml 의 mixed case (`image/PNG` 등) 는 매칭 안 됨 → 자연 skip 처리. 본 phase 차단 사유 0,
-/// case-insensitive 매칭은 backlog (필요 시 별 turn).
+/// **Task 0 — Extract dispatch 신설 (r1 Critical-1 해소)**: 기존 `Extract` 가 `ExtractDocx` 직호출이라 향후
+/// Pptx/Xlsx 활성 시 dispatch 분기 누락 위험. `Classifier.classifyForKb` 기반 분기 + `ExtractWithFailSafe`
+/// (5 종 catch incl. `System.Xml.XmlException` for OpenXml lazy deferred parsing — r2 m4) wrapper 가
+/// `DocType` 인자를 받아 정확한 빈 record 박제. 기존 4 catch arm 의 `DocType=Docx` hardcode 회귀.
 ///
-/// RefLocator scheme (s6-r16 C4-Q2 옵션 B 강화): docx 도 PdfExtractor scheme 통일 → `"p=%d"` (paragraph ordinal
-/// 1-based, segment 와 동일 scheme) + `Ordinal = 1..N` (같은 paragraph 안 image 순번). ChunkId 매핑 활성화
-/// (refToChunkId map 의 `"p=%d"` key 와 정합) — C4 의 image-chunk linking 완비.
+/// **closure 4종 static 승격 (R3 M6 해소)**: `ExtractDocx` body 안 `images: ResizeArray<ExtractedImage>` 를
+/// closure 로 capture 하던 helper 4종 → `images` + `path` 를 인자로 받는 static member. PPTX/XLSX 의
+/// `ExtractPptx` / `ExtractXlsx` 에서 동일 helper 재사용. closure 와 동일하게 paragraph hot path 의 `Blips` cache
+/// 도 같이 노출.
 ///
-/// **orphan ImagePart skip** — Drawing element 가 미참조하는 ImagePart (Word 가 unused 로 남긴 자취) 는 박제 안 함.
-/// `Body.Descendants<Blip>()` 만 enumerate 하므로 자연 skip — UI 비표시 image 의 KB 색인 가치 낮음 정합.
+/// **`ImagePartToFormat` (Task 0)**: 기존 `OoxmlExtractor.fs:115-118` + `:174-177` 2회 중복 mapping 단일화.
+/// lowercase 가정 (OpenXml SDK 규약). 외부에서 손으로 작성된 ContentTypes.xml 의 mixed case (`image/PNG` 등) 는
+/// 자연 skip — Phase 2 차단 사유 0, case-insensitive 매칭은 backlog.
 ///
-/// **image-only paragraph** (s6-r21, s6-r22 mn1 통합) — paragraph 가 text=0 + Drawing 만 있는 경우
-/// `isText || hasImg` 단일 분기에서 segment 는 미박제하나 paraOrdinal 증가 + image 박제. 산업 매뉴얼 docx 의
-/// caption 직전 image-only paragraph 시나리오 정합. ChunkId 매핑은 None (segment 없는 paragraph 는 chunks 도 없음).
+/// **DOCX 원래 박제 (변경 없음)**:
+/// - Body 의 paragraph/table iter 안 `Descendants<Blip>()` → `Blip.Embed` (relationship id) → ImagePart 매핑
+///   → ExtractedImage 박제. ContentType 화이트리스트 4 종 (PNG/JPEG/GIF/WEBP) 외 (EMF/WMF/BMP/TIFF 등) 자연 skip.
+/// - RefLocator scheme (s6-r16 C4-Q2): docx 도 PdfExtractor scheme 통일 → `"p=%d"` (paragraph ordinal 1-based)
+///   + `Ordinal = 1..N` (같은 paragraph 안 image 순번). ChunkId 매핑 활성화.
+/// - orphan ImagePart skip — Drawing element 미참조 ImagePart 는 박제 안 함.
+/// - image-only paragraph (s6-r21) — text=0 + Drawing 만 있는 paragraph 도 `isText || hasImg` 단일 분기로
+///   image 박제 + paraOrdinal 증가. ChunkId 매핑은 None (segment 없는 paragraph).
+/// - table cell scheme — `extractImagesFromTable` 분기. RefLocator scheme = `p=<tbl-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>`.
+///   nested table 안 image 는 Warn 후 silent drift 차단 (backlog).
+/// - header/footer Drawing (s6-r21) — `MainDocumentPart.HeaderParts` / `FooterParts` 의 RootElement 안 image 박제.
+///   RefLocator scheme = `header=%d` / `footer=%d`. comments/footnotes/endnotes 는 backlog.
 ///
-/// **table cell scheme 확장** (s6-r22 task 5, s6-r16 backlog 해소) — table 의 Drawing 추출은
-/// `extractImagesFromTable` 분기로 분리. RefLocator scheme = `p=&lt;tableParaOrd&gt;.cell=&lt;cellOrd&gt;.p=&lt;paraInCellOrd&gt;`
-/// (모두 1-based). cellOrd = `tbl.Descendants&lt;TableCell&gt;()` row-major. paraInCellOrd = 각 cell 안 Paragraph 순번.
-/// nested table (cell 안 table) 의 cell 좌표 평면화 / table 직속 Drawing (OOXML 규약상 빈도 0) 은 미지원 backlog.
-///
-/// **MainDocumentPart Body 한정** — header/footer/comments/footnotes/endnotes 안의 Drawing 은 미커버 (Body iter
-/// 가 본문 한정). 일반 산업 docx 에서 image 는 본문에 집중되어 본 phase 의 단순화 정합. 별 turn (또는 별 task) 의무 박제.
-///
-/// fail-safe (§3.16 / §6.5): 손상 docx (FileFormatException / OpenXmlPackageException) 는 log + 빈 결과. cancel 은 reraise.
+/// **fail-safe** (§3.16 / §6.5): 손상 ooxml 류는 log + 빈 결과. cancel 은 reraise.
 type OoxmlExtractor() =
 
     /// Word 의 paragraph style id (예: "Heading1", "Heading2", ..., "Heading6").
@@ -59,6 +64,124 @@ type OoxmlExtractor() =
             let pid = pp.ParagraphStyleId
             if isNull pid || isNull pid.Val then ""
             else pid.Val.Value
+
+    /// **Task 0 (Critical-1 + R3 M6 해소)** — ContentType (lowercase) → ImageFormat 화이트리스트 매핑.
+    /// body / header / footer / pptx slide / xlsx drawing 의 image 박제가 본 helper 단일 진입점 사용.
+    /// None = 화이트리스트 외 (EMF/WMF/BMP/TIFF / 대문자 mime) → 자연 skip (m6 primary 가드).
+    static member private ImagePartToFormat (contentType: string) : ImageFormat option =
+        match contentType with
+        | "image/png"  -> Some Png
+        | "image/jpeg" -> Some Jpeg
+        | "image/gif"  -> Some Gif
+        | "image/webp" -> Some Webp
+        | _ -> None
+
+    /// **Task 0 (R3 M6 closure 4종 승격, s6-r23 m2 통합)** — `Descendants<Blip>()` 1회 enumerate +
+    /// relId → ImagePart 매핑 → byte[] → ExtractedImage 박제. body / header / footer / pptx slide /
+    /// xlsx drawing 의 동일 패턴 단일 진입점. images + path 인자.
+    /// `Ordinal` 은 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
+    /// per-image fail-safe (M2 결론) — decode exception → log + skip. 다른 image 진행 차단 안 함.
+    static member private ExtractImagesAtRefLocator
+        (container: OpenXmlElement)
+        (resolveImagePart: string -> ImagePart option)
+        (location: string)
+        (refLocator: string)
+        (images: ResizeArray<ExtractedImage>)
+        (path: string) : unit =
+        let mutable imgOrdInBlock = 1
+        for blip in container.Descendants<Blip>() do
+            if not (isNull blip.Embed) && blip.Embed.HasValue then
+                let relId = blip.Embed.Value
+                match resolveImagePart relId with
+                | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
+                | Some imgPart ->
+                    try
+                        match OoxmlExtractor.ImagePartToFormat imgPart.ContentType with
+                        | None -> ()   // 화이트리스트 외 — m6 primary 가드.
+                        | Some fmt ->
+                            use stream = imgPart.GetStream()
+                            use ms = new MemoryStream()
+                            stream.CopyTo(ms)
+                            let bytes = ms.ToArray()
+                            if bytes.Length > 0 then
+                                images.Add {
+                                    Bytes = bytes
+                                    Format = fmt
+                                    Width = None
+                                    Height = None
+                                    RefLocator = refLocator
+                                    Ordinal = imgOrdInBlock
+                                }
+                                imgOrdInBlock <- imgOrdInBlock + 1
+                    with ex ->
+                        Log.lighthouse.Warn(
+                            sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
+                                location refLocator imgOrdInBlock relId path ex.Message)
+
+    /// **Task 0 (s6-r44 L-Maj-6 정정 박제)** — block 의 valid Blip 1회 enumerate cache.
+    /// paragraph hot path 의 `hasInlineDrawing` + image extract 양쪽 박제하던 2회 deep enumerate 회피.
+    /// caller (paragraph loop) 가 본 cache 박제 후 `ExtractImagesFromBlips` 호출.
+    static member private CollectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
+        let arr = ResizeArray<Blip>()
+        for blip in block.Descendants<Blip>() do
+            if not (isNull blip.Embed) && blip.Embed.HasValue then
+                arr.Add blip
+        arr
+
+    /// **Task 0 (R3 M6 closure 승격)** — `ExtractImagesAtRefLocator` 의 cached variant.
+    /// caller 가 사전 enumerate 한 valid Blip ResizeArray 박제 (`CollectValidBlips` 결과 가정).
+    /// ContentType 화이트리스트 + per-image fail-safe + Ordinal 박제 동일.
+    static member private ExtractImagesFromBlips
+        (blips: Blip ResizeArray)
+        (resolveImagePart: string -> ImagePart option)
+        (location: string)
+        (refLocator: string)
+        (images: ResizeArray<ExtractedImage>)
+        (path: string) : unit =
+        let mutable imgOrdInBlock = 1
+        for blip in blips do
+            let relId = blip.Embed.Value
+            match resolveImagePart relId with
+            | None -> ()
+            | Some imgPart ->
+                try
+                    match OoxmlExtractor.ImagePartToFormat imgPart.ContentType with
+                    | None -> ()
+                    | Some fmt ->
+                        use stream = imgPart.GetStream()
+                        use ms = new MemoryStream()
+                        stream.CopyTo(ms)
+                        let bytes = ms.ToArray()
+                        if bytes.Length > 0 then
+                            images.Add {
+                                Bytes = bytes
+                                Format = fmt
+                                Width = None
+                                Height = None
+                                RefLocator = refLocator
+                                Ordinal = imgOrdInBlock
+                            }
+                            imgOrdInBlock <- imgOrdInBlock + 1
+                with ex ->
+                    Log.lighthouse.Warn(
+                        sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
+                            location refLocator imgOrdInBlock relId path ex.Message)
+
+    /// **Task 0 (R3 M6 closure 승격)** — OpenXmlPart (HeaderPart / FooterPart 등) 의 RootElement enumerate.
+    /// `part.Parts` 에서 ImagePart 만 골라 relId map 빌드 → `ExtractImagesAtRefLocator` 위임.
+    static member private ExtractImagesFromOpenXmlPart
+        (part: OpenXmlPart)
+        (location: string)
+        (refLocator: string)
+        (images: ResizeArray<ExtractedImage>)
+        (path: string) : unit =
+        if not (isNull part.RootElement) then
+            let imgMap =
+                part.Parts
+                |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
+                |> Map.ofSeq
+            let resolve relId = Map.tryFind relId imgMap
+            OoxmlExtractor.ExtractImagesAtRefLocator part.RootElement resolve location refLocator images path
 
     static member private ExtractDocx (path: string) (ct: CancellationToken) : ExtractedDocument =
         ct.ThrowIfCancellationRequested()
@@ -77,142 +200,21 @@ type OoxmlExtractor() =
             let images = ResizeArray<ExtractedImage>()
             let mutable paraOrdinal = 0
 
-            // C4-Q2 (s6-r16): ImagePart 의 relationship id → ImagePart map. body.Descendants<Blip>() 의 Embed
-            // (relId) 와 매칭. orphan ImagePart (Drawing 미참조) 는 본 map 에 등록되나 enumerate 안 됨 → 자연 skip.
+            // C4-Q2 (s6-r16): ImagePart 의 relationship id → ImagePart map.
             let imgPartByRelId =
                 mainPart.ImageParts
                 |> Seq.map (fun ip -> mainPart.GetIdOfPart(ip), ip)
                 |> Map.ofSeq
 
-            // **s6-r23 m2 helper 통합 (s6-r22 자가 검열 m2 적용)** — body / header / footer 의 동일 패턴
-            // (Blip enumerate → relId → ImagePart 매핑 → ContentType 화이트리스트 → byte[] 추출 → ExtractedImage 박제)
-            // 을 단일 `extractImagesAtRefLocator` 로 통합.
-            //
-            // signature: `(container, resolveImagePart, location, refLocator)`.
-            //  - `container` = enumerate 대상 OpenXmlElement (paragraph / table cell / part RootElement).
-            //  - `resolveImagePart` = relId → ImagePart option (body 는 `imgPartByRelId` map, header/footer 는 별 map).
-            //  - `location` = log prefix (`"body"` / `"header"` / `"footer"`) — s6-r24 m1 (s6-r23 자가 검열 박제 해소).
-            //    log grep 시 통합 후 단일 prefix 로 흡수되던 추적성 회복.
-            //  - `refLocator` = caller 가 결정한 RefLocator (`p=%d` / `p=%d.cell=%d.p=%d` / `header=%d` / `footer=%d`).
-            //
-            // Ordinal 은 caller 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
-            // M2 per-image fail-safe — decode exception → log + skip. 다른 image 진행 차단 안 함.
-            let extractImagesAtRefLocator
-                (container: OpenXmlElement)
-                (resolveImagePart: string -> ImagePart option)
-                (location: string)
-                (refLocator: string) =
-                let mutable imgOrdInBlock = 1
-                for blip in container.Descendants<Blip>() do
-                    if not (isNull blip.Embed) && blip.Embed.HasValue then
-                        let relId = blip.Embed.Value
-                        match resolveImagePart relId with
-                        | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
-                        | Some imgPart ->
-                            try
-                                let fmtOpt =
-                                    match imgPart.ContentType with
-                                    | "image/png"  -> Some Png
-                                    | "image/jpeg" -> Some Jpeg
-                                    | "image/gif"  -> Some Gif
-                                    | "image/webp" -> Some Webp
-                                    | _ -> None
-                                match fmtOpt with
-                                | None -> ()   // 화이트리스트 외 (EMF/WMF/BMP 등) — m6 primary 가드.
-                                | Some fmt ->
-                                    use stream = imgPart.GetStream()
-                                    use ms = new MemoryStream()
-                                    stream.CopyTo(ms)
-                                    let bytes = ms.ToArray()
-                                    if bytes.Length > 0 then
-                                        images.Add {
-                                            Bytes = bytes
-                                            Format = fmt
-                                            // OpenXml ImagePart 는 pixel dim 노출 안 함 — header parse 별 task.
-                                            Width = None
-                                            Height = None
-                                            RefLocator = refLocator
-                                            Ordinal = imgOrdInBlock
-                                        }
-                                        imgOrdInBlock <- imgOrdInBlock + 1
-                            with ex ->
-                                // M2 per-image fail-safe — decode exception → log + skip.
-                                Log.lighthouse.Warn(
-                                    sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                                        location refLocator imgOrdInBlock relId path ex.Message)
-
             // body 측 resolver — mainPart 안 ImagePart map.
             let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
 
-            // **s6-r44 / 외부 --review L-Maj-6 정정** — block 의 `Descendants<Blip>()` 1회 enumerate + 유효 Blip
-            // (relId non-null + HasValue) 만 cache. paragraph hot path 의 `hasInlineDrawing` + `extractImagesFromBlock`
-            // 양쪽 박제하던 2회 deep enumerate 회피. valid 필터링도 한 곳에 집중 — caller 측 isNull/HasValue 가드 제거.
-            let collectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
-                let arr = ResizeArray<Blip>()
-                for blip in block.Descendants<Blip>() do
-                    if not (isNull blip.Embed) && blip.Embed.HasValue then
-                        arr.Add blip
-                arr
-
-            // `extractImagesAtRefLocator` 의 cached variant — caller 가 미리 enumerate 한 Blip ResizeArray 박제.
-            // valid Blip 가정 (collectValidBlips 가 사전 필터링). M2 per-image fail-safe + ContentType 화이트리스트
-            // 박제 동일.
-            let extractImagesFromBlips
-                (blips: Blip ResizeArray)
-                (resolveImagePart: string -> ImagePart option)
-                (location: string)
-                (refLocator: string) =
-                let mutable imgOrdInBlock = 1
-                for blip in blips do
-                    let relId = blip.Embed.Value
-                    match resolveImagePart relId with
-                    | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
-                    | Some imgPart ->
-                        try
-                            let fmtOpt =
-                                match imgPart.ContentType with
-                                | "image/png"  -> Some Png
-                                | "image/jpeg" -> Some Jpeg
-                                | "image/gif"  -> Some Gif
-                                | "image/webp" -> Some Webp
-                                | _ -> None
-                            match fmtOpt with
-                            | None -> ()
-                            | Some fmt ->
-                                use stream = imgPart.GetStream()
-                                use ms = new MemoryStream()
-                                stream.CopyTo(ms)
-                                let bytes = ms.ToArray()
-                                if bytes.Length > 0 then
-                                    images.Add {
-                                        Bytes = bytes
-                                        Format = fmt
-                                        Width = None
-                                        Height = None
-                                        RefLocator = refLocator
-                                        Ordinal = imgOrdInBlock
-                                    }
-                                    imgOrdInBlock <- imgOrdInBlock + 1
-                        with ex ->
-                            Log.lighthouse.Warn(
-                                sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                                    location refLocator imgOrdInBlock relId path ex.Message)
-
-            // helper: Paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`). cached path.
+            // paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`). cached path.
             let extractImagesFromBlock (blips: Blip ResizeArray) (paraOrd: int) =
-                extractImagesFromBlips blips resolveBodyImagePart "body" (sprintf "p=%d" paraOrd)
+                OoxmlExtractor.ExtractImagesFromBlips blips resolveBodyImagePart "body" (sprintf "p=%d" paraOrd) images path
 
-            // **s6-r22 task 5 (s6-r16 backlog 해소)** — table cell 단위 매핑.
-            // RefLocator scheme = `p=<table-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>` (모두 1-based).
-            // cellOrd = outer table 의 row → cell 순서 (row-major, direct children 만). paraInCellOrd = 각 cell 안
-            // 직속 Paragraph 순번.
-            //
-            // **nested table 명시 skip (s6-r22 자가 검열 C1 정합)** — `tbl.Descendants<TableCell>()` 대신
-            // `tbl.Elements<TableRow>() → r.Elements<TableCell>()` 로 outer cell 한정 enumerate. nested table
-            // (cell 안 table) 의 inner cell 은 본 scheme 미지원 → 자연 skip + Warn log. silent RefLocator drift 차단.
-            // nested table 안 image 누락은 산업 docx 빈도 매우 낮음 — 별 turn backlog.
-            //
-            // table 직속 Drawing (cell 외부) 은 OOXML 규약상 빈도 0 (Drawing 은 paragraph 안 인라인 강제) — 별 분기 미박제.
+            // table cell 단위 매핑. RefLocator scheme = `p=<table-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>`.
+            // nested table 안 image 는 silent drift 차단 (backlog).
             let extractImagesFromTable (tbl: Table) (paraOrd: int) =
                 let mutable cellOrd = 1
                 for row in tbl.Elements<TableRow>() do
@@ -220,9 +222,8 @@ type OoxmlExtractor() =
                         let mutable paraInCell = 1
                         for cellPara in cell.Elements<Paragraph>() do
                             let refLoc = sprintf "p=%d.cell=%d.p=%d" paraOrd cellOrd paraInCell
-                            extractImagesAtRefLocator cellPara resolveBodyImagePart "table-cell" refLoc
+                            OoxmlExtractor.ExtractImagesAtRefLocator cellPara resolveBodyImagePart "table-cell" refLoc images path
                             paraInCell <- paraInCell + 1
-                        // nested table 안 image silent drift 차단 — outer cell 의 직속 Table 자식 enumerate 후 Warn.
                         for nestedTbl in cell.Elements<Table>() do
                             let nestedImgCount =
                                 nestedTbl.Descendants<Blip>()
@@ -239,8 +240,6 @@ type OoxmlExtractor() =
                 block.Descendants<Blip>() |> Seq.exists (fun b -> not (isNull b.Embed) && b.Embed.HasValue)
 
             // s6-r22 mn1: paragraph/table 분기 통합 — `isText || hasImg` 단일 분기.
-            // text 가 0 이어도 inline Drawing 있으면 image 박제 + paraOrdinal 증가 (s6-r21 image-only paragraph).
-            // segment 는 isText 일 때만 박제 (text=0 chunk 는 의미 없음).
             for elem in body.ChildElements do
                 ct.ThrowIfCancellationRequested()
                 match elem with
@@ -251,10 +250,9 @@ type OoxmlExtractor() =
                         if isNull raw then "" else raw.Trim()
                     let isText = text.Length > 0
                     // s6-r44: paragraph 의 Blip 1회 enumerate + cache (L-Maj-6 정정).
-                    let pBlips = collectValidBlips p
+                    let pBlips = OoxmlExtractor.CollectValidBlips p
                     let hasImg = pBlips.Count > 0
                     if isText || hasImg then
-                        // heading 처리는 text 있을 때만 의미 — image-only paragraph 는 outline 비등록.
                         if isText && OoxmlExtractor.IsHeadingStyle styleId then
                             outline.Add {
                                 ParentIndex = None
@@ -270,8 +268,6 @@ type OoxmlExtractor() =
                                 RefLocator = sprintf "p=%d" (paraOrdinal + 1)
                                 Text = text
                             }
-                        // C4-Q2: 같은 paragraph 안의 inline Drawing → 같은 RefLocator 의 image 박제.
-                        // image-only paragraph (s6-r21) 도 동일 분기 — ChunkId 매핑은 None (segment 없음).
                         if hasImg then
                             extractImagesFromBlock pBlips (paraOrdinal + 1)
                         paraOrdinal <- paraOrdinal + 1
@@ -289,37 +285,20 @@ type OoxmlExtractor() =
                                 RefLocator = sprintf "p=%d" (paraOrdinal + 1)
                                 Text = text
                             }
-                        // s6-r22 task 5: table cell 단위 매핑 — `extractImagesFromTable` 분기 분리. cell 안 image
-                        // 는 `p=%d.cell=%d.p=%d` scheme. table 직속 (cell 외) image 는 기존 `p=%d` scheme 유지.
+                        // s6-r22 task 5: table cell 단위 매핑 — `extractImagesFromTable` 분기 분리.
                         extractImagesFromTable tbl (paraOrdinal + 1)
                         paraOrdinal <- paraOrdinal + 1
                 | _ -> ()
 
-            // **s6-r21 (s6-r16 backlog 해소)** — header / footer Drawing 커버.
-            // 일반 산업 docx 의 로고/머리말 image. RefLocator scheme = `header=%d` / `footer=%d` (1-based,
-            // mainPart.HeaderParts / FooterParts 순서). chunks 와의 매칭은 미보장 (header text 가 chunk 화 안 됨)
-            // — image-only 시나리오와 동일 정합 (ChunkId None).
-            //
-            // **comments / footnotes / endnotes Drawing**: 산업 docx 에서 빈도 매우 낮고 ContentType 분포도
-            // 다양 (메타 image 류) — 본 phase scope 외, 별 turn 박제. (HeaderParts/FooterParts 만 진입.)
-            // **s6-r23 m2** — header/footer 의 ImagePart resolver 만 다르고 enumerate/박제 로직은 body 와 동일.
-            // `extractImagesAtRefLocator` 의 resolver argument 로 통합. log prefix `"header"` / `"footer"` 박제 (s6-r24 m1).
-            let extractImagesFromOpenXmlPart (part: OpenXmlPart) (location: string) (refLocator: string) =
-                if not (isNull part.RootElement) then
-                    let imgMap =
-                        part.Parts
-                        |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
-                        |> Map.ofSeq
-                    let resolve relId = Map.tryFind relId imgMap
-                    extractImagesAtRefLocator part.RootElement resolve location refLocator
-
+            // s6-r21: header / footer Drawing 커버. RefLocator scheme = `header=%d` / `footer=%d`.
+            // s6-r23 m2 / s6-r24 m1: log prefix `"header"` / `"footer"` 박제.
             let mutable headerOrd = 1
             for hp in mainPart.HeaderParts do
-                extractImagesFromOpenXmlPart hp "header" (sprintf "header=%d" headerOrd)
+                OoxmlExtractor.ExtractImagesFromOpenXmlPart hp "header" (sprintf "header=%d" headerOrd) images path
                 headerOrd <- headerOrd + 1
             let mutable footerOrd = 1
             for fp in mainPart.FooterParts do
-                extractImagesFromOpenXmlPart fp "footer" (sprintf "footer=%d" footerOrd)
+                OoxmlExtractor.ExtractImagesFromOpenXmlPart fp "footer" (sprintf "footer=%d" footerOrd) images path
                 footerOrd <- footerOrd + 1
 
             {
@@ -331,34 +310,54 @@ type OoxmlExtractor() =
                 Images = images.ToArray()
             }
 
+    /// **Task 0 (Critical-1, r2 m4 XmlException 추가)** — 외부 환경 fail-safe (§6.5) 5 종 통합 wrapper.
+    ///   - FileFormatException: zip header 등 OOXML 패키지 구조 깨짐
+    ///   - OpenXmlPackageException: 패키지 일관성 위반
+    ///   - InvalidDataException: 손상된 압축 stream
+    ///   - IOException: 파일 접근 실패 (lock / 권한)
+    ///   - System.Xml.XmlException: OpenXml lazy deferred parsing 시점 발생 가능 (r2 m4)
+    /// 빈 record 의 DocType 은 `docType` 인자로 정확 박제 (기존 4 arm 의 `DocType=Docx` hardcode 회귀).
+    /// 그 외 (NullReferenceException 등 코드 버그) 는 reraise — 디버깅 가시성 보존.
+    static member private ExtractWithFailSafe
+        (docType: FileKind)
+        (path: string)
+        (action: unit -> ExtractedDocument) : ExtractedDocument =
+        let emptyResult () =
+            { DocType = docType; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
+        try action ()
+        with
+        | :? FileFormatException as ex ->
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A 패키지 손상 — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? OpenXmlPackageException as ex ->
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A OpenXml 패키지 일관성 위반 — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? InvalidDataException as ex ->
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A 손상 압축 stream — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? IOException as ex ->
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A 파일 접근 실패 — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? System.Xml.XmlException as ex ->
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A XML 파싱 실패 (lazy deferred) — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+
     interface IExtractor with
         member _.Supports kind =
             match kind with
             | Docx -> true
-            | _ -> false  // Pptx / Xlsx 는 Phase 2 — routing 에서 자연 누락
+            | _ -> false  // Pptx / Xlsx Phase 2 task — Task 1/2 진입 시 활성
 
         member _.Extract (path, ct) =
             ct.ThrowIfCancellationRequested()
-            // 외부 환경 fail-safe (§6.5, review M3): 손상 docx 류만 한정 catch.
-            //   - FileFormatException: zip header 등 OOXML 패키지 구조 깨짐
-            //   - OpenXmlPackageException: 패키지 일관성 위반
-            //   - InvalidDataException: 손상된 압축 stream
-            //   - IOException: 파일 접근 실패 (lock / 권한)
-            // 그 외 (NullReferenceException 등 코드 버그) 는 fail-fast — 디버깅 가시성 보존.
-            try
-                OoxmlExtractor.ExtractDocx path ct
-            with
-            | :? FileFormatException as ex ->
-                Log.lighthouse.Warn(sprintf "OoxmlExtractor: docx 패키지 손상 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
-            | :? OpenXmlPackageException as ex ->
-                Log.lighthouse.Warn(sprintf "OoxmlExtractor: OpenXml 패키지 일관성 위반 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
-            | :? InvalidDataException as ex ->
-                Log.lighthouse.Warn(sprintf "OoxmlExtractor: 손상 압축 stream — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
-            | :? IOException as ex ->
-                Log.lighthouse.Warn(sprintf "OoxmlExtractor: 파일 접근 실패 — path=%s, ex=%s" path ex.Message)
-                { DocType = Docx; PageOrSheetCnt = None; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
+            // Task 0 Critical-1 — 진정한 dispatch. 현 시점 Supports=Docx only 라 routeExtractor 가 본 extractor 로
+            // Pptx/Xlsx 라우팅 안 함 → `| _ ->` 분기는 미진입 상태. Task 1/2 에서 Supports 분기 확대 + ExtractPptx/
+            // ExtractXlsx 신설하면 자연스럽게 활성.
+            let kind = Classifier.classifyForKb path
+            OoxmlExtractor.ExtractWithFailSafe kind path (fun () ->
+                match kind with
+                | Docx -> OoxmlExtractor.ExtractDocx path ct
+                | _ ->
+                    failwith (sprintf "OoxmlExtractor.Extract: Supports invariant 위반 — kind=%A path=%s" kind path))
 
         member _.Dispose () = ()
