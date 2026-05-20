@@ -30,12 +30,21 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r57+ 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r61 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
-s6-r53 D-S7-1 mTLS + s6-r54 K6+M10+M11 + s6-r55 ⑱ purge + s6-r56 (a) ⑬⑭⑲ + s6-r57 (b partial) C7 hasImages 완료 후 새 세션 진입.
-누적 641 Fact (lib 177 / service 140 / IT 33 / Promaker 291). 회귀 0. branch = light-house (local-only).
+
+[직전 turn 누적 4 commit]
+- s6-r58 (a) C4 attachment_read ref EBNF 검증 (§3.13 SSOT)
+- s6-r59 (a) C5 attachment_read image mode 5-case SSOT 정합 + case 4 audit
+- s6-r60 (b) D-S7-5 resumable upload server-side scaffold (5 endpoint /uploads-rs + state machine + SSE 진행률)
+- s6-r61 (c) B5 Promaker client cert 적용 (LlmConfig.ClientCertThumbprint + X509Store lookup)
+
+[그 이전 turn 누적]
+- s6-r53 D-S7-1 mTLS server-side / s6-r54 보안 sweep K6+M10+M11 / s6-r55 ⑱ purge helper / s6-r56 (a) ⑬⑭⑲ / s6-r57 C7 hasImages
+
+누적 658 Fact (lib 177 / service 143 / IT 38 / Promaker 300). 회귀 0. branch = light-house (local-only).
 paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
 
@@ -46,13 +55,37 @@ paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 - D. 정책 결정 (사용자 confirm): D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
 - E. 외부 / 운영: E1 /dist 실행 (사용자 직접) / E2 server.md §7.7 Minor outliers ~13건
 
-우선순위 (a) C4~C6 잔여 (Phase 2 cosmetic — C4 RefLocator parser / C5 attachment_read image mode / C6 Promaker citation UI)
-       (b) A1 Phase S7 잔여 D-S7-4 (T2/T3 multi-tenant) 또는 D-S7-5 (resumable upload) — 사용자 우선순위 confirm 의무
-       (c) B5 Promaker client cert 적용 (D-S7-1 후속, client cert 발급/관리 정책 박제 의무 — 사용자 confirm)
-       (d) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출 의무 — make dist or /dist skill)
-       (e) (d) 의 외부 review backlog 완료 후 lib breaking refactor 의무 — (string * SearchHit) list → KeyedHit record (cosmetic)
+잔여 작업 (next-session.md §2 + §4 박제):
+- A. large phase (단독 turn, sub-agent 위임 의무):
+  - A1 Phase S7 잔여 — **D-S7-4 T2/T3 multi-tenant** (~400~500 line, Registry per-tenant + Session isolation + storage layout)
+  - A2 K4 Protocol SSOT 통합 (Solutions/Core/Ds2.LightHouse.Protocol 신규 project)
+  - A4 Phase 3 OCR (Tesseract.NET + 한글)
+- B. medium 별 turn:
+  - B1 M13 Indexer.ingestFile outer transaction (perf)
+  - B2 OoxmlExtractor 강화 (comments/footnotes/endnotes Drawing)
+  - B3 image-only paragraph 분기 분리
+  - **B5 phase 2** — UI X509Store 선택 dialog (ApplicationSettingsDialog + cert lookup button) + 사내 CA cert deploy 정책
+  - B6 보안 sweep 잔여 (M9 PSK lifetime / M12 Promaker staging %TEMP% ACL)
+  - **D-S7-5 phase 2** — PATCH per-uploadId SemaphoreSlim race / Content-Range body size 검증 / crash 회복 / finalize → collection 등록 위임 path (Promaker/cli client 변경 + ZipImport.moveStagingToCollection)
+- C. 소량 cosmetic:
+  - **C6 Promaker citation UI** — UI 변경 + 사용자 e2e 검증 의무
+  - (string * SearchHit) list → KeyedHit record (lib internal refactor)
+  - C1 mn6 fixture 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용
+- D. 정책 결정 (사용자 confirm):
+  - D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
+- E. 외부 / 운영:
+  - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill)
+  - E2 server.md §7.7 Minor outliers ~13건
+
+우선순위 (a) C6 Promaker citation UI (Phase 2 잔여 cosmetic — UI 변경 + e2e 검증)
+       (b) D-S7-5 phase 2 (finalize → collection 등록 위임 path + Promaker/cli client 변경 — D-S7-5 본격 production-ready)
+       (c) B5 phase 2 (UI X509Store 선택 dialog — Settings dialog 갱신)
+       (d) A1 Phase S7 잔여 D-S7-4 (T2/T3 multi-tenant — 사용자 우선순위 confirm 의무)
+       (e) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출 의무)
        — 선택 부탁드립니다.
 ```
+
+**위 prompt 를 새 Claude Code 세션 첫 메시지로 그대로 붙여넣기**. §3 읽기 순서 → §4 backlog 표 → 우선순위 (a)~(e) 선택 흐름으로 이어진다.
 
 **다음 turn 진입 시 우선 작업**:
 1. **A1 Phase S7 잔여** — ~~D-S7-1 mTLS~~ → s6-r53 종결 (server-side minimum viable, Promaker client cert 별 phase). 잔여 D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위 선택. 각 단독 phase, sub-agent 위임 의무.
