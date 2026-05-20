@@ -62,7 +62,11 @@ let configureApp
     let attachmentResolver = AttachmentResolver.fromRegistry storageRoot
     builder.Services.AddSingleton<AttachmentResolver>(attachmentResolver) |> ignore
 
-    // s6-r39 P4-C.3 / s6-r45 C1 / s6-r46 C2 — server-side hybrid retrieval 의 embedder factory.
+    // **s6-r48 #4** — production singleton embedder 의 ApplicationStopping hook 의무 박제용 ref capture.
+    // override path 박제 시 None 유지 (mock 자체 lifecycle). build 후 lifetime hook 단계에서 본 ref 검사.
+    let mutable singletonEmbedderForLifetime : IDisposable option = None
+
+    // s6-r39 P4-C.3 / s6-r45 C1 / s6-r46 C2 / s6-r48 #4 — server-side hybrid retrieval 의 embedder factory.
     // override 박제 시 cfg.Embedding 무시 + 본 factory 사용 (IT mock path).
     // override 미박제 시 cfg.Embedding 기반 정상 path:
     //   - Enabled=false / config null → factory 가 항상 None (BM25-only fallback, Phase 1 동작 유지).
@@ -91,13 +95,13 @@ let configureApp
                 Log.service.Info(
                     sprintf "C2: server-side embedding 활성 (service-singleton + NonOwning wrap) — baseUrl=%s model=%s dim=%d"
                         emb.BaseUrl emb.Model emb.Dimension)
-                // **lifecycle**: singleton 은 configureApp closure capture (process lifetime). 단일 instance 라
-                // HttpClient leak 누적 0 — process 종료 시 OS 회수 정합. `AddSingleton<T>(instance)` 등록은 외부
-                // instance 의 dispose 책임 안 함 (DI container default) — explicit Lifetime.ApplicationStopping
-                // hook 박제는 별 turn (자가 검열 단순화 정합).
+                // **lifecycle (s6-r46 C2 + s6-r48 #4)**: singleton 은 configureApp closure capture. build 후
+                // IHostApplicationLifetime.ApplicationStopping hook 박제 (graceful shutdown 시 명시 Dispose).
+                // process kill 시는 OS 회수 정합 (HttpClient leak 누적 0 — 단일 instance).
                 let singleton =
                     new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
                     :> Ds2.LightHouse.IEmbeddingProvider
+                singletonEmbedderForLifetime <- Some (singleton :> IDisposable)
                 fun () ->
                     Some (new Ds2.LightHouse.NonOwningEmbedder(singleton) :> Ds2.LightHouse.IEmbeddingProvider)
 
@@ -154,6 +158,18 @@ let configureApp
     builder.Host.UseWindowsService() |> ignore
 
     let app = builder.Build()
+
+    // **s6-r48 #4** — production singleton embedder 의 graceful shutdown Dispose 박제.
+    // IHostApplicationLifetime.ApplicationStopping 가 SIGTERM / Ctrl+C / Stop-Service 시 호출. process kill
+    // (taskkill /F) 시는 hook 안 호출 — OS 회수 정합. override path 박제 시 본 ref 가 None 이라 hook 박제 안 함.
+    match singletonEmbedderForLifetime with
+    | Some disposable ->
+        let lifetime = app.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>()
+        lifetime.ApplicationStopping.Register(fun () ->
+            Log.service.Info("#4: ApplicationStopping — service-singleton embedder Dispose")
+            try disposable.Dispose() with ex ->
+                Log.service.Warn(sprintf "#4: singleton embedder Dispose 실패 — %s: %s" (ex.GetType().Name) ex.Message)) |> ignore
+    | None -> ()
 
     // 1. Public endpoints (인증 무관) — health probe 등. middleware 진입 전에 매핑.
     app.UseRouting() |> ignore
