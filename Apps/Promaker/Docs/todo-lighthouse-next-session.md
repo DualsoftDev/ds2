@@ -14,30 +14,29 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r44 종결 예정, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r46 종결 예정, 2026-05-20)
 
-**Phase 4 P4-A → P4-C 시리즈 종결 + P4-C 자가 검열 (s6-r40) + Minor backlog 묶음 (s6-r41 D1+D2+D3) + 외부 --review 잔여 sweep (s6-r42~r44 조합 A — B1+B2+B3)** — `Ds2.LightHouse` lib 의 embedding/hybrid retrieval base 인프라 + OllamaSharp adapter + Promaker/Settings/server-side 모든 caller 통합 완료. 외부 --review 잔여 18건 중 4건 처리 (L-Maj-3 part 1 + L-Maj-5 + L-Maj-6), 잔여 = L-Maj-3 part 2 (ClearPool Pooling=False 정정) / L-Maj-10 (mtime/size fast-skip) / 나머지 ⑬~⑳. 누적 **617 Fact** (lib 168 / service 125 / IT 33 / Promaker 291). 회귀 0.
+**Phase 4 종결 + 외부 --review sweep (s6-r42~r44) + 조합 B 종결 (s6-r45+r46 C1+C2 embedding lifecycle)** — `Ds2.LightHouse` lib 의 embedding/hybrid retrieval base 인프라 + OllamaSharp adapter + Promaker/Settings/server-side 모든 caller 통합 완료. **s6-r40 자가 검열 backlog 4건 모두 종결** (Minor-1 ct 전파 / Minor-2 env SSOT / Minor-3 lifecycle singleton+NonOwning / Minor-4 mojibake). 외부 --review 잔여 18건 중 4건 처리, 잔여 = L-Maj-3 part 2 (Pooling=False) / L-Maj-10 (mtime fast-skip) / ⑬~⑳. 누적 **617 Fact** (lib 168 / service 125 / IT 33 / Promaker 291). 회귀 0.
 
 **새 세션 진입 prompt 예시 (--transfer 박제 SSOT)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md 기준.
-s6-r44 (B1+B2+B3 외부 --review sweep) 완료 후 다음 작업 진입.
-우선순위: (a) C1+C2 묶음 (IT embedding + lifecycle) / (b) L-Maj-3 part 2 + L-Maj-10 (lib SqliteStore Pooling + mtime fast-skip) / (c) Phase S7 잔여 — 선택 부탁드립니다.
+s6-r46 (조합 B C1+C2 embedding lifecycle) 완료 후 다음 작업 진입.
+우선순위: (a) L-Maj-3 part 2 + L-Maj-10 (lib SqliteStore Pooling + mtime fast-skip) / (b) Phase S7 잔여 / (c) 외부 --review ⑬~⑳ — 선택 부탁드립니다.
 ```
 
 **다음 turn 진입 시 우선 작업**:
-1. **(C1 + C2) 조합 B — embedding lifecycle 본격 박제** (추천 — 별 turn 안 별 commit 2건):
-   - **C1** = lib `MockEmbedder` 재활용 + IT `ServiceFixture` 주입. cost 최소 — 1~2 Fact 신규. hybrid path 회귀 차단 + C2 안전망.
-   - **C2** = service-singleton `NonOwning` wrapper. signature breaking + Program.fs DI + Tests fixture 변경. C1 의 회귀 차단 Fact 가 안전망.
-2. **외부 --review 잔여 (L-Maj-3 part 2 + L-Maj-10)**:
-   - **L-Maj-3 part 2** = `SqliteStore.openConnection` 의 csb 에 `csb.Pooling <- not readOnly` 박제 → KnowledgeBase 의 `withReadOnlyConn` ClearPool 제거 가능. trigger ⑤ 충족 — 자가 검열 sub-agent 위임 의무.
-   - **L-Maj-10** = `Indexer.computeFileHash` 매 색인 호출 대용량 PDF SHA-256 재계산 + mtime/size fast-skip 미적용 → Documents schema 에 mtime/size 컬럼 추가 + SchemaVersion 4→5 bump 동반. 모든 기존 collection 강제 재색인 — 단독 phase 권장.
-3. **Phase S7 잔여 phase 진입** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위.
-4. **외부 --review 잔여 ⑬~⑳ 13건** — server.md §7.1 s6-r35 row 박제. 우선순위는 사용자 결정.
+1. **L-Maj-3 part 2** = `SqliteStore.openConnection` 의 csb 에 `csb.Pooling <- not readOnly` 박제 → KnowledgeBase 의 `withReadOnlyConn` ClearPool 제거 가능. trigger ⑤ 충족 — 자가 검열 sub-agent 위임 의무. file lock 회귀 risk 측정 의무 (s6-r42 의 ClearPool 제거 회귀 7건 IT 실패 경험 — 본 박제로 회복 가능 여부).
+2. **L-Maj-10** = `Indexer.computeFileHash` 매 색인 호출 대용량 PDF SHA-256 재계산 + mtime/size fast-skip 미적용 → Documents schema 에 mtime/size 컬럼 추가 + SchemaVersion 4→5 bump. **모든 기존 collection 강제 재색인 — 단독 phase 권장**. paired-release ps1 검증 의무.
+3. **Phase S7 잔여** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위.
+4. **WebApplication.Lifetime.ApplicationStopping hook** = service-singleton embedder 명시 Dispose 박제 (s6-r46 C2 의 잔여 — process lifetime OS 회수 정합 박제이라 별 turn).
+5. **외부 --review 잔여 ⑬~⑳ 13건** — server.md §7.1 s6-r35 row 박제. 우선순위 사용자 결정.
 
-**Phase 4 P4-A → P4-C commit chain + 외부 --review sweep (s6-r34 ~ s6-r44, 11 commit)**:
+**Phase 4 P4-A → C2 commit chain (s6-r34 ~ s6-r46, 13 commit)**:
 
+- **`(본 commit)` s6-r46 C2 server-singleton + NonOwning** — `Ds2.LightHouse.NonOwningEmbedder` type 신설 (lib EmbeddingProvider.fs line 28 doc 예고 정합). Program.fs production path = service-singleton OllamaEmbedder 1회 생성 + 매 호출마다 NonOwningEmbedder(singleton). HttpClient socket exhaustion 회피 + 다중 session 누적 cost 0. KB.Dispose 가 wrap 만 dispose → inner singleton 보호. 회귀 0. trigger ④/⑤ 충족 — self-review.
+- **`6ca7c1a` s6-r45 C1 IT hybrid path 활성** — configureApp 의 embedderFactoryOverride optional 인자 신규. IT ServiceFixture 가 Embedding.Enabled=true + MockEmbedder factory 주입. IT 33 자동 hybrid path 회귀 차단 검증. main caller 1 line 변경. C2 안전망.
 - **`e77e0ec` s6-r44 B3 OoxmlExtractor Blip cache** — paragraph hot path 의 `hasInlineDrawing` + `extractImagesFromBlock` 이중 deep enumerate 정정. `collectValidBlips` (1회 enumerate + valid Blip ResizeArray) + `extractImagesFromBlips` (cached variant) 신설. `extractImagesFromBlock` signature `OpenXmlElement → Blip ResizeArray`. paragraph match arm 만 cached path. 회귀 0 (lib 168 OoxmlExtractor 16 fact 정합).
 - **`ee067a0` s6-r43 B2 CollectionEndpoints helper 추출** — `postCollections` / `postCollectionPayload` 양쪽 IndexerVersion gate 분기 박제 중복 → private `processStagingExtractGate` 흡수. `labelSuffix` (`""` / `" (swap)"`). postCollectionPayload Missing 분기 Log.audit.Warn drift 정정. 415 응답 4 키 그대로. 회귀 0 (service 125 + IT 33).
 - **`8991f9a` s6-r42 B1 KnowledgeBase helper 추출** — `probeIndexerVersion` + `lookupDocument` 박제 중복 → private `withReadOnlyConn` 흡수. `stampIndexerVersion` (write path) 별도 유지. ClearPool 의 hot path 전역 pool flush 부작용 정정 (`Pooling=False`) 은 별 turn (SqliteStore.openConnection SSOT 변경 trigger ⑤). 회귀 0 (lib 168).
