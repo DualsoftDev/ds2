@@ -105,11 +105,14 @@ public static class LightHouseClientHolder
                 if (string.IsNullOrEmpty(psk)) continue;
 
                 var pskHash = ComputeHash(psk);
+                // **B5 자가 검열 C1 (s6-r61)** — thumbprint normalize 후 비교 (변경 감지).
+                var thumbprintNormalized = LightHouseClient.NormalizeThumbprint(svc.ClientCertThumbprint ?? "");
 
-                // 기존 entry 가 있고 BaseUrl/PSK 동일 = 재사용.
+                // 기존 entry 가 있고 BaseUrl/PSK/thumbprint 동일 = 재사용.
                 if (_clients.TryGetValue(svc.ServiceId, out var existing)
                     && existing.BaseUrl == svc.BaseUrl
-                    && existing.PskHash == pskHash)
+                    && existing.PskHash == pskHash
+                    && existing.ClientCertThumbprintNormalized == thumbprintNormalized)
                 {
                     result.Add(existing.Client);
                     continue;
@@ -126,6 +129,7 @@ public static class LightHouseClientHolder
                 LightHouseClient client;
                 try
                 {
+                    // **B5 D-S7-1 후속 (s6-r61)** — clientCertThumbprint 박제 (null/빈 값 시 PSK 단독).
                     client = new LightHouseClient(
                         svc.BaseUrl,
                         () => config.GetLightHousePsk(capturedServiceId),
@@ -133,15 +137,23 @@ public static class LightHouseClientHolder
                         () => config.KbCollections
                             .Where(k => k.Active && k.ServiceId == capturedServiceId)
                             .Select(k => k.CollectionId)
-                            .ToList());
+                            .ToList(),
+                        clientCertThumbprint: svc.ClientCertThumbprint);
                 }
                 catch (ArgumentException ex)
                 {
                     Log.Warn($"LightHouseClient 생성 실패 (serviceId={svc.ServiceId}) — {ex.Message}");
                     continue;
                 }
+                catch (InvalidOperationException ex)
+                {
+                    // B5: client cert 미존재 / 다중 매칭 등.
+                    Log.Warn($"LightHouseClient client cert 박제 실패 (serviceId={svc.ServiceId} thumbprint={svc.ClientCertThumbprint}) — {ex.Message}");
+                    continue;
+                }
 
-                var entry = new ServiceClientEntry(svc.ServiceId, svc.BaseUrl, pskHash, client);
+                var entry = new ServiceClientEntry(
+                    svc.ServiceId, svc.BaseUrl, pskHash, thumbprintNormalized, client);
                 StartSseLoopLocked(entry);
                 _clients[svc.ServiceId] = entry;
                 Log.Info($"LightHouseClientHolder created — {svc.BaseUrl} (serviceId={svc.ServiceId})");
@@ -331,15 +343,20 @@ public static class LightHouseClientHolder
         public string ServiceId { get; }
         public string BaseUrl { get; }
         public string PskHash { get; }
+        /// <summary>**B5 자가 검열 C1 (s6-r61)** — thumbprint 변경 감지용 (normalize 형식 박제).</summary>
+        public string ClientCertThumbprintNormalized { get; }
         public LightHouseClient Client { get; }
         public CancellationTokenSource? SseCts { get; set; }
         public Task? SseTask { get; set; }
 
-        public ServiceClientEntry(string serviceId, string baseUrl, string pskHash, LightHouseClient client)
+        public ServiceClientEntry(
+            string serviceId, string baseUrl, string pskHash,
+            string clientCertThumbprintNormalized, LightHouseClient client)
         {
             ServiceId = serviceId;
             BaseUrl = baseUrl;
             PskHash = pskHash;
+            ClientCertThumbprintNormalized = clientCertThumbprintNormalized;
             Client = client;
         }
     }
