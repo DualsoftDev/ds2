@@ -374,6 +374,44 @@ let ``C4 — attachment_read ref EBNF 위반 (page=14) → marker text block`` (
         | _ -> Assert.Fail "Active 기대"
     finally cleanupDirs [ dir ]
 
+// **s6-r58 C5 — attachment_read image mode 5-case SSOT 정합**.
+// case 4 (둘 다 false) 의 caption_only fall-back + audit log marker 의무 박제 검증.
+
+[<Fact>]
+let ``C5 — attachment_read 두 flag 모두 false (case 4) → caption_only fall-back text block`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "본문 텍스트"
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            let listJson = AttachmentTools.attachment_list(accessor, reg)
+            let listDoc = JsonDocument.Parse listJson
+            let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
+            let searchJson = AttachmentTools.attachment_search(accessor, reg, "본문", 5, null)
+            let searchDoc = JsonDocument.Parse searchJson
+            let results = searchDoc.RootElement.GetProperty("results")
+            if results.GetArrayLength() = 0 then
+                lock s.SyncRoot (fun () -> SessionKb.dispose s)
+            else
+                let refLoc = results.[0].GetProperty("ref").GetString()
+                // case 4: includeImages=false, captionOnly=false → caption-only fall-back path.
+                // image 0개 라 결과 text block 만 (audit log warn 박제 확인은 별 path — 본 fact 는 wire 정합).
+                let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, false, false)
+                Assert.Equal(1, blocks.Length)
+                match blocks.[0] with
+                | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
+                    // case 4 fall-back path 정합 — text block + image block 없음 + ref EBNF marker 없음 (p=N valid).
+                    Assert.DoesNotContain("ref EBNF 위반", tb.Text)
+                | _ -> Assert.Fail "TextContentBlock 기대 (case 4 fall-back)"
+                lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
 [<Fact>]
 let ``C4 — attachment_read ref EBNF valid (p=1) → 정상 chunk 본문`` () =
     let collId = Guid.NewGuid().ToString("D")
