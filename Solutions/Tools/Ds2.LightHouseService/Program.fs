@@ -269,6 +269,10 @@ let configureApp
     EventsEndpoint.map app cfg storageRoot eventBus
     // Phase S7 D-S7-5 (s6-r60) — resumable chunked upload endpoint scaffold (POST/PATCH/finalize/GET/DELETE).
     UploadsEndpoint.map app cfg storageRoot eventBus
+    // **Phase S7 D-S7-4 admin endpoint (B-S7-4, s6-r71+)** — multi-tenant T2/T3 실 활용 path.
+    // POST /admin/collections/{id}/owner (ImportedBy stamp) + PUT /admin/collections/{id}/acl (acl 편집).
+    // 권한 = AuthMiddleware 통과한 모든 user (single trust pool, 별 admin-only ACL 은 backlog).
+    AdminEndpoints.map app storageRoot
 
     // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
     //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).

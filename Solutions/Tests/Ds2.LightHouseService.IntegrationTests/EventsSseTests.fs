@@ -8,6 +8,7 @@ open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open Xunit
+open Ds2.LightHouse.Protocol
 open Ds2.LightHouseService
 open Ds2.LightHouseService.IntegrationTests
 

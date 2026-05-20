@@ -189,14 +189,23 @@ public sealed class LightHouseClient : IDisposable
         if (_ownsHttp) _http.Dispose();
     }
 
-    /// <summary>현재 PSK / X-User-Identity 헤더를 박제한 HttpRequestMessage 빌더. 매 호출마다 호출.</summary>
+    /// <summary>현재 PSK / X-User-Identity 헤더를 박제한 HttpRequestMessage 빌더. 매 호출마다 호출.
+    /// <para/>
+    /// **B6 (M9 보안 sweep, s6-r71+)** — PSK 평문 lifetime 최소화. `pskProvider` 결과를 local var 로 받은 즉시
+    /// `AuthenticationHeaderValue` 박제 후 local var `null` 박제 → method scope 종료와 별개로 즉시 GC root 해제.
+    /// string immutable + intern pool 이라 zero-fill 강제 불가 (`SecureString` 은 .NET Core deprecated) — 본 fix 는
+    /// defense-in-depth 만, process dump 시점 string 잔존 시간 단축. 근본 해소는 `LlmConfig.GetLightHousePsk` 의
+    /// signature 를 `byte[]` 로 변경하는 별 phase 의무 박제 (caller 다수 영향).
+    /// </summary>
     private HttpRequestMessage NewRequest(HttpMethod method, string relativeUri)
     {
         var req = new HttpRequestMessage(method, relativeUri);
         var psk = _pskProvider();
         if (!string.IsNullOrEmpty(psk))
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", psk);
-        req.Headers.Add("X-User-Identity", _userIdentity);
+        // M9 — 평문 PSK reference 즉시 해제 (GC root 단축). string 자체는 internal char[] 잔존 가능, defense-in-depth 만.
+        psk = null;
+        req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
         return req;
     }
 

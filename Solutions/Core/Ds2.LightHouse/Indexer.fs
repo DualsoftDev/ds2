@@ -228,10 +228,20 @@ module Indexer =
                         // 추출 자체 throw 는 fail-fast 정책 따라 reraise (debugging 가시성).
                         let extracted = extractor.Extract(path, ct)
                         let title = titleOf extracted path
-                        let docId =
-                            SqliteStore.insertDocumentWithMtime
-                                conn hash path extracted.DocType sizeBytes extracted.PageOrSheetCnt title (Some mtimeTicks)
-                        let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
+                        // **B1 (M13 perf sweep, s6-r71+)** — Document + OutlineNodes insert 매 autocommit fsync
+                        // (R5 outlier — N+1 fsync) 를 outer transaction 으로 묶어 1회 fsync 로 축소. Microsoft.Data.Sqlite
+                        // 의 SqliteCommand 는 cmd.Transaction 명시 없으면 connection 의 ambient transaction 자동 사용
+                        // → `insertDocumentWithMtime` / `insertOutlineTree` signature 변경 0. `insertChunks` 는 자체
+                        // batch transaction (s6-r51 ⑰) 사용이라 outer txn 안 nested 시 SQLite engine 거부 → outer txn
+                        // 의 scope 는 Document + Outline 한정. Chunks 는 outer txn commit 후 별 batch txn 박제.
+                        let docId, outlineIds =
+                            use docTxn = conn.BeginTransaction()
+                            let docId =
+                                SqliteStore.insertDocumentWithMtime
+                                    conn hash path extracted.DocType sizeBytes extracted.PageOrSheetCnt title (Some mtimeTicks)
+                            let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
+                            docTxn.Commit()
+                            docId, outlineIds
                         let chunks = Chunker.chunkify extracted.Segments
                         SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
                         // Phase 4 (s6-r34) — chunks insert 직후 embedder dispatch (None 이면 no-op).

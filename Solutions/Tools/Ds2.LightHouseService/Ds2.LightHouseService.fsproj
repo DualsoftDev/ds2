@@ -31,6 +31,7 @@
     <Compile Include="AttachmentTools.fs" />
     <Compile Include="EventsEndpoint.fs" />
     <Compile Include="UploadsEndpoint.fs" />
+    <Compile Include="AdminEndpoints.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

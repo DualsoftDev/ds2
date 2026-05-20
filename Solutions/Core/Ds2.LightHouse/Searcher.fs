@@ -289,25 +289,31 @@ module Searcher =
         (vector: (string * SearchHit) list)
         (topK: int)
         : (string * SearchHit) list * bool =
-        let mutable acc : Map<string, SearchHit * float> = Map.empty
+        // **B-R12 (perf sweep, s6-r71+)** — Map immutable copy (O(log N) per add) → Dictionary mutable (O(1)).
+        // N=topK*HybridFetchMultiplier (수십~수백) 의 hot path. BM25 metadata 우선 진입 정합 유지 (TryGetValue
+        // 분기로 기존 hit 보존). 정렬은 마지막 1회 — F# Seq.sortByDescending → List 변환.
+        let acc = System.Collections.Generic.Dictionary<string, SearchHit * float>()
         let addRank (results: (string * SearchHit) list) =
             results
             |> List.iteri (fun rank (key, hit) ->
                 let contribution = 1.0 / (RrfK + float rank)
-                match Map.tryFind key acc with
-                | Some (existing, score) ->
+                match acc.TryGetValue key with
+                | true, (existing, score) ->
                     // 기존 hit metadata 보존 (BM25 우선 진입 — excerpt / displayName 일관).
-                    acc <- Map.add key (existing, score + contribution) acc
-                | None ->
-                    acc <- Map.add key (hit, contribution) acc)
+                    acc.[key] <- (existing, score + contribution)
+                | false, _ ->
+                    acc.[key] <- (hit, contribution))
         addRank bm25
         addRank vector
         // RRF score DESC 정렬.
         let merged =
             acc
-            |> Map.toList
-            |> List.map (fun (key, (hit, score)) -> key, { hit with Score = score })
-            |> List.sortByDescending (fun (_, h) -> h.Score)
+            |> Seq.map (fun kv ->
+                let key = kv.Key
+                let hit, score = kv.Value
+                key, { hit with Score = score })
+            |> Seq.sortByDescending (fun (_, h) -> h.Score)
+            |> List.ofSeq
         let totalFetched = merged.Length
         let moreAvailable = totalFetched > topK
         let trimmed = merged |> List.truncate topK
