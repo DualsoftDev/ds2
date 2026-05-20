@@ -171,6 +171,91 @@ type UploadsResumableTests(fixture: ServiceFixture) =
         Assert.Equal(HttpStatusCode.NotFound, getResp.StatusCode)
     }
 
+    /// **phase 4 (s6-r74 b1)** — finalize body 의 swapTargetCollectionId 박제 시 기존 collection swap.
+    /// 새 collection 등록 → 다른 zip 으로 resumable upload + swap → 200 + 동일 id + Registry update 검증.
+    /// 새 collection 발급 X (list count 변동 0).
+    [<Fact>]
+    member _.``POST /uploads/finalize — swapTargetCollectionId 박제 시 기존 collection swap (phase 4)``() = task {
+        use client = fixture.CreateAuthClient()
+
+        // (0) 기존 collection 등록 (multipart)
+        let title1 = "swap-base"
+        let zipBytes1 = ZipBuilders.buildMinimalZip title1 fixture.UserIdentity
+        use multipart = new MultipartFormDataContent()
+        multipart.Add(new StringContent(title1), "title")
+        let zipContent1 = new ByteArrayContent(zipBytes1)
+        zipContent1.Headers.ContentType <- Headers.MediaTypeHeaderValue("application/zip")
+        multipart.Add(zipContent1, "zip", "payload.zip")
+        let! initialResp = client.PostAsync("collections", multipart)
+        Assert.Equal(HttpStatusCode.Created, initialResp.StatusCode)
+        let! initialBody = initialResp.Content.ReadAsStringAsync()
+        let baseId = (parseJson initialBody).GetProperty("id").GetString()
+
+        // (1) 새 zip 으로 chunked upload start
+        let title2 = "swap-payload-v2"
+        let zipBytes2 = ZipBuilders.buildMinimalZip title2 fixture.UserIdentity
+        let totalBytes = int64 zipBytes2.Length
+        let startBody = sprintf """{"title":"%s","totalBytes":%d}""" title2 totalBytes
+        use startContent = new StringContent(startBody, Encoding.UTF8, "application/json")
+        let! startResp = client.PostAsync("uploads-rs", startContent)
+        Assert.Equal(HttpStatusCode.Created, startResp.StatusCode)
+        let! startBodyTxt = startResp.Content.ReadAsStringAsync()
+        let uploadId = (parseJson startBodyTxt).GetProperty("uploadId").GetString()
+
+        // (2) 전체 chunk 한 번에 PATCH
+        use req = buildPatchRequest uploadId zipBytes2 0L (totalBytes - 1L) totalBytes
+        let! patchResp = client.SendAsync(req)
+        Assert.Equal(HttpStatusCode.OK, patchResp.StatusCode)
+
+        // (3) finalize with swapTargetCollectionId = baseId — 200 + 동일 id
+        let finalBody = sprintf """{"swapTargetCollectionId":"%s"}""" baseId
+        use finalContent = new StringContent(finalBody, Encoding.UTF8, "application/json")
+        let! finalResp = client.PostAsync(sprintf "uploads-rs/%s/finalize" uploadId, finalContent)
+        Assert.Equal(HttpStatusCode.OK, finalResp.StatusCode)
+        let! finalBodyTxt = finalResp.Content.ReadAsStringAsync()
+        let finalJson = parseJson finalBodyTxt
+        Assert.Equal(baseId, finalJson.GetProperty("id").GetString())
+        Assert.NotEmpty(finalJson.GetProperty("storageRelPath").GetString())
+
+        // (4) Registry 회귀 차단 — list 의 동일 id 만 (새 collection 발급 X)
+        let! listResp = client.GetAsync("collections")
+        Assert.Equal(HttpStatusCode.OK, listResp.StatusCode)
+        let! listBody = listResp.Content.ReadAsStringAsync()
+        let arr = (parseJson listBody).GetProperty("collections")
+        let baseMatches =
+            [ for c in arr.EnumerateArray() do
+                if c.GetProperty("id").GetString() = baseId then yield c ]
+        Assert.Single(baseMatches) |> ignore
+    }
+
+    /// **phase 4 (s6-r74 b1)** — finalize swapTargetCollectionId 가 미존재 collection 지칭 시 404.
+    /// uploadId staging 은 정합 — caller 가 DELETE 또는 별 finalize 호출 의무 (no swap retry).
+    [<Fact>]
+    member _.``POST /uploads/finalize — swapTargetCollectionId 미존재 시 404 (phase 4)``() = task {
+        use client = fixture.CreateAuthClient()
+
+        let title = "swap-404-test"
+        let zipBytes = ZipBuilders.buildMinimalZip title fixture.UserIdentity
+        let totalBytes = int64 zipBytes.Length
+
+        let startBody = sprintf """{"title":"%s","totalBytes":%d}""" title totalBytes
+        use startContent = new StringContent(startBody, Encoding.UTF8, "application/json")
+        let! startResp = client.PostAsync("uploads-rs", startContent)
+        let! startBodyTxt = startResp.Content.ReadAsStringAsync()
+        let uploadId = (parseJson startBodyTxt).GetProperty("uploadId").GetString()
+
+        use req = buildPatchRequest uploadId zipBytes 0L (totalBytes - 1L) totalBytes
+        let! patchResp = client.SendAsync(req)
+        Assert.Equal(HttpStatusCode.OK, patchResp.StatusCode)
+
+        // 존재하지 않는 guid 로 swap 시도 → 404
+        let fakeId = Guid.NewGuid().ToString("D")
+        let finalBody = sprintf """{"swapTargetCollectionId":"%s"}""" fakeId
+        use finalContent = new StringContent(finalBody, Encoding.UTF8, "application/json")
+        let! finalResp = client.PostAsync(sprintf "uploads-rs/%s/finalize" uploadId, finalContent)
+        Assert.Equal(HttpStatusCode.NotFound, finalResp.StatusCode)
+    }
+
     [<Fact>]
     member _.``PATCH /uploads — 동시 PATCH 가 lock 으로 race 없이 순차 처리 (phase 2)``() = task {
         use client = fixture.CreateAuthClient()

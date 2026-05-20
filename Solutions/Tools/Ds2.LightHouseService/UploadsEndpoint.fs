@@ -14,12 +14,26 @@ open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
 open Ds2.LightHouse.Protocol
 
-/// Phase S7 D-S7-5 — **resumable chunked upload** (server-side, **phase 2 production-ready** s6-r63).
+/// Phase S7 D-S7-5 — **resumable chunked upload** (server-side, **phase 4 swap chunked** s6-r74 b1).
 ///
 /// 박제 SSOT: tus protocol 미채택, 자체 SSOT — `POST /uploads-rs` (시작) → `PATCH /uploads-rs/{id}` (chunk
 /// append, `Content-Range: bytes <start>-<end>/<total>`) → `POST /uploads-rs/{id}/finalize` (zip extract +
-/// IndexerVersion gate + collection 등록 + Registry upsert + EventBus collection-added) → `DELETE
-/// /uploads-rs/{id}` (cancel). `GET /uploads-rs/{id}` 로 현 offset 조회 → 중단 후 재개 가능.
+/// IndexerVersion gate + collection 등록 OR 기존 collection swap + Registry upsert + EventBus collection-added/updated)
+/// → `DELETE /uploads-rs/{id}` (cancel). `GET /uploads-rs/{id}` 로 현 offset 조회 → 중단 후 재개 가능.
+///
+/// **phase 4 (s6-r74 b1) 변경 — swap chunked path**:
+///   - `POST /uploads-rs/{id}/finalize` body 가 optional `{ swapTargetCollectionId?: string }` 받음.
+///     박제 시 흐름:
+///       1. Registry.tryFindById 으로 기존 collection 존재 검증 (404 미존재)
+///       2. MultiTenantPolicy.evaluate 으로 Hidden=404 / ReadOnly=403 분기 (T2/T3 acl 검증)
+///       3. 새 collStaging 에 zip extractAll + MetaJsonIO load → stampServerFields(existing.Id, caller, existing storageRelPath)
+///       4. IndexerVersion gate (`processStagingExtractGate` swap 라벨)
+///       5. `ZipImport.swapCollectionPayload` 호출 (rollback-safe atomic swap, s6-r9 K1 unique backup)
+///       6. Registry.upsertAsync (existing entry 갱신 — Id 동일, Title/ACL 보존, IndexedAt/ImportedBy/IndexerVersion stamp)
+///       7. `ICollectionLifecycleNotifier.OnPayloadSwapped` 호출 (active session KB 무효화 — s6-r9 K5 lock-out dispose)
+///       8. `EventBus.Publish ServerEvent.collectionUpdated` (collection-added 아님 — wire SSOT 분리)
+///       9. uploadId staging cleanup
+///   - swapTargetCollectionId 미박제 (null/missing) = 기존 phase 2 new collection path (회귀 0).
 ///
 /// **phase 2 (s6-r63) 변경** (s6-r60 scaffold backlog 4건 모두 해소):
 /// 1. **PATCH per-uploadId SemaphoreSlim race** — `_uploadLocks: ConcurrentDictionary` 으로 동시 PATCH 차단.
@@ -38,8 +52,10 @@ open Ds2.LightHouse.Protocol
 ///   - `PATCH /uploads-rs/{id}` (`Content-Range: bytes <start>-<end>/<total>`, body = chunk) → 200 +
 ///       `{ uploadId, offset: <end+1>, totalBytes }`
 ///   - `GET /uploads-rs/{id}` → 200 + `{ uploadId, offset, totalBytes, title }` / 404 unknown
-///   - `POST /uploads-rs/{id}/finalize` → 201 + `{ id: <collection-guid>, storageRelPath }` (zip extract +
-///       Registry 등록 + EventBus.collection-added) / 409 incomplete / 415 indexerVersion gate / 400 zip 결함
+///   - `POST /uploads-rs/{id}/finalize` body=`{ swapTargetCollectionId?: string }` →
+///       (new) 201 + `{ id: <collection-guid>, storageRelPath }` (zip extract + Registry upsert + EventBus.collection-added) /
+///       (swap) 200 + `{ id: <existing-id>, storageRelPath }` (swap + Registry update + EventBus.collection-updated) /
+///       409 incomplete / 415 indexerVersion gate / 400 zip 결함 / 404 swap target 미존재 / 403 swap target read-only
 ///   - `DELETE /uploads-rs/{id}` → 204 (cancel + staging cleanup + lock dispose)
 [<RequireQualifiedAccess>]
 module UploadsEndpoint =
@@ -53,6 +69,13 @@ module UploadsEndpoint =
         [<JsonPropertyName("offset")>] Offset: int64
         [<JsonPropertyName("createdAt")>] CreatedAt: string
         [<JsonPropertyName("userIdentity")>] UserIdentity: string
+    }
+
+    /// **phase 4 (s6-r74 b1)** — finalize body schema. swapTargetCollectionId null/missing = new collection path,
+    /// 박제 = 기존 collection 의 payload swap. 본 record 는 nullable 단일 필드 — JSON `{}` 또는 빈 body 도 정합 (null).
+    [<CLIMutable>]
+    type FinalizeBody = {
+        [<JsonPropertyName("swapTargetCollectionId")>] SwapTargetCollectionId: string
     }
 
     [<Literal>]
@@ -376,15 +399,44 @@ module UploadsEndpoint =
                     removeLock uploadId
         } :> Task
 
-    /// **D-S7-5 phase 2 (4)** — `POST /uploads-rs/{id}/finalize` — collection 등록 path 완성.
+    /// **phase 4 (s6-r74 b1)** — finalize body parse. empty body / 빈 JSON `{}` → null. swapTargetCollectionId
+    /// 박제 시 swap path 진입.
+    let private readFinalizeBody (ctx: HttpContext) : Task<string> = task {
+        let cl = ctx.Request.ContentLength
+        if not cl.HasValue || cl.Value <= 0L then
+            return null
+        else
+            try
+                let! body =
+                    JsonSerializer.DeserializeAsync<FinalizeBody>(
+                        ctx.Request.Body, jsonOpts, ctx.RequestAborted).AsTask()
+                if obj.ReferenceEquals(box body, null)
+                   || String.IsNullOrWhiteSpace body.SwapTargetCollectionId then
+                    return null
+                else
+                    return body.SwapTargetCollectionId.Trim()
+            with :? JsonException ->
+                return null
+    }
+
+    /// **D-S7-5 phase 2 (4) + phase 4 (s6-r74 b1)** — `POST /uploads-rs/{id}/finalize` — collection 등록 또는 swap.
     ///
-    /// 흐름: meta 검증 (offset == totalBytes) → 새 collectionId 발급 → 별 staging dir 생성 → payload.partial 의
-    /// zip stream extractAll → MetaJson load/stamp/save → IndexerVersion gate (CollectionEndpoints SSOT helper 재사용) →
-    /// moveStagingToCollection (atomic) → Registry.upsertAsync → EventBus.collection-added → uploadId staging cleanup.
-    /// 실패 시 collectionId staging 만 removeStaging. uploadId staging 은 caller 가 DELETE 또는 StagingSweep 가 회수.
+    /// **new collection path (swapTargetCollectionId null)**:
+    ///   meta 검증 (offset == totalBytes) → 새 collectionId 발급 → 별 staging dir 생성 → payload.partial 의
+    ///   zip stream extractAll → MetaJson load/stamp/save → IndexerVersion gate (CollectionEndpoints SSOT helper 재사용) →
+    ///   moveStagingToCollection (atomic) → Registry.upsertAsync → EventBus.collection-added → uploadId staging cleanup.
+    ///   실패 시 collectionId staging 만 removeStaging. uploadId staging 은 caller 가 DELETE 또는 StagingSweep 가 회수.
+    ///
+    /// **swap path (swapTargetCollectionId 박제)** — phase 4 (s6-r74 b1):
+    ///   meta 검증 → Registry.tryFindById (404 미존재) → MultiTenantPolicy.evaluate (Hidden=404 / ReadOnly=403) →
+    ///   별 staging dir 생성 → extractAll → MetaJson load/stamp (existing.Id, caller, existing.StorageRelPath, Title=existing.DisplayName)
+    ///   → IndexerVersion gate (swap 라벨) → ZipImport.swapCollectionPayload (rollback-safe atomic) → Registry.upsertAsync
+    ///   (existing 갱신) → notifier.OnPayloadSwapped → EventBus.collection-updated → uploadId staging cleanup.
+    ///   응답 = 200 + `{ id: existing.Id, storageRelPath }`.
     let private postFinalize
         (cfg: ServiceConfig)
         (storageRoot: string)
+        (notifier: ICollectionLifecycleNotifier)
         (eventBus: EventBus)
         (uploadId: string)
         (ctx: HttpContext)
@@ -410,13 +462,49 @@ module UploadsEndpoint =
                             do! writeError ctx 409
                                     (sprintf "incomplete — offset=%d / totalBytes=%d" meta.Offset meta.TotalBytes)
                         else
-                            let collectionId = Guid.NewGuid().ToString("D")
-                            let title = ZipImport.sanitizeTitle meta.Title
+                        // **phase 4 (s6-r74 b1)** — body parse 후 swap target 박제 여부 분기.
+                        let! swapTarget = readFinalizeBody ctx
+                        let isSwap = not (String.IsNullOrWhiteSpace swapTarget)
+                        // swap 분기: existing entry 검증 + acl 분기. new 분기: 새 collectionId 발급.
+                        let mutable existingEntry : CollectionEntry option = None
+                        let mutable aclReject : (int * string) option = None
+                        if isSwap then
+                            match Registry.tryFindById storageRoot swapTarget with
+                            | None ->
+                                aclReject <- Some (404, sprintf "swap target 미존재 — id=%s" swapTarget)
+                            | Some entry ->
+                                match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode meta.UserIdentity entry with
+                                | MultiTenantPolicy.AccessDecision.Hidden ->
+                                    Log.audit.Warn(
+                                        sprintf "D-S7-5 phase 4: finalize swap acl reject (hidden) — uploadId=%s target=%s user=%s mode=%s"
+                                            uploadId swapTarget
+                                            (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
+                                    aclReject <- Some (404, sprintf "swap target 미존재 — id=%s" swapTarget)
+                                | MultiTenantPolicy.AccessDecision.ReadOnly ->
+                                    Log.audit.Warn(
+                                        sprintf "D-S7-5 phase 4: finalize swap acl reject (readOnly) — uploadId=%s target=%s user=%s mode=%s"
+                                            uploadId swapTarget
+                                            (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
+                                    aclReject <- Some (403, sprintf "read-only collection — id=%s" swapTarget)
+                                | MultiTenantPolicy.AccessDecision.Allow ->
+                                    existingEntry <- Some entry
+                        match aclReject with
+                        | Some (status, msg) -> do! writeError ctx status msg
+                        | None ->
+                            let collectionId, title, labelSuffix =
+                                match existingEntry with
+                                | Some entry ->
+                                    // swap path — 기존 id + DisplayName 유지 (registry SSOT). client meta.Title overwrite.
+                                    entry.Id, entry.DisplayName, " (resumable-swap)"
+                                | None ->
+                                    let newId = Guid.NewGuid().ToString("D")
+                                    let safeTitle = ZipImport.sanitizeTitle meta.Title
+                                    newId, safeTitle, " (resumable)"
                             let collStaging = Path.Combine(Storage.stagingDir storageRoot, collectionId)
 
                             Log.audit.Info(
-                                sprintf "D-S7-5: finalize 시작 — uploadId=%s collectionId=%s title=%s totalBytes=%d"
-                                    uploadId collectionId title meta.TotalBytes)
+                                sprintf "D-S7-5: finalize 시작%s — uploadId=%s collectionId=%s title=%s totalBytes=%d"
+                                    labelSuffix uploadId collectionId title meta.TotalBytes)
                             try
                                 Directory.CreateDirectory collStaging |> ignore
                                 use partialFs = File.OpenRead(partialPath dir)
@@ -439,21 +527,38 @@ module UploadsEndpoint =
                                 let! compatible =
                                     CollectionEndpoints.processStagingExtractGate
                                         ctx storageRoot collectionId cfg.IndexerVersionRange gate collectionId
-                                        " (resumable)"
+                                        labelSuffix
                                 if compatible then
-                                    let target =
-                                        ZipImport.moveStagingToCollection storageRoot collStaging collectionId title
-                                    let entry = MetaJsonRegistry.toRegistryEntry serverMeta
-                                    do! Registry.upsertAsync storageRoot entry
-                                    eventBus.Publish(ServerEvent.collectionAdded collectionId)
-                                    Log.audit.Info(
-                                        sprintf "D-S7-5: finalize → collection registered — uploadId=%s collectionId=%s target=%s"
-                                            uploadId collectionId target)
-                                    // uploadId staging cleanup (성공 path)
-                                    if Directory.Exists dir then
-                                        try Directory.Delete(dir, true) with _ -> ()
-                                    do! writeJson ctx 201
-                                            {| id = collectionId; storageRelPath = entry.StorageRelPath |}
+                                    match existingEntry with
+                                    | Some existing ->
+                                        // swap path — atomic rollback-safe (K1 unique backup), Acl 보존 (existing.Acl 직접 박제).
+                                        let target =
+                                            ZipImport.swapCollectionPayload storageRoot collStaging existing.Id title
+                                        let baseEntry = MetaJsonRegistry.toRegistryEntry serverMeta
+                                        let entry = { baseEntry with Acl = existing.Acl }
+                                        do! Registry.upsertAsync storageRoot entry
+                                        notifier.OnPayloadSwapped existing.Id
+                                        eventBus.Publish(ServerEvent.collectionUpdated existing.Id)
+                                        Log.audit.Info(
+                                            sprintf "D-S7-5: finalize → collection swapped — uploadId=%s collectionId=%s target=%s"
+                                                uploadId existing.Id target)
+                                        if Directory.Exists dir then
+                                            try Directory.Delete(dir, true) with _ -> ()
+                                        do! writeJson ctx 200
+                                                {| id = existing.Id; storageRelPath = entry.StorageRelPath |}
+                                    | None ->
+                                        let target =
+                                            ZipImport.moveStagingToCollection storageRoot collStaging collectionId title
+                                        let entry = MetaJsonRegistry.toRegistryEntry serverMeta
+                                        do! Registry.upsertAsync storageRoot entry
+                                        eventBus.Publish(ServerEvent.collectionAdded collectionId)
+                                        Log.audit.Info(
+                                            sprintf "D-S7-5: finalize → collection registered — uploadId=%s collectionId=%s target=%s"
+                                                uploadId collectionId target)
+                                        if Directory.Exists dir then
+                                            try Directory.Delete(dir, true) with _ -> ()
+                                        do! writeJson ctx 201
+                                                {| id = collectionId; storageRelPath = entry.StorageRelPath |}
                                 else
                                     // **s6-r70 review C-7** — indexerVersion gate false 분기 (TooLow/TooHigh/Missing 모두 영구 fail).
                                     // collStaging 은 processStagingExtractGate 가 이미 removeStaging 처리. uploadId staging 도
@@ -466,26 +571,27 @@ module UploadsEndpoint =
                             with
                             | SanitizeException err ->
                                 Log.audit.Warn(
-                                    sprintf "D-S7-5: finalize sanitize 실패 — uploadId=%s collectionId=%s err=%A"
-                                        uploadId collectionId err)
+                                    sprintf "D-S7-5: finalize sanitize 실패%s — uploadId=%s collectionId=%s err=%A"
+                                        labelSuffix uploadId collectionId err)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
                                 do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
                             | :? FileNotFoundException as ex ->
                                 Log.audit.Warn(
-                                    sprintf "D-S7-5: finalize zip 구조 결함 — uploadId=%s missing=%s"
-                                        uploadId ex.FileName)
+                                    sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s missing=%s"
+                                        labelSuffix uploadId ex.FileName)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
                                 do! writeError ctx 400
                                         (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
                             | :? InvalidDataException as ex ->
                                 Log.audit.Warn(
-                                    sprintf "D-S7-5: finalize zip 구조 결함 — uploadId=%s ex=%s"
-                                        uploadId ex.Message)
+                                    sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s ex=%s"
+                                        labelSuffix uploadId ex.Message)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
                                 do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
                             | ex ->
                                 Log.service.Error(
-                                    sprintf "D-S7-5: finalize 실패 — uploadId=%s ex=%s" uploadId ex.Message)
+                                    sprintf "D-S7-5: finalize 실패%s — uploadId=%s ex=%s"
+                                        labelSuffix uploadId ex.Message)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
                                 do! writeError ctx 500 "internal error"
                 finally
@@ -495,7 +601,9 @@ module UploadsEndpoint =
         } :> Task
 
     /// route mapping. AuthMiddleware 통과 후 진입. path `/uploads-rs/` (기존 `DELETE /uploads/{stagingId}` 와 분리).
-    let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string) (eventBus: EventBus) =
+    /// **phase 4 (s6-r74 b1)** — `notifier` 인자 추가 (swap path 의 OnPayloadSwapped 호출).
+    let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string)
+            (notifier: ICollectionLifecycleNotifier) (eventBus: EventBus) =
         app.MapPost("/uploads-rs", RequestDelegate(postStart cfg storageRoot eventBus)) |> ignore
         app.MapGet("/uploads-rs/{uploadId}",
             RequestDelegate(fun ctx ->
@@ -508,7 +616,7 @@ module UploadsEndpoint =
         app.MapPost("/uploads-rs/{uploadId}/finalize",
             RequestDelegate(fun ctx ->
                 let uploadId = ctx.GetRouteValue "uploadId" :?> string
-                postFinalize cfg storageRoot eventBus uploadId ctx)) |> ignore
+                postFinalize cfg storageRoot notifier eventBus uploadId ctx)) |> ignore
         app.MapDelete("/uploads-rs/{uploadId}",
             RequestDelegate(fun ctx ->
                 let uploadId = ctx.GetRouteValue "uploadId" :?> string

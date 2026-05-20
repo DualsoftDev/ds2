@@ -100,11 +100,13 @@ public sealed class CollectionPackagerTests : IDisposable
         Assert.False(string.IsNullOrEmpty(root.GetProperty("createdAt").GetString()));
         Assert.Equal("WIN-TEST", root.GetProperty("clientHost").GetString());
         Assert.Equal("kwak@dualsoft.com", root.GetProperty("clientUser").GetString());
-        // server-side 필드 (id/importedAt/importedBy/storageRelPath) 는 client meta 에 미작성 — server 가 import 시 박제.
-        Assert.False(root.TryGetProperty("id", out _));
-        Assert.False(root.TryGetProperty("importedAt", out _));
-        Assert.False(root.TryGetProperty("importedBy", out _));
-        Assert.False(root.TryGetProperty("storageRelPath", out _));
+        // A2 (K4 통합, s6-r71) — Protocol `MetaJson` + `JsonIgnoreCondition.Never` 박제 후 client meta 가 server-side
+        // 필드 (id/importedAt/importedBy/storageRelPath) 를 빈 string 으로 직렬화. server 가 `MetaJsonIO.stampServerFields`
+        // 로 import 시 박제. 빈 값임을 검증 (의미 = client 가 server-side 필드 박제 안 함).
+        Assert.Equal("", root.GetProperty("id").GetString());
+        Assert.Equal("", root.GetProperty("importedAt").GetString());
+        Assert.Equal("", root.GetProperty("importedBy").GetString());
+        Assert.Equal("", root.GetProperty("storageRelPath").GetString());
     }
 
     [Fact]

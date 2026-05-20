@@ -29,6 +29,8 @@
     <Compile Include="UploadsResumableTests.fs" />
     <Compile Include="MtlsRoundTripTests.fs" />
     <Compile Include="AdminEndpointsTests.fs" />
+    <Compile Include="MultiTenantFixture.fs" />
+    <Compile Include="MultiTenantRoundTripTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
