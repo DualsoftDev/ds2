@@ -249,8 +249,9 @@ module Searcher =
         (perAliasLimit: int)
         (maxExcerptTokens: int)
         : (string * SearchHit) list =
-        // sqlite-vec wire = JSON 배열 string (SqliteStore.upsertChunkEmbedding 와 동일).
-        let embJson = System.Text.Json.JsonSerializer.Serialize(queryVector)
+        // **B4 (s6-r85, 15-reviewer Major)** — vec0 wire format SSOT 통합. SqliteStore.buildVec0WireFormat
+        // 단일 helper 통과 (이전 박제는 read 가 JsonSerializer, write 가 StringBuilder — drift risk).
+        let embJson = SqliteStore.buildVec0WireFormat queryVector
         let selects =
             aliases
             |> Array.mapi (fun i alias -> buildVectorSelect i alias fileIdFilter perAliasLimit)
@@ -389,6 +390,12 @@ module Searcher =
                 let bm25Hits = runBm25 conn aliases fileIdFilter query.Text perSystemLimit maxExcerptTokens
                 // query embedding 생성 — 단일 input. Task 동기 wait — caller (server / Promaker MCP handler) 가
                 // sync API 라 정합 (s6-r34 Indexer.dispatchEmbeddings 와 동일 패턴). s6-r36 P4-C.0: ct 전파.
+                //
+                // **B2 반론 (s6-r85, 15-reviewer Major)** — lib API 전체 async transformation 은 별 phase 의무
+                // (Searcher.search + Indexer.ingestFile + KnowledgeBase facade + 모든 caller chain 수십 파일 변경).
+                // 현재 caller (server CollectionEndpoints / Promaker MCP host) 가 모두 task wrap path 안에서 호출 —
+                // ASP.NET request handler 의 sync-over-async deadlock 은 ConfigureAwait(false) + Task.Run wrap 로
+                // 우회 (caller 책임). 본 lib 의 sync API 박제는 의식적 backend-agnostic 결정.
                 let task = embedder.GenerateAsync([| query.Text |], ct)
                 let queryVectors = task.GetAwaiter().GetResult()
                 if queryVectors.Length <> 1 then

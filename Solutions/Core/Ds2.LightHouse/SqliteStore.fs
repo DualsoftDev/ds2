@@ -680,7 +680,11 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
     /// `JsonSerializer.Serialize<float32[]>` reflection cost (N=10000+ chunks 시 누적) 회피. format = invariant
     /// "R" round-trip (System.Text.Json 의 float32 직렬화 format 과 정합 — G9 ≡ R round-trip). sqlite-vec 가
     /// parse 후 float32 storage. capacity hint = `Length * 12 + 2` (avg float32 round-trip ≤ 11자 + 콤마/괄호).
-    let private buildVec0WireFormat (embedding: float32[]) : string =
+    ///
+    /// **B4 (s6-r85, 15-reviewer Major)** — write/read path 의 SSOT. 이전 Searcher.runVector 가 별
+    /// `JsonSerializer.Serialize` 박제 → write/read serializer drift risk (float32 format 차이 시
+    /// nearest-neighbor mismatch). 본 helper 가 단일 SSOT — 모든 wire format 박제 통과 의무.
+    let buildVec0WireFormat (embedding: float32[]) : string =
         let sb = System.Text.StringBuilder(embedding.Length * 12 + 2)
         sb.Append '[' |> ignore
         for i = 0 to embedding.Length - 1 do
