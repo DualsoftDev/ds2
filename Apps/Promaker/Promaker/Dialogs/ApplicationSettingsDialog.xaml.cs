@@ -689,8 +689,8 @@ public partial class ApplicationSettingsDialog : Window
             var w = working[i];
             var c = current[i];
             if (w.ServiceId != c.ServiceId
-                || (w.DisplayName ?? "").Trim() != (c.DisplayName ?? "")
-                || (w.BaseUrl ?? "").Trim() != (c.BaseUrl ?? "")
+                || (w.DisplayName ?? "").Trim() != (c.DisplayName ?? "").Trim()
+                || (w.BaseUrl ?? "").Trim() != (c.BaseUrl ?? "").Trim()
                 || w.Active != c.Active
                 || (w.ApiKeyEncrypted ?? "") != (c.ApiKeyEncrypted ?? ""))
                 return true;
@@ -702,15 +702,16 @@ public partial class ApplicationSettingsDialog : Window
 
     /// <summary>
     /// **s6-r38 P4-C.2** — EmbeddingProviderConfig deep equality. 둘 다 null 시 equal, 한쪽만 null 시 unequal,
-    /// 둘 다 non-null 시 4 필드 모두 일치 의무. BaseUrl/Model 은 Trim 후 비교 (Apply 시 Trim 정합).
+    /// 둘 다 non-null 시 4 필드 모두 일치 의무. BaseUrl/Model 은 양쪽 모두 Trim 후 비교 (s6-r40 자가 검열 Major-1
+    /// 정정 — legacy disk JSON 의 untrimmed 값에 대한 false-negative dirty 회피).
     /// </summary>
     private static bool EmbeddingConfigEquals(EmbeddingProviderConfig? a, EmbeddingProviderConfig? b)
     {
         if (a is null && b is null) return true;
         if (a is null || b is null) return false;
         return a.Enabled == b.Enabled
-            && (a.BaseUrl ?? "").Trim() == (b.BaseUrl ?? "")
-            && (a.Model ?? "").Trim() == (b.Model ?? "")
+            && (a.BaseUrl ?? "").Trim() == (b.BaseUrl ?? "").Trim()
+            && (a.Model ?? "").Trim() == (b.Model ?? "").Trim()
             && a.Dimension == b.Dimension;
     }
 
