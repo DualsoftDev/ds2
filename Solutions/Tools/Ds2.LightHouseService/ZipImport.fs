@@ -149,32 +149,38 @@ module ZipImport =
             let attrUpper = (entry.ExternalAttributes >>> 16) &&& 0xF000
             attrUpper = 0xA000
 
-        for entry in archive.Entries do
-            if isSymlink entry then
-                raise (SanitizeException(SanitizeError.TraversalEscape (entry.FullName + " (symlink)")))
+        // **s6-r52 #5 ⑳ 외부 --review** — copy buffer ArrayPool 재활용 (entry 마다 81920-byte alloc 회피).
+        // Rent 가 최소 길이 81920 보장 — 실제 length 더 클 수 있어 `bufSize` 박제 SSOT.
+        let bufSize = 81920
+        let buf = System.Buffers.ArrayPool<byte>.Shared.Rent bufSize
+        try
+            for entry in archive.Entries do
+                if isSymlink entry then
+                    raise (SanitizeException(SanitizeError.TraversalEscape (entry.FullName + " (symlink)")))
 
-            // 디렉토리 entry — 이름만 검증 후 skip (Directory.CreateDirectory 는 파일 entry 의 parent 에서 호출).
-            if entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\") then
-                validateEntryPath entry.FullName
-            else
+                // 디렉토리 entry — 이름만 검증 후 skip (Directory.CreateDirectory 는 파일 entry 의 parent 에서 호출).
+                if entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\") then
+                    validateEntryPath entry.FullName
+                else
 
-                let dest = resolveDestination destRoot entry.FullName
-                let parent = Path.GetDirectoryName dest
-                if not (String.IsNullOrEmpty parent) && not (Directory.Exists parent) then
-                    Directory.CreateDirectory parent |> ignore
+                    let dest = resolveDestination destRoot entry.FullName
+                    let parent = Path.GetDirectoryName dest
+                    if not (String.IsNullOrEmpty parent) && not (Directory.Exists parent) then
+                        Directory.CreateDirectory parent |> ignore
 
-                // open + counted copy — zip bomb 가드.
-                use src = entry.Open()
-                use dst = File.Create dest
-                let buf = Array.zeroCreate<byte> 81920
-                let mutable read = src.Read(buf, 0, buf.Length)
-                while read > 0 do
-                    totalDecompressed <- totalDecompressed + int64 read
-                    if totalDecompressed > bombLimit then
-                        raise (SanitizeException(
-                            SanitizeError.ZipBombExceeded(totalDecompressed, compressedTotalBytes, zipBombRatioLimit)))
-                    dst.Write(buf, 0, read)
-                    read <- src.Read(buf, 0, buf.Length)
+                    // open + counted copy — zip bomb 가드.
+                    use src = entry.Open()
+                    use dst = File.Create dest
+                    let mutable read = src.Read(buf, 0, bufSize)
+                    while read > 0 do
+                        totalDecompressed <- totalDecompressed + int64 read
+                        if totalDecompressed > bombLimit then
+                            raise (SanitizeException(
+                                SanitizeError.ZipBombExceeded(totalDecompressed, compressedTotalBytes, zipBombRatioLimit)))
+                        dst.Write(buf, 0, read)
+                        read <- src.Read(buf, 0, bufSize)
+        finally
+            System.Buffers.ArrayPool<byte>.Shared.Return(buf)
 
         totalDecompressed
 
