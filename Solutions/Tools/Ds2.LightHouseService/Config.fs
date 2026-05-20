@@ -31,6 +31,28 @@ type EmbeddingConfigSection = {
     [<JsonPropertyName("dimension")>] Dimension: int
 }
 
+/// **Phase S7 D-S7-1 (s6-r53)** — mTLS (client certificate auth) config.
+///
+/// Mode 박제:
+///   - "off" — Kestrel ClientCertificateMode.NoCertificate (현행). PSK 단독 인증. default.
+///   - "optional" — ClientCertificateMode.AllowCertificate. cert 박제 시 chain + whitelist 검증 + audit log
+///     박제. PSK 는 항상 추가 검증 (defense-in-depth). cert 미박제도 통과 (PSK 만 검증).
+///   - "required" — ClientCertificateMode.RequireCertificate. TLS handshake 단계에서 cert 미박제 = connection
+///     refused (HTTP 응답 자체 안 옴). chain + whitelist 검증 + PSK 동시 검증.
+///
+/// AllowedThumbprints 박제:
+///   - 빈 배열 / null → chain 검증만 (사내 CA root trust 의존). default.
+///   - thumbprint hex (대소문자 무관, ':' / 공백 허용) 리스트 → cert.Thumbprint 가 normalize 후 본 리스트에
+///     존재해야 통과. whitelist 외 cert 는 chain valid 라도 401 audit + rejected.
+///
+/// PSK fallback 공존 — D-S7-1 박제 ("PSK 는 fallback 으로 잠시 공존 후 단계적 제거"). 본 turn 은 PSK 항상
+/// 검증 (mTLS layer 가 추가 defense-in-depth). 단계적 제거 trigger 는 별 turn (mtls.mode="required" 정합
+/// 후 PSK 검증 skip option 추가).
+type MtlsConfigSection = {
+    [<JsonPropertyName("mode")>] Mode: string
+    [<JsonPropertyName("allowedThumbprints")>] AllowedThumbprints: string[]
+}
+
 type ServiceConfig = {
     /// config schema 자체 버전. service binary upgrade 시 migration trigger (S1 DoD).
     [<JsonPropertyName("schemaVersion")>] SchemaVersion: int
@@ -60,6 +82,9 @@ type ServiceConfig = {
     /// **Phase 4 P4-C.3 (s6-r39)** — server-side hybrid retrieval 의 embedder backend (nullable).
     /// null / Enabled=false → BM25-only fallback. schemaVersion bump (1→2) 동반.
     [<JsonPropertyName("embedding")>] Embedding: EmbeddingConfigSection
+    /// **Phase S7 D-S7-1 (s6-r53)** — mTLS client cert auth. schemaVersion bump (2→3) 동반.
+    /// Mode="off" / null → 현행 (PSK 단독). "optional"/"required" → Kestrel ClientCertificateMode 진입.
+    [<JsonPropertyName("mtls")>] Mtls: MtlsConfigSection
 }
 
 
@@ -67,10 +92,21 @@ type ServiceConfig = {
 /// config 파일의 값이 본 값보다 *낮으면* in-place migration (backup → upgrade), *높으면* fail-fast.
 [<RequireQualifiedAccess>]
 module ConfigSchema =
-    // s6-r39 P4-C.3: 1 → 2 bump (embedding section 신설). legacy schemaVersion=1 config 는 load 단계에서
-    // migration in-place 진입 — embedding 필드 자동 채움 (Enabled=false, default URL/model/dim).
+    // s6-r39 P4-C.3: 1 → 2 bump (embedding section 신설).
+    // s6-r53 D-S7-1:  2 → 3 bump (mtls section 신설). legacy schemaVersion=1/2 config 는 load 단계에서
+    // migration in-place 진입 — embedding 필드 (Enabled=false) + mtls 필드 (Mode="off") 자동 채움.
     [<Literal>]
-    let Current = 2
+    let Current = 3
+
+/// **Phase S7 D-S7-1 (s6-r53)** — mTLS mode literal SSOT (config + Program.fs + tests 정합).
+[<RequireQualifiedAccess>]
+module MtlsMode =
+    [<Literal>]
+    let Off = "off"
+    [<Literal>]
+    let Optional = "optional"
+    [<Literal>]
+    let Required = "required"
 
 
 [<RequireQualifiedAccess>]
@@ -119,23 +155,30 @@ module Config =
         if obj.ReferenceEquals(cfg, null) then
             raise (InvalidDataException(sprintf "Service config 역직렬화 실패 — %s" path))
 
+        // s6-r53 D-S7-1: 1→2→3 chain migration. 각 step 별 helper (default 채움) → 재귀 1회 step. legacy
+        // schemaVersion=1 → 2 (Embedding default) → 3 (Mtls default) 모두 회귀 0 (Enabled=false / Mode="off"
+        // 박제로 현행 동작 유지). schemaVersion=2 → 3 단일 step.
+        let migrate1to2 (c: ServiceConfig) : ServiceConfig =
+            // s6-r39 P4-C.3: embedding 필드 자동 채움 (Enabled=false BM25-only fallback).
+            { c with
+                SchemaVersion = 2
+                Embedding = {
+                    Enabled = false
+                    BaseUrl = "http://localhost:11434"
+                    Model = "bge-m3"
+                    Dimension = 1024 } }
+        let migrate2to3 (c: ServiceConfig) : ServiceConfig =
+            // s6-r53 D-S7-1: mtls 필드 자동 채움 (Mode="off" 현행 동작 유지).
+            { c with
+                SchemaVersion = 3
+                Mtls = {
+                    Mode = MtlsMode.Off
+                    AllowedThumbprints = Array.empty } }
+
         match cfg.SchemaVersion with
         | v when v = ConfigSchema.Current -> cfg
-        | 1 ->
-            // s6-r39 P4-C.3: 1 → 2 in-place migration — embedding 필드 자동 채움 (Enabled=false 박제, BM25-only
-            // fallback 유지 = 회귀 0). 사용자가 활성화하려면 config.json 의 embedding section 수동 편집 (또는
-            // install-service.ps1 갱신 박제).
-            let migrated = {
-                cfg with
-                    SchemaVersion = ConfigSchema.Current
-                    Embedding = {
-                        Enabled = false
-                        BaseUrl = "http://localhost:11434"
-                        Model = "bge-m3"
-                        Dimension = 1024
-                    }
-            }
-            migrated
+        | 1 -> cfg |> migrate1to2 |> migrate2to3
+        | 2 -> cfg |> migrate2to3
         | v when v < ConfigSchema.Current ->
             raise (InvalidDataException(
                 sprintf "Service config schemaVersion=%d 이 너무 낮음 — migration 미정의 (current=%d)"
@@ -152,3 +195,34 @@ module Config =
         if cfg.ListenUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) then
             raise (InvalidDataException(
                 sprintf "listenUrl=%s — plain HTTP 거부 (§3.7). https:// 만 허용." cfg.ListenUrl))
+
+    /// thumbprint normalize — hex 추출 후 대문자. 입력의 ':' / 공백 / hyphen 제거. 비-hex 문자가 있으면
+    /// 그대로 반환 (validateMtls 에서 별도 거부). cert.Thumbprint 의 .NET default 가 대문자 hex 라 정합.
+    let normalizeThumbprint (s: string) : string =
+        if isNull s then "" else
+        let sb = StringBuilder(s.Length)
+        for ch in s do
+            if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') then
+                sb.Append(Char.ToUpperInvariant ch) |> ignore
+        sb.ToString()
+
+    /// **Phase S7 D-S7-1 (s6-r53)** — `Mtls.Mode` 값 검증 + AllowedThumbprints normalize.
+    /// 부적합 시 fail-fast (config 결함 — install script 안내).
+    let validateMtls (cfg: ServiceConfig) : ServiceConfig =
+        let mode = if isNull cfg.Mtls.Mode then "" else cfg.Mtls.Mode.Trim().ToLowerInvariant()
+        match mode with
+        | "" | "off" | "optional" | "required" -> ()
+        | other ->
+            raise (InvalidDataException(
+                sprintf "mtls.mode=%s — \"off\"|\"optional\"|\"required\" 만 허용." other))
+        let normalizedMode = if mode = "" then MtlsMode.Off else mode
+        let tps =
+            (if isNull cfg.Mtls.AllowedThumbprints then Array.empty else cfg.Mtls.AllowedThumbprints)
+            |> Array.map normalizeThumbprint
+            |> Array.filter (fun s -> s.Length > 0)
+        // 각 thumbprint 가 SHA-1 (40 hex) 또는 SHA-256 (64 hex) 길이. 다른 길이 = config 결함.
+        for tp in tps do
+            if tp.Length <> 40 && tp.Length <> 64 then
+                raise (InvalidDataException(
+                    sprintf "mtls.allowedThumbprints 항목 길이=%d (정상 SHA-1=40 / SHA-256=64 hex) — %s" tp.Length tp))
+        { cfg with Mtls = { Mode = normalizedMode; AllowedThumbprints = tps } }

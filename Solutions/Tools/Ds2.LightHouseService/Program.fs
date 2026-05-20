@@ -3,14 +3,71 @@ module Ds2.LightHouseService.Program
 open System
 open System.IO
 open System.Net
+open System.Net.Security
 open System.Security.Cryptography.X509Certificates
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Server.Kestrel.Core
+open Microsoft.AspNetCore.Server.Kestrel.Https
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open ModelContextProtocol.AspNetCore
+
+/// **Phase S7 D-S7-1 (s6-r53)** — Kestrel UseHttps callback 안의 client cert 검증 helper.
+///
+/// `mtls.mode=off` → ClientCertificateMode.NoCertificate (현행 동작 유지, validation callback 미박제).
+/// `mtls.mode=optional` → AllowCertificate + validation (cert 박제 시 검증, 미박제 시 통과).
+/// `mtls.mode=required` → RequireCertificate + validation (cert 미박제 시 Kestrel TLS handshake 거부).
+///
+/// validation: (a) chain valid (cert.Verify() — 사내 CA root trust 의존) + (b) whitelist 박제 시 thumbprint match.
+/// validation 실패 시 false → Kestrel 가 connection abort (HTTP 응답 자체 안 옴, audit log 박제 후).
+let private configureMtls (mtls: MtlsConfigSection) (httpsOpts: HttpsConnectionAdapterOptions) : unit =
+    let whitelist = mtls.AllowedThumbprints |> Set.ofArray
+    let validateCert (cert: X509Certificate2) (chain: X509Chain) (_errors: SslPolicyErrors) : bool =
+        // chain valid 가 1차 — 사내 CA root trust 의존. self-signed dev cert 는 root trust 등록 의무 (사용자 책임).
+        let chainValid =
+            try chain.Build(cert)
+            with ex ->
+                Log.audit.Warn(sprintf "mtls: chain.Build 실패 — %s: %s" (ex.GetType().Name) ex.Message)
+                false
+        if not chainValid then
+            // m1 자가 검열 정정 — chain.ChainStatus 박제 (debugging hint). 빈 배열도 가능 (chain.Build 가 ArgumentException
+            // 으로 실패한 경우 위 try 분기에서 false 박제).
+            let statuses =
+                chain.ChainStatus
+                |> Array.map (fun s -> s.Status.ToString())
+                |> String.concat ","
+            Log.audit.Warn(sprintf "mtls: chain 검증 실패 — subject=%s thumbprint=%s status=[%s]"
+                (Log.sanitizeForLog cert.Subject) cert.Thumbprint statuses)
+            false
+        elif Set.isEmpty whitelist then
+            // whitelist 미박제 = chain valid 만으로 통과 (사내 CA root trust 가 SSOT).
+            Log.audit.Info(sprintf "mtls: chain valid 통과 — subject=%s thumbprint=%s"
+                (Log.sanitizeForLog cert.Subject) cert.Thumbprint)
+            true
+        else
+            // whitelist 박제 = 사내 CA root trust 외 추가 정밀화 (특정 cert 만 허용).
+            let normalized = Config.normalizeThumbprint cert.Thumbprint
+            if whitelist.Contains normalized then
+                Log.audit.Info(sprintf "mtls: whitelist 통과 — subject=%s thumbprint=%s"
+                    (Log.sanitizeForLog cert.Subject) normalized)
+                true
+            else
+                Log.audit.Warn(sprintf "mtls: whitelist 미일치 — subject=%s thumbprint=%s"
+                    (Log.sanitizeForLog cert.Subject) normalized)
+                false
+    match mtls.Mode with
+    | MtlsMode.Off ->
+        httpsOpts.ClientCertificateMode <- ClientCertificateMode.NoCertificate
+    | MtlsMode.Optional ->
+        httpsOpts.ClientCertificateMode <- ClientCertificateMode.AllowCertificate
+        httpsOpts.ClientCertificateValidation <- Func<X509Certificate2, X509Chain, SslPolicyErrors, bool>(validateCert)
+    | MtlsMode.Required ->
+        httpsOpts.ClientCertificateMode <- ClientCertificateMode.RequireCertificate
+        httpsOpts.ClientCertificateValidation <- Func<X509Certificate2, X509Chain, SslPolicyErrors, bool>(validateCert)
+    | other ->
+        raise (InvalidDataException(sprintf "mtls.mode=%s — validateMtls 통과 후 진입했어야 함." other))
 
 /// Phase S1 entry — config 로드 → DPAPI 복호화 → storage 초기화 → Kestrel HTTPS bind → auth middleware → endpoint.
 ///
@@ -151,7 +208,11 @@ let configureApp
     builder.WebHost.ConfigureKestrel(fun (options: KestrelServerOptions) ->
         options.Limits.MaxRequestBodySize <- Nullable cfg.MaxUploadBytes
         options.Listen(host, port, fun listenOptions ->
-            listenOptions.UseHttps tlsCert |> ignore)
+            // **D-S7-1 (s6-r53)** — mTLS client cert auth. mode="off" 박제 시 NoCertificate (현행). mode=
+            // "optional"/"required" 시 ClientCertificateMode + validation callback 박제. validateMtls 가
+            // main 단계에서 mode 정합 + AllowedThumbprints normalize 처리 완료.
+            listenOptions.UseHttps(tlsCert, fun (httpsOpts: HttpsConnectionAdapterOptions) ->
+                configureMtls cfg.Mtls httpsOpts) |> ignore)
     ) |> ignore
 
     // Windows Service host — 콘솔 실행 시 자동 fallback (UseWindowsService 가 SCM 미검출 시 console lifetime)
@@ -225,8 +286,11 @@ let main argv =
 
     Log.service.Info(sprintf "config 경로 = %s" configPath)
 
-    let cfg = Config.load configPath
-    Config.validateHttpsOnly cfg
+    let rawCfg = Config.load configPath
+    Config.validateHttpsOnly rawCfg
+    // **s6-r53 D-S7-1** — mtls.mode 정합 + AllowedThumbprints normalize. fail-fast (config 결함은 install 안내).
+    let cfg = Config.validateMtls rawCfg
+    Log.service.Info(sprintf "D-S7-1: mtls mode=%s whitelist=%d" cfg.Mtls.Mode cfg.Mtls.AllowedThumbprints.Length)
 
     let psk = Config.decryptDpapi cfg.PreSharedKeyEncrypted
     let tlsCertPassword = Config.decryptDpapi cfg.TlsCertPasswordEncrypted

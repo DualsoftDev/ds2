@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "_listenUrl_note": "K3 외부 review R6 합의: default = 127.0.0.1 (loopback) — install-service.ps1 가 -ListenUrl 인자로 외부 IP 명시 override. 0.0.0.0 bind 시 PSK 단독 보호 = 외부 노출 risk.",
   "listenUrl": "https://127.0.0.1:8443",
   "tlsCertPath": "C:\\ProgramData\\Dualsoft\\LightHouseService\\service.pfx",
@@ -23,5 +23,10 @@
     "baseUrl": "http://localhost:11434",
     "model": "bge-m3",
     "dimension": 1024
+  },
+  "_mtls_note": "s6-r53 D-S7-1: client cert auth. mode='off' (default) = PSK 단독 / 'optional' = cert 박제 시 검증 + 미박제 PSK 만 / 'required' = TLS handshake 단계 cert 의무 (미박제 connection refused). allowedThumbprints = 빈 배열이면 chain 검증만 (사내 CA root trust 의존), 박제 시 SHA-1 (40 hex) 또는 SHA-256 (64 hex) thumbprint whitelist.",
+  "mtls": {
+    "mode": "off",
+    "allowedThumbprints": []
   }
 }
