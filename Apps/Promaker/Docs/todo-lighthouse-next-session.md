@@ -17,9 +17,23 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-5 resumable upload phase 1~3 (scaffold + production + auto chunked)~~ → s6-r60/r63/r67 완료
 - **잔여**: A2 K4 Protocol SSOT 통합 / A4 Phase 3 OCR / D-S7-4 admin endpoint (T2 owner stamp + T3 acl 편집) / D-S7-5 phase 4 swap chunked / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r66~r69 + doc-r3 종결, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r66~r70 + doc-r3/r4 종결, 2026-05-20)
 
-**Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-4 multi-tenant / D-S7-5 resumable upload + B5 cert UI 4 phase 누적)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **708 Fact** (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+**Phase S7 본격 종결 + 15-reviewer Critical 16 + Major 1 일괄 처리** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **708 Fact** (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+
+**s6-r70 누적 (본 turn, 2026-05-20)**:
+- **`60a2f6a` s6-r70 15-reviewer Critical 16 + Major 1 일괄 처리** — D-S7-4 multi-tenant 격리가 4 surface (FileServing / SSE / Middleware / UploadsEndpoint) 무력화 결함을 본 turn 일괄 해소.
+  - **보안/multi-tenant**: C-1 FileServing.getFile 에 `MultiTenantPolicy.evaluate` filter (Hidden=404 정보 leak 차단, cfg 인자 추가) / C-2 EventsEndpoint SSE per-subscriber tenant filter (`isEventVisibleTo` helper, T2/T3 모드 시 Hidden event skip, T1 회귀 0) / C-3 AuthMiddleware mTLS subject CN ↔ X-User-Identity 강제 (`verifyMtlsIdentity` + cfg 인자 추가, mtls.mode != off 시 mismatch 401) / C-4 UploadsEndpoint UserIdentity cross-check (`isUploadOwnedBy` helper, PATCH/GET/DELETE/finalize 4 endpoint 의 owner mismatch 403)
+  - **Upload race/lifecycle**: C-5 SemaphoreSlim.Dispose race 정정 (removeLock 의 Dispose 폐기, lazy GC) / C-6 getStatus acquireLock 추가 (PATCH 진행 중 race 차단) / C-7 finalize indexerVersion gate fail 시 uploadId staging cleanup (디스크 leak 차단) / C-8 patchChunk OCE 분리 catch (client disconnect 시 misleading log / writeError 재발 OCE 차단) / C-9 ApplicationStopping → ApplicationStopped (graceful drain 동안 embedder race 차단)
+  - **Promaker UI/메모리/보안**: C-10 chunk LOH ArrayPool.Rent + PatchResumableChunkAsync(buffer, effectiveLength) overload (10GB upload 시 LOH 압박 해소) / C-11 _pskChanges Closed event cleanup (Cancel/X close path 평문 lifetime 단축) / C-12 LhSelectCert_Click X509Certificate2 element dispose (CryptoApi handle 누수 차단) / C-13 LhWorkingCopyDirty read-only 계약 (SaveEmbeddingUiToWorking 호출 polkill, caller 책임 이동) / C-14 ClientCertThumbprint dirty 비교 추가 (silent data loss 차단)
+  - **Minor**: C-16 ListCollectionsAsync ResponseHeadersRead drift 정정 (다른 10 메서드 정합) / C-17 cli boolean flag set (`FlagNoEmbedding` / `FlagAllowInvalidCerts`) 분리 (다음 토큰 흡수 차단) / R1-M1 ServerEventNames.UploadProgress 1 line (client SSOT 정합)
+  - **반론**: R15-M2 RegistrySchema bump 거부 (Acl nullable optional, 기존 v=1 registry.json forward-compat 정합) / C-15 EndpointHelpers SSOT 추출 K4 Protocol phase 묶음 (helper 추출은 functional 영향 0, K4 진입 시 다시 refactor 의무)
+  - **MtlsRoundTripFixture 갱신**: cert subject = `CN=<userIdentity>` 정합 (C-3 박제 후 handshake-level 통과)
+- **(doc-r4)** transfer + server.md §7.1 commit chain + §7.4 backlog row 박제.
+
+**누적 본 turn 전체**: 6 commit (s6-r66/r67/r68/r69/r70 + doc-r3/r4) / +1349 line / +32 Fact / 회귀 0.
+
+**이전 turn (참고)**:
 
 **s6-r66~r69 누적 (본 turn, 2026-05-20)**:
 - **`c01af8f` s6-r66 D-S7-4 T2/T3 multi-tenant + config migration chain 제거** — `MultiTenantPolicy` module 신설 (T1 Allow 전체 / T2 ImportedBy 일치 + legacy 빈 값 전체 공개 / T3 acl.users 검증 + readOnly 분기, Hidden=404 / ReadOnly=403). `Config` schemaVersion 3→4 bump + `MultiTenantConfigSection` + `MultiTenantMode` literal + `validateMultiTenant`. **migration chain v1→v4 전체 제거** (paired-release `/dist` 0회 = legacy schema 인스턴스 0건, dead code 정합 — 사용자 옵션 #2 선택, scope 확장). `Registry.CollectionAcl` (users/readOnly) + `CollectionEntry.Acl` optional. `SessionEndpoints` + `CollectionEndpoints` filter (cfg 인자 추가). `Program.fs` validateMultiTenant 호출. 신규 **+18 service Fact** (MultiTenantPolicy 14 + ConfigTests 4). 자가 검열 sub-agent 위임 (Critical 0 / Major 0 / Minor 5 backlog).
@@ -53,8 +67,13 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~**D-S7-5 phase 3 chunked auto**~~ → **s6-r67 종결 (3ed6c1e)** ✅
 - ~~**B5 phase 3 DataGrid edit + CertValidator**~~ → **s6-r68 종결 (77c8a88)** ✅
 - ~~**B5 phase 4 mTLS server mode='required' e2e IT**~~ → **s6-r69 종결 (901975f)** ✅
+- ~~**15-reviewer Critical 16 + Major 1 (C-1~C-14, C-16, C-17, R1-M1)**~~ → **s6-r70 종결 (60a2f6a)** ✅
 - **D-S7-4 admin endpoint 후속** — T2 → `POST /admin/collections/{id}/owner {user}` (ImportedBy stamp) / T3 → `PUT /admin/collections/{id}/acl {users, readOnly}` (acl 편집). multi-tenant 실 활용 path. 별 turn.
 - **D-S7-5 phase 4 swap chunked** — `ReingestAndReuploadAsync` 의 큰 zip swap 시 chunked path. server `POST /collections/{id}/payload` 가 chunked 지원하도록 별 endpoint. 별 turn.
+- **C-15 EndpointHelpers SSOT 추출 (K4 Protocol phase 묶음)** — writeJson / writeError / userIdentityOf / jsonOpts 4 helper 가 CollectionEndpoints / SessionEndpoints / EventsEndpoint / FileServing / UploadsEndpoint 5 박제. K4 Protocol SSOT 통합 phase 진입 시 묶음.
+- **R14 Major (mTLS / MultiTenant T2-T3 / Hybrid retrieval wire-level round-trip IT)** — 본 turn s6-r69 B5 phase 4 + s6-r70 C-1~C-4 가 부분 박제. 본격 T2/T3 e2e IT (MultiTenant fixture) 는 별 turn.
+- **R12 Major 7 (성능)** — withReadOnlyConn 매 호출 vec0 LoadLibrary 등 — 별 perf phase.
+- **15-reviewer 잔여 Major (R2/R3/R5/R6/R8/R9/R11/R13/R14/R15 묶음)** — 본 turn 비처리. 별 backlog phase.
 - **`/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** — `make dist` 또는 `/dist` skill. **잔존**.
 
 **별 세션 이연 의무**:
@@ -62,17 +81,18 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r66~r69 + doc-r3 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r66~r70 + doc-r3/r4 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 누적 5 commit — 사용자 "b 제외 일괄 진행 + auto commit" → "1, 2 진행" 흐름]
+[직전 turn 누적 6 commit — 사용자 "b 제외 일괄 진행" → "1, 2 진행" → "--review" → "본 turn 에서 반론건 제외하고 한꺼번에 처리" 흐름]
 - c01af8f s6-r66 D-S7-4 T2/T3 multi-tenant + config migration chain 제거 (사용자 옵션 #2 scope 확장) — MultiTenantPolicy module + Config schema 3→4 + Registry CollectionAcl + SessionEndpoints/CollectionEndpoints filter + +18 service Fact (자가 검열 sub-agent 위임)
 - 3ed6c1e s6-r67 D-S7-5 phase 3 — chunked path 자동 선택 (LightHouseClient.ResumableUploadThresholdBytes=256 MiB const SSOT) + AttachmentIngestService.UploadAsync 분기 + +1 Promaker Fact
 - 77c8a88 s6-r68 B5 phase 3 — CertValidator helper (Normalize/Validate/FormatMessage 4 분기 ValidationResult enum) + DataGrid edit TextBox + '검증' 버튼 + +10 Promaker Fact
 - 901975f s6-r69 B5 phase 4 — configureApp 시그니처 mtlsValidationOverride 추가 + MtlsRequiredFixture (server/client self-signed 2 cert + ClientCertificates wire) + +3 IT Fact (valid/미박제/wrong cert handshake)
-- (doc-r3) 본 prompt 박제
+- 60a2f6a s6-r70 15-reviewer Critical 16 + Major 1 일괄 처리 — D-S7-4 multi-tenant 격리 4 surface 무력화 결함 hotfix (C-1 FileServing / C-2 SSE / C-3 mTLS subject CN / C-4 Uploads UserIdentity) + Upload race 5건 (C-5~C-9) + Promaker UI 5건 (C-10~C-14) + Minor 3건 (C-16/C-17/R1-M1). 반론 2건 (R15-M2 RegistrySchema bump / C-15 EndpointHelpers SSOT K4 phase 묶음). 회귀 0
+- (doc-r3/r4) 본 prompt 박제
 
 [그 이전 turn 누적]
 - s6-r62~r65: markdown view cherry-pick 4 + C6 citation UI + D-S7-5 phase 2 + B5 phase 2 + light-house-meta-in-kb squash merge + doc-r1/r2
