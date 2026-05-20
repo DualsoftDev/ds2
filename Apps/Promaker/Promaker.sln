@@ -49,6 +49,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouse.Cli", "..\..
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouse.Ollama", "..\..\Solutions\Tools\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj", "{E30FE7AE-CDE4-44BE-9B68-BC4C0B3E1A6C}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.LightHouse.Protocol", "..\..\Solutions\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj", "{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -287,6 +289,18 @@ Global
 		{E30FE7AE-CDE4-44BE-9B68-BC4C0B3E1A6C}.Release|x64.Build.0 = Release|Any CPU
 		{E30FE7AE-CDE4-44BE-9B68-BC4C0B3E1A6C}.Release|x86.ActiveCfg = Release|Any CPU
 		{E30FE7AE-CDE4-44BE-9B68-BC4C0B3E1A6C}.Release|x86.Build.0 = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|x64.Build.0 = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Debug|x86.Build.0 = Debug|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|x64.ActiveCfg = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|x64.Build.0 = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|x86.ActiveCfg = Release|Any CPU
+		{6D2BB35C-9EE9-411A-8A07-196C1E4A0C71}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

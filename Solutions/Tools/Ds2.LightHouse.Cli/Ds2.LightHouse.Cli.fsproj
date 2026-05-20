@@ -34,6 +34,9 @@
   <ItemGroup>
     <!-- write-path (Indexer / KnowledgeBase) — Phase S6 의 lighthouse-cli index 명령용. -->
     <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 + MetaJson schema 단일 SSOT.
+         cli `Packager.fs` 의 `MetaDto` record + `MetaFileName` 양분 박제 폐기 → Protocol 의존. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
     <!-- s6-r37 P4-C.1 — OllamaEmbedder (IEmbeddingProvider 구현). no-embedding flag 미지정 시 default backend. -->
     <ProjectReference Include="..\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
   </ItemGroup>

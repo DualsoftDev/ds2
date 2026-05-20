@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using Ds2.LightHouse.Protocol;
 using log4net;
 
 namespace Promaker.Knowledge;
@@ -32,17 +33,22 @@ public static class CollectionPackager
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(CollectionPackager));
 
-    /// <summary>staging dir 안 client 측 zip entry 의 최상위 폴더 2종 (§3.3 SSOT).</summary>
-    public const string SourceFolderName = "source";
-    public const string KbFolderName = ".lighthouse-kb";
+    /// <summary>staging dir 안 client 측 zip entry 의 최상위 폴더 2종 (§3.3 SSOT).
+    /// A2 (K4 Protocol 통합, 2026-05-20) 이후 `Ds2.LightHouse.Protocol.ZipLayout` 단일 SSOT 의존.
+    /// 본 const 는 caller (CollectionPackagerTests / AttachmentIngestService) 의 기존 호출 호환 — drift 0 (compile-time inline).</summary>
+    public const string SourceFolderName = ZipLayout.SourceFolderName;
+    public const string KbFolderName = ZipLayout.KbFolderName;
 
-    private const string MetaFileName = "meta.json";
+    private const string MetaFileName = MetaJsonIO.FileName;
 
+    /// <summary>A2 (K4 통합, 2026-05-20) — `JsonIgnoreCondition.Never` 로 통일 (Protocol `MetaJsonIO.jsonOptions()` 정합).
+    /// 이전 `WhenWritingNull` 대비 wire output 차이는 0 (모든 string 필드를 `""` 박제). 향후 caller 가 `null` 박제 시
+    /// wire 에 박혀 server load 시 deserialize 회귀 차단 (m2 정합).</summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     };
 
     /// <summary>
@@ -79,10 +85,11 @@ public static class CollectionPackager
         if (fileCount == 0)
             throw new InvalidOperationException($"staging 의 source/ 가 비어 있음 — {sourceDir}. 등록 가치 0.");
 
-        // meta.json 작성 (camelCase, §3.3.1 SSOT)
-        var meta = new MetaPayload
+        // meta.json 작성 (camelCase, §3.3.1 SSOT). A2 (K4 통합) — `Ds2.LightHouse.Protocol.MetaJson` 단일 record 사용.
+        // server stamp 필드 (Id / ImportedAt / ImportedBy / StorageRelPath) 는 client 측 "" 박제 — server 가 import 시 덮어씀.
+        var meta = new MetaJson
         {
-            SchemaVersion = 1,
+            SchemaVersion = MetaJsonSchema.Current,
             IndexerVersion = inputs.IndexerVersion,
             Title = inputs.Title.Trim(),
             SourcePathHint = inputs.SourcePathHint ?? "",
@@ -91,6 +98,10 @@ public static class CollectionPackager
             CreatedAt = DateTime.UtcNow.ToString("o"),
             ClientHost = inputs.ClientHost ?? Environment.MachineName,
             ClientUser = inputs.ClientUser ?? Environment.UserName,
+            Id = "",
+            ImportedAt = "",
+            ImportedBy = "",
+            StorageRelPath = "",
         };
         // meta.json 위치 = `.lighthouse-kb/meta.json` (옵션 P, §3.3 zip layout SSOT).
         var metaPath = Path.Combine(kbDir, MetaFileName);
@@ -121,11 +132,12 @@ public static class CollectionPackager
         return new FileStream(zipDestPath, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
-    /// <summary>caller 진단용 — 본 메서드가 직렬화한 meta.json 내용을 string 으로 반환 (zip 안 entry 와 동일).</summary>
+    /// <summary>caller 진단용 — 본 메서드가 직렬화한 meta.json 내용을 string 으로 반환 (zip 안 entry 와 동일).
+    /// A2 (K4 통합) — `Ds2.LightHouse.Protocol.MetaJson` 단일 SSOT.</summary>
     public static string SerializeMeta(PackagerInputs inputs, int fileCount, long totalSourceBytes) =>
-        JsonSerializer.Serialize(new MetaPayload
+        JsonSerializer.Serialize(new MetaJson
         {
-            SchemaVersion = 1,
+            SchemaVersion = MetaJsonSchema.Current,
             IndexerVersion = inputs.IndexerVersion,
             Title = inputs.Title.Trim(),
             SourcePathHint = inputs.SourcePathHint ?? "",
@@ -134,6 +146,10 @@ public static class CollectionPackager
             CreatedAt = DateTime.UtcNow.ToString("o"),
             ClientHost = inputs.ClientHost ?? Environment.MachineName,
             ClientUser = inputs.ClientUser ?? Environment.UserName,
+            Id = "",
+            ImportedAt = "",
+            ImportedBy = "",
+            StorageRelPath = "",
         }, JsonOptions);
 
     private static (int Count, long Bytes) WalkSource(string sourceDir, CancellationToken ct)
@@ -170,19 +186,8 @@ public static class CollectionPackager
         src.CopyTo(dst);
     }
 
-    /// <summary>§3.3.1 meta.json — client 측 작성 필드 (server-side 필드는 미작성).</summary>
-    private sealed class MetaPayload
-    {
-        [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; }
-        [JsonPropertyName("indexerVersion")] public string IndexerVersion { get; set; } = "";
-        [JsonPropertyName("title")] public string Title { get; set; } = "";
-        [JsonPropertyName("sourcePathHint")] public string SourcePathHint { get; set; } = "";
-        [JsonPropertyName("fileCount")] public int FileCount { get; set; }
-        [JsonPropertyName("totalSourceBytes")] public long TotalSourceBytes { get; set; }
-        [JsonPropertyName("createdAt")] public string CreatedAt { get; set; } = "";
-        [JsonPropertyName("clientHost")] public string ClientHost { get; set; } = "";
-        [JsonPropertyName("clientUser")] public string ClientUser { get; set; } = "";
-    }
+    // **A2 (K4 통합, 2026-05-20)** — 기존 `private sealed class MetaPayload` 폐기. `Ds2.LightHouse.Protocol.MetaJson`
+    // 단일 record 가 client/server stamp 필드 모두 보유 — client 측은 server stamp 필드 "" 박제 후 wire 송신.
 }
 
 /// <summary>

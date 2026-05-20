@@ -6,6 +6,7 @@ open System.IO
 open System.Runtime.InteropServices
 open System.Threading
 open Microsoft.Data.Sqlite
+open Ds2.LightHouse.Protocol
 
 /// LightHouse KB 의 schema/parser 버전 식별자 (todo-lighthouse-kb-index.md §3.17).
 ///
@@ -53,8 +54,11 @@ module IndexerVersion =
 module SqliteStore =
 
     /// KB 저장 폴더 이름 (§3.9 r4). 사용자 폴더 안에 자동 생성되는 hidden subfolder.
+    /// **A2 (K4 Protocol SSOT 통합, 2026-05-20)** — `Ds2.LightHouse.Protocol.ZipLayout.KbFolderName` 단일 SSOT 의존.
+    /// F# `[<Literal>]` 은 cross-module compile-time const inline 가능 — drift 0 정합 (lib / Protocol / Promaker /
+    /// cli / server 5 곳 박제 → 단일 wire SSOT). M22 (zip layout 3중 박제) 본 phase 흡수 완성.
     [<Literal>]
-    let KbFolderName = ".lighthouse-kb"
+    let KbFolderName = ZipLayout.KbFolderName
 
     /// index.db 파일명 (§3.9).
     [<Literal>]

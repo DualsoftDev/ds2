@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text
 open Xunit
+open Ds2.LightHouse.Protocol
 open Ds2.LightHouseService
 
 let private withTempDir (action: string -> 'r) : 'r =
@@ -32,13 +33,13 @@ let private clientMeta () : MetaJson = {
 
 [<Fact>]
 let ``load — 미존재 시 FileNotFoundException`` () = withTempDir (fun dir ->
-    Assert.Throws<FileNotFoundException>(fun () -> MetaJson.load dir |> ignore) |> ignore)
+    Assert.Throws<FileNotFoundException>(fun () -> MetaJsonIO.load dir |> ignore) |> ignore)
 
 [<Fact>]
 let ``save → load round-trip — 한국어 + 모든 필드 보존`` () = withTempDir (fun dir ->
     let m = clientMeta()
-    MetaJson.save dir m
-    let loaded = MetaJson.load dir
+    MetaJsonIO.save dir m
+    let loaded = MetaJsonIO.load dir
     Assert.Equal(m.Title, loaded.Title)
     Assert.Equal(m.IndexerVersion, loaded.IndexerVersion)
     Assert.Equal(m.FileCount, loaded.FileCount)
@@ -50,7 +51,7 @@ let ``save → load round-trip — 한국어 + 모든 필드 보존`` () = withT
 let ``stampServerFields — server 필드 채움 + client 가 보낸 server 필드 값 무시 (§3.3.1)`` () =
     // client 가 server 필드에 가짜 값 박아 보내도 server stamp 가 override
     let evilClient = { clientMeta() with Id = "fake-id"; ImportedBy = "attacker"; StorageRelPath = "evil" }
-    let server = MetaJson.stampServerFields "real-guid" "kwak@dualsoft.com" "Collections\\real-guid-line\\" evilClient
+    let server = MetaJsonIO.stampServerFields "real-guid" "kwak@dualsoft.com" "Collections\\real-guid-line\\" evilClient
     Assert.Equal("real-guid", server.Id)
     Assert.Equal("kwak@dualsoft.com", server.ImportedBy)
     Assert.Equal("Collections\\real-guid-line\\", server.StorageRelPath)
@@ -62,7 +63,7 @@ let ``stampServerFields — server 필드 채움 + client 가 보낸 server 필�
 [<Fact>]
 let ``toRegistryEntry — Status idle + lastImportedAt = importedAt`` () =
     let server = { clientMeta() with Id = "g1"; ImportedAt = "2026-05-17T13:45:30Z"; ImportedBy = "u"; StorageRelPath = "p" }
-    let entry = MetaJson.toRegistryEntry server
+    let entry = MetaJsonRegistry.toRegistryEntry server
     Assert.Equal("g1", entry.Id)
     Assert.Equal("라인A 사양서 v3", entry.DisplayName)
     Assert.Equal("idle", entry.Status)
@@ -72,8 +73,8 @@ let ``toRegistryEntry — Status idle + lastImportedAt = importedAt`` () =
 [<Fact>]
 let ``toRegistryEntry — 0-doc collection (MA18) — fileCount/bytes 0 보존`` () =
     let zeroDoc = { clientMeta() with FileCount = 0; TotalSourceBytes = 0L }
-    let server = MetaJson.stampServerFields "g1" "u" "p" zeroDoc
-    let entry = MetaJson.toRegistryEntry server
+    let server = MetaJsonIO.stampServerFields "g1" "u" "p" zeroDoc
+    let entry = MetaJsonRegistry.toRegistryEntry server
     Assert.Equal(0, entry.FileCount)
     Assert.Equal(0L, entry.TotalSourceBytes)
     // 0-doc 도 status=idle 정상 등록 (MA18)
@@ -81,7 +82,7 @@ let ``toRegistryEntry — 0-doc collection (MA18) — fileCount/bytes 0 보존``
 
 [<Fact>]
 let ``schemaVersion mismatch — fail-fast`` () = withTempDir (fun dir ->
-    let p = MetaJson.path dir
+    let p = MetaJsonIO.path dir
     Directory.CreateDirectory(Path.GetDirectoryName p) |> ignore
     File.WriteAllText(p, """{"schemaVersion": 999, "title": "x"}""", Encoding.UTF8)
-    Assert.Throws<InvalidDataException>(fun () -> MetaJson.load dir |> ignore) |> ignore)
+    Assert.Throws<InvalidDataException>(fun () -> MetaJsonIO.load dir |> ignore) |> ignore)

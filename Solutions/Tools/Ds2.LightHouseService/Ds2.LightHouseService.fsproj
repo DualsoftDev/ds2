@@ -60,6 +60,9 @@
     <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
     <!-- s6-r39 P4-C.3 — server-side hybrid retrieval 의 OllamaEmbedder (Program.fs 의 embedderFactory 박제). -->
     <ProjectReference Include="..\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 + MetaJson schema + ServerEventNames 단일 SSOT.
+         server F# / client C# / cli F# 3중 박제 → 단일. 본 project 는 dependency 0 base. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

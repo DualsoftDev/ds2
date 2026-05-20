@@ -28,6 +28,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — lib `SqliteStore.KbFolderName` 의 `.lighthouse-kb` literal 을
+         `Ds2.LightHouse.Protocol.ZipLayout.KbFolderName` 으로 routing (M22 zip layout 3중 박제 흡수).
+         Protocol 은 dep 0 base 이라 anti-cycle 안 발생. -->
+    <ProjectReference Include="..\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="log4net" />
     <!-- 첨부물/문서 base 인프라 — KB 색인 + 공통 텍스트 인프라. todo §3.4 (detectEncoding) 의 CP949 fallback. -->
