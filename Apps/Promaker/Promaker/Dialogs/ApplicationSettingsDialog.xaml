@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:b="clr-namespace:Promaker.Behaviors"
+        xmlns:dlg="clr-namespace:Promaker.Dialogs"
         Title="설정"
         Width="500" Height="600"
         ResizeMode="NoResize"
@@ -12,6 +13,8 @@
             BorderThickness="1"
             b:CtrlWheelZoom.IsEnabled="True">
         <Border.Resources>
+            <!-- B5 phase 2 (s6-r64) — cert thumbprint 의 마지막 8 자리만 표시 (full thumbprint = 40 hex 너무 김). -->
+            <dlg:ThumbprintShortConverter x:Key="ThumbprintShortConverter"/>
             <!-- s5c-r1 — dark theme 정합. TextBox/PasswordBox default light style 차단 (사용자 보고 cosmetic). -->
             <Style TargetType="{x:Type TextBox}">
                 <Setter Property="Background" Value="#2D2D30"/>
@@ -315,6 +318,26 @@
                                                         Padding="6,2" Margin="2"
                                                         Click="LhEditPsk_Click"
                                                         Tag="{Binding ServiceId}"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <!-- B5 phase 2 (s6-r64) — mTLS client cert 선택 (LocalMachine\My X509Store). 선택된 cert
+                                         의 thumbprint 마지막 8 자리 표시. 미설정 시 "(없음)". 클릭 = X509Certificate2UI.SelectFromCollection. -->
+                                    <DataGridTemplateColumn Header="Client Cert" Width="160">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Button Content="선택..." Style="{StaticResource DarkButton}"
+                                                            Padding="6,2" Margin="2"
+                                                            Click="LhSelectCert_Click"
+                                                            Tag="{Binding ServiceId}"
+                                                            ToolTip="LocalMachine\My X509Store 에서 client cert 선택 (mTLS)"/>
+                                                    <TextBlock Text="{Binding ClientCertThumbprint, Converter={StaticResource ThumbprintShortConverter}, Mode=OneWay}"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               FontSize="10" FontFamily="Consolas"
+                                                               Margin="4,0,0,0"/>
+                                                </StackPanel>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>

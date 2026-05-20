@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Promaker.Knowledge;
@@ -470,6 +473,56 @@ public partial class ApplicationSettingsDialog : Window
     }
 
     /// <summary>
+    /// **B5 phase 2 (s6-r64)** — DataGrid row 의 "Cert 선택..." 버튼. Tag = ServiceId. LocalMachine\My X509Store
+    /// 의 cert 목록을 Windows 표준 picker (<see cref="X509Certificate2UI.SelectFromCollection"/>) 로 표시 +
+    /// 사용자 선택 시 svc.ClientCertThumbprint 박제. mTLS 가 server 측 mode="required" 시 진입 의무 (D-S7-1).
+    /// <para/>
+    /// **cert 발급/관리 정책** (todo-lighthouse-kb-server.md §3.8.2 박제):
+    ///   - 사내 CA 발급 .pfx → `Import-PfxCertificate -CertStoreLocation Cert:\LocalMachine\My` (관리자 필요)
+    ///     또는 `certmgr.msc` snap-in 으로 LocalMachine 의 Personal 에 import.
+    ///   - thumbprint 는 식별자 (평문 정합) — DPAPI 미적용. 실 private key 는 X509Store 가 OS ACL 로 protect.
+    ///   - cert 만료/폐기 시 본 button 으로 재선택 또는 직접 thumbprint 직접 편집 (별 PR — DataGrid TextColumn).
+    /// </summary>
+    private void LhSelectCert_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string serviceId) return;
+        var svc = _lhServicesWorking.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null) return;
+
+        using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+        try
+        {
+            store.Open(OpenFlags.ReadOnly);
+            if (store.Certificates.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "LocalMachine\\Personal 에 cert 가 없습니다. 사내 CA 발급 .pfx 를 Import-PfxCertificate 또는 certmgr.msc 로 import 후 재시도.",
+                    "Client Cert 선택", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            // 만료된 cert 도 표시 — 사용자가 명시적으로 인지하도록. validOnly=false.
+            var selected = X509Certificate2UI.SelectFromCollection(
+                store.Certificates,
+                "Client Certificate 선택",
+                $"[{svc.DisplayName}] LightHouse Service 에 mTLS 로 연결할 때 사용할 client cert.",
+                X509SelectionFlag.SingleSelection);
+            if (selected is null || selected.Count == 0) return;
+            var cert = selected[0];
+            svc.ClientCertThumbprint = cert.Thumbprint;
+            LhServicesGrid.Items.Refresh();
+            SetTestResult(LhTestResult,
+                $"ℹ️ [{svc.DisplayName}] client cert 선택됨 — subject={cert.Subject}, thumbprint={cert.Thumbprint}",
+                success: null);
+        }
+        catch (Exception ex)
+        {
+            SetTestResult(LhTestResult,
+                $"❌ [{svc.DisplayName}] cert 선택 실패 — {ex.GetType().Name}: {ex.Message}",
+                success: false);
+        }
+    }
+
+    /// <summary>
     /// **D-S7-3c (s6-r31)** — DataGrid row 의 "테스트" 버튼. Button.Tag = ServiceId. 본 row 의 BaseUrl + (_pskChanges 의 평문 또는 기존 ciphertext 복호화) 로 LightHouseClient 생성 후 ListCollectionsAsync.
     /// </summary>
     private async void LhTestConnection_Click(object sender, RoutedEventArgs e)
@@ -834,4 +887,23 @@ public partial class ApplicationSettingsDialog : Window
             Dimension = dim,
         };
     }
+}
+
+/// <summary>
+/// **B5 phase 2 (s6-r64)** — cert thumbprint 40-hex 의 마지막 8 자리만 표시 ("…1A2B3C4D" 형식).
+/// 빈/null thumbprint 시 "(없음)" 표시. OneWay 전용.
+/// </summary>
+public sealed class ThumbprintShortConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var s = value as string;
+        if (string.IsNullOrWhiteSpace(s)) return "(없음)";
+        var t = s.Trim();
+        if (t.Length <= 8) return t;
+        return "…" + t.Substring(t.Length - 8);
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException(nameof(ThumbprintShortConverter) + " 는 OneWay 전용.");
 }
