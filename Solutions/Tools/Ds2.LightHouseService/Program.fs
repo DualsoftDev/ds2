@@ -62,12 +62,15 @@ let configureApp
     let attachmentResolver = AttachmentResolver.fromRegistry storageRoot
     builder.Services.AddSingleton<AttachmentResolver>(attachmentResolver) |> ignore
 
-    // s6-r39 P4-C.3 / s6-r45 C1 — server-side hybrid retrieval 의 embedder factory.
+    // s6-r39 P4-C.3 / s6-r45 C1 / s6-r46 C2 — server-side hybrid retrieval 의 embedder factory.
     // override 박제 시 cfg.Embedding 무시 + 본 factory 사용 (IT mock path).
     // override 미박제 시 cfg.Embedding 기반 정상 path:
     //   - Enabled=false / config null → factory 가 항상 None (BM25-only fallback, Phase 1 동작 유지).
-    //   - Enabled=true → 매 SessionKb.attach 마다 새 OllamaEmbedder 생성 (per-session lifecycle, KB facade own).
-    //   - backend 결함 (Ollama daemon down 등) 은 색인/검색 시점 lazy fail-fast (factory throw 안 함).
+    //   - Enabled=true → **service-singleton OllamaEmbedder 1회 생성 + DI container own** + factory 가 매 호출
+    //     마다 NonOwningEmbedder(singleton) 반환 (s6-r46 C2 — 자가 검열 Minor-3 정정, HttpClient socket
+    //     exhaustion 회피). KB facade 는 wrap 만 own + dispose, inner singleton 은 WebApplication.Dispose 시
+    //     DI container 가 동반 dispose.
+    //   - backend 결함 (Ollama daemon down 등) 은 색인/검색 시점 lazy fail-fast (singleton 생성 자체는 throw 안 함).
     let embedderFactory : unit -> Ds2.LightHouse.IEmbeddingProvider option =
         match embedderFactoryOverride with
         | Some f ->
@@ -86,11 +89,17 @@ let configureApp
                 fun () -> None
             else
                 Log.service.Info(
-                    sprintf "P4-C.3: server-side embedding 활성 — baseUrl=%s model=%s dim=%d"
+                    sprintf "C2: server-side embedding 활성 (service-singleton + NonOwning wrap) — baseUrl=%s model=%s dim=%d"
                         emb.BaseUrl emb.Model emb.Dimension)
+                // **lifecycle**: singleton 은 configureApp closure capture (process lifetime). 단일 instance 라
+                // HttpClient leak 누적 0 — process 종료 시 OS 회수 정합. `AddSingleton<T>(instance)` 등록은 외부
+                // instance 의 dispose 책임 안 함 (DI container default) — explicit Lifetime.ApplicationStopping
+                // hook 박제는 별 turn (자가 검열 단순화 정합).
+                let singleton =
+                    new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
+                    :> Ds2.LightHouse.IEmbeddingProvider
                 fun () ->
-                    let e = new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
-                    Some (e :> Ds2.LightHouse.IEmbeddingProvider)
+                    Some (new Ds2.LightHouse.NonOwningEmbedder(singleton) :> Ds2.LightHouse.IEmbeddingProvider)
 
     let sessionRegistry = SessionRegistry(attachmentResolver, embedderFactory)
     builder.Services.AddSingleton<ISessionRegistry>(sessionRegistry :> ISessionRegistry) |> ignore
