@@ -67,6 +67,37 @@ public partial class PropertyPanelState
         RefreshCallPanel(callId);
     }
 
+    // ── Work condition 분기용 helper (Condition 명령이 Work 컨텍스트일 때 사용) ───
+    private bool TryGetSelectedWork([NotNullWhen(true)] out EntityNode? selectedWork) =>
+        TryGetSelectedNode(EntityKind.Work, out selectedWork);
+
+    private bool TryGetSelectedWorkId(out Guid workId)
+    {
+        if (TryGetSelectedWork(out var selected))
+        {
+            workId = selected.Id;
+            return true;
+        }
+        workId = Guid.Empty;
+        return false;
+    }
+
+    private void WorkPanelAction(Action<Guid> storeAction, string blockedEditName)
+    {
+        if (!GuardSimulationSemanticEdit(blockedEditName))
+            return;
+
+        if (!TryGetSelectedWorkId(out var workId)) return;
+        if (!_host.TryAction(() => storeAction(workId))) return;
+        RefreshWorkPanel(workId);
+    }
+
+    /// <summary>Work 조건 트리 재로드 (Work 패널은 ApiCalls 그리드 없음 — Conditions 만 갱신).</summary>
+    private void RefreshWorkPanel(Guid workId)
+    {
+        ReloadWorkConditions(workId);
+    }
+
     private void RefreshCallPanel(Guid callId)
     {
         var previousSelectionId = SelectedCallApiCall?.ApiCallId;

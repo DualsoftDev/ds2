@@ -94,11 +94,19 @@ module WorkConditionChecker =
             if exprs.IsEmpty then false
             else exprs |> List.exists (evaluateConditionExpression state)
 
-    /// SkipUnmatch: ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
-    let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
-        match index.CallSkipUnmatchConditions |> Map.tryFind callGuid with
+    /// SkipUnmatch 공통 helper: 조건 expr 이 false → skip 해야 함을 의미.
+    let private shouldSkipByExpr (state: SimState) (exprOpt: ConditionExpression option) : bool =
+        match exprOpt with
         | Some (And []) | None -> false
         | Some expr -> not (evaluateConditionExpression state expr)
+
+    /// SkipUnmatch (Call): ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
+    let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+        shouldSkipByExpr state (Map.tryFind callGuid index.CallSkipUnmatchConditions)
+
+    /// SkipUnmatch (Work): ValueSpec 기준 unmatch 시 Work 가 Going 없이 Finish 로 skip
+    let shouldSkipWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        shouldSkipByExpr state (Map.tryFind workGuid index.WorkSkipUnmatchConditions)
 
     /// Call 시작 가능 여부 (Work G + 선행 Call F + AutoAux/ComAux 조건)
     let canStartCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =

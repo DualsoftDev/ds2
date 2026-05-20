@@ -21,6 +21,8 @@ module internal WorkTransitions =
         OnDurationScheduled: Guid -> Guid -> int64 -> unit
         /// v10 §10 — Work cycle 시작/종료 시 passive sensing append flag 제거.
         ClearSensingAppendDelay: Guid -> unit
+        /// Work SkipUnmatch 평가: Ready→Going 시 unmatch 면 Going 거치지 않고 Finish 로 skip
+        ShouldSkipWork: Guid -> bool
     }
 
     let scheduleCallTransitions (ctx: Context) workGuid targetState excludeState =
@@ -166,7 +168,7 @@ module internal WorkTransitions =
         | _ -> ()
 
     let applyWorkTransition (ctx: Context) (workGuid: Guid) newState =
-        let result = ctx.StateManager.ApplyWorkTransition(workGuid, newState)
+        let result = ctx.StateManager.ApplyWorkTransition(workGuid, newState, ctx.ShouldSkipWork)
         if result.HasChanged then
             emitWorkStateChanged ctx workGuid result
             runPostWorkTransitionEffects ctx workGuid result.ActualNewState

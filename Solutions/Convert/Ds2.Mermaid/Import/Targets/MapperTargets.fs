@@ -59,18 +59,42 @@ module internal MermaidMapperTargets =
     // Flow 2-depth: subgraph → Work, node → Call
     // ═══════════════════════════════════════════════════
 
+    /// Work subgraph 의 SkipUnmatchConditionRefs 를 work.Conditions 에 박는 후처리.
+    /// label("Dev.ApiName") → Call lookup 으로 srcCall.ApiCalls.[0] 을 Condition.ApiCalls 에 추가.
+    let private applyWorkSkipUnmatchRefs
+        (workSkipRefs: ResizeArray<Work * string list>)
+        (createdCalls: seq<Call * string>) =
+        if workSkipRefs.Count = 0 then () else
+        let labelToCall = Dictionary<string, Call>()
+        for (call, label) in createdCalls do
+            if not (labelToCall.ContainsKey label) then labelToCall.[label] <- call
+        for (work, refs) in workSkipRefs do
+            if refs.IsEmpty then () else
+            let cond = Condition()
+            cond.Type <- Some ConditionType.SkipUnmatch
+            for refName in refs do
+                match labelToCall.TryGetValue(refName) with
+                | true, srcCall when srcCall.ApiCalls.Count > 0 ->
+                    cond.ApiCalls.Add(srcCall.ApiCalls.[0])
+                | _ -> ()
+            if cond.ApiCalls.Count > 0 then
+                work.Conditions.Add(cond)
+
     let mapToFlow (store: DsStore) (flowId: Guid) (systemId: Guid) (projectId: Guid option) (graph: MermaidGraph) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
         let planned = createPlannedCallNodes ()
         let nodeToWorkId = Dictionary<string, Guid>()
         let createdWorkArrows = HashSet<Guid * Guid>()
         let createdCalls = ResizeArray<Call * string>()
+        let workSkipRefs = ResizeArray<Work * string list>()
 
         let flowName = flowNameOfFlow store flowId
 
         for sg in graph.Subgraphs do
             let work = Work(flowName, subgraphName sg, flowId)
             operations.Add(AddWork work)
+            if not sg.SkipUnmatchConditionRefs.IsEmpty then
+                workSkipRefs.Add(work, sg.SkipUnmatchConditionRefs)
 
             planCallsForWork planned operations work.Id sg.Nodes sg.InternalEdges (fun node call apiName ->
                 nodeToWorkId.[node.Id] <- work.Id
@@ -88,7 +112,8 @@ module internal MermaidMapperTargets =
             | _ -> ()
 
         completePlannedImport operations planned (fun () ->
-            linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations)
+            linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
+            applyWorkSkipUnmatchRefs workSkipRefs createdCalls)
 
     // ═══════════════════════════════════════════════════
     // Flow 1-depth: GlobalNode → Work, GlobalEdge → ArrowBetweenWorks
@@ -141,6 +166,7 @@ module internal MermaidMapperTargets =
         let subgraphToWorkId = Dictionary<string, Guid>()
         /// (Call * callLabel * flowName)
         let activeCreatedCalls = ResizeArray<Call * string * string>()
+        let workSkipRefs = ResizeArray<Work * string list>()
 
         for systemSg in graph.Subgraphs do
             // depth 1 → System (Active or Passive)
@@ -159,6 +185,8 @@ module internal MermaidMapperTargets =
                     let work = Work(flowDisplayName, subgraphName workSg, flow.Id)
                     operations.Add(AddWork work)
                     subgraphToWorkId.[workSg.Id] <- work.Id
+                    if not workSg.SkipUnmatchConditionRefs.IsEmpty then
+                        workSkipRefs.Add(work, workSg.SkipUnmatchConditionRefs)
 
                     planCallsForWork planned operations work.Id workSg.Nodes workSg.InternalEdges (fun node call apiName ->
                         if apiName <> "" && not systemSg.IsPassive then
@@ -177,7 +205,10 @@ module internal MermaidMapperTargets =
             | _ -> ()
 
         completePlannedImport operations planned (fun () ->
-            linkCallsToDevicesByFlow store projectId activeCreatedCalls operations)
+            linkCallsToDevicesByFlow store projectId activeCreatedCalls operations
+            let createdCalls =
+                activeCreatedCalls |> Seq.map (fun (call, label, _) -> call, label)
+            applyWorkSkipUnmatchRefs workSkipRefs createdCalls)
 
     // ═══════════════════════════════════════════════════
     // 프리뷰 생성 (store 변경 없이)

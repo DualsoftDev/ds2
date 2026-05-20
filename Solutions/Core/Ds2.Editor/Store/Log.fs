@@ -56,22 +56,29 @@ type internal StoreLog private () =
         | Some x -> x
         | None -> StoreLog.fail(op, errMsg)
 
-    static member private tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
+    static member private tryFindConditionRec (conditions: Condition seq) (condId: Guid) : Condition option =
         Queries.tryFindConditionRec conditions condId
 
-    static member requireCallCondition(store: DsStore, callId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : CallCondition =
+    static member requireCallCondition(store: DsStore, callId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : Condition =
         let op = StoreLog.resolve op
         let call = StoreLog.requireCall(store, callId, op)
-        match StoreLog.tryFindConditionRec call.CallConditions condId with
+        match StoreLog.tryFindConditionRec call.Conditions condId with
         | Some cc -> cc
-        | None -> StoreLog.fail(op, $"CallCondition not found. callId={callId}, condId={condId}")
+        | None -> StoreLog.fail(op, $"Condition not found in Call. callId={callId}, condId={condId}")
+
+    static member requireWorkCondition(store: DsStore, workId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : Condition =
+        let op = StoreLog.resolve op
+        let work = StoreLog.requireWork(store, workId, op)
+        match StoreLog.tryFindConditionRec work.Conditions condId with
+        | Some cc -> cc
+        | None -> StoreLog.fail(op, $"Condition not found in Work. workId={workId}, condId={condId}")
 
     static member requireApiCallInCall(call: Call, apiCallId: Guid, [<CallerMemberName>] ?op: string) =
         StoreLog.requireInSeq(
-            call.ApiCalls, (fun ac -> ac.Id = apiCallId), 
+            call.ApiCalls, (fun ac -> ac.Id = apiCallId),
             $"ApiCall {apiCallId} not found in Call {call.Id}", StoreLog.resolve op) |> ignore
 
-    static member requireApiCallInCondition(cond: CallCondition, apiCallId: Guid, [<CallerMemberName>] ?op: string) : ApiCall =
+    static member requireApiCallInCondition(cond: Condition, apiCallId: Guid, [<CallerMemberName>] ?op: string) : ApiCall =
         StoreLog.requireInSeq(
-            cond.Conditions, (fun ac -> ac.Id = apiCallId), 
+            cond.ApiCalls, (fun ac -> ac.Id = apiCallId),
             $"ApiCall not found in condition. condId={cond.Id}, apiCallId={apiCallId}", StoreLog.resolve op)

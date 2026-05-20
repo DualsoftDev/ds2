@@ -10,7 +10,7 @@ namespace Ds2.LlmAgent.Internal
 // 분류 표 자체는 `yaml-protocol-v0.md §2.4.1 Category 사전` 행과 docstring 정합.
 //
 // **사용자 결정 (2026-05-15)**:
-// - A_Modeling: CallCondition / ContactKind / SkipInputSensor / CallType / TokenRole
+// - A_Modeling: Condition / ContactKind / SkipInputSensor / CallType / TokenRole
 //               + apiDetails.actionType (시간 인자 포함 — DU leaf 분해 불가, M2 footnote)
 // - B_Addressing: IOTag (InTag / OutTag)
 // - C_Meta: author / version / iri / description / workDuration / apiDetails.description

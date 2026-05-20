@@ -87,6 +87,25 @@ type DsStoreNodesExtensions =
         store.EmitRefreshAndHistory()
         refCall.Id
 
+    /// Tree 에서 *대상 Work* 에 동일 이름 Call 추가 시도 시, 원본 Call 의 Reference 를
+    /// *대상 Work* 에 생성. 원본 Work 와 다른 Work 에 Reference 둘 수 있도록 parentId 명시.
+    [<Extension>]
+    static member AddReferenceCallToWork(store: DsStore, originalCallId: Guid, targetWorkId: Guid) : Guid =
+        let resolvedId = Queries.resolveOriginalCallId originalCallId store
+        StoreLog.debug($"originalCallId={originalCallId}, resolvedId={resolvedId}, targetWorkId={targetWorkId}")
+        let original = StoreLog.requireCall(store, resolvedId)
+        StoreLog.requireWork(store, targetWorkId) |> ignore
+        let refCall = Call(original.DevicesAlias, original.ApiName, targetWorkId)
+        refCall.ReferenceOf <- Some resolvedId
+        // 위치는 원본에서 살짝 offset (같은 Work 안일 경우 겹침 회피, 다른 Work 면 그대로)
+        refCall.Position <-
+            original.Position
+            |> Option.map (fun pos -> Xywh(pos.X + 40, pos.Y + 40, pos.W, pos.H))
+        store.WithTransaction("레퍼런스 Call 생성", fun () ->
+            store.TrackAdd(store.Calls, refCall))
+        store.EmitRefreshAndHistory()
+        refCall.Id
+
     // ─── Add (배치/디바이스) ──────────────────────────────────────────
     [<Extension>]
     static member AddCallsWithDevice(store: DsStore, projectId: Guid, workId: Guid, callNames: string seq, createDeviceSystem: bool, systemType: string option) =

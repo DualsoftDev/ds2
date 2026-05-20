@@ -123,7 +123,7 @@ module internal SimIndexAlgorithms =
             |> List.filter (fun (_, excludedCalls) -> not excludedCalls.IsEmpty)
         |> Map.ofList
 
-    /// 한 CallCondition 의 직접 ApiCall list 를 ConditionEntryData list 로.
+    /// 한 Condition 의 직접 ApiCall list 를 ConditionEntryData list 로.
     /// children 은 호출자가 별도 재귀 처리 (트리 구조 보존).
     let convertApiCallsToEntries (store: DsStore) (apiCalls: ApiCall seq) : ConditionEntryData list =
         apiCalls

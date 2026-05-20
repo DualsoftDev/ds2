@@ -33,12 +33,12 @@ module MermaidExporter =
         (callIdToNodeId: Dictionary<Guid, string>)
         (call: Call)
         : string =
-        let grouped = Dictionary<CallConditionType, ResizeArray<string>>()
+        let grouped = Dictionary<ConditionType, ResizeArray<string>>()
 
-        for cond in call.CallConditions do
+        for cond in call.Conditions do
             match cond.Type with
             | Some condType ->
-                for apiCall in cond.Conditions do
+                for apiCall in cond.ApiCalls do
                     // ApiCall이 속한 Call을 찾아서 source Call 이름 사용
                     for kvp in store.CallsReadOnly do
                         let srcCall = kvp.Value
@@ -53,18 +53,43 @@ module MermaidExporter =
             | None -> ()
 
         let sb = StringBuilder()
-        for condType in [| CallConditionType.AutoAux; CallConditionType.ComAux; CallConditionType.SkipUnmatch |] do
+        for condType in [| ConditionType.AutoAux; ConditionType.ComAux; ConditionType.SkipUnmatch |] do
             match grouped.TryGetValue(condType) with
             | true, names when names.Count > 0 ->
                 let prefix =
                     match condType with
-                    | CallConditionType.AutoAux      -> "AutoAux"
-                    | CallConditionType.ComAux       -> "ComAux"
+                    | ConditionType.AutoAux      -> "AutoAux"
+                    | ConditionType.ComAux       -> "ComAux"
                     | _                              -> "SkipUnmatch"
                 let joined = String.Join(", ", names)
                 sb.Append($"<br>{prefix}: {joined}") |> ignore
             | _ -> ()
         sb.ToString()
+
+    /// Work 의 SkipUnmatch 조건을 subgraph title suffix 로 생성. Call 의 buildConditionSuffix 와 동일 패턴.
+    let private buildWorkConditionSuffix
+        (store: DsStore)
+        (callIdToNodeId: Dictionary<Guid, string>)
+        (work: Work)
+        : string =
+        let refs = ResizeArray<string>()
+        for cond in work.Conditions do
+            match cond.Type with
+            | Some ConditionType.SkipUnmatch ->
+                for apiCall in cond.ApiCalls do
+                    for kvp in store.CallsReadOnly do
+                        let srcCall = kvp.Value
+                        if srcCall.ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCall.Id) then
+                            let refKey =
+                                match callIdToNodeId.TryGetValue(srcCall.Id) with
+                                | true, nodeId -> nodeId
+                                | _ -> srcCall.Name
+                            refs.Add(refKey)
+            | _ -> ()
+        if refs.Count = 0 then ""
+        else
+            let joined = String.Join(", ", refs)
+            sprintf "<br>SkipUnmatch: %s" joined
 
     /// Work를 Mermaid subgraph로 변환 (indent 레벨 지정 가능)
     let private convertWork
@@ -74,13 +99,15 @@ module MermaidExporter =
         let workId = sanitizeId $"{prefix}_{workName}"
         workIdMap.[work.Id] <- workId
 
-        sb.AppendLine($"""{indent}subgraph {workId}["{work.Name}"]""") |> ignore
-        let innerIndent = indent + "    "
-
+        // Call nodeId 를 SkipUnmatch suffix 빌드 전에 미리 등록 (자기 work 내 Call 참조 보존).
         let calls = Queries.callsOf work.Id store
         for call in calls do
             let nodeId = sanitizeId $"{prefix}_{workName}_{call.Name}"
             callIdToNodeId.[call.Id] <- nodeId
+
+        let condSuffix = buildWorkConditionSuffix store callIdToNodeId work
+        sb.AppendLine($"""{indent}subgraph {workId}["{work.Name}{condSuffix}"]""") |> ignore
+        let innerIndent = indent + "    "
 
         // Call 노드 생성 (조건 정보를 라벨에 포함)
         for call in calls do

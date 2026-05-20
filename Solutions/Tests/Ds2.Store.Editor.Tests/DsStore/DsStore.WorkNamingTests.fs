@@ -97,7 +97,7 @@ let ``Reference Call blocks property mutations`` () =
         store.UpdateCallTimeoutMs(refId, Some 1000)) |> ignore
     // 조건 추가 차단
     Assert.Throws<InvalidOperationException>(fun () ->
-        store.AddCallCondition(refId, CallConditionType.AutoAux)) |> ignore
+        store.AddCallCondition(refId, ConditionType.AutoAux)) |> ignore
     // Rename 차단
     Assert.Throws<InvalidOperationException>(fun () ->
         store.RenameEntity(refId, EntityKind.Call, "NewName")) |> ignore
@@ -295,6 +295,67 @@ let ``parseWorkNameParts splits prefix and localName`` () =
     let struct(prefix, local) = TokenRoleOps.parseWorkNameParts "Flow1.Work1"
     Assert.Equal("Flow1.", prefix)
     Assert.Equal("Work1", local)
+
+[<Fact>]
+let ``tryFindOriginalCallInWork returns Some when original Call with name exists`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let result = Queries.tryFindOriginalCallInWork work.Id "Dev.Api" store
+    Assert.True(result.IsSome)
+    let originalCall = Queries.originalCallsOf work.Id store |> List.head
+    Assert.Equal(originalCall.Id, result.Value)
+
+[<Fact>]
+let ``tryFindOriginalCallInWork returns None when name absent`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let result = Queries.tryFindOriginalCallInWork work.Id "Other.Api" store
+    Assert.True(result.IsNone)
+
+[<Fact>]
+let ``tryFindOriginalCallInWork ignores reference Calls`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    // 참조 Call 도 같은 이름 — but tryFindOriginalCallInWork 는 원본만.
+    let result = Queries.tryFindOriginalCallInWork work.Id "Dev.Api" store
+    Assert.Equal(originalCall.Id, result.Value)
+    Assert.NotEqual(refId, result.Value)
+
+[<Fact>]
+let ``AddReferenceCallToWork places ref in target Work (not original's parent)`` () =
+    let store = createStore()
+    let project, _, flow, work = setupBasicHierarchy store
+    // 두 번째 Work 추가
+    let work2Id = store.AddWork("Work2", flow.Id)
+    // 원본 Call 은 첫 번째 Work 에
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.originalCallsOf work.Id store |> List.head
+    // Reference 를 두 번째 Work 에 추가
+    let refId = store.AddReferenceCallToWork(originalCall.Id, work2Id)
+    let refCall = store.Calls.[refId]
+    Assert.Equal(Some originalCall.Id, refCall.ReferenceOf)
+    Assert.Equal(work2Id, refCall.ParentId)
+    // 원본은 그대로
+    Assert.Equal(work.Id, originalCall.ParentId)
+
+[<Fact>]
+let ``AddReferenceCallToWork resolves from reference origin to true original`` () =
+    let store = createStore()
+    let project, _, flow, work = setupBasicHierarchy store
+    let work2Id = store.AddWork("Work2", flow.Id)
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.originalCallsOf work.Id store |> List.head
+    let firstRefId = store.AddReferenceCall(originalCall.Id)
+    // 두 번째 ref 는 *첫 번째 ref* 의 ID 로 호출해도 결국 원본을 가리켜야.
+    let secondRefId = store.AddReferenceCallToWork(firstRefId, work2Id)
+    let secondRef = store.Calls.[secondRefId]
+    Assert.Equal(Some originalCall.Id, secondRef.ReferenceOf)
+    Assert.Equal(work2Id, secondRef.ParentId)
 
 [<Fact>]
 let ``parseWorkNameParts with no dot returns empty prefix`` () =

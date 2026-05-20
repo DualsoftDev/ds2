@@ -23,7 +23,7 @@ module internal CascadeRemove =
     let removeOrphanApiCalls (store: DsStore) =
         let referencedIds =
             store.Calls.Values
-            |> Seq.collect CallConditionQueries.referencedApiCallIds
+            |> Seq.collect ConditionQueries.referencedApiCallIdsOfCall
             |> Set.ofSeq
         let orphanIds =
             store.ApiCalls.Keys

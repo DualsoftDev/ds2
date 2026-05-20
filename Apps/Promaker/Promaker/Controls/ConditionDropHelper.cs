@@ -101,7 +101,7 @@ internal static class ConditionDropHelper
         DsStore store,
         MainViewModel.HostBase host,
         Guid targetCallId,
-        CallConditionType condType,
+        ConditionType condType,
         Guid droppedCallId,
         Window? ownerWindow = null)
     {
@@ -109,7 +109,7 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
-        // 기존 동일 type 의 top-level CallCondition 조회.
+        // 기존 동일 type 의 top-level Condition 조회.
         Guid? existingRootId = null;
         if (host.TryRef(() => store.GetCallConditionsForPanel(targetCallId), out var existing))
         {
@@ -145,6 +145,55 @@ internal static class ConditionDropHelper
             return false;
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to condition.");
+        return true;
+    }
+
+    // ── Work owner 용 동일 패턴 ───────────────────────────────────────────
+
+    internal static bool ExecuteWorkConditionDrop(
+        DsStore store,
+        MainViewModel.HostBase host,
+        Guid targetWorkId,
+        ConditionType condType,
+        Guid droppedCallId,
+        Window? ownerWindow = null)
+    {
+        var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
+        if (selectedIds is null)
+            return false;
+
+        Guid? existingRootId = null;
+        if (host.TryRef(() => store.GetWorkConditionsForPanel(targetWorkId), out var existing))
+        {
+            var root = existing.FirstOrDefault(c => c.ConditionType == condType);
+            if (root is not null) existingRootId = root.ConditionId;
+        }
+
+        bool ok = existingRootId is { } rootId
+            ? host.TryAction(() => store.AddApiCallsToWorkConditionBatch(targetWorkId, rootId, selectedIds))
+            : host.TryAction(() => store.AddWorkConditionWithApiCalls(targetWorkId, condType, selectedIds));
+        if (!ok) return false;
+
+        host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to Work {condType}.");
+        return true;
+    }
+
+    internal static bool ExecuteAddApiCallsToWorkCondition(
+        DsStore store,
+        MainViewModel.HostBase host,
+        Guid targetWorkId,
+        Guid targetConditionId,
+        Guid droppedCallId,
+        Window? ownerWindow = null)
+    {
+        var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
+        if (selectedIds is null)
+            return false;
+
+        if (!host.TryAction(() => store.AddApiCallsToWorkConditionBatch(targetWorkId, targetConditionId, selectedIds)))
+            return false;
+
+        host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to Work condition.");
         return true;
     }
 }
