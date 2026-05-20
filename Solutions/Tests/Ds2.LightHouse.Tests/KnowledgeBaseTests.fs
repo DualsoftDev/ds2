@@ -72,6 +72,9 @@ let ``single collection — search hit`` () =
             let r = kb.Search { Text = "컨베이어"; TopK = 5; FileId = None } CancellationToken.None
             Assert.NotEmpty(r.Results)
             Assert.Contains("컨베이어", r.Results.[0].Excerpt)
+            // **s6-r57 C7** — text-only file → HasImages=false 회귀 차단.
+            // image 인프라 미박제 시점 정합 (Chunks.ImageCount DEFAULT 0).
+            Assert.False(r.Results.[0].HasImages, "text-only file → HasImages false 의무")
         finally kb.Dispose())
 
 [<Fact>]
