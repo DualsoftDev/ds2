@@ -10,7 +10,25 @@ open System.Threading
 open System.Threading.Tasks
 open Xunit
 open Microsoft.Extensions.Hosting
+open Ds2.LightHouse
 open Ds2.LightHouseService
+
+/// **C1 (s6-r45)** — IT 의 hybrid path round-trip 검증용 deterministic mock embedder.
+/// lib Tests 의 `MockEmbedder` (private) 와 동일 박제 — query hash 기반 1차 element + 나머지 0.
+/// dim = `SqliteStore.EmbeddingDimension` (1024). stateless 라 Dispose no-op.
+/// `IEmbeddingProvider.GenerateAsync` 의 ct 는 무시 (mock 즉시 반환).
+type private MockEmbedder() =
+    interface IEmbeddingProvider with
+        member _.Dimension = SqliteStore.EmbeddingDimension
+        member _.GenerateAsync(inputs, _ct) =
+            let dim = SqliteStore.EmbeddingDimension
+            let vectors =
+                inputs |> Array.map (fun s ->
+                    let h = float32 (s.GetHashCode() % 100) * 0.01f
+                    Array.init dim (fun i -> if i = 0 then h else 0.0f))
+            Task.FromResult(vectors)
+    interface IDisposable with
+        member _.Dispose() = ()
 
 /// Phase S5e — e2e round-trip 용 in-process service fixture.
 ///
@@ -76,10 +94,11 @@ type ServiceFixture() =
             LogMaxSizeMB = 100
             AuditRetentionDays = 365
             IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
-            // s6-r39 P4-C.3 — IT 의 default = BM25-only fallback (Ollama daemon 없음 가정). hybrid path 검증 fact
-            // 는 별 부담 — Enabled=true config 주입 후 mock 또는 실 backend 검증 fact 박제 의무 (별 turn).
+            // **s6-r45 C1** — IT default 가 hybrid path 활성 (Enabled=true). embedder factory override 박제로
+            // Ollama daemon 의존 0 (configureApp 가 cfg.Embedding 무시 + MockEmbedder factory 사용).
+            // BaseUrl/Model/Dimension 은 placeholder — override 박제 시 미사용 (자가 검열 정합 doc).
             Embedding = {
-                Enabled = false
+                Enabled = true
                 BaseUrl = "http://localhost:11434"
                 Model = "bge-m3"
                 Dimension = 1024
@@ -99,8 +118,10 @@ type ServiceFixture() =
                 // 3. cfg — Kestrel localhost:0 random port (OS 가 free port 할당)
                 let cfg = buildConfig storageRoot "https://127.0.0.1:0"
 
-                // 4. configureApp + StartAsync
-                let webApp = Program.configureApp cfg psk cert
+                // 4. configureApp + StartAsync — embedderFactory override 박제 (C1 mock path).
+                let mockFactory : unit -> IEmbeddingProvider option =
+                    fun () -> Some (new MockEmbedder() :> IEmbeddingProvider)
+                let webApp = Program.configureApp cfg psk cert (Some mockFactory)
                 do! webApp.StartAsync()
                 app <- webApp
 
