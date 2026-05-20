@@ -13,7 +13,16 @@ open Ds2.LightHouse
 [<InlineData("slide=5")>]
 [<InlineData("sheet=BOM")>]
 [<InlineData("sheet=BOM!A1:D40")>]
+// r1 Critical-2 regression guard — pdf 의 p=N#img=M 유지.
 [<InlineData("p=14#img=2")>]
+// Phase 2 Task 1/2 활성 (xlsx-pptx-images r2 Task 3) — slide/sheet × img sub-key 일반화 보호.
+[<InlineData("slide=5#img=2")>]
+[<InlineData("sheet=BOM#img=1")>]
+[<InlineData("sheet=주요-사양#img=3")>]
+[<InlineData("sheet=BOM!A1:D40#img=2")>]
+// r2 Major-2 반론 검증 — 시트명 `=` 포함 round-trip (첫 `=` 만 split, Value="BOM=spec" 보존).
+[<InlineData("sheet=BOM=spec")>]
+[<InlineData("sheet=BOM=spec#img=1")>]
 let ``저장형 → parsed → 저장형 round-trip`` (stored: string) =
     let parsed = RefLocator.parse stored
     Assert.Equal(stored, RefLocator.toStored parsed)
@@ -39,6 +48,13 @@ let ``표시형 default 변환 — § 3.13 표`` () =
     Assert.Equal("시트 BOM", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM"))
     Assert.Equal("시트 BOM A1:D40", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM!A1:D40"))
     Assert.Equal("p.14 그림 2", RefLocator.formatDisplay (RefLocator.parse "p=14#img=2"))
+
+[<Fact>]
+let ``표시형 변환 — Phase 2 slide/sheet × img sub-key (Task 3 regression guard)`` () =
+    // r2 Task 3 박제 — pptx/xlsx 활성 이후 LLM citation 의 표시형 정합.
+    Assert.Equal("슬라이드 5 그림 2", RefLocator.formatDisplay (RefLocator.parse "slide=5#img=2"))
+    Assert.Equal("시트 BOM 그림 1", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM#img=1"))
+    Assert.Equal("시트 BOM A1:D40 그림 2", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM!A1:D40#img=2"))
 
 [<Fact>]
 let ``parsed → toStored 직접 조립 round-trip`` () =
