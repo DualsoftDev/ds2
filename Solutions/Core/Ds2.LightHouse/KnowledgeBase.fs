@@ -58,26 +58,36 @@ module KnowledgeBase =
     let isIndexed (collectionRoot: string) : bool =
         File.Exists (SqliteStore.dbPath collectionRoot)
 
-    /// collection root → `.lighthouse-kb/index.db` 의 `Meta.indexer_version` 값.
-    /// 미존재 / open 실패 시 None. SqliteConnection.ClearPool 까지 finally 에서 처리 (parent r10 F2 정합).
+    /// **read-only connection lifecycle SSOT (s6-r42)** — `isIndexed` 가드 + open + work + Close +
+    /// ClearPool + Dispose. caller 측 `probeIndexerVersion` / `lookupDocument` 의 박제 중복 흡수
+    /// (외부 --review L-Maj-3 정정 — helper 추출 part). ClearPool 의 hot path 전역 pool flush 부작용
+    /// 정정 (per-connection `Pooling=False` 박제) 은 별 turn (SqliteStore.openConnection 의 SSOT 변경 의무 — trigger ⑤).
+    /// parent r10 F2 (Windows file lock 잔존 회피) 정합 유지.
     ///
-    /// review IM-6 통합 — Ds2.LightHouseService.ZipImport.probeIndexerVersion 가 SqliteStore.openConnection +
-    /// getMeta + ClearPool 직접 호출하던 우회 흡수. caller 측 Microsoft.Data.Sqlite PackageReference 제거 가능.
-    let probeIndexerVersion (collectionRoot: string) : string option =
+    /// open 실패 / 정상 work 의 None 반환 모두 None 으로 전파 (caller 가 fail-safe).
+    let private withReadOnlyConn (collectionRoot: string) (work: Microsoft.Data.Sqlite.SqliteConnection -> 'a option) : 'a option =
         if not (isIndexed collectionRoot) then None
         else
             let dbPath = SqliteStore.dbPath collectionRoot
             try
                 let conn = SqliteStore.openConnection dbPath true
-                try
-                    SqliteStore.getMeta conn "indexer_version"
+                try work conn
                 finally
                     conn.Close()
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn   // parent r10 lib fix F2 정합
+                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
                     conn.Dispose()
             with ex ->
-                Log.lighthouse.Warn(sprintf "probeIndexerVersion: %s 열기 실패 — %s" dbPath ex.Message)
+                Log.lighthouse.Warn(sprintf "withReadOnlyConn: %s 열기 실패 — %s: %s"
+                    dbPath (ex.GetType().Name) ex.Message)
                 None
+
+    /// collection root → `.lighthouse-kb/index.db` 의 `Meta.indexer_version` 값.
+    /// 미존재 / open 실패 시 None. **s6-r42**: `withReadOnlyConn` SSOT 흡수 (ClearPool 제거).
+    ///
+    /// review IM-6 통합 — Ds2.LightHouseService.ZipImport.probeIndexerVersion 가 SqliteStore.openConnection +
+    /// getMeta + ClearPool 직접 호출하던 우회 흡수. caller 측 Microsoft.Data.Sqlite PackageReference 제거 가능.
+    let probeIndexerVersion (collectionRoot: string) : string option =
+        withReadOnlyConn collectionRoot (fun conn -> SqliteStore.getMeta conn "indexer_version")
 
     /// `Meta.indexer_version` 행을 override (write). `probeIndexerVersion` 의 대칭.
     ///
@@ -107,25 +117,10 @@ module KnowledgeBase =
     /// 단일 collection 의 documents.Id → (OriginalPath, FileHash, SizeBytes). Phase S4 file serving 용.
     /// `<collection-root>/.lighthouse-kb/index.db` 미존재 / open 실패 / row 미존재 시 None.
     ///
-    /// read-only connection 자체 lifecycle 관리 (open → query → close → ClearPool → Dispose).
-    /// `probeIndexerVersion` 와 동일 패턴 — review IM-6 정합 (caller 가 SqliteStore 직접 참조 회피).
+    /// **s6-r42**: `withReadOnlyConn` SSOT 흡수 — review L-Maj-3 정정 (매 file GET 호출 ClearPool 전역
+    /// pool flush 제거). review IM-6 정합 (caller 가 SqliteStore 직접 참조 회피) 유지.
     let lookupDocument (collectionRoot: string) (documentId: int64) : (string * string * int64) option =
-        if not (isIndexed collectionRoot) then None
-        else
-            let dbPath = SqliteStore.dbPath collectionRoot
-            try
-                let conn = SqliteStore.openConnection dbPath true
-                try
-                    SqliteStore.findDocumentById conn documentId
-                finally
-                    conn.Close()
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
-                    conn.Dispose()
-            with ex ->
-                // review S4-m1: ex.Message 만 박제 시 SQLite 손상 디버깅 어려움 — type name 추가.
-                Log.lighthouse.Warn(sprintf "lookupDocument: %s 열기 실패 — %s: %s"
-                    dbPath (ex.GetType().Name) ex.Message)
-                None
+        withReadOnlyConn collectionRoot (fun conn -> SqliteStore.findDocumentById conn documentId)
 
     /// ATTACH URI 변환 — Windows backslash → forward slash + `?mode=ro` 강제.
     /// read-only ATTACH 라 *색인 중에도* 검색 가능 (WAL + ro mode).
