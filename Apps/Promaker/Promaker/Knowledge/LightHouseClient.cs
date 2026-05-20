@@ -450,6 +450,149 @@ public sealed class LightHouseClient : IDisposable
         finally { resp.Dispose(); }
     }
 
+    // ── D-S7-5 phase 2 (s6-r63) — resumable chunked upload client API ──────────────────
+
+    /// <summary>
+    /// **D-S7-5 phase 2** — `POST /uploads-rs` — resumable upload 시작. uploadId 발급.
+    /// </summary>
+    public async Task<ResumableUploadStart> StartResumableUploadAsync(
+        string title, long totalBytes, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("title 필수.", nameof(title));
+        if (totalBytes <= 0) throw new ArgumentOutOfRangeException(nameof(totalBytes), totalBytes, ">0 필수");
+
+        using var req = NewRequest(HttpMethod.Post, "uploads-rs");
+        req.Content = JsonContent.Create(new { title, totalBytes }, options: JsonOptions);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, "POST /uploads-rs", ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<ResumableUploadStart>(JsonOptions, ct).ConfigureAwait(false)
+            ?? throw new LightHouseProtocolException("POST /uploads-rs response body 빈 값.");
+    }
+
+    /// <summary>
+    /// **D-S7-5 phase 2** — `PATCH /uploads-rs/{id}` — chunk append.
+    /// `chunk.Length` == `endByte - startByte + 1` 의무. server-side Content-Length 검증 (400 mismatch).
+    /// </summary>
+    public async Task<ResumableUploadStatus> PatchResumableChunkAsync(
+        string uploadId, byte[] chunk, long startByte, long endByte, long totalBytes,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
+        if (chunk is null) throw new ArgumentNullException(nameof(chunk));
+        var expected = endByte - startByte + 1L;
+        if (chunk.Length != expected)
+            throw new ArgumentException(
+                $"chunk.Length={chunk.Length} ≠ Content-Range length={expected}", nameof(chunk));
+
+        using var req = NewRequest(HttpMethod.Patch, $"uploads-rs/{Uri.EscapeDataString(uploadId)}");
+        var content = new ByteArrayContent(chunk);
+        content.Headers.ContentLength = chunk.Length;
+        content.Headers.Add("Content-Range", $"bytes {startByte}-{endByte}/{totalBytes}");
+        req.Content = content;
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, $"PATCH /uploads-rs/{uploadId}", ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<ResumableUploadStatus>(JsonOptions, ct).ConfigureAwait(false)
+            ?? throw new LightHouseProtocolException("PATCH /uploads-rs response body 빈 값.");
+    }
+
+    /// <summary>**D-S7-5 phase 2** — `GET /uploads-rs/{id}` — 현 offset 조회 (resume hook).</summary>
+    public async Task<ResumableUploadStatus> GetResumableUploadStatusAsync(
+        string uploadId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
+        using var req = NewRequest(HttpMethod.Get, $"uploads-rs/{Uri.EscapeDataString(uploadId)}");
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, $"GET /uploads-rs/{uploadId}", ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<ResumableUploadStatus>(JsonOptions, ct).ConfigureAwait(false)
+            ?? throw new LightHouseProtocolException("GET /uploads-rs response body 빈 값.");
+    }
+
+    /// <summary>
+    /// **D-S7-5 phase 2** — `POST /uploads-rs/{id}/finalize` — collection 등록 (zip extract + Registry upsert + EventBus).
+    /// 응답 = `{ id: collection-guid, storageRelPath }`. 415 = IndexerVersion gate / 400 = zip 결함 / 409 = incomplete.
+    /// </summary>
+    public async Task<UploadResponse> FinalizeResumableUploadAsync(
+        string uploadId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
+        using var req = NewRequest(HttpMethod.Post, $"uploads-rs/{Uri.EscapeDataString(uploadId)}/finalize");
+        req.Content = new StringContent("", System.Text.Encoding.UTF8, "application/json");
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, $"POST /uploads-rs/{uploadId}/finalize", ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<UploadResponse>(JsonOptions, ct).ConfigureAwait(false)
+            ?? throw new LightHouseProtocolException("POST /uploads-rs finalize response body 빈 값.");
+    }
+
+    /// <summary>**D-S7-5 phase 2** — `DELETE /uploads-rs/{id}` — cancel + staging cleanup.</summary>
+    public async Task DeleteResumableUploadAsync(string uploadId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
+        using var req = NewRequest(HttpMethod.Delete, $"uploads-rs/{Uri.EscapeDataString(uploadId)}");
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        await EnsureSuccessOrThrow(resp, $"DELETE /uploads-rs/{uploadId}", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// **D-S7-5 phase 2 wrapper** — full round-trip: start → chunked PATCH → finalize. 큰 zip 의 안전한 upload path.
+    /// caller 가 progress callback 받음 (optional). 실패 시 자동 DELETE (cleanup) — 단, OperationCanceledException
+    /// 은 cleanup 생략 (resume hook 보존, 사용자가 명시 DELETE 또는 StagingSweep idle TTL backstop).
+    /// </summary>
+    /// <param name="chunkSize">권장 4~8 MB. server-side maxUploadBytes 정합 의무.</param>
+    public async Task<string> UploadCollectionResumableAsync(
+        string title,
+        Stream zipStream,
+        int chunkSize = 4 * 1024 * 1024,
+        IProgress<(long sent, long total)>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("title 필수.", nameof(title));
+        if (zipStream is null) throw new ArgumentNullException(nameof(zipStream));
+        if (chunkSize <= 0) throw new ArgumentOutOfRangeException(nameof(chunkSize), chunkSize, ">0 필수");
+        if (!zipStream.CanSeek) throw new ArgumentException("zipStream must be seekable (Length 의무).", nameof(zipStream));
+
+        var totalBytes = zipStream.Length;
+        var start = await StartResumableUploadAsync(title, totalBytes, ct).ConfigureAwait(false);
+        try
+        {
+            var buffer = new byte[chunkSize];
+            long offset = 0;
+            while (offset < totalBytes)
+            {
+                ct.ThrowIfCancellationRequested();
+                var remaining = totalBytes - offset;
+                var thisChunkLen = (int)Math.Min((long)chunkSize, remaining);
+                zipStream.Seek(offset, SeekOrigin.Begin);
+                var readTotal = 0;
+                while (readTotal < thisChunkLen)
+                {
+                    var r = await zipStream.ReadAsync(buffer.AsMemory(readTotal, thisChunkLen - readTotal), ct).ConfigureAwait(false);
+                    if (r == 0) throw new IOException($"zipStream EOF 조기 도달 — offset={offset} read={readTotal}/{thisChunkLen}");
+                    readTotal += r;
+                }
+                var chunk = new byte[thisChunkLen];
+                Buffer.BlockCopy(buffer, 0, chunk, 0, thisChunkLen);
+                var status = await PatchResumableChunkAsync(
+                    start.UploadId, chunk, offset, offset + thisChunkLen - 1, totalBytes, ct).ConfigureAwait(false);
+                offset = status.Offset;
+                progress?.Report((offset, totalBytes));
+            }
+            var finalResp = await FinalizeResumableUploadAsync(start.UploadId, ct).ConfigureAwait(false);
+            return finalResp.Id;
+        }
+        catch (OperationCanceledException)
+        {
+            // resume 가능 — staging 보존. 사용자가 별 호출로 DELETE 또는 StagingSweep idle TTL backstop.
+            throw;
+        }
+        catch
+        {
+            // 다른 실패 (size mismatch / 415 / 400) — server-side cleanup. caller 가 retry 시 새 uploadId 발급.
+            try { await DeleteResumableUploadAsync(start.UploadId, CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception delEx) { Log.Warn($"DeleteResumableUpload cleanup 실패 (best-effort): {delEx.Message}"); }
+            throw;
+        }
+    }
+
     /// <summary>
     /// **D-S7-2c (s6-r32)** — `POST /events/caption-progress` — Phase 2 vision caption 진행률 client → server publish.
     /// server 는 검증 (collectionId / progress 0~100) 후 EventBus 로 fan-out — 다른 subscriber (codex / 별 Promaker
@@ -482,10 +625,27 @@ public sealed class LightHouseClient : IDisposable
 
 // ── Response DTOs (camelCase 직렬화) ─────────────────────────────────────────
 
-internal sealed class UploadResponse
+public sealed class UploadResponse
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("storageRelPath")] public string StorageRelPath { get; set; } = "";
+}
+
+/// <summary>D-S7-5 phase 2 — POST /uploads-rs 응답.</summary>
+public sealed class ResumableUploadStart
+{
+    [JsonPropertyName("uploadId")] public string UploadId { get; set; } = "";
+    [JsonPropertyName("offset")] public long Offset { get; set; }
+    [JsonPropertyName("totalBytes")] public long TotalBytes { get; set; }
+}
+
+/// <summary>D-S7-5 phase 2 — PATCH / GET /uploads-rs 응답.</summary>
+public sealed class ResumableUploadStatus
+{
+    [JsonPropertyName("uploadId")] public string UploadId { get; set; } = "";
+    [JsonPropertyName("offset")] public long Offset { get; set; }
+    [JsonPropertyName("totalBytes")] public long TotalBytes { get; set; }
+    [JsonPropertyName("title")] public string? Title { get; set; }
 }
 
 public sealed class CollectionInfo

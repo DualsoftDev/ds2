@@ -67,7 +67,8 @@ module CollectionEndpoints =
     /// `Compatible` → `true` 반환 (caller 가 후속 박제). 나머지 → 415/400 응답 박제 + `false` 반환.
     /// `labelSuffix` = "" (postCollections) 또는 " (swap)" (postCollectionPayload) — log 메시지 식별용.
     /// postCollectionPayload 의 Missing 분기에 누락되어 있던 Log.audit.Warn 박제도 본 helper 안에서 일관 박제.
-    let private processStagingExtractGate
+    // **D-S7-5 phase 2 (s6-r63)** — `private` 제거 → 다른 module (UploadsEndpoint.postFinalize) 도 본 helper 호출. SSOT 유지.
+    let processStagingExtractGate
         (ctx: HttpContext)
         (storageRoot: string)
         (stagingId: string)
