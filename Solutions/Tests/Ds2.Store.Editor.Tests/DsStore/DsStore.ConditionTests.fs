@@ -8,247 +8,260 @@ open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
 // =============================================================================
-// 조건 CRUD + Undo
+// 공용 setup — Call 한 개 + 같은 Work 안에 ApiCall 2 개
 // =============================================================================
 
-module ConditionCrudTests =
+let private setupCallWithApiCalls (store: DsStore) =
+    let project = addProject store "P"
+    let system = addSystem store "S" project.Id false
+    let activeSystem = addSystem store "A" project.Id true
+    let flow = addFlow store "F" activeSystem.Id
+    let work = addWork store "W" flow.Id
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let call = store.Calls.Values |> Seq.head
+    let apiDef1 = addApiDef store "Api1" system.Id
+    let apiDef2 = addApiDef store "Api2" system.Id
+    let ac1 = store.AddApiCallFromPanel(call.Id, apiDef1.Id, "", "", "", "", 0, "", 0, "")
+    let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "")
+    project, system, work, call, ac1, ac2
 
-    let private setupCallWithApiCall (store: DsStore) =
-        let project = addProject store "P"
-        let system = addSystem store "S" project.Id false
-        let activeSystem = addSystem store "A" project.Id true
-        let flow = addFlow store "F" activeSystem.Id
-        let work = addWork store "W" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
-        let call = store.Calls.Values |> Seq.head
-        let apiDef = addApiDef store "Api1" system.Id
-        let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "", false)
-        project, system, call, apiDef, apiCallId
+// 트리 DTO 빌드 헬퍼
+let private dtoFlat isOr (ids: Guid list) : ConditionTreeDto =
+    let kinds = List.replicate ids.Length ContactKind.NoContact
+    { IsOR = isOr; IsInverted = false
+      ApiCallIds     = ids   :> System.Collections.Generic.IReadOnlyList<_>
+      ApiCallKinds   = kinds :> System.Collections.Generic.IReadOnlyList<_>
+      RawSymbols     = ([]: string list)      :> System.Collections.Generic.IReadOnlyList<_>
+      RawSymbolKinds = ([]: ContactKind list) :> System.Collections.Generic.IReadOnlyList<_>
+      Children       = ([]: ConditionTreeDto list) :> System.Collections.Generic.IReadOnlyList<_> }
 
-    // ── ReplaceCallConditionTree round-trip ──────────────────────────────
-    let private dtoEx isOr isInverted (ids: Guid list) (kinds: ContactKind list)
-                       (children: CallConditionTreeDto list) : CallConditionTreeDto =
-        { IsOR = isOr; IsInverted = isInverted
-          ApiCallIds     = ids   :> System.Collections.Generic.IReadOnlyList<_>
-          ApiCallKinds   = kinds :> System.Collections.Generic.IReadOnlyList<_>
-          RawSymbols     = ([]: string list)      :> System.Collections.Generic.IReadOnlyList<_>
-          RawSymbolKinds = ([]: ContactKind list) :> System.Collections.Generic.IReadOnlyList<_>
-          Children       = children :> System.Collections.Generic.IReadOnlyList<_> }
 
-    let private dto isOr (ids: Guid list) (children: CallConditionTreeDto list) : CallConditionTreeDto =
-        let kinds = List.replicate ids.Length ContactKind.NoContact
-        dtoEx isOr false ids kinds children
+// =============================================================================
+// Call 조건 CRUD
+// =============================================================================
 
-    [<Fact>]
-    let ``ReplaceCallConditionTree saves flat AND group`` () =
-        let store = createStore ()
-        let _, system, call, _, ac1 = setupCallWithApiCall store
-        let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
-
-        let tree = dto false [ ac1; ac2 ] []
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
-
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conds.Length)
-        Assert.False(conds.[0].IsOR)
-        Assert.Equal(2, conds.[0].Items.Length)
+module CallConditionCrudTests =
 
     [<Fact>]
-    let ``ReplaceCallConditionTree saves OR group`` () =
+    let ``AddCallCondition 은 type 으로 빈 Condition 을 추가한다`` () =
         let store = createStore ()
-        let _, system, call, _, ac1 = setupCallWithApiCall store
-        let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
+        let _, _, _, call, _, _ = setupCallWithApiCalls store
 
-        let tree = dto true [ ac1; ac2 ] []
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
+        store.AddCallCondition(call.Id, ConditionType.SkipUnmatch)
 
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conds.Length)
-        Assert.True(conds.[0].IsOR)
-        Assert.Equal(2, conds.[0].Items.Length)
+        Assert.Equal(1, call.Conditions.Count)
+        Assert.Equal(Some ConditionType.SkipUnmatch, call.Conditions.[0].Type)
 
     [<Fact>]
-    let ``ReplaceCallConditionTree preserves nested OR child`` () =
+    let ``RemoveCallCondition 은 condition 을 제거하고 Undo 가 복원한다`` () =
         let store = createStore ()
-        let _, system, call, _, ac1 = setupCallWithApiCall store
-        let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
-        let apiDef3 = addApiDef store "Api3" system.Id
-        let ac3 = store.AddApiCallFromPanel(call.Id, apiDef3.Id, "", "", "", "", 0, "", 0, "", false)
+        let _, _, _, call, _, _ = setupCallWithApiCalls store
+        store.AddCallCondition(call.Id, ConditionType.SkipUnmatch)
+        let condId = (store.Calls.[call.Id]).Conditions.[0].Id
 
-        // (ac1 AND ac2) OR ac3 — root is OR, child is AND group with ac1+ac2, leaf ac3.
-        // 모델: top IsOR=true, items=[ac3], children=[{IsOR=false, items=[ac1,ac2]}]
-        let child = dto false [ ac1; ac2 ] []
-        let tree = dto true [ ac3 ] [ child ]
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
-
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conds.Length)
-        let root = conds.[0]
-        Assert.True(root.IsOR)
-        Assert.Equal(1, root.Items.Length)
-        Assert.Equal(1, root.Children.Length)
-        Assert.False(root.Children.[0].IsOR)
-        Assert.Equal(2, root.Children.[0].Items.Length)
-
-    [<Fact>]
-    let ``ReplaceCallConditionTree replaces existing of same type`` () =
-        let store = createStore ()
-        let _, _, call, _, ac1 = setupCallWithApiCall store
-
-        // 처음 1개 저장
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, dto false [ ac1 ] [])
-        Assert.Equal(1, (store.GetCallConditionsForPanel(call.Id)).Length)
-
-        // 같은 type 으로 재저장 — 기존이 사라지고 새것만 남아야 함
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, dto true [ ac1 ] [])
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conds.Length)
-        Assert.True(conds.[0].IsOR)
-
-    [<Fact>]
-    let ``AddCallCondition creates condition and supports undo`` () =
-        let store = createStore ()
-        let _, _, call, _, _ = setupCallWithApiCall store
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let conditions = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conditions.Length)
-        Assert.Equal(CallConditionType.ComAux, conditions.[0].ConditionType)
-
-        store.Undo()
-        let after = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(0, after.Length)
-
-    [<Fact>]
-    let ``RemoveCallCondition removes and supports undo`` () =
-        let store = createStore ()
-        let _, _, call, _, _ = setupCallWithApiCall store
-        store.AddCallCondition(call.Id, CallConditionType.AutoAux)
-        let condId = (store.GetCallConditionsForPanel(call.Id)).[0].ConditionId
         store.RemoveCallCondition(call.Id, condId)
-        Assert.Equal(0, (store.GetCallConditionsForPanel(call.Id)).Length)
+        Assert.Equal(0, (store.Calls.[call.Id]).Conditions.Count)
 
-        store.Undo()
-        Assert.Equal(1, (store.GetCallConditionsForPanel(call.Id)).Length)
-
-    [<Fact>]
-    let ``AddConditionWithApiCalls creates condition with ApiCalls in single transaction`` () =
-        let store = createStore ()
-        let _, _, call, _, apiCallId = setupCallWithApiCall store
-        let _condId = store.AddConditionWithApiCalls(call.Id, CallConditionType.SkipUnmatch, [ apiCallId ])
-        let conditions = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(1, conditions.Length)
-        Assert.Equal(1, conditions.[0].Items.Length)
-
-        // Undo 1회로 조건+ApiCall 모두 롤백
-        store.Undo()
-        Assert.Equal(0, (store.GetCallConditionsForPanel(call.Id)).Length)
+        // TrackMutate snapshot 은 dict entry 를 새 객체로 교체 — 항상 dict 에서 다시 fetch.
+        store.Undo() |> ignore
+        let restored = store.Calls.[call.Id]
+        Assert.Equal(1, restored.Conditions.Count)
+        Assert.Equal(condId, restored.Conditions.[0].Id)
 
     [<Fact>]
-    let ``UpdateCallConditionSettings toggles OR`` () =
+    let ``ReplaceCallConditionTree 는 같은 type 의 기존 트리를 교체한다`` () =
         let store = createStore ()
-        let _, _, call, _, _ = setupCallWithApiCall store
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let condId = (store.GetCallConditionsForPanel(call.Id)).[0].ConditionId
+        let _, _, _, call, ac1, ac2 = setupCallWithApiCalls store
+
+        store.ReplaceCallConditionTree(call.Id, ConditionType.AutoAux, dtoFlat false [ ac1 ])
+        Assert.Equal(1, call.Conditions.Count)
+        Assert.Equal(1, call.Conditions.[0].ApiCalls.Count)
+
+        // 같은 type 으로 다시 교체.
+        store.ReplaceCallConditionTree(call.Id, ConditionType.AutoAux, dtoFlat true [ ac1; ac2 ])
+        Assert.Equal(1, call.Conditions.Count)
+        Assert.Equal(2, call.Conditions.[0].ApiCalls.Count)
+        Assert.True(call.Conditions.[0].IsOR)
+
+    [<Fact>]
+    let ``AddConditionWithApiCalls 는 단일 트랜잭션으로 Condition + ApiCall 을 추가한다`` () =
+        let store = createStore ()
+        let _, _, _, call, ac1, ac2 = setupCallWithApiCalls store
+
+        let condId = store.AddConditionWithApiCalls(call.Id, ConditionType.ComAux, [ ac1; ac2 ])
+
+        Assert.Equal(1, call.Conditions.Count)
+        let cond = call.Conditions.[0]
+        Assert.Equal(condId, cond.Id)
+        Assert.Equal(Some ConditionType.ComAux, cond.Type)
+        Assert.Equal(2, cond.ApiCalls.Count)
+
+    [<Fact>]
+    let ``AddChildCondition 은 중첩 condition 을 추가한다`` () =
+        let store = createStore ()
+        let _, _, _, call, _, _ = setupCallWithApiCalls store
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let parentId = call.Conditions.[0].Id
+
+        store.AddChildCondition(call.Id, parentId, true)
+
+        Assert.Equal(1, call.Conditions.[0].Children.Count)
+        Assert.True(call.Conditions.[0].Children.[0].IsOR)
+
+    [<Fact>]
+    let ``UpdateCallConditionSettings 는 IsOR 을 토글한다`` () =
+        let store = createStore ()
+        let _, _, _, call, _, _ = setupCallWithApiCalls store
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let condId = call.Conditions.[0].Id
 
         let changed = store.UpdateCallConditionSettings(call.Id, condId, true)
         Assert.True(changed)
-        let cond = (store.GetCallConditionsForPanel(call.Id)).[0]
-        Assert.True(cond.IsOR)
+        Assert.True(call.Conditions.[0].IsOR)
 
-        // 같은 값이면 false 반환
-        let notChanged = store.UpdateCallConditionSettings(call.Id, condId, true)
-        Assert.False(notChanged)
+        let changedAgain = store.UpdateCallConditionSettings(call.Id, condId, true)
+        Assert.False(changedAgain)
 
-    [<Fact>]
-    let ``ReplaceCallConditionTree preserves per-leaf ContactKind`` () =
-        let store = createStore ()
-        let _, system, call, _, ac1 = setupCallWithApiCall store
-        let apiDef2 = addApiDef store "Api2" system.Id
-        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "", false)
-        let tree = dtoEx false false [ ac1; ac2 ]
-                          [ ContactKind.NcContact; ContactKind.RisingPulse ] []
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(2, conds.[0].Items.Length)
-        Assert.Equal(ContactKind.NcContact,   conds.[0].Items.[0].ContactKind)
-        Assert.Equal(ContactKind.RisingPulse, conds.[0].Items.[1].ContactKind)
-
-    [<Fact>]
-    let ``ReplaceCallConditionTree preserves Inverter placeholder leaf`` () =
-        let store = createStore ()
-        let _, _, call, _, ac1 = setupCallWithApiCall store
-        // 인버터 leaf 는 Guid.Empty + ContactKind.Inverter 로 들어감.
-        let tree = dtoEx false false [ ac1; Guid.Empty ]
-                          [ ContactKind.NoContact; ContactKind.Inverter ] []
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.Equal(2, conds.[0].Items.Length)
-        let kinds = conds.[0].Items |> List.map (fun i -> i.ContactKind)
-        Assert.Contains(ContactKind.Inverter, kinds)
-
-    [<Fact>]
-    let ``ReplaceCallConditionTree preserves IsInverted on group`` () =
-        let store = createStore ()
-        let _, _, call, _, ac1 = setupCallWithApiCall store
-        let tree = dtoEx false true [ ac1 ] [ ContactKind.NoContact ] []
-        store.ReplaceCallConditionTree(call.Id, CallConditionType.AutoAux, tree)
-        let conds = store.GetCallConditionsForPanel(call.Id)
-        Assert.True(conds.[0].IsInverted)
-
-    [<Fact>]
-    let ``AddChildCondition creates nested condition`` () =
-        let store = createStore ()
-        let _, _, call, _, _ = setupCallWithApiCall store
-        store.AddCallCondition(call.Id, CallConditionType.AutoAux)
-        let condId = (store.GetCallConditionsForPanel(call.Id)).[0].ConditionId
-        store.AddChildCondition(call.Id, condId, true)
-
-        let cond = (store.GetCallConditionsForPanel(call.Id)).[0]
-        Assert.Equal(1, cond.Children.Length)
-        Assert.True(cond.Children.[0].IsOR)
 
 // =============================================================================
-// FormulaText 수식 생성
+// Work 조건 CRUD (신규 — Work 에도 동일 Condition 모델 적용)
 // =============================================================================
 
-module FormulaTextTests =
+module WorkConditionCrudTests =
 
-    let private aci (name: string) (spec: string) =
-        CallConditionApiCallItem(Guid.NewGuid(), name, name, spec, 0, "", 0,
-                                 ContactKind.NoContact, ValueSpec.UndefinedValue, false)
-
-    let private panel isOr items children =
-        CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux,
-                               isOr, false, items, children)
+    let private setupWorkWithApiCalls (store: DsStore) =
+        let project, _, work, _, ac1, ac2 = setupCallWithApiCalls store
+        project, work, ac1, ac2
 
     [<Fact>]
-    let ``Empty condition returns (empty)`` () =
-        Assert.Equal("(empty)", (panel false [] []).FormulaText())
+    let ``AddWorkCondition 은 type 으로 빈 Condition 을 추가한다`` () =
+        let store = createStore ()
+        let _, work, _, _ = setupWorkWithApiCalls store
+
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+
+        Assert.Equal(1, work.Conditions.Count)
+        Assert.Equal(Some ConditionType.SkipUnmatch, work.Conditions.[0].Type)
 
     [<Fact>]
-    let ``Single ApiCall shows name only`` () =
-        Assert.Equal("MyApi", (panel false [aci "MyApi" ""] []).FormulaText())
+    let ``RemoveWorkCondition 은 condition 을 제거하고 Undo 가 복원한다`` () =
+        let store = createStore ()
+        let _, work, _, _ = setupWorkWithApiCalls store
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        let condId = (store.Works.[work.Id]).Conditions.[0].Id
+
+        store.RemoveWorkCondition(work.Id, condId)
+        Assert.Equal(0, (store.Works.[work.Id]).Conditions.Count)
+
+        store.Undo() |> ignore
+        let restored = store.Works.[work.Id]
+        Assert.Equal(1, restored.Conditions.Count)
+        Assert.Equal(condId, restored.Conditions.[0].Id)
 
     [<Fact>]
-    let ``ApiCall with spec shows name=spec`` () =
-        Assert.Equal("MyApi=True", (panel false [aci "MyApi" "True"] []).FormulaText())
+    let ``ReplaceWorkConditionTree 는 같은 type 의 기존 트리를 교체한다`` () =
+        let store = createStore ()
+        let _, work, ac1, ac2 = setupWorkWithApiCalls store
+
+        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipUnmatch, dtoFlat false [ ac1 ])
+        Assert.Equal(1, work.Conditions.Count)
+        Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
+
+        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipUnmatch, dtoFlat true [ ac1; ac2 ])
+        Assert.Equal(1, work.Conditions.Count)
+        Assert.Equal(2, work.Conditions.[0].ApiCalls.Count)
+        Assert.True(work.Conditions.[0].IsOR)
 
     [<Fact>]
-    let ``Undefined spec is hidden`` () =
-        Assert.Equal("MyApi", (panel false [aci "MyApi" "Undefined"] []).FormulaText())
+    let ``AddWorkConditionWithApiCalls 는 단일 트랜잭션으로 Condition + ApiCall 을 추가한다`` () =
+        let store = createStore ()
+        let _, work, ac1, ac2 = setupWorkWithApiCalls store
+
+        let condId = store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1; ac2 ])
+
+        Assert.Equal(1, work.Conditions.Count)
+        let cond = work.Conditions.[0]
+        Assert.Equal(condId, cond.Id)
+        Assert.Equal(Some ConditionType.SkipUnmatch, cond.Type)
+        Assert.Equal(2, cond.ApiCalls.Count)
 
     [<Fact>]
-    let ``AND operator joins with &`` () =
-        Assert.Equal("A&B", (panel false [aci "A" ""; aci "B" ""] []).FormulaText())
+    let ``AddWorkChildCondition 은 중첩 condition 을 추가한다`` () =
+        let store = createStore ()
+        let _, work, _, _ = setupWorkWithApiCalls store
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        let parentId = work.Conditions.[0].Id
+
+        store.AddWorkChildCondition(work.Id, parentId, true)
+
+        Assert.Equal(1, work.Conditions.[0].Children.Count)
+        Assert.True(work.Conditions.[0].Children.[0].IsOR)
 
     [<Fact>]
-    let ``OR operator joins with |`` () =
-        Assert.Equal("A|B", (panel true [aci "A" ""; aci "B" ""] []).FormulaText())
+    let ``UpdateWorkConditionSettings 는 IsOR 을 토글한다`` () =
+        let store = createStore ()
+        let _, work, _, _ = setupWorkWithApiCalls store
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        let condId = work.Conditions.[0].Id
+
+        let changed = store.UpdateWorkConditionSettings(work.Id, condId, true)
+        Assert.True(changed)
+        Assert.True(work.Conditions.[0].IsOR)
 
     [<Fact>]
-    let ``Children are wrapped in parentheses`` () =
-        let child = panel true [aci "A" ""] []
-        Assert.Equal("B&(A)", (panel false [aci "B" ""] [child]).FormulaText())
+    let ``AddApiCallsToWorkConditionBatch 는 기존 condition 에 ApiCall 들을 추가한다`` () =
+        let store = createStore ()
+        let _, work, ac1, ac2 = setupWorkWithApiCalls store
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        let condId = work.Conditions.[0].Id
+
+        let added = store.AddApiCallsToWorkConditionBatch(work.Id, condId, [ ac1; ac2 ])
+
+        Assert.Equal(2, added)
+        Assert.Equal(2, work.Conditions.[0].ApiCalls.Count)
+
+    [<Fact>]
+    let ``RemoveApiCallFromWorkCondition 은 단일 ApiCall 만 제거한다`` () =
+        let store = createStore ()
+        let _, work, ac1, ac2 = setupWorkWithApiCalls store
+        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1; ac2 ]) |> ignore
+        let condId = work.Conditions.[0].Id
+
+        store.RemoveApiCallFromWorkCondition(work.Id, condId, ac1)
+
+        Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
+        Assert.Equal(ac2, work.Conditions.[0].ApiCalls.[0].Id)
+
+    [<Fact>]
+    let ``GetWorkConditionsForPanel 은 추가된 Work condition 을 패널 형식으로 반환한다`` () =
+        let store = createStore ()
+        let _, work, ac1, _ = setupWorkWithApiCalls store
+        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1 ]) |> ignore
+
+        let items = store.GetWorkConditionsForPanel(work.Id)
+
+        Assert.Equal(1, items.Length)
+        Assert.Equal(ConditionType.SkipUnmatch, items.[0].ConditionType)
+
+
+// =============================================================================
+// Work / Call 독립성 — 같은 store 안에서 서로 영향 없음
+// =============================================================================
+
+module CallWorkIsolationTests =
+
+    [<Fact>]
+    let ``Work 에 추가한 condition 은 같은 work 의 Call 에 영향을 주지 않는다`` () =
+        let store = createStore ()
+        let _, _, work, call, ac1, _ = setupCallWithApiCalls store
+
+        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddCallCondition(call.Id, ConditionType.AutoAux)
+        store.AddApiCallsToWorkConditionBatch(work.Id, work.Conditions.[0].Id, [ ac1 ]) |> ignore
+
+        Assert.Equal(1, work.Conditions.Count)
+        Assert.Equal(1, call.Conditions.Count)
+        Assert.Equal(Some ConditionType.SkipUnmatch, work.Conditions.[0].Type)
+        Assert.Equal(Some ConditionType.AutoAux,    call.Conditions.[0].Type)
+        Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
+        Assert.Equal(0, call.Conditions.[0].ApiCalls.Count)

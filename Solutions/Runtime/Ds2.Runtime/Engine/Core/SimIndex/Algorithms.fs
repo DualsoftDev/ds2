@@ -6,12 +6,6 @@ open Ds2.Core.Store
 
 module internal SimIndexAlgorithms =
 
-    type ConditionEntryData = {
-        RxWorkGuid: Guid
-        ApiCallGuid: Guid option
-        InputSpec: ValueSpec
-    }
-
     let resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDef -> Guid option) =
         apiCallGuids
         |> List.choose (fun apiCallId ->
@@ -123,9 +117,28 @@ module internal SimIndexAlgorithms =
             |> List.filter (fun (_, excludedCalls) -> not excludedCalls.IsEmpty)
         |> Map.ofList
 
-    /// 한 CallCondition 의 직접 ApiCall list 를 ConditionEntryData list 로.
+    let private normalizeRawName (name: string) =
+        if isNull name then "" else name.Trim().ToUpperInvariant()
+
+    let private rawConstantExpression (apiCall: ApiCall) =
+        match normalizeRawName apiCall.Name with
+        | "_ON" -> Some true
+        | "_OFF" -> Some false
+        | "__INVERTER__" when apiCall.ContactKind = ContactKind.Inverter -> None
+        | "" when apiCall.ContactKind = ContactKind.Inverter -> None
+        | "" -> None
+        | _ -> Some false
+        |> Option.map (fun value ->
+            match apiCall.ContactKind with
+            | ContactKind.NcContact
+            | ContactKind.Inverter -> Const (not value)
+            | ContactKind.RisingPulse
+            | ContactKind.FallingPulse -> Const false
+            | _ -> Const value)
+
+    /// 한 Condition 의 직접 ApiCall list 를 ConditionExpression list 로.
     /// children 은 호출자가 별도 재귀 처리 (트리 구조 보존).
-    let convertApiCallsToEntries (store: DsStore) (apiCalls: ApiCall seq) : ConditionEntryData list =
+    let convertApiCallsToExpressions (store: DsStore) (apiCalls: ApiCall seq) : ConditionExpression list =
         apiCalls
         |> Seq.choose (fun apiCall ->
             match apiCall.ApiDefId with
@@ -134,14 +147,15 @@ module internal SimIndexAlgorithms =
                 | Some apiDef ->
                     match apiDef.RxGuid with
                     | Some rxWorkGuid ->
-                        Some {
+                        Some (Leaf {
                             RxWorkGuid = rxWorkGuid
                             ApiCallGuid = Some apiCall.Id
                             InputSpec = apiCall.InputSpec
-                        }
-                    | None -> None
-                | None -> None
-            | None -> None)
+                            ContactKind = apiCall.ContactKind
+                        })
+                    | None -> Some (Const false)
+                | None -> Some (Const false)
+            | None -> rawConstantExpression apiCall)
         |> Seq.toList
 
     let findOrEmpty key map =

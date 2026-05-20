@@ -59,7 +59,7 @@ public partial class ConditionEditDialog
         UpdateStatusBar();
     }
 
-    /// <summary>편집된 CoilCondition 을 CallConditionTreeDto 로 재귀 매핑 후 ReplaceCallConditionTree 호출.
+    /// <summary>편집된 CoilCondition 을 ConditionTreeDto 로 재귀 매핑 후 ReplaceCallConditionTree 호출.
     /// 중첩 And/Or 구조 보존. 알 수 없는 leaf 는 무시.
     /// 안전장치: _isDirty=false 또는 매핑된 leaf 0 개면 skip — 기존 store 보존.
     /// </summary>
@@ -74,13 +74,16 @@ public partial class ConditionEditDialog
         // 매핑된 leaf 한 개도 없으면 skip — 빈 트리 저장 방지.
         if (CountLeaves(dto) == 0) return;
 
-        _host.TryAction(() => _store.ReplaceCallConditionTree(_callId, _condType, dto));
+        if (_ownerKind == EntityKind.Work)
+            _host.TryAction(() => _store.ReplaceWorkConditionTree(_callId, _condType, dto));
+        else
+            _host.TryAction(() => _store.ReplaceCallConditionTree(_callId, _condType, dto));
     }
 
-    /// <summary>CoilCondition → CallConditionTreeDto 재귀 변환.
+    /// <summary>CoilCondition → ConditionTreeDto 재귀 변환.
     /// per-leaf ContactKind, group IsInverted 모두 보존.
     /// ApiCall 매핑 안 되는 leaf (_ON/_OFF 등 raw 심볼) 는 RawSymbols 에 보존.</summary>
-    private static CallConditionTreeDto? ToDto(CoilCondition c, Dictionary<string, Guid> nameToId)
+    private static ConditionTreeDto? ToDto(CoilCondition c, Dictionary<string, Guid> nameToId)
     {
         // Leaf: 단일 leaf 를 isOR=false 그룹으로 감싸 단일화 처리.
         // Not(Raw "") 인버터 placeholder 는 leaf 로 처리.
@@ -116,7 +119,7 @@ public partial class ConditionEditDialog
         var apiCallKinds = new List<ContactKind>();
         var rawSymbols = new List<string>();
         var rawSymbolKinds = new List<ContactKind>();
-        var children = new List<CallConditionTreeDto>();
+        var children = new List<ConditionTreeDto>();
 
         foreach (var op in ops)
         {
@@ -141,7 +144,7 @@ public partial class ConditionEditDialog
                 if (child is not null) children.Add(child);
             }
         }
-        return new CallConditionTreeDto(isOr, isInverted,
+        return new ConditionTreeDto(isOr, isInverted,
                                          apiCallIds, apiCallKinds,
                                          rawSymbols, rawSymbolKinds,
                                          children);
@@ -196,21 +199,10 @@ public partial class ConditionEditDialog
         }
     }
 
-    private static int CountLeaves(CallConditionTreeDto d) =>
+    private static int CountLeaves(ConditionTreeDto d) =>
         d.ApiCallIds.Count + d.RawSymbols.Count + d.Children.Sum(CountLeaves);
 
     /// <summary>buildPreview 와 동일한 `{System.Name}.{ApiDef.Name}` 포맷 → ApiCall.Id lookup.</summary>
     private Dictionary<string, Guid> BuildDisplayNameToApiCallId()
-    {
-        var map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ac in _store.ApiCalls.Values)
-        {
-            if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
-            if (!_store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var def)) continue;
-            if (!_store.Systems.TryGetValue(def.ParentId, out var sys)) continue;
-            var key = $"{sys.Name}.{def.Name}";
-            if (!map.ContainsKey(key)) map[key] = ac.Id;
-        }
-        return map;
-    }
+        => ConditionDialogSymbolResolver.BuildDisplayNameToApiCallId(_store, _callId, _ownerKind, _condType);
 }

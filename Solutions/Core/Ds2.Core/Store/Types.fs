@@ -14,12 +14,7 @@ module Labels =
     let [<Literal>] PeriodMs    = "Period (ms)"
     let [<Literal>] TxWork      = "TX Work"
     let [<Literal>] RxWork      = "RX Work"
-    let [<Literal>] Push        = "Push"
-    let [<Literal>] Normal      = "Normal"
-    let [<Literal>] Pulse       = "Pulse"
-    let [<Literal>] TimeTotal   = "TimeTotal"
-    let [<Literal>] TimeAppend  = "TimeAppend"
-    let [<Literal>] MultiAction = "MultiAction"
+    // v10: Push / Normal / Pulse / TimeTotal / TimeAppend / MultiAction 라벨 폐기 — ActionType/SensingType Smart Ctor 표기 사용.
     let [<Literal>] ApiDef      = "ApiDef"
     let [<Literal>] OutTag      = "Out tag"
     let [<Literal>] OutAddress  = "Out address"

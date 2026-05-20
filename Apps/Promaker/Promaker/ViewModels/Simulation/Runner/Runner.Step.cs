@@ -75,6 +75,9 @@ public partial class SimulationPanelState
         // batch 의 unit 모두 finish 까지 단계적 advance + wait.
         // 각 nextEventTime 까지 real-time wait 후 그 시점에 AdvanceSimulationTo 호출 →
         // 이벤트들이 그 시점에 발화 → GanttChart 가 시간선 따라 표시 (점프 X).
+        // step 진행 중에는 interpolator 가 paused 상태에서도 보간하도록 stepping flag 켠다.
+        _clockInterpolator.IsStepping = true;
+        _clockInterpolator.ResetBase();
         GanttChart.IsRunning = true;
         try
         {
@@ -105,8 +108,11 @@ public partial class SimulationPanelState
         finally
         {
             engine.EndStep();
-            GanttChart.IsRunning = false;
+            _clockInterpolator.IsStepping = false;
+            // CurrentTime 을 sim clock 끝 시점으로 *먼저* set (= Going 끝 시점).
+            // IsRunning=false 가 먼저 가면 타이머 즉시 정지 → 마지막 RenderAll 이 advance 직전 보간 값에서 멈춤.
             GanttChart.CurrentTime = ToGanttTimestamp(engine.State.Clock);
+            GanttChart.IsRunning = false;
         }
 
         AddSimLog(progressed ? "STEP 실행" : "STEP 진행 없음", LogSeverity.System);

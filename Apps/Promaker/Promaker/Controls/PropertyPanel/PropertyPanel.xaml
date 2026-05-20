@@ -369,6 +369,28 @@
                                    Margin="0,2,0,0"
                                    Visibility="{Binding HasLinkedTokenSpec, Converter={StaticResource BoolToVis}}"/>
                         <Separator Margin="0,12"/>
+
+                        <!-- Work 는 SkipUnmatch 만 의미 — ConditionSections[0] 만 직접 노출 (Call 영역의 3-section ItemsControl 재사용 안 함) -->
+                        <ContentControl Visibility="{Binding IsSingleWorkSelected, Converter={StaticResource BoolToVis}}"
+                                        Content="{Binding ConditionSections[0]}">
+                            <ContentControl.ContentTemplate>
+                                <DataTemplate DataType="{x:Type vm:ConditionSectionItem}">
+                                    <ctrl:ConditionSectionControl
+                                        HeaderText="{Binding Header}"
+                                        HelpTopic="{Binding HelpTopic}"
+                                        ConditionType="{Binding ConditionType}"
+                                        ItemsSource="{Binding Conditions}"
+                                        RemoveConditionCommand="{Binding DataContext.RemoveCallConditionCommand, ElementName=PanelRoot}"
+                                        EditConditionsCommand="{Binding DataContext.EditConditionsCommand, ElementName=PanelRoot}"
+                                        EditConditionsParameter="{Binding}"
+                                        DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
+                                        DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
+                                        NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
+                                        RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, ElementName=PanelRoot}"
+                                        EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, ElementName=PanelRoot}"/>
+                                </DataTemplate>
+                            </ContentControl.ContentTemplate>
+                        </ContentControl>
                     </StackPanel>
 
                     <StackPanel Visibility="{Binding IsCallSelected, Converter={StaticResource BoolToVis}}">

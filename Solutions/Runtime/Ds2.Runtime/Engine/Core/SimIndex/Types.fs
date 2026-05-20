@@ -8,15 +8,18 @@ type ConditionEntry = {
     RxWorkGuid: Guid
     ApiCallGuid: Guid option
     InputSpec: ValueSpec
+    ContactKind: ContactKind
 }
 
-/// CallCondition 트리 구조 보존 — isOR 플래그를 evaluate 단계까지 전달.
-/// And/Or 중첩으로 사용자 모델의 `A | (B|C)` 같은 표현 정확히 평가.
+/// Condition 트리 구조 보존 — isOR/isInverted 플래그를 evaluate 단계까지 전달.
+/// And/Or/Not 중첩으로 사용자 모델의 `A | !(B&C)` 같은 표현 정확히 평가.
 /// 빈 And 는 true (= 조건 없음 통과), 빈 Or 는 false.
 type ConditionExpression =
+    | Const of bool
     | Leaf of ConditionEntry
     | And of ConditionExpression list
     | Or of ConditionExpression list
+    | Not of ConditionExpression
 
 type SimIndex = {
     Store: DsStore
@@ -38,6 +41,7 @@ type SimIndex = {
     CallAutoAuxConditions: Map<Guid, ConditionExpression>
     CallComAuxConditions: Map<Guid, ConditionExpression>
     CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
+    WorkSkipUnmatchConditions: Map<Guid, ConditionExpression>
     WorkReferenceGroups: Map<Guid, Guid list>
     WorkGroupSets: Map<Guid, Set<Guid>>
     CallCanonicalGuids: Map<Guid, Guid>
@@ -81,6 +85,7 @@ type internal SimIndexBuildState = {
     mutable CallAutoAuxConditions: Map<Guid, ConditionExpression>
     mutable CallComAuxConditions: Map<Guid, ConditionExpression>
     mutable CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
+    mutable WorkSkipUnmatchConditions: Map<Guid, ConditionExpression>
     mutable CallTypeMap: Map<Guid, CallType>
     mutable CallTimeoutMap: Map<Guid, TimeSpan>
 }

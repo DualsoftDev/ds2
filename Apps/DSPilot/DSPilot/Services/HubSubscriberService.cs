@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using Ds2.Backend.Common;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -26,9 +25,9 @@ internal sealed class InfinitePromakerRetryPolicy : IRetryPolicy
 /// <summary>
 /// Promaker SignalHub 클라이언트. 기본 URL = http://localhost:5051/hub/signal (Promaker Monitoring 모드).
 /// Control 모드(5050) 또는 원격 인스턴스 구독으로 전환하려면 Settings 페이지 'Hub' 섹션에서 URL 변경 후
-/// DSPilot 서비스 재시작. OnTagChanged 신호는 채널 큐에 enqueue → 단일 컨슈머가 순차적으로
-/// SimulationEngineService 로 위임. SignalR client 의 콜백 동시 진입 가능성에 대비한 defense-in-depth
-/// + Promaker idle 시 30초 server-timeout 으로 인한 잡음 reconnect 차단.
+/// DSPilot 서비스 재시작. OnTagChanged 신호는 <see cref="HubSignalProcessor"/> 채널 큐에 enqueue →
+/// 단일 컨슈머가 순차적으로 SimulationEngineService 로 위임. SignalR client 의 콜백 동시 진입 가능성에
+/// 대비한 defense-in-depth + Promaker idle 시 30초 server-timeout 으로 인한 잡음 reconnect 차단.
 /// </summary>
 public sealed class HubSubscriberService : BackgroundService
 {
@@ -37,15 +36,18 @@ public sealed class HubSubscriberService : BackgroundService
     private readonly SimulationEngineService _engineService;
 
     private HubConnection? _connection;
-    private HashSet<string> _acceptedSources = new(StringComparer.OrdinalIgnoreCase);
+    private HubSignalProcessor? _processor;
 
     // StartAsync 호출 직렬화 — 시작용 retry loop 와 NudgeConnectAsync 가 동시에 StartAsync 를
     // 호출하면 SignalR client 가 InvalidOperationException("Cannot start the connection while it
     // is in the Connecting state.") 던진다.
     private readonly SemaphoreSlim _startGate = new(1, 1);
 
-    private readonly Channel<HubSignal> _signalChannel = Channel.CreateUnbounded<HubSignal>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    // spec §SignalR — drop rate metric 임계. 누적 drop ≥ 100 + 마지막 Error 후 10s 경과 시 LogError.
+    private long _lastDropReportTicks;
+    private const long DropReportIntervalTicks = 10L * TimeSpan.TicksPerSecond;
+    private const long DropReportThreshold = 100;
+    private const int HandleHubTagMaxRetries = 3;
 
     /// <summary>
     /// 현재 Promaker hub 연결 상태. UI 헤더가 표시용으로 읽음.
@@ -53,6 +55,12 @@ public sealed class HubSubscriberService : BackgroundService
     /// </summary>
     public HubConnectionState CurrentStatus =>
         _connection?.State ?? HubConnectionState.Disconnected;
+
+    /// <summary>현재까지 누적 channel drop count. 메트릭/진단용.</summary>
+    public long ChannelDropCount => _processor?.DropCount ?? 0;
+
+    /// <summary>현재까지 누적 dead-letter count. 메트릭/진단용.</summary>
+    public long HandleHubDeadLetters => _processor?.DeadLetterCount ?? 0;
 
     /// <summary>
     /// 연결 상태 전이 시 발화. Blazor 헤더 배지가 구독해 StateHasChanged 호출.
@@ -81,19 +89,31 @@ public sealed class HubSubscriberService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var hubUrl = _configuration["Hub:Url"] ?? "http://localhost:5051/hub/signal";
+        // spec §SignalR — DefaultAcceptedSources 가 권위 default. config override 가능.
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
-            ?? new[] { HubSource.Control, HubSource.VirtualPlant, HubSource.Plc };
-        _acceptedSources = new HashSet<string>(configuredSources, StringComparer.OrdinalIgnoreCase);
+            ?? HubSource.DefaultAcceptedSources;
+
+        _processor = new HubSignalProcessor(
+            acceptedSources: configuredSources,
+            handleSignal: (addr, val, src) => _engineService.HandleHubTagChanged(addr, val, src),
+            maxRetries: HandleHubTagMaxRetries,
+            onDrop: OnChannelDrop,
+            onRetry: (addr, ex, attempt, max) =>
+                _logger.LogWarning(ex, "[Hub] Retry {Attempt}/{Max} for {Address}", attempt, max, addr),
+            onDeadLetter: (addr, val, src, ex, dl) =>
+                _logger.LogError(ex,
+                    "[Hub] Dead-letter — {Address}={Value} from={Source} (총 dead-letter={DL})",
+                    addr, val, src, dl));
 
         _logger.LogInformation(
             "[Hub] Subscriber starting — url={Url}, acceptedSources={Sources}",
-            hubUrl, string.Join(",", _acceptedSources));
+            hubUrl, string.Join(",", configuredSources));
 
         // 엔진 미리 초기화
         _engineService.TryEnsureInitialized();
 
         // 단일 컨슈머 시작 — Hub 콜백이 어떤 동시성으로 호출되든 직렬화 보장
-        var consumerTask = Task.Run(() => ConsumeSignalsAsync(stoppingToken), stoppingToken);
+        var consumerTask = Task.Run(() => _processor.ConsumeAsync(stoppingToken), stoppingToken);
 
         // 무한 재시도 정책 — Promaker 가 언제 재시작되어도 자동으로 다시 붙도록.
         _connection = new HubConnectionBuilder()
@@ -139,14 +159,14 @@ public sealed class HubSubscriberService : BackgroundService
             // shutdown
         }
 
-        _signalChannel.Writer.TryComplete();
+        _processor.SignalChannel.Writer.TryComplete();
         try { await consumerTask.WaitAsync(TimeSpan.FromSeconds(2)); } catch { /* ignore */ }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("[Hub] Subscriber stopping...");
-        _signalChannel.Writer.TryComplete();
+        _processor?.SignalChannel.Writer.TryComplete();
         if (_connection is not null)
         {
             try { await _connection.StopAsync(cancellationToken); } catch { /* ignore */ }
@@ -238,54 +258,39 @@ public sealed class HubSubscriberService : BackgroundService
 
     private void OnHubTagChanged(string address, string value, string source)
     {
-        if (!_acceptedSources.Contains(source))
-        {
+        if (_processor is null) return;
+        var result = _processor.TryEnqueue(address, value, source);
+        if (result == EnqueueResult.Ignored)
             _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", address, value, source);
-            return;
-        }
-        // 채널에 enqueue만. SignalR 콜백 스레드는 즉시 반환 — 동시 진입해도 컨슈머가 직렬 처리.
-        if (!_signalChannel.Writer.TryWrite(new HubSignal(address, value, source)))
-            _logger.LogWarning("[Hub] Signal channel write dropped for {Address}", address);
+        // Dropped 는 onDrop 콜백에서 LogWarning/Error 처리됨.
     }
 
     private void OnHubTagsChanged(TagWrite[] items)
     {
-        if (items is null || items.Length == 0) return;
-        var writer = _signalChannel.Writer;
+        if (items is null || items.Length == 0 || _processor is null) return;
         foreach (var it in items)
         {
-            if (!_acceptedSources.Contains(it.Source))
-            {
+            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source);
+            if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
-                continue;
-            }
-            if (!writer.TryWrite(new HubSignal(it.Address, it.Value, it.Source)))
-                _logger.LogWarning("[Hub] Signal channel write dropped for {Address}", it.Address);
         }
     }
 
-    private async Task ConsumeSignalsAsync(CancellationToken ct)
+    /// <summary>Channel write 실패 시 호출 (HubSignalProcessor 의 onDrop 콜백).
+    /// LogWarning 매 drop + 임계 초과 시 LogError 한 번 발화 (10s window CAS gate).</summary>
+    private void OnChannelDrop(string address, long total)
     {
-        try
-        {
-            await foreach (var sig in _signalChannel.Reader.ReadAllAsync(ct))
-            {
-                try
-                {
-                    _engineService.HandleHubTagChanged(sig.Address, sig.Value, sig.Source);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[Hub] Failed to process {Address}={Value} from={Source}",
-                        sig.Address, sig.Value, sig.Source);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // shutdown
-        }
-    }
+        _logger.LogWarning("[Hub] Signal channel write dropped for {Address} (total={Total})", address, total);
 
-    private readonly record struct HubSignal(string Address, string Value, string Source);
+        if (total < DropReportThreshold) return;
+        var now = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastDropReportTicks);
+        if (now - last <= DropReportIntervalTicks) return;
+        if (Interlocked.CompareExchange(ref _lastDropReportTicks, now, last) != last) return;
+
+        var windowSec = DropReportIntervalTicks / TimeSpan.TicksPerSecond;
+        _logger.LogError(
+            "[Hub] Channel drop rate 임계 초과 — total={Total} (last report window {WindowSec}s)",
+            total, windowSec);
+    }
 }

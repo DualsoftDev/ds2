@@ -37,16 +37,28 @@ public sealed partial class SimulationHubBridge
         _hubConnectionCts?.Cancel();
         _hubConnectionCts?.Dispose();
         _hubConnectionCts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _reconnectAttempt, 0);
         return Interlocked.Increment(ref _hubGeneration);
     }
 
     private void InvalidateGeneration()
     {
         Interlocked.Increment(ref _hubGeneration);
+        Interlocked.Exchange(ref _reconnectAttempt, 0);
         _hubConnectionCts?.Cancel();
         _hubConnectionCts?.Dispose();
         _hubConnectionCts = null;
     }
+
+    /// <summary>SignalR WithAutomaticReconnect() 의 default policy 기반 다음 재시도 추정 ms.
+    /// 정확한 값은 SDK 내부 — UI 표시용 추정치. policy: [0s, 2s, 10s, 30s] (4회) 후 Closed.</summary>
+    private static int EstimateNextReconnectDelayMs(int attempt) => attempt switch
+    {
+        <= 1 => 0,
+        2    => 2000,
+        3    => 10000,
+        _    => 30000,
+    };
 
     // ── Start ────────────────────────────────────────────────────
 
@@ -80,7 +92,10 @@ public sealed partial class SimulationHubBridge
         catch (Exception ex)
         {
             SimLog.Error("Hub start failed", ex);
-            _setStatusText($"Hub 시작 실패: {ex.Message}");
+            // v10 모니터링 진단: ex 분류 후 한국어 라벨 표시.
+            var diagnostic = Ds2.Backend.Common.HubConnectionDiagnostic.ClassifyException(ex);
+            var label = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(diagnostic);
+            _setStatusText($"Hub 시작 실패: {label}");
             Stop();
             return false;
         }
@@ -141,10 +156,14 @@ public sealed partial class SimulationHubBridge
             (msg, ex) =>
             {
                 if (!IsCurrentConnection(generation, hubConnection)) return;
+                // v10 모니터링 진단: ex 가 있으면 분류 라벨 부착 (silent 에러 가시화).
+                var detail = ex is null
+                    ? msg
+                    : $"{msg} — {Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(Ds2.Backend.Common.HubConnectionDiagnostic.ClassifyException(ex))}";
                 _ = _dispatcher.BeginInvoke(() =>
                 {
                     if (IsCurrentConnection(generation, hubConnection))
-                        _addSimLog($"[Hub] {msg}", LogSeverity.Warn);
+                        _addSimLog($"[Hub] {detail}", LogSeverity.Warn);
                 });
             });
 
@@ -162,15 +181,25 @@ public sealed partial class SimulationHubBridge
     private Task OnReconnecting(HubConnection hubConnection, int generation, Exception? ex)
     {
         _reconnectStabilizationCts?.Cancel();
-        if (IsCurrentConnection(generation, hubConnection))
-            _dispatcher.BeginInvoke(() =>
-            {
-                if (!IsCurrentConnection(generation, hubConnection)) return;
-                _setSimStatusText("Hub 재연결 시도 중...");
-                SetStatus(false, true);
-                var detail = ex is null ? "" : $" ({ex.Message})";
-                _addSimLog($"Hub 연결 끊김 — 자동 재연결 시도 중{detail}", LogSeverity.Warn);
-            });
+        if (!IsCurrentConnection(generation, hubConnection))
+            return Task.CompletedTask;
+
+        var attempt = Interlocked.Increment(ref _reconnectAttempt);
+        var etaMs = EstimateNextReconnectDelayMs(attempt);
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (!IsCurrentConnection(generation, hubConnection)) return;
+            // v10 모니터링 진단: ex 분류 + Reconnecting attempt/ETA 라벨.
+            var cause = ex is null
+                ? Ds2.Backend.Common.HubConnectionDiagnostic.Diagnostic.NewInternalError("연결 끊김")
+                : Ds2.Backend.Common.HubConnectionDiagnostic.ClassifyException(ex);
+            var causeLabel = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(cause);
+            var retryLabel = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(
+                Ds2.Backend.Common.HubConnectionDiagnostic.Diagnostic.NewReconnecting(attempt, etaMs));
+            _setSimStatusText($"Hub 재연결 시도 #{attempt}...");
+            SetStatus(false, true);
+            _addSimLog($"Hub 연결 끊김 — {causeLabel}. {retryLabel}", LogSeverity.Warn);
+        });
         return Task.CompletedTask;
     }
 
@@ -182,6 +211,7 @@ public sealed partial class SimulationHubBridge
         if (!IsCurrentConnection(generation, hubConnection))
             return Task.CompletedTask;
 
+        Interlocked.Exchange(ref _reconnectAttempt, 0);
         _reconnectStabilizationCts?.Cancel();
         _reconnectStabilizationCts?.Dispose();
         _reconnectStabilizationCts = new CancellationTokenSource();
@@ -233,18 +263,20 @@ public sealed partial class SimulationHubBridge
     {
         var retryDelayMs = 1000;
         const int maxDelayMs = 10000;
+        var attempt = 0;
 
         while (!cancellationToken.IsCancellationRequested
                && IsCurrentConnection(generation, hubConnection)
                && hubConnection.State == HubConnectionState.Disconnected)
         {
+            attempt++;
             try
             {
                 _ = _dispatcher.BeginInvoke(() =>
                 {
                     if (!IsCurrentConnection(generation, hubConnection)) return;
-                    _setSimStatusText("Hub 연결 시도 중...");
-                    _setStatusText($"Hub 연결 시도 중... ({hubUrl})");
+                    _setSimStatusText($"Hub 연결 시도 중... (#{attempt})");
+                    _setStatusText($"Hub 연결 시도 중... #{attempt} ({hubUrl})");
                 });
 
                 await hubConnection.StartAsync(cancellationToken);
@@ -266,15 +298,24 @@ public sealed partial class SimulationHubBridge
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
             catch (ObjectDisposedException) { return; }
-            catch
+            catch (Exception ex)
             {
                 if (!IsCurrentConnection(generation, hubConnection))
                     return;
 
+                // v10 모니터링 진단: 예외 분류 → 한국어 라벨 + Reconnecting attempt/ETA.
+                var diagnostic = Ds2.Backend.Common.HubConnectionDiagnostic.ClassifyException(ex);
+                var causeLabel = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(diagnostic);
+                var retryLabel = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(
+                    Ds2.Backend.Common.HubConnectionDiagnostic.Diagnostic.NewReconnecting(attempt, retryDelayMs));
+
                 _ = _dispatcher.BeginInvoke(() =>
                 {
                     if (IsCurrentConnection(generation, hubConnection))
-                        _addSimLog($"Hub 연결 실패 — {retryDelayMs / 1000.0:F1}초 후 재시도", LogSeverity.Warn);
+                    {
+                        _addSimLog($"Hub 연결 실패 — {causeLabel}. {retryLabel}", LogSeverity.Warn);
+                        _setStatusText($"Hub 연결 실패: {causeLabel}");
+                    }
                 });
 
                 try { await Task.Delay(retryDelayMs, cancellationToken); }
@@ -287,12 +328,17 @@ public sealed partial class SimulationHubBridge
     private Task OnDisconnected(int generation, Exception? ex)
     {
         if (!IsCurrentGeneration(generation)) return Task.CompletedTask;
+        // v10 모니터링 진단: ex 분류 후 사유 라벨 추가.
+        var diagnostic = ex is null
+            ? Ds2.Backend.Common.HubConnectionDiagnostic.Diagnostic.NewInternalError("연결 끊김")
+            : Ds2.Backend.Common.HubConnectionDiagnostic.ClassifyException(ex);
+        var diagnosticLabel = Ds2.Backend.Common.HubConnectionDiagnostic.DiagnosticLabel(diagnostic);
         if (!_isSimulating()) return Task.CompletedTask;
         _dispatcher.BeginInvoke(() =>
         {
             if (!IsCurrentGeneration(generation)) return;
-            _addSimLog($"Hub 연결 끊김{(ex is not null ? $": {ex.Message}" : "")}", LogSeverity.Warn);
-            _setSimStatusText("Hub 연결 끊김");
+            _addSimLog($"Hub 연결 끊김 — {diagnosticLabel}", LogSeverity.Warn);
+            _setSimStatusText($"Hub 연결 끊김: {diagnosticLabel}");
             SetStatus(false, false);
         });
         return Task.CompletedTask;

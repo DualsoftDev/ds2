@@ -67,9 +67,18 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                     sprintf "Hub inject latency %dms (addr=%s value=%s) — wake/lock contention 의심" elapsedMs address value)
             match ioMap.InAddressToMappings |> Map.tryFind address with
             | Some mappings ->
+                let mutable maxDebounceMs = 0
                 for m in mappings do
                     stateManager.SetIOValue(m.ApiCallGuid, value)
+                    let ms = SimIndex.apiCallSensingAppendMs index m.ApiCallGuid
+                    if ms > maxDebounceMs then maxDebounceMs <- ms
                 scheduleConditionEvaluation ()
+                // v10 §11.2 — debounce ms 후에도 한 번 더 평가하도록 schedule (자동 trigger).
+                if maxDebounceMs > 0 then
+                    scheduler.ScheduleAfter(
+                        ScheduledEventType.EvaluateConditions,
+                        int64 maxDebounceMs,
+                        ScheduledEvent.PriorityConditionEval) |> ignore
             | None -> ()
             true
         else
@@ -78,6 +87,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
     let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
     let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
+    let shouldSkipWork workGuid = WorkConditionChecker.shouldSkipWork index (stateManager.GetState()) workGuid
     let isActiveSystemWork workGuid =
         index.WorkSystemName
         |> Map.tryFind workGuid
@@ -104,6 +114,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             workStateChangedEvent.Trigger
             (fun workGuid eventId scheduledTimeMs ->
                 durationTracker.OnDurationScheduled(workGuid, eventId, scheduledTimeMs))
+            shouldSkipWork
     let scheduleWorkIfReady workGuid targetState =
         WorkTransitions.scheduleWorkIfReady workTransitionContext workGuid targetState
     let applyWorkTransition workGuid newState =
@@ -149,7 +160,9 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let apiCallExecutionContext =
         EventDrivenCompositionContext.createApiCallExecutionContext
             runtimeMode
+            index
             stateManager
+            scheduler
             resolveWorkName
             ioMap
             writeTagFn
@@ -178,7 +191,9 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let callTransitionApplyContext =
         EventDrivenCompositionContext.createCallTransitionApplyContext
             runtimeMode
+            index
             ioMap
+            scheduler
             writeTagFn
             stateManager
             (fun callGuid newState ->
@@ -214,6 +229,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             stateManager
             canStartCall
             canCompleteCall
+            (fun callGuid -> callTransitionContext.ClearCallSensingAppendDelay callGuid)
             applyWorkTransition
             applyCallTransition
     let hasGoingCall () =
@@ -234,9 +250,18 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             durationTracker
             stateManager
             index
+            scheduler
+            scheduleConditionEvaluation
             applyWorkTransition
     let handleDurationComplete workGuid =
         EventDrivenExecution.handleDurationComplete durationCompleteContext workGuid
+    let applyOutputWrite address value =
+        ioMap.OutAddressToMappings
+        |> Map.tryFind address
+        |> Option.iter (fun mappings ->
+            mappings
+            |> List.iter (fun mapping ->
+                stateManager.SetOutputValue(mapping.ApiCallGuid, value)))
     let runtimeContext =
         EventDrivenCompositionContext.createRuntimeContext
             processGate
@@ -260,6 +285,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             scheduleConditionEvaluation
             evaluateConditions
             callTimeoutEvent.Trigger
+            applyOutputWrite
             stateManager.GetCallState
             (fun callGuid ->
                 Queries.getCall callGuid index.Store
@@ -461,7 +487,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.InjectIOValue(apiCallGuid, value) =
             runExternalMutation (fun () ->
                 stateManager.SetIOValue(apiCallGuid, value)
-                scheduleConditionEvaluation ())
+                scheduleConditionEvaluation ()
+                // v10 §11.2 — debounce ms 후에도 평가 한 번 더.
+                let debounceMs = SimIndex.apiCallSensingAppendMs index apiCallGuid
+                if debounceMs > 0 then
+                    scheduler.ScheduleAfter(
+                        ScheduledEventType.EvaluateConditions,
+                        int64 debounceMs,
+                        ScheduledEvent.PriorityConditionEval) |> ignore)
         member _.InjectIOValueByAddress(address, value) =
             // Hub 콜백(SignalR thread) 에서 호출. lock 없이 큐에 enqueue 만 하고 wake.
             // simulationLoop 이 advance 안에서 한 항목씩 dequeue → SetIOValue + ConditionEval

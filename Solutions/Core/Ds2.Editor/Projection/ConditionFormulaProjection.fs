@@ -4,13 +4,13 @@ open System.Runtime.CompilerServices
 
 module ConditionFormulaProjection =
 
-    let private formatApiCallItem (item: CallConditionApiCallItem) =
+    let private formatApiCallItem (item: ConditionApiCallItem) =
         let name = item.ApiDefDisplayName
         let spec = item.OutputSpecText
         if System.String.IsNullOrEmpty(spec) || spec = "Undefined" then name
         else $"{name}={spec}"
 
-    let rec private formatItems (isOR: bool) (items: CallConditionApiCallItem list) (children: CallConditionPanelItem list) =
+    let rec private formatItems (isOR: bool) (items: ConditionApiCallItem list) (children: ConditionPanelItem list) =
         let op = if isOR then "|" else "&"
         let parts = ResizeArray<string>()
         for item in items do
@@ -21,11 +21,11 @@ module ConditionFormulaProjection =
                 parts.Add($"({childText})")
         if parts.Count = 0 then "(empty)" else System.String.Join(op, parts)
 
-    and formatCondition (cond: CallConditionPanelItem) : string =
+    and formatCondition (cond: ConditionPanelItem) : string =
         formatItems cond.IsOR (cond.Items |> Seq.toList) (cond.Children |> Seq.toList)
 
 [<Extension>]
 type ConditionFormulaExtensions =
     [<Extension>]
-    static member FormulaText(item: CallConditionPanelItem) =
+    static member FormulaText(item: ConditionPanelItem) =
         ConditionFormulaProjection.formatCondition item

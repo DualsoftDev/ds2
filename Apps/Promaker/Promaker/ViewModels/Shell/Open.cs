@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.Generic;
@@ -157,6 +158,19 @@ public partial class MainViewModel
                     }
 
                     PrepareForLoadedStore();
+
+                    // v10 §12 — 임포트된 모델 V1~V6 검증. 위반 있으면 경고 표시 (임포트 자체는 진행).
+                    var v10Issues = V10ValidationBatch.validateStore(_store);
+                    if (v10Issues.Length > 0)
+                    {
+                        var lines = v10Issues.Select(i => $"[v10 {i.Rule}] {i.Message}").ToList();
+                        Log.Warn("AASX v10 검증 위반:\n" + string.Join("\n", lines));
+                        var preview = string.Join("\n", lines.Take(20));
+                        var suffix = v10Issues.Length > 20 ? $"\n... (총 {v10Issues.Length}건 — 로그 확인)" : "";
+                        _dialogService.ShowWarning(
+                            $"AASX 임포트 — v10 검증 위반 {v10Issues.Length}건:\n\n{preview}{suffix}");
+                    }
+
                     CompleteOpen(fileName, "AASX");
                 },
                 ex => $"AASX 파일 열기 실패:\n\n{ex.Message}");

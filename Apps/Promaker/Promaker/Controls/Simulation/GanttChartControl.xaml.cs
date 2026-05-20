@@ -81,7 +81,16 @@ public partial class GanttChartControl : UserControl
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(GanttChartState.IsRunning)) return;
-        if (_viewModel?.IsRunning == true) StartRendering();
-        else StopRendering();
+        if (_viewModel?.IsRunning == true)
+        {
+            StartRendering();
+        }
+        else
+        {
+            StopRendering();
+            // STEP 끝나는 시점 등 IsRunning=false 진입 시 마지막 한 번 render —
+            // 마지막 advance 직전 보간값에서 빨간선이 멈춰있던 잔여 정정.
+            InvalidateTimeline();
+        }
     }
 }

@@ -94,23 +94,25 @@ module DeepCopyTests =
 
 
     [<Fact>]
-    let ``ApiDef DeepCopy should copy Properties correctly`` () =
+    let ``ApiDef DeepCopy should copy ActionType/SensingType correctly`` () =
         let systemId = Guid.NewGuid()
         let original = ApiDef("TestApiDef", systemId)
-        original.ApiDefActionType <- ApiDefActionType.Push
+        original.ActionType <- ActionType.Real (Latched, None)
+        original.SensingType <- SensingType.Real (OneShot, None)
         original.TxGuid <- Some (Guid.NewGuid())
 
         let copied = original.DeepCopy()
 
         Assert.NotEqual(original.Id, copied.Id)
         Assert.Equal(original.ParentId, copied.ParentId)
-        Assert.Equal(ApiDefActionType.Push, copied.ApiDefActionType)
+        Assert.Equal(ActionType.Real (Latched, None), copied.ActionType)
+        Assert.Equal(SensingType.Real (OneShot, None), copied.SensingType)
         Assert.Equal(original.TxGuid, copied.TxGuid)
 
-        // Properties가 독립적인지 확인
-        copied.ApiDefActionType <- ApiDefActionType.Normal
-        Assert.Equal(ApiDefActionType.Push, original.ApiDefActionType)
-        Assert.Equal(ApiDefActionType.Normal, copied.ApiDefActionType)
+        // 복사본 변경이 원본에 영향 없는지 확인
+        copied.ActionType <- ActionType.Real (Level, None)
+        Assert.Equal(ActionType.Real (Latched, None), original.ActionType)
+        Assert.Equal(ActionType.Real (Level, None), copied.ActionType)
 
     [<Fact>]
     let ``Multiple nested DeepCopy should maintain independence`` () =
@@ -129,29 +131,29 @@ module DeepCopyTests =
         Assert.NotEqual(original.Id, copy2.Id)
 
     [<Fact>]
-    let ``CallCondition DeepCopy should copy Children recursively`` () =
-        let child = CallCondition()
-        child.Type <- Some CallConditionType.SkipUnmatch
+    let ``Condition DeepCopy should copy Children recursively`` () =
+        let child = Condition()
+        child.Type <- Some ConditionType.SkipUnmatch
         child.IsOR <- true
         let childApi = ApiCall("ChildApi")
         childApi.OutputSpec <- Int32Value (Single 42)
-        child.Conditions.Add(childApi)
+        child.ApiCalls.Add(childApi)
 
-        let parent = CallCondition()
-        parent.Type <- Some CallConditionType.ComAux
+        let parent = Condition()
+        parent.Type <- Some ConditionType.ComAux
         parent.IsInverted <- true
         let parentApi = ApiCall("ParentApi")
         parentApi.OutputSpec <- BoolValue (Single true)
-        parent.Conditions.Add(parentApi)
+        parent.ApiCalls.Add(parentApi)
         parent.Children.Add(child)
 
         let copied = parent.DeepCopy()
 
-        // ID 보존 (CallCondition은 DsEntity 비상속 — jsonClone 사용)
+        // ID 보존 (Condition은 DsEntity 비상속 — jsonClone 사용)
         Assert.Equal(parent.Id, copied.Id)
         Assert.Equal(parent.Type, copied.Type)
         Assert.Equal(parent.IsInverted, copied.IsInverted)
-        Assert.Equal(1, copied.Conditions.Count)
+        Assert.Equal(1, copied.ApiCalls.Count)
         Assert.Equal(1, copied.Children.Count)
 
         // Children 독립성 확인
@@ -159,12 +161,12 @@ module DeepCopyTests =
         Assert.Equal(child.Id, copiedChild.Id)
         Assert.Equal(child.Type, copiedChild.Type)
         Assert.Equal(child.IsOR, copiedChild.IsOR)
-        Assert.Equal(1, copiedChild.Conditions.Count)
+        Assert.Equal(1, copiedChild.ApiCalls.Count)
 
         // 변경이 원본에 영향 없는지 확인
-        copiedChild.Conditions.Clear()
-        Assert.Equal(1, child.Conditions.Count)
-        Assert.Equal(0, copiedChild.Conditions.Count)
+        copiedChild.ApiCalls.Clear()
+        Assert.Equal(1, child.ApiCalls.Count)
+        Assert.Equal(0, copiedChild.ApiCalls.Count)
 
         copied.Children.Clear()
         Assert.Equal(1, parent.Children.Count)
@@ -218,7 +220,7 @@ module DeepCopyTests =
         Assert.Equal("PlainName", work.LocalName)
 
     [<Fact>]
-    let ``Call DeepCopy should copy ApiCalls and CallConditions independently`` () =
+    let ``Call DeepCopy should copy ApiCalls and Conditions independently`` () =
         let workId = Guid.NewGuid()
         let original = Call("DevAlias", "ApiName", workId)
         let props = SimulationCallProperties()
@@ -231,11 +233,11 @@ module DeepCopyTests =
         apiCall.InTag <- Some (IOTag("In", "Addr1", ""))
         original.ApiCalls.Add(apiCall)
 
-        let cond = CallCondition()
-        cond.Type <- Some CallConditionType.AutoAux
+        let cond = Condition()
+        cond.Type <- Some ConditionType.AutoAux
         let condApi = ApiCall("CondApi")
-        cond.Conditions.Add(condApi)
-        original.CallConditions.Add(cond)
+        cond.ApiCalls.Add(condApi)
+        original.Conditions.Add(cond)
 
         let copied = original.DeepCopy()
 
@@ -253,12 +255,12 @@ module DeepCopyTests =
         Assert.Equal("TestApiCall", copied.ApiCalls.[0].Name)
         Assert.Equal(Int32Value (Single 99), copied.ApiCalls.[0].OutputSpec)
 
-        // CallConditions 복사
-        Assert.Equal(1, copied.CallConditions.Count)
-        Assert.Equal(1, copied.CallConditions.[0].Conditions.Count)
+        // Conditions 복사
+        Assert.Equal(1, copied.Conditions.Count)
+        Assert.Equal(1, copied.Conditions.[0].ApiCalls.Count)
 
         // 독립성 확인
         copied.ApiCalls.Clear()
-        copied.CallConditions.Clear()
+        copied.Conditions.Clear()
         Assert.Equal(1, original.ApiCalls.Count)
-        Assert.Equal(1, original.CallConditions.Count)
+        Assert.Equal(1, original.Conditions.Count)

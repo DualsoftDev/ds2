@@ -11,7 +11,14 @@ type ArrowType =
     | ResetReset  = 4   // 리셋+리셋 (source 시작 시 target 리셋 + target 시작 시 source 리셋)
     | Group       = 5   // 그룹 연결
 
-/// Condition type for CallCondition entries.
+/// Condition type for Condition entries (shared by Call/Work).
+type ConditionType =
+    | AutoAux      = 0
+    | ComAux       = 1
+    | SkipUnmatch  = 2
+
+/// 외부 DLL(AAStoPLC) binary 호환용 — int 값은 `ConditionType` 과 동일.
+/// 신규 코드에서는 `ConditionType` 사용. 외부 DLL 재빌드 시 제거 예정.
 type CallConditionType =
     | AutoAux      = 0
     | ComAux       = 1
@@ -73,14 +80,27 @@ type RuntimeMode =
     | VirtualPlant = 3  // 외부 출력 받아서 외부로 입력값 써주기 (가상 플랜트)
 
 
-/// ApiDef 출력 인터페이스 특성 — "버튼을 어떻게 누를 것인가" 만 결정.
-/// 디바이스 내부 동작 시간 (Work.Duration) 과는 완전히 무관 (다른 차원).
-/// 완료 판정 (ApiCall.SkipInputSensor) 과도 무관.
-/// 인자 의미: TimeTotal/TimeAppend = 출력 유지 ms, MultiAction = (반복 횟수, 간격 ms).
-type ApiDefActionType =
-    | Normal                       // 조건 ON 동안 출력 ON (센서 감지 시 OFF)
-    | Push                         // SET latch — 다음 명령이 올 때까지 유지
-    | Pulse                        // Rising edge 시 1 scan 펄스
-    | TimeTotal of int             // 지정 시간(ms)만큼 절대 출력 ON (센서·내부 시간 무관)
-    | TimeAppend of int            // 센서 감지 후 추가 N ms 출력 유지 (위치 고정 / 정밀도 향상)
-    | MultiAction of int * int     // (count, intervalMs) — N회 · 간격 ms 로 출력 ON 반복
+/// v10 §4 — 신호 모드 (cardinality 3).
+type SignalMode =
+    | Level                        // 조건 ON 동안 출력 ON / 신호 ON 동안 인정. coil / contact 매핑.
+    | OneShot                      // 1 scan rising edge / 0→1 transition 1 scan. R_TRIG / OS 매핑.
+    | Latched                      // 1샷 SET, 명시 RST 까지 hold / 0→1 transition 후 메모리 latch. -(S)- / SR flip-flop.
+
+/// v10 §5 — 시간 정책 (cardinality 1 · Append only).
+/// v9 의 TimeTotal 폐기 — "강제 시간 출력" 패턴은 Work.Duration 으로 표현.
+type TimePolicy =
+    | Append of ms: int            // 센서 도달 후 +ms 추가 출력 / 신호 안정 ms / Duration + ms 대기 (위치별 의미 분기).
+    member this.Ms = match this with Append n -> n
+
+/// v10 §3.2 — ApiDef 출력 인터페이스 특성 (D1 · WHEN · OUT).
+/// 디바이스 내부 동작 시간 (Work.Duration) 과 완전히 무관 (다른 차원).
+/// SensingType 과 동일 구조 대칭 (C-3.1).
+type ActionType =
+    | Real of SignalMode * TimePolicy option   // SignalMode 출력 + 선택적 TimePolicy.
+    | Virtual of TimePolicy option             // 출력 없음 (NoOp) + 선택적 Append 대기.
+
+/// v10 §3.2 — ApiDef 감지 인터페이스 특성 (D3 · WHEN · IN).
+/// ActionType 과 동일 구조 — case 분기 시 dispatch만 다름 (C-3.1).
+type SensingType =
+    | Real of SignalMode * TimePolicy option   // SignalMode 감지 + 선택적 TimePolicy.
+    | Virtual of TimePolicy option             // Duration 시점 대기 + 선택적 Append.
