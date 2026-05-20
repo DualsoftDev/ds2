@@ -345,6 +345,61 @@ let ``attachment_read — includeImages mode, image 0개 → text block 만 (s6-
     finally cleanupDirs [ dir ]
 
 
+// **s6-r58 C4 (보안 sweep + cosmetic)** — attachment_read ref EBNF 검증 (§3.13 SSOT).
+// EBNF 위반 ref (e.g. `page=14` / `p` / `p=`) 시 graceful marker + chunk 조회 skip.
+
+[<Fact>]
+let ``C4 — attachment_read ref EBNF 위반 (page=14) → marker text block`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "본문 텍스트 — 어떤 내용"
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            let listJson = AttachmentTools.attachment_list(accessor, reg)
+            let listDoc = JsonDocument.Parse listJson
+            let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
+            // ref EBNF 위반 — Unit token "page" 미정합 (§3.13 = p|slide|sheet 만)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, "page=14", false, true)
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
+                Assert.Contains("ref EBNF 위반", tb.Text)
+                Assert.Contains("page=14", tb.Text)
+            | _ -> Assert.Fail "TextContentBlock 기대"
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+[<Fact>]
+let ``C4 — attachment_read ref EBNF valid (p=1) → 정상 chunk 본문`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "test body — content"
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            let listJson = AttachmentTools.attachment_list(accessor, reg)
+            let listDoc = JsonDocument.Parse listJson
+            let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
+            // p=1 = EBNF valid. chunk 조회 진행 (text-only file 이라 0 row 가능, marker 부재 검증).
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, "p=1", false, true)
+            Assert.Equal(1, blocks.Length)
+            match blocks.[0] with
+            | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
+                Assert.DoesNotContain("ref EBNF 위반", tb.Text)
+            | _ -> Assert.Fail "TextContentBlock 기대"
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
 // ─── --review 실 image fixture (s6-r21) ─────────────────────────────────────────
 
 /// 헬퍼: list + search 로 (fileId, refLoc) 획득.
