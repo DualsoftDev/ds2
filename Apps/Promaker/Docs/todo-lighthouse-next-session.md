@@ -9,12 +9,28 @@
 
 ## 1. 작업 목표
 
-Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + central Windows Service share + MCP search host. Phase 1 (LightHouse lib 본체) / Phase S1~S6 (Windows Service + Promaker 통합 + Phase 2 image VLM caption + cli upload + paired-release) 종결. **Phase S7 진행 중**:
+Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + central Windows Service share + MCP search host. Phase 1 (LightHouse lib 본체) / Phase S1~S6 (Windows Service + Promaker 통합 + Phase 2 image VLM caption + cli upload + paired-release) 종결. **Phase S7 본격 종결**:
+- ~~D-S7-1 (mTLS server-side + Promaker client cert + B5 UI 4 phase)~~ → s6-r53/r61/r64/r68/r69 완료 (B5 phase 1~4 누적)
 - ~~D-S7-2a/b/c (SSE server + client subscribe + 정합 묶음)~~ → s6-r27/r28/r32 완료 (D-S7-2 시리즈 종결)
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
-- **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
+- ~~D-S7-4 T2/T3 multi-tenant~~ → s6-r66 완료 (MultiTenantPolicy SSOT + config migration chain 제거)
+- ~~D-S7-5 resumable upload phase 1~3 (scaffold + production + auto chunked)~~ → s6-r60/r63/r67 완료
+- **잔여**: A2 K4 Protocol SSOT 통합 / A4 Phase 3 OCR / D-S7-4 admin endpoint (T2 owner stamp + T3 acl 편집) / D-S7-5 phase 4 swap chunked / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r65 + doc-r2 종결, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r66~r69 + doc-r3 종결, 2026-05-20)
+
+**Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-4 multi-tenant / D-S7-5 resumable upload + B5 cert UI 4 phase 누적)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **708 Fact** (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+
+**s6-r66~r69 누적 (본 turn, 2026-05-20)**:
+- **`c01af8f` s6-r66 D-S7-4 T2/T3 multi-tenant + config migration chain 제거** — `MultiTenantPolicy` module 신설 (T1 Allow 전체 / T2 ImportedBy 일치 + legacy 빈 값 전체 공개 / T3 acl.users 검증 + readOnly 분기, Hidden=404 / ReadOnly=403). `Config` schemaVersion 3→4 bump + `MultiTenantConfigSection` + `MultiTenantMode` literal + `validateMultiTenant`. **migration chain v1→v4 전체 제거** (paired-release `/dist` 0회 = legacy schema 인스턴스 0건, dead code 정합 — 사용자 옵션 #2 선택, scope 확장). `Registry.CollectionAcl` (users/readOnly) + `CollectionEntry.Acl` optional. `SessionEndpoints` + `CollectionEndpoints` filter (cfg 인자 추가). `Program.fs` validateMultiTenant 호출. 신규 **+18 service Fact** (MultiTenantPolicy 14 + ConfigTests 4). 자가 검열 sub-agent 위임 (Critical 0 / Major 0 / Minor 5 backlog).
+- **`3ed6c1e` s6-r67 D-S7-5 phase 3 — chunked path 자동 선택** — `LightHouseClient.ResumableUploadThresholdBytes` const SSOT (256 MiB) 신설 — HttpClient single multipart buffer OOM 분기점 + 사내 LAN 재시도 비용 분기점 박제. `AttachmentIngestService.UploadAsync` 가 zip size 검사 → 임계 초과 시 `UploadCollectionResumableAsync` 자동 진입. progress 매핑 byte→KiB cast (int 안전). 신규 **+1 Promaker Fact** (const 정합).
+- **`77c8a88` s6-r68 B5 phase 3 — DataGrid cert thumbprint 편집 + CertValidator** — `CertValidator` helper 신설 (Normalize hex sanitize + LocalMachine\My / CurrentUser\My X509Store 탐색 + NotAfter 4 분기 `ValidationResult` enum, ExpiringSoonThresholdDays=30 const SSOT). DataGrid Client Cert column 에 '검증' 버튼 + 직접 편집 TextBox 추가 (paste 가능). `LhSelectCert_Click` 가 선택 직후 자동 validity 진단. 신규 **+10 Promaker Fact** (Normalize 5 + Validate 3 + const 1 + FormatMessage 1).
+- **`901975f` s6-r69 B5 phase 4 — mTLS server mode='required' e2e IT** — `configureApp` 시그니처에 `mtlsValidationOverride` 인자 추가 (embedderFactoryOverride 와 동일 test 친화 hook 패턴). `configureMtls` 가 override 박제 시 chain.Build production logic 우회 → self-signed client cert 의 chain 부재 환경에서 handshake-level e2e 검증 가능. production chain.Build + whitelist logic 은 s6-r53 unit fact 별도 박제. `MtlsRequiredFixture` 신설 (server/client self-signed cert 2 종 + AllowedThumbprints + HttpClientHandler.ClientCertificates wire). 신규 **+3 IT Fact** (valid cert 200 / 미박제 handshake 거부 / wrong cert thumbprint mismatch 거부).
+- **(doc-r3)** 본 transfer + server.md §7.1 commit chain + §7.4 backlog row 박제.
+
+**누적 사용자 turn 전체 통계**: 5 commit (s6-r66~r69 + doc-r3) / +1005 line / +32 Fact / 회귀 0.
+
+**이전 turn (참고)**:
 
 **Phase 4 종결 + 외부 --review 전체 종결 + s6-r62~r65 누적 (markdown view cherry-pick + C6 citation UI + D-S7-5 phase 2 production + B5 phase 2 UI cert + light-house-meta-in-kb squash merge)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **676 Fact** (lib 177 / service 143 / IT 40 / Promaker 316). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
@@ -33,9 +49,12 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~**C6 Promaker citation UI**~~ → **s6-r62 종결 (ac0ce89)** ✅
 - ~~**D-S7-5 phase 2**~~ → **s6-r63 종결 (ff80387)** ✅
 - ~~**B5 phase 2 UI X509Store**~~ → **s6-r64 종결 (60e6ed4)** ✅
-- **A1 Phase S7 잔여 D-S7-4** — T2/T3 multi-tenant (~400~500 line, Registry per-tenant + Session isolation + storage layout). 사용자 confirm 의무 + sub-agent 위임. **잔존**.
-- **D-S7-5 phase 3 (선택)** — AttachmentIngestService 가 큰 zip 시 자동 chunked path 선택 (현재 client API 만 노출, 사용 site conditional 미박제). 별 phase.
-- **B5 phase 3 (선택)** — DataGrid 에 cert thumbprint 직접 편집 column / cert validity / mTLS server mode="required" e2e 검증. 별 phase.
+- ~~**A1 D-S7-4 T2/T3 multi-tenant**~~ → **s6-r66 종결 (c01af8f)** ✅
+- ~~**D-S7-5 phase 3 chunked auto**~~ → **s6-r67 종결 (3ed6c1e)** ✅
+- ~~**B5 phase 3 DataGrid edit + CertValidator**~~ → **s6-r68 종결 (77c8a88)** ✅
+- ~~**B5 phase 4 mTLS server mode='required' e2e IT**~~ → **s6-r69 종결 (901975f)** ✅
+- **D-S7-4 admin endpoint 후속** — T2 → `POST /admin/collections/{id}/owner {user}` (ImportedBy stamp) / T3 → `PUT /admin/collections/{id}/acl {users, readOnly}` (acl 편집). multi-tenant 실 활용 path. 별 turn.
+- **D-S7-5 phase 4 swap chunked** — `ReingestAndReuploadAsync` 의 큰 zip swap 시 chunked path. server `POST /collections/{id}/payload` 가 chunked 지원하도록 별 endpoint. 별 turn.
 - **`/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** — `make dist` 또는 `/dist` skill. **잔존**.
 
 **별 세션 이연 의무**:
@@ -43,53 +62,52 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r65 + doc-r2 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r66~r69 + doc-r3 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 누적 10 commit — 사용자 "a~e 다 진행 + auto commit" 흐름]
-- 2d998d1 / b3dfab9 / 7ed410a / 8b7bb0e — llm branch 4 commit cherry-pick (markdown view, MdXaml 1.27.0 + A1 assistant 전체 markdown). llm branch + worktree 삭제 완료.
-- ac0ce89 s6-r62 (a) C6 Promaker citation UI — [name](attachment:///fileId/ref) + MdXaml Hyperlink 가로채기 + Popup + 5.knowledge-base.md system prompt
-- ff80387 s6-r63 (b) D-S7-5 phase 2 — race lock + Content-Length=Range 검증 + crash 회복 + finalize 본격화 (collection 등록 + Registry + bus.collection-added)
-- 60e6ed4 s6-r64 (c) B5 phase 2 — DataGrid Client Cert column + X509Certificate2UI.SelectFromCollection + ThumbprintShortConverter
-- 71744fb s6-r64+ doc-r1 — transfer + server.md §7.1 + §7.4 SSOT row 박제
-- be91dc5 s6-r65 light-house-meta-in-kb squash merge — meta.json → .lighthouse-kb/ sub-dir + CLI in-place 색인 + install-ollama.ps1 + Makefile (+11 파일 +299/-147). meta-in-kb branch + worktree 삭제 완료.
-- (rename) todo-fix-lighthouse-search-keyword.md / todo-llm-imageview.md → done-* (git mv pure rename, 외부 참조 0)
-- (doc-r2) 본 prompt 박제
+[직전 turn 누적 5 commit — 사용자 "b 제외 일괄 진행 + auto commit" → "1, 2 진행" 흐름]
+- c01af8f s6-r66 D-S7-4 T2/T3 multi-tenant + config migration chain 제거 (사용자 옵션 #2 scope 확장) — MultiTenantPolicy module + Config schema 3→4 + Registry CollectionAcl + SessionEndpoints/CollectionEndpoints filter + +18 service Fact (자가 검열 sub-agent 위임)
+- 3ed6c1e s6-r67 D-S7-5 phase 3 — chunked path 자동 선택 (LightHouseClient.ResumableUploadThresholdBytes=256 MiB const SSOT) + AttachmentIngestService.UploadAsync 분기 + +1 Promaker Fact
+- 77c8a88 s6-r68 B5 phase 3 — CertValidator helper (Normalize/Validate/FormatMessage 4 분기 ValidationResult enum) + DataGrid edit TextBox + '검증' 버튼 + +10 Promaker Fact
+- 901975f s6-r69 B5 phase 4 — configureApp 시그니처 mtlsValidationOverride 추가 + MtlsRequiredFixture (server/client self-signed 2 cert + ClientCertificates wire) + +3 IT Fact (valid/미박제/wrong cert handshake)
+- (doc-r3) 본 prompt 박제
 
 [그 이전 turn 누적]
-- s6-r53 D-S7-1 mTLS server-side / s6-r54 보안 sweep K6+M10+M11 / s6-r55 ⑱ purge helper / s6-r56 (a) ⑬⑭⑲ / s6-r57 C7 hasImages
-- s6-r58 (a) C4 attachment_read ref EBNF / s6-r59 (a) C5 image mode 5-case / s6-r60 (b) D-S7-5 scaffold / s6-r61 (c) B5 client cert
+- s6-r62~r65: markdown view cherry-pick 4 + C6 citation UI + D-S7-5 phase 2 + B5 phase 2 + light-house-meta-in-kb squash merge + doc-r1/r2
+- s6-r53~r61: D-S7-1 mTLS server-side / 보안 sweep / ⑱ purge helper / C7 hasImages / C4 ref EBNF / C5 image mode / D-S7-5 scaffold / B5 client cert
+- Phase 4 P4-A~P4-C: sqlite-vec + IEmbeddingProvider + Indexer + Searcher hybrid + OllamaSharp adapter + Promaker LlmConfig.Embedding + server-side embedder + IT round-trip
 
-누적 676 Fact (lib 177 / service 143 / IT 40 / Promaker 316). 회귀 0. branch = light-house (local-only).
+누적 708 Fact (lib 177 / service 161 / IT 43 / Promaker 327). 회귀 0. branch = light-house (local-only).
 paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
+Phase S7 본격 종결 (D-S7-1 mTLS / D-S7-2 SSE / D-S7-3 multi-service / D-S7-4 multi-tenant / D-S7-5 resumable phase 1~3).
 
-잔여 작업 (s6-r62~r64 종결 후, 다음 turn 박제):
+잔여 작업 (s6-r69 + doc-r3 종결 후, 다음 turn 박제):
 - A. large phase (단독 turn, sub-agent 위임 의무):
-  - **A1 D-S7-4 T2/T3 multi-tenant** (~400~500 line) — config.json multiTenant.mode "T1"|"T2"|"T3" opt-in. T2 = per-user namespace (X-User-Identity directory prefix). T3 = registry acl {users[], readOnly}. Storage/Registry/SessionEndpoints 전반 변경.
-  - A2 K4 Protocol SSOT 통합 (Solutions/Core/Ds2.LightHouse.Protocol 신규 project)
+  - A2 K4 Protocol SSOT 통합 (Solutions/Core/Ds2.LightHouse.Protocol 신규 project) — wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT)
   - A4 Phase 3 OCR (Tesseract.NET + 한글)
 - B. medium 별 turn:
+  - **D-S7-4 admin endpoint 후속** (T2 ImportedBy stamp + T3 acl 편집) — multi-tenant 실 활용 path
+  - **D-S7-5 phase 4 swap chunked** — ReingestAndReuploadAsync 의 큰 zip swap chunked path
   - B1 M13 Indexer.ingestFile outer transaction (perf)
   - B2 OoxmlExtractor 강화 (comments/footnotes/endnotes Drawing)
   - B3 image-only paragraph 분기 분리
-  - **B5 phase 3 (선택)** — DataGrid 의 cert thumbprint 직접 편집 column / cert validity / mTLS server mode="required" e2e 검증
   - B6 보안 sweep 잔여 (M9 PSK lifetime / M12 Promaker staging %TEMP% ACL)
-  - **D-S7-5 phase 3 (선택)** — AttachmentIngestService 가 큰 zip 시 자동 chunked path 선택 (현재 client API 만 노출). 별 phase
 - C. 소량 cosmetic:
   - (string * SearchHit) list → KeyedHit record (lib internal refactor)
   - C1 mn6 fixture 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용
+  - s6-r66 자가 검열 Minor 5건 backlog
 - D. 정책 결정 (사용자 confirm):
   - D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
 - E. 외부 / 운영:
   - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill)
   - E2 server.md §7.7 Minor outliers ~13건
 
-우선순위 (a) A1 D-S7-4 T2/T3 multi-tenant (large phase, sub-agent 위임 의무 — 사용자 confirm 후 진입)
+우선순위 (a) A2 K4 Protocol SSOT 통합 (large phase, sub-agent 위임 의무 — 사용자 confirm 후 진입)
        (b) E1 /dist 실행 (paired-release 정합, 사용자 직접 호출 의무)
-       (c) D-S7-5 phase 3 또는 B5 phase 3 (선택 medium)
+       (c) D-S7-4 admin endpoint 또는 D-S7-5 phase 4 (선택 medium, multi-tenant / chunked swap 실 활용 path)
        — 선택 부탁드립니다.
 ```
 
@@ -185,7 +203,7 @@ paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 - **server** = `Solutions/Tools/Ds2.LightHouseService/` (F# Kestrel HTTPS service — Program.fs configureApp export / Storage / Registry / Sessions / ZipImport / FileServing / AttachmentTools (MCP 4 tool))
 - **cli** = `Solutions/Tools/Ds2.LightHouse.Cli/` (F# console — index --upload, LIGHTHOUSE_VLM_API_KEY env var fallback)
 - **Promaker 통합** = `Apps/Promaker/Promaker/` 의 `Knowledge/` 폴더 (LightHouseClient.cs / LightHouseClientHolder.cs / AttachmentIngestService.cs / CollectionPackager.cs), `Dialogs/KbManagerDialog.xaml(.cs)` + `Dialogs/ApplicationSettingsDialog.xaml(.cs)` (LightHouse Service + VLM section), `LlmAgent/LlmConfig.cs` (KbCollections + LightHouseService + VisionCostGate + ModifyWithLock)
-- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 154) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 125) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli, 33) / `Solutions/Tests/Promaker.Tests` (Promaker, 287) = **누적 599 Fact**
+- **test** = `Solutions/Tests/Ds2.LightHouse.Tests` (lib, 177) / `Solutions/Tests/Ds2.LightHouseService.Tests` (service, 161) / `Solutions/Tests/Ds2.LightHouseService.IntegrationTests` (e2e + cli + mTLS, 43) / `Solutions/Tests/Promaker.Tests` (Promaker, 327) = **누적 708 Fact**
 - **doc** = `Apps/Promaker/Docs/` (본 transfer + 두 SSOT todo + done-* archive + howto)
 - **scripts** = `Apps/Promaker/scripts/check-paired-release.ps1` (paired-release drift detector)
 
