@@ -29,6 +29,7 @@
     <Compile Include="FileServing.fs" />
     <Compile Include="AttachmentTools.fs" />
     <Compile Include="EventsEndpoint.fs" />
+    <Compile Include="UploadsEndpoint.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

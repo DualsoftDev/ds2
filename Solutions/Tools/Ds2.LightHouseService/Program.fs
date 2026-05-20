@@ -249,6 +249,8 @@ let configureApp
     FileServing.map app storageRoot
     // Phase S7 D-S7-2 (s6-r27) — `GET /events` SSE endpoint (collection-added/updated/deleted + keepalive).
     EventsEndpoint.map app eventBus
+    // Phase S7 D-S7-5 (s6-r60) — resumable chunked upload endpoint scaffold (POST/PATCH/finalize/GET/DELETE).
+    UploadsEndpoint.map app cfg storageRoot eventBus
 
     // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
     //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).
