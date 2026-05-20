@@ -203,12 +203,23 @@ module Config =
                     cfg.SchemaVersion ConfigSchema.Current))
 
     /// `listenUrl` 의 `http://` prefix fail-fast (§3.7 plain HTTP 거부).
+    /// **R6-M3 (s6-r81, external review backlog)** — IPv6 link-local zone identifier (`[fe80::1%eth0]` 형식
+    /// 의 `%` zone tag) 거부. Kestrel 의 IPv6 link-local bind 가 zone identifier 미지원 (known issue, .NET
+    /// runtime + Windows socket layer 한정). loopback/global IPv6 (`[::1]` / `[2001:db8::]`) 는 통과.
     let validateHttpsOnly (cfg: ServiceConfig) =
         if String.IsNullOrWhiteSpace cfg.ListenUrl then
             raise (InvalidDataException("listenUrl 가 비어있음"))
         if cfg.ListenUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) then
             raise (InvalidDataException(
                 sprintf "listenUrl=%s — plain HTTP 거부 (§3.7). https:// 만 허용." cfg.ListenUrl))
+        // R6-M3: IPv6 bracket 안 `%` zone identifier 거부.
+        let bracketStart = cfg.ListenUrl.IndexOf('[')
+        let bracketEnd = cfg.ListenUrl.IndexOf(']')
+        if bracketStart >= 0 && bracketEnd > bracketStart then
+            let host = cfg.ListenUrl.Substring(bracketStart + 1, bracketEnd - bracketStart - 1)
+            if host.Contains('%') then
+                raise (InvalidDataException(
+                    sprintf "listenUrl=%s — IPv6 link-local zone identifier (`%%`) 거부 (R6-M3, Kestrel 미지원). loopback `[::1]` 또는 global IPv6 사용." cfg.ListenUrl))
 
     /// **N-1 (s6-r74 c)** — thumbprint normalize SSOT 위임. Protocol `CertValidator.normalize` (strict, client behavior
     /// 정합) 직접 호출. 본 wrapper 는 caller routing 호환 한정 유지 — 추후 caller 가 Protocol 직접 호출 시 폐기 가능.
