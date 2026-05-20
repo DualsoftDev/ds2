@@ -66,6 +66,25 @@ module EventsEndpoint =
             | :? ObjectDisposedException -> return false  // response stream disposed
         }
 
+    /// **R5-M1 (s6-r72+ external review hotfix)** — SSE Response.Body 단일 writer 직렬화.
+    /// keepalive task + reader loop 가 동시에 `ctx.Response.Body.WriteAsync` 호출 시 ASP.NET Core 의
+    /// chunked transfer-encoding 손상 (single-writer assumption 위반) → client 측 SSE parse 실패 회귀.
+    /// per-context SemaphoreSlim 으로 write 직렬화. lock acquire 자체가 cancel (RequestAborted) 시 false 반환
+    /// (정상 disconnect path). lock release 는 finally 안 sync — task CE 의 finally 가 sync block 지원.
+    let private tryWriteEventSerialized
+        (writeLock: SemaphoreSlim) (ctx: HttpContext) (evt: ServerEvent) : Task<bool> =
+        task {
+            let mutable lockAcquired = false
+            try
+                try
+                    do! writeLock.WaitAsync ctx.RequestAborted
+                    lockAcquired <- true
+                    return! tryWriteEvent ctx evt
+                with :? OperationCanceledException -> return false
+            finally
+                if lockAcquired then writeLock.Release() |> ignore
+        }
+
     /// **s6-r70 review C-2** — multi-tenant SSE tenant filter helper. T2/T3 모드 시 각 event 의 CollectionId 가
     /// 본 caller user 에게 visible 한지 검증. T1 모드 / `keepalive` / `upload-progress` 는 통과 (filter 대상 외).
     ///
@@ -102,12 +121,16 @@ module EventsEndpoint =
         task {
             setSseHeaders ctx
             let user = userIdentityOf ctx
+            // **R5-M1 (s6-r72+ external review hotfix)** — per-context write lock (SSE single-writer 보장).
+            // keepalive task + reader loop 가 동시 write 시 chunk encoding 손상 → client SSE parse 실패 회귀 차단.
+            use writeLock = new SemaphoreSlim(1, 1)
             // m2 (s6-r27 자가 검열 review) — Subscribe 를 first-write 보다 먼저.
             // 이전 순서 (first keepalive write → Subscribe) 는 µs window race — 그 사이 publish 된 event 가 본
             // subscriber 의 channel 에 들어가지 못함. Subscribe 후 first keepalive write 면 race window 0.
             let id, reader = bus.Subscribe()
-            // first write — client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입). 실패 시 즉시 종료.
-            let! firstOk = tryWriteEvent ctx (ServerEvent.keepalive())
+            // first write — single-thread phase (keepalive task / reader loop 시작 전) 라 lock 외부 호출 OK.
+            // client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입). 실패 시 즉시 종료.
+            let! firstOk = tryWriteEventSerialized writeLock ctx (ServerEvent.keepalive())
             try
                 if firstOk then
                     use keepaliveCts = CancellationTokenSource.CreateLinkedTokenSource ctx.RequestAborted
@@ -120,7 +143,7 @@ module EventsEndpoint =
                             try
                                 do! Task.Delay(TimeSpan.FromSeconds(float KeepaliveSeconds), keepaliveCts.Token)
                                 if not keepaliveCts.IsCancellationRequested then
-                                    let! ok = tryWriteEvent ctx (ServerEvent.keepalive())
+                                    let! ok = tryWriteEventSerialized writeLock ctx (ServerEvent.keepalive())
                                     if not ok then
                                         alive <- false
                                         disconnectSignal.TrySetResult true |> ignore
@@ -141,7 +164,7 @@ module EventsEndpoint =
                                 while continueLoop && reader.TryRead &evt do
                                     // **s6-r70 review C-2** — T2/T3 모드 시 tenant filter. Hidden = skip (caller 가 안 받음).
                                     if isEventVisibleTo cfg storageRoot user evt then
-                                        let! ok = tryWriteEvent ctx evt
+                                        let! ok = tryWriteEventSerialized writeLock ctx evt
                                         if not ok then continueLoop <- false
                             // keepalive timer 가 disconnect 검출했으면 loop 종료 (background path 정합)
                             if disconnectSignal.Task.IsCompleted then continueLoop <- false

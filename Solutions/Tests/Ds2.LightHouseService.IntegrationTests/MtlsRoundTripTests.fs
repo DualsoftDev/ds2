@@ -27,6 +27,11 @@ type MtlsRequiredFixture() =
     let mutable app : Microsoft.AspNetCore.Builder.WebApplication = null
     let mutable serverCert : X509Certificate2 = null
     let mutable clientCert : X509Certificate2 = null
+    // **R-B N-2 (s6-r72+ external review hotfix)** — wrongCert lifetime fixture-managed.
+    // 이전 `CreateMtlsClientWithWrongCert` 의 `use wrongCert = ...` 가 method return 시점 Dispose → handler 가
+    // disposed cert handle 보유 → handshake reject 이유가 "disposed cert" 로 wash-out (IT 의미 약화).
+    // 본 mutable field 가 fixture lifetime 동안 cert 유지, DisposeAsync 가 회수.
+    let mutable wrongCert : X509Certificate2 = null
     let mutable baseAddress : Uri = null
     let psk = "test-psk-mtls-" + Guid.NewGuid().ToString("N")
     // **s6-r70 review C-3** — AuthMiddleware 가 mtls.mode != off 시 cert subject CN ↔ X-User-Identity 강제.
@@ -109,6 +114,8 @@ type MtlsRequiredFixture() =
                     do! (app :> IAsyncDisposable).DisposeAsync().AsTask()
                 if not (isNull serverCert) then serverCert.Dispose()
                 if not (isNull clientCert) then clientCert.Dispose()
+                // R-B N-2 — fixture-managed wrongCert cleanup.
+                if not (isNull wrongCert) then wrongCert.Dispose()
                 if not (String.IsNullOrEmpty storageRoot) && Directory.Exists storageRoot then
                     try Directory.Delete(storageRoot, true) with _ -> ()
             } :> Task
@@ -128,8 +135,13 @@ type MtlsRequiredFixture() =
         client
 
     /// 별 client cert (whitelist 미박제) 으로 HttpClient — thumbprint mismatch 검증용.
+    ///
+    /// **R-B N-2 (s6-r72+ external review hotfix)** — wrongCert lifetime fixture-managed (이전 `use wrongCert`
+    /// 가 return 시점 Dispose 회귀 차단). 첫 호출 시 lazy 생성 + fixture field 박제 → DisposeAsync 가 회수.
+    /// 본 method 가 여러 번 호출되어도 같은 cert 재사용 (thumbprint mismatch 의미 유지).
     member _.CreateMtlsClientWithWrongCert() : HttpClient =
-        use wrongCert = createCert "CN=wrong-client" "1.3.6.1.5.5.7.3.2"
+        if isNull wrongCert then
+            wrongCert <- createCert "CN=wrong-client" "1.3.6.1.5.5.7.3.2"
         let handler = new HttpClientHandler()
         handler.ServerCertificateCustomValidationCallback <-
             HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
