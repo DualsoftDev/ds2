@@ -329,9 +329,21 @@ type AttachmentTools() =
         ) : ContentBlock array =
         withKb accessor registry (fun kb ->
             let s = activeSession accessor
+            // **s6-r58 C4** — ref EBNF 검증 (§3.13 SSOT). `p=14` / `slide=3` / `sheet=BOM!A1:D40` / `p=14#img=2`
+            // 정합 path. 위반 시 (e.g. `page=14` / `p` / `p=`) graceful marker — chunk 조회 skip + audit warn.
+            // raw string 박제 → silent SQL fail 방어 (lib `kb.Read` 가 ref 미정합 시 0 row 반환은 동일 결과지만
+            // EBNF 위반의 audit 추적 가치 + caller (LLM) 의 정합 정정 hint).
+            let refValid = Ds2.LightHouse.RefLocator.tryParse ref |> Option.isSome
             match importFileId s fileId with
             | None ->
                 [| TextContentBlock(Text = "") :> ContentBlock |]
+            | Some _libFileId when not refValid ->
+                Log.audit.Warn(
+                    sprintf "C4: attachment_read ref EBNF 위반 — fileId=%s ref=%s (§3.13)"
+                        (Log.sanitizeForLog fileId) (Log.sanitizeForLog ref))
+                let sb = System.Text.StringBuilder()
+                appendMarker sb (sprintf "[ref EBNF 위반: %s — p=N / slide=N / sheet=NAME[!RANGE] / +#img=N]" ref)
+                [| TextContentBlock(Text = sb.ToString()) :> ContentBlock |]
             | Some libFileId ->
                 let chunkText = kb.Read libFileId ref
                 let imgRefs = kb.ReadImages libFileId ref
