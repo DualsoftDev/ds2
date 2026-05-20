@@ -311,12 +311,43 @@ public sealed class AttachmentIngestService
         return stream;
     }
 
+    /// <summary>
+    /// **D-S7-5 phase 3 (s6-r67)** — zip size 가 임계값 (`LightHouseClient.ResumableUploadThresholdBytes`, 256 MiB) 초과 시
+    /// chunked path 자동 진입. 작은 zip 은 기존 single-shot multipart 유지 (회귀 0).
+    /// <para/>
+    /// chunked path 의 progress 는 byte 단위 — IngestStageProgress 의 (current, total) 로 매핑하여 KbManagerDialog ProgressBar
+    /// 가 동일 model watch. chunkSize default (4 MiB) 그대로 사용 — server-side `maxUploadBytes` 정합 의무.
+    /// <para/>
+    /// swap path (`ReingestAndReuploadAsync` → `POST /collections/{id}/payload`) 는 phase 3 대상 아님 (D-S7-5 phase 2 가
+    /// 신규 등록만 지원). 기존 큰 zip 의 swap chunked 진입은 별 phase (backlog).
+    /// </summary>
     private async Task<string> UploadAsync(
         FileStream zipStream,
         string title,
         IProgress<IngestStageProgress>? progress,
         CancellationToken ct)
     {
+        var totalBytes = zipStream.Length;
+        if (totalBytes > LightHouseClient.ResumableUploadThresholdBytes)
+        {
+            Log.Info($"UploadAsync: zip size {totalBytes:N0} bytes > threshold {LightHouseClient.ResumableUploadThresholdBytes:N0} → chunked path 자동 진입");
+            // IngestStageProgress 의 Completed/Total 이 int — byte 단위 (10 GB 한도) 가 int.MaxValue (~2 GiB) 초과 가능
+            // → KiB 단위로 cast 후 박제 (int 안전, ~2 TiB 까지 표현). UI 가 % 비율만 사용하므로 단위 변환 의미 동일.
+            var totalKib = (int)(totalBytes / 1024L);
+            progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, totalKib, $"chunked upload 시작 → {title}"));
+            var chunkedProgress = progress is null
+                ? null
+                : new Progress<(long sent, long total)>(p =>
+                {
+                    var sentKib = (int)(p.sent / 1024L);
+                    var pct = p.sent * 100L / Math.Max(1L, p.total);
+                    progress.Report(new IngestStageProgress(IngestStage.Uploading, sentKib, totalKib, $"chunked → {title} ({pct}%)"));
+                });
+            var chunkedId = await _client.UploadCollectionResumableAsync(
+                title, zipStream, progress: chunkedProgress, ct: ct).ConfigureAwait(false);
+            progress?.Report(new IngestStageProgress(IngestStage.Done, totalKib, totalKib, $"등록 완료 (chunked) — {chunkedId}"));
+            return chunkedId;
+        }
         progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, 1, $"upload → {title}"));
         var collectionId = await _client.UploadCollectionAsync(title, zipStream, ct).ConfigureAwait(false);
         progress?.Report(new IngestStageProgress(IngestStage.Done, 1, 1, $"등록 완료 — {collectionId}"));

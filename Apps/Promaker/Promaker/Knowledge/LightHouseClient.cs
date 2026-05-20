@@ -41,6 +41,16 @@ public sealed class LightHouseClient : IDisposable
     private readonly bool _ownsHttp;
 
     /// <summary>
+    /// **D-S7-5 phase 3 (s6-r67)** — chunked path 자동 선택 임계값 SSOT. 본 값 초과 zip 은 caller (AttachmentIngestService)
+    /// 가 `UploadCollectionResumableAsync` 자동 진입 — multipart single-shot 대신 chunked PATCH 로 안전한 resume hook 확보.
+    /// <para/>
+    /// 256 MiB = (a) HttpClient 의 single multipart buffer alloc 한도 부담 분기점 (~256 MiB 부터 OOM risk 점증) + (b) 사내 LAN
+    /// 의 network instability 부담 분기점 (~수 GB 단일 재시도 비용 vs ~4 MiB chunk 재시도 비용). 사용자 환경 별 조정 시
+    /// 본 const 만 변경 — caller 박제 단순 유지.
+    /// </summary>
+    public const long ResumableUploadThresholdBytes = 256L * 1024L * 1024L;
+
+    /// <summary>
     /// JSON 직렬화 옵션 SSOT — body 의 camelCase 정합 (service 의 §3.3.1 / Registry / SessionEndpoints 와 같은 convention).
     /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
