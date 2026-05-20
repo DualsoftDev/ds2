@@ -743,4 +743,131 @@ public sealed class LightHouseClientTests
             new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
         Assert.DoesNotContain("clientCertThumbprint", json);
     }
+
+    // ── D-S7-5 phase 2 — resumable upload client API (s6-r63) ─────────────────────
+
+    [Fact]
+    public async Task StartResumableUploadAsync_POST_uploads_rs_body_검증_uploadId_도출()
+    {
+        var (client, handler) = MakeClient();
+        var responseBody = """{"uploadId":"abc123def456","offset":0,"totalBytes":1024}""";
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.Created)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
+        };
+
+        var result = await client.StartResumableUploadAsync("my-title", 1024L);
+
+        Assert.Single(handler.Requests);
+        var req = handler.Requests[0];
+        Assert.Equal(HttpMethod.Post, req.Method);
+        Assert.Equal($"{BaseUrl}uploads-rs", req.RequestUri!.ToString());
+        var sentBody = handler.RequestBodies[0];
+        Assert.Contains("\"title\":\"my-title\"", sentBody);
+        Assert.Contains("\"totalBytes\":1024", sentBody);
+        Assert.Equal("abc123def456", result.UploadId);
+        Assert.Equal(1024L, result.TotalBytes);
+    }
+
+    [Fact]
+    public async Task PatchResumableChunkAsync_Content_Range와_Content_Length_헤더_박제_body_bytes_정합()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"uploadId":"abc","offset":50,"totalBytes":100}""",
+                Encoding.UTF8, "application/json"),
+        };
+
+        var chunk = new byte[50];
+        for (int i = 0; i < 50; i++) chunk[i] = (byte)i;
+        var status = await client.PatchResumableChunkAsync("abc", chunk, 0L, 49L, 100L);
+
+        var req = handler.Requests[0];
+        Assert.Equal(HttpMethod.Patch, req.Method);
+        Assert.Equal($"{BaseUrl}uploads-rs/abc", req.RequestUri!.ToString());
+        Assert.Equal(50L, req.Content!.Headers.ContentLength);
+        Assert.Contains(req.Content.Headers, h => h.Key == "Content-Range" && h.Value.Contains("bytes 0-49/100"));
+        Assert.Equal(50L, status.Offset);
+    }
+
+    [Fact]
+    public async Task PatchResumableChunkAsync_chunk_length_불일치_ArgumentException()
+    {
+        var (client, _) = MakeClient();
+        // chunk.Length=40 인데 endByte-startByte+1 = 50 → caller 측 검증 throw.
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.PatchResumableChunkAsync("abc", new byte[40], 0L, 49L, 100L));
+    }
+
+    [Fact]
+    public async Task FinalizeResumableUploadAsync_POST_finalize_collectionId_도출()
+    {
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.Created)
+        {
+            Content = new StringContent("""{"id":"550e8400-e29b-41d4-a716-446655440000","storageRelPath":"Collections\\foo"}""",
+                Encoding.UTF8, "application/json"),
+        };
+
+        var resp = await client.FinalizeResumableUploadAsync("abc123");
+
+        var req = handler.Requests[0];
+        Assert.Equal(HttpMethod.Post, req.Method);
+        Assert.Equal($"{BaseUrl}uploads-rs/abc123/finalize", req.RequestUri!.ToString());
+        Assert.Equal("550e8400-e29b-41d4-a716-446655440000", resp.Id);
+        Assert.Equal("Collections\\foo", resp.StorageRelPath);
+    }
+
+    [Fact]
+    public async Task UploadCollectionResumableAsync_wrapper_multi_chunk_round_trip()
+    {
+        var (client, handler) = MakeClient();
+        // 100-byte zip stream + chunkSize=30 → start + 4 PATCH (30+30+30+10) + finalize = 6 request.
+        var zipBytes = new byte[100];
+        for (int i = 0; i < 100; i++) zipBytes[i] = (byte)i;
+        long expectedOffset = 0;
+        handler.Responder = req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.EndsWith("/uploads-rs"))
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""{"uploadId":"wrap-test","offset":0,"totalBytes":100}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            if (req.Method == HttpMethod.Patch)
+            {
+                var range = req.Content!.Headers.GetValues("Content-Range").First();
+                // "bytes <start>-<end>/<total>" → <end> + 1 = newOffset
+                var slash = range.IndexOf('/');
+                var dash = range.IndexOf('-');
+                var endStr = range.Substring(dash + 1, slash - dash - 1);
+                expectedOffset = long.Parse(endStr) + 1L;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"uploadId":"wrap-test","offset":{{expectedOffset}},"totalBytes":100}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            // finalize
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent(
+                    """{"id":"new-coll-id","storageRelPath":"Collections\\wrap"}""",
+                    Encoding.UTF8, "application/json"),
+            };
+        };
+
+        using var stream = new MemoryStream(zipBytes);
+        var collectionId = await client.UploadCollectionResumableAsync("wrap-test", stream, chunkSize: 30);
+
+        Assert.Equal("new-coll-id", collectionId);
+        // start (1) + PATCH (4) + finalize (1) = 6 request
+        Assert.Equal(6, handler.Requests.Count);
+        // 마지막 PATCH 의 Content-Range = bytes 90-99/100
+        var lastPatch = handler.Requests.Where(r => r.Method == HttpMethod.Patch).Last();
+        Assert.Contains(lastPatch.Content!.Headers,
+            h => h.Key == "Content-Range" && h.Value.Contains("bytes 90-99/100"));
+    }
 }

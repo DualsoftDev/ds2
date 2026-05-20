@@ -1,42 +1,45 @@
 namespace Ds2.LightHouseService
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Text
 open System.Text.Json
 open System.Text.Json.Serialization
+open System.Threading
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
 
-/// Phase S7 D-S7-5 (s6-r60) — **resumable chunked upload** scaffold (server-side, minimum viable).
+/// Phase S7 D-S7-5 — **resumable chunked upload** (server-side, **phase 2 production-ready** s6-r63).
 ///
-/// 박제 SSOT: tus protocol 미채택, 자체 SSOT — `POST /uploads` (시작) → `PATCH /uploads/{id}` (chunk
-/// append, `Content-Range: bytes <start>-<end>/<total>`) → `POST /uploads/{id}/finalize` (collection 등록
-/// 위임) → `DELETE /uploads/{id}` (cancel). `GET /uploads/{id}` 로 현 offset 조회 → 중단 후 재개 가능.
+/// 박제 SSOT: tus protocol 미채택, 자체 SSOT — `POST /uploads-rs` (시작) → `PATCH /uploads-rs/{id}` (chunk
+/// append, `Content-Range: bytes <start>-<end>/<total>`) → `POST /uploads-rs/{id}/finalize` (zip extract +
+/// IndexerVersion gate + collection 등록 + Registry upsert + EventBus collection-added) → `DELETE
+/// /uploads-rs/{id}` (cancel). `GET /uploads-rs/{id}` 로 현 offset 조회 → 중단 후 재개 가능.
 ///
-/// **분리 의도**: 기존 `POST /collections` (multipart) 와 공존. caller (Promaker/cli) 가 zip 크기 < 100MB
-/// 시 일반 multipart, 큰 zip 시 chunked path 선택.
+/// **phase 2 (s6-r63) 변경** (s6-r60 scaffold backlog 4건 모두 해소):
+/// 1. **PATCH per-uploadId SemaphoreSlim race** — `_uploadLocks: ConcurrentDictionary` 으로 동시 PATCH 차단.
+///    동일 uploadId 에 동시 PATCH 진입 시 readMeta / append / writeMeta sequence 의 atomic 보장.
+/// 2. **Content-Range body size 검증** — `Content-Length` header 의 byte 수 == Content-Range 의 length 의무.
+///    실 append 후 fs.Position 으로 actual byte 카운트 재검증 + mismatch 시 rollback truncate.
+/// 3. **crash inconsistency 회복** — readMeta 직후 partial.Length vs meta.Offset 비교. partial > offset 시
+///    boundary 까지 truncate (meta.json 이 SSOT, partial 의 tail unverified). partial < offset 시 fatal log
+///    + DELETE 권장.
+/// 4. **finalize → collection 등록 위임** — payload.partial 의 zip stream 을 새 collectionId staging 에 extractAll +
+///    MetaJson stamp + IndexerVersion gate + moveStagingToCollection + Registry.upsertAsync + EventBus.Publish
+///    (collection-added). uploadId staging 은 finalize 성공 시 cleanup.
 ///
 /// **wire (camelCase JSON)**:
-///   - `POST /uploads { title: string, totalBytes: int64 }` → 201 + `{ uploadId, offset: 0, totalBytes }`
-///   - `PATCH /uploads/{id}` (`Content-Range: bytes <start>-<end>/<total>`, body = chunk) → 200 +
+///   - `POST /uploads-rs { title: string, totalBytes: int64 }` → 201 + `{ uploadId, offset: 0, totalBytes }`
+///   - `PATCH /uploads-rs/{id}` (`Content-Range: bytes <start>-<end>/<total>`, body = chunk) → 200 +
 ///       `{ uploadId, offset: <end+1>, totalBytes }`
-///   - `GET /uploads/{id}` → 200 + `{ uploadId, offset, totalBytes }` / 404 unknown
-///   - `POST /uploads/{id}/finalize` → 200 + `{ id: <collection-guid> }` (POST /collections 의 ZipImport
-///       위임 — staging payload.partial 을 final zip 으로 swap + Registry 등록)
-///   - `DELETE /uploads/{id}` → 204 (cancel + staging cleanup)
-///
-/// **state machine** (per-uploadId staging dir):
-///   `<storageRoot>/Staging/<uploadId>/`
-///     payload.partial  — append-only chunk 누적
-///     meta.json        — { uploadId, title, totalBytes, offset, createdAt, userIdentity }
-///   StagingSweep 가 동일 정책 (maxAge) 으로 stale upload 회수.
-///
-/// **SSE 진행률 (D-S7-2 결합)**: PATCH 시점에 `EventBus.Publish (ServerEvent.uploadProgress ...)` —
-/// 다른 instance / KbManagerDialog 가 동일 user 의 진행률 수신 가능.
+///   - `GET /uploads-rs/{id}` → 200 + `{ uploadId, offset, totalBytes, title }` / 404 unknown
+///   - `POST /uploads-rs/{id}/finalize` → 201 + `{ id: <collection-guid>, storageRelPath }` (zip extract +
+///       Registry 등록 + EventBus.collection-added) / 409 incomplete / 415 indexerVersion gate / 400 zip 결함
+///   - `DELETE /uploads-rs/{id}` → 204 (cancel + staging cleanup + lock dispose)
 [<RequireQualifiedAccess>]
 module UploadsEndpoint =
 
@@ -55,11 +58,25 @@ module UploadsEndpoint =
     let private MetaFileName = "meta.json"
     [<Literal>]
     let private PartialFileName = "payload.partial"
-    // **s6-r60 M2 (자가 검열 정정)**: `Staging` subdir = `Storage.StagingSubdir` SSOT 재사용 (박제 중복 해소).
 
     let private jsonOpts =
         let opts = JsonSerializerOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)
         opts
+
+    /// **D-S7-5 phase 2 (1)** — per-uploadId SemaphoreSlim. 동시 PATCH / DELETE / finalize 가 같은 uploadId 에
+    /// 들어와도 readMeta → append → writeMeta sequence 의 atomic 보장. lock 진입 자체가 cancellable (ct).
+    let private uploadLocks : ConcurrentDictionary<string, SemaphoreSlim> =
+        ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal)
+
+    let private acquireLock (uploadId: string) : SemaphoreSlim =
+        uploadLocks.GetOrAdd(uploadId, fun _ -> new SemaphoreSlim(1, 1))
+
+    /// finalize 성공 / DELETE 진입 시 호출 — lock dispose. lock entry 누적 회피 (race-free —
+    /// removeLock 전 PATCH 진입한 caller 가 acquireLock 으로 새 entry 생성 — 무해, 단순히 잠깐의 entry 가 2개).
+    let private removeLock (uploadId: string) : unit =
+        match uploadLocks.TryRemove uploadId with
+        | true, sem -> try sem.Dispose() with _ -> ()
+        | _ -> ()
 
     let private writeJson (ctx: HttpContext) (status: int) (body: obj) : Task =
         ctx.Response.StatusCode <- status
@@ -70,7 +87,6 @@ module UploadsEndpoint =
         writeJson ctx status {| error = message |}
 
     /// `<storageRoot>/Staging/<uploadId>/` 절대 경로. uploadId 검증 = caller 책임 (regex).
-    /// **s6-r60 M2 (자가 검열)** — `Storage.stagingDir` SSOT 재사용 (Staging subdir 박제 중복 해소).
     let private uploadDir (storageRoot: string) (uploadId: string) : string =
         Path.Combine(Storage.stagingDir storageRoot, uploadId)
 
@@ -95,6 +111,34 @@ module UploadsEndpoint =
             let json = File.ReadAllText(p, Encoding.UTF8)
             JsonSerializer.Deserialize<UploadMeta>(json, jsonOpts) |> Some
 
+    /// **D-S7-5 phase 2 (3)** — readMeta + crash inconsistency 회복.
+    /// partial.Length > meta.Offset → PATCH 중간 crash → meta.Offset 까지 truncate (meta SSOT).
+    /// partial.Length < meta.Offset → 더 심각한 결손 (writeMeta 가 .tmp Replace 도중 crash 등) → fatal log,
+    /// caller 가 DELETE 후 사용자 재upload 권장.
+    let private readMetaReconciled (uploadDir': string) : UploadMeta option =
+        match readMeta uploadDir' with
+        | None -> None
+        | Some meta ->
+            let pp = partialPath uploadDir'
+            if File.Exists pp then
+                let len = (FileInfo pp).Length
+                if len > meta.Offset then
+                    try
+                        use fs = new FileStream(pp, FileMode.Open, FileAccess.Write, FileShare.None)
+                        fs.SetLength(meta.Offset)
+                        Log.service.Warn(
+                            sprintf "D-S7-5: crash 회복 — uploadId=%s partial truncated %d → %d"
+                                meta.UploadId len meta.Offset)
+                    with ex ->
+                        Log.service.Error(
+                            sprintf "D-S7-5: crash 회복 실패 (partial truncate) — uploadId=%s ex=%s"
+                                meta.UploadId ex.Message)
+                elif len < meta.Offset then
+                    Log.service.Error(
+                        sprintf "D-S7-5: partial 결손 — uploadId=%s partial.len=%d < meta.offset=%d (DELETE 권장)"
+                            meta.UploadId len meta.Offset)
+            Some meta
+
     let private writeMeta (uploadDir': string) (meta: UploadMeta) : unit =
         let p = metaPath uploadDir'
         let tmp = p + ".tmp"
@@ -108,7 +152,7 @@ module UploadsEndpoint =
         | true, v when not (isNull v) -> string v
         | _ -> "unknown"
 
-    /// `POST /uploads { title, totalBytes }` — 신규 upload 시작. uploadId (guid v4 N) 발급 + staging dir 생성.
+    /// `POST /uploads-rs { title, totalBytes }` — 신규 upload 시작. uploadId (guid v4 N) 발급 + staging dir 생성.
     let private postStart (cfg: ServiceConfig) (storageRoot: string) (_eventBus: EventBus) (ctx: HttpContext) : Task =
         task {
             try
@@ -127,7 +171,6 @@ module UploadsEndpoint =
                     let uploadId = Guid.NewGuid().ToString("N")
                     let dir = uploadDir storageRoot uploadId
                     Directory.CreateDirectory dir |> ignore
-                    // partial file 초기 0 byte 생성 (FileStream Create + Close)
                     use fs = File.Create(partialPath dir)
                     fs.Close()
                     let meta : UploadMeta = {
@@ -140,7 +183,7 @@ module UploadsEndpoint =
                     }
                     writeMeta dir meta
                     Log.audit.Info(
-                        sprintf "D-S7-5: POST /uploads — uploadId=%s title=%s totalBytes=%d user=%s"
+                        sprintf "D-S7-5: POST /uploads-rs — uploadId=%s title=%s totalBytes=%d user=%s"
                             uploadId (Log.sanitizeForLog meta.Title) meta.TotalBytes (Log.sanitizeForLog meta.UserIdentity))
                     do! writeJson ctx 201 {| uploadId = uploadId; offset = 0L; totalBytes = body.totalBytes |}
             with
@@ -168,110 +211,220 @@ module UploadsEndpoint =
                     then Some (startB, endB, totalB)
                     else None
 
-    /// `PATCH /uploads/{id}` — chunk append. Content-Range 의 start 가 현 offset 와 일치 의무 (409 미일치).
+    /// `PATCH /uploads-rs/{id}` — chunk append. Content-Range 의 start 가 현 offset 와 일치 의무 (409 미일치).
+    /// **D-S7-5 phase 2 (1)+(2)+(3)** — per-uploadId lock + body size 검증 + crash 회복.
     let private patchChunk (storageRoot: string) (eventBus: EventBus) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
-                let dir = uploadDir storageRoot uploadId
-                match readMeta dir with
-                | None -> do! writeError ctx 404 "uploadId 미존재"
-                | Some meta ->
-                    let cr =
-                        if ctx.Request.Headers.ContainsKey "Content-Range" then
-                            parseContentRange (ctx.Request.Headers.["Content-Range"].ToString())
-                        else None
-                    match cr with
-                    | None -> do! writeError ctx 400 "Content-Range 헤더 필수 (bytes <start>-<end>/<total>)"
-                    | Some (_, _, totalB) when totalB <> meta.TotalBytes ->
-                        do! writeError ctx 409 (sprintf "Content-Range total=%d ≠ meta.totalBytes=%d" totalB meta.TotalBytes)
-                    | Some (startB, _, _) when startB <> meta.Offset ->
-                        do! writeJson ctx 409 {| error = "offset mismatch"; expected = meta.Offset; received = startB |}
-                    | Some (startB, endB, _) ->
-                        let chunkLen = endB - startB + 1L
-                        if meta.Offset + chunkLen > meta.TotalBytes then
-                            do! writeError ctx 413 (sprintf "chunk overflow — offset+len=%d > totalBytes=%d"
-                                                        (meta.Offset + chunkLen) meta.TotalBytes)
-                        else
-                            // append chunk to payload.partial
-                            use fs = new FileStream(partialPath dir, FileMode.Open, FileAccess.Write, FileShare.None)
-                            fs.Seek(meta.Offset, SeekOrigin.Begin) |> ignore
-                            do! ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted)
-                            fs.Flush()
-                            let newOffset = meta.Offset + chunkLen
-                            let updated = { meta with Offset = newOffset }
-                            writeMeta dir updated
-                            // SSE 진행률 publish (D-S7-2 결합)
-                            let progress =
-                                if meta.TotalBytes > 0L then int (newOffset * 100L / meta.TotalBytes)
-                                else 0
-                            eventBus.Publish(
-                                ServerEvent.uploadProgress uploadId progress
-                                    (sprintf "%d / %d bytes" newOffset meta.TotalBytes))
-                            do! writeJson ctx 200 {| uploadId = uploadId; offset = newOffset; totalBytes = meta.TotalBytes |}
+                let lock = acquireLock uploadId
+                do! lock.WaitAsync(ctx.RequestAborted)
+                try
+                    let dir = uploadDir storageRoot uploadId
+                    match readMetaReconciled dir with
+                    | None -> do! writeError ctx 404 "uploadId 미존재"
+                    | Some meta ->
+                        let cr =
+                            if ctx.Request.Headers.ContainsKey "Content-Range" then
+                                parseContentRange (ctx.Request.Headers.["Content-Range"].ToString())
+                            else None
+                        match cr with
+                        | None -> do! writeError ctx 400 "Content-Range 헤더 필수 (bytes <start>-<end>/<total>)"
+                        | Some (_, _, totalB) when totalB <> meta.TotalBytes ->
+                            do! writeError ctx 409 (sprintf "Content-Range total=%d ≠ meta.totalBytes=%d" totalB meta.TotalBytes)
+                        | Some (startB, _, _) when startB <> meta.Offset ->
+                            do! writeJson ctx 409 {| error = "offset mismatch"; expected = meta.Offset; received = startB |}
+                        | Some (startB, endB, _) ->
+                            let chunkLen = endB - startB + 1L
+                            // **(2) Content-Range body size 검증** — Content-Length header 가 명시되면 chunkLen 과 일치 의무.
+                            let cl = ctx.Request.ContentLength
+                            if cl.HasValue && cl.Value <> chunkLen then
+                                do! writeError ctx 400
+                                        (sprintf "Content-Length=%d ≠ Content-Range length=%d" cl.Value chunkLen)
+                            elif meta.Offset + chunkLen > meta.TotalBytes then
+                                do! writeError ctx 413
+                                        (sprintf "chunk overflow — offset+len=%d > totalBytes=%d"
+                                            (meta.Offset + chunkLen) meta.TotalBytes)
+                            else
+                                let mutable actualWritten = 0L
+                                let mutable appendOk = false
+                                try
+                                    use fs = new FileStream(partialPath dir, FileMode.Open, FileAccess.Write, FileShare.None)
+                                    fs.Seek(meta.Offset, SeekOrigin.Begin) |> ignore
+                                    let beforePos = fs.Position
+                                    do! ctx.Request.Body.CopyToAsync(fs, ctx.RequestAborted)
+                                    fs.Flush()
+                                    actualWritten <- fs.Position - beforePos
+                                    // **(2) post-condition** — 실 byte 카운트 == Content-Range length 의무. 미일치 시 rollback.
+                                    if actualWritten <> chunkLen then
+                                        fs.SetLength meta.Offset
+                                        fs.Flush()
+                                    else
+                                        appendOk <- true
+                                with ex ->
+                                    Log.service.Warn(
+                                        sprintf "D-S7-5: PATCH append 실패 — uploadId=%s ex=%s" uploadId ex.Message)
+
+                                if not appendOk then
+                                    do! writeError ctx 400
+                                            (sprintf "body size mismatch — actual=%d ≠ Content-Range length=%d"
+                                                actualWritten chunkLen)
+                                else
+                                    let newOffset = meta.Offset + chunkLen
+                                    let updated = { meta with Offset = newOffset }
+                                    writeMeta dir updated
+                                    let progress =
+                                        if meta.TotalBytes > 0L then int (newOffset * 100L / meta.TotalBytes)
+                                        else 0
+                                    eventBus.Publish(
+                                        ServerEvent.uploadProgress uploadId progress
+                                            (sprintf "%d / %d bytes" newOffset meta.TotalBytes))
+                                    do! writeJson ctx 200
+                                            {| uploadId = uploadId; offset = newOffset; totalBytes = meta.TotalBytes |}
+                finally
+                    lock.Release() |> ignore
         } :> Task
 
-    /// `GET /uploads/{id}` — 현 offset 조회 (resume 진입 hook).
+    /// `GET /uploads-rs/{id}` — 현 offset 조회 (resume 진입 hook).
     let private getStatus (storageRoot: string) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
                 let dir = uploadDir storageRoot uploadId
-                match readMeta dir with
+                match readMetaReconciled dir with
                 | None -> do! writeError ctx 404 "uploadId 미존재"
                 | Some meta ->
                     do! writeJson ctx 200
                             {| uploadId = uploadId; offset = meta.Offset; totalBytes = meta.TotalBytes; title = meta.Title |}
         } :> Task
 
-    /// `DELETE /uploads/{id}` — cancel. staging dir 제거.
+    /// `DELETE /uploads-rs/{id}` — cancel. staging dir 제거 + lock dispose.
     let private deleteUpload (storageRoot: string) (uploadId: string) (ctx: HttpContext) : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
-                let dir = uploadDir storageRoot uploadId
-                if Directory.Exists dir then
-                    try Directory.Delete(dir, true)
-                    with ex ->
-                        Log.service.Warn(sprintf "D-S7-5: DELETE /uploads cleanup 실패 — %s: %s" (ex.GetType().Name) ex.Message)
-                    Log.audit.Info(sprintf "D-S7-5: DELETE /uploads — uploadId=%s" uploadId)
-                ctx.Response.StatusCode <- 204
+                let lock = acquireLock uploadId
+                do! lock.WaitAsync(ctx.RequestAborted)
+                try
+                    let dir = uploadDir storageRoot uploadId
+                    if Directory.Exists dir then
+                        try Directory.Delete(dir, true)
+                        with ex ->
+                            Log.service.Warn(sprintf "D-S7-5: DELETE cleanup 실패 — %s: %s" (ex.GetType().Name) ex.Message)
+                        Log.audit.Info(sprintf "D-S7-5: DELETE /uploads-rs — uploadId=%s" uploadId)
+                    ctx.Response.StatusCode <- 204
+                finally
+                    lock.Release() |> ignore
+                    removeLock uploadId
         } :> Task
 
-    /// `POST /uploads/{id}/finalize` — staging payload.partial 의 byte 가 totalBytes 정합 시 collection 등록 path
-    /// 진입. 본 turn (s6-r60 scaffold) = finalize 결과를 별 path 로 위임 안 함 — payload.partial 의 완성 검증 +
-    /// 응답 `{ uploadId, complete: true }` 만. 실 collection 등록은 별 turn (Promaker/cli client 변경 + POST
-    /// /collections 의 multipart 위임 path 통합).
-    let private postFinalize (storageRoot: string) (uploadId: string) (ctx: HttpContext) : Task =
+    /// **D-S7-5 phase 2 (4)** — `POST /uploads-rs/{id}/finalize` — collection 등록 path 완성.
+    ///
+    /// 흐름: meta 검증 (offset == totalBytes) → 새 collectionId 발급 → 별 staging dir 생성 → payload.partial 의
+    /// zip stream extractAll → MetaJson load/stamp/save → IndexerVersion gate (CollectionEndpoints SSOT helper 재사용) →
+    /// moveStagingToCollection (atomic) → Registry.upsertAsync → EventBus.collection-added → uploadId staging cleanup.
+    /// 실패 시 collectionId staging 만 removeStaging. uploadId staging 은 caller 가 DELETE 또는 StagingSweep 가 회수.
+    let private postFinalize
+        (cfg: ServiceConfig)
+        (storageRoot: string)
+        (eventBus: EventBus)
+        (uploadId: string)
+        (ctx: HttpContext)
+        : Task =
         task {
             if not (isValidUploadId uploadId) then
                 do! writeError ctx 400 "uploadId 형식 위반"
             else
-                let dir = uploadDir storageRoot uploadId
-                match readMeta dir with
-                | None -> do! writeError ctx 404 "uploadId 미존재"
-                | Some meta ->
-                    if meta.Offset <> meta.TotalBytes then
-                        do! writeError ctx 409
-                                (sprintf "incomplete — offset=%d / totalBytes=%d" meta.Offset meta.TotalBytes)
-                    else
-                        // **본 turn 의 scaffold** — collection 등록 위임은 별 turn (D-S7-5 phase 2).
-                        // 현 시점 응답 = upload 완료 marker. caller (Promaker/cli) 가 후속 path 로 collection 등록.
-                        Log.audit.Info(
-                            sprintf "D-S7-5: POST /uploads/finalize — uploadId=%s totalBytes=%d (collection 등록은 별 turn)"
-                                uploadId meta.TotalBytes)
-                        do! writeJson ctx 200
-                                {| uploadId = uploadId; complete = true; offset = meta.Offset; totalBytes = meta.TotalBytes
-                                   note = "scaffold (s6-r60) — collection 등록 위임 별 turn" |}
+                let lock = acquireLock uploadId
+                do! lock.WaitAsync(ctx.RequestAborted)
+                try
+                    let dir = uploadDir storageRoot uploadId
+                    match readMetaReconciled dir with
+                    | None -> do! writeError ctx 404 "uploadId 미존재"
+                    | Some meta ->
+                        if meta.Offset <> meta.TotalBytes then
+                            do! writeError ctx 409
+                                    (sprintf "incomplete — offset=%d / totalBytes=%d" meta.Offset meta.TotalBytes)
+                        else
+                            let collectionId = Guid.NewGuid().ToString("D")
+                            let title = ZipImport.sanitizeTitle meta.Title
+                            let collStaging = Path.Combine(Storage.stagingDir storageRoot, collectionId)
+
+                            Log.audit.Info(
+                                sprintf "D-S7-5: finalize 시작 — uploadId=%s collectionId=%s title=%s totalBytes=%d"
+                                    uploadId collectionId title meta.TotalBytes)
+                            try
+                                Directory.CreateDirectory collStaging |> ignore
+                                use partialFs = File.OpenRead(partialPath dir)
+                                let _ =
+                                    ZipImport.extractAll partialFs collStaging meta.TotalBytes cfg.ZipBombRatioLimit
+                                partialFs.Close()
+
+                                let clientMeta = MetaJson.load collStaging
+                                let storageRelPath =
+                                    sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
+                                let serverMeta =
+                                    MetaJson.stampServerFields collectionId meta.UserIdentity storageRelPath
+                                        { clientMeta with Title = title }
+                                MetaJson.save collStaging serverMeta
+
+                                let clientVer = ZipImport.probeIndexerVersion collStaging
+                                let gate =
+                                    ZipImport.evaluateIndexerVersionGate clientVer
+                                        cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
+                                let! compatible =
+                                    CollectionEndpoints.processStagingExtractGate
+                                        ctx storageRoot collectionId cfg.IndexerVersionRange gate collectionId
+                                        " (resumable)"
+                                if compatible then
+                                    let target =
+                                        ZipImport.moveStagingToCollection storageRoot collStaging collectionId title
+                                    let entry = MetaJson.toRegistryEntry serverMeta
+                                    do! Registry.upsertAsync storageRoot entry
+                                    eventBus.Publish(ServerEvent.collectionAdded collectionId)
+                                    Log.audit.Info(
+                                        sprintf "D-S7-5: finalize → collection registered — uploadId=%s collectionId=%s target=%s"
+                                            uploadId collectionId target)
+                                    // uploadId staging cleanup (성공 path)
+                                    if Directory.Exists dir then
+                                        try Directory.Delete(dir, true) with _ -> ()
+                                    do! writeJson ctx 201
+                                            {| id = collectionId; storageRelPath = entry.StorageRelPath |}
+                            with
+                            | SanitizeException err ->
+                                Log.audit.Warn(
+                                    sprintf "D-S7-5: finalize sanitize 실패 — uploadId=%s collectionId=%s err=%A"
+                                        uploadId collectionId err)
+                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
+                            | :? FileNotFoundException as ex ->
+                                Log.audit.Warn(
+                                    sprintf "D-S7-5: finalize zip 구조 결함 — uploadId=%s missing=%s"
+                                        uploadId ex.FileName)
+                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                do! writeError ctx 400
+                                        (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
+                            | :? InvalidDataException as ex ->
+                                Log.audit.Warn(
+                                    sprintf "D-S7-5: finalize zip 구조 결함 — uploadId=%s ex=%s"
+                                        uploadId ex.Message)
+                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
+                            | ex ->
+                                Log.service.Error(
+                                    sprintf "D-S7-5: finalize 실패 — uploadId=%s ex=%s" uploadId ex.Message)
+                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                do! writeError ctx 500 "internal error"
+                finally
+                    lock.Release() |> ignore
+                    // 성공/실패 무관 — finalize 후 lock entry 회수 (uploadId 는 더 사용 안 됨)
+                    removeLock uploadId
         } :> Task
 
-    /// route mapping. AuthMiddleware 통과 후 진입.
-    ///
-    /// **path = `/uploads-rs/`** (resumable shortcut). 기존 `DELETE /uploads/{stagingId}` (CollectionEndpoints 의
-    /// staging cancel hook) 와 route 분리 — wire 명확 + ASP.NET endpoint routing ambiguity 차단.
+    /// route mapping. AuthMiddleware 통과 후 진입. path `/uploads-rs/` (기존 `DELETE /uploads/{stagingId}` 와 분리).
     let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string) (eventBus: EventBus) =
         app.MapPost("/uploads-rs", RequestDelegate(postStart cfg storageRoot eventBus)) |> ignore
         app.MapGet("/uploads-rs/{uploadId}",
@@ -285,7 +438,7 @@ module UploadsEndpoint =
         app.MapPost("/uploads-rs/{uploadId}/finalize",
             RequestDelegate(fun ctx ->
                 let uploadId = ctx.GetRouteValue "uploadId" :?> string
-                postFinalize storageRoot uploadId ctx)) |> ignore
+                postFinalize cfg storageRoot eventBus uploadId ctx)) |> ignore
         app.MapDelete("/uploads-rs/{uploadId}",
             RequestDelegate(fun ctx ->
                 let uploadId = ctx.GetRouteValue "uploadId" :?> string
