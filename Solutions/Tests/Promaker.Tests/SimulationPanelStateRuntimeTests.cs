@@ -197,7 +197,8 @@ public sealed class SimulationPanelStateRuntimeTests
         store.UpdateApiDef(
             apiDefId,
             name,
-            ApiDefActionType.Normal,
+            ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None),
+            SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None),
             FSharpOption<Guid>.Some(deviceWorkId),
             FSharpOption<Guid>.Some(deviceWorkId),
             "");

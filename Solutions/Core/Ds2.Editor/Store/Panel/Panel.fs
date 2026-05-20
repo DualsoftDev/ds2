@@ -35,20 +35,18 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
-            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
-            apiCall.SkipInputSensor)
+            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec)
 
-    let toConditionApiCallItem (store: DsStore) (apiCall: ApiCall) : CallConditionApiCallItem =
+    let toConditionApiCallItem (store: DsStore) (apiCall: ApiCall) : ConditionApiCallItem =
         let _, displayName = resolveApiDefDisplay store apiCall.ApiDefId
-        CallConditionApiCallItem(
+        ConditionApiCallItem(
             apiCall.Id, apiCall.Name, displayName,
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
             apiCall.ContactKind,
-            apiCall.InputSpec,
-            apiCall.SkipInputSensor)
+            apiCall.InputSpec)
 
     let buildApiCall
         (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)
@@ -56,7 +54,6 @@ module internal DirectPanelOps =
         (inputTagName: string) (inputAddress: string)
         (apiCallId: Guid option)
         (inputSpec: ValueSpec) (outputSpec: ValueSpec)
-        (skipInputSensor: bool)
         : ApiCall =
         let resolvedName =
             match apiCallNameOpt with
@@ -75,12 +72,15 @@ module internal DirectPanelOps =
             apiCall.InTag <- Some(IOTag((if isNull inputTagName then "" else inputTagName.Trim()), (if isNull inputAddress then "" else inputAddress.Trim()), ""))
         apiCall.InputSpec <- inputSpec
         apiCall.OutputSpec <- outputSpec
-        apiCall.SkipInputSensor <- skipInputSensor
         apiCall
 
     let withTransactionCallProps (store: DsStore) callId label (action: unit -> unit) =
         store.WithTransaction(label, action)
         store.EmitAndHistory(CallPropsChanged callId)
+
+    let withTransactionWorkProps (store: DsStore) workId label (action: unit -> unit) =
+        store.WithTransaction(label, action)
+        store.EmitAndHistory(WorkPropsChanged workId)
 
     let addApiCallToStore (store: DsStore) (call: Call) (apiCall: ApiCall) =
         store.TrackAdd(store.ApiCalls, apiCall)
@@ -90,21 +90,29 @@ module internal DirectPanelOps =
         store.TrackMutate(store.Calls, call.Id, fun current -> current.ApiCalls.RemoveAll(fun apiCall -> apiCall.Id = apiCallId) |> ignore)
         store.TrackRemove(store.ApiCalls, apiCallId)
 
-    let tryFindConditionRec (conditions: ResizeArray<CallCondition>) (condId: Guid) : CallCondition option =
+    let tryFindConditionRec (conditions: ResizeArray<Condition>) (condId: Guid) : Condition option =
         Queries.tryFindConditionRec conditions condId
 
-    let tryFindCondition (call: Call) (condId: Guid) =
-        tryFindConditionRec call.CallConditions condId
+    let tryFindConditionInCall (call: Call) (condId: Guid) =
+        tryFindConditionRec call.Conditions condId
 
-    let requireCondition (callId: Guid) (call: Call) (condId: Guid) =
-        match tryFindCondition call condId with
+    let tryFindConditionInWork (work: Work) (condId: Guid) =
+        tryFindConditionRec work.Conditions condId
+
+    let requireConditionInCall (callId: Guid) (call: Call) (condId: Guid) =
+        match tryFindConditionInCall call condId with
         | Some condition -> condition
-        | None -> invalidOp $"CallCondition not found. callId={callId}, condId={condId}"
+        | None -> invalidOp $"Condition not found in Call. callId={callId}, condId={condId}"
 
-    let requireApiCallInCondition (callId: Guid) (condId: Guid) (condition: CallCondition) (apiCallId: Guid) =
-        match condition.Conditions |> Seq.tryFind (fun apiCall -> apiCall.Id = apiCallId) with
+    let requireConditionInWork (workId: Guid) (work: Work) (condId: Guid) =
+        match tryFindConditionInWork work condId with
+        | Some condition -> condition
+        | None -> invalidOp $"Condition not found in Work. workId={workId}, condId={condId}"
+
+    let requireApiCallInCondition (ownerId: Guid) (condId: Guid) (condition: Condition) (apiCallId: Guid) =
+        match condition.ApiCalls |> Seq.tryFind (fun apiCall -> apiCall.Id = apiCallId) with
         | Some apiCall -> apiCall
-        | None -> invalidOp $"ApiCall not found in condition. callId={callId}, condId={condId}, apiCallId={apiCallId}"
+        | None -> invalidOp $"ApiCall not found in condition. ownerId={ownerId}, condId={condId}, apiCallId={apiCallId}"
 
     let withCallOrEmpty (store: DsStore) (callId: Guid) (mapCall: Call -> 'T list) : 'T list =
         match Queries.getCall callId store with
@@ -113,9 +121,20 @@ module internal DirectPanelOps =
             StoreLog.warn($"Call not found. id={callId}")
             []
 
+    let withWorkOrEmpty (store: DsStore) (workId: Guid) (mapWork: Work -> 'T list) : 'T list =
+        match Queries.getWork workId store with
+        | Some work -> mapWork work
+        | None ->
+            StoreLog.warn($"Work not found. id={workId}")
+            []
+
     let mutateCallProps (store: DsStore) callId label (mutate: Call -> unit) =
         withTransactionCallProps store callId label (fun () ->
             store.TrackMutate(store.Calls, callId, mutate))
+
+    let mutateWorkProps (store: DsStore) workId label (mutate: Work -> unit) =
+        withTransactionWorkProps store workId label (fun () ->
+            store.TrackMutate(store.Works, workId, mutate))
 
     let toOpt (s: string) =
         if System.String.IsNullOrEmpty(s) then None else Some s

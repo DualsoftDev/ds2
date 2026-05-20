@@ -12,25 +12,20 @@ module internal SimIndexBuild =
 
     let private resolveApiDefGuids = SimIndexAlgorithms.resolveApiDefGuids
 
-    let private toEntry (data: SimIndexAlgorithms.ConditionEntryData) : ConditionEntry = {
-        RxWorkGuid = data.RxWorkGuid
-        ApiCallGuid = data.ApiCallGuid
-        InputSpec = data.InputSpec
-    }
-
-    /// CallCondition 트리를 ConditionExpression 으로 변환. cc.IsOR 보존.
-    /// 여러 callCondition (top-level) 끼리는 AND (모두 충족 필요).
-    let private buildConditionExpression store conditionType (call: Call) : ConditionExpression =
-        let rec convertOne (cc: CallCondition) : ConditionExpression =
+    /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR / cc.IsInverted 보존.
+    /// 여러 condition (top-level) 끼리는 AND (모두 충족 필요).
+    /// Call/Work 공용 — `conditions` 컬렉션만 받음.
+    let private buildConditionExpression store (conditionType: ConditionType) (conditions: ResizeArray<Condition>) : ConditionExpression =
+        let rec convertOne (cc: Condition) : ConditionExpression =
             let leafExprs =
-                SimIndexAlgorithms.convertApiCallsToEntries store cc.Conditions
-                |> List.map (toEntry >> Leaf)
+                SimIndexAlgorithms.convertApiCallsToExpressions store cc.ApiCalls
             let childExprs = cc.Children |> Seq.map convertOne |> Seq.toList
             let all = leafExprs @ childExprs
-            if cc.IsOR then Or all else And all
+            let grouped = if cc.IsOR then Or all else And all
+            if cc.IsInverted then Not grouped else grouped
 
         let topExprs =
-            call.CallConditions
+            conditions
             |> Seq.filter (fun cc -> cc.Type = Some conditionType)
             |> Seq.map convertOne
             |> Seq.toList
@@ -71,6 +66,7 @@ module internal SimIndexBuild =
             CallAutoAuxConditions = Map.empty
             CallComAuxConditions = Map.empty
             CallSkipUnmatchConditions = Map.empty
+            WorkSkipUnmatchConditions = Map.empty
             CallTypeMap = Map.empty
             CallTimeoutMap = Map.empty
         }
@@ -84,9 +80,9 @@ module internal SimIndexBuild =
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
             state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty dataSource.Id callStartPreds)
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
-            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, buildConditionExpression store CallConditionType.AutoAux dataSource)
-            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, buildConditionExpression store CallConditionType.ComAux dataSource)
-            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, buildConditionExpression store CallConditionType.SkipUnmatch dataSource)
+            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, buildConditionExpression store ConditionType.AutoAux dataSource.Conditions)
+            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, buildConditionExpression store ConditionType.ComAux dataSource.Conditions)
+            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, buildConditionExpression store ConditionType.SkipUnmatch dataSource.Conditions)
             let simProps = dataSource.GetSimulationProperties()
             let callType = simProps |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
             state.CallTypeMap <- state.CallTypeMap.Add(call.Id, callType)
@@ -132,6 +128,11 @@ module internal SimIndexBuild =
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
             state.WorkFlowGuid <- state.WorkFlowGuid.Add(work.Id, flowId)
+            let conditionsSource =
+                match work.ReferenceOf with
+                | Some origId -> Queries.getWork origId store |> Option.map (fun w -> w.Conditions) |> Option.defaultValue work.Conditions
+                | None -> work.Conditions
+            state.WorkSkipUnmatchConditions <- state.WorkSkipUnmatchConditions.Add(work.Id, buildConditionExpression store ConditionType.SkipUnmatch conditionsSource)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
@@ -268,6 +269,7 @@ module internal SimIndexBuild =
             CallAutoAuxConditions = state.CallAutoAuxConditions
             CallComAuxConditions = state.CallComAuxConditions
             CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
+            WorkSkipUnmatchConditions = state.WorkSkipUnmatchConditions
             WorkReferenceGroups = workReferenceGroups
             WorkGroupSets = workGroupSets
             CallCanonicalGuids = callCanonicalGuids

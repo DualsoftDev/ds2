@@ -18,33 +18,22 @@ namespace Promaker.Dialogs;
 
 public partial class ConditionEditDialog
 {
-    /// <summary>이 Call 에 등록된 CallCondition 의 실제 ApiCall 심볼만 + 사용 여부 — Refresh 마다 갱신.</summary>
+    /// <summary>이 Call 에 등록된 Condition 의 실제 ApiCall 심볼만 + 사용 여부 — Refresh 마다 갱신.</summary>
     private void UpdateSymbolProvider(CoilCondition cond)
     {
         // 현재 rung 에서 사용 중인 심볼 set (used).
         var usedSet = new HashSet<string>(
             CoilAst.Leaves(cond).Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)),
             StringComparer.OrdinalIgnoreCase);
-        // 이 Call 에 실제로 등록된 CallCondition 들의 ApiCall display name 만 추출.
-        var registered = new List<string>();
-        if (_host.TryRef(() => _store.GetCallConditionsForPanel(_callId), out var conds))
-        {
-            foreach (var c in conds)
-                CollectApiCallNames(c, registered);
-        }
+        // 현재 owner(Call/Work)의 Condition 에 등록된 ApiCall display name 을 우선 노출.
+        var registered = ConditionDialogSymbolResolver
+            .BuildRegisteredDisplayNames(_store, _callId, _ownerKind, _condType)
+            .ToList();
         // 현재 rung 에 있는데 conditions 에 안 보이는 leaf 도 포함 (drag 로 추가된 임시 심볼 등).
         foreach (var u in usedSet)
             if (!registered.Contains(u, StringComparer.OrdinalIgnoreCase))
                 registered.Add(u);
         _ctx.SymbolProvider = new AnnotatedSymbolProvider(registered, usedSet);
-    }
-
-    private static void CollectApiCallNames(CallConditionPanelItem c, List<string> acc)
-    {
-        foreach (var item in c.Items)
-            if (!acc.Contains(item.ApiDefDisplayName, StringComparer.OrdinalIgnoreCase))
-                acc.Add(item.ApiDefDisplayName);
-        foreach (var child in c.Children) CollectApiCallNames(child, acc);
     }
 
     /// <summary>심볼 + 사용 상태 라벨. SymbolPopupEditor 가   이후 상태 텍스트는 잘라냄.</summary>

@@ -38,8 +38,8 @@ module RemoveTests =
         let targetCall = Queries.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
         let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
-        let parentCondition = targetCall.CallConditions |> Seq.head
+        store.AddCallCondition(targetCall.Id, ConditionType.ComAux)
+        let parentCondition = targetCall.Conditions |> Seq.head
         store.AddChildCondition(targetCall.Id, parentCondition.Id, false)
         let childCondition = parentCondition.Children |> Seq.head
 
@@ -50,7 +50,7 @@ module RemoveTests =
 
         Assert.True(store.ApiCalls.ContainsKey(sourceApiCallId))
         let nestedApiCallId =
-            childCondition.Conditions
+            childCondition.ApiCalls
             |> Seq.head
             |> fun apiCall -> apiCall.Id
         Assert.Equal(sourceApiCallId, nestedApiCallId)

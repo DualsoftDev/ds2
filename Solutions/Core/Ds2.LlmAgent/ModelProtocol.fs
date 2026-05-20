@@ -192,16 +192,16 @@ module ModelProtocol =
     // ─── Enum parse helpers (Phase 7 §4.2 C-1) ───────────────────────────────
     //
     // SSOT yaml-protocol-v0.md §2.x 의 enum 라벨 ↔ Ds2.Core enum 변환.
-    // CallConditionType / ContactKind / CallType / ApiDefActionType — emit/apply 양쪽 호출
+    // ConditionType / ContactKind / CallType / ApiDefActionType — emit/apply 양쪽 호출
     // 예정 (C-3 ~ C-5). 본 phase 는 helper 만 추가 — 기존 동작 영향 0건.
     // 형식은 parseArrowType 패턴 답습 (Result<_, string>) — error 메시지에 허용 라벨 enumerate.
 
-    let parseCallConditionType (raw: string) : Result<CallConditionType, string> =
+    let parseConditionType (raw: string) : Result<ConditionType, string> =
         match raw.Trim() with
-        | "AutoAux" -> Ok CallConditionType.AutoAux
-        | "ComAux" -> Ok CallConditionType.ComAux
-        | "SkipUnmatch" -> Ok CallConditionType.SkipUnmatch
-        | other -> Error (sprintf "callCondition type '%s' 미지원. 허용: AutoAux|ComAux|SkipUnmatch." other)
+        | "AutoAux" -> Ok ConditionType.AutoAux
+        | "ComAux" -> Ok ConditionType.ComAux
+        | "SkipUnmatch" -> Ok ConditionType.SkipUnmatch
+        | other -> Error (sprintf "condition type '%s' 미지원. 허용: AutoAux|ComAux|SkipUnmatch." other)
 
     let parseContactKind (raw: string) : Result<ContactKind, string> =
         match raw.Trim() with
@@ -218,13 +218,13 @@ module ModelProtocol =
         | "SkipIfCompleted" -> Ok CallType.SkipIfCompleted
         | other -> Error (sprintf "callType '%s' 미지원. 허용: WaitForCompletion|SkipIfCompleted." other)
 
-    // ApiDefActionType — DU 변형. 표기 grammar (device DU literal §2.3 패턴 답습):
-    //   - 인자 없음: "Normal" / "Push" / "Pulse"
-    //   - 1 인자  : "TimeTotal(500)" / "TimeAppend(200)"  (ms)
-    //   - 2 인자  : "MultiAction(3, 100)"                  (count, ms)
-    let private apiDefActionTypeRegex =
+    // v10 ActionType/SensingType grammar — spec §8 Smart Constructor 표기.
+    //   Action  : normal | pulse | set | timeAppend(<ms>) | pulseHold(<ms>) | virt | virtPlus(<ms>)
+    //   Sensing : normal | edge  | latched | debounce(<ms>) | edgeStable(<ms>) | virt | virtPlus(<ms>)
+    // raw DU 표기도 허용: Real(Level, None) / Real(OneShot, Append(<ms>)) / Virtual(None) / Virtual(Append(<ms>))
+    let private signalTimeRegex =
         System.Text.RegularExpressions.Regex(
-            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$",
+            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)\s*\))?$",
             System.Text.RegularExpressions.RegexOptions.Compiled)
 
     // TokenRole — Flags enum (None=0 / Source=1 / Ignore=2 / Sink=4). PoC scope: 단일 flag 만 직접 지원.
@@ -237,24 +237,45 @@ module ModelProtocol =
         | "Sink" -> Ok TokenRole.Sink
         | other -> Error (sprintf "tokenRole '%s' 미지원. 허용: None|Source|Ignore|Sink (PoC scope — 단일 flag 만)." other)
 
-    let parseApiDefActionType (raw: string) : Result<ApiDefActionType, string> =
+    let parseActionType (raw: string) : Result<ActionType, string> =
         let trimmed = raw.Trim()
-        let m = apiDefActionTypeRegex.Match(trimmed)
+        let m = signalTimeRegex.Match(trimmed)
         if not m.Success then
-            Error (sprintf "apiDefActionType '%s' 인식 불가. 형식: Normal|Push|Pulse|TimeTotal(<ms>)|TimeAppend(<ms>)|MultiAction(<count>, <ms>)." raw)
+            Error (sprintf "actionType '%s' 인식 불가. 형식: normal|pulse|set|timeAppend(<ms>)|pulseHold(<ms>)|virt|virtPlus(<ms>)." raw)
         else
             let caseName = m.Groups.[1].Value
-            let arg1Ok = m.Groups.[2].Success
-            let arg2Ok = m.Groups.[3].Success
-            match caseName, arg1Ok, arg2Ok with
-            | "Normal",      false, _    -> Ok ApiDefActionType.Normal
-            | "Push",        false, _    -> Ok ApiDefActionType.Push
-            | "Pulse",       false, _    -> Ok ApiDefActionType.Pulse
-            | "TimeTotal",   true,  false -> Ok (ApiDefActionType.TimeTotal  (int m.Groups.[2].Value))
-            | "TimeAppend",  true,  false -> Ok (ApiDefActionType.TimeAppend (int m.Groups.[2].Value))
-            | "MultiAction", true,  true  -> Ok (ApiDefActionType.MultiAction (int m.Groups.[2].Value, int m.Groups.[3].Value))
+            let hasArg = m.Groups.[2].Success
+            let arg () = int m.Groups.[2].Value
+            match caseName, hasArg with
+            | "normal",     false -> Ok (ActionType.Real (Level,   None))
+            | "pulse",      false -> Ok (ActionType.Real (OneShot, None))
+            | "set",        false -> Ok (ActionType.Real (Latched, None))
+            | "timeAppend", true  -> Ok (ActionType.Real (Level,   Some (Append (arg ()))))
+            | "pulseHold",  true  -> Ok (ActionType.Real (OneShot, Some (Append (arg ()))))
+            | "virt",       false -> Ok (ActionType.Virtual None)
+            | "virtPlus",   true  -> Ok (ActionType.Virtual (Some (Append (arg ()))))
             | _ ->
-                Error (sprintf "apiDefActionType '%s' — case 이름과 인자 개수 불일치. Normal/Push/Pulse 는 인자 없음, TimeTotal/TimeAppend 는 (ms), MultiAction 은 (count, ms)." raw)
+                Error (sprintf "actionType '%s' — case 이름과 인자 개수 불일치. normal/pulse/set/virt 는 인자 없음, timeAppend/pulseHold/virtPlus 는 (ms)." raw)
+
+    let parseSensingType (raw: string) : Result<SensingType, string> =
+        let trimmed = raw.Trim()
+        let m = signalTimeRegex.Match(trimmed)
+        if not m.Success then
+            Error (sprintf "sensingType '%s' 인식 불가. 형식: normal|edge|latched|debounce(<ms>)|edgeStable(<ms>)|virt|virtPlus(<ms>)." raw)
+        else
+            let caseName = m.Groups.[1].Value
+            let hasArg = m.Groups.[2].Success
+            let arg () = int m.Groups.[2].Value
+            match caseName, hasArg with
+            | "normal",     false -> Ok (SensingType.Real (Level,   None))
+            | "edge",       false -> Ok (SensingType.Real (OneShot, None))
+            | "latched",    false -> Ok (SensingType.Real (Latched, None))
+            | "debounce",   true  -> Ok (SensingType.Real (Level,   Some (Append (arg ()))))
+            | "edgeStable", true  -> Ok (SensingType.Real (OneShot, Some (Append (arg ()))))
+            | "virt",       false -> Ok (SensingType.Virtual None)
+            | "virtPlus",   true  -> Ok (SensingType.Virtual (Some (Append (arg ()))))
+            | _ ->
+                Error (sprintf "sensingType '%s' — case 이름과 인자 개수 불일치. normal/edge/latched/virt 는 인자 없음, debounce/edgeStable/virtPlus 는 (ms)." raw)
 
     // ─── Arrow 표기 parse: "A -> B : Type" ──────────────────────────────────
 
@@ -1008,7 +1029,8 @@ module ModelProtocol =
                     | true, apiId ->
                         match lookupApiDefById ctx apiId with
                         | Some apiDef ->
-                            applyEnumProp ctx apiPath prop.Value "actionType" parseApiDefActionType (fun at -> apiDef.ApiDefActionType <- at)
+                            applyEnumProp ctx apiPath prop.Value "actionType" parseActionType (fun at -> apiDef.ActionType <- at)
+                            applyEnumProp ctx apiPath prop.Value "sensingType" parseSensingType (fun st -> apiDef.SensingType <- st)
                             // 외부 reviewer m-4 반영: 빈 string 도 set 하면 store 표면값 (`Some ""`) 이 emit 측 default-skip
                             // 정책 (Some 이고 빈 아닐 때만 emit) 과 비대칭. apply 측에서도 빈 string → None 으로 정규화.
                             tryProp prop.Value "description"
@@ -1117,12 +1139,12 @@ module ModelProtocol =
                 sprintf "'%s' 형식 위반. '<System>.<ApiDef>' 형식 필요." rawRef)
             None
 
-    // ─── CallCondition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
+    // ─── Condition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
     //
     // SSOT yaml-protocol-v0.md §2.2.1 dual format — object 형태 call 의 보강 property.
     // `tryFindCallInPlan` / `tryFindApiDefInPlan` / `callTypeOf` / `setCallType` 4 helper 는 본 dispatch
     // helper (dispatchPassiveSystem / dispatchWork) 보다 *앞* 에서 호출되어야 하므로 ApplyContext 정의 직후 (위)
-    // 로 이동됨. 본 영역에는 resolveApiDef 의존 helper (parseCallCondition) 와 ApplyContext 의존 helper (parseIOTag) 만 유지.
+    // 로 이동됨. 본 영역에는 resolveApiDef 의존 helper (parseCondition) 와 ApplyContext 의존 helper (parseIOTag) 만 유지.
 
     /// IOTag parse — emit 측 `writeIOTag` 의 거울 (Phase 7 §4.2 C-4 PoC scope: Name + Address).
     /// 두 키 모두 부재 시 None — 빈 IOTag instance 생성 회피.
@@ -1141,23 +1163,23 @@ module ModelProtocol =
                 addressOpt |> Option.iter (fun s -> tag.Address <- s)
                 Some tag
 
-    /// CallCondition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
+    /// Condition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
     /// conditions leaf 는 ApiCall — dual format (string scalar 또는 object{ref, contactKind?}).
     /// PoC scope 가정: leaf 의 ApiCall 은 ApiDefId + ContactKind 만 set (IO tag binding 은 C-4 phase).
-    let rec private parseCallCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : CallCondition option =
+    let rec private parseCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : Condition option =
         if condEl.ValueKind <> JsonValueKind.Object then
-            ctx.Diagnostics.Add(path, sprintf "callCondition object 기대 (실제 %A)." condEl.ValueKind)
+            ctx.Diagnostics.Add(path, sprintf "condition object 기대 (실제 %A)." condEl.ValueKind)
             None
         elif condEl.EnumerateObject() |> Seq.isEmpty then
-            // 외부 reviewer m-5 반영: 빈 `callCondition: {}` 는 의미 0 의 CallCondition 인스턴스 추가 회피 → None 으로 정규화.
+            // 외부 reviewer m-5 반영: 빈 `condition: {}` 는 의미 0 의 Condition 인스턴스 추가 회피 → None 으로 정규화.
             None
         else
-            let cond = CallCondition()
+            let cond = Condition()
             // type — AutoAux default 면 키 부재
             tryProp condEl "type"
             |> Option.bind tryString
             |> Option.iter (fun s ->
-                match parseCallConditionType s with
+                match parseConditionType s with
                 | Ok t -> cond.Type <- Some t
                 | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "type", msg))
             // isOR / isInverted — bool false default
@@ -1175,7 +1197,7 @@ module ModelProtocol =
             |> Option.iter (fun condsEl ->
                 if condsEl.ValueKind <> JsonValueKind.Array then
                     // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
-                    ctx.Diagnostics.Add(joinDiagKey path "conditions", sprintf "array 기대 (실제 %A). leaf ApiCall list 또는 nested CallCondition list 형식 사용." condsEl.ValueKind)
+                    ctx.Diagnostics.Add(joinDiagKey path "conditions", sprintf "array 기대 (실제 %A). leaf ApiCall list 또는 nested Condition list 형식 사용." condsEl.ValueKind)
                 else
                     let mutable idx = 0
                     for leafEl in condsEl.EnumerateArray() do
@@ -1208,19 +1230,19 @@ module ModelProtocol =
                                 | Error msg -> ctx.Diagnostics.Add(joinDiagKey leafPath "contactKind", msg))
                         | _ ->
                             ctx.Diagnostics.Add(leafPath, sprintf "string 또는 object 기대 (실제 %A)." leafEl.ValueKind)
-                        if validLeaf then cond.Conditions.Add(apiCall)
+                        if validLeaf then cond.ApiCalls.Add(apiCall)
                         idx <- idx + 1)
-            // children — nested CallCondition list (recursive)
+            // children — nested Condition list (recursive)
             tryProp condEl "children"
             |> Option.iter (fun chEl ->
                 if chEl.ValueKind <> JsonValueKind.Array then
                     // SSOT §2.7 룰 #16 — silent skip 금지 (외부 reviewer M-F)
-                    ctx.Diagnostics.Add(joinDiagKey path "children", sprintf "array 기대 (실제 %A). nested CallCondition list 형식 사용." chEl.ValueKind)
+                    ctx.Diagnostics.Add(joinDiagKey path "children", sprintf "array 기대 (실제 %A). nested Condition list 형식 사용." chEl.ValueKind)
                 else
                     let mutable idx = 0
                     for childEl in chEl.EnumerateArray() do
                         let childPath = sprintf "%s.children[%d]" path idx
-                        match parseCallCondition ctx childEl childPath with
+                        match parseCondition ctx childEl childPath with
                         | Some child -> cond.Children.Add(child)
                         | None -> ()
                         idx <- idx + 1)
@@ -1283,6 +1305,15 @@ module ModelProtocol =
                 |> Option.iter (fun work ->
                     parsePlcWork ctx (joinDiagKey path "plc") work plcEl))
 
+            // Condition tree (Work) — Call 과 동일 parseCondition 사용. Work 는 SkipUnmatch 만 의미.
+            tryProp workEl "condition"
+            |> Option.iter (fun ccEl ->
+                match parseCondition ctx ccEl (path + ".condition") with
+                | Some cc ->
+                    lookupWorkById ctx workId
+                    |> Option.iter (fun work -> work.Conditions.Add(cc))
+                | None -> ())
+
             // calls 처리 — dual format (Phase 7 §4.1.5 옵션 C):
             //   string scalar       → default case, callObjOpt = None
             //   object { ref, ... } → non-default case, callObjOpt = Some <full object>
@@ -1344,7 +1375,7 @@ module ModelProtocol =
                     try
                         // S3b — modeling level 시 lookup-first. 같은 (workId, apiDefId) Call 발견 시 reuse.
                         // #32 — store + plan 합집합. plan-only Call 도 reuse.
-                        // 보강 property (contactKind / callCondition / callType 등) mutate 는 그대로 진행 (lookupCallById 가 store + plan 양쪽 lookup).
+                        // 보강 property (contactKind / condition / callType 등) mutate 는 그대로 진행 (lookupCallById 가 store + plan 양쪽 lookup).
                         let callId =
                             match !ctx.Level with
                             | Modeling ->
@@ -1373,7 +1404,7 @@ module ModelProtocol =
                         callIdMap.[normalized].Add(callId)
                         // 보강 property apply (Phase 7 §4.2 C-3) — object 형태일 때만.
                         // ContactKind: queueAddCall 가 1:1 invariant 로 call.ApiCalls[0] 생성 → 직접 set.
-                        // CallCondition: recursive parse 후 call.CallConditions 에 추가.
+                        // Condition: recursive parse 후 call.Conditions 에 추가.
                         callObjOpt |> Option.iter (fun obj ->
                             // S3b — modeling reuse 시 Call 이 store 에 이미 있으므로 store + plan 양쪽 lookup.
                             // Full path 에서는 plan 측 lookup 이 우선 — `lookupCallById` 가 plan 우선 동작.
@@ -1381,7 +1412,8 @@ module ModelProtocol =
                             | None ->
                                 ctx.Diagnostics.Add(callPath, "Call instance 추적 실패 (forensic).")
                             | Some call ->
-                                // ApiCall 보강 (C-3 ContactKind + C-4 SkipInputSensor / InTag / OutTag). 1:1 invariant.
+                                // ApiCall 보강 (C-3 ContactKind + InTag / OutTag). 1:1 invariant.
+                                // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원에서 표현.
                                 let firstApiCallOpt =
                                     if call.ApiCalls.Count > 0 then Some call.ApiCalls.[0] else None
                                 tryProp obj "contactKind"
@@ -1390,12 +1422,6 @@ module ModelProtocol =
                                     match parseContactKind s with
                                     | Ok k -> firstApiCallOpt |> Option.iter (fun ac -> ac.ContactKind <- k)
                                     | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "contactKind", msg))
-                                tryProp obj "skipInputSensor"
-                                |> Option.iter (fun el ->
-                                    match el.ValueKind with
-                                    | JsonValueKind.True -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- true)
-                                    | JsonValueKind.False -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- false)
-                                    | _ -> ctx.Diagnostics.Add(joinDiagKey callPath "skipInputSensor", sprintf "bool 기대 (실제 %A)." el.ValueKind))
                                 tryProp obj "inTag"
                                 |> Option.iter (fun el ->
                                     match parseIOTag ctx el (callPath + ".inTag") with
@@ -1413,11 +1439,11 @@ module ModelProtocol =
                                     match parseCallType s with
                                     | Ok ct -> setCallType call ct
                                     | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "callType", msg))
-                                // CallCondition tree (C-3)
-                                tryProp obj "callCondition"
+                                // Condition tree (C-3)
+                                tryProp obj "condition"
                                 |> Option.iter (fun ccEl ->
-                                    match parseCallCondition ctx ccEl (callPath + ".callCondition") with
-                                    | Some cc -> call.CallConditions.Add(cc)
+                                    match parseCondition ctx ccEl (callPath + ".condition") with
+                                    | Some cc -> call.Conditions.Add(cc)
                                     | None -> ())
                                 // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키
                                 tryProp obj "plc"
@@ -2083,11 +2109,11 @@ module ModelProtocol =
     // 각 enum 의 format 측. parse 측과 1:1 round-trip. unknown case 는 forensic
     // 단서로 `Unknown(<int>)` (formatArrowType 패턴 답습).
 
-    let formatCallConditionType (t: CallConditionType) : string =
+    let formatConditionType (t: ConditionType) : string =
         match t with
-        | CallConditionType.AutoAux -> "AutoAux"
-        | CallConditionType.ComAux -> "ComAux"
-        | CallConditionType.SkipUnmatch -> "SkipUnmatch"
+        | ConditionType.AutoAux -> "AutoAux"
+        | ConditionType.ComAux -> "ComAux"
+        | ConditionType.SkipUnmatch -> "SkipUnmatch"
         | other -> sprintf "Unknown(%d)" (int other)
 
     let formatContactKind (k: ContactKind) : string =
@@ -2113,19 +2139,32 @@ module ModelProtocol =
         | TokenRole.Sink -> "Sink"
         | combined -> sprintf "Combined(%d)" (int combined)
 
-    let formatApiDefActionType (a: ApiDefActionType) : string =
+    let formatActionType (a: ActionType) : string =
         match a with
-        | ApiDefActionType.Normal              -> "Normal"
-        | ApiDefActionType.Push                -> "Push"
-        | ApiDefActionType.Pulse               -> "Pulse"
-        | ApiDefActionType.TimeTotal  ms       -> sprintf "TimeTotal(%d)" ms
-        | ApiDefActionType.TimeAppend ms       -> sprintf "TimeAppend(%d)" ms
-        | ApiDefActionType.MultiAction(c, ms)  -> sprintf "MultiAction(%d, %d)" c ms
+        | ActionType.Real (Level,   None)             -> "normal"
+        | ActionType.Real (OneShot, None)             -> "pulse"
+        | ActionType.Real (Latched, None)             -> "set"
+        | ActionType.Real (Level,   Some (Append ms)) -> sprintf "timeAppend(%d)" ms
+        | ActionType.Real (OneShot, Some (Append ms)) -> sprintf "pulseHold(%d)" ms
+        | ActionType.Real (Latched, Some (Append ms)) -> sprintf "Real(Latched, Append(%d))" ms
+        | ActionType.Virtual None                     -> "virt"
+        | ActionType.Virtual (Some (Append ms))       -> sprintf "virtPlus(%d)" ms
 
-    // ─── CallCondition / ContactKind emit helpers (Phase 7 §4.2 C-3) ─────────
+    let formatSensingType (s: SensingType) : string =
+        match s with
+        | SensingType.Real (Level,   None)             -> "normal"
+        | SensingType.Real (OneShot, None)             -> "edge"
+        | SensingType.Real (Latched, None)             -> "latched"
+        | SensingType.Real (Level,   Some (Append ms)) -> sprintf "debounce(%d)" ms
+        | SensingType.Real (OneShot, Some (Append ms)) -> sprintf "edgeStable(%d)" ms
+        | SensingType.Real (Latched, Some (Append ms)) -> sprintf "Real(Latched, Append(%d))" ms
+        | SensingType.Virtual None                     -> "virt"
+        | SensingType.Virtual (Some (Append ms))       -> sprintf "virtPlus(%d)" ms
+
+    // ─── Condition / ContactKind emit helpers (Phase 7 §4.2 C-3) ─────────
     //
     // dual format (§2.2.1) 의 emit 측 — store 값 inspection 후 default 인지 판단.
-    // PoC 가정: Call.CallConditions 는 multiple root 가능하나 *첫 root 만 emit*. 후속 phase 가 multiple root 정책 결정.
+    // PoC 가정: Call.Conditions 는 multiple root 가능하나 *첫 root 만 emit*. 후속 phase 가 multiple root 정책 결정.
 
     /// IOTag 의 content 검사 — Name / Address 중 하나라도 non-empty 면 보강 대상.
     /// emit 측 가드 (`writeIOTag` 진입 차단) + `callHasEnhancement` IOTag 검사 양쪽에서 사용 — 빈 IOTag 인스턴스가
@@ -2156,8 +2195,8 @@ module ModelProtocol =
         | Some cp -> plcHasNonDefault cp (ControlCallProperties()) plcCallLeaves
 
     /// Phase 7 §10.2 #31 — level 인자 추가. Modeling level 시 B/C/D 보강은 제외하여 dual format
-    /// object 승격을 차단 (B/C/D 만 있는 Call 은 string scalar 유지). A_Modeling 보강 (CallCondition /
-    /// ContactKind / SkipInputSensor / CallType) 만 승격 판단.
+    /// object 승격을 차단 (B/C/D 만 있는 Call 은 string scalar 유지). A_Modeling 보강 (Condition /
+    /// ContactKind / CallType) 만 승격 판단.
     let private callHasEnhancement (level: ExportLevel) (c: Call) : bool =
         let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
         let exists pred = firstApiCall |> Option.exists pred
@@ -2166,9 +2205,8 @@ module ModelProtocol =
         // 외부 reviewer M-B 반영: IOTag.IsSome 만으로는 부족 — content 검사 (Name/Address 중 하나라도 non-empty).
         // 빈 IOTag (Some empty) 가 emit 강제하면 parse 측 None 으로 정규화되어 비대칭 drift.
         let aLevel =
-            c.CallConditions.Count > 0
+            c.Conditions.Count > 0
             || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
-            || exists (fun ac -> ac.SkipInputSensor)
             || hasNonDefaultCallType
         match level with
         | Modeling -> aLevel   // B/C/D 보강은 modeling 에서 emit 안 됨 → 승격 불요
@@ -2190,24 +2228,24 @@ module ModelProtocol =
             w.WriteString("address", tag.Address)
         w.WriteEndObject()
 
-    /// CallCondition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
+    /// Condition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
     /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default 면 string scalar, 아니면 object.
-    let rec private emitCallCondition
+    let rec private emitCondition
         (w: Utf8JsonWriter)
         (apiCallRef: ApiCall -> string)
-        (cond: CallCondition) : unit =
+        (cond: Condition) : unit =
         w.WriteStartObject()
         // type — AutoAux default 면 생략
         (match cond.Type with
-         | Some t when t <> CallConditionType.AutoAux ->
-             w.WriteString("type", formatCallConditionType t)
+         | Some t when t <> ConditionType.AutoAux ->
+             w.WriteString("type", formatConditionType t)
          | _ -> ())
         if cond.IsOR then w.WriteBoolean("isOR", true)
         if cond.IsInverted then w.WriteBoolean("isInverted", true)
-        if cond.Conditions.Count > 0 then
+        if cond.ApiCalls.Count > 0 then
             w.WritePropertyName "conditions"
             w.WriteStartArray()
-            for ac in cond.Conditions do
+            for ac in cond.ApiCalls do
                 let leafRef = apiCallRef ac
                 if ac.ContactKind <> ContactKind.NoContact then
                     w.WriteStartObject()
@@ -2221,7 +2259,7 @@ module ModelProtocol =
             w.WritePropertyName "children"
             w.WriteStartArray()
             for child in cond.Children do
-                emitCallCondition w apiCallRef child
+                emitCondition w apiCallRef child
             w.WriteEndArray()
         w.WriteEndObject()
 
@@ -2360,6 +2398,18 @@ module ModelProtocol =
                         if not works.IsEmpty then
                             w.WritePropertyName "works"
                             w.WriteStartObject()
+                            // Work emit 시 공용 apiCallRef (Work.Conditions / Call.Conditions 둘 다 사용).
+                            let workApiCallRef (ac: ApiCall) : string =
+                                match ac.ApiDefId with
+                                | Some apiDefId ->
+                                    match Queries.getApiDef apiDefId store with
+                                    | Some apiDef ->
+                                        match Queries.getSystem apiDef.ParentId store with
+                                        | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
+                                        | None -> ac.Name
+                                    | None -> ac.Name
+                                | None -> ac.Name
+
                             for wk in works do
                                 w.WritePropertyName wk.LocalName
                                 w.WriteStartObject()
@@ -2369,11 +2419,15 @@ module ModelProtocol =
                                 // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
                                 if isEmittedIn level D_Plc then
                                     wk.GetControlProperties() |> Option.iter (emitPlcWork w)
+                                // Work.Conditions (SkipUnmatch 등) — emitCondition 재사용. 첫 root 만 emit.
+                                if wk.Conditions.Count > 0 then
+                                    w.WritePropertyName "condition"
+                                    emitCondition w workApiCallRef wk.Conditions.[0]
                                 let calls = Queries.callsOf wk.Id store
                                 if not calls.IsEmpty then
                                     w.WritePropertyName "calls"
                                     w.WriteStartArray()
-                                    // CallCondition.Conditions leaf (ApiCall) → path 도출 람다. ApiDefId/getApiDef/getSystem
+                                    // Condition.Conditions leaf (ApiCall) → path 도출 람다. ApiDefId/getApiDef/getSystem
                                     // 어느 단계든 실패 시 ApiCall.Name fallback (데이터 무결성 깨진 케이스).
                                     let apiCallRef (ac: ApiCall) : string =
                                         match ac.ApiDefId with
@@ -2408,7 +2462,7 @@ module ModelProtocol =
                                                 c.DevicesAlias
                                         let callRef = sprintf "%s.%s" sysName c.ApiName
                                         // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
-                                        // 있으면 object 승격 + 보강 property (현 phase: contactKind / callCondition).
+                                        // 있으면 object 승격 + 보강 property (현 phase: contactKind / condition).
                                         // CallType / SkipInputSensor / InTag/OutTag/etc 는 C-4/C-5 phase.
                                         // #31 — callHasEnhancement level 인자로 modeling 시 B/C/D 무시 (string scalar 유지).
                                         if callHasEnhancement level c then
@@ -2419,8 +2473,7 @@ module ModelProtocol =
                                                 // A_Modeling (그대로 emit)
                                                 if ac.ContactKind <> ContactKind.NoContact then
                                                     w.WriteString("contactKind", formatContactKind ac.ContactKind)
-                                                if ac.SkipInputSensor then
-                                                    w.WriteBoolean("skipInputSensor", true)
+                                                // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
                                                 // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
                                                 // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
                                                 if isEmittedIn level B_Addressing then
@@ -2436,9 +2489,9 @@ module ModelProtocol =
                                                 w.WriteString("callType", formatCallType ct)
                                             | _ -> ()
                                             // A_Modeling (그대로 emit)
-                                            if c.CallConditions.Count > 0 then
-                                                w.WritePropertyName "callCondition"
-                                                emitCallCondition w apiCallRef c.CallConditions.[0]
+                                            if c.Conditions.Count > 0 then
+                                                w.WritePropertyName "condition"
+                                                emitCondition w apiCallRef c.Conditions.[0]
                                             // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
                                             if isEmittedIn level D_Plc then
                                                 c.GetControlProperties() |> Option.iter (emitPlcCall w)
@@ -2580,20 +2633,27 @@ module ModelProtocol =
                     let detailsEntries =
                         apiDefEntities
                         |> List.choose (fun ad ->
-                            let hasNonDefaultAction = ad.ApiDefActionType <> ApiDefActionType.Normal
+                            let defaultAction = ActionType.Real (Level, None)
+                            let defaultSensing = SensingType.Real (Level, None)
+                            let hasNonDefaultAction = ad.ActionType <> defaultAction
+                            let hasNonDefaultSensing = ad.SensingType <> defaultSensing
                             let hasDescription =
                                 emitDescription
                                 && ad.Description.IsSome
                                 && not (String.IsNullOrEmpty ad.Description.Value)
-                            if hasNonDefaultAction || hasDescription then Some ad else None)
+                            if hasNonDefaultAction || hasNonDefaultSensing || hasDescription then Some ad else None)
                     if not detailsEntries.IsEmpty then
                         w.WritePropertyName "apiDetails"
                         w.WriteStartObject()
                         for ad in detailsEntries do
+                            let defaultAction = ActionType.Real (Level, None)
+                            let defaultSensing = SensingType.Real (Level, None)
                             w.WritePropertyName ad.Name
                             w.WriteStartObject()
-                            if ad.ApiDefActionType <> ApiDefActionType.Normal then
-                                w.WriteString("actionType", formatApiDefActionType ad.ApiDefActionType)
+                            if ad.ActionType <> defaultAction then
+                                w.WriteString("actionType", formatActionType ad.ActionType)
+                            if ad.SensingType <> defaultSensing then
+                                w.WriteString("sensingType", formatSensingType ad.SensingType)
                             if emitDescription then
                                 (match ad.Description with
                                  | Some s when not (String.IsNullOrEmpty s) ->

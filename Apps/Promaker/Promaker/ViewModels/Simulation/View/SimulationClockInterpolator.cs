@@ -19,6 +19,11 @@ public sealed class SimulationClockInterpolator
     private readonly Func<bool>               _isSimPaused;
     private readonly Func<double>             _simSpeed;
 
+    /// STEP 진행 중에는 IsSimPaused=true 이지만 sim clock 이 실제 advance 하므로
+    /// 보간을 켜야 매 advance 사이의 wall delay 동안에도 빨간선이 부드럽게 흘러간다.
+    /// StepSimulationAsync 가 step 시작 시 true / 끝날 때 false 로 set.
+    public bool IsStepping { get; set; }
+
     public SimulationClockInterpolator(
         Func<ISimulationEngine?> engine,
         Func<DateTime>           simStart,
@@ -54,8 +59,9 @@ public sealed class SimulationClockInterpolator
             _baseWall = DateTime.Now;
         }
 
-        // Pause 중에는 보간 정지 — 마지막 base 그대로 반환
-        if (_isSimPaused() || !_isSimulating()) return _simStart() + _baseSim;
+        // Pause 중에는 보간 정지. 단 STEP 진행 중이면 paused 라도 wall × speed 보간을 켠다.
+        if (!_isSimulating()) return _simStart() + _baseSim;
+        if (_isSimPaused() && !IsStepping) return _simStart() + _baseSim;
 
         var wallElapsed = DateTime.Now - _baseWall;
         var speed = _simSpeed() > 0 ? _simSpeed() : 1.0;

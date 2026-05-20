@@ -13,7 +13,7 @@
     <Compile Include="DsStore\DsStore.CopyPastePanelTests.fs" />
     <Compile Include="DsStore\StoreQueryOwnerTests.fs" />
     <Compile Include="DsStore\DsStore.AdvancedPanelBatchTests.fs" />
-<Compile Include="DsStore\DsStore.ConditionTests.fs" />
+    <Compile Include="DsStore\DsStore.ConditionTests.fs" />
     <Compile Include="DsStore\DsStore.WorkNamingTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
@@ -23,6 +23,8 @@
     <Compile Include="RuntimeCommandPolicyTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
+    <Compile Include="HubConnectionDiagnosticTests.fs" />
+    <Compile Include="HubSourceTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
     <Compile Include="StepPrimingPlanTests.fs" />
     <Compile Include="BasicMacroIoTests.fs" />
@@ -55,6 +57,7 @@
     <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\..\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
   </ItemGroup>
 
 </Project>

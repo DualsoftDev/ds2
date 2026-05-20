@@ -19,7 +19,6 @@ public sealed class CallApiCallItem : ObservableObject
     private readonly string _originalInputAddress;
     private readonly string _originalValueSpecText;
     private readonly string _originalInputValueSpecText;
-    private readonly bool _originalSkipInputSensor;
 
     private Guid? _apiDefId;
     private string _name;
@@ -29,7 +28,6 @@ public sealed class CallApiCallItem : ObservableObject
     private string _inputAddress;
     private string _valueSpecText;
     private string _inputValueSpecText;
-    private bool _skipInputSensor;
     private bool _isDirty;
 
     public CallApiCallItem(
@@ -44,8 +42,7 @@ public sealed class CallApiCallItem : ObservableObject
         string valueSpecText,
         string inputValueSpecText,
         int outputSpecTypeIndex,
-        int inputSpecTypeIndex,
-        bool skipInputSensor)
+        int inputSpecTypeIndex)
     {
         ApiCallId                   = apiCallId;
         ApiDefDisplayName           = apiDefDisplayName;
@@ -60,7 +57,6 @@ public sealed class CallApiCallItem : ObservableObject
         _inputAddress               = inputAddress;
         _valueSpecText              = valueSpecText;
         _inputValueSpecText         = inputValueSpecText;
-        _skipInputSensor            = skipInputSensor;
 
         _originalApiDefId           = _apiDefId;
         _originalName               = _name;
@@ -70,7 +66,6 @@ public sealed class CallApiCallItem : ObservableObject
         _originalInputAddress       = _inputAddress;
         _originalValueSpecText      = _valueSpecText;
         _originalInputValueSpecText = _inputValueSpecText;
-        _originalSkipInputSensor    = _skipInputSensor;
     }
 
     public static CallApiCallItem FromPanel(CallApiCallPanelItem row) =>
@@ -79,8 +74,7 @@ public sealed class CallApiCallItem : ObservableObject
             row.OutputTagName, row.OutputAddress,
             row.InputTagName, row.InputAddress,
             row.ValueSpecText, row.InputValueSpecText,
-            row.OutputSpecTypeIndex, row.InputSpecTypeIndex,
-            row.SkipInputSensor);
+            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
 
     public Guid ApiCallId { get; }
     public string ApiDefDisplayName { get; }
@@ -101,11 +95,7 @@ public sealed class CallApiCallItem : ObservableObject
     public string ValueSpecText   { get => _valueSpecText;   set => SetStr(ref _valueSpecText, value); }
     public string InputValueSpecText { get => _inputValueSpecText; set => SetStr(ref _inputValueSpecText, value); }
 
-    public bool SkipInputSensor
-    {
-        get => _skipInputSensor;
-        set { if (SetProperty(ref _skipInputSensor, value)) RefreshDirtyState(); }
-    }
+    // v10: SkipInputSensor 폐기 — ApiDef.SensingType=Virtual 로 흡수.
 
     private void SetStr(ref string field, string? value)
     {
@@ -129,8 +119,7 @@ public sealed class CallApiCallItem : ObservableObject
             !String.Equals(_originalInputTagName, _inputTagName, StringComparison.Ordinal) ||
             !String.Equals(_originalInputAddress, _inputAddress, StringComparison.Ordinal) ||
             !String.Equals(_originalValueSpecText, _valueSpecText, StringComparison.Ordinal) ||
-            !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal) ||
-            _originalSkipInputSensor != _skipInputSensor;
+            !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal);
     }
 }
 
@@ -146,9 +135,9 @@ public sealed class DeviceApiDefOptionItem(
     public string DisplayName { get; } = displayName;
 }
 
-public sealed class CallConditionItem
+public sealed class ConditionItem
 {
-    public CallConditionItem(Guid callId, CallConditionPanelItem panel)
+    public ConditionItem(Guid callId, ConditionPanelItem panel)
     {
         CallId        = callId;
         ConditionId   = panel.ConditionId;
@@ -159,7 +148,7 @@ public sealed class CallConditionItem
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
         Children = panel.Children
-            .Select(c => new CallConditionItem(callId, c))
+            .Select(c => new ConditionItem(callId, c))
             .ToList();
         var leaves = new List<ConditionApiCallRow>(Items);
         foreach (var c in Children) leaves.AddRange(c.AllLeafRows);
@@ -168,12 +157,12 @@ public sealed class CallConditionItem
 
     public Guid               CallId        { get; }
     public Guid               ConditionId   { get; }
-    public CallConditionType ConditionType  { get; }
+    public ConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsAND         => !IsOR;
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
-    public IReadOnlyList<CallConditionItem> Children { get; }
+    public IReadOnlyList<ConditionItem> Children { get; }
 
     /// <summary>그룹 결합자 표시용 — XAML 바인딩 편의.</summary>
     public string GroupOperator => IsOR ? "OR" : "AND";
@@ -199,7 +188,7 @@ public sealed class ConditionApiCallRow : ObservableObject
     private string _runtimeText = string.Empty;
     private bool? _isMatched;
 
-    public ConditionApiCallRow(Guid callId, Guid conditionId, CallConditionApiCallItem item)
+    public ConditionApiCallRow(Guid callId, Guid conditionId, ConditionApiCallItem item)
     {
         CallId               = callId;
         ConditionId          = conditionId;
@@ -210,8 +199,8 @@ public sealed class ConditionApiCallRow : ObservableObject
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
         InputSpecText        = item.InputSpecText;
         InputSpecTypeIndex   = item.InputSpecTypeIndex;
-        SkipInputSensor      = item.SkipInputSensor;
         _inputSpec           = item.InputSpec;
+        // v10: SkipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
     }
 
     public Guid   CallId               { get; }
@@ -223,7 +212,6 @@ public sealed class ConditionApiCallRow : ObservableObject
     public int    OutputSpecTypeIndex  { get; }
     public string InputSpecText        { get; }
     public int    InputSpecTypeIndex   { get; }
-    public bool   SkipInputSensor      { get; }
 
     /// <summary>
     /// 시뮬 동작 중에만 채워지는 표시 — `NewFlow_clp.ADV ✓ [현재:true / 기대:true]`.
@@ -271,29 +259,29 @@ public sealed class ConditionApiCallRow : ObservableObject
 
 public sealed class ConditionSectionItem : ObservableObject
 {
-    public ConditionSectionItem(CallConditionType conditionType, string title)
+    public ConditionSectionItem(ConditionType conditionType, string title)
     {
         ConditionType = conditionType;
         Title = title;
         Conditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Header));
     }
 
-    public CallConditionType ConditionType { get; }
+    public ConditionType ConditionType { get; }
     public string Title { get; }
-    public ObservableCollection<CallConditionItem> Conditions { get; } = [];
+    public ObservableCollection<ConditionItem> Conditions { get; } = [];
     public string Header => $"{Title} [{Conditions.Count}]";
     public string HelpTopic => ConditionType switch
     {
-        CallConditionType.AutoAux     => "condition-auto-aux",
-        CallConditionType.ComAux      => "condition-com-aux",
-        CallConditionType.SkipUnmatch => "condition-skip-unmatch",
+        ConditionType.AutoAux     => "condition-auto-aux",
+        ConditionType.ComAux      => "condition-com-aux",
+        ConditionType.SkipUnmatch => "condition-skip-unmatch",
         _                             => "condition"
     };
 }
 
-public sealed class ConditionDropInfo(CallConditionType conditionType, Guid droppedCallId)
+public sealed class ConditionDropInfo(ConditionType conditionType, Guid droppedCallId)
 {
-    public CallConditionType ConditionType { get; } = conditionType;
+    public ConditionType ConditionType { get; } = conditionType;
     public Guid DroppedCallId { get; } = droppedCallId;
 }
 

@@ -44,13 +44,14 @@ module internal AasxExportGraph =
             ("Work",     "TokenRole"),        $"{cdBase}/Work/TokenRole"
             ("Work",     "Duration"),         $"{cdBase}/Work/Duration"
             ("Work",     "ReferenceOf"),      $"{cdBase}/Work/ReferenceOf"
+            ("Work",     "Conditions"),       $"{cdBase}/Work/Conditions"
             // Call
             ("Call",     "Guid"),             $"{cdBase}/Call/Guid"
             ("Call",     "Name"),             $"{cdBase}/Call/Name"
             ("Call",     "Status"),           $"{cdBase}/Call/Status"
             ("Call",     "Position"),         $"{cdBase}/Call/Position"
             ("Call",     "ReferenceOf"),      $"{cdBase}/Call/ReferenceOf"
-            ("Call",     "CallConditions"),   $"{cdBase}/Call/CallConditions"
+            ("Call",     "Conditions"),   $"{cdBase}/Call/Conditions"
             // ApiCall
             ("ApiCall",  "Guid"),             $"{cdBase}/ApiCall/Guid"
             ("ApiCall",  "Name"),             $"{cdBase}/ApiCall/Name"
@@ -63,7 +64,8 @@ module internal AasxExportGraph =
             // ApiDef
             ("ApiDef",   "Guid"),             $"{cdBase}/ApiDef/Guid"
             ("ApiDef",   "Name"),             $"{cdBase}/ApiDef/Name"
-            ("ApiDef",   "ApiDefActionType"), $"{cdBase}/ApiDef/ApiDefActionType"
+            ("ApiDef",   "ActionType"),       $"{cdBase}/ApiDef/ActionType"
+            ("ApiDef",   "SensingType"),      $"{cdBase}/ApiDef/SensingType"
             ("ApiDef",   "TxGuid"),           $"{cdBase}/ApiDef/TxGuid"
             ("ApiDef",   "RxGuid"),           $"{cdBase}/ApiDef/RxGuid"
             // Arrow
@@ -182,8 +184,8 @@ module internal AasxExportGraph =
                             match value :?> TimeSpan option with
                             | Some ts -> Some (mkTimeSpanProp attr.FieldName ts)
                             | None -> None
-                        elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
-                            Some (mkJsonProp<ResizeArray<CallCondition>> attr.FieldName (value :?> ResizeArray<CallCondition>))
+                        elif prop.PropertyType = typeof<ResizeArray<Condition>> then
+                            Some (mkJsonProp<ResizeArray<Condition>> attr.FieldName (value :?> ResizeArray<Condition>))
                         elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
                             Some (mkJsonProp<ResizeArray<TokenSpec>> attr.FieldName (value :?> ResizeArray<TokenSpec>))
                         elif prop.PropertyType = typeof<IOTag option> then
@@ -202,8 +204,10 @@ module internal AasxExportGraph =
                         elif prop.PropertyType = typeof<ArrowType> then
                             let at = value :?> ArrowType
                             Some (mkProp attr.FieldName (string at))
-                        elif prop.PropertyType = typeof<ApiDefActionType> then
-                            Some (mkJsonProp<ApiDefActionType> attr.FieldName (value :?> ApiDefActionType))
+                        elif prop.PropertyType = typeof<ActionType> then
+                            Some (mkJsonProp<ActionType> attr.FieldName (value :?> ActionType))
+                        elif prop.PropertyType = typeof<SensingType> then
+                            Some (mkJsonProp<SensingType> attr.FieldName (value :?> SensingType))
                         elif prop.PropertyType = typeof<bool> then
                             Some (mkProp attr.FieldName (string (value :?> bool)))
                         else

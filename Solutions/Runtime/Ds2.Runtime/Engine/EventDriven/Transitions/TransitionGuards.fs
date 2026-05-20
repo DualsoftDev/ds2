@@ -15,6 +15,7 @@ module internal TransitionGuards =
         CanCompleteCall: Guid -> bool
         ApplyWorkTransition: Guid -> Status4 -> unit
         ApplyCallTransition: Guid -> Status4 -> unit
+        OnCallFinishRejected: Guid -> unit
     }
 
     let clearAndApplyWork (ctx: Context) workGuid newState =
@@ -64,9 +65,13 @@ module internal TransitionGuards =
             | Status4.Finish ->
                 match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
                 | Some workGuid ->
-                    ctx.StateManager.GetCallState(callGuid) = Status4.Going
-                    && not (ctx.IsWorkFrozen workGuid)
-                    && ctx.CanCompleteCall callGuid
+                    let canApply =
+                        ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                        && not (ctx.IsWorkFrozen workGuid)
+                        && ctx.CanCompleteCall callGuid
+                    if not canApply then
+                        ctx.OnCallFinishRejected callGuid
+                    canApply
                 | None -> false
             | Status4.Homing ->
                 match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with

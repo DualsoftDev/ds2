@@ -18,6 +18,7 @@
     <Compile Include="Engine\Core\SimIndex\Reload.fs" />
     <Compile Include="Engine\Core\SimIndex\HomingQueries.fs" />
     <Compile Include="Engine\Core\SimIndex\SimIndex.fs" />
+    <Compile Include="Engine\Core\Commands\RuntimeSemantics.fs" />
     <Compile Include="Engine\Core\Commands\WorkConditionChecker.fs" />
     <Compile Include="Engine\Core\Scheduling\StepSemantics.fs" />
     <Compile Include="Engine\Core\Commands\RuntimeCommandPolicy.fs" />

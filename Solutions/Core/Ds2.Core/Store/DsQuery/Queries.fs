@@ -207,6 +207,20 @@ module Queries =
         |> List.exists (fun c -> c.Name = callName && excludeId <> Some c.Id)
         |> not
 
+    /// Work 내 동일 이름 원본 Call ID 룩업. Reference 생성 path 가 *어떤 원본을 가리킬지* 결정.
+    /// 동일 이름이 여러 개면 첫 번째. (정상 데이터에서는 유일해야 함.)
+    let tryFindOriginalCallInWork (workId: Guid) (callName: string) (store: DsStore) : Guid option =
+        originalCallsOf workId store
+        |> List.tryFind (fun c -> c.Name = callName)
+        |> Option.map (fun c -> c.Id)
+
+    /// Project 전역에서 동일 이름 원본 Call 찾기 (가장 가까운 Work 우선 사용 정책 없음 — 첫 매치).
+    /// Reference 자동 생성 시 동일 Work 에 원본이 없으면 *다른 Work 의 원본* 을 가리킬지 결정용.
+    let tryFindOriginalCallAnywhere (callName: string) (store: DsStore) : Guid option =
+        store.CallsReadOnly.Values
+        |> Seq.tryFind (fun c -> c.ReferenceOf.IsNone && c.Name = callName)
+        |> Option.map (fun c -> c.Id)
+
     // ─────────────────────────────────────────────────────────────────────────
     // ApiDef 쿼리
     // ─────────────────────────────────────────────────────────────────────────
@@ -310,8 +324,8 @@ module Queries =
             | _                    -> None
         entity |> Option.map (fun e -> e.Name)
 
-    /// CallCondition 트리에서 ID로 재귀 검색
-    let rec tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
+    /// Condition 트리에서 ID로 재귀 검색
+    let rec tryFindConditionRec (conditions: Condition seq) (condId: Guid) : Condition option =
         conditions |> Seq.tryPick (fun cc ->
             if cc.Id = condId then Some cc
             else tryFindConditionRec cc.Children condId)

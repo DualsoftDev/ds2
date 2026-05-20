@@ -284,8 +284,7 @@ module PanelTests =
                 "", "out-addr",
                 "", "in-addr",
                 0, "",
-                0, "",
-                false)
+                0, "")
 
         let created = store.ApiCalls.[createdId]
         Assert.Equal("DeviceApi", created.Name)
@@ -298,10 +297,10 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let id = store.AddApiDefWithProperties("Api1", system.Id)
         let apiDef = store.ApiDefs.[id]
-        apiDef.ApiDefActionType <- ApiDefActionType.Push
+        apiDef.ActionType <- ActionType.Real (Latched, None)
         Assert.Equal("Api1", apiDef.Name)
         Assert.Equal(system.Id, apiDef.ParentId)
-        Assert.Equal(ApiDefActionType.Push, apiDef.ApiDefActionType)
+        Assert.Equal(ActionType.Real (Latched, None), apiDef.ActionType)
 
     [<Fact>]
     let ``UpdateApiDef changes name atomically`` () =
@@ -309,25 +308,25 @@ module PanelTests =
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
-        apiDef.ApiDefActionType <- ApiDefActionType.Push
-        store.UpdateApiDef(apiDef.Id, "ApiRenamed", ApiDefActionType.Push, None, None, "")
+        apiDef.ActionType <- ActionType.Real (Latched, None)
+        store.UpdateApiDef(apiDef.Id, "ApiRenamed", ActionType.Real (Latched, None), SensingType.Real (Level, None), None, None, "")
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
-        Assert.Equal(ApiDefActionType.Push, updated.ApiDefActionType)
-        1
+        Assert.Equal(ActionType.Real (Latched, None), updated.ActionType)
+
     [<Fact>]
     let ``UpdateApiDef is single undo step`` () =
         let store = createStore ()
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "OldName" system.Id
-        let originalActionType = apiDef.ApiDefActionType
-        store.UpdateApiDef(apiDef.Id, "NewName", apiDef.ApiDefActionType, apiDef.TxGuid, apiDef.RxGuid, "")
+        let originalActionType = apiDef.ActionType
+        store.UpdateApiDef(apiDef.Id, "NewName", apiDef.ActionType, apiDef.SensingType, apiDef.TxGuid, apiDef.RxGuid, "")
         Assert.Equal("NewName", store.ApiDefs.[apiDef.Id].Name)
         store.Undo()
         let reverted = store.ApiDefs.[apiDef.Id]
         Assert.Equal("OldName", reverted.Name)
-        Assert.Equal(originalActionType, reverted.ApiDefActionType)
+        Assert.Equal(originalActionType, reverted.ActionType)
 
     [<Fact>]
     let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =
@@ -338,24 +337,24 @@ module PanelTests =
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let condId = store.Calls.[call.Id].Conditions |> Seq.head |> fun cc -> cc.Id
 
         let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
         Assert.Equal(1, added)
 
         let conditionApiCallId =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+            |> fun cc -> cc.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
         let changed = store.UpdateConditionApiCallOutputSpec(call.Id, condId, conditionApiCallId, 4, "123")
         Assert.True(changed)
 
         let updatedSpec =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.OutputSpec
+            |> fun cc -> cc.ApiCalls |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.OutputSpec
 
         match updatedSpec with
         | Int32Value (Single v) -> Assert.Equal(123, v)
@@ -370,24 +369,24 @@ module PanelTests =
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let condId = store.Calls.[call.Id].Conditions |> Seq.head |> fun cc -> cc.Id
 
         let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
         Assert.Equal(1, added)
 
         let conditionApiCallId =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+            |> fun cc -> cc.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
         let changed = store.UpdateConditionApiCallInputSpec(call.Id, condId, conditionApiCallId, 4, "456")
         Assert.True(changed)
 
         let updatedSpec =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.InputSpec
+            |> fun cc -> cc.ApiCalls |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.InputSpec
 
         match updatedSpec with
         | Int32Value (Single v) -> Assert.Equal(456, v)

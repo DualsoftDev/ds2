@@ -77,17 +77,17 @@ let private assertXywhEqual (expected: Xywh option) (actual: Xywh option) =
     | _ ->
         Assert.True(false, sprintf "Xywh option mismatch. expected=%A actual=%A" expected actual)
 
-let rec private assertConditionsEqual (expected: ResizeArray<CallCondition>) (actual: ResizeArray<CallCondition>) =
+let rec private assertConditionsEqual (expected: ResizeArray<Condition>) (actual: ResizeArray<Condition>) =
     let e = expected |> Seq.toList
     let a = actual |> Seq.toList
     Assert.Equal(e.Length, a.Length)
-    List.iter2 (fun (ec: CallCondition) (ac: CallCondition) ->
+    List.iter2 (fun (ec: Condition) (ac: Condition) ->
         Assert.Equal(ec.Id, ac.Id)
         Assert.Equal(ec.Type, ac.Type)
         Assert.Equal(ec.IsOR, ac.IsOR)
         Assert.Equal(ec.IsInverted, ac.IsInverted)
-        let eConds = ec.Conditions |> Seq.toList
-        let aConds = ac.Conditions |> Seq.toList
+        let eConds = ec.ApiCalls |> Seq.toList
+        let aConds = ac.ApiCalls |> Seq.toList
         Assert.Equal(eConds.Length, aConds.Length)
         List.iter2 assertApiCallEqual eConds aConds
         assertConditionsEqual ec.Children ac.Children) e a
@@ -230,7 +230,8 @@ module JsonRoundTripTests =
         let workId = Guid.NewGuid()
 
         let apiDef = ApiDef("ApiDef-Full", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.Push
+        apiDef.ActionType <- ActionType.Real (Latched, None)
+        apiDef.SensingType <- SensingType.Real (Level, None)
         apiDef.TxGuid <- Some(Guid.NewGuid())
         apiDef.RxGuid <- Some(Guid.NewGuid())
 
@@ -267,12 +268,12 @@ module JsonRoundTripTests =
         apiString.OutputSpec <- stringSpec
         apiBool.OutputSpec   <- boolSpec
 
-        let condition = CallCondition()
-        condition.Type <- Some CallConditionType.SkipUnmatch
+        let condition = Condition()
+        condition.Type <- Some ConditionType.SkipUnmatch
         condition.IsOR <- true
         condition.IsInverted <- true
-        condition.Conditions.Add(apiFloat)
-        condition.Conditions.Add(apiBool)
+        condition.ApiCalls.Add(apiFloat)
+        condition.ApiCalls.Add(apiBool)
 
         let call = Call("Call", "Full", workId)
         let callProps = SimulationCallProperties()
@@ -285,7 +286,7 @@ module JsonRoundTripTests =
         call.Position <- Some(Xywh(11, 22, 33, 44))
         call.ApiCalls.Add(apiInt)
         call.ApiCalls.Add(apiString)
-        call.CallConditions.Add(condition)
+        call.Conditions.Add(condition)
 
         let actual = roundTrip call
 
@@ -309,7 +310,7 @@ module JsonRoundTripTests =
         List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
             assertApiCallEqual eApi aApi) expectedApiCalls actualApiCalls
 
-        assertConditionsEqual call.CallConditions actual.CallConditions
+        assertConditionsEqual call.Conditions actual.Conditions
 
 
 module WorkRoundTripTests =
@@ -357,6 +358,52 @@ module WorkRoundTripTests =
         Assert.Equal("F1", actual.FlowPrefix)
         Assert.Equal("W1", actual.LocalName)
 
+    [<Fact>]
+    let ``JsonConverter should roundtrip Work with SkipUnmatch Conditions`` () =
+        let flowId = Guid.NewGuid()
+        let work = Work("F", "W", flowId)
+
+        // 두 개의 leaf ApiCall + Inverter placeholder + nested children 으로 round-trip 검증.
+        let api1 = ApiCall("Api1")
+        api1.InputSpec <- BoolValue (Single true)
+        api1.ContactKind <- ContactKind.NoContact
+        let api2 = ApiCall("Api2")
+        api2.InputSpec <- Int32Value (Single 42)
+        api2.ContactKind <- ContactKind.NcContact
+
+        let child = Condition()
+        child.Type <- Some ConditionType.SkipUnmatch
+        child.IsOR <- true
+        child.ApiCalls.Add(api2)
+
+        let cond = Condition()
+        cond.Type <- Some ConditionType.SkipUnmatch
+        cond.IsInverted <- true
+        cond.ApiCalls.Add(api1)
+        cond.Children.Add(child)
+
+        work.Conditions.Add(cond)
+
+        let actual = roundTrip work
+
+        Assert.Equal(work.Id, actual.Id)
+        Assert.Equal(1, actual.Conditions.Count)
+        let r = actual.Conditions.[0]
+        Assert.Equal(cond.Id, r.Id)
+        Assert.Equal(Some ConditionType.SkipUnmatch, r.Type)
+        Assert.True(r.IsInverted)
+        Assert.Equal(1, r.ApiCalls.Count)
+        Assert.Equal(api1.Id, r.ApiCalls.[0].Id)
+        Assert.Equal(BoolValue (Single true), r.ApiCalls.[0].InputSpec)
+        Assert.Equal(ContactKind.NoContact, r.ApiCalls.[0].ContactKind)
+        Assert.Equal(1, r.Children.Count)
+        let rc = r.Children.[0]
+        Assert.Equal(child.Id, rc.Id)
+        Assert.True(rc.IsOR)
+        Assert.Equal(1, rc.ApiCalls.Count)
+        Assert.Equal(api2.Id, rc.ApiCalls.[0].Id)
+        Assert.Equal(ContactKind.NcContact, rc.ApiCalls.[0].ContactKind)
+
 module FileRoundTripTests =
 
     [<Fact>]
@@ -399,38 +446,60 @@ module FileRoundTripTests =
             if File.Exists(filePath) then File.Delete(filePath)
 
 
-module ApiDefActionTypeTests =
+module V10ActionSensingTypeTests =
 
     [<Fact>]
-    let ``JsonConverter should roundtrip ApiDefActionType Normal`` () =
-        let value = ApiDefActionType.Normal
-        let actual = roundTrip value
-        Assert.Equal(value, actual)
+    let ``JsonConverter should roundtrip SignalMode cases`` () =
+        for value in [ Level; OneShot; Latched ] do
+            Assert.Equal(value, roundTrip value)
 
     [<Fact>]
-    let ``JsonConverter should roundtrip ApiDefActionType Push`` () =
-        let value = ApiDefActionType.Push
-        let actual = roundTrip value
-        Assert.Equal(value, actual)
+    let ``JsonConverter should roundtrip TimePolicy Append`` () =
+        let value = Append 1500
+        Assert.Equal(value, roundTrip value)
 
     [<Fact>]
-    let ``JsonConverter should roundtrip ApiDefActionType Pulse`` () =
-        let value = ApiDefActionType.Pulse
-        let actual = roundTrip value
-        Assert.Equal(value, actual)
+    let ``JsonConverter should roundtrip ActionType Real Level None`` () =
+        let value = ActionType.Real (Level, None)
+        Assert.Equal(value, roundTrip value)
 
     [<Fact>]
-    let ``JsonConverter should roundtrip ApiDefActionType TimeTotal`` () =
-        let value = ApiDefActionType.TimeTotal 1500
-        let actual = roundTrip value
-        Assert.Equal(value, actual)
+    let ``JsonConverter should roundtrip ActionType Real OneShot None`` () =
+        let value = ActionType.Real (OneShot, None)
+        Assert.Equal(value, roundTrip value)
 
     [<Fact>]
-    let ``JsonConverter should deserialize legacy ApiDefActionType Time as TimeTotal`` () =
-        // 옛 저장본 호환 — Case:"Time" → TimeTotal 로 마이그레이션
-        let legacyJson = """{"Case":"Time","Fields":[1500]}"""
-        let actual = JsonConverter.deserialize<ApiDefActionType> legacyJson
-        Assert.Equal(ApiDefActionType.TimeTotal 1500, actual)
+    let ``JsonConverter should roundtrip ActionType Real Latched None`` () =
+        let value = ActionType.Real (Latched, None)
+        Assert.Equal(value, roundTrip value)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ActionType Real Level Some Append`` () =
+        let value = ActionType.Real (Level, Some (Append 1500))
+        Assert.Equal(value, roundTrip value)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ActionType Virtual None`` () =
+        let value = ActionType.Virtual None
+        Assert.Equal(value, roundTrip value)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ActionType Virtual Some Append`` () =
+        let value = ActionType.Virtual (Some (Append 200))
+        Assert.Equal(value, roundTrip value)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip SensingType cases`` () =
+        let values: SensingType list = [
+            Real (Level,   None)
+            Real (OneShot, None)
+            Real (Latched, None)
+            Real (Level,   Some (Append 50))
+            Virtual None
+            Virtual (Some (Append 100))
+        ]
+        for value in values do
+            Assert.Equal(value, roundTrip value)
 
     [<Fact>]
     let ``DsSystem should roundtrip SystemType option`` () =
@@ -443,47 +512,57 @@ module ApiDefActionTypeTests =
         Assert.Equal(Some "ConveyorBelt", actual.SystemType)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with Normal ActionType`` () =
+    let ``ApiDef should roundtrip with ActionType Real Level None default`` () =
         let systemId = Guid.NewGuid()
         let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.Normal
         apiDef.TxGuid <- Some (Guid.NewGuid())
         apiDef.RxGuid <- Some (Guid.NewGuid())
         let actual = roundTrip apiDef
         Assert.Equal(apiDef.Id, actual.Id)
         Assert.Equal(apiDef.Name, actual.Name)
         Assert.Equal(apiDef.ParentId, actual.ParentId)
-        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
-        Assert.Equal(ApiDefActionType.Normal, actual.ApiDefActionType)
+        Assert.Equal(apiDef.ActionType, actual.ActionType)
+        Assert.Equal(ActionType.Real (Level, None), actual.ActionType)
+        Assert.Equal(apiDef.SensingType, actual.SensingType)
+        Assert.Equal(SensingType.Real (Level, None), actual.SensingType)
         Assert.Equal(apiDef.TxGuid, actual.TxGuid)
         Assert.Equal(apiDef.RxGuid, actual.RxGuid)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with Push ActionType`` () =
+    let ``ApiDef should roundtrip with Latched ActionType`` () =
         let systemId = Guid.NewGuid()
         let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.Push
+        apiDef.ActionType <- ActionType.Real (Latched, None)
         let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
-        Assert.Equal(ApiDefActionType.Push, actual.ApiDefActionType)
+        Assert.Equal(apiDef.ActionType, actual.ActionType)
+        Assert.Equal(ActionType.Real (Latched, None), actual.ActionType)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with Pulse ActionType`` () =
+    let ``ApiDef should roundtrip with OneShot ActionType`` () =
         let systemId = Guid.NewGuid()
         let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.Pulse
+        apiDef.ActionType <- ActionType.Real (OneShot, None)
         let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
-        Assert.Equal(ApiDefActionType.Pulse, actual.ApiDefActionType)
+        Assert.Equal(apiDef.ActionType, actual.ActionType)
+        Assert.Equal(ActionType.Real (OneShot, None), actual.ActionType)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with TimeTotal ActionType`` () =
+    let ``ApiDef should roundtrip with timeAppend Action`` () =
         let systemId = Guid.NewGuid()
         let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ApiDefActionType <- ApiDefActionType.TimeTotal 2500
+        apiDef.ActionType <- ActionType.Real (Level, Some (Append 2500))
         let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
-        match actual.ApiDefActionType with
-        | ApiDefActionType.TimeTotal ms -> Assert.Equal(2500, ms)
-        | _ -> Assert.Fail("Expected TimeTotal action type")
+        Assert.Equal(apiDef.ActionType, actual.ActionType)
+        match actual.ActionType with
+        | ActionType.Real (Level, Some (Append ms)) -> Assert.Equal(2500, ms)
+        | _ -> Assert.Fail("Expected Real(Level, Some(Append 2500))")
+
+    [<Fact>]
+    let ``ApiDef should roundtrip with Virtual SensingType`` () =
+        let systemId = Guid.NewGuid()
+        let apiDef = ApiDef("TestApi", systemId)
+        apiDef.SensingType <- SensingType.Virtual None
+        let actual = roundTrip apiDef
+        Assert.Equal(apiDef.SensingType, actual.SensingType)
+        Assert.Equal(SensingType.Virtual None, actual.SensingType)
 

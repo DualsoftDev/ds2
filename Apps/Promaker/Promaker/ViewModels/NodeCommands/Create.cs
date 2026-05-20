@@ -100,6 +100,13 @@ public partial class MainViewModel
             return;
         }
 
+        // 진단: target Work 가 사용자 의도와 일치하는지 확인하도록 식별 정보 로그.
+        // "다른 Flow Work 에 추가한 줄 알았는데 다른 Work 로 resolve 되어 이름 충돌" 이슈 추적용.
+        if (_store.Works.TryGetValue(targetWorkId, out var targetWork))
+        {
+            Log.Info($"AddCall target Work: {targetWork.Name} (Id={targetWorkId}, FlowId={targetWork.ParentId})");
+        }
+
         var project = HasProject ? Queries.allProjects(_store).Head : null;
 
         var dialog = new CallCreateDialog(
@@ -166,42 +173,72 @@ public partial class MainViewModel
             }
         }
 
-        var duplicateCallNames = callNamesToCheck
-            .Where(name => !Queries.isCallNameUniqueInWork(targetWorkId, name, FSharpOption<Guid>.None, _store))
-            .ToList();
-        if (duplicateCallNames.Count > 0)
+        // 동일 이름 Call 발견 → Reference Call 자동 생성 (원본 또 안 만듦).
+        // map[fullName] = 원본 Call.Id (해당 Work 안의 원본). 모드별 callName 형식이 모두 callNamesToCheck 와 일치.
+        var duplicateMap = new Dictionary<string, Guid>();
+        foreach (var name in callNamesToCheck)
         {
-            var nameList = string.Join(", ", duplicateCallNames);
-            if (!_dialogService.Confirm(
-                $"'{nameList}' 이름의 Call이 이미 존재합니다.\nApiCall은 동일한 ApiDef를 참조합니다.\n그래도 생성하시겠습니까?",
-                "Call 이름 중복"))
-                return;
+            var origIdOpt = Queries.tryFindOriginalCallInWork(targetWorkId, name, _store);
+            if (FSharpOption<Guid>.get_IsSome(origIdOpt))
+                duplicateMap[name] = origIdOpt.Value;
         }
 
         var worksBefore = _store.Works.Keys.ToHashSet();
         var callsBefore = _store.Calls.Keys.ToHashSet();
 
+        // ── 1단계: 중복 이름 → Reference Call 일괄 생성 ─────────────────
+        if (duplicateMap.Count > 0)
+        {
+            try
+            {
+                foreach (var (_, origId) in duplicateMap.Select(kv => (kv.Key, kv.Value)))
+                    _store.AddReferenceCallToWork(origId, targetWorkId);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Reference Call 생성 실패: {ex.Message}");
+                StatusText = $"Reference Call 생성 실패: {ex.Message}";
+                return;
+            }
+            var list = string.Join(", ", duplicateMap.Keys);
+            StatusText = $"동일 이름 {duplicateMap.Count}개 → Reference Call 생성: {list}";
+        }
+
+        // ── 2단계: 비중복 이름만 기존 path (원본 새로 생성) ───────────────
+        var nonDupNames = dialog.CallNames
+            .Where(n =>
+            {
+                var checkName = dialog.Mode == CallCreateMode.ApiCallReplication
+                    ? $"{dialog.CallDevicesAlias}.{NormalizeApiName(n)}"
+                    : n;
+                return !duplicateMap.ContainsKey(checkName);
+            })
+            .ToList();
+
         switch (dialog.Mode)
         {
             case CallCreateMode.CallReplication:
+                if (nonDupNames.Count == 0) break;
                 if (TryCreateSiblingDiffWithCascade(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, dialog.CreateDeviceSystem, systemTypeOption),
+                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, nonDupNames, dialog.CreateDeviceSystem, systemTypeOption),
                     TabKind.Work,
                     targetWorkId,
                     rawPos,
                     siblings,
                     "Call 추가"))
                 {
-                    StatusText = $"Added {dialog.CallNames.Count} call(s).";
+                    StatusText = $"Added {nonDupNames.Count} call(s)."
+                        + (duplicateMap.Count > 0 ? $" (+ {duplicateMap.Count} Reference)" : "");
                     MergeWithMutualResetArrows(worksBefore, "Call 추가");
                 }
                 break;
 
             case CallCreateMode.ApiCallReplication:
-                if (dialog.CallNames.Count > 1)
+                if (nonDupNames.Count == 0) break;
+                if (nonDupNames.Count > 1)
                 {
                     if (TryCreateMultipleWithCascade(
-                        dialog.CallNames.Select(fullName => new Func<Guid>(() =>
+                        nonDupNames.Select(fullName => new Func<Guid>(() =>
                             _store.AddCallWithMultipleDevicesResolved(
                                 EntityKind.Work,
                                 targetWorkId,
@@ -214,7 +251,8 @@ public partial class MainViewModel
                         siblings.Positions,
                         "Call 추가"))
                     {
-                        StatusText = $"Added {dialog.CallNames.Count} call(s).";
+                        StatusText = $"Added {nonDupNames.Count} call(s)."
+                            + (duplicateMap.Count > 0 ? $" (+ {duplicateMap.Count} Reference)" : "");
                         MergeWithMutualResetArrows(worksBefore, "Call 추가");
                     }
                 }
@@ -226,30 +264,35 @@ public partial class MainViewModel
                             targetWorkId,
                             targetWorkId,
                             dialog.CallDevicesAlias,
-                            dialog.CallApiName,
+                            NormalizeApiName(nonDupNames[0]),
                             dialog.DeviceAliases,
                             systemTypeOption),
                         rawPos,
                         siblings.Positions,
                         "Call 추가"))
                     {
-                        StatusText = "Call added.";
+                        StatusText = "Call added."
+                            + (duplicateMap.Count > 0 ? $" (+ {duplicateMap.Count} Reference)" : "");
                         MergeWithMutualResetArrows(worksBefore, "Call 추가");
                     }
                 }
                 break;
 
             case CallCreateMode.ApiDefPicker: // no passive device created, skip mutual reset
-                if (TryCreateSingleWithCascade(
-                    () => _store.AddCallWithLinkedApiDefs(
-                        targetWorkId,
-                        dialog.DevicesAlias,
-                        dialog.ApiName,
-                        dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
-                    rawPos,
-                    siblings.Positions,
-                    "Call 추가"))
-                    StatusText = "Call added.";
+                {
+                    var apiDefCallName = $"{dialog.DevicesAlias}.{dialog.ApiName}";
+                    if (duplicateMap.ContainsKey(apiDefCallName)) break; // 이미 Reference 로 생성됨
+                    if (TryCreateSingleWithCascade(
+                        () => _store.AddCallWithLinkedApiDefs(
+                            targetWorkId,
+                            dialog.DevicesAlias,
+                            dialog.ApiName,
+                            dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
+                        rawPos,
+                        siblings.Positions,
+                        "Call 추가"))
+                        StatusText = "Call added.";
+                }
                 break;
         }
 

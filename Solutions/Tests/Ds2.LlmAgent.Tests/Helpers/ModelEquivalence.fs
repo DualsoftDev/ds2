@@ -40,12 +40,11 @@ type CallDetail = {
     /// PoC scope = 0 또는 1. multi-ApiCall (≥ 2) 확장 시 round-trip diff 로 즉시 가시화 → silent regression 차단.
     ApiCallCount: int
     ContactKind: ContactKind
-    SkipInputSensor: bool
     CallType: CallType option              // None = Properties 미설정
     InTag: (string * string) option        // (Name, Address) — None = IOTag 미설정 or empty
     OutTag: (string * string) option
-    /// CallCondition recursive 평탄화 (sorted). 빈 콜렉션 → "".
-    CallConditionSummary: string
+    /// Condition recursive 평탄화 (sorted). 빈 콜렉션 → "".
+    ConditionSummary: string
     /// Phase 7 §4.2 C-7.1 — ControlCallProperties leaf 평탄화. `<none>` = instance 미설정.
     PlcCallSummary: string
 }
@@ -100,7 +99,7 @@ let private callLabel (store: DsStore) (callId: System.Guid) : string =
         | None -> sprintf "<orphanWork>|%s.%s" c.DevicesAlias c.ApiName
     | None -> sprintf "<unknown:%O>" callId
 
-/// Phase 7 §4.2 TC-1 — ApiCall (CallCondition.Conditions leaf) 의 이름 기반 label.
+/// Phase 7 §4.2 TC-1 — ApiCall (Condition.Conditions leaf) 의 이름 기반 label.
 /// GUID lossy (4-set) 회피 — system+api 이름 기반.
 let private apiCallLabel (store: DsStore) (ac: ApiCall) : string =
     match ac.ApiDefId with
@@ -113,29 +112,29 @@ let private apiCallLabel (store: DsStore) (ac: ApiCall) : string =
         | None -> "<unknownApiDef>"
     | None -> "<noApiDef>"
 
-/// Phase 7 §4.2 TC-1 — CallCondition recursive 평탄화. 비교용 직렬화 string.
-let rec private summarizeCallCondition (store: DsStore) (cc: CallCondition) : string =
+/// Phase 7 §4.2 TC-1 — Condition recursive 평탄화. 비교용 직렬화 string.
+let rec private summarizeCondition (store: DsStore) (cc: Condition) : string =
     let typ = cc.Type |> Option.map (sprintf "%A") |> Option.defaultValue "None"
     let conds =
-        cc.Conditions
+        cc.ApiCalls
         |> Seq.map (fun ac -> sprintf "%s|%A" (apiCallLabel store ac) ac.ContactKind)
         |> Seq.toList
         |> List.sort
         |> String.concat ","
     let children =
         cc.Children
-        |> Seq.map (summarizeCallCondition store)
+        |> Seq.map (summarizeCondition store)
         |> Seq.toList
         |> List.sort
         |> String.concat ";"
     sprintf "{%s,%b,%b,[%s],[%s]}" typ cc.IsOR cc.IsInverted conds children
 
-/// Phase 7 §4.2 TC-1 — Call.CallConditions 전체 평탄화. 빈 콜렉션 → "" (default 케이스).
-let private summarizeCallConditions (store: DsStore) (c: Call) : string =
-    if c.CallConditions.Count = 0 then ""
+/// Phase 7 §4.2 TC-1 — Call.Conditions 전체 평탄화. 빈 콜렉션 → "" (default 케이스).
+let private summarizeConditions (store: DsStore) (c: Call) : string =
+    if c.Conditions.Count = 0 then ""
     else
-        c.CallConditions
-        |> Seq.map (summarizeCallCondition store)
+        c.Conditions
+        |> Seq.map (summarizeCondition store)
         |> Seq.toList
         |> List.sort
         |> String.concat "+"
@@ -211,7 +210,6 @@ let private summarizePlcCall (cp: ControlCallProperties option) : string =
 let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
     let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
     let contactKind = firstApiCall |> Option.map (fun ac -> ac.ContactKind) |> Option.defaultValue ContactKind.NoContact
-    let skipInputSensor = firstApiCall |> Option.map (fun ac -> ac.SkipInputSensor) |> Option.defaultValue false
     let inTag = firstApiCall |> Option.bind (fun ac -> ioTagTuple ac.InTag)
     let outTag = firstApiCall |> Option.bind (fun ac -> ioTagTuple ac.OutTag)
     let callTypeOpt =
@@ -221,19 +219,19 @@ let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
         Ref = sprintf "%s.%s" c.DevicesAlias c.ApiName
         ApiCallCount = c.ApiCalls.Count
         ContactKind = contactKind
-        SkipInputSensor = skipInputSensor
         CallType = callTypeOpt
         InTag = inTag
         OutTag = outTag
-        CallConditionSummary = summarizeCallConditions store c
+        ConditionSummary = summarizeConditions store c
         PlcCallSummary = summarizePlcCall (c.GetControlProperties())
     }
 
-/// Phase 7 §4.2 TC-1 — ApiDef → ("<actionType>|<description>") 평탄화.
+/// Phase 7 §4.2 TC-1 — ApiDef → ("<actionType>|<sensingType>|<description>") 평탄화.
 let private apiDefDetail (apiDef: ApiDef) : string =
-    let actionType = sprintf "%A" apiDef.ApiDefActionType
+    let actionType = sprintf "%A" apiDef.ActionType
+    let sensingType = sprintf "%A" apiDef.SensingType
     let description = apiDef.Description |> Option.defaultValue ""
-    sprintf "%s|%s" actionType description
+    sprintf "%s|%s|%s" actionType sensingType description
 
 let captureShape (store: DsStore) : StoreShape =
     let projects = Queries.allProjects store

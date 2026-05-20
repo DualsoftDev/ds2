@@ -59,7 +59,7 @@ public partial class EntityNode : ObservableObject
 
     public ObservableCollection<EntityNode> Children { get; } = [];
 
-    public void UpdateConditionTypes(IEnumerable<CallConditionType> types)
+    public void UpdateConditionTypes(IEnumerable<ConditionType> types)
     {
         HasAutoAux = false;
         HasComAux = false;
@@ -68,9 +68,9 @@ public partial class EntityNode : ObservableObject
         {
             switch (t)
             {
-                case CallConditionType.AutoAux: HasAutoAux = true; break;
-                case CallConditionType.ComAux: HasComAux = true; break;
-                case CallConditionType.SkipUnmatch: HasSkipUnmatch = true; break;
+                case ConditionType.AutoAux: HasAutoAux = true; break;
+                case ConditionType.ComAux: HasComAux = true; break;
+                case ConditionType.SkipUnmatch: HasSkipUnmatch = true; break;
             }
         }
     }

@@ -82,15 +82,10 @@ type FSharpUnionConverter<'T>() =
             | true, prop -> fieldsElement <- Some prop
             | _ -> ()
 
-            // 호환성 alias: ApiDefActionType 의 옛 케이스 "Time" → "TimeTotal" 자동 변환
-            // (2026-05-13 enum rename. 의미 동일 — 절대 N ms 출력. 옛 .aasx/.json 저장본 호환)
-            let resolvedName =
-                if unionType.Name = "ApiDefActionType" && caseName = "Time" then "TimeTotal"
-                else caseName
             let case =
-                match cases |> Array.tryFind (fun c -> c.Name = resolvedName) with
+                match cases |> Array.tryFind (fun c -> c.Name = caseName) with
                 | Some c -> c
-                | None -> failwithf "Unknown union case '%s' for type %s" resolvedName unionType.Name
+                | None -> failwithf "Unknown union case '%s' for type %s" caseName unionType.Name
             let fieldInfos = case.GetFields()
 
             if fieldInfos.Length = 0 then

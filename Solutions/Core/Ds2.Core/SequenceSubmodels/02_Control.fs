@@ -176,16 +176,16 @@ type SignalPatternEntry() =
 /// FB 입력 포트 와이어링 entry — Cylinder/Robot 등 모든 FB 통합 모델.
 /// Kind 2가지 + AuxKind (AuxCoil 일 때 user 조건 소스 선택):
 ///   DirectFB           = FB 포트에 ApiDef 변수 직접 와이어 (코일 emit 없음). Robot 류.
-///   AuxCoil + AutoAux  = WorkGoing ∧ preds ∧ CallCondition.AutoAux  → 코일 비트 → FB 포트.
-///   AuxCoil + ComAux   = CallCondition.ComAux                       → 코일 비트 → FB 포트.
+///   AuxCoil + AutoAux  = WorkGoing ∧ preds ∧ Condition.AutoAux  → 코일 비트 → FB 포트.
+///   AuxCoil + ComAux   = Condition.ComAux                       → 코일 비트 → FB 포트.
 type AuxPortMapEntry() =
     member val ApiName:      string = "" with get, set         // 예: "ADV" / "WORK_COMP_RST"
     member val TargetFBPort: string = "" with get, set         // 예: "M_Auto_Adv" / "WORK_COMP_RST"
     /// "DirectFB" / "AuxCoil"
     member val Kind:         string = "DirectFB" with get, set
-    /// AuxCoil 일 때만 의미 — Ds2 CallCondition 의 어느 Type 속성값(수식)을 코일 조건으로 사용:
-    ///   "AutoAux" = WorkGoing ∧ preds ∧ CallCondition.AutoAux 값 — Cylinder M_Auto_X 류.
-    ///   "ComAux"  = CallCondition.ComAux 값 — Cylinder M_Com_X 류 (게이팅 없음).
+    /// AuxCoil 일 때만 의미 — Ds2 Condition 의 어느 Type 속성값(수식)을 코일 조건으로 사용:
+    ///   "AutoAux" = WorkGoing ∧ preds ∧ Condition.AutoAux 값 — Cylinder M_Auto_X 류.
+    ///   "ComAux"  = Condition.ComAux 값 — Cylinder M_Com_X 류 (게이팅 없음).
     /// DirectFB 면 무시.
     member val AuxKind:      string = "AutoAux" with get, set
     /// 사용자 정의 추가 수식 — 자동 합성 조건과 AND 결합.

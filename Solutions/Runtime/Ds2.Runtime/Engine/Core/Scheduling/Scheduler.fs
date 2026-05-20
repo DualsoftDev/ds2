@@ -14,6 +14,7 @@ type ScheduledEventType =
     | DurationComplete of workGuid: Guid
     | HomingComplete of workGuid: Guid
     | CallTimeout of callGuid: Guid
+    | OutputWrite of address: string * value: string
     | EvaluateConditions
 
 /// 스케줄된 이벤트 (PriorityQueue용)

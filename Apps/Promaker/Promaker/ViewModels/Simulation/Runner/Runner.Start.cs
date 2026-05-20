@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Backend.Common;
 using Ds2.Core;
+using Ds2.Core.Store;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
@@ -55,6 +56,21 @@ public partial class SimulationPanelState
                     Dialogs.DialogHelpers.ShowGraphWarnings(sections);
                     _setStatusText($"모델 검증: {sections.Count}건의 경고 발견");
                 }
+            }
+
+            // v10 §12 — ApiDef/ApiCall V1~V6 invariant 점검. Error 면 시뮬 시작 중단, Warning 은 로그.
+            var v10Issues = V10ValidationBatch.validateStore(Store);
+            var v10Errors = v10Issues.Where(i => i.Severity.IsError).ToList();
+            var v10Warnings = v10Issues.Where(i => i.Severity.IsWarning).ToList();
+            foreach (var w in v10Warnings)
+                AddSimLog($"[v10 {w.Rule}] {w.Message}", LogSeverity.Warn);
+            if (v10Errors.Count > 0)
+            {
+                foreach (var e in v10Errors)
+                    AddSimLog($"[v10 {e.Rule}] {e.Message}", LogSeverity.Error);
+                _setStatusText($"v10 모델 검증 실패: Error {v10Errors.Count}건 — 시뮬 시작 중단");
+                Tray.TransitionPending = false;
+                return;
             }
 
             // Race Condition 경고: 순서 없는 Call이 같은 Device의 ResetReset 관계 Work를 참조
