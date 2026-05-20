@@ -62,6 +62,42 @@ module CollectionEndpoints =
     let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
         writeJson ctx status {| error = message |}
 
+    /// **IndexerVersion gate 분기 처리 SSOT (s6-r43 / 외부 --review L-Maj-5 정정)** — `postCollections` /
+    /// `postCollectionPayload` 양쪽 박제 중복 (415 응답 4 키 + Log.audit.Warn + removeStaging) 흡수.
+    /// `Compatible` → `true` 반환 (caller 가 후속 박제). 나머지 → 415/400 응답 박제 + `false` 반환.
+    /// `labelSuffix` = "" (postCollections) 또는 " (swap)" (postCollectionPayload) — log 메시지 식별용.
+    /// postCollectionPayload 의 Missing 분기에 누락되어 있던 Log.audit.Warn 박제도 본 helper 안에서 일관 박제.
+    let private processStagingExtractGate
+        (ctx: HttpContext)
+        (storageRoot: string)
+        (stagingId: string)
+        (range: IndexerVersionRange)
+        (gate: IndexerVersionGateResult)
+        (identifier: string)
+        (labelSuffix: string)
+        : Task<bool> = task {
+            match gate with
+            | IndexerVersionGateResult.Compatible -> return true
+            | IndexerVersionGateResult.TooLow(v, m) ->
+                Log.audit.Warn(sprintf "indexerVersion gate too-low%s — id=%s client=%s hostMin=%s" labelSuffix identifier v m)
+                StagingSweep.removeStaging storageRoot stagingId |> ignore
+                do! writeJson ctx 415 {| error = "indexerVersion too low"; clientVersion = v; hostingRange = {| min = range.Min; max = range.Max |}; suggestedAction = "client Ds2.LightHouse lib 업그레이드 후 재색인 / 재업로드" |}
+                return false
+            | IndexerVersionGateResult.TooHigh(v, m) ->
+                // suggestedAction: 두 회복 경로 모두 안내 (P5).
+                // (a) host 측: Ds2.LightHouseService 업그레이드 (IndexerVersionRange.Max 확대)
+                // (b) client 측: Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드
+                Log.audit.Warn(sprintf "indexerVersion gate too-high%s — id=%s client=%s hostMax=%s" labelSuffix identifier v m)
+                StagingSweep.removeStaging storageRoot stagingId |> ignore
+                do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = range.Min; max = range.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
+                return false
+            | IndexerVersionGateResult.Missing reason ->
+                Log.audit.Warn(sprintf "indexerVersion gate missing%s — id=%s reason=%s" labelSuffix identifier reason)
+                StagingSweep.removeStaging storageRoot stagingId |> ignore
+                do! writeError ctx 400 (sprintf "indexerVersion 미존재 — %s" reason)
+                return false
+        }
+
     /// POST /collections — multipart zip + title → guid 발급 + 전개 + IndexerVersion gate + 등록.
     /// notifier 는 본 endpoint 에서 미사용 — payload swap / delete 가 호출. 신규 등록은 detach 불요.
     /// bus (s6-r27, D-S7-2) — Compatible 분기 성공 시 `collection-added` event publish.
@@ -108,11 +144,11 @@ module CollectionEndpoints =
                         MetaJson.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
                     MetaJson.save stagingPath serverMeta
 
-                    // IndexerVersion gate (§3.12)
+                    // IndexerVersion gate (§3.12) — SSOT = `processStagingExtractGate` (s6-r43).
                     let clientVer = ZipImport.probeIndexerVersion stagingPath
                     let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
-                    match gate with
-                    | IndexerVersionGateResult.Compatible ->
+                    let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate collectionId ""
+                    if compatible then
                         // atomic move → Collections\<guid>-<sanitized>\
                         let target = ZipImport.moveStagingToCollection storageRoot stagingPath collectionId title
                         let entry = MetaJson.toRegistryEntry serverMeta
@@ -120,22 +156,6 @@ module CollectionEndpoints =
                         Log.audit.Info(sprintf "collection registered — id=%s by=%s target=%s" collectionId user target)
                         bus.Publish(ServerEvent.collectionAdded collectionId)  // D-S7-2 s6-r27
                         do! writeJson ctx 201 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
-                    | IndexerVersionGateResult.TooLow(v, m) ->
-                        Log.audit.Warn(sprintf "indexerVersion gate too-low — id=%s client=%s hostMin=%s" collectionId v m)
-                        // staging 정리
-                        StagingSweep.removeStaging storageRoot stagingId |> ignore
-                        do! writeJson ctx 415 {| error = "indexerVersion too low"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "client Ds2.LightHouse lib 업그레이드 후 재색인 / 재업로드" |}
-                    | IndexerVersionGateResult.TooHigh(v, m) ->
-                        Log.audit.Warn(sprintf "indexerVersion gate too-high — id=%s client=%s hostMax=%s" collectionId v m)
-                        StagingSweep.removeStaging storageRoot stagingId |> ignore
-                        // suggestedAction: 두 회복 경로 모두 안내 (P5).
-                        // (a) host 측: Ds2.LightHouseService 업그레이드 (IndexerVersionRange.Max 확대)
-                        // (b) client 측: Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드
-                        do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
-                    | IndexerVersionGateResult.Missing reason ->
-                        Log.audit.Warn(sprintf "indexerVersion gate missing — id=%s reason=%s" collectionId reason)
-                        StagingSweep.removeStaging storageRoot stagingId |> ignore
-                        do! writeError ctx 400 (sprintf "indexerVersion 미존재 — %s" reason)
                 with
                 | SanitizeException err ->
                     Log.audit.Warn(sprintf "sanitize 실패 — id=%s by=%s err=%A" collectionId user err)
@@ -227,8 +247,9 @@ module CollectionEndpoints =
 
                         let clientVer = ZipImport.probeIndexerVersion stagingPath
                         let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
-                        match gate with
-                        | IndexerVersionGateResult.Compatible ->
+                        // s6-r43: postCollections 와 동일 SSOT (`processStagingExtractGate`) — swap label 박제.
+                        let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate id " (swap)"
+                        if compatible then
                             // existing.DisplayName 으로 swap 대상 폴더 이름 산출 — IC-2 fix 후 title=existing.DisplayName 라 동일 결과.
                             let target = ZipImport.swapCollectionPayload storageRoot stagingPath id title
                             let entry = MetaJson.toRegistryEntry serverMeta
@@ -237,19 +258,6 @@ module CollectionEndpoints =
                             Log.audit.Info(sprintf "collection payload swapped — id=%s by=%s target=%s" id user target)
                             bus.Publish(ServerEvent.collectionUpdated id)  // D-S7-2 s6-r27
                             do! writeJson ctx 200 {| id = id; storageRelPath = entry.StorageRelPath |}
-                        | IndexerVersionGateResult.TooLow(v, m) ->
-                            // s6-r7 (M1): swap 경로도 postCollections 와 동일 SSOT 박제 — hostingRange + suggestedAction.
-                            Log.audit.Warn(sprintf "indexerVersion gate too-low (swap) — id=%s client=%s hostMin=%s" id v m)
-                            StagingSweep.removeStaging storageRoot stagingId |> ignore
-                            do! writeJson ctx 415 {| error = "indexerVersion too low"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "client Ds2.LightHouse lib 업그레이드 후 재색인 / 재업로드" |}
-                        | IndexerVersionGateResult.TooHigh(v, m) ->
-                            // s6-r7 (M1): postCollections 의 P5 정정 정합 — 양 회복 옵션 박제.
-                            Log.audit.Warn(sprintf "indexerVersion gate too-high (swap) — id=%s client=%s hostMax=%s" id v m)
-                            StagingSweep.removeStaging storageRoot stagingId |> ignore
-                            do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = cfg.IndexerVersionRange.Min; max = cfg.IndexerVersionRange.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
-                        | IndexerVersionGateResult.Missing reason ->
-                            StagingSweep.removeStaging storageRoot stagingId |> ignore
-                            do! writeError ctx 400 (sprintf "indexerVersion 미존재 — %s" reason)
                     with
                     | SanitizeException err ->
                         StagingSweep.removeStaging storageRoot stagingId |> ignore
