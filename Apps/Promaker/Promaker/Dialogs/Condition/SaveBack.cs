@@ -204,16 +204,5 @@ public partial class ConditionEditDialog
 
     /// <summary>buildPreview 와 동일한 `{System.Name}.{ApiDef.Name}` 포맷 → ApiCall.Id lookup.</summary>
     private Dictionary<string, Guid> BuildDisplayNameToApiCallId()
-    {
-        var map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ac in _store.ApiCalls.Values)
-        {
-            if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
-            if (!_store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var def)) continue;
-            if (!_store.Systems.TryGetValue(def.ParentId, out var sys)) continue;
-            var key = $"{sys.Name}.{def.Name}";
-            if (!map.ContainsKey(key)) map[key] = ac.Id;
-        }
-        return map;
-    }
+        => ConditionDialogSymbolResolver.BuildDisplayNameToApiCallId(_store, _callId, _ownerKind, _condType);
 }

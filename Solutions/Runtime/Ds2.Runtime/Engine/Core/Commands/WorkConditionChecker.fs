@@ -69,8 +69,13 @@ module WorkConditionChecker =
         | Some (_, _, preds) -> checkPredecessorCondition index state preds Status4.Going List.exists
         | None -> false
 
-    /// 단일 ConditionEntry 평가 (RxWork 상태 + ValueSpec 비교)
-    let checkConditionSpec (state: SimState) (spec: ConditionEntry) : bool =
+    let private hasChangedAtCurrentClock (state: SimState) apiCallGuid =
+        state.IOValueChangedAt
+        |> Map.tryFind apiCallGuid
+        |> Option.exists ((=) state.Clock)
+
+    /// 단일 ConditionEntry 기본 평가 (RxWork 상태 + ValueSpec 비교)
+    let private checkConditionSpecBase (state: SimState) (spec: ConditionEntry) : bool =
         if ValueSpec.isFalse spec.InputSpec then
             state.WorkStates |> Map.tryFind spec.RxWorkGuid = Some Status4.Ready
         else
@@ -84,15 +89,34 @@ module WorkConditionChecker =
                 | None -> true
             | _ -> false
 
-    /// ConditionExpression 트리 평가 — cc.IsOR 보존된 And/Or 노드 재귀 처리.
+    /// 단일 ConditionEntry 평가. ContactKind 를 런타임에도 적용한다.
+    let checkConditionSpec (state: SimState) (spec: ConditionEntry) : bool =
+        let matched = checkConditionSpecBase state spec
+        match spec.ContactKind with
+        | ContactKind.NoContact -> matched
+        | ContactKind.NcContact -> not matched
+        | ContactKind.RisingPulse ->
+            matched
+            && spec.ApiCallGuid
+               |> Option.exists (hasChangedAtCurrentClock state)
+        | ContactKind.FallingPulse ->
+            not matched
+            && spec.ApiCallGuid
+               |> Option.exists (hasChangedAtCurrentClock state)
+        | ContactKind.Inverter -> not matched
+        | _ -> matched
+
+    /// ConditionExpression 트리 평가 — cc.IsOR / cc.IsInverted 보존된 And/Or/Not 노드 재귀 처리.
     /// 빈 And 는 true (조건 없음 통과), 빈 Or 는 false.
     let rec evaluateConditionExpression (state: SimState) (expr: ConditionExpression) : bool =
         match expr with
+        | Const value -> value
         | Leaf entry -> checkConditionSpec state entry
         | And exprs -> exprs |> List.forall (evaluateConditionExpression state)
         | Or exprs ->
             if exprs.IsEmpty then false
             else exprs |> List.exists (evaluateConditionExpression state)
+        | Not inner -> not (evaluateConditionExpression state inner)
 
     /// SkipUnmatch 공통 helper: 조건 expr 이 false → skip 해야 함을 의미.
     let private shouldSkipByExpr (state: SimState) (exprOpt: ConditionExpression option) : bool =

@@ -25,26 +25,15 @@ public partial class ConditionEditDialog
         var usedSet = new HashSet<string>(
             CoilAst.Leaves(cond).Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)),
             StringComparer.OrdinalIgnoreCase);
-        // 이 Call 에 실제로 등록된 Condition 들의 ApiCall display name 만 추출.
-        var registered = new List<string>();
-        if (_host.TryRef(() => _store.GetCallConditionsForPanel(_callId), out var conds))
-        {
-            foreach (var c in conds)
-                CollectApiCallNames(c, registered);
-        }
+        // 현재 owner(Call/Work)의 Condition 에 등록된 ApiCall display name 을 우선 노출.
+        var registered = ConditionDialogSymbolResolver
+            .BuildRegisteredDisplayNames(_store, _callId, _ownerKind, _condType)
+            .ToList();
         // 현재 rung 에 있는데 conditions 에 안 보이는 leaf 도 포함 (drag 로 추가된 임시 심볼 등).
         foreach (var u in usedSet)
             if (!registered.Contains(u, StringComparer.OrdinalIgnoreCase))
                 registered.Add(u);
         _ctx.SymbolProvider = new AnnotatedSymbolProvider(registered, usedSet);
-    }
-
-    private static void CollectApiCallNames(ConditionPanelItem c, List<string> acc)
-    {
-        foreach (var item in c.Items)
-            if (!acc.Contains(item.ApiDefDisplayName, StringComparer.OrdinalIgnoreCase))
-                acc.Add(item.ApiDefDisplayName);
-        foreach (var child in c.Children) CollectApiCallNames(child, acc);
     }
 
     /// <summary>심볼 + 사용 상태 라벨. SymbolPopupEditor 가   이후 상태 텍스트는 잘라냄.</summary>

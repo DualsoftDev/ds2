@@ -127,6 +127,28 @@ module SimIndexTests =
         Assert.True(index.TokenSinkGuids.IsEmpty)
 
     [<Fact>]
+    let ``build maps raw _ON _OFF condition leaves to constants`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ])
+
+        let onCond = Condition(Type = Some ConditionType.AutoAux)
+        onCond.ApiCalls.Add(ApiCall("_ON"))
+        store.Calls.[callId].Conditions.Add(onCond)
+
+        let offCond = Condition(Type = Some ConditionType.ComAux)
+        offCond.ApiCalls.Add(ApiCall("_OFF"))
+        store.Calls.[callId].Conditions.Add(offCond)
+
+        let index = SimIndex.build store 10
+        let state = SimState.create 10 index.AllWorkGuids index.AllCallGuids index.AllFlowGuids
+
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state index.CallAutoAuxConditions.[callId])
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state index.CallComAuxConditions.[callId])
+
+    [<Fact>]
     let ``build keeps independent token source guids for reference works`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
@@ -1695,8 +1717,11 @@ module ConditionExpressionEvalTests =
         ioValues
         |> List.fold (fun acc (g, v) -> SimState.setIOValue g v acc) withWork
 
+    let private leafSpecWithKind kind rx api spec : ConditionExpression =
+        Leaf { RxWorkGuid = rx; ApiCallGuid = Some api; InputSpec = spec; ContactKind = kind }
+
     let private leafSpec rx api spec : ConditionExpression =
-        Leaf { RxWorkGuid = rx; ApiCallGuid = Some api; InputSpec = spec }
+        leafSpecWithKind ContactKind.NoContact rx api spec
 
     [<Fact>]
     let ``Or evaluates true when only one leaf matches (A|B)`` () =
@@ -1776,6 +1801,50 @@ module ConditionExpressionEvalTests =
                 ]
             ]
         Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Not evaluates inverted child result`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Finish ] [ apiA, "true" ]
+        let expr = Not (leafSpec rxA apiA (ValueSpec.singleBool true))
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Not over false child evaluates true`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Ready ] []
+        let expr = Not (leafSpec rxA apiA (ValueSpec.singleBool true))
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``NcContact inverts leaf result`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Finish ] [ apiA, "true" ]
+        let expr = leafSpecWithKind ContactKind.NcContact rxA apiA (ValueSpec.singleBool true)
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``RisingPulse is true only when matching input changed at current clock`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Finish ] [ apiA, "true" ]
+        let expr = leafSpecWithKind ContactKind.RisingPulse rxA apiA (ValueSpec.singleBool true)
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+        let laterState = { state with Clock = TimeSpan.FromMilliseconds 1. }
+        Assert.False(WorkConditionChecker.evaluateConditionExpression laterState expr)
+
+    [<Fact>]
+    let ``FallingPulse is true when input becomes unmatched at current clock`` () =
+        let rxA, apiA = Guid.NewGuid(), Guid.NewGuid()
+        let state = stateWith [ rxA, Status4.Finish ] [ apiA, "false" ]
+        let expr = leafSpecWithKind ContactKind.FallingPulse rxA apiA (ValueSpec.singleBool true)
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state expr)
+
+    [<Fact>]
+    let ``Const expression evaluates directly`` () =
+        let state = SimState.create 100 [] [] []
+        Assert.True(WorkConditionChecker.evaluateConditionExpression state (Const true))
+        Assert.False(WorkConditionChecker.evaluateConditionExpression state (Const false))
 
     [<Fact>]
     let ``Empty And evaluates true (no conditions = pass)`` () =
@@ -2096,6 +2165,42 @@ module V10RuntimeSemanticsTests =
         let apiDef = addApiDef store "WAIT" deviceSystem.Id
         apiDef.ActionType <- ActionType.Virtual None
         apiDef.SensingType <- SensingType.Virtual (Some (Append 50))
+        apiDef.TxGuid <- None
+        apiDef.RxGuid <- None
+
+        let callId = store.AddCallWithLinkedApiDefs(activeWork.Id, "Device", "WAIT", [ apiDef.Id ])
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+
+        try
+            engine.ForceWorkState(activeWork.Id, Status4.Going)
+            drainNow engine
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+
+            engine.AdvanceSimulationTo(10L)
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.Equal(Some Status4.Going, engine.GetWorkState(activeWork.Id))
+
+            engine.AdvanceSimulationTo(59L)
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.Equal(Some Status4.Going, engine.GetWorkState(activeWork.Id))
+
+            engine.AdvanceSimulationTo(60L)
+            Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
+            Assert.Equal(Some Status4.Finish, engine.GetWorkState(activeWork.Id))
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``v10 Virtual action Append delays Work duration once`` () =
+        let store = createStore ()
+        let project, _, _, activeWork = setupBasicHierarchy store
+        activeWork.Duration <- Some (TimeSpan.FromMilliseconds 10.)
+
+        let deviceSystem = addSystem store "Device" project.Id false
+        let apiDef = addApiDef store "WAIT" deviceSystem.Id
+        apiDef.ActionType <- ActionType.Virtual (Some (Append 50))
+        apiDef.SensingType <- SensingType.Virtual None
         apiDef.TxGuid <- None
         apiDef.RxGuid <- None
 

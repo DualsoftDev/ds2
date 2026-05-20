@@ -268,6 +268,63 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
     [<Fact>]
+    let ``AASX round-trip preserves Call Conditions with ContactKind and children`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+        let sourceApiDefId = store.AddApiDefWithProperties("SRC", systemId)
+        let targetApiDefId = store.AddApiDefWithProperties("TGT", systemId)
+        let sourceCallId = store.AddCallWithLinkedApiDefs(workId, "Device", "SRC", [ sourceApiDefId ])
+        let targetCallId = store.AddCallWithLinkedApiDefs(workId, "Device", "TGT", [ targetApiDefId ])
+        let sourceApiCall = store.Calls.[sourceCallId].ApiCalls |> Seq.head
+        sourceApiCall.InputSpec <- ValueSpec.singleBool true
+
+        let root = Condition(Type = Some ConditionType.ComAux, IsInverted = true)
+        let sourceRef = sourceApiCall.DeepCopy()
+        sourceRef.Id <- sourceApiCall.Id
+        sourceRef.ContactKind <- ContactKind.NcContact
+        root.ApiCalls.Add(sourceRef)
+
+        let child = Condition(IsOR = true)
+        let rawOn = ApiCall("_ON")
+        child.ApiCalls.Add(rawOn)
+        root.Children.Add(child)
+        store.Calls.[targetCallId].Conditions.Add(root)
+
+        let originalRootId = root.Id
+        let originalChildId = child.Id
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let target2 = store2.Calls.[targetCallId]
+            Assert.Equal(1, target2.Conditions.Count)
+            let root2 = target2.Conditions.[0]
+            Assert.Equal(originalRootId, root2.Id)
+            Assert.Equal(Some ConditionType.ComAux, root2.Type)
+            Assert.True(root2.IsInverted)
+            Assert.False(root2.IsOR)
+            Assert.Equal(1, root2.ApiCalls.Count)
+            Assert.Equal(sourceApiCall.Id, root2.ApiCalls.[0].Id)
+            Assert.Equal(ContactKind.NcContact, root2.ApiCalls.[0].ContactKind)
+            Assert.Equal(ValueSpec.singleBool true, root2.ApiCalls.[0].InputSpec)
+            Assert.Equal(1, root2.Children.Count)
+            let child2 = root2.Children.[0]
+            Assert.Equal(originalChildId, child2.Id)
+            Assert.True(child2.IsOR)
+            Assert.Equal(1, child2.ApiCalls.Count)
+            Assert.Equal("_ON", child2.ApiCalls.[0].Name)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
     let ``AASX round-trip preserves Project TokenSpecs`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
@@ -926,4 +983,3 @@ module AasValidationTests =
         finally
             if File.Exists(path1) then File.Delete(path1)
             if File.Exists(path2) then File.Delete(path2)
-
