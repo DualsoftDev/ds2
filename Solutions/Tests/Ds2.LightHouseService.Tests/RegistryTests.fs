@@ -127,3 +127,52 @@ let ``atomic save — write to .tmp 후 rename (다른 process 가 partial 읽�
     Assert.False(tmpRemains, ".tmp 잔재 없어야 함")
     Assert.True(File.Exists p)
 })
+
+// **s6-r54 K6 (보안 sweep)** — registry.json tampering 의심 entry skip + audit log.
+// admin 침해 / 외부 수동 편집 시나리오 — 의심 entry 만 빠지고 정상 entry 는 보존.
+
+[<Fact>]
+let ``K6 — DisplayName 의 path traversal (..) 의심 entry skip`` () = withTempRoot (fun root -> task {
+    let p = Registry.path root
+    // 정상 + 의심 두 entry 박제 (의심 = DisplayName 에 ".." 포함)
+    let raw = """{"schemaVersion":1,"collections":[
+        {"id":"id-good","displayName":"normal","indexerVersion":"1.0.0","fileCount":0,"totalSourceBytes":0,
+         "createdAt":"","importedAt":"","importedBy":"","storageRelPath":"Collections\\id-good-normal\\",
+         "status":"idle","errorReason":null,"lastImportedAt":""},
+        {"id":"id-bad","displayName":"..\\\\windows\\\\system32","indexerVersion":"1.0.0","fileCount":0,"totalSourceBytes":0,
+         "createdAt":"","importedAt":"","importedBy":"","storageRelPath":"Collections\\id-bad\\",
+         "status":"idle","errorReason":null,"lastImportedAt":""}
+    ]}"""
+    File.WriteAllText(p, raw)
+    let reg = Registry.load root
+    // 의심 entry 1건 skip → 정상 1건만
+    Assert.Single(reg.Collections) |> ignore
+    Assert.Equal("id-good", reg.Collections.[0].Id)
+})
+
+[<Fact>]
+let ``K6 — StorageRelPath 절대경로 / 의심 char (':') 의심 entry skip`` () = withTempRoot (fun root -> task {
+    let p = Registry.path root
+    // StorageRelPath 에 ":" (Windows drive letter) → 절대경로 의심 → skip
+    let raw = """{"schemaVersion":1,"collections":[
+        {"id":"id-bad","displayName":"normal","indexerVersion":"1.0.0","fileCount":0,"totalSourceBytes":0,
+         "createdAt":"","importedAt":"","importedBy":"","storageRelPath":"C:\\\\evil\\\\path",
+         "status":"idle","errorReason":null,"lastImportedAt":""}
+    ]}"""
+    File.WriteAllText(p, raw)
+    let reg = Registry.load root
+    Assert.Empty(reg.Collections)
+})
+
+[<Fact>]
+let ``K6 — Id empty 의심 entry skip`` () = withTempRoot (fun root -> task {
+    let p = Registry.path root
+    let raw = """{"schemaVersion":1,"collections":[
+        {"id":"","displayName":"normal","indexerVersion":"1.0.0","fileCount":0,"totalSourceBytes":0,
+         "createdAt":"","importedAt":"","importedBy":"","storageRelPath":"Collections\\x\\",
+         "status":"idle","errorReason":null,"lastImportedAt":""}
+    ]}"""
+    File.WriteAllText(p, raw)
+    let reg = Registry.load root
+    Assert.Empty(reg.Collections)
+})

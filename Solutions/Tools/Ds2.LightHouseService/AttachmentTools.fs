@@ -41,6 +41,17 @@ type AttachmentTools() =
     [<Literal>]
     static let MaxImagesPerResponse = 5
 
+    /// **s6-r53 M11 (보안 sweep)** — `attachment_search` DoS amplification 가드.
+    /// topK upper bound — sqlite-vec / FTS5 의 ORDER BY rank LIMIT 가 큰 N 시 메모리 + sort cost 폭증.
+    /// 사내 신뢰 환경이라 strict reject 보다 silent clamp (최대 100 으로 제한, 0/음수는 default 10).
+    [<Literal>]
+    static let MaxSearchTopK = 100
+
+    /// **s6-r53 M11** — query 문자열 최대 길이. FTS5 가 long token 시 quadratic worst-case 가능.
+    /// 1024 char 초과는 silent truncate + caller hint 박제 (silent corruption 차단 — hint 가 SSOT).
+    [<Literal>]
+    static let MaxSearchQueryLength = 1024
+
     /// **s6-r25 (m2)** — `[marker]` text 를 textBuilder 끝에 blank line 분리해서 append. 본문이 비어
     /// 있으면 (length=0) 첫 줄에 marker 시작, 본문이 있으면 두 줄 띄우고 marker 진입. attachment_read 의
     /// degraded / oversize / read_fail 3 marker 패턴 SSOT.
@@ -215,7 +226,22 @@ type AttachmentTools() =
         ) : string =
         withKb accessor registry (fun kb ->
             let s = activeSession accessor
-            let effectiveTopK = if topK <= 0 then 10 else topK
+            // **s6-r53 M11** — topK upper bound clamp + query length truncate. DoS amplification 차단.
+            let effectiveTopK =
+                if topK <= 0 then 10
+                elif topK > MaxSearchTopK then MaxSearchTopK
+                else topK
+            let rawQuery = if isNull query then "" else query
+            let mutable truncated = false
+            let effectiveQuery =
+                if rawQuery.Length > MaxSearchQueryLength then
+                    truncated <- true
+                    Log.audit.Warn(
+                        sprintf "M11: attachment_search query truncated — origLen=%d maxLen=%d"
+                            rawQuery.Length MaxSearchQueryLength)
+                    rawQuery.Substring(0, MaxSearchQueryLength)
+                else rawQuery
+            let topKClamped = topK > MaxSearchTopK
             let libFileId =
                 if String.IsNullOrEmpty fileId then None
                 else importFileId s fileId
@@ -226,7 +252,7 @@ type AttachmentTools() =
                     jsonOptions)
             else
                 let q : Ds2.LightHouse.Query = {
-                    Text = if isNull query then "" else query
+                    Text = effectiveQuery
                     TopK = effectiveTopK
                     FileId = libFileId
                 }
@@ -250,11 +276,23 @@ type AttachmentTools() =
                             tokenCount = h.TokenCount
                             hasImages = h.HasImages
                         |})
+                // **s6-r53 M11** — hint 박제 정책: caller 가 truncated/clamp 검출 가능. 기존 hint 와 결합 (semicolon 구분).
+                let baseHint = r.Hint |> Option.defaultValue null
+                let hintParts =
+                    [
+                        if not (isNull baseHint) then yield baseHint
+                        if truncated then yield sprintf "query truncated to %d chars" MaxSearchQueryLength
+                        if topKClamped then yield sprintf "topK clamped to %d" MaxSearchTopK
+                    ]
+                let finalHint =
+                    match hintParts with
+                    | [] -> null
+                    | parts -> String.concat "; " parts
                 JsonSerializer.Serialize(
                     {|
                         results = hits
                         moreAvailable = r.MoreAvailable
-                        hint = r.Hint |> Option.defaultValue null
+                        hint = finalHint
                     |},
                     jsonOptions))
 
