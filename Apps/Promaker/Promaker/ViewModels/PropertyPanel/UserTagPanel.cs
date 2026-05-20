@@ -17,7 +17,7 @@ public partial class PropertyPanelState
     public ObservableCollection<UserTagPanelItem> UserTags { get; } = [];
     public string UserTagsHeader => $"UserTags [{UserTags.Count}]";
 
-    private static readonly string[] CsvHeaderColumns = ["이름", "로그 레벨", "태그 주소", "값 타입"];
+    private static readonly string[] CsvHeaderColumns = ["이름", "로그 레벨", "태그 주소", "값 타입", "매칭 조건", "기준값"];
 
     private void RefreshUserTagsPanel(Guid systemId)
     {
@@ -38,7 +38,7 @@ public partial class PropertyPanelState
         if (!ShowOwnedDialog(dialog)) return;
 
         if (!_host.TryAction(
-                () => Store.AddUserTag(systemNode.Id, dialog.TagName, dialog.LogLevel, dialog.TagAddress, dialog.ValueType)))
+                () => Store.AddUserTag(systemNode.Id, dialog.TagName, dialog.LogLevel, dialog.TagAddress, dialog.ValueType, dialog.MatchOp, dialog.MatchValue)))
             return;
 
         RefreshUserTagsPanel(systemNode.Id);
@@ -60,7 +60,7 @@ public partial class PropertyPanelState
         if (!ShowOwnedDialog(dialog)) return;
 
         if (!_host.TryAction(
-                () => Store.UpdateUserTag(systemNode.Id, item.Index, dialog.TagName, dialog.LogLevel, dialog.TagAddress, dialog.ValueType)))
+                () => Store.UpdateUserTag(systemNode.Id, item.Index, dialog.TagName, dialog.LogLevel, dialog.TagAddress, dialog.ValueType, dialog.MatchOp, dialog.MatchValue)))
             return;
 
         RefreshUserTagsPanel(systemNode.Id);
@@ -105,7 +105,7 @@ public partial class PropertyPanelState
             var sb = new StringBuilder();
             sb.AppendLine(string.Join(",", CsvHeaderColumns));
             foreach (var t in UserTags)
-                sb.AppendLine($"{CsvEscape(t.Name)},{CsvEscape(t.LogLevel)},{CsvEscape(t.TagAddress)},{CsvEscape(t.ValueType)}");
+                sb.AppendLine($"{CsvEscape(t.Name)},{CsvEscape(t.LogLevel)},{CsvEscape(t.TagAddress)},{CsvEscape(t.ValueType)},{CsvEscape(t.MatchOp)},{CsvEscape(t.MatchValue)}");
 
             // UTF-8 BOM (Excel 한글 호환)
             File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
@@ -140,7 +140,7 @@ public partial class PropertyPanelState
         };
         if (dlg.ShowDialog() != true) return;
 
-        List<(string Name, string Level, string Addr, string Type)> rows;
+        List<(string Name, string Level, string Addr, string Type, string Op, string MatchValue)> rows;
         try
         {
             rows = ParseCsv(dlg.FileName);
@@ -162,13 +162,13 @@ public partial class PropertyPanelState
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(UserTags.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
 
-        var filteredRows = new List<(string, string, string, string)>();
+        var filteredRows = new List<(string, string, string, string, string, string)>();
         var skipped = 0;
         foreach (var r in rows)
         {
             if (existingNamesLower.Contains(r.Name)) { skipped++; continue; }
             existingNamesLower.Add(r.Name);
-            filteredRows.Add((r.Name, r.Level, r.Addr, r.Type));
+            filteredRows.Add((r.Name, r.Level, r.Addr, r.Type, r.Op, r.MatchValue));
         }
 
         if (filteredRows.Count == 0)
@@ -200,9 +200,9 @@ public partial class PropertyPanelState
         _host.SetStatusText(msg);
     }
 
-    private static List<(string Name, string Level, string Addr, string Type)> ParseCsv(string path)
+    private static List<(string Name, string Level, string Addr, string Type, string Op, string MatchValue)> ParseCsv(string path)
     {
-        var result = new List<(string, string, string, string)>();
+        var result = new List<(string, string, string, string, string, string)>();
         var lines = File.ReadAllLines(path);
         if (lines.Length == 0) return result;
 
@@ -222,12 +222,15 @@ public partial class PropertyPanelState
             var level = parts[1].Trim();
             var addr = parts[2].Trim();
             var vt = parts[3].Trim();
+            // 매칭 컬럼은 옵션 — 비어있으면 빈 문자열 (F# 측에서 ValueType 기반 기본 op 할당)
+            var op = parts.Count >= 5 ? parts[4].Trim() : string.Empty;
+            var mv = parts.Count >= 6 ? parts[5].Trim() : string.Empty;
 
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(addr)) continue;
             if (string.IsNullOrWhiteSpace(level)) level = "Info";
             if (string.IsNullOrWhiteSpace(vt)) vt = "Bit";
 
-            result.Add((name, level, addr, vt));
+            result.Add((name, level, addr, vt, op, mv));
         }
         return result;
     }
