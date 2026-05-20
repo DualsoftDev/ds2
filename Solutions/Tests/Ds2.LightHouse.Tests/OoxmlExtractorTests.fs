@@ -469,3 +469,80 @@ let ``docx + comments image — s6-r79 B2, RefLocator="comments"`` () =
         Assert.Equal(1, img.Ordinal)
         Assert.Equal(Png, img.Format)
         Assert.Equal(samplePngBytes.Length, img.Bytes.Length))
+
+
+/// **s6-r82 B2 (PR 4 잔여 fact)** — footnotes part 안 inline Drawing 박제 docx.
+/// extractImagesFromOpenXmlPart helper path 통과 검증 (분기 누락 0). FootnotesPart 도 동일 패턴.
+let private makeDocxWithFootnoteImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let body = Body()
+    let p = Paragraph()
+    let r = Run()
+    r.AppendChild(Text("본문")) |> ignore
+    p.AppendChild(r) |> ignore
+    body.AppendChild(p) |> ignore
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+    let footnotesPart = main.AddNewPart<DocumentFormat.OpenXml.Packaging.FootnotesPart>()
+    let imgPart = footnotesPart.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = footnotesPart.GetIdOfPart(imgPart)
+    let outerXml =
+        sprintf """<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:id="1"><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="4" name="FootnotePic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="4" name="FootnotePic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:footnote></w:footnotes>""" relId
+    footnotesPart.Footnotes <- DocumentFormat.OpenXml.Wordprocessing.Footnotes(outerXml)
+    footnotesPart.Footnotes.Save()
+
+[<Fact>]
+let ``docx + footnote image — s6-r82 B2 PR 4, RefLocator="footnotes"`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithFootnoteImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        Assert.Equal("footnotes", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(Png, img.Format))
+
+
+/// **s6-r82 B2 (PR 4 잔여 fact)** — endnotes part 안 inline Drawing 박제 docx.
+let private makeDocxWithEndnoteImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+    let body = Body()
+    let p = Paragraph()
+    let r = Run()
+    r.AppendChild(Text("본문")) |> ignore
+    p.AppendChild(r) |> ignore
+    body.AppendChild(p) |> ignore
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+    let endnotesPart = main.AddNewPart<DocumentFormat.OpenXml.Packaging.EndnotesPart>()
+    let imgPart = endnotesPart.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = endnotesPart.GetIdOfPart(imgPart)
+    let outerXml =
+        sprintf """<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:endnote w:id="1"><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="5" name="EndnotePic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="5" name="EndnotePic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:endnote></w:endnotes>""" relId
+    endnotesPart.Endnotes <- DocumentFormat.OpenXml.Wordprocessing.Endnotes(outerXml)
+    endnotesPart.Endnotes.Save()
+
+[<Fact>]
+let ``docx + endnote image — s6-r82 B2 PR 4, RefLocator="endnotes"`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithEndnoteImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        Assert.Equal("endnotes", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(Png, img.Format))
