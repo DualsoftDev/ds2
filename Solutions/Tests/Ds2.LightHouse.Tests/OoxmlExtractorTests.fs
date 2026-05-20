@@ -424,3 +424,48 @@ let ``docx + nested table image — s6-r22 C1 정합, silent drift 차단 (image
         let result = ext.Extract(path, CancellationToken.None)
         // nested table scheme 미지원 → image 0장 박제. outer cell scheme 도 inner cell 좌표를 평면화하지 않음.
         Assert.Equal(0, result.Images.Length))
+
+
+/// **s6-r79 B2 (external review backlog)** — comments part 안 inline Drawing 박제 docx.
+/// body 본문 1 + WordprocessingCommentsPart 안 image 1장 (도해/보충 시나리오).
+let private makeDocxWithCommentImage (path: string) =
+    use doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document)
+    let main = doc.AddMainDocumentPart()
+
+    // body 본문.
+    let body = Body()
+    let p = Paragraph()
+    let r = Run()
+    r.AppendChild(Text("본문 텍스트")) |> ignore
+    p.AppendChild(r) |> ignore
+    body.AppendChild(p) |> ignore
+    let docXml = Document()
+    docXml.AppendChild(body) |> ignore
+    main.Document <- docXml
+    main.Document.Save()
+
+    // comments part + image.
+    let commentsPart = main.AddNewPart<DocumentFormat.OpenXml.Packaging.WordprocessingCommentsPart>()
+    let imgPart = commentsPart.AddImagePart("image/png")
+    use ms = new MemoryStream(samplePngBytes)
+    imgPart.FeedData(ms)
+    let relId = commentsPart.GetIdOfPart(imgPart)
+
+    // OpenXml SDK 정석 (s6-r25 mn5 패턴 동일) — Comments ctor(string outerXml) + Save.
+    let commentsOuterXml =
+        sprintf """<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0" w:author="kwak" w:date="2026-05-21T00:00:00Z" w:initials="K"><w:p><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="100000" cy="100000"/><wp:docPr id="3" name="CommentPic"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="3" name="CommentPic"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:comment></w:comments>""" relId
+    commentsPart.Comments <- DocumentFormat.OpenXml.Wordprocessing.Comments(commentsOuterXml)
+    commentsPart.Comments.Save()
+
+[<Fact>]
+let ``docx + comments image — s6-r79 B2, RefLocator="comments"`` () =
+    withTempPath ".docx" (fun path ->
+        makeDocxWithCommentImage path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Images.Length)
+        let img = result.Images.[0]
+        Assert.Equal("comments", img.RefLocator)
+        Assert.Equal(1, img.Ordinal)
+        Assert.Equal(Png, img.Format)
+        Assert.Equal(samplePngBytes.Length, img.Bytes.Length))
