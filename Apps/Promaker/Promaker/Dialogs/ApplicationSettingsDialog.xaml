@@ -322,8 +322,9 @@
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
                                     <!-- B5 phase 2 (s6-r64) — mTLS client cert 선택 (LocalMachine\My X509Store). 선택된 cert
-                                         의 thumbprint 마지막 8 자리 표시. 미설정 시 "(없음)". 클릭 = X509Certificate2UI.SelectFromCollection. -->
-                                    <DataGridTemplateColumn Header="Client Cert" Width="160">
+                                         의 thumbprint 마지막 8 자리 표시. 미설정 시 "(없음)". 클릭 = X509Certificate2UI.SelectFromCollection.
+                                         B5 phase 3 (s6-r68) — '검증' 버튼 추가 + thumbprint 직접 편집 TextBox 추가 (paste 가능). -->
+                                    <DataGridTemplateColumn Header="Client Cert" Width="220">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal">
@@ -332,11 +333,16 @@
                                                             Click="LhSelectCert_Click"
                                                             Tag="{Binding ServiceId}"
                                                             ToolTip="LocalMachine\My X509Store 에서 client cert 선택 (mTLS)"/>
-                                                    <TextBlock Text="{Binding ClientCertThumbprint, Converter={StaticResource ThumbprintShortConverter}, Mode=OneWay}"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource SecondaryTextBrush}"
-                                                               FontSize="10" FontFamily="Consolas"
-                                                               Margin="4,0,0,0"/>
+                                                    <Button Content="검증" Style="{StaticResource DarkButton}"
+                                                            Padding="6,2" Margin="2"
+                                                            Click="LhValidateCert_Click"
+                                                            Tag="{Binding ServiceId}"
+                                                            ToolTip="thumbprint 의 cert validity (NotAfter / X509Store 일치) 검증"/>
+                                                    <TextBox Text="{Binding ClientCertThumbprint, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                             VerticalAlignment="Center"
+                                                             FontSize="10" FontFamily="Consolas"
+                                                             Width="90" Margin="4,0,0,0"
+                                                             ToolTip="thumbprint 직접 편집 (paste 가능, SHA-1 40 hex / SHA-256 64 hex). 빈 값 = mTLS 비활성."/>
                                                 </StackPanel>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
