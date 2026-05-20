@@ -144,9 +144,63 @@ type OoxmlExtractor() =
             // body 측 resolver — mainPart 안 ImagePart map.
             let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
 
-            // helper: Paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`).
-            let extractImagesFromBlock (block: OpenXmlElement) (paraOrd: int) =
-                extractImagesAtRefLocator block resolveBodyImagePart "body" (sprintf "p=%d" paraOrd)
+            // **s6-r44 / 외부 --review L-Maj-6 정정** — block 의 `Descendants<Blip>()` 1회 enumerate + 유효 Blip
+            // (relId non-null + HasValue) 만 cache. paragraph hot path 의 `hasInlineDrawing` + `extractImagesFromBlock`
+            // 양쪽 박제하던 2회 deep enumerate 회피. valid 필터링도 한 곳에 집중 — caller 측 isNull/HasValue 가드 제거.
+            let collectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
+                let arr = ResizeArray<Blip>()
+                for blip in block.Descendants<Blip>() do
+                    if not (isNull blip.Embed) && blip.Embed.HasValue then
+                        arr.Add blip
+                arr
+
+            // `extractImagesAtRefLocator` 의 cached variant — caller 가 미리 enumerate 한 Blip ResizeArray 박제.
+            // valid Blip 가정 (collectValidBlips 가 사전 필터링). M2 per-image fail-safe + ContentType 화이트리스트
+            // 박제 동일.
+            let extractImagesFromBlips
+                (blips: Blip ResizeArray)
+                (resolveImagePart: string -> ImagePart option)
+                (location: string)
+                (refLocator: string) =
+                let mutable imgOrdInBlock = 1
+                for blip in blips do
+                    let relId = blip.Embed.Value
+                    match resolveImagePart relId with
+                    | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
+                    | Some imgPart ->
+                        try
+                            let fmtOpt =
+                                match imgPart.ContentType with
+                                | "image/png"  -> Some Png
+                                | "image/jpeg" -> Some Jpeg
+                                | "image/gif"  -> Some Gif
+                                | "image/webp" -> Some Webp
+                                | _ -> None
+                            match fmtOpt with
+                            | None -> ()
+                            | Some fmt ->
+                                use stream = imgPart.GetStream()
+                                use ms = new MemoryStream()
+                                stream.CopyTo(ms)
+                                let bytes = ms.ToArray()
+                                if bytes.Length > 0 then
+                                    images.Add {
+                                        Bytes = bytes
+                                        Format = fmt
+                                        Width = None
+                                        Height = None
+                                        RefLocator = refLocator
+                                        Ordinal = imgOrdInBlock
+                                    }
+                                    imgOrdInBlock <- imgOrdInBlock + 1
+                        with ex ->
+                            Log.lighthouse.Warn(
+                                sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
+                                    location refLocator imgOrdInBlock relId path ex.Message)
+
+            // helper: Paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`). cached path.
+            let extractImagesFromBlock (blips: Blip ResizeArray) (paraOrd: int) =
+                extractImagesFromBlips blips resolveBodyImagePart "body" (sprintf "p=%d" paraOrd)
 
             // **s6-r22 task 5 (s6-r16 backlog 해소)** — table cell 단위 매핑.
             // RefLocator scheme = `p=<table-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>` (모두 1-based).
@@ -196,7 +250,9 @@ type OoxmlExtractor() =
                         let raw = p.InnerText
                         if isNull raw then "" else raw.Trim()
                     let isText = text.Length > 0
-                    let hasImg = hasInlineDrawing p
+                    // s6-r44: paragraph 의 Blip 1회 enumerate + cache (L-Maj-6 정정).
+                    let pBlips = collectValidBlips p
+                    let hasImg = pBlips.Count > 0
                     if isText || hasImg then
                         // heading 처리는 text 있을 때만 의미 — image-only paragraph 는 outline 비등록.
                         if isText && OoxmlExtractor.IsHeadingStyle styleId then
@@ -216,7 +272,8 @@ type OoxmlExtractor() =
                             }
                         // C4-Q2: 같은 paragraph 안의 inline Drawing → 같은 RefLocator 의 image 박제.
                         // image-only paragraph (s6-r21) 도 동일 분기 — ChunkId 매핑은 None (segment 없음).
-                        extractImagesFromBlock p (paraOrdinal + 1)
+                        if hasImg then
+                            extractImagesFromBlock pBlips (paraOrdinal + 1)
                         paraOrdinal <- paraOrdinal + 1
                 | :? Table as tbl ->
                     let text =
