@@ -5,6 +5,7 @@ open System.Security.Cryptography
 open System.Text
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
+open Ds2.LightHouse.Protocol
 
 /// 인증 미들웨어 SSOT (todo-lighthouse-kb-server.md §3.7).
 ///
@@ -18,8 +19,10 @@ module AuthMiddleware =
     [<Literal>]
     let AuthorizationHeader = "Authorization"
 
-    [<Literal>]
-    let UserIdentityHeader = "X-User-Identity"
+    /// **A2 m3 (s6-r78, caller routing 후속)** — `HeaderNames.UserIdentity` Protocol SSOT 위임.
+    /// 이전: server 측 magic string `"X-User-Identity"` 박제. K4 A2 (s6-r71) 의 Protocol module 박제 후
+    /// 잔여 caller routing 의무 — caller (Middleware 본체 등) 가 Protocol literal 직접 호출 시 폐기 가능.
+    let UserIdentityHeader = HeaderNames.UserIdentity
 
     [<Literal>]
     let SessionHeader = "X-LightHouse-Session"

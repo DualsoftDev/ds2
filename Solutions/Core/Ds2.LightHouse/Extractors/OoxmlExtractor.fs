@@ -41,8 +41,9 @@ type private Blip = DocumentFormat.OpenXml.Drawing.Blip
 /// (모두 1-based). cellOrd = `tbl.Descendants&lt;TableCell&gt;()` row-major. paraInCellOrd = 각 cell 안 Paragraph 순번.
 /// nested table (cell 안 table) 의 cell 좌표 평면화 / table 직속 Drawing (OOXML 규약상 빈도 0) 은 미지원 backlog.
 ///
-/// **MainDocumentPart Body 한정** — header/footer/comments/footnotes/endnotes 안의 Drawing 은 미커버 (Body iter
-/// 가 본문 한정). 일반 산업 docx 에서 image 는 본문에 집중되어 본 phase 의 단순화 정합. 별 turn (또는 별 task) 의무 박제.
+/// **MainDocumentPart Body / Header / Footer / Comments / Footnotes / Endnotes 박제** — 본문 + header/footer 는
+/// s6-r21 부터 박제, comments / footnotes / endnotes 는 **s6-r79 (B2, external review backlog)** 추가 박제.
+/// 각 part 의 RootElement 의 Descendants&lt;Blip&gt;() enumerate + relId → ImagePart map. part 가 null 인 docx 도 안전.
 ///
 /// fail-safe (§3.16 / §6.5): 손상 docx (FileFormatException / OpenXmlPackageException) 는 log + 빈 결과. cancel 은 reraise.
 type OoxmlExtractor() =
@@ -300,10 +301,13 @@ type OoxmlExtractor() =
             // mainPart.HeaderParts / FooterParts 순서). chunks 와의 매칭은 미보장 (header text 가 chunk 화 안 됨)
             // — image-only 시나리오와 동일 정합 (ChunkId None).
             //
-            // **comments / footnotes / endnotes Drawing**: 산업 docx 에서 빈도 매우 낮고 ContentType 분포도
-            // 다양 (메타 image 류) — 본 phase scope 외, 별 turn 박제. (HeaderParts/FooterParts 만 진입.)
             // **s6-r23 m2** — header/footer 의 ImagePart resolver 만 다르고 enumerate/박제 로직은 body 와 동일.
             // `extractImagesAtRefLocator` 의 resolver argument 로 통합. log prefix `"header"` / `"footer"` 박제 (s6-r24 m1).
+            //
+            // **s6-r79 (B2, external review backlog)** — comments / footnotes / endnotes Drawing 추가 박제.
+            // 각 docx 당 1 part 만 존재 (singleton) — RefLocator = `comments` / `footnotes` / `endnotes` (ordinal 불필요).
+            // 산업 docx 빈도 낮으나 메타 image (도해 / 보충 설명) 흡수 — KB 검색 시 hit-rate 향상. part 가 null
+            // 인 docx (= 위 element 없음) 는 자연 skip.
             let extractImagesFromOpenXmlPart (part: OpenXmlPart) (location: string) (refLocator: string) =
                 if not (isNull part.RootElement) then
                     let imgMap =
@@ -321,6 +325,14 @@ type OoxmlExtractor() =
             for fp in mainPart.FooterParts do
                 extractImagesFromOpenXmlPart fp "footer" (sprintf "footer=%d" footerOrd)
                 footerOrd <- footerOrd + 1
+
+            // s6-r79 (B2) — comments / footnotes / endnotes part 각 singleton.
+            if not (isNull mainPart.WordprocessingCommentsPart) then
+                extractImagesFromOpenXmlPart mainPart.WordprocessingCommentsPart "comments" "comments"
+            if not (isNull mainPart.FootnotesPart) then
+                extractImagesFromOpenXmlPart mainPart.FootnotesPart "footnotes" "footnotes"
+            if not (isNull mainPart.EndnotesPart) then
+                extractImagesFromOpenXmlPart mainPart.EndnotesPart "endnotes" "endnotes"
 
             {
                 DocType = Docx
