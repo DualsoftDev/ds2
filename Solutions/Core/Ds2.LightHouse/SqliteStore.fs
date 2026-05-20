@@ -260,6 +260,11 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
             else "vec0.so"
         Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", fileName)
 
+    /// **B-R12 (perf sweep, s6-r71+)** — vec0 path lazy cache. process lifetime 동안 1회 산출.
+    /// 매 `openConnection` 호출마다 `RuntimeInformation.IsOSPlatform` + `Path.Combine` 반복 cost 회피
+    /// (대용량 색인 path 의 `withReadOnlyConn` 매 호출 시 누적). PlatformNotSupportedException 도 lazy 박제 정합.
+    let private vec0PathLazy = System.Lazy<string>(fun () -> resolveVec0Path())
+
     /// **Phase 4 (s6-r34)** — sqlite-vec extension load. open 직후 1회 호출 + ATTACH 별도 connection 도 호출.
     ///
     /// `vec0.dll` (Windows) / `libvec0.so` (Linux) / `libvec0.dylib` (macOS) 가 caller 의 publish output 의
@@ -268,7 +273,7 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
     /// Microsoft.Data.Sqlite 의 `LoadExtension` 은 SqliteConnection 의 method — `EnableExtensions(true)` 자동 호출.
     /// extension load 실패 시 SqliteException throw — caller (Indexer / Searcher) 가 명확 fail-fast.
     let loadVec0Extension (conn: SqliteConnection) : unit =
-        conn.LoadExtension(resolveVec0Path())
+        conn.LoadExtension(vec0PathLazy.Value)
 
     /// SQLite connection 단일 진입점 (§3.17 SSOT). 다른 곳에서 직접 `new SqliteConnection` 금지.
     ///
@@ -660,13 +665,26 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
     ///
     /// 의무: embedding.Length == SqliteStore.EmbeddingDimension (caller 의 IEmbeddingProvider.Dimension 정합).
     /// length mismatch 시 sqlite-vec 가 SqliteException throw — caller fail-fast.
+    /// **B-R12 (perf sweep, s6-r71+)** — vec0 wire format (`"[v1,v2,...]"`) 직접 빌드. 매 chunk 마다
+    /// `JsonSerializer.Serialize<float32[]>` reflection cost (N=10000+ chunks 시 누적) 회피. format = invariant
+    /// "R" round-trip (System.Text.Json 의 float32 직렬화 format 과 정합 — G9 ≡ R round-trip). sqlite-vec 가
+    /// parse 후 float32 storage. capacity hint = `Length * 12 + 2` (avg float32 round-trip ≤ 11자 + 콤마/괄호).
+    let private buildVec0WireFormat (embedding: float32[]) : string =
+        let sb = System.Text.StringBuilder(embedding.Length * 12 + 2)
+        sb.Append '[' |> ignore
+        for i = 0 to embedding.Length - 1 do
+            if i > 0 then sb.Append ',' |> ignore
+            sb.Append(embedding.[i].ToString("R", CultureInfo.InvariantCulture)) |> ignore
+        sb.Append ']' |> ignore
+        sb.ToString()
+
     let upsertChunkEmbedding
         (conn: SqliteConnection)
         (chunkId: int64)
         (embedding: float32[])
         : unit =
-        // F# 배열 → JSON 배열 string. System.Text.Json 사용 (Newtonsoft 의존 회피, lib 외부 의존 0 정합).
-        let json = System.Text.Json.JsonSerializer.Serialize(embedding)
+        // B-R12 (perf sweep) — JsonSerializer 의 reflection cost 회피, StringBuilder 직접 wire 빌드.
+        let json = buildVec0WireFormat embedding
         // DELETE + INSERT — vec0 의 UPSERT 미지원 우회. 동일 ChunkId 재색인 시 idempotent.
         use del = conn.CreateCommand()
         del.CommandText <- "DELETE FROM Chunks_Vectors WHERE ChunkId = $cid"

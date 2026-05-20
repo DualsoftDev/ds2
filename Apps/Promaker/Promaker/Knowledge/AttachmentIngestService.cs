@@ -371,13 +371,54 @@ public sealed class AttachmentIngestService
         }
     }
 
-    /// <summary>임시 staging dir + zip 의 lifetime owner. ingest 호출당 1개 생성.</summary>
+    /// <summary>임시 staging dir + zip 의 lifetime owner. ingest 호출당 1개 생성.
+    /// <para/>
+    /// **B6 (M12 보안 sweep, s6-r71+)** — staging dir 안 사용자 원본 평문 보관. `%TEMP%` 의 default ACL 은
+    /// user-specific 이지만 동일 machine 의 다른 user / admin 이 접근 가능 → 사내 IT 환경 (관리자 권한 공유) 에서
+    /// 평문 leak risk. 본 fix 는 dir 생성 직후 explicit DirectorySecurity 박제 — current user FullControl + inherit
+    /// 명시, 다른 user / Authenticated Users 의 default ACL inheritance 차단.
+    /// </summary>
     private sealed class StagingSession : IDisposable
     {
-        public string Root { get; } = Path.Combine(Path.GetTempPath(),
-            "promaker-kb-" + Guid.NewGuid().ToString("N"));
+        public string Root { get; }
         public string StagingDir => Path.Combine(Root, "staging");
         public string ZipPath => Path.Combine(Root, "payload.zip");
+
+        public StagingSession()
+        {
+            Root = Path.Combine(Path.GetTempPath(), "promaker-kb-" + Guid.NewGuid().ToString("N"));
+            // M12 — explicit current-user-only ACL 박제. Windows 한정 (System.Security.AccessControl).
+            // 다른 OS 환경에서는 try/catch 로 silent fail (Promaker 자체가 WPF 라 Windows 한정 = 본 fix 도 Windows 가정).
+            var info = Directory.CreateDirectory(Root);
+            TryApplyOwnerOnlyAcl(info);
+        }
+
+        private static void TryApplyOwnerOnlyAcl(DirectoryInfo dir)
+        {
+            try
+            {
+                if (!OperatingSystem.IsWindows()) return;
+                var security = new System.Security.AccessControl.DirectorySecurity();
+                // Protect ACL — 부모 inheritance 차단 (Authenticated Users default 막음).
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                var currentUser = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                if (currentUser is not null)
+                {
+                    security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                        currentUser,
+                        System.Security.AccessControl.FileSystemRights.FullControl,
+                        System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                        System.Security.AccessControl.PropagationFlags.None,
+                        System.Security.AccessControl.AccessControlType.Allow));
+                }
+                dir.SetAccessControl(security);
+            }
+            catch (Exception ex)
+            {
+                // best-effort — ACL 박제 실패 시도 staging 자체는 계속 동작 (default %TEMP% ACL fallback).
+                Log.Warn($"StagingSession ACL 박제 실패 (best-effort) — {dir.FullName}: {ex.Message}");
+            }
+        }
 
         public void Dispose()
         {
