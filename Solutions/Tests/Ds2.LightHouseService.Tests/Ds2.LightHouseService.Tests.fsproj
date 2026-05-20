@@ -21,6 +21,7 @@
     <Compile Include="AttachmentToolsTests.fs" />
     <Compile Include="FileServingTests.fs" />
     <Compile Include="LiteralDriftTests.fs" />
+    <Compile Include="EventBusTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
