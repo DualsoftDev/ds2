@@ -501,11 +501,229 @@ type OoxmlExtractor() =
         if not (isNull slide) then
             OoxmlExtractor.ExtractImagesAtRefLocator slide resolveSlideImagePart "slide" refLoc images path
 
+    /// **Task 2 — XLSX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 2)
+    ///
+    /// 활성 박제 (사용자 결정 "최대한 간편하게"):
+    /// - SharedStringTable 사전 로드 — phonetic ruby `<rPh>` 제외 (r1 M2 + r2 Minor 1).
+    /// - Sheet.State enum 비교 — Hidden / VeryHidden skip (r1 Critical-6). visible 만 진입.
+    /// - sparse cell `expandSparseRow` helper (r1 Critical-4) — column letter parse + gap "" fill +
+    ///   MaxXlsxColumnsPerRow=1024 cap (r2 Minor 2) + cell.CellReference null guard (r2 Minor 4).
+    /// - Row.OrderBy(RowIndex) (r1 M3) — element 순서 미보장 → RowIndex sort.
+    /// - Cell.DataType 6 분기 (r1 M1 Str/Error 추가) — Number/Date/Boolean (null) / SharedString / InlineString /
+    ///   String (formula string result) / Error (`#REF!` 등 skip + log).
+    /// - 시트명 `#` escape (r1 M18) — fragment separator 충돌 → Warn + sheet skip. `=` / `.` 안전 (r2 Major-2 반론).
+    /// - image — `worksheetPart.DrawingsPart` null guard (r1 M16) + `sheet=<name>` RefLocator.
+    /// - PageOrSheetCnt = visible sheet 수 (hidden 제외, r1 m5).
+    ///
+    /// 명시 skip (사용자 결정):
+    /// - CellFormula — element 무시, CellValue cached 만.
+    /// - MergeCells — top-left cell 만 자연 노출.
+    /// - 빈 행 — 모든 cell 빈 문자열이면 행 skip.
+    /// - 좌표 RefLocator (`sheet=BOM!A1:D40`) — Phase 3 backlog (sheet 단위만).
+    /// - Defined Name / Pivot Table / Chart — Phase 3 backlog.
+    static member private ExtractXlsx (path: string) (ct: CancellationToken) : ExtractedDocument =
+        ct.ThrowIfCancellationRequested()
+        use doc = SpreadsheetDocument.Open(path, false)
+        let workbookPart = doc.WorkbookPart
+        if isNull workbookPart || isNull workbookPart.Workbook || isNull workbookPart.Workbook.Sheets then
+            { DocType = Xlsx; PageOrSheetCnt = Some 0; Title = None; Outline = [||]; Segments = [||]; Images = [||] }
+        else
+            let outline = ResizeArray<ExtractedOutlineNode>()
+            let segments = ResizeArray<ExtractedSegment>()
+            let images = ResizeArray<ExtractedImage>()
+
+            // ── SharedStringTable 사전 로드 (r1 M2 + r2 Minor 1 단순화) ──
+            // `<rPh>` (PhoneticRun) 박제는 한국어/일본어 ruby — base text 와 무관한 발음 정보.
+            // `Ancestors<PhoneticRun>() |> Seq.isEmpty` 가 ruby 외부 Text 만 통과 → InnerText 직접 사용 금지.
+            let sstItems : string array =
+                let sst = workbookPart.SharedStringTablePart
+                if isNull sst || isNull sst.SharedStringTable then [||]
+                else
+                    sst.SharedStringTable.Elements<DocumentFormat.OpenXml.Spreadsheet.SharedStringItem>()
+                    |> Seq.map (fun item ->
+                        item.Descendants<DocumentFormat.OpenXml.Spreadsheet.Text>()
+                        |> Seq.filter (fun t -> t.Ancestors<DocumentFormat.OpenXml.Spreadsheet.PhoneticRun>() |> Seq.isEmpty)
+                        |> Seq.map (fun t -> t.Text)
+                        |> String.concat "")
+                    |> Array.ofSeq
+
+            // ── Sheet.State enum 비교 (r1 Critical-6, MS Learn 공식) ──
+            // `State.Value.ToString() = "visible"` 비교 금지 — locale/대소문자 변동 risk.
+            let isHidden (sheet: DocumentFormat.OpenXml.Spreadsheet.Sheet) =
+                not (isNull sheet.State)
+                && sheet.State.HasValue
+                && (sheet.State.Value = DocumentFormat.OpenXml.Spreadsheet.SheetStateValues.Hidden
+                    || sheet.State.Value = DocumentFormat.OpenXml.Spreadsheet.SheetStateValues.VeryHidden)
+
+            // ── sparse cell helper (r1 Critical-4, MS Learn + ECMA-376 강 근거) ──
+            // `<row>` 가 값 있는 cell 만 child 라 A1+C1 row 는 `[A1; C1]` 2개 반환 → "A1값\tC1값" 으로 컬럼 alignment 깨짐 (B silent 소실).
+            // expandSparseRow 가 dense array 로 확장 (gap "" fill).
+            let columnLetterToIndex (letter: string) : int =
+                let mutable result = 0
+                for c in letter.ToUpperInvariant() do
+                    result <- result * 26 + (int c - int 'A' + 1)
+                result
+
+            let cellRefToColumnLetter (cellRef: string) : string =
+                String(cellRef.ToCharArray() |> Array.takeWhile System.Char.IsLetter)
+
+            // ── 셀 값 해결 (r1 M1 + r2 Minor 4 null guard) ──
+            let resolveCellValue (cell: DocumentFormat.OpenXml.Spreadsheet.Cell) : string =
+                if isNull cell.CellValue then
+                    // r2 Minor: formula cached value 부재 (`<c><f>...</f></c>` no CellValue) — null guard.
+                    if not (isNull cell.DataType) && cell.DataType.HasValue
+                       && cell.DataType.Value = DocumentFormat.OpenXml.Spreadsheet.CellValues.InlineString then
+                        if isNull cell.InlineString then "" else cell.InlineString.InnerText
+                    else ""
+                else
+                    if isNull cell.DataType || not cell.DataType.HasValue then
+                        cell.CellValue.Text  // Number / Date / Boolean (cached value)
+                    else
+                        match cell.DataType.Value with
+                        | dt when dt = DocumentFormat.OpenXml.Spreadsheet.CellValues.SharedString ->
+                            match System.Int32.TryParse cell.CellValue.Text with
+                            | true, idx when idx >= 0 && idx < sstItems.Length -> sstItems.[idx]
+                            | _ -> ""
+                        | dt when dt = DocumentFormat.OpenXml.Spreadsheet.CellValues.InlineString ->
+                            if isNull cell.InlineString then "" else cell.InlineString.InnerText
+                        | dt when dt = DocumentFormat.OpenXml.Spreadsheet.CellValues.String ->
+                            cell.CellValue.Text  // formula string result
+                        | dt when dt = DocumentFormat.OpenXml.Spreadsheet.CellValues.Error ->
+                            Log.lighthouse.Debug(
+                                sprintf "ExtractXlsx: error cell skip — ref=%s value=%s path=%s"
+                                    (if isNull cell.CellReference || not cell.CellReference.HasValue then "<null>" else cell.CellReference.Value)
+                                    cell.CellValue.Text path)
+                            ""
+                        | _ -> cell.CellValue.Text
+
+            // r2 Minor 2: hard cap. A1 + ZZZ1 시 maxCol=18278 worst-case. 산업 빈도 매우 낮으나 Warn + cap.
+            let maxXlsxColumnsPerRow = 1024
+            let expandSparseRow (cells: DocumentFormat.OpenXml.Spreadsheet.Cell seq) (sheetName: string) : string[] =
+                let cellList =
+                    cells
+                    |> Seq.filter (fun c ->
+                        if isNull c.CellReference || not c.CellReference.HasValue then
+                            // r2 Minor 4: OOXML 규약상 CellReference required 이나 SDK strict 아님. Warn + skip.
+                            Log.lighthouse.Warn(
+                                sprintf "ExtractXlsx: CellReference null skip — sheet=%s path=%s" sheetName path)
+                            false
+                        else true)
+                    |> Seq.toList
+                if List.isEmpty cellList then [||]
+                else
+                    let maxCol =
+                        cellList
+                        |> List.map (fun c -> columnLetterToIndex (cellRefToColumnLetter c.CellReference.Value))
+                        |> List.max
+                    let cappedMax =
+                        if maxCol > maxXlsxColumnsPerRow then
+                            Log.lighthouse.Warn(
+                                sprintf "ExtractXlsx: row column cap 초과 (maxCol=%d > %d) — sheet=%s path=%s, cap 적용"
+                                    maxCol maxXlsxColumnsPerRow sheetName path)
+                            maxXlsxColumnsPerRow
+                        else maxCol
+                    let result = Array.create cappedMax ""
+                    for cell in cellList do
+                        let colIdx = columnLetterToIndex (cellRefToColumnLetter cell.CellReference.Value) - 1
+                        // r2 검열 m1: colIdx >= 0 가드 — 손상 cellRef (digits only / unicode letter) IndexOutOfRange 차단.
+                        if colIdx >= 0 && colIdx < cappedMax then
+                            result.[colIdx] <- resolveCellValue cell
+                        elif colIdx < 0 then
+                            Log.lighthouse.Warn(
+                                sprintf "ExtractXlsx: 손상 cellRef letter prefix skip — ref=%s sheet=%s path=%s"
+                                    cell.CellReference.Value sheetName path)
+                    result
+
+            // ── 시트 순회 ──
+            let sheets =
+                workbookPart.Workbook.Sheets.Elements<DocumentFormat.OpenXml.Spreadsheet.Sheet>()
+                |> Seq.toList
+            let mutable visibleSheetCount = 0
+            for sheet in sheets do
+                ct.ThrowIfCancellationRequested()
+                if isHidden sheet then
+                    Log.lighthouse.Debug(
+                        sprintf "ExtractXlsx: hidden sheet skip — name=%s path=%s"
+                            (if isNull sheet.Name || not sheet.Name.HasValue then "<null>" else sheet.Name.Value) path)
+                else
+                    let sheetName =
+                        if isNull sheet.Name || not sheet.Name.HasValue then "" else sheet.Name.Value
+                    if sheetName.Contains '#' then
+                        // r1 M18: `#` 는 RefLocator fragment separator 충돌 → 시트 자체 skip.
+                        Log.lighthouse.Warn(
+                            sprintf "ExtractXlsx: 시트명 `#` 포함 skip (RefLocator 충돌) — name=%s path=%s" sheetName path)
+                    else
+                        visibleSheetCount <- visibleSheetCount + 1
+                        let refLoc = sprintf "sheet=%s" sheetName
+                        // r1 M17: outline 박제 — segment 미박제 (빈 시트) 라도 시트 존재 자체가 정보.
+                        outline.Add {
+                            ParentIndex = None
+                            Ordinal = outline.Count
+                            NodeType = OutlineNodeType.Sheet
+                            Label = sheetName
+                            RefLocator = refLoc
+                        }
+                        let outlineIdx = outline.Count - 1
+                        // SheetData 가져오기 — sheet.Id.Value 로 WorksheetPart 매핑.
+                        if not (isNull sheet.Id) && sheet.Id.HasValue then
+                            let relId = sheet.Id.Value
+                            match workbookPart.GetPartById(relId) with
+                            | :? WorksheetPart as worksheetPart ->
+                                // r1 M3: Row.OrderBy(RowIndex) — element 순서 미보장.
+                                let sortedRows =
+                                    worksheetPart.Worksheet.Descendants<DocumentFormat.OpenXml.Spreadsheet.Row>()
+                                    |> Seq.sortBy (fun r ->
+                                        if isNull r.RowIndex || not r.RowIndex.HasValue then 0u
+                                        else r.RowIndex.Value)
+                                let sb = StringBuilder()
+                                for row in sortedRows do
+                                    ct.ThrowIfCancellationRequested()
+                                    let dense =
+                                        expandSparseRow
+                                            (row.Elements<DocumentFormat.OpenXml.Spreadsheet.Cell>())
+                                            sheetName
+                                    let line = String.Join("\t", dense)
+                                    if line.Trim().Length > 0 then
+                                        sb.AppendLine(line) |> ignore
+                                let segText = sb.ToString().Trim()
+                                if segText.Length > 0 then
+                                    segments.Add {
+                                        OutlineIndex = Some outlineIdx
+                                        RefLocator = refLoc
+                                        Text = segText
+                                    }
+                                // r1 M16: DrawingsPart null guard.
+                                if not (isNull worksheetPart.DrawingsPart) then
+                                    let drawingsPart = worksheetPart.DrawingsPart
+                                    let imgPartByRelId =
+                                        drawingsPart.ImageParts
+                                        |> Seq.map (fun ip -> drawingsPart.GetIdOfPart(ip), ip)
+                                        |> Map.ofSeq
+                                    let resolve relId = Map.tryFind relId imgPartByRelId
+                                    if not (isNull drawingsPart.WorksheetDrawing) then
+                                        OoxmlExtractor.ExtractImagesAtRefLocator
+                                            drawingsPart.WorksheetDrawing resolve "sheet" refLoc images path
+                            | other ->
+                                Log.lighthouse.Warn(
+                                    sprintf "ExtractXlsx: sheet relId=%s 가 WorksheetPart 아님 (%A) — name=%s path=%s"
+                                        relId (other.GetType().Name) sheetName path)
+                        else
+                            Log.lighthouse.Warn(
+                                sprintf "ExtractXlsx: sheet.Id null — name=%s path=%s" sheetName path)
+            {
+                DocType = Xlsx
+                PageOrSheetCnt = Some visibleSheetCount
+                Title = None
+                Outline = outline.ToArray()
+                Segments = segments.ToArray()
+                Images = images.ToArray()
+            }
+
     interface IExtractor with
         member _.Supports kind =
             match kind with
-            | Docx | Pptx -> true
-            | _ -> false  // Xlsx Phase 2 Task 2 진입 시 활성
+            | Docx | Pptx | Xlsx -> true
+            | _ -> false
 
         member _.Extract (path, ct) =
             ct.ThrowIfCancellationRequested()
@@ -515,6 +733,7 @@ type OoxmlExtractor() =
                 match kind with
                 | Docx -> OoxmlExtractor.ExtractDocx path ct
                 | Pptx -> OoxmlExtractor.ExtractPptx path ct
+                | Xlsx -> OoxmlExtractor.ExtractXlsx path ct
                 | _ ->
                     failwith (sprintf "OoxmlExtractor.Extract: Supports invariant 위반 — kind=%A path=%s" kind path))
 

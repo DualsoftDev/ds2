@@ -93,13 +93,14 @@ let ``손상 docx (random bytes) — fail-safe 빈 결과`` () =
         Assert.Empty(result.Images))
 
 [<Fact>]
-let ``Supports — Docx + Pptx 활성 (Task 1), Xlsx (Task 2) 진입 전`` () =
-    // Task 1 (PPTX 활성) 이후 Supports 분기 확대 — 기존 "Docx only" 가정 폐기.
+let ``Supports — Docx + Pptx + Xlsx 모두 활성 (Task 2 완료)`` () =
+    // Task 0 ~ Task 2 완료 후: Docx + Pptx + Xlsx 모두 OoxmlExtractor 가 담당.
     use ext = new OoxmlExtractor() :> IExtractor
     Assert.True(ext.Supports Docx)
     Assert.True(ext.Supports Pptx)
-    Assert.False(ext.Supports Xlsx)   // Task 2 에서 활성
+    Assert.True(ext.Supports Xlsx)
     Assert.False(ext.Supports Pdf)
+    Assert.False(ext.Supports FileKind.Text)
 
 // ── Phase 2 task C3 (s6-r14): OoxmlExtractor 의 docx ImageParts 추출 회귀 차단 ──
 
@@ -762,11 +763,9 @@ let ``pptx — paragraph break 보존 (r1 M5) — body 안 bullet 2개 → segme
         Assert.False(text.Contains "첫 줄둘째 줄"))
 
 [<Fact>]
-let ``pptx — Supports 분기 활성 (Task 1 박제)`` () =
+let ``pptx — Supports 분기 활성 (Task 1 박제, Task 2 도 활성)`` () =
     use ext = new OoxmlExtractor() :> IExtractor
-    Assert.True(ext.Supports Docx)
     Assert.True(ext.Supports Pptx)
-    Assert.False(ext.Supports Xlsx)  // Task 2 에서 활성
 
 [<Fact>]
 let ``pptx — 화이트리스트 외 image (예: BMP relId 가짜) — image 0장 박제 (m6 primary 가드)`` () =
@@ -781,3 +780,446 @@ let ``pptx — 화이트리스트 외 image (예: BMP relId 가짜) — image 0�
         use ext = new OoxmlExtractor() :> IExtractor
         let result = ext.Extract(path, CancellationToken.None)
         Assert.Empty(result.Images))
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  Task 2 (XLSX 활성) — todo-lighthouse-kb-index-xlsx-pptx-images.md
+// ────────────────────────────────────────────────────────────────────────────────
+
+/// **Task 2 fixture (r2 Minor 7)** — `SpreadsheetDocument.Create` + SDK 객체 직접 build.
+/// 정합 박제 패턴 — PPTX fixture 와 동일하게 single Workbook assignment.
+module private XlsxFixture =
+    open DocumentFormat.OpenXml
+    open DocumentFormat.OpenXml.Packaging
+    open DocumentFormat.OpenXml.Spreadsheet
+
+    /// `Value` 의 의미는 `DataType` 에 따름.
+    ///   - None → number/date (raw text)
+    ///   - SharedString → SST index (raw string of int)
+    ///   - InlineString → empty (Value 무시, InlineString sub-element 박제 별 helper)
+    ///   - String → formula string result
+    ///   - Error → error string ("#REF!" 등)
+    type CellSpec = {
+        Ref: string
+        Value: string
+        DataType: CellValues option
+        /// formula cached value 부재 시 true → CellValue element 미박제, CellFormula 만.
+        HasFormulaButNoValue: bool
+    }
+
+    let mkCellSpec ref value = { Ref = ref; Value = value; DataType = None; HasFormulaButNoValue = false }
+    let mkSharedStringCell ref sstIdx =
+        { Ref = ref; Value = string sstIdx; DataType = Some CellValues.SharedString; HasFormulaButNoValue = false }
+    let mkInlineStringCell ref value =
+        { Ref = ref; Value = value; DataType = Some CellValues.InlineString; HasFormulaButNoValue = false }
+    let mkErrorCell ref errVal =
+        { Ref = ref; Value = errVal; DataType = Some CellValues.Error; HasFormulaButNoValue = false }
+    /// formula cached value 부재 cell (`<c><f>...</f></c>` no CellValue). r1 M14.
+    let mkFormulaNoValueCell ref =
+        { Ref = ref; Value = ""; DataType = None; HasFormulaButNoValue = true }
+
+    type RowSpec = {
+        Index: uint32
+        Cells: CellSpec list
+    }
+
+    type SheetSpec = {
+        Name: string
+        /// None = visible default. Some Hidden | VeryHidden = skip.
+        State: SheetStateValues option
+        Rows: RowSpec list
+        Image: byte[] option
+    }
+
+    let mkSheet name rows : SheetSpec = { Name = name; State = None; Rows = rows; Image = None }
+    let mkHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.Hidden; Rows = rows; Image = None }
+    let mkVeryHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.VeryHidden; Rows = rows; Image = None }
+
+    let private mkCell (spec: CellSpec) : Cell =
+        let c = Cell()
+        c.CellReference <- StringValue(spec.Ref)
+        match spec.DataType with
+        | Some dt -> c.DataType <- EnumValue<CellValues>(dt)
+        | None -> ()
+        if spec.HasFormulaButNoValue then
+            // CellFormula 박제, CellValue 부재 — null guard fixture.
+            c.Append(CellFormula("1+1") :> OpenXmlElement) |> ignore
+        else
+            let isInlineString =
+                match spec.DataType with
+                | Some dt -> dt = CellValues.InlineString
+                | None -> false
+            if isInlineString then
+                let is = InlineString()
+                is.Append(Text(spec.Value) :> OpenXmlElement) |> ignore
+                c.Append(is :> OpenXmlElement) |> ignore
+            else
+                c.Append(CellValue(spec.Value) :> OpenXmlElement) |> ignore
+        c
+
+    let private mkRow (spec: RowSpec) : Row =
+        let r = Row()
+        r.RowIndex <- UInt32Value(spec.Index)
+        for cs in spec.Cells do
+            r.Append(mkCell cs :> OpenXmlElement) |> ignore
+        r
+
+    let private buildWorksheet (wsPart: WorksheetPart) (rows: RowSpec list) =
+        let ws = Worksheet()
+        let sd = SheetData()
+        for rs in rows do
+            sd.Append(mkRow rs :> OpenXmlElement) |> ignore
+        ws.Append(sd :> OpenXmlElement) |> ignore
+        // DrawingsPart 가 있으면 Drawing reference 박제 의무 — Extract 가 worksheetPart.DrawingsPart 로 접근 가능 (relationship 자동).
+        wsPart.Worksheet <- ws
+        wsPart.Worksheet.Save()
+
+    let private addDrawingsPart (wsPart: WorksheetPart) (bytes: byte[]) =
+        let drawingsPart = wsPart.AddNewPart<DrawingsPart>()
+        let imgPart = drawingsPart.AddImagePart(ImagePartType.Png)
+        use ms = new MemoryStream(bytes)
+        imgPart.FeedData(ms)
+        let relId = drawingsPart.GetIdOfPart(imgPart)
+        // SDK 객체 build — xdr:wsDr > xdr:oneCellAnchor > xdr:pic > xdr:blipFill > a:blip.
+        let pic = DocumentFormat.OpenXml.Drawing.Spreadsheet.Picture()
+        let nvPicPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureProperties()
+        let cnvPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualDrawingProperties()
+        cnvPr.Id <- UInt32Value(2u)
+        cnvPr.Name <- StringValue("Pic")
+        nvPicPr.Append(cnvPr :> OpenXmlElement) |> ignore
+        nvPicPr.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureDrawingProperties() :> OpenXmlElement) |> ignore
+        pic.Append(nvPicPr :> OpenXmlElement) |> ignore
+        let blipFill = DocumentFormat.OpenXml.Drawing.Spreadsheet.BlipFill()
+        let blip = DocumentFormat.OpenXml.Drawing.Blip()
+        blip.Embed <- StringValue(relId)
+        blipFill.Append(blip :> OpenXmlElement) |> ignore
+        let stretch = DocumentFormat.OpenXml.Drawing.Stretch()
+        stretch.Append(DocumentFormat.OpenXml.Drawing.FillRectangle() :> OpenXmlElement) |> ignore
+        blipFill.Append(stretch :> OpenXmlElement) |> ignore
+        pic.Append(blipFill :> OpenXmlElement) |> ignore
+        pic.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ShapeProperties() :> OpenXmlElement) |> ignore
+        let oneCellAnchor = DocumentFormat.OpenXml.Drawing.Spreadsheet.OneCellAnchor()
+        let fromMarker = DocumentFormat.OpenXml.Drawing.Spreadsheet.FromMarker()
+        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnId("0") :> OpenXmlElement) |> ignore
+        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnOffset("0") :> OpenXmlElement) |> ignore
+        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowId("0") :> OpenXmlElement) |> ignore
+        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowOffset("0") :> OpenXmlElement) |> ignore
+        oneCellAnchor.Append(fromMarker :> OpenXmlElement) |> ignore
+        let ext = DocumentFormat.OpenXml.Drawing.Spreadsheet.Extent()
+        ext.Cx <- Int64Value(100000L)
+        ext.Cy <- Int64Value(100000L)
+        oneCellAnchor.Append(ext :> OpenXmlElement) |> ignore
+        oneCellAnchor.Append(pic :> OpenXmlElement) |> ignore
+        oneCellAnchor.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ClientData() :> OpenXmlElement) |> ignore
+        let wsDrawing = DocumentFormat.OpenXml.Drawing.Spreadsheet.WorksheetDrawing()
+        wsDrawing.Append(oneCellAnchor :> OpenXmlElement) |> ignore
+        drawingsPart.WorksheetDrawing <- wsDrawing
+        drawingsPart.WorksheetDrawing.Save()
+
+    /// shared strings 가 None 이면 SST 미박제 (SharedString 셀 검증 fact 에서만 사용).
+    let buildXlsx (path: string) (sharedStrings: string list option) (sheets: SheetSpec list) =
+        use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
+        let wbPart = doc.AddWorkbookPart()
+        match sharedStrings with
+        | None -> ()
+        | Some items ->
+            let sstPart = wbPart.AddNewPart<SharedStringTablePart>()
+            let sst = SharedStringTable()
+            for s in items do
+                let item = SharedStringItem()
+                item.Append(Text(s) :> OpenXmlElement) |> ignore
+                sst.Append(item :> OpenXmlElement) |> ignore
+            sstPart.SharedStringTable <- sst
+            sstPart.SharedStringTable.Save()
+        // Workbook + Sheets — PPTX 와 동일하게 single assignment.
+        let workbook = Workbook()
+        let sheetsEl = Sheets()
+        sheets |> List.iteri (fun i sSpec ->
+            let wsPart = wbPart.AddNewPart<WorksheetPart>()
+            buildWorksheet wsPart sSpec.Rows
+            match sSpec.Image with
+            | None -> ()
+            | Some bytes -> addDrawingsPart wsPart bytes
+            let sheet = Sheet()
+            sheet.Id <- StringValue(wbPart.GetIdOfPart(wsPart))
+            sheet.SheetId <- UInt32Value(uint32 (i + 1))
+            sheet.Name <- StringValue(sSpec.Name)
+            match sSpec.State with
+            | Some st -> sheet.State <- EnumValue<SheetStateValues>(st)
+            | None -> ()
+            sheetsEl.AppendChild(sheet) |> ignore)
+        workbook.AppendChild(sheetsEl) |> ignore
+        wbPart.Workbook <- workbook
+        wbPart.Workbook.Save()
+
+    /// SST 안 PhoneticRun 포함 item — r1 M2 fixture.
+    let buildXlsxWithPhoneticRubySST (path: string) =
+        use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
+        let wbPart = doc.AddWorkbookPart()
+        let sstPart = wbPart.AddNewPart<SharedStringTablePart>()
+        let sst = SharedStringTable()
+        let item = SharedStringItem()
+        item.Append(Text("회사") :> OpenXmlElement) |> ignore
+        // <rPh> 안 <t> — base text 와 무관한 ruby. extractor 가 skip 해야 함.
+        let rPh = PhoneticRun()
+        rPh.BaseTextStartIndex <- UInt32Value(0u)
+        rPh.EndingBaseIndex <- UInt32Value(2u)
+        rPh.Append(Text("ホイサ") :> OpenXmlElement) |> ignore
+        item.Append(rPh :> OpenXmlElement) |> ignore
+        sst.Append(item :> OpenXmlElement) |> ignore
+        sstPart.SharedStringTable <- sst
+        sstPart.SharedStringTable.Save()
+        // 1 visible sheet — A1 = SharedString idx 0.
+        let wsPart = wbPart.AddNewPart<WorksheetPart>()
+        buildWorksheet wsPart [ { Index = 1u; Cells = [ mkSharedStringCell "A1" 0 ] } ]
+        let workbook = Workbook()
+        let sheetsEl = Sheets()
+        let sheet = Sheet()
+        sheet.Id <- StringValue(wbPart.GetIdOfPart(wsPart))
+        sheet.SheetId <- UInt32Value(1u)
+        sheet.Name <- StringValue("Sheet1")
+        sheetsEl.AppendChild(sheet) |> ignore
+        workbook.AppendChild(sheetsEl) |> ignore
+        wbPart.Workbook <- workbook
+        wbPart.Workbook.Save()
+
+
+// ── XLSX Fact ──
+
+[<Fact>]
+let ``xlsx — 3 sheet (visible 2 + hidden 1) — outline 2 + segments 2 + hidden skip`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "BOM" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "품번"; XlsxFixture.mkCellSpec "B1" "수량" ] }
+                { Index = 2u; Cells = [ XlsxFixture.mkCellSpec "A2" "P-001"; XlsxFixture.mkCellSpec "B2" "10" ] }
+            ]
+            XlsxFixture.mkSheet "사양" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "사양1" ] }
+            ]
+            XlsxFixture.mkHiddenSheet "내부메모" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "내부" ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Xlsx, result.DocType)
+        Assert.Equal(Some 2, result.PageOrSheetCnt)   // hidden 제외
+        Assert.Equal(2, result.Outline.Length)
+        Assert.Equal("BOM", result.Outline.[0].Label)
+        Assert.Equal("sheet=BOM", result.Outline.[0].RefLocator)
+        Assert.Equal(OutlineNodeType.Sheet, result.Outline.[0].NodeType)
+        Assert.Equal(2, result.Segments.Length)
+        Assert.True(result.Segments |> Array.exists (fun s -> s.RefLocator = "sheet=BOM" && s.Text.Contains "품번" && s.Text.Contains "수량")))
+
+[<Fact>]
+let ``xlsx — sparse cell expandSparseRow (r1 Critical-4) — A1=v1 C1=v2 → "v1\t\tv2"`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 1u; Cells = [
+                    XlsxFixture.mkCellSpec "A1" "v1"
+                    XlsxFixture.mkCellSpec "C1" "v2"
+                ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        // B 컬럼 빈 채로 보존 — sparse cell silent 소실 차단.
+        Assert.Contains("v1\t\tv2", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx — SharedString resolve — SST 안 문자열 정상 노출`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 1u; Cells = [
+                    XlsxFixture.mkSharedStringCell "A1" 0
+                    XlsxFixture.mkSharedStringCell "B1" 1
+                ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path (Some [ "헤더A"; "헤더B" ]) sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        Assert.Contains("헤더A\t헤더B", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx — phonetic ruby skip (r1 M2) — rPh 포함 SST item → ruby 제외, base text 만`` () =
+    withTempPath ".xlsx" (fun path ->
+        XlsxFixture.buildXlsxWithPhoneticRubySST path
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        // base "회사" 만 박제, ruby "ホイサ" 미포함.
+        Assert.Contains("회사", result.Segments.[0].Text)
+        Assert.DoesNotContain("ホイサ", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx — CellValues.Error skip (r1 M1) — #REF! cell → 빈 값 + log`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 1u; Cells = [
+                    XlsxFixture.mkCellSpec "A1" "v1"
+                    XlsxFixture.mkErrorCell "B1" "#REF!"
+                    XlsxFixture.mkCellSpec "C1" "v3"
+                ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        // error cell 위치는 빈 값. 다른 cell 정상.
+        Assert.Contains("v1\t\tv3", result.Segments.[0].Text)
+        Assert.DoesNotContain("#REF!", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx — formula cached value 부재 (r1 M14) — <c><f>...</f></c> no CellValue → null guard 정상`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 1u; Cells = [
+                    XlsxFixture.mkCellSpec "A1" "v1"
+                    XlsxFixture.mkFormulaNoValueCell "B1"
+                    XlsxFixture.mkCellSpec "C1" "v3"
+                ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // null guard 가 작동해야 함 (exception 안 남) → segment 정상.
+        Assert.Equal(1, result.Segments.Length)
+        Assert.Contains("v1\t\tv3", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx — Row.OrderBy(RowIndex) (r1 M3) — element 역순 → RowIndex 정렬 보장`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 3u; Cells = [ XlsxFixture.mkCellSpec "A3" "row3" ] }
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "row1" ] }
+                { Index = 2u; Cells = [ XlsxFixture.mkCellSpec "A2" "row2" ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Segments.Length)
+        // 정렬된 text: row1, row2, row3 순.
+        let text = result.Segments.[0].Text
+        let idx1 = text.IndexOf("row1")
+        let idx2 = text.IndexOf("row2")
+        let idx3 = text.IndexOf("row3")
+        Assert.True(idx1 >= 0 && idx2 > idx1 && idx3 > idx2,
+            sprintf "row 정렬 깨짐 — text=%s idx1=%d idx2=%d idx3=%d" text idx1 idx2 idx3))
+
+[<Fact>]
+let ``xlsx — DrawingsPart image (r1 M16) — sheet=<name> RefLocator`` () =
+    withTempPath ".xlsx" (fun path ->
+        let baseSheet =
+            XlsxFixture.mkSheet "BOM" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "head" ] }
+            ]
+        let sheets = [ { baseSheet with Image = Some samplePngBytes } ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(1, result.Images.Length)
+        Assert.Equal("sheet=BOM", result.Images.[0].RefLocator)
+        Assert.Equal(Png, result.Images.[0].Format))
+
+[<Fact>]
+let ``xlsx — DrawingsPart null guard (r1 M16) — image 없는 sheet → image 0`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] }
+            ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Empty(result.Images))
+
+[<Fact>]
+let ``xlsx — VeryHidden sheet skip (r1 M15)`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "Visible" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] } ]
+            XlsxFixture.mkVeryHiddenSheet "Secret" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "secret" ] } ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Some 1, result.PageOrSheetCnt)
+        Assert.Equal(1, result.Outline.Length)
+        Assert.Equal("Visible", result.Outline.[0].Label))
+
+[<Fact>]
+let ``xlsx — Sheet.State HasValue=false (r1 Critical-6) — State 부재 시 visible 처리`` () =
+    // Sheet.State 가 default (visible) 인 일반 시나리오 — 모든 visible fact 가 사실상 본 검증.
+    // 명시 sanity check.
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "S1" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] } ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Some 1, result.PageOrSheetCnt))
+
+[<Fact>]
+let ``xlsx — 시트명 # 포함 skip (r1 M18) — Warn + 다른 시트 정상`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "정상" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] } ]
+            XlsxFixture.mkSheet "A#B" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "skip" ] } ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // 정상 시트만 박제, A#B 시트는 skip.
+        Assert.Equal(Some 1, result.PageOrSheetCnt)
+        Assert.Equal(1, result.Outline.Length)
+        Assert.Equal("정상", result.Outline.[0].Label))
+
+[<Fact>]
+let ``xlsx — 시트명 = 포함 round-trip (r2 Major-2 반론 검증) — RefLocator tryParse round-trip 정상`` () =
+    withTempPath ".xlsx" (fun path ->
+        let sheets = [
+            XlsxFixture.mkSheet "BOM=spec" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] } ]
+        ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Some 1, result.PageOrSheetCnt)
+        Assert.Equal(1, result.Outline.Length)
+        Assert.Equal("sheet=BOM=spec", result.Outline.[0].RefLocator)
+        // RefLocator round-trip 정상 — `tryParse` 가 첫 `=` 만 split → Value="BOM=spec" 보존.
+        let parsed = RefLocator.tryParse "sheet=BOM=spec"
+        Assert.True(parsed.IsSome)
+        Assert.Equal("sheet=BOM=spec", RefLocator.toStored parsed.Value)
+        Assert.Equal("BOM=spec", parsed.Value.Main.Value))
+
+[<Fact>]
+let ``xlsx — 손상 xlsx (random bytes) fail-safe — DocType=Xlsx 빈 결과`` () =
+    withTempPath ".xlsx" (fun path ->
+        File.WriteAllBytes(path, [| 1uy; 2uy; 3uy; 4uy |])
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(Xlsx, result.DocType)   // Task 0 dispatch 회귀 가드
+        Assert.Empty(result.Outline)
+        Assert.Empty(result.Segments)
+        Assert.Empty(result.Images))
+
+[<Fact>]
+let ``xlsx — Supports 분기 활성 (Task 2 박제)`` () =
+    use ext = new OoxmlExtractor() :> IExtractor
+    Assert.True(ext.Supports Xlsx)
