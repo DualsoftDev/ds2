@@ -482,7 +482,7 @@ let ``ingestImagesIntoStore — 같은 hash 가 두 document 에 dispatch 시 ca
 // ── Phase 4 (s6-r34) — Indexer embedder dispatch ──
 
 /// fixed-vector mock IEmbeddingProvider — 모든 input 에 같은 vector 반환.
-/// dim = SqliteStore.EmbeddingDimension (1024).
+/// dim = SqliteStore.EmbeddingDimension (1024). stateless 라 Dispose no-op (s6-r36 P4-C.0 IDisposable contract 정합).
 type private MockEmbedder(callCount: ref<int>) =
     interface IEmbeddingProvider with
         member _.Dimension = SqliteStore.EmbeddingDimension
@@ -495,6 +495,8 @@ type private MockEmbedder(callCount: ref<int>) =
                     let h = float32 (s.GetHashCode() % 100) * 0.01f
                     Array.init dim (fun i -> if i = 0 then h else 0.0f))
             System.Threading.Tasks.Task.FromResult(vectors)
+    interface System.IDisposable with
+        member _.Dispose() = ()
 
 let private countVectors (dir: string) : int =
     let conn = SqliteStore.openConnection (SqliteStore.dbPath dir) true

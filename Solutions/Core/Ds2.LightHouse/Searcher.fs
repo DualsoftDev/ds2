@@ -304,12 +304,18 @@ module Searcher =
     /// - `Some embedder` → query → `embedder.GenerateAsync` 로 1 vector 산출 + vector KNN UNION + BM25 UNION
     ///   → RRF (k_rrf=60) fusion → top-K. Chunks_Vectors 가 비어 있어도 BM25 결과는 그대로 (vector contribution 0).
     /// 정렬: BM25-only path = BM25 ASC, hybrid path = RRF score DESC.
+    ///
+    /// **`ct` (s6-r36 P4-C.0)** — caller cancel 전파. hybrid path 의 embedder.GenerateAsync 가 backend HTTP
+    /// roundtrip (Ollama 등 수십~수백 ms) 보유. client (MCP / Promaker) cancel 시 즉시 OperationCanceledException
+    /// 전파 + handler thread 회수. BM25-only path 에서도 SQL execute 자체는 ct 미사용이나 caller 흐름 호환.
+    /// `Query` record 자체는 wire-serializable 의도 (MCP JSON schema) 라 ct 는 별 parameter (default 박제 없음).
     let search
         (conn: SqliteConnection)
         (aliases: string array)
         (embedderOpt: IEmbeddingProvider option)
         (query: Query)
         (maxExcerptTokens: int)
+        (ct: CancellationToken)
         : SearchResults =
 
         if aliases.Length = 0 || String.IsNullOrWhiteSpace query.Text then
@@ -337,6 +343,7 @@ module Searcher =
             match embedderOpt with
             | None ->
                 // BM25-only path — 기존 동작 (over-fetch +1 로 MoreAvailable 판별).
+                ct.ThrowIfCancellationRequested()
                 let fetchLimit = topK + 1
                 let bm25Hits = runBm25 conn aliases fileIdFilter query.Text fetchLimit maxExcerptTokens
                 let totalFetched = bm25Hits.Length
@@ -352,11 +359,12 @@ module Searcher =
                 { Results = trimmed; MoreAvailable = moreAvailable; Hint = hint }
             | Some embedder ->
                 // hybrid path — BM25 top-N + vector top-N (N = topK*HybridFetchMultiplier) → RRF fusion → top-K.
+                ct.ThrowIfCancellationRequested()
                 let perSystemLimit = topK * HybridFetchMultiplier
                 let bm25Hits = runBm25 conn aliases fileIdFilter query.Text perSystemLimit maxExcerptTokens
                 // query embedding 생성 — 단일 input. Task 동기 wait — caller (server / Promaker MCP handler) 가
-                // sync API 라 정합 (s6-r34 Indexer.dispatchEmbeddings 와 동일 패턴).
-                let task = embedder.GenerateAsync([| query.Text |], CancellationToken.None)
+                // sync API 라 정합 (s6-r34 Indexer.dispatchEmbeddings 와 동일 패턴). s6-r36 P4-C.0: ct 전파.
+                let task = embedder.GenerateAsync([| query.Text |], ct)
                 let queryVectors = task.GetAwaiter().GetResult()
                 if queryVectors.Length <> 1 then
                     raise (InvalidOperationException(

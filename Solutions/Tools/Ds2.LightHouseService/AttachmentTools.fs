@@ -228,7 +228,9 @@ type AttachmentTools() =
                     TopK = effectiveTopK
                     FileId = libFileId
                 }
-                let r = kb.Search q
+                // s6-r36 P4-C.0: ct 전파 path 추가. AttachmentTools 안에는 ct 없으나 향후 endpoint
+                // pipeline cancel 박제 시 caller (CollectionEndpoints) 가 ct 주입 의무. 현재 None.
+                let r = kb.Search q System.Threading.CancellationToken.None
                 let hits =
                     r.Results
                     |> Array.map (fun h ->
