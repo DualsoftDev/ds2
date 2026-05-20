@@ -22,23 +22,38 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#3 Phase S7 잔여** (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — 각 매우 large (~200~500 line), sub-agent 위임 의무. 단독 phase.
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑱ ⑲** (4건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / SessionRegistry purge helper / EventsEndpoint client-write keepalive. 각 별 turn.
 
-**새 세션 진입 prompt 예시 (--transfer 박제 SSOT)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r52 종결 후)**:
 
 ```
-@todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md 기준.
-s6-r49 (#2 mtime fast-skip) 완료 후 다음 작업 진입.
-우선순위: (a) #3 Phase S7 잔여 (D-S7-1/4/5 중 하나) / (b) #5 외부 --review 잔여 ⑬~⑳ (사용자 우선순위 결정) / (c) dist 실행 — 선택 부탁드립니다.
+@todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
+s6-r52+ (5건 묶음 처리 후 #5 cheap 3건 추가) 완료 후 새 세션 진입.
+누적 624 Fact (lib 170 / service 130 / IT 33 / Promaker 291). 회귀 0. branch = light-house (local-only).
+
+잔여 작업 (next-session.md §2 + §4 박제):
+- A. large phase (단독 turn 의무): A1 Phase S7 (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) / A2 K4 Protocol SSOT 통합 / A3 보안 sweep / A4 Phase 3 OCR / A5 Phase 5
+- B. medium: B1 M13/M14 perf 잔여 / B2 OoxmlExtractor 강화 / B3 xlsx-pptx 활성 / B4 #5 외부 review 잔여 4건 (⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire / ⑱ SessionRegistry purge helper / ⑲ EventsEndpoint client-write keepalive)
+- C. 소량 cosmetic: C1 mn6 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용 / C4 attachment_read ref parser 강화 / C5 attachment_read image mode / C6 citation UI / C7 hasImages 의미화
+- D. 정책 결정 (사용자 confirm): D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
+- E. 외부 / 운영: E1 /dist 실행 (사용자 직접) / E2 server.md §7.7 Minor outliers ~13건
+
+우선순위 (a) A1 D-S7-1 mTLS (Phase S7 sub-task 중 가장 작음, ~200 line)
+       (b) A3 보안 sweep 1턴
+       (c) B4 외부 review 잔여 4건 묶음
+       (d) C4~C7 묶음 (attachment_read/search 의 Phase 2 잔여 cosmetic)
+       (e) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출)
+       — 선택 부탁드립니다.
 ```
 
 **다음 turn 진입 시 우선 작업**:
-1. **#3 Phase S7 잔여** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위 선택. 각 단독 phase.
-   - D-S7-1 mTLS = Kestrel ClientCertificateMode + Promaker client cert + AuthMiddleware 확장. ~200 line.
+1. **A1 Phase S7 잔여** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위 선택. 각 단독 phase, sub-agent 위임 의무.
+   - D-S7-1 mTLS = Kestrel ClientCertificateMode + Promaker client cert + AuthMiddleware 확장. ~200 line. **가장 작음 — 우선 진입 권장**.
    - D-S7-4 T2/T3 multi-tenant = Registry per-tenant + Session isolation + storage layout 변경. ~400~500 line.
    - D-S7-5 resumable upload = tus protocol 또는 Content-Range append + ZipImport 변경. ~300~400 line.
-2. **#5 외부 --review 잔여 ⑬~⑳ 13건** — server.md §7.1 s6-r35 row 박제. 사용자 우선순위 결정 의무 (cheap cosmetic vs measurable perf 분류).
-3. **dist 실행** (`/dist` skill) — IndexerVersion 2.1.0 정합. paired-release ps1 통과 박제. 외부 영향 (scp + tag + push) — 사용자 직접 호출 의무.
-4. **K4 Protocol SSOT 통합** (server.md §7.7 K4) — Solutions/Core/Ds2.LightHouse.Protocol 신규 project. wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT). Phase S7 묶음 권장.
-5. **보안 sweep 1턴** (server.md §7.7 K6 + M9~M12) — registry.json tampering + PSK in-memory lifetime + DoS guards.
+2. **A2 K4 Protocol SSOT 통합** (server.md §7.7 K4) — Solutions/Core/Ds2.LightHouse.Protocol 신규 project. wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT). Phase S7 묶음 권장.
+3. **A3 보안 sweep 1턴** (server.md §7.7 K6 + M9~M12) — registry.json tampering + PSK in-memory lifetime + %PROGRAMDATA% ACL + DoS guards.
+4. **B4 #5 외부 --review 잔여 4건** — ⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire fact / ⑱ SessionRegistry purge helper / ⑲ EventsEndpoint client-write keepalive. 각 별 turn 또는 묶음.
+5. **C4~C7 묶음** — attachment_read ref parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) + image mode 정합 + citation UI + hasImages 의미화. Phase 2 잔여 cosmetic.
+6. **E1 `/dist` 실행** — IndexerVersion 2.1.0 정합. paired-release ps1 통과 박제. 외부 영향 (scp + tag + push) — 사용자 직접 호출 의무.
 
 **Phase 4 P4-A → 외부 --review ⑳ commit chain (s6-r34 ~ s6-r52, 19 commit)**:
 
