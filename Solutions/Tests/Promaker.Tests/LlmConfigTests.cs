@@ -674,4 +674,80 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Equal(300, VisionCostGate.EstimateTokens(1));
         Assert.Equal(3000, VisionCostGate.EstimateTokens(10));
     }
+
+    // ─── Phase 4 P4-C.2 (s6-r38) — EmbeddingProviderConfig schema ─────────────────────
+
+    [Fact]
+    public void EmbeddingProviderConfig_defaults_match_ollama_bge_m3()
+    {
+        // P4-C.2 추천안 정합 — Ollama bge-m3 / 1024 dim / localhost:11434 가 default SSOT.
+        var cfg = new EmbeddingProviderConfig();
+        Assert.False(cfg.Enabled);
+        Assert.Equal("http://localhost:11434", cfg.BaseUrl);
+        Assert.Equal("bge-m3", cfg.Model);
+        Assert.Equal(1024, cfg.Dimension);
+    }
+
+    [Fact]
+    public void LightHouseServiceConfig_Embedding_default_null_means_bm25_fallback()
+    {
+        // 신규 LightHouseServiceConfig 의 Embedding 이 null = BM25-only fallback 정합.
+        // AttachmentIngestService.TryCreateEmbedder 가 null / Enabled=false 양쪽 모두 fallback.
+        var svc = new LightHouseServiceConfig();
+        Assert.Null(svc.Embedding);
+    }
+
+    [Fact]
+    public void LightHouseServiceConfig_Embedding_round_trips_through_save_load()
+    {
+        // 새 EmbeddingProviderConfig 가 디스크 round-trip 시 4 필드 모두 보존.
+        var path = Path.Combine(_root, "embedding-round-trip.json");
+        var original = new LlmConfig();
+        original.LightHouseServices.Add(new LightHouseServiceConfig
+        {
+            ServiceId = Guid.NewGuid().ToString(),
+            DisplayName = "테스트 서비스",
+            BaseUrl = "https://kb.local:8443",
+            Active = true,
+            Embedding = new EmbeddingProviderConfig
+            {
+                Enabled = true,
+                BaseUrl = "http://10.0.0.5:11434",
+                Model = "nomic-embed-text",
+                Dimension = 768,
+            },
+        });
+        original.SaveTo(path);
+
+        var loaded = LlmConfig.LoadFrom(path);
+        Assert.Single(loaded.LightHouseServices);
+        var emb = loaded.LightHouseServices[0].Embedding;
+        Assert.NotNull(emb);
+        Assert.True(emb!.Enabled);
+        Assert.Equal("http://10.0.0.5:11434", emb.BaseUrl);
+        Assert.Equal("nomic-embed-text", emb.Model);
+        Assert.Equal(768, emb.Dimension);
+    }
+
+    [Fact]
+    public void LightHouseServiceConfig_Embedding_null_round_trips_as_null()
+    {
+        // Embedding 미박제 시 (legacy config 호환) round-trip 후에도 null 유지 — caller (TryCreateEmbedder) 가
+        // BM25-only fallback path 진입 정합.
+        var path = Path.Combine(_root, "embedding-null-round-trip.json");
+        var original = new LlmConfig();
+        original.LightHouseServices.Add(new LightHouseServiceConfig
+        {
+            ServiceId = Guid.NewGuid().ToString(),
+            DisplayName = "BM25 only",
+            BaseUrl = "https://kb.local:8443",
+            Active = true,
+            Embedding = null,
+        });
+        original.SaveTo(path);
+
+        var loaded = LlmConfig.LoadFrom(path);
+        Assert.Single(loaded.LightHouseServices);
+        Assert.Null(loaded.LightHouseServices[0].Embedding);
+    }
 }

@@ -353,6 +353,53 @@
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
 
+                            <!-- s6-r38 P4-C.2 — Embedding (vector retrieval) section. active service 1개 가정.
+                                 active service 가 0건 / 다수 시점은 backlog 박제 (multi-service per-service UI 진입). -->
+                            <TextBlock Text="Embedding (벡터 검색)"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+                            <TextBlock Text="활성 LightHouse Service 의 색인에 사용할 embedding backend. 비활성화 시 BM25 키워드 검색만 사용."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <CheckBox x:Name="EmbeddingEnabledCheck"
+                                      Content="Embedding 활성화 (Ollama)"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Base URL" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <TextBox x:Name="EmbeddingBaseUrlBox" Grid.Column="1"
+                                         Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="예: http://localhost:11434"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Model" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <TextBox x:Name="EmbeddingModelBox" Grid.Column="1"
+                                         Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="예: bge-m3 (1024 dim), nomic-embed-text (768 dim)"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Dimension" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <TextBox x:Name="EmbeddingDimensionBox" Grid.Column="1"
+                                         Padding="6,4" FontFamily="Consolas"
+                                         ToolTip="sqlite-vec schema 와 정합 의무. lib default = 1024 (bge-m3)."/>
+                            </Grid>
+
                             <!-- Consent -->
                             <TextBlock Text="데이터 전송 동의"
                                        FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"

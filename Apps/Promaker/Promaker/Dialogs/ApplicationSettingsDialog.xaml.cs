@@ -271,10 +271,21 @@ public partial class ApplicationSettingsDialog : Window
                 BaseUrl = src.BaseUrl,
                 ApiKeyEncrypted = src.ApiKeyEncrypted,
                 Active = src.Active,
+                // s6-r38 P4-C.2 — Embedding nested 박제. null 보존 (= 미설정 = BM25-only fallback).
+                Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
+                {
+                    Enabled = src.Embedding.Enabled,
+                    BaseUrl = src.Embedding.BaseUrl,
+                    Model = src.Embedding.Model,
+                    Dimension = src.Embedding.Dimension,
+                },
             });
         }
         _pskChanges.Clear();
         LhServicesGrid.ItemsSource = _lhServicesWorking;
+
+        // s6-r38 P4-C.2 — Embedding UI Load. active service 1개 가정 (multi-service per-service UI 진입은 backlog).
+        LoadEmbeddingUi();
 
         // VLM (Phase 2 task D / E, s6-r20)
         // --review M5 정합 (s6-r21): 미지원 provider (openai / ollama 등 향후 확장 후보) 가 JSON 에 박혀있으면
@@ -618,6 +629,10 @@ public partial class ApplicationSettingsDialog : Window
         // _pskChanges 의 평문 PSK 를 per-service entropy 로 암호화.
         if (lhDirty)
         {
+            // s6-r38 P4-C.2 — Embedding UI Save 의무. lhDirty 기준 commit 안 묶음 (working copy 의 Embedding 도
+            // _lhServicesWorking 안에 deep clone 박제 정합).
+            SaveEmbeddingUiToWorking();
+
             _llmConfig.LightHouseServices.Clear();
             foreach (var src in _lhServicesWorking)
             {
@@ -628,6 +643,13 @@ public partial class ApplicationSettingsDialog : Window
                     BaseUrl = (src.BaseUrl ?? "").Trim(),
                     ApiKeyEncrypted = src.ApiKeyEncrypted ?? "",
                     Active = src.Active,
+                    Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
+                    {
+                        Enabled = src.Embedding.Enabled,
+                        BaseUrl = (src.Embedding.BaseUrl ?? "").Trim(),
+                        Model = (src.Embedding.Model ?? "").Trim(),
+                        Dimension = src.Embedding.Dimension,
+                    },
                 });
             }
             foreach (var (sid, plain) in _pskChanges)
@@ -649,9 +671,15 @@ public partial class ApplicationSettingsDialog : Window
 
     /// <summary>
     /// **D-S7-3c (s6-r31)** — DataGrid working copy 와 _llmConfig.LightHouseServices 의 deep compare + _pskChanges 비어있지 않으면 dirty.
+    /// <para/>
+    /// **s6-r38 P4-C.2** — Embedding UI 변경도 dirty 박제. dirty check 진입 시 SaveEmbeddingUiToWorking 우선 호출 →
+    /// working copy 의 Embedding 박제 후 deep compare 안 Embedding 도 박제.
     /// </summary>
     private bool LhWorkingCopyDirty()
     {
+        // Embedding UI 변경 박제 위해 우선 working copy 의 active service 의 Embedding 갱신.
+        SaveEmbeddingUiToWorking();
+
         if (_pskChanges.Count > 0) return true;
         var working = _lhServicesWorking;
         var current = _llmConfig.LightHouseServices;
@@ -666,8 +694,24 @@ public partial class ApplicationSettingsDialog : Window
                 || w.Active != c.Active
                 || (w.ApiKeyEncrypted ?? "") != (c.ApiKeyEncrypted ?? ""))
                 return true;
+            if (!EmbeddingConfigEquals(w.Embedding, c.Embedding))
+                return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// **s6-r38 P4-C.2** — EmbeddingProviderConfig deep equality. 둘 다 null 시 equal, 한쪽만 null 시 unequal,
+    /// 둘 다 non-null 시 4 필드 모두 일치 의무. BaseUrl/Model 은 Trim 후 비교 (Apply 시 Trim 정합).
+    /// </summary>
+    private static bool EmbeddingConfigEquals(EmbeddingProviderConfig? a, EmbeddingProviderConfig? b)
+    {
+        if (a is null && b is null) return true;
+        if (a is null || b is null) return false;
+        return a.Enabled == b.Enabled
+            && (a.BaseUrl ?? "").Trim() == (b.BaseUrl ?? "")
+            && (a.Model ?? "").Trim() == (b.Model ?? "")
+            && a.Dimension == b.Dimension;
     }
 
     /// <summary>
@@ -738,5 +782,55 @@ public partial class ApplicationSettingsDialog : Window
         };
         if (picker.ShowDialog(this) == true)
             PlcXg5000ExePathBox.Text = picker.FileName;
+    }
+
+    // ── s6-r38 P4-C.2 — Embedding UI helpers ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// 활성 LightHouseService (working copy) 의 Embedding 박제를 UI 에 채움. active service 0건 / 다수 시점은
+    /// 첫 active service 박제 (UI 단순화, multi-service per-service UI 진입은 backlog).
+    /// </summary>
+    private void LoadEmbeddingUi()
+    {
+        var activeService = _lhServicesWorking.FirstOrDefault(s => s.Active);
+        var cfg = activeService?.Embedding;
+        if (cfg is null)
+        {
+            EmbeddingEnabledCheck.IsChecked = false;
+            EmbeddingBaseUrlBox.Text = "http://localhost:11434";
+            EmbeddingModelBox.Text = "bge-m3";
+            EmbeddingDimensionBox.Text = "1024";
+        }
+        else
+        {
+            EmbeddingEnabledCheck.IsChecked = cfg.Enabled;
+            EmbeddingBaseUrlBox.Text = cfg.BaseUrl;
+            EmbeddingModelBox.Text = cfg.Model;
+            EmbeddingDimensionBox.Text = cfg.Dimension.ToString();
+        }
+    }
+
+    /// <summary>
+    /// UI 의 Embedding 박제를 활성 LightHouseService (working copy) 의 Embedding 에 commit. active service 0건
+    /// 시점은 no-op (Embedding config 박제 위치 없음). dimension parse 실패 시 1024 fallback.
+    /// </summary>
+    private void SaveEmbeddingUiToWorking()
+    {
+        var activeService = _lhServicesWorking.FirstOrDefault(s => s.Active);
+        if (activeService is null)
+        {
+            return; // active service 없음 — Embedding 박제 위치 없음.
+        }
+        if (!int.TryParse(EmbeddingDimensionBox.Text, out var dim) || dim <= 0)
+        {
+            dim = 1024; // parse 실패 시 default fallback (UI 강조 안 함, save 후 다음 Load 시 1024 표시).
+        }
+        activeService.Embedding = new EmbeddingProviderConfig
+        {
+            Enabled = EmbeddingEnabledCheck.IsChecked == true,
+            BaseUrl = (EmbeddingBaseUrlBox.Text ?? "").Trim(),
+            Model = (EmbeddingModelBox.Text ?? "").Trim(),
+            Dimension = dim,
+        };
     }
 }
