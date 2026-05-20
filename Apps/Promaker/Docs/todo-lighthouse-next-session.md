@@ -14,37 +14,34 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r41 종결 예정, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r44 종결 예정, 2026-05-20)
 
-**Phase 4 P4-A → P4-C 시리즈 종결 + P4-C 누적 자가 검열 sub-agent 위임 완료 (s6-r40) + Minor backlog 묶음 처리 (s6-r41, D1+D2+D3)** — `Ds2.LightHouse` lib 의 embedding/hybrid retrieval base 인프라 + OllamaSharp adapter + Promaker/Settings/server-side 모든 caller 통합 완료. 자가 검열 backlog 중 Minor-1 (ct 전파) / Minor-2 (env var SSOT) / Minor-4 (csproj mojibake) 처리 완료, **Minor-3 (server embedderFactory HttpClient lifecycle) 만 잔존** (Phase 4 P4-D 또는 별 turn). 누적 **617 Fact** (lib 168 / service 125 / IT 33 / Promaker 291). 회귀 0.
+**Phase 4 P4-A → P4-C 시리즈 종결 + P4-C 자가 검열 (s6-r40) + Minor backlog 묶음 (s6-r41 D1+D2+D3) + 외부 --review 잔여 sweep (s6-r42~r44 조합 A — B1+B2+B3)** — `Ds2.LightHouse` lib 의 embedding/hybrid retrieval base 인프라 + OllamaSharp adapter + Promaker/Settings/server-side 모든 caller 통합 완료. 외부 --review 잔여 18건 중 4건 처리 (L-Maj-3 part 1 + L-Maj-5 + L-Maj-6), 잔여 = L-Maj-3 part 2 (ClearPool Pooling=False 정정) / L-Maj-10 (mtime/size fast-skip) / 나머지 ⑬~⑳. 누적 **617 Fact** (lib 168 / service 125 / IT 33 / Promaker 291). 회귀 0.
 
 **새 세션 진입 prompt 예시 (--transfer 박제 SSOT)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md 기준.
-s6-r41 (D1+D2+D3 Minor backlog 묶음 처리) 완료 후 다음 작업 진입.
-우선순위: (a) 외부 --review 잔여 별 phase / (b) IT embedding 활성 path (C1) / (c) embedder lifecycle 결정 (C2) / (d) Phase S7 잔여 — 선택 부탁드립니다.
-```
-
-또는 명시 작업 진입:
-
-```
-@todo-lighthouse-next-session.md 기준. 외부 --review 잔여 ⑩ L-Maj-3 (`withReadOnlyConn` helper 추출) 별 turn 진입.
+s6-r44 (B1+B2+B3 외부 --review sweep) 완료 후 다음 작업 진입.
+우선순위: (a) C1+C2 묶음 (IT embedding + lifecycle) / (b) L-Maj-3 part 2 + L-Maj-10 (lib SqliteStore Pooling + mtime fast-skip) / (c) Phase S7 잔여 — 선택 부탁드립니다.
 ```
 
 **다음 turn 진입 시 우선 작업**:
-1. **외부 --review 잔여 18건 중 별 phase 진입** — server.md §7.1 의 s6-r35 row 안 ⑩~⑳ 박제. 우선순위:
-   - **⑩ L-Maj-3** (`KnowledgeBase` 의 `lookupDocument` / `probeIndexerVersion` / `stampIndexerVersion` 매 호출 `ClearPool` 가 전역 pool flush — file serving QPS hot 시 무력화). `withReadOnlyConn` helper 추출 별 turn.
-   - **⑪ L-Maj-5** (`CollectionEndpoints.fs` 의 `postCollections` / `postCollectionPayload` IndexerVersion gate 응답 JSON 박제 양쪽 복제 — `processStagingExtractGate` private helper 추출).
-   - **⑫ L-Maj-6** (`OoxmlExtractor.fs` 의 `Descendants<Blip>()` paragraph 마다 2~3회 deep enumerate — paragraph 별 1회 enumerate + ResizeArray 캐싱).
-   - **⑯ L-Maj-10** (`Indexer.computeFileHash` 매 색인 호출 시 대용량 PDF SHA-256 재계산 + mtime/size 기반 fast-skip 미적용 — Documents schema 에 mtime/size 컬럼 추가 + SchemaVersion 4→5 bump 동반).
-2. **(C1) IT round-trip 의 embedding 활성 path 검증** — 추천 = **신규 안 (d): lib `MockEmbedder` 재활용 + IT `ServiceFixture` 주입** (a Ollama daemon / b IOllamaApiClient mock / c bge-m3 fixture 3 옵션 모두 단점 우세). cost 최소 — 본 IT 목적은 path 정합 (`embedderFactory` wire / config schema / hybrid SQL / RRF merge) 이지 모델 품질 검증 아님.
-3. **(C2) server-side embedder lifecycle (per-session vs singleton NonOwning)** — 추천 = **(b) service-singleton `NonOwning` wrapper, 단 C1 박제 후 진입** (C1 의 회귀 차단 Fact 가 본 lifecycle 변경 안전망). per-session 의 HttpClient socket exhaustion 회피 + 다중 session 부하 0. signature breaking + Program.fs DI 박제 변경 + Tests fixture 변경 동반.
-4. **Phase S7 잔여 phase 진입** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위.
+1. **(C1 + C2) 조합 B — embedding lifecycle 본격 박제** (추천 — 별 turn 안 별 commit 2건):
+   - **C1** = lib `MockEmbedder` 재활용 + IT `ServiceFixture` 주입. cost 최소 — 1~2 Fact 신규. hybrid path 회귀 차단 + C2 안전망.
+   - **C2** = service-singleton `NonOwning` wrapper. signature breaking + Program.fs DI + Tests fixture 변경. C1 의 회귀 차단 Fact 가 안전망.
+2. **외부 --review 잔여 (L-Maj-3 part 2 + L-Maj-10)**:
+   - **L-Maj-3 part 2** = `SqliteStore.openConnection` 의 csb 에 `csb.Pooling <- not readOnly` 박제 → KnowledgeBase 의 `withReadOnlyConn` ClearPool 제거 가능. trigger ⑤ 충족 — 자가 검열 sub-agent 위임 의무.
+   - **L-Maj-10** = `Indexer.computeFileHash` 매 색인 호출 대용량 PDF SHA-256 재계산 + mtime/size fast-skip 미적용 → Documents schema 에 mtime/size 컬럼 추가 + SchemaVersion 4→5 bump 동반. 모든 기존 collection 강제 재색인 — 단독 phase 권장.
+3. **Phase S7 잔여 phase 진입** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위.
+4. **외부 --review 잔여 ⑬~⑳ 13건** — server.md §7.1 s6-r35 row 박제. 우선순위는 사용자 결정.
 
-**Phase 4 P4-A → P4-C commit chain (s6-r34 ~ s6-r41, 8 commit)**:
+**Phase 4 P4-A → P4-C commit chain + 외부 --review sweep (s6-r34 ~ s6-r44, 11 commit)**:
 
-- **`(본 commit)` s6-r41 D1+D2+D3 Minor backlog 묶음** — s6-r40 자가 검열 Minor 3건 (env var SSOT / ct 전파 / csproj mojibake) 한 commit 처리. (D1) cli `Program.fs` 5건 top-level `[<Literal>]` (`EnvOllamaUrl/Model/Dim/Psk`) + `Vlm.fs` 2건 nested `[<Literal>]` (`EnvApiKey/EnvModel`), magic string → literal 치환 caller 9건. (D2) `AttachmentTools.fs:235` 의 `kb.Search q CancellationToken.None` → `accessor.HttpContext.RequestAborted` (null fallback fail-safe). (D3) `Promaker.csproj` 11 라인 한글 코멘트 mojibake 의미 복원. 변경 = 4 파일 (cli/Program.fs + cli/Vlm.fs + service/AttachmentTools.fs + csproj) + doc 2. build 통과 + lib 168 + service 125 + IT 33 + Promaker 291 = **누적 617 Fact** 유지. 자가 검열 trigger ③ 충족 만 — 변경 trivial (literal 치환 + ct 1 line + 코멘트). 잔존 Minor = M3 (server embedderFactory HttpClient lifecycle, P4-D 또는 별 turn).
+- **`e77e0ec` s6-r44 B3 OoxmlExtractor Blip cache** — paragraph hot path 의 `hasInlineDrawing` + `extractImagesFromBlock` 이중 deep enumerate 정정. `collectValidBlips` (1회 enumerate + valid Blip ResizeArray) + `extractImagesFromBlips` (cached variant) 신설. `extractImagesFromBlock` signature `OpenXmlElement → Blip ResizeArray`. paragraph match arm 만 cached path. 회귀 0 (lib 168 OoxmlExtractor 16 fact 정합).
+- **`ee067a0` s6-r43 B2 CollectionEndpoints helper 추출** — `postCollections` / `postCollectionPayload` 양쪽 IndexerVersion gate 분기 박제 중복 → private `processStagingExtractGate` 흡수. `labelSuffix` (`""` / `" (swap)"`). postCollectionPayload Missing 분기 Log.audit.Warn drift 정정. 415 응답 4 키 그대로. 회귀 0 (service 125 + IT 33).
+- **`8991f9a` s6-r42 B1 KnowledgeBase helper 추출** — `probeIndexerVersion` + `lookupDocument` 박제 중복 → private `withReadOnlyConn` 흡수. `stampIndexerVersion` (write path) 별도 유지. ClearPool 의 hot path 전역 pool flush 부작용 정정 (`Pooling=False`) 은 별 turn (SqliteStore.openConnection SSOT 변경 trigger ⑤). 회귀 0 (lib 168).
+- **`b9e5c51` s6-r41 D1+D2+D3 Minor backlog 묶음** — s6-r40 자가 검열 Minor 3건 (env var SSOT / ct 전파 / csproj mojibake) 한 commit 처리. (D1) cli `Program.fs` 5건 top-level `[<Literal>]` (`EnvOllamaUrl/Model/Dim/Psk`) + `Vlm.fs` 2건 nested `[<Literal>]` (`EnvApiKey/EnvModel`), magic string → literal 치환 caller 9건. (D2) `AttachmentTools.fs:235` 의 `kb.Search q CancellationToken.None` → `accessor.HttpContext.RequestAborted` (null fallback fail-safe). (D3) `Promaker.csproj` 11 라인 한글 코멘트 mojibake 의미 복원. 변경 = 4 파일 (cli/Program.fs + cli/Vlm.fs + service/AttachmentTools.fs + csproj) + doc 2. build 통과 + lib 168 + service 125 + IT 33 + Promaker 291 = **누적 617 Fact** 유지. 자가 검열 trigger ③ 충족 만 — 변경 trivial (literal 치환 + ct 1 line + 코멘트). 잔존 Minor = M3 (server embedderFactory HttpClient lifecycle, P4-D 또는 별 turn).
 - **`2ff4d59` s6-r40 P4-C 자가 검열 + Major-1 patch** — Phase 4 P4-C 시리즈 (s6-r36~s6-r39, 4 commit `5344de0` → `d428609`) 누적 자가 검열 sub-agent (general-purpose) 위임 후속. 27 파일 / +791 / -118 cross-commit drift + 4 cross-cutting 항목 (a/b/c/d) 점검 결과 Critical 0 / Major 1 / Minor 4 / 잔여 우려 4. 박제 의도 vs 실 구현 drift 0. **Major-1 patch** = `ApplicationSettingsDialog.xaml.cs` 의 `EmbeddingConfigEquals` (line 707-715) + `LhWorkingCopyDirty` (line 692-695) 의 비대칭 Trim → 양쪽 Trim 일관 정정. legacy disk JSON 의 untrimmed BaseUrl/Model 박제 시 dirty=false 잘못 판정 → Save 누락 회피. Minor 4건 backlog 박제 (ct=None / env var SSOT / embedderFactory HttpClient lifecycle / csproj mojibake). 본 turn 변경 = Promaker 1 + doc 2 (server.md §7.1 row + §7.4 marker + next-session.md §2). build 통과 + Promaker.Tests 291/291 회귀 0. 누적 **617 Fact** 유지.
 - **`d428609` s6-r39 P4-C.3** — server-side embedder 주입 + server config schema 1→2 migration. `EmbeddingConfigSection` record 신설 (Enabled/BaseUrl/Model/Dimension) + `ServiceConfig.Embedding` 추가 + `ConfigSchema.Current = 2` bump + `Config.load` 의 1→2 in-place migration path (default Enabled=false BM25-only). `ISessionRegistry.AttachKb` member 신설 + `SessionRegistry(resolver, embedderFactory)` constructor + 편의 생성자 backward-compat. `SessionKb.attach` signature breaking (embedderFactory 인자 추가). `AttachmentTools.withKb` + 4 method 시그니처 `AttachmentResolver` → `ISessionRegistry` 치환. `Program.fs` 의 embedderFactory SSOT (config 기반 OllamaEmbedder 생성, per-session lifecycle). `AttachmentToolsTests` 21 caller + helper 시그니처 전파 + `ConfigTests` 의 schemaVersion 2 + Embedding migration 4 assertion + IT `ServiceFixture` Embedding 박제. 누적 617 유지.
 - **`19e3e6f` s6-r38 P4-C.2** — Promaker LlmConfig.Embedding schema + Settings dialog UI + AttachmentIngestService 주입. 사용자 결정 **(b) nested + DPAPI skip + per-ingest lifecycle**. `EmbeddingProviderConfig` class 신설 (Enabled/BaseUrl/Model/Dimension) + `LightHouseServiceConfig.Embedding: EmbeddingProviderConfig?` nullable. `AttachmentIngestService.TryCreateEmbedder` helper (active service Embedding 박제 → OllamaEmbedder 생성, validation 실패 시 null + warn). try/finally lifecycle + Log.Info embedder type name. `ApplicationSettingsDialog` 의 "Embedding (벡터 검색)" section (CheckBox + 3 TextBox, active service 1개 가정). `LoadEmbeddingUi` / `SaveEmbeddingUiToWorking` + `EmbeddingConfigEquals` dirty check 박제. `Promaker.csproj` 의 `Ds2.LightHouse.Ollama` ProjectReference. 신규 4 Fact (LlmConfigTests 32→36): default Ollama bge-m3 / Embedding null = BM25 fallback / round-trip / null round-trip. 누적 613→**617 Fact**.
