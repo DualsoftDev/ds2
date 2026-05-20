@@ -1167,155 +1167,9 @@ let ``Phase 7 §4.2 C-3 — default case 는 string scalar 유지 (legacy 호환
     // 기존 string scalar emit 유지 — calls 가 array of string
     Assert.Contains("\"calls\"", json)
 
-// ─── Phase 7 §4.2 C-4 — SkipInputSensor + InTag/OutTag dual format ──────────
-
-let private c4Yaml = """
-protocol: promaker/v0
-project: M1
-
-systems:
-  - system: Controller
-    kind: active
-    flow Run:
-      works:
-        Adv:
-          calls:
-            - ref: Cyl1.ADV
-              skipInputSensor: true
-              inTag: { name: ADV_LMT, address: X10 }
-              outTag: { name: ADV, address: Y10 }
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
-
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-"""
-
-[<Fact>]
-let ``Phase 7 §4.2 C-4 — SkipInputSensor + InTag/OutTag round-trip`` () =
-    let store = DsStore()
-    let _ = parseApplyCommit store c4Yaml
-
-    let projects = Queries.allProjects store
-    let controller = Queries.activeSystemsOf projects.Head.Id store |> List.head
-    let runFlow = Queries.flowsOf controller.Id store |> List.head
-    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
-    let advCall = Queries.callsOf advWork.Id store |> List.head
-    let ac = advCall.ApiCalls.[0]
-
-    Assert.True(ac.SkipInputSensor)
-    Assert.True(ac.InTag.IsSome)
-    Assert.Equal("ADV_LMT", ac.InTag.Value.Name)
-    Assert.Equal("X10", ac.InTag.Value.Address)
-    Assert.True(ac.OutTag.IsSome)
-    Assert.Equal("ADV", ac.OutTag.Value.Name)
-    Assert.Equal("Y10", ac.OutTag.Value.Address)
-
-    // emit 시 모든 키 보존
-    use exported = ModelProtocol.exportToJson store
-    let compact = exported.RootElement.ToString().Replace(" ", "")
-    Assert.Contains("\"skipInputSensor\":true", compact)
-    Assert.Contains("\"inTag\":{", compact)
-    Assert.Contains("\"name\":\"ADV_LMT\"", compact)
-    Assert.Contains("\"address\":\"X10\"", compact)
-    Assert.Contains("\"outTag\":{", compact)
-
-    // round-trip 의미 보존
-    let store2 = DsStore()
-    let plan2 = ImportPlanBuilder()
-    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
-    Assert.False(diag2.HasErrors, sprintf "C-4 round-trip diag: %s" (diag2.Format()))
-    store2.ApplyImportPlan("C-4 round-trip", plan2.Build())
-    let ctrl2 = Queries.activeSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
-    let flow2 = Queries.flowsOf ctrl2.Id store2 |> List.head
-    let work2 = Queries.worksOf flow2.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
-    let ac2 = (Queries.callsOf work2.Id store2 |> List.head).ApiCalls.[0]
-    Assert.True(ac2.SkipInputSensor)
-    Assert.Equal("X10", ac2.InTag.Value.Address)
-    Assert.Equal("Y10", ac2.OutTag.Value.Address)
-
-// ─── Phase 7 §4.2 C-5 — CallType + apiDetails (ApiDefActionType / Description) ──
-
-let private c5Yaml = """
-protocol: promaker/v0
-project: M1
-
-systems:
-  - system: Controller
-    kind: active
-    flow Run:
-      works:
-        Adv:
-          calls:
-            - ref: Cyl1.ADV
-              callType: SkipIfCompleted
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
-
-  - system: Cyl1
-    kind: passive
-    device: cylinder
-    apiDetails:
-      ADV:
-        actionType: Pulse
-        description: "Advance command"
-      RET:
-        actionType: TimeTotal(800)
-"""
-
-[<Fact>]
-let ``Phase 7 §4.2 C-5 — CallType + apiDetails round-trip`` () =
-    let store = DsStore()
-    let _ = parseApplyCommit store c5Yaml
-
-    let projects = Queries.allProjects store
-    let controller = Queries.activeSystemsOf projects.Head.Id store |> List.head
-    let runFlow = Queries.flowsOf controller.Id store |> List.head
-    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
-    let advCall = Queries.callsOf advWork.Id store |> List.head
-
-    // SimulationCallProperties.CallType
-    let simCallType =
-        advCall.Properties
-        |> Seq.tryPick (function | SimulationCall p -> Some p.CallType | _ -> None)
-    Assert.Equal(Some CallType.SkipIfCompleted, simCallType)
-
-    // ApiDef.ApiDefActionType / Description
-    let cyl = Queries.passiveSystemsOf projects.Head.Id store |> List.head
-    let cylApiDefs = Queries.apiDefsOf cyl.Id store
-    let adv = cylApiDefs |> List.find (fun d -> d.Name = "ADV")
-    let ret = cylApiDefs |> List.find (fun d -> d.Name = "RET")
-    Assert.Equal(ApiDefActionType.Pulse, adv.ApiDefActionType)
-    Assert.Equal(Some "Advance command", adv.Description)
-    Assert.Equal(ApiDefActionType.TimeTotal 800, ret.ApiDefActionType)
-
-    // emit 시 모든 키 보존
-    use exported = ModelProtocol.exportToJson store
-    let json = exported.RootElement.ToString()
-    let compact = json.Replace(" ", "")
-    Assert.Contains("\"callType\":\"SkipIfCompleted\"", compact)
-    Assert.Contains("\"apiDetails\":{", compact)
-    Assert.Contains("\"actionType\":\"Pulse\"", compact)
-    Assert.Contains("\"actionType\":\"TimeTotal(800)\"", compact)
-    Assert.Contains("\"description\":\"Advance command\"", json)
-
-    // round-trip 의미 보존
-    let store2 = DsStore()
-    let plan2 = ImportPlanBuilder()
-    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
-    Assert.False(diag2.HasErrors, sprintf "C-5 round-trip diag: %s" (diag2.Format()))
-    store2.ApplyImportPlan("C-5 round-trip", plan2.Build())
-    let cyl2 = Queries.passiveSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
-    let adv2 = Queries.apiDefsOf cyl2.Id store2 |> List.find (fun d -> d.Name = "ADV")
-    Assert.Equal(ApiDefActionType.Pulse, adv2.ApiDefActionType)
-    Assert.Equal(Some "Advance command", adv2.Description)
-    let ret2 = Queries.apiDefsOf cyl2.Id store2 |> List.find (fun d -> d.Name = "RET")
-    Assert.Equal(ApiDefActionType.TimeTotal 800, ret2.ApiDefActionType)
+// v10: SkipInputSensor (ApiCall) + ApiDefActionType (Push/Pulse/TimeTotal) 의존 Fact 들은
+// v10 적용으로 *grammar / 필드 자체 deprecated* — 본 파일 내 C-4 / C-5 Fact 통째 제거.
+// 신규 v10 ActionType / SensingType round-trip Fact 는 별도 작업 단위로 추가 예정.
 
 // ─── Phase 7 §4.2 C-6 — Project meta + DsSystem.IRI + Work.TokenRole ────────
 
@@ -1612,7 +1466,7 @@ systems:
     device: cylinder
     apiDetails:
       NoSuchApi:
-        actionType: Pulse
+        actionType: pulse
 """
 
 let private callConditionConditionsNonArrayYaml = """
@@ -1678,7 +1532,7 @@ systems:
 [<InlineData("tokenRoleNonString",          "string 기대")>]              // SSOT §2.7 룰 #23
 [<InlineData("inTagNonObject",              "IOTag object 기대")>]         // SSOT §2.7 룰 #22
 [<InlineData("outTagNonObject",             "IOTag object 기대")>]         // SSOT §2.7 룰 #22 (todo §10.2 #4)
-[<InlineData("skipInputSensorNonBool",      "bool 기대")>]                // SSOT §2.7 룰 #21
+// v10: skipInputSensor 키 자체 폐기 (SensingType=Virtual 흡수) — bool 위반 진단 무의미 → case 제거.
 [<InlineData("apiDetailsNonObject",         "object 기대")>]              // SSOT §2.7 룰 #24
 [<InlineData("apiDetailsUnknownApi",        "system 의 apis 목록에 없음")>] // SSOT §2.7 룰 #18 (M-C)
 [<InlineData("callConditionConditionsNonArray", "array 기대")>]           // SSOT §2.7 룰 #16 (M-F)
@@ -1689,7 +1543,6 @@ let ``Phase 7 외부 review M-F — shape 위반 진단 발행`` (tag: string) (
         | "tokenRoleNonString"              -> tokenRoleNonStringYaml
         | "inTagNonObject"                  -> inTagNonObjectYaml
         | "outTagNonObject"                 -> outTagNonObjectYaml
-        | "skipInputSensorNonBool"          -> skipInputSensorNonBoolYaml
         | "apiDetailsNonObject"             -> apiDetailsNonObjectYaml
         | "apiDetailsUnknownApi"            -> apiDetailsUnknownApiYaml
         | "callConditionConditionsNonArray" -> callConditionConditionsNonArrayYaml
@@ -2308,7 +2161,7 @@ systems:
     iri: http://example.com/cyl1
     apiDetails:
       ADV:
-        actionType: Push
+        actionType: set
         description: cylinder advance
 """
 
@@ -2338,7 +2191,7 @@ let ``#31 S4-T1 — modeling export 시 A_Modeling 만 emit (B/C/D + workDuratio
     Assert.Contains("\"tokenRole\":\"Source\"", raw)
     Assert.Contains("\"contactKind\":\"NcContact\"", raw)
     Assert.Contains("\"callType\":\"SkipIfCompleted\"", raw)
-    Assert.Contains("\"actionType\":\"Push\"", raw)
+    Assert.Contains("\"actionType\":\"set\"", raw)
 
 [<Fact>]
 let ``#31 S4-T2 — modeling export 의 callHasEnhancement 분기 (B/C/D-only Call 은 string scalar 유지)`` () =
@@ -2509,15 +2362,15 @@ systems:
 
 [<Fact>]
 let ``#31 S4-T10 — modeling apply 로 apiDetails.actionType 변경 (A_Modeling round-trip)`` () =
-    // 1. enhancedYaml 로 base — Cyl1 의 ADV.actionType = Push
+    // 1. enhancedYaml 로 base — Cyl1 의 ADV.actionType = set (v10 grammar)
     let store = DsStore()
     let _ = parseApplyCommit store enhancedYaml
     let proj = (Queries.allProjects store).Head
     let cyl1 = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
     let adv = Queries.apiDefsOf cyl1.Id store |> List.find (fun d -> d.Name = "ADV")
-    Assert.Equal(ApiDefActionType.Push, adv.ApiDefActionType)
+    Assert.Equal(ActionType.Real (Latched, None), adv.ActionType)
 
-    // 2. modeling wire 로 actionType: Push → Pulse 변경
+    // 2. modeling wire 로 actionType: set → pulse 변경 (v10 grammar)
     let mutationYaml = """
 protocol: promaker/v0
 level: modeling
@@ -2528,12 +2381,12 @@ systems:
     device: cylinder
     apiDetails:
       ADV:
-        actionType: Pulse
+        actionType: pulse
 """
     let _ = parseApplyCommit store mutationYaml
-    // 3. store 의 ADV.ApiDefActionType 가 Pulse 로 변경 검증
+    // 3. store 의 ADV.ActionType 가 Real(OneShot, None) 로 변경 검증
     let advAfter = Queries.apiDefsOf cyl1.Id store |> List.find (fun d -> d.Name = "ADV")
-    Assert.Equal(ApiDefActionType.Pulse, advAfter.ApiDefActionType)
+    Assert.Equal(ActionType.Real (OneShot, None), advAfter.ActionType)
 
 [<Fact>]
 let ``#31 TC-3 — enhancedYaml 전수 property full-level round-trip (ModelEquivalence)`` () =

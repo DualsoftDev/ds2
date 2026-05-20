@@ -34,6 +34,9 @@ public sealed partial class SimulationHubBridge : ObservableObject
     private CancellationTokenSource?  _hubConnectionCts;
     private CancellationTokenSource?  _reconnectStabilizationCts;
     private int                       _hubGeneration;
+    /// SignalR 자동 재연결 시도 카운트. OnReconnecting 마다 ++, OnReconnected 시 0, 새 generation 시 0.
+    /// ETA 라벨용 + UI 노출용.
+    private int                       _reconnectAttempt;
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;

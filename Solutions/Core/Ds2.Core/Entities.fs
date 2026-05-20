@@ -134,9 +134,7 @@ and ApiCall [<JsonConstructor>] internal (name) =
     [<AasxField("OutputSpec")>]   member val OutputSpec   : ValueSpec    = UndefinedValue  with get, set
     [<AasxField("OriginFlowId")>] member val OriginFlowId : Guid option  = None           with get, set
     [<AasxField("ContactKind")>]  member val ContactKind  : ContactKind  = ContactKind.NoContact with get, set
-    /// 완료 판정 — false (기본): 실 센서 (InTag) 감지, true: Work.Duration 흐름 후 RxWork 관찰 (가상 센서, 실 센서 스킵).
-    /// ApiDef.ApiDefActionType (출력 인터페이스) 및 Work.Duration (디바이스 내부 시간) 과 직교 — 독립적 정책.
-    [<AasxField("SkipInputSensor")>] member val SkipInputSensor : bool = false with get, set
+    // v10: SkipInputSensor 제거 — 가상 센서는 ApiDef.SensingType = Virtual 로 표현.
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
@@ -154,10 +152,13 @@ and CallCondition [<JsonConstructor>] internal () =
 and ApiDef [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
 
-    [<AasxField("ApiDefActionType")>] member val ApiDefActionType : ApiDefActionType = ApiDefActionType.Normal with get, set
-    [<AasxField("TxGuid")>]           member val TxGuid : Guid option = None  with get, set
-    [<AasxField("RxGuid")>]           member val RxGuid : Guid option = None  with get, set
-    [<AasxField("Description")>]      member val Description : string option = None  with get, set
+    /// v10 §3.2 D1 (WHEN · OUT) — 출력 시점 정책. 기본값 Real(Level, None) = 일반 coil.
+    [<AasxField("ActionType")>]  member val ActionType  : ActionType  = ActionType.Real (Level, None) with get, set
+    /// v10 §3.2 D3 (WHEN · IN) — 감지 시점 정책. 기본값 Real(Level, None) = 일반 contact.
+    [<AasxField("SensingType")>] member val SensingType : SensingType = SensingType.Real (Level, None) with get, set
+    [<AasxField("TxGuid")>]      member val TxGuid : Guid option = None  with get, set
+    [<AasxField("RxGuid")>]      member val RxGuid : Guid option = None  with get, set
+    [<AasxField("Description")>] member val Description : string option = None  with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 

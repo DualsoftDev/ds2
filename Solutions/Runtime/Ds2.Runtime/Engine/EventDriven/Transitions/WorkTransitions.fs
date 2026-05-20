@@ -19,6 +19,8 @@ module internal WorkTransitions =
         TriggerWorkStateChanged: WorkStateChangedArgs -> unit
         /// Duration 이벤트 추적 콜백: workGuid -> eventId -> scheduledTimeMs
         OnDurationScheduled: Guid -> Guid -> int64 -> unit
+        /// v10 §10 — Work cycle 시작/종료 시 passive sensing append flag 제거.
+        ClearSensingAppendDelay: Guid -> unit
     }
 
     let scheduleCallTransitions (ctx: Context) workGuid targetState excludeState =
@@ -128,6 +130,7 @@ module internal WorkTransitions =
             |> ignore
 
     let handleWorkGoingTransition (ctx: Context) workGuid =
+        ctx.ClearSensingAppendDelay workGuid
         ctx.StateManager.IncrementWorkEpoch(workGuid)
         scheduleDuration ctx workGuid
         triggerImmediateResets ctx workGuid
@@ -142,6 +145,7 @@ module internal WorkTransitions =
         scheduleHomingCompletion ctx workGuid
 
     let handleWorkReadyTransition (ctx: Context) workGuid =
+        ctx.ClearSensingAppendDelay workGuid
         scheduleCallTransitions ctx workGuid Status4.Ready Status4.Ready
         ctx.ScheduleConditionEvaluation()
 

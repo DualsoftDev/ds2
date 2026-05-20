@@ -58,6 +58,7 @@ module internal EventDrivenEngineRuntime =
         ScheduleConditionEvaluation: unit -> unit
         EvaluateConditions: unit -> unit
         TriggerCallTimeout: CallTimeoutArgs -> unit
+        ApplyOutputWrite: string -> string -> unit
         GetCallState: Guid -> Status4
         GetCallName: Guid -> string
         GetCallTimeoutMs: Guid -> int option
@@ -97,6 +98,8 @@ module internal EventDrivenEngineRuntime =
                         ctx.EmitTokenEvent BlockedOnHoming token workGuid None
                 | None ->
                     ctx.ApplyWorkTransition workGuid Status4.Ready
+        | ScheduledEventType.OutputWrite(address, value) ->
+            ctx.ApplyOutputWrite address value
         | ScheduledEventType.EvaluateConditions ->
             ctx.EvaluateConditions ()
 

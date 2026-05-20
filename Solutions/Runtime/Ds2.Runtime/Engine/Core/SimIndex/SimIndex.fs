@@ -1,6 +1,7 @@
 namespace Ds2.Runtime.Engine.Core
 
 open System
+open Ds2.Core
 open Ds2.Core.Store
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -49,6 +50,41 @@ module SimIndex =
             index.Store
             (findOrEmpty callGuid index.CallApiCallGuids)
             (fun d -> d.RxGuid)
+
+    let completionWorkGuids (index: SimIndex) (callGuid: Guid) =
+        findOrEmpty callGuid index.CallApiCallGuids
+        |> List.choose (fun apiCallGuid ->
+            match index.Store.ApiCalls.TryGetValue(apiCallGuid) with
+            | true, apiCall ->
+                apiCall.ApiDefId
+                |> Option.bind (fun apiDefGuid ->
+                    match index.Store.ApiDefs.TryGetValue(apiDefGuid) with
+                    | true, apiDef ->
+                        match apiDef.SensingType with
+                        | SensingType.Virtual _ ->
+                            apiDef.RxGuid |> Option.orElse apiDef.TxGuid
+                        | SensingType.Real _ ->
+                            apiDef.RxGuid
+                    | _ -> None)
+            | _ -> None)
+        |> List.distinct
+
+    /// v10 §11.2 — ApiCall 의 SensingType 이 Real(_, Some Append n) 이면 n, 아니면 0.
+    /// SetIOValue 호출 직후 *n ms 후 ConditionEval 재 schedule* 위해 사용.
+    let apiCallSensingAppendMs (index: SimIndex) (apiCallGuid: Guid) : int =
+        match index.Store.ApiCalls.TryGetValue(apiCallGuid) with
+        | true, apiCall ->
+            apiCall.ApiDefId
+            |> Option.bind (fun id ->
+                match index.Store.ApiDefs.TryGetValue(id) with
+                | true, def -> Some def
+                | _ -> None)
+            |> Option.bind (fun def ->
+                match def.SensingType with
+                | SensingType.Real (_, Some (Append n)) -> Some n
+                | _ -> None)
+            |> Option.defaultValue 0
+        | _ -> 0
 
     let build (store: DsStore) (tickMs: int) : SimIndex =
         SimIndexBuild.build store tickMs

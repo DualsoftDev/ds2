@@ -109,12 +109,14 @@ type NodeSelectionResult(orderedKeys: SelectionKey list, anchor: SelectionKey op
     member _.Anchor = anchor
     member _.AnchorOrNull = defaultArg anchor null
 
-/// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용)
+/// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용). v10: ActionType + SensingType 2 직교 차원.
 [<Sealed>]
-type ApiDefPanelItem(id: Guid, name: string, actionType: ApiDefActionType, txWorkId: Guid option, rxWorkId: Guid option, description: string) =
+type ApiDefPanelItem(id: Guid, name: string, actionType: ActionType, sensingType: SensingType,
+                    txWorkId: Guid option, rxWorkId: Guid option, description: string) =
     member _.Id             = id
     member _.Name           = name
     member _.ActionType     = actionType
+    member _.SensingType    = sensingType
     member _.TxWorkId       = txWorkId
     member _.RxWorkId       = rxWorkId
     member _.TxWorkIdOrNull = txWorkId |> Option.toNullable
@@ -183,8 +185,7 @@ type CallApiCallPanelItem
         valueSpecText: string,
         inputValueSpecText: string,
         outputSpecTypeIndex: int,
-        inputSpecTypeIndex: int,
-        skipInputSensor: bool
+        inputSpecTypeIndex: int
     ) =
     member _.ApiCallId = apiCallId
     member _.Name = name
@@ -199,15 +200,13 @@ type CallApiCallPanelItem
     member _.InputValueSpecText = inputValueSpecText
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
     member _.InputSpecTypeIndex  = inputSpecTypeIndex
-    member _.SkipInputSensor     = skipInputSensor
 
 [<Sealed>]
 type CallConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
      inputSpecText: string, inputSpecTypeIndex: int,
-     contactKind: ContactKind, inputSpec: ValueSpec,
-     skipInputSensor: bool) =
+     contactKind: ContactKind, inputSpec: ValueSpec) =
     member _.ApiCallId          = apiCallId
     member _.ApiCallName        = apiCallName
     member _.ApiDefDisplayName  = apiDefDisplayName
@@ -218,7 +217,6 @@ type CallConditionApiCallItem
     member _.ContactKind        = contactKind
     /// 시뮬 IO 값 매칭 검사용 — 패널에 [현재:X / 기대:Y] 표시할 때 evaluate 에 그대로 전달.
     member _.InputSpec          = inputSpec
-    member _.SkipInputSensor    = skipInputSensor
 
 [<Sealed>]
 type CallConditionPanelItem

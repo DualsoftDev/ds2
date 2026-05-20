@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="HubContracts.fs" />
+    <Compile Include="HubConnectionDiagnostic.fs" />
   </ItemGroup>
 
   <!-- FSharp.Core 명시 — Directory.Packages.props 의 9.0.100 으로 고정.

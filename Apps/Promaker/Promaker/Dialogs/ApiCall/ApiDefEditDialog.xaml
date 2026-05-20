@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
         Title="ApiDef 편집"
-        Width="420" Height="540"
+        Width="460" Height="640"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -29,70 +29,122 @@
                 <TextBox x:Name="NameBox" Padding="6,4"/>
             </StackPanel>
 
-            <!-- 타입 -->
+            <!-- ActionType (v10 D1 WHEN·OUT) -->
             <StackPanel Grid.Row="1" Margin="0,0,0,8">
-                <TextBlock Text="타입"
+                <TextBlock Text="ActionType (출력 시점 정책)"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,4"/>
 
-                <!-- Normal / Push / Pulse: 인자 없음 -->
-                <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
+                <RadioButton x:Name="ActionNormalRadio" Content="normal — Real(Level, None)"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              GroupName="ActionType" IsChecked="True" Margin="0,2,0,2"/>
-                <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
+                <RadioButton x:Name="ActionPulseRadio" Content="pulse — Real(OneShot, None)"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              GroupName="ActionType" Margin="0,2,0,2"/>
-                <RadioButton x:Name="PulseRadio" Content="{x:Static core:Labels.Pulse}"
+                <RadioButton x:Name="ActionSetRadio" Content="set — Real(Latched, None)"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              GroupName="ActionType" Margin="0,2,0,2"/>
 
-                <!-- TimeTotal: 지정 시간만큼 절대 출력 ON -->
                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="TimeTotalRadio" Content="{x:Static core:Labels.TimeTotal}"
+                    <RadioButton x:Name="ActionTimeAppendRadio" Content="timeAppend"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
                                  GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="TimeTotalRadio_Checked" Unchecked="TimeTotalRadio_Unchecked"/>
+                                 Checked="ActionTimeAppendRadio_Checked" Unchecked="ActionTimeAppendRadio_Unchecked"/>
                     <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="TimeTotalMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="1000" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
-
-                <!-- TimeAppend: 센서 감지 후 +N ms 추가 출력 -->
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="TimeAppendRadio" Content="{x:Static core:Labels.TimeAppend}"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="TimeAppendRadio_Checked" Unchecked="TimeAppendRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
-                               Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="TimeAppendMsBox" Width="60" Padding="4,2"
+                    <TextBox x:Name="ActionTimeAppendMsBox" Width="60" Padding="4,2"
                              VerticalAlignment="Center" IsEnabled="False"
                              Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
                 </StackPanel>
 
-                <!-- MultiAction: N회 · 간격 ms 로 출력 반복 -->
                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="MultiActionRadio" Content="{x:Static core:Labels.MultiAction}"
+                    <RadioButton x:Name="ActionPulseHoldRadio" Content="pulseHold"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
                                  GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="MultiActionRadio_Checked" Unchecked="MultiActionRadio_Unchecked"/>
-                    <TextBlock Text="count" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 Checked="ActionPulseHoldRadio_Checked" Unchecked="ActionPulseHoldRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="MultiActionCountBox" Width="40" Padding="4,2"
+                    <TextBox x:Name="ActionPulseHoldMsBox" Width="60" Padding="4,2"
                              VerticalAlignment="Center" IsEnabled="False"
-                             Text="3" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                    <TextBlock Text="interval(ms)" VerticalAlignment="Center" Margin="8,0,4,0"
+                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+
+                <RadioButton x:Name="ActionVirtRadio" Content="virt — Virtual(None)"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="ActionType" Margin="0,2,0,2"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="ActionVirtPlusRadio" Content="virtPlus"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
+                                 Checked="ActionVirtPlusRadio_Checked" Unchecked="ActionVirtPlusRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="MultiActionIntervalBox" Width="60" Padding="4,2"
+                    <TextBox x:Name="ActionVirtPlusMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- SensingType (v10 D3 WHEN·IN) -->
+            <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                <TextBlock Text="SensingType (감지 시점 정책)"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,4"/>
+
+                <RadioButton x:Name="SensingNormalRadio" Content="normal — Real(Level, None)"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="SensingType" IsChecked="True" Margin="0,2,0,2"/>
+                <RadioButton x:Name="SensingEdgeRadio" Content="edge — Real(OneShot, None)"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="SensingType" Margin="0,2,0,2"/>
+                <RadioButton x:Name="SensingLatchedRadio" Content="latched — Real(Latched, None)"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="SensingType" Margin="0,2,0,2"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="SensingDebounceRadio" Content="debounce"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
+                                 Checked="SensingDebounceRadio_Checked" Unchecked="SensingDebounceRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="SensingDebounceMsBox" Width="60" Padding="4,2"
                              VerticalAlignment="Center" IsEnabled="False"
                              Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="SensingEdgeStableRadio" Content="edgeStable"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
+                                 Checked="SensingEdgeStableRadio_Checked" Unchecked="SensingEdgeStableRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="SensingEdgeStableMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"/>
+                </StackPanel>
+
+                <RadioButton x:Name="SensingVirtRadio" Content="virt — Virtual(None)"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             GroupName="SensingType" Margin="0,2,0,2"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <RadioButton x:Name="SensingVirtPlusRadio" Content="virtPlus"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
+                                 Checked="SensingVirtPlusRadio_Checked" Unchecked="SensingVirtPlusRadio_Unchecked"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="SensingVirtPlusMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
                 </StackPanel>
             </StackPanel>
 
             <!-- TX Work / RX Work -->
-            <Grid Grid.Row="2" Margin="0,0,0,8">
+            <Grid Grid.Row="3" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="8"/>

@@ -2,6 +2,7 @@ namespace Ds2.Runtime.Engine.Core
 
 open System
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Runtime.Model
 
 /// Work/Call 상태 전이 조건 검사 모듈 (순수 함수)
@@ -117,13 +118,13 @@ module WorkConditionChecker =
                 | None -> true
             evalExpr index.CallAutoAuxConditions && evalExpr index.CallComAuxConditions
 
-    /// Call 완료 가능 여부 (RxWork 모두 F + WaitForCompletion 시 epoch 체크)
-    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
-        let rxGuids = SimIndex.rxWorkGuids index callGuid
-        if rxGuids.IsEmpty then true
+    /// 기존 Work 완료 기반 판정. v10 Real sensing 은 stale input 방지용으로,
+    /// Virtual sensing 은 Tx/Rx duration 완료 판정으로 재사용한다.
+    let private workCompletion (index: SimIndex) (state: SimState) (callGuid: Guid) (workGuids: Guid list) : bool =
+        if workGuids.IsEmpty then true
         else
-            let allRxFinish = rxGuids |> List.forall (fun rxGuid -> Map.tryFind rxGuid state.WorkStates = Some Status4.Finish)
-            if not allRxFinish then false
+            let allFinish = workGuids |> List.forall (fun workGuid -> Map.tryFind workGuid state.WorkStates = Some Status4.Finish)
+            if not allFinish then false
             else
                 let callType = index.CallTypeMap |> Map.tryFind callGuid |> Option.defaultValue CallType.WaitForCompletion
                 if callType = CallType.SkipIfCompleted then true
@@ -131,11 +132,103 @@ module WorkConditionChecker =
                     match state.CallRxEpochSnapshot |> Map.tryFind callGuid with
                     | None -> true
                     | Some epochMap ->
-                        rxGuids |> List.forall (fun rxGuid ->
-                            let canonical = SimIndex.canonicalWorkGuid index rxGuid
-                            let savedEpoch = epochMap |> Map.tryFind rxGuid |> Option.defaultValue 0
+                        workGuids |> List.forall (fun workGuid ->
+                            let canonical = SimIndex.canonicalWorkGuid index workGuid
+                            let savedEpoch = epochMap |> Map.tryFind workGuid |> Option.defaultValue 0
                             let currentEpoch = SimState.getWorkEpoch canonical state
                             currentEpoch > savedEpoch)
+
+    let private legacyRxCompletion (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+        workCompletion index state callGuid (SimIndex.rxWorkGuids index callGuid)
+
+    let private virtualWorkCompletion (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+        let workGuids = SimIndex.completionWorkGuids index callGuid
+        if workGuids.IsEmpty then
+            index.CallWorkGuid
+            |> Map.tryFind callGuid
+            |> Option.map (fun workGuid ->
+                state.WorkMinDurationMet.Contains(SimIndex.canonicalWorkGuid index workGuid))
+            |> Option.defaultValue true
+        else
+            workCompletion index state callGuid workGuids
+
+    let private runtimeInputSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) : bool =
+        let rxCompletionSatisfied () = legacyRxCompletion index state callGuid
+        let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
+
+        match state.IOValues |> Map.tryFind apiCall.Id with
+        | Some currentValue ->
+            ValueSpec.evaluate apiCall.InputSpec currentValue
+            && rxCompletionSatisfied ()
+        | None when hasRxWork -> rxCompletionSatisfied ()
+        | None -> false
+
+    let private runtimeInputEdgeSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) : bool =
+        let hasRisingValue =
+            match state.IOValues |> Map.tryFind apiCall.Id with
+            | Some currentValue -> ValueSpec.evaluate apiCall.InputSpec currentValue
+            | None -> false
+
+        if not hasRisingValue then false
+        else
+            let savedEpoch =
+                state.CallInputEpochSnapshot
+                |> Map.tryFind callGuid
+                |> Option.bind (Map.tryFind apiCall.Id)
+                |> Option.defaultValue 0
+
+            let currentEpoch =
+                state.IOValueEpoch
+                |> Map.tryFind apiCall.Id
+                |> Option.defaultValue 0
+
+            currentEpoch > savedEpoch
+            && legacyRxCompletion index state callGuid
+
+    let private completionTriggerSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiDef: ApiDef) (apiCall: ApiCall) : bool =
+        try
+            match RuntimeSemantics.completionTrigger apiDef apiCall with
+            | RuntimeSemantics.WaitPassiveDuration _
+            | RuntimeSemantics.WaitPassiveDurationPlus _ ->
+                virtualWorkCompletion index state callGuid
+            | RuntimeSemantics.WaitInput _
+            | RuntimeSemantics.WaitInputLatched _ ->
+                runtimeInputSatisfied index state callGuid apiCall
+            | RuntimeSemantics.WaitInputStable (_, ms) ->
+                // v10 §5/§10/§11.2 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce.
+                runtimeInputSatisfied index state callGuid apiCall
+                && SimState.getIOStableMs apiCall.Id state >= ms
+            | RuntimeSemantics.WaitInputEdge _ ->
+                runtimeInputEdgeSatisfied index state callGuid apiCall
+            | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
+                // v10 §5/§10/§11.2 — Real(OneShot, Append n) = "edge 이후 n ms 안정".
+                runtimeInputEdgeSatisfied index state callGuid apiCall
+                && SimState.getIOStableMs apiCall.Id state >= ms
+        with
+        | _ ->
+            let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
+            hasRxWork && legacyRxCompletion index state callGuid
+
+    /// Call 완료 가능 여부.
+    /// v10 SensingType 이 Virtual 이면 Duration/RxWork 수명 주기를 따른다.
+    /// Real 이면 RuntimeSemantics.completionTrigger 의 input 계열 trigger 를 IOValue/RxWork epoch 에 연결한다.
+    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+        let apiPairs =
+            SimIndex.findOrEmpty callGuid index.CallApiCallGuids
+            |> List.choose (fun apiCallId ->
+                Queries.getApiCall apiCallId index.Store
+                |> Option.bind (fun apiCall ->
+                    apiCall.ApiDefId
+                    |> Option.bind (fun apiDefId ->
+                        Queries.getApiDef apiDefId index.Store
+                        |> Option.map (fun apiDef -> apiDef, apiCall))))
+
+        if apiPairs.IsEmpty then
+            legacyRxCompletion index state callGuid
+        else
+            apiPairs
+            |> List.forall (fun (apiDef, apiCall) ->
+                completionTriggerSatisfied index state callGuid apiDef apiCall)
 
     /// TokenSource 중 Ready 상태이면서 predecessor 조건이 미충족인 Work 목록
     let collectBlockedSources (index: SimIndex) (state: SimState) : (Guid * string) list =

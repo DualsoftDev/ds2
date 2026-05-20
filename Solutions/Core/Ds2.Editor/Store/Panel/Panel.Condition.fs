@@ -201,16 +201,4 @@ type DsStorePanelConditionExtensions =
             true
         else false
 
-    [<Extension>]
-    static member UpdateConditionApiCallSkipInputSensor(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, skipInputSensor: bool) : bool =
-        Queries.requireNonReferenceCall callId store
-        StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}, skipInputSensor={skipInputSensor}")
-        let cond = StoreLog.requireCallCondition(store, callId, condId)
-        let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)
-        if ac.SkipInputSensor <> skipInputSensor then
-            DirectPanelOps.mutateCallProps store callId "조건 SkipInputSensor 변경" (fun c ->
-                let targetCond = DirectPanelOps.requireCondition callId c condId
-                let targetApiCall = DirectPanelOps.requireApiCallInCondition callId condId targetCond apiCallId
-                targetApiCall.SkipInputSensor <- skipInputSensor)
-            true
-        else false
+    // v10: UpdateConditionApiCallSkipInputSensor 제거 — SkipInputSensor 가 ApiDef.SensingType=Virtual 로 흡수됨.
