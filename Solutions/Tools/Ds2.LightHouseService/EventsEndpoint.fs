@@ -116,6 +116,14 @@ module EventsEndpoint =
     /// fan-out cost 절감 (N subscribers × 30s 마다 N publish → N timer × N self-write 만).
     ///
     /// **s6-r70 review C-2**: cfg + storageRoot 인자 추가. reader loop 안 evt 마다 isEventVisibleTo 호출.
+    ///
+    /// **client invariant (s6-r77 R5-M2 + s6-r81 doc 박제)**:
+    /// 같은 burst 안에서 lifecycle event (collection-added/updated/deleted) 가 progress event
+    /// (caption-progress / upload-progress / keepalive) 보다 *먼저* client 에 도달. 이전 단일 channel 박제
+    /// (s6-r76 까지) 에서는 publish 순서 = wire 송신 순서. 본 박제 (s6-r77+) 에서는 reader loop 가 매 wakeup
+    /// 마다 lifecycle reader 를 먼저 drain → progress reader 를 drain. client (Promaker / cli) 가 receive
+    /// order 의존 logic 박제 시 본 invariant 활용 — collection-added 후 즉시 collection 의 progress event 수신
+    /// (이전 박제와 의미 동등, 차이는 같은 burst 안의 inter-event ordering 만).
     let private handle (cfg: ServiceConfig) (storageRoot: string) (bus: EventBus) (ctx: HttpContext) : Task =
         task {
             setSseHeaders ctx

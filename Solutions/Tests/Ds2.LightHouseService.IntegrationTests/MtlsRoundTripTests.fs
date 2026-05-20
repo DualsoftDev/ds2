@@ -108,6 +108,13 @@ type MtlsRequiredFixture() =
                 baseAddress <- Uri firstUrl
             } :> Task
 
+        /// **N-M4 (s6-r81, external review backlog)** — DisposeAsync 의 cleanup 순서 의도 명시.
+        /// app.StopAsync (graceful) → app.DisposeAsync (Kestrel server stop) → cert.Dispose 순. cert dispose
+        /// 가 app dispose 보다 먼저 진행되면 진행 중인 TLS connection 의 cert handle race risk → app 먼저 stop.
+        /// 각 cert.Dispose() 는 X509Certificate2 (CryptoAPI handle wrap) 의 표준 dispose — 일반적으로 throw 안 함
+        /// (catch swallow 불필요). 만약 throw 시 다음 cert.Dispose() 차단 risk 는 known trade-off — fixture
+        /// lifecycle 종료 시점이라 cleanup 전체 best-effort 정합. 별 try/catch wrap 추가 시 의도 결함 (cert handle
+        /// 누수 silent skip) 으로 변환됨 → 현 박제 유지.
         member _.DisposeAsync() : Task =
             task {
                 if not (isNull app) then
@@ -160,6 +167,16 @@ type MtlsRequiredFixture() =
 type MtlsRoundTripTests(fixture: MtlsRequiredFixture) =
     interface IClassFixture<MtlsRequiredFixture>
 
+    /// **N-M3 (s6-r81, external review backlog)** — 의도된 분기 명시.
+    /// TLS handshake reject 의 예외 type 은 .NET runtime / OS / TLS layer 의존 — 4 가지 후보 union:
+    /// - `HttpRequestException` (.NET 9 HttpClient 의 일반 wrap)
+    /// - `IOException` (socket close / stream reset)
+    /// - `AuthenticationException` (System.Security.Authentication, SslStream layer)
+    /// - inner-wrap (`ex.InnerException` 가 위 3 후보 중 하나) — Kestrel 의 일부 환경에서 발생
+    ///
+    /// **swallow 범위 명시** = 위 4 후보 만 true. 다른 exception (예: 코드 버그의 NullReferenceException) 은 false 반환
+    /// → caller 의 Assert.True 가 fail → debug 가시성 보존. 본 IT 의 fact 의도는 "handshake-level 거부" 만 검증 —
+    /// 다른 exception 류는 의도 외 회귀로 noise 발생 의무 (swallow 안 함).
     static member private IsHandshakeReject (ex: exn) : bool =
         let isTlsType (e: exn) =
             e :? HttpRequestException || e :? IOException || e :? AuthenticationException

@@ -72,13 +72,28 @@ public static class CertValidator
         return new Diagnostic(ValidationResult.Valid, cert.Subject, cert.NotAfter, loc);
     }
 
+    /// <summary>
+    /// thumbprint 일치 cert 탐색. **N-M1 (s6-r81, external review backlog)** — 다중 매칭 시 가장 늦은
+    /// NotAfter 선택. 사용자 store 에 같은 thumbprint cert 가 여러 개 박제된 경우 (예: 만료 직전 cert + 신규
+    /// 재발급 cert) 무작위 선택은 만료된 cert 박제 risk → 신규 (NotAfter MAX) 우선.
+    /// <para/>
+    /// **N-M2** — X509Certificate2 의 handle 은 `X509Store.Certificates.Find` 시점에 OS CryptoAPI 가 duplicate
+    /// 반환 (cert context 별 lifetime). `using var store` dispose 후에도 cert 사용 안전. caller 가 cert 사용
+    /// 종료 시 `cert.Dispose()` 의무 (현 caller = Validate 의 `(cert, loc)` tuple 의 cert 박제, GC finalizer 안전망).
+    /// </summary>
     private static (X509Certificate2 cert, StoreLocation loc)? TryFind(string thumbprint, StoreLocation loc)
     {
         using var store = new X509Store(StoreName.My, loc);
         store.Open(OpenFlags.ReadOnly);
         var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
         if (matches.Count == 0) return null;
-        return (matches[0], loc);
+        // N-M1: 다중 매칭 시 가장 늦은 NotAfter 선택. 단일 매칭 시 동일 동작.
+        X509Certificate2 best = matches[0];
+        for (int i = 1; i < matches.Count; i++)
+        {
+            if (matches[i].NotAfter > best.NotAfter) best = matches[i];
+        }
+        return (best, loc);
     }
 
     /// <summary>사용자 표시용 한국어 메시지 (UI 의 SetTestResult 직접 호출 정합).</summary>

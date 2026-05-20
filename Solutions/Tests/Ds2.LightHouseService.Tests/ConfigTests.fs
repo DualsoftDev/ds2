@@ -134,6 +134,25 @@ let ``validateMtls — Mtls null defense-in-depth (R6-M1)`` () =
         Assert.Empty(result.Mtls.AllowedThumbprints)
     finally File.Delete path
 
+/// **R6-M3 (s6-r81, external review backlog)** — IPv6 link-local zone identifier (`[fe80::1%eth0]`) 거부.
+/// Kestrel 미지원. loopback `[::1]` 과 global IPv6 는 통과.
+[<Fact>]
+let ``validateHttpsOnly — IPv6 link-local zone identifier 거부 (R6-M3)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        // link-local zone (`%`) 박제 → 거부.
+        let cfg1 = { baseCfg with ListenUrl = "https://[fe80::1%eth0]:8443" }
+        Assert.Throws<InvalidDataException>(fun () -> Config.validateHttpsOnly cfg1) |> ignore
+        let cfg2 = { baseCfg with ListenUrl = "https://[fe80::1%2]:8443" }
+        Assert.Throws<InvalidDataException>(fun () -> Config.validateHttpsOnly cfg2) |> ignore
+        // loopback `[::1]` + global IPv6 통과 (zone 없음).
+        let cfg3 = { baseCfg with ListenUrl = "https://[::1]:8443" }
+        Config.validateHttpsOnly cfg3
+        let cfg4 = { baseCfg with ListenUrl = "https://[2001:db8::1]:8443" }
+        Config.validateHttpsOnly cfg4
+    finally File.Delete path
+
 [<Fact>]
 let ``load — 미존재 path 는 FileNotFoundException`` () =
     let bogus = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json")
