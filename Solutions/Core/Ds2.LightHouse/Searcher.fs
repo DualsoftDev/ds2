@@ -152,10 +152,20 @@ module Searcher =
     let private fileNameOf (originalPath: string) : string =
         if String.IsNullOrEmpty originalPath then "" else Path.GetFileName originalPath
 
-    /// **Phase 4 (s6-r35)** — reader row → (kbIdx, chunkId, hit, rawScore) 변환 helper.
-    /// `rawScore` = BM25 path 의 `bm25()` 음수 / vector path 의 `v.distance` 양수. caller (RRF or BM25-only)
-    /// 가 의미 부여.
-    let private readHit (reader: SqliteDataReader) (maxExcerptTokens: int) : int * int64 * SearchHit * float =
+    /// **s6-r56 ⑬ (외부 --review)** — reader row → record (tuple→record). 4-tuple `int * int64 * SearchHit * float`
+    /// 박제는 caller destructure 시 위치 의존 (의미 모호) → field name 명시 + 미래 확장 정합.
+    ///
+    /// `RawScore` = BM25 path 의 `bm25()` 음수 / vector path 의 `v.distance` 양수. caller (RRF or BM25-only)
+    /// 가 의미 부여 (음수 반전 / RRF rank).
+    [<NoComparison; NoEquality>]
+    type private RawHitRow = {
+        KbIdx: int
+        ChunkId: int64
+        Hit: SearchHit
+        RawScore: float
+    }
+
+    let private readHit (reader: SqliteDataReader) (maxExcerptTokens: int) : RawHitRow =
         let kbIdx       = reader.GetInt32(0)
         let chunkId     = reader.GetInt64(1)
         let docId       = reader.GetInt64(2)
@@ -182,7 +192,7 @@ module Searcher =
             TokenCount  = tokenCount
             HasImages   = false   // Phase 1 — 이미지 인프라 미도입 (§3.15.2)
         }
-        kbIdx, chunkId, hit, rawScore
+        { KbIdx = kbIdx; ChunkId = chunkId; Hit = hit; RawScore = rawScore }
 
     /// **Phase 4 (s6-r35)** — BM25 UNION ALL 결과를 dedup key (`<kbIdx>:<ChunkId>`) 순서로 반환.
     /// 반환 = ordered list of (key, hit). rank = list index.
@@ -213,10 +223,10 @@ module Searcher =
         let acc = ResizeArray<string * SearchHit>()
         use reader = cmd.ExecuteReader()
         while reader.Read() do
-            let kbIdx, chunkId, hit, rawScore = readHit reader maxExcerptTokens
+            let row = readHit reader maxExcerptTokens
             // FTS5 bm25() 는 음수 (낮을수록 hit 강도). caller 통념 양수 정합 위해 부호 반전 (review M6).
-            let finalized = { hit with Score = -rawScore }
-            let key = sprintf "%d:%d" kbIdx chunkId
+            let finalized = { row.Hit with Score = -row.RawScore }
+            let key = sprintf "%d:%d" row.KbIdx row.ChunkId
             acc.Add (key, finalized)
         acc |> List.ofSeq
 
@@ -252,11 +262,11 @@ module Searcher =
         let acc = ResizeArray<string * SearchHit>()
         use reader = cmd.ExecuteReader()
         while reader.Read() do
-            let kbIdx, chunkId, hit, distance = readHit reader maxExcerptTokens
+            let row = readHit reader maxExcerptTokens
             // distance = sqlite-vec 의 L2 또는 cosine — 낮을수록 hit. RRF 단계에서 rank 만 사용하므로 Score 자체는
             // caller 미사용. 임시 박제 (이후 RRF 단계에서 finalize).
-            let withDistance = { hit with Score = distance }
-            let key = sprintf "%d:%d" kbIdx chunkId
+            let withDistance = { row.Hit with Score = row.RawScore }
+            let key = sprintf "%d:%d" row.KbIdx row.ChunkId
             acc.Add (key, withDistance)
         acc |> List.ofSeq
 

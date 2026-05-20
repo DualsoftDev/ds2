@@ -20,6 +20,7 @@
     <Compile Include="ImageStoreTests.fs" />
     <Compile Include="IndexerTests.fs" />
     <Compile Include="KnowledgeBaseTests.fs" />
+    <Compile Include="CaptionGeneratorTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -39,6 +39,10 @@ module EventsEndpoint =
     let private jsonOpts = JsonSerializerOptions(WriteIndented = false)
 
     /// 단일 event → SSE wire format. `data: {json}\n\n` (EventSource API 정합).
+    ///
+    /// **s6-r56 ⑲ (외부 --review) — client-write keepalive 강화**: client disconnect 검출 정합.
+    /// `WriteAsync` / `FlushAsync` 가 `OperationCanceledException` (RequestAborted) 외에
+    /// `IOException` (socket close) / `ObjectDisposedException` 도 throw 가능. 모두 graceful exit 의무.
     let private writeEvent (ctx: HttpContext) (evt: ServerEvent) : Task =
         task {
             let json = JsonSerializer.Serialize(evt, jsonOpts)
@@ -48,7 +52,25 @@ module EventsEndpoint =
             do! ctx.Response.Body.FlushAsync ctx.RequestAborted
         } :> Task
 
+    /// **s6-r56 ⑲ — client disconnect 검출 보조**. write 실패 (OCE / IOException /
+    /// ObjectDisposedException) 시 false 반환. 다른 exception 은 재throw.
+    let private tryWriteEvent (ctx: HttpContext) (evt: ServerEvent) : Task<bool> =
+        task {
+            try
+                do! writeEvent ctx evt
+                return true
+            with
+            | :? OperationCanceledException -> return false
+            | :? System.IO.IOException -> return false  // socket close mid-write
+            | :? ObjectDisposedException -> return false  // response stream disposed
+        }
+
     /// `GET /events` handler. 인증은 middleware 가 처리.
+    ///
+    /// **s6-r56 ⑲ — client-write keepalive 강화**: keepalive 가 EventBus fan-out 대신 *direct write*.
+    /// 박제 의도: (i) multi-instance 시 다른 subscriber 의 keepalive 와 무관 — 각 SSE 가 자체 keepalive timer.
+    /// (ii) EventBus drop-oldest 정책에 keepalive 가 차지하는 capacity 절감. (iii) self-receive 의 lazy
+    /// fan-out cost 절감 (N subscribers × 30s 마다 N publish → N timer × N self-write 만).
     let private handle (bus: EventBus) (ctx: HttpContext) : Task =
         task {
             setSseHeaders ctx
@@ -56,41 +78,49 @@ module EventsEndpoint =
             // 이전 순서 (first keepalive write → Subscribe) 는 µs window race — 그 사이 publish 된 event 가 본
             // subscriber 의 channel 에 들어가지 못함. Subscribe 후 first keepalive write 면 race window 0.
             let id, reader = bus.Subscribe()
-            // first write — client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입).
-            do! writeEvent ctx (ServerEvent.keepalive())
+            // first write — client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입). 실패 시 즉시 종료.
+            let! firstOk = tryWriteEvent ctx (ServerEvent.keepalive())
             try
-                use keepaliveCts = CancellationTokenSource.CreateLinkedTokenSource ctx.RequestAborted
-                // keepalive timer task — 30s 마다 keepalive event publish (모든 active subscriber 에게 fan-out
-                // 되지만 단일 instance scenario 에서 self-receive 가 의미적으로 keepalive 정합).
-                let keepaliveLoop () = task {
-                    while not keepaliveCts.IsCancellationRequested do
-                        try
-                            do! Task.Delay(TimeSpan.FromSeconds(float KeepaliveSeconds), keepaliveCts.Token)
-                            if not keepaliveCts.IsCancellationRequested then
-                                bus.Publish(ServerEvent.keepalive())
-                        with
-                        | :? OperationCanceledException -> ()
-                }
-                let keepaliveTask = keepaliveLoop()
+                if firstOk then
+                    use keepaliveCts = CancellationTokenSource.CreateLinkedTokenSource ctx.RequestAborted
+                    // **s6-r56 ⑲** — per-subscriber direct keepalive timer (EventBus fan-out 폐기).
+                    // disconnect 시 write 실패 (false) → loop 종료 → keepalive task cancel.
+                    let disconnectSignal = TaskCompletionSource<bool>()
+                    let keepaliveLoop () = task {
+                        let mutable alive = true
+                        while alive && not keepaliveCts.IsCancellationRequested do
+                            try
+                                do! Task.Delay(TimeSpan.FromSeconds(float KeepaliveSeconds), keepaliveCts.Token)
+                                if not keepaliveCts.IsCancellationRequested then
+                                    let! ok = tryWriteEvent ctx (ServerEvent.keepalive())
+                                    if not ok then
+                                        alive <- false
+                                        disconnectSignal.TrySetResult true |> ignore
+                            with
+                            | :? OperationCanceledException -> alive <- false
+                    }
+                    let keepaliveTask = keepaliveLoop()
 
-                // reader loop — disconnect 시 WaitToReadAsync 가 false 또는 OperationCanceledException 으로 종료.
-                try
-                    let mutable continueLoop = true
-                    while continueLoop do
-                        let! hasMore = reader.WaitToReadAsync ctx.RequestAborted
-                        if not hasMore then
-                            continueLoop <- false
-                        else
-                            let mutable evt = Unchecked.defaultof<ServerEvent>
-                            while reader.TryRead &evt do
-                                do! writeEvent ctx evt
-                with
-                | :? OperationCanceledException -> ()  // client disconnect — 정상 종료
+                    // reader loop — disconnect 시 WaitToReadAsync false / OCE / write 실패 모두 graceful 종료.
+                    try
+                        let mutable continueLoop = true
+                        while continueLoop do
+                            let! hasMore = reader.WaitToReadAsync ctx.RequestAborted
+                            if not hasMore then
+                                continueLoop <- false
+                            else
+                                let mutable evt = Unchecked.defaultof<ServerEvent>
+                                while continueLoop && reader.TryRead &evt do
+                                    let! ok = tryWriteEvent ctx evt
+                                    if not ok then continueLoop <- false
+                            // keepalive timer 가 disconnect 검출했으면 loop 종료 (background path 정합)
+                            if disconnectSignal.Task.IsCompleted then continueLoop <- false
+                    with
+                    | :? OperationCanceledException -> ()  // client disconnect — 정상 종료
 
-                keepaliveCts.Cancel()
-                // keepalive task 의 cancel 처리 완료 대기 (best-effort, 짧음).
-                try do! keepaliveTask
-                with :? OperationCanceledException -> ()
+                    keepaliveCts.Cancel()
+                    try do! keepaliveTask
+                    with :? OperationCanceledException -> ()
             finally
                 bus.Unsubscribe id
         } :> Task
