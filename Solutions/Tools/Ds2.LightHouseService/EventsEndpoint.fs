@@ -38,7 +38,8 @@ module EventsEndpoint =
         ctx.Response.Headers.["X-Accel-Buffering"] <- "no"
         ctx.Response.Headers.["Connection"] <- "keep-alive"
 
-    let private jsonOpts = JsonSerializerOptions(WriteIndented = false)
+    // **C-15 (s6-r79)** — jsonOpts (SSE wire) 폐기 → `EndpointHelpers.DefaultJsonOpts` SSOT (WriteIndented=false 정합).
+    let private jsonOpts = EndpointHelpers.DefaultJsonOpts
 
     /// 단일 event → SSE wire format. `data: {json}\n\n` (EventSource API 정합).
     ///
@@ -104,11 +105,8 @@ module EventsEndpoint =
                 | MultiTenantPolicy.AccessDecision.Hidden -> false
                 | _ -> true
 
-    /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 박제).
-    let private userIdentityOf (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
-        | true, v when not (isNull v) -> string v
-        | _ -> "unknown"
+    // **C-15 (s6-r79)** — userIdentityOf 폐기 → `EndpointHelpers` SSOT 통과 alias.
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
 
     /// `GET /events` handler. 인증은 middleware 가 처리.
     ///
@@ -212,16 +210,10 @@ module EventsEndpoint =
           [<System.Text.Json.Serialization.JsonPropertyName("message")>]
           Message: string }
 
-    let private requestJsonOpts =
-        let o = JsonSerializerOptions()
-        o.PropertyNameCaseInsensitive <- true
-        o
-
-    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
-        ctx.Response.StatusCode <- status
-        ctx.Response.ContentType <- "application/json; charset=utf-8"
-        let json = JsonSerializer.Serialize({| error = message |})
-        ctx.Response.WriteAsync json
+    // **C-15 (s6-r79)** — requestJsonOpts / writeError 폐기 → `EndpointHelpers` SSOT.
+    // EndpointHelpers.DefaultJsonOpts 의 PropertyNameCaseInsensitive=true 박제 정합.
+    let private requestJsonOpts = EndpointHelpers.DefaultJsonOpts
+    let private writeError = EndpointHelpers.writeError
 
     /// POST /events/caption-progress — body 검증 후 `caption-progress` event publish + 204.
     /// 검증: collectionId 빈 값 → 400, progress 0~100 외 → 400. body json 결함 → 400.

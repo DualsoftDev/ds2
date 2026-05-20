@@ -83,9 +83,10 @@ module UploadsEndpoint =
     [<Literal>]
     let private PartialFileName = "payload.partial"
 
-    let private jsonOpts =
-        let opts = JsonSerializerOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)
-        opts
+    // **C-15 (s6-r79)** — response 용 jsonOpts 폐기 → `EndpointHelpers` SSOT.
+    // meta.json file write 용은 별 박제 (WriteIndented=true 가독성) — `metaJsonOpts` rename 후 유지.
+    let private metaJsonOpts =
+        JsonSerializerOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)
 
     /// **D-S7-5 phase 2 (1)** — per-uploadId SemaphoreSlim. 동시 PATCH / DELETE / finalize 가 같은 uploadId 에
     /// 들어와도 readMeta → append → writeMeta sequence 의 atomic 보장. lock 진입 자체가 cancellable (ct).
@@ -102,13 +103,8 @@ module UploadsEndpoint =
     let private removeLock (uploadId: string) : unit =
         uploadLocks.TryRemove uploadId |> ignore
 
-    let private writeJson (ctx: HttpContext) (status: int) (body: obj) : Task =
-        ctx.Response.StatusCode <- status
-        ctx.Response.ContentType <- "application/json; charset=utf-8"
-        ctx.Response.WriteAsync(JsonSerializer.Serialize(body, jsonOpts))
-
-    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
-        writeJson ctx status {| error = message |}
+    let private writeJson = EndpointHelpers.writeJson
+    let private writeError = EndpointHelpers.writeError
 
     /// `<storageRoot>/Staging/<uploadId>/` 절대 경로. uploadId 검증 = caller 책임 (regex).
     let private uploadDir (storageRoot: string) (uploadId: string) : string =
@@ -133,7 +129,7 @@ module UploadsEndpoint =
         if not (File.Exists p) then None
         else
             let json = File.ReadAllText(p, Encoding.UTF8)
-            JsonSerializer.Deserialize<UploadMeta>(json, jsonOpts) |> Some
+            JsonSerializer.Deserialize<UploadMeta>(json, metaJsonOpts) |> Some
 
     /// **D-S7-5 phase 2 (3)** — readMeta + crash inconsistency 회복.
     /// partial.Length > meta.Offset → PATCH 중간 crash → meta.Offset 까지 truncate (meta SSOT).
@@ -166,15 +162,12 @@ module UploadsEndpoint =
     let private writeMeta (uploadDir': string) (meta: UploadMeta) : unit =
         let p = metaPath uploadDir'
         let tmp = p + ".tmp"
-        File.WriteAllText(tmp, JsonSerializer.Serialize(meta, jsonOpts), Encoding.UTF8)
+        File.WriteAllText(tmp, JsonSerializer.Serialize(meta, metaJsonOpts), Encoding.UTF8)
         if File.Exists p then File.Replace(tmp, p, null, ignoreMetadataErrors = true)
         else File.Move(tmp, p)
 
-    /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 박제).
-    let private userIdentityOf (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
-        | true, v when not (isNull v) -> string v
-        | _ -> "unknown"
+    // **C-15 (s6-r79)** — userIdentityOf 폐기 → `EndpointHelpers` SSOT alias.
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
 
     /// **s6-r70 review C-4** — meta.UserIdentity ↔ caller X-User-Identity cross-check.
     /// uploadId 노출 시 다른 user 가 PATCH/GET/DELETE/finalize 탈취 차단. T1 모드 도 동일 — uploadId 발급한 user 만
@@ -191,7 +184,7 @@ module UploadsEndpoint =
             try
                 let! body =
                     JsonSerializer.DeserializeAsync<{| title: string; totalBytes: int64 |}>(
-                        ctx.Request.Body, jsonOpts, ctx.RequestAborted).AsTask()
+                        ctx.Request.Body, EndpointHelpers.DefaultJsonOpts, ctx.RequestAborted).AsTask()
                 if isNull (box body) then
                     do! writeError ctx 400 "request body JSON 결함"
                 elif String.IsNullOrWhiteSpace body.title then
@@ -409,7 +402,7 @@ module UploadsEndpoint =
             try
                 let! body =
                     JsonSerializer.DeserializeAsync<FinalizeBody>(
-                        ctx.Request.Body, jsonOpts, ctx.RequestAborted).AsTask()
+                        ctx.Request.Body, EndpointHelpers.DefaultJsonOpts, ctx.RequestAborted).AsTask()
                 if obj.ReferenceEquals(box body, null)
                    || String.IsNullOrWhiteSpace body.SwapTargetCollectionId then
                     return null

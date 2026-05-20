@@ -26,24 +26,10 @@ open Microsoft.Net.Http.Headers
 [<RequireQualifiedAccess>]
 module FileServing =
 
-    let private jsonResponseOpts = JsonSerializerOptions(WriteIndented = false)
-
-    /// HttpContext.Items 의 X-User-Identity (AuthMiddleware 가 박제).
-    /// review S4-m3 (P6): "unknown" fallback 은 사실 invariant 위반 — AuthMiddleware 가 통과시켰다면
-    /// `UserIdentityItemKey` 박제 의무. fallback 도달 자체가 anomaly → `Log.audit.Warn` 한 줄 박제.
-    /// (storm 방지: caller 가 단일 endpoint 안에서 1회만 호출. 매 endpoint 통상 1 call.)
-    let private userIdentityOf (ctx: HttpContext) : string =
-        match ctx.Items.TryGetValue AuthMiddleware.UserIdentityItemKey with
-        | true, v when not (isNull v) -> string v
-        | _ ->
-            Log.audit.Warn "X-User-Identity invariant 위반 — AuthMiddleware 통과 후 UserIdentityItemKey 부재"
-            "unknown"
-
-    let private writeError (ctx: HttpContext) (status: int) (message: string) : Task =
-        ctx.Response.StatusCode <- status
-        ctx.Response.ContentType <- "application/json; charset=utf-8"
-        let json = JsonSerializer.Serialize({| error = message |}, jsonResponseOpts)
-        ctx.Response.WriteAsync json
+    // **C-15 (s6-r79)** — 3 helper 폐기 → `EndpointHelpers` SSOT 통과 alias.
+    // FileServing 의 userIdentityOf 가 `Log.audit.Warn` invariant 박제 — EndpointHelpers SSOT 가 본 박제 일치.
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
+    let private writeError = EndpointHelpers.writeError
 
     /// 파일 확장자 → MIME content-type (§4.2 Phase S4 DoD: PDF/DOCX/XLSX/PPTX/TXT/MD).
     /// 미인식 확장자 → `application/octet-stream` (browser 가 download 처리).

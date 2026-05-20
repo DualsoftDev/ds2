@@ -25,6 +25,7 @@
     <Compile Include="Middleware.fs" />
     <Compile Include="Endpoints.fs" />
     <Compile Include="EventBus.fs" />
+    <Compile Include="EndpointHelpers.fs" />
     <Compile Include="CollectionEndpoints.fs" />
     <Compile Include="SessionEndpoints.fs" />
     <Compile Include="FileServing.fs" />
