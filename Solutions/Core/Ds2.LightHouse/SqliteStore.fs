@@ -140,6 +140,10 @@ CREATE TABLE IF NOT EXISTS Documents (
     IndexerVersion  TEXT NOT NULL,
     IngestedAt      TEXT NOT NULL
 );
+-- **R2-M1 (s6-r76, external review backlog)** — `findDocumentByPath` (mtime fast-skip hot path)
+-- 의 O(N²) full table scan 회귀 차단. FileHash 만 UNIQUE 였음. ensureSchema 가 forward-compat
+-- 적용 (기존 DB 에도 idempotent CREATE).
+CREATE INDEX IF NOT EXISTS IX_Documents_OriginalPath ON Documents(OriginalPath);
 
 CREATE TABLE IF NOT EXISTS OutlineNodes (
     Id          INTEGER PRIMARY KEY,

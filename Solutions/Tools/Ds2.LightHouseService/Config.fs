@@ -216,14 +216,20 @@ module Config =
     /// **N-1 변경**: Protocol `CertValidator.normalize` SSOT. raw entry 별 normalize → 빈 string 시 reject
     /// (정합 결함, 길이/형식 둘 다 검증 후 empty). 기존 silent skip 박제 폐기 — strict fail-fast 의무.
     let validateMtls (cfg: ServiceConfig) : ServiceConfig =
-        let mode = if isNull cfg.Mtls.Mode then "" else cfg.Mtls.Mode.Trim().ToLowerInvariant()
+        // **R6-M1 (s6-r76, external review backlog)** — `cfg.Mtls` null guard. schema=4 (s6-r66) 박제 이후
+        // ConfigSchema.load 가 항상 default 박제 → 실 NRE risk 0. defense-in-depth (config bypass / future
+        // schema 의 nullable optional 도입 시 회귀 차단). validateMultiTenant 와 정합 박제.
+        let mtls =
+            if obj.ReferenceEquals(box cfg.Mtls, null) then { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
+            else cfg.Mtls
+        let mode = if isNull mtls.Mode then "" else mtls.Mode.Trim().ToLowerInvariant()
         match mode with
         | "" | "off" | "optional" | "required" -> ()
         | other ->
             raise (InvalidDataException(
                 sprintf "mtls.mode=%s — \"off\"|\"optional\"|\"required\" 만 허용." other))
         let normalizedMode = if mode = "" then MtlsMode.Off else mode
-        let raw = if isNull cfg.Mtls.AllowedThumbprints then Array.empty else cfg.Mtls.AllowedThumbprints
+        let raw = if isNull mtls.AllowedThumbprints then Array.empty else mtls.AllowedThumbprints
         let tps =
             raw
             |> Array.filter (fun s -> not (String.IsNullOrWhiteSpace s))

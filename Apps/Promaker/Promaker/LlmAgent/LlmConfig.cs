@@ -207,20 +207,54 @@ public sealed class LlmConfig
     }
 
     /// <summary>
-    /// Promaker 다중 인스턴스 동시 save race 방지: lock + atomic write (`.tmp-<pid>` + Move overwrite).
-    /// 이전 LlmConsent.Save M2 정책 + LlmApiConfig.Save atomic 패턴 통합.
+    /// Promaker 다중 인스턴스 동시 save race 방지: in-process lock + cross-process file lock + atomic write
+    /// (`.tmp-&lt;pid&gt;` + Move overwrite). 이전 LlmConsent.Save M2 정책 + LlmApiConfig.Save atomic 패턴 통합.
+    /// <para/>
+    /// **R8-M5 (s6-r76, external review backlog)** — 이전에는 in-process lock 만 잡아서 다중 Promaker
+    /// instance 가 동시에 Save 호출 시 마지막 writer 가 silent overwrite. <see cref="ModifyWithLock"/> 의
+    /// cross-process file lock 과 정합 박제 — 둘 다 <see cref="WithFileLock"/> helper 통과.
+    /// <para/>
+    /// 주의: caller 가 미리 disk 의 latest 를 reload 하지 않으면 read-modify-write race 회피 못 함
+    /// (cross-process file lock 은 *write 시점* race 만 차단). read-modify-write 의무 caller 는
+    /// <see cref="ModifyWithLock"/> 사용 권장.
+    /// <para/>
+    /// UI freeze risk: STA UI thread 가 Save() 호출 시 worst-case ~12.7s lock 경합 가능. 다른 instance 가
+    /// 동시에 ModifyWithLock 보유 중인 경우 backoff retry 누적. UI critical path 는 <c>Task.Run</c> wrap 권고.
     /// </summary>
-    public void Save()
+    public void Save() => WithFileLock(SaveTo);
+
+    /// <summary>
+    /// **R8-M5 (s6-r76)** — cross-process file lock + retry/backoff helper. Save / ModifyWithLock 공통 SSOT.
+    /// <para/>
+    /// lock 충돌 (IOException) 시 7회 exponential backoff + per-attempt jitter (0~base/2 random).
+    /// base = 100/200/400/800/1600/3200/6400ms. 누적 worst ≈ 12.7s + jitter. 모두 실패 시 throw.
+    /// jitter 는 thundering herd (동시 retry 충돌) 회피.
+    /// </summary>
+    /// <param name="action">file lock 안에서 수행할 작업. 인자 = EffectiveConfigPath.</param>
+    private static void WithFileLock(Action<string> action)
     {
-        lock (_saveLock)
+        const int maxAttempts = 7;
+        var path = EffectiveConfigPath;
+        var lockPath = LockPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var path = ConfigPath;
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            var tmp = path + ".tmp-" + Environment.ProcessId;
-            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(tmp, path, overwrite: true);
+            try
+            {
+                using var lockStream = new FileStream(
+                    lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                action(path);
+                return;
+            }
+            catch (IOException)
+            {
+                if (attempt == maxAttempts - 1) throw;
+                var baseDelay = 100 << attempt;
+                var jitter = Random.Shared.Next(0, baseDelay / 2 + 1);
+                Thread.Sleep(baseDelay + jitter);
+            }
         }
+        throw new IOException($"LlmConfig.WithFileLock: lock 획득 실패 ({maxAttempts}회 retry, path={lockPath})");
     }
 
     // ─── s6-r24 작업 2 (MJ1 해소) — cross-process atomic Load→mutate→Save ──────────────
@@ -289,30 +323,16 @@ public sealed class LlmConfig
     public static LlmConfig ModifyWithLock(Action<LlmConfig> mutate)
     {
         if (mutate is null) throw new ArgumentNullException(nameof(mutate));
-        const int maxAttempts = 7;
-        var path = EffectiveConfigPath;
-        var lockPath = LockPath;
-        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        // R8-M5 — file lock + retry SSOT 는 WithFileLock helper. Save() 와 정합 박제.
+        LlmConfig? result = null;
+        WithFileLock(path =>
         {
-            try
-            {
-                using var lockStream = new FileStream(
-                    lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-                var cfg = LoadFrom(path);
-                mutate(cfg);
-                cfg.SaveTo(path);
-                return cfg;
-            }
-            catch (IOException)
-            {
-                if (attempt == maxAttempts - 1) throw;
-                var baseDelay = 100 << attempt;  // 100 / 200 / 400 / 800 / 1600 / 3200 / 6400 ms
-                var jitter = Random.Shared.Next(0, baseDelay / 2 + 1);
-                Thread.Sleep(baseDelay + jitter);
-            }
-        }
-        throw new IOException($"LlmConfig.ModifyWithLock: lock 획득 실패 ({maxAttempts}회 retry, path={lockPath})");
+            var cfg = LoadFrom(path);
+            mutate(cfg);
+            cfg.SaveTo(path);
+            result = cfg;
+        });
+        return result!;
     }
 
     /// <summary>**test 전용** — 명시 path 로 atomic write. <see cref="Save"/> 의 path override 형식.</summary>
