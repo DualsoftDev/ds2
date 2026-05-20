@@ -130,14 +130,113 @@ Filename: "{sys}\netsh.exe"; \
 var
   PortPage: TInputQueryWizardPage;
 
-procedure InitializeWizard();
+// netstat -ano -p tcp 출력에서 지정 포트가 LISTENING 상태로 잡혀있는지 검사.
+// ':80 ' 처럼 포트 뒤 공백까지 매칭해 ':8080' 같은 부분일치를 회피한다.
+function IsPortInUse(Port: Integer): Boolean;
+var
+  TempFile: String;
+  Lines: TArrayOfString;
+  i: Integer;
+  ResultCode: Integer;
+  PortToken: String;
 begin
+  Result := False;
+  TempFile := ExpandConstant('{tmp}\dspilot_netstat.txt');
+  if not Exec(ExpandConstant('{cmd}'),
+       '/c netstat -ano -p tcp > "' + TempFile + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Exit;
+  if not LoadStringsFromFile(TempFile, Lines) then
+  begin
+    DeleteFile(TempFile);
+    Exit;
+  end;
+  PortToken := ':' + IntToStr(Port);
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if (Pos('LISTENING', Lines[i]) > 0) and
+       (Pos(PortToken + ' ', Lines[i] + ' ') > 0) then
+    begin
+      Result := True;
+      Break;
+    end;
+  end;
+  DeleteFile(TempFile);
+end;
+
+// 서비스가 STOPPED 상태(또는 존재하지 않음)인지 확인.
+// RUNNING/PENDING 상태가 보이면 False.
+function IsServiceStopped(ServiceName: String): Boolean;
+var
+  TempFile: String;
+  Lines: TArrayOfString;
+  i: Integer;
+  ResultCode: Integer;
+begin
+  Result := True;
+  TempFile := ExpandConstant('{tmp}\dspilot_sc_query.txt');
+  Exec(ExpandConstant('{cmd}'),
+    '/c sc query ' + ServiceName + ' > "' + TempFile + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if not LoadStringsFromFile(TempFile, Lines) then
+  begin
+    DeleteFile(TempFile);
+    Exit;
+  end;
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if (Pos('RUNNING', Lines[i]) > 0) or
+       (Pos('STOP_PENDING', Lines[i]) > 0) or
+       (Pos('START_PENDING', Lines[i]) > 0) then
+    begin
+      Result := False;
+      Break;
+    end;
+  end;
+  DeleteFile(TempFile);
+end;
+
+// sc stop 후 STOPPED 까지 polling. 고정 Sleep(3000) 대비 race condition 회피.
+function WaitForServiceStopped(ServiceName: String; TimeoutSec: Integer): Boolean;
+var
+  i: Integer;
+begin
+  for i := 0 to (TimeoutSec * 2) - 1 do
+  begin
+    if IsServiceStopped(ServiceName) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(500);
+  end;
+  Result := False;
+end;
+
+procedure InitializeWizard();
+var
+  DefaultPort: String;
+  PortHint: String;
+begin
+  DefaultPort := '{#MyDefaultPort}';
+  PortHint := '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)';
+  // 80이 점유중인데 그게 구버전 우리 서비스가 아니라면 8080을 권장.
+  // 구버전 우리 서비스라면 PrepareToInstall 에서 stop 후 정리되므로 80 그대로 두어도 됨.
+  if (not IsServiceStopped('{#MyServiceName}')) then
+  begin
+    // 우리 구버전이 잡고 있음 → 80 유지
+  end
+  else if IsPortInUse(80) then
+  begin
+    DefaultPort := '8080';
+    PortHint := '포트 80 이 다른 프로세스에 의해 사용 중이라 기본값을 8080 으로 변경했습니다.';
+  end;
+
   PortPage := CreateInputQueryPage(wpSelectDir,
     '포트 설정', '웹 서비스 포트를 설정합니다.',
-    'DSPilot 웹 서비스가 사용할 포트 번호를 입력하세요.' + #13#10 +
-    '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)');
+    'DSPilot 웹 서비스가 사용할 포트 번호를 입력하세요.' + #13#10 + PortHint);
   PortPage.Add('포트 번호:', False);
-  PortPage.Values[0] := '{#MyDefaultPort}';
+  PortPage.Values[0] := DefaultPort;
 end;
 
 function GetPort(Param: String): String;
@@ -162,6 +261,7 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Port: String;
   PortNum: Integer;
+  OurServiceRunning: Boolean;
 begin
   Result := True;
   if CurPageID = PortPage.ID then
@@ -178,6 +278,17 @@ begin
     begin
       MsgBox('포트 번호는 1~65535 사이의 숫자여야 합니다.', mbError, MB_OK);
       Result := False;
+      Exit;
+    end;
+    // 우리 구버전 서비스가 잡고 있는 경우는 PrepareToInstall 에서 stop 처리되므로 점유 무시.
+    OurServiceRunning := not IsServiceStopped('{#MyServiceName}');
+    if (not OurServiceRunning) and IsPortInUse(PortNum) then
+    begin
+      if MsgBox('포트 ' + Port + ' 가 이미 다른 프로세스에 의해 사용 중입니다.' + #13#10 +
+                '계속 진행하면 DSPilot 서비스 시작이 실패할 수 있습니다.' + #13#10#13#10 +
+                '그래도 이 포트로 진행하시겠습니까?',
+                mbConfirmation, MB_YESNO) = IDNO then
+        Result := False;
     end;
   end;
 end;
@@ -217,9 +328,11 @@ var
   ResultCode: Integer;
   OldAppSettings: String;
   OldProdSettings: String;
+  PortNum: Integer;
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(3000);
+  // 고정 Sleep 대신 STOPPED polling — Sleep(3000) 으로는 부족한 환경 race condition 대비.
+  WaitForServiceStopped('{#MyServiceName}', 10);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -233,5 +346,17 @@ begin
   if FileExists(OldProdSettings) then DeleteFile(OldProdSettings);
 
   Sleep(1000);
+
+  // 우리 서비스가 stop 된 이후에도 포트가 잡혀있다면 외부 프로세스 점유. 안내만 띄우고 진행.
+  // (NextButtonClick 에서 한 차례 확인했지만 마법사 중 외부 프로세스가 80 을 잡았을 수 있어 안전망.)
+  PortNum := StrToIntDef(GetPort(''), -1);
+  if (PortNum > 0) and IsPortInUse(PortNum) then
+  begin
+    MsgBox('포트 ' + IntToStr(PortNum) + ' 가 외부 프로세스에 의해 사용 중입니다.' + #13#10 +
+           '설치는 계속되지만 DSPilot 서비스 시작이 실패할 수 있습니다.' + #13#10 +
+           '실패 시 해당 프로세스를 종료한 뒤 서비스를 다시 시작하세요.',
+           mbInformation, MB_OK);
+  end;
+
   Result := '';
 end;
