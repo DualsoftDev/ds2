@@ -279,6 +279,10 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         csb.DataSource <- path
         csb.Mode <- if readOnly then SqliteOpenMode.ReadOnly else SqliteOpenMode.ReadWriteCreate
         csb.Cache <- SqliteCacheMode.Shared
+        // **s6-r47 / 외부 --review L-Maj-3 part 2 정정** — read-only path 는 pool 비활성화. 전역 pool flush
+        // 부작용 (caller 가 ClearPool 호출 시 다른 connection 의 pool 도 flush) 회피. write path 는 pool 정합
+        // 유지 (Indexer batch 의 connection reuse perf 효과). read-only SqliteOpenMode 는 file lock 잔존 무관.
+        csb.Pooling <- not readOnly
         let conn = new SqliteConnection(csb.ToString())
         conn.Open()
         applyPragmas conn
