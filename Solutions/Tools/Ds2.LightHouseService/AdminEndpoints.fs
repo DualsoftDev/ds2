@@ -40,8 +40,12 @@ module AdminEndpoints =
         [<JsonPropertyName("readOnly")>] ReadOnly: bool
     }
 
-    // **C-15 (s6-r79)** — jsonOpts / writeJson / writeError / callerIdentity 4 helper 폐기 → `EndpointHelpers` SSOT 통과.
-    // body deserialize 의 PropertyNameCaseInsensitive=true 박제도 `EndpointHelpers.DefaultJsonOpts` 통과 정합.
+    // **C-15 (s6-r79) + B20 Maj-5 (s6-r84, 15-reviewer)** — `EndpointHelpers` SSOT 통과.
+    // 다른 5 endpoint module 의 alias 패턴 정합 (K4 잔여 cosmetic).
+    let private userIdentityOf = EndpointHelpers.userIdentityOf
+    let private writeJson = EndpointHelpers.writeJson
+    let private writeError = EndpointHelpers.writeError
+    let private requireAdmin = EndpointHelpers.requireAdmin
 
     let private readBody (ctx: HttpContext) : Task<string> = task {
         use reader = new StreamReader(ctx.Request.Body, System.Text.Encoding.UTF8)
@@ -64,11 +68,11 @@ module AdminEndpoints =
 
     let private handleOwner (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
         task {
-            if not (EndpointHelpers.requireAdmin cfg ctx) then
+            if not (requireAdmin cfg ctx) then
                 Log.audit.Warn(
                     sprintf "admin.owner: 권한 거부 — caller=%s id=%s"
-                        (EndpointHelpers.userIdentityOf ctx) id)
-                do! EndpointHelpers.writeError ctx 403 "admin 권한 필요"
+                        (userIdentityOf ctx) id)
+                do! writeError ctx 403 "admin 권한 필요"
             else
                 let! body = readBody ctx
                 let parsed =
@@ -78,30 +82,30 @@ module AdminEndpoints =
                     with _ -> None
                 match parsed with
                 | None ->
-                    do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
+                    do! writeError ctx 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
                 | Some p when String.IsNullOrWhiteSpace p.User ->
-                    do! EndpointHelpers.writeError ctx 400 "body.user 필수"
+                    do! writeError ctx 400 "body.user 필수"
                 | Some p ->
                     match Registry.tryFindById storageRoot id with
                     | None ->
-                        do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
+                        do! writeError ctx 404 (sprintf "collection not found — id=%s" id)
                     | Some entry ->
                         let newOwner = p.User.Trim()
                         let updated = { entry with ImportedBy = newOwner }
                         do! Registry.upsertAsync storageRoot updated
                         Log.audit.Info(
                             sprintf "admin.owner: id=%s prev=%s next=%s caller=%s"
-                                id entry.ImportedBy newOwner (EndpointHelpers.userIdentityOf ctx))
-                        do! EndpointHelpers.writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
+                                id entry.ImportedBy newOwner (userIdentityOf ctx))
+                        do! writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
         } :> Task
 
     let private handleAcl (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
         task {
-            if not (EndpointHelpers.requireAdmin cfg ctx) then
+            if not (requireAdmin cfg ctx) then
                 Log.audit.Warn(
                     sprintf "admin.acl: 권한 거부 — caller=%s id=%s"
-                        (EndpointHelpers.userIdentityOf ctx) id)
-                do! EndpointHelpers.writeError ctx 403 "admin 권한 필요"
+                        (userIdentityOf ctx) id)
+                do! writeError ctx 403 "admin 권한 필요"
             else
                 let! body = readBody ctx
                 let parsed =
@@ -111,11 +115,11 @@ module AdminEndpoints =
                     with _ -> None
                 match parsed with
                 | None ->
-                    do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
+                    do! writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
                 | Some p ->
                     match Registry.tryFindById storageRoot id with
                     | None ->
-                        do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
+                        do! writeError ctx 404 (sprintf "collection not found — id=%s" id)
                     | Some entry ->
                         // **B PR M-3 (s6-r80)** — users element 정규화 (whitespace trim + empty filter + dedup).
                         let users = normalizeAclUsers p.Users
@@ -124,8 +128,8 @@ module AdminEndpoints =
                         do! Registry.upsertAsync storageRoot updated
                         Log.audit.Info(
                             sprintf "admin.acl: id=%s users=%d readOnly=%b caller=%s"
-                                id users.Length p.ReadOnly (EndpointHelpers.userIdentityOf ctx))
-                        do! EndpointHelpers.writeJson ctx 200 (box {| id = id; acl = newAcl |})
+                                id users.Length p.ReadOnly (userIdentityOf ctx))
+                        do! writeJson ctx 200 (box {| id = id; acl = newAcl |})
         } :> Task
 
     let map (cfg: ServiceConfig) (app: IEndpointRouteBuilder) (storageRoot: string) : unit =
