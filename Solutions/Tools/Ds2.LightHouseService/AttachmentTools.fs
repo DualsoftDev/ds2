@@ -303,15 +303,22 @@ type AttachmentTools() =
     /// breaking change — 기존 caller grep 0 (lib 내부 만). MCP 표준 ContentBlock 분리 (D-2-7) 로 LLM client 의 native
     /// vision 인식 활성.
     ///
-    /// **응답 분기**:
-    /// - `captionOnly = true` (default 우선) — text block 1개 = chunk 본문 + (이미지가 있으면) caption 텍스트 enumeration.
-    ///   "[image#1 caption: ...]" 식으로 inline append. image binary 미동봉, token 절약.
-    /// - `includeImages = true && captionOnly = false` — text block + image content blocks 분리. 각 image 는
-    ///   base64 inline + MIME type. **size 정책 가드** (D-2-3):
-    ///     - 단일 image > MaxSingleImageBytes (~3.75MB 원본) → 자동 skip + oversize text 박제
-    ///     - 응답당 image 수 > MaxImagesPerResponse (5장) → 자동 caption_only 전체 강등
-    ///     - 모든 image skip 시에도 text block + skip 사유 박제 (silent drop 금지 정합)
-    /// - 두 flag 모두 false → 기본 caption_only 동작 (back-compat 의도, 새 caller 가 명시 false 시 의도 표명).
+    /// **응답 분기 SSOT (D-2-3 정합, s6-r58 C5 명시화)** — 5 case 박제:
+    /// | # | captionOnly | includeImages | 박제 path | 비고 |
+    /// |---|---|---|---|---|
+    /// | 1 | true        | false (typical) | caption-only — text block + caption enum | default 의도 |
+    /// | 2 | true        | true            | caption-only (captionOnly precedence) | captionOnly 명시 우선 — image binary 미동봉 |
+    /// | 3 | false       | true            | image binary 분리 — text block + base64 image blocks | size 정책 가드 진입 |
+    /// | 4 | false       | false           | caption-only (back-compat) + audit warn (ambiguous) | LLM 의 명시 의도 불분명 |
+    /// | 5 | * (degraded) | true             | image 수 > 5장 → 자동 caption_only 강등 | marker `[oversize_image_count]` 박제 |
+    ///
+    /// **size 정책 가드 (case 3)** (D-2-3):
+    ///   - 단일 image > MaxSingleImageBytes (~3.75MB 원본) → 자동 skip + oversize text 박제
+    ///   - 응답당 image 수 > MaxImagesPerResponse (5장) → case 5 (자동 caption_only 강등)
+    ///   - 모든 image skip 시에도 text block + skip 사유 박제 (silent drop 금지 정합)
+    ///
+    /// **case 4 audit (s6-r58 C5)** — caller (LLM) 이 두 flag 모두 false 박제 시 의도 불분명 (caption_only default
+    /// fall-back). audit log warn + 미래 MCP schema 강화 (둘 다 false 거부 또는 명시 default) 시점에 정정.
     [<McpServerTool>]
     [<Description("Read chunk text of a ref + optional image content blocks. captionOnly=true (default) returns text+caption enumeration; includeImages=true with captionOnly=false returns text + base64 image blocks (size-policy gated).")>]
     static member attachment_read
@@ -348,7 +355,14 @@ type AttachmentTools() =
                 let chunkText = kb.Read libFileId ref
                 let imgRefs = kb.ReadImages libFileId ref
 
-                // size 정책: image 수 초과 → 전체 caption_only 강등 marker.
+                // **s6-r58 C5 (case 4 audit)** — caller (LLM) 이 두 flag 모두 false 박제 시 의도 불분명.
+                // caption_only default fall-back 박제 + audit warn (LLM 정정 hint 가치). production wire 정합.
+                if not captionOnly && not includeImages then
+                    Log.audit.Warn(
+                        sprintf "C5: attachment_read 두 flag 모두 false (case 4 ambiguous) → caption_only fall-back. fileId=%s ref=%s"
+                            (Log.sanitizeForLog fileId) (Log.sanitizeForLog ref))
+
+                // size 정책: image 수 초과 → 전체 caption_only 강등 marker (case 5).
                 let degradedByCount = imgRefs.Length > MaxImagesPerResponse
 
                 // 효과적 mode (precedence): captionOnly=true / degraded / image 0개 → captionOnly path
