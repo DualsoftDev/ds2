@@ -165,7 +165,9 @@ let private runIndex (folder: string) (noEmbedding: bool) : int =
         finally
             embedder |> Option.iter (fun e -> e.Dispose())
 
-/// `--upload` 본격 분기 — staging copy + 색인 + zip + POST /collections.
+/// `--upload` 본격 분기 — in-place 색인 + zip + POST /collections (옵션 P + 보관 정책).
+/// 산출물 = `<folder>/.lighthouse-kb/{index.db, meta.json}` (색인 시작 전 wipe + 색인 후 보관).
+/// zip 은 temp 에 생성 후 업로드 완료 시 정리. `.lighthouse-kb/` 는 source 안 보존.
 /// exit code (D-S6-4): 0/1/2/3/11/12/99.
 let private runUpload
         (folder: string)
@@ -179,42 +181,43 @@ let private runUpload
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
         11
+    elif not (Packager.verifyWritable folder) then
+        eprintfn "오류: source 폴더 write 권한 없음 — %s" folder
+        eprintfn "  in-place 색인을 위해 source 폴더에 .lighthouse-kb/ 생성 가능해야 합니다."
+        11
     else
-        let mutable stagingDir = ""
         let mutable zipPath = ""
         try
             try
-                stagingDir <- Packager.createStaging ()
-                eprintfn "  staging 사본 — %s" stagingDir
-                let fileCount, totalBytes = Packager.copyToStaging folder stagingDir
-                if fileCount = 0 then
-                    eprintfn "오류: source 가 비어 있음 — 등록 가치 0"
-                    12
-                else
-                    eprintfn "  색인 시작 — %d 파일 (%d bytes)" fileCount totalBytes
-                    let embedder = resolveEmbedder noEmbedding
-                    try
-                        let ingested = Packager.runIngestInStaging stagingDir embedder CancellationToken.None
-                        if ingested = 0 then
-                            eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단"
-                            12
-                        else
-                            eprintfn "  색인 완료 — ingested=%d" ingested
-                            Packager.writeMeta stagingDir title folder fileCount totalBytes userIdentity
-                            zipPath <- Packager.createZip stagingDir
-                            let zipBytes = (FileInfo zipPath).Length
-                            eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
-                            use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
-                            use stream = File.OpenRead zipPath
-                            eprintfn "  POST /collections → %s" baseUrl
-                            let id =
-                                LightHouseClient.uploadCollection
-                                    client psk userIdentity title stream CancellationToken.None
-                                |> fun t -> t.GetAwaiter().GetResult()
-                            printfn "업로드 완료 — collectionId=%s" id
-                            0
-                    finally
-                        embedder |> Option.iter (fun e -> e.Dispose())
+                Packager.resetKbDir folder
+                eprintfn "  in-place 색인 시작 — %s/.lighthouse-kb/" folder
+                let embedder = resolveEmbedder noEmbedding
+                try
+                    let results = Packager.runIngest folder embedder CancellationToken.None
+                    let summary = Packager.summarize results
+                    if summary.IngestedCount = 0 then
+                        eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단 (빈 폴더 또는 unsupported extension)"
+                        12
+                    else
+                        eprintfn "  색인 완료 — ingested=%d, 파일=%d, %d bytes"
+                            summary.IngestedCount summary.FileCount summary.TotalBytes
+                        Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
+                        zipPath <- Packager.createZip folder
+                        let zipBytes = (FileInfo zipPath).Length
+                        eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
+                        use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
+                        use stream = File.OpenRead zipPath
+                        eprintfn "  POST /collections → %s" baseUrl
+                        let id =
+                            LightHouseClient.uploadCollection
+                                client psk userIdentity title stream CancellationToken.None
+                            |> fun t -> t.GetAwaiter().GetResult()
+                        printfn "업로드 완료 — collectionId=%s" id
+                        eprintfn "  [안내] 산출물 보관: %s/.lighthouse-kb/ (다음 색인 시작 시 wipe 됩니다)" folder
+                        eprintfn "  [안내] .gitignore 에 '.lighthouse-kb/' 추가 권장"
+                        0
+                finally
+                    embedder |> Option.iter (fun e -> e.Dispose())
             with
             | LightHouseAuthError(msg, status) ->
                 eprintfn "인증 실패 (HTTP %d) — %s" (int status) msg
@@ -232,8 +235,8 @@ let private runUpload
                 eprintfn "오류 — %s: %s" (ex.GetType().Name) ex.Message
                 99
         finally
+            // zip 만 정리. `<folder>/.lighthouse-kb/` 는 보관 정책에 따라 유지.
             Packager.safeDelete zipPath
-            Packager.safeDelete stagingDir
 
 [<EntryPoint>]
 let main args =

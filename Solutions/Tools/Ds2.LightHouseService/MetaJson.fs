@@ -44,15 +44,20 @@ module MetaJson =
     [<Literal>]
     let FileName = "meta.json"
 
+    /// `.lighthouse-kb/` sub-directory — meta.json + index.db 동거 (§3.3 zip layout SSOT).
+    /// Client (CLI Packager / Promaker CollectionPackager) 와 server 가 동일 경로 박제.
+    [<Literal>]
+    let SubDir = ".lighthouse-kb"
+
     let private jsonOptions () =
         JsonSerializerOptions(
             PropertyNameCaseInsensitive = true,
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never)
 
-    /// collection 디렉토리 → `<dir>/meta.json` 절대경로.
+    /// collection 디렉토리 → `<dir>/.lighthouse-kb/meta.json` 절대경로.
     let path (collectionDir: string) : string =
-        Path.Combine(collectionDir, FileName)
+        Path.Combine(collectionDir, SubDir, FileName)
 
     /// 파일 → MetaJson. 미존재 시 FileNotFoundException — caller fail-fast.
     /// schemaVersion mismatch 시 InvalidDataException (forward-compat — 미정의 필드는 reject 안 함).
@@ -71,8 +76,12 @@ module MetaJson =
         meta
 
     /// atomic save — `.tmp` write 후 File.Replace / File.Move (Registry 와 동일 패턴).
+    /// `.lighthouse-kb/` 부재 시 자동 생성 (첫 save 시점).
     let save (collectionDir: string) (meta: MetaJson) =
         let p = path collectionDir
+        let dir = Path.GetDirectoryName p
+        if not (String.IsNullOrEmpty dir) then
+            Directory.CreateDirectory dir |> ignore
         let tmp = p + ".tmp"
         let json = JsonSerializer.Serialize(meta, jsonOptions())
         File.WriteAllText(tmp, json, Encoding.UTF8)

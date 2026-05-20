@@ -82,5 +82,6 @@ let ``toRegistryEntry — 0-doc collection (MA18) — fileCount/bytes 0 보존``
 [<Fact>]
 let ``schemaVersion mismatch — fail-fast`` () = withTempDir (fun dir ->
     let p = MetaJson.path dir
+    Directory.CreateDirectory(Path.GetDirectoryName p) |> ignore
     File.WriteAllText(p, """{"schemaVersion": 999, "title": "x"}""", Encoding.UTF8)
     Assert.Throws<InvalidDataException>(fun () -> MetaJson.load dir |> ignore) |> ignore)

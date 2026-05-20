@@ -7,7 +7,7 @@ open Ds2.LightHouse
 
 /// Phase 2 task D-iii (s6-r20 --review M1) — cli 측 VLM captionGen builder SSOT.
 ///
-/// `lighthouse-cli` 무인 batch 의 두 진입점 (Program.runIndex / Packager.runIngestInStaging) 이
+/// `lighthouse-cli` 무인 batch 의 두 진입점 (Program.runIndex / Packager.runIngest) 이
 /// 동일한 env var fallback 로직을 박제하던 중복 (17 line × 2) 을 본 module 로 통합.
 ///
 /// **정책** (Promaker UI 측 `AttachmentIngestService.BuildCaptionGen` 과 분리 정합):

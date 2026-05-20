@@ -24,8 +24,9 @@ namespace Promaker.Knowledge;
 ///   .lighthouse-kb/ ← Indexer.ingest 산출물 (index.db ...)
 /// </code>
 ///
-/// 본 클래스가 `meta.json` 을 stagingDir 루트에 작성 후 zip 전체를 묶는다. zip 안 server-side 필드
-/// (id / importedAt / importedBy / storageRelPath) 는 미작성 — server 가 import 시 발급/박제.
+/// 본 클래스가 `meta.json` 을 `.lighthouse-kb/meta.json` 으로 작성 후 zip 전체를 묶는다
+/// (s6-r55+ 옵션 P — 이전 staging root 의 meta.json 에서 `.lighthouse-kb/` sub-dir 로 이전, §3.3 SSOT 정합).
+/// zip 안 server-side 필드 (id / importedAt / importedBy / storageRelPath) 는 미작성 — server 가 import 시 발급/박제.
 /// </summary>
 public static class CollectionPackager
 {
@@ -91,7 +92,8 @@ public static class CollectionPackager
             ClientHost = inputs.ClientHost ?? Environment.MachineName,
             ClientUser = inputs.ClientUser ?? Environment.UserName,
         };
-        var metaPath = Path.Combine(stagingDir, MetaFileName);
+        // meta.json 위치 = `.lighthouse-kb/meta.json` (옵션 P, §3.3 zip layout SSOT).
+        var metaPath = Path.Combine(kbDir, MetaFileName);
         File.WriteAllText(metaPath, JsonSerializer.Serialize(meta, JsonOptions),
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
@@ -102,7 +104,7 @@ public static class CollectionPackager
             using (var zipStream = new FileStream(tmpZip, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false))
             {
-                AddEntry(archive, metaPath, MetaFileName, ct);
+                // meta.json 은 .lighthouse-kb/ 안에 박혔으므로 AddDirectoryEntries 가 자동 entry 박제.
                 AddDirectoryEntries(archive, sourceDir, SourceFolderName, ct);
                 AddDirectoryEntries(archive, kbDir, KbFolderName, ct);
             }
