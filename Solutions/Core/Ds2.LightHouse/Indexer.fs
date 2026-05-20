@@ -200,39 +200,55 @@ module Indexer =
                 Log.lighthouse.Warn(sprintf "Indexer: skip — %s (path=%s)" reason path)
                 Skipped reason
             | Some extractor ->
-                let hash = computeFileHash path
-                // idempotent: 같은 hash 가 이미 색인되어 있으면 skip (재색인은 rebuild 흐름에서만).
-                match SqliteStore.findDocumentByHash conn hash with
-                | Some existingId ->
-                    Log.lighthouse.Debug(sprintf "Indexer: skip — already ingested (path=%s, docId=%d)" path existingId)
-                    Skipped "already ingested (same hash)"
+                // **s6-r49 #2 (L-Maj-10)** — mtime/size fast-skip. existing row 의 OriginalPath 매칭 시
+                // (mtime, size) 비교 → 둘 다 match 면 hash 계산 skip + 기존 row 재활용 (대용량 PDF SHA-256 cost
+                // 회피). mismatch 또는 mtime NULL (legacy row) → fall-back hash 계산 path 진입.
+                let fileInfo = FileInfo(path)
+                let mtimeTicks = fileInfo.LastWriteTimeUtc.Ticks
+                let sizeBytes = fileInfo.Length
+                let fastSkipMatched =
+                    match SqliteStore.findDocumentByPath conn path with
+                    | Some (existingId, Some existingMtime, existingSize)
+                        when existingMtime = mtimeTicks && existingSize = sizeBytes ->
+                        Log.lighthouse.Debug(
+                            sprintf "Indexer: fast-skip — mtime/size match (path=%s, docId=%d)" path existingId)
+                        Some existingId
+                    | _ -> None
+                match fastSkipMatched with
+                | Some _ -> Skipped "fast-skip (mtime/size match)"
                 | None ->
-                    // extractor 가 fail-safe (PdfExtractor/OoxmlExtractor) — 손상 파일도 빈 결과 반환.
-                    // 추출 자체 throw 는 fail-fast 정책 따라 reraise (debugging 가시성).
-                    let extracted = extractor.Extract(path, ct)
-                    let sizeBytes = FileInfo(path).Length
-                    let title = titleOf extracted path
-                    let docId =
-                        SqliteStore.insertDocument
-                            conn hash path extracted.DocType sizeBytes extracted.PageOrSheetCnt title
-                    let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
-                    let chunks = Chunker.chunkify extracted.Segments
-                    SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
-                    // Phase 4 (s6-r34) — chunks insert 직후 embedder dispatch (None 이면 no-op).
-                    dispatchEmbeddings conn embedderOpt docId chunks ct
-                    // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
-                    // Phase 1 extractor 의 images=[||] 는 no-op.
-                    // C4 (s6-r15): chunks 인서트 직후 RefLocator → 첫 chunk Id map 빌드 → ChunkId 채움.
-                    // D (s6-r19): captionGen 전달 — eager caption 채움 (noop 이면 SkippedCaption 누적).
-                    let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
-                    ingestImagesIntoStore conn collectionRoot docId refToChunkId captionGen extracted.Images
-                    // C4 Q3 옵션 X — image dispatch 완료 후 Chunks.ImageCount post-update.
-                    // images=[||] 인 Phase 1 경로에서도 모든 chunks 의 ImageCount=0 으로 갱신 (idempotent — DEFAULT 0 정합).
-                    SqliteStore.updateChunkImageCounts conn docId
-                    Log.lighthouse.Info(
-                        sprintf "Indexer: ingested — path=%s docId=%d segments=%d chunks=%d images=%d"
-                            path docId extracted.Segments.Length chunks.Length extracted.Images.Length)
-                    Ingested docId
+                    let hash = computeFileHash path
+                    // idempotent: 같은 hash 가 이미 색인되어 있으면 skip (재색인은 rebuild 흐름에서만).
+                    match SqliteStore.findDocumentByHash conn hash with
+                    | Some existingId ->
+                        Log.lighthouse.Debug(sprintf "Indexer: skip — already ingested (path=%s, docId=%d)" path existingId)
+                        Skipped "already ingested (same hash)"
+                    | None ->
+                        // extractor 가 fail-safe (PdfExtractor/OoxmlExtractor) — 손상 파일도 빈 결과 반환.
+                        // 추출 자체 throw 는 fail-fast 정책 따라 reraise (debugging 가시성).
+                        let extracted = extractor.Extract(path, ct)
+                        let title = titleOf extracted path
+                        let docId =
+                            SqliteStore.insertDocumentWithMtime
+                                conn hash path extracted.DocType sizeBytes extracted.PageOrSheetCnt title (Some mtimeTicks)
+                        let outlineIds = SqliteStore.insertOutlineTree conn docId extracted.Outline
+                        let chunks = Chunker.chunkify extracted.Segments
+                        SqliteStore.insertChunks conn docId outlineIds chunks SqliteStore.DefaultBatchSize ct
+                        // Phase 4 (s6-r34) — chunks insert 직후 embedder dispatch (None 이면 no-op).
+                        dispatchEmbeddings conn embedderOpt docId chunks ct
+                        // Phase 2 task C1 — extractor 가 추출한 image staging 을 ImageStore 로 dispatch.
+                        // Phase 1 extractor 의 images=[||] 는 no-op.
+                        // C4 (s6-r15): chunks 인서트 직후 RefLocator → 첫 chunk Id map 빌드 → ChunkId 채움.
+                        // D (s6-r19): captionGen 전달 — eager caption 채움 (noop 이면 SkippedCaption 누적).
+                        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+                        ingestImagesIntoStore conn collectionRoot docId refToChunkId captionGen extracted.Images
+                        // C4 Q3 옵션 X — image dispatch 완료 후 Chunks.ImageCount post-update.
+                        // images=[||] 인 Phase 1 경로에서도 모든 chunks 의 ImageCount=0 으로 갱신 (idempotent — DEFAULT 0 정합).
+                        SqliteStore.updateChunkImageCounts conn docId
+                        Log.lighthouse.Info(
+                            sprintf "Indexer: ingested — path=%s docId=%d segments=%d chunks=%d images=%d"
+                                path docId extracted.Segments.Length chunks.Length extracted.Images.Length)
+                        Ingested docId
 
     /// collection 폴더 안 모든 지원 파일 enumerate (`.lighthouse-kb/` 자체는 제외).
     /// recursive — 하위 폴더 포함. symlink 는 OS 정책 따름.
