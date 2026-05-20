@@ -633,6 +633,42 @@
                 </StackPanel>
             </Button>
         </StackPanel>
+
+        <!-- C6 — KB citation popup. MdXaml Hyperlink (attachment://fileId/ref) 클릭 시 LlmChatPanel.xaml.cs 의
+             RequestNavigate handler 가 IsOpen=true + PlacementTarget=clicked Hyperlink. excerpt / outline 표시. -->
+        <Popup x:Name="CitationPopup"
+               StaysOpen="False"
+               AllowsTransparency="True"
+               Placement="Mouse"
+               PopupAnimation="Fade"
+               MaxWidth="520">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="3"
+                    Padding="10" Margin="4">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.3"/>
+                </Border.Effect>
+                <StackPanel>
+                    <TextBlock x:Name="CitationFileName" FontWeight="SemiBold" FontSize="12"
+                               Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="CitationRef" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,2,0,0"/>
+                    <TextBlock x:Name="CitationOutline" FontSize="11" FontStyle="Italic"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,2,0,4"
+                               TextWrapping="Wrap"/>
+                    <Separator Margin="0,4,0,4"/>
+                    <TextBox x:Name="CitationExcerpt"
+                             IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             TextWrapping="Wrap" MaxHeight="200"
+                             VerticalScrollBarVisibility="Auto"
+                             FontSize="12" Cursor="IBeam"/>
+                    <TextBlock x:Name="CitationMeta" FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+        </Popup>
     </Grid>
     </Border>
 </UserControl>

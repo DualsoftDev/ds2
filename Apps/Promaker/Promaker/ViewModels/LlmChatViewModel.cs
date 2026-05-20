@@ -352,6 +352,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             // McpClient + HttpClient 회수까지 같이.
             _cts?.Cancel();
             _provider?.ClearSession();
+            // C6 — provider switch 는 새 session 동등 → citation cache 도 cleanup.
+            ClearCitationCache();
             // round-trip §3 — provider switch 는 새 history 시작과 동치 → 새 provider 의 첫 송신에 snapshot 무조건 첨부.
             _lastSentRevision = null;
             if (_provider is IAsyncDisposable prevAsync)
@@ -844,6 +846,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         AttachmentNotice = "";
         SessionId = null;
         LastClosedProjectPath = null;
+        // C6 — citation cache 도 동반 정리. 이전 session 의 attachment_search hit 가 새 session 의
+        // 잘못된 fileId/ref 우연 매칭으로 popup 띄우는 회귀 차단.
+        ClearCitationCache();
         // round-trip §3 — 세션 초기화 시 snapshot 재첨부 강제 (새 history 의 첫 turn 에 무조건 snapshot 보냄).
         _lastSentRevision = null;
         StatusText = "세션 초기화 완료";
@@ -1024,10 +1029,12 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
                 break;
 
             case LlmEvent.ToolUse tu:
+                RecordToolUse(tu.id, tu.name);
                 AddToolTurn($"[tool_use] {tu.name}");
                 break;
 
             case LlmEvent.ToolResult tr:
+                RecordToolResult(tr.toolUseId, tr.isError, tr.content);
                 AddToolTurn($"[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}");
                 break;
 
