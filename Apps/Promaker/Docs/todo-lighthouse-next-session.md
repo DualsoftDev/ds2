@@ -14,13 +14,13 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r49 종결 예정, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r52 종결 예정, 2026-05-20)
 
-**Phase 4 종결 + 외부 --review L-Maj-1/3/4/5/6/10 종결 + s6-r40 자가 검열 backlog 4건 모두 종결 + 조합 B (C1+C2 embedding lifecycle) + #4 ApplicationStopping hook + #1 Pooling=False + #2 mtime fast-skip** — `Ds2.LightHouse` lib 의 embedding/hybrid retrieval + mtime fast-skip + 모든 caller tier 통합 완료. 누적 **619 Fact** (lib 170 / service 125 / IT 33 / Promaker 291). 회귀 0.
+**Phase 4 종결 + 외부 --review L-Maj-1/3/4/5/6/10 + ⑮/⑰/⑳ 종결 + s6-r40 자가 검열 backlog 4건 모두 종결 + 조합 B (C1+C2) + #4 hook + #1 Pooling=False + #2 mtime fast-skip + #5 cheap 3건** — `Ds2.LightHouse` lib + service + IT 통합 완료. 누적 **624 Fact** (lib 170 / service 130 / IT 33 / Promaker 291). 회귀 0.
 
 **별 세션 이연 의무**:
 - **#3 Phase S7 잔여** (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — 각 매우 large (~200~500 line), sub-agent 위임 의무. 단독 phase.
-- **#5 외부 --review 잔여 ⑬~⑳ 13건** — server.md §7.1 s6-r35 row 박제. 우선순위 사용자 결정 의무. 각 별 turn.
+- **#5 외부 --review 잔여 ⑬ ⑭ ⑱ ⑲** (4건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / SessionRegistry purge helper / EventsEndpoint client-write keepalive. 각 별 turn.
 
 **새 세션 진입 prompt 예시 (--transfer 박제 SSOT)**:
 
@@ -40,8 +40,11 @@ s6-r49 (#2 mtime fast-skip) 완료 후 다음 작업 진입.
 4. **K4 Protocol SSOT 통합** (server.md §7.7 K4) — Solutions/Core/Ds2.LightHouse.Protocol 신규 project. wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT). Phase S7 묶음 권장.
 5. **보안 sweep 1턴** (server.md §7.7 K6 + M9~M12) — registry.json tampering + PSK in-memory lifetime + DoS guards.
 
-**Phase 4 P4-A → 외부 --review L-Maj-10 commit chain (s6-r34 ~ s6-r49, 16 commit)**:
+**Phase 4 P4-A → 외부 --review ⑳ commit chain (s6-r34 ~ s6-r52, 19 commit)**:
 
+- **`d3d520c` s6-r52 #5 ⑳ ZipImport ArrayPool** — entry 마다 81920-byte alloc → ArrayPool.Shared.Rent 1회 + try/finally Return.
+- **`6096cac` s6-r51 #5 ⑰ insertChunks cmd 재사용** — outer scope cmd + Parameters 재활용. SQL parse 1회.
+- **`0d770f6` s6-r50 #5 ⑮ EventBus unit fact 5건** — DropOldest / Unsubscribe lifecycle / fan-out N=3 / silent skip. service Tests 125→130.
 - **`4e28a86` s6-r49 #2 mtime fast-skip** — SqliteStore IndexerVersion 2.0.0→2.1.0 + SchemaVersion 4→5 + Documents.FileMTimeTicks ALTER. findDocumentByPath 신규 + insertDocumentWithMtime + legacy wrapper. Indexer ingestFile fast-skip path (mtime/size 일치 시 hash 계산 skip). Tests fact 정정 3 + 신규 2 = lib 168→170. 누적 619 Fact (+2). paired-release ps1 통과.
 - **`eed18a8` s6-r48 #4 ApplicationStopping hook** — service-singleton embedder graceful shutdown Dispose (IHostApplicationLifetime.ApplicationStopping.Register). override path 미적용. C2 잔여 종결.
 - **`c10ccac` s6-r47 #1 Pooling=False (read-only path 만)** — SqliteStore.openConnection csb 의 Pooling=not readOnly. KnowledgeBase withReadOnlyConn ClearPool 제거. s6-r42 의 IT 7건 실패 회귀 회복 (전역 pool flush 부작용 해소).
