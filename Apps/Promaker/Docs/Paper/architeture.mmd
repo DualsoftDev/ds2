@@ -1,3 +1,4 @@
+  %%{init: {'flowchart': {'padding': 4, 'nodeSpacing': 30, 'rankSpacing': 40, 'diagramPadding': 8}}}%%
   flowchart TB
       %% ===== 입력 소스 =====
       subgraph SRC["입력 소스"]
@@ -18,11 +19,11 @@
       DOC --> LH_EXT
 
       %% ===== GFM =====
-      subgraph GFM["GFM"]
+      subgraph GFM["GFM / Promaker"]
           direction TB
           PRM["Promaker (WPF UI)<br/>💬 자연어 대화"]
           LLA_G(["Ds2.LlmAgent<br/>🤖 LLM"])
-          DS_G["Ds2.Core (DS 모델 / Editor)"]
+          DS_G["DS 모델"]
           PRM <--> LLA_G
           LLA_G --> DS_G
           PRM --> DS_G
@@ -33,8 +34,8 @@
       subgraph BFM["BFM"]
           direction TB
           PRE["preprocess<br/>(P/G 파싱 → io.json / pous.json)"]
-          S4(["step4 llm_step<br/>🤖 LLM — tag → zone/device/<br/>deviceType entity 추출"])
-          S6(["step6 patterns<br/>🤖 LLM — device 동작 패턴 추론"])
+          S4(["llm_step<br/>🤖 LLM — tag → zone/device/<br/>deviceType entity 추출"])
+          S6(["patterns<br/>🤖 LLM — device 동작 패턴 추론"])
           LEX["lexicon/ko_actions<br/>(한↔영 action 정규화, 결정적)"]
           DS_B["DS 모델 산출<br/>(tags.json + patterns.json)"]
           PRE --> S4 --> S6 --> DS_B
@@ -48,7 +49,7 @@
       subgraph ORA["설비 모니터링"]
           direction TB
           ORA_CHAT["운영자 대화 UI<br/>💬 자연어 질의"]
-          ORA_LLM(["Oracle LLM Agent<br/>🤖 LLM<br/>(DS 모델 + 실시간 상태 → 답변)"])
+          ORA_LLM(["모니터링 LLM Agent<br/>🤖 LLM<br/>(DS 모델 + 실시간 상태 → 답변)"])
           ORA_STATE["실시간 설비 상태<br/>(태그 값 / 알람 / 이력)"]
           ORA_CHAT <--> ORA_LLM
           ORA_STATE --> ORA_LLM
