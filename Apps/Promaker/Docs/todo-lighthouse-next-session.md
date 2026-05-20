@@ -24,36 +24,38 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ⑲ EventsEndpoint client-write keepalive — SSE wire 정합 + 외부 client 정합
 
 **별 세션 이연 의무**:
-- **#3 Phase S7 잔여** (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — 각 매우 large (~200~500 line), sub-agent 위임 의무. 단독 phase.
-- **#5 외부 --review 잔여 ⑬ ⑭ ⑱ ⑲** (4건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / SessionRegistry purge helper / EventsEndpoint client-write keepalive. 각 별 turn.
+- **#3 Phase S7 잔여** (D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — ~~D-S7-1 mTLS server-side~~ → s6-r53 종결. 각 매우 large (~300~500 line), sub-agent 위임 의무. 단독 phase. **Promaker client cert 적용 + PSK fallback 단계적 제거 = 별 phase 박제** (client cert 발급/관리 정책 박제 의무).
+- **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
+- **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r52 종결 후)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r55 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
-s6-r52+ (5건 묶음 처리 후 #5 cheap 3건 추가) 완료 후 새 세션 진입.
-누적 624 Fact (lib 170 / service 130 / IT 33 / Promaker 291). 회귀 0. branch = light-house (local-only).
+s6-r53 (a) D-S7-1 mTLS server-side + s6-r54 (b) 보안 sweep K6+M10+M11 + s6-r55 (c partial) ⑱ purge helper 완료 후 새 세션 진입.
+누적 634 Fact (lib 170 / service 140 / IT 33 / Promaker 291). 회귀 0. branch = light-house (local-only).
+paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
 잔여 작업 (next-session.md §2 + §4 박제):
-- A. large phase (단독 turn 의무): A1 Phase S7 (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) / A2 K4 Protocol SSOT 통합 / A3 보안 sweep / A4 Phase 3 OCR / A5 Phase 5
-- B. medium: B1 M13/M14 perf 잔여 / B2 OoxmlExtractor 강화 / B3 xlsx-pptx 활성 / B4 #5 외부 review 잔여 4건 (⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire / ⑱ SessionRegistry purge helper / ⑲ EventsEndpoint client-write keepalive)
+- A. large phase (단독 turn 의무): A1 Phase S7 잔여 (D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) / A2 K4 Protocol SSOT 통합 / A4 Phase 3 OCR / A5 Phase 5
+- B. medium: B1 M13/M14 perf 잔여 / B2 OoxmlExtractor 강화 / B3 xlsx-pptx 활성 / B4 #5 외부 review 잔여 3건 (⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire / ⑲ EventsEndpoint keepalive) / B5 Promaker client cert 적용 (D-S7-1 후속) / B6 보안 sweep 잔여 (M9 PSK lifetime - mTLS SSOT 해소 / M12 Promaker staging ACL)
 - C. 소량 cosmetic: C1 mn6 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용 / C4 attachment_read ref parser 강화 / C5 attachment_read image mode / C6 citation UI / C7 hasImages 의미화
 - D. 정책 결정 (사용자 confirm): D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
 - E. 외부 / 운영: E1 /dist 실행 (사용자 직접) / E2 server.md §7.7 Minor outliers ~13건
 
-우선순위 (a) A1 D-S7-1 mTLS (Phase S7 sub-task 중 가장 작음, ~200 line)
-       (b) A3 보안 sweep 1턴
-       (c) B4 외부 review 잔여 4건 묶음
-       (d) C4~C7 묶음 (attachment_read/search 의 Phase 2 잔여 cosmetic)
-       (e) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출)
+우선순위 (a) B4 외부 review 잔여 3건 묶음 (⑬⑭⑲)
+       (b) C4~C7 묶음 (Phase 2 잔여 cosmetic — 별 영역 4건 — 세부 영역별 turn 권장)
+       (c) A1 Phase S7 잔여 D-S7-4 또는 D-S7-5 선택
+       (d) B5 Promaker client cert 적용 (D-S7-1 후속, client cert 발급/관리 정책 박제 의무)
+       (e) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출 의무 — make dist or /dist skill)
        — 선택 부탁드립니다.
 ```
 
 **다음 turn 진입 시 우선 작업**:
-1. **A1 Phase S7 잔여** — D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위 선택. 각 단독 phase, sub-agent 위임 의무.
-   - D-S7-1 mTLS = Kestrel ClientCertificateMode + Promaker client cert + AuthMiddleware 확장. ~200 line. **가장 작음 — 우선 진입 권장**.
+1. **A1 Phase S7 잔여** — ~~D-S7-1 mTLS~~ → s6-r53 종결 (server-side minimum viable, Promaker client cert 별 phase). 잔여 D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) 중 사용자 우선순위 선택. 각 단독 phase, sub-agent 위임 의무.
    - D-S7-4 T2/T3 multi-tenant = Registry per-tenant + Session isolation + storage layout 변경. ~400~500 line.
    - D-S7-5 resumable upload = tus protocol 또는 Content-Range append + ZipImport 변경. ~300~400 line.
+   - **B5 Promaker client cert 적용** (D-S7-1 후속) = HttpClientHandler.ClientCertificates + LocalMachine\My X509Store thumbprint lookup + LlmConfig.LightHouseServiceConfig.ClientCertThumbprint 박제. ~100~150 line. **client cert 발급/관리 정책 박제 의무**.
 2. **A2 K4 Protocol SSOT 통합** (server.md §7.7 K4) — Solutions/Core/Ds2.LightHouse.Protocol 신규 project. wire 상수 + MetaJson schema SSOT 통합 (server F# + client C# 이중 박제 → 단일 SSOT). Phase S7 묶음 권장.
 3. **A3 보안 sweep 1턴** (server.md §7.7 K6 + M9~M12) — registry.json tampering + PSK in-memory lifetime + %PROGRAMDATA% ACL + DoS guards.
 4. **B4 #5 외부 --review 잔여 4건** — ⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire fact / ⑱ SessionRegistry purge helper / ⑲ EventsEndpoint client-write keepalive. 각 별 turn 또는 묶음.
