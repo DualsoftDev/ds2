@@ -14,61 +14,64 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r61 종결 예정, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r64 종결, 2026-05-20)
 
-**Phase 4 종결 + 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳) + s6-r40 자가 검열 backlog 4건 모두 종결 + (prev) D-S7-1 mTLS server-side + 보안 sweep K6+M10+M11 + ⑱ purge helper + ⑬⑭⑲ 묶음 + C7 hasImages + (this) C4 ref EBNF + C5 5-case + D-S7-5 resumable scaffold + B5 Promaker client cert** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **658 Fact** (lib 177 / service 143 / IT 38 / Promaker 300). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+**Phase 4 종결 + 외부 --review 전체 종결 + s6-r62~r64 누적 3 phase (markdown view branch cherry-pick + C6 citation UI + D-S7-5 phase 2 production-ready + B5 phase 2 UI cert)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **679 Fact** (lib 177 / service 143 / IT 40 / Promaker 319). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
-**잔여 (별 turn 의무)**:
-- **A1 Phase S7 잔여 D-S7-4** — T2/T3 multi-tenant (~400~500 line, Registry per-tenant + Session isolation + storage layout). 사용자 confirm 의무 + sub-agent 위임.
-- **D-S7-5 phase 2** — PATCH per-uploadId SemaphoreSlim race / Content-Range body size 검증 / crash inconsistency 회복 / finalize 의 collection 등록 위임 path (Promaker/cli client 변경 + ZipImport.moveStagingToCollection).
-- **B5 phase 2** — UI X509Store 선택 dialog (ApplicationSettingsDialog 에 cert lookup + 선택 button) + 사내 CA 발급 cert deploy 정책 박제.
-- **C6 Promaker citation UI** — UI 변경 의무, 사용자 e2e 검증 의무.
-- **`/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** — `make dist` 또는 `/dist` skill.
+**s6-r62~r64 누적 (본 turn, 2026-05-20)**:
+- **markdown view branch cherry-pick (4 commit)** — `2d998d1` / `b3dfab9` / `7ed410a` / `8b7bb0e` — llm branch 의 MdXaml 1.27.0 (`MarkdownScrollViewer` + A1 assistant 전체 markdown) 4 commit 을 light-house 위로 cherry-pick (conflict 0 chain merge). 후속 llm branch 삭제.
+- **`ac0ce89` s6-r62 (a) C6 Promaker citation UI** — `[fileName](attachment:///fileId/ref)` 형식 + MdXaml Hyperlink 자동 변환 + RequestNavigate handler (attachment/// = popup / http(s) = OS shell / 그 외 = 보안 차단) + turn-scoped citation cache (LlmChatViewModel.Citation.cs) + Reset 시 ClearCitationCache + `5.knowledge-base.md` system prompt + `TryParseAttachmentUri` (URI fileId `:` port 해석 결함 회피) + Promaker.Tests +8 (CitationUriParseTests 8 fact).
+- **`ff80387` s6-r63 (b) D-S7-5 phase 2 resumable upload production-ready** — UploadsEndpoint per-uploadId SemaphoreSlim race / Content-Length=Content-Range length 검증 / crash 회복 (partial>offset truncate) / finalize 본격화 (extractAll + MetaJson + IndexerVersion gate + moveStagingToCollection + Registry.upsertAsync + bus.collection-added). CollectionEndpoints.processStagingExtractGate private 제거 (SSOT helper 재사용). LightHouseClient 5 method + UploadCollectionResumableAsync wrapper + 2 DTO (Start/Status). IT +2 (size mismatch / lock race) + Promaker.Tests +5.
+- **`60e6ed4` s6-r64 (c) B5 phase 2 UI X509Store 선택 dialog** — ApplicationSettingsDialog DataGrid 의 "Client Cert" column + LhSelectCert_Click handler (X509Certificate2UI.SelectFromCollection, LocalMachine\My) + ThumbprintShortConverter (마지막 8 자리 표시). cert 발급/관리 정책 docstring (사내 CA Import-PfxCertificate / certmgr.msc). ThumbprintShortConverterTests +3.
+
+**누적 사용자 turn 전체 통계**: 7 commit / +1830 line / +21 Fact / 회귀 0.
+
+**잔여 (별 turn 의무, 본 turn 종결 후)**:
+- ~~**C6 Promaker citation UI**~~ → **s6-r62 종결 (ac0ce89)** ✅
+- ~~**D-S7-5 phase 2**~~ → **s6-r63 종결 (ff80387)** ✅
+- ~~**B5 phase 2 UI X509Store**~~ → **s6-r64 종결 (60e6ed4)** ✅
+- **A1 Phase S7 잔여 D-S7-4** — T2/T3 multi-tenant (~400~500 line, Registry per-tenant + Session isolation + storage layout). 사용자 confirm 의무 + sub-agent 위임. **잔존**.
+- **D-S7-5 phase 3 (선택)** — AttachmentIngestService 가 큰 zip 시 자동 chunked path 선택 (현재 client API 만 노출, 사용 site conditional 미박제). 별 phase.
+- **B5 phase 3 (선택)** — DataGrid 에 cert thumbprint 직접 편집 column / cert validity / mTLS server mode="required" e2e 검증. 별 phase.
+- **`/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** — `make dist` 또는 `/dist` skill. **잔존**.
 
 **별 세션 이연 의무**:
 - **#3 Phase S7 잔여** (D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — ~~D-S7-1 mTLS server-side~~ → s6-r53 종결. 각 매우 large (~300~500 line), sub-agent 위임 의무. 단독 phase. **Promaker client cert 적용 + PSK fallback 단계적 제거 = 별 phase 박제** (client cert 발급/관리 정책 박제 의무).
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r61 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r64 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 누적 4 commit]
-- s6-r58 (a) C4 attachment_read ref EBNF 검증 (§3.13 SSOT)
-- s6-r59 (a) C5 attachment_read image mode 5-case SSOT 정합 + case 4 audit
-- s6-r60 (b) D-S7-5 resumable upload server-side scaffold (5 endpoint /uploads-rs + state machine + SSE 진행률)
-- s6-r61 (c) B5 Promaker client cert 적용 (LlmConfig.ClientCertThumbprint + X509Store lookup)
+[직전 turn 누적 7 commit + 사용자 a~e 다 진행 + auto commit 흐름]
+- 2d998d1 / b3dfab9 / 7ed410a / 8b7bb0e — llm branch 4 commit cherry-pick (markdown view, MdXaml 1.27.0 + A1 assistant 전체 markdown). llm branch 삭제 완료.
+- ac0ce89 s6-r62 (a) C6 Promaker citation UI — [name](attachment:///fileId/ref) + MdXaml Hyperlink 가로채기 + Popup + 5.knowledge-base.md
+- ff80387 s6-r63 (b) D-S7-5 phase 2 — race lock + size 검증 + crash 회복 + finalize 본격화 (collection 등록 + Registry + bus)
+- 60e6ed4 s6-r64 (c) B5 phase 2 — DataGrid Client Cert column + X509Certificate2UI.SelectFromCollection + ThumbprintShortConverter
 
 [그 이전 turn 누적]
 - s6-r53 D-S7-1 mTLS server-side / s6-r54 보안 sweep K6+M10+M11 / s6-r55 ⑱ purge helper / s6-r56 (a) ⑬⑭⑲ / s6-r57 C7 hasImages
+- s6-r58 (a) C4 attachment_read ref EBNF / s6-r59 (a) C5 image mode 5-case / s6-r60 (b) D-S7-5 scaffold / s6-r61 (c) B5 client cert
 
-누적 658 Fact (lib 177 / service 143 / IT 38 / Promaker 300). 회귀 0. branch = light-house (local-only).
+누적 679 Fact (lib 177 / service 143 / IT 40 / Promaker 319). 회귀 0. branch = light-house (local-only).
 paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
 
-잔여 작업 (next-session.md §2 + §4 박제):
-- A. large phase (단독 turn 의무): A1 Phase S7 잔여 (D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) / A2 K4 Protocol SSOT 통합 / A4 Phase 3 OCR / A5 Phase 5
-- B. medium: B1 M13/M14 perf 잔여 / B2 OoxmlExtractor 강화 / B3 xlsx-pptx 활성 / B4 #5 외부 review 잔여 3건 (⑬ Searcher tuple→record / ⑭ CaptionGenerator HTTP wire / ⑲ EventsEndpoint keepalive) / B5 Promaker client cert 적용 (D-S7-1 후속) / B6 보안 sweep 잔여 (M9 PSK lifetime - mTLS SSOT 해소 / M12 Promaker staging ACL)
-- C. 소량 cosmetic: C1 mn6 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용 / C4 attachment_read ref parser 강화 / C5 attachment_read image mode / C6 citation UI / C7 hasImages 의미화
-- D. 정책 결정 (사용자 confirm): D1 D-2-3 SSOT 정정 / D2 PrivateAssets 확장 / D3 todo git mv
-- E. 외부 / 운영: E1 /dist 실행 (사용자 직접) / E2 server.md §7.7 Minor outliers ~13건
-
-잔여 작업 (next-session.md §2 + §4 박제):
+잔여 작업 (s6-r62~r64 종결 후, 다음 turn 박제):
 - A. large phase (단독 turn, sub-agent 위임 의무):
-  - A1 Phase S7 잔여 — **D-S7-4 T2/T3 multi-tenant** (~400~500 line, Registry per-tenant + Session isolation + storage layout)
+  - **A1 D-S7-4 T2/T3 multi-tenant** (~400~500 line) — config.json multiTenant.mode "T1"|"T2"|"T3" opt-in. T2 = per-user namespace (X-User-Identity directory prefix). T3 = registry acl {users[], readOnly}. Storage/Registry/SessionEndpoints 전반 변경.
   - A2 K4 Protocol SSOT 통합 (Solutions/Core/Ds2.LightHouse.Protocol 신규 project)
   - A4 Phase 3 OCR (Tesseract.NET + 한글)
 - B. medium 별 turn:
   - B1 M13 Indexer.ingestFile outer transaction (perf)
   - B2 OoxmlExtractor 강화 (comments/footnotes/endnotes Drawing)
   - B3 image-only paragraph 분기 분리
-  - **B5 phase 2** — UI X509Store 선택 dialog (ApplicationSettingsDialog + cert lookup button) + 사내 CA cert deploy 정책
+  - **B5 phase 3 (선택)** — DataGrid 의 cert thumbprint 직접 편집 column / cert validity / mTLS server mode="required" e2e 검증
   - B6 보안 sweep 잔여 (M9 PSK lifetime / M12 Promaker staging %TEMP% ACL)
-  - **D-S7-5 phase 2** — PATCH per-uploadId SemaphoreSlim race / Content-Range body size 검증 / crash 회복 / finalize → collection 등록 위임 path (Promaker/cli client 변경 + ZipImport.moveStagingToCollection)
+  - **D-S7-5 phase 3 (선택)** — AttachmentIngestService 가 큰 zip 시 자동 chunked path 선택 (현재 client API 만 노출). 별 phase
 - C. 소량 cosmetic:
-  - **C6 Promaker citation UI** — UI 변경 + 사용자 e2e 검증 의무
   - (string * SearchHit) list → KeyedHit record (lib internal refactor)
   - C1 mn6 fixture 한영 혼재 / C2 P7 facade 통합 / C3 자가 검열 미적용
 - D. 정책 결정 (사용자 confirm):
@@ -77,11 +80,9 @@ paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
   - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill)
   - E2 server.md §7.7 Minor outliers ~13건
 
-우선순위 (a) C6 Promaker citation UI (Phase 2 잔여 cosmetic — UI 변경 + e2e 검증)
-       (b) D-S7-5 phase 2 (finalize → collection 등록 위임 path + Promaker/cli client 변경 — D-S7-5 본격 production-ready)
-       (c) B5 phase 2 (UI X509Store 선택 dialog — Settings dialog 갱신)
-       (d) A1 Phase S7 잔여 D-S7-4 (T2/T3 multi-tenant — 사용자 우선순위 confirm 의무)
-       (e) E1 /dist 실행 (paired-release ps1 통과 박제, 사용자 직접 호출 의무)
+우선순위 (a) A1 D-S7-4 T2/T3 multi-tenant (large phase, sub-agent 위임 의무 — 사용자 confirm 후 진입)
+       (b) E1 /dist 실행 (paired-release 정합, 사용자 직접 호출 의무)
+       (c) D-S7-5 phase 3 또는 B5 phase 3 (선택 medium)
        — 선택 부탁드립니다.
 ```
 
