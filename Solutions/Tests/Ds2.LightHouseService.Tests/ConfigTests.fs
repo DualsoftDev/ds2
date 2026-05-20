@@ -106,6 +106,20 @@ let ``validateMtls — 잘못된 thumbprint 길이 fail-fast`` () =
         Assert.Throws<InvalidDataException>(fun () -> Config.validateMtls cfg |> ignore) |> ignore
     finally File.Delete path
 
+/// **N-1 (s6-r74 c)** — Protocol `CertValidator.Normalize` SSOT 위임 후 strict 정합 의무.
+/// 이전 박제는 server 가 non-hex silent strip → client (strict empty) 와 의미 drift.
+/// 새 박제: non-hex 문자 (separator `:` / 공백 / hyphen / tab 외) 발견 시 빈 string + validateMtls 가 reject.
+[<Fact>]
+let ``validateMtls — non-hex 문자 fail-fast (N-1, Protocol CertValidator SSOT)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        // 'G' 는 non-hex (hex = 0-9/A-F/a-f 만). 길이 무관 invalid → InvalidDataException.
+        let raw = "GG:bb:cc:dd:ee:ff:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd"
+        let cfg = { baseCfg with Mtls = { Mode = MtlsMode.Required; AllowedThumbprints = [| raw |] } }
+        Assert.Throws<InvalidDataException>(fun () -> Config.validateMtls cfg |> ignore) |> ignore
+    finally File.Delete path
+
 [<Fact>]
 let ``load — 미존재 path 는 FileNotFoundException`` () =
     let bogus = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json")

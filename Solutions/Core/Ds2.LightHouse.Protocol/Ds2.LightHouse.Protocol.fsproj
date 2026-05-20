@@ -10,6 +10,7 @@
     <Compile Include="WireConstants.fs" />
     <Compile Include="ServerEventNames.fs" />
     <Compile Include="MetaJson.fs" />
+    <Compile Include="CertValidator.fs" />
   </ItemGroup>
 
   <ItemGroup>

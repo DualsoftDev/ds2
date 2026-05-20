@@ -1,5 +1,6 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
+using Ds2.LightHouse.Protocol;
 
 namespace Promaker.Knowledge;
 
@@ -40,25 +41,13 @@ public static class CertValidator
     public const int ExpiringSoonThresholdDays = 30;
 
     /// <summary>
-    /// thumbprint 가 SHA-1 (40 hex) 또는 SHA-256 (64 hex) 길이의 hex 만으로 normalize. ':' / 공백 / hyphen 제거 + 대문자.
-    /// 비-hex 문자가 있으면 빈 string 반환 (caller 가 NotFound 분기로 처리).
+    /// **N-1 (s6-r74 c)** — Protocol `Ds2.LightHouse.Protocol.CertValidator.Normalize` SSOT 위임. client ↔ server
+    /// 의미 drift 차단 (이전 박제: client = strict empty / server = silent strip → 동일 input 다른 output).
+    /// 본 wrapper 는 caller routing 호환 한정 유지 — 추후 caller (`Validate` / external) 가 Protocol 직접 호출 시 폐기 가능.
+    /// 정합: hex char + separator (`:` / 공백 / hyphen / tab) 외 발견 시 빈 string + 길이 40/64 검증.
     /// </summary>
     public static string Normalize(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
-        var sb = new System.Text.StringBuilder(raw.Length);
-        foreach (var ch in raw)
-        {
-            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
-                sb.Append(char.ToUpperInvariant(ch));
-            else if (ch == ':' || ch == ' ' || ch == '-' || ch == '\t')
-                continue;
-            else
-                return string.Empty;  // 비-hex 문자 = 결함
-        }
-        var s = sb.ToString();
-        return (s.Length == 40 || s.Length == 64) ? s : string.Empty;
-    }
+        => Ds2.LightHouse.Protocol.CertValidator.Normalize(raw ?? string.Empty);
 
     /// <summary>
     /// thumbprint 로 cert 탐색 + validity 진단. cert 가 LocalMachine\My 우선, 없으면 CurrentUser\My.
