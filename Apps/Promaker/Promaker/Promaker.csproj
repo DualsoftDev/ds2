@@ -120,6 +120,9 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 (ServerEventNames / MetaJson schema / WireConstants)
+         단일 SSOT. server F# / client C# / cli F# 3중 박제 → 단일. -->
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Tools\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />

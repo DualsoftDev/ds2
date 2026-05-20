@@ -8,6 +8,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
+open Ds2.LightHouse.Protocol
 
 /// Phase S2 collection 관리 endpoint (todo-lighthouse-kb-server.md §3.9 / §4.2 Phase S2).
 ///
@@ -139,11 +140,11 @@ module CollectionEndpoints =
 
                     // meta.json 검증 + server 필드 stamp.
                     // safeTitle (`title`) 로 clientMeta.Title 도 overwrite — Registry / 디렉토리명과 일관.
-                    let clientMeta = MetaJson.load stagingPath
+                    let clientMeta = MetaJsonIO.load stagingPath
                     let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
                     let serverMeta =
-                        MetaJson.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
-                    MetaJson.save stagingPath serverMeta
+                        MetaJsonIO.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
+                    MetaJsonIO.save stagingPath serverMeta
 
                     // IndexerVersion gate (§3.12) — SSOT = `processStagingExtractGate` (s6-r43).
                     let clientVer = ZipImport.probeIndexerVersion stagingPath
@@ -152,7 +153,7 @@ module CollectionEndpoints =
                     if compatible then
                         // atomic move → Collections\<guid>-<sanitized>\
                         let target = ZipImport.moveStagingToCollection storageRoot stagingPath collectionId title
-                        let entry = MetaJson.toRegistryEntry serverMeta
+                        let entry = MetaJsonRegistry.toRegistryEntry serverMeta
                         do! Registry.upsertAsync storageRoot entry
                         Log.audit.Info(sprintf "collection registered — id=%s by=%s target=%s" collectionId user target)
                         bus.Publish(ServerEvent.collectionAdded collectionId)  // D-S7-2 s6-r27
@@ -258,13 +259,13 @@ module CollectionEndpoints =
                         use zipStream = zip.OpenReadStream()
                         ZipImport.extractAll zipStream stagingPath zip.Length cfg.ZipBombRatioLimit |> ignore
 
-                        let clientMeta = MetaJson.load stagingPath
+                        let clientMeta = MetaJsonIO.load stagingPath
                         // payload swap 도 id 는 server 가 *기존* id 유지 — client meta 의 id 무시.
                         // Title 은 existing 그대로 (registry SSOT) — client meta.Title 도 overwrite.
                         let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName id title)
                         let serverMeta =
-                            MetaJson.stampServerFields id user storageRelPath { clientMeta with Title = title }
-                        MetaJson.save stagingPath serverMeta
+                            MetaJsonIO.stampServerFields id user storageRelPath { clientMeta with Title = title }
+                        MetaJsonIO.save stagingPath serverMeta
 
                         let clientVer = ZipImport.probeIndexerVersion stagingPath
                         let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
@@ -273,7 +274,7 @@ module CollectionEndpoints =
                         if compatible then
                             // existing.DisplayName 으로 swap 대상 폴더 이름 산출 — IC-2 fix 후 title=existing.DisplayName 라 동일 결과.
                             let target = ZipImport.swapCollectionPayload storageRoot stagingPath id title
-                            let entry = MetaJson.toRegistryEntry serverMeta
+                            let entry = MetaJsonRegistry.toRegistryEntry serverMeta
                             do! Registry.upsertAsync storageRoot entry
                             notifier.OnPayloadSwapped id
                             Log.audit.Info(sprintf "collection payload swapped — id=%s by=%s target=%s" id user target)

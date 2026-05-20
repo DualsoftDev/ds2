@@ -12,6 +12,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
+open Ds2.LightHouse.Protocol
 
 /// Phase S7 D-S7-5 — **resumable chunked upload** (server-side, **phase 2 production-ready** s6-r63).
 ///
@@ -423,13 +424,13 @@ module UploadsEndpoint =
                                     ZipImport.extractAll partialFs collStaging meta.TotalBytes cfg.ZipBombRatioLimit
                                 partialFs.Close()
 
-                                let clientMeta = MetaJson.load collStaging
+                                let clientMeta = MetaJsonIO.load collStaging
                                 let storageRelPath =
                                     sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
                                 let serverMeta =
-                                    MetaJson.stampServerFields collectionId meta.UserIdentity storageRelPath
+                                    MetaJsonIO.stampServerFields collectionId meta.UserIdentity storageRelPath
                                         { clientMeta with Title = title }
-                                MetaJson.save collStaging serverMeta
+                                MetaJsonIO.save collStaging serverMeta
 
                                 let clientVer = ZipImport.probeIndexerVersion collStaging
                                 let gate =
@@ -442,7 +443,7 @@ module UploadsEndpoint =
                                 if compatible then
                                     let target =
                                         ZipImport.moveStagingToCollection storageRoot collStaging collectionId title
-                                    let entry = MetaJson.toRegistryEntry serverMeta
+                                    let entry = MetaJsonRegistry.toRegistryEntry serverMeta
                                     do! Registry.upsertAsync storageRoot entry
                                     eventBus.Publish(ServerEvent.collectionAdded collectionId)
                                     Log.audit.Info(

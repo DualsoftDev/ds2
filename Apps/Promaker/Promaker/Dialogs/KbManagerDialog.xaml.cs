@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using log4net;
+using Ds2.LightHouse.Protocol;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
 

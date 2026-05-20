@@ -9,6 +9,7 @@ open System.Text.Json
 open System.Threading
 open Ds2.LightHouse
 open Ds2.LightHouse.Extractors
+open Ds2.LightHouse.Protocol
 
 /// CLI 진입용 in-place packager (옵션 P + 마이그레이션 (가) 산출물 보관 정책).
 ///
@@ -26,13 +27,9 @@ open Ds2.LightHouse.Extractors
 [<RequireQualifiedAccess>]
 module Packager =
 
-    // `.lighthouse-kb/` SSOT = `Ds2.LightHouse.SqliteStore.KbFolderName` (lib core 박제).
-    // meta.json filename 은 `Ds2.LightHouseService.MetaJson.FileName` 박제이지만
-    // CLI 가 server 모듈을 참조하면 dependency 역전이라 자체 박제 유지 — 정합은 단위 테스트로 보장 (follow-up).
-    // 외부 --review Mj-4 의 4곳 박제 중 KbSubDir 만 SSOT 통합.
-
-    [<Literal>]
-    let private MetaFileName = "meta.json"
+    // **A2 (K4 Protocol 통합, 2026-05-20)** — meta.json filename + `.lighthouse-kb/` 둘 다 `Ds2.LightHouse.Protocol`
+    // 단일 SSOT (`MetaJsonIO.FileName` / `ZipLayout.KbFolderName`) 의존. 이전 외부 --review Mj-4 의 4곳 박제는 본 phase 로 흡수.
+    // `.lighthouse-kb/` 위치 = lib `SqliteStore.KbFolderName` 도 Protocol 의 `ZipLayout.KbFolderName` 와 동일 wire literal — drift 시 본 module 진단.
 
     /// CLI Packager 가 만든 산출물 표식 — 다음 색인 시 `resetKbDir` 가 marker 또는 `index.db` 존재 시에만 wipe.
     /// 사용자의 동명 `.lighthouse-kb/` (외부 도구 산출물) 실수 wipe 차단 (외부 --review Cr-1 정합).
@@ -47,29 +44,8 @@ module Packager =
         IngestedCount: int
     }
 
-    /// server `MetaJson` 과 wire 정합 — camelCase 직접 직렬화 (외부 의존 minimize).
-    /// `[<CLIMutable>]` + non-private — JsonSerializer reflection 이 mutable property 로 인식해야 schemaVersion=1 등 record 초기값 보존.
-    /// (private type 은 System.Text.Json reflection 이 모든 필드 default 로 직렬화 → server schemaVersion=0 reject.)
-    [<CLIMutable>]
-    type MetaDto = {
-        schemaVersion: int
-        indexerVersion: string
-        title: string
-        sourcePathHint: string
-        fileCount: int
-        totalSourceBytes: int64
-        createdAt: string
-        clientHost: string
-        clientUser: string
-        // server stamp 필드 (client 가 "" 보내고 server 가 덮어씀)
-        id: string
-        importedAt: string
-        importedBy: string
-        storageRelPath: string
-    }
-
-    let private metaJsonOptions =
-        JsonSerializerOptions(WriteIndented = true)
+    // **A2 (K4 통합, 2026-05-20)** — 기존 `MetaDto` record + `metaJsonOptions` 폐기. `Ds2.LightHouse.Protocol.MetaJson`
+    // 단일 SSOT + `MetaJsonIO.jsonOptions()` 사용. cli/server/Promaker 3중 박제 → 단일.
 
     /// source 폴더의 `<source>/.lighthouse-kb/` 절대 경로.
     let kbDir (sourceFolder: string) : string =
@@ -151,7 +127,8 @@ module Packager =
         { FileCount = results.Length; TotalBytes = bytes; IngestedCount = ingested }
 
     /// in-place meta.json 생성 — `<source>/.lighthouse-kb/meta.json` (옵션 P).
-    /// server `MetaJson` 의 client-fill 부분만 채움 (server 가 import 시 server 필드 덮어씀).
+    /// **A2 (K4 통합, 2026-05-20)** — `Ds2.LightHouse.Protocol.MetaJson` 단일 SSOT 사용.
+    /// client-fill 부분만 채움 (server 가 import 시 server stamp 필드 덮어씀).
     let writeMeta
         (sourceFolder: string)
         (title: string)
@@ -160,25 +137,25 @@ module Packager =
         (totalBytes: int64)
         (clientUser: string)
         : unit =
-        let meta : MetaDto = {
-            schemaVersion = 1
-            indexerVersion = IndexerVersion.Current
-            title = title
-            sourcePathHint = sourcePathHint
-            fileCount = fileCount
-            totalSourceBytes = totalBytes
-            createdAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
-            clientHost = Environment.MachineName
-            clientUser = clientUser
-            id = ""
-            importedAt = ""
-            importedBy = ""
-            storageRelPath = ""
+        let meta : MetaJson = {
+            SchemaVersion = MetaJsonSchema.Current
+            IndexerVersion = IndexerVersion.Current
+            Title = title
+            SourcePathHint = sourcePathHint
+            FileCount = fileCount
+            TotalSourceBytes = totalBytes
+            CreatedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+            ClientHost = Environment.MachineName
+            ClientUser = clientUser
+            Id = ""
+            ImportedAt = ""
+            ImportedBy = ""
+            StorageRelPath = ""
         }
         let kb = kbDir sourceFolder
         Directory.CreateDirectory kb |> ignore
-        let metaPath = Path.Combine(kb, MetaFileName)
-        let json = JsonSerializer.Serialize(meta, metaJsonOptions)
+        let metaPath = Path.Combine(kb, MetaJsonIO.FileName)
+        let json = JsonSerializer.Serialize(meta, MetaJsonIO.jsonOptions())
         File.WriteAllText(metaPath, json, UTF8Encoding(false))
 
     /// source 폴더 → temp zip file. 반환 = zip path (caller 가 stream open 후 upload + 폐기).

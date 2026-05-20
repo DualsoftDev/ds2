@@ -9,6 +9,7 @@ open System.Threading
 open Xunit
 open Ds2.LightHouse
 open Ds2.LightHouse.Extractors
+open Ds2.LightHouse.Protocol
 open Ds2.LightHouseService
 
 /// Phase S6 P2 — IntegrationTests 의 공용 zip builder.
@@ -93,7 +94,7 @@ let private writeDefaultMeta
         ImportedBy = ""
         StorageRelPath = ""
     }
-    MetaJson.save stagingDir meta
+    MetaJsonIO.save stagingDir meta
 
 // ── public builders ──────────────────────────────────────────────────────
 

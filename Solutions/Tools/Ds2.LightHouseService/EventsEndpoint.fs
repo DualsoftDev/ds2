@@ -9,6 +9,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
+open Ds2.LightHouse.Protocol
 
 /// Phase S7 D-S7-2 — `GET /events` SSE endpoint (todo-lighthouse-kb-server.md §3.7, s6-r27).
 ///

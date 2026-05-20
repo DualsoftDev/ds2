@@ -4,29 +4,11 @@ open System
 open System.Collections.Concurrent
 open System.Threading.Channels
 open System.Text.Json.Serialization
+open Ds2.LightHouse.Protocol
 
-/// **Phase S7 D-S7-2c (s6-r32) — SSE event name SSOT** (`EventBus.fs` § ServerEventNames).
-///
-/// server-side magic string 박제. `ServerEvent` factory 4 종 + `caption-progress` (client → server publish)
-/// 가 본 module 의 [<Literal>] 참조. client side 의 정합 SSOT 는 `Promaker.Knowledge.ServerEventNames` (C#)
-/// — wire string 양쪽 일치 의무 (K4 Protocol SSOT 통합 phase 에서 단일 SSOT 로 합치는 backlog 박제).
-///
-/// 신규 event 추가 시 본 module + client `ServerEventNames` 둘 다 1 줄씩 박제.
-module ServerEventNames =
-    [<Literal>]
-    let CollectionAdded = "collection-added"
-    [<Literal>]
-    let CollectionUpdated = "collection-updated"
-    [<Literal>]
-    let CollectionDeleted = "collection-deleted"
-    [<Literal>]
-    let Keepalive = "keepalive"
-    /// **D-S7-2c (s6-r32)** — client → server publish (Phase 2 vision caption 진행률) → server fan-out.
-    [<Literal>]
-    let CaptionProgress = "caption-progress"
-    /// **D-S7-5 (s6-r60)** — resumable upload PATCH 진행률. CollectionId 필드 = uploadId (wire 재사용).
-    [<Literal>]
-    let UploadProgress = "upload-progress"
+// **A2 (K4 Protocol SSOT 통합, 2026-05-20)** — `ServerEventNames` 양분 박제 폐기.
+// 본 file 의 module 이 사라지고 `Ds2.LightHouse.Protocol.ServerEventNames` (5 [<Literal>]) 단일 SSOT 로 routing.
+// caller (UploadsEndpoint / EventsEndpoint 등) 는 `open Ds2.LightHouse.Protocol` 후 `ServerEventNames.X` 동일 호출.
 
 /// Phase S7 D-S7-2 — server → client SSE event payload (§3.7 SSE schema 박제, s6-r27 / s6-r32).
 ///
