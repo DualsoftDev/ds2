@@ -102,20 +102,37 @@ module Builder =
             ac.InTag <- inTag
         | _ -> invalidOp $"ApiCall {apiCallId} not found"
 
-    /// CallCondition 추가. 반환: conditionId
-    let addCondition (store: DsStore) (callId: Guid) (conditionType: CallConditionType) (apiCallIds: Guid list) (isOR: bool) =
+    /// Condition 추가. 반환: conditionId
+    let addCondition (store: DsStore) (callId: Guid) (conditionType: ConditionType) (apiCallIds: Guid list) (isOR: bool) =
         let call =
             match store.Calls.TryGetValue(callId) with
             | true, c -> c
             | _ -> invalidOp $"Call {callId} not found"
-        let condition = CallCondition()
+        let condition = Condition()
         condition.Type <- Some conditionType
         condition.IsOR <- isOR
         for apiCallId in apiCallIds do
             match store.ApiCalls.TryGetValue(apiCallId) with
-            | true, ac -> condition.Conditions.Add(ac)
+            | true, ac -> condition.ApiCalls.Add(ac)
             | _ -> invalidOp $"ApiCall {apiCallId} not found"
-        call.CallConditions.Add(condition)
+        call.Conditions.Add(condition)
+        condition.Id
+
+    /// Work 의 SkipUnmatch Condition 추가. 반환: conditionId.
+    /// Work 의 Condition 은 SkipUnmatch 만 의미 — type 인자 받지 않음.
+    let addWorkCondition (store: DsStore) (workId: Guid) (apiCallIds: Guid list) (isOR: bool) =
+        let work =
+            match store.Works.TryGetValue(workId) with
+            | true, w -> w
+            | _ -> invalidOp $"Work {workId} not found"
+        let condition = Condition()
+        condition.Type <- Some ConditionType.SkipUnmatch
+        condition.IsOR <- isOR
+        for apiCallId in apiCallIds do
+            match store.ApiCalls.TryGetValue(apiCallId) with
+            | true, ac -> condition.ApiCalls.Add(ac)
+            | _ -> invalidOp $"ApiCall {apiCallId} not found"
+        work.Conditions.Add(condition)
         condition.Id
 
     /// TokenSpec 추가

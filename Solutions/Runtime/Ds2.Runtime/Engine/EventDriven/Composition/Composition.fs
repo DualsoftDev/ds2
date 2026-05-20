@@ -87,6 +87,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
     let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
     let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
+    let shouldSkipWork workGuid = WorkConditionChecker.shouldSkipWork index (stateManager.GetState()) workGuid
     let isActiveSystemWork workGuid =
         index.WorkSystemName
         |> Map.tryFind workGuid
@@ -113,6 +114,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             workStateChangedEvent.Trigger
             (fun workGuid eventId scheduledTimeMs ->
                 durationTracker.OnDurationScheduled(workGuid, eventId, scheduledTimeMs))
+            shouldSkipWork
     let scheduleWorkIfReady workGuid targetState =
         WorkTransitions.scheduleWorkIfReady workTransitionContext workGuid targetState
     let applyWorkTransition workGuid newState =

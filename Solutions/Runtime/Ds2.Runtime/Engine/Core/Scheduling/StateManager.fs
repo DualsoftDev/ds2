@@ -60,25 +60,29 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         let canonical = canonicalWorkGuid guid
         state.WorkStates |> Map.tryFind canonical |> Option.defaultValue Status4.Ready
 
-    member _.ApplyWorkTransition(guid: Guid, newState: Status4) : TransitionResult =
+    member _.ApplyWorkTransition(guid: Guid, newState: Status4, shouldSkipWork: Guid -> bool) : TransitionResult =
         lock syncRoot (fun () ->
             let oldState = groupState guid
             let nodeName = index.WorkName |> Map.tryFind guid |> Option.defaultValue (string guid)
             let deviceName = index.WorkSystemName |> Map.tryFind guid |> Option.defaultValue ""
-            if oldState = newState then
-                { ActualNewState = newState; OldState = oldState; IsSkipped = false; HasChanged = false; NodeName = nodeName; DeviceName = deviceName }
+            let actualNewState, isSkipped =
+                if oldState = Status4.Ready && newState = Status4.Going && shouldSkipWork guid then
+                    Status4.Finish, true
+                else newState, false
+            if oldState = actualNewState then
+                { ActualNewState = actualNewState; OldState = oldState; IsSkipped = false; HasChanged = false; NodeName = nodeName; DeviceName = deviceName }
             else
-                setWorkStateForGroup guid newState
+                setWorkStateForGroup guid actualNewState
                 let canonical = canonicalWorkGuid guid
                 if oldState = Status4.Going then
                     workMinDurationMet <- workMinDurationMet.Remove(canonical)
                     state <- SimState.clearMinDuration canonical state
                     workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (predGuid, _) -> predGuid <> canonical)
-                if newState = Status4.Ready then
+                if actualNewState = Status4.Ready then
                     // Ready 복귀 시 이 Work를 target으로 갖는 reset trigger 클리어
                     // → 다음 사이클에서 동일 predecessor가 다시 reset 트리거 가능
                     workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (_, targetGuid) -> targetGuid <> canonical)
-                { ActualNewState = newState; OldState = oldState; IsSkipped = false; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
+                { ActualNewState = actualNewState; OldState = oldState; IsSkipped = isSkipped; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
 
     member _.ApplyCallTransition(guid: Guid, newState: Status4, shouldSkipCall: Guid -> bool) : TransitionResult =
         lock syncRoot (fun () ->

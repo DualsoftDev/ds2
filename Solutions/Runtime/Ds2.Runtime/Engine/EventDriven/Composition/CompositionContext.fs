@@ -38,6 +38,7 @@ module internal EventDrivenCompositionContext =
         onWorkFinish
         triggerWorkStateChanged
         onDurationScheduled
+        shouldSkipWork
         : WorkTransitions.Context = {
         Index = index
         StateManager = stateManager
@@ -51,6 +52,7 @@ module internal EventDrivenCompositionContext =
         OnDurationScheduled = onDurationScheduled
         ClearSensingAppendDelay = fun workGuid ->
             sensingAppendApplied.TryRemove(workGuid) |> ignore
+        ShouldSkipWork = shouldSkipWork
     }
 
     /// v10 §7 — Device 단위 Latch 추적. ApiDef.ParentId(=DeviceId) → currently active Latched ApiCall 들.

@@ -67,6 +67,9 @@ type MermaidSubgraph = {
     Children: MermaidSubgraph list
     /// Passive(Device) System 여부
     IsPassive: bool
+    /// Work 서브그래프 의 SkipUnmatch 조건 소스 Call 이름 목록.
+    /// System/Flow 서브그래프 는 항상 빈 list (Work 만 의미).
+    SkipUnmatchConditionRefs: string list
 }
 
 /// 파싱된 Mermaid 그래프 전체

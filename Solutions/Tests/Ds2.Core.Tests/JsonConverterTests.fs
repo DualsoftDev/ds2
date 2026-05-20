@@ -77,17 +77,17 @@ let private assertXywhEqual (expected: Xywh option) (actual: Xywh option) =
     | _ ->
         Assert.True(false, sprintf "Xywh option mismatch. expected=%A actual=%A" expected actual)
 
-let rec private assertConditionsEqual (expected: ResizeArray<CallCondition>) (actual: ResizeArray<CallCondition>) =
+let rec private assertConditionsEqual (expected: ResizeArray<Condition>) (actual: ResizeArray<Condition>) =
     let e = expected |> Seq.toList
     let a = actual |> Seq.toList
     Assert.Equal(e.Length, a.Length)
-    List.iter2 (fun (ec: CallCondition) (ac: CallCondition) ->
+    List.iter2 (fun (ec: Condition) (ac: Condition) ->
         Assert.Equal(ec.Id, ac.Id)
         Assert.Equal(ec.Type, ac.Type)
         Assert.Equal(ec.IsOR, ac.IsOR)
         Assert.Equal(ec.IsInverted, ac.IsInverted)
-        let eConds = ec.Conditions |> Seq.toList
-        let aConds = ac.Conditions |> Seq.toList
+        let eConds = ec.ApiCalls |> Seq.toList
+        let aConds = ac.ApiCalls |> Seq.toList
         Assert.Equal(eConds.Length, aConds.Length)
         List.iter2 assertApiCallEqual eConds aConds
         assertConditionsEqual ec.Children ac.Children) e a
@@ -268,12 +268,12 @@ module JsonRoundTripTests =
         apiString.OutputSpec <- stringSpec
         apiBool.OutputSpec   <- boolSpec
 
-        let condition = CallCondition()
-        condition.Type <- Some CallConditionType.SkipUnmatch
+        let condition = Condition()
+        condition.Type <- Some ConditionType.SkipUnmatch
         condition.IsOR <- true
         condition.IsInverted <- true
-        condition.Conditions.Add(apiFloat)
-        condition.Conditions.Add(apiBool)
+        condition.ApiCalls.Add(apiFloat)
+        condition.ApiCalls.Add(apiBool)
 
         let call = Call("Call", "Full", workId)
         let callProps = SimulationCallProperties()
@@ -286,7 +286,7 @@ module JsonRoundTripTests =
         call.Position <- Some(Xywh(11, 22, 33, 44))
         call.ApiCalls.Add(apiInt)
         call.ApiCalls.Add(apiString)
-        call.CallConditions.Add(condition)
+        call.Conditions.Add(condition)
 
         let actual = roundTrip call
 
@@ -310,7 +310,7 @@ module JsonRoundTripTests =
         List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
             assertApiCallEqual eApi aApi) expectedApiCalls actualApiCalls
 
-        assertConditionsEqual call.CallConditions actual.CallConditions
+        assertConditionsEqual call.Conditions actual.Conditions
 
 
 module WorkRoundTripTests =
@@ -357,6 +357,52 @@ module WorkRoundTripTests =
         Assert.Equal(Some origId, actual.ReferenceOf)
         Assert.Equal("F1", actual.FlowPrefix)
         Assert.Equal("W1", actual.LocalName)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip Work with SkipUnmatch Conditions`` () =
+        let flowId = Guid.NewGuid()
+        let work = Work("F", "W", flowId)
+
+        // 두 개의 leaf ApiCall + Inverter placeholder + nested children 으로 round-trip 검증.
+        let api1 = ApiCall("Api1")
+        api1.InputSpec <- BoolValue (Single true)
+        api1.ContactKind <- ContactKind.NoContact
+        let api2 = ApiCall("Api2")
+        api2.InputSpec <- Int32Value (Single 42)
+        api2.ContactKind <- ContactKind.NcContact
+
+        let child = Condition()
+        child.Type <- Some ConditionType.SkipUnmatch
+        child.IsOR <- true
+        child.ApiCalls.Add(api2)
+
+        let cond = Condition()
+        cond.Type <- Some ConditionType.SkipUnmatch
+        cond.IsInverted <- true
+        cond.ApiCalls.Add(api1)
+        cond.Children.Add(child)
+
+        work.Conditions.Add(cond)
+
+        let actual = roundTrip work
+
+        Assert.Equal(work.Id, actual.Id)
+        Assert.Equal(1, actual.Conditions.Count)
+        let r = actual.Conditions.[0]
+        Assert.Equal(cond.Id, r.Id)
+        Assert.Equal(Some ConditionType.SkipUnmatch, r.Type)
+        Assert.True(r.IsInverted)
+        Assert.Equal(1, r.ApiCalls.Count)
+        Assert.Equal(api1.Id, r.ApiCalls.[0].Id)
+        Assert.Equal(BoolValue (Single true), r.ApiCalls.[0].InputSpec)
+        Assert.Equal(ContactKind.NoContact, r.ApiCalls.[0].ContactKind)
+        Assert.Equal(1, r.Children.Count)
+        let rc = r.Children.[0]
+        Assert.Equal(child.Id, rc.Id)
+        Assert.True(rc.IsOR)
+        Assert.Equal(1, rc.ApiCalls.Count)
+        Assert.Equal(api2.Id, rc.ApiCalls.[0].Id)
+        Assert.Equal(ContactKind.NcContact, rc.ApiCalls.[0].ContactKind)
 
 module FileRoundTripTests =
 

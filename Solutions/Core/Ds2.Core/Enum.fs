@@ -11,7 +11,14 @@ type ArrowType =
     | ResetReset  = 4   // 리셋+리셋 (source 시작 시 target 리셋 + target 시작 시 source 리셋)
     | Group       = 5   // 그룹 연결
 
-/// Condition type for CallCondition entries.
+/// Condition type for Condition entries (shared by Call/Work).
+type ConditionType =
+    | AutoAux      = 0
+    | ComAux       = 1
+    | SkipUnmatch  = 2
+
+/// 외부 DLL(AAStoPLC) binary 호환용 — int 값은 `ConditionType` 과 동일.
+/// 신규 코드에서는 `ConditionType` 사용. 외부 DLL 재빌드 시 제거 예정.
 type CallConditionType =
     | AutoAux      = 0
     | ComAux       = 1

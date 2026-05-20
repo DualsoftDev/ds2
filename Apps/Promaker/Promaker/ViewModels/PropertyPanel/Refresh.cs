@@ -88,6 +88,14 @@ public partial class PropertyPanelState
         {
             RefreshCallPanel(selected.Id);
         }
+        else if (IsSingleWorkSelected && selected is not null)
+        {
+            // Work 도 Conditions 컬렉션을 가지므로 ConditionSections 재로드.
+            CallApiCalls.Clear();
+            DeviceApiDefOptions.Clear();
+            SelectedCallApiCall = null;
+            ReloadWorkConditions(selected.Id);
+        }
         else
         {
             CallApiCalls.Clear();

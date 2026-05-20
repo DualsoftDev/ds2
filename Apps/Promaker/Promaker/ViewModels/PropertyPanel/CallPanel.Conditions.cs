@@ -11,71 +11,100 @@ namespace Promaker.ViewModels;
 
 public partial class PropertyPanelState
 {
-    [RelayCommand]
-    private void AddCondition(CallConditionType type) =>
-        CallPanelAction(id => Store.AddCallCondition(id, type), "Call 조건 추가");
+    /// <summary>현재 선택된 Owner 가 Work 인지 여부 — Condition 명령 dispatch 기준.</summary>
+    private bool IsWorkConditionContext =>
+        SelectedNode?.EntityType == EntityKind.Work;
+
+    /// <summary>Owner 변경 후 panel 새로고침 — Work / Call 분기.</summary>
+    private void RefreshConditionOwner(Guid ownerId)
+    {
+        if (IsWorkConditionContext) RefreshWorkPanel(ownerId);
+        else RefreshCallPanel(ownerId);
+    }
 
     [RelayCommand]
-    private void RemoveCallCondition(CallConditionItem? item)
+    private void AddCondition(ConditionType type)
+    {
+        if (IsWorkConditionContext)
+            WorkPanelAction(id => Store.AddWorkCondition(id, type), "Work 조건 추가");
+        else
+            CallPanelAction(id => Store.AddCallCondition(id, type), "Call 조건 추가");
+    }
+
+    [RelayCommand]
+    private void RemoveCallCondition(ConditionItem? item)
     {
         if (item is null) return;
-        if (!GuardSimulationSemanticEdit("Call 조건 삭제"))
+        if (!GuardSimulationSemanticEdit("조건 삭제"))
             return;
-        if (!_host.TryAction(
-                () => Store.RemoveCallCondition(item.CallId, item.ConditionId)))
-            return;
-        RefreshCallPanel(item.CallId);
+        var ok =
+            IsWorkConditionContext
+                ? _host.TryAction(() => Store.RemoveWorkCondition(item.CallId, item.ConditionId))
+                : _host.TryAction(() => Store.RemoveCallCondition(item.CallId, item.ConditionId));
+        if (!ok) return;
+        RefreshConditionOwner(item.CallId);
     }
 
     [RelayCommand]
     private void DropCallToConditionSection(ConditionDropInfo? info)
     {
         if (info is null || SelectedNode is null) return;
-        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
+        if (!GuardSimulationSemanticEdit("조건 변경"))
             return;
-        var callId = SelectedNode.Id;
+        var ownerId = SelectedNode.Id;
 
-        if (Controls.ConditionDropHelper.ExecuteConditionDrop(
-                Store, _host, callId, info.ConditionType, info.DroppedCallId))
-            RefreshCallPanel(callId);
+        var executed = IsWorkConditionContext
+            ? Controls.ConditionDropHelper.ExecuteWorkConditionDrop(
+                Store, _host, ownerId, info.ConditionType, info.DroppedCallId)
+            : Controls.ConditionDropHelper.ExecuteConditionDrop(
+                Store, _host, ownerId, info.ConditionType, info.DroppedCallId);
+
+        if (executed) RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
     private void DropCallToConditionItem(ConditionItemDropInfo? info)
     {
         if (info is null || SelectedNode is null) return;
-        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
+        if (!GuardSimulationSemanticEdit("조건 변경"))
             return;
-        var callId = SelectedNode.Id;
+        var ownerId = SelectedNode.Id;
 
-        if (Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
-                Store, _host, callId, info.ConditionId, info.DroppedCallId))
-            RefreshCallPanel(callId);
+        var executed = IsWorkConditionContext
+            ? Controls.ConditionDropHelper.ExecuteAddApiCallsToWorkCondition(
+                Store, _host, ownerId, info.ConditionId, info.DroppedCallId)
+            : Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
+                Store, _host, ownerId, info.ConditionId, info.DroppedCallId);
+
+        if (executed) RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
-    private void AddChildGroup(CallConditionItem? item)
+    private void AddChildGroup(ConditionItem? item)
     {
         if (item is null || SelectedNode is null) return;
         if (!GuardSimulationSemanticEdit("하위 그룹 추가"))
             return;
-        var callId = SelectedNode.Id;
-        if (!_host.TryAction(() => Store.AddChildCondition(callId, item.ConditionId, false)))
-            return;
-        RefreshCallPanel(callId);
+        var ownerId = SelectedNode.Id;
+        var ok = IsWorkConditionContext
+            ? _host.TryAction(() => Store.AddWorkChildCondition(ownerId, item.ConditionId, false))
+            : _host.TryAction(() => Store.AddChildCondition(ownerId, item.ConditionId, false));
+        if (!ok) return;
+        RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
     private void EditConditions(ConditionSectionItem? section)
     {
         if (section is null || SelectedNode is null) return;
-        if (!GuardSimulationSemanticEdit("Call 조건 편집"))
+        if (!GuardSimulationSemanticEdit("조건 편집"))
             return;
-        var callId = SelectedNode.Id;
+        var ownerId = SelectedNode.Id;
+        var ownerKind = IsWorkConditionContext ? EntityKind.Work : EntityKind.Call;
 
-        var dialog = new ConditionEditDialog(Store, _host, callId, section.ConditionType);
+        var dialog = new ConditionEditDialog(Store, _host, ownerId, ownerKind, section.ConditionType);
         ShowOwnedDialog(dialog);
-        RefreshCallPanel(callId);
+        RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
@@ -84,11 +113,12 @@ public partial class PropertyPanelState
         if (row is null || SelectedNode is null) return;
         if (!GuardSimulationSemanticEdit("ApiCall 제거"))
             return;
-        var callId = SelectedNode.Id;
-        if (!_host.TryAction(() =>
-                Store.RemoveApiCallFromCondition(callId, row.ConditionId, row.ApiCallId)))
-            return;
-        RefreshCallPanel(callId);
+        var ownerId = SelectedNode.Id;
+        var ok = IsWorkConditionContext
+            ? _host.TryAction(() => Store.RemoveApiCallFromWorkCondition(ownerId, row.ConditionId, row.ApiCallId))
+            : _host.TryAction(() => Store.RemoveApiCallFromCondition(ownerId, row.ConditionId, row.ApiCallId));
+        if (!ok) return;
+        RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
@@ -97,7 +127,7 @@ public partial class PropertyPanelState
         if (row is null || SelectedNode is null) return;
         if (!GuardSimulationSemanticEdit("ValueSpec 편집"))
             return;
-        var callId = SelectedNode.Id;
+        var ownerId = SelectedNode.Id;
 
         var dialog = new ApiCallSpecDialog(
             row.ApiDefDisplayName,
@@ -106,16 +136,29 @@ public partial class PropertyPanelState
         ShowOwnedDialog(dialog);
         if (dialog.DialogResult != true) return;
 
-        _host.TryAction(() =>
-            Store.UpdateConditionApiCallOutputSpec(
-                callId, row.ConditionId, row.ApiCallId,
-                dialog.OutSpecTypeIndex, dialog.OutSpecText));
-        _host.TryAction(() =>
-            Store.UpdateConditionApiCallInputSpec(
-                callId, row.ConditionId, row.ApiCallId,
-                dialog.InSpecTypeIndex, dialog.InSpecText));
-        // v10: UpdateConditionApiCallSkipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
-        RefreshCallPanel(callId);
+        if (IsWorkConditionContext)
+        {
+            _host.TryAction(() =>
+                Store.UpdateWorkConditionApiCallOutputSpec(
+                    ownerId, row.ConditionId, row.ApiCallId,
+                    dialog.OutSpecTypeIndex, dialog.OutSpecText));
+            _host.TryAction(() =>
+                Store.UpdateWorkConditionApiCallInputSpec(
+                    ownerId, row.ConditionId, row.ApiCallId,
+                    dialog.InSpecTypeIndex, dialog.InSpecText));
+        }
+        else
+        {
+            _host.TryAction(() =>
+                Store.UpdateConditionApiCallOutputSpec(
+                    ownerId, row.ConditionId, row.ApiCallId,
+                    dialog.OutSpecTypeIndex, dialog.OutSpecText));
+            _host.TryAction(() =>
+                Store.UpdateConditionApiCallInputSpec(
+                    ownerId, row.ConditionId, row.ApiCallId,
+                    dialog.InSpecTypeIndex, dialog.InSpecText));
+        }
+        RefreshConditionOwner(ownerId);
     }
 
     [RelayCommand]
@@ -124,9 +167,8 @@ public partial class PropertyPanelState
         if (row is null) return;
 
         // ApiCall을 직접 소유한 Call(소유자)을 찾아 그 캔버스로 이동.
-        // condition formula에서 참조된 ApiCall을 클릭하면 그 ApiCall의 원래 위치(소유 Call)로 점프.
         if (!_host.TryRef(
-                () => CallConditionQueries.FindOwnerCallByApiCallId(Store, row.ApiCallId),
+                () => ConditionQueries.FindOwnerCallByApiCallId(Store, row.ApiCallId),
                 out var ownerTuples))
             return;
 
@@ -140,27 +182,33 @@ public partial class PropertyPanelState
             return;
         }
 
-        // ApiCall은 정확히 1개의 Call에 소속됨 — 첫 번째 결과로 직접 이동
         _host.OpenParentCanvasAndFocusNode(owners[0].Id, EntityKind.Call);
     }
 
     private IReadOnlyDictionary<Guid, string>? _lastIoSnapshot;
 
-    private void ReloadConditions(Guid callId)
+    /// <summary>Call 선택 시 호출 — Call 의 condition 트리 로드.</summary>
+    private void ReloadConditions(Guid callId) =>
+        ReloadConditionsCore(callId, () => Store.GetCallConditionsForPanel(callId));
+
+    /// <summary>Work 선택 시 호출 — Work 의 condition 트리 로드 (SkipUnmatch 만 의미).</summary>
+    private void ReloadWorkConditions(Guid workId) =>
+        ReloadConditionsCore(workId, () => Store.GetWorkConditionsForPanel(workId));
+
+    private void ReloadConditionsCore(
+        Guid ownerId,
+        Func<Microsoft.FSharp.Collections.FSharpList<ConditionPanelItem>> fetch)
     {
         ClearConditionSections();
 
-        if (!_host.TryRef(
-                () => Store.GetCallConditionsForPanel(callId),
-                out var conditions))
+        if (!_host.TryRef(fetch, out var conditions))
             return;
 
         foreach (var cond in conditions)
         {
             var target = FindConditionSection(cond.ConditionType)
-                         ?? FindConditionSection(CallConditionType.ComAux);
-            var item = new CallConditionItem(callId, cond);
-            // 시뮬 동작 중 Call 노드를 새로 선택해 reload 한 경우, 직전 IO 스냅샷으로 즉시 표시.
+                         ?? FindConditionSection(ConditionType.ComAux);
+            var item = new ConditionItem(ownerId, cond);
             if (_lastIoSnapshot is not null) item.RefreshRuntime(_lastIoSnapshot);
             target?.Conditions.Add(item);
         }
@@ -173,7 +221,7 @@ public partial class PropertyPanelState
             section.Conditions.Clear();
     }
 
-    private ConditionSectionItem? FindConditionSection(CallConditionType type)
+    private ConditionSectionItem? FindConditionSection(ConditionType type)
     {
         EnsureConditionSectionsInitialized();
         return ConditionSections.FirstOrDefault(s => s.ConditionType == type);
@@ -182,15 +230,11 @@ public partial class PropertyPanelState
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.SkipUnmatch, "SkipUnmatch"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.AutoAux, "AutoAux"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.ComAux, "ComAux"));
+        ConditionSections.Add(new ConditionSectionItem(ConditionType.SkipUnmatch, "SkipUnmatch"));
+        ConditionSections.Add(new ConditionSectionItem(ConditionType.AutoAux, "AutoAux"));
+        ConditionSections.Add(new ConditionSectionItem(ConditionType.ComAux, "ComAux"));
     }
 
-    /// <summary>
-    /// 시뮬 IO 값 dictionary 로 현재 표시 중인 모든 조건 row 의 런타임 표시를 갱신.
-    /// ioValues 가 null 이면 표시 비움 (시뮬 종료). 시뮬 이벤트 hook 에서 호출.
-    /// </summary>
     public void RefreshConditionRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
     {
         _lastIoSnapshot = ioValues;

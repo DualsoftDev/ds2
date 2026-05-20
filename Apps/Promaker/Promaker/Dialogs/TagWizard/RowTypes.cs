@@ -265,7 +265,7 @@ public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
             OnPropertyChanged(nameof(IsAuxCoil));
         }
     }
-    /// AuxCoil 일 때 CallCondition 속성 매핑 — "AutoAux" / "ComAux".
+    /// AuxCoil 일 때 Condition 속성 매핑 — "AutoAux" / "ComAux".
     public string AuxKind { get => _auxKind; set => SetProperty(ref _auxKind, value ?? "AutoAux"); }
     /// XAML AuxKind 콤보 IsEnabled 바인딩.
     public bool IsAuxCoil =>
@@ -296,7 +296,7 @@ public class AuxPortRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
     /// Kind 콤보 후보.
     public static System.Collections.Generic.IReadOnlyList<string> KindOptions { get; }
         = new[] { "DirectFB", "AuxCoil" };
-    /// AuxKind 콤보 후보 — None 은 CallCondition 미사용 (entry.Condition 만 사용).
+    /// AuxKind 콤보 후보 — None 은 Condition 미사용 (entry.Condition 만 사용).
     public static System.Collections.Generic.IReadOnlyList<string> AuxKindOptions { get; }
         = new[] { "AutoAux", "ComAux", "None" };
 

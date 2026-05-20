@@ -6,7 +6,7 @@ open Ds2.Core
 open Ds2.Core.Store
 
 
-let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) (isReference: bool) (referenceOfId: Guid option) =
+let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: ConditionType list) (isGhost: bool) (isReference: bool) (referenceOfId: Guid option) =
     let defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
@@ -87,7 +87,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false c.ReferenceOf.IsSome c.ReferenceOf)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (ConditionQueries.conditionTypesOfCall c) false c.ReferenceOf.IsSome c.ReferenceOf)
 
         let arrows =
             Queries.arrowCallsOf workId store

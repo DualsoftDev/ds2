@@ -18,14 +18,14 @@ namespace Promaker.Dialogs;
 
 public partial class ConditionEditDialog
 {
-    /// <summary>이 Call 에 등록된 CallCondition 의 실제 ApiCall 심볼만 + 사용 여부 — Refresh 마다 갱신.</summary>
+    /// <summary>이 Call 에 등록된 Condition 의 실제 ApiCall 심볼만 + 사용 여부 — Refresh 마다 갱신.</summary>
     private void UpdateSymbolProvider(CoilCondition cond)
     {
         // 현재 rung 에서 사용 중인 심볼 set (used).
         var usedSet = new HashSet<string>(
             CoilAst.Leaves(cond).Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)),
             StringComparer.OrdinalIgnoreCase);
-        // 이 Call 에 실제로 등록된 CallCondition 들의 ApiCall display name 만 추출.
+        // 이 Call 에 실제로 등록된 Condition 들의 ApiCall display name 만 추출.
         var registered = new List<string>();
         if (_host.TryRef(() => _store.GetCallConditionsForPanel(_callId), out var conds))
         {
@@ -39,7 +39,7 @@ public partial class ConditionEditDialog
         _ctx.SymbolProvider = new AnnotatedSymbolProvider(registered, usedSet);
     }
 
-    private static void CollectApiCallNames(CallConditionPanelItem c, List<string> acc)
+    private static void CollectApiCallNames(ConditionPanelItem c, List<string> acc)
     {
         foreach (var item in c.Items)
             if (!acc.Contains(item.ApiDefDisplayName, StringComparer.OrdinalIgnoreCase))

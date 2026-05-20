@@ -218,6 +218,56 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
     [<Fact>]
+    let ``AASX round-trip preserves Work SkipUnmatch Conditions`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+
+        // ApiCall 을 위해 Call 하나 + ApiCall 두 개 준비.
+        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1" ], true, None) |> ignore
+        let apiDef1 = store.AddApiDefWithProperties("Api1", systemId) |> fun id -> store.ApiDefs.[id]
+        let apiDef2 = store.AddApiDefWithProperties("Api2", systemId) |> fun id -> store.ApiDefs.[id]
+        let call = store.Calls.Values |> Seq.head
+        let ac1 = store.AddApiCallFromPanel(call.Id, apiDef1.Id, "", "", "", "", 0, "", 0, "")
+        let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "")
+
+        // Work 의 Conditions 에 SkipUnmatch 1 개 직접 박음 (Condition.ApiCalls 에 deep copy).
+        let work = store.Works.[workId]
+        let cond = Condition(Type = Some ConditionType.SkipUnmatch, IsOR = true)
+        let acRef1 = store.ApiCalls.[ac1].DeepCopy()
+        acRef1.Id <- ac1
+        let acRef2 = store.ApiCalls.[ac2].DeepCopy()
+        acRef2.Id <- ac2
+        cond.ApiCalls.Add(acRef1)
+        cond.ApiCalls.Add(acRef2)
+        work.Conditions.Add(cond)
+        let originalCondId = cond.Id
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let work2 = store2.Works.[workId]
+            Assert.Equal(1, work2.Conditions.Count)
+            let cond2 = work2.Conditions.[0]
+            Assert.Equal(originalCondId, cond2.Id)
+            Assert.Equal(Some ConditionType.SkipUnmatch, cond2.Type)
+            Assert.True(cond2.IsOR)
+            Assert.Equal(2, cond2.ApiCalls.Count)
+            let restoredIds = cond2.ApiCalls |> Seq.map (fun a -> a.Id) |> Set.ofSeq
+            Assert.True(restoredIds.Contains(ac1))
+            Assert.True(restoredIds.Contains(ac2))
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
     let ``AASX round-trip preserves Project TokenSpecs`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")

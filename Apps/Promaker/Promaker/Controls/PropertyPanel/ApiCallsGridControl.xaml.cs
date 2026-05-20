@@ -36,16 +36,16 @@ public partial class ApiCallsGridControl : UserControl
     {
         if (ApiCallsDataGrid == null) return;
 
-        // 간략보기: ApiDef, InAddress, OutAddress만 표시
-        // 컬럼 인덱스: 0=삭제, 1=ApiDef, 2=InTag, 3=InAddress, 4=UseSensor, 5=InSpec, 6=OutTag, 7=OutAddress, 8=OutSpec, 9=저장
+        // v10 컬럼 (UseSensor 폐기 후): 0=삭제, 1=ApiDef, 2=InTag, 3=InAddress,
+        // 4=InSpec, 5=OutTag, 6=OutAddress, 7=OutSpec, 8=저장(✎/✓)
+        // 간략보기에서는 InTag(2)·InSpec(4)·OutTag(5)·OutSpec(7) 만 숨김.
         var columns = ApiCallsDataGrid.Columns;
-        if (columns.Count >= 10)
-        {
-            columns[2].Visibility = ShowAllFields ? Visibility.Visible : Visibility.Collapsed; // InTag
-            columns[4].Visibility = ShowAllFields ? Visibility.Visible : Visibility.Collapsed; // UseSensor
-            columns[5].Visibility = ShowAllFields ? Visibility.Visible : Visibility.Collapsed; // InSpec
-            columns[6].Visibility = ShowAllFields ? Visibility.Visible : Visibility.Collapsed; // OutTag
-            columns[8].Visibility = ShowAllFields ? Visibility.Visible : Visibility.Collapsed; // OutSpec
-        }
+        if (columns.Count < 8) return;
+
+        var vis = ShowAllFields ? Visibility.Visible : Visibility.Collapsed;
+        columns[2].Visibility = vis; // InTag
+        columns[4].Visibility = vis; // InSpec
+        columns[5].Visibility = vis; // OutTag
+        columns[7].Visibility = vis; // OutSpec
     }
 }

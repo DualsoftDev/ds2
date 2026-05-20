@@ -27,7 +27,7 @@ module internal MermaidMapperCommon =
         | -1  -> ("imported", label)
         | idx -> (label.[..idx - 1], label.[idx + 1..])
 
-    /// 노드의 조건 참조를 CallCondition으로 복원
+    /// 노드의 조건 참조를 Condition으로 복원
     let restoreConditions
         (registerApiCall: ApiCall -> unit)
         (targetCall: Call)
@@ -49,10 +49,10 @@ module internal MermaidMapperCommon =
                     | _ -> None
                 | _ -> None
 
-        let addCondition (condType: CallConditionType) (sourceNames: string list) =
+        let addCondition (condType: ConditionType) (sourceNames: string list) =
             if sourceNames.IsEmpty then ()
             else
-                let cond = CallCondition()
+                let cond = Condition()
                 cond.Type <- Some condType
                 for srcName in sourceNames do
                     match tryResolveSourceCall srcName with
@@ -66,14 +66,54 @@ module internal MermaidMapperCommon =
                                 srcCall.ApiCalls.Add(ac)
                                 registerApiCall ac
                                 ac
-                        cond.Conditions.Add(apiCall)
+                        cond.ApiCalls.Add(apiCall)
                     | None -> ()
-                if cond.Conditions.Count > 0 then
-                    targetCall.CallConditions.Add(cond)
+                if cond.ApiCalls.Count > 0 then
+                    targetCall.Conditions.Add(cond)
 
-        addCondition CallConditionType.AutoAux      node.AutoAuxConditionRefs
-        addCondition CallConditionType.ComAux       node.ComAuxConditionRefs
-        addCondition CallConditionType.SkipUnmatch  node.SkipUnmatchConditionRefs
+        addCondition ConditionType.AutoAux      node.AutoAuxConditionRefs
+        addCondition ConditionType.ComAux       node.ComAuxConditionRefs
+        addCondition ConditionType.SkipUnmatch  node.SkipUnmatchConditionRefs
+
+    /// Work subgraph 의 SkipUnmatchConditionRefs 를 Work.Conditions 로 복원.
+    /// Mapper 측 Work subgraph 처리 시 호출.
+    let restoreWorkConditions
+        (registerApiCall: ApiCall -> unit)
+        (targetWork: Work)
+        (nodeRefToCallId: Dictionary<string, Guid>)
+        (uniqueNameToCallId: Dictionary<string, Guid>)
+        (callsById: Dictionary<Guid, Call>)
+        (refs: string list) =
+        if refs.IsEmpty then () else
+        let tryResolveSourceCall (sourceRef: string) =
+            match nodeRefToCallId.TryGetValue(sourceRef) with
+            | true, srcCallId ->
+                match callsById.TryGetValue(srcCallId) with
+                | true, srcCall -> Some srcCall
+                | _ -> None
+            | _ ->
+                match uniqueNameToCallId.TryGetValue(sourceRef) with
+                | true, srcCallId ->
+                    match callsById.TryGetValue(srcCallId) with
+                    | true, srcCall -> Some srcCall
+                    | _ -> None
+                | _ -> None
+        let cond = Condition()
+        cond.Type <- Some ConditionType.SkipUnmatch
+        for srcName in refs do
+            match tryResolveSourceCall srcName with
+            | Some srcCall ->
+                let apiCall =
+                    if srcCall.ApiCalls.Count > 0 then srcCall.ApiCalls.[0]
+                    else
+                        let ac = ApiCall(srcCall.Name)
+                        srcCall.ApiCalls.Add(ac)
+                        registerApiCall ac
+                        ac
+                cond.ApiCalls.Add(apiCall)
+            | None -> ()
+        if cond.ApiCalls.Count > 0 then
+            targetWork.Conditions.Add(cond)
 
     /// subgraph 표시 이름 결정
     let subgraphName (sg: MermaidSubgraph) : string =

@@ -135,9 +135,9 @@ public sealed class DeviceApiDefOptionItem(
     public string DisplayName { get; } = displayName;
 }
 
-public sealed class CallConditionItem
+public sealed class ConditionItem
 {
-    public CallConditionItem(Guid callId, CallConditionPanelItem panel)
+    public ConditionItem(Guid callId, ConditionPanelItem panel)
     {
         CallId        = callId;
         ConditionId   = panel.ConditionId;
@@ -148,7 +148,7 @@ public sealed class CallConditionItem
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
         Children = panel.Children
-            .Select(c => new CallConditionItem(callId, c))
+            .Select(c => new ConditionItem(callId, c))
             .ToList();
         var leaves = new List<ConditionApiCallRow>(Items);
         foreach (var c in Children) leaves.AddRange(c.AllLeafRows);
@@ -157,12 +157,12 @@ public sealed class CallConditionItem
 
     public Guid               CallId        { get; }
     public Guid               ConditionId   { get; }
-    public CallConditionType ConditionType  { get; }
+    public ConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsAND         => !IsOR;
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
-    public IReadOnlyList<CallConditionItem> Children { get; }
+    public IReadOnlyList<ConditionItem> Children { get; }
 
     /// <summary>그룹 결합자 표시용 — XAML 바인딩 편의.</summary>
     public string GroupOperator => IsOR ? "OR" : "AND";
@@ -188,7 +188,7 @@ public sealed class ConditionApiCallRow : ObservableObject
     private string _runtimeText = string.Empty;
     private bool? _isMatched;
 
-    public ConditionApiCallRow(Guid callId, Guid conditionId, CallConditionApiCallItem item)
+    public ConditionApiCallRow(Guid callId, Guid conditionId, ConditionApiCallItem item)
     {
         CallId               = callId;
         ConditionId          = conditionId;
@@ -259,29 +259,29 @@ public sealed class ConditionApiCallRow : ObservableObject
 
 public sealed class ConditionSectionItem : ObservableObject
 {
-    public ConditionSectionItem(CallConditionType conditionType, string title)
+    public ConditionSectionItem(ConditionType conditionType, string title)
     {
         ConditionType = conditionType;
         Title = title;
         Conditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Header));
     }
 
-    public CallConditionType ConditionType { get; }
+    public ConditionType ConditionType { get; }
     public string Title { get; }
-    public ObservableCollection<CallConditionItem> Conditions { get; } = [];
+    public ObservableCollection<ConditionItem> Conditions { get; } = [];
     public string Header => $"{Title} [{Conditions.Count}]";
     public string HelpTopic => ConditionType switch
     {
-        CallConditionType.AutoAux     => "condition-auto-aux",
-        CallConditionType.ComAux      => "condition-com-aux",
-        CallConditionType.SkipUnmatch => "condition-skip-unmatch",
+        ConditionType.AutoAux     => "condition-auto-aux",
+        ConditionType.ComAux      => "condition-com-aux",
+        ConditionType.SkipUnmatch => "condition-skip-unmatch",
         _                             => "condition"
     };
 }
 
-public sealed class ConditionDropInfo(CallConditionType conditionType, Guid droppedCallId)
+public sealed class ConditionDropInfo(ConditionType conditionType, Guid droppedCallId)
 {
-    public CallConditionType ConditionType { get; } = conditionType;
+    public ConditionType ConditionType { get; } = conditionType;
     public Guid DroppedCallId { get; } = droppedCallId;
 }
 

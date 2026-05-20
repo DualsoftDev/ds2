@@ -337,24 +337,24 @@ module PanelTests =
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let condId = store.Calls.[call.Id].Conditions |> Seq.head |> fun cc -> cc.Id
 
         let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
         Assert.Equal(1, added)
 
         let conditionApiCallId =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+            |> fun cc -> cc.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
         let changed = store.UpdateConditionApiCallOutputSpec(call.Id, condId, conditionApiCallId, 4, "123")
         Assert.True(changed)
 
         let updatedSpec =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.OutputSpec
+            |> fun cc -> cc.ApiCalls |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.OutputSpec
 
         match updatedSpec with
         | Int32Value (Single v) -> Assert.Equal(123, v)
@@ -369,24 +369,24 @@ module PanelTests =
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(call.Id, CallConditionType.ComAux)
-        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+        store.AddCallCondition(call.Id, ConditionType.ComAux)
+        let condId = store.Calls.[call.Id].Conditions |> Seq.head |> fun cc -> cc.Id
 
         let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
         Assert.Equal(1, added)
 
         let conditionApiCallId =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+            |> fun cc -> cc.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
         let changed = store.UpdateConditionApiCallInputSpec(call.Id, condId, conditionApiCallId, 4, "456")
         Assert.True(changed)
 
         let updatedSpec =
-            store.Calls.[call.Id].CallConditions
+            store.Calls.[call.Id].Conditions
             |> Seq.head
-            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.InputSpec
+            |> fun cc -> cc.ApiCalls |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.InputSpec
 
         match updatedSpec with
         | Int32Value (Single v) -> Assert.Equal(456, v)

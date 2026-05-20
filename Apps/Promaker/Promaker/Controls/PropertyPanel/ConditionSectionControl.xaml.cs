@@ -120,7 +120,7 @@ public partial class ConditionSectionControl : UserControl
         if (ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
 
         DropCallCommand?.Execute(new ConditionDropInfo(
-            ConditionType is Ds2.Core.CallConditionType ct ? ct : Ds2.Core.CallConditionType.ComAux,
+            ConditionType is Ds2.Core.ConditionType ct ? ct : Ds2.Core.ConditionType.ComAux,
             callNode.Id));
         e.Handled = true;
     }
@@ -149,7 +149,7 @@ public partial class ConditionSectionControl : UserControl
     {
         ConditionDropHelper.RestoreBorder(sender as Border, ref _savedItemBrush, this);
         if (ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
-        if (sender is not Border { Tag: ViewModels.CallConditionItem item }) return;
+        if (sender is not Border { Tag: ViewModels.ConditionItem item }) return;
 
         DropCallToConditionItemCommand?.Execute(
             new ViewModels.ConditionItemDropInfo(item.ConditionId, callNode.Id));
@@ -177,7 +177,7 @@ public partial class ConditionSectionControl : UserControl
         for (int i = 0; i < count; i++)
         {
             var child = VisualTreeHelper.GetChild(root, i);
-            if (child is TextBlock { DataContext: CallConditionItem } tb)
+            if (child is TextBlock { DataContext: ConditionItem } tb)
                 yield return tb;
             foreach (var nested in FindAllFormulaTextBlocks(child))
                 yield return nested;
@@ -194,7 +194,7 @@ public partial class ConditionSectionControl : UserControl
     {
         if (tb is null) return;
         tb.Inlines.Clear();
-        if (tb.DataContext is not CallConditionItem item) return;
+        if (tb.DataContext is not ConditionItem item) return;
         FormulaColorizer.BuildInlines(item, tb.Inlines, NavigateConditionApiCallCommand);
     }
 }
@@ -219,7 +219,7 @@ internal static class FormulaColorizer
         MatchedBrush.Freeze(); MismatchBrush.Freeze(); NeutralBrush.Freeze();
     }
 
-    public static void BuildInlines(CallConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
+    public static void BuildInlines(ConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
     {
         if (cond.Items.Count == 0 && cond.Children.Count == 0)
         {
@@ -268,7 +268,7 @@ internal static class FormulaColorizer
         }
     }
 
-    private static void AddChildRuns(CallConditionItem child, InlineCollection inlines, ICommand? navigateCommand)
+    private static void AddChildRuns(ConditionItem child, InlineCollection inlines, ICommand? navigateCommand)
     {
         inlines.Add(new Run("(") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
         BuildInlines(child, inlines, navigateCommand);

@@ -10,10 +10,10 @@ public partial class ConditionTypePickerDialog : Window
         InitializeComponent();
     }
 
-    public CallConditionType SelectedConditionType =>
-        ComAuxRadio.IsChecked == true ? CallConditionType.ComAux
-        : SkipUnmatchRadio.IsChecked == true ? CallConditionType.SkipUnmatch
-        : CallConditionType.AutoAux;
+    public ConditionType SelectedConditionType =>
+        ComAuxRadio.IsChecked == true ? ConditionType.ComAux
+        : SkipUnmatchRadio.IsChecked == true ? ConditionType.SkipUnmatch
+        : ConditionType.AutoAux;
 
     private void OK_Click(object sender, RoutedEventArgs e) => DialogResult = true;
 }

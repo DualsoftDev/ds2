@@ -31,7 +31,7 @@ module JsonFormat =
     let tokenRoleIgnore = 2
     let tokenRoleSink = 4
 
-    /// CallConditionType 정수 매핑
+    /// ConditionType 정수 매핑
     let callConditionAutoAux = 0
     let callConditionComAux = 1
     let callConditionSkipUnmatch = 2

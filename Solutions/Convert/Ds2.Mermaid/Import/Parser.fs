@@ -14,7 +14,23 @@ module MermaidParser =
         Edges: MermaidEdge list
         Children: MermaidSubgraph list
         IsPassive: bool
+        SkipUnmatchConditionRefs: string list
     }
+
+    /// title 의 "<br>SkipUnmatch: ref1, ref2" suffix 분리 (Work subgraph 전용 — 다른 subgraph 는 항상 빈 list).
+    let private extractSkipUnmatchRefs (rawTitle: string) : string * string list =
+        let marker = "<br>SkipUnmatch: "
+        let idx = rawTitle.IndexOf(marker)
+        if idx < 0 then rawTitle, []
+        else
+            let name = rawTitle.Substring(0, idx)
+            let suffix = rawTitle.Substring(idx + marker.Length)
+            let refs =
+                suffix.Split(',')
+                |> Array.map (fun s -> s.Trim())
+                |> Array.filter (fun s -> s.Length > 0)
+                |> Array.toList
+            name, refs
 
     /// 파싱 상태
     type private ParserState = {
@@ -107,13 +123,21 @@ module MermaidParser =
             match state.SubgraphStack with
             | [] -> state.IsPassiveSection
             | parent :: _ -> parent.IsPassive
+        // displayName 에서 SkipUnmatch suffix 추출 (Work subgraph 만 해당; 다른 노드 는 marker 없어서 빈 list).
+        let cleanedName, skipRefs =
+            match displayName with
+            | Some raw ->
+                let n, refs = extractSkipUnmatchRefs raw
+                (if n = raw then Some raw else Some n), refs
+            | None -> None, []
         let frame = {
             Id = id
-            DisplayName = displayName
+            DisplayName = cleanedName
             Nodes = []
             Edges = []
             Children = []
             IsPassive = isPassive
+            SkipUnmatchConditionRefs = skipRefs
         }
         { state with SubgraphStack = frame :: state.SubgraphStack }
 
@@ -128,6 +152,7 @@ module MermaidParser =
                 InternalEdges = List.rev frame.Edges
                 Children = List.rev frame.Children
                 IsPassive = frame.IsPassive
+                SkipUnmatchConditionRefs = frame.SkipUnmatchConditionRefs
             }
             match rest with
             | parent :: grandparents ->

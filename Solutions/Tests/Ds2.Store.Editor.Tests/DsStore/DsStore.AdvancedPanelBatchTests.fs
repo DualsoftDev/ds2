@@ -147,8 +147,8 @@ module DsQueryTests =
 
     [<Fact>]
     let ``tryFindConditionRec finds nested condition`` () =
-        let child = CallCondition()
-        let parent = CallCondition()
+        let child = Condition()
+        let parent = Condition()
         parent.Children.Add(child)
         let result = Queries.tryFindConditionRec [parent] child.Id
         Assert.True(result.IsSome)

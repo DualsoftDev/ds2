@@ -30,7 +30,8 @@ public partial class ConditionEditDialog : Window
     private readonly DsStore _store;
     private readonly MainViewModel.PropertyPanelHost _host;
     private readonly Guid _callId;
-    private readonly CallConditionType _condType;
+    private readonly EntityKind _ownerKind;
+    private readonly ConditionType _condType;
     private readonly ObservableCollection<RungViewModel> _rungs = new();
     private readonly EditorContext _ctx = new() { GridCols = 14 };
     private CoilRungViewModel? _rung;
@@ -49,13 +50,15 @@ public partial class ConditionEditDialog : Window
     public ConditionEditDialog(
         DsStore store,
         MainViewModel.PropertyPanelHost host,
-        Guid callId,
-        CallConditionType condType)
+        Guid ownerId,
+        EntityKind ownerKind,
+        ConditionType condType)
     {
         InitializeComponent();
         _store = store;
         _host = host;
-        _callId = callId;
+        _callId = ownerId;   // Owner Id (Call/Work 공용 슬롯)
+        _ownerKind = ownerKind;
         _condType = condType;
         SectionTitle.Text = $"{condType} 조건 편집";
         StatusText.Text   = "닫기 시 LadderEditor 변경 사항이 store 에 저장됩니다.";
@@ -86,6 +89,67 @@ public partial class ConditionEditDialog : Window
                 };
             }
             if (TextBoxBorder is not null) _normalBorder = TextBoxBorder.BorderBrush;
+        };
+    }
+
+    // ── Work 용 BuildPreview (외부 DLL AAStoPLC.ConditionExprBuilder.buildPreview 의 C# 미러) ───
+    private CoilCondition BuildWorkConditionPreview()
+    {
+        if (!_store.Works.TryGetValue(_callId, out var work))
+            return CoilCondition.AlwaysTrue;
+        var matches = new List<Ds2.Core.Condition>();
+        foreach (var c in work.Conditions)
+        {
+            if (FSharpOption<ConditionType>.get_IsSome(c.Type) && c.Type.Value == _condType)
+                matches.Add(c);
+        }
+        if (matches.Count == 0) return CoilCondition.AlwaysTrue;
+
+        var roots = new List<CoilCondition>();
+        foreach (var c in matches)
+        {
+            var built = BuildOneCondition(c);
+            if (built is not null) roots.Add(built);
+        }
+        if (roots.Count == 0) return CoilCondition.AlwaysTrue;
+        if (roots.Count == 1) return roots[0];
+        return CoilCondition.NewAnd(Microsoft.FSharp.Collections.ListModule.OfSeq(roots));
+    }
+
+    private CoilCondition? BuildOneCondition(Ds2.Core.Condition cond)
+    {
+        var children = new List<CoilCondition>();
+        foreach (var ac in cond.ApiCalls) children.Add(BuildLeafCondition(ac));
+        foreach (var child in cond.Children)
+        {
+            var sub = BuildOneCondition(child);
+            if (sub is not null) children.Add(sub);
+        }
+        if (children.Count == 0) return null;
+        CoilCondition group;
+        if (children.Count == 1) group = children[0];
+        else if (cond.IsOR) group = CoilCondition.NewOr(Microsoft.FSharp.Collections.ListModule.OfSeq(children));
+        else                group = CoilCondition.NewAnd(Microsoft.FSharp.Collections.ListModule.OfSeq(children));
+        return cond.IsInverted ? CoilCondition.NewNot(group) : group;
+    }
+
+    private CoilCondition BuildLeafCondition(ApiCall ac)
+    {
+        if (ac.ContactKind == ContactKind.Inverter)
+            return CoilCondition.NewNot(CoilCondition.NewRaw(""));
+        string name = ac.Name;
+        if (FSharpOption<Guid>.get_IsSome(ac.ApiDefId)
+            && _store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var def)
+            && _store.Systems.TryGetValue(def.ParentId, out var sys))
+        {
+            name = $"{sys.Name}.{def.Name}";
+        }
+        return ac.ContactKind switch
+        {
+            ContactKind.NcContact    => CoilCondition.NewNegVar(name),
+            ContactKind.RisingPulse  => CoilCondition.NewRising(name),
+            ContactKind.FallingPulse => CoilCondition.NewFalling(name),
+            _                        => CoilCondition.NewVar(name)
         };
     }
 
@@ -436,10 +500,21 @@ public partial class ConditionEditDialog : Window
     /// <summary>현재 store 상태 → CoilCondition → 단일 CoilRung 으로 표시.</summary>
     private void Refresh()
     {
-        if (!_host.TryRef(() => _store.Calls[_callId], out var call)) return;
-        var condOpt = ConditionExprBuilder.buildPreview(_store, call, _condType);
-        var cond = FSharpOption<CoilCondition>.get_IsSome(condOpt)
-            ? condOpt.Value : CoilCondition.AlwaysTrue;
+        CoilCondition cond = CoilCondition.AlwaysTrue;
+        if (_ownerKind == EntityKind.Work)
+        {
+            // Work 모드: 외부 DLL(AAStoPLC) buildPreview 가 Call 전용 →
+            // C# 측에서 동일 변환(Work.Conditions → CoilCondition) 자체 구현.
+            cond = BuildWorkConditionPreview();
+        }
+        else
+        {
+            if (!_host.TryRef(() => _store.Calls[_callId], out var call)) return;
+            var legacyType = (CallConditionType)(int)_condType;
+            var condOpt = ConditionExprBuilder.buildPreview(_store, call, legacyType);
+            if (FSharpOption<CoilCondition>.get_IsSome(condOpt))
+                cond = condOpt.Value;
+        }
         const string coilName = "OUT";
 
         if (_rung is null)

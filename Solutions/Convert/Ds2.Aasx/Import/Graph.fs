@@ -38,8 +38,8 @@ module internal AasxImportGraph =
                         getProp smc attr.FieldName
                         |> Option.bind tryParseIsoDuration
                         |> Option.iter (fun d -> prop.SetValue(entity, Some d))
-                    elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
-                        fromJsonProp<ResizeArray<CallCondition>> smc attr.FieldName
+                    elif prop.PropertyType = typeof<ResizeArray<Condition>> then
+                        fromJsonProp<ResizeArray<Condition>> smc attr.FieldName
                         |> Option.iter (fun ccs -> prop.SetValue(entity, ccs))
                     elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
                         fromJsonProp<ResizeArray<TokenSpec>> smc attr.FieldName
@@ -216,19 +216,23 @@ module internal AasxImportGraph =
                 project.PassiveSystemIds.Add(system.Id) |> ignore
 
             flows |> List.iter (fun f -> store.DirectWrite(store.Flows, f))
-            works |> List.iter (fun w -> store.DirectWrite(store.Works, w))
 
-            let rec registerConditionApiCalls (cond: CallCondition) =
-                cond.Conditions
+            let rec registerConditionApiCalls (cond: Condition) =
+                cond.ApiCalls
                 |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
                 |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
                 cond.Children |> Seq.iter registerConditionApiCalls
+
+            // Work 도 Conditions 컬렉션을 가지므로 같이 ApiCall 등록.
+            works |> List.iter (fun w ->
+                store.DirectWrite(store.Works, w)
+                w.Conditions |> Seq.iter registerConditionApiCalls)
 
             calls |> List.iter (fun call ->
                 store.DirectWrite(store.Calls, call)
                 // Call 내부 ApiCalls 등록
                 call.ApiCalls |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
-                call.CallConditions |> Seq.iter registerConditionApiCalls)
+                call.Conditions |> Seq.iter registerConditionApiCalls)
             arrowCalls |> List.iter (fun a -> store.DirectWrite(store.ArrowCalls, a))
             arrowWorks |> List.iter (fun a -> store.DirectWrite(store.ArrowWorks, a))
             apiDefs    |> List.iter (fun d -> store.DirectWrite(store.ApiDefs, d)))

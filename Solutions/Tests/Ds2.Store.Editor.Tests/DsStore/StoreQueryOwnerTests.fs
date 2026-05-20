@@ -25,7 +25,7 @@ module HierarchyQueryTests =
 module CallConditionQueryTests =
 
     [<Fact>]
-    let ``CallConditionQueries returns condition types for target call`` () =
+    let ``ConditionQueries returns condition types for target call`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
 
@@ -35,14 +35,14 @@ module CallConditionQueryTests =
             Queries.callsOf work.Id store
             |> List.last
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
+        store.AddCallCondition(targetCall.Id, ConditionType.ComAux)
 
-        let conditionTypes = CallConditionQueries.getCallConditionTypes store targetCall.Id
+        let conditionTypes = ConditionQueries.getCallConditionTypes store targetCall.Id
 
-        Assert.Equal<CallConditionType list>([ CallConditionType.ComAux ], conditionTypes)
+        Assert.Equal<ConditionType list>([ ConditionType.ComAux ], conditionTypes)
 
     [<Fact>]
-    let ``CallConditionQueries finds calls referencing api call id`` () =
+    let ``ConditionQueries finds calls referencing api call id`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
 
@@ -53,15 +53,15 @@ module CallConditionQueryTests =
         let targetCall = calls[1]
         let sourceApiCall = sourceCall.ApiCalls[0]
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
+        store.AddCallCondition(targetCall.Id, ConditionType.ComAux)
         let conditionId =
-            store.Calls[targetCall.Id].CallConditions
+            store.Calls[targetCall.Id].Conditions
             |> Seq.head
             |> fun condition -> condition.Id
 
         store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, seq { sourceApiCall.Id }) |> ignore
 
-        let callRefs = CallConditionQueries.findCallsByApiCallId store sourceApiCall.Id
+        let callRefs = ConditionQueries.findCallsByApiCallId store sourceApiCall.Id
 
         Assert.Contains(struct(sourceCall.Id, sourceCall.Name), callRefs)
         Assert.Contains(struct(targetCall.Id, targetCall.Name), callRefs)

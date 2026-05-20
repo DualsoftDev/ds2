@@ -24,7 +24,7 @@ type CanvasNodeInfo = {
     Width: float
     Height: float
     /// Call 노드의 조건 타입들 (Work 노드는 빈 리스트)
-    ConditionTypes: CallConditionType list
+    ConditionTypes: ConditionType list
     /// 타 Flow의 Work가 화살표로 연결되어 고스트로 표시되는 경우 true
     IsGhost: bool
     /// Reference Work인 경우 true (원본을 참조하는 복제 노드)
@@ -202,7 +202,7 @@ type CallApiCallPanelItem
     member _.InputSpecTypeIndex  = inputSpecTypeIndex
 
 [<Sealed>]
-type CallConditionApiCallItem
+type ConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
      inputSpecText: string, inputSpecTypeIndex: int,
@@ -219,11 +219,11 @@ type CallConditionApiCallItem
     member _.InputSpec          = inputSpec
 
 [<Sealed>]
-type CallConditionPanelItem
-    (conditionId: Guid, conditionType: CallConditionType,
+type ConditionPanelItem
+    (conditionId: Guid, conditionType: ConditionType,
      isOR: bool, isInverted: bool,
-     items: CallConditionApiCallItem list,
-     children: CallConditionPanelItem list) =
+     items: ConditionApiCallItem list,
+     children: ConditionPanelItem list) =
     member _.ConditionId   = conditionId
     member _.ConditionType = conditionType
     member _.IsOR          = isOR
