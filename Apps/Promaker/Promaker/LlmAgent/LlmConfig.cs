@@ -914,6 +914,50 @@ public sealed class LightHouseServiceConfig
     /// <summary>**D-S7-3a (s6-r29)** — session 발급 대상 여부 (결정 #3). default true (신규 생성 시 즉시 사용 의도).</summary>
     [JsonPropertyName("active")]
     public bool Active { get; set; } = true;
+
+    /// <summary>
+    /// **Phase 4 P4-C.2 (s6-r38)** — 본 service 안 색인 시 사용할 embedding backend 박제.
+    /// <para/>
+    /// nullable — 미박제 / Enabled=false 시 BM25-only fallback. 추천안 정합 (사용자 결정):
+    /// service 별 nested 박제 (multi-service routing 정합 — service 마다 다른 backend 가능). collection 별
+    /// override 는 backlog (cost 큼).
+    /// <para/>
+    /// Ollama 는 unauth (localhost) 라 API key 박제 0 → DPAPI 적용 skip. 향후 OpenAI / Anthropic embedding API
+    /// 확장 시 별도 ApiKeyEncrypted 필드 추가 + 기존 LightHouseServiceConfig.ApiKeyEncrypted DPAPI 패턴 적용.
+    /// </summary>
+    [JsonPropertyName("embedding")]
+    public EmbeddingProviderConfig? Embedding { get; set; }
+}
+
+/// <summary>
+/// **Phase 4 P4-C.2 (s6-r38)** — embedding backend 설정 SSOT (Ollama 만 지원, 추천안 정합).
+/// <para/>
+/// `Enabled=false` 또는 본 record null 시 BM25-only fallback (Phase 1 동작). `Enabled=true` 시 caller
+/// (AttachmentIngestService) 가 `OllamaEmbedder(BaseUrl, Model, Dimension)` 생성 후 색인 시점 주입.
+/// <para/>
+/// **dimension SSOT**: sqlite-vec 의 `vec0(embedding float[N])` 와 정합 의무. lib 의
+/// `SqliteStore.EmbeddingDimension = 1024` (bge-m3 기준). 사용자가 다른 모델 (예: nomic-embed-text = 768)
+/// 박제 시 lib schema 의 vec0 dim 동반 변경 필요 — 통상 사용자 결정 (사용자 manual / FAQ 박제).
+/// 본 turn 에서는 dim mismatch 시 backend 호출 결과 검증 단계 (`OllamaEmbedder.GenerateAsync`) 에서
+/// `InvalidOperationException` fail-fast.
+/// </summary>
+public sealed class EmbeddingProviderConfig
+{
+    /// <summary>embedder 활성화 여부. false 시 BM25-only fallback (Phase 1 동작 정합).</summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>Ollama daemon base URL. default "http://localhost:11434" (OllamaDefaults 정합).</summary>
+    [JsonPropertyName("baseUrl")]
+    public string BaseUrl { get; set; } = "http://localhost:11434";
+
+    /// <summary>embedding model 이름. default "bge-m3" (1024 dim, sqlite-vec schema 정합).</summary>
+    [JsonPropertyName("model")]
+    public string Model { get; set; } = "bge-m3";
+
+    /// <summary>vector dimension. lib 의 SqliteStore.EmbeddingDimension 과 정합 의무. default 1024 (bge-m3).</summary>
+    [JsonPropertyName("dimension")]
+    public int Dimension { get; set; } = 1024;
 }
 
 /// <summary>

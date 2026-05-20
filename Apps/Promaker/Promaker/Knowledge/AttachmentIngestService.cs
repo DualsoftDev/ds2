@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -135,6 +136,11 @@ public sealed class AttachmentIngestService
     /// <summary>
     /// Indexer.ingest 는 F# 동기 함수 — UI freeze 회피 위해 본 service 가 `Task.Run` wrap (review M4).
     /// 본 책임을 caller (KbManagerDialog) 가 매번 wrap 하면 누락 회귀 위험 → SSOT 측 단일 진입점.
+    /// <para/>
+    /// **Phase 4 P4-C.2 (s6-r38)** — embedder 주입 분기. caller (`_llmConfig` 의 active LightHouseService 의
+    /// EmbeddingProviderConfig) 가 Enabled=true 시 OllamaEmbedder 생성 후 색인 시점 주입. lifecycle = 본
+    /// RunIndexerAsync 의 한 호출 안 (사용자 결정 정합 — per-ingest, service singleton 아님). try/finally 로
+    /// HttpClient 자원 회수. backend 검증 (daemon up / 모델 미설치) 은 색인 첫 chunk 호출 시점 lazy fail-fast.
     /// </summary>
     private Task RunIndexerAsync(string stagingDir, IProgress<IngestStageProgress>? progress, CancellationToken ct)
     {
@@ -168,12 +174,58 @@ public sealed class AttachmentIngestService
             // s6-r19: captionGen 인자 추가 (D-2-2 eager). s6-r20 (D-iii): noop → BuildCaptionGen 실 치환.
             // VLM 비활성 (provider="none" / API key 미박제) 시 자동 noop fallback — Phase 1 회귀 0.
             var captionGen = BuildCaptionGen(ct);
-            // Phase 4 (s6-r34): embedderOpt = None — Promaker 의 본격 embedding 통합은 P4-B 의 --no-embedding flag
-            // + Settings dialog 의 Ollama URL/모델 입력 + LlmConfig 박제 진입 시.
-            var embedderOpt = Microsoft.FSharp.Core.FSharpOption<IEmbeddingProvider>.None;
-            var results = Indexer.ingest(stagingDir, extractors, captionGen, embedderOpt, fsProgress, ct);
-            Log.Info($"AttachmentIngestService: 색인 완료 — files={results.Length} staging={stagingDir}");
+
+            // Phase 4 P4-C.2 (s6-r38): active LightHouseService 의 EmbeddingProviderConfig 기반 embedder 생성.
+            // Enabled=false / config null / active service 없음 → None (BM25-only fallback).
+            IEmbeddingProvider? embedder = TryCreateEmbedder();
+            var embedderOpt = embedder is null
+                ? Microsoft.FSharp.Core.FSharpOption<IEmbeddingProvider>.None
+                : Microsoft.FSharp.Core.FSharpOption<IEmbeddingProvider>.Some(embedder);
+            try
+            {
+                var results = Indexer.ingest(stagingDir, extractors, captionGen, embedderOpt, fsProgress, ct);
+                Log.Info($"AttachmentIngestService: 색인 완료 — files={results.Length} staging={stagingDir} embedder={embedder?.GetType().Name ?? "None"}");
+            }
+            finally
+            {
+                embedder?.Dispose();
+            }
         }, ct);
+    }
+
+    /// <summary>
+    /// **Phase 4 P4-C.2 (s6-r38)** — active LightHouseService 의 EmbeddingProviderConfig 기반 OllamaEmbedder 생성.
+    /// <para/>
+    /// 반환 null = BM25-only fallback (caller 가 FSharpOption.None 박제). 조건:
+    /// <list type="bullet">
+    ///   <item>active LightHouseService 가 없음 (모든 service Active=false 또는 0건)</item>
+    ///   <item>active service 의 Embedding config 가 null</item>
+    ///   <item>Embedding.Enabled = false</item>
+    ///   <item>BaseUrl / Model / Dimension validation 실패 (warn log + null 반환, 색인 자체 abort 없음)</item>
+    /// </list>
+    /// </summary>
+    private IEmbeddingProvider? TryCreateEmbedder()
+    {
+        var activeService = _llmConfig.LightHouseServices.FirstOrDefault(s => s.Active);
+        var cfg = activeService?.Embedding;
+        if (cfg is null || !cfg.Enabled)
+        {
+            return null;
+        }
+        if (string.IsNullOrWhiteSpace(cfg.BaseUrl) || string.IsNullOrWhiteSpace(cfg.Model) || cfg.Dimension <= 0)
+        {
+            Log.Warn($"AttachmentIngestService: EmbeddingProviderConfig validation 실패 (BaseUrl='{cfg.BaseUrl}' Model='{cfg.Model}' Dim={cfg.Dimension}) — BM25-only fallback");
+            return null;
+        }
+        try
+        {
+            return new Ds2.LightHouse.Ollama.OllamaEmbedder(cfg.BaseUrl, cfg.Model, cfg.Dimension);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"AttachmentIngestService: OllamaEmbedder 생성 실패 — {ex.GetType().Name}: {ex.Message}. BM25-only fallback");
+            return null;
+        }
     }
 
     /// <summary>
