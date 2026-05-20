@@ -120,6 +120,20 @@ let ``validateMtls — non-hex 문자 fail-fast (N-1, Protocol CertValidator SSO
         Assert.Throws<InvalidDataException>(fun () -> Config.validateMtls cfg |> ignore) |> ignore
     finally File.Delete path
 
+/// **R6-M1 (s6-r76, external review backlog)** — `validateMtls` null guard defense-in-depth.
+/// schema=4 박제 이후 실 NRE risk 0 (load 가 항상 default 박제) 이나 schema 의 nullable 도입 시 회귀 차단.
+/// `cfg.Mtls = null` 박제 시 silent default (Off + 빈 thumbprints) 적용 후 throw 0.
+[<Fact>]
+let ``validateMtls — Mtls null defense-in-depth (R6-M1)`` () =
+    let path = writeTempConfig (validConfigJson())
+    try
+        let baseCfg = Config.load path
+        let cfg = { baseCfg with Mtls = Unchecked.defaultof<MtlsConfigSection> }
+        let result = Config.validateMtls cfg
+        Assert.Equal(MtlsMode.Off, result.Mtls.Mode)
+        Assert.Empty(result.Mtls.AllowedThumbprints)
+    finally File.Delete path
+
 [<Fact>]
 let ``load — 미존재 path 는 FileNotFoundException`` () =
     let bogus = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json")

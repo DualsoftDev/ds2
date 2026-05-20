@@ -95,6 +95,22 @@ public sealed class LlmConfigModifyWithLockTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => LlmConfig.ModifyWithLock(null!));
     }
 
+    /// <summary>**R8-M5 (s6-r76, external review backlog)** — Save() 가 cross-process file lock 통과
+    /// (이전: in-process lock 만). EffectiveConfigPath 박제 정합 — TestConfigPathOverride 가 production
+    /// path 침투 차단. lock 파일 생성 박제.</summary>
+    [Fact]
+    public void Save_uses_effective_path_and_file_lock()
+    {
+        var cfg = new LlmConfig();
+        cfg.VisionCostGate.DailyTokenCap = 7777;
+        cfg.Save();
+        Assert.True(File.Exists(_tempPath), "Save() 가 EffectiveConfigPath 박제 (override 통과)");
+        // WithFileLock 진입 자체가 lock file 을 OpenOrCreate — 호출 후 파일 잔존 (released 상태).
+        Assert.True(File.Exists(_tempPath + ".lock"), "cross-process file lock 파일 박제");
+        var reloaded = LlmConfig.LoadFrom(_tempPath);
+        Assert.Equal(7777, reloaded.VisionCostGate.DailyTokenCap);
+    }
+
     [Fact]
     public void ModifyWithLock_cap_disk_SSOT_preserved_on_delta_accumulate_pattern()
     {

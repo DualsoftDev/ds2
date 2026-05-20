@@ -141,4 +141,53 @@ public sealed class SseReconnectBackoffTests
     {
         Assert.Throws<ArgumentNullException>(() => new SseReconnectBackoff(null!));
     }
+
+    // ─── R8-M2 (s6-r76, external review backlog) — ±20% jitter fact ──────────────
+
+    [Fact]
+    public void Jitter_positive_increases_delay_by_20_percent()
+    {
+        var clock = new MutableClock();
+        var b = new SseReconnectBackoff(clock.Get, () => 0.2);  // +20%
+        clock.Now = clock.Now.AddSeconds(1);
+        var (delay, _) = b.NextDelay();
+        Assert.Equal(TimeSpan.FromMilliseconds(1200), delay);  // 1s base * 1.2
+    }
+
+    [Fact]
+    public void Jitter_negative_decreases_delay_by_20_percent()
+    {
+        var clock = new MutableClock();
+        var b = new SseReconnectBackoff(clock.Get, () => -0.2);  // -20%
+        // attempt 4 = base 8s. -20% = 6.4s
+        for (int i = 0; i < 3; i++)
+        {
+            clock.Now = clock.Now.AddSeconds(1);
+            b.NextDelay();
+        }
+        clock.Now = clock.Now.AddSeconds(1);
+        var (delay, _) = b.NextDelay();
+        Assert.Equal(TimeSpan.FromMilliseconds(6400), delay);
+    }
+
+    [Fact]
+    public void Jitter_production_range_bounded()
+    {
+        // production 식 jitter 함수 (Random.Shared 기반 [-0.2, +0.2)) 박제 후 100회 sample 모두 base ±20% 안.
+        // 매 attempt 사이 70s 경과시켜 reset → 항상 1s base 검증.
+        var clock = new MutableClock();
+        var b = new SseReconnectBackoff(clock.Get, () => Random.Shared.NextDouble() * 0.4 - 0.2);
+        for (int i = 0; i < 100; i++)
+        {
+            clock.Now = clock.Now.AddSeconds(70);
+            var (delay, _) = b.NextDelay();
+            Assert.InRange(delay.TotalMilliseconds, 800.0, 1200.0);
+        }
+    }
+
+    [Fact]
+    public void Jitter_null_throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => new SseReconnectBackoff(static () => DateTime.UtcNow, null!));
+    }
 }
