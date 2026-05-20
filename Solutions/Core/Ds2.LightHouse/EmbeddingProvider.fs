@@ -39,3 +39,20 @@ type IEmbeddingProvider =
     /// caller (Indexer) 가 chunk 단위 fail-safe 안 함. backend (Ollama daemon down 등) 결함은 색인 전체 abort.
     /// 사용자 명시 `--no-embedding` opt-out 으로 skip 가능 (caller 가 본 provider 자체를 None 으로 주입).
     abstract member GenerateAsync: inputs: string[] * ct: CancellationToken -> Task<float32[][]>
+
+/// **s6-r46 C2 — `IEmbeddingProvider` non-owning wrapper.** 위 `IEmbeddingProvider` doc line 28 의 박제
+/// 패턴 예고 정합. inner 의 lifecycle 을 own 하지 않음 — `Dispose` 가 wrap 만 처리, inner 는 외부 책임.
+///
+/// **사용처**:
+/// - server-side singleton OllamaEmbedder (`Program.configureApp` P4-D) — DI container 가 inner own.
+///   매 `SessionKb.attach` 가 `NonOwningEmbedder(singleton)` 받아 KB facade 가 wrap own + dispose. inner
+///   singleton 은 WebApplication.Dispose 시 DI container 가 동반 dispose.
+/// - 다중 caller 가 동일 inner 를 공유 (HttpClient socket exhaustion 회피, 자가 검열 Minor-3 정정).
+///
+/// stateless backend (mock) 의 Dispose 는 어차피 no-op 라 wrap 무의미하나 lifecycle 일관성 박제 시 사용 가능.
+type NonOwningEmbedder(inner: IEmbeddingProvider) =
+    interface IEmbeddingProvider with
+        member _.Dimension = inner.Dimension
+        member _.GenerateAsync(inputs, ct) = inner.GenerateAsync(inputs, ct)
+    interface IDisposable with
+        member _.Dispose() = ()
