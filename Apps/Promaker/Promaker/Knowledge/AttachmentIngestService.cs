@@ -82,8 +82,12 @@ public sealed class AttachmentIngestService
     }
 
     /// <summary>
-    /// 기존 collection 의 payload swap (D5 / `POST /collections/{id}/payload`). title 변경은 본 호출과 무관 —
-    /// caller (KbManagerDialog) 가 displayName 변경 시 별도 endpoint 필요 시 추후 추가.
+    /// 기존 collection 의 payload swap (D5 / `POST /collections/{id}/payload` or `/uploads-rs/{id}/finalize` swap path).
+    /// title 변경은 본 호출과 무관 — caller (KbManagerDialog) 가 displayName 변경 시 별도 endpoint 필요 시 추후 추가.
+    /// <para/>
+    /// **D-S7-5 phase 4 (s6-r74 b1)** — zip size 가 `LightHouseClient.ResumableUploadThresholdBytes` (256 MiB) 초과 시
+    /// chunked path 자동 진입 (`UploadCollectionResumableAsync` 에 `swapTargetCollectionId` 박제). 작은 zip 은 기존
+    /// multipart single-shot 유지 (회귀 0).
     /// </summary>
     public async Task ReingestAndReuploadAsync(
         string collectionId,
@@ -103,9 +107,33 @@ public sealed class AttachmentIngestService
             await RunIndexerAsync(session.StagingDir, progress, ct).ConfigureAwait(false);
             using var zipStream = PackagePayload(session, title, sourceFolder, progress, ct);
 
-            progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, 1, $"재업로드 → {collectionId}"));
-            await _client.ReuploadCollectionPayloadAsync(collectionId, zipStream, ct).ConfigureAwait(false);
-            progress?.Report(new IngestStageProgress(IngestStage.Done, 1, 1, $"재업로드 완료 — {collectionId}"));
+            var totalBytes = zipStream.Length;
+            if (totalBytes > LightHouseClient.ResumableUploadThresholdBytes)
+            {
+                Log.Info($"ReingestAndReuploadAsync: zip size {totalBytes:N0} bytes > threshold {LightHouseClient.ResumableUploadThresholdBytes:N0} → chunked swap path 자동 진입 (target={collectionId})");
+                var totalKib = (int)(totalBytes / 1024L);
+                progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, totalKib, $"chunked 재업로드 시작 → {collectionId}"));
+                var chunkedProgress = progress is null
+                    ? null
+                    : new Progress<(long sent, long total)>(p =>
+                    {
+                        var sentKib = (int)(p.sent / 1024L);
+                        var pct = p.sent * 100L / Math.Max(1L, p.total);
+                        progress.Report(new IngestStageProgress(IngestStage.Uploading, sentKib, totalKib, $"chunked → {collectionId} ({pct}%)"));
+                    });
+                var swappedId = await _client.UploadCollectionResumableAsync(
+                    title, zipStream,
+                    progress: chunkedProgress,
+                    swapTargetCollectionId: collectionId,
+                    ct: ct).ConfigureAwait(false);
+                progress?.Report(new IngestStageProgress(IngestStage.Done, totalKib, totalKib, $"재업로드 완료 (chunked) — {swappedId}"));
+            }
+            else
+            {
+                progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, 1, $"재업로드 → {collectionId}"));
+                await _client.ReuploadCollectionPayloadAsync(collectionId, zipStream, ct).ConfigureAwait(false);
+                progress?.Report(new IngestStageProgress(IngestStage.Done, 1, 1, $"재업로드 완료 — {collectionId}"));
+            }
         }
         finally
         {

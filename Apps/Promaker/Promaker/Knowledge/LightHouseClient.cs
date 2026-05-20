@@ -541,15 +541,28 @@ public sealed class LightHouseClient : IDisposable
     }
 
     /// <summary>
-    /// **D-S7-5 phase 2** — `POST /uploads-rs/{id}/finalize` — collection 등록 (zip extract + Registry upsert + EventBus).
-    /// 응답 = `{ id: collection-guid, storageRelPath }`. 415 = IndexerVersion gate / 400 = zip 결함 / 409 = incomplete.
+    /// **D-S7-5 phase 2 + phase 4 (s6-r74 b1)** — `POST /uploads-rs/{id}/finalize` — collection 등록 or swap.
+    /// <para/>
+    /// swapTargetCollectionId null/빈 값 = new collection path (201 + new id). 박제 = 기존 collection 의 payload swap
+    /// (200 + existing id, Registry update + EventBus.collection-updated + OnPayloadSwapped). 응답 status code 분기.
+    /// <para/>
+    /// 415 = IndexerVersion gate / 400 = zip 결함 / 409 = incomplete / 404 = swap target 미존재 / 403 = swap target read-only.
     /// </summary>
     public async Task<UploadResponse> FinalizeResumableUploadAsync(
-        string uploadId, CancellationToken ct = default)
+        string uploadId,
+        string? swapTargetCollectionId = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(uploadId)) throw new ArgumentException("uploadId 필수.", nameof(uploadId));
         using var req = NewRequest(HttpMethod.Post, $"uploads-rs/{Uri.EscapeDataString(uploadId)}/finalize");
-        req.Content = new StringContent("", System.Text.Encoding.UTF8, "application/json");
+        // body schema = ResumableFinalizeBody — null/빈 값 swap 미진입. server 가 빈 body 도 동일 분기 (null).
+        var body = new ResumableFinalizeBody
+        {
+            SwapTargetCollectionId = string.IsNullOrWhiteSpace(swapTargetCollectionId)
+                ? null
+                : swapTargetCollectionId.Trim(),
+        };
+        req.Content = JsonContent.Create(body, options: JsonOptions);
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         await EnsureSuccessOrThrow(resp, $"POST /uploads-rs/{uploadId}/finalize", ct).ConfigureAwait(false);
         return await resp.Content.ReadFromJsonAsync<UploadResponse>(JsonOptions, ct).ConfigureAwait(false)
@@ -566,16 +579,21 @@ public sealed class LightHouseClient : IDisposable
     }
 
     /// <summary>
-    /// **D-S7-5 phase 2 wrapper** — full round-trip: start → chunked PATCH → finalize. 큰 zip 의 안전한 upload path.
-    /// caller 가 progress callback 받음 (optional). 실패 시 자동 DELETE (cleanup) — 단, OperationCanceledException
-    /// 은 cleanup 생략 (resume hook 보존, 사용자가 명시 DELETE 또는 StagingSweep idle TTL backstop).
+    /// **D-S7-5 phase 2 + phase 4 (s6-r74 b1) wrapper** — full round-trip: start → chunked PATCH → finalize.
+    /// 큰 zip 의 안전한 upload path. caller 가 progress callback 받음 (optional). 실패 시 자동 DELETE (cleanup) —
+    /// 단, OperationCanceledException 은 cleanup 생략 (resume hook 보존, 사용자가 명시 DELETE 또는 StagingSweep idle TTL backstop).
+    /// <para/>
+    /// **swapTargetCollectionId 박제 시 (phase 4)** — finalize 가 기존 collection 의 payload swap 분기 진입 (200 응답).
+    /// null/빈 값 = 기존 phase 2 new collection 분기 (201 응답, 회귀 0).
     /// </summary>
     /// <param name="chunkSize">권장 4~8 MB. server-side maxUploadBytes 정합 의무.</param>
+    /// <param name="swapTargetCollectionId">박제 시 기존 collection payload swap. null = 신규 collection 등록.</param>
     public async Task<string> UploadCollectionResumableAsync(
         string title,
         Stream zipStream,
         int chunkSize = 4 * 1024 * 1024,
         IProgress<(long sent, long total)>? progress = null,
+        string? swapTargetCollectionId = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("title 필수.", nameof(title));
@@ -611,7 +629,7 @@ public sealed class LightHouseClient : IDisposable
                 offset = status.Offset;
                 progress?.Report((offset, totalBytes));
             }
-            var finalResp = await FinalizeResumableUploadAsync(start.UploadId, ct).ConfigureAwait(false);
+            var finalResp = await FinalizeResumableUploadAsync(start.UploadId, swapTargetCollectionId, ct).ConfigureAwait(false);
             return finalResp.Id;
         }
         catch (OperationCanceledException)
@@ -686,6 +704,16 @@ public sealed class ResumableUploadStatus
     [JsonPropertyName("offset")] public long Offset { get; set; }
     [JsonPropertyName("totalBytes")] public long TotalBytes { get; set; }
     [JsonPropertyName("title")] public string? Title { get; set; }
+}
+
+/// <summary>
+/// **D-S7-5 phase 4 (s6-r74 b1)** — POST /uploads-rs/{id}/finalize 요청 body. swapTargetCollectionId null/missing =
+/// new collection 분기, 박제 = 기존 collection payload swap 분기. JsonOptions 의 WhenWritingNull 정합으로 null 시
+/// JSON 의 swapTargetCollectionId 필드 자체 제외 — server 가 빈 body 도 동일 분기 (회귀 0).
+/// </summary>
+public sealed class ResumableFinalizeBody
+{
+    [JsonPropertyName("swapTargetCollectionId")] public string? SwapTargetCollectionId { get; set; }
 }
 
 public sealed class CollectionInfo

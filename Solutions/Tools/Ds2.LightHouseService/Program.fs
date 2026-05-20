@@ -268,7 +268,8 @@ let configureApp
     // **s6-r70 review C-2** — cfg + storageRoot 인자 추가 (multi-tenant filter SSOT).
     EventsEndpoint.map app cfg storageRoot eventBus
     // Phase S7 D-S7-5 (s6-r60) — resumable chunked upload endpoint scaffold (POST/PATCH/finalize/GET/DELETE).
-    UploadsEndpoint.map app cfg storageRoot eventBus
+    // **phase 4 (s6-r74 b1)** — notifier 인자 추가 (finalize swap path 의 OnPayloadSwapped 호출 의무).
+    UploadsEndpoint.map app cfg storageRoot notifier eventBus
     // **Phase S7 D-S7-4 admin endpoint (B-S7-4, s6-r71+)** — multi-tenant T2/T3 실 활용 path.
     // POST /admin/collections/{id}/owner (ImportedBy stamp) + PUT /admin/collections/{id}/acl (acl 편집).
     // 권한 = AuthMiddleware 통과한 모든 user (single trust pool, 별 admin-only ACL 은 backlog).
