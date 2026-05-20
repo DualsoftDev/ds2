@@ -40,6 +40,7 @@ let private testCfg : ServiceConfig =
         Embedding = { Enabled = false; BaseUrl = ""; Model = ""; Dimension = 1024 }
         Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
         MultiTenant = { Mode = MultiTenantMode.T1 }
+        AdminUsers = null
     }
 
 let private runMiddleware (psk: string) (ctx: HttpContext) : Task<bool> =

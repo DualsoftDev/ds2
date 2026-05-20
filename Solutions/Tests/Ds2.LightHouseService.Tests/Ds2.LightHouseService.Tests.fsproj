@@ -23,6 +23,7 @@
     <Compile Include="FileServingTests.fs" />
     <Compile Include="LiteralDriftTests.fs" />
     <Compile Include="EventBusTests.fs" />
+    <Compile Include="EndpointHelpersTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

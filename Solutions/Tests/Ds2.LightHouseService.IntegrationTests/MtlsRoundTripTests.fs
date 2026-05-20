@@ -93,6 +93,7 @@ type MtlsRequiredFixture() =
                         AllowedThumbprints = [| clientThumb |]
                     }
                     MultiTenant = { Mode = MultiTenantMode.T1 }
+                    AdminUsers = null
                 }
                 // mTLS validation override — chain.Build 우회 + thumbprint match 만 검증 (self-signed 정합).
                 let validation (cert: X509Certificate2) _chain _errors =

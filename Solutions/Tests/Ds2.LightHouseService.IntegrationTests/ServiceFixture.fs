@@ -114,6 +114,8 @@ type ServiceFixture() =
             MultiTenant = {
                 Mode = MultiTenantMode.T1
             }
+            // **s6-r80 B-S7-4** — IT default 가 AdminUsers=null (backward-compat single trust pool 정합).
+            AdminUsers = null
         }
 
     interface IAsyncLifetime with

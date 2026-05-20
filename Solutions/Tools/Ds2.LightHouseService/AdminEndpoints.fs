@@ -18,9 +18,9 @@ open Ds2.LightHouse.Protocol
 /// - `PUT /admin/collections/{id}/acl` — body `{ "users": ["u1","u2"], "readOnly": false }` → `CollectionEntry.Acl` 갱신
 ///   (T3 mode acl 편집 path — null/빈 users = 전체 공개 default 정합).
 ///
-/// **권한 모델 (본 phase scope)**: AuthMiddleware 의 PSK + `X-User-Identity` 통과한 모든 user 가 호출 가능 — 즉 본
-/// service 의 single trust pool (PSK 보유자 = admin 권한). 별도 admin-only ACL 분리는 다음 phase 박제 의무
-/// (config 의 `adminUsers: string[]` SSOT + `requireAdmin` helper, M9/K6 보안 sweep 후속).
+/// **권한 모델 (s6-r80 B-S7-4 admin-only ACL 분리)**: AuthMiddleware 의 PSK + `X-User-Identity` 통과한 user 중
+/// `config.adminUsers` list 안 user 만 호출 가능 (case-insensitive ordinal 비교). `adminUsers` null/빈 array
+/// = backward-compat (single trust pool, 기존 동작 유지). `EndpointHelpers.requireAdmin` 통과 후 403 분기.
 ///
 /// **audit log 박제 의무** — 모든 admin 변경은 `Log.audit.Info` 박제 (보안 추적 + retention 365 일).
 /// caller identity = `AuthMiddleware.UserIdentityItemKey` 의 `ctx.Items` 값.
@@ -48,60 +48,88 @@ module AdminEndpoints =
         return! reader.ReadToEndAsync()
     }
 
-    let map (app: IEndpointRouteBuilder) (storageRoot: string) : unit =
-        // POST /admin/collections/{id}/owner — body { "user": "..." } → ImportedBy stamp 갱신.
-        app.MapPost("/admin/collections/{id}/owner",
-            Func<HttpContext, string, Task>(fun ctx id ->
-                task {
-                    let! body = readBody ctx
-                    let parsed =
-                        try
-                            let p = JsonSerializer.Deserialize<OwnerBody>(body, EndpointHelpers.DefaultJsonOpts)
-                            if obj.ReferenceEquals(p, null) then None else Some p
-                        with _ -> None
-                    match parsed with
-                    | None ->
-                        do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
-                    | Some p when String.IsNullOrWhiteSpace p.User ->
-                        do! EndpointHelpers.writeError ctx 400 "body.user 필수"
-                    | Some p ->
-                        match Registry.tryFindById storageRoot id with
-                        | None ->
-                            do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
-                        | Some entry ->
-                            let newOwner = p.User.Trim()
-                            let updated = { entry with ImportedBy = newOwner }
-                            do! Registry.upsertAsync storageRoot updated
-                            Log.audit.Info(
-                                sprintf "admin.owner: id=%s prev=%s next=%s caller=%s"
-                                    id entry.ImportedBy newOwner (EndpointHelpers.userIdentityOf ctx))
-                            do! EndpointHelpers.writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
-                } :> Task)) |> ignore
+    /// **B PR M-3 (s6-r80)** — acl users element 정규화. whitespace trim + empty filter + 중복 제거
+    /// (case-insensitive ordinal, 첫 박제 보존). null/빈 array safe. defense-in-depth — client (admin)
+    /// 의 raw input 결함 흡수 + Acl.Users SSOT 정합 (storage 안 일관 박제).
+    /// public — unit fact 박제 의무 (`Ds2.LightHouseService.Tests.EndpointHelpersTests`).
+    let normalizeAclUsers (raw: string array) : string array =
+        if isNull raw then Array.empty
+        else
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            raw
+            |> Array.choose (fun s ->
+                if String.IsNullOrWhiteSpace s then None
+                else Some (s.Trim()))
+            |> Array.filter (fun s -> seen.Add s)
 
-        // PUT /admin/collections/{id}/acl — body { "users": [...], "readOnly": bool } → Acl 갱신.
-        app.MapPut("/admin/collections/{id}/acl",
-            Func<HttpContext, string, Task>(fun ctx id ->
-                task {
-                    let! body = readBody ctx
-                    let parsed =
-                        try
-                            let p = JsonSerializer.Deserialize<AclBody>(body, EndpointHelpers.DefaultJsonOpts)
-                            if obj.ReferenceEquals(p, null) then None else Some p
-                        with _ -> None
-                    match parsed with
+    let private handleOwner (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
+        task {
+            if not (EndpointHelpers.requireAdmin cfg ctx) then
+                Log.audit.Warn(
+                    sprintf "admin.owner: 권한 거부 — caller=%s id=%s"
+                        (EndpointHelpers.userIdentityOf ctx) id)
+                do! EndpointHelpers.writeError ctx 403 "admin 권한 필요"
+            else
+                let! body = readBody ctx
+                let parsed =
+                    try
+                        let p = JsonSerializer.Deserialize<OwnerBody>(body, EndpointHelpers.DefaultJsonOpts)
+                        if obj.ReferenceEquals(p, null) then None else Some p
+                    with _ -> None
+                match parsed with
+                | None ->
+                    do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"user\": \"...\" } 형식 필요"
+                | Some p when String.IsNullOrWhiteSpace p.User ->
+                    do! EndpointHelpers.writeError ctx 400 "body.user 필수"
+                | Some p ->
+                    match Registry.tryFindById storageRoot id with
                     | None ->
-                        do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
-                    | Some p ->
-                        match Registry.tryFindById storageRoot id with
-                        | None ->
-                            do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
-                        | Some entry ->
-                            let users = if isNull p.Users then Array.empty else p.Users
-                            let newAcl : CollectionAcl = { Users = users; ReadOnly = p.ReadOnly }
-                            let updated = { entry with Acl = newAcl }
-                            do! Registry.upsertAsync storageRoot updated
-                            Log.audit.Info(
-                                sprintf "admin.acl: id=%s users=%d readOnly=%b caller=%s"
-                                    id users.Length p.ReadOnly (EndpointHelpers.userIdentityOf ctx))
-                            do! EndpointHelpers.writeJson ctx 200 (box {| id = id; acl = newAcl |})
-                } :> Task)) |> ignore
+                        do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
+                    | Some entry ->
+                        let newOwner = p.User.Trim()
+                        let updated = { entry with ImportedBy = newOwner }
+                        do! Registry.upsertAsync storageRoot updated
+                        Log.audit.Info(
+                            sprintf "admin.owner: id=%s prev=%s next=%s caller=%s"
+                                id entry.ImportedBy newOwner (EndpointHelpers.userIdentityOf ctx))
+                        do! EndpointHelpers.writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
+        } :> Task
+
+    let private handleAcl (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
+        task {
+            if not (EndpointHelpers.requireAdmin cfg ctx) then
+                Log.audit.Warn(
+                    sprintf "admin.acl: 권한 거부 — caller=%s id=%s"
+                        (EndpointHelpers.userIdentityOf ctx) id)
+                do! EndpointHelpers.writeError ctx 403 "admin 권한 필요"
+            else
+                let! body = readBody ctx
+                let parsed =
+                    try
+                        let p = JsonSerializer.Deserialize<AclBody>(body, EndpointHelpers.DefaultJsonOpts)
+                        if obj.ReferenceEquals(p, null) then None else Some p
+                    with _ -> None
+                match parsed with
+                | None ->
+                    do! EndpointHelpers.writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
+                | Some p ->
+                    match Registry.tryFindById storageRoot id with
+                    | None ->
+                        do! EndpointHelpers.writeError ctx 404 (sprintf "collection not found — id=%s" id)
+                    | Some entry ->
+                        // **B PR M-3 (s6-r80)** — users element 정규화 (whitespace trim + empty filter + dedup).
+                        let users = normalizeAclUsers p.Users
+                        let newAcl : CollectionAcl = { Users = users; ReadOnly = p.ReadOnly }
+                        let updated = { entry with Acl = newAcl }
+                        do! Registry.upsertAsync storageRoot updated
+                        Log.audit.Info(
+                            sprintf "admin.acl: id=%s users=%d readOnly=%b caller=%s"
+                                id users.Length p.ReadOnly (EndpointHelpers.userIdentityOf ctx))
+                        do! EndpointHelpers.writeJson ctx 200 (box {| id = id; acl = newAcl |})
+        } :> Task
+
+    let map (cfg: ServiceConfig) (app: IEndpointRouteBuilder) (storageRoot: string) : unit =
+        app.MapPost("/admin/collections/{id}/owner",
+            Func<HttpContext, string, Task>(fun ctx id -> handleOwner cfg storageRoot ctx id)) |> ignore
+        app.MapPut("/admin/collections/{id}/acl",
+            Func<HttpContext, string, Task>(fun ctx id -> handleAcl cfg storageRoot ctx id)) |> ignore
