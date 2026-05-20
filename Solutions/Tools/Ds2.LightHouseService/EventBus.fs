@@ -24,6 +24,9 @@ module ServerEventNames =
     /// **D-S7-2c (s6-r32)** — client → server publish (Phase 2 vision caption 진행률) → server fan-out.
     [<Literal>]
     let CaptionProgress = "caption-progress"
+    /// **D-S7-5 (s6-r60)** — resumable upload PATCH 진행률. CollectionId 필드 = uploadId (wire 재사용).
+    [<Literal>]
+    let UploadProgress = "upload-progress"
 
 /// Phase S7 D-S7-2 — server → client SSE event payload (§3.7 SSE schema 박제, s6-r27 / s6-r32).
 ///
@@ -140,6 +143,17 @@ module ServerEvent =
     let captionProgress (collectionId: string) (progress: int) (message: string) : ServerEvent =
         { Event = ServerEventNames.CaptionProgress
           CollectionId = collectionId
+          Progress = Nullable progress
+          Message = (if String.IsNullOrEmpty message then null else message)
+          TimestampUtc = utcNow() }
+
+    /// **D-S7-5 (s6-r60)** — resumable upload 진행률 (PATCH /uploads/{id} 시점). caller (UploadsEndpoint) 가
+    /// 본 factory 호출 후 EventBus.Publish — subscriber 가 같은 user 의 다른 instance / KbManagerDialog
+    /// 진행률 수신. collectionId 는 upload 시점에 아직 미존재 → uploadId 박제. CollectionId 필드 재사용
+    /// (wire 절약, client 측 분기 = event="upload-progress" 시 collectionId 가 uploadId 의미).
+    let uploadProgress (uploadId: string) (progress: int) (message: string) : ServerEvent =
+        { Event = ServerEventNames.UploadProgress
+          CollectionId = uploadId
           Progress = Nullable progress
           Message = (if String.IsNullOrEmpty message then null else message)
           TimestampUtc = utcNow() }

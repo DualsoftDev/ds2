@@ -26,6 +26,7 @@
     <Compile Include="CliUploadTests.fs" />
     <Compile Include="CliVlmTests.fs" />
     <Compile Include="EventsSseTests.fs" />
+    <Compile Include="UploadsResumableTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
