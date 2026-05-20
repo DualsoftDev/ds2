@@ -5,9 +5,12 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
 using System.Windows.Threading;
 using Promaker.ViewModels;
 
@@ -33,6 +36,10 @@ public partial class LlmChatPanel : UserControl
         InitializeComponent();
         // commit-5 (정책 2 정석): DataObject.AddPastingHandler 로 Ctrl+V 가로채기. text-only paste 는 회귀 보장.
         DataObject.AddPastingHandler(InputBox, OnInputPaste);
+        // C6 — MdXaml 가 자동 활성화한 Hyperlink 의 RequestNavigate 가로채기.
+        // attachment:/// scheme = citation popup. http/https = OS shell open (사용자 동의). 그 외 = 보안 차단.
+        AddHandler(Hyperlink.RequestNavigateEvent,
+            new RequestNavigateEventHandler(OnHyperlinkRequestNavigate));
 
         // Focus 자동화: ① panel 활성화 (Loaded / IsVisibleChanged) 시 InputBox 로 focus 이동,
         // ② Send 직후 InputBox 가 disabled → 응답 종료 (IsSending false 전이) 시점에 focus 복귀.
@@ -344,6 +351,103 @@ public partial class LlmChatPanel : UserControl
 
         // fire-and-forget — UI thread 블록하지 않음. AddPathsAsync 는 내부에서 background marshalling 처리.
         _ = vm.AddPathsAsync(paths);
+    }
+
+    /// <summary>
+    /// C6 — MdXaml Hyperlink click 가로채기. <c>attachment:///fileId/ref</c> = KB citation popup,
+    /// <c>http(s)://</c> = OS shell open (browser), 그 외 (file/javascript/data 등) = 보안 차단 + log warn.
+    /// markdown branch (b3dfab9) 의 "Hyperlink 보안" 보류 항목 동시 해소 (done-llm-markdown.md §보류).
+    /// <para/>
+    /// **slash 3개 (`attachment:///`) 사양**: fileId 가 SSOT 상 `&lt;guid&gt;:&lt;docId&gt;` (콜론 포함) 형식이라
+    /// `attachment://&lt;fileId&gt;/...` 로 박제하면 <see cref="Uri"/> 가 콜론을 host:port 로 해석해 fileId 손실
+    /// 또는 UriFormatException. slash 3개 형식은 host 가 비어 fileId 가 path 의 일부로 자연 박제.
+    /// </summary>
+    private void OnHyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        e.Handled = true;
+        var raw = e.Uri?.OriginalString ?? "";
+        if (string.IsNullOrEmpty(raw)) return;
+
+        if (TryParseAttachmentUri(raw, out var fileId, out var refStr))
+        {
+            if (DataContext is not LlmChatViewModel vm) return;
+            var hit = vm.TryGetCitation(fileId, refStr);
+            if (hit is null)
+            {
+                // cache miss — 같은 chat session 안에서 search 안 했거나 LLM 이 잘못된 fileId/ref 박제.
+                // UI 무반응 → "버그?" 의심 회피 위해 debug log + statusText 1줄.
+                System.Diagnostics.Debug.WriteLine(
+                    $"LlmChatPanel: citation cache miss — fileId={fileId} ref={refStr}");
+                if (DataContext is LlmChatViewModel vm2)
+                    vm2.StatusText = "citation 정보 없음 (search 결과가 사라졌거나 LLM 인용 오류)";
+                return;
+            }
+            CitationFileName.Text = hit.FileName;
+            CitationRef.Text      = "참조: " + hit.Ref;
+            CitationOutline.Text  = string.IsNullOrEmpty(hit.OutlinePath) ? "" : hit.OutlinePath;
+            CitationOutline.Visibility = string.IsNullOrEmpty(hit.OutlinePath) ? Visibility.Collapsed : Visibility.Visible;
+            CitationExcerpt.Text  = hit.Excerpt;
+            CitationMeta.Text     = $"score: {hit.Score:0.000}" + (hit.HasImages ? "  •  📷 image" : "");
+            // Hyperlink 가 ContentElement 라 UIElement 아님 — Mouse 기준 popup 으로 클릭 위치 옆에 박제.
+            CitationPopup.PlacementTarget = this;
+            CitationPopup.Placement = PlacementMode.Mouse;
+            CitationPopup.IsOpen = true;
+            return;
+        }
+
+        // 외부 URL — http / https 만 OS shell 위임. UseShellExecute=true (default browser).
+        var schemeEnd = raw.IndexOf(':');
+        var scheme = schemeEnd > 0 ? raw.Substring(0, schemeEnd) : "";
+        if (string.Equals(scheme, "http", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(scheme, "https", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = raw,
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"LlmChatPanel: external URL open 실패 — {ex.Message}");
+            }
+            return;
+        }
+
+        // file:// / javascript: / data: / mailto: / tel: / 기타 — 보안 차단 (markdown branch 보류 항목 해소).
+        System.Diagnostics.Debug.WriteLine($"LlmChatPanel: blocked Hyperlink scheme — {scheme} ({raw})");
+    }
+
+    /// <summary>
+    /// <c>attachment:///&lt;fileId&gt;/&lt;ref&gt;</c> 형식의 raw URL string parser.
+    /// <see cref="Uri"/> 가 fileId 의 콜론을 port 로 해석하는 결함 회피 위해 string-only parse.
+    /// fileId / ref 둘 다 URL-decode (LLM 이 percent-encoding 한 경우 복원 — 사양은 그대로 박제 의무이나 robust).
+    /// </summary>
+    internal static bool TryParseAttachmentUri(string raw, out string fileId, out string @ref)
+    {
+        fileId = "";
+        @ref = "";
+        const string prefix3 = "attachment:///";
+        const string prefix2 = "attachment://";
+        string rest;
+        if (raw.StartsWith(prefix3, StringComparison.OrdinalIgnoreCase))
+            rest = raw.Substring(prefix3.Length);
+        else if (raw.StartsWith(prefix2, StringComparison.OrdinalIgnoreCase))
+            rest = raw.Substring(prefix2.Length);  // back-compat: 2-slash 도 허용
+        else
+            return false;
+
+        var slash = rest.IndexOf('/');
+        if (slash < 0)
+        {
+            fileId = Uri.UnescapeDataString(rest);
+            return !string.IsNullOrEmpty(fileId);
+        }
+        fileId = Uri.UnescapeDataString(rest.Substring(0, slash));
+        @ref   = Uri.UnescapeDataString(rest.Substring(slash + 1));
+        return !string.IsNullOrEmpty(fileId);
     }
 
     /// <summary>
