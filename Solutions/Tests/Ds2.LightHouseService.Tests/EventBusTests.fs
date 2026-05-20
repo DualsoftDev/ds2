@@ -9,86 +9,161 @@ open Ds2.LightHouseService
 
 /// **s6-r50 #5 ⑮ 외부 --review (EventBus unit fact 0 보강)** — 기존 e2e (`EventsSseTests`) 만으로는
 /// DropOldest / Unsubscribe lifecycle / fan-out N-subscriber 의 단위 contract 검증 부족. 본 file 이 단위 박제.
+///
+/// **R5-M2 (s6-r76, external review backlog)** — per-subscriber 2 channel 분리 박제 후 fact 정합 정정.
+/// `Subscribe` return = (Guid, lifecycleReader, progressReader). lifecycle event (collection-added/updated/deleted)
+/// 는 lifecycle channel (capacity 32), 나머지 progress event (caption/upload-progress / keepalive) 는 progress
+/// channel (capacity 64). 의도 = progress burst 가 lifecycle drop 유발 0 (R5-M2 본질).
 
-/// Subscribe 호출 시 unique Guid + non-null reader 반환 + SubscriberCount += 1.
+/// Subscribe 호출 시 unique Guid + non-null 2 reader 반환 + SubscriberCount += 1.
 [<Fact>]
-let ``Subscribe — unique Guid + non-null reader + SubscriberCount 증가`` () =
+let ``Subscribe — unique Guid + non-null 2 reader + SubscriberCount 증가`` () =
     let bus = EventBus()
     Assert.Equal(0, bus.SubscriberCount)
-    let id1, reader1 = bus.Subscribe()
-    let id2, reader2 = bus.Subscribe()
+    let id1, lr1, pr1 = bus.Subscribe()
+    let id2, lr2, pr2 = bus.Subscribe()
     Assert.NotEqual(id1, id2)
-    Assert.NotNull(reader1 :> obj)
-    Assert.NotNull(reader2 :> obj)
+    Assert.NotNull(lr1 :> obj)
+    Assert.NotNull(pr1 :> obj)
+    Assert.NotNull(lr2 :> obj)
+    Assert.NotNull(pr2 :> obj)
     Assert.Equal(2, bus.SubscriberCount)
 
-/// Unsubscribe 호출 시 SubscriberCount -= 1 + 해당 reader.WaitToReadAsync 가 false 반환 (channel complete).
+/// Unsubscribe 호출 시 SubscriberCount -= 1 + 양 reader 의 WaitToReadAsync 가 false 반환 (둘 다 complete).
 [<Fact>]
-let ``Unsubscribe — SubscriberCount 감소 + reader 가 WaitToReadAsync false (channel complete)`` () =
+let ``Unsubscribe — SubscriberCount 감소 + 양 reader 가 WaitToReadAsync false (channel complete)`` () =
     let bus = EventBus()
-    let id, reader = bus.Subscribe()
+    let id, lifecycleReader, progressReader = bus.Subscribe()
     Assert.Equal(1, bus.SubscriberCount)
     bus.Unsubscribe(id)
     Assert.Equal(0, bus.SubscriberCount)
-    // channel complete 후 WaitToReadAsync 는 false 반환 (event 없음 + writer.TryComplete 박제).
-    let waitTask = reader.WaitToReadAsync().AsTask()
-    Assert.True(waitTask.Wait(TimeSpan.FromSeconds 1.0))
-    Assert.False(waitTask.Result)
+    let lcWait = lifecycleReader.WaitToReadAsync().AsTask()
+    let prWait = progressReader.WaitToReadAsync().AsTask()
+    Assert.True(lcWait.Wait(TimeSpan.FromSeconds 1.0))
+    Assert.True(prWait.Wait(TimeSpan.FromSeconds 1.0))
+    Assert.False(lcWait.Result)
+    Assert.False(prWait.Result)
 
-/// Publish fan-out — N subscribers 모두 publish event 박제 받음 (동일 ServerEvent instance).
+/// Publish fan-out (lifecycle) — N subscribers 모두 publish event 박제 받음 (동일 ServerEvent instance).
 [<Fact>]
-let ``Publish fan-out — 모든 subscribers 가 동일 event 받음 (N=3)`` () =
+let ``Publish fan-out — 모든 subscribers 가 동일 lifecycle event 받음 (N=3)`` () =
     let bus = EventBus()
-    let _, r1 = bus.Subscribe()
-    let _, r2 = bus.Subscribe()
-    let _, r3 = bus.Subscribe()
+    let _, lr1, _ = bus.Subscribe()
+    let _, lr2, _ = bus.Subscribe()
+    let _, lr3, _ = bus.Subscribe()
     let evt = ServerEvent.collectionAdded "test-coll-id"
     bus.Publish evt
     let readOne (r: ChannelReader<ServerEvent>) : ServerEvent =
         let t = r.ReadAsync().AsTask()
         Assert.True(t.Wait(TimeSpan.FromSeconds 1.0))
         t.Result
-    let e1 = readOne r1
-    let e2 = readOne r2
-    let e3 = readOne r3
+    let e1 = readOne lr1
+    let e2 = readOne lr2
+    let e3 = readOne lr3
     Assert.Equal<ServerEvent>(evt, e1)
     Assert.Equal<ServerEvent>(evt, e2)
     Assert.Equal<ServerEvent>(evt, e3)
 
-/// DropOldest policy — subscriber capacity (64) 초과 publish 시 oldest event drop.
-/// 65 event publish + reader 가 64 event 만 read → 첫 event 가 *2nd* publish (1st 가 drop).
+/// DropOldest (lifecycle channel) — lifecycle subscriber capacity (32) 초과 publish 시 oldest event drop.
 [<Fact>]
-let ``DropOldest — capacity (64) 초과 시 oldest event 자연 drop`` () =
+let ``DropOldest — lifecycle channel capacity (32) 초과 시 oldest event 자연 drop`` () =
     let bus = EventBus()
-    let _, reader = bus.Subscribe()
-    // publish 65 event — capacity 64 보다 1개 많음.
-    for i = 1 to 65 do
+    let _, lifecycleReader, _ = bus.Subscribe()
+    // publish 33 event — lifecycle capacity 32 보다 1개 많음.
+    for i = 1 to 33 do
         bus.Publish (ServerEvent.collectionAdded (sprintf "coll-%d" i))
-    // 모두 read — 첫 event 가 i=2 부터 (i=1 drop).
     let readOne () : ServerEvent =
-        let t = reader.ReadAsync().AsTask()
+        let t = lifecycleReader.ReadAsync().AsTask()
         Assert.True(t.Wait(TimeSpan.FromSeconds 1.0))
         t.Result
     let first = readOne ()
-    // ServerEvent record 의 Payload 안 collectionId — payload 의 형태에 의존하지 않고 sequence 정합만 검증.
-    // 1st event drop 되었다는 가정 = 64 event read 후 reader 가 빈 channel (block).
-    // 본 fact 의 본질: first event 의 ordinal != 1 (drop 확인).
-    // ServerEvent 의 raw payload 분해는 SSE wire 박제 정합 의무 — 본 단위 fact 는 *drop 발생* 만 검증.
-    Assert.NotEqual<ServerEvent>(first, ServerEvent.collectionAdded "coll-1")  // 1st drop
-    // 남은 63 event 모두 read 후 channel 빈 상태.
-    for _ = 1 to 63 do readOne () |> ignore
-    let waitMore = reader.WaitToReadAsync().AsTask()
-    // 추가 publish 없으면 더 read 안 됨 — short timeout 후 false 또는 timeout (channel still open).
-    Assert.False(waitMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore  // open + 빈 channel = block
+    // 1st event drop 확인 — first != coll-1.
+    Assert.NotEqual<ServerEvent>(first, ServerEvent.collectionAdded "coll-1")
+    // 남은 31 event 모두 read 후 channel 빈 상태.
+    for _ = 1 to 31 do readOne () |> ignore
+    let waitMore = lifecycleReader.WaitToReadAsync().AsTask()
+    Assert.False(waitMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore
 
 /// Publish 가 dropped (Unsubscribe 된) subscriber 에 silent skip — exception 안 throw.
 [<Fact>]
 let ``Publish — unsubscribed subscriber 에 silent skip (exception 0)`` () =
     let bus = EventBus()
-    let id1, _ = bus.Subscribe()
-    let _, r2 = bus.Subscribe()
+    let id1, _, _ = bus.Subscribe()
+    let _, lr2, _ = bus.Subscribe()
     bus.Unsubscribe(id1)
     // id1 unsubscribe 후 Publish — id2 만 받음. exception throw 안 함.
     bus.Publish (ServerEvent.collectionAdded "after-unsub")
-    let t = r2.ReadAsync().AsTask()
+    let t = lr2.ReadAsync().AsTask()
     Assert.True(t.Wait(TimeSpan.FromSeconds 1.0))
+
+// ─── R5-M2 (s6-r76, external review backlog) — channel 분리 박제 신규 fact ──────────────
+
+/// IsLifecycleEvent — collection-added/updated/deleted 만 true, 나머지 false.
+[<Fact>]
+let ``IsLifecycleEvent — 분기 정합 (R5-M2)`` () =
+    let bus = EventBus()
+    Assert.True(bus.IsLifecycleEvent(ServerEvent.collectionAdded "x"))
+    Assert.True(bus.IsLifecycleEvent(ServerEvent.collectionUpdated "x"))
+    Assert.True(bus.IsLifecycleEvent(ServerEvent.collectionDeleted "x"))
+    Assert.False(bus.IsLifecycleEvent(ServerEvent.captionProgress "x" 50 null))
+    Assert.False(bus.IsLifecycleEvent(ServerEvent.uploadProgress "x" 50 null))
+    Assert.False(bus.IsLifecycleEvent(ServerEvent.keepalive()))
+
+/// Publish 가 evt 분기 — lifecycle → lifecycleReader, progress → progressReader (cross-channel leak 0).
+[<Fact>]
+let ``Publish — lifecycle 과 progress 가 별 channel 으로 분기 (R5-M2)`` () =
+    let bus = EventBus()
+    let _, lifecycleReader, progressReader = bus.Subscribe()
+    bus.Publish (ServerEvent.collectionAdded "lc-evt")
+    bus.Publish (ServerEvent.captionProgress "p-evt" 40 null)
+    // lifecycle channel 에는 lc-evt 만, progress channel 에는 p-evt 만 있어야 함.
+    let lc = lifecycleReader.ReadAsync().AsTask()
+    let pr = progressReader.ReadAsync().AsTask()
+    Assert.True(lc.Wait(TimeSpan.FromSeconds 1.0))
+    Assert.True(pr.Wait(TimeSpan.FromSeconds 1.0))
+    Assert.Equal("lc-evt", lc.Result.CollectionId)
+    Assert.Equal("p-evt", pr.Result.CollectionId)
+    // cross-channel leak 0 — lifecycle channel 빈 / progress channel 빈.
+    let lcMore = lifecycleReader.WaitToReadAsync().AsTask()
+    let prMore = progressReader.WaitToReadAsync().AsTask()
+    Assert.False(lcMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore
+    Assert.False(prMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore
+
+/// progress burst (capacity 64 초과) 시 lifecycle event drop 0 — R5-M2 본질.
+[<Fact>]
+let ``progress burst — lifecycle event drop 0 (R5-M2 본질)`` () =
+    let bus = EventBus()
+    let _, lifecycleReader, progressReader = bus.Subscribe()
+    // 100 progress event — capacity 64 초과 (oldest progress drop 발생).
+    for i = 1 to 100 do
+        bus.Publish (ServerEvent.captionProgress (sprintf "p-%d" i) 1 null)
+    // 그 사이 lifecycle event 5건 publish.
+    for i = 1 to 5 do
+        bus.Publish (ServerEvent.collectionAdded (sprintf "lc-%d" i))
+    // lifecycle channel 안에 정확히 5건 (drop 0). progress 는 capacity 안 (최대 64).
+    let readOne (r: ChannelReader<ServerEvent>) : ServerEvent option =
+        let t = r.ReadAsync().AsTask()
+        if t.Wait(TimeSpan.FromSeconds 1.0) then Some t.Result else None
+    let mutable lifecycleCount = 0
+    let mutable lifecycleEvts = []
+    for _ = 1 to 5 do
+        match readOne lifecycleReader with
+        | Some e ->
+            lifecycleCount <- lifecycleCount + 1
+            lifecycleEvts <- e.CollectionId :: lifecycleEvts
+        | None -> ()
+    Assert.Equal(5, lifecycleCount)
+    Assert.Equal<string list>(
+        [ "lc-5"; "lc-4"; "lc-3"; "lc-2"; "lc-1" ],  // 역순 (push order)
+        lifecycleEvts)
+    // 더 read 안 됨 (lifecycle channel 비었음, drop 0 확인).
+    let lcMore = lifecycleReader.WaitToReadAsync().AsTask()
+    Assert.False(lcMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore
+    // progress 는 capacity 64 까지 buffered. 100 publish 중 마지막 64 + 처음 36 drop. drain 확인.
+    let mutable progressCount = 0
+    let mutable continueLoop = true
+    while continueLoop do
+        match readOne progressReader with
+        | Some _ -> progressCount <- progressCount + 1
+        | None -> continueLoop <- false
+    Assert.Equal(64, progressCount)
