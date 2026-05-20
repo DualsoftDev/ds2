@@ -98,54 +98,7 @@ type OoxmlExtractor() =
             //
             // Ordinal 은 caller 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
             // M2 per-image fail-safe — decode exception → log + skip. 다른 image 진행 차단 안 함.
-            let extractImagesAtRefLocator
-                (container: OpenXmlElement)
-                (resolveImagePart: string -> ImagePart option)
-                (location: string)
-                (refLocator: string) =
-                let mutable imgOrdInBlock = 1
-                for blip in container.Descendants<Blip>() do
-                    if not (isNull blip.Embed) && blip.Embed.HasValue then
-                        let relId = blip.Embed.Value
-                        match resolveImagePart relId with
-                        | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
-                        | Some imgPart ->
-                            try
-                                let fmtOpt =
-                                    match imgPart.ContentType with
-                                    | "image/png"  -> Some Png
-                                    | "image/jpeg" -> Some Jpeg
-                                    | "image/gif"  -> Some Gif
-                                    | "image/webp" -> Some Webp
-                                    | _ -> None
-                                match fmtOpt with
-                                | None -> ()   // 화이트리스트 외 (EMF/WMF/BMP 등) — m6 primary 가드.
-                                | Some fmt ->
-                                    use stream = imgPart.GetStream()
-                                    use ms = new MemoryStream()
-                                    stream.CopyTo(ms)
-                                    let bytes = ms.ToArray()
-                                    if bytes.Length > 0 then
-                                        images.Add {
-                                            Bytes = bytes
-                                            Format = fmt
-                                            // OpenXml ImagePart 는 pixel dim 노출 안 함 — header parse 별 task.
-                                            Width = None
-                                            Height = None
-                                            RefLocator = refLocator
-                                            Ordinal = imgOrdInBlock
-                                        }
-                                        imgOrdInBlock <- imgOrdInBlock + 1
-                            with ex ->
-                                // M2 per-image fail-safe — decode exception → log + skip.
-                                Log.lighthouse.Warn(
-                                    sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                                        location refLocator imgOrdInBlock relId path ex.Message)
-
-            // body 측 resolver — mainPart 안 ImagePart map.
-            let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
-
-            // **s6-r44 / 외부 --review L-Maj-6 정정** — block 의 `Descendants<Blip>()` 1회 enumerate + 유효 Blip
+            // **s6-r44 / 외부 --review L-Maj-6** — block 의 `Descendants<Blip>()` 1회 enumerate + 유효 Blip
             // (relId non-null + HasValue) 만 cache. paragraph hot path 의 `hasInlineDrawing` + `extractImagesFromBlock`
             // 양쪽 박제하던 2회 deep enumerate 회피. valid 필터링도 한 곳에 집중 — caller 측 isNull/HasValue 가드 제거.
             let collectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
@@ -155,9 +108,16 @@ type OoxmlExtractor() =
                         arr.Add blip
                 arr
 
-            // `extractImagesAtRefLocator` 의 cached variant — caller 가 미리 enumerate 한 Blip ResizeArray 박제.
-            // valid Blip 가정 (collectValidBlips 가 사전 필터링). M2 per-image fail-safe + ContentType 화이트리스트
-            // 박제 동일.
+            // body 측 resolver — mainPart 안 ImagePart map.
+            let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
+
+            // **B3 SSOT (s6-r85, 15-reviewer Major)** — image 박제 단일 path.
+            // 이전 박제 (s6-r44 까지) = `extractImagesAtRefLocator` + `extractImagesFromBlips` 의 ~40 line 본문
+            // 중복 (한쪽 변경 시 silent drift risk, CLAUDE.md "3줄 이상 반복 → refactor" 위반). 본 함수가 단일
+            // 박제 — caller 가 valid Blip ResizeArray 박제 의무 (collectValidBlips 통과 후 호출).
+            //
+            // M2 per-image fail-safe — decode exception → log + skip (다른 image 진행 차단 안 함).
+            // ContentType 화이트리스트 (image/png / image/jpeg / image/gif / image/webp) 외 자연 skip (m6 primary).
             let extractImagesFromBlips
                 (blips: Blip ResizeArray)
                 (resolveImagePart: string -> ImagePart option)
@@ -178,7 +138,7 @@ type OoxmlExtractor() =
                                 | "image/webp" -> Some Webp
                                 | _ -> None
                             match fmtOpt with
-                            | None -> ()
+                            | None -> ()   // 화이트리스트 외 (EMF/WMF/BMP 등) — m6 primary 가드.
                             | Some fmt ->
                                 use stream = imgPart.GetStream()
                                 use ms = new MemoryStream()
@@ -198,6 +158,16 @@ type OoxmlExtractor() =
                             Log.lighthouse.Warn(
                                 sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
                                     location refLocator imgOrdInBlock relId path ex.Message)
+
+            // **B3 (s6-r85)** — container 직접 enumerate + 박제 path. collectValidBlips + extractImagesFromBlips delegation.
+            // body / header / footer / comments / footnotes / endnotes 의 part RootElement 통과 caller 가 사용.
+            let extractImagesAtRefLocator
+                (container: OpenXmlElement)
+                (resolveImagePart: string -> ImagePart option)
+                (location: string)
+                (refLocator: string) =
+                let blips = collectValidBlips container
+                extractImagesFromBlips blips resolveImagePart location refLocator
 
             // helper: Paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`). cached path.
             let extractImagesFromBlock (blips: Blip ResizeArray) (paraOrd: int) =

@@ -41,36 +41,48 @@ if ($ListenUrl -notmatch '^https://') { throw "listenUrl 은 https:// 만 허용
 
 # PSK / TLS cert password 평문 입력 → DPAPI(LocalMachine) 암호화
 # review IM-10 (4/7 reviewer): BSTR 변환 후 ZeroFreeBSTR 의무 — 평문이 unmanaged memory 에 잔존하면 dump 위험.
+# **B17 (s6-r85, 15-reviewer Major)** — PtrToStringAuto 반환 managed string 평문 잔존 차단. BSTR (UTF-16LE)
+# 을 char[] → UTF-8 byte[] 직접 변환 후 byte clear. managed string 단계 우회.
 Add-Type -AssemblyName System.Security
 
-function Read-SecretAsPlain([string]$prompt) {
+function Read-SecretAsBytes([string]$prompt) {
   $sec = Read-Host -Prompt $prompt -AsSecureString
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
   try {
-    return [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    # BSTR 의 char count = `Marshal.ReadInt32(bstr, -4) / 2` (BSTR length prefix = byte 수).
+    $len = [Runtime.InteropServices.Marshal]::ReadInt32($bstr, -4) / 2
+    $chars = [char[]]::new($len)
+    for ($i = 0; $i -lt $len; $i++) {
+      $chars[$i] = [char][Runtime.InteropServices.Marshal]::ReadInt16($bstr, $i * 2)
+    }
+    try {
+      $bytes = [System.Text.Encoding]::UTF8.GetBytes($chars)
+      return ,$bytes  # unary `,` = single-element array unwrap 회피.
+    } finally {
+      [Array]::Clear($chars, 0, $chars.Length)
+    }
   } finally {
-    # review IM-10: BSTR 의 unmanaged memory 즉시 zero + free.
+    # BSTR 의 unmanaged memory 즉시 zero + free.
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
   }
 }
 
-function Protect-DpapiLocalMachine([string]$plain) {
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
+function Protect-DpapiLocalMachineBytes([byte[]]$plain) {
   try {
     $cipher = [System.Security.Cryptography.ProtectedData]::Protect(
-      $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
+      $plain, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
     return [System.Convert]::ToBase64String($cipher)
   } finally {
-    # review IM-10: 평문 byte buffer 도 zero (best-effort, .NET GC 잔재 차단)
-    [Array]::Clear($bytes, 0, $bytes.Length)
+    # 평문 byte buffer 즉시 zero (B17 정합 — caller 단계 잔재 차단)
+    [Array]::Clear($plain, 0, $plain.Length)
   }
 }
 
-$pskPlain = Read-SecretAsPlain "Pre-Shared Key (PSK)"
-$certPwdPlain = Read-SecretAsPlain "TLS 인증서 (.pfx) 비밀번호"
+$pskBytes = Read-SecretAsBytes "Pre-Shared Key (PSK)"
+$certPwdBytes = Read-SecretAsBytes "TLS 인증서 (.pfx) 비밀번호"
 
-$pskEnc = Protect-DpapiLocalMachine $pskPlain
-$certPwdEnc = Protect-DpapiLocalMachine $certPwdPlain
+$pskEnc = Protect-DpapiLocalMachineBytes $pskBytes
+$certPwdEnc = Protect-DpapiLocalMachineBytes $certPwdBytes
 
 # config.json 저장 — %PROGRAMDATA%\Dualsoft\LightHouseService\
 $configDir = Join-Path $env:PROGRAMDATA "Dualsoft\LightHouseService"
