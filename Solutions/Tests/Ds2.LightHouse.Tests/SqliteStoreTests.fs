@@ -240,13 +240,14 @@ let private tableExists (conn: SqliteConnection) (table: string) : bool =
     Convert.ToInt32 (cmd.ExecuteScalar()) = 1
 
 [<Fact>]
-let ``Phase 4 schema — IndexerVersion 2.0.0 / SchemaVersion 4 (s6-r34 P4-A Chunks_Vectors virtual table)`` () =
+let ``s6-r49 #2 schema — IndexerVersion 2.1.0 / SchemaVersion 5 (L-Maj-10 mtime fast-skip)`` () =
     // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
-    // s6-r34 (P4-A): 1.3.0 → 2.0.0 major bump — Chunks_Vectors virtual table (sqlite-vec vec0) 신설.
-    //   SchemaVersion 도 "3" → "4" 동반 bump (SQL 비호환 변경 — sqlite-vec extension 의존).
-    // s6-r22 (mn3) 박제 (이전 모드): 1.2.0 → 1.3.0 minor + SchemaVersion 2 → 3 (ImageCache.MimeType NOT NULL DEFAULT).
-    Assert.Equal("2.0.0", IndexerVersion.Current)
-    Assert.Equal("4", IndexerVersion.SchemaVersion)
+    // s6-r49 (#2 L-Maj-10): 2.0.0 → 2.1.0 minor + SchemaVersion 4 → 5 — Documents.FileMTimeTicks ALTER 컬럼 신설.
+    //   mtime/size 기반 fast-skip metadata, 기존 row NULL = legacy fallback.
+    // s6-r34 (P4-A): 1.3.0 → 2.0.0 major + SchemaVersion 3 → 4 — Chunks_Vectors virtual table (sqlite-vec vec0).
+    // s6-r22 (mn3): 1.2.0 → 1.3.0 minor + SchemaVersion 2 → 3 — ImageCache.MimeType NOT NULL DEFAULT.
+    Assert.Equal("2.1.0", IndexerVersion.Current)
+    Assert.Equal("5", IndexerVersion.SchemaVersion)
 
 [<Fact>]
 let ``Phase 2 schema — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' (s6-r22 mn3)`` () =
@@ -366,8 +367,10 @@ let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 
         // 자가 검열 M1: ensureSchema 만으로는 schema_version stale (Phase 1 = "1" 잔존).
         // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
         SqliteStore.stampVersion upgraded
-        Assert.Equal(Some "4", SqliteStore.getMeta upgraded "schema_version")
-        Assert.Equal(Some "2.0.0", SqliteStore.getMeta upgraded "indexer_version"))
+        Assert.Equal(Some "5", SqliteStore.getMeta upgraded "schema_version")
+        Assert.Equal(Some "2.1.0", SqliteStore.getMeta upgraded "indexer_version")
+        // s6-r49 #2 (L-Maj-10): FileMTimeTicks 컬럼 ALTER 도 자동 추가 검증.
+        Assert.Contains("FileMTimeTicks", tableColumns upgraded "Documents"))
 
 
 // ── Phase 4 (s6-r34) — sqlite-vec / Chunks_Vectors schema + upsertChunkEmbedding ──

@@ -2,6 +2,7 @@ module Ds2.LightHouse.Tests.IndexerTests
 
 open System
 open System.IO
+open System.Security.Cryptography
 open System.Text
 open System.Threading
 open Xunit
@@ -52,15 +53,57 @@ let ``기본 흐름 — txt/md 파일 색인`` () =
             | other -> Assert.Fail(sprintf "기대 = Ingested, 실제 = %A" other))
 
 [<Fact>]
-let ``FileHash idempotent — 같은 파일 두 번 ingest → Documents 1개`` () =
+let ``Idempotent — 같은 파일 두 번 ingest → Documents 1개 (s6-r49 #2 mtime fast-skip path)`` () =
+    // 동일 파일 두 번 ingest 시 두 번째 호출이 fast-skip path (mtime/size match, hash 계산 없이) 진입.
+    // 첫 호출이 FileMTimeTicks stamp → 두 번째 호출이 mtime/size 비교 → match → "fast-skip" reason.
     withTempDir (fun dir ->
         writeFile dir "a.txt" "본문" |> ignore
         let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         let results2 = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
         Assert.Single(results2) |> ignore
         match snd results2.[0] with
-        | Skipped reason -> Assert.Contains("already ingested", reason)
+        | Skipped reason -> Assert.Contains("fast-skip", reason)
         | other -> Assert.Fail(sprintf "재 ingest 는 Skipped 기대, 실제 = %A" other))
+
+[<Fact>]
+let ``s6-r49 #2 mtime mismatch — 파일 mtime 변경 시 fast-skip 무효화 + 재색인 진입`` () =
+    // 첫 ingest 후 파일 mtime 만 변경 (내용 동일 = hash 동일). fast-skip path 가 mtime mismatch → fall-back
+    // hash 계산 path 진입 → findDocumentByHash 가 기존 row 발견 → "already ingested (same hash)" skip.
+    withTempDir (fun dir ->
+        let path = writeFile dir "a.txt" "본문"
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        // mtime 변경 (size + 내용 동일).
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(1.0))
+        let results2 = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        Assert.Single(results2) |> ignore
+        match snd results2.[0] with
+        | Skipped reason ->
+            // fast-skip 무효화 — fall-back hash path 의 idempotent skip (substring "already ingested").
+            Assert.Contains("already ingested", reason)
+        | other -> Assert.Fail(sprintf "재 ingest 는 Skipped 기대, 실제 = %A" other))
+
+[<Fact>]
+let ``s6-r49 #2 legacy row (FileMTimeTicks NULL) — fast-skip 비활성 + hash fallback`` () =
+    // legacy DB (FileMTimeTicks NULL) 시뮬레이션 — `insertDocument` legacy wrapper (mtime=None) 직접 호출.
+    // ingest 호출 시 fast-skip path 가 NULL mtime 발견 → fall-back hash 계산 → 기존 hash 발견 시 skip.
+    withTempDir (fun dir ->
+        let path = writeFile dir "a.txt" "본문"
+        // legacy DB 직접 세팅: index.db 생성 + ensureSchema + 기존 row insert (mtime NULL via legacy wrapper).
+        do
+            use seed = SqliteStore.openConnection (SqliteStore.dbPath dir) false
+            SqliteStore.ensureSchema seed
+            SqliteStore.stampVersion seed
+            // 정상 컴퓨팅 hash 값 박제 — 실 파일 내용 일치 의무.
+            use sha = SHA256.Create()
+            use fs = File.OpenRead path
+            let hash = Convert.ToHexString(sha.ComputeHash fs)
+            SqliteStore.insertDocument seed hash path Text (FileInfo(path).Length) None None |> ignore
+        // 본 호출 — fast-skip path = NULL mtime → fall-back hash → hash 일치 → "already ingested" skip.
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        Assert.Single(results) |> ignore
+        match snd results.[0] with
+        | Skipped reason -> Assert.Contains("already ingested", reason)
+        | other -> Assert.Fail(sprintf "legacy row 는 hash fallback Skipped 기대, 실제 = %A" other))
 
 [<Fact>]
 let ``미지원 ext (.dwg) — Skipped`` () =

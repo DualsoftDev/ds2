@@ -18,6 +18,9 @@ module IndexerVersion =
     // 로 본 literal 을 추출 + service config 의 indexerVersionRange 정합 검증.
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
+    // s6-r49 #2 (L-Maj-10): 2.0.0 → 2.1.0 — **minor bump** (forward-compat). Documents.FileMTimeTicks
+    //   ALTER 컬럼 신설 — mtime/size 기반 fast-skip 의 metadata. 기존 row 의 NULL = legacy → fall-back hash 계산.
+    //   SchemaVersion 4→5 동반 — `needsRebuild` 가 schema_version drift 만 trigger 라 기존 collection 강제 재색인.
     // s6-r34 P4-A: 1.3.0 → 2.0.0 — **major bump (Phase 4 Chunks_Vectors virtual table 신설)**.
     //   sqlite-vec extension 의존 추가 + vector embedding 색인 path 도입. SQL 비호환 (구 lib 가 신 index.db 열기 시
     //   ChunksFts trigger 와 schema_version mismatch → needsRebuild trigger).
@@ -26,13 +29,15 @@ module IndexerVersion =
     // s6-r22 mn3: 1.2.0 → 1.3.0 — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' schema 정합.
     //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange 안 검증.
     [<Literal>]
-    let Current = "2.0.0"
+    let Current = "2.1.0"
 
+    // s6-r49 #2 (L-Maj-10): SchemaVersion 4 → 5 — Documents.FileMTimeTicks ALTER 컬럼 신설 (mtime fast-skip).
+    //   needsRebuild trigger — 기존 collection (SchemaVersion 4) 가 신 lib 로 열릴 때 shadow rebuild 강제.
     // s6-r34 P4-A: SchemaVersion 3 → 4 — Chunks_Vectors virtual table (sqlite-vec vec0) 신설.
     //   needsRebuild trigger — 기존 collection (SchemaVersion 3) 가 신 lib 로 열릴 때 shadow rebuild 강제.
     // s6-r22 mn3: SchemaVersion 2 → 3 — ImageCache.MimeType column constraint 변경 (NULL → NOT NULL DEFAULT).
     [<Literal>]
-    let SchemaVersion = "4"
+    let SchemaVersion = "5"
 
     [<Literal>]
     let Tokenizer = "trigram"
@@ -322,6 +327,10 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         // Phase 2 ALTER (SQLite IF NOT EXISTS 미지원) — Phase 1 색인 DB 에서도 안전 forward-compat.
         ensureColumn conn "Chunks" "ImageCount"
             "ALTER TABLE Chunks ADD COLUMN ImageCount INTEGER NOT NULL DEFAULT 0"
+        // s6-r49 #2 (L-Maj-10): Documents.FileMTimeTicks ALTER 컬럼 — mtime fast-skip metadata. nullable
+        // (기존 row NULL = legacy → Indexer 가 fall-back hash 계산). 신 색인 row 는 file.LastWriteTimeUtc.Ticks 박제.
+        ensureColumn conn "Documents" "FileMTimeTicks"
+            "ALTER TABLE Documents ADD COLUMN FileMTimeTicks INTEGER"
         // Phase 4 — vec0 virtual table (sqlite-vec extension 의존, openConnection 의 loadVec0Extension 박제 정합).
         use vecCmd = conn.CreateCommand()
         vecCmd.CommandText <- vec0SchemaSql
@@ -412,6 +421,23 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
             Some (path, hash, size)
         else None
 
+    /// **s6-r49 #2 (L-Maj-10) — OriginalPath → (Id, FileMTimeTicks option, SizeBytes)**.
+    /// mtime/size 기반 fast-skip 의 entry point. NULL FileMTimeTicks (legacy row) = `None` → caller (Indexer)
+    /// 가 fall-back hash 계산. 미존재 시 outer None.
+    let findDocumentByPath (conn: SqliteConnection) (originalPath: string) : (int64 * int64 option * int64) option =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT Id, FileMTimeTicks, SizeBytes FROM Documents WHERE OriginalPath = $p"
+        cmd.Parameters.AddWithValue("$p", originalPath) |> ignore
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            let id = reader.GetInt64 0
+            let mtime =
+                if reader.IsDBNull 1 then None
+                else Some (reader.GetInt64 1)
+            let size = reader.GetInt64 2
+            Some (id, mtime, size)
+        else None
+
     /// 한 문서 + 그 종속 행 (OutlineNodes / Chunks / ChunksFts) 전부 삭제. CASCADE / trigger 가 sync.
     ///
     /// 현재 Indexer 의 정상 경로는 idempotent skip — 본 함수 미사용. 향후 매뉴얼 purge (사용자가 collection 안 파일 삭제)
@@ -422,8 +448,11 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         cmd.Parameters.AddWithValue("$id", documentId) |> ignore
         cmd.ExecuteNonQuery() |> ignore
 
-    /// Document insert. 반환 = 새 Id.
-    let insertDocument
+    /// Document insert (mtime 포함). 반환 = 새 Id. **s6-r49 #2 (L-Maj-10)**: `fileMTimeTicks` 인자 추가 —
+    /// mtime fast-skip metadata. `None` 박제 시 NULL 박제 (Tests 또는 mtime 미산출 path 정합).
+    /// production caller (Indexer.ingestFile) 는 `FileInfo(path).LastWriteTimeUtc.Ticks` 박제 의무.
+    /// 기존 caller (30+) backward-compat = 별 wrapper `insertDocument` (mtime=None).
+    let insertDocumentWithMtime
         (conn: SqliteConnection)
         (fileHash: string)
         (originalPath: string)
@@ -431,11 +460,12 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         (sizeBytes: int64)
         (pageOrSheetCnt: int option)
         (title: string option)
+        (fileMTimeTicks: int64 option)
         : int64 =
         use cmd = conn.CreateCommand()
         cmd.CommandText <- """
-            INSERT INTO Documents(FileHash, OriginalPath, DocType, SizeBytes, PageOrSheetCnt, Title, SummaryText, IndexerVersion, IngestedAt)
-            VALUES($hash, $path, $type, $size, $pages, $title, NULL, $ver, $at);
+            INSERT INTO Documents(FileHash, OriginalPath, DocType, SizeBytes, PageOrSheetCnt, Title, SummaryText, IndexerVersion, IngestedAt, FileMTimeTicks)
+            VALUES($hash, $path, $type, $size, $pages, $title, NULL, $ver, $at, $mtime);
             SELECT last_insert_rowid();
         """
         cmd.Parameters.AddWithValue("$hash",  fileHash) |> ignore
@@ -446,7 +476,21 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         cmd.Parameters.AddWithValue("$title", title |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
         cmd.Parameters.AddWithValue("$ver",   IndexerVersion.Current) |> ignore
         cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)) |> ignore
+        cmd.Parameters.AddWithValue("$mtime", fileMTimeTicks |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
         Convert.ToInt64 (cmd.ExecuteScalar())
+
+    /// **legacy wrapper (s6-r49 #2)** — mtime 미박제 caller (Tests 30+ + ImageStoreTests 등) backward-compat.
+    /// production path (Indexer.ingestFile) 는 `insertDocumentWithMtime` 직접 호출 의무.
+    let insertDocument
+        (conn: SqliteConnection)
+        (fileHash: string)
+        (originalPath: string)
+        (docType: FileKind)
+        (sizeBytes: int64)
+        (pageOrSheetCnt: int option)
+        (title: string option)
+        : int64 =
+        insertDocumentWithMtime conn fileHash originalPath docType sizeBytes pageOrSheetCnt title None
 
     /// 한 문서의 outline tree 삽입 — `ParentIndex` 로 parent linking. 반환 = list index → DB Id 매핑 배열.
     ///
