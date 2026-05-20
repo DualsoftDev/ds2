@@ -103,6 +103,12 @@ type ServiceFixture() =
                 Model = "bge-m3"
                 Dimension = 1024
             }
+            // **s6-r53 D-S7-1** — IT default 가 Mtls.Mode="off" (현행 PSK 단독 인증, 회귀 0). mTLS round-trip
+            // 검증은 별 fixture (MtlsRoundTripTests 의 buildConfig override) 박제.
+            Mtls = {
+                Mode = MtlsMode.Off
+                AllowedThumbprints = Array.empty
+            }
         }
 
     interface IAsyncLifetime with

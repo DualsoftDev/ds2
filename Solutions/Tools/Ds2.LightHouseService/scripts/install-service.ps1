@@ -77,8 +77,10 @@ $configDir = Join-Path $env:PROGRAMDATA "Dualsoft\LightHouseService"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 $configPath = Join-Path $configDir "config.json"
 
+# s6-r53 D-S7-1: schemaVersion 3 + mtls 섹션 박제 (현행 PSK 단독 인증 default).
+# load path 의 1→2→3 migration chain 으로 schemaVersion=1 도 회귀 0 이나, 신규 설치는 직접 schema 3 박제.
 $config = @{
-  schemaVersion = 1
+  schemaVersion = 3
   listenUrl = $ListenUrl
   tlsCertPath = $TlsCertPath
   tlsCertPasswordEncrypted = $certPwdEnc
@@ -91,7 +93,17 @@ $config = @{
   logRetentionDays = 30
   logMaxSizeMB = 100
   auditRetentionDays = 365
-  indexerVersionRange = @{ min = "1.0.0"; max = "1.99.99" }
+  indexerVersionRange = @{ min = "1.0.0"; max = "2.99.99" }
+  embedding = @{
+    enabled = $false
+    baseUrl = "http://localhost:11434"
+    model = "bge-m3"
+    dimension = 1024
+  }
+  mtls = @{
+    mode = "off"
+    allowedThumbprints = @()
+  }
 }
 
 # review IM-10 (4/7 reviewer): PowerShell 5.1 의 Set-Content -Encoding UTF8 은 BOM 동봉 → System.Text.Json
