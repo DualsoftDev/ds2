@@ -14,9 +14,14 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r54 종결 예정, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r55 종결 예정, 2026-05-20)
 
-**Phase 4 종결 + 외부 --review L-Maj-1/3/4/5/6/10 + ⑮/⑰/⑳ 종결 + s6-r40 자가 검열 backlog 4건 모두 종결 + 조합 B (C1+C2) + #4 hook + #1 Pooling=False + #2 mtime fast-skip + #5 cheap 3건 + (a) D-S7-1 mTLS server-side + (b) 보안 sweep K6+M10+M11** — `Ds2.LightHouse` lib + service + IT 통합 완료. 누적 **634 Fact** (lib 170 / service 140 / IT 33 / Promaker 291). 회귀 0.
+**Phase 4 종결 + 외부 --review L-Maj-1/3/4/5/6/10 + ⑮/⑰/⑱/⑳ 종결 + s6-r40 자가 검열 backlog 4건 모두 종결 + 조합 B (C1+C2) + #4 hook + #1 Pooling=False + #2 mtime fast-skip + #5 cheap 3건 + (a) D-S7-1 mTLS server-side + (b) 보안 sweep K6+M10+M11 + (c partial) ⑱ purge helper** — `Ds2.LightHouse` lib + service + IT 통합 완료. 누적 **634 Fact** (lib 170 / service 140 / IT 33 / Promaker 291). 회귀 0.
+
+**(c) 잔여 외부 review 3건 (별 turn 박제)**:
+- ⑬ Searcher tuple→record — lib breaking change (caller chain 전파 의무)
+- ⑭ CaptionGenerator HTTP wire fact — mock HttpMessageHandler unit fact 신설
+- ⑲ EventsEndpoint client-write keepalive — SSE wire 정합 + 외부 client 정합
 
 **별 세션 이연 의무**:
 - **#3 Phase S7 잔여** (D-S7-1 mTLS / D-S7-4 T2/T3 multi-tenant / D-S7-5 resumable upload) — 각 매우 large (~200~500 line), sub-agent 위임 의무. 단독 phase.
