@@ -6,6 +6,7 @@ open System.Text
 open System.Text.Json
 open System.Text.Json.Serialization
 open System.Security.Cryptography
+open Ds2.LightHouse.Protocol
 
 /// service config (todo-lighthouse-kb-server.md §3.11 SSOT).
 ///
@@ -204,18 +205,16 @@ module Config =
             raise (InvalidDataException(
                 sprintf "listenUrl=%s — plain HTTP 거부 (§3.7). https:// 만 허용." cfg.ListenUrl))
 
-    /// thumbprint normalize — hex 추출 후 대문자. 입력의 ':' / 공백 / hyphen 제거. 비-hex 문자가 있으면
-    /// 그대로 반환 (validateMtls 에서 별도 거부). cert.Thumbprint 의 .NET default 가 대문자 hex 라 정합.
+    /// **N-1 (s6-r74 c)** — thumbprint normalize SSOT 위임. Protocol `CertValidator.normalize` (strict, client behavior
+    /// 정합) 직접 호출. 본 wrapper 는 caller routing 호환 한정 유지 — 추후 caller 가 Protocol 직접 호출 시 폐기 가능.
+    /// 의미 변경: 비-hex 문자 silent strip → 즉시 빈 string + 길이 40/64 검증을 Normalize 자체에서 박제.
     let normalizeThumbprint (s: string) : string =
-        if isNull s then "" else
-        let sb = StringBuilder(s.Length)
-        for ch in s do
-            if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') then
-                sb.Append(Char.ToUpperInvariant ch) |> ignore
-        sb.ToString()
+        CertValidator.normalize s
 
-    /// **Phase S7 D-S7-1 (s6-r53)** — `Mtls.Mode` 값 검증 + AllowedThumbprints normalize.
+    /// **Phase S7 D-S7-1 (s6-r53) + N-1 (s6-r74 c)** — `Mtls.Mode` 값 검증 + AllowedThumbprints normalize.
     /// 부적합 시 fail-fast (config 결함 — install script 안내).
+    /// **N-1 변경**: Protocol `CertValidator.normalize` SSOT. raw entry 별 normalize → 빈 string 시 reject
+    /// (정합 결함, 길이/형식 둘 다 검증 후 empty). 기존 silent skip 박제 폐기 — strict fail-fast 의무.
     let validateMtls (cfg: ServiceConfig) : ServiceConfig =
         let mode = if isNull cfg.Mtls.Mode then "" else cfg.Mtls.Mode.Trim().ToLowerInvariant()
         match mode with
@@ -224,15 +223,16 @@ module Config =
             raise (InvalidDataException(
                 sprintf "mtls.mode=%s — \"off\"|\"optional\"|\"required\" 만 허용." other))
         let normalizedMode = if mode = "" then MtlsMode.Off else mode
+        let raw = if isNull cfg.Mtls.AllowedThumbprints then Array.empty else cfg.Mtls.AllowedThumbprints
         let tps =
-            (if isNull cfg.Mtls.AllowedThumbprints then Array.empty else cfg.Mtls.AllowedThumbprints)
-            |> Array.map normalizeThumbprint
-            |> Array.filter (fun s -> s.Length > 0)
-        // 각 thumbprint 가 SHA-1 (40 hex) 또는 SHA-256 (64 hex) 길이. 다른 길이 = config 결함.
-        for tp in tps do
-            if tp.Length <> 40 && tp.Length <> 64 then
-                raise (InvalidDataException(
-                    sprintf "mtls.allowedThumbprints 항목 길이=%d (정상 SHA-1=40 / SHA-256=64 hex) — %s" tp.Length tp))
+            raw
+            |> Array.filter (fun s -> not (String.IsNullOrWhiteSpace s))
+            |> Array.map (fun s ->
+                let normalized = CertValidator.normalize s
+                if String.IsNullOrEmpty normalized then
+                    raise (InvalidDataException(
+                        sprintf "mtls.allowedThumbprints 결함 — '%s' (hex 40/64 길이 + ':' / 공백 / hyphen / tab 외 non-hex 거부)" s))
+                normalized)
         { cfg with Mtls = { Mode = normalizedMode; AllowedThumbprints = tps } }
 
     /// **Phase S7 D-S7-4 (s6-r66)** — `MultiTenant.Mode` 값 검증 + normalize.
