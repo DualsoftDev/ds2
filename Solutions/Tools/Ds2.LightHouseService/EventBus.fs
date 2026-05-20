@@ -41,49 +41,83 @@ type ServerEvent =
       [<JsonPropertyName("timestamp")>]
       TimestampUtc: string }
 
-/// In-memory pub-sub. subscriber 마다 bounded Channel<ServerEvent> 등록 — slow consumer 가
-/// publisher 차단 안 함 (DropOldest policy).
+/// per-subscriber 2 channel 분리 — **R5-M2 (s6-r76, external review backlog)** 박제.
+/// 이전 박제 (단일 channel + DropOldest) 는 progress event burst (caption-progress / upload-progress)
+/// 시 capacity 초과로 *lifecycle event* (collection-added/updated/deleted) 가 oldest 로 drop 가능 —
+/// client 가 collection 추가/삭제 신호를 영구 손실. lifecycle channel 별 박제로 progress burst 와
+/// 격리 (각 자체 capacity 안에서만 DropOldest 적용).
+type private SubscriberChannels =
+    { LifecycleWriter: ChannelWriter<ServerEvent>
+      ProgressWriter: ChannelWriter<ServerEvent> }
+
+/// In-memory pub-sub. subscriber 마다 2 bounded Channel<ServerEvent> (lifecycle / progress) 등록 —
+/// slow consumer 가 publisher 차단 안 함 (각 DropOldest policy).
 ///
-/// **lifecycle**: 한 SSE request 당 하나의 subscriber. `Subscribe()` 가 reader 반환 + dispose 시
+/// **lifecycle**: 한 SSE request 당 하나의 subscriber. `Subscribe()` 가 2 reader 반환 + dispose 시
 /// `Unsubscribe(id)` 자동 호출. 본 객체는 process-wide singleton (DI).
 ///
 /// **fan-out 안전성**: Publish 가 ConcurrentDictionary.Values snapshot 위에서 TryWrite 비동기 호출.
-/// dropped subscriber (e.g. disposed 직전) 는 silent skip — 대신 disconnect 가 다음 `WaitToReadAsync`
-/// 에서 false 반환 후 subscribe handler 가 자연 종료.
+/// evt 의 IsLifecycle 분기 — lifecycle event 는 lifecycle channel, 나머지 (progress / keepalive 등) 는
+/// progress channel. dropped subscriber (e.g. disposed 직전) 는 silent skip — 대신 disconnect 가 다음
+/// `WaitToReadAsync` 에서 false 반환 후 subscribe handler 가 자연 종료.
 [<Sealed>]
 type EventBus() =
 
-    /// 한 subscriber 의 buffered 한도. caption 진행률 등 high-rate event 도입 대비.
+    /// lifecycle subscriber 의 buffered 한도. lifecycle event (collection-added/updated/deleted) 는
+    /// 발행 빈도가 매우 낮음 (분/시 단위) — 32 capacity 면 burst 시에도 안전.
     [<Literal>]
-    let SubscriberCapacity = 64
+    let LifecycleSubscriberCapacity = 32
 
-    let subscribers = ConcurrentDictionary<Guid, ChannelWriter<ServerEvent>>()
+    /// progress subscriber 의 buffered 한도. caption-progress / upload-progress 등 high-rate event —
+    /// 기존 64 박제 유지. DropOldest 정책 하에서 burst 시 oldest progress 만 drop (lifecycle 무관).
+    [<Literal>]
+    let ProgressSubscriberCapacity = 64
 
-    /// 새 subscriber 등록 → reader + Guid 반환. dispose 책임 = caller (`Unsubscribe` 호출).
-    member _.Subscribe() : Guid * ChannelReader<ServerEvent> =
-        let opts = BoundedChannelOptions(SubscriberCapacity)
+    let subscribers = ConcurrentDictionary<Guid, SubscriberChannels>()
+
+    /// evt 가 lifecycle event 인지 분류 (R5-M2 channel 분리 기준). server-side SSOT — caller (Publish) 만 사용.
+    let isLifecycle (evt: ServerEvent) : bool =
+        evt.Event = ServerEventNames.CollectionAdded
+        || evt.Event = ServerEventNames.CollectionUpdated
+        || evt.Event = ServerEventNames.CollectionDeleted
+
+    let createBoundedChannel (capacity: int) : Channel<ServerEvent> =
+        let opts = BoundedChannelOptions(capacity)
         opts.FullMode <- BoundedChannelFullMode.DropOldest
         opts.SingleReader <- true
         opts.SingleWriter <- false  // Publish 가 다른 thread 에서 호출 가능
-        let channel = Channel.CreateBounded<ServerEvent>(opts)
-        let id = Guid.NewGuid()
-        subscribers.[id] <- channel.Writer
-        id, channel.Reader
+        Channel.CreateBounded<ServerEvent>(opts)
 
-    /// subscriber 해제 + channel complete (reader 가 WaitToReadAsync false 반환).
+    /// 새 subscriber 등록 → (lifecycleReader, progressReader, Guid) 반환. dispose 책임 = caller
+    /// (`Unsubscribe` 호출). 두 reader 의 일관 lifecycle = 같은 Guid 의 Unsubscribe 가 둘 다 complete.
+    member _.Subscribe() : Guid * ChannelReader<ServerEvent> * ChannelReader<ServerEvent> =
+        let lifecycleCh = createBoundedChannel LifecycleSubscriberCapacity
+        let progressCh = createBoundedChannel ProgressSubscriberCapacity
+        let id = Guid.NewGuid()
+        subscribers.[id] <- { LifecycleWriter = lifecycleCh.Writer; ProgressWriter = progressCh.Writer }
+        id, lifecycleCh.Reader, progressCh.Reader
+
+    /// subscriber 해제 + 양 channel complete (reader 의 WaitToReadAsync false 반환).
     member _.Unsubscribe(id: Guid) : unit =
         match subscribers.TryRemove id with
-        | true, writer -> writer.TryComplete() |> ignore
+        | true, ch ->
+            ch.LifecycleWriter.TryComplete() |> ignore
+            ch.ProgressWriter.TryComplete() |> ignore
         | _ -> ()
 
-    /// 모든 active subscribers 에 fan-out. TryWrite 가 DropOldest 적용 — 차단 0.
-    /// publisher path (POST/DELETE endpoint) 가 hot — 본 메서드는 lock-free.
+    /// 모든 active subscribers 에 fan-out. evt 가 lifecycle 이면 lifecycle channel, 아니면 progress channel.
+    /// 각 TryWrite 가 DropOldest 적용 — 차단 0. publisher path (POST/DELETE endpoint) 가 hot — lock-free.
     member _.Publish(evt: ServerEvent) : unit =
+        let lifecycle = isLifecycle evt
         for kvp in subscribers do
-            kvp.Value.TryWrite evt |> ignore
+            let target = if lifecycle then kvp.Value.LifecycleWriter else kvp.Value.ProgressWriter
+            target.TryWrite evt |> ignore
 
     /// 현재 subscriber 수 (test / 진단용).
     member _.SubscriberCount : int = subscribers.Count
+
+    /// **R5-M2 (s6-r76, test 전용)** — evt 가 lifecycle 인지 expose. test 가 channel 분리 검증 시 사용.
+    member _.IsLifecycleEvent(evt: ServerEvent) : bool = isLifecycle evt
 
 
 /// `ServerEvent` factory helper — 신규 event 추가 시 본 module 에 한 줄씩 박제.

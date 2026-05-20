@@ -4,6 +4,7 @@ open System
 open System.Text
 open System.Text.Json
 open System.Threading
+open System.Threading.Channels
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
@@ -127,7 +128,8 @@ module EventsEndpoint =
             // m2 (s6-r27 자가 검열 review) — Subscribe 를 first-write 보다 먼저.
             // 이전 순서 (first keepalive write → Subscribe) 는 µs window race — 그 사이 publish 된 event 가 본
             // subscriber 의 channel 에 들어가지 못함. Subscribe 후 first keepalive write 면 race window 0.
-            let id, reader = bus.Subscribe()
+            // **R5-M2 (s6-r76)** — lifecycle / progress channel 분리. 두 reader 합산 송신 (우선순위 = lifecycle).
+            let id, lifecycleReader, progressReader = bus.Subscribe()
             // first write — single-thread phase (keepalive task / reader loop 시작 전) 라 lock 외부 호출 OK.
             // client 가 즉시 connected 확인 (EventSource readyState=OPEN 진입). 실패 시 즉시 종료.
             let! firstOk = tryWriteEventSerialized writeLock ctx (ServerEvent.keepalive())
@@ -153,19 +155,37 @@ module EventsEndpoint =
                     let keepaliveTask = keepaliveLoop()
 
                     // reader loop — disconnect 시 WaitToReadAsync false / OCE / write 실패 모두 graceful 종료.
+                    // **R5-M2 (s6-r76)** — lifecycle / progress 2 reader 합산. 매 wakeup 마다 lifecycle 먼저 drain
+                    // 후 progress drain (우선순위 = lifecycle, 같은 burst 안에서도 lifecycle 이 먼저 client 도달).
                     try
                         let mutable continueLoop = true
+                        let drainReader (r: ChannelReader<ServerEvent>) = task {
+                            let mutable evt = Unchecked.defaultof<ServerEvent>
+                            while continueLoop && r.TryRead &evt do
+                                // **s6-r70 review C-2** — T2/T3 모드 시 tenant filter. Hidden = skip (caller 가 안 받음).
+                                if isEventVisibleTo cfg storageRoot user evt then
+                                    let! ok = tryWriteEventSerialized writeLock ctx evt
+                                    if not ok then continueLoop <- false
+                        }
+                        let mutable lifecycleWait = lifecycleReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
+                        let mutable progressWait = progressReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
                         while continueLoop do
-                            let! hasMore = reader.WaitToReadAsync ctx.RequestAborted
-                            if not hasMore then
+                            let! _ = Task.WhenAny(lifecycleWait, progressWait)
+                            // lifecycle 먼저 drain (우선순위) — progress ready 였어도 함께 drain.
+                            do! drainReader lifecycleReader
+                            do! drainReader progressReader
+                            // **R5-M2 review M1 patch (sub-agent)** — close 판정 race window 보호. 양 channel
+                            // 모두 closed (Unsubscribe 의 양 TryComplete 후) 면 종료. 한 쪽만 close 인 µs window
+                            // 에서는 살아있는 쪽만 reassign — closed 쪽 재호출 시 즉시 false → busy spin 차단.
+                            let lcDone = lifecycleWait.IsCompletedSuccessfully && not lifecycleWait.Result
+                            let prDone = progressWait.IsCompletedSuccessfully && not progressWait.Result
+                            if lcDone && prDone then
                                 continueLoop <- false
                             else
-                                let mutable evt = Unchecked.defaultof<ServerEvent>
-                                while continueLoop && reader.TryRead &evt do
-                                    // **s6-r70 review C-2** — T2/T3 모드 시 tenant filter. Hidden = skip (caller 가 안 받음).
-                                    if isEventVisibleTo cfg storageRoot user evt then
-                                        let! ok = tryWriteEventSerialized writeLock ctx evt
-                                        if not ok then continueLoop <- false
+                                if not lcDone && lifecycleWait.IsCompleted then
+                                    lifecycleWait <- lifecycleReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
+                                if not prDone && progressWait.IsCompleted then
+                                    progressWait <- progressReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
                             // keepalive timer 가 disconnect 검출했으면 loop 종료 (background path 정합)
                             if disconnectSignal.Task.IsCompleted then continueLoop <- false
                     with
