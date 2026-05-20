@@ -870,4 +870,19 @@ public sealed class LightHouseClientTests
         Assert.Contains(lastPatch.Content!.Headers,
             h => h.Key == "Content-Range" && h.Value.Contains("bytes 90-99/100"));
     }
+
+    // ── D-S7-5 phase 3 — chunked path 자동 선택 임계값 SSOT (s6-r67) ───────────────
+
+    [Fact]
+    public void ResumableUploadThresholdBytes_256MiB_const_SSOT()
+    {
+        // **D-S7-5 phase 3 (s6-r67)** — AttachmentIngestService.UploadAsync 가 본 const 값 초과 zip 시
+        // 자동 chunked path 진입. caller 박제 단순 유지 — 256 MiB literal 이 분산되면 의도 drift 발생.
+        Assert.Equal(256L * 1024L * 1024L, LightHouseClient.ResumableUploadThresholdBytes);
+        // 256 MiB 이라는 의미 (HttpClient single multipart buffer OOM risk + 사내 LAN ~수 GB 재시도 비용 분기점).
+        Assert.True(LightHouseClient.ResumableUploadThresholdBytes > 0,
+            "threshold 가 0/음수면 항상 chunked 진입 — 단순 single-shot path 회귀 0 의도 위반.");
+        Assert.True(LightHouseClient.ResumableUploadThresholdBytes < 10L * 1024L * 1024L * 1024L,
+            "threshold 가 maxUploadBytes (10 GiB) 초과면 chunked path 가 영원히 비활성.");
+    }
 }
