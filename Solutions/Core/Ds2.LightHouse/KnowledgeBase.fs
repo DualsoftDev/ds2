@@ -58,11 +58,11 @@ module KnowledgeBase =
     let isIndexed (collectionRoot: string) : bool =
         File.Exists (SqliteStore.dbPath collectionRoot)
 
-    /// **read-only connection lifecycle SSOT (s6-r42)** — `isIndexed` 가드 + open + work + Close +
-    /// ClearPool + Dispose. caller 측 `probeIndexerVersion` / `lookupDocument` 의 박제 중복 흡수
-    /// (외부 --review L-Maj-3 정정 — helper 추출 part). ClearPool 의 hot path 전역 pool flush 부작용
-    /// 정정 (per-connection `Pooling=False` 박제) 은 별 turn (SqliteStore.openConnection 의 SSOT 변경 의무 — trigger ⑤).
-    /// parent r10 F2 (Windows file lock 잔존 회피) 정합 유지.
+    /// **read-only connection lifecycle SSOT (s6-r42 / L-Maj-3 part 1 helper 추출 + s6-r47 / L-Maj-3 part 2
+    /// ClearPool 제거)** — `isIndexed` 가드 + open + work + Close + Dispose. `SqliteStore.openConnection`
+    /// 의 `Pooling=False` 박제 (read-only path 만) 로 본 connection 은 pool 외 — Close 시 자연 dispose,
+    /// file lock 잔존 0. 매 호출 ClearPool (전역 flush) 의 hot path 무력화 부작용 해소.
+    /// write path (`stampIndexerVersion`) 는 별도 — file swap path 정합 위해 ClearPool 유지.
     ///
     /// open 실패 / 정상 work 의 None 반환 모두 None 으로 전파 (caller 가 fail-safe).
     let private withReadOnlyConn (collectionRoot: string) (work: Microsoft.Data.Sqlite.SqliteConnection -> 'a option) : 'a option =
@@ -74,7 +74,6 @@ module KnowledgeBase =
                 try work conn
                 finally
                     conn.Close()
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearPool conn
                     conn.Dispose()
             with ex ->
                 Log.lighthouse.Warn(sprintf "withReadOnlyConn: %s 열기 실패 — %s: %s"
