@@ -37,6 +37,11 @@
          lib 의 IEmbeddingProvider abstraction = 자체 interface (외부 abstraction 의존 0) — caller (Promaker / cli) 가
          OllamaSharp 의 OllamaApiClient 를 adapter 로 wrap 후 주입. -->
     <PackageVersion Include="sqlite-vec" Version="0.1.7-alpha.2.1" />
+    <!-- s6-r37 P4-C.1 — OllamaSharp .NET binding (embedding API: EmbedAsync(EmbedRequest) batch).
+         Apps/Promaker 의 OllamaSharp 5.4.25 와 정합. caller (cli / Promaker / server) 가 본 PackageReference
+         박제 의무 — `Ds2.LightHouse.Ollama` fsproj (별 project) 만 직접 의존. lib (Ds2.LightHouse) 는
+         backend-neutral 유지 (PackageReference 0). -->
+    <PackageVersion Include="OllamaSharp" Version="5.4.25" />
   </ItemGroup>
   <!-- F# 핵심 라이브러리 -->
   <ItemGroup>
