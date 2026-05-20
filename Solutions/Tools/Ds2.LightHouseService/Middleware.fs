@@ -2,6 +2,7 @@ namespace Ds2.LightHouseService
 
 open System
 open System.Security.Cryptography
+open System.Security.Cryptography.X509Certificates
 open System.Text
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
@@ -54,26 +55,25 @@ module AuthMiddleware =
     let private isPublicPath (path: PathString) : bool =
         path.StartsWithSegments(PathString "/healthz")
 
-    /// **s6-r70 review C-3** — cert subject CN 추출. `CN=name, OU=...` 형식의 첫 RDN 만 파싱.
-    /// distinguished name 안에 `,` 가 escape 되어 있으면 (`\,`) 그대로 보존. 단순 split — 본 사용 path 는
-    /// "CN=username" prefix 만 검증.
-    let private extractCommonName (subject: string) : string =
-        if String.IsNullOrEmpty subject then ""
+    /// **A1 (s6-r83, 15-reviewer Critical)** — cert subject CN 추출 SSOT.
+    /// 이전 박제 (s6-r70 C-3): `subject.Split(',')` 가 RDN escape (`\,`) 미인식 → `CN=alice\, attacker, OU=evil`
+    /// 형식의 cert 가 `alice\` 로 잘못 추출 → X-User-Identity 가 `alice\` 박제된 attacker 가 mTLS subject 강제를
+    /// silent bypass (보안 critical). BCL 의 표준 API `X509Certificate2.GetNameInfo(SimpleName, false)` 사용 —
+    /// X.500 distinguished name parser (escape / quoted RDN / multi-value 모두 정합 처리).
+    let private extractCommonName (cert: X509Certificate2) : string =
+        if isNull cert then ""
         else
-            // RDN 들이 `,` 로 구분. CN= 시작 RDN 식별.
-            let rdns = subject.Split(',') |> Array.map (fun s -> s.Trim())
-            match rdns |> Array.tryFind (fun s -> s.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)) with
-            | Some rdn -> rdn.Substring(3).Trim()
-            | None -> ""
+            let cn = cert.GetNameInfo(X509NameType.SimpleName, false)
+            if isNull cn then "" else cn.Trim()
 
-    /// **s6-r70 review C-3** — mTLS subject CN ↔ X-User-Identity 강제 검증. mtls.mode != "off" 시점 진입.
+    /// **s6-r70 review C-3 / A1 (s6-r83)** — mTLS subject CN ↔ X-User-Identity 강제 검증. mtls.mode != "off" 시점 진입.
     /// mismatch 시 false (caller 401). subject CN 빈 값 또는 cert 미박제 = false.
     /// case-insensitive ordinal 비교 (Windows username 정합).
     let private verifyMtlsIdentity (ctx: HttpContext) (claimedUser: string) : bool =
         let cert = ctx.Connection.ClientCertificate
         if isNull cert then false
         else
-            let cn = extractCommonName cert.Subject
+            let cn = extractCommonName cert
             if String.IsNullOrEmpty cn then false
             else String.Equals(cn, claimedUser, StringComparison.OrdinalIgnoreCase)
 
@@ -125,7 +125,7 @@ module AuthMiddleware =
                         elif cfg.Mtls.Mode <> MtlsMode.Off && not (verifyMtlsIdentity ctx userIdentity) then
                             let cnRaw =
                                 let cert = ctx.Connection.ClientCertificate
-                                if isNull cert then "(no-cert)" else extractCommonName cert.Subject
+                                if isNull cert then "(no-cert)" else extractCommonName cert
                             Log.audit.Warn(
                                 sprintf "auth: mTLS subject CN ↔ X-User-Identity mismatch — path=%s claimed=%s cn=%s remoteIp=%s"
                                     (Log.sanitizeForLog path) (Log.sanitizeForLog userIdentity)

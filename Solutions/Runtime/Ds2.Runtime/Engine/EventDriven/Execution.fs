@@ -32,22 +32,16 @@ type DurationCompleteContext = {
 }
 
 module EventDrivenExecution =
+    // **A2 (s6-r83, 15-reviewer Critical)** — 이전 박제는 매 executeApiCall 마다 MyDocuments\ds2_execapi_*.txt
+    // 에 unconditional file append + 광범위 try-swallow → production binary 안 디버그 코드 잔존 + disk leak.
+    // log4net SSOT 로 교체 (SimIndex / 기존 Runtime module 동일 패턴).
+    let private log = log4net.LogManager.GetLogger("EventDrivenExecution")
+
     let executeApiCall (ctx: ApiCallExecutionContext) deviceWorkGuid =
         let curSt = ctx.GetDeviceState deviceWorkGuid
         let wname = ctx.GetDeviceName deviceWorkGuid
 
-        let diagPath =
-            System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                sprintf "ds2_execapi_%A.txt" ctx.RuntimeMode)
-
-        try
-            System.IO.File.AppendAllText(
-                diagPath,
-                sprintf "[%O] mode=%A device=%s state=%A\n"
-                    DateTime.Now ctx.RuntimeMode wname curSt)
-        with _ ->
-            ()
+        log.Debug(sprintf "executeApiCall: mode=%A device=%s state=%A" ctx.RuntimeMode wname curSt)
 
         if curSt <> Status4.Finish then
             match ctx.RuntimeMode with

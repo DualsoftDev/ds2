@@ -302,10 +302,17 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         // 유지 (Indexer batch 의 connection reuse perf 효과). read-only SqliteOpenMode 는 file lock 잔존 무관.
         csb.Pooling <- not readOnly
         let conn = new SqliteConnection(csb.ToString())
-        conn.Open()
-        applyPragmas conn
-        loadVec0Extension conn  // Phase 4 — vec0 extension active 의무 (Chunks_Vectors 접근)
-        conn
+        // **A8 (s6-r83, 15-reviewer Critical)** — Open / applyPragmas / loadVec0Extension 의 어느 단계에서
+        // throw 시 conn 이 caller 로 돌아오지 못해 dispose 누락. file lock + native handle leak risk.
+        // try ... with reraise + conn.Dispose() guard.
+        try
+            conn.Open()
+            applyPragmas conn
+            loadVec0Extension conn  // Phase 4 — vec0 extension active 의무 (Chunks_Vectors 접근)
+            conn
+        with _ ->
+            conn.Dispose()
+            reraise()
 
     /// SQLite 의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 미지원 — `PRAGMA table_info` 로 idempotent 분기.
     /// table 안에 column 가 이미 있으면 no-op, 없으면 `ALTER TABLE` 실행 (Phase 2 schema bump 정합).
