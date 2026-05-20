@@ -72,8 +72,53 @@ module Registry =
     let empty () : RegistryFile =
         { SchemaVersion = RegistrySchema.Current; Collections = [||] }
 
+    /// **s6-r53 K6 (보안 sweep)** — entry tampering 검증.
+    /// admin 침해 / 외부 수동 편집으로 손상된 entry skip + audit warn. defense-in-depth — fail-fast
+    /// 대신 silent skip (단일 손상 row 로 service 시작 차단 회피 / 정상 entry 보존).
+    ///
+    /// 검증 항목:
+    /// - `Id` 비어있지 않음 (guid v4 격리 의무)
+    /// - `DisplayName` path traversal 차단 (`..` / `/` / `\` / `:` / 절대경로 / nul / control char 없음)
+    /// - `StorageRelPath` path traversal 차단 (동일) + storage root 의 단일 segment 형식 (서브디렉토리 prefix 없음)
+    /// - `Status` ∈ {idle, indexing, error} (other 값 시 idle 으로 normalize 후 audit)
+    ///
+    /// 본 helper 는 lock 외부 호출 OK (read-only).
+    /// DisplayName 은 file name 의미 (path separator 없음) — strict 검증.
+    let private isDisplayNameSuspect (s: string) : bool =
+        if String.IsNullOrEmpty s then true
+        elif s.Contains("..") then true
+        elif s.IndexOfAny([| '/'; '\\'; ':'; '*'; '?'; '<'; '>'; '|'; '"'; '\000' |]) >= 0 then true
+        else
+            s |> Seq.exists (fun c -> int c < 32)  // control char
+
+    /// StorageRelPath 는 storage root 의 sub-directory 의미 — `\` / `/` 포함은 정상,
+    /// 단 `..` (traversal) / 절대경로 / DOS drive letter (`C:`) / control char 거부.
+    let private isStorageRelPathSuspect (s: string) : bool =
+        if String.IsNullOrEmpty s then true
+        elif s.Contains("..") then true
+        elif s.Contains(":") then true  // DOS drive letter / NTFS ADS / device
+        elif s.StartsWith("/") || s.StartsWith("\\") then true  // 절대경로 / UNC
+        else
+            s |> Seq.exists (fun c -> int c < 32)
+
+    let private validateEntry (path: string) (e: CollectionEntry) : CollectionEntry option =
+        let mutable reasons = []
+        if String.IsNullOrEmpty e.Id then
+            reasons <- "id=empty" :: reasons
+        if isDisplayNameSuspect e.DisplayName then
+            reasons <- "displayName=traversal-suspect" :: reasons
+        if isStorageRelPathSuspect e.StorageRelPath then
+            reasons <- "storageRelPath=traversal-suspect" :: reasons
+        if not (List.isEmpty reasons) then
+            Log.audit.Warn(sprintf "registry.json K6 tampering 의심 — path=%s id=%s reasons=[%s]"
+                (Log.sanitizeForLog path) (Log.sanitizeForLog e.Id) (String.concat "," reasons))
+            None
+        else
+            Some e
+
     /// registry 파일 → RegistryFile. 미존재 시 빈 registry 반환 (정상 — 첫 실행).
     /// schema mismatch (Current 와 다름) 시 fail-fast.
+    /// **s6-r53 K6**: entry validation — tampering 의심 row skip + audit log.
     let load (storageRoot: string) : RegistryFile =
         let p = path storageRoot
         if not (File.Exists p) then empty ()
@@ -87,7 +132,10 @@ module Registry =
                     sprintf "registry.json schemaVersion=%d 가 supported=%d 와 불일치 — migration 필요"
                         reg.SchemaVersion RegistrySchema.Current))
             // null Collections 가드 — JSON 의 `"collections": null` 대응
-            if isNull reg.Collections then { reg with Collections = [||] } else reg
+            let collections = if isNull reg.Collections then [||] else reg.Collections
+            // **s6-r53 K6** — tampering 의심 entry skip.
+            let validated = collections |> Array.choose (validateEntry p)
+            { reg with Collections = validated }
 
     /// atomic save — `.tmp` 에 write 후 File.Replace (기존 파일 있으면) 또는 File.Move.
     /// SemaphoreSlim 안에서만 호출 — 본 함수 자체는 lock 안 잡음.

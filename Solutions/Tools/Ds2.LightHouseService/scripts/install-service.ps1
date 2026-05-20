@@ -77,6 +77,18 @@ $configDir = Join-Path $env:PROGRAMDATA "Dualsoft\LightHouseService"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 $configPath = Join-Path $configDir "config.json"
 
+# s6-r54 M10 (보안 sweep) — %PROGRAMDATA%\Dualsoft\LightHouseService\ ACL 강화.
+# default %PROGRAMDATA% ACL = Authenticated Users read + Users read. PSK / TLS cert pw / registry.json 보관
+# 디렉토리이므로 Authenticated Users / Users read 제거. Administrators+SYSTEM 전용 (LocalSystem 으로 service
+# 실행 → SYSTEM read/write 의무).
+# /inheritance:r = parent (%PROGRAMDATA%) ACL 상속 차단 + 명시 grant 만 박제.
+$icaclsOut = & icacls $configDir /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F" 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning "icacls 실패 (ACL 미강화 — registry.json / PSK 평문 노출 risk): $icaclsOut"
+} else {
+  Write-Host "ACL 강화 완료: $configDir (Administrators+SYSTEM only)"
+}
+
 # s6-r53 D-S7-1: schemaVersion 3 + mtls 섹션 박제 (현행 PSK 단독 인증 default).
 # load path 의 1→2→3 migration chain 으로 schemaVersion=1 도 회귀 0 이나, 신규 설치는 직접 schema 3 박제.
 $config = @{

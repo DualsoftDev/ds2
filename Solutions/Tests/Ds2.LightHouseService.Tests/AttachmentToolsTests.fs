@@ -198,6 +198,51 @@ let ``attachment_search — fileId active 셋 밖 → 빈 결과 + hint 명시``
     finally cleanupDirs [ dir ]
 
 
+// **s6-r54 M11 (보안 sweep)** — attachment_search DoS amplification 가드.
+// topK upper bound clamp + query length truncate, hint 박제로 caller 가 검출 가능.
+
+[<Fact>]
+let ``M11 — topK upper bound clamp (>100 → 100, hint 박제)`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "컨베이어 vendor A"
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            // topK = 5000 → clamp to 100, hint 박제
+            let result = AttachmentTools.attachment_search(accessor, reg, "vendor", 5000, null)
+            let doc = JsonDocument.Parse result
+            let hint = doc.RootElement.GetProperty("hint").GetString()
+            Assert.Contains("topK clamped to 100", hint)
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+[<Fact>]
+let ``M11 — query length truncate (>1024 → 1024, hint 박제)`` () =
+    let collId = Guid.NewGuid().ToString("D")
+    let dir = newCollectionWithText "vendor A"
+    try
+        let resolver = mkResolver (Map.ofList [ collId, dir ])
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let r = reg.CreateSession([| collId |], "alice")
+        match reg.TryGet r.Token with
+        | SessionLookup.Active s ->
+            let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+            // 2048 char query → 1024 로 truncate, hint 박제
+            let longQuery = String.replicate 2048 "a"
+            let result = AttachmentTools.attachment_search(accessor, reg, longQuery, 5, null)
+            let doc = JsonDocument.Parse result
+            let hint = doc.RootElement.GetProperty("hint").GetString()
+            Assert.Contains("query truncated to 1024 chars", hint)
+            lock s.SyncRoot (fun () -> SessionKb.dispose s)
+        | _ -> Assert.Fail "Active 기대"
+    finally cleanupDirs [ dir ]
+
+
 [<Fact>]
 let ``attachment_outline — fileId active 셋 밖 → "[]"`` () =
     let collId = Guid.NewGuid().ToString("D")
