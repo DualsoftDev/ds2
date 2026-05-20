@@ -105,6 +105,11 @@ type ServiceConfig = {
     /// **Phase S7 D-S7-4 (s6-r66)** — T2/T3 multi-tenant opt-in. schemaVersion bump (3→4) 동반.
     /// Mode="T1" / null → 현행 (flat, 회귀 0). "T2"/"T3" → registry filter + acl 검증 진입.
     [<JsonPropertyName("multiTenant")>] MultiTenant: MultiTenantConfigSection
+    /// **Phase S7 B-S7-4 (s6-r80)** — admin-only ACL 분리. PSK 인증된 모든 user = admin (single trust pool) 폐기.
+    /// 본 list 안 X-User-Identity 만 `/admin/*` endpoint 호출 가능. null / 빈 array → backward-compat
+    /// (single trust pool, 기존 동작 유지 — schemaVersion bump 없음).
+    /// case-insensitive 비교 (Windows username 정합).
+    [<JsonPropertyName("adminUsers")>] AdminUsers: string array
 }
 
 

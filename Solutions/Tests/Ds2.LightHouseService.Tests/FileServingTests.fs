@@ -51,6 +51,7 @@ let private testCfg (storageRoot: string) : ServiceConfig =
         Embedding = { Enabled = false; BaseUrl = "http://localhost:11434"; Model = "bge-m3"; Dimension = 1024 }
         Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
         MultiTenant = { Mode = MultiTenantMode.T1 }
+        AdminUsers = null
     }
 
 /// 한 collection 의 minimal index.db 생성. Documents 1행 INSERT 후 (id, originalPath, fileHash, sizeBytes) 반환.

@@ -54,3 +54,19 @@ module EndpointHelpers =
     /// `{ "error": "..." }` 응답 SSOT. writeJson 통과.
     let writeError (ctx: HttpContext) (status: int) (message: string) : Task =
         writeJson ctx status {| error = message |}
+
+    /// **B-S7-4 (s6-r80)** — admin-only ACL 검증.
+    /// `cfg.AdminUsers` 가 null / 빈 array 면 backward-compat (single trust pool, 모든 user = admin, 기존 동작).
+    /// 비어 있지 않으면 X-User-Identity (case-insensitive ordinal 비교, Windows username 정합) 박제 여부 검사.
+    /// 통과 시 true, 거부 시 false (caller 가 호출 후 403 응답 의무).
+    let requireAdmin (cfg: ServiceConfig) (ctx: HttpContext) : bool =
+        let admins =
+            if isNull cfg.AdminUsers then Array.empty
+            else cfg.AdminUsers
+        if admins.Length = 0 then true   // backward-compat — single trust pool
+        else
+            let user = userIdentityOf ctx
+            admins
+            |> Array.exists (fun a ->
+                not (System.String.IsNullOrWhiteSpace a)
+                && System.String.Equals(a.Trim(), user, System.StringComparison.OrdinalIgnoreCase))

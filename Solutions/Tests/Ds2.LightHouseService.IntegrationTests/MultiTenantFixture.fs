@@ -75,6 +75,8 @@ module internal MultiTenantFixtureHelpers =
             }
             // **B-R14 분기** — T2/T3 mode 박제 (caller 결정).
             MultiTenant = { Mode = mode }
+            // s6-r80 B-S7-4 — backward-compat null.
+            AdminUsers = null
         }
 
     let createClient (baseAddress: Uri) (psk: string) (userIdentity: string) : HttpClient =
