@@ -29,15 +29,21 @@ let private validConfigJson () = """{
 }"""
 
 [<Fact>]
-let ``load — 정상 config 역직렬화`` () =
+let ``load — 정상 config 역직렬화 (s6-r39 P4-C.3 schema 2 migration)`` () =
     let path = writeTempConfig (validConfigJson())
     try
         let cfg = Config.load path
-        Assert.Equal(1, cfg.SchemaVersion)
+        // schemaVersion 1 → 2 in-place migration (s6-r39 P4-C.3). Embedding 자동 채움 (Enabled=false BM25-only fallback).
+        Assert.Equal(2, cfg.SchemaVersion)
         Assert.Equal("https://0.0.0.0:8443", cfg.ListenUrl)
         Assert.Equal(10737418240L, cfg.MaxUploadBytes)
         Assert.Equal("1.0.0", cfg.IndexerVersionRange.Min)
         Assert.Equal("1.99.99", cfg.IndexerVersionRange.Max)
+        // P4-C.3 migration 의 Embedding default 검증 — Enabled=false (BM25-only fallback 유지).
+        Assert.False(cfg.Embedding.Enabled)
+        Assert.Equal("http://localhost:11434", cfg.Embedding.BaseUrl)
+        Assert.Equal("bge-m3", cfg.Embedding.Model)
+        Assert.Equal(1024, cfg.Embedding.Dimension)
     finally File.Delete path
 
 [<Fact>]

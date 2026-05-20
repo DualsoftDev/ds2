@@ -142,7 +142,16 @@ module SessionKb =
 
     /// `SyncRoot` lock 안에서 호출. 첫 호출 시 KB open + 캐시. 이미 있으면 재사용.
     /// CollectionIds 가 빈 셋이어도 valid KB (empty active 셋, KnowledgeBase 가 empty 결과 반환).
-    let attach (resolver: AttachmentResolver) (s: SessionState) : Ds2.LightHouse.KnowledgeBase =
+    ///
+    /// **Phase 4 P4-C.3 (s6-r39)** — `embedderFactory` 가 매 attach 마다 호출되어 새 `IEmbeddingProvider`
+    /// 생성 또는 None 반환. KB facade 가 own (Dispose 시 동반 dispose). factory 실패 (backend 결함) 시
+    /// `Result.Error` 반환하지 않고 throw → caller 가 lazy fail-fast. embedderFactory=None (또는 () 호출 결과
+    /// None) 시 server-side BM25-only fallback (Phase 1 동작 유지).
+    let attach
+        (resolver: AttachmentResolver)
+        (embedderFactory: unit -> Ds2.LightHouse.IEmbeddingProvider option)
+        (s: SessionState)
+        : Ds2.LightHouse.KnowledgeBase =
         match s.Kb with
         | Some kb -> kb
         | None ->
@@ -151,10 +160,8 @@ module SessionKb =
             // resolve 시점에 storage 외부 변경 (예: 디렉토리 직접 삭제) 으로 unindexable / unknown 새로 발생할 수 있음.
             // 그 경우 본 호출자 (MCP) 는 empty / partial 결과로 동작. CollectionIds 자체는 갱신 안 함
             // (다음 lifecycle 이벤트 OnDeleted 가 와야 SessionState 정합 회복).
-            // Phase 4 (s6-r35) — server 측은 embedder 미주입 (BM25-only fallback). embedder 주입 시점은
-            // P4-C/D 박제 (OllamaSharp adapter + server-side config). Chunks_Vectors 색인 자체는 client 측
-            // (Promaker/cli) 가 채우므로 server 의 facade 는 backend-neutral 유지.
-            let kb = Ds2.LightHouse.KnowledgeBase.openCollections resolved.Paths None
+            let embedderOpt = embedderFactory ()
+            let kb = Ds2.LightHouse.KnowledgeBase.openCollections resolved.Paths embedderOpt
             s.Kb <- Some kb
             kb
 
@@ -186,6 +193,10 @@ type ISessionRegistry =
     abstract Count: int
     /// service shutdown 시 호출 (모든 KB Dispose). graceful host stop.
     abstract DisposeAll: unit -> unit
+    /// **Phase 4 P4-C.3 (s6-r39)** — session 의 KB lazy open + 캐싱. SessionKb.attach 의 instance facade —
+    /// `embedderFactory` (constructor 주입) 를 lock-in. caller (AttachmentTools.withKb) 가 `SyncRoot` lock
+    /// 안에서 호출 의무. AttachmentResolver + embedderFactory 가 본 instance 안 wire 박제 — caller 박제 단순.
+    abstract AttachKb: SessionState -> Ds2.LightHouse.KnowledgeBase
 
 
 /// `ISessionRegistry` 의 in-memory 구현 (Phase S3 SSOT, todo-lighthouse-kb-server.md §3.8).
@@ -194,7 +205,10 @@ type ISessionRegistry =
 /// - token 발급 (`Guid.NewGuid().ToString("N")` — URL-safe 32-char hex)
 /// - per-session ConcurrentDictionary 보관
 /// - lifecycle 통합 — `OnDeleted` / `OnPayloadSwapped` 가 모든 session 의 해당 collection 폐기 (D-S3-3)
-type SessionRegistry(resolver: AttachmentResolver) =
+type SessionRegistry(
+        resolver: AttachmentResolver,
+        embedderFactory: unit -> Ds2.LightHouse.IEmbeddingProvider option
+    ) =
 
     let sessions = ConcurrentDictionary<string, SessionState>()
 
@@ -223,6 +237,11 @@ type SessionRegistry(resolver: AttachmentResolver) =
         for kb in kbsToDispose do
             try kb.Dispose()
             with ex -> Log.service.Warn(sprintf "purgeCollection: KB dispose 실패 (swallow) — ex=%s" ex.Message)
+
+    /// 편의 생성자 — embedderFactory 미주입 시 항상 None (BM25-only fallback, Phase 1 / Phase S2~S5 동작 정합).
+    /// 기존 caller (Tests) 가 본 overload 박제로 backward-compat 유지.
+    new (resolver: AttachmentResolver) =
+        SessionRegistry(resolver, fun () -> None)
 
     interface ISessionRegistry with
 
@@ -305,6 +324,11 @@ type SessionRegistry(resolver: AttachmentResolver) =
                 | true, s ->
                     lock s.SyncRoot (fun () -> SessionKb.dispose s)
                 | _ -> ()
+
+        member _.AttachKb(s) =
+            // s6-r39 P4-C.3 — SessionKb.attach 의 instance facade. resolver + embedderFactory wire 박제.
+            // caller (AttachmentTools.withKb) 가 SyncRoot lock 안에서 호출 의무 (SessionKb.attach contract 정합).
+            SessionKb.attach resolver embedderFactory s
 
     interface ICollectionLifecycleNotifier with
         member _.OnDeleted(collectionId) =

@@ -76,6 +76,14 @@ type ServiceFixture() =
             LogMaxSizeMB = 100
             AuditRetentionDays = 365
             IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
+            // s6-r39 P4-C.3 — IT 의 default = BM25-only fallback (Ollama daemon 없음 가정). hybrid path 검증 fact
+            // 는 별 부담 — Enabled=true config 주입 후 mock 또는 실 backend 검증 fact 박제 의무 (별 turn).
+            Embedding = {
+                Enabled = false
+                BaseUrl = "http://localhost:11434"
+                Model = "bge-m3"
+                Dimension = 1024
+            }
         }
 
     interface IAsyncLifetime with

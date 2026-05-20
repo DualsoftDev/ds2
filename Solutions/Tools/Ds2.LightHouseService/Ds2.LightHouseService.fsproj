@@ -56,6 +56,8 @@
     <!-- read-path 만 사용 (Searcher / KnowledgeBase facade). Phase S0-3 결정 — server 가 KnowledgeBase 의
          read-only surface 만 호출, Indexer 는 dead-link OK. P1 의 readonly:bool 파라미터 추가 안 함. -->
     <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- s6-r39 P4-C.3 — server-side hybrid retrieval 의 OllamaEmbedder (Program.fs 의 embedderFactory 박제). -->
+    <ProjectReference Include="..\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
