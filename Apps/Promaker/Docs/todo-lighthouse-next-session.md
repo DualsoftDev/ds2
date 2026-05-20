@@ -14,17 +14,20 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~D-S7-3a/b/c (multi-service routing 전체 — schema + Holder/N session/MCP + UI)~~ → s6-r29/r30/r31 완료 (§3.16)
 - **잔여**: D-S7-1 (mTLS) / D-S7-4 (T2/T3 multi-tenant) / D-S7-5 (resumable upload) / Phase 2 후속 (OCR / embedding) / 정합·성능 sweep.
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r64 종결, 2026-05-20)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r65 + doc-r2 종결, 2026-05-20)
 
-**Phase 4 종결 + 외부 --review 전체 종결 + s6-r62~r64 누적 3 phase (markdown view branch cherry-pick + C6 citation UI + D-S7-5 phase 2 production-ready + B5 phase 2 UI cert)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **679 Fact** (lib 177 / service 143 / IT 40 / Promaker 319). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+**Phase 4 종결 + 외부 --review 전체 종결 + s6-r62~r65 누적 (markdown view cherry-pick + C6 citation UI + D-S7-5 phase 2 production + B5 phase 2 UI cert + light-house-meta-in-kb squash merge)** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **676 Fact** (lib 177 / service 143 / IT 40 / Promaker 316). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
-**s6-r62~r64 누적 (본 turn, 2026-05-20)**:
-- **markdown view branch cherry-pick (4 commit)** — `2d998d1` / `b3dfab9` / `7ed410a` / `8b7bb0e` — llm branch 의 MdXaml 1.27.0 (`MarkdownScrollViewer` + A1 assistant 전체 markdown) 4 commit 을 light-house 위로 cherry-pick (conflict 0 chain merge). 후속 llm branch 삭제.
+**s6-r62~r65 누적 (본 turn, 2026-05-20)**:
+- **markdown view branch cherry-pick (4 commit)** — `2d998d1` / `b3dfab9` / `7ed410a` / `8b7bb0e` — llm branch 의 MdXaml 1.27.0 (`MarkdownScrollViewer` + A1 assistant 전체 markdown) 4 commit 을 light-house 위로 cherry-pick (conflict 0 chain merge). llm branch + worktree 삭제 완료.
 - **`ac0ce89` s6-r62 (a) C6 Promaker citation UI** — `[fileName](attachment:///fileId/ref)` 형식 + MdXaml Hyperlink 자동 변환 + RequestNavigate handler (attachment/// = popup / http(s) = OS shell / 그 외 = 보안 차단) + turn-scoped citation cache (LlmChatViewModel.Citation.cs) + Reset 시 ClearCitationCache + `5.knowledge-base.md` system prompt + `TryParseAttachmentUri` (URI fileId `:` port 해석 결함 회피) + Promaker.Tests +8 (CitationUriParseTests 8 fact).
 - **`ff80387` s6-r63 (b) D-S7-5 phase 2 resumable upload production-ready** — UploadsEndpoint per-uploadId SemaphoreSlim race / Content-Length=Content-Range length 검증 / crash 회복 (partial>offset truncate) / finalize 본격화 (extractAll + MetaJson + IndexerVersion gate + moveStagingToCollection + Registry.upsertAsync + bus.collection-added). CollectionEndpoints.processStagingExtractGate private 제거 (SSOT helper 재사용). LightHouseClient 5 method + UploadCollectionResumableAsync wrapper + 2 DTO (Start/Status). IT +2 (size mismatch / lock race) + Promaker.Tests +5.
 - **`60e6ed4` s6-r64 (c) B5 phase 2 UI X509Store 선택 dialog** — ApplicationSettingsDialog DataGrid 의 "Client Cert" column + LhSelectCert_Click handler (X509Certificate2UI.SelectFromCollection, LocalMachine\My) + ThumbprintShortConverter (마지막 8 자리 표시). cert 발급/관리 정책 docstring (사내 CA Import-PfxCertificate / certmgr.msc). ThumbprintShortConverterTests +3.
+- **`71744fb` s6-r64+ doc-r1** — next-session.md / server.md §7.1 + §7.4 SSOT row 박제.
+- **`be91dc5` s6-r65 light-house-meta-in-kb squash merge** — 3 commit (`94f02e0` + `7223432` + `da706cb`) 의 변경을 단일 commit 으로 압축. **server MetaJson SubDir=".lighthouse-kb" 박제** (zip layout §3.3 / storage §3.10 마이그레이션 wipe) + CLI Packager **in-place 색인** (staging copy 폐기, 산출물 `<source>/.lighthouse-kb/` 보관) + Promaker CollectionPackager 의 metaPath 정합 + `install-ollama.ps1` 신규 (78 line) + Makefile (+7/-4). light-house-meta-in-kb branch + worktree 삭제 완료. 11 파일 +299/-147.
+- **(rename)** `todo-fix-lighthouse-search-keyword.md` → `done-fix-lighthouse-search-keyword.md` / `todo-llm-imageview.md` → `done-llm-imageview.md` — git mv pure rename, 외부 참조 0.
 
-**누적 사용자 turn 전체 통계**: 7 commit / +1830 line / +21 Fact / 회귀 0.
+**누적 사용자 turn 전체 통계**: 10 commit (cherry-pick 4 + 본격 phase 3 + doc 2 + rename 1 + squash 1) / +2200+ line / +21 Fact / 회귀 0.
 
 **잔여 (별 turn 의무, 본 turn 종결 후)**:
 - ~~**C6 Promaker citation UI**~~ → **s6-r62 종결 (ac0ce89)** ✅
@@ -40,22 +43,26 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r64 종결 후, 2026-05-20)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r65 + doc-r2 종결 후, 2026-05-20)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 누적 7 commit + 사용자 a~e 다 진행 + auto commit 흐름]
-- 2d998d1 / b3dfab9 / 7ed410a / 8b7bb0e — llm branch 4 commit cherry-pick (markdown view, MdXaml 1.27.0 + A1 assistant 전체 markdown). llm branch 삭제 완료.
-- ac0ce89 s6-r62 (a) C6 Promaker citation UI — [name](attachment:///fileId/ref) + MdXaml Hyperlink 가로채기 + Popup + 5.knowledge-base.md
-- ff80387 s6-r63 (b) D-S7-5 phase 2 — race lock + size 검증 + crash 회복 + finalize 본격화 (collection 등록 + Registry + bus)
+[직전 turn 누적 10 commit — 사용자 "a~e 다 진행 + auto commit" 흐름]
+- 2d998d1 / b3dfab9 / 7ed410a / 8b7bb0e — llm branch 4 commit cherry-pick (markdown view, MdXaml 1.27.0 + A1 assistant 전체 markdown). llm branch + worktree 삭제 완료.
+- ac0ce89 s6-r62 (a) C6 Promaker citation UI — [name](attachment:///fileId/ref) + MdXaml Hyperlink 가로채기 + Popup + 5.knowledge-base.md system prompt
+- ff80387 s6-r63 (b) D-S7-5 phase 2 — race lock + Content-Length=Range 검증 + crash 회복 + finalize 본격화 (collection 등록 + Registry + bus.collection-added)
 - 60e6ed4 s6-r64 (c) B5 phase 2 — DataGrid Client Cert column + X509Certificate2UI.SelectFromCollection + ThumbprintShortConverter
+- 71744fb s6-r64+ doc-r1 — transfer + server.md §7.1 + §7.4 SSOT row 박제
+- be91dc5 s6-r65 light-house-meta-in-kb squash merge — meta.json → .lighthouse-kb/ sub-dir + CLI in-place 색인 + install-ollama.ps1 + Makefile (+11 파일 +299/-147). meta-in-kb branch + worktree 삭제 완료.
+- (rename) todo-fix-lighthouse-search-keyword.md / todo-llm-imageview.md → done-* (git mv pure rename, 외부 참조 0)
+- (doc-r2) 본 prompt 박제
 
 [그 이전 turn 누적]
 - s6-r53 D-S7-1 mTLS server-side / s6-r54 보안 sweep K6+M10+M11 / s6-r55 ⑱ purge helper / s6-r56 (a) ⑬⑭⑲ / s6-r57 C7 hasImages
 - s6-r58 (a) C4 attachment_read ref EBNF / s6-r59 (a) C5 image mode 5-case / s6-r60 (b) D-S7-5 scaffold / s6-r61 (c) B5 client cert
 
-누적 679 Fact (lib 177 / service 143 / IT 40 / Promaker 319). 회귀 0. branch = light-house (local-only).
+누적 676 Fact (lib 177 / service 143 / IT 40 / Promaker 316). 회귀 0. branch = light-house (local-only).
 paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
 
