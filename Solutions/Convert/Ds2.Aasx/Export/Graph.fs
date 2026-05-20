@@ -63,7 +63,8 @@ module internal AasxExportGraph =
             // ApiDef
             ("ApiDef",   "Guid"),             $"{cdBase}/ApiDef/Guid"
             ("ApiDef",   "Name"),             $"{cdBase}/ApiDef/Name"
-            ("ApiDef",   "ApiDefActionType"), $"{cdBase}/ApiDef/ApiDefActionType"
+            ("ApiDef",   "ActionType"),       $"{cdBase}/ApiDef/ActionType"
+            ("ApiDef",   "SensingType"),      $"{cdBase}/ApiDef/SensingType"
             ("ApiDef",   "TxGuid"),           $"{cdBase}/ApiDef/TxGuid"
             ("ApiDef",   "RxGuid"),           $"{cdBase}/ApiDef/RxGuid"
             // Arrow
@@ -202,8 +203,10 @@ module internal AasxExportGraph =
                         elif prop.PropertyType = typeof<ArrowType> then
                             let at = value :?> ArrowType
                             Some (mkProp attr.FieldName (string at))
-                        elif prop.PropertyType = typeof<ApiDefActionType> then
-                            Some (mkJsonProp<ApiDefActionType> attr.FieldName (value :?> ApiDefActionType))
+                        elif prop.PropertyType = typeof<ActionType> then
+                            Some (mkJsonProp<ActionType> attr.FieldName (value :?> ActionType))
+                        elif prop.PropertyType = typeof<SensingType> then
+                            Some (mkJsonProp<SensingType> attr.FieldName (value :?> SensingType))
                         elif prop.PropertyType = typeof<bool> then
                             Some (mkProp attr.FieldName (string (value :?> bool)))
                         else

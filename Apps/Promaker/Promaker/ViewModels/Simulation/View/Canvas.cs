@@ -217,8 +217,26 @@ public partial class SimulationPanelState
 
     private void InitGanttEntries()
     {
+        if (_simEngine is null) return;
+
         foreach (var entry in EnumerateSimulationEntries())
-            GanttChart.AddEntry(entry.Id, entry.Name, entry.Kind, entry.ParentWorkId, entry.SystemName);
+        {
+            var timing = SimulationProjection.ganttVisualTiming(
+                _simEngine.Index,
+                entry.Id,
+                entry.Kind,
+                entry.ParentWorkId);
+
+            GanttChart.AddEntry(
+                entry.Id,
+                entry.Name,
+                entry.Kind,
+                entry.ParentWorkId,
+                entry.SystemName,
+                timing.BaseDurationMs.HasValue ? timing.BaseDurationMs.Value : null,
+                timing.VirtualAppendMs,
+                timing.OutputAppendMs);
+        }
     }
 
     private IEnumerable<SimulationProjection.SimulationEntry> EnumerateSimulationEntries()

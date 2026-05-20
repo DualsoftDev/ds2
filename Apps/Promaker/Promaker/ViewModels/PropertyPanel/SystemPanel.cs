@@ -25,6 +25,7 @@ public partial class PropertyPanelState
                 apiDefId,
                 dialog.ApiDefName,
                 dialog.ActionType,
+                dialog.SensingType,
                 dialog.TxGuid,
                 dialog.RxGuid,
                 dialog.Description));

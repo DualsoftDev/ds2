@@ -218,13 +218,13 @@ module ModelProtocol =
         | "SkipIfCompleted" -> Ok CallType.SkipIfCompleted
         | other -> Error (sprintf "callType '%s' 미지원. 허용: WaitForCompletion|SkipIfCompleted." other)
 
-    // ApiDefActionType — DU 변형. 표기 grammar (device DU literal §2.3 패턴 답습):
-    //   - 인자 없음: "Normal" / "Push" / "Pulse"
-    //   - 1 인자  : "TimeTotal(500)" / "TimeAppend(200)"  (ms)
-    //   - 2 인자  : "MultiAction(3, 100)"                  (count, ms)
-    let private apiDefActionTypeRegex =
+    // v10 ActionType/SensingType grammar — spec §8 Smart Constructor 표기.
+    //   Action  : normal | pulse | set | timeAppend(<ms>) | pulseHold(<ms>) | virt | virtPlus(<ms>)
+    //   Sensing : normal | edge  | latched | debounce(<ms>) | edgeStable(<ms>) | virt | virtPlus(<ms>)
+    // raw DU 표기도 허용: Real(Level, None) / Real(OneShot, Append(<ms>)) / Virtual(None) / Virtual(Append(<ms>))
+    let private signalTimeRegex =
         System.Text.RegularExpressions.Regex(
-            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$",
+            @"^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)\s*\))?$",
             System.Text.RegularExpressions.RegexOptions.Compiled)
 
     // TokenRole — Flags enum (None=0 / Source=1 / Ignore=2 / Sink=4). PoC scope: 단일 flag 만 직접 지원.
@@ -237,24 +237,45 @@ module ModelProtocol =
         | "Sink" -> Ok TokenRole.Sink
         | other -> Error (sprintf "tokenRole '%s' 미지원. 허용: None|Source|Ignore|Sink (PoC scope — 단일 flag 만)." other)
 
-    let parseApiDefActionType (raw: string) : Result<ApiDefActionType, string> =
+    let parseActionType (raw: string) : Result<ActionType, string> =
         let trimmed = raw.Trim()
-        let m = apiDefActionTypeRegex.Match(trimmed)
+        let m = signalTimeRegex.Match(trimmed)
         if not m.Success then
-            Error (sprintf "apiDefActionType '%s' 인식 불가. 형식: Normal|Push|Pulse|TimeTotal(<ms>)|TimeAppend(<ms>)|MultiAction(<count>, <ms>)." raw)
+            Error (sprintf "actionType '%s' 인식 불가. 형식: normal|pulse|set|timeAppend(<ms>)|pulseHold(<ms>)|virt|virtPlus(<ms>)." raw)
         else
             let caseName = m.Groups.[1].Value
-            let arg1Ok = m.Groups.[2].Success
-            let arg2Ok = m.Groups.[3].Success
-            match caseName, arg1Ok, arg2Ok with
-            | "Normal",      false, _    -> Ok ApiDefActionType.Normal
-            | "Push",        false, _    -> Ok ApiDefActionType.Push
-            | "Pulse",       false, _    -> Ok ApiDefActionType.Pulse
-            | "TimeTotal",   true,  false -> Ok (ApiDefActionType.TimeTotal  (int m.Groups.[2].Value))
-            | "TimeAppend",  true,  false -> Ok (ApiDefActionType.TimeAppend (int m.Groups.[2].Value))
-            | "MultiAction", true,  true  -> Ok (ApiDefActionType.MultiAction (int m.Groups.[2].Value, int m.Groups.[3].Value))
+            let hasArg = m.Groups.[2].Success
+            let arg () = int m.Groups.[2].Value
+            match caseName, hasArg with
+            | "normal",     false -> Ok (ActionType.Real (Level,   None))
+            | "pulse",      false -> Ok (ActionType.Real (OneShot, None))
+            | "set",        false -> Ok (ActionType.Real (Latched, None))
+            | "timeAppend", true  -> Ok (ActionType.Real (Level,   Some (Append (arg ()))))
+            | "pulseHold",  true  -> Ok (ActionType.Real (OneShot, Some (Append (arg ()))))
+            | "virt",       false -> Ok (ActionType.Virtual None)
+            | "virtPlus",   true  -> Ok (ActionType.Virtual (Some (Append (arg ()))))
             | _ ->
-                Error (sprintf "apiDefActionType '%s' — case 이름과 인자 개수 불일치. Normal/Push/Pulse 는 인자 없음, TimeTotal/TimeAppend 는 (ms), MultiAction 은 (count, ms)." raw)
+                Error (sprintf "actionType '%s' — case 이름과 인자 개수 불일치. normal/pulse/set/virt 는 인자 없음, timeAppend/pulseHold/virtPlus 는 (ms)." raw)
+
+    let parseSensingType (raw: string) : Result<SensingType, string> =
+        let trimmed = raw.Trim()
+        let m = signalTimeRegex.Match(trimmed)
+        if not m.Success then
+            Error (sprintf "sensingType '%s' 인식 불가. 형식: normal|edge|latched|debounce(<ms>)|edgeStable(<ms>)|virt|virtPlus(<ms>)." raw)
+        else
+            let caseName = m.Groups.[1].Value
+            let hasArg = m.Groups.[2].Success
+            let arg () = int m.Groups.[2].Value
+            match caseName, hasArg with
+            | "normal",     false -> Ok (SensingType.Real (Level,   None))
+            | "edge",       false -> Ok (SensingType.Real (OneShot, None))
+            | "latched",    false -> Ok (SensingType.Real (Latched, None))
+            | "debounce",   true  -> Ok (SensingType.Real (Level,   Some (Append (arg ()))))
+            | "edgeStable", true  -> Ok (SensingType.Real (OneShot, Some (Append (arg ()))))
+            | "virt",       false -> Ok (SensingType.Virtual None)
+            | "virtPlus",   true  -> Ok (SensingType.Virtual (Some (Append (arg ()))))
+            | _ ->
+                Error (sprintf "sensingType '%s' — case 이름과 인자 개수 불일치. normal/edge/latched/virt 는 인자 없음, debounce/edgeStable/virtPlus 는 (ms)." raw)
 
     // ─── Arrow 표기 parse: "A -> B : Type" ──────────────────────────────────
 
@@ -1008,7 +1029,8 @@ module ModelProtocol =
                     | true, apiId ->
                         match lookupApiDefById ctx apiId with
                         | Some apiDef ->
-                            applyEnumProp ctx apiPath prop.Value "actionType" parseApiDefActionType (fun at -> apiDef.ApiDefActionType <- at)
+                            applyEnumProp ctx apiPath prop.Value "actionType" parseActionType (fun at -> apiDef.ActionType <- at)
+                            applyEnumProp ctx apiPath prop.Value "sensingType" parseSensingType (fun st -> apiDef.SensingType <- st)
                             // 외부 reviewer m-4 반영: 빈 string 도 set 하면 store 표면값 (`Some ""`) 이 emit 측 default-skip
                             // 정책 (Some 이고 빈 아닐 때만 emit) 과 비대칭. apply 측에서도 빈 string → None 으로 정규화.
                             tryProp prop.Value "description"
@@ -1381,7 +1403,8 @@ module ModelProtocol =
                             | None ->
                                 ctx.Diagnostics.Add(callPath, "Call instance 추적 실패 (forensic).")
                             | Some call ->
-                                // ApiCall 보강 (C-3 ContactKind + C-4 SkipInputSensor / InTag / OutTag). 1:1 invariant.
+                                // ApiCall 보강 (C-3 ContactKind + InTag / OutTag). 1:1 invariant.
+                                // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원에서 표현.
                                 let firstApiCallOpt =
                                     if call.ApiCalls.Count > 0 then Some call.ApiCalls.[0] else None
                                 tryProp obj "contactKind"
@@ -1390,12 +1413,6 @@ module ModelProtocol =
                                     match parseContactKind s with
                                     | Ok k -> firstApiCallOpt |> Option.iter (fun ac -> ac.ContactKind <- k)
                                     | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "contactKind", msg))
-                                tryProp obj "skipInputSensor"
-                                |> Option.iter (fun el ->
-                                    match el.ValueKind with
-                                    | JsonValueKind.True -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- true)
-                                    | JsonValueKind.False -> firstApiCallOpt |> Option.iter (fun ac -> ac.SkipInputSensor <- false)
-                                    | _ -> ctx.Diagnostics.Add(joinDiagKey callPath "skipInputSensor", sprintf "bool 기대 (실제 %A)." el.ValueKind))
                                 tryProp obj "inTag"
                                 |> Option.iter (fun el ->
                                     match parseIOTag ctx el (callPath + ".inTag") with
@@ -2113,14 +2130,27 @@ module ModelProtocol =
         | TokenRole.Sink -> "Sink"
         | combined -> sprintf "Combined(%d)" (int combined)
 
-    let formatApiDefActionType (a: ApiDefActionType) : string =
+    let formatActionType (a: ActionType) : string =
         match a with
-        | ApiDefActionType.Normal              -> "Normal"
-        | ApiDefActionType.Push                -> "Push"
-        | ApiDefActionType.Pulse               -> "Pulse"
-        | ApiDefActionType.TimeTotal  ms       -> sprintf "TimeTotal(%d)" ms
-        | ApiDefActionType.TimeAppend ms       -> sprintf "TimeAppend(%d)" ms
-        | ApiDefActionType.MultiAction(c, ms)  -> sprintf "MultiAction(%d, %d)" c ms
+        | ActionType.Real (Level,   None)             -> "normal"
+        | ActionType.Real (OneShot, None)             -> "pulse"
+        | ActionType.Real (Latched, None)             -> "set"
+        | ActionType.Real (Level,   Some (Append ms)) -> sprintf "timeAppend(%d)" ms
+        | ActionType.Real (OneShot, Some (Append ms)) -> sprintf "pulseHold(%d)" ms
+        | ActionType.Real (Latched, Some (Append ms)) -> sprintf "Real(Latched, Append(%d))" ms
+        | ActionType.Virtual None                     -> "virt"
+        | ActionType.Virtual (Some (Append ms))       -> sprintf "virtPlus(%d)" ms
+
+    let formatSensingType (s: SensingType) : string =
+        match s with
+        | SensingType.Real (Level,   None)             -> "normal"
+        | SensingType.Real (OneShot, None)             -> "edge"
+        | SensingType.Real (Latched, None)             -> "latched"
+        | SensingType.Real (Level,   Some (Append ms)) -> sprintf "debounce(%d)" ms
+        | SensingType.Real (OneShot, Some (Append ms)) -> sprintf "edgeStable(%d)" ms
+        | SensingType.Real (Latched, Some (Append ms)) -> sprintf "Real(Latched, Append(%d))" ms
+        | SensingType.Virtual None                     -> "virt"
+        | SensingType.Virtual (Some (Append ms))       -> sprintf "virtPlus(%d)" ms
 
     // ─── CallCondition / ContactKind emit helpers (Phase 7 §4.2 C-3) ─────────
     //
@@ -2157,7 +2187,7 @@ module ModelProtocol =
 
     /// Phase 7 §10.2 #31 — level 인자 추가. Modeling level 시 B/C/D 보강은 제외하여 dual format
     /// object 승격을 차단 (B/C/D 만 있는 Call 은 string scalar 유지). A_Modeling 보강 (CallCondition /
-    /// ContactKind / SkipInputSensor / CallType) 만 승격 판단.
+    /// ContactKind / CallType) 만 승격 판단.
     let private callHasEnhancement (level: ExportLevel) (c: Call) : bool =
         let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
         let exists pred = firstApiCall |> Option.exists pred
@@ -2168,7 +2198,6 @@ module ModelProtocol =
         let aLevel =
             c.CallConditions.Count > 0
             || exists (fun ac -> ac.ContactKind <> ContactKind.NoContact)
-            || exists (fun ac -> ac.SkipInputSensor)
             || hasNonDefaultCallType
         match level with
         | Modeling -> aLevel   // B/C/D 보강은 modeling 에서 emit 안 됨 → 승격 불요
@@ -2419,8 +2448,7 @@ module ModelProtocol =
                                                 // A_Modeling (그대로 emit)
                                                 if ac.ContactKind <> ContactKind.NoContact then
                                                     w.WriteString("contactKind", formatContactKind ac.ContactKind)
-                                                if ac.SkipInputSensor then
-                                                    w.WriteBoolean("skipInputSensor", true)
+                                                // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
                                                 // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
                                                 // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
                                                 if isEmittedIn level B_Addressing then
@@ -2580,20 +2608,27 @@ module ModelProtocol =
                     let detailsEntries =
                         apiDefEntities
                         |> List.choose (fun ad ->
-                            let hasNonDefaultAction = ad.ApiDefActionType <> ApiDefActionType.Normal
+                            let defaultAction = ActionType.Real (Level, None)
+                            let defaultSensing = SensingType.Real (Level, None)
+                            let hasNonDefaultAction = ad.ActionType <> defaultAction
+                            let hasNonDefaultSensing = ad.SensingType <> defaultSensing
                             let hasDescription =
                                 emitDescription
                                 && ad.Description.IsSome
                                 && not (String.IsNullOrEmpty ad.Description.Value)
-                            if hasNonDefaultAction || hasDescription then Some ad else None)
+                            if hasNonDefaultAction || hasNonDefaultSensing || hasDescription then Some ad else None)
                     if not detailsEntries.IsEmpty then
                         w.WritePropertyName "apiDetails"
                         w.WriteStartObject()
                         for ad in detailsEntries do
+                            let defaultAction = ActionType.Real (Level, None)
+                            let defaultSensing = SensingType.Real (Level, None)
                             w.WritePropertyName ad.Name
                             w.WriteStartObject()
-                            if ad.ApiDefActionType <> ApiDefActionType.Normal then
-                                w.WriteString("actionType", formatApiDefActionType ad.ApiDefActionType)
+                            if ad.ActionType <> defaultAction then
+                                w.WriteString("actionType", formatActionType ad.ActionType)
+                            if ad.SensingType <> defaultSensing then
+                                w.WriteString("sensingType", formatSensingType ad.SensingType)
                             if emitDescription then
                                 (match ad.Description with
                                  | Some s when not (String.IsNullOrEmpty s) ->

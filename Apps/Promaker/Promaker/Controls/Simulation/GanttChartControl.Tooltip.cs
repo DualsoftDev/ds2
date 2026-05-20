@@ -10,7 +10,7 @@ public partial class GanttChartControl
 {
     private void OnBarMouseEnter(object sender, MouseEventArgs e)
     {
-        if (sender is Rectangle { Tag: BarTagInfo info })
+        if (sender is System.Windows.FrameworkElement { Tag: BarTagInfo info })
         {
             var segmentEnd = info.Segment.EndTime ?? _viewModel?.CurrentTime ?? DateTime.Now;
             var duration = segmentEnd - info.Segment.StartTime;

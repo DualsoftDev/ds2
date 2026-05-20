@@ -72,11 +72,18 @@ type SimState = {
     Clock: TimeSpan
     TickMs: int
     IOValues: Map<Guid, string>
+    IOValueEpoch: Map<Guid, int>
+    /// v10 §11.2 — 현재 IOValue 가 마지막으로 *변경된* sim clock 시점.
+    /// WaitInputStable / WaitInputEdgeStable 의 n ms 안정 측정에 사용.
+    IOValueChangedAt: Map<Guid, TimeSpan>
+    CallInputEpochSnapshot: Map<Guid, Map<Guid, int>>
+    OutputValues: Map<Guid, string>
     SkippedCalls: Set<Guid>
     // ── Token ──
     WorkTokens: Map<Guid, TokenValue option>
     TokenCounter: int
     CompletedTokens: TokenValue list
+    WorkMinDurationMet: Set<Guid>
     /// 토큰 번호 → (이름, 이름별 순번)
     TokenOrigins: Map<int, string * int>
     /// 이름별 발행 카운터
@@ -97,10 +104,15 @@ module SimState =
         Clock = TimeSpan.Zero
         TickMs = tickMs
         IOValues = Map.empty
+        IOValueEpoch = Map.empty
+        IOValueChangedAt = Map.empty
+        CallInputEpochSnapshot = Map.empty
+        OutputValues = Map.empty
         SkippedCalls = Set.empty
         WorkTokens = Map.empty
         TokenCounter = 0
         CompletedTokens = []
+        WorkMinDurationMet = Set.empty
         TokenOrigins = Map.empty
         TokenOriginCounters = Map.empty
         WorkCycleEpoch = Map.empty
@@ -121,12 +133,56 @@ module SimState =
         { simState with CallStates = simState.CallStates.Add(guid, state) }
 
     let setIOValue (apiCallGuid: Guid) (value: string) simState =
-        { simState with IOValues = simState.IOValues.Add(apiCallGuid, value) }
+        let previous = simState.IOValues |> Map.tryFind apiCallGuid
+        let isChanged = previous <> Some value
+        let nextEpoch =
+            if isChanged then
+                let current = simState.IOValueEpoch |> Map.tryFind apiCallGuid |> Option.defaultValue 0
+                simState.IOValueEpoch.Add(apiCallGuid, current + 1)
+            else simState.IOValueEpoch
+        // v10 §11.2 — 값이 *바뀌면* ChangedAt = 현재 sim clock. 같은 값으로 재set 은 유지 (안정 유지).
+        let nextChangedAt =
+            if isChanged then simState.IOValueChangedAt.Add(apiCallGuid, simState.Clock)
+            else simState.IOValueChangedAt
+        { simState with
+            IOValues = simState.IOValues.Add(apiCallGuid, value)
+            IOValueEpoch = nextEpoch
+            IOValueChangedAt = nextChangedAt }
 
     /// 지정된 ApiCall 들의 IOValue 만 제거. Simulation/Control Reset 시 다음 사이클을 위해 사용.
     let clearIOValues (apiCallGuids: Guid seq) simState =
-        let next = apiCallGuids |> Seq.fold (fun (m: Map<Guid, string>) g -> m.Remove g) simState.IOValues
-        { simState with IOValues = next }
+        let nextValues = apiCallGuids |> Seq.fold (fun (m: Map<Guid, string>) g -> m.Remove g) simState.IOValues
+        let nextChangedAt = apiCallGuids |> Seq.fold (fun (m: Map<Guid, TimeSpan>) g -> m.Remove g) simState.IOValueChangedAt
+        { simState with IOValues = nextValues; IOValueChangedAt = nextChangedAt }
+
+    /// v10 §11.2 — 현재 IOValue 가 ON 으로 유지된 ms. 변경 기록이 없으면 0.
+    let getIOStableMs (apiCallGuid: Guid) simState : int =
+        match simState.IOValueChangedAt |> Map.tryFind apiCallGuid with
+        | Some changedAt ->
+            let elapsed = simState.Clock - changedAt
+            if elapsed < TimeSpan.Zero then 0 else int elapsed.TotalMilliseconds
+        | None -> 0
+
+    let snapshotCallInputEpochs (callGuid: Guid) (apiCallGuids: Guid seq) simState =
+        let epochMap =
+            apiCallGuids
+            |> Seq.map (fun apiCallGuid ->
+                apiCallGuid,
+                simState.IOValueEpoch
+                |> Map.tryFind apiCallGuid
+                |> Option.defaultValue 0)
+            |> Map.ofSeq
+        { simState with CallInputEpochSnapshot = simState.CallInputEpochSnapshot.Add(callGuid, epochMap) }
+
+    let clearCallInputEpochSnapshot (callGuid: Guid) simState =
+        { simState with CallInputEpochSnapshot = simState.CallInputEpochSnapshot.Remove(callGuid) }
+
+    let setOutputValue (apiCallGuid: Guid) (value: string) simState =
+        { simState with OutputValues = simState.OutputValues.Add(apiCallGuid, value) }
+
+    let clearOutputValues (apiCallGuids: Guid seq) simState =
+        let next = apiCallGuids |> Seq.fold (fun (m: Map<Guid, string>) g -> m.Remove g) simState.OutputValues
+        { simState with OutputValues = next }
 
     // ── Token helpers ──
 
@@ -138,6 +194,12 @@ module SimState =
 
     let addCompletedToken (token: TokenValue) simState =
         { simState with CompletedTokens = token :: simState.CompletedTokens }
+
+    let markMinDurationMet (guid: Guid) simState =
+        { simState with WorkMinDurationMet = simState.WorkMinDurationMet.Add(guid) }
+
+    let clearMinDuration (guid: Guid) simState =
+        { simState with WorkMinDurationMet = simState.WorkMinDurationMet.Remove(guid) }
 
     let setTokenOrigin (tokenId: int) (originName: string) simState =
         let count = simState.TokenOriginCounters |> Map.tryFind originName |> Option.defaultValue 0
@@ -179,10 +241,15 @@ module SimState =
             FlowStates = simState.FlowStates |> Map.map (fun _ _ -> FlowTag.Ready)
             Clock = TimeSpan.Zero
             IOValues = Map.empty
+            IOValueEpoch = Map.empty
+            IOValueChangedAt = Map.empty
+            CallInputEpochSnapshot = Map.empty
+            OutputValues = Map.empty
             SkippedCalls = Set.empty
             WorkTokens = Map.empty
             TokenCounter = 0
             CompletedTokens = []
+            WorkMinDurationMet = Set.empty
             TokenOrigins = Map.empty
             TokenOriginCounters = Map.empty
             WorkCycleEpoch = Map.empty

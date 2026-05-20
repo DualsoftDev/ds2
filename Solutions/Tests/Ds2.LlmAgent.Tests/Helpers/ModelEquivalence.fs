@@ -40,7 +40,6 @@ type CallDetail = {
     /// PoC scope = 0 또는 1. multi-ApiCall (≥ 2) 확장 시 round-trip diff 로 즉시 가시화 → silent regression 차단.
     ApiCallCount: int
     ContactKind: ContactKind
-    SkipInputSensor: bool
     CallType: CallType option              // None = Properties 미설정
     InTag: (string * string) option        // (Name, Address) — None = IOTag 미설정 or empty
     OutTag: (string * string) option
@@ -211,7 +210,6 @@ let private summarizePlcCall (cp: ControlCallProperties option) : string =
 let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
     let firstApiCall = if c.ApiCalls.Count > 0 then Some c.ApiCalls.[0] else None
     let contactKind = firstApiCall |> Option.map (fun ac -> ac.ContactKind) |> Option.defaultValue ContactKind.NoContact
-    let skipInputSensor = firstApiCall |> Option.map (fun ac -> ac.SkipInputSensor) |> Option.defaultValue false
     let inTag = firstApiCall |> Option.bind (fun ac -> ioTagTuple ac.InTag)
     let outTag = firstApiCall |> Option.bind (fun ac -> ioTagTuple ac.OutTag)
     let callTypeOpt =
@@ -221,7 +219,6 @@ let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
         Ref = sprintf "%s.%s" c.DevicesAlias c.ApiName
         ApiCallCount = c.ApiCalls.Count
         ContactKind = contactKind
-        SkipInputSensor = skipInputSensor
         CallType = callTypeOpt
         InTag = inTag
         OutTag = outTag
@@ -229,11 +226,12 @@ let private callDetailOf (store: DsStore) (c: Call) : CallDetail =
         PlcCallSummary = summarizePlcCall (c.GetControlProperties())
     }
 
-/// Phase 7 §4.2 TC-1 — ApiDef → ("<actionType>|<description>") 평탄화.
+/// Phase 7 §4.2 TC-1 — ApiDef → ("<actionType>|<sensingType>|<description>") 평탄화.
 let private apiDefDetail (apiDef: ApiDef) : string =
-    let actionType = sprintf "%A" apiDef.ApiDefActionType
+    let actionType = sprintf "%A" apiDef.ActionType
+    let sensingType = sprintf "%A" apiDef.SensingType
     let description = apiDef.Description |> Option.defaultValue ""
-    sprintf "%s|%s" actionType description
+    sprintf "%s|%s|%s" actionType sensingType description
 
 let captureShape (store: DsStore) : StoreShape =
     let projects = Queries.allProjects store

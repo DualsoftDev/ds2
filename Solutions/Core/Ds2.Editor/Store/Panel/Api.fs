@@ -11,7 +11,7 @@ open Ds2.Core.Store
 module internal PanelApiDefOps =
     let toApiDefPanelItem (apiDef: ApiDef) =
         ApiDefPanelItem(
-            apiDef.Id, apiDef.Name, apiDef.ApiDefActionType,
+            apiDef.Id, apiDef.Name, apiDef.ActionType, apiDef.SensingType,
             apiDef.TxGuid, apiDef.RxGuid,
             apiDef.Description |> Option.defaultValue "")
 
@@ -54,13 +54,16 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member UpdateApiDef
-        (store: DsStore, apiDefId: Guid, newName: string, actionType: ApiDefActionType, txGuid: Guid option, rxGuid: Guid option, description: string) =
-        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}, actionType={actionType}")
+        (store: DsStore, apiDefId: Guid, newName: string,
+         actionType: ActionType, sensingType: SensingType,
+         txGuid: Guid option, rxGuid: Guid option, description: string) =
+        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}, actionType={actionType}, sensingType={sensingType}")
         StoreLog.requireApiDef(store, apiDefId) |> ignore
         store.WithTransaction("ApiDef 편집", fun () ->
             store.TrackMutate(store.ApiDefs, apiDefId, fun d ->
                 d.Name <- newName
-                d.ApiDefActionType <- actionType
+                d.ActionType <- actionType
+                d.SensingType <- sensingType
                 d.TxGuid <- txGuid
                 d.RxGuid <- rxGuid
                 d.Description <- (if System.String.IsNullOrEmpty description then None else Some description)))
@@ -111,8 +114,7 @@ type DsStorePanelApiCallExtensions =
         (store: DsStore, callId: Guid, apiDefId: Guid,
          outputTagName: string, outputAddress: string,
          inputTagName: string, inputAddress: string,
-         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string,
-         skipInputSensor: bool)
+         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : Guid =
         Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiDefId={apiDefId}")
@@ -120,7 +122,7 @@ type DsStorePanelApiCallExtensions =
         let call = StoreLog.requireCall(store, callId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputTagName outputAddress inputTagName inputAddress None inputSpec outputSpec skipInputSensor
+        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputTagName outputAddress inputTagName inputAddress None inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "ApiCall 추가" (fun () ->
             DirectPanelOps.addApiCallToStore store call apiCall)
         apiCall.Id
@@ -130,8 +132,7 @@ type DsStorePanelApiCallExtensions =
         (store: DsStore, callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string,
          outputTagName: string, outputAddress: string,
          inputTagName: string, inputAddress: string,
-         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string,
-         skipInputSensor: bool)
+         outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : bool =
         Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiCallId={apiCallId}, apiDefId={apiDefId}")
@@ -140,7 +141,7 @@ type DsStorePanelApiCallExtensions =
         StoreLog.requireApiCallInCall(call, apiCallId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputTagName outputAddress inputTagName inputAddress (Some apiCallId) inputSpec outputSpec skipInputSensor
+        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputTagName outputAddress inputTagName inputAddress (Some apiCallId) inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "Update ApiCall" (fun () ->
             DirectPanelOps.removeApiCallFromStore store call apiCallId
             DirectPanelOps.addApiCallToStore store call updated)

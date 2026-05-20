@@ -47,6 +47,7 @@ module internal ConnectionReload =
             | ScheduledEventType.ForcedCallTransition(callGuid, _)
             | ScheduledEventType.CallTimeout callGuid ->
                 callGuidSet.Contains(callGuid)
+            | ScheduledEventType.OutputWrite _
             | ScheduledEventType.EvaluateConditions -> false)
         |> ignore
 

@@ -72,6 +72,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
                 let canonical = canonicalWorkGuid guid
                 if oldState = Status4.Going then
                     workMinDurationMet <- workMinDurationMet.Remove(canonical)
+                    state <- SimState.clearMinDuration canonical state
                     workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (predGuid, _) -> predGuid <> canonical)
                 if newState = Status4.Ready then
                     // Ready 복귀 시 이 Work를 target으로 갖는 reset trigger 클리어
@@ -118,9 +119,17 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         lock syncRoot (fun () ->
             workGTriggeredResets <- workGTriggeredResets.Add((canonicalWorkGuid predKey, canonicalWorkGuid targetKey)))
 
-    member _.MarkMinDurationMet(guid: Guid) = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Add(canonicalWorkGuid guid))
+    member _.MarkMinDurationMet(guid: Guid) =
+        lock syncRoot (fun () ->
+            let canonical = canonicalWorkGuid guid
+            workMinDurationMet <- workMinDurationMet.Add(canonical)
+            state <- SimState.markMinDurationMet canonical state)
     member _.IsMinDurationMet(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet.Contains(canonicalWorkGuid guid))
-    member _.ClearMinDuration(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Remove(canonicalWorkGuid guid))
+    member _.ClearMinDuration(guid: Guid)   =
+        lock syncRoot (fun () ->
+            let canonical = canonicalWorkGuid guid
+            workMinDurationMet <- workMinDurationMet.Remove(canonical)
+            state <- SimState.clearMinDuration canonical state)
 
     member _.ClearConnectionTransientState() =
         lock syncRoot (fun () ->
@@ -143,6 +152,18 @@ type StateManager(index: SimIndex, initialTickMs: int) =
 
     member _.ClearIOValues(apiCallGuids: Guid seq) =
         lock syncRoot (fun () -> state <- SimState.clearIOValues apiCallGuids state)
+
+    member _.SnapshotCallInputEpochs(callGuid: Guid, apiCallGuids: Guid seq) =
+        lock syncRoot (fun () -> state <- SimState.snapshotCallInputEpochs callGuid apiCallGuids state)
+
+    member _.ClearCallInputEpochSnapshot(callGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.clearCallInputEpochSnapshot callGuid state)
+
+    member _.SetOutputValue(apiCallGuid: Guid, value: string) =
+        lock syncRoot (fun () -> state <- SimState.setOutputValue apiCallGuid value state)
+
+    member _.ClearOutputValues(apiCallGuids: Guid seq) =
+        lock syncRoot (fun () -> state <- SimState.clearOutputValues apiCallGuids state)
 
     member _.Reset() =
         lock syncRoot (fun () ->

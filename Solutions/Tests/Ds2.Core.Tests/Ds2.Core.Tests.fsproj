@@ -10,6 +10,8 @@
     <Compile Include="KpiAggregatorTests.fs" />
     <Compile Include="JsonConverterTests.fs" />
     <Compile Include="Tests.fs" />
+    <Compile Include="SmartConstructorTests.fs" />
+    <Compile Include="V10ValidationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

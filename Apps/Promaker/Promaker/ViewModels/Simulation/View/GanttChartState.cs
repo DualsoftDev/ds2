@@ -59,6 +59,9 @@ public class GanttTimelineEntry : INotifyPropertyChanged
     public Guid? ParentWorkId { get; init; }
     public string SystemName { get; init; } = "";
     public int RowIndex { get; init; }
+    public double? BaseDurationMs { get; init; }
+    public int VirtualAppendMs { get; init; }
+    public int OutputAppendMs { get; init; }
     public ObservableCollection<GanttStateSegment> Segments { get; } = [];
 
     private Status4 _currentState = Status4.Ready;
@@ -105,18 +108,19 @@ public class GanttChartState : INotifyPropertyChanged
     public DateTime StartTime
     {
         get => _startTime;
-        set { _startTime = value; Notify(); Notify(nameof(TotalDuration)); }
+        set { _startTime = value; Notify(); Notify(nameof(TotalDuration)); Notify(nameof(TimelineDuration)); }
     }
 
     private DateTime _currentTime = DateTime.Now;
     public DateTime CurrentTime
     {
         get => _currentTime;
-        set { _currentTime = value; Notify(); Notify(nameof(TotalDuration)); Notify(nameof(ElapsedText)); }
+        set { _currentTime = value; Notify(); Notify(nameof(TotalDuration)); Notify(nameof(TimelineDuration)); Notify(nameof(ElapsedText)); }
     }
 
     public TimeSpan TotalDuration => CurrentTime - StartTime;
     public string ElapsedText => TotalDuration.ToString(@"hh\:mm\:ss\.f");
+    public TimeSpan TimelineDuration => GetTimelineEndTime() - StartTime;
 
     private double _pixelsPerSecond = 50.0;
     public double PixelsPerSecond
@@ -252,7 +256,35 @@ public class GanttChartState : INotifyPropertyChanged
         return null;
     }
 
-    public GanttTimelineEntry AddEntry(Guid id, string name, EntityKind kind, Guid? parentWorkId = null, string systemName = "")
+    private DateTime GetTimelineEndTime()
+    {
+        var end = CurrentTime;
+        foreach (var entry in Entries)
+        {
+            foreach (var segment in entry.Segments)
+            {
+                var segmentEnd = segment.EndTime ?? CurrentTime;
+                if (segmentEnd > end) end = segmentEnd;
+
+                if (entry.OutputAppendMs > 0 && segment.EndTime is { } finishedAt)
+                {
+                    var outputEnd = finishedAt.AddMilliseconds(entry.OutputAppendMs);
+                    if (outputEnd > end) end = outputEnd;
+                }
+            }
+        }
+        return end;
+    }
+
+    public GanttTimelineEntry AddEntry(
+        Guid id,
+        string name,
+        EntityKind kind,
+        Guid? parentWorkId = null,
+        string systemName = "",
+        double? baseDurationMs = null,
+        int virtualAppendMs = 0,
+        int outputAppendMs = 0)
     {
         var entry = new GanttTimelineEntry
         {
@@ -261,6 +293,9 @@ public class GanttChartState : INotifyPropertyChanged
             Kind = kind,
             ParentWorkId = parentWorkId,
             SystemName = systemName,
+            BaseDurationMs = baseDurationMs,
+            VirtualAppendMs = Math.Max(0, virtualAppendMs),
+            OutputAppendMs = Math.Max(0, outputAppendMs),
             RowIndex = Entries.Count
         };
 

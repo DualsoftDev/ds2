@@ -13,12 +13,28 @@ namespace Promaker.Controls;
 
 public partial class GanttChartControl
 {
+    internal enum GanttSegmentRenderKind
+    {
+        Filled,
+        VirtualAppendOutline,
+        OutputAppendLine,
+        OutputAppendEnd
+    }
+
+    internal readonly record struct GanttSegmentRenderPart(
+        GanttSegmentRenderKind Kind,
+        DateTime StartTime,
+        DateTime EndTime);
+
     internal static string ResolveRowBackgroundResourceKey(GanttTimelineEntry entry)
         => entry.IsWork ? "GanttWorkRowBackgroundBrush" : "GanttCallRowBackgroundBrush";
     // ── 엘리먼트 풀 (Children.Clear() 대신 재사용) ──
     private readonly List<Rectangle> _rowBgPool = new();
     private readonly List<Line> _rowLinePool = new();
     private readonly List<Rectangle> _barPool = new();
+    private readonly List<Border> _virtualAppendPool = new();
+    private readonly List<Line> _outputAppendLinePool = new();
+    private readonly List<Line> _outputAppendEndPool = new();
     private readonly List<Line> _rulerTickPool = new();
     private readonly List<TextBlock> _rulerLabelPool = new();
 
@@ -101,6 +117,31 @@ public partial class GanttChartControl
             () => new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand },
             bar => { bar.MouseEnter += OnBarMouseEnter; bar.MouseLeave += OnBarMouseLeave; });
 
+    private Border GetOrCreateVirtualAppend(int index)
+        => GetOrCreate(_virtualAppendPool, TimelineCanvas, index,
+            () => new Border
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = ResolveVirtualAppendBorderThickness(),
+                CornerRadius = ResolveVirtualAppendCornerRadius(),
+                Cursor = Cursors.Hand
+            },
+            border => { border.MouseEnter += OnBarMouseEnter; border.MouseLeave += OnBarMouseLeave; });
+
+    internal static CornerRadius ResolveVirtualAppendCornerRadius() => new(0, 2, 2, 0);
+
+    internal static Thickness ResolveVirtualAppendBorderThickness() => new(0, 1.5, 1.5, 1.5);
+
+    private Line GetOrCreateOutputAppendLine(int index)
+        => GetOrCreate(_outputAppendLinePool, TimelineCanvas, index,
+            () => new Line { StrokeThickness = 2, Cursor = Cursors.Hand, StrokeDashArray = new DoubleCollection { 5, 4 } },
+            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; });
+
+    private Line GetOrCreateOutputAppendEnd(int index)
+        => GetOrCreate(_outputAppendEndPool, TimelineCanvas, index,
+            () => new Line { StrokeThickness = 2, Cursor = Cursors.Hand },
+            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; });
+
     private Line GetOrCreateRulerTick(int index)
         => GetOrCreate(_rulerTickPool, TimeRulerCanvas, index, () => new Line { StrokeThickness = 1 });
 
@@ -119,10 +160,62 @@ public partial class GanttChartControl
         _rowBgPool.Clear();
         _rowLinePool.Clear();
         _barPool.Clear();
+        _virtualAppendPool.Clear();
+        _outputAppendLinePool.Clear();
+        _outputAppendEndPool.Clear();
         _rulerTickPool.Clear();
         _rulerLabelPool.Clear();
         TimelineCanvas.Children.Clear();
         TimeRulerCanvas.Children.Clear();
+    }
+
+    internal static IReadOnlyList<GanttSegmentRenderPart> ResolveSegmentRenderParts(
+        GanttTimelineEntry entry,
+        GanttStateSegment segment,
+        DateTime visibleEndTime)
+    {
+        if (visibleEndTime <= segment.StartTime) return [];
+
+        var parts = new List<GanttSegmentRenderPart>(capacity: 4);
+        var segmentEnd = visibleEndTime;
+        var virtualAppendMs = entry.VirtualAppendMs;
+        var hasVirtualAppend = virtualAppendMs > 0 && segment.State == Ds2.Core.Status4.Going;
+
+        if (!hasVirtualAppend)
+        {
+            parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.Filled, segment.StartTime, segmentEnd));
+        }
+        else
+        {
+            var appendStart =
+                entry.BaseDurationMs is { } durationMs
+                    ? segment.StartTime.AddMilliseconds(durationMs)
+                    : segment.EndTime is { } fixedEnd
+                        ? fixedEnd.AddMilliseconds(-virtualAppendMs)
+                        : segmentEnd;
+
+            if (appendStart > segment.StartTime)
+            {
+                var filledEnd = appendStart < segmentEnd ? appendStart : segmentEnd;
+                if (filledEnd > segment.StartTime)
+                    parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.Filled, segment.StartTime, filledEnd));
+            }
+
+            if (segmentEnd > appendStart)
+                parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.VirtualAppendOutline, appendStart, segmentEnd));
+        }
+
+        if (entry.OutputAppendMs > 0 && segment.EndTime is { } finishedAt)
+        {
+            var outputEnd = finishedAt.AddMilliseconds(entry.OutputAppendMs);
+            if (outputEnd > finishedAt)
+            {
+                parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.OutputAppendLine, finishedAt, outputEnd));
+                parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.OutputAppendEnd, outputEnd, outputEnd));
+            }
+        }
+
+        return parts;
     }
 
     // ── 렌더링 ──
@@ -135,11 +228,14 @@ public partial class GanttChartControl
             HideRemaining(_rowBgPool, 0);
             HideRemaining(_rowLinePool, 0);
             HideRemaining(_barPool, 0);
+            HideRemaining(_virtualAppendPool, 0);
+            HideRemaining(_outputAppendLinePool, 0);
+            HideRemaining(_outputAppendEndPool, 0);
             return;
         }
 
         double y = 0;
-        double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
+        double totalSeconds = Math.Max(_viewModel.TimelineDuration.TotalSeconds, 1);
         double totalWidth = totalSeconds * _viewModel.PixelsPerSecond;
         double totalHeight = _viewModel.Entries.Where(entry => entry.IsVisible).Sum(entry => entry.RowHeight + RowGap);
 
@@ -147,7 +243,8 @@ public partial class GanttChartControl
         TimelineCanvas.Height = Math.Max(totalHeight, TimelineScrollViewer.ActualHeight);
 
         var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
-        int rowIdx = 0, lineIdx = 0, barIdx = 0;
+        int rowIdx = 0, lineIdx = 0, barIdx = 0, virtualAppendIdx = 0, outputAppendLineIdx = 0, outputAppendEndIdx = 0;
+        var outputAppendBrush = new SolidColorBrush(Color.FromRgb(242, 100, 43));
 
         // viewport culling — 장시간 운전 시 segment 가 누적되어도 화면 밖은 Rectangle 안 만든다.
         double scrollOffset = TimelineScrollViewer.HorizontalOffset;
@@ -182,22 +279,60 @@ public partial class GanttChartControl
 
             foreach (var segment in entry.Segments)
             {
-                double startX = (segment.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                 var segmentEndTime = segment.EndTime ?? _viewModel.CurrentTime;
-                double width = (segmentEndTime - segment.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
-                if (width < 2) width = 2;
 
-                if (startX + width < cullLeft) continue;
-                // Segments 는 시간순으로만 Add 되므로 우측 컷 발견 즉시 행 종료.
-                if (startX > cullRight) break;
+                foreach (var part in ResolveSegmentRenderParts(entry, segment, segmentEndTime))
+                {
+                    double startX = (part.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                    double width = (part.EndTime - part.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                    if (part.Kind != GanttSegmentRenderKind.OutputAppendEnd && width < 2) width = 2;
 
-                var bar = GetOrCreateBar(barIdx++);
-                bar.Width = width;
-                bar.Height = rowHeight - 4;
-                bar.Fill = segment.StateBrush;
-                bar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
-                Canvas.SetLeft(bar, startX);
-                Canvas.SetTop(bar, y + 2);
+                    if (startX + width < cullLeft) continue;
+                    if (startX > cullRight) continue;
+
+                    if (part.Kind == GanttSegmentRenderKind.OutputAppendLine)
+                    {
+                        var line = GetOrCreateOutputAppendLine(outputAppendLineIdx++);
+                        line.X1 = startX;
+                        line.X2 = startX + width;
+                        line.Y1 = y + rowHeight / 2.0;
+                        line.Y2 = y + rowHeight / 2.0;
+                        line.Stroke = outputAppendBrush;
+                        line.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                    }
+                    else if (part.Kind == GanttSegmentRenderKind.OutputAppendEnd)
+                    {
+                        var line = GetOrCreateOutputAppendEnd(outputAppendEndIdx++);
+                        line.X1 = startX;
+                        line.X2 = startX;
+                        line.Y1 = y + 4;
+                        line.Y2 = y + rowHeight - 4;
+                        line.Stroke = outputAppendBrush;
+                        line.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                    }
+                    else if (part.Kind == GanttSegmentRenderKind.VirtualAppendOutline)
+                    {
+                        var border = GetOrCreateVirtualAppend(virtualAppendIdx++);
+                        border.Width = width;
+                        border.Height = rowHeight - 4;
+                        border.BorderBrush = segment.StateBrush;
+                        border.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                        Canvas.SetLeft(border, startX);
+                        Canvas.SetTop(border, y + 2);
+                    }
+                    else
+                    {
+                        var bar = GetOrCreateBar(barIdx++);
+                        bar.Width = width;
+                        bar.Height = rowHeight - 4;
+                        bar.Fill = segment.StateBrush;
+                        bar.Stroke = null;
+                        bar.StrokeThickness = 0;
+                        bar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                        Canvas.SetLeft(bar, startX);
+                        Canvas.SetTop(bar, y + 2);
+                    }
+                }
             }
 
             y += rowHeight + RowGap;
@@ -206,6 +341,9 @@ public partial class GanttChartControl
         HideRemaining(_rowBgPool, rowIdx);
         HideRemaining(_rowLinePool, lineIdx);
         HideRemaining(_barPool, barIdx);
+        HideRemaining(_virtualAppendPool, virtualAppendIdx);
+        HideRemaining(_outputAppendLinePool, outputAppendLineIdx);
+        HideRemaining(_outputAppendEndPool, outputAppendEndIdx);
     }
 
     private void RenderTimeRuler()
@@ -218,7 +356,7 @@ public partial class GanttChartControl
             return;
         }
 
-        double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
+        double totalSeconds = Math.Max(_viewModel.TimelineDuration.TotalSeconds, 1);
         double pixelsPerSecond = _viewModel.PixelsPerSecond;
         double viewportWidth = TimeRulerCanvas.ActualWidth;
         double offset = TimelineScrollViewer.HorizontalOffset;
