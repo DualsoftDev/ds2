@@ -128,20 +128,25 @@ type ApiDefEditInfo(systemId: Guid, item: ApiDefPanelItem) =
 
 /// System 프로퍼티 패널 — UserTag 항목 (C# 소비용)
 /// Index 는 LoggingSystemProperties.UserTags ResizeArray 내 위치 (편집/삭제 식별자)
+/// MatchOp / MatchValue 는 v2 확장. 레거시 4필드 정의는 Bit→RisingEdge / 그 외→Changed 로 자동 설정됨.
 [<Sealed>]
-type UserTagPanelItem(index: int, name: string, logLevel: string, tagAddress: string, valueType: string) =
+type UserTagPanelItem(index: int, name: string, logLevel: string, tagAddress: string, valueType: string,
+                      matchOp: string, matchValue: string) =
     member _.Index      = index
     member _.Name       = name
     member _.LogLevel   = logLevel
     member _.TagAddress = tagAddress
     member _.ValueType  = valueType
+    member _.MatchOp    = matchOp
+    member _.MatchValue = matchValue
 
 /// 프로젝트 전체 UserTag 행 (Tag Inspector 의 사용자 태그 탭용)
 /// 어느 System 소속인지 표시하기 위해 SystemId / SystemName 동반.
 [<Sealed>]
 type ProjectUserTagRow
     (systemId: Guid, systemName: string,
-     index: int, name: string, logLevel: string, tagAddress: string, valueType: string) =
+     index: int, name: string, logLevel: string, tagAddress: string, valueType: string,
+     matchOp: string, matchValue: string) =
     member _.SystemId   = systemId
     member _.SystemName = systemName
     member _.Index      = index
@@ -149,6 +154,8 @@ type ProjectUserTagRow
     member _.LogLevel   = logLevel
     member _.TagAddress = tagAddress
     member _.ValueType  = valueType
+    member _.MatchOp    = matchOp
+    member _.MatchValue = matchValue
 
 /// TX/RX Work 드롭다운 항목 (C# 소비용)
 [<Sealed>]

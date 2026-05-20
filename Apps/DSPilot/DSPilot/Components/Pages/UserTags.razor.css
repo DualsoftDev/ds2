@@ -226,6 +226,83 @@ code {
     font-size: 0.8125rem;
 }
 
+/* ───────── 기간 / 필터 / KPI / 차트 ───────── */
+.user-tags-filter-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.user-tags-filter-row .form-field {
+    min-width: 160px;
+}
+
+.ut-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+}
+
+.ut-kpi {
+    background: rgba(var(--color-primary-rgb), 0.04);
+    border: 1px solid var(--color-lines);
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+.ut-kpi-label {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+
+.ut-kpi-value {
+    margin-top: 4px;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    line-height: 1.1;
+}
+
+.ut-kpi-value-small {
+    margin-top: 4px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.ut-kpi-error {
+    color: #c62828;
+}
+
+.ut-kpi-warn {
+    color: #ef6c00;
+}
+
+.ut-chart-tall {
+    position: relative;
+    height: 320px;
+}
+
+.ut-chart-md {
+    position: relative;
+    height: 260px;
+}
+
+.ut-chart-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+}
+
+.ut-chart-half {
+    min-width: 0;
+}
+
 @media (max-width: 900px) {
     .user-tags-hero-top {
         flex-direction: column;
@@ -237,5 +314,9 @@ code {
         width: 100%;
         align-items: stretch;
         justify-content: flex-start;
+    }
+
+    .ut-chart-row {
+        grid-template-columns: 1fr;
     }
 }

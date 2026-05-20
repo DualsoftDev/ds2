@@ -71,6 +71,20 @@ type UserTagLogLevel =
     | Warning       // 경고
     | Error         // 에러
 
+/// 사용자 태그 매칭 조건 — "값이 어떻게 되면 알림으로 기록할 것인가"
+/// Bit/비-Bit 모두에 대해 통일된 의미를 가지지만, 기본값과 적용 가능성은 ValueType 에 따라 다름.
+[<RequireQualifiedAccess>]
+type UserTagMatchOp =
+    | Eq                    // 직전 값 != X, 새 값 == X 일 때 1건 기록 ("X 와 같아질 때")
+    | Neq                   // 직전 값 == X, 새 값 != X 일 때 1건 기록
+    | Gt                    // 직전 값 <= X, 새 값 > X 일 때 1건 기록 (수치형)
+    | Gte                   // 직전 값 <  X, 새 값 >= X 일 때 1건 기록 (수치형)
+    | Lt                    // 직전 값 >= X, 새 값 < X 일 때 1건 기록 (수치형)
+    | Lte                   // 직전 값 >  X, 새 값 <= X 일 때 1건 기록 (수치형)
+    | RisingEdge            // Bit 0 → 1 전이 (기본값)
+    | FallingEdge           // Bit 1 → 0 전이
+    | Changed               // 직전 값과 다르면 항상 (비-Bit 기본값)
+
 
 // =============================================================================
 // TYPE DEFINITIONS: Statistics
@@ -180,11 +194,14 @@ type HeatmapCell = {
 // =============================================================================
 
 /// System 단위 사용자 태그 정의 (파싱된 구조체)
+/// MatchOp / MatchValue 는 v2 확장 — 기본값(레거시 4필드 호환)은 Bit→RisingEdge / 그 외→Changed.
 type UserTag = {
     Name: string                  // 태그 이름 (예: "Motor_Overload")
     LogLevel: UserTagLogLevel     // 로그 레벨 (Info / Warning / Error)
     TagAddress: string            // PLC 태그 주소 (예: "M901")
     ValueType: PlcValueType       // 값 타입 (예: Bit)
+    MatchOp: UserTagMatchOp       // 매칭 조건
+    MatchValue: string            // 비교 기준값 (Eq/Gt 등에서 사용, edge/Changed 에서는 무시 가능)
 }
 
 

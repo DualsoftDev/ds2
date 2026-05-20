@@ -230,29 +230,74 @@ module LoggingHelpers =
             | "ERROR" | "ERR" -> UserTagLogLevel.Error
             | _ -> UserTagLogLevel.Info
 
+        /// UserTagMatchOp → 문자열 변환
+        let matchOpToString = function
+            | UserTagMatchOp.Eq -> "Eq"
+            | UserTagMatchOp.Neq -> "Neq"
+            | UserTagMatchOp.Gt -> "Gt"
+            | UserTagMatchOp.Gte -> "Gte"
+            | UserTagMatchOp.Lt -> "Lt"
+            | UserTagMatchOp.Lte -> "Lte"
+            | UserTagMatchOp.RisingEdge -> "RisingEdge"
+            | UserTagMatchOp.FallingEdge -> "FallingEdge"
+            | UserTagMatchOp.Changed -> "Changed"
+
+        /// 문자열 → UserTagMatchOp 파싱
+        let parseMatchOp (s: string) : UserTagMatchOp =
+            match s.Trim().ToUpperInvariant() with
+            | "EQ" | "==" | "=" -> UserTagMatchOp.Eq
+            | "NEQ" | "!=" | "<>" -> UserTagMatchOp.Neq
+            | "GT" | ">" -> UserTagMatchOp.Gt
+            | "GTE" | ">=" -> UserTagMatchOp.Gte
+            | "LT" | "<" -> UserTagMatchOp.Lt
+            | "LTE" | "<=" -> UserTagMatchOp.Lte
+            | "RISINGEDGE" | "RISING" -> UserTagMatchOp.RisingEdge
+            | "FALLINGEDGE" | "FALLING" -> UserTagMatchOp.FallingEdge
+            | "CHANGED" -> UserTagMatchOp.Changed
+            | _ -> UserTagMatchOp.RisingEdge
+
+        /// ValueType 에 맞는 기본 MatchOp 결정 — 레거시 4필드 정의 호환용.
+        let defaultMatchOpFor (vt: PlcValueType) : UserTagMatchOp =
+            match vt with
+            | PlcValueType.Bit -> UserTagMatchOp.RisingEdge
+            | _ -> UserTagMatchOp.Changed
+
         /// 구조화 문자열 → UserTag 파싱
-        /// 형식: "이름|로그레벨|태그주소|값타입"
+        /// 형식 (v2): "이름|로그레벨|태그주소|값타입|매칭조건|기준값"
+        /// 형식 (v1, 하위호환): "이름|로그레벨|태그주소|값타입"
+        ///   → MatchOp 는 ValueType 에 따라 RisingEdge / Changed 로 자동 설정.
         let parse (encoded: string) : UserTag option =
             if String.IsNullOrWhiteSpace(encoded) then None
             else
                 let parts = encoded.Split(separator)
                 if parts.Length >= 4 then
+                    let vt = parseValueType parts.[3]
+                    let op =
+                        if parts.Length >= 5 && not (String.IsNullOrWhiteSpace(parts.[4]))
+                        then parseMatchOp parts.[4]
+                        else defaultMatchOpFor vt
+                    let mv =
+                        if parts.Length >= 6 then parts.[5].Trim() else ""
                     Some {
                         Name = parts.[0].Trim()
                         LogLevel = parseLogLevel parts.[1]
                         TagAddress = parts.[2].Trim()
-                        ValueType = parseValueType parts.[3]
+                        ValueType = vt
+                        MatchOp = op
+                        MatchValue = mv
                     }
                 else
                     None
 
-        /// UserTag → 구조화 문자열 직렬화
+        /// UserTag → 구조화 문자열 직렬화 (항상 v2 6필드로 기록)
         let format (tag: UserTag) : string =
-            sprintf "%s%c%s%c%s%c%s"
+            sprintf "%s%c%s%c%s%c%s%c%s%c%s"
                 tag.Name separator
                 (logLevelToString tag.LogLevel) separator
                 tag.TagAddress separator
-                (valueTypeToString tag.ValueType)
+                (valueTypeToString tag.ValueType) separator
+                (matchOpToString tag.MatchOp) separator
+                tag.MatchValue
 
         /// System의 UserTags 전체 파싱
         let parseAll (encodedList: ResizeArray<string>) : UserTag list =
@@ -265,3 +310,119 @@ module LoggingHelpers =
             tags
             |> List.map format
             |> ResizeArray
+
+        // -------------------------------------------------------------------------
+        // 매칭 평가
+        // -------------------------------------------------------------------------
+
+        /// "0/1/true/false" 등을 0|1 로 정규화 (Bit 비교용)
+        let private normalizeBool (v: string) : string =
+            if isNull v then "0"
+            else
+                let l = v.Trim().ToLowerInvariant()
+                if l = "1" || l = "true" || l = "on" then "1" else "0"
+
+        /// 문자열을 double 로 안전하게 변환 (CultureInfo.Invariant)
+        let private tryParseNumber (v: string) : float option =
+            if String.IsNullOrWhiteSpace(v) then None
+            else
+                match Double.TryParse(v.Trim(), System.Globalization.NumberStyles.Float,
+                                      System.Globalization.CultureInfo.InvariantCulture) with
+                | true, x -> Some x
+                | _ -> None
+
+        let private nz (s: string) = if isNull s then "" else s
+
+        /// 두 문자열이 같은 값을 의미하는지 (Bit / 수치 / 문자열 모두 지원)
+        let private valueEquals (vt: PlcValueType) (a: string) (b: string) : bool =
+            match vt with
+            | PlcValueType.Bit -> normalizeBool a = normalizeBool b
+            | PlcValueType.StringType -> nz a = nz b
+            | _ ->
+                match tryParseNumber a, tryParseNumber b with
+                | Some x, Some y -> x = y
+                | _ -> (nz a).Trim() = (nz b).Trim()
+
+        /// (prevValue, newValue) 와 (op, matchValue) 로 알림 발화 여부 판정.
+        /// prevValue 가 없으면(첫 샘플) edge/Changed 류는 발화하지 않음 — Eq/Gte 등은 새 값이 조건 만족하면 1건.
+        let shouldFire (vt: PlcValueType) (op: UserTagMatchOp) (matchValue: string)
+                      (prevValue: string option) (newValue: string) : bool =
+            let cmp () =
+                // 수치 비교 — 양쪽 다 수치로 파싱 가능해야 함.
+                tryParseNumber newValue, tryParseNumber matchValue
+            match op with
+            | UserTagMatchOp.RisingEdge ->
+                let cur = normalizeBool newValue
+                let prev = prevValue |> Option.map normalizeBool |> Option.defaultValue "0"
+                prev = "0" && cur = "1"
+            | UserTagMatchOp.FallingEdge ->
+                let cur = normalizeBool newValue
+                let prev = prevValue |> Option.map normalizeBool |> Option.defaultValue "1"
+                prev = "1" && cur = "0"
+            | UserTagMatchOp.Changed ->
+                match prevValue with
+                | None -> false                       // 첫 샘플은 변경으로 보지 않음
+                | Some p -> not (valueEquals vt p newValue)
+            | UserTagMatchOp.Eq ->
+                let nowMatches = valueEquals vt newValue matchValue
+                let prevMatches = prevValue |> Option.map (fun p -> valueEquals vt p matchValue) |> Option.defaultValue false
+                nowMatches && not prevMatches         // "같아질 때" — 전이 1건
+            | UserTagMatchOp.Neq ->
+                let nowMatches = not (valueEquals vt newValue matchValue)
+                let prevMatches = prevValue |> Option.map (fun p -> not (valueEquals vt p matchValue)) |> Option.defaultValue false
+                nowMatches && not prevMatches
+            | UserTagMatchOp.Gt ->
+                match cmp () with
+                | Some n, Some t ->
+                    let prevSatisfies =
+                        prevValue
+                        |> Option.bind tryParseNumber
+                        |> Option.map (fun p -> p > t)
+                        |> Option.defaultValue false
+                    n > t && not prevSatisfies
+                | _ -> false
+            | UserTagMatchOp.Gte ->
+                match cmp () with
+                | Some n, Some t ->
+                    let prevSatisfies =
+                        prevValue
+                        |> Option.bind tryParseNumber
+                        |> Option.map (fun p -> p >= t)
+                        |> Option.defaultValue false
+                    n >= t && not prevSatisfies
+                | _ -> false
+            | UserTagMatchOp.Lt ->
+                match cmp () with
+                | Some n, Some t ->
+                    let prevSatisfies =
+                        prevValue
+                        |> Option.bind tryParseNumber
+                        |> Option.map (fun p -> p < t)
+                        |> Option.defaultValue false
+                    n < t && not prevSatisfies
+                | _ -> false
+            | UserTagMatchOp.Lte ->
+                match cmp () with
+                | Some n, Some t ->
+                    let prevSatisfies =
+                        prevValue
+                        |> Option.bind tryParseNumber
+                        |> Option.map (fun p -> p <= t)
+                        |> Option.defaultValue false
+                    n <= t && not prevSatisfies
+                | _ -> false
+
+        /// MatchOp + MatchValue 의 사람-친화 설명 — 정의 화면 / 알림 행에서 노출.
+        /// vt 는 현재 메시지 표시 로직에서 분기에 쓰이지 않으나, 향후 타입별 단위 (예: "85 ℃") 표시 확장을 위해 시그니처에 유지.
+        let describeCondition (_vt: PlcValueType) (op: UserTagMatchOp) (matchValue: string) : string =
+            let mv = if String.IsNullOrWhiteSpace(matchValue) then "?" else matchValue
+            match op with
+            | UserTagMatchOp.RisingEdge -> "0 → 1"
+            | UserTagMatchOp.FallingEdge -> "1 → 0"
+            | UserTagMatchOp.Changed -> "값 변경 시"
+            | UserTagMatchOp.Eq -> sprintf "= %s" mv
+            | UserTagMatchOp.Neq -> sprintf "≠ %s" mv
+            | UserTagMatchOp.Gt -> sprintf "> %s" mv
+            | UserTagMatchOp.Gte -> sprintf "≥ %s" mv
+            | UserTagMatchOp.Lt -> sprintf "< %s" mv
+            | UserTagMatchOp.Lte -> sprintf "≤ %s" mv

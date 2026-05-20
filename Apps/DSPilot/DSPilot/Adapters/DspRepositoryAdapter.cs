@@ -230,6 +230,45 @@ public class DspRepositoryAdapter : IDspRepository
             const string createPlcTagAddressIdx =
                 "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)";
 
+            // UserTag 알림 raw 로그 — 매칭된 이벤트만 저장 (모든 plcTagLog 행을 다시 쓰지 않음).
+            // occurredAt: ISO8601 UTC 문자열 (plcTagLog.dateTime 과 동일 포맷).
+            const string createUserTagAlertLog = @"
+                CREATE TABLE IF NOT EXISTS userTagAlertLog (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurredAt    TEXT     NOT NULL,
+                    systemId      TEXT     NOT NULL,
+                    systemName    TEXT     NOT NULL,
+                    name          TEXT     NOT NULL,
+                    logLevel      TEXT     NOT NULL,
+                    tagAddress    TEXT     NOT NULL,
+                    valueType     TEXT     NOT NULL,
+                    matchOp       TEXT     NOT NULL,
+                    matchValue    TEXT,
+                    actualValue   TEXT     NOT NULL,
+                    sourceLogId   INTEGER
+                )";
+
+            const string createUserTagAlertLogIdxTime =
+                "CREATE INDEX IF NOT EXISTS idx_userTagAlertLog_occurredAt ON userTagAlertLog(occurredAt)";
+            const string createUserTagAlertLogIdxNameTime =
+                "CREATE INDEX IF NOT EXISTS idx_userTagAlertLog_name_time ON userTagAlertLog(name, occurredAt)";
+            const string createUserTagAlertLogIdxLevelTime =
+                "CREATE INDEX IF NOT EXISTS idx_userTagAlertLog_level_time ON userTagAlertLog(logLevel, occurredAt)";
+
+            // 일별 사전집계 — 월/년 추세 쿼리용. 자정 backfill 잡이 채움.
+            const string createUserTagAlertDaily = @"
+                CREATE TABLE IF NOT EXISTS userTagAlertDaily (
+                    bucketDate    TEXT     NOT NULL,
+                    systemName    TEXT     NOT NULL,
+                    name          TEXT     NOT NULL,
+                    logLevel      TEXT     NOT NULL,
+                    count         INTEGER  NOT NULL,
+                    PRIMARY KEY (bucketDate, systemName, name, logLevel)
+                )";
+
+            const string createUserTagAlertDailyIdxDate =
+                "CREATE INDEX IF NOT EXISTS idx_userTagAlertDaily_date ON userTagAlertDaily(bucketDate)";
+
             await conn.ExecuteAsync(createFlow);
             await conn.ExecuteAsync(createCall);
             await conn.ExecuteAsync(createFlowHistory);
@@ -240,6 +279,12 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createPlcTagLogTagIdx);
             await conn.ExecuteAsync(createPlcTagLogTagDateTimeIdx);
             await conn.ExecuteAsync(createPlcTagAddressIdx);
+            await conn.ExecuteAsync(createUserTagAlertLog);
+            await conn.ExecuteAsync(createUserTagAlertLogIdxTime);
+            await conn.ExecuteAsync(createUserTagAlertLogIdxNameTime);
+            await conn.ExecuteAsync(createUserTagAlertLogIdxLevelTime);
+            await conn.ExecuteAsync(createUserTagAlertDaily);
+            await conn.ExecuteAsync(createUserTagAlertDailyIdxDate);
 
             // 기본 plc 행 보장 (id=1) — plcTag.plcId 가 참조하는 단일 PLC
             await conn.ExecuteAsync(

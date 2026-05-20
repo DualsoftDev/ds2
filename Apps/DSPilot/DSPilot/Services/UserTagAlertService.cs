@@ -1,18 +1,19 @@
 using System.Collections.Concurrent;
 using Ds2.Core;
 using Ds2.Editor;
+using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
+using LoggingHelpers = Ds2.Core.LoggingHelpers;
 
 namespace DSPilot.Services;
 
 /// <summary>
 /// 프로젝트에 정의된 UserTag(LoggingSystemProperties.UserTags)들을 모니터링.
-/// plcTagLog 신규 행을 폴링하여 UserTag 주소와 일치하는 신호를 잡아 알림 큐에 적재.
-/// UI(/user-tags 페이지) 가 이벤트 + 스냅샷으로 표시.
+/// plcTagLog 신규 행을 폴링 → AASX UserTag 정의(MatchOp/MatchValue)와 매칭 → 알림 큐 + DB 저장.
+/// UI(/user-tags) 가 실시간으로 표시.
 ///
-/// 처리 흐름: HubSubscriber → SimulationEngine → PlcTagLogWriter (plcTagLog INSERT)
-///           → UserTagAlertService 가 GetLogsAfterIdAsync 로 신규 행 조회 → 매칭 → 알림.
-/// PlcDatabaseMonitorService 와 같은 폴링 패턴이지만, Call 매핑이 아닌 UserTag 정의에 매칭.
+/// v2: F# UserTagHelpers.shouldFire 를 호출하여 "사용자가 등록한 임의 조건" 으로 매칭.
+///     알림은 메모리 큐(최근 N개, 빠른 UI 푸시) + userTagAlertLog 테이블 (장기 보관) 동시 적재.
 /// </summary>
 public sealed class UserTagAlertService : BackgroundService
 {
@@ -28,6 +29,11 @@ public sealed class UserTagAlertService : BackgroundService
         new(StringComparer.OrdinalIgnoreCase);
     private List<UserTagDefinition> _definitions = new();
     private DateTime? _projectLoadedAt;
+
+    // 주소별 직전 값 — edge / 임계치 전이 평가에 필요.
+    private readonly Dictionary<string, string> _lastValueByAddress =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly LinkedList<UserTagAlert> _alerts = new();
     private long _lastCheckedLogId;
     private bool _initialized;
@@ -49,7 +55,7 @@ public sealed class UserTagAlertService : BackgroundService
         lock (_stateLock) return _definitions.ToList();
     }
 
-    /// <summary>최신순으로 알림 목록 반환. 필요 시 호출자가 추가 필터링.</summary>
+    /// <summary>최신순 메모리 큐 — 빠른 UI 푸시용. 장기 조회는 Repository 사용.</summary>
     public IReadOnlyList<UserTagAlert> GetAlerts(int? maxCount = null)
     {
         lock (_stateLock)
@@ -71,6 +77,9 @@ public sealed class UserTagAlertService : BackgroundService
     {
         _logger.LogInformation("UserTagAlertService starting (poll={Ms}ms, max={Max})",
             PollIntervalMs, MaxAlerts);
+
+        // 최근 알림 히드레이션 — 재시작 후에도 UI 가 비어있지 않도록 DB 최신 N개 부터 큐 시드.
+        await HydrateRecentAlertsAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -100,10 +109,38 @@ public sealed class UserTagAlertService : BackgroundService
         _logger.LogInformation("UserTagAlertService stopped");
     }
 
-    /// <summary>
-    /// 프로젝트 로딩 시각이 바뀌었을 때만 UserTag 정의를 재구성.
-    /// AASX 가 재로딩되면 LastLoadedUtc 가 갱신되므로 그것으로 캐시 무효화.
-    /// </summary>
+    private async Task HydrateRecentAlertsAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var alertRepo = scope.ServiceProvider.GetRequiredService<IUserTagAlertRepository>();
+            var recent = await alertRepo.GetLatestAlertsAsync(MaxAlerts, ct);
+            lock (_stateLock)
+            {
+                _alerts.Clear();
+                foreach (var r in recent)
+                {
+                    _alerts.AddLast(new UserTagAlert(
+                        Id: r.Id,
+                        Timestamp: r.OccurredAt,
+                        SystemName: r.SystemName,
+                        Name: r.Name,
+                        LogLevel: r.LogLevel,
+                        TagAddress: r.TagAddress,
+                        ValueType: r.ValueType,
+                        Value: r.ActualValue,
+                        MatchOp: r.MatchOp,
+                        MatchValue: r.MatchValue ?? string.Empty));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UserTagAlert] hydration skipped");
+        }
+    }
+
     private void RefreshDefinitionsIfChanged()
     {
         var loadedAt = _projectService.LastLoadedUtc;
@@ -127,13 +164,13 @@ public sealed class UserTagAlertService : BackgroundService
             .Where(r => !string.IsNullOrWhiteSpace(r.TagAddress))
             .Select(r => new UserTagDefinition(
                 r.SystemId, r.SystemName, r.Name,
-                r.LogLevel ?? "Info", r.TagAddress, r.ValueType ?? "Bit"))
+                r.LogLevel ?? "Info", r.TagAddress, r.ValueType ?? "Bit",
+                r.MatchOp ?? string.Empty, r.MatchValue ?? string.Empty))
             .ToList();
 
         var byAddr = new Dictionary<string, UserTagDefinition>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in defs)
         {
-            // 동일 주소에 여러 UserTag 가 매핑되면 첫 항목 우선 — Promaker UI 도 보통 1:1.
             byAddr.TryAdd(d.TagAddress, d);
         }
 
@@ -154,8 +191,9 @@ public sealed class UserTagAlertService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
+        var alertRepo = scope.ServiceProvider.GetRequiredService<IUserTagAlertRepository>();
 
-        // 최초 1회: 현재 최대 log ID 부터 시작 — 과거 로그까지 한꺼번에 알림 폭주 방지.
+        // 최초 1회: 현재 최대 log ID 부터 — 과거 로그까지 한꺼번에 알림 폭주 방지.
         if (_lastCheckedLogId == 0)
         {
             try
@@ -176,65 +214,111 @@ public sealed class UserTagAlertService : BackgroundService
 
         _lastCheckedLogId = newLogs.Max(l => l.Id);
 
-        // 스냅샷 캡처 — 룩업은 lock 밖에서.
         Dictionary<string, UserTagDefinition> defsSnap;
         lock (_stateLock) defsSnap = _definitionsByAddress;
 
-        bool any = false;
+        var newAlerts = new List<UserTagAlertRecord>();
+        var newUiAlerts = new List<UserTagAlert>();
+
         foreach (var log in newLogs)
         {
             if (ct.IsCancellationRequested) break;
             if (string.IsNullOrEmpty(log.Address)) continue;
             if (!defsSnap.TryGetValue(log.Address, out var def)) continue;
 
-            // Bit 타입은 0→1 rising edge 만 알림으로 — 0 으로 떨어지는 신호는 무시.
-            // 비-Bit 타입은 값이 바뀔 때마다 기록.
-            var value = log.Value ?? string.Empty;
-            if (string.Equals(def.ValueType, "Bit", StringComparison.OrdinalIgnoreCase))
+            var newValue = log.Value ?? string.Empty;
+
+            // 직전 값 lookup — 첫 샘플이면 prev = None.
+            string? prevValue;
+            lock (_stateLock)
             {
-                var normalized = NormalizeBool(value);
-                if (normalized != "1") continue;
+                _lastValueByAddress.TryGetValue(def.TagAddress, out var p);
+                prevValue = p; // null 이면 첫 샘플 (== F# 의 None 와 동치)
+                _lastValueByAddress[def.TagAddress] = newValue;
             }
 
-            var alert = new UserTagAlert(
-                Id: log.Id,
-                Timestamp: log.DateTime,
+            // F# 매칭 평가 — ValueType / MatchOp / MatchValue 에 따라 fire 여부 결정.
+            var vt = LoggingHelpers.UserTagHelpers.parseValueType(def.ValueType);
+            var op = LoggingHelpers.UserTagHelpers.parseMatchOp(
+                string.IsNullOrWhiteSpace(def.MatchOp)
+                    ? LoggingHelpers.UserTagHelpers.matchOpToString(LoggingHelpers.UserTagHelpers.defaultMatchOpFor(vt))
+                    : def.MatchOp);
+
+            var prevOpt = prevValue is null
+                ? Microsoft.FSharp.Core.FSharpOption<string>.None
+                : Microsoft.FSharp.Core.FSharpOption<string>.Some(prevValue);
+
+            var fire = LoggingHelpers.UserTagHelpers.shouldFire(
+                vt, op, def.MatchValue ?? string.Empty, prevOpt, newValue);
+            if (!fire) continue;
+
+            var record = new UserTagAlertRecord(
+                Id: 0,
+                OccurredAt: log.DateTime,
+                SystemId: def.SystemId,
                 SystemName: def.SystemName,
                 Name: def.Name,
                 LogLevel: def.LogLevel,
                 TagAddress: def.TagAddress,
                 ValueType: def.ValueType,
-                Value: value);
-
-            lock (_stateLock)
-            {
-                _alerts.AddFirst(alert);
-                while (_alerts.Count > MaxAlerts) _alerts.RemoveLast();
-            }
-            any = true;
+                MatchOp: LoggingHelpers.UserTagHelpers.matchOpToString(op),
+                MatchValue: def.MatchValue,
+                ActualValue: newValue,
+                SourceLogId: log.Id);
+            newAlerts.Add(record);
         }
 
-        if (any) AlertsChanged?.Invoke();
-    }
+        // DB INSERT — 한 건씩 (트랜잭션 누적은 단순화. 폴링 1회 분량은 보통 ≤ 수십건).
+        foreach (var rec in newAlerts)
+        {
+            try
+            {
+                var insertedId = await alertRepo.InsertAlertAsync(rec, ct);
+                newUiAlerts.Add(new UserTagAlert(
+                    Id: insertedId,
+                    Timestamp: rec.OccurredAt,
+                    SystemName: rec.SystemName,
+                    Name: rec.Name,
+                    LogLevel: rec.LogLevel,
+                    TagAddress: rec.TagAddress,
+                    ValueType: rec.ValueType,
+                    Value: rec.ActualValue,
+                    MatchOp: rec.MatchOp,
+                    MatchValue: rec.MatchValue ?? string.Empty));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[UserTagAlert] DB insert failed for {Name}/{Addr}", rec.Name, rec.TagAddress);
+            }
+        }
 
-    private static string NormalizeBool(string v)
-    {
-        if (string.IsNullOrEmpty(v)) return "0";
-        var l = v.Trim().ToLowerInvariant();
-        return (l == "1" || l == "true") ? "1" : "0";
+        if (newUiAlerts.Count > 0)
+        {
+            lock (_stateLock)
+            {
+                foreach (var a in newUiAlerts)
+                {
+                    _alerts.AddFirst(a);
+                }
+                while (_alerts.Count > MaxAlerts) _alerts.RemoveLast();
+            }
+            AlertsChanged?.Invoke();
+        }
     }
 }
 
-/// <summary>UI 가 사용하는 UserTag 정의 한 행.</summary>
+/// <summary>UserTag 정의 한 행 (UI/Service 공용).</summary>
 public sealed record UserTagDefinition(
     Guid SystemId,
     string SystemName,
     string Name,
     string LogLevel,
     string TagAddress,
-    string ValueType);
+    string ValueType,
+    string MatchOp,
+    string MatchValue);
 
-/// <summary>UserTag 모니터링 결과 알림 한 건.</summary>
+/// <summary>UserTag 매칭 결과 알림 한 건 (UI 표시용).</summary>
 public sealed record UserTagAlert(
     long Id,
     DateTime Timestamp,
@@ -243,4 +327,6 @@ public sealed record UserTagAlert(
     string LogLevel,
     string TagAddress,
     string ValueType,
-    string Value);
+    string Value,
+    string MatchOp,
+    string MatchValue);

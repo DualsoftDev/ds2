@@ -30,17 +30,27 @@ module internal PanelUserTagOps =
                     i, tag.Name,
                     UserTagHelpers.logLevelToString tag.LogLevel,
                     tag.TagAddress,
-                    UserTagHelpers.valueTypeToString tag.ValueType))
+                    UserTagHelpers.valueTypeToString tag.ValueType,
+                    UserTagHelpers.matchOpToString tag.MatchOp,
+                    tag.MatchValue))
             | None -> None)
         |> Seq.choose id
         |> Seq.toList
 
-    let buildTag (name: string) (logLevel: string) (tagAddress: string) (valueType: string) : UserTag =
+    let buildTag (name: string) (logLevel: string) (tagAddress: string) (valueType: string)
+                 (matchOp: string) (matchValue: string) : UserTag =
+        let vt = UserTagHelpers.parseValueType valueType
+        let op =
+            if String.IsNullOrWhiteSpace(matchOp)
+            then UserTagHelpers.defaultMatchOpFor vt
+            else UserTagHelpers.parseMatchOp matchOp
         {
             Name = name
             LogLevel = UserTagHelpers.parseLogLevel logLevel
             TagAddress = tagAddress
-            ValueType = UserTagHelpers.parseValueType valueType
+            ValueType = vt
+            MatchOp = op
+            MatchValue = if isNull matchValue then "" else matchValue.Trim()
         }
 
 
@@ -77,7 +87,9 @@ type DsStorePanelUserTagExtensions =
                             tag.Name,
                             UserTagHelpers.logLevelToString tag.LogLevel,
                             tag.TagAddress,
-                            UserTagHelpers.valueTypeToString tag.ValueType))
+                            UserTagHelpers.valueTypeToString tag.ValueType,
+                            UserTagHelpers.matchOpToString tag.MatchOp,
+                            tag.MatchValue))
                     | None -> None)
                 |> Seq.choose id
                 |> Seq.toList)
@@ -85,14 +97,15 @@ type DsStorePanelUserTagExtensions =
     [<Extension>]
     static member AddUserTag
         (store: DsStore, systemId: Guid,
-         name: string, logLevel: string, tagAddress: string, valueType: string) : int =
+         name: string, logLevel: string, tagAddress: string, valueType: string,
+         matchOp: string, matchValue: string) : int =
         StoreLog.debug($"AddUserTag systemId={systemId}, name={name}")
         StoreLog.requireSystem(store, systemId) |> ignore
         let mutable newIndex = -1
         store.WithTransaction($"사용자 태그 추가 \"{name}\"", fun () ->
             store.TrackMutate(store.Systems, systemId, fun sys ->
                 let props = PanelUserTagOps.ensureLoggingProps sys
-                let tag = PanelUserTagOps.buildTag name logLevel tagAddress valueType
+                let tag = PanelUserTagOps.buildTag name logLevel tagAddress valueType matchOp matchValue
                 props.UserTags.Add(UserTagHelpers.format tag)
                 newIndex <- props.UserTags.Count - 1))
         store.EmitAndHistory(SystemPropsChanged systemId)
@@ -101,7 +114,8 @@ type DsStorePanelUserTagExtensions =
     [<Extension>]
     static member UpdateUserTag
         (store: DsStore, systemId: Guid, index: int,
-         name: string, logLevel: string, tagAddress: string, valueType: string) : bool =
+         name: string, logLevel: string, tagAddress: string, valueType: string,
+         matchOp: string, matchValue: string) : bool =
         StoreLog.debug($"UpdateUserTag systemId={systemId}, index={index}, name={name}")
         StoreLog.requireSystem(store, systemId) |> ignore
         let mutable ok = false
@@ -109,7 +123,7 @@ type DsStorePanelUserTagExtensions =
             store.TrackMutate(store.Systems, systemId, fun sys ->
                 match sys.GetLoggingProperties() with
                 | Some p when index >= 0 && index < p.UserTags.Count ->
-                    let tag = PanelUserTagOps.buildTag name logLevel tagAddress valueType
+                    let tag = PanelUserTagOps.buildTag name logLevel tagAddress valueType matchOp matchValue
                     p.UserTags.[index] <- UserTagHelpers.format tag
                     ok <- true
                 | _ -> ()))
@@ -131,11 +145,12 @@ type DsStorePanelUserTagExtensions =
         if ok then store.EmitAndHistory(SystemPropsChanged systemId)
         ok
 
-    /// CSV 일괄 추가: (name, logLevel, tagAddress, valueType) 리스트를 한 transaction 으로 append.
+    /// CSV 일괄 추가: (name, logLevel, tagAddress, valueType, matchOp, matchValue) 리스트를 한 transaction 으로 append.
+    /// 6-tuple — 레거시 4컬럼 CSV 는 호출 측에서 빈 matchOp/matchValue 로 정규화하여 전달.
     [<Extension>]
     static member AddUserTagsBatch
         (store: DsStore, systemId: Guid,
-         entries: System.Collections.Generic.IReadOnlyList<struct (string * string * string * string)>) : int =
+         entries: System.Collections.Generic.IReadOnlyList<struct (string * string * string * string * string * string)>) : int =
         if isNull (box entries) || entries.Count = 0 then 0
         else
             StoreLog.requireSystem(store, systemId) |> ignore
@@ -144,9 +159,9 @@ type DsStorePanelUserTagExtensions =
                 store.TrackMutate(store.Systems, systemId, fun sys ->
                     let props = PanelUserTagOps.ensureLoggingProps sys
                     for e in entries do
-                        let struct (name, level, addr, vt) = e
+                        let struct (name, level, addr, vt, op, mv) = e
                         if not (System.String.IsNullOrWhiteSpace(name)) then
-                            let tag = PanelUserTagOps.buildTag name level addr vt
+                            let tag = PanelUserTagOps.buildTag name level addr vt op mv
                             props.UserTags.Add(UserTagHelpers.format tag)
                             added <- added + 1))
             if added > 0 then store.EmitAndHistory(SystemPropsChanged systemId)
@@ -156,7 +171,7 @@ type DsStorePanelUserTagExtensions =
     [<Extension>]
     static member ReplaceUserTags
         (store: DsStore, systemId: Guid,
-         entries: System.Collections.Generic.IReadOnlyList<struct (string * string * string * string)>) : int =
+         entries: System.Collections.Generic.IReadOnlyList<struct (string * string * string * string * string * string)>) : int =
         StoreLog.requireSystem(store, systemId) |> ignore
         let mutable count = 0
         store.WithTransaction($"사용자 태그 교체 ({entries.Count}건)", fun () ->
@@ -164,9 +179,9 @@ type DsStorePanelUserTagExtensions =
                 let props = PanelUserTagOps.ensureLoggingProps sys
                 props.UserTags.Clear()
                 for e in entries do
-                    let struct (name, level, addr, vt) = e
+                    let struct (name, level, addr, vt, op, mv) = e
                     if not (System.String.IsNullOrWhiteSpace(name)) then
-                        let tag = PanelUserTagOps.buildTag name level addr vt
+                        let tag = PanelUserTagOps.buildTag name level addr vt op mv
                         props.UserTags.Add(UserTagHelpers.format tag)
                         count <- count + 1))
         store.EmitAndHistory(SystemPropsChanged systemId)

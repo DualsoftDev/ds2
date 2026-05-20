@@ -16,6 +16,8 @@ public partial class Home
     private string _userTagLogLevel = "Info";
     private string _userTagAddress = "";
     private string _userTagValueType = "Bit";
+    private string _userTagMatchOp = "";       // 빈 문자열이면 ValueType 기반 기본값 (Bit→RisingEdge / 그 외→Changed)
+    private string _userTagMatchValue = "";
     private int _editingUserTagIndex = -1; // -1 = new, >= 0 = editing existing
     private bool _csvImportReplace; // true = 교체, false = 추가
     private bool _showCsvReplaceConfirm;
@@ -28,6 +30,9 @@ public partial class Home
     private static readonly string[] UserTagLogLevels =
         ["Info", "Warning", "Error"];
 
+    private static readonly string[] UserTagMatchOps =
+        ["", "RisingEdge", "FallingEdge", "Changed", "Eq", "Neq", "Gt", "Gte", "Lt", "Lte"];
+
     /// <summary>
     /// 현재 선택된 노드가 UserTags SML인지 판별
     /// </summary>
@@ -36,9 +41,9 @@ public partial class Home
         _selectedNode.Label == "UserTags";
 
     /// <summary>
-    /// 현재 UserTags의 자식 Property 값 목록 파싱
+    /// 현재 UserTags의 자식 Property 값 목록 파싱 (v2 6필드, 레거시 4필드 호환)
     /// </summary>
-    private List<(string Name, string LogLevel, string Tag, string ValueType)> GetUserTags()
+    private List<(string Name, string LogLevel, string Tag, string ValueType, string MatchOp, string MatchValue)> GetUserTags()
     {
         if (_selectedNode?.Children is null) return [];
         return _selectedNode.Children
@@ -50,16 +55,20 @@ public partial class Home
             .ToList();
     }
 
-    private static (string Name, string LogLevel, string Tag, string ValueType)? ParseUserTag(string encoded)
+    private static (string Name, string LogLevel, string Tag, string ValueType, string MatchOp, string MatchValue)? ParseUserTag(string encoded)
     {
         var parts = encoded.Split('|');
         if (parts.Length >= 4)
-            return (parts[0].Trim(), parts[1].Trim(), parts[2].Trim(), parts[3].Trim());
+        {
+            var op = parts.Length >= 5 ? parts[4].Trim() : string.Empty;
+            var mv = parts.Length >= 6 ? parts[5].Trim() : string.Empty;
+            return (parts[0].Trim(), parts[1].Trim(), parts[2].Trim(), parts[3].Trim(), op, mv);
+        }
         return null;
     }
 
-    private static string FormatUserTag(string name, string logLevel, string tag, string valueType)
-        => $"{name}|{logLevel}|{tag}|{valueType}";
+    private static string FormatUserTag(string name, string logLevel, string tag, string valueType, string matchOp, string matchValue)
+        => $"{name}|{logLevel}|{tag}|{valueType}|{matchOp}|{matchValue}";
 
     // ===== UI Handlers =====
 
@@ -70,6 +79,8 @@ public partial class Home
         _userTagLogLevel = "Info";
         _userTagAddress = "";
         _userTagValueType = "Bit";
+        _userTagMatchOp = "";
+        _userTagMatchValue = "";
         _showUserTagEditor = true;
     }
 
@@ -77,12 +88,14 @@ public partial class Home
     {
         var tags = GetUserTags();
         if (index < 0 || index >= tags.Count) return;
-        var (name, level, tag, vt) = tags[index];
+        var (name, level, tag, vt, op, mv) = tags[index];
         _editingUserTagIndex = index;
         _userTagName = name;
         _userTagLogLevel = level;
         _userTagAddress = tag;
         _userTagValueType = vt;
+        _userTagMatchOp = op;
+        _userTagMatchValue = mv;
         _showUserTagEditor = true;
     }
 
@@ -123,7 +136,9 @@ public partial class Home
             _userTagName.Trim(),
             _userTagLogLevel,
             _userTagAddress.Trim(),
-            _userTagValueType);
+            _userTagValueType,
+            _userTagMatchOp?.Trim() ?? string.Empty,
+            _userTagMatchValue?.Trim() ?? string.Empty);
         var smlPath = _selectedNode.JsonPath;
 
         string? updatedJson;
@@ -165,15 +180,15 @@ public partial class Home
     private async Task OnExportUserTagCsv(AasTreeNode tagNode)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("이름,로그 레벨,태그 주소,값 타입");
+        sb.AppendLine("이름,로그 레벨,태그 주소,값 타입,매칭 조건,기준값");
 
         foreach (var child in tagNode.Children)
         {
             var val = child.Properties.GetValueOrDefault("value") ?? "";
             var parsed = ParseUserTag(val);
             if (parsed is null) continue;
-            var (name, level, tag, vt) = parsed.Value;
-            sb.AppendLine($"{CsvEscape(name)},{CsvEscape(level)},{CsvEscape(tag)},{CsvEscape(vt)}");
+            var (name, level, tag, vt, op, mv) = parsed.Value;
+            sb.AppendLine($"{CsvEscape(name)},{CsvEscape(level)},{CsvEscape(tag)},{CsvEscape(vt)},{CsvEscape(op)},{CsvEscape(mv)}");
         }
 
         var base64 = Convert.ToBase64String(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray());
@@ -237,7 +252,7 @@ public partial class Home
             if (lines.Count > 0 && (lines[0].Contains("이름") || lines[0].StartsWith("Name", StringComparison.OrdinalIgnoreCase)))
                 startIdx = 1;
 
-            var entries = new List<(string Name, string LogLevel, string Tag, string ValueType)>();
+            var entries = new List<(string Name, string LogLevel, string Tag, string ValueType, string MatchOp, string MatchValue)>();
             for (var i = startIdx; i < lines.Count; i++)
             {
                 var parts = CsvParseLine(lines[i]);
@@ -246,10 +261,12 @@ public partial class Home
                 var level = parts[1].Trim();
                 var tag = parts[2].Trim();
                 var vt = parts[3].Trim();
+                var op = parts.Count >= 5 ? parts[4].Trim() : string.Empty;
+                var mv = parts.Count >= 6 ? parts[5].Trim() : string.Empty;
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(tag)) continue;
                 if (string.IsNullOrWhiteSpace(level)) level = "Info";
                 if (string.IsNullOrWhiteSpace(vt)) vt = "Bit";
-                entries.Add((name, level, tag, vt));
+                entries.Add((name, level, tag, vt, op, mv));
             }
 
             if (entries.Count == 0)
@@ -265,9 +282,9 @@ public partial class Home
 
             string? updatedJson;
             if (_csvImportReplace)
-                updatedJson = ReplaceSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType)).ToList());
+                updatedJson = ReplaceSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType, e2.MatchOp, e2.MatchValue)).ToList());
             else
-                updatedJson = AddSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType)).ToList());
+                updatedJson = AddSmlItems(_currentJson, smlPath, entries.Select(e2 => FormatUserTag(e2.Name, e2.LogLevel, e2.Tag, e2.ValueType, e2.MatchOp, e2.MatchValue)).ToList());
 
             if (updatedJson is null)
             {

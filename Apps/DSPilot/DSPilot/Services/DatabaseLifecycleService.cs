@@ -44,7 +44,8 @@ public sealed class DatabaseLifecycleService
     }
 
     /// <summary>
-    /// plc.db 전체 삭제 + 스키마 재생성 + AASX 재적재 + 엔진 재시작.
+    /// plc.db 전체 삭제 + 스키마 재생성 + 현재 in-memory AASX 로부터 dspFlow/dspCall 재적재 + 엔진 재시작.
+    /// AASX 파일을 디스크에서 다시 읽지 않는다 — 필요하면 <see cref="ReloadAasxAsync"/> 를 먼저 호출할 것.
     /// 서버 재시작 불필요.
     /// </summary>
     public async Task<RebuildResult> RebuildDatabaseAsync()
@@ -56,6 +57,12 @@ public sealed class DatabaseLifecycleService
         {
             _logger.LogInformation("[DBLifecycle] Rebuild starting...");
 
+            if (!_projectService.IsLoaded)
+            {
+                _logger.LogWarning("[DBLifecycle] AASX 가 로드되지 않은 상태에서 DB 재구축 시도");
+                return new RebuildResult(false, "AASX 모델이 로드되지 않았습니다. 먼저 \"AASX 모델 다시 불러오기\" 를 실행하세요.");
+            }
+
             // 1. 엔진 teardown — DB 핸들 / 컨슈머 / 캐시 모두 해제
             await _engineService.ResetAsync();
 
@@ -66,34 +73,24 @@ public sealed class DatabaseLifecycleService
             var dbPath = _pathResolver.GetSharedDbPath();
             _settingsService.DeleteDatabase(dbPath);
 
-            // 4. AASX 디스크 재로딩 — Promaker 가 갱신한 모델을 in-memory DsStore 에 반영
-            if (File.Exists(_projectService.AasxFilePath))
-            {
-                _projectService.LoadProject(_projectService.AasxFilePath);
-            }
-            else
-            {
-                _logger.LogWarning("[DBLifecycle] AASX 파일이 없습니다: {Path}", _projectService.AasxFilePath);
-            }
-
-            // 5. 스키마 + AASX → dspFlow/dspCall 재적재
+            // 4. 스키마 + 현재 in-memory AASX → dspFlow/dspCall 재적재
             var ok = await _bootstrap.BootstrapAsync();
             if (!ok)
             {
                 _logger.LogWarning("[DBLifecycle] Bootstrap failed after delete");
-                return new RebuildResult(false, "AASX 재로딩 실패 — 로그 확인");
+                return new RebuildResult(false, "DB 재구축 실패 — 로그 확인");
             }
 
-            // 6. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
+            // 5. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
             _engineService.TryEnsureInitialized();
 
-            // 7. 새 DB 로딩 완료 시점에 OnDataChanged 한 번 더 발화 — step 2 의 Reset 은 DB
+            // 6. 새 DB 로딩 완료 시점에 OnDataChanged 한 번 더 발화 — step 2 의 Reset 은 DB
             // 삭제 직전이라 그 시점에 페이지가 reload 해도 빈 결과. BootstrapAsync 가 끝나고
             // 새 dspFlow / dspCall 이 채워진 지금 발화해야 Heatmap / Dashboard 등이 fresh 데이터로
             // 자동 재구성된다. (CycleTimeAnalysis 도 OnDataChanged 구독 — 동일 경로)
             _dspDbService.Reset();
 
-            // 8. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
+            // 7. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
             try
             {
                 await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");
@@ -104,12 +101,53 @@ public sealed class DatabaseLifecycleService
             }
 
             _logger.LogInformation("[DBLifecycle] Rebuild complete");
-            return new RebuildResult(true, "데이터베이스가 초기화되고 재로딩되었습니다.");
+            return new RebuildResult(true, "데이터베이스가 재구축되었습니다.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[DBLifecycle] Rebuild failed");
-            return new RebuildResult(false, $"재초기화 실패: {ex.Message}");
+            return new RebuildResult(false, $"DB 재구축 실패: {ex.Message}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 디스크의 AASX 파일을 다시 읽어 in-memory DsStore 를 갱신.
+    /// plc.db / dspFlow / dspCall / 통계 / 히스토리 / 엔진 상태에는 손대지 않는다.
+    /// 모델 정의가 바뀌었다면 이후 <see cref="RebuildDatabaseAsync"/> 로 DB 를 동기화해야 한다.
+    /// </summary>
+    public async Task<RebuildResult> ReloadAasxAsync()
+    {
+        if (!await _gate.WaitAsync(0))
+            return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
+
+        try
+        {
+            var path = _projectService.AasxFilePath;
+            if (!File.Exists(path))
+            {
+                _logger.LogWarning("[DBLifecycle] AASX 파일이 없습니다: {Path}", path);
+                return new RebuildResult(false, $"AASX 파일이 없습니다: {path}");
+            }
+
+            _logger.LogInformation("[DBLifecycle] ReloadAasx starting ({Path})", path);
+            _projectService.LoadProject(path);
+
+            if (!_projectService.IsLoaded)
+            {
+                return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
+            }
+
+            _logger.LogInformation("[DBLifecycle] ReloadAasx complete (sha256={Sha})", _projectService.LastLoadedSha256 ?? "<n/a>");
+            return new RebuildResult(true, "AASX 모델을 다시 불러왔습니다. (DB 미반영 — 모델 정의가 바뀌었다면 \"DB 재구축\" 실행)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DBLifecycle] ReloadAasx failed");
+            return new RebuildResult(false, $"AASX 재로딩 실패: {ex.Message}");
         }
         finally
         {
