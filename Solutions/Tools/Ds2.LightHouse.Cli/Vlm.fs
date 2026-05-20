@@ -18,16 +18,22 @@ open Ds2.LightHouse
 [<RequireQualifiedAccess>]
 module Vlm =
 
+    /// **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. caller 가 Vlm.fs 단일이라 module 안 박제.
+    [<Literal>]
+    let private EnvApiKey = "LIGHTHOUSE_VLM_API_KEY"
+    [<Literal>]
+    let private EnvModel = "LIGHTHOUSE_VLM_MODEL"
+
     /// process singleton HttpClient — socket exhaustion 차단 (per-image 신규 생성 회피).
     let private httpClient = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
 
     /// env var 기반 captionGen builder. caller (Program.fs / Packager.fs) 가 `ct` 만 주입.
     let buildCaptionGen (ct: CancellationToken) : byte[] -> ImageFormat -> CaptionResult =
-        let apiKey = Environment.GetEnvironmentVariable "LIGHTHOUSE_VLM_API_KEY"
+        let apiKey = Environment.GetEnvironmentVariable EnvApiKey
         if String.IsNullOrWhiteSpace apiKey then
             fun bytes fmt -> CaptionGenerator.noop bytes fmt
         else
             let model =
-                let m = Environment.GetEnvironmentVariable "LIGHTHOUSE_VLM_MODEL"
+                let m = Environment.GetEnvironmentVariable EnvModel
                 if String.IsNullOrWhiteSpace m then "claude-sonnet-4-6" else m
             fun bytes fmt -> CaptionGenerator.callAnthropic httpClient apiKey model bytes fmt ct

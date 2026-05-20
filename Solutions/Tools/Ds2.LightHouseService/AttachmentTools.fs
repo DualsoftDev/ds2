@@ -230,9 +230,13 @@ type AttachmentTools() =
                     TopK = effectiveTopK
                     FileId = libFileId
                 }
-                // s6-r36 P4-C.0: ct 전파 path 추가. AttachmentTools 안에는 ct 없으나 향후 endpoint
-                // pipeline cancel 박제 시 caller (CollectionEndpoints) 가 ct 주입 의무. 현재 None.
-                let r = kb.Search q System.Threading.CancellationToken.None
+                // s6-r41 (s6-r40 Minor-1 backlog 해소): endpoint pipeline cancel 전파 박제.
+                // HttpContext 가 null (test object expression 등) 인 경우 None fallback — fail-safe.
+                let ct =
+                    match accessor.HttpContext with
+                    | null -> System.Threading.CancellationToken.None
+                    | ctx -> ctx.RequestAborted
+                let r = kb.Search q ct
                 let hits =
                     r.Results
                     |> Array.map (fun h ->

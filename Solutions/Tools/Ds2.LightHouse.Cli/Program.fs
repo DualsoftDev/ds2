@@ -41,6 +41,18 @@ let private FlagAllowInvalidCerts = "allow-invalid-certs"
 [<Literal>]
 let private FlagVersion = "version"
 
+// **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. cli scope 한정 (Promaker LlmConfig 의
+// LIGHTHOUSE_VLM_API_KEY 박제 는 별 cross-project SSOT 박제 의무 — K4 Protocol 통합 phase 묶음).
+// `LIGHTHOUSE_VLM_API_KEY` 는 사용처 (Vlm.fs) 단일 — 해당 module 안 박제.
+[<Literal>]
+let private EnvOllamaUrl = "LIGHTHOUSE_OLLAMA_URL"
+[<Literal>]
+let private EnvOllamaModel = "LIGHTHOUSE_OLLAMA_MODEL"
+[<Literal>]
+let private EnvOllamaDim = "LIGHTHOUSE_OLLAMA_DIM"
+[<Literal>]
+let private EnvPsk = "LIGHTHOUSE_PSK"
+
 let private usage () =
     eprintfn "usage:"
     eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
@@ -48,9 +60,9 @@ let private usage () =
     eprintfn ""
     eprintfn "options:"
     eprintfn "  --no-embedding             vector embedding 생성 skip (BM25-only 색인). default = Ollama bge-m3 / 1024 dim"
-    eprintfn "                             env: LIGHTHOUSE_OLLAMA_URL / LIGHTHOUSE_OLLAMA_MODEL / LIGHTHOUSE_OLLAMA_DIM 으로 override"
+    eprintfn "                             env: %s / %s / %s 으로 override" EnvOllamaUrl EnvOllamaModel EnvOllamaDim
     eprintfn "  --upload <url>             LightHouseService base URL (https://host:port)"
-    eprintfn "  --psk <key>                PSK (DPAPI 미적용 평문 — env var LIGHTHOUSE_PSK 권장)"
+    eprintfn "  --psk <key>                PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
     eprintfn "  --title <name>             collection 표시 이름 (생략 시 폴더명)"
     eprintfn "  --user <id>                X-User-Identity (생략 시 USERNAME@MachineName)"
     eprintfn "  --allow-invalid-certs      self-signed cert 신뢰 우회 (dev only)"
@@ -81,7 +93,7 @@ let private resolvePsk (flagValue: string option) : string option =
     match flagValue with
     | Some v when not (String.IsNullOrWhiteSpace v) -> Some v
     | _ ->
-        let env = Environment.GetEnvironmentVariable "LIGHTHOUSE_PSK"
+        let env = Environment.GetEnvironmentVariable EnvPsk
         if String.IsNullOrWhiteSpace env then None else Some env
 
 let private defaultUserIdentity () =
@@ -94,7 +106,7 @@ let private defaultUserIdentity () =
 /// **Phase 4 (s6-r37) P4-C.1** — embedder backend 선택 본격화. `noEmbedding=true` 시 강제 None (BM25-only).
 ///
 /// default backend = **OllamaSharp adapter** (`OllamaEmbedder` — bge-m3 / 1024 dim / http://localhost:11434).
-/// env var override 의무:
+/// env var override 의무 (SSOT = `EnvOllamaUrl` / `EnvOllamaModel` / `EnvOllamaDim` literal):
 ///   - `LIGHTHOUSE_OLLAMA_URL` → default `OllamaDefaults.BaseUrl`
 ///   - `LIGHTHOUSE_OLLAMA_MODEL` → default `OllamaDefaults.Model`
 ///   - `LIGHTHOUSE_OLLAMA_DIM` → default `OllamaDefaults.Dimension`
@@ -108,14 +120,14 @@ let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
             match Environment.GetEnvironmentVariable name with
             | null | "" -> defaultValue
             | v -> v
-        let baseUrl = envOrDefault "LIGHTHOUSE_OLLAMA_URL" OllamaDefaults.BaseUrl
-        let model = envOrDefault "LIGHTHOUSE_OLLAMA_MODEL" OllamaDefaults.Model
+        let baseUrl = envOrDefault EnvOllamaUrl OllamaDefaults.BaseUrl
+        let model = envOrDefault EnvOllamaModel OllamaDefaults.Model
         let dim =
-            let raw = envOrDefault "LIGHTHOUSE_OLLAMA_DIM" (string OllamaDefaults.Dimension)
+            let raw = envOrDefault EnvOllamaDim (string OllamaDefaults.Dimension)
             match Int32.TryParse raw with
             | true, v when v > 0 -> v
             | _ ->
-                eprintfn "경고: LIGHTHOUSE_OLLAMA_DIM 값 '%s' parse 실패 — default %d 사용" raw OllamaDefaults.Dimension
+                eprintfn "경고: %s 값 '%s' parse 실패 — default %d 사용" EnvOllamaDim raw OllamaDefaults.Dimension
                 OllamaDefaults.Dimension
         let embedder = new OllamaEmbedder(baseUrl, model, dim) :> IEmbeddingProvider
         eprintfn "  embedding backend = Ollama (%s, model=%s, dim=%d)" baseUrl model dim
@@ -238,7 +250,7 @@ let main args =
             | Some baseUrl when not (String.IsNullOrWhiteSpace baseUrl) ->
                 match resolvePsk (Map.tryFind FlagPsk flags) with
                 | None ->
-                    eprintfn "오류: --psk 또는 LIGHTHOUSE_PSK 환경 변수 필수"
+                    eprintfn "오류: --%s 또는 %s 환경 변수 필수" FlagPsk EnvPsk
                     10
                 | Some psk ->
                     let title =
