@@ -123,7 +123,7 @@ let ``attachment_list — 빈 active 셋 → "[]"`` () =
     match reg.TryGet r.Token with
     | SessionLookup.Active s ->
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let result = AttachmentTools.attachment_list(accessor, resolver)
+        let result = AttachmentTools.attachment_list(accessor, reg)
         Assert.Equal("[]", result)
     | _ -> Assert.Fail "Active 기대"
 
@@ -139,7 +139,7 @@ let ``attachment_list — fileId 가 <guid>:<docId> 형식 (MA23 D3 정합)`` ()
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let result = AttachmentTools.attachment_list(accessor, resolver)
+            let result = AttachmentTools.attachment_list(accessor, reg)
             // JSON parse 후 fileId prefix = collId
             let doc = JsonDocument.Parse result
             let root = doc.RootElement
@@ -164,7 +164,7 @@ let ``attachment_search — query hit + fileId guid prefix`` () =
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let result = AttachmentTools.attachment_search(accessor, resolver, "컨베이어", 5, null)
+            let result = AttachmentTools.attachment_search(accessor, reg, "컨베이어", 5, null)
             let doc = JsonDocument.Parse result
             let results = doc.RootElement.GetProperty("results")
             Assert.True(results.GetArrayLength() >= 1)
@@ -188,7 +188,7 @@ let ``attachment_search — fileId active 셋 밖 → 빈 결과 + hint 명시``
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
             // 다른 guid 의 fileId
             let bogusFileId = sprintf "%s:1" (Guid.NewGuid().ToString("D"))
-            let result = AttachmentTools.attachment_search(accessor, resolver, "vendor", 5, bogusFileId)
+            let result = AttachmentTools.attachment_search(accessor, reg, "vendor", 5, bogusFileId)
             let doc = JsonDocument.Parse result
             Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength())
             let hint = doc.RootElement.GetProperty("hint").GetString()
@@ -210,7 +210,7 @@ let ``attachment_outline — fileId active 셋 밖 → "[]"`` () =
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
             let bogus = sprintf "%s:1" (Guid.NewGuid().ToString("D"))
-            let result = AttachmentTools.attachment_outline(accessor, resolver, bogus)
+            let result = AttachmentTools.attachment_outline(accessor, reg, bogus)
             Assert.Equal("[]", result)
             lock s.SyncRoot (fun () -> SessionKb.dispose s)
         | _ -> Assert.Fail "Active 기대"
@@ -230,7 +230,7 @@ let ``attachment_read — fileId active 셋 밖 → 빈 text content block`` () 
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
             let bogus = sprintf "%s:1" (Guid.NewGuid().ToString("D"))
             // s6-r20: attachment_read 시그니처 확장 — (fileId, ref, includeImages, captionOnly) → ContentBlock[].
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, bogus, "p=1", false, true)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, bogus, "p=1", false, true)
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock as tb -> Assert.Equal("", tb.Text)
@@ -252,14 +252,14 @@ let ``attachment_read — captionOnly mode → 단일 TextContentBlock + chunk �
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
             // 먼저 fileId 와 ref 를 list / search 로 획득.
-            let listJson = AttachmentTools.attachment_list(accessor, resolver)
+            let listJson = AttachmentTools.attachment_list(accessor, reg)
             let listDoc = JsonDocument.Parse listJson
             let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
-            let searchJson = AttachmentTools.attachment_search(accessor, resolver, "컨베이어", 5, null)
+            let searchJson = AttachmentTools.attachment_search(accessor, reg, "컨베이어", 5, null)
             let searchDoc = JsonDocument.Parse searchJson
             let refLoc = searchDoc.RootElement.GetProperty("results").[0].GetProperty("ref").GetString()
             // captionOnly=true (image binary 미동봉).
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, false, true)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, false, true)
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
@@ -281,16 +281,16 @@ let ``attachment_read — includeImages mode, image 0개 → text block 만 (s6-
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let listJson = AttachmentTools.attachment_list(accessor, resolver)
+            let listJson = AttachmentTools.attachment_list(accessor, reg)
             let listDoc = JsonDocument.Parse listJson
             let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
-            let searchJson = AttachmentTools.attachment_search(accessor, resolver, "이미지", 5, null)
+            let searchJson = AttachmentTools.attachment_search(accessor, reg, "이미지", 5, null)
             let searchDoc = JsonDocument.Parse searchJson
             let results = searchDoc.RootElement.GetProperty("results")
             Assert.True(results.GetArrayLength() >= 1)
             let refLoc = results.[0].GetProperty("ref").GetString()
             // includeImages=true, captionOnly=false — TextExtractor 산물이라 image 0개, 결과 text block 만.
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, true, false)
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock -> ()
@@ -303,11 +303,11 @@ let ``attachment_read — includeImages mode, image 0개 → text block 만 (s6-
 // ─── --review 실 image fixture (s6-r21) ─────────────────────────────────────────
 
 /// 헬퍼: list + search 로 (fileId, refLoc) 획득.
-let private resolveFileIdAndRef (accessor: IHttpContextAccessor) (resolver: AttachmentResolver) (query: string) =
-    let listJson = AttachmentTools.attachment_list(accessor, resolver)
+let private resolveFileIdAndRef (accessor: IHttpContextAccessor) (reg: ISessionRegistry) (query: string) =
+    let listJson = AttachmentTools.attachment_list(accessor, reg)
     let listDoc = JsonDocument.Parse listJson
     let fileId = listDoc.RootElement.[0].GetProperty("fileId").GetString()
-    let searchJson = AttachmentTools.attachment_search(accessor, resolver, query, 5, null)
+    let searchJson = AttachmentTools.attachment_search(accessor, reg, query, 5, null)
     let searchDoc = JsonDocument.Parse searchJson
     let results = searchDoc.RootElement.GetProperty("results")
     Assert.True(results.GetArrayLength() >= 1)
@@ -325,8 +325,8 @@ let ``attachment_read — includeImages mode, 단일 image fixture → text + Im
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let fileId, refLoc = resolveFileIdAndRef accessor resolver "컨베이어"
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            let fileId, refLoc = resolveFileIdAndRef accessor reg "컨베이어"
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, true, false)
             // text block 1 + image block 1.
             Assert.Equal(2, blocks.Length)
             match blocks.[0] with
@@ -357,9 +357,9 @@ let ``attachment_read — captionOnly mode, image fixture → text block 안 cap
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let fileId, refLoc = resolveFileIdAndRef accessor resolver "컨베이어"
+            let fileId, refLoc = resolveFileIdAndRef accessor reg "컨베이어"
             // captionOnly=true → text block 1 + caption enumeration inline. image binary 미동봉.
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, false, true)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, false, true)
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
@@ -385,9 +385,9 @@ let ``attachment_read — 6장+ image → 전량 caption_only 강등 + oversize_
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let fileId, refLoc = resolveFileIdAndRef accessor resolver "벤트필터"
+            let fileId, refLoc = resolveFileIdAndRef accessor reg "벤트필터"
             // includeImages=true 라도 image 6장 > 5 → 자동 caption_only 강등.
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, true, false)
             Assert.Equal(1, blocks.Length)   // image block 없음 — caption_only 강등 결과.
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
@@ -446,9 +446,9 @@ let ``attachment_read — 단일 image > MaxSingleImageBytes → skip + oversize
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let fileId, refLoc = resolveFileIdAndRef accessor resolver "대용량"
+            let fileId, refLoc = resolveFileIdAndRef accessor reg "대용량"
             // includeImages=true → text block + oversize footer (image binary 미동봉 — skip).
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, true, false)
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, true, false)
             // image binary 미동봉 — text block 만 (1개).
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
@@ -473,8 +473,8 @@ let ``attachment_read — caption 미생성 image → "(caption 미생성)" 표�
         match reg.TryGet r.Token with
         | SessionLookup.Active s ->
             let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-            let fileId, refLoc = resolveFileIdAndRef accessor resolver "미캡션"
-            let blocks = AttachmentTools.attachment_read(accessor, resolver, fileId, refLoc, false, true)
+            let fileId, refLoc = resolveFileIdAndRef accessor reg "미캡션"
+            let blocks = AttachmentTools.attachment_read(accessor, reg, fileId, refLoc, false, true)
             Assert.Equal(1, blocks.Length)
             match blocks.[0] with
             | :? ModelContextProtocol.Protocol.TextContentBlock as tb ->
@@ -488,21 +488,23 @@ let ``attachment_read — caption 미생성 image → "(caption 미생성)" 표�
 [<Fact>]
 let ``HttpContext 미존재 → InvalidOperationException (방어 — IHttpContextAccessor 미등록 회귀 가드)`` () =
     let resolver = mkResolver Map.empty
+    let reg = SessionRegistry(resolver) :> ISessionRegistry
     let accessor =
         { new IHttpContextAccessor with
             member _.HttpContext
                 with get () = null
                 and set _ = () }
     let ex = Assert.Throws<InvalidOperationException>(fun () ->
-        AttachmentTools.attachment_list(accessor, resolver) |> ignore)
+        AttachmentTools.attachment_list(accessor, reg) |> ignore)
     Assert.Contains("HttpContext 미존재", ex.Message)
 
 
 [<Fact>]
 let ``SessionState 미존재 (SessionAuth 미들웨어 미통과) → InvalidOperationException`` () =
     let resolver = mkResolver Map.empty
+    let reg = SessionRegistry(resolver) :> ISessionRegistry
     let ctx = DefaultHttpContext() :> HttpContext   // Items 비어있음
     let accessor = FakeAccessor(ctx) :> IHttpContextAccessor
     let ex = Assert.Throws<InvalidOperationException>(fun () ->
-        AttachmentTools.attachment_list(accessor, resolver) |> ignore)
+        AttachmentTools.attachment_list(accessor, reg) |> ignore)
     Assert.Contains("SessionState 미존재", ex.Message)

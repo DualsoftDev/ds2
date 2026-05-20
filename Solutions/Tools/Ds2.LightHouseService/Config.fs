@@ -16,6 +16,21 @@ type IndexerVersionRange = {
     [<JsonPropertyName("max")>] Max: string
 }
 
+/// **Phase 4 P4-C.3 (s6-r39)** — server-side embedding config (hybrid retrieval 시 query embedding 생성).
+///
+/// Enabled=false / 본 record null 시 BM25-only fallback (Phase 1 동작 유지). Enabled=true 시 SessionRegistry
+/// 가 매 session attach 마다 새 `OllamaEmbedder` 생성 → facade own → session dispose 시 동반 dispose
+/// (per-session lifecycle, 본 turn 단순화 박제. service-singleton non-owning 패턴은 backlog).
+///
+/// Ollama 는 localhost unauth 가정 → API key 박제 0. 향후 OpenAI/Anthropic embedding API 도입 시 별도
+/// ApiKeyEncrypted 필드 추가 + DPAPI(LocalMachine) 박제 패턴 (TlsCertPasswordEncrypted 와 동일).
+type EmbeddingConfigSection = {
+    [<JsonPropertyName("enabled")>] Enabled: bool
+    [<JsonPropertyName("baseUrl")>] BaseUrl: string
+    [<JsonPropertyName("model")>] Model: string
+    [<JsonPropertyName("dimension")>] Dimension: int
+}
+
 type ServiceConfig = {
     /// config schema 자체 버전. service binary upgrade 시 migration trigger (S1 DoD).
     [<JsonPropertyName("schemaVersion")>] SchemaVersion: int
@@ -42,6 +57,9 @@ type ServiceConfig = {
     [<JsonPropertyName("auditRetentionDays")>] AuditRetentionDays: int
     /// §3.12 IndexerVersion gate. upload 시점 client 가 만든 index.db 의 Meta.indexer_version 검증.
     [<JsonPropertyName("indexerVersionRange")>] IndexerVersionRange: IndexerVersionRange
+    /// **Phase 4 P4-C.3 (s6-r39)** — server-side hybrid retrieval 의 embedder backend (nullable).
+    /// null / Enabled=false → BM25-only fallback. schemaVersion bump (1→2) 동반.
+    [<JsonPropertyName("embedding")>] Embedding: EmbeddingConfigSection
 }
 
 
@@ -49,8 +67,10 @@ type ServiceConfig = {
 /// config 파일의 값이 본 값보다 *낮으면* in-place migration (backup → upgrade), *높으면* fail-fast.
 [<RequireQualifiedAccess>]
 module ConfigSchema =
+    // s6-r39 P4-C.3: 1 → 2 bump (embedding section 신설). legacy schemaVersion=1 config 는 load 단계에서
+    // migration in-place 진입 — embedding 필드 자동 채움 (Enabled=false, default URL/model/dim).
     [<Literal>]
-    let Current = 1
+    let Current = 2
 
 
 [<RequireQualifiedAccess>]
@@ -101,8 +121,22 @@ module Config =
 
         match cfg.SchemaVersion with
         | v when v = ConfigSchema.Current -> cfg
+        | 1 ->
+            // s6-r39 P4-C.3: 1 → 2 in-place migration — embedding 필드 자동 채움 (Enabled=false 박제, BM25-only
+            // fallback 유지 = 회귀 0). 사용자가 활성화하려면 config.json 의 embedding section 수동 편집 (또는
+            // install-service.ps1 갱신 박제).
+            let migrated = {
+                cfg with
+                    SchemaVersion = ConfigSchema.Current
+                    Embedding = {
+                        Enabled = false
+                        BaseUrl = "http://localhost:11434"
+                        Model = "bge-m3"
+                        Dimension = 1024
+                    }
+            }
+            migrated
         | v when v < ConfigSchema.Current ->
-            // Phase S1 = schemaVersion 1 만 존재 — migration 자체가 미정의. 향후 bump 시 본 분기에 migration 추가.
             raise (InvalidDataException(
                 sprintf "Service config schemaVersion=%d 이 너무 낮음 — migration 미정의 (current=%d)"
                     v ConfigSchema.Current))

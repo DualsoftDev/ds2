@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "_listenUrl_note": "K3 외부 review R6 합의: default = 127.0.0.1 (loopback) — install-service.ps1 가 -ListenUrl 인자로 외부 IP 명시 override. 0.0.0.0 bind 시 PSK 단독 보호 = 외부 노출 risk.",
   "listenUrl": "https://127.0.0.1:8443",
   "tlsCertPath": "C:\\ProgramData\\Dualsoft\\LightHouseService\\service.pfx",
@@ -16,5 +16,12 @@
   "indexerVersionRange": {
     "min": "1.0.0",
     "max": "2.99.99"
+  },
+  "_embedding_note": "s6-r39 P4-C.3: server-side hybrid retrieval (BM25 + vector RRF) backend. enabled=false 시 BM25-only fallback. Ollama 가 localhost unauth 가정 — API key 불요. dimension 은 client 측 색인 시 lib SqliteStore.EmbeddingDimension (1024, bge-m3) 과 정합 의무.",
+  "embedding": {
+    "enabled": false,
+    "baseUrl": "http://localhost:11434",
+    "model": "bge-m3",
+    "dimension": 1024
   }
 }

@@ -57,7 +57,31 @@ let configureApp
     // resolver 는 storage 의 collection 디렉토리 조립 (Registry + Storage + ZipImport.collectionDirName).
     let attachmentResolver = AttachmentResolver.fromRegistry storageRoot
     builder.Services.AddSingleton<AttachmentResolver>(attachmentResolver) |> ignore
-    let sessionRegistry = SessionRegistry(attachmentResolver)
+
+    // s6-r39 P4-C.3 — server-side hybrid retrieval 의 embedder factory.
+    // Enabled=false / config null → factory 가 항상 None (BM25-only fallback, Phase 1 동작 유지).
+    // Enabled=true → 매 SessionKb.attach 마다 새 OllamaEmbedder 생성 (per-session lifecycle, KB facade own).
+    // backend 결함 (Ollama daemon down 등) 은 색인/검색 시점 lazy fail-fast (factory throw 안 함).
+    let embedderFactory : unit -> Ds2.LightHouse.IEmbeddingProvider option =
+        let emb = cfg.Embedding
+        if not emb.Enabled then
+            fun () -> None
+        elif String.IsNullOrWhiteSpace emb.BaseUrl
+             || String.IsNullOrWhiteSpace emb.Model
+             || emb.Dimension <= 0 then
+            Log.service.Warn(
+                sprintf "P4-C.3: embedding config validation 실패 (baseUrl='%s' model='%s' dim=%d) — BM25-only fallback"
+                    emb.BaseUrl emb.Model emb.Dimension)
+            fun () -> None
+        else
+            Log.service.Info(
+                sprintf "P4-C.3: server-side embedding 활성 — baseUrl=%s model=%s dim=%d"
+                    emb.BaseUrl emb.Model emb.Dimension)
+            fun () ->
+                let e = new Ds2.LightHouse.Ollama.OllamaEmbedder(emb.BaseUrl, emb.Model, emb.Dimension)
+                Some (e :> Ds2.LightHouse.IEmbeddingProvider)
+
+    let sessionRegistry = SessionRegistry(attachmentResolver, embedderFactory)
     builder.Services.AddSingleton<ISessionRegistry>(sessionRegistry :> ISessionRegistry) |> ignore
     // ICollectionLifecycleNotifier 도 같은 instance — Phase S2 collection mutation API 가 본 notifier 호출.
     builder.Services.AddSingleton<ICollectionLifecycleNotifier>(fun sp ->

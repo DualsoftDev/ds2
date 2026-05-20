@@ -78,10 +78,12 @@ type AttachmentTools() =
             raise (InvalidOperationException "AttachmentTools: SessionState 미존재 — SessionAuth 미들웨어 누락")
 
     /// 한 session 안에서 KB lock-and-use. SyncRoot 안에서 attach + 작업 + LastUsedAt 갱신.
-    static let withKb (accessor: IHttpContextAccessor) (resolver: AttachmentResolver) (work: Ds2.LightHouse.KnowledgeBase -> 'a) : 'a =
+    /// **s6-r39 P4-C.3** — `resolver` 인자 제거 (SessionRegistry 가 instance 안 wire 박제 lock-in). caller
+    /// (`attachment_search` 등 4 method) 가 `ISessionRegistry` 만 받음 — resolver + embedderFactory 박제 통합.
+    static let withKb (accessor: IHttpContextAccessor) (registry: ISessionRegistry) (work: Ds2.LightHouse.KnowledgeBase -> 'a) : 'a =
         let s = activeSession accessor
         lock s.SyncRoot (fun () ->
-            let kb = SessionKb.attach resolver s
+            let kb = registry.AttachKb s
             let r = work kb
             s.LastUsedAt <- DateTime.UtcNow
             r)
@@ -145,9 +147,9 @@ type AttachmentTools() =
     static member attachment_list
         (
             accessor: IHttpContextAccessor,
-            resolver: AttachmentResolver
+            registry: ISessionRegistry
         ) : string =
-        withKb accessor resolver (fun kb ->
+        withKb accessor registry (fun kb ->
             let s = activeSession accessor
             let docs = kb.List()
             let items =
@@ -172,11 +174,11 @@ type AttachmentTools() =
     static member attachment_outline
         (
             accessor: IHttpContextAccessor,
-            resolver: AttachmentResolver,
+            registry: ISessionRegistry,
             [<Description("File identifier from attachment_list, format <collection-guid>:<docId>")>]
             fileId: string
         ) : string =
-        withKb accessor resolver (fun kb ->
+        withKb accessor registry (fun kb ->
             let s = activeSession accessor
             match importFileId s fileId with
             | None -> "[]"
@@ -203,7 +205,7 @@ type AttachmentTools() =
     static member attachment_search
         (
             accessor: IHttpContextAccessor,
-            resolver: AttachmentResolver,
+            registry: ISessionRegistry,
             [<Description("Search query text (whitespace-separated tokens, implicit AND)")>]
             query: string,
             [<Description("Max results to return (default 10)")>]
@@ -211,7 +213,7 @@ type AttachmentTools() =
             [<Description("Optional: limit search to single document (fileId from attachment_list)")>]
             fileId: string
         ) : string =
-        withKb accessor resolver (fun kb ->
+        withKb accessor registry (fun kb ->
             let s = activeSession accessor
             let effectiveTopK = if topK <= 0 then 10 else topK
             let libFileId =
@@ -273,7 +275,7 @@ type AttachmentTools() =
     static member attachment_read
         (
             accessor: IHttpContextAccessor,
-            resolver: AttachmentResolver,
+            registry: ISessionRegistry,
             [<Description("File identifier (from attachment_search hit.fileId)")>]
             fileId: string,
             [<Description("Ref locator (from attachment_search hit.ref)")>]
@@ -283,7 +285,7 @@ type AttachmentTools() =
             [<Description("Caption-only mode: text block + inline caption enumeration (no base64 binary). Default true (effective when both flags false — back-compat caption_only path).")>]
             captionOnly: bool
         ) : ContentBlock array =
-        withKb accessor resolver (fun kb ->
+        withKb accessor registry (fun kb ->
             let s = activeSession accessor
             match importFileId s fileId with
             | None ->
