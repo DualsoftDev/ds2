@@ -109,6 +109,11 @@ type ServiceFixture() =
                 Mode = MtlsMode.Off
                 AllowedThumbprints = Array.empty
             }
+            // **s6-r66 D-S7-4** — IT default 가 MultiTenant.Mode="T1" flat (현행 동작 유지, 회귀 0).
+            // T2/T3 round-trip 검증은 별 fixture (MultiTenantRoundTripTests 의 buildConfig override) 박제.
+            MultiTenant = {
+                Mode = MultiTenantMode.T1
+            }
         }
 
     interface IAsyncLifetime with

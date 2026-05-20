@@ -244,7 +244,8 @@ let configureApp
     let registry = app.Services.GetRequiredService<ISessionRegistry>()
     let eventBus = app.Services.GetRequiredService<EventBus>()  // Phase S7 D-S7-2 (s6-r27)
     CollectionEndpoints.map app cfg notifier eventBus
-    SessionEndpoints.map app registry
+    // **s6-r66 D-S7-4** — SessionEndpoints.map 시그니처 변경 (cfg 인자 추가, multi-tenant filter SSOT).
+    SessionEndpoints.map app cfg registry
     // Phase S4 — file serving (citation 원문 stream, §3.9 / §4.2 Phase S4 / D6).
     FileServing.map app storageRoot
     // Phase S7 D-S7-2 (s6-r27) — `GET /events` SSE endpoint (collection-added/updated/deleted + keepalive).
@@ -291,8 +292,11 @@ let main argv =
     let rawCfg = Config.load configPath
     Config.validateHttpsOnly rawCfg
     // **s6-r53 D-S7-1** — mtls.mode 정합 + AllowedThumbprints normalize. fail-fast (config 결함은 install 안내).
-    let cfg = Config.validateMtls rawCfg
+    let cfgMtls = Config.validateMtls rawCfg
+    // **s6-r66 D-S7-4** — multiTenant.mode 정합 + normalize. fail-fast (config 결함은 reinstall 안내).
+    let cfg = Config.validateMultiTenant cfgMtls
     Log.service.Info(sprintf "D-S7-1: mtls mode=%s whitelist=%d" cfg.Mtls.Mode cfg.Mtls.AllowedThumbprints.Length)
+    Log.service.Info(sprintf "D-S7-4: multiTenant mode=%s" cfg.MultiTenant.Mode)
 
     let psk = Config.decryptDpapi cfg.PreSharedKeyEncrypted
     let tlsCertPassword = Config.decryptDpapi cfg.TlsCertPasswordEncrypted

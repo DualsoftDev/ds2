@@ -107,6 +107,8 @@ module MetaJson =
 
     /// CollectionEntry 변환 — Registry 에 upsert 할 때 사용.
     /// meta 의 file/byte count 가 0 인 경우 (0-doc collection, MA18) 그대로 보존.
+    /// **s6-r66 D-S7-4**: Acl=null default — T1/T2 모드 시 무시. T3 모드는 admin 이 별 endpoint (Phase S7 후속) 또는
+    /// registry.json 수동 편집으로 acl 박제. 본 helper 는 upload path 의 default 만 책임.
     let toRegistryEntry (meta: MetaJson) : CollectionEntry =
         { Id = meta.Id
           DisplayName = meta.Title
@@ -119,4 +121,5 @@ module MetaJson =
           StorageRelPath = meta.StorageRelPath
           Status = "idle"
           ErrorReason = null
-          LastImportedAt = meta.ImportedAt }
+          LastImportedAt = meta.ImportedAt
+          Acl = Unchecked.defaultof<CollectionAcl> }

@@ -53,6 +53,22 @@ type MtlsConfigSection = {
     [<JsonPropertyName("allowedThumbprints")>] AllowedThumbprints: string[]
 }
 
+/// **Phase S7 D-S7-4 (s6-r66)** — multi-tenant policy config.
+///
+/// Mode 박제:
+///   - "T1" — flat (default, 현행). 모든 collection 이 모든 user 에게 visible+writable. registry.collections[].acl 무시.
+///   - "T2" — per-user namespace. `ImportedBy` 가 X-User-Identity 와 일치하는 entry 만 visible+writable. 빈 ImportedBy
+///     (legacy entry, T1 시절 등록) 은 전체 공개 유지 (사용자 결정: 마이그레이션 부담 0, admin 수동 이전 의무).
+///   - "T3" — collection ACL. registry.collections[].acl = `{users: [...], readOnly: bool}` 검증. acl 누락 = 전체 공개
+///     (legacy / T1 시절 등록). acl.users 비어있음 = 전체 공개. acl.users 가 X-User-Identity 포함하면 visible.
+///     readOnly=true 면 mutation (payload swap / delete) reject.
+///
+/// 진입 trigger = PII 격리 요구 발생 시 (사전 박제). T1→T2/T3 전환 시 admin 이 config.json 편집 + 기존 entry 의 acl
+/// 박제 의무 (legacy fallback 으로 안전망 유지).
+type MultiTenantConfigSection = {
+    [<JsonPropertyName("mode")>] Mode: string
+}
+
 type ServiceConfig = {
     /// config schema 자체 버전. service binary upgrade 시 migration trigger (S1 DoD).
     [<JsonPropertyName("schemaVersion")>] SchemaVersion: int
@@ -85,6 +101,9 @@ type ServiceConfig = {
     /// **Phase S7 D-S7-1 (s6-r53)** — mTLS client cert auth. schemaVersion bump (2→3) 동반.
     /// Mode="off" / null → 현행 (PSK 단독). "optional"/"required" → Kestrel ClientCertificateMode 진입.
     [<JsonPropertyName("mtls")>] Mtls: MtlsConfigSection
+    /// **Phase S7 D-S7-4 (s6-r66)** — T2/T3 multi-tenant opt-in. schemaVersion bump (3→4) 동반.
+    /// Mode="T1" / null → 현행 (flat, 회귀 0). "T2"/"T3" → registry filter + acl 검증 진입.
+    [<JsonPropertyName("multiTenant")>] MultiTenant: MultiTenantConfigSection
 }
 
 
@@ -93,10 +112,12 @@ type ServiceConfig = {
 [<RequireQualifiedAccess>]
 module ConfigSchema =
     // s6-r39 P4-C.3: 1 → 2 bump (embedding section 신설).
-    // s6-r53 D-S7-1:  2 → 3 bump (mtls section 신설). legacy schemaVersion=1/2 config 는 load 단계에서
-    // migration in-place 진입 — embedding 필드 (Enabled=false) + mtls 필드 (Mode="off") 자동 채움.
+    // s6-r53 D-S7-1:  2 → 3 bump (mtls section 신설).
+    // s6-r66 D-S7-4:  3 → 4 bump (multiTenant section 신설). legacy schemaVersion=1/2/3 config 는 load 단계에서
+    // chain migration 진입 — embedding 필드 (Enabled=false) + mtls 필드 (Mode="off") + multiTenant 필드 (Mode="T1")
+    // 자동 채움 (모두 회귀 0 default).
     [<Literal>]
-    let Current = 3
+    let Current = 4
 
 /// **Phase S7 D-S7-1 (s6-r53)** — mTLS mode literal SSOT (config + Program.fs + tests 정합).
 [<RequireQualifiedAccess>]
@@ -107,6 +128,16 @@ module MtlsMode =
     let Optional = "optional"
     [<Literal>]
     let Required = "required"
+
+/// **Phase S7 D-S7-4 (s6-r66)** — multi-tenant mode literal SSOT (config + MultiTenantPolicy + tests 정합).
+[<RequireQualifiedAccess>]
+module MultiTenantMode =
+    [<Literal>]
+    let T1 = "T1"
+    [<Literal>]
+    let T2 = "T2"
+    [<Literal>]
+    let T3 = "T3"
 
 
 [<RequireQualifiedAccess>]
@@ -140,10 +171,14 @@ module Config =
 
     /// config.json 파일 → ServiceConfig + schema_version check (S1 DoD).
     ///
+    /// **s6-r66 D-S7-4 (scope 확장)**: in-place migration chain (v1→v2→v3→v4) 제거. paired-release `/dist`
+    /// 실행 0회 = prod 배포 0건 = legacy schemaVersion 의 config.json 가 존재하는 인스턴스 0건. migration path
+    /// 가 dead code (사용자 지적 정합). 정책 단순화 — schemaVersion ≠ Current 면 모두 fail-fast + reinstall 안내.
+    /// dev local 의 stale config 는 admin 이 수동 reinstall 의무 (install-service.ps1 가 fresh template 배포).
+    ///
     /// schemaVersion 검증:
     ///   - missing / 0 → fail-fast (corrupt config)
-    ///   - schemaVersion < Current → migration in-place (Phase S1 = 1 만 — migration 미작성, 향후 schema bump 시 추가)
-    ///   - schemaVersion > Current → fail-fast (service binary 가 낮음 — 사용자 binary 업그레이드 안내)
+    ///   - schemaVersion ≠ Current → fail-fast (reinstall 안내)
     ///   - schemaVersion = Current → OK
     let load (path: string) : ServiceConfig =
         if not (File.Exists path) then
@@ -155,38 +190,11 @@ module Config =
         if obj.ReferenceEquals(cfg, null) then
             raise (InvalidDataException(sprintf "Service config 역직렬화 실패 — %s" path))
 
-        // s6-r53 D-S7-1: 1→2→3 chain migration. 각 step 별 helper (default 채움) → 재귀 1회 step. legacy
-        // schemaVersion=1 → 2 (Embedding default) → 3 (Mtls default) 모두 회귀 0 (Enabled=false / Mode="off"
-        // 박제로 현행 동작 유지). schemaVersion=2 → 3 단일 step.
-        let migrate1to2 (c: ServiceConfig) : ServiceConfig =
-            // s6-r39 P4-C.3: embedding 필드 자동 채움 (Enabled=false BM25-only fallback).
-            { c with
-                SchemaVersion = 2
-                Embedding = {
-                    Enabled = false
-                    BaseUrl = "http://localhost:11434"
-                    Model = "bge-m3"
-                    Dimension = 1024 } }
-        let migrate2to3 (c: ServiceConfig) : ServiceConfig =
-            // s6-r53 D-S7-1: mtls 필드 자동 채움 (Mode="off" 현행 동작 유지).
-            { c with
-                SchemaVersion = 3
-                Mtls = {
-                    Mode = MtlsMode.Off
-                    AllowedThumbprints = Array.empty } }
-
-        match cfg.SchemaVersion with
-        | v when v = ConfigSchema.Current -> cfg
-        | 1 -> cfg |> migrate1to2 |> migrate2to3
-        | 2 -> cfg |> migrate2to3
-        | v when v < ConfigSchema.Current ->
+        if cfg.SchemaVersion = ConfigSchema.Current then cfg
+        else
             raise (InvalidDataException(
-                sprintf "Service config schemaVersion=%d 이 너무 낮음 — migration 미정의 (current=%d)"
-                    v ConfigSchema.Current))
-        | v ->
-            raise (InvalidDataException(
-                sprintf "Service config schemaVersion=%d > service binary supported=%d — binary 업그레이드 필요"
-                    v ConfigSchema.Current))
+                sprintf "Service config schemaVersion=%d ≠ service binary supported=%d — install-service.ps1 reinstall 필요"
+                    cfg.SchemaVersion ConfigSchema.Current))
 
     /// `listenUrl` 의 `http://` prefix fail-fast (§3.7 plain HTTP 거부).
     let validateHttpsOnly (cfg: ServiceConfig) =
@@ -226,3 +234,19 @@ module Config =
                 raise (InvalidDataException(
                     sprintf "mtls.allowedThumbprints 항목 길이=%d (정상 SHA-1=40 / SHA-256=64 hex) — %s" tp.Length tp))
         { cfg with Mtls = { Mode = normalizedMode; AllowedThumbprints = tps } }
+
+    /// **Phase S7 D-S7-4 (s6-r66)** — `MultiTenant.Mode` 값 검증 + normalize.
+    /// 부적합 시 fail-fast (config 결함 — admin 안내). null/"" → "T1" default 정합.
+    let validateMultiTenant (cfg: ServiceConfig) : ServiceConfig =
+        let mode =
+            if obj.ReferenceEquals(box cfg.MultiTenant, null) || isNull cfg.MultiTenant.Mode then ""
+            else cfg.MultiTenant.Mode.Trim()
+        let normalized =
+            match mode with
+            | "" -> MultiTenantMode.T1
+            | "T1" | "T2" | "T3" -> mode
+            | "t1" | "t2" | "t3" -> mode.ToUpperInvariant()
+            | other ->
+                raise (InvalidDataException(
+                    sprintf "multiTenant.mode=%s — \"T1\"|\"T2\"|\"T3\" 만 허용." other))
+        { cfg with MultiTenant = { Mode = normalized } }
