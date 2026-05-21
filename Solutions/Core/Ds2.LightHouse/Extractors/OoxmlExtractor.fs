@@ -431,6 +431,12 @@ type OoxmlExtractor() =
 
     /// **Task 1** — 단일 슬라이드 ingest helper.
     /// outline (slide 라벨) + segment (body + notes 합성) + image 박제 후 caller 가 slideNo 증가.
+    ///
+    /// **review M2 — title 중복 박제는 의도된 동작** (xlsx-pptx-images r2 line 192-208 의사코드 SSOT).
+    /// title placeholder shape 의 paragraph 가 `slide.Descendants<DrawingParagraph>()` 박제 시 다시 enumerate
+    /// 되어 outline.Label + segment.Text 양쪽에 동일 텍스트 등장. segment 단위 "한 슬라이드 1개" 정합 +
+    /// title 분리 enumerate 시 ShapeTree placeholder 매칭 로직 중복 회피 목적. LLM citation 결과의 noise 가능성은
+    /// Phase 3 backlog (실측 후 strict matching 진입).
     static member private IngestPptxSlide
         (path: string)
         (slidePart: SlidePart)
