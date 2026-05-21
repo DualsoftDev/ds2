@@ -8,6 +8,7 @@ open System.Runtime.ExceptionServices
 open System.Text
 open System.Threading
 open Xunit
+open Ds2.LightHouse
 open Ds2.LightHouse.Cli
 open Ds2.LightHouseService.IntegrationTests
 
@@ -39,7 +40,8 @@ type CliUploadTests(fixture: ServiceFixture) =
     /// resetKbDir → runIngest → summarize → ingested ≥ 1 assertion → writeMeta → createZip.
     let prepareInPlaceZip (srcFolder: string) (title: string) : string * Packager.IngestSummary =
         Packager.resetKbDir srcFolder
-        let results = Packager.runIngest srcFolder None CancellationToken.None
+        // 사용자 결정 (CLI API key 필수) — caller 가 captionGen 박제. test 박제는 noop (caption SkippedCaption).
+        let results = Packager.runIngest srcFolder None CaptionGenerator.noop CancellationToken.None
         let summary = Packager.summarize results
         Assert.True(summary.IngestedCount >= 1, sprintf "ingested >= 1 기대, 실제 %d" summary.IngestedCount)
         Packager.writeMeta srcFolder title srcFolder summary.FileCount summary.TotalBytes userIdentity
