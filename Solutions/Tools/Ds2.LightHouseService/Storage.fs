@@ -3,7 +3,7 @@ namespace Ds2.LightHouseService
 open System
 open System.IO
 
-/// storage layout 초기화 (todo-lighthouse-kb-server.md §3.10).
+/// storage layout 초기화 (done-lighthouse-kb-server.md §3.10).
 ///
 /// Phase S1 책임: `Collections/` / `Staging/` / `Logs/` / `Audit/` 폴더 자동 생성 + permission probe.
 /// `registry.json` 신설 (빈 registry) 은 Phase S2 책임 — 본 phase 에서는 폴더만.

@@ -6,7 +6,7 @@
 
 ---
 
-> **⚠ 후속 phase 별도 추적 — `todo-lighthouse-kb-server.md` (s0)**
+> **⚠ 후속 phase 별도 추적 — `done-lighthouse-kb-server.md` (s0)**
 >
 > r4 의 in-process MVP **그 위에** central Windows Service 를 얹는 design 이 별도 todo 로 박제됨. 본 문서의 Phase 1 완료 이후 phase. 이하 r4 결정 중 service 도입 시 **회귀** 하는 단원이 있음 — 각 단원 헤더에 marker 표기.
 >
@@ -32,8 +32,8 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r15 (s6-r26 §3.17 정정 동기화)** — server-side `todo-lighthouse-kb-server.md` s6-r26 묶음에서 본 doc §3.17 "색인 재구성 정책" 본문 정정 — shadow rebuild trigger SSOT 를 `Meta.IndexerVersion` 단순 equality → `Meta.schema_version drift` 로 변경. IndexerVersion minor / patch bump 의 ALTER forward-compat 흡수 + SchemaVersion / IndexerVersion 동반 bump (s6-r22 mn3 패턴) lib 개발자 책임 명시. lib 152 → **154 Fact** (+2 needsRebuild Fact). r14 (§3.15 sweep) 박제 그대로 유지.
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (**s6-r26**, IndexerVersion compare 정책 변경 완료 + 자가 검열 review M1/m1 즉시 적용 + 누적 532 Fact). 다음 권장 = Phase S7 (mTLS / SSE / multi-service routing) 또는 Phase 2 task F (OCR / embedding) — 사용자 우선순위 결정 시 진입.
+- **현재 rev**: **r15 (s6-r26 §3.17 정정 동기화)** — server-side `done-lighthouse-kb-server.md` s6-r26 묶음에서 본 doc §3.17 "색인 재구성 정책" 본문 정정 — shadow rebuild trigger SSOT 를 `Meta.IndexerVersion` 단순 equality → `Meta.schema_version drift` 로 변경. IndexerVersion minor / patch bump 의 ALTER forward-compat 흡수 + SchemaVersion / IndexerVersion 동반 bump (s6-r22 mn3 패턴) lib 개발자 책임 명시. lib 152 → **154 Fact** (+2 needsRebuild Fact). r14 (§3.15 sweep) 박제 그대로 유지.
+- **후속 phase 별도 추적**: `done-lighthouse-kb-server.md` (**s6-r26**, IndexerVersion compare 정책 변경 완료 + 자가 검열 review M1/m1 즉시 적용 + 누적 532 Fact). 다음 권장 = Phase S7 (mTLS / SSE / multi-service routing) 또는 Phase 2 task F (OCR / embedding) — 사용자 우선순위 결정 시 진입.
 - **모드**: Phase 1 종결. server phase 진입 후 본 todo 는 회귀 매트릭스 SSOT (§4.1 보류 박스 + server.md §3.14 동시 참조) 로 잔류.
 - **본 세션까지 commit 누적**:
   - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)
@@ -52,10 +52,10 @@
 6. **AttachmentClassifier 부분 통합 축소** — `detectEncoding` / `ImageFormat` 만 LightHouse 이전, `Classification` 표면 무변경 (§3.11)
 7. **Phase 1 환원** — 순수 FTS5 + text + outline + 4 tools, 이미지 인프라 Phase 2 로 이동 (§3.12, Phase 1)
 8. **Phase 3↔4 swap** — Phase 3 = OCR, Phase 4 = embedding (§3.15.2)
-9. **이미지 처리는 eager-at-indexing** — 색인 시점에 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. chat 시점은 cache hit 만 (사용자 명시 "더 정밀하게" 요청 시 model escalation 별 path). **s6-r18 (2026-05-18) 정정** — 이전 r0~s6-r17 박제의 "cached lazy" 원칙은 server todo `todo-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = "색인 = 분석 완료" 단순 일관 mental model) 으로 정정됨. (§3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 단원 본문 sweep 은 별 turn 의무, marker 만 박제)
+9. **이미지 처리는 eager-at-indexing** — 색인 시점에 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. chat 시점은 cache hit 만 (사용자 명시 "더 정밀하게" 요청 시 model escalation 별 path). **s6-r18 (2026-05-18) 정정** — 이전 r0~s6-r17 박제의 "cached lazy" 원칙은 server todo `done-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = "색인 = 분석 완료" 단순 일관 mental model) 으로 정정됨. (§3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 단원 본문 sweep 은 별 turn 의무, marker 만 박제)
 10. **FTS5 tokenizer trigram** (한국어 필수) (§3.7, §3.12)
 11. **n×m KB 운영** (r4) — collection = 사용자 임의 폴더 선택 (path-based, project 종속 X). LlmConfig.KbCollections (OS 사용자 전역) 에 등록. m 개 active → SQLite ATTACH union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼). 원본 사본 없음. read-only collection 은 read OK, write fail.
-12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
+12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`done-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
 
 ### 다음 세션에서 확정해야 할 보류 항목 (Phase 1 lib 본체에 한정)
 
@@ -77,8 +77,8 @@
 
 **Phase 1 lib 본체 + lib unit test 종결 — server phase 진입 confirm 대기**.
 
-1. **본 todo + `todo-lighthouse-kb-server.md` 동시 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r10 박제 (§4.8 lib unit test 99 Fact 통과 + lib 본체 잠재 버그 3건 fix + 자가 검열 6건 반영)**
-2. **(보류 사용자 confirm)** **server phase 진입 결정** — `todo-lighthouse-kb-server.md` Phase S0 → S1 (또는 본 todo 의 r5 통합 vs 별도 todo 유지 재결정). 진입 시점에 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 적용 (§4.1 보류 박스 매트릭스 + `kb-server.md §3.14`).
+1. **본 todo + `done-lighthouse-kb-server.md` 동시 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r10 박제 (§4.8 lib unit test 99 Fact 통과 + lib 본체 잠재 버그 3건 fix + 자가 검열 6건 반영)**
+2. **(보류 사용자 confirm)** **server phase 진입 결정** — `done-lighthouse-kb-server.md` Phase S0 → S1 (또는 본 todo 의 r5 통합 vs 별도 todo 유지 재결정). 진입 시점에 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 적용 (§4.1 보류 박스 매트릭스 + `kb-server.md §3.14`).
 3. **(보류 사용자 confirm)** **본 todo 파일 git mv** — `Apps/Promaker/Docs/` → `Solutions/Core/Ds2.LightHouse/doc/` (§6.14). Phase 1 완료 시점 결정 박제 (r7 보류 박제).
 4. **(보류 사용자 confirm)** **OpenXml transitive 충돌** (r9 보류 신설) — `Apps/Promaker/Directory.Packages.props` 에 3.5.1 명시 검토 (MSB3277 2건). Phase 1 완료 직전 또는 server phase 진입 시 함께.
 5. **(완료)** ~~MEMORY.md `## Project` 등록 (§6.11)~~ — r10 박제 시점에 등록 완료 ([Phase 1 LightHouse lib + tests 종결](lighthouse-phase1-lib-tests-done.md)).
@@ -123,7 +123,7 @@
 - 명시 미적용: shim eta-expansion (현 형태 유지 권장, 본 메타리뷰 의견 = "현 유지") / Log internal 가시성 (수정 불요)
 
 ### 본 작업이 영향을 줄 다른 활성 todo (cross-PR)
-- `Apps/Promaker/Docs/todo-lighthouse-kb-server.md` (s0, 후속 phase) — service 도입 design. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
+- `Apps/Promaker/Docs/done-lighthouse-kb-server.md` (s0, 후속 phase) — service 도입 design. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
 - `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active, 318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 진행 중. Phase 1 4.2a 진입 전 그 todo 의 최근 commit 동기화 의무 (§6.12).
 - `Apps/Promaker/Docs/todo-dock-layout.md` — Phase 1 4.7 (Attachments dock 패널) 진입 시 anchor 추가 동시 PR (§6 m9).
 
@@ -503,7 +503,7 @@ SubKey       = "img" | ...
 
 ### 3.15 이미지 처리 정책 (Phase 2 부터 — 본 단원의 모든 결정은 Phase 1 무관)
 
-> ✅ **s6-r24 (2026-05-19) sweep 완료** — 본 단원이 **eager at indexing time** (D-2-2, server todo `todo-lighthouse-kb-server.md` §0) 으로 본문 재작성됨. 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 이전 박제의 "cached lazy / on-demand caption cache / Phase 5 격하" 흐름은 본 sweep 으로 모두 정합 정정.
+> ✅ **s6-r24 (2026-05-19) sweep 완료** — 본 단원이 **eager at indexing time** (D-2-2, server todo `done-lighthouse-kb-server.md` §0) 으로 본문 재작성됨. 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 이전 박제의 "cached lazy / on-demand caption cache / Phase 5 격하" 흐름은 본 sweep 으로 모두 정합 정정.
 
 사양서에는 plant layout, 시퀀스 차트, wiring diagram, 표/그래프가 raster 로 박힌 경우가 빈번 →
 모델링 의사결정의 직접 근거가 되므로 색인 시점에 caption 박제. Phase 2 부터 도입.
@@ -712,7 +712,7 @@ PRAGMA foreign_keys = ON;
 
 **4.5 Promaker 측 통합 (r4 — multi-collection + KbManagerDialog)**
 
-> ⛔ **대안 B (r5) — 본 §4.5 전체 SKIP**. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 단일 SSOT 로 흡수. 본 §4.5 의 모든 task (`AttachmentTools.cs` / `KbManagerDialog` / `LlmConfig.KbCollections` 확장 / `LlmTurnContext` 의 `KnowledgeBase` 필드 추가 / `PromakerToolNames.All` 의 attachment_* 추가 / `MainViewModel.LlmChat.cs` 의 `LightHouse.openCollections` 호출 / `AttachmentIngestService` / `ApplicationSettingsDialog` 의 KB 관리 버튼 등) 는 **Phase 1 에서 만들지 않음**. server phase 직접 진입 시 server SSOT 에 맞춰 신설. 사유: 60%+ throwaway / 사용자 데이터 migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 회피 (§0 결정 12, r5).
+> ⛔ **대안 B (r5) — 본 §4.5 전체 SKIP**. server phase (`done-lighthouse-kb-server.md` Phase S5) 가 단일 SSOT 로 흡수. 본 §4.5 의 모든 task (`AttachmentTools.cs` / `KbManagerDialog` / `LlmConfig.KbCollections` 확장 / `LlmTurnContext` 의 `KnowledgeBase` 필드 추가 / `PromakerToolNames.All` 의 attachment_* 추가 / `MainViewModel.LlmChat.cs` 의 `LightHouse.openCollections` 호출 / `AttachmentIngestService` / `ApplicationSettingsDialog` 의 KB 관리 버튼 등) 는 **Phase 1 에서 만들지 않음**. server phase 직접 진입 시 server SSOT 에 맞춰 신설. 사유: 60%+ throwaway / 사용자 데이터 migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 회피 (§0 결정 12, r5).
 >
 > **본 §4.5 의 task 체크박스들은 모두 SKIP 되었다고 간주**. 다음 세션이 본 단원 task 들을 진행하면 안 됨.
 - [ ] `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — `[McpServerToolType]` 4종 tool wrapper. quota hard enforce (3.10). `LlmTurnContext` 인자 자동 검출 (§3.18.2 의 채택안 a). collection 인자 없음 (서버 측 active 셋 fix).
@@ -730,7 +730,7 @@ PRAGMA foreign_keys = ON;
 
 **4.6 System prompt**
 
-> ⛔ **대안 B (r5) — 본 §4.6 SKIP**. `5.knowledge-base.md` 는 LLM 이 attachment_* tool 을 호출할 때 사용하는 prompt 인데, §4.5 skip 으로 Promaker MCP 에 attachment_* tool 자체가 등록 안 됨 → prompt 만 있으면 의미 없음. server phase 진입 시 server-side host 명시까지 포함하여 신설 (`todo-lighthouse-kb-server.md` Phase S5).
+> ⛔ **대안 B (r5) — 본 §4.6 SKIP**. `5.knowledge-base.md` 는 LLM 이 attachment_* tool 을 호출할 때 사용하는 prompt 인데, §4.5 skip 으로 Promaker MCP 에 attachment_* tool 자체가 등록 안 됨 → prompt 만 있으면 의미 없음. server phase 진입 시 server-side host 명시까지 포함하여 신설 (`done-lighthouse-kb-server.md` Phase S5).
 
 - [ ] ~~`Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md` 신설:
   - attachment_* 도구 4종 사용 절차
@@ -870,7 +870,7 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 - **active** `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 책임 진행 중. Phase 1 4.2a 진입 전 최근 commit 동기화 확인 (§6.12). 본 작업 commit 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
 
 ### 참조용 (수정 없음)
-- **`Apps/Promaker/Docs/todo-lighthouse-kb-server.md`** (s0, 후속 phase) — service 도입 design 박제. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
+- **`Apps/Promaker/Docs/done-lighthouse-kb-server.md`** (s0, 후속 phase) — service 도입 design 박제. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
 - `Apps/Promaker/Promaker/LlmAgent/McpHostService.cs` — Kestrel + MCP 호스트 패턴
 - `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` — 기존 tool 패턴
 - `Apps/Promaker/Promaker/LlmAgent/Prompts/3.tooling.md` — tool surface 문서 패턴
@@ -910,9 +910,9 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 ## 7. 다음 세션 첫 행동 권장
 
-**대안 B (r5/r6) 적용 후 Phase 1 = lib 본체 + lib unit test 만**. §4.5/§4.6/§4.1 첫 task/§4.8 일부는 SKIP — server phase (`todo-lighthouse-kb-server.md`) 가 흡수.
+**대안 B (r5/r6) 적용 후 Phase 1 = lib 본체 + lib unit test 만**. §4.5/§4.6/§4.1 첫 task/§4.8 일부는 SKIP — server phase (`done-lighthouse-kb-server.md`) 가 흡수.
 
-1. **본 문서 + `todo-lighthouse-kb-server.md` 의 §0 D-id 정의표 + §3.14 회귀 매트릭스** 동시 정독 (§0 의 진행 상태 요약 부터).
+1. **본 문서 + `done-lighthouse-kb-server.md` 의 §0 D-id 정의표 + §3.14 회귀 매트릭스** 동시 정독 (§0 의 진행 상태 요약 부터).
 2. 진입 시 grep / 사실 재확인 (§6.13 박제 stale 위험):
    - `ModelContextProtocol.AspNetCore` 버전 (nuget list 로 최신 stable + breaking change 확인)
    - `Directory.Packages.props` 두 위치 (Solutions / Apps/Promaker) 의 CPM 적용 범위 + PdfPig 위치
@@ -924,5 +924,5 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 5. **Phase 1 의 §4.3/§4.4/§4.8 lib unit test** 까지 진행. §4.5 (Promaker 통합) / §4.6 (`5.knowledge-base.md`) 는 진행 *금지* — server phase 흡수.
 6. MEMORY.md `## Project` 에 본 todo 등록 (주의 사항 11).
 7. Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active) 의 최근 commit 동기화 (주의 사항 12).
-8. Phase 1 lib 본체 완료 → server phase 진입 confirm 받기 (`todo-lighthouse-kb-server.md` Phase S0 → S1).
+8. Phase 1 lib 본체 완료 → server phase 진입 confirm 받기 (`done-lighthouse-kb-server.md` Phase S0 → S1).
 9. commit message — (i) 키워드 LightHouse/KB/MCP/attachment_search 포함 (4줄 이내), (ii) SQLite 채택 관련 안내는 §6.4 SSOT 참조, (iii) rev 표 footnote 로 "외부 reviewer N명 검증 반영 통합본" 명시.

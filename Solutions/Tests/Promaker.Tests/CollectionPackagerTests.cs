@@ -10,7 +10,7 @@ namespace Promaker.Tests;
 
 /// <summary>
 /// Phase S5b — CollectionPackager 의 zip layout / meta.json schema 정합 시험
-/// (todo-lighthouse-kb-server.md §3.3 zip layout SSOT / §3.3.1 meta.json schema SSOT).
+/// (done-lighthouse-kb-server.md §3.3 zip layout SSOT / §3.3.1 meta.json schema SSOT).
 ///
 /// scope: staging dir → zip 변환의 client 측 contract — entry path / meta.json field 박제 / fileCount + totalSourceBytes
 /// 자체 계산 / source/ 빈 staging 거부 / .lighthouse-kb/ 누락 거부. server-side import 시험은 Ds2.LightHouseService.Tests.

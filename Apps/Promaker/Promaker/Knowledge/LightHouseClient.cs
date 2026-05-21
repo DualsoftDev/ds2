@@ -16,7 +16,7 @@ using Promaker.LlmAgent;
 namespace Promaker.Knowledge;
 
 /// <summary>
-/// LightHouse Service 의 HTTP client wrapper (todo-lighthouse-kb-server.md §3.7 / §3.8 / §3.9 / §4.2 Phase S5).
+/// LightHouse Service 의 HTTP client wrapper (done-lighthouse-kb-server.md §3.7 / §3.8 / §3.9 / §4.2 Phase S5).
 ///
 /// 책임:
 /// - `Authorization: Bearer &lt;PSK&gt;` + `X-User-Identity` 자동 동봉

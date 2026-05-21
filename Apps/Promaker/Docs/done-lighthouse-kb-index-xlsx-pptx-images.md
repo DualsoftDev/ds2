@@ -1,6 +1,6 @@
 # Ds2.LightHouse — PPTX / XLSX 활성 + 내부 이미지 색인 + LLM 표시 wiring
 
-세션 이어받기용 TODO. parent `todo-lighthouse-kb-index.md` (r15, Phase 1 종결 + Phase 2 s6-r12 진행 중) 의 Phase 2 잔여 task 일부를 사용자 결정사항 반영하여 분리 박제.
+세션 이어받기용 TODO. parent `done-lighthouse-kb-index.md` (r15, Phase 1 종결 + Phase 2 s6-r12 진행 중) 의 Phase 2 잔여 task 일부를 사용자 결정사항 반영하여 분리 박제.
 
 > **변경 이력**: [revision-history/lighthouse-kb-index-xlsx-pptx-images.md](revision-history/lighthouse-kb-index-xlsx-pptx-images.md) (분리 보관)
 
@@ -14,7 +14,7 @@
 
 ## 1. 배경 / 현재 SSOT 상태 (2026-05-21 시점, 코드 grep 검증)
 
-### parent Phase 1 완료 박제 (todo-lighthouse-kb-index.md r15)
+### parent Phase 1 완료 박제 (done-lighthouse-kb-index.md r15)
 - `Ds2.LightHouse` lib 본체 + lib unit test 종결. 누적 154 Fact (lib only) / 누적 532 Fact (server 포함).
 - commit anchor: `9736237` (Phase 1 §4.8) → `00b72eb` (§4.4) → `bccb0ea` (§4.1).
 
@@ -53,7 +53,7 @@
 | `Solutions\Core\Ds2.LightHouse\Indexer.fs` | `routeExtractor` 가 OoxmlExtractor 의 Pptx/Xlsx Supports true 반환을 그대로 활용. 변경 없음 가능성 높음 — 진입 시 grep 재확인. |
 | `Solutions\Tests\Ds2.LightHouse.Tests\OoxmlExtractorTests.fs` | PPTX / XLSX Fact 추가. |
 | `Solutions\Tests\Ds2.LightHouse.Tests\RefLocatorTests.fs` | `slide=5#img=2` / `sheet=BOM#img=1` round-trip Fact 추가. |
-| `Apps\Promaker\Docs\todo-lighthouse-kb-index.md` | §3.13 RefLocator 표에 행 2개 추가 (PPTX 이미지 / XLSX 이미지). Phase 2 의 pptx/xlsx 활성 task 체크 갱신. |
+| `Apps\Promaker\Docs\done-lighthouse-kb-index.md` | §3.13 RefLocator 표에 행 2개 추가 (PPTX 이미지 / XLSX 이미지). Phase 2 의 pptx/xlsx 활성 task 체크 갱신. |
 
 ---
 
@@ -531,7 +531,7 @@
 
 > r3 박제 — Task 2-extra (Gantt schedule 시트 type 힌트) 는 Task 2 상위 본문 안 §Task 2-extra 절 참조.
 
-### Task 4 — parent todo `todo-lighthouse-kb-index.md` 갱신
+### Task 4 — parent todo `done-lighthouse-kb-index.md` 갱신
 
 - [ ] §3.13 RefLocator 표에 행 2개 추가 (PPTX 이미지 / XLSX 이미지).
 - [ ] §4.3 Phase 2 부분의 task 체크박스 갱신:
@@ -570,7 +570,7 @@
 - [ ] `attachment_search` 의 `hasImages` 가 실제 값 — 해당 chunk 의 `ImageReferences` row 존재 여부 (현 false hardcode 정정)
 - [ ] `5.knowledge-base.md` prompt 룰 — "도면/그림 추궁 시 `caption_only` 우선 → 부족 시 `includeImages`. quota 4000/16000 token 유지"
 
-**본 todo scope**: Task 6 도 **scope out** — server phase Phase S5 (`todo-lighthouse-kb-server.md`) 의 책임. server 진입 시점에 정합 확인.
+**본 todo scope**: Task 6 도 **scope out** — server phase Phase S5 (`done-lighthouse-kb-server.md`) 의 책임. server 진입 시점에 정합 확인.
 
 ### Task 7 — standalone image 파일 색인 활성 (r4 신설)
 
@@ -657,7 +657,7 @@
 
 **자가 검열 의무**: trigger ② (신규 함수/타입 3+ — `ImageExtractor` class + `FileKind.Image` case + `RefUnit.Image` case) + trigger ⑤ (public API — `Classifier` 분기 정책 변경, `FileKind` DU SSOT 갱신). 단독 commit + sub-agent 검열 의무.
 
-**parent todo `todo-lighthouse-kb-index.md` 갱신 (Task 4 와 묶을 수도 있음)**:
+**parent todo `done-lighthouse-kb-index.md` 갱신 (Task 4 와 묶을 수도 있음)**:
 - §3.3 (FileKind 매핑 표) 에 `Image` 행 추가
 - §3.11 (rejected vs unsupported) 의 image 5 종 정책 변경 박제
 - §3.13 (RefLocator 표) 에 `image=N` 행 추가
@@ -697,7 +697,7 @@
 - `Solutions\Tests\Ds2.LightHouse.Tests\RefLocatorTests.fs` — InlineData 5~8개 + 표시형 3개 regression guard 추가 (코드 변경 0). **Task 7 (r4) 추가** — `image=1` round-trip Fact 1~2개.
 - `Solutions\Tests\Ds2.LightHouse.Tests\ImageExtractorTests.fs` — **Task 7 (r4) 신규 파일** — standalone image 파일 추출 Fact 6~10개 (PNG/JPEG/GIF/WEBP/magic byte mismatch/0 byte/icon size 가드 분기/end-to-end CLI).
 - `Solutions\Tests\Ds2.LightHouse.Tests\ClassifierTests.fs` — **Task 7 (r4)** — image 5 종 supportedExtensions 매핑 + BMP/TIFF/SVG/ICO/HEIC 여전히 Unsupported 분기 Fact.
-- `Apps\Promaker\Docs\todo-lighthouse-kb-index.md` — §3.13 표 + §4.3 Phase 2 체크 + rev 표 r16. **Task 7 (r4)** — §3.3 FileKind 표 + §3.11 rejected vs unsupported 정책 변경 + §3.13 RefLocator 표 (`image=N`) + §4.3 phase task 체크박스 신설.
+- `Apps\Promaker\Docs\done-lighthouse-kb-index.md` — §3.13 표 + §4.3 Phase 2 체크 + rev 표 r16. **Task 7 (r4)** — §3.3 FileKind 표 + §3.11 rejected vs unsupported 정책 변경 + §3.13 RefLocator 표 (`image=N`) + §4.3 phase task 체크박스 신설.
 
 ### 참조용 (수정 없음)
 - `Solutions\Core\Ds2.LightHouse\Extractors\PdfExtractor.fs` — image 추출 패턴 참조
@@ -707,7 +707,7 @@
 - `Solutions\Core\Ds2.LightHouse\Indexer.fs` — `routeExtractor` / `ingestImagesIntoStore` / `captionGen` caller 주입 surface (Task 5 분담 SSOT, line 85/130-131/181)
 - `Solutions\Core\Ds2.LightHouse\RefLocator.fs` — `RefUnit = P/Slide/Sheet` + `RefSubKey = Img` 일반화 박제 (Critical-2 검증). r1 코드 변경 0.
 - `Solutions\Tests\Ds2.LightHouse.Tests\TestFixtures.fs` — `SamplePng.bytes` + `ExpectedSha256` SSOT (PPTX/XLSX 의 image fixture 도 재사용)
-- `Apps\Promaker\Docs\todo-lighthouse-kb-server.md` — Task 5/6 의 server phase 분담 결정 시 정합
+- `Apps\Promaker\Docs\done-lighthouse-kb-server.md` — Task 5/6 의 server phase 분담 결정 시 정합
 
 ---
 
@@ -753,7 +753,7 @@
 
 ## 7. 다음 세션 첫 행동 권장 (r1 갱신)
 
-1. **본 todo (r1) + parent `todo-lighthouse-kb-index.md` 의 §0 / §3.13 / §4.3 Phase 2 + r10~r15 박제** 동시 정독.
+1. **본 todo (r1) + parent `done-lighthouse-kb-index.md` 의 §0 / §3.13 / §4.3 Phase 2 + r10~r15 박제** 동시 정독.
 2. 진입 시 grep / 사실 재확인:
    - `OoxmlExtractor.Extract` dispatch 상태 (`OoxmlExtractor.fs:340-362` 의 `DocType=Docx` hardcode 4 arm — Critical-1)
    - `RefLocator.fs` 의 `RefUnit` DU 일반화 (Critical-2 검증 — 변경 0 확정)

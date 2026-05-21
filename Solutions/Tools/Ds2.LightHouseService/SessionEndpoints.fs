@@ -9,7 +9,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 
-/// Phase S3 session endpoint (todo-lighthouse-kb-server.md §3.8 / §3.9 / §4.2 Phase S3).
+/// Phase S3 session endpoint (done-lighthouse-kb-server.md §3.8 / §3.9 / §4.2 Phase S3).
 ///
 /// 포함:
 /// - POST /sessions  — `{ collectionIds: [...] }` → `{token, acceptedCollectionIds, unknownIds, unindexableIds}`

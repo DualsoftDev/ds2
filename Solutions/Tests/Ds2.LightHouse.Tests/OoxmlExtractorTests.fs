@@ -10,7 +10,7 @@ open DocumentFormat.OpenXml
 open DocumentFormat.OpenXml.Packaging
 open DocumentFormat.OpenXml.Wordprocessing
 
-/// todo-lighthouse-kb-index.md §4.8a — OoxmlExtractor (docx).
+/// done-lighthouse-kb-index.md §4.8a — OoxmlExtractor (docx).
 ///
 /// 실제 docx 를 임시 생성하여 검증 (DocumentFormat.OpenXml SDK 직접 사용).
 
@@ -550,7 +550,7 @@ let ``docx + endnote image — s6-r82 B2 PR 4, RefLocator="endnotes"`` () =
         Assert.Equal(Png, img.Format))
 
 // ────────────────────────────────────────────────────────────────────────────────
-//  Task 1 (PPTX 활성) — todo-lighthouse-kb-index-xlsx-pptx-images.md
+//  Task 1 (PPTX 활성) — done-lighthouse-kb-index-xlsx-pptx-images.md
 // ────────────────────────────────────────────────────────────────────────────────
 
 /// **Task 1 fixture (r2 Minor 7)** — `PresentationDocument.Create` + SDK 객체 직접 build 패턴.
@@ -913,7 +913,7 @@ let ``pptx — 화이트리스트 외 image (예: BMP relId 가짜) — image 0�
 
 
 // ────────────────────────────────────────────────────────────────────────────────
-//  Task 2 (XLSX 활성) — todo-lighthouse-kb-index-xlsx-pptx-images.md
+//  Task 2 (XLSX 활성) — done-lighthouse-kb-index-xlsx-pptx-images.md
 // ────────────────────────────────────────────────────────────────────────────────
 
 /// **Task 2 fixture (r2 Minor 7)** — `SpreadsheetDocument.Create` + SDK 객체 직접 build.

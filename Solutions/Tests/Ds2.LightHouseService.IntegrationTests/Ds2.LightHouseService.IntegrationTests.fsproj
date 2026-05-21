@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <!--
-    Phase S5a scaffold (todo-lighthouse-kb-server.md §4.2 Phase S5 / §5 신규).
+    Phase S5a scaffold (done-lighthouse-kb-server.md §4.2 Phase S5 / §5 신규).
 
     본 phase = placeholder. 본격 e2e (LightHouseClient ↔ service Program 부팅 → POST /collections →
     GET /collections → DELETE round-trip + citation file 다운로드) 는 Phase S5c 진입 시 추가.

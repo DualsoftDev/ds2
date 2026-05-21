@@ -166,11 +166,11 @@ module private XlsxSheetRoles =
         |> Seq.map buildRoleMap
         |> Seq.tryFind isGanttSchedule
 
-/// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (todo-lighthouse-kb-index.md §4.3 / xlsx-pptx-images r2).
+/// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (done-lighthouse-kb-index.md §4.3 / xlsx-pptx-images r2).
 ///
 /// **Phase 1 활성**: docx — heading 깊이 (Heading1~Heading6) 를 outline 으로, paragraph + table 의 InnerText 를 segment 로.
 ///
-/// **Phase 2 활성 (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 0~2)**:
+/// **Phase 2 활성 (done-lighthouse-kb-index-xlsx-pptx-images.md Task 0~2)**:
 ///   - Task 0 (본 turn): `Extract` 진정한 dispatch + `ExtractWithFailSafe` wrapper + `ImagePartToFormat` helper +
 ///     closure 4종 (`ExtractImagesAtRefLocator` / `CollectValidBlips` / `ExtractImagesFromBlips` /
 ///     `ExtractImagesFromOpenXmlPart`) static 승격. DOCX 동작 회귀 0. PPTX/XLSX 진입 직전 정리.
@@ -554,7 +554,7 @@ type OoxmlExtractor() =
             Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A 인덱스 범위 위반 — path=%s, ex=%s" docType path ex.Message)
             emptyResult ()
 
-    /// **Task 1 — PPTX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 1)
+    /// **Task 1 — PPTX 활성**. (done-lighthouse-kb-index-xlsx-pptx-images.md Task 1)
     ///
     /// 활성 박제:
     /// - SlideIdList SSOT 순회 (r1 Critical-5, MS Learn 공식) — `presentationPart.SlideParts` 직접 enumerate
@@ -699,7 +699,7 @@ type OoxmlExtractor() =
             let validBlips = OoxmlExtractor.EnumerateValidBlips slide
             OoxmlExtractor.ExtractImagesAtRefLocator validBlips resolve "slide" refLoc images path
 
-    /// **Task 2 — XLSX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 2)
+    /// **Task 2 — XLSX 활성**. (done-lighthouse-kb-index-xlsx-pptx-images.md Task 2)
     ///
     /// 활성 박제 (사용자 결정 "최대한 간편하게"):
     /// - SharedStringTable 사전 로드 — phonetic ruby `<rPh>` 제외 (r1 M2 + r2 Minor 1).

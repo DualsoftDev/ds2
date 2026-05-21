@@ -10,7 +10,7 @@ open Ds2.LightHouse.Extractors
 
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// todo-lighthouse-kb-index.md §4.8c — KnowledgeBase facade multi-collection ATTACH UNION.
+/// done-lighthouse-kb-index.md §4.8c — KnowledgeBase facade multi-collection ATTACH UNION.
 ///
 /// 검증: ATTACH parameter binding 불가 → inline + single-quote escape (review C2 잔여),
 ///       FTS5 external-content trigger (review M2 잔여),

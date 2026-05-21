@@ -1,7 +1,7 @@
 # ============================================================
 # check-paired-release.ps1 — paired-release drift detector
 # ============================================================
-# SSOT: Apps/Promaker/Docs/todo-lighthouse-kb-server.md s5d-r0
+# SSOT: Apps/Promaker/Docs/done-lighthouse-kb-server.md s5d-r0
 # (s1-r0 박제 정정 — AssemblyVersion 비교 → IndexerVersion.Current literal 비교)
 # (s6-r3 박제 보강 — s5d-M1 4-part version normalize / s5d-m1 Fail-Drift helper / s5d-m3 Resolve-Path 가드)
 #

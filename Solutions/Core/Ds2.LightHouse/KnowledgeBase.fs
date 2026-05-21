@@ -4,7 +4,7 @@ open System
 open System.IO
 open Microsoft.Data.Sqlite
 
-/// KnowledgeBase facade — `Ds2.LightHouse` 의 외부 진입점 (todo-lighthouse-kb-index.md §3.18.1).
+/// KnowledgeBase facade — `Ds2.LightHouse` 의 외부 진입점 (done-lighthouse-kb-index.md §3.18.1).
 ///
 /// 형식: F# **record-of-functions** (idiomatic, mock 친화, DI 컨테이너 무관 — `openCollections` 가 instance 반환).
 /// lifecycle: 한 active 셋에 lock-in — 사용자가 active 토글 시 turn 종료 후 다음 turn 시작 시 새 instance (§3.18.2).

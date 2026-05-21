@@ -7,7 +7,7 @@ open Ds2.LightHouse
 // CodePagesEncodingProvider 등록 (CP949 활성). TestInit.registered 강제 평가.
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// todo-lighthouse-kb-index.md §4.8a — TextEncoding 인코딩 추정.
+/// done-lighthouse-kb-index.md §4.8a — TextEncoding 인코딩 추정.
 ///
 /// 정책: BOM 우선 → strict UTF-8 → strict CP949 → UTF-8 replacement fallback. ConfidenceHigh 는 BOM + strict UTF-8 만.
 

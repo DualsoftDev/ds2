@@ -11,7 +11,7 @@ open Ds2.LightHouse.Extractors
 
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// todo-lighthouse-kb-index.md §4.8b — Indexer 전체 흐름 + 0-doc / 0-byte / idempotent / IndexerVersion bump.
+/// done-lighthouse-kb-index.md §4.8b — Indexer 전체 흐름 + 0-doc / 0-byte / idempotent / IndexerVersion bump.
 
 let private withTempDir (action: string -> 'r) : 'r =
     let dir = Path.Combine(Path.GetTempPath(), sprintf "lh-ix-%s" (Guid.NewGuid().ToString("N")))

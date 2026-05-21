@@ -284,7 +284,7 @@ LLM 이 chat 시작 시점부터 active KB 의 *영역* + *깊은 내용* 양쪽
 4. **두 layer 독립성** — keyword digest (PR-A/B/F/G) 와 text dump (PR-A/C/D/E) 는 schema 만 공유. 한쪽 미진입 시 다른쪽 정상 동작.
 5. **자가 검열** — 각 PR 별 trigger ① ~ ⑤ 충족 시 sub-agent 위임 (또는 inline self-review) 의무. CLAUDE.md 차단 규칙 — 미수행 상태에서 commit/push/다음 phase/사용자 질의 금지.
 6. **commit 정책** — 사용자 명시 `--gc` 또는 budget 박제 시점만. memory `feedback_commit_authorization.md` 정합.
-7. **AskUserQuestion 도구 사용 금지** — `todo-lighthouse-next-session.md:512` SSOT + CLAUDE.md `## 질문 방식` SSOT. 의사결정 요청 시 일반 텍스트 (번호 매긴 목록) 로 박제.
+7. **AskUserQuestion 도구 사용 금지** — `done-lighthouse-next-session.md:512` SSOT + CLAUDE.md `## 질문 방식` SSOT. 의사결정 요청 시 일반 텍스트 (번호 매긴 목록) 로 박제.
 8. **file 인코딩 UTF-8** (BOM 없음 — TextDumper Encoding.UTF8(false) 정합). commit message HEREDOC 박제.
 9. **commit message branch prefix** — `[lighthouse-summary] ...` (CLAUDE.md `--gc` 룰 정합).
 10. **PR-G 의 chat-scoped invariant** — KB 변경은 **다음 panel 또는 다음 firstTurn 까지 적용 안 됨**. 현 chat 안 *즉시* 박제 path 가 필요하면 별도 turn injection (예: `[KB-changed notice]` 짧은 text 를 user message prepend) 박제 — Phase 2 검토.
@@ -367,6 +367,6 @@ PR-F / PR-G 진입 후 누적 예상:
 
 ### 참조 (수정 없음)
 - `done-fix-lighthouse-search-keyword.md` (line-level 박제 표 §6 + schema version 정책 §8)
-- `todo-lighthouse-next-session.md` (parent worktree 의 main backlog — 본 worktree 와 별도 흐름)
-- `todo-lighthouse-kb-server.md` (server SSOT — IndexerVersion / config / multi-tenant 박제)
-- `todo-lighthouse-kb-index.md` (parent LightHouse lib SSOT — schema §3.12 / RefLocator §3.13)
+- `done-lighthouse-next-session.md` (parent worktree 의 main backlog — 본 worktree 와 별도 흐름)
+- `done-lighthouse-kb-server.md` (server SSOT — IndexerVersion / config / multi-tenant 박제)
+- `done-lighthouse-kb-index.md` (parent LightHouse lib SSOT — schema §3.12 / RefLocator §3.13)

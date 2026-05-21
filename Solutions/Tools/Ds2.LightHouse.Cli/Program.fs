@@ -9,7 +9,7 @@ open Ds2.LightHouse.Extractors
 open Ds2.LightHouse.Cli
 open Ds2.LightHouse.Ollama
 
-/// Phase S6 — todo-lighthouse-kb-server.md §4.2 Phase S6.
+/// Phase S6 — done-lighthouse-kb-server.md §4.2 Phase S6.
 ///
 /// 본 turn (s6-r0, P1 follow-up) = `index --upload` 본격 구현.
 ///
