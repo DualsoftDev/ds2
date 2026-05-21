@@ -42,6 +42,25 @@ module Chunker =
                 else other <- other + 1
             (ko + 1) / 2 + (ascii + 3) / 4 + (other + 1) / 2
 
+    /// piece 를 char 단위 slice 로 강제 분해. cascade 최후 보루 — sentence boundary / 빈줄 모두 없는
+    /// 표/시트형 텍스트 (xlsx sheet 행 단위 등) 의 단일 sentence 한도 초과 케이스 대응.
+    ///
+    /// **char cap = `maxTokens * 2`** — `estimateTokens` 의 한국어 worst-case 정합. 한글 char 1개 ≈ 0.5 token
+    /// (가중치 `(ko + 1) / 2`) 이므로 `2 * maxTokens` chars → 한도 안. ASCII dense (token = char/4) 면 fragment 가
+    /// 좀 작아지나 검색 품질 영향 미미. 종전 `* 4` 는 한글 dense 일 때 slice 가 2x maxTokens token 으로 통과하던
+    /// 결함 (s6-r... 2026-05-21 자가 검열 M-1) — safety net `Array.collect` 가 *재귀 점검 아닌 1회 평탄화* 라
+    /// `* 4` slice 를 재분해 못 했음.
+    let private hardCut (text: string) (maxTokens: int) : string array =
+        let approxCharLimit = max 1 (maxTokens * 2)
+        let result = ResizeArray<string>()
+        let mutable cursor = 0
+        while cursor < text.Length do
+            let len = min approxCharLimit (text.Length - cursor)
+            let slice = text.Substring(cursor, len).Trim()
+            if slice.Length > 0 then result.Add slice
+            cursor <- cursor + len
+        result.ToArray()
+
     /// 한 segment 의 text 를 token 한도로 분할. 분할 단위 cascade.
     let private splitByBudget (text: string) (maxTokens: int) : string array =
         if estimateTokens text <= maxTokens then [| text.Trim() |]
@@ -75,25 +94,27 @@ module Chunker =
                     |> Array.map (fun s -> s.Trim())
                     |> Array.filter (fun s -> s.Length > 0)
                 if sents.Length <= 1 then
-                    // 문장 분리도 안 됨 → hard 자르기 (한도의 4x char 기준).
-                    let approxCharLimit = maxTokens * 4
-                    let mutable cursor = 0
-                    while cursor < piece.Length do
-                        let len = min approxCharLimit (piece.Length - cursor)
-                        let slice = piece.Substring(cursor, len).Trim()
-                        if slice.Length > 0 then pieces.Add slice
-                        cursor <- cursor + len
+                    // 문장 분리도 안 됨 → hardCut 직행.
+                    for slice in hardCut piece maxTokens do
+                        pieces.Add slice
                 else
                     for s in sents do
-                        let candidate =
-                            if buffer.Length = 0 then s
-                            else buffer.ToString() + " " + s
-                        if estimateTokens candidate <= maxTokens then
-                            buffer.Clear() |> ignore
-                            buffer.Append candidate |> ignore
-                        else
+                        if estimateTokens s > maxTokens then
+                            // 단일 sentence 가 한도 초과 — buffer flush + hardCut 으로 강제 분해.
+                            // 빈 줄 0 + 마침표 ≥1 + 단일 문장 거대 (xlsx 시트 행 텍스트) 케이스의 cascade 누락 보강.
                             flushBuffer ()
-                            buffer.Append s |> ignore
+                            for slice in hardCut s maxTokens do
+                                pieces.Add slice
+                        else
+                            let candidate =
+                                if buffer.Length = 0 then s
+                                else buffer.ToString() + " " + s
+                            if estimateTokens candidate <= maxTokens then
+                                buffer.Clear() |> ignore
+                                buffer.Append candidate |> ignore
+                            else
+                                flushBuffer ()
+                                buffer.Append s |> ignore
                     flushBuffer ()
 
             for para in paragraphs do
@@ -111,7 +132,13 @@ module Chunker =
                     addToBuffer para
 
             flushBuffer ()
+            // **마지막 보루 (cascade safety net)** — cascade 의 어떤 분기가 누락해도 결과 piece 의 token 한도를
+            // invariant 로 보장. 정상 cascade 가 작동했다면 본 collect 는 no-op (Array.collect 가 singleton 그대로
+            // pass-through). 새로운 시트형 / 코드형 텍스트 패턴 등장 시 무한 검증 cost 0 의 가드.
             pieces.ToArray()
+            |> Array.collect (fun p ->
+                if estimateTokens p > maxTokens then hardCut p maxTokens
+                else [| p |])
 
     /// segments → chunks (token 한도 분할).
     ///

@@ -282,13 +282,21 @@ module Indexer =
 
     /// collection 폴더 안 모든 지원 파일 enumerate (`.lighthouse-kb/` 자체는 제외).
     /// recursive — 하위 폴더 포함. symlink 는 OS 정책 따름.
+    ///
+    /// **D2 보강 (s6-r... 2026-05-21)** — `Path.GetFullPath` normalize 후 prefix 비교.
+    /// 종전 결함: `collectionRoot` 가 forward slash (`F:/tmp/f`) 일 때 `kbFolder` 는 `Path.Combine` 결과
+    /// (`F:/tmp/f\.lighthouse-kb`, mixed separator) 인 반면 `Path.GetDirectoryName` 결과는 OS native separator
+    /// 라 case 일부에서 `StartsWith` 매칭 fail → `.lighthouse-kb/` 안 partial leftover (직전 abort 잔재 + 이미지
+    /// blob) 가 self-ingest. `GetFullPath` 가 separator 통일 + `..` 해소.
+    /// 끝에 separator 명시 + 비교 — `*.lighthouse-kb-foo/` 같은 거짓 prefix 매치 차단.
     let private enumerateFiles (collectionRoot: string) : string array =
-        let kbFolder = SqliteStore.kbDir collectionRoot
+        let sep = string Path.DirectorySeparatorChar
+        let kbFolderNorm =
+            (Path.GetFullPath(SqliteStore.kbDir collectionRoot)).TrimEnd(Path.DirectorySeparatorChar) + sep
         Directory.EnumerateFiles(collectionRoot, "*.*", SearchOption.AllDirectories)
         |> Seq.filter (fun p ->
-            // .lighthouse-kb/ 안 파일은 제외 — index DB 자체가 색인 대상이 되면 안 됨.
-            let dir = Path.GetDirectoryName p
-            not (String.IsNullOrEmpty dir) && not (dir.StartsWith(kbFolder, StringComparison.OrdinalIgnoreCase)))
+            let pNorm = Path.GetFullPath p
+            not (pNorm.StartsWith(kbFolderNorm, StringComparison.OrdinalIgnoreCase)))
         |> Seq.toArray
 
     /// 한 connection 위에서 파일들을 순차 ingest. 진행률 콜백 호출. 결과 array 반환 (review m6).

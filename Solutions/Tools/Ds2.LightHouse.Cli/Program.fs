@@ -22,6 +22,7 @@ open Ds2.LightHouse.Ollama
 ///   11 폴더 미존재 / 접근 불가
 ///   12 ingested=0 (등록 가치 0 — server 거부 사전 차단)
 ///   13 VLM API key 미박제 + --force-without-image-caption 미박제 (사용자 결정)
+///   14 OLLAMA_FLASH_ATTENTION 박제 미달 (bge-m3 NaN known issue — --no-embedding 미박제 시 fail-fast)
 ///   99 기타
 
 // **CLI flag key SSOT (s6-r36 P4-C.0)** — usage / parseArgs / call site 가 같은 literal 참조 의무.
@@ -129,6 +130,22 @@ let private defaultUserIdentity () =
         | u -> u
     sprintf "%s@%s" user Environment.MachineName
 
+/// **bge-m3 NaN 방지 사전조건 검사** — Ollama 의 Flash Attention long-context FP16 결함이 embedding 결과에
+/// NaN 생성 → server 가 `"failed to encode response: json: unsupported value: NaN"` 으로 HTTP 500 반환 → 색인
+/// abort. 회피 의무 = `OLLAMA_FLASH_ATTENTION` env var = `false`/`0`/`off` 박제 + Ollama 재시작.
+///
+/// 본 검사는 `--no-embedding` 미박제 (embedding backend 사용) 시점에만 의무 — BM25-only path 는 무관.
+/// caller (`runIndex`/`runUpload`) 가 Result Error 분기 시 exit 14 으로 fail-fast. install-ollama.ps1 가 박제
+/// 자동화 + search / indexer skill SKILL.md 사전조건 명시와 정합.
+let private checkEmbeddingPreconditions () : Result<unit, string> =
+    let raw = Environment.GetEnvironmentVariable("OLLAMA_FLASH_ATTENTION")
+    let normalized = if isNull raw then "" else raw.Trim().ToLowerInvariant()
+    let disabled = normalized = "false" || normalized = "0" || normalized = "off"
+    if disabled then Ok ()
+    else
+        let actual = if String.IsNullOrEmpty raw then "<unset>" else sprintf "'%s'" raw
+        Error (sprintf "OLLAMA_FLASH_ATTENTION 박제 미달 (현재값=%s). bge-m3 의 Flash Attention long-context FP16 결함이 embedding 결과에 NaN 생성 → ollama HTTP 500 → 색인 abort 가능. 조치:\n  1) setx OLLAMA_FLASH_ATTENTION false  (또는 SystemProperties → 환경변수, Machine scope 권장)\n  2) Ollama Desktop tray 종료 → 재실행 (또는 'sc restart Ds2.LightHouseService')\n  3) --no-embedding flag 박제 시 본 검사 우회 (BM25-only 색인)" actual)
+
 /// **Phase 4 (s6-r37) P4-C.1** — embedder backend 선택 본격화. `noEmbedding=true` 시 강제 None (BM25-only).
 ///
 /// default backend = **OllamaSharp adapter** (`OllamaEmbedder` — bge-m3 / 1024 dim / http://localhost:11434).
@@ -170,6 +187,12 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
             eprintfn "오류: %s" msg
             13
         | Ok captionGen ->
+        // bge-m3 NaN 방지 사전조건 — embedding 사용 시점에만 의무. `--no-embedding` 박제 시 skip.
+        match (if noEmbedding then Ok () else checkEmbeddingPreconditions ()) with
+        | Error msg ->
+            eprintfn "오류: %s" msg
+            14
+        | Ok () ->
             let extractors : IExtractor list = [
                 new TextExtractor() :> IExtractor
                 new PdfExtractor() :> IExtractor
@@ -228,6 +251,12 @@ let private runUpload
             eprintfn "오류: %s" msg
             13
         | Ok captionGen ->
+        // bge-m3 NaN 방지 사전조건 — embedding 사용 시점에만 의무. `--no-embedding` 박제 시 skip.
+        match (if noEmbedding then Ok () else checkEmbeddingPreconditions ()) with
+        | Error msg ->
+            eprintfn "오류: %s" msg
+            14
+        | Ok () ->
         let mutable zipPath = ""
         try
             try
