@@ -6,9 +6,8 @@
 ; This .iss accepts PublishDir / SelfContainedMode / OutputSuffix
 ; as /D arguments (see #ifndef defaults below).
 ; Direct ISCC compile: caller (Makefile) must run `dotnet publish` first.
-
-; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치)
-#include "CodeDependencies.iss"
+; CodeDependencies.iss 는 [Code] 섹션을 제공하므로 파일 맨 아래에서 include —
+; 그래야 사이에 끼는 ;-주석/디파인이 Pascal 코드로 오해되지 않는다 (Inno Setup 컨벤션).
 
 #ifndef PublishDir
   #define PublishDir "..\Promaker\bin\Release\net9.0-windows\win-x64\publish-self-contained"
@@ -81,9 +80,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 #if HasAgent
-; 옵트인 — 기본 해제. 체크 시 Promaker.Agent 를 Windows Service 로 등록하여 PC 부팅 시 자동 실행.
-; 사용자 로그온 무관하게 5051 (read-only) Hub 호스팅 + PLC 스캔. Control(5050) 은 영향 없음.
-Name: "install_agent_service"; Description: "Windows 재부팅 시 모니터링 자동 실행 (Promaker.Agent 서비스 등록)"; GroupDescription: "백그라운드 서비스:"; Flags: unchecked
+; 기본 체크 — 해제 시 Agent/AgentTray 둘 다 등록 스킵. 체크 시 Promaker.Agent 를 Windows Service 로
+; 등록하여 PC 부팅 시 자동 실행. 사용자 로그온 무관하게 5051 (read-only) Hub 호스팅 + PLC 스캔.
+; Control(5050) 은 영향 없음.
+Name: "install_agent_service"; Description: "Windows 재부팅 시 모니터링 자동 실행 (Promaker.Agent 서비스 등록)"; GroupDescription: "백그라운드 서비스:"
 #endif
 
 [Dirs]
@@ -177,9 +177,11 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
   Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
 #endif
 
-#if SelfContainedMode == "true"
-; sc 모드: .NET 런타임이 번들되어 있으므로 추가 설치 불필요
-#else
+; ── [Code] 섹션 ──
+; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치). 헤더 `[Code]` 포함.
+#include "CodeDependencies.iss"
+
+#if SelfContainedMode != "true"
 ; fd 모드: .NET 9 Desktop Runtime이 없으면 자동 다운로드/설치
 function InitializeSetup: Boolean;
 begin
