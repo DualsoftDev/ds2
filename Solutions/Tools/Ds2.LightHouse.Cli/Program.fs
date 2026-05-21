@@ -347,16 +347,18 @@ let private runCaptionUpdate (folder: string) (batchPath: string) : int =
                 eprintfn "  batch 빈 array — no-op (idempotent)"
                 0
             else
+                // 자가 검열 M-1 정정 — transaction lifecycle 은 lib `updateCaptionBatch` 가 흡수 (cmd.Transaction
+                // 명시 박제 의무 회피). 본 entry 는 JSON parse + tuple 변환만 책임.
+                let rows =
+                    root.EnumerateArray()
+                    |> Seq.map (fun el ->
+                        let hash = el.GetProperty("hash").GetString()
+                        let text = el.GetProperty("captionText").GetString()
+                        let model = el.GetProperty("captionModel").GetString()
+                        hash, text, model)
+                    |> Seq.toArray
                 use conn = SqliteStore.openConnection dbPath false
-                use tx = conn.BeginTransaction()
-                let mutable updated = 0
-                for el in root.EnumerateArray() do
-                    let hash = el.GetProperty("hash").GetString()
-                    let text = el.GetProperty("captionText").GetString()
-                    let model = el.GetProperty("captionModel").GetString()
-                    ImageStore.updateCaption conn hash text model
-                    updated <- updated + 1
-                tx.Commit()
+                let updated = ImageStore.updateCaptionBatch conn rows
                 printfn "caption-update 완료 — updated=%d" updated
                 0
 

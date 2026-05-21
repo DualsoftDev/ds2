@@ -200,6 +200,40 @@ module ImageStore =
         cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
         cmd.ExecuteNonQuery() |> ignore
 
+    /// `/indexer` skill Step 2 → `caption-update` entry (`todo-lighthouse-indexer-claude-caption.md` §3 batch fenced block) —
+    /// subagent 가 return 한 caption batch 를 단일 transaction 안 N 회 UPDATE → atomic commit.
+    ///
+    /// 본 함수가 transaction lifecycle 흡수 책임 — caller 측에서 `BeginTransaction()` + `cmd.Transaction <- tx`
+    /// 박제 누락 시 Microsoft.Data.Sqlite 의 SqliteCommand.Transaction mismatch InvalidOperationException 회피.
+    /// 기존 `updateCaption` (autocommit, single-row) 는 caller 변경 회피 위해 그대로 보존.
+    ///
+    /// 반환 = update 적용된 row 수. empty batch 시 0 (no-op, transaction 미생성).
+    let updateCaptionBatch
+        (conn: SqliteConnection)
+        (rows: (string * string * string) seq)
+        : int =
+        let arr = rows |> Seq.toArray
+        if arr.Length = 0 then 0
+        else
+            use tx = conn.BeginTransaction()
+            let mutable n = 0
+            for (hash, text, model) in arr do
+                use cmd = conn.CreateCommand()
+                cmd.Transaction <- tx
+                cmd.CommandText <- """
+                    UPDATE ImageCache
+                    SET CaptionText = $text, CaptionModel = $model, CaptionAt = $at
+                    WHERE ImageHash = $hash
+                """
+                cmd.Parameters.AddWithValue("$hash",  hash) |> ignore
+                cmd.Parameters.AddWithValue("$text",  text) |> ignore
+                cmd.Parameters.AddWithValue("$model", model) |> ignore
+                cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
+                cmd.ExecuteNonQuery() |> ignore
+                n <- n + 1
+            tx.Commit()
+            n
+
     /// `/indexer` skill (`todo-lighthouse-indexer-claude-caption.md` §2 #6/#12) — caption 미박제 image
     /// row 의 SSOT enumeration. skill 진입 시 `lighthouse-cli list-pending-captions <folder>` 가 호출 → stdout JSON.
     ///
