@@ -102,4 +102,48 @@ public sealed class KbDigestBuilderTests
         var result = KbDigestBuilder.Build(profiles);
         Assert.Equal("", result);
     }
+
+    [Fact]
+    public void Build_description_없을_시_emdash_미부착()
+    {
+        // **review m-6** — description 빈 collection 은 `"Name" — desc` 의 emdash 자체 미부착.
+        var profiles = One("svc-A",
+            new CollectionInfo { Id = "x", DisplayName = "Foo", Description = "", Keywords = new[] { "k1" } });
+
+        var result = KbDigestBuilder.Build(profiles);
+        Assert.Contains("\"Foo\"", result);
+        Assert.DoesNotContain("Foo\" —", result);
+    }
+
+    [Fact]
+    public void Build_service_id_정렬_결정성_Ordinal()
+    {
+        // **review m-3** — Anthropic prompt cache prefix-match 정합 위해 service id 정렬 결정성.
+        // 입력 순서가 B → A 라도 출력은 A → B (Ordinal).
+        var profiles = new Dictionary<string, IReadOnlyList<CollectionInfo>>
+        {
+            ["svc-B"] = new[] { new CollectionInfo { Id = "b", DisplayName = "B-col", Keywords = new[] { "bk" } } },
+            ["svc-A"] = new[] { new CollectionInfo { Id = "a", DisplayName = "A-col", Keywords = new[] { "ak" } } },
+        };
+
+        var result = KbDigestBuilder.Build(profiles);
+        var aPos = result.IndexOf("\"A-col\"", StringComparison.Ordinal);
+        var bPos = result.IndexOf("\"B-col\"", StringComparison.Ordinal);
+        Assert.True(aPos > 0 && bPos > 0);
+        Assert.True(aPos < bPos, "svc-A 가 svc-B 보다 먼저 출력 (Ordinal 정렬).");
+    }
+
+    [Fact]
+    public void Build_dict_value_null_방어()
+    {
+        // **review m-8** — IReadOnlyDictionary contract 가 value not-null 미보장 → 방어 무사고.
+        var profiles = new Dictionary<string, IReadOnlyList<CollectionInfo>>
+        {
+            ["svc-null"] = null!,
+            ["svc-ok"] = new[] { new CollectionInfo { Id = "x", DisplayName = "Good", Keywords = new[] { "k" } } },
+        };
+
+        var result = KbDigestBuilder.Build(profiles);
+        Assert.Contains("\"Good\"", result);
+    }
 }

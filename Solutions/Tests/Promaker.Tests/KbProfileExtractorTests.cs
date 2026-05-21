@@ -166,4 +166,15 @@ public sealed class KbProfileExtractorTests
         Assert.Equal(0, handler.CallCount);
     }
 
+    [Fact]
+    public async Task FetchForServiceAsync_pre_cancelled_token_OCE_전파()
+    {
+        // **review m-7** — cancellation 경로 우선 — 다른 exception 흡수와 분리. pre-cancelled token 박제 시
+        // HttpClient.SendAsync 가 TaskCanceledException throw → catch (Exception) 광역 흡수 우회 → caller 로 전파.
+        var (client, _) = MakeClient();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAsync<TaskCanceledException>(() =>
+            KbProfileExtractor.FetchForServiceAsync(client, new[] { "id-1" }, cts.Token));
+    }
 }

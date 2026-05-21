@@ -30,6 +30,10 @@ public partial class LlmChatViewModel
     /// <para/>
     /// SSE collection-* event 시 invalidate (entry 단위 또는 전체). 다음 <see cref="FetchKbProfilesAsync"/>
     /// 호출 시 HTTP 재발급.
+    /// <para/>
+    /// **thread-affinity (review m-4)** — 본 dict 및 <see cref="_acceptedCollectionIds"/> 는 UI thread
+    /// (dispatcher) 만 mutate. SSE callback / debounce fire 모두 <see cref="_dispatcher"/> marshalling 후 진입.
+    /// concurrent caller path 진입 시 ConcurrentDictionary 또는 lock 으로 승격 의무.
     /// </summary>
     private readonly Dictionary<string, IReadOnlyList<CollectionInfo>> _kbProfileCache = new();
 
@@ -68,24 +72,37 @@ public partial class LlmChatViewModel
     private void UnsubscribeKbProfileEvents()
     {
         LightHouseClientHolder.EventReceived -= OnKbSseEventReceived;
-        try { _kbDigestDebounceCts?.Cancel(); } catch (ObjectDisposedException) { }
-        _kbDigestDebounceCts?.Dispose();
-        _kbDigestDebounceCts = null;
+        SwapDebounceCts(null);
+    }
+
+    /// <summary>
+    /// **review M-1 fix** — debounce CTS swap helper. 옛 CTS Cancel + Dispose, 새 CTS 박제 (또는 null) 의
+    /// 3줄 반복 패턴 SSOT (CLAUDE.md 정합). caller 가 lock-free — UI thread 단일 caller invariant.
+    /// </summary>
+    private void SwapDebounceCts(CancellationTokenSource? newCts)
+    {
+        var old = _kbDigestDebounceCts;
+        _kbDigestDebounceCts = newCts;
+        if (old is null) return;
+        try { old.Cancel(); } catch (ObjectDisposedException) { }
+        try { old.Dispose(); } catch (ObjectDisposedException) { }
     }
 
     /// <summary>
     /// SSE event handler — KB profile invalidate 분류 후 UI thread 로 marshalling.
     /// background thread 도착 가정 — cache mutation 은 항상 dispatcher 안에서.
     /// <para/>
-    /// **자가 검열 Major-1 fix**: holder 의 invoke 패턴 (LightHouseClientHolder.cs:283 `var handler = EventReceived;`)
-    /// 이 snapshot 캡처 → -= 시점 race 에서 dispose 된 dispatcher 로 marshalling 시 TaskCanceledException 발생 가능.
-    /// holder 가 invoke try/catch 흡수 (process crash 없음) 하지만 noise log 회피 위해 본 메서드에서도 흡수.
+    /// **자가 검열 Major-1 fix + review m-1**: holder 의 invoke 패턴 (LightHouseClientHolder.cs:283
+    /// `var handler = EventReceived;`) 이 snapshot 캡처 → -= 시점 race 에서 dispose 된 dispatcher 로
+    /// marshalling 시 발생 가능한 두 예외만 한정 흡수 — TaskCanceledException (dispatcher shutdown) /
+    /// ObjectDisposedException (dispatcher disposed). 그 외 예외는 fail-fast (root cause 노출 정합).
     /// </summary>
     private void OnKbSseEventReceived(ServerEventDto evt)
     {
         if (!KbProfileExtractor.IsKbProfileEvent(evt)) return;
         try { _ = _dispatcher.InvokeAsync(() => InvalidateAndScheduleRefresh(evt.ServiceId)); }
-        catch (Exception ex) { Log.Debug($"OnKbSseEventReceived marshalling skip (dispose race?): {ex.Message}"); }
+        catch (TaskCanceledException ex) { Log.Debug($"OnKbSseEventReceived dispatcher shutdown skip: {ex.Message}"); }
+        catch (ObjectDisposedException ex) { Log.Debug($"OnKbSseEventReceived dispatcher disposed skip: {ex.Message}"); }
     }
 
     /// <summary>
@@ -110,15 +127,14 @@ public partial class LlmChatViewModel
     }
 
     /// <summary>
-    /// **PR-F (§4 #2)** — debounce schedule. 기존 timer 가 진행 중이면 cancel 후 새 timer 시작.
-    /// Task.Delay + CTS — 별 thread 생성 회피 + 의도된 cancel 시 OCE silent.
+    /// **PR-F (§4 #2) + review M-1 fix** — debounce schedule. 기존 timer 가 진행 중이면 swap helper 로 cancel
+    /// 후 새 timer 시작. Task.Delay + CTS — 별 thread 생성 회피 + ObjectDisposedException 도 catch (token
+    /// register race 방어).
     /// </summary>
     private void ScheduleKbDigestRefresh()
     {
-        try { _kbDigestDebounceCts?.Cancel(); } catch (ObjectDisposedException) { }
-        _kbDigestDebounceCts?.Dispose();
         var cts = new CancellationTokenSource();
-        _kbDigestDebounceCts = cts;
+        SwapDebounceCts(cts);
         var token = cts.Token;
         _ = Task.Run(async () =>
         {
@@ -127,20 +143,32 @@ public partial class LlmChatViewModel
                 if (KbDigestDebounceMs > 0)
                     await Task.Delay(KbDigestDebounceMs, token).ConfigureAwait(false);
                 if (token.IsCancellationRequested) return;
-                await _dispatcher.InvokeAsync(() => _ = RefreshKbDigestAsync()).ConfigureAwait(false);
+                // **review M-2 fix** — lambda 안의 task 는 RefreshKbDigestAsync 자체가 try/catch 흡수
+                // (Log.Warn) → unobserved exception 위험 0. lambda 가 sync Action 이므로 InvokeAsync<T>(Func<T>)
+                // 의 Task<Task> trap 회피.
+                await _dispatcher.InvokeAsync(() => { _ = RefreshKbDigestAsync(); }).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* 의도된 cancel — silent */ }
+            catch (ObjectDisposedException) { /* token register race — silent */ }
         });
     }
 
     /// <summary>
-    /// FetchKbProfilesAsync + OnKbProfileChanged 묶음. <see cref="InitializeAsync"/> 초기 진입과 debounce fire
-    /// 양쪽에서 사용. UI thread 에서 호출 의도.
+    /// FetchKbProfilesAsync + ApplyPendingKbDigest 묶음. <see cref="InitializeAsync"/> 초기 진입과 debounce fire
+    /// 양쪽에서 사용. UI thread 에서 호출 의도. **review M-2 fix** — exception 흡수 + log (caller 의 fire-and-forget
+    /// 으로 unobserved task 가 되지 않도록).
     /// </summary>
     private async Task RefreshKbDigestAsync()
     {
-        await FetchKbProfilesAsync().ConfigureAwait(true);
-        OnKbProfileChanged();
+        try
+        {
+            await FetchKbProfilesAsync().ConfigureAwait(true);
+            ApplyPendingKbDigest();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("RefreshKbDigestAsync 실패 — KB digest 미갱신, chat 영향 0", ex);
+        }
     }
 
     /// <summary>
@@ -151,49 +179,58 @@ public partial class LlmChatViewModel
     ///   <item>service 실패 (LightHouseAuthException / Timeout 등) → 본 service 만 빈 list, 다른 service 영향 0</item>
     /// </list>
     /// 반환 dict 은 호출 시점 snapshot — caller 가 KbDigestBuilder 등으로 transform.
+    /// <para/>
+    /// **review m-2 fix** — cancellation 시 partial cache 박제 회피. 임시 dict 에 누적 후 loop 정상 종료 시점에만
+    /// _kbProfileCache 일괄 박제. ct cancel 시 본 호출은 부분 결과 폐기 + 다음 호출이 처음부터 재시작.
     /// </summary>
     internal async Task<IReadOnlyDictionary<string, IReadOnlyList<CollectionInfo>>> FetchKbProfilesAsync(
         CancellationToken ct = default)
     {
-        var result = new Dictionary<string, IReadOnlyList<CollectionInfo>>();
+        var pending = new Dictionary<string, IReadOnlyList<CollectionInfo>>();
         foreach (var serviceId in _acceptedCollectionIds.Keys.ToList())
         {
-            if (ct.IsCancellationRequested) break;
+            ct.ThrowIfCancellationRequested();
             if (_kbProfileCache.TryGetValue(serviceId, out var cached))
             {
-                result[serviceId] = cached;
+                pending[serviceId] = cached;
                 continue;
             }
             var client = LightHouseClientHolder.GetClient(serviceId);
             if (client is null)
             {
-                _kbProfileCache[serviceId] = Array.Empty<CollectionInfo>();
-                result[serviceId] = Array.Empty<CollectionInfo>();
+                pending[serviceId] = Array.Empty<CollectionInfo>();
                 continue;
             }
             var filtered = await KbProfileExtractor.FetchForServiceAsync(
                 client, _acceptedCollectionIds[serviceId], ct).ConfigureAwait(true);
-            _kbProfileCache[serviceId] = filtered;
-            result[serviceId] = filtered;
+            pending[serviceId] = filtered;
         }
-        return result;
+        // loop 정상 종료 — _kbProfileCache 일괄 박제 (review m-2).
+        foreach (var kv in pending) _kbProfileCache[kv.Key] = kv.Value;
+        return pending;
     }
 
     /// <summary>
-    /// **PR-G (§5.2 v-b)** — KB profile fetch 완료 시 호출. cache snapshot → <see cref="KbDigestBuilder.Build"/>
+    /// **PR-G (§5.2 v-b) + review C-1 fix** — cache snapshot → <see cref="KbDigestBuilder.Build"/>
     /// → <see cref="ApiChatProvider.SetPendingSystemPrompt"/> path. 다음 firstTurn 진입 시점에 system message 의
     /// 2번째 TextContent 로 swap (lazy apply, chat-scoped invariant 정합).
     /// <para/>
+    /// caller (2 path):
+    /// <list type="bullet">
+    ///   <item>KB profile fetch/SSE invalidate 완료 시 (<see cref="RefreshKbDigestAsync"/>)</item>
+    ///   <item>provider 토글 시 (<see cref="ConfigureProviderAsync"/> 의 _provider = provider; 직후) — new
+    ///   ApiChatProvider 의 _kbDigest reset 보호 (review C-1 — Claude/Codex → API 토글 시 SSE 없어도 적용)</item>
+    /// </list>
     /// API provider 만 적용 (Claude CLI / Codex CLI 는 별 path — §4 미결정 #3 정합, 본 phase 미적용).
     /// _provider 가 null (init 미완료) 또는 다른 provider 일 때 silent skip.
     /// </summary>
-    private void OnKbProfileChanged()
+    private void ApplyPendingKbDigest()
     {
         var snapshot = new Dictionary<string, IReadOnlyList<CollectionInfo>>(_kbProfileCache);
         var digest = KbDigestBuilder.Build(snapshot);
         if (_provider is ApiChatProvider api)
             api.SetPendingSystemPrompt(digest);
         if (Log.IsDebugEnabled)
-            Log.Debug($"OnKbProfileChanged — digest len={digest.Length} (services={_kbProfileCache.Count}, provider={_provider?.GetType().Name ?? "none"})");
+            Log.Debug($"ApplyPendingKbDigest — digest len={digest.Length} (services={_kbProfileCache.Count}, provider={_provider?.GetType().Name ?? "none"})");
     }
 }
