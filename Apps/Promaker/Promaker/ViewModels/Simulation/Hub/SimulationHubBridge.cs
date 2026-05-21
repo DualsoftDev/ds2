@@ -61,8 +61,7 @@ public sealed partial class SimulationHubBridge : ObservableObject
     });
 
     /// <summary>PromakerAgentService 가 SCM 에 등록되어 있고 <b>현재 Running</b> 상태인지.
-    /// 등록만 되고 Stopped 면 false — WPF 가 위임 시도해도 5051 호스트가 없어 무한 retry 빠지는 것을 차단.
-    /// 매 호출 fresh check (Lazy 하지 않음) — 사용자가 sc start/stop 을 런타임에 할 수 있어서.</summary>
+    /// 등록만 되고 Stopped 면 false. 매 호출 fresh check (Lazy 하지 않음) — 사용자가 sc start/stop 을 런타임에 할 수 있어서.</summary>
     private static bool IsAgentServiceRunning()
     {
         try
@@ -77,11 +76,28 @@ public sealed partial class SimulationHubBridge : ObservableObject
         }
     }
 
-    /// <summary>Promaker.Agent 가 설치 + 서비스 Running 둘 다 만족할 때만 true.
-    /// 셋 중 하나라도 false 면 옛 self-host 분기로 안전 폴백 — 디버깅(F5) / 옵트인 미해제 / 서비스 일시정지
-    /// 시나리오 모두 동일하게 처리해서 "5051 호스트 부재 → SignalR 무한 retry → VS 콘솔에 예외 폭주" 가드.</summary>
+    /// <summary>Promaker.Agent.exe 프로세스가 현재 실행 중인지 (서비스 모드 / 콘솔 모드 모두 포착).
+    /// 개발 시 `dotnet run --project Promaker.Agent` 로 띄운 콘솔 모드 Agent 는 서비스가 아니라서
+    /// IsAgentServiceRunning() 는 false 인데, 이 체크가 true 로 잡아준다.</summary>
+    private static bool IsAgentProcessRunning()
+    {
+        try
+        {
+            var procs = System.Diagnostics.Process.GetProcessesByName("Promaker.Agent");
+            try { return procs.Length > 0; }
+            finally { foreach (var p in procs) p.Dispose(); }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Promaker.Agent 가 가용한 상태인지 — 서비스 Running 또는 콘솔 모드 프로세스 발견.
+    /// 둘 다 false 면 PLAY (Monitoring + 실 PLC) 가 차단된다 (Agent 가 모니터링 전담).
+    /// AgentExePath 는 더 이상 게이팅하지 않음: 콘솔/개발 모드는 설치 위치에 exe 가 없을 수 있어서.</summary>
     public static bool IsAgentAvailable =>
-        AgentExePath.Value is not null && IsAgentServiceRunning();
+        IsAgentServiceRunning() || IsAgentProcessRunning();
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;
@@ -131,19 +147,20 @@ public sealed partial class SimulationHubBridge : ObservableObject
         : "Hub 끊김";
 
     /// <summary>Control 은 항상 Promaker 자체가 Hub 호스트.
-    /// Monitoring 은 실 PLC 연결 시에만 self-host (5051, read-only) — PLC 미연결이면
-    /// 기존 동작대로 외부 Control hub (5050) 에 client 로 붙는다.
+    /// Monitoring + 실 PLC 는 host 모드(5051) 지만 실제 호스팅은 Promaker.Agent (Windows Service) 가 전담 —
+    /// Promaker 본체는 active.flag 만 쓰고 5051 의 클라이언트로 붙는다.
+    /// Monitoring PLC 미연결이면 외부 Control hub (5050) 에 client 로 붙는다.
     /// VirtualPlant 는 항상 외부 Hub client.</summary>
     public bool IsHubHost =>
         _runtimeMode() == RuntimeMode.Control
         || (_runtimeMode() == RuntimeMode.Monitoring && _isRealPlcConnected());
 
-    /// <summary>툴바에 표시할 hosting 상태 — self-host 인 모드일 때만 의미. Monitoring 은 [RO] 표시.
-    /// Agent 위임 모드(Monitoring+RealPlc, Promaker.Agent 설치됨) 는 "Agent [읽기전용]" 으로 구분.</summary>
+    /// <summary>툴바에 표시할 hosting 상태. Monitoring + 실 PLC 는 항상 Agent 위임이라 "Agent [읽기전용]".
+    /// Control 은 자체 호스팅.</summary>
     public string HostingLabel =>
         !IsHubHost ? ""
         : _runtimeMode() == RuntimeMode.Monitoring
-            ? (IsAgentAvailable ? "Agent [읽기전용]" : "Self-Hosted [읽기전용]")
+            ? "Agent [읽기전용]"
             : "Self-Hosted";
 
     /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
