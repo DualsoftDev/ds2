@@ -12,16 +12,23 @@ namespace Promaker.Services;
 /// URL 해석 우선순위:
 ///   1. `{ProgramFiles}\DualSoft\DSPilot\appsettings.Production.json` 의 "Urls" 필드 (예: "http://*:80")
 ///   2. `{ProgramFilesX86}\DualSoft\DSPilot\appsettings.Production.json` (32-bit 머신/잔여 설치)
-///   3. fallback: `http://localhost` (DSPilot Inno Setup 의 기본 포트 80 가정)
+/// 두 경로 모두 누락이면 DSPilot 미설치로 판단 — fallback URL 없이 null 반환.
 /// DSPilot 인스톨러가 `*` 와이드카드 호스트 + 포트로 Urls 를 기록하므로 host 는 localhost 로 치환한다.
 /// </summary>
 public static class DspilotLauncher
 {
     private static readonly ILog Log = LogManager.GetLogger("DspilotLauncher");
 
-    private const string DefaultUrl = "http://localhost";
+    /// <summary>DSPilot 설치 여부 — Program Files 후보 경로 중 하나라도 appsettings.Production.json 존재 시 true.</summary>
+    public static bool IsInstalled()
+    {
+        foreach (var candidate in EnumerateConfigPaths())
+            if (File.Exists(candidate)) return true;
+        return false;
+    }
 
-    public static string ResolveUrl()
+    /// <summary>설치된 DSPilot 의 접속 URL. 미설치면 null.</summary>
+    public static string? ResolveUrl()
     {
         foreach (var candidate in EnumerateConfigPaths())
         {
@@ -30,19 +37,26 @@ public static class DspilotLauncher
                 if (!File.Exists(candidate)) continue;
                 var url = TryReadUrlsField(candidate);
                 if (!string.IsNullOrWhiteSpace(url))
-                    return url!;
+                    return url;
             }
             catch (Exception ex)
             {
                 Log.Warn($"DSPilot 설정 읽기 실패 ({candidate}): {ex.Message}");
             }
         }
-        return DefaultUrl;
+        return null;
     }
 
+    /// <summary>DSPilot 이 설치되어 있으면 기본 브라우저로 띄움. 미설치면 안내 다이얼로그 표시 (suppress 시 SimLog 만).</summary>
     public static void Open()
     {
         var url = ResolveUrl();
+        if (url is null)
+        {
+            Log.Info("DSPilot 미설치 — 브라우저 실행 건너뜀");
+            Promaker.Dialogs.DspilotMissingNoticeDialog.Show();
+            return;
+        }
         try
         {
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });

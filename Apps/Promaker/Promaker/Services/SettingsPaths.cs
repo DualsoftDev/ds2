@@ -53,6 +53,10 @@ public static class SettingsPaths
     /// "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략 (SimLog 한 줄만).</summary>
     public static string AgentDelegationNoticeSuppress   => Of("agentDelegationNoticeSuppress.txt");
 
+    /// <summary>Monitoring + 실 PLC PLAY 시 DSPilot 이 미설치라 브라우저 실행을 건너뛸 때 보여주는 안내
+    /// 다이얼로그의 "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략.</summary>
+    public static string DspilotMissingNoticeSuppress    => Of("dspilotMissingNoticeSuppress.txt");
+
     /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
     public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
 
