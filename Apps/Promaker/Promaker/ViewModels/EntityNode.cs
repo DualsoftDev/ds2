@@ -40,7 +40,7 @@ public partial class EntityNode : ObservableObject
 
     [ObservableProperty] private bool _hasAutoAux;
     [ObservableProperty] private bool _hasComAux;
-    [ObservableProperty] private bool _hasSkipUnmatch;
+    [ObservableProperty] private bool _hasSkipAction;
 
     /// 경고 하이라이트 (그래프 검증 경고 등)
     [ObservableProperty] private bool _isWarning;
@@ -51,7 +51,7 @@ public partial class EntityNode : ObservableObject
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
 
-    /// 시뮬레이션 중 SkipUnmatch에 의해 스킵됨
+    /// 시뮬레이션 중 SkipAction에 의해 스킵됨
     [ObservableProperty] private bool _isSimSkipped;
 
     /// 시뮬레이션 토큰 표시 (빈 문자열 = 토큰 없음)
@@ -63,14 +63,14 @@ public partial class EntityNode : ObservableObject
     {
         HasAutoAux = false;
         HasComAux = false;
-        HasSkipUnmatch = false;
+        HasSkipAction = false;
         foreach (var t in types)
         {
             switch (t)
             {
                 case ConditionType.AutoAux: HasAutoAux = true; break;
                 case ConditionType.ComAux: HasComAux = true; break;
-                case ConditionType.SkipUnmatch: HasSkipUnmatch = true; break;
+                case ConditionType.SkipAction: HasSkipAction = true; break;
             }
         }
     }

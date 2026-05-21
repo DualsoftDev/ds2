@@ -40,8 +40,8 @@ type SimIndex = {
     CallApiCallGuids: Map<Guid, Guid list>
     CallAutoAuxConditions: Map<Guid, ConditionExpression>
     CallComAuxConditions: Map<Guid, ConditionExpression>
-    CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
-    WorkSkipUnmatchConditions: Map<Guid, ConditionExpression>
+    CallSkipActionConditions: Map<Guid, ConditionExpression>
+    WorkSkipActionConditions: Map<Guid, ConditionExpression>
     WorkReferenceGroups: Map<Guid, Guid list>
     WorkGroupSets: Map<Guid, Set<Guid>>
     CallCanonicalGuids: Map<Guid, Guid>
@@ -84,8 +84,8 @@ type internal SimIndexBuildState = {
     mutable CallApiCallGuids: Map<Guid, Guid list>
     mutable CallAutoAuxConditions: Map<Guid, ConditionExpression>
     mutable CallComAuxConditions: Map<Guid, ConditionExpression>
-    mutable CallSkipUnmatchConditions: Map<Guid, ConditionExpression>
-    mutable WorkSkipUnmatchConditions: Map<Guid, ConditionExpression>
+    mutable CallSkipActionConditions: Map<Guid, ConditionExpression>
+    mutable WorkSkipActionConditions: Map<Guid, ConditionExpression>
     mutable CallTypeMap: Map<Guid, CallType>
     mutable CallTimeoutMap: Map<Guid, TimeSpan>
 }

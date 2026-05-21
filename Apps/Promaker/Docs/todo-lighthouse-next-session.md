@@ -254,7 +254,7 @@ K4 Protocol SSOT = wire 상수 + N-1 CertValidator + A2 m3 + C-15 EndpointHelper
 잔여 작업 (s6-r86 + doc-r8 종결 후, 다음 turn 박제):
 
 A. 15-reviewer 종합 review 잔여 (defer 별 turn):
-  - **A5 Runtime engine v10 spec 후퇴** — light-house phase 외 추정 (ContactKind / IsInverted / SkipUnmatch / RuntimeSemantics 제거가 light-house branch 변경 아님, main..HEAD diff 0 가능). **사용자 confirm 의무** — 의도된 spec roll-back 이면 Editor UI 비활성화 + 마이그레이션 경고 / 우발적 회귀면 평가 분기 복구.
+  - **A5 Runtime engine v10 spec 후퇴** — light-house phase 외 추정 (ContactKind / IsInverted / SkipAction / RuntimeSemantics 제거가 light-house branch 변경 아님, main..HEAD diff 0 가능). **사용자 confirm 의무** — 의도된 spec roll-back 이면 Editor UI 비활성화 + 마이그레이션 경고 / 우발적 회귀면 평가 분기 복구.
   - **A7 Session lifecycle TOCTOU single lock SSOT** — CollectionEndpoints.deleteCollection 의 notifier.OnDeleted → Registry.removeAsync 순서 + SessionRegistry.CreateSession resolve-then-add race. scope large (lock SSOT 설계).
   - **A10 MtlsRoundTrip production validate unit fact** — IT override 가 production chain.Build 우회 → productionValidate internal 노출 + 3 분기 unit fact.
   - **A1 escape attack vector unit fact** — cert generation 의무.
@@ -274,7 +274,7 @@ B. Major 검증 fix 잔여 (별 turn):
   - **B15 caption-progress owner validate** — cross-tenant DoS 차단.
   - **B16 R5-M2 commit message 정정** — lifecycle DropOldest unbounded 화 검토.
   - **B18 AttachmentTools _vlmHttp + API key closure** — Promaker 측 평문 API key 매 호출 재조회.
-  - **B21 잔여 일괄** — PSK byte cache (timing leak) / KbManager SSE swallow / SseReconnectBackoff _attempt cap saturate / KnowledgeBase.Dispose record vs interface ambiguity / Work-level SkipUnmatch silent drop / UploadsResumableTests 동시 PATCH race.
+  - **B21 잔여 일괄** — PSK byte cache (timing leak) / KbManager SSE swallow / SseReconnectBackoff _attempt cap saturate / KnowledgeBase.Dispose record vs interface ambiguity / Work-level SkipAction silent drop / UploadsResumableTests 동시 PATCH race.
   - **B2 lib API async transformation** — Searcher/Indexer/KnowledgeBase facade + 모든 caller chain.
   - **R8-M5 UI Task.Run wrap** — LlmConfig.Save caller 8건.
 

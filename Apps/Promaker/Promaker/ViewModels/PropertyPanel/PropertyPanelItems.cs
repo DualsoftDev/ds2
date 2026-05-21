@@ -274,7 +274,7 @@ public sealed class ConditionSectionItem : ObservableObject
     {
         ConditionType.AutoAux     => "condition-auto-aux",
         ConditionType.ComAux      => "condition-com-aux",
-        ConditionType.SkipUnmatch => "condition-skip-unmatch",
+        ConditionType.SkipAction => "condition-skip-unmatch",
         _                             => "condition"
     };
 }

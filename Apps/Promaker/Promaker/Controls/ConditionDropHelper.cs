@@ -91,11 +91,22 @@ internal static class ConditionDropHelper
     }
 
     /// <summary>
+    /// SkipAction Drag&Drop 시 호출하는 ContactKind picker. 사용자가 취소하면 null 반환.
+    /// Default = B접(NcContact, Not).
+    /// </summary>
+    private static ContactKind? PromptContactKindIfSkipAction(ConditionType condType, Window? ownerWindow)
+    {
+        if (condType != ConditionType.SkipAction) return null;
+        var picker = new ContactKindPickerDialog();
+        if (ownerWindow is not null) picker.Owner = ownerWindow;
+        else if (Application.Current.MainWindow is { } main) picker.Owner = main;
+        return picker.ShowDialog() == true ? picker.SelectedContactKind : (ContactKind?)null;
+    }
+
+    /// <summary>
     /// 드롭된 Call의 ApiCall을 조회 → Picker → 기존 root 그룹이 있으면 거기에 추가,
     /// 없으면 새 root 그룹 생성.
-    ///
-    /// 정책: 최상위 그룹은 항상 1개만 유지 (편집 다이얼로그의 + 조건 추가 와 동일 규칙).
-    /// PropertyPanelState, ConditionEditDialog, EditorCanvas에서 공용.
+    /// SkipAction 이면 추가로 A접/B접 picker 띄우고 새 leaf 들에 ContactKind 적용.
     /// </summary>
     internal static bool ExecuteConditionDrop(
         DsStore store,
@@ -109,6 +120,14 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
+        // SkipAction 이면 A접/B접 선택. 취소 시 전체 drop 중단.
+        ContactKind? kindOverride = null;
+        if (condType == ConditionType.SkipAction)
+        {
+            kindOverride = PromptContactKindIfSkipAction(condType, ownerWindow);
+            if (kindOverride is null) return false;
+        }
+
         // 기존 동일 type 의 top-level Condition 조회.
         Guid? existingRootId = null;
         if (host.TryRef(() => store.GetCallConditionsForPanel(targetCallId), out var existing))
@@ -117,17 +136,32 @@ internal static class ConditionDropHelper
             if (root is not null) existingRootId = root.ConditionId;
         }
 
-        bool ok = existingRootId is { } rootId
-            ? host.TryAction(() => store.AddApiCallsToConditionBatch(targetCallId, rootId, selectedIds))
-            : host.TryAction(() => store.AddConditionWithApiCalls(targetCallId, condType, selectedIds));
+        Guid? appliedCondId = null;
+        bool ok;
+        if (existingRootId is { } rootId)
+        {
+            ok = host.TryAction(() => store.AddApiCallsToConditionBatch(targetCallId, rootId, selectedIds));
+            if (ok) appliedCondId = rootId;
+        }
+        else
+        {
+            Guid newId = Guid.Empty;
+            ok = host.TryAction(() => newId = store.AddConditionWithApiCalls(targetCallId, condType, selectedIds));
+            if (ok) appliedCondId = newId;
+        }
         if (!ok) return false;
+
+        if (kindOverride is { } kind && appliedCondId is { } condId)
+        {
+            host.TryAction(() => store.SetConditionApiCallsContactKind(targetCallId, condId, selectedIds, kind));
+        }
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to {condType}.");
         return true;
     }
 
     /// <summary>
-    /// 드롭된 Call의 ApiCall을 조회 → Picker → store.AddApiCallsToConditionBatch 호출 (기존 조건에 추가).
+    /// 드롭된 Call의 ApiCall을 조회 → 기존 조건에 추가. condition 의 Type 이 SkipAction 이면 A접/B접 picker.
     /// </summary>
     internal static bool ExecuteAddApiCallsToCondition(
         DsStore store,
@@ -141,8 +175,27 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
+        // 타겟 condition 의 type 확인 — SkipAction 이면 picker.
+        ConditionType? condType = null;
+        if (host.TryRef(() => store.GetCallConditionsForPanel(targetCallId), out var existing))
+        {
+            var found = existing.FirstOrDefault(c => c.ConditionId == targetConditionId);
+            if (found is not null) condType = found.ConditionType;
+        }
+        ContactKind? kindOverride = null;
+        if (condType == ConditionType.SkipAction)
+        {
+            kindOverride = PromptContactKindIfSkipAction(condType.Value, ownerWindow);
+            if (kindOverride is null) return false;
+        }
+
         if (!host.TryAction(() => store.AddApiCallsToConditionBatch(targetCallId, targetConditionId, selectedIds)))
             return false;
+
+        if (kindOverride is { } kind)
+        {
+            host.TryAction(() => store.SetConditionApiCallsContactKind(targetCallId, targetConditionId, selectedIds, kind));
+        }
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to condition.");
         return true;
@@ -162,6 +215,13 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
+        ContactKind? kindOverride = null;
+        if (condType == ConditionType.SkipAction)
+        {
+            kindOverride = PromptContactKindIfSkipAction(condType, ownerWindow);
+            if (kindOverride is null) return false;
+        }
+
         Guid? existingRootId = null;
         if (host.TryRef(() => store.GetWorkConditionsForPanel(targetWorkId), out var existing))
         {
@@ -169,10 +229,25 @@ internal static class ConditionDropHelper
             if (root is not null) existingRootId = root.ConditionId;
         }
 
-        bool ok = existingRootId is { } rootId
-            ? host.TryAction(() => store.AddApiCallsToWorkConditionBatch(targetWorkId, rootId, selectedIds))
-            : host.TryAction(() => store.AddWorkConditionWithApiCalls(targetWorkId, condType, selectedIds));
+        Guid? appliedCondId = null;
+        bool ok;
+        if (existingRootId is { } rootId)
+        {
+            ok = host.TryAction(() => store.AddApiCallsToWorkConditionBatch(targetWorkId, rootId, selectedIds));
+            if (ok) appliedCondId = rootId;
+        }
+        else
+        {
+            Guid newId = Guid.Empty;
+            ok = host.TryAction(() => newId = store.AddWorkConditionWithApiCalls(targetWorkId, condType, selectedIds));
+            if (ok) appliedCondId = newId;
+        }
         if (!ok) return false;
+
+        if (kindOverride is { } kind && appliedCondId is { } condId)
+        {
+            host.TryAction(() => store.SetWorkConditionApiCallsContactKind(targetWorkId, condId, selectedIds, kind));
+        }
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to Work {condType}.");
         return true;
@@ -190,8 +265,26 @@ internal static class ConditionDropHelper
         if (selectedIds is null)
             return false;
 
+        ConditionType? condType = null;
+        if (host.TryRef(() => store.GetWorkConditionsForPanel(targetWorkId), out var existing))
+        {
+            var found = existing.FirstOrDefault(c => c.ConditionId == targetConditionId);
+            if (found is not null) condType = found.ConditionType;
+        }
+        ContactKind? kindOverride = null;
+        if (condType == ConditionType.SkipAction)
+        {
+            kindOverride = PromptContactKindIfSkipAction(condType.Value, ownerWindow);
+            if (kindOverride is null) return false;
+        }
+
         if (!host.TryAction(() => store.AddApiCallsToWorkConditionBatch(targetWorkId, targetConditionId, selectedIds)))
             return false;
+
+        if (kindOverride is { } kind)
+        {
+            host.TryAction(() => store.SetWorkConditionApiCallsContactKind(targetWorkId, targetConditionId, selectedIds, kind));
+        }
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to Work condition.");
         return true;

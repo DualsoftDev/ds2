@@ -37,8 +37,8 @@ type MermaidNode = {
     AutoAuxConditionRefs: string list
     /// ComAux 조건 소스 Call 이름 목록
     ComAuxConditionRefs: string list
-    /// SkipUnmatch 조건 소스 Call 이름 목록
-    SkipUnmatchConditionRefs: string list
+    /// SkipAction 조건 소스 Call 이름 목록
+    SkipActionConditionRefs: string list
 }
 
 /// Mermaid 엣지 정의
@@ -67,9 +67,9 @@ type MermaidSubgraph = {
     Children: MermaidSubgraph list
     /// Passive(Device) System 여부
     IsPassive: bool
-    /// Work 서브그래프 의 SkipUnmatch 조건 소스 Call 이름 목록.
+    /// Work 서브그래프 의 SkipAction 조건 소스 Call 이름 목록.
     /// System/Flow 서브그래프 는 항상 빈 list (Work 만 의미).
-    SkipUnmatchConditionRefs: string list
+    SkipActionConditionRefs: string list
 }
 
 /// 파싱된 Mermaid 그래프 전체

@@ -407,7 +407,7 @@ ArrowType 외 export 보강에 도입되는 enum 라벨 — `calls` object 승�
 
 | Enum | 허용 라벨 | default | 사용 위치 |
 |---|---|---|---|
-| **CallConditionType** | `AutoAux` \| `ComAux` \| `SkipUnmatch` | `AutoAux` | `calls[].callCondition.type` |
+| **CallConditionType** | `AutoAux` \| `ComAux` \| `SkipAction` | `AutoAux` | `calls[].callCondition.type` |
 | **ContactKind** | `NoContact` \| `NcContact` \| `RisingPulse` \| `FallingPulse` \| `Inverter` | `NoContact` | `calls[].contactKind` + `calls[].callCondition.conditions[].contactKind` (recursive leaf) |
 | **CallType** | `WaitForCompletion` \| `SkipIfCompleted` | `WaitForCompletion` | `calls[].callType` |
 | **ApiDefActionType** | `Normal` \| `Push` \| `Pulse` \| `TimeTotal(<ms>)` \| `TimeAppend(<ms>)` \| `MultiAction(<count>, <ms>)` | `Normal` | `apiDetails.<ApiDef>.actionType` (Passive system) |

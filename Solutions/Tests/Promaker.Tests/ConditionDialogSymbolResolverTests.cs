@@ -46,13 +46,13 @@ public sealed class ConditionDialogSymbolResolverTests
         var advanceCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "Device", "ADV", [advanceApiDefId]);
         var advanceApiCallId = store.Calls[advanceCallId].ApiCalls.Single().Id;
         store.AddCallWithLinkedApiDefs(activeWorkId, "Device", "RET", [returnApiDefId]);
-        store.AddWorkConditionWithApiCalls(activeWorkId, ConditionType.SkipUnmatch, [advanceApiCallId]);
+        store.AddWorkConditionWithApiCalls(activeWorkId, ConditionType.SkipAction, [advanceApiCallId]);
 
         var names = ConditionDialogSymbolResolver.BuildRegisteredDisplayNames(
             store,
             activeWorkId,
             EntityKind.Work,
-            ConditionType.SkipUnmatch);
+            ConditionType.SkipAction);
 
         Assert.Contains("Device.ADV", names);
         Assert.DoesNotContain("Device.RET", names);
