@@ -630,7 +630,9 @@ type OoxmlExtractor() =
             result
 
     /// **Backlog 3 (review M7) — 단일 visible sheet ingest helper. PPTX 의 `IngestPptxSlide` 대칭.**
-    /// caller (ExtractXlsx) 가 hidden / `#` 가드 통과 후 호출. outline + segment + image 박제.
+    /// caller (ExtractXlsx) 가 hidden 가드 통과 후 호출. outline + segment + image 박제.
+    /// **Backlog 5 (시트명 `#` hotfix)** — 시트명 `#` 는 RefLocator.encodeMainValue 가 `%23` 으로 자동 escape.
+    /// caller 의 `#` skip 정책 폐기 — 산업 .xlsx 의 호기/부품 번호 표기 (`5-1. #201`) 정합.
     static member private IngestXlsxSheet
         (path: string)
         (workbookPart: WorkbookPart)
@@ -641,7 +643,7 @@ type OoxmlExtractor() =
         (segments: ResizeArray<ExtractedSegment>)
         (images: ResizeArray<ExtractedImage>)
         (ct: CancellationToken) : unit =
-        let refLoc = sprintf "sheet=%s" sheetName
+        let refLoc = sprintf "sheet=%s" (RefLocator.encodeMainValue sheetName)
         // r1 M17: outline 박제 — segment 미박제 (빈 시트) 라도 시트 존재 자체가 정보.
         outline.Add {
             ParentIndex = None
@@ -711,15 +713,12 @@ type OoxmlExtractor() =
                         sprintf "ExtractXlsx: hidden sheet skip — name=%s path=%s"
                             (if isNull sheet.Name || not sheet.Name.HasValue then "<null>" else sheet.Name.Value) path)
                 else
+                    // **Backlog 5 (시트명 `#` hotfix)** — 시트명 `#` skip 폐기. RefLocator.encodeMainValue 가 `%23` 자동 escape →
+                    // 산업 .xlsx 의 호기 번호 표기 (`5-1. #201` 등) 정상 색인. 기존 r1 M18 정책 무효화.
                     let sheetName =
                         if isNull sheet.Name || not sheet.Name.HasValue then "" else sheet.Name.Value
-                    if sheetName.Contains '#' then
-                        // r1 M18: `#` 는 RefLocator fragment separator 충돌 → 시트 자체 skip.
-                        Log.lighthouse.Warn(
-                            sprintf "ExtractXlsx: 시트명 `#` 포함 skip (RefLocator 충돌) — name=%s path=%s" sheetName path)
-                    else
-                        visibleSheetCount <- visibleSheetCount + 1
-                        OoxmlExtractor.IngestXlsxSheet path workbookPart sheet sheetName sstItems outline segments images ct
+                    visibleSheetCount <- visibleSheetCount + 1
+                    OoxmlExtractor.IngestXlsxSheet path workbookPart sheet sheetName sstItems outline segments images ct
             {
                 DocType = Xlsx
                 PageOrSheetCnt = Some visibleSheetCount

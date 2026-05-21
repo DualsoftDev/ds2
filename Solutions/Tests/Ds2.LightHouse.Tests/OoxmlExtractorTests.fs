@@ -1185,19 +1185,31 @@ let ``xlsx — Sheet.State HasValue=false (r1 Critical-6) — State 부재 시 v
         Assert.Equal(Some 1, result.PageOrSheetCnt))
 
 [<Fact>]
-let ``xlsx — 시트명 # 포함 skip (r1 M18) — Warn + 다른 시트 정상`` () =
+let ``xlsx — 시트명 # 포함 색인 (Backlog 5 hotfix, r1 M18 무효화) — %23 escape + 정상 색인`` () =
+    // **Backlog 5**: 산업 .xlsx 의 호기 번호 표기 (`5-1. #201` 등) 정상 색인. 기존 r1 M18 (skip 정책) 폐기.
+    // RefLocator.encodeMainValue 가 `#` → `%23` 자동 escape, tryParse 가 자동 decode.
     withTempPath ".xlsx" (fun path ->
         let sheets = [
-            XlsxFixture.mkSheet "정상" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v" ] } ]
-            XlsxFixture.mkSheet "A#B" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "skip" ] } ]
+            XlsxFixture.mkSheet "정상" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "v1" ] } ]
+            XlsxFixture.mkSheet "5-1. #201" [ { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "호기 본문" ] } ]
         ]
         XlsxFixture.buildXlsx path None sheets
         use ext = new OoxmlExtractor() :> IExtractor
         let result = ext.Extract(path, CancellationToken.None)
-        // 정상 시트만 박제, A#B 시트는 skip.
-        Assert.Equal(Some 1, result.PageOrSheetCnt)
-        Assert.Equal(1, result.Outline.Length)
-        Assert.Equal("정상", result.Outline.[0].Label))
+        // 두 시트 모두 박제.
+        Assert.Equal(Some 2, result.PageOrSheetCnt)
+        Assert.Equal(2, result.Outline.Length)
+        Assert.Equal("정상", result.Outline.[0].Label)
+        Assert.Equal("5-1. #201", result.Outline.[1].Label)   // Label 은 raw (decode 의무 caller 측 표시)
+        // RefLocator stored — `#` → `%23` escape 박제.
+        Assert.Equal("sheet=정상", result.Outline.[0].RefLocator)
+        Assert.Equal("sheet=5-1. %23201", result.Outline.[1].RefLocator)
+        // round-trip — RefLocator.tryParse 가 stored → parsed → Main.Value 자동 decode.
+        let parsed = RefLocator.tryParse result.Outline.[1].RefLocator
+        Assert.True(parsed.IsSome)
+        Assert.Equal("5-1. #201", parsed.Value.Main.Value)
+        // round-trip 역방향 — Main.Value="5-1. #201" → toStored 자동 encode.
+        Assert.Equal("sheet=5-1. %23201", RefLocator.toStored parsed.Value))
 
 [<Fact>]
 let ``xlsx — 시트명 = 포함 round-trip (r2 Major-2 반론 검증) — RefLocator tryParse round-trip 정상`` () =

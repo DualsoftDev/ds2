@@ -61,6 +61,29 @@ let ``표시형 변환 — Phase 2 slide/sheet × img sub-key (Task 3 regression
     Assert.Equal("시트 BOM 그림 1", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM#img=1"))
     Assert.Equal("시트 BOM A1:D40 그림 2", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM!A1:D40#img=2"))
 
+[<Theory>]
+[<InlineData("sheet=5-1. %23201", "5-1. #201")>]
+[<InlineData("sheet=A%23B", "A#B")>]
+[<InlineData("sheet=A%25B", "A%B")>]
+[<InlineData("sheet=A%2523B", "A%23B")>]   // raw "A%23B" 의 round-trip (이중 escape)
+let ``Backlog 5 — sheet-name % # escape round-trip`` (stored: string) (expectedValue: string) =
+    // **Backlog 5 hotfix** — 산업 .xlsx 의 호기 번호 표기 (`5-1. #201`) round-trip 안전성.
+    // `%` → `%25` / `#` → `%23` URL-style escape, tryParse 가 자동 decode.
+    let parsed = RefLocator.tryParse stored
+    Assert.True(parsed.IsSome)
+    Assert.Equal(expectedValue, parsed.Value.Main.Value)
+    Assert.Equal(stored, RefLocator.toStored parsed.Value)
+
+[<Fact>]
+let ``Backlog 5 — encodeMainValue / decodeMainValue (toStored) — caller 직접 활용 path`` () =
+    // OoxmlExtractor.ExtractXlsx 가 `sprintf "sheet=%s" (RefLocator.encodeMainValue sheetName)` 박제.
+    Assert.Equal("sheet=5-1. %23201", sprintf "sheet=%s" (RefLocator.encodeMainValue "5-1. #201"))
+    Assert.Equal("sheet=A%25B%23C", sprintf "sheet=%s" (RefLocator.encodeMainValue "A%B#C"))
+    // formatDisplay 는 Main.Value 가 이미 decoded 상태 (record) 라 raw 표시.
+    let parsed = RefLocator.tryParse "sheet=5-1. %23201"
+    Assert.True(parsed.IsSome)
+    Assert.Equal("시트 5-1. #201", RefLocator.formatDisplay parsed.Value)
+
 [<Fact>]
 let ``parsed → toStored 직접 조립 round-trip`` () =
     let r = {
