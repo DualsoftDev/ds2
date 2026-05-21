@@ -89,6 +89,9 @@ let private writeDefaultMeta
         CreatedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
         ClientHost = "integration-test-host"
         ClientUser = clientUser
+        // **PR-A (r0)** — 두 신 필드 default (IT fixture 와 무관)
+        Description = ""
+        Keywords = [||]
         Id = ""
         ImportedAt = ""
         ImportedBy = ""

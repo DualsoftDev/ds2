@@ -27,6 +27,9 @@ let private mkEntry (id: string) (name: string) : CollectionEntry = {
     Status = "idle"
     ErrorReason = null
     LastImportedAt = "2026-05-17T00:00:00Z"
+    // **PR-A (r0)** — 두 신 필드 default (KeywordExtractor 미진입 시점)
+    Description = ""
+    Keywords = [||]
     Acl = Unchecked.defaultof<CollectionAcl>
 }
 
@@ -176,4 +179,36 @@ let ``K6 — Id empty 의심 entry skip`` () = withTempRoot (fun root -> task {
     File.WriteAllText(p, raw)
     let reg = Registry.load root
     Assert.Empty(reg.Collections)
+})
+
+[<Fact>]
+let ``PR-A r0 — upsert + load round-trip Description / Keywords 보존`` () = withTempRoot (fun root -> task {
+    let entry = { mkEntry "id-pr-a" "summary-test" with
+                    Description = "라인A 컨베이어 사양 요약"
+                    Keywords = [| "컨베이어"; "PLC"; "IO"; "안전"; "센서" |] }
+    do! Registry.upsertAsync root entry
+    let list = Registry.listSnapshot root
+    Assert.Single(list) |> ignore
+    Assert.Equal("라인A 컨베이어 사양 요약", list.[0].Description)
+    Assert.Equal<string[]>([| "컨베이어"; "PLC"; "IO"; "안전"; "센서" |], list.[0].Keywords)
+})
+
+[<Fact>]
+let ``PR-A r0 — legacy registry.json (두 필드 누락) load → null default (forward-compat)`` () = withTempRoot (fun root -> task {
+    // PR-A 진입 이전 시점의 registry.json 시뮬레이션 (description / keywords 누락).
+    // STJ default 가 null 박제 — caller (UI / KbDigestBuilder) 가 null 가드 책임.
+    let p = Registry.path root
+    let raw = """{"schemaVersion":1,"collections":[
+        {"id":"legacy-1","displayName":"legacy","indexerVersion":"1.0.0","fileCount":0,"totalSourceBytes":0,
+         "createdAt":"2026-05-17T00:00:00Z","importedAt":"2026-05-17T00:00:00Z","importedBy":"old",
+         "storageRelPath":"Collections\\legacy-1-legacy\\","status":"idle","errorReason":null,
+         "lastImportedAt":"2026-05-17T00:00:00Z","acl":null}
+    ]}"""
+    File.WriteAllText(p, raw)
+    let reg = Registry.load root
+    Assert.Single(reg.Collections) |> ignore
+    // legacy entry 의 두 필드 = STJ default. caller (KbDigestBuilder) 가 null 가드.
+    Assert.Null(reg.Collections.[0].Description)
+    Assert.Null(reg.Collections.[0].Keywords)
+    return ()
 })

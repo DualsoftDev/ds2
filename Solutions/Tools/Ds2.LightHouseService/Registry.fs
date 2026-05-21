@@ -45,6 +45,12 @@ type CollectionEntry = {
     [<JsonPropertyName("status")>] Status: string
     [<JsonPropertyName("errorReason")>] ErrorReason: string
     [<JsonPropertyName("lastImportedAt")>] LastImportedAt: string
+    /// **PR-A (r0, todo-lighthouse-index-summary.md §3.1)** — collection topic 1줄 합성.
+    /// Phase 1 = 빈 string. Phase 2 의 b2 LLM-driven 도입 시 채움.
+    [<JsonPropertyName("description")>] Description: string
+    /// **PR-A (r0)** — KeywordExtractor 결과 (top-N=15 잠정).
+    /// 빈 array = legacy collection / PR-B 이전 색인. KbDigestBuilder 가 빈 시 title 만 박제.
+    [<JsonPropertyName("keywords")>] Keywords: string array
     /// **s6-r66 D-S7-4** — T3 mode ACL. null = 전체 공개. T1/T2 모드 시 무시.
     [<JsonPropertyName("acl")>] Acl: CollectionAcl
 }

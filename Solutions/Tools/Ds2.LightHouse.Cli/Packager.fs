@@ -149,6 +149,9 @@ module Packager =
             CreatedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
             ClientHost = Environment.MachineName
             ClientUser = clientUser
+            // **PR-A (r0)** — 두 신 필드 default. PR-B (KeywordExtractor) 진입 시 본 위치에서 채움.
+            Description = ""
+            Keywords = [||]
             Id = ""
             ImportedAt = ""
             ImportedBy = ""
