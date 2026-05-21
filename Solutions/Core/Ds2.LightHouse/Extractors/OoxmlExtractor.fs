@@ -316,12 +316,16 @@ type OoxmlExtractor() =
                 Images = images.ToArray()
             }
 
-    /// **Task 0 (Critical-1, r2 m4 XmlException 추가)** — 외부 환경 fail-safe (§6.5) 5 종 통합 wrapper.
+    /// **Task 0 (Critical-1, r2 m4 XmlException 추가, review M6 KeyNotFound/ArgumentOutOfRange 추가)** —
+    /// 외부 환경 fail-safe (§6.5) 7 종 통합 wrapper.
     ///   - FileFormatException: zip header 등 OOXML 패키지 구조 깨짐
     ///   - OpenXmlPackageException: 패키지 일관성 위반
     ///   - InvalidDataException: 손상된 압축 stream
     ///   - IOException: 파일 접근 실패 (lock / 권한)
     ///   - System.Xml.XmlException: OpenXml lazy deferred parsing 시점 발생 가능 (r2 m4)
+    ///   - KeyNotFoundException: presentationPart.GetPartById(relId) 의 dangling relId — slideId/sheetId
+    ///     참조 표는 있는데 매핑 part 부재 (review M6). 손상 ooxml 1건이 전체 색인 abort 회피.
+    ///   - ArgumentOutOfRangeException: SDK 내부 index 범위 위반 — 손상 pptx/xlsx 의 SDK fallback path (review M6).
     /// 빈 record 의 DocType 은 `docType` 인자로 정확 박제 (기존 4 arm 의 `DocType=Docx` hardcode 회귀).
     /// 그 외 (NullReferenceException 등 코드 버그) 는 reraise — 디버깅 가시성 보존.
     static member private ExtractWithFailSafe
@@ -346,6 +350,15 @@ type OoxmlExtractor() =
             emptyResult ()
         | :? System.Xml.XmlException as ex ->
             Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A XML 파싱 실패 (lazy deferred) — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? System.Collections.Generic.KeyNotFoundException as ex ->
+            // review M6 — GetPartById(relId) 의 dangling relId 차단. PPTX slideId / XLSX sheet.Id 의
+            // 참조표는 있으나 매핑 part 부재 시 SDK 가 throw. 손상 ooxml 1건이 전체 색인 abort 회피.
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A relationship 매핑 실패 — path=%s, ex=%s" docType path ex.Message)
+            emptyResult ()
+        | :? System.ArgumentOutOfRangeException as ex ->
+            // review M6 — SDK 내부 index 범위 위반 (손상 pptx/xlsx 의 SDK fallback path).
+            Log.lighthouse.Warn(sprintf "OoxmlExtractor: %A 인덱스 범위 위반 — path=%s, ex=%s" docType path ex.Message)
             emptyResult ()
 
     /// **Task 1 — PPTX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 1)
@@ -385,27 +398,31 @@ type OoxmlExtractor() =
             let slideIds : seq<DocumentFormat.OpenXml.Presentation.SlideId> =
                 if isNull pres.SlideIdList then Seq.empty
                 else pres.SlideIdList.Elements<DocumentFormat.OpenXml.Presentation.SlideId>()
+            // **review M3 fix** — slideNo (SlideIdList ordinal, slide=N 박제 정합 유지) 와
+            // ingestedSlideCnt (정상 ingest 카운트, PageOrSheetCnt = outline.Length 일치) 분리. XLSX
+            // 의 `visibleSheetCount` 패턴과 통일. broken slide 1건이 정상 N 의 PageOrSheetCnt 를
+            // N+1 로 오염하던 회귀 차단.
             let mutable slideNo = 1
+            let mutable ingestedSlideCnt = 0
             for slideId in slideIds do
                 ct.ThrowIfCancellationRequested()   // r2 Minor 6
                 // r2 Minor 3: 손상 pptx 의 RelationshipId null guard.
                 if isNull slideId.RelationshipId || not slideId.RelationshipId.HasValue then
                     Log.lighthouse.Warn(
                         sprintf "ExtractPptx: slideId(no=%d) RelationshipId null — path=%s" slideNo path)
-                    slideNo <- slideNo + 1
                 else
                     let relId = slideId.RelationshipId.Value
                     match presentationPart.GetPartById(relId) with
                     | :? SlidePart as slidePart ->
                         OoxmlExtractor.IngestPptxSlide path slidePart slideNo outline segments images
-                        slideNo <- slideNo + 1
+                        ingestedSlideCnt <- ingestedSlideCnt + 1
                     | other ->
                         Log.lighthouse.Warn(
                             sprintf "ExtractPptx: relId=%s 가 SlidePart 아님 (%A) — path=%s" relId (other.GetType().Name) path)
-                        slideNo <- slideNo + 1
+                slideNo <- slideNo + 1
             {
                 DocType = Pptx
-                PageOrSheetCnt = Some (slideNo - 1)
+                PageOrSheetCnt = Some ingestedSlideCnt
                 Title = None
                 Outline = outline.ToArray()
                 Segments = segments.ToArray()

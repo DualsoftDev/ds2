@@ -19,6 +19,14 @@ module IndexerVersion =
     // 로 본 literal 을 추출 + service config 의 indexerVersionRange 정합 검증.
     // 다른 literal (SchemaVersion / Tokenizer) 을 Current 앞으로 옮기면 paired-release
     // 검증이 잘못된 값을 잡아 exit 1 (false positive) 가 됨. 추가 시 Current 뒤에 둘 것.
+    // **Phase 2 PPTX/XLSX 활성 (xlsx-pptx-images r2 Task 1/2, review MP1 (b) 결정)** — IndexerVersion bump 면제.
+    //   이전 Unsupported skip 되던 .pptx/.xlsx 가 Ds2.LightHouse 측 신규 ingest 대상이 되었으나, 다음 사유로 bump 면제:
+    //   (a) schema 무변경 — Documents/Outline/Segments/Chunks/ImageCache/ImageReferences 모두 그대로.
+    //   (b) forward-compat — 기존 collection 은 다음 색인 시점에 `Indexer.ingest` 의 enumerateFiles 가 .pptx/.xlsx
+    //       자연 발견 + ingest. 기존 .pdf/.docx/.txt/.md document 들은 hash 매칭 idempotent skip (회귀 0).
+    //   (c) bump 비용 회피 — minor bump 시 모든 기존 collection 강제 재색인 trigger (SchemaVersion drift 가 아니라
+    //       indexer_version drift 자체로 rebuild 되지 않으나, 사용자의 KB UI 표시상 "재색인 필요" noise 발생 가능).
+    //   결과 — Current 유지 (`2.1.0`). 사용자가 명시 `Index Now` 시점에 .pptx/.xlsx 자동 흡수.
     // s6-r49 #2 (L-Maj-10): 2.0.0 → 2.1.0 — **minor bump** (forward-compat). Documents.FileMTimeTicks
     //   ALTER 컬럼 신설 — mtime/size 기반 fast-skip 의 metadata. 기존 row 의 NULL = legacy → fall-back hash 계산.
     //   SchemaVersion 4→5 동반 — `needsRebuild` 가 schema_version drift 만 trigger 라 기존 collection 강제 재색인.

@@ -15,7 +15,12 @@ open Ds2.LightHouse
 [<InlineData("sheet=BOM!A1:D40")>]
 // r1 Critical-2 regression guard — pdf 의 p=N#img=M 유지.
 [<InlineData("p=14#img=2")>]
-// Phase 2 Task 1/2 활성 (xlsx-pptx-images r2 Task 3) — slide/sheet × img sub-key 일반화 보호.
+// Phase 2 Task 1/2 활성 (xlsx-pptx-images r2 Task 3) — slide/sheet × img sub-key **EBNF 일반 spec 보호**.
+// **review MP2 명문화**: prod 의 OoxmlExtractor.ExtractPptx / ExtractXlsx 는 image RefLocator 박제 시
+// `slide=N` / `sheet=<name>` 만 사용 + `Ordinal` 은 ExtractedImage record field 로 별도 박제
+// (PDF/DOCX 와 동일 정책). 본 InlineData 4종은 *prod 가 생성하지 않는* `#img=N` 형태의 EBNF 일반 spec
+// 보호 만 — attachment_read 의 ref 파서가 본 form 을 받을 가능성 + 향후 정책 변경 (RefLocator+Ordinal SSOT
+// 통합) 시 회귀 차단 의도.
 [<InlineData("slide=5#img=2")>]
 [<InlineData("sheet=BOM#img=1")>]
 [<InlineData("sheet=주요-사양#img=3")>]
