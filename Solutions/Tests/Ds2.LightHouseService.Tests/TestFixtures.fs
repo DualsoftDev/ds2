@@ -1,6 +1,36 @@
 namespace Ds2.LightHouseService.Tests
 
 open Xunit
+open Ds2.LightHouseService
+
+/// **N-M5 (s6-r90, 15-reviewer Minor)** — ServiceConfig builder helper. 5+ caller (AuthMiddlewareTests /
+/// FileServingTests / EndpointHelpersTests + IT 의 ServiceFixture / MtlsRoundTripTests / MultiTenantFixture)
+/// 가 ServiceConfig record 박제 (~20 field) 중복. 본 helper = default ServiceConfig (T1 mode, mtls=Off,
+/// embedding=disabled, adminUsers=null) 박제. caller 가 `with` 박제로 분기 변경.
+[<RequireQualifiedAccess>]
+module ServiceConfigBuilder =
+
+    let defaultConfig (listenUrl: string) (storageRoot: string) : ServiceConfig =
+        {
+            SchemaVersion = ConfigSchema.Current
+            ListenUrl = listenUrl
+            TlsCertPath = ""
+            TlsCertPasswordEncrypted = ""
+            PreSharedKeyEncrypted = ""
+            StorageRoot = storageRoot
+            MaxUploadBytes = 10737418240L
+            ZipBombRatioLimit = 50
+            SessionIdleTtlMinutes = 240
+            StagingSweepIntervalMinutes = 10
+            LogRetentionDays = 30
+            LogMaxSizeMB = 100
+            AuditRetentionDays = 365
+            IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
+            Embedding = { Enabled = false; BaseUrl = ""; Model = ""; Dimension = 1024 }
+            Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
+            MultiTenant = { Mode = MultiTenantMode.T1 }
+            AdminUsers = null
+        }
 
 /// **s6-r22 mn7** — Test fixture SSOT (sibling module of `Ds2.LightHouse.Tests.SamplePng`).
 ///

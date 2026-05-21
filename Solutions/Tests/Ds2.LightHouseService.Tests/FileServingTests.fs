@@ -32,27 +32,10 @@ let private withTempRoot (action: string -> Task<'r>) : Task<'r> = task {
 
 /// **s6-r70 review C-1** — `FileServing.getFile` signature 에 cfg 추가 (multi-tenant filter SSOT).
 /// FileServingTests 는 multi-tenant T1 mode (현행 회귀 0) 만 검증 — Mode="T1" 만 박제. T2/T3 e2e 는 별 turn.
+/// **N-M5 (s6-r90)** — ServiceConfigBuilder.defaultConfig 통과 (cfg DRY).
 let private testCfg (storageRoot: string) : ServiceConfig =
-    {
-        SchemaVersion = ConfigSchema.Current
-        ListenUrl = "https://127.0.0.1:0"
-        TlsCertPath = ""
-        TlsCertPasswordEncrypted = ""
-        PreSharedKeyEncrypted = ""
-        StorageRoot = storageRoot
-        MaxUploadBytes = 10737418240L
-        ZipBombRatioLimit = 50
-        SessionIdleTtlMinutes = 240
-        StagingSweepIntervalMinutes = 10
-        LogRetentionDays = 30
-        LogMaxSizeMB = 100
-        AuditRetentionDays = 365
-        IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
-        Embedding = { Enabled = false; BaseUrl = "http://localhost:11434"; Model = "bge-m3"; Dimension = 1024 }
-        Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
-        MultiTenant = { Mode = MultiTenantMode.T1 }
-        AdminUsers = null
-    }
+    { ServiceConfigBuilder.defaultConfig "https://127.0.0.1:0" storageRoot with
+        Embedding = { Enabled = false; BaseUrl = "http://localhost:11434"; Model = "bge-m3"; Dimension = 1024 } }
 
 /// 한 collection 의 minimal index.db 생성. Documents 1행 INSERT 후 (id, originalPath, fileHash, sizeBytes) 반환.
 let private setupCollection

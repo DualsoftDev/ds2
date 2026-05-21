@@ -21,27 +21,9 @@ let private newCtx (path: string) (headers: (string * string) list) : DefaultHtt
 
 /// **s6-r70 review C-3** — middleware 시그니처 cfg 추가. AuthMiddlewareTests 는 mtls.mode="off" (현행) 만 검증
 /// (mTLS subject ↔ X-User-Identity 의 cfg 분기 fact 는 MtlsRoundTripTests IT 가 별도 박제).
+/// **N-M5 (s6-r90)** — ServiceConfigBuilder.defaultConfig 통과 (cfg DRY).
 let private testCfg : ServiceConfig =
-    {
-        SchemaVersion = ConfigSchema.Current
-        ListenUrl = "https://127.0.0.1:0"
-        TlsCertPath = ""
-        TlsCertPasswordEncrypted = ""
-        PreSharedKeyEncrypted = ""
-        StorageRoot = ""
-        MaxUploadBytes = 10737418240L
-        ZipBombRatioLimit = 50
-        SessionIdleTtlMinutes = 240
-        StagingSweepIntervalMinutes = 10
-        LogRetentionDays = 30
-        LogMaxSizeMB = 100
-        AuditRetentionDays = 365
-        IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
-        Embedding = { Enabled = false; BaseUrl = ""; Model = ""; Dimension = 1024 }
-        Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
-        MultiTenant = { Mode = MultiTenantMode.T1 }
-        AdminUsers = null
-    }
+    ServiceConfigBuilder.defaultConfig "https://127.0.0.1:0" ""
 
 let private runMiddleware (psk: string) (ctx: HttpContext) : Task<bool> =
     let nextCalled = ref false
