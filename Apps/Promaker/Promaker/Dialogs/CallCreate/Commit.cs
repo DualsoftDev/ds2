@@ -129,6 +129,22 @@ public partial class CallCreateDialog
 
     private void CommitApiCallReplication(string alias, List<string> apiNames)
     {
+        // ApiCall 복제는 *각 device 마다 ApiCall 연결* 이 본질 — ApiName 필수.
+        // ApiName 비면 ValidateAliasAndApiNames 가 "Api_None" sentinel + CreateDeviceSystem=false 로 fallback 하는데,
+        // 이건 일반 Call 복제 (placeholder Call 만 만들기) 용 fallback. ApiCall 복제 모드에선 의미 없음.
+        // 특히 ModeStn 같이 DevicePresets ApiList="" 인 SystemType 은 사용자가 ApiName 안 입력하기 쉬워서
+        // "확인 눌렀는데 창만 닫히고 아무것도 안 만들어짐" 증상으로 직결. 진입 시점에서 명확히 거부.
+        if (apiNames.Count == 0
+            || apiNames.All(n => string.IsNullOrEmpty(n)
+                              || n.Equals(Services.IoConstants.ApiNoneSentinel, StringComparison.OrdinalIgnoreCase)))
+        {
+            DialogHelpers.Warn(
+                "ApiCall 복제는 ApiName 이 필수입니다.\n\n" +
+                "ApiList 가 비어있는 SystemType (예: ModeStn) 은 ApiCall 복제 대상이 아닙니다.\n" +
+                "ApiName 을 입력하거나 다른 SystemType 을 선택해주세요.");
+            return;
+        }
+
         if (!int.TryParse(ApiCallCountTextBox.Text.Trim(), out int count) || count < 1 || count > 100)
         {
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;

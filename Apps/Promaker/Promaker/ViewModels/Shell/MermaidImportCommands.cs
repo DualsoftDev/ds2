@@ -5,6 +5,8 @@ using Ds2.Core;
 using Ds2.Mermaid;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
 
@@ -43,7 +45,18 @@ public partial class MainViewModel
         if (dlg.ShowDialog() != true) return;
 
         // 2. 파싱
-        var parseResult = MermaidImporter.parseFile(dlg.FileName);
+        FSharpResult<MermaidGraph, FSharpList<string>> parseResult;
+        try
+        {
+            parseResult = MermaidImporter.parseFile(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Mermaid parse failed: {dlg.FileName}", ex);
+            _dialogService.ShowWarning($"Mermaid 파싱 실패: {ex.Message}");
+            return;
+        }
+
         if (parseResult.IsError)
         {
             _dialogService.ShowWarning($"Mermaid 파싱 실패:\n{string.Join("\n", parseResult.ErrorValue)}");

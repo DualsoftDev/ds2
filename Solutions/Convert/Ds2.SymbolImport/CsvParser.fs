@@ -2,6 +2,7 @@ namespace Ds2.SymbolImport
 
 open System
 open System.IO
+open System.Text
 open System.Text.RegularExpressions
 
 /// <summary>vendor 별 CSV (또는 XML) 심볼 테이블 → SymbolEntry 변환.
@@ -115,6 +116,7 @@ module CsvParser =
     /// UTF-16 LE BOM 자동 감지 — Mitsubishi dump 가 보통 UTF-16 LE.
     let parseFile (vendor: Vendor) (path: string) : CsvParseResult =
         // StreamReader detectEncodingFromByteOrderMarks=true 가 BOM 보고 UTF-8/16/32 자동 감지.
-        use reader = new StreamReader(path, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
+        use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
+        use reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
         let text = reader.ReadToEnd()
         parse vendor text

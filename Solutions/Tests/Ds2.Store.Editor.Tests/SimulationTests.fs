@@ -1933,7 +1933,7 @@ module V10RuntimeSemanticsTests =
         let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         engine, callId, apiCall.Id
 
-    let private setupRealOutputInputCall actionType =
+    let private setupRealOutputInputCallWithOutputSpec actionType outputSpec =
         let store = createStore ()
         let project, _, _, activeWork = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
@@ -1951,10 +1951,14 @@ module V10RuntimeSemanticsTests =
         apiCall.OutTag <- Some (IOTag("OUT", "Y0", ""))
         apiCall.InTag <- Some (IOTag("IN", "X0", ""))
         apiCall.InputSpec <- ValueSpec.singleBool true
+        apiCall.OutputSpec <- outputSpec
 
         let index = SimIndex.build store 10
         let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         engine, callId, apiCall.Id
+
+    let private setupRealOutputInputCall actionType =
+        setupRealOutputInputCallWithOutputSpec actionType UndefinedValue
 
     let private drainNow (engine: ISimulationEngine) =
         engine.AdvanceSimulationTo(engine.CurrentTimeMs)
@@ -2076,6 +2080,49 @@ module V10RuntimeSemanticsTests =
 
             Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
             Assert.Equal(Some "false", engine.State.OutputValues |> Map.tryFind apiCallId)
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``Simulation emitOutput uses numeric OutputSpec and resets numeric output to zero`` () =
+        let engine, callId, apiCallId =
+            setupRealOutputInputCallWithOutputSpec
+                (ActionType.Real (Level, None))
+                (ValueSpec.singleInt8 4y)
+        try
+            engine.ForceCallState(callId, Status4.Going)
+            drainNow engine
+
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.Equal(Some "4", engine.State.OutputValues |> Map.tryFind apiCallId)
+
+            engine.InjectIOValue(apiCallId, "true")
+            drainNow engine
+
+            Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
+            Assert.Equal(Some "0", engine.State.OutputValues |> Map.tryFind apiCallId)
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``Simulation emitOutput uses first Multiple OutputSpec value instead of true`` () =
+        let engine, callId, apiCallId =
+            setupRealOutputInputCallWithOutputSpec
+                (ActionType.Real (Level, None))
+                (Int8Value (Multiple [ 4y; 5y ]))
+        try
+            engine.ForceCallState(callId, Status4.Going)
+            drainNow engine
+
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.Equal(Some "4", engine.State.OutputValues |> Map.tryFind apiCallId)
+            Assert.True(ValueSpec.evaluate (Int8Value (Multiple [ 4y; 5y ])) "4")
+
+            engine.InjectIOValue(apiCallId, "true")
+            drainNow engine
+
+            Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
+            Assert.Equal(Some "0", engine.State.OutputValues |> Map.tryFind apiCallId)
         finally
             engine.Stop()
 

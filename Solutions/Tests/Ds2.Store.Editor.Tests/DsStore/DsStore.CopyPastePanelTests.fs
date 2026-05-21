@@ -53,7 +53,7 @@ module PasteTests =
         let project, system, _, work = setupBasicHierarchy store
         let callId = store.AddCallWithMultipleDevicesResolved(
                         EntityKind.Work, work.Id, work.Id,
-                        "Conv", "ADV", [ "Conv_1"; "Conv_2"; "Conv_3" ], None)
+                        "Conv", "ADV", [ "Conv_1"; "Conv_2"; "Conv_3" ], true, None)
         let originalCall = store.Calls.[callId]
         Assert.Equal(3, originalCall.ApiCalls.Count)
         let flow2Id = store.AddFlow("Flow2", system.Id)
@@ -76,7 +76,7 @@ module PasteTests =
         let _, system, _, work = setupBasicHierarchy store
         let callId = store.AddCallWithMultipleDevicesResolved(
                         EntityKind.Work, work.Id, work.Id,
-                        "Conv", "ADV", [ "Conv_1" ], None)
+                        "Conv", "ADV", [ "Conv_1" ], true, None)
         let originalCall = store.Calls.[callId]
         let srcApiCall = originalCall.ApiCalls.[0]
         let srcApiDef = Queries.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get

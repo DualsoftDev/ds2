@@ -1,5 +1,8 @@
 module Ds2.SymbolImport.Tests.CsvParserTests
 
+open System
+open System.IO
+open System.Text
 open Ds2.SymbolImport
 open Xunit
 
@@ -30,6 +33,21 @@ let ``Mitsubishi CSV 컬럼 부족 — warning + skip`` () =
     let result = CsvParser.parseMitsubishi csv
     Assert.Equal(1, result.Entries.Length)
     Assert.NotEmpty(result.Warnings)
+
+[<Fact>]
+let ``parseFile reads shared-open Mitsubishi CSV`` () =
+    let csv = "\"Title\"\n\"Device Name\"\t\"Label\"\t\"Comment\"\n\"X10\"\t\"Cyl1_ADV_LMT\"\t\"실린더1 전진 리밋\"\n\"Y20\"\t\"Cyl1_ADV\"\t\"실린더1 전진 출력\""
+    let path = Path.Combine(Path.GetTempPath(), $"ds2-symbol-shared-{Guid.NewGuid():N}.csv")
+    try
+        File.WriteAllText(path, csv, Encoding.UTF8)
+        use _handle = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)
+
+        let result = CsvParser.parseFile Mitsubishi path
+
+        Assert.Equal(2, result.Entries.Length)
+        Assert.Equal("Cyl1_ADV_LMT", result.Entries.[0].Name)
+    finally
+        if File.Exists(path) then File.Delete(path)
 
 [<Fact>]
 let ``XG5000 XML Symbol element (attribute) parse`` () =
