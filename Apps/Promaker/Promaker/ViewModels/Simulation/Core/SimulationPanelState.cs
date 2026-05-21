@@ -45,9 +45,6 @@ public partial class SimulationPanelState : ObservableObject
     /// <summary>시뮬 결과 누적/박제/내보내기 collaborator. XAML 바인딩 path 는 Report.Xxx 로 노출.</summary>
     public SimulationReportOrchestrator Report { get; }
 
-    /// <summary>Monitoring + 실 PLC 트레이 전환 흐름 controller. 외부 wire-up 은 Tray.RequestXxx 콜백.</summary>
-    public SimulationTrayController Tray { get; }
-
     /// <summary>토큰별 traversal 시간 추적 collaborator. F# TokenTraversalSession 위임 + origin/specLabel 결정.</summary>
     public SimulationTokenTraversalTracker TokenTraversal { get; }
 
@@ -173,10 +170,6 @@ public partial class SimulationPanelState : ObservableObject
             storeProvider:         storeProvider,
             setStatusText:         setStatusText,
             traversalsProvider:    () => TokenTraversal.Snapshot());
-
-        Tray = new SimulationTrayController(
-            runtimeModeProvider:        () => SelectedRuntimeMode,
-            isRealPlcConnectedProvider: () => IsRealPlcConnected);
 
         ContinuousInjection = new SimulationContinuousInjectionController(
             runtimeMode:          () => SelectedRuntimeMode,
@@ -357,9 +350,6 @@ public partial class SimulationPanelState : ObservableObject
         Hub.RaiseHostingDependentsChanged();
         Hub.SetStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();
-
-        if (decision.ShouldRestoreTray)
-            Tray.FireRestore();
 
         if (decision.ShouldDisableContinuousInjection)
             ContinuousInjection.IsEnabled = false;

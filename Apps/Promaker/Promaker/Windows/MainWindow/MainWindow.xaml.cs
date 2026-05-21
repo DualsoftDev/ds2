@@ -11,10 +11,8 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using AvalonDock;
 using AvalonDock.Layout;
-using Ds2.Core;
 using log4net;
 using Promaker.Presentation;
-using Promaker.Services;
 using Promaker.ViewModels;
 
 namespace Promaker;
@@ -23,7 +21,6 @@ public partial class MainWindow : Window
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(MainWindow));
     private readonly MainViewModel _vm = new();
-    private readonly TrayService _trayService = new();
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaBorderColor = 34;
     private const int DwmwaCaptionColor = 35;
@@ -42,10 +39,6 @@ public partial class MainWindow : Window
     private bool _dockPaneExtentUpdateQueued;
     private bool _inDockPaneUpdate;
     private int _dockTraceSeq;
-
-    // 트레이 컨텍스트 메뉴 "Promaker 종료" 에서 트리거된 Close 인지 표식. true 일 때
-    // Window_Closing 의 "Monitoring + 실PLC + 시뮬중 → 트레이 재숨김" 가드를 우회 — 트레이 종료는 진짜 종료.
-    private bool _exitingFromTray;
 
     // v7 PR-2a Q1 — 빈 column 자동 collapse 시 복원할 default 폭/높이.
     private static readonly GridLength ExplorerDefaultW = new(320);
@@ -90,41 +83,6 @@ public partial class MainWindow : Window
         dockManager.LayoutFloatingWindowControlCreated += OnFloatingWindowCreated;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         llmChatAnchor.Hiding += OnLlmChatHiding;
-
-        // Tray 전환 콜백 wiring — Monitoring + RealPLC 시 PLAY 가 RequestTrayHide 호출.
-        // STOP / 모드 전환 시 RequestTrayRestore 호출.
-        _vm.Simulation.Tray.RequestTrayHide = () =>
-        {
-            var tooltip = $"Promaker — Monitoring 동작중 (port {_vm.Simulation.MonitoringHubAddress})";
-            _trayService.HideToTray(this, tooltip);
-        };
-        _vm.Simulation.Tray.RequestTrayRestore = () => _trayService.RestoreWindow();
-
-        // Monitoring + 실 PLC PLAY 가 성공하면 DSPilot 웹 대시보드 자동 실행.
-        // 트레이 컨텍스트 메뉴 "DSPilot 접속" 도 동일 동작 → 동일 launcher 사용.
-        _vm.Simulation.Tray.RequestDspilotOpen = DspilotLauncher.Open;
-        _trayService.DspilotOpenRequested += DspilotLauncher.Open;
-
-        _trayService.StopRequested += () =>
-        {
-            // 트레이 컨텍스트 메뉴 "STOP" — 시뮬 정지 + 윈도우 복원 (StopSimulation 가 FireTrayRestore 호출).
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (_vm.Simulation.StopSimulationCommand.CanExecute(null))
-                    _vm.Simulation.StopSimulationCommand.Execute(null);
-            });
-        };
-        _trayService.ExitRequested += () =>
-        {
-            // 트레이 컨텍스트 메뉴 "Promaker 종료" — 진짜 종료. _exitingFromTray 로 Window_Closing 의
-            // 트레이 재숨김 가드를 우회 (가드 없으면 Monitoring+실PLC+시뮬중 상태에서 다시 트레이로 들어가 종료 불가).
-            Dispatcher.BeginInvoke(() =>
-            {
-                _exitingFromTray = true;
-                _trayService.RestoreWindow(); // dirty 저장 확인 다이얼로그가 보이도록 윈도우 복원
-                Close();
-            });
-        };
 
         // v7 PR-2a Q1 — 빈 column 자동 collapse listener. 5개 anchor 모두 동일 핸들러.
         explorerAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
@@ -306,24 +264,9 @@ public partial class MainWindow : Window
         // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
         if (_llmChatDisposed) return;
 
-        // 트레이에서 복원한 창을 다시 X 로 닫는 경우 — Monitoring + 실 PLC + 동작 중이면 종료가 아닌 백그라운드 복귀.
-        // 진짜 종료는 트레이 컨텍스트 메뉴 "Promaker 종료" 사용 (그 경로는 _exitingFromTray=true 로 이 가드 우회).
-        // PLAY 시점과 동일한 TrayConsentDialog 재사용 — "다시 묻지 않기" 도 공유.
-        if (!_exitingFromTray
-            && _vm.Simulation.SelectedRuntimeMode == RuntimeMode.Monitoring
-            && _vm.Simulation.IsRealPlcConnected
-            && _vm.Simulation.IsSimulating)
-        {
-            if (!Dialogs.TrayConsentDialog.ShowAndAskConsent())
-            {
-                e.Cancel = true;
-                return;
-            }
-            e.Cancel = true;
-            var tooltip = $"Promaker — Monitoring 동작중 (port {_vm.Simulation.MonitoringHubAddress})";
-            _trayService.HideToTray(this, tooltip);
-            return;
-        }
+        // Monitoring + 실 PLC 상태로 동작 중이어도 Promaker WPF 는 그대로 닫는다 — 모니터링은
+        // Promaker.Agent (Windows Service) 가 별도 컨텍스트에서 계속 진행하고, 사용자에게는
+        // Promaker.AgentTray 가 상태/제어를 제공한다. WPF 창 = 편집 UI, 닫혀도 모니터링은 유지.
 
         // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
         // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
@@ -385,9 +328,6 @@ public partial class MainWindow : Window
 
         foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
             a.PropertyChanged -= OnAnchorPropertyChanged;
-
-        // 트레이 아이콘 정리 — stale 잔존 방지.
-        try { _trayService.Dispose(); } catch { /* ignore */ }
     }
 
 }

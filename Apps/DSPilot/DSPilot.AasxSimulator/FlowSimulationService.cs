@@ -33,6 +33,12 @@ public sealed class FlowSimulationService
     public Action<string>? Log { get; init; }
     public Action<int>? CycleChanged { get; init; }
 
+    // 여러 Call 이 같은 물리 주소를 공유 (예: C/V 컨베이어의 정회전/역회전/저속/리셋 4 동작이 동일 run sensor X1020 공유).
+    // PLCBackendService 의 ValidateTags 가 같은 주소를 가진 TagSpec 중복을 거부하므로
+    // BuildTagSpecs 가 주소별 1개 TagSpec 만 등록하고, 같은 주소의 다른 logical 이름은 canonical 이름으로 alias.
+    // SendSignalToPlc 가 logical name → canonical name 해석 후 PLC 에 위임.
+    private readonly Dictionary<string, string> _tagNameAliases = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// AASX 를 store 에 import 한 뒤 v10 검증 결과 반환. 호출자가 시뮬레이션 진행 전 확인 가능.
     /// import 실패 시 ErrorMessage 가 set, store 는 partial 상태일 수 있음.
@@ -80,7 +86,11 @@ public sealed class FlowSimulationService
         Log?.Invoke($"Flow {callTagInfos.GroupBy(c => c.Flow.Name).Count()}, Call {callTagInfos.Count}");
 
         var tagSpecs = BuildTagSpecs(callTagInfos);
-        Log?.Invoke($"TagSpec {tagSpecs.Count} 개 생성");
+        var dedupedCount = callTagInfos.Count * 2 - tagSpecs.Count;
+        if (dedupedCount > 0)
+            Log?.Invoke($"TagSpec {tagSpecs.Count} 개 생성 (주소 공유로 {dedupedCount} 건 dedup)");
+        else
+            Log?.Invoke($"TagSpec {tagSpecs.Count} 개 생성");
 
         var scanConfigs = new[] { plcSettings.CreateScanConfig(tagSpecs.ToArray()) };
         // PLCBackendService 는 싱글톤 트래킹 — Start() 가 throw 해서 disposable 이 null 인 채 끝나면
@@ -191,13 +201,32 @@ public sealed class FlowSimulationService
         return (callTagInfos, arrowsByWork);
     }
 
-    private static List<TagSpec> BuildTagSpecs(List<CallTagInfo> callTagInfos)
+    private List<TagSpec> BuildTagSpecs(List<CallTagInfo> callTagInfos)
     {
+        _tagNameAliases.Clear();
+        // 같은 물리 주소를 가진 첫 logical name 만 TagSpec 으로 등록 — 이후 같은 주소의 다른 name 은 canonical 로 alias.
+        // 같은 conveyor 의 정회전/역회전 등 4 동작이 동일 run sensor 를 공유하는 케이스 처리.
+        var byAddress = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var tagSpecs = new List<TagSpec>(callTagInfos.Count * 2);
+
+        void Register(string logicalName, string address)
+        {
+            if (byAddress.TryGetValue(address, out var canonical))
+            {
+                if (!string.Equals(logicalName, canonical, StringComparison.OrdinalIgnoreCase))
+                    _tagNameAliases[logicalName] = canonical;
+            }
+            else
+            {
+                byAddress[address] = logicalName;
+                tagSpecs.Add(MakeBoolSpec(logicalName, address));
+            }
+        }
+
         foreach (var info in callTagInfos)
         {
-            tagSpecs.Add(MakeBoolSpec(info.OutTagName, info.OutTagAddress));
-            tagSpecs.Add(MakeBoolSpec(info.SensorTagName, info.SensorTagAddress));
+            Register(info.OutTagName, info.OutTagAddress);
+            Register(info.SensorTagName, info.SensorTagAddress);
         }
         return tagSpecs;
     }
@@ -315,6 +344,9 @@ public sealed class FlowSimulationService
     {
         try
         {
+            // 같은 물리 주소를 공유하는 Call 의 logical name 을 canonical 로 해석.
+            if (_tagNameAliases.TryGetValue(tagName, out var canonical))
+                tagName = canonical;
             var tagSpecOpt = plcService.TryGetTagSpec(connectionName, tagName);
             if (!FSharpOption<TagSpec>.get_IsSome(tagSpecOpt)) return;
 

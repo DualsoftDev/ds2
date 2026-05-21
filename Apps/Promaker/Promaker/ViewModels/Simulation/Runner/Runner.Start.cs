@@ -31,11 +31,6 @@ public partial class SimulationPanelState
             return;
         }
 
-        // Monitoring + 실 PLC 시 트레이 전환 동의 확인 — 사용자가 취소하면 시작 중단.
-        // 동의 시 TransitionPending=true 로 두고, 시작 흐름 끝에 Tray.FireTransitionIfPending() 호출.
-        if (!Tray.TryAcquireConsent())
-            return;
-
         try
         {
             var index = SimIndexModule.build(Store, 10);
@@ -69,7 +64,6 @@ public partial class SimulationPanelState
                 foreach (var e in v10Errors)
                     AddSimLog($"[v10 {e.Rule}] {e.Message}", LogSeverity.Error);
                 _setStatusText($"v10 모델 검증 실패: Error {v10Errors.Count}건 — 시뮬 시작 중단");
-                Tray.TransitionPending = false;
                 return;
             }
 
@@ -278,15 +272,15 @@ public partial class SimulationPanelState
             if (!hasHoming)
                 SimStatusText = isPassive ? "Hub 신호 대기 중..." : SimText.Running;
 
-            // 시작 정상 종료 — Monitoring + RealPLC 동의가 있었으면 트레이로 전환.
-            Tray.FireTransitionIfPending();
+            // Monitoring + 실 PLC PLAY 성공 시 DSPilot 웹 대시보드를 기본 브라우저로 띄운다.
+            // Agent (Windows Service) 는 사용자 세션이 없어 브라우저를 못 띄우므로 Promaker WPF 가 담당.
+            if (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected)
+                Services.DspilotLauncher.Open();
         }
         catch (Exception ex)
         {
             SimLog.Error("Simulation start failed", ex);
             _setStatusText(SimText.SimulationError(ex.Message));
-            // 시작 실패 시 트레이 보류 플래그 해제 — 다음 시도 때 다시 confirm.
-            Tray.TransitionPending = false;
         }
     }
 

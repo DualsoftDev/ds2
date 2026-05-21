@@ -27,12 +27,26 @@ module Mapper =
     }
 
     /// dsev2 DeviceApiMapping → ds2 Mapping.
-    /// VariableName 으로 원본 SymbolEntry lookup (Name 기준).
-    let private fromDsev2Mapping (entryByName: Map<string, SymbolEntry>) (dam: DeviceApiMapping) : Mapping =
-        let outputEntry = entryByName |> Map.tryFind dam.OutputVariableName
+    /// (LogicalName, PhysicalAddress) 쌍으로 lookup — 같은 Name 의 actuator/sensor 페어
+    /// (예: X1240 / Y1250 모두 "Laser___ Stopper Up") 가 collision 으로 OutputEntry 가
+    /// InputEntries 에도 들어가는 버그 회피.
+    let private fromDsev2Mapping (entryByKey: Map<string * string, SymbolEntry>) (dam: DeviceApiMapping) : Mapping =
+        let outputEntry =
+            entryByKey |> Map.tryFind (dam.OutputVariableName, dam.OutputPhysicalAddress)
         let inputEntries =
-            dam.InputVariableNames
-            |> List.choose (fun n -> entryByName |> Map.tryFind n)
+            // dam.InputVariableNames / InputPhysicalAddresses 는 같은 길이의 parallel list.
+            // List.zip 으로 (Name, Address) 쌍을 만들어 정확히 매칭.
+            if dam.InputVariableNames.Length = dam.InputPhysicalAddresses.Length then
+                List.zip dam.InputVariableNames dam.InputPhysicalAddresses
+                |> List.choose (fun key -> entryByKey |> Map.tryFind key)
+            else
+                // 길이 mismatch 는 매칭 엔진 invariant 위반 — 명시적 fail 보다는 Name fallback.
+                dam.InputVariableNames
+                |> List.choose (fun n ->
+                    entryByKey
+                    |> Map.toList
+                    |> List.tryFind (fun ((name, _), _) -> name = n)
+                    |> Option.map snd)
         { OutputEntry = outputEntry
           InputEntries = inputEntries
           FlowName = dam.Flow
@@ -49,8 +63,11 @@ module Mapper =
         let mappingSets = MapperRules.mappingSetsFromConfig vendor config
         let dsev2Mappings = DeviceGroupingCore.createDeviceApiMappingsWithMappingSets variables mappingSets
 
-        let entryByName = entries |> List.map (fun e -> e.Name, e) |> Map.ofList
-        let mapped = dsev2Mappings |> List.map (fromDsev2Mapping entryByName)
+        // (Name, Address) 쌍을 키로 — 같은 Name 의 X/Y 페어가 collision 없이 보존.
+        // 같은 (Name, Address) 가 중복되면 마지막 entry 만 — 거의 일어나지 않지만 가능.
+        let entryByKey =
+            entries |> List.map (fun e -> (e.Name, e.Address), e) |> Map.ofList
+        let mapped = dsev2Mappings |> List.map (fromDsev2Mapping entryByKey)
 
         // 매칭된 SymbolEntry name 집합 → unmatched 추출.
         let matchedNames =

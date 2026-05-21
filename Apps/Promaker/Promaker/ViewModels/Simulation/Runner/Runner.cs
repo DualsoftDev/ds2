@@ -132,9 +132,6 @@ public partial class SimulationPanelState
         // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
         // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
         TokenTraversal.Reset();
-
-        // 트레이 모드였다면 윈도우 복원 + 아이콘 제거. 평소 모드면 no-op.
-        Tray.FireRestore();
     }
 
     private bool CanStopSimulation() =>
