@@ -273,7 +273,7 @@ let configureApp
     // **Phase S7 D-S7-4 admin endpoint (B-S7-4, s6-r71+ / s6-r80)** — multi-tenant T2/T3 실 활용 path.
     // POST /admin/collections/{id}/owner (ImportedBy stamp) + PUT /admin/collections/{id}/acl (acl 편집).
     // s6-r80: 권한 = `config.adminUsers` 박제 user 만 (case-insensitive). null/빈 = backward-compat (single trust pool).
-    AdminEndpoints.map cfg app storageRoot
+    AdminEndpoints.map cfg notifier app storageRoot
 
     // 4. Phase S3 MCP HTTP transport (`/mcp` prefix) — SessionAuth 미들웨어 추가 통과 후 진입.
     //    `UseWhen` 으로 MCP path 만 session 검증 (POST/DELETE /sessions 는 token 발급 자체라 본 미들웨어 통과 안 함).

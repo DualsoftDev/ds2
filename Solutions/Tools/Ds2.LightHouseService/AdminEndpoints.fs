@@ -66,6 +66,10 @@ module AdminEndpoints =
                 else Some (s.Trim()))
             |> Array.filter (fun s -> seen.Add s)
 
+    // **B13 (s6-r89, 15-reviewer Major)** — atomic update path. handleOwner / handleAcl 가 Registry.updateByIdAsync
+    // (lock 안 read-modify-write) 통과 — 동시 admin 호출 시 last-writer-wins lost update 차단.
+    // **B14** — handleAcl 가 notifier.OnAclChanged 호출 → SessionRegistry 가 affected session KB 폐기 + acl 재검증.
+
     let private handleOwner (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
         task {
             if not (requireAdmin cfg ctx) then
@@ -86,20 +90,29 @@ module AdminEndpoints =
                 | Some p when String.IsNullOrWhiteSpace p.User ->
                     do! writeError ctx 400 "body.user 필수"
                 | Some p ->
-                    match Registry.tryFindById storageRoot id with
+                    let newOwner = p.User.Trim()
+                    let mutable prevOwner = ""
+                    // **B13** — atomic mutate (lock 안 read+modify+save).
+                    let! result =
+                        Registry.updateByIdAsync storageRoot id (fun entry ->
+                            prevOwner <- entry.ImportedBy
+                            { entry with ImportedBy = newOwner })
+                    match result with
                     | None ->
                         do! writeError ctx 404 (sprintf "collection not found — id=%s" id)
-                    | Some entry ->
-                        let newOwner = p.User.Trim()
-                        let updated = { entry with ImportedBy = newOwner }
-                        do! Registry.upsertAsync storageRoot updated
+                    | Some _ ->
                         Log.audit.Info(
                             sprintf "admin.owner: id=%s prev=%s next=%s caller=%s"
-                                id entry.ImportedBy newOwner (userIdentityOf ctx))
+                                id prevOwner newOwner (userIdentityOf ctx))
                         do! writeJson ctx 200 (box {| id = id; importedBy = newOwner |})
         } :> Task
 
-    let private handleAcl (cfg: ServiceConfig) (storageRoot: string) (ctx: HttpContext) (id: string) : Task =
+    let private handleAcl
+        (cfg: ServiceConfig)
+        (storageRoot: string)
+        (notifier: ICollectionLifecycleNotifier)
+        (ctx: HttpContext)
+        (id: string) : Task =
         task {
             if not (requireAdmin cfg ctx) then
                 Log.audit.Warn(
@@ -117,23 +130,31 @@ module AdminEndpoints =
                 | None ->
                     do! writeError ctx 400 "body 파싱 실패 — JSON { \"users\": [...], \"readOnly\": bool } 형식 필요"
                 | Some p ->
-                    match Registry.tryFindById storageRoot id with
+                    // **B PR M-3 (s6-r80)** — users element 정규화 (whitespace trim + empty filter + dedup).
+                    let users = normalizeAclUsers p.Users
+                    let newAcl : CollectionAcl = { Users = users; ReadOnly = p.ReadOnly }
+                    // **B13** — atomic update (lock 안 read-modify-write).
+                    let! result =
+                        Registry.updateByIdAsync storageRoot id (fun entry ->
+                            { entry with Acl = newAcl })
+                    match result with
                     | None ->
                         do! writeError ctx 404 (sprintf "collection not found — id=%s" id)
-                    | Some entry ->
-                        // **B PR M-3 (s6-r80)** — users element 정규화 (whitespace trim + empty filter + dedup).
-                        let users = normalizeAclUsers p.Users
-                        let newAcl : CollectionAcl = { Users = users; ReadOnly = p.ReadOnly }
-                        let updated = { entry with Acl = newAcl }
-                        do! Registry.upsertAsync storageRoot updated
+                    | Some _ ->
+                        // **B14** — acl 변경 → SessionRegistry KB 폐기 + 재검증 trigger.
+                        notifier.OnAclChanged id
                         Log.audit.Info(
                             sprintf "admin.acl: id=%s users=%d readOnly=%b caller=%s"
                                 id users.Length p.ReadOnly (userIdentityOf ctx))
                         do! writeJson ctx 200 (box {| id = id; acl = newAcl |})
         } :> Task
 
-    let map (cfg: ServiceConfig) (app: IEndpointRouteBuilder) (storageRoot: string) : unit =
+    let map
+        (cfg: ServiceConfig)
+        (notifier: ICollectionLifecycleNotifier)
+        (app: IEndpointRouteBuilder)
+        (storageRoot: string) : unit =
         app.MapPost("/admin/collections/{id}/owner",
             Func<HttpContext, string, Task>(fun ctx id -> handleOwner cfg storageRoot ctx id)) |> ignore
         app.MapPut("/admin/collections/{id}/acl",
-            Func<HttpContext, string, Task>(fun ctx id -> handleAcl cfg storageRoot ctx id)) |> ignore
+            Func<HttpContext, string, Task>(fun ctx id -> handleAcl cfg storageRoot notifier ctx id)) |> ignore

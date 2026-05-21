@@ -355,3 +355,11 @@ type SessionRegistry(
             // **s6-r54 ⑱**: `phasedKbDispose` helper (`removeFromActive=false`) 호출 — 박제 중복 흡수.
             Log.audit.Info(sprintf "lifecycle: OnPayloadSwapped → SessionRegistry KB 폐기 (lazy re-attach) — id=%s" collectionId)
             phasedKbDispose "OnPayloadSwapped" collectionId false
+
+        member _.OnAclChanged(collectionId) =
+            // **B14 (s6-r89, 15-reviewer Major)** — admin acl 변경 → affected session 의 KB 폐기 + active 셋
+            // 재검증. lazy re-attach 시점에 새 acl 정합 (MultiTenantPolicy 가 revoke 된 user 차단). collection 의
+            // active session 만 영향 (collection 사용 안 한 session 무관). swap 과 동일 패턴 (CollectionIds 보존,
+            // KB 폐기만 — 다음 MCP call 시 새 acl 기반 ACK 재검증).
+            Log.audit.Info(sprintf "lifecycle: OnAclChanged → SessionRegistry KB 폐기 (lazy re-attach + acl 재검증) — id=%s" collectionId)
+            phasedKbDispose "OnAclChanged" collectionId false

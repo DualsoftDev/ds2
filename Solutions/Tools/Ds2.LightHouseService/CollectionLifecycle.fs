@@ -10,6 +10,11 @@ open System.Collections.Concurrent
 type ICollectionLifecycleNotifier =
     abstract member OnDeleted: collectionId: string -> unit
     abstract member OnPayloadSwapped: collectionId: string -> unit
+    /// **B14 (s6-r89, 15-reviewer Major)** — ACL revoke event. admin endpoint (PUT /admin/collections/{id}/acl)
+    /// 가 acl.users 변경 시 호출. 이전 박제 (s6-r80 까지) 는 acl 박제 후 이미 발급된 session 의 visibility 즉시
+    /// 갱신 안 됨 → session lifetime 동안 (수십 분) revoke 된 user 의 access 계속. 본 hook → SessionRegistry 가
+    /// affected session 의 access 재검증 (revoke 된 user 의 session 즉시 purge 또는 visible set 갱신).
+    abstract member OnAclChanged: collectionId: string -> unit
 
 
 /// Phase S2 default 구현 — audit log 박제만. Phase S3 진입 시 `SessionRegistry` impl 로 swap.
@@ -20,4 +25,7 @@ type LoggingCollectionLifecycleNotifier() =
                 collectionId)
         member _.OnPayloadSwapped(collectionId) =
             Log.audit.Info(sprintf "lifecycle: collection payload swapped — id=%s (active session 의 다음 MCP call 시점에 lazy re-attach — Phase S3)"
+                collectionId)
+        member _.OnAclChanged(collectionId) =
+            Log.audit.Info(sprintf "lifecycle: collection acl changed — id=%s (Phase S3 SessionRegistry 진입 시 실 재검증)"
                 collectionId)
