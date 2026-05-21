@@ -7,7 +7,7 @@ open System.Text
 open System.Text.Json
 open System.Text.Json.Serialization
 
-/// **K4 Protocol SSOT (A2)** — `meta.json` schema 단일 박제 (todo-lighthouse-kb-server.md §3.3.1).
+/// **K4 Protocol SSOT (A2)** — `meta.json` schema 단일 박제 (done-lighthouse-kb-server.md §3.3.1).
 ///
 /// **본 record 박제 이전** = server F# `Ds2.LightHouseService.MetaJson` + client C# `CollectionPackager.MetaPayload`
 /// (Promaker) + client F# `Packager.MetaDto` (cli) 3중 박제. K4 통합으로 단일 SSOT — schema 변경 시 본 record

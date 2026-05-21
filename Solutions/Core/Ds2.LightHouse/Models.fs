@@ -2,7 +2,7 @@ namespace Ds2.LightHouse
 
 open System
 
-/// KB 추출기 라우팅 전용 DU (todo-lighthouse-kb-index.md §3.3).
+/// KB 추출기 라우팅 전용 DU (done-lighthouse-kb-index.md §3.3).
 ///
 /// chat 측 `Ds2.LlmAgent.Classification` 과 독립 — 두 분류기는 출력 DU 가 다름 (§3.0/§3.11).
 /// Phase 1 활성: Pdf / Docx / Text / Markdown. Phase 2 활성: Pptx / Xlsx / Image.

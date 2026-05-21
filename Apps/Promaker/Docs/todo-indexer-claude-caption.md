@@ -65,4 +65,4 @@ Anthropic direct path 는 default 로 유지 — server / Promaker / CI 등 unat
 - `Solutions/Core/Ds2.LightHouse/ImageStore.fs` — blob 저장 경로 SSOT (`blobs/images/<sha256>.<ext>`).
 - `Solutions/Core/Ds2.LightHouse/Indexer.fs` — `captionGen` caller 주입 surface.
 - `.claude/skills/indexer/SKILL.md` — phase 흐름 박제.
-- `Apps/Promaker/Docs/todo-lighthouse-kb-index.md` — parent SSOT (§3.15.5 MR1/MR2 정합).
+- `Apps/Promaker/Docs/done-lighthouse-kb-index.md` — parent SSOT (§3.15.5 MR1/MR2 정합).

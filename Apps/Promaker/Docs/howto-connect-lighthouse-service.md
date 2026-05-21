@@ -2,7 +2,7 @@
 
 > Phase S5c 기준. dev/PoC 환경의 단계별 setup 가이드. 운영 배포 시 §10 (사내 CA 발급) 정합 권장.
 >
-> 관련 문서: `todo-lighthouse-kb-server.md` (design SSOT) / `todo-lighthouse-handover.md` (다음 세션 이어받기).
+> 관련 문서: `done-lighthouse-kb-server.md` (design SSOT) / `todo-lighthouse-handover.md` (다음 세션 이어받기).
 
 ---
 
@@ -317,7 +317,7 @@ PoC → production 전환 시:
 | `/mcp` (HTTP transport) | Bearer + X-LightHouse-Session | MCP tools: `attachment_list/_outline/_search/_read` |
 | `/healthz` | (인증 무관) | health probe |
 
-세부 protocol 정합은 `todo-lighthouse-kb-server.md` §3.9 참조.
+세부 protocol 정합은 `done-lighthouse-kb-server.md` §3.9 참조.
 
 ---
 

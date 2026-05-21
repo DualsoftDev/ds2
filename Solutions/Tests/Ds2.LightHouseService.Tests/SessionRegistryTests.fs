@@ -5,7 +5,7 @@ open System.Threading.Tasks
 open Xunit
 open Ds2.LightHouseService
 
-/// SessionRegistry — Phase S3 핵심 SSOT. todo-lighthouse-kb-server.md §3.8 / §4.2 Phase S3 DoD.
+/// SessionRegistry — Phase S3 핵심 SSOT. done-lighthouse-kb-server.md §3.8 / §4.2 Phase S3 DoD.
 ///
 /// 본 test 는 KB ATTACH 실제 open 안 함 (resolver 가 paths 만 반환, KB.openCollections 는 호출 시 빈 셋 OK).
 /// 실제 ATTACH 동작 (boundary 9/10/11) 은 parent §4.8c KnowledgeBaseTests 가 이미 보호.

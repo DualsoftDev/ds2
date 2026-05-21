@@ -7,7 +7,7 @@ open Microsoft.Data.Sqlite
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8b — SqliteStore CRUD primitives + Meta + FTS5 trigger.
+/// done-lighthouse-kb-index.md §4.8b — SqliteStore CRUD primitives + Meta + FTS5 trigger.
 
 let private withTempDir (action: string -> 'r) : 'r =
     let dir = Path.Combine(Path.GetTempPath(), sprintf "lh-store-%s" (Guid.NewGuid().ToString("N")))

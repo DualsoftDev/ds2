@@ -16,7 +16,7 @@ using Xunit;
 namespace Promaker.Tests;
 
 /// <summary>
-/// Phase S5a — LightHouseClient (HTTP wrapper) 의 protocol contract 시험 (todo-lighthouse-kb-server.md §3.7/§3.8/§3.9).
+/// Phase S5a — LightHouseClient (HTTP wrapper) 의 protocol contract 시험 (done-lighthouse-kb-server.md §3.7/§3.8/§3.9).
 ///
 /// scope: mock HttpMessageHandler 로 wire-level 검증 — header 박제 / multipart 빌드 / 401 분기 / URL escape.
 /// e2e (WebApplicationFactory) 는 Phase S5c (citation 클릭 시점에 흡수).

@@ -9,7 +9,7 @@ namespace Promaker.Tests;
 
 /// <summary>
 /// Phase S5c → D-S7-3b — LightHouseClientHolder multi-instance lifecycle 시험
-/// (todo-lighthouse-kb-server.md §3.8 L2-2 + §3.16.7 D-S7-3b).
+/// (done-lighthouse-kb-server.md §3.8 L2-2 + §3.16.7 D-S7-3b).
 ///
 /// scope: holder 의 self-contained 로직만 — EnsureCreated / GetClient / Invalidate / RegisterSession /
 /// UnregisterSession / LiveSessions / DisposeAllAsync. HTTP round-trip 은 LightHouseClientTests (mock).

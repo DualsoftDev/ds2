@@ -5,7 +5,7 @@ open System.Text
 
 /// 텍스트 파일 인코딩 추정 (BOM 우선 → strict UTF-8 → CP949 → UTF-8 replacement fallback).
 ///
-/// todo-lighthouse-kb-index.md §3.4 — chat 측 (Ds2.LlmAgent.AttachmentClassifier) 와
+/// done-lighthouse-kb-index.md §3.4 — chat 측 (Ds2.LlmAgent.AttachmentClassifier) 와
 /// KB ingest (Phase 1 TextExtractor) 가 모두 본 module 사용. 두 경로의 인코딩 추정 SSOT.
 ///
 /// CP949 (Windows-949) fallback 은 `Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)`

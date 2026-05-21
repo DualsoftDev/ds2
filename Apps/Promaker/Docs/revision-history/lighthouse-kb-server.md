@@ -1,6 +1,6 @@
-# todo-lighthouse-kb-server.md — Revision History
+# done-lighthouse-kb-server.md — Revision History
 
-원 문서: [../todo-lighthouse-kb-server.md](../todo-lighthouse-kb-server.md)
+원 문서: [../done-lighthouse-kb-server.md](../done-lighthouse-kb-server.md)
 
 > 본 파일은 분량 문제로 원본에서 분리된 revision history. 신규 rev 추가 시 본 파일에 append.
 

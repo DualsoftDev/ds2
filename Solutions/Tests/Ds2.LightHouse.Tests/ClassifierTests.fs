@@ -3,7 +3,7 @@ module Ds2.LightHouse.Tests.ClassifierTests
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8a — KB 색인 라우팅 분류기.
+/// done-lighthouse-kb-index.md §4.8a — KB 색인 라우팅 분류기.
 ///
 /// chat 측 `AttachmentClassifier.classify` 와 *독립* — 본 테스트는 KB 측 `classifyForKb` 만.
 

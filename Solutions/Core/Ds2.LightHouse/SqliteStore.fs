@@ -8,7 +8,7 @@ open System.Threading
 open Microsoft.Data.Sqlite
 open Ds2.LightHouse.Protocol
 
-/// LightHouse KB 의 schema/parser 버전 식별자 (todo-lighthouse-kb-index.md §3.17).
+/// LightHouse KB 의 schema/parser 버전 식별자 (done-lighthouse-kb-index.md §3.17).
 ///
 /// `Meta.indexer_version` 과 비교하여 drift 시 자동 재색인 트리거 (shadow rebuild).
 /// schema (§3.12) / Chunker / Extractor 의 *결과물* 변경 시 bump. SQL 비호환 변경은 SchemaVersion 도 동반 bump.

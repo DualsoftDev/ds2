@@ -6,7 +6,7 @@ namespace Promaker.Tests;
 
 /// <summary>
 /// **D-S7-3c (s6-r31) — KbCollectionOrphanHelper SSOT 회귀 시험**
-/// (todo-lighthouse-kb-server.md §3.16.8).
+/// (done-lighthouse-kb-server.md §3.16.8).
 /// </summary>
 public sealed class KbCollectionOrphanHelperTests
 {

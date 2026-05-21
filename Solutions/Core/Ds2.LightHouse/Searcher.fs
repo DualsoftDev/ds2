@@ -6,7 +6,7 @@ open System.Text
 open System.Threading
 open Microsoft.Data.Sqlite
 
-/// FTS5 trigram 검색 — multi-collection ATTACH UNION (todo-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
+/// FTS5 trigram 검색 — multi-collection ATTACH UNION (done-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
 ///
 /// Phase 1 = BM25 lexical-only (FTS5 trigram). **Phase 4 (s6-r35) = hybrid (BM25 + vector RRF)** —
 /// `search` 시그니처에 `embedderOpt: IEmbeddingProvider option` 추가. None 시 BM25-only (기존 동작),

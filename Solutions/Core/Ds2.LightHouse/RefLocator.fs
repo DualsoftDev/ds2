@@ -38,7 +38,7 @@ type RefLocator = {
 
 /// RefLocator 저장형 ↔ parsed 변환 + citation 표시형 변환.
 ///
-/// todo-lighthouse-kb-index.md §3.13 SSOT. EBNF:
+/// done-lighthouse-kb-index.md §3.13 SSOT. EBNF:
 ///   RefLocator = Unit "=" Value ( "#" SubKey "=" SubValue )*
 ///   Unit       = "p" | "slide" | "sheet"
 ///   SubKey     = "img" | ...

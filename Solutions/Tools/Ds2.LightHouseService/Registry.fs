@@ -21,7 +21,7 @@ type CollectionAcl = {
     [<JsonPropertyName("readOnly")>] ReadOnly: bool
 }
 
-/// `registry.json` 의 한 collection entry (todo-lighthouse-kb-server.md §3.10 / §3.3.1).
+/// `registry.json` 의 한 collection entry (done-lighthouse-kb-server.md §3.10 / §3.3.1).
 ///
 /// id 발급 주체 = server (D3, CR3 강화). client 가 `POST /collections` 시 server 가 guid v4 생성.
 /// `meta.json` SSOT (§3.3.1) 와 1:1 — registry 는 list view + status, meta 는 storage 안 단일 source.

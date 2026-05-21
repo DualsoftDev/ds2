@@ -3,7 +3,7 @@ namespace Ds2.LightHouse
 open System
 open System.IO
 
-/// KB 색인 라우팅 분류기 (todo-lighthouse-kb-index.md §3.3 / §3.11).
+/// KB 색인 라우팅 분류기 (done-lighthouse-kb-index.md §3.3 / §3.11).
 ///
 /// chat 측 `Ds2.LlmAgent.AttachmentClassifier.classify` 와 **독립** — 출력 DU 도 다름 (§3.0 / §3.11).
 /// 입력만 path 로 공통, 의사결정·확장자 set·rejected list 모두 별개.

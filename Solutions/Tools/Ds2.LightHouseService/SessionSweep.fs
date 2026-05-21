@@ -5,7 +5,7 @@ open System.Threading
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 
-/// Phase S3 idle TTL sweep BackgroundService (todo-lighthouse-kb-server.md §3.8 L2-3 backstop).
+/// Phase S3 idle TTL sweep BackgroundService (done-lighthouse-kb-server.md §3.8 L2-3 backstop).
 ///
 /// `sessionIdleTtlMinutes` 마다 깨어나서 `LastUsedAt < now - idleAfter` 인 session 들을 일괄 Delete.
 /// service kill / network drop / panel close hook 누락 모두 backstop — chat 회복 불가능한 session 누수 차단.

@@ -21,7 +21,7 @@ open Ds2.LightHouse.Protocol
 ///
 /// SSOT:
 ///   - `.lighthouse-kb/` 위치 = `SqliteStore.KbFolderName` (lib core 박제) — 본 모듈이 참조.
-///   - zip layout = §3.3 (todo-lighthouse-kb-server.md)
+///   - zip layout = §3.3 (done-lighthouse-kb-server.md)
 ///   - `.lighthouse-kb/` skip rule = `Indexer.enumerateFiles` 와 동일 SSOT (lib core).
 
 [<RequireQualifiedAccess>]

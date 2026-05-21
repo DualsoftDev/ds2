@@ -10,7 +10,7 @@ open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
 open Ds2.LightHouse.Protocol
 
-/// Phase S2 collection 관리 endpoint (todo-lighthouse-kb-server.md §3.9 / §4.2 Phase S2).
+/// Phase S2 collection 관리 endpoint (done-lighthouse-kb-server.md §3.9 / §4.2 Phase S2).
 ///
 /// 포함:
 /// - POST /collections (multipart zip + title) → server 가 guid 발급 (D3) + 등록

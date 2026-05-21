@@ -3,7 +3,7 @@
   Ds2.LightHouseService 설치 — PSK 평문 입력 → DPAPI(LocalMachine) 암호화 → config.json 저장 → sc.exe 등록.
 
 .DESCRIPTION
-  todo-lighthouse-kb-server.md Phase S1 / CR4 SSOT.
+  done-lighthouse-kb-server.md Phase S1 / CR4 SSOT.
   관리자 권한 필요 (DPAPI LocalMachine scope + sc.exe).
 
 .PARAMETER ExePath

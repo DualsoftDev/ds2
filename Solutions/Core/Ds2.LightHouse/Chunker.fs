@@ -4,7 +4,7 @@ open System
 open System.Text
 open System.Text.RegularExpressions
 
-/// Extractor 의 raw segment → token 한도 chunk 분할 (todo-lighthouse-kb-index.md §3.8).
+/// Extractor 의 raw segment → token 한도 chunk 분할 (done-lighthouse-kb-index.md §3.8).
 ///
 /// 구조 우선 — 한 segment = 한 페이지 / 슬라이드 / 시트 / 단락. 한도 (200~500 token) 안이면 1 chunk, 초과 시 보조 분할.
 /// 보조 분할 순서: ① 빈 line 단위 (단락) → ② 문장 단위 (마침표/물음표/느낌표) → ③ 그래도 크면 hard 자르기.

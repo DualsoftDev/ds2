@@ -4,7 +4,7 @@ open System
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8a — RefLocator EBNF round-trip + 위반 거부.
+/// done-lighthouse-kb-index.md §4.8a — RefLocator EBNF round-trip + 위반 거부.
 ///
 /// `tryParse >> Option.map toStored = id` 동일성 보장이 §3.13 SSOT 의 핵심 invariant.
 

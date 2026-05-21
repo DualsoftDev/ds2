@@ -6,7 +6,7 @@ open Xunit
 open Ds2.LightHouse
 open Ds2.LightHouse.Extractors
 
-/// todo-lighthouse-kb-index-xlsx-pptx-images.md Task 7 (r6) — standalone image 색인 활성.
+/// done-lighthouse-kb-index-xlsx-pptx-images.md Task 7 (r6) — standalone image 색인 활성.
 ///
 /// 활성 6 종 (Classifier SSOT):
 ///   - PNG / JPEG / GIF / WEBP : raw 보존, magic byte 검증

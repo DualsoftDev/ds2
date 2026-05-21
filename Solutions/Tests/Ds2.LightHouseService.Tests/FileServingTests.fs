@@ -10,7 +10,7 @@ open Microsoft.Extensions.Logging
 open Xunit
 open Ds2.LightHouseService
 
-/// Phase S4 file serving 단위 시험 (todo-lighthouse-kb-server.md §4.2 Phase S4 DoD).
+/// Phase S4 file serving 단위 시험 (done-lighthouse-kb-server.md §4.2 Phase S4 DoD).
 ///
 /// 케이스:
 /// - contentTypeOf — MIME 추정 (pdf/docx/xlsx/pptx/txt/md/csv/unknown)

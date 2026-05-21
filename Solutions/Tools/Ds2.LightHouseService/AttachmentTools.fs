@@ -8,7 +8,7 @@ open Microsoft.AspNetCore.Http
 open ModelContextProtocol.Protocol
 open ModelContextProtocol.Server
 
-/// Phase S3 MCP tool host — server 측 4종 (todo-lighthouse-kb-server.md §3.1.3 / §3.10 / §4.2 Phase S3).
+/// Phase S3 MCP tool host — server 측 4종 (done-lighthouse-kb-server.md §3.1.3 / §3.10 / §4.2 Phase S3).
 ///
 /// MCP host 2개 정책 (§3.1.3): Promaker in-process = mutation tool (apply_model_doc 등), service = read tool (attachment_*).
 /// LLM 의 `.mcp-config` 에 server 2개 등록 — tool 14종 자연 공존 (이름 중복 0).

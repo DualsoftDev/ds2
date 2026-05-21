@@ -21,7 +21,7 @@ type FileIngestResult =
     | Failed of reason: string          // extract / store 실패
 
 
-/// Extract → Chunk → Store 파이프라인 orchestrator (todo-lighthouse-kb-index.md §4.4).
+/// Extract → Chunk → Store 파이프라인 orchestrator (done-lighthouse-kb-index.md §4.4).
 ///
 /// 단일 collection 의 색인 일관성 보장 — SchemaVersion drift 시 shadow rebuild (s6-r26 정합 — SQL
 /// 비호환 변경 시점만 rebuild, IndexerVersion minor / patch bump 는 ALTER forward-compat 으로 흡수),

@@ -9,7 +9,7 @@ open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Microsoft.Net.Http.Headers
 
-/// Phase S4 file serving — citation 원문 byte stream (todo-lighthouse-kb-server.md §3.9 / §4.2 Phase S4 / D6).
+/// Phase S4 file serving — citation 원문 byte stream (done-lighthouse-kb-server.md §3.9 / §4.2 Phase S4 / D6).
 ///
 /// 흐름:
 /// 1. PSK auth + X-User-Identity (AuthMiddleware 가 이미 검증)
@@ -126,7 +126,7 @@ module FileServing =
                 do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
             | Some entry ->
                 // fileId parse — Int64 (documents.Id).
-                // review S4-m4 (P6): fileId SSOT = todo-lighthouse-kb-server.md §3.10 (server-side storage layout)
+                // review S4-m4 (P6): fileId SSOT = done-lighthouse-kb-server.md §3.10 (server-side storage layout)
                 // + §4.2 Phase S4 DoD + MA23 (AttachmentTools.exportFileId `<collection-guid>:<docId>` 합성).
                 // client (Promaker) 는 외부 fileId 의 `:` 로 split 한 후 본 endpoint 의 path 두 segment 로 전달.
                 match Int64.TryParse fileIdRaw with

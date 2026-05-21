@@ -8,7 +8,7 @@ open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
 open Ds2.LightHouse.Protocol
 
-/// 인증 미들웨어 SSOT (todo-lighthouse-kb-server.md §3.7).
+/// 인증 미들웨어 SSOT (done-lighthouse-kb-server.md §3.7).
 ///
 /// 1차: `Authorization: Bearer <PSK>` fixed-time compare (timing attack 방어)
 /// 2차: `X-User-Identity: <user>` 헤더 의무 (CR4 / M11 — audit 추적용)
@@ -144,7 +144,7 @@ module AuthMiddleware =
             } :> Task)
 
 
-/// Phase S3 session 검증 미들웨어 (todo-lighthouse-kb-server.md §3.8 / CR6 L3).
+/// Phase S3 session 검증 미들웨어 (done-lighthouse-kb-server.md §3.8 / CR6 L3).
 ///
 /// MCP HTTP transport (`/mcp` prefix) 호출에만 적용 — `app.UseWhen(path startsWith /mcp, ...)`.
 /// session 관리 endpoint (POST/DELETE /sessions) 는 본 미들웨어 통과 안 함 (token 발급 자체가 본 endpoint).
