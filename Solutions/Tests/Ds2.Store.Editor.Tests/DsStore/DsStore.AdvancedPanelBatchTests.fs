@@ -488,6 +488,35 @@ module WizardApplyTests =
         Assert.Equal(0, applied)
         Assert.Equal(0, (Queries.callsOf work.Id store).Length)
 
+    // V10 V1/V2 통합 회귀 — ModelGenerator 가 빈 페어를 placeholder IOTag 로 채우는 운영 검증된 패턴.
+    // 이전 흐름: 짝 없는 ApiCall 의 OutTag/InTag = None → AASX 에 null 박제 → DSPilot V10 V1/V2 위반.
+    // 새 흐름: placeholder IOTag (address="") 로 채워서 V10 룰 통과. ApiDef ActionType/SensingType 은 Real 유지 → V4 안 건드림.
+    // (참고: DSPilot fix_aasx_v10.py 가 같은 변환을 post-process 로 수행하던 패턴을 ModelGenerator 단계에서 내재화)
+    [<Fact>]
+    let ``placeholder pattern + 위저드 apply → V10ValidationBatch V1/V2 위반 0건`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        // 출력 전용 (lamp/buzzer 류) 케이스 시뮬레이션 — InTag 자리에 placeholder.
+        let placeholderIn = IOTag("(unset-IN)", "", "v10 placeholder")
+        let placeholderOut = IOTag("(unset-OUT)", "", "v10 placeholder")
+        let entries : System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)> =
+            [|
+                struct("Dev.Real",     tag "Out_real" "Y0", tag "In_real" "X0")    // 정상 페어
+                struct("Dev.LampOnly", tag "Out_lamp" "Y10", placeholderIn)        // 출력 전용 (Tower.Red 류)
+                struct("Dev.SensorOnly", placeholderOut, tag "In_sensor" "X20")    // 입력 전용
+            |] :> _
+        store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None) |> ignore
+
+        let issues = Ds2.Core.Store.V10ValidationBatch.validateStore store
+        let v1v2 =
+            issues
+            |> List.filter (fun i -> i.Rule = "V1" || i.Rule = "V2")
+        Assert.True(
+            v1v2.IsEmpty,
+            sprintf "placeholder 채움에도 V1/V2 위반 %d 건: %s"
+                v1v2.Length
+                (v1v2 |> List.map (fun i -> sprintf "[%s] %s" i.Rule i.Message) |> String.concat "; "))
+
 /// CallCreateDialog 의 "ApiCall 복제" 경로 회귀.
 /// 이전엔 일반 경로 (AddCallsWithDevice) 만 `createDeviceSystem` 가드를 가졌고
 /// 복제 경로 (AddCallWithMultipleDevicesResolved) 는 무조건 ensureSystem/ensureApiDef 실행 → ModeStn
