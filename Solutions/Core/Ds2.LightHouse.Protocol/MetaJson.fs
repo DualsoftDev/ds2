@@ -7,7 +7,7 @@ open System.Text
 open System.Text.Json
 open System.Text.Json.Serialization
 
-/// **K4 Protocol SSOT (A2)** — `meta.json` schema 단일 박제 (todo-lighthouse-kb-server.md §3.3.1).
+/// **K4 Protocol SSOT (A2)** — `meta.json` schema 단일 박제 (done-lighthouse-kb-server.md §3.3.1).
 ///
 /// **본 record 박제 이전** = server F# `Ds2.LightHouseService.MetaJson` + client C# `CollectionPackager.MetaPayload`
 /// (Promaker) + client F# `Packager.MetaDto` (cli) 3중 박제. K4 통합으로 단일 SSOT — schema 변경 시 본 record
@@ -32,6 +32,15 @@ type MetaJson = {
     [<JsonPropertyName("createdAt")>] CreatedAt: string
     [<JsonPropertyName("clientHost")>] ClientHost: string
     [<JsonPropertyName("clientUser")>] ClientUser: string
+
+    // ── (PR-A r0, todo-lighthouse-index-summary.md §3.1) collection-level summary ──
+    /// collection topic 1줄 합성. Phase 1 = 빈 string (b1 stats 만으로는 합성 불가).
+    /// Phase 2 의 b2 LLM-driven 도입 시 채움. KbDigestBuilder 가 빈 시 title 만 박제.
+    /// schema bump 없음 — optional field 추가 (forward-compat, 미설정 시 STJ default null/"").
+    [<JsonPropertyName("description")>] Description: string
+    /// KeywordExtractor 결과 (top-N=15 잠정, b1 stats 기반).
+    /// 빈 array = legacy collection (PR-B 이전 색인). null 가드는 `MetaJsonRegistry.toRegistryEntry` 책임.
+    [<JsonPropertyName("keywords")>] Keywords: string array
 
     // ── server 가 import 시 채움 (client 가 보낸 값은 무시) ────────────
     [<JsonPropertyName("id")>] Id: string

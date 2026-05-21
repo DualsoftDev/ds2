@@ -9,7 +9,7 @@ open Ds2.LightHouse.Extractors
 open Ds2.LightHouse.Cli
 open Ds2.LightHouse.Ollama
 
-/// Phase S6 — todo-lighthouse-kb-server.md §4.2 Phase S6.
+/// Phase S6 — done-lighthouse-kb-server.md §4.2 Phase S6.
 ///
 /// 본 turn (s6-r0, P1 follow-up) = `index --upload` 본격 구현.
 ///
@@ -163,6 +163,7 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 new TextExtractor() :> IExtractor
                 new PdfExtractor() :> IExtractor
                 new OoxmlExtractor() :> IExtractor
+                new ImageExtractor() :> IExtractor
             ]
             let mutable lastReported = -1
             let progressCb (p: IngestProgress) =
@@ -231,7 +232,19 @@ let private runUpload
                     else
                         eprintfn "  색인 완료 — ingested=%d, 파일=%d, %d bytes"
                             summary.IngestedCount summary.FileCount summary.TotalBytes
+                        // **PR-B + PR-C (todo-lighthouse-index-summary.md §3.1 + §3.2)** — keyword 추출 + text dump.
+                        // 같은 read-only connection 안에서 두 hook 모두 수행 → SQLite open cost 1회로 통합.
+                        let kwResult, dumpFiles =
+                            let dbPath = SqliteStore.dbPath folder
+                            use conn = SqliteStore.openConnection dbPath true
+                            let kw = KeywordExtractor.extract conn
+                            let dumps = TextDumper.dumpAll conn folder
+                            kw, dumps
+                        eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
+                        eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
+                        let description = kwResult.Topic |> Option.defaultValue ""
                         Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
+                            description kwResult.Keywords
                         zipPath <- Packager.createZip folder
                         let zipBytes = (FileInfo zipPath).Length
                         eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes

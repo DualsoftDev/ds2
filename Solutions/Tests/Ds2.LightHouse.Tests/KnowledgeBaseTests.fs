@@ -10,7 +10,7 @@ open Ds2.LightHouse.Extractors
 
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// todo-lighthouse-kb-index.md §4.8c — KnowledgeBase facade multi-collection ATTACH UNION.
+/// done-lighthouse-kb-index.md §4.8c — KnowledgeBase facade multi-collection ATTACH UNION.
 ///
 /// 검증: ATTACH parameter binding 불가 → inline + single-quote escape (review C2 잔여),
 ///       FTS5 external-content trigger (review M2 잔여),
@@ -33,7 +33,10 @@ let private writeFile (dir: string) (name: string) (body: string) =
     File.WriteAllText(path, body, Encoding.UTF8)
     path
 
-let private extractors () : IExtractor list = [ new TextExtractor() :> IExtractor ]
+let private extractors () : IExtractor list = [
+    new TextExtractor() :> IExtractor
+    new ImageExtractor() :> IExtractor
+]
 let private noProgress (_: IngestProgress) = ()
 
 let private ingestAll (dir: string) =
@@ -358,4 +361,21 @@ let ``hybrid — empty query / 빈 active 셋 정합`` () =
         let kb = KnowledgeBase.openCollections dirs (Some embedder)
         try
             Assert.Empty((kb.Search { Text = "   "; TopK = 5; FileId = None } CancellationToken.None).Results)
+        finally kb.Dispose())
+
+[<Fact>]
+let ``Task 7 회귀 가드 — standalone PNG 색인 후 kb.List() 의 FileKind = FileKind.Image`` () =
+    // Searcher.parseDocType 의 "image" 매핑 회귀 차단. write path (SqliteStore.docTypeToString) 와
+    // read path (Searcher.parseDocType) 의 round-trip 정합 의무. drift 시 Unsupported "image" 로 분류됨.
+    withDirs 1 (fun dirs ->
+        let path = Path.Combine(dirs.[0], "logo.png")
+        File.WriteAllBytes(path, SamplePng.bytes)
+        ingestAll dirs.[0]
+        let kb = KnowledgeBase.openCollections dirs None
+        try
+            let docs = kb.List()
+            Assert.Single(docs) |> ignore
+            let (_, originalPath, kind, _) = docs.[0]
+            Assert.Equal(FileKind.Image, kind)
+            Assert.EndsWith("logo.png", originalPath)
         finally kb.Dispose())

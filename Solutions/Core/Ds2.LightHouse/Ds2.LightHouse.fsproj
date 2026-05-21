@@ -13,10 +13,12 @@
     <Compile Include="Models.fs" />
     <Compile Include="RefLocator.fs" />
     <Compile Include="Classifier.fs" />
+    <Compile Include="MetafileConverter.fs" />
     <Compile Include="Extractors\IExtractor.fs" />
     <Compile Include="Extractors\TextExtractor.fs" />
     <Compile Include="Extractors\PdfExtractor.fs" />
     <Compile Include="Extractors\OoxmlExtractor.fs" />
+    <Compile Include="Extractors\ImageExtractor.fs" />
     <Compile Include="Chunker.fs" />
     <Compile Include="SqliteStore.fs" />
     <Compile Include="ImageStore.fs" />
@@ -25,6 +27,12 @@
     <Compile Include="Searcher.fs" />
     <Compile Include="Indexer.fs" />
     <Compile Include="KnowledgeBase.fs" />
+    <!-- PR-B (todo-lighthouse-index-summary.md §3.1) — collection-level keyword profile 자동 추출.
+         SqliteStore 의 ChunksFts SELECT + MATCH 의존 → SqliteStore 뒤 박제. -->
+    <Compile Include="KeywordExtractor.fs" />
+    <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
+         SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
+    <Compile Include="TextDumper.fs" />
   </ItemGroup>
 
   <ItemGroup>

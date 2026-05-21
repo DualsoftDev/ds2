@@ -4,7 +4,7 @@ open System
 open System.Threading
 open Ds2.LightHouse
 
-/// KB ingest extractor 공통 interface (todo-lighthouse-kb-index.md §4.3).
+/// KB ingest extractor 공통 interface (done-lighthouse-kb-index.md §4.3).
 ///
 /// 각 구현체 (PdfExtractor / OoxmlExtractor / TextExtractor) 가 `Supports` 로 type-safe routing,
 /// `Extract` 가 동기 호출로 `ExtractedDocument` 반환. long-running 추출은 CancellationToken 으로 중단.

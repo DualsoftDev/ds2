@@ -8,7 +8,7 @@ open Microsoft.AspNetCore.Http
 open ModelContextProtocol.Protocol
 open ModelContextProtocol.Server
 
-/// Phase S3 MCP tool host — server 측 4종 (todo-lighthouse-kb-server.md §3.1.3 / §3.10 / §4.2 Phase S3).
+/// Phase S3 MCP tool host — server 측 4종 (done-lighthouse-kb-server.md §3.1.3 / §3.10 / §4.2 Phase S3).
 ///
 /// MCP host 2개 정책 (§3.1.3): Promaker in-process = mutation tool (apply_model_doc 등), service = read tool (attachment_*).
 /// LLM 의 `.mcp-config` 에 server 2개 등록 — tool 14종 자연 공존 (이름 중복 0).
@@ -100,6 +100,7 @@ type AttachmentTools() =
             r)
 
     /// FileKind DU → JSON 직렬화용 string (lower-case 통일).
+    /// SqliteStore.docTypeToString 과 정합 의무 — DU 추가 시 양쪽 동기 갱신.
     static let fileKindString (k: Ds2.LightHouse.FileKind) : string =
         match k with
         | Ds2.LightHouse.Pdf -> "pdf"
@@ -108,6 +109,7 @@ type AttachmentTools() =
         | Ds2.LightHouse.Xlsx -> "xlsx"
         | Ds2.LightHouse.Text -> "txt"
         | Ds2.LightHouse.Markdown -> "md"
+        | Ds2.LightHouse.FileKind.Image -> "image"   // Task 7 — standalone image (RefUnit.Image 와 동명 → qualification 의무)
         | Ds2.LightHouse.Unsupported ext -> sprintf "unsupported(%s)" ext
 
     /// OutlineNodeType DU → JSON 직렬화용 string.
@@ -443,3 +445,71 @@ type AttachmentTools() =
                     blocks.Add(TextContentBlock(Text = textBuilder.ToString()) :> ContentBlock)
                     for b in imgBlocks do blocks.Add b
                     blocks.ToArray())
+
+
+    /// **PR-D (todo-lighthouse-index-summary.md §3.2 + §5)** — 단일 문서의 전체 markdown text dump 반환.
+    ///
+    /// PR-C 의 `TextDumper` 가 색인 시 생성한 `<collection>/.lighthouse-kb/text/<docId>-<filename>.md` 파일을
+    /// stream. LLM 이 *전체 본문 인식* 필요 시 단일 호출로 흡수 — `attachment_search` excerpt 부족 시 escalation.
+    ///
+    /// **size 가드**: 응답 ≤ 1MB (UTF-8 byte). 초과 시 truncate + `[fulltext truncated at 1MB]` footer.
+    /// 정상 색인은 TextDumper 단계에서 이미 512KB cap 박제 — 1MB 응답 cap 은 외부 source / legacy 박제 backstop.
+    ///
+    /// **legacy collection** (text/ 폴더 부재 / 파일 부재): empty string 반환 + audit warn.
+    /// 사용자 명시 "재업로드" 시 색인 갱신 (parent D5 정합).
+    [<McpServerTool>]
+    [<Description("Read full markdown text dump of a document (PR-D). Returns entire markdown content for deep inspection — use when attachment_search excerpts are insufficient. fileId format = <collection-guid>:<docId>.")>]
+    static member attachment_fulltext
+        (
+            accessor: IHttpContextAccessor,
+            registry: ISessionRegistry,
+            cfg: ServiceConfig,
+            [<Description("File identifier from attachment_list (format <collection-guid>:<docId>)")>]
+            fileId: string
+        ) : string =
+        let _ = registry  // 미사용 (session lookup 만으로 충분 — KB attach 불필요, file IO 만)
+        let s = activeSession accessor
+        let parts = if isNull fileId then [||] else fileId.Split(':')
+        if parts.Length <> 2 then
+            Log.audit.Warn(sprintf "PR-D: attachment_fulltext fileId 형식 결함 — fileId=%s" (Log.sanitizeForLog fileId))
+            ""
+        else
+            let collGuid = parts.[0]
+            let docId = parts.[1]
+            // session active 셋 검증 (importFileId 의 invariant 정합)
+            if not (s.CollectionIds |> Array.contains collGuid) then
+                Log.audit.Warn(sprintf "PR-D: attachment_fulltext collection 가 session active 셋 밖 — coll=%s session=%s"
+                    (Log.sanitizeForLog collGuid) s.Token)
+                ""
+            else
+                let storageRoot = Config.expandEnv cfg.StorageRoot
+                match Registry.tryFindById storageRoot collGuid with
+                | None ->
+                    Log.audit.Warn(sprintf "PR-D: attachment_fulltext collection 미존재 — coll=%s" (Log.sanitizeForLog collGuid))
+                    ""
+                | Some entry ->
+                    let collRoot = AttachmentResolver.collectionPath storageRoot entry.Id entry.DisplayName
+                    let textDir = Path.Combine(collRoot, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName, "text")
+                    if not (Directory.Exists textDir) then
+                        Log.audit.Info(sprintf "PR-D: attachment_fulltext legacy collection (text/ 부재) — coll=%s" collGuid)
+                        ""
+                    else
+                        let matches = Directory.GetFiles(textDir, sprintf "%s-*.md" docId)
+                        if matches.Length = 0 then
+                            Log.audit.Warn(sprintf "PR-D: attachment_fulltext docId 매칭 file 부재 — coll=%s docId=%s" collGuid docId)
+                            ""
+                        else
+                            let path = matches.[0]
+                            let fileInfo = FileInfo path
+                            // 1MB cap — TextDumper 단계 512KB cap 이 1차, 본 1MB 는 backstop (외부 source / legacy)
+                            let maxBytes = 1048576L
+                            if fileInfo.Length <= maxBytes then
+                                File.ReadAllText(path, System.Text.Encoding.UTF8)
+                            else
+                                use stream = File.OpenRead path
+                                let buf = Array.zeroCreate<byte> (int maxBytes)
+                                let read = stream.Read(buf, 0, buf.Length)
+                                let body =
+                                    if read = buf.Length then System.Text.Encoding.UTF8.GetString(buf)
+                                    else System.Text.Encoding.UTF8.GetString(buf, 0, read)
+                                body + "\n\n---\n\n[fulltext truncated at 1MB — use attachment_search for specific ref]\n"

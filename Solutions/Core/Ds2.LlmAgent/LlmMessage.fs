@@ -1,6 +1,6 @@
 namespace Ds2.LlmAgent
 
-// `ImageFormat` 은 `Ds2.LightHouse` 로 이전 (todo-lighthouse-kb-index.md §3.4 / §4.2a).
+// `ImageFormat` 은 `Ds2.LightHouse` 로 이전 (done-lighthouse-kb-index.md §3.4 / §4.2a).
 // chat 측 (`AttachmentClassifier`) 과 KB ingest 두 경로의 공통 base enum SSOT.
 open Ds2.LightHouse
 
