@@ -5,7 +5,7 @@ using Ds2.Core.Store;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Win32;
 
-namespace DSPilot.TestConsole;
+namespace DSPilot.AasxSimulator;
 
 public partial class MainWindow : Window
 {
@@ -27,8 +27,9 @@ public partial class MainWindow : Window
         TxtAasxPath.Text = config["AasxPath"] ?? @"C:\ds\ds2\Apps\DSPilot\DsCSV_0318_C.aasx";
 
         CmbPlcType.SelectedIndex = _plc.PlcType.Equals("LS", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-        ApplyPlcTypeToInputs();
         CmbPlcModel.SelectedIndex = _plc.LS.PlcModel switch { "XGK" => 1, "XGT" => 2, _ => 0 };
+        CmbMxProtocol.SelectedIndex = _plc.Mitsubishi.Protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        ApplyPlcTypeToInputs();
     }
 
     private void ApplyPlcTypeToInputs()
@@ -46,6 +47,8 @@ public partial class MainWindow : Window
         }
         LblPlcModel.Visibility = isLs ? Visibility.Visible : Visibility.Collapsed;
         CmbPlcModel.Visibility = isLs ? Visibility.Visible : Visibility.Collapsed;
+        LblMxProtocol.Visibility = isLs ? Visibility.Collapsed : Visibility.Visible;
+        CmbMxProtocol.Visibility = isLs ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OnPlcTypeChanged(object sender, SelectionChangedEventArgs e)
@@ -212,6 +215,7 @@ public partial class MainWindow : Window
         {
             _plc.Mitsubishi.IpAddress = TxtIp.Text.Trim();
             _plc.Mitsubishi.Port = port;
+            _plc.Mitsubishi.Protocol = (CmbMxProtocol.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "UDP";
         }
         return true;
     }

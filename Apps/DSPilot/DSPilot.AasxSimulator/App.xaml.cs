@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace DSPilot.TestConsole;
+namespace DSPilot.AasxSimulator;
 
 public partial class App : Application
 {

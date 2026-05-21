@@ -4,13 +4,15 @@ using Ev2.PLC.Protocol.LS;
 using Ev2.PLC.Protocol.MX;
 using Microsoft.Extensions.Configuration;
 
-namespace DSPilot.TestConsole;
+namespace DSPilot.AasxSimulator;
 
 public class MitsubishiPlcSettings
 {
     public string IpAddress { get; set; } = "192.168.9.120";
     public int Port { get; set; } = 5555;
     public string Name { get; set; } = "MitsubishiPLC";
+    /// <summary>UDP / TCP</summary>
+    public string Protocol { get; set; } = "UDP";
 }
 
 public class LsPlcSettings
@@ -71,7 +73,9 @@ public class PlcConnectionSettings
                 Timeout = TimeSpan.FromSeconds(5),
                 ScanInterval = TimeSpan.FromMilliseconds(500),
                 FrameType = FrameType.QnA_3E_Binary,
-                Protocol = TransportProtocol.UDP,
+                Protocol = Mitsubishi.Protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase)
+                    ? TransportProtocol.TCP
+                    : TransportProtocol.UDP,
                 AccessRoute = new AccessRoute(0, 255, 1023, 0),
                 MonitoringTimer = 16,
             };
@@ -81,5 +85,5 @@ public class PlcConnectionSettings
 
     public string DisplayName => IsLS
         ? $"LS ({LS.IpAddress}:{LS.Port}, {LS.PlcModel})"
-        : $"Mitsubishi ({Mitsubishi.IpAddress}:{Mitsubishi.Port})";
+        : $"Mitsubishi ({Mitsubishi.Protocol} {Mitsubishi.IpAddress}:{Mitsubishi.Port})";
 }

@@ -10,7 +10,7 @@ using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
 using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
 
-namespace DSPilot.TestConsole;
+namespace DSPilot.AasxSimulator;
 
 /// <summary>
 /// AASX 로드 → 모든 Flow/Call 수집 → PLC 신호 시뮬레이션.
@@ -83,11 +83,15 @@ public sealed class FlowSimulationService
         Log?.Invoke($"TagSpec {tagSpecs.Count} 개 생성");
 
         var scanConfigs = new[] { plcSettings.CreateScanConfig(tagSpecs.ToArray()) };
+        // PLCBackendService 는 싱글톤 트래킹 — Start() 가 throw 해서 disposable 이 null 인 채 끝나면
+        // 서비스 인스턴스가 슬롯에 남아 다음 실행 시 "Instance already exists" 가 떠 버린다.
+        // 따라서 service 도 외부 변수로 잡아 finally 에서 무조건 정리.
+        PLCBackendService? plcService = null;
         IDisposable? disposable = null;
 
         try
         {
-            var plcService = new PLCBackendService(
+            plcService = new PLCBackendService(
                 scanConfigs: scanConfigs,
                 tagHistoricWAL: FSharpOption<TagHistoricWAL>.None
             );
@@ -123,7 +127,17 @@ public sealed class FlowSimulationService
         }
         finally
         {
-            disposable?.Dispose();
+            try { disposable?.Dispose(); }
+            catch (Exception ex) { Log?.Invoke($"⚠️  disposable dispose: {ex.Message}"); }
+
+            // Start() 가 실패해 disposable 이 null 이면 서비스 자체가 싱글톤 슬롯을 잡고 있으므로
+            // 별도로 명시 dispose 해야 다음 실행에서 재생성이 가능해진다.
+            if (plcService is IDisposable d)
+            {
+                try { d.Dispose(); }
+                catch (Exception ex) { Log?.Invoke($"⚠️  service dispose: {ex.Message}"); }
+            }
+
             Log?.Invoke("🛑 PLC 서비스 종료");
         }
     }
@@ -239,12 +253,14 @@ public sealed class FlowSimulationService
         var outgoing = callInfos.ToDictionary(c => c.Call.Id, _ => new List<Guid>());
         var remaining = callInfos.ToDictionary(c => c.Call.Id, _ => 0);
 
+        // arrow source/target 가 둘 다 callInfos 에 있는 경우에만 그래프에 반영.
+        // IOTag 누락으로 스킵된 Call 이나 비-Call 노드를 가리키면 다음 wave 에서 KeyNotFound 발생.
         foreach (var arrow in arrows)
         {
-            if (outgoing.ContainsKey(arrow.SourceId))
-                outgoing[arrow.SourceId].Add(arrow.TargetId);
-            if (remaining.ContainsKey(arrow.TargetId))
-                remaining[arrow.TargetId]++;
+            if (!outgoing.ContainsKey(arrow.SourceId)) continue;
+            if (!remaining.ContainsKey(arrow.TargetId)) continue;
+            outgoing[arrow.SourceId].Add(arrow.TargetId);
+            remaining[arrow.TargetId]++;
         }
 
         var currentWave = callInfos
