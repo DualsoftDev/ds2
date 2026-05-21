@@ -70,7 +70,7 @@ public partial class SymbolWizardDialog : Window
         var vendor = SelectedVendor();
         var parseResult = CsvParser.parseFile(vendor, path);
         var entries = parseResult.Entries.ToList();
-        var batch = Mapper.map(parseResult.Entries);
+        var batch = Mapper.map(vendor, parseResult.Entries);
         var plans = ModelGenerator.generate(batch);
         var issues = SymbolValidation.validate(batch, plans);
 
@@ -213,13 +213,19 @@ public partial class SymbolWizardDialog : Window
                 foreach (var work in flow.Works)
                 {
                     var workId = _store.AddWork(work.Name, flowId);
+                    // Wizard entries — (callName, outTag, inTag). null IOTag 는 F# 에서 None 으로 저장.
+                    // AddCallsWithDeviceAndTags 가 1 transaction 안에서 Call + ApiCall + OutTag/InTag 까지 채움.
+                    var entries = new List<(string Name, IOTag OutTag, IOTag InTag)>();
                     foreach (var call in work.Calls)
                     {
                         if (!apiDefIdByDeviceApi.TryGetValue((call.DeviceName, call.ApiName), out _))
                             continue;
-                        _store.AddCallsWithDevice(projectId, workId,
-                            new[] { call.Name }, true, FSharpOption<string>.None);
+                        var outTag = FSharpOption<IOTag>.get_IsSome(call.OutTag) ? call.OutTag.Value : null!;
+                        var inTag  = FSharpOption<IOTag>.get_IsSome(call.InTag)  ? call.InTag.Value  : null!;
+                        entries.Add((call.Name, outTag, inTag));
                     }
+                    if (entries.Count == 0) continue;
+                    _store.AddCallsWithDeviceAndTags(projectId, workId, entries, true, FSharpOption<string>.None);
                 }
             }
         }
