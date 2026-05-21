@@ -158,7 +158,7 @@ LLM 이 chat 시작 시점부터 active KB 의 *영역* + *깊은 내용* 양쪽
 - `Registry.fs:34-50` `CollectionEntry` 에 두 필드 추가 + JsonPropertyName (PR-A)
 - `MetaJson.fs:19-32` `MetaJsonRegistry.toRegistryEntry` 가 두 필드 propagate (PR-A)
 - `AttachmentTools.fs` 신규 method `attachment_fulltext` (PR-D)
-- `ZipImport.fs` sanitize whitelist 에 `text/` prefix 추가 (PR-A)
+- `ZipImport.fs` sanitize whitelist 에 `text/` prefix 추가 (**PR-C** — text dump 활성 시점 의무. PR-A 는 schema 확장만, text 파일 생성 0)
 
 ### cli (`Solutions/Tools/Ds2.LightHouse.Cli/`)
 - `Program.fs` `runUpload` 에 KeywordExtractor + TextDumper 호출 (PR-B / PR-C)
