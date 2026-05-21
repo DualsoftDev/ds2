@@ -98,9 +98,12 @@ module Packager =
     ///
     /// **Phase 4 (s6-r35) P4-B.2**: `embedderOpt` parameter — caller (Program.runUpload) 가 `--no-embedding`
     /// flag 분기로 None / Some 결정.
+    /// **사용자 결정 (CLI API key 필수 변경)** — `captionGen` parameter caller 박제. caller (Program.runUpload)
+    /// 가 `Vlm.buildCaptionGen` 의 Result 분기 처리 후 Ok 시 본 함수 호출. Packager 자체는 caption 정책 무관.
     let runIngest
         (sourceFolder: string)
         (embedderOpt: IEmbeddingProvider option)
+        (captionGen: byte[] -> ImageFormat -> CaptionResult)
         (ct: CancellationToken)
         : (string * FileIngestResult) array =
         let extractors : IExtractor list = [
@@ -109,8 +112,6 @@ module Packager =
             new OoxmlExtractor() :> IExtractor
         ]
         let progressCb (_: IngestProgress) = ()
-        // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
-        let captionGen = Vlm.buildCaptionGen ct
         Indexer.ingest sourceFolder extractors captionGen embedderOpt progressCb ct
 
     /// ingest 결과 → fileCount + totalBytes + ingestedCount 단일 traverse (외부 --review mn-2 정합).
