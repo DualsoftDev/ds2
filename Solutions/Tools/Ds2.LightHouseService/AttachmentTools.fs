@@ -219,7 +219,7 @@ type AttachmentTools() =
         (
             accessor: IHttpContextAccessor,
             registry: ISessionRegistry,
-            [<Description("Search query text (whitespace-separated tokens, implicit AND)")>]
+            [<Description("Search query text. Korean trigram FTS5 — BM25 path requires phrase candidate length >= 3 (phraseNoWs/phraseRaw/tokens). Shorter queries (e.g. 2-char) fall back to vector-only in hybrid mode. Multiple terms OR-combined for recall; ranking via BM25 + vector RRF.")>]
             query: string,
             [<Description("Max results to return (default 10)")>]
             topK: int,
