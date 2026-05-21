@@ -118,15 +118,15 @@ module Builder =
         call.Conditions.Add(condition)
         condition.Id
 
-    /// Work 의 SkipUnmatch Condition 추가. 반환: conditionId.
-    /// Work 의 Condition 은 SkipUnmatch 만 의미 — type 인자 받지 않음.
+    /// Work 의 SkipAction Condition 추가. 반환: conditionId.
+    /// Work 의 Condition 은 SkipAction 만 의미 — type 인자 받지 않음.
     let addWorkCondition (store: DsStore) (workId: Guid) (apiCallIds: Guid list) (isOR: bool) =
         let work =
             match store.Works.TryGetValue(workId) with
             | true, w -> w
             | _ -> invalidOp $"Work {workId} not found"
         let condition = Condition()
-        condition.Type <- Some ConditionType.SkipUnmatch
+        condition.Type <- Some ConditionType.SkipAction
         condition.IsOR <- isOR
         for apiCallId in apiCallIds do
             match store.ApiCalls.TryGetValue(apiCallId) with

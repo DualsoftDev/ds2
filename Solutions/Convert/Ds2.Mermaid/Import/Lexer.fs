@@ -144,7 +144,7 @@ module MermaidLexer =
                     match parseNames "ComAux: " with
                     | Some names -> comAuxRefs <- names
                     | None ->
-                        match parseNames "SkipUnmatch: " with
+                        match parseNames "SkipAction: " with
                         | Some names -> skipUnmatchRefs <- names
                         | None -> ()
 

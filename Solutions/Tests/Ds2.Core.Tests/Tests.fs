@@ -133,7 +133,7 @@ module DeepCopyTests =
     [<Fact>]
     let ``Condition DeepCopy should copy Children recursively`` () =
         let child = Condition()
-        child.Type <- Some ConditionType.SkipUnmatch
+        child.Type <- Some ConditionType.SkipAction
         child.IsOR <- true
         let childApi = ApiCall("ChildApi")
         childApi.OutputSpec <- Int32Value (Single 42)

@@ -77,7 +77,7 @@ graph TD
     subgraph W["Work"]
         A["Call_A"]
         B["Call_B<br>AutoAux: Call_A"]
-        C["Call_C<br>ComAux: Call_A, Call_B<br>SkipUnmatch: Call_A"]
+        C["Call_C<br>ComAux: Call_A, Call_B<br>SkipAction: Call_A"]
     end
 """
 
@@ -89,19 +89,19 @@ graph TD
 
     Assert.Empty(nodeA.AutoAuxConditionRefs)
     Assert.Empty(nodeA.ComAuxConditionRefs)
-    Assert.Empty(nodeA.SkipUnmatchConditionRefs)
+    Assert.Empty(nodeA.SkipActionConditionRefs)
 
     Assert.Equal(1, nodeB.AutoAuxConditionRefs.Length)
     Assert.Equal("Call_A", nodeB.AutoAuxConditionRefs.[0])
     Assert.Empty(nodeB.ComAuxConditionRefs)
-    Assert.Empty(nodeB.SkipUnmatchConditionRefs)
+    Assert.Empty(nodeB.SkipActionConditionRefs)
 
     Assert.Empty(nodeC.AutoAuxConditionRefs)
     Assert.Equal(2, nodeC.ComAuxConditionRefs.Length)
     Assert.Equal("Call_A", nodeC.ComAuxConditionRefs.[0])
     Assert.Equal("Call_B", nodeC.ComAuxConditionRefs.[1])
-    Assert.Equal(1, nodeC.SkipUnmatchConditionRefs.Length)
-    Assert.Equal("Call_A", nodeC.SkipUnmatchConditionRefs.[0])
+    Assert.Equal(1, nodeC.SkipActionConditionRefs.Length)
+    Assert.Equal("Call_A", nodeC.SkipActionConditionRefs.[0])
 
 [<Fact>]
 let ``passive marker applies to following top level subgraph only`` () =

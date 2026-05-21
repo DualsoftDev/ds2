@@ -59,9 +59,9 @@ module internal MermaidMapperTargets =
     // Flow 2-depth: subgraph → Work, node → Call
     // ═══════════════════════════════════════════════════
 
-    /// Work subgraph 의 SkipUnmatchConditionRefs 를 work.Conditions 에 박는 후처리.
+    /// Work subgraph 의 SkipActionConditionRefs 를 work.Conditions 에 박는 후처리.
     /// label("Dev.ApiName") → Call lookup 으로 srcCall.ApiCalls.[0] 을 Condition.ApiCalls 에 추가.
-    let private applyWorkSkipUnmatchRefs
+    let private applyWorkSkipActionRefs
         (workSkipRefs: ResizeArray<Work * string list>)
         (createdCalls: seq<Call * string>) =
         if workSkipRefs.Count = 0 then () else
@@ -71,7 +71,7 @@ module internal MermaidMapperTargets =
         for (work, refs) in workSkipRefs do
             if refs.IsEmpty then () else
             let cond = Condition()
-            cond.Type <- Some ConditionType.SkipUnmatch
+            cond.Type <- Some ConditionType.SkipAction
             for refName in refs do
                 match labelToCall.TryGetValue(refName) with
                 | true, srcCall when srcCall.ApiCalls.Count > 0 ->
@@ -93,8 +93,8 @@ module internal MermaidMapperTargets =
         for sg in graph.Subgraphs do
             let work = Work(flowName, subgraphName sg, flowId)
             operations.Add(AddWork work)
-            if not sg.SkipUnmatchConditionRefs.IsEmpty then
-                workSkipRefs.Add(work, sg.SkipUnmatchConditionRefs)
+            if not sg.SkipActionConditionRefs.IsEmpty then
+                workSkipRefs.Add(work, sg.SkipActionConditionRefs)
 
             planCallsForWork planned operations work.Id sg.Nodes sg.InternalEdges (fun node call apiName ->
                 nodeToWorkId.[node.Id] <- work.Id
@@ -113,7 +113,7 @@ module internal MermaidMapperTargets =
 
         completePlannedImport operations planned (fun () ->
             linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
-            applyWorkSkipUnmatchRefs workSkipRefs createdCalls)
+            applyWorkSkipActionRefs workSkipRefs createdCalls)
 
     // ═══════════════════════════════════════════════════
     // Flow 1-depth: GlobalNode → Work, GlobalEdge → ArrowBetweenWorks
@@ -185,8 +185,8 @@ module internal MermaidMapperTargets =
                     let work = Work(flowDisplayName, subgraphName workSg, flow.Id)
                     operations.Add(AddWork work)
                     subgraphToWorkId.[workSg.Id] <- work.Id
-                    if not workSg.SkipUnmatchConditionRefs.IsEmpty then
-                        workSkipRefs.Add(work, workSg.SkipUnmatchConditionRefs)
+                    if not workSg.SkipActionConditionRefs.IsEmpty then
+                        workSkipRefs.Add(work, workSg.SkipActionConditionRefs)
 
                     planCallsForWork planned operations work.Id workSg.Nodes workSg.InternalEdges (fun node call apiName ->
                         if apiName <> "" && not systemSg.IsPassive then
@@ -208,7 +208,7 @@ module internal MermaidMapperTargets =
             linkCallsToDevicesByFlow store projectId activeCreatedCalls operations
             let createdCalls =
                 activeCreatedCalls |> Seq.map (fun (call, label, _) -> call, label)
-            applyWorkSkipUnmatchRefs workSkipRefs createdCalls)
+            applyWorkSkipActionRefs workSkipRefs createdCalls)
 
     // ═══════════════════════════════════════════════════
     // 프리뷰 생성 (store 변경 없이)

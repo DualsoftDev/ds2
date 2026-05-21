@@ -212,9 +212,25 @@ type DsStorePanelConditionExtensions =
 
     // v10: UpdateConditionApiCallSkipInputSensor 제거 — SkipInputSensor 가 ApiDef.SensingType=Virtual 로 흡수됨.
 
+    /// SkipAction Drag&Drop picker (A접/B접) 결과를 반영하는 후처리 setter.
+    /// apiCallIds 에 포함된 ApiCall 만 ContactKind 를 일괄 설정한다 (방금 추가된 leaf 만 타겟).
+    [<Extension>]
+    static member SetConditionApiCallsContactKind
+        (store: DsStore, callId: Guid, condId: Guid, apiCallIds: Guid seq, kind: ContactKind) =
+        Queries.requireNonReferenceCall callId store
+        StoreLog.debug($"callId={callId}, condId={condId}, kind={kind}")
+        StoreLog.requireCallCondition(store, callId, condId) |> ignore
+        let idSet = apiCallIds |> Set.ofSeq
+        if idSet.IsEmpty then () else
+        DirectPanelOps.mutateCallProps store callId "Call 조건 ApiCall ContactKind 설정" (fun c ->
+            let targetCond = DirectPanelOps.requireConditionInCall callId c condId
+            for ac in targetCond.ApiCalls do
+                if idSet.Contains ac.Id then
+                    ac.ContactKind <- kind)
+
 
 // =============================================================================
-// Work 쪽 Condition 확장 (SkipUnmatch 만 의미 — 그러나 API 형태는 Call 과 대칭)
+// Work 쪽 Condition 확장 (SkipAction 만 의미 — 그러나 API 형태는 Call 과 대칭)
 // =============================================================================
 
 [<Extension>]
@@ -227,7 +243,7 @@ type DsStorePanelWorkConditionExtensions =
             let children = cond.Children |> Seq.map toPanel |> Seq.toList
             ConditionPanelItem(
                 cond.Id,
-                (cond.Type |> Option.defaultValue ConditionType.SkipUnmatch),
+                (cond.Type |> Option.defaultValue ConditionType.SkipAction),
                 cond.IsOR, cond.IsInverted, items, children)
         DirectPanelOps.withWorkOrEmpty store resolvedId (fun work ->
             work.Conditions |> Seq.map toPanel |> Seq.toList)
@@ -342,3 +358,18 @@ type DsStorePanelWorkConditionExtensions =
                 targetApiCall.OutputSpec <- newSpec)
             true
         else false
+
+    /// SkipAction Drag&Drop picker (A접/B접) 결과 후처리 setter (Work 측).
+    /// apiCallIds 에 포함된 ApiCall 만 ContactKind 를 일괄 설정한다 (방금 추가된 leaf 만 타겟).
+    [<Extension>]
+    static member SetWorkConditionApiCallsContactKind
+        (store: DsStore, workId: Guid, condId: Guid, apiCallIds: Guid seq, kind: ContactKind) =
+        StoreLog.debug($"workId={workId}, condId={condId}, kind={kind}")
+        StoreLog.requireWorkCondition(store, workId, condId) |> ignore
+        let idSet = apiCallIds |> Set.ofSeq
+        if idSet.IsEmpty then () else
+        DirectPanelOps.mutateWorkProps store workId "Work 조건 ApiCall ContactKind 설정" (fun w ->
+            let targetCond = DirectPanelOps.requireConditionInWork workId w condId
+            for ac in targetCond.ApiCalls do
+                if idSet.Contains ac.Id then
+                    ac.ContactKind <- kind)

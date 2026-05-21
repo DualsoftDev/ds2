@@ -21,7 +21,7 @@ module internal WorkTransitions =
         OnDurationScheduled: Guid -> Guid -> int64 -> unit
         /// v10 §10 — Work cycle 시작/종료 시 passive sensing append flag 제거.
         ClearSensingAppendDelay: Guid -> unit
-        /// Work SkipUnmatch 평가: Ready→Going 시 unmatch 면 Going 거치지 않고 Finish 로 skip
+        /// Work SkipAction 평가: Ready→Going 시 unmatch 면 Going 거치지 않고 Finish 로 skip
         ShouldSkipWork: Guid -> bool
     }
 

@@ -34,7 +34,7 @@ module JsonFormat =
     /// ConditionType 정수 매핑
     let callConditionAutoAux = 0
     let callConditionComAux = 1
-    let callConditionSkipUnmatch = 2
+    let callConditionSkipAction = 2
 
     /// FlowTag 정수 매핑
     let flowTagReady = 0

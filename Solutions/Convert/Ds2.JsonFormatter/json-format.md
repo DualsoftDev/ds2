@@ -427,7 +427,7 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
 ```json
 {
   "id": "<guid>",
-  "type": 0,                          // CallConditionType option: AutoAux=0(자동 전용), ComAux=1(공통), SkipUnmatch=2
+  "type": 0,                          // CallConditionType option: AutoAux=0(자동 전용), ComAux=1(공통), SkipAction=2
   "conditions": [ ... ],              // ApiCall[] — 조건에 참조되는 ApiCall 목록
   "children": [ ... ],                // CallCondition[] — 재귀 트리 (하위 조건)
   "isOR": false,                       // bool: OR 조건 여부
@@ -510,7 +510,7 @@ Project
 |----|------|------|
 | 0 | AutoAux | 자동 기동(Auto) 상태에서만 체크하는 전제 조건 |
 | 1 | ComAux | 공통(Common) 전제 조건 — 자동/수동 상관없이 만족해야 action 가능 |
-| 2 | SkipUnmatch | 불일치 시 건너뛰기 — 조건 불만족 시 Call을 실행하지 않고 Finish 처리 |
+| 2 | SkipAction | 불일치 시 건너뛰기 — 조건 불만족 시 Call을 실행하지 않고 Finish 처리 |
 
 ### Status4
 | 값 | 이름 | 설명 |
@@ -652,7 +652,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 |-----------|--------|------|
 | **AutoAux** | 0 | 자동 기동(Auto) 상태에서만 체크하는 전제 조건 |
 | **ComAux** | 1 | 공통(Common) 전제 조건 — 자동/수동 상관없이 만족해야 action 가능 |
-| **SkipUnmatch** | 2 | 조건 불만족 시 Call을 건너뛰고 바로 Finish 처리 |
+| **SkipAction** | 2 | 조건 불만족 시 Call을 건너뛰고 바로 Finish 처리 |
 
 ### conditions 배열 내 ApiCall 필드 역할
 

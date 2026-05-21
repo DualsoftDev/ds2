@@ -27,7 +27,7 @@
 |---|---|---|---|---|
 | **`CallConditionType.AutoAux`** | `Ds2.Core/Enum.fs:16` (`AutoAux = 0`) | CallCondition 분기 조건 — "Auto_X" 보조 코일 (WorkGoing ∧ preds ∧ CallCondition.AutoAux, `02_Control.fs:179,187`) | 高 | 必 |
 | **`CallConditionType.ComAux`** | `Ds2.Core/Enum.fs:17` (`ComAux = 1`) | CallCondition 분기 조건 — "Com_X" 보조 코일 (게이팅 없음, `02_Control.fs:180,188`) | 高 | 必 |
-| **`CallConditionType.SkipUnmatch`** | `Ds2.Core/Enum.fs:18` (`SkipUnmatch = 2`) | CallCondition 분기 조건 — 추가 분기 (ComAux/AutoAux 형제) | 高 | 必 |
+| **`CallConditionType.SkipAction`** | `Ds2.Core/Enum.fs:18` (`SkipAction = 2`) | CallCondition 분기 조건 — 추가 분기 (ComAux/AutoAux 형제) | 高 | 必 |
 
 → 위 3 case 는 단독 누락이 아니라 **`Call.CallConditions` 콜렉션 전체 + `CallCondition` entity 6 property 의 부분집합** (§2.2 1 행 참조).
 
@@ -153,7 +153,7 @@
   - **`apiDetails` 적용 범위 정정**: `device` 키 부재 Passive 는 ApiDef 미생성이라 `apiDetails` entry 가 모두 entry.ApiDefIds lookup 실패 → forensic diag 거부. 코드 주석 정정 + SSOT §2.2.1 `apiDetails` 정의에 "device sugar 가 있는 Passive 한정" 명시.
   - **빈 `callCondition: {}` 정규화**: 빈 object 가 의미 0 의 CallCondition 인스턴스 추가하지 않도록 `parseCallCondition` 진입 시 `EnumerateObject() |> Seq.isEmpty` 체크 → None 반환.
   - **`description` 빈 string apply 정규화**: apply 측이 `Some ""` 로 set 하면 emit 측 default-skip 정책 (Some 이고 빈 string 아닐 때만 emit) 과 비대칭 → 2-pass round-trip drift. apply 측 `Option.filter (not << IsNullOrEmpty)` 로 빈 string → None 정규화.
-  - **테스트 4건 추가**: nested CallCondition children round-trip (children Type 은 `SkipUnmatch` non-default 로 설계 — `AutoAux` default-skip 의 비대칭 회피) / 빈 IOTag emit-skip 검증 / 빈 `callCondition: {}` None 정규화 검증 / 모든 default 시 신규 키 emit 0건 종합 lock-in. ModelProtocolTests 79/79 통과 (기존 75 + 신규 4)
+  - **테스트 4건 추가**: nested CallCondition children round-trip (children Type 은 `SkipAction` non-default 로 설계 — `AutoAux` default-skip 의 비대칭 회피) / 빈 IOTag emit-skip 검증 / 빈 `callCondition: {}` None 정규화 검증 / 모든 default 시 신규 키 emit 0건 종합 lock-in. ModelProtocolTests 79/79 통과 (기존 75 + 신규 4)
 - [x] **외부 review — 별도 phase 분리 (todo §7 후속 결정 등록)**:
   - **helper 3종 추출**: `tryFindXxxInPlan` 5종 + `tryFind + Option.orElseWith Queries.getXxx` fallback 5+ 회 + `tryProp + bind tryString + iter` 6+ 회 → `resolveSystem` / `resolveCall` / `resolveApiDef` / `resolveProject` / `resolveWork` (fallback 포함), `applyStringProp`, `applyEnumProp` 추출. 후속 leaf 키 추가 시 누적 효과.
   - **negative-test 묶음**: `parseTokenRole` / `parseIOTag` non-object / `skipInputSensor` non-bool / `apiDetails` non-object / unknown ApiDef name / `parseCallCondition` non-array `conditions` 등 7개 분기 `[<Theory>]` + `[<InlineData>]` 묶음. `parseCallCondition` 의 `conditions` 분기에 ValueKind != Array silent skip 도 진단 추가가 정석.

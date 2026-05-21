@@ -73,9 +73,9 @@ module internal MermaidMapperCommon =
 
         addCondition ConditionType.AutoAux      node.AutoAuxConditionRefs
         addCondition ConditionType.ComAux       node.ComAuxConditionRefs
-        addCondition ConditionType.SkipUnmatch  node.SkipUnmatchConditionRefs
+        addCondition ConditionType.SkipAction  node.SkipActionConditionRefs
 
-    /// Work subgraph 의 SkipUnmatchConditionRefs 를 Work.Conditions 로 복원.
+    /// Work subgraph 의 SkipActionConditionRefs 를 Work.Conditions 로 복원.
     /// Mapper 측 Work subgraph 처리 시 호출.
     let restoreWorkConditions
         (registerApiCall: ApiCall -> unit)
@@ -99,7 +99,7 @@ module internal MermaidMapperCommon =
                     | _ -> None
                 | _ -> None
         let cond = Condition()
-        cond.Type <- Some ConditionType.SkipUnmatch
+        cond.Type <- Some ConditionType.SkipAction
         for srcName in refs do
             match tryResolveSourceCall srcName with
             | Some srcCall ->

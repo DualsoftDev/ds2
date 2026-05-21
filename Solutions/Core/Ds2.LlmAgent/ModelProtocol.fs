@@ -200,8 +200,8 @@ module ModelProtocol =
         match raw.Trim() with
         | "AutoAux" -> Ok ConditionType.AutoAux
         | "ComAux" -> Ok ConditionType.ComAux
-        | "SkipUnmatch" -> Ok ConditionType.SkipUnmatch
-        | other -> Error (sprintf "condition type '%s' 미지원. 허용: AutoAux|ComAux|SkipUnmatch." other)
+        | "SkipAction" -> Ok ConditionType.SkipAction
+        | other -> Error (sprintf "condition type '%s' 미지원. 허용: AutoAux|ComAux|SkipAction." other)
 
     let parseContactKind (raw: string) : Result<ContactKind, string> =
         match raw.Trim() with
@@ -1305,7 +1305,7 @@ module ModelProtocol =
                 |> Option.iter (fun work ->
                     parsePlcWork ctx (joinDiagKey path "plc") work plcEl))
 
-            // Condition tree (Work) — Call 과 동일 parseCondition 사용. Work 는 SkipUnmatch 만 의미.
+            // Condition tree (Work) — Call 과 동일 parseCondition 사용. Work 는 SkipAction 만 의미.
             tryProp workEl "condition"
             |> Option.iter (fun ccEl ->
                 match parseCondition ctx ccEl (path + ".condition") with
@@ -2113,7 +2113,7 @@ module ModelProtocol =
         match t with
         | ConditionType.AutoAux -> "AutoAux"
         | ConditionType.ComAux -> "ComAux"
-        | ConditionType.SkipUnmatch -> "SkipUnmatch"
+        | ConditionType.SkipAction -> "SkipAction"
         | other -> sprintf "Unknown(%d)" (int other)
 
     let formatContactKind (k: ContactKind) : string =
@@ -2419,7 +2419,7 @@ module ModelProtocol =
                                 // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
                                 if isEmittedIn level D_Plc then
                                     wk.GetControlProperties() |> Option.iter (emitPlcWork w)
-                                // Work.Conditions (SkipUnmatch 등) — emitCondition 재사용. 첫 root 만 emit.
+                                // Work.Conditions (SkipAction 등) — emitCondition 재사용. 첫 root 만 emit.
                                 if wk.Conditions.Count > 0 then
                                     w.WritePropertyName "condition"
                                     emitCondition w workApiCallRef wk.Conditions.[0]
