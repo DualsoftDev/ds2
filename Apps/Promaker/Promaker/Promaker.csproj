@@ -23,9 +23,15 @@
     <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- review S5a-m4: Promaker.Tests 가 LightHouseClient 의 internal ctor 호출 (mock HttpClient 주입).
+         reflection 우회 대신 명시 InternalsVisibleTo — 향후 internal API 변경 시 compile-time 검출. -->
+    <InternalsVisibleTo Include="Promaker.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
+    <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="H.NotifyIcon.Wpf" />
@@ -44,6 +50,15 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <!-- LLM Chat 첨부 Phase 3b — PDF 페이지 수 추출 (LlmChatViewModel.Attachments.cs 의 LoadAcceptedAttachments). -->
     <PackageReference Include="PdfPig" />
+    <!-- todo-lighthouse-kb-index.md r11/s5e-r0 결정: PdfPig 0.1.14 의 OpenXml 3.1.1 transitive 와
+         Ds2.LightHouse 의 3.5.1 충돌 (MSB3277) 해소용 명시. CPM 의 3.5.1 적용. -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension load 의무, lib 의 PrivateAssets=all 우회).
+         Promaker 가 AttachmentIngestService 안에서 lib 의 Indexer 호출 → lib 의 SqliteStore 가 LoadExtension("vec0")
+         → vec0.dll 이 Promaker publish output 에 있어야 함.
+         ExcludeAssets=contentFiles — sqlite-vec NuGet 의 Vector.cs C# wrapper (SqliteConnection 직접 의존) compile
+         차단. lib (F#) 가 raw LoadExtension + SQL string path 만 사용 — Vector.cs wrapper 미사용. -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -107,6 +122,11 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.SymbolImport\Ds2.SymbolImport.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 (ServerEventNames / MetaJson schema / WireConstants)
+         단일 SSOT. server F# / client C# / cli F# 3중 박제 → 단일. -->
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Tools\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />

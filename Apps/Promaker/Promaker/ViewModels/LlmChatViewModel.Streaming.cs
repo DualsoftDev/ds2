@@ -31,10 +31,12 @@ public partial class LlmChatViewModel
                 break;
 
             case LlmEvent.ToolUse tu:
+                RecordToolUse(tu.id, tu.name);
                 AddToolTurn($"[tool_use] {tu.name}");
                 break;
 
             case LlmEvent.ToolResult tr:
+                RecordToolResult(tr.toolUseId, tr.isError, tr.content);
                 AddToolTurn($"[tool_result] {(tr.isError ? "ERROR " : "")}{Truncate(tr.content, 400)}");
                 break;
 

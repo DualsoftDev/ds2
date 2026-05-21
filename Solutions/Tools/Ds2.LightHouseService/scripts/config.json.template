@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 4,
+  "_listenUrl_note": "K3 외부 review R6 합의: default = 127.0.0.1 (loopback) — install-service.ps1 가 -ListenUrl 인자로 외부 IP 명시 override. 0.0.0.0 bind 시 PSK 단독 보호 = 외부 노출 risk.",
+  "listenUrl": "https://127.0.0.1:8443",
+  "tlsCertPath": "C:\\ProgramData\\Dualsoft\\LightHouseService\\service.pfx",
+  "tlsCertPasswordEncrypted": "REPLACED_BY_INSTALL_SCRIPT",
+  "preSharedKeyEncrypted": "REPLACED_BY_INSTALL_SCRIPT",
+  "storageRoot": "%PROGRAMDATA%\\Dualsoft\\LightHouseService",
+  "maxUploadBytes": 10737418240,
+  "zipBombRatioLimit": 50,
+  "sessionIdleTtlMinutes": 240,
+  "stagingSweepIntervalMinutes": 10,
+  "logRetentionDays": 30,
+  "logMaxSizeMB": 100,
+  "auditRetentionDays": 365,
+  "indexerVersionRange": {
+    "min": "1.0.0",
+    "max": "2.99.99"
+  },
+  "_embedding_note": "s6-r39 P4-C.3: server-side hybrid retrieval (BM25 + vector RRF) backend. enabled=false 시 BM25-only fallback. Ollama 가 localhost unauth 가정 — API key 불요. dimension 은 client 측 색인 시 lib SqliteStore.EmbeddingDimension (1024, bge-m3) 과 정합 의무.",
+  "embedding": {
+    "enabled": false,
+    "baseUrl": "http://localhost:11434",
+    "model": "bge-m3",
+    "dimension": 1024
+  },
+  "_mtls_note": "s6-r53 D-S7-1: client cert auth. mode='off' (default) = PSK 단독 / 'optional' = cert 박제 시 검증 + 미박제 PSK 만 / 'required' = TLS handshake 단계 cert 의무 (미박제 connection refused). allowedThumbprints = 빈 배열이면 chain 검증만 (사내 CA root trust 의존), 박제 시 SHA-1 (40 hex) 또는 SHA-256 (64 hex) thumbprint whitelist.",
+  "mtls": {
+    "mode": "off",
+    "allowedThumbprints": []
+  },
+  "_multiTenant_note": "s6-r66 D-S7-4: T1 (default flat) = 모든 user 가 모든 collection visible+writable / T2 = entry.importedBy 가 X-User-Identity 와 일치하는 entry 만 visible+writable (legacy entry = importedBy 빈 값은 전체 공개) / T3 = registry.json 의 collections[].acl = {users:[...], readOnly:bool} 검증, acl 누락/빈 users = 전체 공개. T2/T3 전환 시 기존 entry 의 owner/acl 박제는 admin 책임.",
+  "multiTenant": {
+    "mode": "T1"
+  },
+  "_adminUsers_note": "s6-r80 B-S7-4 (15-reviewer A4 부분): /admin/* endpoint (POST owner / PUT acl) 호출 권한 user 화이트리스트. null/빈 array = backward-compat (single trust pool, PSK 인증된 모든 user = admin). T3 모드 + adminUsers 비어있으면 ACL 격리 효과 0 — T3 진입 시 본 list 명시 의무. case-insensitive ordinal 비교 (Windows AD username 정합).",
+  "adminUsers": []
+}

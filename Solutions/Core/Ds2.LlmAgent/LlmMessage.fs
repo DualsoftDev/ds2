@@ -1,11 +1,8 @@
 namespace Ds2.LlmAgent
 
-/// 첨부 가능한 이미지 포맷. 화이트리스트 기반.
-type ImageFormat =
-    | Png
-    | Jpeg
-    | Gif
-    | Webp
+// `ImageFormat` 은 `Ds2.LightHouse` 로 이전 (todo-lighthouse-kb-index.md §3.4 / §4.2a).
+// chat 측 (`AttachmentClassifier`) 과 KB ingest 두 경로의 공통 base enum SSOT.
+open Ds2.LightHouse
 
 /// LLM 에 전달되는 사용자 첨부물.
 ///

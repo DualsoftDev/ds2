@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Ds2.LlmAgent;
+using Promaker.Knowledge;
 using Promaker.LlmAgent;
 
 namespace Promaker.ViewModels;
@@ -28,8 +31,12 @@ public partial class LlmChatViewModel
         try
         {
             await _mcpHost.StartAsync().ConfigureAwait(true);
-            _mcpConfig = McpConfigWriter.Create("promaker", _mcpHost.ServerUrl, _mcpHost.HandshakeNonce);
 
+            // Phase S5c → D-S7-3b — N 개 active service 별 session 발급 시도.
+            // 일부 service 실패 시 부분 활성화 (결정 #1) — 성공한 service 만 .mcp-config 에 박제.
+            var lhEntries = await TryCreateLightHouseSessionsAsync().ConfigureAwait(true);
+
+            _mcpConfig = BuildMcpConfig(lhEntries);
             await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -42,6 +49,124 @@ public partial class LlmChatViewModel
             // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
             await _mcpHost.StopAsync().ConfigureAwait(true);
         }
+    }
+
+    /// <summary>
+    /// **D-S7-3b (s6-r30) — multi-service N session 발급**.
+    /// <para/>
+    /// 모든 active service 별로 session 발급 + unknownIds/unindexableIds lazy sync (todo §3.8 Q4). 일부 service
+    /// 실패 시 부분 활성화 (결정 #1) — 성공한 service 만 반환 리스트에 박제. 어떤 실패도 chat 자체를 막지 않음.
+    /// <para/>
+    /// KbCollections.GroupBy(ServiceId) — 각 service 는 본인 소속 collection 만 routing 의 collectionIds 로 발행.
+    /// </summary>
+    private async Task<List<McpServerEntry>> TryCreateLightHouseSessionsAsync()
+    {
+        var result = new List<McpServerEntry>();
+        var clients = LightHouseClientHolder.EnsureCreated(_config);
+        if (clients.Count == 0)
+        {
+            // active LightHouse service 미설정 — 정상 분기 (Knowledge Base 비활성). chip 안내 없음 (정보 과잉 회피).
+            return result;
+        }
+
+        // ServiceId → 본인 소속 collection 의 active id 셋 (D-S7-3a path — KbCollections.ServiceId 정합).
+        var collectionsByServiceId = _config.KbCollections
+            .Where(k => k.Active && !string.IsNullOrEmpty(k.ServiceId))
+            .GroupBy(k => k.ServiceId)
+            .ToDictionary(g => g.Key, g => g.Select(k => k.CollectionId).ToList());
+
+        // **자가 검열 Major-3 (s6-r30 review) + D-S7-3c helper SSOT (s6-r31)** — KbCollectionOrphanHelper 호출.
+        var orphanCount = KbCollectionOrphanHelper.CountActiveOrphans(_config);
+        if (orphanCount > 0)
+        {
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ 소속 service 없는 collection {orphanCount}건 (Settings 에서 service 삭제됨) — 정리 권장." });
+        }
+
+        var changedConfig = false;
+        foreach (var svc in _config.LightHouseServices.Where(s => s.Active))
+        {
+            var client = LightHouseClientHolder.GetClient(svc.ServiceId);
+            if (client is null) continue;  // Holder 가 BaseUrl/PSK 검증 후 entry 누락 — 정상 분기.
+
+            var psk = _config.GetLightHousePsk(svc.ServiceId);
+            if (string.IsNullOrEmpty(psk))
+            {
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse [{svc.DisplayName}] PSK 복호화 실패 — 본 service 비활성." });
+                continue;
+            }
+
+            var activeIds = collectionsByServiceId.TryGetValue(svc.ServiceId, out var ids) ? ids : new List<string>();
+
+            try
+            {
+                var resp = await client.CreateSessionAsync(activeIds).ConfigureAwait(true);
+                _lightHouseSessions[svc.ServiceId] = resp.Token;
+                LightHouseClientHolder.RegisterSession(svc.ServiceId, resp.Token);
+
+                if (resp.UnknownIds.Count > 0)
+                {
+                    foreach (var id in resp.UnknownIds)
+                        _config.KbCollections.RemoveAll(k =>
+                            string.Equals(k.CollectionId, id, StringComparison.OrdinalIgnoreCase)
+                            && k.ServiceId == svc.ServiceId);
+                    changedConfig = true;
+                    Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ [{svc.DisplayName}] server 에 없는 collection {resp.UnknownIds.Count}건 제거." });
+                }
+                if (resp.UnindexableIds.Count > 0)
+                {
+                    Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ [{svc.DisplayName}] 색인 실패 collection {resp.UnindexableIds.Count}건 제외 (재시도 가능)." });
+                }
+
+                var baseUrl = svc.BaseUrl.TrimEnd('/');
+                var entryName = LightHouseServerNaming.McpEntryName(svc);
+                result.Add(new McpServerEntry(entryName, baseUrl + "/mcp",
+                    new Dictionary<string, string>
+                    {
+                        ["Authorization"] = "Bearer " + psk,
+                        ["X-LightHouse-Session"] = resp.Token,
+                    }));
+            }
+            catch (LightHouseAuthException)
+            {
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse [{svc.DisplayName}] 인증 실패 (PSK 확인 필요) — 본 service 비활성." });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"LightHouse [{svc.DisplayName}] session 발급 실패: {ex.Message}");
+                Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse [{svc.DisplayName}] session 발급 실패 — 본 service 비활성 ({ex.Message})." });
+            }
+        }
+
+        if (changedConfig) _config.Save();
+        return result;
+    }
+
+    /// <summary>
+    /// `.mcp-config` 작성 — promaker (필수) + lighthouse N 개 (옵션). D-S7-3b: N≥0 lighthouse entry.
+    /// 각 lighthouse entry 이름 = `lighthouse-{sanitize(displayName)}` (LightHouseServerNaming.McpEntryName 정합).
+    /// <para/>
+    /// **자가 검열 Major-2 적용 (s6-r30 review)**: 동일 sanitized name 의 2 active service 시점 (사용자가 displayName
+    /// "본사" 2개 박제 + config 직접 편집 등) → `McpConfigWriter.CreateMulti` 가 throw → `InitializeAsync` outer
+    /// catch 진입 → chat 전면 차단 risk. 결정 #1 (부분 활성화) 정합을 위해 dedup 1줄 + 사용자 chip 안내 — 첫 entry 만
+    /// 살려두고 나머지 drop. D-S7-3c UI 검증 (displayName uniqueness 차단) 이 1차 방어, 본 dedup 은 fail-safe.
+    /// </summary>
+    private McpConfigWriter BuildMcpConfig(IReadOnlyList<McpServerEntry> lighthouseEntries)
+    {
+        var promaker = new McpServerEntry("promaker", _mcpHost.ServerUrl,
+            new Dictionary<string, string> { ["X-Promaker-Nonce"] = _mcpHost.HandshakeNonce });
+        var entries = new List<McpServerEntry>(1 + lighthouseEntries.Count) { promaker };
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var droppedCount = 0;
+        foreach (var e in lighthouseEntries)
+        {
+            if (seen.Add(e.Name)) entries.Add(e);
+            else droppedCount++;
+        }
+        if (droppedCount > 0)
+        {
+            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse service 의 displayName 중복으로 MCP entry {droppedCount}건 drop — Settings 에서 displayName uniqueness 확인 권장." });
+        }
+        return McpConfigWriter.CreateMulti(entries);
     }
 
     /// <summary>
@@ -63,6 +188,8 @@ public partial class LlmChatViewModel
             // McpClient + HttpClient 회수까지 같이.
             _cts?.Cancel();
             _provider?.ClearSession();
+            // C6 — provider switch 는 새 session 동등 → citation cache 도 cleanup.
+            ClearCitationCache();
             // round-trip §3 — provider switch 는 새 history 시작과 동치 → 새 provider 의 첫 송신에 snapshot 무조건 첨부.
             _lastSentRevision = null;
             if (_provider is IAsyncDisposable prevAsync)

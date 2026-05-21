@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="TestFixtures.fs" />
+    <Compile Include="ConfigTests.fs" />
+    <Compile Include="StorageTests.fs" />
+    <Compile Include="DpapiRoundTripTests.fs" />
+    <Compile Include="AuthMiddlewareTests.fs" />
+    <Compile Include="RegistryTests.fs" />
+    <Compile Include="MultiTenantPolicyTests.fs" />
+    <Compile Include="MetaJsonTests.fs" />
+    <Compile Include="ZipImportTests.fs" />
+    <Compile Include="StagingSweepTests.fs" />
+    <Compile Include="SessionRegistryTests.fs" />
+    <Compile Include="SessionAuthTests.fs" />
+    <Compile Include="AttachmentToolsTests.fs" />
+    <Compile Include="FileServingTests.fs" />
+    <Compile Include="LiteralDriftTests.fs" />
+    <Compile Include="EventBusTests.fs" />
+    <Compile Include="EndpointHelpersTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Tools\Ds2.LightHouseService\Ds2.LightHouseService.fsproj" />
+  </ItemGroup>
+
+</Project>
