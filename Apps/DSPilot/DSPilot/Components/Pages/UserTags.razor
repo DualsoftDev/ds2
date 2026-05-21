@@ -6,11 +6,18 @@
 @inject IUserTagAlertRepository AlertRepo
 @inject DsProjectService ProjectService
 @inject IJSRuntime JS
+@inject ILogger<UserTags> Logger
 @implements IAsyncDisposable
 
 <PageTitle>UserTag 알림 - DSPilot</PageTitle>
 
 <div class="user-tags-page">
+    @if (!string.IsNullOrEmpty(_initError))
+    {
+        <div class="card user-tags-panel" style="border-left: 4px solid #c62828;">
+            <strong>UserTag 페이지 초기화 오류:</strong> @_initError
+        </div>
+    }
     <section class="card user-tags-hero">
         <div class="user-tags-hero-top">
             <div>
@@ -268,30 +275,59 @@
 
     private IJSObjectReference? _chartModule;
     private CancellationTokenSource? _refreshCts;
+    private bool _disposed;
+    private bool _needsRedraw;
+    private string? _initError;
 
     private int MaxPage => Math.Max(1, (int)Math.Ceiling(_totalCount / (double)PageSize));
 
     protected override async Task OnInitializedAsync()
     {
-        _definitions = AlertService.GetDefinitions();
-        _systemOptions = _definitions.Select(d => d.SystemName).Distinct().OrderBy(s => s).ToList();
-        SetPresetState("7d");
-        AlertService.AlertsChanged += OnAlertsChanged;
-        await LoadFromDbAsync();
+        try
+        {
+            _definitions = AlertService.GetDefinitions();
+            _systemOptions = _definitions.Select(d => d.SystemName).Distinct().OrderBy(s => s).ToList();
+            SetPresetState("7d");
+            AlertService.AlertsChanged += OnAlertsChanged;
+            await LoadFromDbAsync();
+            _needsRedraw = true;
+        }
+        catch (Exception ex)
+        {
+            // 초기화 실패가 첫 렌더를 막지 않도록 — 빈 상태로 페이지는 뜨고 사용자가 재시도 가능.
+            _initError = ex.Message;
+            Logger.LogError(ex, "[UserTags] initialization failed");
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_disposed) return;
+
         if (firstRender)
         {
-            _chartModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/user-tag-trend-chart.js");
+            try
+            {
+                _chartModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./js/user-tag-trend-chart.js");
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { return; }
+            catch (TaskCanceledException) { return; }
+            catch (ObjectDisposedException) { return; }
+            _needsRedraw = true;
         }
-        await DrawChartsAsync();
+
+        if (_disposed) return;
+        if (_needsRedraw && _chartModule is not null)
+        {
+            _needsRedraw = false;
+            await DrawChartsAsync();
+        }
     }
 
     private async Task DrawChartsAsync()
     {
-        if (_chartModule is null) return;
+        if (_disposed || _chartModule is null) return;
         try
         {
             var bucketsJs = _buckets.Select(b => new
@@ -301,12 +337,17 @@
                 count = b.Count,
             }).ToArray();
             await _chartModule.InvokeVoidAsync("renderTrendChart", "ut-trend-chart", bucketsJs, _granularity);
+            if (_disposed) return;
 
             var topJs = _topRows.Take(10).Select(t => new { name = t.Name, level = t.LogLevel, count = t.Count }).ToArray();
             await _chartModule.InvokeVoidAsync("renderTopChart", "ut-top-chart", topJs);
+            if (_disposed) return;
 
             await _chartModule.InvokeVoidAsync("renderLevelDoughnut", "ut-level-doughnut", _levelCounts);
         }
+        catch (Microsoft.JSInterop.JSDisconnectedException) { /* circuit closed */ }
+        catch (TaskCanceledException) { /* circuit closed */ }
+        catch (ObjectDisposedException) { /* component disposed */ }
         catch (Exception)
         {
             // 페이지 전환 직후 canvas 가 사라진 경우 등 — 무시
@@ -315,13 +356,21 @@
 
     private void OnAlertsChanged()
     {
-        // Background thread → UI dispatcher. 너무 잦은 재조회는 부담이라
-        // 알림이 새로 들어오면 한 번만 LoadFromDbAsync 호출.
+        // Background thread → UI dispatcher. 컴포넌트가 dispose 된 후 이벤트가 들어오면
+        // 무시 — 그렇지 않으면 disposed renderer 의 ProcessRenderQueue 에서 ObjectDisposedException.
+        if (_disposed) return;
         _ = InvokeAsync(async () =>
         {
-            await LoadFromDbAsync();
-            StateHasChanged();
-            await DrawChartsAsync();
+            if (_disposed) return;
+            try
+            {
+                await LoadFromDbAsync();
+                if (_disposed) return;
+                _needsRedraw = true;
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException) { /* circuit disposed mid-refresh */ }
+            catch (OperationCanceledException) { /* CTS cancelled by dispose */ }
         });
     }
 
@@ -344,10 +393,16 @@
             _buckets = await AlertRepo.GetBucketCountsAsync(startUtc, endUtc, _granularity, name, level, sys, ct);
             _topRows = await AlertRepo.GetTopByNameAsync(startUtc, endUtc, 10, level, sys, ct);
             _levelCounts = await AlertRepo.GetLevelCountsAsync(startUtc, endUtc, name, sys, ct);
+            _initError = null;
         }
         catch (OperationCanceledException)
         {
             // skip
+        }
+        catch (Exception ex)
+        {
+            _initError = ex.Message;
+            Logger.LogError(ex, "[UserTags] LoadFromDb failed");
         }
     }
 
@@ -355,6 +410,7 @@
     {
         _page = 0;
         await LoadFromDbAsync();
+        _needsRedraw = true;
     }
 
     private void SetPresetState(string preset)
@@ -391,6 +447,7 @@
     {
         SetPresetState(preset);
         await LoadFromDbAsync();
+        _needsRedraw = true;
     }
 
     private async Task PrevPageAsync()
@@ -398,6 +455,7 @@
         if (_page == 0) return;
         _page--;
         await LoadFromDbAsync();
+        _needsRedraw = true;
     }
 
     private async Task NextPageAsync()
@@ -405,6 +463,7 @@
         if ((_page + 1) >= MaxPage) return;
         _page++;
         await LoadFromDbAsync();
+        _needsRedraw = true;
     }
 
     private async Task ExportCsvAsync()
@@ -491,11 +550,15 @@
 
     public async ValueTask DisposeAsync()
     {
+        // 1) 플래그 + 이벤트 unsubscribe 를 가장 먼저 — race window 최소화.
+        _disposed = true;
         AlertService.AlertsChanged -= OnAlertsChanged;
         _refreshCts?.Cancel();
         if (_chartModule is not null)
         {
-            try { await _chartModule.DisposeAsync(); } catch { }
+            try { await _chartModule.DisposeAsync(); }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { }
+            catch { }
         }
     }
 }

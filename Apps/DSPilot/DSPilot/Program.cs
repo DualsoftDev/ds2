@@ -40,6 +40,13 @@ builder.Services.AddRazorComponents()
         options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10 MB
     });
 
+// Circuit 종료 시 브라우저 콘솔에 실제 예외 메시지가 보이도록 — 로컬/개발 환경에서만.
+// 운영에서는 스택트레이스 노출 막기 위해 자동으로 비활성.
+builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o =>
+{
+    o.DetailedErrors = builder.Environment.IsDevelopment();
+});
+
 // SignalR for real-time monitoring
 builder.Services.AddSignalR();
 
