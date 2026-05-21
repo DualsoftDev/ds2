@@ -44,6 +44,11 @@ let private FlagVersion = "version"
 /// 사용자 결정 — VLM API key 미박제 시 fail-fast. 본 flag 박제 시 명시 opt-out (caption 미생성 + 색인 자체만).
 [<Literal>]
 let private FlagForceWithoutImageCaption = "force-without-image-caption"
+/// `/indexer` skill 의 Step 1 (index-only) flag — caption 자동 skip + upload 자동 skip.
+/// 본 flag 박제 시 `--force-without-image-caption` 자동 박제 = noop captionGen 진입 (Vlm.fs:42).
+/// skill 이 Step 2 에서 subagent caption-fill → Step 3 에서 별 upload entry 호출.
+[<Literal>]
+let private FlagSkipUpload = "skip-upload"
 
 // **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. cli scope 한정 (Promaker LlmConfig 의
 // LIGHTHOUSE_VLM_API_KEY 박제 는 별 cross-project SSOT 박제 의무 — K4 Protocol 통합 phase 묶음).
@@ -59,8 +64,11 @@ let private EnvPsk = "LIGHTHOUSE_PSK"
 
 let private usage () =
     eprintfn "usage:"
-    eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--force-without-image-caption]"
+    eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--force-without-image-caption | --skip-upload]"
     eprintfn "                              [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
+    eprintfn "  lighthouse-cli list-pending-captions <folder>"
+    eprintfn "  lighthouse-cli caption-update <folder> <batch.json>"
+    eprintfn "  lighthouse-cli print-caption-prompt"
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
@@ -68,6 +76,9 @@ let private usage () =
     eprintfn "                                 env: %s / %s / %s 으로 override" EnvOllamaUrl EnvOllamaModel EnvOllamaDim
     eprintfn "  --force-without-image-caption  VLM caption 명시 skip (caption 미생성, image 색인 자체는 정상)."
     eprintfn "                                 default = LIGHTHOUSE_VLM_API_KEY 필수, 미박제 시 fail-fast."
+    eprintfn "  --skip-upload                  /indexer skill Step 1 entry — 색인만 (upload skip + caption 자동 skip)."
+    eprintfn "                                 본 flag 박제 시 --force-without-image-caption 자동 박제."
+    eprintfn "                                 Step 2 (caption-update) + Step 3 (upload) 는 skill 측에서 별도 dispatch."
     eprintfn "  --upload <url>                 LightHouseService base URL (https://host:port)"
     eprintfn "  --psk <key>                    PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
     eprintfn "  --title <name>                 collection 표시 이름 (생략 시 폴더명)"
@@ -84,7 +95,7 @@ let private parseArgs (args: string array) : Map<string, string> * string list =
     // **s6-r70 review C-17** — boolean flag set 분리 (다음 토큰 흡수 차단).
     // 예: `--no-embedding <folder>` 가 folder 를 no-embedding 의 value 로 흡수했던 결함. boolean flag 는
     // value 없는 형식으로만 처리, 다음 토큰은 positional 또는 별 flag 로 그대로 분리.
-    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption ]
+    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption; FlagSkipUpload ]
     while i < args.Length do
         let arg = args.[i]
         if arg.StartsWith "--" then
@@ -281,6 +292,80 @@ let private runUpload
             // zip 만 정리. `<folder>/.lighthouse-kb/` 는 보관 정책에 따라 유지.
             Packager.safeDelete zipPath
 
+/// `/indexer` skill Step 2 — caption-pending row JSON stdout stream.
+/// `todo-lighthouse-indexer-claude-caption.md` §3 manifest fenced block 의 wire 정합.
+/// 본 entry 는 read-only — `SqliteStore.openConnection ... true` 진입 (PRAGMA WAL/synchronous/busy_timeout 자동 박제).
+let private runListPendingCaptions (folder: string) : int =
+    if not (Directory.Exists folder) then
+        eprintfn "오류: 폴더 미존재 — %s" folder
+        11
+    else
+        let dbPath = SqliteStore.dbPath folder
+        if not (File.Exists dbPath) then
+            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
+            eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1 색인을 수행하세요."
+            11
+        else
+            use conn = SqliteStore.openConnection dbPath true
+            let records = ImageStore.listPendingCaptions conn |> Seq.toArray
+            // camelCase JSON contract — manifest fenced block (`hash`, `ext`, `refLocator`, `docPath`).
+            let opts = System.Text.Json.JsonSerializerOptions(WriteIndented = false)
+            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+            // F# record 직렬화 시 default 가 PascalCase 필드명 그대로 — naming policy 강제 의무.
+            let json = System.Text.Json.JsonSerializer.Serialize(records, opts)
+            printfn "%s" json
+            0
+
+/// `/indexer` skill Step 2 → Step 3 사이 — subagent caption 결과 batch JSON 입력 → SQLite UPDATE.
+/// 단일 transaction 안 N 회 `ImageStore.updateCaption` 호출 → atomic commit.
+/// 빈 batch (§2 #16) → exit 0 (no-op).
+let private runCaptionUpdate (folder: string) (batchPath: string) : int =
+    if not (Directory.Exists folder) then
+        eprintfn "오류: 폴더 미존재 — %s" folder
+        11
+    elif not (File.Exists batchPath) then
+        eprintfn "오류: batch 파일 미존재 — %s" batchPath
+        11
+    else
+        let dbPath = SqliteStore.dbPath folder
+        if not (File.Exists dbPath) then
+            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
+            11
+        else
+            let json = File.ReadAllText(batchPath, Text.Encoding.UTF8)
+            let opts = System.Text.Json.JsonSerializerOptions()
+            opts.PropertyNameCaseInsensitive <- true
+            // 직렬화 시 PropertyNamingPolicy = camelCase 였으므로, deserialization 도 camelCase 매핑 자동 동작.
+            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+            // batch row schema — anonymous record 대신 JsonDocument 로 manual parse (record DU 추가 회피, 의존 minimal).
+            use doc = System.Text.Json.JsonDocument.Parse(json)
+            let root = doc.RootElement
+            if root.ValueKind <> System.Text.Json.JsonValueKind.Array then
+                eprintfn "오류: batch JSON root 가 array 아님 — %s" batchPath
+                10
+            elif root.GetArrayLength() = 0 then
+                eprintfn "  batch 빈 array — no-op (idempotent)"
+                0
+            else
+                use conn = SqliteStore.openConnection dbPath false
+                use tx = conn.BeginTransaction()
+                let mutable updated = 0
+                for el in root.EnumerateArray() do
+                    let hash = el.GetProperty("hash").GetString()
+                    let text = el.GetProperty("captionText").GetString()
+                    let model = el.GetProperty("captionModel").GetString()
+                    ImageStore.updateCaption conn hash text model
+                    updated <- updated + 1
+                tx.Commit()
+                printfn "caption-update 완료 — updated=%d" updated
+                0
+
+/// `/indexer` skill — caption-prompt SSOT (lib `CaptionGenerator.promptText`) stdout 노출.
+/// skill 진입 시 1회 호출 → subagent prompt template 박제. literal 사본 박제 차단 (drift 원천 차단).
+let private runPrintCaptionPrompt () : int =
+    printfn "%s" (CaptionGenerator.promptText ())
+    0
+
 [<EntryPoint>]
 let main args =
     // CP949 등 legacy code page 활성화 — TextEncoding 의 fallback (LightHouseService Program.fs 와 동일 패턴).
@@ -292,7 +377,12 @@ let main args =
     else
         match positional with
         | "index" :: folder :: _ ->
+            let skipUpload = Map.containsKey FlagSkipUpload flags
             match Map.tryFind FlagUpload flags with
+            | Some _ when skipUpload ->
+                // `--upload` 와 `--skip-upload` 동시 박제 = 의도 모순. silent 우선순위 결정 회피.
+                eprintfn "오류: --%s 와 --%s 는 동시 사용 불가" FlagUpload FlagSkipUpload
+                10
             | Some baseUrl when not (String.IsNullOrWhiteSpace baseUrl) ->
                 match resolvePsk (Map.tryFind FlagPsk flags) with
                 | None ->
@@ -318,8 +408,16 @@ let main args =
                 10
             | None ->
                 let noEmbedding = Map.containsKey FlagNoEmbedding flags
-                let forceWithoutCaption = Map.containsKey FlagForceWithoutImageCaption flags
+                // `--skip-upload` 박제 시 caption 자동 skip (force-without-caption 자동 박제) — skill Step 1 의 의미.
+                let forceWithoutCaption =
+                    skipUpload || Map.containsKey FlagForceWithoutImageCaption flags
                 runIndex folder noEmbedding forceWithoutCaption
+        | "list-pending-captions" :: folder :: _ ->
+            runListPendingCaptions folder
+        | "caption-update" :: folder :: batchPath :: _ ->
+            runCaptionUpdate folder batchPath
+        | [ "print-caption-prompt" ] ->
+            runPrintCaptionPrompt ()
         | _ ->
             usage ()
             10
