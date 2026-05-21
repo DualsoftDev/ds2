@@ -240,14 +240,18 @@ module internal EventDrivenCompositionContext =
                     None
                 else
                     Queries.getApiCall mapping.ApiCallGuid index.Store
-                    |> Option.bind (fun apiCall -> apiCall.ApiDefId)
-                    |> Option.bind (fun apiDefId -> Queries.getApiDef apiDefId index.Store)
-                    |> Option.bind (fun apiDef ->
+                    |> Option.bind (fun apiCall ->
+                        apiCall.ApiDefId
+                        |> Option.bind (fun apiDefId ->
+                            Queries.getApiDef apiDefId index.Store
+                            |> Option.map (fun apiDef -> apiCall, apiDef)))
+                    |> Option.bind (fun (apiCall, apiDef) ->
+                        let resetValue = RuntimeSemantics.resetOutputValue apiCall
                         match apiDef.ActionType with
                         | ActionType.Real (Level, None) ->
-                            Some (ResetNow mapping.OutAddress)
+                            Some (ResetNow (mapping.OutAddress, resetValue))
                         | ActionType.Real (Level, Some (Append n)) ->
-                            Some (ResetAfter (mapping.OutAddress, n))
+                            Some (ResetAfter (mapping.OutAddress, n, resetValue))
                         | _ ->
                             None))
         WriteTag = fun address value ->

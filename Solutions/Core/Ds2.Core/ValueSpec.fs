@@ -67,8 +67,14 @@ module ValueSpec =
 
     // ── 값 추출 ────────────────────────────────────────────────────
 
-    /// Single 케이스의 값을 문자열로 추출 (없으면 "true")
+    /// 실제 런타임 출력으로 사용할 대표 값을 문자열로 추출 (없으면 "true")
     let toDefaultString (spec: ValueSpec) : string =
+        let firstOrDefault values =
+            values
+            |> List.tryHead
+            |> Option.map string
+            |> Option.defaultValue "true"
+
         match spec with
         | UndefinedValue -> "true"
         | BoolValue    (Single v) -> string v
@@ -83,6 +89,18 @@ module ValueSpec =
         | Float32Value (Single v) -> string v
         | Float64Value (Single v) -> string v
         | StringValue  (Single v) -> v
+        | BoolValue    (Multiple vs) -> firstOrDefault vs
+        | Int8Value    (Multiple vs) -> firstOrDefault vs
+        | Int16Value   (Multiple vs) -> firstOrDefault vs
+        | Int32Value   (Multiple vs) -> firstOrDefault vs
+        | Int64Value   (Multiple vs) -> firstOrDefault vs
+        | UInt8Value   (Multiple vs) -> firstOrDefault vs
+        | UInt16Value  (Multiple vs) -> firstOrDefault vs
+        | UInt32Value  (Multiple vs) -> firstOrDefault vs
+        | UInt64Value  (Multiple vs) -> firstOrDefault vs
+        | Float32Value (Multiple vs) -> firstOrDefault vs
+        | Float64Value (Multiple vs) -> firstOrDefault vs
+        | StringValue  (Multiple vs) -> vs |> List.tryHead |> Option.defaultValue "true"
         | _ -> "true"
 
     /// BoolValue(Single false)인지 확인

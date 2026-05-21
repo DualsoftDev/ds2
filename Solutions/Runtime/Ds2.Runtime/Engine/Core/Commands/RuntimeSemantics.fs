@@ -6,6 +6,16 @@ open Ds2.Core
 /// pure decision (effect/trigger DU). 실제 출력 적용은 호출자가 effect 받아 처리.</summary>
 module RuntimeSemantics =
 
+    let activeOutputValue (call: ApiCall) =
+        ValueSpec.toDefaultString call.OutputSpec
+
+    let resetOutputValue (call: ApiCall) =
+        match call.OutputSpec with
+        | UndefinedValue
+        | BoolValue _ -> "false"
+        | StringValue _ -> ""
+        | _ -> "0"
+
     /// v10 §11.1 — ActionType case 별 출력 effect.
     type OutputEffect =
         | OutCoil          of IOTag                  // Real(Level, None) — coil 유지 (현재 ds2 의 OUT "true" 동작과 동일)

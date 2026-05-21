@@ -62,7 +62,11 @@ public partial class MainViewModel
         {
             if (!GuardSimulationSemanticEdit("PLC 심볼 → 모델 생성"))
                 return;
-            _dialogService.ShowDialog(new SymbolWizardDialog(_store));
+
+            var importStore = new DsStore();
+            var wizard = new SymbolWizardDialog(importStore);
+            if (_dialogService.ShowDialog(wizard) == true)
+                ImportCsvStore(importStore, wizard.SourceDisplayName);
             return;
         }
 
