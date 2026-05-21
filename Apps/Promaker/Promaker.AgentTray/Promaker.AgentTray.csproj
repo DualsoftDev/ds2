@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Promaker.AgentTray</RootNamespace>
+    <AssemblyName>Promaker.AgentTray</AssemblyName>
+    <ApplicationIcon>..\Promaker\Assets\Promaker.ico</ApplicationIcon>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- DSPilot.csproj 와 동일 — System.ServiceProcess.ServiceController 의 minor 버전 mismatch. 무해. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="H.NotifyIcon.Wpf" />
+    <PackageReference Include="log4net" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Agent active.flag/session.json 프로토콜 + 공유 경로. -->
+    <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\Promaker\Assets\Promaker.ico" Link="Assets\Promaker.ico" />
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

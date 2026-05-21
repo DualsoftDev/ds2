@@ -24,10 +24,16 @@
 #ifndef AgentPublishDir
   #define AgentPublishDir "..\Promaker.Agent\bin\Release\net9.0\win-x64\publish-self-contained"
 #endif
+; Promaker.AgentTray publish 경로 — Agent 상태 노출용 사용자 컨텍스트 트레이.
+#ifndef AgentTrayPublishDir
+  #define AgentTrayPublishDir "..\Promaker.AgentTray\bin\Release\net9.0-windows\win-x64\publish-self-contained"
+#endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
 #define AgentExePath AddBackslash(AgentPublishDir) + "Promaker.Agent.exe"
+#define AgentTrayExePath AddBackslash(AgentTrayPublishDir) + "Promaker.AgentTray.exe"
 #define HasAgent FileExists(AgentExePath)
+#define HasAgentTray FileExists(AgentTrayExePath)
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
@@ -35,6 +41,7 @@
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyExeName "Promaker.exe"
 #define MyAgentExeName "Promaker.Agent.exe"
+#define MyAgentTrayExeName "Promaker.AgentTray.exe"
 #define MyAgentServiceName "PromakerAgentService"
 #define MyAgentServiceDisplay "Promaker Agent Service"
 #define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
@@ -94,6 +101,11 @@ Source: "..\Promaker\Assets\SdfFile.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; 별도 폴더 {app}\Agent 로 분리해 Promaker.exe 와 dll 충돌 방지 + 로그 디렉터리(logs/promaker-agent.log) 격리.
 Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
+#if HasAgentTray
+; Promaker.AgentTray — 사용자 컨텍스트 트레이. HKCU\Run 으로 사용자 로그온 시 자동 실행.
+; Tasks: install_agent_service 와 함께 묶여 — 서비스 옵트인 시 트레이도 같이 등록.
+Source: "{#AgentTrayPublishDir}\*"; DestDir: "{app}\AgentTray"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyExeName}"
@@ -106,6 +118,13 @@ Root: HKCR; Subkey: ".sdf"; ValueType: string; ValueName: ""; ValueData: "Promak
 Root: HKCR; Subkey: "Promaker.SDF"; ValueType: string; ValueName: ""; ValueData: "Software Defined Factory File"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "Promaker.SDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\SdfFile.ico"
 Root: HKCR; Subkey: "Promaker.SDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyExeName}"" ""%1"""
+#if HasAgentTray
+; AgentTray 사용자 로그온 시 자동 시작 — HKCU\Run. 서비스 옵트인 시에만 등록 (install_agent_service Task 가드).
+; Agent 서비스만 켜져 있고 트레이가 없으면 사용자가 상태/제어 수단이 없으므로 동시에 등록.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
+  ValueName: "PromakerAgentTray"; ValueData: """{app}\AgentTray\{#MyAgentTrayExeName}"""; \
+  Flags: uninsdeletevalue; Tasks: install_agent_service
+#endif
 
 [Run]
 #if HasAgent
@@ -135,9 +154,21 @@ Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Tasks: install_agent_service; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
 #endif
+#if HasAgentTray
+; 설치 직후 한 번 트레이 띄움 — 사용자 로그온 컨텍스트라 admin 권한 불필요.
+; 다음 부팅부터는 HKCU\Run 이 자동 실행.
+Filename: "{app}\AgentTray\{#MyAgentTrayExeName}"; \
+  Flags: nowait postinstall skipifsilent unchecked; \
+  Description: "Promaker Agent 트레이 지금 시작 (모니터링 상태 확인용)"; \
+  Tasks: install_agent_service
+#endif
 Filename: "{app}\{#MyExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallRun]
+#if HasAgentTray
+; 트레이 프로세스 정지 — uninstall 시 파일 lock 회피.
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#MyAgentTrayExeName}"; Flags: runhidden; RunOnceId: "KillAgentTray"
+#endif
 #if HasAgent
 ; 서비스가 등록되어 있지 않으면 비-0 반환하지만 runhidden 으로 무시 — 옵트인 안 했어도 안전하게 정리.
 Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "StopAgentService"

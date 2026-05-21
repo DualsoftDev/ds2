@@ -44,11 +44,17 @@ public sealed class SimulationTrayController
     /// <summary>
     /// Monitoring + IsRealPlcConnected 조합에서 PLAY 가 시작 흐름에 진입하기 전 호출되는 게이트.
     /// 동의 다이얼로그 표시 + 결과에 따라 false 반환 시 시작 중단.
+    /// Promaker.Agent (Windows Service) 위임 모드면 트레이 전환을 하지 않는다 — 모니터링 상태는
+    /// 별도 Promaker.AgentTray (사용자 컨텍스트 트레이) 가 노출하며, Promaker WPF 는 일반 모니터링
+    /// 화면처럼 그대로 떠 있다가 사용자가 자유롭게 닫을 수 있다.
     /// </summary>
     internal bool TryAcquireConsent()
     {
         if (_runtimeModeProvider() != RuntimeMode.Monitoring) return true;
         if (!_isRealPlcConnectedProvider()) return true;
+        // Agent 위임 가능 환경이면 트레이 전환 흐름을 아예 타지 않음 (TransitionPending 미설정).
+        // FireTransitionIfPending 이 no-op 으로 종료 → 윈도우 그대로 유지.
+        if (SimulationHubBridge.IsAgentAvailable) return true;
         // "다시 묻지 않기" 영속화 시 다이얼로그 우회 — 항상 동의로 처리.
         if (!Dialogs.TrayConsentDialog.ShowAndAskConsent())
             return false;
