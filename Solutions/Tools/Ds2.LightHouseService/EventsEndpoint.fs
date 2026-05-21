@@ -173,10 +173,15 @@ module EventsEndpoint =
                                     let! ok = tryWriteEventSerialized writeLock ctx evt
                                     if not ok then continueLoop <- false
                         }
+                        // **A6 추가 보호 (s6-r86, 15-reviewer Critical)** — keepalive 가 disconnectSignal 만
+                        // set 하고 reader loop 의 WaitToReadAsync 는 ctx.RequestAborted 만 wait → Kestrel
+                        // half-close 시점차 (RequestAborted unfire) + 미 publish 상태에서 reader 가 영구 sleep
+                        // → subscriber dictionary entry leak. Task.WhenAny 에 disconnectSignal.Task 도 포함 →
+                        // keepalive write 실패 즉시 wakeup + continueLoop=false 판정 통과.
                         let mutable lifecycleWait = lifecycleReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
                         let mutable progressWait = progressReader.WaitToReadAsync(ctx.RequestAborted).AsTask()
                         while continueLoop do
-                            let! _ = Task.WhenAny(lifecycleWait, progressWait)
+                            let! _ = Task.WhenAny(lifecycleWait, progressWait, disconnectSignal.Task)
                             // lifecycle 먼저 drain (우선순위) — progress ready 였어도 함께 drain.
                             do! drainReader lifecycleReader
                             do! drainReader progressReader

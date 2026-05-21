@@ -88,7 +88,14 @@ module FileServing =
                 if not (full.StartsWith(sourceFullPath, StringComparison.OrdinalIgnoreCase)) then false
                 else
                     let info = FileInfo p
-                    info.Length = sizeBytes)
+                    // **B8 (s6-r86, 15-reviewer Major)** — symlink target follow 차단.
+                    // 이전 박제 (s6-r70 C-1 까지) = Path.GetFullPath 가 symlink target follow 안 함 →
+                    // source 디렉토리에 외부 경로 symlink 주입 (admin / write access 보유 attacker) 시
+                    // GetFullPath 만으로는 경계 검증 통과 + 실 read 가 임의 외부 파일. ReparsePoint
+                    // attribute (symlink / junction / mount point) 박제 file 은 차단 — production source/
+                    // 안 진성 file 만 통과 (CollectionPackager 가 symlink 박제 안 함).
+                    if info.Attributes.HasFlag(FileAttributes.ReparsePoint) then false
+                    else info.Length = sizeBytes)
 
     /// `GET /collections/{id}/files/{fileId}` handler.
     /// test 단위 시험 위해 public (production caller 는 `map` 만 사용 의도).
