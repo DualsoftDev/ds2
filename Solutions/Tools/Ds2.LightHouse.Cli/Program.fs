@@ -232,7 +232,16 @@ let private runUpload
                     else
                         eprintfn "  색인 완료 — ingested=%d, 파일=%d, %d bytes"
                             summary.IngestedCount summary.FileCount summary.TotalBytes
+                        // **PR-B (todo-lighthouse-index-summary.md §3.1)** — keyword 자동 추출.
+                        // .lighthouse-kb/index.db (write-path 종료 후 read-only open) → Chunks 전체 streaming.
+                        let kwResult =
+                            let dbPath = SqliteStore.dbPath folder
+                            use conn = SqliteStore.openConnection dbPath true
+                            KeywordExtractor.extract conn
+                        eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
+                        let description = kwResult.Topic |> Option.defaultValue ""
                         Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
+                            description kwResult.Keywords
                         zipPath <- Packager.createZip folder
                         let zipBytes = (FileInfo zipPath).Length
                         eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
