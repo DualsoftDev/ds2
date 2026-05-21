@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="OllamaEmbedder.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+    <!-- s6-r37 P4-C.1 — OllamaSharp 5.4.x. EmbedAsync(EmbedRequest) batch API.
+         lib (Ds2.LightHouse) 는 backend-neutral 유지 — 본 adapter project 만 직접 의존.
+         caller (cli / Promaker / server) 는 본 project 의 ProjectReference 박제. -->
+    <PackageReference Include="OllamaSharp" />
+  </ItemGroup>
+
+</Project>

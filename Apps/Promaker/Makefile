@@ -62,12 +62,22 @@ ISCC ?= C:/Program Files (x86)/Inno Setup 6/ISCC.exe
 # scp 대상 — dist-common.mk default 와 동일하지만 override 시 명시.
 SCP_DEST ?= download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64
 
-.PHONY: help dist dist-installer publish iscc clean
+# ── LightHouse Service (dev/PoC) ───────────────────────────
+# Phase S5c — 개발 환경 install + console 구동. 운영 배포는 install-service.ps1 직접 호출 (관리자 PowerShell).
+LH_SERVICE_DIR   := ../../Solutions/Tools/Ds2.LightHouseService
+LH_SERVICE_PROJ  := $(LH_SERVICE_DIR)/Ds2.LightHouseService.fsproj
+LH_SCRIPTS_DIR   := $(LH_SERVICE_DIR)/scripts
+LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
+# 콘솔 실행 시 service.exe 의 절대 경로 (install-service.ps1 ExePath 와 동일 — Service 운영 모드 정합).
+LH_PUBLISH_DIR   := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/publish)
+LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
+
+.PHONY: help dist dist-installer publish iscc clean install light-house
 
 help:
 	@echo "Promaker installer Makefile"
 	@echo ""
-	@echo "Targets:"
+	@echo "Targets (installer):"
 	@echo "  dist-installer  - Build installer .exe (no zip / no scp / no bump)"
 	@echo "  dist            - NOTICE only. Use Claude Code '/dist' skill for the full workflow"
 	@echo "                    (build + ReleaseNote + commit + zip + scp + tag + bump + push)"
@@ -75,6 +85,17 @@ help:
 	@echo "  publish         - dotnet publish only"
 	@echo "  iscc            - ISCC compile only (assumes publish output exists)"
 	@echo "  clean           - Remove bin/obj/Output"
+	@echo ""
+	@echo "Targets (LightHouse Service, dev/PoC):"
+	@echo "  install         - Dev env setup: generate self-signed PFX (managed user input)"
+	@echo "                    + dotnet publish service + install-service.ps1 (Windows Service"
+	@echo "                    register + DPAPI encrypt PSK & PFX password). Requires admin."
+	@echo "  light-house     - Run LightHouse service in console (dotnet run, Ctrl+C to stop)."
+	@echo "                    Config must exist at %PROGRAMDATA%/Dualsoft/LightHouseService."
+	@echo "                    Stop the Windows Service first if registered (sc stop Ds2.LightHouseService)"
+	@echo "                    to free the listen port."
+	@echo ""
+	@echo "Targets (meta):"
 	@echo "  help            - This message"
 	@echo ""
 	@echo "Variables:"
@@ -82,6 +103,8 @@ help:
 	@echo "  PROMAKER_VER    current: $(PROMAKER_VER)    ($(VERSION_FILE))"
 	@echo "  INSTALLER_EXE   $(INSTALLER_EXE)"
 	@echo "  SCP_DEST        $(SCP_DEST)"
+	@echo "  LH_PFX_PATH     $(LH_PFX_PATH)"
+	@echo "  LH_SERVICE_EXE  $(LH_SERVICE_EXE)"
 
 dist-installer: iscc
 	@echo "==========================================================="
@@ -118,6 +141,48 @@ clean:
 	@echo "=== Cleaning bin/obj/Output ==="
 	-rm -rf Installer/Output
 	-rm -rf Promaker/bin Promaker/obj
+
+# ── LightHouse Service (dev/PoC) ───────────────────────────
+# install — 인증서 + Service 등록 (todo-lighthouse-kb-server.md Phase S1 / §3.7).
+#   1) generate-dev-cert.ps1 (self-signed PFX, LocalMachine\My + service.pfx export)
+#   2) dotnet publish service (Release, framework-dependent)
+#   3) install-service.ps1 (PSK 평문 입력 → DPAPI 암호화 → config.json + sc.exe register)
+# 모두 관리자 권한 PowerShell 필요. 한 번 install 후 'sc start Ds2.LightHouseService' 또는 'make light-house'.
+install:
+	@echo "============================================================="
+	@echo "LightHouseService dev install"
+	@echo "  Requires Administrator PowerShell."
+	@echo "  Steps: 1) Ollama + bge-m3  2) self-signed PFX  3) dotnet publish  4) install-service.ps1"
+	@echo "============================================================="
+	@echo ""
+	@echo "=== Step 1/4: install-ollama.ps1 (embedding backend) ==="
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-ollama.ps1"
+	@echo ""
+	@echo "=== Step 2/4: generate-dev-cert.ps1 ==="
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/generate-dev-cert.ps1" -PfxPath "$(LH_PFX_PATH)"
+	@echo ""
+	@echo "=== Step 3/4: dotnet publish service ==="
+	dotnet publish "$(LH_SERVICE_PROJ)" -c Release --self-contained false -o "$(LH_PUBLISH_DIR)" -p:DebugType=none -p:DebugSymbols=false -m:1
+	@echo ""
+	@echo "=== Step 4/4: install-service.ps1 ==="
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-service.ps1" -ExePath "$(LH_SERVICE_EXE)" -TlsCertPath "$(LH_PFX_PATH)"
+	@echo ""
+	@echo "============================================================="
+	@echo "Install complete. Next:"
+	@echo "  sc start Ds2.LightHouseService     # Windows Service start (production)"
+	@echo "  make light-house               # console run (dev / debug)"
+	@echo "============================================================="
+
+# light-house — 콘솔에서 service 실행 (개발/디버그용, dotnet run).
+#   Windows Service 정지 필요 (port 충돌 회피).
+#   config.json 은 install rule 이 작성한 것 그대로 사용 (DPAPI LocalMachine scope).
+light-house:
+	@echo "============================================================="
+	@echo "Running LightHouseService in console (Ctrl+C to stop)"
+	@echo "  Stop Windows Service first if registered:"
+	@echo "    sc stop Ds2.LightHouseService"
+	@echo "============================================================="
+	dotnet run --project "$(LH_SERVICE_PROJ)" -c Debug
 
 # 공용 dist-force 만 활성화. `make dist` 는 아래에서 notice-only 로 재정의하여
 # 우발적 배포(scp/bump) 를 방지하고 `/dist` skill 사용을 유도한다.

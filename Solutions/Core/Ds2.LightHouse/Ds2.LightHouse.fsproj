@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Logging.fs" />
+    <Compile Include="ImageFormat.fs" />
+    <Compile Include="TextEncoding.fs" />
+    <Compile Include="Models.fs" />
+    <Compile Include="RefLocator.fs" />
+    <Compile Include="Classifier.fs" />
+    <Compile Include="Extractors\IExtractor.fs" />
+    <Compile Include="Extractors\TextExtractor.fs" />
+    <Compile Include="Extractors\PdfExtractor.fs" />
+    <Compile Include="Extractors\OoxmlExtractor.fs" />
+    <Compile Include="Chunker.fs" />
+    <Compile Include="SqliteStore.fs" />
+    <Compile Include="ImageStore.fs" />
+    <Compile Include="CaptionGenerator.fs" />
+    <Compile Include="EmbeddingProvider.fs" />
+    <Compile Include="Searcher.fs" />
+    <Compile Include="Indexer.fs" />
+    <Compile Include="KnowledgeBase.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — lib `SqliteStore.KbFolderName` 의 `.lighthouse-kb` literal 을
+         `Ds2.LightHouse.Protocol.ZipLayout.KbFolderName` 으로 routing (M22 zip layout 3중 박제 흡수).
+         Protocol 은 dep 0 base 이라 anti-cycle 안 발생. -->
+    <ProjectReference Include="..\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+    <!-- 첨부물/문서 base 인프라 — KB 색인 + 공통 텍스트 인프라. todo §3.4 (detectEncoding) 의 CP949 fallback. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- KB 색인 — SQLite (FTS5 trigram + WAL). bundle_e_sqlite3 가 FTS5/JSON1/R*Tree 기본 포함. todo §6.4 SSOT.
+         PrivateAssets=all — LlmAgent/Promaker 가 SqliteConnection 직접 import 불가 (캡슐화 / r8 메타리뷰 m2). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" PrivateAssets="all" />
+    <!-- KB 추출기 — PDF (todo §3.6 / §4.3 PdfExtractor.fs).
+         PrivateAssets=all — PdfDocument 등 PdfPig type 의 transitive 노출 차단 (r8 m2). -->
+    <PackageReference Include="PdfPig" PrivateAssets="all" />
+    <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs).
+         PrivateAssets=all — WordprocessingDocument 등 OpenXml type transitive 차단 (r8 m2). -->
+    <PackageReference Include="DocumentFormat.OpenXml" PrivateAssets="all" />
+    <!-- Plan 3 — EMF/WMF metafile → PNG 변환 (산업 .xlsx 의 vector image 색인). System.Drawing.Imaging.Metafile
+         → Bitmap → PNG. Windows 전용 — Linux/macOS 시 PlatformNotSupportedException catch + skip 박제.
+         PrivateAssets=all — Bitmap/Metafile type transitive 노출 차단. -->
+    <PackageReference Include="System.Drawing.Common" PrivateAssets="all" />
+    <!-- Phase 4 — sqlite-vec extension (vec0 virtual table). native binary 자동 배포.
+         lib 의 SqliteStore (F#) 가 connection open 후 raw LoadExtension("vec0") + SQL string 으로 직접 호출.
+         PrivateAssets=all — caller 는 본 native binary 만 transitive 로 받고 type API 노출 X (LoadExtension 호출 path 는 lib 한정).
+         ExcludeAssets=contentFiles — sqlite-vec NuGet 의 Vector.cs C# wrapper (SqliteConnection 직접 의존) inject 차단. F# 환경 무관. -->
+    <PackageReference Include="sqlite-vec" PrivateAssets="all" ExcludeAssets="contentFiles" />
+  </ItemGroup>
+
+</Project>
