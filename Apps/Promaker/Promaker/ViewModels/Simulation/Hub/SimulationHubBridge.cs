@@ -60,17 +60,16 @@ public sealed partial class SimulationHubBridge : ObservableObject
         return File.Exists(candidate) ? candidate : null;
     });
 
-    /// <summary>PromakerAgentService 가 SCM 에 등록되어 있는지. 등록되어 있으면 status 접근이 성공.
-    /// 미등록(=설치 시 옵트인 해제) 이면 InvalidOperationException → false.
-    /// Lazy 하지 않음 — 사용자가 설치/제거를 런타임 중에 할 수 있어 매번 fresh check.</summary>
-    private static bool IsAgentServiceRegistered()
+    /// <summary>PromakerAgentService 가 SCM 에 등록되어 있고 <b>현재 Running</b> 상태인지.
+    /// 등록만 되고 Stopped 면 false — WPF 가 위임 시도해도 5051 호스트가 없어 무한 retry 빠지는 것을 차단.
+    /// 매 호출 fresh check (Lazy 하지 않음) — 사용자가 sc start/stop 을 런타임에 할 수 있어서.</summary>
+    private static bool IsAgentServiceRunning()
     {
         try
         {
             using var sc = new ServiceController(AgentServiceName);
-            // Status 접근이 실제 SCM 조회 트리거. 미등록이면 여기서 throw.
-            var _ = sc.Status;
-            return true;
+            // Status 접근이 실제 SCM 조회 트리거. 미등록이면 여기서 throw → false.
+            return sc.Status == ServiceControllerStatus.Running;
         }
         catch
         {
@@ -78,11 +77,11 @@ public sealed partial class SimulationHubBridge : ObservableObject
         }
     }
 
-    /// <summary>Promaker.Agent 가 설치 + 서비스 등록 둘 다 만족할 때만 true.
-    /// 시나리오 C 가드: 파일은 번들로 깔리지만 사용자가 "재부팅 시 자동 실행" 체크 안 했을 때
-    /// 파일 존재만으로 위임하면 5051 호스트 부재로 무한 retry → 옛 self-host 분기로 안전 폴백.</summary>
+    /// <summary>Promaker.Agent 가 설치 + 서비스 Running 둘 다 만족할 때만 true.
+    /// 셋 중 하나라도 false 면 옛 self-host 분기로 안전 폴백 — 디버깅(F5) / 옵트인 미해제 / 서비스 일시정지
+    /// 시나리오 모두 동일하게 처리해서 "5051 호스트 부재 → SignalR 무한 retry → VS 콘솔에 예외 폭주" 가드.</summary>
     public static bool IsAgentAvailable =>
-        AgentExePath.Value is not null && IsAgentServiceRegistered();
+        AgentExePath.Value is not null && IsAgentServiceRunning();
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;
