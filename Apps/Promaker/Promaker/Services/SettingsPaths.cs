@@ -52,6 +52,10 @@ public static class SettingsPaths
     /// <summary>`.yaml` 저장 시 lossy 안내 dialog 의 "다시 보지 않기" persistence. true 면 다음 호출부터 dialog skip.</summary>
     public static string YamlSaveNoticeShown             => Of("yamlSaveNoticeShown.txt");
 
+    /// <summary>Monitoring + 실 PLC PLAY 시 "Agent 가 모니터링을 (재)시작했습니다" 안내 다이얼로그의
+    /// "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략 (SimLog 한 줄만).</summary>
+    public static string AgentDelegationNoticeSuppress   => Of("agentDelegationNoticeSuppress.txt");
+
     /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
     public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
 

@@ -79,12 +79,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-#if HasAgent
-; 기본 체크 — 해제 시 Agent/AgentTray 둘 다 등록 스킵. 체크 시 Promaker.Agent 를 Windows Service 로
-; 등록하여 PC 부팅 시 자동 실행. 사용자 로그온 무관하게 5051 (read-only) Hub 호스팅 + PLC 스캔.
-; Control(5050) 은 영향 없음.
-Name: "install_agent_service"; Description: "Windows 재부팅 시 모니터링 자동 실행 (Promaker.Agent 서비스 등록)"; GroupDescription: "백그라운드 서비스:"
-#endif
+; Promaker.Agent (Windows Service) + AgentTray 는 옵션 없이 항상 설치/등록. 본체 Promaker 가
+; Monitoring + 실 PLC 시 Agent 에 위임(active.flag) 하는 구조라 Agent 가 누락되면 PLAY 가 차단된다.
 
 [Dirs]
 ; Promaker · DSPilot 공유 폴더. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴와
@@ -97,13 +93,12 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 ; SDF 파일 전용 아이콘 복사
 Source: "..\Promaker\Assets\SdfFile.ico"; DestDir: "{app}"; Flags: ignoreversion
 #if HasAgent
-; Promaker.Agent — 항상 번들. 서비스 등록은 Tasks: install_agent_service 일 때만 [Run] 에서 수행.
+; Promaker.Agent — 항상 번들 + [Run] 에서 무조건 서비스 등록.
 ; 별도 폴더 {app}\Agent 로 분리해 Promaker.exe 와 dll 충돌 방지 + 로그 디렉터리(logs/promaker-agent.log) 격리.
 Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 #if HasAgentTray
-; Promaker.AgentTray — 사용자 컨텍스트 트레이. HKCU\Run 으로 사용자 로그온 시 자동 실행.
-; Tasks: install_agent_service 와 함께 묶여 — 서비스 옵트인 시 트레이도 같이 등록.
+; Promaker.AgentTray — 사용자 컨텍스트 트레이. HKCU\Run 으로 사용자 로그온 시 자동 실행 (옵션 없음).
 Source: "{#AgentTrayPublishDir}\*"; DestDir: "{app}\AgentTray"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
@@ -119,39 +114,35 @@ Root: HKCR; Subkey: "Promaker.SDF"; ValueType: string; ValueName: ""; ValueData:
 Root: HKCR; Subkey: "Promaker.SDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\SdfFile.ico"
 Root: HKCR; Subkey: "Promaker.SDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyExeName}"" ""%1"""
 #if HasAgentTray
-; AgentTray 사용자 로그온 시 자동 시작 — HKCU\Run. 서비스 옵트인 시에만 등록 (install_agent_service Task 가드).
-; Agent 서비스만 켜져 있고 트레이가 없으면 사용자가 상태/제어 수단이 없으므로 동시에 등록.
+; AgentTray 사용자 로그온 시 자동 시작 — HKCU\Run. Agent 가 설치되면 트레이도 항상 따라 등록.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
   ValueName: "PromakerAgentTray"; ValueData: """{app}\AgentTray\{#MyAgentTrayExeName}"""; \
-  Flags: uninsdeletevalue; Tasks: install_agent_service
+  Flags: uninsdeletevalue
 #endif
 
 [Run]
 #if HasAgent
-; ── Promaker.Agent 서비스 등록 (옵트인). 업그레이드 호환 — 이미 떠 있으면 stop+delete 후 재등록. ──
+; ── Promaker.Agent 서비스 무조건 등록 + 시작. 업그레이드 호환 — 이미 떠 있으면 stop+delete 후 재등록. ──
 ; 기존 서비스 정지/삭제 (없으면 sc 가 비-0 반환하나 runhidden 으로 무시).
-Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; \
-  Flags: runhidden; Tasks: install_agent_service
-Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; \
-  Flags: runhidden; Tasks: install_agent_service
-; auto start=auto 로 등록 — Windows 부팅 시 자동 시작.
+Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: runhidden
+; start=auto — Windows 부팅 시 자동 시작.
 Filename: "{sys}\sc.exe"; \
   Parameters: "create {#MyAgentServiceName} binPath= ""{app}\Agent\{#MyAgentExeName}"" start= auto DisplayName= ""{#MyAgentServiceDisplay}"""; \
   Flags: runhidden waituntilterminated; \
-  Tasks: install_agent_service; \
   StatusMsg: "Promaker Agent 서비스 등록 중..."
 Filename: "{sys}\sc.exe"; Parameters: "description {#MyAgentServiceName} ""{#MyAgentServiceDesc}"""; \
-  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+  Flags: runhidden waituntilterminated
 ; 실패 복구 정책 — 10s, 10s, 30s 후 자동 재시작. 카운터는 1일 후 리셋.
 Filename: "{sys}\sc.exe"; \
   Parameters: "failure {#MyAgentServiceName} reset= 86400 actions= restart/10000/restart/10000/restart/30000"; \
-  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+  Flags: runhidden waituntilterminated
 ; 방화벽 인바운드 5051. DSPilot 가 같은 머신 localhost 만 접속하지만, 원격 모니터링 확장 대비 미리 허용.
 Filename: "{sys}\netsh.exe"; \
   Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
-  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+  Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
-  Flags: runhidden waituntilterminated; Tasks: install_agent_service; \
+  Flags: runhidden waituntilterminated; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
 #endif
 #if HasAgentTray
@@ -159,8 +150,7 @@ Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
 ; 다음 부팅부터는 HKCU\Run 이 자동 실행.
 Filename: "{app}\AgentTray\{#MyAgentTrayExeName}"; \
   Flags: nowait postinstall skipifsilent unchecked; \
-  Description: "Promaker Agent 트레이 지금 시작 (모니터링 상태 확인용)"; \
-  Tasks: install_agent_service
+  Description: "Promaker Agent 트레이 지금 시작 (모니터링 상태 확인용)"
 #endif
 Filename: "{app}\{#MyExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent unchecked
 
