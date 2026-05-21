@@ -38,16 +38,23 @@ module Validation =
                 Message = sprintf "낮은 신뢰도 매핑 %d 건 (NotMatched 또는 < 0.5)" lowConfidence.Length
             }
 
-        // V-S3: ApiCall 에 InTag/OutTag 모두 없음 — Warning (의미 없는 Call).
+        // V-S3: ApiCall 에 InTag/OutTag 모두 실 주소 없음 — Warning (의미 없는 Call).
+        // ModelGenerator 가 placeholder 로 None 을 채우므로, "양쪽 placeholder/None" 케이스를 잡는다.
+        let isRealTag (tag: Ds2.Core.IOTag option) =
+            match tag with
+            | Some t ->
+                t.Name <> ModelGenerator.PlaceholderOutName
+                && t.Name <> ModelGenerator.PlaceholderInName
+            | None -> false
         for plan in plans do
             for flow in plan.Flows do
                 for work in flow.Works do
                     for call in work.Calls do
-                        if call.InTag.IsNone && call.OutTag.IsNone then
+                        if not (isRealTag call.InTag) && not (isRealTag call.OutTag) then
                             issues.Add {
                                 Severity = Warning
                                 Code = "V-S3"
-                                Message = sprintf "Call '%s' — InTag/OutTag 모두 누락" call.Name
+                                Message = sprintf "Call '%s' — InTag/OutTag 모두 실 주소 없음 (placeholder)" call.Name
                             }
 
         // V-S4: 같은 (Device, Api) 가 multiple Mapping — duplicate. Warning.
