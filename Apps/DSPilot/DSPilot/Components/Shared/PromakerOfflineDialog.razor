@@ -1,0 +1,112 @@
+@implements IDisposable
+@using Microsoft.AspNetCore.SignalR.Client
+@inject HubSubscriberService HubSubscriber
+
+@*
+    Promaker SignalR Hub(localhost:5051) 연결 실패 시 사용자에게 명시 안내.
+    헤더의 HubStatusBadge 만으로는 첫 사용자가 놓치기 쉬워 모달로 보강.
+
+    상태 머신:
+      _armed = true  → 다음 Disconnected 진입에서 grace 후 팝업 표시 허용
+      _armed = false → 사용자가 닫은 뒤. Connected 가 한 번이라도 발생해야 다시 무장.
+    Grace window 8초: 부팅 초기 SignalR 첫 connect 시도 동안 깜빡임 방지.
+*@
+
+@if (_visible)
+{
+    <div class="dialog-overlay dialog-visible">
+        <div class="dialog" style="max-width: 480px;">
+            <div class="dialog-title">
+                <span class="material-icons" style="vertical-align: middle; color: #F44336; margin-right: 6px;">link_off</span>
+                Promaker 모니터링 허브에 연결할 수 없습니다
+            </div>
+            <div class="dialog-body" style="line-height: 1.6;">
+                <p style="margin: 0 0 8px;">
+                    DSPilot 가 <code>localhost:5051</code> 의 Promaker SignalR 허브에 연결하지 못했습니다.
+                    실시간 PLC 신호가 표시되지 않습니다.
+                </p>
+                <p style="margin: 0 0 4px;"><strong>해결 방법</strong></p>
+                <ol style="margin: 0 0 8px 20px; padding: 0;">
+                    <li>Promaker 를 실행합니다.</li>
+                    <li>설정에서 <strong>실 PLC</strong> 연결 정보를 등록합니다.</li>
+                    <li><strong>모니터링 모드</strong> 로 전환합니다.</li>
+                </ol>
+                <small style="color: var(--color-text-secondary); display: block;">
+                    DSPilot 은 자동으로 재연결을 시도합니다 — Promaker 가 켜지면 즉시 연결됩니다.
+                </small>
+            </div>
+            <div class="dialog-actions">
+                <button class="btn btn-filled" @onclick="Dismiss">확인</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly TimeSpan GraceWindow = TimeSpan.FromSeconds(8);
+
+    private bool _visible;
+    private bool _armed = true;
+    private CancellationTokenSource? _graceCts;
+
+    protected override void OnInitialized()
+    {
+        HubSubscriber.StatusChanged += OnStatusChanged;
+        OnStatusChanged(HubSubscriber.CurrentStatus);
+    }
+
+    private void OnStatusChanged(HubConnectionState state)
+    {
+        if (state == HubConnectionState.Connected)
+        {
+            CancelGrace();
+            if (_visible) _visible = false;
+            _armed = true;
+            _ = InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (state == HubConnectionState.Connecting || state == HubConnectionState.Reconnecting)
+            return;
+
+        // Disconnected 진입
+        if (!_armed || _visible || _graceCts is not null) return;
+        StartGraceTimer();
+    }
+
+    private void StartGraceTimer()
+    {
+        _graceCts = new CancellationTokenSource();
+        var token = _graceCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(GraceWindow, token);
+                if (token.IsCancellationRequested) return;
+                if (HubSubscriber.CurrentStatus == HubConnectionState.Connected) return;
+                _visible = true;
+                _armed = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (TaskCanceledException) { /* expected */ }
+        });
+    }
+
+    private void CancelGrace()
+    {
+        try { _graceCts?.Cancel(); _graceCts?.Dispose(); } catch { /* best effort */ }
+        _graceCts = null;
+    }
+
+    private void Dismiss()
+    {
+        _visible = false;
+    }
+
+    public void Dispose()
+    {
+        HubSubscriber.StatusChanged -= OnStatusChanged;
+        CancelGrace();
+    }
+}
