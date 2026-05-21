@@ -37,8 +37,8 @@ type CallTransitionApplyContext = {
 }
 
 and CallOutputReset =
-    | ResetNow of address: string
-    | ResetAfter of address: string * delayMs: int
+    | ResetNow of address: string * value: string
+    | ResetAfter of address: string * delayMs: int * value: string
 
 type DurationCompleteContext = {
     IsPassiveMode: bool
@@ -86,17 +86,17 @@ module EventDrivenExecution =
             match effect with
             | None -> ()
             | Some (RuntimeSemantics.OutCoil tag) ->
-                writeOut tag.Address "true"
+                writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
             | Some (RuntimeSemantics.CoilAfterDelay (tag, _)) ->
-                writeOut tag.Address "true"
+                writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
             | Some (RuntimeSemantics.EdgePulse tag) ->
-                writeOut tag.Address "true"
-                scheduleWriteOut 1 tag.Address "false"
+                writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
+                scheduleWriteOut 1 tag.Address (RuntimeSemantics.resetOutputValue apiCall)
             | Some (RuntimeSemantics.EdgePulseHold (tag, ms)) ->
-                writeOut tag.Address "true"
-                scheduleWriteOut ms tag.Address "false"
+                writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
+                scheduleWriteOut ms tag.Address (RuntimeSemantics.resetOutputValue apiCall)
             | Some (RuntimeSemantics.SetCoil tag) ->
-                writeOut tag.Address "true"
+                writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
             | Some RuntimeSemantics.NoOp ->
                 ()
             | Some (RuntimeSemantics.NoOpAppend _) ->
@@ -141,10 +141,10 @@ module EventDrivenExecution =
         if ctx.RuntimeMode = RuntimeMode.Control || ctx.RuntimeMode = RuntimeMode.Simulation then
             for reset in ctx.GetCallOutputResets callGuid do
                 match reset with
-                | ResetNow address ->
-                    ctx.WriteTag address "false"
-                | ResetAfter (address, delayMs) ->
-                    ctx.ScheduleOutputWrite(delayMs, address, "false")
+                | ResetNow (address, value) ->
+                    ctx.WriteTag address value
+                | ResetAfter (address, delayMs, value) ->
+                    ctx.ScheduleOutputWrite(delayMs, address, value)
 
     let applyCallTransition (ctx: CallTransitionApplyContext) callGuid newState =
         let prevState = ctx.GetCallState callGuid

@@ -36,6 +36,13 @@ module ValueSpecConvenienceTests =
             Assert.Equal(Some (0, Closed), segments.[1].Upper)
         | _ -> Assert.True(false, "rangesInt32Closed should return Int32Value with range segments")
 
+    [<Fact>]
+    let ``toDefaultString should use first Multiple value as runtime representative`` () =
+        let spec = Int32Value (Multiple [ 4; 5 ])
+
+        Assert.Equal("4", ValueSpec.toDefaultString spec)
+        Assert.True(ValueSpec.evaluate spec "4")
+
 /// DeepCopy 테스트
 module DeepCopyTests =
 
