@@ -82,77 +82,71 @@ type OoxmlExtractor() =
         | "image/webp" -> Some Webp
         | _ -> None
 
-    /// **Task 0 (R3 M6 closure 4종 승격, s6-r23 m2 통합)** — `Descendants<Blip>()` 1회 enumerate +
-    /// relId → ImagePart 매핑 → byte[] → ExtractedImage 박제. body / header / footer / pptx slide /
-    /// xlsx drawing 의 동일 패턴 단일 진입점. images + path 인자.
+    /// **review M1 helper consolidation** — `blip.Embed` non-null + HasValue 유효성 가드.
+    /// `EnumerateValidBlips` / `CollectValidBlips` / `ExtractImagesAtRefLocator` 가 본 가드 단일 사용.
+    static member private IsValidEmbeddedBlip (blip: Blip) : bool =
+        not (isNull blip.Embed) && blip.Embed.HasValue
+
+    /// **review M1** — container 의 valid Blip 만 lazy enumerate (single-shot caller).
+    /// caller (DOCX table cell / header/footer / PPTX slide / XLSX drawing) 가 본 helper 호출 후
+    /// `ExtractImagesAtRefLocator` 에 직접 전달.
+    static member private EnumerateValidBlips (container: OpenXmlElement) : Blip seq =
+        container.Descendants<Blip>() |> Seq.filter OoxmlExtractor.IsValidEmbeddedBlip
+
+    /// **Task 0 (s6-r44 L-Maj-6)** — paragraph hot path 의 cache. `EnumerateValidBlips` 의 ResizeArray variant.
+    /// `Count > 0` 확인 + 박제 시 enumerate 두 단계에서 deep descendants 1회만 호출 보장 (lazy seq 면 2회).
+    static member private CollectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
+        let arr = ResizeArray<Blip>()
+        for blip in OoxmlExtractor.EnumerateValidBlips block do
+            arr.Add blip
+        arr
+
+    /// **review M4 helper consolidation** — relId → ImagePart map resolver.
+    /// DOCX body (mainPart) / DOCX header-footer (part.Parts choose) / PPTX slide / XLSX drawing 의
+    /// 동일 3줄 패턴 단일 진입점. parent 의 `GetIdOfPart` 로 relId 산출 + Map lookup.
+    static member private BuildImagePartResolver
+        (parent: OpenXmlPart) (imageParts: ImagePart seq) : string -> ImagePart option =
+        let m =
+            imageParts
+            |> Seq.map (fun ip -> parent.GetIdOfPart(ip), ip)
+            |> Map.ofSeq
+        fun relId -> Map.tryFind relId m
+
+    /// **review M5 helper consolidation** — DrawingML paragraph break 보존 enumerate.
+    /// PPTX 의 title shape / slide body / notes 3 caller 의 동일 패턴 단일 진입점 + trim.
+    /// `\n` 명시 삽입 (r1 M5 — InnerText 직접 사용 시 bullet 들러붙음).
+    static member private CollectDrawingText (container: OpenXmlElement) : string =
+        let sb = StringBuilder()
+        for paragraph in container.Descendants<DrawingParagraph>() do
+            let paraText =
+                paragraph.Descendants<DrawingText>()
+                |> Seq.map (fun t -> t.Text)
+                |> String.concat ""
+            if paraText.Length > 0 then
+                sb.AppendLine(paraText) |> ignore
+        sb.ToString().Trim()
+
+    /// **Task 0 + review M1 통합** — `Blip seq` 단일 진입점. body / header / footer / pptx slide /
+    /// xlsx drawing 의 image 박제 동일 처리. caller 는 `EnumerateValidBlips` (single-shot) 또는
+    /// `CollectValidBlips` (paragraph cache) 결과 전달.
     /// `Ordinal` 은 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
     /// per-image fail-safe (M2 결론) — decode exception → log + skip. 다른 image 진행 차단 안 함.
     static member private ExtractImagesAtRefLocator
-        (container: OpenXmlElement)
+        (validBlips: Blip seq)
         (resolveImagePart: string -> ImagePart option)
         (location: string)
         (refLocator: string)
         (images: ResizeArray<ExtractedImage>)
         (path: string) : unit =
         let mutable imgOrdInBlock = 1
-        for blip in container.Descendants<Blip>() do
-            if not (isNull blip.Embed) && blip.Embed.HasValue then
-                let relId = blip.Embed.Value
-                match resolveImagePart relId with
-                | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
-                | Some imgPart ->
-                    try
-                        match OoxmlExtractor.ImagePartToFormat imgPart.ContentType with
-                        | None -> ()   // 화이트리스트 외 — m6 primary 가드.
-                        | Some fmt ->
-                            use stream = imgPart.GetStream()
-                            use ms = new MemoryStream()
-                            stream.CopyTo(ms)
-                            let bytes = ms.ToArray()
-                            if bytes.Length > 0 then
-                                images.Add {
-                                    Bytes = bytes
-                                    Format = fmt
-                                    Width = None
-                                    Height = None
-                                    RefLocator = refLocator
-                                    Ordinal = imgOrdInBlock
-                                }
-                                imgOrdInBlock <- imgOrdInBlock + 1
-                    with ex ->
-                        Log.lighthouse.Warn(
-                            sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                                location refLocator imgOrdInBlock relId path ex.Message)
-
-    /// **Task 0 (s6-r44 L-Maj-6 정정 박제)** — block 의 valid Blip 1회 enumerate cache.
-    /// paragraph hot path 의 `hasInlineDrawing` + image extract 양쪽 박제하던 2회 deep enumerate 회피.
-    /// caller (paragraph loop) 가 본 cache 박제 후 `ExtractImagesFromBlips` 호출.
-    static member private CollectValidBlips (block: OpenXmlElement) : Blip ResizeArray =
-        let arr = ResizeArray<Blip>()
-        for blip in block.Descendants<Blip>() do
-            if not (isNull blip.Embed) && blip.Embed.HasValue then
-                arr.Add blip
-        arr
-
-    /// **Task 0 (R3 M6 closure 승격)** — `ExtractImagesAtRefLocator` 의 cached variant.
-    /// caller 가 사전 enumerate 한 valid Blip ResizeArray 박제 (`CollectValidBlips` 결과 가정).
-    /// ContentType 화이트리스트 + per-image fail-safe + Ordinal 박제 동일.
-    static member private ExtractImagesFromBlips
-        (blips: Blip ResizeArray)
-        (resolveImagePart: string -> ImagePart option)
-        (location: string)
-        (refLocator: string)
-        (images: ResizeArray<ExtractedImage>)
-        (path: string) : unit =
-        let mutable imgOrdInBlock = 1
-        for blip in blips do
+        for blip in validBlips do
             let relId = blip.Embed.Value
             match resolveImagePart relId with
-            | None -> ()
+            | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
             | Some imgPart ->
                 try
                     match OoxmlExtractor.ImagePartToFormat imgPart.ContentType with
-                    | None -> ()
+                    | None -> ()   // 화이트리스트 외 — m6 primary 가드.
                     | Some fmt ->
                         use stream = imgPart.GetStream()
                         use ms = new MemoryStream()
@@ -173,8 +167,8 @@ type OoxmlExtractor() =
                         sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
                             location refLocator imgOrdInBlock relId path ex.Message)
 
-    /// **Task 0 (R3 M6 closure 승격)** — OpenXmlPart (HeaderPart / FooterPart 등) 의 RootElement enumerate.
-    /// `part.Parts` 에서 ImagePart 만 골라 relId map 빌드 → `ExtractImagesAtRefLocator` 위임.
+    /// **Task 0 + review M4 통합** — OpenXmlPart (HeaderPart / FooterPart 등) 의 RootElement enumerate.
+    /// `part.Parts` 에서 ImagePart 만 추출 → `BuildImagePartResolver` + `ExtractImagesAtRefLocator` 위임.
     static member private ExtractImagesFromOpenXmlPart
         (part: OpenXmlPart)
         (location: string)
@@ -182,12 +176,12 @@ type OoxmlExtractor() =
         (images: ResizeArray<ExtractedImage>)
         (path: string) : unit =
         if not (isNull part.RootElement) then
-            let imgMap =
+            let imageParts =
                 part.Parts
-                |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some (part.GetIdOfPart(p), p) | _ -> None)
-                |> Map.ofSeq
-            let resolve relId = Map.tryFind relId imgMap
-            OoxmlExtractor.ExtractImagesAtRefLocator part.RootElement resolve location refLocator images path
+                |> Seq.choose (fun ip -> match ip.OpenXmlPart with :? ImagePart as p -> Some p | _ -> None)
+            let resolve = OoxmlExtractor.BuildImagePartResolver part imageParts
+            let validBlips = OoxmlExtractor.EnumerateValidBlips part.RootElement
+            OoxmlExtractor.ExtractImagesAtRefLocator validBlips resolve location refLocator images path
 
     static member private ExtractDocx (path: string) (ct: CancellationToken) : ExtractedDocument =
         ct.ThrowIfCancellationRequested()
@@ -206,18 +200,12 @@ type OoxmlExtractor() =
             let images = ResizeArray<ExtractedImage>()
             let mutable paraOrdinal = 0
 
-            // C4-Q2 (s6-r16): ImagePart 의 relationship id → ImagePart map.
-            let imgPartByRelId =
-                mainPart.ImageParts
-                |> Seq.map (fun ip -> mainPart.GetIdOfPart(ip), ip)
-                |> Map.ofSeq
-
-            // body 측 resolver — mainPart 안 ImagePart map.
-            let resolveBodyImagePart relId = Map.tryFind relId imgPartByRelId
+            // body 측 resolver — mainPart 안 ImagePart map (review M4 단일 helper).
+            let resolveBodyImagePart = OoxmlExtractor.BuildImagePartResolver mainPart mainPart.ImageParts
 
             // paragraph 의 inline Drawing 박제 (paraOrd 기반 RefLocator `p=%d`). cached path.
             let extractImagesFromBlock (blips: Blip ResizeArray) (paraOrd: int) =
-                OoxmlExtractor.ExtractImagesFromBlips blips resolveBodyImagePart "body" (sprintf "p=%d" paraOrd) images path
+                OoxmlExtractor.ExtractImagesAtRefLocator (blips :> seq<Blip>) resolveBodyImagePart "body" (sprintf "p=%d" paraOrd) images path
 
             // table cell 단위 매핑. RefLocator scheme = `p=<table-paraOrd>.cell=<cellOrd>.p=<paraInCellOrd>`.
             // nested table 안 image 는 silent drift 차단 (backlog).
@@ -228,13 +216,13 @@ type OoxmlExtractor() =
                         let mutable paraInCell = 1
                         for cellPara in cell.Elements<Paragraph>() do
                             let refLoc = sprintf "p=%d.cell=%d.p=%d" paraOrd cellOrd paraInCell
-                            OoxmlExtractor.ExtractImagesAtRefLocator cellPara resolveBodyImagePart "table-cell" refLoc images path
+                            OoxmlExtractor.ExtractImagesAtRefLocator
+                                (OoxmlExtractor.EnumerateValidBlips cellPara)
+                                resolveBodyImagePart "table-cell" refLoc images path
                             paraInCell <- paraInCell + 1
                         for nestedTbl in cell.Elements<Table>() do
                             let nestedImgCount =
-                                nestedTbl.Descendants<Blip>()
-                                |> Seq.filter (fun b -> not (isNull b.Embed) && b.Embed.HasValue)
-                                |> Seq.length
+                                OoxmlExtractor.EnumerateValidBlips nestedTbl |> Seq.length
                             if nestedImgCount > 0 then
                                 Log.lighthouse.Warn(
                                     sprintf "OoxmlExtractor: nested table 안 image %d 장 skip (RefLocator scheme 미지원, backlog) — path=%s, outer p=%d.cell=%d"
@@ -243,7 +231,7 @@ type OoxmlExtractor() =
 
             // helper: block 안 Drawing.Blip 존재 여부 — image-only 분리 분기 검사.
             let hasInlineDrawing (block: OpenXmlElement) : bool =
-                block.Descendants<Blip>() |> Seq.exists (fun b -> not (isNull b.Embed) && b.Embed.HasValue)
+                OoxmlExtractor.EnumerateValidBlips block |> Seq.isEmpty |> not
 
             // s6-r22 mn1: paragraph/table 분기 통합 — `isText || hasImg` 단일 분기.
             for elem in body.ChildElements do
@@ -463,14 +451,8 @@ type OoxmlExtractor() =
                 match titleShape with
                 | None -> fallback
                 | Some sh ->
-                    let sb = StringBuilder()
-                    for p in sh.Descendants<DrawingParagraph>() do
-                        let txt =
-                            p.Descendants<DrawingText>()
-                            |> Seq.map (fun t -> t.Text)
-                            |> String.concat ""
-                        if txt.Length > 0 then sb.AppendLine(txt) |> ignore
-                    let s = sb.ToString().Trim()
+                    // review M5 — CollectDrawingText 단일 helper.
+                    let s = OoxmlExtractor.CollectDrawingText sh
                     if s.Length = 0 then fallback else s
         outline.Add {
             ParentIndex = None
@@ -481,42 +463,30 @@ type OoxmlExtractor() =
         }
         let outlineIdx = outline.Count - 1
         // ── Segment text — slide 전체 paragraph break 보존 + speaker notes 합성 (r1 M5 + M10) ──
-        let textBuilder = StringBuilder()
-        if not (isNull slide) then
-            for paragraph in slide.Descendants<DrawingParagraph>() do
-                let paraText =
-                    paragraph.Descendants<DrawingText>()
-                    |> Seq.map (fun t -> t.Text)
-                    |> String.concat ""
-                if paraText.Length > 0 then
-                    textBuilder.AppendLine(paraText) |> ignore
-        if not (isNull slidePart.NotesSlidePart) && not (isNull slidePart.NotesSlidePart.NotesSlide) then
-            let notesBuilder = StringBuilder()
-            for paragraph in slidePart.NotesSlidePart.NotesSlide.Descendants<DrawingParagraph>() do
-                let paraText =
-                    paragraph.Descendants<DrawingText>()
-                    |> Seq.map (fun t -> t.Text)
-                    |> String.concat ""
-                if paraText.Length > 0 then
-                    notesBuilder.AppendLine(paraText) |> ignore
-            let notesText = notesBuilder.ToString().Trim()
+        // review M5 — title/body/notes 3 caller 가 동일 CollectDrawingText 사용.
+        let bodyText = if isNull slide then "" else OoxmlExtractor.CollectDrawingText slide
+        let notesText =
+            if not (isNull slidePart.NotesSlidePart) && not (isNull slidePart.NotesSlidePart.NotesSlide) then
+                OoxmlExtractor.CollectDrawingText slidePart.NotesSlidePart.NotesSlide
+            else ""
+        let combined =
             if notesText.Length > 0 then
-                textBuilder.AppendLine("--- 노트 ---").AppendLine(notesText) |> ignore
-        let combined = textBuilder.ToString().Trim()
+                if bodyText.Length > 0 then
+                    bodyText + Environment.NewLine + "--- 노트 ---" + Environment.NewLine + notesText
+                else
+                    "--- 노트 ---" + Environment.NewLine + notesText
+            else bodyText
         if combined.Length > 0 then
             segments.Add {
                 OutlineIndex = Some outlineIdx
                 RefLocator = refLoc
                 Text = combined
             }
-        // ── Image — SlidePart 안 Blip enumerate ──
-        let imgPartByRelId =
-            slidePart.ImageParts
-            |> Seq.map (fun ip -> slidePart.GetIdOfPart(ip), ip)
-            |> Map.ofSeq
-        let resolveSlideImagePart relId = Map.tryFind relId imgPartByRelId
+        // ── Image — SlidePart 안 Blip enumerate (review M4 단일 resolver) ──
         if not (isNull slide) then
-            OoxmlExtractor.ExtractImagesAtRefLocator slide resolveSlideImagePart "slide" refLoc images path
+            let resolve = OoxmlExtractor.BuildImagePartResolver slidePart slidePart.ImageParts
+            let validBlips = OoxmlExtractor.EnumerateValidBlips slide
+            OoxmlExtractor.ExtractImagesAtRefLocator validBlips resolve "slide" refLoc images path
 
     /// **Task 2 — XLSX 활성**. (todo-lighthouse-kb-index-xlsx-pptx-images.md Task 2)
     ///
@@ -709,17 +679,13 @@ type OoxmlExtractor() =
                                         RefLocator = refLoc
                                         Text = segText
                                     }
-                                // r1 M16: DrawingsPart null guard.
+                                // r1 M16: DrawingsPart null guard. review M4 — BuildImagePartResolver 단일 helper.
                                 if not (isNull worksheetPart.DrawingsPart) then
                                     let drawingsPart = worksheetPart.DrawingsPart
-                                    let imgPartByRelId =
-                                        drawingsPart.ImageParts
-                                        |> Seq.map (fun ip -> drawingsPart.GetIdOfPart(ip), ip)
-                                        |> Map.ofSeq
-                                    let resolve relId = Map.tryFind relId imgPartByRelId
                                     if not (isNull drawingsPart.WorksheetDrawing) then
-                                        OoxmlExtractor.ExtractImagesAtRefLocator
-                                            drawingsPart.WorksheetDrawing resolve "sheet" refLoc images path
+                                        let resolve = OoxmlExtractor.BuildImagePartResolver drawingsPart drawingsPart.ImageParts
+                                        let validBlips = OoxmlExtractor.EnumerateValidBlips drawingsPart.WorksheetDrawing
+                                        OoxmlExtractor.ExtractImagesAtRefLocator validBlips resolve "sheet" refLoc images path
                             | other ->
                                 Log.lighthouse.Warn(
                                     sprintf "ExtractXlsx: sheet relId=%s 가 WorksheetPart 아님 (%A) — name=%s path=%s"
