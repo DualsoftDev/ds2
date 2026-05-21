@@ -77,6 +77,13 @@ module Indexer =
     /// (PdfExtractor: TryGetPng false / empty 분기에서 미포함) 의 future 회귀 + 신규 extractor 분기 망각 차단.
     ///
     /// 본 함수는 transaction 직접 열지 않음 — caller (`ingestFile`) 또는 별 batching layer 가 결정.
+    /// **Plan 2 (icon noise 가드)** — image 의 byte size threshold. 본 값 미만 image 는 색인 skip.
+    /// 산업 .xlsx / pptx 의 logo / icon (보통 5KB 미만) 가 KB 검색 결과의 noise + caption 비용 낭비 차단.
+    /// 본 SSOT 는 byte size 기반 (단순 + fast). pixel size 기반 가드는 별 turn (header parse helper 의무).
+    /// 임계값 8 KB = 산업 .xlsx 의 실측 분포 — 5KB icon vs 45KB+ 본문 image 의 자연 경계.
+    /// caller / config 에서 조정 가능성은 Phase 3 backlog (현재 lib 단일 SSOT literal).
+    let [<Literal>] MinImageBytesForIndex = 8192   // 8 KB
+
     let ingestImagesIntoStore
         (conn: SqliteConnection)
         (collectionRoot: string)
@@ -91,6 +98,11 @@ module Indexer =
                 Log.lighthouse.Warn(
                     sprintf "Indexer.ingestImagesIntoStore: 빈 Bytes skip — doc=%d ref=%s ord=%d"
                         documentId img.RefLocator img.Ordinal)
+            elif img.Bytes.Length < MinImageBytesForIndex then
+                // Plan 2: icon size skip — debug log 만 (warning 아님, 정상 색인 정책 동작).
+                Log.lighthouse.Debug(
+                    sprintf "Indexer.ingestImagesIntoStore: icon size skip — doc=%d ref=%s ord=%d size=%d < %d"
+                        documentId img.RefLocator img.Ordinal img.Bytes.Length MinImageBytesForIndex)
             else
                 try
                     let hash = ImageStore.computeSha256 img.Bytes

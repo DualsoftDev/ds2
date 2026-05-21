@@ -21,6 +21,7 @@ open Ds2.LightHouse.Ollama
 ///   10 명령행 인자 오류 (사용법 mismatch)
 ///   11 폴더 미존재 / 접근 불가
 ///   12 ingested=0 (등록 가치 0 — server 거부 사전 차단)
+///   13 VLM API key 미박제 + --force-without-image-caption 미박제 (사용자 결정)
 ///   99 기타
 
 // **CLI flag key SSOT (s6-r36 P4-C.0)** — usage / parseArgs / call site 가 같은 literal 참조 의무.
@@ -40,6 +41,9 @@ let private FlagUser = "user"
 let private FlagAllowInvalidCerts = "allow-invalid-certs"
 [<Literal>]
 let private FlagVersion = "version"
+/// 사용자 결정 — VLM API key 미박제 시 fail-fast. 본 flag 박제 시 명시 opt-out (caption 미생성 + 색인 자체만).
+[<Literal>]
+let private FlagForceWithoutImageCaption = "force-without-image-caption"
 
 // **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. cli scope 한정 (Promaker LlmConfig 의
 // LIGHTHOUSE_VLM_API_KEY 박제 는 별 cross-project SSOT 박제 의무 — K4 Protocol 통합 phase 묶음).
@@ -55,18 +59,21 @@ let private EnvPsk = "LIGHTHOUSE_PSK"
 
 let private usage () =
     eprintfn "usage:"
-    eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
+    eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--force-without-image-caption]"
+    eprintfn "                              [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
-    eprintfn "  --no-embedding             vector embedding 생성 skip (BM25-only 색인). default = Ollama bge-m3 / 1024 dim"
-    eprintfn "                             env: %s / %s / %s 으로 override" EnvOllamaUrl EnvOllamaModel EnvOllamaDim
-    eprintfn "  --upload <url>             LightHouseService base URL (https://host:port)"
-    eprintfn "  --psk <key>                PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
-    eprintfn "  --title <name>             collection 표시 이름 (생략 시 폴더명)"
-    eprintfn "  --user <id>                X-User-Identity (생략 시 USERNAME@MachineName)"
-    eprintfn "  --allow-invalid-certs      self-signed cert 신뢰 우회 (dev only)"
-    eprintfn "  --version                  버전 출력 후 종료"
+    eprintfn "  --no-embedding                 vector embedding 생성 skip (BM25-only 색인). default = Ollama bge-m3 / 1024 dim"
+    eprintfn "                                 env: %s / %s / %s 으로 override" EnvOllamaUrl EnvOllamaModel EnvOllamaDim
+    eprintfn "  --force-without-image-caption  VLM caption 명시 skip (caption 미생성, image 색인 자체는 정상)."
+    eprintfn "                                 default = LIGHTHOUSE_VLM_API_KEY 필수, 미박제 시 fail-fast."
+    eprintfn "  --upload <url>                 LightHouseService base URL (https://host:port)"
+    eprintfn "  --psk <key>                    PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
+    eprintfn "  --title <name>                 collection 표시 이름 (생략 시 폴더명)"
+    eprintfn "  --user <id>                    X-User-Identity (생략 시 USERNAME@MachineName)"
+    eprintfn "  --allow-invalid-certs          self-signed cert 신뢰 우회 (dev only)"
+    eprintfn "  --version                      버전 출력 후 종료"
 
 /// args 수동 parsing — System.CommandLine 없이 dependency minimize (D-S6-3).
 /// `--key value` + `--flag` (no value) 두 형식만 지원. `=` form 미지원 (follow-up).
@@ -77,7 +84,7 @@ let private parseArgs (args: string array) : Map<string, string> * string list =
     // **s6-r70 review C-17** — boolean flag set 분리 (다음 토큰 흡수 차단).
     // 예: `--no-embedding <folder>` 가 folder 를 no-embedding 의 value 로 흡수했던 결함. boolean flag 는
     // value 없는 형식으로만 처리, 다음 토큰은 positional 또는 별 flag 로 그대로 분리.
-    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts ]
+    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption ]
     while i < args.Length do
         let arg = args.[i]
         if arg.StartsWith "--" then
@@ -141,42 +148,50 @@ let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
         eprintfn "  embedding backend = Ollama (%s, model=%s, dim=%d)" baseUrl model dim
         Some embedder
 
-let private runIndex (folder: string) (noEmbedding: bool) : int =
+let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: bool) : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
         11
     else
-        let extractors : IExtractor list = [
-            new TextExtractor() :> IExtractor
-            new PdfExtractor() :> IExtractor
-            new OoxmlExtractor() :> IExtractor
-        ]
-        let mutable lastReported = -1
-        let progressCb (p: IngestProgress) =
-            let pct = if p.TotalFiles > 0 then (p.CompletedFiles * 100) / p.TotalFiles else 0
-            if pct <> lastReported then
-                let current = p.CurrentFile |> Option.defaultValue ""
-                eprintfn "  [%d%%] %d/%d — %s" pct p.CompletedFiles p.TotalFiles current
-                lastReported <- pct
-        printfn "색인 시작 — %s%s" folder (if noEmbedding then " (--no-embedding)" else "")
-        // s6-r20 (D-iii / --review M1): cli VLM captionGen builder SSOT = Vlm.buildCaptionGen.
-        let captionGen = Vlm.buildCaptionGen CancellationToken.None
-        // Phase 4 (s6-r37) P4-C.1: embedder lifecycle — Some 시 색인 종료 후 dispose 의무 (HttpClient 자원).
-        let embedder = resolveEmbedder noEmbedding
-        try
-            let results = Indexer.ingest folder extractors captionGen embedder progressCb CancellationToken.None
-            let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
-            let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
-            let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
-            printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
-            0
-        finally
-            embedder |> Option.iter (fun e -> e.Dispose())
+        // 사용자 결정 — VLM captionGen build 가 색인 본격 진입 전에 fail-fast. API key 미박제 + force flag 미박제 시 exit 13.
+        match Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption with
+        | Error msg ->
+            eprintfn "오류: %s" msg
+            13
+        | Ok captionGen ->
+            let extractors : IExtractor list = [
+                new TextExtractor() :> IExtractor
+                new PdfExtractor() :> IExtractor
+                new OoxmlExtractor() :> IExtractor
+            ]
+            let mutable lastReported = -1
+            let progressCb (p: IngestProgress) =
+                let pct = if p.TotalFiles > 0 then (p.CompletedFiles * 100) / p.TotalFiles else 0
+                if pct <> lastReported then
+                    let current = p.CurrentFile |> Option.defaultValue ""
+                    eprintfn "  [%d%%] %d/%d — %s" pct p.CompletedFiles p.TotalFiles current
+                    lastReported <- pct
+            let opts =
+                [ if noEmbedding then " --no-embedding"
+                  if forceWithoutCaption then " --force-without-image-caption" ]
+                |> String.concat ""
+            printfn "색인 시작 — %s%s" folder opts
+            // Phase 4 (s6-r37) P4-C.1: embedder lifecycle — Some 시 색인 종료 후 dispose 의무 (HttpClient 자원).
+            let embedder = resolveEmbedder noEmbedding
+            try
+                let results = Indexer.ingest folder extractors captionGen embedder progressCb CancellationToken.None
+                let ingested = results |> Array.filter (fun (_, r) -> match r with | Ingested _ -> true | _ -> false) |> Array.length
+                let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
+                let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
+                printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
+                0
+            finally
+                embedder |> Option.iter (fun e -> e.Dispose())
 
 /// `--upload` 본격 분기 — in-place 색인 + zip + POST /collections (옵션 P + 보관 정책).
 /// 산출물 = `<folder>/.lighthouse-kb/{index.db, meta.json}` (색인 시작 전 wipe + 색인 후 보관).
 /// zip 은 temp 에 생성 후 업로드 완료 시 정리. `.lighthouse-kb/` 는 source 안 보존.
-/// exit code (D-S6-4): 0/1/2/3/11/12/99.
+/// exit code (D-S6-4): 0/1/2/3/11/12/13/99 (review M-1 — 13 = VLM API key 미박제 + force 미박제).
 let private runUpload
         (folder: string)
         (baseUrl: string)
@@ -185,6 +200,7 @@ let private runUpload
         (userIdentity: string)
         (allowInvalidCerts: bool)
         (noEmbedding: bool)
+        (forceWithoutCaption: bool)
         : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
@@ -194,6 +210,12 @@ let private runUpload
         eprintfn "  in-place 색인을 위해 source 폴더에 .lighthouse-kb/ 생성 가능해야 합니다."
         11
     else
+        // 사용자 결정 — VLM captionGen build 가 색인 본격 진입 전에 fail-fast.
+        match Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption with
+        | Error msg ->
+            eprintfn "오류: %s" msg
+            13
+        | Ok captionGen ->
         let mutable zipPath = ""
         try
             try
@@ -201,7 +223,7 @@ let private runUpload
                 eprintfn "  in-place 색인 시작 — %s/.lighthouse-kb/" folder
                 let embedder = resolveEmbedder noEmbedding
                 try
-                    let results = Packager.runIngest folder embedder CancellationToken.None
+                    let results = Packager.runIngest folder embedder captionGen CancellationToken.None
                     let summary = Packager.summarize results
                     if summary.IngestedCount = 0 then
                         eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단 (빈 폴더 또는 unsupported extension)"
@@ -274,7 +296,8 @@ let main args =
                         |> Option.defaultWith defaultUserIdentity
                     let allowInvalidCerts = Map.containsKey FlagAllowInvalidCerts flags
                     let noEmbedding = Map.containsKey FlagNoEmbedding flags
-                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding
+                    let forceWithoutCaption = Map.containsKey FlagForceWithoutImageCaption flags
+                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding forceWithoutCaption
             | Some _ ->
                 // 자가 검열 C1 — `--upload` 가 value 없거나 빈 string 이면 silent `runIndex` fallback 차단.
                 // 사용자 의도는 upload 였으므로 explicit reject 후 exit 10 (usage hint).
@@ -282,7 +305,8 @@ let main args =
                 10
             | None ->
                 let noEmbedding = Map.containsKey FlagNoEmbedding flags
-                runIndex folder noEmbedding
+                let forceWithoutCaption = Map.containsKey FlagForceWithoutImageCaption flags
+                runIndex folder noEmbedding forceWithoutCaption
         | _ ->
             usage ()
             10

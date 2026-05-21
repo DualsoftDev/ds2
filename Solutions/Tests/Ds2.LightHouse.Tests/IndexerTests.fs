@@ -175,8 +175,11 @@ let ``.lighthouse-kb 폴더 자체는 색인 대상에서 제외`` () =
 // 실 extractor 의 image 추출 (Phase 2 task C2 PdfExtractor / C3 OoxmlExtractor) 은 별 turn — 본 fact 는
 // synthetic ExtractedImage array 로 dispatch path 만 검증.
 
-// 1×1 px PNG — `Ds2.LightHouse.Tests.SamplePng.bytes` SSOT (s6-r22 mn7).
-let private samplePngBytes : byte[] = Ds2.LightHouse.Tests.SamplePng.bytes
+// 1×1 px PNG + 8 KB padding — Indexer.MinImageBytesForIndex (Plan 2 icon size 가드) 통과 의무.
+// SamplePng.bytes 직접 박제 (~67 bytes) 는 가드로 skip → ingestImagesIntoStore fact 회귀.
+// padding 후 sha256 변경되나 본 fact 들은 dynamic computeSha256 호출 → hash 박제 검증 안 함, 영향 0.
+let private samplePngBytes : byte[] =
+    Array.append Ds2.LightHouse.Tests.SamplePng.bytes (Array.zeroCreate 8192)
 
 let private openFreshAt (dir: string) : Microsoft.Data.Sqlite.SqliteConnection =
     let conn = SqliteStore.openConnection (SqliteStore.dbPath dir) false
@@ -579,3 +582,50 @@ let ``Phase 4 — embedder=Some 빈 collection 시 GenerateAsync 호출 0`` () =
         let mock = MockEmbedder(cc) :> IEmbeddingProvider
         let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop (Some mock) noProgress CancellationToken.None
         Assert.Equal(0, cc.Value))
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  Plan 2 — icon min size 가드 (8 KB 미만 image skip)
+// ────────────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``ingestImagesIntoStore — icon size skip (Plan 2) — 8 KB 미만 image 는 ImageReferences 미박제`` () =
+    // SamplePng.bytes (~67 bytes) 직접 박제 → MinImageBytesForIndex (8 KB) 미만 skip.
+    // blob 파일도 생성 안 함 (saveBlob 미호출). 산업 .xlsx / pptx 의 logo / icon 색인 noise 차단.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-icon" "icon-doc.pdf" Pdf 1L None None
+        let iconBytes : byte[] = Ds2.LightHouse.Tests.SamplePng.bytes   // ~67 bytes < 8 KB
+        let img = {
+            Bytes = iconBytes
+            Format = Png
+            Width = Some 1
+            Height = Some 1
+            RefLocator = "p=1"
+            Ordinal = 1
+        }
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop [| img |]
+        // ImageReferences 미박제.
+        Assert.Empty(ImageStore.lookupReferencesByDocument conn docId)
+        // blob 디렉토리 자체도 생성 안 됨 (saveBlob 미호출).
+        Assert.False(Directory.Exists (ImageStore.blobsImagesDir dir)))
+
+[<Fact>]
+let ``ingestImagesIntoStore — icon + 본문 image 혼합 (Plan 2) — icon skip + 본문만 박제`` () =
+    // 단일 document 안 icon (small) + 본문 image (large) 혼합 → 본문만 ImageReferences 박제, icon 자리 미박제.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-mix" "mixed.pdf" Pdf 1L None None
+        let iconBytes : byte[] = Ds2.LightHouse.Tests.SamplePng.bytes
+        let bigBytes : byte[] =
+            Array.append Ds2.LightHouse.Tests.SamplePng.bytes (Array.zeroCreate 8192)
+        let images = [|
+            { Bytes = iconBytes; Format = Png; Width = Some 1; Height = Some 1; RefLocator = "p=1"; Ordinal = 1 }
+            { Bytes = bigBytes; Format = Png; Width = None; Height = None; RefLocator = "p=2"; Ordinal = 1 }
+        |]
+        Indexer.ingestImagesIntoStore conn dir docId Map.empty CaptionGenerator.noop images
+        // 본문 image (p=2) 만 박제, icon (p=1) 은 skip.
+        let refs = ImageStore.lookupReferencesByDocument conn docId
+        Assert.Single refs |> ignore
+        let (_, refLoc, _, _) = refs.[0]
+        Assert.Equal("p=2", refLoc))
