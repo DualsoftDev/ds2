@@ -42,6 +42,15 @@ type RefLocator = {
 ///
 /// 표시형 변환 (`formatDisplay`) 은 LLM / UI 책임 (§3.13) 이지만, lib unit test 의 round-trip 검증
 /// 편의를 위해 default 구현 제공. 표시형은 SSOT 아님 — LLM 응답에 박힐 때는 system prompt 의 규약 따름.
+///
+/// **Escape 정책 (Backlog 5 hotfix + Plan 1 명문화)** — Main.Value 안 EBNF separator 충돌 char 는
+/// `encodeMainValue` / `decodeMainValue` 가 URL-style escape 박제. 현재 escape 대상:
+///   - `%` → `%25` (escape 자체의 escape, decode ambiguity 회피 의무)
+///   - `#` → `%23` (fragment separator 충돌 해소, 산업 .xlsx 호기 번호 표기 정합)
+/// **신규 separator 도입 시 의무** — EBNF 에 새 separator (예: `;` `|` 등) 추가 시 본 helper 의
+/// Replace chain 동기 갱신. 그 외 char (한글 / `&` / `.` / `-` / `_` / `(` `)` / 공백 / `=` / `!` 등) 는
+/// raw 안전 — sheet-name 의 자유 char + Excel 자체 금지 char (`*` `?` `\` `/` `[` `]` `:`) 자연 제외.
+/// `=` 는 첫 1회만 split 정합 (r2 Major-2). sub.Value 의 escape parity 는 Phase 3 backlog (현재 digits only).
 [<RequireQualifiedAccess>]
 module RefLocator =
 
