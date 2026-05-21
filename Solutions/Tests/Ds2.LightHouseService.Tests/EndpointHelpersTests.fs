@@ -18,27 +18,9 @@ let private newCtx (userIdentity: string option) : DefaultHttpContext =
     | None -> ()
     ctx
 
+// **N-M5 (s6-r90)** — ServiceConfigBuilder.defaultConfig + with AdminUsers 박제.
 let private cfgWithAdmins (admins: string array) : ServiceConfig =
-    {
-        SchemaVersion = ConfigSchema.Current
-        ListenUrl = "https://127.0.0.1:0"
-        TlsCertPath = ""
-        TlsCertPasswordEncrypted = ""
-        PreSharedKeyEncrypted = ""
-        StorageRoot = ""
-        MaxUploadBytes = 10737418240L
-        ZipBombRatioLimit = 50
-        SessionIdleTtlMinutes = 240
-        StagingSweepIntervalMinutes = 10
-        LogRetentionDays = 30
-        LogMaxSizeMB = 100
-        AuditRetentionDays = 365
-        IndexerVersionRange = { Min = "1.0.0"; Max = "2.99.99" }
-        Embedding = { Enabled = false; BaseUrl = ""; Model = ""; Dimension = 1024 }
-        Mtls = { Mode = MtlsMode.Off; AllowedThumbprints = Array.empty }
-        MultiTenant = { Mode = MultiTenantMode.T1 }
-        AdminUsers = admins
-    }
+    { ServiceConfigBuilder.defaultConfig "https://127.0.0.1:0" "" with AdminUsers = admins }
 
 // ─── userIdentityOf — invariant Warn 박제 + 정상 path ──────────────
 

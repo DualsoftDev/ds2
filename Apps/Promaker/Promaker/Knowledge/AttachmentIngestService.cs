@@ -291,9 +291,10 @@ public sealed class AttachmentIngestService
         {
             return CaptionGenerator.noop;
         }
-        var apiKey = llmConfig.GetVlmApiKey();
-        var model = llmConfig.VlmModel;
-        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+        // **B18 (s6-r90, 15-reviewer Major)** — apiKey/model 매 호출 재조회. 이전 박제는 closure 캡쳐 (process lifetime
+        // 평문 잔존) — Indexer 의 long-running 색인 (~수시간) 동안 GC 회수 불가능. 매 호출 LlmConfig 조회 = 색인 cost
+        // (~100ms+ Anthropic API) 대비 무시 가능 + Indexer 진행 중 사용자가 LlmConfig 갱신 (예: API key rotation) 시 즉시 반영.
+        if (string.IsNullOrWhiteSpace(llmConfig.GetVlmApiKey()) || string.IsNullOrWhiteSpace(llmConfig.VlmModel))
         {
             return CaptionGenerator.noop;
         }
@@ -305,6 +306,13 @@ public sealed class AttachmentIngestService
                 if (!gate.CanAfford(perImageTokens))
                 {
                     return CaptionResult.NewSkippedCaption("cost gate hard cap");
+                }
+                // B18: 매 호출 재조회 (closure 캡쳐 회피).
+                var apiKey = llmConfig.GetVlmApiKey();
+                var model = llmConfig.VlmModel;
+                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+                {
+                    return CaptionResult.NewSkippedCaption("vlm credential 결함 (mid-run)");
                 }
                 var result = CaptionGenerator.callAnthropic(http, apiKey, model, bytes, fmt, ct);
                 // 자가 검열 M2 정책 SSOT (s6-r20): Captioned 분기만 Consume. FailedCaption / SkippedCaption 시 cost 0.
