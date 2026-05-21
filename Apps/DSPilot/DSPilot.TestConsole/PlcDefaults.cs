@@ -6,14 +6,14 @@ using Microsoft.Extensions.Configuration;
 
 namespace DSPilot.TestConsole;
 
-internal class MitsubishiPlcSettings
+public class MitsubishiPlcSettings
 {
     public string IpAddress { get; set; } = "192.168.9.120";
     public int Port { get; set; } = 5555;
     public string Name { get; set; } = "MitsubishiPLC";
 }
 
-internal class LsPlcSettings
+public class LsPlcSettings
 {
     public string IpAddress { get; set; } = "192.168.9.100";
     public int Port { get; set; } = 2004;
@@ -22,7 +22,7 @@ internal class LsPlcSettings
     public string PlcModel { get; set; } = "XGI";
 }
 
-internal class PlcConnectionSettings
+public class PlcConnectionSettings
 {
     /// <summary>Mitsubishi 또는 LS</summary>
     public string PlcType { get; set; } = "Mitsubishi";
