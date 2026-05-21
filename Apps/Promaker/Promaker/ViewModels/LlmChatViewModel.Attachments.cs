@@ -8,7 +8,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.LightHouse;  // ImageFormat — todo-lighthouse-kb-index.md §4.2a 이전
+using Ds2.LightHouse;  // ImageFormat — done-lighthouse-kb-index.md §4.2a 이전
 using Ds2.LlmAgent;
 
 namespace Promaker.ViewModels;

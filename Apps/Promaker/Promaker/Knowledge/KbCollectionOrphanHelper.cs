@@ -6,7 +6,7 @@ namespace Promaker.Knowledge;
 
 /// <summary>
 /// **D-S7-3c (s6-r31) — orphan KbCollection (소속 service 가 삭제됨) 탐지 SSOT helper**
-/// (todo-lighthouse-kb-server.md §3.16.8).
+/// (done-lighthouse-kb-server.md §3.16.8).
 /// <para/>
 /// orphan = KbCollection.ServiceId 가 비어있지 않으나 LightHouseServices 의 어떤 entry 와도 match 안 됨.
 /// KbManagerDialog 의 "orphan 정리" 버튼 + LlmChatViewModel 의 진단 chip 이 본 helper 호출.

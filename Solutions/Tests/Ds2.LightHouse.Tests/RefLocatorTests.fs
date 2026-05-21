@@ -4,7 +4,7 @@ open System
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8a — RefLocator EBNF round-trip + 위반 거부.
+/// done-lighthouse-kb-index.md §4.8a — RefLocator EBNF round-trip + 위반 거부.
 ///
 /// `tryParse >> Option.map toStored = id` 동일성 보장이 §3.13 SSOT 의 핵심 invariant.
 
@@ -28,6 +28,8 @@ open Ds2.LightHouse
 // r2 Major-2 반론 검증 — 시트명 `=` 포함 round-trip (첫 `=` 만 split, Value="BOM=spec" 보존).
 [<InlineData("sheet=BOM=spec")>]
 [<InlineData("sheet=BOM=spec#img=1")>]
+// Task 7 (r6) — standalone image 파일 RefLocator (N=1 고정, 향후 multi-frame 호환).
+[<InlineData("image=1")>]
 let ``저장형 → parsed → 저장형 round-trip`` (stored: string) =
     let parsed = RefLocator.parse stored
     Assert.Equal(stored, RefLocator.toStored parsed)
@@ -60,6 +62,11 @@ let ``표시형 변환 — Phase 2 slide/sheet × img sub-key (Task 3 regression
     Assert.Equal("슬라이드 5 그림 2", RefLocator.formatDisplay (RefLocator.parse "slide=5#img=2"))
     Assert.Equal("시트 BOM 그림 1", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM#img=1"))
     Assert.Equal("시트 BOM A1:D40 그림 2", RefLocator.formatDisplay (RefLocator.parse "sheet=BOM!A1:D40#img=2"))
+
+[<Fact>]
+let ``표시형 변환 — Task 7 standalone image (image=N)`` () =
+    // Task 7 (r6) — `image=1` → "이미지 1". sub-key 미박제 (단일 image 파일).
+    Assert.Equal("이미지 1", RefLocator.formatDisplay (RefLocator.parse "image=1"))
 
 [<Theory>]
 [<InlineData("sheet=5-1. %23201", "5-1. #201")>]

@@ -21,7 +21,7 @@ open Ds2.LightHouse.Protocol
 ///
 /// SSOT:
 ///   - `.lighthouse-kb/` 위치 = `SqliteStore.KbFolderName` (lib core 박제) — 본 모듈이 참조.
-///   - zip layout = §3.3 (todo-lighthouse-kb-server.md)
+///   - zip layout = §3.3 (done-lighthouse-kb-server.md)
 ///   - `.lighthouse-kb/` skip rule = `Indexer.enumerateFiles` 와 동일 SSOT (lib core).
 
 [<RequireQualifiedAccess>]
@@ -110,6 +110,7 @@ module Packager =
             new TextExtractor() :> IExtractor
             new PdfExtractor() :> IExtractor
             new OoxmlExtractor() :> IExtractor
+            new ImageExtractor() :> IExtractor
         ]
         let progressCb (_: IngestProgress) = ()
         Indexer.ingest sourceFolder extractors captionGen embedderOpt progressCb ct
@@ -130,6 +131,8 @@ module Packager =
     /// in-place meta.json 생성 — `<source>/.lighthouse-kb/meta.json` (옵션 P).
     /// **A2 (K4 통합, 2026-05-20)** — `Ds2.LightHouse.Protocol.MetaJson` 단일 SSOT 사용.
     /// client-fill 부분만 채움 (server 가 import 시 server stamp 필드 덮어씀).
+    /// **PR-B (r0)** — `description` / `keywords` 인자 추가. caller (cli `runUpload`) 가
+    /// `KeywordExtractor.extract` 결과 박제 (Phase 1 description="" / Phase 2 b2 도입 시 합성).
     let writeMeta
         (sourceFolder: string)
         (title: string)
@@ -137,6 +140,8 @@ module Packager =
         (fileCount: int)
         (totalBytes: int64)
         (clientUser: string)
+        (description: string)
+        (keywords: string array)
         : unit =
         let meta : MetaJson = {
             SchemaVersion = MetaJsonSchema.Current
@@ -148,6 +153,9 @@ module Packager =
             CreatedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
             ClientHost = Environment.MachineName
             ClientUser = clientUser
+            // **PR-B** — KeywordExtractor 결과 박제. caller 가 빈 "" / [||] 박제 시 legacy 동작 유지.
+            Description = if isNull description then "" else description
+            Keywords = if isNull keywords then [||] else keywords
             Id = ""
             ImportedAt = ""
             ImportedBy = ""

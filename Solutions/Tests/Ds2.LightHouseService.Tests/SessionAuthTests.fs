@@ -6,7 +6,7 @@ open Microsoft.AspNetCore.Http
 open Xunit
 open Ds2.LightHouseService
 
-/// SessionAuth 미들웨어 — todo-lighthouse-kb-server.md §3.8 + CR6 L3 client 자동 회복의 server-side 신호 (401).
+/// SessionAuth 미들웨어 — done-lighthouse-kb-server.md §3.8 + CR6 L3 client 자동 회복의 server-side 신호 (401).
 ///
 /// MCP HTTP transport (`/mcp` 하위) 에만 적용. session 발급 endpoint (POST/DELETE /sessions) 는 본 미들웨어 통과 안 함.
 

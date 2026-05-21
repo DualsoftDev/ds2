@@ -4,7 +4,7 @@ open System
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8a — Chunker boundary 결정성.
+/// done-lighthouse-kb-index.md §4.8a — Chunker boundary 결정성.
 ///
 /// Phase 1 default 한도 = 500 token. 한도 안이면 1 chunk, 초과 시 단락/문장/hard cascade.
 

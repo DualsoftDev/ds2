@@ -2,7 +2,7 @@ namespace Ds2.LightHouseService
 
 open System.Collections.Concurrent
 
-/// collection 생명주기 이벤트 (todo-lighthouse-kb-server.md Phase S2/S3 hook).
+/// collection 생명주기 이벤트 (done-lighthouse-kb-server.md Phase S2/S3 hook).
 ///
 /// Phase S2 의 `DELETE /collections/{id}` / `POST /collections/{id}/payload` 가 active session 에 detach 신호 전달 필요.
 /// 그러나 Phase S2 시점에 SessionRegistry 가 아직 없음 → interface 박제 + Phase S2 의 구현은 audit log 만.

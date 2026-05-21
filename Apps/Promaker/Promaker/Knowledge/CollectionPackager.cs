@@ -12,7 +12,7 @@ namespace Promaker.Knowledge;
 
 /// <summary>
 /// Staging folder (`source/` + `.lighthouse-kb/`) → `meta.json` 생성 + zip 패키징
-/// (todo-lighthouse-kb-server.md §3.3 zip layout / §3.3.1 meta.json SSOT).
+/// (done-lighthouse-kb-server.md §3.3 zip layout / §3.3.1 meta.json SSOT).
 ///
 /// 책임 분담:
 /// - **CollectionPackager (본 클래스)** = staging dir 구조 검증 + meta.json 직렬화 + zip 생성. 색인 자체는 안 함.

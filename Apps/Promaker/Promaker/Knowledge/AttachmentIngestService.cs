@@ -17,7 +17,7 @@ namespace Promaker.Knowledge;
 
 /// <summary>
 /// 사용자 폴더 → staging dir 사본 → in-process <see cref="Indexer"/> → <see cref="CollectionPackager"/> →
-/// <see cref="LightHouseClient"/> 의 upload orchestration (todo-lighthouse-kb-server.md §4.2 Phase S5 / §3.3 / §3.8).
+/// <see cref="LightHouseClient"/> 의 upload orchestration (done-lighthouse-kb-server.md §4.2 Phase S5 / §3.3 / §3.8).
 ///
 /// **lifetime per ingest**: 본 service 의 한 호출 = 한 collection 등록. staging dir / 임시 zip 은 호출 종료 시
 /// finally 에서 cleanup. `CancellationToken` 통과 — 사용자가 KbManagerDialog 의 cancel 버튼 누르면 즉시 중단.

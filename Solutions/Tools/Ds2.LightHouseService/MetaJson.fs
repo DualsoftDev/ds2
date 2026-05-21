@@ -29,4 +29,9 @@ module MetaJsonRegistry =
           Status = "idle"
           ErrorReason = null
           LastImportedAt = meta.ImportedAt
+          // **PR-A (r0)** — meta 의 두 신 필드 propagate. null 가드:
+          // Description = string default null → "" 정규화 (CollectionEntry caller invariant)
+          // Keywords = array default null → [||] 정규화 (length 호출 안전)
+          Description = if isNull meta.Description then "" else meta.Description
+          Keywords = if isNull meta.Keywords then [||] else meta.Keywords
           Acl = Unchecked.defaultof<CollectionAcl> }

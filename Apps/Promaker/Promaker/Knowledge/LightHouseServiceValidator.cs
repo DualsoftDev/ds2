@@ -6,7 +6,7 @@ namespace Promaker.Knowledge;
 
 /// <summary>
 /// **D-S7-3c (s6-r31) — LightHouse service 검증 SSOT helper**
-/// (todo-lighthouse-kb-server.md §3.16.8).
+/// (done-lighthouse-kb-server.md §3.16.8).
 /// <para/>
 /// dialog (ApplicationSettingsDialog) + Promaker.Tests 양쪽이 동일 검증 로직 호출 — drift 회피.
 /// </summary>

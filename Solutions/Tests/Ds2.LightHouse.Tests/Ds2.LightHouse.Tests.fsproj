@@ -15,12 +15,15 @@
     <Compile Include="TextEncodingTests.fs" />
     <Compile Include="TextExtractorTests.fs" />
     <Compile Include="OoxmlExtractorTests.fs" />
+    <Compile Include="ImageExtractorTests.fs" />
     <Compile Include="PdfExtractorTests.fs" />
     <Compile Include="SqliteStoreTests.fs" />
     <Compile Include="ImageStoreTests.fs" />
     <Compile Include="IndexerTests.fs" />
     <Compile Include="KnowledgeBaseTests.fs" />
     <Compile Include="CaptionGeneratorTests.fs" />
+    <Compile Include="KeywordExtractorTests.fs" />
+    <Compile Include="TextDumperTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -41,6 +44,9 @@
     <!-- Phase 4 — sqlite-vec native binary (vec0 extension). lib 의 PrivateAssets=all 우회.
          ExcludeAssets=contentFiles — Vector.cs C# wrapper inject 차단 (F# 환경). -->
     <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
+    <!-- Task 7 — ImageExtractorTests 의 System.Drawing.Bitmap 사용 (JPEG/GIF fixture 생성).
+         lib 가 PrivateAssets=all 로 차단하므로 test 측 직접 의존 (PdfPig / OpenXml 와 동일 패턴). -->
+    <PackageReference Include="System.Drawing.Common" />
   </ItemGroup>
 
   <ItemGroup>

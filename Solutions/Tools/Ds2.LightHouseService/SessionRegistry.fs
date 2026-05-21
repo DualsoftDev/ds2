@@ -5,7 +5,7 @@ open System.Collections.Concurrent
 open System.IO
 open System.Threading
 
-/// ATTACH 시점 진단 DU (todo-lighthouse-kb-server.md s3-r0 D-S3-4).
+/// ATTACH 시점 진단 DU (done-lighthouse-kb-server.md s3-r0 D-S3-4).
 ///
 /// `IndexerVersionGateResult` (upload 시점) 와 분리 — attach 는 session lazy open 시점에 발생,
 /// gate 는 client 의 index.db 가 host 호환 범위에 있는지 검증 (upload 시점).
@@ -199,7 +199,7 @@ type ISessionRegistry =
     abstract AttachKb: SessionState -> Ds2.LightHouse.KnowledgeBase
 
 
-/// `ISessionRegistry` 의 in-memory 구현 (Phase S3 SSOT, todo-lighthouse-kb-server.md §3.8).
+/// `ISessionRegistry` 의 in-memory 구현 (Phase S3 SSOT, done-lighthouse-kb-server.md §3.8).
 ///
 /// 책임:
 /// - token 발급 (`Guid.NewGuid().ToString("N")` — URL-safe 32-char hex)

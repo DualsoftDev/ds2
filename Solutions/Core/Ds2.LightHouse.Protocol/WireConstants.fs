@@ -3,7 +3,7 @@ namespace Ds2.LightHouse.Protocol
 /// **K4 Protocol SSOT (A2)** — wire-level 상수 SSOT. 본 namespace 하의 module 들이
 /// server / Promaker / cli 양측에서 동일 박제 의무.
 
-/// `meta.json` + zip 안 폴더 구조 (todo-lighthouse-kb-server.md §3.3 zip layout SSOT).
+/// `meta.json` + zip 안 폴더 구조 (done-lighthouse-kb-server.md §3.3 zip layout SSOT).
 ///
 /// 본 module 박제 이전 = Promaker `CollectionPackager.SourceFolderName / KbFolderName` + cli `Packager`
 /// + server `SqliteStore.kbDir` 3곳 양분 (M22 outlier). K4 통합으로 단일 SSOT.
@@ -20,7 +20,7 @@ module ZipLayout =
     let KbFolderName = ".lighthouse-kb"
 
 
-/// HTTP 요청/응답 header 이름 SSOT (todo-lighthouse-kb-server.md §3.7 / §3.12 IndexerVersion gate).
+/// HTTP 요청/응답 header 이름 SSOT (done-lighthouse-kb-server.md §3.7 / §3.12 IndexerVersion gate).
 [<RequireQualifiedAccess>]
 module HeaderNames =
 

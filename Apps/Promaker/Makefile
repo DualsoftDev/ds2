@@ -178,7 +178,7 @@ clean:
 	-rm -rf Promaker.Shared/bin Promaker.Shared/obj
 
 # ── LightHouse Service (dev/PoC) ───────────────────────────
-# install — 인증서 + Service 등록 (todo-lighthouse-kb-server.md Phase S1 / §3.7).
+# install — 인증서 + Service 등록 (done-lighthouse-kb-server.md Phase S1 / §3.7).
 #   1) generate-dev-cert.ps1 (self-signed PFX, LocalMachine\My + service.pfx export)
 #   2) dotnet publish service (Release, framework-dependent)
 #   3) install-service.ps1 (PSK 평문 입력 → DPAPI 암호화 → config.json + sc.exe register)

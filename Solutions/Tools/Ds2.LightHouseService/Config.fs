@@ -8,7 +8,7 @@ open System.Text.Json.Serialization
 open System.Security.Cryptography
 open Ds2.LightHouse.Protocol
 
-/// service config (todo-lighthouse-kb-server.md §3.11 SSOT).
+/// service config (done-lighthouse-kb-server.md §3.11 SSOT).
 ///
 /// 위치: `%PROGRAMDATA%\Dualsoft\LightHouseService\config.json`. install-service.ps1 이 사용자 입력 받아 작성.
 /// 본 record 의 모든 필드는 §3.11 SSOT 와 1:1.

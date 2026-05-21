@@ -109,7 +109,7 @@ module AttachmentClassifier =
                     else RejectUnknown
                 else RejectUnknown
 
-    /// 텍스트 인코딩 추정 — todo-lighthouse-kb-index.md §4.2b 에서 본체 `Ds2.LightHouse.TextEncoding` 로 이전.
+    /// 텍스트 인코딩 추정 — done-lighthouse-kb-index.md §4.2b 에서 본체 `Ds2.LightHouse.TextEncoding` 로 이전.
     ///
     /// **영구적 호환 shim** (review M1) — 임시 마이그레이션 아님. C# 호출처 (`LlmChatViewModel.Attachments.cs:361` —
     /// `var det = ...` 로 받음) + `AttachmentClassifierDriftTests` 의 13 Fact 가 본 함수명에 lock-in 되어 있어

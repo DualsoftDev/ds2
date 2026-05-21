@@ -6,7 +6,7 @@ open System.Threading
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 
-/// `Staging\` 의 incomplete upload sweep (todo-lighthouse-kb-server.md §3.10).
+/// `Staging\` 의 incomplete upload sweep (done-lighthouse-kb-server.md §3.10).
 ///
 /// 정책:
 /// - 명시 cancel (`DELETE /uploads/{stagingId}`) 시 즉시 해당 entry 제거 — `removeStaging`

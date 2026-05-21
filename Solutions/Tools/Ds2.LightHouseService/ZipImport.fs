@@ -5,7 +5,7 @@ open System.IO
 open System.IO.Compression
 open System.Text.RegularExpressions
 
-/// `POST /collections` 의 zip 검증/전개 (todo-lighthouse-kb-server.md §3.3 / §3.12).
+/// `POST /collections` 의 zip 검증/전개 (done-lighthouse-kb-server.md §3.3 / §3.12).
 ///
 /// 책임:
 /// - sanitize: entry path `..` / 절대경로 / symlink / Collections\<id>\ 하위 verify / blobs/images regex
