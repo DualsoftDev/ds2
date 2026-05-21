@@ -27,6 +27,14 @@ light-house repo 의 `Ds2.LightHouse.Cli` (`lighthouse-cli`) 를 호출하여 �
 
 둘 중 하나라도 미설정 시 사용자에게 일반 텍스트로 물어보고 진행. 응답값을 그 turn 의 `$env:LIGHTHOUSE_URL` / `$env:LIGHTHOUSE_PSK` 로 박제하여 호출.
 
+### Ollama (embedding backend)
+- `ollama serve` 가동 + `bge-m3` 모델 pull 됨 (`ollama pull bge-m3`).
+- **NaN 방지 (bge-m3 known issue)**: `OLLAMA_FLASH_ATTENTION=false` 환경에서 `ollama serve` 가동 필수. 미박제 시
+  특정 입력 길이부터 Flash Attention long-context FP16 결함으로 embedding 결과에 NaN 발생 → ollama 가
+  `"failed to encode response: json: unsupported value: NaN"` 로 500 반환 → CLI abort.
+- search skill 의 동일 안내와 정합 (`.claude/skills/search/SKILL.md` §외부 의존).
+- `--no-embedding` flag 박제 시 본 의존 무관 (BM25-only 색인).
+
 ### CLI binary
 repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 불필요.
 
@@ -148,23 +156,36 @@ subagent 는 SQLite 직접 접근 0. caption text + model 만 main (skill) 으�
 
 subagent path 결과는 `ImageCache.CaptionModel = "claude-{model}-via-subagent"` (e.g. `claude-opus-4-7-via-subagent`). Anthropic direct path 의 model literal (`claude-sonnet-4-6` 등) 과 구분되어 동일 image 의 두 path caption 박제 시 source 식별 가능 (todo §2 #9).
 
-## 산출물 보관 정책 (s6-r55+)
+## 산출물 보관 정책 (s6-r55+, 2026-05-21 정책 재정의)
 
 CLI 가 **in-place 색인** — 색인 산출물은 `<folder>/.lighthouse-kb/` 폴더 1개에 보관:
 
 ```
 <folder>/
   (사용자 원 파일들 …)
-  .lighthouse-kb/        ← 색인 시작 전 wipe + 색인 후 보관 (관리 단위 = 이 폴더)
+  .lighthouse-kb/        ← idempotent 재활용 (hash 기반) — `--skip-upload` 경로는 wipe 안 함
     meta.json
     index.db
+    blobs/images/…
 ```
 
-- **시작 전**: 이전 색인의 `<folder>/.lighthouse-kb/` 통째 wipe → 새 색인 박제.
-- **색인 후**: 보관. 다음 `/indexer` 호출 시점에 다시 wipe.
+- **재활용 우선 (`--skip-upload` 경로는 시작 시 wipe 안 함)** — `.lighthouse-kb/` 를 *그대로 두고* idempotent 색인.
+  - **파일 수준 fast-skip**: mtime/size match → hash 재계산 skip + 기존 docId 재활용 (`Indexer.fastSkipMatched`).
+  - **hash 수준 skip**: 동일 hash 의 Document 이미 있으면 skip (`findDocumentByHash`).
+  - **image caption 재활용**: `ImageCache.ImageHash` PK + `upsertImageCache` 가 `INSERT OR IGNORE` → 같은 hash 의
+    image 가 다시 들어와도 기존 `CaptionText` / `CaptionModel` 절대 덮어쓰지 않음. caption 비용 재투입 0.
+- **`--upload` 경로는 여전히 wipe** — `Packager.resetKbDir` 가 marker / index.db 존재 시에만 wipe (사용자의 다른
+  용도 동명 폴더 보호). zip 산출물의 결정성 보장 우선.
+- **self-ingest 방지**: `Indexer.enumerateFiles` 가 `.lighthouse-kb/` 안 파일 (DB / blob / dump 등) 을 `GetFullPath`
+  normalize 비교로 제외.
 - **upload zip**: temp 위치에 만들고 업로드 완료/실패 시 즉시 정리. `.lighthouse-kb/` 는 source 안에 유지.
 - **source write 권한 필수** — 부재 시 exit 11.
 - **권장**: `<folder>` 가 git tree 안이면 `.gitignore` 에 `.lighthouse-kb/` 추가.
+
+### 명시 wipe 가 필요한 경우
+
+source 폴더에서 *파일이 삭제* 되었거나, 강제 재색인이 필요하면 사용자가 명시적으로 `<folder>/.lighthouse-kb/` 를
+지우고 재실행. CLI 가 자동으로 stale row 청소는 안 함 (현 phase 한정 — 추후 selective cleanup 도입 가능).
 
 ## Exit code 해석 (사용자 친화 메시지)
 
@@ -179,6 +200,8 @@ CLI 의 exit code SSOT (`Program.fs` D-S6-4 박제) 를 다음 메시지로 변�
 | 10 | 인자 오류 | "명령행 인자 오류. usage 재확인." |
 | 11 | 폴더 미존재 | "폴더 미존재 — <folder>" |
 | 12 | ingested=0 | "색인 대상 0건 (빈 폴더 또는 모두 unsupported extension)." |
+| 13 | VLM API key 미박제 | "LIGHTHOUSE_VLM_API_KEY 박제 또는 `--force-without-image-caption` flag 추가." |
+| 14 | OLLAMA_FLASH_ATTENTION 박제 미달 | "setx OLLAMA_FLASH_ATTENTION false 후 Ollama 재시작. 또는 `--no-embedding` 으로 BM25-only 색인." |
 | 99 | 기타 | CLI stderr 마지막 줄 그대로 노출. |
 
 ## 사용 예
