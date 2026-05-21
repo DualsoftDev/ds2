@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Ds2.Core.Store;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Win32;
@@ -9,7 +12,14 @@ namespace DSPilot.AasxSimulator;
 
 public partial class MainWindow : Window
 {
+    private const int LogMaxLines = 5000;
+    private const int LogTrimChunk = 1000;
+    private static readonly TimeSpan LogFlushInterval = TimeSpan.FromMilliseconds(100);
+
     private readonly PlcConnectionSettings _plc;
+    private readonly ConcurrentQueue<string> _logQueue = new();
+    private readonly DispatcherTimer _logFlushTimer;
+    private int _logLineCount;
     private CancellationTokenSource? _cts;
     private DsStore? _loadedStore;
     private string? _loadedAasxPath;
@@ -30,6 +40,14 @@ public partial class MainWindow : Window
         CmbPlcModel.SelectedIndex = _plc.LS.PlcModel switch { "XGK" => 1, "XGT" => 2, _ => 0 };
         CmbMxProtocol.SelectedIndex = _plc.Mitsubishi.Protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         ApplyPlcTypeToInputs();
+
+        _logFlushTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = LogFlushInterval,
+        };
+        _logFlushTimer.Tick += (_, _) => FlushLogQueue();
+        _logFlushTimer.Start();
+        Closed += (_, _) => _logFlushTimer.Stop();
     }
 
     private void ApplyPlcTypeToInputs()
@@ -86,7 +104,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnClearLog(object sender, RoutedEventArgs e) => TxtLog.Clear();
+    private void OnClearLog(object sender, RoutedEventArgs e)
+    {
+        while (_logQueue.TryDequeue(out _)) { }
+        TxtLog.Clear();
+        _logLineCount = 0;
+    }
 
     private void OnValidate(object sender, RoutedEventArgs e)
     {
@@ -136,7 +159,7 @@ public partial class MainWindow : Window
         var service = new FlowSimulationService
         {
             Log = AppendLog,
-            CycleChanged = c => Dispatcher.Invoke(() => LblCycle.Text = $"Cycle: {c}"),
+            CycleChanged = c => Dispatcher.BeginInvoke(() => LblCycle.Text = $"Cycle: {c}"),
         };
 
         if (_loadedStore is null || !string.Equals(_loadedAasxPath, TxtAasxPath.Text, StringComparison.OrdinalIgnoreCase))
@@ -222,13 +245,45 @@ public partial class MainWindow : Window
 
     private void AppendLog(string line)
     {
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.BeginInvoke(() => AppendLog(line));
-            return;
-        }
         var stamp = DateTime.Now.ToString("HH:mm:ss.fff");
-        TxtLog.AppendText($"[{stamp}] {line}\n");
+        _logQueue.Enqueue($"[{stamp}] {line}\n");
+    }
+
+    private void FlushLogQueue()
+    {
+        if (_logQueue.IsEmpty) return;
+
+        var batch = new StringBuilder();
+        int batched = 0;
+        while (_logQueue.TryDequeue(out var entry))
+        {
+            batch.Append(entry);
+            batched++;
+        }
+        if (batched == 0) return;
+
+        TxtLog.AppendText(batch.ToString());
+        _logLineCount += batched;
+
+        if (_logLineCount > LogMaxLines)
+        {
+            var text = TxtLog.Text;
+            int trimLines = _logLineCount - (LogMaxLines - LogTrimChunk);
+            int idx = 0;
+            for (int i = 0; i < trimLines && idx < text.Length; i++)
+            {
+                int nl = text.IndexOf('\n', idx);
+                if (nl < 0) { idx = text.Length; break; }
+                idx = nl + 1;
+            }
+            if (idx > 0)
+            {
+                TxtLog.Text = text.Substring(idx);
+                _logLineCount -= trimLines;
+            }
+        }
+
+        TxtLog.CaretIndex = TxtLog.Text.Length;
         TxtLog.ScrollToEnd();
     }
 }
