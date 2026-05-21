@@ -94,6 +94,9 @@ let private registerCollection
         Status = "idle"
         ErrorReason = null
         LastImportedAt = "2026-05-17T00:00:00Z"
+        // **PR-A (r0)** — 두 신 필드 default (FileServing 검증과 무관)
+        Description = ""
+        Keywords = [||]
         Acl = Unchecked.defaultof<CollectionAcl>
     }
     do! Registry.upsertAsync storageRoot entry

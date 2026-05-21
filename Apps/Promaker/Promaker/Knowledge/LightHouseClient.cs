@@ -725,6 +725,12 @@ public sealed class CollectionInfo
     [JsonPropertyName("status")] public string Status { get; set; } = "idle";
     [JsonPropertyName("errorReason")] public string? ErrorReason { get; set; }
     [JsonPropertyName("lastImportedAt")] public string LastImportedAt { get; set; } = "";
+    /// <summary>**PR-A (r0, todo-lighthouse-index-summary.md §3.1)** — collection topic 1줄 합성.
+    /// Phase 1 = 빈 string (b1 stats 만으로는 합성 불가). KbDigestBuilder 가 빈 시 title 만 박제.</summary>
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+    /// <summary>**PR-A (r0)** — KeywordExtractor 결과 (top-N=15 잠정).
+    /// 빈 array = legacy collection (PR-B 이전 색인). KbDigestBuilder fallback path.</summary>
+    [JsonPropertyName("keywords")] public string[] Keywords { get; set; } = Array.Empty<string>();
 }
 
 public sealed class CollectionListResponse
