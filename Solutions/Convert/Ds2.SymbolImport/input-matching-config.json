@@ -1686,6 +1686,891 @@
             ]
           }
         ]
+      },
+      {
+        "Name": "미쯔비시 한국 자동차 라인 휴리스틱 (확장)",
+        "OutputAddressPatterns": [
+          "Y*"
+        ],
+        "InputAddressPatterns": [
+          "X*"
+        ],
+        "DeviceKeywords": [
+          "*공정*",
+          "*로보트*",
+          "*로봇*",
+          "*RBT*",
+          "*RB*",
+          "*클램프*",
+          "*클램핑*",
+          "*래치*",
+          "*셔틀*",
+          "*대차*",
+          "*드레스*",
+          "*팁드레스*",
+          "*인터록*",
+          "*리프터*",
+          "*컨베*",
+          "*컨넥션*",
+          "*지그*",
+          "*정렬지그*",
+          "*키지그*",
+          "*핸들*",
+          "*외관검사*",
+          "*열융착*",
+          "*열웅착*",
+          "*열융착히터*",
+          "*MES*",
+          "*CC_LINK*",
+          "*CC-LINK*",
+          "*CC LINK*",
+          "*D_NET*",
+          "*MASTER*",
+          "*QJ71*",
+          "*ECHO*",
+          "*PROG*",
+          "*LINK*",
+          "*Laser*",
+          "*Vision*",
+          "*EOL*",
+          "*HIPOT*",
+          "*IONIZER*",
+          "*Turn*",
+          "*Gate*",
+          "*Loading*",
+          "*Tower*",
+          "*Buzzer*",
+          "*Sensor*",
+          "*Stopper*",
+          "*Cooling*",
+          "*Pop*",
+          "*Pop-Up*",
+          "*Pop_Up*",
+          "*Align*",
+          "*Plate*",
+          "*Locking*",
+          "*Buffer*",
+          "*CYL*",
+          "*SOL*",
+          "*SERVO*",
+          "*DOOR*",
+          "*Position*",
+          "*QD77*",
+          "*QD75*",
+          "*Touch*",
+          "*HMI*",
+          "*C/V*"
+        ],
+        "Apis": [
+          {
+            "Name": "완료",
+            "OutputKeywords": [
+              "요구",
+              "요청",
+              "REQ"
+            ],
+            "InputKeywords": [
+              "완료",
+              "COMP",
+              "OK",
+              "END",
+              "Complete",
+              "Done"
+            ]
+          },
+          {
+            "Name": "시작",
+            "OutputKeywords": [
+              "시작",
+              "START",
+              "기동",
+              "Position Start"
+            ],
+            "InputKeywords": [
+              "시작완료",
+              "기동완료",
+              "Started",
+              "Run",
+              "Running",
+              "Busy"
+            ]
+          },
+          {
+            "Name": "정지",
+            "OutputKeywords": [
+              "정지",
+              "STOP",
+              "Stop"
+            ],
+            "InputKeywords": [
+              "정지완료",
+              "Stopped",
+              "STOPPED"
+            ]
+          },
+          {
+            "Name": "리셋",
+            "OutputKeywords": [
+              "리셋",
+              "RESET",
+              "Reset",
+              "초기화"
+            ],
+            "InputKeywords": [
+              "초기화완료",
+              "ResetDone",
+              "Reseted"
+            ]
+          },
+          {
+            "Name": "준비",
+            "OutputKeywords": [
+              "준비요청",
+              "READY_REQ"
+            ],
+            "InputKeywords": [
+              "Ready",
+              "READY",
+              "Synchro-flag",
+              "준비완료"
+            ]
+          },
+          {
+            "Name": "전진",
+            "OutputKeywords": [
+              "전진",
+              "FWD",
+              "ADV"
+            ],
+            "InputKeywords": [
+              "전진완료",
+              "FWDPOS",
+              "ADVPOS"
+            ]
+          },
+          {
+            "Name": "후진",
+            "OutputKeywords": [
+              "후진",
+              "REV",
+              "RET"
+            ],
+            "InputKeywords": [
+              "후진완료",
+              "REVPOS",
+              "RETPOS"
+            ]
+          },
+          {
+            "Name": "상승",
+            "OutputKeywords": [
+              "상승",
+              "UP",
+              "Up"
+            ],
+            "InputKeywords": [
+              "상승완료",
+              "UpPos",
+              "UP_POS",
+              "ULS"
+            ]
+          },
+          {
+            "Name": "하강",
+            "OutputKeywords": [
+              "하강",
+              "DOWN",
+              "Down"
+            ],
+            "InputKeywords": [
+              "하강완료",
+              "DownPos",
+              "DOWN_POS",
+              "DLS"
+            ]
+          },
+          {
+            "Name": "OPEN",
+            "OutputKeywords": [
+              "OPEN",
+              "Open",
+              "열림요구",
+              "DOOROPEN"
+            ],
+            "InputKeywords": [
+              "OPEN완료",
+              "Opened",
+              "열림완료"
+            ]
+          },
+          {
+            "Name": "OPEN완료",
+            "OutputKeywords": [
+              "OPEN요구",
+              "OpenReq"
+            ],
+            "InputKeywords": [
+              "OPEN완료",
+              "Opened"
+            ]
+          },
+          {
+            "Name": "CLOSE",
+            "OutputKeywords": [
+              "CLOSE",
+              "Close",
+              "닫힘요구"
+            ],
+            "InputKeywords": [
+              "CLOSE완료",
+              "Closed",
+              "닫힘완료"
+            ]
+          },
+          {
+            "Name": "CLOSE완료",
+            "OutputKeywords": [
+              "CLOSE요구",
+              "CloseReq"
+            ],
+            "InputKeywords": [
+              "CLOSE완료",
+              "Closed"
+            ]
+          },
+          {
+            "Name": "Busy",
+            "OutputKeywords": [
+              "Start",
+              "Position Start"
+            ],
+            "InputKeywords": [
+              "Busy",
+              "Running"
+            ]
+          },
+          {
+            "Name": "Ready",
+            "OutputKeywords": [
+              "ReadyReq",
+              "READY_REQ"
+            ],
+            "InputKeywords": [
+              "Ready",
+              "READY",
+              "Synchro-flag"
+            ]
+          },
+          {
+            "Name": "이상검출",
+            "OutputKeywords": [
+              "Error_Reset",
+              "이상리셋"
+            ],
+            "InputKeywords": [
+              "이상검출",
+              "이상감지",
+              "이상"
+            ]
+          },
+          {
+            "Name": "이상",
+            "OutputKeywords": [
+              "이상",
+              "ERR",
+              "ERROR",
+              "FAULT"
+            ],
+            "InputKeywords": [
+              "이상검출",
+              "이상감지",
+              "ERR_DET"
+            ]
+          },
+          {
+            "Name": "자동",
+            "OutputKeywords": [
+              "자동",
+              "AUTO",
+              "Auto"
+            ],
+            "InputKeywords": [
+              "자동완료",
+              "AutoOn",
+              "AUTO_ON"
+            ]
+          },
+          {
+            "Name": "Position",
+            "OutputKeywords": [
+              "Position Start",
+              "Start"
+            ],
+            "InputKeywords": [
+              "Busy"
+            ]
+          },
+          {
+            "Name": "Up",
+            "OutputKeywords": [
+              "Up"
+            ],
+            "InputKeywords": [
+              "Up"
+            ]
+          },
+          {
+            "Name": "Down",
+            "OutputKeywords": [
+              "Down"
+            ],
+            "InputKeywords": [
+              "Down"
+            ]
+          },
+          {
+            "Name": "FWD",
+            "OutputKeywords": [
+              "FWD",
+              "Forward"
+            ],
+            "InputKeywords": [
+              "FWD",
+              "Forward"
+            ]
+          },
+          {
+            "Name": "BWD",
+            "OutputKeywords": [
+              "BWD",
+              "Back"
+            ],
+            "InputKeywords": [
+              "BWD",
+              "Back"
+            ]
+          },
+          {
+            "Name": "Turn",
+            "OutputKeywords": [
+              "Turn"
+            ],
+            "InputKeywords": [
+              "Turn"
+            ]
+          },
+          {
+            "Name": "Return",
+            "OutputKeywords": [
+              "Return"
+            ],
+            "InputKeywords": [
+              "Return"
+            ]
+          },
+          {
+            "Name": "Clamp",
+            "OutputKeywords": [
+              "Clamp"
+            ],
+            "InputKeywords": [
+              "Clamp"
+            ]
+          },
+          {
+            "Name": "Unclamp",
+            "OutputKeywords": [
+              "Unclamp"
+            ],
+            "InputKeywords": [
+              "Unclamp"
+            ]
+          },
+          {
+            "Name": "DoorOpen",
+            "OutputKeywords": [
+              "DoorOpen"
+            ],
+            "InputKeywords": [
+              "DoorOpen"
+            ]
+          },
+          {
+            "Name": "상승SOL",
+            "OutputKeywords": [
+              "상승SOL",
+              "상승 SOL"
+            ],
+            "InputKeywords": [
+              "상승단",
+              "상승완료",
+              "ULS",
+              "UP_POS",
+              "UpPos"
+            ]
+          },
+          {
+            "Name": "하강SOL",
+            "OutputKeywords": [
+              "하강SOL",
+              "하강 SOL"
+            ],
+            "InputKeywords": [
+              "하강단",
+              "하강완료",
+              "DLS",
+              "DOWN_POS",
+              "DownPos"
+            ]
+          },
+          {
+            "Name": "잠김SOL",
+            "OutputKeywords": [
+              "잠김SOL",
+              "잠김 SOL",
+              "잠김"
+            ],
+            "InputKeywords": [
+              "잠김단",
+              "잠김완료",
+              "LOCK"
+            ]
+          },
+          {
+            "Name": "풀림SOL",
+            "OutputKeywords": [
+              "풀림SOL",
+              "풀림 SOL",
+              "풀림"
+            ],
+            "InputKeywords": [
+              "풀림단",
+              "풀림완료",
+              "UNLOCK"
+            ]
+          },
+          {
+            "Name": "전진SOL",
+            "OutputKeywords": [
+              "전진SOL",
+              "전진 SOL"
+            ],
+            "InputKeywords": [
+              "전진단",
+              "전진완료",
+              "FWDPOS",
+              "ADVPOS"
+            ]
+          },
+          {
+            "Name": "후진SOL",
+            "OutputKeywords": [
+              "후진SOL",
+              "후진 SOL"
+            ],
+            "InputKeywords": [
+              "후진단",
+              "후진완료",
+              "REVPOS",
+              "RETPOS"
+            ]
+          },
+          {
+            "Name": "잠김SOL(RB)",
+            "OutputKeywords": [
+              "잠김SOL(RB)",
+              "잠김 SOL(RB)"
+            ],
+            "InputKeywords": [
+              "잠김단(RB)",
+              "잠김(RB)"
+            ]
+          },
+          {
+            "Name": "풀림SOL(RB)",
+            "OutputKeywords": [
+              "풀림SOL(RB)",
+              "풀림 SOL(RB)"
+            ],
+            "InputKeywords": [
+              "풀림단(RB)",
+              "풀림(RB)"
+            ]
+          },
+          {
+            "Name": "잠김SOL(FS)",
+            "OutputKeywords": [
+              "잠김SOL(FS)",
+              "잠김 SOL(FS)"
+            ],
+            "InputKeywords": [
+              "잠김단(FS)",
+              "잠김(FS)"
+            ]
+          },
+          {
+            "Name": "풀림SOL(FS)",
+            "OutputKeywords": [
+              "풀림SOL(FS)",
+              "풀림 SOL(FS)"
+            ],
+            "InputKeywords": [
+              "풀림단(FS)",
+              "풀림(FS)"
+            ]
+          },
+          {
+            "Name": "기동",
+            "OutputKeywords": [
+              "기동",
+              "운전기동",
+              "자동기동"
+            ],
+            "InputKeywords": [
+              "운전준비",
+              "운전중",
+              "기동완료",
+              "Started"
+            ]
+          },
+          {
+            "Name": "이상해제",
+            "OutputKeywords": [
+              "이상해제",
+              "이상리셋",
+              "Error_Reset"
+            ],
+            "InputKeywords": [
+              "이상",
+              "이상검출",
+              "이상감지",
+              "이상발생",
+              "고장",
+              "LS이상",
+              "Error",
+              "Fault"
+            ]
+          },
+          {
+            "Name": "정회전",
+            "OutputKeywords": [
+              "정회전",
+              "정전"
+            ],
+            "InputKeywords": [
+              "정회전중",
+              "정회전완료",
+              "정회전감지"
+            ]
+          },
+          {
+            "Name": "역회전",
+            "OutputKeywords": [
+              "역회전",
+              "역전"
+            ],
+            "InputKeywords": [
+              "역회전중",
+              "역회전완료",
+              "역회전감지"
+            ]
+          },
+          {
+            "Name": "request",
+            "OutputKeywords": [
+              "request",
+              "Request",
+              "REQ",
+              "요구",
+              "요청"
+            ],
+            "InputKeywords": [
+              "completion",
+              "Completion",
+              "complete",
+              "Complete",
+              "completed",
+              "Completed",
+              "Done",
+              "done",
+              "OK"
+            ]
+          },
+          {
+            "Name": "Run",
+            "OutputKeywords": [
+              "Run",
+              "RUN",
+              "운전"
+            ],
+            "InputKeywords": [
+              "Running",
+              "RUNNING",
+              "Run",
+              "운전중"
+            ]
+          },
+          {
+            "Name": "BUSY",
+            "OutputKeywords": [
+              "Start",
+              "START",
+              "Position Start",
+              "TRIGGER",
+              "Trigger"
+            ],
+            "InputKeywords": [
+              "BUSY",
+              "Busy",
+              "이상검출",
+              "제품감지"
+            ]
+          },
+          {
+            "Name": "잠김출력",
+            "OutputKeywords": [
+              "잠김출력",
+              "잠김 출력",
+              "잠김SOL",
+              "잠김 SOL"
+            ],
+            "InputKeywords": [
+              "잠김단",
+              "잠김 단",
+              "잠김완료",
+              "대차록크잠김단",
+              "잠김단1",
+              "잠김단2",
+              "잠김단3",
+              "잠김단4"
+            ]
+          },
+          {
+            "Name": "풀림출력",
+            "OutputKeywords": [
+              "풀림출력",
+              "풀림 출력",
+              "풀림SOL",
+              "풀림 SOL"
+            ],
+            "InputKeywords": [
+              "풀림단",
+              "풀림 단",
+              "풀림완료",
+              "대차록크풀림단",
+              "풀림단1",
+              "풀림단2",
+              "풀림단3",
+              "풀림단4"
+            ]
+          },
+          {
+            "Name": "상승출력",
+            "OutputKeywords": [
+              "상승출력",
+              "상승 출력",
+              "상승SOL",
+              "상승 SOL"
+            ],
+            "InputKeywords": [
+              "상승단",
+              "상승 단",
+              "대차후크상승단",
+              "대차레일상승단",
+              "정위치핀상승단",
+              "상승완료",
+              "ULS",
+              "UpPos"
+            ]
+          },
+          {
+            "Name": "하강출력",
+            "OutputKeywords": [
+              "하강출력",
+              "하강 출력",
+              "하강SOL",
+              "하강 SOL"
+            ],
+            "InputKeywords": [
+              "하강단",
+              "하강 단",
+              "대차후크하강단",
+              "대차레일하강단",
+              "정위치핀하강단",
+              "하강완료",
+              "DLS",
+              "DownPos"
+            ]
+          },
+          {
+            "Name": "전진출력",
+            "OutputKeywords": [
+              "전진출력",
+              "전진 출력",
+              "전진SOL",
+              "전진 SOL"
+            ],
+            "InputKeywords": [
+              "전진단",
+              "전진 단",
+              "급기장치전진단",
+              "접지전진단",
+              "전진완료",
+              "FWDPOS",
+              "ADVPOS"
+            ]
+          },
+          {
+            "Name": "후진출력",
+            "OutputKeywords": [
+              "후진출력",
+              "후진 출력",
+              "후진SOL",
+              "후진 SOL"
+            ],
+            "InputKeywords": [
+              "후진단",
+              "후진 단",
+              "급기장치후진단",
+              "접지후진단",
+              "후진완료",
+              "REVPOS",
+              "RETPOS"
+            ]
+          },
+          {
+            "Name": "유니트잠김SOL(RB)",
+            "OutputKeywords": [
+              "유니트잠김SOL(RB)",
+              "유니트잠김 SOL(RB)",
+              "잠김SOL(RB)"
+            ],
+            "InputKeywords": [
+              "잠김단(RB)",
+              "감지단(RB)",
+              "유니트잠김단"
+            ]
+          },
+          {
+            "Name": "유니트풀림SOL(RB)",
+            "OutputKeywords": [
+              "유니트풀림SOL(RB)",
+              "유니트풀림 SOL(RB)",
+              "풀림SOL(RB)"
+            ],
+            "InputKeywords": [
+              "풀림단(RB)",
+              "유니트풀림단"
+            ]
+          },
+          {
+            "Name": "유니트잠김SOL(FS)",
+            "OutputKeywords": [
+              "유니트잠김SOL(FS)",
+              "유니트잠김 SOL(FS)",
+              "잠김SOL(FS)"
+            ],
+            "InputKeywords": [
+              "잠김단(FS)",
+              "유니트잠김단(FS)"
+            ]
+          },
+          {
+            "Name": "유니트풀림SOL(FS)",
+            "OutputKeywords": [
+              "유니트풀림SOL(FS)",
+              "유니트풀림 SOL(FS)",
+              "풀림SOL(FS)"
+            ],
+            "InputKeywords": [
+              "풀림단(FS)",
+              "유니트풀림단(FS)"
+            ]
+          },
+          {
+            "Name": "INDEX슬라이드전진출력",
+            "OutputKeywords": [
+              "INDEX슬라이드전진출력"
+            ],
+            "InputKeywords": [
+              "INDEX슬라이드전진단"
+            ]
+          },
+          {
+            "Name": "INDEX슬라이드후진출력",
+            "OutputKeywords": [
+              "INDEX슬라이드후진출력"
+            ],
+            "InputKeywords": [
+              "INDEX슬라이드후진단"
+            ]
+          },
+          {
+            "Name": "INDEX로딩급기전진출력",
+            "OutputKeywords": [
+              "INDEX로딩급기전진출력"
+            ],
+            "InputKeywords": [
+              "INDEX로딩급기전진단"
+            ]
+          },
+          {
+            "Name": "INDEX로딩급기후진출력",
+            "OutputKeywords": [
+              "INDEX로딩급기후진출력"
+            ],
+            "InputKeywords": [
+              "INDEX로딩급기후진단"
+            ]
+          },
+          {
+            "Name": "INDEX장착급기전진출력",
+            "OutputKeywords": [
+              "INDEX장착급기전진출력"
+            ],
+            "InputKeywords": [
+              "INDEX장착급기전진단"
+            ]
+          },
+          {
+            "Name": "INDEX장착급기후진출력",
+            "OutputKeywords": [
+              "INDEX장착급기후진출력"
+            ],
+            "InputKeywords": [
+              "INDEX장착급기후진단"
+            ]
+          },
+          {
+            "Name": "오버히트",
+            "OutputKeywords": [
+              "오버히트",
+              "Overheat",
+              "OVERHEAT"
+            ],
+            "InputKeywords": [
+              "단선경보",
+              "온도경보",
+              "Overheat",
+              "OVERHEAT",
+              "Trip"
+            ]
+          },
+          {
+            "Name": "Reset",
+            "OutputKeywords": [
+              "Reset",
+              "RESET",
+              "리셋"
+            ],
+            "InputKeywords": [
+              "Trip",
+              "Reset",
+              "RESET",
+              "ResetDone"
+            ]
+          }
+        ]
       }
     ]
   },
@@ -2213,6 +3098,86 @@
       "Description": "Mitsubishi Y/X 대칭"
     },
     {
+      "OutputPattern": "잠김SOL",
+      "InputPattern": "잠김단",
+      "Description": "Mitsubishi 자동차 라인 - 잠김 SOL 출력 → 잠김단 센서"
+    },
+    {
+      "OutputPattern": "풀림SOL",
+      "InputPattern": "풀림단",
+      "Description": "Mitsubishi 자동차 라인 - 풀림 SOL 출력 → 풀림단 센서"
+    },
+    {
+      "OutputPattern": "상승SOL",
+      "InputPattern": "상승단",
+      "Description": "Mitsubishi 자동차 라인 - 상승 SOL 출력 → 상승단 센서"
+    },
+    {
+      "OutputPattern": "하강SOL",
+      "InputPattern": "하강단",
+      "Description": "Mitsubishi 자동차 라인 - 하강 SOL 출력 → 하강단 센서"
+    },
+    {
+      "OutputPattern": "전진SOL",
+      "InputPattern": "전진단",
+      "Description": "Mitsubishi 자동차 라인 - 전진 SOL 출력 → 전진단 센서"
+    },
+    {
+      "OutputPattern": "후진SOL",
+      "InputPattern": "후진단",
+      "Description": "Mitsubishi 자동차 라인 - 후진 SOL 출력 → 후진단 센서"
+    },
+    {
+      "OutputPattern": "잠김출력",
+      "InputPattern": "잠김단",
+      "Description": "잠김 출력 → 잠김단 센서"
+    },
+    {
+      "OutputPattern": "풀림출력",
+      "InputPattern": "풀림단",
+      "Description": "풀림 출력 → 풀림단 센서"
+    },
+    {
+      "OutputPattern": "상승출력",
+      "InputPattern": "상승단",
+      "Description": "상승 출력 → 상승단 센서"
+    },
+    {
+      "OutputPattern": "하강출력",
+      "InputPattern": "하강단",
+      "Description": "하강 출력 → 하강단 센서"
+    },
+    {
+      "OutputPattern": "전진출력",
+      "InputPattern": "전진단",
+      "Description": "전진 출력 → 전진단 센서"
+    },
+    {
+      "OutputPattern": "후진출력",
+      "InputPattern": "후진단",
+      "Description": "후진 출력 → 후진단 센서"
+    },
+    {
+      "OutputPattern": "SOL(RB)",
+      "InputPattern": "단(RB)",
+      "Description": "RB 변형 - SOL → 단"
+    },
+    {
+      "OutputPattern": "SOL(FS)",
+      "InputPattern": "단(FS)",
+      "Description": "FS 변형 - SOL → 단"
+    },
+    {
+      "OutputPattern": "Position Start",
+      "InputPattern": "Busy",
+      "Description": "CCS axis Position Start 출력 → Busy 상태 입력"
+    },
+    {
+      "OutputPattern": "request",
+      "InputPattern": "completion",
+      "Description": "CCS request/completion 페어"
+    },
+    {
       "OutputPattern": "PBLQ",
       "InputPattern": "PBLI",
       "Description": "PBLQ/PBLI 대칭"
@@ -2652,7 +3617,22 @@
       "*_F",
       "*_G",
       "*_H",
-      "**TH"
+      "**TH",
+      "*Screen*",
+      "*Reserved*",
+      "*Ethernet*",
+      "*Modem*",
+      "*Flash ROM*",
+      "*CH1*",
+      "*CH2*",
+      "*Diagnostic*",
+      "*Self-diagnosis*",
+      "*Battery*",
+      "*Absolute position*",
+      "*Speed limit*",
+      "*Acc Time*",
+      "*Dec Time*",
+      "*Comment Model*"
     ],
     "ApiKeywords": [
       "*ext*",
@@ -2699,7 +3679,78 @@
       "3RD",
       "SV",
       "CT",
-      "B"
+      "B",
+      "*완료",
+      "*요구",
+      "*요청",
+      "*Busy",
+      "*Ready",
+      "*REQ",
+      "Up",
+      "Down",
+      "FWD",
+      "BWD",
+      "Turn",
+      "Return",
+      "Clamp",
+      "Unclamp",
+      "Start",
+      "Stop",
+      "Busy",
+      "DoorOpen",
+      "제품감지",
+      "Position Start",
+      "*SOL",
+      "*단",
+      "*LS",
+      "*PB",
+      "*PBL",
+      "*ON",
+      "*OFF",
+      "*OK",
+      "*ERROR",
+      "*MASTER",
+      "*상승단",
+      "*하강단",
+      "*잠김단",
+      "*풀림단",
+      "*전진단",
+      "*후진단",
+      "*상승SOL",
+      "*하강SOL",
+      "*잠김SOL",
+      "*풀림SOL",
+      "*전진SOL",
+      "*후진SOL",
+      "*대차후크",
+      "*대차록크",
+      "*대차레일",
+      "*정위치핀",
+      "*급기장치",
+      "*접지",
+      "*1차클램프",
+      "*2차LH",
+      "*2차RH",
+      "*유니트잠김",
+      "*유니트풀림",
+      "*유니트",
+      "*보조반",
+      "*베이스",
+      "*Position",
+      "*Stopper",
+      "*Pop-Up",
+      "*Pop_Up",
+      "*Loading",
+      "*Buffer",
+      "*Cooling",
+      "*Laser",
+      "*EOL",
+      "*Vision",
+      "*Turn-1",
+      "*Turn-2",
+      "*Align-1",
+      "*Align-2",
+      "*Align"
     ],
     "IOTypeTokens": [
       "Q",
@@ -2735,7 +3786,7 @@
       "PartIndex": 1
     },
     "WorkNameFormat": "{Flow}_{WorkBase}",
-    "SplitDepth": 6
+    "SplitDepth": 3
   },
   "NodeConnectionRules": {
     "CallSequences": [
