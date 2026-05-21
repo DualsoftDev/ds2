@@ -11,6 +11,13 @@
     <PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />
     <!-- LLM Chat 첨부 Phase 3b (rev 15) — PDF 페이지 수 추출 (Apache 2.0, iText AGPL 회피). -->
     <PackageVersion Include="PdfPig" Version="0.1.14" />
+    <!-- todo-lighthouse-kb-index.md r9 보류 신설 → r11/s5e-r0 결정: Solutions/Directory.Packages.props 의 LightHouse 와 동일 3.5.1 명시.
+         PdfPig 0.1.14 가 transitive 로 OpenXml 3.1.1 을 끌어와 LightHouse 의 3.5.1 과 MSB3277 충돌 → Promaker scope 에서도 3.5.1 로 통일. -->
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <!-- Phase 4 — sqlite-vec native binary (vec0 extension). lib 의 PrivateAssets="all" 이라 native asset
+         transitive 안 됨 → Promaker publish output 에 직접 의무. version SSOT = Solutions/Directory.Packages.props
+         의 sqlite-vec 와 동일 0.1.7-alpha.2.1 (drift 의무 cross-PR 추적). -->
+    <PackageVersion Include="sqlite-vec" Version="0.1.7-alpha.2.1" />
   </ItemGroup>
   <!-- LLM API Providers (Phase 2) — Anthropic / OpenAI / OllamaSharp + Microsoft.Extensions.AI 공통 추상 -->
   <ItemGroup>
@@ -27,6 +34,11 @@
   <!-- 아이콘 팩 -->
   <ItemGroup>
     <PackageVersion Include="MahApps.Metro.IconPacks.Material" Version="6.0.0" />
+  </ItemGroup>
+  <!-- Markdown 렌더 — LLM chat assistant 응답 내 ```md ``` fence 자동 인식 + FlowDocument inline 렌더.
+       done-llm-markdown.md 권장안 B1. Markdig 파서 + AvalonEdit syntax highlight. MIT. -->
+  <ItemGroup>
+    <PackageVersion Include="MdXaml" Version="1.27.0" />
   </ItemGroup>
   <!-- WebView2 -->
   <ItemGroup>
