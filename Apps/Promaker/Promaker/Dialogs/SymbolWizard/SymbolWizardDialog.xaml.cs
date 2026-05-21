@@ -33,6 +33,7 @@ public partial class SymbolWizardDialog : Window
     private readonly DsStore _store;
     private FSharpList<ModelGenerator.SystemPlan>? _pendingPlans;
     private Mapper.MappingBatch? _pendingBatch;
+    public string SourceDisplayName { get; private set; } = "PLC 심볼";
 
     public SymbolWizardDialog(DsStore store)
     {
@@ -68,7 +69,46 @@ public partial class SymbolWizardDialog : Window
         }
 
         var vendor = SelectedVendor();
-        var parseResult = CsvParser.parseFile(vendor, path);
+        CsvTypes.CsvParseResult parseResult;
+        try
+        {
+            parseResult = CsvParser.parseFile(vendor, path);
+        }
+        catch (IOException ex)
+        {
+            HandleFileReadFailure(path, ex);
+            return;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            HandleFileReadFailure(path, ex);
+            return;
+        }
+        catch (Exception ex)
+        {
+            HandleSymbolProcessingFailure(
+                "[Error] PLC 심볼 파일 파싱 실패.",
+                $"PLC 심볼 파일 파싱 중 오류가 발생했습니다.\n\n{ex.Message}",
+                "PLC 심볼 파싱 오류");
+            return;
+        }
+
+        try
+        {
+            LoadParseResult(path, vendor, parseResult);
+        }
+        catch (Exception ex)
+        {
+            HandleSymbolProcessingFailure(
+                "[Error] PLC 심볼 매칭 실패.",
+                $"PLC 심볼 매칭/미리보기 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
+                "PLC 심볼 처리 오류");
+        }
+    }
+
+    private void LoadParseResult(string path, Vendor vendor, CsvTypes.CsvParseResult parseResult)
+    {
+        SourceDisplayName = Path.GetFileName(path);
         var entries = parseResult.Entries.ToList();
         var batch = Mapper.map(vendor, parseResult.Entries);
         var plans = ModelGenerator.generate(batch);
@@ -153,6 +193,33 @@ public partial class SymbolWizardDialog : Window
         ApplyButton.IsEnabled = mappedCount > 0;
     }
 
+    private void ResetParseState()
+    {
+        ApplyButton.IsEnabled = false;
+        _pendingBatch = null;
+        _pendingPlans = null;
+        MappingGrid.ItemsSource = null;
+        PreviewTree.Items.Clear();
+        IssuesBox.Text = "";
+    }
+
+    private void HandleSymbolProcessingFailure(string statusText, string message, string title)
+    {
+        ResetParseState();
+        StatusText.Text = statusText;
+        DialogHelpers.Error(this, message, title);
+    }
+
+    private void HandleFileReadFailure(string path, Exception ex)
+    {
+        ResetParseState();
+        StatusText.Text = "[Error] PLC 심볼 파일을 읽을 수 없습니다.";
+        DialogHelpers.Warn(
+            this,
+            $"PLC 심볼 파일을 읽을 수 없습니다.\n\n파일이 다른 프로그램에서 독점적으로 열려 있거나 접근 권한이 없습니다.\n파일을 닫고 다시 시도하세요.\n\n파일: {path}\n상세: {ex.Message}",
+            "PLC 심볼 파일 열기 실패");
+    }
+
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingPlans is null)
@@ -165,8 +232,17 @@ public partial class SymbolWizardDialog : Window
         // v10: SymbolImport 의 ModelGenerator plan 을 DsStore 에 단일 transaction 으로 적용.
         // 호출자(C#) 가 plan 의 모든 엔티티를 store mutation 으로 옮김.
         // 첫 Project 또는 신규 Project 안에 System/Flow/Work/Call/ApiDef 생성.
-        var projectId = EnsureProject();
-        ApplyPlansToStore(projectId, _pendingPlans);
+        try
+        {
+            var projectId = EnsureProject();
+            ApplyPlansToStore(_store, projectId, _pendingPlans);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "[Error] 모델 적용 실패.";
+            DialogHelpers.Error(this, $"PLC 심볼 모델 적용 중 오류가 발생했습니다.\n\n{ex.Message}", "PLC 심볼 적용 오류");
+            return;
+        }
 
         StatusText.Text = "모델 적용 완료.";
         DialogResult = true;
@@ -180,22 +256,22 @@ public partial class SymbolWizardDialog : Window
     }
 
     /// <summary>v10 spec: plan → DsStore mutation. ActionType / SensingType 은 plan 의 값 그대로.</summary>
-    private void ApplyPlansToStore(Guid projectId, FSharpList<ModelGenerator.SystemPlan> plans)
+    internal static void ApplyPlansToStore(DsStore store, Guid projectId, FSharpList<ModelGenerator.SystemPlan> plans)
     {
+        RemoveDefaultEmptyControlSystem(store, projectId);
+
         // Device(passive) System 먼저 생성 — Controller 의 ApiCall 이 ApiDef 가리키므로 선행 필요.
-        var deviceIdByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         var apiDefIdByDeviceApi = new Dictionary<(string, string), Guid>();
 
         foreach (var plan in plans)
         {
             if (plan.IsActive) continue;
             // passive = isActive: false
-            var systemId = _store.AddSystem(plan.Name, projectId, isActive: false);
-            deviceIdByName[plan.Name] = systemId;
+            var systemId = store.AddSystem(plan.Name, projectId, isActive: false);
             foreach (var apiDef in plan.ApiDefs)
             {
-                var apiDefId = _store.AddApiDefWithProperties(apiDef.Name, systemId);
-                _store.UpdateApiDef(apiDefId, apiDef.Name,
+                var apiDefId = store.AddApiDefWithProperties(apiDef.Name, systemId);
+                store.UpdateApiDef(apiDefId, apiDef.Name,
                     apiDef.ActionType, apiDef.SensingType,
                     FSharpOption<Guid>.None, FSharpOption<Guid>.None, "");
                 apiDefIdByDeviceApi[(plan.Name, apiDef.Name)] = apiDefId;
@@ -206,13 +282,13 @@ public partial class SymbolWizardDialog : Window
         foreach (var plan in plans)
         {
             if (!plan.IsActive) continue;
-            var systemId = _store.AddSystem(plan.Name, projectId, isActive: true);
+            var systemId = store.AddSystem(plan.Name, projectId, isActive: true);
             foreach (var flow in plan.Flows)
             {
-                var flowId = _store.AddFlow(flow.Name, systemId);
+                var flowId = store.AddFlow(flow.Name, systemId);
                 foreach (var work in flow.Works)
                 {
-                    var workId = _store.AddWork(work.Name, flowId);
+                    var workId = store.AddWork(work.Name, flowId);
                     // Wizard entries — (callName, outTag, inTag). null IOTag 는 F# 에서 None 으로 저장.
                     // AddCallsWithDeviceAndTags 가 1 transaction 안에서 Call + ApiCall + OutTag/InTag 까지 채움.
                     var entries = new List<(string Name, IOTag OutTag, IOTag InTag)>();
@@ -225,9 +301,33 @@ public partial class SymbolWizardDialog : Window
                         entries.Add((call.Name, outTag, inTag));
                     }
                     if (entries.Count == 0) continue;
-                    _store.AddCallsWithDeviceAndTags(projectId, workId, entries, true, FSharpOption<string>.None);
+                    store.AddCallsWithDeviceAndTags(projectId, workId, entries, true, FSharpOption<string>.None);
                 }
             }
+        }
+    }
+
+    private static void RemoveDefaultEmptyControlSystem(DsStore store, Guid projectId)
+    {
+        var activeSystems = Queries.activeSystemsOf(projectId, store).ToList();
+        foreach (var system in activeSystems)
+        {
+            if (!string.Equals(system.Name, "NewSystem", StringComparison.Ordinal))
+                continue;
+
+            var flows = Queries.flowsOf(system.Id, store).ToList();
+            var apiDefs = Queries.apiDefsOf(system.Id, store).ToList();
+            if (apiDefs.Count != 0)
+                continue;
+
+            var hasOnlyEmptyNewFlow =
+                flows.Count == 0
+                || (flows.Count == 1
+                    && string.Equals(flows[0].Name, "NewFlow", StringComparison.Ordinal)
+                    && !Queries.worksOf(flows[0].Id, store).Any());
+
+            if (hasOnlyEmptyNewFlow)
+                store.RemoveEntities(new[] { Tuple.Create(EntityKind.System, system.Id) });
         }
     }
 

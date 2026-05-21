@@ -200,13 +200,14 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddCallWithMultipleDevicesResolved
         (store: DsStore, entityKind: EntityKind, entityId: Guid,
-         workId: Guid, callDevicesAlias: string, apiName: string, deviceAliases: string seq, systemType: string option) : Guid =
+         workId: Guid, callDevicesAlias: string, apiName: string, deviceAliases: string seq,
+         createDeviceSystem: bool, systemType: string option) : Guid =
         match StoreHierarchyQueries.tryFindProjectIdForEntity store entityKind entityId with
         | Some projectId ->
             let aliases = deviceAliases |> Seq.toList
             let resultId =
                 store.WithTransaction("Add Call (ApiCall 복제)", fun () ->
-                    DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases systemType)
+                    DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases createDeviceSystem systemType)
             store.EmitRefreshAndHistory()
             resultId
         | None -> invalidOp $"Project not found for entity {entityKind}/{entityId}"

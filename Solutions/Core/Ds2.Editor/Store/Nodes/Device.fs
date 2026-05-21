@@ -265,27 +265,33 @@ module internal DirectDeviceOps =
     /// ApiCall 복제 모드: 1개 Call + N개 Device System/ApiDef/ApiCall 생성.
     /// deviceAliases = ["Conv_1"; "Conv_2"; ...], apiName = "ADV"
     /// → Call(Conv, ADV) 안에 ApiCall(Conv_1.ADV), ApiCall(Conv_2.ADV) 각각 별도 Device System에 연결.
+    /// createDeviceSystem=false 또는 apiName 빈 경우 (예: ModeStn 처럼 ApiList="" 인 SystemType) — Call 만 만들고
+    /// Device System / ApiDef / ApiCall 은 만들지 않음. 일반 경로 (addCallsWithDevice) 의 가드와 대칭.
     let addCallWithMultipleDevices
         (store: DsStore) (projectId: Guid) (workId: Guid)
-        (callDevicesAlias: string) (apiName: string) (deviceAliases: string list) (systemType: string option) : Guid =
+        (callDevicesAlias: string) (apiName: string) (deviceAliases: string list)
+        (createDeviceSystem: bool) (systemType: string option) : Guid =
         let call = Call(callDevicesAlias, apiName, workId)
         store.TrackAdd(store.Calls, call)
 
-        let flowName =
-            Queries.getWork workId store
-            |> Option.bind (fun w -> Queries.getFlow w.ParentId store)
-            |> Option.map (fun f -> f.Name)
-            |> Option.defaultValue ""
+        if not (createDeviceSystem && not (String.IsNullOrEmpty apiName)) then
+            call.Id
+        else
+            let flowName =
+                Queries.getWork workId store
+                |> Option.bind (fun w -> Queries.getFlow w.ParentId store)
+                |> Option.map (fun f -> f.Name)
+                |> Option.defaultValue ""
 
-        let finalState =
-            deviceAliases
-            |> List.fold (fun state devAlias ->
-                let system, withSystem = ensureSystem store projectId flowName devAlias systemType state
-                let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
-                let apiDef, withApiDef = ensureApiDef store system apiName withWork
-                createAndRegisterApiCall store call $"{devAlias}.{apiName}" apiDef.Id
-                withApiDef
-            ) initialState
+            let finalState =
+                deviceAliases
+                |> List.fold (fun state devAlias ->
+                    let system, withSystem = ensureSystem store projectId flowName devAlias systemType state
+                    let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
+                    let apiDef, withApiDef = ensureApiDef store system apiName withWork
+                    createAndRegisterApiCall store call $"{devAlias}.{apiName}" apiDef.Id
+                    withApiDef
+                ) initialState
 
-        buildWorkArrows store finalState
-        call.Id
+            buildWorkArrows store finalState
+            call.Id

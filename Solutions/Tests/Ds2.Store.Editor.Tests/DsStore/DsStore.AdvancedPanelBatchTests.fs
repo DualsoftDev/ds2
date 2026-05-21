@@ -487,3 +487,54 @@ module WizardApplyTests =
         let applied = store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None)
         Assert.Equal(0, applied)
         Assert.Equal(0, (Queries.callsOf work.Id store).Length)
+
+/// CallCreateDialog 의 "ApiCall 복제" 경로 회귀.
+/// 이전엔 일반 경로 (AddCallsWithDevice) 만 `createDeviceSystem` 가드를 가졌고
+/// 복제 경로 (AddCallWithMultipleDevicesResolved) 는 무조건 ensureSystem/ensureApiDef 실행 → ModeStn
+/// (DevicePresets ApiList="") 시나리오에서 사용자가 ApiName 비웠는데도 Device 목록 + ApiDef 생성.
+/// 본 module 은 그 비대칭을 해소한 가드의 회귀 가드.
+module ApiCallReplicationGuardTests =
+
+    let private passiveCount (store: DsStore) projectId =
+        Queries.passiveSystemsOf projectId store |> List.length
+
+    [<Fact>]
+    let ``AddCallWithMultipleDevicesResolved — createDeviceSystem=true + apiName=ADV → 기존 동작 (Device + ApiDef + ApiCall)`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let callId =
+            store.AddCallWithMultipleDevicesResolved(
+                EntityKind.Work, work.Id, work.Id,
+                "Conv", "ADV", [ "Conv_1"; "Conv_2" ], true, None)
+        let call = store.Calls.[callId]
+        Assert.Equal(2, call.ApiCalls.Count)
+        // Device System 2개 (Conv_1, Conv_2) 가 passive 로 만들어져야.
+        Assert.True(passiveCount store project.Id >= 2)
+
+    [<Fact>]
+    let ``AddCallWithMultipleDevicesResolved — createDeviceSystem=false → Call 만 만들고 Device/ApiDef/ApiCall 안 만듦`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let beforePassive = passiveCount store project.Id
+        let callId =
+            store.AddCallWithMultipleDevicesResolved(
+                EntityKind.Work, work.Id, work.Id,
+                "Conv", "ADV", [ "Conv_1"; "Conv_2" ], false, None)
+        let call = store.Calls.[callId]
+        // Call 자체는 만들어지지만 ApiCall / Device System 은 0.
+        Assert.Equal(0, call.ApiCalls.Count)
+        Assert.Equal(beforePassive, passiveCount store project.Id)
+
+    [<Fact>]
+    let ``AddCallWithMultipleDevicesResolved — apiName="" (ModeStn 시나리오) → Device/ApiDef 안 만듦`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let beforePassive = passiveCount store project.Id
+        let callId =
+            store.AddCallWithMultipleDevicesResolved(
+                EntityKind.Work, work.Id, work.Id,
+                "ModeStation", "", [ "ModeStation_1" ], true, Some "ModeStn")
+        let call = store.Calls.[callId]
+        // apiName 빈 경우 — ApiCall 0개 + Device System 안 만들어짐.
+        Assert.Equal(0, call.ApiCalls.Count)
+        Assert.Equal(beforePassive, passiveCount store project.Id)
