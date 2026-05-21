@@ -418,3 +418,72 @@ module BatchTests =
         let c2AfterUndo = store.Calls.[call2.Id]
         Assert.True(c1AfterUndo.GetSimulationProperties().IsNone || c1AfterUndo.GetSimulationProperties().Value.Timeout.IsNone)
         Assert.True(c2AfterUndo.GetSimulationProperties().IsNone || c2AfterUndo.GetSimulationProperties().Value.Timeout.IsNone)
+
+/// Symbol Import Wizard 등 import 경로 — Call 생성 + ApiCall.OutTag/InTag 1 transaction 회귀.
+/// 이전 코드 (`AddCallsWithDevice` 만 사용) 는 OutTag/InTag 가 None 으로 저장되어
+/// AASX export 시 DSPilot V10 위반 발생. AddCallsWithDeviceAndTags 가 그 회귀의 핵심 수정.
+module WizardApplyTests =
+
+    let private tag name addr = IOTag(name, addr, "")
+    // F# 에서 IOTag 는 AllowNullLiteral 없으므로 Unchecked.defaultof 로 null 전달 (C# null 통과 시뮬레이션).
+    let private nullTag : IOTag = Unchecked.defaultof<IOTag>
+
+    [<Fact>]
+    let ``AddCallsWithDeviceAndTags — ApiCall.OutTag/InTag 가 plan 값으로 채워짐`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let entries : System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)> =
+            [|
+                struct("Dev.Api1", tag "Out1" "Y0", tag "In1" "X0")
+                struct("Dev.Api2", tag "Out2" "Y1", tag "In2" "X1")
+            |] :> _
+        let applied = store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None)
+        Assert.Equal(2, applied)
+
+        let calls = Queries.callsOf work.Id store
+        Assert.Equal(2, calls.Length)
+        for call in calls do
+            Assert.True(call.ApiCalls.Count > 0, sprintf "Call %s 에 ApiCall 없음" call.Name)
+            let apiCall = call.ApiCalls.[0]
+            Assert.True(apiCall.OutTag.IsSome, sprintf "ApiCall %s OutTag None" apiCall.Name)
+            Assert.True(apiCall.InTag.IsSome, sprintf "ApiCall %s InTag None" apiCall.Name)
+
+    [<Fact>]
+    let ``AddCallsWithDeviceAndTags — null IOTag 는 None 으로 저장`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let entries : System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)> =
+            [|
+                struct("Dev.Api1", tag "Out1" "Y0", nullTag)  // InTag null
+                struct("Dev.Api2", nullTag, tag "In2" "X1")    // OutTag null
+            |] :> _
+        store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None) |> ignore
+
+        let calls = Queries.callsOf work.Id store |> List.sortBy (fun c -> c.Name)
+        let api1 = calls.[0].ApiCalls.[0]
+        let api2 = calls.[1].ApiCalls.[0]
+        Assert.True(api1.OutTag.IsSome); Assert.True(api1.InTag.IsNone)
+        Assert.True(api2.OutTag.IsNone); Assert.True(api2.InTag.IsSome)
+
+    [<Fact>]
+    let ``AddCallsWithDeviceAndTags — 1 transaction Undo (Call+Tag 동시 사라짐)`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let entries : System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)> =
+            [| struct("Dev.Api1", tag "Out1" "Y0", tag "In1" "X0") |] :> _
+        store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None) |> ignore
+        Assert.Equal(1, (Queries.callsOf work.Id store).Length)
+
+        store.Undo()
+        // 1 transaction 이면 Call 자체가 사라지므로 0건 — Tag 만 따로 사라지는 동작은 회귀.
+        Assert.Equal(0, (Queries.callsOf work.Id store).Length)
+
+    [<Fact>]
+    let ``AddCallsWithDeviceAndTags — 빈 entries 는 no-op (예외 없음, applied=0)`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let entries : System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)> =
+            [||] :> _
+        let applied = store.AddCallsWithDeviceAndTags(project.Id, work.Id, entries, true, None)
+        Assert.Equal(0, applied)
+        Assert.Equal(0, (Queries.callsOf work.Id store).Length)

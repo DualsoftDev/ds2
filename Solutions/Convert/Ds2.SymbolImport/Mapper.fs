@@ -43,9 +43,10 @@ module Mapper =
           Confidence = dam.MatchingConfidence }
 
     /// 명시적 config 로 매핑 — vendor / FlowInclusions / FilterExclusions / SymmetryRules 모두 반영.
-    let mapWithConfig (config: MappingConfig.InputMatchingConfigDto) (entries: SymbolEntry list) : MappingBatch =
+    /// vendor 인자가 필수 — Common.MappingSets + Vendors.<vendor>.MappingSets (+ vendor OutputAddressPatterns/InputAddressPatterns) 를 합쳐 dsev2 매칭 엔진에 전달.
+    let mapWithConfig (vendor: Vendor) (config: MappingConfig.InputMatchingConfigDto) (entries: SymbolEntry list) : MappingBatch =
         let variables = entries |> List.map MapperRules.toVariable
-        let mappingSets = MapperRules.mappingSetsFromConfig config
+        let mappingSets = MapperRules.mappingSetsFromConfig vendor config
         let dsev2Mappings = DeviceGroupingCore.createDeviceApiMappingsWithMappingSets variables mappingSets
 
         let entryByName = entries |> List.map (fun e -> e.Name, e) |> Map.ofList
@@ -62,10 +63,10 @@ module Mapper =
         let unmatched = entries |> List.filter (fun e -> not (matchedNames.Contains e.Name))
         { Mapped = mapped; Unmatched = unmatched }
 
-    /// Default config (AppContext.BaseDirectory/input-matching-config.json) 로드 후 매핑.
-    let map (entries: SymbolEntry list) : MappingBatch =
+    /// Default config (AppContext.BaseDirectory/input-matching-config.json) 로드 후 vendor 명시 매핑.
+    let map (vendor: Vendor) (entries: SymbolEntry list) : MappingBatch =
         let config = MappingConfig.loadDefault ()
-        mapWithConfig config entries
+        mapWithConfig vendor config entries
 
     /// Flow 단위 그룹.
     let groupByFlow (batch: MappingBatch) : Map<string, Mapping list> =
