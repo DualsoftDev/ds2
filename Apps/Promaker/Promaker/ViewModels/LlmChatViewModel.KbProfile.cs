@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Promaker.Knowledge;
+using Promaker.LlmAgent;
+using Promaker.LlmAgent.Api;
 
 namespace Promaker.ViewModels;
 
@@ -178,13 +180,20 @@ public partial class LlmChatViewModel
     }
 
     /// <summary>
-    /// **PR-F skeleton — PR-G 에서 body 확장**. KB profile fetch 완료 (초기 + 매 debounce fire) 시 호출.
-    /// PR-G 는 본 메서드 안에서 <c>KbDigestBuilder.Build</c> → <c>ApiChatProvider.SetPendingSystemPrompt</c> 박제.
-    /// 본 PR 에서는 trace log 만 — PR-F 단독 wiring 검증 가능.
+    /// **PR-G (§5.2 v-b)** — KB profile fetch 완료 시 호출. cache snapshot → <see cref="KbDigestBuilder.Build"/>
+    /// → <see cref="ApiChatProvider.SetPendingSystemPrompt"/> path. 다음 firstTurn 진입 시점에 system message 의
+    /// 2번째 TextContent 로 swap (lazy apply, chat-scoped invariant 정합).
+    /// <para/>
+    /// API provider 만 적용 (Claude CLI / Codex CLI 는 별 path — §4 미결정 #3 정합, 본 phase 미적용).
+    /// _provider 가 null (init 미완료) 또는 다른 provider 일 때 silent skip.
     /// </summary>
     private void OnKbProfileChanged()
     {
+        var snapshot = new Dictionary<string, IReadOnlyList<CollectionInfo>>(_kbProfileCache);
+        var digest = KbDigestBuilder.Build(snapshot);
+        if (_provider is ApiChatProvider api)
+            api.SetPendingSystemPrompt(digest);
         if (Log.IsDebugEnabled)
-            Log.Debug($"OnKbProfileChanged — KB profile cache 갱신 ({_kbProfileCache.Count} service, PR-G 가 system prompt swap 박제).");
+            Log.Debug($"OnKbProfileChanged — digest len={digest.Length} (services={_kbProfileCache.Count}, provider={_provider?.GetType().Name ?? "none"})");
     }
 }

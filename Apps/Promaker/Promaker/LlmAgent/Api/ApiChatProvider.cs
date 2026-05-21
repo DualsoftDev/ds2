@@ -59,9 +59,28 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     private readonly HttpClient _mcpHttp;
     private readonly string _providerLabel;
     private readonly string _modelLabel;
-    private readonly string _systemPrompt;
+    private readonly string _basePrompt;
     private readonly Func<bool> _validate;
     private readonly Capabilities _capabilities;
+
+    /// <summary>
+    /// **PR-G (§5.2 v-b)** — KB digest pending swap target. <see cref="SetPendingSystemPrompt"/> 가 background
+    /// thread (LlmChatViewModel.OnKbProfileChanged) 에서 write, firstTurn 에서 read+null reset.
+    /// <para/>
+    /// null = pending 없음 ( <c>_kbDigest</c> 그대로 유지). 빈 string = digest 비활성 박제 (이전 digest 제거).
+    /// non-empty = 새 digest 적용. <see cref="Interlocked.Exchange{T}(ref T, T)"/> 로 race-free.
+    /// </summary>
+    private string? _pendingKbDigest;
+
+    /// <summary>
+    /// **PR-G (§5.2 v-b)** — 현재 적용된 KB digest. firstTurn 진입 시 <see cref="_pendingKbDigest"/> 가 non-null
+    /// 이면 본 field 로 swap. <see cref="SystemContentBuilder"/> 가 본 값으로 system 메시지의 2번째 TextContent
+    /// 박제 (빈 시 1 TextContent 만).
+    /// <para/>
+    /// chat-scoped invariant — KB 변경은 *다음 firstTurn 까지 적용 안 됨* (§3.8 L1 / todo §7.10 정합).
+    /// in-flight turn 은 옛 digest 그대로 유지.
+    /// </summary>
+    private string _kbDigest = "";
 
     // round-trip §5.2 / §J2 — cache_control: ephemeral 부착 람다 SSOT.
     // capability 비트에 따라 한 번만 생성 (Anthropic 호환 wire 외에는 null = nop).
@@ -104,7 +123,7 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         _mcpHttp = mcpHttp;
         _providerLabel = providerLabel;
         _modelLabel = modelLabel;
-        _systemPrompt = systemPrompt;
+        _basePrompt = systemPrompt;
         _validate = validate;
         _capabilities = capabilities;
         _applyCacheControl = capabilities.SupportsAnthropicCacheControl
@@ -124,6 +143,20 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         _history.Clear();
         _sessionId = null;
         _stickySnapshot = null;
+    }
+
+    /// <summary>
+    /// **PR-G (§5.2 v-b)** — KB digest pending swap. background thread (LlmChatViewModel.OnKbProfileChanged) 호출.
+    /// 다음 firstTurn 진입 시점에 <see cref="_kbDigest"/> 로 swap → in-flight turn 보호 + chat-scoped invariant 정합.
+    /// <para/>
+    /// 빈 string 박제 시 = digest 비활성 박제 (이전 digest 가 있었어도 제거). null 인자도 내부적으로 `?? ""` 로
+    /// 정규화되어 빈 digest 와 동일 효과 (caller 가 KbDigestBuilder.Build 의 빈 dict 결과 "" 를 그대로 forward 가능).
+    /// <para/>
+    /// thread-safe — <see cref="Interlocked.Exchange{T}(ref T, T)"/> 단일 호출로 race-free.
+    /// </summary>
+    public void SetPendingSystemPrompt(string digest)
+    {
+        Interlocked.Exchange(ref _pendingKbDigest, digest ?? "");
     }
 
     /// <summary>API key 검증. CLI 가 아닌 API 라 EnsureCli 명칭은 인터페이스 호환용. 실 검증은 첫 호출 시 401 등으로 노출.</summary>
@@ -164,11 +197,17 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             _sessionId = Guid.NewGuid().ToString("N");
             Log.Info($"[timing] firstTurn ListToolsAsync elapsedMs={listToolsElapsedMs} toolCount={_cachedTools.Count}");
 
-            // round-trip §5.2 / §J2 — Anthropic 호환 wire 만 system prompt 의 TextContent 에 cache_control: ephemeral 부착.
-            // _applyCacheControl 은 ctor 에서 capability 비트로 결정된 SSOT (다른 provider 어댑터에서는 null = nop).
-            AIContent systemContent = new TextContent(_systemPrompt);
-            if (_applyCacheControl != null) systemContent = _applyCacheControl(systemContent);
-            _history.Add(new ChatMessage(ChatRole.System, new List<AIContent> { systemContent }));
+            // PR-G (§5.2 v-b) — KB digest pending swap (lazy apply, chat-scoped invariant 정합).
+            // in-flight turn 은 옛 digest 그대로 — firstTurn 진입 시점에만 swap.
+            var pending = Interlocked.Exchange(ref _pendingKbDigest, null);
+            if (pending != null) _kbDigest = pending;
+
+            // round-trip §5.2 / §J2 + PR-G v-b — system message 의 AIContent 박제.
+            // base + (optional) KB digest 각각 별 TextContent + cache_control: ephemeral (Anthropic 한정, nop 다른 provider).
+            // breakpoint 사용: base 1 + digest 1 (digest 박제 시) + snapshot 1 = 최대 3/4 (여유 1).
+            // digest 빈 시 base 1 TextContent 만 — 회귀 0 (기존 단일 prompt 동치).
+            var systemContents = SystemContentBuilder.Build(_basePrompt, _kbDigest, _applyCacheControl);
+            _history.Add(new ChatMessage(ChatRole.System, systemContents));
 
             var toolNames = new List<string>(_cachedTools.Count);
             foreach (var t in _cachedTools) toolNames.Add(t.Name);
