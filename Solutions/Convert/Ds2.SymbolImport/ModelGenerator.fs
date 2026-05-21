@@ -55,6 +55,20 @@ module ModelGenerator =
     let private toIOTag (entry: SymbolEntry) : IOTag =
         IOTag(entry.Name, entry.Address, entry.Comment)
 
+    // v10 V1/V2 silence — 매칭이 짝을 못 찾은 ApiCall 에 빈 주소 placeholder 부여.
+    // ApiDef.ActionType/SensingType 은 Real 유지 → V4 부작용 없음.
+    // 운영 검증된 패턴 (DSPilot fix_aasx_v10.py 가 후처리로 동일하게 치환).
+    // 사용자가 UI 에서 실 PLC 주소 보정 시 placeholder address 가 단서.
+    [<Literal>]
+    let PlaceholderInName = "(unset-IN)"
+    [<Literal>]
+    let PlaceholderOutName = "(unset-OUT)"
+    [<Literal>]
+    let private PlaceholderDescription = "v10 placeholder"
+
+    let private placeholderInTag () = IOTag(PlaceholderInName, "", PlaceholderDescription)
+    let private placeholderOutTag () = IOTag(PlaceholderOutName, "", PlaceholderDescription)
+
     /// 매핑 batch → SystemPlan list.
     /// - Controller (active) — 모든 Flow 가 묶임. project 단위 1개.
     /// - Device passive — DeviceName 별 별도 System (ApiDef 보유).
@@ -73,13 +87,19 @@ module ModelGenerator =
                         let calls =
                             workMappings
                             |> List.map (fun m ->
-                                let outTag = m.OutputEntry |> Option.map toIOTag
-                                let inTag = m.InputEntries |> List.tryHead |> Option.map toIOTag
+                                let outTag =
+                                    match m.OutputEntry with
+                                    | Some e -> toIOTag e
+                                    | None   -> placeholderOutTag ()
+                                let inTag =
+                                    match m.InputEntries |> List.tryHead with
+                                    | Some e -> toIOTag e
+                                    | None   -> placeholderInTag ()
                                 { Name = sprintf "%s.%s" m.DeviceName m.ApiName
                                   DeviceName = m.DeviceName
                                   ApiName = m.ApiName
-                                  InTag = inTag
-                                  OutTag = outTag })
+                                  InTag = Some inTag
+                                  OutTag = Some outTag })
                         { Name = workName; Calls = calls })
                 { Name = flowName; Works = works })
 
