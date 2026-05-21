@@ -149,9 +149,9 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             GROUP BY BucketStartStr, logLevel
             ORDER BY BucketStartStr ASC";
 
-        var rows = await conn.QueryAsync<(string BucketStartStr, string LogLevel, int Count)>(sql, p);
+        var rows = await conn.QueryAsync<BucketRow>(sql, p);
         return rows.Select(r => new UserTagAlertBucket(
-            DateTime.SpecifyKind(DateTime.Parse(r.BucketStartStr, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc),
+            DateTime.SpecifyKind(DateTime.Parse(r.BucketStartStr ?? "1970-01-01", System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc),
             r.LogLevel ?? "Info",
             r.Count)).ToList();
     }
@@ -172,8 +172,8 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             GROUP BY name, logLevel
             ORDER BY Count DESC
             LIMIT @TopN";
-        var rows = await conn.QueryAsync<UserTagAlertTopRow>(sql, p);
-        return rows.ToList();
+        var rows = await conn.QueryAsync<TopRow>(sql, p);
+        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "Info", r.Count)).ToList();
     }
 
     public async Task<IReadOnlyDictionary<string, int>> GetLevelCountsAsync(
@@ -188,9 +188,9 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             FROM userTagAlertLog
             {where}
             GROUP BY logLevel";
-        var rows = await conn.QueryAsync<(string LogLevel, int Count)>(sql, p);
+        var rows = await conn.QueryAsync<LevelCountRow>(sql, p);
         var d = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (lvl, cnt) in rows) d[lvl ?? "Info"] = cnt;
+        foreach (var r in rows) d[r.LogLevel ?? "Info"] = r.Count;
         return d;
     }
 
@@ -296,5 +296,27 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public string? MatchValue { get; set; }
         public string? ActualValue { get; set; }
         public long? SourceLogId { get; set; }
+    }
+
+    // Dapper 가 ValueTuple 을 매핑하지 못해 (TupleElementNamesAttribute 는 컴파일타임만 살아있음 → Item1/Item2 로만 인식),
+    // 컬럼 alias 기반 매핑이 silently null 을 반환. 명시적 DTO 로 안정화.
+    private sealed class BucketRow
+    {
+        public string? BucketStartStr { get; set; }
+        public string? LogLevel { get; set; }
+        public int Count { get; set; }
+    }
+
+    private sealed class TopRow
+    {
+        public string? Name { get; set; }
+        public string? LogLevel { get; set; }
+        public int Count { get; set; }
+    }
+
+    private sealed class LevelCountRow
+    {
+        public string? LogLevel { get; set; }
+        public int Count { get; set; }
     }
 }
