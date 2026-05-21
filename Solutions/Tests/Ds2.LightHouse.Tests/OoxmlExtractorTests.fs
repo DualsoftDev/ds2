@@ -828,12 +828,13 @@ module private XlsxFixture =
         /// None = visible default. Some Hidden | VeryHidden = skip.
         State: SheetStateValues option
         Rows: RowSpec list
-        Image: byte[] option
+        /// `[]` = image 미박제. `[bytes; bytes; ...]` = WorksheetDrawing 안 N장 (review M8 fixture).
+        Images: byte[] list
     }
 
-    let mkSheet name rows : SheetSpec = { Name = name; State = None; Rows = rows; Image = None }
-    let mkHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.Hidden; Rows = rows; Image = None }
-    let mkVeryHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.VeryHidden; Rows = rows; Image = None }
+    let mkSheet name rows : SheetSpec = { Name = name; State = None; Rows = rows; Images = [] }
+    let mkHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.Hidden; Rows = rows; Images = [] }
+    let mkVeryHiddenSheet name rows : SheetSpec = { Name = name; State = Some SheetStateValues.VeryHidden; Rows = rows; Images = [] }
 
     let private mkCell (spec: CellSpec) : Cell =
         let c = Cell()
@@ -874,45 +875,46 @@ module private XlsxFixture =
         wsPart.Worksheet <- ws
         wsPart.Worksheet.Save()
 
-    let private addDrawingsPart (wsPart: WorksheetPart) (bytes: byte[]) =
+    let private addDrawingsPart (wsPart: WorksheetPart) (bytesList: byte[] list) =
+        if List.isEmpty bytesList then () else
         let drawingsPart = wsPart.AddNewPart<DrawingsPart>()
-        let imgPart = drawingsPart.AddImagePart(ImagePartType.Png)
-        use ms = new MemoryStream(bytes)
-        imgPart.FeedData(ms)
-        let relId = drawingsPart.GetIdOfPart(imgPart)
-        // SDK 객체 build — xdr:wsDr > xdr:oneCellAnchor > xdr:pic > xdr:blipFill > a:blip.
-        let pic = DocumentFormat.OpenXml.Drawing.Spreadsheet.Picture()
-        let nvPicPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureProperties()
-        let cnvPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualDrawingProperties()
-        cnvPr.Id <- UInt32Value(2u)
-        cnvPr.Name <- StringValue("Pic")
-        nvPicPr.Append(cnvPr :> OpenXmlElement) |> ignore
-        nvPicPr.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureDrawingProperties() :> OpenXmlElement) |> ignore
-        pic.Append(nvPicPr :> OpenXmlElement) |> ignore
-        let blipFill = DocumentFormat.OpenXml.Drawing.Spreadsheet.BlipFill()
-        let blip = DocumentFormat.OpenXml.Drawing.Blip()
-        blip.Embed <- StringValue(relId)
-        blipFill.Append(blip :> OpenXmlElement) |> ignore
-        let stretch = DocumentFormat.OpenXml.Drawing.Stretch()
-        stretch.Append(DocumentFormat.OpenXml.Drawing.FillRectangle() :> OpenXmlElement) |> ignore
-        blipFill.Append(stretch :> OpenXmlElement) |> ignore
-        pic.Append(blipFill :> OpenXmlElement) |> ignore
-        pic.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ShapeProperties() :> OpenXmlElement) |> ignore
-        let oneCellAnchor = DocumentFormat.OpenXml.Drawing.Spreadsheet.OneCellAnchor()
-        let fromMarker = DocumentFormat.OpenXml.Drawing.Spreadsheet.FromMarker()
-        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnId("0") :> OpenXmlElement) |> ignore
-        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnOffset("0") :> OpenXmlElement) |> ignore
-        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowId("0") :> OpenXmlElement) |> ignore
-        fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowOffset("0") :> OpenXmlElement) |> ignore
-        oneCellAnchor.Append(fromMarker :> OpenXmlElement) |> ignore
-        let ext = DocumentFormat.OpenXml.Drawing.Spreadsheet.Extent()
-        ext.Cx <- Int64Value(100000L)
-        ext.Cy <- Int64Value(100000L)
-        oneCellAnchor.Append(ext :> OpenXmlElement) |> ignore
-        oneCellAnchor.Append(pic :> OpenXmlElement) |> ignore
-        oneCellAnchor.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ClientData() :> OpenXmlElement) |> ignore
         let wsDrawing = DocumentFormat.OpenXml.Drawing.Spreadsheet.WorksheetDrawing()
-        wsDrawing.Append(oneCellAnchor :> OpenXmlElement) |> ignore
+        bytesList |> List.iteri (fun i bytes ->
+            let imgPart = drawingsPart.AddImagePart(ImagePartType.Png)
+            use ms = new MemoryStream(bytes)
+            imgPart.FeedData(ms)
+            let relId = drawingsPart.GetIdOfPart(imgPart)
+            let pic = DocumentFormat.OpenXml.Drawing.Spreadsheet.Picture()
+            let nvPicPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureProperties()
+            let cnvPr = DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualDrawingProperties()
+            cnvPr.Id <- UInt32Value(uint32 (2 + i))
+            cnvPr.Name <- StringValue(sprintf "Pic%d" (i + 1))
+            nvPicPr.Append(cnvPr :> OpenXmlElement) |> ignore
+            nvPicPr.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.NonVisualPictureDrawingProperties() :> OpenXmlElement) |> ignore
+            pic.Append(nvPicPr :> OpenXmlElement) |> ignore
+            let blipFill = DocumentFormat.OpenXml.Drawing.Spreadsheet.BlipFill()
+            let blip = DocumentFormat.OpenXml.Drawing.Blip()
+            blip.Embed <- StringValue(relId)
+            blipFill.Append(blip :> OpenXmlElement) |> ignore
+            let stretch = DocumentFormat.OpenXml.Drawing.Stretch()
+            stretch.Append(DocumentFormat.OpenXml.Drawing.FillRectangle() :> OpenXmlElement) |> ignore
+            blipFill.Append(stretch :> OpenXmlElement) |> ignore
+            pic.Append(blipFill :> OpenXmlElement) |> ignore
+            pic.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ShapeProperties() :> OpenXmlElement) |> ignore
+            let oneCellAnchor = DocumentFormat.OpenXml.Drawing.Spreadsheet.OneCellAnchor()
+            let fromMarker = DocumentFormat.OpenXml.Drawing.Spreadsheet.FromMarker()
+            fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnId(string i) :> OpenXmlElement) |> ignore
+            fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ColumnOffset("0") :> OpenXmlElement) |> ignore
+            fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowId(string i) :> OpenXmlElement) |> ignore
+            fromMarker.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.RowOffset("0") :> OpenXmlElement) |> ignore
+            oneCellAnchor.Append(fromMarker :> OpenXmlElement) |> ignore
+            let ext = DocumentFormat.OpenXml.Drawing.Spreadsheet.Extent()
+            ext.Cx <- Int64Value(100000L)
+            ext.Cy <- Int64Value(100000L)
+            oneCellAnchor.Append(ext :> OpenXmlElement) |> ignore
+            oneCellAnchor.Append(pic :> OpenXmlElement) |> ignore
+            oneCellAnchor.Append(DocumentFormat.OpenXml.Drawing.Spreadsheet.ClientData() :> OpenXmlElement) |> ignore
+            wsDrawing.Append(oneCellAnchor :> OpenXmlElement) |> ignore)
         drawingsPart.WorksheetDrawing <- wsDrawing
         drawingsPart.WorksheetDrawing.Save()
 
@@ -937,9 +939,7 @@ module private XlsxFixture =
         sheets |> List.iteri (fun i sSpec ->
             let wsPart = wbPart.AddNewPart<WorksheetPart>()
             buildWorksheet wsPart sSpec.Rows
-            match sSpec.Image with
-            | None -> ()
-            | Some bytes -> addDrawingsPart wsPart bytes
+            addDrawingsPart wsPart sSpec.Images
             let sheet = Sheet()
             sheet.Id <- StringValue(wbPart.GetIdOfPart(wsPart))
             sheet.SheetId <- UInt32Value(uint32 (i + 1))
@@ -1127,7 +1127,7 @@ let ``xlsx — DrawingsPart image (r1 M16) — sheet=<name> RefLocator`` () =
             XlsxFixture.mkSheet "BOM" [
                 { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "head" ] }
             ]
-        let sheets = [ { baseSheet with Image = Some samplePngBytes } ]
+        let sheets = [ { baseSheet with Images = [ samplePngBytes ] } ]
         XlsxFixture.buildXlsx path None sheets
         use ext = new OoxmlExtractor() :> IExtractor
         let result = ext.Extract(path, CancellationToken.None)
@@ -1223,3 +1223,73 @@ let ``xlsx — 손상 xlsx (random bytes) fail-safe — DocType=Xlsx 빈 결과`
 let ``xlsx — Supports 분기 활성 (Task 2 박제)`` () =
     use ext = new OoxmlExtractor() :> IExtractor
     Assert.True(ext.Supports Xlsx)
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  Backlog 2 — review M8 + M11 회귀 Fact
+// ────────────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``pptx — 단일 slide 안 N장 image (review M8) — Ordinal 1..N 자리 보존`` () =
+    // 단일 slide 의 WorksheetDrawing(== ShapeTree) 안 Pic 3개 → 동일 RefLocator + Ordinal 1/2/3.
+    // ExtractImagesAtRefLocator 의 `imgOrdInBlock` 증가 hot path (helper refactor 이후도 유지) 회귀 차단.
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "다이어그램"
+                           PptxFixture.PicSp samplePngBytes
+                           PptxFixture.PicSp samplePngBytes
+                           PptxFixture.PicSp samplePngBytes ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(3, result.Images.Length)
+        let ordinals = result.Images |> Array.map (fun i -> i.Ordinal) |> Array.sort
+        Assert.Equal<int[]>([| 1; 2; 3 |], ordinals)
+        // 모두 동일 RefLocator = slide=1.
+        Assert.All(result.Images, fun img -> Assert.Equal("slide=1", img.RefLocator)))
+
+[<Fact>]
+let ``xlsx — 단일 sheet 안 N장 image (review M8) — Ordinal 1..N 자리 보존`` () =
+    // 단일 sheet 의 WorksheetDrawing 안 OneCellAnchor 2개 (각 Picture 1장) → Ordinal 1/2.
+    withTempPath ".xlsx" (fun path ->
+        let baseSheet =
+            XlsxFixture.mkSheet "BOM" [
+                { Index = 1u; Cells = [ XlsxFixture.mkCellSpec "A1" "head" ] }
+            ]
+        let sheets = [ { baseSheet with Images = [ samplePngBytes; samplePngBytes ] } ]
+        XlsxFixture.buildXlsx path None sheets
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal(2, result.Images.Length)
+        let ordinals = result.Images |> Array.map (fun i -> i.Ordinal) |> Array.sort
+        Assert.Equal<int[]>([| 1; 2 |], ordinals)
+        Assert.All(result.Images, fun img -> Assert.Equal("sheet=BOM", img.RefLocator)))
+
+[<Theory>]
+[<InlineData("image/png", true, "png")>]
+[<InlineData("image/jpeg", true, "jpeg")>]
+[<InlineData("image/gif", true, "gif")>]
+[<InlineData("image/webp", true, "webp")>]
+[<InlineData("image/bmp", false, "")>]
+[<InlineData("image/tiff", false, "")>]
+let ``docx + inline Drawing image format 화이트리스트 분기 (review M11)`` (contentType: string) (shouldExtract: bool) (expectedFormatStr: string) =
+    // ImagePartToFormat 의 4 종 화이트리스트 (PNG/JPEG/GIF/WEBP) + 외 (BMP/TIFF) skip 정합 회귀 차단.
+    // makeDocxWithInlineImage 가 contentType 인자 받음 — bytes 는 PNG SamplePng.bytes 재사용 (ContentType 매칭만 검증).
+    withTempPath ".docx" (fun path ->
+        makeDocxWithInlineImage path contentType samplePngBytes
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        if shouldExtract then
+            Assert.Equal(1, result.Images.Length)
+            let img = result.Images.[0]
+            let actualFormat =
+                match img.Format with
+                | Png -> "png"
+                | Jpeg -> "jpeg"
+                | Gif -> "gif"
+                | Webp -> "webp"
+            Assert.Equal(expectedFormatStr, actualFormat)
+        else
+            Assert.Empty(result.Images))
