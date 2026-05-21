@@ -269,7 +269,7 @@ module JsonRoundTripTests =
         apiBool.OutputSpec   <- boolSpec
 
         let condition = Condition()
-        condition.Type <- Some ConditionType.SkipUnmatch
+        condition.Type <- Some ConditionType.SkipAction
         condition.IsOR <- true
         condition.IsInverted <- true
         condition.ApiCalls.Add(apiFloat)
@@ -359,7 +359,7 @@ module WorkRoundTripTests =
         Assert.Equal("W1", actual.LocalName)
 
     [<Fact>]
-    let ``JsonConverter should roundtrip Work with SkipUnmatch Conditions`` () =
+    let ``JsonConverter should roundtrip Work with SkipAction Conditions`` () =
         let flowId = Guid.NewGuid()
         let work = Work("F", "W", flowId)
 
@@ -372,12 +372,12 @@ module WorkRoundTripTests =
         api2.ContactKind <- ContactKind.NcContact
 
         let child = Condition()
-        child.Type <- Some ConditionType.SkipUnmatch
+        child.Type <- Some ConditionType.SkipAction
         child.IsOR <- true
         child.ApiCalls.Add(api2)
 
         let cond = Condition()
-        cond.Type <- Some ConditionType.SkipUnmatch
+        cond.Type <- Some ConditionType.SkipAction
         cond.IsInverted <- true
         cond.ApiCalls.Add(api1)
         cond.Children.Add(child)
@@ -390,7 +390,7 @@ module WorkRoundTripTests =
         Assert.Equal(1, actual.Conditions.Count)
         let r = actual.Conditions.[0]
         Assert.Equal(cond.Id, r.Id)
-        Assert.Equal(Some ConditionType.SkipUnmatch, r.Type)
+        Assert.Equal(Some ConditionType.SkipAction, r.Type)
         Assert.True(r.IsInverted)
         Assert.Equal(1, r.ApiCalls.Count)
         Assert.Equal(api1.Id, r.ApiCalls.[0].Id)

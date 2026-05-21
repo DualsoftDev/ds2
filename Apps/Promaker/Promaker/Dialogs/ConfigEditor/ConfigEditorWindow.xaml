@@ -7,8 +7,8 @@
         Title="Config Editor - Input Matching Rules"
         Height="750" Width="1100"
         WindowStartupLocation="CenterOwner"
-        Background="#1E1E1E"
-        Foreground="White">
+        Background="{DynamicResource SecondaryBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
 
     <Window.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}" />
@@ -16,8 +16,8 @@
 
     <Window.Resources>
         <Style x:Key="TabItemStyle" TargetType="TabItem">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="#A0A0A0"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -28,11 +28,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#3E3E42"/>
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#3E3E42"/>
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -43,27 +43,27 @@
         <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="Margin" Value="0,0,0,6"/>
         </Style>
 
         <Style x:Key="KeywordTextBoxStyle" TargetType="TextBox">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource TertiaryBackgroundBrush}"/>
             <Setter Property="Padding" Value="6,4"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
         </Style>
 
         <Style x:Key="DataGridStyle" TargetType="DataGrid">
-            <Setter Property="Background" Value="#252526"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#3F3F46"/>
-            <Setter Property="RowBackground" Value="#2D2D30"/>
-            <Setter Property="AlternatingRowBackground" Value="#252526"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="RowBackground" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource SecondaryBackgroundBrush}"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="#3F3F46"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource TertiaryBackgroundBrush}"/>
             <Setter Property="HeadersVisibility" Value="Column"/>
             <Setter Property="AutoGenerateColumns" Value="False"/>
             <Setter Property="CanUserAddRows" Value="False"/>
@@ -71,16 +71,16 @@
         </Style>
 
         <Style x:Key="DataGridColumnHeaderStyle" TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#3E3E42"/>
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="BorderBrush" Value="#555"/>
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
         </Style>
 
         <Style x:Key="ActionButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#0078D4"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontSize" Value="12"/>
@@ -96,14 +96,14 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1E90FF"/>
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#3E3E42"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontSize" Value="12"/>
@@ -119,14 +119,14 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4E4E52"/>
+                    <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="SmallButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#3E3E42"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="6,3"/>
             <Setter Property="FontSize" Value="11"/>
@@ -142,23 +142,23 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4E4E52"/>
+                    <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="DeleteButtonStyle" TargetType="Button" BasedOn="{StaticResource SmallButtonStyle}">
-            <Setter Property="Background" Value="#8B0000"/>
+            <Setter Property="Background" Value="{DynamicResource RedAccentBrush}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#CD5C5C"/>
+                    <Setter Property="Background" Value="{DynamicResource RedAccentBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="MoveButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#2D5A8C"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Width" Value="22"/>
             <Setter Property="Height" Value="22"/>
@@ -177,7 +177,7 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#3E7AB8"/>
+                    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -186,8 +186,8 @@
             <Setter Property="Width" Value="18"/>
             <Setter Property="Height" Value="18"/>
             <Setter Property="Margin" Value="6,0,0,0"/>
-            <Setter Property="Background" Value="#3E3E3E"/>
-            <Setter Property="Foreground" Value="#A0A0A0"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
             <Setter Property="BorderBrush" Value="#555"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="11"/>
@@ -208,15 +208,15 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4E4E4E"/>
-                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="HelpTooltipStyle" TargetType="ToolTip">
-            <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderBrush" Value="#555"/>
             <Setter Property="MaxWidth" Value="400"/>
             <Setter Property="Padding" Value="10"/>
@@ -232,18 +232,18 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="Input Matching Config Editor" FontSize="18" FontWeight="Bold" Foreground="White"/>
+            <TextBlock Text="Input Matching Config Editor" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource PrimaryTextBrush}"/>
             <TextBlock Text="PLC 입출력 매핑 규칙을 설정합니다. 변경 후 저장(Ctrl+S)을 누르세요."
-                       Foreground="#A0A0A0" FontSize="11" Margin="0,4,0,0"/>
+                       Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- TabControl -->
-        <TabControl Grid.Row="1" Background="#252526" BorderBrush="#3F3F46"
+        <TabControl Grid.Row="1" Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource TertiaryBackgroundBrush}"
                     SelectedIndex="{Binding SelectedTabIndex}">
 
             <!-- Tab 1: FilterExclusions -->
             <TabItem Header="Filter Exclusions" Style="{StaticResource TabItemStyle}">
-                <Grid Margin="12" Background="#252526">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -251,7 +251,7 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="UI 필터 기본 설정 (줄바꿈으로 구분)"
-                               Foreground="#A0A0A0" FontSize="11" Margin="0,0,0,12"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,0,0,12"/>
 
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
@@ -262,7 +262,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Device Keywords -->
-                        <Border Grid.Column="0" Background="#2D2D30" CornerRadius="4" Margin="0,0,6,0" Padding="10">
+                        <Border Grid.Column="0" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Margin="0,0,6,0" Padding="10">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -277,11 +277,11 @@
                                                     <TextBlock Text="Device Keywords" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="이 키워드가 포함된 Device는 기본으로 체크 해제됩니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
                                                     <TextBlock Text="예시:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• cartype - 차종 관련 디바이스 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• prog - 프로그램 관련 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• em_stop - 비상정지 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• _I_ - 입력 전용 변수 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="쉼표 또는 줄바꿈으로 구분, 대소문자 무시, 부분 일치" FontStyle="Italic" Foreground="#808080" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• cartype - 차종 관련 디바이스 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• prog - 프로그램 관련 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• em_stop - 비상정지 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• _I_ - 입력 전용 변수 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="쉼표 또는 줄바꿈으로 구분, 대소문자 무시, 부분 일치" FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -293,7 +293,7 @@
                         </Border>
 
                         <!-- API Keywords -->
-                        <Border Grid.Column="1" Background="#2D2D30" CornerRadius="4" Margin="3,0,3,0" Padding="10">
+                        <Border Grid.Column="1" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Margin="3,0,3,0" Padding="10">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -308,11 +308,11 @@
                                                     <TextBlock Text="API Keywords" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="이 키워드가 포함된 API는 기본으로 체크 해제됩니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
                                                     <TextBlock Text="예시:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• ext - 외부 API 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• err - 에러 관련 API 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• robot - 로봇 API 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• safety - 안전 관련 API 제외" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="쉼표 또는 줄바꿈으로 구분, 대소문자 무시, 부분 일치" FontStyle="Italic" Foreground="#808080" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• ext - 외부 API 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• err - 에러 관련 API 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• robot - 로봇 API 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• safety - 안전 관련 API 제외" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="쉼표 또는 줄바꿈으로 구분, 대소문자 무시, 부분 일치" FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -324,7 +324,7 @@
                         </Border>
 
                         <!-- Flow Keywords (제외) -->
-                        <Border Grid.Column="2" Background="#2D2D30" CornerRadius="4" Margin="3,0,3,0" Padding="10">
+                        <Border Grid.Column="2" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Margin="3,0,3,0" Padding="10">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -339,8 +339,8 @@
                                                     <TextBlock Text="Flow 제외 키워드" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="이 키워드가 포함된 Flow는 기본으로 체크 해제됩니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
                                                     <TextBlock Text="참고:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• Flow는 기본적으로 S{숫자} 패턴만 자동 선택됩니다." Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="• 여기에 키워드를 추가하면 추가로 제외됩니다." Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• Flow는 기본적으로 S{숫자} 패턴만 자동 선택됩니다." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• 여기에 키워드를 추가하면 추가로 제외됩니다." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -352,14 +352,14 @@
                         </Border>
 
                         <!-- Flow 필터링 -->
-                        <Border Grid.Column="3" Background="#2D2D30" CornerRadius="4" Margin="6,0,0,0" Padding="10">
+                        <Border Grid.Column="3" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Margin="6,0,0,0" Padding="10">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Flow 필터링" Style="{StaticResource SectionHeaderStyle}" Foreground="#81C784"/>
+                                    <TextBlock Text="Flow 필터링" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource GreenAccentBrush}"/>
                                     <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="30000">
                                         <Button.ToolTip>
                                             <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -367,11 +367,11 @@
                                                     <TextBlock Text="Flow 필터링 (기본 체크)" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="변환 시 기본으로 체크할 Flow 목록입니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
                                                     <TextBlock Text="동작 방식:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• 비어있음: 기존 S{숫자} 패턴 매칭 사용" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="• 항목 있음: 입력된 Flow만 체크됨 (배타적)" Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• 비어있음: 기존 S{숫자} 패턴 매칭 사용" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• 항목 있음: 입력된 Flow만 체크됨 (배타적)" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="예시:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="S141" Foreground="#81C784"/>
-                                                    <TextBlock Text="S142" Foreground="#81C784"/>
+                                                    <TextBlock Text="S141" Foreground="{DynamicResource GreenAccentBrush}"/>
+                                                    <TextBlock Text="S142" Foreground="{DynamicResource GreenAccentBrush}"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -393,31 +393,31 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- WorkSplitDepth (Work 분할 깊이) -->
-                        <Border Grid.Column="0" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="0,0,6,0" MinWidth="120">
+                        <Border Grid.Column="0" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="0,0,6,0" MinWidth="120">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal">
-                                    <TextBlock Text="Work 분할 깊이" Style="{StaticResource SectionHeaderStyle}" Foreground="#81C784"/>
+                                    <TextBlock Text="Work 분할 깊이" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource GreenAccentBrush}"/>
                                     <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="30000">
                                         <Button.ToolTip>
                                             <ToolTip Style="{StaticResource HelpTooltipStyle}">
                                                 <StackPanel>
                                                     <TextBlock Text="Work 분할 깊이 (SplitDepth) - 최대 깊이 제한" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="변수명에서 Work(Device) 이름의 최대 토큰 개수를 제한합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
-                                                    <TextBlock Text="처리 우선순위:" FontWeight="SemiBold" Foreground="#FF9800" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="1. CompoundSuffixes로 API 분리 (먼저 적용)" Foreground="#64B5F6" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="2. 결과가 최대 깊이 초과시 → 최대 깊이로 제한" Foreground="#64B5F6" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="처리 우선순위:" FontWeight="SemiBold" Foreground="{DynamicResource OrangeAccentBrush}" Margin="0,8,0,4"/>
+                                                    <TextBlock Text="1. CompoundSuffixes로 API 분리 (먼저 적용)" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="2. 결과가 최대 깊이 초과시 → 최대 깊이로 제한" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="값 설명:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• 0 = 제한 없음 (CompoundSuffixes 결과 그대로)" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="• N = 최대 N개 토큰으로 제한" Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• 0 = 제한 없음 (CompoundSuffixes 결과 그대로)" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• N = 최대 N개 토큰으로 제한" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="예시 (S141_SOL_INDEX_LOAD_AIR_ADV):" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• 깊이 0: CompoundSuffixes로 자동 → Work: S141_SOL_INDEX_LOAD_AIR" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="• 깊이 4: 최대 4토큰 → Work: S141_SOL_INDEX_LOAD" Foreground="#81C784"/>
-                                                    <TextBlock Text="• 깊이 3: 최대 3토큰 → Work: S141_SOL_INDEX" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="기본값: 0 (제한 없음)" FontStyle="Italic" Foreground="#808080" Margin="0,8,0,0"/>
+                                                    <TextBlock Text="• 깊이 0: CompoundSuffixes로 자동 → Work: S141_SOL_INDEX_LOAD_AIR" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="• 깊이 4: 최대 4토큰 → Work: S141_SOL_INDEX_LOAD" Foreground="{DynamicResource GreenAccentBrush}"/>
+                                                    <TextBlock Text="• 깊이 3: 최대 3토큰 → Work: S141_SOL_INDEX" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="기본값: 0 (제한 없음)" FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,8,0,0"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -431,33 +431,33 @@
                         </Border>
 
                         <!-- CompoundSuffixes -->
-                        <Border Grid.Column="1" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="3,0,3,0">
+                        <Border Grid.Column="1" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="3,0,3,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal">
-                                    <TextBlock Text="복합 API 접미사" Style="{StaticResource SectionHeaderStyle}" Foreground="#FFB74D"/>
+                                    <TextBlock Text="복합 API 접미사" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource OrangeAccentBrush}"/>
                                     <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="30000">
                                         <Button.ToolTip>
                                             <ToolTip Style="{StaticResource HelpTooltipStyle}">
                                                 <StackPanel>
                                                     <TextBlock Text="복합 API 접미사 (Compound Suffixes)" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="끝에서부터 이 패턴에 연속 매칭되는 토큰들을 API로 결합합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
-                                                    <TextBlock Text="처리 우선순위:" FontWeight="SemiBold" Foreground="#FF9800" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="1. I/O 타입 토큰 제거 (Q, I, O 등)" Foreground="#64B5F6" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="2. 끝에서부터 CompoundSuffixes 연속 매칭 → API" Foreground="#64B5F6" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="3. Work 분할 깊이로 최대 깊이 제한 (설정시)" Foreground="#64B5F6" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="처리 우선순위:" FontWeight="SemiBold" Foreground="{DynamicResource OrangeAccentBrush}" Margin="0,8,0,4"/>
+                                                    <TextBlock Text="1. I/O 타입 토큰 제거 (Q, I, O 등)" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="2. 끝에서부터 CompoundSuffixes 연속 매칭 → API" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="3. Work 분할 깊이로 최대 깊이 제한 (설정시)" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="와일드카드 패턴:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• * = 0개 이상 문자 (예: *ST → 1ST, 2ST 매칭)" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="• ? = 정확히 1개 문자 (예: ?ND → 2ND 매칭)" Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• * = 0개 이상 문자 (예: *ST → 1ST, 2ST 매칭)" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="• ? = 정확히 1개 문자 (예: ?ND → 2ND 매칭)" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="예시 (S154_Q_RB1_C_1ST_IN_OK):" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="  1. Q 제거 → S154_RB1_C_1ST_IN_OK" Foreground="#808080" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="  2. OK 매칭, IN 미매칭 → API=OK? 아니요" Foreground="#808080" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="  3. *ST에 1ST 매칭, C도 매칭 → API=C_1ST_IN_OK" Foreground="#808080" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="  → Work=S154_RB1, API=C_1ST_IN_OK" Foreground="#81C784" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="기본값: OK, COMP, POS, RST, END, CHK, ?ND, ?RD, ?TH" FontStyle="Italic" Foreground="#808080" Margin="0,8,0,0"/>
+                                                    <TextBlock Text="  1. Q 제거 → S154_RB1_C_1ST_IN_OK" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="  2. OK 매칭, IN 미매칭 → API=OK? 아니요" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="  3. *ST에 1ST 매칭, C도 매칭 → API=C_1ST_IN_OK" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="  → Work=S154_RB1, API=C_1ST_IN_OK" Foreground="{DynamicResource GreenAccentBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="기본값: OK, COMP, POS, RST, END, CHK, ?ND, ?RD, ?TH" FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,8,0,0"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -469,29 +469,29 @@
                         </Border>
 
                         <!-- IOTypeTokens -->
-                        <Border Grid.Column="2" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="3,0,3,0">
+                        <Border Grid.Column="2" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="3,0,3,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal">
-                                    <TextBlock Text="I/O 타입 토큰" Style="{StaticResource SectionHeaderStyle}" Foreground="#CE93D8"/>
+                                    <TextBlock Text="I/O 타입 토큰" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource PurpleAccentBrush}"/>
                                     <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="30000">
                                         <Button.ToolTip>
                                             <ToolTip Style="{StaticResource HelpTooltipStyle}">
                                                 <StackPanel>
                                                     <TextBlock Text="I/O 타입 토큰 (IOTypeTokens)" FontWeight="Bold" FontSize="13"/>
                                                     <TextBlock Text="변수명 끝에 있는 I/O 방향 표시자를 제거합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
-                                                    <TextBlock Text="처리 우선순위 (가장 먼저 적용):" FontWeight="SemiBold" Foreground="#FF9800" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="1. 마지막 토큰이 I/O 타입이면 제거" Foreground="#64B5F6" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="2. 이후 CompoundSuffixes로 API 분리" Foreground="#64B5F6" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="3. Work 분할 깊이로 제한" Foreground="#64B5F6" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="처리 우선순위 (가장 먼저 적용):" FontWeight="SemiBold" Foreground="{DynamicResource OrangeAccentBrush}" Margin="0,8,0,4"/>
+                                                    <TextBlock Text="1. 마지막 토큰이 I/O 타입이면 제거" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="2. 이후 CompoundSuffixes로 API 분리" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="3. Work 분할 깊이로 제한" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
                                                     <TextBlock Text="예시:" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                                    <TextBlock Text="• S154_RB1_ADV_Q" Foreground="#A0A0A0"/>
-                                                    <TextBlock Text="  1. Q 제거 → S154_RB1_ADV" Foreground="#808080" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="  2. API=ADV → Work=S154_RB1" Foreground="#81C784" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="기본값: Q, I, O, Y, X, M" FontStyle="Italic" Foreground="#808080" Margin="0,8,0,0"/>
+                                                    <TextBlock Text="• S154_RB1_ADV_Q" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <TextBlock Text="  1. Q 제거 → S154_RB1_ADV" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="  2. API=ADV → Work=S154_RB1" Foreground="{DynamicResource GreenAccentBrush}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="기본값: Q, I, O, Y, X, M" FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,8,0,0"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -503,14 +503,14 @@
                         </Border>
 
                         <!-- DisplayNaming: Export 시 이름 간소화 -->
-                        <Border Grid.Column="3" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="3,0,0,0">
+                        <Border Grid.Column="3" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="3,0,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal">
-                                    <TextBlock Text="제거할 토큰 설정" Style="{StaticResource SectionHeaderStyle}" Foreground="#E57373"/>
+                                    <TextBlock Text="제거할 토큰 설정" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource RedAccentBrush}"/>
                                     <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="30000">
                                         <Button.ToolTip>
                                             <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -519,29 +519,29 @@
                                                     <TextBlock Text="Export 시 DisplayName에서 제거할 토큰을 입력합니다.&#x0a;줄바꿈 또는 콤마로 구분합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
 
                                                     <TextBlock Text="토큰 종류:" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                                    <TextBlock Text="• 디바이스 타입: SOL, WRS, RS, LS 등" Foreground="#FFB74D"/>
+                                                    <TextBlock Text="• 디바이스 타입: SOL, WRS, RS, LS 등" Foreground="{DynamicResource OrangeAccentBrush}"/>
 
                                                     <TextBlock Text="변환 예시:" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                                    <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap">
-                                                        <Run Text="원본: " Foreground="#808080"/>
+                                                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
+                                                        <Run Text="원본: " Foreground="{DynamicResource DisabledTextBrush}"/>
                                                         <Run Text="S141_SOL_CT_CLP" FontWeight="SemiBold"/>
                                                     </TextBlock>
-                                                    <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="8,2,0,0">
-                                                        <Run Text="→ SOL 제거: " Foreground="#808080"/>
-                                                        <Run Text="S141_CT_CLP" Foreground="#81C784"/>
+                                                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="8,2,0,0">
+                                                        <Run Text="→ SOL 제거: " Foreground="{DynamicResource DisabledTextBrush}"/>
+                                                        <Run Text="S141_CT_CLP" Foreground="{DynamicResource GreenAccentBrush}"/>
                                                     </TextBlock>
 
-                                                    <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,8,0,0">
-                                                        <Run Text="원본: " Foreground="#808080"/>
+                                                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,8,0,0">
+                                                        <Run Text="원본: " Foreground="{DynamicResource DisabledTextBrush}"/>
                                                         <Run Text="S141_WRS_CT_CLP_ADVD" FontWeight="SemiBold"/>
                                                     </TextBlock>
-                                                    <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="8,2,0,0">
-                                                        <Run Text="→ WRS 제거: " Foreground="#808080"/>
-                                                        <Run Text="S141_CT_CLP_ADVD" Foreground="#81C784"/>
+                                                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="8,2,0,0">
+                                                        <Run Text="→ WRS 제거: " Foreground="{DynamicResource DisabledTextBrush}"/>
+                                                        <Run Text="S141_CT_CLP_ADVD" Foreground="{DynamicResource GreenAccentBrush}"/>
                                                     </TextBlock>
 
                                                     <TextBlock Text="⚠ Flow 접두사(S141 등)를 제거하면&#x0a;   매칭 및 변환 동작에 문제가 발생할 수 있습니다."
-                                                               Foreground="#E57373" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                                               Foreground="{DynamicResource RedAccentBrush}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                             </ToolTip>
                                         </Button.ToolTip>
@@ -558,14 +558,14 @@
 
             <!-- Tab 2: MappingSets -->
             <TabItem Header="Mapping Sets" Style="{StaticResource TabItemStyle}">
-                <Grid Margin="12" Background="#252526">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="디바이스-API 매핑 규칙 (카테고리별 정리)" Foreground="#A0A0A0" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="디바이스-API 매핑 규칙 (카테고리별 정리)" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center"/>
                         <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="60000">
                             <Button.ToolTip>
                                 <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -574,17 +574,17 @@
                                         <TextBlock Text="Device 이름 패턴에 따라 어떤 API를 매핑할지 정의합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
 
                                         <TextBlock Text="Device Keywords" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="• 와일드카드 패턴 사용: *Clamp*, *Valve*, *CYL*" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Text="• 여러 패턴은 쉼표로 구분" Foreground="#A0A0A0"/>
-                                        <TextBlock Text="• 대소문자 무시, 부분 일치" Foreground="#A0A0A0"/>
+                                        <TextBlock Text="• 와일드카드 패턴 사용: *Clamp*, *Valve*, *CYL*" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="• 여러 패턴은 쉼표로 구분" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="• 대소문자 무시, 부분 일치" Foreground="{DynamicResource SecondaryTextBrush}"/>
 
                                         <TextBlock Text="API 정의" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="• Name: API 이름 (예: ADV, RET, ON, OFF)" Foreground="#A0A0A0"/>
-                                        <TextBlock Text="• Out: Output 키워드 (예: O, OUT, SOL)" Foreground="#81C784"/>
-                                        <TextBlock Text="• In: Input 키워드 (예: I, IN, ADVPOS, RETPOS)" Foreground="#64B5F6"/>
+                                        <TextBlock Text="• Name: API 이름 (예: ADV, RET, ON, OFF)" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <TextBlock Text="• Out: Output 키워드 (예: O, OUT, SOL)" Foreground="{DynamicResource GreenAccentBrush}"/>
+                                        <TextBlock Text="• In: Input 키워드 (예: I, IN, ADVPOS, RETPOS)" Foreground="{DynamicResource AccentBrush}"/>
 
                                         <TextBlock Text="예시" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap">
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
                                             <Run Text="Device: *Clamp*"/>
                                             <LineBreak/>
                                             <Run Text="API 'ADV': Out=O,OUT / In=I,IN,ADVPOS"/>
@@ -597,26 +597,26 @@
                         </Button>
                     </StackPanel>
 
-                    <TreeView Grid.Row="1" Background="#2D2D30" BorderBrush="#3F3F46"
+                    <TreeView Grid.Row="1" Background="{DynamicResource TertiaryBackgroundBrush}" BorderBrush="{DynamicResource TertiaryBackgroundBrush}"
                               ItemsSource="{Binding MappingCategories}">
                         <TreeView.Resources>
                             <Style TargetType="TreeViewItem">
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                             </Style>
                         </TreeView.Resources>
                         <TreeView.ItemTemplate>
                             <HierarchicalDataTemplate ItemsSource="{Binding MappingSets}">
                                 <StackPanel Orientation="Horizontal" Margin="0,4">
-                                    <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13" Foreground="#64B5F6"/>
-                                    <TextBlock Text="{Binding MappingSets.Count, StringFormat=' ({0})'}" Foreground="#808080"/>
+                                    <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource AccentBrush}"/>
+                                    <TextBlock Text="{Binding MappingSets.Count, StringFormat=' ({0})'}" Foreground="{DynamicResource DisabledTextBrush}"/>
                                     <Button Content="+ 추가" Style="{StaticResource SmallButtonStyle}" Margin="10,0,0,0"
                                             Command="{Binding DataContext.AddMappingSetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                             CommandParameter="{Binding}"/>
                                 </StackPanel>
                                 <HierarchicalDataTemplate.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="#252526" CornerRadius="3" Padding="8" Margin="0,2">
+                                        <Border Background="{DynamicResource SecondaryBackgroundBrush}" CornerRadius="3" Padding="8" Margin="0,2">
                                             <Grid>
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto"/>
@@ -627,7 +627,7 @@
                                                 <!-- MappingSet Header -->
                                                 <StackPanel Grid.Row="0" Orientation="Horizontal">
                                                     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
-                                                             Background="#3E3E42" Foreground="White" BorderThickness="0"
+                                                             Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource PrimaryTextBrush}" BorderThickness="0"
                                                              FontWeight="SemiBold" Padding="4,2" Width="250"/>
                                                     <Button Content="X" Style="{StaticResource DeleteButtonStyle}" Margin="8,0,0,0"
                                                             Command="{Binding DataContext.RemoveMappingSetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -636,7 +636,7 @@
 
                                                 <!-- DeviceKeywords -->
                                                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0">
-                                                    <TextBlock Text="Device:" Foreground="#A0A0A0" Width="50"/>
+                                                    <TextBlock Text="Device:" Foreground="{DynamicResource SecondaryTextBrush}" Width="50"/>
                                                     <TextBox Text="{Binding DeviceKeywords, UpdateSourceTrigger=PropertyChanged}"
                                                              Style="{StaticResource KeywordTextBoxStyle}" Width="400"/>
                                                 </StackPanel>
@@ -644,7 +644,7 @@
                                                 <!-- APIs -->
                                                 <StackPanel Grid.Row="2" Margin="0,6,0,0">
                                                     <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="APIs:" Foreground="#A0A0A0"/>
+                                                        <TextBlock Text="APIs:" Foreground="{DynamicResource SecondaryTextBrush}"/>
                                                         <Button Content="+ API" Style="{StaticResource SmallButtonStyle}" Margin="8,0,0,0"
                                                                 Command="{Binding DataContext.AddApiCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"/>
@@ -654,12 +654,12 @@
                                                             <DataTemplate>
                                                                 <StackPanel Orientation="Horizontal" Margin="0,2">
                                                                     <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
-                                                                             Background="#3E3E42" Foreground="#FFD54F" BorderThickness="0"
+                                                                             Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource OrangeAccentBrush}" BorderThickness="0"
                                                                              Width="80" Padding="4,2" FontWeight="SemiBold"/>
-                                                                    <TextBlock Text="Out:" Foreground="#A0A0A0" Margin="8,0,4,0" VerticalAlignment="Center"/>
+                                                                    <TextBlock Text="Out:" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,4,0" VerticalAlignment="Center"/>
                                                                     <TextBox Text="{Binding OutputKeywords, UpdateSourceTrigger=PropertyChanged}"
                                                                              Style="{StaticResource KeywordTextBoxStyle}" Width="120"/>
-                                                                    <TextBlock Text="In:" Foreground="#A0A0A0" Margin="8,0,4,0" VerticalAlignment="Center"/>
+                                                                    <TextBlock Text="In:" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,4,0" VerticalAlignment="Center"/>
                                                                     <TextBox Text="{Binding InputKeywords, UpdateSourceTrigger=PropertyChanged}"
                                                                              Style="{StaticResource KeywordTextBoxStyle}" Width="150"/>
                                                                     <Button Content="X" Style="{StaticResource DeleteButtonStyle}" Margin="6,0,0,0"
@@ -682,7 +682,7 @@
 
             <!-- Tab 3: SymmetryRules -->
             <TabItem Header="Symmetry Rules" Style="{StaticResource TabItemStyle}">
-                <Grid Margin="12" Background="#252526">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -690,7 +690,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Output→Input 패턴 대칭 규칙 (예: _Q_ → _I_)" Foreground="#A0A0A0" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="Output→Input 패턴 대칭 규칙 (예: _Q_ → _I_)" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center"/>
                         <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="60000">
                             <Button.ToolTip>
                                 <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -699,46 +699,46 @@
                                         <TextBlock Text="Output 변수명의 패턴을 Input 패턴으로 변환하는 규칙입니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
 
                                         <TextBlock Text="동작 원리" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="Output 변수에서 Output Pattern을 찾아 Input Pattern으로 치환하여" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Text="대응하는 Input 변수를 매칭합니다." Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Output 변수에서 Output Pattern을 찾아 Input Pattern으로 치환하여" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="대응하는 Input 변수를 매칭합니다." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
 
                                         <TextBlock Text="기본 예시" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap">
-                                            <Run Text="• " Foreground="#81C784"/>
-                                            <Run Text="_Q_" Foreground="#81C784"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
+                                            <Run Text="• " Foreground="{DynamicResource GreenAccentBrush}"/>
+                                            <Run Text="_Q_" Foreground="{DynamicResource GreenAccentBrush}"/>
                                             <Run Text=" → "/>
-                                            <Run Text="_I_" Foreground="#64B5F6"/>
+                                            <Run Text="_I_" Foreground="{DynamicResource AccentBrush}"/>
                                             <Run Text=" (LS Q/I 대칭)"/>
                                         </TextBlock>
-                                        <TextBlock Text="  S151_Q_RB1_O1 → S151_I_RB1_O1" Foreground="#808080" Margin="8,2,0,0"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,4,0,0">
-                                            <Run Text="• " Foreground="#81C784"/>
-                                            <Run Text="SOL_" Foreground="#81C784"/>
+                                        <TextBlock Text="  S151_Q_RB1_O1 → S151_I_RB1_O1" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,2,0,0"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Run Text="• " Foreground="{DynamicResource GreenAccentBrush}"/>
+                                            <Run Text="SOL_" Foreground="{DynamicResource GreenAccentBrush}"/>
                                             <Run Text=" → "/>
-                                            <Run Text="RS_" Foreground="#64B5F6"/>
+                                            <Run Text="RS_" Foreground="{DynamicResource AccentBrush}"/>
                                             <Run Text=" (SOL→센서)"/>
                                         </TextBlock>
-                                        <TextBlock Text="  S151_SOL_Valve1 → S151_RS_Valve1" Foreground="#808080" Margin="8,2,0,0"/>
+                                        <TextBlock Text="  S151_SOL_Valve1 → S151_RS_Valve1" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,2,0,0"/>
 
                                         <TextBlock Text="와일드카드 (*) 지원" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="OutputPattern에 * 사용: 중간 부분 무시" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,4,0,0">
-                                            <Run Text="• " Foreground="#81C784"/>
-                                            <Run Text="_SOL_CT_*_FLR_CLP_" Foreground="#81C784"/>
+                                        <TextBlock Text="OutputPattern에 * 사용: 중간 부분 무시" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Run Text="• " Foreground="{DynamicResource GreenAccentBrush}"/>
+                                            <Run Text="_SOL_CT_*_FLR_CLP_" Foreground="{DynamicResource GreenAccentBrush}"/>
                                             <Run Text=" → "/>
-                                            <Run Text="_WRS_CT_CLP_" Foreground="#64B5F6"/>
+                                            <Run Text="_WRS_CT_CLP_" Foreground="{DynamicResource AccentBrush}"/>
                                         </TextBlock>
-                                        <TextBlock Text="  S141_SOL_CT_R_FLR_CLP_ADV → S141_WRS_CT_CLP_ADV" Foreground="#808080" Margin="8,2,0,0"/>
-                                        <TextBlock Text="  (R/L 방향, FLR 부분 무시)" Foreground="#808080" Margin="8,0,0,0"/>
+                                        <TextBlock Text="  S141_SOL_CT_R_FLR_CLP_ADV → S141_WRS_CT_CLP_ADV" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,2,0,0"/>
+                                        <TextBlock Text="  (R/L 방향, FLR 부분 무시)" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,0,0,0"/>
 
-                                        <TextBlock Text="InputPattern에 * 사용: 후보 확장" Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,4,0,0">
-                                            <Run Text="• CLP_ADV → " Foreground="#A0A0A0"/>
-                                            <Run Text="CLP_ADV*" Foreground="#64B5F6"/>
+                                        <TextBlock Text="InputPattern에 * 사용: 후보 확장" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Run Text="• CLP_ADV → " Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            <Run Text="CLP_ADV*" Foreground="{DynamicResource AccentBrush}"/>
                                             <Run Text=" (ADV, ADV1, ADV2 모두 매칭)"/>
                                         </TextBlock>
 
-                                        <TextBlock Text="대소문자를 무시하고 부분 일치로 동작합니다." FontStyle="Italic" Foreground="#808080" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="대소문자를 무시하고 부분 일치로 동작합니다." FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </ToolTip>
                             </Button.ToolTip>
@@ -756,42 +756,42 @@
                             <DataGridTextColumn Header="Output Pattern" Binding="{Binding OutputPattern, UpdateSourceTrigger=PropertyChanged}" Width="200">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#81C784"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="Input Pattern" Binding="{Binding InputPattern, UpdateSourceTrigger=PropertyChanged}" Width="200">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#64B5F6"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="Description" Binding="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#A0A0A0"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
@@ -819,7 +819,7 @@
 
             <!-- Tab 4: ExplicitMappings -->
             <TabItem Header="Explicit Mappings" Style="{StaticResource TabItemStyle}">
-                <Grid Margin="12" Background="#252526">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -827,7 +827,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="명시적 Output→Input 키워드 매핑 (정확히 일치)" Foreground="#A0A0A0" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="명시적 Output→Input 키워드 매핑 (정확히 일치)" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center"/>
                         <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="60000">
                             <Button.ToolTip>
                                 <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -836,27 +836,27 @@
                                         <TextBlock Text="특정 Output 키워드를 정확한 Input 키워드로 직접 매핑합니다." TextWrapping="Wrap" Margin="0,6,0,0"/>
 
                                         <TextBlock Text="언제 사용하나요?" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="• 패턴 변환 규칙으로 표현하기 어려운 경우" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Text="• 특수한 명명 규칙이 있는 변수" Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Text="• 기존 규칙을 오버라이드하고 싶을 때" Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="• 패턴 변환 규칙으로 표현하기 어려운 경우" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="• 특수한 명명 규칙이 있는 변수" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="• 기존 규칙을 오버라이드하고 싶을 때" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
 
                                         <TextBlock Text="예시" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap">
-                                            <Run Text="• " Foreground="#81C784"/>
-                                            <Run Text="WORK_COMP_RST" Foreground="#81C784"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
+                                            <Run Text="• " Foreground="{DynamicResource GreenAccentBrush}"/>
+                                            <Run Text="WORK_COMP_RST" Foreground="{DynamicResource GreenAccentBrush}"/>
                                             <Run Text=" → "/>
-                                            <Run Text="HOME_POS" Foreground="#64B5F6"/>
+                                            <Run Text="HOME_POS" Foreground="{DynamicResource AccentBrush}"/>
                                         </TextBlock>
-                                        <TextBlock Text="  로봇 작업완료 리셋 → 홈 위치 센서" Foreground="#808080" Margin="8,2,0,0"/>
-                                        <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,4,0,0">
-                                            <Run Text="• " Foreground="#81C784"/>
-                                            <Run Text="GUN_OPEN" Foreground="#81C784"/>
+                                        <TextBlock Text="  로봇 작업완료 리셋 → 홈 위치 센서" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,2,0,0"/>
+                                        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                            <Run Text="• " Foreground="{DynamicResource GreenAccentBrush}"/>
+                                            <Run Text="GUN_OPEN" Foreground="{DynamicResource GreenAccentBrush}"/>
                                             <Run Text=" → "/>
-                                            <Run Text="GUN_OPEN_POS" Foreground="#64B5F6"/>
+                                            <Run Text="GUN_OPEN_POS" Foreground="{DynamicResource AccentBrush}"/>
                                         </TextBlock>
-                                        <TextBlock Text="  용접건 오픈 → 오픈 위치 센서" Foreground="#808080" Margin="8,2,0,0"/>
+                                        <TextBlock Text="  용접건 오픈 → 오픈 위치 센서" Foreground="{DynamicResource DisabledTextBrush}" Margin="8,2,0,0"/>
 
-                                        <TextBlock Text="부분 일치로 동작하며 대소문자를 무시합니다." FontStyle="Italic" Foreground="#808080" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="부분 일치로 동작하며 대소문자를 무시합니다." FontStyle="Italic" Foreground="{DynamicResource DisabledTextBrush}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </ToolTip>
                             </Button.ToolTip>
@@ -874,42 +874,42 @@
                             <DataGridTextColumn Header="Output Keyword" Binding="{Binding OutputKeyword, UpdateSourceTrigger=PropertyChanged}" Width="200">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#81C784"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="Input Keyword" Binding="{Binding InputKeyword, UpdateSourceTrigger=PropertyChanged}" Width="200">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#64B5F6"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="Description" Binding="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#A0A0A0"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
                                         <Setter Property="Padding" Value="6,4"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                                 <DataGridTextColumn.EditingElementStyle>
                                     <Style TargetType="TextBox">
-                                        <Setter Property="Background" Value="#3E3E42"/>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.EditingElementStyle>
                             </DataGridTextColumn>
@@ -937,7 +937,7 @@
 
                         <!-- Tab 5: Node Connections -->
             <TabItem Header="Node Connections" Style="{StaticResource TabItemStyle}">
-                <Grid Margin="12" Background="#252526">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -945,7 +945,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Node connection rules (used for auto linking during export)" Foreground="#A0A0A0" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="Node connection rules (used for auto linking during export)" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center"/>
                         <Button Content="?" Style="{StaticResource HelpButtonStyle}" ToolTipService.InitialShowDelay="0" ToolTipService.ShowDuration="60000">
                             <Button.ToolTip>
                                 <ToolTip Style="{StaticResource HelpTooltipStyle}">
@@ -954,20 +954,20 @@
                                         <TextBlock Text="Define how calls and works connect when exporting flows." TextWrapping="Wrap" Margin="0,6,0,0"/>
 
                                         <TextBlock Text="Call Sequences" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="Comma separated steps, supports * wildcard." Foreground="#A0A0A0" TextWrapping="Wrap"/>
-                                        <TextBlock Text="Example: START,*_IN_OK,WORK_COMP_RST" Foreground="#808080" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Comma separated steps, supports * wildcard." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Example: START,*_IN_OK,WORK_COMP_RST" Foreground="{DynamicResource DisabledTextBrush}" TextWrapping="Wrap"/>
 
                                         <TextBlock Text="Work Connections" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="Connect works by name pattern (From -> To), sequential or parallel." Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Connect works by name pattern (From -> To), sequential or parallel." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
 
                                         <TextBlock Text="Device Pairs" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="Pair device types (e.g., SV &lt;-&gt; CT) to link related works." Foreground="#A0A0A0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Pair device types (e.g., SV &lt;-&gt; CT) to link related works." Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
 
                                         <TextBlock Text="Arrow types" FontWeight="SemiBold" Margin="0,10,0,4"/>
-                                        <TextBlock Text="StartReset: start then reset" Foreground="#81C784"/>
-                                        <TextBlock Text="Start: start only" Foreground="#64B5F6"/>
-                                        <TextBlock Text="Reset: reset only" Foreground="#FFB74D"/>
-                                        <TextBlock Text="Interlock: mutual exclusion" Foreground="#CE93D8"/>
+                                        <TextBlock Text="StartReset: start then reset" Foreground="{DynamicResource GreenAccentBrush}"/>
+                                        <TextBlock Text="Start: start only" Foreground="{DynamicResource AccentBrush}"/>
+                                        <TextBlock Text="Reset: reset only" Foreground="{DynamicResource OrangeAccentBrush}"/>
+                                        <TextBlock Text="Interlock: mutual exclusion" Foreground="{DynamicResource PurpleAccentBrush}"/>
                                     </StackPanel>
                                 </ToolTip>
                             </Button.ToolTip>
@@ -975,14 +975,14 @@
                     </StackPanel>
 
                     <!-- Call Sequences -->
-                    <Border Grid.Row="1" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                    <Border Grid.Row="1" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                                <TextBlock Text="Call Sequences" Style="{StaticResource SectionHeaderStyle}" Foreground="#81C784"/>
+                                <TextBlock Text="Call Sequences" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource GreenAccentBrush}"/>
                                 <Button Content="+ Add" Style="{StaticResource SmallButtonStyle}" Margin="10,0,0,0"
                                         Command="{Binding AddCallSequenceCommand}"/>
                             </StackPanel>
@@ -994,42 +994,42 @@
                                     <DataGridTextColumn Header="Name" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="150">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="White"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 <Setter Property="Padding" Value="6,4"/>
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                         <DataGridTextColumn.EditingElementStyle>
                                             <Style TargetType="TextBox">
-                                                <Setter Property="Background" Value="#3E3E42"/>
-                                                <Setter Property="Foreground" Value="White"/>
+                                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                             </Style>
                                         </DataGridTextColumn.EditingElementStyle>
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="Steps (comma, * wildcard)" Binding="{Binding Steps, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="#FFD54F"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
                                                 <Setter Property="Padding" Value="6,4"/>
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                         <DataGridTextColumn.EditingElementStyle>
                                             <Style TargetType="TextBox">
-                                                <Setter Property="Background" Value="#3E3E42"/>
-                                                <Setter Property="Foreground" Value="White"/>
+                                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                             </Style>
                                         </DataGridTextColumn.EditingElementStyle>
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="Type" Binding="{Binding Type, UpdateSourceTrigger=PropertyChanged}" Width="100">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="#81C784"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                                 <Setter Property="Padding" Value="6,4"/>
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                         <DataGridTextColumn.EditingElementStyle>
                                             <Style TargetType="TextBox">
-                                                <Setter Property="Background" Value="#3E3E42"/>
-                                                <Setter Property="Foreground" Value="White"/>
+                                                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                             </Style>
                                         </DataGridTextColumn.EditingElementStyle>
                                     </DataGridTextColumn>
@@ -1064,14 +1064,14 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Work Connections -->
-                        <Border Grid.Column="0" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="0,0,4,0">
+                        <Border Grid.Column="0" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="0,0,4,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                                    <TextBlock Text="Work Connections" Style="{StaticResource SectionHeaderStyle}" Foreground="#64B5F6"/>
+                                    <TextBlock Text="Work Connections" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource AccentBrush}"/>
                                     <Button Content="+ Add" Style="{StaticResource SmallButtonStyle}" Margin="10,0,0,0"
                                             Command="{Binding AddWorkConnectionCommand}"/>
                                 </StackPanel>
@@ -1082,56 +1082,56 @@
                                         <DataGridTextColumn Header="From" Binding="{Binding FromPattern, UpdateSourceTrigger=PropertyChanged}" Width="80">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#81C784"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="To" Binding="{Binding ToPattern, UpdateSourceTrigger=PropertyChanged}" Width="80">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#64B5F6"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Type" Binding="{Binding Type, UpdateSourceTrigger=PropertyChanged}" Width="80">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#FFB74D"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Mode" Binding="{Binding Mode, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#CE93D8"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PurpleAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
@@ -1158,14 +1158,14 @@
                         </Border>
 
                         <!-- Device Pairs -->
-                        <Border Grid.Column="1" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="4,0,0,0">
+                        <Border Grid.Column="1" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="4,0,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                                    <TextBlock Text="Device Pairs" Style="{StaticResource SectionHeaderStyle}" Foreground="#CE93D8"/>
+                                    <TextBlock Text="Device Pairs" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource PurpleAccentBrush}"/>
                                     <Button Content="+ Add" Style="{StaticResource SmallButtonStyle}" Margin="10,0,0,0"
                                             Command="{Binding AddDevicePairCommand}"/>
                                 </StackPanel>
@@ -1176,42 +1176,42 @@
                                         <DataGridTextColumn Header="Device1" Binding="{Binding Device1, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#81C784"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Device2" Binding="{Binding Device2, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#64B5F6"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Type" Binding="{Binding Type, UpdateSourceTrigger=PropertyChanged}" Width="80">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#FFB74D"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
@@ -1238,14 +1238,14 @@
                         </Border>
 
                         <!-- AutoPre Rules -->
-                        <Border Grid.Column="2" Background="#2D2D30" CornerRadius="4" Padding="10" Margin="4,0,0,0">
+                        <Border Grid.Column="2" Background="{DynamicResource TertiaryBackgroundBrush}" CornerRadius="4" Padding="10" Margin="4,0,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                                    <TextBlock Text="AutoPre Rules" Style="{StaticResource SectionHeaderStyle}" Foreground="#FFD54F"/>
+                                    <TextBlock Text="AutoPre Rules" Style="{StaticResource SectionHeaderStyle}" Foreground="{DynamicResource OrangeAccentBrush}"/>
                                     <Button Content="+ Add" Style="{StaticResource SmallButtonStyle}" Margin="10,0,0,0"
                                             Command="{Binding AddAutoPreRuleCommand}"/>
                                 </StackPanel>
@@ -1256,42 +1256,42 @@
                                         <DataGridTextColumn Header="Source" Binding="{Binding SourcePattern, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#81C784"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource GreenAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Target" Binding="{Binding TargetPattern, UpdateSourceTrigger=PropertyChanged}" Width="*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#64B5F6"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>
                                         <DataGridTextColumn Header="Type" Binding="{Binding Type, UpdateSourceTrigger=PropertyChanged}" Width="80">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#FFB74D"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
                                                     <Setter Property="Padding" Value="6,4"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                             <DataGridTextColumn.EditingElementStyle>
                                                 <Style TargetType="TextBox">
-                                                    <Setter Property="Background" Value="#3E3E42"/>
-                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                                 </Style>
                                             </DataGridTextColumn.EditingElementStyle>
                                         </DataGridTextColumn>

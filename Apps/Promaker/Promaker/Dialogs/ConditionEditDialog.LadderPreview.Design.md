@@ -43,7 +43,7 @@
 
 ## 2. 배경 / 목적
 
-`ConditionEditDialog` 는 Call 의 `AutoAux / ComAux / SkipUnmatch` 조건 트리(`CallCondition`)를 GUI 로 편집한다. 현재는 트리 UI 만 있어 PLC 출력 확인까지 변환 → XG5000 import 가 필요하다.
+`ConditionEditDialog` 는 Call 의 `AutoAux / ComAux / SkipAction` 조건 트리(`CallCondition`)를 GUI 로 편집한다. 현재는 트리 UI 만 있어 PLC 출력 확인까지 변환 → XG5000 import 가 필요하다.
 
 다이얼로그 하단에 **실시간 ladder 미리보기**를 추가해 즉시 확인:
 - AND/OR 직병렬 구조
@@ -297,7 +297,7 @@ private void RefreshPreview()
 
 ## 11. 미해결 / 후속
 
-- SkipUnmatch 의 의미적 시각화 — 후속.
+- SkipAction 의 의미적 시각화 — 후속.
 - 시뮬레이션 ON/OFF 오버레이 — `CoilConditionView` 에 `Signals` DP 추가 필요 (`LadderRenderer.Signals` API 활용 가능).
 - AutoAux base 합성 표시 토글 — 본 사양 명시적 제외, 후속.
 - GridSplitter 미리보기 높이 사용자 조정 — 후속.

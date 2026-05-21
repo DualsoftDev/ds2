@@ -14,12 +14,12 @@ module MermaidParser =
         Edges: MermaidEdge list
         Children: MermaidSubgraph list
         IsPassive: bool
-        SkipUnmatchConditionRefs: string list
+        SkipActionConditionRefs: string list
     }
 
-    /// title 의 "<br>SkipUnmatch: ref1, ref2" suffix 분리 (Work subgraph 전용 — 다른 subgraph 는 항상 빈 list).
-    let private extractSkipUnmatchRefs (rawTitle: string) : string * string list =
-        let marker = "<br>SkipUnmatch: "
+    /// title 의 "<br>SkipAction: ref1, ref2" suffix 분리 (Work subgraph 전용 — 다른 subgraph 는 항상 빈 list).
+    let private extractSkipActionRefs (rawTitle: string) : string * string list =
+        let marker = "<br>SkipAction: "
         let idx = rawTitle.IndexOf(marker)
         if idx < 0 then rawTitle, []
         else
@@ -67,7 +67,7 @@ module MermaidParser =
             CommonConditions = conditions
             AutoAuxConditionRefs = autoAuxRefs
             ComAuxConditionRefs = comAuxRefs
-            SkipUnmatchConditionRefs = skipUnmatchRefs
+            SkipActionConditionRefs = skipUnmatchRefs
         }
         state.AllNodeIds.Add(nodeId) |> ignore
         match state.SubgraphStack with
@@ -123,11 +123,11 @@ module MermaidParser =
             match state.SubgraphStack with
             | [] -> state.IsPassiveSection
             | parent :: _ -> parent.IsPassive
-        // displayName 에서 SkipUnmatch suffix 추출 (Work subgraph 만 해당; 다른 노드 는 marker 없어서 빈 list).
+        // displayName 에서 SkipAction suffix 추출 (Work subgraph 만 해당; 다른 노드 는 marker 없어서 빈 list).
         let cleanedName, skipRefs =
             match displayName with
             | Some raw ->
-                let n, refs = extractSkipUnmatchRefs raw
+                let n, refs = extractSkipActionRefs raw
                 (if n = raw then Some raw else Some n), refs
             | None -> None, []
         let frame = {
@@ -137,7 +137,7 @@ module MermaidParser =
             Edges = []
             Children = []
             IsPassive = isPassive
-            SkipUnmatchConditionRefs = skipRefs
+            SkipActionConditionRefs = skipRefs
         }
         { state with SubgraphStack = frame :: state.SubgraphStack }
 
@@ -152,7 +152,7 @@ module MermaidParser =
                 InternalEdges = List.rev frame.Edges
                 Children = List.rev frame.Children
                 IsPassive = frame.IsPassive
-                SkipUnmatchConditionRefs = frame.SkipUnmatchConditionRefs
+                SkipActionConditionRefs = frame.SkipActionConditionRefs
             }
             match rest with
             | parent :: grandparents ->

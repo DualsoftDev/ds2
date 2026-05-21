@@ -1271,7 +1271,7 @@ systems:
                 conditions:
                   - Cyl1.RET
                 children:
-                  - type: SkipUnmatch
+                  - type: SkipAction
                     isOR: true
                     conditions:
                       - ref: Cyl1.ADV
@@ -1294,7 +1294,7 @@ let ``외부 review M-E — nested Condition children round-trip`` () =
     Assert.Equal(1, root.ApiCalls.Count)
     Assert.Equal(1, root.Children.Count)
     let child = root.Children.[0]
-    Assert.Equal(Some ConditionType.SkipUnmatch, child.Type)
+    Assert.Equal(Some ConditionType.SkipAction, child.Type)
     Assert.True(child.IsOR)
     Assert.Equal(1, child.ApiCalls.Count)
     Assert.Equal(ContactKind.NcContact, child.ApiCalls.[0].ContactKind)
@@ -1311,7 +1311,7 @@ let ``외부 review M-E — nested Condition children round-trip`` () =
     Assert.Equal(Some ConditionType.ComAux, root2.Type)
     Assert.True(root2.IsInverted)
     Assert.Equal(1, root2.Children.Count)
-    Assert.Equal(Some ConditionType.SkipUnmatch, root2.Children.[0].Type)
+    Assert.Equal(Some ConditionType.SkipAction, root2.Children.[0].Type)
     Assert.True(root2.Children.[0].IsOR)
     Assert.Equal(ContactKind.NcContact, root2.Children.[0].ApiCalls.[0].ContactKind)
 
