@@ -24,7 +24,7 @@
 |---|---|---|---|
 | 1 | subagent batch K (image 개수 / agent) | **4** | image 1장 ≈ 1K vision token + prompt+system ≈ 3K → K=4 시 ≈ 7K input/agent. K=8 은 Anthropic tier 1 ITPM (40K) 위험. tier 2+ 확정 시 K=8 재상향 가능 |
 | 2 | parallel P (동시 spawn 수) | **4** | Claude Code Agent 동시 dispatch 상한 documented 부재 — 보수 추정. K×P=16 image/round |
-| 3 | image volume threshold (lower) | **20** | image N < 20 시 subagent dispatch overhead > 이득 → CLI direct sequential path 유지 |
+| 3 | image volume threshold (lower) | **1** (2026-05-21 정정) | N ≥ 1 이면 항상 subagent path dispatch. 종전 **20** 박제는 부조리 — Claude Code 사용자 대부분이 `LIGHTHOUSE_VLM_API_KEY` 미박제 → caption 미생성으로 종결되는 결과. batch (K×P=16) 는 *parallel 효율* 단위일 뿐, image 수 적다고 caption 처리 자체 skip 하지 않음. 작은 N (예: 4) 은 subagent 1개로 충분 — dispatch 단위는 자연스럽게 `ceil(N/K)` |
 | 4 | image volume threshold (upper) | **120** | N > 120 (≈ K×P×7.5 round, wall-clock 5분+) 시 사용자 confirm prompt. 측정 단위 = 폴더 전체 `ImageCache.CaptionText IS NULL` row 수 |
 | 5 | caption-prompt SSOT 위치 | **lib `CaptionGenerator.CaptionPrompt` (Literal) 단일 유지** | skill 은 CLI `lighthouse-cli print-caption-prompt` 로 매번 fetch — 사본 박제 없음, drift 원천 차단 |
 | 6 | caption-pending SSOT 위치 | **SQLite (`ImageCache.CaptionText IS NULL` query)** | 별 manifest 파일 박제 폐기. CLI `lighthouse-cli list-pending-captions <folder>` 가 매 호출 시 JSON stream |
@@ -38,7 +38,7 @@
 | 14 | 결과 동등성 spot-check 합격 기준 | **샘플 5장 중 ≥ 4장 의미 동등 (사람 판정)** | 미만 시 §2 #5 SSOT (lib `CaptionPrompt` literal) 재검토. 즉 spot-check 실패 = caption-prompt 정책 점검 trigger |
 | 15 | Anthropic tier 식별 안내 | **사용자가 `console.anthropic.com → Settings → Limits` 확인 후 §2 #1/#2 조정** | 미확인 시 K=4/P=4 default (tier 1 안전 마진). tier 2+ 확정 시 K=8/P=8 까지 상향 검토 |
 | 16 | `caption-update` 빈 batch 입력 | **exit 0 (no-op)** | manifest empty + retry 시 idempotent. crash recovery 시 자연 진입 path |
-| 17 | lower-bound (N<20) fallback 시 env 검사 | **skill 이 `LIGHTHOUSE_VLM_API_KEY` 검사 → 미박제 시 caption 없이 진행 (`--force-without-image-caption`) 박제 또는 사용자에게 key 박제 안내** | direct path fallback 조건 명시. key 부재 + soft skip 거부 시 abort |
+| 17 | ~~lower-bound (N<20) fallback 시 env 검사~~ | **폐기 (2026-05-21)** | §2 #3 lower=1 정정으로 fallback path 자체 폐기. LIGHTHOUSE_VLM_API_KEY 검사는 별 entry (사용자가 명시적으로 Anthropic direct path 선택 시) 에만 의미 |
 
 ## 3. 변경 범위
 

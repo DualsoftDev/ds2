@@ -73,7 +73,7 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 |---|---|---|
 | 1 | K=4 | subagent 1개당 image 개수 (tier 1 ITPM 안전 마진) |
 | 2 | P=4 | parallel spawn 수 |
-| 3 | lower=20 | N<20 시 본 path skip → 사용자에게 `LIGHTHOUSE_VLM_API_KEY` 박제 + Anthropic direct fallback 안내 |
+| 3 | lower=1 | N ≥ 1 이면 항상 subagent path dispatch. 종전 lower=20 (skip 분기) 은 부조리 — Claude Code 사용자 대부분이 `LIGHTHOUSE_VLM_API_KEY` 미박제 → caption 미생성으로 종결되는 결과. batch 는 속도 향상 도구일 뿐, image 수 적다고 처리 자체 skip 하지 않음 |
 | 4 | upper=120 | N>120 시 사용자 confirm prompt |
 | 5 | prompt SSOT | `lighthouse-cli print-caption-prompt` 매 진입 시 fetch — 사본 박제 없음 |
 | 6 | pending SSOT | `lighthouse-cli list-pending-captions <folder>` (SQLite query, manifest 파일 박제 없음) |
@@ -103,13 +103,8 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
    stdout JSON array (각 row = `{hash, ext, refLocator, docPath}` camelCase).
 
 2. **threshold 분기** (N = array length):
-   - **N < 20**: 본 path skip. 사용자에게 안내:
-     ```
-     image {N}장 — subagent dispatch overhead 임계 미달. 다음 중 하나 선택:
-       (a) LIGHTHOUSE_VLM_API_KEY 박제 후 'lighthouse-cli index <folder> --upload <url>' 으로 Anthropic direct path.
-       (b) caption 없이 진행 — Step 3 만 직접 호출 (image 검색 fallback 없음).
-     ```
-   - **20 ≤ N ≤ 120**: 자동 dispatch.
+   - **N = 0**: empty batch — Step 2 자체 skip (이미 모든 image 의 caption 박제됨). Step 3 진행.
+   - **1 ≤ N ≤ 120**: 자동 dispatch. N 이 작으면 (e.g. 1~K) subagent 1개로 충분 — parallel slot 미충족이라도 caption 생성 자체는 진행. dispatch 단위는 자연스럽게 `ceil(N/K)` subagents, P 까지 동시 spawn.
    - **N > 120**: confirm prompt — `이미지 {N}장. 예상 wall-clock {ceil(N/(K*P))*추정시간}분. 진행?`
 
 3. **caption-prompt fetch** (1회):
