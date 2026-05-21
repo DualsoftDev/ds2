@@ -525,6 +525,9 @@ module private PptxFixture =
         | BodyNoPh of paras: string list
         | BodySp of paras: string list
         | PicSp of bytes: byte[]
+        /// **review M9** — PartTypeInfo (`ImagePartType.Bmp` 등) 인자 받는 변형 (whitelist 외 ContentType 박제용).
+        /// PNG (whitelist 통과) / Bmp / Tiff (whitelist 외, skip) 등 mixed fixture 박제 가능.
+        | PicSpWithType of bytes: byte[] * partType: PartTypeInfo
 
     type SlideSpec = {
         Shapes: ShapeBuilder list
@@ -577,6 +580,12 @@ module private PptxFixture =
                 spTree.Append(mkPlaceholderShape PlaceholderValues.Body 3u "Body" paras :> OpenXmlElement) |> ignore
             | PicSp bytes ->
                 let imgPart = slidePart.AddImagePart(ImagePartType.Png)
+                use ms = new MemoryStream(bytes)
+                imgPart.FeedData(ms)
+                let relId = slidePart.GetIdOfPart(imgPart)
+                spTree.Append(mkPicture relId :> OpenXmlElement) |> ignore
+            | PicSpWithType (bytes, partType) ->
+                let imgPart = slidePart.AddImagePart(partType)
                 use ms = new MemoryStream(bytes)
                 imgPart.FeedData(ms)
                 let relId = slidePart.GetIdOfPart(imgPart)
@@ -1293,3 +1302,48 @@ let ``docx + inline Drawing image format 화이트리스트 분기 (review M11)`
             Assert.Equal(expectedFormatStr, actualFormat)
         else
             Assert.Empty(result.Images))
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  Backlog 4 — review M9 (per-image fail-safe Ordinal 자리 보존) + M10 (IOException arm)
+// ────────────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``pptx — 단일 slide 안 PNG+BMP+PNG 혼합 (review M9) — BMP whitelist 외 skip + PNG Ordinal 1/2 자리 보존`` () =
+    // ExtractImagesAtRefLocator 의 None 분기 (ImagePartToFormat → None, whitelist 외) 에서 imgOrdInBlock 미증가
+    // 정책 회귀 차단. BMP 1장이 ordinal 자리 점유하면 PNG 2장이 [1; 3] 으로 갈라짐 → 본 fact 가 [1; 2] 검증.
+    withTempPath ".pptx" (fun path ->
+        let slides = [
+            { PptxFixture.emptySlideSpec with
+                Shapes = [ PptxFixture.TitleSp "혼합 image"
+                           PptxFixture.PicSp samplePngBytes
+                           PptxFixture.PicSpWithType (samplePngBytes, ImagePartType.Bmp)   // whitelist 외
+                           PptxFixture.PicSp samplePngBytes ] }
+        ]
+        PptxFixture.buildPptx path slides
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // BMP skip → PNG 2장만 박제. Ordinal 자리 보존 (1, 2 — 3 으로 점프 안 함).
+        Assert.Equal(2, result.Images.Length)
+        let ordinals = result.Images |> Array.map (fun i -> i.Ordinal) |> Array.sort
+        Assert.Equal<int[]>([| 1; 2 |], ordinals)
+        Assert.All(result.Images, fun img ->
+            Assert.Equal("slide=1", img.RefLocator)
+            Assert.Equal(Png, img.Format)))
+
+[<Fact>]
+let ``docx — file lock 시 IOException → ExtractWithFailSafe arm + Docx 빈 결과 (review M10)`` () =
+    // ExtractWithFailSafe 7종 catch arm 중 IOException 회귀 차단. FileShare.None 으로 lock 후 Extract 시도
+    // → WordprocessingDocument.Open 가 IOException → fail-safe 빈 결과.
+    withTempPath ".docx" (fun path ->
+        // valid docx 박제 (Open 시 valid 라야 IOException 정확히 trigger — random bytes 면 FileFormatException 가 먼저).
+        makeDocx path
+        // lock — read 도 차단 (FileShare.None).
+        use locker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None)
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // fail-safe — DocType 정합 (Task 0 dispatch 회귀 가드) + 빈 결과.
+        Assert.Equal(Docx, result.DocType)
+        Assert.Empty(result.Outline)
+        Assert.Empty(result.Segments)
+        Assert.Empty(result.Images))
