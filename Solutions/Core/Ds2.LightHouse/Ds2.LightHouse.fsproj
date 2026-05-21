@@ -48,6 +48,10 @@
     <!-- KB 추출기 — OOXML (docx Phase 1, pptx/xlsx Phase 2 — todo §4.3 OoxmlExtractor.fs).
          PrivateAssets=all — WordprocessingDocument 등 OpenXml type transitive 차단 (r8 m2). -->
     <PackageReference Include="DocumentFormat.OpenXml" PrivateAssets="all" />
+    <!-- Plan 3 — EMF/WMF metafile → PNG 변환 (산업 .xlsx 의 vector image 색인). System.Drawing.Imaging.Metafile
+         → Bitmap → PNG. Windows 전용 — Linux/macOS 시 PlatformNotSupportedException catch + skip 박제.
+         PrivateAssets=all — Bitmap/Metafile type transitive 노출 차단. -->
+    <PackageReference Include="System.Drawing.Common" PrivateAssets="all" />
     <!-- Phase 4 — sqlite-vec extension (vec0 virtual table). native binary 자동 배포.
          lib 의 SqliteStore (F#) 가 connection open 후 raw LoadExtension("vec0") + SQL string 으로 직접 호출.
          PrivateAssets=all — caller 는 본 native binary 만 transitive 로 받고 type API 노출 X (LoadExtension 호출 path 는 lib 한정).

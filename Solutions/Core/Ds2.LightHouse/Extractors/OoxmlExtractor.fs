@@ -50,13 +50,16 @@ type private XlText = DocumentFormat.OpenXml.Spreadsheet.Text
 /// `ExtractPptx` / `ExtractXlsx` 에서 동일 helper 재사용. closure 와 동일하게 paragraph hot path 의 `Blips` cache
 /// 도 같이 노출.
 ///
-/// **`ImagePartToFormat` (Task 0)**: 기존 `OoxmlExtractor.fs:115-118` + `:174-177` 2회 중복 mapping 단일화.
+/// **`ConvertImagePart` (Task 0 + Plan 3)**: 기존 `OoxmlExtractor.fs:115-118` + `:174-177` 2회 중복 mapping 단일화.
 /// lowercase 가정 (OpenXml SDK 규약). 외부에서 손으로 작성된 ContentTypes.xml 의 mixed case (`image/PNG` 등) 는
-/// 자연 skip — Phase 2 차단 사유 0, case-insensitive 매칭은 backlog.
+/// 자연 skip — case-insensitive 매칭은 backlog. **Plan 3 (Backlog 6) 박제**: EMF/WMF metafile (image/x-emf,
+/// image/emf, image/x-wmf, image/wmf) 도 System.Drawing.Imaging.Metafile → PNG 변환 후 ExtractedImage 박제.
+/// 옛 `ImagePartToFormat: string -> ImageFormat option` 폐기, 신규 `ConvertImagePart: ImagePart -> ...` SSOT.
 ///
-/// **DOCX 원래 박제 (변경 없음)**:
+/// **DOCX 원래 박제 (변경 없음 — Plan 3 후 EMF/WMF 변환 활성)**:
 /// - Body 의 paragraph/table iter 안 `Descendants<Blip>()` → `Blip.Embed` (relationship id) → ImagePart 매핑
-///   → ExtractedImage 박제. ContentType 화이트리스트 4 종 (PNG/JPEG/GIF/WEBP) 외 (EMF/WMF/BMP/TIFF 등) 자연 skip.
+///   → ExtractedImage 박제. ContentType 화이트리스트 4 종 (PNG/JPEG/GIF/WEBP) raw + EMF/WMF Metafile→PNG 변환,
+///   그 외 (BMP/TIFF / 대문자 mime) 자연 skip.
 /// - RefLocator scheme (s6-r16 C4-Q2): docx 도 PdfExtractor scheme 통일 → `"p=%d"` (paragraph ordinal 1-based)
 ///   + `Ordinal = 1..N` (같은 paragraph 안 image 순번). ChunkId 매핑 활성화.
 /// - orphan ImagePart skip — Drawing element 미참조 ImagePart 는 박제 안 함.
@@ -83,15 +86,75 @@ type OoxmlExtractor() =
             if isNull pid || isNull pid.Val then ""
             else pid.Val.Value
 
-    /// **Task 0 (Critical-1 + R3 M6 해소)** — ContentType (lowercase) → ImageFormat 화이트리스트 매핑.
-    /// body / header / footer / pptx slide / xlsx drawing 의 image 박제가 본 helper 단일 진입점 사용.
-    /// None = 화이트리스트 외 (EMF/WMF/BMP/TIFF / 대문자 mime) → 자연 skip (m6 primary 가드).
-    static member private ImagePartToFormat (contentType: string) : ImageFormat option =
-        match contentType with
-        | "image/png"  -> Some Png
-        | "image/jpeg" -> Some Jpeg
-        | "image/gif"  -> Some Gif
-        | "image/webp" -> Some Webp
+    /// Plan 3 — Metafile → PNG 변환 후 max pixel size cap (산업 도면 vector 의 raster 해상도 폭주 차단).
+    /// caller 가 본 cap 변경 의도 시 helper 수정 — config 화 backlog (Phase 3).
+    static member private MaxConvertedImageDim = 2048
+
+    /// **Plan 3 — EMF/WMF 비례 축소 변환**. System.Drawing.Imaging.Metafile + Bitmap 사용. Windows 전용.
+    /// caller 가 PlatformNotSupportedException (Linux) / OutOfMemoryException / ExternalException 등 catch 의무.
+    /// 반환: PNG byte array. raw EMF stream 은 처리 중 dispose.
+    static member private ConvertMetafileToPng (stream: Stream) : byte[] =
+        use mf = new System.Drawing.Imaging.Metafile(stream)
+        let mutable w = mf.Width
+        let mutable h = mf.Height
+        // 비례 축소 — max dimension cap (Plan 3).
+        let maxDim = OoxmlExtractor.MaxConvertedImageDim
+        if w > maxDim || h > maxDim then
+            let scale = min (float maxDim / float w) (float maxDim / float h)
+            w <- max 1 (int (float w * scale))
+            h <- max 1 (int (float h * scale))
+        use bmp = new System.Drawing.Bitmap(w, h)
+        use g = System.Drawing.Graphics.FromImage(bmp)
+        g.Clear(System.Drawing.Color.White)   // EMF 의 투명 배경 백색 박제 (PDF 도면 정합)
+        g.DrawImage(mf, 0, 0, w, h)
+        use ms = new MemoryStream()
+        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png)
+        ms.ToArray()
+
+    /// **Task 0 (Critical-1 + R3 M6) + Plan 3 (EMF/WMF 변환)** — ImagePart → (bytes, format) 변환.
+    /// PNG/JPEG/GIF/WEBP 화이트리스트 → raw bytes + 원본 format.
+    /// EMF/WMF (image/x-emf, image/emf, image/x-wmf, image/wmf) → System.Drawing Metafile → PNG bytes + Png.
+    /// 그 외 (BMP/TIFF / 대문자 mime) → None 자연 skip (m6 primary 가드).
+    /// per-image fail-safe — 변환 / stream read 실패 시 None (log + 다음 image 진행).
+    /// location/path 인자는 log 진단용 (caller 측 context).
+    static member private ConvertImagePart (imgPart: ImagePart) (location: string) (path: string) : (byte[] * ImageFormat) option =
+        match imgPart.ContentType with
+        | "image/png" | "image/jpeg" | "image/gif" | "image/webp" as ct ->
+            try
+                use stream = imgPart.GetStream()
+                use ms = new MemoryStream()
+                stream.CopyTo(ms)
+                let bytes = ms.ToArray()
+                let fmt =
+                    match ct with
+                    | "image/png"  -> Png
+                    | "image/jpeg" -> Jpeg
+                    | "image/gif"  -> Gif
+                    | _ -> Webp
+                if bytes.Length > 0 then Some (bytes, fmt) else None
+            with ex ->
+                Log.lighthouse.Warn(
+                    sprintf "OoxmlExtractor: %s image stream read 실패 (skip) — ct=%s path=%s, ex=%s: %s"
+                        location ct path (ex.GetType().Name) ex.Message)
+                None
+        | "image/x-emf" | "image/emf" | "image/x-wmf" | "image/wmf" as ct ->
+            try
+                use stream = imgPart.GetStream()
+                let pngBytes = OoxmlExtractor.ConvertMetafileToPng stream
+                if pngBytes.Length > 0 then Some (pngBytes, Png) else None
+            with
+            | :? System.PlatformNotSupportedException as ex ->
+                // Linux / macOS — System.Drawing.Imaging.Metafile 미지원. 자연 skip.
+                Log.lighthouse.Warn(
+                    sprintf "OoxmlExtractor: %s Metafile 변환 미지원 platform — ct=%s path=%s, ex=%s"
+                        location ct path ex.Message)
+                None
+            | ex ->
+                // OutOfMemoryException / ExternalException (GDI+) / ArgumentException 등 — per-image fail-safe.
+                Log.lighthouse.Warn(
+                    sprintf "OoxmlExtractor: %s Metafile 변환 실패 (skip) — ct=%s path=%s, ex=%s: %s"
+                        location ct path (ex.GetType().Name) ex.Message)
+                None
         | _ -> None
 
     /// **review M1 helper consolidation** — `blip.Embed` non-null + HasValue 유효성 가드.
@@ -138,11 +201,12 @@ type OoxmlExtractor() =
                 sb.AppendLine(paraText) |> ignore
         sb.ToString().Trim()
 
-    /// **Task 0 + review M1 통합** — `Blip seq` 단일 진입점. body / header / footer / pptx slide /
+    /// **Task 0 + review M1 + Plan 3 통합** — `Blip seq` 단일 진입점. body / header / footer / pptx slide /
     /// xlsx drawing 의 image 박제 동일 처리. caller 는 `EnumerateValidBlips` (single-shot) 또는
     /// `CollectValidBlips` (paragraph cache) 결과 전달.
     /// `Ordinal` 은 호출 1회 안에서 1부터 (`Models.fs §108` 의 "같은 RefLocator 안 N번째" SSOT).
-    /// per-image fail-safe (M2 결론) — decode exception → log + skip. 다른 image 진행 차단 안 함.
+    /// per-image fail-safe — `ConvertImagePart` 가 None 반환 시 자연 skip (Ordinal 미증가, review M9 정합).
+    /// EMF/WMF metafile → PNG 변환은 `ConvertImagePart` 내부 박제 (Plan 3).
     static member private ExtractImagesAtRefLocator
         (validBlips: Blip seq)
         (resolveImagePart: string -> ImagePart option)
@@ -156,28 +220,21 @@ type OoxmlExtractor() =
             match resolveImagePart relId with
             | None -> ()   // 외부 image / hyperlink / 손상 relId — 자연 skip.
             | Some imgPart ->
-                try
-                    match OoxmlExtractor.ImagePartToFormat imgPart.ContentType with
-                    | None -> ()   // 화이트리스트 외 — m6 primary 가드.
-                    | Some fmt ->
-                        use stream = imgPart.GetStream()
-                        use ms = new MemoryStream()
-                        stream.CopyTo(ms)
-                        let bytes = ms.ToArray()
-                        if bytes.Length > 0 then
-                            images.Add {
-                                Bytes = bytes
-                                Format = fmt
-                                Width = None
-                                Height = None
-                                RefLocator = refLocator
-                                Ordinal = imgOrdInBlock
-                            }
-                            imgOrdInBlock <- imgOrdInBlock + 1
-                with ex ->
-                    Log.lighthouse.Warn(
-                        sprintf "OoxmlExtractor: %s image 추출 실패 (ref=%s try-ord=%d relId=%s) — path=%s, ex=%s"
-                            location refLocator imgOrdInBlock relId path ex.Message)
+                match OoxmlExtractor.ConvertImagePart imgPart location path with
+                | None ->
+                    // 화이트리스트 외 (BMP/TIFF) 또는 변환 실패 (PlatformNotSupported / GDI+) — 자연 skip.
+                    // `ConvertImagePart` 내부에서 log 박제됨, 본 layer 추가 log 없음.
+                    ()
+                | Some (bytes, fmt) ->
+                    images.Add {
+                        Bytes = bytes
+                        Format = fmt
+                        Width = None
+                        Height = None
+                        RefLocator = refLocator
+                        Ordinal = imgOrdInBlock
+                    }
+                    imgOrdInBlock <- imgOrdInBlock + 1
 
     /// **Task 0 + review M4 통합** — OpenXmlPart (HeaderPart / FooterPart 등) 의 RootElement enumerate.
     /// `part.Parts` 에서 ImagePart 만 추출 → `BuildImagePartResolver` + `ExtractImagesAtRefLocator` 위임.
