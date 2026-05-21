@@ -391,6 +391,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _editorSubscription?.Dispose();
         _editorSubscription = null;
 
+        // PR-F (§5.1) — SSE handler 해제 + debounce CTS cancel.
+        UnsubscribeKbProfileEvents();
+
         // Phase S5c → D-S7-3b — LightHouse session 해제 per-service (§3.8 L2-1). client 자체 dispose 는 App.OnExit (LightHouseClientHolder).
         //
         // **review s5c M2 — 의도된 silent skip**: GetClient(serviceId) 가 null 인 경우 (Settings dialog 가 service config
