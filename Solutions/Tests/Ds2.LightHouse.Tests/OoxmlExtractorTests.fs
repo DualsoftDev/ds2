@@ -992,6 +992,51 @@ module private XlsxFixture =
         wbPart.Workbook <- workbook
         wbPart.Workbook.Save()
 
+    /// **r3 timeline filter fixture** — Columns element 도 박제하는 buildWorksheet variant.
+    /// ranges: (min, max, width) list. width<1.0 인 컬럼은 `narrowColIndexes` set 에 포함.
+    /// 산업 .xlsx 의 Gantt 시각화 (`Column.Width=0.75 × AM~DF (col 39~110) 72개`) 재현용 fixture base.
+    let private buildWorksheetWithColumns
+        (wsPart: WorksheetPart)
+        (ranges: (uint32 * uint32 * float) list)
+        (rows: RowSpec list) =
+        let ws = Worksheet()
+        let cols = Columns()
+        for (mn, mx, width) in ranges do
+            let col = Column()
+            col.Min <- UInt32Value(mn)
+            col.Max <- UInt32Value(mx)
+            col.Width <- DoubleValue(width)
+            col.CustomWidth <- BooleanValue(true)
+            cols.Append(col :> OpenXmlElement) |> ignore
+        ws.Append(cols :> OpenXmlElement) |> ignore
+        let sd = SheetData()
+        for rs in rows do
+            sd.Append(mkRow rs :> OpenXmlElement) |> ignore
+        ws.Append(sd :> OpenXmlElement) |> ignore
+        wsPart.Worksheet <- ws
+        wsPart.Worksheet.Save()
+
+    /// **r3 timeline filter fixture** — 단일 sheet xlsx, Columns + Rows 박제.
+    let buildXlsxWithNarrowColumns
+        (path: string)
+        (sheetName: string)
+        (colRanges: (uint32 * uint32 * float) list)
+        (rows: RowSpec list) =
+        use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
+        let wbPart = doc.AddWorkbookPart()
+        let wsPart = wbPart.AddNewPart<WorksheetPart>()
+        buildWorksheetWithColumns wsPart colRanges rows
+        let workbook = Workbook()
+        let sheetsEl = Sheets()
+        let sheet = Sheet()
+        sheet.Id <- StringValue(wbPart.GetIdOfPart(wsPart))
+        sheet.SheetId <- UInt32Value(1u)
+        sheet.Name <- StringValue(sheetName)
+        sheetsEl.AppendChild(sheet) |> ignore
+        workbook.AppendChild(sheetsEl) |> ignore
+        wbPart.Workbook <- workbook
+        wbPart.Workbook.Save()
+
 
 // ── XLSX Fact ──
 
@@ -1386,3 +1431,90 @@ let ``docx — file lock 시 IOException → ExtractWithFailSafe arm + Docx 빈 
         Assert.Empty(result.Outline)
         Assert.Empty(result.Segments)
         Assert.Empty(result.Images))
+
+
+// ────────────────────────────────────────────────────────────────────────────────
+//  r3 — timeline filter (Gantt 시각화 좁은 컬럼 noise drop)
+// ────────────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``xlsx + 좁은 컬럼 (width<1.0) + 빈 cell — narrow filter 가 dense entry drop (Gantt 시각화 noise 제거)`` () =
+    // 산업 .xlsx 의 Gantt 시각화 재현 fixture (단순화):
+    //   Columns: 1~6 = width 10 (데이터), 7~12 = width 0.75 (Gantt 시각화)
+    //   Row: A1=v1, B1=v2, C1=v3 (데이터) + G1~L1 = 빈 cell entry (좁은 영역)
+    // filter off (baseline) 시: dense.Length=12, line = "v1\tv2\tv3\t\t\t\t\t\t\t\t\t" (9 trailing tabs)
+    // filter on 시: 좁은 영역 빈 6개 drop → dense.Length=6 → line = "v1\tv2\tv3\t\t\t" (3 mid tabs, narrow 제거)
+    withTempPath ".xlsx" (fun path ->
+        let cells =
+            [ XlsxFixture.mkCellSpec "A1" "v1"
+              XlsxFixture.mkCellSpec "B1" "v2"
+              XlsxFixture.mkCellSpec "C1" "v3"
+              // 좁은 컬럼 영역 (G=7 ~ L=12) cell entry 박제, value 빈. fill style only Gantt bar 재현.
+              XlsxFixture.mkCellSpec "G1" ""
+              XlsxFixture.mkCellSpec "H1" ""
+              XlsxFixture.mkCellSpec "I1" ""
+              XlsxFixture.mkCellSpec "J1" ""
+              XlsxFixture.mkCellSpec "K1" ""
+              XlsxFixture.mkCellSpec "L1" "" ]
+        let rows : XlsxFixture.RowSpec list = [ { Index = 1u; Cells = cells } ]
+        XlsxFixture.buildXlsxWithNarrowColumns path "TL"
+            [ (1u, 6u, 10.0); (7u, 12u, 0.75) ]
+            rows
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Single(result.Segments) |> ignore
+        let seg = result.Segments.[0]
+        // 좁은 영역 빈 cell 6개 drop → tab count = 3 데이터 컬럼 사이 2개 + (없음). 실제로는 A/B/C 컬럼만 박제.
+        // ExpandSparseRow + narrow filter 후 dense = ["v1"; "v2"; "v3"] → 정확.
+        Assert.Equal("v1\tv2\tv3", seg.Text))
+
+[<Fact>]
+let ``xlsx + 좁은 컬럼 + cell 값 있음 (tick label) — narrow filter 가 보존 (drop 조건 = width<1.0 AND value="")`` () =
+    // 좁은 영역 cell 에 값 있는 경우 (e.g. Gantt 타임축 tick label `1, 2, 3 ...`) 는 보존 의무.
+    // filter 가 너무 적극적이면 tick label 정보 손실 → Gantt 시각화의 축 좌표 의미 박제 불가.
+    withTempPath ".xlsx" (fun path ->
+        let cells =
+            [ XlsxFixture.mkCellSpec "A1" "header"
+              // 좁은 영역 (G=7 ~ I=9) 의 cell 에 tick label 박제.
+              XlsxFixture.mkCellSpec "G1" "1"
+              XlsxFixture.mkCellSpec "H1" "2"
+              XlsxFixture.mkCellSpec "I1" "3" ]
+        let rows : XlsxFixture.RowSpec list = [ { Index = 1u; Cells = cells } ]
+        XlsxFixture.buildXlsxWithNarrowColumns path "TL"
+            [ (1u, 6u, 10.0); (7u, 9u, 0.75) ]
+            rows
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Single(result.Segments) |> ignore
+        let seg = result.Segments.[0]
+        // dense = ["header"; ""; ""; ""; ""; ""; "1"; "2"; "3"] (col 1=header, 2~6 빈 정상 컬럼, 7~9 tick).
+        // narrow filter — col 7~9 값 있음 → drop 안 됨. 빈 col 2~6 = 정상 컬럼이라 drop 안 됨.
+        // 결과 = ["header"; ""; ""; ""; ""; ""; "1"; "2"; "3"] → tab join = "header\t\t\t\t\t\t1\t2\t3"
+        Assert.Equal("header\t\t\t\t\t\t1\t2\t3", seg.Text))
+
+[<Fact>]
+let ``xlsx + Width=1.0 경계값 — narrow 아님 (NarrowColumnWidthThreshold 의 < 비교 off-by-one 회귀 catch)`` () =
+    // narrow filter 의 threshold 정의 = `< 1.0` (strict). Width=1.0 정확히는 narrow 아님 → 빈 cell 도 보존.
+    // 임계값 비교 연산자가 `<` 에서 `<=` 로 회귀 시 본 fact 가 catch.
+    //
+    // **trailing trim 회피** — `sb.ToString().Trim()` 이 trailing tab 모두 제거하므로, 회귀 catch 를
+    // 위해 maxCol 위치에 값 있는 tail cell (col 8 = H1) 박제. 회귀 시 col 7 drop 으로 tab 1개 줄어듦.
+    withTempPath ".xlsx" (fun path ->
+        let cells =
+            [ XlsxFixture.mkCellSpec "A1" "header"
+              // col 7 = Width=1.0 정확 (== threshold). 빈 cell entry. narrow 아니면 보존.
+              XlsxFixture.mkCellSpec "G1" ""
+              // col 8 = 값 있는 tail. trailing trim 회피용.
+              XlsxFixture.mkCellSpec "H1" "tail" ]
+        let rows : XlsxFixture.RowSpec list = [ { Index = 1u; Cells = cells } ]
+        XlsxFixture.buildXlsxWithNarrowColumns path "TL"
+            [ (1u, 6u, 10.0); (7u, 7u, 1.0); (8u, 12u, 10.0) ]   // col 7 = 1.0 (경계), col 1~6/8~12 정상
+            rows
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Single(result.Segments) |> ignore
+        let seg = result.Segments.[0]
+        // dense = ["header"; ""; ""; ""; ""; ""; ""; "tail"] (col 1=header, 2~7 빈, 8=tail).
+        // narrow filter (현재 `<` 비교): col 7 width=1.0 == threshold → narrow 아님 → G1 보존 → 7 tabs.
+        // 회귀 (`<` → `<=`) 시: col 7 narrow → G1 drop → kept.Length=7 → 6 tabs (mismatch).
+        Assert.Equal("header\t\t\t\t\t\t\ttail", seg.Text))
