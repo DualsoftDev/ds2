@@ -29,13 +29,33 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - ~~**B-S7-4 admin-only ACL 분리**~~ → s6-r80 종결 (config.adminUsers + requireAdmin + 5 fixture migration).
 - ~~**B PR M-3 acl users element 정규화**~~ → s6-r80 종결 (normalizeAclUsers helper).
 - ~~**external review backlog Minor (N-M1~M4 + R6-M3 + R5-M2 doc)**~~ → s6-r81 종결.
-- **잔여**: **MimeTypes.JsonUtf8 literal 신설** (s6-r79 sub-agent M-1 backlog) / **N-M1 단위 fact** (mock store 의무) / **N-M5 cfg DRY** (builder helper refactor) / **R8-M5 UI Task.Run wrap** (Promaker caller 8건, scope medium-large) / **IT level admin-only round-trip fact** (s6-r80 sub-agent 잔여 우려) / **config.json.template adminUsers 박제** / R12 잔여 4건 (사용자 명세 input 필요) / E1 `/dist` 실행 (사용자 직접 호출 의무).
+- ~~**config.json.template adminUsers 박제**~~ → s6-r84 (A4 부분) 종결.
+- ~~**15-reviewer 보안 critical 4건** (A1 mTLS CN escape / A2 Execution diag / A8 Sqlite leak / A9 fsproj)~~ → s6-r83 종결.
+- ~~**15-reviewer K4 마무리** (B20 alias / A3 반론)~~ → s6-r84 종결.
+- ~~**15-reviewer Major** (B3 OoxmlExtractor / B4 vec0 wire / B17 install PSK / B2 반론)~~ → s6-r85 종결.
+- ~~**15-reviewer B8 + A6** (symlink reject / reader loop disconnectSignal)~~ → s6-r86 종결.
+- ~~**B19 doc SSOT drift sweep**~~ → s6-r87 (doc-r8 안) 종결.
+- **잔여**: **A5 Runtime spec 사용자 confirm** (light-house phase 외 추정, 의도/회귀 분기 결정) / **A7 Session lifecycle TOCTOU single lock SSOT** (보안 critical 잔여, scope large) / **MimeTypes.JsonUtf8 literal** (s6-r79 sub-agent M-1) / **A1/A3/A10 단위 fact** (escape attack / audit warn helper / production validate) / B1/B5/B6/B7/B9~B16/B18/B21 Major 검증 fix 묶음 / B2 + R8-M5 (lib async + UI Task.Run 별 phase) / N-M1/N-M5/IT admin-only round-trip 잔여 / R12 4건 (사용자 명세 input 필요) / E1 `/dist` (사용자 직접 호출 의무).
 
-## 2. 현재 commit state (본 transfer 박제 시점 — s6-r79~r82 + doc-r7 종결, 2026-05-21)
+## 2. 현재 commit state (본 transfer 박제 시점 — s6-r83~r86 + doc-r8 종결, 2026-05-21)
 
-**C-15 EndpointHelpers SSOT + B-S7-4 admin-only ACL + B PR M-3 acl normalize + external review backlog Minor + B2 footnotes/endnotes 별 fact** — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **746 Fact** (lib **180** / service **179** / IT 55 / Promaker 332). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+**15-reviewer 종합 review 처리** (보안 critical 4건 + K4 마무리 + Major 검증 fix + B19 doc sweep) — `Ds2.LightHouse` lib + service + IT + Promaker 통합 완료. 누적 **746 Fact** 유지 (lib 180 / service 179 / IT 55 / Promaker 332). 회귀 0. paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
 
-**s6-r79 ~ s6-r82 누적 (본 turn, 2026-05-21)**:
+**s6-r83 ~ s6-r86 누적 (본 turn, 2026-05-21)**:
+- **`bfd6a9a` s6-r83 review PR 1 — 보안 critical 4건** — A1 mTLS CN escape (Middleware.extractCommonName subject.Split(',') 가 RDN escape `\,` 미인식 → BCL X509Certificate2.GetNameInfo(SimpleName, false) 표준 API 로 교체, signature `string → X509Certificate2` breaking) + A2 Execution.fs 진단 file append 제거 (log4net 으로 교체, production binary 디버그 잔재 차단) + A8 SqliteStore.openConnection 누수 guard (try-with reraise + Dispose) + A9 fsproj 순서 정합 (K4 SSOT 의도).
+- **`7554f79` s6-r84 review PR 2 — K4 마무리 + security defaults** — **A3 반론** (UnmappedMemberHandling.Disallow 가 운영자 친화 `_*_note` field 와 충돌 → 별 audit warn helper 박제 backlog) + B20 Maj-5 alias 정합 (AdminEndpoints prefix → alias 박제) + A4 부분 config.json.template adminUsers 박제.
+- **`2c5b891` s6-r85 review PR 3 — Major 검증 fix** — B3 OoxmlExtractor.extractImagesAtRefLocator (40+ line 본문) → delegation refactor + B4 vec0 wire format SSOT 통합 (SqliteStore.buildVec0WireFormat 단일, Searcher.runVector 의 별 JsonSerializer.Serialize 폐기) + B17 install-service.ps1 PSK byte buffer 변환 (managed string 평문 우회) + **B2 반론** (lib API async transformation = 별 phase, 본 turn scope 외).
+- **`98749fb` s6-r86 review PR 4 — B8 + A6 race + A7 defer** — B8 FileServing.findSourceFile 가 FileInfo.Attributes.ReparsePoint 검사 추가 (symlink target follow 차단) + A6 reader loop Task.WhenAny 가 disconnectSignal.Task 도 포함 (Kestrel half-close 시점차 reader 영구 sleep 차단) + **A7 defer** (Session lifecycle TOCTOU = single lock SSOT, scope large).
+
+**B19 doc SSOT drift sweep (s6-r87 doc-r8 안 박제)** — todo-lighthouse-kb-server.md 의 service config 박제 정정 (schemaVersion 1→4 / listenUrl 0.0.0.0→127.0.0.1 / range max 1.99.99→2.99.99 / embedding / mtls / multiTenant / adminUsers field 추가) + meta.json 예시 indexerVersion 1.0.0→2.1.0 정합.
+
+**누적 사용자 turn 전체 통계 (본 turn s6-r83~r86 + doc-r8)**: 5 commit / +200+ line / 0 신규 fact (보안 fix + refactor 만) / 회귀 0.
+
+**이전 turn (참고 — 직전 transfer 박제)**:
+
+**s6-r79 ~ s6-r82 + doc-r7 누적 (이전 turn, 2026-05-21)**: 746 Fact (lib 180 / service 179 / IT 55 / Promaker 332). C-15 EndpointHelpers SSOT + B-S7-4 admin-only ACL + B PR M-3 acl users 정규화 + external review backlog Minor (N-M1~M4 + R6-M3 + R5-M2 doc) + B2 footnotes/endnotes 별 fact 박제.
+
+**s6-r79 ~ s6-r82 누적 (이전 turn 발생, 2026-05-21)**:
 - **`9f31f68` s6-r79 C-15 EndpointHelpers SSOT 추출 — K4 잔여 helper 통합** — 신규 `EndpointHelpers.fs` (~57 line, 5 helper SSOT). 6 endpoint (AdminEndpoints / CollectionEndpoints / FileServing / SessionEndpoints / EventsEndpoint / UploadsEndpoint) 의 각자 박제 helper 폐기 → alias 박제 (F# first-class function, caller 변경 0). UploadsEndpoint 의 jsonOpts → `metaJsonOpts` rename + file write 용으로 유지. 의미 변경: AdminEndpoints ContentType + userIdentityOf Warn invariant 박제 일치. 자가 검열 sub-agent — Critical 0 / Major 1 (M-1 MimeTypes SSOT 분리 backlog) / Minor 3 (거부). 회귀 0.
 - **`eb1d6d0` s6-r80 보안 묶음 — B-S7-4 admin-only ACL + B PR M-3 acl users 정규화** — (B-S7-4) ServiceConfig.AdminUsers 신설 (nullable optional, backward-compat). EndpointHelpers.requireAdmin helper (case-insensitive ordinal + whitespace trim). AdminEndpoints.map signature breaking (cfg 인자) + handleOwner/handleAcl 분리 + 403 audit log. (B PR M-3) AdminEndpoints.normalizeAclUsers helper (null safe + whitespace trim + empty filter + case-insensitive dedup). 신규 EndpointHelpersTests 12 fact (userIdentityOf 2 + requireAdmin 6 + normalizeAclUsers 4). 자가 검열 sub-agent — Critical/Major 0 / Minor 3 (거부). 보안 결함 0건.
 - **`3e206e2` s6-r81 external review backlog Minor 묶음 — N-M1/M2/M3/M4 + R6-M3 + R5-M2 doc** — (N-M1) CertValidator.TryFind 가 다중 매칭 시 가장 늦은 NotAfter 선택 (만료 직전 + 신규 재발급 race 차단). (N-M2~M4) docstring 강화 (CryptoAPI duplicate / IsHandshakeReject swallow 범위 / DisposeAsync cleanup 순서). (R6-M3) Config.validateHttpsOnly 가 IPv6 link-local zone identifier (`%`) 거부 — Kestrel 미지원, loopback / global IPv6 통과. (R5-M2 doc) EventsEndpoint.handle docstring 박제 (client invariant: lifecycle 우선 도착). 신규 1 fact (R6-M3). 자가 검열 inline (Critical/Major/Minor 0).
@@ -135,12 +155,78 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **#5 외부 --review 잔여 ⑬ ⑭ ⑲** (3건, medium-large) — Searcher tuple→record / CaptionGenerator HTTP wire fact / EventsEndpoint client-write keepalive. ~~⑱ SessionRegistry purge helper~~ → s6-r55 종결. 각 별 turn.
 - **(d) C4~C7 묶음** (4건, 별 영역) — C4 RefLocator parser 강화 (`sheet=BOM!A1:D40` / `p=14#img=2`) / C5 attachment_read image mode 정합 / C6 Promaker citation UI / C7 Searcher hit hasImages 의미화. 각 별 영역 — 별 turn.
 
-**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r79~r82 + doc-r7 종결 후, 2026-05-21)**:
+**새 세션 진입 prompt (--transfer 박제 SSOT, s6-r83~r86 + doc-r8 종결 후, 2026-05-21)**:
 
 ```
 @todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
 
-[직전 turn 사용자 흐름 — "E1 /dist 실행 제외하고, auto commit 5 회 허용으로 다시 PR 나누어서 진행" → PR 1 C-15 EndpointHelpers SSOT 추출 → PR 2 보안 묶음 (B-S7-4 admin ACL + B PR M-3 normalize) → PR 3 external review backlog Minor (N-M1~M4 + R6-M3 + R5-M2 doc) → PR 4 B2 footnotes/endnotes 별 fact → PR 5 doc-r7 통합 박제]
+[직전 turn 사용자 흐름 — "--review" (15-reviewer 종합 review) → 객관 평가 (적용/반론/defer) → "옵션 4 로 진행. auto commit budget 5 안에 끝내 봐" → PR 1 보안 critical 4건 → PR 2 K4 마무리 + security defaults → PR 3 Major 검증 fix → PR 4 B8 + A6 race + A7 defer → PR 5 doc-r8 + B19 sweep]
+- bfd6a9a s6-r83 review PR 1 보안 critical — A1 mTLS CN escape (BCL GetNameInfo 교체) + A2 Execution diag (log4net) + A8 Sqlite leak (try-reraise) + A9 fsproj 순서.
+- 7554f79 s6-r84 review PR 2 — A3 반론 (UnmappedMemberHandling 박제는 운영자 친화 _*_note field 충돌, audit warn 별 박제 권장) + B20 alias 정합 + A4 부분 (config.json.template adminUsers).
+- 2c5b891 s6-r85 review PR 3 — B3 OoxmlExtractor delegation refactor + B4 vec0 wire SSOT 통합 + B17 install-service.ps1 PSK byte buffer + B2 반론 (lib async transformation = 별 phase).
+- 98749fb s6-r86 review PR 4 — B8 symlink reject + A6 reader loop disconnectSignal 추가 + A7 defer (single lock SSOT 별 turn).
+
+[그 이전 turn 누적]
+- s6-r79 ~ s6-r82 + doc-r7: C-15 EndpointHelpers SSOT + B-S7-4 admin-only ACL + B PR M-3 normalize + external review Minor (N-M1~M4 + R6-M3 + R5-M2 doc) + B2 footnotes/endnotes 별 fact.
+- s6-r76 ~ s6-r78 + doc-r6: external review backlog Major 5 + A2 m3 Middleware Protocol routing + B2 OoxmlExtractor comments 박제.
+- s6-r71~r75 + doc-r5: K4 Protocol SSOT + B PR 보안/perf/admin + external review hotfix + B-S7-5 phase 4 swap chunked + N-1 CertValidator.
+- s6-r66~r70 + doc-r3/r4: D-S7-4 multi-tenant + D-S7-5 phase 3 chunked + B5 phase 3/4 cert + mTLS IT + 15-reviewer Critical 16 hotfix.
+- s6-r53~r65: markdown view + C6 citation UI + D-S7-5 phase 2 + B5 phase 2 + D-S7-1 mTLS + 보안 sweep.
+- Phase 4 P4-A~P4-C: sqlite-vec + IEmbeddingProvider + Indexer + Searcher hybrid + OllamaSharp adapter + IT round-trip.
+
+누적 746 Fact (lib 180 / service 179 / IT 55 / Promaker 332). 회귀 0. branch = light-house (local-only).
+paired-release ps1 통과 박제 (IndexerVersion 2.1.0 ∈ [1.0.0, 2.99.99]).
+외부 --review 전체 종결 (L-Maj-1/3/4/5/6/10 + ⑬⑭⑮⑰⑱⑲⑳).
+external review backlog Major 5 + Minor 핵심 + 15-reviewer 종합 review 핵심 종결 (A1/A2/A8/A9 보안 + A4/A6 부분 + B3/B4/B8/B17/B20 refactor / SSOT). 잔여 보안 Critical = A5 (Runtime spec 사용자 confirm) / A7 (Session TOCTOU single lock).
+Phase S7 본격 종결 + B-S7-4 admin-only ACL 분리 완료.
+K4 Protocol SSOT = wire 상수 + N-1 CertValidator + A2 m3 + C-15 EndpointHelpers SSOT + B20 alias 정합 완료. **잔여 = MimeTypes.JsonUtf8 literal 신설** (Protocol.MimeTypes 확장).
+
+잔여 작업 (s6-r86 + doc-r8 종결 후, 다음 turn 박제):
+
+A. 15-reviewer 종합 review 잔여 (defer 별 turn):
+  - **A5 Runtime engine v10 spec 후퇴** — light-house phase 외 추정 (ContactKind / IsInverted / SkipUnmatch / RuntimeSemantics 제거가 light-house branch 변경 아님, main..HEAD diff 0 가능). **사용자 confirm 의무** — 의도된 spec roll-back 이면 Editor UI 비활성화 + 마이그레이션 경고 / 우발적 회귀면 평가 분기 복구.
+  - **A7 Session lifecycle TOCTOU single lock SSOT** — CollectionEndpoints.deleteCollection 의 notifier.OnDeleted → Registry.removeAsync 순서 + SessionRegistry.CreateSession resolve-then-add race. scope large (lock SSOT 설계).
+  - **A10 MtlsRoundTrip production validate unit fact** — IT override 가 production chain.Build 우회 → productionValidate internal 노출 + 3 분기 unit fact.
+  - **A1 escape attack vector unit fact** — cert generation 의무.
+  - **A3 audit warn helper** — known field key set 비교 (UnmappedMemberHandling.Disallow 의 안전한 대안).
+
+B. Major 검증 fix 잔여 (별 turn):
+  - **B1 dispatchEmbeddings partial state** — Documents.EmbeddingStatus column + Searcher partial 처리 / 재시도 path.
+  - **B5 mtime fast-skip OS/FS tolerance** — tick 절사 또는 ±2초 tolerance.
+  - **B6 OriginalPath UNIQUE + 정규화** — Windows case-insensitive drift 차단.
+  - **B7 Registry write-path validation** — validateEntry defense-in-depth.
+  - **B9 ETag substring → RFC 7232** — Contains 비교 → multi-tag If-None-Match 정합.
+  - **B10 finalize uploadId staging leak** — exception 분기 4종 uploadId staging cleanup.
+  - **B11 StagingSweep mtime 의존** — meta.json / partial mtime 사용 (Linux ext4 silent strangle 차단).
+  - **B12 SessionSweep race** — filter ↔ TryRemove lock.
+  - **B13 admin read-modify-write race** — CAS or single-lock helper.
+  - **B14 session/ACL revoke lifecycle hook** — OnAclRevoked event.
+  - **B15 caption-progress owner validate** — cross-tenant DoS 차단.
+  - **B16 R5-M2 commit message 정정** — lifecycle DropOldest unbounded 화 검토.
+  - **B18 AttachmentTools _vlmHttp + API key closure** — Promaker 측 평문 API key 매 호출 재조회.
+  - **B21 잔여 일괄** — PSK byte cache (timing leak) / KbManager SSE swallow / SseReconnectBackoff _attempt cap saturate / KnowledgeBase.Dispose record vs interface ambiguity / Work-level SkipUnmatch silent drop / UploadsResumableTests 동시 PATCH race.
+  - **B2 lib API async transformation** — Searcher/Indexer/KnowledgeBase facade + 모든 caller chain.
+  - **R8-M5 UI Task.Run wrap** — LlmConfig.Save caller 8건.
+
+C. K4 마무리 / Minor:
+  - **MimeTypes.JsonUtf8 literal 신설** (PR 1 s6-r79 sub-agent M-1 backlog).
+  - **N-M1 단위 fact** (mock store + cert thumbprint hash).
+  - **N-M5 cfg DRY** (ServiceConfig builder helper).
+  - **IT level admin-only round-trip fact** (s6-r80 PR 2 sub-agent 잔여 우려).
+
+D. R12 잔여 4건 (사용자 명세 input 필요).
+
+E. 외부 / 운영:
+  - **E1 `/dist` 실행** — paired-release ps1 통과 박제 확인 완료. **사용자 직접 호출 의무** (`make dist` 또는 `/dist` skill).
+  - E3 server.md §7.7 Minor outliers ~13건.
+
+우선순위 (a) A5 Runtime spec 사용자 confirm (1순위 — 의도된 변경 / 회귀 분기 결정)
+       (b) A7 Session lifecycle single lock SSOT (보안 critical 잔여)
+       (c) MimeTypes.JsonUtf8 literal 신설 (K4 마무리, smallest scope)
+       (d) Major 검증 fix 묶음 (B1/B6/B9/B10/B11 보안 / 성능 정합)
+       (e) E1 /dist 실행 (사용자 직접 호출 의무)
+       — 선택 부탁드립니다.
+```
 - 9f31f68 s6-r79 C-15 EndpointHelpers SSOT 추출 — K4 잔여 helper 통합. 신규 EndpointHelpers.fs (5 SSOT) + 6 endpoint alias 박제 + UploadsEndpoint metaJsonOpts rename. sub-agent 검열 — Critical 0 / Major 1 (M-1 MimeTypes SSOT 분리 backlog) / Minor 3 (거부).
 - eb1d6d0 s6-r80 보안 묶음 — B-S7-4 admin-only ACL + B PR M-3 acl users 정규화. ServiceConfig.AdminUsers (nullable backward-compat) + EndpointHelpers.requireAdmin + AdminEndpoints.map signature breaking + handleOwner/handleAcl 분리 + 403 audit. normalizeAclUsers helper (null safe + whitespace trim + dedup). 신규 12 fact. sub-agent 검열 — Critical/Major 0 / Minor 3 (거부).
 - 3e206e2 s6-r81 external review backlog Minor — CertValidator.TryFind 다중 매칭 fix (가장 늦은 NotAfter) + N-M2~M4 docstring + Config.validateHttpsOnly IPv6 link-local zone reject + R5-M2 client invariant doc. 신규 1 fact (R6-M3).
