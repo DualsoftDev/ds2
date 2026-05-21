@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Promaker.Knowledge;
 
@@ -39,11 +41,16 @@ internal static class KbDigestBuilder
         sb.AppendLine("전체 본문 필요 시 `attachment_fulltext(fileId)` 호출 (search 만으로 부족할 때).");
         sb.AppendLine();
 
-        foreach (var kv in profiles)
+        // **review m-3 fix** — service id 정렬 (Ordinal) 으로 Anthropic prompt cache prefix-match 정합.
+        // Dictionary<TKey, TValue> 의 iteration order 가 .NET 에서 통상 삽입 순서를 유지하나 *문서상 미보장* —
+        // KB digest 의 텍스트 결정성을 보장해 동일 KB 셋에서 같은 cache key 생성.
+        foreach (var kv in profiles.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
+            // **review m-8 fix** — value null 방어 (IReadOnlyDictionary contract 가 value not-null 미보장).
+            if (kv.Value is null) continue;
             foreach (var coll in kv.Value)
             {
-                if (string.IsNullOrEmpty(coll.DisplayName)) continue;
+                if (coll is null || string.IsNullOrEmpty(coll.DisplayName)) continue;
                 hasAny = true;
                 sb.Append("- \"").Append(coll.DisplayName).Append('"');
                 if (!string.IsNullOrEmpty(coll.Description))

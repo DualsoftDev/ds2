@@ -69,4 +69,14 @@ public sealed class SystemContentBuilderTests
         Assert.Equal(1, calls);
         Assert.Single(contents);
     }
+
+    [Fact]
+    public void Build_basePrompt_null_빈_string_으로_정규화()
+    {
+        // **review m-6** — null basePrompt 도 안전 — 내부 `?? ""` 로 정규화. NRE 방어.
+        var contents = SystemContentBuilder.Build(null!, "digest", applyCacheControl: null);
+        Assert.Equal(2, contents.Count);
+        Assert.Equal("", Assert.IsType<TextContent>(contents[0]).Text);
+        Assert.Equal("digest", Assert.IsType<TextContent>(contents[1]).Text);
+    }
 }

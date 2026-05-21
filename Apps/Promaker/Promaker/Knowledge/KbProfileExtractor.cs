@@ -75,7 +75,9 @@ internal static class KbProfileExtractor
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            Log.Warn($"KB profile fetch 실패 — {ex.GetType().Name}: {ex.Message}");
+            // review M-3 — stack trace 동봉 (debugging 친화). catch 광역 흡수는 의도된 fail-safe
+            // ("한 service 실패 ≠ 전체 차단", §5.1) — 좁히지 않음.
+            Log.Warn($"KB profile fetch 실패 — {ex.GetType().Name}: {ex.Message}", ex);
             return Array.Empty<CollectionInfo>();
         }
     }
