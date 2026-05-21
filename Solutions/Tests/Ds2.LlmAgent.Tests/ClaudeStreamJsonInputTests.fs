@@ -3,6 +3,7 @@ module ClaudeStreamJsonInputTests
 open System
 open System.Text.Json
 open Xunit
+open Ds2.LightHouse  // ImageFormat (Png) — todo §4.2a 이전
 open Ds2.LlmAgent
 
 /// commit-6b — Claude CLI `--input-format stream-json` stdin 인코더 골든 테스트.

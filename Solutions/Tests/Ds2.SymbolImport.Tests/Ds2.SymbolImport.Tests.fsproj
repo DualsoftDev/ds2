@@ -7,10 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="MappingConfigTests.fs" />
+    <Compile Include="MapperTests.fs" />
     <Compile Include="MapperRulesTests.fs" />
     <Compile Include="CsvParserTests.fs" />
     <Compile Include="ModelGeneratorTests.fs" />
     <Compile Include="ValidationTests.fs" />
+    <Compile Include="RealPlcFixtureTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -1,6 +1,7 @@
 module AttachmentClassifierDriftTests
 
 open Xunit
+open Ds2.LightHouse  // ImageFormat (Png/Jpeg/Gif/Webp) — todo §4.2a 이전
 open Ds2.LlmAgent
 open Microsoft.FSharp.Reflection
 
