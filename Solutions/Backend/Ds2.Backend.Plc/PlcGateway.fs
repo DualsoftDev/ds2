@@ -31,6 +31,32 @@ type PlcGateway(config: PlcGatewayConfig) =
     /// 변화분 감지용 last-value 캐시.
     let lastValues = ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
+    /// adapter 별 재연결 백오프 상태 — 잘못된 PLC 설정일 때 ConnectAsync 가 매 sweep timeout 만큼 blocking
+    /// 하는 걸 막기 위해 연속 실패 횟수에 따라 다음 시도까지 대기 시간을 키운다.
+    let reconnectState =
+        ConcurrentDictionary<string, struct (DateTime * int)>(StringComparer.OrdinalIgnoreCase)
+
+    let backoffDelay (failedAttempts: int) : TimeSpan =
+        match failedAttempts with
+        | n when n <= 0 -> TimeSpan.Zero
+        | n when n <  3 -> TimeSpan.FromSeconds 1.0
+        | n when n < 10 -> TimeSpan.FromSeconds 5.0
+        | _             -> TimeSpan.FromSeconds 30.0
+
+    let shouldAttemptReconnect (name: string) : bool =
+        match reconnectState.TryGetValue name with
+        | false, _ -> true
+        | true, struct (lastAttempt, fails) ->
+            DateTime.UtcNow - lastAttempt >= backoffDelay fails
+
+    let markConnectResult (name: string) (success: bool) =
+        let fails =
+            match reconnectState.TryGetValue name with
+            | true, struct (_, f) -> f
+            | _ -> 0
+        let nextFails = if success then 0 else fails + 1
+        reconnectState.[name] <- struct (DateTime.UtcNow, nextFails)
+
     interface IPlcGateway with
 
         member _.IsEnabled = not adapters.IsEmpty
@@ -41,9 +67,11 @@ type PlcGateway(config: PlcGatewayConfig) =
                     if ct.IsCancellationRequested then () else
                     try
                         let! ok = adapter.ConnectAsync()
+                        markConnectResult cfg.Name ok
                         if ok then log.Info($"PLC connected: {cfg.Name} ({cfg.IpAddress}:{cfg.Port})")
-                        else log.Warn($"PLC connect failed: {cfg.Name} — gateway will keep trying on next scan")
+                        else log.Warn($"PLC connect failed: {cfg.Name} — gateway will retry with backoff")
                     with ex ->
+                        markConnectResult cfg.Name false
                         log.Error($"PLC connect threw for {cfg.Name}: {ex.Message}")
             } :> Task
 
@@ -83,28 +111,36 @@ type PlcGateway(config: PlcGatewayConfig) =
                 let changes = ResizeArray<PlcTagChange>()
                 for (cfg, adapter) in adapters do
                     if ct.IsCancellationRequested then () else
-                    if not adapter.IsConnected then
-                        // 끊겨 있으면 1회 재연결 시도.
-                        let! _ = adapter.ConnectAsync()
-                        ()
-                    for tag in cfg.Tags do
-                        if ct.IsCancellationRequested then () else
-                        match adapter.ReadTag tag with
-                        | Error msg ->
-                            log.Debug($"ReadTag {tag.HubAddress}: {msg}")
-                        | Ok value ->
-                            let s = PlcValueIo.toHubString value
-                            let changed =
-                                match lastValues.TryGetValue tag.HubAddress with
-                                | true, prev -> prev <> s
-                                | false, _ -> true
-                            if changed then
-                                lastValues.[tag.HubAddress] <- s
-                                changes.Add({
-                                    HubAddress = tag.HubAddress
-                                    Value = s
-                                    Source = Ds2.Backend.Common.HubSource.Plc
-                                })
+                    // 끊겨 있으면 backoff 안에서만 재연결 시도 — 잘못된 PLC 설정 시 매 sweep 마다
+                    // timeout 만큼 blocking 되는 걸 막는다.
+                    if not adapter.IsConnected && shouldAttemptReconnect cfg.Name then
+                        try
+                            let! ok = adapter.ConnectAsync()
+                            markConnectResult cfg.Name ok
+                        with ex ->
+                            markConnectResult cfg.Name false
+                            log.Debug($"PLC reconnect {cfg.Name} threw: {ex.Message}")
+                    // 연결 확정된 경우에만 ReadTag 진행 — 끊긴 상태에서 N 개 태그 × per-read timeout
+                    // 누적으로 broadcast 가 지연되는 걸 차단.
+                    if adapter.IsConnected then
+                        for tag in cfg.Tags do
+                            if ct.IsCancellationRequested then () else
+                            match adapter.ReadTag tag with
+                            | Error msg ->
+                                log.Debug($"ReadTag {tag.HubAddress}: {msg}")
+                            | Ok value ->
+                                let s = PlcValueIo.toHubString value
+                                let changed =
+                                    match lastValues.TryGetValue tag.HubAddress with
+                                    | true, prev -> prev <> s
+                                    | false, _ -> true
+                                if changed then
+                                    lastValues.[tag.HubAddress] <- s
+                                    changes.Add({
+                                        HubAddress = tag.HubAddress
+                                        Value = s
+                                        Source = Ds2.Backend.Common.HubSource.Plc
+                                    })
                 return List.ofSeq changes
             }
 

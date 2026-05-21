@@ -16,6 +16,37 @@
     <PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />
     <!-- LLM ↔ MCP YAML 프로토콜 (Phase 1): yaml↔json 양방향 변환. wire = JSON object, view = YAML. -->
     <PackageVersion Include="YamlDotNet" Version="16.2.0" />
+    <!-- dsev2 Ev2.Import.Plc 차용 코드가 JObject.Parse 사용 — Ds2.SymbolImport 만. -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <!-- Ds2.LightHouseService (todo-lighthouse-kb-server.md Phase S1). Windows Service + Kestrel HTTPS + DPAPI. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <!-- DPAPI (LocalMachine / CurrentUser scope) — Windows-only. CR4 의 preSharedKey / tlsCertPassword 암호화 SSOT. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker `Apps/Promaker/Directory.Packages.props` 와 동일). -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+  </ItemGroup>
+  <!-- Ds2.LightHouse — KB 색인 base 인프라 (todo-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
+  <ItemGroup>
+    <PackageVersion Include="PdfPig" Version="0.1.14" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <!-- Plan 3 (Backlog 6) — EMF/WMF metafile → PNG 변환. Windows 전용 (Linux/macOS 에서 PlatformNotSupportedException).
+         Promaker 가 Windows 전용이라 정합. ExtractImagesAtRefLocator 의 ContentType 분기에서 catch + 자연 skip 박제. -->
+    <PackageVersion Include="System.Drawing.Common" Version="9.0.0" />
+    <!-- Phase 4 — embedding / hybrid retrieval (parent §3.7 / §3.15.2).
+         sqlite-vec = SQLite extension (vec0 virtual table + cosine similarity). alpha 단계지만 alexgarcia 공식.
+         native binary 자동 배포 (runtimes/<rid>/native/vec0.{dll,so,dylib}) — paired-release SSOT 확장 의무 0.
+         lib 의 IEmbeddingProvider abstraction = 자체 interface (외부 abstraction 의존 0) — caller (Promaker / cli) 가
+         OllamaSharp 의 OllamaApiClient 를 adapter 로 wrap 후 주입. -->
+    <PackageVersion Include="sqlite-vec" Version="0.1.7-alpha.2.1" />
+    <!-- s6-r37 P4-C.1 — OllamaSharp .NET binding (embedding API: EmbedAsync(EmbedRequest) batch).
+         Apps/Promaker 의 OllamaSharp 5.4.25 와 정합. caller (cli / Promaker / server) 가 본 PackageReference
+         박제 의무 — `Ds2.LightHouse.Ollama` fsproj (별 project) 만 직접 의존. lib (Ds2.LightHouse) 는
+         backend-neutral 유지 (PackageReference 0). -->
+    <PackageVersion Include="OllamaSharp" Version="5.4.25" />
   </ItemGroup>
   <!-- F# 핵심 라이브러리 -->
   <ItemGroup>

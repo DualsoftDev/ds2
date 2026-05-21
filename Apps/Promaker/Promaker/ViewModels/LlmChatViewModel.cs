@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.LlmAgent;
+using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Promaker.LlmAgent.Api;
 using log4net;
@@ -58,6 +59,18 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private readonly Dispatcher _wpfDispatcher;
     private readonly McpHostService _mcpHost = new();
     private McpConfigWriter? _mcpConfig;
+    /// <summary>
+    /// **D-S7-3b (s6-r30) — multi-service session tokens** (Phase S5c L1 정합).
+    /// <para/>
+    /// key = ServiceId, value = panel lifetime 동안 사용할 session token. chat panel lifetime 동안 1회 발급,
+    /// 재사용 (§3.8 L1). DisposeAsync 시 모든 token best-effort DELETE. empty dict = active service 모두 없음 또는
+    /// 발급 실패 (정상 분기, Knowledge Base 비활성).
+    /// <para/>
+    /// **thread-affinity (s6-r30 자가 검열 m-5)** — 본 dict 은 UI thread (ChatViewModel 의 InitializeAsync /
+    /// DisposeAsync 의 sequential caller) 만 mutate. 동시 mutation 가정 없음 — `Dictionary` 사용 정합. concurrent
+    /// caller path 진입 시 (예: background polling) ConcurrentDictionary 또는 lock 으로 승격 의무.
+    /// </summary>
+    private readonly Dictionary<string, string> _lightHouseSessions = new();
     /// <summary>
     /// Codex 격리 워크스페이스 디렉토리 (`%TEMP%/Promaker/codex-workspace-&lt;guid&gt;/`). lazy 생성 (Codex provider
     /// 첫 선택 시), DisposeAsync 시 재귀 삭제. McpConfigWriter 와 동일 lifecycle 패턴.
@@ -210,6 +223,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         AttachmentNotice = "";
         SessionId = null;
         LastClosedProjectPath = null;
+        // C6 — citation cache 도 동반 정리. 이전 session 의 attachment_search hit 가 새 session 의
+        // 잘못된 fileId/ref 우연 매칭으로 popup 띄우는 회귀 차단.
+        ClearCitationCache();
         // round-trip §3 — 세션 초기화 시 snapshot 재첨부 강제 (새 history 의 첫 turn 에 무조건 snapshot 보냄).
         _lastSentRevision = null;
         StatusText = "세션 초기화 완료";
@@ -309,6 +325,16 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// Phase S5c — KbManagerDialog close 후 caller 가 호출 (ConfigChanged=true 일 때). LlmConfig 만 새로 로드.
+    /// **현 session 영향 0** — active 토글은 다음 chat panel 부터 반영 (§3.8 L1 chat-scoped invariant).
+    /// chip 안내는 KbManagerDialog 가 이미 표시. 본 메서드는 향후 인덱스 변경 인지 등의 hook 자리.
+    /// </summary>
+    public void ReloadKbConfig()
+    {
+        _config = LlmConfig.Load();
+    }
+
+    /// <summary>
     /// MainViewModel.Reset() 에서 _store 가 새 DsStore 인스턴스로 교체될 때 호출 (Hot-fix-7).
     /// 진행 중 turn cancel + 기존 session clear + _store reassign — 다음 turn 부터 새 store 의 project 인식.
     ///
@@ -364,6 +390,24 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         _assistantFlushTimer?.Stop();
         _editorSubscription?.Dispose();
         _editorSubscription = null;
+
+        // Phase S5c → D-S7-3b — LightHouse session 해제 per-service (§3.8 L2-1). client 자체 dispose 는 App.OnExit (LightHouseClientHolder).
+        //
+        // **review s5c M2 — 의도된 silent skip**: GetClient(serviceId) 가 null 인 경우 (Settings dialog 가 service config
+        // 변경 후 Invalidate 호출하여 stale entry 가 폐기된 시나리오) DELETE skip → server idle TTL backstop (§3.8 L2-3)
+        // 가 정리. 새 BaseUrl 의 LightHouseClient 로 DELETE 시도하면 token 이 다른 server context → 의미 없음.
+        foreach (var (serviceId, token) in _lightHouseSessions.ToList())
+        {
+            var client = LightHouseClientHolder.GetClient(serviceId);
+            if (client is not null)
+            {
+                try { await client.DeleteSessionAsync(token).ConfigureAwait(false); }
+                catch (Exception ex) { Log.Warn($"LightHouse DeleteSessionAsync 실패 (serviceId={serviceId}, best-effort): {ex.Message}"); }
+            }
+            LightHouseClientHolder.UnregisterSession(serviceId, token);
+        }
+        _lightHouseSessions.Clear();
+
         if (_provider is IAsyncDisposable apiAsync)
         {
             try { await apiAsync.DisposeAsync().ConfigureAwait(false); }

@@ -6,12 +6,31 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 매칭 알고리즘 (dsev2 Ev2.Import.Plc 차용 — namespace Ds2.SymbolImport.Matching 으로 변경).
+         pure module 3개 먼저 — MatchingUtil/InputMatching/DeviceGrouping 은 vendor 의존성 정리 후 추가. -->
+    <Compile Include="Matching.Domain.fs" />
+    <Compile Include="Matching.Constants.fs" />
+    <Compile Include="Matching.PrefixTrie.fs" />
+    <Compile Include="Matching.PlcSymbolParser.fs" />
+    <Compile Include="Matching.Util.fs" />
+    <Compile Include="Matching.InputMatching.fs" />
+    <Compile Include="Matching.DeviceGrouping.fs" />
+
     <Compile Include="CsvTypes.fs" />
     <Compile Include="CsvParser.fs" />
+    <Compile Include="MappingConfig.fs" />
     <Compile Include="MapperRules.fs" />
     <Compile Include="Mapper.fs" />
     <Compile Include="ModelGenerator.fs" />
     <Compile Include="Validation.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 매칭 룰 자산: dsev2 Ev2.Import.Plc/input-matching-config.json (2,874줄) 차용.
+         빌드 출력 옆에 항상 함께 복사 — runtime 에서 AppContext.BaseDirectory 로 로드. -->
+    <Content Include="input-matching-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +39,8 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
+    <!-- dsev2 차용 매칭 코드가 Newtonsoft.Json.Linq (JObject) 사용 — 통째 교체보다 패키지 추가가 빠름. -->
+    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
 </Project>

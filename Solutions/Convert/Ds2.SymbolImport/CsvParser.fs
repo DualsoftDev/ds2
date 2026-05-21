@@ -19,33 +19,53 @@ module CsvParser =
         | _, s when s.StartsWith("M") -> SymbolDirection.Memory
         | _ -> SymbolDirection.UnknownDir
 
-    /// Mitsubishi CSV — DS1 MX/CSVParser 패턴. 통상 column: Device(주소), Label(이름), Comment.
-    /// 첫 줄 헤더 skip. quote / escape 단순 처리.
+    /// Mitsubishi COMMENT.csv 실 dump 포맷:
+    ///   line 0: 제목 ("CCS 조립라인 260408" 등 — 컬럼 없음, skip)
+    ///   line 1: 헤더 ("Device Name"\t"Comment" 또는 "Device Name"\t"Comment"\t"Label" 등)
+    ///   line 2+: 데이터 ("X0"\t"코멘트" 또는 "X0"\t"코멘트"\t"Label")
+    /// 구분자 = tab (\t). quote 제거. Label 컬럼 없으면 Comment 를 Name 으로 사용.
     let parseMitsubishi (csvText: string) : CsvParseResult =
         let warnings = ResizeArray<string>()
-        let entries =
+        let lines =
             csvText.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
-            |> Array.skip 1   // header
-            |> Array.choose (fun line ->
-                let parts = line.Split(',')
-                if parts.Length < 2 then
-                    warnings.Add(sprintf "Mitsubishi CSV — 컬럼 부족 (skip): %s" line)
-                    None
-                else
-                    let address = parts.[0].Trim().Trim('"')
-                    let name = parts.[1].Trim().Trim('"')
-                    let comment =
-                        if parts.Length >= 3 then parts.[2].Trim().Trim('"')
-                        else ""
-                    Some {
-                        Address = address
-                        Name = name
-                        Direction = inferDirection Mitsubishi address
-                        Comment = comment
-                        Vendor = Mitsubishi
-                    })
-            |> List.ofArray
-        { Entries = entries; Warnings = List.ofSeq warnings }
+        if lines.Length < 2 then
+            { Entries = []; Warnings = [ "Mitsubishi CSV — 줄 수 부족 (제목/헤더만)" ] }
+        else
+            // 헤더 라인 위치 — "Device" 단어 포함된 첫 줄.
+            let headerIdx =
+                lines
+                |> Array.tryFindIndex (fun l -> l.IndexOf("Device", StringComparison.OrdinalIgnoreCase) >= 0)
+                |> Option.defaultValue 0
+            // 헤더 다음 줄부터 데이터.
+            let dataLines = lines |> Array.skip (headerIdx + 1)
+            let entries =
+                dataLines
+                |> Array.choose (fun line ->
+                    let parts = line.Split('\t')
+                    if parts.Length < 2 then
+                        warnings.Add(sprintf "Mitsubishi CSV — 컬럼 부족 (skip): %s" line)
+                        None
+                    else
+                        let strip (s: string) = s.Trim().Trim('"').Trim()
+                        let address = strip parts.[0]
+                        // Label 컬럼이 있으면 [1]=Label, [2]=Comment. 없으면 [1]=Comment, Name=Comment.
+                        let label   = if parts.Length >= 3 then strip parts.[1] else ""
+                        let comment = if parts.Length >= 3 then strip parts.[2] else strip parts.[1]
+                        let name =
+                            // Label 우선, 없으면 Comment 를 Name 으로 (현장 dump 가 Label 없는 경우가 많음).
+                            if not (String.IsNullOrWhiteSpace label) then label
+                            else comment
+                        if String.IsNullOrWhiteSpace address then None
+                        else
+                            Some {
+                                Address = address
+                                Name = name
+                                Direction = inferDirection Mitsubishi address
+                                Comment = comment
+                                Vendor = Mitsubishi
+                            })
+                |> List.ofArray
+            { Entries = entries; Warnings = List.ofSeq warnings }
 
     /// LS XG5000 — DS1 LSE/ConvertLSE.Xml 은 XML 기반. 본 ds2 parser 도 XML 입력 받음.
     /// XG5000 export 의 SymbolTable 노드 → Symbol 들의 Var(주소) / Comment / Type 추출.
@@ -92,6 +112,9 @@ module CsvParser =
               Warnings = [ "AB parser 미구현 — DS1 mapper 에 AB 코드 없음. 후속 작업." ] }
 
     /// 파일 path 받아서 텍스트 읽고 parse.
+    /// UTF-16 LE BOM 자동 감지 — Mitsubishi dump 가 보통 UTF-16 LE.
     let parseFile (vendor: Vendor) (path: string) : CsvParseResult =
-        let text = File.ReadAllText(path)
+        // StreamReader detectEncodingFromByteOrderMarks=true 가 BOM 보고 UTF-8/16/32 자동 감지.
+        use reader = new StreamReader(path, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
+        let text = reader.ReadToEnd()
         parse vendor text

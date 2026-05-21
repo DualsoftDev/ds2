@@ -4,8 +4,8 @@ open Ds2.SymbolImport
 open Xunit
 
 [<Fact>]
-let ``Mitsubishi CSV 3 컬럼 (Device/Label/Comment) parse`` () =
-    let csv = "Device,Label,Comment\nX10,Cyl1_ADV_LMT,실린더1 전진 리밋\nY20,Cyl1_ADV,실린더1 전진 출력"
+let ``Mitsubishi CSV 3 컬럼 (Device/Label/Comment) parse — tab 구분자`` () =
+    let csv = "\"Title row\"\n\"Device Name\"\t\"Label\"\t\"Comment\"\n\"X10\"\t\"Cyl1_ADV_LMT\"\t\"실린더1 전진 리밋\"\n\"Y20\"\t\"Cyl1_ADV\"\t\"실린더1 전진 출력\""
     let result = CsvParser.parseMitsubishi csv
     Assert.Equal(2, result.Entries.Length)
     Assert.Equal("X10", result.Entries.[0].Address)
@@ -14,8 +14,19 @@ let ``Mitsubishi CSV 3 컬럼 (Device/Label/Comment) parse`` () =
     Assert.Equal(SymbolDirection.Output, result.Entries.[1].Direction)
 
 [<Fact>]
+let ``Mitsubishi CSV 2 컬럼 (Device/Comment) — Comment 가 Name 역할`` () =
+    // 실 dump (LSEV_CCS) 패턴: Title + "Device Name"\t"Comment" 헤더 + 데이터.
+    let csv = "\"Title\"\n\"Device Name\"\t\"Comment\"\n\"X0\"\t\"QD77 Ready\"\n\"Y1\"\t\"펌프 출력\""
+    let result = CsvParser.parseMitsubishi csv
+    Assert.Equal(2, result.Entries.Length)
+    Assert.Equal("X0", result.Entries.[0].Address)
+    Assert.Equal("QD77 Ready", result.Entries.[0].Name)   // Label 없으면 Comment 가 Name
+    Assert.Equal("QD77 Ready", result.Entries.[0].Comment)
+
+[<Fact>]
 let ``Mitsubishi CSV 컬럼 부족 — warning + skip`` () =
-    let csv = "Device,Label\nX10\nY20,Cyl_ADV"
+    // 헤더 다음 데이터 라인 중 단일 컬럼 (tab 없음) → warning + skip.
+    let csv = "\"Title\"\n\"Device Name\"\t\"Comment\"\nX10\n\"Y20\"\t\"Cyl_ADV\""
     let result = CsvParser.parseMitsubishi csv
     Assert.Equal(1, result.Entries.Length)
     Assert.NotEmpty(result.Warnings)

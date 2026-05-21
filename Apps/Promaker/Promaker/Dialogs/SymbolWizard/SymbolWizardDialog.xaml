@@ -26,16 +26,22 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Vendor:" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <ComboBox x:Name="VendorCombo" Width="120" Padding="4,2" Margin="0,0,8,0">
+                    <ComboBox x:Name="VendorCombo" Width="120" Padding="4,2" Margin="0,0,8,0"
+                              Background="{DynamicResource TertiaryBackgroundBrush}"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}">
                         <ComboBoxItem Content="Mitsubishi" IsSelected="True"/>
                         <ComboBoxItem Content="XG5000 (LS)"/>
                         <ComboBoxItem Content="AB (미구현)"/>
                     </ComboBox>
                     <TextBox x:Name="FilePathBox" Width="500" Padding="4,2" Margin="0,0,8,0"
                              IsReadOnly="True"
+                             Background="{DynamicResource TertiaryBackgroundBrush}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             BorderBrush="{DynamicResource BorderBrush}"
                              Text="파일을 선택하세요 (Mitsubishi CSV 또는 XG5000 XML)"/>
-                    <Button Content="찾기..." Padding="12,4" Click="BrowseFile_Click"/>
-                    <Button Content="파싱 실행" Padding="12,4" Margin="4,0,0,0"
+                    <Button Content="찾기..." Style="{StaticResource DarkButton}" MinWidth="72" Click="BrowseFile_Click"/>
+                    <Button Content="파싱 실행" Style="{StaticResource DarkButton}" MinWidth="80" Margin="4,0,0,0"
                             Click="Parse_Click"/>
                 </StackPanel>
             </StackPanel>
@@ -109,16 +115,30 @@
                      Background="{DynamicResource TertiaryBackgroundBrush}"
                      Foreground="{DynamicResource SecondaryTextBrush}"/>
 
-            <!-- Step 4: Apply / Cancel -->
-            <StackPanel Grid.Row="4" Orientation="Horizontal"
-                        HorizontalAlignment="Right" Margin="0,10,0,0">
-                <Button x:Name="ApplyButton" Content="Step 4 — 모델 적용"
-                        Padding="12,4" Margin="0,0,4,0"
-                        Click="Apply_Click"
-                        IsEnabled="False"/>
-                <Button Content="취소"
-                        Padding="12,4" IsCancel="True"/>
-            </StackPanel>
+            <!-- Step 4: Apply / Cancel + Config Editor 진입점 -->
+            <Grid Grid.Row="4" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0"
+                        Content="⚙ 매칭 룰 편집 (Config Editor)"
+                        Style="{StaticResource DarkButton}"
+                        Click="OpenConfigEditor_Click"
+                        ToolTip="input-matching-config.json 의 매칭 룰을 GUI 로 편집"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="ApplyButton" Content="Step 4 — 모델 적용"
+                            Style="{StaticResource DarkButton}"
+                            MinWidth="120" Margin="0,0,6,0"
+                            Click="Apply_Click"
+                            IsEnabled="False"/>
+                    <Button Content="취소"
+                            Style="{StaticResource DarkButton}"
+                            MinWidth="72"
+                            IsCancel="True"/>
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Window>

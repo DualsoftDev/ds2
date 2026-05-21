@@ -3,6 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Promaker.Controls.Llm"
              xmlns:b="clr-namespace:Promaker.Behaviors"
+             xmlns:p="clr-namespace:Promaker.Presentation"
+             xmlns:md="clr-namespace:MdXaml;assembly=MdXaml"
              AllowDrop="True"
              PreviewDragEnter="Panel_PreviewDragEnter"
              PreviewDragLeave="Panel_PreviewDragLeave"
@@ -13,6 +15,9 @@
     <UserControl.Resources>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- done-llm-markdown.md Phase 1: ChatTurn.Text + IsStreaming MultiBinding → ChatSegment list.
+             Streaming 중에는 단일 Plain segment, 종료 시 1회 split. -->
+        <p:TextToSegmentsConverter x:Key="TextToSegmentsConverter"/>
 
         <!-- LLM 에러 표시 색상 SSOT — Border / Foreground 양쪽에서 참조. 향후 테마 변경 시 본 한 줄만 수정. -->
         <SolidColorBrush x:Key="LlmErrorBrush" Color="DarkOrange"/>
@@ -129,37 +134,64 @@
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Role}" Value="user">
+                <!-- done-llm-markdown.md Phase 2: DataTrigger 는 outer ChatTurn.Role 을 ListBoxItem ancestor 로 참조.
+                     PlainSegmentTemplate 안에서 DataContext=ChatSegment 인 경우에도 styling 유지하기 위함.
+                     기존 outer DataTemplate (DataContext=ChatTurn) 에서도 동일하게 동작. -->
+                <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="user">
                     <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
                 </DataTrigger>
-                <DataTrigger Binding="{Binding Role}" Value="system">
+                <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="system">
                     <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
                     <Setter Property="FontSize" Value="11"/>
                     <Setter Property="FontStyle" Value="Italic"/>
                 </DataTrigger>
                 <!-- Tool: gray + italic + 작은 글자 (사용자 요구 = "tool 관련 : gray"). -->
-                <DataTrigger Binding="{Binding Role}" Value="tool">
+                <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="tool">
                     <Setter Property="Foreground" Value="Gray"/>
                     <Setter Property="FontSize" Value="11"/>
                     <Setter Property="FontStyle" Value="Italic"/>
                 </DataTrigger>
-                <!-- Assistant: YAML 등 schema-doc 응답 등폭 정렬 위해 monospace. 자연어 부분도 mono 라 약간 어색하나
-                     fenced code block 부분 mono (RichTextBox + markdown 파서) 는 본 PoC scope 외 — 전체 mono 로 타협. -->
-                <DataTrigger Binding="{Binding Role}" Value="assistant">
-                    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New, monospace"/>
-                </DataTrigger>
+                <!-- Assistant: 평문 segment 는 자연어 가독성 위해 기본 폰트 (proportional). fenced code 는 MdXaml
+                     MarkdownStyle 내부 CodeBlock style 이 monospace 적용. 기존 전체 mono 정책 (이전 ChatBubbleTextStyle
+                     의 assistant DataTrigger) 폐기. -->
                 <!-- chat-ui boost: model-doc-button = TextBox 자체 hide (Button 으로 대체 — 별개 DataTemplate 분기). -->
-                <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="model-doc-button">
                     <Setter Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
                 <!-- Thinking: 기본 PrimaryTextBrush 유지 (사용자 요구 = "normal"). 시각 구분은 Border 좌측 색띠로 처리. -->
                 <!-- Error: dark orange 강조 + SemiBold. -->
-                <DataTrigger Binding="{Binding Role}" Value="error">
+                <DataTrigger Binding="{Binding DataContext.Role, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="error">
                     <Setter Property="Foreground" Value="{StaticResource LlmErrorBrush}"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- done-llm-markdown.md Phase 2: segment templates + selector.
+             ChatBubbleTextStyle 보다 *뒤*에 정의해야 StaticResource forward 참조 오류 회피. -->
+        <DataTemplate x:Key="PlainSegmentTemplate">
+            <!-- Plain segment = 기존 read-only TextBox 패턴 그대로 (부분 selection + Ctrl+C).
+                 DataContext = ChatSegment(Text). styling 은 outer ChatTurn.Role 기준이므로 ChatBubbleTextStyle 의
+                 DataTrigger 가 RelativeSource ListBoxItem 으로 lookup. -->
+            <TextBox Text="{Binding Text, Mode=OneWay}" Style="{StaticResource ChatBubbleTextStyle}">
+                <TextBox.ContextMenu>
+                    <x:Null/>
+                </TextBox.ContextMenu>
+            </TextBox>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MarkdownSegmentTemplate">
+            <!-- Markdown segment = MdXaml MarkdownScrollViewer + 다크 테마 MarkdownStyle (Themes/Theme.Controls.Llm.xaml).
+                 FlowDocument selection 동작 — 별도 작업 불필요. -->
+            <md:MarkdownScrollViewer Markdown="{Binding Text, Mode=OneWay}"
+                                     MarkdownStyle="{StaticResource LlmMarkdownStyle}"
+                                     VerticalScrollBarVisibility="Disabled"
+                                     HorizontalScrollBarVisibility="Auto"/>
+        </DataTemplate>
+
+        <p:ChatSegmentTemplateSelector x:Key="ChatSegmentTemplateSelector"
+                                       PlainTemplate="{StaticResource PlainSegmentTemplate}"
+                                       MarkdownTemplate="{StaticResource MarkdownSegmentTemplate}"/>
 
         <Style x:Key="ChatInputBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
@@ -230,22 +262,29 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header — title 좌측 + provider ComboBox + ⚙ 설정 (LLM 탭으로 진입, AS-2) -->
+        <!-- Header — title 좌측 + KB 관리 + provider ComboBox + ⚙ 설정 (Phase 2 Claude/Codex dispatch / Phase S5b KB 관리 / AS-2 설정) -->
         <Grid Grid.Row="0" Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="LLM Chat" FontWeight="SemiBold" FontSize="12"
                        VerticalAlignment="Center"/>
-            <ComboBox Grid.Column="1"
+            <Button Grid.Column="1" Content="📚 KB 관리"
+                    Style="{StaticResource ChatButtonStyle}"
+                    Margin="0,0,6,0"
+                    Padding="8,2"
+                    Click="KbManager_Click"
+                    ToolTip="LightHouse Knowledge Base 관리 (등록 / 활성 / 제거)"/>
+            <ComboBox Grid.Column="2"
                       ItemsSource="{Binding AvailableProviders}"
                       SelectedItem="{Binding SelectedProvider}"
                       IsEnabled="{Binding IsSending, Converter={StaticResource InverseBoolConverter}}"
                       MinWidth="80"
                       ToolTip="LLM provider 선택. 변경 시 새 CLI 검출 + 세션 초기화."/>
-            <Button Grid.Column="2"
+            <Button Grid.Column="3"
                     Content="⚙"
                     Style="{StaticResource DarkButton}"
                     Margin="4,0,0,0"
@@ -328,13 +367,36 @@
                         <!-- 부분 복사: read-only TextBox 의 selection + Ctrl+C. 전체 복사 / export 는 ListBox 의 ContextMenu.
                              review #2 fix: TextBox 의 기본 ContextMenu (잘라내기/복사/붙여넣기) 를 비활성화해
                              우클릭 시 visual tree 상위 ListBox.ContextMenu (전체 복사 / export) 가 표시되도록.
-                             chat-ui boost: model-doc-button role 일 때만 TextBox 가 hide → Button 표시. 두 컨트롤 동시 Grid 에 배치. -->
+                             chat-ui boost: model-doc-button role 일 때만 TextBox 가 hide → Button 표시. 두 컨트롤 동시 Grid 에 배치.
+                             done-llm-markdown.md Phase 2: 단일 TextBox 를 segments ItemsControl 로 교체.
+                             ```md ``` fence 가 자동으로 MarkdownScrollViewer 로 렌더. ModelDocButton 분기는
+                             outer Grid level 에서 그대로 공존 (segment 모델 일반화는 본 PR 범위 외). -->
                         <Grid>
-                            <TextBox Text="{Binding Text, Mode=OneWay}" Style="{StaticResource ChatBubbleTextStyle}">
-                                <TextBox.ContextMenu>
-                                    <x:Null/>
-                                </TextBox.ContextMenu>
-                            </TextBox>
+                            <ItemsControl ItemTemplateSelector="{StaticResource ChatSegmentTemplateSelector}">
+                                <ItemsControl.ItemsSource>
+                                    <MultiBinding Converter="{StaticResource TextToSegmentsConverter}">
+                                        <Binding Path="Text"/>
+                                        <Binding Path="IsStreaming"/>
+                                        <Binding Path="Role"/>
+                                    </MultiBinding>
+                                </ItemsControl.ItemsSource>
+                                <!-- Plain → Markdown → Plain 인접 segment 간 시각 경계 확보 (self-review minor). -->
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Margin" Value="0,2,0,2"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <!-- ModelDocButton role 인 경우 segment list 비표시 — Button 으로 대체. -->
+                                <ItemsControl.Style>
+                                    <Style TargetType="ItemsControl">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Role}" Value="model-doc-button">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ItemsControl.Style>
+                            </ItemsControl>
                             <!-- chat-ui boost: model-doc-button = 클릭 시 ModelDocPreviewDialog 띄움. Payload = yaml 본문.
                                  review m3: model-doc-button 이외 role 의 Collapsed Button 이 focus tab order 영향 없도록
                                  IsTabStop/Focusable=False (defense in depth — Visibility=Collapsed 자체로 자동 차단되나 명시 강화). -->
@@ -579,6 +641,42 @@
                 </StackPanel>
             </Button>
         </StackPanel>
+
+        <!-- C6 — KB citation popup. MdXaml Hyperlink (attachment://fileId/ref) 클릭 시 LlmChatPanel.xaml.cs 의
+             RequestNavigate handler 가 IsOpen=true + PlacementTarget=clicked Hyperlink. excerpt / outline 표시. -->
+        <Popup x:Name="CitationPopup"
+               StaysOpen="False"
+               AllowsTransparency="True"
+               Placement="Mouse"
+               PopupAnimation="Fade"
+               MaxWidth="520">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="3"
+                    Padding="10" Margin="4">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.3"/>
+                </Border.Effect>
+                <StackPanel>
+                    <TextBlock x:Name="CitationFileName" FontWeight="SemiBold" FontSize="12"
+                               Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="CitationRef" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,2,0,0"/>
+                    <TextBlock x:Name="CitationOutline" FontSize="11" FontStyle="Italic"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,2,0,4"
+                               TextWrapping="Wrap"/>
+                    <Separator Margin="0,4,0,4"/>
+                    <TextBox x:Name="CitationExcerpt"
+                             IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             TextWrapping="Wrap" MaxHeight="200"
+                             VerticalScrollBarVisibility="Auto"
+                             FontSize="12" Cursor="IBeam"/>
+                    <TextBlock x:Name="CitationMeta" FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+        </Popup>
     </Grid>
     </Border>
 </UserControl>
