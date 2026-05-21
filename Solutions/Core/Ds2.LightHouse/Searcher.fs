@@ -426,15 +426,17 @@ module Searcher =
                     sprintf "SELECT %d AS KbIdx, Id, OriginalPath, DocType, PageOrSheetCnt FROM %s.Documents" i alias)
             let unionSql = selects |> String.concat "\nUNION ALL\n"
 
+            // SqliteStore.docTypeToString 의 역변환. DU case 추가 시 양쪽 동기 갱신.
             let parseDocType (s: string) : FileKind =
                 match s with
-                | "pdf"  -> Pdf
-                | "docx" -> Docx
-                | "pptx" -> Pptx
-                | "xlsx" -> Xlsx
-                | "txt"  -> Text
-                | "md"   -> Markdown
-                | other  -> Unsupported other
+                | "pdf"   -> Pdf
+                | "docx"  -> Docx
+                | "pptx"  -> Pptx
+                | "xlsx"  -> Xlsx
+                | "txt"   -> Text
+                | "md"    -> Markdown
+                | "image" -> FileKind.Image   // Task 7 (r17) — standalone image. RefUnit.Image 동명 disambiguation.
+                | other   -> Unsupported other
 
             use cmd = conn.CreateCommand()
             cmd.CommandText <- unionSql
