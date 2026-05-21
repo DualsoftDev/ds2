@@ -10,43 +10,45 @@
 |---|---|---|
 | r0 | 2026-05-21 | 초안 — keyword digest (기존 박제) + text dump (신규) 통합. 7 PR 분할 plan. branch = `light-house-summary` (worktree `F:/Git/ds2/light-house-summary/`) |
 | r1 | 2026-05-21 | **PR-A/B/C/D 진입 완료** (commit 6 누적 / +1072 line / +25 신규 fact). 잔여 = PR-E/F/G (Promaker WPF UI 영역). PR-F/G scope 상세화 박제 (직전 turn 사용자 질문 답변 흡수) |
+| r2 | 2026-05-21 | **PR-F/G+E 진입 완료** (commit 2 추가 — `c93b591` PR-F / `ae58e11` PR-G+E / +798 line / +24 fact). **모든 7 PR 완료**. Promaker.Tests 340 → 364 (+24). 잔여 backlog: ApiChatProvider stale cache (ReloadKbConfig invalidate), KbDigestBuilder service 헤더 (multi-service), CLI provider feedback (§4 #3) |
 
 ---
 
 ## 0. 현재 진행 상태 (새 세션 진입 시 첫 정독)
 
-### 완료 (본 worktree commit `7964ec6..HEAD`, 6 commit)
+### 완료 (본 worktree commit `7964ec6..HEAD`, 8 commit) — **모든 7 PR 완료**
 
 | commit | scope | 신규 fact |
 |---|---|---|
 | `2572c6e` | r0 doc transfer — keyword digest + text dump 통합 design SSOT | 0 (doc-only) |
 | `de14577` | PR-A schema 확장 — Protocol MetaJson + Registry CollectionEntry + Promaker CollectionInfo 에 description / keywords optional 필드 | +6 (MetaJson 3 / Registry 2 / LightHouseClient 1) |
 | `2f43d57` | PR-A 자가 검열 — doc drift fix (`text/` whitelist PR-A → PR-C scope 정정) | 0 |
-| `ddaf0d6` | PR-B KeywordExtractor — lib KeywordExtractor.fs (b1 stats + NLTK 영문 stopword + 길이≥2 + self-MATCH precision floor) + Packager.writeMeta signature breaking (description/keywords 두 인자 추가) + CLI runUpload hook | +7 (빈 collection / 영문 빈도 desc / stopword / 길이 filter / 한영 혼합 / self-MATCH / DefaultTopN cap) |
-| `714b8ad` | PR-C TextDumper — lib TextDumper.fs (markdown heading by RefLocator + ImageReferences caption inline + 512KB cap + UTF-8 BOM 없음) + IndexerVersion 2.1.0→2.2.0 minor bump + 영향 caller fix (SqliteStoreTests 2곳 + CliUploadTests writeMeta) | +7 (빈 collection / 단일 txt / sanitize filename / 512KB cap+truncate / 다중 doc / RefLocator heading / UTF-8 BOM 없음) |
-| `494c4ed` | PR-D attachment_fulltext MCP tool — server AttachmentTools.attachment_fulltext + ServiceConfig DI 자동 + 1MB cap + 4 분기 audit log + legacy collection (text/ 부재) backward-compat | +5 (정상 / fileId 형식 결함 / session 밖 / legacy 부재 / 1MB cap) |
+| `ddaf0d6` | PR-B KeywordExtractor — lib KeywordExtractor.fs (b1 stats + NLTK 영문 stopword + 길이≥2 + self-MATCH precision floor) + Packager.writeMeta signature breaking + CLI runUpload hook | +7 |
+| `714b8ad` | PR-C TextDumper — lib TextDumper.fs (markdown heading by RefLocator + ImageReferences caption inline + 512KB cap) + IndexerVersion 2.1.0→2.2.0 | +7 |
+| `494c4ed` | PR-D attachment_fulltext MCP tool — server AttachmentTools.attachment_fulltext + 1MB cap + 4 분기 audit log + legacy backward-compat | +5 |
+| `c93b591` | **PR-F** FetchKbProfilesAsync + SSE hook + debounce — KbProfileExtractor (internal helper) + LlmChatViewModel.KbProfile.cs partial + Initialize.cs/DisposeAsync hook + 자가 검열 Major-1 fix (dispose race try/catch) | +14 (Theory inline 5+1+3 fact, 8 method) |
+| `ae58e11` | **PR-G+E** KbDigestBuilder + ApiChatProvider lazy apply (v-b) + 5.knowledge-base.md fulltext 룰 — KbDigestBuilder.Build (digest text 박제) + SystemContentBuilder (base+digest 2 TextContent 분리) + ApiChatProvider._pendingKbDigest + SetPendingSystemPrompt (Interlocked.Exchange) + firstTurn swap + 자가 검열 Minor 1+4 fix | +10 (KbDigestBuilder 5 / SystemContentBuilder 5) |
 
-**누적 신규 fact = +25**. 누적 test 통과 (회귀 0):
+**누적 신규 fact = +49**. 누적 test 통과 (회귀 0):
 - Ds2.LightHouse.Tests: 268 → **282** (+14)
-- Ds2.LightHouseService.Tests: 179 → **189** (+10 PR-A 5 + PR-D 5)
-- Ds2.LightHouseService.IntegrationTests: 55 → **57** (+2 PR-A)
-- Promaker.Tests: 339 → **340** (+1 PR-A)
+- Ds2.LightHouseService.Tests: 179 → **189** (+10)
+- Ds2.LightHouseService.IntegrationTests: 55 → **57** (+2)
+- Promaker.Tests: 339 → **364** (+25 — PR-A 1 + PR-F 14 + PR-G 10)
 - Ds2.LlmAgent.Tests: 398 (변경 무관)
 
-### 잔여 (Promaker WPF UI 영역 — 다음 세션 진입 대상)
-
-| PR | scope | 예상 line | 예상 fact |
-|---|---|---|---|
-| **PR-E** | `5.knowledge-base.md` 룰 1줄 추가 ("전체 본문 필요 시 `attachment_fulltext(fileId)` 호출, search 만으로 부족할 때") | ~5 line | 0 (prompt only) |
-| **PR-F** | Promaker `LlmChatViewModel.FetchKbProfilesAsync` + `_acceptedCollectionIds` + SSE hook + debounce | ~150~200 line | +6 |
-| **PR-G** | `KbDigestBuilder.Build` + `ApiChatProvider._pendingSystemPrompt` lazy apply + Anthropic cache (v-b) | ~200~250 line | +7 |
-
-PR-E 는 PR-G 와 묶음 가능 (둘 다 prompt + tool surface 영역).
-
-### 알려진 backlog (본 worktree 자가 검열 Minor — 별 turn 또는 Phase 2)
+### 잔여 backlog (모든 PR 완료 후 우선순위 별 turn 또는 Phase 2)
 
 1. **TextDumper size cap linear search** — `applySizeCap` 의 `while ... > availableBytes do cut <- cut - 1` 가 큰 markdown 에서 O(N²) 위험. binary search 또는 UTF-8 byte streaming truncate. (Phase 2 perf)
 2. **attachment_fulltext legacy collection audit level** — 현재 text/ 폴더 부재 시 `Log.audit.Info` 박제. legacy = backward-compat 의도라 Info OK 이나, 운영상 detection 강화 시 `Warn` 으로 격상 검토.
+3. **PR-F 자가 검열 Major-2** — `LlmChatViewModel.ReloadKbConfig` / `UpdateStore` 후 `_kbProfileCache` stale. KbManagerDialog 에서 collection 토글 변경 시 다음 fetch 가 server-side 변경 (예: keywords 재추출) 반영하려면 cache invalidate hook 필요. user-visible bug 0 (cache 의 keyword 만 stale, accepted set 은 session 발급 시점 셋 정합) — 향후 Phase 2.
+4. **PR-G 자가 검열 Minor 2** — `KbDigestBuilder` 의 다중 service 평탄화. 동일 displayName 이 service 별 존재 시 LLM 이 모호 인식. 현재 회귀 0, multi-service 운용 단계에서 service 헤더 도입 고려.
+5. **PR-G 자가 검열 Minor 3** — Claude/Codex CLI provider 사용 중 KB 토글 변경 시 user 무피드백 (§4 #3 미결정 정합). 별 PR 에서 chip 안내 또는 disable 처리.
+6. **e2e 검증 (사용자 수동)** — §5.2 의 4 항목 — Promaker 시작 → chat panel open → system message 에 `# ─── Active Knowledge Bases ───` 포함 / KbManagerDialog 토글 → debounce 후 다음 turn 갱신 / Anthropic `cache_read_input_tokens` 측정 / LLM 자발적 `attachment_search` 호출 빈도 증가.
+
+### 본 worktree merge 권장 next step
+
+- 사용자 결정 (fast-forward vs squash) → `light-house` branch merge
+- `git worktree remove light-house-summary` (cleanup)
 
 ---
 
