@@ -150,19 +150,21 @@ app.Use(async (context, next) =>
         if (context.Response.StatusCode >= 400 && context.Request.Path.StartsWithSegments("/uploads"))
         {
             app.Logger.LogError("▶ uploads {Status} — Path: {Path}, WebRoot: {WR}",
-                context.Response.StatusCode, context.Request.Path, app.Environment.WebRootPath);
+                context.Response.StatusCode, context.Request.Path, app.Environment.WebRootPath ?? "(null)");
         }
     }
     catch (Exception ex)
     {
         app.Logger.LogError(ex, "▶ uploads EXCEPTION — Path: {Path}, WebRoot: {WR}",
-            context.Request.Path, app.Environment.WebRootPath);
+            context.Request.Path, app.Environment.WebRootPath ?? "(null)");
         throw;
     }
 });
 
 // 동적 업로드 파일: uploads 디렉토리 보장 후 PhysicalFileProvider로 직접 서빙
-var uploadsPath = Path.Combine(app.Environment.WebRootPath, "uploads");
+// WebRootPath: Release 직접 실행 시 (dotnet publish 미사용) wwwroot 가 bin 옆에 없으면 null → ContentRoot 로 폴백
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+var uploadsPath = Path.Combine(webRoot, "uploads");
 Directory.CreateDirectory(uploadsPath); // 서비스 시작 시 디렉토리 없으면 생성
 app.Logger.LogInformation("▶ DSPilot uploads dir: {Path}, exists: {E}", uploadsPath, Directory.Exists(uploadsPath));
 
