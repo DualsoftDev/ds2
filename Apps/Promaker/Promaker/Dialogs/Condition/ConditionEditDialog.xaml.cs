@@ -92,13 +92,17 @@ public partial class ConditionEditDialog : Window
         };
     }
 
-    // ── Work 용 BuildPreview (외부 DLL AAStoPLC.ConditionExprBuilder.buildPreview 의 C# 미러) ───
-    private CoilCondition BuildWorkConditionPreview()
+    // ── Condition 트리 → CoilCondition 변환 (Call/Work 공용 — 외부 DLL buildPreview 우회) ───
+    private CoilCondition BuildConditionPreview()
     {
-        if (!_store.Works.TryGetValue(_callId, out var work))
-            return CoilCondition.AlwaysTrue;
+        IEnumerable<Ds2.Core.Condition>? source =
+            _ownerKind == EntityKind.Work
+                ? (_store.Works.TryGetValue(_callId, out var work) ? work.Conditions : null)
+                : (_store.Calls.TryGetValue(_callId, out var call) ? call.Conditions : null);
+        if (source is null) return CoilCondition.AlwaysTrue;
+
         var matches = new List<Ds2.Core.Condition>();
-        foreach (var c in work.Conditions)
+        foreach (var c in source)
         {
             if (FSharpOption<ConditionType>.get_IsSome(c.Type) && c.Type.Value == _condType)
                 matches.Add(c);
@@ -497,24 +501,12 @@ public partial class ConditionEditDialog : Window
     private void SyncTheme(AppTheme theme) =>
         EditorView.Theme = theme == AppTheme.Dark ? new DefaultDarkTheme() : new DefaultLightTheme();
 
-    /// <summary>현재 store 상태 → CoilCondition → 단일 CoilRung 으로 표시.</summary>
+    /// <summary>현재 store 상태 → CoilCondition → 단일 CoilRung 으로 표시.
+    /// 외부 DLL(AAStoPLC) buildPreview 는 옛 Call.CallConditions 시그니처로 컴파일되어
+    /// rename 이후 type load 가 실패한다. Call/Work 모두 C# 자체 변환으로 우회.</summary>
     private void Refresh()
     {
-        CoilCondition cond = CoilCondition.AlwaysTrue;
-        if (_ownerKind == EntityKind.Work)
-        {
-            // Work 모드: 외부 DLL(AAStoPLC) buildPreview 가 Call 전용 →
-            // C# 측에서 동일 변환(Work.Conditions → CoilCondition) 자체 구현.
-            cond = BuildWorkConditionPreview();
-        }
-        else
-        {
-            if (!_host.TryRef(() => _store.Calls[_callId], out var call)) return;
-            var legacyType = (CallConditionType)(int)_condType;
-            var condOpt = ConditionExprBuilder.buildPreview(_store, call, legacyType);
-            if (FSharpOption<CoilCondition>.get_IsSome(condOpt))
-                cond = condOpt.Value;
-        }
+        CoilCondition cond = BuildConditionPreview();
         const string coilName = "OUT";
 
         if (_rung is null)

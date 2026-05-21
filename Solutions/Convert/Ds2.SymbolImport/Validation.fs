@@ -25,13 +25,17 @@ module Validation =
                 Message = sprintf "매칭 실패 심볼 %d 건 (segment 부족 등)" batch.Unmatched.Length
             }
 
-        // V-S2: ambiguous 매칭 (segment 1개) — Info.
-        let ambiguous = batch.Mapped |> List.filter (fun m -> m.IsAmbiguous)
-        if not ambiguous.IsEmpty then
+        // V-S2: NotMatched strategy 또는 낮은 신뢰도 (< 0.5) — Info.
+        let lowConfidence =
+            batch.Mapped
+            |> List.filter (fun m ->
+                m.Strategy = Ds2.SymbolImport.Matching.MatchingStrategy.NotMatched
+                || m.Confidence < 0.5)
+        if not lowConfidence.IsEmpty then
             issues.Add {
                 Severity = Info
                 Code = "V-S2"
-                Message = sprintf "모호 매칭 %d 건 (segment 1 — Default 적용)" ambiguous.Length
+                Message = sprintf "낮은 신뢰도 매핑 %d 건 (NotMatched 또는 < 0.5)" lowConfidence.Length
             }
 
         // V-S3: ApiCall 에 InTag/OutTag 모두 없음 — Warning (의미 없는 Call).

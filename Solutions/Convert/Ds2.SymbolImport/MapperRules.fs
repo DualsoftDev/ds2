@@ -1,106 +1,47 @@
 namespace Ds2.SymbolImport
 
-open System
+open Ds2.SymbolImport.Matching
 
-/// <summary>심볼명 → DS2 도메인 (Flow / Work / Device / Api) 매핑 규칙.
-/// DS1 mapper 의 MappingApi / MappingDevice / MappingGroup 룰 의미 추출.</summary>
+/// <summary>SymbolEntry ↔ dsev2 Variable / MappingSet 어댑터.
+/// dsev2 의 InputMatching/DeviceGrouping 을 ds2 측 type 으로 연결한다.</summary>
 module MapperRules =
 
-    /// 매칭 후보 — 심볼명 분해 결과.
-    type ParsedSymbol = {
-        Original: SymbolEntry
-        /// 분해된 segment 들 (예: "Conv1_Adv_LMT" → ["Conv1"; "Adv"; "LMT"])
-        Segments: string[]
-    }
+    /// SymbolEntry.Direction → dsev2 IODirection.
+    /// Memory/UnknownDir 은 *Input* 으로 처리 (dsev2 가 2-state — Output/Input 만).
+    /// case 명 (Output/Input) 이 양쪽 DU 에 모두 있어 fully qualified 필요.
+    let symbolDirectionToIO (dir: SymbolDirection) : IODirection =
+        match dir with
+        | SymbolDirection.Output -> IODirection.Output
+        | SymbolDirection.Input
+        | SymbolDirection.Memory
+        | SymbolDirection.UnknownDir -> IODirection.Input
 
-    /// 매칭 결과 — DS2 엔티티 4단계 매핑 + 신뢰도.
-    type Mapping = {
-        Original: SymbolEntry
-        FlowName: string       // DS2 Flow (= DS1 Area)
-        WorkName: string       // DS2 Work
-        DeviceName: string     // DS2 passive System (Device 인터페이스)
-        ApiName: string        // DS2 ApiDef name
-        IsAmbiguous: bool      // 룰 다중 후보로 모호 매칭
-    }
+    /// SymbolEntry → dsev2 Variable.
+    let toVariable (entry: SymbolEntry) : Variable =
+        { LogicalName = entry.Name
+          PhysicalAddress = entry.Address
+          Direction = symbolDirectionToIO entry.Direction }
 
-    /// 심볼명 segment 분리 — '_' 또는 '.' 기준. 빈 segment 제거.
-    let private splitSymbol (name: string) : string[] =
-        if String.IsNullOrEmpty name then [||]
-        else
-            name.Split([| '_'; '.' |], StringSplitOptions.RemoveEmptyEntries)
+    /// MappingConfig.ApiKeywordDto → dsev2 ApiKeywordMapping.
+    let private toApiKeywordMapping (api: MappingConfig.ApiKeywordDto) : ApiKeywordMapping =
+        { OutputKeywords = List.ofArray (if isNull api.OutputKeywords then [||] else api.OutputKeywords)
+          InputKeywords  = List.ofArray (if isNull api.InputKeywords  then [||] else api.InputKeywords) }
 
-    let parseSymbol (entry: SymbolEntry) : ParsedSymbol =
-        { Original = entry; Segments = splitSymbol entry.Name }
+    /// MappingConfig.MappingSetDto → dsev2 MappingSet.
+    let toMappingSet (dto: MappingConfig.MappingSetDto) : MappingSet =
+        let apisMap =
+            (if isNull dto.Apis then [||] else dto.Apis)
+            |> Array.map (fun api -> api.Name, toApiKeywordMapping api)
+            |> Map.ofArray
+        { Name = dto.Name
+          DeviceKeywords = List.ofArray (if isNull dto.DeviceKeywords then [||] else dto.DeviceKeywords)
+          Apis = apisMap
+          OutputAddressPatterns = List.ofArray (if isNull dto.OutputAddressPatterns then [||] else dto.OutputAddressPatterns)
+          InputAddressPatterns  = List.ofArray (if isNull dto.InputAddressPatterns  then [||] else dto.InputAddressPatterns) }
 
-    /// DS1 PrefixTrie.findCommonPrefix 동등 — 같은 그룹 내 심볼들의 *공통 prefix segment* 추출.
-    /// 그 prefix 가 Device 이름, 나머지 suffix 가 Api 이름.
-    let findCommonPrefix (symbols: ParsedSymbol[]) : string[] =
-        if symbols.Length = 0 then [||]
-        else
-            let first = symbols.[0].Segments
-            let mutable common = first.Length
-            for s in symbols do
-                let len = min common s.Segments.Length
-                let mutable i = 0
-                let mutable matching = true
-                while matching && i < len do
-                    if String.Equals(s.Segments.[i], first.[i], StringComparison.OrdinalIgnoreCase) then
-                        i <- i + 1
-                    else
-                        matching <- false
-                common <- min common i
-            first |> Array.take common
-
-    /// DS1 룰 #1 — segment 패턴 매핑.
-    ///   N segments        : [Flow ; Work; Device; Api]   (관례 4단계)
-    ///   3 segments        : [Flow ; Work; Api]            — Device 는 첫 두 segment 결합
-    ///   2 segments        : [Flow ; Api]                  — Device = Flow, Work = Flow
-    ///   1 segment         : [Api]                         — Flow/Work/Device 모두 "Default"
-    /// 모호한 경우 IsAmbiguous=true.
-    let private inferFromSegments (segs: string[]) : Mapping option =
-        match segs.Length with
-        | 0 -> None
-        | 1 -> Some {
-            Original = Unchecked.defaultof<_>
-            FlowName = "Default"
-            WorkName = "Default"
-            DeviceName = "Default"
-            ApiName = segs.[0]
-            IsAmbiguous = true }
-        | 2 -> Some {
-            Original = Unchecked.defaultof<_>
-            FlowName = segs.[0]
-            WorkName = segs.[0]
-            DeviceName = segs.[0]
-            ApiName = segs.[1]
-            IsAmbiguous = false }
-        | 3 -> Some {
-            Original = Unchecked.defaultof<_>
-            FlowName = segs.[0]
-            WorkName = segs.[1]
-            DeviceName = segs.[1]
-            ApiName = segs.[2]
-            IsAmbiguous = false }
-        | _ -> Some {
-            Original = Unchecked.defaultof<_>
-            FlowName = segs.[0]
-            WorkName = segs.[1]
-            DeviceName = segs.[2]
-            ApiName = String.concat "_" (segs |> Array.skip 3)
-            IsAmbiguous = false }
-
-    /// 단일 entry → Mapping. segment 기반 추론.
-    let mapEntry (entry: SymbolEntry) : Mapping option =
-        let parsed = parseSymbol entry
-        inferFromSegments parsed.Segments
-        |> Option.map (fun m -> { m with Original = entry })
-
-    /// 전체 entry list → Mapping list. None 항목은 unmatched.
-    let mapAll (entries: SymbolEntry list) : Mapping list * SymbolEntry list =
-        let mapped = ResizeArray<Mapping>()
-        let unmatched = ResizeArray<SymbolEntry>()
-        for entry in entries do
-            match mapEntry entry with
-            | Some m -> mapped.Add m
-            | None -> unmatched.Add entry
-        List.ofSeq mapped, List.ofSeq unmatched
+    /// MappingConfig 의 Common.MappingSets 전체 변환.
+    let mappingSetsFromConfig (config: MappingConfig.InputMatchingConfigDto) : MappingSet list =
+        let common =
+            if isNull (box config.Common) || isNull config.Common.MappingSets then [||]
+            else config.Common.MappingSets
+        common |> Array.map toMappingSet |> List.ofArray

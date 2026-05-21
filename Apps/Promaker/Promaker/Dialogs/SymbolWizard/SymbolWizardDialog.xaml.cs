@@ -77,15 +77,24 @@ public partial class SymbolWizardDialog : Window
         _pendingBatch = batch;
         _pendingPlans = plans;
 
-        var rows = batch.Mapped.Select(m => new MappingRow
+        // Mapping 의 OutputEntry 우선, 없으면 첫 InputEntry 로 row 1건 표시.
+        // dsev2 매칭 결과는 Output/Input 페어 형태 — UI 는 *대표 1건* 만 보여줌.
+        // (상세 페어 보려면 별도 Detail panel 또는 expand 필요 — 다음 단계.)
+        var rows = batch.Mapped.Select(m =>
         {
-            Address = m.Original.Address,
-            Name = m.Original.Name,
-            Direction = m.Original.Direction.ToString(),
-            Flow = m.FlowName,
-            Work = m.WorkName,
-            Device = m.DeviceName,
-            Api = m.ApiName,
+            var rep = Microsoft.FSharp.Core.FSharpOption<CsvTypes.SymbolEntry>.get_IsSome(m.OutputEntry)
+                ? m.OutputEntry.Value
+                : m.InputEntries.FirstOrDefault();
+            return new MappingRow
+            {
+                Address = rep?.Address ?? "",
+                Name = rep?.Name ?? $"{m.DeviceName}.{m.ApiName}",
+                Direction = rep is null ? "" : rep.Direction.ToString(),
+                Flow = m.FlowName,
+                Work = m.WorkName,
+                Device = m.DeviceName,
+                Api = m.ApiName,
+            };
         }).ToList();
         MappingGrid.ItemsSource = rows;
 
@@ -214,5 +223,14 @@ public partial class SymbolWizardDialog : Window
                 }
             }
         }
+    }
+
+    private void OpenConfigEditor_Click(object sender, RoutedEventArgs e)
+    {
+        // input-matching-config.json GUI 편집. 저장 시 Ds2.SymbolImport.Matching 의
+        // InputMatching / DeviceGroupingUtils 캐시 invalidate (FS module mutable state).
+        var vm = new ConfigEditor.ConfigEditorViewModel();
+        var window = new ConfigEditor.ConfigEditorWindow(vm) { Owner = this };
+        window.ShowDialog();
     }
 }
