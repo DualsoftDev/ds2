@@ -1639,3 +1639,174 @@ let ``xlsx + Width=1.0 경계값 — narrow 아님 (NarrowColumnWidthThreshold �
         // narrow filter (현재 `<` 비교): col 7 width=1.0 == threshold → narrow 아님 → G1 보존 → 7 tabs.
         // 회귀 (`<` → `<=`) 시: col 7 narrow → G1 drop → kept.Length=7 → 6 tabs (mismatch).
         Assert.Equal("header\t\t\t\t\t\t\ttail", seg.Text))
+
+// ── Task 2-extra — Gantt schedule 시트 type 힌트 Fact ──
+// 산업 .xlsx 의 작업 일정표 (Gantt 형식) 시트 검출 + role 기반 동적 preamble prepend + outline `[Gantt schedule]` suffix.
+// false positive 회피 우선 — distinct role ≥3 AND start/dur/cum 중 ≥2 일 때만 검출.
+
+[<Fact>]
+let ``xlsx Gantt — 정상 검출 (NO|SYM|작업내역|시작|시간|누계 6 컬럼)`` () =
+    withTempPath ".xlsx" (fun path ->
+        let headerRow : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "NO"
+                XlsxFixture.mkCellSpec "B1" "SYM"
+                XlsxFixture.mkCellSpec "C1" "작업내역"
+                XlsxFixture.mkCellSpec "D1" "시작"
+                XlsxFixture.mkCellSpec "E1" "시간"
+                XlsxFixture.mkCellSpec "F1" "누계"
+            ]
+        }
+        let dataRow : XlsxFixture.RowSpec = {
+            Index = 2u
+            Cells = [
+                XlsxFixture.mkCellSpec "A2" "1"
+                XlsxFixture.mkCellSpec "B2" "M"
+                XlsxFixture.mkCellSpec "C2" "233-1호기 조립"
+                XlsxFixture.mkCellSpec "D2" "0"
+                XlsxFixture.mkCellSpec "E2" "6"
+                XlsxFixture.mkCellSpec "F2" "6"
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "작업서"
+            [ (1u, 6u, 10.0) ]   // 데이터 컬럼만 (narrow 컬럼 무 — 검출 자체만 검증)
+            [ headerRow; dataRow ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Single(result.Outline) |> ignore
+        Assert.Equal("작업서 [Gantt schedule]", result.Outline.[0].Label)
+        Assert.Single(result.Segments) |> ignore
+        let seg = result.Segments.[0]
+        Assert.StartsWith("이 시트는 작업 일정표(Gantt)입니다.", seg.Text)
+        Assert.Contains("A=NO(순번)", seg.Text)
+        Assert.Contains("D=START(시작초)", seg.Text)
+        Assert.Contains("E=DURATION(소요초)", seg.Text)
+        Assert.Contains("F=CUMULATIVE(누계초)", seg.Text)
+        // 데이터 row 도 preamble 다음에 박제 (회귀 차단).
+        Assert.Contains("233-1호기 조립", seg.Text))
+
+[<Fact>]
+let ``xlsx Gantt — 컬럼 순서 바뀜 (SYM/NO/시작/작업내역/시간/누계) — 동일 검출 + letter 정합`` () =
+    withTempPath ".xlsx" (fun path ->
+        let headerRow : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "SYM"
+                XlsxFixture.mkCellSpec "B1" "NO"
+                XlsxFixture.mkCellSpec "C1" "시작"
+                XlsxFixture.mkCellSpec "D1" "작업내역"
+                XlsxFixture.mkCellSpec "E1" "시간"
+                XlsxFixture.mkCellSpec "F1" "누계"
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "S" [ (1u, 6u, 10.0) ] [ headerRow ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal("S [Gantt schedule]", result.Outline.[0].Label)
+        let seg = result.Segments.[0]
+        // 컬럼 letter ↔ role 매칭이 실제 위치 반영.
+        Assert.Contains("A=SYM(심볼)", seg.Text)
+        Assert.Contains("B=NO(순번)", seg.Text)
+        Assert.Contains("C=START(시작초)", seg.Text)
+        Assert.Contains("D=TASK(작업내역)", seg.Text))
+
+[<Fact>]
+let ``xlsx Gantt — 영문 헤더 (NO/Symbol/Task/Start/Duration/Cumulative) — 검출`` () =
+    withTempPath ".xlsx" (fun path ->
+        let headerRow : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "NO"
+                XlsxFixture.mkCellSpec "B1" "Symbol"
+                XlsxFixture.mkCellSpec "C1" "Task"
+                XlsxFixture.mkCellSpec "D1" "Start"
+                XlsxFixture.mkCellSpec "E1" "Duration"
+                XlsxFixture.mkCellSpec "F1" "Cumulative"
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "EN" [ (1u, 6u, 10.0) ] [ headerRow ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal("EN [Gantt schedule]", result.Outline.[0].Label)
+        Assert.StartsWith("이 시트는 작업 일정표(Gantt)입니다.", result.Segments.[0].Text))
+
+[<Fact>]
+let ``xlsx Gantt — 공백/괄호/한자 normalize ("작 업 내 역" / "시간(sec)" / 開始) — 검출`` () =
+    withTempPath ".xlsx" (fun path ->
+        let headerRow : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "NO"
+                XlsxFixture.mkCellSpec "B1" "SYM"
+                XlsxFixture.mkCellSpec "C1" "작 업 내 역"
+                XlsxFixture.mkCellSpec "D1" "開始"                // 한자→한글 normalize (시작)
+                XlsxFixture.mkCellSpec "E1" "시간(sec)"            // 괄호 부연 strip
+                XlsxFixture.mkCellSpec "F1" "누계"
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "N" [ (1u, 6u, 10.0) ] [ headerRow ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal("N [Gantt schedule]", result.Outline.[0].Label)
+        let seg = result.Segments.[0]
+        Assert.Contains("C=TASK(작업내역)", seg.Text)
+        Assert.Contains("D=START(시작초)", seg.Text)
+        Assert.Contains("E=DURATION(소요초)", seg.Text))
+
+[<Fact>]
+let ``xlsx Gantt — 2-row merged header (row1 "시간" + row2 tick "10/20/30") — 검출 + 타임라인 미오인`` () =
+    withTempPath ".xlsx" (fun path ->
+        // row1 = 데이터 컬럼 헤더 (col 1~3) + col 4~6 = 시간/누계/등 위쪽 merged 위쪽 cell
+        let row1 : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "NO"
+                XlsxFixture.mkCellSpec "B1" "SYM"
+                XlsxFixture.mkCellSpec "C1" "작업"
+                XlsxFixture.mkCellSpec "D1" "시작"
+                XlsxFixture.mkCellSpec "E1" "시간"
+                XlsxFixture.mkCellSpec "F1" "누계"
+            ]
+        }
+        // row2 = 타임라인 tick label (col 7~9). 데이터 row 와 헷갈리지 않게 narrow col 박제 + 값 박제 → buildRoleMap 의 concat 매칭이 데이터 컬럼의 row1 단독 매칭을 우선.
+        let row2 : XlsxFixture.RowSpec = {
+            Index = 2u
+            Cells = [
+                XlsxFixture.mkCellSpec "G2" "10"
+                XlsxFixture.mkCellSpec "H2" "20"
+                XlsxFixture.mkCellSpec "I2" "30"
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "T"
+            [ (1u, 6u, 10.0); (7u, 9u, 0.75) ]
+            [ row1; row2 ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal("T [Gantt schedule]", result.Outline.[0].Label)
+        let seg = result.Segments.[0]
+        Assert.Contains("D=START(시작초)", seg.Text)
+        // 타임라인 컬럼 (G~I, narrow + tick) 은 role 매핑 안 됨 → preamble 에 미박제.
+        Assert.DoesNotContain("G=", seg.Text)
+        Assert.DoesNotContain("H=", seg.Text)
+        Assert.DoesNotContain("I=", seg.Text))
+
+[<Fact>]
+let ``xlsx Gantt — 미검출 false negative (NO|Item|값 — start/dur/cum 부재) — Gantt 판정 안 함`` () =
+    withTempPath ".xlsx" (fun path ->
+        let headerRow : XlsxFixture.RowSpec = {
+            Index = 1u
+            Cells = [
+                XlsxFixture.mkCellSpec "A1" "NO"
+                XlsxFixture.mkCellSpec "B1" "Item"  // synonym 없음
+                XlsxFixture.mkCellSpec "C1" "값"     // synonym 없음
+            ]
+        }
+        XlsxFixture.buildXlsxWithNarrowColumns path "NG" [ (1u, 3u, 10.0) ] [ headerRow ]
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        Assert.Equal("NG", result.Outline.[0].Label)   // suffix 없음
+        let seg = result.Segments.[0]
+        Assert.DoesNotContain("이 시트는 작업 일정표", seg.Text)
+        // header row 만 정상 박제.
+        Assert.Equal("NO\tItem\t값", seg.Text))

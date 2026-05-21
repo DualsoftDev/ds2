@@ -31,6 +31,141 @@ type private XlColumn = DocumentFormat.OpenXml.Spreadsheet.Column
 /// Spreadsheet.Text 는 Wordprocessing.Text 와 동명 → alias 로 명시 한정.
 type private XlText = DocumentFormat.OpenXml.Spreadsheet.Text
 
+/// **Task 2-extra (Gantt schedule 시트 힌트)** — 산업 .xlsx 의 작업 일정표 (Gantt) 시트 검출용 8 role.
+/// header 매칭 (`XlsxSheetRoles.tryMatch`) 시 column index ↔ role 박제 후 segment 머리에 동적 preamble prepend.
+/// LLM 이 row tab-join 데이터를 "이 컬럼은 START(초)" 등으로 정확 해석.
+type private XlsxSheetRole =
+    | RNo
+    | RSym
+    | RTask
+    | RStart
+    | RDuration
+    | RCumulative
+    | RScore
+    | RGrade
+
+/// XlsxSheetRole synonym set (한글/영문/약어). `normalizeHeader` 결과 (공백/괄호 strip + 소문자 + 한자→한글) 와 정확 매칭.
+/// 신규 alias 는 본 map 만 갱신. 사용자 정의 alias 의 config 주입은 Phase 4 backlog.
+module private XlsxSheetRoles =
+    let synonyms : Map<XlsxSheetRole, Set<string>> =
+        Map.ofList [
+            RNo,         Set.ofList ["no"; "no."; "번호"; "순번"; "순서"; "#"; "step"; "idx"; "seq"]
+            RSym,        Set.ofList ["sym"; "symbol"; "기호"; "심볼"; "약호"; "code"]
+            RTask,       Set.ofList ["작업내역"; "작업내용"; "작업"; "task"; "work"; "공정"; "내역"; "description"; "desc"; "단계"]
+            RStart,      Set.ofList ["시작"; "시작시간"; "시작초"; "개시"; "start"; "starttime"; "from"; "begin"]
+            RDuration,   Set.ofList ["시간"; "소요"; "소요시간"; "소요초"; "duration"; "dur"; "span"; "length"]
+            RCumulative, Set.ofList ["누계"; "누적"; "누적시간"; "종료"; "종료시간"; "cum"; "cumulative"; "to"; "end"; "total"]
+            RScore,      Set.ofList ["용접점수"; "점수"; "score"; "points"]
+            RGrade,      Set.ofList ["용접등급"; "등급"; "grade"; "rank"; "class"]
+        ]
+
+    /// normalize header text → match key. 공백/탭/줄바꿈/전각공백 제거 + 괄호 안 부연 (`(sec)` 등) strip +
+    /// 소문자 + 소수 대표 한자→한글 (산업 .xlsx 의 일본/중국 표기 흡수 — synonym alias 폭증 회피).
+    let normalizeHeader (s: string) : string =
+        if System.String.IsNullOrEmpty s then ""
+        else
+            let stripped = System.Text.RegularExpressions.Regex.Replace(s, @"\([^)]*\)", "")
+            let noSpace = stripped |> String.filter (fun c -> not (System.Char.IsWhiteSpace c))
+            let lower = noSpace.ToLowerInvariant()
+            lower
+                .Replace("時間", "시간").Replace("開始", "시작")
+                .Replace("作業", "작업").Replace("番號", "번호")
+
+    /// normalized key → 매칭되는 단일 role 반환 (없으면 None). 정확 매칭만.
+    let tryMatch (normalized: string) : XlsxSheetRole option =
+        if System.String.IsNullOrEmpty normalized then None
+        else
+            synonyms
+            |> Map.toSeq
+            |> Seq.tryPick (fun (role, syns) -> if Set.contains normalized syns then Some role else None)
+
+    /// header row 후보의 column-wise role match — 각 컬럼의 row1 단독 매칭 우선, 실패 시 row1+row2 concat 매칭
+    /// (2-row merged header — 위쪽 `시간` + 아래쪽 `10,20,30` 패턴 흡수). 1-based column → role.
+    let buildRoleMap (rows: string[] list) : Map<int, XlsxSheetRole> =
+        if List.isEmpty rows then Map.empty
+        else
+            let row1 = List.head rows
+            let row2 =
+                match rows with
+                | _ :: r2 :: _ -> r2
+                | _ -> [||]
+            let maxCol = max row1.Length row2.Length
+            let mutable acc = Map.empty
+            for i in 0 .. maxCol - 1 do
+                let v1 = if i < row1.Length then row1.[i] else ""
+                let n1 = normalizeHeader v1
+                match tryMatch n1 with
+                | Some r -> acc <- Map.add (i + 1) r acc
+                | None ->
+                    let v2 = if i < row2.Length then row2.[i] else ""
+                    let n2 = normalizeHeader v2
+                    if n1.Length > 0 || n2.Length > 0 then
+                        match tryMatch (n1 + n2) with
+                        | Some r -> acc <- Map.add (i + 1) r acc
+                        | None -> ()
+            acc
+
+    /// Gantt schedule 시트 판정 — distinct role ≥3 AND (RStart/RDuration/RCumulative) 중 ≥2.
+    /// false negative 보다 false positive 회피 우선 (단순 NO/Item 표는 Gantt 판정 안 함).
+    let isGanttSchedule (roleMap: Map<int, XlsxSheetRole>) : bool =
+        let roles = roleMap |> Map.toSeq |> Seq.map snd |> Set.ofSeq
+        if Set.count roles < 3 then false
+        else
+            let timeRoles = [ RStart; RDuration; RCumulative ]
+            (timeRoles |> List.filter (fun r -> Set.contains r roles) |> List.length) >= 2
+
+    /// 1-based column index → Excel column letter ("A" / "AA" / ...).
+    let columnIndexToLetter (idx: int) : string =
+        if idx <= 0 then ""
+        else
+            let sb = StringBuilder()
+            let mutable n = idx
+            while n > 0 do
+                let r = (n - 1) % 26
+                sb.Insert(0, char (int 'A' + r)) |> ignore
+                n <- (n - 1) / 26
+            sb.ToString()
+
+    /// role → preamble label.
+    let roleLabel (role: XlsxSheetRole) : string =
+        match role with
+        | RNo -> "NO(순번)"
+        | RSym -> "SYM(심볼)"
+        | RTask -> "TASK(작업내역)"
+        | RStart -> "START(시작초)"
+        | RDuration -> "DURATION(소요초)"
+        | RCumulative -> "CUMULATIVE(누계초)"
+        | RScore -> "SCORE(점수)"
+        | RGrade -> "GRADE(등급)"
+
+    /// role 기반 동적 안내문 — segment 머리에 prepend (Gantt 검출 시).
+    let buildPreamble (roleMap: Map<int, XlsxSheetRole>) : string =
+        let parts =
+            roleMap
+            |> Map.toList
+            |> List.sortBy fst
+            |> List.map (fun (col, role) ->
+                sprintf "%s=%s" (columnIndexToLetter col) (roleLabel role))
+        sprintf "이 시트는 작업 일정표(Gantt)입니다. 컬럼 의미: %s. 좁은 컬럼들은 Gantt 시각화 막대(데이터 없음)."
+            (String.concat ", " parts)
+
+    /// 첫 N 개 dense row 중 Gantt 검출 시도 — 각 row 를 (단독 / 다음-row 와 concat) 패턴으로 buildRoleMap 호출.
+    /// 첫 matching attempt 채택. 산업 .xlsx 의 header 가 row 1~3 사이에 박힌 패턴 흡수.
+    let tryDetect (denseRows: string[] seq) : Map<int, XlsxSheetRole> option =
+        let candidates =
+            denseRows
+            |> Seq.truncate 5
+            |> Seq.toList
+        let attempts = seq {
+            for i in 0 .. candidates.Length - 1 do
+                yield [ candidates.[i] ]
+                if i + 1 < candidates.Length then
+                    yield [ candidates.[i]; candidates.[i + 1] ]
+        }
+        attempts
+        |> Seq.map buildRoleMap
+        |> Seq.tryFind isGanttSchedule
+
 /// OOXML extractor — DocumentFormat.OpenXml 3.5.1 기반 (todo-lighthouse-kb-index.md §4.3 / xlsx-pptx-images r2).
 ///
 /// **Phase 1 활성**: docx — heading 깊이 (Heading1~Heading6) 를 outline 으로, paragraph + table 의 InnerText 를 segment 로.
@@ -766,7 +901,10 @@ type OoxmlExtractor() =
                         else r.RowIndex.Value)
                 // **r3 timeline filter** — Gantt 시각화용 좁은 컬럼 index set. 본 sheet 1회 빌드 + row 루프 재사용.
                 let narrowSet = OoxmlExtractor.NarrowColIndexes worksheetPart.Worksheet
-                let sb = StringBuilder()
+                // **Task 2-extra** — Gantt 검출 위해 dense row 를 미리 모은다 (pass 1).
+                // 회귀 0 의무: 단일 시트의 row 들을 메모리에 모았다가 sb 빌드 (기존 streaming → 두-패스).
+                // 산업 .xlsx 시트 row 폭 통상 < 10K row 라 메모리 영향 무시.
+                let denseRows = ResizeArray<string[]>()
                 for row in sortedRows do
                     ct.ThrowIfCancellationRequested()
                     let dense =
@@ -782,6 +920,25 @@ type OoxmlExtractor() =
                                 let colIdx = i + 1
                                 if Set.contains colIdx narrowSet && v = "" then None else Some v)
                             |> Array.choose id
+                    denseRows.Add kept
+                // **Task 2-extra** — Gantt schedule 시트 검출. 검출 시 outline label `[Gantt schedule]` suffix +
+                // segment 머리에 role 기반 preamble prepend.
+                let ganttRoleMap = XlsxSheetRoles.tryDetect (denseRows :> seq<_>)
+                match ganttRoleMap with
+                | Some roleMap ->
+                    let prev = outline.[outlineIdx]
+                    outline.[outlineIdx] <- { prev with Label = sprintf "%s [Gantt schedule]" prev.Label }
+                    Log.lighthouse.Debug(
+                        sprintf "ExtractXlsx: Gantt schedule 검출 — sheet=%s roles=%d path=%s"
+                            sheetName (Map.count roleMap) path)
+                | None -> ()
+                // pass 2: sb 빌드 (preamble prepend → row tab-join).
+                let sb = StringBuilder()
+                match ganttRoleMap with
+                | Some roleMap ->
+                    sb.AppendLine(XlsxSheetRoles.buildPreamble roleMap) |> ignore
+                | None -> ()
+                for kept in denseRows do
                     let line = String.Join("\t", kept)
                     if line.Trim().Length > 0 then
                         sb.AppendLine(line) |> ignore
