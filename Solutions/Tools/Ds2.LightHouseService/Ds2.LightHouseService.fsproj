@@ -1,0 +1,99 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <!-- Windows Service host + Kestrel HTTPS + DPAPI 모두 Windows-specific.
+         self-contained publish 권장 (sc.exe binPath 단순화). -->
+    <RuntimeIdentifier Condition="'$(PublishProfile)' != ''">win-x64</RuntimeIdentifier>
+    <UseAppHost>true</UseAppHost>
+    <RootNamespace>Ds2.LightHouseService</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Logging.fs" />
+    <Compile Include="Config.fs" />
+    <Compile Include="Storage.fs" />
+    <Compile Include="Registry.fs" />
+    <Compile Include="MultiTenantPolicy.fs" />
+    <Compile Include="MetaJson.fs" />
+    <Compile Include="ZipImport.fs" />
+    <Compile Include="CollectionLifecycle.fs" />
+    <Compile Include="StagingSweep.fs" />
+    <Compile Include="SessionRegistry.fs" />
+    <Compile Include="SessionSweep.fs" />
+    <!-- A9 (s6-r83, 15-reviewer Critical) — EndpointHelpers 가 Middleware (UserIdentityItemKey) 의존만,
+         Middleware 가 EndpointHelpers 호출 시 빌드 회귀 차단을 위해 EndpointHelpers 가 Middleware 보다
+         앞에 와야 K4 SSOT 의도 정합. 단 EndpointHelpers 가 Middleware.AuthMiddleware.UserIdentityItemKey
+         의존하므로 Middleware → EndpointHelpers 순서 유지 + caller (CollectionEndpoints 등) 가 둘 다 보임.
+         현재 ordering: Middleware 의 UserIdentityItemKey 만 EndpointHelpers 가 의존 — circular 회피.
+         별 turn 박제: AuthMiddleware.UserIdentityItemKey 를 Protocol 로 이전 후 Middleware → EndpointHelpers 의존 끊기. -->
+    <Compile Include="Middleware.fs" />
+    <Compile Include="EndpointHelpers.fs" />
+    <Compile Include="Endpoints.fs" />
+    <Compile Include="EventBus.fs" />
+    <Compile Include="CollectionEndpoints.fs" />
+    <Compile Include="SessionEndpoints.fs" />
+    <Compile Include="FileServing.fs" />
+    <Compile Include="AttachmentTools.fs" />
+    <Compile Include="EventsEndpoint.fs" />
+    <Compile Include="UploadsEndpoint.fs" />
+    <Compile Include="AdminEndpoints.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="log4net" />
+    <!-- review IM-6 (2/7 reviewer) 부분 적용: 코드 측 SqliteStore 직접 호출 제거 (probeIndexerVersion/isIndexed → KnowledgeBase facade). -->
+    <!-- 단 lib 의 PrivateAssets=all 정책상 native SQLite runtime asset 이 caller 의 output 에 자동 copy 안 됨 →
+         lib facade 호출 시점에 SqliteConnection load fail. 따라서 service binary 가 직접 PackageReference 유지 (runtime 보강).
+         lib 의 PrivateAssets=all 의 의도 = caller 의 *compile-time API 노출 차단*, runtime asset 분리는 별 정책. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- Phase 4 — sqlite-vec native binary 직접 의존 (review IM-6 정책 동일).
+         lib 의 PrivateAssets="all" 이라 native runtime asset transitive 안 됨 → service publish output 에 직접 의무.
+         ExcludeAssets=contentFiles — Vector.cs C# wrapper inject 차단 (lib 의 F# SqliteStore 가 raw API 사용, wrapper 미사용). -->
+    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
+    <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker alignment). attachment_* 4종 server-side host. -->
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- read-path 만 사용 (Searcher / KnowledgeBase facade). Phase S0-3 결정 — server 가 KnowledgeBase 의
+         read-only surface 만 호출, Indexer 는 dead-link OK. P1 의 readonly:bool 파라미터 추가 안 함. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
+    <!-- s6-r39 P4-C.3 — server-side hybrid retrieval 의 OllamaEmbedder (Program.fs 의 embedderFactory 박제). -->
+    <ProjectReference Include="..\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
+    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 + MetaJson schema + ServerEventNames 단일 SSOT.
+         server F# / client C# / cli F# 3중 박제 → 단일. 본 project 는 dependency 0 base. -->
+    <ProjectReference Include="..\..\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="scripts\install-service.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="scripts\uninstall-service.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="scripts\config.json.template" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="log4net.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Paired-release manifest hash hook (S1.7 / §6 m1 SSOT).
+       본 Target = informational message 만 노출. 실 drift 검증은 dist 워크플로 책임.
+       drift detection 진입점 = `Apps/Promaker/scripts/check-paired-release.ps1` (s5d-r0 신설)
+         + `/dist` skill 의 Step 3.5 (빌드 직후).
+       검증 의미 (s5d-r0 박제 — s1-r0 의 "AssemblyVersion 비교" 정정):
+         lib 의 `Ds2.LightHouse.SqliteStore.IndexerVersion.Current` literal (= "1.0.0")
+         ∈ service `config.json.template` 의 `indexerVersionRange.[min,max]` 정합.
+         F# `[<Literal>]` 은 compile-time const inline → reflection 불가 → source regex 추출이 SSOT.
+       AssemblyVersion 노출 = build 단계의 lib dll 진입 확인용 (drift 강제 안 함). -->
+  <Target Name="PairedReleaseCheck" AfterTargets="Build">
+    <GetAssemblyIdentity AssemblyFiles="$(OutputPath)Ds2.LightHouse.dll">
+      <Output TaskParameter="Assemblies" ItemName="LightHouseAssembly" />
+    </GetAssemblyIdentity>
+    <Message Text="Paired-release: Ds2.LightHouse.dll AssemblyVersion=%(LightHouseAssembly.Version) — 실 drift 검증은 /dist Step 3.5 (check-paired-release.ps1, IndexerVersion.Current ↔ indexerVersionRange 정합) 책임" Importance="normal" />
+  </Target>
+
+</Project>
