@@ -65,8 +65,8 @@ module internal SimIndexBuild =
             CallApiCallGuids = Map.empty
             CallAutoAuxConditions = Map.empty
             CallComAuxConditions = Map.empty
-            CallSkipUnmatchConditions = Map.empty
-            WorkSkipUnmatchConditions = Map.empty
+            CallSkipActionConditions = Map.empty
+            WorkSkipActionConditions = Map.empty
             CallTypeMap = Map.empty
             CallTimeoutMap = Map.empty
         }
@@ -82,7 +82,7 @@ module internal SimIndexBuild =
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
             state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, buildConditionExpression store ConditionType.AutoAux dataSource.Conditions)
             state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, buildConditionExpression store ConditionType.ComAux dataSource.Conditions)
-            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, buildConditionExpression store ConditionType.SkipUnmatch dataSource.Conditions)
+            state.CallSkipActionConditions <- state.CallSkipActionConditions.Add(call.Id, buildConditionExpression store ConditionType.SkipAction dataSource.Conditions)
             let simProps = dataSource.GetSimulationProperties()
             let callType = simProps |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
             state.CallTypeMap <- state.CallTypeMap.Add(call.Id, callType)
@@ -132,7 +132,7 @@ module internal SimIndexBuild =
                 match work.ReferenceOf with
                 | Some origId -> Queries.getWork origId store |> Option.map (fun w -> w.Conditions) |> Option.defaultValue work.Conditions
                 | None -> work.Conditions
-            state.WorkSkipUnmatchConditions <- state.WorkSkipUnmatchConditions.Add(work.Id, buildConditionExpression store ConditionType.SkipUnmatch conditionsSource)
+            state.WorkSkipActionConditions <- state.WorkSkipActionConditions.Add(work.Id, buildConditionExpression store ConditionType.SkipAction conditionsSource)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
@@ -268,8 +268,8 @@ module internal SimIndexBuild =
             CallApiCallGuids = state.CallApiCallGuids
             CallAutoAuxConditions = state.CallAutoAuxConditions
             CallComAuxConditions = state.CallComAuxConditions
-            CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
-            WorkSkipUnmatchConditions = state.WorkSkipUnmatchConditions
+            CallSkipActionConditions = state.CallSkipActionConditions
+            WorkSkipActionConditions = state.WorkSkipActionConditions
             WorkReferenceGroups = workReferenceGroups
             WorkGroupSets = workGroupSets
             CallCanonicalGuids = callCanonicalGuids

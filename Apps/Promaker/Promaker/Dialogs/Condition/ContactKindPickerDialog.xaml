@@ -1,7 +1,7 @@
-<Window x:Class="Promaker.Dialogs.ConditionTypePickerDialog"
+<Window x:Class="Promaker.Dialogs.ContactKindPickerDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="조건 유형 선택"
+        Title="접점 종류 선택"
         Width="300" SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -11,21 +11,18 @@
             BorderThickness="1"
             Padding="16">
         <StackPanel>
-            <TextBlock Text="조건 유형을 선택하세요:"
+            <TextBlock Text="SkipAction 조건의 접점 종류를 선택하세요:"
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        FontSize="13" FontWeight="SemiBold"
                        Margin="0,0,0,12"/>
 
-            <RadioButton x:Name="AutoAuxRadio" GroupName="CondType"
-                         Content="AutoAux" IsChecked="True"
+            <!-- B접(Not) 이 default — Inverted contact (─┤/├─). -->
+            <RadioButton x:Name="NcContactRadio" GroupName="ContactKind"
+                         Content="B접 (Not, ─┤/├─)" IsChecked="True"
                          Foreground="{DynamicResource PrimaryTextBrush}"
                          Margin="0,0,0,6"/>
-            <RadioButton x:Name="ComAuxRadio" GroupName="CondType"
-                         Content="ComAux"
-                         Foreground="{DynamicResource PrimaryTextBrush}"
-                         Margin="0,0,0,6"/>
-            <RadioButton x:Name="SkipActionRadio" GroupName="CondType"
-                         Content="SkipAction"
+            <RadioButton x:Name="NoContactRadio" GroupName="ContactKind"
+                         Content="A접 (─┤├─)"
                          Foreground="{DynamicResource PrimaryTextBrush}"
                          Margin="0,0,0,12"/>
 

@@ -53,20 +53,20 @@ module MermaidExporter =
             | None -> ()
 
         let sb = StringBuilder()
-        for condType in [| ConditionType.AutoAux; ConditionType.ComAux; ConditionType.SkipUnmatch |] do
+        for condType in [| ConditionType.AutoAux; ConditionType.ComAux; ConditionType.SkipAction |] do
             match grouped.TryGetValue(condType) with
             | true, names when names.Count > 0 ->
                 let prefix =
                     match condType with
                     | ConditionType.AutoAux      -> "AutoAux"
                     | ConditionType.ComAux       -> "ComAux"
-                    | _                              -> "SkipUnmatch"
+                    | _                              -> "SkipAction"
                 let joined = String.Join(", ", names)
                 sb.Append($"<br>{prefix}: {joined}") |> ignore
             | _ -> ()
         sb.ToString()
 
-    /// Work 의 SkipUnmatch 조건을 subgraph title suffix 로 생성. Call 의 buildConditionSuffix 와 동일 패턴.
+    /// Work 의 SkipAction 조건을 subgraph title suffix 로 생성. Call 의 buildConditionSuffix 와 동일 패턴.
     let private buildWorkConditionSuffix
         (store: DsStore)
         (callIdToNodeId: Dictionary<Guid, string>)
@@ -75,7 +75,7 @@ module MermaidExporter =
         let refs = ResizeArray<string>()
         for cond in work.Conditions do
             match cond.Type with
-            | Some ConditionType.SkipUnmatch ->
+            | Some ConditionType.SkipAction ->
                 for apiCall in cond.ApiCalls do
                     for kvp in store.CallsReadOnly do
                         let srcCall = kvp.Value
@@ -89,7 +89,7 @@ module MermaidExporter =
         if refs.Count = 0 then ""
         else
             let joined = String.Join(", ", refs)
-            sprintf "<br>SkipUnmatch: %s" joined
+            sprintf "<br>SkipAction: %s" joined
 
     /// Work를 Mermaid subgraph로 변환 (indent 레벨 지정 가능)
     let private convertWork
@@ -99,7 +99,7 @@ module MermaidExporter =
         let workId = sanitizeId $"{prefix}_{workName}"
         workIdMap.[work.Id] <- workId
 
-        // Call nodeId 를 SkipUnmatch suffix 빌드 전에 미리 등록 (자기 work 내 Call 참조 보존).
+        // Call nodeId 를 SkipAction suffix 빌드 전에 미리 등록 (자기 work 내 Call 참조 보존).
         let calls = Queries.callsOf work.Id store
         for call in calls do
             let nodeId = sanitizeId $"{prefix}_{workName}_{call.Name}"

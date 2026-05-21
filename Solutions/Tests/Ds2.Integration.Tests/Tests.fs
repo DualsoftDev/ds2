@@ -218,7 +218,7 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
     [<Fact>]
-    let ``AASX round-trip preserves Work SkipUnmatch Conditions`` () =
+    let ``AASX round-trip preserves Work SkipAction Conditions`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
         let systemId = store.AddSystem("S", projectId, true)
@@ -233,9 +233,9 @@ module AasxRoundTripTests =
         let ac1 = store.AddApiCallFromPanel(call.Id, apiDef1.Id, "", "", "", "", 0, "", 0, "")
         let ac2 = store.AddApiCallFromPanel(call.Id, apiDef2.Id, "", "", "", "", 0, "", 0, "")
 
-        // Work 의 Conditions 에 SkipUnmatch 1 개 직접 박음 (Condition.ApiCalls 에 deep copy).
+        // Work 의 Conditions 에 SkipAction 1 개 직접 박음 (Condition.ApiCalls 에 deep copy).
         let work = store.Works.[workId]
-        let cond = Condition(Type = Some ConditionType.SkipUnmatch, IsOR = true)
+        let cond = Condition(Type = Some ConditionType.SkipAction, IsOR = true)
         let acRef1 = store.ApiCalls.[ac1].DeepCopy()
         acRef1.Id <- ac1
         let acRef2 = store.ApiCalls.[ac2].DeepCopy()
@@ -258,7 +258,7 @@ module AasxRoundTripTests =
             Assert.Equal(1, work2.Conditions.Count)
             let cond2 = work2.Conditions.[0]
             Assert.Equal(originalCondId, cond2.Id)
-            Assert.Equal(Some ConditionType.SkipUnmatch, cond2.Type)
+            Assert.Equal(Some ConditionType.SkipAction, cond2.Type)
             Assert.True(cond2.IsOR)
             Assert.Equal(2, cond2.ApiCalls.Count)
             let restoredIds = cond2.ApiCalls |> Seq.map (fun a -> a.Id) |> Set.ofSeq

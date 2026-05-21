@@ -162,7 +162,7 @@ public partial class ExplorerPane
         clone.IsReference = source.IsReference;
         clone.HasAutoAux = source.HasAutoAux;
         clone.HasComAux = source.HasComAux;
-        clone.HasSkipUnmatch = source.HasSkipUnmatch;
+        clone.HasSkipAction = source.HasSkipAction;
         clone.IsWarning = source.IsWarning;
         clone.IsDropTarget = source.IsDropTarget;
         clone.SimState = source.SimState;

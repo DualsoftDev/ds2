@@ -123,7 +123,7 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
     [<AasxField("TokenRole")>]   member val TokenRole   : TokenRole    = TokenRole.None with get, set
     [<AasxField("Duration")>]    member val Duration    : TimeSpan option = None      with get, set
 
-    // ── 조건 트리 (SkipUnmatch 만 의미 — Call 과 동일 Condition 타입 공유) ───
+    // ── 조건 트리 (SkipAction 만 의미 — Call 과 동일 Condition 타입 공유) ───
     [<AasxField("Conditions")>]  member val Conditions  = ResizeArray<Condition>() with get, set
 
     override this.Name

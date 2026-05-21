@@ -191,7 +191,7 @@ public partial class PropertyPanelState
     private void ReloadConditions(Guid callId) =>
         ReloadConditionsCore(callId, () => Store.GetCallConditionsForPanel(callId));
 
-    /// <summary>Work 선택 시 호출 — Work 의 condition 트리 로드 (SkipUnmatch 만 의미).</summary>
+    /// <summary>Work 선택 시 호출 — Work 의 condition 트리 로드 (SkipAction 만 의미).</summary>
     private void ReloadWorkConditions(Guid workId) =>
         ReloadConditionsCore(workId, () => Store.GetWorkConditionsForPanel(workId));
 
@@ -230,7 +230,7 @@ public partial class PropertyPanelState
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(ConditionType.SkipUnmatch, "SkipUnmatch"));
+        ConditionSections.Add(new ConditionSectionItem(ConditionType.SkipAction, "SkipAction"));
         ConditionSections.Add(new ConditionSectionItem(ConditionType.AutoAux, "AutoAux"));
         ConditionSections.Add(new ConditionSectionItem(ConditionType.ComAux, "ComAux"));
     }

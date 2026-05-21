@@ -12,7 +12,7 @@ public partial class ConditionTypePickerDialog : Window
 
     public ConditionType SelectedConditionType =>
         ComAuxRadio.IsChecked == true ? ConditionType.ComAux
-        : SkipUnmatchRadio.IsChecked == true ? ConditionType.SkipUnmatch
+        : SkipActionRadio.IsChecked == true ? ConditionType.SkipAction
         : ConditionType.AutoAux;
 
     private void OK_Click(object sender, RoutedEventArgs e) => DialogResult = true;

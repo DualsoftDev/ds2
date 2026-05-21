@@ -47,16 +47,16 @@ module CallConditionCrudTests =
         let store = createStore ()
         let _, _, _, call, _, _ = setupCallWithApiCalls store
 
-        store.AddCallCondition(call.Id, ConditionType.SkipUnmatch)
+        store.AddCallCondition(call.Id, ConditionType.SkipAction)
 
         Assert.Equal(1, call.Conditions.Count)
-        Assert.Equal(Some ConditionType.SkipUnmatch, call.Conditions.[0].Type)
+        Assert.Equal(Some ConditionType.SkipAction, call.Conditions.[0].Type)
 
     [<Fact>]
     let ``RemoveCallCondition 은 condition 을 제거하고 Undo 가 복원한다`` () =
         let store = createStore ()
         let _, _, _, call, _, _ = setupCallWithApiCalls store
-        store.AddCallCondition(call.Id, ConditionType.SkipUnmatch)
+        store.AddCallCondition(call.Id, ConditionType.SkipAction)
         let condId = (store.Calls.[call.Id]).Conditions.[0].Id
 
         store.RemoveCallCondition(call.Id, condId)
@@ -138,16 +138,16 @@ module WorkConditionCrudTests =
         let store = createStore ()
         let _, work, _, _ = setupWorkWithApiCalls store
 
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
 
         Assert.Equal(1, work.Conditions.Count)
-        Assert.Equal(Some ConditionType.SkipUnmatch, work.Conditions.[0].Type)
+        Assert.Equal(Some ConditionType.SkipAction, work.Conditions.[0].Type)
 
     [<Fact>]
     let ``RemoveWorkCondition 은 condition 을 제거하고 Undo 가 복원한다`` () =
         let store = createStore ()
         let _, work, _, _ = setupWorkWithApiCalls store
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
         let condId = (store.Works.[work.Id]).Conditions.[0].Id
 
         store.RemoveWorkCondition(work.Id, condId)
@@ -163,11 +163,11 @@ module WorkConditionCrudTests =
         let store = createStore ()
         let _, work, ac1, ac2 = setupWorkWithApiCalls store
 
-        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipUnmatch, dtoFlat false [ ac1 ])
+        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipAction, dtoFlat false [ ac1 ])
         Assert.Equal(1, work.Conditions.Count)
         Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
 
-        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipUnmatch, dtoFlat true [ ac1; ac2 ])
+        store.ReplaceWorkConditionTree(work.Id, ConditionType.SkipAction, dtoFlat true [ ac1; ac2 ])
         Assert.Equal(1, work.Conditions.Count)
         Assert.Equal(2, work.Conditions.[0].ApiCalls.Count)
         Assert.True(work.Conditions.[0].IsOR)
@@ -177,19 +177,19 @@ module WorkConditionCrudTests =
         let store = createStore ()
         let _, work, ac1, ac2 = setupWorkWithApiCalls store
 
-        let condId = store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1; ac2 ])
+        let condId = store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipAction, [ ac1; ac2 ])
 
         Assert.Equal(1, work.Conditions.Count)
         let cond = work.Conditions.[0]
         Assert.Equal(condId, cond.Id)
-        Assert.Equal(Some ConditionType.SkipUnmatch, cond.Type)
+        Assert.Equal(Some ConditionType.SkipAction, cond.Type)
         Assert.Equal(2, cond.ApiCalls.Count)
 
     [<Fact>]
     let ``AddWorkChildCondition 은 중첩 condition 을 추가한다`` () =
         let store = createStore ()
         let _, work, _, _ = setupWorkWithApiCalls store
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
         let parentId = work.Conditions.[0].Id
 
         store.AddWorkChildCondition(work.Id, parentId, true)
@@ -201,7 +201,7 @@ module WorkConditionCrudTests =
     let ``UpdateWorkConditionSettings 는 IsOR 을 토글한다`` () =
         let store = createStore ()
         let _, work, _, _ = setupWorkWithApiCalls store
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
         let condId = work.Conditions.[0].Id
 
         let changed = store.UpdateWorkConditionSettings(work.Id, condId, true)
@@ -212,7 +212,7 @@ module WorkConditionCrudTests =
     let ``AddApiCallsToWorkConditionBatch 는 기존 condition 에 ApiCall 들을 추가한다`` () =
         let store = createStore ()
         let _, work, ac1, ac2 = setupWorkWithApiCalls store
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
         let condId = work.Conditions.[0].Id
 
         let added = store.AddApiCallsToWorkConditionBatch(work.Id, condId, [ ac1; ac2 ])
@@ -224,7 +224,7 @@ module WorkConditionCrudTests =
     let ``RemoveApiCallFromWorkCondition 은 단일 ApiCall 만 제거한다`` () =
         let store = createStore ()
         let _, work, ac1, ac2 = setupWorkWithApiCalls store
-        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1; ac2 ]) |> ignore
+        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipAction, [ ac1; ac2 ]) |> ignore
         let condId = work.Conditions.[0].Id
 
         store.RemoveApiCallFromWorkCondition(work.Id, condId, ac1)
@@ -236,12 +236,12 @@ module WorkConditionCrudTests =
     let ``GetWorkConditionsForPanel 은 추가된 Work condition 을 패널 형식으로 반환한다`` () =
         let store = createStore ()
         let _, work, ac1, _ = setupWorkWithApiCalls store
-        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipUnmatch, [ ac1 ]) |> ignore
+        store.AddWorkConditionWithApiCalls(work.Id, ConditionType.SkipAction, [ ac1 ]) |> ignore
 
         let items = store.GetWorkConditionsForPanel(work.Id)
 
         Assert.Equal(1, items.Length)
-        Assert.Equal(ConditionType.SkipUnmatch, items.[0].ConditionType)
+        Assert.Equal(ConditionType.SkipAction, items.[0].ConditionType)
 
 
 // =============================================================================
@@ -255,13 +255,13 @@ module CallWorkIsolationTests =
         let store = createStore ()
         let _, _, work, call, ac1, _ = setupCallWithApiCalls store
 
-        store.AddWorkCondition(work.Id, ConditionType.SkipUnmatch)
+        store.AddWorkCondition(work.Id, ConditionType.SkipAction)
         store.AddCallCondition(call.Id, ConditionType.AutoAux)
         store.AddApiCallsToWorkConditionBatch(work.Id, work.Conditions.[0].Id, [ ac1 ]) |> ignore
 
         Assert.Equal(1, work.Conditions.Count)
         Assert.Equal(1, call.Conditions.Count)
-        Assert.Equal(Some ConditionType.SkipUnmatch, work.Conditions.[0].Type)
+        Assert.Equal(Some ConditionType.SkipAction, work.Conditions.[0].Type)
         Assert.Equal(Some ConditionType.AutoAux,    call.Conditions.[0].Type)
         Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
         Assert.Equal(0, call.Conditions.[0].ApiCalls.Count)
