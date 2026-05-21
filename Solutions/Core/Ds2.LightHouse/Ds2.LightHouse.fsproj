@@ -27,6 +27,9 @@
     <Compile Include="Searcher.fs" />
     <Compile Include="Indexer.fs" />
     <Compile Include="KnowledgeBase.fs" />
+    <!-- PR-B (todo-lighthouse-index-summary.md §3.1) — collection-level keyword profile 자동 추출.
+         SqliteStore 의 ChunksFts SELECT + MATCH 의존 → SqliteStore 뒤 박제. -->
+    <Compile Include="KeywordExtractor.fs" />
   </ItemGroup>
 
   <ItemGroup>
