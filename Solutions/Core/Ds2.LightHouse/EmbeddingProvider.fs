@@ -4,7 +4,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// **Phase 4 (s6-r34) — embedding backend abstraction SSOT** (todo-lighthouse-kb-index.md §3.7 / §3.15.2).
+/// **Phase 4 (s6-r34) — embedding backend abstraction SSOT** (done-lighthouse-kb-index.md §3.7 / §3.15.2).
 ///
 /// lib 은 backend-neutral — `Indexer.ingestFile` 가 본 interface 를 받아 chunk 마다 embedding 생성.
 /// 외부 abstraction (Microsoft.Extensions.AI.IEmbeddingGenerator 등) 의존 0 — caller (Promaker / cli) 가

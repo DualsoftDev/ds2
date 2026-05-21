@@ -12,7 +12,7 @@ open Microsoft.AspNetCore.Routing
 open Microsoft.Extensions.DependencyInjection
 open Ds2.LightHouse.Protocol
 
-/// Phase S7 D-S7-2 — `GET /events` SSE endpoint (todo-lighthouse-kb-server.md §3.7, s6-r27).
+/// Phase S7 D-S7-2 — `GET /events` SSE endpoint (done-lighthouse-kb-server.md §3.7, s6-r27).
 ///
 /// 동작:
 /// - **인증**: AuthMiddleware (Bearer PSK + X-User-Identity) 가 본 endpoint 진입 전 강제. 401 분기는 middleware 책임.

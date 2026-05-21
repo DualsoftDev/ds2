@@ -14,7 +14,7 @@ LLM 응답에 포함된 이미지를 `LlmChatPanel` 안에서 **바로 렌더**�
 - 이미지 저장: `.lighthouse-kb/blobs/images/<sha256>.<ext>` per-collection (object storage 아님, data URI 도 아님)
 - caption: VLM (Anthropic Sonnet 4.6 등) eager-at-indexing → `ImageCache.CaptionText`
 - 현재 단계: Phase 1 lib 종결 (commit `9736237`, **99 Fact**) + Phase S0~S5e 종결, Phase S6 (= Phase 2 이미지 인프라) 진행 중
-- 핵심 invariant: **"chat image drop ≠ KB ingest" — 두 경로 완전 분리 SSOT** (`todo-lighthouse-kb-index.md` §3.0, 본문 L195~L202. 참조 위치 L66, L468)
+- 핵심 invariant: **"chat image drop ≠ KB ingest" — 두 경로 완전 분리 SSOT** (`done-lighthouse-kb-index.md` §3.0, 본문 L195~L202. 참조 위치 L66, L468)
 - KB → LLM 으로 가는 이미지는 MCP `ImageContentBlock` (base64 inline) — vision API 입력 (server.md §결정 D-2-7, L1084). chat panel 직접 렌더 경로 아님.
 - 사용자에게 KB 이미지 표시는 별도 attachment panel / citation 클릭 UX 로 분리 (index.md L520~523, "WPF UI, LLM 무관")
 - Phase S7 후보 endpoint: `GET /collections/{id}/files/{fileId}/thumbnail`, `page/{n}.png` (현재 명시적 wiring 없음)
@@ -138,7 +138,7 @@ fetch / decode / 검증 실패 → **alt text + 경고 글리프**만 표시. ra
 
 본 todo 의 `B` 시나리오 도입은 light-house §3.0 invariant ("KB image ↛ chat 자동 inline") 의 명시적 예외 조항이 필요하다. 다음 모두 충족 전에 Phase 1 commit / push 금지:
 
-- [ ] light-house 측 `todo-lighthouse-kb-index.md` §3.0 (L195~) 에 예외 조항 patch 반영 commit hash 확보
+- [ ] light-house 측 `done-lighthouse-kb-index.md` §3.0 (L195~) 에 예외 조항 patch 반영 commit hash 확보
 - [ ] 예외 조항 문구 합의 (예시 patch 안 아래)
 - [ ] light-house 측 `attachment_*` tool 응답 image reference 메타 동봉 spec 확정 (D4 lock-in)
 - [ ] D2 scheme 사양 lock-in (가상 scheme / HTTPS endpoint / 둘 다)
@@ -243,12 +243,12 @@ fetch / decode / 검증 실패 → **alt text + 경고 글리프**만 표시. ra
 - (신규 예정) `Promaker/Presentation/ChatImageWhitelist.cs` — 화이트리스트 단일 SSOT 함수 + 단위 테스트 대상
 
 ### light-house branch (참조용, 본 branch merge 대상)
-- `F:\Git\ds2\light-house\Apps\Promaker\Docs\todo-lighthouse-kb-index.md` (**926 line**, r13)
+- `F:\Git\ds2\light-house\Apps\Promaker\Docs\done-lighthouse-kb-index.md` (**926 line**, r13)
   - 두 경로 분리 invariant: **§3.0 본문 L195~L202** (정의 SSOT). 참조 위치 = L66 (핵심결정 리스트), L468 (재언급)
   - 이미지 schema (ImageCache / ImageReferences / Chunks.ImageCount) 본문: L294 부근 + L455~L472 (재정의 ↔ 참조 구별 필요)
   - UI/LLM 무관 분리: L520~L523
   - VLM caption eager-at-indexing 본문: L840~L846 부근 (참조 위치)
-- `F:\Git\ds2\light-house\Apps\Promaker\Docs\todo-lighthouse-kb-server.md` (**1220 line**, s6-r22 또는 s6-r24)
+- `F:\Git\ds2\light-house\Apps\Promaker\Docs\done-lighthouse-kb-server.md` (**1220 line**, s6-r22 또는 s6-r24)
   - 이미지 응답 포맷 결정 **D-2-3 (L1077)** / **D-2-7 (L1084)** — base64 ContentBlock 강제, file path / presigned URI 탈락
   - 사이즈 한도: 단일 ≤ 5MB / 응답 ≤ 5장 / 초과 `caption_only` 강등 (L1077, L834 부근)
   - VLM caption eager-at-indexing (L840~L846 부근)

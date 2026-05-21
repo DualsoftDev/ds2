@@ -20,6 +20,9 @@ let private mkEntry (id: string) (importedBy: string) (acl: CollectionAcl) : Col
     Status = "idle"
     ErrorReason = null
     LastImportedAt = "2026-05-20T00:00:00Z"
+    // **PR-A (r0)** — 두 신 필드 default (MultiTenant 검증과 무관)
+    Description = ""
+    Keywords = [||]
     Acl = acl
 }
 

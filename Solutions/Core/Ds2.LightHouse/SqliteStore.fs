@@ -8,7 +8,7 @@ open System.Threading
 open Microsoft.Data.Sqlite
 open Ds2.LightHouse.Protocol
 
-/// LightHouse KB 의 schema/parser 버전 식별자 (todo-lighthouse-kb-index.md §3.17).
+/// LightHouse KB 의 schema/parser 버전 식별자 (done-lighthouse-kb-index.md §3.17).
 ///
 /// `Meta.indexer_version` 과 비교하여 drift 시 자동 재색인 트리거 (shadow rebuild).
 /// schema (§3.12) / Chunker / Extractor 의 *결과물* 변경 시 bump. SQL 비호환 변경은 SchemaVersion 도 동반 bump.
@@ -27,6 +27,11 @@ module IndexerVersion =
     //   (c) bump 비용 회피 — minor bump 시 모든 기존 collection 강제 재색인 trigger (SchemaVersion drift 가 아니라
     //       indexer_version drift 자체로 rebuild 되지 않으나, 사용자의 KB UI 표시상 "재색인 필요" noise 발생 가능).
     //   결과 — Current 유지 (`2.1.0`). 사용자가 명시 `Index Now` 시점에 .pptx/.xlsx 자동 흡수.
+    // **PR-C (todo-lighthouse-index-summary.md §3.3)**: 2.1.0 → 2.2.0 — **minor bump** (forward-compat).
+    //   TextDumper 가 색인 시 `.lighthouse-kb/text/<docId>-<filename>.md` markdown text dump 파일 생성.
+    //   DB schema 미변경 (SchemaVersion 5 유지) — file artifact 추가만. 기존 collection 의 text/ 폴더 부재 = legacy
+    //   정합 (자동 backfill 안 함, 사용자 명시 "재업로드" 시점만 갱신, parent D5 정합).
+    //   server `config.json.template` 의 indexerVersionRange.max="2.99.99" 그대로 — paired-release ps1 통과.
     // s6-r49 #2 (L-Maj-10): 2.0.0 → 2.1.0 — **minor bump** (forward-compat). Documents.FileMTimeTicks
     //   ALTER 컬럼 신설 — mtime/size 기반 fast-skip 의 metadata. 기존 row 의 NULL = legacy → fall-back hash 계산.
     //   SchemaVersion 4→5 동반 — `needsRebuild` 가 schema_version drift 만 trigger 라 기존 collection 강제 재색인.
@@ -38,7 +43,7 @@ module IndexerVersion =
     // s6-r22 mn3: 1.2.0 → 1.3.0 — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' schema 정합.
     //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange 안 검증.
     [<Literal>]
-    let Current = "2.1.0"
+    let Current = "2.2.0"
 
     // s6-r49 #2 (L-Maj-10): SchemaVersion 4 → 5 — Documents.FileMTimeTicks ALTER 컬럼 신설 (mtime fast-skip).
     //   needsRebuild trigger — 기존 collection (SchemaVersion 4) 가 신 lib 로 열릴 때 shadow rebuild 강제.
@@ -113,6 +118,8 @@ module SqliteStore =
             | :? IOException -> false
 
     let private docTypeToString (kind: FileKind) : string =
+        // qualified case `FileKind.Image` — RefUnit.Image (RefLocator.fs) 와 동명이라 F# 가 마지막 정의로 해석.
+        // FileKind.* 명시로 disambiguation (OutlineNodeType.* 패턴 정합).
         match kind with
         | Pdf -> "pdf"
         | Docx -> "docx"
@@ -120,6 +127,7 @@ module SqliteStore =
         | Xlsx -> "xlsx"
         | Text -> "txt"
         | Markdown -> "md"
+        | FileKind.Image -> "image"
         | Unsupported _ -> "unknown"
 
     let private outlineNodeTypeToString (t: OutlineNodeType) : string =

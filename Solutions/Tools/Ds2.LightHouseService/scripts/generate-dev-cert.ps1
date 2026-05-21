@@ -3,7 +3,7 @@
   개발/PoC 용 self-signed TLS 인증서 생성 — Cert:\LocalMachine\My 발급 → service.pfx export.
 
 .DESCRIPTION
-  todo-lighthouse-kb-server.md §3.7 / §6 m1 / §4.3 미확정 표 (s1-r0 결정 = self-signed PoC).
+  done-lighthouse-kb-server.md §3.7 / §6 m1 / §4.3 미확정 표 (s1-r0 결정 = self-signed PoC).
   운영 배포는 사내 CA 발급 권장. 본 스크립트는 dev/PoC 환경 setup 단계용.
 
 .PARAMETER PfxPath

@@ -4,7 +4,7 @@ open System
 open System.Security.Cryptography
 open System.Text
 
-/// log4net logger SSOT (todo-lighthouse-kb-server.md §3.11).
+/// log4net logger SSOT (done-lighthouse-kb-server.md §3.11).
 ///
 /// `Logs\service-YYYYMMDD.log` (운영 진단) / `Audit\audit-YYYYMMDD.log` (CR4/M11 등록·삭제·search audit)
 /// 별 appender 분리 — log4net.config 의 `<logger name="Ds2.LightHouseService.Audit">` 가 audit-only 라우팅.

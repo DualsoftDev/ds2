@@ -16,7 +16,7 @@ using Xunit;
 namespace Promaker.Tests;
 
 /// <summary>
-/// Phase S5a — LightHouseClient (HTTP wrapper) 의 protocol contract 시험 (todo-lighthouse-kb-server.md §3.7/§3.8/§3.9).
+/// Phase S5a — LightHouseClient (HTTP wrapper) 의 protocol contract 시험 (done-lighthouse-kb-server.md §3.7/§3.8/§3.9).
 ///
 /// scope: mock HttpMessageHandler 로 wire-level 검증 — header 박제 / multipart 빌드 / 401 분기 / URL escape.
 /// e2e (WebApplicationFactory) 는 Phase S5c (citation 클릭 시점에 흡수).
@@ -165,6 +165,37 @@ public sealed class LightHouseClientTests
         Assert.Null(resp.Collections[0].ErrorReason);
         Assert.Equal("error", resp.Collections[1].Status);
         Assert.Equal("oops", resp.Collections[1].ErrorReason);
+        // **PR-A (r0)** — 두 신 필드 누락된 legacy response 도 C# property initializer 의 default 로 채워짐
+        // (Description="" / Keywords=Array.Empty<string>()). KbDigestBuilder 가 null 체크 부담 없이 .Length 호출 가능.
+        Assert.Equal("", resp.Collections[0].Description);
+        Assert.Empty(resp.Collections[0].Keywords);
+    }
+
+    [Fact]
+    public async Task ListCollectionsAsync_PR_A_deserializes_description_and_keywords()
+    {
+        // **PR-A (r0)** — 두 신 필드 (description / keywords) 포함된 response round-trip.
+        // PR-B 진입 후 KeywordExtractor 가 채운 server response 정합.
+        var (client, handler) = MakeClient();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""
+                {
+                  "schemaVersion": 1,
+                  "collections": [
+                    {"id":"id-pr-a","displayName":"라인A","indexerVersion":"2.2.0","fileCount":4,
+                     "status":"idle","errorReason":null,"lastImportedAt":"2026-05-21T00:00:00Z",
+                     "description":"라인A 컨베이어 사양 요약",
+                     "keywords":["컨베이어","PLC","IO","안전","센서"]}
+                  ]
+                }
+                """, Encoding.UTF8, "application/json"),
+        };
+
+        var resp = await client.ListCollectionsAsync();
+        Assert.Single(resp.Collections);
+        Assert.Equal("라인A 컨베이어 사양 요약", resp.Collections[0].Description);
+        Assert.Equal(new[] { "컨베이어", "PLC", "IO", "안전", "센서" }, resp.Collections[0].Keywords);
     }
 
     [Fact]

@@ -2,29 +2,11 @@
 
 세션 이어받기용 TODO. 본 문서는 *결정된 설계* 와 *남은 할 일* 만 담는다.
 
-| rev | 일자 | 주요 변경 |
-|---|---|---|
-| r0 | 2026-05-17 | 초안 (LightHouse 분리 / 4 tool / FTS5 → hybrid 점진 / cached lazy 이미지) |
-| r1 | 2026-05-17 | --review 6 reviewer 반영: AttachmentClassifier 활성 호출 사실 정정, FTS5 tokenizer trigram, Phase 1 이미지 인프라 환원, Phase 3↔4 swap, 두 경로 분리 SSOT 신설, schema 결함 5항 명문화, NuGet 분리, WAL/동시성 PRAGMA, RefLocator SSOT, 모델 generation 단위 invalidation 외 30여건 |
-| r2 | 2026-05-17 | --review 3 reviewer 재검증 반영: drift fact 9→13 정정, PromptLoader 묘사 (glob+3-tier+facts 포함 6 baseline) 정정, LightHouse 의 Ds2.Editor 미참조 invariant 추가, Ds2.LlmAgent/CLAUDE.md SSOT 갱신 task, active todo-llm-chat-attachment.md cross-PR 동기화, .gitignore .promaker-kb/ 를 §4.1 첫 task 로 격상, INDEX 5종 + external content mirror 명명 정정, App.xaml.cs line 정정 외 minor |
-| r3 | 2026-05-17 | --review 1 reviewer 추가 반영 (4건): (1) PromakerToolNames.All 6→10 + DriftTests Tools/*.cs 전체 스캔 확장 (allowlist drift 자동 검출) (2) KB root/index 주입 경로 — `LlmTurnContext` 확장 또는 별도 DI singleton 결정 + `AttachmentTools` 가 어떻게 도달할지 (3) `Solutions/Ds2.sln` 갱신 누락 차단 (sln 2개 모두 등록) (4) r2 잔류 stale 정정 (line 448 "Fact 9건", line 452 "App.xaml.cs:147") |
-| r3-transfer | 2026-05-17 | 다음 세션 이어받기용 §0 신설. 코드 변경은 여전히 0 (전체 작업은 --plan 모드 안). |
-| r4 | 2026-05-17 | n×m KB 운영 도입 — collection = 사용자가 임의 폴더 선택 (path-based, project 종속 X). 한 폴더 = 1 collection. LlmConfig.KbCollections (OS 사용자 전역) 에 등록. SQLite ATTACH 로 m 개 active union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼) 신설. 원본 사본 정책 폐기 (사용자 폴더 안 원본이 SSOT, `.lighthouse-kb/` 은 index.db + Phase 2 image blob 만). read-only collection: read OK, write (색인/재색인) fail. dock 패널 §4.7 폐기 — KB UI 는 dialog 전용. |
-| r5 | 2026-05-17 | **대안 B 채택 — Phase 1 의 §4.5 / §4.1 첫 task / §4.6 / §4.8 일부 SKIP** (server phase 흡수). parent Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 까지만. Promaker 측 통합 전체는 `todo-lighthouse-kb-server.md` Phase S5 가 단일 SSOT. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway 라 yo-yo / migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 6건 회피. `--inspect-diff 5` 사후 사용자 추가 검증으로 도출. |
-| r6 | 2026-05-17 | `--inspect 3` reviewer 결과 반영 (Critical 6 + Major 23 + Minor 15 = 44건). 주요 갱신: (1) §3.18.2 채택안 (a) r5 SKIP marker 강화 — Phase 1 의 결정사항 아님 명시 (CR1/MA9), (2) §0 보류 항목 표 5→3행 — §4.5 의존 2행 server §4.3 로 이전 (CR1/MA2), (3) 진입 박스 7→9 row 보강 (§3.17/§3.18 추가, §4.6 신설 row, MA10), (4) §3.9 의 ad-hoc Q1/Q2/Q3/D-1 표기에 `r4-` prefix — server §0 D-id namespace 충돌 회피 (MA1), (5) §5 수정 목록을 "Phase 1 본체" vs "r5 SKIP — server phase 흡수" 두 sub-section 으로 분리 (CR1), (6) §7 다음 세션 행동 r5 박제 + grep checklist 강화, (7) §4.8 lib unit test 시나리오 구체화 (a/b/c/d 4 sub-section: parser/FTS5/multi-collection/cross-PR) (MA21), (8) §6.13 박제 fresh marker (2026-05-17) (mn10), (9) §3.15.3 `.promaker-kb/` 잔재 → `.lighthouse-kb/` (mn1), (10) §4.1 의 무관 grep task 제거 (mn5), (11) §4.2a 에 ImageFormat 호출처 전수 grep task 추가 (mn14). server.md 와 동시 갱신 (s0-r3). |
-| r7 | 2026-05-17 | **§4.1 진입 commit (`bccb0ea`) + §4.2a 진입 commit (본 turn)**. 사용자 결정: (a) Solutions/Ds2.sln 갱신 SKIP — `Apps/Promaker/Promaker.sln` 만 갱신 (§4.1 박제 "sln 2개" → 1개로 좁힘), (b) `ModelContextProtocol.AspNetCore 1.2.0 → 1.3.0` 업그레이드는 본 Phase 1 보류 — server phase Phase S3 P2 결정 시 함께, (c) 본 todo 파일 git mv 보류 (Phase 1 완료 후 별도 결정). **§4.2c "C# 무영향 확인" 가정 정정**: F# type abbreviation 이 C# interop 작동 안 함 — C# 3 파일 (`LlmChatViewModel.Attachments.cs` / `LlmChatPanel.xaml.cs` / `ApiTurnContentBuilderTests.cs`) `using Ds2.LightHouse;` 추가 + `Ds2.LlmAgent.ImageFormat.Png` → `Ds2.LightHouse.ImageFormat.Png` namespace 갱신 필요 (수행 완료). §4.1 의 `Solutions/Directory.Packages.props` 에 PdfPig 0.1.14 + DocumentFormat.OpenXml **3.5.1** (최신 stable, 자가 검열 minor) 등록. §4.2a 추가 grep 발견 — `ClaudeStreamJsonInputTests.fs:33,74` 의 `Png` constructor 도 `open Ds2.LightHouse` 추가 (총 F# Test 3 파일). |
-| r8 | 2026-05-17 | **§4.2b/§4.2c commit (`b8c747c`) 완료 + §4.3 전체 (lib 본체 — 추출/청킹/분류 layer) 작성 완료** (commit 보류, 본 박제로 transfer). (i) §4.2b: AttachmentClassifier.detectEncoding 본체+부속 (TextEncodingDetect/tryCp949/isStrictDecodable/Log.provider.Warn) 제거, shim 1줄 잔류 + 영구 호환 표기. (ii) §4.2c: LlmAgent.fsproj 의 System.Text.Encoding.CodePages 직접 참조 제거 (LightHouse transitive). Promaker.csproj 는 entry-point assembly 의 명시적 자기 의존 + fail-fast 안전망으로 직접 참조 유지. (iii) §4.3: 신규 8 F# 파일 (Models 155 / RefLocator 143 / Classifier 71 / Chunker 136 / IExtractor 22 / TextExtractor 89 / PdfExtractor 68 / OoxmlExtractor 124 = 793 line) + Logging.fs `Log.lighthouse` 추가 + fsproj Compile Include 8. **자가 검열 1차 (sub-agent)** Critical 0 / Major 3 / Minor 5 → M1 (Chunker sentence regex)/M2 (splitBySentences self-contained)/M3 (OoxmlExtractor 한정 catch 4종) 즉시 적용 + 3 Phase 2 보류 (heading depth stack / outline region / extract_status DU) + 1 명문화 (surrogate pair) + 1 미적용 (RefLocator parseFragment 단순화). **--review 메타리뷰 (외부, b8c747c)** Critical 0 / Major 3 / Minor 4 → M1 (shim type annotation + 영구 호환 docstring) / M2 (Promaker.csproj 주석 보강 + (a) 안 채택) / M3 (ImageFormat.fs 주석 정정 — wildcard 분기로 컴파일 강제 안 됨 명시) + m1 (logger 변경 박제 CLAUDE.md Logging.fs 행) + m3 (CLAUDE.md AttachmentClassifier 행 line 박제 → 함수명 anchor 약화) 모두 적용. m2 (LightHouse → KB 패키지 transitive 비대화 — `<PrivateAssets>all</PrivateAssets>` 적용 여부) 는 §4.4 facade 진입 후 결정 박제 (보류 항목 표 추가). m4 (todo 진행 표시 갱신 누락) 는 본 r8 박제로 흡수. |
-| r10 | 2026-05-17 | **§4.4 commit (`00b72eb`) + §4.8 commit (`9736237`) 완료 — Phase 1 lib 본체 + lib unit test 전부 종결**. (i) §4.8 신규 11 F# test 파일 (TestInit + RefLocator 9 / Chunker 9 / Classifier 9 / TextEncoding 9 / TextExtractor 5 / OoxmlExtractor 3 / PdfExtractor 3 / SqliteStore 14 / Indexer 8 / KnowledgeBase 13 = **99 Fact, 100% 통과**). fsproj 갱신 (Compile Include 11 + PackageReference 4 — `System.Text.Encoding.CodePages` / `Microsoft.Data.Sqlite` / `DocumentFormat.OpenXml` / `PdfPig` 직접 의존, LightHouse 의 PrivateAssets=all 우회). (ii) §4.4 lib 본체 잠재 버그 3건 발견/fix (test 가 노출): **(F1) Searcher.fs FTS5 SQL 호환성** — `bm25(kb0.ChunksFts)` / `bm25(<alias>)` 둘 다 `SQLite Error 1: no such column` → FTS5 의 auxiliary function 과 MATCH 는 *unqualified table name* 만 받음. FROM 절만 schema-qualify, JOIN/WHERE/bm25 는 모두 unqualified `ChunksFts`. **(F2) Indexer.fs SqliteConnection pool 의 lock 보존** — Microsoft.Data.Sqlite 가 dispose 후에도 native handle pool 보존 → `File.Replace` (shadow swap) 시 source/target lock 충돌. `SqliteConnection.ClearPool` 명시 호출을 3 경로 (probe / shadow rebuild / 정상 ingest) 모두 적용. **(F3) TextExtractor.fs UTF-8 BOM 첫 char 잔류** — `Encoding.UTF8.GetString` 이 BOM 을 U+FEFF 로 보존 → chunk 본문 / FTS5 색인 / search excerpt / read 결과 invisible char 회귀. leading U+FEFF strip. (iii) **자가 검열 (sub-agent general-purpose)** Critical 0 / Major 3 / Minor 9 → M1 (빈 active 셋 search/list empty 검증) + §4.8c boundary 10 ATTACH 검증 + m4 (OoxmlExtractor segment count brittleness 완화) + m9 (FTS5 AU trigger 검증 — r9 자가 검열 M2 잔여 우려의 마지막 분기) + §4.8a 정확 boundary 200/501 token + M2 (정상 ingest 경로 ClearPool 방어적) **6건 즉시 적용**. M3 (swapShadow try-finally 바깥 — 현 SSOT 명문화) / m1/m2/m3/m6/m7/m8/r9 C1 drift 보호 / r9 M4 cross-talk 보호 = Phase 2 보류. (iv) **AttachmentClassifierDriftTests 13/13 통과 유지** (§4.8d, 별 project, 무영향 확인). (v) **Phase 1 lib 본체 + lib unit test 종결** — server phase (`todo-lighthouse-kb-server.md` Phase S0 → S1) 진입 confirm 대기. |
-| r15 | 2026-05-19 | **server-side s6-r26 묶음 §3.17 정정 동기화** — "색인 재구성 정책" trigger SSOT 변경 (`Meta.IndexerVersion` 단순 equality → `Meta.schema_version drift`). IndexerVersion minor / patch bump 의 ALTER forward-compat 흡수 + SchemaVersion / IndexerVersion 동반 bump (s6-r22 mn3 패턴) lib 개발자 책임 명시. 기존 collection 재색인 cost 회피 정책 진입. server-side `todo-lighthouse-kb-server.md` s6-r26 row 와 paired. |
-| r16 | 2026-05-21 | **Phase 2 PPTX + XLSX 활성 완료** (`todo-lighthouse-kb-index-xlsx-pptx-images.md` r2 의 Task 0~3 commit 5건 — Task 0 refactor `0a9833e` / Task 1 PPTX `cc53628` / Task 2 XLSX `3948bdc` / Task 3 RefLocator regression `8a72de4`). (i) **§3.13 RefLocator 표 행 2개 추가** — PPTX 이미지 (`slide=5#img=2` → "슬라이드 5 그림 2") + XLSX 이미지 (`sheet=BOM#img=1` → "시트 BOM 그림 1"). (ii) **OoxmlExtractor 활성 — Docx + Pptx + Xlsx**: PPTX (SlideIdList SSOT 순회 + Title/CenteredTitle placeholder + paragraph break + speaker notes `--- 노트 ---` marker), XLSX (SST + PhoneticRun rPh 제외 + Sheet.State enum Hidden/VeryHidden skip + expandSparseRow + Cell.DataType 6 분기 + sheet 단위 RefLocator only). 사용자 결정 박제 — xlsx 의 수식 cached value only / hidden skip / merged top-left / 빈 행 skip / 좌표 RefLocator Phase 3 backlog. (iii) **Test fixture 패턴** — `PresentationDocument.Create` / `SpreadsheetDocument.Create` + SDK 객체 직접 build (raw outerXml 우회). 누적 lib 100 → 154 Fact (`Ds2.LightHouse.Tests` 의 OoxmlExtractor 9 → 35 + RefLocator 16 → 21 = 본 turn 31 신규 Fact). (iv) **Phase 3 backlog 박제** — xlsx 좌표 RefLocator (`sheet=BOM!A1:D40`) + `attachment_read` ref 파서 강화 / xlsx Defined Name / Pivot Table / Chart / pptx SlideMaster / SlideLayout / comments / notes master / Boolean cell raw 0/1 → TRUE/FALSE 변환 / pptx hidden slide skip 정책. (v) **Phase 2 Task 5/6 (VLM caption / attachment_read image 모드) scope out** — lib 측 `captionGen` surface 박제 완료 + server 측 단일 책임. server phase 진입 confirm 후 별 todo 분리. |
-| r14 | 2026-05-19 | **server-side s6-r25 묶음 sweep 동기화** — §3.15 sweep 잔여 3개소 정정 (line 200 §3.0 표 / line 790 Phase 2 헤더 / line 818 Phase 3 검토 — "cached lazy" → "eager VLM caption — s6-r18 D-2-2"). line 7 (r0 historical, 변경 불필요) / line 581 mr4 (취소선 정합 적용 완료, 변경 0) 박제 정합 확인. 코드 변경 0 (parent doc only — Phase 1 본체 r10 그대로 유지). server-side `todo-lighthouse-kb-server.md` s6-r25 row 와 paired. |
-| r13 | 2026-05-18 | **§3.18 KnowledgeBase facade module 표면 확장 (record 무영향)** — `stampIndexerVersion : kbRoot -> version -> unit` 신설. `probeIndexerVersion` 의 write 대칭. 용도 = test 한정 (server `todo-lighthouse-kb-server.md` s6-r5 의 IndexerVersion gate 415 시나리오에서 zip 안 `.lighthouse-kb/index.db` Meta.indexer_version 행 override). production 색인 (`Indexer.ingest`) 가 stamp 한 `IndexerVersion.Current` 강제 override 시 schema/version drift 위험 — docstring "production 호출 금지" 박제. KnowledgeBase **record** 표면은 무변경 (Search/List/Outline/Read/ActivePaths/Dispose 6 함수 필드 그대로) — test 한정 + lifecycle 짧음이라 record-of-functions 표면에 안 박음 (자가 검열 sub-agent 권고 정합). lib unit test 2 Fact 추가 (KnowledgeBaseTests: override → probe 반영 / 미존재 시 InvalidOperationException). lib 100 → 102 Fact. |
-| r12 | 2026-05-18 | **N3-A (MSB3277 해소) + N5 (§3.15.5 Phase 2 사전 결정 박제 흡수)** — (i) **N3-A**: `Apps/Promaker/Directory.Packages.props` 에 `DocumentFormat.OpenXml 3.5.1` PackageVersion 추가 + `Apps/Promaker/Promaker/Promaker.csproj` 에 `DocumentFormat.OpenXml` PackageReference 직접 추가 (transitive PdfPig 3.1.1 압도, 3.5.1 통일). 빌드 결과 MSB3277 충돌 0건 (이전 다수 → 0). r9 (v) 보류 항목 해소. (ii) **N5**: §3.15.5 "Phase 2 진입 사전 결정 표" 신설 — CR1/CR2 + MR1~MR4 + mr1~mr4 = 10건 + 진입 trigger / cost forecast / 진입 순서. 별 doc 신설하지 않고 본 todo 안 흡수 (사용자 결정). (iii) **N3-B (todo git mv) 취소** — 사용자 결정 시 본 todo 파일 위치 유지 (`Apps/Promaker/Docs/`). r7 보류 항목 (§6.14) 은 추후 별 PR 결정 시점에 재검토. (iv) **회귀 검증**: `dotnet build Promaker.sln` 0 오류 + MSB3277 0건 + `Promaker.Tests` **203/203** + `Ds2.LightHouse.Tests` **100/100** + `Ds2.LightHouseService.Tests` **111/111** + `Ds2.LightHouseService.IntegrationTests` **8/8** = 누적 **422 Fact**. (v) 자가 검열 trigger 미충족 (단순 PackageReference 추가 + doc 흡수). |
-| r9 | 2026-05-17 | **§4.3 commit (`16b50c3`) 완료 + §4.4 전체 (lib 본체 — 저장/검색/orchestrator/facade) 작성 완료** (commit 진입 직전). (i) 진입 직전 보류 2건 사용자 결정 — **(a) facade 형식 = record-of-functions** (todo 권장 default, §3.18.1), **(b) PrivateAssets=all 적용 범위 = PdfPig + Microsoft.Data.Sqlite + DocumentFormat.OpenXml 3 package 한정** (r8 m2). (ii) §4.4 신규 4 F# 파일 (SqliteStore ~270 / Searcher ~280 / Indexer ~175 / KnowledgeBase ~105 ≈ 830 line) + fsproj Compile Include 4 + PrivateAssets attribute 3. (iii) **자가 검열 (sub-agent general-purpose)** Critical 1 / Major 6 / Minor 8 → C2 (ATTACH path parameter binding 불가 → inline + single-quote escape) / M1 (FTS5 token split + per-token phrase quoting / implicit AND) / M3 (Dispose with _ swallow → Log.Warn 박제) / M4 (`:memory:` cache=Shared cross-talk → cache=private + unique URI `lhmain-<guid>`) / M5 (SHA-256 stream 주석 정정) / M6 (BM25 부호 반전 — 높을수록 hit 강도) / m6 (`ingest` 시그니처 `(string * FileIngestResult) array` 반환) / m8 (Dispose swallow log 흡수) **9건 적용**, m1/m2/m3/m5/m7/C1 (probe reopen 실측 OK) 6건 Phase 2 refactor 보류. (iv) **--review 메타리뷰 (외부)** Critical 1 / Major 3 / Minor 5 → **C1 (KnowledgeBase.openCollections ATTACH 실패 시 conn 누수)** = try-with reraise + Dispose / **M3 (Searcher fileId parse 실패 silent fallback)** = log warn + 명시 빈 결과 (`Hint = "invalid fileId"`) / **m1 (SqliteStore.deleteDocument 미사용)** = 보존 사유 주석 (매뉴얼 purge / unit test cleanup) / **m5 (.bak 즉시 삭제 정책)** = todo §3.17 미명시이나 idempotent + atomic 안전 주석. M1/M2/m3 는 자가 검열에서 이미 반영. (v) **OpenXml 3.1.1 ↔ 3.5.1 transitive 충돌 경고** (`Apps/Promaker/Promaker.csproj` 빌드 시 MSB3277 2건) — 본 §4.4 scope 외, 다른 패키지의 transitive (PdfPig 가 OpenXml 3.1.1 끌어옴 추정). `Apps/Promaker/Directory.Packages.props` 에 OpenXml 3.5.1 명시 검토 = **§0 보류 항목 표 신설 (Phase 1 완료 직전 또는 server phase Phase S3 결정 시 함께)**. (vi) 빌드 검증 — LightHouse 0 경고/0 오류, LlmAgent + Tests 0 경고/0 오류, AttachmentClassifierDriftTests 13/13 통과, Promaker 빌드 성공 (transitive 충돌 경고 2건만). |
+> **변경 이력**: [revision-history/lighthouse-kb-index.md](revision-history/lighthouse-kb-index.md) (분리 보관)
 
 ---
 
-> **⚠ 후속 phase 별도 추적 — `todo-lighthouse-kb-server.md` (s0)**
+> **⚠ 후속 phase 별도 추적 — `done-lighthouse-kb-server.md` (s0)**
 >
 > r4 의 in-process MVP **그 위에** central Windows Service 를 얹는 design 이 별도 todo 로 박제됨. 본 문서의 Phase 1 완료 이후 phase. 이하 r4 결정 중 service 도입 시 **회귀** 하는 단원이 있음 — 각 단원 헤더에 marker 표기.
 >
@@ -50,8 +32,8 @@
 ## 0. 현재 상태 요약 (transfer 시점 — 다음 세션 진입 시 가장 먼저 읽기)
 
 ### 진행 상태
-- **현재 rev**: **r15 (s6-r26 §3.17 정정 동기화)** — server-side `todo-lighthouse-kb-server.md` s6-r26 묶음에서 본 doc §3.17 "색인 재구성 정책" 본문 정정 — shadow rebuild trigger SSOT 를 `Meta.IndexerVersion` 단순 equality → `Meta.schema_version drift` 로 변경. IndexerVersion minor / patch bump 의 ALTER forward-compat 흡수 + SchemaVersion / IndexerVersion 동반 bump (s6-r22 mn3 패턴) lib 개발자 책임 명시. lib 152 → **154 Fact** (+2 needsRebuild Fact). r14 (§3.15 sweep) 박제 그대로 유지.
-- **후속 phase 별도 추적**: `todo-lighthouse-kb-server.md` (**s6-r26**, IndexerVersion compare 정책 변경 완료 + 자가 검열 review M1/m1 즉시 적용 + 누적 532 Fact). 다음 권장 = Phase S7 (mTLS / SSE / multi-service routing) 또는 Phase 2 task F (OCR / embedding) — 사용자 우선순위 결정 시 진입.
+- **현재 rev**: **r15 (s6-r26 §3.17 정정 동기화)** — server-side `done-lighthouse-kb-server.md` s6-r26 묶음에서 본 doc §3.17 "색인 재구성 정책" 본문 정정 — shadow rebuild trigger SSOT 를 `Meta.IndexerVersion` 단순 equality → `Meta.schema_version drift` 로 변경. IndexerVersion minor / patch bump 의 ALTER forward-compat 흡수 + SchemaVersion / IndexerVersion 동반 bump (s6-r22 mn3 패턴) lib 개발자 책임 명시. lib 152 → **154 Fact** (+2 needsRebuild Fact). r14 (§3.15 sweep) 박제 그대로 유지.
+- **후속 phase 별도 추적**: `done-lighthouse-kb-server.md` (**s6-r26**, IndexerVersion compare 정책 변경 완료 + 자가 검열 review M1/m1 즉시 적용 + 누적 532 Fact). 다음 권장 = Phase S7 (mTLS / SSE / multi-service routing) 또는 Phase 2 task F (OCR / embedding) — 사용자 우선순위 결정 시 진입.
 - **모드**: Phase 1 종결. server phase 진입 후 본 todo 는 회귀 매트릭스 SSOT (§4.1 보류 박스 + server.md §3.14 동시 참조) 로 잔류.
 - **본 세션까지 commit 누적**:
   - `bccb0ea` — §4.1 scaffold: Ds2.LightHouse + Tests project 신설 + Promaker.sln 등록 + Directory.Packages.props (PdfPig 0.1.14 + DocumentFormat.OpenXml 3.5.1 신규)
@@ -70,10 +52,10 @@
 6. **AttachmentClassifier 부분 통합 축소** — `detectEncoding` / `ImageFormat` 만 LightHouse 이전, `Classification` 표면 무변경 (§3.11)
 7. **Phase 1 환원** — 순수 FTS5 + text + outline + 4 tools, 이미지 인프라 Phase 2 로 이동 (§3.12, Phase 1)
 8. **Phase 3↔4 swap** — Phase 3 = OCR, Phase 4 = embedding (§3.15.2)
-9. **이미지 처리는 eager-at-indexing** — 색인 시점에 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. chat 시점은 cache hit 만 (사용자 명시 "더 정밀하게" 요청 시 model escalation 별 path). **s6-r18 (2026-05-18) 정정** — 이전 r0~s6-r17 박제의 "cached lazy" 원칙은 server todo `todo-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = "색인 = 분석 완료" 단순 일관 mental model) 으로 정정됨. (§3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 단원 본문 sweep 은 별 turn 의무, marker 만 박제)
+9. **이미지 처리는 eager-at-indexing** — 색인 시점에 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. chat 시점은 cache hit 만 (사용자 명시 "더 정밀하게" 요청 시 model escalation 별 path). **s6-r18 (2026-05-18) 정정** — 이전 r0~s6-r17 박제의 "cached lazy" 원칙은 server todo `done-lighthouse-kb-server.md` §0 **D-2-2** (사용자 명시 결정 = "색인 = 분석 완료" 단순 일관 mental model) 으로 정정됨. (§3.15.3 / §3.15.4 / §3.15.5 / §3.15.6 단원 본문 sweep 은 별 turn 의무, marker 만 박제)
 10. **FTS5 tokenizer trigram** (한국어 필수) (§3.7, §3.12)
 11. **n×m KB 운영** (r4) — collection = 사용자 임의 폴더 선택 (path-based, project 종속 X). LlmConfig.KbCollections (OS 사용자 전역) 에 등록. m 개 active → SQLite ATTACH union 검색. KbManagerDialog (ApplicationSettingsDialog 진입 버튼). 원본 사본 없음. read-only collection 은 read OK, write fail.
-12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
+12. **server phase 흡수 — 대안 B** (r5) — parent Phase 1 의 **§4.5 전체 / §4.1 첫 task (.gitignore) / §4.6 (5.knowledge-base.md) / §4.8 의 Promaker 통합 의존 항목** 은 본 Phase 1 에서 진행하지 않음. server phase (`done-lighthouse-kb-server.md` Phase S5) 가 흡수. 본 Phase 1 = LightHouse lib 본체 (§4.2/§4.3/§4.4) + lib 자체 unit test 만. 사유: parent Phase 1 의 §4.5 가 server phase 진입 시 60%+ throwaway / 사용자 데이터 migration noise / yo-yo commit history 6건 회피.
 
 ### 다음 세션에서 확정해야 할 보류 항목 (Phase 1 lib 본체에 한정)
 
@@ -95,8 +77,8 @@
 
 **Phase 1 lib 본체 + lib unit test 종결 — server phase 진입 confirm 대기**.
 
-1. **본 todo + `todo-lighthouse-kb-server.md` 동시 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r10 박제 (§4.8 lib unit test 99 Fact 통과 + lib 본체 잠재 버그 3건 fix + 자가 검열 6건 반영)**
-2. **(보류 사용자 confirm)** **server phase 진입 결정** — `todo-lighthouse-kb-server.md` Phase S0 → S1 (또는 본 todo 의 r5 통합 vs 별도 todo 유지 재결정). 진입 시점에 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 적용 (§4.1 보류 박스 매트릭스 + `kb-server.md §3.14`).
+1. **본 todo + `done-lighthouse-kb-server.md` 동시 정독** — 특히 §0 / §3.0 / §3.11 / §3.18 / §6 주의 사항 16건 / **r10 박제 (§4.8 lib unit test 99 Fact 통과 + lib 본체 잠재 버그 3건 fix + 자가 검열 6건 반영)**
+2. **(보류 사용자 confirm)** **server phase 진입 결정** — `done-lighthouse-kb-server.md` Phase S0 → S1 (또는 본 todo 의 r5 통합 vs 별도 todo 유지 재결정). 진입 시점에 본 todo 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 적용 (§4.1 보류 박스 매트릭스 + `kb-server.md §3.14`).
 3. **(보류 사용자 confirm)** **본 todo 파일 git mv** — `Apps/Promaker/Docs/` → `Solutions/Core/Ds2.LightHouse/doc/` (§6.14). Phase 1 완료 시점 결정 박제 (r7 보류 박제).
 4. **(보류 사용자 confirm)** **OpenXml transitive 충돌** (r9 보류 신설) — `Apps/Promaker/Directory.Packages.props` 에 3.5.1 명시 검토 (MSB3277 2건). Phase 1 완료 직전 또는 server phase 진입 시 함께.
 5. **(완료)** ~~MEMORY.md `## Project` 등록 (§6.11)~~ — r10 박제 시점에 등록 완료 ([Phase 1 LightHouse lib + tests 종결](lighthouse-phase1-lib-tests-done.md)).
@@ -141,7 +123,7 @@
 - 명시 미적용: shim eta-expansion (현 형태 유지 권장, 본 메타리뷰 의견 = "현 유지") / Log internal 가시성 (수정 불요)
 
 ### 본 작업이 영향을 줄 다른 활성 todo (cross-PR)
-- `Apps/Promaker/Docs/todo-lighthouse-kb-server.md` (s0, 후속 phase) — service 도입 design. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
+- `Apps/Promaker/Docs/done-lighthouse-kb-server.md` (s0, 후속 phase) — service 도입 design. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
 - `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active, 318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 진행 중. Phase 1 4.2a 진입 전 그 todo 의 최근 commit 동기화 의무 (§6.12).
 - `Apps/Promaker/Docs/todo-dock-layout.md` — Phase 1 4.7 (Attachments dock 패널) 진입 시 anchor 추가 동시 PR (§6 m9).
 
@@ -235,8 +217,10 @@ Promaker (C# WPF)                    ── MCP tool wrapper + UI
 LlmAgent 끌어들이지 않고도 색인 활용 가능 / net9.0 순수 → server-side 가능.
 
 ### 3.3 LightHouse 의 타입 — KB 전용 FileKind 신설 (Classification 통합 X)
-- `Ds2.LightHouse.FileKind` DU = `{ Pdf | Docx | Pptx | Xlsx | Text | Markdown | Unsupported of ext }`
+- `Ds2.LightHouse.FileKind` DU = `{ Pdf | Docx | Pptx | Xlsx | Text | Markdown | Image | Unsupported of ext }`
   — KB 추출기 라우팅 전용. Phase 별 활성 case 확대.
+  - **Task 7 (r6) 박제** — `Image` case = standalone image 파일 (PNG / JPEG / GIF / WEBP raw + EMF / WMF Metafile→PNG 변환).
+  - `RefUnit.Image` (RefLocator.fs) 와 동명 → caller 는 `FileKind.Image` qualification 의무 (`OutlineNodeType.*` 패턴 정합).
 - chat 측 `Ds2.LlmAgent.Classification` 은 **영구 잔류, 변경 0**. 두 분류기 독립 (3.0 SSOT).
 - 두 분류기는 공통 입력 (파일 path) 만 공유. 출력 DU 다름.
 
@@ -379,6 +363,8 @@ citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
 
 **chat 측 `Classification` 에 신규 case 추가 없음** — KB 색인 경로가 독립 분류기를 쓰므로 `RejectExtension` 의미 충돌 (보안 영구 거부 vs KB 라우팅) 자체가 발생 안 함. chat 에 .docx drop → `RejectUnknown` (현행). UI 가 별도로 "KB 색인 메뉴 이용" 안내를 띄우고 싶으면 chat UI 측에서 RejectUnknown 응답 받은 후 별도 분기 — `AttachmentClassifier` SSOT 변경 없음.
 
+**Task 7 (r6) — image 활성 정책 변경** — `Classifier.rejectedExtensions` 에서 raster 4종 (`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp`) 제거 + vector 2종 (`.emf` / `.wmf`) 도 활성. `supportedExtensions` 에 7 매핑 (모두 `FileKind.Image`) 추가. 즉 standalone image 파일이 KB 색인 진입 → `ImageExtractor` 가 `ExtractedDocument { DocType = Image; Outline = [||]; Segments = [||]; Images = [|단일|]; Title = filename }` 박제 → 기존 `Indexer.ingestImagesIntoStore` flow (icon 가드 / sha256 dedup / VLM caption 주입) 그대로 재사용. **BMP / TIFF / SVG / ICO / HEIC 는 Phase 3 backlog** — raster 변환 (Bitmap→PNG 재인코딩) 또는 SVG raster 추가 의존성 (`Svg.Skia`) 필요. chat 측 `AttachmentClassifier` 의 image accept 정책과 무관 (두 경로 분리 SSOT, §3.0).
+
 ### 3.12 index.db schema (Phase 1 환원판 — 이미지 schema Phase 2 로 이전)
 
 ```sql
@@ -488,14 +474,19 @@ CREATE TABLE Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
 | Phase 2 이미지 (PDF/DOCX) | `p=14#img=2` | `p.14 그림 2` |
 | Phase 2 이미지 (PPTX) | `slide=5#img=2` | `슬라이드 5 그림 2` |
 | Phase 2 이미지 (XLSX) | `sheet=BOM#img=1` | `시트 BOM 그림 1` |
+| **Task 7 — standalone image 파일** | `image=1` | `이미지 1` |
 
 **EBNF (저장형)**:
 ```
 RefLocator   = Unit "=" Value ( "#" SubKey "=" SubValue )*
-Unit         = "p" | "slide" | "sheet"
+Unit         = "p" | "slide" | "sheet" | "image"
 Value        = digits | sheet-name [ "!" range ]
 SubKey       = "img" | ...
 ```
+
+**`image=N` 박제 정책** (Task 7 r6):
+- standalone image 파일 1개 = `image=1` (N=1 고정). 향후 multi-frame / animated image 의 embedded 분할 활성 시 `image=N` 자연 호환 — `RefUnit.Image` DU + `tryParse`/`toStored`/`formatDisplay` 일반화 박제.
+- `attachment_read` 의 `includeImages` / `caption_only` 가 `ImageReferences.RefLocator = "image=1"` 매칭하여 단일 image 반환. lib 변경 0 — server phase Phase S5 가 흡수.
 
 **resolution rule**: `attachment_read(ref="p=14")` 는 chunk-level (해당 페이지 안 chunk 들의 합), `ref="p=14#img=2"` 는 page-level 의 N번째 이미지.
 
@@ -512,7 +503,7 @@ SubKey       = "img" | ...
 
 ### 3.15 이미지 처리 정책 (Phase 2 부터 — 본 단원의 모든 결정은 Phase 1 무관)
 
-> ✅ **s6-r24 (2026-05-19) sweep 완료** — 본 단원이 **eager at indexing time** (D-2-2, server todo `todo-lighthouse-kb-server.md` §0) 으로 본문 재작성됨. 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 이전 박제의 "cached lazy / on-demand caption cache / Phase 5 격하" 흐름은 본 sweep 으로 모두 정합 정정.
+> ✅ **s6-r24 (2026-05-19) sweep 완료** — 본 단원이 **eager at indexing time** (D-2-2, server todo `done-lighthouse-kb-server.md` §0) 으로 본문 재작성됨. 색인 시점 client 측 색인 프로그램이 모든 image 에 VLM caption 1회 호출 + `ImageCache.CaptionText` 영구 저장. 사용자 의도: "색인 = 분석 완료" 단순 일관 mental model. 이전 박제의 "cached lazy / on-demand caption cache / Phase 5 격하" 흐름은 본 sweep 으로 모두 정합 정정.
 
 사양서에는 plant layout, 시퀀스 차트, wiring diagram, 표/그래프가 raster 로 박힌 경우가 빈번 →
 모델링 의사결정의 직접 근거가 되므로 색인 시점에 caption 박제. Phase 2 부터 도입.
@@ -721,7 +712,7 @@ PRAGMA foreign_keys = ON;
 
 **4.5 Promaker 측 통합 (r4 — multi-collection + KbManagerDialog)**
 
-> ⛔ **대안 B (r5) — 본 §4.5 전체 SKIP**. server phase (`todo-lighthouse-kb-server.md` Phase S5) 가 단일 SSOT 로 흡수. 본 §4.5 의 모든 task (`AttachmentTools.cs` / `KbManagerDialog` / `LlmConfig.KbCollections` 확장 / `LlmTurnContext` 의 `KnowledgeBase` 필드 추가 / `PromakerToolNames.All` 의 attachment_* 추가 / `MainViewModel.LlmChat.cs` 의 `LightHouse.openCollections` 호출 / `AttachmentIngestService` / `ApplicationSettingsDialog` 의 KB 관리 버튼 등) 는 **Phase 1 에서 만들지 않음**. server phase 직접 진입 시 server SSOT 에 맞춰 신설. 사유: 60%+ throwaway / 사용자 데이터 migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 회피 (§0 결정 12, r5).
+> ⛔ **대안 B (r5) — 본 §4.5 전체 SKIP**. server phase (`done-lighthouse-kb-server.md` Phase S5) 가 단일 SSOT 로 흡수. 본 §4.5 의 모든 task (`AttachmentTools.cs` / `KbManagerDialog` / `LlmConfig.KbCollections` 확장 / `LlmTurnContext` 의 `KnowledgeBase` 필드 추가 / `PromakerToolNames.All` 의 attachment_* 추가 / `MainViewModel.LlmChat.cs` 의 `LightHouse.openCollections` 호출 / `AttachmentIngestService` / `ApplicationSettingsDialog` 의 KB 관리 버튼 등) 는 **Phase 1 에서 만들지 않음**. server phase 직접 진입 시 server SSOT 에 맞춰 신설. 사유: 60%+ throwaway / 사용자 데이터 migration / `.lighthouse-kb/` 고아 / `LlmTurnContext` 자가 모순 회피 (§0 결정 12, r5).
 >
 > **본 §4.5 의 task 체크박스들은 모두 SKIP 되었다고 간주**. 다음 세션이 본 단원 task 들을 진행하면 안 됨.
 - [ ] `Apps/Promaker/Promaker/LlmAgent/Tools/AttachmentTools.cs` — `[McpServerToolType]` 4종 tool wrapper. quota hard enforce (3.10). `LlmTurnContext` 인자 자동 검출 (§3.18.2 의 채택안 a). collection 인자 없음 (서버 측 active 셋 fix).
@@ -739,7 +730,7 @@ PRAGMA foreign_keys = ON;
 
 **4.6 System prompt**
 
-> ⛔ **대안 B (r5) — 본 §4.6 SKIP**. `5.knowledge-base.md` 는 LLM 이 attachment_* tool 을 호출할 때 사용하는 prompt 인데, §4.5 skip 으로 Promaker MCP 에 attachment_* tool 자체가 등록 안 됨 → prompt 만 있으면 의미 없음. server phase 진입 시 server-side host 명시까지 포함하여 신설 (`todo-lighthouse-kb-server.md` Phase S5).
+> ⛔ **대안 B (r5) — 본 §4.6 SKIP**. `5.knowledge-base.md` 는 LLM 이 attachment_* tool 을 호출할 때 사용하는 prompt 인데, §4.5 skip 으로 Promaker MCP 에 attachment_* tool 자체가 등록 안 됨 → prompt 만 있으면 의미 없음. server phase 진입 시 server-side host 명시까지 포함하여 신설 (`done-lighthouse-kb-server.md` Phase S5).
 
 - [ ] ~~`Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md` 신설:
   - attachment_* 도구 4종 사용 절차
@@ -809,16 +800,18 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
   - **task C4 (별 turn)**: `Chunks.ImageCount` 갱신 + `ExtractedImage.ChunkIndex` (segment → chunk 매핑) 박제 + `ingestImagesIntoStore` 시그니처에 ChunkId Some 박제.
   - PdfPig DCT/JPX/JBIG2 decode 는 별도 NuGet 필요 — task C2 진입 시 확인
   - PdfPig 페이지 PNG 렌더 fallback 필요 시 `PdfPig.Rendering.Skia` 동반
-- [ ] OoxmlExtractor 에서 pptx (슬라이드 + speaker notes) 활성
-  - 슬라이드 PNG export — LibreOffice headless `--convert-to png` 폴백 또는 raster image 만 추출 (caption_only)
-- [ ] OoxmlExtractor 에서 xlsx 활성 — 컬럼 헤더 + 행 그룹 (10~50 행 packed) 패턴 (3.8)
-- [ ] `attachment_read` 의 ref 파서 강화 (sheet=BOM!A1:D40 + p=14#img=2)
-- [ ] `attachment_read` 의 image 모드 두 가지 (3.15.3):
-  - `caption_only=true`: ImageCache.CaptionText 반환. cache miss 시 그때 LLM vision 1회 호출하여 caption 생성·저장 (on-demand caption cache, layer 3)
-  - `includeImages=true`: image content block 동봉 반환. caption 있으면 hint 동반. cache_control breakpoint 를 image block 뒤에 (Anthropic 전용, layer 2)
-  - Microsoft.Extensions.AI 의 image content 추상화 활용 → provider-agnostic (단 prompt cache 는 Anthropic 전용)
-- [ ] `attachment_search` 결과의 `hasImages` 의미화 (Phase 1 의 false → 실제 값)
-- [ ] 5.knowledge-base.md 룰 보강 — "텍스트로 충분하면 (e) 생략, 도면 추궁 시 `caption_only` 우선 → 부족 시 `includeImages`"
+- [x] OoxmlExtractor 에서 pptx (슬라이드 + speaker notes) 활성 **(xlsx-pptx-images r2 Task 1 — `cc53628`)** — SlideIdList SSOT 순회 + Title/CenteredTitle placeholder + paragraph break + speaker notes `--- 노트 ---` marker.
+  - 슬라이드 PNG export — Phase 4 backlog 유지 (LibreOffice headless `--convert-to png` 폴백, VLM caption-only 흡수)
+- [x] OoxmlExtractor 에서 xlsx 활성 — 사용자 결정 박제 간편 정책 (수식 cached only / hidden skip / merged top-left / 빈 행 skip / 좌표 RefLocator Phase 3 backlog) **(xlsx-pptx-images r2 Task 2 — `3948bdc`)** — SST + PhoneticRun rPh 제외 + Sheet.State enum Hidden/VeryHidden skip + expandSparseRow (Critical-4) + Cell.DataType 6 분기 + 좁은 컬럼 (Gantt 시각화) filter.
+- [x] **xlsx Gantt schedule 시트 type 힌트** **(xlsx-pptx-images r6 Task 2-extra — `1dcc7f8`)** — 산업 .xlsx 작업일정표 검출 + 8 role synonym map (NO/SYM/TASK/START/DURATION/CUMULATIVE/SCORE/GRADE) + normalize header (공백/괄호/한자) + 2-row merged header concat + score 판정 (distinct role ≥3 AND start/dur/cum ≥2) + 동적 preamble prepend (`A=NO(순번), D=START(시작초), ...`) + outline `[Gantt schedule]` suffix. LLM 이 row tab-join 데이터를 컬럼 의미 기반 정확 해석. Fact 6 (정상/순서 바뀜/영문/normalize/2-row/false negative).
+- [x] **standalone image 파일 색인 활성** **(xlsx-pptx-images r6 Task 7 — `7964ec6`)** — 활성 6 종 (PNG/JPEG/GIF/WEBP raw + EMF/WMF Metafile→PNG 변환). Classifier rejected 5 제거 + supported 7 매핑 + `Models.FileKind.Image` + `RefUnit.Image` + `MetafileConverter` 모듈 분리 (OoxmlExtractor + ImageExtractor 양쪽 재사용) + `Extractors/ImageExtractor.fs` 신규 (magic byte 검증 + Width/Height parse + per-image fail-safe). Fact 9 (정상 4 종 + magic byte mismatch + 0 byte + EMF invalid + title + Supports).
+- [x] `attachment_read` 의 ref 파서 강화 (RefLocator EBNF tryParse 검증) **(s6-r58 C4 — `AttachmentTools.fs:345-355`)** — 위반 시 audit warn + `[ref EBNF 위반]` marker 박제. `sheet=BOM!A1:D40` + `p=14#img=2` round-trip 정합.
+- [x] `attachment_read` 의 image 모드 두 가지 **(s6-r19/r20 박제 + s6-r58 C5)**:
+  - `captionOnly=true` (default): `ImageCache.CaptionText` text block + caption enumeration 박제. 색인 시점 eager VLM caption (D-2-2) 이라 cache hit only — 미생성 시 `(caption 미생성)` 표시.
+  - `includeImages=true`, `captionOnly=false`: text block + `ImageContentBlock.FromBytes` (base64 inline) 동봉. size 정책 자동 가드 (단일 ≤ ~3.75MB / 응답당 ≤ 5장 → 초과 시 oversize marker 또는 auto caption_only 강등).
+  - Microsoft.Extensions.AI 의 `ImageContentBlock` SSOT (MCP 표준 wire). cache_control breakpoint 는 caller (LLM client) 책임.
+- [x] `attachment_search` 결과의 `hasImages` 의미화 **(s6-r57 C7 — `Searcher.fs:202`)** — Chunks.ImageCount > 0 정합 (Phase 1 의 false hardcode 폐기).
+- [x] 5.knowledge-base.md 룰 보강 **(r17 본 turn — caption_only 우선 / includeImages auto-degrade / 두 flag ambiguous 안내)**.
 - [ ] UI: citation 클릭 시 원문 page/slide 띄우기 (PDF viewer / Excel highlight)
 
 ### Phase 3 — OCR (한국어 도메인 어휘 보강)
@@ -877,7 +870,7 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 - **active** `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (318 line) — 정책 19 (AttachmentClassifier SSOT) + ImageFormat DU wire 책임 진행 중. Phase 1 4.2a 진입 전 최근 commit 동기화 확인 (§6.12). 본 작업 commit 후 그 todo 의 정책 19 항목에 cross-link 추가 (별도 commit).
 
 ### 참조용 (수정 없음)
-- **`Apps/Promaker/Docs/todo-lighthouse-kb-server.md`** (s0, 후속 phase) — service 도입 design 박제. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
+- **`Apps/Promaker/Docs/done-lighthouse-kb-server.md`** (s0, 후속 phase) — service 도입 design 박제. 본 Phase 1 완료 후 진입. parent r4 의 §3.9 / §3.10 / §3.18.2 / §4.1 / §4.5 / §6 m15 / §6 m16 회귀 매트릭스 보유.
 - `Apps/Promaker/Promaker/LlmAgent/McpHostService.cs` — Kestrel + MCP 호스트 패턴
 - `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs` — 기존 tool 패턴
 - `Apps/Promaker/Promaker/LlmAgent/Prompts/3.tooling.md` — tool surface 문서 패턴
@@ -917,9 +910,9 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 
 ## 7. 다음 세션 첫 행동 권장
 
-**대안 B (r5/r6) 적용 후 Phase 1 = lib 본체 + lib unit test 만**. §4.5/§4.6/§4.1 첫 task/§4.8 일부는 SKIP — server phase (`todo-lighthouse-kb-server.md`) 가 흡수.
+**대안 B (r5/r6) 적용 후 Phase 1 = lib 본체 + lib unit test 만**. §4.5/§4.6/§4.1 첫 task/§4.8 일부는 SKIP — server phase (`done-lighthouse-kb-server.md`) 가 흡수.
 
-1. **본 문서 + `todo-lighthouse-kb-server.md` 의 §0 D-id 정의표 + §3.14 회귀 매트릭스** 동시 정독 (§0 의 진행 상태 요약 부터).
+1. **본 문서 + `done-lighthouse-kb-server.md` 의 §0 D-id 정의표 + §3.14 회귀 매트릭스** 동시 정독 (§0 의 진행 상태 요약 부터).
 2. 진입 시 grep / 사실 재확인 (§6.13 박제 stale 위험):
    - `ModelContextProtocol.AspNetCore` 버전 (nuget list 로 최신 stable + breaking change 확인)
    - `Directory.Packages.props` 두 위치 (Solutions / Apps/Promaker) 의 CPM 적용 범위 + PdfPig 위치
@@ -931,5 +924,5 @@ dock 패널 "Attachments" 폐기. KB UI 는 KbManagerDialog (§4.5) 가 전담. 
 5. **Phase 1 의 §4.3/§4.4/§4.8 lib unit test** 까지 진행. §4.5 (Promaker 통합) / §4.6 (`5.knowledge-base.md`) 는 진행 *금지* — server phase 흡수.
 6. MEMORY.md `## Project` 에 본 todo 등록 (주의 사항 11).
 7. Phase 1 4.2a 진입 전 `Solutions/Core/Ds2.LlmAgent/doc/todo-llm-chat-attachment.md` (active) 의 최근 commit 동기화 (주의 사항 12).
-8. Phase 1 lib 본체 완료 → server phase 진입 confirm 받기 (`todo-lighthouse-kb-server.md` Phase S0 → S1).
+8. Phase 1 lib 본체 완료 → server phase 진입 confirm 받기 (`done-lighthouse-kb-server.md` Phase S0 → S1).
 9. commit message — (i) 키워드 LightHouse/KB/MCP/attachment_search 포함 (4줄 이내), (ii) SQLite 채택 관련 안내는 §6.4 SSOT 참조, (iii) rev 표 footnote 로 "외부 reviewer N명 검증 반영 통합본" 명시.

@@ -96,7 +96,7 @@ public sealed class LlmConfig
 
     // ─── VLM (Vision Language Model) — Phase 2 task D (s6-r20) ────────────────────────────────────
     //
-    // **D-2-1 / D-2-5 / D-2-6 SSOT** (todo-lighthouse-kb-server.md §0):
+    // **D-2-1 / D-2-5 / D-2-6 SSOT** (done-lighthouse-kb-server.md §0):
     //   - 1차 default = Anthropic + Sonnet 4.6 (parent CR2 정합)
     //   - client-side 색인 시점 호출 (eager at indexing time, D-2-2)
     //   - VLM API key = 본 LlmConfig 의 EncryptedKeys (DPAPI per-user) 재활용
@@ -121,7 +121,7 @@ public sealed class LlmConfig
 
     // ─── Vision Cost Gate — Phase 2 task E (s6-r20, MR4 정합) ─────────────────────────────────────
     //
-    // **MR4 SSOT** (todo-lighthouse-kb-index.md §3.15.5):
+    // **MR4 SSOT** (done-lighthouse-kb-index.md §3.15.5):
     //   - daily 한도 (default 10K token) → 초과 시 caption 생성 skip (NULL 유지, 다음 day 재시도)
     //   - soft warning 80% 도달 시 KbManagerDialog chip 안내 (UI 측 hook)
     //   - 색인 진입 전 confirm dialog (예상 token = image 수 × 평균 300 token 산정)
@@ -132,7 +132,7 @@ public sealed class LlmConfig
     [JsonPropertyName("visionCostGate")]
     public VisionCostGate VisionCostGate { get; set; } = new();
 
-    // ─── LightHouse Service (todo-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5) ────────────────
+    // ─── LightHouse Service (done-lighthouse-kb-server.md §3.4 / §3.7 / Phase S5) ────────────────
 
     /// <summary>
     /// 등록된 KB collection 의 active 셋 (T1 flat). Promaker startup 시 1회 GET /collections 로 server registry sync.
@@ -155,7 +155,7 @@ public sealed class LlmConfig
     public LightHouseServiceConfig? LightHouseService { get; set; }
 
     /// <summary>
-    /// **D-S7-3a (s6-r29) — multi-service routing SSOT** (todo-lighthouse-kb-server.md §3.16 D-S7-3).
+    /// **D-S7-3a (s6-r29) — multi-service routing SSOT** (done-lighthouse-kb-server.md §3.16 D-S7-3).
     /// <para/>
     /// LightHouse service 의 N개 동시 보유. 각 entry 는 <see cref="LightHouseServiceConfig.ServiceId"/> guid v4 로
     /// 식별. <see cref="KbCollectionEntry.ServiceId"/> 가 본 list 의 ServiceId 를 참조하여 collection 의 소속 service
@@ -876,7 +876,7 @@ public enum VisionCostGateStatus
 }
 
 /// <summary>
-/// LlmConfig.KbCollections 의 entry (todo-lighthouse-kb-server.md §3.4).
+/// LlmConfig.KbCollections 의 entry (done-lighthouse-kb-server.md §3.4).
 ///
 /// CollectionId = server 가 첫 POST /collections 응답에 발급한 guid v4 (D3).
 /// DisplayName = 사용자 표시 이름 (사용자가 KbManagerDialog 에 입력. server 의 displayName 과 정합 유지).
@@ -902,7 +902,7 @@ public sealed class KbCollectionEntry
 }
 
 /// <summary>
-/// LightHouse Service 연결 정보 (todo-lighthouse-kb-server.md §3.4 / §3.7 / §3.16 D-S7-3).
+/// LightHouse Service 연결 정보 (done-lighthouse-kb-server.md §3.4 / §3.7 / §3.16 D-S7-3).
 ///
 /// BaseUrl = HTTPS-only (plain HTTP 거부, §3.7). 사내 service URL (e.g. https://service.company.local:8443).
 /// ApiKeyEncrypted = DPAPI(CurrentUser) base64 of PSK. 평문 ApiKey 키 사용 금지 (CR4).

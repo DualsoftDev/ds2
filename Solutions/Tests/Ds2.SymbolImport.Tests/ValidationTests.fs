@@ -15,7 +15,7 @@ let ``V-S1: unmatched 심볼 있으면 Warning`` () =
         entry "" "X0" SymbolDirection.Input
         entry "RANDOM_UNKNOWN_NAME" "X1" SymbolDirection.Input
     ]
-    let batch = Mapper.map entries
+    let batch = Mapper.map Mitsubishi entries
     let plans = ModelGenerator.generate batch
     let issues = Validation.validate batch plans
     Assert.Contains(issues, fun i -> i.Code = "V-S1" && i.Severity = Validation.Warning)

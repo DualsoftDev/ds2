@@ -118,6 +118,44 @@ type DsStoreNodesExtensions =
             DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem systemType)
         store.EmitRefreshAndHistory()
 
+    /// Symbol Import Wizard 등 import 경로 전용 — Call/ApiCall 생성과 동시에 OutTag/InTag 채움.
+    /// entries = (callName, outTag, inTag) — outTag/inTag 가 null 이면 None 으로 저장.
+    /// 1 transaction 으로 묶여 Undo 1회 단위 + EmitRefresh 1회.
+    /// 반환값: 실제 태그가 적용된 Call 개수 (callName 으로 work 내 Call lookup 후 ApiCall.[0] 채움).
+    [<Extension>]
+    static member AddCallsWithDeviceAndTags(
+            store: DsStore, projectId: Guid, workId: Guid,
+            entries: System.Collections.Generic.IReadOnlyList<struct (string * IOTag * IOTag)>,
+            createDeviceSystem: bool, systemType: string option) : int =
+        if isNull (box entries) || entries.Count = 0 then 0
+        else
+            let entryList = [ for e in entries -> let struct (n, o, i) = e in (n, o, i) ]
+            let names = entryList |> List.map (fun (n, _, _) -> n)
+            StoreLog.debug($"AddCallsWithDeviceAndTags projectId={projectId}, workId={workId}, count={names.Length}")
+            StoreLog.requireWork(store, workId) |> ignore
+            if createDeviceSystem && (names |> List.exists DirectDeviceOps.hasCreatableApiName) then
+                StoreLog.requireProject(store, projectId) |> ignore
+            let mutable applied = 0
+            store.WithTransaction("Wizard Apply Calls + Tags", fun () ->
+                DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem systemType
+                // workId 의 Calls 중 entries 와 매칭되는 Call 의 ApiCall.[0] 에 tag 채움.
+                // 같은 이름 다중 추가는 마지막 매칭 1개만 — Wizard plan 의 distinct 보장 가정.
+                let workCalls =
+                    store.Calls.Values
+                    |> Seq.filter (fun c -> c.ParentId = workId)
+                    |> Seq.toList
+                for (callName, outTag, inTag) in entryList do
+                    let matched = workCalls |> List.filter (fun c -> c.Name = callName) |> List.tryLast
+                    match matched with
+                    | Some call when call.ApiCalls.Count > 0 ->
+                        let apiCall = call.ApiCalls.[0]
+                        apiCall.OutTag <- Option.ofObj outTag
+                        apiCall.InTag <- Option.ofObj inTag
+                        applied <- applied + 1
+                    | _ -> ())
+            store.EmitRefreshAndHistory()
+            applied
+
     [<Extension>]
     static member AddCallWithLinkedApiDefs(store: DsStore, workId: Guid, devicesAlias: string, apiName: string, apiDefIds: Guid seq) : Guid =
         StoreLog.debug($"workId={workId}, devicesAlias={devicesAlias}, apiName={apiName}")

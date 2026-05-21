@@ -53,7 +53,7 @@ let ``LSEV_CCS COMMENT.csv parse — 23K 줄 / UTF-16 LE / 예외 없음`` () =
 let ``LSEV_CCS COMMENT.csv full flow — parse → map → generate → validate (예외 없음)`` () =
     if not (File.Exists fixturePath) then () else
     let parseResult = CsvParser.parseFile Mitsubishi fixturePath
-    let batch = Mapper.map parseResult.Entries
+    let batch = Mapper.map Mitsubishi parseResult.Entries
     let plans = ModelGenerator.generate batch
     let _ = Validation.validate batch plans
 
@@ -77,7 +77,7 @@ let ``LSEV_CCS COMMENT.csv full flow — parse → map → generate → validate
 let ``LSEV_CCS COMMENT.csv — Controller plan + Device plan 적어도 1개씩 생성`` () =
     if not (File.Exists fixturePath) then () else
     let parseResult = CsvParser.parseFile Mitsubishi fixturePath
-    let batch = Mapper.map parseResult.Entries
+    let batch = Mapper.map Mitsubishi parseResult.Entries
     let plans = ModelGenerator.generate batch
     // Controller 1개 + Device N개.
     Assert.Contains(plans, fun p -> p.IsActive && p.Name = "Controller")
@@ -89,7 +89,7 @@ let ``LSEV_CCS COMMENT.csv — Controller plan + Device plan 적어도 1개씩 �
 let ``LSEV_CCS COMMENT.csv — Mapped 결과의 모든 ApiDef 가 v10 ActionType=Real, SensingType=Real 형식`` () =
     if not (File.Exists fixturePath) then () else
     let parseResult = CsvParser.parseFile Mitsubishi fixturePath
-    let batch = Mapper.map parseResult.Entries
+    let batch = Mapper.map Mitsubishi parseResult.Entries
     let plans = ModelGenerator.generate batch
     // Device plan 의 모든 ApiDef.ActionType / SensingType 검사.
     let devicePlans = plans |> List.filter (fun p -> not p.IsActive)
@@ -110,3 +110,37 @@ let ``자동차 차체 COMMENT.csv parse — 30K 줄 smoke`` () =
     let result = CsvParser.parseFile Mitsubishi carbodyPath
     Assert.True(result.Entries.Length > 100,
         sprintf "entries=%d (예상 > 100)" result.Entries.Length)
+
+/// 회귀 가드 — V10 위반 (Call.OutTag/InTag None) 의 직접 검증.
+/// Mitsubishi vendor MappingSets 가 매칭 엔진에 합쳐졌다면 ApiCall 의 *상당수* 가 OutTag+InTag 페어를 가져야 한다.
+/// 이전 (Common 만 사용) 에는 vendor 특화 룰이 안 돌아서 OutTag/InTag None 비율이 매우 높았음.
+/// 본 가드는 페어 비율 임계값을 두진 않고, 적어도 OutTag 또는 InTag 가 채워진 매핑이 다수 존재하는지 확인.
+[<Fact>]
+let ``LSEV_CCS COMMENT.csv — Mapped 중 OutTag+InTag 둘 다 있는 페어가 다수 존재 (V10 회귀 가드)`` () =
+    if not (File.Exists fixturePath) then () else
+    let parseResult = CsvParser.parseFile Mitsubishi fixturePath
+    let batch = Mapper.map Mitsubishi parseResult.Entries
+    let plans = ModelGenerator.generate batch
+    // Controller plan 의 모든 Call 을 평탄화.
+    let allCalls =
+        plans
+        |> List.filter (fun p -> p.IsActive)
+        |> List.collect (fun p -> p.Flows |> List.collect (fun f -> f.Works |> List.collect (fun w -> w.Calls)))
+    let bothTagCount =
+        allCalls
+        |> List.filter (fun c -> c.OutTag.IsSome && c.InTag.IsSome)
+        |> List.length
+    let anyTagCount =
+        allCalls
+        |> List.filter (fun c -> c.OutTag.IsSome || c.InTag.IsSome)
+        |> List.length
+    // Mapped 가 충분히 있는 fixture 인데 OutTag+InTag 둘 다 채워진 Call 이 0 이면 vendor 룰 회귀.
+    Assert.True(
+        bothTagCount > 0,
+        sprintf "Call 총 %d 건 중 OutTag+InTag 둘 다 있는 페어 0건 — vendor MappingSets 회귀"
+            allCalls.Length)
+    // 적어도 한쪽 태그라도 있는 Call 이 절반 이상 — Common 만으로는 거의 0 이었음.
+    Assert.True(
+        anyTagCount * 2 > allCalls.Length,
+        sprintf "Call %d 건 중 태그 있는 게 %d 건 (절반 미만) — vendor 매칭 부족"
+            allCalls.Length anyTagCount)
