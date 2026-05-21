@@ -67,5 +67,7 @@
   <!-- Promaker.Agent (Windows Service 헤드리스 모니터링) -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <!-- Promaker.AgentTray 가 sc 서비스 상태/start mode 조회에 사용 (DSPilot.csproj 와 동일 버전). -->
+    <PackageVersion Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
   </ItemGroup>
 </Project>

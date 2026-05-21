@@ -30,6 +30,8 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
+    <!-- IsAgentAvailable 가 PromakerAgentService 등록 여부까지 검증 (시나리오 C 가드). -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
     <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />

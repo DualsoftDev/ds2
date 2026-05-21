@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -43,6 +44,8 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// TryStartHost 가 자체 BackendHost.start 대신 active.flag 를 쓴 경우 true → Stop 에서 TryDeactivate.
     private bool                      _delegatedToAgent;
 
+    private const string AgentServiceName = "PromakerAgentService";
+
     /// <summary>설치된 Promaker.Agent.exe 의 경로 (있으면). 없으면 null — 자체 BackendHost 호스팅으로 fallback.
     /// 설치 스크립트는 {app}\Agent\Promaker.Agent.exe 로 번들한다. 개발 환경에서는 publish 디렉터리 직접 가리키도록
     /// PROMAKER_AGENT_EXE 환경변수 override 지원.</summary>
@@ -57,8 +60,29 @@ public sealed partial class SimulationHubBridge : ObservableObject
         return File.Exists(candidate) ? candidate : null;
     });
 
-    /// <summary>Promaker.Agent (서비스) 가 설치되어 있어 Monitoring+RealPlc 5051 호스팅을 위임할 수 있는지.</summary>
-    public static bool IsAgentAvailable => AgentExePath.Value is not null;
+    /// <summary>PromakerAgentService 가 SCM 에 등록되어 있는지. 등록되어 있으면 status 접근이 성공.
+    /// 미등록(=설치 시 옵트인 해제) 이면 InvalidOperationException → false.
+    /// Lazy 하지 않음 — 사용자가 설치/제거를 런타임 중에 할 수 있어 매번 fresh check.</summary>
+    private static bool IsAgentServiceRegistered()
+    {
+        try
+        {
+            using var sc = new ServiceController(AgentServiceName);
+            // Status 접근이 실제 SCM 조회 트리거. 미등록이면 여기서 throw.
+            var _ = sc.Status;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Promaker.Agent 가 설치 + 서비스 등록 둘 다 만족할 때만 true.
+    /// 시나리오 C 가드: 파일은 번들로 깔리지만 사용자가 "재부팅 시 자동 실행" 체크 안 했을 때
+    /// 파일 존재만으로 위임하면 5051 호스트 부재로 무한 retry → 옛 self-host 분기로 안전 폴백.</summary>
+    public static bool IsAgentAvailable =>
+        AgentExePath.Value is not null && IsAgentServiceRegistered();
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;

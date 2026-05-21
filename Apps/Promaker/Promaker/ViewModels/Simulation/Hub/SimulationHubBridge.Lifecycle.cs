@@ -385,12 +385,15 @@ public sealed partial class SimulationHubBridge
         _reconnectStabilizationCts = null;
         SetStatus(false, false);
 
-        // Agent 위임 상태였다면 active.flag 삭제 — Agent 가 supervisor watch 로 idle 전이.
-        // session.json 은 유지해서 다음 PLAY 시 동일 설정 자동 복원 (AgentSession.TryDeactivate 의 의도).
+        // ── Sticky monitoring 정책 ──────────────────────────────────────────────
+        // Agent 위임 상태일 때 WPF Stop()(=Simulation Stop 버튼 또는 mode 전환) 은 더 이상 active.flag 를
+        // 삭제하지 않는다. 사용자가 한 번 PLAY 한 모니터링은 WPF 닫기/재부팅에 무관하게 계속 유지되어야 함
+        // (요청 사양: "한번 모니터링 해놓으면 재부팅시 agent 가 모니터링을 계속" ).
+        // 명시적 모니터링 정지 책임은 Promaker.AgentTray 의 "모니터링 정지" 메뉴 또는
+        // 직접 `del %ProgramData%\DualSoft\Shared\agent\active.flag` / `sc stop PromakerAgentService` 가 진다.
+        // _delegatedToAgent 만 reset — WPF 측 잔여 상태 해제.
         if (_delegatedToAgent)
         {
-            try { AgentSession.TryDeactivate(); }
-            catch (Exception ex) { SimLog.Warn("AgentSession.TryDeactivate failed", ex); }
             _delegatedToAgent = false;
         }
 

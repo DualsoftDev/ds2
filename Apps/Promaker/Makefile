@@ -76,7 +76,7 @@ LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
 LH_PUBLISH_DIR   := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/publish)
 LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
 
-.PHONY: help dist dist-installer publish publish-agent iscc clean install light-house
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean install light-house
 
 help:
 	@echo "Promaker installer Makefile"
@@ -137,7 +137,21 @@ publish-agent:
 		-o "$(AGENT_PUBLISH)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-iscc: publish publish-agent
+# Promaker.AgentTray — Agent 상태 노출용 사용자 컨텍스트 트레이 (WPF).
+# Setup.iss 의 HasAgentTray 매크로가 동일하게 산출물 존재 시에만 번들/HKCU\Run 등록.
+AGENT_TRAY_PROJECT := Promaker.AgentTray/Promaker.AgentTray.csproj
+AGENT_TRAY_PUBLISH := $(abspath Promaker.AgentTray/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
+
+publish-agenttray:
+	@echo "=== dotnet restore (Promaker.AgentTray) ==="
+	dotnet restore "$(AGENT_TRAY_PROJECT)" --verbosity quiet
+	@echo "=== dotnet publish Promaker.AgentTray ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
+	dotnet publish "$(AGENT_TRAY_PROJECT)" -c Release -r win-x64 \
+		--self-contained $(SELF_CONTAINED) \
+		-o "$(AGENT_TRAY_PUBLISH)" \
+		-p:DebugType=none -p:DebugSymbols=false -m:1
+
+iscc: publish publish-agent publish-agenttray
 	@if [ ! -f "$(ISCC)" ]; then \
 		echo "[ERROR] Inno Setup compiler not found: $(ISCC)" >&2; \
 		echo "        Install Inno Setup 6 or override ISCC=..."  >&2; \
@@ -150,6 +164,7 @@ iscc: publish publish-agent
 	MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
 	"$(ISCC)" /DPublishDir="$(PUBLISH_DIR)" \
 	          /DAgentPublishDir="$(AGENT_PUBLISH)" \
+	          /DAgentTrayPublishDir="$(AGENT_TRAY_PUBLISH)" \
 	          /DSelfContainedMode="$(SELF_CONTAINED)" \
 	          /DOutputSuffix="$(OUTPUT_SUFFIX)" \
 	          "$(SETUP_ISS)"
@@ -159,6 +174,7 @@ clean:
 	-rm -rf Installer/Output
 	-rm -rf Promaker/bin Promaker/obj
 	-rm -rf Promaker.Agent/bin Promaker.Agent/obj
+	-rm -rf Promaker.AgentTray/bin Promaker.AgentTray/obj
 	-rm -rf Promaker.Shared/bin Promaker.Shared/obj
 
 # ── LightHouse Service (dev/PoC) ───────────────────────────
