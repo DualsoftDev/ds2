@@ -35,6 +35,15 @@ module CliProcessHost =
             if redacted.Length > 200 then redacted.Substring(0, 200) + "…"
             else redacted
 
+    // VS-번들 F# 컴파일러 (VS 18 / Common7\IDE\CommonExtensions\Microsoft\FSharp\Tools)
+    // refint pass2 가 task CE finally 블록 안의 inner function `fmt` 를 같은 closure
+    // method 로 두 번 emit ("duplicate entry 'fmt@<line>' in method table") → module-level
+    // 로 분리. SDK 9.0.312 의 F# 컴파일러로는 재현 안 됨.
+    let private fmtMs (v: int64 voption) =
+        match v with
+        | ValueSome x -> string x
+        | ValueNone -> "-"
+
     /// CLI process 를 stream LlmEvent 로 어댑트하기 위한 사양.
     type Spec = {
         /// 실행 파일 경로 (이미 PATH 검색 끝낸 fully-qualified 또는 raw name).
@@ -258,10 +267,6 @@ module CliProcessHost =
                     with ex -> Log.provider.Warn($"{spec.Label} OnFinally cleanup 실패: {ex.Message}", ex)
                     // 진단 로깅 — CLI provider 단계별 wall-clock (timingSw 기점 누적). 모든 경로
                     // (정상 / cancel / fault / spawn 실패) 에서 1회 출력. ValueNone 은 "-" 로 표기.
-                    let fmt (v: int64 voption) =
-                        match v with
-                        | ValueSome x -> string x
-                        | ValueNone -> "-"
                     let stdinLen =
                         match spec.Stdin with
                         | Some s -> s.Length
@@ -278,14 +283,14 @@ module CliProcessHost =
                     Log.provider.Info(
                         sprintf "[timing] %s spawn=%s stdinDone=%s firstStdout=%s firstSession=%s firstAssistant=%s firstThinking=%s firstToolUse=%s firstToolResult=%s total=%dms stdinLen=%d exit=%s"
                             spec.Label
-                            (fmt processStartedMs)
-                            (fmt stdinDoneMs)
-                            (fmt firstStdoutMs)
-                            (fmt firstSessionStartedMs)
-                            (fmt firstAssistantMs)
-                            (fmt firstThinkingMs)
-                            (fmt firstToolUseMs)
-                            (fmt firstToolResultMs)
+                            (fmtMs processStartedMs)
+                            (fmtMs stdinDoneMs)
+                            (fmtMs firstStdoutMs)
+                            (fmtMs firstSessionStartedMs)
+                            (fmtMs firstAssistantMs)
+                            (fmtMs firstThinkingMs)
+                            (fmtMs firstToolUseMs)
+                            (fmtMs firstToolResultMs)
                             totalMs
                             stdinLen
                             exitStr)
