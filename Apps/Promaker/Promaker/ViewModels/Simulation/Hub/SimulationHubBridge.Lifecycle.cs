@@ -6,6 +6,7 @@ using Ds2.Backend;
 using Ds2.Backend.Common;
 using Ds2.Core;
 using Microsoft.AspNetCore.SignalR.Client;
+using Promaker.Shared;
 
 namespace Promaker.ViewModels;
 
@@ -101,7 +102,9 @@ public sealed partial class SimulationHubBridge
         }
     }
 
-    /// <summary>Host 띄우기 — PLC 게이트웨이 동반 (실 PLC) 또는 idle. PLC 검증 실패 시 false.</summary>
+    /// <summary>Host 띄우기 — PLC 게이트웨이 동반 (실 PLC) 또는 idle. PLC 검증 실패 시 false.
+    /// Monitoring + 실 PLC + Promaker.Agent 설치 환경에서는 자체 BackendHost 대신 active.flag 를 써서
+    /// Agent (Windows Service) 에 5051 호스팅을 위임. 그 외(Control / PLC 미연결) 경로는 기존 그대로.</summary>
     private bool TryStartHost()
     {
         var isMonitoring = _runtimeMode() == RuntimeMode.Monitoring;
@@ -115,14 +118,42 @@ public sealed partial class SimulationHubBridge
                 _setStatusText("PLC 설정 오류 — Hub 시작 중단");
                 return false;
             }
+
+            // ── Monitoring + 실 PLC + Agent 설치됨 → Agent 위임 경로 ──
+            // BackendHost 자체 호스팅 대신 active.flag/session.json 만 쓰고, 클라이언트로 5051 에 접속.
+            // Agent 서비스가 변화 감지 → AASX 로드 → BackendHost.startReadOnly(5051) → PLC 스캔 시작.
+            if (isMonitoring && IsAgentAvailable)
+            {
+                // PLC 설정은 다이얼로그 OK 시점에 이미 SharedPaths.PlcConnectionFilePath 에 저장됨 (PlcSettings.Save).
+                // 명시적으로 한 번 더 호출해 race / 첫 PLAY 누락 방지.
+                _plcSettings().Save();
+
+                var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker");
+                if (!session.TryWrite())
+                {
+                    _addSimLog("Agent active.flag 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
+                    _setStatusText("Agent 위임 실패");
+                    return false;
+                }
+                _delegatedToAgent = true;
+                _hubHost = null;       // 우리가 host 가 아님.
+                IsHosting = false;
+                var ps = _plcSettings();
+                _addSimLog(
+                    $"Promaker.Agent 에 모니터링 위임 (5051, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port}). " +
+                    "Agent 서비스가 미실행 상태면 'sc start PromakerAgentService' 로 시작하세요.",
+                    LogSeverity.System);
+                return true;
+            }
+
             // Monitoring 은 readOnly 진입점으로 — SignalHub 가 클라이언트 WriteTag/WriteTags 거부.
             _hubHost = isMonitoring
                 ? BackendHost.startWithPlcConfigReadOnly(ParsePort(), plcConfig)
                 : BackendHost.startWithPlcConfig(ParsePort(), plcConfig);
             var roTag = isMonitoring ? " [read-only]" : "";
-            var ps = _plcSettings();
+            var ps2 = _plcSettings();
             _addSimLog(
-                $"SignalR Hub + PLC 게이트웨이 시작{roTag} (port={ParsePort()}, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port})",
+                $"SignalR Hub + PLC 게이트웨이 시작{roTag} (port={ParsePort()}, vendor={ps2.Vendor}, ip={ps2.IpAddress}:{ps2.Port})",
                 LogSeverity.System);
         }
         else
@@ -353,6 +384,15 @@ public sealed partial class SimulationHubBridge
         _reconnectStabilizationCts?.Dispose();
         _reconnectStabilizationCts = null;
         SetStatus(false, false);
+
+        // Agent 위임 상태였다면 active.flag 삭제 — Agent 가 supervisor watch 로 idle 전이.
+        // session.json 은 유지해서 다음 PLAY 시 동일 설정 자동 복원 (AgentSession.TryDeactivate 의 의도).
+        if (_delegatedToAgent)
+        {
+            try { AgentSession.TryDeactivate(); }
+            catch (Exception ex) { SimLog.Warn("AgentSession.TryDeactivate failed", ex); }
+            _delegatedToAgent = false;
+        }
 
         var batchSender = _hubBatchSender;
         _hubBatchSender = null;

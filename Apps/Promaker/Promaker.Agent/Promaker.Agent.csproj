@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Promaker.Agent</RootNamespace>
+    <AssemblyName>Promaker.Agent</AssemblyName>
+    <!-- Version 은 Promaker 와 동일 SSOT (Directory.Build.props 가 BuildVersion.txt 주입). -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- MSB3277: Dual.Common.Base.FS 가 System.ServiceProcess.ServiceController 9.0.0.5 를 끌어오고
+         Microsoft.Extensions.Hosting.WindowsServices 9.0.0 은 9.0.0.0 을 끌어와 minor 충돌.
+         실런타임에는 9.0.0.5 가 binding redirect 로 사용되어 무해 — DSPilot.csproj 와 동일 처리. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="log4net" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 헤드리스 모니터링 핵심: BackendHost(5051 read-only SignalR Hub + PLC Scan).
+         Promaker WPF Monitoring + RealPLC 분기가 호출하던 BackendHost.startWithPlcConfigReadOnly 를
+         Agent 가 SYSTEM 컨텍스트에서 대신 호출. -->
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
+    <!-- AASX → DsStore 로드 (shared project.aasx 읽어 IOMap 빌드). -->
+    <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <!-- DsStore, SignalIOMap. -->
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <!-- 공유 POCO + 경로 + Gateway 빌더 (Phase 0 산출물). -->
+    <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

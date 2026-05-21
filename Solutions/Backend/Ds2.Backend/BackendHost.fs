@@ -17,12 +17,13 @@ module BackendHost =
     /// scan service 는 idle, SignalHub.ForwardToPlc 분기는 no-op.
     let private emptyConfig : PlcGatewayConfig = { Connections = [] }
 
-    /// BackendHost 시작.
-    /// - port: SignalR Hub 포트. None 이면 5050.
-    /// - plcConfig: 실 PLC 연동 설정. None 이면 PLC 게이트웨이 등록만 하고 idle.
-    /// - readOnly: true 면 SignalHub 가 클라이언트 WriteTag/WriteTags 를 거부 — Monitoring 모드용.
-    let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) (readOnly: bool) =
-        let p = port |> Option.defaultValue defaultPort
+    /// 모든 entry point 가 공유하는 호스트 부트스트랩 — 빌더 생성, DI 등록, Hub map, StartAsync.
+    /// configureBuilder: 빌더 생성 직후 호출되는 hook. Promaker.Agent 가 Host.UseWindowsService() 주입에 사용.
+    let private bootstrap
+            (port: int)
+            (plcConfig: PlcGatewayConfig option)
+            (readOnly: bool)
+            (configureBuilder: WebApplicationBuilder -> unit) =
         SignalHub.ClearTagCache()
         SignalHub.SetReadOnly(readOnly)
         // Monitoring(read-only) 은 초기 동기 PLC 스캔 생략 — PLC 응답 지연이 UI 를 freeze 시키는 문제 차단.
@@ -30,6 +31,7 @@ module BackendHost =
         PlcScanService.SetSkipInitialScan(readOnly)
 
         let builder = WebApplication.CreateBuilder()
+        configureBuilder builder
         builder.Services.AddSignalR() |> ignore
 
         let cfg = plcConfig |> Option.defaultValue emptyConfig
@@ -39,10 +41,18 @@ module BackendHost =
         builder.Services.AddHostedService<PlcScanService>() |> ignore
 
         let app = builder.Build()
-        app.Urls.Add($"http://localhost:{p}")
+        app.Urls.Add($"http://localhost:{port}")
         app.MapHub<SignalHub>(hubPath) |> ignore
         app.StartAsync() |> Async.AwaitTask |> Async.RunSynchronously
         app
+
+    /// BackendHost 시작.
+    /// - port: SignalR Hub 포트. None 이면 5050.
+    /// - plcConfig: 실 PLC 연동 설정. None 이면 PLC 게이트웨이 등록만 하고 idle.
+    /// - readOnly: true 면 SignalHub 가 클라이언트 WriteTag/WriteTags 를 거부 — Monitoring 모드용.
+    let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) (readOnly: bool) =
+        let p = port |> Option.defaultValue defaultPort
+        bootstrap p plcConfig readOnly (fun _ -> ())
 
     /// 기존 호출자 호환 entry — PLC 미연결 모드.
     let start (port: int option) =
@@ -55,6 +65,16 @@ module BackendHost =
     /// Monitoring 모드용 — PLC 스캔만 하고 클라이언트 write 는 거부.
     let startWithPlcConfigReadOnly (port: int) (plcConfig: PlcGatewayConfig) =
         startWithPlc (Some port) (Some plcConfig) true
+
+    /// Promaker.Agent 등 호스트 lifecycle 을 커스터마이즈해야 하는 호출자용 entry.
+    /// configureBuilder 에서 Host.UseWindowsService() 등을 주입할 수 있다.
+    /// C# 에서 람다 그대로 전달 가능 — Action<WebApplicationBuilder>.
+    let startWithBuilderConfig
+            (port: int)
+            (plcConfig: PlcGatewayConfig)
+            (readOnly: bool)
+            (configureBuilder: Action<WebApplicationBuilder>) =
+        bootstrap port (Some plcConfig) readOnly (fun b -> configureBuilder.Invoke(b))
 
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()
