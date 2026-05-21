@@ -1343,6 +1343,33 @@ let ``pptx — 단일 slide 안 PNG+BMP+PNG 혼합 (review M9) — BMP whitelist
             Assert.Equal("slide=1", img.RefLocator)
             Assert.Equal(Png, img.Format)))
 
+// ────────────────────────────────────────────────────────────────────────────────
+//  Plan 3 — EMF/WMF Metafile → PNG 변환
+// ────────────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``docx + image/x-emf + 손상 bytes (Plan 3) — Metafile 변환 실패 + per-image fail-safe`` () =
+    // ConvertImagePart 의 EMF/WMF 분기 진입 검증 + per-image fail-safe path.
+    // raw PNG bytes 를 image/x-emf ContentType 박제 → Metafile ctor 가 ArgumentException 또는 ExternalException
+    // → ConvertImagePart None 반환 → image 미박제 (ExtractImagesAtRefLocator 의 Ordinal 자리 보존 정합).
+    //
+    // **검증 한계 (review Plan3 M-2)** — `Assert.Empty(result.Images)` 만 검증 → 다음 두 path 구분 못함:
+    //   (a) EMF/WMF case 진입 → Metafile throw → catch → None (의도된 path)
+    //   (b) `_ -> None` (whitelist 외 fall-through) — 만약 누군가 `"image/x-emf"` 패턴 오타 시 silent green.
+    // 직접 분기 진입 검증은 log capture sink (xunit InMemorySink) 도입 의무 — 별 turn backlog.
+    // 현 보강 — control PNG case 와 대조 검증 (`docx + inline Drawing image format 화이트리스트 분기` Theory) 이
+    // image/png/jpeg/gif/webp 4종은 성공 박제 → 본 fact 의 EMF skip 이 *whitelist 외 자연 skip* 정합.
+    //
+    // 실 EMF bytes fixture (mkMinimalEmfBytes via System.Drawing Metafile + Graphics) 는 GDI+ 의존 의무로
+    // backlog — 변환 성공 path 의 e2e 검증은 사용자 실 .xlsx 색인 결과로 대체.
+    withTempPath ".docx" (fun path ->
+        makeDocxWithInlineImage path "image/x-emf" samplePngBytes
+        use ext = new OoxmlExtractor() :> IExtractor
+        let result = ext.Extract(path, CancellationToken.None)
+        // 변환 실패 → image 미박제 (per-image fail-safe + Ordinal 자리 보존).
+        Assert.Empty(result.Images))
+
+
 [<Fact>]
 let ``docx — file lock 시 IOException → ExtractWithFailSafe arm + Docx 빈 결과 (review M10)`` () =
     // ExtractWithFailSafe 7종 catch arm 중 IOException 회귀 차단. FileShare.None 으로 lock 후 Extract 시도
