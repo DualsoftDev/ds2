@@ -100,6 +100,7 @@ type AttachmentTools() =
             r)
 
     /// FileKind DU → JSON 직렬화용 string (lower-case 통일).
+    /// SqliteStore.docTypeToString 과 정합 의무 — DU 추가 시 양쪽 동기 갱신.
     static let fileKindString (k: Ds2.LightHouse.FileKind) : string =
         match k with
         | Ds2.LightHouse.Pdf -> "pdf"
@@ -108,6 +109,7 @@ type AttachmentTools() =
         | Ds2.LightHouse.Xlsx -> "xlsx"
         | Ds2.LightHouse.Text -> "txt"
         | Ds2.LightHouse.Markdown -> "md"
+        | Ds2.LightHouse.FileKind.Image -> "image"   // Task 7 — standalone image (RefUnit.Image 와 동명 → qualification 의무)
         | Ds2.LightHouse.Unsupported ext -> sprintf "unsupported(%s)" ext
 
     /// OutlineNodeType DU → JSON 직렬화용 string.

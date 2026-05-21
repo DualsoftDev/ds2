@@ -13,10 +13,12 @@
     <Compile Include="Models.fs" />
     <Compile Include="RefLocator.fs" />
     <Compile Include="Classifier.fs" />
+    <Compile Include="MetafileConverter.fs" />
     <Compile Include="Extractors\IExtractor.fs" />
     <Compile Include="Extractors\TextExtractor.fs" />
     <Compile Include="Extractors\PdfExtractor.fs" />
     <Compile Include="Extractors\OoxmlExtractor.fs" />
+    <Compile Include="Extractors\ImageExtractor.fs" />
     <Compile Include="Chunker.fs" />
     <Compile Include="SqliteStore.fs" />
     <Compile Include="ImageStore.fs" />

@@ -113,6 +113,8 @@ module SqliteStore =
             | :? IOException -> false
 
     let private docTypeToString (kind: FileKind) : string =
+        // qualified case `FileKind.Image` — RefUnit.Image (RefLocator.fs) 와 동명이라 F# 가 마지막 정의로 해석.
+        // FileKind.* 명시로 disambiguation (OutlineNodeType.* 패턴 정합).
         match kind with
         | Pdf -> "pdf"
         | Docx -> "docx"
@@ -120,6 +122,7 @@ module SqliteStore =
         | Xlsx -> "xlsx"
         | Text -> "txt"
         | Markdown -> "md"
+        | FileKind.Image -> "image"
         | Unsupported _ -> "unknown"
 
     let private outlineNodeTypeToString (t: OutlineNodeType) : string =

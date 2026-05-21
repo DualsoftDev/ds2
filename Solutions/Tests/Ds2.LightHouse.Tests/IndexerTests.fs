@@ -29,6 +29,7 @@ let private extractors () : IExtractor list = [
     new TextExtractor() :> IExtractor
     new PdfExtractor() :> IExtractor
     new OoxmlExtractor() :> IExtractor
+    new ImageExtractor() :> IExtractor
 ]
 
 let private noProgress (_: IngestProgress) = ()

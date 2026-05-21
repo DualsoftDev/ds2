@@ -110,6 +110,7 @@ module Packager =
             new TextExtractor() :> IExtractor
             new PdfExtractor() :> IExtractor
             new OoxmlExtractor() :> IExtractor
+            new ImageExtractor() :> IExtractor
         ]
         let progressCb (_: IngestProgress) = ()
         Indexer.ingest sourceFolder extractors captionGen embedderOpt progressCb ct

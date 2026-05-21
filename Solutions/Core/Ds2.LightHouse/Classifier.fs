@@ -16,6 +16,8 @@ module Classifier =
     /// 확장자 → FileKind 매핑 (소문자 + leading dot).
     ///
     /// Phase 1 활성: Pdf / Docx / Text / Markdown. Phase 2 활성 case 추가 시 본 map 만 갱신.
+    /// **Task 7 (r6)** — standalone image 6 종 활성 (PNG / JPEG / GIF / WEBP raw + EMF / WMF Metafile→PNG).
+    /// BMP / TIFF / SVG / ICO / HEIC 는 Phase 3 backlog (raster 변환 / SVG raster 추가 의존성 필요).
     let supportedExtensions : Map<string, FileKind> =
         Map.ofList [
             ".pdf",       Pdf
@@ -32,12 +34,21 @@ module Classifier =
             ".yml",       Text
             ".md",        Markdown
             ".markdown",  Markdown
+            ".png",       FileKind.Image
+            ".jpg",       FileKind.Image
+            ".jpeg",      FileKind.Image
+            ".gif",       FileKind.Image
+            ".webp",      FileKind.Image
+            ".emf",       FileKind.Image
+            ".wmf",       FileKind.Image
         ]
 
     /// 명시 색인 거부 확장자 — 비밀정보 / 실행파일 / 미디어 / 압축 (§6 m15).
     ///
     /// chat 측 `Ds2.LlmAgent.AttachmentClassifier.rejectedExtensions` 와 의미 일치하나 set 은 독립.
     /// `.env` 차단 사유: KB 가 LLM provider 로 송신될 수 있어 사용자 비밀 누출 방지 (consent 다이얼로그 정합).
+    /// **Task 7 (r6)** — raster 5종 (PNG/JPEG/GIF/WEBP) + vector 2종 (EMF/WMF) 활성 → rejected 제거.
+    /// BMP/TIFF/SVG/ICO/HEIC 는 Phase 3 backlog 으로 rejected 유지.
     let rejectedExtensions : Set<string> =
         Set.ofList [
             ".env"
@@ -46,7 +57,6 @@ module Classifier =
             ".mp4"; ".mov"; ".avi"; ".mkv"; ".webm"; ".flv"; ".wmv"
             ".mp3"; ".wav"; ".flac"; ".ogg"; ".m4a"; ".aac"
             ".bmp"; ".tiff"; ".tif"; ".svg"; ".ico"; ".heic"; ".heif"
-            ".png"; ".jpg"; ".jpeg"; ".gif"; ".webp"
         ]
 
     let private extOf (path: string) : string =
