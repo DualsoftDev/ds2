@@ -240,13 +240,15 @@ let private tableExists (conn: SqliteConnection) (table: string) : bool =
     Convert.ToInt32 (cmd.ExecuteScalar()) = 1
 
 [<Fact>]
-let ``s6-r49 #2 schema — IndexerVersion 2.1.0 / SchemaVersion 5 (L-Maj-10 mtime fast-skip)`` () =
+let ``PR-C schema — IndexerVersion 2.2.0 minor / SchemaVersion 5 (text dump file artifact 추가)`` () =
     // parent §3.17 정합 — schema 변경 동반 시 SchemaVersion 도 bump.
+    // **PR-C (todo-lighthouse-index-summary.md §3.3)**: 2.1.0 → 2.2.0 minor — TextDumper 가 색인 시 markdown
+    //   text dump file 생성 (.lighthouse-kb/text/<docId>-<filename>.md). DB schema 미변경 (SchemaVersion 5 유지) —
+    //   file artifact 추가만. range max="2.99.99" 그대로 — paired-release ps1 통과.
     // s6-r49 (#2 L-Maj-10): 2.0.0 → 2.1.0 minor + SchemaVersion 4 → 5 — Documents.FileMTimeTicks ALTER 컬럼 신설.
-    //   mtime/size 기반 fast-skip metadata, 기존 row NULL = legacy fallback.
     // s6-r34 (P4-A): 1.3.0 → 2.0.0 major + SchemaVersion 3 → 4 — Chunks_Vectors virtual table (sqlite-vec vec0).
     // s6-r22 (mn3): 1.2.0 → 1.3.0 minor + SchemaVersion 2 → 3 — ImageCache.MimeType NOT NULL DEFAULT.
-    Assert.Equal("2.1.0", IndexerVersion.Current)
+    Assert.Equal("2.2.0", IndexerVersion.Current)
     Assert.Equal("5", IndexerVersion.SchemaVersion)
 
 [<Fact>]
@@ -368,7 +370,7 @@ let ``Phase 2 schema — forward-compat: Phase 1 DB 에 ensureSchema 호출 시 
         // stampVersion 까지 호출되어야 Meta 갱신 — Indexer 진입 경로는 자동 (needsRebuild → shadow rebuild → stampVersion).
         SqliteStore.stampVersion upgraded
         Assert.Equal(Some "5", SqliteStore.getMeta upgraded "schema_version")
-        Assert.Equal(Some "2.1.0", SqliteStore.getMeta upgraded "indexer_version")
+        Assert.Equal(Some "2.2.0", SqliteStore.getMeta upgraded "indexer_version")
         // s6-r49 #2 (L-Maj-10): FileMTimeTicks 컬럼 ALTER 도 자동 추가 검증.
         Assert.Contains("FileMTimeTicks", tableColumns upgraded "Documents"))
 
