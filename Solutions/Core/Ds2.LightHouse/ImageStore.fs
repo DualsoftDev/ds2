@@ -200,6 +200,53 @@ module ImageStore =
         cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
         cmd.ExecuteNonQuery() |> ignore
 
+    /// `/indexer` skill (`todo-lighthouse-indexer-claude-caption.md` §2 #6/#12) — caption 미박제 image
+    /// row 의 SSOT enumeration. skill 진입 시 `lighthouse-cli list-pending-captions <folder>` 가 호출 → stdout JSON.
+    ///
+    /// **invariant**:
+    ///   - `ImageCache.CaptionText IS NULL` row 만 (이미 caption 박제된 row 자연 제외 — idempotent retry).
+    ///   - hash 당 1 row 보장 — `ImageReferences` 의 첫 rowid (대표 ref) 만 join → §2 #12 정합.
+    ///   - icon-skip 정책 자연 흡수 — icon 은 ImageCache row 자체 미생성, 본 query 진입 0.
+    ///
+    /// 반환 필드:
+    ///   - `Hash` = sha256 64 char lowercase.
+    ///   - `Ext` = `StoredPath` 의 확장자 (lowercase, leading dot 제거). subagent file path 박제용.
+    ///   - `RefLocator` = 대표 ref 의 locator (e.g. `slide:3`, `page:5`).
+    ///   - `DocPath` = 대표 ref 의 source document `OriginalPath` — user-facing message 박제용.
+    type CaptionPendingRecord = {
+        Hash: string
+        Ext: string
+        RefLocator: string
+        DocPath: string
+    }
+
+    let listPendingCaptions (conn: SqliteConnection) : CaptionPendingRecord seq =
+        use cmd = conn.CreateCommand()
+        // `ImageReferences.rowid` 기준 첫 ref 만 join — composite PK 에 (DocumentId, ImageHash, RefLocator, Ordinal)
+        // 가 있어 rowid 안정성 보장 (SQLite WITHOUT ROWID 미사용). hash 당 1 row 보장.
+        cmd.CommandText <- """
+            SELECT ic.ImageHash, ic.StoredPath, ir.RefLocator, d.OriginalPath
+            FROM ImageCache ic
+            JOIN ImageReferences ir ON ir.rowid = (
+                SELECT MIN(rowid) FROM ImageReferences WHERE ImageHash = ic.ImageHash
+            )
+            JOIN Documents d ON d.Id = ir.DocumentId
+            WHERE ic.CaptionText IS NULL
+            ORDER BY ic.ImageHash
+        """
+        use reader = cmd.ExecuteReader()
+        let acc = ResizeArray<CaptionPendingRecord>()
+        while reader.Read() do
+            let hash = reader.GetString 0
+            let storedPath = reader.GetString 1
+            let refLocator = reader.GetString 2
+            let docPath = reader.GetString 3
+            let ext =
+                let raw = Path.GetExtension(storedPath)
+                if String.IsNullOrEmpty raw then "" else raw.TrimStart('.').ToLowerInvariant()
+            acc.Add { Hash = hash; Ext = ext; RefLocator = refLocator; DocPath = docPath }
+        acc :> _
+
     /// 한 문서가 참조하는 모든 image — (ImageHash, RefLocator, Ordinal, ChunkId option).
     /// PK 순서 정렬 (Ordinal asc) — page 순회 자연스러움.
     let lookupReferencesByDocument
