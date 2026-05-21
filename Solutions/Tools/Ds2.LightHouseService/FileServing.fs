@@ -161,11 +161,22 @@ module FileServing =
                                 match ctx.Request.Headers.TryGetValue HeaderNames.IfNoneMatch with
                                 | true, v when v.Count >= 1 -> string v.[0]
                                 | _ -> ""
-                            // review S4-M2 (RFC 7232 §3.2): `If-None-Match: *` = "any current representation match" → 304.
-                            // 일반 분기는 weak/strong tag 모두 hash substring match.
+                            // **review S4-M2 (RFC 7232 §3.2) + B9 (s6-r88, 15-reviewer Major)** — RFC 7232 정합.
+                            // 이전 박제 (substring `Contains`) 는 multi-tag (`"a","b"`) 의 partial match + tag
+                            // 안 hash substring false-positive risk. comma-split + W/ prefix strip + quote strip
+                            // 후 exact equality.
                             let etagMatch =
-                                not (String.IsNullOrEmpty ifNoneMatch)
-                                && (ifNoneMatch.Trim() = "*" || ifNoneMatch.Contains(fileHash))
+                                if String.IsNullOrEmpty ifNoneMatch then false
+                                elif ifNoneMatch.Trim() = "*" then true
+                                else
+                                    ifNoneMatch.Split(',')
+                                    |> Array.exists (fun raw ->
+                                        let p = raw.Trim()
+                                        let stripped =
+                                            if p.StartsWith("W/", StringComparison.OrdinalIgnoreCase) then p.Substring(2).Trim()
+                                            else p
+                                        let unq = stripped.Trim().Trim('"')
+                                        String.Equals(unq, fileHash, StringComparison.Ordinal))
                             if etagMatch then
                                 ctx.Response.Headers.[HeaderNames.ETag] <- Microsoft.Extensions.Primitives.StringValues(etag.ToString())
                                 ctx.Response.StatusCode <- 304

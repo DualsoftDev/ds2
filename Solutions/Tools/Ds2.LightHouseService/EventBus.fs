@@ -63,10 +63,10 @@ type private SubscriberChannels =
 [<Sealed>]
 type EventBus() =
 
-    /// lifecycle subscriber 의 buffered 한도. lifecycle event (collection-added/updated/deleted) 는
-    /// 발행 빈도가 매우 낮음 (분/시 단위) — 32 capacity 면 burst 시에도 안전.
-    [<Literal>]
-    let LifecycleSubscriberCapacity = 32
+    // **B16 (s6-r88, 15-reviewer Major)** — lifecycle channel = Unbounded (drop 0 보장).
+    // 이전 박제 (s6-r77) 의 LifecycleSubscriberCapacity=32 DropOldest 가 R5-M2 commit message ("lifecycle
+    // event loss 차단") 와 실 보장 불일치 (32 초과 burst 시 lifecycle drop 잔존). lifecycle event 발행 빈도
+    // 매우 낮음 (분/시 단위) → unbounded 의 메모리 압박 risk 사실상 0.
 
     /// progress subscriber 의 buffered 한도. caption-progress / upload-progress 등 high-rate event —
     /// 기존 64 박제 유지. DropOldest 정책 하에서 burst 시 oldest progress 만 drop (lifecycle 무관).
@@ -88,10 +88,17 @@ type EventBus() =
         opts.SingleWriter <- false  // Publish 가 다른 thread 에서 호출 가능
         Channel.CreateBounded<ServerEvent>(opts)
 
+    /// **B16** — lifecycle channel = Unbounded.
+    let createLifecycleChannel () : Channel<ServerEvent> =
+        let opts = UnboundedChannelOptions()
+        opts.SingleReader <- true
+        opts.SingleWriter <- false
+        Channel.CreateUnbounded<ServerEvent>(opts)
+
     /// 새 subscriber 등록 → (lifecycleReader, progressReader, Guid) 반환. dispose 책임 = caller
     /// (`Unsubscribe` 호출). 두 reader 의 일관 lifecycle = 같은 Guid 의 Unsubscribe 가 둘 다 complete.
     member _.Subscribe() : Guid * ChannelReader<ServerEvent> * ChannelReader<ServerEvent> =
-        let lifecycleCh = createBoundedChannel LifecycleSubscriberCapacity
+        let lifecycleCh = createLifecycleChannel ()
         let progressCh = createBoundedChannel ProgressSubscriberCapacity
         let id = Guid.NewGuid()
         subscribers.[id] <- { LifecycleWriter = lifecycleCh.Writer; ProgressWriter = progressCh.Writer }

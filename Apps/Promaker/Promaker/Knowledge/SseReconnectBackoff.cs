@@ -66,6 +66,8 @@ public sealed class SseReconnectBackoff
             _attempt = 0;
         _attempt++;
         _lastFailureUtc = now;
+        // **B21 SseReconnectBackoff cap saturate** — defer 별 turn (기존 9 fact 의 attempt=10 throttle 통과 정합
+        // + int overflow risk 사실상 0 = 21억 reconnect 시 = 처참한 outage, 우선순위 낮음).
 
         var exp = Math.Min(_attempt - 1, 5);
         var raw = TimeSpan.FromMilliseconds(Initial.TotalMilliseconds * Math.Pow(2, exp));

@@ -64,12 +64,11 @@ let ``Publish fan-out — 모든 subscribers 가 동일 lifecycle event 받음 (
     Assert.Equal<ServerEvent>(evt, e2)
     Assert.Equal<ServerEvent>(evt, e3)
 
-/// DropOldest (lifecycle channel) — lifecycle subscriber capacity (32) 초과 publish 시 oldest event drop.
+/// **B16 (s6-r88)** — lifecycle channel = Unbounded → 33 event 모두 drop 0 보장.
 [<Fact>]
-let ``DropOldest — lifecycle channel capacity (32) 초과 시 oldest event 자연 drop`` () =
+let ``Lifecycle Unbounded — 33 event publish 시 drop 0 (B16)`` () =
     let bus = EventBus()
     let _, lifecycleReader, _ = bus.Subscribe()
-    // publish 33 event — lifecycle capacity 32 보다 1개 많음.
     for i = 1 to 33 do
         bus.Publish (ServerEvent.collectionAdded (sprintf "coll-%d" i))
     let readOne () : ServerEvent =
@@ -77,10 +76,12 @@ let ``DropOldest — lifecycle channel capacity (32) 초과 시 oldest event 자
         Assert.True(t.Wait(TimeSpan.FromSeconds 1.0))
         t.Result
     let first = readOne ()
-    // 1st event drop 확인 — first != coll-1.
-    Assert.NotEqual<ServerEvent>(first, ServerEvent.collectionAdded "coll-1")
-    // 남은 31 event 모두 read 후 channel 빈 상태.
-    for _ = 1 to 31 do readOne () |> ignore
+    // 1st event = coll-1 (drop 0 보장 — Unbounded 채택). TimestampUtc 는 record 별 시각이라 CollectionId 만 비교.
+    Assert.Equal("coll-1", first.CollectionId)
+    // 남은 32 event 모두 순서대로 read.
+    for i = 2 to 33 do
+        let evt = readOne ()
+        Assert.Equal(sprintf "coll-%d" i, evt.CollectionId)
     let waitMore = lifecycleReader.WaitToReadAsync().AsTask()
     Assert.False(waitMore.Wait(TimeSpan.FromMilliseconds 200.0)) |> ignore
 

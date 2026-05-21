@@ -36,10 +36,14 @@ module AuthMiddleware =
     ///   "The lengths of left and right are compared in constant time. If the lengths are
     ///    different, the method returns false without examining any data."
     /// 즉 길이 mismatch 도 const-time false. buffer normalize 불요 (review C2).
-    let private compareBearerSecret (expected: string) (provided: string) : bool =
-        let eBytes = Encoding.UTF8.GetBytes expected
+    ///
+    /// **B21 PSK byte cache (s6-r88, 15-reviewer Major)** — expected bytes pre-compute. 이전 박제는 매
+    /// request `Encoding.UTF8.GetBytes` 양쪽 호출 (timing leak risk + GC 압박). expected 가 변화 0 라
+    /// caller (Program.fs configureAuth) 가 한 번만 GetBytes + byte[] 전달. signature 변경
+    /// (`expected: string` → `expectedBytes: byte[]`) breaking.
+    let private compareBearerSecret (expectedBytes: byte[]) (provided: string) : bool =
         let pBytes = Encoding.UTF8.GetBytes provided
-        CryptographicOperations.FixedTimeEquals(ReadOnlySpan(eBytes), ReadOnlySpan(pBytes))
+        CryptographicOperations.FixedTimeEquals(ReadOnlySpan(expectedBytes), ReadOnlySpan(pBytes))
 
     /// `Authorization` 헤더 → Bearer scheme + PSK 추출. format 위반 None.
     let private extractBearer (header: string) : string option =
@@ -86,6 +90,8 @@ module AuthMiddleware =
     /// **s6-r70 review C-3**: cfg 인자 추가. mtls.mode != "off" 시 client cert subject CN ↔ X-User-Identity
     /// 강제 검증 — T2/T3 격리 정책의 fundamental 약점 (X-User-Identity 위변조) 해소.
     let middleware (cfg: ServiceConfig) (expectedPsk: string) : Func<HttpContext, Func<Task>, Task> =
+        // **B21 PSK cache (s6-r88)** — expected bytes pre-compute. middleware factory 호출 1회 = process lifetime.
+        let expectedBytes = Encoding.UTF8.GetBytes expectedPsk
         Func<HttpContext, Func<Task>, Task>(fun (ctx: HttpContext) (next: Func<Task>) ->
             task {
                 if isPublicPath ctx.Request.Path then
@@ -103,7 +109,7 @@ module AuthMiddleware =
                         Log.audit.Warn(sprintf "auth: Bearer 헤더 누락 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
                         ctx.Response.StatusCode <- 401
                         do! ctx.Response.CompleteAsync()
-                    | Some psk when not (compareBearerSecret expectedPsk psk) ->
+                    | Some psk when not (compareBearerSecret expectedBytes psk) ->
                         Log.audit.Warn(sprintf "auth: PSK 불일치 — path=%s remoteIp=%s" (Log.sanitizeForLog path) (Log.sanitizeForLog remoteIp))
                         ctx.Response.StatusCode <- 401
                         do! ctx.Response.CompleteAsync()

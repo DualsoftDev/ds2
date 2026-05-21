@@ -316,10 +316,17 @@ type SessionRegistry(
             for token in expired do
                 match sessions.TryRemove token with
                 | true, s ->
-                    lock s.SyncRoot (fun () -> SessionKb.dispose s)
-                    Log.audit.Info(sprintf "session sweep — token=%s user=%s lastUsedAt=%O"
-                        (Log.tokenFingerprint token) (Log.sanitizeForLog s.UserIdentity) s.LastUsedAt)
-                    swept <- swept + 1
+                    // **B12 (s6-r88, 15-reviewer Major)** — filter ↔ TryRemove race window 보호.
+                    // filter 시점에 idle 이었지만 TryRemove 시점에 caller (AttachmentTools.withKb 등) 가
+                    // LastUsedAt 갱신했을 경우 = 진행 중 session 의 KB 폐기 → caller 의 search 가 SqliteException
+                    // 회귀. re-check 후 active 면 re-insert (lock-free CD 의 µs window 보호).
+                    if s.LastUsedAt >= cutoff then
+                        sessions.[token] <- s
+                    else
+                        lock s.SyncRoot (fun () -> SessionKb.dispose s)
+                        Log.audit.Info(sprintf "session sweep — token=%s user=%s lastUsedAt=%O"
+                            (Log.tokenFingerprint token) (Log.sanitizeForLog s.UserIdentity) s.LastUsedAt)
+                        swept <- swept + 1
                 | _ -> ()
             swept
 
