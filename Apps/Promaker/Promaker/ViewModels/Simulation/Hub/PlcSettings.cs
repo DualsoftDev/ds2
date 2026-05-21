@@ -1,26 +1,27 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Ds2.Backend.Plc;
 using Ds2.Runtime.IO;
-using Microsoft.FSharp.Core;
 using Promaker.Services;
+using PromakerShared = Promaker.Shared;
 
 namespace Promaker.ViewModels;
 
+// PlcVendorChoice — 다이얼로그 ComboBox 가 직접 바인딩하므로 Promaker.ViewModels 네임스페이스에
+// 그대로 두되, 실제 정의는 Promaker.Shared 의 POCO 와 동기. 별칭 export.
 public enum PlcVendorChoice
 {
-    LsXgi,
-    LsXgk,
-    Mitsubishi
+    LsXgi = PromakerShared.PlcVendorChoice.LsXgi,
+    LsXgk = PromakerShared.PlcVendorChoice.LsXgk,
+    Mitsubishi = PromakerShared.PlcVendorChoice.Mitsubishi,
 }
 
 /// <summary>
-/// PLC 연결 정보 모델. 태그 매핑은 별도로 입력하지 않고 — AASX/IOList 에서 빌드된
-/// <see cref="SignalIOMap"/> 의 OUT/IN 주소를 그대로 PLC 게이트웨이의 스캔/쓰기 라우팅에 사용한다.
+/// PLC 연결 정보 MVVM ViewModel. UI 입력 값을 Promaker.Shared.PlcConnectionSettings POCO 로
+/// 저장/로드하여 Promaker.Agent (SYSTEM 컨텍스트) 와 동일 파일을 공유한다.
+///
+/// PLC 게이트웨이 빌드는 PlcGatewayConfigBuilder 에 위임 — Agent 가 동일 로직 재사용.
+/// 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) 가 SSOT.
 /// </summary>
 public partial class PlcSettings : ObservableObject
 {
@@ -48,159 +49,71 @@ public partial class PlcSettings : ObservableObject
 
     /// <summary>
     /// SignalIOMap 의 OUT/IN 주소를 그대로 PLC 태그 리스트로 자동 채워 F# PlcGatewayConfig 빌드.
-    /// 검증 실패 시 errors 에 사유 누적 후 null 반환. ioMap.Mappings 가 비어 있어도 connection 은 만들지만
-    /// 태그 0 개라 실 효과는 없음 — 사용자에게 경고 추가.
-    /// <para>
-    /// <paramref name="extraAddresses"/>: UserTag 처럼 IOMap 에는 없지만 모니터링이 필요한 주소.
-    /// PLC 스캔 + Hub 브로드캐스트 대상에 포함되며, IOMap 주소와 중복되면 자동 dedup.
-    /// </para>
+    /// 실제 빌드는 PlcGatewayConfigBuilder 에 위임 — Agent 와 동일 코드 경로.
     /// </summary>
     public PlcGatewayConfig? BuildGatewayConfig(
         SignalIOMap ioMap,
         out List<string> errors,
         IEnumerable<string>? extraAddresses = null)
     {
-        errors = new();
-        if (string.IsNullOrWhiteSpace(IpAddress)) errors.Add("IP 주소를 입력하세요.");
-        if (Port <= 0 || Port > 65535) errors.Add("포트는 1–65535 범위여야 합니다.");
-        if (TimeoutMs <= 0) errors.Add("Timeout(ms) 은 양수여야 합니다.");
-        if (ScanIntervalMs <= 0) errors.Add("Scan interval(ms) 은 양수여야 합니다.");
-
-        var fsVendor = Vendor switch
-        {
-            PlcVendorChoice.LsXgi => Ds2.Backend.Plc.PlcVendor.LsXgi,
-            PlcVendorChoice.LsXgk => Ds2.Backend.Plc.PlcVendor.LsXgk,
-            PlcVendorChoice.Mitsubishi => Ds2.Backend.Plc.PlcVendor.Mitsubishi,
-            _ => Ds2.Backend.Plc.PlcVendor.LsXgi
-        };
-
-        // SignalIOMap → 주소 dedup → 데이터 타입 추론 → PlcTagDef
-        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var addr in ioMap.OutAddressToMappings.Keys)
-            if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr);
-        foreach (var addr in ioMap.InAddressToMappings.Keys)
-            if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr);
-
-        // UserTag 등 추가 주소 — IOMap 에 없으면 PLC 스캔 안 돼 알림이 안 잡힘.
-        // dedup 은 HashSet 이 알아서 처리, OUT/IN 과 같은 주소면 그쪽 데이터타입 추론 한 번이면 충분.
-        if (extraAddresses is not null)
-        {
-            foreach (var addr in extraAddresses)
-                if (!string.IsNullOrWhiteSpace(addr)) addresses.Add(addr.Trim());
-        }
-
-        if (addresses.Count == 0)
-            errors.Add("AASX IO 매핑에서 OUT/IN 주소가 발견되지 않았습니다. ApiCall 의 OutTag/InTag 주소를 먼저 설정하세요.");
-
-        if (errors.Count > 0) return null;
-
-        var tags = addresses
-            .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
-            .Select(a => new PlcTagDef(
-                a.Trim(),
-                a.Trim(),
-                PlcAddressInfer.dataType(fsVendor, a)))
-            .ToList();
-
-        var transport = IsUdp ? PlcTransport.Udp : PlcTransport.Tcp;
-        var connection = new PlcConnectionConfig(
-            Name,
-            fsVendor,
-            IpAddress.Trim(),
-            Port,
-            LocalEthernet,
-            NetworkNumber,
-            StationNumber,
-            transport,
-            TimeoutMs,
-            FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(ScanIntervalMs)),
-            Microsoft.FSharp.Collections.ListModule.OfSeq(tags));
-
-        return new PlcGatewayConfig(
-            Microsoft.FSharp.Collections.ListModule.OfSeq(new[] { connection }));
+        return PromakerShared.PlcGatewayConfigBuilder.TryBuild(
+            ToPoco(), ioMap, out errors, extraAddresses);
     }
 
-    // ── 영속화 (Load/Save) ──────────────────────────────────────────────
-    // 사용자가 다이얼로그에서 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을
-    // %AppData%\Dualsoft\Promaker\Settings\PlcConnection.json 에 저장. 다음 실행 시 자동 로드.
-    // (태그는 IO 매핑에서 자동 import 되므로 저장 안 함.)
-
-    private sealed class PersistedShape
-    {
-        public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
-        public string Name { get; set; } = "PLC#1";
-        public string IpAddress { get; set; } = "192.168.0.10";
-        public int Port { get; set; } = 2004;
-        public int TimeoutMs { get; set; } = 3000;
-        public int ScanIntervalMs { get; set; } = 100;
-        public bool LocalEthernet { get; set; } = true;
-        public byte NetworkNumber { get; set; } = 0;
-        public byte StationNumber { get; set; } = 0xFF;
-        public bool IsUdp { get; set; } = false;
-    }
-
-    private static readonly JsonSerializerOptions _jsonOpts = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    // ── 영속화 — Promaker.Shared.PlcConnectionSettings 로 위임. ─────────
+    // 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) — Agent 와 동일 파일.
+    // 옛 경로(%AppData%\Dualsoft\Promaker\Settings\PlcConnection.json) 는 첫 Load 시 자동 마이그레이션.
 
     /// <summary>저장된 설정을 읽어 새 PlcSettings 인스턴스 생성. 파일 없으면 default.</summary>
     public static PlcSettings LoadOrDefault()
     {
-        var s = new PlcSettings();
-        try
-        {
-            var path = SettingsPaths.PlcConnection;
-            if (!File.Exists(path)) return s;
-            var text = File.ReadAllText(path);
-            var data = JsonSerializer.Deserialize<PersistedShape>(text, _jsonOpts);
-            if (data is null) return s;
+        // 첫 Load 시 옛 위치에 파일이 있으면 신 공유 경로로 1회 복사 — 사용자 설정 보존.
+        PromakerShared.PlcConnectionSettings.MigrateLegacyIfNeeded(SettingsPaths.PlcConnection);
 
-            if (Enum.TryParse<PlcVendorChoice>(data.Vendor, ignoreCase: true, out var v))
-                s.Vendor = v;
-            s.Name = data.Name ?? s.Name;
-            s.IpAddress = data.IpAddress ?? s.IpAddress;
-            if (data.Port > 0) s.Port = data.Port;
-            if (data.TimeoutMs > 0) s.TimeoutMs = data.TimeoutMs;
-            if (data.ScanIntervalMs > 0) s.ScanIntervalMs = data.ScanIntervalMs;
-            s.LocalEthernet = data.LocalEthernet;
-            s.NetworkNumber = data.NetworkNumber;
-            s.StationNumber = data.StationNumber;
-            s.IsUdp = data.IsUdp;
-        }
-        catch
-        {
-            // 손상된 설정 파일은 default 로 fallback — silent
-        }
-        return s;
+        var poco = PromakerShared.PlcConnectionSettings.LoadOrDefault(
+            PromakerShared.SharedPaths.PlcConnectionFilePath);
+        return FromPoco(poco);
     }
 
     /// <summary>현재 값을 JSON 으로 저장. 실패해도 throw 없이 조용히 반환 (사용자 흐름 막지 않음).</summary>
     public void Save()
     {
-        try
-        {
-            var path = SettingsPaths.PlcConnection;
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath);
+    }
 
-            var data = new PersistedShape
-            {
-                Vendor = Vendor.ToString(),
-                Name = Name,
-                IpAddress = IpAddress,
-                Port = Port,
-                TimeoutMs = TimeoutMs,
-                ScanIntervalMs = ScanIntervalMs,
-                LocalEthernet = LocalEthernet,
-                NetworkNumber = NetworkNumber,
-                StationNumber = StationNumber,
-                IsUdp = IsUdp,
-            };
-            var text = JsonSerializer.Serialize(data, _jsonOpts);
-            File.WriteAllText(path, text);
-        }
-        catch { /* best-effort */ }
+    private PromakerShared.PlcConnectionSettings ToPoco() => new()
+    {
+        Vendor = Vendor.ToString(),
+        Name = Name,
+        IpAddress = IpAddress,
+        Port = Port,
+        TimeoutMs = TimeoutMs,
+        ScanIntervalMs = ScanIntervalMs,
+        LocalEthernet = LocalEthernet,
+        NetworkNumber = NetworkNumber,
+        StationNumber = StationNumber,
+        IsUdp = IsUdp,
+    };
+
+    private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
+    {
+        var s = new PlcSettings
+        {
+            Name = d.Name ?? "PLC#1",
+            IpAddress = d.IpAddress ?? "192.168.0.10",
+            Port = d.Port > 0 ? d.Port : 2004,
+            TimeoutMs = d.TimeoutMs > 0 ? d.TimeoutMs : 3000,
+            ScanIntervalMs = d.ScanIntervalMs > 0 ? d.ScanIntervalMs : 100,
+            LocalEthernet = d.LocalEthernet,
+            NetworkNumber = d.NetworkNumber,
+            StationNumber = d.StationNumber,
+            IsUdp = d.IsUdp,
+        };
+        // Vendor 는 setter 가 Port 를 갱신할 수 있으므로 Port 설정 이후 마지막에 적용.
+        // 단, JSON 으로 저장된 Port 가 새 벤더의 기본값(2004/5007)과 다르면 그대로 유지하기 위해
+        // OnVendorChanged 의 가드 (Port==2004||5007 일 때만 덮어쓰기) 를 신뢰.
+        if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))
+            s.Vendor = v;
+        return s;
     }
 }

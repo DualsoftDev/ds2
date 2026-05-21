@@ -63,4 +63,9 @@
     <PackageVersion Include="xunit" Version="2.9.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
+
+  <!-- Promaker.Agent (Windows Service 헤드리스 모니터링) -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+  </ItemGroup>
 </Project>

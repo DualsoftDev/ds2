@@ -50,11 +50,15 @@ export DOTNET_NOLOGO                 := 1
 export DOTNET_CLI_TELEMETRY_OPTOUT   := 1
 
 # ── 경로 ──────────────────────────────────────────────────
-PROJECT_FILE  := Promaker/Promaker.csproj
-PUBLISH_DIR   := $(abspath Promaker/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
-SETUP_ISS     := Installer/Setup.iss
-OUTPUT_DIR    := $(abspath Installer/Output)
-INSTALLER_EXE := $(OUTPUT_DIR)/Promaker_Setup_$(PROMAKER_VER)$(OUTPUT_SUFFIX).exe
+PROJECT_FILE   := Promaker/Promaker.csproj
+PUBLISH_DIR    := $(abspath Promaker/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
+# Promaker.Agent — 헤드리스 모니터링 Windows Service (Setup.iss 가 옵트인으로 등록).
+# net9.0 (windows 미부착), SDK Web. 동일 sc/fd 모드 따라감.
+AGENT_PROJECT  := Promaker.Agent/Promaker.Agent.csproj
+AGENT_PUBLISH  := $(abspath Promaker.Agent/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
+SETUP_ISS      := Installer/Setup.iss
+OUTPUT_DIR     := $(abspath Installer/Output)
+INSTALLER_EXE  := $(OUTPUT_DIR)/Promaker_Setup_$(PROMAKER_VER)$(OUTPUT_SUFFIX).exe
 
 # ISCC.exe (Inno Setup 6). 환경에 따라 override 가능.
 ISCC ?= C:/Program Files (x86)/Inno Setup 6/ISCC.exe
@@ -72,7 +76,7 @@ LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
 LH_PUBLISH_DIR   := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/publish)
 LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
 
-.PHONY: help dist dist-installer publish iscc clean install light-house
+.PHONY: help dist dist-installer publish publish-agent iscc clean install light-house
 
 help:
 	@echo "Promaker installer Makefile"
@@ -121,7 +125,19 @@ publish:
 		-o "$(PUBLISH_DIR)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-iscc: publish
+# Promaker.Agent — Setup.iss 가 {app}\Agent\ 로 번들. Setup.iss 의 HasAgent 매크로가
+# AgentPublishDir 안에 Promaker.Agent.exe 가 있을 때만 [Tasks]/[Files]/[Run] 활성화 → 산출물
+# 누락 시에도 Promaker 본체 인스톨러는 정상 생성된다. publish 와 동일 sc/fd 모드 따라감.
+publish-agent:
+	@echo "=== dotnet restore (Promaker.Agent) ==="
+	dotnet restore "$(AGENT_PROJECT)" --verbosity quiet
+	@echo "=== dotnet publish Promaker.Agent ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
+	dotnet publish "$(AGENT_PROJECT)" -c Release -r win-x64 \
+		--self-contained $(SELF_CONTAINED) \
+		-o "$(AGENT_PUBLISH)" \
+		-p:DebugType=none -p:DebugSymbols=false -m:1
+
+iscc: publish publish-agent
 	@if [ ! -f "$(ISCC)" ]; then \
 		echo "[ERROR] Inno Setup compiler not found: $(ISCC)" >&2; \
 		echo "        Install Inno Setup 6 or override ISCC=..."  >&2; \
@@ -133,6 +149,7 @@ iscc: publish
 	@# filename" 으로 거부한다. ISCC 호출 한정으로 path conversion 을 무력화.
 	MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
 	"$(ISCC)" /DPublishDir="$(PUBLISH_DIR)" \
+	          /DAgentPublishDir="$(AGENT_PUBLISH)" \
 	          /DSelfContainedMode="$(SELF_CONTAINED)" \
 	          /DOutputSuffix="$(OUTPUT_SUFFIX)" \
 	          "$(SETUP_ISS)"
@@ -141,6 +158,8 @@ clean:
 	@echo "=== Cleaning bin/obj/Output ==="
 	-rm -rf Installer/Output
 	-rm -rf Promaker/bin Promaker/obj
+	-rm -rf Promaker.Agent/bin Promaker.Agent/obj
+	-rm -rf Promaker.Shared/bin Promaker.Shared/obj
 
 # ── LightHouse Service (dev/PoC) ───────────────────────────
 # install — 인증서 + Service 등록 (todo-lighthouse-kb-server.md Phase S1 / §3.7).

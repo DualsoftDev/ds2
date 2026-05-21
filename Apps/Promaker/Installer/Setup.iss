@@ -19,14 +19,26 @@
 #ifndef OutputSuffix
   #define OutputSuffix "_sc"
 #endif
+; Promaker.Agent publish 경로. Makefile 의 publish-agent 타겟이 동일 모드(sc/fd)로 산출.
+; AgentPublishDir 이 비어 있거나 Promaker.Agent.exe 가 없으면 Agent 번들/서비스 등록 모두 스킵.
+#ifndef AgentPublishDir
+  #define AgentPublishDir "..\Promaker.Agent\bin\Release\net9.0\win-x64\publish-self-contained"
+#endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
+#define AgentExePath AddBackslash(AgentPublishDir) + "Promaker.Agent.exe"
+#define HasAgent FileExists(AgentExePath)
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
 #define MyAppPublisher "Dualsoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyExeName "Promaker.exe"
+#define MyAgentExeName "Promaker.Agent.exe"
+#define MyAgentServiceName "PromakerAgentService"
+#define MyAgentServiceDisplay "Promaker Agent Service"
+#define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
+#define MyAgentPort "5051"
 
 [Setup]
 AppId={{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31}
@@ -61,6 +73,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+#if HasAgent
+; 옵트인 — 기본 해제. 체크 시 Promaker.Agent 를 Windows Service 로 등록하여 PC 부팅 시 자동 실행.
+; 사용자 로그온 무관하게 5051 (read-only) Hub 호스팅 + PLC 스캔. Control(5050) 은 영향 없음.
+Name: "install_agent_service"; Description: "Windows 재부팅 시 모니터링 자동 실행 (Promaker.Agent 서비스 등록)"; GroupDescription: "백그라운드 서비스:"; Flags: unchecked
+#endif
 
 [Dirs]
 ; Promaker · DSPilot 공유 폴더. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴와
@@ -72,6 +89,11 @@ Name: "{commonappdata}\DualSoft\Shared"; Permissions: users-modify
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; SDF 파일 전용 아이콘 복사
 Source: "..\Promaker\Assets\SdfFile.ico"; DestDir: "{app}"; Flags: ignoreversion
+#if HasAgent
+; Promaker.Agent — 항상 번들. 서비스 등록은 Tasks: install_agent_service 일 때만 [Run] 에서 수행.
+; 별도 폴더 {app}\Agent 로 분리해 Promaker.exe 와 dll 충돌 방지 + 로그 디렉터리(logs/promaker-agent.log) 격리.
+Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyExeName}"
@@ -86,7 +108,43 @@ Root: HKCR; Subkey: "Promaker.SDF\DefaultIcon"; ValueType: string; ValueName: ""
 Root: HKCR; Subkey: "Promaker.SDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyExeName}"" ""%1"""
 
 [Run]
+#if HasAgent
+; ── Promaker.Agent 서비스 등록 (옵트인). 업그레이드 호환 — 이미 떠 있으면 stop+delete 후 재등록. ──
+; 기존 서비스 정지/삭제 (없으면 sc 가 비-0 반환하나 runhidden 으로 무시).
+Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; \
+  Flags: runhidden; Tasks: install_agent_service
+Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; \
+  Flags: runhidden; Tasks: install_agent_service
+; auto start=auto 로 등록 — Windows 부팅 시 자동 시작.
+Filename: "{sys}\sc.exe"; \
+  Parameters: "create {#MyAgentServiceName} binPath= ""{app}\Agent\{#MyAgentExeName}"" start= auto DisplayName= ""{#MyAgentServiceDisplay}"""; \
+  Flags: runhidden waituntilterminated; \
+  Tasks: install_agent_service; \
+  StatusMsg: "Promaker Agent 서비스 등록 중..."
+Filename: "{sys}\sc.exe"; Parameters: "description {#MyAgentServiceName} ""{#MyAgentServiceDesc}"""; \
+  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+; 실패 복구 정책 — 10s, 10s, 30s 후 자동 재시작. 카운터는 1일 후 리셋.
+Filename: "{sys}\sc.exe"; \
+  Parameters: "failure {#MyAgentServiceName} reset= 86400 actions= restart/10000/restart/10000/restart/30000"; \
+  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+; 방화벽 인바운드 5051. DSPilot 가 같은 머신 localhost 만 접속하지만, 원격 모니터링 확장 대비 미리 허용.
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
+  Flags: runhidden waituntilterminated; Tasks: install_agent_service
+Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
+  Flags: runhidden waituntilterminated; Tasks: install_agent_service; \
+  StatusMsg: "Promaker Agent 서비스 시작 중..."
+#endif
 Filename: "{app}\{#MyExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent unchecked
+
+[UninstallRun]
+#if HasAgent
+; 서비스가 등록되어 있지 않으면 비-0 반환하지만 runhidden 으로 무시 — 옵트인 안 했어도 안전하게 정리.
+Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "StopAgentService"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "DeleteAgentService"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
+  Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
+#endif
 
 #if SelfContainedMode == "true"
 ; sc 모드: .NET 런타임이 번들되어 있으므로 추가 설치 불필요

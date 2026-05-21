@@ -132,5 +132,7 @@
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <!-- Promaker WPF + Promaker.Agent 공유 — PlcConnectionSettings POCO, SharedPaths, PlcGatewayConfigBuilder -->
+    <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
   </ItemGroup>
 </Project>

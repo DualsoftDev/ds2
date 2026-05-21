@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -37,6 +39,26 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// SignalR 자동 재연결 시도 카운트. OnReconnecting 마다 ++, OnReconnected 시 0, 새 generation 시 0.
     /// ETA 라벨용 + UI 노출용.
     private int                       _reconnectAttempt;
+    /// Monitoring+RealPlc 경로에서 Promaker.Agent (Windows Service) 가 5051 Hub 호스팅을 위임받았는지.
+    /// TryStartHost 가 자체 BackendHost.start 대신 active.flag 를 쓴 경우 true → Stop 에서 TryDeactivate.
+    private bool                      _delegatedToAgent;
+
+    /// <summary>설치된 Promaker.Agent.exe 의 경로 (있으면). 없으면 null — 자체 BackendHost 호스팅으로 fallback.
+    /// 설치 스크립트는 {app}\Agent\Promaker.Agent.exe 로 번들한다. 개발 환경에서는 publish 디렉터리 직접 가리키도록
+    /// PROMAKER_AGENT_EXE 환경변수 override 지원.</summary>
+    private static readonly Lazy<string?> AgentExePath = new(() =>
+    {
+        var env = Environment.GetEnvironmentVariable("PROMAKER_AGENT_EXE");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
+
+        var asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        if (string.IsNullOrEmpty(asmDir)) return null;
+        var candidate = Path.Combine(asmDir, "Agent", "Promaker.Agent.exe");
+        return File.Exists(candidate) ? candidate : null;
+    });
+
+    /// <summary>Promaker.Agent (서비스) 가 설치되어 있어 Monitoring+RealPlc 5051 호스팅을 위임할 수 있는지.</summary>
+    public static bool IsAgentAvailable => AgentExePath.Value is not null;
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;
@@ -93,11 +115,13 @@ public sealed partial class SimulationHubBridge : ObservableObject
         _runtimeMode() == RuntimeMode.Control
         || (_runtimeMode() == RuntimeMode.Monitoring && _isRealPlcConnected());
 
-    /// <summary>툴바에 표시할 hosting 상태 — self-host 인 모드일 때만 의미. Monitoring 은 [RO] 표시.</summary>
+    /// <summary>툴바에 표시할 hosting 상태 — self-host 인 모드일 때만 의미. Monitoring 은 [RO] 표시.
+    /// Agent 위임 모드(Monitoring+RealPlc, Promaker.Agent 설치됨) 는 "Agent [읽기전용]" 으로 구분.</summary>
     public string HostingLabel =>
         !IsHubHost ? ""
-        : _runtimeMode() == RuntimeMode.Monitoring ? "Self-Hosted [읽기전용]"
-        : "Self-Hosted";
+        : _runtimeMode() == RuntimeMode.Monitoring
+            ? (IsAgentAvailable ? "Agent [읽기전용]" : "Self-Hosted [읽기전용]")
+            : "Self-Hosted";
 
     /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
     private bool IsMonitoringSelfHost =>

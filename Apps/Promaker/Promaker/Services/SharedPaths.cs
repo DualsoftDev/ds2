@@ -1,18 +1,13 @@
-using System;
-using System.IO;
-
 namespace Promaker.Services;
 
 /// <summary>
-/// Promaker · DSPilot 공동 운영 시 두 앱이 동일하게 접근하는 고정 경로.
-/// DSPilot 측의 같은 이름 클래스(Apps/DSPilot/DSPilot/Infrastructure/SharedPaths.cs)와
-/// 반드시 동일한 경로를 유지해야 함 — 한쪽만 변경 시 동기화 깨짐.
+/// 공유 경로 forwarder — 실제 정의는 Promaker.Shared.SharedPaths 가 SSOT.
+/// Promaker WPF, Promaker.Agent (SYSTEM 서비스), DSPilot 이 동일 경로를 봐야 하므로
+/// 신규 코드는 Promaker.Shared.SharedPaths 를 직접 참조 권장. 본 forwarder 는 기존
+/// Promaker.Services.SharedPaths 호출자(Save.cs / Open.cs / MainViewModel.cs 등) 호환용.
 /// </summary>
 public static class SharedPaths
 {
-    public static string SharedDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "DualSoft", "Shared");
-
-    public static string AasxFilePath { get; } = Path.Combine(SharedDirectory, "project.aasx");
+    public static string SharedDirectory => Promaker.Shared.SharedPaths.SharedDirectory;
+    public static string AasxFilePath    => Promaker.Shared.SharedPaths.AasxFilePath;
 }
