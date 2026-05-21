@@ -5,7 +5,8 @@ open System
 /// KB 추출기 라우팅 전용 DU (todo-lighthouse-kb-index.md §3.3).
 ///
 /// chat 측 `Ds2.LlmAgent.Classification` 과 독립 — 두 분류기는 출력 DU 가 다름 (§3.0/§3.11).
-/// Phase 1 활성: Pdf / Docx / Text / Markdown. Phase 2 활성: Pptx / Xlsx.
+/// Phase 1 활성: Pdf / Docx / Text / Markdown. Phase 2 활성: Pptx / Xlsx / Image.
+/// `Image` (Task 7) = standalone image 파일 (PNG / JPEG / GIF / WEBP raw + EMF / WMF Metafile→PNG 변환).
 /// `Unsupported` 의 ext 는 항상 소문자 + leading dot (`Classifier.classifyForKb` 의 `extOf` 결과).
 type FileKind =
     | Pdf
@@ -14,6 +15,7 @@ type FileKind =
     | Xlsx
     | Text
     | Markdown
+    | Image
     | Unsupported of ext: string
 
 /// OutlineNodes.NodeType column (§3.12) 의 type-safe DU.

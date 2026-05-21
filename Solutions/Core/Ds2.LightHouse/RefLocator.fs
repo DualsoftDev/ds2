@@ -2,11 +2,14 @@ namespace Ds2.LightHouse
 
 open System
 
-/// RefLocator 의 main unit (§3.13 EBNF — `Unit = "p" | "slide" | "sheet"`).
+/// RefLocator 의 main unit (§3.13 EBNF — `Unit = "p" | "slide" | "sheet" | "image"`).
+/// **Task 7 (r6)** — `Image` 신설. standalone image 파일은 `image=1` literal (N=1 고정).
+/// 향후 embedded multi-image 파일 (예: animated GIF / multi-frame TIFF) 활성 시 N>1 호환 가정.
 type RefUnit =
     | P
     | Slide
     | Sheet
+    | Image
 
 /// RefLocator 의 sub key (`SubKey = "img" | ...`). Phase 1 = `Img` 만.
 type RefSubKey =
@@ -59,6 +62,7 @@ module RefLocator =
         | P -> "p"
         | Slide -> "slide"
         | Sheet -> "sheet"
+        | Image -> "image"
 
     let private subKeyToken =
         function
@@ -69,6 +73,7 @@ module RefLocator =
         | "p" -> Some P
         | "slide" -> Some Slide
         | "sheet" -> Some Sheet
+        | "image" -> Some Image
         | _ -> None
 
     let private parseSubKey (token: string) : RefSubKey option =
@@ -169,6 +174,7 @@ module RefLocator =
                 // sheet=BOM!A1:D40 → "시트 BOM A1:D40"
                 let value = locator.Main.Value.Replace("!", " ")
                 sprintf "시트 %s" value
+            | Image -> sprintf "이미지 %s" locator.Main.Value
 
         let subDisplay (sub: RefSub) : string =
             match sub.Key with

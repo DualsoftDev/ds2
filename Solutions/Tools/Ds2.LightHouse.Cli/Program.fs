@@ -163,6 +163,7 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 new TextExtractor() :> IExtractor
                 new PdfExtractor() :> IExtractor
                 new OoxmlExtractor() :> IExtractor
+                new ImageExtractor() :> IExtractor
             ]
             let mutable lastReported = -1
             let progressCb (p: IngestProgress) =

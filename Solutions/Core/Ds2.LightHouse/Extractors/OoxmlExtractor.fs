@@ -232,30 +232,11 @@ type OoxmlExtractor() =
             if isNull pid || isNull pid.Val then ""
             else pid.Val.Value
 
-    /// Plan 3 — Metafile → PNG 변환 후 max pixel size cap (산업 도면 vector 의 raster 해상도 폭주 차단).
-    /// caller 가 본 cap 변경 의도 시 helper 수정 — config 화 backlog (Phase 3).
-    static member private MaxConvertedImageDim = 2048
-
-    /// **Plan 3 — EMF/WMF 비례 축소 변환**. System.Drawing.Imaging.Metafile + Bitmap 사용. Windows 전용.
-    /// caller 가 PlatformNotSupportedException (Linux) / OutOfMemoryException / ExternalException 등 catch 의무.
+    /// **Plan 3 — EMF/WMF 비례 축소 변환**. SSOT 는 `MetafileConverter.convertToPng` 으로 분리 (Task 7).
+    /// caller 가 PlatformNotSupportedException / OutOfMemoryException / ExternalException 등 catch 의무.
     /// 반환: PNG byte array. raw EMF stream 은 처리 중 dispose.
     static member private ConvertMetafileToPng (stream: Stream) : byte[] =
-        use mf = new System.Drawing.Imaging.Metafile(stream)
-        let mutable w = mf.Width
-        let mutable h = mf.Height
-        // 비례 축소 — max dimension cap (Plan 3).
-        let maxDim = OoxmlExtractor.MaxConvertedImageDim
-        if w > maxDim || h > maxDim then
-            let scale = min (float maxDim / float w) (float maxDim / float h)
-            w <- max 1 (int (float w * scale))
-            h <- max 1 (int (float h * scale))
-        use bmp = new System.Drawing.Bitmap(w, h)
-        use g = System.Drawing.Graphics.FromImage(bmp)
-        g.Clear(System.Drawing.Color.White)   // EMF 의 투명 배경 백색 박제 (PDF 도면 정합)
-        g.DrawImage(mf, 0, 0, w, h)
-        use ms = new MemoryStream()
-        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png)
-        ms.ToArray()
+        MetafileConverter.convertToPng stream MetafileConverter.DefaultMaxDim
 
     /// **Task 0 (Critical-1 + R3 M6) + Plan 3 (EMF/WMF 변환)** — ImagePart → (bytes, format) 변환.
     /// PNG/JPEG/GIF/WEBP 화이트리스트 → raw bytes + 원본 format.
