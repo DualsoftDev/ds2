@@ -23,6 +23,7 @@
     <Compile Include="KnowledgeBaseTests.fs" />
     <Compile Include="CaptionGeneratorTests.fs" />
     <Compile Include="KeywordExtractorTests.fs" />
+    <Compile Include="TextDumperTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

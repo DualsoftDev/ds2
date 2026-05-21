@@ -44,7 +44,9 @@ type CliUploadTests(fixture: ServiceFixture) =
         let results = Packager.runIngest srcFolder None CaptionGenerator.noop CancellationToken.None
         let summary = Packager.summarize results
         Assert.True(summary.IngestedCount >= 1, sprintf "ingested >= 1 기대, 실제 %d" summary.IngestedCount)
-        Packager.writeMeta srcFolder title srcFolder summary.FileCount summary.TotalBytes userIdentity
+        // **PR-B (todo-lighthouse-index-summary.md §3.1)** — writeMeta signature 확장 (description / keywords).
+        // IT round-trip 은 KeywordExtractor 통합 검증보다 zip / upload wire 정합 검증이 의도라 빈 값 박제.
+        Packager.writeMeta srcFolder title srcFolder summary.FileCount summary.TotalBytes userIdentity "" [||]
         Packager.createZip srcFolder, summary
 
     /// 1 source 폴더 → in-place 색인 → meta.json → zip 통째 round-trip.

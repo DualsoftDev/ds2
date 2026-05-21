@@ -30,6 +30,9 @@
     <!-- PR-B (todo-lighthouse-index-summary.md §3.1) — collection-level keyword profile 자동 추출.
          SqliteStore 의 ChunksFts SELECT + MATCH 의존 → SqliteStore 뒤 박제. -->
     <Compile Include="KeywordExtractor.fs" />
+    <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
+         SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
+    <Compile Include="TextDumper.fs" />
   </ItemGroup>
 
   <ItemGroup>
