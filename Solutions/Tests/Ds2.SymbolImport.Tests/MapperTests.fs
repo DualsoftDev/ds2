@@ -84,3 +84,25 @@ let ``mappingSetsFromConfig — Mitsubishi 결과 중 vendor set 들에 Y* 패�
     for s in vendorSets do
         Assert.Contains("Y*", s.OutputAddressPatterns)
         Assert.Contains("X*", s.InputAddressPatterns)
+
+/// 회귀 가드 — 같은 Name 을 가진 actuator(Y)/sensor(X) 페어 (예: "Stopper Up" 가 X1240 / Y1250 둘 다).
+/// 이전 Mapper.fs 의 entryByName = Map<string, SymbolEntry> 는 collision 으로 후자만 유지 → OutputEntry 의 lookup 도
+/// 의도와 다른 entry 로 치환 → InputEntries 에도 OutputEntry 와 동일 주소가 박힘 → 시뮬레이터 duplicate-address 에러.
+/// fix: (Name, Address) 쌍으로 lookup.
+[<Fact>]
+let ``Mapper — 같은 이름의 actuator/sensor 페어가 collision 없이 보존 (Y/X 페어)`` () =
+    let config = MappingConfig.loadDefault ()
+    // PLC 산출물의 흔한 패턴 — 액추에이터 출력 Y1250 과 위치 센서 입력 X1240 모두 "Laser Stopper Up" 으로 명명.
+    let entries = [
+        entry "Laser Stopper Up"   "X1240" SymbolDirection.Input    // sensor
+        entry "Laser Stopper Up"   "Y1250" SymbolDirection.Output   // actuator
+        entry "Laser Stopper Down" "X1241" SymbolDirection.Input
+        entry "Laser Stopper Down" "Y1251" SymbolDirection.Output
+    ]
+    let batch = Mapper.mapWithConfig Mitsubishi config entries
+    // OutputEntry 와 InputEntries[0] 이 같은 주소를 가지면 안 됨 — collision 회귀.
+    for m in batch.Mapped do
+        match m.OutputEntry, m.InputEntries |> List.tryHead with
+        | Some o, Some i ->
+            Assert.NotEqual<string>(o.Address, i.Address)
+        | _ -> ()

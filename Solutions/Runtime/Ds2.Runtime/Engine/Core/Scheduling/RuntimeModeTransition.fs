@@ -4,7 +4,7 @@ open Ds2.Core
 
 /// <summary>
 /// 사용자가 RuntimeMode 콤보를 변경했을 때 적용할 정책 결정.
-/// I/O 미설정 차단, 트레이 정리, 연속투입 자동 해제까지 한 번에 분류.
+/// I/O 미설정 차단 + 연속투입 자동 해제까지 한 번에 분류.
 /// 메시지 텍스트도 F# 에서 결정 — C# 은 결과를 받아 UI 적용만 담당.
 /// </summary>
 type RuntimeModeTransitionDecision = {
@@ -12,8 +12,6 @@ type RuntimeModeTransitionDecision = {
     Accepted: bool
     /// Accepted=false 일 때 사용자에게 보여줄 안내 메시지.
     RejectionMessage: string option
-    /// 전환 후 트레이 상태를 정리해야 하는지 (Monitoring 외 모드).
-    ShouldRestoreTray: bool
     /// 전환 후 연속투입 토글을 자동 해제해야 하는지.
     ShouldDisableContinuousInjection: bool
 }
@@ -28,7 +26,6 @@ module RuntimeModeTransition =
         {
             Accepted = false
             RejectionMessage = Some msg
-            ShouldRestoreTray = false
             ShouldDisableContinuousInjection = false
         }
 
@@ -53,7 +50,6 @@ module RuntimeModeTransition =
             {
                 Accepted = true
                 RejectionMessage = None
-                ShouldRestoreTray = newMode <> RuntimeMode.Monitoring
                 ShouldDisableContinuousInjection =
                     isContinuousInjectionEnabled && not injectionAvailable
             }
