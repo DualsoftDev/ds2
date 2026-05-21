@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -15,6 +16,11 @@ public partial class MainWindow : Window
     private const int LogMaxLines = 5000;
     private const int LogTrimChunk = 1000;
     private static readonly TimeSpan LogFlushInterval = TimeSpan.FromMilliseconds(100);
+
+    private static readonly string UserStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "DSPilot.AasxSimulator",
+        "user.json");
 
     private readonly PlcConnectionSettings _plc;
     private readonly ConcurrentQueue<string> _logQueue = new();
@@ -34,7 +40,9 @@ public partial class MainWindow : Window
             .Build();
 
         _plc = PlcConnectionSettings.FromConfig(config);
-        TxtAasxPath.Text = config["AasxPath"] ?? @"C:\ds\ds2\Apps\DSPilot\DsCSV_0318_C.aasx";
+        TxtAasxPath.Text = LoadLastAasxPath()
+            ?? config["AasxPath"]
+            ?? @"C:\ds\ds2\Apps\DSPilot\DsCSV_0318_C.aasx";
 
         CmbPlcType.SelectedIndex = _plc.PlcType.Equals("LS", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
         CmbPlcModel.SelectedIndex = _plc.LS.PlcModel switch { "XGK" => 1, "XGT" => 2, _ => 0 };
@@ -61,6 +69,36 @@ public partial class MainWindow : Window
     {
         // 시뮬 실행 중에 창을 닫으면 cancel 안 해주면 워커 루프가 계속 돌고 PLC dispose 도 안 됨.
         _cts?.Cancel();
+        SaveLastAasxPath(TxtAasxPath.Text);
+    }
+
+    private static string? LoadLastAasxPath()
+    {
+        try
+        {
+            if (!File.Exists(UserStatePath)) return null;
+            using var stream = File.OpenRead(UserStatePath);
+            var state = JsonSerializer.Deserialize<UserState>(stream);
+            var path = state?.LastAasxPath;
+            return string.IsNullOrWhiteSpace(path) ? null : path;
+        }
+        catch { return null; }
+    }
+
+    private static void SaveLastAasxPath(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(UserStatePath)!);
+            using var stream = File.Create(UserStatePath);
+            JsonSerializer.Serialize(stream, new UserState { LastAasxPath = path });
+        }
+        catch { /* 사용자 설정 저장 실패는 무시 */ }
+    }
+
+    private sealed class UserState
+    {
+        public string? LastAasxPath { get; set; }
     }
 
     private void ApplyPlcTypeToInputs()
