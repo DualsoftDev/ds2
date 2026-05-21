@@ -47,7 +47,20 @@ public partial class MainWindow : Window
         };
         _logFlushTimer.Tick += (_, _) => FlushLogQueue();
         _logFlushTimer.Start();
-        Closed += (_, _) => _logFlushTimer.Stop();
+
+        Closing += OnWindowClosing;
+        Closed += (_, _) =>
+        {
+            _logFlushTimer.Stop();
+            // 외부 PLC dll 이 non-background thread 를 띄우면 process 가 살아남으므로 강제 종료.
+            Application.Current?.Shutdown();
+        };
+    }
+
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // 시뮬 실행 중에 창을 닫으면 cancel 안 해주면 워커 루프가 계속 돌고 PLC dispose 도 안 됨.
+        _cts?.Cancel();
     }
 
     private void ApplyPlcTypeToInputs()
