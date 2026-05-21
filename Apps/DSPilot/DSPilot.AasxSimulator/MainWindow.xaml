@@ -1,7 +1,7 @@
-<Window x:Class="DSPilot.TestConsole.MainWindow"
+<Window x:Class="DSPilot.AasxSimulator.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DSPilot AASX Flow Simulator"
+        Title="DSPilot AasxSimulator"
         Height="640" Width="880"
         AllowDrop="True"
         Drop="OnAasxDrop"
@@ -46,6 +46,13 @@
                     <ComboBoxItem Content="XGI"/>
                     <ComboBoxItem Content="XGK"/>
                     <ComboBoxItem Content="XGT"/>
+                </ComboBox>
+
+                <TextBlock x:Name="LblMxProtocol" Text="Protocol:" VerticalAlignment="Center" Margin="16,0,8,0" Grid.Column="6"
+                           Visibility="Collapsed"/>
+                <ComboBox x:Name="CmbMxProtocol" Grid.Column="7" Visibility="Collapsed">
+                    <ComboBoxItem Content="UDP"/>
+                    <ComboBoxItem Content="TCP"/>
                 </ComboBox>
             </Grid>
         </GroupBox>

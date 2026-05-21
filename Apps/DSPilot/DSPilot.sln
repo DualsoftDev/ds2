@@ -17,7 +17,7 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Aasx", "..\..\solutions
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.Tests", "DSPilot.Tests\DSPilot.Tests.csproj", "{F8F9B23A-9E2E-4635-843B-C762D9F61AA4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.TestConsole", "DSPilot.TestConsole\DSPilot.TestConsole.csproj", "{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.AasxSimulator", "DSPilot.AasxSimulator\DSPilot.AasxSimulator.csproj", "{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

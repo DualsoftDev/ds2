@@ -73,7 +73,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlcDataGenerator", "..\Apps
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuickTest", "..\Apps\DSPilot\QuickTest\QuickTest.csproj", "{9FBA16B3-6DC9-4F51-BFEB-10B44D9E8BD3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.TestConsole", "..\Apps\DSPilot\DSPilot.TestConsole\DSPilot.TestConsole.csproj", "{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.AasxSimulator", "..\Apps\DSPilot\DSPilot.AasxSimulator\DSPilot.AasxSimulator.csproj", "{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "AasxEditor", "AasxEditor", "{A84671FD-A7D4-D910-35B9-E727A0CAB34D}"
 EndProject

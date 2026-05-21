@@ -6,8 +6,8 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>DSPilot.TestConsole</RootNamespace>
-    <AssemblyName>DSPilot.TestConsole</AssemblyName>
+    <RootNamespace>DSPilot.AasxSimulator</RootNamespace>
+    <AssemblyName>DSPilot.AasxSimulator</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
