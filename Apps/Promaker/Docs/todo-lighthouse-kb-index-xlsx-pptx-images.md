@@ -4,7 +4,11 @@
 
 | rev | 일자 | 주요 변경 |
 |---|---|---|
+| r6 | 2026-05-21 | **Task 7 사용자 결정 2건 추가 박제 (A 축소 + D 확정)**. (A 정정) **BMP/TIFF/SVG 보류** — Phase 3 backlog 로 격하. 활성 확장자 = **4종 raster (PNG/JPEG/GIF/WEBP) + 2종 vector metafile (EMF/WMF)** 총 **6종**. (D 확정) **standalone EMF/WMF 활성 — 추천안 채택**. `OoxmlExtractor.EmfToPng` 직호출 + Metafile→PNG 변환 후 `Format=Png` 박제. r5 의 F (SVG 정책) / G (BMP/TIFF 변환) / H (Format↔bytes 정합 매트릭스) 박제 중 **F / G 항목 무효** (보류된 format 의 변환/caption 분기 불요). H 변환 매트릭스 단순화: PNG/JPEG/GIF/WEBP = raw 보존 (`Format` = raw), EMF/WMF = Metafile→PNG 변환 (`Format=Png`). `ImageFormat` DU 변경 0 (SVG case 추가 불요 — Phase 3 함께 박제). 분량 보정 = **120~170 line** (BMP/TIFF/SVG 분기 제거): Classifier 6 + Models 1 + ImageExtractor 100~140 (6 format 매핑 + magic byte 검증 + EMF/WMF Metafile→PNG 분기 + Width/Height parse) + Indexer 0 (가드 동일) + RefLocator 15~25 + Packager 1 + **8~12 Fact** (PNG/JPEG/GIF/WEBP/EMF/WMF 정상 6 + magic byte mismatch + 0 byte + icon size 가드 + RefLocator round-trip). 코드 변경 0 (본 turn 도 doc only). |
+| r5 | 2026-05-21 | **Task 7 사용자 결정 4건 박제 + 신규 의무 3건 박제**. 사용자 응답: (A) **활성 확장자 7종** = PNG / JPEG / GIF / WEBP / BMP / TIFF / SVG (ICO/HEIC 제외 — Phase 3 backlog). (B) **RefLocator scheme = repo 관례 따름** → `RefLocator.fs` 분석 결과 `RefUnit = P / Slide / Sheet` 모두 **포함 위치 단위 main 단독** + `Img` 는 **sub key 전용**. standalone image 는 main 단독 박제가 자연 → **옵션 ① 채택**: `RefUnit` 에 `Image` case 신설 + `image=N` literal (N=1 고정, future embedded multi-ordinal 호환). `formatDisplay` = `"이미지"` literal. (C) **8 KB icon guard 유지** — `Indexer.MinImageBytesForIndex = 8192` standalone 색인에도 동일 적용. 사용자가 5KB icon PNG 단독 색인 시도 시 정책상 skip (의도된 noise 차단). (D) **standalone EMF/WMF 활성 추천** — `OoxmlExtractor.EmfToPng` (Plan 3 helper, `OoxmlExtractor.fs:95-114`) 재사용. ContentType 6 종 (`image/x-emf` / `image/emf` / `image/x-wmf` / `image/wmf`) 매핑은 OoxmlExtractor 내부 박제 — `ImageExtractor` 가 `EmfToPng` 직호출 + `Format=Png` (변환 후 박제). 의존성 추가 0 (E 결정 정합). **사용자 confirm 의무**. (E) **`System.Drawing.Common` 채택** — Width/Height parse Windows-only 정합 (`EmfToPng` 와 동일). 신규 의무 (A 의 SVG/BMP/TIFF 박제로 발생): (F) **SVG 정책 추천** — `System.Drawing.Common` SVG 미지원. magic byte (`<?xml` / `<svg`) 검증 + raw bytes 박제 + `Width/Height=None`. caption 시점 VLM provider 가 `SkippedCaption "svg unsupported"` 반환 (Anthropic/OpenAI Vision API 둘 다 SVG inline 미지원). SVG → PNG raster 변환 (`Svg.Skia` NuGet 의존성 추가) 은 Phase 3 backlog. (G) **BMP/TIFF 변환 추천** — Anthropic/OpenAI Vision API 는 PNG/JPEG/GIF/WEBP 4 종만 직접 지원. BMP/TIFF 는 `System.Drawing.Bitmap` → PNG 재인코딩 후 `Format=Png` 박제 (caption 정합). 의존성 추가 0. (H) **Format → bytes 박제 정합** — `ExtractedImage.Format` 가 `Bytes` 내용과 정확 일치 의무 (PNG 변환 시 Format=Png, raw 시 raw format). `ImageStore.saveBlob` 의 extension 분기와 정합. 결과적 활성 변환 매트릭스: PNG/JPEG/GIF/WEBP = raw 보존, BMP/TIFF = Bitmap→PNG 변환, SVG = raw 보존 (caption skip), EMF/WMF (사용자 confirm 시) = Metafile→PNG 변환. r4 분량 보정 = **150~220 line** (Classifier 7 + Models 1 + ImageExtractor 130~180 (BMP/TIFF/EMF/WMF/SVG 변환 분기 + magic byte 검증 + 7 format 매핑) + Indexer 0 (가드 동일) + RefLocator 15~25 + Packager 1) + **10~14 Fact** (7 정상 format + 3 변환 분기 + magic byte mismatch + 0 byte + icon size 가드 + RefLocator round-trip). 코드 변경 0 (본 turn 도 doc only). |
+| r4 | 2026-05-21 | **Task 7 신설** — standalone image 파일 (`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp`) 색인 활성. 본 todo 주제 (OoxmlExtractor 안 embedded image) 와 다른 layer 라 별 Task 로 박제. (a) **실측 진단**: `dotnet run index /f/tmp/i` (Picture1.png 130 KB 단일 파일) → Documents/Chunks/ImageCache 모두 0 row (Meta 만 stamp). 사유 = `Classifier.fs:41-50` 의 `rejectedExtensions` 에 `.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` / `.bmp` / `.tiff` / `.svg` / `.ico` 명시 등재 → `classifyForKb` 가 `Unsupported ".png"` 반환 → `Indexer.ingestFile` 의 `Skipped "rejected ext: .png"` 분기. (b) **정책 변경 범위**: (i) `Classifier.fs` — `rejectedExtensions` 에서 5종 (`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp`) 제거 + `supportedExtensions` 에 신규 매핑 (BMP/TIFF/SVG/ICO/HEIC 는 사용자 결정 미박제 — Phase 3 backlog). (ii) `Models.fs` — `FileKind` DU 에 `Image` case 추가, `SqliteStore` 의 DocType 매핑 동시 갱신. (iii) **신규 `ImageExtractor.fs`** — standalone image 파일 → `ExtractedDocument { Segments=[||]; Outline=[||]; Images=[단일 ExtractedImage] }`. format 결정 = `ImageFormat.fromExtension` (Phase 2 ImageFormat DU 재사용) + 헤더 magic byte 검증 (PNG/JPEG/GIF/WEBP signature). Width/Height = header parse (`System.Drawing.Image` Windows-only — `EmfToPngConverter` 와 동일 trade-off 결정 의무). (iv) `RefLocator.fs` — `RefUnit` DU 에 `Image` case 신설 또는 standalone image RefLocator 정책 결정 (`image=1` literal 단일 / 빈 RefLocator / `root#img=1`). 사용자 결정 의무. (v) `Indexer.ingestFile` — `extracted.Segments.Length = 0 && extracted.Images.Length = 1` flow 검증 (parent §6 #8 의 image-only paragraph 정합 재사용 — chunks 0 + ImageCache 1 + ImageReferences 1 + ChunkId=None). (vi) **VLM caption** = 기존 `captionGen` surface 재사용 (lib 변경 0, server provider 가 동일하게 호출). (vii) **attachment_read** = `includeImages` / `caption_only` 가 `ImageReferences.RefLocator = "image=1"` 매칭 (server phase Phase S5 Task 6 흡수). (c) **사용자 결정 의무 항목**: ① 활성 확장자 범위 (PNG/JPEG/GIF/WEBP 4종 vs +BMP/TIFF/SVG/ICO 추가) ② RefLocator scheme (`image=1` vs 빈 vs 신규 `image` RefUnit) ③ 8 KB icon 가드 (`Indexer.MinImageBytesForIndex`) 적용 여부 — standalone 색인 의도와 충돌 (사용자가 PNG 단일을 명시 업로드한 경우 icon 가드 우회) ④ EMF/WMF (이미 `EmfToPngConverter` 진입) 의 standalone 색인 적용 여부 ⑤ Models.FileKind DU 확장 시 IUM (`SqliteStore` DocType 매핑 / parent §3.13 표 / Promaker 측 표시 도메인) 영향 박제. (d) 예상 분량 = F# **100~150 line** (Classifier 5 + Models 1 + ImageExtractor 80~120 + Indexer 검증 회귀 0 + RefLocator 10~20) + **6~10 Fact** (정상 PNG / JPEG / GIF / WEBP / magic byte mismatch / 0 byte / icon size 가드 분기 / RefLocator round-trip). 코드 변경 0 (본 turn 도 doc only). |
 | r0 | 2026-05-21 | 초안 — `--plan` 모드 논의 결과 박제. PPTX/XLSX 활성 + 내부 image 색인 + LLM 표시 wiring 작업 범위. 사용자 결정 5건 반영 (xlsx 수식/hidden/merged/빈행/좌표 RefLocator 모두 간편 정책 채택). 코드 변경 0. |
+| r3 | 2026-05-21 | `--plan` 모드 추가 논의 — 산업 .xlsx (`/f/tmp/f/4-1. SV_SIDE_조립작업서_240328.xlsx`) 실측 진단 + Gantt schedule 시트 색인 정책 박제. (a) **실측 진단**: 시트 13개 중 호기별 작업서 9개가 Gantt schedule 형식 — 데이터 컬럼 (NO/SYM/작업내역/시작/시간/누계/용접점수/용접등급) + 좁은 타임라인 컬럼 (`Column.Width = 0.75`, AM~DF, ~72개) + bar = **`styles.xml` fill style only, cell value 없음**. 본 todo r0~r2 의 `expandSparseRow` + 빈 값 자연 drop 정책으로 데이터 컬럼은 0 정보손실 흡수 가능. (b) **Task 2-extra 신설** — Gantt schedule 시트 type 힌트 안내문 prepend. header detector = **3단계 normalize + 8 role synonym map + score 기반 판정** (공백/줄바꿈/한자 normalize + role synonym 50+ alias literal + score≥3 + START/DURATION/CUMULATIVE 중 2개 이상 = Gantt 판정 + 2-row merged header 흡수). 컬럼 순서 무관 매칭 (`Map<int,Role>` 빌드). segment 머리에 role-기반 동적 안내문 (`"AB=NO, AC=SYM, AD=TASK, AJ=START(초), AK=DURATION(초), AL=CUMULATIVE(초), 좁은 컬럼은 Gantt 시각화 (데이터 없음)"`). ~120 line / 6 Fact (정상 / 순서 바뀜 / 영문 헤더 / 공백 normalize / 2-row header / 미검출 false negative). (c) **Task 2 보강** — `expandSparseRow` 결과에 **타임라인 좁은 컬럼 필터** 추가: `worksheet.Columns` 에서 `Column.Width < 1.0` 컬럼 index set 빌드, dense array 에서 그 index 가 `""` 면 join 단계 drop. tick label (`1, 2, 3...`) 등 값 있는 셀은 보존. ~20 line / 2 Fact (정상 drop / tick label 보존). (d) **bar 위치 정확 복원 (fill style 파싱)** = Phase 4 backlog 박제. **시트 PNG render + VLM caption** = Phase 4+ backlog. **셀 메모 (`comments1.xml`) 색인** = Phase 3 backlog 신설. (e) **사용자 정의 synonym alias** (config / CLI 인자) = Phase 4 backlog. (f) **Task 2 분량 보정**: 180~280 line + 12~16 Fact → **200~300 line + 14~18 Fact** (timeline width filter 흡수). Task 2-extra 별도 commit = **+120 line + 6 Fact**. 코드 변경 0 (본 turn 도 doc only). |
 | r2 | 2026-05-21 | `--review` 후속 (단일 reviewer, r1 진단 검증 + 신규 발견) — Major 2 + Minor 8 박제 반영. (a) **Major-1 채택** — Task 1 의 PPTX `Presentation.SlideIdList` null guard 추가 (빈/손상 pptx 시 NRE 방지, `ExtractWithFailSafe` 5종 어느 것도 NRE 안 잡음). (b) **Major-2 반론** — RefLocator `parseFragment` 가 `String.IndexOf('=')` (첫 `=` 만) 로 split → 시트명 `=` / `.` 포함은 round-trip **안전** (예: "sheet=BOM=spec" → Value="BOM=spec" 정상). `#` 만 fragment separator 충돌 (r1 이미 박제). reviewer 의 "silent drop" 진술 부정확 — 진입자 의심 회피용으로 §3 Task 2 의 escape policy 본문에 명시 박제. (c) **Minor 8건 전부 채택** — Minor 1 (PhoneticRun filter 이중부정 단순화) / Minor 2 (`expandSparseRow` worst-case cap — `MaxXlsxColumnsPerRow=1024` + 초과 시 Warn 박제) / Minor 3 (PPTX `slideId.RelationshipId` null guard) / Minor 4 (XLSX `cell.CellReference.Value` null guard) / Minor 5 (PPTX 의사코드에 `type private DrawingParagraph = Drawing.Paragraph` + `DrawingText = Drawing.Text` alias 박제) / Minor 6 (PPTX slide loop `ct.ThrowIfCancellationRequested()` 박제) / Minor 7 (fixture boilerplate — `makeMinimalPptx` / `makeMinimalXlsx` base + mutate 패턴 박제. 단 reviewer 의 "80 line/helper" 는 과잉 추정 가능 — OpenXml SDK 의 `AddPresentationPart` + minimal Theme + SlideMaster + SlideLayout boilerplate 는 helper API 사용 시 30~60 line/helper 추정. Task 1 분량 140~200 → **160~240** 보정) / Minor 8 (§6 #9 의 hallucination marker 문구 `<None Include="Fixtures\*.docx">` 자체 정리 — 향후 reviewer 의 stale 오인 회피). 코드 변경 0 (본 turn 도 doc only). |
 | r1 | 2026-05-21 | `--review` 5인 reviewer 종합 (R1 generalist / R2 OOXML SDK 외부 16출처 / R3 F# 설계 / R4 테스트 / R5 doc 정합) — Critical 6 + Major 18 + Minor 8 = 32건 박제 반영. (i) **Task 0 (선행 refactor) 신설** — `OoxmlExtractor.Extract` 가 dispatch 가 아니라 `ExtractDocx` 직호출 + 4 catch arm `DocType=Docx` hardcode 확인 (line 340-362) → `ExtractWithFailSafe` wrapper + `ImagePartToFormat` helper + closure 4종 static 승격. (ii) **Task 3 격하** — `RefLocator.fs` 가 이미 slide/sheet × img sub-key 일반화 박제 (DU `RefUnit = P/Slide/Sheet` + `RefSubKey = Img` + 표시형 변환) → 코드 변경 0, `RefLocatorTests.fs` InlineData 5~8개 regression guard 만. (iii) **Fixture 패턴 정정** — Fixtures 폴더 부재, `TestFixtures.fs` 의 `SamplePng.bytes` + `OoxmlExtractorTests.fs` 의 `withTempPath` + 7 `makeDocx*` helper 프로그램적 생성 패턴이 SSOT. PPTX/XLSX 도 동일 (정적 fixture 박제 금지, fsproj `<None Include>` 추가 불필요). (iv) **XLSX sparse cell 정정** (R2 outlier, MS Learn 강 근거) — `row.Elements<Cell>()` 가 값 있는 cell 만 child → `expandSparseRow` helper (CellReference column letter parse + gap 채움) 의무. (v) **PPTX 슬라이드 순서 정정** (R2 outlier) — `SlideParts` 가 아니라 `Presentation.SlideIdList.Elements<SlideId>()` 가 SSOT. (vi) **Sheet.State enum 비교** (R2 outlier) — `SheetStateValues.Hidden \| VeryHidden` enum 직접 비교. (vii) **Major 18건** — Cell.DataType Str/Error / SharedString phonetic ruby (rPh) / Row.OrderBy(RowIndex) / TitleSlide+CenteredTitle placeholder / paragraph break \n / DrawingsPart null guard / veryHidden Fact / 빈 pptx Fact / 동일 image cross-slide dedup Fact / 시트명 `#` escape 정책 등 의사코드 + 테스트 박제 반영. (viii) **m2 박제** — `Indexer.fs:85 captionGen` surface 이미 박제 확인 → Task 5 분담 "lib surface only / provider 는 server" 단순화. (ix) **m6 박제** — ImageStore 실측 225 line / 13 surface (r0 의 170 line / 9 stale). (x) **분량 추정 보정** — Task 1/2 의 "100~150 line + 5~8 Fact" → **180~280 line + 10~14 Fact** (sparse cell helper + phonetic filter + paragraph break + 정렬 패턴 보정 + fixture helper 6~8 종 신설 포함). 코드 변경 0 (본 turn 도 doc only). |
 
@@ -344,8 +348,28 @@
     - **`=` / `.` 는 안전** — RefLocator.fs:71-78 의 `parseFragment` 가 `String.IndexOf('=')` (첫 `=` 만) 로 split, `.` 은 EBNF 특수문자 아님. 예: `"sheet=BOM=spec"` → `tryParse` 가 `Value="BOM=spec"` 으로 정상 parse + round-trip 보존. 시트명 `=` / `.` 포함은 skip 불필요.
     - **Excel 금지 char** (`\ / ? * [ ]`) — Excel 자체가 시트명에 허용 안 함, 박제 불필요.
   - **Outline**: `OutlineNode { NodeType = Sheet; Label = sheetName; RefLocator = "sheet=<name>" }`. r1 M17 결정 — segment 박제 안 되더라도 outline 은 박제 (시트 존재 자체가 정보).
-  - **행 단위 tab join + sparse cell + sort**:
+  - **타임라인 좁은 컬럼 필터 빌드** (r3 — Gantt 시각화 noise 제거):
     ```
+    /// `worksheet.Columns` 의 width < threshold 인 컬럼 1-based index set 빌드.
+    /// 산업 .xlsx 의 Gantt 시각화는 보통 width=0.75 의 좁은 컬럼 70+개로 표현 (실측: 4-1.SV_SIDE 의 AM~DF).
+    /// 이 셀들은 빈 값 + fill style only 라 dense array 의 trailing `""` 가 됨 → join 단계 drop.
+    /// tick label (`1,2,3...`) 처럼 값 있는 셀은 보존.
+    let [<Literal>] NarrowColumnWidthThreshold = 1.0
+    let narrowColIndexes (worksheetPart: WorksheetPart) : Set<int> =
+        let cols = worksheetPart.Worksheet.GetFirstChild<Columns>()
+        if isNull cols then Set.empty
+        else
+            cols.Elements<Column>()
+            |> Seq.filter (fun c ->
+                not (isNull c.Width) && c.Width.HasValue
+                && c.Width.Value < NarrowColumnWidthThreshold
+                && not (isNull c.Min) && not (isNull c.Max))
+            |> Seq.collect (fun c -> seq { int c.Min.Value .. int c.Max.Value })
+            |> Set.ofSeq
+    ```
+  - **행 단위 tab join + sparse cell + sort + 좁은컬럼 필터** (r3 보강):
+    ```
+    let narrowSet = narrowColIndexes worksheetPart
     let sortedRows =
         worksheetPart.Worksheet.Descendants<Row>()
         |> Seq.sortBy (fun r -> if isNull r.RowIndex then 0u else r.RowIndex.Value)
@@ -353,7 +377,14 @@
     for row in sortedRows do
         ct.ThrowIfCancellationRequested()
         let dense = expandSparseRow (row.Elements<Cell>()) sheetName   // r2 Minor 2/4: cap + null guard
-        let line = String.Join("\t", dense)
+        // r3: 좁은(=Gantt 시각화) 컬럼이 빈 값이면 drop, 값 있으면 (tick label) 보존
+        let kept =
+            dense
+            |> Array.mapi (fun i v ->
+                let colIdx = i + 1
+                if Set.contains colIdx narrowSet && v = "" then None else Some v)
+            |> Array.choose id
+        let line = String.Join("\t", kept)
         if line.Trim().Length > 0 then
             sb.AppendLine(line) |> ignore
     ```
@@ -400,6 +431,8 @@
 - [ ] **시트명 `#` 포함** (r1 M18) — `"A#B"` 시트 → Warn + skip + 다른 시트 정상.
 - [ ] **시트명 `=` 포함 round-trip** (r2 Major-2 반론 검증) — `"BOM=spec"` 시트 → skip 안 함, RefLocator `"sheet=BOM=spec"` 가 tryParse round-trip 정상 통과 (`Value="BOM=spec"` 보존).
 - [ ] **expandSparseRow worst-case cap** (r2 Minor 2) — A1 + ZZZ1 row → `MaxXlsxColumnsPerRow=1024` 적용 + Warn log + 첫 1024 컬럼만 박제.
+- [ ] **타임라인 좁은 컬럼 drop** (r3) — `Column.Width=0.75` 컬럼 70개 + 데이터 컬럼 (width=4.5) 6개 fixture → segment text 가 데이터 컬럼만 tab join, trailing 빈 컬럼 제거. 산업 .xlsx (`4-1.SV_SIDE`) 의 row 14 (`1\tM\t233-1호…\t0\t6`) 가 그대로 박제.
+- [ ] **타임라인 좁은 컬럼의 tick label 보존** (r3) — width=0.75 컬럼이지만 값 (`1,2,3...`) 있는 row 7 → drop 되지 않고 보존. (filter 는 `width < 1.0 AND value = ""` 동시 충족 시에만 drop)
 - [ ] 손상 xlsx fail-safe — `DocType = Xlsx` (Task 0 dispatch 회귀 가드) + 빈 결과.
 
 **Fixture helper** (프로그램적 생성 — `SpreadsheetDocument.Create`. r2 Minor 7: base+mutate 패턴):
@@ -413,8 +446,83 @@
 - `makeXlsxWithImage (path: string)` — base + DrawingsPart + Blip
 - `makeXlsxWithHashSheet (path: string)` — base + 시트명에 `#` 포함 (M18 fixture)
 - `makeXlsxWithEqualsSheet (path: string)` — base + 시트명에 `=` 포함 (r2 Major-2 반론 검증 fixture — round-trip 정상 통과 의무)
+- `makeXlsxGanttNarrowCols (path: string)` — base + `Columns` element 에 width=0.75 × 70 컬럼 + width=4.5 × 6 데이터 컬럼 + row 14 같은 sparse 데이터 (r3 timeline filter fixture)
 
-### Task 3 — RefLocator regression Fact 추가 (r1 격하 — Critical-2)
+### Task 2-extra — Gantt schedule 시트 type 힌트 (r3 신설)
+
+**범위**: 산업 .xlsx 의 작업 일정표 (Gantt 형식) 시트 검출 + segment 머리에 role-기반 동적 안내문 prepend. LLM 이 row tab-join 데이터를 "이 컬럼은 시작시간 (초)", "이 컬럼은 작업 내역" 등으로 정확 해석하도록 지원. Task 2 본체 완료 후 진입.
+
+**전제** = Task 2 완료 (`ExtractXlsx` + `expandSparseRow` + timeline filter 박제).
+
+**예상 분량**: F# 신규 코드 **~120 line** (synonym map literal 50 + normalize helper 30 + score 검출 40) + 테스트 **6 Fact** + fixture **3 종** 신설.
+
+**구현 절차**:
+- [ ] **(a) 8 role + synonym set 박제** — lib 내부 const literal. 본 todo r3 박제 8 role:
+  ```
+  type SheetRole =
+      | RNo | RSym | RTask | RStart | RDuration | RCumulative | RScore | RGrade
+  let private roleSynonyms : Map<SheetRole, Set<string>> =
+      Map.ofList [
+          RNo,         Set.ofList ["no"; "no."; "번호"; "순번"; "순서"; "#"; "step"; "idx"; "seq"]
+          RSym,        Set.ofList ["sym"; "symbol"; "기호"; "심볼"; "약호"; "code"]
+          RTask,       Set.ofList ["작업내역"; "작업내용"; "작업"; "task"; "work"; "공정"; "내역"; "description"; "desc"; "단계"]
+          RStart,      Set.ofList ["시작"; "시작시간"; "시작초"; "개시"; "start"; "starttime"; "from"; "begin"]
+          RDuration,   Set.ofList ["시간"; "소요"; "소요시간"; "소요초"; "duration"; "dur"; "span"; "length"]
+          RCumulative, Set.ofList ["누계"; "누적"; "누적시간"; "종료"; "종료시간"; "cum"; "cumulative"; "to"; "end"; "total"]
+          RScore,      Set.ofList ["용접점수"; "점수"; "score"; "points"]
+          RGrade,      Set.ofList ["용접등급"; "등급"; "grade"; "rank"; "class"]
+      ]
+  ```
+- [ ] **(b) normalize helper** — header cell 텍스트 → match key 변환:
+  ```
+  /// 공백/줄바꿈/탭/전각공백 제거 + 괄호 안 부연 strip + 한자→한글 (소수 대표만) + 소문자.
+  let private normalizeHeader (s: string) : string =
+      let stripped = System.Text.RegularExpressions.Regex.Replace(s, @"\([^)]*\)", "")  // (sec), (s)
+      let noSpace = stripped |> String.filter (fun c -> not (System.Char.IsWhiteSpace c))
+      let lower = noSpace.ToLowerInvariant()
+      lower
+        .Replace("時間", "시간").Replace("開始", "시작")
+        .Replace("作業", "작업").Replace("番號", "번호")
+  ```
+- [ ] **(c) 2-row header concat** — 산업 .xlsx 의 merged 위쪽 (`시간`) + 아래쪽 (`10,20,30`) 분리 시 위쪽만 단독 매칭. column-wise 로 row1+row2 normalize 결과를 concat 후 매칭. 단일 키 정확 매칭 우선, concat 매칭은 fallback.
+- [ ] **(d) Map<int,Role> 빌더** — header 후보 row (텍스트 비율 >50% + 숫자 비율 <20% 인 첫 row) 의 각 컬럼 cell value normalize → role match. `Map<columnIndex, SheetRole>` 빌드.
+- [ ] **(e) score 판정** — match 개수 ≥3 AND (`RStart`+`RDuration`+`RCumulative` 중 ≥2) → **Gantt schedule**. ≥5 + narrow col 50+ → **Gantt schedule (strong)**. else 일반 시트.
+- [ ] **(f) role 기반 동적 안내문** — segment text 머리에 prepend (Gantt 시트만):
+  ```
+  let preamble =
+      let parts =
+          roleMap
+          |> Map.toList
+          |> List.sortBy fst
+          |> List.map (fun (colIdx, role) ->
+              let letter = columnIndexToLetter colIdx
+              let label =
+                  match role with
+                  | RNo -> "NO(순번)" | RSym -> "SYM(심볼)" | RTask -> "TASK(작업내역)"
+                  | RStart -> "START(시작초)" | RDuration -> "DURATION(소요초)"
+                  | RCumulative -> "CUMULATIVE(누계초)"
+                  | RScore -> "SCORE(점수)" | RGrade -> "GRADE(등급)"
+              sprintf "%s=%s" letter label)
+      sprintf "이 시트는 작업 일정표(Gantt)입니다. 컬럼 의미: %s. 좁은 컬럼들은 Gantt 시각화 막대(데이터 없음).\n"
+          (String.concat ", " parts)
+  sb.Insert(0, preamble) |> ignore
+  ```
+- [ ] **(g) Outline label 갱신** — Gantt 검출 시 `OutlineNode.Label = sprintf "%s [Gantt schedule]" sheetName`.
+
+**테스트** (`OoxmlExtractorTests.fs`, Task 2-extra Fact 6종):
+- [ ] **정상 Gantt 검출** — header `NO|SYM|작업내역|시작|시간|누계` 6 컬럼 → segment 머리에 preamble + outline label `[Gantt schedule]`.
+- [ ] **순서 바뀜 매칭** — header `[SYM, NO, 시작, 작업내역, 시간, 누계]` 순 → 동일 role map 빌드 + preamble 의 컬럼 letter 가 실제 위치 반영.
+- [ ] **영문 헤더** — `[NO, Symbol, Task, Start, Duration, Cumulative]` → Gantt 검출 + preamble 정상 박제.
+- [ ] **공백 normalize** — `"작 업 내 역"`, `"시 작"`, `"시간(sec)"` 헤더 → 정상 매칭 (괄호 부연 strip + 공백 제거).
+- [ ] **2-row merged header** — row1=merged `시간` (위쪽), row2=`10,20,30...` (아래쪽) + 데이터 컬럼은 row1 단독 매칭 → Gantt 검출 + 타임라인 컬럼 미오인.
+- [ ] **미검출 false negative** — match 2개 이하 (예: `NO|Item|값`) 시트 → Gantt 판정 안 함, preamble 미박제, outline label 그대로.
+
+**Fixture helper 신설**:
+- `makeXlsxGantt (path: string)` — 산업 .xlsx 축소판 (3 시트, 1개가 Gantt 형식, `width=0.75` × 30 narrow + 데이터 컬럼 6 + row 5개 + tick label row)
+- `makeXlsxGanttReordered (path: string)` — Gantt 검출 but 컬럼 순서 바뀜
+- `makeXlsxGanttTwoRowHeader (path: string)` — merged 위쪽 + tick 아래쪽 (2-row header fixture)
+
+**self-check** — 본 todo §6 #1 trigger ②④ (신규 함수/타입 5+, dispatch helper 신설) 충족 → 자가 검열 sub-agent 의무.
 
 **전제 정정** (r1): `RefLocator.fs` 가 이미 `RefUnit = P | Slide | Sheet` + `RefSubKey = Img` DU + `tryParse`/`toStored`/`formatDisplay` 일반화 박제 완료 — **코드 변경 0**. r0 의 "PDF 만 지원 가능성 → 일반화 필요" 박제는 hallucination 으로 검증됨. 진입자가 신규 분기 추가 시도 시 시간 낭비.
 
@@ -428,6 +536,8 @@
 - [ ] 기존 `[<InlineData("p=14#img=2")>]` regression guard 명시 (코멘트로 "r1: Critical-2 — slide/sheet × img 일반화 보호")
 
 **예상 분량**: 코드 변경 0, 테스트 ~10 line 추가 (5~8 InlineData + 3 표시형).
+
+> r3 박제 — Task 2-extra (Gantt schedule 시트 type 힌트) 는 Task 2 상위 본문 안 §Task 2-extra 절 참조.
 
 ### Task 4 — parent todo `todo-lighthouse-kb-index.md` 갱신
 
@@ -470,19 +580,112 @@
 
 **본 todo scope**: Task 6 도 **scope out** — server phase Phase S5 (`todo-lighthouse-kb-server.md`) 의 책임. server 진입 시점에 정합 확인.
 
+### Task 7 — standalone image 파일 색인 활성 (r4 신설)
+
+**범위**: `.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` 단일 image 파일을 KB 색인 대상으로 활성. 본 todo 본 주제 (OoxmlExtractor embedded image) 와 별 layer — KB 입력 surface 자체의 확장. **PNG/JPEG/GIF/WEBP 4 종만 활성** (BMP/TIFF/SVG/ICO/HEIC 는 Phase 3 backlog — 사용자 결정 미박제).
+
+**전제** = 없음 (Task 0~4 와 독립). Task 5 (VLM caption server provider) 가 진행되어야 caption 채워짐 — provider 미진입 시 `ImageCache.CaptionText = NULL` 로 정상 색인, 다음 색인 시점에 재시도 (parent §3.15.5 MR2 정합).
+
+**실측 진단 SSOT (2026-05-21 turn)**:
+- `dotnet run index /f/tmp/i` (Picture1.png 130 KB 단일 파일) 후 `index.db`:
+  - `Documents` 0 row / `Chunks` 0 row / `ImageCache` 0 row / `ImageReferences` 0 row / `Meta` 만 stamp (schema_version=5, indexer_version=2.1.0)
+  - 사유 = `Classifier.fs:41-50` 의 `rejectedExtensions` 가 `.png` 명시 등재 → `classifyForKb` 가 `Unsupported ".png"` → `Indexer.ingestFile` (`Indexer.fs:201-207`) 의 `Skipped "rejected ext: .png"` 분기
+
+**사용자 결정 박제 (r6 확정 — 5건 모두 결정 완료)**:
+- **(A) 활성 확장자 6종 — 확정** — PNG / JPEG / GIF / WEBP / EMF / WMF. BMP/TIFF/SVG/ICO/HEIC 는 보류 (Phase 3 backlog).
+- **(B) RefLocator scheme — 확정 옵션 ①** — `RefLocator.fs` 의 기존 관례 (`RefUnit = P / Slide / Sheet` 모두 main 단독 + `Img` 는 sub key 전용) 따라 `RefUnit` DU 에 `Image` case 신설 + `image=N` literal. standalone 파일은 N=1 고정. `formatDisplay` = `"이미지"` literal (slide 의 `"슬라이드 N"` 정합).
+- **(C) 8 KB icon 가드 유지 — 확정** — `Indexer.MinImageBytesForIndex = 8192` 그대로. standalone image 도 동일 가드 적용 (8 KB 미만 skip). `ingestImagesIntoStore` 변경 0.
+- **(D) standalone EMF/WMF 활성 — 확정** — `OoxmlExtractor.EmfToPng` (Plan 3 helper, `OoxmlExtractor.fs:95-114`) 재사용. `ImageExtractor` 가 직호출 → Metafile→PNG 변환 후 `Format=Png` 박제. 의존성 추가 0.
+- **(E) System.Drawing.Common — 확정** — Width/Height parse Windows-only 정합 (Plan 3 `EmfToPng` 와 동일 trade-off).
+- **(H) Format ↔ bytes 박제 정합** — `ExtractedImage.Format` 가 `Bytes` 내용과 정확 일치 의무. **변환 매트릭스 (r6 단순화)**:
+  - PNG / JPEG / GIF / WEBP → raw 보존, `Format` = raw, `ImageStore.saveBlob` 이 extension 분기 정합
+  - EMF / WMF → Metafile→PNG 변환 (Plan 3 `EmfToPng` 재사용), `Format=Png`
+
+**보류 결정 (Phase 3 backlog 박제)**:
+- ~~(F) SVG~~ — 보류. raster 변환 (`Svg.Skia` NuGet) + `ImageFormat.Svg` case + VLM provider SVG skip 정책.
+- ~~(G) BMP/TIFF~~ — 보류. Bitmap→PNG 재인코딩 분기.
+
+**구현 절차 (r6 사용자 결정 박제 후 확정)**:
+- [ ] **(a) `Classifier.fs:41-50` 정정** — `rejectedExtensions` 에서 `.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` 5 종 제거. BMP/TIFF/SVG/ICO/HEIC 는 그대로 유지 (Phase 3 backlog).
+- [ ] **(b) `Classifier.fs:19-35` 정정** — `supportedExtensions` 에 6 종 매핑 추가:
+  ```
+  ".png",   Image
+  ".jpg",   Image
+  ".jpeg",  Image
+  ".gif",   Image
+  ".webp",  Image
+  ".emf",   Image
+  ".wmf",   Image
+  ```
+- [ ] **(c) `Models.fs:10-17` 정정** — `FileKind` DU 에 `Image` case 추가:
+  ```
+  type FileKind =
+      | Pdf | Docx | Pptx | Xlsx | Text | Markdown | Image
+      | Unsupported of ext: string
+  ```
+  `SqliteStore` 의 DocType ↔ string 매핑 동시 갱신 (`"image"` lowercase).
+- [ ] **(d) 신규 `Solutions\Core\Ds2.LightHouse\Extractors\ImageExtractor.fs`** — `IExtractor` 구현:
+  - `Supports kind = kind = Image`
+  - `Extract (path, ct)`:
+    - file bytes 전체 로드 (`File.ReadAllBytes path`).
+    - 확장자 분기 (사용자 결정 H 변환 매트릭스):
+      - **PNG/JPEG/GIF/WEBP (raw 보존)**: magic byte 검증 — PNG (`89 50 4E 47`) / JPEG (`FF D8 FF`) / GIF (`47 49 46 38`) / WEBP (`52 49 46 46 .. .. .. .. 57 45 42 50`). mismatch 시 빈 결과 + `Log.lighthouse.Warn`. `Format` = raw (Png/Jpeg/Gif/Webp).
+      - **EMF/WMF (Metafile→PNG 변환)**: `OoxmlExtractor.EmfToPng` (Plan 3 helper, `OoxmlExtractor.fs:95-114`) 직호출 → PNG bytes 반환. `Format=Png`. 변환 실패 (Metafile constructor throw) 시 빈 결과 + `Log.lighthouse.Warn`. **OoxmlExtractor `EmfToPng` 접근성 의무** — 현재 `static member private` 일 경우 `internal` 또는 `public static member` 로 승격 (Task 0 의 closure 4종 static 승격 패턴 정합). 또는 ImageStore/별 helper 모듈로 분리 — 본 구현 turn 에 결정.
+    - `Width` / `Height` = `System.Drawing.Image.FromStream` (Windows) 변환 후 / raw bytes 에서 parse. EMF/WMF 는 변환된 PNG bytes 기준. 실패 시 None.
+    - `ExtractedImage` 1 개 박제:
+      ```
+      { Bytes = bytes
+        Format = (Png/Jpeg/Gif/Webp/Png(변환))
+        Width = w; Height = h
+        RefLocator = "image=1"  // 사용자 결정 B 옵션 ① 확정
+        Ordinal = 1 }
+      ```
+    - `ExtractedDocument { DocType=Image; PageOrSheetCnt=None; Title=Some (Path.GetFileNameWithoutExtension path); Outline=[||]; Segments=[||]; Images=[|단일|] }`
+- [ ] **(e) `IExtractor` list 등록** — `Packager.runIngest` (`Solutions\Tools\Ds2.LightHouse.Cli\Packager.fs:109-113`) + 다른 caller (Promaker 측 KbManager / IntegrationTests) 의 extractors list 에 `new ImageExtractor()` 추가.
+- [ ] **(f) `Indexer.ingestFile` 검증 — image-only flow** — `extracted.Segments.Length = 0 && extracted.Images.Length = 1` 경로 검증. `Chunker.chunkify [||]` 가 빈 chunks 박제 + `insertChunks` no-op + `ingestImagesIntoStore` 가 단일 image dispatch. parent §6 #8 의 image-only paragraph 정합 그대로 재사용. **코드 변경 0** — 본 회귀 검증만.
+- [ ] **(g) icon size 가드 — 동일 적용 (사용자 결정 C 확정)** — `Indexer.fs:101-105` 의 `MinImageBytesForIndex = 8192` 분기 그대로. standalone image 도 8 KB 미만이면 skip + Debug log. **코드 변경 0**.
+- [ ] **(h) `RefLocator.fs` 정정 (사용자 결정 B 옵션 ① 확정)** — `RefUnit` DU 에 `Image` case 추가 + `tryParse` / `toStored` / `formatDisplay` 분기 + `unitToken` / `parseUnit` 매핑 (`"image"` literal). parent `RefLocator.fs` EBNF 박제 + `Plan 1` escape policy doc (commit `1e2022d`) 정합. `formatDisplay` 에서 `Image` 분기 = `sprintf "이미지 %s" value` (slide/sheet 와 형태 정합) 또는 단순 `"이미지"` literal (사용자 결정 의무 — 본 구현 turn 박제).
+- [ ] **(i) `attachment_read` 정합 (server phase Phase S5)** — `ImageReferences.RefLocator = "image=1"` 매칭이 기존 `includeImages` / `caption_only` 분기에 자동 적용. server 측 추가 변경 의무 검토만 (lib 변경 0 가정 — server 측 박제는 Task 6 흡수).
+
+**테스트** (`ImageExtractorTests.fs` 신설, r6 활성 6 종 정합):
+- [ ] 정상 PNG — 1×1 SamplePng (`TestFixtures.fs` 재사용) → Images.Length=1, Format=Png, Width=Some 1, Height=Some 1, RefLocator="image=1", Title=Some "fname".
+- [ ] 정상 JPEG — minimal valid JPEG bytes → Format=Jpeg + magic byte 통과.
+- [ ] 정상 GIF — minimal valid GIF bytes → Format=Gif.
+- [ ] 정상 WEBP — minimal valid WEBP bytes → Format=Webp.
+- [ ] **정상 EMF → PNG 변환** — minimal valid EMF metafile bytes → `EmfToPng` 호출 → Format=**Png** (변환 후), Bytes 의 magic byte = PNG signature.
+- [ ] **정상 WMF → PNG 변환** — minimal valid WMF metafile bytes → 동일 변환 + Format=Png.
+- [ ] magic byte mismatch — `.png` 확장자 + JPEG bytes → Warn + 빈 Images 결과.
+- [ ] 0 byte 파일 — empty → 빈 Images.
+- [ ] **icon size 가드 동일 적용 (사용자 결정 C 확정)** — 5 KB PNG → `ingestImagesIntoStore` 가 `MinImageBytesForIndex` 미만 skip + `ImageCache` 0 row + Debug log.
+- [ ] `RefLocator` round-trip (`RefLocatorTests.fs` 보강) — `image=1` 의 `tryParse >> Option.map toStored = Some "image=1"`. `formatDisplay` 검증 `"이미지 1"`.
+- [ ] `Classifier` 분기 (`ClassifierTests.fs` 보강) — `.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` / `.emf` / `.wmf` 모두 `Image` 박제. `.bmp` / `.tiff` / `.svg` / `.ico` / `.heic` 는 여전히 `Unsupported` (Phase 3 backlog 가드).
+- [ ] **end-to-end CLI** — `dotnet run index /f/tmp/i` 가 Picture1.png 색인 후 `Documents` 1 row (DocType=Image) + `ImageCache` 1 row + `ImageReferences` 1 row + `Chunks` 0 row.
+
+**예상 분량 (r6 보정)**: F# 신규 코드 **120~170 line** (`Classifier.fs` 7 line + `Models.fs` 1 line + `ImageExtractor.fs` 100~140 line — 6 format 매핑 + magic byte + EMF/WMF `EmfToPng` 호출 분기 + `SqliteStore.fs` 매핑 3 line + `Indexer.fs` 0 (가드 동일) + `RefLocator.fs` Image case 15~25 line + `Packager.fs` 등 caller list 1~3 line) + 테스트 **8~12 Fact**.
+
+**자가 검열 의무**: trigger ② (신규 함수/타입 3+ — `ImageExtractor` class + `FileKind.Image` case + `RefUnit.Image` case) + trigger ⑤ (public API — `Classifier` 분기 정책 변경, `FileKind` DU SSOT 갱신). 단독 commit + sub-agent 검열 의무.
+
+**parent todo `todo-lighthouse-kb-index.md` 갱신 (Task 4 와 묶을 수도 있음)**:
+- §3.3 (FileKind 매핑 표) 에 `Image` 행 추가
+- §3.11 (rejected vs unsupported) 의 image 5 종 정책 변경 박제
+- §3.13 (RefLocator 표) 에 `image=N` 행 추가
+- §4.3 Phase 2 또는 Phase 2.5 task 체크박스 신설 — "standalone image 파일 색인 활성"
+
 ---
 
 ## 4. 권장 진입 순서 (r1 갱신)
 
 0. **Task 0 (선행 refactor)** — r1 신설 의무. `OoxmlExtractor.Extract` dispatch + `ExtractWithFailSafe` wrapper + `ImagePartToFormat` helper + closure 4종 static 승격. ~50 line. DOCX 회귀 0. **단독 commit + 자가 검열 sub-agent**.
 1. **Task 1 (PPTX)** — Task 0 전제. SlideIdList null guard (r2 Major-1) + SSOT 순서 + CenteredTitle + paragraph break + notes marker + Drawing alias + slide loop ct. **160~240 line + 10~14 Fact** (r2 Minor 7 보정).
-2. **Task 2 (XLSX)** — Task 0 전제. `expandSparseRow` (cap + null guard, r2 Minor 2/4) + `SheetStateValues` enum + phonetic ruby filter (r2 Minor 1 단순화) + Row sort + Cell.DataType 6 분기 + 시트명 `#` escape (= / . 안전 r2 Major-2 반론). **180~280 line + 14~18 Fact** (r2 +2 Fact).
+2. **Task 2 (XLSX)** — Task 0 전제. `expandSparseRow` (cap + null guard, r2 Minor 2/4) + `SheetStateValues` enum + phonetic ruby filter (r2 Minor 1 단순화) + Row sort + Cell.DataType 6 분기 + 시트명 `#` escape (= / . 안전 r2 Major-2 반론) + **타임라인 좁은 컬럼 필터 (r3, width<1.0 + 빈 값 drop)**. **200~300 line + 16~20 Fact** (r3 +2 Fact).
+2.5. **Task 2-extra (Gantt schedule 힌트)** — Task 2 전제. 8 role synonym map + 3단계 normalize + 2-row header concat + score 판정 + role 기반 동적 안내문 prepend + outline label. **~120 line + 6 Fact**. 별도 commit + 자가 검열 sub-agent.
 3. **Task 3 (RefLocator regression Fact)** — 코드 변경 0. InlineData 5~8개 + 표시형 3개. ~10 line.
 4. **Task 4 (parent todo 갱신)** — r16 박제.
 5. **Task 5 (VLM caption)** — server phase 진입 confirm 후 별 todo 로 분리.
 6. **Task 6 (attachment_read image 모드)** — server phase Phase S5 흡수.
+7. **Task 7 (standalone image 파일 색인, r4 신설)** — Task 0~4 와 독립 진입 가능 (lib 안 완결). 사용자 결정 의무 5건 (확장자 범위 / RefLocator scheme / icon 가드 우회 / EMF-WMF standalone / Width-Height 의존성) 박제 후 진입. **100~150 line + 6~10 Fact**. 단독 commit + 자가 검열 sub-agent.
 
-**0~4 는 server phase 무관 — parent lib 안에서 완결**. 즉 server 진입 confirm 없이 즉시 진입 가능. **Task 0 단독 commit** 후 Task 1/2 진입 (refactor 와 신규 활성 mix 시 회귀 진단 곤란).
+**0~4 + 7 은 server phase 무관 — parent lib 안에서 완결**. 즉 server 진입 confirm 없이 즉시 진입 가능. **Task 0 단독 commit** 후 Task 1/2 진입 (refactor 와 신규 활성 mix 시 회귀 진단 곤란). Task 2-extra 는 Task 2 commit 후 단독. Task 7 은 Task 0~4 와 무관 — 어느 시점이든 진입 가능 (단 사용자 결정 5건 confirm 우선).
 
 ---
 
@@ -490,13 +693,23 @@
 
 ### 수정
 - `Solutions\Core\Ds2.LightHouse\Extractors\OoxmlExtractor.fs` — Task 0 (Extract dispatch + ExtractWithFailSafe wrapper + ImagePartToFormat helper + closure 4종 static 승격) + Task 1 (ExtractPptx 신설) + Task 2 (ExtractXlsx + expandSparseRow + columnLetterToIndex + cellRefToColumnLetter + resolveCellValue helper) + `Supports` 분기 확대.
-- ~~`RefLocator.fs`~~ — r1 정정: **수정 없음** (이미 일반화 박제). Critical-2.
+- ~~`RefLocator.fs`~~ — r1 정정: **수정 없음** (이미 일반화 박제). Critical-2. **Task 7 (r4) 추가** — `RefUnit` DU 에 `Image` case 신설 (사용자 결정 B 옵션 ① 가정) + `tryParse` / `toStored` / `formatDisplay` 분기 — **10~20 line 추가**.
+- `Solutions\Core\Ds2.LightHouse\Classifier.fs` — **Task 7 (r6)** — `rejectedExtensions` 에서 raster 5 종 (`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp`) 제거 + `supportedExtensions` 에 raster 5 + vector 2 (`.emf` / `.wmf`) = **7 매핑 추가**. **~7 line 변경**.
+- `Solutions\Core\Ds2.LightHouse\Models.fs` — **Task 7 (r6)** — `FileKind` DU 에 `Image` case 추가. **1 line 변경**.
+- `Solutions\Core\Ds2.LightHouse\SqliteStore.fs` — **Task 7 (r6)** — DocType ↔ string 매핑 (`Image` ↔ `"image"`) 추가. **~3 line 변경**.
+- `Solutions\Core\Ds2.LightHouse\Extractors\ImageExtractor.fs` — **Task 7 (r6) 신규 파일** — standalone image 파일 추출. `IExtractor` 구현 + 확장자 분기 (raster 4 raw + EMF/WMF Metafile→PNG 변환) + magic byte 검증 + Width/Height parse. **100~140 line**.
+- `Solutions\Core\Ds2.LightHouse\Indexer.fs` — **Task 7 (r6)** — icon 가드 동일 적용 (사용자 결정 C 확정). **코드 변경 0** (회귀 검증만).
+- `Solutions\Core\Ds2.LightHouse\Extractors\OoxmlExtractor.fs` — **Task 7 (r6) 부수 정정 의무** — `ConvertMetafileToPng` 의 접근성 `static member private` → `internal` 또는 별 helper 모듈 (예: `MetafileConverter.fs`) 로 분리 — Task 7 구현 turn 에 SSOT 결정. **~3 line 변경 또는 신규 파일 분리**.
+- `Solutions\Tools\Ds2.LightHouse.Cli\Packager.fs` — **Task 7 (r4)** — `runIngest` 의 extractors list 에 `ImageExtractor` 추가. **1 line 변경**.
 - `Solutions\Tests\Ds2.LightHouse.Tests\OoxmlExtractorTests.fs` — Task 1 PPTX Fact 8~12 + Task 2 XLSX Fact 12~16 + `makePptx*` 5종 + `makeXlsx*` 7종 fixture helper 추가. 기존 `withTempPath` + `makeDocx*` 7 helper 패턴 확장.
-- `Solutions\Tests\Ds2.LightHouse.Tests\RefLocatorTests.fs` — InlineData 5~8개 + 표시형 3개 regression guard 추가 (코드 변경 0).
-- `Apps\Promaker\Docs\todo-lighthouse-kb-index.md` — §3.13 표 + §4.3 Phase 2 체크 + rev 표 r16.
+- `Solutions\Tests\Ds2.LightHouse.Tests\RefLocatorTests.fs` — InlineData 5~8개 + 표시형 3개 regression guard 추가 (코드 변경 0). **Task 7 (r4) 추가** — `image=1` round-trip Fact 1~2개.
+- `Solutions\Tests\Ds2.LightHouse.Tests\ImageExtractorTests.fs` — **Task 7 (r4) 신규 파일** — standalone image 파일 추출 Fact 6~10개 (PNG/JPEG/GIF/WEBP/magic byte mismatch/0 byte/icon size 가드 분기/end-to-end CLI).
+- `Solutions\Tests\Ds2.LightHouse.Tests\ClassifierTests.fs` — **Task 7 (r4)** — image 5 종 supportedExtensions 매핑 + BMP/TIFF/SVG/ICO/HEIC 여전히 Unsupported 분기 Fact.
+- `Apps\Promaker\Docs\todo-lighthouse-kb-index.md` — §3.13 표 + §4.3 Phase 2 체크 + rev 표 r16. **Task 7 (r4)** — §3.3 FileKind 표 + §3.11 rejected vs unsupported 정책 변경 + §3.13 RefLocator 표 (`image=N`) + §4.3 phase task 체크박스 신설.
 
 ### 참조용 (수정 없음)
 - `Solutions\Core\Ds2.LightHouse\Extractors\PdfExtractor.fs` — image 추출 패턴 참조
+- `Solutions\Core\Ds2.LightHouse\Extractors\OoxmlExtractor.fs:95-114` — Task 7 (r6) 의 `EmfToPng` helper SSOT (Plan 3 박제, ImageExtractor 가 호출 의무. 접근성 승격 별도 박제 — §5 수정 항목 참조)
 - `Solutions\Core\Ds2.LightHouse\Models.fs` — `FileKind` / `ExtractedImage` / `ExtractedDocument`
 - `Solutions\Core\Ds2.LightHouse\ImageStore.fs` — sha256 + blob + upsert (r1 실측 225 line / 13 surface, r0 의 170/9 stale 정정)
 - `Solutions\Core\Ds2.LightHouse\Indexer.fs` — `routeExtractor` / `ingestImagesIntoStore` / `captionGen` caller 주입 surface (Task 5 분담 SSOT, line 85/130-131/181)
@@ -510,7 +723,7 @@
 
 1. **CLAUDE.md 자가 검열 trigger 충족 — Task 0 단독 commit 도 의무** — (i) 함수 시그니처 변경 (`Extract` 의 진정한 dispatch), (ii) 신규 static helper 5 개 (ExtractWithFailSafe + ImagePartToFormat + closure 4종 승격), (iii) dispatch / control flow 재작성. Task 0 + Task 1 + Task 2 각각 sub-agent 검열.
 
-2. **commit 정책** — Task 0 / Task 1 / Task 2 / Task 3 + Task 4 각각 별도 commit. 사용자 confirm 별도. (memory: `feedback_commit_authorization`)
+2. **commit 정책** — Task 0 / Task 1 / Task 2 / **Task 2-extra (r3)** / Task 3 + Task 4 각각 별도 commit. 사용자 confirm 별도. (memory: `feedback_commit_authorization`)
 
 3. **F# 진입 시점에 `~/.claude/dotnet.md` 지침 준수**.
 
@@ -542,6 +755,8 @@
 
 14. **r0 → r1 review 외부 reviewer 통계** — Critical 6 (R1+R3 2/5 + R2 외부출처 3 + R1+R4+R5 3/5) + Major 18 (R2 OOXML SDK 11 + R3 4 + R4 7 — 일부 중복) + Minor 8 = **32건 반영**. 검증 통과 outlier (R2 단독 발견) 5건 모두 채택 — 외부 docs cross-validation 강.
 
+15. **r3 Gantt 시트 진단 출처** — `/f/tmp/f/4-1. SV_SIDE_조립작업서_240328.xlsx` 실측 (sheet 13개, 호기별 작업서 9개가 Gantt 형식, `Column.Width=0.75 × 72개` 타임라인, bar = fill style only, 데이터 컬럼 SSOT = NO/SYM/작업내역/시작/시간/누계). Phase 4 backlog 분리: (i) fill style 기반 bar range 복원 (ii) 시트 PNG render + VLM caption (iii) 사용자 정의 synonym alias config. Phase 3 backlog 신설: 셀 메모 (`comments1.xml`) 색인 — 380 KB 분량의 작업자 주의사항.
+
 ---
 
 ## 7. 다음 세션 첫 행동 권장 (r1 갱신)
@@ -556,13 +771,15 @@
    - `Indexer.routeExtractor` 첫 매칭 정책 (Pptx/Xlsx 가 OoxmlExtractor 에 위임되는지)
 3. **Task 0 (선행 refactor) 진입** — `Extract` dispatch + `ExtractWithFailSafe` (5 종 catch incl. XmlException) + `ImagePartToFormat` + closure 4종 static 승격. DOCX 회귀 0. **단독 commit + 자가 검열 sub-agent**.
 4. **Task 1 (PPTX) 진입** — `SlideIdList` ordering (Critical-5) + Title+CenteredTitle EnumValue (M4) + paragraph break `\n` (M5) + `--- 노트 ---` marker (M10) + title 부재 fallback "슬라이드 N" (M11). fixture 5 종 (정상 / image-only / 빈 pptx / cross-slide dedup / CenteredTitle).
-5. **Task 2 (XLSX) 진입** — `expandSparseRow` (Critical-4) + `SheetStateValues` enum (Critical-6) + phonetic ruby filter (M2) + Row.OrderBy(RowIndex) (M3) + Cell.DataType 6 분기 Str/Error (M1) + `cell.CellValue` null guard (M14) + 시트명 `#` Warn skip (M18). fixture 7 종.
+5. **Task 2 (XLSX) 진입** — `expandSparseRow` (Critical-4) + `SheetStateValues` enum (Critical-6) + phonetic ruby filter (M2) + Row.OrderBy(RowIndex) (M3) + Cell.DataType 6 분기 Str/Error (M1) + `cell.CellValue` null guard (M14) + 시트명 `#` Warn skip (M18) + **`narrowColIndexes` 좁은 컬럼 필터 (r3, width<1.0 + 빈 값 drop)**. fixture 8 종 (r3 +1).
+5.5. **Task 2-extra (Gantt 힌트) 진입** — Task 2 commit 후 단독. 8 role synonym map + `normalizeHeader` (공백/괄호/한자) + 2-row header concat + `Map<int,Role>` 빌드 + score≥3 AND start/dur/cum≥2 판정 + role 기반 동적 preamble prepend + outline label `[Gantt schedule]`. fixture 3 종 + Fact 6.
 6. **Task 3 (RefLocator regression Fact)** — 코드 변경 0. InlineData 5~8개 + 표시형 3개.
 7. **Task 4 (parent todo 갱신)** — §3.13 표 행 2 추가 + §4.3 Phase 2 체크 + rev r16 박제.
 8. commit message (각 Task 별 별도, 4줄 이내):
-   - Task 0: "Phase 2 refactor: OoxmlExtractor 진정 dispatch + ExtractWithFailSafe + ImagePartToFormat + closure static 승격 (DOCX 회귀 0)"
-   - Task 1: "Phase 2: pptx activation + 내부 image 색인 — SlideIdList SSOT + paragraph break + notes marker (slide=N + slide=N#img=M)"
-   - Task 2: "Phase 2: xlsx activation + 내부 image 색인 — expandSparseRow + SheetStateValues + 수식/hidden/merged/빈행 간편 정책 (sheet=<name> + sheet=<name>#img=M)"
-   - Task 3: "RefLocator regression: slide/sheet × img sub-key cartesian Fact (Critical-2 보호)"
-   - Task 4: "todo-lighthouse-kb-index r16: PPTX/XLSX 활성 박제 + Phase 3 backlog 분리"
-9. Task 0~2 완료 후 **server phase 진입 confirm 받기** — Task 5 (VLM caption) / Task 6 (attachment_read image 모드) 의 server 측 wiring 별 todo 분리.
+   - Task 0: "[xlsx] Phase 2 refactor: OoxmlExtractor 진정 dispatch + ExtractWithFailSafe + ImagePartToFormat + closure static 승격 (DOCX 회귀 0)"
+   - Task 1: "[xlsx] Phase 2: pptx activation + 내부 image 색인 — SlideIdList SSOT + paragraph break + notes marker (slide=N + slide=N#img=M)"
+   - Task 2: "[xlsx] Phase 2: xlsx activation + 내부 image 색인 — expandSparseRow + SheetStateValues + 수식/hidden/merged/빈행 간편 정책 + 좁은컬럼 필터 (sheet=<name> + sheet=<name>#img=M)"
+   - Task 2-extra: "[xlsx] Phase 2: xlsx Gantt schedule 힌트 — 8 role synonym + normalize + score 판정 + 동적 preamble (산업 .xlsx 작업일정표 색인 지원)"
+   - Task 3: "[xlsx] RefLocator regression: slide/sheet × img sub-key cartesian Fact (Critical-2 보호)"
+   - Task 4: "[xlsx] todo-lighthouse-kb-index r16: PPTX/XLSX 활성 박제 + Phase 3 backlog 분리"
+9. Task 0~2-extra 완료 후 **server phase 진입 confirm 받기** — Task 5 (VLM caption) / Task 6 (attachment_read image 모드) 의 server 측 wiring 별 todo 분리.

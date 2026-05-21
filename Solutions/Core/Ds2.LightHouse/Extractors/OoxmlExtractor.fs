@@ -26,6 +26,8 @@ type private XlCellValues = DocumentFormat.OpenXml.Spreadsheet.CellValues
 type private XlSheetStateValues = DocumentFormat.OpenXml.Spreadsheet.SheetStateValues
 type private XlSharedStringItem = DocumentFormat.OpenXml.Spreadsheet.SharedStringItem
 type private XlPhoneticRun = DocumentFormat.OpenXml.Spreadsheet.PhoneticRun
+type private XlColumns = DocumentFormat.OpenXml.Spreadsheet.Columns
+type private XlColumn = DocumentFormat.OpenXml.Spreadsheet.Column
 /// Spreadsheet.Text 는 Wordprocessing.Text 와 동명 → alias 로 명시 한정.
 type private XlText = DocumentFormat.OpenXml.Spreadsheet.Text
 
@@ -648,6 +650,30 @@ type OoxmlExtractor() =
     /// MaxXlsxColumnsPerRow — sparse cell row 의 worst-case (A1 + ZZZ1 = 18278) 폭주 차단 hard cap (r2 Minor 2).
     static member private MaxXlsxColumnsPerRow = 1024
 
+    /// **r3 timeline filter** — Gantt 시각화용 좁은 컬럼 판정 threshold (Excel 기본 컬럼 폭 11 대비 1.0 미만).
+    /// 산업 .xlsx (4-1.SV_SIDE 등) 의 Gantt 시각화는 `Column.Width=0.75 × 70+` 컬럼 + cell value 없음 + fill style only.
+    /// 이 셀들은 dense array 의 trailing `""` 가 되어 tab join noise 가 됨. threshold 미만 + 빈 값 셀은 drop.
+    /// tick label (`1, 2, 3 …`) 처럼 값 있는 좁은 셀은 보존 (filter 는 width<threshold AND value="" 동시 충족).
+    static member private NarrowColumnWidthThreshold = 1.0
+
+    /// **r3 timeline filter** — `worksheet.Columns` 의 `Column.Width < threshold` 인 컬럼 1-based index set 빌드.
+    /// `Column` element 는 `Min ~ Max` range 형태로 1~ 다수 컬럼 폭 박제 가능. Min/Max HasValue false 면 skip.
+    /// `Columns` element 부재 (열 기본 폭만 사용) 시 빈 set 반환 — 자연 무 영향.
+    static member private NarrowColIndexes (worksheet: DocumentFormat.OpenXml.Spreadsheet.Worksheet) : Set<int> =
+        if isNull worksheet then Set.empty
+        else
+            let cols = worksheet.GetFirstChild<XlColumns>()
+            if isNull cols then Set.empty
+            else
+                cols.Elements<XlColumn>()
+                |> Seq.filter (fun c ->
+                    not (isNull c.Width) && c.Width.HasValue
+                    && c.Width.Value < OoxmlExtractor.NarrowColumnWidthThreshold
+                    && not (isNull c.Min) && c.Min.HasValue
+                    && not (isNull c.Max) && c.Max.HasValue)
+                |> Seq.collect (fun c -> seq { int c.Min.Value .. int c.Max.Value })
+                |> Set.ofSeq
+
     /// **Backlog 3 (r1 Critical-4)** — sparse cell 들을 dense array 로 확장. gap "" 채움.
     /// `<row>` 가 값 있는 cell 만 child 라 A1+C1 row 는 `[A1; C1]` 2개 반환 → "A1값\tC1값" 으로 컬럼 alignment 깨짐 (B silent 소실).
     /// MaxXlsxColumnsPerRow cap (r2 Minor 2) + CellReference null guard (r2 Minor 4) + colIdx >=0 guard (review m1).
@@ -720,13 +746,25 @@ type OoxmlExtractor() =
                     |> Seq.sortBy (fun r ->
                         if isNull r.RowIndex || not r.RowIndex.HasValue then 0u
                         else r.RowIndex.Value)
+                // **r3 timeline filter** — Gantt 시각화용 좁은 컬럼 index set. 본 sheet 1회 빌드 + row 루프 재사용.
+                let narrowSet = OoxmlExtractor.NarrowColIndexes worksheetPart.Worksheet
                 let sb = StringBuilder()
                 for row in sortedRows do
                     ct.ThrowIfCancellationRequested()
                     let dense =
                         OoxmlExtractor.ExpandSparseRow
                             (row.Elements<XlCell>()) sstItems sheetName path
-                    let line = String.Join("\t", dense)
+                    // **r3 timeline filter** — 좁은 컬럼이 빈 값이면 drop, 값 있는 (tick label) 셀은 보존.
+                    // narrowSet 가 빈 set (=`Columns` 부재 또는 모든 컬럼 width >= 1.0) 이면 자연 무 영향.
+                    let kept =
+                        if Set.isEmpty narrowSet then dense
+                        else
+                            dense
+                            |> Array.mapi (fun i v ->
+                                let colIdx = i + 1
+                                if Set.contains colIdx narrowSet && v = "" then None else Some v)
+                            |> Array.choose id
+                    let line = String.Join("\t", kept)
                     if line.Trim().Length > 0 then
                         sb.AppendLine(line) |> ignore
                 let segText = sb.ToString().Trim()
