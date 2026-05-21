@@ -2,7 +2,7 @@
 
 > Phase S5c 기준. dev/PoC 환경의 단계별 setup 가이드. 운영 배포 시 §10 (사내 CA 발급) 정합 권장.
 >
-> 관련 문서: `todo-lighthouse-kb-server.md` (design SSOT) / `todo-lighthouse-handover.md` (다음 세션 이어받기).
+> 관련 문서: `done-lighthouse-kb-server.md` (design SSOT) / `todo-lighthouse-handover.md` (다음 세션 이어받기).
 
 ---
 
@@ -317,7 +317,7 @@ PoC → production 전환 시:
 | `/mcp` (HTTP transport) | Bearer + X-LightHouse-Session | MCP tools: `attachment_list/_outline/_search/_read` |
 | `/healthz` | (인증 무관) | health probe |
 
-세부 protocol 정합은 `todo-lighthouse-kb-server.md` §3.9 참조.
+세부 protocol 정합은 `done-lighthouse-kb-server.md` §3.9 참조.
 
 ---
 
@@ -361,13 +361,4 @@ PoC → production 전환 시:
 
 ## 13. 변경 이력
 
-| commit | rev | 변경 |
-|--------|-----|------|
-| `1be3ab8` | s1-r0 | service host scaffold (Phase S1) |
-| `8661fb5` | s2-r0 | collection 관리 API (Phase S2) |
-| `986f533` | s3-r0/1 | session + MCP search host (Phase S3) |
-| `273007c` | s4-r0 | file serving (Phase S4) |
-| `82b4e6a` | s5a-r0 | Promaker LightHouseClient + LlmConfig (Phase S5a) |
-| `5c8da12` | s5b-r0 | KbManagerDialog + Packager + IngestService (Phase S5b) |
-| `79ee30b` | s5c-r0 | ChatViewModel session + Holder singleton (Phase S5c) |
-| (대기) | s5c-r1 | UI 테마 정합 + Makefile install/light-house + howto 문서 |
+> [revision-history/howto-connect-lighthouse-service.md](revision-history/howto-connect-lighthouse-service.md) 로 분리 보관.

@@ -3,7 +3,7 @@ module Ds2.LightHouse.Tests.ClassifierTests
 open Xunit
 open Ds2.LightHouse
 
-/// todo-lighthouse-kb-index.md §4.8a — KB 색인 라우팅 분류기.
+/// done-lighthouse-kb-index.md §4.8a — KB 색인 라우팅 분류기.
 ///
 /// chat 측 `AttachmentClassifier.classify` 와 *독립* — 본 테스트는 KB 측 `classifyForKb` 만.
 
@@ -18,12 +18,21 @@ open Ds2.LightHouse
 [<InlineData("log.txt",      "Text")>]
 [<InlineData("data.csv",     "Text")>]
 [<InlineData("config.yaml",  "Text")>]
+// Task 7 (r6) — standalone image 6종.
+[<InlineData("logo.png",     "Image")>]
+[<InlineData("PHOTO.JPG",    "Image")>]
+[<InlineData("scan.jpeg",    "Image")>]
+[<InlineData("anim.gif",     "Image")>]
+[<InlineData("hero.webp",    "Image")>]
+[<InlineData("draw.emf",     "Image")>]
+[<InlineData("legacy.wmf",   "Image")>]
 let ``지원 확장자 분류`` (file: string) (expected: string) =
     let kind = Classifier.classifyForKb file
     let name =
         match kind with
         | Pdf -> "Pdf" | Docx -> "Docx" | Pptx -> "Pptx"
         | Xlsx -> "Xlsx" | Text -> "Text" | Markdown -> "Markdown"
+        | FileKind.Image -> "Image"
         | Unsupported _ -> "Unsupported"
     Assert.Equal(expected, name)
 
@@ -32,11 +41,29 @@ let ``지원 확장자 분류`` (file: string) (expected: string) =
 [<InlineData(".exe")>]
 [<InlineData(".dll")>]
 [<InlineData(".zip")>]
-[<InlineData(".png")>]
 [<InlineData(".mp4")>]
+// Task 7 (r6) — BMP/TIFF/SVG/ICO/HEIC 는 Phase 3 backlog 으로 rejected 유지.
+[<InlineData(".bmp")>]
+[<InlineData(".tiff")>]
+[<InlineData(".svg")>]
+[<InlineData(".ico")>]
+[<InlineData(".heic")>]
 let ``보안·정책 거부 확장자 (§6 m15) — rejectedExtensions set 직접 contains`` (ext: string) =
     Assert.True(Set.contains ext Classifier.rejectedExtensions,
                 sprintf "%s 는 rejectedExtensions 에 포함되어야 함 (§6 m15)" ext)
+
+[<Theory>]
+// Task 7 (r6) — raster 4종 + vector 2종 활성 → rejected set 에서 제거됨.
+[<InlineData(".png")>]
+[<InlineData(".jpg")>]
+[<InlineData(".jpeg")>]
+[<InlineData(".gif")>]
+[<InlineData(".webp")>]
+[<InlineData(".emf")>]
+[<InlineData(".wmf")>]
+let ``Task 7 — image 6 종은 rejected 아님 (활성)`` (ext: string) =
+    Assert.False(Set.contains ext Classifier.rejectedExtensions,
+                 sprintf "%s 는 Task 7 활성 6종 → rejected 에서 제거 의무" ext)
 
 [<Fact>]
 let ``거부 확장자 → Unsupported`` () =

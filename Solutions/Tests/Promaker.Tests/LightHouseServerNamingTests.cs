@@ -6,7 +6,7 @@ namespace Promaker.Tests;
 
 /// <summary>
 /// **D-S7-3b (s6-r30) — MCP server entry 이름 sanitize SSOT 회귀 시험**
-/// (todo-lighthouse-kb-server.md §3.16.7 LightHouseServerNaming).
+/// (done-lighthouse-kb-server.md §3.16.7 LightHouseServerNaming).
 /// <para/>
 /// 영숫자(ASCII) + 하이픈만 허용 + 연속 하이픈 압축 + trailing 하이픈 제거 + 빈 결과 시 ServiceId 첫 8자 fallback.
 /// </summary>

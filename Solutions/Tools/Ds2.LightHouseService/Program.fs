@@ -187,7 +187,7 @@ let configureApp
     // Phase S7 D-S7-2 (s6-r27) — in-memory EventBus (SSE pub-sub). process-wide singleton.
     builder.Services.AddSingleton<EventBus>() |> ignore
 
-    // Phase S3 — MCP server host (todo-lighthouse-kb-server.md §3.1.3 / §4.2 Phase S3).
+    // Phase S3 — MCP server host (done-lighthouse-kb-server.md §3.1.3 / §4.2 Phase S3).
     // `ModelContextProtocol.AspNetCore 1.2.0` (D-S3-2, Promaker alignment).
     // `WithToolsFromAssembly()` 가 본 assembly 의 [<McpServerToolType>] 발견 — AttachmentTools 자동 등록.
     builder.Services

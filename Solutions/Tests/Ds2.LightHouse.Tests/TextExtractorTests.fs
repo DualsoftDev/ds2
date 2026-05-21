@@ -9,7 +9,7 @@ open Ds2.LightHouse.Extractors
 
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// todo-lighthouse-kb-index.md §4.8a — TextExtractor (txt/md).
+/// done-lighthouse-kb-index.md §4.8a — TextExtractor (txt/md).
 
 let private withTempFile (ext: string) (bytes: byte[]) (action: string -> 'r) : 'r =
     let path = Path.Combine(Path.GetTempPath(), sprintf "lh-test-%s%s" (System.Guid.NewGuid().ToString("N")) ext)

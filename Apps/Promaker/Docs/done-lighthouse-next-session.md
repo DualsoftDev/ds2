@@ -2,8 +2,8 @@
 
 본 문서는 새 Claude Code 세션 진입 시 빠르게 현재 작업 상태를 파악하고 backlog 처리를 이어가도록 정리된 transfer 박제이다. 모든 SSOT 는 동일 폴더의 두 doc 에 박제됨:
 
-- `todo-lighthouse-kb-server.md` — server-side phase 진행 SSOT (§0 / §7.1 commit chain / §7.4 backlog)
-- `todo-lighthouse-kb-index.md` — parent (LightHouse lib 본체) phase 진행 SSOT (§0 / §3.x design)
+- `done-lighthouse-kb-server.md` — server-side phase 진행 SSOT (§0 / §7.1 commit chain / §7.4 backlog)
+- `done-lighthouse-kb-index.md` — parent (LightHouse lib 본체) phase 진행 SSOT (§0 / §3.x design)
 
 본 문서는 새 세션 진입 시 *읽는 순서 + 핵심 backlog 분류* 만 박제. 자세한 박제는 위 두 doc 의 해당 단원 참조.
 
@@ -61,7 +61,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 - **`2c5b891` s6-r85 review PR 3 — Major 검증 fix** — B3 OoxmlExtractor.extractImagesAtRefLocator (40+ line 본문) → delegation refactor + B4 vec0 wire format SSOT 통합 (SqliteStore.buildVec0WireFormat 단일, Searcher.runVector 의 별 JsonSerializer.Serialize 폐기) + B17 install-service.ps1 PSK byte buffer 변환 (managed string 평문 우회) + **B2 반론** (lib API async transformation = 별 phase, 본 turn scope 외).
 - **`98749fb` s6-r86 review PR 4 — B8 + A6 race + A7 defer** — B8 FileServing.findSourceFile 가 FileInfo.Attributes.ReparsePoint 검사 추가 (symlink target follow 차단) + A6 reader loop Task.WhenAny 가 disconnectSignal.Task 도 포함 (Kestrel half-close 시점차 reader 영구 sleep 차단) + **A7 defer** (Session lifecycle TOCTOU = single lock SSOT, scope large).
 
-**B19 doc SSOT drift sweep (s6-r87 doc-r8 안 박제)** — todo-lighthouse-kb-server.md 의 service config 박제 정정 (schemaVersion 1→4 / listenUrl 0.0.0.0→127.0.0.1 / range max 1.99.99→2.99.99 / embedding / mtls / multiTenant / adminUsers field 추가) + meta.json 예시 indexerVersion 1.0.0→2.1.0 정합.
+**B19 doc SSOT drift sweep (s6-r87 doc-r8 안 박제)** — done-lighthouse-kb-server.md 의 service config 박제 정정 (schemaVersion 1→4 / listenUrl 0.0.0.0→127.0.0.1 / range max 1.99.99→2.99.99 / embedding / mtls / multiTenant / adminUsers field 추가) + meta.json 예시 indexerVersion 1.0.0→2.1.0 정합.
 
 **누적 사용자 turn 전체 통계 (본 turn s6-r83~r86 + doc-r8)**: 5 commit / +200+ line / 0 신규 fact (보안 fix + refactor 만) / 회귀 0.
 
@@ -172,7 +172,7 @@ Promaker IDE 의 KB (knowledge base) 시스템 — 사용자 폴더 색인 + cen
 **새 세션 진입 prompt (--transfer 박제 SSOT, s6-r88~r90 + doc-r9 종결 후, 2026-05-21)**:
 
 ```
-@todo-lighthouse-next-session.md @todo-lighthouse-kb-server.md @todo-lighthouse-kb-index.md 기준.
+@done-lighthouse-next-session.md @done-lighthouse-kb-server.md @done-lighthouse-kb-index.md 기준.
 
 [직전 turn 사용자 흐름 — "Major 검증 fix 묶음 (B1/B5/B6/B7/B9~B16/B18/B21) / B2 + R8-M5 / N-M1/N-M5 단위 fact / R12 4건 진행. 1 PR 로 끝내보고 부족하면 auto commit 3회 허용" → PR 1 small fix 묶음 → PR 2 B13+B14 → PR 3 B18+N-M5 → PR 4 doc-r9]
 - c3edb53 s6-r88 Major fix 묶음 — B5 mtime tolerance + B7 Registry validate + B9 ETag RFC 7232 + B10 finalize uploadId leak + B11 StagingSweep effective mtime + B12 SessionSweep race + B16 lifecycle Unbounded + B21 PSK byte cache. 반론: B15 (IT race 원인 불명 별 turn) / B21 SseReconnectBackoff cap (기존 fact 회귀 risk).
@@ -452,11 +452,11 @@ E. 외부 / 운영:
 ## 3. 새 세션 진입 시 읽기 순서
 
 1. **본 doc** (현재 위치 + 핵심 backlog 박제 만)
-2. `todo-lighthouse-kb-server.md` §0 — 모드 박제 + D-id 결정 표 (D-S7-1~5 / D-2-1~7 포함)
-3. `todo-lighthouse-kb-server.md` §7.1 — commit chain 표, 가장 최근 row (s6-r32 → s6-r0) 부터 역순으로 5~10개 정독
-4. `todo-lighthouse-kb-server.md` §3.16 multi-service routing — D-S7-3a/b/c 의 sub-section 3건 (§3.16.1~8). 새 세션에서 multi-service mental model 파악 의무.
-5. `todo-lighthouse-kb-server.md` §7.4 — backlog 표 (처리 완료 marker + 잔여 D-S7-1/2c/4/5)
-6. `todo-lighthouse-kb-index.md` §0 — parent rev 박제 + 사용자 동의 결정
+2. `done-lighthouse-kb-server.md` §0 — 모드 박제 + D-id 결정 표 (D-S7-1~5 / D-2-1~7 포함)
+3. `done-lighthouse-kb-server.md` §7.1 — commit chain 표, 가장 최근 row (s6-r32 → s6-r0) 부터 역순으로 5~10개 정독
+4. `done-lighthouse-kb-server.md` §3.16 multi-service routing — D-S7-3a/b/c 의 sub-section 3건 (§3.16.1~8). 새 세션에서 multi-service mental model 파악 의무.
+5. `done-lighthouse-kb-server.md` §7.4 — backlog 표 (처리 완료 marker + 잔여 D-S7-1/2c/4/5)
+6. `done-lighthouse-kb-index.md` §0 — parent rev 박제 + 사용자 동의 결정
 7. 필요 시 `git log --oneline -30` + `git show <hash>` 로 commit 상세
 
 ## 4. 남은 backlog (우선순위 순)
@@ -468,7 +468,7 @@ E. 외부 / 운영:
 | A1 | **Phase S7 — mTLS / multi-tenant / resumable upload** | server.md §7.4 "P4 Phase S7" | D-S7-1~5 사전 박제 완료. ~~D-S7-2a/b/c (SSE 시리즈 전체)~~ → s6-r27/r28/r32 완료. ~~D-S7-3a/b/c (multi-service routing 전체)~~ → s6-r29/r30/r31 완료 (§3.16). 잔여 = **D-S7-1** (mTLS) / **D-S7-4** (T2/T3) / **D-S7-5** (resumable upload). |
 | A2 | **K4 Protocol SSOT 통합** | server.md §7.7 K4 박제 | `Solutions/Core/Ds2.LightHouse.Protocol` 신규 project — wire 상수 + MetaJson schema SSOT 통합. LightHouseClient C# / F# 이중 구현 → 단일 SSOT 의존. Phase S7 묶음. |
 | A3 | **보안 sweep 1턴 (K6 + M9/M10/M11/M12)** | server.md §7.7 K6 + Major outlier | registry.json tampering 검증 + PSK in-memory lifetime + %PROGRAMDATA% ACL + DoS guards (topK upper bound / query length). admin 권한 위협 모델 한정 (defense-in-depth). |
-| A4 | **Phase 2 후속 (Phase 3 OCR / Phase 4 Embedding)** | parent §3.15 / `todo-lighthouse-kb-index.md` Phase 3 / Phase 4 | Phase 2 eager VLM caption 완료 후 OCR (Tesseract.NET + 한글) 또는 embedding (sqlite-vec) 진입. 별 PR. |
+| A4 | **Phase 2 후속 (Phase 3 OCR / Phase 4 Embedding)** | parent §3.15 / `done-lighthouse-kb-index.md` Phase 3 / Phase 4 | Phase 2 eager VLM caption 완료 후 OCR (Tesseract.NET + 한글) 또는 embedding (sqlite-vec) 진입. 별 PR. |
 
 ### B. 중간 cost 별 turn
 
@@ -519,8 +519,8 @@ E. 외부 / 운영:
 (s6-r32 commit 직전 상태 — Phase S7 D-S7-2c SSE 정합 묶음 본 turn 변경 = production 6 (server 2 + client 4) + test 4 + doc 2 = 12 파일 staged 대상)
 
 ```
- M Apps/Promaker/Docs/todo-lighthouse-kb-server.md
- M Apps/Promaker/Docs/todo-lighthouse-next-session.md
+ M Apps/Promaker/Docs/done-lighthouse-kb-server.md
+ M Apps/Promaker/Docs/done-lighthouse-next-session.md
  M Apps/Promaker/Promaker/Dialogs/KbManagerDialog.xaml.cs
  M Apps/Promaker/Promaker/Knowledge/LightHouseClient.cs
  M Apps/Promaker/Promaker/Knowledge/LightHouseClientHolder.cs

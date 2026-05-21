@@ -535,7 +535,7 @@ public partial class ApplicationSettingsDialog : Window
     /// 의 cert 목록을 Windows 표준 picker (<see cref="X509Certificate2UI.SelectFromCollection"/>) 로 표시 +
     /// 사용자 선택 시 svc.ClientCertThumbprint 박제. mTLS 가 server 측 mode="required" 시 진입 의무 (D-S7-1).
     /// <para/>
-    /// **cert 발급/관리 정책** (todo-lighthouse-kb-server.md §3.8.2 박제):
+    /// **cert 발급/관리 정책** (done-lighthouse-kb-server.md §3.8.2 박제):
     ///   - 사내 CA 발급 .pfx → `Import-PfxCertificate -CertStoreLocation Cert:\LocalMachine\My` (관리자 필요)
     ///     또는 `certmgr.msc` snap-in 으로 LocalMachine 의 Personal 에 import.
     ///   - thumbprint 는 식별자 (평문 정합) — DPAPI 미적용. 실 private key 는 X509Store 가 OS ACL 로 protect.

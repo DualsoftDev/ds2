@@ -6,7 +6,7 @@ open System.Text
 open System.Threading
 open Microsoft.Data.Sqlite
 
-/// FTS5 trigram 검색 — multi-collection ATTACH UNION (todo-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
+/// FTS5 trigram 검색 — multi-collection ATTACH UNION (done-lighthouse-kb-index.md §3.7 / §3.10 / §4.4 r4).
 ///
 /// Phase 1 = BM25 lexical-only (FTS5 trigram). **Phase 4 (s6-r35) = hybrid (BM25 + vector RRF)** —
 /// `search` 시그니처에 `embedderOpt: IEmbeddingProvider option` 추가. None 시 BM25-only (기존 동작),
@@ -426,15 +426,17 @@ module Searcher =
                     sprintf "SELECT %d AS KbIdx, Id, OriginalPath, DocType, PageOrSheetCnt FROM %s.Documents" i alias)
             let unionSql = selects |> String.concat "\nUNION ALL\n"
 
+            // SqliteStore.docTypeToString 의 역변환. DU case 추가 시 양쪽 동기 갱신.
             let parseDocType (s: string) : FileKind =
                 match s with
-                | "pdf"  -> Pdf
-                | "docx" -> Docx
-                | "pptx" -> Pptx
-                | "xlsx" -> Xlsx
-                | "txt"  -> Text
-                | "md"   -> Markdown
-                | other  -> Unsupported other
+                | "pdf"   -> Pdf
+                | "docx"  -> Docx
+                | "pptx"  -> Pptx
+                | "xlsx"  -> Xlsx
+                | "txt"   -> Text
+                | "md"    -> Markdown
+                | "image" -> FileKind.Image   // Task 7 (r17) — standalone image. RefUnit.Image 동명 disambiguation.
+                | other   -> Unsupported other
 
             use cmd = conn.CreateCommand()
             cmd.CommandText <- unionSql

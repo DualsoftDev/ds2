@@ -12,7 +12,7 @@ open Ds2.LightHouse.Protocol
 
 /// **Phase S7 D-S7-4 admin endpoint (B-S7-4, s6-r71+)** — multi-tenant T2/T3 실 활용 path 의 admin 측 API.
 ///
-/// 본 module 의 endpoint 2 종 (todo-lighthouse-kb-server.md §3.6 multi-tenant 정합):
+/// 본 module 의 endpoint 2 종 (done-lighthouse-kb-server.md §3.6 multi-tenant 정합):
 /// - `POST /admin/collections/{id}/owner` — body `{ "user": "kwak@dualsoft.com" }` → `CollectionEntry.ImportedBy` 변경
 ///   (T2 mode owner 이전 path — 본 endpoint 호출 후 `MultiTenantPolicy.evaluate` 의 ImportedBy filter 결과가 즉시 갱신).
 /// - `PUT /admin/collections/{id}/acl` — body `{ "users": ["u1","u2"], "readOnly": false }` → `CollectionEntry.Acl` 갱신

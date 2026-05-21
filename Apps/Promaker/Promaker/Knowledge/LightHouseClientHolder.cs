@@ -10,7 +10,7 @@ using Promaker.LlmAgent;
 namespace Promaker.Knowledge;
 
 /// <summary>
-/// **D-S7-3b (s6-r30) — multi-instance LightHouseClient host** (todo-lighthouse-kb-server.md §3.16.7).
+/// **D-S7-3b (s6-r30) — multi-instance LightHouseClient host** (done-lighthouse-kb-server.md §3.16.7).
 /// <para/>
 /// 단일 process 가 N 개 active LightHouse service endpoint 에 동시 접속. 각 ServiceId 별로 별 <see cref="LightHouseClient"/>
 /// + 별 SSE subscription + 별 session token 셋. 이전 (D-S7-3a 까지) 의 단일 `_instance` static field 는

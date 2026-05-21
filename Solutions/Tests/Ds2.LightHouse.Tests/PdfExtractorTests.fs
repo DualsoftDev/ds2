@@ -9,7 +9,7 @@ open UglyToad.PdfPig.Core
 open UglyToad.PdfPig.Fonts.Standard14Fonts
 open UglyToad.PdfPig.Writer
 
-/// todo-lighthouse-kb-index.md §4.8a — PdfExtractor fail-safe.
+/// done-lighthouse-kb-index.md §4.8a — PdfExtractor fail-safe.
 ///
 /// Phase 1 = fail-safe 검증 우선 (정상 PDF fixture 없이도 회귀 차단).
 /// **s6-r23 묶음 3** — `PdfDocumentBuilder` (PdfPig 0.1.14) 로 정상 PDF fixture 박제 가능 (AddPage + AddPng + AddText).

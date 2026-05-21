@@ -3,7 +3,7 @@
   Ds2.LightHouseService 제거 — service stop + sc.exe delete.
 
 .DESCRIPTION
-  todo-lighthouse-kb-server.md Phase S1.
+  done-lighthouse-kb-server.md Phase S1.
   config.json 과 storage (`%PROGRAMDATA%\Dualsoft\LightHouseService\`) 는 **보존** — 운영자가 수동 삭제.
   관리자 권한 필요.
 

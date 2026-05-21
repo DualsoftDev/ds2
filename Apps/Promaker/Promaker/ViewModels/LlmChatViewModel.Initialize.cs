@@ -38,6 +38,14 @@ public partial class LlmChatViewModel
 
             _mcpConfig = BuildMcpConfig(lhEntries);
             await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
+
+            // PR-F (§5.1) — KB profile subscribe (SSE collection-* invalidate) + 초기 fetch.
+            // chat panel lifetime 동안 _acceptedCollectionIds 와 holder event 가 sync.
+            // 한 service 실패 ≠ chat 차단 (FetchKbProfilesAsync 가 try/catch 흡수).
+            // **review M-2** — RefreshKbDigestAsync 자체가 Exception 흡수 (Log.Warn) → unobserved 0.
+            SubscribeKbProfileEvents();
+            _ = RefreshKbDigestAsync();
+            // 본 _ = 는 의도된 fire-and-forget. unobserved exception 위험은 RefreshKbDigestAsync 의 자체 흡수로 차단.
         }
         catch (Exception ex)
         {
@@ -102,6 +110,9 @@ public partial class LlmChatViewModel
                 var resp = await client.CreateSessionAsync(activeIds).ConfigureAwait(true);
                 _lightHouseSessions[svc.ServiceId] = resp.Token;
                 LightHouseClientHolder.RegisterSession(svc.ServiceId, resp.Token);
+                // PR-F (§5.1) — server 가 박제한 accepted 셋만 본 panel 의 KB digest filter input.
+                // unknown/unindexable 은 filter 단계에서 제외 (resp.UnknownIds 가 이미 _config 에서 제거됨).
+                _acceptedCollectionIds[svc.ServiceId] = resp.AcceptedCollectionIds;
 
                 if (resp.UnknownIds.Count > 0)
                 {
@@ -214,6 +225,10 @@ public partial class LlmChatViewModel
             SessionId = null;
             StatusText = $"{kind} CLI 검출 중…";
             SendCommand.NotifyCanExecuteChanged();
+
+            // PR-G review C-1 fix — provider 토글 시 새 ApiChatProvider 의 _kbDigest 가 "" 박제로 reset 되므로
+            // 현재 cache snapshot 으로 즉시 re-apply. SSE event 없이도 다음 firstTurn 에 KB digest 박제 보장.
+            ApplyPendingKbDigest();
 
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 

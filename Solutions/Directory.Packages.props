@@ -19,7 +19,7 @@
     <!-- dsev2 Ev2.Import.Plc 차용 코드가 JObject.Parse 사용 — Ds2.SymbolImport 만. -->
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
-  <!-- Ds2.LightHouseService (todo-lighthouse-kb-server.md Phase S1). Windows Service + Kestrel HTTPS + DPAPI. -->
+  <!-- Ds2.LightHouseService (done-lighthouse-kb-server.md Phase S1). Windows Service + Kestrel HTTPS + DPAPI. -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
@@ -29,7 +29,7 @@
     <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
   </ItemGroup>
-  <!-- Ds2.LightHouse — KB 색인 base 인프라 (todo-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
+  <!-- Ds2.LightHouse — KB 색인 base 인프라 (done-lighthouse-kb-index.md §4.1). Apps/Promaker 의 PdfPig 와 동일 버전 유지. -->
   <ItemGroup>
     <PackageVersion Include="PdfPig" Version="0.1.14" />
     <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
