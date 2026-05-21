@@ -211,20 +211,78 @@ let ``BM25 부호 반전 — Score 높을수록 hit 강도 (양수)`` () =
         finally kb.Dispose())
 
 [<Fact>]
-let ``Searcher.buildFtsQuery — 공백 분리 multi-token implicit AND (review M1)`` () =
+let ``Searcher.buildFtsQuery — 정책 #3 OR 결합 (phrase OR token), phrase 매칭이 top rank`` () =
     withDirs 1 (fun dirs ->
-        // "alpha beta" 두 token 모두 포함하는 문서만 hit (implicit AND)
+        // 정책 #3: query "alpha beta" → `"alphabeta" OR "alpha beta" OR "alpha" OR "beta"`
+        // a.txt 는 phrase "alpha beta" 매칭 (BM25 rank ↑) + 개별 token 매칭 둘 다 가산.
+        // b.txt 는 "alpha" 단일 token 매칭만 → hit 후보 진입 (회수 확보) but rank 낮음.
         writeFile dirs.[0] "a.txt" "alpha beta gamma" |> ignore
         writeFile dirs.[0] "b.txt" "alpha only" |> ignore
         ingestAll dirs.[0]
         let kb = KnowledgeBase.openCollections dirs None
         try
             let r = kb.Search { Text = "alpha beta"; TopK = 10; FileId = None } CancellationToken.None
-            // "alpha beta" 두 token AND → "alpha beta gamma" 만 hit
             Assert.NotEmpty(r.Results)
-            for h in r.Results do
-                Assert.Contains("alpha", h.Excerpt)
-                Assert.Contains("beta", h.Excerpt)
+            // 두 문서 모두 hit (recall 정책 — alpha 단독 매칭 b.txt 도 결과 진입).
+            Assert.True(r.Results.Length >= 2,
+                        sprintf "정책 #3 recall — a.txt + b.txt 모두 hit 기대, 실제 %d" r.Results.Length)
+            // top1 은 phrase 매칭이 강한 a.txt — alpha + beta 둘 다 포함.
+            let top = r.Results.[0]
+            Assert.Contains("alpha", top.Excerpt)
+            Assert.Contains("beta", top.Excerpt)
+        finally kb.Dispose())
+
+[<Fact>]
+let ``Searcher.buildFtsQuery — 정책 #3 공백 손실 phrase (PPT→PDF 표 chunk) 매칭`` () =
+    withDirs 1 (fun dirs ->
+        // 정책 #3 의 핵심 가치: 공백 손실 chunk 도 phraseNoWs 로 매칭.
+        // 표 본문이 공백 없이 `공장개요...` 박제된 케이스. 사용자 query "공장 개요" (공백 보존).
+        writeFile dirs.[0] "table.txt" "1.***REDACTED***2***REDACTED***개요리노베이션UPH42.7생산능력13.7만" |> ignore
+        writeFile dirs.[0] "prose.txt" "본문에서 공장 개요 항목을 설명한다." |> ignore
+        ingestAll dirs.[0]
+        let kb = KnowledgeBase.openCollections dirs None
+        try
+            let r = kb.Search { Text = "공장 개요"; TopK = 10; FileId = None } CancellationToken.None
+            // 공백 손실 + 공백 보존 두 chunk 모두 hit 기대.
+            Assert.True(r.Results.Length >= 2,
+                        sprintf "정책 #3 — 공백 손실 + 보존 둘 다 매칭 기대, 실제 %d" r.Results.Length)
+            // FileName 박제 형식은 Title (있으면) 또는 stem 우선 — 확장자 유무 불문 substring 매칭.
+            let names = r.Results |> Array.map (fun h -> h.FileName)
+            Assert.Contains(names, fun n -> n.Contains("table"))
+            Assert.Contains(names, fun n -> n.Contains("prose"))
+        finally kb.Dispose())
+
+[<Fact>]
+let ``Searcher.buildFtsQuery — 정책 #3 모든 후보 길이 < 3 시 BM25 skip (빈 결과)`` () =
+    withDirs 1 (fun dirs ->
+        writeFile dirs.[0] "a.txt" "AI 도구 활용" |> ignore
+        ingestAll dirs.[0]
+        let kb = KnowledgeBase.openCollections dirs None
+        try
+            // query "AI" — phraseNoWs="AI" (2), phraseRaw="AI" (2), tokens=[] (none ≥3).
+            // 모두 길이 < 3 → BM25 skip → BM25-only path 결과 0건.
+            let r = kb.Search { Text = "AI"; TopK = 10; FileId = None } CancellationToken.None
+            Assert.Empty(r.Results)
+        finally kb.Dispose())
+
+[<Fact>]
+let ``Searcher.buildFtsQuery — 정책 #3 phraseRaw 다중공백 정규화 (단일공백과 동일 결과)`` () =
+    // query "공장  개요" (이중 공백) 와 "공장 개요" (단일 공백) 가 phraseRaw normalize 후 동일 phrase 산출.
+    // 양쪽 query 의 hit 결과 = 동일해야 함 (Self.M1-a 검열 결함 회귀 차단).
+    withDirs 1 (fun dirs ->
+        writeFile dirs.[0] "a.txt" "본문 공장 개요 항목 설명." |> ignore
+        writeFile dirs.[0] "b.txt" "***REDACTED***2***REDACTED***개요리노베이션." |> ignore
+        ingestAll dirs.[0]
+        let kb = KnowledgeBase.openCollections dirs None
+        try
+            let singleSpace = kb.Search { Text = "공장 개요";  TopK = 10; FileId = None } CancellationToken.None
+            let multiSpace  = kb.Search { Text = "공장   개요"; TopK = 10; FileId = None } CancellationToken.None
+            // 회귀 가드 강도 ↑ — Set 비교는 순서 변동 못 잡음. ordered array 비교 + Score 동등성.
+            // phraseRaw normalize 깨질 경우 다중공백 phrase 의 trigram 매칭 score 분포가 달라져
+            // top-rank 가 바뀔 수 있음 → 순서까지 동등 검증.
+            let asTuple (r: SearchResults) =
+                r.Results |> Array.map (fun h -> h.FileName, h.Score)
+            Assert.Equal<(string * float) array>(asTuple singleSpace, asTuple multiSpace)
         finally kb.Dispose())
 
 // ── stampIndexerVersion (test-only override facade — IndexerVersion gate 415 시나리오용) ────
@@ -361,6 +419,26 @@ let ``hybrid — empty query / 빈 active 셋 정합`` () =
         let kb = KnowledgeBase.openCollections dirs (Some embedder)
         try
             Assert.Empty((kb.Search { Text = "   "; TopK = 5; FileId = None } CancellationToken.None).Results)
+        finally kb.Dispose())
+
+[<Fact>]
+let ``hybrid — 정책 #3 모든 후보 < 3 시 BM25 skip + vector 만 hit (fallback 정합)`` () =
+    // query "AI" (length 2) — phraseNoWs/phraseRaw 모두 < 3, tokens [].
+    // BM25 path 는 빈 list 반환 (runBm25 의 ftsQuery 빈 string 분기), vector 만 hit 진입.
+    // RRF 가 vectorHits 단독으로 fusion → top-K 산출 (BM25 contribution 0).
+    withDirs 1 (fun dirs ->
+        writeFile dirs.[0] "a.txt" "AI 도구 활용 검토" |> ignore
+        let embedder = QueryFriendlyEmbedder() :> IEmbeddingProvider
+        Indexer.ingest dirs.[0] (extractors()) CaptionGenerator.noop (Some embedder) noProgress CancellationToken.None
+        |> ignore
+        let kb = KnowledgeBase.openCollections dirs (Some embedder)
+        try
+            let r = kb.Search { Text = "AI"; TopK = 5; FileId = None } CancellationToken.None
+            // vector 만으로 hit — BM25 skip 시 hybrid path 가 죽지 않음을 확인.
+            Assert.NotEmpty(r.Results)
+            // RRF contribution = vector (rank 0) 만 — 1/(60+0) ≈ 0.0167.
+            let expectedTop = 1.0 / (Searcher.RrfK + 0.0)
+            Assert.Equal(expectedTop, r.Results.[0].Score, 6)
         finally kb.Dispose())
 
 [<Fact>]
