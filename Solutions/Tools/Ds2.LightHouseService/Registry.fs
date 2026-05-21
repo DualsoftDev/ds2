@@ -196,6 +196,39 @@ module Registry =
                 mutationLock.Release() |> ignore
     }
 
+    /// **B13 (s6-r89, 15-reviewer Major)** — atomic read-modify-write helper.
+    /// 이전 박제 = caller (admin endpoint) 가 tryFindById → mutate → upsertAsync 3단계 (lock 외부 read,
+    /// lock 안 write) → 동시 admin 호출 시 last-writer-wins (한쪽 update lost). 본 helper 가 lock 안에서
+    /// load + mutate + save 통합 — atomic 보장. mutate fun 안에서 throw 시 caller 로 reraise (CAS 실패와
+    /// 동일 의미). 반환 = `Some validated` (실제 갱신) / `None` (id 미존재).
+    let updateByIdAsync
+        (storageRoot: string)
+        (id: string)
+        (mutate: CollectionEntry -> CollectionEntry)
+        : Task<CollectionEntry option> = task {
+        do! mutationLock.WaitAsync()
+        try
+            let reg = load storageRoot
+            let result =
+                match reg.Collections |> Array.tryFindIndex (fun e -> e.Id = id) with
+                | None -> None
+                | Some idx ->
+                    let updated = mutate reg.Collections.[idx]
+                    let p = path storageRoot
+                    match validateEntry p updated with
+                    | None ->
+                        raise (InvalidDataException(
+                            sprintf "Registry.updateByIdAsync: entry validation 실패 (id=%s, K6 가드 reject)" id))
+                    | Some validated ->
+                        let arr = Array.copy reg.Collections
+                        arr.[idx] <- validated
+                        saveUnlocked storageRoot { reg with Collections = arr }
+                        Some validated
+            return result
+        finally
+            mutationLock.Release() |> ignore
+    }
+
     /// remove — id 일치 항목 제거. 반환 = 실제 제거됐는지 (없으면 false). SemaphoreSlim 직렬화.
     let removeAsync (storageRoot: string) (id: string) : Task<bool> = task {
         do! mutationLock.WaitAsync()
