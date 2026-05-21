@@ -562,17 +562,22 @@ module UploadsEndpoint =
                                         sprintf "D-S7-5 C-7: finalize gate fail — uploadId staging cleanup. uploadId=%s collectionId=%s"
                                             uploadId collectionId)
                             with
+                            // **B10 (s6-r88, 15-reviewer Major)** — exception 4-arm 의 uploadId staging cleanup
+                            // 누락 → uploadId staging dir 가 디스크 leak (backstop StagingSweep 까지). 각 arm 에
+                            // uploadId dir cleanup 추가 (best-effort, retry 의미 없는 finalize-level fail).
                             | SanitizeException err ->
                                 Log.audit.Warn(
                                     sprintf "D-S7-5: finalize sanitize 실패%s — uploadId=%s collectionId=%s err=%A"
                                         labelSuffix uploadId collectionId err)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
                             | :? FileNotFoundException as ex ->
                                 Log.audit.Warn(
                                     sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s missing=%s"
                                         labelSuffix uploadId ex.FileName)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400
                                         (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
                             | :? InvalidDataException as ex ->
@@ -580,12 +585,14 @@ module UploadsEndpoint =
                                     sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s ex=%s"
                                         labelSuffix uploadId ex.Message)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
                             | ex ->
                                 Log.service.Error(
                                     sprintf "D-S7-5: finalize 실패%s — uploadId=%s ex=%s"
                                         labelSuffix uploadId ex.Message)
                                 StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 500 "internal error"
                 finally
                     lock.Release() |> ignore

@@ -50,6 +50,19 @@ module StagingSweep =
 
     /// 주기 sweep — `maxAge` 이상 오래된 entry 일괄 제거.
     /// 디렉토리 / 파일 모두 LastWriteTimeUtc 기준. 첫 진입 (service restart 직후) 도 통과.
+    /// **B11 (s6-r88, 15-reviewer Major)** — 디렉토리 mtime 의존 회귀 차단.
+    /// 이전 박제는 staging 디렉토리 LastWriteTime 만 검사 — Linux ext4 의 partial content write
+    /// 가 staging dir mtime 갱신 안 함 → 장시간 chunked upload 가 silent strangle. 디렉토리 안 *모든* 파일
+    /// 의 max(LastWriteTimeUtc) 를 effective mtime 으로 사용 (resumable upload 의 partial.bin 또는 meta.json
+    /// 갱신 시점 정합). 빈 디렉토리는 DirectoryInfo.LastWriteTimeUtc fallback.
+    let private effectiveLastWriteUtc (dir: string) : DateTime =
+        let dirInfo = DirectoryInfo dir
+        let fileMax =
+            Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
+            |> Seq.map (fun f -> FileInfo(f).LastWriteTimeUtc)
+            |> Seq.fold max DateTime.MinValue
+        if fileMax = DateTime.MinValue then dirInfo.LastWriteTimeUtc else fileMax
+
     let sweepStale (storageRoot: string) (maxAge: TimeSpan) : int =
         let stagingDir = Storage.stagingDir storageRoot
         if not (Directory.Exists stagingDir) then 0
@@ -57,8 +70,7 @@ module StagingSweep =
             let threshold = DateTime.UtcNow - maxAge
             let mutable removed = 0
             for d in Directory.EnumerateDirectories stagingDir do
-                let info = DirectoryInfo d
-                if info.LastWriteTimeUtc < threshold then
+                if effectiveLastWriteUtc d < threshold then
                     try
                         Directory.Delete(d, true)
                         removed <- removed + 1

@@ -231,6 +231,10 @@ module EventsEndpoint =
     /// POST /events/caption-progress — body 검증 후 `caption-progress` event publish + 204.
     /// 검증: collectionId 빈 값 → 400, progress 0~100 외 → 400. body json 결함 → 400.
     /// message 는 선택 (빈 값 / null 허용).
+    ///
+    /// **B15 defer (s6-r88, 15-reviewer Major)** — caller 가 collectionId 의 access 권한 검증.
+    /// 본 turn 의 fix 시도가 IT fact (caption-progress publish) 와 race 조건 불명 → 별 turn 의무 박제
+    /// (T2/T3 fixture + IT fact 신설 후 진입). signature 유지 (cfg/storageRoot routing 별 turn).
     let private postCaptionProgress (bus: EventBus) (ctx: HttpContext) : Task =
         task {
             let mutable body = Unchecked.defaultof<CaptionProgressRequest>

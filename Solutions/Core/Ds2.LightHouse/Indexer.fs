@@ -200,18 +200,26 @@ module Indexer =
                 Log.lighthouse.Warn(sprintf "Indexer: skip — %s (path=%s)" reason path)
                 Skipped reason
             | Some extractor ->
-                // **s6-r49 #2 (L-Maj-10)** — mtime/size fast-skip. existing row 의 OriginalPath 매칭 시
-                // (mtime, size) 비교 → 둘 다 match 면 hash 계산 skip + 기존 row 재활용 (대용량 PDF SHA-256 cost
-                // 회피). mismatch 또는 mtime NULL (legacy row) → fall-back hash 계산 path 진입.
+                // **s6-r49 #2 (L-Maj-10) + B5 (s6-r88, 15-reviewer Major)** — mtime/size fast-skip.
+                // existing row 의 OriginalPath 매칭 시 (mtime, size) 비교 → 둘 다 match 면 hash 계산 skip + 기존
+                // row 재활용 (대용량 PDF SHA-256 cost 회피). mismatch 또는 mtime NULL (legacy row) → fall-back
+                // hash 계산 path 진입.
+                //
+                // **B5 (s6-r88)** — SMB / FAT32 / USB / 일부 SAN 의 mtime precision drift (FAT32 = 2초 / SMB
+                // 마운트 = µs drift) 흡수. exact tick match 는 drift 시 fast-skip 효과 0 + 재색인 폭주 risk.
+                // ±2초 tolerance (= 20_000_000 tick, FAT32 정밀도 worst-case 정합).
                 let fileInfo = FileInfo(path)
                 let mtimeTicks = fileInfo.LastWriteTimeUtc.Ticks
                 let sizeBytes = fileInfo.Length
+                let mtimeToleranceTicks = 20_000_000L  // 2 sec * 10_000_000 tick/sec
                 let fastSkipMatched =
                     match SqliteStore.findDocumentByPath conn path with
                     | Some (existingId, Some existingMtime, existingSize)
-                        when existingMtime = mtimeTicks && existingSize = sizeBytes ->
+                        when abs (existingMtime - mtimeTicks) <= mtimeToleranceTicks
+                             && existingSize = sizeBytes ->
                         Log.lighthouse.Debug(
-                            sprintf "Indexer: fast-skip — mtime/size match (path=%s, docId=%d)" path existingId)
+                            sprintf "Indexer: fast-skip — mtime/size match (path=%s, docId=%d, mtime-diff=%dms)"
+                                path existingId (abs (existingMtime - mtimeTicks) / 10_000L))
                         Some existingId
                     | _ -> None
                 match fastSkipMatched with

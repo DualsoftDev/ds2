@@ -170,21 +170,30 @@ module Registry =
             File.Move(tmp, p)
 
     /// upsert — entry.Id 가 일치하는 항목 갱신, 없으면 추가. SemaphoreSlim 직렬화 (CR5).
+    /// **B7 (s6-r88, 15-reviewer Major)** — write-path validation 박제. 이전 박제는 load 시점만 validateEntry
+    /// 통과 (K6 tampering 가드) + write 시점 검증 0 → caller (admin endpoint 등) 가 traversal 문자열 박제 시
+    /// registry.json 으로 직접 write. validateEntry 호출 → reject 시 InvalidDataException (caller fail-fast).
     let upsertAsync (storageRoot: string) (entry: CollectionEntry) : Task<unit> = task {
-        do! mutationLock.WaitAsync()
-        try
-            let reg = load storageRoot
-            let updated =
-                match reg.Collections |> Array.tryFindIndex (fun e -> e.Id = entry.Id) with
-                | Some idx ->
-                    let arr = Array.copy reg.Collections
-                    arr.[idx] <- entry
-                    arr
-                | None ->
-                    Array.append reg.Collections [| entry |]
-            saveUnlocked storageRoot { reg with Collections = updated }
-        finally
-            mutationLock.Release() |> ignore
+        let p = path storageRoot
+        match validateEntry p entry with
+        | None ->
+            raise (InvalidDataException(
+                sprintf "Registry.upsertAsync: entry validation 실패 (id=%s, K6 가드 reject)" entry.Id))
+        | Some validated ->
+            do! mutationLock.WaitAsync()
+            try
+                let reg = load storageRoot
+                let updated =
+                    match reg.Collections |> Array.tryFindIndex (fun e -> e.Id = validated.Id) with
+                    | Some idx ->
+                        let arr = Array.copy reg.Collections
+                        arr.[idx] <- validated
+                        arr
+                    | None ->
+                        Array.append reg.Collections [| validated |]
+                saveUnlocked storageRoot { reg with Collections = updated }
+            finally
+                mutationLock.Release() |> ignore
     }
 
     /// remove — id 일치 항목 제거. 반환 = 실제 제거됐는지 (없으면 false). SemaphoreSlim 직렬화.
