@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Ds2.LightHouseService": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:57122;http://localhost:57123"
+    }
+  }
+}
