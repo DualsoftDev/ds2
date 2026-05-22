@@ -5,15 +5,17 @@ open System.IO
 open System.Text
 open Microsoft.Data.Sqlite
 
-/// **PR-H1 (todo-lighthouse-index-summary.md §11)** — doc-level 1줄 summary 박제.
+/// **PR-H1/H2 (todo-lighthouse-index-summary.md §11)** — doc-level 1줄 summary 박제.
 ///
-/// P1 = 방법 3 (zero-cost): Title 우선, fallback = 첫 chunk 의 첫 sentence (≤ 120 char).
-/// P2 진입 시 방법 5 (subagent batch) 흡수 — SummaryStore 신설 + listPendingSummaries CLI entry.
+/// design (r5+): SummaryText 박제 path 단일화 = `lighthouse-cli summary-update` (subagent batch, Step 1-b).
+/// **PR-H1 zero-cost fallback (firstSentence) 폐기** — PDF 표제지 layout (담당/날짜/RESTRICTED) 의 stale 박제
+/// 결함이 결과적으로 design 의도 ("LLM 호출 없이 박제된 summary 박제") 를 fail 시킴. 명시적 placeholder 박제로
+/// "박제 미완" 을 표면화하여 사용자 / Step 1-b dispatcher 가 즉시 인지.
 ///
 /// 산출물 = `<source>/.lighthouse-kb/summary.md` (markdown table).
-/// 용도 = (a) Human 검수 — text dump 가 본문 그대로면 summary 는 영역 인지용 / (b) P2 의 attachment_summary MCP tool 응답.
+/// 용도 = (a) Human 검수 / (b) attachment_summary MCP tool 응답.
 ///
-/// CLI hook 위치 = `runIndex` / `runUpload` 의 TextDumper.dumpAll 직후 (단일 read-only connection 안).
+/// CLI hook 위치 = `runIndex` / `runUpload` / `runSummaryUpdate` 의 TextDumper.dumpAll 직후 (단일 connection 안).
 [<RequireQualifiedAccess>]
 module SummaryBuilder =
 
@@ -21,70 +23,23 @@ module SummaryBuilder =
     [<Literal>]
     let SummaryFileName = "summary.md"
 
-    /// 첫 sentence 잘림 cap (char) — LLM 한 줄 요약 가독 boundary.
+    /// SummaryText NULL doc 의 placeholder. Step 1-b summary-fill 미진행 상태를 명시.
+    /// fallback 박제 안 함 — firstSentence (표제지 stale 박제) 는 박제된 summary 와 시각적으로 구분 안 되어
+    /// 혼동 trigger. placeholder 는 "박제 미완" 을 표면화 → 사용자 즉시 인지 + summary-update 흐름 진입 trigger.
     [<Literal>]
-    let MaxSentenceChars = 120
+    let PendingPlaceholder = "(pending — summary-fill 미진행)"
 
-    /// 단일 doc 의 summary metadata. P2 진입 시 CaptionModel 같은 필드 추가 가능.
+    /// 단일 doc 의 summary metadata.
     type DocSummary = {
         DocId: int64
         OriginalPath: string       // 원본 파일 path (Documents.OriginalPath 그대로)
-        TextDumpPath: string       // text/<docId>-<sanitized>.md (relative, TextDumper sanitize 패턴 정합)
-        Summary: string            // 1줄 요약 — P1 방법 3 (Title 또는 첫 sentence)
+        TextDumpPath: string       // text/<docId>-<sanitized>.md (TextDumper sanitize 패턴 정합)
+        Summary: string            // SummaryText 박제값 또는 PendingPlaceholder
     }
 
     /// `.lighthouse-kb/summary.md` 절대 경로.
     let summaryPath (collectionRoot: string) : string =
         Path.Combine(SqliteStore.kbDir collectionRoot, SummaryFileName)
-
-    /// 의미 단위 prefix 의 최소 길이 — 첫 boundary 가 이보다 이른 위치면 *다음* boundary 까지 cascade.
-    /// 짧은 token 단위 (예: "자동화기술실 설비제어기술2팀 2022.") 의 의미 손실 trigger 보호.
-    [<Literal>]
-    let private MinSentenceChars = 40
-
-    /// 첫 chunk 에서 의미 단위 1줄 추출.
-    /// 1. whitespace 정규화 — `\r\n` / `\n` / `\t` → single space, multi-space → single. 줄바꿈을 boundary 로
-    ///    *치지 않음* — PDF layout 의 짧은 줄 단위 박제 ("자동화기술실" / "설비제어기술2팀" 등) 가 의미 단위 손실 trigger.
-    /// 2. sentence boundary (마침표/물음표/느낌표 + CJK 변형) 만 cut. MinSentenceChars 이전 boundary 는 skip.
-    /// 3. boundary 미발견 시 MaxSentenceChars 에서 truncate.
-    let private firstSentence (chunkText: string) : string =
-        if String.IsNullOrWhiteSpace chunkText then ""
-        else
-            // whitespace 정규화 — newline / tab 모두 single space, multi-space collapse
-            let normalized =
-                let raw = chunkText.Replace("\r\n", " ").Replace("\n", " ").Replace("\t", " ").Trim()
-                let sb = StringBuilder(raw.Length)
-                let mutable prevSpace = false
-                for ch in raw do
-                    if ch = ' ' then
-                        if not prevSpace then sb.Append ch |> ignore
-                        prevSpace <- true
-                    else
-                        sb.Append ch |> ignore
-                        prevSpace <- false
-                sb.ToString()
-            // sentence boundary 검색 — MinSentenceChars 이전 boundary 는 skip (cascade).
-            // digit 직후 마침표 (`2022.` / `12.` / `1.`) 는 boundary 아님 — 날짜 / 목차 번호 false-positive 차단.
-            let boundaries = [| '.'; '?'; '!'; '。'; '？'; '！' |]
-            let scanLen = min normalized.Length MaxSentenceChars
-            let mutable cut = scanLen
-            let mutable i = MinSentenceChars
-            while i < scanLen && cut = scanLen do
-                if Array.contains normalized.[i] boundaries then
-                    let prevIsDigit = i > 0 && Char.IsDigit normalized.[i - 1]
-                    if not prevIsDigit then cut <- i + 1
-                i <- i + 1
-            normalized.Substring(0, cut).Trim()
-
-    /// summary 1줄 = 첫 chunk 의 의미 단위 prefix, 최종 fallback = basename (확장자 제거).
-    /// **Title 무시** — PDF Information.Title 은 PowerPoint default ("슬라이드 1"), Word default ("Microsoft Word - ..."),
-    /// "Untitled" 등 무의미 default 가 대부분. P2 진입 시 subagent 가 Title + Summary 결합 박제 검토.
-    /// **review G fix (r4)**: dead _title 인자 제거 (YAGNI). 향후 도입 시 그 PR 에서 추가.
-    let private buildSummary (firstChunkText: string) (originalPath: string) : string =
-        let s = firstSentence firstChunkText
-        if s.Length > 0 then s
-        elif not (String.IsNullOrEmpty originalPath) then Path.GetFileNameWithoutExtension originalPath
-        else "(no summary)"
 
     /// markdown table cell escape — `|` 와 newline 만 손질. " 는 markdown table 안 자유.
     let private escapeMd (s: string) : string =
@@ -103,16 +58,12 @@ module SummaryBuilder =
         sprintf "%s/%s" TextDumper.TextSubDirName (TextDumper.sanitizedFilename docId originalPath)
 
     /// 모든 doc enumerate → DocSummary array. 빈 collection → `[||]`.
-    /// **PR-H2 (§11)** — Documents.SummaryText 우선 분기. NULL 시 P1 방법 3 (firstSentence) fallback.
-    /// SummaryText 박제 path = `lighthouse-cli summary-update` (subagent batch 결과) — Step 2b 흐름.
+    /// SummaryText NULL → PendingPlaceholder 박제 (PR-H1 fallback 폐기, r5+).
     let build (conn: SqliteConnection) : DocSummary array =
         let results = ResizeArray<DocSummary>()
         use cmd = conn.CreateCommand()
-        // 단일 query 로 doc + SummaryText + 첫 chunk text 결합 — N+1 query 회피 (대형 collection read-only cost 최소).
-        // **review G fix (r4)**: SELECT Title 제거 (dead readout) — buildSummary 가 Title 인자 미사용.
         cmd.CommandText <- """
-            SELECT d.Id, d.OriginalPath, d.SummaryText,
-                   (SELECT Text FROM Chunks WHERE DocumentId = d.Id ORDER BY Ordinal, Id LIMIT 1) AS FirstChunk
+            SELECT d.Id, d.OriginalPath, d.SummaryText
             FROM Documents d
             ORDER BY d.Id
         """
@@ -120,16 +71,11 @@ module SummaryBuilder =
         while reader.Read() do
             let docId = reader.GetInt64 0
             let origPath = reader.GetString 1
-            let storedSummary =
-                if reader.IsDBNull 2 then None
+            let summary =
+                if reader.IsDBNull 2 then PendingPlaceholder
                 else
                     let s = reader.GetString 2
-                    if String.IsNullOrWhiteSpace s then None else Some (s.Trim())
-            let firstChunk = if reader.IsDBNull 3 then "" else reader.GetString 3
-            let summary =
-                match storedSummary with
-                | Some s -> s
-                | None   -> buildSummary firstChunk origPath
+                    if String.IsNullOrWhiteSpace s then PendingPlaceholder else s.Trim()
             results.Add {
                 DocId = docId
                 OriginalPath = origPath

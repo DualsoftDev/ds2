@@ -63,9 +63,13 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 - stderr 의 진행률 (`[N%] x/y — file`) 그대로 사용자에게 전달.
 - self-signed cert 환경이면 `--allow-invalid-certs` 추가 (dev only).
 
-## Step 1/2/3 흐름 (subagent caption path)
+## Step 1/2/3 흐름 (subagent caption + summary path)
 
 `/indexer` 가 **이미지 다수 포함** 폴더 색인 시 VLM caption 을 Anthropic API 직접 (`LIGHTHOUSE_VLM_API_KEY`) 대신 Claude Code subagent 로 위임하여 비용을 Claude Code subscription 으로 통합하는 path. `Apps/Promaker/Docs/todo-lighthouse-indexer-claude-caption.md` 의 채택안 (옵션 B, deferred 2-step + parallel subagent) 박제.
+
+**design (r5+)**: doc-level summary 도 subagent batch 박제 (Step 1 의 sub-step). PR-H1 zero-cost fallback (firstSentence)
+폐기 — PDF 표제지 stale 박제 결함이 design 의도 ("LLM 호출 없이 박제된 summary 박제") 를 fail 시킴. SummaryText NULL
+상태는 `SummaryBuilder.PendingPlaceholder` 박제로 명시.
 
 ### 결정 박제 (todo §2)
 
@@ -85,14 +89,55 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 | 14 | spot-check | 샘플 5장 중 ≥ 4장 의미 동등 |
 | 16 | empty batch | exit 0 (no-op) |
 
-### Step 1 — index-only (CLI)
+### Step 1 — index + summary-fill (CLI + skill orchestration)
+
+**Step 1-a — CLI 색인**:
 
 ```powershell
 & "<cli-path>" index "<folder>" --skip-upload
 ```
 
 - `--skip-upload` 박제 시 caption 자동 skip (`--force-without-image-caption` 자동 박제). 색인 자체는 정상 — `ImageCache` row + blob file 모두 박제.
-- 본 step 종결 후 `<folder>/.lighthouse-kb/{index.db,blobs/images/<hash>.<ext>}` 박제됨.
+- 본 step 종결 후 `<folder>/.lighthouse-kb/{index.db,blobs/images/<hash>.<ext>,summary.md}` 박제됨.
+- 이 시점 `summary.md` = SummaryText NULL doc 들이 `PendingPlaceholder` ("(pending — summary-fill 미진행)") 로 박제. Step 1-b 가 박제된 summary 로 regenerate.
+
+**Step 1-b — summary-fill (skill orchestration)**:
+
+caption-fill 보다 비용 가벼움 (doc 단위 N 작음, text dump ≤ 512KB) → Step 1 안에서 자동 진행. caption-fill 은 별도 Step 2 로 분리 (N 큼).
+
+1. **summary-pending fetch**:
+   ```powershell
+   & "<cli-path>" list-pending-summaries "<folder>"
+   ```
+   stdout JSON array (각 row = `{docId, originalPath, textDumpPath}` camelCase).
+
+2. **threshold 분기** (N = array length):
+   - **N = 0**: empty batch — Step 1-b skip (모든 doc 의 summary 박제됨).
+   - **1 ≤ N ≤ 60**: 자동 dispatch. 잠정 K=2, P=4.
+   - **N > 60**: confirm prompt — `Doc {N}개 summary. 예상 wall-clock {N/(K*P)*추정시간}분. 진행?`
+
+3. **summary-prompt fetch** (1회):
+   ```powershell
+   & "<cli-path>" print-summary-prompt
+   ```
+
+4. **subagent dispatch** — pending array 를 K=2 단위로 chunking, P=4 parallel `Agent` 호출:
+   - `subagent_type = "general-purpose"`.
+   - 각 agent prompt 안 명시:
+     - text dump file path = `<folder>/.lighthouse-kb/<textDumpPath>` — **Read 도구로 read 후 처리** (전문 본문 흡수).
+     - summary prompt = Step 1-b-3 의 fetch 결과 그대로 복사.
+     - 출력 형식: "summary 한 문장 (한국어 80~120자) 만. 본문 echo 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
+   - `max_output_tokens=300` 가드. parse 실패 시 per-doc max 2 attempts retry.
+
+5. **batch JSON 박제** — 모든 round 의 successful row 를 단일 array 로 모아 임시 파일 (e.g. `<folder>/.lighthouse-kb/summary-batch.json`).
+
+6. **summary-update**:
+   ```powershell
+   & "<cli-path>" summary-update "<folder>" "<summary-batch.json>"
+   ```
+   단일 transaction 안 N 회 UPDATE → atomic commit + summary.md regenerate. empty batch 시 exit 0 no-op.
+
+7. **잔여 확인** — `list-pending-summaries` 재호출이 빈 array 반환할 때만 Step 2 진입.
 
 ### Step 2 — caption-fill (skill orchestration)
 
@@ -134,44 +179,6 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 
 7. **잔여 확인** — `list-pending-captions` 재호출이 빈 array 반환할 때만 Step 3 진입 허용 (서버 측 caption-only patch endpoint 부재).
 
-### Step 2b — summary-fill (skill orchestration, todo-lighthouse-index-summary.md §11 PR-H2)
-
-caption-fill 후 진입. doc-level 1줄 summary 를 subagent batch 로 박제 (Documents.SummaryText). Step 2 caption-fill 의 동형 패턴:
-
-1. **summary-pending fetch**:
-   ```powershell
-   & "<cli-path>" list-pending-summaries "<folder>"
-   ```
-   stdout JSON array (각 row = `{docId, originalPath, textDumpPath}` camelCase).
-
-2. **threshold 분기** (N = array length):
-   - **N = 0**: empty batch — Step 2b 자체 skip (이미 모든 doc 의 summary 박제됨, 또는 zero-cost fallback 으로 충분).
-   - **1 ≤ N ≤ 60**: 자동 dispatch. caption 보다 doc 단위 batch 가 가벼움 (text dump 1개당 ≤ 512KB) — 잠정 K=2, P=4.
-   - **N > 60**: confirm prompt — `Doc {N}개 summary. 예상 wall-clock {N/(K*P)*추정시간}분. 진행?`
-
-3. **summary-prompt fetch** (1회):
-   ```powershell
-   & "<cli-path>" print-summary-prompt
-   ```
-
-4. **subagent dispatch** — pending array 를 K=2 단위로 chunking, P=4 parallel `Agent` 호출:
-   - `subagent_type = "general-purpose"`.
-   - 각 agent prompt 안 명시:
-     - text dump file path = `<folder>/.lighthouse-kb/<textDumpPath>` — **Read 도구로 read 후 처리** (전문 본문 흡수).
-     - summary prompt = Step 2b-3 의 fetch 결과 그대로 복사.
-     - 출력 형식: "summary 한 문장 (한국어 80~120자) 만. 본문 echo 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
-   - `max_output_tokens=300` 가드. parse 실패 시 per-doc max 2 attempts retry.
-
-5. **batch JSON 박제** — 모든 round 의 successful row 를 단일 array 로 모아 임시 파일 (e.g. `<folder>/.lighthouse-kb/summary-batch.json`).
-
-6. **summary-update**:
-   ```powershell
-   & "<cli-path>" summary-update "<folder>" "<summary-batch.json>"
-   ```
-   단일 transaction 안 N 회 UPDATE → atomic commit. empty batch 시 exit 0 no-op.
-
-7. **잔여 확인** — `list-pending-summaries` 재호출이 빈 array 반환할 때만 Step 3 진입 권장.
-
 ### Step 3 — upload (CLI)
 
 ```powershell
@@ -180,7 +187,7 @@ caption-fill 후 진입. doc-level 1줄 summary 를 subagent batch 로 박제 (D
 
 - 이 시점 `LIGHTHOUSE_VLM_API_KEY` 미박제여도 caption 이 이미 박제됨 → `--force-without-image-caption` 자동 박제 의무. 또는 별 entry (follow-up) 로 upload-only path 박제.
 - **임시**: Step 1 산출물 wipe 회피 위해, `runUpload` 가 in-place 색인을 재수행하지 않도록 별 upload-only entry 가 필요 (follow-up phase). 현재는 Step 3 진입 시 `LIGHTHOUSE_VLM_API_KEY` 가 없으면 `--force-without-image-caption` 으로 호출하여 재색인 시 caption noop → 기존 caption 보존 (DB 이미 박제).
-- summary 측은 `Documents.SummaryText` 보존 — re-index 가 fast-skip path 면 column 자연 유지.
+- summary 측은 `Documents.SummaryText` 보존 — re-index 가 fast-skip path 면 column 자연 유지. SummaryText NULL doc 만 Step 1-b 가 새로 박제.
 
 ### concurrent SQLite writer 회피
 

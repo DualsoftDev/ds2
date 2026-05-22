@@ -11,7 +11,7 @@ open Ds2.LightHouse.Extractors
 
 do Ds2.LightHouse.Tests.TestInit.registered |> ignore
 
-/// **PR-H2 (todo-lighthouse-index-summary.md §11)** — SummaryStore 단위 fact (Step 2b subagent path).
+/// **PR-H2 (todo-lighthouse-index-summary.md §11)** — SummaryStore 단위 fact (Step 1-b subagent path).
 
 let private withTempDir (action: string -> 'r) : 'r =
     let dir = Path.Combine(Path.GetTempPath(), sprintf "lh-ss-%s" (Guid.NewGuid().ToString("N")))
