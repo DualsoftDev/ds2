@@ -11,5 +11,22 @@
         "Action": "Start"
       }
     ]
+  },
+  {
+    "Name": "프로메이커+에이전트 + dspilot",
+    "Projects": [
+      {
+        "Path": "..\\Apps\\Promaker\\Promaker\\Promaker.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\Apps\\Promaker\\Promaker.Agent\\Promaker.Agent.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\Apps\\DSPilot\\DSPilot\\DSPilot.csproj",
+        "Action": "Start"
+      }
+    ]
   }
 ]

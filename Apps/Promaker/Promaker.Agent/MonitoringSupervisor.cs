@@ -87,12 +87,13 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
 
     private void ScheduleDebounce(DebounceReason reason, string changeType, string fullPath)
     {
-        // 여러 워처에서 동시에 들어와도 가장 강한 reason 유지 — FlagChanged > ConfigChanged.
-        // (flag 변화는 상태 전이라 더 우선순위 높음)
+        // 여러 워처에서 동시에 들어온 이벤트는 [Flags] bitmask 로 OR 누적 — 한 debounce window 안에
+        // FlagChanged 와 ConfigChanged 가 모두 발화하면 둘 다 처리해야 한다.
+        // (예: Promaker WPF 가 "Agent 보내기" 시 PlcConnection.json 저장 + active.flag 재기록 →
+        //  두 이벤트가 거의 동시에 들어옴. 덮어쓰면 새 PLC 설정이 적용 안 됨.)
         lock (_gate)
         {
-            if (reason == DebounceReason.FlagChanged || _pendingReason == DebounceReason.None)
-                _pendingReason = reason;
+            _pendingReason |= reason;
         }
         Log.Debug($"Watcher event: {changeType} on {fullPath} → debounce({reason}).");
         _debounce?.Dispose();
@@ -111,15 +112,13 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
 
         try
         {
-            switch (reason)
-            {
-                case DebounceReason.FlagChanged:
-                    await HandleFlagChangedAsync().ConfigureAwait(false);
-                    break;
-                case DebounceReason.ConfigChanged:
-                    await HandleConfigChangedAsync().ConfigureAwait(false);
-                    break;
-            }
+            // FlagChanged 와 ConfigChanged 가 함께 들어왔으면 둘 다 처리.
+            // 순서: Flag 먼저(idle↔active 전이) → Config (활성 상태 restart).
+            // active 상태에서 둘 다 set 되면 Flag 는 no-op + Config 가 restart 를 수행 → 새 IP 적용.
+            if ((reason & DebounceReason.FlagChanged) != 0)
+                await HandleFlagChangedAsync().ConfigureAwait(false);
+            if ((reason & DebounceReason.ConfigChanged) != 0)
+                await HandleConfigChangedAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -244,10 +243,11 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         _gate.Dispose();
     }
 
+    [Flags]
     private enum DebounceReason
     {
-        None,
-        FlagChanged,
-        ConfigChanged,
+        None          = 0,
+        FlagChanged   = 1,
+        ConfigChanged = 2,
     }
 }
