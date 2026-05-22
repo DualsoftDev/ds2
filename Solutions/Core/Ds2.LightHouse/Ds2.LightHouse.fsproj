@@ -33,6 +33,12 @@
     <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
          SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
     <Compile Include="TextDumper.fs" />
+    <!-- PR-H1 (todo-lighthouse-index-summary.md §11) — doc-level 1줄 summary (.lighthouse-kb/summary.md).
+         SqliteStore + TextDumper.TextSubDirName 의존 → 뒤 박제. -->
+    <Compile Include="SummaryBuilder.fs" />
+    <!-- PR-H2 (todo-lighthouse-index-summary.md §11) — Documents.SummaryText UPSERT + pending enum
+         (subagent batch path). SummaryBuilder.sanitizedTextDumpRel 재사용 → 뒤 박제. -->
+    <Compile Include="SummaryStore.fs" />
   </ItemGroup>
 
   <ItemGroup>

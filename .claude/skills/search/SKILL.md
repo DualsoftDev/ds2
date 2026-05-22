@@ -74,10 +74,34 @@ $vecJson = '[' + ($emb -join ',') + ']'   # 1024-dim JSON array text
 - Ollama 연결 실패 시 "ollama serve + OLLAMA_FLASH_ATTENTION=false" 안내 후 종료.
 
 ### 4. BM25 query escaping
-FTS5 special character (`"`, `(`, `)`, `:`, `*`) 안전 처리:
-- 사용자 질문을 whitespace 로 split → 각 token 을 double-quote 로 wrap → space 로 join.
-- 예: `FFT convolution 원리` → `"FFT" "convolution" "원리"`.
-- 빈 token 제거.
+
+**trigram tokenizer 환경 (`ChunksFts USING fts5(..., tokenize='trigram')`) 에서 BM25 매칭은 3글자 sliding window 단위.** query phrase 길이가 2글자 이하면 trigram 색인과 mismatch → **항상 0건**. 본 정책은 server (`Solutions/Core/Ds2.LightHouse/Searcher.fs:buildFtsQuery`, SSOT) 의 정책 #3 과 1:1 정합.
+
+**결합 형식 (정책 #3)**: 세 군의 phrase 후보를 OR 결합 — 공백 손실/공백 보존/개별 token 동시 cover.
+1. `phraseNoWs` = 원본 query 의 모든 whitespace 제거 (PPT→PDF 표 chunk `공장개요...` 매칭)
+2. `phraseRaw`  = 원본 query 의 whitespace 를 단일 ASCII 공백으로 normalize (`\s+` collapse — 다중공백/탭/개행 입력 시 `phraseNoWs` 와 비대칭 매칭 회피)
+3. `tokens`     = `phraseRaw` 를 ASCII 공백으로 split 한 개별 token (length 필터는 통합 단계에서)
+
+**token length 정의**: .NET `string.Length` = UTF-16 code unit. 한국어 2 음절 (e.g. `공장`, `원리`) = Length 2 → 길이 < 3 필터에서 자동 제외. 한자/영문/숫자도 동일.
+
+절차:
+1. 원본 query 의 phrase 내부 `"` 만 `""` 로 escape (소괄호/`:`/`*` 는 phrase 안 안전 — 별도 처리 불요).
+2. 위 3군 후보 생성.
+3. 길이 ≥ 3 만 채택 (trigram 보장).
+4. 채택된 phrase 들을 ` OR ` 로 결합 (중복 phrase 는 1개만).
+5. 채택 0개 → BM25 skip — `bm25_hits` CTE 를 빈 SELECT (e.g. `SELECT NULL AS ChunkId, NULL AS rk WHERE 0`) 로 대체하여 vec0 only fallback.
+
+예:
+| query | bm25Escaped |
+|---|---|
+| `공장 개요` | `"공장개요" OR "공장 개요"` (token `공장`/`개요` 모두 length 2 → 제외) |
+| `공장  개요` (다중공백) | `"공장개요" OR "공장 개요"` (phraseRaw 정규화 → 동일 결과) |
+| `공장개요` | `"공장개요"` (3군 모두 동일 → 중복 제거 1개) |
+| `FFT convolution 원리` | `"FFTconvolution원리" OR "FFT convolution 원리" OR "FFT" OR "convolution"` (`원리` length 2 → 제외) |
+| `제어 시스템 사양` | `"제어시스템사양" OR "제어 시스템 사양" OR "시스템"` (`제어`/`사양` length 2 → 제외) |
+| `AI` | (BM25 skip — vec0 only) |
+
+**근거**: trigram tokenizer 는 문서 안 공백/구두점 무관 3글자 window 색인. 표 데이터가 공백 없이 박제된 `***REDACTED***2***REDACTED***개요...공장개요구분현재리노베이션UPH...` chunk 는 `"공장 개요"` phrase 로 매칭 실패하나 `"공장개요"` 로 trigram = `["공장개", "장개요"]` 정타. 본문 자연어는 `phraseRaw` 가 cover. 다중 단어 query 에서 token 이 chunk 안 분산된 케이스는 개별 token OR 가 recall 보존 — RRF (vec0 결합) 이 ranking 정렬 보강.
 
 ### 5. sqlite-vec hybrid 검색
 임시 .sql 파일 생성 후 `sqlite3 <db> ".read '<sql-forward-slash>'"` 실행 (명령행 길이 회피).

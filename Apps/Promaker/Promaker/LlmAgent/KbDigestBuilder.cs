@@ -39,6 +39,9 @@ internal static class KbDigestBuilder
         sb.AppendLine();
         sb.AppendLine("다음 영역에 해당하는 질문이면 `attachment_search(query)` MCP tool 을 호출하세요.");
         sb.AppendLine("전체 본문 필요 시 `attachment_fulltext(fileId)` 호출 (search 만으로 부족할 때).");
+        // **PR-H3 (todo §11)** — γ hybrid: keyword digest 만으로 file 인지 부족 시 collection 의 doc-level
+        // overview 를 on-demand fetch. `attachment_search` / `attachment_fulltext` 호출 전 file narrowing 정보원.
+        sb.AppendLine("collection 의 doc 목록 + 1줄 요약 필요 시 `attachment_summary(collectionId)` 호출.");
         sb.AppendLine();
 
         // **review m-3 fix** — service id 정렬 (Ordinal) 으로 Anthropic prompt cache prefix-match 정합.

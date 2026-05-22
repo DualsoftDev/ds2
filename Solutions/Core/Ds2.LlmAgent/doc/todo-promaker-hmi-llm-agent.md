@@ -10,8 +10,9 @@ Promaker (WPF 데스크탑) 안에서:
 1. Ds2 모델 (DsSystem / Flow / Work / Call 등) 로부터 **터치 기반 HMI HTML 폴더** 를 정적 export
 2. 사용자가 **시각 편집기 (drag/resize/color)** 로 layout 수정
 3. 동일한 HMI SSOT 를 **LLM 자연어 명령** 으로도 수정 (예: "Start 버튼 빨갛게 키워줘") — 같은 chat, 문맥에 따라 자동 modeling/hmi 모드 switching
-4. 산출물 = 정적 `index.html + hmi-runtime.js + assets/` 폴더. 외부 호스팅 / 별도 server 없음
+4. 산출물 = 정적 `index.html + hmi-runtime.js + assets/` 폴더 (**1차 emitter**). 외부 호스팅 / 별도 server 없음
 5. Runtime 동작 = `Ev2.Backend.SignalManager` (Windows service, 이미 운영 중) 와 **SignalR + REST** 로 통신해 PLC 신호 read/write/push
+6. **데이터 모델 SSOT 는 DsStore** — HTML 은 잠정 1차 emitter 일 뿐, 향후 `HmiConfiguration` JSON (`06_Hmi.fs`) / XAML (Avalonia·WPF 키오스크) / AAS Submodel / OPC UA Companion / Mermaid·SVG 등 다른 emitter 추가 가능. 모든 mutation (시각편집·LLM 자연어·import) 은 `ImportPlanOperation` 을 통해서만 DsStore 에 반영 (결정 H8)
 
 ---
 
@@ -143,9 +144,9 @@ type IEntityToTagIdResolver =
 - 사용자가 시각 편집기 또는 LLM 자연어로 자유 변경 가능
 - default 매핑은 **첫 생성 시 1회 seed** 만 — 이후엔 사용자 의도가 SSOT
 
-### 결정 H6 — HMI runtime client lib
+### 결정 H6 — HMI runtime client lib (HTML emitter 의 1차 산출물)
 
-- 파일: `hmi-runtime.js` (정적 export 폴더에 동봉)
+- 파일: `hmi-runtime.js` (정적 export 폴더 = HTML emitter 의 1차 산출물에 동봉)
 - 의존성: `@microsoft/signalr` JavaScript lib (CDN 또는 vendor.js 동봉, Hmi-0 spike 에서 결정)
 - 동작:
   - 첫 실행: API key 입력 → `localStorage` 저장 (또는 export 시 동봉, 사용자 옵션)
@@ -170,6 +171,38 @@ out/
 - 컨텍스트 메뉴 차단 / 가상 키보드 차단 / 키오스크 모드 가정
 - 최소 터치 타겟 48x48dp (HIG)
 - `:active` 시각 피드백 + 색/크기 즉시 반응 (haptic 없음)
+
+### 결정 H8 — DsStore SSOT + Multi-emitter 위상 (확정)
+
+**결정**: HMI 의 단일 진실 공급원(SSOT) 은 **DsStore 안 `HmiPage / HmiPanel / HmiControl` 도메인 트리**이며, HTML 폴더는 그 emitter 결과물 중 하나(현재 1차 emitter)에 지나지 않는다.
+
+**근거**:
+- HTML 을 SSOT 로 두면 (i) 다른 포맷 추출 시 DOM/CSS reverse engineering 비용이 비대칭적으로 커지고, (ii) 사용자 손편집(자유 CSS 등)으로 의미 회복이 깨지며, (iii) AAS/OPC UA 같은 의미 강한 표준으로의 진입이 막힌다.
+- DsStore SSOT 채택 시 결정 H1(P1 통합) 의 인프라가 그대로 활용되어 **시각편집·LLM 자연어·import 가 같은 트랜잭션** 으로 머지된다 → round-trip / 재생성 충돌 문제 자체가 소멸.
+
+**시사**:
+- HMI 산출물 생성은 일관되게 **`HmiPage seq → Emitter → Files`** 시그니처를 따른다. Emitter 는 plugin-shape (1 emitter = 1 함수 + 1 옵션 record).
+- 사용자가 출력된 HTML 을 직접 손편집하는 워크플로는 **비표준** 으로 명시 (모든 변경은 ImportPlanOperation 을 통과해야 함). 키오스크 시나리오에서는 자연.
+- 새 emitter 추가 비용 = 1~2 PR / emitter. 예상 후보:
+  - `HmiConfiguration` JSON emitter (`06_Hmi.fs` 호환) — 난이도 저, 다른 emitter 의 IR 로도 활용 가능
+  - XAML emitter (Avalonia·WPF 키오스크) — 난이도 중
+  - AAS Submodel / OPC UA Companion emitter — 난이도 중상, semantic id 매핑 룰 합의 필요
+  - Mermaid / SVG 정적 도식 emitter — 난이도 저
+- **`hmi-ir.json`** (의미 보존 IR) 을 HTML 폴더에 옆 동봉하면, HTML 만 받은 외부 도구도 추후 다른 포맷 변환을 손쉽게 시도 가능. Hmi-1b 의 generator 옵션으로 노출 (`HmiOptions.EmitIR : bool`).
+
+### 결정 H9 — `06_Hmi.fs` 의 `HmiConfiguration` 과 새 도메인의 관계 (**미해결 — 결정 요청**)
+
+현재 `Solutions/Core/Ds2.Core/SequenceSubmodels/06_Hmi.fs` 에 `HmiConfiguration / HMIButton / HMILamp / HMIGauge / OperationLevel(5단계) / PermissionLevel(4단계) / OperationLog` 등 **수동 구성용 HMI 스펙** 이 이미 존재. 본 작업이 신설하는 `HmiPage / HmiPanel / HmiControl` 과 표현 영역이 겹친다.
+
+세 시나리오 중 택일 필요 (다음 세션에서 사용자 결정):
+
+| 시나리오 | 핵심 | 장점 | 단점 |
+|---|---|---|---|
+| **S1. 계층 분리 (권장)** | `06_Hmi.fs` = "논리 HMI 스펙 (어떤 조작 capability / 권한 / safety)", 새 도메인 = "그 스펙을 화면에 어떻게 배치/스타일링하는가". 새 도메인의 `HmiControl` 이 `HMIButton/HMILamp` 의 인스턴스 또는 reference 를 들고, `Behavior` 필드로 안전 장치(`RequireConfirmation` / `CooldownSeconds` / `RequiredPermission`) 흡수 | safety/권한 기능 재사용, 향후 `HmiConfiguration` JSON emitter 가 자연, b3/b4 출력 확장 용이 | layer 가 2개로 늘어 복잡도 증가 |
+| **S2. 흡수·대체** | `06_Hmi.fs` 의 책임을 새 `HmiPage/Panel/Control` 가 완전히 흡수, `06_Hmi.fs` 는 dead code 화 후 제거 | 단일 layer, 가벼움 | 기존에 `HmiConfiguration` 을 참조하는 코드/문서 정리 필요, safety 필드들을 새 도메인에 재설계 |
+| S3. 평행 존재 | 둘이 별개 모듈로 공존 | 단기적 변경 적음 | **위험** — 같은 개념이 두 곳에 표현, 향후 모순/표현력 갈라짐. 가장 비추천 |
+
+권장 = **S1**. S1 채택 시 Hmi-1a 진입 전에 `HmiControl.Behavior : HmiControlBehavior option` 필드 신설(또는 `06_Hmi.fs` 의 `HMIButton` 참조 포인터)을 위한 도메인 스케치 1줄 합의가 필요.
 
 ---
 
@@ -215,13 +248,17 @@ out/
 ### Phase Hmi-1b — 결정적 generator (PR 2)
 
 - [ ] `Ds2.Hmi.Generator` (F# 신규 module — `Solutions/Core/Ds2.Hmi/` 또는 `Solutions/Convert/Ds2.Hmi.Generator/` — 위치 결정)
-- [ ] `HmiOptions` record (page size / theme / API base url / API key 동봉 여부 / signalr lib 배포 방식)
-- [ ] `generate : HmiPage seq -> IEntityToTagIdResolver -> HmiOptions -> Files` (Files = 폴더 manifest)
-  - HTML emit (Pointer Events / data-attribute / 키오스크 meta)
-  - mapping.json (entity ↔ tagId 사전 변환)
-  - hmi-runtime.js (embedded resource)
-  - base.css (키오스크 친화)
-  - vendor/signalr.min.js (옵션)
+- [ ] **Emitter 시그니처 일관화** (결정 H8 의 plugin-shape):
+  - HTML emitter: `emitHtml : HmiPage seq -> IEntityToTagIdResolver -> HmiOptions -> Files`
+  - 향후 emitter (`HmiConfiguration` JSON / XAML / AAS / SVG) 도 같은 1 함수 + 1 옵션 record 패턴
+- [ ] `HmiOptions` record (page size / theme / API base url / API key 동봉 여부 / signalr lib 배포 방식 / **`EmitIR : bool`** — `hmi-ir.json` 동봉 여부)
+- [ ] HTML emitter 의 산출물 (Files = 폴더 manifest):
+  - `index.html` — Pointer Events / data-attribute / 키오스크 meta
+  - `mapping.json` — entity ↔ tagId 사전 변환
+  - `hmi-runtime.js` — embedded resource
+  - `base.css` — 키오스크 친화
+  - `vendor/signalr.min.js` — 옵션
+  - `hmi-ir.json` — 의미 보존 IR (옵션, `EmitIR=true` 시). 향후 다른 emitter 가 외부에서 후처리 변환 가능
 - [ ] `EntityToTagId` stub 구현 (phase 1, e.g. `$"{workId}/{aspect}"` 형식)
 - [ ] **default seed 매핑** (H5 단순 규칙): Project → 빈 HmiPage 1개 / System → Panel 1개 / Work → button + lamp 1쌍 / Call → optional lamp
 - [ ] Promaker UI 의 export 메뉴 — `File / Export → HMI HTML` + 다이얼로그 (대상 system 선택 + HmiOptions)
@@ -342,6 +379,8 @@ out/
 5. **HMI Designer panel 위치** — MainWindow 의 새 column (LlmChat column 5/6 와 형제) vs LlmChat panel 안 탭 vs 별 dialog window. 화면 공간 trade-off
 6. **API key UX 정책** — Hmi-0 0d 결과 결정 (입력 modal / 동봉 옵션 / proxy)
 7. **default seed 매핑 의 정확한 규칙** — H5 의 단순 규칙 (Work=button+lamp / Call=optional lamp) 가 사용자 의도와 일치하는지 Hmi-1b 진입 시 재확인
+8. **`06_Hmi.fs` 의 `HmiConfiguration` 처리 시나리오** (결정 H9) — S1(계층 분리, 권장) / S2(흡수·대체) / S3(평행 존재, 비추천) 중 택일. **S1 채택 시** `HmiControl.Behavior` 필드 (또는 `HMIButton` reference) 설계가 Hmi-1a 진입 전 합의 필요
+9. **`hmi-ir.json` 스키마** — H8 의 emitter IR 동봉 옵션 활성 시 IR 의 정확한 형식. `HmiConfiguration` JSON 과 호환되게 둘지 vs 독자 schema. Hmi-1b 진입 시 결정
 
 ---
 
@@ -356,12 +395,15 @@ out/
 7. **시각 편집기 vs LLM 자연어 명령 의 동시 사용** — 같은 control 을 사용자가 drag 하는 도중 LLM 이 resize 호출하면 race. dispatcher InvokeAsync Background 패턴 그대로 적용 (모델링 측 결정 8 재사용)
 8. **HMI runtime 의 reconnect / offline 동작** — SignalR 연결 끊김 시 lamp 가 stale 표시 (회색 + "disconnected" overlay). 재연결 후 재구독은 SignalR `withAutomaticReconnect` 자동
 9. **사용자 글로벌 규칙 준수**: F# > C# / 정석 해결 / 기존 재활용 90점 / try/catch 자제 (fail-fast) / log4net `logDebug` etc / camelCase=private,internal,F# 함수 / PascalCase=Property,public
+10. **HTML 직접 손편집은 비표준** (결정 H8) — 출력된 `index.html` 을 외부에서 직접 수정하면 다음 emit 시점에 변경분이 손실됨. 모든 mutation 은 시각편집기 / LLM 자연어 / import 셋 중 하나로 DsStore 를 통과해야 함. export 다이얼로그에 안내 문구 권장
+11. **새 emitter 추가 시 도메인 변경 없이 emitter 함수 + 옵션 record 만 추가** (결정 H8 plugin-shape). 도메인 트리에 emitter 별 표현이 새어들지 않도록 review 시 차단
+12. **`hmi-ir.json` 동봉 옵션 default=off** (보안·산출물 크기 trade-off). 외부 변환이 필요한 운영 환경에서만 on
 
 ---
 
 ## 다음 작업 진입 권장 순서
 
-1. **사용자에게 미해결 결정 지점 1, 2, 3, 4 확인** — 가장 critical = 1 (interface 위치) + 2 (Aspect 값 set)
+1. **사용자에게 미해결 결정 지점 1, 2, 3, 4, 8 확인** — 가장 critical = **8 (결정 H9, `06_Hmi.fs` 시나리오 택일)** + 1 (interface 위치) + 2 (Aspect 값 set). 8 은 Hmi-1a 도메인 스케치 전에 반드시 합의
 2. **Hmi-0 spike 의 0a, 0b 처리** (사용자 답변 또는 짧은 source 검토)
 3. **Hmi-1a 도메인 entity + ImportPlan DU 확장** — backward compat 위해 JSON formatter 변경 minimal 부터
 4. **Hmi-0 의 0c/0d/0e 는 Hmi-1e 직전에 처리해도 무방** (1a/1b/1c/1d 가 SignalManager 통신 없이 진행 가능하므로)

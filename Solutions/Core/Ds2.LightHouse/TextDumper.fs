@@ -42,7 +42,9 @@ module TextDumper =
 
     /// docId + originalPath → filename (path traversal 차단 + 의심 char 제거).
     /// 결과 = `<docId>-<basename>.md` (basename 은 의심 char `/\:*?"<>|` 등 replace `_`).
-    let private sanitizedFilename (docId: int64) (originalPath: string) : string =
+    /// **review F fix (r4)**: public 격상 — SummaryBuilder + SummaryStore 가 사본 박제 회피 위해 직접 참조.
+    /// drift 시 attachment_summary 의 textDumpPath ↔ attachment_fulltext 의 docId 매칭 fail 차단.
+    let sanitizedFilename (docId: int64) (originalPath: string) : string =
         let basename =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath

@@ -44,6 +44,8 @@ public sealed class KbDigestBuilderTests
         Assert.Contains("keywords: cache_rd, cache_cr, token, turn", result);
         // PR-E 흡수 — fulltext fallback 안내 박제.
         Assert.Contains("attachment_fulltext(fileId)", result);
+        // **PR-H3 (todo §11)** — γ hybrid: collection overview attachment_summary 안내 박제.
+        Assert.Contains("attachment_summary(collectionId)", result);
     }
 
     [Fact]

@@ -76,7 +76,7 @@ LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
 LH_PUBLISH_DIR   := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/publish)
 LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
 
-.PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean install light-house
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean install light-house build
 
 help:
 	@echo "Promaker installer Makefile"
@@ -98,6 +98,11 @@ help:
 	@echo "                    Config must exist at %PROGRAMDATA%/Dualsoft/LightHouseService."
 	@echo "                    Stop the Windows Service first if registered (sc stop Ds2.LightHouseService)"
 	@echo "                    to free the listen port."
+	@echo ""
+	@echo "Targets (Tools gateway):"
+	@echo "  build           - Delegate to ../../Solutions/Tools/Makefile build target"
+	@echo "                    (Ds2.LightHouse.Cli / Ollama / LightHouseService)."
+	@echo "                    Override config: make build BUILD_CONFIG=Debug"
 	@echo ""
 	@echo "Targets (meta):"
 	@echo "  help            - This message"
@@ -218,6 +223,17 @@ light-house:
 	@echo "    sc stop Ds2.LightHouseService"
 	@echo "============================================================="
 	dotnet run --project "$(LH_SERVICE_PROJ)" -c Debug
+
+# ── Tools build (gateway) ──────────────────────────────────
+# ../../Solutions/Tools/Makefile 의 build target 을 그대로 위임.
+# 산하 프로젝트: Ds2.LightHouse.Cli / Ds2.LightHouse.Ollama / Ds2.LightHouseService.
+# Promaker 작업 디렉터리에서 LightHouse 솔루션 일괄 빌드를 한 줄로 호출하기 위함.
+TOOLS_DIR    := ../../Solutions/Tools
+BUILD_CONFIG ?= Release
+
+build:
+	@echo "=== build Tools (CONFIG=$(BUILD_CONFIG)) — delegate to $(TOOLS_DIR)/Makefile ==="
+	$(MAKE) -C "$(TOOLS_DIR)" build CONFIG=$(BUILD_CONFIG)
 
 # 공용 dist-force 만 활성화. `make dist` 는 아래에서 notice-only 로 재정의하여
 # 우발적 배포(scp/bump) 를 방지하고 `/dist` skill 사용을 유도한다.
