@@ -67,3 +67,14 @@ let ``loadDefault — FilterExclusions Description 비어있지 않음 (현장 �
     Assert.NotNull(cfg.FilterExclusions)
     Assert.NotNull(cfg.FilterExclusions.DeviceKeywords)
     Assert.NotNull(cfg.FilterExclusions.ApiKeywords)
+
+[<Fact>]
+let ``loadDefault — UserTagRules 이상 태그 자동 생성 규칙 로드`` () =
+    let cfg = MappingConfig.loadDefault ()
+    Assert.NotNull(cfg.UserTagRules)
+    Assert.True(cfg.UserTagRules.Enabled.HasValue && cfg.UserTagRules.Enabled.Value)
+    Assert.NotEmpty(cfg.UserTagRules.Rules)
+    let first = cfg.UserTagRules.Rules.[0]
+    Assert.Equal("Error", first.LogLevel)
+    Assert.Equal("Bit", first.ValueType)
+    Assert.Contains("*ERR*", first.NamePatterns)

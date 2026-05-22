@@ -818,7 +818,19 @@ module ModelProtocol =
             @ (Queries.passiveSystemsOf p.Id store))
         |> List.tryFind (fun s -> s.Name = sysName)
 
-    /// `<system>.<flow>` 형식 path → store 안의 Flow 검색.
+    /// `<system>` 또는 `<project>.<system>` 형식 path → store 안의 DsSystem 검색.
+    let private findSystemByPath (store: DsStore) (rawPath: string) : DsSystem option =
+        match pathSegments rawPath with
+        | [ sysName ] -> findSystemByName store sysName
+        | [ projectName; sysName ] ->
+            Queries.allProjects store
+            |> List.tryFind (fun p -> p.Name = projectName)
+            |> Option.bind (fun p ->
+                Queries.projectSystemsOf p.Id store
+                |> List.tryFind (fun s -> s.Name = sysName))
+        | _ -> None
+
+    /// `<system>.<flow>` 또는 `<project>.<system>.<flow>` 형식 path → store 안의 Flow 검색.
     let private findFlowByPath (store: DsStore) (rawPath: string) : Flow option =
         match pathSegments rawPath with
         | [ sysName; flowName ] ->
@@ -826,7 +838,44 @@ module ModelProtocol =
             |> Option.bind (fun s ->
                 Queries.flowsOf s.Id store
                 |> List.tryFind (fun f -> f.Name = flowName))
+        | [ projectName; sysName; flowName ] ->
+            Queries.allProjects store
+            |> List.tryFind (fun p -> p.Name = projectName)
+            |> Option.bind (fun p ->
+                Queries.projectSystemsOf p.Id store
+                |> List.tryFind (fun s -> s.Name = sysName)
+                |> Option.bind (fun s ->
+                    Queries.flowsOf s.Id store
+                    |> List.tryFind (fun f -> f.Name = flowName)))
         | _ -> None
+
+    /// patch.add 의 child 추가 경로에서 기존 store entity 를 resolveApiDef/dispatchWork 가 재사용할 수 있도록
+    /// 현재 project systems 를 ctx.Systems 이름 테이블에 주입한다. 이미 doc/patch 안에서 선언된 entry 는 보존.
+    let private seedStoreSystems (ctx: ApplyContext) : unit =
+        for project in Queries.allProjects ctx.Store do
+            let activeIds = HashSet<Guid>(project.ActiveSystemIds)
+            Seq.append project.ActiveSystemIds project.PassiveSystemIds
+            |> Seq.distinct
+            |> Seq.iter (fun sysId ->
+                match ctx.Store.Systems.TryGetValue sysId with
+                | false, _ -> ()
+                | true, sys ->
+                    if not (ctx.Systems.ContainsKey sys.Name) then
+                        let kind = if activeIds.Contains sys.Id then "active" else "passive"
+                        let entry = newSystemEntry sys.Name kind
+                        entry.SystemId := Some sys.Id
+
+                        for apiDef in Queries.apiDefsOf sys.Id ctx.Store do
+                            entry.ApiDefIds.[apiDef.Name] <- apiDef.Id
+
+                        for flow in Queries.flowsOf sys.Id ctx.Store do
+                            entry.FlowIds.[flow.Name] <- flow.Id
+                            let works = Dictionary<string, Guid>(StringComparer.Ordinal)
+                            for work in Queries.worksOf flow.Id ctx.Store do
+                                works.[work.LocalName] <- work.Id
+                            entry.WorkIds.[flow.Name] <- works
+
+                        ctx.Systems.[sys.Name] <- entry)
 
     /// S3b — modeling level Arrow lookup-first 용. 같은 (source, target, ArrowType) Work 간 arrow 가
     /// store 에 이미 있는지 검사. parent system 은 source Work → parent Flow → parent System chain.
@@ -1650,6 +1699,95 @@ module ModelProtocol =
                     | _ -> ()
                 idx <- idx + 1
 
+    let private tryStripWorksCollectionSuffix (rawPath: string) : string option =
+        match pathSegments rawPath |> List.rev with
+        | "works" :: parentRev when parentRev.Length >= 2 ->
+            parentRev
+            |> List.rev
+            |> Array.ofList
+            |> fun parts -> Some (String.Join(".", parts))
+        | _ -> None
+
+    let private tryGetSeededSystemEntry (ctx: ApplyContext) (systemName: string) =
+        seedStoreSystems ctx
+        match ctx.Systems.TryGetValue systemName with
+        | true, entry -> Some entry
+        | false, _ -> None
+
+    let private dispatchPatchAddFlows
+        (ctx: ApplyContext)
+        (path: string)
+        (systemPath: string)
+        (entryEl: JsonElement) : unit =
+
+        match findSystemByPath ctx.Store systemPath with
+        | None ->
+            ctx.Diagnostics.Add(path, sprintf "System path '%s' 가 store 에 없습니다." systemPath)
+        | Some system ->
+            match tryGetSeededSystemEntry ctx system.Name with
+            | Some sysEntry when sysEntry.Kind = "active" ->
+                let hasFlowKey =
+                    entryEl.EnumerateObject()
+                    |> Seq.exists (fun p -> tryParseFlowKey p.Name |> Option.isSome)
+                if not hasFlowKey then
+                    ctx.Diagnostics.Add(path, "`in:` 이 System 을 가리키면 `flow <Name>` 키가 필요합니다.")
+                else
+                    dispatchActiveFlows ctx sysEntry entryEl path
+            | Some _ ->
+                ctx.Diagnostics.Add(path, sprintf "System '%s' 는 active 가 아닙니다. Flow 는 active system 아래에만 추가할 수 있습니다." system.Name)
+            | None ->
+                ctx.Diagnostics.Add(path, sprintf "System '%s' 이름 테이블 구성 실패." system.Name)
+
+    let private dispatchPatchAddWorks
+        (ctx: ApplyContext)
+        (path: string)
+        (flowPath: string)
+        (entryEl: JsonElement) : unit =
+
+        match findFlowByPath ctx.Store flowPath with
+        | None ->
+            ctx.Diagnostics.Add(path, sprintf "Flow path '%s' 가 store 에 없습니다." flowPath)
+        | Some flow ->
+            match lookupSystemById ctx flow.ParentId with
+            | None ->
+                ctx.Diagnostics.Add(path, sprintf "Flow '%s' 의 parent System 을 찾을 수 없습니다." flowPath)
+            | Some system ->
+                match tryGetSeededSystemEntry ctx system.Name with
+                | Some sysEntry when sysEntry.Kind = "active" ->
+                    let workEntries =
+                        entryEl.EnumerateObject()
+                        |> Seq.filter (fun p -> p.Name <> "in")
+                        |> Seq.toList
+                    if workEntries.IsEmpty then
+                        ctx.Diagnostics.Add(path, "`in: <System>.<Flow>.works` entry 에 추가할 Work 키가 없습니다.")
+                    for prop in workEntries do
+                        let workPath = sprintf "%s.%s" path prop.Name
+                        if prop.Value.ValueKind <> JsonValueKind.Object then
+                            ctx.Diagnostics.Add(workPath, "Object 기대.")
+                        else
+                            dispatchWork ctx sysEntry flow.Name flow.Id prop.Name prop.Value workPath
+                | Some _ ->
+                    ctx.Diagnostics.Add(path, sprintf "Flow '%s' 는 active system 아래 Flow 가 아닙니다. Active Work 만 patch.add 로 추가할 수 있습니다." flowPath)
+                | None ->
+                    ctx.Diagnostics.Add(path, sprintf "System '%s' 이름 테이블 구성 실패." system.Name)
+
+    let private dispatchPatchAddChild
+        (ctx: ApplyContext)
+        (idx: int)
+        (entryEl: JsonElement) : unit =
+
+        let path = sprintf "patch.add[%d]" idx
+        if entryEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "Object 기대 (실제 %A)." entryEl.ValueKind)
+        else
+            match tryProp entryEl "in" |> Option.bind tryString with
+            | None ->
+                ctx.Diagnostics.Add(path, "patch.add entry 는 `system:` 또는 `in:` 키가 필요합니다.")
+            | Some inPath ->
+                match tryStripWorksCollectionSuffix inPath with
+                | Some flowPath -> dispatchPatchAddWorks ctx path flowPath entryEl
+                | None -> dispatchPatchAddFlows ctx path inPath entryEl
+
     // ─── Patch DSL — v0 (SSOT §2.6) ─────────────────────────────────────────
     //
     // 본 PoC 는 schema 의 add / arrows.add / rename / remove 4 종 dispatch.
@@ -1770,18 +1908,8 @@ module ModelProtocol =
         // diagnostic 게이트 적용 — partial state 회피.
         match tryProp patchEl "add" with
         | Some addEl when addEl.ValueKind = JsonValueKind.Array ->
-            // patch.add 안의 각 entry — system 키 있으면 systems list 와 동일 처리.
-            // review C2 (silent drop): system 키 없는 entry (`in:` + works/calls 등) 는 PoC 미지원 →
-            // silent drop 대신 친절 에러로 안내 (patch.arrows.remove 의 line 877 패턴과 동일).
             let entriesWithIdx = addEl.EnumerateArray() |> Seq.toList |> List.indexed
-            for (i, entry) in entriesWithIdx do
-                if tryProp entry "system" |> Option.isNone then
-                    let hint =
-                        if tryProp entry "in" |> Option.isSome then
-                            "PoC 미지원 — `in:` + works/calls 등 자식 키 추가는 후속 cycle. 새 Work/Call 추가는 `apply_model_doc` 으로 전체 doc 재발행."
-                        else
-                            "patch.add entry 는 `system:` 키 필수 (Passive/Active system 추가). 다른 형식 미지원."
-                    ctx.Diagnostics.Add(sprintf "patch.add[%d]" i, hint)
+
             let systemsAdd =
                 entriesWithIdx
                 |> List.choose (fun (_, e) -> if tryProp e "system" |> Option.isSome then Some e else None)
@@ -1811,6 +1939,11 @@ module ModelProtocol =
                 if ctx.Diagnostics.Count = beforeCount then
                     buildSystems ctx arr.RootElement
                     buildActiveFlows ctx arr.RootElement
+
+            if not ctx.Diagnostics.HasErrors then
+                entriesWithIdx
+                |> List.filter (fun (_, e) -> tryProp e "system" |> Option.isNone)
+                |> List.iter (fun (i, entry) -> dispatchPatchAddChild ctx i entry)
         | _ -> ()
 
         // patch.arrows.add / patch.arrows.remove — SSOT §2.6 / §3.4 (Critical 1 fix)

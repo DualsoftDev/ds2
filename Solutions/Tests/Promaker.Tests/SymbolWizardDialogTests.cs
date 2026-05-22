@@ -29,6 +29,24 @@ public sealed class SymbolWizardDialogTests
         Assert.DoesNotContain(store.Systems.Values, s => s.Name == "NewSystem");
     }
 
+    [Fact]
+    public void ApplyPlansToStore_adds_generated_UserTags()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+
+        SymbolWizardDialog.ApplyPlansToStore(store, projectId, BuildPlans());
+
+        var userTags = store.GetAllUserTagsForProject().ToList();
+        var tag = Assert.Single(userTags);
+        Assert.Equal("Main_PLC_ERR", tag.Name);
+        Assert.Equal("Error", tag.LogLevel);
+        Assert.Equal("M70", tag.TagAddress);
+        Assert.Equal("Bit", tag.ValueType);
+        Assert.Equal("RisingEdge", tag.MatchOp);
+        Assert.Equal("1", tag.MatchValue);
+    }
+
     private static FSharpList<ModelGenerator.SystemPlan> BuildPlans()
     {
         var apiDef = new ModelGenerator.ApiDefPlan(
@@ -40,7 +58,8 @@ public sealed class SymbolWizardDialogTests
             "Device",
             false,
             FSharpList<ModelGenerator.FlowPlan>.Empty,
-            ListModule.OfSeq(new[] { apiDef }));
+            ListModule.OfSeq(new[] { apiDef }),
+            FSharpList<ModelGenerator.UserTagPlan>.Empty);
 
         var call = new ModelGenerator.CallPlan(
             "Device.ADV",
@@ -61,7 +80,17 @@ public sealed class SymbolWizardDialogTests
             "Controller",
             true,
             ListModule.OfSeq(new[] { flow }),
-            FSharpList<ModelGenerator.ApiDefPlan>.Empty);
+            FSharpList<ModelGenerator.ApiDefPlan>.Empty,
+            ListModule.OfSeq(new[]
+            {
+                new ModelGenerator.UserTagPlan(
+                    "Main_PLC_ERR",
+                    "Error",
+                    "M70",
+                    "Bit",
+                    "RisingEdge",
+                    "1")
+            }));
 
         return ListModule.OfSeq(new[] { controller, device });
     }

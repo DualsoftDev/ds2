@@ -676,6 +676,79 @@ public sealed class SimulationPassiveInferenceTests
             && effect.DelayMs == 0);
     }
 
+    // ── 비-Bool ValueSpec 회귀 가드 ────────────────────────────────────────
+    // 이전 HubSession 은 `value = "true"` 와 WriteTag "true"/"false" 하드코딩이라
+    // Int8/Float 등 비-Bool spec 인 ApiCall 에서 *VP echo 자체가 안 일어남* → Promaker
+    // Control 측 무한 going. test_hs5.json (사용자 reproduction) 의 root cause.
+    // 본 가드들은 HubSession 의 active 판정 + echo 값이 ApiCall.OutputSpec/InputSpec 기반으로
+    // 동작하는지 직접 검증. Bool spec 시나리오는 기존 테스트 (위) 가 커버.
+
+    [Fact]
+    public void Control_hub_session_int_input_spec_active_triggers_rx_finish()
+    {
+        var fixture = BuildValueSpecCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Control);
+
+        // InputSpec = Int32(Single 9) — "9" 받으면 active → RxWork ForceFinish trigger.
+        var activeEffects = session.HandleHubTag(fixture.InAddress, "9", "virtualplant");
+        Assert.Contains(activeEffects, e =>
+            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing && e.State == Status4.Finish);
+        Assert.Contains(activeEffects, e =>
+            e.Kind == RuntimeHubEffectKind.InjectIoByAddress && e.Value == "9");
+
+        // "5" 받으면 inactive (5 ≠ 9) → trigger 안 됨. 이전 Bool 가정 코드는 false 만 거름.
+        var inactiveEffects = session.HandleHubTag(fixture.InAddress, "5", "virtualplant");
+        Assert.DoesNotContain(inactiveEffects, e =>
+            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
+    }
+
+    [Fact]
+    public void VirtualPlant_hub_session_int_output_spec_active_echoes_input_spec_value()
+    {
+        var fixture = BuildValueSpecCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        // OutputSpec = Int32(Single 7) — "7" 송출 받으면 active 판정.
+        var effects = session.HandleHubTag(fixture.OutAddress, "7", "control");
+
+        // VP echo 가 InputSpec.toDefaultString="9" 로 InAddress 에 발사 (이전엔 "true" 하드코딩).
+        Assert.Contains(effects, e =>
+            e.Kind == RuntimeHubEffectKind.WriteTag
+            && e.Address == fixture.InAddress
+            && e.Value == "9");
+        Assert.Contains(effects, e =>
+            e.Kind == RuntimeHubEffectKind.ForceWorkState && e.State == Status4.Going);
+    }
+
+    [Fact]
+    public void VirtualPlant_hub_session_int_output_spec_inactive_resets_input()
+    {
+        var fixture = BuildValueSpecCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        // OutputSpec=Int32(Single 7) — "5" 받으면 inactive (5 ≠ 7) → Going trigger 없음.
+        var effects = session.HandleHubTag(fixture.OutAddress, "5", "control");
+
+        Assert.DoesNotContain(effects, e =>
+            e.Kind == RuntimeHubEffectKind.ForceWorkState && e.State == Status4.Going);
+        // active echo "9" 안 들어감.
+        Assert.DoesNotContain(effects, e =>
+            e.Kind == RuntimeHubEffectKind.WriteTag
+            && e.Address == fixture.InAddress
+            && e.Value == "9");
+        // 대신 InAddress 에 reset value "0" (Int32 의 type 별 reset) 으로 echo.
+        Assert.Contains(effects, e =>
+            e.Kind == RuntimeHubEffectKind.WriteTag
+            && e.Address == fixture.InAddress
+            && e.Value == "0");
+    }
+
     [Fact]
     public void Monitoring_runtime_bootstrap_session_queries_snapshot_for_late_join()
     {
