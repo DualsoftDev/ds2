@@ -109,24 +109,43 @@ module Indexer =
                     let storedPath = ImageStore.saveBlob collectionRoot hash img.Format img.Bytes
                     ImageStore.upsertImageCache conn hash storedPath img.Format img.Width img.Height
                     // D-2-2 eager caption: 미존재 시만 captionGen 호출 (cross-doc dedup + 재색인 idempotent).
-                    match ImageStore.getCaption conn hash with
-                    | Some _ -> () // 이미 caption 채워짐.
-                    | None ->
-                        match captionGen img.Bytes img.Format with
-                        | Captioned (text, model) ->
-                            ImageStore.updateCaption conn hash text model
-                        | SkippedCaption reason ->
-                            // cost gate / no key / explicit off — NULL 유지, 다음 색인 시 재시도.
-                            Log.lighthouse.Debug(
-                                sprintf "Indexer: caption skip — hash=%s ref=%s reason=%s"
-                                    hash img.RefLocator reason)
-                        | FailedCaption reason ->
-                            // D-2-4 per-image fail-safe — log + NULL 유지.
-                            Log.lighthouse.Warn(
-                                sprintf "Indexer: caption fail (skip) — hash=%s ref=%s reason=%s"
-                                    hash img.RefLocator reason)
+                    // **PR-Img-Chunk**: caption 결과를 Option string 으로 hoist — 본 image 의 caption-chunk 박제 결정용.
+                    // 이미 다른 doc 색인 시 caption 박제된 hash 도 본 doc 의 caption-chunk 는 별도 박제 의무 (1:1
+                    // per-reference 매핑 — cross-doc 같은 image 가 doc 별 caption-chunk row 박제).
+                    let captionAfter : string option =
+                        match ImageStore.getCaption conn hash with
+                        | Some (text, _) -> Some text
+                        | None ->
+                            match captionGen img.Bytes img.Format with
+                            | Captioned (text, model) ->
+                                ImageStore.updateCaption conn hash text model
+                                Some text
+                            | SkippedCaption reason ->
+                                // cost gate / no key / explicit off — NULL 유지, 다음 색인 시 재시도.
+                                Log.lighthouse.Debug(
+                                    sprintf "Indexer: caption skip — hash=%s ref=%s reason=%s"
+                                        hash img.RefLocator reason)
+                                None
+                            | FailedCaption reason ->
+                                // D-2-4 per-image fail-safe — log + NULL 유지.
+                                Log.lighthouse.Warn(
+                                    sprintf "Indexer: caption fail (skip) — hash=%s ref=%s reason=%s"
+                                        hash img.RefLocator reason)
+                                None
                     let chunkIdOpt = Map.tryFind img.RefLocator refToChunkId
                     ImageStore.addImageReference conn documentId chunkIdOpt hash img.RefLocator img.Ordinal
+                    // **PR-Img-Chunk** — addImageReference 박제 후 (PK 가 있어야 setImageRefCaptionChunkId 동작)
+                    // image 위치 marker 박제 (사용자 요구 ① — caption 박제 여부와 무관 Step 1-a 부터 박제).
+                    // caption 박제된 경우 = 실제 caption text 박제, 미박제 = placeholder ("(caption 미생성)") 박제.
+                    // 후속 Step 2 caption-update batch (subagent late path) 는 동일 caption-chunk row 의 Text 를
+                    // UPDATE 만 — `upsertCaptionChunkForRef` 의 `lookupCaptionChunkByImageRef Some` 분기로 INSERT 회피
+                    // (idempotent path 정합 + ChunksFts AU trigger 자동 sync).
+                    let captionTextForChunk =
+                        match captionAfter with
+                        | Some text -> text
+                        | None -> ImageStore.CaptionPlaceholderText
+                    ImageStore.upsertCaptionChunkForRef
+                        conn documentId hash img.RefLocator img.Ordinal captionTextForChunk
                 with ex ->
                     // M2 per-image fail-safe — log + skip, exception 재발생 안 함.
                     Log.lighthouse.Warn(

@@ -282,3 +282,155 @@ let ``ImageReferences ON DELETE CASCADE — Documents 삭제 시 refs 도 자동
         Assert.Equal(0, (ImageStore.lookupReferencesByDocument conn docId).Length)
         // ImageCache 는 그대로 (cross-document 공유 의도).
         Assert.True((ImageStore.getImageCache conn hash).IsSome))
+
+// ── PR-Img-Chunk (caption-as-chunk r0) — image caption 을 Chunks row 로 박제 ──
+
+/// caption-chunk Chunks row count for given DocumentId — Ordinal 무관, RefLocator 매칭으로 enumerate.
+let private countCaptionChunks (conn: SqliteConnection) (docId: int64) : int =
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- """
+        SELECT COUNT(*) FROM Chunks
+        WHERE DocumentId = $d AND Text LIKE '[그림 %' ESCAPE '\'
+    """
+    cmd.Parameters.AddWithValue("$d", docId) |> ignore
+    Convert.ToInt32 (cmd.ExecuteScalar())
+
+[<Fact>]
+let ``PR-Img-Chunk — formatCaptionChunkText SSOT 형식 검증`` () =
+    let text = ImageStore.formatCaptionChunkText "p=5" 3 "abcdef0123456789ffffffff" "컨트롤러 결선도"
+    Assert.Equal("[그림 p.5 #3 hash=abcdef012345] 컨트롤러 결선도", text)
+    // slide / sheet refLocator 변환 검증.
+    let textSlide = ImageStore.formatCaptionChunkText "slide=2" 1 "0123456789abcdef" "주제 슬라이드"
+    Assert.Equal("[그림 slide 2 #1 hash=0123456789ab] 주제 슬라이드", textSlide)
+    // hash 길이 12 미만 — 그대로 사용 (방어 코드 정합).
+    let textShort = ImageStore.formatCaptionChunkText "p=1" 0 "abcd" "test"
+    Assert.Equal("[그림 p.1 #0 hash=abcd] test", textShort)
+
+[<Fact>]
+let ``PR-Img-Chunk — upsertCaptionChunkForRef INSERT path: Chunks row + ImageReferences.CaptionChunkId 박제`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        let docId = SqliteStore.insertDocument conn "H-1" "d.pdf" Pdf 100L None None
+        ImageStore.addImageReference conn docId None hash "p=5" 1
+        // caption-chunk 박제 전 — Chunks 비어있음, CaptionChunkId NULL.
+        Assert.Equal(0, countCaptionChunks conn docId)
+        Assert.Equal(None, SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=5" 1)
+        // INSERT.
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "컨트롤러 결선도 그림"
+        Assert.Equal(1, countCaptionChunks conn docId)
+        match SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=5" 1 with
+        | None -> Assert.Fail "CaptionChunkId 미박제 — setImageRefCaptionChunkId 누락 회귀"
+        | Some cid ->
+            // 박제된 chunk Text = formatCaptionChunkText 정합.
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "SELECT RefLocator, Text FROM Chunks WHERE Id = $id"
+            cmd.Parameters.AddWithValue("$id", cid) |> ignore
+            use reader = cmd.ExecuteReader()
+            Assert.True(reader.Read())
+            Assert.Equal("p=5", reader.GetString 0)
+            Assert.Contains("컨트롤러 결선도 그림", reader.GetString 1)
+            Assert.Contains("[그림 p.5 #1 hash=", reader.GetString 1))
+
+[<Fact>]
+let ``PR-Img-Chunk — upsertCaptionChunkForRef UPDATE path: 재호출 시 Chunks row 증가 0 + Text 갱신`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        let docId = SqliteStore.insertDocument conn "H-UPD" "d.pdf" Pdf 100L None None
+        ImageStore.addImageReference conn docId None hash "p=5" 1
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "first caption"
+        let chunkIdAfter1st = SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=5" 1
+        Assert.Equal(1, countCaptionChunks conn docId)
+        // 동일 ref 재호출 — Chunks INSERT 안 함, Text 갱신.
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "second caption updated"
+        Assert.Equal(1, countCaptionChunks conn docId)
+        // chunkId 동일 (lookup 결과 보존, 신 INSERT 회귀 차단).
+        let chunkIdAfter2nd = SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=5" 1
+        Assert.Equal(chunkIdAfter1st, chunkIdAfter2nd)
+        // Text 갱신 검증.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "SELECT Text FROM Chunks WHERE Id = $id"
+        cmd.Parameters.AddWithValue("$id", chunkIdAfter2nd.Value) |> ignore
+        let text = cmd.ExecuteScalar() :?> string
+        Assert.Contains("second caption updated", text)
+        Assert.DoesNotContain("first caption", text))
+
+[<Fact>]
+let ``PR-Img-Chunk — updateCaptionBatch cross-doc: 한 hash 의 모든 ImageReferences 에 caption-chunk 박제`` () =
+    // 한 image (= hash) 가 doc1 (p=5) + doc2 (p=10) 에서 참조 — caption-chunk row 가 doc 별로 별개 박제 (1:1 매핑).
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        let doc1 = SqliteStore.insertDocument conn "H-D1" "a.pdf" Pdf 100L None None
+        let doc2 = SqliteStore.insertDocument conn "H-D2" "b.pdf" Pdf 100L None None
+        ImageStore.addImageReference conn doc1 None hash "p=5"  1
+        ImageStore.addImageReference conn doc2 None hash "p=10" 2
+        // updateCaptionBatch — 한 row (hash, text, model) 만 입력 → 두 ImageReferences 모두 caption-chunk 박제.
+        let updated = ImageStore.updateCaptionBatch conn (Seq.singleton (hash, "전기 패널 구성도", "claude-test"))
+        Assert.Equal(1, updated)  // ImageCache UPDATE 는 hash 1 row.
+        // 두 doc 각각 caption-chunk 1 row 박제.
+        Assert.Equal(1, countCaptionChunks conn doc1)
+        Assert.Equal(1, countCaptionChunks conn doc2)
+        Assert.True(Option.isSome (SqliteStore.lookupCaptionChunkByImageRef conn doc1 hash "p=5"  1))
+        Assert.True(Option.isSome (SqliteStore.lookupCaptionChunkByImageRef conn doc2 hash "p=10" 2)))
+
+[<Fact>]
+let ``PR-Img-Chunk — caption-chunk INSERT 시 ChunksFts AI trigger 자동 sync (BM25 hit)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        let docId = SqliteStore.insertDocument conn "H-FTS" "d.pdf" Pdf 100L None None
+        ImageStore.addImageReference conn docId None hash "p=5" 1
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "컨트롤러 결선도 박제 검증"
+        // ChunksFts BM25 query — "결선도" 키워드로 caption-chunk hit.
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT COUNT(*) FROM ChunksFts
+            WHERE ChunksFts MATCH '결선도'
+        """
+        let count = Convert.ToInt32 (cmd.ExecuteScalar())
+        Assert.True(count >= 1, "ChunksFts AI trigger 가 caption-chunk Text 를 BM25 인덱스에 자동 sync 안 함 — 회귀"))
+
+[<Fact>]
+let ``PR-Img-Chunk — caption-chunk UPDATE 시 ChunksFts AU trigger 자동 sync (BM25 갱신)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        let docId = SqliteStore.insertDocument conn "H-FTS2" "d.pdf" Pdf 100L None None
+        ImageStore.addImageReference conn docId None hash "p=5" 1
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "결선도 초기 캡션"
+        // back-fill UPDATE.
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=5" 1 "갱신된 전기 패널 배선도"
+        // ChunksFts 가 신 text 의 토큰으로 hit, 구 token (결선도) 으로는 hit 안 함.
+        use cmdNew = conn.CreateCommand()
+        cmdNew.CommandText <- "SELECT COUNT(*) FROM ChunksFts WHERE ChunksFts MATCH '배선도'"
+        Assert.True(Convert.ToInt32 (cmdNew.ExecuteScalar()) >= 1, "AU trigger 신 text 미반영 — 회귀")
+        use cmdOld = conn.CreateCommand()
+        cmdOld.CommandText <- "SELECT COUNT(*) FROM ChunksFts WHERE ChunksFts MATCH '초기'"
+        Assert.Equal(0, Convert.ToInt32 (cmdOld.ExecuteScalar())))
+
+[<Fact>]
+let ``PR-Img-Chunk — nextOrdinalForRef: 본문 chunks max(Ordinal) + 1 산출`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let docId = SqliteStore.insertDocument conn "H-ORD" "d.pdf" Pdf 100L None None
+        // 본문 chunks 박제 (RefLocator p=5 안 Ordinal 0, 1, 2).
+        let chunks = [|
+            { Text = "본문 1"; RefLocator = "p=5"; Ordinal = 0; TokenCount = 1; OutlineIndex = None }
+            { Text = "본문 2"; RefLocator = "p=5"; Ordinal = 1; TokenCount = 1; OutlineIndex = None }
+            { Text = "본문 3"; RefLocator = "p=5"; Ordinal = 2; TokenCount = 1; OutlineIndex = None }
+            { Text = "다른 페이지"; RefLocator = "p=6"; Ordinal = 0; TokenCount = 1; OutlineIndex = None }
+        |]
+        SqliteStore.insertChunks conn docId [||] chunks SqliteStore.DefaultBatchSize CancellationToken.None
+        // p=5: max ord 2 → next = 3.
+        Assert.Equal(3, SqliteStore.nextOrdinalForRef conn docId "p=5")
+        // p=6: max ord 0 → next = 1.
+        Assert.Equal(1, SqliteStore.nextOrdinalForRef conn docId "p=6")
+        // 본문 없는 ref — next = 0 (COALESCE -1 + 1).
+        Assert.Equal(0, SqliteStore.nextOrdinalForRef conn docId "p=99"))

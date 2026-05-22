@@ -182,6 +182,13 @@ module ImageStore =
     ///
     /// idempotent: 같은 hash 두 번 호출 시 overwrite (latest model 박제). caller 는
     /// 같은 hash 가 두 번 caption 호출 안 되도록 getCaption 으로 사전 dedup 의무.
+    ///
+    /// **PR-Img-Chunk 경고**: 본 함수는 `ImageCache.CaptionText` 만 갱신 — caption-chunk Chunks row 박제는
+    /// caller 의무. SSOT caller path:
+    ///   - eager: `Indexer.ingestImagesIntoStore` 가 본 함수 호출 직후 `upsertCaptionChunkForRef` 박제 (`Indexer.fs`).
+    ///   - late : `updateCaptionBatch` 가 batch 안에서 자동 dispatch (`listImageRefsByHash` + `upsertCaptionChunkForRef`).
+    /// 단건 caller 가 본 함수만 호출하면 caption-chunk 미박제 → BM25 retrieval 누락. 새 caller 박제 시 후속
+    /// `upsertCaptionChunkForRef` 호출 의무 또는 `updateCaptionBatch` 단건 wrapping 권장.
     let updateCaption
         (conn: SqliteConnection)
         (imageHash: string)
@@ -199,6 +206,60 @@ module ImageStore =
         cmd.Parameters.AddWithValue("$model", captionModel) |> ignore
         cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
         cmd.ExecuteNonQuery() |> ignore
+
+    /// **PR-Img-Chunk** — caption 미박제 시점 caption-chunk Text 의 placeholder SSOT (사용자 요구 ① 정합).
+    /// Step 1-a 색인 시점에 captionGen=noop (대표 path: `--force-without-image-caption`) → image 위치 marker 만
+    /// 박제. 후속 Step 2 caption-update 가 동일 chunk row 의 Text 를 실제 caption 으로 UPDATE.
+    /// 검색 noise 회피: trigram tokenizer 가 분해해도 한국어 일반 query 와 매칭 가능성 낮음.
+    [<Literal>]
+    let CaptionPlaceholderText = "(caption 미생성)"
+
+    /// **PR-Img-Chunk** — caption-chunk 의 Text 형식 SSOT.
+    /// 형식 = `[그림 <refDisplay> #<ord> hash=<hash12>] <captionText>`.
+    /// BM25 search 시 "그림" 키워드 또는 hash prefix 로 caption-only filter 가능 + 본문 chunk 와 자연스럽게
+    /// page grouping (RefLocator 동일).
+    let formatCaptionChunkText
+        (refLocator: string)
+        (ordinal: int)
+        (imageHash: string)
+        (captionText: string)
+        : string =
+        let refDisplay =
+            if refLocator.StartsWith("p=") then sprintf "p.%s" (refLocator.Substring 2)
+            elif refLocator.StartsWith("slide=") then sprintf "slide %s" (refLocator.Substring 6)
+            elif refLocator.StartsWith("sheet=") then sprintf "sheet %s" (refLocator.Substring 6)
+            else refLocator
+        let hashShort = if imageHash.Length >= 12 then imageHash.Substring(0, 12) else imageHash
+        sprintf "[그림 %s #%d hash=%s] %s" refDisplay ordinal hashShort captionText
+
+    /// **PR-Img-Chunk** — image reference 1개에 대해 caption-chunk INSERT/UPDATE + ImageReferences.CaptionChunkId
+    /// 박제 (1:1 매핑). caller (`Indexer.ingestImagesIntoStore` eager path, `updateCaptionBatch` late path) 의 wrapper.
+    ///
+    /// idempotent: 이미 박제됐으면 UPDATE (ChunksFts AU trigger 자동 sync) / 없으면 INSERT (AI trigger 자동 sync).
+    /// caller 의무 — `addImageReference` 가 먼저 호출되어 ImageReferences row 가 존재해야 함 (`setImageRefCaptionChunkId`
+    /// 가 PK 4 키로 UPDATE 하기 때문). 호출 순서 보장 안 되면 silent 0-affected → 진단 불가.
+    let upsertCaptionChunkForRef
+        (conn: SqliteConnection)
+        (documentId: int64)
+        (imageHash: string)
+        (refLocator: string)
+        (ordinal: int)
+        (captionText: string)
+        : unit =
+        let chunkText = formatCaptionChunkText refLocator ordinal imageHash captionText
+        // TokenCount 단순 추정 (UTF-8 1 token ≈ 4 byte) — 정확성 불요. retrieval 점수 / 컬럼 통계 metadata 용.
+        let tokenCount = max 1 (chunkText.Length / 4)
+        match SqliteStore.lookupCaptionChunkByImageRef conn documentId imageHash refLocator ordinal with
+        | Some existingChunkId ->
+            SqliteStore.updateCaptionChunkText conn existingChunkId chunkText
+        | None ->
+            // 동일 (docId, refLocator) 안에서 본문 chunks 직후 박제 — page grouping 정합 (Chunker §3.13 ordinal scheme).
+            // 같은 page 의 image N 개 박제 시 nextOrdinalForRef 가 매 호출마다 +1 ordinal 반환 (직전 caption-chunk
+            // INSERT 가 반영된 max 산출).
+            let chunkOrdinal = SqliteStore.nextOrdinalForRef conn documentId refLocator
+            let chunkId =
+                SqliteStore.insertCaptionChunk conn documentId refLocator chunkOrdinal tokenCount chunkText
+            SqliteStore.setImageRefCaptionChunkId conn documentId imageHash refLocator ordinal chunkId
 
     /// `/indexer` skill Step 2 → `caption-update` entry (`todo-lighthouse-indexer-claude-caption.md` §3 batch fenced block) —
     /// subagent 가 return 한 caption batch 를 단일 transaction 안 N 회 UPDATE → atomic commit.
@@ -231,7 +292,16 @@ module ImageStore =
                 cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
                 // **review B fix** (PR-H r4 review): 시도 횟수 (n + 1) 가 아닌 실제 affected row 수 반환.
                 // 환각 hash (DB 에 없는 ImageHash) 입력 시 silent 0 update — 호출자가 진단할 수 있도록 정확 보고.
-                n <- n + cmd.ExecuteNonQuery()
+                let affected = cmd.ExecuteNonQuery()
+                n <- n + affected
+                // PR-Img-Chunk: ImageCache caption 박제 성공한 경우 (affected > 0) 동 hash 의 모든 ImageReferences
+                // 에 대해 caption-chunk INSERT/UPDATE. cross-doc 같은 image 의 doc 별 caption-chunk 박제 보장.
+                // ChunksFts trigger (AI/AU) 가 자동 sync → BM25 즉시 hit.
+                // affected = 0 (환각 hash) 면 ImageReferences 도 없어 listImageRefsByHash 빈 array — no-op.
+                if affected > 0 then
+                    let refs = SqliteStore.listImageRefsByHash conn hash
+                    for (docId, refLocator, ordinal, _) in refs do
+                        upsertCaptionChunkForRef conn docId hash refLocator ordinal text
             tx.Commit()
             n
 
