@@ -103,20 +103,48 @@ module MxAdapter =
         let mxCfg = { baseCfg with Protocol = protocol }
         log.Info($"MX [{cfg.Name}] transport={mxCfg.Protocol}, frame={mxCfg.FrameType}")
         let connector = new MxConnector(mxCfg)
+        // UDP 는 socket bind 만으로 IsConnected=true 가 될 수 있어 connect-time 에 실제 응답을 봐야 한다.
+        // TCP 도 일부 라이브러리 구현에서 SYN-only 성공만으로 true 가 되는 경우가 있어 동일하게 검증.
+        // PlcConnectionConfig.Tags 의 첫 항목 1개를 probe 로 1회 ReadTag → 실패면 connect 실패로 간주.
+        // 태그가 비어있는 어댑터(write-only / 등록 직후)는 probe 생략하고 IsConnected 만 반환.
+        let probeTag = cfg.Tags |> List.tryHead
+        let probeAlive () : bool =
+            match probeTag with
+            | None -> connector.IsConnected
+            | Some tag ->
+                try
+                    match connector.ReadTag(tag.PlcAddress, tag.DataType) with
+                    | Ok _ -> true
+                    | Error e ->
+                        log.Warn($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} failed: {e}")
+                        false
+                with ex ->
+                    log.Warn($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} threw: {ex.Message}")
+                    false
+        let mutable verified = false
         { new IPlcConnectorAdapter with
             member _.Name = cfg.Name
-            member _.IsConnected = connector.IsConnected
+            // 라이브러리 IsConnected 만 신뢰하지 말고 probe 검증 결과를 함께 본다 — UDP false-up 차단.
+            member _.IsConnected = connector.IsConnected && verified
             member _.ConnectAsync () =
                 task {
                     try
                         connector.Connect()
-                        return connector.IsConnected
+                        if not connector.IsConnected then
+                            verified <- false
+                            return false
+                        else
+                            let alive = probeAlive ()
+                            verified <- alive
+                            return alive
                     with ex ->
                         log.Error($"MX [{cfg.Name}] Connect failed: {ex.Message}")
+                        verified <- false
                         return false
                 }
             member _.DisconnectAsync () =
                 task {
+                    verified <- false
                     try connector.Disconnect()
                     with ex -> log.Warn($"MX [{cfg.Name}] Disconnect: {ex.Message}")
                 }

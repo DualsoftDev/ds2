@@ -37,11 +37,18 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
 
     /// PLC 어댑터 상태 변화를 SignalR fan-out + Agent 로그로 동시 가시화.
     /// fire-and-forget: SignalR send 실패가 scan loop 를 멈추면 안 됨.
+    /// PlcGateway 는 실패가 지속되는 동안 매 재시도마다 status 를 발화 — broadcast 는 계속 보내되
+    /// (DSPilot/Promaker 가 "현재 실패중" 을 인지해야 함) 로그는 FailedAttempts 로 노이즈 컨트롤:
+    /// - 0: 연결 성공 (Info, 전이 시점)
+    /// - 1: 첫 실패 (Warn)
+    /// - 2~: 재시도 지속 (Debug — log4net 설정으로 끌 수 있음)
     let onConnectionStatusChanged (status: PlcConnectionStatus) =
         if status.IsConnected then
             log.Info($"PLC connection up: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port})")
-        else
+        elif status.FailedAttempts <= 1 then
             log.Warn($"PLC connection down: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) — {status.LastError}")
+        else
+            log.Debug($"PLC retry #{status.FailedAttempts}: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) — {status.LastError}")
         try
             broadcaster.BroadcastPlcConnectionStatus(status) |> ignore
         with ex ->
