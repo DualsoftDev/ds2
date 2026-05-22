@@ -25,6 +25,7 @@
     <Compile Include="KeywordExtractorTests.fs" />
     <Compile Include="TextDumperTests.fs" />
     <Compile Include="SummaryBuilderTests.fs" />
+    <Compile Include="SummaryStoreTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

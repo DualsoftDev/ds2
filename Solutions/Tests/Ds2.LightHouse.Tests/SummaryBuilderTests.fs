@@ -111,6 +111,23 @@ let ``MaxSentenceChars truncate — boundary 미발견 시 cut`` () =
 
 
 [<Fact>]
+let ``SummaryText 우선 분기 — DB stored summary 가 firstSentence 보다 우선 (PR-H2)`` () =
+    withTempDir (fun dir ->
+        writeFile dir "spec.txt" "이 문서는 컨베이어 시스템의 사양을 정의합니다. 모터 정격 12A." |> ignore
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        // subagent 가 박제한 summary 시뮬레이션 — SummaryStore.updateSummaryBatch 호출 후 build 검증.
+        let stored = "광명2 전동화공장 제어시스템 (PLC, RAPIENET, HMI 표준 사양)"
+        use conn = SqliteStore.openConnection (SqliteStore.dbPath dir) false
+        let n = SummaryStore.updateSummaryBatch conn [ (1L, stored) ]
+        Assert.Equal(1, n)
+        conn.Dispose()
+        use conn2 = SqliteStore.openConnection (SqliteStore.dbPath dir) true
+        let summaries = SummaryBuilder.build conn2
+        Assert.Single(summaries) |> ignore
+        Assert.Equal(stored, summaries.[0].Summary))
+
+
+[<Fact>]
 let ``write — markdown table escape (pipe + newline)`` () =
     withTempDir (fun dir ->
         // 본문에 `|` 와 newline 포함 — escape 의무.
