@@ -37,12 +37,13 @@ public static class DspilotLauncher
     /// 둘 다 없으면 null.</summary>
     public static string? ResolveUrl()
     {
-        if (IsTcpListening("localhost", DevDspilotPort))
+        if (IsTcpListening(System.Net.IPAddress.Loopback, DevDspilotPort))
         {
             var devUrl = $"https://localhost:{DevDspilotPort}";
             Log.Info($"DSPilot dev 인스턴스 감지 — {devUrl} 사용");
             return devUrl;
         }
+        Log.Debug($"DSPilot dev 포트 {DevDspilotPort} 비활성 — 설치본 lookup");
 
         foreach (var candidate in EnumerateConfigPaths())
         {
@@ -61,14 +62,22 @@ public static class DspilotLauncher
         return null;
     }
 
-    private static bool IsTcpListening(string host, int port)
+    /// <summary>IPv4 loopback 직접 지정 — "localhost" 사용 시 IPv6(::1) 우선 resolve 로 인해
+    /// 0.0.0.0 (IPv4-only) bind 한 Kestrel 을 놓치는 사례 방지.</summary>
+    private static bool IsTcpListening(System.Net.IPAddress address, int port)
     {
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            return client.ConnectAsync(host, port).Wait(150);
+            var ok = client.ConnectAsync(address, port).Wait(500);
+            if (!ok) Log.Debug($"TCP probe {address}:{port} timeout (500ms)");
+            return ok;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            Log.Debug($"TCP probe {address}:{port} 실패: {ex.GetType().Name} {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>DSPilot 이 설치되어 있으면 기본 브라우저로 띄움. 미설치면 안내 다이얼로그 표시 (suppress 시 SimLog 만).</summary>
