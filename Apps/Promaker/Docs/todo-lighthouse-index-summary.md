@@ -11,6 +11,7 @@
 | r0 | 2026-05-21 | 초안 — keyword digest (기존 박제) + text dump (신규) 통합. 7 PR 분할 plan. branch = `light-house-summary` (worktree `F:/Git/ds2/light-house-summary/`) |
 | r1 | 2026-05-21 | **PR-A/B/C/D 진입 완료** (commit 6 누적 / +1072 line / +25 신규 fact). 잔여 = PR-E/F/G (Promaker WPF UI 영역). PR-F/G scope 상세화 박제 (직전 turn 사용자 질문 답변 흡수) |
 | r2 | 2026-05-21 | **PR-F/G+E 진입 완료** (commit 2 추가 — `c93b591` PR-F / `ae58e11` PR-G+E / +798 line / +24 fact). **모든 7 PR 완료**. Promaker.Tests 340 → 364 (+24). 잔여 backlog: ApiChatProvider stale cache (ReloadKbConfig invalidate), KbDigestBuilder service 헤더 (multi-service), CLI provider feedback (§4 #3) |
+| r3 | 2026-05-22 | **본 worktree 재진입** (light-house merge 후 fork). 검수용 진입 1 commit (`682fc812` runIndex 에 dump hook) + CJK 띄어쓰기 fix 1 commit (`f88e60c4` PdfExtractor `ContentOrderTextExtractor`). 신규 **PR-H summary.md** 결정 박제 (§11) — P1→P2 점진, P1 (방법 3 zero-cost) → 검증 후 P2 (방법 5 subagent batch + MCP tool) 자율 진입 |
 
 ---
 
@@ -45,10 +46,21 @@
 5. **PR-G 자가 검열 Minor 3** — Claude/Codex CLI provider 사용 중 KB 토글 변경 시 user 무피드백 (§4 #3 미결정 정합). 별 PR 에서 chip 안내 또는 disable 처리.
 6. **e2e 검증 (사용자 수동)** — §5.2 의 4 항목 — Promaker 시작 → chat panel open → system message 에 `# ─── Active Knowledge Bases ───` 포함 / KbManagerDialog 토글 → debounce 후 다음 turn 갱신 / Anthropic `cache_read_input_tokens` 측정 / LLM 자발적 `attachment_search` 호출 빈도 증가.
 
+### r3 진입 commit (light-house merge 후 본 worktree 재진입)
+
+| commit | scope | 신규 fact |
+|---|---|---|
+| `682fc812` | **runIndex 에 dump hook** — `--skip-upload` 후 `.lighthouse-kb/text/` 박제 (upload 전 검수). `runUpload` 와 동일 패턴, `meta.json` 박제 안 함 (충돌 회피). ingested 분기 없이 항상 호출 (fast-skip 케이스도 dump) | 0 (CLI integration test 부재) |
+| `f88e60c4` | **PdfExtractor CJK 띄어쓰기 fix** — `page.Text` (글자 stream raw concat) → `ContentOrderTextExtractor.GetText page` (PdfPig DocumentLayoutAnalysis). 한글/CJK 어절 단위 word/line 분리 + 공백 자동 박제. per-page try/with 가드 (자가 검열 Major-1 fix — image 추출 패턴 정합) | 0 (기존 fixture 회귀 0, PdfExtractorTests 통과) |
+
+**검증** (`/f/tmp/g/3.광명2_전동화공장_제어시스템(HMI편집됨).pdf`):
+- before: `자동화기술실설비제어기술2팀2022. 12. 15...` (128,960 byte, 모든 글자 붙음)
+- after: 어절/문장 단위 띄어쓰기 + line 분리 (`광명2 전동화공장(SV) 제어시스템`, `○ 의사결정`, 146,822 byte / +12%)
+
 ### 본 worktree merge 권장 next step
 
-- 사용자 결정 (fast-forward vs squash) → `light-house` branch merge
-- `git worktree remove light-house-summary` (cleanup)
+- §11 PR-H 진행 완료 후 `light-house` branch merge (사용자 결정 — fast-forward vs squash)
+- 본 worktree 자체는 r2 merge 후 재활용 — 새 PR-H scope 흡수 중
 
 ---
 
@@ -372,3 +384,128 @@ PR-F / PR-G 진입 후 누적 예상:
 - `done-lighthouse-next-session.md` (parent worktree 의 main backlog — 본 worktree 와 별도 흐름)
 - `done-lighthouse-kb-server.md` (server SSOT — IndexerVersion / config / multi-tenant 박제)
 - `done-lighthouse-kb-index.md` (parent LightHouse lib SSOT — schema §3.12 / RefLocator §3.13)
+
+---
+
+## 11. PR-H — `summary.md` (doc-level summary, r3 결정)
+
+### 11.1 작업 목표
+
+§1 의 3-layer RAG 를 **4-layer** 로 확장 — doc-level "1줄 요약" layer 추가:
+
+| layer | 단위 | 박제 위치 | 호출 시점 | scale |
+|---|---|---|---|---|
+| (A) keyword digest *(r2 완료)* | collection | system prompt inline | 자동 (firstTurn) | ~150 tok × N coll |
+| (B) text dump *(r2 완료)* | doc (full body) | `attachment_fulltext(fileId)` MCP | LLM 능동 호출 | ~수만 tok / doc |
+| (C) chunk excerpt *(parent SSOT)* | chunk | `attachment_search(query)` MCP | LLM 능동 호출 | top-K × ≤4K |
+| **(D) doc summary** *(r3 신규)* | **doc (1줄)** | `.lighthouse-kb/summary.md` + (`attachment_summary` MCP P2) | (γ) hybrid | ~50 tok × M doc / coll |
+
+(A) 와 (D) 의 분담 — (A) = *"어느 collection 이 어느 영역"* (영역 routing), (D) = *"어느 file 에 어느 내용"* (file narrowing). 둘 다 박제 시 LLM reasoning 의 2-step 정밀화 — 영역 → file → search/fulltext.
+
+### 11.2 미결정 표 default (사용자 r3 turn 채택)
+
+| # | 항목 | default |
+|---|---|---|
+| 1 | format | **`summary.md`** (markdown table) 단독. jsonl 은 doc 100+ scale 시 Phase 2 검토 |
+| 2 | scope | **per-collection 1 파일** (`<source>/.lighthouse-kb/summary.md`) |
+| 3 | summary 1줄 생성 | **방법 5 (subagent batch)** + **방법 3 (KeywordExtractor + Title) zero-cost fallback**. P1 = 방법 3 만, P2 = 방법 5 흡수 |
+| 4 | inject path | **(γ) hybrid** — 첫 turn 영역 인지 (A) + on-demand `attachment_summary(collectionId)` MCP (D 상세). P2 진입 시 활성 |
+| 5 | 갱신 trigger | `/indexer` skill 의 **Step 2b "summary-fill"** 추가. caption-fill (Step 2) 와 동형 패턴 |
+| 6 | server upload | zip 에 `summary.md` 포함 + `meta.json` 의 `SummaryFile` field (optional) |
+| 7 | MCP tool 명 | **`attachment_summary(collectionId)`** (P2) |
+| 8 | inline threshold | doc ≤ 5 시 (α) inline 자연 흡수, >5 시 (γ) — 분기점 별 PR 검토 (P2 진입 후 결정) |
+
+### 11.3 PR 분할 (P1 → P2 점진)
+
+#### **PR-H1 (P1) — `summary.md` 박제 only (방법 3 zero-cost)**
+
+| commit | scope |
+|---|---|
+| TBD | **lib `SummaryBuilder.fs`** 신설 + CLI `runIndex` / `runUpload` hook + unit test 신규. format = markdown table, summary 1줄 = (Title 또는 첫 chunk 첫 sentence) + top-5 keyword 결합. 색인 비용 추가 0 |
+| TBD | doc / SKILL.md update (본 §11 박제) |
+
+**산출물**: `<source>/.lighthouse-kb/summary.md`
+**LLM inject**: 0 — Human 검수 + 차후 P2 의 inject path 기반 자료
+**검증**: `/f/tmp/g` 재색인 후 `summary.md` 의 *정보 품질* 확인 — 한 줄로 doc 의 본질이 전달되는지
+
+#### **PR-H2 (P2) — subagent batch (방법 5) + MCP tool + inject (자율 진입)**
+
+PR-H1 e2e 검증 결과가 정보 품질 *system prompt inject 의미 있음* 으로 평가 시에만 자율 진입. 분량 = ~3 commit:
+
+| commit | scope |
+|---|---|
+| TBD | **CLI Step 2b infra** — `list-pending-summaries` + `summary-update` 2 entry 추가 (caption-fill 의 동형 패턴). lib `SummaryStore` (또는 SqliteStore 의 Summary column) 신설 |
+| TBD | **SummaryBuilder 확장** — 방법 5 (subagent batch 결과) 흡수, 방법 3 = 자연 fallback. `/indexer` SKILL.md Step 2b 추가 |
+| TBD | **server `attachment_summary` MCP tool** — PR-D 패턴. server Collections/{guid}/.lighthouse-kb/summary.md stream. 1MB cap, audit log 4분기 |
+
+**P2 자율 진입 결정 기준** (PR-H1 e2e 후):
+- ✅ **진입**: summary 1줄이 doc 의 영역/주제를 *자연어 한 문장* 으로 전달 → LLM file narrowing 의미 있음
+- ❌ **종결**: summary 가 keyword list 의 단순 join 수준 → P1 만으로 종결, P2 의 subagent 비용 정당화 부족
+- 사용자 검수 없이 자율 결정 (r3 turn 명시 박제)
+
+### 11.4 PR-H1 (P1) 상세 design
+
+#### lib `SummaryBuilder.fs` API (잠정)
+
+```fsharp
+[<RequireQualifiedAccess>]
+module SummaryBuilder =
+    type DocSummary = {
+        DocId: int64
+        OriginalPath: string  // 원본 (예: 3.광명2_전동화공장.pdf)
+        TextDumpPath: string  // text/1-...md (TextDumper 산출물 - relative)
+        Summary: string       // 1줄 요약 (방법 3 zero-cost 또는 방법 5 subagent)
+    }
+    val build: SqliteConnection -> string (* collectionRoot *) -> DocSummary array
+    val write: string (* summaryPath *) -> DocSummary array -> unit
+```
+
+#### `summary.md` format (방법 3 zero-cost)
+
+```markdown
+# Collection Summary
+_생성: 2026-05-22 09:10 | docs: 1 | 총 byte: 146,822_
+
+| 원본 | text dump | 요약 |
+|---|---|---|
+| 3.광명2_전동화공장_제어시스템(HMI편집됨).pdf | text/1-3.광명2_전동화공장_제어시스템_HMI편집됨_.md | [PLC, RAPIENET, HMI, 제어반, ...] — 광명2 전동화공장(SV) 제어시스템 설명회 |
+```
+
+방법 3 의 요약 = `[top-5 keywords] — Title (또는 첫 chunk 의 첫 sentence)`. LLM 호출 0.
+
+#### CLI hook 위치
+
+- `runIndex` (Program.fs:~190) — 기존 `TextDumper.dumpAll` 직후 (단일 read-only connection 안)
+- `runUpload` (Program.fs:~280) — 기존 `TextDumper.dumpAll` 직후 + `summary.md` 를 zip 에 포함 (`Packager.createZip` 의 whitelist 갱신)
+- 자가 검열 trigger: ② (신규 module + API 1) + ③ (단일 파일 변경 > 100 line 가능성) → sub-agent 위임 예정
+
+### 11.5 PR-H1 신규 / 수정 파일 (예상)
+
+#### 신규
+- `Solutions/Core/Ds2.LightHouse/SummaryBuilder.fs` (~80 line, 방법 3)
+- `Solutions/Tests/Ds2.LightHouse.Tests/SummaryBuilderTests.fs` (~6 fact)
+
+#### 수정
+- `Solutions/Core/Ds2.LightHouse/Ds2.LightHouse.fsproj` (Compile Include 신규)
+- `Solutions/Tools/Ds2.LightHouse.Cli/Program.fs` (runIndex + runUpload hook)
+- `Solutions/Tools/Ds2.LightHouse.Cli/Packager.fs` (createZip whitelist 에 `summary.md` 추가, P1 에서 결정)
+
+### 11.6 PR-H2 (P2) 예상 추가 (자율 진입 시)
+
+#### 신규
+- `Solutions/Tools/Ds2.LightHouseService/AttachmentTools.fs` 에 `attachment_summary` 추가 (PR-D 패턴 — 1MB cap, 4분기 audit log)
+- `Solutions/Tests/Ds2.LightHouseService.Tests/AttachmentToolsTests.fs` (~5 fact)
+- `Apps/Promaker/Promaker/LlmAgent/SystemPrompt.cs` 의 `KbDigestBuilder` 확장 — `attachment_summary` 호출 안내 1줄 (γ hybrid)
+- (선택) lib `SummaryStore.fs` — SQLite 의 신규 column 또는 별 table (방법 5 subagent 결과 보관)
+
+#### 수정
+- `Solutions/Tools/Ds2.LightHouse.Cli/Program.fs` — `list-pending-summaries` + `summary-update` entry 2개 추가 (caption path 와 동형)
+- `.claude/skills/indexer/SKILL.md` — Step 2b "summary-fill" section 추가 (Step 2 caption-fill 패턴 정합)
+- `Apps/Promaker/Promaker/LlmAgent/Prompts/5.knowledge-base.md` — `attachment_summary` 룰 1줄 추가
+- IndexerVersion `2.2.0` → `2.3.0` minor bump (paired-release ps1 통과 의무, range max 2.99.99 그대로)
+
+### 11.7 자가 검열 + auto commit budget
+
+- 사용자 r3 turn 명시: **auto commit 5회 허용** — PR-H1 (2 commit: lib + doc) + PR-H2 (3 commit: infra + builder + MCP)
+- 자가 검열 trigger ② / ③ / ⑤ 충족 시 sub-agent (general-purpose) 위임 의무
+- 회귀 test 검증 — Ds2.LightHouse.Tests 회귀 0 + 신규 fact +6 (P1) / +5 (P2 server 측)
