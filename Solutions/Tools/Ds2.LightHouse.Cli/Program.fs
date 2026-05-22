@@ -70,6 +70,9 @@ let private usage () =
     eprintfn "  lighthouse-cli list-pending-captions <folder>"
     eprintfn "  lighthouse-cli caption-update <folder> <batch.json>"
     eprintfn "  lighthouse-cli print-caption-prompt"
+    eprintfn "  lighthouse-cli list-pending-summaries <folder>"
+    eprintfn "  lighthouse-cli summary-update <folder> <batch.json>"
+    eprintfn "  lighthouse-cli print-summary-prompt"
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
@@ -415,6 +418,74 @@ let private runPrintCaptionPrompt () : int =
     printfn "%s" (CaptionGenerator.promptText ())
     0
 
+/// `/indexer` skill Step 2b — summary 미박제 doc enumeration (caption path 와 동형).
+/// stdout JSON array (camelCase: `docId`, `originalPath`, `textDumpPath`).
+let private runListPendingSummaries (folder: string) : int =
+    if not (Directory.Exists folder) then
+        eprintfn "오류: 폴더 미존재 — %s" folder
+        11
+    else
+        let dbPath = SqliteStore.dbPath folder
+        if not (File.Exists dbPath) then
+            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
+            eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1 색인을 수행하세요."
+            11
+        else
+            use conn = SqliteStore.openConnection dbPath true
+            let records = SummaryStore.listPendingSummaries conn |> Seq.toArray
+            let opts = System.Text.Json.JsonSerializerOptions(WriteIndented = false)
+            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+            let json = System.Text.Json.JsonSerializer.Serialize(records, opts)
+            printfn "%s" json
+            0
+
+/// `/indexer` skill Step 2b → batch JSON 입력 → Documents.SummaryText UPDATE 단일 transaction.
+/// 빈 batch → exit 0 (no-op). batch row schema = `{"docId":<int>,"summary":"..."}`.
+let private runSummaryUpdate (folder: string) (batchPath: string) : int =
+    if not (Directory.Exists folder) then
+        eprintfn "오류: 폴더 미존재 — %s" folder
+        11
+    elif not (File.Exists batchPath) then
+        eprintfn "오류: batch 파일 미존재 — %s" batchPath
+        11
+    else
+        let dbPath = SqliteStore.dbPath folder
+        if not (File.Exists dbPath) then
+            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
+            11
+        else
+            let json = File.ReadAllText(batchPath, Text.Encoding.UTF8)
+            let opts = System.Text.Json.JsonSerializerOptions()
+            opts.PropertyNameCaseInsensitive <- true
+            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+            use doc = System.Text.Json.JsonDocument.Parse(json)
+            let root = doc.RootElement
+            if root.ValueKind <> System.Text.Json.JsonValueKind.Array then
+                eprintfn "오류: batch JSON root 가 array 아님 — %s" batchPath
+                10
+            elif root.GetArrayLength() = 0 then
+                eprintfn "  batch 빈 array — no-op (idempotent)"
+                0
+            else
+                // transaction lifecycle 은 lib `updateSummaryBatch` 가 흡수 (caption-update 와 동형 — sub-agent M-1 정정 정합).
+                let rows =
+                    root.EnumerateArray()
+                    |> Seq.map (fun el ->
+                        let docId = el.GetProperty("docId").GetInt64()
+                        let summary = el.GetProperty("summary").GetString()
+                        docId, summary)
+                    |> Seq.toArray
+                use conn = SqliteStore.openConnection dbPath false
+                let updated = SummaryStore.updateSummaryBatch conn rows
+                printfn "summary-update 완료 — updated=%d" updated
+                0
+
+/// `/indexer` skill Step 2b — summary-prompt SSOT (lib `SummaryStore.SummaryPrompt`) stdout 노출.
+/// caption-prompt 와 동형 — subagent prompt template literal 사본 박제 차단.
+let private runPrintSummaryPrompt () : int =
+    printfn "%s" SummaryStore.SummaryPrompt
+    0
+
 [<EntryPoint>]
 let main args =
     // CP949 등 legacy code page 활성화 — TextEncoding 의 fallback (LightHouseService Program.fs 와 동일 패턴).
@@ -467,6 +538,12 @@ let main args =
             runCaptionUpdate folder batchPath
         | [ "print-caption-prompt" ] ->
             runPrintCaptionPrompt ()
+        | "list-pending-summaries" :: folder :: _ ->
+            runListPendingSummaries folder
+        | "summary-update" :: folder :: batchPath :: _ ->
+            runSummaryUpdate folder batchPath
+        | [ "print-summary-prompt" ] ->
+            runPrintSummaryPrompt ()
         | _ ->
             usage ()
             10
