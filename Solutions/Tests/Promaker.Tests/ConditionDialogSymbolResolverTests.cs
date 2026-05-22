@@ -10,31 +10,11 @@ namespace Promaker.Tests;
 
 public sealed class ConditionDialogSymbolResolverTests
 {
-    [Fact]
-    public void BuildDisplayNameToApiCallId_prefers_owner_condition_before_global_duplicate()
-    {
-        var store = CreateBaseStore(out var activeWorkId, out var deviceSystemId);
-        var firstApiDefId = store.AddApiDefWithProperties("ADV", deviceSystemId);
-        var secondApiDefId = store.AddApiDefWithProperties("ADV", deviceSystemId);
-        var targetApiDefId = store.AddApiDefWithProperties("TARGET", deviceSystemId);
+    // 이전 테스트 `BuildDisplayNameToApiCallId_prefers_owner_condition_before_global_duplicate` 삭제:
+    // 시나리오 (같은 Work 안 두 원본 Call 이 동일 표시명) 자체가 새 정책에서 *Core 가드로 차단*.
+    // resolver 의 owner condition 우선 동작은 *깨진 store* 가정에서만 의미가 있었는데, 그 깨진 상태가
+    // 이제 store 에 진입 불가 — 테스트가 정책 우회 fixture 를 강제했었다.
 
-        var firstCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "DeviceA", "ADV", [firstApiDefId]);
-        var firstApiCallId = store.Calls[firstCallId].ApiCalls.Single().Id;
-        var secondCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "DeviceB", "ADV", [secondApiDefId]);
-        var secondApiCallId = store.Calls[secondCallId].ApiCalls.Single().Id;
-        var targetCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "Device", "TARGET", [targetApiDefId]);
-
-        store.AddConditionWithApiCalls(targetCallId, ConditionType.ComAux, [secondApiCallId]);
-
-        var map = ConditionDialogSymbolResolver.BuildDisplayNameToApiCallId(
-            store,
-            targetCallId,
-            EntityKind.Call,
-            ConditionType.ComAux);
-
-        Assert.Equal(secondApiCallId, map["Device.ADV"]);
-        Assert.NotEqual(firstApiCallId, map["Device.ADV"]);
-    }
 
     [Fact]
     public void BuildRegisteredDisplayNames_for_work_returns_owner_condition_symbols_only()
