@@ -179,6 +179,22 @@ let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
         eprintfn "  embedding backend = Ollama (%s, model=%s, dim=%d)" baseUrl model dim
         Some embedder
 
+/// **review A fix (r4)** — runIndex / runUpload 의 keyword + dump + summary 7줄 hook 중복 추출.
+/// 색인 완료 직후 단일 read-only connection 안에서 세 lib hook 모두 수행 → SQLite open cost 1회 통합.
+/// `meta.json` 박제는 caller 측 (runUpload 만 후속 단계에서 writeMeta 호출).
+/// 반환 = KeywordExtractor 결과 (runUpload 가 writeMeta 의 description / keywords 박제용으로 재활용).
+let private runPostIngestHooks (folder: string) : KeywordExtractionResult =
+    let dbPath = SqliteStore.dbPath folder
+    use conn = SqliteStore.openConnection dbPath true
+    let kwResult = KeywordExtractor.extract conn
+    let dumpFiles = TextDumper.dumpAll conn folder
+    let summaries = SummaryBuilder.build conn
+    eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
+    eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
+    let _ = SummaryBuilder.write folder summaries
+    eprintfn "  summary 박제 — %d doc (.lighthouse-kb/%s)" summaries.Length SummaryBuilder.SummaryFileName
+    kwResult
+
 let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: bool) : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
@@ -222,21 +238,10 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
                 let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
                 printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
-                // upload 전 검수용 — KeywordExtractor + TextDumper + SummaryBuilder hook (runUpload 와 동일 패턴, meta.json 박제는 안 함).
-                // ingested 만으로 분기하면 fast-skip (mtime/size match) 케이스에서 DB row 있어도 dump skip 되는 결함.
-                // → 항상 호출. DB row 0 이면 dump 0 파일로 자연 종결.
-                // 단일 read-only connection 으로 SQLite open cost 1회 통합.
-                let kwResult, dumpFiles, summaries =
-                    let dbPath = SqliteStore.dbPath folder
-                    use conn = SqliteStore.openConnection dbPath true
-                    let kw = KeywordExtractor.extract conn
-                    let dumps = TextDumper.dumpAll conn folder
-                    let summ = SummaryBuilder.build conn
-                    kw, dumps, summ
-                eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
-                eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
-                let _ = SummaryBuilder.write folder summaries
-                eprintfn "  summary 박제 — %d doc (.lighthouse-kb/%s)" summaries.Length SummaryBuilder.SummaryFileName
+                // upload 전 검수용 — keyword + text dump + summary hook (runUpload 와 동일 패턴).
+                // ingested 만으로 분기하면 fast-skip 케이스에서 DB row 있어도 dump skip 되는 결함 → 항상 호출.
+                // **review A fix (r4)**: 7줄 hook 중복 제거 — runPostIngestHooks helper 호출. runIndex 는 반환 무관.
+                let _ = runPostIngestHooks folder
                 0
             finally
                 embedder |> Option.iter (fun e -> e.Dispose())
@@ -290,19 +295,9 @@ let private runUpload
                     else
                         eprintfn "  색인 완료 — ingested=%d, 파일=%d, %d bytes"
                             summary.IngestedCount summary.FileCount summary.TotalBytes
-                        // **PR-B + PR-C + PR-H1 (todo-lighthouse-index-summary.md §3.1 + §3.2 + §11)** — keyword + text dump + doc summary.
-                        // 같은 read-only connection 안에서 세 hook 모두 수행 → SQLite open cost 1회로 통합.
-                        let kwResult, dumpFiles, summaries =
-                            let dbPath = SqliteStore.dbPath folder
-                            use conn = SqliteStore.openConnection dbPath true
-                            let kw = KeywordExtractor.extract conn
-                            let dumps = TextDumper.dumpAll conn folder
-                            let summ = SummaryBuilder.build conn
-                            kw, dumps, summ
-                        eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
-                        eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
-                        let _ = SummaryBuilder.write folder summaries
-                        eprintfn "  summary 박제 — %d doc (.lighthouse-kb/%s)" summaries.Length SummaryBuilder.SummaryFileName
+                        // **PR-B + PR-C + PR-H1 (todo §3.1 + §3.2 + §11)** — keyword + text dump + doc summary.
+                        // **review A fix (r4)**: runPostIngestHooks helper — runIndex 와 동일 path 통합 + kwResult 재활용.
+                        let kwResult = runPostIngestHooks folder
                         let description = kwResult.Topic |> Option.defaultValue ""
                         Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
                             description kwResult.Keywords
@@ -342,52 +337,53 @@ let private runUpload
             // zip 만 정리. `<folder>/.lighthouse-kb/` 는 보관 정책에 따라 유지.
             Packager.safeDelete zipPath
 
-/// `/indexer` skill Step 2 — caption-pending row JSON stdout stream.
-/// `todo-lighthouse-indexer-claude-caption.md` §3 manifest fenced block 의 wire 정합.
-/// 본 entry 는 read-only — `SqliteStore.openConnection ... true` 진입 (PRAGMA WAL/synchronous/busy_timeout 자동 박제).
-let private runListPendingCaptions (folder: string) : int =
+/// **review E fix (r4)** — list-pending-* / *-update / index 의 folder + db 존재 가드 보일러플레이트 통합.
+/// caption-* + summary-* 6 entry 의 동형 5~7줄 박제 → 단일 helper.
+/// 반환 = Ok dbPath | Error exitCode (11 = folder/DB 미존재). caller 는 `match ... with | Ok ... | Error c -> c` 패턴.
+let private requireIndexedFolder (folder: string) : Result<string, int> =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
-        11
+        Error 11
     else
         let dbPath = SqliteStore.dbPath folder
         if not (File.Exists dbPath) then
             eprintfn "오류: 색인 DB 미존재 — %s" dbPath
             eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1 색인을 수행하세요."
-            11
-        else
-            use conn = SqliteStore.openConnection dbPath true
-            let records = ImageStore.listPendingCaptions conn |> Seq.toArray
-            // camelCase JSON contract — manifest fenced block (`hash`, `ext`, `refLocator`, `docPath`).
-            let opts = System.Text.Json.JsonSerializerOptions(WriteIndented = false)
-            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
-            // F# record 직렬화 시 default 가 PascalCase 필드명 그대로 — naming policy 강제 의무.
-            let json = System.Text.Json.JsonSerializer.Serialize(records, opts)
-            printfn "%s" json
-            0
+            Error 11
+        else Ok dbPath
+
+/// camelCase JSON serializer opts — caption-* + summary-* wire contract (manifest fenced block).
+/// F# record 직렬화 시 default 가 PascalCase 필드명 그대로 — naming policy 강제 의무.
+let private camelJsonOpts () : System.Text.Json.JsonSerializerOptions =
+    let opts = System.Text.Json.JsonSerializerOptions(WriteIndented = false)
+    opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
+    opts
+
+/// `/indexer` skill Step 2 — caption-pending row JSON stdout stream.
+/// `todo-lighthouse-indexer-claude-caption.md` §3 manifest fenced block 의 wire 정합.
+/// 본 entry 는 read-only — `SqliteStore.openConnection ... true` 진입 (PRAGMA WAL/synchronous/busy_timeout 자동 박제).
+let private runListPendingCaptions (folder: string) : int =
+    match requireIndexedFolder folder with
+    | Error code -> code
+    | Ok dbPath ->
+        use conn = SqliteStore.openConnection dbPath true
+        let records = ImageStore.listPendingCaptions conn |> Seq.toArray
+        let json = System.Text.Json.JsonSerializer.Serialize(records, camelJsonOpts())
+        printfn "%s" json
+        0
 
 /// `/indexer` skill Step 2 → Step 3 사이 — subagent caption 결과 batch JSON 입력 → SQLite UPDATE.
 /// 단일 transaction 안 N 회 `ImageStore.updateCaption` 호출 → atomic commit.
 /// 빈 batch (§2 #16) → exit 0 (no-op).
 let private runCaptionUpdate (folder: string) (batchPath: string) : int =
-    if not (Directory.Exists folder) then
-        eprintfn "오류: 폴더 미존재 — %s" folder
-        11
-    elif not (File.Exists batchPath) then
+    if not (File.Exists batchPath) then
         eprintfn "오류: batch 파일 미존재 — %s" batchPath
         11
     else
-        let dbPath = SqliteStore.dbPath folder
-        if not (File.Exists dbPath) then
-            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
-            11
-        else
+        match requireIndexedFolder folder with
+        | Error code -> code
+        | Ok dbPath ->
             let json = File.ReadAllText(batchPath, Text.Encoding.UTF8)
-            let opts = System.Text.Json.JsonSerializerOptions()
-            opts.PropertyNameCaseInsensitive <- true
-            // 직렬화 시 PropertyNamingPolicy = camelCase 였으므로, deserialization 도 camelCase 매핑 자동 동작.
-            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
-            // batch row schema — anonymous record 대신 JsonDocument 로 manual parse (record DU 추가 회피, 의존 minimal).
             use doc = System.Text.Json.JsonDocument.Parse(json)
             let root = doc.RootElement
             if root.ValueKind <> System.Text.Json.JsonValueKind.Array then
@@ -397,20 +393,30 @@ let private runCaptionUpdate (folder: string) (batchPath: string) : int =
                 eprintfn "  batch 빈 array — no-op (idempotent)"
                 0
             else
-                // 자가 검열 M-1 정정 — transaction lifecycle 은 lib `updateCaptionBatch` 가 흡수 (cmd.Transaction
-                // 명시 박제 의무 회피). 본 entry 는 JSON parse + tuple 변환만 책임.
-                let rows =
-                    root.EnumerateArray()
-                    |> Seq.map (fun el ->
-                        let hash = el.GetProperty("hash").GetString()
-                        let text = el.GetProperty("captionText").GetString()
-                        let model = el.GetProperty("captionModel").GetString()
-                        hash, text, model)
-                    |> Seq.toArray
-                use conn = SqliteStore.openConnection dbPath false
-                let updated = ImageStore.updateCaptionBatch conn rows
-                printfn "caption-update 완료 — updated=%d" updated
-                0
+                // **review D fix** (r4): JSON null / whitespace captionText/captionModel 도 fail-fast — silent NULL UPDATE 차단.
+                try
+                    let rows =
+                        root.EnumerateArray()
+                        |> Seq.map (fun el ->
+                            let hash = el.GetProperty("hash").GetString()
+                            let text = el.GetProperty("captionText").GetString()
+                            let model = el.GetProperty("captionModel").GetString()
+                            if isNull text || System.String.IsNullOrWhiteSpace text then
+                                raise (System.IO.InvalidDataException(
+                                    sprintf "caption-update batch row 의 captionText 가 null/whitespace — hash=%s" hash))
+                            if isNull model || System.String.IsNullOrWhiteSpace model then
+                                raise (System.IO.InvalidDataException(
+                                    sprintf "caption-update batch row 의 captionModel 가 null/whitespace — hash=%s" hash))
+                            hash, text, model)
+                        |> Seq.toArray
+                    use conn = SqliteStore.openConnection dbPath false
+                    let updated = ImageStore.updateCaptionBatch conn rows
+                    printfn "caption-update 완료 — updated=%d (rows=%d)" updated rows.Length
+                    0
+                with
+                | :? System.IO.InvalidDataException as ex ->
+                    eprintfn "오류: %s" ex.Message
+                    10
 
 /// `/indexer` skill — caption-prompt SSOT (lib `CaptionGenerator.promptText`) stdout 노출.
 /// skill 진입 시 1회 호출 → subagent prompt template 박제. literal 사본 박제 차단 (drift 원천 차단).
@@ -421,43 +427,26 @@ let private runPrintCaptionPrompt () : int =
 /// `/indexer` skill Step 2b — summary 미박제 doc enumeration (caption path 와 동형).
 /// stdout JSON array (camelCase: `docId`, `originalPath`, `textDumpPath`).
 let private runListPendingSummaries (folder: string) : int =
-    if not (Directory.Exists folder) then
-        eprintfn "오류: 폴더 미존재 — %s" folder
-        11
-    else
-        let dbPath = SqliteStore.dbPath folder
-        if not (File.Exists dbPath) then
-            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
-            eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1 색인을 수행하세요."
-            11
-        else
-            use conn = SqliteStore.openConnection dbPath true
-            let records = SummaryStore.listPendingSummaries conn |> Seq.toArray
-            let opts = System.Text.Json.JsonSerializerOptions(WriteIndented = false)
-            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
-            let json = System.Text.Json.JsonSerializer.Serialize(records, opts)
-            printfn "%s" json
-            0
+    match requireIndexedFolder folder with
+    | Error code -> code
+    | Ok dbPath ->
+        use conn = SqliteStore.openConnection dbPath true
+        let records = SummaryStore.listPendingSummaries conn |> Seq.toArray
+        let json = System.Text.Json.JsonSerializer.Serialize(records, camelJsonOpts())
+        printfn "%s" json
+        0
 
 /// `/indexer` skill Step 2b → batch JSON 입력 → Documents.SummaryText UPDATE 단일 transaction.
 /// 빈 batch → exit 0 (no-op). batch row schema = `{"docId":<int>,"summary":"..."}`.
 let private runSummaryUpdate (folder: string) (batchPath: string) : int =
-    if not (Directory.Exists folder) then
-        eprintfn "오류: 폴더 미존재 — %s" folder
-        11
-    elif not (File.Exists batchPath) then
+    if not (File.Exists batchPath) then
         eprintfn "오류: batch 파일 미존재 — %s" batchPath
         11
     else
-        let dbPath = SqliteStore.dbPath folder
-        if not (File.Exists dbPath) then
-            eprintfn "오류: 색인 DB 미존재 — %s" dbPath
-            11
-        else
+        match requireIndexedFolder folder with
+        | Error code -> code
+        | Ok dbPath ->
             let json = File.ReadAllText(batchPath, Text.Encoding.UTF8)
-            let opts = System.Text.Json.JsonSerializerOptions()
-            opts.PropertyNameCaseInsensitive <- true
-            opts.PropertyNamingPolicy <- System.Text.Json.JsonNamingPolicy.CamelCase
             use doc = System.Text.Json.JsonDocument.Parse(json)
             let root = doc.RootElement
             if root.ValueKind <> System.Text.Json.JsonValueKind.Array then
@@ -468,17 +457,27 @@ let private runSummaryUpdate (folder: string) (batchPath: string) : int =
                 0
             else
                 // transaction lifecycle 은 lib `updateSummaryBatch` 가 흡수 (caption-update 와 동형 — sub-agent M-1 정정 정합).
-                let rows =
-                    root.EnumerateArray()
-                    |> Seq.map (fun el ->
-                        let docId = el.GetProperty("docId").GetInt64()
-                        let summary = el.GetProperty("summary").GetString()
-                        docId, summary)
-                    |> Seq.toArray
-                use conn = SqliteStore.openConnection dbPath false
-                let updated = SummaryStore.updateSummaryBatch conn rows
-                printfn "summary-update 완료 — updated=%d" updated
-                0
+                // **review D fix**: JSON null / whitespace summary 는 fail-fast (silent NULL UPDATE 차단 — listPending
+                // 재진입 무한 retry / 진단 표면 손실 회피). CLAUDE.md "간단 exception 우선" 정합.
+                try
+                    let rows =
+                        root.EnumerateArray()
+                        |> Seq.map (fun el ->
+                            let docId = el.GetProperty("docId").GetInt64()
+                            let summary = el.GetProperty("summary").GetString()
+                            if isNull summary || System.String.IsNullOrWhiteSpace summary then
+                                raise (System.IO.InvalidDataException(
+                                    sprintf "summary-update batch row 의 summary 가 null/whitespace — docId=%d" docId))
+                            docId, summary)
+                        |> Seq.toArray
+                    use conn = SqliteStore.openConnection dbPath false
+                    let updated = SummaryStore.updateSummaryBatch conn rows
+                    printfn "summary-update 완료 — updated=%d (rows=%d)" updated rows.Length
+                    0
+                with
+                | :? System.IO.InvalidDataException as ex ->
+                    eprintfn "오류: %s" ex.Message
+                    10
 
 /// `/indexer` skill Step 2b — summary-prompt SSOT (lib `SummaryStore.SummaryPrompt`) stdout 노출.
 /// caption-prompt 와 동형 — subagent prompt template literal 사본 박제 차단.

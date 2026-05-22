@@ -552,7 +552,10 @@ type AttachmentTools() =
                 ""
             | Some entry ->
                 let collRoot = AttachmentResolver.collectionPath storageRoot entry.Id entry.DisplayName
-                let summaryPath = Path.Combine(collRoot, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName, "summary.md")
+                // **review m-6 fix (r4)**: SummaryBuilder.SummaryFileName SSOT 참조 (literal 사본 제거).
+                let summaryPath =
+                    Path.Combine(collRoot, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName,
+                                 Ds2.LightHouse.SummaryBuilder.SummaryFileName)
                 if not (File.Exists summaryPath) then
                     Log.audit.Info(sprintf "PR-H2: attachment_summary legacy collection (summary.md 부재) — coll=%s" collectionId)
                     ""
