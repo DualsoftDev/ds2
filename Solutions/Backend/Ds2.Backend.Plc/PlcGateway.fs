@@ -41,6 +41,19 @@ type PlcGateway(config: PlcGatewayConfig) =
     /// 변화분 감지용 last-value 캐시.
     let lastValues = ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
+    /// adapter 별 "PLC 에 존재하지 않는 주소" skip-list.
+    /// 운영 PLC 와 테스트 PLC 의 디바이스 영역 크기가 달라 일부 user tag 주소가 테스트 PLC 에는
+    /// 존재 안 하는 경우, MELSEC 은 0xC056 같은 protocol error 로 응답한다. 같은 주소를 매 scan 마다
+    /// 다시 시도하면 PLC 부하 + 로그 노이즈가 되므로, 연속 N회 protocol error 받으면 영구 skip.
+    /// down→up 재연결 전이 시점에 reset — PLC parameter 가 바뀌어 영역이 확장됐을 수 있어 재검증.
+    let unreachableAddresses =
+        ConcurrentDictionary<string, ConcurrentDictionary<string, int>>(StringComparer.OrdinalIgnoreCase)
+    let protocolErrorThreshold = 3
+    let getUnreachable (adapterName: string) =
+        unreachableAddresses.GetOrAdd(
+            adapterName,
+            fun _ -> ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+
     /// adapter 별 재연결 백오프 상태 — 잘못된 PLC 설정일 때 ConnectAsync 가 매 sweep timeout 만큼 blocking
     /// 하는 걸 막기 위해 연속 실패 횟수에 따라 다음 시도까지 대기 시간을 키운다.
     let reconnectState =
@@ -93,6 +106,14 @@ type PlcGateway(config: PlcGatewayConfig) =
         match statuses.TryGetValue name with
         | false, _ -> ()
         | true, prev ->
+            // down → up 재연결 전이 시점에 unreachable skip-list reset.
+            // PLC parameter 가 바뀌어 디바이스 영역이 확장된 경우 자동 재검증되도록.
+            if success && not prev.IsConnected then
+                match unreachableAddresses.TryGetValue name with
+                | true, m when not m.IsEmpty ->
+                    log.Info($"PLC [{name}] reconnected — clearing {m.Count} address(es) from unreachable skip-list for revalidation")
+                    m.Clear()
+                | _ -> ()
             let next = {
                 prev with
                     IsConnected    = success
@@ -186,17 +207,35 @@ type PlcGateway(config: PlcGatewayConfig) =
                     // 다음 sweep 에서 backoff 후 재연결 흐름으로 진입. connect-time 에 잡지 못한
                     // 통신 단절(케이블 분리, PLC 전원 OFF 등) 도 이 경로로 가시화된다.
                     if adapter.IsConnected then
+                        let skipSet = getUnreachable cfg.Name
                         let mutable attempted = 0
                         let mutable failed = 0
                         let mutable lastReadError = ""
                         for tag in cfg.Tags do
                             if ct.IsCancellationRequested then () else
+                            // 이전에 PLC 가 "그 주소 없음" 으로 응답한 태그는 read 시도 자체를 생략.
+                            // attempted 에도 안 들어가서 all-fail 판정에서 빠진다(통신은 정상이므로).
+                            if skipSet.ContainsKey tag.HubAddress then () else
                             attempted <- attempted + 1
                             match adapter.ReadTag tag with
                             | Error msg ->
-                                failed <- failed + 1
-                                lastReadError <- msg
-                                log.Debug($"ReadTag {tag.HubAddress}: {msg}")
+                                // protocol error (0xC0xx 등) = PLC 가 응답한 신호. 통신은 정상이고
+                                // 요청 자체가 부적합. 누적해 임계치 넘으면 skip-list 영구 등록.
+                                // non-protocol error = 진짜 통신 실패. all-fail 판정에 카운트.
+                                if PlcErrorClassifier.isProtocolError msg then
+                                    let cur =
+                                        skipSet.AddOrUpdate(
+                                            tag.HubAddress,
+                                            1,
+                                            fun _ old -> old + 1)
+                                    if cur = protocolErrorThreshold then
+                                        log.Warn($"PLC [{cfg.Name}] address {tag.HubAddress} ({tag.PlcAddress}) repeatedly returned protocol error '{msg}' — skipping until reconnect (likely missing in PLC device range)")
+                                    else
+                                        log.Debug($"ReadTag {tag.HubAddress} protocol error #{cur}: {msg}")
+                                else
+                                    failed <- failed + 1
+                                    lastReadError <- msg
+                                    log.Debug($"ReadTag {tag.HubAddress}: {msg}")
                             | Ok value ->
                                 let s = PlcValueIo.toHubString value
                                 let changed =
