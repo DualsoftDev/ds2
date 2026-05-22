@@ -140,6 +140,11 @@ public sealed class AasxFileWatcherService : BackgroundService
                 }
                 var result = await lifecycle.RebuildDatabaseAsync();
                 _logger.LogInformation("[AasxWatcher] 자동 재구축 결과: {Success} / {Message}", result.Success, result.Message);
+
+                if (result.Success)
+                {
+                    TryAutoFillBlueprint();
+                }
             }
             catch (Exception ex)
             {
@@ -181,6 +186,45 @@ public sealed class AasxFileWatcherService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[AasxWatcher] SignalR 브로드캐스트 실패 (비중요)");
+        }
+    }
+
+    /// <summary>
+    /// 초기 설치 후 처음 AASX 가 로드된 직후, Blueprint 에 아직 배치가 없으면
+    /// Flow 들을 격자에 자동으로 채워 대시보드 첫 화면을 비어 있지 않게 만든다.
+    /// 이미 사용자가 배치를 가지고 있다면(레이아웃 JSON 보존) 손대지 않는다.
+    /// </summary>
+    private void TryAutoFillBlueprint()
+    {
+        try
+        {
+            var blueprint = _services.GetRequiredService<BlueprintService>();
+            if (blueprint.Layout.FlowPlacements.Count > 0)
+            {
+                _logger.LogDebug("[AasxWatcher] Blueprint 자동 채움 skip — 이미 배치 {N}개 존재", blueprint.Layout.FlowPlacements.Count);
+                return;
+            }
+
+            var systems = _projectService.GetActiveSystems();
+            var flows = systems.SelectMany(sys =>
+                _projectService.GetFlows(sys.Id)
+                    .Select(f => (FlowId: f.Id, FlowName: f.Name, SystemName: sys.Name, SystemId: sys.Id)))
+                .ToList();
+
+            if (flows.Count == 0)
+            {
+                _logger.LogDebug("[AasxWatcher] Blueprint 자동 채움 skip — Flow 없음");
+                return;
+            }
+
+            blueprint.AutoFillPlacements(flows);
+            blueprint.SaveLayout();
+            _logger.LogInformation("[AasxWatcher] Blueprint 자동 채움 완료 — Flow {N}개 → {C}×{R} 격자",
+                flows.Count, blueprint.Layout.GridColumns, blueprint.Layout.GridRows);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AasxWatcher] Blueprint 자동 채움 실패 (비중요)");
         }
     }
 

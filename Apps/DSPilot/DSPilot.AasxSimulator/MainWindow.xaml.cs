@@ -211,6 +211,7 @@ public partial class MainWindow : Window
         {
             Log = AppendLog,
             CycleChanged = c => Dispatcher.BeginInvoke(() => LblCycle.Text = $"Cycle: {c}"),
+            SpeedMultiplier = GetSelectedSpeedMultiplier(),
         };
 
         if (_loadedStore is null || !string.Equals(_loadedAasxPath, TxtAasxPath.Text, StringComparison.OrdinalIgnoreCase))
@@ -265,6 +266,18 @@ public partial class MainWindow : Window
     private void OnStop(object sender, RoutedEventArgs e)
     {
         _cts?.Cancel();
+    }
+
+    private double GetSelectedSpeedMultiplier()
+    {
+        if (CmbSpeed.SelectedItem is ComboBoxItem item
+            && item.Tag is string tag
+            && double.TryParse(tag, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)
+            && value > 0)
+        {
+            return value;
+        }
+        return 1.0;
     }
 
     private bool TryCommitPlcInputs(out string error)

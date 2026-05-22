@@ -30,6 +30,14 @@
         <StackPanel Grid.Column="0" Grid.Row="0" Orientation="Horizontal">
             <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal">
+                    <!--
+                        Monitoring + 실 PLC 모드(IsAgentDelegationMode) 에서는:
+                          - 항상 Play 아이콘 + "Agent 전송" 라벨 (Stop 토글 없음 — Stop 눌러도 Agent 정지 안 함)
+                          - Command 는 항상 StartSimulationCommand. 이미 모니터링 중에 다시 누르면 active.flag/session.json
+                            을 재기록 → Agent FileSystemWatcher 가 debounce 후 BackendHost 재시작(=갱신).
+                          - Tooltip 으로 "Agent 로 모니터링 명령 전송 / 이미 모니터링 중이면 설정 갱신" 안내.
+                        그 외 모드(Simulation / Control 등) 는 기존 Play↔Stop 토글 유지.
+                    -->
                     <Button x:Name="SimulationStartStopButton"
                             IsEnabled="{Binding HasProject}">
                         <Button.Style>
@@ -42,11 +50,17 @@
                                         <MultiDataTrigger.Conditions>
                                             <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                             <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
+                                            <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
                                         </MultiDataTrigger.Conditions>
                                         <Setter Property="Command" Value="{Binding Simulation.StopSimulationCommand}"/>
                                         <Setter Property="ToolTip" Value="{x:Static res:Strings.StopSimulationTooltip}"/>
                                         <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
                                     </MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
+                                        <Setter Property="Command" Value="{Binding Simulation.StartSimulationCommand}"/>
+                                        <Setter Property="ToolTip" Value="모니터링 명령을 Promaker.Agent 로 전송합니다. 이미 모니터링 중이면 현재 PLC/AASX 설정으로 갱신(재시작)합니다."/>
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
@@ -65,6 +79,7 @@
                                                     <MultiDataTrigger.Conditions>
                                                         <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                         <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
+                                                        <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </MultiDataTrigger>
@@ -85,6 +100,7 @@
                                                     <MultiDataTrigger.Conditions>
                                                         <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                         <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
+                                                        <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </MultiDataTrigger>
@@ -102,9 +118,13 @@
                                                 <MultiDataTrigger.Conditions>
                                                     <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                     <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
+                                                    <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
                                                 </MultiDataTrigger.Conditions>
                                                 <Setter Property="Text" Value="STOP"/>
                                             </MultiDataTrigger>
+                                            <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
+                                                <Setter Property="Text" Value="Agent 전송"/>
+                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </TextBlock.Style>
