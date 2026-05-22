@@ -78,9 +78,19 @@ module TextDumper =
         sb.AppendLine(sprintf "_DocType: %s | DocId: %d_" docType docId) |> ignore
         sb.AppendLine() |> ignore
 
-        // chunks streaming — RefLocator 변화 detection 으로 heading 박제
+        // chunks streaming — RefLocator 변화 detection 으로 heading 박제.
+        // **PR-Img-Chunk**: ORDER BY 를 (RefLocator 첫 등장 Id, Ordinal, Id) 로 변경 — page 자연 정렬 보장.
+        // 종전 `ORDER BY Ordinal, Id` 결함: 페이지당 본문 chunk 가 2개 이상이면 ord 0 (전 페이지) → ord 1 (전 페이지)
+        // 순서로 출력되어 페이지 grouping 깨짐 (실측은 페이지당 1 chunk 가 dominant 라 보이지 않았음). caption-chunk
+        // 박제로 본문 chunk 와 같은 RefLocator 안 ordinal >= 1 row 등장 빈도 증가 → 결함 노출.
+        // window function `MIN(Id) OVER (PARTITION BY RefLocator)` 가 RefLocator 의 첫 INSERT 순서 (=
+        // 본문 chunks INSERT 순서 = page 자연 순서) 를 sort key 로 사용 → page grouping 정합.
         use cmd = conn.CreateCommand()
-        cmd.CommandText <- "SELECT RefLocator, Text FROM Chunks WHERE DocumentId = $doc ORDER BY Ordinal, Id"
+        cmd.CommandText <- """
+            SELECT RefLocator, Text FROM Chunks
+            WHERE DocumentId = $doc
+            ORDER BY MIN(Id) OVER (PARTITION BY RefLocator), Ordinal, Id
+        """
         cmd.Parameters.AddWithValue("$doc", docId) |> ignore
         use reader = cmd.ExecuteReader()
         let mutable lastRef = ""
@@ -106,7 +116,7 @@ module TextDumper =
                 let caption =
                     match ImageStore.getCaption conn hash with
                     | Some (text, _model) -> text
-                    | None -> "(caption 미생성)"
+                    | None -> ImageStore.CaptionPlaceholderText
                 sb.AppendLine(sprintf "### %s #img=%d" refLoc ord) |> ignore
                 sb.AppendLine(sprintf "_hash=%s_" (hash.Substring(0, min 12 hash.Length))) |> ignore
                 sb.AppendLine() |> ignore

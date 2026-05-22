@@ -411,7 +411,13 @@ let private runCaptionUpdate (folder: string) (batchPath: string) : int =
                         |> Seq.toArray
                     use conn = SqliteStore.openConnection dbPath false
                     let updated = ImageStore.updateCaptionBatch conn rows
-                    printfn "caption-update 완료 — updated=%d (rows=%d)" updated rows.Length
+                    // **PR-Img-Chunk**: caption back-fill 후 text dump 재생성 — gallery `(caption 미생성)` → 실제
+                    // caption text 갱신 + 본문 caption-chunk (updateCaptionBatch 가 박제) 가 페이지 inline 으로 surface.
+                    // summary.md 는 caption 무관 (A 안) 이라 SummaryBuilder 재호출 없음. dumpAll idempotent — 1회차
+                    // 산출물 wipe + 재생성 (TextDumper.dumpAll 의 File.WriteAllText overwrite 정합).
+                    let dumpFiles = TextDumper.dumpAll conn folder
+                    printfn "caption-update 완료 — updated=%d (rows=%d, text-dump 재생성=%d 파일)"
+                        updated rows.Length dumpFiles.Length
                     0
                 with
                 | :? System.IO.InvalidDataException as ex ->

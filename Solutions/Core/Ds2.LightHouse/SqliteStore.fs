@@ -27,6 +27,11 @@ module IndexerVersion =
     //   (c) bump 비용 회피 — minor bump 시 모든 기존 collection 강제 재색인 trigger (SchemaVersion drift 가 아니라
     //       indexer_version drift 자체로 rebuild 되지 않으나, 사용자의 KB UI 표시상 "재색인 필요" noise 발생 가능).
     //   결과 — Current 유지 (`2.1.0`). 사용자가 명시 `Index Now` 시점에 .pptx/.xlsx 자동 흡수.
+    // **PR-Img-Chunk (caption-as-chunk r0)**: 2.2.0 → 2.3.0 — **minor bump** (forward-compat IndexerVersion / 비호환
+    //   SchemaVersion 동반). image caption 을 별 Chunks row 로 박제 → ChunksFts 자동 sync 로 BM25 retrieval 대상화.
+    //   ImageReferences.CaptionChunkId 컬럼 신설 → SchemaVersion 5→6 동반 bump → needsRebuild trigger.
+    //   기존 .lighthouse-kb 가 신 lib 로 열릴 때 shadow rebuild 강제 (caption-chunk 박제 위해 의도된 마이그레이션).
+    //   server `config.json.template` 의 indexerVersionRange.max="2.99.99" 그대로 — paired-release ps1 통과.
     // **PR-C (todo-lighthouse-index-summary.md §3.3)**: 2.1.0 → 2.2.0 — **minor bump** (forward-compat).
     //   TextDumper 가 색인 시 `.lighthouse-kb/text/<docId>-<filename>.md` markdown text dump 파일 생성.
     //   DB schema 미변경 (SchemaVersion 5 유지) — file artifact 추가만. 기존 collection 의 text/ 폴더 부재 = legacy
@@ -43,15 +48,19 @@ module IndexerVersion =
     // s6-r22 mn3: 1.2.0 → 1.3.0 — ImageCache.MimeType NOT NULL DEFAULT 'application/octet-stream' schema 정합.
     //   `Apps/Promaker/scripts/check-paired-release.ps1` 가 service config 의 indexerVersionRange 안 검증.
     [<Literal>]
-    let Current = "2.2.0"
+    let Current = "2.3.0"
 
+    // PR-Img-Chunk: SchemaVersion 5 → 6 — ImageReferences.CaptionChunkId 컬럼 신설 + image caption 을 별 Chunks
+    //   row 로 박제 (`[그림 p.N #ord hash=<12>] <captionText>` 형태). ChunksFts trigger 가 자동 sync → caption
+    //   text 가 BM25 retrieval 대상 진입. needsRebuild trigger — 기존 collection (SchemaVersion 5) 가 신 lib 로
+    //   열릴 때 shadow rebuild 강제 (caption-chunk 박제 마이그레이션 위해 의도된 강제 재색인).
     // s6-r49 #2 (L-Maj-10): SchemaVersion 4 → 5 — Documents.FileMTimeTicks ALTER 컬럼 신설 (mtime fast-skip).
     //   needsRebuild trigger — 기존 collection (SchemaVersion 4) 가 신 lib 로 열릴 때 shadow rebuild 강제.
     // s6-r34 P4-A: SchemaVersion 3 → 4 — Chunks_Vectors virtual table (sqlite-vec vec0) 신설.
     //   needsRebuild trigger — 기존 collection (SchemaVersion 3) 가 신 lib 로 열릴 때 shadow rebuild 강제.
     // s6-r22 mn3: SchemaVersion 2 → 3 — ImageCache.MimeType column constraint 변경 (NULL → NOT NULL DEFAULT).
     [<Literal>]
-    let SchemaVersion = "5"
+    let SchemaVersion = "6"
 
     [<Literal>]
     let Tokenizer = "trigram"
@@ -226,14 +235,21 @@ CREATE TABLE IF NOT EXISTS ImageCache (
 );
 
 CREATE TABLE IF NOT EXISTS ImageReferences (
-    DocumentId INTEGER NOT NULL REFERENCES Documents(Id) ON DELETE CASCADE,
-    ChunkId    INTEGER REFERENCES Chunks(Id) ON DELETE SET NULL,
-    ImageHash  TEXT NOT NULL REFERENCES ImageCache(ImageHash),
-    RefLocator TEXT NOT NULL,
-    Ordinal    INTEGER NOT NULL,
+    DocumentId      INTEGER NOT NULL REFERENCES Documents(Id) ON DELETE CASCADE,
+    ChunkId         INTEGER REFERENCES Chunks(Id) ON DELETE SET NULL,
+    ImageHash       TEXT NOT NULL REFERENCES ImageCache(ImageHash),
+    RefLocator      TEXT NOT NULL,
+    Ordinal         INTEGER NOT NULL,
+    -- PR-Img-Chunk: image 1개 ↔ caption-chunk 1개 (1:1 매핑). caption 박제 시 INSERT, back-fill 시 UPDATE
+    -- 대상 chunk row 식별 키. ChunkId (본문 chunk 매핑) 와 의도적 분리 — 본문 chunk 와 caption chunk 는
+    -- 서로 다른 Chunks row.
+    CaptionChunkId  INTEGER REFERENCES Chunks(Id) ON DELETE SET NULL,
     PRIMARY KEY (DocumentId, ImageHash, RefLocator, Ordinal)
 );
-CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
+CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk         ON ImageReferences(ChunkId);
+-- IX_ImgRef_CaptionChunk index 는 ensureSchema 의 ensureColumn 직후 박제 (forward-compat: 기존 Phase 2 DB 의
+-- ImageReferences 가 CaptionChunkId 컬럼 없는 상태에서 본 schemaSql 진입 시 CREATE INDEX 가 SQL error 발생.
+-- ensureColumn ALTER 가 컬럼 박제 후에 별 명령으로 idempotent 박제).
 """
 
     /// **Phase 4 (s6-r34) — sqlite-vec virtual table SSOT** (parent §3.7 / §3.15.2).
@@ -367,6 +383,17 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
         // (기존 row NULL = legacy → Indexer 가 fall-back hash 계산). 신 색인 row 는 file.LastWriteTimeUtc.Ticks 박제.
         ensureColumn conn "Documents" "FileMTimeTicks"
             "ALTER TABLE Documents ADD COLUMN FileMTimeTicks INTEGER"
+        // **PR-Img-Chunk**: ImageReferences.CaptionChunkId ALTER 컬럼 — image ↔ caption-chunk 1:1 매핑.
+        // nullable (caption 미박제 image 또는 1차 색인 시 captionGen=noop). caption 박제 시점에 caller
+        // (`upsertCaptionChunkForRef`) 가 박제. ON DELETE SET NULL — caption-chunk row 가 다른 path 로 삭제될 경우
+        // ImageReferences 행은 보존 (caption 미보유 상태로 되돌아감 = 미박제 분기와 동일).
+        ensureColumn conn "ImageReferences" "CaptionChunkId"
+            "ALTER TABLE ImageReferences ADD COLUMN CaptionChunkId INTEGER REFERENCES Chunks(Id) ON DELETE SET NULL"
+        // ImageReferences.CaptionChunkId index — schemaSql 에서 이동. ensureColumn 박제 후 idempotent CREATE.
+        use idxCmd = conn.CreateCommand()
+        idxCmd.CommandText <-
+            "CREATE INDEX IF NOT EXISTS IX_ImgRef_CaptionChunk ON ImageReferences(CaptionChunkId)"
+        idxCmd.ExecuteNonQuery() |> ignore
         // Phase 4 — vec0 virtual table (sqlite-vec extension 의존, openConnection 의 loadVec0Extension 박제 정합).
         use vecCmd = conn.CreateCommand()
         vecCmd.CommandText <- vec0SchemaSql
@@ -647,6 +674,148 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk ON ImageReferences(ChunkId);
             let chunkId = reader.GetInt64 1
             m <- Map.add refLoc chunkId m
         m
+
+    /// **PR-Img-Chunk** — image caption 을 별 Chunks row 로 박제. 본문 chunks 와 동일 RefLocator (`p=N`) 박제
+    /// → TextDumper 의 `buildDocumentMarkdown` 이 자연스럽게 같은 페이지 heading 아래 surface +
+    /// ChunksFts AI trigger 가 자동 sync → BM25 retrieval 대상 진입.
+    ///
+    /// Text 권장 형식 = `[그림 p.<N> #<ord> hash=<hash12>] <captionText>` (caller `ImageStore.updateCaption` 박제).
+    /// Ordinal 은 본문 chunk 와 충돌 회피 — 본문 chunks 의 max(Ordinal) 보다 큰 값을 caller 가 결정 (예:
+    /// `10000 + imageOrdinal`). OutlineId = NULL (image 는 outline tree 외부).
+    ///
+    /// 반환 = 박제된 chunk Id (`last_insert_rowid` 패턴, `insertDocumentWithMtime` 정합). caller 가
+    /// ImageReferences.CaptionChunkId 박제용으로 사용.
+    ///
+    /// **embedding 미박제 (Phase 1)** — Chunks_Vectors 의 caption-chunk row 박제는 별 dispatch (backlog).
+    /// 현재 hybrid retrieval 의 BM25 만 caption text 적중. embedding 박제는 hybrid 강화 시점에 추가.
+    let insertCaptionChunk
+        (conn: SqliteConnection)
+        (documentId: int64)
+        (refLocator: string)
+        (ordinal: int)
+        (tokenCount: int)
+        (text: string)
+        : int64 =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            INSERT INTO Chunks(DocumentId, OutlineId, RefLocator, Ordinal, TokenCount, Text)
+            VALUES($doc, NULL, $ref, $ord, $tok, $text);
+            SELECT last_insert_rowid();
+        """
+        cmd.Parameters.AddWithValue("$doc",  documentId) |> ignore
+        cmd.Parameters.AddWithValue("$ref",  refLocator) |> ignore
+        cmd.Parameters.AddWithValue("$ord",  ordinal) |> ignore
+        cmd.Parameters.AddWithValue("$tok",  tokenCount) |> ignore
+        cmd.Parameters.AddWithValue("$text", text) |> ignore
+        cmd.ExecuteScalar() :?> int64
+
+    /// **PR-Img-Chunk** — caption-chunk Text 갱신. ChunksFts AU trigger 가 자동 sync (BM25 re-index 자동).
+    /// caller (`ImageStore.updateCaption` / `updateCaptionBatch`) 의 back-fill path — late VLM caption 박제 시점.
+    let updateCaptionChunkText
+        (conn: SqliteConnection)
+        (chunkId: int64)
+        (text: string)
+        : unit =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- "UPDATE Chunks SET Text = $text WHERE Id = $id"
+        cmd.Parameters.AddWithValue("$id",   chunkId) |> ignore
+        cmd.Parameters.AddWithValue("$text", text) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+
+    /// **PR-Img-Chunk** — ImageReferences.CaptionChunkId 박제 (PK 4 키 기준 UPDATE).
+    /// `ImageReferences` row 가 이미 박제된 상태 가정 (`ImageStore.addImageReference` 후).
+    /// caller 가 `insertCaptionChunk` 로 chunkId 확보 후 본 함수로 1:1 매핑 박제.
+    let setImageRefCaptionChunkId
+        (conn: SqliteConnection)
+        (documentId: int64)
+        (imageHash: string)
+        (refLocator: string)
+        (ordinal: int)
+        (captionChunkId: int64)
+        : unit =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            UPDATE ImageReferences
+            SET CaptionChunkId = $cid
+            WHERE DocumentId = $doc AND ImageHash = $hash AND RefLocator = $ref AND Ordinal = $ord
+        """
+        cmd.Parameters.AddWithValue("$cid",  captionChunkId) |> ignore
+        cmd.Parameters.AddWithValue("$doc",  documentId) |> ignore
+        cmd.Parameters.AddWithValue("$hash", imageHash) |> ignore
+        cmd.Parameters.AddWithValue("$ref",  refLocator) |> ignore
+        cmd.Parameters.AddWithValue("$ord",  ordinal) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+
+    /// **PR-Img-Chunk** — back-fill / 재색인 idempotent path 의 lookup. ImageReferences 의 CaptionChunkId 조회 —
+    /// 이미 박제된 경우 Some chunkId / 미박제 (caption 없거나 1차 색인 시점 captionGen=noop) None. caller
+    /// (`ImageStore.upsertCaptionChunkForRef`) 가 INSERT/UPDATE 결정용.
+    let lookupCaptionChunkByImageRef
+        (conn: SqliteConnection)
+        (documentId: int64)
+        (imageHash: string)
+        (refLocator: string)
+        (ordinal: int)
+        : int64 option =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT CaptionChunkId
+            FROM ImageReferences
+            WHERE DocumentId = $doc AND ImageHash = $hash AND RefLocator = $ref AND Ordinal = $ord
+        """
+        cmd.Parameters.AddWithValue("$doc",  documentId) |> ignore
+        cmd.Parameters.AddWithValue("$hash", imageHash) |> ignore
+        cmd.Parameters.AddWithValue("$ref",  refLocator) |> ignore
+        cmd.Parameters.AddWithValue("$ord",  ordinal) |> ignore
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            if reader.IsDBNull 0 then None
+            else Some (reader.GetInt64 0)
+        else None
+
+    /// **PR-Img-Chunk** — 동일 (DocumentId, RefLocator) 의 max(Ordinal) + 1 산출. caption-chunk 가 본문 chunk
+    /// 와 동일 RefLocator (`p=N`) 안에서 본문 chunks 직후 박제 보장 — `TextDumper.buildDocumentMarkdown` 의
+    /// page grouping 정합. 본문 chunk 없는 page (image-only) 면 0 반환 (caption-chunk 만 박제).
+    let nextOrdinalForRef
+        (conn: SqliteConnection)
+        (documentId: int64)
+        (refLocator: string)
+        : int =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT COALESCE(MAX(Ordinal), -1) + 1 FROM Chunks
+            WHERE DocumentId = $doc AND RefLocator = $ref
+        """
+        cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
+        cmd.Parameters.AddWithValue("$ref", refLocator) |> ignore
+        // **review m1 (sub-agent)**: `Convert.ToInt32` 가 affinity 안전 (직접 `:?> int64 |> int` 는 INTEGER
+        // affinity 변동 시 InvalidCastException risk). 기존 `tableExists` 등 SSOT 패턴 정합.
+        Convert.ToInt32 (cmd.ExecuteScalar())
+
+    /// **PR-Img-Chunk** — image 의 모든 reference (cross-doc) 의 (DocumentId, RefLocator, Ordinal, CaptionChunkId)
+    /// 조회. caller (`ImageStore.updateCaptionBatch` 의 late path) 가 hash 별로 caption-chunk INSERT/UPDATE 결정용.
+    ///
+    /// 반환 = (DocumentId, RefLocator, Ordinal, CaptionChunkId option) array. PK 순회 정렬.
+    let listImageRefsByHash
+        (conn: SqliteConnection)
+        (imageHash: string)
+        : (int64 * string * int * int64 option) array =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT DocumentId, RefLocator, Ordinal, CaptionChunkId
+            FROM ImageReferences
+            WHERE ImageHash = $hash
+            ORDER BY DocumentId, RefLocator, Ordinal
+        """
+        cmd.Parameters.AddWithValue("$hash", imageHash) |> ignore
+        use reader = cmd.ExecuteReader()
+        let acc = ResizeArray<int64 * string * int * int64 option>()
+        while reader.Read() do
+            let doc = reader.GetInt64 0
+            let ref = reader.GetString 1
+            let ord = reader.GetInt32 2
+            let cid = if reader.IsDBNull 3 then None else Some (reader.GetInt64 3)
+            acc.Add (doc, ref, ord, cid)
+        acc.ToArray()
 
     /// **Phase 2 task C4 (s6-r15)** — `Chunks.ImageCount` post-update.
     ///

@@ -392,7 +392,7 @@ type AttachmentTools() =
                             let captionStr =
                                 match caption with
                                 | Some c -> c
-                                | None -> "(caption 미생성)"
+                                | None -> Ds2.LightHouse.ImageStore.CaptionPlaceholderText
                             textBuilder.AppendFormat(
                                 "  #{0} hash={1} — {2}", i + 1, hash.Substring(0, min 12 hash.Length), captionStr)
                                 |> ignore
