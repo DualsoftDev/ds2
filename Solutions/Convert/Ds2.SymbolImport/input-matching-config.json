@@ -3922,5 +3922,110 @@
       "S141_WRS_CT_CLP_ADVD": "CT_CLP_ADVD (Flow S141 제거, WRS 제거)",
       "S141_Q_RB1_START": "RB1_START (Flow S141 제거, Q 제거)"
     }
+  },
+  "UserTagRules": {
+    "Description": "PLC 심볼 변환 시 DSPilot 감시용 UserTag를 자동 생성하는 규칙. 이상/알람 계열 입력·메모리 태그는 Error 레벨 Bit RisingEdge로 등록한다.",
+    "Enabled": true,
+    "Rules": [
+      {
+        "Name": "Mitsubishi 이상/알람 Bit",
+        "Enabled": true,
+        "LogLevel": "Error",
+        "ValueType": "Bit",
+        "MatchOp": "RisingEdge",
+        "MatchValue": "1",
+        "Directions": [
+          "Input",
+          "Memory",
+          "Unknown"
+        ],
+        "AddressPatterns": [
+          "X*",
+          "M*",
+          "L*",
+          "B*"
+        ],
+        "NamePatterns": [
+          "*ERR*",
+          "*ERROR*",
+          "*ALARM*",
+          "*ABNORMAL*",
+          "*TROUBLE*",
+          "*FAIL*",
+          "*EMG*",
+          "*EMO*",
+          "*E_STOP*",
+          "*ESTOP*",
+          "* NG*",
+          "*_NG*",
+          "*-NG*",
+          "*.NG*",
+          "*COUNT NG*",
+          "* FAULT*",
+          "*_FAULT*",
+          "*-FAULT*",
+          "*.FAULT*"
+        ],
+        "CommentPatterns": [
+          "*ERR*",
+          "*ERROR*",
+          "*Error*",
+          "*ALARM*",
+          "*Alarm*",
+          "*ABNORMAL*",
+          "*abnormal*",
+          "*TROUBLE*",
+          "*FAIL*",
+          "*EMG*",
+          "*EMO*",
+          "*E-STOP*",
+          "*E_STOP*",
+          "*ESTOP*",
+          "*이상*",
+          "*에러*",
+          "*알람*",
+          "*비상*",
+          "* NG*",
+          "*_NG*",
+          "*-NG*",
+          "*.NG*",
+          "*COUNT NG*",
+          "* FAULT*",
+          "* Fault*",
+          "*_FAULT*",
+          "*-FAULT*",
+          "*.FAULT*"
+        ],
+        "ExcludeAddressPatterns": [],
+        "ExcludeNamePatterns": [
+          "*RESET*",
+          "*RST*",
+          "*CLEAR*",
+          "*REQUEST*",
+          "*REQ*",
+          "*LAMP*",
+          "*BUZZER*",
+          "*TOWER*"
+        ],
+        "ExcludeCommentPatterns": [
+          "*Reset*",
+          "*RESET*",
+          "*Clear*",
+          "*CLEAR*",
+          "*request*",
+          "*Request*",
+          "*REQUEST*",
+          "*Lamp*",
+          "*LAMP*",
+          "*Buzzer*",
+          "*BUZZER*",
+          "*Tower*",
+          "*TOWER*",
+          "*정상*",
+          "*완료*",
+          "*해제*"
+        ]
+      }
+    ]
   }
 }

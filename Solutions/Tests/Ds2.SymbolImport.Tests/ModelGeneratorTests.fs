@@ -22,10 +22,18 @@ let private mappingPair (deviceName: string) (apiName: string) (outEntry: Symbol
 let private batch (mappings: Mapper.Mapping list) : Mapper.MappingBatch =
     { Mapped = mappings; Unmatched = [] }
 
+let private batchWithUnmatched (entries: SymbolEntry list) : Mapper.MappingBatch =
+    { Mapped = []; Unmatched = entries }
+
 let private extractCalls (plans: ModelGenerator.SystemPlan list) : ModelGenerator.CallPlan list =
     plans
     |> List.filter (fun p -> p.IsActive)
     |> List.collect (fun p -> p.Flows |> List.collect (fun f -> f.Works |> List.collect (fun w -> w.Calls)))
+
+let private extractUserTags (plans: ModelGenerator.SystemPlan list) : ModelGenerator.UserTagPlan list =
+    plans
+    |> List.filter (fun p -> p.IsActive)
+    |> List.collect (fun p -> p.UserTags)
 
 // ── Placeholder fill 회귀 가드 ─────────────────────────────────────────
 // 이전 (None 박제) 흐름은 AASX 에 <value>null</value> 저장 → DSPilot V10 V1/V2 위반.
@@ -98,3 +106,25 @@ let ``ModelGenerator — ApiDef SensingType 은 placeholder 와 무관하게 Rea
             match apiDef.SensingType with
             | SensingType.Real _ -> ()
             | _ -> Assert.Fail(sprintf "ApiDef '%s' SensingType 이 Real 아님 (%A)" apiDef.Name apiDef.SensingType)
+
+[<Fact>]
+let ``ModelGenerator.generateWithConfig — 이상 계열 심볼은 Error UserTag 로 생성`` () =
+    let cfg = MappingConfig.loadDefault ()
+    let plans =
+        ModelGenerator.generateWithConfig cfg (batchWithUnmatched [
+            entry "Main_PLC_ERR" "M70" SymbolDirection.Memory
+            entry "CH1 Error clear request" "Y8E" SymbolDirection.Output
+            entry "Count NG" "M6001" SymbolDirection.Memory
+        ])
+
+    let tags = extractUserTags plans
+    Assert.Equal(2, tags.Length)
+    Assert.Contains(tags, fun t ->
+        t.Name = "Main_PLC_ERR"
+        && t.TagAddress = "M70"
+        && t.LogLevel = "Error"
+        && t.ValueType = "Bit"
+        && t.MatchOp = "RisingEdge"
+        && t.MatchValue = "1")
+    Assert.Contains(tags, fun t -> t.Name = "Count NG" && t.TagAddress = "M6001")
+    Assert.DoesNotContain(tags, fun t -> t.TagAddress = "Y8E")

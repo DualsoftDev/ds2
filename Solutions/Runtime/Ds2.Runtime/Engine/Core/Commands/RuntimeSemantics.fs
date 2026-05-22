@@ -6,15 +6,36 @@ open Ds2.Core
 /// pure decision (effect/trigger DU). 실제 출력 적용은 호출자가 effect 받아 처리.</summary>
 module RuntimeSemantics =
 
-    let activeOutputValue (call: ApiCall) =
-        ValueSpec.toDefaultString call.OutputSpec
-
-    let resetOutputValue (call: ApiCall) =
-        match call.OutputSpec with
+    /// ValueSpec → 비활성/reset 상태 대표 문자열 (type 별).
+    /// Bool/Undefined → "false", String → "", 그 외 (Int/Float) → "0".
+    /// HubSession 의 VP echo reset / Execution 의 reset effect 가 공유하는 단일 룰.
+    let resetValueForSpec (spec: ValueSpec) =
+        match spec with
         | UndefinedValue
         | BoolValue _ -> "false"
         | StringValue _ -> ""
         | _ -> "0"
+
+    let activeOutputValue (call: ApiCall) =
+        ValueSpec.toDefaultString call.OutputSpec
+
+    let resetOutputValue (call: ApiCall) =
+        resetValueForSpec call.OutputSpec
+
+    let activeInputValue (call: ApiCall) =
+        ValueSpec.toDefaultString call.InputSpec
+
+    let resetInputValue (call: ApiCall) =
+        resetValueForSpec call.InputSpec
+
+    /// 수신 string 값이 *active* (=ApiCall.OutputSpec 조건 충족) 인지 판정 — VP 측 output→input echo trigger 용.
+    /// 이전 코드의 `value = "true"` 하드코딩을 spec 기반으로 일반화.
+    let isActiveOutputValue (call: ApiCall) (value: string) : bool =
+        ValueSpec.evaluate call.OutputSpec value
+
+    /// 수신 string 값이 *active input* (=ApiCall.InputSpec 조건 충족) 인지 판정 — Control 측 RxWork Finish trigger 용.
+    let isActiveInputValue (call: ApiCall) (value: string) : bool =
+        ValueSpec.evaluate call.InputSpec value
 
     /// v10 §11.1 — ActionType case 별 출력 effect.
     type OutputEffect =
