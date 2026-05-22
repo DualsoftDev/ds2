@@ -10,10 +10,26 @@ open Ds2.Core.Store
 [<Extension>]
 type DsStoreNodesExtensions =
 
+    // ─── Invariant 공통 헬퍼 ─────────────────────────────────────────
+    /// 빈/공백 이름 거부 — 모든 Add* / Rename* 진입점이 공유.
+    /// UI / AASX / Mermaid / LlmAgent 어느 진입점이든 통과해야 store 에 들어옴.
+    static member private RequireNonEmptyName(kind: string, name: string) =
+        if System.String.IsNullOrWhiteSpace name then
+            invalidOp $"{kind} 이름은 비어있거나 공백만일 수 없습니다."
+
+    /// DevicesAlias / ApiName 의 점(.) 금지 — Call.Name = "{DevicesAlias}.{ApiName}" parseCallName
+    /// split 이 1번만 동작하므로 어느 한쪽에 점이 들어가면 parse 가 ambiguous (의도 안 한 prefix/suffix).
+    static member private RequireNoDot(kind: string, value: string) =
+        if not (isNull value) && value.Contains '.' then
+            invalidOp $"{kind} 에는 점(.)을 사용할 수 없습니다: '{value}'"
+
     // ─── Add ─────────────────────────────────────────────────────────
     [<Extension>]
     static member AddProject(store: DsStore, name: string) : Guid =
         StoreLog.debug($"name={name}")
+        DsStoreNodesExtensions.RequireNonEmptyName("Project", name)
+        if not (Queries.isProjectNameUnique name None store) then
+            invalidOp $"이미 '{name}' Project가 존재합니다."
         let project = Project(name)
         store.WithTransaction($"프로젝트 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.Projects, project))
@@ -23,7 +39,10 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddSystem(store: DsStore, name: string, projectId: Guid, isActive: bool) : Guid =
         StoreLog.debug($"name={name}, projectId={projectId}, isActive={isActive}")
+        DsStoreNodesExtensions.RequireNonEmptyName("System", name)
         StoreLog.requireProject(store, projectId) |> ignore
+        if not (Queries.isSystemNameUniqueInProject projectId name None store) then
+            invalidOp $"같은 Project 내에 이미 '{name}' System이 존재합니다."
         let system = DsSystem(name)
         store.WithTransaction($"시스템 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.Systems, system)
@@ -36,6 +55,7 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddFlow(store: DsStore, name: string, systemId: Guid) : Guid =
         StoreLog.debug($"name={name}, systemId={systemId}")
+        DsStoreNodesExtensions.RequireNonEmptyName("Flow", name)
         StoreLog.requireSystem(store, systemId) |> ignore
         if not (Queries.isFlowNameUniqueInSystem systemId name None store) then
             invalidOp $"같은 System 내에 이미 '{name}' Flow가 존재합니다."
@@ -48,6 +68,7 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddWork(store: DsStore, name: string, flowId: Guid) : Guid =
         StoreLog.debug($"name={name}, flowId={flowId}")
+        DsStoreNodesExtensions.RequireNonEmptyName("Work", name)
         let flow = StoreLog.requireFlow(store, flowId)
         if not (Queries.isLocalNameUniqueInFlow flowId name None store) then
             invalidOp $"같은 Flow 내에 이미 '{name}' Work가 존재합니다."
@@ -107,13 +128,45 @@ type DsStoreNodesExtensions =
         refCall.Id
 
     // ─── Add (배치/디바이스) ──────────────────────────────────────────
+    /// 같은 Work 안에 동일 callName 이 *원본 Call* 로 존재하면 reject.
+    /// 호출자는 이름 중복 발견 시 `AddReferenceCallToWork` 로 Reference Call 만들어야 함
+    /// (Promaker UI 의 duplicateMap → 자동 Reference 흐름).
+    static member private RequireUniqueCallNames(store: DsStore, workId: Guid, callNames: string list) =
+        for callName in callNames do
+            DsStoreNodesExtensions.RequireNonEmptyName("Call", callName)
+            // Call.Name 은 "{DevicesAlias}.{ApiName}" 형식 — 점 정확히 1개여야 함.
+            let dotCount = callName |> Seq.filter (fun c -> c = '.') |> Seq.length
+            if dotCount <> 1 then
+                invalidOp $"Call 이름은 'DevicesAlias.ApiName' 형식이어야 합니다 (점 정확히 1개): '{callName}'"
+            if not (Queries.isCallNameUniqueInWork workId callName None store) then
+                invalidOp $"같은 Work 내에 이미 '{callName}' Call이 존재합니다. Reference Call 로 만들거나 다른 이름 사용."
+
+    /// 같은 Project 내에서 동일 DevicesAlias 가 다른 SystemType 으로 이미 등록돼 있으면 reject.
+    /// Promaker UI `Create.cs:findConflictingDeviceSystemType` 호출이 같은 검사를 했지만
+    /// AASX/Mermaid/LlmAgent 진입은 우회. Core 진입 시점에서 일괄 차단.
+    static member private RequireNoSystemTypeConflict
+        (store: DsStore, projectId: Guid, devAliases: string seq, systemType: string option) =
+        match systemType with
+        | None -> ()
+        | Some _ ->
+            for devAlias in devAliases do
+                match Queries.findConflictingDeviceSystemType projectId devAlias systemType store with
+                | Some (existing, requested) ->
+                    invalidOp $"DevicesAlias '{devAlias}' 는 이미 SystemType '{existing}' 로 등록 — 새 SystemType '{requested}' 와 충돌."
+                | None -> ()
+
     [<Extension>]
     static member AddCallsWithDevice(store: DsStore, projectId: Guid, workId: Guid, callNames: string seq, createDeviceSystem: bool, systemType: string option) =
         let names = callNames |> Seq.toList
         StoreLog.debug($"projectId={projectId}, workId={workId}, count={names.Length}, createDevice={createDeviceSystem}")
         StoreLog.requireWork(store, workId) |> ignore
+        DsStoreNodesExtensions.RequireUniqueCallNames(store, workId, names)
         if createDeviceSystem && (names |> List.exists DirectDeviceOps.hasCreatableApiName) then
             StoreLog.requireProject(store, projectId) |> ignore
+            let devAliases = names |> List.choose (fun n ->
+                let parts = n.Split([| '.' |], 2)
+                if parts.Length >= 1 && not (System.String.IsNullOrEmpty parts.[0]) then Some parts.[0] else None)
+            DsStoreNodesExtensions.RequireNoSystemTypeConflict(store, projectId, devAliases, systemType)
         store.WithTransaction("Add Calls", fun () ->
             DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem systemType)
         store.EmitRefreshAndHistory()
@@ -133,8 +186,13 @@ type DsStoreNodesExtensions =
             let names = entryList |> List.map (fun (n, _, _) -> n)
             StoreLog.debug($"AddCallsWithDeviceAndTags projectId={projectId}, workId={workId}, count={names.Length}")
             StoreLog.requireWork(store, workId) |> ignore
+            DsStoreNodesExtensions.RequireUniqueCallNames(store, workId, names)
             if createDeviceSystem && (names |> List.exists DirectDeviceOps.hasCreatableApiName) then
                 StoreLog.requireProject(store, projectId) |> ignore
+                let devAliases = names |> List.choose (fun n ->
+                    let parts = n.Split([| '.' |], 2)
+                    if parts.Length >= 1 && not (System.String.IsNullOrEmpty parts.[0]) then Some parts.[0] else None)
+                DsStoreNodesExtensions.RequireNoSystemTypeConflict(store, projectId, devAliases, systemType)
             let mutable applied = 0
             store.WithTransaction("Wizard Apply Calls + Tags", fun () ->
                 DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem systemType
@@ -159,6 +217,13 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddCallWithLinkedApiDefs(store: DsStore, workId: Guid, devicesAlias: string, apiName: string, apiDefIds: Guid seq) : Guid =
         StoreLog.debug($"workId={workId}, devicesAlias={devicesAlias}, apiName={apiName}")
+        DsStoreNodesExtensions.RequireNonEmptyName("Call.DevicesAlias", devicesAlias)
+        DsStoreNodesExtensions.RequireNonEmptyName("Call.ApiName", apiName)
+        DsStoreNodesExtensions.RequireNoDot("Call.DevicesAlias", devicesAlias)
+        DsStoreNodesExtensions.RequireNoDot("Call.ApiName", apiName)
+        let fullName = $"{devicesAlias}.{apiName}"
+        if not (Queries.isCallNameUniqueInWork workId fullName None store) then
+            invalidOp $"같은 Work 내에 이미 '{fullName}' Call이 존재합니다. Reference Call 로 만들거나 다른 이름 사용."
         let resultId =
             store.WithTransaction("Add Call", fun () ->
                 DirectDeviceOps.addCallWithLinkedApiDefs store workId devicesAlias apiName apiDefIds)
@@ -204,7 +269,19 @@ type DsStoreNodesExtensions =
          createDeviceSystem: bool, systemType: string option) : Guid =
         match StoreHierarchyQueries.tryFindProjectIdForEntity store entityKind entityId with
         | Some projectId ->
+            DsStoreNodesExtensions.RequireNonEmptyName("Call.DevicesAlias", callDevicesAlias)
+            DsStoreNodesExtensions.RequireNoDot("Call.DevicesAlias", callDevicesAlias)
+            // apiName 빈 케이스 = ApiCall 복제 가드 (createDeviceSystem 가드와 함께 Call 만 만들기) — 빈 이름 OK.
+            // apiName 있으면 같은 Work 안 중복 검사.
+            if not (System.String.IsNullOrWhiteSpace apiName) then
+                DsStoreNodesExtensions.RequireNoDot("Call.ApiName", apiName)
+                let fullName = $"{callDevicesAlias}.{apiName}"
+                if not (Queries.isCallNameUniqueInWork workId fullName None store) then
+                    invalidOp $"같은 Work 내에 이미 '{fullName}' Call이 존재합니다. Reference Call 로 만들거나 다른 이름 사용."
             let aliases = deviceAliases |> Seq.toList
+            // 각 device alias 의 SystemType 충돌 검사.
+            if createDeviceSystem then
+                DsStoreNodesExtensions.RequireNoSystemTypeConflict(store, projectId, aliases, systemType)
             let resultId =
                 store.WithTransaction("Add Call (ApiCall 복제)", fun () ->
                     DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases createDeviceSystem systemType)

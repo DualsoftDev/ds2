@@ -45,13 +45,22 @@ let ``isCallNameUniqueInWork allows different Call name`` () =
     Assert.True(Queries.isCallNameUniqueInWork work.Id "Dev.Api2" None store)
 
 [<Fact>]
-let ``AddCallsWithDevice allows duplicate Call name`` () =
+let ``AddCallsWithDevice rejects duplicate Call name (use AddReferenceCallToWork instead)`` () =
+    // 정책: 같은 Work 안 동일 callName 의 *원본 Call* 재추가 금지.
+    // 사용자가 같은 device.api 를 반복 호출하고 싶으면 호출자가 명시적으로 Reference Call 사용.
     let store = createStore()
     let project, _, _, work = setupBasicHierarchy store
     store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
-    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
-    let calls = Queries.originalCallsOf work.Id store |> List.filter (fun c -> c.Name = "Dev.Api")
-    Assert.Equal(2, calls.Length)
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)) |> ignore
+    // 원본 1개 유지.
+    let originals = Queries.originalCallsOf work.Id store |> List.filter (fun c -> c.Name = "Dev.Api")
+    Assert.Equal(1, originals.Length)
+    // Reference Call 은 별도 path 로 추가 가능.
+    let originalId = originals.Head.Id
+    store.AddReferenceCallToWork(originalId, work.Id) |> ignore
+    let allWithName = Queries.callsOf work.Id store |> List.filter (fun c -> c.Name = "Dev.Api")
+    Assert.Equal(2, allWithName.Length)
 
 [<Fact>]
 let ``isCallNameUniqueInWork with excludeId ignores self`` () =
@@ -403,3 +412,153 @@ let ``findConflictingDeviceSystemType returns None when new SystemType is None``
     let project, _, _, work = setupBasicHierarchy store
     store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
     Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "dev" None store)
+
+// ─── Core 진입 가드 회귀 — 사용자 우려 ──────────────────────────────
+// 사용자 명시: "Promaker UI 가드만 있어서 AASX/LLM import 로 깨진 데이터가 들어옴".
+// 본 module 은 Core 진입점 (AddProject/AddSystem/AddFlow/AddWork/AddCall*) 에 추가된
+// 가드를 직접 검증 — UI 경로 우회해도 invalidOp 던지는지 확인.
+
+[<Fact>]
+let ``AddProject rejects empty name`` () =
+    let store = createStore()
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddProject("") |> ignore) |> ignore
+
+[<Fact>]
+let ``AddProject rejects whitespace-only name`` () =
+    let store = createStore()
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddProject("   ") |> ignore) |> ignore
+
+[<Fact>]
+let ``AddProject rejects duplicate name`` () =
+    let store = createStore()
+    store.AddProject("P") |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddProject("P") |> ignore) |> ignore
+
+[<Fact>]
+let ``AddSystem rejects empty name`` () =
+    let store = createStore()
+    let project = addProject store "P"
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddSystem("", project.Id, true) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddSystem rejects duplicate name in same Project (active + active)`` () =
+    let store = createStore()
+    let project = addProject store "P"
+    store.AddSystem("S1", project.Id, true) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddSystem("S1", project.Id, true) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddSystem rejects duplicate name in same Project (active + passive)`` () =
+    // 사용자 우려의 핵심 — 같은 Project 안에 active + passive 가 동일 이름이면 충돌.
+    // 이전엔 AASX/Mermaid import 경로로 빠져나갈 수 있던 케이스.
+    let store = createStore()
+    let project = addProject store "P"
+    store.AddSystem("S1", project.Id, true) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddSystem("S1", project.Id, false) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddSystem allows same name in different Projects`` () =
+    let store = createStore()
+    let p1 = addProject store "P1"
+    let p2 = addProject store "P2"
+    store.AddSystem("S", p1.Id, true) |> ignore
+    // 다른 Project 에는 같은 System 이름 OK.
+    store.AddSystem("S", p2.Id, true) |> ignore
+    Assert.Equal(2, store.Systems.Count)
+
+[<Fact>]
+let ``AddFlow rejects empty name`` () =
+    let store = createStore()
+    let _, system, _, _ = setupBasicHierarchy store
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddFlow("", system.Id) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddWork rejects empty name`` () =
+    let store = createStore()
+    let _, _, flow, _ = setupBasicHierarchy store
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddWork("", flow.Id) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddCallsWithDevice rejects empty Call name`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallsWithDevice(project.Id, work.Id, [ "" ], true, None)) |> ignore
+
+[<Fact>]
+let ``AddCallWithLinkedApiDefs rejects empty DevicesAlias or ApiName`` () =
+    let store = createStore()
+    let project, system, _, work = setupBasicHierarchy store
+    let apiDef = addApiDef store "ADV" system.Id
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallWithLinkedApiDefs(work.Id, "", "ADV", [ apiDef.Id ]) |> ignore) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallWithLinkedApiDefs(work.Id, "dev", "", [ apiDef.Id ]) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddCallWithLinkedApiDefs rejects dot in DevicesAlias or ApiName`` () =
+    // Call.Name = "{DevicesAlias}.{ApiName}" — 양쪽에 추가 점 들어가면 parseCallName ambiguous.
+    let store = createStore()
+    let _, system, _, work = setupBasicHierarchy store
+    let apiDef = addApiDef store "ADV" system.Id
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallWithLinkedApiDefs(work.Id, "dev.bad", "ADV", [ apiDef.Id ]) |> ignore) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallWithLinkedApiDefs(work.Id, "dev", "ADV.bad", [ apiDef.Id ]) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddCallsWithDevice rejects malformed Call name (not single-dot)`` () =
+    // "DevicesAlias.ApiName" 형식 강제 — 점 0개 또는 2개 이상이면 reject.
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallsWithDevice(project.Id, work.Id, [ "noDot" ], true, None)) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallsWithDevice(project.Id, work.Id, [ "too.many.dots" ], true, None)) |> ignore
+
+[<Fact>]
+let ``AddApiDefWithProperties rejects empty name and duplicate name in same System`` () =
+    let store = createStore()
+    let _, system, _, _ = setupBasicHierarchy store
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddApiDefWithProperties("", system.Id) |> ignore) |> ignore
+    store.AddApiDefWithProperties("ADV", system.Id) |> ignore
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddApiDefWithProperties("ADV", system.Id) |> ignore) |> ignore
+
+[<Fact>]
+let ``AddCallsWithDevice rejects SystemType conflict (same devAlias different SystemType)`` () =
+    // 사용자 우려: 같은 Project 안에서 동일 DevicesAlias 가 *다른 SystemType* 으로 등록되면 충돌.
+    // 이전엔 Promaker UI Create.cs 만 검사했고 AASX/Mermaid/LlmAgent 통과.
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    // 먼저 SystemType "Conveyor" 로 등록.
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
+    // 같은 dev alias 를 "Robot" 으로 추가 시도 → reject.
+    Assert.Throws<System.InvalidOperationException>(fun () ->
+        store.AddCallsWithDevice(project.Id, work.Id, [ "dev.MOVE" ], true, Some "Robot")) |> ignore
+
+[<Fact>]
+let ``ImportPlan.applyDirect skips invalid operations with log (graceful import)`` () =
+    // AASX/Mermaid/CSV 의 ImportPlan 경로가 *invalid op* 받아도 *valid op 는 정상 import*.
+    // 위반은 skip + log — 외부 import 가 부분 깨졌어도 valid 부분 보존.
+    let store = createStore()
+    let validProject = Project("P_Valid")
+    let invalidProject = Project("")  // 빈 이름 — invariant 위반
+    let plan : ImportPlan = {
+        Operations = [
+            AddProject validProject
+            AddProject invalidProject  // skip 되어야
+        ]
+    }
+    ImportPlan.applyDirect store plan
+    Assert.True(store.Projects.ContainsKey(validProject.Id))
+    Assert.False(store.Projects.ContainsKey(invalidProject.Id))

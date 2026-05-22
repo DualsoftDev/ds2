@@ -202,6 +202,40 @@ module internal AasxImportGraph =
                                             Some (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs)
         with ex -> log.Warn($"smcToSystem 실패: {ex.Message}", ex); None
 
+    /// AASX import 가 *DirectWrite* 로 Core Add* 의 invariant 가드를 우회하므로,
+    /// populateStore 진입에서 system 단위로 *Core 와 동일한 invariant* 를 사전 검증.
+    /// `Ds2.Core.Store.ImportValidator` (Mermaid/CSV 의 ImportPlan 도 같은 헬퍼 사용) 위임 — single source of truth.
+    let private validateSystemForImport
+        (store: DsStore)
+        (project: Project)
+        (system: DsSystem)
+        (flows: Flow list)
+        (works: Work list)
+        (apiDefs: ApiDef list)
+        : string option =
+        // 1. System 자체 invariant (이름 빈/공백 + project 내 중복)
+        match ImportValidator.validateSystem store (Some project.Id) system with
+        | Some reason -> Some reason
+        | None ->
+            // 2. Intra-system Flow / Work / ApiDef 이름 invariant — populate 전이라 store 의존 못 함, 직접 검사.
+            let intraDupFlow =
+                flows
+                |> List.groupBy (fun f -> f.Name)
+                |> List.tryFind (fun (_, lst) -> lst.Length > 1)
+            let intraEmptyName =
+                (flows |> List.exists (fun f -> System.String.IsNullOrWhiteSpace f.Name)) ||
+                (works |> List.exists (fun w -> System.String.IsNullOrWhiteSpace w.LocalName)) ||
+                (apiDefs |> List.exists (fun d -> System.String.IsNullOrWhiteSpace d.Name))
+            let intraDupApiDef =
+                apiDefs
+                |> List.groupBy (fun d -> d.Name)
+                |> List.tryFind (fun (_, lst) -> lst.Length > 1)
+            match intraDupFlow, intraEmptyName, intraDupApiDef with
+            | Some (name, _), _, _ -> Some $"System '{system.Name}' 안 Flow 이름 '{name}' 중복"
+            | _, true, _ -> Some $"System '{system.Name}' 안에 빈 이름 entity 존재"
+            | _, _, Some (name, _) -> Some $"System '{system.Name}' 안 ApiDef 이름 '{name}' 중복"
+            | _ -> None
+
     let populateStore
         (store: DsStore)
         (project: Project)
@@ -209,6 +243,12 @@ module internal AasxImportGraph =
         (systemResults: (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list) =
         systemResults
         |> List.iter (fun (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs) ->
+            // 사용자 우려 fix: AASX import 가 Core Add* 우회 → invariant 가드 자체 적용.
+            // 위반 system 은 skip + log. 외부 파일이 깨졌어도 valid 한 system 만 import.
+            match validateSystemForImport store project system flows works apiDefs with
+            | Some reason ->
+                log.Warn($"AASX import — System '{system.Name}' 가 invariant 위반으로 skip: {reason}")
+            | None ->
             store.DirectWrite(store.Systems, system)
             if isActive then
                 project.ActiveSystemIds.Add(system.Id) |> ignore

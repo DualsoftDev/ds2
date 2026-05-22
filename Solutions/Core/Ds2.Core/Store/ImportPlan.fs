@@ -33,32 +33,62 @@ module ImportPlan =
     let ofSeq (operations: seq<ImportPlanOperation>) =
         { Operations = operations |> Seq.toList }
 
+    /// 위반 entity 는 skip + log — Mermaid/CSV 의 *부분 깨진 import* 가 *전체 rollback* 보다 *valid 한 부분만 import*
+    /// 가 사용자 의도에 부합. AASX populateStore 의 graceful import 와 동일 패턴.
+    /// (Ds2.Core 는 log4net 의존 없음 — eprintfn 으로 stderr 송출)
+    let private skipWithLog (op: string) (reason: string) =
+        eprintfn $"[WARN] ImportPlan.applyDirect — {op} skipped: {reason}"
+
     let private applyOperationDirect (store: DsStore) operation =
         match operation with
         | LinkSystemToProject(projectId, systemId, isActive) ->
-            let project = store.Projects.[projectId]
-            if isActive then
-                project.ActiveSystemIds.Add(systemId)
-            else
-                project.PassiveSystemIds.Add(systemId)
+            // LinkSystemToProject 시점에 *project ↔ system* 연결되므로 *system 이름 중복* 재검증.
+            match store.Projects.TryGetValue(projectId), store.Systems.TryGetValue(systemId) with
+            | (true, _), (true, system) ->
+                match ImportValidator.validateSystem store (Some projectId) system with
+                | Some reason ->
+                    skipWithLog $"LinkSystemToProject(sys='{system.Name}')" reason
+                | None ->
+                    let project = store.Projects.[projectId]
+                    if isActive then project.ActiveSystemIds.Add(systemId)
+                    else project.PassiveSystemIds.Add(systemId)
+            | _ ->
+                skipWithLog "LinkSystemToProject" $"projectId={projectId} 또는 systemId={systemId} 없음"
         | AddProject project ->
-            store.DirectWrite(store.Projects, project)
+            match ImportValidator.validateProject store project with
+            | Some reason -> skipWithLog $"AddProject('{project.Name}')" reason
+            | None -> store.DirectWrite(store.Projects, project)
         | AddSystem system ->
-            store.DirectWrite(store.Systems, system)
+            // AddSystem 시점엔 *어느 project 인지 아직 모름* — 빈 이름만 검사 (중복 검사는 LinkSystemToProject 단계).
+            match ImportValidator.validateSystem store None system with
+            | Some reason -> skipWithLog $"AddSystem('{system.Name}')" reason
+            | None -> store.DirectWrite(store.Systems, system)
         | AddFlow flow ->
-            store.DirectWrite(store.Flows, flow)
+            match ImportValidator.validateFlow store flow with
+            | Some reason -> skipWithLog $"AddFlow('{flow.Name}')" reason
+            | None -> store.DirectWrite(store.Flows, flow)
         | AddWork work ->
-            store.DirectWrite(store.Works, work)
+            match ImportValidator.validateWork store work with
+            | Some reason -> skipWithLog $"AddWork('{work.LocalName}')" reason
+            | None -> store.DirectWrite(store.Works, work)
         | AddCall call ->
-            store.DirectWrite(store.Calls, call)
+            match ImportValidator.validateCall store call with
+            | Some reason -> skipWithLog $"AddCall('{call.Name}')" reason
+            | None -> store.DirectWrite(store.Calls, call)
         | AddApiDef apiDef ->
-            store.DirectWrite(store.ApiDefs, apiDef)
+            match ImportValidator.validateApiDef store apiDef with
+            | Some reason -> skipWithLog $"AddApiDef('{apiDef.Name}')" reason
+            | None -> store.DirectWrite(store.ApiDefs, apiDef)
         | AddApiCall apiCall ->
             store.DirectWrite(store.ApiCalls, apiCall)
         | AddArrowWork arrow ->
-            store.DirectWrite(store.ArrowWorks, arrow)
+            match ImportValidator.validateArrowWorks arrow with
+            | Some reason -> skipWithLog $"AddArrowWork({arrow.SourceId}→{arrow.TargetId})" reason
+            | None -> store.DirectWrite(store.ArrowWorks, arrow)
         | AddArrowCall arrow ->
-            store.DirectWrite(store.ArrowCalls, arrow)
+            match ImportValidator.validateArrowCalls arrow with
+            | Some reason -> skipWithLog $"AddArrowCall({arrow.SourceId}→{arrow.TargetId})" reason
+            | None -> store.DirectWrite(store.ArrowCalls, arrow)
         | RemoveEntity (kind, id) ->
             // Direct path 는 cascade 없이 단순 dict 제거. Mermaid/CSV importer 등 raw build 용도.
             // LLM mutation 은 ImportPlanApply 측 applyOperationTracked 가 cascade 처리.

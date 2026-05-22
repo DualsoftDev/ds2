@@ -136,6 +136,30 @@ module Queries =
             && (match excludeId with Some id -> f.Id <> id | None -> true))
         |> not
 
+    /// Project 내 System 이름 중복 검사 (Active + Passive 모두 대상, excludeId: 자기 자신 제외).
+    /// Promaker UI / AASX / Mermaid import / LlmAgent 등 모든 진입점에서 사용 가능한 공통 헬퍼.
+    let isSystemNameUniqueInProject (projectId: Guid) (name: string) (excludeId: Guid option) (store: DsStore) : bool =
+        match store.Projects.TryGetValue(projectId) with
+        | false, _ -> true
+        | true, project ->
+            let collides (sysId: Guid) =
+                match store.Systems.TryGetValue(sysId) with
+                | true, s ->
+                    s.Name = name
+                    && (match excludeId with Some id -> s.Id <> id | None -> true)
+                | _ -> false
+            not (
+                (project.ActiveSystemIds |> Seq.exists collides)
+                || (project.PassiveSystemIds |> Seq.exists collides))
+
+    /// Project 이름 중복 검사 (store 전체 대상, excludeId: 자기 자신 제외).
+    let isProjectNameUnique (name: string) (excludeId: Guid option) (store: DsStore) : bool =
+        store.Projects.Values
+        |> Seq.exists (fun p ->
+            p.Name = name
+            && (match excludeId with Some id -> p.Id <> id | None -> true))
+        |> not
+
     /// 자동 증가 이름: "Name" → "Name_1" → "Name_2"
     let nextUniqueName (baseName: string) (existingNames: string list) : string =
         if not (List.contains baseName existingNames) then baseName
@@ -231,6 +255,14 @@ module Queries =
     /// <summary>특정 DsSystem에 속한 ApiDef들 조회</summary>
     let apiDefsOf (systemId: Guid) (store: DsStore) : ApiDef list =
         childrenOf store.ApiDefsReadOnly.Values systemId (fun a -> a.ParentId)
+
+    /// System 내 ApiDef 이름 중복 검사 (excludeId: 자기 자신 제외).
+    let isApiDefNameUniqueInSystem (systemId: Guid) (name: string) (excludeId: Guid option) (store: DsStore) : bool =
+        apiDefsOf systemId store
+        |> List.exists (fun a ->
+            a.Name = name
+            && (match excludeId with Some id -> a.Id <> id | None -> true))
+        |> not
 
     // ─────────────────────────────────────────────────────────────────────────
     // ApiCall 쿼리
