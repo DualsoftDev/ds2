@@ -1,0 +1,15 @@
+[
+  {
+    "Name": "Promaker + Agent",
+    "Projects": [
+      {
+        "Path": "..\\Apps\\Promaker\\Promaker.Agent\\Promaker.Agent.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\Apps\\Promaker\\Promaker\\Promaker.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

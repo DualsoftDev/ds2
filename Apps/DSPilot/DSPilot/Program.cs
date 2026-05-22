@@ -119,6 +119,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertServic
 // userTagAlertLog 보관 + 일별 집계 (기본 60일, UserTagAlert:RetentionDays appsettings)
 builder.Services.AddHostedService<UserTagAlertRetentionService>();
 
+// Promaker.Agent 가 broadcast 하는 PLC 어댑터 연결 상태 캐시 — UI 배너 / 대시보드가 구독.
+builder.Services.AddSingleton<PlcConnectionStatusTracker>();
+
 // Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
 // URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
 // Singleton + HostedService 패턴 — MonitoringHub 가 NudgeConnectAsync 호출용으로 동일 인스턴스 주입.

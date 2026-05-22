@@ -18,6 +18,10 @@ module HubMethod =
     /// Control 시작 시 현재 Tag 값 조회 (Hub 캐시에서 반환)
     [<Literal>]
     let QueryTag = "QueryTag"
+    /// PLC 어댑터 1개의 연결 상태 변화 (connect/disconnect/setting 오류) — Server → Client.
+    /// 신규 접속 클라이언트는 OnConnectedAsync 단계에서 현재 모든 PLC 상태를 캐스트로 받는다.
+    [<Literal>]
+    let OnPlcConnectionStatus = "OnPlcConnectionStatus"
 
 [<RequireQualifiedAccess>]
 module HubSource =
@@ -62,4 +66,21 @@ type TagWrite = {
     Address: string
     Value: string
     Source: string
+}
+
+/// PLC 어댑터 1개의 연결 상태 스냅샷. SignalR JSON 직렬화로 양방향 전달되는 contract.
+/// 같은 이유로 [<CLIMutable>] 필요 — DSPilot 측 System.Text.Json 역직렬화 호환.
+/// LastError: 마지막 connect 실패 사유 (없으면 "" — IsConnected=true 인 정상 케이스).
+/// FailedAttempts: 마지막 성공 이후 연속 실패 횟수. 0 이면 정상.
+/// AtUtc: 본 상태가 관측된 시각 (UTC) — UI 가 "n초 전 끊김" 같은 표시에 사용 가능.
+[<CLIMutable>]
+type PlcConnectionStatus = {
+    Name: string
+    Vendor: string
+    IpAddress: string
+    Port: int
+    IsConnected: bool
+    LastError: string
+    FailedAttempts: int
+    AtUtc: System.DateTime
 }

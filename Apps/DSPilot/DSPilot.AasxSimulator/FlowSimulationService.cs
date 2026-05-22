@@ -33,6 +33,15 @@ public sealed class FlowSimulationService
     public Action<string>? Log { get; init; }
     public Action<int>? CycleChanged { get; init; }
 
+    /// <summary>시뮬레이션 속도 배수 (1.0 = 기본). 모든 내부 지연을 이 값으로 나눠 적용.</summary>
+    public double SpeedMultiplier { get; init; } = 1.0;
+
+    private int Scaled(int ms)
+    {
+        var mult = SpeedMultiplier <= 0 ? 1.0 : SpeedMultiplier;
+        return Math.Max(1, (int)(ms / mult));
+    }
+
     // 여러 Call 이 같은 물리 주소를 공유 (예: C/V 컨베이어의 정회전/역회전/저속/리셋 4 동작이 동일 run sensor X1020 공유).
     // PLCBackendService 의 ValidateTags 가 같은 주소를 가진 TagSpec 중복을 거부하므로
     // BuildTagSpecs 가 주소별 1개 TagSpec 만 등록하고, 같은 주소의 다른 logical 이름은 canonical 이름으로 alias.
@@ -112,7 +121,7 @@ public sealed class FlowSimulationService
 
             await Task.Delay(2000, cancellationToken);
 
-            Log?.Invoke("▶ 시뮬레이션 시작");
+            Log?.Invoke($"▶ 시뮬레이션 시작 (속도 {SpeedMultiplier:0.##}x)");
 
             var flowGroups = callTagInfos.GroupBy(c => c.Flow.Name).ToList();
             int cycle = 0;
@@ -127,7 +136,7 @@ public sealed class FlowSimulationService
                 ).ToList();
 
                 await Task.WhenAll(flowTasks);
-                await Task.Delay(100, cancellationToken);
+                await Task.Delay(Scaled(100), cancellationToken);
             }
         }
         catch (OperationCanceledException) { /* 사용자 중단 */ }
@@ -327,7 +336,7 @@ public sealed class FlowSimulationService
         SendSignalToPlc(plcService, connectionName, callInfo.OutTagName, "1");
         Log?.Invoke($"  {callInfo.Flow.Name} → {callInfo.Call.Name}: OUT=1");
 
-        await Task.Delay(1000, cancellationToken);
+        await Task.Delay(Scaled(1000), cancellationToken);
 
         SendSignalToPlc(plcService, connectionName, callInfo.SensorTagName, "1");
         Log?.Invoke($"  {callInfo.Flow.Name} → {callInfo.Call.Name}: SENSOR=1");
@@ -335,7 +344,7 @@ public sealed class FlowSimulationService
         SendSignalToPlc(plcService, connectionName, callInfo.OutTagName, "0");
         Log?.Invoke($"  {callInfo.Flow.Name} → {callInfo.Call.Name}: OUT=0 (sensor detected)");
 
-        await Task.Delay(500, cancellationToken);
+        await Task.Delay(Scaled(500), cancellationToken);
         SendSignalToPlc(plcService, connectionName, callInfo.SensorTagName, "0");
         Log?.Invoke($"  {callInfo.Flow.Name} → {callInfo.Call.Name}: SENSOR=0");
     }
