@@ -10,6 +10,7 @@ using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.FSharp.Core;
+using Promaker.Shared;
 
 namespace Promaker.ViewModels;
 
@@ -28,6 +29,40 @@ public partial class SimulationPanelState
                 ganttRunning: true,
                 isSimPaused: false,
                 statusText: SimText.Resumed);
+            return;
+        }
+
+        // Agent 위임 모드 + 이미 모니터링 중인 경우 — "Agent 전송" 재전송은 설정 갱신 명령으로 해석한다.
+        // 자체 엔진/Hub 를 끊었다 다시 띄우는 destructive 흐름을 피하고:
+        //   1) DSPilot 공유 AASX 재발행 (모델 변경분 반영)
+        //   2) active.flag 재기록 → Agent 의 FileSystemWatcher 가 debounce 후 BackendHost 재시작
+        // 결과적으로 Agent 가 새 PLC/AASX 설정으로 모니터링을 재개. Promaker WPF 자체 상태는 그대로 유지.
+        if (IsAgentDelegationMode && IsSimulating)
+        {
+            try
+            {
+                if (PublishAasxForHubMode is not null)
+                {
+                    try { PublishAasxForHubMode(); }
+                    catch (Exception ex)
+                    {
+                        AddSimLog($"DSPilot 공유 AASX 재발행 실패 (갱신 계속): {ex.Message}", LogSeverity.Warn);
+                    }
+                }
+
+                // PLC 설정 다이얼로그가 이미 저장하지만, 사용자가 우회로 PlcSettings 만 바꾼 케이스 보강.
+                PlcSettings.Save();
+
+                var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker");
+                if (session.TryWrite())
+                    AddSimLog("Agent 모니터링 갱신 명령 전송 — 새 PLC/AASX 설정 적용 중", LogSeverity.System);
+                else
+                    AddSimLog("Agent 갱신 명령 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
+            }
+            catch (Exception ex)
+            {
+                AddSimLog($"Agent 갱신 전송 중 예외: {ex.Message}", LogSeverity.Error);
+            }
             return;
         }
 
@@ -285,6 +320,9 @@ public partial class SimulationPanelState
     }
 
     private bool CanStartSimulation() =>
-        SimulationCommandFacade.IsAccepted(
+        // Agent 위임 모드는 "전송" 재누름이 갱신 의미라 IsSimulating 가드를 우회.
+        // 그 외에는 기존 정책 그대로 (이중 시작 차단).
+        IsAgentDelegationMode
+        || SimulationCommandFacade.IsAccepted(
             SimulationCommandFacade.DecideStart(IsSimulating, IsSimPaused, IsHomingPhase));
 }

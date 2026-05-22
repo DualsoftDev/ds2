@@ -136,6 +136,52 @@ public class BlueprintService : IDisposable
         ScheduleSave();
     }
 
+    /// <summary>
+    /// 주어진 Flow 목록을 캔버스 비율에 맞는 격자로 자동 배치한다.
+    /// 기존 FlowPlacements 는 모두 제거하고, GridColumns/GridRows 도 자동 재계산하여 덮어쓴다.
+    /// FlowProcessOrder 도 입력 순서로 갱신한다.
+    /// </summary>
+    public void AutoFillPlacements(IReadOnlyList<(Guid FlowId, string FlowName, string SystemName, Guid SystemId)> orderedFlows)
+    {
+        _layout.FlowPlacements.Clear();
+        if (orderedFlows.Count == 0) return;
+
+        var n = orderedFlows.Count;
+        var usableW = _layout.CanvasWidth - _layout.OffsetX - _layout.OffsetRight;
+        var usableH = _layout.CanvasHeight - _layout.OffsetY - _layout.OffsetBottom;
+        if (usableW <= 0) usableW = Math.Max(1, _layout.CanvasWidth);
+        if (usableH <= 0) usableH = Math.Max(1, _layout.CanvasHeight);
+        var aspect = (double)usableW / usableH;
+
+        var cols = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(n * aspect)));
+        var rows = (int)Math.Ceiling((double)n / cols);
+        // 한 줄로 떨어지지 않도록 보정 (cols * rows >= n)
+        while (cols * rows < n) rows++;
+
+        _layout.GridColumns = cols;
+        _layout.GridRows = rows;
+
+        for (int i = 0; i < n; i++)
+        {
+            var f = orderedFlows[i];
+            _layout.FlowPlacements.Add(new FlowPlacement
+            {
+                FlowId = f.FlowId,
+                SystemId = f.SystemId,
+                FlowName = f.FlowName,
+                SystemName = f.SystemName,
+                Col = i % cols,
+                Row = i / cols,
+                ColSpan = 1,
+                RowSpan = 1,
+            });
+        }
+
+        _layout.FlowProcessOrder = orderedFlows
+            .Select(f => new FlowOrderEntry { FlowId = f.FlowId, FlowName = f.FlowName })
+            .ToList();
+    }
+
     public string GetLayoutJson()
     {
         return JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });

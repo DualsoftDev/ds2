@@ -50,6 +50,11 @@
             <span class="material-icons" style="font-size:18px;">delete_sweep</span>
             블럭 모두 지우기
         </button>
+        <button class="btn btn-outlined color-success mr-2" @onclick="FillAllPlacements"
+                disabled="@(_orderedFlows.Count == 0)">
+            <span class="material-icons" style="font-size:18px;">grid_on</span>
+            블럭 모두 채우기
+        </button>
         <button class="btn btn-outlined" @onclick="@(() => Nav.NavigateTo("/"))">
             <span class="material-icons" style="font-size:18px;">dashboard</span>
             대시보드
@@ -591,6 +596,33 @@
         BlueprintService.Layout.FlowPlacements.Clear();
         _isDirty = true;
         await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"블럭 {count}개가 삭제되었습니다.", "info");
+        StateHasChanged();
+    }
+
+    private async Task FillAllPlacements()
+    {
+        if (_orderedFlows.Count == 0) return;
+
+        var existing = BlueprintService.Layout.FlowPlacements.Count;
+        if (existing > 0)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+                "블럭 모두 채우기",
+                $"기존 배치 {existing}개를 모두 제거하고 Flow {_orderedFlows.Count}개를 격자에 자동 배치합니다. 계속하시겠습니까?",
+                "채우기", "취소");
+            if (!confirmed) return;
+        }
+
+        BlueprintService.AutoFillPlacements(_orderedFlows);
+
+        // 자동 계산된 grid 수를 로컬 상태에 동기화
+        _gridColumns = BlueprintService.Layout.GridColumns;
+        _gridRows = BlueprintService.Layout.GridRows;
+        await SyncGridToJs();
+
+        _isDirty = true;
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+            $"Flow {_orderedFlows.Count}개를 {_gridColumns}×{_gridRows} 격자에 배치했습니다.", "success");
         StateHasChanged();
     }
 

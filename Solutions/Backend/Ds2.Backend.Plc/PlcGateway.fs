@@ -4,6 +4,7 @@ open System
 open System.Collections.Concurrent
 open System.Threading
 open System.Threading.Tasks
+open Ds2.Backend.Common
 open Ev2.PLC.Common
 
 /// 게이트웨이 본체. 등록된 모든 PLC 어댑터를 보관하고:
@@ -13,6 +14,15 @@ open Ev2.PLC.Common
 type PlcGateway(config: PlcGatewayConfig) =
 
     static let log = log4net.LogManager.GetLogger("PlcGateway")
+
+    /// PlcVendor → contract string. Promaker/DSPilot UI 에 그대로 노출되는 라벨이라 안정 문자열로 고정.
+    /// 본 파일은 `open Ev2.PLC.Common` 이 위에 있어 `PlcVendor` 가 Ev2 의 동명 타입으로 resolve 된다.
+    /// Ds2.Backend.Plc 의 union 으로 명시 qualify.
+    let vendorLabel (v: Ds2.Backend.Plc.PlcVendor) : string =
+        match v with
+        | Ds2.Backend.Plc.PlcVendor.LsXgi      -> "LsXgi"
+        | Ds2.Backend.Plc.PlcVendor.LsXgk      -> "LsXgk"
+        | Ds2.Backend.Plc.PlcVendor.Mitsubishi -> "Mitsubishi"
 
     let adapters : (PlcConnectionConfig * IPlcConnectorAdapter) list =
         config.Connections
@@ -36,6 +46,26 @@ type PlcGateway(config: PlcGatewayConfig) =
     let reconnectState =
         ConcurrentDictionary<string, struct (DateTime * int)>(StringComparer.OrdinalIgnoreCase)
 
+    /// 어댑터별 현재 상태 스냅샷 — Promaker/DSPilot 가 "PLC 통신 실패" 를 표시하기 위한 contract.
+    /// IsConnected 가 전이된 경우에만 connectionStatusEvent 발화 (flap noise 차단).
+    /// LastError 는 마지막 ConnectAsync 실패 사유(또는 ""). 등록 직후엔 IsConnected=false, LastError="".
+    let statuses : ConcurrentDictionary<string, PlcConnectionStatus> =
+        let d = ConcurrentDictionary<_, _>(StringComparer.OrdinalIgnoreCase)
+        for (cfg, _) in adapters do
+            d.[cfg.Name] <- {
+                Name           = cfg.Name
+                Vendor         = vendorLabel cfg.Vendor
+                IpAddress      = cfg.IpAddress
+                Port           = cfg.Port
+                IsConnected    = false
+                LastError      = ""
+                FailedAttempts = 0
+                AtUtc          = DateTime.UtcNow
+            }
+        d
+
+    let connectionStatusEvent = Event<PlcConnectionStatus>()
+
     let backoffDelay (failedAttempts: int) : TimeSpan =
         match failedAttempts with
         | n when n <= 0 -> TimeSpan.Zero
@@ -49,13 +79,32 @@ type PlcGateway(config: PlcGatewayConfig) =
         | true, struct (lastAttempt, fails) ->
             DateTime.UtcNow - lastAttempt >= backoffDelay fails
 
-    let markConnectResult (name: string) (success: bool) =
+    /// 상태 갱신 + IsConnected 전이가 일어났을 때만 이벤트 발화.
+    /// errorMessage 는 success=false 일 때 사유 라벨. success=true 면 "" 로 reset.
+    let markConnectResult (name: string) (success: bool) (errorMessage: string) =
         let fails =
             match reconnectState.TryGetValue name with
             | true, struct (_, f) -> f
             | _ -> 0
         let nextFails = if success then 0 else fails + 1
         reconnectState.[name] <- struct (DateTime.UtcNow, nextFails)
+
+        match statuses.TryGetValue name with
+        | false, _ -> ()
+        | true, prev ->
+            let next = {
+                prev with
+                    IsConnected    = success
+                    LastError      = if success then "" else (if isNull errorMessage then "" else errorMessage)
+                    FailedAttempts = nextFails
+                    AtUtc          = DateTime.UtcNow
+            }
+            statuses.[name] <- next
+            // 전이가 일어난 경우 (Connected 변화 또는 첫 실패 LastError 등장) 에만 broadcast.
+            // 같은 IsConnected + 같은 LastError 면 noise 라 발화 안 함.
+            if prev.IsConnected <> next.IsConnected
+               || (not success && prev.LastError <> next.LastError) then
+                connectionStatusEvent.Trigger(next)
 
     interface IPlcGateway with
 
@@ -67,11 +116,16 @@ type PlcGateway(config: PlcGatewayConfig) =
                     if ct.IsCancellationRequested then () else
                     try
                         let! ok = adapter.ConnectAsync()
-                        markConnectResult cfg.Name ok
+                        // 사유 라벨: ConnectAsync 가 false 만 반환하면 구체 사유는 어댑터 로그에 있음.
+                        // contract 의 LastError 에는 사용자에게 보일 수 있는 1줄 요약을 채운다.
+                        let err =
+                            if ok then ""
+                            else $"connect failed (vendor={vendorLabel cfg.Vendor}, ip={cfg.IpAddress}:{cfg.Port})"
+                        markConnectResult cfg.Name ok err
                         if ok then log.Info($"PLC connected: {cfg.Name} ({cfg.IpAddress}:{cfg.Port})")
                         else log.Warn($"PLC connect failed: {cfg.Name} — gateway will retry with backoff")
                     with ex ->
-                        markConnectResult cfg.Name false
+                        markConnectResult cfg.Name false ex.Message
                         log.Error($"PLC connect threw for {cfg.Name}: {ex.Message}")
             } :> Task
 
@@ -116,9 +170,12 @@ type PlcGateway(config: PlcGatewayConfig) =
                     if not adapter.IsConnected && shouldAttemptReconnect cfg.Name then
                         try
                             let! ok = adapter.ConnectAsync()
-                            markConnectResult cfg.Name ok
+                            let err =
+                                if ok then ""
+                                else $"reconnect failed (vendor={vendorLabel cfg.Vendor}, ip={cfg.IpAddress}:{cfg.Port})"
+                            markConnectResult cfg.Name ok err
                         with ex ->
-                            markConnectResult cfg.Name false
+                            markConnectResult cfg.Name false ex.Message
                             log.Debug($"PLC reconnect {cfg.Name} threw: {ex.Message}")
                     // 연결 확정된 경우에만 ReadTag 진행 — 끊긴 상태에서 N 개 태그 × per-read timeout
                     // 누적으로 broadcast 가 지연되는 걸 차단.
@@ -150,3 +207,8 @@ type PlcGateway(config: PlcGatewayConfig) =
             |> function
                 | [] -> None
                 | xs -> Some (List.min xs)
+
+        member _.GetConnectionStatuses () =
+            statuses.Values |> Seq.toList
+
+        member _.ConnectionStatusChanged = connectionStatusEvent.Publish

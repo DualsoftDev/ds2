@@ -263,12 +263,14 @@ public partial class SimulationPanelState : ObservableObject
 
     // ── Runtime Mode + Hub ───────────────────────────────────────────
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -283,8 +285,17 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
+    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _isRealPlcConnected;
+
+    /// <summary>Monitoring + 실 PLC 모드 — Promaker.Agent (Windows Service) 가 BackendHost+PLC 를 전담한다.
+    /// 이 모드에서 PLAY 누르면 자체 시뮬이 도는 게 아니라 active.flag 를 쓰고 Agent 에 모니터링을 위임하는
+    /// "1회성 명령 송신" 이라 Stop 토글이 의미 없다 (Agent 는 sticky monitoring — Stop 누른다고 Agent 가 멈추지
+    /// 않음). 따라서 UI 는 Play→Stop 토글 대신 항상 "Agent 전송" 단일 동작으로 노출.</summary>
+    public bool IsAgentDelegationMode =>
+        SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
 
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
