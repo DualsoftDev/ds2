@@ -97,7 +97,8 @@ module SummaryBuilder =
                 .Trim()
 
     /// TextDumper.sanitizedFilename 과 동등한 sanitize — DocSummary.TextDumpPath 박제용 (실제 file 존재 검사 X).
-    let private sanitizedTextDumpRel (docId: int64) (originalPath: string) : string =
+    /// public (PR-H2) — SummaryStore.listPendingSummaries 가 재사용 (sub-agent Minor m2 partial fix).
+    let sanitizedTextDumpRel (docId: int64) (originalPath: string) : string =
         let basename =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath
@@ -109,12 +110,14 @@ module SummaryBuilder =
         sprintf "%s/%d-%s.md" TextDumper.TextSubDirName docId safe
 
     /// 모든 doc enumerate → DocSummary array. 빈 collection → `[||]`.
+    /// **PR-H2 (§11)** — Documents.SummaryText 우선 분기. NULL 시 P1 방법 3 (firstSentence) fallback.
+    /// SummaryText 박제 path = `lighthouse-cli summary-update` (subagent batch 결과) — Step 2b 흐름.
     let build (conn: SqliteConnection) : DocSummary array =
         let results = ResizeArray<DocSummary>()
         use cmd = conn.CreateCommand()
-        // 단일 query 로 doc + 첫 chunk text 결합 — N+1 query 회피 (대형 collection 의 read-only cost 최소).
+        // 단일 query 로 doc + SummaryText + 첫 chunk text 결합 — N+1 query 회피 (대형 collection read-only cost 최소).
         cmd.CommandText <- """
-            SELECT d.Id, d.OriginalPath, d.Title,
+            SELECT d.Id, d.OriginalPath, d.Title, d.SummaryText,
                    (SELECT Text FROM Chunks WHERE DocumentId = d.Id ORDER BY Ordinal, Id LIMIT 1) AS FirstChunk
             FROM Documents d
             ORDER BY d.Id
@@ -124,12 +127,21 @@ module SummaryBuilder =
             let docId = reader.GetInt64 0
             let origPath = reader.GetString 1
             let title = if reader.IsDBNull 2 then None else Some (reader.GetString 2)
-            let firstChunk = if reader.IsDBNull 3 then "" else reader.GetString 3
+            let storedSummary =
+                if reader.IsDBNull 3 then None
+                else
+                    let s = reader.GetString 3
+                    if String.IsNullOrWhiteSpace s then None else Some (s.Trim())
+            let firstChunk = if reader.IsDBNull 4 then "" else reader.GetString 4
+            let summary =
+                match storedSummary with
+                | Some s -> s
+                | None   -> buildSummary title firstChunk origPath
             results.Add {
                 DocId = docId
                 OriginalPath = origPath
                 TextDumpPath = sanitizedTextDumpRel docId origPath
-                Summary = buildSummary title firstChunk origPath
+                Summary = summary
             }
         results.ToArray()
 
