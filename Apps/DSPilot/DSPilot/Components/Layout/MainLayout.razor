@@ -31,14 +31,24 @@
                 <span>데이터 수집 중</span>
             </div>
         }
-        <button class="header-usertag-badge level-@_topAlertLevel @(_totalAlertCount == 0 ? "is-empty" : "")"
+        <button class="header-usertag-badge level-@_topAlertLevel @(_windowTotalCount == 0 ? "is-empty" : "") @(_windowErrorCount > 0 ? "has-error-dot" : "")"
                 @onclick="@(() => Nav.NavigateTo("/user-tags"))"
-                title="UserTag 알림 (Info @_infoCount / Warn @_warnCount / Err @_errorCount)">
-            <span class="material-icons">@(_totalAlertCount == 0 ? "notifications_none" : "notifications_active")</span>
-            @if (_totalAlertCount > 0)
-            {
-                <span class="header-usertag-count">@(_totalAlertCount > 99 ? "99+" : _totalAlertCount.ToString())</span>
-            }
+                title="최근 @(WindowMinutes)분 UserTag 활동: 총 @(_windowTotalCount)건 (Info @_windowInfoCount / Warn @_windowWarnCount / Err @_windowErrorCount)">
+            <span class="material-icons header-usertag-icon">monitoring</span>
+            <svg class="header-usertag-spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+                <polyline points="@_sparkPath" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+            </svg>
+            <span class="header-usertag-breakdown">
+                <span class="header-usertag-chip is-info @(_windowInfoCount == 0 ? "is-zero" : "")" title="Info">
+                    <span class="header-usertag-dot"></span>@FormatCount(_windowInfoCount)
+                </span>
+                <span class="header-usertag-chip is-warning @(_windowWarnCount == 0 ? "is-zero" : "")" title="Warning">
+                    <span class="header-usertag-dot"></span>@FormatCount(_windowWarnCount)
+                </span>
+                <span class="header-usertag-chip is-error @(_windowErrorCount == 0 ? "is-zero" : "")" title="Error">
+                    <span class="header-usertag-dot"></span>@FormatCount(_windowErrorCount)
+                </span>
+            </span>
         </button>
         <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
             <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
@@ -70,11 +80,17 @@
     private string _projectName = "DSPilot";
     private string _currentPath = "/";
 
-    private int _infoCount;
-    private int _warnCount;
-    private int _errorCount;
-    private int _totalAlertCount;
+    private const int WindowMinutes = 60;
+    private const int SparkBuckets = 12;
+    private static readonly TimeSpan WindowRefreshInterval = TimeSpan.FromSeconds(30);
+
+    private int _windowInfoCount;
+    private int _windowWarnCount;
+    private int _windowErrorCount;
+    private int _windowTotalCount;
     private string _topAlertLevel = "none";
+    private string _sparkPath = "0,15 60,15";
+    private System.Threading.Timer? _windowRefreshTimer;
 
     protected override void OnInitialized()
     {
@@ -87,6 +103,11 @@
 
         RefreshAlertCounts();
         AlertService.AlertsChanged += OnAlertsChanged;
+
+        // 윈도우는 시간에 따라 미끄러지므로, 신규 알림 이벤트와 별개로 주기적 재계산이 필요.
+        _windowRefreshTimer = new System.Threading.Timer(
+            _ => InvokeAsync(() => { RefreshAlertCounts(); StateHasChanged(); }),
+            null, WindowRefreshInterval, WindowRefreshInterval);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -113,22 +134,58 @@
 
     private void RefreshAlertCounts()
     {
-        var alerts = AlertService.GetAlerts();
+        // PlcTagLog.DateTime 가 DateTime.Now (Local) 로 기록되므로 비교도 Local 기준.
+        var now = DateTime.Now;
+        var windowStart = now.AddMinutes(-WindowMinutes);
+        var bucketMinutes = (double)WindowMinutes / SparkBuckets;
+        var buckets = new int[SparkBuckets];
+
         int info = 0, warn = 0, err = 0;
-        foreach (var a in alerts)
+        foreach (var a in AlertService.GetAlerts())
         {
+            if (a.Timestamp < windowStart) continue;
             switch (a.LogLevel)
             {
                 case "Error": err++; break;
                 case "Warning": warn++; break;
                 default: info++; break;
             }
+            var idx = (int)((a.Timestamp - windowStart).TotalMinutes / bucketMinutes);
+            if (idx < 0) idx = 0;
+            else if (idx >= SparkBuckets) idx = SparkBuckets - 1;
+            buckets[idx]++;
         }
-        _infoCount = info;
-        _warnCount = warn;
-        _errorCount = err;
-        _totalAlertCount = info + warn + err;
+        _windowInfoCount = info;
+        _windowWarnCount = warn;
+        _windowErrorCount = err;
+        _windowTotalCount = info + warn + err;
         _topAlertLevel = err > 0 ? "error" : warn > 0 ? "warning" : info > 0 ? "info" : "none";
+        _sparkPath = BuildSparkPath(buckets);
+    }
+
+    private static string FormatCount(int n) => n > 99 ? "99+" : n.ToString();
+
+    private static string BuildSparkPath(int[] buckets)
+    {
+        const double width = 60;
+        const double height = 16;
+        const double padY = 1.5;
+        int max = 0;
+        foreach (var v in buckets) if (v > max) max = v;
+        var step = buckets.Length > 1 ? width / (buckets.Length - 1) : 0;
+        var sb = new System.Text.StringBuilder(buckets.Length * 10);
+        for (int i = 0; i < buckets.Length; i++)
+        {
+            double x = i * step;
+            double y = max == 0
+                ? height - padY
+                : padY + (1 - (double)buckets[i] / max) * (height - 2 * padY);
+            if (i > 0) sb.Append(' ');
+            sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(',');
+            sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return sb.ToString();
     }
 
     private void OnDbDataChanged() => InvokeAsync(StateHasChanged);
@@ -172,5 +229,6 @@
         ThemeService.OnThemeChanged -= OnThemeChanged;
         DbService.OnDataChanged -= OnDbDataChanged;
         AlertService.AlertsChanged -= OnAlertsChanged;
+        _windowRefreshTimer?.Dispose();
     }
 }
