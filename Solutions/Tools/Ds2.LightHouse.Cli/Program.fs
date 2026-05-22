@@ -219,6 +219,18 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 let skipped  = results |> Array.filter (fun (_, r) -> match r with | Skipped  _ -> true | _ -> false) |> Array.length
                 let failed   = results |> Array.filter (fun (_, r) -> match r with | Failed   _ -> true | _ -> false) |> Array.length
                 printfn "색인 완료 — ingested=%d skipped=%d failed=%d (total=%d)" ingested skipped failed results.Length
+                // upload 전 검수용 — KeywordExtractor + TextDumper hook (runUpload 와 동일 패턴, meta.json 박제는 안 함).
+                // ingested 만으로 분기하면 fast-skip (mtime/size match) 케이스에서 DB row 있어도 dump skip 되는 결함.
+                // → 항상 호출. DB row 0 이면 dump 0 파일로 자연 종결.
+                // 단일 read-only connection 으로 SQLite open cost 1회 통합.
+                let kwResult, dumpFiles =
+                    let dbPath = SqliteStore.dbPath folder
+                    use conn = SqliteStore.openConnection dbPath true
+                    let kw = KeywordExtractor.extract conn
+                    let dumps = TextDumper.dumpAll conn folder
+                    kw, dumps
+                eprintfn "  keyword 추출 — %d 개 (self-MATCH 통과)" kwResult.Keywords.Length
+                eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
                 0
             finally
                 embedder |> Option.iter (fun e -> e.Dispose())
