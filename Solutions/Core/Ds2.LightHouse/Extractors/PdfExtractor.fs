@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Threading
 open UglyToad.PdfPig
+open UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor
 open Ds2.LightHouse
 
 /// PDF extractor (PdfPig 0.1.14).
@@ -55,15 +56,26 @@ type PdfExtractor() =
                     for i in 1 .. pageCount do
                         ct.ThrowIfCancellationRequested()
                         let page = doc.GetPage(i)
-                        let text =
-                            let raw = page.Text
-                            if isNull raw then "" else raw.Trim()
-                        if text.Length > 0 then
-                            segments.Add {
-                                OutlineIndex = None
-                                RefLocator = sprintf "p=%d" i
-                                Text = text
-                            }
+                        // **CJK 띄어쓰기 손실 fix** — `page.Text` 는 글자 stream raw concat 으로 한글/일본어
+                        // word boundary 손실 (PDF metadata 에 space char 미박제 시). PdfPig 의 DocumentLayoutAnalysis
+                        // `ContentOrderTextExtractor` 는 글자 X/Y 좌표 + reading order 분석으로 word/line 분리 +
+                        // word 사이 공백 자동 박제. 영문은 기존 동작과 동등, CJK 는 어절 단위 띄어쓰기 복원.
+                        // per-page fail-safe — layout 분석은 단순 read 보다 throw 표면 큼 (font metrics null /
+                        // GS state corrupt 등). 한 page 실패가 전체 doc 추출 차단 안 되도록 가드 (§3.16 정합 +
+                        // 아래 image 추출의 per-image try/with 패턴과 정합).
+                        try
+                            let text =
+                                let raw = ContentOrderTextExtractor.GetText page
+                                if isNull raw then "" else raw.Trim()
+                            if text.Length > 0 then
+                                segments.Add {
+                                    OutlineIndex = None
+                                    RefLocator = sprintf "p=%d" i
+                                    Text = text
+                                }
+                        with ex ->
+                            Log.lighthouse.Warn(
+                                sprintf "PdfExtractor: page=%d text 추출 실패 — path=%s, ex=%s" i path ex.Message)
 
                         // Phase 2 task C2 (s6-r13) + C3 RefLocator SSOT 정정 (s6-r14): 페이지 안 image 추출.
                         // PdfPig 의 TryGetPng 은 화이트리스트 외 image (JPX / JBIG2 decode 미지원) 에 대해 false 반환 →
