@@ -166,6 +166,34 @@ public partial class SimulationPanelState
     private bool CanResetSimulation() =>
         SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideReset(IsSimulating));
 
+    /// <summary>"자체 모니터링" 시작 — Agent 위임 대신 Promaker 본체가 5051 을 직접 호스팅한다.
+    /// Hub.SelfHostMonitoring=true 로 표식 후 일반 StartSimulation 흐름을 재사용.
+    /// 시작 실패 시 (Hub.TryStart 가 false) Hub.Stop 의 SelfHostMonitoring=false 가 보장한다.</summary>
+    [RelayCommand(CanExecute = nameof(CanStartSelfMonitoring))]
+    private void StartSelfMonitoring()
+    {
+        Hub.SelfHostMonitoring = true;
+        IsSelfMonitoring = true;
+        StartSimulation();
+        // StartSimulation 이 어떤 게이트(검증/Agent 충돌 등) 로 조기 return 한 경우 IsSimulating 가 false.
+        // 그 때는 자체 모니터링 표식도 되돌린다 — Stop 경유 Hub.Stop 이 안 불릴 수 있음.
+        if (!IsSimulating)
+        {
+            Hub.SelfHostMonitoring = false;
+            IsSelfMonitoring = false;
+        }
+    }
+
+    /// <summary>"자체 모니터링" 정지 — 일반 StopSimulation 호출. Hub.Stop 이 SelfHostMonitoring 을 false 로 리셋.</summary>
+    [RelayCommand(CanExecute = nameof(CanStopSelfMonitoring))]
+    private void StopSelfMonitoring() => StopSimulation();
+
+    private bool CanStartSelfMonitoring() =>
+        IsAgentDelegationMode && !IsSimulating && !IsHomingPhase;
+
+    private bool CanStopSelfMonitoring() =>
+        IsSelfMonitoring && IsSimulating;
+
     private void DisposeSimEngine()
     {
         TryDisposeCurrentEngine("Simulation dispose");

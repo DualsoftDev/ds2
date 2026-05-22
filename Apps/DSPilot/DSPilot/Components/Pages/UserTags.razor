@@ -56,21 +56,20 @@
         </div>
 
         <div class="user-tags-filter-row">
-            <input class="form-field" @bind="_searchText" @bind:event="oninput" placeholder="이름 / 주소 검색..." />
-            <select class="form-field" @bind="_levelFilter">
+            <input class="form-field" @bind="_searchText" @bind:event="oninput" @bind:after="ApplyFiltersAsync" placeholder="이름 / 주소 검색..." />
+            <select class="form-field" @bind="_levelFilter" @bind:after="ApplyFiltersAsync">
                 <option value="">전체 레벨</option>
                 <option value="Info">Info</option>
                 <option value="Warning">Warning</option>
                 <option value="Error">Error</option>
             </select>
-            <select class="form-field" @bind="_systemFilter">
+            <select class="form-field" @bind="_systemFilter" @bind:after="ApplyFiltersAsync">
                 <option value="">전체 System</option>
                 @foreach (var s in _systemOptions)
                 {
                     <option value="@s">@s</option>
                 }
             </select>
-            <button class="btn btn-outlined" @onclick="ApplyFiltersAsync">조회</button>
             <button class="btn btn-outlined" @onclick="ExportCsvAsync" disabled="@(_dataPage.Count == 0)">CSV 내보내기</button>
         </div>
     </section>
@@ -208,14 +207,23 @@
     else
     {
         <section class="card user-tags-panel">
-            <div class="user-tags-panel-header user-tags-section-toggle" @onclick="ToggleDefinitions">
-                <div>
-                    <h6 class="typo-h6">정의된 UserTag (@_definitions.Count)</h6>
-                    <div class="typo-caption user-tags-muted">AASX 의 System 정의를 기반으로 모니터링되는 태그</div>
+            <div class="user-tags-panel-header">
+                <div class="user-tags-section-toggle" @onclick="ToggleDefinitions" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <span class="material-icons" style="font-size:22px;">
+                        @(_showDefinitions ? "expand_more" : "chevron_right")
+                    </span>
+                    <div>
+                        <h6 class="typo-h6">정의된 UserTag (@_definitions.Count, 페이지 @(_definitionsPage + 1) / @DefinitionsMaxPage)</h6>
+                        <div class="typo-caption user-tags-muted">AASX 의 System 정의를 기반으로 모니터링되는 태그. 페이지당 @DefinitionsPageSize 건.</div>
+                    </div>
                 </div>
-                <span class="material-icons" style="font-size:22px;">
-                    @(_showDefinitions ? "expand_more" : "chevron_right")
-                </span>
+                @if (_showDefinitions && _definitions.Count > DefinitionsPageSize)
+                {
+                    <div class="user-tags-alert-controls">
+                        <button class="btn btn-sm btn-outlined" @onclick="PrevDefinitionsPage" disabled="@(_definitionsPage == 0)">이전</button>
+                        <button class="btn btn-sm btn-outlined" @onclick="NextDefinitionsPage" disabled="@(_definitionsPage + 1 >= DefinitionsMaxPage)">다음</button>
+                    </div>
+                }
             </div>
             @if (_showDefinitions)
             {
@@ -232,7 +240,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var d in _definitions)
+                            @foreach (var d in DefinitionsPageView)
                             {
                                 <tr>
                                     <td>@d.SystemName</td>
@@ -252,7 +260,8 @@
 </div>
 
 @code {
-    private const int PageSize = 100;
+    private const int PageSize = 10;
+    private const int DefinitionsPageSize = 10;
 
     private IReadOnlyList<UserTagDefinition> _definitions = Array.Empty<UserTagDefinition>();
     private IReadOnlyList<UserTagAlertRecord> _dataPage = Array.Empty<UserTagAlertRecord>();
@@ -261,13 +270,14 @@
     private IReadOnlyDictionary<string, int> _levelCounts = new Dictionary<string, int>();
     private int _totalCount;
     private int _page;
+    private int _definitionsPage;
     private bool _showDefinitions = true;
 
     // 기간 / 필터 상태
-    private string _periodPreset = "7d";
-    private DateTime _periodStartLocal = DateTime.Now.AddDays(-7);
+    private string _periodPreset = "today";
+    private DateTime _periodStartLocal = DateTime.Now.Date;
     private DateTime _periodEndLocal = DateTime.Now;
-    private string _granularity = "day";
+    private string _granularity = "hour";
     private string _searchText = string.Empty;
     private string _levelFilter = string.Empty;
     private string _systemFilter = string.Empty;
@@ -280,6 +290,9 @@
     private string? _initError;
 
     private int MaxPage => Math.Max(1, (int)Math.Ceiling(_totalCount / (double)PageSize));
+    private int DefinitionsMaxPage => Math.Max(1, (int)Math.Ceiling(_definitions.Count / (double)DefinitionsPageSize));
+    private IEnumerable<UserTagDefinition> DefinitionsPageView =>
+        _definitions.Skip(_definitionsPage * DefinitionsPageSize).Take(DefinitionsPageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -287,7 +300,7 @@
         {
             _definitions = AlertService.GetDefinitions();
             _systemOptions = _definitions.Select(d => d.SystemName).Distinct().OrderBy(s => s).ToList();
-            SetPresetState("7d");
+            SetPresetState("today");
             AlertService.AlertsChanged += OnAlertsChanged;
             await LoadFromDbAsync();
             _needsRedraw = true;
@@ -498,6 +511,18 @@
     }
 
     private void ToggleDefinitions() => _showDefinitions = !_showDefinitions;
+
+    private void PrevDefinitionsPage()
+    {
+        if (_definitionsPage == 0) return;
+        _definitionsPage--;
+    }
+
+    private void NextDefinitionsPage()
+    {
+        if (_definitionsPage + 1 >= DefinitionsMaxPage) return;
+        _definitionsPage++;
+    }
 
     private static string CsvEscape(string value)
     {

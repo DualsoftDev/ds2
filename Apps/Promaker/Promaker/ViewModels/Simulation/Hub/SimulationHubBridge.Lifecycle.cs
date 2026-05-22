@@ -103,6 +103,7 @@ public sealed partial class SimulationHubBridge
     }
 
     /// <summary>Host 띄우기. 분기:
+    ///   Monitoring + 실 PLC + SelfHostMonitoring → Promaker 본체가 5051 직접 호스팅 (Agent 우회).
     ///   Monitoring + 실 PLC → Agent (Windows Service) 가 전담 — active.flag 만 기록 후 클라이언트로 접속.
     ///     Agent 미가용이면 차단 (자체 호스팅 fallback 제거 — "둘 다 모니터링" 사고 회피).
     ///   Control + 실 PLC → 자체 BackendHost.startWithPlcConfig (read/write).
@@ -110,6 +111,37 @@ public sealed partial class SimulationHubBridge
     private bool TryStartHost()
     {
         var isMonitoring = _runtimeMode() == RuntimeMode.Monitoring;
+
+        // ── Monitoring + 실 PLC + 자체 모니터링 선택 → Promaker 직접 호스팅 ──
+        if (isMonitoring && _isRealPlcConnected() && SelfHostMonitoring)
+        {
+            var selfPlcConfig = _buildPlcGatewayConfig(out var selfErrors);
+            if (selfPlcConfig is null)
+            {
+                var msg = "PLC 설정 검증 실패:\n  - " + string.Join("\n  - ", selfErrors);
+                _addSimLog(msg, LogSeverity.Error);
+                _setStatusText("PLC 설정 오류 — 자체 모니터링 시작 중단");
+                return false;
+            }
+            // Agent 와 동시 호스팅 차단 — 같은 머신에서 Agent 가 이미 5051 을 잡고 있으면 포트 충돌.
+            if (IsAgentAvailable && AgentSession.IsActive())
+            {
+                _addSimLog(
+                    "Promaker.Agent 가 이미 5051 을 호스팅 중입니다. " +
+                    "트레이의 'Promaker Agent' 아이콘에서 '모니터링 중지' 후 다시 시도하세요.",
+                    LogSeverity.Error);
+                _setStatusText("Agent 모니터링 활성 — 자체 모니터링 시작 불가");
+                return false;
+            }
+            _plcSettings().Save();
+            _hubHost = BackendHost.startWithPlcConfig(ParsePort(), selfPlcConfig);
+            var ps = _plcSettings();
+            _addSimLog(
+                $"자체 모니터링 시작 (port={ParsePort()}, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port}) — Agent 우회",
+                LogSeverity.System);
+            IsHosting = true;
+            return true;
+        }
 
         // ── Monitoring + 실 PLC → Agent 전담 ──
         if (isMonitoring && _isRealPlcConnected())
@@ -449,6 +481,9 @@ public sealed partial class SimulationHubBridge
         {
             _delegatedToAgent = false;
         }
+
+        // 자체 모니터링은 Stop 과 함께 종료 — sticky 아님 (Promaker 본체 호스팅이므로 프로세스/포트가 닫힘).
+        SelfHostMonitoring = false;
 
         var batchSender = _hubBatchSender;
         _hubBatchSender = null;

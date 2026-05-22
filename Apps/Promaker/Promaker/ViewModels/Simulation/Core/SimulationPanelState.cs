@@ -226,8 +226,11 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     private bool _isSimulating;
 
     [ObservableProperty]
@@ -266,11 +269,13 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
+    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -286,8 +291,10 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
+    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
     private bool _isRealPlcConnected;
 
     /// <summary>Monitoring + 실 PLC 모드 — Promaker.Agent (Windows Service) 가 BackendHost+PLC 를 전담한다.
@@ -296,6 +303,23 @@ public partial class SimulationPanelState : ObservableObject
     /// 않음). 따라서 UI 는 Play→Stop 토글 대신 항상 "Agent 전송" 단일 동작으로 노출.</summary>
     public bool IsAgentDelegationMode =>
         SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
+
+    /// <summary>"자체 모니터링" 실행 중 — Agent 우회, Promaker 본체가 5051 직접 호스팅.
+    /// StartSelfMonitoring 진입 시 true, StopSimulation 시 false (Hub.Stop 도 함께 리셋).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
+    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStopVisible))]
+    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
+    private bool _isSelfMonitoring;
+
+    /// <summary>"자체 모니터링" 시작 버튼 노출 조건 — Agent 위임 모드 + 시뮬 미실행 (Agent 도 자체도 모두 정지).</summary>
+    public bool IsSelfMonitoringStartVisible =>
+        IsAgentDelegationMode && !IsSimulating && !IsSelfMonitoring;
+
+    /// <summary>"자체 모니터링" 정지 버튼 노출 조건 — 자체 모니터링 활성.</summary>
+    public bool IsSelfMonitoringStopVisible => IsSelfMonitoring;
 
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
