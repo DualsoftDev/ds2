@@ -45,7 +45,11 @@ type DsStorePanelApiDefExtensions =
     static member AddApiDefWithProperties
         (store: DsStore, name: string, systemId: Guid) : Guid =
         StoreLog.debug($"name={name}, systemId={systemId}")
+        if System.String.IsNullOrWhiteSpace name then
+            invalidOp "ApiDef 이름은 비어있거나 공백만일 수 없습니다."
         StoreLog.requireSystem(store, systemId) |> ignore
+        if not (Queries.isApiDefNameUniqueInSystem systemId name None store) then
+            invalidOp $"같은 System 내에 이미 '{name}' ApiDef가 존재합니다."
         let apiDef = ApiDef(name, systemId)
         store.WithTransaction($"ApiDef 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.ApiDefs, apiDef))
