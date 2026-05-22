@@ -73,6 +73,30 @@ module MappingConfig =
     }
 
     [<CLIMutable>]
+    type UserTagRuleDto = {
+        Name: string
+        Enabled: Nullable<bool>
+        LogLevel: string
+        ValueType: string
+        MatchOp: string
+        MatchValue: string
+        Directions: string array
+        AddressPatterns: string array
+        NamePatterns: string array
+        CommentPatterns: string array
+        ExcludeAddressPatterns: string array
+        ExcludeNamePatterns: string array
+        ExcludeCommentPatterns: string array
+    }
+
+    [<CLIMutable>]
+    type UserTagRulesDto = {
+        Description: string
+        Enabled: Nullable<bool>
+        Rules: UserTagRuleDto array
+    }
+
+    [<CLIMutable>]
     type InputMatchingConfigDto = {
         Common: CommonDto
         Vendors: System.Collections.Generic.Dictionary<string, VendorDto>
@@ -80,6 +104,7 @@ module MappingConfig =
         ExplicitMappings: ExplicitMappingDto array
         FilterExclusions: FilterExclusionsDto
         FlowInclusions: FlowInclusionsDto
+        UserTagRules: UserTagRulesDto
         // 나머지 (ApiNaming / WorkNaming / NodeConnectionRules / DeviceNaming / DisplayNaming)
         // 는 향후 단계에서 추가 — 현재는 일단 raw JsonElement 로 보존.
         ApiNaming: JsonElement

@@ -946,33 +946,77 @@ let ``formatArrowType — 모든 ArrowType enum 값이 SSOT 명시 케이스로 
     Assert.True(unknown.IsEmpty, sprintf "formatArrowType Unknown fallback 진입: %A" (Set.toList unknown))
     Assert.True(Set.isSubset actual expected, sprintf "SSOT 외 직렬화: %A" (Set.toList (Set.difference actual expected)))
 
-// ─── review C2 회귀 — patch.add 의 system 키 없는 entry silent drop ────────────
+// ─── patch.add child 추가 — 기존 active system 재사용 ─────────────────────────
 
 [<Fact>]
-let ``patch.add 의 'in:' + 자식 키 entry → silent drop 대신 diagnostic (review C2)`` () =
-    // review C2: prompt 는 LLM 에게 `in: Controller.Run.works / Zone4: {...}` 형식의 Work 추가를
-    // 유효 schema 로 가르치고 있었으나, dispatcher 의 patch.add filter 가 system 키 없는 entry 를
-    // silent drop 했음. LLM 이 prompt 그대로 발행 시 Zone4 가 store 에 미생성되고 [plan] queued 로
-    // "성공" 응답 — silent no-op + 후속 arrows.add 가 Zone4 missing 으로 부분 실패. 본 fix 는
-    // silent drop 대신 친절 에러로 안내 (PoC scope 명시).
-    let json = """
-{
-  "protocol": "promaker/v0",
-  "patch": {
-    "add": [
-      { "in": "Controller.Run.works", "Zone4": { "calls": [] } }
-    ]
-  }
-}
+let ``patch.add — in System 의 flow 키는 기존 active 아래 Flow 를 추가`` () =
+    let baseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flow Run:
+      works:
+        Existing: { calls: [] }
 """
-    use jdoc = System.Text.Json.JsonDocument.Parse(json)
     let store = DsStore()
-    let plan = ImportPlanBuilder()
-    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
-    Assert.True(diag.HasErrors, "system 키 없는 patch.add entry 는 친절 에러로 reject 되어야")
-    let msg = diag.Format()
-    Assert.Contains("patch.add", msg)
-    Assert.Contains("PoC 미지원", msg)
+    let _ = parseApplyCommit store baseYaml
+
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      flow Inspection:
+        works:
+          Check: { calls: [] }
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, diag.Format())
+
+    let addSystemCount =
+        plan.Operations
+        |> Seq.filter (function AddSystem _ -> true | _ -> false)
+        |> Seq.length
+    let activeLinkCount =
+        plan.Operations
+        |> Seq.filter (function LinkSystemToProject(_, _, true) -> true | _ -> false)
+        |> Seq.length
+    Assert.Equal(0, addSystemCount)
+    Assert.Equal(0, activeLinkCount)
+
+    store.ApplyImportPlan("patch add flow", plan.Build())
+    let project = Queries.allProjects store |> List.head
+    let activeSystems = Queries.activeSystemsOf project.Id store
+    Assert.Single(activeSystems) |> ignore
+    Assert.Equal("Controller", activeSystems.Head.Name)
+    let flows = Queries.flowsOf activeSystems.Head.Id store |> List.map (fun f -> f.Name) |> Set.ofList
+    Assert.Equal<Set<string>>(Set.ofList [ "Run"; "Inspection" ], flows)
+
+[<Fact>]
+let ``patch.add — in Flow.works 는 기존 Flow 아래 Work 와 Call 을 추가`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller.Run.works
+      Inspect:
+        calls: [Cyl1.ADV]
+"""
+    let _ = parseApplyCommit store patchYaml
+
+    let project = Queries.allProjects store |> List.head
+    let activeSystems = Queries.activeSystemsOf project.Id store
+    Assert.Single(activeSystems) |> ignore
+    let run = Queries.flowsOf activeSystems.Head.Id store |> List.find (fun f -> f.Name = "Run")
+    let inspect = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Inspect")
+    let calls = Queries.callsOf inspect.Id store
+    Assert.Single(calls) |> ignore
+    Assert.Equal("Cyl1.ADV", calls.Head.Name)
 
 // ─── review C3 회귀 — useAllowDup 가 arrow parse 실패와 부재 구분 ────────────
 

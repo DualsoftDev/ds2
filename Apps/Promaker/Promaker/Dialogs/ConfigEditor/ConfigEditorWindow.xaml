@@ -1320,6 +1320,32 @@
                 </Grid>
             </TabItem>
 
+            <!-- Tab 6: Raw JSON -->
+            <TabItem Header="Raw JSON" Style="{StaticResource TabItemStyle}">
+                <Grid Margin="12" Background="{DynamicResource SecondaryBackgroundBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="전체 input-matching-config.json을 직접 편집합니다. UserTagRules 같은 신규 섹션은 이 탭에서 수정하세요."
+                               Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,0,0,8"
+                               TextWrapping="Wrap"/>
+
+                    <TextBox Grid.Row="1"
+                             Text="{Binding RawJson, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource KeywordTextBoxStyle}"
+                             AcceptsReturn="True"
+                             AcceptsTab="True"
+                             TextWrapping="NoWrap"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             HorizontalScrollBarVisibility="Auto"
+                             VerticalScrollBarVisibility="Auto"/>
+                </Grid>
+            </TabItem>
+
         </TabControl>
 
         <!-- Footer -->
