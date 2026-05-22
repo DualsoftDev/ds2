@@ -143,10 +143,11 @@ module CsvRoundTripTests =
         let retDef = addApiDef store "RET" devSys.Id
         retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
 
-        // Flow1.NewWork: dev.RET, dev.ADV, dev.ADV (고급탭 추가)
+        // Flow1.NewWork: dev.RET, dev.ADV, (dev.ADV Reference) — 같은 (devAlias, apiName) 재호출은 Reference Call.
+        // 정책: Core Add* 진입은 원본 중복 reject — 호출자가 AddReferenceCallToWork 로 명시적 처리.
         store.AddCallWithLinkedApiDefs(w1.Id, "dev", "RET", [retDef.Id]) |> ignore
-        store.AddCallWithLinkedApiDefs(w1.Id, "dev", "ADV", [advDef.Id]) |> ignore
-        store.AddCallWithLinkedApiDefs(w1.Id, "dev", "ADV", [advDef.Id]) |> ignore
+        let advCallW1 = store.AddCallWithLinkedApiDefs(w1.Id, "dev", "ADV", [advDef.Id])
+        store.AddReferenceCallToWork(advCallW1, w1.Id) |> ignore
 
         // Flow1.NewWork1: dev1.ADV (DeviceAlias 변경 — 같은 System), dev.RET, dev.ADV
         store.AddCallWithLinkedApiDefs(w2.Id, "dev1", "ADV", [advDef.Id]) |> ignore
