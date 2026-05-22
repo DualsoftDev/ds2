@@ -817,3 +817,131 @@ let ``PR-D — 1MB cap + truncate footer`` () =
         Assert.True(bytes <= 1048576 + 200, sprintf "size (%d) > 1MB cap + footer 여유" bytes)
         Assert.Contains("fulltext truncated at 1MB", r)
     finally cleanupDirs [ storageRoot ]
+
+
+/// **PR-H2 (todo-lighthouse-index-summary.md §11)** — attachment_summary fixture.
+/// storageRoot + Registry entry + summary.md 박제 후 호출.
+let private newCollectionWithSummary
+    (storageRoot: string)
+    (collGuid: string)
+    (displayName: string)
+    (markdown: string)
+    : unit =
+    let collDir = AttachmentResolver.collectionPath storageRoot collGuid displayName
+    Directory.CreateDirectory collDir |> ignore
+    let kbDir = Path.Combine(collDir, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName)
+    Directory.CreateDirectory kbDir |> ignore
+    File.WriteAllText(Path.Combine(kbDir, "summary.md"), markdown, Encoding.UTF8)
+
+
+[<Fact>]
+let ``PR-H2 — 정상 summary 반환 (summary.md 존재)`` () =
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-prh2-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        let collGuid = Guid.NewGuid().ToString("D")
+        let displayName = "summdoc"
+        let body = "# Collection Summary\n\n| 원본 | text dump | 요약 |\n|---|---|---|\n| a.txt | text/1-a.md | A 본문 요약 |"
+        upsertPrDEntry storageRoot collGuid displayName |> fun t -> t.Wait()
+        newCollectionWithSummary storageRoot collGuid displayName body
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| collGuid |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        let result = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        Assert.Contains("# Collection Summary", result)
+        Assert.Contains("A 본문 요약", result)
+    finally cleanupDirs [ storageRoot ]
+
+
+[<Fact>]
+let ``PR-H2 — collectionId null/empty → empty + audit warn`` () =
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-prh2-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| "any" |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        let r1 = AttachmentTools.attachment_summary(accessor, reg, cfg, null)
+        Assert.Equal("", r1)
+        let r2 = AttachmentTools.attachment_summary(accessor, reg, cfg, "  ")
+        Assert.Equal("", r2)
+    finally cleanupDirs [ storageRoot ]
+
+
+[<Fact>]
+let ``PR-H2 — collection 가 session active 셋 밖 → empty + audit warn`` () =
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-prh2-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        let activeColl = Guid.NewGuid().ToString("D")
+        let otherColl = Guid.NewGuid().ToString("D")
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| activeColl |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, otherColl)
+        Assert.Equal("", r)
+    finally cleanupDirs [ storageRoot ]
+
+
+[<Fact>]
+let ``PR-H2 — Registry 미존재 → empty + audit warn`` () =
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-prh2-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        let collGuid = Guid.NewGuid().ToString("D")
+        // Registry 미upsert — tryFindById None 분기
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| collGuid |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        Assert.Equal("", r)
+    finally cleanupDirs [ storageRoot ]
+
+
+[<Fact>]
+let ``PR-H2 — legacy collection (summary.md 부재) → empty + audit info`` () =
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-prh2-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        let collGuid = Guid.NewGuid().ToString("D")
+        let displayName = "legacy"
+        upsertPrDEntry storageRoot collGuid displayName |> fun t -> t.Wait()
+        // 의도적으로 summary.md 미박제 — Registry 만 있고 file 없음 (PR-H1 이전 색인 시뮬레이션)
+        let collDir = AttachmentResolver.collectionPath storageRoot collGuid displayName
+        Directory.CreateDirectory collDir |> ignore
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| collGuid |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        Assert.Equal("", r)
+    finally cleanupDirs [ storageRoot ]
