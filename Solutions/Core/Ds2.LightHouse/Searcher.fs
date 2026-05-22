@@ -34,14 +34,38 @@ module Searcher =
     [<Literal>]
     let HybridFetchMultiplier = 2
 
-    /// FTS5 query 빌드 — 공백/탭으로 토큰화 후 각 토큰을 phrase 로 감쌈 (review M1).
+    /// FTS5 query 빌드 — **정책 #3 (trigram recall-bias)**. trigram tokenizer
+    /// (`ChunksFts USING fts5(..., tokenize='trigram')`) 정합 — phrase 길이 < 3 시 매칭 0건.
     ///
-    /// 통상 검색 의도 = 여러 단어 implicit AND. 단일 phrase quoting 은 "정확 연속" 만 매칭 → 의도 어긋남.
-    /// 토큰 안 `"` 는 `""` escape (FTS5 syntax). 한국어 trigram 은 phrase 가 자연 (3-gram 단위).
+    /// **결합 형식**: 다음 세 군의 OR 결합 — 공백 손실 / 공백 보존 / 개별 token (≥3) 동시 cover.
+    /// 1. `phraseNoWs` = whitespace 전부 제거 phrase (e.g. PPT→PDF 표 chunk `공장개요...` 매칭)
+    /// 2. `phraseRaw`  = whitespace 단일 ASCII 공백 normalize 한 phrase (자연어 본문 매칭).
+    ///                   `\s+` collapse 로 다중공백/탭/개행 입력 시 phraseNoWs 와 비대칭 매칭 회피.
+    /// 3. `tokens`     = 공백 split 한 개별 token (length 기반 필터는 통합 filter 단계에서 적용)
+    ///
+    /// **token length 정의**: .NET `string.Length` = UTF-16 code unit. 한국어 2 음절 (e.g. `공장`) =
+    /// Length 2 → 길이 < 3 필터에서 제외. 한자 / 영문 / 숫자도 동일 규칙.
+    ///
+    /// 채택된 후보 0개 (모두 길이 < 3) → 빈 string 반환 → caller (`runBm25`) 가 BM25 skip 분기 →
+    /// hybrid path 의 vector 만 fallback. phrase 내부 `"` 는 `""` escape (FTS5 syntax).
+    ///
+    /// recall ↑ + rank 둔감 trade-off → RRF (vec0 결합) 이 정렬 보강. 기존 token-AND 정책 대비 b chunk 의
+    /// 단일 token 매칭도 hit 후보 진입.
     let private buildFtsQuery (raw: string) : string =
-        raw.Split([| ' '; '\t'; '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.map (fun token -> "\"" + token.Replace("\"", "\"\"") + "\"")
-        |> String.concat " "
+        // caller (`Searcher.search`) 가 이미 동일 가드 박제 → 본 분기 통상 도달 불가능.
+        // private 함수 unit-safety 차원 박제 — future caller 추가 / 직접 단위 테스트 시 NRE 회피.
+        if String.IsNullOrWhiteSpace raw then "" else
+        let escapePhrase (s: string) = "\"" + s.Replace("\"", "\"\"") + "\""
+        let phraseNoWs = System.Text.RegularExpressions.Regex.Replace(raw, @"\s+", "")
+        let phraseRaw  = System.Text.RegularExpressions.Regex.Replace(raw.Trim(), @"\s+", " ")
+        let tokens     = phraseRaw.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        let candidates =
+            [ phraseNoWs; phraseRaw; yield! tokens ]
+            |> List.filter (fun p -> p.Length >= 3)
+            |> List.distinct
+        match candidates with
+        | [] -> ""
+        | xs -> xs |> List.map escapePhrase |> String.concat " OR "
 
     /// "<kbIdx>:<docId>" → (kbIdx, docId) parse. parse 실패 시 None.
     let private parseFileId (fileId: string) : (int * int64) option =
@@ -205,6 +229,9 @@ module Searcher =
 
     /// **Phase 4 (s6-r35)** — BM25 UNION ALL 결과를 dedup key (`<kbIdx>:<ChunkId>`) 순서로 반환.
     /// 반환 = ordered list of (key, hit). rank = list index.
+    ///
+    /// **buildFtsQuery 결과 빈 string** (정책 #3 의 모든 phrase/token 길이 < 3) 시 BM25 skip — 빈 list 반환.
+    /// FTS5 가 빈 MATCH 인자에 syntax error 던지는 것을 회피 + hybrid path 의 vector 만 fallback.
     let private runBm25
         (conn: SqliteConnection)
         (aliases: string array)
@@ -213,6 +240,8 @@ module Searcher =
         (limit: int)
         (maxExcerptTokens: int)
         : (string * SearchHit) list =
+        let ftsQuery = buildFtsQuery queryText
+        if String.IsNullOrEmpty ftsQuery then [] else
         let selects =
             aliases
             |> Array.mapi (fun i alias -> buildCollectionSelect i alias fileIdFilter)
@@ -227,7 +256,7 @@ module Searcher =
             """ unionSql
         use cmd = conn.CreateCommand()
         cmd.CommandText <- sql
-        cmd.Parameters.AddWithValue("$q", buildFtsQuery queryText) |> ignore
+        cmd.Parameters.AddWithValue("$q", ftsQuery) |> ignore
         cmd.Parameters.AddWithValue("$limit", limit) |> ignore
         let acc = ResizeArray<string * SearchHit>()
         use reader = cmd.ExecuteReader()

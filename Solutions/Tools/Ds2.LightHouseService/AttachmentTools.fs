@@ -219,7 +219,7 @@ type AttachmentTools() =
         (
             accessor: IHttpContextAccessor,
             registry: ISessionRegistry,
-            [<Description("Search query text (whitespace-separated tokens, implicit AND)")>]
+            [<Description("Search query text. Korean trigram FTS5 — BM25 path requires phrase candidate length >= 3 (phraseNoWs/phraseRaw/tokens). Shorter queries (e.g. 2-char) fall back to vector-only in hybrid mode. Multiple terms OR-combined for recall; ranking via BM25 + vector RRF.")>]
             query: string,
             [<Description("Max results to return (default 10)")>]
             topK: int,
@@ -513,3 +513,62 @@ type AttachmentTools() =
                                     if read = buf.Length then System.Text.Encoding.UTF8.GetString(buf)
                                     else System.Text.Encoding.UTF8.GetString(buf, 0, read)
                                 body + "\n\n---\n\n[fulltext truncated at 1MB — use attachment_search for specific ref]\n"
+
+    /// **PR-H2 (todo-lighthouse-index-summary.md §11)** — collection 의 doc-level summary table 반환.
+    ///
+    /// PR-H1 의 `SummaryBuilder` 가 색인 시 생성한 `<collection>/.lighthouse-kb/summary.md` 파일을 stream.
+    /// LLM 이 *collection 안 doc list + 1줄 요약* 인지 필요 시 단일 호출로 흡수 — `attachment_search` /
+    /// `attachment_fulltext` 호출 path 의 file narrowing 정보원.
+    ///
+    /// **size 가드**: 응답 ≤ 1MB (UTF-8 byte). 정상 summary.md 은 doc 1000 개도 ~250KB 이내 — 1MB 는 외부
+    /// source / 비정상 박제 backstop.
+    ///
+    /// **legacy collection** (summary.md 부재 — PR-H1 이전 색인): empty string + audit Info.
+    /// 사용자 명시 "재업로드" 시 색인 갱신 (parent D5 + PR-D 패턴 정합).
+    [<McpServerTool>]
+    [<Description("Read doc-level summary table of a collection (PR-H2). Returns markdown table of all documents with 1-line summaries — use as on-demand collection overview for file narrowing before attachment_search / attachment_fulltext.")>]
+    static member attachment_summary
+        (
+            accessor: IHttpContextAccessor,
+            registry: ISessionRegistry,
+            cfg: ServiceConfig,
+            [<Description("Collection GUID from attachment_list (active session 셋 안 의무)")>]
+            collectionId: string
+        ) : string =
+        let _ = registry
+        let s = activeSession accessor
+        if isNull collectionId || String.IsNullOrWhiteSpace collectionId then
+            Log.audit.Warn(sprintf "PR-H2: attachment_summary collectionId 누락 — session=%s" s.Token)
+            ""
+        elif not (s.CollectionIds |> Array.contains collectionId) then
+            Log.audit.Warn(sprintf "PR-H2: attachment_summary collection 가 session active 셋 밖 — coll=%s session=%s"
+                (Log.sanitizeForLog collectionId) s.Token)
+            ""
+        else
+            let storageRoot = Config.expandEnv cfg.StorageRoot
+            match Registry.tryFindById storageRoot collectionId with
+            | None ->
+                Log.audit.Warn(sprintf "PR-H2: attachment_summary collection 미존재 — coll=%s" (Log.sanitizeForLog collectionId))
+                ""
+            | Some entry ->
+                let collRoot = AttachmentResolver.collectionPath storageRoot entry.Id entry.DisplayName
+                // **review m-6 fix (r4)**: SummaryBuilder.SummaryFileName SSOT 참조 (literal 사본 제거).
+                let summaryPath =
+                    Path.Combine(collRoot, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName,
+                                 Ds2.LightHouse.SummaryBuilder.SummaryFileName)
+                if not (File.Exists summaryPath) then
+                    Log.audit.Info(sprintf "PR-H2: attachment_summary legacy collection (summary.md 부재) — coll=%s" collectionId)
+                    ""
+                else
+                    let fileInfo = FileInfo summaryPath
+                    let maxBytes = 1048576L
+                    if fileInfo.Length <= maxBytes then
+                        File.ReadAllText(summaryPath, System.Text.Encoding.UTF8)
+                    else
+                        use stream = File.OpenRead summaryPath
+                        let buf = Array.zeroCreate<byte> (int maxBytes)
+                        let read = stream.Read(buf, 0, buf.Length)
+                        let body =
+                            if read = buf.Length then System.Text.Encoding.UTF8.GetString(buf)
+                            else System.Text.Encoding.UTF8.GetString(buf, 0, read)
+                        body + "\n\n---\n\n[summary truncated at 1MB — collection has unusually many docs]\n"
