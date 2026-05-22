@@ -134,6 +134,44 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 
 7. **잔여 확인** — `list-pending-captions` 재호출이 빈 array 반환할 때만 Step 3 진입 허용 (서버 측 caption-only patch endpoint 부재).
 
+### Step 2b — summary-fill (skill orchestration, todo-lighthouse-index-summary.md §11 PR-H2)
+
+caption-fill 후 진입. doc-level 1줄 summary 를 subagent batch 로 박제 (Documents.SummaryText). Step 2 caption-fill 의 동형 패턴:
+
+1. **summary-pending fetch**:
+   ```powershell
+   & "<cli-path>" list-pending-summaries "<folder>"
+   ```
+   stdout JSON array (각 row = `{docId, originalPath, textDumpPath}` camelCase).
+
+2. **threshold 분기** (N = array length):
+   - **N = 0**: empty batch — Step 2b 자체 skip (이미 모든 doc 의 summary 박제됨, 또는 zero-cost fallback 으로 충분).
+   - **1 ≤ N ≤ 60**: 자동 dispatch. caption 보다 doc 단위 batch 가 가벼움 (text dump 1개당 ≤ 512KB) — 잠정 K=2, P=4.
+   - **N > 60**: confirm prompt — `Doc {N}개 summary. 예상 wall-clock {N/(K*P)*추정시간}분. 진행?`
+
+3. **summary-prompt fetch** (1회):
+   ```powershell
+   & "<cli-path>" print-summary-prompt
+   ```
+
+4. **subagent dispatch** — pending array 를 K=2 단위로 chunking, P=4 parallel `Agent` 호출:
+   - `subagent_type = "general-purpose"`.
+   - 각 agent prompt 안 명시:
+     - text dump file path = `<folder>/.lighthouse-kb/<textDumpPath>` — **Read 도구로 read 후 처리** (전문 본문 흡수).
+     - summary prompt = Step 2b-3 의 fetch 결과 그대로 복사.
+     - 출력 형식: "summary 한 문장 (한국어 80~120자) 만. 본문 echo 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
+   - `max_output_tokens=300` 가드. parse 실패 시 per-doc max 2 attempts retry.
+
+5. **batch JSON 박제** — 모든 round 의 successful row 를 단일 array 로 모아 임시 파일 (e.g. `<folder>/.lighthouse-kb/summary-batch.json`).
+
+6. **summary-update**:
+   ```powershell
+   & "<cli-path>" summary-update "<folder>" "<summary-batch.json>"
+   ```
+   단일 transaction 안 N 회 UPDATE → atomic commit. empty batch 시 exit 0 no-op.
+
+7. **잔여 확인** — `list-pending-summaries` 재호출이 빈 array 반환할 때만 Step 3 진입 권장.
+
 ### Step 3 — upload (CLI)
 
 ```powershell
@@ -142,6 +180,7 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
 
 - 이 시점 `LIGHTHOUSE_VLM_API_KEY` 미박제여도 caption 이 이미 박제됨 → `--force-without-image-caption` 자동 박제 의무. 또는 별 entry (follow-up) 로 upload-only path 박제.
 - **임시**: Step 1 산출물 wipe 회피 위해, `runUpload` 가 in-place 색인을 재수행하지 않도록 별 upload-only entry 가 필요 (follow-up phase). 현재는 Step 3 진입 시 `LIGHTHOUSE_VLM_API_KEY` 가 없으면 `--force-without-image-caption` 으로 호출하여 재색인 시 caption noop → 기존 caption 보존 (DB 이미 박제).
+- summary 측은 `Documents.SummaryText` 보존 — re-index 가 fast-skip path 면 column 자연 유지.
 
 ### concurrent SQLite writer 회피
 
