@@ -79,8 +79,8 @@ module SummaryBuilder =
     /// summary 1줄 = 첫 chunk 의 의미 단위 prefix, 최종 fallback = basename (확장자 제거).
     /// **Title 무시** — PDF Information.Title 은 PowerPoint default ("슬라이드 1"), Word default ("Microsoft Word - ..."),
     /// "Untitled" 등 무의미 default 가 대부분. P2 진입 시 subagent 가 Title + Summary 결합 박제 검토.
-    /// title 인자는 미사용 (signature 보존 — P2 진입 시 활용 path).
-    let private buildSummary (_title: string option) (firstChunkText: string) (originalPath: string) : string =
+    /// **review G fix (r4)**: dead _title 인자 제거 (YAGNI). 향후 도입 시 그 PR 에서 추가.
+    let private buildSummary (firstChunkText: string) (originalPath: string) : string =
         let s = firstSentence firstChunkText
         if s.Length > 0 then s
         elif not (String.IsNullOrEmpty originalPath) then Path.GetFileNameWithoutExtension originalPath
@@ -96,18 +96,11 @@ module SummaryBuilder =
                 .Replace("\r", " ")
                 .Trim()
 
-    /// TextDumper.sanitizedFilename 과 동등한 sanitize — DocSummary.TextDumpPath 박제용 (실제 file 존재 검사 X).
-    /// public (PR-H2) — SummaryStore.listPendingSummaries 가 재사용 (sub-agent Minor m2 partial fix).
+    /// DocSummary.TextDumpPath 박제용 (실제 file 존재 검사 X).
+    /// **review F fix (r4)**: `TextDumper.sanitizedFilename` SSOT 재사용 (사본 박제 제거). drift 시 cross-tool
+    /// inconsistency (attachment_summary 의 textDumpPath ↔ attachment_fulltext 의 docId 매칭 fail) 차단.
     let sanitizedTextDumpRel (docId: int64) (originalPath: string) : string =
-        let basename =
-            if String.IsNullOrEmpty originalPath then "untitled"
-            else Path.GetFileNameWithoutExtension originalPath
-        let sb = StringBuilder(basename.Length)
-        for ch in basename do
-            if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
-            else sb.Append '_' |> ignore
-        let safe = if sb.Length = 0 then "untitled" else sb.ToString()
-        sprintf "%s/%d-%s.md" TextDumper.TextSubDirName docId safe
+        sprintf "%s/%s" TextDumper.TextSubDirName (TextDumper.sanitizedFilename docId originalPath)
 
     /// 모든 doc enumerate → DocSummary array. 빈 collection → `[||]`.
     /// **PR-H2 (§11)** — Documents.SummaryText 우선 분기. NULL 시 P1 방법 3 (firstSentence) fallback.
@@ -116,8 +109,9 @@ module SummaryBuilder =
         let results = ResizeArray<DocSummary>()
         use cmd = conn.CreateCommand()
         // 단일 query 로 doc + SummaryText + 첫 chunk text 결합 — N+1 query 회피 (대형 collection read-only cost 최소).
+        // **review G fix (r4)**: SELECT Title 제거 (dead readout) — buildSummary 가 Title 인자 미사용.
         cmd.CommandText <- """
-            SELECT d.Id, d.OriginalPath, d.Title, d.SummaryText,
+            SELECT d.Id, d.OriginalPath, d.SummaryText,
                    (SELECT Text FROM Chunks WHERE DocumentId = d.Id ORDER BY Ordinal, Id LIMIT 1) AS FirstChunk
             FROM Documents d
             ORDER BY d.Id
@@ -126,17 +120,16 @@ module SummaryBuilder =
         while reader.Read() do
             let docId = reader.GetInt64 0
             let origPath = reader.GetString 1
-            let title = if reader.IsDBNull 2 then None else Some (reader.GetString 2)
             let storedSummary =
-                if reader.IsDBNull 3 then None
+                if reader.IsDBNull 2 then None
                 else
-                    let s = reader.GetString 3
+                    let s = reader.GetString 2
                     if String.IsNullOrWhiteSpace s then None else Some (s.Trim())
-            let firstChunk = if reader.IsDBNull 4 then "" else reader.GetString 4
+            let firstChunk = if reader.IsDBNull 3 then "" else reader.GetString 3
             let summary =
                 match storedSummary with
                 | Some s -> s
-                | None   -> buildSummary title firstChunk origPath
+                | None   -> buildSummary firstChunk origPath
             results.Add {
                 DocId = docId
                 OriginalPath = origPath

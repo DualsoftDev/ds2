@@ -81,6 +81,20 @@ let ``updateSummaryBatch — empty batch no-op (transaction 미생성)`` () =
 
 
 [<Fact>]
+let ``updateSummaryBatch — 환각 docId 시 0 반환 (review B fix, r4)`` () =
+    withTempDir (fun dir ->
+        writeFile dir "a.txt" "A 본문" |> ignore
+        indexThen dir (fun conn ->
+            // 실제 docId = 1L (단일 doc), 환각 docId 999L 시도 — DB 의 UPDATE WHERE Id=999 는 0 row affected.
+            // n <- n + 1 (구 박제) 결함 시 1 반환, n <- n + ExecuteNonQuery() (r4 fix) 시 0 반환.
+            let n = SummaryStore.updateSummaryBatch conn [ (999L, "환각 doc 요약") ]
+            Assert.Equal(0, n)
+            // 정상 docId + 환각 docId 혼합 시 실제 affected row 만 count (1 + 0 = 1)
+            let n2 = SummaryStore.updateSummaryBatch conn [ (1L, "정상 요약"); (888L, "환각") ]
+            Assert.Equal(1, n2)))
+
+
+[<Fact>]
 let ``updateSummaryBatch — 다중 row atomic commit`` () =
     withTempDir (fun dir ->
         writeFile dir "a.txt" "A 본문" |> ignore

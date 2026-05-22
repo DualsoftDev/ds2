@@ -71,8 +71,9 @@ module SummaryStore =
                 """
                 cmd.Parameters.AddWithValue("$id",   docId)   |> ignore
                 cmd.Parameters.AddWithValue("$text", summary) |> ignore
-                cmd.ExecuteNonQuery() |> ignore
-                n <- n + 1
+                // **review B fix**: 시도 횟수 (n + 1) 가 아닌 실제 affected row 수 반환. 환각 docId
+                // (DB 에 없는 Id) 입력 시 silent 0 update — 호출자가 진단할 수 있도록 정확 보고.
+                n <- n + cmd.ExecuteNonQuery()
             tx.Commit()
             n
 

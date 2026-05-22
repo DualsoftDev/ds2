@@ -229,8 +229,9 @@ module ImageStore =
                 cmd.Parameters.AddWithValue("$text",  text) |> ignore
                 cmd.Parameters.AddWithValue("$model", model) |> ignore
                 cmd.Parameters.AddWithValue("$at",    DateTime.UtcNow.ToString("o")) |> ignore
-                cmd.ExecuteNonQuery() |> ignore
-                n <- n + 1
+                // **review B fix** (PR-H r4 review): 시도 횟수 (n + 1) 가 아닌 실제 affected row 수 반환.
+                // 환각 hash (DB 에 없는 ImageHash) 입력 시 silent 0 update — 호출자가 진단할 수 있도록 정확 보고.
+                n <- n + cmd.ExecuteNonQuery()
             tx.Commit()
             n
 
