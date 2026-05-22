@@ -8,16 +8,16 @@ open Microsoft.Data.Sqlite
 /// `ImageStore.listPendingCaptions` / `updateCaptionBatch` (caption-fill, Step 2) 의 동형 패턴 —
 /// SummaryText 가 NULL 인 doc 만 enumerate + subagent batch 결과 단일 transaction UPSERT.
 ///
-/// CLI entry mapping (Step 2b "summary-fill"):
+/// CLI entry mapping (Step 1-b "summary-fill"):
 ///   - `lighthouse-cli list-pending-summaries <folder>` → `listPendingSummaries` stdout JSON
 ///   - `lighthouse-cli summary-update <folder> <batch.json>` → `updateSummaryBatch` 단일 transaction
 ///
-/// SummaryBuilder.build 가 본 module 의 UPSERT 결과 (Documents.SummaryText IS NOT NULL) 를 우선 분기 박제.
-/// NULL 인 doc 은 P1 방법 3 (첫 chunk firstSentence) 으로 fallback.
+/// SummaryBuilder.build 가 본 module 의 UPSERT 결과 (Documents.SummaryText IS NOT NULL) 를 박제.
+/// NULL 인 doc 은 `SummaryBuilder.PendingPlaceholder` 박제 (r5+ PR-H1 zero-cost fallback 폐기 정합).
 [<RequireQualifiedAccess>]
 module SummaryStore =
 
-    /// Step 2b pending record — `list-pending-summaries` 의 stdout JSON 단위.
+    /// Step 1-b pending record — `list-pending-summaries` 의 stdout JSON 단위.
     /// subagent prompt 에 박제될 hint — text dump file path 우선 전달 (subagent 가 Read 도구로 본문 흡수).
     type SummaryPendingRecord = {
         DocId: int64
@@ -77,7 +77,7 @@ module SummaryStore =
             tx.Commit()
             n
 
-    /// subagent prompt SSOT — `print-summary-prompt` entry (Step 2b §11 — 사본 박제 없이 매 진입 시 fetch).
+    /// subagent prompt SSOT — `print-summary-prompt` entry (Step 1-b §11 — 사본 박제 없이 매 진입 시 fetch).
     /// caption-prompt 와 동형. 다음 turn 의 subagent dispatch 가 본 문자열을 그대로 prompt 에 박제.
     [<Literal>]
     let SummaryPrompt = """다음 markdown 본문은 한 document 의 전체 본문 dump 입니다.

@@ -424,7 +424,7 @@ let private runPrintCaptionPrompt () : int =
     printfn "%s" (CaptionGenerator.promptText ())
     0
 
-/// `/indexer` skill Step 2b — summary 미박제 doc enumeration (caption path 와 동형).
+/// `/indexer` skill Step 1-b — summary 미박제 doc enumeration (caption path 와 동형).
 /// stdout JSON array (camelCase: `docId`, `originalPath`, `textDumpPath`).
 let private runListPendingSummaries (folder: string) : int =
     match requireIndexedFolder folder with
@@ -436,7 +436,7 @@ let private runListPendingSummaries (folder: string) : int =
         printfn "%s" json
         0
 
-/// `/indexer` skill Step 2b → batch JSON 입력 → Documents.SummaryText UPDATE 단일 transaction.
+/// `/indexer` skill Step 1-b → batch JSON 입력 → Documents.SummaryText UPDATE 단일 transaction.
 /// 빈 batch → exit 0 (no-op). batch row schema = `{"docId":<int>,"summary":"..."}`.
 let private runSummaryUpdate (folder: string) (batchPath: string) : int =
     if not (File.Exists batchPath) then
@@ -473,13 +473,18 @@ let private runSummaryUpdate (folder: string) (batchPath: string) : int =
                     use conn = SqliteStore.openConnection dbPath false
                     let updated = SummaryStore.updateSummaryBatch conn rows
                     printfn "summary-update 완료 — updated=%d (rows=%d)" updated rows.Length
+                    // summary.md regenerate — DB SSOT 흡수 (PR-H2 (a) SummaryBuilder.build 의 SummaryText 우선
+                    // 분기를 활용). 미진행 시 Step 1 시점 fallback 박제분이 stale 로 남음.
+                    let summaries = SummaryBuilder.build conn
+                    let summaryPath = SummaryBuilder.write folder summaries
+                    eprintfn "  summary.md 재작성 — %d doc (%s)" summaries.Length summaryPath
                     0
                 with
                 | :? System.IO.InvalidDataException as ex ->
                     eprintfn "오류: %s" ex.Message
                     10
 
-/// `/indexer` skill Step 2b — summary-prompt SSOT (lib `SummaryStore.SummaryPrompt`) stdout 노출.
+/// `/indexer` skill Step 1-b — summary-prompt SSOT (lib `SummaryStore.SummaryPrompt`) stdout 노출.
 /// caption-prompt 와 동형 — subagent prompt template literal 사본 박제 차단.
 let private runPrintSummaryPrompt () : int =
     printfn "%s" SummaryStore.SummaryPrompt
