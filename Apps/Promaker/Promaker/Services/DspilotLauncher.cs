@@ -27,9 +27,23 @@ public static class DspilotLauncher
         return false;
     }
 
-    /// <summary>설치된 DSPilot 의 접속 URL. 미설치면 null.</summary>
+    /// <summary>VS dev 인스턴스가 사용하는 DSPilot 포트 — <c>Apps/DSPilot/DSPilot/Properties/launchSettings.json</c>
+    /// 의 applicationUrl 과 동기 유지. 이 포트가 listening 이면 설치본보다 우선해서 browser 로 띄운다.</summary>
+    private const int DevDspilotPort = 58493;
+
+    /// <summary>DSPilot 의 접속 URL. 우선순위:
+    /// (1) localhost:<see cref="DevDspilotPort"/> 가 listening 이면 거기 (dev 디버깅 인스턴스 가정).
+    /// (2) 설치본의 appsettings.Production.json 의 "Urls" 필드.
+    /// 둘 다 없으면 null.</summary>
     public static string? ResolveUrl()
     {
+        if (IsTcpListening("localhost", DevDspilotPort))
+        {
+            var devUrl = $"https://localhost:{DevDspilotPort}";
+            Log.Info($"DSPilot dev 인스턴스 감지 — {devUrl} 사용");
+            return devUrl;
+        }
+
         foreach (var candidate in EnumerateConfigPaths())
         {
             try
@@ -45,6 +59,16 @@ public static class DspilotLauncher
             }
         }
         return null;
+    }
+
+    private static bool IsTcpListening(string host, int port)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            return client.ConnectAsync(host, port).Wait(150);
+        }
+        catch { return false; }
     }
 
     /// <summary>DSPilot 이 설치되어 있으면 기본 브라우저로 띄움. 미설치면 안내 다이얼로그 표시 (suppress 시 SimLog 만).</summary>
