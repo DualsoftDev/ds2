@@ -110,8 +110,9 @@ public partial class SymbolWizardDialog : Window
     {
         SourceDisplayName = Path.GetFileName(path);
         var entries = parseResult.Entries.ToList();
-        var batch = Mapper.map(vendor, parseResult.Entries);
-        var plans = ModelGenerator.generate(batch);
+        var config = MappingConfig.loadDefault();
+        var batch = Mapper.mapWithConfig(vendor, config, parseResult.Entries);
+        var plans = ModelGenerator.generateWithConfig(config, batch);
         var issues = SymbolValidation.validate(batch, plans);
 
         _pendingBatch = batch;
@@ -225,10 +226,6 @@ public partial class SymbolWizardDialog : Window
         if (_pendingPlans is null)
             return;
 
-        var msg = "모델 적용 후 되돌리려면 Undo 사용. 계속하시겠습니까?";
-        if (MessageBox.Show(msg, "Symbol Import Wizard", MessageBoxButton.YesNo) != MessageBoxResult.Yes)
-            return;
-
         // v10: SymbolImport 의 ModelGenerator plan 을 DsStore 에 단일 transaction 으로 적용.
         // 호출자(C#) 가 plan 의 모든 엔티티를 store mutation 으로 옮김.
         // 첫 Project 또는 신규 Project 안에 System/Flow/Work/Call/ApiDef 생성.
@@ -268,6 +265,7 @@ public partial class SymbolWizardDialog : Window
             if (plan.IsActive) continue;
             // passive = isActive: false
             var systemId = store.AddSystem(plan.Name, projectId, isActive: false);
+            ApplyUserTags(store, systemId, plan.UserTags);
             foreach (var apiDef in plan.ApiDefs)
             {
                 var apiDefId = store.AddApiDefWithProperties(apiDef.Name, systemId);
@@ -283,6 +281,7 @@ public partial class SymbolWizardDialog : Window
         {
             if (!plan.IsActive) continue;
             var systemId = store.AddSystem(plan.Name, projectId, isActive: true);
+            ApplyUserTags(store, systemId, plan.UserTags);
             foreach (var flow in plan.Flows)
             {
                 var flowId = store.AddFlow(flow.Name, systemId);
@@ -305,6 +304,20 @@ public partial class SymbolWizardDialog : Window
                 }
             }
         }
+    }
+
+    private static void ApplyUserTags(DsStore store, Guid systemId, FSharpList<ModelGenerator.UserTagPlan> userTags)
+    {
+        if (userTags is null || userTags.IsEmpty)
+            return;
+
+        var entries = new List<(string Name, string LogLevel, string TagAddress, string ValueType, string MatchOp, string MatchValue)>();
+        foreach (var tag in userTags)
+        {
+            entries.Add((tag.Name, tag.LogLevel, tag.TagAddress, tag.ValueType, tag.MatchOp, tag.MatchValue));
+        }
+
+        store.AddUserTagsBatch(systemId, entries);
     }
 
     private static void RemoveDefaultEmptyControlSystem(DsStore store, Guid projectId)

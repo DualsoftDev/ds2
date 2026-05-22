@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -17,6 +18,8 @@ public partial class ConfigEditorViewModel : ObservableObject
 {
     private readonly string _configPath;
     private JsonNode _rootNode;
+    private bool _loadingRawJson;
+    private bool _rawJsonDirty;
 
     /// <summary>
     /// 저장 완료 후 창 닫기 요청 이벤트
@@ -97,6 +100,9 @@ public partial class ConfigEditorViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedTabIndex;
 
+    [ObservableProperty]
+    private string _rawJson = "";
+
     public ConfigEditorViewModel()
         : this(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"))
     {
@@ -129,6 +135,8 @@ public partial class ConfigEditorViewModel : ObservableObject
                 return;
             }
 
+            SetRawJsonSnapshot(jsonText);
+
             // FilterExclusions 로드
             LoadFilterExclusions();
 
@@ -152,6 +160,30 @@ public partial class ConfigEditorViewModel : ObservableObject
             StatusMessage = $"로드 오류: {ex.Message}";
             StatusColor = Brushes.Red;
         }
+    }
+
+    partial void OnRawJsonChanged(string value)
+    {
+        if (!_loadingRawJson)
+            _rawJsonDirty = true;
+    }
+
+    private void SetRawJsonSnapshot(string jsonText)
+    {
+        _loadingRawJson = true;
+        RawJson = jsonText;
+        _loadingRawJson = false;
+        _rawJsonDirty = false;
+    }
+
+    private void SetRawJsonSnapshot(JsonNode node)
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        SetRawJsonSnapshot(node.ToJsonString(options));
     }
 
     private void LoadFilterExclusions()
@@ -442,6 +474,32 @@ public partial class ConfigEditorViewModel : ObservableObject
         return array;
     }
 
+    private void WriteConfig(JsonNode node)
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        var jsonText = node.ToJsonString(options);
+        File.WriteAllText(_configPath, jsonText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        SetRawJsonSnapshot(jsonText);
+    }
+
+    private void InvalidateMatchingCaches()
+    {
+        // Config 경로 설정 및 모든 캐시 무효화 (F#에서 캐시됨)
+        InputMatching.setConfigPath(_configPath);
+        DeviceGroupingUtils.setConfigPath(_configPath);
+        InputMatching.invalidateAllCaches();
+        DeviceGroupingUtils.invalidateCompoundSuffixesCache();
+        DeviceGroupingUtils.invalidateNodeConnectionRulesCache();
+        DeviceGroupingUtils.invalidateIOKeywordsCache();
+        DeviceGroupingUtils.invalidateIOTypeTokensCache();
+        DeviceGroupingUtils.invalidateWorkSplitDepthCache();
+        DeviceGroupingUtils.invalidateDisplayNamingCache();
+    }
+
     [RelayCommand]
     private void Save()
     {
@@ -450,6 +508,26 @@ public partial class ConfigEditorViewModel : ObservableObject
             if (_rootNode == null)
             {
                 _rootNode = JsonNode.Parse("{}")!;
+            }
+
+            if (_rawJsonDirty)
+            {
+                var parsed = JsonNode.Parse(RawJson);
+                if (parsed == null)
+                {
+                    StatusMessage = "Raw JSON 파싱 실패";
+                    StatusColor = Brushes.Red;
+                    return;
+                }
+
+                _rootNode = parsed;
+                WriteConfig(_rootNode);
+                InvalidateMatchingCaches();
+
+                StatusMessage = "저장 완료!";
+                StatusColor = Brushes.Green;
+                CloseRequested?.Invoke();
+                return;
             }
 
             // FilterExclusions 저장
@@ -480,24 +558,9 @@ public partial class ConfigEditorViewModel : ObservableObject
             SaveNodeConnectionRules();
 
             // 파일 저장
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var jsonText = _rootNode.ToJsonString(options);
-            File.WriteAllText(_configPath, jsonText);
+            WriteConfig(_rootNode);
 
-            // Config 경로 설정 및 모든 캐시 무효화 (F#에서 캐시됨)
-            InputMatching.setConfigPath(_configPath);
-            DeviceGroupingUtils.setConfigPath(_configPath);
-            InputMatching.invalidateAllCaches();
-            DeviceGroupingUtils.invalidateCompoundSuffixesCache();
-            DeviceGroupingUtils.invalidateNodeConnectionRulesCache();
-            DeviceGroupingUtils.invalidateIOKeywordsCache();
-            DeviceGroupingUtils.invalidateIOTypeTokensCache();
-            DeviceGroupingUtils.invalidateWorkSplitDepthCache();
-            DeviceGroupingUtils.invalidateDisplayNamingCache();
+            InvalidateMatchingCaches();
 
             StatusMessage = "저장 완료!";
             StatusColor = Brushes.Green;
