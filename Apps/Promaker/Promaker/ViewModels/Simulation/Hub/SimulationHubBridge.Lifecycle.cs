@@ -200,6 +200,37 @@ public sealed partial class SimulationHubBridge
                 foreach (var it in items)
                     OnHubTagChanged(generation, it.Address, it.Value, it.Source);
             });
+        // Monitoring + 실 PLC 경로에서 Agent 가 호스팅하는 SignalHub 로부터 PLC 연결 상태 변화를 수신.
+        // PLAY 직후 PLC 설정 오류(IP mismatch 등) 도 OnConnectedAsync snapshot 으로 즉시 통지됨 — 사용자가
+        // 트레이/콘솔 로그를 확인하지 않아도 Promaker 시뮬 로그에서 바로 사유 파악 가능.
+        hubConnection.On<PlcConnectionStatus>(
+            HubMethod.OnPlcConnectionStatus,
+            status => OnPlcConnectionStatus(generation, status));
+    }
+
+    private void OnPlcConnectionStatus(int generation, PlcConnectionStatus status)
+    {
+        if (!IsCurrentGeneration(generation)) return;
+        if (string.IsNullOrWhiteSpace(status.Name)) return;
+
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (!IsCurrentGeneration(generation)) return;
+            if (status.IsConnected)
+            {
+                _addSimLog(
+                    $"[PLC] {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) 연결됨",
+                    LogSeverity.System);
+            }
+            else
+            {
+                var detail = string.IsNullOrWhiteSpace(status.LastError) ? "사유 미상" : status.LastError;
+                _addSimLog(
+                    $"[PLC] {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) 통신 실패 — {detail}",
+                    LogSeverity.Error);
+            }
+            PlcConnectionStatusChanged?.Invoke(status);
+        });
     }
 
     private HubTagBatchSender CreateBatchSender(HubConnection hubConnection, int generation) =>

@@ -76,6 +76,15 @@
             <Button x:Name="BtnStart" Content="▶ 시작" Width="100" Height="32" Click="OnStart"/>
             <Button x:Name="BtnStop"  Content="■ 중지" Width="100" Height="32" Margin="8,0,0,0" Click="OnStop" IsEnabled="False"/>
             <Button Content="로그 지우기" Width="100" Height="32" Margin="8,0,0,0" Click="OnClearLog"/>
+            <TextBlock Text="속도:" VerticalAlignment="Center" Margin="16,0,8,0"/>
+            <ComboBox x:Name="CmbSpeed" Width="80" VerticalAlignment="Center">
+                <ComboBoxItem Content="0.25x" Tag="0.25"/>
+                <ComboBoxItem Content="0.5x"  Tag="0.5"/>
+                <ComboBoxItem Content="1x"    Tag="1"   IsSelected="True"/>
+                <ComboBoxItem Content="2x"    Tag="2"/>
+                <ComboBoxItem Content="5x"    Tag="5"/>
+                <ComboBoxItem Content="10x"   Tag="10"/>
+            </ComboBox>
             <TextBlock x:Name="LblCycle" Text="Cycle: 0" VerticalAlignment="Center" Margin="16,0,0,0" FontWeight="Bold"/>
         </StackPanel>
 

@@ -145,7 +145,7 @@ else
                                 </div>
                             </div>
                             <div class="ds-card-body" style="align-items:center; justify-content:center;">
-                                @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                                @if (BlueprintService.Layout.FlowPlacements.Count > 0)
                                 {
                                     <div style="flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; padding:12px;">
                                         <FlowLayoutSvg Style="@($"width:100%; max-height:100%;")"
@@ -166,7 +166,7 @@ else
                                 {
                                     <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--color-text-disabled); padding:40px 0;">
                                         <span class="material-icons" style="font-size:48px;">map</span>
-                                        <span class="typo-body2">도면 이미지가 등록되지 않았습니다</span>
+                                        <span class="typo-body2">배치된 Flow 블럭이 없습니다</span>
                                         <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">레이아웃 수정</button>
                                     </div>
                                 }
@@ -650,6 +650,14 @@ else
     {
         if (_disposed) return;
         _dbSnapshot = DbService.Snapshot;
+
+        // AASX 재로드/DB 재구축 직후 BlueprintService 가 자동 격자 채우기로
+        // GridColumns/Rows/캔버스 치수를 갱신했을 수 있어 캐시 필드를 다시 동기화.
+        var layout = BlueprintService.Layout;
+        _cw = layout.CanvasWidth; _ch = layout.CanvasHeight;
+        _cellW = layout.CellWidth; _cellH = layout.CellHeight;
+        _ox = layout.OffsetX; _oy = layout.OffsetY;
+        LoadFlowProcessOrder();
         UpdateChartCache();
 
         // 팝업이 열려 있으면 요약 데이터 + 히스토리 갱신

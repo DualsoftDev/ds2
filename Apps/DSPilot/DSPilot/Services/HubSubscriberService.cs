@@ -34,6 +34,7 @@ public sealed class HubSubscriberService : BackgroundService
     private readonly ILogger<HubSubscriberService> _logger;
     private readonly IConfiguration _configuration;
     private readonly SimulationEngineService _engineService;
+    private readonly PlcConnectionStatusTracker _plcStatusTracker;
 
     private HubConnection? _connection;
     private HubSignalProcessor? _processor;
@@ -79,11 +80,13 @@ public sealed class HubSubscriberService : BackgroundService
     public HubSubscriberService(
         ILogger<HubSubscriberService> logger,
         IConfiguration configuration,
-        SimulationEngineService engineService)
+        SimulationEngineService engineService,
+        PlcConnectionStatusTracker plcStatusTracker)
     {
         _logger = logger;
         _configuration = configuration;
         _engineService = engineService;
+        _plcStatusTracker = plcStatusTracker;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -128,6 +131,9 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.On<string, string, string>(HubMethod.OnTagChanged, OnHubTagChanged);
         // Batch 변형 — 송신측이 짧은 윈도우 내 변경을 묶어 1프레임으로 보낸다. 동일 처리 경로를 재사용.
         _connection.On<TagWrite[]>(HubMethod.OnTagsChanged, OnHubTagsChanged);
+        // PLC 어댑터 연결 상태. 부팅 직후 OnConnectedAsync 가 현재 알려진 모든 어댑터 상태를 caller 전용 cast 로 push,
+        // 이후엔 PlcGateway 의 connect/reconnect 전이마다 broadcast.
+        _connection.On<PlcConnectionStatus>(HubMethod.OnPlcConnectionStatus, _plcStatusTracker.Apply);
 
         _connection.Reconnecting += ex =>
         {
@@ -144,6 +150,9 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.Closed += ex =>
         {
             _logger.LogWarning(ex, "[Hub] Closed");
+            // Hub 가 끊긴 동안 stale PLC 상태로 사용자 오해 유발 방지 — 캐시 비움.
+            // 재연결 시 SignalHub.OnConnectedAsync 가 다시 snapshot push.
+            _plcStatusTracker.ClearAll();
             RaiseStatusChanged();
             return Task.CompletedTask;
         };

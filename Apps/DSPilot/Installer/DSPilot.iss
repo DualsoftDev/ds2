@@ -43,12 +43,10 @@ Name: "{#MySharedDir}"; Permissions: users-modify
 
 [Files]
 ; Publish output (self-contained, all dependencies included)
-; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 별도 처리하므로 제외
+; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 설치하지 않는다.
+; - 신규 설치: 도면 이미지 없이 백지로 시작. AASX 최초 import 시 Flow 들이 자동으로 격자에 채워짐.
+; - 업그레이드: 기존 사용자 데이터 보존 (Excludes 로 덮어쓰기 방지).
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*"
-; 도면 이미지 및 레이아웃 데이터: 기존 파일이 없을 때만 설치 (업그레이드 시 사용자 데이터 보존)
-Source: "..\publish\wwwroot\uploads\blueprint.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
-Source: "..\publish\wwwroot\uploads\layout-data.json"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
-Source: "..\publish\wwwroot\uploads\layout-data.json.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로

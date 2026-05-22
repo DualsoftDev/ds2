@@ -1,0 +1,74 @@
+@implements IDisposable
+@using Ds2.Backend.Common
+@inject PlcConnectionStatusTracker Tracker
+
+@*
+    Promaker.Agent 가 broadcast 하는 OnPlcConnectionStatus 신호를 받아 어댑터별 PLC 연결 실패를
+    경고 배너로 표시. 모든 어댑터가 연결되어 있으면 렌더되지 않음 — 평상시에는 헤더의 HubStatusBadge
+    하나만으로 충분하고 배너는 진짜 실패 시에만 등장하도록.
+*@
+
+@if (_failed.Count > 0)
+{
+    <div class="plc-banner plc-banner-error" role="alert">
+        <span class="material-icons plc-banner-icon">cable</span>
+        <div class="plc-banner-body">
+            <div class="plc-banner-title">
+                @if (_failed.Count == 1)
+                {
+                    <span>PLC <strong>@_failed[0].Name</strong> 통신 실패</span>
+                }
+                else
+                {
+                    <span><strong>@_failed.Count</strong>개의 PLC 통신 실패</span>
+                }
+            </div>
+            <ul class="plc-banner-list">
+                @foreach (var s in _failed)
+                {
+                    <li>
+                        <span class="plc-banner-name">@s.Name</span>
+                        <span class="plc-banner-meta">@s.Vendor @s.IpAddress:@s.Port</span>
+                        @if (!string.IsNullOrWhiteSpace(s.LastError))
+                        {
+                            <span class="plc-banner-error-msg">— @s.LastError</span>
+                        }
+                        @if (s.FailedAttempts > 0)
+                        {
+                            <span class="plc-banner-attempts">(재시도 @(s.FailedAttempts)회)</span>
+                        }
+                    </li>
+                }
+            </ul>
+            <div class="plc-banner-hint">
+                Promaker 의 PLC 설정(IP, 포트, 벤더)을 확인하세요. 설정 변경 후 재시도는 자동으로 진행됩니다.
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PlcConnectionStatus> _failed = new();
+
+    protected override void OnInitialized()
+    {
+        Tracker.StatusChanged += OnChanged;
+        Refresh();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void Refresh()
+    {
+        _failed = Tracker.CurrentStatuses
+            .Where(s => !s.IsConnected)
+            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public void Dispose() => Tracker.StatusChanged -= OnChanged;
+}
