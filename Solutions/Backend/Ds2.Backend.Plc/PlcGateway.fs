@@ -47,7 +47,8 @@ type PlcGateway(config: PlcGatewayConfig) =
         ConcurrentDictionary<string, struct (DateTime * int)>(StringComparer.OrdinalIgnoreCase)
 
     /// 어댑터별 현재 상태 스냅샷 — Promaker/DSPilot 가 "PLC 통신 실패" 를 표시하기 위한 contract.
-    /// IsConnected 가 전이된 경우에만 connectionStatusEvent 발화 (flap noise 차단).
+    /// 전이(up↔down) 외에 실패가 *지속되는 동안에도* 매번 broadcast — 재시도 중임을 클라이언트가
+    /// 인지할 수 있어야 한다(사용자 요구). 성공 지속은 noise 라 broadcast 안 함.
     /// LastError 는 마지막 ConnectAsync 실패 사유(또는 ""). 등록 직후엔 IsConnected=false, LastError="".
     let statuses : ConcurrentDictionary<string, PlcConnectionStatus> =
         let d = ConcurrentDictionary<_, _>(StringComparer.OrdinalIgnoreCase)
@@ -100,10 +101,12 @@ type PlcGateway(config: PlcGatewayConfig) =
                     AtUtc          = DateTime.UtcNow
             }
             statuses.[name] <- next
-            // 전이가 일어난 경우 (Connected 변화 또는 첫 실패 LastError 등장) 에만 broadcast.
-            // 같은 IsConnected + 같은 LastError 면 noise 라 발화 안 함.
-            if prev.IsConnected <> next.IsConnected
-               || (not success && prev.LastError <> next.LastError) then
+            // 전이(up↔down) 는 무조건 broadcast. 실패가 지속되는 동안에도 매 시도마다 broadcast 해서
+            // 재시도 중임을 클라이언트가 인지할 수 있게 한다 (FailedAttempts 가 증가하므로 payload 도 매번 다름).
+            // 성공 지속은 broadcast 안 함 — 잦은 정상 ping 으로 hub 부하 증가 방지.
+            let isTransition    = prev.IsConnected <> next.IsConnected
+            let failureOngoing  = not success
+            if isTransition || failureOngoing then
                 connectionStatusEvent.Trigger(next)
 
     interface IPlcGateway with
@@ -179,11 +182,20 @@ type PlcGateway(config: PlcGatewayConfig) =
                             log.Debug($"PLC reconnect {cfg.Name} threw: {ex.Message}")
                     // 연결 확정된 경우에만 ReadTag 진행 — 끊긴 상태에서 N 개 태그 × per-read timeout
                     // 누적으로 broadcast 가 지연되는 걸 차단.
+                    // 한 스캔에서 *모든* 태그가 실패하면 좀비 connected 상태로 판단하고 disconnect →
+                    // 다음 sweep 에서 backoff 후 재연결 흐름으로 진입. connect-time 에 잡지 못한
+                    // 통신 단절(케이블 분리, PLC 전원 OFF 등) 도 이 경로로 가시화된다.
                     if adapter.IsConnected then
+                        let mutable attempted = 0
+                        let mutable failed = 0
+                        let mutable lastReadError = ""
                         for tag in cfg.Tags do
                             if ct.IsCancellationRequested then () else
+                            attempted <- attempted + 1
                             match adapter.ReadTag tag with
                             | Error msg ->
+                                failed <- failed + 1
+                                lastReadError <- msg
                                 log.Debug($"ReadTag {tag.HubAddress}: {msg}")
                             | Ok value ->
                                 let s = PlcValueIo.toHubString value
@@ -198,6 +210,11 @@ type PlcGateway(config: PlcGatewayConfig) =
                                         Value = s
                                         Source = Ds2.Backend.Common.HubSource.Plc
                                     })
+                        if attempted > 0 && failed = attempted then
+                            log.Warn($"PLC [{cfg.Name}] all {attempted} tag reads failed — forcing disconnect for reconnect cycle")
+                            try do! adapter.DisconnectAsync() with _ -> ()
+                            let err = $"all reads failed ({lastReadError})"
+                            markConnectResult cfg.Name false err
                 return List.ofSeq changes
             }
 
