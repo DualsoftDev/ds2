@@ -9,7 +9,7 @@ using System.Text;
 using System.Text.Json;
 using log4net;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared.Mcp;
 
 /// <summary>
 /// `.mcp-config` 임시 JSON 파일 작성 / 정리.

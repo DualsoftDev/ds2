@@ -15,7 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared.Mcp;
 
 /// <summary>
 /// Promaker in-process Kestrel + ModelContextProtocol.AspNetCore HTTP transport.

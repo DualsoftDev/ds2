@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Ds2.Core.Store;
 using Ds2.LlmAgent;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared;
 
 /// <summary>
 /// LLM 1 turn 동안의 context. SendAsync 시작 시 BeginTurn → tool handler 들이 본 인스턴스를 통해

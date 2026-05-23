@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.AI;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Xunit;
 
 namespace Promaker.Tests;

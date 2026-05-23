@@ -6,7 +6,10 @@ using System.Threading.Tasks;
 using Ds2.LlmAgent;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
-
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 namespace Promaker.ViewModels;
 
 /// <summary>

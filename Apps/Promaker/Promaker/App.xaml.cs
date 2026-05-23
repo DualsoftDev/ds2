@@ -137,7 +137,7 @@ public partial class App : Application
 
         // 1d-5 — 비정상 종료한 이전 Promaker 인스턴스가 남긴 stale .mcp-config 정리.
         // 자기 sessionId + dead pid 또는 mtime > 5분 조건만 (자기 자신 / 다른 user session 보호).
-        Promaker.LlmAgent.McpConfigWriter.SweepStale();
+        Llm.Shared.Mcp.McpConfigWriter.SweepStale();
 
         // M1 — Codex CLI 임시 이미지 spool stale 정리 (mtime > 30분).
         // OnFinally cleanup 실패 / Promaker kill 등으로 남은 `%TEMP%\Promaker.LlmAgent\codex-img-*` 회수.

@@ -1,0 +1,19 @@
+<Project>
+  <!-- Apps/Shared/ 안 공통 CPM. Apps/Promaker/Directory.Packages.props 와 *버전 정합* 의무 — drift 시
+       Promaker 와 Llm.Shared 가 다른 버전을 transitive 해 conflict (NU1605) 가능. PR-S1 (Llm.Shared 신설)
+       시점 기준으로 Promaker 측 버전을 그대로 박제. 버전 bump 시 양쪽 동시 갱신 의무. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <!-- LLM Chat 인프라 (Apps/Promaker/Directory.Packages.props mirror — Llm.Shared.csproj 가 사용하는 항목만). -->
+  <ItemGroup>
+    <PackageVersion Include="Anthropic" Version="12.20.0" />
+    <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.25" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.5.2" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.2" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <PackageVersion Include="log4net" Version="3.3.0" />
+  </ItemGroup>
+</Project>

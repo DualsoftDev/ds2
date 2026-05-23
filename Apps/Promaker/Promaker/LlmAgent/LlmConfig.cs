@@ -9,7 +9,10 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Windows;
 using log4net;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Promaker.Services;
 
 namespace Promaker.LlmAgent;
