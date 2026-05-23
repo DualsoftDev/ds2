@@ -47,8 +47,8 @@ public static class PromptLoader
             throw new InvalidOperationException(
                 "embedded prompt missing — ILlmAppProfile.EmbeddedPromptsSources 의 모든 prefix 가 0건 match.");
 
-        var (operatorText, operatorCount) = LoadDirectoryAll(GetOperatorDir());
-        var (userText, userCount)         = LoadDirectoryAll(profile.UserPromptsDir);
+        var (operatorText, operatorCount) = LoadDirectoryAll(GetOperatorDir(), log);
+        var (userText, userCount)         = LoadDirectoryAll(profile.UserPromptsDir, log);
 
         WarnIfLegacyDirHasFiles(profile, log);
 
@@ -99,7 +99,7 @@ public static class PromptLoader
         return (sb.ToString(), names.Length);
     }
 
-    static (string text, int fileCount) LoadDirectoryAll(string dir)
+    static (string text, int fileCount) LoadDirectoryAll(string dir, log4net.ILog log)
     {
         if (string.IsNullOrEmpty(dir)) return (string.Empty, 0);
         if (!Directory.Exists(dir)) return (string.Empty, 0);
@@ -113,7 +113,12 @@ public static class PromptLoader
         foreach (var f in files)
         {
             var text = File.ReadAllText(f, Encoding.UTF8);
-            if (string.IsNullOrWhiteSpace(text)) continue;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                // CLAUDE.md 철학 — 외부 환경 (user-edited file) 의 예측되는 예외는 log 메시지로 진단성 보존.
+                log.Warn($"empty prompt file skipped: {f}");
+                continue;
+            }
             AppendWithSeparator(sb, text);
             kept++;
         }
