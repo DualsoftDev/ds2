@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -42,8 +43,13 @@ public sealed class McpHostService : IAsyncDisposable
     /// IServiceProviderIsService.IsService(type) 로 자동 검출하여 schema 제외 + DI 주입 (Pass D).</summary>
     public LlmTurnContextProvider TurnProvider { get; } = new();
 
-    /// <summary>Kestrel start. 첫 호출 시 host 띄우고 ServerUrl / HandshakeNonce 확정.</summary>
-    public async Task StartAsync()
+    /// <summary>Kestrel start. 첫 호출 시 host 띄우고 ServerUrl / HandshakeNonce 확정.
+    /// <paramref name="toolsAssembly"/> — `[McpServerToolType]` scan 대상 (required). 호출자가 본인
+    /// assembly (예: Promaker 의 `typeof(ModelTools).Assembly`) 를 반드시 명시. PR-S1 이전엔
+    /// McpHostService 와 ModelTools 가 같은 assembly 라 SDK default (calling-assembly) 로 동작했으나,
+    /// 분리 후 default 면 Llm.Shared 만 scan → tools/list 응답 0개 회귀. 동일 함정 재발 방지로
+    /// optional 대신 required 화.</summary>
+    public async Task StartAsync(Assembly toolsAssembly)
     {
         if (_app != null) return;
 
@@ -67,7 +73,7 @@ public sealed class McpHostService : IAsyncDisposable
         builder.Services
             .AddMcpServer()
             .WithHttpTransport()
-            .WithToolsFromAssembly();   // 같은 assembly 의 [McpServerToolType] 자동 등록
+            .WithToolsFromAssembly(toolsAssembly);   // 호출자 명시 assembly 의 [McpServerToolType] 자동 등록 (null 이면 SDK default = calling assembly)
 
         var app = builder.Build();
 
