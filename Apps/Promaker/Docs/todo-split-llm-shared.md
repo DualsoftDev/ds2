@@ -2,7 +2,8 @@
 
 > 본 문서는 Promaker 의 LLM 인프라 (McpHost / LlmTurnContext / Api provider / PromptLoader / LlmChatPanel 등 ~18 파일) 를 **공통 lib `Apps/Shared/Llm.Shared/`** 로 추출하여 Promaker 와 다른 LLM 사용 App (HmiDesigner 등) 이 동시 참조하는 분리 작업의 인수인계 노트.
 >
-> **현재 상태 — 유보 (YAGNI 결정)**. 본 트랙은 별도 트랙 `todo-hmi-designer.md` (HMI Designer 독립 도구) 와 한때 짝으로 진행됐으나, Designer 트랙이 *Promaker 무변경 + 자체 LLM 모듈 작성* 으로 방향 전환 (commit `95cb71da`, 2026-05-23). 본 분리 작업의 진입 전제 (양 App 이 동일 LLM 인프라 공유) 가 약화 — 본 todo 는 *후속 트리거 시 재개* 용 자료로 박제.
+> **현재 상태 — PR-S1 backend 만 분리 완료 (commit `fff7d103`, 2026-05-23, light-house-summary worktree).**
+> PR-S1 scope = LLM backend 17 파일 (`Apps/Shared/Llm.Shared/`) + abstraction 3 신설 (`ILlmAppProfile`, `PromptSource`, `KbCollectionDescriptor`) + `PromakerProfile` 박제. UI / ViewModel / Behaviors / Presentation / Dialogs / Themes / LlmConfig / ModelTools / PromakerToolNames 는 *Promaker 잔류* (default 추천 M1/M2/M3/M4 정합). 이전엔 별도 트랙 `todo-hmi-designer.md` (HMI Designer 독립 도구) 와 짝으로 진행됐으나, Designer 트랙이 *Promaker 무변경 + 자체 LLM 모듈 작성* 으로 방향 전환 (commit `95cb71da`, 2026-05-23). 본 분리 작업은 Designer 트랙의 자체 모듈 작성 *이후* drift 발생 시 *수렴* 용 backup plan 으로 활용.
 >
 > **진입 트리거 조건** (셋 중 하나 충족 시 본 todo 재개 검토):
 > 1. Designer 트랙의 자체 LLM 모듈이 작성된 후 Promaker 측과의 *drift* 가 maintenance 비용으로 확인 (e.g. 같은 API provider 버그 양쪽 fix 필요)
@@ -298,6 +299,46 @@ PR-S1 본체 외에 인접 영역에서 추가 검토가 필요한 항목 (meta 
 - **EntityToTagId stub golden 분리** — phase 1 stub 의존 golden 은 stub 교체 시 모두 깨짐 — test fake 기반 분리 필요
 - **PII / secret scrubber** — entity 자동 inject digest 의 secret pattern scrubber + log4net turn payload 마스킹 (entity Properties 에 시리얼/credential-like 문자열 포함 시 외부 LLM provider 평문 전송 위험)
 - **App 별 tool allowlist 분리 + Host deterministic guard** — Promaker 의 통합 chat 안 prompt injection 시 권한 escalation 위험. LLM 분류 신뢰성이 보안 경계가 되면 안 됨
+
+---
+
+## PR-S1 완료 노트 (2026-05-23, commit `fff7d103` + cleanup commit)
+
+PR-S1 (LLM backend 분리) 실행 직후 5-reviewer 종합 review (`--review`) 결과를 본 절에 박제. 후속 진입자의 *PR-S1 의도 / 위험 / queue* 빠른 파악용.
+
+### 의도 박제 (review 가 silent change 로 지적한 항목 — 본 PR §L5 / §L6 / §"주의 사항" 정합)
+
+- **system prompt 합성 순서 재배치** (review M1): 이전 `1.entities → 2.modeling → 3.tooling → 4.attachments → 5.knowledge-base → 9.environment → facts` 단일 prefix 자연정렬 → 신규 `baseline (1.attachments → 2.knowledge-base → 3.environment) → overlay (1.entities → 2.modeling → 3.tooling)` 2-tier. 본 todo §L5 / §L7 박제 의도 (baseline = LLM 일반 운영 룰 먼저 → App-specific modeling 룰 뒤). 부작용 = Anthropic prompt cache prefix-match 가 PR-S1 첫 chat turn 1회 cache miss → 2번째 turn 부터 정착 (KB digest 변경 시점과 동일 형태의 cold start).
+- **`facts.md` embed 제외** (review C3): 본 todo §"주의 사항 #4" (line 337) 박제 의도. dev 참고용으로 Promaker `LlmAgent/Prompts/facts.md` 위치 유지 + `<EmbeddedResource Remove>` 추가. system prompt 본문에서 facts 도메인 메모 (Capacity 등) 사라짐 — 의도된 cleanup (assistant 가 facts 자체에 영향 0, 단 SSOT 검토 후 별도 위치로 옮길지는 follow-up).
+
+### PR-S1 안에서 fix 한 review 지적 (별 cleanup commit)
+
+- **C1 (ModelTools.cs)** — PowerShell sed bug (`[regex]::Replace($t, $pat, $rep, 1)` 의 4th 인자가 `RegexOptions.IgnoreCase` 였음, count 가 아님) 로 인해 9 `using ` 줄 위에 4-set block 9 회 prepend (36 line). 직접 Edit 으로 단일 set 정리.
+- **C2 (ChildProcessTrackerTests.cs)** — 동일 PowerShell sed bug 부작용. 5 중복 → 단일.
+- **M2 (`PromptLoader.LoadDirectoryAll`)** — refactor 시 empty `.md` 의 `Log.Warn` 누락 회귀. 복구 (signature 에 `log4net.ILog log` 추가).
+- **review minor m1** — `Promaker.csproj` line 89 주석의 baseline 번호 (옛 4/5/9) → 새 1/2/3 + baseline → overlay 합성 순서 박제 위치 명시 (§L5/§L7).
+
+### PR-S1 의 자가 검열 미달 정황 (재발 방지 메모)
+
+- *incremental cache* 만으로 빌드 통과 판단 → clean rebuild 검증 누락. 본 cleanup commit 에서 `dotnet clean` + `dotnet build --no-incremental` 로 확정. 향후 mass-namespace-rewrite / 자동화 sed 후 *반드시* clean rebuild + 4-set using 잔재 grep 의무.
+- PowerShell `[regex]::Replace` 의 count 인자는 instance method 만 지원 (`[regex]::new($pat).Replace($input, $rep, $count)`). 본 PR 의 모든 sed 가 4-th arg=1 박제 (IgnoreCase 의미) — 다수 caller 에서는 매치 1줄만 있어 영향 0 이었지만 `using Promaker.LlmAgent.Api` 매치 없는 caller (ModelTools / ChildProcessTrackerTests) 가 fallback 분기 진입 시 모든 매치 prepend → silent 폭주.
+
+### Follow-up queue (PR-S1.5 / PR-S2 / 두번째 App 진입 전 의무)
+
+| 우선순위 | 항목 | 영향 |
+|---|---|---|
+| PR-S1.5 | **Llm.Shared net9.0 격하** (M3) — `WpfDispatcherAdapter` 만 Promaker 잔류 또는 `Llm.Shared.Wpf` 서브 분리 | 비-WPF App (HMI / Web / CLI) 의 본 lib 재사용 시 PresentationFramework transitive 회피 |
+| PR-S1.5 | **`Ds2.sln` 에 `Llm.Shared` 등록** (M8) | IDE 디버그 navigate 정합 |
+| PR-S1.5 | **`KbCollectionDescriptor` → `IKbCollectionView` interface 격상** (M4) — `CollectionInfo` 가 직접 implement → caller 매핑 0줄 | public abstraction lock-in 전 정밀화 |
+| PR-S1.5 | **`PromakerProfile.Instance` 호출 1회 박제** (M5) — `LlmChatViewModel._profile` private static readonly 1회 박제 후 6 위치에서 `_profile` 사용 | boilerplate 역설 해소 |
+| PR-S2 | **`Llm.Shared.Tests` 신설** (M7) — `PromptLoaderTests` / `PromakerProfileTests` / `KbDigest` integration test. 신규 추상화 5종 + PromptLoader 동작 변경 4건 test 0건 | 두 번째 App 진입 시 회귀 detect 의무 |
+| PR-S2 | **`Directory.Packages.props` SSOT 통합** (M6) — `Apps/Shared/Directory.Packages.props` → `<Import Project="../Promaker/Directory.Packages.props" />` 위임 또는 `Apps/Directory.Packages.props` 단일 격상 | 버전 drift 회피 |
+| 의견 | **`InternalsVisibleTo("Promaker")` 정밀화** (Minor m4 / 자가검열 m-1) — DIP 측면 production assembly 노출 우려. `LlmTurnContext` 의 4 internal 만 별 partial 또는 friend scope 축소 검토 | security / contract 표면 ↓ |
+| 의견 | **`PromakerProfile` 위치 `LlmAgent/` → `Services/`** (Minor m2) | 책임 정합 |
+| 의견 | **`LlmChatViewModel` 5 partial 의 `using Llm.Shared*;` global using** (Minor m5) | SSOT |
+| 의견 | **PR-S1 신규 추상화 namespace prefix** (Minor m8) — `Llm.Shared` → `Dualsoft.Llm.Shared` 등 검토 | 충돌 risk 낮음 |
+
+본 queue 는 두 번째 App (HMI Designer / 제 3의 App) 진입 시점에 *public abstraction lock-in 전* 1회 review. PR-S1 후속 작업 *없이* Designer 트랙이 자체 LLM 모듈로 가는 경우 본 queue 는 보류 (재개 트리거 시 cherry-pick).
 
 ---
 
