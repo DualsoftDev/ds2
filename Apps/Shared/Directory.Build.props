@@ -1,0 +1,4 @@
+<Project>
+  <!-- Apps/Shared/ 안 공통 csproj 의 빌드 설정. Solutions/Directory.Build.props (TargetFramework=net9.0, LangVersion=preview, Dualsoft 메타) 흡수. -->
+  <Import Project="../../Solutions/Directory.Build.props" />
+</Project>

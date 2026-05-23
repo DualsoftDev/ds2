@@ -13,7 +13,7 @@ using log4net;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
 
-namespace Promaker.LlmAgent.Api;
+namespace Llm.Shared.Api;
 
 // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
 // 본 파일 안의 `§C1` / `§5.2` 는 위 doc 의 섹션/이슈 ID.

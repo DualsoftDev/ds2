@@ -16,7 +16,10 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Promaker.Presentation;
 using Promaker.Services;
 

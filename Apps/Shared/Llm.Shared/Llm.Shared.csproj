@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net9.0-windows + UseWPF: LlmChatPanel 본체는 Promaker 잔류이나, WpfDispatcherAdapter 가 System.Windows.Threading.Dispatcher 의존. -->
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Llm.Shared</RootNamespace>
+    <AssemblyName>Llm.Shared</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- OllamaSharp 5.4.25 의 SourceGenerator 가 Roslyn 5.0 요구. Promaker.csproj 의 CS9057 NoWarn 정합. -->
+    <NoWarn>$(NoWarn);CS9057</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Promaker 측 caller (ModelTools 등) 가 LlmTurnContext 의 internal 4종 호출 + Promaker.Tests 가 quota 회귀 테스트.
+         PR-S1 이전엔 같은 assembly (Promaker.dll) 내부였음. -->
+    <InternalsVisibleTo Include="Promaker" />
+    <InternalsVisibleTo Include="Promaker.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- F# core 의존 — LlmTurnContext 의 DsStore / IUiDispatcher / ImportPlanBuilder,
+         ApiChatProvider 의 ILlmProvider / LlmEvent / Capabilities / LlmUserMessage / Attachment 등. -->
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- LLM provider SDKs + MCP HTTP transport. -->
+    <PackageReference Include="Anthropic" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="OllamaSharp" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- baseline system prompt. App overlay 는 각 App 의 RootNamespace 박제 위치에서 별도 EmbeddedResource. -->
+    <EmbeddedResource Include="Prompts\baseline\*.md" />
+  </ItemGroup>
+</Project>

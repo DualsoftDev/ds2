@@ -5,7 +5,10 @@ using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
-using Promaker.LlmAgent;
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Xunit;
 
 namespace Promaker.Tests;

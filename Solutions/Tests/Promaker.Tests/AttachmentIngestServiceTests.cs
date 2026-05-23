@@ -8,7 +8,9 @@ using Ds2.LightHouse;
 using Microsoft.FSharp.Core;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Xunit;
 
 namespace Promaker.Tests;

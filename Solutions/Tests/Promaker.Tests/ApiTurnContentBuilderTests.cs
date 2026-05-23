@@ -4,7 +4,9 @@ using System.Linq;
 using Ds2.LightHouse;  // ImageFormat — done-lighthouse-kb-index.md §4.2a 이전
 using Ds2.LlmAgent;
 using Microsoft.Extensions.AI;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Xunit;
 
 namespace Promaker.Tests;
