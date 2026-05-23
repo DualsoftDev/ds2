@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Ds2.LlmAgent;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
+using Promaker.LlmAgent.Tools;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
 using Llm.Shared.Api;
@@ -33,7 +34,10 @@ public partial class LlmChatViewModel
 
         try
         {
-            await _mcpHost.StartAsync().ConfigureAwait(true);
+            // McpHostService 가 Llm.Shared 로 분리된 후 (PR-S1) WithToolsFromAssembly 의 calling-assembly
+            // default 가 Llm.Shared 를 가리키게 되어 ModelTools (Promaker assembly) 가 silently 누락됨.
+            // 호출 시 typeof(ModelTools).Assembly 명시로 tools/list 응답에 mcp__promaker__* 6개 복원.
+            await _mcpHost.StartAsync(typeof(ModelTools).Assembly).ConfigureAwait(true);
 
             // Phase S5c → D-S7-3b — N 개 active service 별 session 발급 시도.
             // 일부 service 실패 시 부분 활성화 (결정 #1) — 성공한 service 만 .mcp-config 에 박제.
