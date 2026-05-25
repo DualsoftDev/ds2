@@ -146,11 +146,11 @@ Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
 #endif
 #if HasAgentTray
-; 설치 직후 한 번 트레이 띄움 — 사용자 로그온 컨텍스트라 admin 권한 불필요.
-; 다음 부팅부터는 HKCU\Run 이 자동 실행.
+; 설치 직후 한 번 트레이 띄움 — 체크박스 없이 무조건 실행. 다음 부팅부터는 HKCU\Run 이 자동 실행.
+; runasoriginaluser: 인스톨러는 admin 으로 elevated 되어 있어도 트레이는 로그온한 사용자 컨텍스트로
+; 실행해야 알림 영역에 떠 보인다 (admin 세션은 사용자 데스크톱과 별도).
 Filename: "{app}\AgentTray\{#MyAgentTrayExeName}"; \
-  Flags: nowait postinstall skipifsilent unchecked; \
-  Description: "Promaker Agent 트레이 지금 시작 (모니터링 상태 확인용)"
+  Flags: nowait skipifsilent runasoriginaluser
 #endif
 Filename: "{app}\{#MyExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent unchecked
 
