@@ -99,11 +99,11 @@ public sealed partial class SimulationHubBridge : ObservableObject
     public static bool IsAgentAvailable =>
         IsAgentServiceRunning() || IsAgentProcessRunning();
 
-    /// <summary>Monitoring + 실 PLC 에서 Agent 위임 대신 Promaker 본체가 직접 5051 을 호스팅할지.
+    /// <summary>Monitoring + 실 PLC 에서 Agent 의 5051 에 client 로만 접속 (active.flag 미기록, host 미시작).
     /// "자체 모니터링" 버튼이 PLAY 직전에 true 로 켜고, Stop 시 false 로 리셋한다.
-    /// TryStartHost 의 Monitoring 분기가 이 플래그를 보고 active.flag 경로를 건너뛰고
-    /// BackendHost.startWithPlcConfig 로 직접 호스팅한다.</summary>
-    public bool SelfHostMonitoring { get; set; }
+    /// TryStartHost 가 이 플래그를 보고 active.flag/host 시작 모두 건너뛰고 client 연결만 진행 —
+    /// Agent (또는 외부에서 이미 5051 을 호스팅하는 프로세스) 의 broadcast 를 그대로 받는다.</summary>
+    public bool SelfMonitoringClientOnly { get; set; }
 
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;

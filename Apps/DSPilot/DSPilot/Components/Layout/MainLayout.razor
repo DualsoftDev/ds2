@@ -6,6 +6,7 @@
 @inject ThemeService ThemeService
 @inject DspDbService DbService
 @inject UserTagAlertService AlertService
+@inject DemoModeService Demo
 @inject IJSRuntime JS
 
 <div class="layout @ThemeService.GetThemeClass()">
@@ -16,6 +17,10 @@
         <div style="display: flex; align-items: center; cursor: pointer;" @onclick="@(() => Nav.NavigateTo("/"))">
             <img src="images/logo.png" alt="DSPilot Logo" height="28" />
         </div>
+        @if (!Demo.IsBypassed)
+        {
+            <span class="header-demo-badge" title="데모 모드 — 기동 후 @(FormatTs(DemoModeService.DemoDuration)) 사용 가능 (남은 @FormatTs(Demo.Remaining))">DEMO</span>
+        }
         <span class="header-page-title">@GetPageTitle()</span>
         <div class="spacer"></div>
         <nav class="header-nav">
@@ -65,7 +70,21 @@
     <main class="main-content @(_drawerOpen ? "" : "drawer-closed")">
         <PlcConnectionBanner />
         <div class="container">
-            @Body
+            @if (Demo.IsBlocked && !IsOnPwPage)
+            {
+                <div class="demo-blocked-overlay">
+                    <div class="demo-blocked-card">
+                        <span class="material-icons demo-blocked-icon">lock_clock</span>
+                        <h3>DEMO 만료</h3>
+                        <p>데모 사용 시간(@FormatTs(DemoModeService.DemoDuration))이 종료되었습니다.</p>
+                        <p>서비스 관리자에게 문의해 주세요.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @Body
+            }
         </div>
     </main>
 </div>
@@ -83,6 +102,12 @@
     private const int WindowMinutes = 60;
     private const int SparkBuckets = 12;
     private static readonly TimeSpan WindowRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DemoTickInterval = TimeSpan.FromSeconds(30);
+    private System.Threading.Timer? _demoTickTimer;
+
+    private bool IsOnPwPage =>
+        _currentPath.Equals("/pw", StringComparison.OrdinalIgnoreCase)
+        || _currentPath.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase);
 
     private int _windowInfoCount;
     private int _windowWarnCount;
@@ -108,7 +133,15 @@
         _windowRefreshTimer = new System.Threading.Timer(
             _ => InvokeAsync(() => { RefreshAlertCounts(); StateHasChanged(); }),
             null, WindowRefreshInterval, WindowRefreshInterval);
+
+        // 데모 모드 만료 시점에 자동으로 차단 오버레이가 떠야 하므로 주기적 재렌더링이 필요.
+        Demo.StateChanged += OnDemoStateChanged;
+        _demoTickTimer = new System.Threading.Timer(
+            _ => InvokeAsync(StateHasChanged),
+            null, DemoTickInterval, DemoTickInterval);
     }
+
+    private void OnDemoStateChanged() => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -223,12 +256,17 @@
 
     private void OnThemeChanged() => InvokeAsync(StateHasChanged);
 
+    private static string FormatTs(TimeSpan t)
+        => $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
+
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
         ThemeService.OnThemeChanged -= OnThemeChanged;
         DbService.OnDataChanged -= OnDbDataChanged;
         AlertService.AlertsChanged -= OnAlertsChanged;
+        Demo.StateChanged -= OnDemoStateChanged;
         _windowRefreshTimer?.Dispose();
+        _demoTickTimer?.Dispose();
     }
 }

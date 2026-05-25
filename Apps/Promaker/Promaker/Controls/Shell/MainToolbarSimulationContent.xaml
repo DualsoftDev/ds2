@@ -138,7 +138,7 @@
                     -->
                     <Button x:Name="SelfMonitoringStartButton"
                             Command="{Binding Simulation.StartSelfMonitoringCommand}"
-                            ToolTip="Promaker 본체가 5051 을 직접 호스팅합니다 (Agent 우회). Promaker 가 종료되면 모니터링도 함께 중지."
+                            ToolTip="Agent 의 5051 Hub 에 Promaker 가 client 로만 접속 (active.flag 미기록). Agent 가 떠 있어야 데이터가 들어옵니다."
                             Visibility="{Binding Simulation.IsSelfMonitoringStartVisible, Converter={StaticResource BoolToVis}}"
                             IsEnabled="{Binding HasProject}">
                         <Button.Style>
@@ -151,14 +151,14 @@
                                                         Width="18" Height="18"
                                                         HorizontalAlignment="Center"
                                                         Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="자체 모니터링"
+                            <TextBlock Text="시작"
                                        Style="{StaticResource RibbonIconLabel}"
                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                         </StackPanel>
                     </Button>
                     <Button x:Name="SelfMonitoringStopButton"
                             Command="{Binding Simulation.StopSelfMonitoringCommand}"
-                            ToolTip="자체 모니터링 정지 — 5051 호스팅을 끝냅니다."
+                            ToolTip="자체 모니터링 정지 — 5051 client 연결만 끊습니다 (Agent 는 계속 동작)."
                             Visibility="{Binding Simulation.IsSelfMonitoringStopVisible, Converter={StaticResource BoolToVis}}"
                             IsEnabled="{Binding HasProject}">
                         <Button.Style>

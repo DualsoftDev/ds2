@@ -409,6 +409,10 @@ public partial class SimulationPanelState : ObservableObject
     {
         _clockInterpolator.ResetBase();
         RefreshGanttTimeSource();
+        // IsSimulating 가 외부에서 false 로 전환됐는데 자체 모니터링 표식이 남아 있으면 시작 버튼이
+        // 다시 노출되지 않는다 (IsSelfMonitoringStartVisible 가 !IsSelfMonitoring 의존). 안전망.
+        if (!value && IsSelfMonitoring)
+            IsSelfMonitoring = false;
     }
 
     // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
