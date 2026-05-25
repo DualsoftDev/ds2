@@ -1,0 +1,429 @@
+@page "/pw"
+@using System.Globalization
+@inject DemoModeService Demo
+@inject NavigationManager Nav
+
+<PageTitle>Power Tools - DSPilot</PageTitle>
+
+<div class="pw-page">
+    <div class="pw-header">
+        <h5 class="typo-h5">Internal Debug Tools</h5>
+        <span class="pw-header-sub">DSPilot 내부 점검용 도구 모음입니다.</span>
+    </div>
+
+    <div class="pw-grid">
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">memory</span> System Info</div>
+            <dl class="pw-info">
+                <dt>Process</dt><dd>@_processName · PID @_pid</dd>
+                <dt>Runtime</dt><dd>@_runtime</dd>
+                <dt>Started (UTC)</dt><dd>@Demo.StartedAtUtc.ToString("u", CultureInfo.InvariantCulture)</dd>
+                <dt>Uptime</dt><dd>@FormatTs(Demo.Elapsed)</dd>
+                <dt>Machine</dt><dd>@Environment.MachineName</dd>
+            </dl>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">verified</span> Demo Status</div>
+            <dl class="pw-info">
+                <dt>Mode</dt><dd>@(Demo.IsBypassed ? "FULL (bypass on)" : "DEMO")</dd>
+                <dt>Duration</dt><dd>@FormatTs(DemoModeService.DemoDuration)</dd>
+                <dt>Remaining</dt><dd>@(Demo.IsBypassed ? "—" : FormatTs(Demo.Remaining))</dd>
+                <dt>Blocked</dt><dd>@(Demo.IsBlocked ? "yes" : "no")</dd>
+            </dl>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">storage</span> Storage</div>
+            <dl class="pw-info">
+                <dt>Working set</dt><dd>@FormatBytes(_workingSet)</dd>
+                <dt>GC heap</dt><dd>@FormatBytes(_gcMemory)</dd>
+                <dt>Threads</dt><dd>@_threadCount</dd>
+            </dl>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">terminal</span> Log Tail (sample)</div>
+            <pre class="pw-log">@_logSample</pre>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">dashboard</span> Flow Card Preview</div>
+            <div class="pw-flow-grid">
+                @foreach (var f in _flowSamples)
+                {
+                    <div class="pw-flow-card" style="--st:@f.Color">
+                        <div class="pw-flow-card-head">
+                            <span class="pw-flow-dot"></span>
+                            <span class="pw-flow-name">@f.Name</span>
+                        </div>
+                        <div class="pw-flow-card-body">
+                            <div class="pw-flow-metric"><span>cycle</span><b>@f.Cycle ms</b></div>
+                            <div class="pw-flow-metric"><span>state</span><b>@f.State</b></div>
+                        </div>
+                        <div class="pw-flow-bar"><div class="pw-flow-bar-fill" style="width:@(f.Progress)%"></div></div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">show_chart</span> Cycle Time (sample)</div>
+            <svg class="pw-chart" viewBox="0 0 320 120" preserveAspectRatio="none" aria-hidden="true">
+                <g class="pw-chart-grid">
+                    <line x1="0" y1="30" x2="320" y2="30" />
+                    <line x1="0" y1="60" x2="320" y2="60" />
+                    <line x1="0" y1="90" x2="320" y2="90" />
+                </g>
+                <polyline class="pw-chart-line" points="@_chartLine" fill="none" />
+                <polyline class="pw-chart-area" points="@_chartArea" />
+            </svg>
+            <div class="pw-chart-legend">
+                <span><i style="background:#1976d2"></i> avg @_chartAvg ms</span>
+                <span><i style="background:#f0883e"></i> peak @_chartPeak ms</span>
+            </div>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">bar_chart</span> Tag Throughput</div>
+            <svg class="pw-chart" viewBox="0 0 320 120" preserveAspectRatio="none" aria-hidden="true">
+                @for (int i = 0; i < _bars.Length; i++)
+                {
+                    var h = _bars[i];
+                    var x = i * (320.0 / _bars.Length) + 2;
+                    var w = 320.0 / _bars.Length - 4;
+                    <rect x="@x.ToString(CultureInfo.InvariantCulture)"
+                          y="@((120 - h).ToString(CultureInfo.InvariantCulture))"
+                          width="@w.ToString(CultureInfo.InvariantCulture)"
+                          height="@h.ToString(CultureInfo.InvariantCulture)"
+                          class="pw-chart-bar" />
+                }
+            </svg>
+            <div class="pw-chart-legend">
+                <span>last 24 buckets · max @_barMax tags/s</span>
+            </div>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">label</span> State Indicators</div>
+            <div class="pw-chips">
+                <span class="pw-chip pw-chip-ok">Ready</span>
+                <span class="pw-chip pw-chip-run">Running</span>
+                <span class="pw-chip pw-chip-warn">Warning</span>
+                <span class="pw-chip pw-chip-err">Error</span>
+                <span class="pw-chip pw-chip-idle">Idle</span>
+                <span class="pw-chip pw-chip-stop">Stopped</span>
+            </div>
+            <dl class="pw-info" style="margin-top:10px;">
+                <dt>Active</dt><dd>14 / 18 flows</dd>
+                <dt>Avg latency</dt><dd>27 ms</dd>
+                <dt>Error rate</dt><dd>0.02%</dd>
+            </dl>
+        </div>
+
+        <div class="pw-card">
+            <div class="pw-card-title"><span class="material-icons">palette</span> Theme Palette</div>
+            <div class="pw-palette">
+                <div><span style="background:#1976d2"></span>primary</div>
+                <div><span style="background:#388e3c"></span>success</div>
+                <div><span style="background:#f0883e"></span>warning</div>
+                <div><span style="background:#d32f2f"></span>error</div>
+                <div><span style="background:#7e57c2"></span>accent</div>
+                <div><span style="background:#455a64"></span>neutral</div>
+            </div>
+        </div>
+
+        <div class="pw-card pw-card-wide">
+            <div class="pw-card-title"><span class="material-icons">keyboard</span> 입력버튼테스트</div>
+            <div class="pw-calc">
+                <div class="pw-calc-display">
+                    <div class="pw-calc-expr">@_expression</div>
+                    <div class="pw-calc-result">@_display</div>
+                </div>
+                <div class="pw-calc-keys">
+                    <button class="pw-key pw-key-fn" @onclick="@(() => Press("C"))">C</button>
+                    <button class="pw-key pw-key-fn" @onclick="@(() => Press("CE"))">CE</button>
+                    <button class="pw-key pw-key-fn" @onclick="@(() => Press("←"))">←</button>
+                    <button class="pw-key pw-key-op" @onclick="@(() => Press("/"))">÷</button>
+
+                    <button class="pw-key" @onclick="@(() => Press("7"))">7</button>
+                    <button class="pw-key" @onclick="@(() => Press("8"))">8</button>
+                    <button class="pw-key" @onclick="@(() => Press("9"))">9</button>
+                    <button class="pw-key pw-key-op" @onclick="@(() => Press("*"))">×</button>
+
+                    <button class="pw-key" @onclick="@(() => Press("4"))">4</button>
+                    <button class="pw-key" @onclick="@(() => Press("5"))">5</button>
+                    <button class="pw-key" @onclick="@(() => Press("6"))">6</button>
+                    <button class="pw-key pw-key-op" @onclick="@(() => Press("-"))">−</button>
+
+                    <button class="pw-key" @onclick="@(() => Press("1"))">1</button>
+                    <button class="pw-key" @onclick="@(() => Press("2"))">2</button>
+                    <button class="pw-key" @onclick="@(() => Press("3"))">3</button>
+                    <button class="pw-key pw-key-op" @onclick="@(() => Press("+"))">+</button>
+
+                    <button class="pw-key" @onclick="@(() => Press("0"))" style="grid-column: span 2;">0</button>
+                    <button class="pw-key" @onclick="@(() => Press("."))">.</button>
+                    <button class="pw-key pw-key-eq" @onclick="@(() => Press("="))">=</button>
+                </div>
+                @if (!string.IsNullOrEmpty(_calcMessage))
+                {
+                    <div class="pw-calc-msg">@_calcMessage</div>
+                }
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private const string SecretCode = "2747";
+
+    private string _processName = "";
+    private int _pid;
+    private string _runtime = "";
+    private long _workingSet;
+    private long _gcMemory;
+    private int _threadCount;
+    private string _logSample = "";
+
+    private record FlowSample(string Name, string State, int Cycle, int Progress, string Color);
+    private readonly FlowSample[] _flowSamples =
+    [
+        new("Assembly-1", "Running", 845, 72, "#1976d2"),
+        new("Welding-2",  "Ready",   1120, 100, "#388e3c"),
+        new("Inspect-3",  "Warning", 612, 45, "#f0883e"),
+        new("Pack-4",     "Idle",    980, 18, "#7e57c2"),
+    ];
+
+    private string _chartLine = "";
+    private string _chartArea = "";
+    private int _chartAvg;
+    private int _chartPeak;
+    private int[] _bars = [];
+    private int _barMax;
+
+    private string _expression = "";
+    private string _display = "0";
+    private string _pendingInput = "";
+    private string? _pendingOp;
+    private double? _accumulator;
+    private bool _justEvaluated;
+    private string? _calcMessage;
+
+    protected override void OnInitialized()
+    {
+        var proc = System.Diagnostics.Process.GetCurrentProcess();
+        _processName = proc.ProcessName;
+        _pid = proc.Id;
+        _runtime = $".NET {Environment.Version}";
+        _workingSet = proc.WorkingSet64;
+        _gcMemory = GC.GetTotalMemory(forceFullCollection: false);
+        _threadCount = proc.Threads.Count;
+        _logSample = string.Join('\n',
+            $"[{DateTime.Now:HH:mm:ss}] INFO  startup ok",
+            $"[{DateTime.Now:HH:mm:ss}] INFO  hub subscribers=1",
+            $"[{DateTime.Now:HH:mm:ss}] DEBUG cache hit ratio=0.92",
+            $"[{DateTime.Now:HH:mm:ss}] INFO  plcTagLog flush=240ms");
+
+        BuildChartSamples();
+    }
+
+    private void BuildChartSamples()
+    {
+        // 결정적 시드로 매번 동일 그래프 (호출마다 흔들리지 않게).
+        var rng = new Random(20260522);
+        var points = new int[24];
+        for (int i = 0; i < points.Length; i++)
+        {
+            // 800ms 기준선 ± 변동, 일부 스파이크.
+            var baseV = 800 + (int)(Math.Sin(i * 0.5) * 80);
+            var noise = rng.Next(-60, 80);
+            var spike = (i == 7 || i == 16) ? 220 : 0;
+            points[i] = Math.Clamp(baseV + noise + spike, 600, 1300);
+        }
+        _chartAvg = (int)points.Average();
+        _chartPeak = points.Max();
+
+        // 0..1300 → 0..120 (y는 반전)
+        var sbLine = new System.Text.StringBuilder();
+        var sbArea = new System.Text.StringBuilder("0,120 ");
+        var step = 320.0 / (points.Length - 1);
+        for (int i = 0; i < points.Length; i++)
+        {
+            var x = i * step;
+            var y = 120 - (points[i] - 500) * (120.0 / 800.0);
+            y = Math.Clamp(y, 4, 116);
+            if (i > 0) sbLine.Append(' ');
+            sbLine.Append(x.ToString("0.#", CultureInfo.InvariantCulture));
+            sbLine.Append(',');
+            sbLine.Append(y.ToString("0.#", CultureInfo.InvariantCulture));
+            sbArea.Append(x.ToString("0.#", CultureInfo.InvariantCulture));
+            sbArea.Append(',');
+            sbArea.Append(y.ToString("0.#", CultureInfo.InvariantCulture));
+            sbArea.Append(' ');
+        }
+        sbArea.Append("320,120");
+        _chartLine = sbLine.ToString();
+        _chartArea = sbArea.ToString();
+
+        _bars = new int[24];
+        for (int i = 0; i < _bars.Length; i++)
+        {
+            var v = 30 + (int)(Math.Cos(i * 0.4) * 35) + rng.Next(0, 50);
+            _bars[i] = Math.Clamp(v, 10, 110);
+        }
+        _barMax = _bars.Max();
+    }
+
+    private void Press(string key)
+    {
+        _calcMessage = null;
+
+        switch (key)
+        {
+            case "C":
+                ResetCalc();
+                break;
+            case "CE":
+                _pendingInput = "";
+                _display = "0";
+                break;
+            case "←":
+                if (_pendingInput.Length > 0)
+                {
+                    _pendingInput = _pendingInput[..^1];
+                    _display = _pendingInput.Length == 0 ? "0" : _pendingInput;
+                }
+                break;
+            case "+":
+            case "-":
+            case "*":
+            case "/":
+                ApplyOperator(key);
+                break;
+            case "=":
+                Evaluate();
+                break;
+            default:
+                AppendDigit(key);
+                break;
+        }
+    }
+
+    private void AppendDigit(string d)
+    {
+        if (_justEvaluated)
+        {
+            ResetCalc();
+        }
+        if (d == "." && _pendingInput.Contains('.')) return;
+        if (_pendingInput == "0" && d != ".") _pendingInput = "";
+        _pendingInput += d;
+        _display = _pendingInput;
+    }
+
+    private void ApplyOperator(string op)
+    {
+        if (_justEvaluated)
+        {
+            _expression = _display;
+            _accumulator = ParseOrNull(_display);
+            _pendingInput = "";
+            _justEvaluated = false;
+        }
+        else if (_accumulator is null)
+        {
+            _accumulator = ParseOrNull(_pendingInput);
+            _expression = _pendingInput;
+        }
+        else if (!string.IsNullOrEmpty(_pendingInput) && _pendingOp is not null)
+        {
+            var next = ParseOrNull(_pendingInput);
+            _accumulator = Combine(_accumulator, next, _pendingOp);
+            _expression += $" {OpSymbol(_pendingOp)} {_pendingInput}";
+            _display = Format(_accumulator);
+        }
+
+        _pendingOp = op;
+        _expression += $" {OpSymbol(op)}";
+        _pendingInput = "";
+    }
+
+    private void Evaluate()
+    {
+        // 백도어: 2747 = 입력 시 데모 바이패스 토글 후 대시보드로.
+        if (_pendingInput == SecretCode && _pendingOp is null && _accumulator is null)
+        {
+            var wasBypassed = Demo.IsBypassed;
+            Demo.ToggleBypass();
+            _calcMessage = wasBypassed ? "DEMO 모드로 복귀합니다." : "FULL 모드 활성화. 대시보드로 이동합니다.";
+            ResetCalc();
+            Nav.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        if (_pendingOp is null)
+        {
+            _display = string.IsNullOrEmpty(_pendingInput) ? _display : _pendingInput;
+            _expression = _display;
+            _accumulator = ParseOrNull(_display);
+            _justEvaluated = true;
+            return;
+        }
+
+        var operand = ParseOrNull(_pendingInput);
+        var result = Combine(_accumulator, operand, _pendingOp);
+        _expression += $" {(_pendingInput.Length > 0 ? _pendingInput : Format(_accumulator))} =";
+        _display = Format(result);
+        _accumulator = result;
+        _pendingInput = "";
+        _pendingOp = null;
+        _justEvaluated = true;
+    }
+
+    private void ResetCalc()
+    {
+        _pendingInput = "";
+        _pendingOp = null;
+        _accumulator = null;
+        _expression = "";
+        _display = "0";
+        _justEvaluated = false;
+    }
+
+    private static double? ParseOrNull(string s)
+        => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    private static double? Combine(double? a, double? b, string op) => (a, b, op) switch
+    {
+        (double x, double y, "+") => x + y,
+        (double x, double y, "-") => x - y,
+        (double x, double y, "*") => x * y,
+        (double x, double y, "/") => y == 0 ? null : x / y,
+        _ => null
+    };
+
+    private static string OpSymbol(string op) => op switch
+    {
+        "+" => "+", "-" => "−", "*" => "×", "/" => "÷", _ => op
+    };
+
+    private static string Format(double? v)
+    {
+        if (v is null) return "Err";
+        if (double.IsNaN(v.Value) || double.IsInfinity(v.Value)) return "Err";
+        return v.Value.ToString("G15", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatTs(TimeSpan t)
+        => $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
+
+    private static string FormatBytes(long b)
+    {
+        if (b < 1024) return $"{b} B";
+        if (b < 1024 * 1024) return $"{b / 1024.0:N1} KB";
+        if (b < 1024L * 1024 * 1024) return $"{b / (1024.0 * 1024):N1} MB";
+        return $"{b / (1024.0 * 1024 * 1024):N2} GB";
+    }
+}

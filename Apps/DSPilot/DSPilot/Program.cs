@@ -64,6 +64,7 @@ builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddSingleton<PlcIoDataService>();
+builder.Services.AddSingleton<DemoModeService>();
 
 // PLC 데이터 읽기 서비스 (plcTag/plcTagLog 조회 — Hub 가 채운 데이터를 UI 에서 사용)
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
@@ -180,6 +181,30 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseStaticFiles();
 app.UseAntiforgery();
 
+// ── 데모 모드 차단 ──
+// DemoModeService.IsBlocked 인 경우 /pw 백도어/정적 자원/Blazor 회로 외 모든 요청을 정지 화면으로 응답.
+// MainLayout 에서도 동일 상태를 감지하여 회로 내 네비게이션을 차단한다.
+app.Use(async (context, next) =>
+{
+    var demo = context.RequestServices.GetRequiredService<DemoModeService>();
+    if (!demo.IsBlocked)
+    {
+        await next();
+        return;
+    }
+
+    var path = context.Request.Path.Value ?? string.Empty;
+    if (IsAllowedDuringDemoBlock(path))
+    {
+        await next();
+        return;
+    }
+
+    context.Response.StatusCode = 503;
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.WriteAsync(DemoBlockedHtml());
+});
+
 // TODO: MapStaticAssets 500 진단 — 원인 파악 후 복원
 // app.MapStaticAssets();
 app.MapRazorComponents<DSPilot.Components.App>()
@@ -189,6 +214,47 @@ app.MapRazorComponents<DSPilot.Components.App>()
 app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
 
 app.Run();
+
+static bool IsAllowedDuringDemoBlock(string path)
+{
+    if (string.IsNullOrEmpty(path)) return true;
+    return path.StartsWith("/_blazor", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/_framework", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/images/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/DSPilot.styles.css", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/pw", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase);
+}
+
+static string DemoBlockedHtml() => """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>DEMO 만료 - DSPilot</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f1419;color:#e6edf3;font-family:'Noto Sans KR',system-ui,sans-serif;}
+  .wrap{display:flex;align-items:center;justify-content:center;height:100%;}
+  .card{max-width:520px;padding:40px;border-radius:12px;background:#161b22;border:1px solid #30363d;text-align:center;}
+  h1{margin:0 0 12px;font-size:28px;color:#f0883e;}
+  p{margin:0 0 8px;line-height:1.6;color:#c9d1d9;}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>DEMO 만료</h1>
+  <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+  <p>서비스 관리자에게 문의해 주세요.</p>
+</div></div>
+</body>
+</html>
+""";
 
 static string? ResolveConfiguredDatabasePath(IConfiguration configuration)
 {

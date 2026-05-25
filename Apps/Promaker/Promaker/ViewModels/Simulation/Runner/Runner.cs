@@ -166,27 +166,33 @@ public partial class SimulationPanelState
     private bool CanResetSimulation() =>
         SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideReset(IsSimulating));
 
-    /// <summary>"자체 모니터링" 시작 — Agent 위임 대신 Promaker 본체가 5051 을 직접 호스팅한다.
-    /// Hub.SelfHostMonitoring=true 로 표식 후 일반 StartSimulation 흐름을 재사용.
-    /// 시작 실패 시 (Hub.TryStart 가 false) Hub.Stop 의 SelfHostMonitoring=false 가 보장한다.</summary>
+    /// <summary>"자체 모니터링" 시작 — Agent 의 5051 에 Promaker 가 client 로만 접속 (active.flag 미기록, host 미시작).
+    /// Hub.SelfMonitoringClientOnly=true 로 표식 후 일반 StartSimulation 흐름을 재사용.
+    /// 시작 실패 시 (StartSimulation 이 조기 return) Hub.Stop 의 false 복귀가 보장된다.</summary>
     [RelayCommand(CanExecute = nameof(CanStartSelfMonitoring))]
     private void StartSelfMonitoring()
     {
-        Hub.SelfHostMonitoring = true;
+        Hub.SelfMonitoringClientOnly = true;
         IsSelfMonitoring = true;
         StartSimulation();
-        // StartSimulation 이 어떤 게이트(검증/Agent 충돌 등) 로 조기 return 한 경우 IsSimulating 가 false.
+        // StartSimulation 이 어떤 게이트(검증 등) 로 조기 return 한 경우 IsSimulating 가 false.
         // 그 때는 자체 모니터링 표식도 되돌린다 — Stop 경유 Hub.Stop 이 안 불릴 수 있음.
         if (!IsSimulating)
         {
-            Hub.SelfHostMonitoring = false;
+            Hub.SelfMonitoringClientOnly = false;
             IsSelfMonitoring = false;
         }
     }
 
-    /// <summary>"자체 모니터링" 정지 — 일반 StopSimulation 호출. Hub.Stop 이 SelfHostMonitoring 을 false 로 리셋.</summary>
+    /// <summary>"자체 모니터링" 정지 — 일반 StopSimulation 호출 후 IsSelfMonitoring 플래그 리셋.
+    /// (Hub.Stop 은 SelfMonitoringClientOnly 만 리셋. 패널의 IsSelfMonitoring 표식은 별도라 여기서 명시 해제 —
+    /// 누락 시 IsSelfMonitoringStartVisible 가 계속 false 라 시작 버튼이 다시 안 뜨는 버그.)</summary>
     [RelayCommand(CanExecute = nameof(CanStopSelfMonitoring))]
-    private void StopSelfMonitoring() => StopSimulation();
+    private void StopSelfMonitoring()
+    {
+        StopSimulation();
+        IsSelfMonitoring = false;
+    }
 
     private bool CanStartSelfMonitoring() =>
         IsAgentDelegationMode && !IsSimulating && !IsHomingPhase;
