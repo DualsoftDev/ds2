@@ -38,8 +38,8 @@ public class FlowInclusionsConfig
 public class InputMatchingConfigRoot
 {
     [JsonPropertyName("FilterExclusions")]
-    public FilterExclusionsConfig FilterExclusions { get; set; }
+    public FilterExclusionsConfig FilterExclusions { get; set; } = new();
 
     [JsonPropertyName("FlowInclusions")]
-    public FlowInclusionsConfig FlowInclusions { get; set; }
+    public FlowInclusionsConfig FlowInclusions { get; set; } = new();
 }

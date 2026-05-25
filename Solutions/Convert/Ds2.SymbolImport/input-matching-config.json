@@ -3093,6 +3093,16 @@
       "Description": "LS Q/I 대칭"
     },
     {
+      "OutputPattern": "_QX_",
+      "InputPattern": "_IX_",
+      "Description": "LS XGB/XGK QX/IX prefix symmetry"
+    },
+    {
+      "OutputPattern": "_SV",
+      "InputPattern": "_RS",
+      "Description": "LS XGB/XGK solenoid SV to sensor RS symmetry"
+    },
+    {
       "OutputPattern": "_Y_",
       "InputPattern": "_X_",
       "Description": "Mitsubishi Y/X 대칭"
@@ -3754,7 +3764,15 @@
     ],
     "IOTypeTokens": [
       "Q",
+      "QX",
+      "QW",
+      "QB",
+      "QD",
       "I",
+      "IX",
+      "IW",
+      "IB",
+      "ID",
       "O",
       "Y",
       "X",

@@ -1,4 +1,4 @@
-﻿namespace Ds2.SymbolImport.Matching
+namespace Ds2.SymbolImport.Matching
 
 open System
 open System.IO
@@ -114,7 +114,7 @@ module DeviceGroupingUtils =
     // ============================================================================
 
     /// 기본 IOTypeTokens (config 파일이 없을 때 사용)
-    let private defaultIOTypeTokens = [| "Q"; "I"; "O"; "Y"; "X"; "M" |]
+    let private defaultIOTypeTokens = [| "Q"; "QX"; "QW"; "QB"; "QD"; "I"; "IX"; "IW"; "IB"; "ID"; "O"; "Y"; "X"; "M" |]
 
     let mutable private cachedIOTypeTokens : HashSet<string> option = None
     let private ioTypeTokensSync = obj()
@@ -158,6 +158,20 @@ module DeviceGroupingUtils =
     /// 토큰이 I/O 타입 토큰인지 확인
     let isIOTypeToken (token: string) : bool =
         (getIOTypeTokens()).Contains(token)
+
+    let private trimBoundaryIOTypeTokens (levels: string list) =
+        let withoutLeading =
+            match levels with
+            | first :: rest when isIOTypeToken first -> rest
+            | _ -> levels
+        match withoutLeading with
+        | [] -> []
+        | _ ->
+            let lastToken = withoutLeading |> List.last
+            if withoutLeading.Length >= 2 && isIOTypeToken lastToken then
+                withoutLeading |> List.take (withoutLeading.Length - 1)
+            else
+                withoutLeading
 
     // ============================================================================
     // WorkNaming 설정 - Work 분할 깊이 (0 = 자동, N = 앞에서 N개 토큰)
@@ -342,17 +356,8 @@ module DeviceGroupingUtils =
             // Fall back to standard parsing
             let parsed = PlcSymbolParser.parseSymbol tagName
 
-            // 1단계: 마지막 토큰이 I/O 타입 토큰이면 제거
-            // 예: STN1_Device1_ADV_O → ["STN1"; "Device1"; "ADV"]
-            let levelsWithoutIOType =
-                if parsed.Levels.Length >= 2 then
-                    let lastToken = parsed.Levels |> List.last
-                    if isIOTypeToken lastToken then
-                        parsed.Levels |> List.take (parsed.Levels.Length - 1)
-                    else
-                        parsed.Levels
-                else
-                    parsed.Levels
+            // Remove leading LS QX/IX tokens and trailing generic I/O tokens.
+            let levelsWithoutIOType = trimBoundaryIOTypeTokens parsed.Levels
 
             // 1단계: CompoundSuffixes 기반으로 API 토큰 수 계산
             // 2단계: WorkSplitDepth(최대 깊이)가 설정되면 Device 깊이 제한
@@ -414,17 +419,8 @@ module DeviceGroupingUtils =
     let extractApiFromTag (tagName: string) (_mappingSets: MappingSet list) : string =
         let parsed = PlcSymbolParser.parseSymbol tagName
 
-        // 1단계: 마지막 토큰이 I/O 타입 토큰이면 제거
-        // 예: STN1_Device1_ADV_O → ["STN1"; "Device1"; "ADV"]
-        let levelsWithoutIOType =
-            if parsed.Levels.Length >= 2 then
-                let lastToken = parsed.Levels |> List.last
-                if isIOTypeToken lastToken then
-                    parsed.Levels |> List.take (parsed.Levels.Length - 1)
-                else
-                    parsed.Levels
-            else
-                parsed.Levels
+        // Remove leading LS QX/IX tokens and trailing generic I/O tokens.
+        let levelsWithoutIOType = trimBoundaryIOTypeTokens parsed.Levels
 
         // 1단계: CompoundSuffixes 기반으로 API 토큰 수 계산
         // 2단계: WorkSplitDepth(최대 깊이)가 설정되면 API 범위 확장

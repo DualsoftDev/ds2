@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Symbol Import Wizard — PLC 심볼 → DS 모델 자동 생성"
-        Width="900" Height="640"
+        Width="1200" Height="720"
+        MinWidth="1000" MinHeight="600"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
@@ -26,20 +27,22 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Vendor:" VerticalAlignment="Center" Margin="0,0,4,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <ComboBox x:Name="VendorCombo" Width="120" Padding="4,2" Margin="0,0,8,0"
-                              Background="{DynamicResource TertiaryBackgroundBrush}"
-                              Foreground="{DynamicResource PrimaryTextBrush}"
-                              BorderBrush="{DynamicResource BorderBrush}">
-                        <ComboBoxItem Content="Mitsubishi" IsSelected="True"/>
-                        <ComboBoxItem Content="XG5000 (LS)"/>
-                        <ComboBoxItem Content="AB (미구현)"/>
-                    </ComboBox>
+	                    <ComboBox x:Name="VendorCombo" Width="160" Padding="4,2" Margin="0,0,8,0"
+	                              Background="{DynamicResource TertiaryBackgroundBrush}"
+	                              Foreground="{DynamicResource PrimaryTextBrush}"
+	                              BorderBrush="{DynamicResource BorderBrush}">
+	                        <ComboBoxItem Content="Mitsubishi" IsSelected="True"/>
+	                        <ComboBoxItem Content="XGI/XG5000 (LS)"/>
+	                        <ComboBoxItem Content="XGB (LS CSV)"/>
+	                        <ComboBoxItem Content="XGK (LS CSV)"/>
+	                        <ComboBoxItem Content="AB (미구현)"/>
+	                    </ComboBox>
                     <TextBox x:Name="FilePathBox" Width="500" Padding="4,2" Margin="0,0,8,0"
                              IsReadOnly="True"
                              Background="{DynamicResource TertiaryBackgroundBrush}"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              BorderBrush="{DynamicResource BorderBrush}"
-                             Text="파일을 선택하세요 (Mitsubishi CSV 또는 XG5000 XML)"/>
+	                             Text="파일을 선택하세요 (Mitsubishi CSV, LS CSV/XML)"/>
                     <Button Content="찾기..." Style="{StaticResource DarkButton}" MinWidth="72" Click="BrowseFile_Click"/>
                     <Button Content="파싱 실행" Style="{StaticResource DarkButton}" MinWidth="80" Margin="4,0,0,0"
                             Click="Parse_Click"/>

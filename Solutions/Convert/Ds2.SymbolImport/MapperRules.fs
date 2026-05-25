@@ -55,7 +55,9 @@ module MapperRules =
     let vendorConfigKey (vendor: Vendor) : string =
         match vendor with
         | Mitsubishi -> "Mitsubishi"
-        | XG5000     -> "LS"
+        | XG5000
+        | XGB
+        | XGK        -> "LS"
         | AB         -> "AB"
 
     /// MappingConfig 의 Common.MappingSets + 선택된 vendor 의 MappingSets (vendor-level OutputAddressPatterns 주입).

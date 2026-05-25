@@ -95,6 +95,25 @@ public partial class MainViewModel
         TryEditorAction(() => _store.MoveEntities(requests),
             statusOverride: "[ERROR] Failed to move selected nodes.");
 
+    public bool CanMoveCallToWork(Guid callId, Guid targetWorkId) =>
+        _store.CanMoveCallToWork(callId, targetWorkId);
+
+    public bool TryMoveCallToWorkFromTree(Guid callId, Guid targetWorkId)
+    {
+        if (!GuardSimulationSemanticEdit("Call Work 이동")) return false;
+        if (!TryEditorFunc(
+                () => _store.MoveCallToWork(callId, targetWorkId),
+                out bool moved,
+                fallback: false,
+                statusOverride: "[ERROR] Failed to move Call.",
+                warnDialog: true))
+            return false;
+
+        if (moved)
+            StatusText = "Call moved.";
+        return moved;
+    }
+
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
         if (!GuardArrowEditByRuntimeMode("Arrow 재연결")) return false;

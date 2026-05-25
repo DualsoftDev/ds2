@@ -145,10 +145,18 @@ module PlcSymbolParser =
     /// getFlowName (parseSymbol "S102_1_SOL_DEVICE_ADV") = "S102_1"
     /// getFlowName (parseSymbol "Motor1") = "DEFAULT"
     /// </example>
+    let private isStationCode (text: string) : bool =
+        if String.IsNullOrWhiteSpace text || text.Length < 2 then false
+        else
+            Char.ToUpperInvariant(text.[0]) = 'S'
+            && text.Substring(1) |> Seq.forall Char.IsDigit
+
     let getFlowName (parsed: ParsedSymbol) : string =
         if parsed.Levels.Length > 1 then
             // Check if Level 2 is a number
-            if parsed.Levels.Length >= 2 && parsed.Levels.[1] |> Seq.forall Char.IsDigit then
+            if parsed.Levels.Length >= 2
+               && isStationCode parsed.Levels.[0]
+               && (parsed.Levels.[1] |> Seq.forall Char.IsDigit) then
                 // Level 2 is numeric - combine Level 1 + Level 2
                 sprintf "%s_%s" parsed.Levels.[0] parsed.Levels.[1]
             else
@@ -178,7 +186,9 @@ module PlcSymbolParser =
     let private isIOTypeKeyword (text: string) : bool =
         match text.ToUpperInvariant() with
         | "SOL" | "O" | "Y" | "Q"           // Output types
+        | "QX" | "QW" | "QB" | "QD"
         | "LS" | "PS" | "RS" | "I" | "X"    // Input types
+        | "IX" | "IW" | "IB" | "ID"
         | "M" | "D" | "B" -> true           // Memory/Data types
         | _ -> false
 
@@ -220,7 +230,9 @@ module PlcSymbolParser =
                 level2
             // Case 3: Level 2가 순수 숫자 → Level 3을 Work로
             elif level2 |> Seq.forall Char.IsDigit then
-                if parsed.Levels.Length >= 3 then
+                if not (isStationCode parsed.Levels.[0]) then
+                    parsed.Levels.[0]
+                elif parsed.Levels.Length >= 3 then
                     parsed.Levels.[2]
                 else
                     Constants.DefaultWorkName

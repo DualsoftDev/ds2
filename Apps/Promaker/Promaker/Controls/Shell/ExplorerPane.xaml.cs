@@ -17,9 +17,12 @@ namespace Promaker.Controls;
 
 public partial class ExplorerPane : UserControl
 {
+    private const string TreeMoveCallNodeDataFormat = "TreeMoveCallNode";
+
     private Point _treeDragStartPoint;
     private bool _treeDragCandidate;
     private EntityNode? _pendingTreeSelectionNode;
+    private EntityNode? _treeMoveDropTarget;
     private TreePaneKind _pendingTreeSelectionPane = TreePaneKind.Control;
     private MainViewModel? _boundViewModel;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
@@ -327,8 +330,85 @@ public partial class ExplorerPane : UserControl
         if (node.EntityType != EntityKind.Call) return;
 
         ClearPendingTreeDragSelection();
-        var data = new DataObject("ConditionCallNode", node);
-        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
+        var data = new DataObject();
+        data.SetData(ConditionDropHelper.DataFormat, node);
+        data.SetData(TreeMoveCallNodeDataFormat, node);
+        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
+        ClearTreeMoveDropTarget();
+    }
+
+    private void TreeViewItem_DragOver(object sender, DragEventArgs e)
+    {
+        if (TryResolveCallMoveTarget(sender, e, out var sourceCall, out var targetWork)
+            && ViewModel?.CanMoveCallToWork(sourceCall.Id, targetWork.Id) == true)
+        {
+            SetTreeMoveDropTarget(targetWork);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
+        ClearTreeMoveDropTarget();
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void TreeViewItem_DragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is TreeViewItem { DataContext: EntityNode node } && ReferenceEquals(node, _treeMoveDropTarget))
+            ClearTreeMoveDropTarget();
+    }
+
+    private void TreeViewItem_Drop(object sender, DragEventArgs e)
+    {
+        if (!TryResolveCallMoveTarget(sender, e, out var sourceCall, out var targetWork))
+            return;
+
+        ClearTreeMoveDropTarget();
+        if (ViewModel?.TryMoveCallToWorkFromTree(sourceCall.Id, targetWork.Id) == true)
+        {
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        }
+    }
+
+    private static bool TryResolveCallMoveTarget(
+        object sender,
+        DragEventArgs e,
+        out EntityNode sourceCall,
+        out EntityNode targetWork)
+    {
+        sourceCall = null!;
+        targetWork = null!;
+
+        if (!e.Data.GetDataPresent(TreeMoveCallNodeDataFormat))
+            return false;
+        if (e.Data.GetData(TreeMoveCallNodeDataFormat) is not EntityNode { EntityType: EntityKind.Call } draggedCall)
+            return false;
+        if (sender is not TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.Work } workNode } item)
+            return false;
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+            return false;
+
+        sourceCall = draggedCall;
+        targetWork = workNode;
+        return true;
+    }
+
+    private void SetTreeMoveDropTarget(EntityNode node)
+    {
+        if (ReferenceEquals(_treeMoveDropTarget, node))
+            return;
+        ClearTreeMoveDropTarget();
+        _treeMoveDropTarget = node;
+        node.IsDropTarget = true;
+    }
+
+    private void ClearTreeMoveDropTarget()
+    {
+        if (_treeMoveDropTarget is not null)
+            _treeMoveDropTarget.IsDropTarget = false;
+        _treeMoveDropTarget = null;
     }
 
     private void HandleTreeSelectionChanged(TreePaneKind pane, object? newValue)

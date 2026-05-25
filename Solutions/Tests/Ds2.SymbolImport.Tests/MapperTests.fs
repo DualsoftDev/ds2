@@ -7,6 +7,9 @@ open Xunit
 let private entry name addr direction =
     { Address = addr; Name = name; Direction = direction; Comment = ""; Vendor = Mitsubishi }
 
+let private vendorEntry vendor name addr direction =
+    { Address = addr; Name = name; Direction = direction; Comment = ""; Vendor = vendor }
+
 [<Fact>]
 let ``Mapper.map — vendor 인자 시그니처 + 빈 입력 → 빈 결과`` () =
     let batch = Mapper.map Mitsubishi []
@@ -84,6 +87,37 @@ let ``mappingSetsFromConfig — Mitsubishi 결과 중 vendor set 들에 Y* 패�
     for s in vendorSets do
         Assert.Contains("Y*", s.OutputAddressPatterns)
         Assert.Contains("X*", s.InputAddressPatterns)
+
+[<Fact>]
+let ``mappingSetsFromConfig — XGB and XGK use LS vendor rules`` () =
+    let config = MappingConfig.loadDefault ()
+    let lsSets = MapperRules.mappingSetsFromConfig XG5000 config
+    let xgbSets = MapperRules.mappingSetsFromConfig XGB config
+    let xgkSets = MapperRules.mappingSetsFromConfig XGK config
+    Assert.Equal(lsSets.Length, xgbSets.Length)
+    Assert.Equal(lsSets.Length, xgkSets.Length)
+    Assert.Contains(xgbSets, fun s -> s.OutputAddressPatterns |> List.contains "%QX*")
+    Assert.Contains(xgkSets, fun s -> s.InputAddressPatterns |> List.contains "%IX*")
+
+[<Fact>]
+let ``Mapper.mapWithConfig — LS QX SV to IX RS maps and keeps CV_1~6 in one CV Work`` () =
+    let config = MappingConfig.loadDefault ()
+    let entries = [
+        vendorEntry XGK "QX_CV_1_ADV_SV" "P00104" SymbolDirection.Output
+        vendorEntry XGK "IX_CV_1_ADV_RS" "P00028" SymbolDirection.Input
+        vendorEntry XGK "QX_CV_2_ADV_SV" "P00105" SymbolDirection.Output
+        vendorEntry XGK "IX_CV_2_ADV_RS" "P00029" SymbolDirection.Input
+        vendorEntry XGK "QX_CV_6_RET_SV" "P00106" SymbolDirection.Output
+        vendorEntry XGK "IX_CV_6_RET_RS" "P0002A" SymbolDirection.Input
+    ]
+    let batch = Mapper.mapWithConfig XGK config entries
+    Assert.Equal(3, batch.Mapped.Length)
+    let workNames = batch.Mapped |> List.map (fun m -> m.WorkName) |> Set.ofList
+    let message = sprintf "workNames=%A" workNames
+    Assert.True((workNames = Set.singleton "CV"), message)
+    for mapping in batch.Mapped do
+        Assert.True(mapping.OutputEntry.IsSome)
+        Assert.NotEmpty(mapping.InputEntries)
 
 /// 회귀 가드 — 같은 Name 을 가진 actuator(Y)/sensor(X) 페어 (예: "Stopper Up" 가 X1240 / Y1250 둘 다).
 /// 이전 Mapper.fs 의 entryByName = Map<string, SymbolEntry> 는 collision 으로 후자만 유지 → OutputEntry 의 lookup 도

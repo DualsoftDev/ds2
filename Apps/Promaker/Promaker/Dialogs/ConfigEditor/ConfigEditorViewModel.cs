@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,14 +19,14 @@ namespace Promaker.Dialogs.ConfigEditor;
 public partial class ConfigEditorViewModel : ObservableObject
 {
     private readonly string _configPath;
-    private JsonNode _rootNode;
+    private JsonNode? _rootNode;
     private bool _loadingRawJson;
     private bool _rawJsonDirty;
 
     /// <summary>
     /// 저장 완료 후 창 닫기 요청 이벤트
     /// </summary>
-    public event Action CloseRequested;
+    public event Action? CloseRequested;
 
     // ============================================================
     // FilterExclusions (기존)
@@ -103,6 +105,33 @@ public partial class ConfigEditorViewModel : ObservableObject
     [ObservableProperty]
     private string _rawJson = "";
 
+    [ObservableProperty]
+    private string _previewSampleSymbol = "CV_1_ADV";
+
+    [ObservableProperty]
+    private string _previewTokens = "";
+
+    [ObservableProperty]
+    private string _previewFlowName = "";
+
+    [ObservableProperty]
+    private string _previewWorkName = "";
+
+    [ObservableProperty]
+    private string _previewDeviceName = "";
+
+    [ObservableProperty]
+    private string _previewApiName = "";
+
+    [ObservableProperty]
+    private string _previewCallName = "";
+
+    [ObservableProperty]
+    private string _previewDisplayName = "";
+
+    [ObservableProperty]
+    private string _previewSummary = "";
+
     public ConfigEditorViewModel()
         : this(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"))
     {
@@ -112,6 +141,7 @@ public partial class ConfigEditorViewModel : ObservableObject
     {
         _configPath = configPath;
         LoadConfig();
+        RefreshPreview();
     }
 
     private void LoadConfig()
@@ -167,6 +197,16 @@ public partial class ConfigEditorViewModel : ObservableObject
         if (!_loadingRawJson)
             _rawJsonDirty = true;
     }
+
+    partial void OnPreviewSampleSymbolChanged(string value) => RefreshPreview();
+    partial void OnDeviceKeywordsChanged(string value) => RefreshPreview();
+    partial void OnApiKeywordsChanged(string value) => RefreshPreview();
+    partial void OnFlowInclusionsChanged(string value) => RefreshPreview();
+    partial void OnFlowKeywordsChanged(string value) => RefreshPreview();
+    partial void OnWorkSplitDepthChanged(int value) => RefreshPreview();
+    partial void OnCompoundSuffixesChanged(string value) => RefreshPreview();
+    partial void OnIoTypeTokensChanged(string value) => RefreshPreview();
+    partial void OnRemoveTokensForDisplayChanged(string value) => RefreshPreview();
 
     private void SetRawJsonSnapshot(string jsonText)
     {
@@ -450,7 +490,7 @@ public partial class ConfigEditorViewModel : ObservableObject
         }
     }
 
-    private static string GetKeywordsAsString(JsonNode node)
+    private static string GetKeywordsAsString(JsonNode? node)
     {
         if (node is not JsonArray array)
             return "";
@@ -472,6 +512,172 @@ public partial class ConfigEditorViewModel : ObservableObject
             array.Add(item);
         }
         return array;
+    }
+
+    private static readonly char[] PreviewSeparators = { '_', '.', '-', ' ' };
+
+    private static string[] SplitConfigTokens(string text, params string[] fallback)
+    {
+        var tokens = text.Split(new[] { ',', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return tokens.Length > 0 ? tokens : fallback;
+    }
+
+    private static string[] SplitSymbol(string symbol) =>
+        symbol.Split(PreviewSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static bool IsStationCode(string text) =>
+        text.Length >= 2
+        && char.ToUpperInvariant(text[0]) == 'S'
+        && text[1..].All(char.IsDigit);
+
+    private static bool HasNumericSuffix(string text) =>
+        text.Length >= 2
+        && char.IsLetter(text[0])
+        && char.IsDigit(text[^1])
+        && !text.All(char.IsDigit);
+
+    private static bool MatchesWildcard(string pattern, string input)
+    {
+        var normalizedPattern = pattern.Trim().ToUpperInvariant();
+        var normalizedInput = input.Trim().ToUpperInvariant();
+        if (!normalizedPattern.Contains('*') && !normalizedPattern.Contains('?'))
+            return normalizedPattern == normalizedInput;
+
+        var regex = "^" + Regex.Escape(normalizedPattern)
+            .Replace("\\*", ".*", StringComparison.Ordinal)
+            .Replace("\\?", ".", StringComparison.Ordinal) + "$";
+        return Regex.IsMatch(normalizedInput, regex, RegexOptions.IgnoreCase);
+    }
+
+    private static string[] TrimBoundaryIoTokens(IReadOnlyList<string> tokens, HashSet<string> ioTokens)
+    {
+        var start = tokens.Count > 0 && ioTokens.Contains(tokens[0]) ? 1 : 0;
+        var end = tokens.Count;
+        if (end - start >= 2 && ioTokens.Contains(tokens[end - 1]))
+            end--;
+        return tokens.Skip(start).Take(end - start).ToArray();
+    }
+
+    private static string GetPreviewFlowName(IReadOnlyList<string> tokens)
+    {
+        if (tokens.Count <= 1)
+            return "DEFAULT";
+        if (tokens.Count >= 2 && IsStationCode(tokens[0]) && tokens[1].All(char.IsDigit))
+            return $"{tokens[0]}_{tokens[1]}";
+        return tokens[0];
+    }
+
+    private static string GetPreviewWorkName(IReadOnlyList<string> tokens, HashSet<string> ioTokens)
+    {
+        if (tokens.Count < 2)
+            return "DEFAULT";
+
+        var level2 = tokens[1];
+        if (ioTokens.Contains(level2))
+            return tokens.Count >= 3 ? tokens[2] : "DEFAULT";
+        if (HasNumericSuffix(level2))
+            return level2;
+        if (level2.All(char.IsDigit))
+        {
+            if (!IsStationCode(tokens[0]))
+                return tokens[0];
+            return tokens.Count >= 3 ? tokens[2] : "DEFAULT";
+        }
+
+        return level2;
+    }
+
+    private static string GetPreviewDisplayName(string deviceName, HashSet<string> removeTokens)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+            return deviceName;
+
+        var processed = deviceName
+            .Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment =>
+            {
+                if (!segment.Contains('-', StringComparison.Ordinal))
+                    return removeTokens.Contains(segment) ? null : segment;
+
+                var parts = segment
+                    .Split(new[] { '-' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(part => !removeTokens.Contains(part))
+                    .ToArray();
+                return parts.Length == 0 ? null : string.Join("-", parts);
+            })
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+
+        return processed.Length == 0 ? deviceName : string.Join("_", processed);
+    }
+
+    private void RefreshPreview()
+    {
+        try
+        {
+            var sample = string.IsNullOrWhiteSpace(PreviewSampleSymbol)
+                ? "CV_1_ADV"
+                : PreviewSampleSymbol.Trim();
+            var rawTokens = SplitSymbol(sample);
+            var ioTokenList = SplitConfigTokens(IoTypeTokens, "Q", "QX", "QW", "QB", "QD", "I", "IX", "IW", "IB", "ID", "O", "Y", "X", "M");
+            var ioTokens = new HashSet<string>(ioTokenList, StringComparer.OrdinalIgnoreCase);
+            var compoundSuffixes = SplitConfigTokens(CompoundSuffixes, "OK", "COMP", "POS", "RST", "END", "CHK", "READY", "IN", "ERR", "EXT", "WORK", "1ST", "?ND", "?RD", "?TH");
+            var removeTokens = new HashSet<string>(SplitConfigTokens(RemoveTokensForDisplay, "SOL", "WRS", "RS", "LS"), StringComparer.OrdinalIgnoreCase);
+            var semanticTokens = TrimBoundaryIoTokens(rawTokens, ioTokens);
+
+            var suffixCount = 0;
+            for (var i = semanticTokens.Length - 1; i > 0; i--)
+            {
+                if (!compoundSuffixes.Any(pattern => MatchesWildcard(pattern, semanticTokens[i])))
+                    break;
+                suffixCount++;
+            }
+
+            var autoApiCount = semanticTokens.Length >= 2 ? Math.Max(1, suffixCount) : 1;
+            var autoDeviceCount = Math.Max(0, semanticTokens.Length - autoApiCount);
+            var finalApiCount = WorkSplitDepth > 0 && autoDeviceCount > WorkSplitDepth
+                ? semanticTokens.Length - WorkSplitDepth
+                : autoApiCount;
+            finalApiCount = Math.Clamp(finalApiCount, 1, Math.Max(1, semanticTokens.Length));
+            var finalDeviceCount = Math.Max(0, semanticTokens.Length - finalApiCount);
+
+            var deviceParts = finalDeviceCount > 0
+                ? semanticTokens.Take(finalDeviceCount).ToArray()
+                : semanticTokens;
+            var apiParts = semanticTokens.Skip(Math.Max(0, semanticTokens.Length - finalApiCount)).ToArray();
+            var deviceName = deviceParts.Length == 0 ? sample : string.Join("_", deviceParts);
+            var apiName = apiParts.Length == 0 ? "DO" : string.Join("_", apiParts);
+            var deviceTokens = SplitSymbol(deviceName);
+
+            PreviewTokens = rawTokens.Length == 0 ? "(empty)" : string.Join(" / ", rawTokens);
+            PreviewFlowName = rawTokens.Length == 0 ? "DEFAULT" : GetPreviewFlowName(rawTokens);
+            PreviewWorkName = GetPreviewWorkName(deviceTokens, ioTokens);
+            PreviewDeviceName = deviceName;
+            PreviewApiName = apiName;
+            PreviewCallName = $"{deviceName}.{apiName}";
+            PreviewDisplayName = $"{GetPreviewDisplayName(deviceName, removeTokens)}.{apiName}";
+
+            var flowMode = SplitConfigTokens(FlowInclusions).Length == 0 ? "자동" : $"{SplitConfigTokens(FlowInclusions).Length}개 지정";
+            PreviewSummary =
+                $"Flow 선택: {flowMode}\n" +
+                $"제외 키워드: Device {SplitConfigTokens(DeviceKeywords).Length}, API {SplitConfigTokens(ApiKeywords).Length}, Flow {SplitConfigTokens(FlowKeywords).Length}\n" +
+                $"분해 옵션: WorkDepth {WorkSplitDepth}, API 접미사 {compoundSuffixes.Length}, IO 토큰 {ioTokenList.Length}, 표시 제거 {removeTokens.Count}";
+        }
+        catch (Exception ex)
+        {
+            PreviewTokens = "(preview failed)";
+            PreviewFlowName = "";
+            PreviewWorkName = "";
+            PreviewDeviceName = "";
+            PreviewApiName = "";
+            PreviewCallName = "";
+            PreviewDisplayName = "";
+            PreviewSummary = ex.Message;
+        }
     }
 
     private void WriteConfig(JsonNode node)
@@ -521,13 +727,6 @@ public partial class ConfigEditorViewModel : ObservableObject
                 }
 
                 _rootNode = parsed;
-                WriteConfig(_rootNode);
-                InvalidateMatchingCaches();
-
-                StatusMessage = "저장 완료!";
-                StatusColor = Brushes.Green;
-                CloseRequested?.Invoke();
-                return;
             }
 
             // FilterExclusions 저장
