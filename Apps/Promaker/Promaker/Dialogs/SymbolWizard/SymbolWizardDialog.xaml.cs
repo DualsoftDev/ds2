@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
@@ -46,7 +47,7 @@ public partial class SymbolWizardDialog : Window
         var dlg = new OpenFileDialog
         {
             Title = "PLC 심볼 파일 선택",
-            Filter = "All supported (*.csv;*.xml)|*.csv;*.xml|Mitsubishi CSV (*.csv)|*.csv|XG5000 XML (*.xml)|*.xml",
+            Filter = "All supported (*.csv;*.xml)|*.csv;*.xml|PLC CSV (*.csv)|*.csv|XG5000 XML (*.xml)|*.xml",
         };
         if (dlg.ShowDialog() == true)
             FilePathBox.Text = dlg.FileName;
@@ -56,6 +57,8 @@ public partial class SymbolWizardDialog : Window
     {
         0 => Vendor.Mitsubishi,
         1 => Vendor.XG5000,
+        2 => Vendor.XGB,
+        3 => Vendor.XGK,
         _ => Vendor.AB,
     };
 
@@ -68,41 +71,57 @@ public partial class SymbolWizardDialog : Window
             return;
         }
 
+        // 23K+ 심볼 동기 처리가 UI thread 를 수초간 점유 → Windows 가 "응답 없음" 으로 인식하고
+        // 다른 창으로 focus 를 옮기는 증상 차단. wait cursor + 처리 후 본 dialog 명시적 활성화.
+        Mouse.OverrideCursor = Cursors.Wait;
         var vendor = SelectedVendor();
-        CsvTypes.CsvParseResult parseResult;
         try
         {
-            parseResult = CsvParser.parseFile(vendor, path);
-        }
-        catch (IOException ex)
-        {
-            HandleFileReadFailure(path, ex);
-            return;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            HandleFileReadFailure(path, ex);
-            return;
-        }
-        catch (Exception ex)
-        {
-            HandleSymbolProcessingFailure(
-                "[Error] PLC 심볼 파일 파싱 실패.",
-                $"PLC 심볼 파일 파싱 중 오류가 발생했습니다.\n\n{ex.Message}",
-                "PLC 심볼 파싱 오류");
-            return;
-        }
+            CsvTypes.CsvParseResult parseResult;
+            try
+            {
+                parseResult = CsvParser.parseFile(vendor, path);
+            }
+            catch (IOException ex)
+            {
+                HandleFileReadFailure(path, ex);
+                return;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                HandleFileReadFailure(path, ex);
+                return;
+            }
+            catch (Exception ex)
+            {
+                HandleSymbolProcessingFailure(
+                    "[Error] PLC 심볼 파일 파싱 실패.",
+                    $"PLC 심볼 파일 파싱 중 오류가 발생했습니다.\n\n{ex.Message}",
+                    "PLC 심볼 파싱 오류");
+                return;
+            }
 
-        try
-        {
-            LoadParseResult(path, vendor, parseResult);
+            try
+            {
+                LoadParseResult(path, vendor, parseResult);
+            }
+            catch (Exception ex)
+            {
+                HandleSymbolProcessingFailure(
+                    "[Error] PLC 심볼 매칭 실패.",
+                    $"PLC 심볼 매칭/미리보기 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
+                    "PLC 심볼 처리 오류");
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            HandleSymbolProcessingFailure(
-                "[Error] PLC 심볼 매칭 실패.",
-                $"PLC 심볼 매칭/미리보기 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
-                "PLC 심볼 처리 오류");
+            Mouse.OverrideCursor = null;
+            // 처리 도중 focus 가 빠졌으면 본 dialog 로 복귀 — minimize / deactivate 증상 차단.
+            if (!IsActive)
+            {
+                Activate();
+                Focus();
+            }
         }
     }
 

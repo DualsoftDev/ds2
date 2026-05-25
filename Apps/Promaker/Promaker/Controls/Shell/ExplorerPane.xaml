@@ -49,10 +49,14 @@
         </Style>
 
         <Style x:Key="TreeViewItemInteractiveStyle" TargetType="TreeViewItem" BasedOn="{StaticResource TreeViewItemBaseStyle}">
+            <Setter Property="AllowDrop" Value="True"/>
             <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
             <EventSetter Event="PreviewMouseLeftButtonUp" Handler="TreeViewItem_PreviewMouseLeftButtonUp"/>
             <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
             <EventSetter Event="PreviewMouseMove" Handler="TreeViewItem_PreviewMouseMove_Drag"/>
+            <EventSetter Event="DragOver" Handler="TreeViewItem_DragOver"/>
+            <EventSetter Event="DragLeave" Handler="TreeViewItem_DragLeave"/>
+            <EventSetter Event="Drop" Handler="TreeViewItem_Drop"/>
         </Style>
 
         <HierarchicalDataTemplate x:Key="EntityTreeItemTemplate"
@@ -97,6 +101,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsTreeSelected}" Value="True">
                     <Setter TargetName="TreeItemBorder" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                    <Setter TargetName="TreeItemBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
                 </DataTrigger>
             </HierarchicalDataTemplate.Triggers>
         </HierarchicalDataTemplate>

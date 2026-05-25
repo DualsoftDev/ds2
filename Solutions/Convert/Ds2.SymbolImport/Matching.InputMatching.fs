@@ -1223,6 +1223,7 @@ module InputMatching =
         lock apiNamingConfigSync (fun () -> cachedApiNamingConfig <- None)
         lock defaultMappingSetsSync (fun () -> cachedDefaultMappingSets <- None)
         DeviceGroupingUtils.invalidateCompoundSuffixesCache()
+        DeviceGroupingUtils.invalidateWorkSplitDepthCache()
         DeviceGroupingUtils.invalidateNodeConnectionRulesCache()
         DeviceGroupingUtils.invalidateIOKeywordsCache()
 

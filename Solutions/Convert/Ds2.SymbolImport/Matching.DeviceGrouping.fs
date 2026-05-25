@@ -53,16 +53,22 @@ module DeviceGroupingCore =
         // Patterns for %M address name-based I/O detection (LS SmartIO)
         let namePatterns =
             match direction with
-            | Output -> [|"_O"; "_OUT"|]
-            | Input -> [|"_I"; "_IN"; "_X"; "_rxErr"; "_txErr"|]
+            | Output -> [|"_O"; "_OUT"; "QX_"; "Q_"|]
+            | Input -> [|"_I"; "_IN"; "_X"; "IX_"; "I_"; "_rxErr"; "_txErr"|]
 
-        let matchesPattern (name: string) = namePatterns |> Array.exists (fun p -> name.EndsWith(p) || name.Contains(p + "_"))
+        let matchesPattern (name: string) =
+            namePatterns
+            |> Array.exists (fun p ->
+                name.StartsWith(p, StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(p, StringComparison.OrdinalIgnoreCase)
+                || name.Contains(p + "_", StringComparison.OrdinalIgnoreCase))
 
         let validVars =
             variables
             |> List.filter (fun v ->
                 v.Direction = direction &&
                 (isValidAddress v.PhysicalAddress ||
+                 matchesPattern v.LogicalName ||
                  (v.PhysicalAddress.StartsWith("%M") && matchesPattern v.LogicalName)) &&
                 (v.PhysicalAddress.Contains(":") || hasValidSegments v.LogicalName))
 

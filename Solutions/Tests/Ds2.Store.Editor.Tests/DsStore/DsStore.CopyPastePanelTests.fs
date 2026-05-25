@@ -246,6 +246,78 @@ module MoveTests =
         Assert.Equal(1, moved)
         Assert.True(store.Calls.[call.Id].Position.IsSome)
 
+    [<Fact>]
+    let ``MoveCallToWork moves call to another work in same flow`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api" ], true, None)
+        let call = Queries.callsOf work1.Id store |> List.head
+
+        let moved = store.MoveCallToWork(call.Id, work2.Id)
+
+        Assert.True(moved)
+        Assert.Equal(work2.Id, store.Calls.[call.Id].ParentId)
+        Assert.True(store.CanMoveCallToWork(call.Id, work1.Id))
+
+    [<Fact>]
+    let ``MoveCallToWork blocks move to work in different flow`` () =
+        let store = createStore ()
+        let project, system, _, work1 = setupBasicHierarchy store
+        let flow2 = addFlow store "F2" system.Id
+        let work2 = addWork store "W2" flow2.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api" ], true, None)
+        let call = Queries.callsOf work1.Id store |> List.head
+
+        Assert.False(store.CanMoveCallToWork(call.Id, work2.Id))
+        Assert.False(store.MoveCallToWork(call.Id, work2.Id))
+        Assert.Equal(work1.Id, store.Calls.[call.Id].ParentId)
+
+    [<Fact>]
+    let ``MoveCallToWork blocks duplicate call name in target work`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api" ], true, None)
+        store.AddCallsWithDevice(project.Id, work2.Id, [ "Dev.Api" ], true, None)
+        let call = Queries.callsOf work1.Id store |> List.head
+
+        Assert.False(store.CanMoveCallToWork(call.Id, work2.Id))
+        Assert.False(store.MoveCallToWork(call.Id, work2.Id))
+        Assert.Equal(work1.Id, store.Calls.[call.Id].ParentId)
+
+    [<Fact>]
+    let ``MoveCallToWork removes connected call arrows from source work`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.ApiA"; "Dev.ApiB" ], true, None)
+        let calls = Queries.callsOf work1.Id store |> List.sortBy (fun c -> c.Name)
+        let callA, callB = calls.[0], calls.[1]
+        Assert.Equal(1, store.ConnectSelectionInOrder([ callA.Id; callB.Id ], ArrowType.Start))
+
+        let moved = store.MoveCallToWork(callA.Id, work2.Id)
+
+        Assert.True(moved)
+        Assert.Equal(work2.Id, store.Calls.[callA.Id].ParentId)
+        Assert.Equal(0, Queries.arrowCallsOf work1.Id store |> List.length)
+
+    [<Fact>]
+    let ``MoveCallToWork is one undo step including arrow removal`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.ApiA"; "Dev.ApiB" ], true, None)
+        let calls = Queries.callsOf work1.Id store |> List.sortBy (fun c -> c.Name)
+        let callA, callB = calls.[0], calls.[1]
+        store.ConnectSelectionInOrder([ callA.Id; callB.Id ], ArrowType.Start) |> ignore
+
+        store.MoveCallToWork(callA.Id, work2.Id) |> ignore
+        store.Undo()
+
+        Assert.Equal(work1.Id, store.Calls.[callA.Id].ParentId)
+        Assert.Equal(1, Queries.arrowCallsOf work1.Id store |> List.length)
+
 // =============================================================================
 // Panel (도메인 타입 직접 사용)
 // =============================================================================

@@ -41,6 +41,7 @@
     <PackageReference Include="FSharp.Core" />
     <!-- dsev2 차용 매칭 코드가 Newtonsoft.Json.Linq (JObject) 사용 — 통째 교체보다 패키지 추가가 빠름. -->
     <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="System.Text.Encoding.CodePages" />
   </ItemGroup>
 
 </Project>

@@ -33,6 +33,34 @@ public sealed class ConfigEditorViewModelTests
         }
     }
 
+    [Fact]
+    public void Preview_uses_current_basic_naming_options()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ds2-config-editor-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, MinimalConfigJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var vm = new ConfigEditorViewModel(path)
+            {
+                IoTypeTokens = "Q\nQX\nI\nIX",
+                CompoundSuffixes = "ADV\nRET",
+                PreviewSampleSymbol = "CV_1_ADV"
+            };
+
+            Assert.Equal("CV", vm.PreviewFlowName);
+            Assert.Equal("CV", vm.PreviewWorkName);
+            Assert.Equal("CV_1", vm.PreviewDeviceName);
+            Assert.Equal("ADV", vm.PreviewApiName);
+            Assert.Equal("CV_1.ADV", vm.PreviewCallName);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
     private const string MinimalConfigJson = """
     {
       "Common": {

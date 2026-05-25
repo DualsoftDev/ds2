@@ -4,12 +4,13 @@ namespace Ds2.SymbolImport
 [<AutoOpen>]
 module CsvTypes =
 
-    /// 지원 vendor — DS1 mapper 가 LS XG5000 + Mitsubishi 만 있어 그 두 vendor 부터.
-    /// AB (Allen-Bradley) 등 추후 확장.
+    /// Supported PLC symbol source vendors.
     type Vendor =
         | Mitsubishi
-        | XG5000      // LS 산전
-        | AB          // Allen-Bradley (확장 예약, 현재 parser 미구현)
+        | XG5000      // LS XGI/XG5000 XML or CSV
+        | XGB         // LS XGB CSV
+        | XGK         // LS XGK CSV
+        | AB          // Allen-Bradley (parser not implemented yet)
 
     /// 심볼 입출력 방향 — X (input) / Y (output) / M (memory) / 기타.
     type SymbolDirection =
