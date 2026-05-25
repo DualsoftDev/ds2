@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -62,7 +63,7 @@ public partial class SymbolWizardDialog : Window
         _ => Vendor.AB,
     };
 
-    private void Parse_Click(object sender, RoutedEventArgs e)
+    private async void Parse_Click(object sender, RoutedEventArgs e)
     {
         var path = FilePathBox.Text;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -71,16 +72,21 @@ public partial class SymbolWizardDialog : Window
             return;
         }
 
-        // 23K+ 심볼 동기 처리가 UI thread 를 수초간 점유 → Windows 가 "응답 없음" 으로 인식하고
-        // 다른 창으로 focus 를 옮기는 증상 차단. wait cursor + 처리 후 본 dialog 명시적 활성화.
-        Mouse.OverrideCursor = Cursors.Wait;
+        // 23K+ 심볼 처리가 UI thread 를 수초간 점유하면 Windows 가 "응답 없음" 으로 인식 → dialog 가
+        // 작업표시줄로 빠지는 증상. parse / map / plan generate 를 background thread 로 옮기고
+        // UI thread 는 progress bar 만 갱신.
         var vendor = SelectedVendor();
+        Mouse.OverrideCursor = Cursors.Wait;
+        ParseProgress.Visibility = Visibility.Visible;
+        StatusText.Text = "파싱 중...";
+        ApplyButton.IsEnabled = false;
+
         try
         {
             CsvTypes.CsvParseResult parseResult;
             try
             {
-                parseResult = CsvParser.parseFile(vendor, path);
+                parseResult = await Task.Run(() => CsvParser.parseFile(vendor, path));
             }
             catch (IOException ex)
             {
@@ -101,9 +107,13 @@ public partial class SymbolWizardDialog : Window
                 return;
             }
 
+            StatusText.Text = "매칭 + 모델 생성 중...";
+
+            // Map + Plan 생성도 background. ValueSpec/ApiCall 도메인 객체는 immutable 이라 thread-safe.
+            ComputedParseOutput computed;
             try
             {
-                LoadParseResult(path, vendor, parseResult);
+                computed = await Task.Run(() => ComputeParseOutput(vendor, parseResult));
             }
             catch (Exception ex)
             {
@@ -111,12 +121,17 @@ public partial class SymbolWizardDialog : Window
                     "[Error] PLC 심볼 매칭 실패.",
                     $"PLC 심볼 매칭/미리보기 생성 중 오류가 발생했습니다.\n\n{ex.Message}",
                     "PLC 심볼 처리 오류");
+                return;
             }
+
+            // Tree / DataGrid 갱신은 UI thread — 여기서 hang 가능성 작음 (수백 노드 수준).
+            ApplyParseResultToUi(path, parseResult, computed);
         }
         finally
         {
+            ParseProgress.Visibility = Visibility.Collapsed;
             Mouse.OverrideCursor = null;
-            // 처리 도중 focus 가 빠졌으면 본 dialog 로 복귀 — minimize / deactivate 증상 차단.
+            // background 처리 동안 focus 가 빠진 경우 본 dialog 로 복귀.
             if (!IsActive)
             {
                 Activate();
@@ -125,14 +140,28 @@ public partial class SymbolWizardDialog : Window
         }
     }
 
-    private void LoadParseResult(string path, Vendor vendor, CsvTypes.CsvParseResult parseResult)
+    /// <summary>Background thread 에서 수행하는 매칭 + 플랜 생성 결과 묶음.</summary>
+    private sealed record ComputedParseOutput(
+        Mapper.MappingBatch Batch,
+        FSharpList<ModelGenerator.SystemPlan> Plans,
+        FSharpList<SymbolValidation.ValidationIssue> Issues);
+
+    private static ComputedParseOutput ComputeParseOutput(Vendor vendor, CsvTypes.CsvParseResult parseResult)
     {
-        SourceDisplayName = Path.GetFileName(path);
-        var entries = parseResult.Entries.ToList();
         var config = MappingConfig.loadDefault();
         var batch = Mapper.mapWithConfig(vendor, config, parseResult.Entries);
         var plans = ModelGenerator.generateWithConfig(config, batch);
         var issues = SymbolValidation.validate(batch, plans);
+        return new ComputedParseOutput(batch, plans, issues);
+    }
+
+    private void ApplyParseResultToUi(string path, CsvTypes.CsvParseResult parseResult, ComputedParseOutput computed)
+    {
+        SourceDisplayName = Path.GetFileName(path);
+        var entries = parseResult.Entries.ToList();
+        var batch = computed.Batch;
+        var plans = computed.Plans;
+        var issues = computed.Issues;
 
         _pendingBatch = batch;
         _pendingPlans = plans;

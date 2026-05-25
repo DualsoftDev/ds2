@@ -49,11 +49,20 @@
                 </StackPanel>
             </StackPanel>
 
-            <!-- Step 2: Parse 상태 -->
-            <TextBlock Grid.Row="1" x:Name="StatusText"
-                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                       Margin="0,0,0,6"
-                       Text="대기 중..."/>
+            <!-- Step 2: Parse 상태 + 진행 띠 (상태 텍스트 바로 아래, 단계 진행 시각화) -->
+            <StackPanel Grid.Row="1" Margin="0,0,0,6">
+                <TextBlock x:Name="StatusText"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Text="대기 중..."/>
+                <ProgressBar x:Name="ParseProgress"
+                             Height="3"
+                             IsIndeterminate="True"
+                             Visibility="Collapsed"
+                             Background="Transparent"
+                             Foreground="{DynamicResource AccentBrush}"
+                             BorderThickness="0"
+                             Margin="0,4,0,0"/>
+            </StackPanel>
 
             <!-- Step 3: Mapping DataGrid + Preview Tree (좌우 분할) -->
             <Grid Grid.Row="2">

@@ -71,6 +71,7 @@ public partial class EditorCanvas : UserControl
     {
         InitializeComponent();
         KeyDown += OnKeyDown;
+        RootGrid.SizeChanged += OnViewportSizeChanged;
         Focusable = true;
     }
 

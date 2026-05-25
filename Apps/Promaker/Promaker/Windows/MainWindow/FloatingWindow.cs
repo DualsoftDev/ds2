@@ -13,10 +13,11 @@ public partial class MainWindow
     {
         var w = e.LayoutFloatingWindowControl;
         TraceDock($"FloatingWindowCreated window={w.GetType().Name} model={ElementDesc(w.Model)}", includeTree: true);
-        w.OwnedByDockingManagerWindow = false;
+        w.OwnedByDockingManagerWindow = true;
         w.Topmost = false;
         if (Application.Current.TryFindResource("PrimaryBackgroundBrush") is Brush bg)
             w.Background = bg;
+        AttachFloatingOverlayFilter(w);
         DeferAttachFloatingResizeGripHook(w);
 
         if (w.IsLoaded)

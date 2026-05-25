@@ -156,6 +156,60 @@
                            Background="{DynamicResource PrimaryBackgroundBrush}"
                            BorderThickness="0"
                            DocumentPaneControlStyle="{StaticResource PromakerDocumentPaneControlStyle}">
+            <ad:DockingManager.AnchorableHeaderTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                        <Button Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                CommandParameter="{Binding ContentId}"
+                                Margin="6,0,0,0" VerticalAlignment="Center">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource HelpButton}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="explorer">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="properties">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="history">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </DataTemplate>
+            </ad:DockingManager.AnchorableHeaderTemplate>
+            <ad:DockingManager.AnchorableTitleTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                        <Button Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                CommandParameter="{Binding ContentId}"
+                                Margin="6,0,0,0" VerticalAlignment="Center">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource HelpButton}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="explorer">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="properties">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ContentId}" Value="history">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </DataTemplate>
+            </ad:DockingManager.AnchorableTitleTemplate>
             <!-- 다크 테마 hotfix — Promaker 자체 ThemeManager 와 별개로 AvalonDock 의 caption/탭/auto-hide brush 적용.
                  PR-4 진입 시 `Apps/Promaker/Promaker/Themes/Theme.Controls.Dock.xaml` 자체 매핑으로 교체 예정.
                  v10 추가 — Background/BorderThickness 명시: AvalonDock.Themes.Metro 가 Application.Resources 에 merge 되며
@@ -237,21 +291,7 @@
                                                  CanClose="False" CanHide="True"
                                                  CanFloat="True" CanAutoHide="True">
                                 <Border Style="{StaticResource PanelContainer}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="*"/>
-                                        </Grid.RowDefinitions>
-                                        <Border Style="{StaticResource PanelHeader}">
-                                            <Grid>
-                                                <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
-                                                <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
-                                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                                        CommandParameter="history"/>
-                                            </Grid>
-                                        </Border>
-                                        <ctrl:HistoryPanel Grid.Row="1"/>
-                                    </Grid>
+                                    <ctrl:HistoryPanel/>
                                 </Border>
                             </ad:LayoutAnchorable>
                         </ad:LayoutAnchorablePane>
