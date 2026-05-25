@@ -31,19 +31,7 @@
 
     <Border Style="{StaticResource PanelContainer}" b:CtrlWheelZoom.IsEnabled="True">
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            <Border Style="{StaticResource PanelHeader}">
-                <Grid>
-                    <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12"/>
-                    <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
-                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                            CommandParameter="properties"/>
-                </Grid>
-            </Border>
-            <ScrollViewer Grid.Row="1" x:Name="PropertyScroll"
+            <ScrollViewer x:Name="PropertyScroll"
                           VerticalScrollBarVisibility="Auto"
                           PreviewMouseWheel="PropertyScroll_PreviewMouseWheel">
                 <StackPanel Margin="8">

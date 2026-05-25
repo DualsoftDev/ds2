@@ -5,6 +5,8 @@ namespace Promaker.Controls;
 
 public partial class EditorCanvas
 {
+    private const double ContentVisibilityMargin = 80.0;
+
     private void OnMouseWheel(object sender, MouseWheelEventArgs e)
     {
         var pos = e.GetPosition(ViewportCanvas);
@@ -124,5 +126,78 @@ public partial class EditorCanvas
         PanTransform.X = viewW / 2 - centerX * _zoom;
         PanTransform.Y = viewH / 2 - centerY * _zoom;
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
+
+    private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.PreviousSize.Width <= 0
+            || e.PreviousSize.Height <= 0
+            || e.NewSize.Width <= 0
+            || e.NewSize.Height <= 0)
+            return;
+
+        PanTransform.X += (e.NewSize.Width - e.PreviousSize.Width) / 2;
+        PanTransform.Y += (e.NewSize.Height - e.PreviousSize.Height) / 2;
+        KeepContentReachable(e.NewSize.Width, e.NewSize.Height, centerSmallContent: true);
+    }
+
+    public void NormalizeViewportAfterLayoutChange()
+    {
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        KeepContentReachable(viewW, viewH, centerSmallContent: true);
+    }
+
+    private void KeepContentReachable(double viewW, double viewH, bool centerSmallContent)
+    {
+        if (ActiveCanvasState?.CanvasNodes is not { Count: > 0 } nodes) return;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var n in nodes)
+        {
+            minX = Math.Min(minX, n.X);
+            minY = Math.Min(minY, n.Y);
+            maxX = Math.Max(maxX, n.X + n.Width);
+            maxY = Math.Max(maxY, n.Y + n.Height);
+        }
+
+        var left = minX * _zoom + PanTransform.X;
+        var right = maxX * _zoom + PanTransform.X;
+        var top = minY * _zoom + PanTransform.Y;
+        var bottom = maxY * _zoom + PanTransform.Y;
+
+        if (centerSmallContent)
+        {
+            var contentW = (maxX - minX) * _zoom;
+            var contentH = (maxY - minY) * _zoom;
+            var centerX = ((minX + maxX) / 2) * _zoom + PanTransform.X;
+            var centerY = ((minY + maxY) / 2) * _zoom + PanTransform.Y;
+
+            if (contentW <= viewW
+                && (centerX < viewW * 0.30 || centerX > viewW * 0.70))
+                PanTransform.X += viewW / 2 - centerX;
+
+            if (contentH <= viewH
+                && (centerY < viewH * 0.30 || centerY > viewH * 0.70))
+                PanTransform.Y += viewH / 2 - centerY;
+
+            left = minX * _zoom + PanTransform.X;
+            right = maxX * _zoom + PanTransform.X;
+            top = minY * _zoom + PanTransform.Y;
+            bottom = maxY * _zoom + PanTransform.Y;
+        }
+
+        if (right < ContentVisibilityMargin)
+            PanTransform.X += ContentVisibilityMargin - right;
+        else if (left > viewW - ContentVisibilityMargin)
+            PanTransform.X -= left - (viewW - ContentVisibilityMargin);
+
+        if (bottom < ContentVisibilityMargin)
+            PanTransform.Y += ContentVisibilityMargin - bottom;
+        else if (top > viewH - ContentVisibilityMargin)
+            PanTransform.Y -= top - (viewH - ContentVisibilityMargin);
     }
 }

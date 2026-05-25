@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using AvalonDock;
 using AvalonDock.Layout;
 
@@ -62,6 +63,12 @@ public partial class MainWindow
         if (paneElement.FindParent<LayoutFloatingWindow>() != null)
         {
             TraceDock($"CaptureDockPlacement skipped floating parent anchor={ContentDesc(anchor)} parent={ElementDesc(paneElement)}", anchor);
+            return;
+        }
+        if (paneElement is LayoutAnchorablePane anchorablePane
+            && IsWorkspaceDocumentSplitPane(anchorablePane))
+        {
+            TraceDock($"CaptureDockPlacement skipped workspace-document split anchor={ContentDesc(anchor)} parent={ElementDesc(paneElement)}", anchor, includeTree: true);
             return;
         }
 
@@ -150,6 +157,38 @@ public partial class MainWindow
         QueueDockPaneExtentUpdate();
         TraceDock($"TryDockAnchorAtCapturedPlacement inserted anchor={ContentDesc(anchor)} index={insertIndex}", anchor, includeTree: true);
         return true;
+    }
+
+    private bool TryRestoreWorkspaceDocumentSplitDock(LayoutAnchorable anchor)
+    {
+        if (anchor.Parent is not LayoutAnchorablePane pane
+            || !IsWorkspaceDocumentSplitPane(pane))
+            return false;
+
+        TraceDock($"RestoreWorkspaceDocumentSplitDock anchor={ContentDesc(anchor)} pane={ElementDesc(pane)}", anchor, includeTree: true);
+        return TryDockAnchorAtCapturedPlacement(anchor);
+    }
+
+    private bool IsWorkspaceDocumentSplitPane(LayoutAnchorablePane pane)
+    {
+        if (!IsDockedInMainLayout(pane) || IsCanonicalAnchorablePane(pane))
+            return false;
+
+        if (pane.Parent is not ILayoutContainer parent)
+            return false;
+
+        return parent.Children
+            .OfType<ILayoutElement>()
+            .Any(IsWorkspaceDocumentHost);
+    }
+
+    private bool IsWorkspaceDocumentHost(ILayoutElement element)
+    {
+        if (ReferenceEquals(element, workspaceDocs))
+            return true;
+
+        return element is LayoutDocumentPaneGroup
+            && element.Descendents().OfType<LayoutDocumentPane>().Any(p => ReferenceEquals(p, workspaceDocs));
     }
 
     private static bool EnsureDockPaneAttached(DockAnchorPlacement placement)

@@ -27,17 +27,27 @@ public partial class MainWindow
     private void OnDockManagerContentDocked(object? sender, ContentDockedEventArgs e)
     {
         TraceDock($"ContentDocked content={ContentDesc(e.Content)}", e.Content as LayoutAnchorable, includeTree: true);
+        if (e.Content is LayoutAnchorable anchor
+            && TryRestoreWorkspaceDocumentSplitDock(anchor))
+        {
+            dockManager.Layout?.CollectGarbage();
+            QueueDockPaneExtentUpdate();
+            return;
+        }
+
         QueueDockPaneExtentUpdate();
+        Dispatcher.BeginInvoke(new Action(WorkspacePane.NormalizeViewportAfterLayoutChange), DispatcherPriority.ApplicationIdle);
         Dispatcher.BeginInvoke(new Action(BringMainWindowToFront), DispatcherPriority.Background);
     }
 
     private void BringMainWindowToFront()
     {
         if (!IsVisible) return;
-        Topmost = true;
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+
         Activate();
-        Dispatcher.BeginInvoke(new Action(() => Topmost = false),
-            DispatcherPriority.ApplicationIdle);
+        Focus();
     }
 
     private void SyncLlmChatAnchorFromVm()
@@ -92,6 +102,12 @@ public partial class MainWindow
         SetDockHeightIfAttached(llmChatPane, StarLength);
         SetDockHeightIfAttached(propertyPane, StarLength);
 
+        SetCurrentAnchorPaneExtent(explorerAnchor, ExplorerDefaultW, ExplorerDefaultW);
+        SetCurrentAnchorPaneExtent(simulationAnchor, RightDefaultW, SimulationDefaultH);
+        SetCurrentAnchorPaneExtent(propertyAnchor, RightDefaultW, StarLength);
+        SetCurrentAnchorPaneExtent(historyAnchor, RightDefaultW, HistoryDefaultH);
+        SetCurrentAnchorPaneExtent(llmChatAnchor, RightDefaultW, StarLength);
+
         if (IsDockedInMainLayout(rightPanel))
         {
             var nextRight = HasVisibleDockedAnchorable(rightPanel) ? RightDefaultW : ZeroLength;
@@ -103,10 +119,36 @@ public partial class MainWindow
 
     private void NormalizeDockLayoutAfterMutation()
     {
+        int removedPanes = RemoveEmptyAnchorablePanes();
         int removedGroups = RemoveEmptyAnchorablePaneGroups();
         RecomputeDockVisibility();
-        if (removedGroups > 0)
-            TraceDock($"NormalizeDockLayout removedEmptyAnchorablePaneGroups={removedGroups}", includeTree: true);
+        if (removedPanes > 0 || removedGroups > 0)
+            TraceDock($"NormalizeDockLayout removedEmptyAnchorablePanes={removedPanes} removedEmptyAnchorablePaneGroups={removedGroups}", includeTree: true);
+    }
+
+    private int RemoveEmptyAnchorablePanes()
+    {
+        var panes = dockManager.Layout?.Descendents()
+            .OfType<LayoutAnchorablePane>()
+            .Where(p => p.ChildrenCount == 0
+                        && IsDockedInMainLayout(p)
+                        && !IsCanonicalAnchorablePane(p)
+                        && !IsFloatingPlaceholderPane(p))
+            .ToArray();
+        if (panes is not { Length: > 0 }) return 0;
+
+        int removed = 0;
+        foreach (var pane in panes)
+        {
+            if (pane.Parent is not ILayoutGroup parent) continue;
+            int index = parent.IndexOfChild(pane);
+            if (index < 0) continue;
+
+            parent.RemoveChildAt(index);
+            removed++;
+        }
+
+        return removed;
     }
 
     private int RemoveEmptyAnchorablePaneGroups()
@@ -179,22 +221,56 @@ public partial class MainWindow
         if (pane.DockHeight != next) pane.DockHeight = next;
     }
 
+    private void SetCurrentAnchorPaneExtent(LayoutAnchorable anchor, GridLength width, GridLength height)
+    {
+        if (!anchor.IsVisible || anchor.IsFloating) return;
+        if (anchor.Parent is not LayoutAnchorablePane pane) return;
+        if (!IsDockedInMainLayout(pane)) return;
+
+        switch (pane.Parent)
+        {
+            case LayoutPanel { Orientation: System.Windows.Controls.Orientation.Horizontal }:
+            case LayoutAnchorablePaneGroup { Orientation: System.Windows.Controls.Orientation.Horizontal }:
+                if (pane.DockWidth != width) pane.DockWidth = width;
+                break;
+
+            case LayoutPanel { Orientation: System.Windows.Controls.Orientation.Vertical }:
+            case LayoutAnchorablePaneGroup { Orientation: System.Windows.Controls.Orientation.Vertical }:
+                if (pane.DockHeight != height) pane.DockHeight = height;
+                break;
+        }
+    }
+
     private bool ShouldKeepPaneExtent(LayoutAnchorablePane pane)
     {
         if (pane.IsVisible) return true;
-        var keepPlaceholder = pane.ChildrenCount == 0
-            && _dockPlacements.Any(kv =>
-                kv.Key.IsFloating
-                && ReferenceEquals(kv.Value.PaneElement, pane));
+        var keepPlaceholder = IsFloatingPlaceholderPane(pane);
         if (keepPlaceholder)
             TraceDock($"KeepPaneExtentForFloatingPlaceholder pane={ElementDesc(pane)}");
         return keepPlaceholder;
+    }
+
+    private bool IsFloatingPlaceholderPane(LayoutAnchorablePane pane)
+    {
+        return pane.ChildrenCount == 0
+            && _dockPlacements.Any(kv =>
+                kv.Key.IsFloating
+                && ReferenceEquals(kv.Value.PaneElement, pane));
     }
 
     private bool IsDockedInMainLayout(ILayoutElement element)
     {
         return element.Root == dockManager.Layout
             && element.FindParent<LayoutFloatingWindow>() == null;
+    }
+
+    private bool IsCanonicalAnchorablePane(LayoutAnchorablePane pane)
+    {
+        return ReferenceEquals(pane, explorerPane)
+            || ReferenceEquals(pane, simulationPane)
+            || ReferenceEquals(pane, propertyPane)
+            || ReferenceEquals(pane, historyPane)
+            || ReferenceEquals(pane, llmChatPane);
     }
 
     private bool HasVisibleDockedAnchorable(ILayoutElement element)

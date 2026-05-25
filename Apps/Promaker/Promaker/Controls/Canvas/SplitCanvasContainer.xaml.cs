@@ -24,6 +24,7 @@ public partial class SplitCanvasContainer : UserControl
     public void CenterOnNode(Guid id) => ActiveWorkspace?.CenterOnNode(id);
     public void FitToViewZoomOut() => ActiveWorkspace?.FitToViewZoomOut();
     public Point? GetViewportCenter() => ActiveWorkspace?.GetViewportCenter();
+    public void NormalizeViewportAfterLayoutChange() => ActiveWorkspace?.NormalizeViewportAfterLayoutChange();
 
     private CanvasWorkspace? ActiveWorkspace
     {
