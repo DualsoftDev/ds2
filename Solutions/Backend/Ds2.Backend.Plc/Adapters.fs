@@ -10,6 +10,20 @@ open Ev2.Backend.PLC
 // LsConnector/MxConnector 의 packetLogger·config 인자는 F# `?param` optional 로 정의돼 있어
 // 호출 측에서는 unwrap 된 값을 전달하거나 named-arg 로 omit 한다.
 
+/// PLC ReadTag/WriteTag 가 돌려준 에러 메시지 분류. "통신 자체가 죽었나 vs 패킷은 오갔는데
+/// 요청 내용이 부적합한가" 를 구분하기 위한 한 곳.
+///
+/// MELSEC MC protocol response (0xC0xx / 0xC1xx 등) 는 **PLC 가 패킷을 받아서 답까지 돌려보낸**
+/// 신호다. 즉 통신은 alive, 다만 요청 자체가 부적합(없는 주소 / 범위 외 / unit count 초과 등).
+/// 같은 주소를 매 scan 마다 다시 시도해도 답은 같으므로 임계치 누적 후 skip 처리하는 게 합리적.
+[<RequireQualifiedAccess>]
+module PlcErrorClassifier =
+    let isProtocolError (msg: string) : bool =
+        if isNull msg then false
+        else
+            let m = msg.ToLowerInvariant()
+            m.Contains("code:") || m.Contains("0xc0") || m.Contains("0xc1")
+
 /// PlcValue 와 string 사이의 변환. Hub 는 value 를 string 으로 다루므로,
 /// Bool 은 "true"/"false", 정수/실수는 invariant culture 로 직렬화한다.
 [<RequireQualifiedAccess>]
@@ -107,6 +121,12 @@ module MxAdapter =
         // TCP 도 일부 라이브러리 구현에서 SYN-only 성공만으로 true 가 되는 경우가 있어 동일하게 검증.
         // PlcConnectionConfig.Tags 의 첫 항목 1개를 probe 로 1회 ReadTag → 실패면 connect 실패로 간주.
         // 태그가 비어있는 어댑터(write-only / 등록 직후)는 probe 생략하고 IsConnected 만 반환.
+        //
+        // 핵심: probe 의 목적은 wire 위에서 PLC 가 응답하는지 확인하는 것. 0xC0xx 같은 MELSEC
+        // protocol-level error code 가 돌아왔다는 건 PLC 가 패킷을 받고 답까지 돌려보냈다는 뜻이라
+        // alive 로 인정해야 한다. 진짜 dead 신호는 timeout / socket exception 뿐.
+        // (예: probe 주소가 PLC 디바이스 범위를 살짝 벗어나 0xC056 이 돌아와도 통신은 정상이므로
+        //  연결 자체는 OK 로 처리. 잘못된 주소는 이후 ReadTag debug 로그로 가시화됨.)
         let probeTag = cfg.Tags |> List.tryHead
         let probeAlive () : bool =
             match probeTag with
@@ -116,8 +136,15 @@ module MxAdapter =
                     match connector.ReadTag(tag.PlcAddress, tag.DataType) with
                     | Ok _ -> true
                     | Error e ->
-                        log.Warn($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} failed: {e}")
-                        false
+                        let msg = sprintf "%A" e
+                        if PlcErrorClassifier.isProtocolError msg then
+                            // PLC 가 응답함 → 통신 자체는 정상. 주소 부적합 같은 사용자 설정 이슈는
+                            // 정기 scan 의 ReadTag debug 로그로 가시화 — connection up 자체는 인정.
+                            log.Info($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} returned protocol error '{msg}' — PLC alive, accepting connection")
+                            true
+                        else
+                            log.Warn($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} failed (no PLC response): {msg}")
+                            false
                 with ex ->
                     log.Warn($"MX [{cfg.Name}] probe ReadTag {tag.PlcAddress} threw: {ex.Message}")
                     false
