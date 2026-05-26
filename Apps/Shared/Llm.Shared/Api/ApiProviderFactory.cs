@@ -11,7 +11,7 @@ using ModelContextProtocol.Client;
 using OllamaSharp;
 using OpenAI;
 
-namespace Promaker.LlmAgent.Api;
+namespace Llm.Shared.Api;
 
 /// <summary>
 /// API 기반 ApiChatProvider 팩토리.

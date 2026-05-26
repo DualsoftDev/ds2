@@ -65,11 +65,15 @@ public partial class MainWindow : Window
         // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
         // B-1 — 보기 메뉴 (`Apps/Promaker/Docs/todo-dock-layout.md` §3.1 Q2) anchor IsVisible TwoWay binding 용 VM expose.
-        // LlmChat 은 IsLlmChatVisible SSOT 별도라 제외 (toolbar 의 LLM 토글 버튼이 별도 UI).
+        // 총 5종 (Explorer/Property/History/Simulation/Log). LlmChat 은 IsLlmChatVisible SSOT 별도라 anchor 자체는 제외
+        // (보기 메뉴 CheckBox 는 ToggleLlmChatCommand + IsLlmChatVisible OneWay 표시 패턴 — `MainToolbarEtcContent.xaml`).
+        // LogAnchor 정책: HasProject 와 무관하게 항상 활성. SyncWelcomeCanvasVisibility 가 의도적으로 손대지 않아
+        // 사용자가 보기 메뉴로 선택한 마지막 visible 상태가 Welcome ↔ Project 전환을 가로질러 보존된다.
         _vm.ExplorerAnchor   = explorerAnchor;
         _vm.PropertyAnchor   = propertyAnchor;
         _vm.HistoryAnchor    = historyAnchor;
         _vm.SimulationAnchor = simulationAnchor;
+        _vm.LogAnchor        = logAnchor;
 
         dockManager.LayoutUpdateStrategy = new DockLayoutUpdateStrategy(this);
         dockManager.ContentFloating += OnDockManagerContentFloating;
@@ -84,15 +88,16 @@ public partial class MainWindow : Window
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         llmChatAnchor.Hiding += OnLlmChatHiding;
 
-        // v7 PR-2a Q1 — 빈 column 자동 collapse listener. 5개 anchor 모두 동일 핸들러.
+        // v7 PR-2a Q1 — 빈 column 자동 collapse listener. 모든 anchor 동일 핸들러.
         explorerAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         simulationAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
+        logAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         propertyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         historyAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
         llmChatAnchor.IsVisibleChanged += OnAnchorIsVisibleChanged;
 
         // 매 docked 상태에서 pane/index capture — drag-floating 후 Dock() 시 직전 dock 위치 복원 보장.
-        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, logAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
         {
             a.PropertyChanged += OnAnchorPropertyChanged;
             CaptureDockPlacement(a);  // 초기 1회 (안전망 — Loaded 에도 다시)
@@ -137,6 +142,12 @@ public partial class MainWindow : Window
     // 외부 reviewer M1 수용 — Welcome 모드 (HasProject=false) 에 보조 anchor 가 노출되면 동일 문서 §3.1 안 A 명세 drift
     // + 이전 WelcomeLayout (전용 안내 화면) 대비 UX 회귀. LlmChat 은 IsLlmChatVisible SSOT 가 별도라 제외.
     //
+    // LogAnchor 의 의도적 제외 — log4net 출력은 앱 전역 (프로젝트 무관) 진단 도구. 사용자가 '보기' 메뉴로 토글한 마지막
+    // 상태가 Welcome ↔ Project 전환을 가로질러 보존되어야 한다 (`MainToolbarEtcContent.xaml` 의 Log CheckBox 는
+    // 대응되는 IsEnabled 바인딩 없음 — Welcome 에서도 활성). simulationAnchor 가 hide 된 상태에서 simulationPane
+    // 안에 logAnchor 만 visible 이면 AvalonDock 의 LayoutAnchorablePane.ComputeVisibility() (DockExtents.RecomputeDockVisibility 가 호출)
+    // 가 pane 자체를 visible 로 유지 + SelectedContentIndex 가 logAnchor 로 자연 수렴.
+    //
     // 재진입 가드 없음 — anchor.IsVisible set 의 IsVisibleChanged 가 OnAnchorIsVisibleChanged 만 부르고
     // VM ↔ View 역방향 없음. LlmChat 의 _suppressLlmChatSync 가드와 비대칭이 의도된 부분.
     //
@@ -169,7 +180,7 @@ public partial class MainWindow : Window
         // 초기 collapse 적용 (XAML 기본값 — llmChatAnchor IsVisible=False).
         UpdateDockPaneExtents();
         // XAML 트리 완성 후 pane/index 안전망 recapture.
-        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, logAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
             CaptureDockPlacement(a);
 
         // v15 — Welcome/Canvas 위/아래 흰선 hotfix. Metro theme 의 LayoutDocumentPaneControl Style 이 Background
@@ -322,11 +333,12 @@ public partial class MainWindow : Window
         // v7 PR-2a Q1 — anchor IsVisibleChanged listener 해지.
         explorerAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
         simulationAnchor.IsVisibleChanged  -= OnAnchorIsVisibleChanged;
+        logAnchor.IsVisibleChanged         -= OnAnchorIsVisibleChanged;
         propertyAnchor.IsVisibleChanged    -= OnAnchorIsVisibleChanged;
         historyAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
         llmChatAnchor.IsVisibleChanged     -= OnAnchorIsVisibleChanged;
 
-        foreach (var a in new[] { explorerAnchor, simulationAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
+        foreach (var a in new[] { explorerAnchor, simulationAnchor, logAnchor, propertyAnchor, historyAnchor, llmChatAnchor })
             a.PropertyChanged -= OnAnchorPropertyChanged;
     }
 

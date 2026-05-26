@@ -434,9 +434,15 @@ let ``updateChunkImageCounts — image dispatch 후 Chunks.ImageCount post-updat
             mkImg "p=1" 1; mkImg "p=1" 2; mkImg "p=2" 1
         |]
         SqliteStore.updateChunkImageCounts conn docId
-        // p=1 chunk = ImageCount 2, p=2 chunk = ImageCount 1.
+        // p=1 본문 chunk = ImageCount 2, p=2 본문 chunk = ImageCount 1.
+        // **PR-Img-Chunk**: caption-chunk 박제 (Step 1-a placeholder) 도 동일 RefLocator 안에 row 추가됨 →
+        // 본문 chunk 만 필터링 (Text 가 caption-chunk placeholder marker 미박제 — `[그림 ` 접두 부재).
         use cmd = conn.CreateCommand()
-        cmd.CommandText <- "SELECT RefLocator, ImageCount FROM Chunks WHERE DocumentId=$d ORDER BY RefLocator"
+        cmd.CommandText <- """
+            SELECT RefLocator, ImageCount FROM Chunks
+            WHERE DocumentId=$d AND Text NOT LIKE '[그림 %'
+            ORDER BY RefLocator
+        """
         cmd.Parameters.AddWithValue("$d", docId) |> ignore
         use reader = cmd.ExecuteReader()
         Assert.True(reader.Read())
@@ -630,3 +636,82 @@ let ``ingestImagesIntoStore — icon + 본문 image 혼합 (Plan 2) — icon ski
         Assert.Single refs |> ignore
         let (_, refLoc, _, _) = refs.[0]
         Assert.Equal("p=2", refLoc))
+
+// ── PR-Img-Chunk (r1) — captionGen=noop placeholder caption-chunk 박제 (사용자 요구 ①) ──
+
+[<Fact>]
+let ``PR-Img-Chunk r1 — ingestImagesIntoStore captionGen=noop 시 placeholder caption-chunk 박제 (Step 1-a marker)`` () =
+    // 사용자 ① 요구: `--force-without-image-caption` (= captionGen=noop) path 에서도 image 위치 marker 박제.
+    // Step 1-a 시점부터 본문 chunk 와 함께 caption-chunk row 박제 → xxx.md 본문 inline marker + gallery 표시.
+    // 후속 Step 2 caption-update 가 동일 chunk row Text UPDATE (idempotent UPDATE path 정합).
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-noop" "a.pdf" Pdf 100L None None
+        // 본문 chunk 1개 박제 (RefLocator p=1).
+        SqliteStore.insertChunks conn docId [||]
+            [| { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 0; TokenCount = 5; Text = "본문" } |]
+            SqliteStore.DefaultBatchSize CancellationToken.None
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        // captionGen=noop 으로 image 1개 dispatch.
+        let images = [|
+            { Bytes = samplePngBytes
+              Format = Png
+              Width = None
+              Height = None
+              RefLocator = "p=1"
+              Ordinal = 3 }
+        |]
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId CaptionGenerator.noop images
+        // ImageCache.CaptionText NULL 정합 (noop path).
+        let hash = ImageStore.computeSha256 samplePngBytes
+        Assert.True((ImageStore.getCaption conn hash).IsNone)
+        // **사용자 ① 핵심 검증**: caption-chunk row 가 박제됨 (placeholder Text).
+        match SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=1" 3 with
+        | None -> Assert.Fail "captionGen=noop path 에서 placeholder caption-chunk 미박제 회귀 — Step 1-a image marker 누락"
+        | Some captionChunkId ->
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "SELECT Text FROM Chunks WHERE Id = $id"
+            cmd.Parameters.AddWithValue("$id", captionChunkId) |> ignore
+            let text = cmd.ExecuteScalar() :?> string
+            Assert.Contains("[그림 p.1 #3 hash=", text)
+            Assert.Contains(ImageStore.CaptionPlaceholderText, text))
+
+[<Fact>]
+let ``PR-Img-Chunk r1 — placeholder caption-chunk back-fill: updateCaptionBatch 가 동일 chunk row Text UPDATE`` () =
+    // Step 1-a 의 placeholder caption-chunk 가 Step 2 caption-update 호출 시 INSERT 가 아닌 UPDATE 로 전환되어야
+    // idempotent path 정합 — 신 Chunks row 추가 0 + ChunksFts AU trigger 자동 sync.
+    withTempDir (fun dir ->
+        use conn = openFreshAt dir
+        let docId = SqliteStore.insertDocument conn "H-bf" "a.pdf" Pdf 100L None None
+        SqliteStore.insertChunks conn docId [||]
+            [| { OutlineIndex = None; RefLocator = "p=1"; Ordinal = 0; TokenCount = 5; Text = "본문" } |]
+            SqliteStore.DefaultBatchSize CancellationToken.None
+        let refToChunkId = SqliteStore.lookupChunkIdsByDocument conn docId
+        let images = [|
+            { Bytes = samplePngBytes; Format = Png; Width = None; Height = None
+              RefLocator = "p=1"; Ordinal = 3 }
+        |]
+        // Step 1-a — noop → placeholder caption-chunk 박제.
+        Indexer.ingestImagesIntoStore conn dir docId refToChunkId CaptionGenerator.noop images
+        let hash = ImageStore.computeSha256 samplePngBytes
+        let captionChunkIdBefore = SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=1" 3
+        Assert.True(captionChunkIdBefore.IsSome)
+        // 박제 직후 Chunks row 수 (본문 1 + caption-chunk 1 = 2).
+        use cmdCount = conn.CreateCommand()
+        cmdCount.CommandText <- "SELECT COUNT(*) FROM Chunks WHERE DocumentId = $d"
+        cmdCount.Parameters.AddWithValue("$d", docId) |> ignore
+        Assert.Equal(2, Convert.ToInt32 (cmdCount.ExecuteScalar()))
+        // Step 2 caption-update batch — placeholder → 실제 caption text 로 UPDATE.
+        ImageStore.updateCaptionBatch conn (Seq.singleton (hash, "전기 패널 결선도", "claude-test")) |> ignore
+        // Chunks row 수 그대로 (INSERT 회피, UPDATE path 정합).
+        Assert.Equal(2, Convert.ToInt32 (cmdCount.ExecuteScalar()))
+        // chunkId 동일 (lookup 결과 보존).
+        let captionChunkIdAfter = SqliteStore.lookupCaptionChunkByImageRef conn docId hash "p=1" 3
+        Assert.Equal(captionChunkIdBefore, captionChunkIdAfter)
+        // Text 갱신 검증.
+        use cmdText = conn.CreateCommand()
+        cmdText.CommandText <- "SELECT Text FROM Chunks WHERE Id = $id"
+        cmdText.Parameters.AddWithValue("$id", captionChunkIdAfter.Value) |> ignore
+        let text = cmdText.ExecuteScalar() :?> string
+        Assert.Contains("전기 패널 결선도", text)
+        Assert.DoesNotContain(ImageStore.CaptionPlaceholderText, text))

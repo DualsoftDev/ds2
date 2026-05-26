@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.AI;
 
-namespace Promaker.LlmAgent.Api;
+namespace Llm.Shared.Api;
 
 /// <summary>
 /// **PR-G (todo-lighthouse-index-summary.md §5.2 v-b)** — system ChatMessage 의 AIContent 목록 빌더.

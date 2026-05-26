@@ -172,7 +172,7 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 #include "CodeDependencies.iss"
 
 #if SelfContainedMode != "true"
-; fd 모드: .NET 9 Desktop Runtime이 없으면 자동 다운로드/설치
+// fd 모드: .NET 9 Desktop Runtime이 없으면 자동 다운로드/설치
 function InitializeSetup: Boolean;
 begin
   Dependency_AddDotNet90Desktop;

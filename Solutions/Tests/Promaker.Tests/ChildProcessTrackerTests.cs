@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
-using Promaker.LlmAgent;
+using Llm.Shared;
 using Xunit;
 
 namespace Promaker.Tests;
