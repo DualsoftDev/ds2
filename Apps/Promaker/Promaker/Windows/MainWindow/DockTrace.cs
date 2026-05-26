@@ -22,10 +22,11 @@ public partial class MainWindow
 
     private string AnchorStates()
     {
-        return string.Join("; ", new[] { explorerAnchor, propertyAnchor, historyAnchor, simulationAnchor, llmChatAnchor }
+        return string.Join("; ", new[] { explorerAnchor, propertyAnchor, historyAnchor, simulationAnchor, logAnchor, llmChatAnchor }
             .Select(a => $"{a.ContentId}:vis={a.IsVisible},hidden={a.IsHidden},float={a.IsFloating},active={a.IsActive},sel={a.IsSelected},parent={ElementDesc(a.Parent as ILayoutElement)},path={ElementPath(a)}"));
     }
 
+    // logAnchor 는 별도 pane 이 아니라 simulationPane 의 두 번째 child — PaneStates 의 simulationPane children 출력에 묻혀 표시된다.
     private string PaneStates()
     {
         return string.Join("; ", new[]

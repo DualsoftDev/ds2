@@ -1,7 +1,6 @@
-using System.Collections;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using Promaker.Presentation;
 
 namespace Promaker.Controls;
 
@@ -14,12 +13,12 @@ public partial class SimulationPanel : UserControl
 
     private void EventLogCopyAll_Click(object sender, RoutedEventArgs e)
     {
-        CopyToClipboard(EventLogListBox.Items);
+        ClipboardUtil.Copy(EventLogListBox.Items);
     }
 
     private void EventLogCopySelected_Click(object sender, RoutedEventArgs e)
     {
-        CopyToClipboard(EventLogListBox.SelectedItems.Count > 0
+        ClipboardUtil.Copy(EventLogListBox.SelectedItems.Count > 0
             ? EventLogListBox.SelectedItems
             : EventLogListBox.Items);
     }
@@ -28,39 +27,5 @@ public partial class SimulationPanel : UserControl
     {
         if (DataContext is ViewModels.SimulationPanelState vm)
             vm.SimEventLog.Clear();
-    }
-
-    private void AppLogCopyAll_Click(object sender, RoutedEventArgs e)
-    {
-        CopyToClipboard(AppLogListBox.Items);
-    }
-
-    private void AppLogCopySelected_Click(object sender, RoutedEventArgs e)
-    {
-        CopyToClipboard(AppLogListBox.SelectedItems.Count > 0
-            ? AppLogListBox.SelectedItems
-            : AppLogListBox.Items);
-    }
-
-    private void AppLogClear_Click(object sender, RoutedEventArgs e)
-    {
-        if (DataContext is ViewModels.SimulationPanelState vm)
-            vm.AppLog.Clear();
-    }
-
-    private static void CopyToClipboard(IList items)
-    {
-        if (items.Count == 0) return;
-        var sb = new StringBuilder();
-        foreach (var item in items)
-            sb.AppendLine(item?.ToString() ?? "");
-        try
-        {
-            Clipboard.SetText(sb.ToString());
-        }
-        catch
-        {
-            // 클립보드 접근 실패 시 무시
-        }
     }
 }
