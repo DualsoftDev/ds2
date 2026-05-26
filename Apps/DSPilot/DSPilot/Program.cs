@@ -110,6 +110,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<PlcTagLogWriterSer
 // plcTagLog retention — 30일 이상 된 행 자동 삭제 (디스크 폭증 방지)
 builder.Services.AddHostedService<PlcTagLogRetentionService>();
 
+// dspFlowHistory retention — /flow 페이지 "지난 60일" 추이 보장 + 무한 누적 방지 (FlowHistory:RetentionDays appsettings)
+builder.Services.AddHostedService<DspFlowHistoryRetentionService>();
+
 // Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
 builder.Services.AddSingleton<SimulationEngineService>();
 

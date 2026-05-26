@@ -1,11 +1,13 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Ds2.Aasx;
 using Ds2.Backend;
 using Ds2.Backend.Plc;
 using Ds2.Core.Store;
+using Ds2.Editor;
 using Ds2.Runtime.IO;
 using log4net;
 using Microsoft.AspNetCore.Builder;
@@ -190,11 +192,19 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             var ioMap = SignalIOMapModule.build(store);
             Log.Info($"IOMap built. OUT={ioMap.OutAddressToMappings.Count} IN={ioMap.InAddressToMappings.Count}");
 
+            // UserTag 전용 주소 — IOMap (Call In/Out) 에 안 들어가지만 모니터링/알림 대상이므로 PLC 구독에 포함.
+            // 빠지면 DSPilot 의 UserTag 알림이 plcTagLog 행 부재로 fire 안 됨 (관찰된 증상).
+            var userTagAddresses = store.GetAllUserTagsForProject()
+                .Select(r => r.TagAddress)
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .ToList();
+            Log.Info($"UserTag addresses to subscribe: {userTagAddresses.Count} ({string.Join(", ", userTagAddresses.Take(5))})");
+
             var plcSettings = PlcConnectionSettings.LoadOrDefault(
                 string.IsNullOrWhiteSpace(session.PlcConnectionPath)
                     ? SharedPaths.PlcConnectionFilePath
                     : session.PlcConnectionPath);
-            var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors);
+            var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors, userTagAddresses);
             if (gatewayConfig is null)
             {
                 Log.Error($"Gateway config build failed: {string.Join(" / ", errors)}");

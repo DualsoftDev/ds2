@@ -224,6 +224,11 @@ public sealed class UserTagAlertService : BackgroundService
         Dictionary<string, UserTagDefinition> defsSnap;
         lock (_stateLock) defsSnap = _definitionsByAddress;
 
+        // 진단 — UserTag 정의된 주소가 newLogs 에 몇 건 들어왔는지 / fire 결정 추적용.
+        // 정의된 주소가 plcTagLog 에 전혀 안 들어오면(A 케이스) 본 카운터가 항상 0.
+        var matchedCount = 0;
+        var firedCount = 0;
+
         var newAlerts = new List<UserTagAlertRecord>();
         var newUiAlerts = new List<UserTagAlert>();
 
@@ -232,6 +237,8 @@ public sealed class UserTagAlertService : BackgroundService
             if (ct.IsCancellationRequested) break;
             if (string.IsNullOrEmpty(log.Address)) continue;
             if (!defsSnap.TryGetValue(log.Address, out var def)) continue;
+
+            matchedCount++;
 
             var newValue = log.Value ?? string.Empty;
 
@@ -257,7 +264,14 @@ public sealed class UserTagAlertService : BackgroundService
 
             var fire = LoggingHelpers.UserTagHelpers.shouldFire(
                 vt, op, def.MatchValue ?? string.Empty, prevOpt, newValue);
+
+            _logger.LogInformation(
+                "[UserTagAlert] sample {Addr} prev={Prev} new={New} op={Op} → fire={Fire}",
+                log.Address, prevValue ?? "<none>", newValue,
+                LoggingHelpers.UserTagHelpers.matchOpToString(op), fire);
+
             if (!fire) continue;
+            firedCount++;
 
             var record = new UserTagAlertRecord(
                 Id: 0,
@@ -310,6 +324,14 @@ public sealed class UserTagAlertService : BackgroundService
                 while (_alerts.Count > MaxAlerts) _alerts.RemoveLast();
             }
             AlertsChanged?.Invoke();
+        }
+
+        // 진단 — newLogs 중 정의된 주소 행이 0 이면 plcTagLog INSERT 가 안 일어남 (A 케이스).
+        if (newLogs.Count > 0)
+        {
+            _logger.LogInformation(
+                "[UserTagAlert] poll: logs={Logs}, matchedDefinedAddr={Matched}, fired={Fired}, defs={Defs}",
+                newLogs.Count, matchedCount, firedCount, defsSnap.Count);
         }
     }
 }
