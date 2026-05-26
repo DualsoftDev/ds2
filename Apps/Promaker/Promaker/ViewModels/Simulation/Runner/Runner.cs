@@ -186,7 +186,7 @@ public partial class SimulationPanelState
 
     /// <summary>"자체 모니터링" 정지 — 일반 StopSimulation 호출 후 IsSelfMonitoring 플래그 리셋.
     /// (Hub.Stop 은 SelfMonitoringClientOnly 만 리셋. 패널의 IsSelfMonitoring 표식은 별도라 여기서 명시 해제 —
-    /// 누락 시 IsSelfMonitoringStartVisible 가 계속 false 라 시작 버튼이 다시 안 뜨는 버그.)</summary>
+    /// 누락 시 토글 버튼이 "정지" 상태로 굳어 재시작 불가.)</summary>
     [RelayCommand(CanExecute = nameof(CanStopSelfMonitoring))]
     private void StopSelfMonitoring()
     {

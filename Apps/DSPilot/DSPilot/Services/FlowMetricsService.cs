@@ -422,8 +422,12 @@ public class FlowMetricsService : IFlowMetricsService
             var lastHistory = await _dspRepository.GetFlowHistoryAsync(flowName, 1);
             if (lastHistory.Count > 0 && lastHistory[0].MT.HasValue)
             {
+                // RecordedAt 은 UTC 로 저장되지만 SQLite 왕복 후 Kind=Unspecified.
+                // OnCallGoingStarted/Finished 의 timestamp 가 DateTime.Now(Local) 이므로
+                // 비교 단위를 맞추기 위해 Local 로 변환한다.
+                var lastFinishLocal = DateTime.SpecifyKind(lastHistory[0].RecordedAt, DateTimeKind.Utc).ToLocalTime();
                 state.CurrentMT = lastHistory[0].MT;
-                state.PreviousCycleFinish = lastHistory[0].RecordedAt;
+                state.PreviousCycleFinish = lastFinishLocal;
                 state.CycleCount = 1;
                 _logger.LogInformation("Flow '{FlowName}' bootstrapped from history: MT={MT}ms", flowName, lastHistory[0].MT);
             }

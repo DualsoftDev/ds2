@@ -22,13 +22,17 @@ public enum PlcVendorChoice
 ///
 /// PLC 게이트웨이 빌드는 PlcGatewayConfigBuilder 에 위임 — Agent 가 동일 로직 재사용.
 /// 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) 가 SSOT.
+///
+/// 플랫 필드는 "현재 활성 벤더" 의 값을 항상 반영한다. <see cref="VendorProfiles"/> 는
+/// 세 벤더 (LsXgi, LsXgk, Mitsubishi) 각각의 마지막 입력값을 보관해, 벤더를 토글해도
+/// 양식이 복원된다.
 /// </summary>
 public partial class PlcSettings : ObservableObject
 {
     [ObservableProperty] private PlcVendorChoice _vendor = PlcVendorChoice.LsXgi;
     [ObservableProperty] private string _name = "PLC#1";
     [ObservableProperty] private string _ipAddress = "192.168.0.10";
-    [ObservableProperty] private int _port = 2004;        // LS 기본 2004, MX 기본 5007 — Vendor 변경 시 자동 갱신
+    [ObservableProperty] private int _port = 2004;        // LS 기본 2004, MX 기본 5007
     [ObservableProperty] private int _timeoutMs = 3000;
     [ObservableProperty] private int _scanIntervalMs = 100;
     [ObservableProperty] private bool _localEthernet = true;     // LS only
@@ -40,11 +44,38 @@ public partial class PlcSettings : ObservableObject
     /// 클라이언트가 그 모드로 붙어야 함 — 모니터링 통신용으로 UDP 를 쓰는 현장이 흔하다.</summary>
     [ObservableProperty] private bool _isUdp = false;
 
-    partial void OnVendorChanged(PlcVendorChoice value)
+    /// <summary>벤더 enum 이름 → 해당 벤더에서 마지막으로 입력했던 프로파일. POCO 와 동일 dict 를
+    /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
+    public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
+        = new();
+
+    /// <summary>플랫 필드 값을 PlcVendorProfile 로 캡처.</summary>
+    public PromakerShared.PlcVendorProfile CaptureActiveProfile() => new()
     {
-        // 벤더 전환 시 기본 포트 자동 적용 (이전 값이 다른 벤더 기본값일 때만 덮어써 의도치 않은 손상 방지).
-        if (Port == 2004 || Port == 5007)
-            Port = value == PlcVendorChoice.Mitsubishi ? 5007 : 2004;
+        Name = Name,
+        IpAddress = IpAddress,
+        Port = Port,
+        TimeoutMs = TimeoutMs,
+        ScanIntervalMs = ScanIntervalMs,
+        LocalEthernet = LocalEthernet,
+        NetworkNumber = NetworkNumber,
+        StationNumber = StationNumber,
+        IsUdp = IsUdp,
+    };
+
+    /// <summary>지정 프로파일을 플랫 필드로 적용 (활성 벤더는 별도 인자로 받지 않고 호출자가 Vendor 를
+    /// 미리 셋업했다고 가정).</summary>
+    public void ApplyProfile(PromakerShared.PlcVendorProfile p)
+    {
+        Name = p.Name;
+        IpAddress = p.IpAddress;
+        Port = p.Port;
+        TimeoutMs = p.TimeoutMs;
+        ScanIntervalMs = p.ScanIntervalMs;
+        LocalEthernet = p.LocalEthernet;
+        NetworkNumber = p.NetworkNumber;
+        StationNumber = p.StationNumber;
+        IsUdp = p.IsUdp;
     }
 
     /// <summary>
@@ -75,9 +106,11 @@ public partial class PlcSettings : ObservableObject
         return FromPoco(poco);
     }
 
-    /// <summary>현재 값을 JSON 으로 저장. 실패해도 throw 없이 조용히 반환 (사용자 흐름 막지 않음).</summary>
+    /// <summary>현재 값을 JSON 으로 저장. 실패해도 throw 없이 조용히 반환 (사용자 흐름 막지 않음).
+    /// 저장 직전 활성 벤더 프로파일을 현재 플랫 값으로 갱신.</summary>
     public void Save()
     {
+        VendorProfiles[Vendor.ToString()] = CaptureActiveProfile();
         ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath);
     }
 
@@ -93,27 +126,23 @@ public partial class PlcSettings : ObservableObject
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
         IsUdp = IsUdp,
+        Profiles = VendorProfiles,
     };
 
     private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
     {
-        var s = new PlcSettings
-        {
-            Name = d.Name ?? "PLC#1",
-            IpAddress = d.IpAddress ?? "192.168.0.10",
-            Port = d.Port > 0 ? d.Port : 2004,
-            TimeoutMs = d.TimeoutMs > 0 ? d.TimeoutMs : 3000,
-            ScanIntervalMs = d.ScanIntervalMs > 0 ? d.ScanIntervalMs : 100,
-            LocalEthernet = d.LocalEthernet,
-            NetworkNumber = d.NetworkNumber,
-            StationNumber = d.StationNumber,
-            IsUdp = d.IsUdp,
-        };
-        // Vendor 는 setter 가 Port 를 갱신할 수 있으므로 Port 설정 이후 마지막에 적용.
-        // 단, JSON 으로 저장된 Port 가 새 벤더의 기본값(2004/5007)과 다르면 그대로 유지하기 위해
-        // OnVendorChanged 의 가드 (Port==2004||5007 일 때만 덮어쓰기) 를 신뢰.
+        // POCO 의 EnsureProfiles 가 LoadOrDefault 안에서 호출돼 세 벤더 프로파일이 모두 채워져 있음.
+        var s = new PlcSettings { VendorProfiles = d.Profiles };
+
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))
             s.Vendor = v;
+
+        // 활성 벤더 프로파일 (= POCO 의 플랫 필드와 동기) 을 플랫 필드로 적용.
+        var key = s.Vendor.ToString();
+        var profile = s.VendorProfiles.TryGetValue(key, out var p)
+            ? p
+            : PromakerShared.PlcVendorProfile.Defaults((PromakerShared.PlcVendorChoice)s.Vendor);
+        s.ApplyProfile(profile);
         return s;
     }
 }
