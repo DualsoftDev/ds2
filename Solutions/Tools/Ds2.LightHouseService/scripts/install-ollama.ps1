@@ -82,9 +82,15 @@ Write-Host '=== OLLAMA_FLASH_ATTENTION=false 박제 (bge-m3 NaN 방지) ==='
 # Machine scope 필수 — Ds2.LightHouseService 는 통상 LocalSystem 계정으로 등록되며 LocalSystem 은 install 실행 사용자
 # 의 User scope env 를 받지 못함. User scope fallback 으로 박제하면 "박제 성공" 메시지가 false-positive (Service
 # 입장에서 무효) → 진단 불가 상태로 회귀 (자가 검열 M-2 정합).
+#
+# 주의: [Environment]::SetEnvironmentVariable(..., 'Machine') 은 WM_SETTINGCHANGE 를 모든 top-level window 에
+# broadcast → 응답 안 하는 GUI process 마다 SendMessageTimeout default 대기 → dev 머신에서 수십 초 ~ 수 분 hang.
+# 본 Service 는 SCM 이 새 process 로 spawn 할 때 레지스트리에서 env 를 직접 읽으므로 broadcast 불필요 →
+# 레지스트리 직접 쓰기로 우회 (성능 회복 + 의미 동일).
+$envKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
 try {
-    [Environment]::SetEnvironmentVariable('OLLAMA_FLASH_ATTENTION', 'false', 'Machine')
-    Write-Host '  Machine scope 박제 성공 — system-wide 적용.'
+    New-ItemProperty -Path $envKey -Name 'OLLAMA_FLASH_ATTENTION' -Value 'false' -PropertyType String -Force | Out-Null
+    Write-Host '  Machine scope 박제 성공 — system-wide 적용 (registry direct, no broadcast).'
 } catch {
     Write-Warning "  Machine scope 박제 실패 — 관리자 권한이 필요합니다. ($($_.Exception.Message))"
     Write-Warning '  Ds2.LightHouseService (LocalSystem) 는 User scope env 를 받지 못하므로 fallback 박제하지 않습니다.'
