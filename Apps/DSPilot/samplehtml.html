@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purple & Amber Card Design</title>
+    <style>
+        /* 기본 리셋 및 폰트 설정 */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #222222;
+            color: #333;
+            padding: 40px;
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        /* 공통 컨테이너 설정 */
+        .theme-container {
+            padding: 24px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .theme-container.light {
+            background-color: #FFFFFF;
+            color: #333;
+        }
+        .theme-container.dark {
+            background-color: #1A1C29; /* 다크모드 배경 */
+            color: #E2E8F0;
+        }
+        .theme-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #888;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
+        /* 카드 그리드 */
+        .card-grid {
+            display: flex;
+            gap: 16px;
+        }
+
+        /* 공통 카드 스타일 */
+        .card {
+            width: 240px;
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid;
+            background-color: inherit;
+        }
+
+        /* 카드 헤더 (타이틀 & 배지) */
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+
+        /* 카드 본문 (도넛 차트 & 텍스트) */
+        .card-body {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* 도넛 차트 (CSS Conic Gradient 활용) */
+        .donut-chart {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .donut-inner {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+        }
+
+        /* 상세 정보 텍스트 */
+        .info-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .status-text {
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 2px;
+        }
+        .status-text::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .time-text {
+            font-size: 12px;
+            color: #888;
+        }
+        .time-text strong {
+            color: inherit;
+            margin-left: 4px;
+        }
+
+        /* 하단 프로그레스 바 */
+        .progress-bar-container {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+        }
+
+        /* =========================================
+           테마별 & 색상별 세부 디자인 세팅 
+           ========================================= */
+
+        /* Light Theme - Purple (EOL_2) */
+        .light .card.purple {
+            border-color: #A78BFA;
+        }
+        .light .card.purple .card-title { color: #3730A3; }
+        .light .card.purple .badge { background-color: #B45309; color: #FFF; }
+        .light .card.purple .donut-chart { background: conic-gradient(#7C3AED 75%, #EDE9FE 0); }
+        .light .card.purple .donut-inner { background-color: #FFFFFF; }
+        .light .card.purple .status-text { color: #7C3AED; }
+        .light .card.purple .status-text::before { background-color: #7C3AED; }
+        .light .card.purple .time-text strong { color: #333; }
+        .light .card.purple .progress-bar-container { background-color: #EDE9FE; }
+        .light .card.purple .progress-bar-fill { background-color: #7C3AED; width: 75%; }
+
+        /* Light Theme - Amber (Vision_1) */
+        .light .card.amber {
+            border-color: #FDE68A;
+        }
+        .light .card.amber .card-title { color: #92400E; }
+        .light .card.amber .badge { background-color: #FFEDD5; color: #C2410C; }
+        .light .card.amber .donut-chart { background: conic-gradient(#D97706 40%, #FEF3C7 0); }
+        .light .card.amber .donut-inner { background-color: #FFFFFF; }
+        .light .card.amber .status-text { color: #D97706; }
+        .light .card.amber .status-text::before { background-color: #D97706; }
+        .light .card.amber .time-text strong { color: #333; }
+        .light .card.amber .progress-bar-container { background-color: #FEF3C7; }
+        .light .card.amber .progress-bar-fill { background-color: #D97706; width: 40%; }
+
+        /* Dark Theme - Purple (EOL_2) */
+        .dark .card.purple {
+            border-color: #5B4F8B;
+        }
+        .dark .card.purple .card-title { color: #C4B5FD; }
+        .dark .card.purple .badge { background-color: #D97706; color: #FFF; }
+        .dark .card.purple .donut-chart { background: conic-gradient(#8B5CF6 75%, #2E294E 0); }
+        .dark .card.purple .donut-inner { background-color: #1A1C29; }
+        .dark .card.purple .status-text { color: #C4B5FD; }
+        .dark .card.purple .status-text::before { background-color: #8B5CF6; }
+        .dark .card.purple .time-text strong { color: #F8FAFC; }
+        .dark .card.purple .progress-bar-container { background-color: #2E294E; }
+        .dark .card.purple .progress-bar-fill { background-color: #8B5CF6; width: 75%; }
+
+        /* Dark Theme - Amber (Vision_1) */
+        .dark .card.amber {
+            border-color: #92400E;
+        }
+        .dark .card.amber .card-title { color: #FCD34D; }
+        .dark .card.amber .badge { background-color: #451A03; color: #FBBF24; }
+        .dark .card.amber .donut-chart { background: conic-gradient(#D97706 40%, #451A03 0); }
+        .dark .card.amber .donut-inner { background-color: #1A1C29; }
+        .dark .card.amber .status-text { color: #FCD34D; }
+        .dark .card.amber .status-text::before { background-color: #D97706; }
+        .dark .card.amber .time-text strong { color: #F8FAFC; }
+        .dark .card.amber .progress-bar-container { background-color: #451A03; }
+        .dark .card.amber .progress-bar-fill { background-color: #D97706; width: 40%; }
+
+    </style>
+</head>
+<body>
+
+    <div class="theme-container light">
+        <div class="theme-title">LIGHT</div>
+        <div class="card-grid">
+            
+            <div class="card purple">
+                <div class="card-header">
+                    <span class="card-title">EOL_2</span>
+                    <span class="badge">최대</span>
+                </div>
+                <div class="card-body">
+                    <div class="donut-chart">
+                        <div class="donut-inner"></div>
+                    </div>
+                    <div class="info-list">
+                        <div class="status-text">Ready</div>
+                        <div class="time-text">가동 <strong>48.7s</strong></div>
+                        <div class="time-text">대기 <strong>32.4s</strong></div>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <div class="card amber">
+                <div class="card-header">
+                    <span class="card-title">Vision_1</span>
+                    <span class="badge">대기</span>
+                </div>
+                <div class="card-body">
+                    <div class="donut-chart">
+                        <div class="donut-inner"></div>
+                    </div>
+                    <div class="info-list">
+                        <div class="status-text">Going</div>
+                        <div class="time-text">가동 <strong>1ms</strong></div>
+                        <div class="time-text">대기 <strong>10h 26m</strong></div>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="theme-container dark">
+        <div class="theme-title">DARK</div>
+        <div class="card-grid">
+            
+            <div class="card purple">
+                <div class="card-header">
+                    <span class="card-title">EOL_2</span>
+                    <span class="badge">최대</span>
+                </div>
+                <div class="card-body">
+                    <div class="donut-chart">
+                        <div class="donut-inner"></div>
+                    </div>
+                    <div class="info-list">
+                        <div class="status-text">Ready</div>
+                        <div class="time-text">가동 <strong>48.7s</strong></div>
+                        <div class="time-text">대기 <strong>32.4s</strong></div>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <div class="card amber">
+                <div class="card-header">
+                    <span class="card-title">Vision_1</span>
+                    <span class="badge">대기</span>
+                </div>
+                <div class="card-body">
+                    <div class="donut-chart">
+                        <div class="donut-inner"></div>
+                    </div>
+                    <div class="info-list">
+                        <div class="status-text">Going</div>
+                        <div class="time-text">가동 <strong>1ms</strong></div>
+                        <div class="time-text">대기 <strong>10h 26m</strong></div>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</body>
+</html>

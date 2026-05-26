@@ -242,15 +242,15 @@
     font-size: 12px;
     color: rgba(0, 0, 0, 0.65);
 }
-.theme-dark .plc-banner {
+.dark-theme .plc-banner {
     color: #ffcdd2;
     background: rgba(239, 83, 80, 0.18);
     border-bottom-color: rgba(239, 83, 80, 0.5);
 }
-.theme-dark .plc-banner-meta,
-.theme-dark .plc-banner-hint,
-.theme-dark .plc-banner-attempts { color: rgba(255, 255, 255, 0.7); }
-.theme-dark .plc-banner-error-msg { color: #ff8a80; }
+.dark-theme .plc-banner-meta,
+.dark-theme .plc-banner-hint,
+.dark-theme .plc-banner-attempts { color: rgba(255, 255, 255, 0.7); }
+.dark-theme .plc-banner-error-msg { color: #ff8a80; }
 
 /* ── 헤더 UserTag 활동 배지 (대시보드 미리보기) ── */
 /* 종 + 카운트 (inbox 메타포) → 추이 아이콘 + 스파크라인 + 최근 1시간 건수.
@@ -275,11 +275,11 @@
     background: rgba(0, 0, 0, 0.07);
     border-color: rgba(0, 0, 0, 0.22);
 }
-.theme-dark .header-usertag-badge {
+.dark-theme .header-usertag-badge {
     background: rgba(255, 255, 255, 0.05);
     border-color: rgba(255, 255, 255, 0.14);
 }
-.theme-dark .header-usertag-badge:hover {
+.dark-theme .header-usertag-badge:hover {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.24);
 }
@@ -308,7 +308,7 @@
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
     overflow: visible;
 }
-.theme-dark .header-usertag-badge .header-usertag-spark {
+.dark-theme .header-usertag-badge .header-usertag-spark {
     background: rgba(0, 0, 0, 0.32);
     border-color: rgba(255, 255, 255, 0.1);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
@@ -339,9 +339,9 @@
     border-radius: 50%;
     flex: 0 0 auto;
 }
-.header-usertag-badge .header-usertag-chip.is-info .header-usertag-dot { background: #1976d2; }
-.header-usertag-badge .header-usertag-chip.is-warning .header-usertag-dot { background: #ef6c00; }
-.header-usertag-badge .header-usertag-chip.is-error .header-usertag-dot { background: #c62828; }
+.header-usertag-badge .header-usertag-chip.is-info .header-usertag-dot { background: var(--color-info); }
+.header-usertag-badge .header-usertag-chip.is-warning .header-usertag-dot { background: var(--color-warning); }
+.header-usertag-badge .header-usertag-chip.is-error .header-usertag-dot { background: var(--color-error); }
 
 .header-usertag-badge.is-empty {
     opacity: 0.9;
@@ -1183,7 +1183,7 @@ details.expansion-panel[open] > summary::before {
     gap: 8px;
     font-weight: 700;
     margin-bottom: 12px;
-    color: var(--color-text);
+    color: var(--color-text-primary);
 }
 .pw-card-title .material-icons { font-size: 18px; color: var(--color-primary); }
 .pw-info {
@@ -1245,7 +1245,7 @@ details.expansion-panel[open] > summary::before {
     border: 1px solid var(--color-lines, #e0e0e0);
     border-radius: 8px;
     background: var(--color-surface, #fff);
-    color: var(--color-text, #1a1f24);
+    color: var(--color-text-primary, #1a1f24);
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
@@ -1254,22 +1254,22 @@ details.expansion-panel[open] > summary::before {
 .pw-key:hover { background: var(--color-surface-variant, #f0f0f0); }
 .pw-key:active { transform: translateY(1px); }
 .pw-key-op {
-    background: #e9eef5;
-    color: #1976d2;
+    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+    color: var(--color-primary);
 }
 .pw-key-fn {
-    background: #fff3e0;
-    color: #ef6c00;
+    background: color-mix(in srgb, var(--color-secondary) 12%, var(--color-surface));
+    color: var(--color-secondary);
 }
 .pw-key-eq {
-    background: linear-gradient(135deg, #1976d2, #1565c0);
+    background: linear-gradient(135deg, var(--color-primary), var(--color-tertiary));
     color: #fff;
 }
 .pw-calc-msg {
     padding: 8px 12px;
     border-radius: 6px;
-    background: rgba(76, 175, 80, 0.12);
-    color: #2e7d32;
+    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    color: var(--color-success);
     font-size: 13px;
 }
 
@@ -1287,7 +1287,7 @@ details.expansion-panel[open] > summary::before {
 }
 .pw-flow-card-head {
     display: flex; align-items: center; gap: 6px;
-    font-size: 12px; font-weight: 700; color: var(--color-text);
+    font-size: 12px; font-weight: 700; color: var(--color-text-primary);
 }
 .pw-flow-dot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -1300,7 +1300,7 @@ details.expansion-panel[open] > summary::before {
     font-size: 11px;
 }
 .pw-flow-metric { color: var(--color-text-secondary); display: flex; gap: 4px; }
-.pw-flow-metric b { color: var(--color-text); font-weight: 600; font-family: 'Consolas', monospace; }
+.pw-flow-metric b { color: var(--color-text-primary); font-weight: 600; font-family: 'Consolas', monospace; }
 .pw-flow-bar {
     margin-top: 6px;
     height: 4px;
@@ -1323,21 +1323,21 @@ details.expansion-panel[open] > summary::before {
     display: block;
 }
 .pw-chart-grid line {
-    stroke: rgba(0,0,0,0.07);
+    stroke: var(--color-lines);
     stroke-width: 1;
     stroke-dasharray: 2 4;
 }
 .pw-chart-line {
-    stroke: #1976d2;
+    stroke: var(--color-primary);
     stroke-width: 2;
     fill: none;
 }
 .pw-chart-area {
-    fill: rgba(25, 118, 210, 0.12);
+    fill: rgba(var(--color-primary-rgb), 0.12);
     stroke: none;
 }
 .pw-chart-bar {
-    fill: #1976d2;
+    fill: var(--color-primary);
     opacity: 0.85;
 }
 .pw-chart-legend {

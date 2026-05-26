@@ -7,42 +7,42 @@
    1. CSS 변수 오버라이드 (theme.css :root 대체)
    ═══════════════════════════════════════════ */
 .dark-theme {
-    /* Background */
-    --color-background: #121212;
-    --color-surface: #1E1E1E;
-    --color-surface-variant: #2C2C2C;
+    /* Background — Deep navy from Purple & Amber template */
+    --color-background: #0F1117;
+    --color-surface: #1A1F2E;
+    --color-surface-variant: #252A3A;
 
-    /* Primary / Accent — 밝은 파스텔 블루 */
-    --color-primary: #81D4FA;
-    --color-primary-rgb: 129, 212, 250;
-    --color-secondary: #FF6E6E;
-    --color-tertiary: #81D4FA;
+    /* Primary / Accent — Light Purple (Material You purple-200) */
+    --color-primary: #B197FC;
+    --color-primary-rgb: 177, 151, 252;
+    --color-secondary: #FBBF24;
+    --color-tertiary: #C4B5FD;
     --color-info: #4DD0E1;
     --color-success: #A5D6A7;
-    --color-warning: #FFD54F;
+    --color-warning: #FBBF24;
     --color-error: #EF9A9A;
     --color-success-rgb: 165, 214, 167;
-    --color-warning-rgb: 255, 213, 79;
+    --color-warning-rgb: 251, 191, 36;
     --color-error-rgb: 239, 154, 154;
 
     /* AppBar / Drawer */
-    --color-appbar-bg: #1E1E1E;
-    --color-appbar-text: rgba(255, 255, 255, 0.87);
-    --color-drawer-bg: #1E1E1E;
-    --color-drawer-text: rgba(255, 255, 255, 0.87);
-    --color-drawer-icon: #81D4FA;
+    --color-appbar-bg: #1A1F2E;
+    --color-appbar-text: rgba(255, 255, 255, 0.92);
+    --color-drawer-bg: #1A1F2E;
+    --color-drawer-text: rgba(255, 255, 255, 0.92);
+    --color-drawer-icon: #B197FC;
 
     /* Text — 톤다운된 백색 */
-    --color-text-primary: rgba(255, 255, 255, 0.87);
-    --color-text-secondary: rgba(255, 255, 255, 0.60);
+    --color-text-primary: rgba(255, 255, 255, 0.92);
+    --color-text-secondary: rgba(255, 255, 255, 0.65);
     --color-text-disabled: rgba(255, 255, 255, 0.38);
-    --color-action-default: #81D4FA;
+    --color-action-default: #B197FC;
 
     /* Lines / Borders */
     --color-lines: rgba(255, 255, 255, 0.12);
 
     /* Gantt Chart */
-    --gantt-bg: #1E1E1E;
+    --gantt-bg: #1A1F2E;
     --gantt-lane-even: #232323;
     --gantt-lane-odd: #2A2A2A;
     --gantt-lane-border: rgba(255, 255, 255, 0.06);
@@ -83,7 +83,7 @@
    2. 전역 배경 & 텍스트
    ═══════════════════════════════════════════ */
 .dark-theme {
-    background: #121212;
+    background: #0F1117;
     color: rgba(255, 255, 255, 0.87);
 }
 
@@ -91,7 +91,7 @@
    3. 레이아웃: AppBar, Drawer, Main
    ═══════════════════════════════════════════ */
 .dark-theme .app-bar {
-    background: #1E1E1E;
+    background: #1A1F2E;
     color: rgba(255, 255, 255, 0.87);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -104,24 +104,24 @@
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .header-nav-link.active {
-    background: rgba(129, 212, 250, 0.16);
-    color: #81D4FA;
+    background: rgba(177, 151, 252, 0.16);
+    color: #B197FC;
 }
 
 .dark-theme .drawer {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .dark-theme .main-content {
-    background: #121212;
+    background: #0F1117;
 }
 
 /* ═══════════════════════════════════════════
    4. 네비게이션
    ═══════════════════════════════════════════ */
 .dark-theme .nav-menu {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme .nav-link {
     color: rgba(255, 255, 255, 0.70);
@@ -131,15 +131,15 @@
 }
 .dark-theme .nav-link.active,
 .dark-theme a.nav-link.active {
-    background: rgba(129, 212, 250, 0.12);
-    border-left-color: #81D4FA;
-    color: #81D4FA;
+    background: rgba(177, 151, 252, 0.12);
+    border-left-color: #B197FC;
+    color: #B197FC;
 }
 .dark-theme .nav-link .material-icons {
     color: rgba(255, 255, 255, 0.60);
 }
 .dark-theme .nav-link.active .material-icons {
-    color: #81D4FA;
+    color: #B197FC;
 }
 
 /* ═══════════════════════════════════════════
@@ -147,7 +147,7 @@
    ═══════════════════════════════════════════ */
 .dark-theme .card,
 .dark-theme .paper {
-    background: #1E1E1E;
+    background: #1A1F2E;
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .card-header {
@@ -183,14 +183,14 @@
 .dark-theme input,
 .dark-theme select,
 .dark-theme textarea {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.16);
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .form-field:focus,
 .dark-theme .form-select:focus {
-    border-color: #81D4FA;
-    box-shadow: 0 0 0 2px rgba(129, 212, 250, 0.25);
+    border-color: #B197FC;
+    box-shadow: 0 0 0 2px rgba(177, 151, 252, 0.25);
 }
 .dark-theme .form-field::placeholder {
     color: rgba(255, 255, 255, 0.38);
@@ -207,15 +207,15 @@
     background: #555;
 }
 .dark-theme .switch input[type="checkbox"]:checked {
-    background: #81D4FA;
+    background: #B197FC;
 }
 
 /* ═══════════════════════════════════════════
    8. 테이블
    ═══════════════════════════════════════════ */
 .dark-theme .table th {
-    background: #2C2C2C;
-    color: #81D4FA;
+    background: #252A3A;
+    color: #B197FC;
 }
 .dark-theme .table td {
     border-bottom-color: rgba(255, 255, 255, 0.08);
@@ -228,10 +228,10 @@
     background: rgba(255, 255, 255, 0.03);
 }
 .dark-theme .table-head-sticky th {
-    background: #2C2C2C;
+    background: #252A3A;
 }
 .dark-theme .data-table thead {
-    background: #2C2C2C;
+    background: #252A3A;
 }
 .dark-theme .data-table th {
     color: rgba(255, 255, 255, 0.87);
@@ -248,7 +248,7 @@
    9. 알림 (Alert)
    ═══════════════════════════════════════════ */
 .dark-theme .alert {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .alert-info {
@@ -276,8 +276,8 @@
    10. 칩 (Chip)
    ═══════════════════════════════════════════ */
 .dark-theme .chip-primary {
-    background: rgba(129, 212, 250, 0.18);
-    color: #81D4FA;
+    background: rgba(177, 151, 252, 0.18);
+    color: #B197FC;
 }
 .dark-theme .chip-success {
     background: rgba(165, 214, 167, 0.18);
@@ -306,7 +306,7 @@
     background: rgba(255, 255, 255, 0.04);
 }
 .dark-theme details.expansion-panel > summary {
-    background: #2C2C2C;
+    background: #252A3A;
     border-bottom-color: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.87);
 }
@@ -318,7 +318,7 @@
     background: rgba(0, 0, 0, 0.65);
 }
 .dark-theme .dialog {
-    background: #2C2C2C;
+    background: #252A3A;
 }
 .dark-theme .dialog-title {
     color: rgba(255, 255, 255, 0.87);
@@ -351,7 +351,7 @@
 }
 .dark-theme .spinner {
     border-color: rgba(255, 255, 255, 0.12);
-    border-top-color: #81D4FA;
+    border-top-color: #B197FC;
 }
 
 /* ═══════════════════════════════════════════
@@ -370,7 +370,7 @@
     height: 8px;
 }
 .dark-theme ::-webkit-scrollbar-track {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme ::-webkit-scrollbar-thumb {
     background: #444;
@@ -384,23 +384,23 @@
    18. Dashboard 카드 (ds-card, ct-*)
    ═══════════════════════════════════════════ */
 .dark-theme .ds-card {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
 }
 .dark-theme .ds-card-header {
-    background: #2C2C2C;
+    background: #252A3A;
     border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .dark-theme .ct-section-title {
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .ct-summary-bar {
-    background: #2C2C2C;
+    background: #252A3A;
     border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .dark-theme .ct-top-cell,
 .dark-theme .ct-combined-cell {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme .ct-combined-half + .ct-combined-half {
     border-left-color: rgba(255, 255, 255, 0.10);
@@ -411,7 +411,7 @@
 }
 .dark-theme .ct-combined-half.active,
 .dark-theme .ct-top-cell.active {
-    background: rgba(129, 212, 250, 0.08);
+    background: rgba(177, 151, 252, 0.08);
 }
 .dark-theme .ct-summary-sub {
     color: rgba(255, 255, 255, 0.87);
@@ -420,18 +420,18 @@
     color: rgba(255, 255, 255, 0.60);
 }
 .dark-theme .ct-chart-section {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme .ct-chart-row {
-    background: #2C2C2C;
+    background: #252A3A;
 }
 .dark-theme .ct-chart-row.highlighted {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.15);
 }
 .dark-theme .ct-chart-row.selected {
-    background: rgba(129, 212, 250, 0.10);
-    border-color: #81D4FA;
+    background: rgba(177, 151, 252, 0.10);
+    border-color: #B197FC;
 }
 .dark-theme .ct-chart-row:hover {
     background: rgba(255, 255, 255, 0.06);
@@ -444,12 +444,12 @@
 }
 /* CT Tooltip */
 .dark-theme .ct-tooltip {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: 0 4px 16px rgba(0,0,0,0.45);
 }
 .dark-theme .ct-tooltip::before {
-    background: #2C2C2C;
+    background: #252A3A;
     border-left-color: rgba(255, 255, 255, 0.12);
     border-top-color: rgba(255, 255, 255, 0.12);
 }
@@ -468,49 +468,24 @@
 }
 
 /* ═══════════════════════════════════════════
-   19. Flow Card (fl-card, fc-*)
+   19. Flow Card (fl-card, fc-*) — 다크 모드 미세 조정
+   대부분은 CSS 변수 cascade 로 자동 처리. 카드 표면만 약간 들어올려
+   페이지 배경과 시각적 위계 확보.
    ═══════════════════════════════════════════ */
 .dark-theme .fl-card {
-    background: #2B2F36;
-    border-color: rgba(255, 255, 255, 0.14);
-}
-.dark-theme .fc-root {
-    color: rgba(255, 255, 255, 0.87);
-}
-.dark-theme .fc-header {
-    background: color-mix(in srgb, var(--state-color) 15%, #383D45);
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-}
-.dark-theme .fc-chart-label {
-    color: rgba(255, 255, 255, 0.80);
-}
-.dark-theme .fc-stat-label {
-    color: rgba(255, 255, 255, 0.55);
-}
-.dark-theme .fc-stat-value {
-    color: rgba(255, 255, 255, 0.90);
-}
-.dark-theme .fc-state-label {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-}
-.dark-theme .fc-stat-row {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-}
-/* 도넛 배경 원 */
-.dark-theme .fc-chart svg circle[stroke="#eee"] {
-    stroke: rgba(255, 255, 255, 0.10);
+    background: #232839;
 }
 
 /* ═══════════════════════════════════════════
    20. Heatmap 페이지 (flow-dashboard-*)
    ═══════════════════════════════════════════ */
 .dark-theme .flow-dashboard-panel {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
 }
 .dark-theme .flow-dashboard-panel-header {
-    background: linear-gradient(180deg, #2C2C2C, #252525);
+    background: linear-gradient(180deg, #252A3A, #252525);
     border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .dark-theme .flow-dashboard-panel-title {
@@ -541,10 +516,10 @@
 }
 /* Heatmap 매트릭스 */
 .dark-theme .heatmap-matrix-row:hover {
-    background: rgba(129, 212, 250, 0.06) !important;
+    background: rgba(177, 151, 252, 0.06) !important;
 }
 .dark-theme .heatmap-matrix-row.selected {
-    background: rgba(129, 212, 250, 0.10) !important;
+    background: rgba(177, 151, 252, 0.10) !important;
 }
 .dark-theme .heatmap-matrix-label {
     color: rgba(255, 255, 255, 0.87);
@@ -554,7 +529,7 @@
    21. CycleTimeAnalysis 페이지
    ═══════════════════════════════════════════ */
 .dark-theme .summary-card {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
 }
 .dark-theme .card-label {
@@ -569,7 +544,7 @@
 .dark-theme .chart-section,
 .dark-theme .call-list,
 .dark-theme .call-detail {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
 }
 .dark-theme .chart-section h4,
@@ -578,7 +553,7 @@
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .table-header {
-    background: #2C2C2C;
+    background: #252A3A;
     color: rgba(255, 255, 255, 0.60);
 }
 .dark-theme .table-row {
@@ -589,8 +564,8 @@
     background: rgba(255, 255, 255, 0.04);
 }
 .dark-theme .stat-item {
-    background: #2C2C2C;
-    border-left-color: #81D4FA;
+    background: #252A3A;
+    border-left-color: #B197FC;
 }
 .dark-theme .stat-item label {
     color: rgba(255, 255, 255, 0.60);
@@ -605,7 +580,7 @@
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .detail-header {
-    border-bottom-color: #81D4FA;
+    border-bottom-color: #B197FC;
 }
 .dark-theme .detail-chart-section h5 {
     color: rgba(255, 255, 255, 0.87);
@@ -613,7 +588,7 @@
 
 /* --- Signal Selection Panel (sel-*) --- */
 .dark-theme .sel-panel {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
@@ -641,7 +616,7 @@
     color: rgba(255, 255, 255, 0.45);
 }
 .dark-theme .sel-gap-card {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.10);
 }
 .dark-theme .sel-gap-direction {
@@ -682,7 +657,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.30);
 }
 .dark-theme .gantt-bg {
-    fill: #1E1E1E;
+    fill: #1A1F2E;
 }
 .dark-theme .gantt-idle-region {
     fill: #ffffff;
@@ -746,13 +721,13 @@
 }
 /* --- Selection Path Bar --- */
 .dark-theme .selection-node {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 .dark-theme .selection-node.current {
     border-color: #FFB74D;
-    background: linear-gradient(180deg, rgba(255, 183, 77, 0.10) 0%, #2C2C2C 100%);
+    background: linear-gradient(180deg, rgba(255, 183, 77, 0.10) 0%, #252A3A 100%);
 }
 .dark-theme .selection-node.previous {
     border-color: #FFCC80;
@@ -770,8 +745,8 @@
     color: rgba(255, 255, 255, 0.60);
 }
 .dark-theme .selection-gap-pill {
-    background: linear-gradient(180deg, rgba(129, 212, 250, 0.10) 0%, #2C2C2C 100%);
-    border-color: rgba(129, 212, 250, 0.25);
+    background: linear-gradient(180deg, rgba(177, 151, 252, 0.10) 0%, #252A3A 100%);
+    border-color: rgba(177, 151, 252, 0.25);
 }
 .dark-theme .selection-gap-label {
     color: rgba(255, 255, 255, 0.50);
@@ -784,17 +759,17 @@
    22. CycleAnalysisPerfect 페이지
    ═══════════════════════════════════════════ */
 .dark-theme .mode-btn {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .mode-btn:hover {
-    border-color: #81D4FA;
-    box-shadow: 0 4px 12px rgba(129, 212, 250, 0.15);
+    border-color: #B197FC;
+    box-shadow: 0 4px 12px rgba(177, 151, 252, 0.15);
 }
 .dark-theme .mode-btn.active {
-    border-color: #81D4FA;
-    background: rgba(129, 212, 250, 0.08);
+    border-color: #B197FC;
+    background: rgba(177, 151, 252, 0.08);
 }
 .dark-theme .mode-btn strong {
     color: rgba(255, 255, 255, 0.87);
@@ -803,19 +778,19 @@
     color: rgba(255, 255, 255, 0.50);
 }
 .dark-theme .cycle-item {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .cycle-item:hover {
-    border-color: #81D4FA;
-    box-shadow: 0 2px 8px rgba(129, 212, 250, 0.15);
+    border-color: #B197FC;
+    box-shadow: 0 2px 8px rgba(177, 151, 252, 0.15);
 }
 .dark-theme .cycle-item.selected {
-    border-color: #81D4FA;
-    background: rgba(129, 212, 250, 0.08);
+    border-color: #B197FC;
+    background: rgba(177, 151, 252, 0.08);
 }
 .dark-theme .metric-card {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
     color: rgba(255, 255, 255, 0.87);
 }
@@ -826,12 +801,12 @@
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .gap-card {
-    background: #1E1E1E;
+    background: #1A1F2E;
     color: rgba(255, 255, 255, 0.87);
 }
-.dark-theme .gap-card.rank-1 { background: linear-gradient(to right, rgba(211, 47, 47, 0.10), #1E1E1E); }
-.dark-theme .gap-card.rank-2 { background: linear-gradient(to right, rgba(245, 124, 0, 0.10), #1E1E1E); }
-.dark-theme .gap-card.rank-3 { background: linear-gradient(to right, rgba(251, 192, 45, 0.10), #1E1E1E); }
+.dark-theme .gap-card.rank-1 { background: linear-gradient(to right, rgba(211, 47, 47, 0.10), #1A1F2E); }
+.dark-theme .gap-card.rank-2 { background: linear-gradient(to right, rgba(245, 124, 0, 0.10), #1A1F2E); }
+.dark-theme .gap-card.rank-3 { background: linear-gradient(to right, rgba(251, 192, 45, 0.10), #1A1F2E); }
 .dark-theme .gap-calls {
     color: rgba(255, 255, 255, 0.87);
 }
@@ -862,26 +837,26 @@
    23. Editor 페이지
    ═══════════════════════════════════════════ */
 .dark-theme .ed-card {
-    background: #1E1E1E;
+    background: #1A1F2E;
     border-color: rgba(255, 255, 255, 0.10);
 }
 .dark-theme .ed-card-header {
-    background: #2C2C2C;
+    background: #252A3A;
     border-bottom-color: rgba(255, 255, 255, 0.08);
-    color: #81D4FA;
+    color: #B197FC;
 }
 .dark-theme .ed-flow-item.active {
-    background: rgba(129, 212, 250, 0.10);
-    color: #81D4FA;
-    border-left-color: #81D4FA;
+    background: rgba(177, 151, 252, 0.10);
+    color: #B197FC;
+    border-left-color: #B197FC;
 }
 .dark-theme .ed-flow-item.placed {
-    background: #2C2C2C;
+    background: #252A3A;
     color: rgba(255, 255, 255, 0.38);
 }
 .dark-theme .ed-offset-input,
 .dark-theme .ed-cell-input {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.16);
     color: rgba(255, 255, 255, 0.87);
 }
@@ -890,7 +865,7 @@
    24. CallDirectionWidget
    ═══════════════════════════════════════════ */
 .dark-theme .call-direction-widget {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme .widget-header h5 {
     color: rgba(255, 255, 255, 0.87);
@@ -911,7 +886,7 @@
     background: linear-gradient(135deg, rgba(255, 193, 7, 0.10), rgba(255, 193, 7, 0.04));
 }
 .dark-theme .state-badge {
-    background: #2C2C2C;
+    background: #252A3A;
     color: rgba(255, 255, 255, 0.70);
 }
 .dark-theme .btn-refresh {
@@ -931,7 +906,7 @@
    25. IoDataChart
    ═══════════════════════════════════════════ */
 .dark-theme .io-data-chart {
-    background: #1E1E1E;
+    background: #1A1F2E;
 }
 .dark-theme .chart-header {
     border-bottom-color: rgba(255, 255, 255, 0.10);
@@ -940,7 +915,7 @@
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .form-field-sm {
-    background: #2C2C2C;
+    background: #252A3A;
     border-color: rgba(255, 255, 255, 0.16);
     color: rgba(255, 255, 255, 0.87);
 }
@@ -986,5 +961,5 @@
    30. Sortable 헤더
    ═══════════════════════════════════════════ */
 .dark-theme .sortable:hover {
-    background: rgba(129, 212, 250, 0.10);
+    background: rgba(177, 151, 252, 0.10);
 }

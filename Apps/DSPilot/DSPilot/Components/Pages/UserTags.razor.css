@@ -189,9 +189,9 @@
 
 /* 레벨 칩 — Promaker UI 톤과 비슷한 색상 */
 .chip-level-info {
-    background: rgba(33, 150, 243, 0.15);
-    color: #1976d2;
-    border: 1px solid rgba(33, 150, 243, 0.35);
+    background: color-mix(in srgb, var(--color-info) 15%, transparent);
+    color: var(--color-info);
+    border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent);
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 0.75rem;

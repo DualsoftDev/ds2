@@ -80,8 +80,8 @@
                 <polyline class="pw-chart-area" points="@_chartArea" />
             </svg>
             <div class="pw-chart-legend">
-                <span><i style="background:#1976d2"></i> avg @_chartAvg ms</span>
-                <span><i style="background:#f0883e"></i> peak @_chartPeak ms</span>
+                <span><i style="background:var(--color-primary)"></i> avg @_chartAvg ms</span>
+                <span><i style="background:var(--color-secondary)"></i> peak @_chartPeak ms</span>
             </div>
         </div>
 
@@ -125,12 +125,12 @@
         <div class="pw-card">
             <div class="pw-card-title"><span class="material-icons">palette</span> Theme Palette</div>
             <div class="pw-palette">
-                <div><span style="background:#1976d2"></span>primary</div>
-                <div><span style="background:#388e3c"></span>success</div>
-                <div><span style="background:#f0883e"></span>warning</div>
-                <div><span style="background:#d32f2f"></span>error</div>
-                <div><span style="background:#7e57c2"></span>accent</div>
-                <div><span style="background:#455a64"></span>neutral</div>
+                <div><span style="background:var(--color-primary)"></span>primary</div>
+                <div><span style="background:var(--color-success)"></span>success</div>
+                <div><span style="background:var(--color-warning)"></span>warning</div>
+                <div><span style="background:var(--color-error)"></span>error</div>
+                <div><span style="background:var(--color-secondary)"></span>secondary</div>
+                <div><span style="background:var(--color-tertiary)"></span>tertiary</div>
             </div>
         </div>
 
@@ -190,10 +190,10 @@
     private record FlowSample(string Name, string State, int Cycle, int Progress, string Color);
     private readonly FlowSample[] _flowSamples =
     [
-        new("Assembly-1", "Running", 845, 72, "#1976d2"),
-        new("Welding-2",  "Ready",   1120, 100, "#388e3c"),
-        new("Inspect-3",  "Warning", 612, 45, "#f0883e"),
-        new("Pack-4",     "Idle",    980, 18, "#7e57c2"),
+        new("Assembly-1", "Running", 845, 72, "#6750A4"),
+        new("Welding-2",  "Ready",   1120, 100, "#4CAF50"),
+        new("Inspect-3",  "Warning", 612, 45, "#F59E0B"),
+        new("Pack-4",     "Idle",    980, 18, "#B197FC"),
     ];
 
     private string _chartLine = "";
