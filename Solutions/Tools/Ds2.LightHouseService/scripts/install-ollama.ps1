@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Ollama (embedding backend) 설치 + 모델 pull.
 

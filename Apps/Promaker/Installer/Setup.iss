@@ -27,12 +27,23 @@
 #ifndef AgentTrayPublishDir
   #define AgentTrayPublishDir "..\Promaker.AgentTray\bin\Release\net9.0-windows\win-x64\publish-self-contained"
 #endif
+; Ds2.LightHouseService publish 경로 — Setup.iss 가 [Components] ai 옵션 (default checked) 에서
+; {app}\LightHouseService\ 로 번들. Promaker UI 의 "로컬 LightHouse 활성화" 가 사후 호출 → cert/PSK/service 등록.
+#ifndef LightHousePublishDir
+  #define LightHousePublishDir "..\..\..\Solutions\Tools\Ds2.LightHouseService\bin\Release\net9.0\win-x64\publish-self-contained"
+#endif
+; LightHouseService scripts (install-ollama / generate-dev-cert / install-service ps1).
+#ifndef LightHouseScriptsDir
+  #define LightHouseScriptsDir "..\..\..\Solutions\Tools\Ds2.LightHouseService\scripts"
+#endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
 #define AgentExePath AddBackslash(AgentPublishDir) + "Promaker.Agent.exe"
 #define AgentTrayExePath AddBackslash(AgentTrayPublishDir) + "Promaker.AgentTray.exe"
+#define LightHouseExePath AddBackslash(LightHousePublishDir) + "Ds2.LightHouseService.exe"
 #define HasAgent FileExists(AgentExePath)
 #define HasAgentTray FileExists(AgentTrayExePath)
+#define HasLightHouse FileExists(LightHouseExePath)
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
@@ -77,10 +88,83 @@ UninstallDisplayIcon={app}\{#MyExeName}
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+; AI 기능 (LightHouse KB Service + Ollama 설치 스크립트) — default checked.
+; 인스톨러는 파일 배치만 수행. service 등록 / PSK 생성 / cert 발급 / Ollama 설치 / firewall rule
+; 일체는 Promaker UI 의 "로컬 LightHouse 서비스 활성화" 버튼이 사후 트리거한다.
+#if HasLightHouse
+[Components]
+Name: "ai"; Description: "AI 기능 활성화 (LightHouse KB Service + Ollama 설치 파일 — 사후 UI 에서 활성화)"; \
+  Types: full custom; Flags: checkablealone
+#endif
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 ; Promaker.Agent (Windows Service) + AgentTray 는 옵션 없이 항상 설치/등록. 본체 Promaker 가
 ; Monitoring + 실 PLC 시 Agent 에 위임(active.flag) 하는 구조라 Agent 가 누락되면 PLAY 가 차단된다.
+
+; fd install 시 이전 sc 빌드 잔재 정리 — sc 시절 박제된 native dll 들이 app-local 에 살아남으면:
+; (a) hostfxr.dll 잔재 → "self-contained" 모드로 hostfxr 가 app-local runtime 만 검색 → "install .NET" dialog
+; (b) wpfgfx_cor3.dll 등 옛 WPF native 잔재 → 새 PresentationCore 가 EntryPointNotFoundException
+;     ('WpfGfx_SetDisableBoundsCheckProtection' 등 새 API 호출 시) → WPF 첫 XAML load 도중 fatal UI error
+; fd publish output 에는 본래 미박제이므로 안전 삭제. sc install 시는 본 블록 미적용 (필요 파일).
+; root + 3 subfolder (Agent / AgentTray / LightHouseService) 모두 커버 — 모든 .exe 가 같은 sc 잔재 surface.
+#if SelfContainedMode != "true"
+[InstallDelete]
+; .NET host / runtime native — hostfxr 가 app-local 우선 검색 회피
+Type: files; Name: "{app}\hostfxr.dll"
+Type: files; Name: "{app}\hostpolicy.dll"
+Type: files; Name: "{app}\coreclr.dll"
+Type: files; Name: "{app}\clrjit.dll"
+Type: files; Name: "{app}\clrcompression.dll"
+Type: files; Name: "{app}\Microsoft.DiaSymReader.Native.amd64.dll"
+; WPF native — wpfgfx_cor3.dll 잔재가 새 PresentationCore 와 API mismatch (실측 회귀, 2026-05-26)
+Type: files; Name: "{app}\wpfgfx_cor3.dll"
+Type: files; Name: "{app}\PresentationNative_cor3.dll"
+Type: files; Name: "{app}\D3DCompiler_47_cor3.dll"
+Type: files; Name: "{app}\vcruntime140_cor3.dll"
+; sc Microsoft.WindowsDesktop.App 의 framework dll wildcard (PresentationCore.dll 등은 시스템 dll 이라
+; 위에서 명시 native 만 — wildcard 는 안전 영역만 선택. WindowsDesktop.App.* 는 sc 만 박제하므로 fd 에서 미생성).
+Type: files; Name: "{app}\Microsoft.WindowsDesktop.App.*"
+Type: filesandordirs; Name: "{app}\shared"
+
+; Agent subfolder — net9.0 console, WPF 미사용 → host/runtime native 만
+#if HasAgent
+Type: files; Name: "{app}\Agent\hostfxr.dll"
+Type: files; Name: "{app}\Agent\hostpolicy.dll"
+Type: files; Name: "{app}\Agent\coreclr.dll"
+Type: files; Name: "{app}\Agent\clrjit.dll"
+Type: files; Name: "{app}\Agent\clrcompression.dll"
+Type: files; Name: "{app}\Agent\Microsoft.DiaSymReader.Native.amd64.dll"
+Type: filesandordirs; Name: "{app}\Agent\shared"
+#endif
+
+; AgentTray subfolder — net9.0-windows WPF, root 와 동일 surface
+#if HasAgentTray
+Type: files; Name: "{app}\AgentTray\hostfxr.dll"
+Type: files; Name: "{app}\AgentTray\hostpolicy.dll"
+Type: files; Name: "{app}\AgentTray\coreclr.dll"
+Type: files; Name: "{app}\AgentTray\clrjit.dll"
+Type: files; Name: "{app}\AgentTray\clrcompression.dll"
+Type: files; Name: "{app}\AgentTray\Microsoft.DiaSymReader.Native.amd64.dll"
+Type: files; Name: "{app}\AgentTray\wpfgfx_cor3.dll"
+Type: files; Name: "{app}\AgentTray\PresentationNative_cor3.dll"
+Type: files; Name: "{app}\AgentTray\D3DCompiler_47_cor3.dll"
+Type: files; Name: "{app}\AgentTray\vcruntime140_cor3.dll"
+Type: files; Name: "{app}\AgentTray\Microsoft.WindowsDesktop.App.*"
+Type: filesandordirs; Name: "{app}\AgentTray\shared"
+#endif
+
+; LightHouseService subfolder — net9.0 console + Kestrel, WPF 미사용
+#if HasLightHouse
+Type: files; Name: "{app}\LightHouseService\hostfxr.dll"
+Type: files; Name: "{app}\LightHouseService\hostpolicy.dll"
+Type: files; Name: "{app}\LightHouseService\coreclr.dll"
+Type: files; Name: "{app}\LightHouseService\clrjit.dll"
+Type: files; Name: "{app}\LightHouseService\clrcompression.dll"
+Type: files; Name: "{app}\LightHouseService\Microsoft.DiaSymReader.Native.amd64.dll"
+Type: filesandordirs; Name: "{app}\LightHouseService\shared"
+#endif
+#endif
 
 [Dirs]
 ; Promaker · DSPilot 공유 폴더. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴와
@@ -100,6 +184,14 @@ Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Flags: ignoreversion rec
 #if HasAgentTray
 ; Promaker.AgentTray — 사용자 컨텍스트 트레이. HKCU\Run 으로 사용자 로그온 시 자동 실행 (옵션 없음).
 Source: "{#AgentTrayPublishDir}\*"; DestDir: "{app}\AgentTray"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#if HasLightHouse
+; Ds2.LightHouseService — Components ai (default checked) 일 때만 번들. {app}\LightHouseService\ 로 격리.
+; service 등록 / PSK 생성 / cert / Ollama 설치는 모두 Promaker UI 가 사후 트리거 (인스톨러 미수행).
+Source: "{#LightHousePublishDir}\*"; DestDir: "{app}\LightHouseService"; \
+  Components: ai; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#LightHouseScriptsDir}\*"; DestDir: "{app}\LightHouseService\scripts"; \
+  Components: ai; Flags: ignoreversion
 #endif
 
 [Icons]
@@ -165,6 +257,15 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhi
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "DeleteAgentService"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
   Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
+#endif
+#if HasLightHouse
+; LightHouseService best-effort cleanup — UI 가 sc create 한 적이 있을 수 있으니 stop+delete.
+; Components: ai 가드 — ai 미선택 install 에서는 service 미등록이라 cleanup 자체 불필요.
+; Ollama 설치 / bge-m3 모델 / service.pfx / %PROGRAMDATA% config.json 은 사용자 자산 → 보존.
+Filename: "{sys}\sc.exe"; Parameters: "stop Ds2.LightHouseService"; Components: ai; Flags: runhidden; RunOnceId: "StopLightHouse"
+Filename: "{sys}\sc.exe"; Parameters: "delete Ds2.LightHouseService"; Components: ai; Flags: runhidden; RunOnceId: "DeleteLightHouse"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Ds2 LightHouse Service"""; \
+  Components: ai; Flags: runhidden; RunOnceId: "DeleteLightHouseFirewall"
 #endif
 
 ; ── [Code] 섹션 ──
