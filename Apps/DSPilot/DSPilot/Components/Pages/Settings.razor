@@ -174,10 +174,10 @@
                         비가동 사이클 판정
                     </h6>
                     <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
-                        CT가 제한값을 초과하면 비가동 사이클로 판정. 대시보드·동작편차·Flow 평균에서 제외, 사이클 분석에서 회색 배경 표시.
+                        CT가 최대 제한을 초과하거나 최소 제한에 미달하면 비가동 사이클로 판정. 대시보드·동작편차·Flow 평균에서 제외, 사이클 분석에서 회색 배경 표시.
                     </small>
                     <div class="form-group">
-                        <label class="form-label">사이클 시간 제한</label>
+                        <label class="form-label">사이클 시간 최대 제한 (초과 시 제외)</label>
                         <div style="display:flex; gap:8px; align-items:center;">
                             <div style="display:flex; align-items:center; gap:4px;">
                                 <input type="number" class="form-field" style="width:70px; text-align:center;"
@@ -199,23 +199,55 @@
                             가장 긴 Flow 의 평균 CT + 여유시간 권장. 모두 0이면 비활성.
                         </small>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">사이클 시간 최소 제한 (미달 시 제외)</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MinCycleHours" min="0" max="99" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">시</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MinCycleMinutes" min="0" max="59" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">분</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MinCycleSeconds" min="0" max="59" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">초</span>
+                            </div>
+                        </div>
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            오감지·노이즈로 인한 짧은 사이클 제외용. 모두 0이면 비활성.
+                        </small>
+                    </div>
 
                     <hr style="border:none; border-top:1px solid var(--color-lines, #e0e0e0); margin:16px 0;" />
 
                     <h6 class="typo-subtitle2" style="margin-bottom:8px;">
                         <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">speed</span>
-                        개별 Call 최대 실행시간
+                        개별 Call 실행시간 제한
                     </h6>
                     <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
-                        GoingTime 이 이 값을 초과하면 동작편차 통계에서 제외.
+                        GoingTime 이 최대 초과 또는 최소 미달이면 동작편차 통계에서 제외.
                     </small>
                     <div class="form-group">
-                        <label class="form-label">최대 실행시간 (ms)</label>
+                        <label class="form-label">최대 실행시간 (ms, 초과 시 제외)</label>
                         <input type="number" class="form-field"
                                @bind="_settings.HistoryView.MaxCallGoingTimeMs"
                                min="1000" max="600000" placeholder="30000" />
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
                             기본: 30,000ms (30초)
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
+                        <input type="number" class="form-field"
+                               @bind="_settings.HistoryView.MinCallGoingTimeMs"
+                               min="0" max="600000" placeholder="0" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            오감지·노이즈로 인한 짧은 동작 제외용. 0이면 비활성.
                         </small>
                     </div>
                 </div>
@@ -272,6 +304,23 @@ else
     {
         get => (_settings?.HistoryView.MaxCycleTimeMs ?? 0) % 60_000 / 1_000;
         set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = MaxCycleHours * 3_600_000 + MaxCycleMinutes * 60_000 + value * 1_000; }
+    }
+
+    // MinCycleTimeMs ↔ 시/분/초 변환
+    private int MinCycleHours
+    {
+        get => _settings?.HistoryView.MinCycleTimeMs / 3_600_000 ?? 0;
+        set { if (_settings is not null) _settings.HistoryView.MinCycleTimeMs = value * 3_600_000 + MinCycleMinutes * 60_000 + MinCycleSeconds * 1_000; }
+    }
+    private int MinCycleMinutes
+    {
+        get => (_settings?.HistoryView.MinCycleTimeMs ?? 0) % 3_600_000 / 60_000;
+        set { if (_settings is not null) _settings.HistoryView.MinCycleTimeMs = MinCycleHours * 3_600_000 + value * 60_000 + MinCycleSeconds * 1_000; }
+    }
+    private int MinCycleSeconds
+    {
+        get => (_settings?.HistoryView.MinCycleTimeMs ?? 0) % 60_000 / 1_000;
+        set { if (_settings is not null) _settings.HistoryView.MinCycleTimeMs = MinCycleHours * 3_600_000 + MinCycleMinutes * 60_000 + value * 1_000; }
     }
 
     // DB ConnectionString 분리 편집용 필드
