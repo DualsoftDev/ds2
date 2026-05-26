@@ -2726,6 +2726,370 @@
               ]
             }
           ]
+        },
+        {
+          "Name": "LS XGK 삽입밴딩기 휴리스틱 (확장)",
+          "OutputAddressPatterns": [
+            "P06*",
+            "P1*",
+            "M*",
+            "K1*",
+            "L0034*",
+            "L0035*",
+            "L0036*",
+            "L0037*",
+            "L0040*",
+            "L0041*"
+          ],
+          "InputAddressPatterns": [
+            "P05*",
+            "P00*",
+            "P01*",
+            "P02*",
+            "P03*",
+            "P04*",
+            "M*",
+            "L0000*",
+            "L0001*",
+            "L0002*",
+            "L0010*",
+            "L0011*",
+            "L0018*",
+            "L0026*",
+            "F*"
+          ],
+          "DeviceKeywords": [
+            "*AX1*",
+            "*AX2*",
+            "*AX3*",
+            "*AX4*",
+            "*AX5*",
+            "*AX6*",
+            "*AX7*",
+            "*AX8*",
+            "*AX9*",
+            "*AX10*",
+            "*AX11*",
+            "*AX12*",
+            "*AX13*",
+            "*AX14*",
+            "*AX15*",
+            "*AX16*",
+            "*BAND*",
+            "*BAND_DIE*",
+            "*BAND_CAM*",
+            "*MAIN*",
+            "*MDSP*",
+            "*WSTE*",
+            "*MOUT*",
+            "*INHD*",
+            "*GAGE*",
+            "*ASIN*",
+            "*BUCL*",
+            "*BLOW*",
+            "*TEIN*",
+            "*HMAK*",
+            "*BDRO*",
+            "*BDHD*",
+            "*BOSS*",
+            "*FOUT*",
+            "*DMAK*",
+            "*INRO*",
+            "*TO포장기*",
+            "*멜로디폰*",
+            "*삽입*",
+            "*밴딩*",
+            "*몰드*",
+            "*핑거*",
+            "*글립퍼*",
+            "*반전기*",
+            "*반전*",
+            "*배출부*",
+            "*배출*",
+            "*시업점검*",
+            "*에어크리닝*",
+            "*에어크린*",
+            "*인헤드*",
+            "*게이지*",
+            "*포장기*",
+            "*도어*",
+            "*리셋*",
+            "*스톱퍼*",
+            "*이송*",
+            "*보울피더*",
+            "*컨베이어*",
+            "*프로브*",
+            "*테스터*"
+          ],
+          "Apis": [
+            {
+              "Name": "원점복귀",
+              "OutputKeywords": [
+                "ORG",
+                "ORIGIN",
+                "ORIGINRUN",
+                "원점복귀",
+                "HOME"
+              ],
+              "InputKeywords": [
+                "ORG",
+                "ORIGINRUN_ENABLE",
+                "ORIGIN_CHANGE_FLAG",
+                "ORIGIN_COMPELETE",
+                "ORIGIN_COMPLETE",
+                "원점완료",
+                "HOME_OK"
+              ]
+            },
+            {
+              "Name": "조그운전",
+              "OutputKeywords": [
+                "JOGRUN"
+              ],
+              "InputKeywords": [
+                "JOGRUN_ENABLE"
+              ]
+            },
+            {
+              "Name": "조그_정방향",
+              "OutputKeywords": [
+                "JOGF",
+                "JOG_F",
+                "JOG_FWD"
+              ],
+              "InputKeywords": [
+                "JOGF",
+                "JOG_F",
+                "JOG_FWD"
+              ]
+            },
+            {
+              "Name": "조그_역방향",
+              "OutputKeywords": [
+                "JOGB",
+                "JOG_B",
+                "JOG_REV"
+              ],
+              "InputKeywords": [
+                "JOGB",
+                "JOG_B",
+                "JOG_REV"
+              ]
+            },
+            {
+              "Name": "조그_정방향_고속",
+              "OutputKeywords": [
+                "JOGFF"
+              ],
+              "InputKeywords": [
+                "JOGFF"
+              ]
+            },
+            {
+              "Name": "조그_역방향_고속",
+              "OutputKeywords": [
+                "JOGFB"
+              ],
+              "InputKeywords": [
+                "JOGFB"
+              ]
+            },
+            {
+              "Name": "정지",
+              "OutputKeywords": [
+                "STOP",
+                "정지"
+              ],
+              "InputKeywords": [
+                "STOP",
+                "STOPPED",
+                "정지완료"
+              ]
+            },
+            {
+              "Name": "SV_ON",
+              "OutputKeywords": [
+                "SV_ON",
+                "_ON"
+              ],
+              "InputKeywords": [
+                "SV_ON",
+                "_ON"
+              ]
+            },
+            {
+              "Name": "SV_OFF",
+              "OutputKeywords": [
+                "SV_OFF",
+                "_OFF"
+              ],
+              "InputKeywords": [
+                "SV_OFF",
+                "_OFF"
+              ]
+            },
+            {
+              "Name": "위치이동",
+              "OutputKeywords": [
+                "POSIONRUN",
+                "POSITIONRUN"
+              ],
+              "InputKeywords": [
+                "POSIONRUN_ENABLE",
+                "POSITIONRUN_ENABLE"
+              ]
+            },
+            {
+              "Name": "위치이동_POS1",
+              "OutputKeywords": ["POS1"],
+              "InputKeywords":  ["POS1"]
+            },
+            {
+              "Name": "위치이동_POS2",
+              "OutputKeywords": ["POS2"],
+              "InputKeywords":  ["POS2"]
+            },
+            {
+              "Name": "위치이동_POS3",
+              "OutputKeywords": ["POS3"],
+              "InputKeywords":  ["POS3"]
+            },
+            {
+              "Name": "위치이동_POS4",
+              "OutputKeywords": ["POS4"],
+              "InputKeywords":  ["POS4"]
+            },
+            {
+              "Name": "위치이동_POS5",
+              "OutputKeywords": ["POS5"],
+              "InputKeywords":  ["POS5"]
+            },
+            {
+              "Name": "위치이동_POS6",
+              "OutputKeywords": ["POS6"],
+              "InputKeywords":  ["POS6"]
+            },
+            {
+              "Name": "위치이동_POS7",
+              "OutputKeywords": ["POS7"],
+              "InputKeywords":  ["POS7"]
+            },
+            {
+              "Name": "위치이동_POS8",
+              "OutputKeywords": ["POS8"],
+              "InputKeywords":  ["POS8"]
+            },
+            {
+              "Name": "위치이동_POS9",
+              "OutputKeywords": ["POS9"],
+              "InputKeywords":  ["POS9"]
+            },
+            {
+              "Name": "위치이동_POS10",
+              "OutputKeywords": ["POS10"],
+              "InputKeywords":  ["POS10"]
+            },
+            {
+              "Name": "위치이동_POS11",
+              "OutputKeywords": ["POS11"],
+              "InputKeywords":  ["POS11"]
+            },
+            {
+              "Name": "위치이동_POS12",
+              "OutputKeywords": ["POS12"],
+              "InputKeywords":  ["POS12"]
+            },
+            {
+              "Name": "위치이동_POS13",
+              "OutputKeywords": ["POS13"],
+              "InputKeywords":  ["POS13"]
+            },
+            {
+              "Name": "위치이동_POS14",
+              "OutputKeywords": ["POS14"],
+              "InputKeywords":  ["POS14"]
+            },
+            {
+              "Name": "위치이동_POS15",
+              "OutputKeywords": ["POS15"],
+              "InputKeywords":  ["POS15"]
+            },
+            {
+              "Name": "위치이동_POS16",
+              "OutputKeywords": ["POS16"],
+              "InputKeywords":  ["POS16"]
+            },
+            {
+              "Name": "전진",
+              "OutputKeywords": ["전진","FWD","ADV","전진_SV"],
+              "InputKeywords":  ["전진단","전진_RS","FWDPOS","ADVPOS"]
+            },
+            {
+              "Name": "후진",
+              "OutputKeywords": ["후진","REV","RET","후진_SV"],
+              "InputKeywords":  ["후진단","후진_RS","REVPOS","RETPOS"]
+            },
+            {
+              "Name": "상승",
+              "OutputKeywords": ["상승","UP","상승_SV"],
+              "InputKeywords":  ["상승단","상승_RS","UP_POS","ULS"]
+            },
+            {
+              "Name": "하강",
+              "OutputKeywords": ["하강","DOWN","하강_SV"],
+              "InputKeywords":  ["하강단","하강_RS","DOWN_POS","DLS"]
+            },
+            {
+              "Name": "핑거동작",
+              "OutputKeywords": ["핑거_넓힘","핑거_좁힘","FINGER"],
+              "InputKeywords":  ["핑거_넓힘_RS","핑거_좁힘_RS","FINGER_POS"]
+            },
+            {
+              "Name": "글립퍼동작",
+              "OutputKeywords": ["글립퍼_상승하강_SV","글립퍼_닫기열기_SV","글립퍼_전진_SV","글립퍼_후진_SV"],
+              "InputKeywords":  ["글립퍼_상승_RS","글립퍼_하강_RS","글립퍼_닫힘_RS","글립퍼_열림_RS","글립퍼_놓기위치_RS"]
+            },
+            {
+              "Name": "이송동작",
+              "OutputKeywords": ["이송_좌_SV","이송_우_SV","이송"],
+              "InputKeywords":  ["이송_좌측_RS","이송_우측_RS","이송_RS"]
+            },
+            {
+              "Name": "스톱퍼동작",
+              "OutputKeywords": ["스톱퍼_하강상승_SV","스톱퍼"],
+              "InputKeywords":  ["스톱퍼_상승_RS","스톱퍼_하강_RS"]
+            },
+            {
+              "Name": "몰드확인",
+              "OutputKeywords": ["몰드유무확인","몰드확인","MDCHK"],
+              "InputKeywords":  ["몰드유무_RS","몰드모델확인_PHS","몰드없음","몰드도착"]
+            },
+            {
+              "Name": "반전기동작",
+              "OutputKeywords": ["반전기_0도","반전기_180도","반전"],
+              "InputKeywords":  ["반전기_0도RS","반전기_180도RS","반전완료"]
+            },
+            {
+              "Name": "도어개폐",
+              "OutputKeywords": ["DOOROPEN","DOOR_OPEN","도어열림"],
+              "InputKeywords":  ["DOOR_OPEN_OK","도어열림완료","앞쪽도어스위치"]
+            },
+            {
+              "Name": "시업점검",
+              "OutputKeywords": ["시업점검","시업점검모드"],
+              "InputKeywords":  ["시업점검완료","시업점검완료리셋"]
+            },
+            {
+              "Name": "에어크리닝",
+              "OutputKeywords": ["에어크리닝","에어크린"],
+              "InputKeywords":  ["에어크리닝완료","에어크린완료"]
+            },
+            {
+              "Name": "AX_위치_FEED",
+              "OutputKeywords": ["1ST_WORD","2ND_WORD","3TH_WORD","4TH_WORD"],
+              "InputKeywords":  ["ACT_POS_H","ACT_POS_L","ACT_FEED_H","ACT_FEED_L"]
+            }
+          ]
         }
       ]
     },
@@ -3593,6 +3957,136 @@
       "OutputKeyword": "IN_OK",
       "InputKeyword": "WORK_COMPL",
       "Description": "IN_OK → WORK_COMPL (일반)"
+    },
+    {
+      "OutputPattern": "TL_",
+      "InputPattern": "TS_",
+      "Description": "LS XGK HMI Touch Lamp(출력 TL_<dev>_<action>, P06xxx) ↔ Touch Switch(입력 TS_<dev>_<action>, P05xxx) — 같은 action 명으로 600+ 페어"
+    },
+    {
+      "OutputPattern": "TL_*",
+      "InputPattern": "TS_*",
+      "Description": "LS XGK HMI TL/TS wildcard 캡처 — TL_<rest> 의 <rest> 를 TS_<rest> 로 정확 매칭"
+    },
+    {
+      "OutputPattern": "QX_*_SV",
+      "InputPattern": "IX_*_RS",
+      "Description": "LS XGK QX SV 출력 → IX RS 센서 입력 (와일드카드 캡처)"
+    },
+    {
+      "OutputPattern": "_SETBLOCK",
+      "InputPattern": "_STATE",
+      "Description": "[D-공격] LS HSLink _HS<n>_SETBLOCK<idx>(출력) ↔ _HS<n>_STATE<idx>(입력) — 블록 설정 ↔ 상태 (1,536 페어)"
+    },
+    {
+      "OutputPattern": "_RLINK",
+      "InputPattern": "_LTRBL",
+      "Description": "[D-공격] LS HSLink _HS<n>_RLINK<idx>(출력) ↔ _HS<n>_LTRBL<idx>(입력) — 정상 ↔ 비정상 (1,536 페어)"
+    },
+    {
+      "OutputPattern": "_MOD",
+      "InputPattern": "_TRX",
+      "Description": "[D-공격] LS HSLink _HS<n>_MOD<idx>(출력) ↔ _HS<n>_TRX<idx>(입력) — 운전 모드 ↔ 통신 상태 (1,536 페어)"
+    },
+    {
+      "OutputPattern": "_ERR",
+      "InputPattern": "_ENABLE",
+      "Description": "[D-공격] LS HSLink _HS<n>_ERR<idx>(출력) ↔ _HS<n>_ENABLE<idx>(입력) — 에러 ↔ enable (~24 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_STATE0",
+      "InputPattern": "_PID*_STATE1",
+      "Description": "[D-공격] LS PID _PID<n>_STATE0(출력) ↔ _PID<n>_STATE1(입력) — PID 상태 페어 (32 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_STATE2",
+      "InputPattern": "_PID*_STATE3",
+      "Description": "[D-공격] LS PID _PID<n>_STATE2 ↔ _STATE3 (32 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_STATE4",
+      "InputPattern": "_PID*_STATE5",
+      "Description": "[D-공격] LS PID _PID<n>_STATE4 ↔ _STATE5 (32 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_STATE6",
+      "InputPattern": "_PID*_STATE7",
+      "Description": "[D-공격] LS PID _PID<n>_STATE6 ↔ _STATE7 (32 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_ALARM4",
+      "InputPattern": "_PID*_ALARM5",
+      "Description": "[D-공격] LS PID _PID<n>_ALARM4 ↔ _ALARM5 (32 페어)"
+    },
+    {
+      "OutputPattern": "_PID*_ALARM6",
+      "InputPattern": "_PID*_ALARM7",
+      "Description": "[D-공격] LS PID _PID<n>_ALARM6 ↔ _ALARM7 (32 페어)"
+    },
+    {
+      "OutputPattern": "_REQ",
+      "InputPattern": "_ENABLE",
+      "Description": "[D-공격] LS _REQ(요청) ↔ _ENABLE(허용) 페어"
+    },
+    {
+      "OutputPattern": "ORIGINRUN",
+      "InputPattern": "ORIGIN_COMPELETE",
+      "Description": "XGK 원점복귀 출력 → 완료 입력 (오타 COMPELETE 포함)"
+    },
+    {
+      "OutputPattern": "ORIGINRUN",
+      "InputPattern": "ORIGIN_COMPLETE",
+      "Description": "XGK 원점복귀 출력 → 완료 입력"
+    },
+    {
+      "OutputPattern": "ORIGINRUN",
+      "InputPattern": "ORIGINRUN_ENABLE",
+      "Description": "XGK 원점복귀 출력 → 원점복귀 허용 입력"
+    },
+    {
+      "OutputPattern": "ORIGINRUN",
+      "InputPattern": "ORIGIN_CHANGE_FLAG",
+      "Description": "XGK 원점복귀 출력 → 원점 변경 플래그 입력"
+    },
+    {
+      "OutputPattern": "POSIONRUN",
+      "InputPattern": "POSIONRUN_ENABLE",
+      "Description": "XGK 위치이동 출력 → enable 입력"
+    },
+    {
+      "OutputPattern": "POSITIONRUN",
+      "InputPattern": "POSITIONRUN_ENABLE",
+      "Description": "XGK 위치이동 출력 → enable 입력"
+    },
+    {
+      "OutputPattern": "JOGRUN",
+      "InputPattern": "JOGRUN_ENABLE",
+      "Description": "XGK 조그 출력 → enable 입력"
+    },
+    {
+      "OutputPattern": "핑거_넓힘",
+      "InputPattern": "핑거_넓힘_RS",
+      "Description": "삽입밴딩기 핑거 출력 → RS 센서 입력"
+    },
+    {
+      "OutputPattern": "핑거_좁힘",
+      "InputPattern": "핑거_좁힘_RS",
+      "Description": "삽입밴딩기 핑거 출력 → RS 센서 입력"
+    },
+    {
+      "OutputPattern": "반전기_0도",
+      "InputPattern": "반전기_0도RS",
+      "Description": "삽입밴딩기 반전기 출력 → RS 센서 입력"
+    },
+    {
+      "OutputPattern": "반전기_180도",
+      "InputPattern": "반전기_180도RS",
+      "Description": "삽입밴딩기 반전기 출력 → RS 센서 입력"
+    },
+    {
+      "OutputPattern": "몰드유무확인",
+      "InputPattern": "몰드유무_RS",
+      "Description": "삽입밴딩기 몰드 확인 출력 → RS 센서 입력"
     }
   ],
   "FilterExclusions": {
@@ -3642,7 +4136,28 @@
       "*Speed limit*",
       "*Acc Time*",
       "*Dec Time*",
-      "*Comment Model*"
+      "*Comment Model*",
+      "*_HS1_*",
+      "*_HS2_*",
+      "*_HS3_*",
+      "*_HS4_*",
+      "*_HS1RLINK*",
+      "*RESERVED*",
+      "*PID_*",
+      "*BCD_시일*",
+      "*BCD_요일*",
+      "*BCD_월년*",
+      "*BCD_초분*",
+      "*BIN_년*",
+      "*BIN_월*",
+      "*BIN_일*",
+      "*BIN_시*",
+      "*BIN_분*",
+      "*BIN_초*",
+      "*현재시간계산용버퍼*",
+      "*Cnet*",
+      "*PADT*",
+      "*고속링크*"
     ],
     "ApiKeywords": [
       "*ext*",
@@ -3760,7 +4275,53 @@
       "*Turn-2",
       "*Align-1",
       "*Align-2",
-      "*Align"
+      "*Align",
+      "*_RS",
+      "*_PHS",
+      "*_POS",
+      "*JOGRUN_ENABLE",
+      "*ORIGINRUN_ENABLE",
+      "*ORIGIN_CHANGE_FLAG",
+      "*ORIGIN_COMPELETE",
+      "*ORIGIN_COMPLETE",
+      "*POSIONRUN_ENABLE",
+      "*POSITIONRUN_ENABLE",
+      "*_ENABLE",
+      "*_COMPELETE",
+      "*_COMPLETE",
+      "*ORIGINRUN",
+      "*POSIONRUN",
+      "*JOGRUN",
+      "*_FLAG",
+      "*_CHANGE_FLAG",
+      "*몰드*",
+      "*핑거*",
+      "*반전기*",
+      "*배출부*",
+      "JOGF",
+      "JOGB",
+      "JOGFF",
+      "JOGFB",
+      "ORG",
+      "STOP",
+      "SV_ON",
+      "SV_OFF",
+      "POS1",
+      "POS2",
+      "POS3",
+      "POS4",
+      "POS5",
+      "POS6",
+      "POS7",
+      "POS8",
+      "POS9",
+      "POS10",
+      "POS11",
+      "POS12",
+      "POS13",
+      "POS14",
+      "POS15",
+      "POS16"
     ],
     "IOTypeTokens": [
       "Q",
@@ -3776,7 +4337,12 @@
       "O",
       "Y",
       "X",
-      "M"
+      "M",
+      "TS",
+      "TL",
+      "TDI",
+      "TIM",
+      "TIS"
     ]
   },
   "WorkNaming": {
