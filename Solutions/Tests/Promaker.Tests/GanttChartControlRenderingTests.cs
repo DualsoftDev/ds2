@@ -12,6 +12,12 @@ namespace Promaker.Tests;
 public sealed class GanttChartControlRenderingTests
 {
     [Fact]
+    public void RenderInterval_targets_smooth_timeline_animation()
+    {
+        Assert.True(GanttChartControl.RenderInterval <= TimeSpan.FromMilliseconds(34));
+    }
+
+    [Fact]
     public void ResolveRowBackgroundResourceKey_returns_work_brush_for_work_entries()
     {
         var entry = new GanttTimelineEntry

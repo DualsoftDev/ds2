@@ -36,6 +36,7 @@ public partial class SimulationPanelState
         _simEngine = null;
         _runtimeSession = null;
         _passiveInference = null;
+        ResetPassiveGanttClockAnchor();
         ContinuousInjection.ClearCycle();
 
         try
@@ -150,6 +151,7 @@ public partial class SimulationPanelState
             && !TryWithSimEngine("Simulation reset", engine => engine.Reset()))
             return;
         _simStartTime = DateTime.Now;
+        ResetPassiveGanttClockAnchor();
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();
