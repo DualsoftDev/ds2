@@ -230,7 +230,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
-    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     private bool _isSimulating;
 
     [ObservableProperty]
@@ -275,7 +274,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
-    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
 
@@ -291,7 +289,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
-    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
@@ -305,21 +302,13 @@ public partial class SimulationPanelState : ObservableObject
         SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
 
     /// <summary>"자체 모니터링" 실행 중 — Agent 우회, Promaker 본체가 5051 직접 호스팅.
-    /// StartSelfMonitoring 진입 시 true, StopSimulation 시 false (Hub.Stop 도 함께 리셋).</summary>
+    /// StartSelfMonitoring 진입 시 true, StopSimulation 시 false (Hub.Stop 도 함께 리셋).
+    /// XAML 의 SelfMonitoringToggleButton 이 이 플래그로 Play↔Stop 아이콘/Command 를 전환한다.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStartVisible))]
-    [NotifyPropertyChangedFor(nameof(IsSelfMonitoringStopVisible))]
     [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     private bool _isSelfMonitoring;
-
-    /// <summary>"자체 모니터링" 시작 버튼 노출 조건 — Agent 위임 모드 + 시뮬 미실행 (Agent 도 자체도 모두 정지).</summary>
-    public bool IsSelfMonitoringStartVisible =>
-        IsAgentDelegationMode && !IsSimulating && !IsSelfMonitoring;
-
-    /// <summary>"자체 모니터링" 정지 버튼 노출 조건 — 자체 모니터링 활성.</summary>
-    public bool IsSelfMonitoringStopVisible => IsSelfMonitoring;
 
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
@@ -409,8 +398,8 @@ public partial class SimulationPanelState : ObservableObject
     {
         _clockInterpolator.ResetBase();
         RefreshGanttTimeSource();
-        // IsSimulating 가 외부에서 false 로 전환됐는데 자체 모니터링 표식이 남아 있으면 시작 버튼이
-        // 다시 노출되지 않는다 (IsSelfMonitoringStartVisible 가 !IsSelfMonitoring 의존). 안전망.
+        // IsSimulating 가 외부에서 false 로 전환됐는데 자체 모니터링 표식이 남아 있으면 토글 버튼이
+        // "정지" 상태로 굳어 다시 시작할 수 없게 된다 (CanStartSelfMonitoring 가 !IsSelfMonitoring 의존). 안전망.
         if (!value && IsSelfMonitoring)
             IsSelfMonitoring = false;
     }

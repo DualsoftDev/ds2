@@ -1,42 +1,60 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using Promaker.Dialogs;
 using Promaker.ViewModels;
+using PromakerShared = Promaker.Shared;
 
 namespace Promaker.Windows;
 
 /// <summary>
 /// PLC 연결 정보를 편집하는 다이얼로그. 태그 매핑은 AASX IO 설정에서 자동 import 되므로
 /// 여기서는 벤더와 연결 파라미터만 입력한다.
+///
+/// 벤더(LS XGI / LS XGK / Mitsubishi) 마다 직전 입력값을 메모리에 보관 → 라디오를 토글해도
+/// 그 벤더의 양식이 그대로 복원된다. Apply 시 VM 의 VendorProfiles 와 활성 플랫 필드 모두 갱신.
 /// </summary>
 public partial class PlcSettingsDialog : Window
 {
     private readonly PlcSettings _vm;
+
+    /// <summary>현재 폼에 로드된 벤더 — 다음 토글에서 어떤 키로 스냅샷할지 추적.</summary>
+    private PlcVendorChoice _loadedVendor;
+
+    /// <summary>다이얼로그 수명 동안 벤더 토글로 옮겨 다니는 작업본. Apply 에서만 VM 으로 commit.</summary>
+    private readonly Dictionary<string, PromakerShared.PlcVendorProfile> _workingProfiles;
 
     public PlcSettingsDialog(PlcSettings settings, int? autoImportedTagCount = null)
     {
         _vm = settings;
         InitializeComponent();
 
-        // VM → UI 초기 로드
-        switch (_vm.Vendor)
+        // VM 의 벤더 프로파일을 복사 — Cancel 시 영향 없도록 작업본을 따로 관리.
+        _workingProfiles = new Dictionary<string, PromakerShared.PlcVendorProfile>(
+            System.StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in _vm.VendorProfiles)
+            _workingProfiles[kv.Key] = kv.Value.Clone();
+        // 세 벤더 모두 키 존재 보장 (혹시 VM 에 누락된 게 있으면 기본값 채움).
+        foreach (PlcVendorChoice v in System.Enum.GetValues(typeof(PlcVendorChoice)))
+        {
+            var key = v.ToString();
+            if (!_workingProfiles.ContainsKey(key))
+                _workingProfiles[key] = PromakerShared.PlcVendorProfile.Defaults(
+                    (PromakerShared.PlcVendorChoice)v);
+        }
+        // 활성 벤더 프로파일은 VM 의 현재 플랫 값으로 최신화 — 다이얼로그 진입 직전 변경분 반영.
+        _workingProfiles[_vm.Vendor.ToString()] = _vm.CaptureActiveProfile();
+
+        // 초기 라디오 + 폼 로드 — _loadedVendor 가 곧 폼이 가리키는 벤더.
+        _loadedVendor = _vm.Vendor;
+        switch (_loadedVendor)
         {
             case PlcVendorChoice.LsXgi: RbLsXgi.IsChecked = true; break;
             case PlcVendorChoice.LsXgk: RbLsXgk.IsChecked = true; break;
             case PlcVendorChoice.Mitsubishi: RbMx.IsChecked = true; break;
         }
-        NameBox.Text = _vm.Name;
-        IpBox.Text = _vm.IpAddress;
-        PortBox.Text = _vm.Port.ToString(CultureInfo.InvariantCulture);
-        TimeoutBox.Text = _vm.TimeoutMs.ToString(CultureInfo.InvariantCulture);
-        ScanBox.Text = _vm.ScanIntervalMs.ToString(CultureInfo.InvariantCulture);
-        LocalEthernetBox.IsChecked = _vm.LocalEthernet;
-        NetworkNumberBox.Text = _vm.NetworkNumber.ToString(CultureInfo.InvariantCulture);
-        StationNumberBox.Text = _vm.StationNumber.ToString(CultureInfo.InvariantCulture);
-        // MX 전송 방식 — UDP 가 true 면 UDP, 아니면 TCP (기본).
-        if (_vm.IsUdp) RbTransportUdp.IsChecked = true;
-        else RbTransportTcp.IsChecked = true;
+        LoadProfileToForm(_workingProfiles[_loadedVendor.ToString()]);
 
         TagSummaryText.Text = autoImportedTagCount switch
         {
@@ -57,15 +75,26 @@ public partial class PlcSettingsDialog : Window
     private void VendorRadio_Checked(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return;
-        UpdateVendorSpecificPanels();
 
-        // 사용자가 명시적으로 벤더를 바꿨을 때 기본 포트도 반영 — 단, 사용자가 직접 입력한 값이 기본값
-        // (2004 / 5007) 인 경우에만 자동 갱신해 의도치 않은 덮어쓰기 방지.
-        if (int.TryParse(PortBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p)
-            && (p == 2004 || p == 5007))
+        var newVendor =
+            RbMx.IsChecked == true ? PlcVendorChoice.Mitsubishi
+          : RbLsXgk.IsChecked == true ? PlcVendorChoice.LsXgk
+          : PlcVendorChoice.LsXgi;
+        if (newVendor == _loadedVendor)
         {
-            PortBox.Text = (RbMx.IsChecked == true ? 5007 : 2004).ToString(CultureInfo.InvariantCulture);
+            UpdateVendorSpecificPanels();
+            return;
         }
+
+        // 1) 현재 폼 (편집 중 값) 을 떠나는 벤더 프로파일로 스냅샷 — 토글 중에는 검증 없이 보관.
+        _workingProfiles[_loadedVendor.ToString()] =
+            CaptureFormLenient(_workingProfiles[_loadedVendor.ToString()]);
+
+        // 2) 새 벤더 프로파일을 폼에 로드.
+        _loadedVendor = newVendor;
+        LoadProfileToForm(_workingProfiles[_loadedVendor.ToString()]);
+
+        UpdateVendorSpecificPanels();
     }
 
     private void UpdateVendorSpecificPanels()
@@ -74,6 +103,40 @@ public partial class PlcSettingsDialog : Window
         LsOnlyPanel.Visibility = isMx ? Visibility.Collapsed : Visibility.Visible;
         MxOnlyPanel.Visibility = isMx ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>프로파일 값을 폼 컨트롤에 채워 넣는다.</summary>
+    private void LoadProfileToForm(PromakerShared.PlcVendorProfile p)
+    {
+        NameBox.Text = p.Name;
+        IpBox.Text = p.IpAddress;
+        PortBox.Text = p.Port.ToString(CultureInfo.InvariantCulture);
+        TimeoutBox.Text = p.TimeoutMs.ToString(CultureInfo.InvariantCulture);
+        ScanBox.Text = p.ScanIntervalMs.ToString(CultureInfo.InvariantCulture);
+        LocalEthernetBox.IsChecked = p.LocalEthernet;
+        NetworkNumberBox.Text = p.NetworkNumber.ToString(CultureInfo.InvariantCulture);
+        StationNumberBox.Text = p.StationNumber.ToString(CultureInfo.InvariantCulture);
+        if (p.IsUdp) RbTransportUdp.IsChecked = true;
+        else RbTransportTcp.IsChecked = true;
+    }
+
+    /// <summary>벤더 토글 중 부드러운 스냅샷 — 파싱 실패 필드는 기존 프로파일 값을 유지.</summary>
+    private PromakerShared.PlcVendorProfile CaptureFormLenient(PromakerShared.PlcVendorProfile fallback) => new()
+    {
+        Name = NameBox.Text?.Trim() ?? fallback.Name,
+        IpAddress = IpBox.Text?.Trim() ?? fallback.IpAddress,
+        Port = TryParseInt(PortBox.Text, fallback.Port),
+        TimeoutMs = TryParseInt(TimeoutBox.Text, fallback.TimeoutMs),
+        ScanIntervalMs = TryParseInt(ScanBox.Text, fallback.ScanIntervalMs),
+        LocalEthernet = LocalEthernetBox.IsChecked == true,
+        NetworkNumber = TryParseByte(NetworkNumberBox.Text, fallback.NetworkNumber),
+        StationNumber = TryParseByte(StationNumberBox.Text, fallback.StationNumber),
+        IsUdp = RbTransportUdp.IsChecked == true,
+    };
+
+    private static int TryParseInt(string? s, int fallback) =>
+        int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+    private static byte TryParseByte(string? s, byte fallback) =>
+        byte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
@@ -117,20 +180,28 @@ public partial class PlcSettingsDialog : Window
         if (!byte.TryParse(StationNumberBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stn))
             stn = 0xFF;
 
-        // VM 으로 반영 — 태그는 PLAY 시점 IO 매핑에서 자동 import 되므로 여기서 손대지 않음.
-        _vm.Vendor =
-            RbMx.IsChecked == true ? PlcVendorChoice.Mitsubishi
-          : RbLsXgk.IsChecked == true ? PlcVendorChoice.LsXgk
-          : PlcVendorChoice.LsXgi;
-        _vm.Name = NameBox.Text?.Trim() ?? "PLC#1";
-        _vm.IpAddress = IpBox.Text.Trim();
-        _vm.Port = port;
-        _vm.TimeoutMs = timeout;
-        _vm.ScanIntervalMs = scan;
-        _vm.LocalEthernet = LocalEthernetBox.IsChecked == true;
-        _vm.NetworkNumber = net;
-        _vm.StationNumber = stn;
-        _vm.IsUdp = RbTransportUdp.IsChecked == true;
+        // 활성 벤더 프로파일 = 검증 통과한 현재 폼 값.
+        var activeVendor = _loadedVendor;
+        var activeProfile = new PromakerShared.PlcVendorProfile
+        {
+            Name = NameBox.Text?.Trim() ?? "PLC#1",
+            IpAddress = IpBox.Text.Trim(),
+            Port = port,
+            TimeoutMs = timeout,
+            ScanIntervalMs = scan,
+            LocalEthernet = LocalEthernetBox.IsChecked == true,
+            NetworkNumber = net,
+            StationNumber = stn,
+            IsUdp = RbTransportUdp.IsChecked == true,
+        };
+        _workingProfiles[activeVendor.ToString()] = activeProfile;
+
+        // VM commit — VendorProfiles 교체 → Vendor 변경 → 플랫 필드 활성 프로파일로 적용.
+        _vm.VendorProfiles.Clear();
+        foreach (var kv in _workingProfiles)
+            _vm.VendorProfiles[kv.Key] = kv.Value.Clone();
+        _vm.Vendor = activeVendor;
+        _vm.ApplyProfile(activeProfile);
 
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();

@@ -131,49 +131,76 @@
                             </TextBlock>
                         </StackPanel>
                     </Button>
-                    <!-- 자체 모니터링 — Agent 위임 모드 일 때 Pause 자리에 노출.
+                    <!-- 자체 모니터링 토글 — Agent 위임 모드일 때 Pause 자리에 노출. Play↔Stop 단일 버튼.
                          시작: Promaker 본체가 5051 직접 호스팅 (Agent 우회).
-                         정지: 시뮬 정지 (StopSimulation) — Hub.Stop 이 SelfHostMonitoring=false 복귀.
+                         정지: 자체 모니터링만 정지 — Hub.Stop 이 SelfMonitoringClientOnly=false 복귀, Agent 는 계속 동작.
                          일반 Simulation/Control 모드에서는 숨김 — Pause 버튼이 같은 자리에 정상 노출.
+                         IsSelfMonitoring 가 토글되어도 버튼은 같은 자리에 남고 아이콘/라벨/Command 만 전환된다.
                     -->
-                    <Button x:Name="SelfMonitoringStartButton"
-                            Command="{Binding Simulation.StartSelfMonitoringCommand}"
-                            ToolTip="Agent 의 5051 Hub 에 Promaker 가 client 로만 접속 (active.flag 미기록). Agent 가 떠 있어야 데이터가 들어옵니다."
-                            Visibility="{Binding Simulation.IsSelfMonitoringStartVisible, Converter={StaticResource BoolToVis}}"
+                    <Button x:Name="SelfMonitoringToggleButton"
+                            Visibility="{Binding Simulation.IsAgentDelegationMode, Converter={StaticResource BoolToVis}}"
                             IsEnabled="{Binding HasProject}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                                <Setter Property="Command" Value="{Binding Simulation.StartSelfMonitoringCommand}"/>
+                                <Setter Property="ToolTip" Value="Agent 의 5051 Hub 에 Promaker 가 client 로만 접속 (active.flag 미기록). Agent 가 떠 있어야 데이터가 들어옵니다."/>
                                 <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
+                                        <Setter Property="Command" Value="{Binding Simulation.StopSelfMonitoringCommand}"/>
+                                        <Setter Property="ToolTip" Value="자체 모니터링 정지 — 5051 client 연결만 끊습니다 (Agent 는 계속 동작)."/>
+                                        <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </Button.Style>
                         <StackPanel Orientation="Vertical">
-                            <iconPacks:PackIconMaterial Kind="Play"
-                                                        Width="18" Height="18"
-                                                        HorizontalAlignment="Center"
-                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="시작"
-                                       Style="{StaticResource RibbonIconLabel}"
-                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="SelfMonitoringStopButton"
-                            Command="{Binding Simulation.StopSelfMonitoringCommand}"
-                            ToolTip="자체 모니터링 정지 — 5051 client 연결만 끊습니다 (Agent 는 계속 동작)."
-                            Visibility="{Binding Simulation.IsSelfMonitoringStopVisible, Converter={StaticResource BoolToVis}}"
-                            IsEnabled="{Binding HasProject}">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
-                                <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
-                            </Style>
-                        </Button.Style>
-                        <StackPanel Orientation="Vertical">
-                            <iconPacks:PackIconMaterial Kind="Stop"
-                                                        Width="18" Height="18"
-                                                        HorizontalAlignment="Center"
-                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="자체 정지"
-                                       Style="{StaticResource RibbonIconLabel}"
-                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <Grid Width="18" Height="18">
+                                <iconPacks:PackIconMaterial Kind="Play"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                                <iconPacks:PackIconMaterial Kind="Stop"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                            </Grid>
+                            <TextBlock Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
+                                        <Setter Property="Text" Value="시작"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
+                                                <Setter Property="Text" Value="정지"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Button>
                     <Button x:Name="SimulationPauseStepButton"
