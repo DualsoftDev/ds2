@@ -29,8 +29,13 @@
 [CmdletBinding()]
 param(
   [string]$PfxPath = "C:\ProgramData\Dualsoft\LightHouseService\service.pfx",
-  [string]$DnsName = "localhost",
-  [int]$ValidityYears = 2
+  # default SAN — `localhost` 와 `127.0.0.1` 모두 포함. .NET HttpClient 의 cert validation 은 SAN dNSName /
+  # iPAddress 둘 다 매칭 필요 — IP literal 로 접속 (`https://127.0.0.1:8443`) 시 dNSName 만 박제된 cert 는 fail.
+  # New-SelfSignedCertificate 가 `-DnsName "127.0.0.1"` 인자에서 IP 패턴을 자동 감지해 SAN.iPAddress 박제.
+  [string[]]$DnsName = @('localhost','127.0.0.1'),
+  [int]$ValidityYears = 2,
+  # Promaker UI 자동 path: 평문 password 인자 — 비면 대화형 prompt.
+  [string]$CertPasswordPlain
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,9 +51,13 @@ if (Test-Path $PfxPath) {
     return
 }
 
-$pwd = Read-Host -AsSecureString -Prompt "PFX password (will be DPAPI-encrypted by install-service.ps1)"
-if ($pwd.Length -eq 0) {
-    throw "PFX password 빈 값 금지."
+if (-not [string]::IsNullOrEmpty($CertPasswordPlain)) {
+    $pwd = ConvertTo-SecureString -String $CertPasswordPlain -AsPlainText -Force
+} else {
+    $pwd = Read-Host -AsSecureString -Prompt "PFX password (will be DPAPI-encrypted by install-service.ps1)"
+    if ($pwd.Length -eq 0) {
+        throw "PFX password 빈 값 금지."
+    }
 }
 
 $cert = New-SelfSignedCertificate `
@@ -66,8 +75,21 @@ Export-PfxCertificate `
 Write-Host ""
 Write-Host "  -> PFX created : $PfxPath"
 Write-Host "  -> Thumbprint  : $($cert.Thumbprint)"
-Write-Host "  -> DnsName     : $DnsName"
+Write-Host "  -> DnsName/SAN : $($DnsName -join ', ')"
 Write-Host "  -> Expires     : $((Get-Date).AddYears($ValidityYears).ToString('yyyy-MM-dd'))"
+
+# self-signed cert 를 LocalMachine\Root 에 자동 import — .NET HttpClient 의 cert validation 통과 정합.
+# 미import 시 client 측 AuthenticationException ("원격 인증서가 잘못되었습니다") 으로 SSL handshake fail.
+# 같은 thumbprint 가 이미 Root 에 있으면 Import-Certificate 가 no-op (정합).
+$tmpCer = Join-Path $env:TEMP ("promaker-devcert-" + $cert.Thumbprint + ".cer")
+try {
+    Export-Certificate -Cert ("Cert:\LocalMachine\My\" + $cert.Thumbprint) -FilePath $tmpCer | Out-Null
+    Import-Certificate -FilePath $tmpCer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+    Write-Host "  -> Trusted Root import OK — LocalMachine\\Root 에 등록 완료 ($($cert.Thumbprint))"
+} finally {
+    if (Test-Path $tmpCer) { Remove-Item $tmpCer -Force }
+}
+
 Write-Host ""
 Write-Host "  Next step: install-service.ps1 (sc.exe register + config.json + DPAPI encrypt)"
 Write-Host ""

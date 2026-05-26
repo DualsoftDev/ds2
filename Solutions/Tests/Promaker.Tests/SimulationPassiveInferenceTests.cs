@@ -659,6 +659,30 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void VirtualPlant_hub_session_undefined_output_false_is_inactive()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        var effects = session.HandleHubTag(fixture.OutAddress, "false", "control");
+
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Going);
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "false"
+            && effect.DelayMs == 0);
+    }
+
+    [Fact]
     public void VirtualPlant_runtime_mode_session_replays_its_own_hub_source_for_synthetic_inputs()
     {
         var fixture = BuildSingleCallFixture();

@@ -222,7 +222,11 @@ public partial class SimulationPanelState
             InitTokenSources();
             InitSceneEventHandler();
 
+            // Passive 모드(VirtualPlant/Monitoring): Homing 없이 Start만, H 상태로 대기
+            var isPassive = _runtimeSession?.StartsWithHomingPhase == false;
+
             _simStartTime = DateTime.Now;
+            ResetPassiveGanttClockAnchor();
             Report.Clear();
             _suppressedWarnings.Clear();
             _stepPrimingDone = false;
@@ -235,8 +239,6 @@ public partial class SimulationPanelState
             if (!hasPreStartWarnings)
                 _warningGuids.Clear();
 
-            // Passive 모드(VirtualPlant/Monitoring): Homing 없이 Start만, H 상태로 대기
-            var isPassive = _runtimeSession?.StartsWithHomingPhase == false;
             var hasHoming = false;
 
             // Control 모드: Hub Tag 캐시에서 실제 IO 값 조회 → Device Work 초기 상태 싱크

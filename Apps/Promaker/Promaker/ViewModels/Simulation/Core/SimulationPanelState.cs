@@ -40,6 +40,9 @@ public partial class SimulationPanelState : ObservableObject
     private ISimulationEngine? _simEngine;
     internal ISimulationEngine? SimEngine => _simEngine;
     private DateTime _simStartTime = DateTime.Now;
+    private TimeSpan? _passiveGanttClockAnchor;
+    private DateTime _passiveGanttBaseWall = DateTime.Now;
+    private TimeSpan _passiveGanttBaseElapsed = TimeSpan.Zero;
     private readonly StateCache _stateCache = new();
 
     /// <summary>시뮬 결과 누적/박제/내보내기 collaborator. XAML 바인딩 path 는 Report.Xxx 로 노출.</summary>
@@ -412,13 +415,16 @@ public partial class SimulationPanelState : ObservableObject
     /// <summary>
     /// Gantt 빨간선의 시간 source 를 현재 모드/시뮬 상태에 맞게 갱신.
     /// Simulation 모드 + 시뮬 실행 중 → sim clock 기반 보간 provider 주입.
-    /// 그 외 (Control/VP/Monitoring 또는 시뮬 미실행) → null (wall clock default).
+    /// VP/Monitoring → 첫 외부 신호 전에는 start 에 고정, 이후 engine clock-anchor 기준 provider 주입.
+    /// 그 외 (Control 또는 시뮬 미실행) → null (wall clock default).
     /// 노드 막대 timestamp 도 동일 source 라 빨간선과 일치 — 배속 시 막대가 빨간선 추월하던 mismatch 해결.
     /// </summary>
     private void RefreshGanttTimeSource()
     {
         if (IsSimulating && SelectedRuntimeMode == RuntimeMode.Simulation)
             GanttChart.NowOverride = _clockInterpolator.EstimateNow;
+        else if (IsSimulating && UsesSignalDrivenGanttTimeline(SelectedRuntimeMode))
+            GanttChart.NowOverride = ResolveSignalDrivenGanttNow;
         else
             GanttChart.NowOverride = null;
     }

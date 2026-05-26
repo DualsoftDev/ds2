@@ -301,24 +301,7 @@ public partial class ApplicationSettingsDialog : Window
         // Cancel 시 _llmConfig 무변경 (DataGrid 의 add/remove/edit 는 working copy 만 mutate).
         _lhServicesWorking.Clear();
         foreach (var src in _llmConfig.LightHouseServices)
-        {
-            _lhServicesWorking.Add(new LightHouseServiceConfig
-            {
-                ServiceId = src.ServiceId,
-                DisplayName = src.DisplayName,
-                BaseUrl = src.BaseUrl,
-                ApiKeyEncrypted = src.ApiKeyEncrypted,
-                Active = src.Active,
-                // s6-r38 P4-C.2 — Embedding nested 박제. null 보존 (= 미설정 = BM25-only fallback).
-                Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
-                {
-                    Enabled = src.Embedding.Enabled,
-                    BaseUrl = src.Embedding.BaseUrl,
-                    Model = src.Embedding.Model,
-                    Dimension = src.Embedding.Dimension,
-                },
-            });
-        }
+            _lhServicesWorking.Add(CloneServiceConfig(src));
         _pskChanges.Clear();
         LhServicesGrid.ItemsSource = _lhServicesWorking;
 
@@ -486,6 +469,75 @@ public partial class ApplicationSettingsDialog : Window
     }
 
     // ─── LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid handlers ─────────
+
+    /// <summary>**Phase: "로컬 LightHouse 서비스 활성화"** — installer 가 배치한 enable-ai.ps1 을 UAC elevated 로 호출.
+    /// 4단계 (Ollama / cert / install-service + PSK 생성 / firewall + service start) 완료 후 PSK 평문을 capture 하여
+    /// LlmConfig.LightHouseServices 의 Local entry 에 DPAPI 박제. UI 가 자동 갱신.</summary>
+    private async void LhEnableLocal_Click(object sender, RoutedEventArgs e)
+    {
+        LhEnableLocalButton.IsEnabled = false;
+        LhEnableLocalStatus.Text =
+            "UAC 프롬프트 응답 → PowerShell 콘솔에서 진행 표시 (Ollama 첫 설치 시 수 분 소요 가능).";
+        try
+        {
+            var installer = new LightHouseLocalInstaller(_llmConfig);
+            var result = await installer.EnableAsync().ConfigureAwait(true);
+
+            // 사용자가 dirty save 를 누르지 않아도 PSK 는 이미 disk 박제됨 (installer 내부 Save 호출).
+            // dirty 플래그 켜서 dialog 닫을 때 reload 정합 (UI 갱신 위해).
+            LlmConfigChanged = true;
+            ReloadLhServicesWorking();
+            LhServicesGrid.Items.Refresh();
+
+            // healthcheck 결과 차별 표시 — 자가검열 m2 정합.
+            var healthSuffix = result.Healthy switch
+            {
+                true  => "  /healthz 200 OK",
+                false => "  /healthz 응답 실패 — sc query / log 확인 권장",
+                null  => "  /healthz 결과 불확실 — log 확인",
+            };
+            LhEnableLocalStatus.Text =
+                $"활성화 완료 — ServiceId={result.ServiceId[..8]}…{healthSuffix}  log: {result.LogPath}";
+        }
+        catch (Exception ex)
+        {
+            LhEnableLocalStatus.Text = $"실패: {ex.Message}";
+            DialogHelpers.Warn($"로컬 LightHouse 활성화 실패:{Environment.NewLine}{ex.Message}");
+        }
+        finally
+        {
+            LhEnableLocalButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>installer 가 LlmConfig 를 갱신한 직후 working copy (DataGrid binding) 를 다시 채운다.
+    /// 자가검열 M3 정합 — deep clone 필수 (working 의 mutate 가 _llmConfig 원본 영향 차단, dirty compare 정합).</summary>
+    private void ReloadLhServicesWorking()
+    {
+        _lhServicesWorking.Clear();
+        foreach (var src in _llmConfig.LightHouseServices)
+            _lhServicesWorking.Add(CloneServiceConfig(src));
+    }
+
+    /// <summary>init reload (line ~302) 와 ReloadLhServicesWorking 공통 helper — deep clone.
+    /// ClientCertThumbprint 등 추후 필드 추가 시 본 메서드만 갱신 (DRY).</summary>
+    private static LightHouseServiceConfig CloneServiceConfig(LightHouseServiceConfig src) => new()
+    {
+        ServiceId = src.ServiceId,
+        DisplayName = src.DisplayName,
+        BaseUrl = src.BaseUrl,
+        ApiKeyEncrypted = src.ApiKeyEncrypted,
+        Active = src.Active,
+        // s6-r38 P4-C.2 — Embedding nested 박제. null 보존 (= 미설정 = BM25-only fallback).
+        Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
+        {
+            Enabled = src.Embedding.Enabled,
+            BaseUrl = src.Embedding.BaseUrl,
+            Model = src.Embedding.Model,
+            Dimension = src.Embedding.Dimension,
+        },
+    };
+
 
     /// <summary>**D-S7-3c (s6-r31)** — DataGrid 의 "+ Add Service" 버튼. 새 LightHouseServiceConfig (ServiceId 자동 발급, Active=true, DisplayName "새 Service") 를 working copy 에 추가.
     /// 추천 default: 로컬 LightHouseService 의 listen URL (`Solutions/Tools/Ds2.LightHouseService/scripts/config.json.template` listenUrl = `https://127.0.0.1:8443`) — 단,
