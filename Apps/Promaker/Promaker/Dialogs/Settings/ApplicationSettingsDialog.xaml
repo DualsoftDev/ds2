@@ -4,8 +4,9 @@
         xmlns:b="clr-namespace:Promaker.Behaviors"
         xmlns:dlg="clr-namespace:Promaker.Dialogs"
         Title="설정"
-        Width="500" Height="600"
-        ResizeMode="NoResize"
+        Width="900" Height="720"
+        MinWidth="560" MinHeight="520"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
