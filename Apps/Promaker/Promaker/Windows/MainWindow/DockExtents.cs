@@ -104,6 +104,11 @@ public partial class MainWindow
 
         SetCurrentAnchorPaneExtent(explorerAnchor, ExplorerDefaultW, ExplorerDefaultW);
         SetCurrentAnchorPaneExtent(simulationAnchor, RightDefaultW, SimulationDefaultH);
+        // logAnchor 는 기본적으로 simulationPane 의 두 번째 tab — 같은 pane 의 DockHeight 를 SimulationDefaultH 로 set.
+        // 사용자가 split 으로 별도 pane 에 분리한 경우 (예: simulationPane 옆 horizontal 분할) 그 새 pane 의 width/height
+        // 도 default 로 reset 된다 — 다른 4종 anchor 와 동일한 정책 (Q1 빈 column 자동 collapse 복원). 사용자 size 유지가
+        // 필요해지면 별도 정책 검토 필요.
+        SetCurrentAnchorPaneExtent(logAnchor, RightDefaultW, SimulationDefaultH);
         SetCurrentAnchorPaneExtent(propertyAnchor, RightDefaultW, StarLength);
         SetCurrentAnchorPaneExtent(historyAnchor, RightDefaultW, HistoryDefaultH);
         SetCurrentAnchorPaneExtent(llmChatAnchor, RightDefaultW, StarLength);

@@ -4,7 +4,7 @@ using System.Linq;
 using Ds2.LlmAgent;
 using Microsoft.Extensions.AI;
 
-namespace Promaker.LlmAgent.Api;
+namespace Llm.Shared.Api;
 
 // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md §C1 / §H1 / §5.2
 //

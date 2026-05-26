@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using Ds2.LlmAgent;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared;
 
 /// <summary>
 /// F# <see cref="IUiDispatcher"/> 의 WPF Dispatcher 어댑터.

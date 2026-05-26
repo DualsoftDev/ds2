@@ -2,7 +2,10 @@ using System;
 using System.Threading.Tasks;
 using Ds2.LlmAgent;
 using Promaker.LlmAgent;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Promaker.Services;
 
 namespace Promaker.ViewModels;
@@ -23,7 +26,7 @@ public partial class LlmChatViewModel
             mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig!.Path),
             permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
             model: Microsoft.FSharp.Core.FSharpOption<string>.None,
-            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c),
+            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c(PromakerProfile.Instance)),
             strictMcpConfig: true,
             allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
             channelCapacity: 256,
@@ -57,7 +60,7 @@ public partial class LlmChatViewModel
                 System.IO.Path.GetTempPath(), "Promaker", $"codex-workspace-{Guid.NewGuid():N}");
             System.IO.Directory.CreateDirectory(_codexWorkspacePath);
             _codexInstructionsPath = System.IO.Path.Combine(_codexWorkspacePath, "instructions.md");
-            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c, System.Text.Encoding.UTF8);
+            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c(PromakerProfile.Instance), System.Text.Encoding.UTF8);
             Log.Info($"Codex 워크스페이스 격리 디렉토리 생성 — {_codexWorkspacePath}");
         }
 
@@ -100,7 +103,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateAnthropicAsync(
             apiKey: apiKey,
             model: _config.AnthropicModel,
-            systemPrompt: SystemPromptText.Phase1c,
+            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
@@ -116,7 +119,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateOpenAiAsync(
             apiKey: apiKey,
             model: _config.OpenAiModel,
-            systemPrompt: SystemPromptText.Phase1c,
+            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
@@ -125,7 +128,7 @@ public partial class LlmChatViewModel
         await ApiProviderFactory.CreateOllamaAsync(
             baseUrl: _config.OllamaBaseUrl,
             model: _config.OllamaModel,
-            systemPrompt: SystemPromptText.Phase1c,
+            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
 
@@ -143,7 +146,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateGroqAsync(
             apiKey: apiKey,
             model: model,
-            systemPrompt: SystemPromptText.Phase1c,
+            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }

@@ -121,6 +121,11 @@ dist-installer: iscc
 	@echo "  -> $(INSTALLER_EXE)"
 	@echo "==========================================================="
 
+# installer — framework-dependent 모드로 dist-installer 재귀 호출 (default sc 와 분리).
+.PHONY: installer
+installer:
+	@$(MAKE) dist-installer MODE=fd
+
 publish:
 	@echo "=== dotnet restore ==="
 	dotnet restore "$(PROJECT_FILE)" --verbosity quiet

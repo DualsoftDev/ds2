@@ -1,10 +1,9 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Promaker.Knowledge;
+using Llm.Shared.Abstractions;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared;
 
 /// <summary>
 /// **PR-G (todo-lighthouse-index-summary.md §5.2)** — KB profile dict → system prompt digest text.
@@ -22,14 +21,17 @@ namespace Promaker.LlmAgent;
 ///     keywords: prompt, cache, MCP, ApiChatProvider, ...
 /// </code>
 /// <para/>
-/// 빈 dict / 모든 service 빈 list → 빈 string (digest section 자체 생략, ApiChatProvider 가 system 박제 시 1 TextContent 만).
+/// 빈 dict / 모든 service 빈 list → 빈 string (digest section 자체 생략).
 /// keyword 빈 collection 은 title 만 노출 (description 도 함께 노출 시).
+/// <para/>
+/// **PR-S1 박제**: 이전 <c>Promaker.Knowledge.CollectionInfo</c> 의존 → <see cref="KbCollectionDescriptor"/> 추출.
+/// caller (Promaker 등) 가 자신의 wire POCO → descriptor 1줄 매핑.
 /// </summary>
-internal static class KbDigestBuilder
+public static class KbDigestBuilder
 {
     public const string SectionHeader = "# ─── Active Knowledge Bases ───";
 
-    public static string Build(IReadOnlyDictionary<string, IReadOnlyList<CollectionInfo>> profiles)
+    public static string Build(IReadOnlyDictionary<string, IReadOnlyList<KbCollectionDescriptor>> profiles)
     {
         if (profiles is null || profiles.Count == 0) return "";
 
@@ -39,17 +41,11 @@ internal static class KbDigestBuilder
         sb.AppendLine();
         sb.AppendLine("다음 영역에 해당하는 질문이면 `attachment_search(query)` MCP tool 을 호출하세요.");
         sb.AppendLine("전체 본문 필요 시 `attachment_fulltext(fileId)` 호출 (search 만으로 부족할 때).");
-        // **PR-H3 (todo §11)** — γ hybrid: keyword digest 만으로 file 인지 부족 시 collection 의 doc-level
-        // overview 를 on-demand fetch. `attachment_search` / `attachment_fulltext` 호출 전 file narrowing 정보원.
         sb.AppendLine("collection 의 doc 목록 + 1줄 요약 필요 시 `attachment_summary(collectionId)` 호출.");
         sb.AppendLine();
 
-        // **review m-3 fix** — service id 정렬 (Ordinal) 으로 Anthropic prompt cache prefix-match 정합.
-        // Dictionary<TKey, TValue> 의 iteration order 가 .NET 에서 통상 삽입 순서를 유지하나 *문서상 미보장* —
-        // KB digest 의 텍스트 결정성을 보장해 동일 KB 셋에서 같은 cache key 생성.
-        foreach (var kv in profiles.OrderBy(p => p.Key, StringComparer.Ordinal))
+        foreach (var kv in profiles.OrderBy(p => p.Key, System.StringComparer.Ordinal))
         {
-            // **review m-8 fix** — value null 방어 (IReadOnlyDictionary contract 가 value not-null 미보장).
             if (kv.Value is null) continue;
             foreach (var coll in kv.Value)
             {

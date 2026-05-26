@@ -5,8 +5,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
-using Promaker.LlmAgent.Api;
-
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 namespace Promaker.ViewModels;
 
 /// <summary>
@@ -226,7 +228,12 @@ public partial class LlmChatViewModel
     /// </summary>
     private void ApplyPendingKbDigest()
     {
-        var snapshot = new Dictionary<string, IReadOnlyList<CollectionInfo>>(_kbProfileCache);
+        // PR-S1 — KbDigestBuilder 가 wire POCO (Promaker.Knowledge.CollectionInfo) 무지화. caller 1줄 매핑.
+        var snapshot = _kbProfileCache.ToDictionary(
+            kv => kv.Key,
+            kv => (IReadOnlyList<KbCollectionDescriptor>)kv.Value
+                .Select(c => new KbCollectionDescriptor { DisplayName = c.DisplayName, Description = c.Description, Keywords = c.Keywords })
+                .ToArray());
         var digest = KbDigestBuilder.Build(snapshot);
         if (_provider is ApiChatProvider api)
             api.SetPendingSystemPrompt(digest);

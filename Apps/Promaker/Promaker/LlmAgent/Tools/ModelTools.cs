@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Ds2.Core.Store;
 using Ds2.LlmAgent;
 using Ds2.LlmAgent.Internal;
+using Llm.Shared;
 using log4net;
 using ModelContextProtocol.Server;
 

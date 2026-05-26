@@ -2,7 +2,9 @@ using System;
 using System.Threading.Tasks;
 using Ds2.Core.Store;
 using Ds2.LlmAgent;
-using Promaker.LlmAgent;
+using Llm.Shared;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Xunit;
 
 namespace Promaker.Tests;

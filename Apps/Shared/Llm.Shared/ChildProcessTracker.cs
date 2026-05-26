@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using log4net;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared;
 
 /// <summary>
 /// 1d-5 — Promaker 가 종료 / crash 시 Claude CLI 자식 process cascade kill.

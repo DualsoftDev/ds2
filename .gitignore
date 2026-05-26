@@ -80,6 +80,12 @@ scripts/scratch/
 *.cache
 *~
 
+# WPF SDK MarkupCompilePass1 임시 csproj — Microsoft.NET.Sdk.WindowsDesktop 가
+# XAML 2nd-pass compile 위해 매 빌드마다 새 GUID suffix 로 생성 (정상 종료 시 cleanup,
+# 비정상 종료 시 잔재). source 가 아님. tracked 잔재는 `git rm --cached` 로 정리.
+*_wpftmp.csproj
+*_wpftmp.*
+
 # Path-mangled temp files at repo root (U+F03A 등 ':' 대체 문자가 들어간 윈도 SFM 파일명 사고)
 /C*Users*
 

@@ -16,7 +16,10 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
-using Promaker.LlmAgent.Api;
+using Llm.Shared;
+using Llm.Shared.Abstractions;
+using Llm.Shared.Api;
+using Llm.Shared.Mcp;
 using Promaker.Presentation;
 using Promaker.Services;
 
@@ -484,18 +487,33 @@ public partial class ApplicationSettingsDialog : Window
 
     // ─── LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid handlers ─────────
 
-    /// <summary>**D-S7-3c (s6-r31)** — DataGrid 의 "+ Add Service" 버튼. 새 LightHouseServiceConfig (ServiceId 자동 발급, Active=true, DisplayName "새 Service") 를 working copy 에 추가.</summary>
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid 의 "+ Add Service" 버튼. 새 LightHouseServiceConfig (ServiceId 자동 발급, Active=true, DisplayName "새 Service") 를 working copy 에 추가.
+    /// 추천 default: 로컬 LightHouseService 의 listen URL (`Solutions/Tools/Ds2.LightHouseService/scripts/config.json.template` listenUrl = `https://127.0.0.1:8443`) — 단,
+    /// 동일 host:port (localhost ↔ 127.0.0.1 정규화) 가 이미 working list 에 있으면 빈 `https://` 로 둔다 (중복 방지).</summary>
     private void LhAddService_Click(object sender, RoutedEventArgs e)
     {
+        const string defaultLocalUrl = "https://127.0.0.1:8443";
+        var hasLocal = _lhServicesWorking.Any(s => IsSameLocalEndpoint(s.BaseUrl, defaultLocalUrl));
         var svc = new LightHouseServiceConfig
         {
             ServiceId = Guid.NewGuid().ToString(),
-            DisplayName = "새 Service",
-            BaseUrl = "https://",
+            DisplayName = hasLocal ? "새 Service" : "Local LightHouse",
+            BaseUrl = hasLocal ? "https://" : defaultLocalUrl,
             Active = true,
         };
         _lhServicesWorking.Add(svc);
         LhServicesGrid.Items.Refresh();
+    }
+
+    /// <summary>두 BaseUrl 이 같은 endpoint 인지 판정 — scheme/host(localhost↔127.0.0.1 정규화)/port 비교.</summary>
+    private static bool IsSameLocalEndpoint(string a, string b)
+    {
+        if (!Uri.TryCreate(a, UriKind.Absolute, out var ua)) return false;
+        if (!Uri.TryCreate(b, UriKind.Absolute, out var ub)) return false;
+        static string Norm(string h) => h.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? "127.0.0.1" : h;
+        return string.Equals(ua.Scheme, ub.Scheme, StringComparison.OrdinalIgnoreCase)
+            && Norm(ua.Host) == Norm(ub.Host)
+            && ua.Port == ub.Port;
     }
 
     /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "제거" 버튼. Button.Tag = ServiceId. working entry 제거 + _pskChanges 정리.</summary>

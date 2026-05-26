@@ -85,9 +85,13 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
-    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고. -->
+    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고.
+         PR-S1: 옛 4.attachments / 5.knowledge-base / 9.environment 는 baseline 으로 분리 후 Llm.Shared/Prompts/baseline/
+         아래에서 1/2/3.*.md 로 rename. Promaker 잔류 overlay = 1.entities / 2.modeling / 3.tooling 의 modeling 도메인.
+         baseline → overlay 합성 순서는 todo §L5 / §L7 박제 (PromakerProfile.EmbeddedPromptsSources 의 list order SSOT). -->
     <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
     <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
+    <EmbeddedResource Remove="LlmAgent\Prompts\facts.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
@@ -135,5 +139,9 @@
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
     <!-- Promaker WPF + Promaker.Agent 공유 — PlcConnectionSettings POCO, SharedPaths, PlcGatewayConfigBuilder -->
     <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
+    <!-- PR-S1: Llm.Shared (LLM 인프라 공통 lib — McpHost / Api provider / PromptLoader / LlmTurnContext 등 16 파일).
+         HMI Designer 등 후속 App 도 본 lib 을 참조해 동일 인프라 공유. Promaker 측 잔류 = ModelTools / PromakerToolNames /
+         LlmConfig / LlmChatPanel + ViewModel / Behaviors / Presentation / Dialogs / Themes / Prompts overlay. -->
+    <ProjectReference Include="..\..\Shared\Llm.Shared\Llm.Shared.csproj" />
   </ItemGroup>
 </Project>

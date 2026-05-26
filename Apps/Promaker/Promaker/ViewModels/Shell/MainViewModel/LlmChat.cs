@@ -23,7 +23,15 @@ public partial class MainViewModel
         if (LlmChatVm == null)
         {
             // 첫 활성화 — consent 검사 후 lazy 생성. 거부 시 visibility 변경 없음.
-            if (!Promaker.LlmAgent.LlmConfig.EnsureGranted()) return;
+            if (!Promaker.LlmAgent.LlmConfig.EnsureGranted())
+            {
+                // 보기 메뉴 LLM Chat CheckBox 는 IsChecked={Binding IsLlmChatVisible, Mode=OneWay} + Command 패턴.
+                // OneWay 라 click 시 CheckBox 가 local-value 로 잠시 toggle 되는데, IsLlmChatVisible 이 안 바뀌면
+                // INPC 가 안 와 local-value 가 잘못 체크된 채로 남는다. 동일 값을 다시 raise 해 OneWay 가 source 값을
+                // 다시 read → CheckBox 정합 복원.
+                OnPropertyChanged(nameof(IsLlmChatVisible));
+                return;
+            }
             LlmChatVm = new LlmChatViewModel(_store);
         }
         IsLlmChatVisible = !IsLlmChatVisible;

@@ -3,7 +3,7 @@ using System.Text;
 using Ds2.Editor;
 using log4net;
 
-namespace Promaker.LlmAgent;
+namespace Llm.Shared;
 
 /// <summary>
 /// Editor 측 store 변경 (<see cref="EditorEvent"/>) 을 turn 사이 누적하여 다음 LLM turn 의 user
