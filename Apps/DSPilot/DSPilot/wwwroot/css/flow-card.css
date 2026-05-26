@@ -106,7 +106,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--fc-accent);
+    color: var(--color-text-primary);
     line-height: 1.2;
     flex: 1;
     min-width: 0;
@@ -185,19 +185,22 @@
 }
 
 .fc-chart-state {
-    font-size: clamp(0.4rem, 5cqmin, 0.7rem);
+    font-size: clamp(0.5rem, 6cqmin, 0.85rem);
     font-weight: 600;
     color: var(--fc-state);
     line-height: 1;
     white-space: nowrap;
 }
 
-/* 도넛 SVG 요소 색상 */
+/* 도넛 SVG 요소 색상
+   - 채워진 호(arc)   = MT(가동) → primary
+   - 배경 링(bg)      = WT(대기) → secondary
+   - 데이터 없음 시는 .fc-cq-empty 가 회색으로 오버라이드 */
 .fc-donut-bg {
-    stroke: color-mix(in srgb, var(--fc-accent) 18%, transparent);
+    stroke: var(--color-secondary);
 }
 .fc-donut-arc {
-    stroke: var(--fc-accent);
+    stroke: var(--color-primary);
     transition: stroke-dasharray 0.3s ease;
 }
 
@@ -215,7 +218,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: clamp(0.55rem, 7cqmin, 0.9rem);
+    font-size: clamp(0.65rem, 8cqmin, 1.05rem);
     font-weight: 600;
     color: var(--fc-state);
     margin-bottom: 0.5cqmin;
@@ -253,20 +256,21 @@
 }
 
 /* ═══════════════════════════════════════════
-   하단 progress bar (가동율)
+   하단 progress bar (가동율) — 도넛과 동일한 2색 분할
+     채움 = MT(primary) / 바닥 = WT(secondary)
    ═══════════════════════════════════════════ */
 .fc-progress {
     flex: 0 0 auto;
     height: clamp(3px, 1.2cqmin, 5px);
     border-radius: 999px;
-    background: color-mix(in srgb, var(--fc-accent) 15%, transparent);
+    background: var(--color-secondary);
     overflow: hidden;
     margin-top: 2.5cqmin;
 }
 
 .fc-progress-fill {
     height: 100%;
-    background: var(--fc-accent);
+    background: var(--color-primary);
     border-radius: 999px;
     transition: width 0.3s ease;
 }
@@ -274,17 +278,19 @@
 /* ═══════════════════════════════════════════
    카드 종횡비 분기 (container queries)
      기준: 카드(.fc-cq) 자체의 width/height 비율
+     - 임계치는 "≈1:2 / 2:1" 의도. 셀이 정사각이 아니거나 padding 으로 인해
+       1×2 span 이 정확히 0.5 가 안 나오는 경우가 많아 5:9 / 9:5 로 완화.
    ═══════════════════════════════════════════ */
 
-/* 가로 ≥ 2:1 → 좌우 배치 (도넛 좌, 통계 우) */
-@container (min-aspect-ratio: 2/1) {
+/* 가로 ≳ 2:1 → 좌우 배치 (도넛 좌, 통계 우) */
+@container (min-aspect-ratio: 9/5) {
     .fc-chart { width: 38%; }
     .fc-info { display: flex; }
     .fc-chart-state { display: none; }
 }
 
-/* 세로 ≥ 2:1 (= 가로 ≤ 1:2) → 상하 배치 (도넛 위, 통계 아래) */
-@container (max-aspect-ratio: 1/2) {
+/* 세로 ≳ 2:1 (= 가로 ≲ 1:2) → 상하 배치 (도넛 위, 통계 아래) */
+@container (max-aspect-ratio: 5/9) {
     .fc-body {
         flex-direction: column;
         align-items: stretch;
@@ -295,5 +301,13 @@
     .fc-chart-state { display: none; }
 }
 
-/* 데이터 없음 — 가시성 낮춤 (accent/state 색은 razor 측에서 회색으로 주입) */
+/* 데이터 없음 — 가시성 낮춤 (accent/state 색은 razor 측에서 회색으로 주입).
+   2색 도넛/Progress 도 회색으로 통일. */
 .fc-cq.fc-cq-empty .fc-progress-fill { width: 0 !important; }
+.fc-cq.fc-cq-empty .fc-donut-bg,
+.fc-cq.fc-cq-empty .fc-donut-arc {
+    stroke: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+}
+.fc-cq.fc-cq-empty .fc-progress {
+    background: color-mix(in srgb, var(--color-text-secondary) 25%, transparent);
+}
