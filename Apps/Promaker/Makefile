@@ -76,7 +76,11 @@ LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
 LH_PUBLISH_DIR   := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/publish)
 LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
 
-.PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean install light-house build
+# 인스톨러 번들용 — Promaker Setup.iss 의 [Components] ai (default checked) 가 {app}\LightHouseService\ 로 배치.
+# 본체 sc/fd 모드 동일 정합 (self-contained / framework-dependent).
+LH_INSTALLER_PUBLISH := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
+
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build
 
 help:
 	@echo "Promaker installer Makefile"
@@ -161,7 +165,19 @@ publish-agenttray:
 		-o "$(AGENT_TRAY_PUBLISH)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-iscc: publish publish-agent publish-agenttray
+# Ds2.LightHouseService — Setup.iss [Components] ai 가 {app}\LightHouseService\ 로 번들.
+# Promaker UI 의 "로컬 LightHouse 활성화" 가 publish 결과 + scripts 를 호출하여 service 등록/시작.
+# 인스톨러는 파일 배치만, service 등록/PSK 생성/cert 발급은 UI 가 수행 (사후 트리거).
+publish-lighthouse:
+	@echo "=== dotnet restore (Ds2.LightHouseService) ==="
+	dotnet restore "$(LH_SERVICE_PROJ)" --verbosity quiet
+	@echo "=== dotnet publish Ds2.LightHouseService ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
+	dotnet publish "$(LH_SERVICE_PROJ)" -c Release -r win-x64 \
+		--self-contained $(SELF_CONTAINED) \
+		-o "$(LH_INSTALLER_PUBLISH)" \
+		-p:DebugType=none -p:DebugSymbols=false -m:1
+
+iscc: publish publish-agent publish-agenttray publish-lighthouse
 	@if [ ! -f "$(ISCC)" ]; then \
 		echo "[ERROR] Inno Setup compiler not found: $(ISCC)" >&2; \
 		echo "        Install Inno Setup 6 or override ISCC=..."  >&2; \
@@ -175,6 +191,8 @@ iscc: publish publish-agent publish-agenttray
 	"$(ISCC)" /DPublishDir="$(PUBLISH_DIR)" \
 	          /DAgentPublishDir="$(AGENT_PUBLISH)" \
 	          /DAgentTrayPublishDir="$(AGENT_TRAY_PUBLISH)" \
+	          /DLightHousePublishDir="$(LH_INSTALLER_PUBLISH)" \
+	          /DLightHouseScriptsDir="$(abspath $(LH_SCRIPTS_DIR))" \
 	          /DSelfContainedMode="$(SELF_CONTAINED)" \
 	          /DOutputSuffix="$(OUTPUT_SUFFIX)" \
 	          "$(SETUP_ISS)"

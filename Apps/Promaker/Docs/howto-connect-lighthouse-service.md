@@ -10,6 +10,16 @@
 
 LightHouse Service = 사내 LAN 의 Knowledge Base 색인/검색 host. Promaker 의 LLM Chat 이 첨부 폴더의 PDF/DOCX/XLSX/TXT/MD 를 색인 → 다른 사용자도 검색 가능 (multi-tenant T1 flat).
 
+### 설치 path 선택 가이드 (어느 섹션을 읽을지)
+
+| 시나리오 | 설치 path | 본 문서 |
+|---|---|---|
+| **개발자 / PoC** — 코드 수정 후 `make light-house` 콘솔 반복 | `make install` (관리자 PowerShell) | §2 |
+| **일반 사용자 — 같은 머신**에서 Promaker + LightHouse 동시 사용 | Promaker installer (setup.exe) 의 **"AI 기능"** 체크 + 설치 후 UI 의 **"로컬 LightHouse 서비스 활성화"** 버튼 | §2-bis |
+| **다른 머신 client** — 사내 LAN 에 LightHouse 서버 1대, 다른 PC 에서 Promaker 로 접속 | 서버 PC 에서 `install-service.ps1` 수동 호출 → PSK 평문 안전 채널로 client 에 전달 → client PC 의 Promaker UI 에서 **"+ Add Service"** + PSK 수동 입력 | §2-ter |
+
+세 path 가 같은 service / config / 인증 모델을 공유합니다. 차이는 **PSK 평문이 어떻게 client 에 전달되는가** 뿐입니다.
+
 **구성 요소** (commit `79ee30b` s5c-r0 기준):
 - `Ds2.LightHouseService` (F# Windows Service, Kestrel HTTPS + Bearer PSK + MCP host)
 - Promaker 측 `LightHouseClient` / `KbManagerDialog` / `AttachmentIngestService`
@@ -61,6 +71,116 @@ Service 등록 완료: Ds2.LightHouseService
 **입력 받은 secret 보관 — 분실 시 재install 필요**:
 - PFX password (cert decrypt)
 - PSK (Promaker 측 설정에 동일하게 입력)
+
+---
+
+## 2-bis. Promaker installer + UI 자동 활성화 (같은 머신 사용자)
+
+`make install` 의 모든 단계를 GUI 인스톨러 + UI 버튼 한 번으로 처리하는 자동화 path. **같은 머신 안에서 Promaker WPF 와 LightHouseService 가 동시에 동작**하는 경우에 사용. PSK 평문은 사용자 시야에 노출 0 (전부 자동 박제).
+
+### 2-bis.1 인스톨러 (관리자 권한)
+
+빌드 머신에서:
+```bash
+cd /f/Git/ds2/main/Apps/Promaker
+make dist-installer       # sc 모드 권장 (런타임 번들, 가장 안전)
+# 또는 make installer      # fd 모드 (.NET 9 Desktop + ASP.NET Core Runtime 9 사용자 시스템 의무)
+```
+
+대상 머신에서 `Installer/Output/Promaker_Setup_<VER>_sc.exe` 실행:
+- 컴포넌트 선택 단계에서 **"AI 기능 활성화 (LightHouse KB Service + Ollama 설치 파일 — 사후 UI 에서 활성화)"** 가 **default checked**. 체크 유지 → install 완료 시 `{app}\LightHouseService\` 에 service binary + scripts 배치.
+- 이 시점에서는 **service 등록 / cert / PSK / Ollama 미수행** (파일만 배치).
+
+### 2-bis.2 UI 활성화 버튼
+
+Promaker 실행 → 설정 → **LLM 탭** → "LightHouse Services (Knowledge Base)" 섹션 → **"로컬 LightHouse 서비스 활성화"** 클릭.
+
+UAC 프롬프트 응답 후 PowerShell 콘솔이 열리며 4단계 자동 진행 (수 분 소요):
+
+1. **Ollama + bge-m3** — `install-ollama.ps1` 가 winget 으로 Ollama 자동 설치 (이미 있으면 skip) + `ollama pull bge-m3` (~2GB, 이미 있으면 fast no-op) + `OLLAMA_FLASH_ATTENTION=false` Machine scope 박제 (bge-m3 NaN 회피)
+2. **self-signed TLS cert** — `generate-dev-cert.ps1` 가 PFX 생성 (`%PROGRAMDATA%\Dualsoft\LightHouseService\service.pfx`). **PFX password 는 wrapper 가 RNG 자동 생성** (사용자 입력 0). 이미 PFX 가 있으면 password 정합을 위해 wrapper 가 삭제 후 재생성.
+3. **install-service.ps1 + DPAPI PSK** — RNG 32-byte PSK 자동 생성 → 평문은 임시 파일에 1회 박제 (Promaker WPF 가 즉시 read → DPAPI 박제 → wipe). config.json 의 `preSharedKeyEncrypted` / `tlsCertPasswordEncrypted` 동시 박제. `sc create Ds2.LightHouseService` (기존 service 있으면 stop+delete polling 후 재등록).
+4. **firewall + start + healthcheck** — `netsh advfirewall firewall add rule "Ds2 LightHouse Service" 8443/tcp inbound remoteip=127.0.0.1` + `sc start Ds2.LightHouseService` + `/healthz` 200 OK polling (최대 30s, STOPPED 감지 시 즉시 중단).
+
+완료 시 UI status: `활성화 완료 — ServiceId=<8자>… /healthz 200 OK log: %TEMP%\promaker-ai-<guid>.log`.
+
+LlmConfig 의 `LightHouseServices` 에 **`Local LightHouse`** entry 자동 추가 (`BaseUrl = https://127.0.0.1:8443`, `Active = true`, PSK DPAPI 박제). 다른 entry 는 `Active = false` 강제 (단일 active 정합).
+
+### 2-bis.3 동작 검증
+
+```powershell
+sc query Ds2.LightHouseService          # STATE = 4 RUNNING
+# /healthz 200 확인 (TLS 우회 — self-signed)
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+(Invoke-WebRequest -Uri 'https://127.0.0.1:8443/healthz' -UseBasicParsing).StatusCode
+```
+
+이후 §6 (KB 등록) 부터 정상 사용.
+
+### 2-bis.4 재활성화 (PSK rotation)
+
+같은 버튼을 다시 클릭 = 명시 재설치 = **PSK 자동 rotation**. 새 RNG PSK 가 service 와 Promaker LlmConfig 양쪽에 일관 박제. 다른 머신에서 같은 service 에 접속 중이면 그 client 는 새 PSK 가 필요 (§2-ter.2 참조).
+
+진단 log: `%TEMP%\promaker-ai-<guid>.log` (PowerShell transcript). PSK 평문은 stdout / transcript 미경유 — `-PskOutputPath` 임시 파일로만 전달 후 즉시 wipe.
+
+---
+
+## 2-ter. 다른 머신 client 시나리오 (수동 PSK 전달)
+
+서버 PC 1대 (LightHouseService 운영) + client PC N대 (Promaker WPF 만, 같은 service 에 접속). PSK 는 서버에서 한 번 생성 → 운영자가 안전 채널로 각 client 에 전달.
+
+### 2-ter.1 서버 PC — install-service.ps1 단독 호출
+
+`enable-ai.ps1` 가 아니라 `install-service.ps1` 를 직접 호출해서 **PSK 평문을 stdout 으로 출력**하게 합니다 (`-PskOutputPath` 미지정 + `-GeneratePsk`):
+
+```powershell
+# 관리자 PowerShell, 서버 PC
+& "C:\Program Files\Promaker\LightHouseService\scripts\generate-dev-cert.ps1" `
+    -PfxPath "C:\ProgramData\Dualsoft\LightHouseService\service.pfx" `
+    -DnsName "localhost","<server-lan-hostname>","<server-lan-ip>"   # SAN 확장 — client 가 hostname/ip 어느 쪽이든 OK
+# PFX password 대화형 입력 — 운영자가 직접 결정/기억 (또는 별도 KMS)
+
+& "C:\Program Files\Promaker\LightHouseService\scripts\install-service.ps1" `
+    -ExePath "C:\Program Files\Promaker\LightHouseService\Ds2.LightHouseService.exe" `
+    -TlsCertPath "C:\ProgramData\Dualsoft\LightHouseService\service.pfx" `
+    -ListenUrl "https://0.0.0.0:8443" `      # LAN bind (default 127.0.0.1 → 외부 미접근)
+    -GeneratePsk                              # PskOutputPath 미지정 = stdout 출력
+# stdout 에 한 줄: PSK_BASE64=Abc123def456...==
+# 운영자가 이 값을 안전 채널 (1Password / Slack DM / gpg mail / 직접 USB) 로 각 client 사용자에게 전달
+```
+
+firewall 룰 (loopback → LAN subnet):
+```powershell
+netsh advfirewall firewall delete rule name="Ds2 LightHouse Service"
+netsh advfirewall firewall add rule name="Ds2 LightHouse Service" `
+    dir=in action=allow protocol=tcp localport=8443 remoteip=localsubnet profile=any
+```
+
+service start:
+```powershell
+sc start Ds2.LightHouseService
+```
+
+### 2-ter.2 Client PC — Promaker UI 수동 등록
+
+각 client 사용자의 머신에서:
+
+1. Promaker 실행 → 설정 → **LLM 탭** → LightHouse Services 섹션 → **"+ Add Service"** 클릭 (← **"로컬 LightHouse 서비스 활성화" 버튼은 사용 안 함** — 그 버튼은 같은 머신용 자동 path)
+2. DataGrid 에 신규 row 추가됨. 다음 컬럼 편집:
+   - **Display Name** = 임의 (예: `LAN LightHouse`)
+   - **Base URL (HTTPS)** = `https://<server-lan-hostname>:8443` (cert SAN 과 일치하는 hostname/ip)
+3. **PSK "설정..."** 버튼 → PskEditDialog 에서 운영자에게 받은 base64 평문 입력 → OK
+4. 다른 active service 가 있으면 해제 (`Active` 체크박스 단일 토글) — 단일 active 정합
+5. **"테스트"** 버튼으로 연결 확인 → `✅ 연결 성공 — collection <N>건`
+6. 확인 버튼으로 다이얼로그 닫기 — PSK 가 DPAPI(CurrentUser) 로 박제됨
+
+self-signed cert 신뢰는 §4.1 참조 — `<server-lan-hostname>` 으로 cert 가 발급되었으므로 client 도 같은 cert 를 Trusted Root 에 import 하거나, 사내 CA 발급 cert 로 교체 (운영 권장, §10).
+
+mTLS (`Client Cert` 컬럼) 도 LAN 환경에서 권장 — PSK 단독보다 강함 (B5 phase 2 박제).
+
+### 2-ter.3 PSK rotation 시
+
+서버에서 `install-service.ps1 -GeneratePsk` 재호출 → 새 평문 stdout → 각 client 에 재배포 → client 사용자가 Promaker UI 의 PSK "설정..." 으로 갱신. 갱신 전까지는 client 가 401 Unauthorized.
 
 ---
 

@@ -10,6 +10,7 @@ public partial class GanttChartControl : UserControl
 {
     private GanttChartState? _viewModel;
     private readonly DispatcherTimer _renderTimer;
+    internal static readonly TimeSpan RenderInterval = TimeSpan.FromMilliseconds(33);
 
     private const double ZoomStep = 1.2;
     private const double RowGap = 2;
@@ -29,7 +30,7 @@ public partial class GanttChartControl : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
 
-        _renderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _renderTimer = new DispatcherTimer { Interval = RenderInterval };
         _renderTimer.Tick += (_, _) => OnRenderTick();
     }
 

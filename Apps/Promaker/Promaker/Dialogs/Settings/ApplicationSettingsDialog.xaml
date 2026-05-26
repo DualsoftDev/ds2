@@ -324,6 +324,26 @@
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,4"/>
 
+                            <!-- 로컬 LightHouse 활성화 — installer 의 [Components] ai 가 배치한 파일들 (LightHouseService + scripts) 을
+                                 LightHouseLocalInstaller 가 UAC elevated PowerShell 로 트리거. 4단계: Ollama / cert / install-service+PSK / firewall+start. -->
+                            <Grid Margin="0,4,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" x:Name="LhEnableLocalButton"
+                                        Content="로컬 LightHouse 서비스 활성화"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="12,4"
+                                        Click="LhEnableLocal_Click"
+                                        ToolTip="Ollama + bge-m3 설치 + self-signed cert + sc create Ds2.LightHouseService + 8443 방화벽 + service start (UAC 권한 필요)"/>
+                                <TextBlock Grid.Column="2" x:Name="LhEnableLocalStatus"
+                                           VerticalAlignment="Center"
+                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontStyle="Italic" TextWrapping="Wrap"/>
+                            </Grid>
+
                             <DataGrid x:Name="LhServicesGrid"
                                       AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                                       HeadersVisibility="Column" GridLinesVisibility="None"

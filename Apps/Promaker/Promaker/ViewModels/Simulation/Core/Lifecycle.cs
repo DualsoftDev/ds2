@@ -89,6 +89,7 @@ public partial class SimulationPanelState
     {
         DisposeSimEngine();
         _simStartTime = DateTime.Now;
+        ResetPassiveGanttClockAnchor();
         ApplySimulationResetUiState(clearCollections: true);
         ClearAllWarnings();
         GanttChart.Reset(_simStartTime);
