@@ -19,6 +19,9 @@ public class PlcToCallMapperService
     private readonly ILogger<PlcToCallMapperService> _logger;
     private readonly Dictionary<string, Models.CallMappingInfo> _tagMappings = new();
     private readonly Dictionary<Guid, CallDirection> _callDirections = new();
+    // Call.Id → (InTag, OutTag) 역방향 lookup. _tagMappings 는 주소가 key 라 같은 주소를 공유하는
+    // 복제 Flow 들은 last-write-wins 로 사라지지만, 이 dict 은 Call.Id 가 unique 라 4개 다 보존됨.
+    private readonly Dictionary<Guid, (string? InTag, string? OutTag)> _callIdToTags = new();
     private bool _isInitialized;
 
     public PlcToCallMapperService(
@@ -45,6 +48,7 @@ public class PlcToCallMapperService
 
         _tagMappings.Clear();
         _callDirections.Clear();
+        _callIdToTags.Clear();
 
         var store = _projectService.GetStore();
         if (store == null)
@@ -88,6 +92,11 @@ public class PlcToCallMapperService
                     // Determine Direction once
                     var direction = DetermineDirection(hasInTag, hasOutTag);
                     _callDirections[call.Id] = direction;
+
+                    // Call.Id 기준 역방향 lookup — 주소 공유(복제 Flow) 시에도 4개 모두 보존
+                    _callIdToTags[call.Id] = (
+                        apiCall.InTag?.Value.Address,
+                        apiCall.OutTag?.Value.Address);
 
                     // OutTag mapping
                     if (apiCall.OutTag != null)
@@ -218,23 +227,14 @@ public class PlcToCallMapperService
 
     public (string? InTag, string? OutTag)? GetCallTagsByCallId(Guid callId)
     {
-        string? inTag = null;
-        string? outTag = null;
-
-        foreach (var kvp in _tagMappings)
+        // _callIdToTags 는 Call.Id 가 unique 이므로 주소를 공유하는 복제 Flow 의
+        // Call 들도 각각 보존됨. 과거 _tagMappings 순회 구현은 주소 충돌 시 4개 중 3개의
+        // Call.Id 가 dict 에 존재하지 않아 null 을 반환하던 버그가 있었음.
+        if (_callIdToTags.TryGetValue(callId, out var tags))
         {
-            if (kvp.Value.Call.Id == callId)
-            {
-                if (kvp.Value.IsInTag)
-                    inTag = kvp.Key;
-                else
-                    outTag = kvp.Key;
-            }
+            if (tags.InTag != null || tags.OutTag != null)
+                return tags;
         }
-
-        if (inTag != null || outTag != null)
-            return (inTag, outTag);
-
         return null;
     }
 
