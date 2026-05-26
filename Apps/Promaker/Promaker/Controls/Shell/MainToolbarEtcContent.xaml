@@ -90,6 +90,18 @@
                             <CheckBox Content="Properties" IsChecked="{Binding PropertyAnchor.IsVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
                             <CheckBox Content="History"    IsChecked="{Binding HistoryAnchor.IsVisible,    Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
                             <CheckBox Content="Simulation" IsChecked="{Binding SimulationAnchor.IsVisible, Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="앱 도구" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,6" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <!-- Log — HasProject 와 무관하게 항상 활성. AppLogState singleton 이 앱 전역 log 표시. -->
+                            <CheckBox Content="Log"        IsChecked="{Binding LogAnchor.IsVisible, Mode=TwoWay}" Margin="8,4"/>
+                            <!-- LLM Chat — IsLlmChatVisible 이 SSOT, ToggleLlmChatCommand 가 consent 검사 + lazy 생성 +
+                                 visible 토글을 수행. IsChecked 를 TwoWay 로 직접 잡으면 setter 가 우회되어 vm null 노출
+                                 위험 → IsChecked=OneWay 표시 전용, Click 은 Command 에 위임. toolbar 의 별도 LLM 버튼과
+                                 동일한 진입 경로. -->
+                            <CheckBox Content="LLM Chat"
+                                      IsChecked="{Binding IsLlmChatVisible, Mode=OneWay}"
+                                      Command="{Binding ToggleLlmChatCommand}"
+                                      Margin="8,4"/>
                         </StackPanel>
                     </Border>
                 </Popup>

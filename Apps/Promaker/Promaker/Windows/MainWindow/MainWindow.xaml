@@ -7,6 +7,7 @@
         xmlns:adThemes="clr-namespace:AvalonDock.Themes;assembly=AvalonDock.Themes.Metro"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:llm="clr-namespace:Promaker.Controls.Llm"
+        xmlns:logCtrl="clr-namespace:Promaker.Controls.Logging"
         xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
@@ -269,6 +270,16 @@
                                                  CanFloat="True" CanAutoHide="True">
                                 <ctrl:SimulationPanel x:Name="SimulationPanelHost"
                                                       DataContext="{Binding Simulation}"/>
+                            </ad:LayoutAnchorable>
+                            <!-- Log anchor — `SimulationPanel` 의 Log tab 에서 분리. HasProject 와 무관하게 활성 가능.
+                                 같은 simulationPane 의 두 번째 tab 으로 시작 — Welcome 모드에서는 simulationAnchor 가
+                                 hide 되므로 pane 안에 Log tab 만 단독 노출. AppLogView 가 DataContext 를 자체적으로
+                                 AppLogState.Instance 로 set. -->
+                            <ad:LayoutAnchorable x:Name="logAnchor"
+                                                 ContentId="log" Title="Log"
+                                                 CanClose="False" CanHide="True"
+                                                 CanFloat="True" CanAutoHide="True">
+                                <logCtrl:AppLogView/>
                             </ad:LayoutAnchorable>
                         </ad:LayoutAnchorablePane>
                     </ad:LayoutPanel>
