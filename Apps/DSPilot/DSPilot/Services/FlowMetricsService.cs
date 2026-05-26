@@ -325,10 +325,13 @@ public class FlowMetricsService : IFlowMetricsService
     {
         try
         {
-            // 비가동 판정: CT가 MaxCycleTimeMs 초과이면 비가동 사이클
+            // 비가동 판정: CT가 MaxCycleTimeMs 초과 또는 MinCycleTimeMs 미만이면 비가동 사이클
             var settings = _appSettingsService.LoadSettings();
             var maxCT = settings.HistoryView.MaxCycleTimeMs;
-            bool isIdle = maxCT > 0 && ct > maxCT;
+            var minCT = settings.HistoryView.MinCycleTimeMs;
+            bool exceedsMax = maxCT > 0 && ct > maxCT;
+            bool belowMin = minCT > 0 && ct < minCT;
+            bool isIdle = exceedsMax || belowMin;
 
             if (!isIdle)
             {
@@ -369,8 +372,8 @@ public class FlowMetricsService : IFlowMetricsService
             else
             {
                 _logger.LogInformation(
-                    "Flow '{FlowName}' 비가동 cycle skipped: CT={CT}ms > MaxCycleTimeMs={MaxCT}ms",
-                    flowName, ct, maxCT);
+                    "Flow '{FlowName}' 비가동 cycle skipped: CT={CT}ms (MaxCycleTimeMs={MaxCT}ms, MinCycleTimeMs={MinCT}ms, exceedsMax={ExceedsMax}, belowMin={BelowMin})",
+                    flowName, ct, maxCT, minCT, exceedsMax, belowMin);
             }
 
             // 2. History 테이블 삽입 (비가동 포함, IsIdle 플래그와 함께)

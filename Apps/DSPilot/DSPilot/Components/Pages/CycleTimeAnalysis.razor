@@ -1141,7 +1141,8 @@
         if (string.IsNullOrEmpty(_selectedFlowName)) return new List<DateTime>();
 
         var settings = SettingsService.LoadSettings();
-        if (settings.HistoryView.MaxCycleTimeMs <= 0) return new List<DateTime>();
+        if (settings.HistoryView.MaxCycleTimeMs <= 0 && settings.HistoryView.MinCycleTimeMs <= 0)
+            return new List<DateTime>();
 
         // FlowMetricsService 가 실제 사용하는 HeadCall 의 InTag 로 사이클 경계 감지.
         var (headCallName, _) = FlowMetrics.GetCycleBoundaryCallNames(_selectedFlowName);
@@ -1168,28 +1169,33 @@
 
         var settings = SettingsService.LoadSettings();
         var maxCT = settings.HistoryView.MaxCycleTimeMs;
-        if (maxCT <= 0) return;
+        var minCT = settings.HistoryView.MinCycleTimeMs;
+        if (maxCT <= 0 && minCT <= 0) return;
 
         var sorted = edges.OrderBy(t => t).ToList();
 
-        // 인접 edge 사이 비가동 구간
+        // 인접 edge 사이 비가동 구간: 최대 초과 또는 최소 미달
         for (int i = 0; i < sorted.Count - 1; i++)
         {
             var cycleStart = sorted[i];
             var cycleEnd = sorted[i + 1];
-            if ((cycleEnd - cycleStart).TotalMilliseconds > maxCT)
+            var ms = (cycleEnd - cycleStart).TotalMilliseconds;
+            if ((maxCT > 0 && ms > maxCT) || (minCT > 0 && ms < minCT))
                 _idleRegions.Add((cycleStart, cycleEnd));
         }
 
-        // 마지막 edge ~ 차트 끝: 사이클 시작 후 다음 사이클이 없는 경우
-        var lastEdge = sorted[^1];
-        if ((_chartEndTime - lastEdge).TotalMilliseconds > maxCT)
-            _idleRegions.Add((lastEdge, _chartEndTime));
+        // 마지막 edge ~ 차트 끝: 사이클 시작 후 다음 사이클이 없는 경우 (최대 초과만 해당)
+        if (maxCT > 0)
+        {
+            var lastEdge = sorted[^1];
+            if ((_chartEndTime - lastEdge).TotalMilliseconds > maxCT)
+                _idleRegions.Add((lastEdge, _chartEndTime));
 
-        // 차트 시작 ~ 첫 edge: 이전 사이클이 오래 전에 시작된 경우
-        var firstEdge = sorted[0];
-        if ((firstEdge - _chartStartTime).TotalMilliseconds > maxCT)
-            _idleRegions.Add((_chartStartTime, firstEdge));
+            // 차트 시작 ~ 첫 edge: 이전 사이클이 오래 전에 시작된 경우
+            var firstEdge = sorted[0];
+            if ((firstEdge - _chartStartTime).TotalMilliseconds > maxCT)
+                _idleRegions.Add((_chartStartTime, firstEdge));
+        }
     }
 
     private async Task ExportCsv()

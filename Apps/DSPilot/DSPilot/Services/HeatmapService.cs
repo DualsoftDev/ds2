@@ -234,7 +234,9 @@ public class HeatmapService
         // OutTag Rising(동작 시작) → InTag Rising(동작 종료) 순서로 매칭하여 GoingTime 계산
         int inIndex = 0;
         int executionNumber = 0;
-        var maxGoingTime = _settingsService.LoadSettings().HistoryView.MaxCallGoingTimeMs;
+        var historyView = _settingsService.LoadSettings().HistoryView;
+        var maxGoingTime = historyView.MaxCallGoingTimeMs;
+        var minGoingTime = historyView.MinCallGoingTimeMs;
 
         foreach (var outTime in outTagEdges)
         {
@@ -255,7 +257,8 @@ public class HeatmapService
                 continue;
             }
 
-            if (goingTimeMs > 0)
+            // 최소 실행시간 미달(노이즈·오감지로 인한 짧은 동작) 시 제외. inIndex 는 정상 진행하여 페어 소비.
+            if (goingTimeMs > 0 && (minGoingTime <= 0 || goingTimeMs >= minGoingTime))
             {
                 executionNumber++;
                 records.Add(new CallExecutionRecord
