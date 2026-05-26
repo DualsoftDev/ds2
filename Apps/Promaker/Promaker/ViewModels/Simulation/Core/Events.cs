@@ -173,20 +173,103 @@ public partial class SimulationPanelState
         UpdateSimClock();
     }
 
-    private DateTime ToGanttTimestamp(TimeSpan clock) => _simStartTime + clock;
+    private DateTime ToGanttTimestamp(TimeSpan clock) => ResolveGanttEventTimestamp(_simStartTime, clock);
+
+    internal static DateTime ResolveGanttEventTimestamp(DateTime simStartTime, TimeSpan clock) =>
+        simStartTime + clock;
+
+    internal static TimeSpan ResolvePassiveGanttElapsed(TimeSpan clock, TimeSpan anchor) =>
+        clock >= anchor ? clock - anchor : TimeSpan.Zero;
+
+    internal static bool UsesSignalDrivenGanttTimeline(RuntimeMode mode) =>
+        mode == RuntimeMode.VirtualPlant
+        || mode == RuntimeMode.Monitoring;
+
+    internal static DateTime ResolveSignalDrivenGanttNow(
+        DateTime simStartTime,
+        TimeSpan? anchor,
+        TimeSpan baseElapsed,
+        DateTime baseWall,
+        DateTime now)
+    {
+        if (anchor is null)
+            return simStartTime;
+
+        var wallElapsed = now >= baseWall ? now - baseWall : TimeSpan.Zero;
+        return simStartTime + baseElapsed + wallElapsed;
+    }
+
+    internal static TimeSpan ResolvePassiveEventBaseElapsed(TimeSpan eventElapsed, TimeSpan estimatedElapsed) =>
+        eventElapsed > estimatedElapsed ? eventElapsed : estimatedElapsed;
+
+    private bool IsSignalDrivenGanttTimeline =>
+        UsesSignalDrivenGanttTimeline(SelectedRuntimeMode);
+
+    private void ResetPassiveGanttClockAnchor()
+    {
+        _passiveGanttClockAnchor = null;
+        _passiveGanttBaseWall = DateTime.Now;
+        _passiveGanttBaseElapsed = TimeSpan.Zero;
+    }
+
+    private TimeSpan EstimatePassiveGanttElapsed(DateTime now)
+    {
+        if (_passiveGanttClockAnchor is null)
+            return TimeSpan.Zero;
+
+        var wallElapsed = now >= _passiveGanttBaseWall ? now - _passiveGanttBaseWall : TimeSpan.Zero;
+        return _passiveGanttBaseElapsed + wallElapsed;
+    }
+
+    private void AdvancePassiveGanttBase(TimeSpan eventElapsed)
+    {
+        var now = DateTime.Now;
+        var estimatedElapsed = EstimatePassiveGanttElapsed(now);
+        _passiveGanttBaseElapsed = ResolvePassiveEventBaseElapsed(eventElapsed, estimatedElapsed);
+        _passiveGanttBaseWall = now;
+    }
+
+    private TimeSpan ResolveDisplayClock(TimeSpan clock)
+    {
+        if (!IsSignalDrivenGanttTimeline)
+            return clock;
+
+        if (_passiveGanttClockAnchor is null)
+        {
+            _passiveGanttClockAnchor = clock;
+            _passiveGanttBaseElapsed = TimeSpan.Zero;
+            _passiveGanttBaseWall = DateTime.Now;
+            return TimeSpan.Zero;
+        }
+
+        var elapsed = ResolvePassiveGanttElapsed(clock, _passiveGanttClockAnchor.Value);
+        AdvancePassiveGanttBase(elapsed);
+        return elapsed;
+    }
+
+    private DateTime ResolveSignalDrivenGanttNow() =>
+        ResolveSignalDrivenGanttNow(
+            _simStartTime,
+            _passiveGanttClockAnchor,
+            _passiveGanttBaseElapsed,
+            _passiveGanttBaseWall,
+            DateTime.Now);
 
     /// <summary>
-    /// Simulation 모드에서만 sim clock 기반 timestamp. 그 외 모드 (VirtualPlant/Control/Monitoring) 는
-    /// 외부 신호 기반이라 sim clock 이 wall clock 보다 늦거나 안 흘러서 GanttChart 시간선 (AdjustedNow)
-    /// 보다 events 가 뒤처져 보이는 mismatch 발생 → wall clock 사용.
+    /// Engine event clock is the source of truth for persisted Gantt segments in every runtime mode.
+    /// Control/VP events can be marshaled to the UI dispatcher in a burst after the real 500ms delay already
+    /// elapsed; using AdjustedNow at dispatch time collapses those segments into near-zero-width bars.
+    /// VP/Monitoring additionally anchor their display clock at the first accepted signal so PLAY order does not
+    /// add idle lead time before Ctrl/PLC starts broadcasting.
     /// </summary>
-    private DateTime ResolveEventTimestamp(TimeSpan clock) =>
-        SelectedRuntimeMode == RuntimeMode.Simulation
-            ? ToGanttTimestamp(clock)
-            : GanttChart.AdjustedNow;
+    private DateTime ResolveEventTimestamp(TimeSpan clock) => ToGanttTimestamp(ResolveDisplayClock(clock));
 
     private DateTime CurrentGanttTimestamp() =>
-        SelectedRuntimeMode != RuntimeMode.Simulation
-            ? GanttChart.AdjustedNow
-            : _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
+        IsSignalDrivenGanttTimeline
+            ? _passiveGanttClockAnchor is null || _simEngine is null
+                ? _simStartTime
+                : ToGanttTimestamp(ResolvePassiveGanttElapsed(_simEngine.State.Clock, _passiveGanttClockAnchor.Value))
+            : SelectedRuntimeMode != RuntimeMode.Simulation
+                ? GanttChart.AdjustedNow
+                : _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
 }

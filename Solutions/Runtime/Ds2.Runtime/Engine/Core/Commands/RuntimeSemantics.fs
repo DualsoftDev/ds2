@@ -29,13 +29,20 @@ module RuntimeSemantics =
         resetValueForSpec call.InputSpec
 
     /// 수신 string 값이 *active* (=ApiCall.OutputSpec 조건 충족) 인지 판정 — VP 측 output→input echo trigger 용.
-    /// 이전 코드의 `value = "true"` 하드코딩을 spec 기반으로 일반화.
+    /// OutputSpec=UndefinedValue 는 legacy bool coil 의미로만 인정한다. ValueSpec.evaluate 의 "모든 값 OK"
+    /// 의미를 그대로 쓰면 Control 의 OUT reset "false" 도 active 로 인정되어 VP 가 새 duration echo 를 예약한다.
     let isActiveOutputValue (call: ApiCall) (value: string) : bool =
-        ValueSpec.evaluate call.OutputSpec value
+        match call.OutputSpec with
+        | UndefinedValue -> value = "true"
+        | _ -> ValueSpec.evaluate call.OutputSpec value
 
     /// 수신 string 값이 *active input* (=ApiCall.InputSpec 조건 충족) 인지 판정 — Control 측 RxWork Finish trigger 용.
+    /// InputSpec=UndefinedValue 는 legacy compat — *value="true" 만 active*. ValueSpec.evaluate 의 "모든 값 OK"
+    /// 의미와 분리 (VP 의 WorkResetPreds reset value="false" 송출이 ADV Call Finish 를 잘못 trigger 하던 문제 차단).
     let isActiveInputValue (call: ApiCall) (value: string) : bool =
-        ValueSpec.evaluate call.InputSpec value
+        match call.InputSpec with
+        | UndefinedValue -> value = "true"
+        | _ -> ValueSpec.evaluate call.InputSpec value
 
     /// v10 §11.1 — ActionType case 별 출력 effect.
     type OutputEffect =
