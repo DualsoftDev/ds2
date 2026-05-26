@@ -112,11 +112,8 @@
     protected override void OnParametersSet()
     {
         var pad = 4;
-        var minContentW = Placements.Count > 0
-            ? Placements.Min(fp => fp.ColSpan * CellWidth - pad * 2) : 0;
-
         _blockLayouts = Placements
-            .Select(fp => ComputeSingleBlock(fp, minContentW, pad))
+            .Select(fp => ComputeSingleBlock(fp, pad))
             .ToList();
     }
 
@@ -149,7 +146,7 @@
         public required string SMtDash { get; init; }
     }
 
-    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp, int minContentW, int pad)
+    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp, int pad)
     {
         var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
         var mtWt       = GetMtWt?.Invoke(fp);
@@ -168,8 +165,9 @@
         var widthPct  = (double)innerW / CanvasWidth * 100;
         var heightPct = (double)innerH / CanvasHeight * 100;
 
+        // 레이아웃: 정방형(1:1) → 도넛만, 세로(rs>cs) → 도넛 위/통계 아래, 가로(cs>rs) → 도넛 좌/통계 우
         var isVertical = fp.RowSpan > fp.ColSpan;
-        var showStats  = isVertical || minContentW >= 130;
+        var showStats  = fp.RowSpan != fp.ColSpan;
 
         var hasMtWt = mtWt != null;
         var mt    = mtWt?.Mt ?? 0;
