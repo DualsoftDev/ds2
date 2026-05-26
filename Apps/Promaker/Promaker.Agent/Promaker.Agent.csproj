@@ -30,6 +30,8 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <!-- DsStore, SignalIOMap. -->
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <!-- UserTag panel extensions (GetAllUserTagsForProject) — PLC 구독 목록에 UserTag 주소 추가용. -->
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <!-- 공유 POCO + 경로 + Gateway 빌더 (Phase 0 산출물). -->
     <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />

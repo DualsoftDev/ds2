@@ -49,6 +49,10 @@ public sealed class SimulationEngineService : IDisposable
     // ConcurrentDictionary — HandleHubTagChanged 의 lock-free read 와 안전하게 공존.
     private readonly ConcurrentDictionary<string, int> _plcTagIdByAddress = new(StringComparer.OrdinalIgnoreCase);
 
+    // UserTag 주소 — HandleHubTagChanged 의 cache hit/miss 진단 한정 (전체 주소 로깅은 노이즈).
+    // EnsureUserTagAddressesRegistered() 가 갱신.
+    private volatile HashSet<string> _userTagAddressesForDiag = new(StringComparer.OrdinalIgnoreCase);
+
     // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
     private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
     private readonly object _flowReadyLock = new();
@@ -171,8 +175,17 @@ public sealed class SimulationEngineService : IDisposable
 
         // plcTagLog 기록 — 배치 writer 채널에 enqueue (실제 INSERT 는 PlcTagLogWriterService 가
         // 250ms / 100건 단위로 트랜잭션으로 처리)
-        if (_plcTagIdByAddress.TryGetValue(address, out var tagId))
+        var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
+        if (inCache)
             _logWriter.TryWrite(tagId, value, DateTime.Now);
+
+        // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
+        if (_userTagAddressesForDiag.Contains(address))
+        {
+            _logger.LogInformation(
+                "[Engine] UserTag hub signal {Addr}={Val} src={Src} cacheHit={Hit} tagId={Id}",
+                address, value, source, inCache, inCache ? tagId : -1);
+        }
 
         RuntimeHubEffect[] effects;
         try
@@ -217,19 +230,27 @@ public sealed class SimulationEngineService : IDisposable
             }
 
             // UserTag 주소 추가 — IOMap 과 중복되면 HashSet 이 자동 dedup.
+            var userTagAddrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var store = _projectService.GetStore();
                 foreach (var r in store.GetAllUserTagsForProject())
                 {
                     if (!string.IsNullOrWhiteSpace(r.TagAddress))
-                        allAddresses.Add(r.TagAddress.Trim());
+                    {
+                        var t = r.TagAddress.Trim();
+                        allAddresses.Add(t);
+                        userTagAddrs.Add(t);
+                    }
                 }
             }
             catch (Exception exUt)
             {
                 _logger.LogWarning(exUt, "[Engine] UserTag 주소 수집 실패 (IOMap 만 plcTag 에 등록)");
             }
+
+            // 진단용 UserTag 주소 집합 초기화 (HandleHubTagChanged 의 hit/miss 로깅 한정).
+            _userTagAddressesForDiag = userTagAddrs;
 
             if (allAddresses.Count == 0) return;
 
@@ -282,14 +303,19 @@ public sealed class SimulationEngineService : IDisposable
             if (!_projectService.IsLoaded) return;
 
             var store = _projectService.GetStore();
+            var allUserTagAddrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var newAddresses = new List<string>();
             foreach (var r in store.GetAllUserTagsForProject())
             {
                 if (string.IsNullOrWhiteSpace(r.TagAddress)) continue;
                 var addr = r.TagAddress.Trim();
+                allUserTagAddrs.Add(addr);
                 if (!_plcTagIdByAddress.ContainsKey(addr))
                     newAddresses.Add(addr);
             }
+
+            // 진단용 주소 집합 갱신 — newAddresses 가 비어도 (이미 캐시에 있어도) 늘 최신화.
+            _userTagAddressesForDiag = allUserTagAddrs;
 
             if (newAddresses.Count == 0) return;
 
