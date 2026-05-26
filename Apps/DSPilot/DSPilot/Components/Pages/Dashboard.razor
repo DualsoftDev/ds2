@@ -298,6 +298,12 @@ else
                                                 {
                                                     <span class="ct-badge-pill" style="background:var(--color-secondary);">대기</span>
                                                 }
+                                                <button class="ct-row-detail-btn"
+                                                        @onclick="@(() => Nav.NavigateTo($"/flow?name={Uri.EscapeDataString(fn)}"))"
+                                                        @onclick:stopPropagation
+                                                        title="상세 보기">
+                                                    상세
+                                                </button>
                                             </div>
                                             <div class="ct-row-footer">
                                                 <div class="ct-bar-track">
@@ -395,6 +401,10 @@ else
             <div class="ct-popup-header" style="border-left: 4px solid @stateColor;">
                 <span class="ct-popup-name">@pName</span>
                 <span class="ct-tooltip-state" style="background:@stateColor;">@(string.IsNullOrEmpty(flowState) ? "Ready" : flowState)</span>
+                <button class="btn btn-sm btn-outlined ct-popup-detail"
+                        @onclick="@(() => Nav.NavigateTo($"/flow?name={Uri.EscapeDataString(pName)}"))">
+                    <span class="material-icons" style="font-size:16px;">open_in_new</span> 상세
+                </button>
                 <button class="btn-icon ct-popup-close" @onclick="ClosePopup">
                     <span class="material-icons">close</span>
                 </button>
@@ -865,7 +875,10 @@ else
         // 도면 레이아웃 flow 카드 클릭 시 팝업과 히스토리 열기
         if (flowName != null)
         {
-            _popupFlow = _chartData.FirstOrDefault(f => f.FlowName == flowName);
+            // 사이클 데이터가 아직 없는 flow(Ready 등)는 _chartData 에서 제외돼 있어
+            // FirstOrDefault 가 FlowName=null 인 기본 튜플을 돌려주므로, 이름을 명시적으로 채워준다.
+            var found = _chartData.FirstOrDefault(f => f.FlowName == flowName);
+            _popupFlow = found.FlowName != null ? found : (flowName, 0, 0, 0, 0.0, 0);
 
             // Flow 히스토리 로드 (최근 100개, 최근 5개만 표시하고 나머지는 스크롤)
             await LoadFlowHistoryAsync(flowName);

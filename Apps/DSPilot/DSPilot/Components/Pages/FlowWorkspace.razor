@@ -1,13 +1,15 @@
 @page "/flow"
 @using Ds2.Core
 @using DSPilot.Models
+@using DSPilot.Models.Dsp
 @inject DsProjectService ProjectService
 @inject DspDbService DbService
+@inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
 @inject PlcToCallMapperService MapperService
 @inject AppSettingsService SettingsService
 @inject IFlowMetricsService FlowMetricsService
 @inject IJSRuntime JS
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>Flow Workspace - DSPilot</PageTitle>
 
@@ -154,6 +156,88 @@ else
             <strong class="flow-workspace-kpi-value">@FormatDurationMs(_averageCallTimeMs)</strong>
             <span class="flow-workspace-kpi-sub">평균 Going 시간</span>
         </article>
+    </section>
+
+    <section class="card flow-workspace-panel">
+        <div class="flow-workspace-panel-header">
+            <div>
+                <h6 class="typo-h6">기간별 추이</h6>
+                <div class="typo-caption flow-workspace-muted">
+                    현재 기간: @_periodStartLocal.ToString("yyyy-MM-dd HH:mm") ~ @_periodEndLocal.ToString("yyyy-MM-dd HH:mm")
+                    (버킷: @BucketLabel(_granularity), 사이클 @_periodCycleCount.ToString("N0") 건)
+                </div>
+            </div>
+            <div class="flow-workspace-period-controls">
+                <button class="btn btn-sm @(_periodPreset == "today" ? "btn-primary" : "btn-outlined")" @onclick="@(() => SetPeriodAsync("today"))">오늘</button>
+                <button class="btn btn-sm @(_periodPreset == "7d" ? "btn-primary" : "btn-outlined")" @onclick="@(() => SetPeriodAsync("7d"))">지난 7일</button>
+                <button class="btn btn-sm @(_periodPreset == "30d" ? "btn-primary" : "btn-outlined")" @onclick="@(() => SetPeriodAsync("30d"))">지난 30일</button>
+                <button class="btn btn-sm @(_periodPreset == "60d" ? "btn-primary" : "btn-outlined")" @onclick="@(() => SetPeriodAsync("60d"))">지난 60일</button>
+            </div>
+        </div>
+
+        @if (_isLoadingHistory)
+        {
+            <div class="flow-workspace-trend-empty">
+                <span class="material-icons">hourglass_top</span>
+                <span>히스토리 데이터를 불러오는 중...</span>
+            </div>
+        }
+        else if (_periodCycleCount == 0)
+        {
+            <div class="flow-workspace-trend-empty">
+                <span class="material-icons">timeline</span>
+                <span>선택 기간에 기록된 사이클이 없습니다.</span>
+            </div>
+        }
+        else
+        {
+            <div class="flow-workspace-trend-kpi-row">
+                <article class="flow-workspace-trend-kpi">
+                    <span class="flow-workspace-trend-kpi-label">사이클 수</span>
+                    <strong class="flow-workspace-trend-kpi-value">@_periodCycleCount.ToString("N0")</strong>
+                    <span class="flow-workspace-trend-kpi-sub">비가동 @_periodIdleCount.ToString("N0") 건</span>
+                </article>
+                <article class="flow-workspace-trend-kpi">
+                    <span class="flow-workspace-trend-kpi-label">평균 CT</span>
+                    <strong class="flow-workspace-trend-kpi-value">@FormatDurationMs(_periodAvgCT)</strong>
+                    <span class="flow-workspace-trend-kpi-sub">최소 @FormatDurationMs(_periodMinCT) · 최대 @FormatDurationMs(_periodMaxCT)</span>
+                </article>
+                <article class="flow-workspace-trend-kpi">
+                    <span class="flow-workspace-trend-kpi-label">평균 MT</span>
+                    <strong class="flow-workspace-trend-kpi-value">@FormatDurationMs(_periodAvgMT)</strong>
+                    <span class="flow-workspace-trend-kpi-sub">가동 시간</span>
+                </article>
+                <article class="flow-workspace-trend-kpi">
+                    <span class="flow-workspace-trend-kpi-label">평균 WT</span>
+                    <strong class="flow-workspace-trend-kpi-value">@FormatDurationMs(_periodAvgWT)</strong>
+                    <span class="flow-workspace-trend-kpi-sub">대기 시간</span>
+                </article>
+                <article class="flow-workspace-trend-kpi">
+                    <span class="flow-workspace-trend-kpi-label">가동률</span>
+                    <strong class="flow-workspace-trend-kpi-value">@($"{_periodUtilization * 100:F1}%")</strong>
+                    <span class="flow-workspace-trend-kpi-sub">MT / (MT + WT)</span>
+                </article>
+            </div>
+
+            <div class="flow-workspace-trend-chart-tall">
+                <canvas id="flow-trend-chart"></canvas>
+            </div>
+
+            <div class="flow-workspace-trend-chart-row">
+                <div class="flow-workspace-trend-chart-half">
+                    <h6 class="typo-h6">사이클 수</h6>
+                    <div class="flow-workspace-trend-chart-md">
+                        <canvas id="flow-cycle-count-chart"></canvas>
+                    </div>
+                </div>
+                <div class="flow-workspace-trend-chart-half">
+                    <h6 class="typo-h6">시간 구성</h6>
+                    <div class="flow-workspace-trend-chart-md">
+                        <canvas id="flow-time-distribution"></canvas>
+                    </div>
+                </div>
+            </div>
+        }
     </section>
 
     <section class="card flow-workspace-panel">
@@ -500,6 +584,85 @@ else
         cursor: help;
     }
 
+    .flow-workspace-period-controls {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .flow-workspace-trend-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 28px 12px;
+        color: var(--color-text-secondary);
+    }
+
+    .flow-workspace-trend-empty .material-icons {
+        font-size: 28px;
+        opacity: 0.6;
+    }
+
+    .flow-workspace-trend-kpi-row {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .flow-workspace-trend-kpi {
+        background: rgba(var(--color-primary-rgb), 0.04);
+        border: 1px solid var(--color-lines);
+        border-radius: 8px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .flow-workspace-trend-kpi-label {
+        font-size: 0.75rem;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+    }
+
+    .flow-workspace-trend-kpi-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--color-text-primary);
+        line-height: 1.1;
+    }
+
+    .flow-workspace-trend-kpi-sub {
+        font-size: 0.78rem;
+        color: var(--color-text-secondary);
+    }
+
+    .flow-workspace-trend-chart-tall {
+        position: relative;
+        height: 320px;
+        margin-bottom: 16px;
+    }
+
+    .flow-workspace-trend-chart-row {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 16px;
+    }
+
+    .flow-workspace-trend-chart-half {
+        min-width: 0;
+    }
+
+    .flow-workspace-trend-chart-md {
+        position: relative;
+        height: 260px;
+    }
+
     .flow-workspace-empty {
         padding: 40px 24px;
         display: flex;
@@ -542,6 +705,14 @@ else
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
+        .flow-workspace-trend-kpi-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow-workspace-trend-chart-row {
+            grid-template-columns: 1fr;
+        }
+
         .flow-workspace-work-grid {
             grid-template-columns: 1fr;
         }
@@ -578,6 +749,28 @@ else
     private string? _cycleEditorFlowName;
     private List<FlowCycleCallOption> _cycleCallOptions = [];
 
+    // ── 기간별 추이 ──
+    private string _periodPreset = "today";
+    private DateTime _periodStartLocal = DateTime.Now.Date;
+    private DateTime _periodEndLocal = DateTime.Now;
+    private string _granularity = "hour";
+    private bool _isLoadingHistory;
+    private int _periodCycleCount;
+    private int _periodIdleCount;
+    private double? _periodAvgCT;
+    private double? _periodAvgMT;
+    private double? _periodAvgWT;
+    private double? _periodMinCT;
+    private double? _periodMaxCT;
+    private double _periodUtilization;
+    private long _periodTotalMt;
+    private long _periodTotalWt;
+    private List<TrendBucket> _trendBuckets = [];
+    private IJSObjectReference? _trendChartModule;
+    private bool _trendChartsNeedRedraw;
+    private string? _trendLoadedFlowName;
+    private CancellationTokenSource? _trendCts;
+
     private Flow? SelectedFlow => string.IsNullOrWhiteSpace(_selectedFlowName)
         ? null
         : ProjectService.GetFlowByName(_selectedFlowName);
@@ -595,13 +788,34 @@ else
 
     protected override void OnInitialized()
     {
+        SetPeriodState("today");
         ApplySnapshot(DbService.Snapshot, true);
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        DbService.OnDataChanged += OnDbDataChanged;
+        if (_disposed) return;
+
+        if (firstRender)
+        {
+            DbService.OnDataChanged += OnDbDataChanged;
+            try
+            {
+                _trendChartModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./js/flow-trend-chart.js");
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { return; }
+            catch (TaskCanceledException) { return; }
+            catch (ObjectDisposedException) { return; }
+            _trendChartsNeedRedraw = true;
+        }
+
+        if (_disposed) return;
+        if (_trendChartsNeedRedraw && _trendChartModule is not null)
+        {
+            _trendChartsNeedRedraw = false;
+            await DrawTrendChartsAsync();
+        }
     }
 
     protected override void OnParametersSet()
@@ -625,11 +839,17 @@ else
 
         var flowChanged = !string.Equals(previousSelectedFlow, _selectedFlowName, StringComparison.OrdinalIgnoreCase);
         ApplySnapshot(DbService.Snapshot, flowChanged || string.IsNullOrEmpty(_workspaceSignature));
+
+        if (flowChanged || !string.Equals(_trendLoadedFlowName, _selectedFlowName, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = ReloadTrendAsync();
+        }
     }
 
     private void RefreshWorkspace()
     {
         ApplySnapshot(DbService.Snapshot, true);
+        _ = ReloadTrendAsync();
     }
 
     private bool ApplySnapshot(DspDbSnapshot snapshot, bool forceRender = false)
@@ -997,11 +1217,260 @@ else
         return value;
     }
 
-    public void Dispose()
+    private void SetPeriodState(string preset)
+    {
+        _periodPreset = preset;
+        var now = DateTime.Now;
+        switch (preset)
+        {
+            case "today":
+                _periodStartLocal = now.Date;
+                _periodEndLocal = now;
+                _granularity = "hour";
+                break;
+            case "7d":
+                _periodStartLocal = now.Date.AddDays(-6);
+                _periodEndLocal = now;
+                _granularity = "day";
+                break;
+            case "30d":
+                _periodStartLocal = now.Date.AddDays(-29);
+                _periodEndLocal = now;
+                _granularity = "day";
+                break;
+            case "60d":
+                _periodStartLocal = now.Date.AddDays(-59);
+                _periodEndLocal = now;
+                _granularity = "week";
+                break;
+            default:
+                _periodStartLocal = now.Date;
+                _periodEndLocal = now;
+                _granularity = "hour";
+                _periodPreset = "today";
+                break;
+        }
+    }
+
+    private async Task SetPeriodAsync(string preset)
+    {
+        SetPeriodState(preset);
+        await ReloadTrendAsync();
+    }
+
+    private async Task ReloadTrendAsync()
+    {
+        if (_disposed) return;
+
+        var flow = SelectedFlow;
+        if (flow is null)
+        {
+            ResetTrendStats();
+            _trendBuckets = [];
+            _trendLoadedFlowName = null;
+            _trendChartsNeedRedraw = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _trendCts?.Cancel();
+        _trendCts = new CancellationTokenSource();
+        var ct = _trendCts.Token;
+
+        _isLoadingHistory = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var startUtc = _periodStartLocal.ToUniversalTime();
+            var histories = await DspRepository.GetFlowHistoryByStartTimeAsync(flow.Name, startUtc);
+            if (ct.IsCancellationRequested || _disposed) return;
+
+            var endUtc = _periodEndLocal.ToUniversalTime();
+            histories = histories
+                .Where(h => h.RecordedAt <= endUtc)
+                .ToList();
+
+            BuildTrendStats(histories);
+            _trendBuckets = BuildBuckets(histories, _periodStartLocal, _periodEndLocal, _granularity);
+            _trendLoadedFlowName = flow.Name;
+            _trendChartsNeedRedraw = true;
+        }
+        catch (OperationCanceledException) { /* superseded */ }
+        catch (Exception)
+        {
+            ResetTrendStats();
+            _trendBuckets = [];
+            _trendChartsNeedRedraw = true;
+        }
+        finally
+        {
+            _isLoadingHistory = false;
+            if (!_disposed) await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ResetTrendStats()
+    {
+        _periodCycleCount = 0;
+        _periodIdleCount = 0;
+        _periodAvgCT = null;
+        _periodAvgMT = null;
+        _periodAvgWT = null;
+        _periodMinCT = null;
+        _periodMaxCT = null;
+        _periodUtilization = 0.0;
+        _periodTotalMt = 0;
+        _periodTotalWt = 0;
+    }
+
+    private void BuildTrendStats(IReadOnlyList<DspFlowHistoryEntity> histories)
+    {
+        ResetTrendStats();
+        if (histories.Count == 0) return;
+
+        _periodCycleCount = histories.Count;
+        _periodIdleCount = histories.Count(h => h.IsIdle);
+
+        var ct = histories.Where(h => h.CT.HasValue).Select(h => (double)h.CT!.Value).ToList();
+        var mt = histories.Where(h => h.MT.HasValue).Select(h => (double)h.MT!.Value).ToList();
+        var wt = histories.Where(h => h.WT.HasValue).Select(h => (double)h.WT!.Value).ToList();
+
+        if (ct.Count > 0)
+        {
+            _periodAvgCT = ct.Average();
+            _periodMinCT = ct.Min();
+            _periodMaxCT = ct.Max();
+        }
+        if (mt.Count > 0) _periodAvgMT = mt.Average();
+        if (wt.Count > 0) _periodAvgWT = wt.Average();
+
+        _periodTotalMt = (long)mt.Sum();
+        _periodTotalWt = (long)wt.Sum();
+        var denom = _periodTotalMt + _periodTotalWt;
+        _periodUtilization = denom > 0 ? (double)_periodTotalMt / denom : 0.0;
+    }
+
+    private static List<TrendBucket> BuildBuckets(
+        IReadOnlyList<DspFlowHistoryEntity> histories,
+        DateTime periodStartLocal,
+        DateTime periodEndLocal,
+        string granularity)
+    {
+        if (histories.Count == 0) return [];
+
+        var agg = new Dictionary<DateTime, BucketAccumulator>();
+        foreach (var h in histories)
+        {
+            var localTs = h.RecordedAt.ToLocalTime();
+            var bucketStart = TruncateToBucket(localTs, granularity);
+            if (!agg.TryGetValue(bucketStart, out var acc))
+            {
+                acc = new BucketAccumulator();
+                agg[bucketStart] = acc;
+            }
+            acc.Count++;
+            if (h.IsIdle) acc.IdleCount++;
+            if (h.CT.HasValue) { acc.SumCt += h.CT.Value; acc.CountCt++; }
+            if (h.MT.HasValue) { acc.SumMt += h.MT.Value; acc.CountMt++; }
+            if (h.WT.HasValue) { acc.SumWt += h.WT.Value; acc.CountWt++; }
+        }
+
+        return agg
+            .OrderBy(kv => kv.Key)
+            .Select(kv => new TrendBucket(
+                kv.Key,
+                kv.Value.CountCt > 0 ? kv.Value.SumCt / (double)kv.Value.CountCt : 0,
+                kv.Value.CountMt > 0 ? kv.Value.SumMt / (double)kv.Value.CountMt : 0,
+                kv.Value.CountWt > 0 ? kv.Value.SumWt / (double)kv.Value.CountWt : 0,
+                kv.Value.Count,
+                kv.Value.IdleCount))
+            .ToList();
+    }
+
+    private static DateTime TruncateToBucket(DateTime localTs, string granularity)
+    {
+        return granularity switch
+        {
+            "hour" => new DateTime(localTs.Year, localTs.Month, localTs.Day, localTs.Hour, 0, 0, DateTimeKind.Local),
+            "day"  => localTs.Date,
+            "week" => localTs.Date.AddDays(-(int)localTs.DayOfWeek), // 일요일 시작
+            "month"=> new DateTime(localTs.Year, localTs.Month, 1, 0, 0, 0, DateTimeKind.Local),
+            _       => localTs.Date,
+        };
+    }
+
+    private async Task DrawTrendChartsAsync()
+    {
+        if (_disposed || _trendChartModule is null) return;
+        if (_periodCycleCount == 0) return;
+        try
+        {
+            // 버킷 시간 → ISO (local with offset). Chart.js time scale 이 그대로 표시.
+            var bucketsJs = _trendBuckets.Select(b => new
+            {
+                bucketStartIso = new DateTimeOffset(b.BucketStart, TimeZoneInfo.Local.GetUtcOffset(b.BucketStart)).ToString("o"),
+                avgCT = Math.Round(b.AvgCT / 1000.0, 3),
+                avgMT = Math.Round(b.AvgMT / 1000.0, 3),
+                avgWT = Math.Round(b.AvgWT / 1000.0, 3),
+                count = b.Count,
+                idleCount = b.IdleCount,
+            }).ToArray();
+
+            await _trendChartModule.InvokeVoidAsync("renderTrendChart", "flow-trend-chart", bucketsJs, _granularity);
+            if (_disposed) return;
+            await _trendChartModule.InvokeVoidAsync("renderCycleCountChart", "flow-cycle-count-chart", bucketsJs, _granularity);
+            if (_disposed) return;
+            await _trendChartModule.InvokeVoidAsync("renderTimeDistribution", "flow-time-distribution",
+                new { mt = _periodTotalMt, wt = _periodTotalWt });
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException) { /* circuit closed */ }
+        catch (TaskCanceledException) { }
+        catch (ObjectDisposedException) { }
+        catch (Exception) { /* canvas swapped out — ignore */ }
+    }
+
+    private static string BucketLabel(string g) => g switch
+    {
+        "hour"  => "1시간",
+        "day"   => "1일",
+        "week"  => "1주",
+        "month" => "1개월",
+        _        => g,
+    };
+
+    public async ValueTask DisposeAsync()
     {
         _disposed = true;
         DbService.OnDataChanged -= OnDbDataChanged;
+        _trendCts?.Cancel();
+        if (_trendChartModule is not null)
+        {
+            try { await _trendChartModule.DisposeAsync(); }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { }
+            catch { }
+        }
     }
+
+    private sealed class BucketAccumulator
+    {
+        public long SumCt;
+        public long SumMt;
+        public long SumWt;
+        public int CountCt;
+        public int CountMt;
+        public int CountWt;
+        public int Count;
+        public int IdleCount;
+    }
+
+    private sealed record TrendBucket(
+        DateTime BucketStart,
+        double AvgCT,
+        double AvgMT,
+        double AvgWT,
+        int Count,
+        int IdleCount);
 
     private sealed record CallInventoryRow(
         Guid CallId,

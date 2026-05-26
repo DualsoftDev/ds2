@@ -581,3 +581,34 @@
     border-color: var(--color-primary);
     box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb, 25, 118, 210), 0.15);
 }
+
+/* 행 우측 "상세" 미니 버튼 */
+.ct-row-detail-btn {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-primary);
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.ct-row-detail-btn:hover {
+    background: var(--color-primary);
+    color: #fff;
+}
+
+/* 팝업 헤더 "상세" 버튼 */
+.ct-popup-detail {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+

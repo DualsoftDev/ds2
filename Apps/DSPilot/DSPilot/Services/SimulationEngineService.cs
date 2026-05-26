@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Dapper;
 using DSPilot.Infrastructure;
@@ -43,8 +44,10 @@ public sealed class SimulationEngineService : IDisposable
     private readonly Dictionary<Guid, (DateTime startedAt, int count, double mean, double m2)> _callStats = new();
     private readonly object _statsLock = new();
 
-    // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용)
-    private readonly Dictionary<string, int> _plcTagIdByAddress = new(StringComparer.OrdinalIgnoreCase);
+    // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
+    // AASX 재로딩 후 EnsureUserTagAddressesRegistered() 가 background thread 에서 갱신할 수 있으므로
+    // ConcurrentDictionary — HandleHubTagChanged 의 lock-free read 와 안전하게 공존.
+    private readonly ConcurrentDictionary<string, int> _plcTagIdByAddress = new(StringComparer.OrdinalIgnoreCase);
 
     // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
     private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
@@ -261,6 +264,64 @@ public sealed class SimulationEngineService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Engine] BootstrapPlcTags failed");
+        }
+    }
+
+    /// <summary>
+    /// AASX 재로딩 후 새로 추가된 UserTag 주소를 plcTag 테이블 + 캐시에 등록.
+    /// 부재 시 HandleHubTagChanged 가 캐시 miss 로 plcTagLog INSERT 를 silent skip 하여
+    /// UserTagAlertService 의 폴링이 매칭 행을 찾지 못한다 (정의는 보이지만 기록이 안 되는 증상).
+    /// UserTagAlertService.RefreshDefinitionsIfChanged 가 호출.
+    /// </summary>
+    public void EnsureUserTagAddressesRegistered()
+    {
+        if (_engine is null) return; // 엔진 미초기화 — 첫 신호 도착 시 BootstrapPlcTags 가 처리
+
+        try
+        {
+            if (!_projectService.IsLoaded) return;
+
+            var store = _projectService.GetStore();
+            var newAddresses = new List<string>();
+            foreach (var r in store.GetAllUserTagsForProject())
+            {
+                if (string.IsNullOrWhiteSpace(r.TagAddress)) continue;
+                var addr = r.TagAddress.Trim();
+                if (!_plcTagIdByAddress.ContainsKey(addr))
+                    newAddresses.Add(addr);
+            }
+
+            if (newAddresses.Count == 0) return;
+
+            var dbPath = _pathResolver.GetSharedDbPath();
+            using var conn = new SqliteConnection($"Data Source={dbPath}");
+            conn.Open();
+            using (var tx = conn.BeginTransaction())
+            {
+                const string upsert = @"
+                    INSERT INTO plcTag (plcId, name, address, dataType)
+                    VALUES (1, @Name, @Addr, 'BOOL')
+                    ON CONFLICT(address) DO NOTHING";
+                foreach (var addr in newAddresses)
+                    conn.Execute(upsert, new { Name = addr, Addr = addr }, tx);
+                tx.Commit();
+            }
+
+            // 새로 INSERT 된 + 기존에 다른 시스템이 이미 넣어둔 행 모두 캐시에 반영.
+            foreach (var row in conn.Query<(int Id, string Address)>(
+                "SELECT id, address FROM plcTag WHERE address IN @Addrs",
+                new { Addrs = newAddresses }))
+            {
+                _plcTagIdByAddress[row.Address] = row.Id;
+            }
+
+            _logger.LogInformation(
+                "[Engine] Registered {Count} new UserTag address(es) for plcTagLog: {Sample}",
+                newAddresses.Count, string.Join(", ", newAddresses.Take(5)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Engine] EnsureUserTagAddressesRegistered failed");
         }
     }
 

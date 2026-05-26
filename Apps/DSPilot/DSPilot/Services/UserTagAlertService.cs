@@ -22,6 +22,7 @@ public sealed class UserTagAlertService : BackgroundService
 
     private readonly DsProjectService _projectService;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly SimulationEngineService _engineService;
     private readonly ILogger<UserTagAlertService> _logger;
 
     private readonly object _stateLock = new();
@@ -43,10 +44,12 @@ public sealed class UserTagAlertService : BackgroundService
     public UserTagAlertService(
         DsProjectService projectService,
         IServiceScopeFactory scopeFactory,
+        SimulationEngineService engineService,
         ILogger<UserTagAlertService> logger)
     {
         _projectService = projectService;
         _scopeFactory = scopeFactory;
+        _engineService = engineService;
         _logger = logger;
     }
 
@@ -185,6 +188,10 @@ public sealed class UserTagAlertService : BackgroundService
         _logger.LogInformation(
             "[UserTagAlert] definitions loaded: {Count} tag(s) across {SysCount} system(s)",
             defs.Count, defs.Select(d => d.SystemName).Distinct().Count());
+
+        // 새로 추가된 UserTag 주소를 plcTag/캐시에 반영.
+        // 부재 시 Hub 신호가 plcTagLog 에 기록되지 않아 폴링이 매칭할 행을 찾지 못함.
+        _engineService.EnsureUserTagAddressesRegistered();
     }
 
     private async Task PollOnceAsync(CancellationToken ct)
