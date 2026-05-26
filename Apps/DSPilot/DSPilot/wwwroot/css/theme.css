@@ -1,43 +1,43 @@
 /* ============================================
    DSPilot Theme Variables
-   MainLayout.razor PaletteLight 기반
+   Purple & Amber palette (Phase 1)
    ============================================ */
 
 :root {
-    /* Primary palette */
-    --color-primary: #0A1E5A;
-    --color-primary-rgb: 10, 30, 90;
-    --color-secondary: #FA002D;
-    --color-tertiary: #0569A0;
-    --color-info: #009BB4;
+    /* Primary palette — Purple & Amber */
+    --color-primary: #6750A4;
+    --color-primary-rgb: 103, 80, 164;
+    --color-secondary: #F59E0B;
+    --color-tertiary: #7C3AED;
+    --color-info: #0EA5E9;
     --color-success: #4CAF50;
-    --color-warning: #FF9800;
-    --color-error: #F44336;
+    --color-warning: #F59E0B;
+    --color-error: #EF4444;
     --color-success-rgb: 76, 175, 80;
-    --color-warning-rgb: 255, 152, 0;
-    --color-error-rgb: 244, 67, 54;
+    --color-warning-rgb: 245, 158, 11;
+    --color-error-rgb: 239, 68, 68;
 
     /* Surfaces */
-    --color-background: #F5F5F5;
+    --color-background: #FAF8FC;
     --color-surface: #FFFFFF;
-    --color-surface-variant: #F5F5F5;
-    --color-lines: rgba(0, 0, 0, 0.12);
+    --color-surface-variant: #F3EEF8;
+    --color-lines: rgba(26, 15, 46, 0.10);
 
     /* AppBar */
     --color-appbar-bg: #FFFFFF;
-    --color-appbar-text: #0A1E5A;
+    --color-appbar-text: #6750A4;
 
     /* Drawer */
     --color-drawer-bg: #FFFFFF;
-    --color-drawer-text: #212121;
-    --color-drawer-icon: #0A1E5A;
+    --color-drawer-text: #1F1147;
+    --color-drawer-icon: #6750A4;
     --drawer-width: 260px;
 
     /* Text */
-    --color-text-primary: #212121;
-    --color-text-secondary: #7D8282;
+    --color-text-primary: #1F1147;
+    --color-text-secondary: #6B6873;
     --color-text-disabled: #bdbdbd;
-    --color-action-default: #0A1E5A;
+    --color-action-default: #6750A4;
 
     /* Typography */
     --font-family: 'Noto Sans KR', sans-serif;

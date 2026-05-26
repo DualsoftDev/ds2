@@ -1,4 +1,6 @@
-@* 도면 레이아웃: 순수 HTML/CSS 기반 (SVG foreignObject 제거 → 선명한 네이티브 렌더링) *@
+@* Flow 카드 레이아웃 — Purple & Amber 재설계
+   - 카드 색 = 활동량 (MT > WT → primary / WT > MT → secondary)
+   - 단일 색상 테마: title / donut / status / progress 모두 --fc-accent *@
 <div style="position:relative; @Style; aspect-ratio:@CanvasWidth/@CanvasHeight; overflow:hidden; background:var(--color-background);"
      @onclick="OnBackgroundClicked" @onclick:stopPropagation>
 
@@ -17,12 +19,12 @@
         var inv = System.Globalization.CultureInfo.InvariantCulture;
 
         <div class="fl-card @(sel ? "fl-card-selected" : "")"
-             style="left:@(b.LeftPct.ToString("F4", inv))%; top:@(b.TopPct.ToString("F4", inv))%; width:@(b.WidthPct.ToString("F4", inv))%; height:@(b.HeightPct.ToString("F4", inv))%; --state-color:@(b.Color);"
+             style="left:@(b.LeftPct.ToString("F4", inv))%; top:@(b.TopPct.ToString("F4", inv))%; width:@(b.WidthPct.ToString("F4", inv))%; height:@(b.HeightPct.ToString("F4", inv))%; --fc-accent:@(b.AccentColor);"
              @onclick="() => OnBlockClicked(b.FlowName)" @onclick:stopPropagation>
 
-            <div class="fc-cq" style="--state-color:@(b.Color)">
+            <div class="fc-cq @(b.IsEmpty ? "fc-cq-empty" : "")">
                 <div class="fc-root">
-                    @* ── 헤더: 상태색 틴트 배경 + 제목 + 배지 ── *@
+                    @* ── 헤더: 제목 + 배지 ── *@
                     <div class="fc-header">
                         <div class="fc-title">@b.FlowName</div>
                         @if (b.Badges.Count > 0)
@@ -31,7 +33,7 @@
                                 @foreach (var badge in b.Badges)
                                 {
                                     <span class="fc-badge"
-                                          style="background: @badge.Color; border-color: @badge.Color; color: #fff;">
+                                          style="background:@badge.Color; border-color:@badge.Color; color:#fff;">
                                         @badge.Label
                                     </span>
                                 }
@@ -39,68 +41,46 @@
                         }
                     </div>
 
-                    @* ── 본문: 도넛(좌) + 통계(우) ── *@
-                    <div class="fc-body @(b.IsVertical ? "fc-body-vertical" : "")">
-                        <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-full")">
+                    @* ── 본문: 도넛 + 정보 ── *@
+                    <div class="fc-body @(b.IsVertical ? "fc-body-vertical" : "") @(b.ShowStats ? "" : "fc-chart-only")">
+                        <div class="fc-chart">
                             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                                <defs>
-                                    <linearGradient id="mt-g-@b.GradientId" x1="0%" y1="0%" x2="0%" y2="100%">
-                                        <stop offset="0%" stop-color="#4285f4" />
-                                        <stop offset="100%" stop-color="#4285f4" stop-opacity="0.7" />
-                                    </linearGradient>
-                                    <linearGradient id="wt-g-@b.GradientId" x1="0%" y1="0%" x2="0%" y2="100%">
-                                        <stop offset="0%" stop-color="#F48FB1" />
-                                        <stop offset="100%" stop-color="#F48FB1" stop-opacity="0.7" />
-                                    </linearGradient>
-                                </defs>
                                 <g transform="rotate(-90 50 50)">
-                                    <circle cx="50" cy="50" r="40" fill="none"
-                                            stroke="#eee" stroke-width="9" />
+                                    <circle class="fc-donut-bg" cx="50" cy="50" r="40"
+                                            fill="none" stroke-width="10" />
                                     @if (b.MtFrac > 0)
                                     {
-                                        <circle cx="50" cy="50" r="40" fill="none"
-                                                stroke="url(#mt-g-@b.GradientId)" stroke-width="9"
-                                                stroke-dasharray="@b.SMtDash @b.SCirc" />
-                                    }
-                                    @if (b.WtFrac > 0)
-                                    {
-                                        <circle cx="50" cy="50" r="40" fill="none"
-                                                stroke="url(#wt-g-@b.GradientId)" stroke-width="9"
-                                                stroke-dasharray="@b.SWtDash @b.SCirc"
-                                                stroke-dashoffset="@b.SNegMt" />
+                                        <circle class="fc-donut-arc" cx="50" cy="50" r="40"
+                                                fill="none" stroke-width="10"
+                                                stroke-dasharray="@b.SMtDash @b.SCirc"
+                                                stroke-linecap="round" />
                                     }
                                 </g>
-                                @* 도넛 테두리 (외곽/내곽) *@
-                                <circle cx="50" cy="50" r="44.5" fill="none"
-                                        stroke="rgba(0,0,0,0.08)" stroke-width="0.5" />
-                                <circle cx="50" cy="50" r="35.5" fill="none"
-                                        stroke="rgba(0,0,0,0.08)" stroke-width="0.5" />
                             </svg>
                             <span class="fc-chart-label">@FormatMs(b.Total)</span>
                         </div>
 
                         @if (b.ShowStats)
                         {
-                            <div class="fc-stats">
-                                <div class="fc-state-label">@b.StateLabel</div>
-                                <div class="fc-stat-row">
-                                    <span class="fc-dot fc-dot-mt"></span>
-                                    <span class="fc-stat-label">가동</span>
-                                    <span class="fc-stat-value">@FormatMs(b.Mt)</span>
+                            <div class="fc-info">
+                                <div class="fc-status">@b.StateLabel</div>
+                                <div class="fc-time-row">
+                                    <span class="fc-time-label">가동</span>
+                                    <span class="fc-time-value">@FormatMs(b.Mt)</span>
                                 </div>
-                                <div class="fc-stat-row">
-                                    <span class="fc-dot fc-dot-wt"></span>
-                                    <span class="fc-stat-label">대기</span>
-                                    <span class="fc-stat-value">@FormatMs(b.Wt)</span>
+                                <div class="fc-time-row">
+                                    <span class="fc-time-label">대기</span>
+                                    <span class="fc-time-value">@FormatMs(b.Wt)</span>
                                 </div>
                             </div>
                         }
                     </div>
 
-                    @if (!b.ShowStats)
-                    {
-                        <div class="fc-footer">@b.StateLabel</div>
-                    }
+                    @* ── 하단 progress bar (가동율) ── *@
+                    <div class="fc-progress">
+                        <div class="fc-progress-fill"
+                             style="width:@(b.MtPercent.ToString("F1", inv))%"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -144,12 +124,13 @@
     {
         // 데이터
         public required string FlowName { get; init; }
-        public required string Color { get; init; }
+        public required string AccentColor { get; init; }  // --fc-accent (CSS 변수 또는 hex)
         public required string StateLabel { get; init; }
-        public required bool HasMtWt { get; init; }
+        public required bool IsEmpty { get; init; }
         public required int Mt { get; init; }
         public required int Wt { get; init; }
         public required int Total { get; init; }
+        public required double MtPercent { get; init; }    // progress bar 너비 (%)
         public required List<(string Label, string Color)> Badges { get; init; }
 
         // CSS 퍼센트 좌표
@@ -162,21 +143,14 @@
         public required bool ShowStats { get; init; }
         public required bool IsVertical { get; init; }
 
-        // 도넛 SVG gradient ID
-        public required string GradientId { get; init; }
-
-        // 도넛 비율 (viewBox 100x100 기준, r=40, sw=9)
+        // 도넛 비율 (viewBox 100x100, r=40)
         public required double MtFrac { get; init; }
-        public required double WtFrac { get; init; }
         public required string SCirc { get; init; }
         public required string SMtDash { get; init; }
-        public required string SWtDash { get; init; }
-        public required string SNegMt { get; init; }
     }
 
     private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp, int minContentW, int pad)
     {
-        var color      = GetColor?.Invoke(fp) ?? "#4CAF50";
         var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
         var mtWt       = GetMtWt?.Invoke(fp);
 
@@ -201,34 +175,40 @@
         var mt    = mtWt?.Mt ?? 0;
         var wt    = mtWt?.Wt ?? 0;
         var total = mt + wt;
+        var isEmpty = !hasMtWt || total <= 0;
+
+        // 활동량 기반 accent: 가동 dominant → primary(purple), 대기 dominant → secondary(amber)
+        // 데이터 없음 → 회색 (.fc-cq-empty 클래스로 처리)
+        string accent;
+        if (isEmpty)
+            accent = "var(--color-text-secondary)";
+        else if (mt >= wt)
+            accent = "var(--color-primary)";
+        else
+            accent = "var(--color-secondary)";
 
         // 도넛 비율
-        var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
-        var wtFrac = hasMtWt ? 1.0 - mtFrac : 0.0;
+        var mtFrac = total > 0 ? (double)mt / total : 0.0;
         const double circ = 2 * Math.PI * 40;
         var mtDash = circ * mtFrac;
-        var wtDash = circ * wtFrac;
 
         var inv     = System.Globalization.CultureInfo.InvariantCulture;
         var sCirc   = circ.ToString("F1", inv);
         var sMtDash = mtDash.ToString("F1", inv);
-        var sWtDash = wtDash.ToString("F1", inv);
-        var sNegMt  = (-mtDash).ToString("F1", inv);
 
-        var gradientId = $"g{(fp.FlowName.GetHashCode() & 0x7FFFFFFF)}";
         var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
 
         return new FlowBlockLayout
         {
-            FlowName = fp.FlowName, Color = color, StateLabel = stateLabel,
-            HasMtWt = hasMtWt, Mt = mt, Wt = wt, Total = total,
+            FlowName = fp.FlowName, AccentColor = accent, StateLabel = stateLabel,
+            IsEmpty = isEmpty, Mt = mt, Wt = wt, Total = total,
+            MtPercent = mtFrac * 100.0,
             Badges = badges,
             LeftPct = leftPct, TopPct = topPct,
             WidthPct = widthPct, HeightPct = heightPct,
             ShowStats = showStats, IsVertical = isVertical,
-            GradientId = gradientId,
-            MtFrac = mtFrac, WtFrac = wtFrac,
-            SCirc = sCirc, SMtDash = sMtDash, SWtDash = sWtDash, SNegMt = sNegMt,
+            MtFrac = mtFrac,
+            SCirc = sCirc, SMtDash = sMtDash,
         };
     }
 

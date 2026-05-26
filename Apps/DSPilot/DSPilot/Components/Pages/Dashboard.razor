@@ -262,7 +262,7 @@ else
                                         var fillPct     = _maxCtVal > 0 ? flow.CT * 100.0 / _maxCtVal : 0;
                                         var mtPct       = flow.CT > 0 ? flow.MT * 100.0 / flow.CT : 0;
                                         var wtPct       = 100.0 - mtPct;
-                                        var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "#F48FB1" : "";
+                                        var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "var(--color-secondary)" : "";
                                         var categoryLabel = isMaxCT ? "최대시간" : isMinCT ? "최소시간" : isMaxWT ? "최대대기" : "";
                                         var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
                                         var flowState = GetFlowStateLabel(fn);
@@ -296,7 +296,7 @@ else
                                                 }
                                                 @if (isMaxWT)
                                                 {
-                                                    <span class="ct-badge-pill" style="background:#F48FB1;">대기</span>
+                                                    <span class="ct-badge-pill" style="background:var(--color-secondary);">대기</span>
                                                 }
                                             </div>
                                             <div class="ct-row-footer">
@@ -358,7 +358,7 @@ else
                 <div class="ct-tooltip-badges">
                     @if (hIsMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
                     @if (hIsMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
-                    @if (hIsMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                    @if (hIsMaxWT) { <span class="ct-badge-pill" style="background:var(--color-secondary);">최대대기율</span> }
                 </div>
             }
             <div class="ct-tooltip-grid">
@@ -404,7 +404,7 @@ else
                 <div class="ct-popup-badges">
                     @if (isMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
                     @if (isMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
-                    @if (isMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                    @if (isMaxWT) { <span class="ct-badge-pill" style="background:var(--color-secondary);">최대대기율</span> }
                 </div>
             }
             <div class="ct-popup-bar-section">
@@ -424,7 +424,7 @@ else
                 </div>
                 <div class="ct-popup-item">
                     <span class="ct-popup-label">대기시간 (WT)</span>
-                    <span class="ct-popup-val" style="color:#F48FB1;">@FormatMs(pWT)</span>
+                    <span class="ct-popup-val" style="color:var(--color-secondary);">@FormatMs(pWT)</span>
                 </div>
                 <div class="ct-popup-item">
                     <span class="ct-popup-label">전체시간 (CT)</span>
@@ -465,7 +465,7 @@ else
                                 </div>
                                 <div class="ct-history-values">
                                     <span style="color:#0569A0;">MT: @FormatMs(histMT)</span>
-                                    <span style="color:#F48FB1;">WT: @FormatMs(histWT)</span>
+                                    <span style="color:var(--color-secondary);">WT: @FormatMs(histWT)</span>
                                     <span style="font-weight:600;">CT: @FormatMs(histCT)</span>
                                 </div>
                             </div>
@@ -489,7 +489,7 @@ else
     private int _cw, _ch, _cellW, _cellH, _ox, _oy;
     private readonly Dictionary<Guid, int> _systemColorIndex = [];
     private static readonly string[] SystemColors =
-        ["#0A1E5A", "#1A3A7A", "#2D5499", "#4070B8", "#5A8CD7"];
+        ["#3D2F66", "#5B3F8C", "#6750A4", "#8C76C2", "#B197FC"];
     private static readonly (string Label, string Color)[] _stateLegend =
     [
         ("Ready", "#4CAF50"), ("Going", "#EAB308"), ("Finish", "#2196F3"),
@@ -843,7 +843,7 @@ else
     {
         if (flowName == _maxCtName) yield return ("최대", "#ef5350");
         if (flowName == _minCtName) yield return ("최소", "#26a69a");
-        if (flowName == _maxWtName) yield return ("대기", "#F48FB1");
+        if (flowName == _maxWtName) yield return ("대기", "var(--color-secondary)");
     }
 
     private string GetSystemColor(Guid systemId)
