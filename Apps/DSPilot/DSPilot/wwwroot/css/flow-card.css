@@ -55,12 +55,12 @@
 }
 
 /* ═══════════════════════════════════════════
-   Container Query 컨테이너 + accent 변수
-   - 기본은 활동량에 따라 부여되지만 안전한 fallback 으로 primary
-   - 사용처(FlowLayoutSvg)에서 인라인 `--fc-accent` 로 오버라이드
+   Container Query 컨테이너
+   - `--fc-accent`(활동량) / `--fc-state`(상태) 는 부모 `.fl-card` 의 인라인 스타일로 주입.
+     여기서 재선언하면 인라인 오버라이드가 끊겨 모든 카드가 같은 색이 되므로
+     선언을 두지 않고 부모로부터 상속받게 둔다.
    ═══════════════════════════════════════════ */
 .fc-cq {
-    --fc-accent: var(--color-primary);
     width: 100%;
     height: 100%;
     box-sizing: border-box;
@@ -130,7 +130,10 @@
 }
 
 /* ═══════════════════════════════════════════
-   본문: 도넛(좌) + 정보(우)
+   본문: 카드 종횡비에 따른 배치 (container query)
+     - 기본 (1:2 < ar < 2:1) → 도넛만 (info 숨김, 상태는 도넛 중앙)
+     - ar ≥ 2:1 → 좌우 배치 (도넛 좌, 통계 우)
+     - ar ≤ 1:2 → 상하 배치 (도넛 위, 통계 아래)
    ═══════════════════════════════════════════ */
 .fc-body {
     display: flex;
@@ -142,12 +145,6 @@
     margin-top: 2cqmin;
 }
 
-.fc-body.fc-body-vertical {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 2cqmin;
-}
-
 /* ── 도넛 차트 영역 ── */
 .fc-chart {
     position: relative;
@@ -155,34 +152,44 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 38%;
+    width: 100%;
     aspect-ratio: 1 / 1;
     max-height: 100%;
 }
 
-.fc-body-vertical .fc-chart {
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    max-height: 50%;
-}
-
-.fc-chart.fc-chart-full {
-    width: 100%;
-}
-
 .fc-chart svg {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     display: block;
 }
 
-.fc-chart-label {
+/* 도넛 중앙 — 시간 + (상세 UI 없을 때) 상태 라벨 스택 */
+.fc-chart-center {
     position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5cqmin;
+    pointer-events: none;
+}
+
+.fc-chart-label {
     font-weight: 700;
     font-size: clamp(0.5rem, 8cqmin, 0.95rem);
     color: var(--color-text-primary);
     line-height: 1;
-    pointer-events: none;
+}
+
+.fc-chart-state {
+    font-size: clamp(0.4rem, 5cqmin, 0.7rem);
+    font-weight: 600;
+    color: var(--fc-state);
+    line-height: 1;
+    white-space: nowrap;
 }
 
 /* 도넛 SVG 요소 색상 */
@@ -194,10 +201,10 @@
     transition: stroke-dasharray 0.3s ease;
 }
 
-/* ── 정보 영역: 상태 텍스트 + 가동/대기 행 ── */
+/* ── 정보 영역: 상태 텍스트 + 가동/대기 행 (기본은 숨김, 비율 조건 충족 시 노출) ── */
 .fc-info {
     flex: 1;
-    display: flex;
+    display: none;
     flex-direction: column;
     justify-content: center;
     gap: 1.2cqmin;
@@ -210,17 +217,17 @@
     gap: 5px;
     font-size: clamp(0.55rem, 7cqmin, 0.9rem);
     font-weight: 600;
-    color: var(--fc-accent);
+    color: var(--fc-state);
     margin-bottom: 0.5cqmin;
 }
 
 .fc-status::before {
     content: '';
     display: inline-block;
-    width: clamp(4px, 4cqmin, 8px);
-    height: clamp(4px, 4cqmin, 8px);
-    border-radius: 50%;
-    background: var(--fc-accent);
+    width: clamp(6px, 5cqmin, 10px);
+    height: clamp(6px, 5cqmin, 10px);
+    border-radius: 3px;
+    background: var(--fc-state);
     flex-shrink: 0;
 }
 
@@ -265,13 +272,28 @@
 }
 
 /* ═══════════════════════════════════════════
-   소형 카드: 본문 정보 숨김 (도넛만)
+   카드 종횡비 분기 (container queries)
+     기준: 카드(.fc-cq) 자체의 width/height 비율
    ═══════════════════════════════════════════ */
-.fc-chart-only .fc-info { display: none; }
-.fc-chart-only .fc-chart { width: 100%; }
 
-/* 데이터 없음 — 가시성 낮춤 */
-.fc-cq.fc-cq-empty {
-    --fc-accent: var(--color-text-secondary);
+/* 가로 ≥ 2:1 → 좌우 배치 (도넛 좌, 통계 우) */
+@container (min-aspect-ratio: 2/1) {
+    .fc-chart { width: 38%; }
+    .fc-info { display: flex; }
+    .fc-chart-state { display: none; }
 }
+
+/* 세로 ≥ 2:1 (= 가로 ≤ 1:2) → 상하 배치 (도넛 위, 통계 아래) */
+@container (max-aspect-ratio: 1/2) {
+    .fc-body {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2cqmin;
+    }
+    .fc-chart { width: 100%; max-height: 50%; }
+    .fc-info { display: flex; }
+    .fc-chart-state { display: none; }
+}
+
+/* 데이터 없음 — 가시성 낮춤 (accent/state 색은 razor 측에서 회색으로 주입) */
 .fc-cq.fc-cq-empty .fc-progress-fill { width: 0 !important; }

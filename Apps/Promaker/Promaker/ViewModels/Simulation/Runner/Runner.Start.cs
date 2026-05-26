@@ -115,11 +115,13 @@ public partial class SimulationPanelState
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
 
-            // Hub 모드 진입 직전 — 현재 store 를 DSPilot 공유 AASX 경로에 자동 export.
-            // DSPilot 은 같은 파일을 읽어 dspFlow/dspCall 을 생성하므로, 사용자가 별도로 "공유 위치에 저장"
-            // 을 누르지 않아도 모니터링 시작과 동시에 두 앱이 같은 모델을 보게 된다.
+            // Agent 위임 모드 (Monitoring + 실 PLC) 진입 직전 — 현재 store 를 DSPilot 공유 AASX 경로에 자동 export.
+            // Promaker.Agent (SYSTEM) 이 같은 파일을 IOMap 빌드용으로 읽고 DSPilot 이 dspFlow/dspCall 적재 →
+            // "Agent 전송" 한 번에 두 소비자가 같은 모델을 보게 된다.
+            // Control / VirtualPlant / Monitoring(가상 PLC) 에서는 BackendHost 가 없어 DSPilot 실시간 데이터가
+            // 비어 있으므로 publish 의 실효 가치 없음 — 광역 publish 는 false 외부변경 알림과 디스크 IO 만 유발.
             // 실패해도 시뮬 시작은 막지 않음 — DSPilot 동기화는 부가 기능.
-            if (SelectedRuntimeMode != RuntimeMode.Simulation && PublishAasxForHubMode is not null)
+            if (IsAgentDelegationMode && PublishAasxForHubMode is not null)
             {
                 try
                 {

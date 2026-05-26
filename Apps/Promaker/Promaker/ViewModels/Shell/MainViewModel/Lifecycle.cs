@@ -51,7 +51,7 @@ public partial class MainViewModel
         LlmChatVm?.UpdateStore(_store);
 
         _currentFilePath = null;
-        FileWatcher.ResetMTime();
+        FileWatcher.ResetSignature();
         _loadedAsLossy = false;
         IsDirty = false;
         HasProject = false;

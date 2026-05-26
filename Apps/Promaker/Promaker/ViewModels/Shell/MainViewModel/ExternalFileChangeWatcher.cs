@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using log4net;
 using Promaker.Services;
 
@@ -7,7 +8,12 @@ namespace Promaker.ViewModels;
 
 /// <summary>
 /// 외부 에디터 등으로 현재 열린 파일이 변경되었는지 윈도우 포커스 복귀 시 비교 → 사용자 확인 후 reload.
-/// MainViewModel 의 partial 에서 분리. mtime 캐시 + 재진입 가드 + reload 흐름 코디네이션을 보유.
+/// MainViewModel 의 partial 에서 분리. signature(mtime+sha256) 캐시 + 재진입 가드 + reload 흐름 코디네이션을 보유.
+///
+/// 비교는 2단계 — 1차 mtime (싸다) 으로 후보 검출 → 2차 SHA256 으로 콘텐츠 동일성 확인.
+/// 콘텐츠 동일이면 (자기 자신의 silent re-export · 백업 도구 touch · AV stamp 등) silent 하게 캐시만 갱신,
+/// dialog 띄우지 않음. Promaker 자체의 <see cref="MainViewModel.TryPublishAasxToSharedForDspilot"/> 가
+/// CompleteSave 를 거치지 않고 디스크에 다시 쓰는 케이스(특히 Agent 전송 연타) 의 false dialog 를 막는다.
 ///
 /// reload 경로는 OpenFilePath → _store.LoadFromFile / ReplaceStore / importIntoStore 중 하나로 분기되며,
 /// 모두 DsStore.ApplyNewStore hook 을 통과 → Revision++ → LLM snapshot 다음 turn 자동 첨부.
@@ -17,6 +23,7 @@ public sealed class ExternalFileChangeWatcher
     private static readonly ILog Log = LogManager.GetLogger("Promaker");
 
     private DateTime? _currentFileMTime;
+    private string?   _currentFileSha256;
     private bool      _checkInProgress;
 
     private readonly Func<string?> _currentFilePath;
@@ -42,11 +49,20 @@ public sealed class ExternalFileChangeWatcher
         _openFilePath           = openFilePath;
     }
 
-    /// <summary>Open / Save 완료 직후 호출 — 현재 디스크 mtime 을 캐시.</summary>
-    public void RecordMTime() => _currentFileMTime = TryReadFileMTime(_currentFilePath());
+    /// <summary>Open / Save 완료 직후 호출 — 현재 디스크 signature(mtime+sha256) 를 캐시.</summary>
+    public void RecordSignature()
+    {
+        var path = _currentFilePath();
+        _currentFileMTime  = TryReadFileMTime(path);
+        _currentFileSha256 = TryReadFileSha256(path);
+    }
 
-    /// <summary>CSV import 등 mtime 비교가 의미 없어진 시점에 호출.</summary>
-    public void ResetMTime() => _currentFileMTime = null;
+    /// <summary>CSV import 등 signature 비교가 의미 없어진 시점에 호출.</summary>
+    public void ResetSignature()
+    {
+        _currentFileMTime  = null;
+        _currentFileSha256 = null;
+    }
 
     private static DateTime? TryReadFileMTime(string? path)
     {
@@ -66,9 +82,33 @@ public sealed class ExternalFileChangeWatcher
         }
     }
 
+    private static string? TryReadFileSha256(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            return null;
+
+        try
+        {
+            using var sha = SHA256.Create();
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            return Convert.ToHexString(sha.ComputeHash(stream));
+        }
+        catch (IOException ex)
+        {
+            Log.Warn($"외부 파일 sha256 읽기 실패 ({path}): {ex.Message}");
+            return null;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Log.Warn($"외부 파일 sha256 권한 거부 ({path}): {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>
     /// 윈도우 포커스 복귀 시 호출 — 외부 변경 감지 + reload prompt.
     /// IsDirty 시 표준 ConfirmDiscardChanges (Save/Discard/Cancel 3 분기) 흐름으로 분기.
+    /// 1차 mtime 후보 검출 → 2차 SHA256 콘텐츠 동일성 확인. 콘텐츠 동일이면 dialog skip.
     /// </summary>
     public void CheckChange()
     {
@@ -77,15 +117,27 @@ public sealed class ExternalFileChangeWatcher
         if (path is null || _currentFileMTime is null) return;
         if (!File.Exists(path)) return;
 
-        var current = TryReadFileMTime(path);
-        if (current is null) return;
-        if (current.Value <= _currentFileMTime.Value) return;
+        var currentMTime = TryReadFileMTime(path);
+        if (currentMTime is null) return;
+        if (currentMTime.Value <= _currentFileMTime.Value) return;
+
+        // mtime 만 바뀌었을 수 있음 — 콘텐츠 동일이면 (Promaker 자체의 silent re-export, AV/백업 touch 등)
+        // dialog 띄우지 않고 캐시만 갱신. sha256 미상(이전 캐시 실패)이면 안전하게 dialog 진행.
+        var currentSha = TryReadFileSha256(path);
+        if (_currentFileSha256 is not null
+            && currentSha is not null
+            && string.Equals(_currentFileSha256, currentSha, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Info($"[external-mtime] mtime 변경 but sha256 동일 — silent skip (path={Path.GetFileName(path)})");
+            _currentFileMTime = currentMTime;
+            return;
+        }
 
         _checkInProgress = true;
         try
         {
             var fileName = Path.GetFileName(path);
-            Log.Info($"[external-mtime] detected change file={fileName} prev={_currentFileMTime.Value:O} curr={current.Value:O} isDirty={_isDirty()}");
+            Log.Info($"[external-mtime] detected change file={fileName} prev={_currentFileMTime.Value:O} curr={currentMTime.Value:O} sha256Changed=true isDirty={_isDirty()}");
             var alertMsg = _isDirty()
                 ? $"외부에서 파일이 변경되었습니다:\n  {fileName}\n\n" +
                   $"현재 편집 중인 변경 내용이 있습니다.\n" +
@@ -98,9 +150,10 @@ public sealed class ExternalFileChangeWatcher
 
             if (!_dialogService.Confirm(alertMsg, "외부 파일 변경 감지"))
             {
-                // 사용자가 거절 — 다음 변경까지는 재질의 안 하도록 mtime 갱신.
+                // 사용자가 거절 — 다음 변경까지는 재질의 안 하도록 signature 갱신.
                 Log.Info($"[external-mtime] user declined reload file={fileName} — suppress until next change");
-                _currentFileMTime = current;
+                _currentFileMTime  = currentMTime;
+                _currentFileSha256 = currentSha;
                 return;
             }
 
@@ -113,7 +166,7 @@ public sealed class ExternalFileChangeWatcher
                 return;
             }
 
-            // OpenFilePath 가 BeginInvoke 로 분기되므로 mtime 은 CompleteOpen 안에서 다시 기록됨.
+            // OpenFilePath 가 BeginInvoke 로 분기되므로 signature 는 CompleteOpen 안에서 다시 기록됨.
             Log.Info($"[external-mtime] reload 진행 file={fileName}");
             _openFilePath(path);
         }

@@ -21,8 +21,8 @@
     <section class="card user-tags-hero">
         <div class="user-tags-hero-top">
             <div>
-                <div class="user-tags-eyebrow">UserTag Alerts</div>
-                <h4 class="user-tags-title">UserTag 알림 / 추이</h4>
+                <div class="user-tags-eyebrow">이상발생 관리 · UserTag Alerts</div>
+                <h4 class="user-tags-title">이상발생 관리</h4>
                 <div class="user-tags-subtitle">
                     AASX 에 정의된 UserTag 가 PLC 에서 조건 충족 시 자동 기록된 이벤트의 실시간 + 기간별 추이입니다.
                 </div>
@@ -32,6 +32,33 @@
                     <span class="chip chip-level-info" title="Info">INFO @(_levelCounts.GetValueOrDefault("Info", 0))</span>
                     <span class="chip chip-level-warning" title="Warning">WARN @(_levelCounts.GetValueOrDefault("Warning", 0))</span>
                     <span class="chip chip-level-error" title="Error">ERR @(_levelCounts.GetValueOrDefault("Error", 0))</span>
+                </div>
+            </div>
+        </div>
+
+        @* 운영 지표 — 기존 chip 위에 한 줄로 "관제 상황판" 메시지. 데모 어필용. *@
+        <div class="ut-ops-row">
+            <div class="ut-ops-item @(_activeErrorCount > 0 ? "ut-ops-error" : "ut-ops-ok")">
+                <span class="material-icons ut-ops-icon">@(_activeErrorCount > 0 ? "crisis_alert" : "check_circle")</span>
+                <div class="ut-ops-text">
+                    <div class="ut-ops-label">진행중 이상 <span class="ut-ops-hint">(최근 10분 Error)</span></div>
+                    <div class="ut-ops-value">@_activeErrorCount<span class="ut-ops-unit">건</span></div>
+                </div>
+            </div>
+            <div class="ut-ops-item">
+                <span class="material-icons ut-ops-icon">today</span>
+                <div class="ut-ops-text">
+                    <div class="ut-ops-label">오늘 신규 Error</div>
+                    <div class="ut-ops-value">@_todayErrorCount<span class="ut-ops-unit">건</span></div>
+                </div>
+            </div>
+            <div class="ut-ops-item">
+                <span class="material-icons ut-ops-icon">history</span>
+                <div class="ut-ops-text">
+                    <div class="ut-ops-label">마지막 이상 발생</div>
+                    <div class="ut-ops-value ut-ops-value-sm">
+                        @(_lastAlertAt.HasValue ? _lastAlertAt.Value.ToLocalTime().ToString("MM-dd HH:mm:ss") : "-")
+                    </div>
                 </div>
             </div>
         </div>
@@ -269,6 +296,13 @@
     private IReadOnlyList<UserTagAlertTopRow> _topRows = Array.Empty<UserTagAlertTopRow>();
     private IReadOnlyDictionary<string, int> _levelCounts = new Dictionary<string, int>();
     private int _totalCount;
+
+    // 히어로 운영지표 — 기간 필터와 무관하게 "지금 현재" 관제 상황 표시.
+    // 활성 = 최근 10분 내 Error 발생 (UserTagAlertRecord 에 Resolved 상태 모델 부재 → 시간 윈도우 정의).
+    private int _activeErrorCount;
+    private int _todayErrorCount;
+    private DateTime? _lastAlertAt;
+    private static readonly TimeSpan ActiveAlertWindow = TimeSpan.FromMinutes(10);
     private int _page;
     private int _definitionsPage;
     private bool _showDefinitions = true;
@@ -406,6 +440,15 @@
             _buckets = await AlertRepo.GetBucketCountsAsync(startUtc, endUtc, _granularity, name, level, sys, ct);
             _topRows = await AlertRepo.GetTopByNameAsync(startUtc, endUtc, 10, level, sys, ct);
             _levelCounts = await AlertRepo.GetLevelCountsAsync(startUtc, endUtc, name, sys, ct);
+
+            // 히어로 운영지표 — 사용자 필터(name/level/system) 와 무관하게 "지금 관제 상황" 으로 고정.
+            var nowUtc = DateTime.UtcNow;
+            var todayStartUtc = DateTime.Now.Date.ToUniversalTime();
+            _activeErrorCount = await AlertRepo.CountAlertsAsync(nowUtc - ActiveAlertWindow, nowUtc, null, "Error", null, ct);
+            _todayErrorCount = await AlertRepo.CountAlertsAsync(todayStartUtc, nowUtc, null, "Error", null, ct);
+            var latest = await AlertRepo.GetLatestAlertsAsync(1, ct);
+            _lastAlertAt = latest.Count > 0 ? latest[0].OccurredAt : null;
+
             _initError = null;
         }
         catch (OperationCanceledException)

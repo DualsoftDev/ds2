@@ -142,3 +142,44 @@ window.uiUtils = {
         this._elementSizeObservers.delete(element);
     }
 };
+
+// ── Flow Layout auto-orient: 부모 컨테이너 가용 영역의 가로/세로 비를 측정해
+//    Blazor 컴포넌트(FlowLayoutSvg) 에 알려주어 Col/Row 전치(transpose) 결정에 사용.
+window.flowLayoutAutoOrient = {
+    _observers: new Map(),
+
+    observe: function (element, dotNetRef) {
+        if (!element || !dotNetRef) return;
+        this.unobserve(element);
+
+        var notify = function () {
+            var parent = element.parentElement;
+            if (!parent) return;
+            var w = parent.clientWidth || parent.getBoundingClientRect().width || 0;
+            var h = parent.clientHeight || parent.getBoundingClientRect().height || 0;
+            if (w <= 0 || h <= 0) return;
+            dotNetRef.invokeMethodAsync('OnContainerAspect', w, h).catch(function () { });
+        };
+
+        var entry = { ro: null, onResize: notify };
+        if (window.ResizeObserver) {
+            entry.ro = new ResizeObserver(notify);
+            var parent = element.parentElement;
+            if (parent) entry.ro.observe(parent);
+            entry.ro.observe(element);
+        }
+        window.addEventListener('resize', notify, { passive: true });
+        this._observers.set(element, entry);
+        // 첫 측정은 레이아웃 정착 후 실행
+        setTimeout(notify, 0);
+    },
+
+    unobserve: function (element) {
+        if (!element) return;
+        var entry = this._observers.get(element);
+        if (!entry) return;
+        if (entry.ro) entry.ro.disconnect();
+        if (entry.onResize) window.removeEventListener('resize', entry.onResize);
+        this._observers.delete(element);
+    }
+};

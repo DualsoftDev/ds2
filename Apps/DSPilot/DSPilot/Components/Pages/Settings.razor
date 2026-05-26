@@ -324,7 +324,7 @@ else
             RefreshAasxStatus();
             await InvokeAsync(StateHasChanged);
             await JS.InvokeVoidAsync("uiUtils.showSnackbar",
-                "Promaker 에서 AASX 모델이 변경되었습니다. 반영하려면 \"AASX 모델 다시 불러오기\" 를 누르세요.",
+                "Promaker AASX 변경 감지 — 자동으로 다시 불러왔습니다. (사라진 Flow 정리·레이아웃 재배치 포함, 이전 레이아웃은 백업)",
                 "info");
         }
         catch (ObjectDisposedException) { /* 페이지 이탈 */ }

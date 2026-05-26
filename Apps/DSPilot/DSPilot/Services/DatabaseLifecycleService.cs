@@ -17,6 +17,7 @@ public sealed class DatabaseLifecycleService
     private readonly DsProjectService _projectService;
     private readonly AppSettingsService _settingsService;
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly BlueprintService _blueprint;
     private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -29,6 +30,7 @@ public sealed class DatabaseLifecycleService
         DsProjectService projectService,
         AppSettingsService settingsService,
         IDatabasePathResolver pathResolver,
+        BlueprintService blueprint,
         IHubContext<MonitoringHub> hubContext,
         ILogger<DatabaseLifecycleService> logger)
     {
@@ -39,6 +41,7 @@ public sealed class DatabaseLifecycleService
         _projectService = projectService;
         _settingsService = settingsService;
         _pathResolver = pathResolver;
+        _blueprint = blueprint;
         _hubContext = hubContext;
         _logger = logger;
     }
@@ -148,6 +151,104 @@ public sealed class DatabaseLifecycleService
         {
             _logger.LogError(ex, "[DBLifecycle] ReloadAasx failed");
             return new RebuildResult(false, $"AASX 재로딩 실패: {ex.Message}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 디스크 AASX 재로딩 + 모델 정의 동기화(UPSERT) + 사라진 Flow 의 stale 행 정리 + Layout 자동 재배치.
+    /// 살아남은 Flow 의 통계 / 히스토리는 보존된다 (전체 초기화는 <see cref="RebuildDatabaseAsync"/> 사용).
+    /// 사용처: Promaker "agent 보내기" 등으로 외부에서 project.aasx 가 변경됐을 때 자동 호출.
+    /// </summary>
+    public async Task<RebuildResult> ReloadAndResyncAsync()
+    {
+        if (!await _gate.WaitAsync(0))
+            return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
+
+        try
+        {
+            var path = _projectService.AasxFilePath;
+            if (!File.Exists(path))
+                return new RebuildResult(false, $"AASX 파일이 없습니다: {path}");
+
+            // 1) AASX 재로딩 — in-memory DsStore 교체 (ReplaceStore)
+            _logger.LogInformation("[DBLifecycle] ReloadAndResync starting ({Path})", path);
+            _projectService.LoadProject(path);
+            if (!_projectService.IsLoaded)
+                return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
+
+            // 2) 새 모델에 살아있는 Flow 수집 — DspDatabaseServiceAdapter 와 동일하게 "*_Flow" 접미사 제외
+            var keepFlows = _projectService.GetAllFlows()
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var keepNames = keepFlows.Select(f => f.Name).ToList();
+            var keepIds = keepFlows.Select(f => f.Id).ToHashSet();
+
+            // 3) stale 행 prune — 새 모델에 없는 Flow 의 dspFlow / dspCall / dspFlowHistory 삭제
+            //    Bootstrap UPSERT 보다 먼저 — UPSERT 가 같은 row 를 다시 살리지는 않으니 순서는 무관하지만,
+            //    prune 후 UPSERT 가 깔끔.
+            var pruned = (Flows: 0, Calls: 0, History: 0);
+            if (keepNames.Count > 0)
+            {
+                pruned = await _dspRepository.PruneByFlowNamesAsync(keepNames);
+            }
+
+            // 4) UPSERT — 새/변경된 정의 반영 + Mapper / FlowMetrics 재초기화
+            //    살아남은 행은 ON CONFLICT DO UPDATE 로 정의만 갱신되고 통계 컬럼은 COALESCE 로 보존됨.
+            var bootstrapOk = await _bootstrap.BootstrapAsync();
+            if (!bootstrapOk)
+            {
+                _logger.LogWarning("[DBLifecycle] Bootstrap UPSERT after reload failed");
+                return new RebuildResult(false, "AASX reload 후 DB 동기화 실패 — 로그 확인");
+            }
+
+            // 5) Engine in-place 재초기화 (PLC 모니터링 끊지 않음 — read-only)
+            _engineService.TryEnsureInitialized();
+
+            // 6) Layout 동기화 — Flow Guid 집합이 placement 와 다르면 백업 후 자동 재배치.
+            //    도면(이미지/Canvas/Offset) 메타는 유지, FlowPlacements/FlowProcessOrder/Grid 만 재구성.
+            var layoutChanged = false;
+            if (_blueprint.IsFlowSetStale(keepIds))
+            {
+                _blueprint.BackupCurrentLayoutFile(suffix: "auto-resync");
+
+                var orderedFlows = _projectService.GetActiveSystems()
+                    .SelectMany(sys => _projectService.GetFlows(sys.Id)
+                        .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                        .Select(f => (FlowId: f.Id, FlowName: f.Name, SystemName: sys.Name, SystemId: sys.Id)))
+                    .ToList();
+
+                _blueprint.ResetFlowPlacementsAndAutoFill(orderedFlows);
+                layoutChanged = true;
+                _logger.LogInformation("[DBLifecycle] Layout auto-resynced — Flow {N}개 재배치", orderedFlows.Count);
+            }
+
+            // 7) UI 스냅샷 클리어 → OnDataChanged + OnStructuralChange 발화로 모든 페이지 자동 새로고침
+            _dspDbService.Reset();
+
+            // 8) 다른 클라이언트 알림 (DatabaseRebuilt 핸들러 재사용 — 페이지가 강제 reload)
+            try { await _hubContext.Clients.All.SendAsync("DatabaseRebuilt"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)"); }
+
+            _logger.LogInformation(
+                "[DBLifecycle] ReloadAndResync complete (pruned: flow={F} call={C} hist={H}, layout={Layout})",
+                pruned.Flows, pruned.Calls, pruned.History, layoutChanged);
+
+            var msgParts = new List<string> { "AASX 모델을 다시 불러왔습니다." };
+            var totalPruned = pruned.Flows + pruned.Calls + pruned.History;
+            if (totalPruned > 0)
+                msgParts.Add($"사라진 Flow 정리: dspFlow={pruned.Flows}, dspCall={pruned.Calls}, history={pruned.History}.");
+            if (layoutChanged)
+                msgParts.Add("레이아웃 자동 재배치 (이전 layout 은 백업).");
+            return new RebuildResult(true, string.Join(" ", msgParts));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DBLifecycle] ReloadAndResync failed");
+            return new RebuildResult(false, $"AASX 자동 동기화 실패: {ex.Message}");
         }
         finally
         {

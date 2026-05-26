@@ -182,6 +182,58 @@ public class BlueprintService : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// 현재 layout-data.json 의 FlowPlacement Guid 집합이 주어진 Flow Guid 집합과 다른지 판정.
+    /// 추가/삭제/리네임으로 한 쪽이라도 다르면 true. layout 이 비어 있으면 (placement 0개) false —
+    /// 첫 자동 채움은 AasxFileWatcherService.TryAutoFillBlueprint 가 담당하므로 여기는 stale 판정 전용.
+    /// </summary>
+    public bool IsFlowSetStale(IEnumerable<Guid> currentFlowIds)
+    {
+        var placed = _layout.FlowPlacements.Select(p => p.FlowId).ToHashSet();
+        if (placed.Count == 0) return false;
+        var current = currentFlowIds?.ToHashSet() ?? new HashSet<Guid>();
+        return !current.SetEquals(placed);
+    }
+
+    /// <summary>
+    /// 현재 layout-data.json 을 layout-data_yyyyMMdd_HHmmss[_suffix].json 으로 복사한다.
+    /// AASX 자동 동기화로 placement 가 재배치되기 직전, 사용자가 누적한 배치를 백업 보관하기 위한 용도.
+    /// 실패해도 best-effort — null 반환.
+    /// </summary>
+    public string? BackupCurrentLayoutFile(string? suffix = null)
+    {
+        try
+        {
+            if (!File.Exists(_layoutFilePath)) return null;
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var name = string.IsNullOrWhiteSpace(suffix)
+                ? $"layout-data_{stamp}.json"
+                : $"layout-data_{stamp}_{suffix}.json";
+            var dest = Path.Combine(_uploadsDir, name);
+            File.Copy(_layoutFilePath, dest, overwrite: false);
+            _logger.LogInformation("Layout backed up: {Src} → {Dst}", _layoutFilePath, dest);
+            return dest;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Layout backup failed");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// FlowPlacements / FlowProcessOrder / Grid 만 새 Flow 목록으로 다시 채운다.
+    /// 도면 메타(이미지 / Canvas / Offset) 는 그대로 보존.
+    /// 호출 측에서 백업이 필요하면 먼저 <see cref="BackupCurrentLayoutFile"/> 을 호출할 것.
+    /// 즉시 파일로 flush 한다 (debounce 거치지 않음).
+    /// </summary>
+    public void ResetFlowPlacementsAndAutoFill(
+        IReadOnlyList<(Guid FlowId, string FlowName, string SystemName, Guid SystemId)> orderedFlows)
+    {
+        AutoFillPlacements(orderedFlows);
+        Save();
+    }
+
     public string GetLayoutJson()
     {
         return JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });

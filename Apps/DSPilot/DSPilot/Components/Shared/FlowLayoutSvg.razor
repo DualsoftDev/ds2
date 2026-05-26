@@ -1,7 +1,13 @@
-@* Flow 카드 레이아웃 — Purple & Amber 재설계
-   - 카드 색 = 활동량 (MT > WT → primary / WT > MT → secondary)
-   - 단일 색상 테마: title / donut / status / progress 모두 --fc-accent *@
-<div style="position:relative; @Style; aspect-ratio:@CanvasWidth/@CanvasHeight; overflow:hidden; background:var(--color-background);"
+@* Flow 카드 레이아웃
+   - `--fc-accent` : 활동량 기반 (MT≥WT → primary / WT>MT → secondary). 카드 테두리/제목/도넛/Progress.
+   - `--fc-state`  : Flow 상태 기반 (Ready/Going/Finish/Error → 도면 범례와 동일 팔레트). 상태 텍스트+아이콘.
+   - 데이터 없음 → 회색 (.fc-cq-empty)
+   - 부모 컨테이너 가용 영역이 세로로 더 길고 캔버스가 가로로 더 넓으면
+     Col↔Row 를 자동 전치(transpose)하여 카드를 위/아래 배치로 회전 *@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+<div @ref="_rootRef"
+     style="position:relative; @Style; aspect-ratio:@RenderCanvasW/@RenderCanvasH; overflow:hidden; background:var(--color-background);"
      @onclick="OnBackgroundClicked" @onclick:stopPropagation>
 
     @* 도면 배경 *@
@@ -19,7 +25,7 @@
         var inv = System.Globalization.CultureInfo.InvariantCulture;
 
         <div class="fl-card @(sel ? "fl-card-selected" : "")"
-             style="left:@(b.LeftPct.ToString("F4", inv))%; top:@(b.TopPct.ToString("F4", inv))%; width:@(b.WidthPct.ToString("F4", inv))%; height:@(b.HeightPct.ToString("F4", inv))%; --fc-accent:@(b.AccentColor);"
+             style="left:@(b.LeftPct.ToString("F4", inv))%; top:@(b.TopPct.ToString("F4", inv))%; width:@(b.WidthPct.ToString("F4", inv))%; height:@(b.HeightPct.ToString("F4", inv))%; --fc-accent:@(b.AccentColor); --fc-state:@(b.StateColor);"
              @onclick="() => OnBlockClicked(b.FlowName)" @onclick:stopPropagation>
 
             <div class="fc-cq @(b.IsEmpty ? "fc-cq-empty" : "")">
@@ -41,8 +47,8 @@
                         }
                     </div>
 
-                    @* ── 본문: 도넛 + 정보 ── *@
-                    <div class="fc-body @(b.IsVertical ? "fc-body-vertical" : "") @(b.ShowStats ? "" : "fc-chart-only")">
+                    @* ── 본문: 도넛 + 정보 (배치는 CSS @@container aspect-ratio 로 결정) ── *@
+                    <div class="fc-body">
                         <div class="fc-chart">
                             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
                                 <g transform="rotate(-90 50 50)">
@@ -57,23 +63,26 @@
                                     }
                                 </g>
                             </svg>
-                            <span class="fc-chart-label">@FormatMs(b.Total)</span>
+                            <div class="fc-chart-center">
+                                <span class="fc-chart-label">@FormatMs(b.Total)</span>
+                                @if (!string.IsNullOrEmpty(b.StateLabel))
+                                {
+                                    <span class="fc-chart-state">@b.StateLabel</span>
+                                }
+                            </div>
                         </div>
 
-                        @if (b.ShowStats)
-                        {
-                            <div class="fc-info">
-                                <div class="fc-status">@b.StateLabel</div>
-                                <div class="fc-time-row">
-                                    <span class="fc-time-label">가동</span>
-                                    <span class="fc-time-value">@FormatMs(b.Mt)</span>
-                                </div>
-                                <div class="fc-time-row">
-                                    <span class="fc-time-label">대기</span>
-                                    <span class="fc-time-value">@FormatMs(b.Wt)</span>
-                                </div>
+                        <div class="fc-info">
+                            <div class="fc-status">@b.StateLabel</div>
+                            <div class="fc-time-row">
+                                <span class="fc-time-label">가동</span>
+                                <span class="fc-time-value">@FormatMs(b.Mt)</span>
                             </div>
-                        }
+                            <div class="fc-time-row">
+                                <span class="fc-time-label">대기</span>
+                                <span class="fc-time-value">@FormatMs(b.Wt)</span>
+                            </div>
+                        </div>
                     </div>
 
                     @* ── 하단 progress bar (가동율) ── *@
@@ -106,10 +115,25 @@
     [Parameter] public string? SelectedFlowName { get; set; }
     [Parameter] public EventCallback<string?> OnFlowClicked { get; set; }
 
+    // ── 전치 상태 (자동 회전) ──
+    private bool _transposed;
+    private ElementReference _rootRef;
+    private DotNetObjectReference<FlowLayoutSvg>? _dotNetRef;
+    private bool _observerAttached;
+
+    // 렌더에 쓰는 캔버스 크기 (전치 시 스왑)
+    private int RenderCanvasW => _transposed ? CanvasHeight : CanvasWidth;
+    private int RenderCanvasH => _transposed ? CanvasWidth : CanvasHeight;
+
     // ── Pre-computed block layouts ──
     private List<FlowBlockLayout> _blockLayouts = [];
 
     protected override void OnParametersSet()
+    {
+        RecomputeLayouts();
+    }
+
+    private void RecomputeLayouts()
     {
         var pad = 4;
         _blockLayouts = Placements
@@ -117,11 +141,71 @@
             .ToList();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_observerAttached)
+        {
+            _observerAttached = true;
+            _dotNetRef = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("flowLayoutAutoOrient.observe", _rootRef, _dotNetRef);
+            }
+            catch { /* 초기 렌더 타이밍 이슈 무시 */ }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnContainerAspect(double parentW, double parentH)
+    {
+        if (parentW <= 0 || parentH <= 0 || CanvasWidth <= 0 || CanvasHeight <= 0) return;
+
+        var shouldTranspose = ShouldTranspose(parentW, parentH);
+        if (shouldTranspose != _transposed)
+        {
+            _transposed = shouldTranspose;
+            RecomputeLayouts();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // 부모 가용 영역에 카드를 그렸을 때 더 큰 면적이 나오는 방향으로 결정.
+    // 단순 토글이 빈번하지 않도록 15% 임계치를 둠.
+    private bool ShouldTranspose(double parentW, double parentH)
+    {
+        double canvasAR = (double)CanvasWidth / CanvasHeight;
+
+        // letterbox fit: 두 축 중 작은 값이 SVG width 가 됨
+        double fitWidth(double pw, double ph, double ar) => Math.Min(pw, ph * ar);
+
+        var asIsW = fitWidth(parentW, parentH, canvasAR);
+        var asIsArea = asIsW * (asIsW / canvasAR);
+
+        var trAR = 1.0 / canvasAR;
+        var trW  = fitWidth(parentW, parentH, trAR);
+        var trArea = trW * (trW / trAR);
+
+        if (_transposed)
+            return trArea * 1.15 > asIsArea;   // 이미 전치 중이면 되돌리기에 더 보수적으로
+        return trArea > asIsArea * 1.15;       // 전치 전환은 명확한 이득이 있을 때만
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_observerAttached)
+        {
+            try { await JS.InvokeVoidAsync("flowLayoutAutoOrient.unobserve", _rootRef); }
+            catch { }
+        }
+        _dotNetRef?.Dispose();
+    }
+
     private record FlowBlockLayout
     {
         // 데이터
         public required string FlowName { get; init; }
-        public required string AccentColor { get; init; }  // --fc-accent (CSS 변수 또는 hex)
+        public required string AccentColor { get; init; }  // --fc-accent (활동량 기반)
+        public required string StateColor { get; init; }   // --fc-state  (상태 기반, 범례와 동일)
         public required string StateLabel { get; init; }
         public required bool IsEmpty { get; init; }
         public required int Mt { get; init; }
@@ -136,10 +220,6 @@
         public required double WidthPct { get; init; }
         public required double HeightPct { get; init; }
 
-        // 레이아웃 플래그
-        public required bool ShowStats { get; init; }
-        public required bool IsVertical { get; init; }
-
         // 도넛 비율 (viewBox 100x100, r=40)
         public required double MtFrac { get; init; }
         public required string SCirc { get; init; }
@@ -151,23 +231,31 @@
         var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
         var mtWt       = GetMtWt?.Invoke(fp);
 
+        // 전치 시 모든 격자 좌표/스팬/캔버스 치수를 스왑
+        var col      = _transposed ? fp.Row     : fp.Col;
+        var row      = _transposed ? fp.Col     : fp.Row;
+        var colSpan  = _transposed ? fp.RowSpan : fp.ColSpan;
+        var rowSpan  = _transposed ? fp.ColSpan : fp.RowSpan;
+        var cellW    = _transposed ? CellHeight : CellWidth;
+        var cellH    = _transposed ? CellWidth  : CellHeight;
+        var offsetX  = _transposed ? OffsetY    : OffsetX;
+        var offsetY  = _transposed ? OffsetX    : OffsetY;
+        var canvasW  = _transposed ? CanvasHeight : CanvasWidth;
+        var canvasH  = _transposed ? CanvasWidth  : CanvasHeight;
+
         // 블록 지오메트리
-        var px     = OffsetX + fp.Col * CellWidth;
-        var py     = OffsetY + fp.Row * CellHeight;
-        var pw     = fp.ColSpan * CellWidth;
-        var ph     = fp.RowSpan * CellHeight;
+        var px     = offsetX + col * cellW;
+        var py     = offsetY + row * cellH;
+        var pw     = colSpan * cellW;
+        var ph     = rowSpan * cellH;
         var innerW = pw - pad * 2;
         var innerH = ph - pad * 2;
 
         // CSS 퍼센트 좌표
-        var leftPct   = (double)(px + pad) / CanvasWidth * 100;
-        var topPct    = (double)(py + pad) / CanvasHeight * 100;
-        var widthPct  = (double)innerW / CanvasWidth * 100;
-        var heightPct = (double)innerH / CanvasHeight * 100;
-
-        // 레이아웃: 정방형(1:1) → 도넛만, 세로(rs>cs) → 도넛 위/통계 아래, 가로(cs>rs) → 도넛 좌/통계 우
-        var isVertical = fp.RowSpan > fp.ColSpan;
-        var showStats  = fp.RowSpan != fp.ColSpan;
+        var leftPct   = (double)(px + pad) / canvasW * 100;
+        var topPct    = (double)(py + pad) / canvasH * 100;
+        var widthPct  = (double)innerW / canvasW * 100;
+        var heightPct = (double)innerH / canvasH * 100;
 
         var hasMtWt = mtWt != null;
         var mt    = mtWt?.Mt ?? 0;
@@ -175,15 +263,20 @@
         var total = mt + wt;
         var isEmpty = !hasMtWt || total <= 0;
 
-        // 활동량 기반 accent: 가동 dominant → primary(purple), 대기 dominant → secondary(amber)
-        // 데이터 없음 → 회색 (.fc-cq-empty 클래스로 처리)
+        // accent = 활동량 (MT dominant → primary, WT dominant → secondary). 데이터 없음 → 회색.
+        // state  = Flow 상태 (도면 범례와 동일 색). 데이터 없음 → 회색.
         string accent;
+        string stateColor;
         if (isEmpty)
+        {
             accent = "var(--color-text-secondary)";
-        else if (mt >= wt)
-            accent = "var(--color-primary)";
+            stateColor = "var(--color-text-secondary)";
+        }
         else
-            accent = "var(--color-secondary)";
+        {
+            accent = mt >= wt ? "var(--color-primary)" : "var(--color-secondary)";
+            stateColor = GetColor?.Invoke(fp) ?? accent;
+        }
 
         // 도넛 비율
         var mtFrac = total > 0 ? (double)mt / total : 0.0;
@@ -198,13 +291,12 @@
 
         return new FlowBlockLayout
         {
-            FlowName = fp.FlowName, AccentColor = accent, StateLabel = stateLabel,
+            FlowName = fp.FlowName, AccentColor = accent, StateColor = stateColor, StateLabel = stateLabel,
             IsEmpty = isEmpty, Mt = mt, Wt = wt, Total = total,
             MtPercent = mtFrac * 100.0,
             Badges = badges,
             LeftPct = leftPct, TopPct = topPct,
             WidthPct = widthPct, HeightPct = heightPct,
-            ShowStats = showStats, IsVertical = isVertical,
             MtFrac = mtFrac,
             SCirc = sCirc, SMtDash = sMtDash,
         };

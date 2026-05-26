@@ -940,6 +940,67 @@ public class DspRepositoryAdapter : IDspRepository
         }
     }
 
+    /// <summary>
+    /// retainFlowNames 에 없는 모든 dspFlow / dspCall / dspFlowHistory 행을 삭제.
+    /// AASX 에서 사라진(삭제/리네임된) Flow 의 잔존 행 정리용 — 살아남은 Flow 의 통계 / 히스토리는 보존.
+    /// retainFlowNames 가 비어 있으면(=실수 방지 안전장치) prune 을 수행하지 않고 (0,0,0) 을 반환한다.
+    /// </summary>
+    public async Task<(int Flows, int Calls, int History)> PruneByFlowNamesAsync(IEnumerable<string> retainFlowNames)
+    {
+        if (!_enabled) return (0, 0, 0);
+
+        var retain = retainFlowNames?
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct()
+            .ToList() ?? new List<string>();
+
+        // 빈 retain 집합으로 전체 삭제하는 동작은 RebuildDatabaseAsync 의 영역. 여기서는 가드.
+        if (retain.Count == 0)
+        {
+            _logger.LogDebug("PruneByFlowNamesAsync: retain 비어있음 — no-op");
+            return (0, 0, 0);
+        }
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+            return (0, 0, 0);
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var param = new { Names = retain };
+
+            var callsDeleted = await conn.ExecuteAsync(
+                $"DELETE FROM {_callTable} WHERE FlowName NOT IN @Names",
+                param, transaction: tx);
+            var flowsDeleted = await conn.ExecuteAsync(
+                $"DELETE FROM {_flowTable} WHERE FlowName NOT IN @Names",
+                param, transaction: tx);
+
+            var historyDeleted = 0;
+            if (await TableExistsAsync(conn, HistoryTable))
+            {
+                historyDeleted = await conn.ExecuteAsync(
+                    $"DELETE FROM {HistoryTable} WHERE FlowName NOT IN @Names",
+                    param, transaction: tx);
+            }
+
+            tx.Commit();
+
+            if (flowsDeleted + callsDeleted + historyDeleted > 0)
+                _logger.LogInformation("Pruned stale rows: dspFlow={Flows}, dspCall={Calls}, dspFlowHistory={History}",
+                    flowsDeleted, callsDeleted, historyDeleted);
+
+            return (flowsDeleted, callsDeleted, historyDeleted);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to prune stale rows by Flow names");
+            throw;
+        }
+    }
+
     public async Task<int> ClearFlowHistoryAsync()
     {
         if (!_enabled) return 0;
