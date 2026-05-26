@@ -272,6 +272,24 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치). 헤더 `[Code]` 포함.
 #include "CodeDependencies.iss"
 
+// install 진입 시 자동 stop — service / process 가 살아있으면 dll/exe file lock 으로 [Files] copy fail.
+// CloseApplications=yes 는 user-mode process 만 — Windows Service 미해당. 본 함수가 service stop 보완.
+// sc/taskkill 모두 미설치 / 미실행 시 비-0 반환하지만 결과 무시 (best-effort).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop Ds2.LightHouseService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop PromakerAgentService',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.exe',           '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.AgentTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.Agent.exe',     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Ds2.LightHouseService.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // SCM 의 stop 처리 + DLL handle close 시간 확보 (Kestrel + SQLite 정합). 1.5s = 경험적 최소.
+  Sleep(1500);
+  Result := '';
+end;
+
 #if SelfContainedMode != "true"
 // fd 모드: .NET 9 Desktop Runtime이 없으면 자동 다운로드/설치
 function InitializeSetup: Boolean;
