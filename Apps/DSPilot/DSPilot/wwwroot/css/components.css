@@ -81,17 +81,19 @@
 
 .spacer { flex: 1; }
 
-/* Header page title (centered in app-bar) */
+/* Header page title (로고 옆에 자연스럽게 흐르도록 flex 흐름에 둔다 —
+   absolute 중앙 정렬은 좁은 화면에서 우측 nav 링크와 겹쳤음) */
 .header-page-title {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 1.5rem;
+    margin-left: 12px;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-appbar-text);
     white-space: nowrap;
     pointer-events: none;
     letter-spacing: 0.02em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Header navigation links */
@@ -1388,3 +1390,78 @@ details.expansion-panel[open] > summary::before {
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
 }
+
+/* ═══════════════════════════════════════════
+   LOB 분석 요약 카드 (CycleTimeAnalysis 상단)
+   ═══════════════════════════════════════════ */
+.lob-summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 12px 0;
+}
+@media (max-width: 1100px) {
+    .lob-summary-row { grid-template-columns: repeat(2, 1fr); }
+}
+.lob-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-lines, #e0e0e0);
+    border-left: 4px solid var(--color-primary);
+    border-radius: 8px;
+    box-shadow: var(--shadow-1, 0 1px 3px rgba(0,0,0,0.08));
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.lob-card-clickable {
+    cursor: pointer;
+}
+.lob-card-clickable:hover:not(:disabled) {
+    box-shadow: var(--shadow-2, 0 2px 6px rgba(0,0,0,0.16));
+    transform: translateY(-1px);
+}
+.lob-card-clickable:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.lob-card-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary, #666);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.lob-card-icon { font-size: 16px !important; }
+.lob-card-value {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: 'Consolas', 'Roboto Mono', monospace;
+    line-height: 1.1;
+    color: var(--color-text-primary, #222);
+}
+.lob-card-unit {
+    font-size: 14px;
+    font-weight: 600;
+    margin-left: 2px;
+    color: var(--color-text-secondary, #888);
+}
+.lob-card-sub {
+    font-size: 11px;
+    color: var(--color-text-secondary, #888);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lob-card-good  { border-left-color: #2e7d32; }
+.lob-card-good  .lob-card-value { color: #2e7d32; }
+.lob-card-warn  { border-left-color: #ef6c00; }
+.lob-card-warn  .lob-card-value { color: #ef6c00; }
+.lob-card-bad   { border-left-color: #c62828; }
+.lob-card-bad   .lob-card-value { color: #c62828; }
+.lob-card-muted { border-left-color: var(--color-lines, #ccc); }

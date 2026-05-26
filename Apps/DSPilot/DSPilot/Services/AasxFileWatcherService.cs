@@ -11,7 +11,9 @@ namespace DSPilot.Services;
 /// - mtime 만 보면 Promaker 가 모니터링 Start 마다 동일 모델을 재 export(zip 타임스탬프 차이) 할 때 오탐 발생.
 ///   → 콘텐츠 SHA256 으로만 변경 여부 판정.
 /// - DSPilot 이 아직 AASX 를 한 번도 로드한 적이 없는 경우(초기 설치 직후) 자동으로 DB 재구축.
-/// - 그 외 변경은 자동 재구축하지 않음 (통계/히스토리 보존). Settings UI 에 알림만 송신.
+/// - 콘텐츠가 변경된 경우 (Promaker "agent 보내기" 등) 자동으로 <see cref="DatabaseLifecycleService.ReloadAndResyncAsync"/>
+///   → in-memory 재로딩 + dspFlow/dspCall UPSERT + 사라진 Flow 정리 + Layout 자동 재배치.
+///   살아남은 Flow 의 통계 / 히스토리는 보존되며, 전체 초기화는 사용자가 Settings 에서 수동.
 /// </summary>
 public sealed class AasxFileWatcherService : BackgroundService
 {
@@ -161,9 +163,24 @@ public sealed class AasxFileWatcherService : BackgroundService
             return;
         }
 
-        // 케이스 3: 콘텐츠 변경 — 자동 처리 없이 UI 알림만.
-        //   사용자가 Settings 페이지에서 "AASX 모델 다시 불러오기" 로 모델 갱신 → 필요 시 "DB 재구축" 으로 통계 초기화.
+        // 케이스 3: 콘텐츠 변경 — 자동 ReloadAndResync.
+        //   in-memory 재로딩 + UPSERT + 사라진 Flow 정리 + Layout 자동 재배치 (이전 layout 은 백업).
+        //   살아남은 Flow 의 통계 / 히스토리는 보존. 전체 초기화는 사용자가 Settings 의 "DB 재구축" 으로 수동.
         _logger.LogInformation("[AasxWatcher] 외부 변경 감지 (sha256 변경): {Old} → {New}", lastHash ?? "<none>", currentHash);
+
+        try
+        {
+            var lifecycle = _services.GetRequiredService<DatabaseLifecycleService>();
+            var result = await lifecycle.ReloadAndResyncAsync();
+            if (result.Success)
+                _logger.LogInformation("[AasxWatcher] 자동 ReloadAndResync 완료: {Message}", result.Message);
+            else
+                _logger.LogWarning("[AasxWatcher] 자동 ReloadAndResync 실패: {Message}", result.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[AasxWatcher] 자동 ReloadAndResync 예외");
+        }
 
         try
         {

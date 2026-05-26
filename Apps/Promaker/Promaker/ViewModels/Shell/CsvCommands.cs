@@ -18,7 +18,7 @@ public partial class MainViewModel
         _store.ReplaceStore(store);
         _store.ClearHistory();
         _currentFilePath = null;
-        FileWatcher.ResetMTime();
+        FileWatcher.ResetSignature();
         IsDirty = false;
         HasProject = true;
         UpdateTitle();

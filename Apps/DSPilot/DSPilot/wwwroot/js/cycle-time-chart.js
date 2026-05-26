@@ -135,5 +135,12 @@ window.cycleTimeChart = {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    },
+
+    scrollIntoView: function (container) {
+        if (!container || typeof container.scrollIntoView !== 'function') return;
+        try {
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (_) { /* old browsers ignore options */ }
     }
 };
