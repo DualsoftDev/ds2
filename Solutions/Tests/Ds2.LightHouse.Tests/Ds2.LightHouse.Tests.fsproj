@@ -29,6 +29,9 @@
     <!-- PR-I1 (todo-documents-based-gfm.md §2 + §11.4) — strategy interface + IoListStrategy +
          XlsxSignatureClassifier + Diagnostics schema 회귀. 기존 *Tests.fs 다음 (alphabetical 마지막). -->
     <Compile Include="XlsxStrategiesTests.fs" />
+    <!-- PR-I2 (todo-documents-based-gfm.md §2 + §11.4) — IPdfStrategy + PdfControlSpecStrategy +
+         PdfSignatureClassifier + M22 spot-check 회귀. XlsxStrategiesTests.fs 다음. -->
+    <Compile Include="PdfStrategiesTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
