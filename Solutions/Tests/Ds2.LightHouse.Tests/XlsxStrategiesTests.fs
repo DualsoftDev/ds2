@@ -539,5 +539,14 @@ let ``자료 A 실파일 — 존재 시 IoListStrategy 매치 + markdown 박제 
                 "자료 A 의 S204/S205 zone 시트 H2 박제 누락")
             // 토큰 추정값 양수.
             Assert.Matches(Regex(@"estimated-tokens: \d+"), markdown)
+            // **Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5)** —
+            // 자료 A 의 raw markdown 약 454KB → MarkdownCapPolicy 의 256KB cap 안 흡수 검증.
+            // Stage 1 (column truncate) 또는 Stage 2 (sampling) 로 cap 안 들어가야 함 (Stage 3 split 는
+            // 본 backlog scope 외, Stage 1/2 적용 결과 단일 markdown 반환).
+            let mdBytes = System.Text.Encoding.UTF8.GetByteCount markdown
+            Assert.True(
+                mdBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
+                sprintf "자료 A markdown %d bytes 가 cap %d 초과 — MarkdownCapPolicy escalation 결함"
+                    mdBytes MarkdownCapPolicy.MaxMarkdownBytes)
         | other ->
             Assert.Fail(sprintf "자료 A 가 IoListStrategy 매치 실패 — %A" other)

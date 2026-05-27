@@ -36,6 +36,9 @@
          3 strategy 공용 helper (computeDocId/computeFullHash/estimateTokens/normalizeCell/
          buildHeader/buildFooter) 의 byte-equal 출력 보장 검증. -->
     <Compile Include="StrategyMarkdownTests.fs" />
+    <!-- Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5) —
+         MarkdownCapPolicy 의 4 stage escalation (Original / ColumnTruncated / Sampled / Split) 회귀. -->
+    <Compile Include="MarkdownCapPolicyTests.fs" />
     <!-- PR-I3 (todo-documents-based-gfm.md §2 PR-I3 + §8.5.5) — TextDumper.dumpStrategySummaries hook 회귀.
          IoList/WorkOrder fixture → summary/ 박제 + rejected/near-miss JSON 누적 박제 + 자료 A/B/C 옵션 회귀. -->
     <Compile Include="TextDumperStrategiesTests.fs" />

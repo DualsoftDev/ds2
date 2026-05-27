@@ -23,6 +23,10 @@
          (computeDocId / computeFullHash / estimateTokens / normalizeCell / buildHeader / buildFooter).
          IXlsxStrategy.fs / IPdfStrategy.fs 의 strategy 구현체보다 앞 박제 필수 (의존 방향). -->
     <Compile Include="StrategyMarkdown.fs" />
+    <!-- Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5) —
+         strategy summary markdown 의 256KB cap 정책 SSOT. 3 단계 압축 (컬럼 truncate → sample → split).
+         StrategyMarkdown.fs 다음 + IoListStrategy.fs (호출 site) 보다 앞 박제. -->
+    <Compile Include="MarkdownCapPolicy.fs" />
     <Compile Include="RefLocator.fs" />
     <Compile Include="Classifier.fs" />
     <Compile Include="MetafileConverter.fs" />
