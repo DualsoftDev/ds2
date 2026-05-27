@@ -40,6 +40,13 @@ public sealed class LightHouseClient : IDisposable
     private readonly Func<IReadOnlyList<string>>? _activeCollectionIdsProvider;
     private readonly bool _ownsHttp;
 
+    // **B1 (2026-05-27)** — app session token pooling. ExecuteWithSessionRetryAsync 가 매 op 마다 신규 발급하던
+    // 이전 동작 (LightHouseClient.cs:573 의 unconditional RecoverSessionAsync) 을 cached token 우선으로 변경.
+    // service 측 session storm (fan-out N×op) 차단 + 발급 latency 절감. 무효화 = 401/403 시 lock 안에서 동일 token
+    // match 후 clear (race window 차단). server 측 sessionIdleTtlMinutes 만료 시 410/401 응답 → 자동 재발급.
+    private string? _cachedAppSessionToken;
+    private readonly SemaphoreSlim _appSessionLock = new(1, 1);
+
     /// <summary>
     /// **D-S7-5 phase 3 (s6-r67)** — chunked path 자동 선택 임계값 SSOT. 본 값 초과 zip 은 caller (AttachmentIngestService)
     /// 가 `UploadCollectionResumableAsync` 자동 진입 — multipart single-shot 대신 chunked PATCH 로 안전한 resume hook 확보.
@@ -569,11 +576,11 @@ public sealed class LightHouseClient : IDisposable
             throw new InvalidOperationException(
                 "activeCollectionIdsProvider 미설정 — L3 자동 회복 비활성 (LightHouseClient ctor 시 박제 필요).");
 
-        // 첫 token 발급.
-        var sess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+        // **B1 (2026-05-27)** — cached token 우선. 미존재 시 lock 안에서 1회만 발급 (fan-out N concurrent op 의 storm 차단).
+        var token = await EnsureAppSessionTokenAsync(ct).ConfigureAwait(false);
         try
         {
-            return await operation(sess.Token, ct).ConfigureAwait(false);
+            return await operation(token, ct).ConfigureAwait(false);
         }
         // 자가 검열 M2: caller 의 cancellation 의도는 retry 우선 — OCE 는 retry 진입 차단 후 그대로 전파.
         catch (OperationCanceledException)
@@ -582,12 +589,15 @@ public sealed class LightHouseClient : IDisposable
         }
         catch (LightHouseAuthException firstFail)
         {
-            // 1회 retry — 새 session 발급 후 재시도. CR6 L3 sweet spot.
-            Log.Warn($"session-bound op 401/403 — retry 1회 (status={firstFail.StatusCode}).");
-            SessionCreateResponse retrySess;
+            // **B1 (2026-05-27)** — 401/403 = cached token stale 가능성. 동일 token match 시 무효화 + mcp session reset,
+            // 그 후 신규 token 발급 후 1회 retry. CR6 L3 sweet spot.
+            Log.Warn($"session-bound op 401/403 — token 무효화 후 retry 1회 (status={firstFail.StatusCode}).");
+            await InvalidateAppSessionTokenAsync(token, ct).ConfigureAwait(false);
+            ResetMcpSession();
+            string retryToken;
             try
             {
-                retrySess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+                retryToken = await EnsureAppSessionTokenAsync(ct).ConfigureAwait(false);
             }
             catch (LightHouseAuthException recoverFail)
             {
@@ -596,8 +606,40 @@ public sealed class LightHouseClient : IDisposable
                     $"L3 retry 의 RecoverSession 자체 실패 (PSK 결함 의심) — first={firstFail.Message} recover={recoverFail.Message}",
                     recoverFail.StatusCode);
             }
-            return await operation(retrySess.Token, ct).ConfigureAwait(false);
+            return await operation(retryToken, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>**B1 (2026-05-27)** — cached app session token 반환. 미존재 시 lock 안에서 RecoverSessionAsync 1회만 호출.
+    /// concurrent op N개가 동시 진입해도 첫 진입자가 발급, 나머지는 cached token 재사용 (lock 내 double-check).</summary>
+    private async Task<string> EnsureAppSessionTokenAsync(CancellationToken ct)
+    {
+        var cached = _cachedAppSessionToken;
+        if (!string.IsNullOrEmpty(cached)) return cached;
+
+        await _appSessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // lock 진입 전 다른 task 가 발급 완료했을 가능성 — double-check.
+            if (!string.IsNullOrEmpty(_cachedAppSessionToken)) return _cachedAppSessionToken!;
+            var sess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+            _cachedAppSessionToken = sess.Token;
+            return sess.Token;
+        }
+        finally { _appSessionLock.Release(); }
+    }
+
+    /// <summary>**B1 (2026-05-27)** — stale token 무효화. 동일 token 이 캐시에 박제된 경우만 clear — 다른 concurrent
+    /// op 가 이미 신규 발급한 token 을 덮어쓰지 않도록 race window 차단.</summary>
+    private async Task InvalidateAppSessionTokenAsync(string staleToken, CancellationToken ct)
+    {
+        await _appSessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (string.Equals(_cachedAppSessionToken, staleToken, StringComparison.Ordinal))
+                _cachedAppSessionToken = null;
+        }
+        finally { _appSessionLock.Release(); }
     }
 
     private static async Task EnsureSuccessOrThrow(HttpResponseMessage resp, string operation, CancellationToken ct)
