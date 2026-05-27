@@ -89,6 +89,21 @@ module Packager =
             if not isCliManaged then
                 invalidOp (
                     sprintf "기존 폴더 %s 가 lighthouse-cli 산출물이 아닌 듯합니다 (marker / index.db 모두 부재). 수동 확인 후 삭제하십시오." kb)
+            // **P-R3a (todo-documents-based-gfm.md §6.1 N16)** — wipe 직전 caption cache 박제.
+            // 기존 색인 산출물의 `ImageCache.CaptionText` (Anthropic VLM API call 결과) 를 sourceFolder 안
+            // `.lighthouse-caption-cache.json` 으로 박제 → 재색인 시 `Vlm.buildCaptionGen` 의 closure 가
+            // 동일 hash 의 cache 우선 lookup → API call skip path 활성. 사용자 결정 (1a 즉시) 정합.
+            // fail-safe — sweep 실패 시 log + 진행 (색인 자체는 정상, cache 만 부재).
+            if File.Exists indexDb then
+                try
+                    use conn = SqliteStore.openConnection indexDb true
+                    let saved = CaptionCache.saveFromDb sourceFolder conn
+                    if saved > 0 then
+                        eprintfn "  caption cache 박제 — %d row (%s)"
+                            saved CaptionCache.CacheFileName
+                with ex ->
+                    eprintfn "  warning: caption cache 박제 실패 (재색인 진행) — %s: %s"
+                        (ex.GetType().Name) ex.Message
             safeDelete kb
         Directory.CreateDirectory kb |> ignore
         File.WriteAllText(Path.Combine(kb, MarkerFileName), "lighthouse-cli managed\n")

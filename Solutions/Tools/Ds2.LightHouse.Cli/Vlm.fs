@@ -29,12 +29,22 @@ module Vlm =
     /// process singleton HttpClient — socket exhaustion 차단 (per-image 신규 생성 회피).
     let private httpClient = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
 
-    /// env var 기반 captionGen builder. caller (Program.fs / Packager.fs) 가 `ct` + `forceWithoutCaption` 주입.
+    /// env var 기반 captionGen builder. caller (Program.fs / Packager.fs) 가 `ct` + `sourceFolder` +
+    /// `forceWithoutCaption` 주입.
+    ///
+    /// **P-R3a (todo-documents-based-gfm.md §6.1 N16) — sourceFolder 인자 추가**:
+    /// 반환 closure 가 Anthropic API call 진입 *전* `CaptionCache.tryLookup` 박제 → 이전 색인 시점에
+    /// 생성된 caption (sweep 박제분, `<sourceFolder>/.lighthouse-caption-cache.json`) 우선 사용. cache hit
+    /// 시 `Captioned (text, model)` 반환 → API call skip. cache miss → 기존 callAnthropic 흐름. 사용자
+    /// 결정 (1a 즉시) — `.lighthouse-kb/` wipe + 재색인 사이클의 VLM cost 누적 회피.
     ///
     /// 반환:
-    /// - `Ok captionGen` — API key 박제 (callAnthropic) 또는 forceWithoutCaption=true (noop)
+    /// - `Ok captionGen` — API key 박제 (cache 우선 + callAnthropic fallback) 또는 forceWithoutCaption=true (noop)
     /// - `Error msg` — API key 미박제 + force=false (사용자에게 명시 안내 의무)
-    let buildCaptionGen (ct: CancellationToken) (forceWithoutCaption: bool)
+    let buildCaptionGen
+        (ct: CancellationToken)
+        (sourceFolder: string)
+        (forceWithoutCaption: bool)
         : Result<byte[] -> ImageFormat -> CaptionResult, string> =
         let apiKey = Environment.GetEnvironmentVariable EnvApiKey
         if String.IsNullOrWhiteSpace apiKey then
@@ -52,4 +62,14 @@ module Vlm =
             let model =
                 let m = Environment.GetEnvironmentVariable EnvModel
                 if String.IsNullOrWhiteSpace m then "claude-sonnet-4-6" else m
-            Ok (fun bytes fmt -> CaptionGenerator.callAnthropic httpClient apiKey model bytes fmt ct)
+            // P-R3a: cache lookup → hit 시 API call skip, miss 시 callAnthropic 진입. hash 산출은 lib SSOT
+            // `ImageStore.computeSha256` 재사용 (ImageStore 의 hash 박제 정합 — drift 0).
+            Ok (fun bytes fmt ->
+                let hash = ImageStore.computeSha256 bytes
+                match CaptionCache.tryLookup sourceFolder hash with
+                | Some (text, cachedModel) ->
+                    // cache hit — Anthropic call 진입 없이 즉시 Captioned. cachedModel 가 빈 string 이면 현재 model 박제.
+                    let resolvedModel = if System.String.IsNullOrEmpty cachedModel then model else cachedModel
+                    Captioned (text, resolvedModel)
+                | None ->
+                    CaptionGenerator.callAnthropic httpClient apiKey model bytes fmt ct)

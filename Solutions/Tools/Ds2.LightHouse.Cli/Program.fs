@@ -247,7 +247,9 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
         11
     else
         // 사용자 결정 — VLM captionGen build 가 색인 본격 진입 전에 fail-fast. API key 미박제 + force flag 미박제 시 exit 13.
-        match Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption with
+        // **P-R3a (N16)** — sourceFolder 인자 전달. closure 안 `CaptionCache.tryLookup` 가 동일 폴더 의
+        // `.lighthouse-caption-cache.json` 우선 lookup → 재색인 시 Anthropic API call skip.
+        match Vlm.buildCaptionGen CancellationToken.None folder forceWithoutCaption with
         | Error msg ->
             eprintfn "오류: %s" msg
             13
@@ -328,7 +330,8 @@ let private runUpload
         // `SkippedCaption "no caption gen"` 반환 → NullReferenceException 회귀 차단.
         let captionPrecheck =
             if reuseKb then Ok CaptionGenerator.noop
-            else Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption
+            // **P-R3a (N16)** — sourceFolder=folder 전달. closure 의 cache lookup hook 진입점.
+            else Vlm.buildCaptionGen CancellationToken.None folder forceWithoutCaption
         match captionPrecheck with
         | Error msg ->
             eprintfn "오류: %s" msg

@@ -56,6 +56,10 @@
     <Compile Include="Chunker.fs" />
     <Compile Include="SqliteStore.fs" />
     <Compile Include="ImageStore.fs" />
+    <!-- P-R3a (todo-documents-based-gfm.md §6.1 N16) — `.lighthouse-kb/` wipe 직전 ImageCache.CaptionText
+         sweep → `<sourceFolder>/.lighthouse-caption-cache.json` 박제. caption 생성 closure 가 동일 hash 의
+         cache 우선 lookup → Anthropic VLM call skip path. SqliteStore + ImageStore 뒤 박제 (의존 방향). -->
+    <Compile Include="CaptionCache.fs" />
     <Compile Include="CaptionGenerator.fs" />
     <Compile Include="EmbeddingProvider.fs" />
     <Compile Include="Searcher.fs" />
