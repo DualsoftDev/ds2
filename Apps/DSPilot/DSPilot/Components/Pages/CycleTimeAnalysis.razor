@@ -102,61 +102,27 @@
     }
     else if (_ganttData != null && _ganttData.Items.Any())
     {
-        var ctMs = _ganttData.CT ?? 0;
-        var mtMs = _ganttData.MT ?? 0;
-        var wtMs = _ganttData.WT ?? 0;
-        var utilRate = ctMs > 0 ? (mtMs * 100.0 / ctMs) : 0.0;
-        var idleRate = ctMs > 0 ? (wtMs * 100.0 / ctMs) : 0.0;
-        string utilClass = utilRate >= 80 ? "lob-card-good"
-            : utilRate >= 60 ? "lob-card-warn"
-            : "lob-card-bad";
-        string idleClass = idleRate <= 20 ? "lob-card-good"
-            : idleRate <= 40 ? "lob-card-warn"
-            : "lob-card-bad";
         var topGap = _topGaps.FirstOrDefault();
         var hasGap = _topGaps.Any();
-        <!-- LOB 분석 요약 카드 (병목/유휴) -->
-        <div class="lob-summary-row">
-            <div class="lob-card">
-                <div class="lob-card-label">
-                    <span class="material-icons lob-card-icon">schedule</span>사이클 타임 (CT)
-                </div>
-                <div class="lob-card-value">@FormatDurationTooltip(ctMs)</div>
-                <div class="lob-card-sub">총 @_ganttData.TotalEventCount 이벤트 / @_ganttData.TotalLanes Lane</div>
-            </div>
-            <div class="lob-card @utilClass">
-                <div class="lob-card-label">
-                    <span class="material-icons lob-card-icon">trending_up</span>가동 시간 (MT)
-                </div>
-                <div class="lob-card-value">@utilRate.ToString("F1")<span class="lob-card-unit">%</span></div>
-                <div class="lob-card-sub">@FormatDurationTooltip(mtMs) 동작</div>
-            </div>
-            <div class="lob-card @idleClass">
-                <div class="lob-card-label">
-                    <span class="material-icons lob-card-icon">hourglass_empty</span>유휴 시간 (WT)
-                </div>
-                <div class="lob-card-value">@idleRate.ToString("F1")<span class="lob-card-unit">%</span></div>
-                <div class="lob-card-sub">@FormatDurationTooltip(wtMs) 대기</div>
-            </div>
-            <button type="button"
-                    class="lob-card lob-card-clickable @(hasGap ? "lob-card-bad" : "lob-card-muted")"
-                    @onclick="FocusLargestGap" disabled="@(!hasGap)"
-                    title="@(hasGap ? "클릭 시 갠트에서 해당 GAP 강조" : "GAP 없음")">
-                <div class="lob-card-label">
-                    <span class="material-icons lob-card-icon">warning_amber</span>최대 GAP (병목)
-                </div>
-                @if (hasGap)
-                {
-                    <div class="lob-card-value">@((topGap.Duration / 1000.0).ToString("F2"))<span class="lob-card-unit">s</span></div>
-                    <div class="lob-card-sub">@topGap.LaneName</div>
-                }
-                else
-                {
-                    <div class="lob-card-value">-</div>
-                    <div class="lob-card-sub">GAP 없음</div>
-                }
-            </button>
-        </div>
+        <!-- 병목(최대 GAP) 요약 배너 -->
+        <button type="button"
+                class="bottleneck-banner @(hasGap ? "bottleneck-banner-active" : "bottleneck-banner-muted")"
+                @onclick="FocusLargestGap" disabled="@(!hasGap)"
+                title="@(hasGap ? "클릭 시 갠트에서 해당 GAP 강조" : "GAP 없음")">
+            <span class="material-icons bottleneck-icon">warning_amber</span>
+            <span class="bottleneck-label">최대 GAP (병목)</span>
+            @if (hasGap)
+            {
+                <span class="bottleneck-value">@((topGap.Duration / 1000.0).ToString("F2"))<span class="bottleneck-unit">s</span></span>
+                <span class="bottleneck-lane">@topGap.LaneName</span>
+                <span class="bottleneck-cta">클릭하여 갠트에서 보기 →</span>
+            }
+            else
+            {
+                <span class="bottleneck-value">-</span>
+                <span class="bottleneck-lane">GAP 없음</span>
+            }
+        </button>
 
         <!-- Gantt Chart Info Bar -->
         <div class="gantt-info-bar">
