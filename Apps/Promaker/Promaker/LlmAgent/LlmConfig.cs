@@ -935,6 +935,11 @@ public enum VisionCostGateStatus
 /// </summary>
 public sealed class KbCollectionEntry
 {
+    /// **--review 라운드 1 Major-2 fix** — NormalizeSourceFolder 의 path-validation exception
+    /// (ArgumentException / PathTooLongException / NotSupportedException) 박제용 logger.
+    /// LlmConfig 의 logger 와 분리 — 의미 단위 분리 (collection entry vs config root).
+    private static readonly ILog Log = LogManager.GetLogger(typeof(KbCollectionEntry));
+
     [JsonPropertyName("collectionId")]
     public string CollectionId { get; set; } = "";
 
@@ -991,15 +996,37 @@ public sealed class KbCollectionEntry
     /// 그 외 입력은 <see cref="Path.GetFullPath(string)"/> 로 절대 path + alt separator 통일,
     /// trailing directory separator 제거 (drive root <c>C:\</c> 제외).
     /// <para/>
-    /// <c>Path.GetFullPath</c> 가 throw (잘못된 path char 등) 시 원본 그대로 반환 — fail-safe (caller / UI 가
-    /// 사용 시점에 다시 검증). 본 시점 throw 는 deserialization / setter 호출 stack 을 전부 깨뜨려 회복 비용 큼.
+    /// **Windows-only 가정**: drive-root 분기 (<c>full.Length &lt;= 3</c> = <c>C:\</c> 형태 보존) 는
+    /// Windows 의 drive-letter path semantics 에 종속. Promaker 는 WPF (Windows-only) app 이므로 본 가정 정합.
+    /// 비-Windows 진입 시 (예: 향후 cross-platform 마이그레이션) drive-root 분기 재검토 의무.
+    /// <para/>
+    /// **--review 라운드 1 Major-2 fix**: 기존 catch-all (`catch { return raw; }`) 은 silent fallback 으로
+    /// 진단성 0 + OutOfMemoryException / ThreadAbortException 등 transient critical exception 까지 흡수.
+    /// narrow 한 path-validation exception (<see cref="ArgumentException"/> = invalid char / 빈 path,
+    /// <see cref="PathTooLongException"/> = MAX_PATH 초과, <see cref="NotSupportedException"/> = colon 위치
+    /// 오류 등) 만 catch + <see cref="Log"/>.Warn 박제. 외 예외는 fail-fast (root cause 노출). fail-safe 정책
+    /// (raw 반환) 은 유지 — caller / UI 가 사용 시점에 다시 검증.
     /// </summary>
     internal static string? NormalizeSourceFolder(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return raw;
         string full;
         try { full = Path.GetFullPath(raw); }
-        catch { return raw; }
+        catch (ArgumentException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: invalid path char/format — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
+        catch (PathTooLongException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: path too long — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
+        catch (NotSupportedException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: unsupported path format — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
         // drive root (e.g. "C:\") 의 trailing sep 은 보존 — TrimEnd 시 "C:" 만 남으면 cwd-relative 로 변질.
         if (full.Length <= 3) return full;
         return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

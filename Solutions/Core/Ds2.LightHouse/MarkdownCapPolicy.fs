@@ -429,15 +429,19 @@ module MarkdownCapPolicy =
                 else
                     // Stage 3 — split. partCount 를 size 기반 lower bound 부터 시도, doubling 으로 escalate.
                     // 단순 +1 escalation 은 N 큰 case 에 O(N^2) → doubling 으로 O(log N) 안.
-                    let stage1Size = byteSize stage1
-                    // 최소 partCount 추정: 전체 size / cap (ceil) — header 중복 무시한 lower bound.
+                    //
+                    // **--review 라운드 1 Critical-1 fix**: split 입력은 stage2 (head/tail sampling 적용본)
+                    // 이어야 함. 기존 stage1 입력은 sampling 효과 무시 → split 후 각 part 가 cap 못 들어가 무한
+                    // doubling → SplitMaxParts 초과 fail-fast 회귀 risk. SSOT (`§8.5.5`) 의 3 단계 escalation
+                    // 정의 = "Stage 1 → 2 → 3 누적 적용" — Stage 3 가 Stage 2 결과를 입력으로 받음이 의도.
+                    // 최소 partCount 추정: stage2 size / cap (ceil) — header 중복 무시한 lower bound.
                     let initialPartCount =
-                        max 2 ((stage1Size + MaxMarkdownBytes - 1) / MaxMarkdownBytes)
+                        max 2 ((stage2Size + MaxMarkdownBytes - 1) / MaxMarkdownBytes)
                     let mutable partCount = initialPartCount
                     let mutable parts = []
                     let mutable splitDone = false
                     while not splitDone && partCount <= SplitMaxParts do
-                        let candidate = buildSplitParts partCount stage1
+                        let candidate = buildSplitParts partCount stage2
                         let maxPartSize =
                             candidate
                             |> List.map byteSize

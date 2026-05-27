@@ -192,7 +192,13 @@ let private resolveEmbedder (noEmbedding: bool) : IEmbeddingProvider option =
 /// 색인 완료 직후 단일 read-only connection 안에서 세 lib hook 모두 수행 → SQLite open cost 1회 통합.
 /// `meta.json` 박제는 caller 측 (runUpload 만 후속 단계에서 writeMeta 호출).
 /// 반환 = KeywordExtractor 결과 (runUpload 가 writeMeta 의 description / keywords 박제용으로 재활용).
-let private runPostIngestHooks (folder: string) : KeywordExtractionResult =
+///
+/// **--review 라운드 1 Major-5 fix**: `extractors` 인자 forward — 기존엔 runPostIngestHooks 가 내부에서
+/// IExtractor 4종 (Text/Pdf/Ooxml/Image) 을 별도 인스턴스화 + try/finally dispose 했으나 caller (runIndex)
+/// 가 이미 동일 list 보유. 동일 IExtractor type 의 동시 2개 인스턴스는 PdfExtractor / OoxmlExtractor 의
+/// 내부 캐시 / file handle / NLog ctx 관점에서 중복 비용 + 잠재 충돌 (특히 strategy classifier 가 동일 file
+/// 을 두 번 open). caller 가 단일 list 보유 + dispose 책임 단일화 → 본 helper 는 forward 만 담당.
+let private runPostIngestHooks (folder: string) (extractors: IExtractor list) : KeywordExtractionResult =
     let dbPath = SqliteStore.dbPath folder
     use conn = SqliteStore.openConnection dbPath true
     let kwResult = KeywordExtractor.extract conn
@@ -206,18 +212,10 @@ let private runPostIngestHooks (folder: string) : KeywordExtractionResult =
     // text dump / SummaryBuilder 와 직교 — `summary/` 디렉토리에 IoList / WorkOrder / PdfControlSpec 등
     // strategy 매치 결과의 정제 markdown 박제. 비매치 / signature 미달 파일은 rejected.json / near-miss.json
     // 에 누적 박제 (N1, N4 default). Packager.createZip 가 `.lighthouse-kb/` 전체를 zip 에 동봉 → server upload.
-    let extractors : IExtractor list = [
-        new TextExtractor() :> IExtractor
-        new PdfExtractor() :> IExtractor
-        new OoxmlExtractor() :> IExtractor
-        new ImageExtractor() :> IExtractor
-    ]
-    try
-        let dump = TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
-        eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
-            dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
-    finally
-        for ex in extractors do ex.Dispose()
+    // extractors 의 dispose 는 caller (runIndex) 의 finally 에서 단일 책임 — 본 helper 는 forward 만.
+    let dump = TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
+    eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
+        dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
     kwResult
 
 let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: bool) : int =
@@ -266,7 +264,8 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 // upload 전 검수용 — keyword + text dump + summary hook (runUpload 와 동일 패턴).
                 // ingested 만으로 분기하면 fast-skip 케이스에서 DB row 있어도 dump skip 되는 결함 → 항상 호출.
                 // **review A fix (r4)**: 7줄 hook 중복 제거 — runPostIngestHooks helper 호출. runIndex 는 반환 무관.
-                let _ = runPostIngestHooks folder
+                // **--review 라운드 1 Major-5 fix**: extractors 인자 forward — helper 안 중복 인스턴스화 회피.
+                let _ = runPostIngestHooks folder extractors
                 0
             finally
                 for ex in extractors do ex.Dispose()
@@ -345,7 +344,19 @@ let private runUpload
                     // `--reuse-kb` 경로는 Step 1-b / Step 2 가 이미 박제 → 본 hook idempotent 재호출 시 동일 결과 (DB SSOT).
                     // TextDumper / SummaryBuilder 모두 DB 의 ImageCache.CaptionText / Documents.SummaryText 박제분 우선
                     // 사용 → 재호출 시 caption / summary 동일 결과 박제 (덮어쓰기 없음).
-                    let kwResult = runPostIngestHooks folder
+                    // **--review 라운드 1 Major-5 fix**: runPostIngestHooks 가 extractors 인자 forward 받도록 변경 —
+                    // runUpload 는 본 hook 호출 시점에만 extractors 필요 (runIngest 는 Packager 내부에서 별도 인스턴스화).
+                    // 본 helper 호출 범위 안에서만 사용 + finally dispose.
+                    let postHookExtractors : IExtractor list = [
+                        new TextExtractor() :> IExtractor
+                        new PdfExtractor() :> IExtractor
+                        new OoxmlExtractor() :> IExtractor
+                        new ImageExtractor() :> IExtractor
+                    ]
+                    let kwResult =
+                        try runPostIngestHooks folder postHookExtractors
+                        finally
+                            for ex in postHookExtractors do ex.Dispose()
                     let description = kwResult.Topic |> Option.defaultValue ""
                     Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
                         description kwResult.Keywords

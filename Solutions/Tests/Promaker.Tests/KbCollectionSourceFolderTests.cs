@@ -259,4 +259,18 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
         var entry3 = new KbCollectionEntry { SourceFolder = "   " };
         Assert.Equal("   ", entry3.SourceFolder);
     }
+
+    [Fact]
+    public void SourceFolder_setter_returns_raw_on_invalid_path_chars()
+    {
+        // **--review 라운드 1 Major-2 fix** — narrow catch (ArgumentException / PathTooLongException /
+        // NotSupportedException) + Log.Warn + raw 보존. 본 fact 는 Path.GetFullPath 가 throw 하는
+        // 입력으로 fail-safe path 회귀 검증. NULL char ('\0') 는 ArgumentException trigger SSOT 입력.
+        // throw 미발생 시 정규화된 path 가 반환되므로 본 fact 의 raw 보존 assertion 이 정확히
+        // catch path 만 검증.
+        const string invalidRaw = "C:\\foo\0bar";
+        var entry = new KbCollectionEntry { SourceFolder = invalidRaw };
+        // fail-safe — raw 그대로 반환 (caller / UI 가 사용 시점에 다시 검증).
+        Assert.Equal(invalidRaw, entry.SourceFolder);
+    }
 }

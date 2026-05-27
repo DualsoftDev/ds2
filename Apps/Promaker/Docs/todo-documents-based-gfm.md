@@ -14,6 +14,7 @@
 |---|---|---|
 | r0 | 2026-05-27 | 초안 — `documents-based-gfm.md` 의 §5/§8.7~§8.9/§9 분리 + 메타리뷰 후속 결정 항목 흡수 |
 | r1 | 2026-05-27 | P1 자동 진행 완료 — PR-I1~I5 + PR-I2.5 commit + 헤드리스 smoke 통과 + §1.1 진행 표 P1 [x][x] 갱신 |
+| r2 | 2026-05-27 | `--review` 라운드 1 patch — Critical-1 (MarkdownCapPolicy Stage 3 stage2 split fix) + Major-2 (NormalizeSourceFolder narrow catch + log) + Major-5 (runPostIngestHooks extractors forward) + Critical-2 hand-off (RefreshSpecializedDigestAsync / ApplyPendingSpecializedDigest / SetActiveCollectionSourceRoots production GUI wiring 부재 docstring 박제 + 본 §0 진입 대기 갱신) |
 
 ---
 
@@ -75,6 +76,7 @@ headless smoke 통과로 단일화.
 ### 진입 대기 (Phase P2 — 도메인 전문가 검수, human-in-loop)
 - §5.4 의 6 step 사용자 액션 시퀀스 (`광명2_204_draft.yaml` 생성 → HKMC 검수 의뢰 → 보정 → golden 박제)
 - 운영 GUI 활성화는 `KbCollectionEntry.SourceFolder` schema 확장 후 (PR-I5 의 `GetActiveCollectionSourceRoots()` 가 production 시 빈 list 반환 — 별 PR backlog)
+- **(r2 박제 — --review 라운드 1 Critical-2 hand-off)** `RefreshSpecializedDigestAsync` / `ApplyPendingSpecializedDigest` / `SetActiveCollectionSourceRoots` 의 production wiring (`Initialize.cs` 의 ConfigureProviderAsync hook + `KbProfile.cs` SSE invalidate path + chat panel open trigger) 도 본 backlog 와 함께 후속 PR. PR-I5 시점에는 `SpecializedDigestInjectionTests` + headless smoke 만 본 진입점 호출, production GUI 진입점 wiring 부재 (관련 docstring 박제 — `LlmChatViewModel.SpecializedDigest.cs`).
 
 ### 잔여 backlog (Phase P2~P4)
 - §1 일정 표 + §2 PR 표 참조
