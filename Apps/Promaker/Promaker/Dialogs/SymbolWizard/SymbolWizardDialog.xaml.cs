@@ -51,8 +51,44 @@ public partial class SymbolWizardDialog : Window
             Filter = "All supported (*.csv;*.xml)|*.csv;*.xml|PLC CSV (*.csv)|*.csv|XG5000 XML (*.xml)|*.xml",
         };
         if (dlg.ShowDialog() == true)
+        {
             FilePathBox.Text = dlg.FileName;
+            AutoSelectVendor(dlg.FileName);
+        }
     }
+
+    /// <summary>파일 헤더를 읽어 Vendor 를 추론, 드롭다운을 자동 선택한다.
+    /// 인식 실패 시 기존 선택을 유지(사용자가 수동 변경 가능) — 보조 기능이라 실패해도 무시.</summary>
+    private void AutoSelectVendor(string path)
+    {
+        try
+        {
+            var detected = CsvParser.inferVendorFromFile(path);
+            if (FSharpOption<Vendor>.get_IsSome(detected))
+            {
+                VendorCombo.SelectedIndex = VendorToIndex(detected.Value);
+                StatusText.Text = $"Vendor 자동 인식: {VendorLabel(detected.Value)} (필요 시 직접 변경)";
+            }
+            else
+            {
+                StatusText.Text = "Vendor 자동 인식 실패 — 드롭다운에서 직접 선택하세요.";
+            }
+        }
+        catch
+        {
+            // 자동 인식은 보조 기능 — 실패해도 무시하고 수동 선택에 맡긴다.
+        }
+    }
+
+    private static int VendorToIndex(Vendor v) =>
+        v.IsMitsubishi ? 0 : v.IsXG5000 ? 1 : v.IsXGB ? 2 : v.IsXGK ? 3 : 4;
+
+    private static string VendorLabel(Vendor v) =>
+        v.IsMitsubishi ? "Mitsubishi"
+        : v.IsXG5000 ? "XGI/XG5000 (LS)"
+        : v.IsXGB ? "XGB (LS CSV)"
+        : v.IsXGK ? "XGK (LS CSV)"
+        : "AB (미구현)";
 
     private Vendor SelectedVendor() => (VendorCombo.SelectedIndex) switch
     {
@@ -398,7 +434,8 @@ public partial class SymbolWizardDialog : Window
     {
         // input-matching-config.json GUI 편집. 저장 시 Ds2.SymbolImport.Matching 의
         // InputMatching / DeviceGroupingUtils 캐시 invalidate (FS module mutable state).
-        var vm = new ConfigEditor.ConfigEditorViewModel();
+        // XGK 슬롯 탭은 XGK vendor 선택 시에만 노출 (P-주소 입출력 disambiguation 은 XGK 전용 기능).
+        var vm = new ConfigEditor.ConfigEditorViewModel(showXgkTab: SelectedVendor().IsXGK);
         var window = new ConfigEditor.ConfigEditorWindow(vm) { Owner = this };
         window.ShowDialog();
     }
