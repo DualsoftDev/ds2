@@ -155,7 +155,7 @@ PR-I2/I3 가 PR-I1 의 산출물에 의존하는 정합 규칙:
   - **금지**: strategy 코드 영역, classifier 코드 영역 (PR-I1/I2 와 동시 변경 시 conflict)
 - **PR-I4 의 변경 가능 영역** (M2):
   - `Solutions/Core/Ds2.LightHouse/SpecializedDigestBuilder.fs` (신규)
-  - `Apps/Promaker/Promaker/LlmAgent/SystemContentBuilder.cs` 의 cache breakpoint 3 추가 (~20 줄)
+  - `Apps/Shared/Llm.Shared/Api/SystemContentBuilder.cs` 의 cache breakpoint 3 추가 (~20 줄)
   - **금지**: strategy 코드 영역 (PR-I1/I2) / TextDumper / Packager / runIndex (PR-I3) — 모두 PR-I3 의 산출물에 의존하지만 변경 0
 - **PR-I5 의 변경 가능 영역**:
   - `Apps/Promaker/Promaker/Knowledge/KbSpecializedDigestFetcher.cs` (신규)
@@ -212,8 +212,8 @@ Apps/Promaker/Promaker/Knowledge/
 Apps/Promaker/Promaker/ViewModels/
 └── LlmChatViewModel.SpecializedDigest.cs  ← 신규 partial (~80 줄, PR-G KbDigest 패턴)
 
-Apps/Promaker/Promaker/LlmAgent/
-└── SystemContentBuilder.cs                ← 갱신 (~20 줄, cache breakpoint 추가)
+Apps/Shared/Llm.Shared/Api/
+└── SystemContentBuilder.cs                ← 갱신 (~20 줄, cache breakpoint 추가, Llm.Shared 마이그레이션 결과)
 
 Tests/
 ├── Ds2.LightHouse.Tests/
