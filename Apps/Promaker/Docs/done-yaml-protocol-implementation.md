@@ -92,7 +92,7 @@ A (Phase 2.5 refactor backlog), B (Phase 3 prompt 마이그레이션), D (todo o
 
 **Phase 6 외 신규 후속 cycle 후보**:
 - **PathResolver 모듈 SRP split (Phase 6 v6 발견)** — Phase 6 chunk-1c 시점에 `ModelProtocol.fs` 의 `tryPathOf` / `tryFindEntity` / `pathSegments` 와 `ToolOperations.fs` 의 인라인 local resolver (`pathSegmentsForScope` / `trySystemPathLocal` / `tryFlowPathLocal`) 두 곳이 비슷한 로직을 중복 (fsproj 컴파일 순서상 forward-ref 회피 위해 인라인). 단일 PathResolver 모듈로 통합 시 (1) NFC 정규화 / dot-segment 분해 / kind 자동 판별이 한 곳에 모임, (2) Phase 7 이후 path 어휘 확장 (Work / Call segment) 시 sync drift 회피. 본 SRP split 은 아래 `ModelProtocol.fs` SRP split 작업과 묶어 진행 권고 (둘 다 동일 file split 영향).
-- **`patch.arrows.remove` 의 Arrow EntityKind 확장** — Phase 1.5 부터 미지원 (entity 단위 cascade 만 가능). Flow 안 *arrow 단발 제거* 시나리오 실 corpus 등장 시 dispatcher 분기 추가.
+- ~~**`patch.arrows.remove` 의 Arrow EntityKind 확장**~~ — **light-house-documents 브랜치에서 완료**. EntityKind.ArrowWork/ArrowCall + CascadeRemove 분기 + queueRemoveEntity 보강 + arrows.remove dispatcher (Flow scope invariant 박제, Type optional). 잔여 backlog: Call arrow 단독 제거 DSL 어휘 (현재 안전망 분기만 선반영).
 - **doc-level dispatcher 의 name sanitize 도입** — `ModelTools.cs` 의 op-layer 진입점이 강제하던 `sanitizeName` (control char / RTL override / `@`·`$` prefix 거부) 정책이 `ModelProtocol.fs` dispatcher 에 미적용. systems/flow/work/api 이름 발견 시점에 `ToolOperations.sanitizeName` 호출 추가 권고. 실 corpus 에 비정상 이름 등장 시 보강.
 - **doc-level cascade quota 차감 재도입 검토** — Phase 5 cleanup 으로 `RunWithChargedQuota` 제거. `apply_model_doc` 한 호출이 N op 누적해도 quota 1로 카운트 → DoS 표면. 실 corpus 에서 N>2000 발행 시나리오 등장 시 ModelProtocol dispatcher 에 cascade 누적 차감 재도입.
 - **`ModelProtocol.fs` 1201 line SRP 모듈 split** — 기존 review M8 권고 (5 module split). Phase 6 진입 전 권장 → Phase 6 commit #2 직전 또는 후 별개 cycle. 우선순위 상승.
@@ -263,7 +263,7 @@ PoC 진입 후 실제 사례 만나는 시점에 결정 — *사전 over-design 
 외부 reviewer (별개 sub-agent) 가 `ed6c7c3` 코드 리뷰 결과 식별·반영한 사항. 본 절은 review 문서가 부재한 환경에서도 완전 이해 가능하도록 항목별 풀어서 기술 (CLAUDE.md 룰 — review 처리 기록 시 reviewer 표기 번호만 나열 금지).
 
 **회귀 위험 — 모두 수정 적용**:
-- **patch.arrows 분기 누락**: SSOT 의 `patch.arrows.add` / `patch.arrows.remove` 시나리오가 dispatcher 에 없어 silent ignore. `findFlowByPath` helper 추가 + `patch.arrows.add` 풀구현 (Flow path 해석, work 이름 resolve, queueAddArrow 호출). `patch.arrows.remove` 는 `EntityKind` enum 에 Arrow case 부재로 PoC 명시 미지원 (친절 에러 메시지 + 후속 cycle 에 EntityKind 확장 + CascadeRemove 분기 추가 필요 명시).
+- **patch.arrows 분기 누락**: SSOT 의 `patch.arrows.add` / `patch.arrows.remove` 시나리오가 dispatcher 에 없어 silent ignore. `findFlowByPath` helper 추가 + `patch.arrows.add` 풀구현 (Flow path 해석, work 이름 resolve, queueAddArrow 호출). `patch.arrows.remove` 는 당시 cycle 에 `EntityKind` enum 의 Arrow case 부재로 친절 에러 안내 미지원. **후속 cycle (light-house-documents 브랜치)에서 풀구현 완료** — `EntityKind.ArrowWork = 12` / `EntityKind.ArrowCall = 13` 추가 + `CascadeRemove.batchRemoveEntities` 두 case 분기 + `ToolOperations.queueRemoveEntity` 의 store dict 검사에 `ArrowWorks` / `ArrowCalls` 추가 + `arrows.remove` dispatcher (Flow scope invariant 박제, Type optional, 다중 매칭 시 Type 명시 요구). Call arrow 단독 제거는 안전망 분기만 선반영 — 입력 어휘 (call-graph arrows.remove DSL) 는 차기 cycle.
 - **apis 빈 list 명시 시 default 무력화**: 사용자가 `apis: []` 를 명시 입력하면 `Option.defaultValue` 가 `Some []` 를 통과시켜 cylinder 등 sugar 의 default `[ADV;RET]` 가 무력화 → 빈 cascade 생성. `Option.bind (fun l -> if List.isEmpty l then None else Some l)` 로 빈 list 를 None 으로 정규화.
 - **중복 flow 키 처리**: 같은 `flow X:` 키가 두 번 등장 시 두 번째도 `queueAddFlow` 호출되어 `sysEntry.FlowIds[X]` 가 두 번째 ID 로 덮어써짐 (첫 번째는 leak). `dedupedFlowKeys` 로 첫 등장만 채택하도록 변경.
 
@@ -419,7 +419,7 @@ Phase 2 §3.1 #1/#3/#4/#5/#6 6항목 적용 + 외부 review 5명 종합 반영. 
 
 **측정 잠재력** — prompt 토큰 추가 절감 (escape hatch 표 21행 + 도구 description 15개 제거). 다음 모델링 turn 의 input_tokens 감소 폭은 후속 측정.
 
-**잔여 후속 cycle** — `patch.arrows.remove` 의 Arrow EntityKind 확장 (실 corpus 등장 시).
+**잔여 후속 cycle** — `patch.arrows.remove` 의 Arrow EntityKind 확장은 light-house-documents 브랜치에서 풀구현 완료 (EntityKind.ArrowWork/ArrowCall + dispatcher). Call arrow 단독 제거 DSL 어휘 + 5-segment Call path (`pathSegments` 가 `.` split 인데 Call 표준 name 이 `Device.Api` 형식이라 호환 부재) 는 별개 backlog.
 
 ### 7.5 Phase 0 직전 별개 작업 (commit `44cf62f`)
 
