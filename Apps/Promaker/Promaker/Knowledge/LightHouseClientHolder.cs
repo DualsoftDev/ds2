@@ -73,6 +73,13 @@ public static class LightHouseClientHolder
     }
 
     /// <summary>
+    /// **Plan B (2026-05-27)** — 현재 살아있는 모든 active client 와 그 ServiceId 반환. LightHouseTools wrapper 가
+    /// fan-out 호출 시 사용. EnsureCreated 호출 안 됐으면 빈 list. 순서는 ConcurrentDictionary enumeration 순.
+    /// </summary>
+    public static IReadOnlyList<(string ServiceId, LightHouseClient Client)> GetActiveClients() =>
+        _clients.Values.Select(e => (e.ServiceId, e.Client)).ToList();
+
+    /// <summary>
     /// **D-S7-3b (s6-r30)** — config 의 모든 active service 에 대해 client 보장. 변경된 entry (BaseUrl/PSK 변동)
     /// 만 dispose 후 재생성 — 변경 없는 entry 는 그대로 유지 (효율 + SSE 단절 회피). config 에서 사라진 ServiceId
     /// 는 entry dispose + 제거.

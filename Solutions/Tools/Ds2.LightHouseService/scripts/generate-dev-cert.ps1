@@ -29,9 +29,9 @@
 [CmdletBinding()]
 param(
   [string]$PfxPath = "C:\ProgramData\Dualsoft\LightHouseService\service.pfx",
-  # default SAN — `localhost` 와 `127.0.0.1` 모두 포함. .NET HttpClient 의 cert validation 은 SAN dNSName /
-  # iPAddress 둘 다 매칭 필요 — IP literal 로 접속 (`https://127.0.0.1:8443`) 시 dNSName 만 박제된 cert 는 fail.
-  # New-SelfSignedCertificate 가 `-DnsName "127.0.0.1"` 인자에서 IP 패턴을 자동 감지해 SAN.iPAddress 박제.
+  # default SAN — `localhost` (DNS) + `127.0.0.1` (IP) 모두 포함.
+  # 인자 자체는 후방호환 위해 `-DnsName` name 유지 — 실제 박제는 본 스크립트가 IPv4/IPv6 regex 판정 후
+  # dNSName 과 iPAddress 로 분리 (아래 BuildSubjectAltNameExt 참조). 호출자는 그냥 host string 만 박제.
   [string[]]$DnsName = @('localhost','127.0.0.1'),
   [int]$ValidityYears = 2,
   # Promaker UI 자동 path: 평문 password 인자 — 비면 대화형 prompt.
@@ -60,8 +60,42 @@ if (-not [string]::IsNullOrEmpty($CertPasswordPlain)) {
     }
 }
 
+# ─── SAN OID 2.5.29.17 직접 박제 (Subject Alternative Name) ──────────────
+# **2026-05-27 사고 박제** — `New-SelfSignedCertificate -DnsName` 는 모든 인자값을 dNSName type
+# 으로만 박제 (IP literal 도 string match — IP 자동 감지 안 함). 결과 cert SAN 은 `DNS:127.0.0.1`
+# 가 되어 Node OpenSSL (Claude CLI 포함) 의 RFC 6125 strict 검증에서 `https://127.0.0.1` 접속 시
+# iPAddress 매칭 0건 → TLS handshake fail. .NET SChannel (HttpClient) 은 관대해서 dNSName 의 IP
+# string 도 매칭 — Promaker LightHouseClient 의 `/sessions` 호출은 통과 → Node 측만 fail 발견 지연.
+# **fix**: `-DnsName` 사용 폐기, `-TextExtension "2.5.29.17={text}DNS=...&IPAddress=..."` 로
+# SAN 본문 직접 박제. IPv4 / IPv6 regex 판정 후 자동 분리.
+$ipv4Regex = '^(\d{1,3}\.){3}\d{1,3}$'
+$ipv6Regex = '^[0-9a-fA-F:]+:[0-9a-fA-F:]*$'
+$sanParts = @()
+foreach ($h in $DnsName) {
+    if ($h -match $ipv4Regex -or $h -match $ipv6Regex) {
+        $sanParts += "IPAddress=$h"
+    } else {
+        $sanParts += "DNS=$h"
+    }
+}
+$sanText = "2.5.29.17={text}" + ($sanParts -join '&')
+
+# **2026-05-27 사고 박제 (2차)** — Basic Constraints (OID 2.5.29.19) CA:TRUE 박제.
+# `New-SelfSignedCertificate` 의 default 는 leaf cert (Basic Constraints 자체 미포함 = CA:FALSE) →
+# Node.js OpenSSL 의 RFC 5280 strict chain validation 에서 "self-signed leaf 는 trusted root 될 수 없음"
+# → `DEPTH_ZERO_SELF_SIGNED_CERT` 거부 → Claude CLI mcp lighthouse "failed" 사고.
+# .NET SChannel (Windows HttpClient / Promaker LightHouseClient) 는 관대 — leaf 도 root 인정 → 사고 발견 지연.
+# fix: Basic Constraints CA:TRUE 박제 + Trusted Root 에 import (기존 path 그대로) → self-signed cert 가
+# 본인 chain 의 root CA 역할 → Node OpenSSL 통과. dev/PoC 환경 한정, 운영은 사내 CA 발급 권장 그대로.
+$caText = "2.5.29.19={text}CA=TRUE"
+
+# Subject CN — 첫 번째 dNSName entry 사용. 전부 IP 면 첫 IP literal 그대로 (X.500 CN 은 free string 허용).
+$cnHost = ($DnsName | Where-Object { -not ($_ -match $ipv4Regex -or $_ -match $ipv6Regex) } | Select-Object -First 1)
+if ([string]::IsNullOrEmpty($cnHost)) { $cnHost = $DnsName[0] }
+
 $cert = New-SelfSignedCertificate `
-    -DnsName $DnsName `
+    -Subject "CN=$cnHost" `
+    -TextExtension @($sanText, $caText) `
     -CertStoreLocation "Cert:\LocalMachine\My" `
     -KeyExportPolicy Exportable `
     -KeyAlgorithm RSA -KeyLength 2048 `
@@ -75,7 +109,9 @@ Export-PfxCertificate `
 Write-Host ""
 Write-Host "  -> PFX created : $PfxPath"
 Write-Host "  -> Thumbprint  : $($cert.Thumbprint)"
-Write-Host "  -> DnsName/SAN : $($DnsName -join ', ')"
+Write-Host "  -> Subject CN  : $cnHost"
+Write-Host "  -> SAN 박제    : $($sanParts -join ', ')   # iPAddress vs dNSName 분리 확인 — 회귀 가드"
+Write-Host "  -> Basic Constraints: CA=TRUE   # Node OpenSSL self-signed root 신뢰 의무 — 회귀 가드"
 Write-Host "  -> Expires     : $((Get-Date).AddYears($ValidityYears).ToString('yyyy-MM-dd'))"
 
 # self-signed cert 를 LocalMachine\Root 에 자동 import — .NET HttpClient 의 cert validation 통과 정합.

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using log4net;
@@ -22,7 +23,8 @@ public sealed class LightHouseLocalInstaller
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LightHouseLocalInstaller));
 
-    private const string LocalBaseUrl = "https://127.0.0.1:8443";
+    /// <summary>fallback BaseUrl — config.json read 실패 시 사용. install-service.ps1 의 default ListenUrl 정합.</summary>
+    public const string DefaultLocalBaseUrl = "https://127.0.0.1:8443";
 
     private readonly LlmConfig _llmConfig;
 
@@ -32,11 +34,20 @@ public sealed class LightHouseLocalInstaller
     }
 
     /// <summary>
-    /// enable-ai.ps1 호출 → 4단계 (Ollama / cert / sc create + PSK / firewall + start) → PSK 박제.
+    /// enable-ai.ps1 호출 → 4단계 (Ollama / cert / sc create + PSK / firewall + start) → Promaker 측 PSK DPAPI 박제.
     /// 성공 시 <see cref="EnableResult.ServiceId"/> 가 LlmConfig.LightHouseServices 의 Local entry 식별자.
+    /// <para/>
+    /// **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 caller 가 사용자 입력값 (SecureString) 을
+    /// 받아 평문으로 전달. caller 측 책임: SecureString → UTF-8 byte → 본 메서드 호출 → byte clear. 본 메서드는 그
+    /// 평문을 임시 파일 (Owner-only ACL) 에 박제 → ps1 가 read 후 wipe → 본 메서드도 finally 에서 wipe (이중 안전).
     /// </summary>
-    public async Task<EnableResult> EnableAsync(CancellationToken ct = default)
+    /// <param name="pskPlain">사용자 입력 PSK 평문. 임시 파일 박제 후 일찍 wipe — caller 도 호출 후 자체 wipe 의무.</param>
+    /// <param name="certPwdPlain">사용자 입력 cert PFX password 평문. PSK 와 동일 lifetime.</param>
+    public async Task<EnableResult> EnableAsync(string pskPlain, string certPwdPlain, CancellationToken ct = default)
     {
+        if (string.IsNullOrEmpty(pskPlain)) throw new ArgumentException("PSK 평문 비어있음.", nameof(pskPlain));
+        if (string.IsNullOrEmpty(certPwdPlain)) throw new ArgumentException("Cert PFX password 평문 비어있음.", nameof(certPwdPlain));
+
         var deployment = ResolveDeployment()
             ?? throw new InvalidOperationException(
                 "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
@@ -45,18 +56,25 @@ public sealed class LightHouseLocalInstaller
         if (!File.Exists(enableScript))
             throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
 
-        var pskOut = Path.Combine(Path.GetTempPath(), $"promaker-psk-{Guid.NewGuid():N}.tmp");
+        var pskIn  = Path.Combine(Path.GetTempPath(), $"promaker-psk-{Guid.NewGuid():N}.tmp");
+        var cpwdIn = Path.Combine(Path.GetTempPath(), $"promaker-cpw-{Guid.NewGuid():N}.tmp");
         var logOut = Path.Combine(Path.GetTempPath(), $"promaker-ai-{Guid.NewGuid():N}.log");
 
         try
         {
+            // 평문 박제 — UTF-8 (no BOM) 1줄. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
+            // (Windows 의 %TEMP% 가 사용자별 분리 박제 — 다른 사용자 read 불가, admin elevation 시 read 가능 — UAC 후 자기 process 가 read).
+            File.WriteAllText(pskIn, pskPlain, new System.Text.UTF8Encoding(false));
+            File.WriteAllText(cpwdIn, certPwdPlain, new System.Text.UTF8Encoding(false));
+
             var psArgs = string.Join(' ', new[]
             {
                 "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
                 "-File", Quote(enableScript),
                 "-ExePath", Quote(deployment.ExePath),
-                "-PskOutputPath", Quote(pskOut),
+                "-PskInputPath", Quote(pskIn),
+                "-CertPasswordInputPath", Quote(cpwdIn),
                 "-LogPath", Quote(logOut),
             });
 
@@ -66,8 +84,6 @@ public sealed class LightHouseLocalInstaller
                 Arguments = psArgs,
                 UseShellExecute = true,   // Verb=runas 와 정합 (UAC 프롬프트)
                 Verb = "runas",
-                // 사용자 progress feedback — 진행 화면을 console 로 표시 (수 분 소요 + UAC 후 무화면 회피).
-                // PSK 평문은 install-service.ps1 가 -PskOutputPath 로 직접 박제 → console / transcript 미경유.
                 WindowStyle = ProcessWindowStyle.Normal,
             };
 
@@ -82,25 +98,18 @@ public sealed class LightHouseLocalInstaller
                     $"enable-ai.ps1 실패 (exit {proc.ExitCode}). log 끝부분:{Environment.NewLine}{tail}{Environment.NewLine}전체 log: {logOut}");
             }
 
-            if (!File.Exists(pskOut))
-                throw new InvalidOperationException($"PSK output 미생성 — enable-ai.ps1 가 PSK 박제하지 못함. log: {logOut}");
-
-            var pskPlain = File.ReadAllText(pskOut).Trim();
-            if (string.IsNullOrEmpty(pskPlain))
-                throw new InvalidOperationException($"PSK output 비어 있음. log: {logOut}");
-
+            // PSK 는 caller (UI) 가 사용자 입력 받았으므로 그 평문이 이미 손에 있음 — Promaker LlmConfig 박제는 직접.
             var serviceId = PersistLocalEntry(pskPlain);
             Log.Info($"LightHouse Local entry 박제 완료 — ServiceId={serviceId}");
 
-            // enable-ai.ps1 의 마지막 단계가 출력한 `START_RESULT=exit=<n> health=<true|false>` 라인을 파싱.
-            // log 파일에는 transcript 가 박혀 있고, install-service.ps1 가 PSK 평문을 stdout 미경유로
-            // 파일 박제하므로 (자가검열 C2 정합) — log 파일에 PSK 평문 잔존 없음.
             var startOk = TryParseStartResult(logOut);
             return new EnableResult(serviceId, logOut, startOk);
         }
         finally
         {
-            TryWipeFile(pskOut);
+            // 이중 안전 — ps1 도 read 직후 wipe 하나 caller 측에서도 finally wipe (예외 분기 보호).
+            TryWipeFile(pskIn);
+            TryWipeFile(cpwdIn);
             // log 는 caller 가 결과 표시 후 직접 cleanup. (실패 시 진단 자료로 유용.)
         }
     }
@@ -111,7 +120,7 @@ public sealed class LightHouseLocalInstaller
     private string PersistLocalEntry(string pskPlain)
     {
         var entry = _llmConfig.LightHouseServices.FirstOrDefault(s =>
-            IsSameLocalEndpoint(s.BaseUrl, LocalBaseUrl));
+            IsSameLocalEndpoint(s.BaseUrl, DefaultLocalBaseUrl));
 
         if (entry is null)
         {
@@ -119,7 +128,7 @@ public sealed class LightHouseLocalInstaller
             {
                 ServiceId = Guid.NewGuid().ToString(),
                 DisplayName = "Local LightHouse",
-                BaseUrl = LocalBaseUrl,
+                BaseUrl = DefaultLocalBaseUrl,
                 Active = true,
             };
             _llmConfig.LightHouseServices.Add(entry);
@@ -176,7 +185,9 @@ public sealed class LightHouseLocalInstaller
         return null;
     }
 
-    private static bool IsSameLocalEndpoint(string a, string b)
+    /// <summary>두 BaseUrl 이 같은 endpoint 인지 판정 — scheme / host(localhost↔127.0.0.1 정규화) / port 비교.
+    /// LlmConfig 의 LightHouseServices 중복 검사 (UI 의 "Local 항목 추가" + "+ Add Service" 양쪽) SSOT.</summary>
+    public static bool IsSameLocalEndpoint(string a, string b)
     {
         if (!Uri.TryCreate(a, UriKind.Absolute, out var ua)) return false;
         if (!Uri.TryCreate(b, UriKind.Absolute, out var ub)) return false;
@@ -184,6 +195,45 @@ public sealed class LightHouseLocalInstaller
         return string.Equals(ua.Scheme, ub.Scheme, StringComparison.OrdinalIgnoreCase)
             && Norm(ua.Host) == Norm(ub.Host)
             && ua.Port == ub.Port;
+    }
+
+    /// <summary>로컬 LightHouseService 의 client target BaseUrl 결정 —
+    /// <c>%PROGRAMDATA%\Dualsoft\LightHouseService\config.json</c> 의 <c>listenUrl</c> 박제값 우선,
+    /// read 실패 (ACL 거부 / 파일 미존재 / parse 실패) 시 <see cref="DefaultLocalBaseUrl"/> fallback.
+    /// <para/>
+    /// 정규화 — listenUrl 의 host 가 <c>0.0.0.0</c> 이면 <c>127.0.0.1</c> 로 치환 (client connect target 부적합).
+    /// IPv6 <c>[::]</c> 도 동일.
+    /// <para/>
+    /// 본 helper 는 read-only — DPAPI 복호화 / 평문 노출 0. listenUrl 만 추출.
+    /// </summary>
+    public static string ResolveLocalBaseUrl()
+    {
+        try
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Dualsoft", "LightHouseService", "config.json");
+            if (!File.Exists(configPath)) return DefaultLocalBaseUrl;
+
+            using var stream = File.OpenRead(configPath);
+            using var doc = JsonDocument.Parse(stream);
+            if (!doc.RootElement.TryGetProperty("listenUrl", out var lu)) return DefaultLocalBaseUrl;
+            var raw = lu.GetString();
+            if (string.IsNullOrWhiteSpace(raw)) return DefaultLocalBaseUrl;
+
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var u)) return DefaultLocalBaseUrl;
+            // bind-only host (client target 부적합) → loopback 치환. install-service.ps1 default 가 IPv4 loopback
+            // 이므로 IPv4 unspecified 만 처리 — IPv6 unspecified (`[::]`) 는 별 backlog 박제 의무
+            // (Uri.Host 가 IPv6 의 경우 full-expand 형태 "0000:..." 로 정규화되어 단순 비교 안 통함).
+            var host = u.Host == "0.0.0.0" ? "127.0.0.1" : u.Host;
+            // UriBuilder 가 default port 를 -1 로 표기 + ToString() 에서 생략 — 명시 port 유지를 위해 직접 조립.
+            return $"{u.Scheme}://{host}:{u.Port}";
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"config.json listenUrl 추출 실패 — fallback {DefaultLocalBaseUrl} ({ex.Message})");
+            return DefaultLocalBaseUrl;
+        }
     }
 
     private static string Quote(string s) => "\"" + s.Replace("\"", "\\\"") + "\"";

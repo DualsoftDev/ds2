@@ -91,16 +91,26 @@ make dist-installer       # sc 모드 권장 (런타임 번들, 가장 안전)
 - 컴포넌트 선택 단계에서 **"AI 기능 활성화 (LightHouse KB Service + Ollama 설치 파일 — 사후 UI 에서 활성화)"** 가 **default checked**. 체크 유지 → install 완료 시 `{app}\LightHouseService\` 에 service binary + scripts 배치.
 - 이 시점에서는 **service 등록 / cert / PSK / Ollama 미수행** (파일만 배치).
 
-### 2-bis.2 UI 활성화 버튼
+### 2-bis.2 UI 버튼 2종 (2026-05-27 분리)
 
-Promaker 실행 → 설정 → **LLM 탭** → "LightHouse Services (Knowledge Base)" 섹션 → **"로컬 LightHouse 서비스 활성화"** 클릭.
+Promaker 실행 → 설정 → **LLM 탭** → "LightHouse Services (Knowledge Base)" 섹션 → 버튼 2종:
+
+#### (a) **"Local 항목 추가"** — service 가 이미 떠 있을 때
+
+`%PROGRAMDATA%\Dualsoft\LightHouseService\config.json` 의 `listenUrl` 을 자동 추출하여 DataGrid 에 row 만 추가 (PSK 빈 값). 사용자는 row 의 "PSK 설정..." 으로 별 입력. 동일 endpoint 가 이미 있으면 버튼 비활성. **service 설치 / cert 생성 / 4단계 chain 일체 없음** — 빠르고 비파괴.
+
+#### (b) **"Local 서비스 설치/재설치"** — service 가 없거나 stop 상태일 때
+
+진입 시 `sc query` 1회 → RUNNING 인 경우 confirm dialog ("기존 service 를 정지 후 재등록, PSK 도 새로 설정. 계속?"). OK 후 **PSK / Cert PFX Password 입력 dialog** (검증 / 강도 안내 / RNG 버튼 0 — 사용자 결정 2026-05-27).
 
 UAC 프롬프트 응답 후 PowerShell 콘솔이 열리며 4단계 자동 진행 (수 분 소요):
 
-1. **Ollama + bge-m3** — `install-ollama.ps1` 가 winget 으로 Ollama 자동 설치 (이미 있으면 skip) + `ollama pull bge-m3` (~2GB, 이미 있으면 fast no-op) + `OLLAMA_FLASH_ATTENTION=false` Machine scope 박제 (bge-m3 NaN 회피)
-2. **self-signed TLS cert** — `generate-dev-cert.ps1` 가 PFX 생성 (`%PROGRAMDATA%\Dualsoft\LightHouseService\service.pfx`). **PFX password 는 wrapper 가 RNG 자동 생성** (사용자 입력 0). 이미 PFX 가 있으면 password 정합을 위해 wrapper 가 삭제 후 재생성.
-3. **install-service.ps1 + DPAPI PSK** — RNG 32-byte PSK 자동 생성 → 평문은 임시 파일에 1회 박제 (Promaker WPF 가 즉시 read → DPAPI 박제 → wipe). config.json 의 `preSharedKeyEncrypted` / `tlsCertPasswordEncrypted` 동시 박제. `sc create Ds2.LightHouseService` (기존 service 있으면 stop+delete polling 후 재등록).
-4. **firewall + start + healthcheck** — `netsh advfirewall firewall add rule "Ds2 LightHouse Service" 8443/tcp inbound remoteip=127.0.0.1` + `sc start Ds2.LightHouseService` + `/healthz` 200 OK polling (최대 30s, STOPPED 감지 시 즉시 중단).
+1. **Ollama + bge-m3** — `install-ollama.ps1` (이미 있으면 skip) + bge-m3 pull + `OLLAMA_FLASH_ATTENTION=false` 박제
+2. **self-signed TLS cert + .cer export** — `generate-dev-cert.ps1` 가 PFX 생성. 사용자 입력 cert PFX password 박제. **.cer (DER) 도 PFX 옆에 export + `icacls Users:R` 부여** — Node 측 `NODE_EXTRA_CA_CERTS` 가 read 가능 (일반 사용자 권한)
+3. **install-service.ps1** — 사용자 입력 PSK 평문 → DPAPI(LocalMachine) 박제 → `config.json` 의 `preSharedKeyEncrypted` / `tlsCertPasswordEncrypted` 박제. `sc create Ds2.LightHouseService` (기존 service 있으면 stop+delete polling 후 재등록)
+4. **firewall + start + healthcheck** — `netsh advfirewall firewall add rule` + `sc start` + `/healthz` 200 OK polling (최대 30s)
+
+**PSK 평문 surface**: 사용자 입력 dialog (PasswordBox) → Promaker `%TEMP%\promaker-psk-<guid>.tmp` Owner-only ACL → `enable-ai.ps1` read → wipe + Promaker finally wipe (이중 안전). install-service.ps1 의 RNG path 폐기 (`-GeneratePsk` 인자 삭제).
 
 완료 시 UI status: `활성화 완료 — ServiceId=<8자>… /healthz 200 OK log: %TEMP%\promaker-ai-<guid>.log`.
 
@@ -119,9 +129,9 @@ sc query Ds2.LightHouseService          # STATE = 4 RUNNING
 
 ### 2-bis.4 재활성화 (PSK rotation)
 
-같은 버튼을 다시 클릭 = 명시 재설치 = **PSK 자동 rotation**. 새 RNG PSK 가 service 와 Promaker LlmConfig 양쪽에 일관 박제. 다른 머신에서 같은 service 에 접속 중이면 그 client 는 새 PSK 가 필요 (§2-ter.2 참조).
+"Local 서비스 설치/재설치" 버튼을 다시 클릭 = 명시 재설치. RUNNING 상태면 confirm dialog ("기존 service 정지 후 재등록, PSK 도 새로 설정. 계속?") 통과 후 PSK / Cert PFX Password 입력 dialog 가 다시 뜸 — **사용자가 새 PSK 평문 결정** + service / Promaker LlmConfig 양쪽 박제. 다른 머신 client 가 있으면 새 PSK 를 안전 채널로 전달 의무 (§2-ter.2 참조).
 
-진단 log: `%TEMP%\promaker-ai-<guid>.log` (PowerShell transcript). PSK 평문은 stdout / transcript 미경유 — `-PskOutputPath` 임시 파일로만 전달 후 즉시 wipe.
+진단 log: `%TEMP%\promaker-ai-<guid>.log` (PowerShell transcript). PSK 평문은 stdout / transcript 미경유 — Promaker 가 `%TEMP%\promaker-psk-<guid>.tmp` Owner-only 임시 파일에 박제하여 ps1 에 전달, ps1 가 read 후 wipe + Promaker finally wipe (이중 안전).
 
 ---
 
@@ -131,7 +141,7 @@ sc query Ds2.LightHouseService          # STATE = 4 RUNNING
 
 ### 2-ter.1 서버 PC — install-service.ps1 단독 호출
 
-`enable-ai.ps1` 가 아니라 `install-service.ps1` 를 직접 호출해서 **PSK 평문을 stdout 으로 출력**하게 합니다 (`-PskOutputPath` 미지정 + `-GeneratePsk`):
+`enable-ai.ps1` 가 아니라 `install-service.ps1` 를 직접 호출. **운영자가 PSK 평문을 직접 결정** (또는 RNG 도구로 생성 후 안전 채널 보관) → `-PskPlain` 으로 전달 (2026-05-27 부터 `-GeneratePsk` 인자 폐기 — 사용자 입력만):
 
 ```powershell
 # 관리자 PowerShell, 서버 PC
@@ -140,13 +150,24 @@ sc query Ds2.LightHouseService          # STATE = 4 RUNNING
     -DnsName "localhost","<server-lan-hostname>","<server-lan-ip>"   # SAN 확장 — client 가 hostname/ip 어느 쪽이든 OK
 # PFX password 대화형 입력 — 운영자가 직접 결정/기억 (또는 별도 KMS)
 
+# PSK 평문 결정 — 예: PowerShell RNG 32-byte base64 (사용자 책임으로 생성·보관)
+$psk = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+Write-Host "PSK (이 값을 안전 채널로 각 client 에 전달): $psk"
+
 & "C:\Program Files\Promaker\LightHouseService\scripts\install-service.ps1" `
     -ExePath "C:\Program Files\Promaker\LightHouseService\Ds2.LightHouseService.exe" `
     -TlsCertPath "C:\ProgramData\Dualsoft\LightHouseService\service.pfx" `
     -ListenUrl "https://0.0.0.0:8443" `      # LAN bind (default 127.0.0.1 → 외부 미접근)
-    -GeneratePsk                              # PskOutputPath 미지정 = stdout 출력
-# stdout 에 한 줄: PSK_BASE64=Abc123def456...==
-# 운영자가 이 값을 안전 채널 (1Password / Slack DM / gpg mail / 직접 USB) 로 각 client 사용자에게 전달
+    -PskPlain $psk `
+    -CertPasswordPlain "<PFX password 평문>"
+# PSK 와 CertPasswordPlain 모두 인자로 명시 전달 (대화형 SecureString prompt 생략 path).
+# 본 path 는 transcript 활성 환경에서 평문 잔존 risk — 운영자가 transcript off 후 호출 또는 SecureString prompt 사용 권장.
+```
+
+대화형 SecureString prompt path (transcript 미경유, 더 안전):
+```powershell
+& "...\install-service.ps1" -ExePath "..." -TlsCertPath "..." -ListenUrl "..."
+# 위 인자만 박제 → Read-SecretAsBytes 대화형 prompt 가 PSK + CertPasswordPlain 2회 SecureString 입력
 ```
 
 firewall 룰 (loopback → LAN subnet):
@@ -180,7 +201,7 @@ mTLS (`Client Cert` 컬럼) 도 LAN 환경에서 권장 — PSK 단독보다 강
 
 ### 2-ter.3 PSK rotation 시
 
-서버에서 `install-service.ps1 -GeneratePsk` 재호출 → 새 평문 stdout → 각 client 에 재배포 → client 사용자가 Promaker UI 의 PSK "설정..." 으로 갱신. 갱신 전까지는 client 가 401 Unauthorized.
+서버에서 새 PSK 평문 결정 → `install-service.ps1 -PskPlain <새PSK> -CertPasswordPlain <PFX pw>` 재호출 (또는 대화형 SecureString prompt) → 각 client 에 새 PSK 평문 안전 채널 재배포 → client 사용자가 Promaker UI 의 PSK "설정..." 으로 갱신. 갱신 전까지는 client 가 401 Unauthorized.
 
 ---
 
@@ -221,7 +242,11 @@ cat /c/ProgramData/Dualsoft/LightHouseService/Logs/service-YYYYMMDD.log
 
 ## 4. 인증서 신뢰 setup
 
-self-signed cert 이므로 client (Promaker / curl / browser) 가 신뢰 안 함. 두 방법:
+self-signed cert 이므로 client (Promaker / curl / browser) 가 신뢰 안 함.
+
+**Claude Code CLI (Node 기반) 의 경우** — `ClaudeCliProvider.fs` 가 spawn 시 `NODE_EXTRA_CA_CERTS=%PROGRAMDATA%\Dualsoft\LightHouseService\service.cer` 환경변수 자동 박제 (2026-05-27 박제). `.cer` 파일은 `enable-ai.ps1` 가 PFX 생성 직후 같은 폴더에 export + `icacls Users:R` 박제. 사용자 manual import 의무 0. **§4.1 / §4.2 의 Trusted Root import path 는 .NET HttpClient / curl 등의 다른 client 용**.
+
+두 방법:
 
 ### 4.1 권장 — Trusted Root 에 import (정공)
 

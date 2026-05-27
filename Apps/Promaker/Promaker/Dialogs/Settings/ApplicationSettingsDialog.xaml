@@ -324,21 +324,33 @@
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,4"/>
 
-                            <!-- 로컬 LightHouse 활성화 — installer 의 [Components] ai 가 배치한 파일들 (LightHouseService + scripts) 을
-                                 LightHouseLocalInstaller 가 UAC elevated PowerShell 로 트리거. 4단계: Ollama / cert / install-service+PSK / firewall+start. -->
+                            <!-- 로컬 LightHouse 버튼 — 두 가지 path 분리:
+                                 (1) "Local 항목 추가" : 이미 service 가 떠 있는 상태에서 LlmConfig.LightHouseServices 에 row 만 추가
+                                     (config.json 의 listenUrl 자동 추출). PSK 는 row 의 'PSK 설정...' 버튼으로 별 입력.
+                                 (2) "Local 서비스 설치/재설치" : enable-ai.ps1 chain (Ollama / cert / install-service+PSK / firewall+start)
+                                     UAC + 수 분 소요. 기존 service 가 있으면 stop+delete+create 로 재설치 (PSK rotation).
+                                 IsEnabled 갱신은 code-behind 의 RefreshAddLocalEnabled (LightHouseServices CollectionChanged subscribe). -->
                             <Grid Margin="0,4,0,8">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="6"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" x:Name="LhEnableLocalButton"
-                                        Content="로컬 LightHouse 서비스 활성화"
+                                <Button Grid.Column="0" x:Name="LhAddLocalEntryButton"
+                                        Content="Local 항목 추가"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="12,4"
+                                        Click="LhAddLocalEntry_Click"
+                                        ToolTip="config.json 의 listenUrl 을 읽어 LightHouse Services 목록에 Local 항목 추가 (PSK 는 row 의 'PSK 설정...' 으로 별 입력). 동일 endpoint 항목이 이미 있으면 비활성."/>
+                                <Button Grid.Column="2" x:Name="LhEnableLocalButton"
+                                        Content="Local 서비스 설치/재설치"
                                         Style="{StaticResource DarkButton}"
                                         Padding="12,4"
                                         Click="LhEnableLocal_Click"
-                                        ToolTip="Ollama + bge-m3 설치 + self-signed cert + sc create Ds2.LightHouseService + 8443 방화벽 + service start (UAC 권한 필요)"/>
-                                <TextBlock Grid.Column="2" x:Name="LhEnableLocalStatus"
+                                        ToolTip="Ollama + bge-m3 설치 + self-signed cert + sc create Ds2.LightHouseService + 8443 방화벽 + service start (UAC 권한 필요, 기존 service 가 있으면 PSK rotation 으로 재설치)"/>
+                                <TextBlock Grid.Column="4" x:Name="LhEnableLocalStatus"
                                            VerticalAlignment="Center"
                                            FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                            FontStyle="Italic" TextWrapping="Wrap"/>

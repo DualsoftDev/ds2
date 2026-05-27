@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Ds2.LlmAgent;
+using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
@@ -21,6 +23,10 @@ public partial class LlmChatViewModel
 
     private ILlmProvider CreateClaudeProvider()
     {
+        // **Plan B (2026-05-27)** — 정적 12종 (Promaker 6 + LightHouse wrapper 6).
+        // lighthouse server 별 동적 명명 폐기 — wrapper 가 multi-service fan-out 자체 처리.
+        var allowed = PromakerToolNames.All;
+
         var options = new ClaudeCliOptions(
             executablePath: Microsoft.FSharp.Core.FSharpOption<string>.None,
             mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig!.Path),
@@ -28,7 +34,7 @@ public partial class LlmChatViewModel
             model: Microsoft.FSharp.Core.FSharpOption<string>.None,
             systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c(PromakerProfile.Instance)),
             strictMcpConfig: true,
-            allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(PromakerToolNames.All),
+            allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(allowed),
             channelCapacity: 256,
             onProcessStarted: Microsoft.FSharp.Core.FSharpOption<Action<System.Diagnostics.Process>>.Some(
                 new Action<System.Diagnostics.Process>(ChildProcessTracker.AddProcess)));

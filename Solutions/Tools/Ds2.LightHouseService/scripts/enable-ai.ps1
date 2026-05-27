@@ -1,20 +1,26 @@
 ﻿<#
 .SYNOPSIS
-  Promaker UI "로컬 LightHouse 서비스 활성화" 트리거용 wrapper.
+  Promaker UI "Local 서비스 설치/재설치" 트리거용 wrapper.
   4단계 sequential 실행 — Ollama / cert / install-service / firewall + service start.
 
 .DESCRIPTION
   Promaker WPF 의 LightHouseLocalInstaller 가 UAC elevation (Verb=runas) 으로 호출.
-  caller 는 ExePath / PskOutputPath / LogPath 를 명시 전달. cert password 와 PSK 는 본 스크립트가
-  RNG 로 자동 생성 — PSK 평문 1회만 PskOutputPath 에 박제 (caller 가 read → LlmConfig DPAPI 박제
-  → 즉시 wipe).
+  **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 사용자 입력값을 caller 가
+  임시 파일에 박제하여 전달. 본 스크립트가 read → install-service.ps1 -PskPlain / -CertPasswordPlain
+  으로 chain → 임시 파일 wipe. 사용자 시야에 평문 노출 0 (caller 의 SecureString → 임시 파일 → 본 스크립트 read).
+
+  .cer 파일은 generate-dev-cert.ps1 직후 Export-Certificate 로 PFX 옆에 박제 + icacls Users:R 부여 —
+  Node-based Claude Code CLI 의 NODE_EXTRA_CA_CERTS 가 read 할 수 있도록 (일반 사용자 권한).
 
 .PARAMETER ExePath
   Ds2.LightHouseService.exe 의 절대 경로. 운영 = {app}\LightHouseService\Ds2.LightHouseService.exe,
   개발 = Solutions/Tools/Ds2.LightHouseService/bin/Release/net9.0/publish/Ds2.LightHouseService.exe.
 
-.PARAMETER PskOutputPath
-  PSK base64 평문 1줄 박제 대상 (caller 가 즉시 read + wipe).
+.PARAMETER PskInputPath
+  caller 가 박제한 PSK 평문 1줄 임시 파일. 본 스크립트가 read 후 wipe.
+
+.PARAMETER CertPasswordInputPath
+  caller 가 박제한 cert PFX password 평문 1줄 임시 파일. 본 스크립트가 read 후 wipe.
 
 .PARAMETER LogPath
   Start-Transcript 출력 — 진단용. caller 가 사용자에게 표시 후 정리.
@@ -25,7 +31,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$ExePath,
-  [Parameter(Mandatory=$true)][string]$PskOutputPath,
+  [Parameter(Mandatory=$true)][string]$PskInputPath,
+  [Parameter(Mandatory=$true)][string]$CertPasswordInputPath,
   [Parameter(Mandatory=$true)][string]$LogPath
 )
 
@@ -45,47 +52,85 @@ try {
     if (-not (Test-Path $ExePath)) {
         throw "ExePath 미존재 — $ExePath (installer 의 'AI' 컴포넌트 체크 후 재설치 또는 'make publish-lighthouse' 필요)"
     }
+    if (-not (Test-Path $PskInputPath)) {
+        throw "PskInputPath 미존재 — $PskInputPath (caller 박제 누락)"
+    }
+    if (-not (Test-Path $CertPasswordInputPath)) {
+        throw "CertPasswordInputPath 미존재 — $CertPasswordInputPath (caller 박제 누락)"
+    }
+
+    # caller (Promaker) 박제 평문 read. transcript 미경유 — File.ReadAllText 결과를 곧바로 install-service.ps1 인자로.
+    $pskPlain     = [System.IO.File]::ReadAllText($PskInputPath).Trim()
+    $certPwdPlain = [System.IO.File]::ReadAllText($CertPasswordInputPath).Trim()
+    if ([string]::IsNullOrEmpty($pskPlain))     { throw "PSK 입력값 비어있음." }
+    if ([string]::IsNullOrEmpty($certPwdPlain)) { throw "Cert PFX password 입력값 비어있음." }
+
+    # defense-in-depth — read 직후 임시 파일 0-byte 덮어쓰기 + delete. caller (Promaker) 의 finally wipe 와 이중 안전.
+    function Wipe-TempFile([string]$path) {
+        if (-not (Test-Path $path)) { return }
+        try {
+            $len = (Get-Item $path).Length
+            if ($len -gt 0) {
+                $zero = New-Object byte[] $len
+                [System.IO.File]::WriteAllBytes($path, $zero)
+            }
+            Remove-Item -Path $path -Force
+        } catch {
+            Write-Warning "임시 파일 wipe 실패 ($path) — caller finally 가 보완: $($_.Exception.Message)"
+        }
+    }
+    Wipe-TempFile $PskInputPath
+    Wipe-TempFile $CertPasswordInputPath
 
     # ─── [1/4] Ollama + bge-m3 ──────────────────────────────
     Write-Host "===== [1/4] Ollama + bge-m3 ====="
     & (Join-Path $scriptsDir 'install-ollama.ps1')
     if ($LASTEXITCODE -ne 0) { throw "install-ollama.ps1 실패 (exit $LASTEXITCODE)" }
 
-    # ─── [2/4] self-signed cert ─────────────────────────────
+    # ─── [2/4] self-signed cert + .cer export ──────────────
     Write-Host ""
     Write-Host "===== [2/4] self-signed TLS cert ====="
-    # cert password — RNG 18 byte → base64 24 char. PFX 비번 (DPAPI 박제 대상).
-    $certRng = New-Object byte[] 18
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($certRng)
-    $certPwd = [System.Convert]::ToBase64String($certRng)
-    [Array]::Clear($certRng, 0, $certRng.Length)
-    # 기존 PFX 가 있어도 매번 새로 생성 — install-service.ps1 가 매번 새 RNG password 를 DPAPI 박제하므로
-    # 옛 PFX 의 password 와 mismatch 되어 service 가 PKCS12 load 시 unhandled exception → 1053 crash.
-    # generate-dev-cert.ps1 의 skip 로직은 대화형 path 호환 — wrapper 가 강제 fresh start.
+    # 기존 PFX 가 있어도 매번 새로 생성 — caller 의 새 cert PFX password 와 mismatch 되어 service 가 PKCS12 load
+    # 시 unhandled exception → 1053 crash 차단. generate-dev-cert.ps1 의 skip 로직은 대화형 path 호환 — wrapper 가 강제 fresh.
     if (Test-Path $pfxPath) {
         Remove-Item -Path $pfxPath -Force
         Write-Host "  기존 PFX 삭제 (password 정합 위해 재생성) — $pfxPath"
     }
-    & (Join-Path $scriptsDir 'generate-dev-cert.ps1') -PfxPath $pfxPath -CertPasswordPlain $certPwd
+    & (Join-Path $scriptsDir 'generate-dev-cert.ps1') -PfxPath $pfxPath -CertPasswordPlain $certPwdPlain
     if ($LASTEXITCODE -ne 0) { throw "generate-dev-cert.ps1 실패 (exit $LASTEXITCODE)" }
+
+    # .cer export — Node-based Claude Code CLI 의 NODE_EXTRA_CA_CERTS 가 read 할 public cert.
+    # **PEM 형식** 박제 의무 — Node 의 OpenSSL 은 NODE_EXTRA_CA_CERTS 에 PEM 만 신뢰 (DER 박제 시
+    # `error:10000002:SSL routines:OPENSSL_internal:system library` + "ignoring extra certs").
+    # icacls Users:R 부여 (parent ACL 이 Administrators/SYSTEM only 라 fallback).
+    $cerPath = [System.IO.Path]::ChangeExtension($pfxPath, '.cer')
+    $certForExport = $null
+    try {
+        $certForExport = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $certPwdPlain)
+        $b64 = [System.Convert]::ToBase64String($certForExport.RawData, [System.Base64FormattingOptions]::InsertLineBreaks)
+        $pem = "-----BEGIN CERTIFICATE-----`n" + $b64 + "`n-----END CERTIFICATE-----`n"
+        [System.IO.File]::WriteAllText($cerPath, $pem, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "  .cer (PEM) export 완료 — $cerPath"
+    } finally {
+        if ($null -ne $certForExport) { $certForExport.Dispose() }
+    }
+    # icacls — Users 그룹에 read 권한 (NODE_EXTRA_CA_CERTS 가 일반 사용자 권한에서 read 가능). .cer 은 public.
+    & icacls $cerPath /grant "*S-1-5-32-545:R" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "icacls .cer Users:R 부여 실패 — Claude Code 가 .cer read 거부될 수 있음." }
+    else { Write-Host "  icacls .cer Users:R 부여 완료." }
 
     # ─── [3/4] install-service (sc create + DPAPI PSK) ──────
     Write-Host ""
     Write-Host "===== [3/4] LightHouseService 등록 (sc create + DPAPI PSK) ====="
     $installSvc = Join-Path $scriptsDir 'install-service.ps1'
-    # -GeneratePsk + -PskOutputPath → install-service.ps1 가 RNG 32-byte → base64 → 파일에 직접 박제.
-    # stdout/transcript 전혀 미경유 (PSK 평문 surface 최소화 — 자가검열 C1+C2 정합).
-    & $installSvc -ExePath $ExePath -TlsCertPath $pfxPath -CertPasswordPlain $certPwd `
-                  -GeneratePsk -PskOutputPath $PskOutputPath
+    # -PskPlain / -CertPasswordPlain 인자 전달 (대화형 prompt 생략). install-service.ps1 가 byte 변환 + DPAPI(LocalMachine) 박제.
+    & $installSvc -ExePath $ExePath -TlsCertPath $pfxPath -CertPasswordPlain $certPwdPlain `
+                  -PskPlain $pskPlain
     if ($LASTEXITCODE -ne 0) { throw "install-service.ps1 실패 (exit $LASTEXITCODE)" }
 
-    # cert password 평문 즉시 비움 (managed string 잔존은 GC 한계).
-    $certPwd = $null
-
-    if (-not (Test-Path $PskOutputPath)) {
-        throw "install-service.ps1 가 PSK output 파일을 박제하지 못함: $PskOutputPath"
-    }
-    Write-Host "  PSK output 박제 완료: $PskOutputPath"
+    # 평문 변수 즉시 비움 (managed string 잔존은 GC 한계).
+    $pskPlain = $null
+    $certPwdPlain = $null
 
     # ─── [4/4] firewall rule + service start ────────────────
     Write-Host ""

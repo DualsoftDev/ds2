@@ -18,6 +18,11 @@ module internal Log =
     /// `auditRetentionDays` (default 365) 별도 retention. 보안 추적 사유로 service log 와 분리.
     let audit = log4net.LogManager.GetLogger("Ds2.LightHouseService.Audit")
 
+    /// **2026-05-27 진단 박제** — request trace logger. method/path/status/elapsed 1줄.
+    /// MCP client (Claude CLI 등) 가 `/mcp` 에 도달 여부 + auth middleware reject 여부 + status code 가시화.
+    /// default level = INFO (root 흡수). 진단 종료 후 log4net.config 에 별 logger override 추가하여 OFF 가능.
+    let requestTrace = log4net.LogManager.GetLogger("Ds2.LightHouseService.RequestTrace")
+
     /// session token → SHA-256 fingerprint (8 hex). review IM-11 (R6 M4):
     /// audit log 에 token 평문 박제 시 log leak → token 재사용 위험. fingerprint 만 박제 (식별만 가능, 재사용 불가).
     let tokenFingerprint (token: string) : string =
