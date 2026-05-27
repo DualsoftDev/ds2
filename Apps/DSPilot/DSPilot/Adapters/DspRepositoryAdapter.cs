@@ -1026,6 +1026,118 @@ public class DspRepositoryAdapter : IDspRepository
         }
     }
 
+    /// <summary>
+    /// 비가동 임계값을 기존 히스토리/평균에 소급 적용.
+    /// <para>
+    /// 비가동 판정(IsIdle)은 원래 사이클이 기록되는 시점에 한 번만 계산되어 행에 박제되므로,
+    /// 설정의 Max/MinCycleTimeMs 를 나중에 바꿔도 이미 저장된 행에는 반영되지 않는다.
+    /// 이 메서드는 ① 모든 dspFlowHistory 행의 IsIdle 을 현재 임계값 기준으로 재계산하고,
+    /// ② dspFlow 의 평균(AvgMT/WT/CT)과 현재값(MT/WT/CT)을 "비가동 제외" 기준으로 재집계한다.
+    /// </para>
+    /// 임계값이 0(비활성)이면 해당 방향 판정은 적용하지 않으므로, 둘 다 0이면 모든 행이 가동(IsIdle=0)으로 복원된다.
+    /// </summary>
+    /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
+    public async Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync(int maxCycleTimeMs, int minCycleTimeMs)
+    {
+        if (!_enabled) return (0, 0);
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, HistoryTable))
+            return (0, 0);
+
+        await EnsureIsIdleColumnAsync(conn);
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1. 모든 히스토리 행의 IsIdle 을 현재 임계값 기준으로 재계산
+            var restampSql = $@"
+                UPDATE {HistoryTable}
+                SET IsIdle = CASE
+                    WHEN (@MaxCT > 0 AND ct > @MaxCT) OR (@MinCT > 0 AND ct < @MinCT) THEN 1
+                    ELSE 0
+                END";
+            var restamped = await conn.ExecuteAsync(
+                restampSql, new { MaxCT = maxCycleTimeMs, MinCT = minCycleTimeMs }, tx);
+
+            // 2. dspFlow 평균을 비가동 제외 후 재집계 (NULL = 가용 사이클 없음)
+            var avgSql = $@"
+                UPDATE {_flowTable}
+                SET AvgMT = (SELECT AVG(mt) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
+                    AvgWT = (SELECT AVG(wt) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
+                    AvgCT = (SELECT AVG(ct) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
+                    UpdatedAt = datetime('now')";
+            var flowsRecomputed = await conn.ExecuteAsync(avgSql, transaction: tx);
+
+            // 3. dspFlow 현재값(MT/WT/CT)을 가장 최근 비가동 사이클로 갱신.
+            //    가용 사이클이 하나도 없는 Flow 는 현재값을 건드리지 않는다.
+            var lastSql = $@"
+                UPDATE {_flowTable}
+                SET MT = (SELECT mt FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0 ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                    WT = (SELECT wt FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0 ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                    CT = (SELECT ct FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0 ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                    UpdatedAt = datetime('now')
+                WHERE EXISTS (SELECT 1 FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0)";
+            await conn.ExecuteAsync(lastSql, transaction: tx);
+
+            tx.Commit();
+
+            _logger.LogInformation(
+                "Reapplied idle thresholds (Max={MaxCT}ms, Min={MinCT}ms): {Rows} history rows restamped, {Flows} flows recomputed",
+                maxCycleTimeMs, minCycleTimeMs, restamped, flowsRecomputed);
+
+            return (restamped, flowsRecomputed);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to reapply idle thresholds");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Flow 별 "비가동 제외" 누적 집계 (사이클 수, MT/WT/CT 합). in-memory 누적 평균 상태 재구성용.
+    /// </summary>
+    public async Task<Dictionary<string, (int Count, double SumMT, double SumWT, double SumCT)>> GetNonIdleAggregatesAsync()
+    {
+        var result = new Dictionary<string, (int, double, double, double)>(StringComparer.Ordinal);
+        if (!_enabled) return result;
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, HistoryTable))
+            return result;
+
+        await EnsureIsIdleColumnAsync(conn);
+
+        var sql = $@"
+            SELECT flowName             AS FlowName,
+                   COUNT(*)             AS Cnt,
+                   COALESCE(SUM(mt), 0) AS SumMT,
+                   COALESCE(SUM(wt), 0) AS SumWT,
+                   COALESCE(SUM(ct), 0) AS SumCT
+            FROM {HistoryTable}
+            WHERE COALESCE(IsIdle, 0) = 0
+            GROUP BY flowName";
+
+        var rows = await conn.QueryAsync<NonIdleAggregateRow>(sql);
+        foreach (var r in rows)
+        {
+            if (!string.IsNullOrEmpty(r.FlowName))
+                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
+        }
+        return result;
+    }
+
+    private sealed class NonIdleAggregateRow
+    {
+        public string FlowName { get; set; } = string.Empty;
+        public int Cnt { get; set; }
+        public double SumMT { get; set; }
+        public double SumWT { get; set; }
+        public double SumCT { get; set; }
+    }
+
     private sealed class CallInfoRow
     {
         public string WorkName { get; set; } = string.Empty;

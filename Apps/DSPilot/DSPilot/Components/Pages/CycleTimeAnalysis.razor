@@ -1206,8 +1206,10 @@
     /// 가동 시간(MT)·유휴 시간(WT) 를 화면에 이미 로드된 데이터로 산출해 <see cref="_ganttData"/> 에 채운다.
     /// (FlowMetricsService 의 Head→Tail 사이클 추적과는 별개 — 이 페이지 전용 정의.)
     ///   CT = 분석 시간창 길이(_chartEndTime − _chartStartTime, 서비스가 이미 설정)
-    ///   WT = 비가동 구간(<see cref="_idleRegions"/>) 합 — 윈도우 내로 클램프
-    ///   MT = CT − WT
+    ///   MT = (모든 신호 세그먼트 활성 구간의 합집합) − (비가동 구간 <see cref="_idleRegions"/>)
+    ///   WT = CT − MT
+    /// 비가동 사이클 판정(Max/MinCycleTimeMs) 을 설정해 두면 그 구간은 신호가 held 여도 유휴로 집계되고,
+    /// 미설정 시 _idleRegions 가 비어 순수 신호 합집합으로 동작한다.
     /// → 가동률 = MT/CT, 유휴율 = WT/CT (합 100%). 추가 DB 조회 없음.
     /// </summary>
     private void ComputeUtilizationMetrics()
@@ -1222,19 +1224,59 @@
             return;
         }
 
-        double wtMs = 0;
-        foreach (var (start, end) in _idleRegions)
+        // 1. 모든 활성 세그먼트 [GoingStartTime, FinishTime] 를 윈도우 내로 클램프해 수집.
+        var intervals = new List<(DateTime Start, DateTime End)>();
+        foreach (var item in _ganttData.Items)
         {
-            // 비가동 구간은 보통 윈도우 내이지만, 경계 구간(차트 시작/끝)을 포함하므로 안전하게 클램프.
-            var s = start < _chartStartTime ? _chartStartTime : start;
-            var e = end > _chartEndTime ? _chartEndTime : end;
-            if (e > s) wtMs += (e - s).TotalMilliseconds;
+            var s = item.GoingStartTime < _chartStartTime ? _chartStartTime : item.GoingStartTime;
+            var rawEnd = item.FinishTime ?? item.GoingStartTime;
+            var e = rawEnd > _chartEndTime ? _chartEndTime : rawEnd;
+            if (e > s) intervals.Add((s, e));
         }
 
-        if (wtMs > ctMs) wtMs = ctMs;
+        // 2. 시작순 정렬 후 겹치는 구간을 병합해 활성 합집합(non-overlapping) 산출.
+        var active = new List<(DateTime Start, DateTime End)>();
+        if (intervals.Count > 0)
+        {
+            intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+            var curStart = intervals[0].Start;
+            var curEnd = intervals[0].End;
+            for (int i = 1; i < intervals.Count; i++)
+            {
+                var (s, e) = intervals[i];
+                if (s <= curEnd)
+                {
+                    if (e > curEnd) curEnd = e; // 겹치거나 인접 → 병합
+                }
+                else
+                {
+                    active.Add((curStart, curEnd));
+                    curStart = s;
+                    curEnd = e;
+                }
+            }
+            active.Add((curStart, curEnd));
+        }
 
-        _ganttData.WT = (int)wtMs;
-        _ganttData.MT = (int)(ctMs - wtMs);
+        // 3. 활성 합집합 길이에서 비가동 구간과 겹치는 만큼을 빼면 가동 시간(MT).
+        //    (active, _idleRegions 모두 각자 non-overlapping 이라 pairwise overlap 합산이 정확.)
+        double mtMs = 0;
+        foreach (var (aStart, aEnd) in active)
+        {
+            var len = (aEnd - aStart).TotalMilliseconds;
+            foreach (var (iStart, iEnd) in _idleRegions)
+            {
+                var ovStart = aStart > iStart ? aStart : iStart;
+                var ovEnd = aEnd < iEnd ? aEnd : iEnd;
+                if (ovEnd > ovStart) len -= (ovEnd - ovStart).TotalMilliseconds;
+            }
+            if (len > 0) mtMs += len;
+        }
+
+        if (mtMs > ctMs) mtMs = ctMs;
+
+        _ganttData.MT = (int)mtMs;
+        _ganttData.WT = (int)(ctMs - mtMs);
     }
 
     private async Task ExportCsv()

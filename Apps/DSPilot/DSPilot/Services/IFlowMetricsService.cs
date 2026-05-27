@@ -42,4 +42,11 @@ public interface IFlowMetricsService
     /// Call 완료 이벤트 처리
     /// </summary>
     void OnCallFinished(string flowName, string callName, DateTime timestamp);
+
+    /// <summary>
+    /// 현재 설정의 비가동 임계값(Max/MinCycleTimeMs)을 기존 히스토리/평균에 소급 적용.
+    /// 설정 저장 직후 호출하여, 임계값 변경이 대시보드·히스토리·평균에 즉시 반영되게 한다.
+    /// </summary>
+    /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
+    Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync();
 }

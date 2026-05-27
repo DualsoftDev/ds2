@@ -460,15 +460,19 @@ else
         return $"Data Source={dir}/{DbFileName};Version=3;BusyTimeout=20000";
     }
 
-    private void SaveSettings()
+    private async Task SaveSettings()
     {
         if (_settings is null) return;
         try
         {
             _settings.Database.ConnectionString = BuildConnectionString();
             SettingsService.SaveSettings(_settings);
+
+            // 비가동 임계값 변경을 기존 히스토리/평균에 소급 적용 (대시보드·히스토리 즉시 반영)
+            var (restamped, flows) = await FlowMetricsService.ReapplyIdleThresholdsAsync();
+
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar",
-                "설정이 저장되었습니다. 서비스 재시작이 필요한 항목은 자동 안내됩니다.",
+                $"설정이 저장되었습니다. 비가동 판정 소급 적용: 히스토리 {restamped}건 재평가, Flow {flows}개 평균 재집계.",
                 "success");
         }
         catch (Exception ex)
