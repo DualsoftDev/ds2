@@ -23,4 +23,6 @@ type IPdfStrategy =
     /// 입력 pdf 의 signature 매치 평가. 변환 단계 진입 여부 결정.
     abstract member Signature : ExtractedDocument -> SignatureResult
     /// signature 매치 후 markdown 빌드 진입점. `sourcePath` = cross-ref-hash 계산 + diagnostic 식별용.
-    abstract member Build : sourcePath: string * extracted: ExtractedDocument -> StrategyOutcome
+    /// **라운드 3 Major-4 fix**: classifier 가 평가한 `sigResult` 를 forward — strategy 가 동일
+    /// `evaluateSignature` 를 다시 호출하던 중복 비용 제거 (IXlsxStrategy 와 동형).
+    abstract member Build : sourcePath: string * extracted: ExtractedDocument * sigResult: SignatureResult -> StrategyOutcome

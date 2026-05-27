@@ -112,7 +112,9 @@ let ``PdfControlSpecStrategy Build — 매치 시 markdown 반환 + 머리말 5�
     let extracted = makeControlSpecFixture ()
     let strategy = PdfControlSpecStrategy() :> IPdfStrategy
     let dummyPath = "fixture.pdf"
-    match strategy.Build (dummyPath, extracted) with
+    // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+    let sigR = strategy.Signature extracted
+    match strategy.Build (dummyPath, extracted, sigR) with
     | StrategyOutcome.Rejected entry ->
         Assert.Fail(sprintf "Build 가 Rejected 반환 — reason=%s" entry.Reason)
     | StrategyOutcome.Built markdown ->
@@ -129,7 +131,9 @@ let ``PdfControlSpecStrategy Build — 매치 시 markdown 반환 + 머리말 5�
 let ``PdfControlSpecStrategy Build — H1 + 페이지별 요약 표 + zone 코드 표 + footer`` () =
     let extracted = makeControlSpecFixture ()
     let strategy = PdfControlSpecStrategy() :> IPdfStrategy
-    match strategy.Build ("fixture.pdf", extracted) with
+    // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+    let sigR = strategy.Signature extracted
+    match strategy.Build ("fixture.pdf", extracted, sigR) with
     | StrategyOutcome.Rejected entry ->
         Assert.Fail(sprintf "Build 가 Rejected — %s" entry.Reason)
     | StrategyOutcome.Built markdown ->
@@ -155,14 +159,19 @@ let ``PdfControlSpecStrategy Build — H1 + 페이지별 요약 표 + zone 코�
         Assert.Contains("cross-ref-hash:", markdown)
 
 [<Fact>]
-let ``PdfControlSpecStrategy Build — 미매치 fixture 는 Rejected 반환 (정상 분기)`` () =
+let ``PdfControlSpecStrategy 미매치 fixture — classifier 가 NearMiss/Unmatched 분기 (exception 아님)`` () =
+    // **라운드 3 Major-4 fix**: Build 의 미매치 분기 책임이 classifier 로 이동 — 종전 Build 의 Rejected
+    // 분기 verify 가 classifier 의 NearMiss/Unmatched 분기 verify 로 대체. Strategy 가 throw 안 한다는
+    // 핵심 invariant 는 classifier path 에 그대로 보존.
     let extracted = makeNonMatchFixture ()
-    let strategy = PdfControlSpecStrategy() :> IPdfStrategy
-    match strategy.Build ("non-match.pdf", extracted) with
-    | StrategyOutcome.Built _ -> Assert.Fail("회의록 fixture 가 Built — false-positive")
-    | StrategyOutcome.Rejected entry ->
-        Assert.Equal("PdfControlSpecStrategy", entry.Strategy)
-        Assert.Contains("signature 미매치", entry.Reason)
+    let result = PdfSignatureClassifier.classify "non-match.pdf" extracted
+    match result with
+    | ClassificationResult.Matched _ -> Assert.Fail("회의록 fixture 가 Matched — false-positive")
+    | ClassificationResult.RejectedByStrategy entry ->
+        Assert.Fail(sprintf "회의록 fixture 는 signature 미매치 — RejectedByStrategy 분기 부적합 reason=%s" entry.Reason)
+    | ClassificationResult.NearMiss entries ->
+        Assert.All(entries, fun e -> Assert.True(e.Score < e.Threshold))
+    | ClassificationResult.Unmatched -> ()
 
 // ── PdfSignatureClassifier dispatch 회귀 ─────────────────────────────────
 
@@ -238,7 +247,9 @@ let ``M22 spot-check — 자료 B 의 P89-P104 안 5 페이지 박제 정합`` (
     if File.Exists sampleBPath then
         let extracted = extractPdf sampleBPath
         let strategy = PdfControlSpecStrategy() :> IPdfStrategy
-        match strategy.Build (sampleBPath, extracted) with
+        // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build (sampleBPath, extracted, sigR) with
         | StrategyOutcome.Rejected entry ->
             Assert.Fail(sprintf "자료 B 가 Rejected — %s" entry.Reason)
         | StrategyOutcome.Built markdown ->
@@ -251,7 +262,9 @@ let ``M22 spot-check — 자료 B 의 P89-P104 안 5 페이지 박제 정합`` (
         // 자료 B 부재 — synthetic fixture 로 갈음 (P89/P92/P95/P99/P104 중 fixture 가 박제하는 P89/P104 + P92 만 확인).
         let extracted = makeControlSpecFixture ()
         let strategy = PdfControlSpecStrategy() :> IPdfStrategy
-        match strategy.Build ("fixture.pdf", extracted) with
+        // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build ("fixture.pdf", extracted, sigR) with
         | StrategyOutcome.Rejected entry ->
             Assert.Fail(sprintf "fixture 가 Rejected — %s" entry.Reason)
         | StrategyOutcome.Built markdown ->

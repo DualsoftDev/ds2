@@ -302,17 +302,9 @@ type IoListStrategy() =
         member _.Name = strategyName
         member _.Version = strategyVersion
         member _.Signature extracted = evaluateSignature extracted
-        member _.Build (sourcePath, extracted) =
-            let sigResult = evaluateSignature extracted
-            if not sigResult.Matched then
-                Rejected {
-                    File = sourcePath
-                    // 전체 파일 reject — sheet 단위 정보 무관. null 박제 시 직렬화에서
-                    // key 누락 (NullValueHandling.Ignore). round 2 Major-3 fix 정합.
-                    Sheet = null
-                    Reason = sprintf "signature 미매치: %s" sigResult.Detail
-                    Strategy = strategyName
-                    RejectedAt = DateTime.UtcNow
-                }
-            else
-                Built (buildMarkdown sourcePath extracted sigResult)
+        // **라운드 3 Major-4 fix**: classifier 가 평가한 sigResult 를 forward — Build 안
+        // evaluateSignature 재호출 제거 (중복 비용 제거). 미매치 분기는 classifier 가 차단 →
+        // Build 진입 시 sigResult.Matched = true 가 invariant. 직접 strategy 호출 (test 등)
+        // 의 invariant 위반은 caller 책임.
+        member _.Build (sourcePath, extracted, sigResult) =
+            Built (buildMarkdown sourcePath extracted sigResult)
