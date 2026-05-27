@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -66,11 +67,15 @@ public partial class ApplicationSettingsDialog : Window
     private readonly ObservableCollection<LightHouseServiceConfig> _lhServicesWorking = new();
 
     /// <summary>
-    /// **D-S7-3c (s6-r31)** — PSK 평문 dialog 입력 임시 저장. key = ServiceId, value = 평문 PSK. ApplyLlmTab 시점에
-    /// _llmConfig.SetLightHousePsk(serviceId, plain) 호출 + Save. dict 자체는 dialog modal lifetime 동안만 유지 →
-    /// 평문 보존 risk 최소화.
+    /// **D-S7-3c (s6-r31)** — PSK dialog 입력 임시 저장. key = ServiceId, value = SecureString PSK. ApplyLlmTab 시점에
+    /// _llmConfig.SetLightHousePsk(serviceId, SecureString) 호출 + Save. dict 자체는 dialog modal lifetime 동안만 유지 +
+    /// 각 SecureString 은 Dispose 책임 격리 (helper <see cref="SetPendingPsk"/> / <see cref="RemovePendingPsk"/> /
+    /// <see cref="DisposeAndClearPskChanges"/>).
+    /// <para/>
+    /// **PR2 (2026-05-27) — SecureString chain 완전화**: 이전 (D-S7-3c) 의 managed string Dictionary 폐기. heap 평문
+    /// lifetime 완전 제거 — PskEditDialog.SecurePassword → 본 dict → SetLightHousePsk(SecureString) chain.
     /// </summary>
-    private readonly Dictionary<string, string> _pskChanges = new();
+    private readonly Dictionary<string, SecureString> _pskChanges = new();
 
     // s5c-r1 — 연결/테스트 결과 색상 SSOT (사용자 보고 cosmetic). dark theme 에서 잘 보이는 light blue / red.
     // Freeze 로 GC + thread 부담 최소화.
@@ -137,8 +142,9 @@ public partial class ApplicationSettingsDialog : Window
 
         // **s6-r70 review C-11** — Cancel / X close path 의 _pskChanges 평문 cleanup. ApplyLlmTab path 는 자체 Clear.
         // Closed event 가 OK / Cancel / X 모두 통과 — 시점 OK button click 후의 _pskChanges 는 이미 Clear 된 상태,
-        // Cancel/X 의 경우만 평문 잔존 → 즉시 Clear (GC 시점까지의 평문 lifetime 단축).
-        Closed += (_, _) => _pskChanges.Clear();
+        // Cancel/X 의 경우만 평문 잔존 → 즉시 Dispose + Clear (SecureString lifetime 단축).
+        // **PR2 (2026-05-27)** — SecureString Dispose 의무.
+        Closed += (_, _) => DisposeAndClearPskChanges();
 
         // "Local 항목 추가" 버튼 IsEnabled 갱신 — _lhServicesWorking 의 row 추가/제거 시 자동.
         // (BaseUrl cell 편집은 INotifyPropertyChanged 미구현이라 즉시 갱신 안 됨 — click handler 내부의
@@ -308,7 +314,7 @@ public partial class ApplicationSettingsDialog : Window
         _lhServicesWorking.Clear();
         foreach (var src in _llmConfig.LightHouseServices)
             _lhServicesWorking.Add(CloneServiceConfig(src));
-        _pskChanges.Clear();
+        DisposeAndClearPskChanges();  // **PR2 (2026-05-27)** — SecureString Dispose 후 Clear.
         LhServicesGrid.ItemsSource = _lhServicesWorking;
 
         // s6-r38 P4-C.2 — Embedding UI Load. active service 1개 가정 (multi-service per-service UI 진입은 backlog).
@@ -684,11 +690,12 @@ public partial class ApplicationSettingsDialog : Window
         var idx = _lhServicesWorking.ToList().FindIndex(s => s.ServiceId == serviceId);
         if (idx < 0) return;
         _lhServicesWorking.RemoveAt(idx);
-        _pskChanges.Remove(serviceId);
+        RemovePendingPsk(serviceId);  // **PR2 (2026-05-27)** — SecureString Dispose 후 Remove.
         LhServicesGrid.Items.Refresh();
     }
 
-    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "PSK 설정..." 버튼. 별 dialog 로 평문 PSK 입력 (DataGrid cell 에 평문 비노출). OK 시 _pskChanges 에 임시 저장.</summary>
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "PSK 설정..." 버튼. 별 dialog 로 PSK SecureString 입력 (DataGrid cell 에 평문 비노출).
+    /// OK 시 _pskChanges 에 임시 저장. **PR2 (2026-05-27)** — SecureString chain.</summary>
     private void LhEditPsk_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string serviceId) return;
@@ -700,13 +707,38 @@ public partial class ApplicationSettingsDialog : Window
         };
         if (dlg.ShowDialog() == true && dlg.Result is not null)
         {
-            _pskChanges[serviceId] = dlg.Result;
+            var len = dlg.Result.Length;
+            SetPendingPsk(serviceId, dlg.Result);  // 기존 entry 가 있으면 Dispose 후 박제.
             SetTestResult(LhTestResult,
-                string.IsNullOrEmpty(dlg.Result)
+                len == 0
                     ? $"ℹ️ [{svc.DisplayName}] PSK 제거 (저장 시 반영)"
-                    : $"ℹ️ [{svc.DisplayName}] PSK 변경됨 ({dlg.Result.Length} 문자, 저장 시 반영)",
+                    : $"ℹ️ [{svc.DisplayName}] PSK 변경됨 ({len} 문자, 저장 시 반영)",
                 success: null);
         }
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — _pskChanges SecureString lifecycle helper. 기존 entry 가 있으면 Dispose 후 박제.</summary>
+    private void SetPendingPsk(string serviceId, SecureString psk)
+    {
+        if (_pskChanges.TryGetValue(serviceId, out var prev)) prev?.Dispose();
+        _pskChanges[serviceId] = psk;
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — _pskChanges 에서 한 entry 제거 + Dispose.</summary>
+    private void RemovePendingPsk(string serviceId)
+    {
+        if (_pskChanges.TryGetValue(serviceId, out var prev))
+        {
+            prev?.Dispose();
+            _pskChanges.Remove(serviceId);
+        }
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — 모든 _pskChanges entry Dispose 후 Clear. Closed event / ReloadLhServicesWorking / ApplyLhServices 공통.</summary>
+    private void DisposeAndClearPskChanges()
+    {
+        foreach (var ss in _pskChanges.Values) ss?.Dispose();
+        _pskChanges.Clear();
     }
 
     /// <summary>
@@ -815,10 +847,12 @@ public partial class ApplicationSettingsDialog : Window
 
         var url = (svc.BaseUrl ?? "").Trim();
         // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화 (deep clone 한 ApiKeyEncrypted 로부터 _llmConfig 의 GetLightHousePsk 호출).
+        // **PR2 (2026-05-27)** — _pskChanges 가 SecureString — LightHouseClient.PSK provider (Func<string?>) wire-up 위해 1회 변환.
+        // LightHouseClient PSK provider 가 SecureString migrate 시 본 변환도 폐기 가능 (별 backlog).
         string psk;
-        if (_pskChanges.TryGetValue(serviceId, out var pendingPlain))
+        if (_pskChanges.TryGetValue(serviceId, out var pendingSecure))
         {
-            psk = pendingPlain;
+            psk = LightHouseLocalInstaller.SecureStringToManagedString(pendingSecure);
         }
         else
         {
@@ -989,15 +1023,16 @@ public partial class ApplicationSettingsDialog : Window
                     },
                 });
             }
-            foreach (var (sid, plain) in _pskChanges)
+            // **PR2 (2026-05-27)** — SecureString overload 호출. 박제 후 DisposeAndClearPskChanges 가 finally 정리.
+            foreach (var (sid, secure) in _pskChanges)
             {
                 // _llmConfig.LightHouseServices 안에 sid 가 없으면 (remove 후 PSK 변경 이전) skip.
                 if (_llmConfig.LightHouseServices.Any(s => s.ServiceId == sid))
                 {
-                    _llmConfig.SetLightHousePsk(sid, plain);
+                    _llmConfig.SetLightHousePsk(sid, secure);
                 }
             }
-            _pskChanges.Clear();
+            DisposeAndClearPskChanges();
         }
 
         _llmConfig.Save();
