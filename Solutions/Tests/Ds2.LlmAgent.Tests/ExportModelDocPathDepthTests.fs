@@ -218,14 +218,16 @@ let ``6f-12 orphan System (project 미부착) 의 tryPathOf 는 None — orphan 
 // ─── (k) tryPathOf path-unsupported EntityKind → None ────────────────────
 
 [<Fact>]
-let ``6f-13 tryPathOf path-unsupported EntityKind (Button/Lamp/Condition/Action/ApiDefCategory/DeviceRoot) 는 모두 None`` () =
+let ``6f-13 tryPathOf path-unsupported EntityKind (Button/Lamp/Condition/Action/ApiDefCategory/DeviceRoot/ArrowWork/ArrowCall) 는 모두 None`` () =
     // SSOT §2.5.1: dotted-path 어휘가 정의된 5 kind (Project/System/Flow/Work/Call/ApiDef) 외엔
     // 명시적 None. round-trip identity 회귀 차단.
+    // ArrowWork/ArrowCall: source/target pair 로 식별 — dotted-path 어휘 부재 (light-house-documents 브랜치 EntityKind 확장).
     let store = DsStore()
     let dummyId = Guid.NewGuid()
     let unsupported =
         [ EntityKind.Button; EntityKind.Lamp; EntityKind.Condition
-          EntityKind.Action; EntityKind.ApiDefCategory; EntityKind.DeviceRoot ]
+          EntityKind.Action; EntityKind.ApiDefCategory; EntityKind.DeviceRoot
+          EntityKind.ArrowWork; EntityKind.ArrowCall ]
     for kind in unsupported do
         let pathOpt = ModelProtocol.tryPathOf store kind dummyId
         Assert.True(Option.isNone pathOpt, sprintf "tryPathOf %A 가 Some 반환 — path-unsupported kind 누락" kind)
