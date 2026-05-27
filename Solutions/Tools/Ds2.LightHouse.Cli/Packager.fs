@@ -193,6 +193,12 @@ module Packager =
     /// zip layout (§3.3):
     ///   <zip>/source/<사용자 원본 rel-path>      — 사용자 원본 파일은 `source/` prefix
     ///   <zip>/.lighthouse-kb/{meta.json, index.db, blobs/...}  — KB 산출물은 zip root
+    ///
+    /// **PR-I3 (todo-documents-based-gfm.md §2 PR-I3)** — zip whitelist 는 `.lighthouse-kb/` prefix glob
+    /// (아래 `isKb` 분기) — 본 prefix 안의 모든 파일이 자동 포함되므로 PR-I3 의 `summary/` 디렉토리도
+    /// 별도 entry append 없이 동봉. 단 정합 확인: `summary/` 박제 위치는 `TextDumper.SummarySubDirName`
+    /// (`.lighthouse-kb/summary/`) — `.lighthouse-kb/` prefix 안이라 본 glob 이 그대로 흡수. drift 시 본 주석
+    /// 진단.
     let createZip (sourceFolder: string) : string =
         let zipPath = Path.Combine(Path.GetTempPath(), "lh-cli-payload-" + Guid.NewGuid().ToString("N") + ".zip")
         let srcFull = Path.GetFullPath sourceFolder
