@@ -26,6 +26,9 @@
     <Compile Include="TextDumperTests.fs" />
     <Compile Include="SummaryBuilderTests.fs" />
     <Compile Include="SummaryStoreTests.fs" />
+    <!-- PR-I1 (todo-documents-based-gfm.md §2 + §11.4) — strategy interface + IoListStrategy +
+         XlsxSignatureClassifier + Diagnostics schema 회귀. 기존 *Tests.fs 다음 (alphabetical 마지막). -->
+    <Compile Include="XlsxStrategiesTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
