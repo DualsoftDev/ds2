@@ -130,7 +130,7 @@ P1 의 strategy 코드 (2~2.5주 추정) 와 P4 의 caption strategy (1주 추�
 
 | PR | scope | 산출물 | 진입 조건 | 종료 조건 (정량) |
 |---|---|---|---|---|
-| **PR-I1** | strategy interface (`IXlsxStrategy` + `IPdfStrategy`) + `XlsxSignatureClassifier` + `IoListStrategy` 단독 | 자료 A 의 summary 박제 e2e | — (P1 진입) | §4.1 의 [1][2][3] 부분 만족 — `core/.lighthouse-kb/summary/광명2_iolist.md` 박제 + 머리말 5행 + 표 컬럼 정합 (xlsx 1건) |
+| **PR-I1** | strategy interface (`IXlsxStrategy` + `IPdfStrategy`) + `XlsxSignatureClassifier` + `IoListStrategy` 단독 | 자료 A 의 summary 박제 e2e | — (P1 진입) | §4.1 의 [1][2][3] 부분 만족 — `core/.lighthouse-kb/summary/광명2_iolist.md` 박제 + 머리말 6행 (2026-05-27 canary 1행 patch + 기존 5행) + 표 컬럼 정합 (xlsx 1건) |
 | **PR-I2** | `WorkOrderStrategy` + `PdfControlSpecStrategy` 추가 (interface 확장 0, classifier 의 strategy list 에 등록만) | 자료 B/C summary 박제 | PR-I1 종료 조건 통과 | §4.1 의 [1][2][3] 만족 (xlsx 3건 전부 + pdf 1건) |
 | **PR-I3** | `TextDumper.fs` 의 `summary/` dir 박제 hook + `Packager.fs` zip whitelist + `runIndex` dump 진입점 | 색인/upload e2e (CLI level) | PR-I2 종료 조건 통과 | `core/.lighthouse-kb/summary/` 디렉토리 박제 + server upload 후 zip 안 동봉 확인 |
 | **PR-I4** | `SpecializedDigestBuilder` + `SystemContentBuilder.cs` cache breakpoint 3 + Anthropic wire 검증 | system prompt 주입 | PR-I3 종료 조건 통과 | first turn 의 system prompt 안 3개 markdown 합본 박제 + 둘째 turn 의 `cache_read_input_tokens` ~38K 확인 |
@@ -439,6 +439,7 @@ override 우선**. 즉:
 | **N11** | `KbSpecializedDigestFetcher` 4 overload (Fetch/FetchMany/FetchAsync/FetchManyAsync) 동형 (C·C-4) | Promaker.Tests / production GUI wiring 진행 시 | **sync 폐기 검토** — caller 모두 async path 사용. 단 ApplyPendingSpecializedDigest 가 sync caller 라 영향 ↑ |
 | **N12** | `.gitattributes eol=lf` 의 sibling worktree merge 시 LF normalize ripple (D·D2) | branch merge / PR push 시점 | **정책 결정** — (a) merge 전 base branch 도 .gitattributes eol=lf 박제 후 일괄 renormalize / (b) merge 후 ripple 흡수 / (c) ripple 영역 별 branch 한정. 코드 변경 0, 정책 SSOT |
 | **N13** | xunit v2 의 `[Fact(Skip)]` 동적 분기 한계 (G·G-Minor-8) — 자료 A/B/C 실파일 fixture 부재 시 "passed" 표시 | xunit 버전 결정 시 | **xunit v3 마이그레이션** 또는 **Xunit.SkippableFact** 도입. test 4개 (자료 A/B/C 실파일 + KMM A/B test) 영향 |
+| **N14** | summary markdown 머리말 6행 parser/extractor + 색인 reject 구현 (`documents-based-gfm.md` §8.5.5 표 spec 박제 / 2026-05-27 canary patch review M2 hand-off) — 현재 docs 만 박제 (parser 자동 추출 + 색인 reject), 구현 0 | 후속 PR backlog (P1 종료 이후 또는 별 phase) | **별 PR 1건** — (a) `StrategyMarkdown` 또는 신규 `StrategyHeaderParser` 모듈에 `parseHeader (markdown: string) -> Result<HeaderMeta, RejectReason>` 박제. canary 행 skip 후 5행 meta 자동 추출 → `HeaderMeta = {StrategyName; StrategyVersion; SourceFilename; DocId; SignatureScore; SignatureMaxScore; EstimatedTokens}`. (b) `Indexer.fs` 의 summary 박제 후 hook 에서 `parseHeader` 호출 → Error 시 색인 reject + `.lighthouse-kb/rejected.json` 박제 (N1/N6 정합). (c) SQLite metadata column 박제 (`SummaryStrategyName`, `SummaryStrategyVersion`, `SummaryDocId` 등). 회귀 fact = parseHeader happy path + canary 누락 reject + 6행 불완전 reject. |
 
 ---
 

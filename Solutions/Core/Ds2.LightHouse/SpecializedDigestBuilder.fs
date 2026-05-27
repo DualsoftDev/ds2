@@ -18,8 +18,8 @@ open System.Threading.Tasks
 ///   200K context 의 ~19%, 1M context 의 ~4% — 충분히 여유.
 ///
 /// 합본 separator (각 markdown 사이) = `\n\n---\n\n` (markdown horizontal rule).
-/// 각 strategy summary 는 이미 머리말 5행 + footer 7행 (StrategyMarkdown.buildHeader/buildFooter)
-/// 박제되어 있으므로 본 builder 는 추가 머리말 박제 없이 단순 concat.
+/// 각 strategy summary 는 이미 머리말 6행 (canary 1행 + 기존 5행, 2026-05-27 patch) + footer 7행
+/// (StrategyMarkdown.buildHeader/buildFooter) 박제되어 있으므로 본 builder 는 추가 머리말 박제 없이 단순 concat.
 ///
 /// 멱등 — file 읽기는 path-sorted 순서 (deterministic). 동일 collection 재호출 시 byte-identical.
 /// 사용자가 `summary/*.md` 1개를 외부에서 수정 시 cache breakpoint 3 invalidate (cross-ref-hash drift).
