@@ -269,6 +269,7 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
                 let _ = runPostIngestHooks folder
                 0
             finally
+                for ex in extractors do ex.Dispose()
                 embedder |> Option.iter (fun e -> e.Dispose())
 
 /// `--upload` 본격 분기 — in-place 색인 + zip + POST /collections (옵션 P + 보관 정책).
