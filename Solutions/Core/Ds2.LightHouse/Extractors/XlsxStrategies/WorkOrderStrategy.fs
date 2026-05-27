@@ -201,9 +201,17 @@ type WorkOrderStrategy() =
         | _ -> "(unnamed)"
 
     /// 한 segment 의 Gantt data 를 6컬럼 markdown table 로 변환.
-    /// preamble 첫 줄 skip + tab-join row 들을 NO/SYM/TASK/START/DURATION/CUMULATIVE 컬럼으로 박제.
-    /// OoxmlExtractor 의 preamble 이 컬럼 매핑 (`A=NO(순번), B=SYM(심볼), ...`) 을 박제하므로
-    /// 본 PoC 는 행을 그대로 박제 (LLM 이 preamble + 표 함께 보고 의미 해석). 6컬럼 미만 row 는 spacer 처리.
+    ///
+    /// **D-WO-1 (2026-05-27 fix, 자료 C 결함)**:
+    /// 자료 C 의 시트 layout 은 Gantt 표가 시트의 *오른쪽 column 영역* (cells.[27..] 부근) 에 박제되어
+    /// 각 row 의 cells.[0..5] 가 모두 빈 cell. 종전 `cells.[0..5]` 직접 박제 logic 은 결과 row 가 모두
+    /// `| - | - | - | - | - | - |` 가 되어 의미 정보 손실. 또한 merged cell 때문에 header row 와 data row
+    /// 의 column index 가 불일치 (header: "NO. SYM" 단일 cell, data: "1", "M" 두 cell) — fixed column
+    /// 매핑 approach 도 불가.
+    ///
+    /// 본 fix: 각 row 의 *non-empty cell 만 sequence 추출* + 처음 6개 박제 +
+    /// **START/DURATION/CUMULATIVE (idx 3·4·5) 가 모두 int 인 row 만 박제** (Gantt task row 식별).
+    /// → legend row / header row / 부품 정보 row / 부가 설명 row 자동 skip (모두 int 3개 패턴 미충족).
     static let buildSheetTable (segText: string) : string option =
         if String.IsNullOrWhiteSpace segText then None
         else
@@ -217,19 +225,43 @@ type WorkOrderStrategy() =
                 |> Array.filter (fun l -> not (String.IsNullOrWhiteSpace l))
             if dataLines.Length = 0 then None
             else
-                let sb = StringBuilder()
-                sb.AppendLine("| NO | SYM | TASK | START | DURATION | CUMULATIVE |") |> ignore
-                sb.AppendLine("|---:|:---|:---|---:|---:|---:|") |> ignore
-                for line in dataLines do
-                    let cells = line.Split('\t')
-                    // 6 columns 까지 추출. 부족 시 `-` padding, 초과 시 truncate.
-                    let pad i =
-                        if i < cells.Length then StrategyMarkdown.normalizeCell cells.[i] else "-"
-                    sb.AppendLine(
-                        sprintf "| %s | %s | %s | %s | %s | %s |"
-                            (pad 0) (pad 1) (pad 2) (pad 3) (pad 4) (pad 5))
-                    |> ignore
-                Some (sb.ToString())
+                let isInt (s: string) =
+                    match Int32.TryParse(s) with
+                    | true, _ -> true
+                    | _ -> false
+                let rows =
+                    dataLines
+                    |> Array.choose (fun line ->
+                        let nonEmpty =
+                            line.Split('\t')
+                            |> Array.map (fun c -> c.Trim())
+                            |> Array.filter (fun c -> c.Length > 0)
+                        if nonEmpty.Length < 6 then None
+                        elif isInt nonEmpty.[3]
+                             && isInt nonEmpty.[4]
+                             && isInt nonEmpty.[5]
+                             && not (isInt nonEmpty.[2]) then
+                            // **D-WO-1 보강**: TASK (idx 2) 가 int 가 아닌 row 만 진짜 Gantt task.
+                            // 시트 상단의 *시간축 헤더 row* (분 단위 1~72 의 단순 int sequence) 가
+                            // START/DURATION/CUMULATIVE int 3개 조건을 우연 통과하는 문제 차단.
+                            Some nonEmpty.[0..5]
+                        else None)
+                if rows.Length = 0 then None
+                else
+                    let sb = StringBuilder()
+                    sb.AppendLine("| NO | SYM | TASK | START | DURATION | CUMULATIVE |") |> ignore
+                    sb.AppendLine("|---:|:---|:---|---:|---:|---:|") |> ignore
+                    for six in rows do
+                        sb.AppendLine(
+                            sprintf "| %s | %s | %s | %s | %s | %s |"
+                                (StrategyMarkdown.normalizeCell six.[0])
+                                (StrategyMarkdown.normalizeCell six.[1])
+                                (StrategyMarkdown.normalizeCell six.[2])
+                                (StrategyMarkdown.normalizeCell six.[3])
+                                (StrategyMarkdown.normalizeCell six.[4])
+                                (StrategyMarkdown.normalizeCell six.[5]))
+                        |> ignore
+                    Some (sb.ToString())
 
     /// markdown 빌드 진입점.
     /// **PR-I2.5**: header / footer / docId / fullHash / estimateTokens 는 `StrategyMarkdown` SSOT 위임.
