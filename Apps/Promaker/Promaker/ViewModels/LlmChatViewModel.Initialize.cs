@@ -53,6 +53,11 @@ public partial class LlmChatViewModel
             SubscribeKbProfileEvents();
             _ = RefreshKbDigestAsync();
             // 본 _ = 는 의도된 fire-and-forget. unobserved exception 위험은 RefreshKbDigestAsync 의 자체 흡수로 차단.
+            // N8 (todo-documents-based-gfm.md §6.1) — production GUI wiring: PR-I5 의 specialized digest fetch 를
+            // KB digest 와 동일 lifecycle 에 진입. RefreshSpecializedDigestAsync 자체가 IOException /
+            // UnauthorizedAccessException 흡수 (Log.Warn) → unobserved 0. SourceFolder schema 미박제 collection
+            // 만 있으면 빈 list 반환 → graceful skip (cache breakpoint 3 박제 skip = PR-G v-b wire 동치).
+            _ = RefreshSpecializedDigestAsync();
         }
         catch (Exception ex)
         {
@@ -215,6 +220,11 @@ public partial class LlmChatViewModel
             // PR-G review C-1 fix — provider 토글 시 새 ApiChatProvider 의 _kbDigest 가 "" 박제로 reset 되므로
             // 현재 cache snapshot 으로 즉시 re-apply. SSE event 없이도 다음 firstTurn 에 KB digest 박제 보장.
             ApplyPendingKbDigest();
+            // N8 (todo-documents-based-gfm.md §6.1) — provider 토글 시 새 ApiChatProvider 의 _specializedDigest 도
+            // "" 박제로 reset 되므로 동일 시점에 re-apply. KB digest 패턴 1:1 정합 — sync path (file IO) 라 fetch
+            // 비용 작음. cache snapshot 부재 (init 미완료) 시 GetActiveCollectionSourceRoots 가 빈 list →
+            // SetPendingSpecializedDigest("") → cache breakpoint 3 skip = PR-G v-b wire 동치 (회귀 0).
+            ApplyPendingSpecializedDigest();
 
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 

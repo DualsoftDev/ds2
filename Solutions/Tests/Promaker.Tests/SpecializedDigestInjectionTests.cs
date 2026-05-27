@@ -398,6 +398,96 @@ public sealed class SpecializedDigestInjectionTests
         Assert.Equal(2, wrapperCalls);
     }
 
+    // ── N8 (todo-documents-based-gfm.md §6.1) — production GUI wiring 진입 fact ────────
+    // PR-I5 시점에는 SpecializedDigest fetch / apply 가 SetActiveCollectionSourceRoots (test override) 만
+    // 호출되어 production GUI path 진입 0 이었다. N8 patch 후 LlmChatViewModel 의 InitializeAsync /
+    // ConfigureProviderAsync / RefreshKbDigestAsync (SSE invalidate path) 3 군데 production hook 에 진입
+    // 보장. WPF Dispatcher / LightHouseClientHolder 의존성을 회피하기 위해 source-level fact 로 박제 —
+    // 향후 drift (KB digest 옆 specialized digest 호출 누락) 발생 시 본 fact 가 즉시 차단.
+    //
+    // source file path 는 Promaker project root 기준 — Promaker.Tests 의 csproj 가 ProjectReference 로
+    // Apps/Promaker/Promaker/Promaker.csproj 박제 → 본 test 의 bin 위치에서 4단계 위로 올라간 후
+    // Apps/Promaker/Promaker/ViewModels/ 진입. Test working directory 가 bin/Debug/net9.0-windows 이므로
+    // 상대 path 5단계.
+    //
+    // 회귀 fact 검증 범위:
+    //   (a) Initialize.cs 의 InitializeAsync 안에 `_ = RefreshSpecializedDigestAsync();` 호출 1+회
+    //   (b) Initialize.cs 의 ConfigureProviderAsync 안에 `ApplyPendingSpecializedDigest();` 호출 1+회
+    //   (c) KbProfile.cs 의 RefreshKbDigestAsync 안에 `ApplyPendingSpecializedDigest();` 호출 1+회
+
+    /// <summary>
+    /// Promaker source root 경로 추출 — Test working directory (bin/Debug/net9.0-windows) 에서
+    /// 4단계 위로 올라간 후 Apps/Promaker/Promaker/ 진입. test project 의 csproj ProjectReference 와
+    /// 동일 path 정합. CI / local 빌드 양쪽 호환.
+    /// </summary>
+    private static string ResolveViewModelsDir()
+    {
+        // Promaker.Tests 의 csproj 위치 = Solutions/Tests/Promaker.Tests/Promaker.Tests.csproj
+        // ProjectReference: ..\..\..\Apps\Promaker\Promaker\Promaker.csproj
+        // → 본 test 실행 시 AppContext.BaseDirectory = Solutions/Tests/Promaker.Tests/bin/Debug/net9.0-windows/
+        var baseDir = AppContext.BaseDirectory;
+        // bin/Debug/net9.0-windows → Promaker.Tests root
+        var testProjectRoot = Path.GetFullPath(Path.Combine(baseDir, "..", "..", ".."));
+        // Solutions/Tests/Promaker.Tests → repo root → Apps/Promaker/Promaker/ViewModels
+        var repoRoot = Path.GetFullPath(Path.Combine(testProjectRoot, "..", "..", ".."));
+        return Path.Combine(repoRoot, "Apps", "Promaker", "Promaker", "ViewModels");
+    }
+
+    [Fact]
+    public void N8_InitializeAsync_RefreshSpecializedDigestAsync_호출_진입()
+    {
+        // (a) InitializeAsync 안에 RefreshSpecializedDigestAsync 호출 박제.
+        var file = Path.Combine(ResolveViewModelsDir(), "LlmChatViewModel.Initialize.cs");
+        Assert.True(File.Exists(file), $"source file 부재: {file}");
+        var src = File.ReadAllText(file);
+        // InitializeAsync method 범위 안에서 RefreshSpecializedDigestAsync 호출이 있어야 함.
+        var initIdx = src.IndexOf("private async Task InitializeAsync()", StringComparison.Ordinal);
+        Assert.True(initIdx >= 0, "InitializeAsync 진입점 부재");
+        // ConfigureProviderAsync 가 InitializeAsync 다음 메서드 → 본 메서드 시작점이 boundary.
+        var nextMethodIdx = src.IndexOf("private async Task<List<McpServerEntry>> TryCreateLightHouseSessionsAsync",
+            initIdx, StringComparison.Ordinal);
+        Assert.True(nextMethodIdx > initIdx, "InitializeAsync 종료 boundary 부재");
+        var initBody = src.Substring(initIdx, nextMethodIdx - initIdx);
+        Assert.Contains("RefreshSpecializedDigestAsync()", initBody);
+        // KB digest 호출도 동반 (lifecycle 정합) — drift 방지.
+        Assert.Contains("RefreshKbDigestAsync()", initBody);
+    }
+
+    [Fact]
+    public void N8_ConfigureProviderAsync_ApplyPendingSpecializedDigest_호출_진입()
+    {
+        // (b) ConfigureProviderAsync 안에 ApplyPendingSpecializedDigest 호출 박제.
+        var file = Path.Combine(ResolveViewModelsDir(), "LlmChatViewModel.Initialize.cs");
+        var src = File.ReadAllText(file);
+        var cfgIdx = src.IndexOf("private async Task ConfigureProviderAsync(LlmProviderKind kind)",
+            StringComparison.Ordinal);
+        Assert.True(cfgIdx >= 0, "ConfigureProviderAsync 진입점 부재");
+        var cfgBody = src.Substring(cfgIdx);
+        Assert.Contains("ApplyPendingSpecializedDigest();", cfgBody);
+        // KB digest 호출도 동반 (lifecycle 정합).
+        Assert.Contains("ApplyPendingKbDigest();", cfgBody);
+    }
+
+    [Fact]
+    public void N8_RefreshKbDigestAsync_ApplyPendingSpecializedDigest_동반_호출()
+    {
+        // (c) KbProfile.cs 의 RefreshKbDigestAsync (SSE invalidate path) 안에 ApplyPendingSpecializedDigest
+        // 동반 호출 박제. KB digest 갱신 시 specialized digest 도 함께 refresh.
+        var file = Path.Combine(ResolveViewModelsDir(), "LlmChatViewModel.KbProfile.cs");
+        Assert.True(File.Exists(file), $"source file 부재: {file}");
+        var src = File.ReadAllText(file);
+        var rkIdx = src.IndexOf("private async Task RefreshKbDigestAsync()", StringComparison.Ordinal);
+        Assert.True(rkIdx >= 0, "RefreshKbDigestAsync 진입점 부재");
+        // FetchKbProfilesAsync 다음 메서드 (ApplyPendingKbDigest 정의도 아래) 까지 — internal async Task<...>
+        // FetchKbProfilesAsync 가 다음 method boundary.
+        var nextMethodIdx = src.IndexOf("internal async Task<IReadOnlyDictionary",
+            rkIdx, StringComparison.Ordinal);
+        Assert.True(nextMethodIdx > rkIdx, "RefreshKbDigestAsync 종료 boundary 부재");
+        var rkBody = src.Substring(rkIdx, nextMethodIdx - rkIdx);
+        Assert.Contains("ApplyPendingKbDigest();", rkBody);
+        Assert.Contains("ApplyPendingSpecializedDigest();", rkBody);
+    }
+
     [Fact]
     public async Task Smoke_6_mock_tool_use_simulation_default_off_시_emit_0()
     {
