@@ -305,7 +305,9 @@ type WorkOrderStrategy() =
             if not sigResult.Matched then
                 Rejected {
                     File = sourcePath
-                    Sheet = None
+                    // 전체 파일 reject — sheet 단위 정보 무관. null 박제 시 직렬화에서
+                    // key 누락 (NullValueHandling.Ignore). round 2 Major-3 fix 정합.
+                    Sheet = null
                     Reason = sprintf "signature 미매치: %s" sigResult.Detail
                     Strategy = strategyName
                     RejectedAt = DateTime.UtcNow

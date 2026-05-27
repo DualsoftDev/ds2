@@ -464,20 +464,50 @@ let ``자료 C 실파일 — 존재 시 WorkOrderStrategy 매치 + markdown 박�
 let ``DiagnosticSchemas — RejectedEntry serialize / deserialize round-trip`` () =
     let entry = {
         File = @"F:/secrets/test.xlsx"
-        Sheet = Some "S201_RB1"
+        Sheet = "S201_RB1"
         Reason = "매크로 xlsm 미지원"
         Strategy = "IoListStrategy"
         RejectedAt = DateTime(2026, 5, 27, 10, 0, 0, DateTimeKind.Utc)
     }
     let json = DiagnosticJson.serialize entry
+    // camelCase 박제 (round 2 Major-3 fix — ContractResolver 정합).
     Assert.Contains("\"file\":", json)
     Assert.Contains("\"sheet\":", json)
+    Assert.Contains("\"reason\":", json)
     Assert.Contains("\"strategy\":", json)
+    Assert.Contains("\"rejectedAt\":", json)
+    // **envelope 박제 0 verify** — F# `string option` 의 Newtonsoft 기본 직렬화
+    // (`{"Case":"Some","Fields":["..."]}`) 회귀 방지. round 2 Major-3 결함 fix.
+    Assert.DoesNotContain("\"Case\":", json)
+    Assert.DoesNotContain("\"Fields\":", json)
     let restored : RejectedEntry = DiagnosticJson.deserialize json
     Assert.Equal(entry.File, restored.File)
     Assert.Equal(entry.Sheet, restored.Sheet)
     Assert.Equal(entry.Reason, restored.Reason)
     Assert.Equal(entry.Strategy, restored.Strategy)
+
+[<Fact>]
+let ``DiagnosticSchemas — RejectedEntry Sheet=null 시 disk JSON 에 sheet key 누락`` () =
+    // 전체 파일 reject 시 `Sheet = null` 박제. NullValueHandling.Ignore 정합 +
+    // 외부 reader 가 sheet 단위 정보 없음을 key 누락으로 식별. round 2 Major-3 fix.
+    let entry = {
+        File = @"F:/secrets/no-sheet.xlsx"
+        Sheet = null
+        Reason = "signature 미매치"
+        Strategy = "IoListStrategy"
+        RejectedAt = DateTime(2026, 5, 27, 10, 0, 0, DateTimeKind.Utc)
+    }
+    let json = DiagnosticJson.serialize entry
+    Assert.Contains("\"file\":", json)
+    Assert.Contains("\"strategy\":", json)
+    // **null 박제 시 key 자체 누락** — NullValueHandling.Ignore 회귀 방지.
+    Assert.DoesNotContain("\"sheet\":", json)
+    Assert.DoesNotContain("\"Case\":", json)
+    Assert.DoesNotContain("\"Fields\":", json)
+    let restored : RejectedEntry = DiagnosticJson.deserialize json
+    Assert.Null(restored.Sheet)
+    Assert.Equal(entry.File, restored.File)
+    Assert.Equal(entry.Reason, restored.Reason)
 
 [<Fact>]
 let ``DiagnosticSchemas — NearMissEntry round-trip`` () =

@@ -2,6 +2,7 @@ namespace Ds2.LightHouse.Diagnostics
 
 open System
 open Newtonsoft.Json
+open Newtonsoft.Json.Serialization
 
 /// **PR-I1 (todo-documents-based-gfm.md §6.1 N6 + §3.1)** — strategy 진단 JSON schema SSOT.
 ///
@@ -14,13 +15,23 @@ open Newtonsoft.Json
 
 /// strategy signature 매치는 되었으나 변환 실패 / 매크로 xlsx 등 비처리 케이스.
 /// (`documents-based-gfm.md` §8.5.6 — 매크로 xlsm / 비밀번호 보호 / 외부 링크 끊김 등).
+///
+/// **Sheet field 박제 결정** (round 2 Major-3 fix):
+/// F# `string option` 은 Newtonsoft.Json 기본 직렬화 시
+/// `{"Case":"Some","Fields":["..."]}` envelope 으로 출력되어 외부 reader (.json
+/// schema 소비자) 가 string 으로 파싱 시 fail. schema 정합 (single string 또는
+/// key 누락) 을 위해 `string` (nullable, F# 비관용 trade-off 수용). `.NET string` 은
+/// reference type 이라 F# `null` literal 대입이 컴파일러 통과 — record 차원 `[<AllowNullLiteral>]`
+/// 부착 0 (F# record 에 사용 불가). `[<CLIMutable>]` 는 Newtonsoft deserialize 의 빈
+/// 생성자 활용. 호출 site 는 `Sheet = null` 또는 `Sheet = "Sheet1"` 패턴.
+[<CLIMutable>]
 type RejectedEntry = {
     /// 원본 파일 절대경로 또는 collection root 기준 상대경로.
     [<JsonProperty("file")>]
     File: string
-    /// 시트명 / 페이지번호 / 슬라이드번호. 전체 파일 reject 면 None.
+    /// 시트명 / 페이지번호 / 슬라이드번호. 전체 파일 reject 면 `null` (직렬화에서 key 누락).
     [<JsonProperty("sheet", NullValueHandling = NullValueHandling.Ignore)>]
-    Sheet: string option
+    Sheet: string
     /// reject 사유 한국어 (사용자 진단용).
     [<JsonProperty("reason")>]
     Reason: string
@@ -87,6 +98,10 @@ module DiagnosticJson =
         let s = JsonSerializerSettings()
         s.Formatting <- Formatting.Indented
         s.NullValueHandling <- NullValueHandling.Ignore
+        // round 2 Major-3 fix — docstring "camelCase 박제" 정합. 종전은 `[<JsonProperty(...)>]`
+        // 의 명시적 이름에만 의존했으나 (모든 field 에 attribute 가 있어 우연히 동작), 누락
+        // field 가 추가될 경우 PascalCase 누출 위험. ContractResolver 로 default 보장.
+        s.ContractResolver <- DefaultContractResolver(NamingStrategy = CamelCaseNamingStrategy())
         s
 
     let serialize<'T> (value: 'T) : string =
