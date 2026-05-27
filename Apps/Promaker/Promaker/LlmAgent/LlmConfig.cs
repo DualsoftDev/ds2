@@ -571,6 +571,46 @@ public sealed class LlmConfig
     }
 
     /// <summary>
+    /// **B8 (2026-05-27) — SecureString 정공 path**. 평문 string lifetime 0 — DPAPI Unprotect → byte[] → char[] →
+    /// SecureString → finally byte[]/char[] Array.Clear. 미설정 / 복호화 실패 시 null. caller (LightHouseClientHolder /
+    /// LightHouseClient 의 PSK provider) 가 SecureString 소유권 받아 Dispose 의무.
+    /// </summary>
+    public SecureString? GetLightHousePskSecure(string serviceId)
+    {
+        if (string.IsNullOrEmpty(serviceId)) return null;
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null || string.IsNullOrEmpty(svc.ApiKeyEncrypted)) return null;
+        byte[]? plain = null;
+        char[]? chars = null;
+        SecureString? ss = null;
+        try
+        {
+            var encrypted = Convert.FromBase64String(svc.ApiKeyEncrypted);
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            plain = ProtectedData.Unprotect(encrypted, entropy, DataProtectionScope.CurrentUser);
+            chars = Encoding.UTF8.GetChars(plain);
+            ss = new SecureString();
+            foreach (var ch in chars) ss.AppendChar(ch);
+            ss.MakeReadOnly();
+            var result = ss;
+            ss = null;  // **B8 자가 검열 m3 fix (2026-05-27)** — 성공 path 만 finally Dispose 회피 (caller 소유권 이양).
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"LlmConfig.GetLightHousePskSecure({serviceId}) 복호화 실패: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            if (plain is not null) Array.Clear(plain, 0, plain.Length);
+            if (chars is not null) Array.Clear(chars, 0, chars.Length);
+            // **B8 자가 검열 m3 fix (2026-05-27)** — AppendChar loop 도중 exception 시 ss partial state leak 차단.
+            ss?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// **D-S7-3a (s6-r29) backward-compat overload** — active service 의 PSK 반환. 다음 phase (D-S7-3b/c)
     /// 에서 caller (Holder / Settings / ChatViewModel) 가 ServiceId 명시 path 로 마이그레이션 완료 시 제거 후보.
     /// </summary>
