@@ -85,6 +85,28 @@ let ``normalizeCell — | escape + trim`` () =
     Assert.Equal(@"a\|b\|c", StrategyMarkdown.normalizeCell "  a|b|c  ")
     Assert.Equal("hello", StrategyMarkdown.normalizeCell " hello ")
 
+// ── G·G-Minor-5 (Outlier/Minor 묶음 1) — multi-line cell 회귀 ──────────
+
+[<Fact>]
+let ``G·G-Minor-5 — multi-line cell (LF) 은 <br/> 로 escape`` () =
+    Assert.Equal("line1<br/>line2", StrategyMarkdown.normalizeCell "line1\nline2")
+
+[<Fact>]
+let ``G·G-Minor-5 — multi-line cell (CRLF) 은 <br/> 로 escape`` () =
+    Assert.Equal("line1<br/>line2", StrategyMarkdown.normalizeCell "line1\r\nline2")
+
+[<Fact>]
+let ``G·G-Minor-5 — multi-line cell (CR only) 은 <br/> 로 escape`` () =
+    Assert.Equal("line1<br/>line2", StrategyMarkdown.normalizeCell "line1\rline2")
+
+[<Fact>]
+let ``G·G-Minor-5 — multi-line cell + pipe escape 동시 처리`` () =
+    Assert.Equal(@"a\|b<br/>c\|d", StrategyMarkdown.normalizeCell "a|b\nc|d")
+
+[<Fact>]
+let ``G·G-Minor-5 — 3-line cell 다중 <br/> 변환`` () =
+    Assert.Equal("a<br/>b<br/>c", StrategyMarkdown.normalizeCell "a\nb\nc")
+
 // ── buildHeader byte-equal 회귀 (PR-I2 base 박제 패턴) ─────────────────
 
 [<Fact>]

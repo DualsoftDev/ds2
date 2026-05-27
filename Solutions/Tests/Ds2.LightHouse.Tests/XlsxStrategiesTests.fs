@@ -538,6 +538,108 @@ let ``DiagnosticSchemas — NearMissEntry round-trip`` () =
     Assert.Equal(entry.Threshold, restored.Threshold)
     Assert.Equal(entry.CandidateStrategy, restored.CandidateStrategy)
 
+// ── G·G-Minor-2 (Outlier/Minor 묶음 1) — list round-trip 회귀 ────────────
+
+[<Fact>]
+let ``G·G-Minor-2 — RejectedEntry list (빈) round-trip`` () =
+    let entries : RejectedEntry list = []
+    let json = DiagnosticJson.serialize entries
+    let restored : RejectedEntry list = DiagnosticJson.deserialize json
+    Assert.Empty(restored)
+
+[<Fact>]
+let ``G·G-Minor-2 — RejectedEntry list (다중) round-trip + 순서 보존`` () =
+    let entries : RejectedEntry list = [
+        { File = "/a.xlsx"
+          Sheet = "S1"
+          Reason = "r1"
+          Strategy = "IoListStrategy"
+          RejectedAt = DateTime(2026, 5, 27, 10, 0, 0, DateTimeKind.Utc) }
+        { File = "/b.xlsx"
+          Sheet = null
+          Reason = "r2"
+          Strategy = "WorkOrderStrategy"
+          RejectedAt = DateTime(2026, 5, 27, 11, 0, 0, DateTimeKind.Utc) }
+        { File = "/c.pdf"
+          Sheet = "p=5"
+          Reason = "r3"
+          Strategy = "PdfControlSpecStrategy"
+          RejectedAt = DateTime(2026, 5, 27, 12, 0, 0, DateTimeKind.Utc) }
+    ]
+    let json = DiagnosticJson.serialize entries
+    let restored : RejectedEntry list = DiagnosticJson.deserialize json
+    Assert.Equal(3, List.length restored)
+    Assert.Equal(entries.[0].File, restored.[0].File)
+    Assert.Equal(entries.[1].File, restored.[1].File)
+    Assert.Equal(entries.[2].File, restored.[2].File)
+    Assert.Null(restored.[1].Sheet)
+    Assert.Equal(entries.[2].Strategy, restored.[2].Strategy)
+
+[<Fact>]
+let ``G·G-Minor-2 — NearMissEntry list 다중 round-trip`` () =
+    let entries : NearMissEntry list = [
+        { File = "/a.xlsx"
+          CandidateStrategy = "IoListStrategy"
+          Score = 4
+          Threshold = 6
+          Detail = "d1"
+          DetectedAt = DateTime(2026, 5, 27, 10, 0, 0, DateTimeKind.Utc) }
+        { File = "/b.xlsx"
+          CandidateStrategy = "WorkOrderStrategy"
+          Score = 3
+          Threshold = 5
+          Detail = "d2"
+          DetectedAt = DateTime(2026, 5, 27, 11, 0, 0, DateTimeKind.Utc) }
+    ]
+    let json = DiagnosticJson.serialize entries
+    let restored : NearMissEntry list = DiagnosticJson.deserialize json
+    Assert.Equal(2, List.length restored)
+    Assert.Equal(entries.[0].Score, restored.[0].Score)
+    Assert.Equal(entries.[1].CandidateStrategy, restored.[1].CandidateStrategy)
+
+// ── F·m10 (Outlier/Minor 묶음 1) — DateTime UTC 강제 회귀 ───────────────
+
+[<Fact>]
+let ``F·m10 — RejectedAt 직렬화 시 ISO 8601 Z suffix 강제 (UTC)`` () =
+    let entry = {
+        File = "/test.xlsx"
+        Sheet = "S1"
+        Reason = "r"
+        Strategy = "IoListStrategy"
+        RejectedAt = DateTime(2026, 5, 27, 10, 0, 0, DateTimeKind.Utc)
+    }
+    let json = DiagnosticJson.serialize entry
+    // ISO 8601 Z suffix — `2026-05-27T10:00:00.000Z` 형식.
+    Assert.Matches(Regex(@"""rejectedAt"":\s*""2026-05-27T10:00:00\.000Z"""), json)
+
+[<Fact>]
+let ``F·m10 — Local DateTime 도 직렬화 시 UTC 변환 + Z suffix`` () =
+    // 의도적 Local Kind 입력 → 직렬화 시 UTC 변환되어 Z 박제.
+    let localDt = DateTime(2026, 5, 27, 15, 0, 0, DateTimeKind.Local)
+    let entry = {
+        File = "/test.xlsx"
+        Sheet = null
+        Reason = "r"
+        Strategy = "IoListStrategy"
+        RejectedAt = localDt
+    }
+    let json = DiagnosticJson.serialize entry
+    // Z suffix 박제 확인.
+    Assert.Matches(Regex(@"""rejectedAt"":\s*""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"""), json)
+
+[<Fact>]
+let ``F·m10 — NearMissEntry DetectedAt 도 UTC Z suffix 박제`` () =
+    let entry = {
+        File = "/test.xlsx"
+        CandidateStrategy = "IoListStrategy"
+        Score = 4
+        Threshold = 6
+        Detail = "d"
+        DetectedAt = DateTime(2026, 5, 27, 11, 0, 0, DateTimeKind.Utc)
+    }
+    let json = DiagnosticJson.serialize entry
+    Assert.Matches(Regex(@"""detectedAt"":\s*""2026-05-27T11:00:00\.000Z"""), json)
+
 [<Fact>]
 let ``DiagnosticSchemas — StaleEntry round-trip (PR-I1 schema only)`` () =
     let entry = {

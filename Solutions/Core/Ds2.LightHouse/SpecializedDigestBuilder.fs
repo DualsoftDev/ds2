@@ -54,6 +54,35 @@ module SpecializedDigestBuilder =
         Metadata: DigestMetadata
     }
 
+    /// **F·M5 (Outlier/Minor 묶음 1)** — 합본 결과에도 MarkdownCapPolicy.applyCap 적용.
+    /// 단일 strategy summary 가 cap 안 들어가도 다중 collection 합본 시 cap 초과 가능 →
+    /// cache breakpoint 3 의 system prompt 가 비대 / API token cap 초과 risk.
+    /// Stage 0/1/2 결과의 `Markdown` 만 채택 (Stage 3 SplitParts 는 합본 path 에서 silent
+    /// 무시 — caller 가 분할 박제 책임 없음). split 도달 시 첫 part 박제로 fallback.
+    ///
+    /// **fail-safe**: applyCap 의 Stage 1/2/3 escalation 이 표 구조 의존이라 일반 markdown
+    /// (표 row 0 / data row 0) 합본은 흡수 불가 → fail-fast. 본 합본 path 는 LLM cache
+    /// breakpoint 3 (사용자 진단 아님) 이라 fail-fast 보다 byte cap 강제 truncate + 안내
+    /// comment 박제가 안전. try/with 로 escalation fail 흡수 후 단순 truncate fallback.
+    let private capCombined (combined: string) : string =
+        if String.IsNullOrEmpty combined then combined
+        else
+            let bytes = Encoding.UTF8.GetByteCount combined
+            if bytes <= MarkdownCapPolicy.MaxMarkdownBytes then combined
+            else
+                try
+                    let r = MarkdownCapPolicy.applyCap combined
+                    r.Markdown
+                with _ ->
+                    // fail-fast escalation 실패 — UTF-8 boundary safe byte cap truncate.
+                    let footer = "\n\n<!-- digest truncated at MarkdownCapPolicy.MaxMarkdownBytes -->\n"
+                    let footerBytes = Encoding.UTF8.GetByteCount footer
+                    let avail = MarkdownCapPolicy.MaxMarkdownBytes - footerBytes
+                    let mutable cut = combined.Length
+                    while cut > 0 && Encoding.UTF8.GetByteCount(combined.Substring(0, cut)) > avail do
+                        cut <- cut - 1
+                    combined.Substring(0, cut) + footer
+
     /// `<collectionRoot>/.lighthouse-kb/summary/` 디렉토리의 `*.md` 합본 + metadata 반환.
     /// 디렉토리 부재 / 빈 → 빈 합본 (Combined = "", FileCount = 0).
     /// 파일 enumeration 순서 = path-sorted (deterministic, 멱등 cache hit 보장).
@@ -70,7 +99,8 @@ module SpecializedDigestBuilder =
                   Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
             else
                 let contents = files |> Array.map (fun f -> File.ReadAllText(f, Encoding.UTF8))
-                let combined = String.concat FileSeparator contents
+                let combinedRaw = String.concat FileSeparator contents
+                let combined = capCombined combinedRaw
                 let lastIndexed =
                     files
                     |> Array.map File.GetLastWriteTimeUtc
@@ -92,8 +122,10 @@ module SpecializedDigestBuilder =
             { Combined = ""
               Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
         else
-            let combined =
+            let combinedRaw =
                 nonEmpty |> Array.map (fun r -> r.Combined) |> String.concat FileSeparator
+            // F·M5 — multi-collection 합본도 cap 적용.
+            let combined = capCombined combinedRaw
             let totalFiles = nonEmpty |> Array.sumBy (fun r -> r.Metadata.FileCount)
             let lastIndexed =
                 nonEmpty
@@ -135,7 +167,9 @@ module SpecializedDigestBuilder =
                         ct.ThrowIfCancellationRequested()
                         let! txt = File.ReadAllTextAsync(files.[i], Encoding.UTF8, ct)
                         contents.[i] <- txt
-                    let combined = String.concat FileSeparator contents
+                    let combinedRaw = String.concat FileSeparator contents
+                    // F·M5 — async path 도 동기와 byte-identical 위해 cap 동일 적용.
+                    let combined = capCombined combinedRaw
                     let lastIndexed =
                         files
                         |> Array.map File.GetLastWriteTimeUtc
@@ -164,8 +198,10 @@ module SpecializedDigestBuilder =
                     { Combined = ""
                       Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
             else
-                let combined =
+                let combinedRaw =
                     nonEmpty |> Array.map (fun r -> r.Combined) |> String.concat FileSeparator
+                // F·M5 — multi-collection async 합본도 cap 적용.
+                let combined = capCombined combinedRaw
                 let totalFiles = nonEmpty |> Array.sumBy (fun r -> r.Metadata.FileCount)
                 let lastIndexed =
                     nonEmpty

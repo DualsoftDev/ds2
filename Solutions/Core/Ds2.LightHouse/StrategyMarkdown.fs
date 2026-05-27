@@ -54,9 +54,22 @@ module StrategyMarkdown =
 
     /// 빈 셀 normalize — `documents-based-gfm.md` §8.5.5 의 빈 셀 = `-`,
     /// markdown table `|` escape = `\|`.
+    ///
+    /// **G·G-Minor-5 (Outlier/Minor 묶음 1)** — multi-line cell 처리. 종전 구현은 cell 안
+    /// `\r` / `\n` 가 그대로 박제되어 GFM table 의 row boundary 가 깨지는 결함. GFM 표 cell 은
+    /// raw newline 불허 — `<br/>` 로 변환 (CR/LF 통합 후 LF → `<br/>` substitution).
     let normalizeCell (raw: string) : string =
         if String.IsNullOrWhiteSpace raw then "-"
-        else raw.Trim().Replace("|", @"\|")
+        else
+            let trimmed = raw.Trim()
+            let escaped = trimmed.Replace("|", @"\|")
+            // CRLF / CR / LF 통합 처리 — \r\n → \n 후 \r → \n 후 단일 \n → `<br/>`.
+            let normalized =
+                escaped
+                    .Replace("\r\n", "\n")
+                    .Replace("\r", "\n")
+                    .Replace("\n", "<br/>")
+            normalized
 
     /// 머리말 5행 빌더 input. `documents-based-gfm.md` §8.5.5 의 강제 5행 + strategy-version 박제.
     /// `signatureScore` / `signatureMaxScore` 는 strategy 별 threshold 와 max 가 다르므로 caller 전달.

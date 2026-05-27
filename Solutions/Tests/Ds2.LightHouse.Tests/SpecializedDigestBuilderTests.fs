@@ -274,6 +274,59 @@ let ``buildManyAsync - 동기 buildMany 와 byte-identical 다중 collection`` (
                 Assert.Equal(sync.Metadata.FileCount, async_.Metadata.FileCount)
                 Assert.Equal(sync.Metadata.EstimatedTokens, async_.Metadata.EstimatedTokens))))
 
+// ── F·M5 (Outlier/Minor 묶음 1) — 합본 결과 MarkdownCapPolicy.applyCap 회귀 ────
+
+[<Fact>]
+let ``F·M5 - build 합본 size 가 MaxMarkdownBytes 안 (cap 적용 박제)`` () =
+    withTempDir (fun root ->
+        let summaryDir = mkSummaryDir root
+        // 단일 file 도 cap 초과하도록 ~300KB 박제 (단순 ASCII).
+        let bigContent = String.replicate 300000 "x"
+        writeSummary summaryDir "huge.md" bigContent |> ignore
+        let result = SpecializedDigestBuilder.build root
+        // applyCap 적용 결과 size <= cap.
+        let actualBytes = System.Text.Encoding.UTF8.GetByteCount result.Combined
+        Assert.True(actualBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
+            sprintf "합본 size %d 가 cap %d 초과 (F·M5 회귀)"
+                actualBytes MarkdownCapPolicy.MaxMarkdownBytes))
+
+[<Fact>]
+let ``F·M5 - buildMany 다중 collection 합본도 cap 적용`` () =
+    withTempDir (fun root1 ->
+        withTempDir (fun root2 ->
+            let dir1 = mkSummaryDir root1
+            let dir2 = mkSummaryDir root2
+            // 각 collection 별 단일 ~150KB 박제 → 합본 ~300KB → cap 초과 → applyCap 진입.
+            writeSummary dir1 "c1.md" (String.replicate 150000 "a") |> ignore
+            writeSummary dir2 "c2.md" (String.replicate 150000 "b") |> ignore
+            let result = SpecializedDigestBuilder.buildMany [ root1; root2 ]
+            let actualBytes = System.Text.Encoding.UTF8.GetByteCount result.Combined
+            Assert.True(actualBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
+                sprintf "buildMany 합본 size %d 가 cap %d 초과 (F·M5 회귀)"
+                    actualBytes MarkdownCapPolicy.MaxMarkdownBytes)))
+
+[<Fact>]
+let ``F·M5 - cap 안 합본은 cap 적용 후에도 그대로 (no-op)`` () =
+    withTempDir (fun root ->
+        let summaryDir = mkSummaryDir root
+        writeSummary summaryDir "small.md" "# Small\n\nBody" |> ignore
+        let result = SpecializedDigestBuilder.build root
+        // cap 안 → Original stage → 합본 byte-equal.
+        Assert.Equal("# Small\n\nBody", result.Combined))
+
+[<Fact>]
+let ``F·M5 - buildAsync 합본도 cap 적용 (동기 path 정합)`` () =
+    withTempDir (fun root ->
+        let summaryDir = mkSummaryDir root
+        let bigContent = String.replicate 300000 "x"
+        writeSummary summaryDir "huge.md" bigContent |> ignore
+        let result =
+            (SpecializedDigestBuilder.buildAsync root CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+        let actualBytes = System.Text.Encoding.UTF8.GetByteCount result.Combined
+        Assert.True(actualBytes <= MarkdownCapPolicy.MaxMarkdownBytes))
+
 [<Fact>]
 let ``buildManyAsync - 빈 seq 빈 합본`` () =
     let result =
