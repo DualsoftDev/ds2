@@ -357,6 +357,11 @@
                     {
                         <span class="typo-caption" style="color:var(--color-text-secondary);">로딩 중...</span>
                     }
+                    <label class="d-flex" style="align-items:center; gap:4px; margin-left:auto; cursor:pointer; font-size:0.8rem; color:var(--color-text-secondary); user-select:none;"
+                           title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 스파이크)를 제외합니다.">
+                        <input type="checkbox" checked="@ExcludeDeviation" @onchange="OnExcludeDeviationChanged" />
+                        편차 제외
+                    </label>
                 </div>
 
                 @if (CallExecutionHistory.Count > 0)
@@ -405,15 +410,57 @@
 
     // 차트
     private List<CallExecutionRecord> CallExecutionHistory { get; set; } = new();
+    // 편차(이동평균 2배 초과 스파이크) 제외 후 실제 차트/통계에 사용할 데이터
+    private List<CallExecutionRecord> DisplayedHistory { get; set; } = new();
     private bool IsChartLoading { get; set; } = false;
 
-    // 차트 데이터 기반 통계 (PLC 로그 실측값)
-    private double ChartAvgMs => CallExecutionHistory.Count > 0
-        ? CallExecutionHistory.Average(r => r.GoingTimeMs) : 0;
-    private double ChartStdDevMs => CallExecutionHistory.Count > 0
-        ? Math.Sqrt(CallExecutionHistory.Average(r => Math.Pow(r.GoingTimeMs - ChartAvgMs, 2))) : 0;
+    // 편차 제외 체크박스 (기본 활성화): 이동평균 2배를 초과하는 회차를 제외
+    private bool ExcludeDeviation { get; set; } = true;
+    private const int MovingAverageWindow = 5;
+
+    // 차트 데이터 기반 통계 (PLC 로그 실측값, 편차 제외 반영)
+    private double ChartAvgMs => DisplayedHistory.Count > 0
+        ? DisplayedHistory.Average(r => r.GoingTimeMs) : 0;
+    private double ChartStdDevMs => DisplayedHistory.Count > 0
+        ? Math.Sqrt(DisplayedHistory.Average(r => Math.Pow(r.GoingTimeMs - ChartAvgMs, 2))) : 0;
     private double ChartCV => ChartAvgMs > 0 ? ChartStdDevMs / ChartAvgMs : 0;
-    private int ChartCount => CallExecutionHistory.Count;
+    private int ChartCount => DisplayedHistory.Count;
+
+    /// <summary>
+    /// 편차 제외가 활성화되면 각 회차의 중심 이동평균(window=<see cref="MovingAverageWindow"/>)을 구해
+    /// 실행시간이 이동평균의 0.5배~2배 정상 범위를 벗어나는 스파이크(위·아래 양갈래)를 제거한다.
+    /// 실행시간은 0 이상·우측으로 꼬리가 긴 분포이므로 가산(±) 대신 곱셈 대칭(×2, ÷2)을 사용한다.
+    /// </summary>
+    private void RecomputeDisplayedHistory()
+    {
+        if (!ExcludeDeviation || CallExecutionHistory.Count == 0)
+        {
+            DisplayedHistory = CallExecutionHistory;
+            return;
+        }
+
+        var times = CallExecutionHistory.Select(r => (double)r.GoingTimeMs).ToList();
+        var n = times.Count;
+        var half = MovingAverageWindow / 2;
+        var result = new List<CallExecutionRecord>(n);
+
+        for (var i = 0; i < n; i++)
+        {
+            var lo = Math.Max(0, i - half);
+            var hi = Math.Min(n - 1, i + half);
+            double sum = 0;
+            for (var j = lo; j <= hi; j++) sum += times[j];
+            var movingAvg = sum / (hi - lo + 1);
+
+            // 이동평균의 절반(아래쪽 스파이크) ~ 2배(위쪽 스파이크) 범위만 정상으로 유지
+            var lower = movingAvg * 0.5;
+            var upper = movingAvg * 2.0;
+            if (movingAvg <= 0 || (times[i] >= lower && times[i] <= upper))
+                result.Add(CallExecutionHistory[i]);
+        }
+
+        DisplayedHistory = result;
+    }
 
     // 정렬
     private enum SortField { CallName, WorkName, AvgTime, StdDev, CV }
@@ -597,39 +644,21 @@
         {
             SelectedCall = null;
             CallExecutionHistory = new();
+            DisplayedHistory = new();
             await JS.InvokeVoidAsync("destroyCallHistoryChart");
             return;
         }
 
         SelectedCall = call;
         CallExecutionHistory = new();
+        DisplayedHistory = new();
         IsChartLoading = true;
         StateHasChanged();
 
         try
         {
             CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(call.CallId);
-
-            if (CallExecutionHistory.Count > 0)
-            {
-                // canvas 는 Count > 0 일 때만 DOM 에 들어가므로, JS interop 전 반드시 render + DOM 적용
-                // 대기 필요. Task.Delay(50) 은 SignalR 라운드트립 + 클라이언트 DOM 적용 시간 buffer.
-                StateHasChanged();
-                await Task.Delay(50);
-
-                var chartData = CallExecutionHistory.Select(r => new
-                {
-                    executionNumber = r.ExecutionNumber,
-                    goingTimeMs = r.GoingTimeMs,
-                    timestamp = r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
-                }).ToArray();
-
-                await JS.InvokeVoidAsync("renderCallHistoryChart",
-                    "callHistoryChart",
-                    chartData,
-                    call.AverageGoingTime,
-                    call.StdDevGoingTime);
-            }
+            await RenderHistoryChartAsync();
         }
         catch (Exception ex)
         {
@@ -640,6 +669,42 @@
             IsChartLoading = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>현재 편차 제외 설정을 반영하여 실행 이력 차트를 렌더링한다.</summary>
+    private async Task RenderHistoryChartAsync()
+    {
+        RecomputeDisplayedHistory();
+        if (DisplayedHistory.Count == 0)
+        {
+            await JS.InvokeVoidAsync("destroyCallHistoryChart");
+            return;
+        }
+
+        // canvas 는 Count > 0 일 때만 DOM 에 들어가므로, JS interop 전 반드시 render + DOM 적용
+        // 대기 필요. Task.Delay(50) 은 SignalR 라운드트립 + 클라이언트 DOM 적용 시간 buffer.
+        StateHasChanged();
+        await Task.Delay(50);
+
+        var chartData = DisplayedHistory.Select(r => new
+        {
+            executionNumber = r.ExecutionNumber,
+            goingTimeMs = r.GoingTimeMs,
+            timestamp = r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+        }).ToArray();
+
+        await JS.InvokeVoidAsync("renderCallHistoryChart",
+            "callHistoryChart",
+            chartData,
+            SelectedCall?.AverageGoingTime ?? 0,
+            SelectedCall?.StdDevGoingTime ?? 0);
+    }
+
+    /// <summary>편차 제외 체크박스 토글 시 차트를 재렌더링한다.</summary>
+    private async Task OnExcludeDeviationChanged(ChangeEventArgs e)
+    {
+        ExcludeDeviation = e.Value is bool b ? b : ExcludeDeviation;
+        await RenderHistoryChartAsync();
     }
 
     private async Task CloseCallModal()
