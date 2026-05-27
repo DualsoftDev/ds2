@@ -50,6 +50,12 @@ let private FlagForceWithoutImageCaption = "force-without-image-caption"
 /// skill 이 Step 2 에서 subagent caption-fill → Step 3 에서 별 upload entry 호출.
 [<Literal>]
 let private FlagSkipUpload = "skip-upload"
+/// `/indexer` skill Step 3 wipe 회피 — `.lighthouse-kb/` 의 기존 색인 산출물을 wipe 하지 않고 그대로 zip + POST.
+/// Step 2 (caption-update) + Step 1-b (summary-update) 박제분 (DB ImageCache.CaptionText / Documents.SummaryText
+/// + text dump / summary.md) 을 server 까지 전달 보장. 본 flag 미박제 시 종전 동작 (wipe + 재색인) 유지.
+/// 사용 전제: `<folder>/.lighthouse-kb/index.db` 이미 존재 (Step 1-a 색인 완료). 부재 시 exit 11.
+[<Literal>]
+let private FlagReuseKb = "reuse-kb"
 
 // **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. cli scope 한정 (Promaker LlmConfig 의
 // LIGHTHOUSE_VLM_API_KEY 박제 는 별 cross-project SSOT 박제 의무 — K4 Protocol 통합 phase 묶음).
@@ -66,7 +72,7 @@ let private EnvPsk = "LIGHTHOUSE_PSK"
 let private usage () =
     eprintfn "usage:"
     eprintfn "  lighthouse-cli index <folder> [--no-embedding] [--force-without-image-caption | --skip-upload]"
-    eprintfn "                              [--upload <url> --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
+    eprintfn "                              [--upload <url> [--reuse-kb] --psk <key> [--title <name>] [--user <id>] [--allow-invalid-certs]]"
     eprintfn "  lighthouse-cli list-pending-captions <folder>"
     eprintfn "  lighthouse-cli caption-update <folder> <batch.json>"
     eprintfn "  lighthouse-cli print-caption-prompt"
@@ -84,6 +90,9 @@ let private usage () =
     eprintfn "                                 본 flag 박제 시 --force-without-image-caption 자동 박제."
     eprintfn "                                 Step 2 (caption-update) + Step 3 (upload) 는 skill 측에서 별도 dispatch."
     eprintfn "  --upload <url>                 LightHouseService base URL (https://host:port)"
+    eprintfn "  --reuse-kb                     기존 <folder>/.lighthouse-kb/ 산출물을 wipe 없이 그대로 zip + POST."
+    eprintfn "                                 /indexer skill Step 3 — Step 2 caption-update / Step 1-b summary-update"
+    eprintfn "                                 박제분을 server 까지 전달 보장. <folder>/.lighthouse-kb/index.db 필수."
     eprintfn "  --psk <key>                    PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
     eprintfn "  --title <name>                 collection 표시 이름 (생략 시 폴더명)"
     eprintfn "  --user <id>                    X-User-Identity (생략 시 USERNAME@MachineName)"
@@ -99,7 +108,7 @@ let private parseArgs (args: string array) : Map<string, string> * string list =
     // **s6-r70 review C-17** — boolean flag set 분리 (다음 토큰 흡수 차단).
     // 예: `--no-embedding <folder>` 가 folder 를 no-embedding 의 value 로 흡수했던 결함. boolean flag 는
     // value 없는 형식으로만 처리, 다음 토큰은 positional 또는 별 flag 로 그대로 분리.
-    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption; FlagSkipUpload ]
+    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption; FlagSkipUpload; FlagReuseKb ]
     while i < args.Length do
         let arg = args.[i]
         if arg.StartsWith "--" then
@@ -259,6 +268,7 @@ let private runUpload
         (allowInvalidCerts: bool)
         (noEmbedding: bool)
         (forceWithoutCaption: bool)
+        (reuseKb: bool)
         : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
@@ -267,15 +277,26 @@ let private runUpload
         eprintfn "오류: source 폴더 write 권한 없음 — %s" folder
         eprintfn "  in-place 색인을 위해 source 폴더에 .lighthouse-kb/ 생성 가능해야 합니다."
         11
+    elif reuseKb && not (File.Exists (SqliteStore.dbPath folder)) then
+        // `--reuse-kb` 박제 시 기존 색인 산출물 의무 — Step 1-a 미수행 시 fail-fast.
+        eprintfn "오류: --%s 박제 + index.db 부재 — %s" FlagReuseKb (SqliteStore.dbPath folder)
+        eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1-a 색인 수행하세요."
+        11
     else
-        // 사용자 결정 — VLM captionGen build 가 색인 본격 진입 전에 fail-fast.
-        match Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption with
+        // `--reuse-kb` 박제 시 captionGen / embedder 진입 자체 skip — runIngest 미진입이므로 두 의존성 모두 dead.
+        // VLM API key 미박제 + force 미박제 사용자에게도 reuse path 는 허용해야 (Step 2 가 이미 caption 박제).
+        // 자가 검열 Minor-1 — dummy null 박제 회피, `CaptionGenerator.noop` SSOT 재사용. runIngest 가 잘못 호출되어도
+        // `SkippedCaption "no caption gen"` 반환 → NullReferenceException 회귀 차단.
+        let captionPrecheck =
+            if reuseKb then Ok CaptionGenerator.noop
+            else Vlm.buildCaptionGen CancellationToken.None forceWithoutCaption
+        match captionPrecheck with
         | Error msg ->
             eprintfn "오류: %s" msg
             13
         | Ok captionGen ->
-        // bge-m3 NaN 방지 사전조건 — embedding 사용 시점에만 의무. `--no-embedding` 박제 시 skip.
-        match (if noEmbedding then Ok () else checkEmbeddingPreconditions ()) with
+        // bge-m3 NaN 방지 사전조건 — embedding 사용 시점에만 의무. `--no-embedding` / `--reuse-kb` 박제 시 skip.
+        match (if noEmbedding || reuseKb then Ok () else checkEmbeddingPreconditions ()) with
         | Error msg ->
             eprintfn "오류: %s" msg
             14
@@ -283,40 +304,51 @@ let private runUpload
         let mutable zipPath = ""
         try
             try
-                Packager.resetKbDir folder
-                eprintfn "  in-place 색인 시작 — %s/.lighthouse-kb/" folder
-                let embedder = resolveEmbedder noEmbedding
-                try
-                    let results = Packager.runIngest folder embedder captionGen CancellationToken.None
-                    let summary = Packager.summarize results
-                    if summary.IngestedCount = 0 then
-                        eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단 (빈 폴더 또는 unsupported extension)"
-                        12
+                let summary =
+                    if reuseKb then
+                        eprintfn "  in-place 색인 재사용 — %s/.lighthouse-kb/ (wipe 없이 기존 산출물 그대로 zip)" folder
+                        Packager.summarizeReuse folder
                     else
-                        eprintfn "  색인 완료 — ingested=%d, 파일=%d, %d bytes"
-                            summary.IngestedCount summary.FileCount summary.TotalBytes
-                        // **PR-B + PR-C + PR-H1 (todo §3.1 + §3.2 + §11)** — keyword + text dump + doc summary.
-                        // **review A fix (r4)**: runPostIngestHooks helper — runIndex 와 동일 path 통합 + kwResult 재활용.
-                        let kwResult = runPostIngestHooks folder
-                        let description = kwResult.Topic |> Option.defaultValue ""
-                        Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
-                            description kwResult.Keywords
-                        zipPath <- Packager.createZip folder
-                        let zipBytes = (FileInfo zipPath).Length
-                        eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
-                        use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
-                        use stream = File.OpenRead zipPath
-                        eprintfn "  POST /collections → %s" baseUrl
-                        let id =
-                            LightHouseClient.uploadCollection
-                                client psk userIdentity title stream CancellationToken.None
-                            |> fun t -> t.GetAwaiter().GetResult()
-                        printfn "업로드 완료 — collectionId=%s" id
-                        eprintfn "  [안내] 산출물 보관: %s/.lighthouse-kb/ (다음 색인 시작 시 wipe 됩니다)" folder
-                        eprintfn "  [안내] .gitignore 에 '.lighthouse-kb/' 추가 권장"
-                        0
-                finally
-                    embedder |> Option.iter (fun e -> e.Dispose())
+                        Packager.resetKbDir folder
+                        eprintfn "  in-place 색인 시작 — %s/.lighthouse-kb/" folder
+                        let embedder = resolveEmbedder noEmbedding
+                        try
+                            let results = Packager.runIngest folder embedder captionGen CancellationToken.None
+                            Packager.summarize results
+                        finally
+                            embedder |> Option.iter (fun e -> e.Dispose())
+                if summary.IngestedCount = 0 then
+                    eprintfn "오류: 색인 결과 ingested=0 — server 거부 사전 차단 (빈 폴더 또는 unsupported extension)"
+                    12
+                else
+                    eprintfn "  %s — ingested=%d, 파일=%d, %d bytes"
+                        (if reuseKb then "기존 색인 재사용" else "색인 완료")
+                        summary.IngestedCount summary.FileCount summary.TotalBytes
+                    // **PR-B + PR-C + PR-H1 (todo §3.1 + §3.2 + §11)** — keyword + text dump + doc summary.
+                    // `--reuse-kb` 경로는 Step 1-b / Step 2 가 이미 박제 → 본 hook idempotent 재호출 시 동일 결과 (DB SSOT).
+                    // TextDumper / SummaryBuilder 모두 DB 의 ImageCache.CaptionText / Documents.SummaryText 박제분 우선
+                    // 사용 → 재호출 시 caption / summary 동일 결과 박제 (덮어쓰기 없음).
+                    let kwResult = runPostIngestHooks folder
+                    let description = kwResult.Topic |> Option.defaultValue ""
+                    Packager.writeMeta folder title folder summary.FileCount summary.TotalBytes userIdentity
+                        description kwResult.Keywords
+                    zipPath <- Packager.createZip folder
+                    let zipBytes = (FileInfo zipPath).Length
+                    eprintfn "  zip 생성 — %s (%d bytes)" zipPath zipBytes
+                    use client = LightHouseClient.createHttpClient baseUrl allowInvalidCerts
+                    use stream = File.OpenRead zipPath
+                    eprintfn "  POST /collections → %s" baseUrl
+                    let id =
+                        LightHouseClient.uploadCollection
+                            client psk userIdentity title stream CancellationToken.None
+                        |> fun t -> t.GetAwaiter().GetResult()
+                    printfn "업로드 완료 — collectionId=%s" id
+                    let retainMsg =
+                        if reuseKb then "보존 (--reuse-kb)"
+                        else "다음 색인 시작 시 wipe 됩니다"
+                    eprintfn "  [안내] 산출물 보관: %s/.lighthouse-kb/ (%s)" folder retainMsg
+                    eprintfn "  [안내] .gitignore 에 '.lighthouse-kb/' 추가 권장"
+                    0
             with
             | LightHouseAuthError(msg, status) ->
                 eprintfn "인증 실패 (HTTP %d) — %s" (int status) msg
@@ -530,11 +562,16 @@ let main args =
                     let allowInvalidCerts = Map.containsKey FlagAllowInvalidCerts flags
                     let noEmbedding = Map.containsKey FlagNoEmbedding flags
                     let forceWithoutCaption = Map.containsKey FlagForceWithoutImageCaption flags
-                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding forceWithoutCaption
+                    let reuseKb = Map.containsKey FlagReuseKb flags
+                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding forceWithoutCaption reuseKb
             | Some _ ->
                 // 자가 검열 C1 — `--upload` 가 value 없거나 빈 string 이면 silent `runIndex` fallback 차단.
                 // 사용자 의도는 upload 였으므로 explicit reject 후 exit 10 (usage hint).
                 eprintfn "오류: --upload <url> 인자 누락"
+                10
+            | None when Map.containsKey FlagReuseKb flags ->
+                // 자가 검열 Minor-2 — `--reuse-kb` 는 `--upload` 동반 의무. 단독 박제 시 silent 무시 회피 (대칭성).
+                eprintfn "오류: --%s 는 --%s <url> 동반 의무" FlagReuseKb FlagUpload
                 10
             | None ->
                 let noEmbedding = Map.containsKey FlagNoEmbedding flags

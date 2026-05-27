@@ -128,6 +128,28 @@ module Packager =
             | _ -> ()
         { FileCount = results.Length; TotalBytes = bytes; IngestedCount = ingested }
 
+    /// **wipe-free upload path (`--reuse-kb`)** — `runIngest` 미진입 시 fileCount / totalBytes / ingestedCount 도출.
+    /// fileCount / totalBytes: source 폴더 직접 enumerate + `.lighthouse-kb/` skip (Indexer.enumerateFiles 와 동형 SSOT).
+    /// ingestedCount: 기존 `<source>/.lighthouse-kb/index.db` 의 Documents row count — Step 1-a 색인 산출물 재사용.
+    /// `kbPrefix` 비교는 createZip 의 패턴과 동일 (외부 --review Mj-2 정합 — `.lighthouse-kb-foo/` 거짓 매치 차단).
+    let summarizeReuse (sourceFolder: string) : IngestSummary =
+        let srcFull = Path.GetFullPath sourceFolder
+        let kbPrefix =
+            (Path.GetFullPath(kbDir sourceFolder)).TrimEnd(Path.DirectorySeparatorChar) + string Path.DirectorySeparatorChar
+        let mutable fileCount = 0
+        let mutable bytes = 0L
+        for filePath in Directory.EnumerateFiles(srcFull, "*", SearchOption.AllDirectories) do
+            if not (filePath.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase)) then
+                fileCount <- fileCount + 1
+                bytes <- bytes + (FileInfo filePath).Length
+        let ingested =
+            let dbPath = SqliteStore.dbPath sourceFolder
+            use conn = SqliteStore.openConnection dbPath true
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "SELECT COUNT(*) FROM Documents"
+            Convert.ToInt32(cmd.ExecuteScalar())
+        { FileCount = fileCount; TotalBytes = bytes; IngestedCount = ingested }
+
     /// in-place meta.json 생성 — `<source>/.lighthouse-kb/meta.json` (옵션 P).
     /// **A2 (K4 통합, 2026-05-20)** — `Ds2.LightHouse.Protocol.MetaJson` 단일 SSOT 사용.
     /// client-fill 부분만 채움 (server 가 import 시 server stamp 필드 덮어씀).
