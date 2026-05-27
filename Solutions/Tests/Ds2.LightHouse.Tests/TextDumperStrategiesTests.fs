@@ -175,6 +175,65 @@ let private makeWorkOrderFixture (path: string) =
     wbPart.Workbook.AppendChild(sheets) |> ignore
     wbPart.Workbook.Save()
 
+/// **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+/// MarkdownCapPolicy Stage 3 (Split) trigger 충족 대형 IoList fixture.
+///   - 시트 200개 (zone code S201~S400) — IoListStrategy signature 매치 + Stage 3 진입 충분.
+///   - 시트당 R6~R25 = 20 row × 4 block = 80 long-form rows. 200 시트 × 80 = 16000 long-form rows.
+///   - 각 cell 의 symbol 컬럼에 긴 padding (200 char ascii) → Stage 1 column truncate (MaxCellChars=80) 적용.
+///   - 실측 (FSI 검증, 90 시트 fixture): RAW ≈ 1.9MB → Stage 2 (sampling) 후 ≈ 145KB (90 × ~1.6KB/시트).
+///   - 200 시트 외삽: Stage 2 후 200 × ~1.6KB ≈ 320KB → 256KB cap 초과 → Stage 3 split trigger.
+///   - 200 시트 RAW ≈ 4.3MB → partCount ~17 → SplitMaxParts=32 안 (escalation 안정).
+let private makeLargeIoListFixture (path: string) =
+    use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
+    let wbPart = doc.AddWorkbookPart()
+    wbPart.Workbook <- Workbook()
+    let sheets = Sheets()
+    // 200 시트 (Stage 3 trigger 충족 — 시트별 head 5 + tail 5 elide 후도 합산 cap 초과).
+    let sheetNames =
+        [ for i in 201 .. 400 -> sprintf "S%d_TEST" i ]
+    let mutable sheetId = 1u
+    let padding = String.replicate 200 "x"
+    for name in sheetNames do
+        let wsPart = wbPart.AddNewPart<WorksheetPart>()
+        let sheetData = SheetData()
+        sheetData.AppendChild(mkRow 1u [ 1, "PLC : LS XGT"; 5, "I/O LIST" ]) |> ignore
+        sheetData.AppendChild(mkRow 2u [
+            1, "Project: ***REDACTED***2_STRESS_FIXTURE"
+            5, sprintf "Part: %s" name
+        ]) |> ignore
+        sheetData.AppendChild(mkRow 3u [ 1, "워드" ]) |> ignore
+        sheetData.AppendChild(mkRow 4u [ 1, sprintf "Zone: %s" name ]) |> ignore
+        let headerCells = [
+            1, "Word";  2, "Tag";  3, "Type";  4, "Addr";  5, "Sym"
+            6, "Word";  7, "Tag";  8, "Type";  9, "Addr"; 10, "Sym"
+            11, "Word"; 12, "Tag"; 13, "Type"; 14, "Addr"; 15, "Sym"
+            16, "Word"; 17, "Tag"; 18, "Type"; 19, "Addr"; 20, "Sym"
+        ]
+        sheetData.AppendChild(mkRow 5u headerCells) |> ignore
+        // 시트당 20 row × 4 block = 80 long-form rows. padding 짧게 — Stage 2 sampling 후 시트당 11 행
+        // 으로 줄어들되 60 시트 합산이 cap 초과 → Stage 3 split trigger.
+        for r in 6u .. 25u do
+            let i = int r - 5
+            let dataCells = [
+                1, "2010";  2, sprintf "%s_TAG_%d_%s" name i padding; 3, "BOOL"; 4, sprintf "%%IW2010.%d" i;  5, "WRS01"
+                6, "2010";  7, sprintf "%s_TAG_%d_B_%s" name i padding; 8, "BOOL"; 9, sprintf "%%IW2010.%d" (i+50); 10, "WRS01"
+                11, "5410"; 12, sprintf "%s_TAG_%d_C_%s" name i padding; 13, "BOOL"; 14, sprintf "%%QW5410.%d" i; 15, "WRS02"
+                16, "5410"; 17, sprintf "%s_TAG_%d_D_%s" name i padding; 18, "BOOL"; 19, sprintf "%%QW5410.%d" (i+50); 20, "WRS02"
+            ]
+            sheetData.AppendChild(mkRow r dataCells) |> ignore
+        let ws = Worksheet()
+        ws.Append(sheetData :> OpenXmlElement) |> ignore
+        wsPart.Worksheet <- ws
+        wsPart.Worksheet.Save()
+        let sheet = Sheet()
+        sheet.Id <- StringValue(wbPart.GetIdOfPart wsPart)
+        sheet.SheetId <- UInt32Value(sheetId)
+        sheet.Name <- StringValue(name)
+        sheets.AppendChild(sheet) |> ignore
+        sheetId <- sheetId + 1u
+    wbPart.Workbook.AppendChild(sheets) |> ignore
+    wbPart.Workbook.Save()
+
 /// signature 부분 매치 xlsx — IoList 의 zone 코드 시트 1개 + "I/O LIST" 키워드 박제 (score > 0 미달).
 /// classifier 가 NearMiss 로 분류 (IoListStrategy 의 threshold 6 미달).
 let private makePartialIoListFixture (path: string) =
@@ -329,6 +388,67 @@ let ``재호출 멱등 — summary/ wipe 후 재생성, 잔재 0`` () =
         Assert.False(File.Exists stalePath)
         // 재생성 파일은 동일 strategy + 동일 source → 동일 docId → 동일 filename.
         Assert.Equal(first.SummaryFiles.[0], second.SummaryFiles.[0]))
+
+// ── 시나리오 6 (Backlog I): Stage 3 multi-part 박제 회귀 ──────────────────
+
+[<Fact>]
+let ``Stage 3 (Split) — multi-part 박제 회귀 (Backlog I) — {basename}.1.md / {basename}.2.md ... 다중 박제`` () =
+    withTempDir (fun dir ->
+        let xlsxPath = Path.Combine(dir, "large-iolist.xlsx")
+        makeLargeIoListFixture xlsxPath
+        Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
+
+        let summary = runDump dir
+        // 다중 part 박제 — 최소 2 파일 (Stage 3 trigger 시 SplitParts.Length ≥ 2).
+        Assert.True(summary.SummaryFiles.Length >= 2,
+            sprintf "Stage 3 multi-part 박제 기대 (≥ 2 파일) — 실제 %d 파일" summary.SummaryFiles.Length)
+
+        // 파일명 패턴 — `IoListStrategy-{docId}-large-iolist.{N}.md`.
+        let names = summary.SummaryFiles |> Array.map Path.GetFileName |> Array.sort
+        let partPattern =
+            System.Text.RegularExpressions.Regex(@"^IoListStrategy-[0-9a-f]{8}-large-iolist\.\d+\.md$")
+        for n in names do
+            Assert.True(partPattern.IsMatch n,
+                sprintf "Stage 3 part 박제 파일명 패턴 미정합 — %s" n)
+
+        // part 번호 1, 2 ... 연속 박제 확인.
+        let partIndices =
+            names
+            |> Array.map (fun n ->
+                let m = System.Text.RegularExpressions.Regex.Match(n, @"\.(\d+)\.md$")
+                Int32.Parse(m.Groups.[1].Value))
+            |> Array.sort
+        Assert.Equal(1, partIndices.[0])
+        for i in 0 .. partIndices.Length - 1 do
+            Assert.Equal(i + 1, partIndices.[i])
+
+        // 각 part 가 cap 안 + header 5행 + footer 박제 (각 part 는 strategy 의 header / footer 공유).
+        for path in summary.SummaryFiles do
+            let content = File.ReadAllText(path, System.Text.Encoding.UTF8)
+            let bytes = System.Text.Encoding.UTF8.GetByteCount content
+            Assert.True(bytes <= MarkdownCapPolicy.MaxMarkdownBytes,
+                sprintf "part %s size %d bytes 가 cap %d 초과"
+                    (Path.GetFileName path) bytes MarkdownCapPolicy.MaxMarkdownBytes)
+            // strategy header (cap policy 가 raw markdown 의 header 줄을 모든 part 에 보존).
+            Assert.Contains("generated by IoListStrategy", content)
+            // split note 박제 (`<!-- split: part N of M (data rows ...) -->`).
+            Assert.Contains("<!-- split: part", content))
+
+[<Fact>]
+let ``Stage 0/1/2 단일 박제 — 기존 파일명 패턴 유지 (multi-part 변경의 회귀 방지)`` () =
+    withTempDir (fun dir ->
+        // 작은 IoList fixture → cap 안 (Stage 0 Original) → 단일 박제.
+        makeIoListFixture (Path.Combine(dir, "small-iolist.xlsx"))
+        Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
+
+        let summary = runDump dir
+        Assert.Equal(1, summary.SummaryFiles.Length)
+        let name = Path.GetFileName summary.SummaryFiles.[0]
+        // 기존 파일명 — `{strategyName}-{docId}-{basename}.md` (part 번호 없음).
+        let singlePattern =
+            System.Text.RegularExpressions.Regex(@"^IoListStrategy-[0-9a-f]{8}-small-iolist\.md$")
+        Assert.True(singlePattern.IsMatch name,
+            sprintf "Stage 0 단일 박제 파일명 패턴 미정합 — %s" name))
 
 // ── 시나리오 5: 자료 A/B/C 실파일 (옵션) → 정확히 3 markdown ──────────────
 

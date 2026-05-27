@@ -93,6 +93,29 @@ module TextDumper =
         sb.Append ".md" |> ignore
         sb.ToString()
 
+    /// **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+    /// Stage 3 (Split) 진입 시 multi-part 박제 파일명 — `{strategyName}-{docId}-{basename}.{partIndex}.md`.
+    /// `partIndex` = 1-based. Stage 3 미진입 (SplitParts=None) 시 `summaryFilename` 사용 (1-part 만 박제).
+    /// caller 가 `MarkdownCapPolicy.CapResult.SplitParts` 의 Some 분기에서 본 helper 호출.
+    let summaryPartFilename (strategyName: string) (docId: string) (originalPath: string) (partIndex: int) : string =
+        let basename =
+            if String.IsNullOrEmpty originalPath then "untitled"
+            else Path.GetFileNameWithoutExtension originalPath
+        let sb = StringBuilder(strategyName.Length + docId.Length + basename.Length + 16)
+        let appendSanitized (s: string) =
+            for ch in s do
+                if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
+                else sb.Append '_' |> ignore
+        appendSanitized strategyName
+        sb.Append '-' |> ignore
+        appendSanitized docId
+        sb.Append '-' |> ignore
+        appendSanitized basename
+        sb.Append '.' |> ignore
+        sb.Append (string partIndex) |> ignore
+        sb.Append ".md" |> ignore
+        sb.ToString()
+
     /// docId + originalPath → filename (path traversal 차단 + 의심 char 제거).
     /// 결과 = `<docId>-<basename>.md` (basename 은 의심 char `/\:*?"<>|` 등 replace `_`).
     /// **review F fix (r4)**: public 격상 — SummaryBuilder + SummaryStore 가 사본 박제 회피 위해 직접 참조.
@@ -326,11 +349,27 @@ module TextDumper =
         for path in enumerateSourceFiles collectionRoot do
             ct.ThrowIfCancellationRequested()
             match applyStrategiesToFile path extractors ct rejected nearMisses with
-            | Some (strategyName, docId, markdown) ->
-                let filename = summaryFilename strategyName docId path
-                let outPath = Path.Combine(dir, filename)
-                File.WriteAllText(outPath, markdown, UTF8Encoding(false))
-                summaryPaths.Add outPath
+            | Some (strategyName, docId, rawMarkdown) ->
+                // **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+                // strategy 의 raw markdown 에 MarkdownCapPolicy 3-stage escalation 적용. Stage 3
+                // (Split) 진입 시 SplitParts 의 N 개 part 를 `{basename}.1.md` / `{basename}.2.md` ...
+                // 다중 박제 (silent data loss 제거). 단일 part (Stage 0/1/2) 는 기존 파일명 유지.
+                let capResult = MarkdownCapPolicy.applyCap rawMarkdown
+                match capResult.SplitParts with
+                | Some parts ->
+                    // Stage 3 multi-part 박제.
+                    parts
+                    |> List.iteri (fun idx part ->
+                        let filename = summaryPartFilename strategyName docId path (idx + 1)
+                        let outPath = Path.Combine(dir, filename)
+                        File.WriteAllText(outPath, part, UTF8Encoding(false))
+                        summaryPaths.Add outPath)
+                | None ->
+                    // Stage 0/1/2 단일 박제 — 기존 파일명 패턴 유지.
+                    let filename = summaryFilename strategyName docId path
+                    let outPath = Path.Combine(dir, filename)
+                    File.WriteAllText(outPath, capResult.Markdown, UTF8Encoding(false))
+                    summaryPaths.Add outPath
             | None -> ()
 
         writeDiagnosticJson (rejectedJsonPath collectionRoot) (List.ofSeq rejected)
