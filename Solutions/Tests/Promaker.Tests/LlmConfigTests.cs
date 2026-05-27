@@ -443,6 +443,44 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Equal("", cfg.LightHouseServices[0].ApiKeyEncrypted);
     }
 
+    /// <summary>**B5 (2026-05-27)** — SecureString overload round-trip. DPAPI Protect/Unprotect 후 원본 일치.</summary>
+    [Fact]
+    public void SetLightHousePsk_SecureString_round_trip_정합()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        const string plain = "secure-psk-한글-456";
+        using var ss = new System.Security.SecureString();
+        foreach (var ch in plain) ss.AppendChar(ch);
+        ss.MakeReadOnly();
+
+        cfg.SetLightHousePsk(svc.ServiceId, ss);
+        Assert.Equal(plain, cfg.GetLightHousePsk(svc.ServiceId));
+    }
+
+    /// <summary>**B5 (2026-05-27)** — SecureString overload 의 null/빈 입력 시 ApiKeyEncrypted clear (string overload contract 동일).</summary>
+    [Fact]
+    public void SetLightHousePsk_SecureString_null_or_empty_clears_encrypted()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        cfg.SetLightHousePsk(svc.ServiceId, "temp");
+        Assert.True(cfg.HasLightHousePsk());
+
+        cfg.SetLightHousePsk(svc.ServiceId, (System.Security.SecureString?)null);
+        Assert.False(cfg.HasLightHousePsk());
+
+        cfg.SetLightHousePsk(svc.ServiceId, "temp");
+        using var empty = new System.Security.SecureString();
+        empty.MakeReadOnly();
+        cfg.SetLightHousePsk(svc.ServiceId, empty);
+        Assert.False(cfg.HasLightHousePsk());
+    }
+
     [Fact]
     public void LightHousePsk_uses_distinct_entropy_from_LlmApi_keys()
     {

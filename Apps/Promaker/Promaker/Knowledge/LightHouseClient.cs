@@ -198,6 +198,11 @@ public sealed class LightHouseClient : IDisposable
     public void Dispose()
     {
         if (_ownsHttp) _http.Dispose();
+        // **B7 (2026-05-27)** — SemaphoreSlim 명시 dispose (CA2213 / IDISP004 정공화). idempotent — double-dispose 안전.
+        // SSE loop 의 _mcpInitLock 사용은 LightHouseClientHolder.DisposeAllAsync 가 SSE cancel + Wait 후 본 Dispose 호출
+        // 정합으로 race 차단 (StopSseLoop 의 3초 Wait 가 SSE catch 의 Task.Delay 종료까지 확보).
+        _appSessionLock.Dispose();
+        _mcpInitLock.Dispose();
     }
 
     /// <summary>현재 PSK / X-User-Identity 헤더를 박제한 HttpRequestMessage 빌더. 매 호출마다 호출.

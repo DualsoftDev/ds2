@@ -42,8 +42,9 @@ public sealed class LightHouseLocalInstaller
     /// <para/>
     /// **PSK / cert PFX password 평문 lifetime 최소화**: SecureString → UTF-8 byte[] (lock 보호) → File.WriteAllBytes
     /// → finally Array.Clear(bytes) + Marshal.ZeroFreeGlobalAllocUnicode. 임시 파일은 ps1 read 직후 wipe + 본 메서드도
-    /// finally wipe (이중 안전). PSK 의 DPAPI 박제 단계만 LlmConfig.SetLightHousePsk(string) 시그니처 제약으로 1회
-    /// managed string 변환 (lifetime = SetLightHousePsk 호출 안에 한정).
+    /// finally wipe (이중 안전).
+    /// <para/>
+    /// **B5 (2026-05-27)** — DPAPI 박제 단계도 SecureString overload 직접 호출 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
     /// <para/>
     /// **caller (EnableLocalServiceDialog)** 가 SecureString 소유권 이양. 본 메서드는 사용 후 Dispose 의무 가짐.
     /// </summary>
@@ -112,9 +113,9 @@ public sealed class LightHouseLocalInstaller
                     $"enable-ai.ps1 실패 (exit {proc.ExitCode}). log 끝부분:{Environment.NewLine}{tail}{Environment.NewLine}전체 log: {logOut}");
             }
 
-            // **B4 (2026-05-27)** — PSK 의 DPAPI 박제 단계만 SecureString → managed string 1회 변환 (lifetime 한정).
-            // LlmConfig.SetLightHousePsk(string) 시그니처 제약 — 별 backlog 로 SecureString overload 박제 권장.
-            var serviceId = PersistLocalEntryFromSecureString(psk);
+            // **B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) overload 박제 완료. SecureString 직접 박제 path —
+            // managed string 변환 0 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
+            var serviceId = PersistLocalEntry(psk);
             Log.Info($"LightHouse Local entry 박제 완료 — ServiceId={serviceId}");
 
             var startOk = TryParseStartResult(logOut);
@@ -158,7 +159,8 @@ public sealed class LightHouseLocalInstaller
     }
 
     /// <summary>**B4 (2026-05-27)** — SecureString → UTF-8 byte[]. 중간 char[] 도 Array.Clear 로 wipe.
-    /// caller 가 반환 byte[] 의 사용 후 Array.Clear 의무 (finally). internal — 보안 정합 회귀 가드 (LightHouseLocalInstallerTests).</summary>
+    /// caller 가 반환 byte[] 의 사용 후 Array.Clear 의무 (finally).
+    /// <para/>**B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) 도 본 helper SSOT 호출 (중복 제거).</summary>
     internal static byte[] SecureStringToUtf8Bytes(SecureString ss)
     {
         IntPtr unicodePtr = IntPtr.Zero;
@@ -177,28 +179,18 @@ public sealed class LightHouseLocalInstaller
         }
     }
 
-    /// <summary>**B4 (2026-05-27)** — DPAPI 박제 직전 1회 평문 변환 (SetLightHousePsk(string) 시그니처 제약).
-    /// 본 helper 의 string 결과는 GC heap 에 잔존 — LlmConfig 의 DPAPI 박제 후 GC 가 회수할 때까지 lifetime
-    /// 단축 의도. 별 backlog 로 SetLightHousePsk(SecureString) overload 박제 후 본 helper 폐기 권장.</summary>
-    private string PersistLocalEntryFromSecureString(SecureString psk)
+    /// <summary>**B5 (2026-05-27) — SecureString 정공 path**. SecureString → DPAPI 직접 박제 — managed string 변환 0.
+    /// <see cref="LlmConfig.SetLightHousePsk(string, SecureString?)"/> overload 사용. PtrToStringUni leak 제거.</summary>
+    private string PersistLocalEntry(SecureString psk)
     {
-        IntPtr ptr = IntPtr.Zero;
-        try
-        {
-            ptr = Marshal.SecureStringToGlobalAllocUnicode(psk);
-            var pskPlain = Marshal.PtrToStringUni(ptr) ?? "";
-            return PersistLocalEntry(pskPlain);
-        }
-        finally
-        {
-            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
-        }
+        var entry = EnsureLocalEntry();
+        _llmConfig.SetLightHousePsk(entry.ServiceId, psk);
+        _llmConfig.Save();
+        return entry.ServiceId;
     }
 
-    /// <summary>PSK 평문을 DPAPI 박제. Local LightHouse entry 가 없으면 신규, 있으면 PSK 만 update.
-    /// 단일 active 정합 (LlmConfig <see cref="LightHouseServiceConfig.Active"/> XML doc 의 결정 D-S7-3 #3) —
-    /// 활성화 시점에 다른 entry 의 <c>Active</c> 를 false 로 강제 (사용자가 다시 명시 토글 가능).</summary>
-    private string PersistLocalEntry(string pskPlain)
+    /// <summary>**B5 자가 검열 M2 fix (2026-05-27)** — entry 박제 / 단일 active 정합 SSOT. SecureString overload 만 호출 (string overload caller 0 — dead code 제거).</summary>
+    private LightHouseServiceConfig EnsureLocalEntry()
     {
         var entry = _llmConfig.LightHouseServices.FirstOrDefault(s =>
             IsSameLocalEndpoint(s.BaseUrl, DefaultLocalBaseUrl));
@@ -214,19 +206,16 @@ public sealed class LightHouseLocalInstaller
             };
             _llmConfig.LightHouseServices.Add(entry);
         }
-        else
+        else if (string.IsNullOrWhiteSpace(entry.DisplayName))
         {
-            if (string.IsNullOrWhiteSpace(entry.DisplayName))
-                entry.DisplayName = "Local LightHouse";
+            entry.DisplayName = "Local LightHouse";
         }
 
         // 단일 active 정합 — Local 이 방금 활성화되었으므로 다른 모든 entry 비활성.
         foreach (var s in _llmConfig.LightHouseServices)
             s.Active = ReferenceEquals(s, entry);
 
-        _llmConfig.SetLightHousePsk(entry.ServiceId, pskPlain);
-        _llmConfig.Save();
-        return entry.ServiceId;
+        return entry;
     }
 
     /// <summary>운영 (`{AppContext.BaseDirectory}\LightHouseService\`) → 개발 (repo/Solutions/Tools/...) 순으로 탐색.</summary>

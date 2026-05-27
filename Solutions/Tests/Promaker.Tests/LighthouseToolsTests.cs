@@ -14,7 +14,12 @@ namespace Promaker.Tests;
 /// <para/>
 /// scope: fileId 파싱 / collection guid 추출 / N-service merge / fileId prefix 박제 / FindClientByPrefix routing.
 /// LightHouseClientHolder 의 static state 를 다루는 case 는 Invalidate / IDisposable pattern 으로 격리.
+/// <para/>
+/// **B5/B6/B7 phase fix (2026-05-27)** — `[Collection("LightHouseClientHolder")]` 박제로 `LightHouseClientHolderTests`
+/// 와 순차 실행 강제. 두 class 가 동일 static state (`LightHouseClientHolder._clients`) 박제 — xUnit default 병렬
+/// 실행 시 cross-contamination 으로 `LighthouseList_no_active_service_시_hint_응답` 의 `clients.Count == 0` 가드 실패.
 /// </summary>
+[Collection("LightHouseClientHolder")]
 public sealed class LighthouseToolsTests : IDisposable
 {
     public LighthouseToolsTests() => LightHouseClientHolder.Invalidate();
@@ -258,10 +263,10 @@ public sealed class LighthouseToolsTests : IDisposable
 
     // ─── FindClientByPrefix (LightHouseClientHolder 의존) ─────────────────────
 
-    [Fact]
+    [SkippableFact]
     public void FindClientByPrefix_매칭_성공_시_tuple_반환()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         var (cfg, aId, _) = MakeTwoActiveServices();
         LightHouseClientHolder.EnsureCreated(cfg);
@@ -273,10 +278,10 @@ public sealed class LighthouseToolsTests : IDisposable
         Assert.Equal("A", match.Value.DisplayName);
     }
 
-    [Fact]
+    [SkippableFact]
     public void FindClientByPrefix_미매칭_시_null()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         var (cfg, _, _) = MakeTwoActiveServices();
         LightHouseClientHolder.EnsureCreated(cfg);
@@ -322,10 +327,10 @@ public sealed class LighthouseToolsTests : IDisposable
         Assert.Contains("invalid fileId", doc.RootElement.GetProperty("error").GetString());
     }
 
-    [Fact]
+    [SkippableFact]
     public async System.Threading.Tasks.Task LighthouseSummary_prefix_미매칭_시_error_응답()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         // active service 박제 후 다른 prefix 로 호출.
         var (cfg, _, _) = MakeTwoActiveServices();
