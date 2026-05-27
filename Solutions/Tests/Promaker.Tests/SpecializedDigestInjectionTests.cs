@@ -444,7 +444,7 @@ public sealed class SpecializedDigestInjectionTests
         var initIdx = src.IndexOf("private async Task InitializeAsync()", StringComparison.Ordinal);
         Assert.True(initIdx >= 0, "InitializeAsync 진입점 부재");
         // ConfigureProviderAsync 가 InitializeAsync 다음 메서드 → 본 메서드 시작점이 boundary.
-        var nextMethodIdx = src.IndexOf("private async Task<List<McpServerEntry>> TryCreateLightHouseSessionsAsync",
+        var nextMethodIdx = src.IndexOf("private async Task TryCreateLightHouseSessionsAsync",
             initIdx, StringComparison.Ordinal);
         Assert.True(nextMethodIdx > initIdx, "InitializeAsync 종료 boundary 부재");
         var initBody = src.Substring(initIdx, nextMethodIdx - initIdx);
@@ -486,6 +486,25 @@ public sealed class SpecializedDigestInjectionTests
         var rkBody = src.Substring(rkIdx, nextMethodIdx - rkIdx);
         Assert.Contains("ApplyPendingKbDigest();", rkBody);
         Assert.Contains("ApplyPendingSpecializedDigest();", rkBody);
+    }
+
+    [Fact]
+    public void N8_InitializeAsync_SetActiveCollectionSourceRoots_production_진입()
+    {
+        // (d) Initialize.cs 의 InitializeAsync 안에 `SetActiveCollectionSourceRoots(null);` 명시 호출 박제.
+        // PR-I5 시점에는 SetActiveCollectionSourceRoots 가 test override (SetActiveCollectionSourceRoots(roots))
+        // 만 호출되어 production GUI path 진입 0 이었다. N8 patch 후 InitializeAsync 가 null 박제로 호출 —
+        // (1) chat panel 재진입 시 stale override 차단 (2) production 진입점 박제 의미 확보 + 동반
+        // ApplyPendingSpecializedDigest sync trigger.
+        var file = Path.Combine(ResolveViewModelsDir(), "LlmChatViewModel.Initialize.cs");
+        var src = File.ReadAllText(file);
+        var initIdx = src.IndexOf("private async Task InitializeAsync()", StringComparison.Ordinal);
+        Assert.True(initIdx >= 0, "InitializeAsync 진입점 부재");
+        var nextMethodIdx = src.IndexOf("private async Task TryCreateLightHouseSessionsAsync",
+            initIdx, StringComparison.Ordinal);
+        Assert.True(nextMethodIdx > initIdx, "InitializeAsync 종료 boundary 부재");
+        var initBody = src.Substring(initIdx, nextMethodIdx - initIdx);
+        Assert.Contains("SetActiveCollectionSourceRoots(null);", initBody);
     }
 
     [Fact]

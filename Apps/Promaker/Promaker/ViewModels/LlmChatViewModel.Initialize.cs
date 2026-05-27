@@ -54,9 +54,13 @@ public partial class LlmChatViewModel
             _ = RefreshKbDigestAsync();
             // 본 _ = 는 의도된 fire-and-forget. unobserved exception 위험은 RefreshKbDigestAsync 의 자체 흡수로 차단.
             // N8 (todo-documents-based-gfm.md §6.1) — production GUI wiring: PR-I5 의 specialized digest fetch 를
-            // KB digest 와 동일 lifecycle 에 진입. RefreshSpecializedDigestAsync 자체가 IOException /
-            // UnauthorizedAccessException 흡수 (Log.Warn) → unobserved 0. SourceFolder schema 미박제 collection
-            // 만 있으면 빈 list 반환 → graceful skip (cache breakpoint 3 박제 skip = PR-G v-b wire 동치).
+            // KB digest 와 동일 lifecycle 에 진입. SetActiveCollectionSourceRoots(null) 명시 박제로 (1) chat panel
+            // 재진입 시 stale override 차단 (2) production 진입점 박제 의미 확보 + ApplyPendingSpecializedDigest
+            // 1회 sync trigger (file IO — 비용 작음). 뒤이은 RefreshSpecializedDigestAsync 는 진정한 async path
+            // (FetchManyAsync) 로 file IO 후 ApplyFetchedDigest 진입 — IOException / UnauthorizedAccessException
+            // 흡수 (Log.Warn) → unobserved 0. SourceFolder schema 미박제 collection 만 있으면 빈 list 반환 →
+            // graceful skip (cache breakpoint 3 박제 skip = PR-G v-b wire 동치).
+            SetActiveCollectionSourceRoots(null);
             _ = RefreshSpecializedDigestAsync();
         }
         catch (Exception ex)
