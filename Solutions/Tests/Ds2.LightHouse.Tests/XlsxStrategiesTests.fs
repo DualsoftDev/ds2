@@ -451,20 +451,10 @@ let ``자료 C 실파일 — 존재 시 WorkOrderStrategy 매치 + markdown 박�
                 "자료 C 의 #\\d{3} 시트 H2 박제 누락")
             // 토큰 추정값 양수.
             Assert.Matches(Regex(@"estimated-tokens: \d+"), markdown)
-            // **Backlog H (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
-            // 자료 C 의 raw markdown 이 256KB cap 안 흡수 검증 (WorkOrderStrategy.buildMarkdown 의 applyCap 호출).
-            // Stage 0 (Original) 또는 Stage 1 (ColumnTruncated) 허용 — Sampled / Split 시 silent data loss
-            // 위험 (현재 Stage 3 split 의 part 1 만 박제, SplitParts hook 은 Backlog I 후속).
-            let mdBytes = System.Text.Encoding.UTF8.GetByteCount markdown
-            Assert.True(
-                mdBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
-                sprintf "자료 C markdown %d bytes 가 cap %d 초과 — MarkdownCapPolicy escalation 결함"
-                    mdBytes MarkdownCapPolicy.MaxMarkdownBytes)
-            let capResult = MarkdownCapPolicy.applyCap markdown
-            match capResult.Stage with
-            | MarkdownCapPolicy.Original | MarkdownCapPolicy.ColumnTruncated _ -> ()
-            | other ->
-                Assert.Fail(sprintf "자료 C 가 Stage 2/3 진입 — 실제 %A (Backlog I 후속 처리 필요: SplitParts hook)" other)
+            // **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+            // strategy 는 raw markdown 만 반환 (cap 미적용). cap 정책 + Stage 3 multi-part 박제는
+            // TextDumper.dumpStrategySummaries 가 책임 (책임 분리). 본 strategy-level 회귀에서는
+            // cap assertion 0 — TextDumperStrategiesTests 의 multi-part 회귀가 흡수.
         | other ->
             Assert.Fail(sprintf "자료 C 가 WorkOrderStrategy 매치 실패 — %A" other)
 
@@ -553,22 +543,9 @@ let ``자료 A 실파일 — 존재 시 IoListStrategy 매치 + markdown 박제 
                 "자료 A 의 S204/S205 zone 시트 H2 박제 누락")
             // 토큰 추정값 양수.
             Assert.Matches(Regex(@"estimated-tokens: \d+"), markdown)
-            // **Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5)** —
-            // 자료 A 의 raw markdown 약 454KB → MarkdownCapPolicy 의 256KB cap 안 흡수 검증.
-            // Stage 1 (column truncate) 또는 Stage 2 (sampling) 로 cap 안 들어가야 함 (Stage 3 split 는
-            // 본 backlog scope 외, Stage 1/2 적용 결과 단일 markdown 반환).
-            let mdBytes = System.Text.Encoding.UTF8.GetByteCount markdown
-            Assert.True(
-                mdBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
-                sprintf "자료 A markdown %d bytes 가 cap %d 초과 — MarkdownCapPolicy escalation 결함"
-                    mdBytes MarkdownCapPolicy.MaxMarkdownBytes)
-            // Backlog N — Stage 진입 정보 assert (silent Stage 3 split 진입 시 데이터 손실 감지).
-            // 자료 A 는 Original (cap 안) 또는 Stage 1 (ColumnTruncated) 허용 — Sampled / Split 진입 시
-            // fail (현재 IoListStrategy 가 Split 의 part 1 만 박제 → silent data loss 위험).
-            let capResult = MarkdownCapPolicy.applyCap markdown
-            match capResult.Stage with
-            | MarkdownCapPolicy.Original | MarkdownCapPolicy.ColumnTruncated _ -> ()
-            | other ->
-                Assert.Fail(sprintf "자료 A 가 Stage 2/3 진입 — 실제 %A (Backlog I/H 후속 처리 필요: SplitParts hook + cap 일반화)" other)
+            // **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+            // strategy 는 raw markdown 만 반환 (cap 미적용). cap 정책 + Stage 3 multi-part 박제는
+            // TextDumper.dumpStrategySummaries 가 책임 (책임 분리). Stage 진입 verify 는
+            // TextDumperStrategiesTests 의 multi-part 회귀에서 흡수.
         | other ->
             Assert.Fail(sprintf "자료 A 가 IoListStrategy 매치 실패 — %A" other)
