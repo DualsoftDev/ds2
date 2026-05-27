@@ -350,18 +350,30 @@
 
             @* 실행 이력 차트 *@
             <div style="margin-top:16px; border-top:1px solid var(--color-lines); padding-top:16px;">
-                <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:8px;">
+                <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
                     <span class="material-icons" style="font-size:18px; color:var(--color-primary);">show_chart</span>
                     <span class="typo-subtitle2">실행 시간 추이</span>
                     @if (IsChartLoading)
                     {
                         <span class="typo-caption" style="color:var(--color-text-secondary);">로딩 중...</span>
                     }
-                    <label class="d-flex" style="align-items:center; gap:4px; margin-left:auto; cursor:pointer; font-size:0.8rem; color:var(--color-text-secondary); user-select:none;"
-                           title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 스파이크)를 제외합니다.">
-                        <input type="checkbox" checked="@ExcludeDeviation" @onchange="OnExcludeDeviationChanged" />
-                        편차 제외
-                    </label>
+                    <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
+                        <div class="d-flex" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
+                            <button class="btn btn-sm @(HistoryPeriodPreset == "all" ? "btn-primary" : "btn-outlined")"
+                                    @onclick='() => SetHistoryPeriod("all")'>전체</button>
+                            <button class="btn btn-sm @(HistoryPeriodPreset == "today" ? "btn-primary" : "btn-outlined")"
+                                    @onclick='() => SetHistoryPeriod("today")'>오늘</button>
+                            <button class="btn btn-sm @(HistoryPeriodPreset == "7d" ? "btn-primary" : "btn-outlined")"
+                                    @onclick='() => SetHistoryPeriod("7d")'>지난 7일</button>
+                            <button class="btn btn-sm @(HistoryPeriodPreset == "30d" ? "btn-primary" : "btn-outlined")"
+                                    @onclick='() => SetHistoryPeriod("30d")'>지난 30일</button>
+                        </div>
+                        <label class="d-flex" style="align-items:center; gap:4px; cursor:pointer; font-size:0.8rem; color:var(--color-text-secondary); user-select:none;"
+                               title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 스파이크)를 제외합니다.">
+                            <input type="checkbox" checked="@ExcludeDeviation" @onchange="OnExcludeDeviationChanged" />
+                            스파이크 제외
+                        </label>
+                    </div>
                 </div>
 
                 @if (CallExecutionHistory.Count > 0)
@@ -417,6 +429,9 @@
     // 편차 제외 체크박스 (기본 활성화): 이동평균 2배를 초과하는 회차를 제외
     private bool ExcludeDeviation { get; set; } = true;
     private const int MovingAverageWindow = 5;
+
+    // 실행 이력 표시 기간 프리셋 (all/today/7d/30d). 모달이 닫혀도 마지막 선택을 유지.
+    private string HistoryPeriodPreset { get; set; } = "all";
 
     // 차트 데이터 기반 통계 (PLC 로그 실측값, 편차 제외 반영)
     private double ChartAvgMs => DisplayedHistory.Count > 0
@@ -652,23 +667,53 @@
         SelectedCall = call;
         CallExecutionHistory = new();
         DisplayedHistory = new();
+        await LoadHistoryAsync();
+    }
+
+    /// <summary>현재 선택된 Call과 기간 프리셋(<see cref="HistoryPeriodPreset"/>)으로 실행 이력을 조회·렌더링한다.</summary>
+    private async Task LoadHistoryAsync()
+    {
+        if (SelectedCall == null) return;
+
         IsChartLoading = true;
         StateHasChanged();
 
         try
         {
-            CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(call.CallId);
+            var (start, end) = GetHistoryRange();
+            CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(SelectedCall.CallId, start, end, null);
             await RenderHistoryChartAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load execution history for Call {CallName}", call.CallName);
+            Logger.LogError(ex, "Failed to load execution history for Call {CallName}", SelectedCall.CallName);
         }
         finally
         {
             IsChartLoading = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>기간 프리셋을 시작·종료 시각으로 변환한다. "all"이면 (null, null) → 전체 기간.</summary>
+    private (DateTime? start, DateTime? end) GetHistoryRange()
+    {
+        var now = DateTime.Now;
+        return HistoryPeriodPreset switch
+        {
+            "today" => ((DateTime?)now.Date, (DateTime?)now),
+            "7d" => ((DateTime?)now.Date.AddDays(-6), (DateTime?)now),
+            "30d" => ((DateTime?)now.Date.AddDays(-29), (DateTime?)now),
+            _ => ((DateTime?)null, (DateTime?)null),
+        };
+    }
+
+    /// <summary>기간 프리셋 버튼 클릭 시 이력을 재조회한다.</summary>
+    private async Task SetHistoryPeriod(string preset)
+    {
+        if (HistoryPeriodPreset == preset) return;
+        HistoryPeriodPreset = preset;
+        await LoadHistoryAsync();
     }
 
     /// <summary>현재 편차 제외 설정을 반영하여 실행 이력 차트를 렌더링한다.</summary>

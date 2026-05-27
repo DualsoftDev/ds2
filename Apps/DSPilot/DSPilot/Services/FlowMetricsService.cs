@@ -396,6 +396,53 @@ public class FlowMetricsService : IFlowMetricsService
         }
     }
 
+    /// <summary>
+    /// 현재 설정의 비가동 임계값을 기존 히스토리/평균에 소급 적용.
+    /// DB 재평가 후 in-memory 누적 평균 상태도 "비가동 제외" 기준으로 재구성하여,
+    /// 다음 라이브 사이클이 일관된 baseline 에서 이어지도록 한다.
+    /// </summary>
+    public async Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync()
+    {
+        var settings = _appSettingsService.LoadSettings();
+        var maxCT = settings.HistoryView.MaxCycleTimeMs;
+        var minCT = settings.HistoryView.MinCycleTimeMs;
+
+        var result = await _dspRepository.ReapplyIdleThresholdsAsync(maxCT, minCT);
+
+        // in-memory 누적 평균 상태 재구성 → 다음 사이클이 DB 를 잘못된 값으로 덮어쓰지 않게 함
+        try
+        {
+            var aggregates = await _dspRepository.GetNonIdleAggregatesAsync();
+            foreach (var kv in _flowCycleStates)
+            {
+                var state = kv.Value;
+                if (aggregates.TryGetValue(kv.Key, out var agg) && agg.Count > 0)
+                {
+                    state.CycleCount = agg.Count;
+                    state.SumMT = agg.SumMT;
+                    state.SumWT = agg.SumWT;
+                    state.SumCT = agg.SumCT;
+                }
+                else
+                {
+                    state.CycleCount = 0;
+                    state.SumMT = 0;
+                    state.SumWT = 0;
+                    state.SumCT = 0;
+                }
+            }
+            _logger.LogInformation(
+                "Rebuilt in-memory running averages from non-idle history for {Count} active flow states",
+                _flowCycleStates.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to rebuild in-memory running averages after reapplying idle thresholds");
+        }
+
+        return result;
+    }
+
     private async Task ApplyResolvedCycleBoundaryAsync(string flowName, string? startCallName, string? endCallName)
     {
         var movingStartName = startCallName != null ? $"{flowName}.{startCallName}" : null;

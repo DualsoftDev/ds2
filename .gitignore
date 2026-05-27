@@ -122,3 +122,6 @@ Apps/DSPilot/Output/
 /ExternalDlls/AAStoPLC.xml
 /ExternalDlls/AAStoPLC.LadderViewer.pdb
 /ExternalDlls/AAStoPLC.LadderEditor.pdb
+Apps/DSPilot/plc.db
+Apps/DSPilot/plc.db.bak_20260527_095035
+Apps/DSPilot/tools/backfill_demo_data.py
