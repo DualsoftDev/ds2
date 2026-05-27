@@ -15,6 +15,7 @@
 | r0 | 2026-05-27 | 초안 — `documents-based-gfm.md` 의 §5/§8.7~§8.9/§9 분리 + 메타리뷰 후속 결정 항목 흡수 |
 | r1 | 2026-05-27 | P1 자동 진행 완료 — PR-I1~I5 + PR-I2.5 commit + 헤드리스 smoke 통과 + §1.1 진행 표 P1 [x][x] 갱신 |
 | r2 | 2026-05-27 | `--review` 라운드 1 patch — Critical-1 (MarkdownCapPolicy Stage 3 stage2 split fix) + Major-2 (NormalizeSourceFolder narrow catch + log) + Major-5 (runPostIngestHooks extractors forward) + Critical-2 hand-off (RefreshSpecializedDigestAsync / ApplyPendingSpecializedDigest / SetActiveCollectionSourceRoots production GUI wiring 부재 docstring 박제 + 본 §0 진입 대기 갱신) |
+| r3 | 2026-05-27 | `--review` 라운드 2/3 + Outlier/Minor 묶음 1/2 완료 (총 22 항목). 라운드 2 = Major-3 DiagnosticSchemas Sheet schema fix. 라운드 3 = Major-1 SignatureClassifierHelpers + Major-4 IStrategy.Build sigResult 인자. 묶음 1 = lib cleanup 11. 묶음 2 = ui/test/api 11. 별 PR backlog N9~N13 박제 (§6.1). 회귀 0 (LH 305→402 / Promaker 390→420 / Service 196→198). |
 
 ---
 
@@ -433,6 +434,11 @@ override 우선**. 즉:
 | **N6** | `.lighthouse-kb/{rejected, near-miss, stale}.json` schema 박제 | PR-I1 ~ PR-I3 진입 시 | **JSON schema PR-I1 시점 박제 (rejected + near-miss)**, **stale.json 은 후속 PR backlog** (M11 정합) |
 | **N7** | strategy MAJOR 갱신 시 재색인 trigger UX | Phase P3 진입 시 | **`lighthouse-cli reindex --strategy <name>` CLI 진입점만 박제** — Promaker UI 자동 trigger 는 P3 backlog |
 | **N8** | specialized digest production GUI wiring 활성화 (`RefreshSpecializedDigestAsync` / `ApplyPendingSpecializedDigest` / `SetActiveCollectionSourceRoots` 의 production 진입점 박제) — PR-I5 의 `--review` 라운드 1 Critical-2 hand-off 정합. 미박제 시 production chat 의 system prompt cache breakpoint 3 영구 skip (test only). | P1 종료 직후 별 PR (PR-I5 후속, P2 검수 진행과 평행 가능 — wiring 작업과 도메인 검수 시퀀스 독립) | **별 PR 1건 — wiring 3-point patch**: (a) `LlmChatViewModel.Initialize.cs` 의 `InitializeAsync` 안 `_ = RefreshKbDigestAsync();` 옆에 `_ = RefreshSpecializedDigestAsync();` 추가, (b) `ConfigureProviderAsync` 의 `ApplyPendingKbDigest()` 옆에 `ApplyPendingSpecializedDigest()` 추가, (c) `LlmChatViewModel.KbProfile.cs` 의 `RefreshKbDigestAsync` 안 `ApplyPendingKbDigest()` 다음에 `ApplyPendingSpecializedDigest()` 동반 호출 — SSE `collection-*` invalidate 시 함께 갱신. 코드 영역 = `LlmChatViewModel.Initialize.cs` / `LlmChatViewModel.KbProfile.cs` 한정 (lib / CLI / service / `SystemContentBuilder` 무관 — 모두 호출만). 회귀 fact = `SpecializedDigestInjectionTests.cs` 에 production hook 진입 1회 확인 fact 추가. |
+| **N9** | strategy detector 1-pass visitor (E·E-C3) + regex 2회 lazy (E·E-C2) — IoListStrategy 의 5 detector 가 각자 segment.Text 별도 sweep + `Regex.Matches(text, @"\bBOOL\b").Count` segment 마다 lazy enumerate 2회 | Phase P3 진입 시 (다른 라인 자료 추가 시 detector 수 ↑ → 비용 누적) | **visitor pattern 1-pass refactor** — segment iteration 1회 + 5 detector 가 share. byte-equal 회귀 baseline 보장 의무 |
+| **N10** | `MarkdownCapPolicy.fs` (460 line) 단일 module 의 6 책임 혼재 (C·C-3) | 별 PR 가능 시 | **sub-module 분리** — `MarkdownCapPolicy/TableParse.fs` + `MarkdownCapPolicy/Stages.fs` + `MarkdownCapPolicy.fs` (escalation orchestration). byte-equal 회귀 보장 의무 |
+| **N11** | `KbSpecializedDigestFetcher` 4 overload (Fetch/FetchMany/FetchAsync/FetchManyAsync) 동형 (C·C-4) | Promaker.Tests / production GUI wiring 진행 시 | **sync 폐기 검토** — caller 모두 async path 사용. 단 ApplyPendingSpecializedDigest 가 sync caller 라 영향 ↑ |
+| **N12** | `.gitattributes eol=lf` 의 sibling worktree merge 시 LF normalize ripple (D·D2) | branch merge / PR push 시점 | **정책 결정** — (a) merge 전 base branch 도 .gitattributes eol=lf 박제 후 일괄 renormalize / (b) merge 후 ripple 흡수 / (c) ripple 영역 별 branch 한정. 코드 변경 0, 정책 SSOT |
+| **N13** | xunit v2 의 `[Fact(Skip)]` 동적 분기 한계 (G·G-Minor-8) — 자료 A/B/C 실파일 fixture 부재 시 "passed" 표시 | xunit 버전 결정 시 | **xunit v3 마이그레이션** 또는 **Xunit.SkippableFact** 도입. test 4개 (자료 A/B/C 실파일 + KMM A/B test) 영향 |
 
 ---
 
