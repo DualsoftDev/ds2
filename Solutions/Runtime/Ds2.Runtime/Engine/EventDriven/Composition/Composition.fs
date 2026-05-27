@@ -100,7 +100,29 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let emitTokenEvent kind token workGuid (targetGuid: Guid option) =
         TokenFlow.emitTokenEvent tokenFlowContext kind token workGuid targetGuid
     let shiftToken workGuid token = TokenFlow.shiftToken tokenFlowContext workGuid token
-    let onWorkFinish workGuid = TokenFlow.onWorkFinish tokenFlowContext workGuid
+    let synthesizeSimulationRxInputs workGuid =
+        if runtimeMode = RuntimeMode.Simulation then
+            let mutable maxDebounceMs = 0
+            for call in index.Store.Calls.Values do
+                if stateManager.GetCallState(call.Id) = Status4.Going then
+                    for apiCall in call.ApiCalls do
+                        match apiCall.ApiDefId with
+                        | Some apiDefId ->
+                            match index.Store.ApiDefs.TryGetValue(apiDefId) with
+                            | true, apiDef when apiDef.RxGuid = Some workGuid ->
+                                stateManager.SetIOValue(apiCall.Id, RuntimeSemantics.activeInputValue apiCall)
+                                let debounceMs = SimIndex.apiCallSensingAppendMs index apiCall.Id
+                                if debounceMs > maxDebounceMs then maxDebounceMs <- debounceMs
+                            | _ -> ()
+                        | None -> ()
+            if maxDebounceMs > 0 then
+                scheduler.ScheduleAfter(
+                    ScheduledEventType.EvaluateConditions,
+                    int64 maxDebounceMs,
+                    ScheduledEvent.PriorityConditionEval) |> ignore
+    let onWorkFinish workGuid =
+        TokenFlow.onWorkFinish tokenFlowContext workGuid
+        synthesizeSimulationRxInputs workGuid
     let workTransitionContext =
         EventDrivenCompositionContext.createWorkTransitionContext
             index

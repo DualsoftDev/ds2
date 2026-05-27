@@ -1960,6 +1960,28 @@ module V10RuntimeSemanticsTests =
     let private setupRealOutputInputCall actionType =
         setupRealOutputInputCallWithOutputSpec actionType UndefinedValue
 
+    let private setupRealInputCallWithRxWork sensingType =
+        let store = createStore ()
+        let project, _, _, activeWork = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.Duration <- Some (TimeSpan.FromMilliseconds 10.)
+
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.ActionType <- ActionType.Virtual None
+        apiDef.SensingType <- sensingType
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+
+        let callId = store.AddCallWithLinkedApiDefs(activeWork.Id, "Device", "ADV", [ apiDef.Id ])
+        let apiCall = store.Calls.[callId].ApiCalls |> Seq.head
+        apiCall.InTag <- Some (IOTag("IN", "X0", ""))
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        engine, callId, apiCall.Id, deviceWork.Id
+
     let private drainNow (engine: ISimulationEngine) =
         engine.AdvanceSimulationTo(engine.CurrentTimeMs)
 
@@ -2017,6 +2039,31 @@ module V10RuntimeSemanticsTests =
             Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
 
             engine.AdvanceSimulationTo(engine.CurrentTimeMs + 1L)
+            Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``v10 Simulation Real sensing Append with RxWork completes after synthetic input debounce`` () =
+        let engine, callId, apiCallId, rxWorkId =
+            setupRealInputCallWithRxWork (SensingType.Real (Level, Some (Append 50)))
+        try
+            engine.ForceCallState(callId, Status4.Going)
+            drainNow engine
+
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+            Assert.Equal(Some Status4.Going, engine.GetWorkState(rxWorkId))
+
+            engine.AdvanceSimulationTo(10L)
+
+            Assert.Equal(Some Status4.Finish, engine.GetWorkState(rxWorkId))
+            Assert.Equal(Some "true", engine.State.IOValues |> Map.tryFind apiCallId)
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+
+            engine.AdvanceSimulationTo(59L)
+            Assert.Equal(Some Status4.Going, engine.GetCallState(callId))
+
+            engine.AdvanceSimulationTo(60L)
             Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
         finally
             engine.Stop()
