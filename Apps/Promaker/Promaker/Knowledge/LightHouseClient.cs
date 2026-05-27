@@ -50,6 +50,9 @@ public sealed class LightHouseClient : IDisposable
     /// </summary>
     public const long ResumableUploadThresholdBytes = 256L * 1024L * 1024L;
 
+    /// <summary>BaseAddress 의 URL 문자열 (trailing slash 제거). LightHouseTools 의 serviceName 표시 등 진단 용.</summary>
+    public string BaseUrl { get; }
+
     /// <summary>
     /// JSON 직렬화 옵션 SSOT — body 의 camelCase 정합 (service 의 §3.3.1 / Registry / SessionEndpoints 와 같은 convention).
     /// </summary>
@@ -98,6 +101,7 @@ public sealed class LightHouseClient : IDisposable
                 $"BaseAddress 가 HTTPS 가 아님 — {httpClient.BaseAddress} (plain HTTP 거부, §3.7).", nameof(httpClient));
 
         _http = httpClient;
+        BaseUrl = httpClient.BaseAddress!.ToString().TrimEnd('/');
         _pskProvider = pskProvider ?? throw new ArgumentNullException(nameof(pskProvider));
         _userIdentity = string.IsNullOrWhiteSpace(userIdentity)
             ? throw new ArgumentException("userIdentity 빈 값 금지 (§3.7 X-User-Identity 헤더 의무).", nameof(userIdentity))
@@ -304,6 +308,186 @@ public sealed class LightHouseClient : IDisposable
         await EnsureSuccessOrThrow(resp, "POST /sessions", ct).ConfigureAwait(false);
         return await resp.Content.ReadFromJsonAsync<SessionCreateResponse>(JsonOptions, ct).ConfigureAwait(false)
             ?? throw new LightHouseProtocolException("POST /sessions response body 빈 값.");
+    }
+
+    // ─── MCP JSON-RPC over Streamable HTTP (Plan B wrapper, 2026-05-27) ────────────────────
+    //
+    // **배경**: Anthropic Claude CLI 의 mcp HTTP/SSE transport 는 OAuth 2.1 path 강제 (`_authThenStart`)
+    // — 우리 service 의 단순 Bearer PSK 와 fundamental mismatch. Claude CLI 가 lighthouse mcp 에
+    // 직접 연결 불가. 대신 Promaker 자체 MCP host (`mcp__promaker__*`) 의 wrapper 도구 6종 (lighthouse_*)
+    // 이 본 메서드로 lighthouse 의 attachment_* 6종을 호출 + fan-out + result merge.
+    //
+    // **wire 형식**: POST /mcp + Bearer PSK + X-LightHouse-Session(app session) + Mcp-Session-Id(mcp session,
+    // initialize 후 발급). 요청 body = JSON-RPC. 응답 = `text/event-stream` 형식의 single event
+    // (`event: message\ndata: <JSON>\n\n`). data line 의 JSON 이 jsonrpc result/error.
+    //
+    // **lifecycle**: 첫 호출 시 `initialize` request 1회 → response header 의 `Mcp-Session-Id` 캡처 후
+    // 본 client instance lifetime 동안 재사용. service 측 mcp session expire / 400 응답 시 caller 가
+    // ResetMcpSession() 으로 재 init 강제. 동시성 = init 단계 lock 으로 idempotent.
+
+    private string? _mcpSessionId;
+    private readonly SemaphoreSlim _mcpInitLock = new(1, 1);
+    private int _mcpRequestId;  // JSON-RPC id 발급 (Interlocked).
+
+    /// <summary>
+    /// LightHouseService 의 `/mcp` endpoint 에 JSON-RPC tools/call 호출. mcp session 자동 초기화.
+    /// 401/403 = caller (LightHouseTools wrapper) 가 ExecuteWithSessionRetryAsync 로 wrap 권장.
+    /// </summary>
+    /// <param name="appSessionToken">X-LightHouse-Session 헤더 값 (app session, CreateSessionAsync 결과).</param>
+    /// <param name="toolName">attachment_list / attachment_search / attachment_outline / attachment_read / attachment_fulltext / attachment_summary.</param>
+    /// <param name="arguments">tool arguments (null = `{}`). JsonSerializer.Serialize 로 JSON 변환.</param>
+    /// <param name="ct">caller CancellationToken.</param>
+    /// <returns>JSON-RPC result 의 `content` 배열 첫 text item (mcp 표준 — tool 응답은 `{content:[{type:"text", text:"<json>"}]}` 형식).</returns>
+    /// <exception cref="LightHouseProtocolException">mcp session 발급 실패, SSE parse 실패, JSON-RPC error 응답 등.</exception>
+    /// <exception cref="LightHouseAuthException">401/403 응답.</exception>
+    public async Task<string> CallMcpToolAsync(
+        string appSessionToken,
+        string toolName,
+        object? arguments,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(appSessionToken)) throw new ArgumentException("appSessionToken 필수.", nameof(appSessionToken));
+        if (string.IsNullOrWhiteSpace(toolName)) throw new ArgumentException("toolName 필수.", nameof(toolName));
+
+        await EnsureMcpInitializedAsync(appSessionToken, ct).ConfigureAwait(false);
+
+        var id = Interlocked.Increment(ref _mcpRequestId);
+        var rpcBody = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            method = "tools/call",
+            id,
+            @params = new { name = toolName, arguments = arguments ?? new { } },
+        }, JsonOptions);
+
+        var (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
+
+        // mcp session 만료 (400 / 404 with "session not found" 류) 1회 retry.
+        if (statusCode == HttpStatusCode.BadRequest && body.Contains("session", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Info($"CallMcpToolAsync({toolName}): mcp session expired (400) — re-init 후 1회 retry.");
+            _mcpSessionId = null;
+            await EnsureMcpInitializedAsync(appSessionToken, ct).ConfigureAwait(false);
+            (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
+        }
+
+        if (statusCode == HttpStatusCode.Unauthorized || statusCode == HttpStatusCode.Forbidden)
+            throw new LightHouseAuthException($"POST /mcp tools/call({toolName}) {(int)statusCode}", statusCode);
+        if (!((int)statusCode >= 200 && (int)statusCode < 300))
+            throw new LightHouseProtocolException($"POST /mcp tools/call({toolName}) {(int)statusCode}: {Truncate(body, 200)}");
+
+        var jsonPayload = ParseSseData(body, contentType);
+        using var doc = JsonDocument.Parse(jsonPayload);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var err))
+        {
+            var msg = err.TryGetProperty("message", out var m) ? m.GetString() : err.GetRawText();
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) JSON-RPC error: {msg}");
+        }
+        // mcp tool 응답 표준 = { content: [{ type:"text", text:"<JSON 문자열>" }] }
+        if (!root.TryGetProperty("result", out var result))
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) result 누락: {Truncate(jsonPayload, 200)}");
+        if (!result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array || content.GetArrayLength() == 0)
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) content 빈 값.");
+        var firstItem = content[0];
+        if (!firstItem.TryGetProperty("text", out var textEl))
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) content[0].text 누락.");
+        return textEl.GetString() ?? "";
+    }
+
+    /// <summary>caller (e.g. LightHouseTools wrapper) 가 mcp session 강제 reset.</summary>
+    public void ResetMcpSession() => _mcpSessionId = null;
+
+    private async Task EnsureMcpInitializedAsync(string appSessionToken, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(_mcpSessionId)) return;
+        await _mcpInitLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!string.IsNullOrEmpty(_mcpSessionId)) return;  // double-check
+            var initBody = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                method = "initialize",
+                id = Interlocked.Increment(ref _mcpRequestId),
+                @params = new
+                {
+                    protocolVersion = "2025-03-26",
+                    capabilities = new { },
+                    clientInfo = new { name = "Promaker.LightHouseTools", version = "1.0" },
+                }
+            }, JsonOptions);
+
+            // initialize 는 Mcp-Session-Id 없이 호출, 응답 header 에서 capture.
+            using var req = new HttpRequestMessage(HttpMethod.Post, "mcp");
+            AddCommonHeaders(req, appSessionToken, mcpSessionId: null);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            req.Content = new StringContent(initBody, System.Text.Encoding.UTF8, "application/json");
+
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var b = await SafeReadAsString(resp.Content, ct).ConfigureAwait(false);
+                throw new LightHouseProtocolException($"mcp initialize {(int)resp.StatusCode}: {Truncate(b, 200)}");
+            }
+            if (!resp.Headers.TryGetValues("Mcp-Session-Id", out var values))
+                throw new LightHouseProtocolException("mcp initialize 응답에 Mcp-Session-Id 헤더 누락.");
+            _mcpSessionId = values.FirstOrDefault();
+            if (string.IsNullOrEmpty(_mcpSessionId))
+                throw new LightHouseProtocolException("Mcp-Session-Id 헤더 값이 빈 문자열.");
+            Log.Debug($"mcp session initialized — sid={_mcpSessionId[..Math.Min(8, _mcpSessionId.Length)]}…");
+        }
+        finally
+        {
+            _mcpInitLock.Release();
+        }
+    }
+
+    private async Task<(HttpStatusCode statusCode, string? contentType, string body)> SendMcpAsync(
+        string appSessionToken, string jsonRpcBody, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "mcp");
+        AddCommonHeaders(req, appSessionToken, mcpSessionId: _mcpSessionId);
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        req.Content = new StringContent(jsonRpcBody, System.Text.Encoding.UTF8, "application/json");
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await SafeReadAsString(resp.Content, ct).ConfigureAwait(false);
+        return (resp.StatusCode, resp.Content.Headers.ContentType?.MediaType, body);
+    }
+
+    private void AddCommonHeaders(HttpRequestMessage req, string appSessionToken, string? mcpSessionId)
+    {
+        var psk = _pskProvider();
+        if (!string.IsNullOrEmpty(psk))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", psk);
+        psk = null;
+        req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
+        req.Headers.Add("X-LightHouse-Session", appSessionToken);
+        if (!string.IsNullOrEmpty(mcpSessionId))
+            req.Headers.Add("Mcp-Session-Id", mcpSessionId);
+    }
+
+    private static async Task<string> SafeReadAsString(HttpContent content, CancellationToken ct)
+    {
+        try { return await content.ReadAsStringAsync(ct).ConfigureAwait(false); }
+        catch { return ""; }
+    }
+
+    /// <summary>SSE single event body 에서 `data: ` line 의 JSON payload 추출. 단순 JSON 응답이면 그대로 반환.</summary>
+    private static string ParseSseData(string body, string? contentType)
+    {
+        if (contentType is null || contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+            return body;
+        // text/event-stream — `event: message\ndata: <JSON>\n\n` 형식. data line 만 추출.
+        var dataLines = body.Split('\n')
+            .Where(l => l.StartsWith("data:", StringComparison.Ordinal))
+            .Select(l => l.Substring(5).TrimStart());
+        var joined = string.Join("", dataLines);
+        if (string.IsNullOrWhiteSpace(joined))
+            throw new LightHouseProtocolException($"SSE body 에서 data line 추출 실패: {Truncate(body, 200)}");
+        return joined;
     }
 
     /// <summary>`DELETE /sessions/{token}` — 명시 해제 (L2-1).</summary>

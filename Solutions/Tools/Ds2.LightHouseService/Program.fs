@@ -3,6 +3,7 @@ module Ds2.LightHouseService.Program
 open System
 open System.IO
 open System.Net
+open System.Threading.Tasks
 open System.Net.Security
 open System.Security.Cryptography.X509Certificates
 open Microsoft.AspNetCore.Builder
@@ -245,6 +246,26 @@ let configureApp
             try disposable.Dispose() with ex ->
                 Log.service.Warn(sprintf "#4: singleton embedder Dispose 실패 — %s: %s" (ex.GetType().Name) ex.Message)) |> ignore
     | None -> ()
+
+    // **2026-05-27 진단 박제** — request trace middleware. 모든 inbound request 의 method/path/status/elapsed
+    // 1줄 INFO log (Log.requestTrace). MCP client 의 `/mcp` 도달 여부 + auth middleware reject 여부 + handler
+    // status code 가시화. UseRouting 전에 배치해서 다른 middleware 가 short-circuit reject 한 case 도 capture.
+    // log4net.config 에 별 logger override 박제 시 OFF 가능.
+    app.Use(fun (ctx: HttpContext) (next: RequestDelegate) ->
+        task {
+            let sw = System.Diagnostics.Stopwatch.StartNew()
+            try
+                do! next.Invoke(ctx)
+            finally
+                sw.Stop()
+                Log.requestTrace.Info(
+                    sprintf "%s %s -> %d (%dms, remote=%s)"
+                        ctx.Request.Method
+                        (string ctx.Request.Path + (if ctx.Request.QueryString.HasValue then string ctx.Request.QueryString else ""))
+                        ctx.Response.StatusCode
+                        sw.ElapsedMilliseconds
+                        (if isNull ctx.Connection.RemoteIpAddress then "?" else string ctx.Connection.RemoteIpAddress))
+        } :> Task) |> ignore
 
     // 1. Public endpoints (인증 무관) — health probe 등. middleware 진입 전에 매핑.
     app.UseRouting() |> ignore

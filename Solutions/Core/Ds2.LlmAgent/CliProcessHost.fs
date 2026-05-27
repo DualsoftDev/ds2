@@ -138,6 +138,14 @@ module CliProcessHost =
 
                 let redacted = spec.Redact spec.Args
                 Log.provider.Debug($"Spawning: {spec.Executable} {ClaudeCliArgs.formatArgs redacted}")
+                // **2026-05-27 진단 박제** — EnvOverrides 가 child process 에 실제 박혔는지 가시화.
+                // NODE_EXTRA_CA_CERTS 의 경우 cert 파일 존재 여부도 함께 노출 — 박제는 됐지만 파일 미존재로
+                // Node 가 silent ignore 하는 사고 (lighthouse mcp connect failed) 의 1차 진단.
+                for (k, v) in spec.EnvOverrides do
+                    let extra =
+                        if k = "NODE_EXTRA_CA_CERTS" then sprintf " (exists=%b)" (System.IO.File.Exists v)
+                        else ""
+                    Log.provider.Info(sprintf "  env: %s=%s%s" k v extra)
 
                 // F# `task { }` CE 의 `try with + return ()` 가 일부 시나리오에서 흐름을 끊지 못해
                 // 후속 코드가 실행되어 NRE 가 나는 경로를 차단 — Process.Start 결과를 Result 로 캡처 후

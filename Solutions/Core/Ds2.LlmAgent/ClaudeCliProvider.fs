@@ -84,7 +84,16 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
             // round-trip 최적화 — `claude-opus-4-7[1m]` (1M context 변형) 비활성화. 사용자 ~/.claude 설정이
             // 1M 으로 잡혀 있어도 본 env 가 200K 변형 (`claude-opus-4-7`) 으로 강제. prompt processing
             // throughput 향상 + cache 동작 일관성 (출처: code.claude.com/docs model-config).
-            EnvOverrides = [("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")]
+            //
+            // **Plan B (2026-05-27)** — `NODE_EXTRA_CA_CERTS` 박제 폐기. Anthropic Claude CLI 의 mcp HTTP/SSE transport
+            // 가 OAuth 2.1 path 강제 (`_authThenStart`) 라 단순 Bearer PSK 와 fundamental mismatch — Claude CLI 가
+            // lighthouse 에 직접 mcp 연결 불가. 대신 Promaker 자체 MCP host 의 `LightHouseTools` (mcp__promaker__lighthouse_*)
+            // wrapper 가 LightHouseClient (.NET HttpClient, OS Trust Store 통한 cert 신뢰) 로 fan-out 호출. Claude CLI 의
+            // mcp config 에는 promaker 1개만 박제 (http://localhost, cert 무관). 진단 chain (CA:TRUE, IP SAN, .cer PEM 등)
+            // 도 본 path 무관하나 일반 https 통신 호환 위해 service 측 cert 박제는 그대로 유지 (Promaker LightHouseClient).
+            EnvOverrides = [
+                ("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")
+            ]
             // prompt 본문이 args 에서 stdin 으로 옮겨진 이후로는 args 에 평문 prompt 가 없어 redact 불필요.
             Redact = id
             Parser = StreamJsonParser.parseLine

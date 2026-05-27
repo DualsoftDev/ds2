@@ -31,14 +31,11 @@ param(
   [string]$ListenUrl = "https://127.0.0.1:8443",
   [string]$ServiceName = "Ds2.LightHouseService",
   [string]$DisplayName = "Ds2 LightHouse KB Service",
-  # Promaker UI 자동 활성화 path 용 (LightHouseLocalInstaller). 둘 다 비면 기존 대화형 prompt 유지.
-  # PskPlain 이 비고 GeneratePsk 가 켜지면 RNG 32-byte → base64 → DPAPI 박제.
-  # PskOutputPath 가 지정되면 RNG 평문을 그 파일에 1줄 박제 (caller 가 즉시 read + wipe). 미지정 시 stdout (Write-Output)
-  # 으로 `PSK_BASE64=<...>` 출력 — 단 transcript 박제 위험 있음 (대화형 사용자 책임).
+  # Promaker UI 자동 활성화 path (LightHouseLocalInstaller) + setup-cert-and-service.ps1 wrapper 의 1회 입력 path 양쪽 공통.
+  # 둘 다 비면 기존 대화형 prompt (Read-Host SecureString) 유지.
+  # **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK 는 항상 사용자 입력. -GeneratePsk / -PskOutputPath 인자 삭제.
   [string]$PskPlain,
-  [string]$CertPasswordPlain,
-  [switch]$GeneratePsk,
-  [string]$PskOutputPath
+  [string]$CertPasswordPlain
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,22 +91,7 @@ function ConvertTo-Utf8BytesAndClear([string]$plain) {
   return ,$bytes
 }
 
-if ($GeneratePsk.IsPresent) {
-  # RNG 32-byte → base64. caller (Promaker) 는 -PskOutputPath 명시 → 파일 박제 (stdout/transcript 미경유).
-  # 미지정 시 stdout (Write-Output) — 대화형 사용자 책임 (transcript 활성 환경에서는 평문 잔존 위험).
-  $rng = New-Object byte[] 32
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($rng)
-  $generatedPsk = [System.Convert]::ToBase64String($rng)
-  [Array]::Clear($rng, 0, $rng.Length)
-  $pskBytes = ConvertTo-Utf8BytesAndClear $generatedPsk
-  if (-not [string]::IsNullOrEmpty($PskOutputPath)) {
-    # ACL 강화는 caller 가 부모 디렉터리 단위로 의무. 본 파일은 평문 단명 (caller 가 즉시 wipe).
-    [System.IO.File]::WriteAllText($PskOutputPath, $generatedPsk, [System.Text.UTF8Encoding]::new($false))
-  } else {
-    Write-Output ("PSK_BASE64=" + $generatedPsk)  # 대화형 path (transcript 위험 — 사용자 환경에 의존)
-  }
-  $generatedPsk = $null
-} elseif (-not [string]::IsNullOrEmpty($PskPlain)) {
+if (-not [string]::IsNullOrEmpty($PskPlain)) {
   $pskBytes = ConvertTo-Utf8BytesAndClear $PskPlain
 } else {
   $pskBytes = Read-SecretAsBytes "Pre-Shared Key (PSK)"
@@ -191,25 +173,74 @@ $existing = & sc.exe query $ServiceName 2>&1
 if ($LASTEXITCODE -eq 0) {
   Write-Host "기존 service 감지 — stop + delete polling 후 재등록."
   & sc.exe stop $ServiceName 2>&1 | Out-Null
-  # STOPPED 까지 polling — Kestrel + SQLite 자원 해제 시간 보장. 최대 10s.
-  for ($i = 0; $i -lt 20; $i++) {
+  # STOPPED 까지 polling — Kestrel + SQLite 자원 해제 시간 보장. 최대 30s
+  # (10s → 30s 강화 — 2026-05-27 사고 D1 backlog 흡수: bge-m3 캐시 / SQLite WAL flush 가 느릴 때 fail).
+  for ($i = 0; $i -lt 60; $i++) {
     $q = & sc.exe query $ServiceName 2>&1
     if ($q -match 'STATE\s*:\s*1\s+STOPPED') { break }
     Start-Sleep -Milliseconds 500
   }
   & sc.exe delete $ServiceName 2>&1 | Out-Null
-  # SCM 에서 service 가 사라질 때까지 polling — 'marked for deletion' 잔존 회피. 최대 10s.
-  for ($i = 0; $i -lt 20; $i++) {
+  # SCM 에서 service 가 사라질 때까지 polling — 'marked for deletion' 잔존 회피. 최대 30s.
+  # `sc query` 의 LASTEXITCODE 가 1060 (service does not exist) 으로 바뀔 때까지 polling.
+  for ($i = 0; $i -lt 60; $i++) {
     & sc.exe query $ServiceName 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { break }
     Start-Sleep -Milliseconds 500
   }
 }
 
+# ─── sc.exe create + 1072 retry loop ──────────────────────────────────
+# **2026-05-27 사고 박제 (done-lighthouse-next-session.md D1)** — sc delete 후 polling 까지 통과해도
+# `sc create` 시 1072 (ERROR_SERVICE_MARKED_FOR_DELETE) 빈발. 사유: SCM 내부의 service handle
+# refcount 가 polling 의 `sc query` (handle open → close) 자체로 다시 1 이 되어 잔존 race,
+# 또는 외부 process (services.msc / Process Explorer / 보안 SW agent / Promaker WPF 의 LightHouseClient
+# HttpClient connection pool) 의 handle 잠금이 늦게 풀림.
+# **fix**: 1072 감지 시 5s 간격 × 최대 6회 (30s) 재시도. SCM 의 internal cleanup 대기.
+# 다른 에러 (binPath 오류 / 권한 부족 등) 는 즉시 fail (retry 불의미).
 $binPath = "`"$ExePath`""
-$scOut = & sc.exe create $ServiceName binPath= $binPath DisplayName= $DisplayName start= auto obj= LocalSystem 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Warning "sc.exe create 실패: $scOut"
+$scOut = $null
+$createOk = $false
+$maxCreateAttempts = 6
+$createDelayMs = 5000
+for ($i = 1; $i -le $maxCreateAttempts; $i++) {
+  $scOut = & sc.exe create $ServiceName binPath= $binPath DisplayName= $DisplayName start= auto obj= LocalSystem 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    $createOk = $true
+    if ($i -gt 1) { Write-Host "  -> sc create 성공 (attempt $i/$maxCreateAttempts)" }
+    break
+  }
+  $outText = ($scOut | Out-String).Trim()
+  # 1072 (marked-for-deletion) 만 retry. 한글 환경 '지정된 서비스가 지워진 것으로 표시되었습니다' / 영문 'marked for deletion' 둘 다 검출.
+  $isMarked = ($outText -match '1072') -or ($outText -match 'marked for deletion') -or ($outText -match '지워진 것으로 표시')
+  if (-not $isMarked) {
+    Write-Warning "sc.exe create 실패 (non-retryable): $outText"
+    exit 1
+  }
+  if ($i -lt $maxCreateAttempts) {
+    Write-Host "  -> sc create attempt $i/$maxCreateAttempts — 1072 (marked-for-deletion) 잔존, $($createDelayMs)ms 후 재시도..."
+    Start-Sleep -Milliseconds $createDelayMs
+  }
+}
+if (-not $createOk) {
+  Write-Warning ""
+  Write-Warning "═══════════════════════════════════════════════════════════════════"
+  Write-Warning "sc.exe create 실패 — 1072 (ERROR_SERVICE_MARKED_FOR_DELETE) 지속."
+  Write-Warning "$maxCreateAttempts 회 × $($createDelayMs / 1000)s 재시도 ($($maxCreateAttempts * $createDelayMs / 1000)s) 후에도 SCM 의 marked-for-deletion 상태가 해소되지 않았습니다."
+  Write-Warning ""
+  Write-Warning "원인 후보 (service handle 을 붙들고 있는 외부 process):"
+  Write-Warning "  1. services.msc — 열려 있으면 닫기"
+  Write-Warning "  2. Process Explorer / Process Hacker / Sysinternals 등 service 감시 도구 — 종료"
+  Write-Warning "  3. 보안 SW (CrowdStrike / Defender ATP / EDR agent) — service hook 잠금 가능"
+  Write-Warning "  4. Promaker WPF 가 LightHouseClient HttpClient connection pool 을 닫지 않음"
+  Write-Warning ""
+  Write-Warning "해결 단계:"
+  Write-Warning "  a) 위 도구들 닫기 + Promaker 종료"
+  Write-Warning "  b) 1분 대기 (SCM cleanup) 후 'Local 서비스 설치/재설치' 버튼 재시도"
+  Write-Warning "  c) 그래도 실패하면 PC 재부팅 후 재시도 (SCM service entry 전면 cleanup)"
+  Write-Warning ""
+  Write-Warning "마지막 sc.exe stdout: $($scOut | Out-String)"
+  Write-Warning "═══════════════════════════════════════════════════════════════════"
   exit 1
 }
 
