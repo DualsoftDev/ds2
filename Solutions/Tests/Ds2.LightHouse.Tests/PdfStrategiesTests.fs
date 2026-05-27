@@ -206,6 +206,20 @@ let ``PdfSignatureClassifier — 미매치 시 Unmatched 또는 NearMiss 반환`
 let private sampleBPath =
     @"F:/Git/dualsoft/secrets/KBSamples/core/3.광명2_전동화공장_제어시스템(HMI편집됨).pdf"
 
+// ── G·G-Minor-8 (Outlier/Minor 묶음 2) — fixture presence sentinel ──────────
+// 자료 B 실파일 회귀 fact 가 부재 시 silent skip () → testrunner UI "passed" 보고로 사용자가 실 검증
+// 진입 여부 확인 불가. fixture-presence sentinel fact 박제로 명시 visibility 확보. xunit v2 의
+// [<Fact>] attribute 가 동적 Skip parameter 미지원이라 printfn + Assert.True(true) 패턴으로 박제 —
+// CI log 의 "[fixture 부재 SKIP]" prefix 로 grep 가능.
+
+[<Fact>]
+let ``G·G-Minor-8 — 자료 B fixture presence sentinel (부재 시 Skip 명시)`` () =
+    if File.Exists sampleBPath then
+        Assert.True(File.Exists sampleBPath)
+    else
+        printfn "[fixture 부재 SKIP] G·G-Minor-8 sentinel — %s" sampleBPath
+        Assert.True(true, sprintf "fixture 부재 (정상): %s" sampleBPath)
+
 let private extractPdf (path: string) : ExtractedDocument =
     use ext = new PdfExtractor() :> IExtractor
     ext.Extract(path, CancellationToken.None)

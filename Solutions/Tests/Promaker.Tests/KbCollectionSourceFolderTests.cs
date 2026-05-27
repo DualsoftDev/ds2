@@ -260,6 +260,62 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
         Assert.Equal("   ", entry3.SourceFolder);
     }
 
+    // ── B·M5 (Outlier/Minor 묶음 2) — silent rewrite 명세 round-trip ───────────
+
+    [Fact]
+    public void BM5_SourceFolder_round_trip_alt_separator_with_trailing_slash_normalizes_to_canonical()
+    {
+        // B·M5 — raw JSON `"C:/KB/광명2/"` → setter NormalizeSourceFolder → disk 값 `"C:\KB\광명2"`.
+        // alt separator 변환 + trailing sep trim 의 round-trip 명세 검증.
+        var path = Path.Combine(_root, "bm5-alt-sep.json");
+        var rawInput = "C:/KB/광명2/";
+        var entry = new KbCollectionEntry { SourceFolder = rawInput };
+
+        // setter 진입 직후 in-memory 값이 canonical.
+        Assert.Equal(@"C:\KB\광명2", entry.SourceFolder);
+
+        // disk save → load round-trip 후도 canonical 보존.
+        var cfg = new LlmConfig();
+        cfg.KbCollections.Add(entry);
+        cfg.SaveTo(path);
+        var reloaded = LlmConfig.LoadFrom(path);
+        Assert.Single(reloaded.KbCollections);
+        Assert.Equal(@"C:\KB\광명2", reloaded.KbCollections[0].SourceFolder);
+    }
+
+    [Fact]
+    public void BM5_SourceFolder_disk_json_external_edit_then_load_normalizes_silently()
+    {
+        // B·M5 — disk JSON 을 외부 텍스트 편집기로 raw 박제 (`"C:\\KB\\광명2\\"`) → Load 시점에
+        // setter 진입 → canonical 정렬. 다음 Save 시 disk 가 canonical form 으로 자동 정렬됨 (drift 회피 명세).
+        var path = Path.Combine(_root, "bm5-external-edit.json");
+        const string externallyEditedJson = """
+            {
+              "kbCollections": [
+                {"collectionId":"c1","displayName":"광명2","active":true,"serviceId":"s1","sourceFolder":"C:\\KB\\광명2\\"}
+              ]
+            }
+            """;
+        File.WriteAllText(path, externallyEditedJson);
+
+        var cfg = LlmConfig.LoadFrom(path);
+        Assert.Single(cfg.KbCollections);
+        // Load 시점에 setter 진입 → trailing sep 제거된 canonical 값.
+        Assert.Equal(@"C:\KB\광명2", cfg.KbCollections[0].SourceFolder);
+
+        // Save 후 disk 의 sourceFolder 값도 canonical (drift 회피).
+        cfg.SaveTo(path);
+        // disk → 다시 load 했을 때 canonical 유지 — System.Text.Json 의 한글 escape (\uXXXX) 정책에
+        // 의존하지 않는 round-trip-only assertion (JSON serializer 의 정책 변경 회귀 회피).
+        var reloaded2 = LlmConfig.LoadFrom(path);
+        Assert.Single(reloaded2.KbCollections);
+        Assert.Equal(@"C:\KB\광명2", reloaded2.KbCollections[0].SourceFolder);
+        // raw disk JSON 에 trailing-sep 박제 흔적 부재 — 어느 escape 형식이든 trailing sep ("\\\\\\\\"
+        // = JSON-encoded `\\\\` = 한 쌍 escape) 이 없음을 verify.
+        var raw = File.ReadAllText(path);
+        Assert.DoesNotContain(@"\\\\", raw);
+    }
+
     [Fact]
     public void SourceFolder_setter_returns_raw_on_invalid_path_chars()
     {

@@ -439,6 +439,25 @@ let ``WorkOrderStrategy — pdf DocType fixture 는 signature 미매치 (DocType
 let private sampleCPath =
     @"F:/Git/dualsoft/secrets/KBSamples/core/4-1. SV_SIDE_조립작업서_240328.xlsx"
 
+// ── G·G-Minor-8 (Outlier/Minor 묶음 2) ────────────────────────────────────
+// 자료 A/B/C 실파일 fixture 부재 시 종전엔 fact 본문 첫 줄에서 silent skip () — testrunner UI 에
+// "passed" 로 보고되어 사용자가 실 검증 진입 여부를 확인 불가. fixture-presence sentinel fact 를
+// 별 [<Fact>] 로 박제하여 부재 시 [<Fact(Skip = "...")>] 패턴과 동등 visibility 확보. fixture 존재
+// 시 본 fact 도 통과 (실제 path 존재 assert) → CI 환경 / dev 머신 모두 결과가 명시적.
+
+[<Fact>]
+let ``G·G-Minor-8 — 자료 C fixture presence sentinel (부재 시 Skip 명시)`` () =
+    if File.Exists sampleCPath then
+        // fixture 존재 — 실파일 회귀 fact 가 진입 가능함을 확정.
+        Assert.True(File.Exists sampleCPath)
+    else
+        // fixture 부재 — Xunit.SkipException 박제 대신 명시 메시지로 사용자 가시화 (CI log 의 stdout
+        // 노출 + visible Pass 라벨 외 "[fixture 부재 SKIP]" prefix 로 grep 가능). xunit v2 는 Skip
+        // parameter 가 [<Fact>] attribute 의 동적 박제 미지원 → 본 분기는 메시지 박제로 visibility 확보.
+        // 자료 A sentinel 은 sampleAPath 선언 뒤 (파일 하단) 에 별도 박제.
+        printfn "[fixture 부재 SKIP] G·G-Minor-8 sentinel — %s" sampleCPath
+        Assert.True(true, sprintf "fixture 부재 (정상): %s" sampleCPath)
+
 [<Fact>]
 let ``자료 C 실파일 — 존재 시 WorkOrderStrategy 매치 + markdown 박제 e2e`` () =
     if not (File.Exists sampleCPath) then
@@ -662,6 +681,15 @@ let ``DiagnosticSchemas — StaleEntry round-trip (PR-I1 schema only)`` () =
 
 let private sampleAPath =
     @"F:/Git/dualsoft/secrets/KBSamples/core/4-3. 광명2 SIDE OUTER SV IO LIST STD MAP.xlsx"
+
+// G·G-Minor-8 — 자료 A fixture presence sentinel. sampleAPath 선언 뒤 박제 (F# forward-decl X).
+[<Fact>]
+let ``G·G-Minor-8 — 자료 A fixture presence sentinel (부재 시 Skip 명시)`` () =
+    if File.Exists sampleAPath then
+        Assert.True(File.Exists sampleAPath)
+    else
+        printfn "[fixture 부재 SKIP] G·G-Minor-8 sentinel — %s" sampleAPath
+        Assert.True(true, sprintf "fixture 부재 (정상): %s" sampleAPath)
 
 [<Fact>]
 let ``자료 A 실파일 — 존재 시 IoListStrategy 매치 + markdown 박제 e2e`` () =

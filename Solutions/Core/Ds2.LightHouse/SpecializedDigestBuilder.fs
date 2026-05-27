@@ -83,44 +83,35 @@ module SpecializedDigestBuilder =
                         cut <- cut - 1
                     combined.Substring(0, cut) + footer
 
-    /// `<collectionRoot>/.lighthouse-kb/summary/` 디렉토리의 `*.md` 합본 + metadata 반환.
-    /// 디렉토리 부재 / 빈 → 빈 합본 (Combined = "", FileCount = 0).
-    /// 파일 enumeration 순서 = path-sorted (deterministic, 멱등 cache hit 보장).
-    let build (collectionRoot: string) : DigestResult =
-        let dir = TextDumper.summaryDir collectionRoot
-        if not (Directory.Exists dir) then
-            { Combined = ""
-              Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
-        else
-            // path-sorted enumeration — Directory.GetFiles 는 OS 별 순서 비결정적, 명시 sort 로 cache hit 보장.
-            let files = Directory.GetFiles(dir, "*.md") |> Array.sort
-            if files.Length = 0 then
-                { Combined = ""
-                  Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
-            else
-                let contents = files |> Array.map (fun f -> File.ReadAllText(f, Encoding.UTF8))
-                let combinedRaw = String.concat FileSeparator contents
-                let combined = capCombined combinedRaw
-                let lastIndexed =
-                    files
-                    |> Array.map File.GetLastWriteTimeUtc
-                    |> Array.max
-                { Combined = combined
-                  Metadata =
-                    { FileCount = files.Length
-                      EstimatedTokens = StrategyMarkdown.estimateTokens combined
-                      LastIndexedUtc = Some lastIndexed } }
+    /// **A·m3 (Outlier/Minor 묶음 2) — build / buildAsync 공통 SSOT 빈 결과**.
+    /// 디렉토리 부재 / 파일 0개 시 동일 빈 record 박제. 동기/비동기 path 가 모두 본 helper 호출 →
+    /// metadata 초기값 drift 차단.
+    let private emptyResult () : DigestResult =
+        { Combined = ""
+          Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
 
-    /// 다중 collection 지원 — `documents-based-gfm.md` §8.3 의 `activeCollections seq` 정합.
-    /// 각 collection 의 build 결과를 다시 FileSeparator 로 concat. metadata 는 합산.
-    /// 빈 seq → 빈 합본. multi-collection 의 cache breakpoint 3 사용 시 호출.
-    let buildMany (collectionRoots: string seq) : DigestResult =
-        let results = collectionRoots |> Seq.map build |> Seq.toArray
-        // 빈 합본 결과는 separator 박제 skip — 빈 string 사이 `\n\n---\n\n` 박제 방어.
+    /// **A·m3 — build / buildAsync 공통 후처리 SSOT**. 파일 contents 가 채워진 시점부터의
+    /// `String.concat FileSeparator` + cap + lastIndexed 계산 + DigestResult 박제를 통합.
+    /// caller (동기 build / 비동기 buildAsync) 는 path-sorted files + contents 만 박제 책임.
+    /// 동일 입력에 대해 byte-identical 출력 보장 (sync / async 회귀 0).
+    let private finalizeSingle (files: string array) (contents: string array) : DigestResult =
+        let combinedRaw = String.concat FileSeparator contents
+        let combined = capCombined combinedRaw
+        let lastIndexed =
+            files
+            |> Array.map File.GetLastWriteTimeUtc
+            |> Array.max
+        { Combined = combined
+          Metadata =
+            { FileCount = files.Length
+              EstimatedTokens = StrategyMarkdown.estimateTokens combined
+              LastIndexedUtc = Some lastIndexed } }
+
+    /// **A·m3 — buildMany / buildManyAsync 공통 후처리 SSOT**. 각 root 의 DigestResult 배열을
+    /// 빈 결과 skip → separator concat → cap → metadata 합산까지 통합.
+    let private finalizeMany (results: DigestResult array) : DigestResult =
         let nonEmpty = results |> Array.filter (fun r -> not (String.IsNullOrEmpty r.Combined))
-        if nonEmpty.Length = 0 then
-            { Combined = ""
-              Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
+        if nonEmpty.Length = 0 then emptyResult ()
         else
             let combinedRaw =
                 nonEmpty |> Array.map (fun r -> r.Combined) |> String.concat FileSeparator
@@ -137,6 +128,28 @@ module SpecializedDigestBuilder =
                   EstimatedTokens = StrategyMarkdown.estimateTokens combined
                   LastIndexedUtc = lastIndexed } }
 
+    /// `<collectionRoot>/.lighthouse-kb/summary/` 디렉토리의 `*.md` 합본 + metadata 반환.
+    /// 디렉토리 부재 / 빈 → 빈 합본 (Combined = "", FileCount = 0).
+    /// 파일 enumeration 순서 = path-sorted (deterministic, 멱등 cache hit 보장).
+    let build (collectionRoot: string) : DigestResult =
+        let dir = TextDumper.summaryDir collectionRoot
+        if not (Directory.Exists dir) then emptyResult ()
+        else
+            // path-sorted enumeration — Directory.GetFiles 는 OS 별 순서 비결정적, 명시 sort 로 cache hit 보장.
+            let files = Directory.GetFiles(dir, "*.md") |> Array.sort
+            if files.Length = 0 then emptyResult ()
+            else
+                let contents = files |> Array.map (fun f -> File.ReadAllText(f, Encoding.UTF8))
+                finalizeSingle files contents
+
+    /// 다중 collection 지원 — `documents-based-gfm.md` §8.3 의 `activeCollections seq` 정합.
+    /// 각 collection 의 build 결과를 다시 FileSeparator 로 concat. metadata 는 합산.
+    /// 빈 seq → 빈 합본. multi-collection 의 cache breakpoint 3 사용 시 호출.
+    /// **A·m3** — 후처리는 `finalizeMany` SSOT 위임 (sync / async 동일 helper).
+    let buildMany (collectionRoots: string seq) : DigestResult =
+        let results = collectionRoots |> Seq.map build |> Seq.toArray
+        finalizeMany results
+
     // ── PR-G (Backlog G — todo-documents-based-gfm.md §2 PR-I5 review minor) ─────
     // 비동기 overload — `LlmChatViewModel.RefreshSpecializedDigestAsync` 가
     // `Task.Yield()` 후 동기 IO 수행하던 패턴을 정합 async 로 전환. 동기 `build` / `buildMany` 는
@@ -148,42 +161,26 @@ module SpecializedDigestBuilder =
     /// `<collectionRoot>/.lighthouse-kb/summary/*.md` 합본을 비동기 IO 로 읽어 `DigestResult` 반환.
     /// 동기 `build` 와 byte-identical (FileSeparator / path-sort / UTF-8 동일).
     /// cancellation 지원 — 각 `ReadAllTextAsync` 사이 token check.
+    /// **A·m3** — 후처리는 `finalizeSingle` SSOT 위임 (sync `build` 와 동일 helper).
     let buildAsync (collectionRoot: string) (ct: CancellationToken) : Task<DigestResult> =
         task {
             let dir = TextDumper.summaryDir collectionRoot
-            if not (Directory.Exists dir) then
-                return
-                    { Combined = ""
-                      Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
+            if not (Directory.Exists dir) then return emptyResult ()
             else
                 let files = Directory.GetFiles(dir, "*.md") |> Array.sort
-                if files.Length = 0 then
-                    return
-                        { Combined = ""
-                          Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
+                if files.Length = 0 then return emptyResult ()
                 else
                     let contents = Array.zeroCreate<string> files.Length
                     for i = 0 to files.Length - 1 do
                         ct.ThrowIfCancellationRequested()
                         let! txt = File.ReadAllTextAsync(files.[i], Encoding.UTF8, ct)
                         contents.[i] <- txt
-                    let combinedRaw = String.concat FileSeparator contents
-                    // F·M5 — async path 도 동기와 byte-identical 위해 cap 동일 적용.
-                    let combined = capCombined combinedRaw
-                    let lastIndexed =
-                        files
-                        |> Array.map File.GetLastWriteTimeUtc
-                        |> Array.max
-                    return
-                        { Combined = combined
-                          Metadata =
-                            { FileCount = files.Length
-                              EstimatedTokens = StrategyMarkdown.estimateTokens combined
-                              LastIndexedUtc = Some lastIndexed } }
+                    return finalizeSingle files contents
         }
 
     /// 다중 collection 비동기 overload. 동기 `buildMany` 와 byte-identical.
     /// 각 collection 의 `buildAsync` 결과를 순차 await (병렬 X — 결과 결정성 + 동기 path 정합).
+    /// **A·m3** — 후처리는 `finalizeMany` SSOT 위임 (sync `buildMany` 와 동일 helper).
     let buildManyAsync (collectionRoots: string seq) (ct: CancellationToken) : Task<DigestResult> =
         task {
             let roots = collectionRoots |> Seq.toArray
@@ -192,25 +189,5 @@ module SpecializedDigestBuilder =
                 ct.ThrowIfCancellationRequested()
                 let! r = buildAsync roots.[i] ct
                 results.[i] <- r
-            let nonEmpty = results |> Array.filter (fun r -> not (String.IsNullOrEmpty r.Combined))
-            if nonEmpty.Length = 0 then
-                return
-                    { Combined = ""
-                      Metadata = { FileCount = 0; EstimatedTokens = 0; LastIndexedUtc = None } }
-            else
-                let combinedRaw =
-                    nonEmpty |> Array.map (fun r -> r.Combined) |> String.concat FileSeparator
-                // F·M5 — multi-collection async 합본도 cap 적용.
-                let combined = capCombined combinedRaw
-                let totalFiles = nonEmpty |> Array.sumBy (fun r -> r.Metadata.FileCount)
-                let lastIndexed =
-                    nonEmpty
-                    |> Array.choose (fun r -> r.Metadata.LastIndexedUtc)
-                    |> fun arr -> if arr.Length = 0 then None else Some (Array.max arr)
-                return
-                    { Combined = combined
-                      Metadata =
-                        { FileCount = totalFiles
-                          EstimatedTokens = StrategyMarkdown.estimateTokens combined
-                          LastIndexedUtc = lastIndexed } }
+            return finalizeMany results
         }

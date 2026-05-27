@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Llm.Shared.Api;
@@ -178,16 +179,41 @@ public partial class LlmChatViewModel
     /// 양 path 가 본 helper 호출 — 인라인 복제 제거 (drift 방지). caller prefix (<paramref name="callerLabel"/>) 만
     /// path 별 다르게 전달하여 기존 Log 메시지 wire byte-equal 보장 (회귀 0).
     /// <para/>
-    /// **thread-affinity**: 본 helper 는 <c>_provider</c> 박제 — UI thread (dispatcher) 에서만 호출 가정.
+    /// **thread-affinity (B·M6/F·m7 — Outlier/Minor 묶음 2)**: 본 helper 는 <c>_provider</c> 박제 —
+    /// UI thread (dispatcher) 에서만 호출 가정. 종전 docstring 명세만 있던 invariant 를 진입 시점에
+    /// <see cref="AssertUiThread"/> 로 강제 — 위반 시 즉시 fail-fast (concurrency bug root cause 노출).
     /// async path 는 <c>ConfigureAwait(true)</c> 로 UI thread 복귀 후 호출, sync path 는 caller 가 이미 UI thread.
     /// </summary>
     private void ApplyFetchedDigest(string digest, int rootsCount, string callerLabel)
     {
+        AssertUiThread(callerLabel);
         if (_provider is ApiChatProvider api)
             api.SetPendingSpecializedDigest(digest);
         if (Log.IsDebugEnabled)
             Log.Debug(
                 $"{callerLabel} — digest len={digest.Length} (roots={rootsCount}, " +
                 $"provider={_provider?.GetType().Name ?? "none"})");
+    }
+
+    /// <summary>
+    /// **B·M6/F·m7 (Outlier/Minor 묶음 2) — UI thread invariant fail-fast assert**.
+    /// <para/>
+    /// `_provider` 박제 / Log 출력은 WPF Dispatcher (UI thread) 에서만 호출 의무. background thread 가
+    /// 본 path 진입 시 thread-affinity 위반 (silent race / WPF binding 결함) — invariant 위반은 docstring
+    /// 명세만으로는 회귀 차단 부족 → 진입 시점 assert.
+    /// <para/>
+    /// **test path 우회**: <see cref="Application.Current"/> 가 null (xUnit headless / Promaker.Tests
+    /// `SetActiveCollectionSourceRoots` 호출 path) 인 경우 assert skip — WPF host 없이도 schema-level
+    /// 회귀 fact 박제 가능 (production GUI 진입점만 assert 활성).
+    /// </summary>
+    private static void AssertUiThread(string callerLabel)
+    {
+        var app = Application.Current;
+        if (app is null) return; // test / headless path — Dispatcher 부재 우회.
+        if (!app.Dispatcher.CheckAccess())
+            throw new InvalidOperationException(
+                $"{callerLabel}: UI thread invariant 위반 — Application.Current.Dispatcher 외 thread 에서 호출됨. " +
+                "_provider 박제 / WPF binding 갱신은 UI thread 에서만 허용 (caller 의 Dispatcher.Invoke 또는 " +
+                "ConfigureAwait(true) wrap 필요).");
     }
 }

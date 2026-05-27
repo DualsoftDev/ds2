@@ -29,11 +29,11 @@ internal static class KbSpecializedDigestFetcher
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(KbSpecializedDigestFetcher));
 
-    /// <summary>
-    /// 합본 markdown 사이 separator (다중 collection — F# <c>buildMany</c> 와 동일 SSOT — markdown horizontal rule).
-    /// 본 separator 의 갱신은 `SpecializedDigestBuilder.fs` 의 <c>FileSeparator</c> 와 동시 진행 의무.
-    /// </summary>
-    private const string CollectionSeparator = "\n\n---\n\n";
+    // **A·m2 (Outlier/Minor 묶음 2) — dead const 제거**: 합본 markdown 사이 separator 의 *실제 SSOT* 는
+    // `SpecializedDigestBuilder.fs` 의 `FileSeparator = "\n\n---\n\n"` (F# private literal). 본 C# wrapper 는
+    // F# `buildMany` 결과 `Combined` 만 forward 하므로 separator literal 사본을 보유할 필요 0. 종전 박제된
+    // `CollectionSeparator` const 는 호출처 0 의 dead code 였으며, 사본 보유 자체가 drift 위험 (F# 측 변경
+    // 시 C# 사본 stale silent). 제거 후 SSOT 위치만 본 anchor 주석으로 명시.
 
     /// <summary>
     /// 단일 collection root → `SpecializedDigestBuilder.build` 결과의 합본 string 반환.
@@ -78,7 +78,7 @@ internal static class KbSpecializedDigestFetcher
             .Where(p => !string.IsNullOrEmpty(p) && Directory.Exists(p))
             .ToArray();
         if (existing.Length == 0) return "";
-        // F# 측 buildMany 사용 — 빈 합본은 자동 skip + FileSeparator 동치 (CollectionSeparator 의 SSOT).
+        // F# 측 buildMany 사용 — 빈 합본은 자동 skip + separator 박제 (SpecializedDigestBuilder.FileSeparator SSOT).
         var result = SpecializedDigestBuilder.buildMany(existing);
         if (Log.IsDebugEnabled)
             Log.Debug(
