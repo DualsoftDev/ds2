@@ -11,7 +11,7 @@ open Ds2.LightHouse.Diagnostics
 ///
 /// strategy 구현체는 `XlsxSignatureClassifier` 의 strategy list 에 등록. 각 strategy 는:
 ///   1. `Signature` — 입력의 sheet/segment 패턴 분석 후 매치 여부 + 점수 반환 (`SignatureResult`).
-///   2. `Build` — 매치 시 호출, markdown 생성 (`documents-based-gfm.md` §8.5.5 머리말 5행 포맷 강제).
+///   2. `Build` — 매치 시 호출, markdown 생성 (`documents-based-gfm.md` §8.5.5 머리말 6행 (canary 1행 + 기존 5행, 2026-05-27 patch) 포맷 강제).
 ///
 /// signature 미매치는 exception 이 아닌 정상 분기 (Result 의 Error). 변환 단계의 정상 reject 도 동일.
 /// 진정한 예외 (예: 손상된 input 의 NRE) 는 reraise → fail-fast 정합 (CLAUDE.md).
