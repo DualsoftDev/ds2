@@ -153,6 +153,34 @@ public partial class DevicePairItem : ObservableObject
 }
 
 /// <summary>
+/// XGK 슬롯 정의 — P-prefix 주소가 입력/출력 공통이라 슬롯별 주소 범위로 disambiguate.
+/// 예) 슬롯 0(XGI-D28A/B 입력) → P00000 ~ P0003F = Input
+/// </summary>
+public partial class XgkSlotItem : ObservableObject
+{
+    [ObservableProperty]
+    private int _slot;
+
+    [ObservableProperty]
+    private string _module = "";
+
+    /// <summary>Input / Output / Memory</summary>
+    [ObservableProperty]
+    private string _direction = "Input";
+
+    /// <summary>예: P00000</summary>
+    [ObservableProperty]
+    private string _addressStart = "";
+
+    /// <summary>예: P0003F</summary>
+    [ObservableProperty]
+    private string _addressEnd = "";
+
+    [ObservableProperty]
+    private string _description = "";
+}
+
+/// <summary>
 /// AutoPre(선행 조건) 규칙
 /// </summary>
 public partial class AutoPreRuleItem : ObservableObject

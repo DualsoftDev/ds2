@@ -91,6 +91,11 @@ public partial class ConfigEditorViewModel : ObservableObject
     public ObservableCollection<AutoPreRuleItem> AutoPreRules { get; } = new();
 
     // ============================================================
+    // XGK Slot Config (P-prefix 입출력 disambiguation)
+    // ============================================================
+    public ObservableCollection<XgkSlotItem> XgkSlots { get; } = new();
+
+    // ============================================================
     // Status
     // ============================================================
     [ObservableProperty]
@@ -181,6 +186,9 @@ public partial class ConfigEditorViewModel : ObservableObject
 
             // NodeConnectionRules 로드
             LoadNodeConnectionRules();
+
+            // XGK 슬롯 로드
+            LoadXgkSlots();
 
             StatusMessage = "Config 파일 로드 완료";
             StatusColor = Brushes.Green;
@@ -704,6 +712,90 @@ public partial class ConfigEditorViewModel : ObservableObject
         DeviceGroupingUtils.invalidateIOTypeTokensCache();
         DeviceGroupingUtils.invalidateWorkSplitDepthCache();
         DeviceGroupingUtils.invalidateDisplayNamingCache();
+
+        // CsvParser 의 XGK 슬롯 캐시도 무효화
+        Ds2.SymbolImport.CsvParser.setConfigPath(_configPath);
+    }
+
+    private void LoadXgkSlots()
+    {
+        XgkSlots.Clear();
+        var slots = _rootNode?["VendorSettings"]?["XGK"]?["Slots"]?.AsArray();
+        if (slots == null) return;
+
+        foreach (var slot in slots)
+        {
+            if (slot == null) continue;
+            XgkSlots.Add(new XgkSlotItem
+            {
+                Slot = slot["Slot"]?.GetValue<int>() ?? 0,
+                Module = slot["Module"]?.GetValue<string>() ?? "",
+                Direction = slot["Direction"]?.GetValue<string>() ?? "Input",
+                AddressStart = slot["AddressStart"]?.GetValue<string>() ?? "",
+                AddressEnd = slot["AddressEnd"]?.GetValue<string>() ?? "",
+                Description = slot["Description"]?.GetValue<string>() ?? ""
+            });
+        }
+    }
+
+    private void SaveXgkSlots()
+    {
+        if (_rootNode?["VendorSettings"] == null)
+            _rootNode!["VendorSettings"] = JsonNode.Parse("{}")!;
+
+        if (_rootNode["VendorSettings"]!["XGK"] == null)
+            _rootNode["VendorSettings"]!["XGK"] = JsonNode.Parse("{}")!;
+
+        var xgk = _rootNode["VendorSettings"]!["XGK"]!;
+        xgk["Description"] = "XGK 슬롯별 P-주소 범위 — 입력/출력 disambiguation 용";
+
+        var slotsArray = new JsonArray();
+        foreach (var s in XgkSlots)
+        {
+            slotsArray.Add(new JsonObject
+            {
+                ["Slot"] = s.Slot,
+                ["Module"] = s.Module,
+                ["Direction"] = s.Direction,
+                ["AddressStart"] = s.AddressStart,
+                ["AddressEnd"] = s.AddressEnd,
+                ["Description"] = s.Description
+            });
+        }
+        xgk["Slots"] = slotsArray;
+    }
+
+    [RelayCommand]
+    private void AddXgkSlot()
+    {
+        var nextSlot = XgkSlots.Count == 0 ? 0 : XgkSlots.Max(s => s.Slot) + 1;
+        XgkSlots.Add(new XgkSlotItem
+        {
+            Slot = nextSlot,
+            Module = "",
+            Direction = "Input",
+            AddressStart = "",
+            AddressEnd = "",
+            Description = ""
+        });
+    }
+
+    [RelayCommand]
+    private void RemoveXgkSlot(XgkSlotItem item)
+    {
+        if (item != null) XgkSlots.Remove(item);
+    }
+
+    [RelayCommand]
+    private void LoadDefaultXgkSlots()
+    {
+        XgkSlots.Clear();
+        // XG5000 I/O 파라미터 기본 베이스 예시 (스크린샷 기준)
+        XgkSlots.Add(new XgkSlotItem { Slot = 0, Module = "XGI-D28A/B (DC 24V 입력, 64점)", Direction = "Input",  AddressStart = "P00000", AddressEnd = "P0003F", Description = "" });
+        XgkSlots.Add(new XgkSlotItem { Slot = 1, Module = "XGI-D28A/B (DC 24V 입력, 64점)", Direction = "Input",  AddressStart = "P00040", AddressEnd = "P0007F", Description = "" });
+        XgkSlots.Add(new XgkSlotItem { Slot = 2, Module = "XGQ-TR8A/B (트랜지스터 출력, 64점)", Direction = "Output", AddressStart = "P00080", AddressEnd = "P0011F", Description = "" });
+        XgkSlots.Add(new XgkSlotItem { Slot = 3, Module = "XGQ-TR4A/B (트랜지스터 출력, 32점)", Direction = "Output", AddressStart = "P00120", AddressEnd = "P0013F", Description = "" });
+        XgkSlots.Add(new XgkSlotItem { Slot = 4, Module = "XGF-M16M (모션, 16축)",            Direction = "Input",  AddressStart = "P00140", AddressEnd = "P0014F", Description = "" });
     }
 
     [RelayCommand]
@@ -755,6 +847,9 @@ public partial class ConfigEditorViewModel : ObservableObject
 
             // NodeConnectionRules 저장
             SaveNodeConnectionRules();
+
+            // XGK 슬롯 저장
+            SaveXgkSlots();
 
             // 파일 저장
             WriteConfig(_rootNode);

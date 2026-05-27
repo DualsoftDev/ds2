@@ -86,6 +86,8 @@ public partial class SymbolWizardDialog : Window
             CsvTypes.CsvParseResult parseResult;
             try
             {
+                // XGK 슬롯 설정을 위해 CsvParser 에 config 경로 주입 (P-주소 입출력 disambiguation)
+                CsvParser.setConfigPath(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"));
                 parseResult = await Task.Run(() => CsvParser.parseFile(vendor, path));
             }
             catch (IOException ex)
