@@ -137,14 +137,26 @@ public partial class ConfigEditorViewModel : ObservableObject
     [ObservableProperty]
     private string _previewSummary = "";
 
+    /// <summary>XGK 슬롯 탭 표시 여부. XGK 는 P-주소 입출력 disambiguation 이 XGK 전용 기능이라
+    /// XGK vendor 일 때만 탭을 보여준다(그 외 vendor 에는 Collapsed).</summary>
+    [ObservableProperty]
+    private Visibility _xgkTabVisibility = Visibility.Visible;
+
     public ConfigEditorViewModel()
         : this(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"))
     {
     }
 
-    public ConfigEditorViewModel(string configPath)
+    /// <summary>vendor 컨텍스트로 XGK 탭 노출 여부를 결정해 연다.</summary>
+    public ConfigEditorViewModel(bool showXgkTab)
+        : this(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"), showXgkTab)
+    {
+    }
+
+    public ConfigEditorViewModel(string configPath, bool showXgkTab = true)
     {
         _configPath = configPath;
+        XgkTabVisibility = showXgkTab ? Visibility.Visible : Visibility.Collapsed;
         LoadConfig();
         RefreshPreview();
     }

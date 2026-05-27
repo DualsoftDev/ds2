@@ -370,6 +370,43 @@ module CsvParser =
             { Entries = []
               Warnings = [ "AB parser 미구현 — DS1 mapper 에 AB 코드 없음. 후속 작업." ] }
 
+    /// 파일 앞부분 텍스트를 보고 Vendor 를 추론한다 (UI 드롭다운 자동 선택용).
+    /// 인식 불가 시 None — 호출자는 사용자의 기존/수동 선택을 유지한다.
+    /// 헤더 시그니처(실 export 기준):
+    ///   '<' 로 시작(XML)                         → XG5000 (XGI)
+    ///   "CPU Type=XGK..." 리마크 / Scope+Property → XGK
+    ///   "CPU Type=XGB..." 리마크 / HMI+Use+Device → XGB
+    ///   "변수 종류"/"메모리 할당" 또는 IEC(%) 주소 → XG5000 (CSV)
+    ///   tab 구분 + "Device Name"                  → Mitsubishi
+    let inferVendorFromText (text: string) : Vendor option =
+        if isNull text || text.Trim().Length = 0 then None
+        elif text.TrimStart().StartsWith("<", StringComparison.Ordinal) then Some XG5000
+        else
+            // 헤더/리마크는 항상 파일 선두 — 앞 20줄(빈 줄 제외)만 본다.
+            let lines =
+                text.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+                |> Array.truncate 20
+            let commaRows = lines |> Array.map parseCsvLine
+            let tabRows = lines |> Array.map (fun l -> l.Split('\t') |> Array.map strip |> List.ofArray)
+            let hasCell (names: string list) (row: string list) =
+                row |> List.exists (fun c -> names |> List.exists (fun n -> equalsOrdinalIgnoreCase n c))
+            let anyComma pred = commaRows |> Array.exists pred
+            let anyTab pred = tabRows |> Array.exists pred
+            let upper = (String.concat "\n" (List.ofArray lines)).ToUpperInvariant()
+            // LS 가 export header 에 박는 CPU 기종 리마크 — 가장 확실한 시그니처.
+            if upper.Contains("XGK-CPU") || upper.Contains("CPU TYPE=XGK") then Some XGK
+            elif upper.Contains("XGB-CPU") || upper.Contains("CPU TYPE=XGB") then Some XGB
+            // XGK: Scope + Property 컬럼 (XGB / XG5000 헤더에는 없음).
+            elif anyComma (fun r -> hasCell [ "Scope" ] r && hasCell [ "Property" ] r) then Some XGK
+            // XGB: HMI + Use + Device 컬럼 (6컬럼 변수설명 export).
+            elif anyComma (fun r -> hasCell [ "HMI" ] r && hasCell [ "Use" ] r && hasCell [ "Device" ] r) then Some XGB
+            // XG5000 CSV: 한글 변수 헤더, 또는 Variable/Address 헤더 + IEC(%) 주소.
+            elif anyComma (fun r -> hasCell [ "변수 종류"; "메모리 할당" ] r) then Some XG5000
+            elif anyComma (fun r -> hasCell [ "Variable"; "변수" ] r && hasCell [ "Address"; "주소" ] r) && upper.Contains("%") then Some XG5000
+            // Mitsubishi: tab 구분 + "Device Name" 헤더.
+            elif anyTab (fun r -> r.Length >= 2 && hasCell [ "Device Name" ] r) then Some Mitsubishi
+            else None
+
     let private tryRegisterCodePages () =
         try Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)
         with _ -> ()
@@ -407,3 +444,14 @@ module CsvParser =
         stream.CopyTo(ms)
         let text = decodeText (ms.ToArray())
         parse vendor text
+
+    /// 파일 path 의 앞부분(최대 64KB)만 읽어 Vendor 추론. 실패/인식불가 시 None.
+    /// 헤더만 필요하므로 전체를 읽지 않는다. 인코딩은 parseFile 과 동일하게 BOM/UTF-8/CP949 폴백.
+    let inferVendorFromFile (path: string) : Vendor option =
+        try
+            use stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
+            let buffer = Array.zeroCreate<byte> 65536
+            let read = stream.Read(buffer, 0, buffer.Length)
+            let text = decodeText (if read = buffer.Length then buffer else Array.truncate read buffer)
+            inferVendorFromText text
+        with _ -> None
