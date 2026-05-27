@@ -36,6 +36,16 @@ public class PlcToCallMapperService
     public bool IsInitialized => _isInitialized;
 
     /// <summary>
+    /// 강제 재빌드 — AASX 재로딩(Promaker "agent 보내기") 후 매핑이 stale 해지지 않도록.
+    /// <see cref="Initialize"/> 의 _isInitialized 가드를 우회하여 현재 DsStore 로 다시 빌드한다.
+    /// </summary>
+    public void Reinitialize()
+    {
+        _isInitialized = false;
+        Initialize();
+    }
+
+    /// <summary>
     /// Build tag mappings from DsStore (AASX data)
     /// </summary>
     public void Initialize()
