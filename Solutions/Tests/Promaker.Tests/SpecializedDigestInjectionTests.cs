@@ -319,6 +319,85 @@ public sealed class SpecializedDigestInjectionTests
         Assert.Contains("path", toolUses[0].Arguments!.Keys);
     }
 
+    // ── G·G-Major-2 (Outlier/Minor 묶음 2) — firstTurn swap path wire e2e ────
+    // ApiChatProvider.SendImpl 의 firstTurn 분기에서 SystemContentBuilder.Build 호출 후 _history[0] 의
+    // Contents.Count 가 base + KB + specialized = 3 인지 wire-level assert + cache breakpoint 3 박제 검증.
+    // 외부 LLM API 호출 0 — SystemContentBuilder.Build 직접 호출 + ChatMessage(ChatRole.System, contents) 검증.
+
+    [Fact]
+    public void Smoke_GMajor2_firstTurn_wire_e2e_3_TextContent_cache_breakpoint_3()
+    {
+        // firstTurn 진입 시 _history[0] (system message) 의 Contents 가 base + KB + specialized = 3 박제.
+        // applyCacheControl 람다 (Anthropic capability 시뮬) 가 호출되는 path verify — 각 TextContent 가
+        // wrapper 통과한 인스턴스로 박제됨.
+        var root = CreateFixture(("a.md", "MARKER_GMAJOR2_SPECIALIZED"));
+        try
+        {
+            var basePrompt = "base prompt";
+            var kbDigest = "kb digest payload";
+            var specializedDigest = KbSpecializedDigestFetcher.Fetch(root);
+
+            // cache breakpoint wrapper 호출 카운트 — base + KB + specialized 각각 1회씩, 총 3 호출 기대
+            // (4 breakpoint cap 안 — snapshot 박제 시 4번째 호출은 turn message 측).
+            var wrapperCalls = 0;
+            Func<AIContent, AIContent> applyCacheControl = c =>
+            {
+                wrapperCalls++;
+                return c; // identity — 본 test 는 wire path 검증, Anthropic SDK 의존 회피.
+            };
+
+            var systemContents = SystemContentBuilder.Build(
+                basePrompt, kbDigest, specializedDigest, applyCacheControl);
+
+            // base + KB + specialized = 3 TextContent (cache breakpoint 3 박제 path).
+            Assert.Equal(3, systemContents.Count);
+
+            // ApiChatProvider firstTurn 의 _history.Add(new ChatMessage(ChatRole.System, contents)) wire 동치.
+            var history = new List<ChatMessage>
+            {
+                new ChatMessage(ChatRole.System, systemContents),
+            };
+            Assert.Single(history);
+            Assert.Equal(ChatRole.System, history[0].Role);
+            Assert.Equal(3, history[0].Contents.Count);
+
+            // 각 TextContent 의 payload 정합.
+            Assert.Equal(basePrompt, Assert.IsType<TextContent>(history[0].Contents[0]).Text);
+            Assert.Equal(kbDigest, Assert.IsType<TextContent>(history[0].Contents[1]).Text);
+            Assert.Contains("MARKER_GMAJOR2_SPECIALIZED",
+                Assert.IsType<TextContent>(history[0].Contents[2]).Text);
+
+            // cache breakpoint wrapper 가 3 TextContent 각각에 호출되었는지 verify
+            // (Anthropic capability 분기의 wire path 박제).
+            Assert.Equal(3, wrapperCalls);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Smoke_GMajor2_firstTurn_빈_specialized_2_TextContent_PR_G_v_b_wire_동치()
+    {
+        // specialized 빈 → _history[0].Contents.Count = 2 (base + KB), cache breakpoint 3 박제 skip.
+        // PR-G v-b 와 wire byte-equal — 회귀 0.
+        var wrapperCalls = 0;
+        Func<AIContent, AIContent> applyCacheControl = c => { wrapperCalls++; return c; };
+
+        var systemContents = SystemContentBuilder.Build(
+            "base", "kb", "", applyCacheControl);
+        Assert.Equal(2, systemContents.Count);
+
+        var history = new List<ChatMessage>
+        {
+            new ChatMessage(ChatRole.System, systemContents),
+        };
+        Assert.Equal(2, history[0].Contents.Count);
+        // base + KB 만 wrapper 호출 (specialized 빈 = wrapper 미호출).
+        Assert.Equal(2, wrapperCalls);
+    }
+
     [Fact]
     public async Task Smoke_6_mock_tool_use_simulation_default_off_시_emit_0()
     {

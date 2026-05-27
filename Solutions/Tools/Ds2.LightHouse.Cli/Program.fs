@@ -213,7 +213,18 @@ let private runPostIngestHooks (folder: string) (extractors: IExtractor list) : 
     // strategy 매치 결과의 정제 markdown 박제. 비매치 / signature 미달 파일은 rejected.json / near-miss.json
     // 에 누적 박제 (N1, N4 default). Packager.createZip 가 `.lighthouse-kb/` 전체를 zip 에 동봉 → server upload.
     // extractors 의 dispose 는 caller (runIndex) 의 finally 에서 단일 책임 — 본 helper 는 forward 만.
-    let dump = TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
+    //
+    // **F·M2 (Outlier/Minor 묶음 2) — best-effort 정책 통일**: KB digest path (keyword / text dump /
+    // SummaryBuilder) 는 사용자 색인 결과가 1차 가치이므로 strategy summary 실패가 전체 색인 abort 로
+    // 이어지면 안 됨. 종전 동작은 strategy hook 만 fail-fast (Indexer.ingest 성공 후에도 strategy 단계
+    // throw 시 caller 가 exit) — 정책 비대칭. 본 try/with 로 catch + log + 빈 결과 fallback 박제 →
+    // KB digest fail-safe 정합. CLAUDE.md "외부 환경 의존 예외는 log + 계속" 정합.
+    let dump =
+        try
+            TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
+        with ex ->
+            eprintfn "경고: strategy summary 박제 실패 — %s (색인 자체는 정상, summary/ 비어 있음)" ex.Message
+            { SummaryFiles = [||]; RejectedCount = 0; NearMissCount = 0 }
     eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
         dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
     kwResult

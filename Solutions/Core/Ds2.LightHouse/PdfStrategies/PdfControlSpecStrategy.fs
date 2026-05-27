@@ -46,6 +46,13 @@ type PdfControlSpecStrategy() =
     static let signatureThreshold = 6
     static let signatureMaxScore = 9
 
+    // ── compiled Regex SSOT (E·E-C4, Outlier/Minor 묶음 2) ───────────────────
+    // 함수 진입마다 인스턴스화하던 Regex 들을 module-level + RegexOptions.Compiled 로 static 화.
+    // signature 평가 (segment 다수 순회) + buildMarkdown 의 페이지/zone 추출에서 재사용.
+    static let namingRulePattern = Regex(@"①.{0,30}_.{0,30}②|①\s*(설비|라인|제어반)", RegexOptions.Compiled)
+    static let zoneCodePattern = Regex(@"\bS\d{3}\b", RegexOptions.Compiled)
+    static let pagePattern = Regex(@"^p=(\d+)$", RegexOptions.Compiled)
+
     // ── signature detector helpers ──────────────────────────────────────────
 
     /// "***REDACTED***2 ***REDACTED*** 표준 심벌" 또는 "표준 심벌" 키워드 매치 (전체 segment 합산).
@@ -58,15 +65,13 @@ type PdfControlSpecStrategy() =
 
     /// "(①설비/라인/제어반)_(②부품명)" 명명 규칙 패턴 — 본 문구 또는 ①② 마커가 포함된 표준 명명 규칙 표현.
     static let containsNamingRulePattern (segments: ExtractedSegment array) : bool =
-        let pattern = Regex(@"①.{0,30}_.{0,30}②|①\s*(설비|라인|제어반)")
         segments
-        |> Array.exists (fun seg -> pattern.IsMatch(seg.Text))
+        |> Array.exists (fun seg -> namingRulePattern.IsMatch(seg.Text))
 
     /// zone code 출현 수 — `S\d{3}` 패턴.
     static let countZoneCodeOccurrences (segments: ExtractedSegment array) : int =
-        let pattern = Regex(@"\bS\d{3}\b")
         segments
-        |> Array.sumBy (fun seg -> pattern.Matches(seg.Text).Count)
+        |> Array.sumBy (fun seg -> zoneCodePattern.Matches(seg.Text).Count)
 
     /// "IO LIST" 키워드 매치.
     static let containsIoListKeyword (segments: ExtractedSegment array) : bool =
@@ -80,8 +85,9 @@ type PdfControlSpecStrategy() =
     // (3 strategy 공용). 본 strategy 는 호출만.
 
     /// segment.RefLocator (`p=14`) → 페이지 번호 추출. 실패 시 0.
+    /// **E·E-C4**: `pagePattern` 은 module-level compiled SSOT 재사용 (PDF 페이지 수만큼 호출).
     static let pageNumberOf (refLoc: string) : int =
-        let m = Regex.Match(refLoc, @"^p=(\d+)$")
+        let m = pagePattern.Match(refLoc)
         if m.Success then Int32.Parse(m.Groups.[1].Value) else 0
 
     /// 페이지 텍스트의 한 줄 요약 (첫 비공백 line ≤ 80 chars).
@@ -96,11 +102,11 @@ type PdfControlSpecStrategy() =
             if trimmed.Length > 80 then trimmed.Substring(0, 80) + "..." else trimmed
 
     /// 페이지 텍스트 안 zone code 추출 (distinct, 정렬). 후속 markdown section 에 박제.
+    /// **E·E-C4**: `zoneCodePattern` 은 module-level compiled SSOT 재사용 (signature detector 와 공용).
     static let extractZoneCodes (text: string) : string list =
         if String.IsNullOrEmpty text then []
         else
-            let pattern = Regex(@"\bS\d{3}\b")
-            pattern.Matches(text)
+            zoneCodePattern.Matches(text)
             |> Seq.cast<Match>
             |> Seq.map (fun m -> m.Value)
             |> Seq.distinct

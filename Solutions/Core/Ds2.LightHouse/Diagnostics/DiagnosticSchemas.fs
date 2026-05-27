@@ -105,7 +105,6 @@ module DiagnosticJson =
         // F·m10 (Outlier/Minor 묶음 1) — DateTime UTC 강제. RejectedAt / DetectedAt 가 caller 에
         // 따라 Local / Unspecified 로 박제되어도 직렬화 시 UTC 정합 ISO 8601 Z suffix 박제.
         // DateTimeZoneHandling = Utc → write 시 Local → UTC 변환 + 'Z' suffix.
-        // DateParseHandling = DateTimeOffset → read 시 zone 정보 보존, ToUniversalTime() 일치.
         s.DateTimeZoneHandling <- DateTimeZoneHandling.Utc
         s.DateFormatHandling <- DateFormatHandling.IsoDateFormat
         s.DateFormatString <- @"yyyy-MM-ddTHH:mm:ss.fffZ"

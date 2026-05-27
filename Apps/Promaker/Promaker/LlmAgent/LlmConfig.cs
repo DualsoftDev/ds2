@@ -978,6 +978,19 @@ public sealed class KbCollectionEntry
     /// </list>
     /// 메모리 / disk / 비교 (ExtractActiveSourceRoots / Reupload_Click) 모두 동일 canonical form 보유 →
     /// <c>Directory.GetFiles</c> 결과 비결정성 / 중복 root 박제 / 대소문자 mixed 박제 회피.
+    /// <para/>
+    /// **B·M5 (Outlier/Minor 묶음 2) — silent rewrite 박제 명세** (입력 → disk 값 round-trip):
+    /// <list type="bullet">
+    /// <item>raw JSON 값 <c>"C:/KB/***REDACTED***2/"</c> → setter 진입 → <c>NormalizeSourceFolder</c> →
+    /// disk 저장값 <c>"C:\KB\***REDACTED***2"</c> (alt separator 변환 + trailing sep trim).</item>
+    /// <item>raw <c>"./Docs"</c> + cwd <c>C:\Work</c> → disk <c>"C:\Work\Docs"</c> (relative → absolute).</item>
+    /// <item>raw <c>"C:\"</c> → disk <c>"C:\"</c> (drive root 보존, length ≤ 3 분기).</item>
+    /// <item>raw <c>null</c> / <c>""</c> / <c>"   "</c> → disk 그대로 저장 (legacy entry / JsonIgnore 정합).</item>
+    /// </list>
+    /// caller (KbManagerDialog) 가 사용자 입력값을 setter 로 박제할 때 disk 의 최종 표기와 다를 수 있음 —
+    /// 본 변환은 의도된 normalization 이며 silent 가 아닌 의도 (round-trip Fact 박제 = `KbCollectionSourceFolderTests`).
+    /// disk JSON 을 외부 텍스트 편집기로 수정한 사용자도 다음 Load + Save 사이클에서 canonical form 으로
+    /// 자동 정렬됨 — drift 회피.
     /// </summary>
     [JsonPropertyName("sourceFolder")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

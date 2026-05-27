@@ -54,13 +54,20 @@ type WorkOrderStrategy() =
     /// `Extractors/OoxmlExtractor.fs:911` 와 정확 매치.
     static let ganttOutlineSuffix = "[Gantt schedule]"
 
+    // ── compiled Regex SSOT (E·E-C4, Outlier/Minor 묶음 2) ───────────────────
+    // 함수 진입마다 인스턴스화하던 Regex 들을 module-level + RegexOptions.Compiled 로 static 화.
+    // 동일 collection 안 다수 segment / 다수 시트 순회 시 GC 압력 / 인스턴스화 cost 감소.
+    // 패턴은 immutable literal 이라 thread-safe (Regex 인스턴스 자체 thread-safe).
+    static let hashSheetPattern = Regex(@"#\d{3}", RegexOptions.Compiled)
+    static let symLabelPattern = Regex(@"\bSYM\b", RegexOptions.Compiled)
+    static let whitespacePattern = Regex(@"\s+", RegexOptions.Compiled)
+
     // ── signature detector helpers ──────────────────────────────────────────
 
     /// 시트명 `#\d{3}` 매치 — 예: `5-1. #201`, `5-4. #204`.
     static let hashSheetCount (outline: ExtractedOutlineNode array) : int =
-        let pattern = Regex(@"#\d{3}")
         outline
-        |> Array.filter (fun n -> n.NodeType = OutlineNodeType.Sheet && pattern.IsMatch(n.Label))
+        |> Array.filter (fun n -> n.NodeType = OutlineNodeType.Sheet && hashSheetPattern.IsMatch(n.Label))
         |> Array.length
 
     /// Gantt preamble 검출 — OoxmlExtractor 가 Gantt 검출한 시트 ≥ 1개.
@@ -74,7 +81,7 @@ type WorkOrderStrategy() =
     static let hasGanttHeaderInText (segments: ExtractedSegment array) : bool =
         segments
         |> Array.exists (fun seg ->
-            let stripped = Regex.Replace(seg.Text, @"\s+", "")
+            let stripped = whitespacePattern.Replace(seg.Text, "")
             stripped.Contains("작업내역")
             && stripped.Contains("시작")
             && stripped.Contains("시간")
@@ -86,7 +93,7 @@ type WorkOrderStrategy() =
         segments
         |> Array.exists (fun seg ->
             seg.Text.Contains("기호")
-            || Regex.IsMatch(seg.Text, @"\bSYM\b"))
+            || symLabelPattern.IsMatch(seg.Text))
 
     /// 한국어 비율 — Hangul Syllables (U+AC00 ~ U+D7A3) char 수 / 전체 non-whitespace char 수.
     static let koreanRatio (segments: ExtractedSegment array) : float =
@@ -244,13 +251,13 @@ type WorkOrderStrategy() =
         body.AppendLine() |> ignore
 
         // Gantt 시트 판정: preamble 검출 또는 시트명 #\d{3} 매치 (preamble 미검출 자료 C 흡수).
-        let hashPattern = Regex(@"#\d{3}")
+        // **E·E-C4**: hashSheetPattern 은 module-level compiled SSOT 재사용 (signature detector 와 동일).
         let isGanttSheet (seg: ExtractedSegment) : bool =
             if seg.Text.StartsWith(ganttPreamblePrefix) then true
             else
                 match seg.OutlineIndex with
                 | Some idx when idx >= 0 && idx < extracted.Outline.Length ->
-                    hashPattern.IsMatch(extracted.Outline.[idx].Label)
+                    hashSheetPattern.IsMatch(extracted.Outline.[idx].Label)
                 | _ -> false
 
         let mutable sectionCnt = 0

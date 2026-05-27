@@ -107,6 +107,15 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     // capability 비트에 따라 한 번만 생성 (Anthropic 호환 wire 외에는 null = nop).
     // system prompt / turn snapshot 양쪽 호출처가 동일 인스턴스 공유 → cache_control 정책 변경 시
     // (e.g. ttl_seconds 명시, 다른 wrapper) 한 곳만 갱신.
+    //
+    // **C·C-5 (Outlier/Minor 묶음 2) — 패턴 SSOT 박제**:
+    // KB digest + Specialized digest 의 cache breakpoint 부착은 동일 5-tuple 패턴
+    // (`content.WithCacheControl(new CacheControlEphemeral())`) ×2 박제됨 — 현재는 SystemContentBuilder
+    // (별 어셈블리) 내부에서 `_applyCacheControl` 람다를 직접 invoke 하여 중복 0. 본 람다 자체가 패턴
+    // 추상화의 SSOT — 추가 helper 박제는 abstraction overhead 만 증가 (4/4 cap closed 라 새 breakpoint
+    // 추가 risk 도 0). 정책: docstring + 람다 SSOT 유지, 별 helper class 박제 0.
+    // 본 람다 변경 시 SystemContentBuilder (Llm.Shared.Api.SystemContentBuilder) 의 4-arg overload 동반
+    // 검토 의무 — _applyCacheControl 의 caller 가 SystemContentBuilder + ApiTurnContentBuilder 2곳.
     private readonly Func<AIContent, AIContent>? _applyCacheControl;
 
     private readonly List<ChatMessage> _history = new();

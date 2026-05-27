@@ -151,6 +151,121 @@ let ``Packager.createZip — summary/*.md 가 zip 안 .lighthouse-kb/summary/ pr
         finally
             if File.Exists zipPath then File.Delete zipPath)
 
+// ── 시나리오 1-b (G·G-Major-3, Outlier/Minor 묶음 2) ─────────────────────────
+//   signature 미달 fixture (BOM xlsx — IoListStrategy / WorkOrderStrategy 모두 0~near-miss) 박제 시
+//   `.lighthouse-kb/rejected.json` 또는 `.lighthouse-kb/near-miss.json` 가 zip 안에 동봉되는지 verify.
+//   본 fact 가 cover 하는 wire: TextDumper.dumpStrategySummaries 의 N1/N4 default 결과가
+//   Packager.createZip 의 .lighthouse-kb/ whitelist 안에 포함됨.
+
+/// signature 점수 부분 매치 (threshold 미달) fixture — IoListStrategy 의 "I/O LIST" keyword (+2) 만
+/// 충족하여 NearMiss 분기 trigger (threshold 6 미달). near-miss.json 박제 trigger 점.
+let private makeNearMissFixture (path: string) =
+    use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
+    let wbPart = doc.AddWorkbookPart()
+    wbPart.Workbook <- Workbook()
+    let sheets = Sheets()
+    let wsPart = wbPart.AddNewPart<WorksheetPart>()
+    let sheetData = SheetData()
+    // IoList keyword (+2) 만 박제 — 다른 detector (IO 토큰 ≥ 50, zone 시트 ≥ 5, 4-block, BOOL) 미충족.
+    sheetData.AppendChild(mkRow 1u [ 1, "I/O LIST"; 2, "참조"; 3, "비고" ]) |> ignore
+    for r in 2u .. 5u do
+        sheetData.AppendChild(mkRow r [
+            1, sprintf "P%03d" (int r)
+            2, "정보"
+            3, "단순 BOM 형식"
+        ]) |> ignore
+    let ws = Worksheet()
+    ws.Append(sheetData :> OpenXmlElement) |> ignore
+    wsPart.Worksheet <- ws
+    wsPart.Worksheet.Save()
+    let sheet = Sheet()
+    sheet.Id <- StringValue(wbPart.GetIdOfPart wsPart)
+    sheet.SheetId <- UInt32Value(1u)
+    sheet.Name <- StringValue("SUMMARY")
+    sheets.AppendChild(sheet) |> ignore
+    wbPart.Workbook.AppendChild(sheets) |> ignore
+    wbPart.Workbook.Save()
+
+[<Fact>]
+let ``G·G-Major-3 — signature 미달 fixture 시 rejected.json/near-miss.json 중 하나 이상 zip 안 동봉`` () =
+    withTempDir (fun dir ->
+        // 미매치 fixture 만 박제 — strategy summary 0 + rejected 또는 near-miss ≥ 1 박제 의무.
+        makeNearMissFixture (Path.Combine(dir, "near-miss.xlsx"))
+        Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
+
+        let ex = extractors()
+        let dumpSummary =
+            try TextDumper.dumpStrategySummaries dir ex CancellationToken.None
+            finally disposeAll ex
+        // near-miss fixture → strategy match 0.
+        Assert.Equal(0, dumpSummary.SummaryFiles.Length)
+        // rejected 또는 near-miss 중 하나 이상 박제 의무 (signature 평가 결과 어느 분기든).
+        // 본 fixture 는 IoListStrategy 의 "I/O LIST" keyword (+2) 만 충족 → NearMiss 분기 예상.
+        Assert.True(
+            dumpSummary.RejectedCount > 0 || dumpSummary.NearMissCount > 0,
+            sprintf "near-miss fixture 가 rejected/near-miss 0 — strategy 평가 path 박제 누락 (rej=%d, near=%d)"
+                dumpSummary.RejectedCount dumpSummary.NearMissCount)
+
+        // zip 박제.
+        let zipPath = Packager.createZip dir
+        try
+            Assert.True(File.Exists zipPath)
+            use archive = ZipFile.OpenRead zipPath
+            // .lighthouse-kb/{rejected,near-miss}.json entry 중 하나 이상 존재.
+            let diagnosticEntries =
+                archive.Entries
+                |> Seq.filter (fun e ->
+                    let name = e.FullName
+                    name.Equals(".lighthouse-kb/rejected.json", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals(".lighthouse-kb/near-miss.json", StringComparison.OrdinalIgnoreCase))
+                |> Seq.toArray
+            Assert.True(
+                diagnosticEntries.Length >= 1,
+                sprintf "rejected.json / near-miss.json 중 하나도 zip 안 미동봉 — Packager.createZip whitelist 누락. entries=%A"
+                    (archive.Entries |> Seq.map (fun e -> e.FullName) |> Seq.toArray))
+        finally
+            if File.Exists zipPath then File.Delete zipPath)
+
+[<Fact>]
+let ``G·G-Major-3 — zip round-trip 후 rejected.json/near-miss.json 본문 byte-equal`` () =
+    withTempDir (fun dir ->
+        makeNearMissFixture (Path.Combine(dir, "near-miss.xlsx"))
+        Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
+        let ex = extractors()
+        let _ =
+            try TextDumper.dumpStrategySummaries dir ex CancellationToken.None
+            finally disposeAll ex
+
+        // 원본 diagnostic 파일 (있는 것만 byte 비교).
+        let kbDir = SqliteStore.kbDir dir
+        let originalRejected =
+            let p = Path.Combine(kbDir, "rejected.json")
+            if File.Exists p then Some (File.ReadAllBytes p) else None
+        let originalNearMiss =
+            let p = Path.Combine(kbDir, "near-miss.json")
+            if File.Exists p then Some (File.ReadAllBytes p) else None
+        Assert.True(originalRejected.IsSome || originalNearMiss.IsSome,
+            "G·G-Major-3 round-trip: near-miss fixture 가 rejected/near-miss 둘 다 미박제 — sanity 위반")
+
+        let zipPath = Packager.createZip dir
+        try
+            withTempDir (fun extractRoot ->
+                let zipSize = (FileInfo zipPath).Length
+                use zipStream = File.OpenRead zipPath
+                let _ = ZipImport.extractAll zipStream extractRoot zipSize 100
+                let extractedKb = Path.Combine(extractRoot, ".lighthouse-kb")
+                // 각 diagnostic 파일이 원본과 byte-equal.
+                originalRejected |> Option.iter (fun expected ->
+                    let p = Path.Combine(extractedKb, "rejected.json")
+                    Assert.True(File.Exists p, sprintf "rejected.json 미추출 — %s" p)
+                    Assert.Equal<byte>(expected, File.ReadAllBytes p))
+                originalNearMiss |> Option.iter (fun expected ->
+                    let p = Path.Combine(extractedKb, "near-miss.json")
+                    Assert.True(File.Exists p, sprintf "near-miss.json 미추출 — %s" p)
+                    Assert.Equal<byte>(expected, File.ReadAllBytes p)))
+        finally
+            if File.Exists zipPath then File.Delete zipPath)
+
 // ── 시나리오 2: zip → LightHouseService.ZipImport.extractAll round-trip ──────
 
 [<Fact>]
