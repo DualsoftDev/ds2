@@ -13,6 +13,7 @@
 | rev | 일자 | 주요 변경 |
 |---|---|---|
 | r0 | 2026-05-27 | 초안 — `documents-based-gfm.md` 의 §5/§8.7~§8.9/§9 분리 + 메타리뷰 후속 결정 항목 흡수 |
+| r1 | 2026-05-27 | P1 자동 진행 완료 — PR-I1~I5 + PR-I2.5 commit + 헤드리스 smoke 통과 + §1.1 진행 표 P1 [x][x] 갱신 |
 
 ---
 
@@ -21,6 +22,9 @@
 ### 완료
 - `documents-based-gfm.md` r1 박제 (commit `fdadea69`) — 사실/분석 SSOT 확정
 - 자료 A/B/C + sister KMM 매뉴얼이 `F:/Git/dualsoft/secrets/KBSamples/{core, sisters}/` 로 통일
+- **P1 자동 진행 완료** (2026-05-27 turn, branch=`light-house-documents`) — PR-I1 ~ PR-I5 + PR-I2.5 commit (`2a32164f` / `79e9e736` / `4d1fbbfd` / `64e8dfd7` / `587c7e0c` / `8f149300`)
+- 신규 lib code 약 1700 lines + tests 약 1400 lines (LF only / UTF-8 / 신규 warn 0 / err 0)
+- 헤드리스 smoke [4][5][6] 통과 — `SpecializedDigestInjectionTests` 9 facts (Promaker.Tests 399 pass / Ds2.LightHouse.Tests 363 pass)
 
 ### 자동 진행 범위 (단일 정의 — §0, §1.1, §2, §4.1, §10.3 의 공통 SSOT)
 
@@ -68,8 +72,9 @@ headless smoke 통과로 단일화.
 → 위 7 항목 중 1건이라도 실패 시 orchestrator 즉시 종료 + 사용자 보고. 단 #2 의 branch
 부재는 즉시 종료 대신 §11.5 의 `git switch -c light-house-summary` 명령으로 자동 생성.
 
-### 진입 대기 (Phase P1)
-- PR-I1 의 strategy interface 설계 + IoListStrategy 단독 구현 — 자료 A 의 summary 박제 e2e
+### 진입 대기 (Phase P2 — 도메인 전문가 검수, human-in-loop)
+- §5.4 의 6 step 사용자 액션 시퀀스 (`광명2_204_draft.yaml` 생성 → HKMC 검수 의뢰 → 보정 → golden 박제)
+- 운영 GUI 활성화는 `KbCollectionEntry.SourceFolder` schema 확장 후 (PR-I5 의 `GetActiveCollectionSourceRoots()` 가 production 시 빈 list 반환 — 별 PR backlog)
 
 ### 잔여 backlog (Phase P2~P4)
 - §1 일정 표 + §2 PR 표 참조
@@ -97,7 +102,7 @@ headless smoke 통과로 단일화.
 
 | Phase | 범위 | 자동 진행 | 시작 | 종료 |
 |---|---|---|:---:|:---:|
-| **P1** | PR-I1 + PR-I2 + PR-I3 + PR-I4 + PR-I5 | ✅ 자동 | [ ] | [ ] |
+| **P1** | PR-I1 + PR-I2 + PR-I2.5 + PR-I3 + PR-I4 + PR-I5 | ✅ 자동 | [x] | [x] |
 | **P2** | YAML 매퍼 + 도메인 전문가 검수 + golden 박제 | ❌ human-in-loop | [ ] | [ ] |
 | **P3** | 다른 라인 (FLR/BB/CRP/ROOF/BC) signature 매치 + variant 추가 | ❌ 자료 외부 입수 의존 | [ ] | [ ] |
 | **P4** | PR-I6 + PR-I7 (자율) | ❌ spot-check / A/B 사람 평가 | [ ] | [ ] |
