@@ -18,6 +18,7 @@ namespace Promaker.Controls;
 public partial class ExplorerPane : UserControl
 {
     private const string TreeMoveCallNodeDataFormat = "TreeMoveCallNode";
+    private const string TreeMoveCallIdsDataFormat = "TreeMoveCallIds";
 
     private Point _treeDragStartPoint;
     private bool _treeDragCandidate;
@@ -330,20 +331,31 @@ public partial class ExplorerPane : UserControl
         if (node.EntityType != EntityKind.Call) return;
 
         ClearPendingTreeDragSelection();
+
+        // 다중 선택 지원: selection 에 들어 있는 Call 모두 + (없으면) drag 시작 노드
+        var selectedCallIds = ViewModel?.Selection.OrderedNodeSelection
+            .Where(k => k.EntityKind == EntityKind.Call)
+            .Select(k => k.Id)
+            .ToList() ?? new System.Collections.Generic.List<Guid>();
+        if (!selectedCallIds.Contains(node.Id))
+            selectedCallIds = new System.Collections.Generic.List<Guid> { node.Id };
+
         var data = new DataObject();
         data.SetData(ConditionDropHelper.DataFormat, node);
         data.SetData(TreeMoveCallNodeDataFormat, node);
+        data.SetData(TreeMoveCallIdsDataFormat, selectedCallIds.ToArray());
         DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
         ClearTreeMoveDropTarget();
     }
 
     private void TreeViewItem_DragOver(object sender, DragEventArgs e)
     {
-        if (TryResolveCallMoveTarget(sender, e, out var sourceCall, out var targetWork)
-            && ViewModel?.CanMoveCallToWork(sourceCall.Id, targetWork.Id) == true)
+        if (TryResolveCallMoveTarget(sender, e, out var sourceCallIds, out var targetWork)
+            && ViewModel?.CanMoveCallsToWorkFromTree(sourceCallIds, targetWork.Id) == true)
         {
             SetTreeMoveDropTarget(targetWork);
-            e.Effects = DragDropEffects.Move;
+            var copyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            e.Effects = copyMode ? DragDropEffects.Copy : DragDropEffects.Move;
             e.Handled = true;
             return;
         }
@@ -361,13 +373,14 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_Drop(object sender, DragEventArgs e)
     {
-        if (!TryResolveCallMoveTarget(sender, e, out var sourceCall, out var targetWork))
+        if (!TryResolveCallMoveTarget(sender, e, out var sourceCallIds, out var targetWork))
             return;
 
         ClearTreeMoveDropTarget();
-        if (ViewModel?.TryMoveCallToWorkFromTree(sourceCall.Id, targetWork.Id) == true)
+        var copyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        if (ViewModel?.TryMoveCallsToWorkFromTree(sourceCallIds, targetWork.Id, copyMode) == true)
         {
-            e.Effects = DragDropEffects.Move;
+            e.Effects = copyMode ? DragDropEffects.Copy : DragDropEffects.Move;
             e.Handled = true;
         }
     }
@@ -375,24 +388,33 @@ public partial class ExplorerPane : UserControl
     private static bool TryResolveCallMoveTarget(
         object sender,
         DragEventArgs e,
-        out EntityNode sourceCall,
+        out IReadOnlyList<Guid> sourceCallIds,
         out EntityNode targetWork)
     {
-        sourceCall = null!;
+        sourceCallIds = Array.Empty<Guid>();
         targetWork = null!;
 
-        if (!e.Data.GetDataPresent(TreeMoveCallNodeDataFormat))
-            return false;
-        if (e.Data.GetData(TreeMoveCallNodeDataFormat) is not EntityNode { EntityType: EntityKind.Call } draggedCall)
-            return false;
         if (sender is not TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.Work } workNode } item)
             return false;
         if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
             return false;
 
-        sourceCall = draggedCall;
-        targetWork = workNode;
-        return true;
+        // 다중: TreeMoveCallIdsDataFormat 우선, 없으면 단일 fallback
+        if (e.Data.GetDataPresent(TreeMoveCallIdsDataFormat)
+            && e.Data.GetData(TreeMoveCallIdsDataFormat) is Guid[] ids && ids.Length > 0)
+        {
+            sourceCallIds = ids;
+            targetWork = workNode;
+            return true;
+        }
+        if (e.Data.GetDataPresent(TreeMoveCallNodeDataFormat)
+            && e.Data.GetData(TreeMoveCallNodeDataFormat) is EntityNode { EntityType: EntityKind.Call } draggedCall)
+        {
+            sourceCallIds = new[] { draggedCall.Id };
+            targetWork = workNode;
+            return true;
+        }
+        return false;
     }
 
     private void SetTreeMoveDropTarget(EntityNode node)

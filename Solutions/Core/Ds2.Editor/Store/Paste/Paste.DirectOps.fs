@@ -100,7 +100,11 @@ module internal DirectPasteOps =
             StoreHierarchyQueries.findProjectOfSystem store targetSystemId
             |> Option.map (fun projectId ->
                 let ctx : PasteDeviceOps.DeviceFlowCtx =
-                    { Store = store; ProjectId = projectId; TargetFlowName = pastedFlow.Name }
+                    { Store = store
+                      ProjectId = projectId
+                      TargetFlowId = pastedFlow.Id
+                      TargetFlowName = pastedFlow.Name
+                      Mode = CrossFlowDeviceMode.CloneSystem }
                 ctx)
         let sourceSystemId = sourceFlow.ParentId
         let sourceWorkArrows = Queries.arrowWorksOf sourceSystemId store
@@ -132,7 +136,7 @@ module internal DirectPasteOps =
             collectArrowsWithinSet Queries.arrowWorksOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceSystemIds selectedWorkIds store
         let sourceCallArrows =
             collectArrowsWithinSet Queries.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) selectedWorkIds selectedCallIds store
-        let deviceFlowCtxOpt = PasteDeviceOps.makeDeviceFlowCtx store targetFlowId
+        let deviceFlowCtxOpt = PasteDeviceOps.makeDeviceFlowCtx store targetFlowId CrossFlowDeviceMode.CloneSystem
         let workMap, callMap, pastedIdsRev, _ =
             sourceWorks
             |> sortByPositionAndName (fun work -> work.Position) (fun work -> work.Name)
@@ -146,14 +150,15 @@ module internal DirectPasteOps =
         replayCallArrows store sourceCallArrows callMap
         pastedIdsRev |> List.rev
 
-    let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) (baseIndex: int) : Guid list =
+    let pasteCallsToWorkBatchWithMode
+        (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) (baseIndex: int) (mode: CrossFlowDeviceMode) : Guid list =
         let selectedCallIds = sourceCalls |> List.map (fun c -> c.Id) |> Set.ofList
         let sourceWorkIds =
             sourceCalls |> List.map (fun c -> c.ParentId) |> Set.ofList
         let sourceCallArrows =
             collectArrowsWithinSet Queries.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceWorkIds selectedCallIds store
         let targetFlowIdOpt = Queries.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)
-        let deviceFlowCtxForDiffFlow = targetFlowIdOpt |> Option.bind (PasteDeviceOps.makeDeviceFlowCtx store)
+        let deviceFlowCtxForDiffFlow = targetFlowIdOpt |> Option.bind (fun fid -> PasteDeviceOps.makeDeviceFlowCtx store fid mode)
         let callMap, pastedIdsRev, _ =
             sourceCalls
             |> sortByPositionAndName (fun call -> call.Position) (fun call -> call.Name)
@@ -170,6 +175,9 @@ module internal DirectPasteOps =
             ) (Map.empty, [], PasteDeviceOps.initialDevicePasteState)
         replayCallArrows store sourceCallArrows callMap
         pastedIdsRev |> List.rev
+
+    let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) (baseIndex: int) : Guid list =
+        pasteCallsToWorkBatchWithMode store sourceCalls targetWorkId baseIndex CrossFlowDeviceMode.CloneSystem
 
     let dispatchPaste
         (store: DsStore) (copiedEntityKind: EntityKind) (copiedIds: Guid list)

@@ -4,6 +4,23 @@ open System
 open Ds2.Core
 open Ds2.Core.Store
 
+/// Flow 간 Call 복사/이동 시 device system 처리 모드.
+/// - CloneSystem: {newFlow}_{devAlias} 새 system + ApiDef 복제 + ApiCall.ApiDefId 재매핑 (기본).
+/// - RenameSourceSystem: 원본 device system 의 Name 을 {newFlow}_{devAlias} 로 rename. ApiDefId 그대로 재사용.
+/// - KeepReferences: device system 자체는 손대지 않음. ApiCall.ApiDefId 도 원본 그대로 (Call 만 옮김).
+[<RequireQualifiedAccess>]
+type CrossFlowDeviceMode =
+    | CloneSystem
+    | RenameSourceSystem
+    | KeepReferences
+
+/// RenameSourceSystem 모드의 충돌 사유.
+type RenameDeviceConflict =
+    /// 원본 system 의 ApiDef 가 다른 Flow Call 한테도 참조 중. Rename 시 다른 참조가 깨짐.
+    | SharedWithOtherCalls of otherCallIds: Guid list
+    /// 대상 이름 {newFlow}_{devAlias} 가 이미 다른 system 으로 존재.
+    | NameTaken of existingSystemId: Guid
+
 
 module internal PasteDeviceOps =
 
@@ -16,10 +33,15 @@ module internal PasteDeviceOps =
     type DeviceFlowCtx = {
         Store: DsStore
         ProjectId: Guid
+        TargetFlowId: Guid
         TargetFlowName: string
+        Mode: CrossFlowDeviceMode
     }
 
-    let private cloneApiCall (sourceApiCall: ApiCall) (mapApiDefId: Guid option -> Guid option) : ApiCall =
+    let private cloneApiCall
+        (sourceApiCall: ApiCall)
+        (mapApiDefId: Guid option -> Guid option)
+        (targetOriginFlowId: Guid option) : ApiCall =
         let cloneIOTag (tagOpt: IOTag option) : IOTag option =
             tagOpt |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
         let cloned = ApiCall(sourceApiCall.Name)
@@ -28,6 +50,10 @@ module internal PasteDeviceOps =
         cloned.ApiDefId <- mapApiDefId sourceApiCall.ApiDefId
         cloned.InputSpec <- sourceApiCall.InputSpec
         cloned.OutputSpec <- sourceApiCall.OutputSpec
+        cloned.OriginFlowId <-
+            match targetOriginFlowId with
+            | Some _ -> targetOriginFlowId
+            | None -> sourceApiCall.OriginFlowId
         cloned
 
     let private ensureTargetDeviceSystem
@@ -101,9 +127,14 @@ module internal PasteDeviceOps =
                     newSystem, mapping
             { ClonedSystems = Map.add targetName (targetSystem, mapping) state.ClonedSystems }, mapping
 
-    let private copyApiCallsWithMapping (store: DsStore) (sourceCall: Call) (targetCallId: Guid) (mapApiDefId: Guid option -> Guid option) =
+    let private copyApiCallsWithMapping
+        (store: DsStore)
+        (sourceCall: Call)
+        (targetCallId: Guid)
+        (mapApiDefId: Guid option -> Guid option)
+        (targetOriginFlowId: Guid option) =
         for apiCall in sourceCall.ApiCalls do
-            let copied = cloneApiCall apiCall mapApiDefId
+            let copied = cloneApiCall apiCall mapApiDefId targetOriginFlowId
             store.TrackAdd(store.ApiCalls, copied)
             store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
 
@@ -119,7 +150,7 @@ module internal PasteDeviceOps =
             then Some d.ParentId else None)
 
     let private copyApiCallsAcrossFlows
-        (store: DsStore) (projectId: Guid) (targetFlowName: string)
+        (store: DsStore) (projectId: Guid) (targetFlowId: Guid) (targetFlowName: string)
         (sourceCall: Call) (targetCallId: Guid) (state: DevicePasteState)
         : DevicePasteState =
         sourceCall.ApiCalls
@@ -127,7 +158,7 @@ module internal PasteDeviceOps =
             let sourceSystemIdOpt = tryFindPassiveSystemId store apiCall.ApiDefId
             match sourceSystemIdOpt with
             | None ->
-                let copied = cloneApiCall apiCall id
+                let copied = cloneApiCall apiCall id (Some targetFlowId)
                 store.TrackAdd(store.ApiCalls, copied)
                 store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
                 accState
@@ -137,8 +168,47 @@ module internal PasteDeviceOps =
                     | -1 -> sourceCall.DevicesAlias
                     | idx -> apiCall.Name.[..idx - 1]
                 let newState, apiDefMapping = ensureTargetDeviceSystem store projectId targetFlowName devAlias sourceSystemId accState
-                let copied = cloneApiCall apiCall (fun srcIdOpt ->
-                    srcIdOpt |> Option.bind (fun id -> Map.tryFind id apiDefMapping) |> Option.orElse srcIdOpt)
+                let copied =
+                    cloneApiCall
+                        apiCall
+                        (fun srcIdOpt ->
+                            srcIdOpt |> Option.bind (fun id -> Map.tryFind id apiDefMapping) |> Option.orElse srcIdOpt)
+                        (Some targetFlowId)
+                store.TrackAdd(store.ApiCalls, copied)
+                store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
+                newState
+        ) state
+
+    /// RenameSourceSystem 모드: source device system 의 Name 을 {targetFlowName}_{devAlias} 로 변경하고
+    /// ApiDefId 는 *원본 그대로 재사용*. 같은 paste 안에서 동일 device 가 중복 등장하면 첫 호출만 rename.
+    let private renameAndReuseDevice
+        (store: DsStore) (targetFlowName: string)
+        (sourceCall: Call) (targetCallId: Guid) (state: DevicePasteState) (targetFlowId: Guid)
+        : DevicePasteState =
+        sourceCall.ApiCalls
+        |> Seq.fold (fun accState (apiCall: ApiCall) ->
+            let sourceSystemIdOpt = tryFindPassiveSystemId store apiCall.ApiDefId
+            match sourceSystemIdOpt with
+            | None ->
+                let copied = cloneApiCall apiCall id (Some targetFlowId)
+                store.TrackAdd(store.ApiCalls, copied)
+                store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
+                accState
+            | Some sourceSystemId ->
+                let devAlias =
+                    match apiCall.Name.IndexOf('.') with
+                    | -1 -> sourceCall.DevicesAlias
+                    | idx -> apiCall.Name.[..idx - 1]
+                let renameKey = $"{targetFlowName}_{devAlias}"
+                let newState =
+                    if Map.containsKey renameKey accState.ClonedSystems then accState
+                    else
+                        store.TrackMutate(store.Systems, sourceSystemId, fun s -> s.Name <- renameKey)
+                        match Queries.getSystem sourceSystemId store with
+                        | Some sys ->
+                            { ClonedSystems = Map.add renameKey (sys, Map.empty) accState.ClonedSystems }
+                        | None -> accState
+                let copied = cloneApiCall apiCall id (Some targetFlowId)
                 store.TrackAdd(store.ApiCalls, copied)
                 store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
                 newState
@@ -156,16 +226,24 @@ module internal PasteDeviceOps =
             shareApiCalls store sourceCall targetCallId
             deviceState
         | DifferentWork ->
-            copyApiCallsWithMapping store sourceCall targetCallId id
+            copyApiCallsWithMapping store sourceCall targetCallId id None
             deviceState
         | DifferentFlow ->
             match deviceFlowCtxOpt with
-            | Some ctx -> copyApiCallsAcrossFlows ctx.Store ctx.ProjectId ctx.TargetFlowName sourceCall targetCallId deviceState
+            | Some ctx ->
+                match ctx.Mode with
+                | CrossFlowDeviceMode.CloneSystem ->
+                    copyApiCallsAcrossFlows ctx.Store ctx.ProjectId ctx.TargetFlowId ctx.TargetFlowName sourceCall targetCallId deviceState
+                | CrossFlowDeviceMode.RenameSourceSystem ->
+                    renameAndReuseDevice ctx.Store ctx.TargetFlowName sourceCall targetCallId deviceState ctx.TargetFlowId
+                | CrossFlowDeviceMode.KeepReferences ->
+                    copyApiCallsWithMapping store sourceCall targetCallId id (Some ctx.TargetFlowId)
+                    deviceState
             | None ->
-                copyApiCallsWithMapping store sourceCall targetCallId id
+                copyApiCallsWithMapping store sourceCall targetCallId id None
                 deviceState
 
-    let makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) : DeviceFlowCtx option =
+    let makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) (mode: CrossFlowDeviceMode) : DeviceFlowCtx option =
         match Queries.getFlow targetFlowId store with
         | None -> None
         | Some targetFlow ->
@@ -173,4 +251,49 @@ module internal PasteDeviceOps =
                 Queries.getSystem targetFlow.ParentId store
                 |> Option.bind (fun s -> StoreHierarchyQueries.findProjectOfSystem store s.Id)
             projectIdOpt |> Option.map (fun pid ->
-                { Store = store; ProjectId = pid; TargetFlowName = targetFlow.Name })
+                { Store = store
+                  ProjectId = pid
+                  TargetFlowId = targetFlowId
+                  TargetFlowName = targetFlow.Name
+                  Mode = mode })
+
+    /// Rename 모드 사전 검증: 충돌 사유들을 수집해 반환. 빈 리스트면 OK.
+    /// - 같은 device system 이 다른 Flow Call 한테 공유되면 SharedWithOtherCalls.
+    /// - {targetFlowName}_{devAlias} 가 이미 다른 system 으로 존재하면 NameTaken.
+    let collectRenameConflicts
+        (store: DsStore)
+        (sourceCallIds: Guid list)
+        (targetFlowName: string)
+        (projectId: Guid)
+        : (string * RenameDeviceConflict) list =
+        // 1) source Call 들이 참조하는 source device system 집합 + 그 system 별 devAlias.
+        let sourceCallSet = Set.ofList sourceCallIds
+        let deviceUsages =
+            sourceCallIds
+            |> List.choose (Queries.getCall >> fun f -> f store)
+            |> List.collect (fun sc ->
+                sc.ApiCalls
+                |> Seq.choose (fun ac ->
+                    tryFindPassiveSystemId store ac.ApiDefId
+                    |> Option.map (fun sysId ->
+                        let devAlias =
+                            match ac.Name.IndexOf('.') with
+                            | -1 -> sc.DevicesAlias
+                            | idx -> ac.Name.[..idx - 1]
+                        sysId, devAlias))
+                |> Seq.toList)
+            |> List.distinct
+        let conflicts = ResizeArray<string * RenameDeviceConflict>()
+        for sysId, devAlias in deviceUsages do
+            let consumerCalls = Queries.findCallsReferencingPassiveSystem sysId store
+            let otherCallIds =
+                consumerCalls
+                |> List.map (fun c -> c.Id)
+                |> List.filter (fun id -> not (sourceCallSet.Contains id))
+            if not (List.isEmpty otherCallIds) then
+                conflicts.Add(devAlias, SharedWithOtherCalls otherCallIds)
+            let targetName = $"{targetFlowName}_{devAlias}"
+            match Queries.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = targetName && s.Id <> sysId) with
+            | Some existing -> conflicts.Add(devAlias, NameTaken existing.Id)
+            | None -> ()
+        conflicts |> Seq.toList

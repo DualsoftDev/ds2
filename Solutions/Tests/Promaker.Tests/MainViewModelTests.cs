@@ -169,5 +169,6 @@ public sealed class MainViewModelTests
         public string? ShowSaveFileDialog(string filter, string? defaultFileName = null) => null;
         public T? ShowDialog<T>(Window dialog) where T : class => _showDialog(dialog) == true ? dialog.DataContext as T : null;
         public bool? ShowDialog(Window dialog) => _showDialog(dialog);
+        public Ds2.Editor.CrossFlowDeviceMode? PromptCrossFlowDeviceMode(CrossFlowDeviceModePromptContext context) => null;
     }
 }
