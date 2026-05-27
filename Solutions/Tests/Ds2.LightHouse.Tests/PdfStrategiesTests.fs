@@ -223,6 +223,20 @@ let ``자료 B 실파일 — 존재 시 PdfControlSpecStrategy 매치 + markdown
             Assert.Contains("## 발견 Zone 코드 (전체 distinct)", markdown)
             // 토큰 추정값 양수.
             Assert.Matches(Regex(@"estimated-tokens: \d+"), markdown)
+            // **Backlog H (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+            // 자료 B 의 raw markdown 이 256KB cap 안 흡수 검증 (PdfControlSpecStrategy.buildMarkdown 의 applyCap 호출).
+            // Stage 0 (Original) 또는 Stage 1 (ColumnTruncated) 허용 — Sampled / Split 시 silent data loss
+            // 위험 (현재 Stage 3 split 의 part 1 만 박제, SplitParts hook 은 Backlog I 후속).
+            let mdBytes = System.Text.Encoding.UTF8.GetByteCount markdown
+            Assert.True(
+                mdBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
+                sprintf "자료 B markdown %d bytes 가 cap %d 초과 — MarkdownCapPolicy escalation 결함"
+                    mdBytes MarkdownCapPolicy.MaxMarkdownBytes)
+            let capResult = MarkdownCapPolicy.applyCap markdown
+            match capResult.Stage with
+            | MarkdownCapPolicy.Original | MarkdownCapPolicy.ColumnTruncated _ -> ()
+            | other ->
+                Assert.Fail(sprintf "자료 B 가 Stage 2/3 진입 — 실제 %A (Backlog I 후속 처리 필요: SplitParts hook)" other)
         | other ->
             Assert.Fail(sprintf "자료 B 가 PdfControlSpecStrategy 매치 실패 — %A" other)
 
