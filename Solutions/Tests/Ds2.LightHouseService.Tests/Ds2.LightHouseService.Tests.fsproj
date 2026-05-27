@@ -24,6 +24,9 @@
     <Compile Include="LiteralDriftTests.fs" />
     <Compile Include="EventBusTests.fs" />
     <Compile Include="EndpointHelpersTests.fs" />
+    <!-- PR-I3 (todo-documents-based-gfm.md §2 PR-I3 + §8.5.5) — Packager.createZip 의 `.lighthouse-kb/summary/`
+         동봉 회귀 + LightHouseService.ZipImport.extractAll round-trip 검증. service 실행 미의존 (lib-level e2e). -->
+    <Compile Include="SummaryDirIntegrationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -34,10 +37,15 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <!-- PR-I3 — SummaryDirIntegrationTests 가 OpenXml 로 synthetic xlsx fixture 생성.
+         lib 의 PrivateAssets=all 우회를 위해 test 측 직접 의존 (Ds2.LightHouse.Tests 와 동일 패턴). -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Tools\Ds2.LightHouseService\Ds2.LightHouseService.fsproj" />
+    <!-- PR-I3 — SummaryDirIntegrationTests 가 Packager.createZip 동봉 회귀 검증을 위해 CLI 직접 참조. -->
+    <ProjectReference Include="..\..\Tools\Ds2.LightHouse.Cli\Ds2.LightHouse.Cli.fsproj" />
   </ItemGroup>
 
 </Project>

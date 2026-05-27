@@ -202,6 +202,22 @@ let private runPostIngestHooks (folder: string) : KeywordExtractionResult =
     eprintfn "  text dump — %d 파일 (.lighthouse-kb/text/)" dumpFiles.Length
     let _ = SummaryBuilder.write folder summaries
     eprintfn "  summary 박제 — %d doc (.lighthouse-kb/%s)" summaries.Length SummaryBuilder.SummaryFileName
+    // **PR-I3 (todo-documents-based-gfm.md §2 PR-I3 + §8.5.5)** — strategy 정제 markdown 박제 hook.
+    // text dump / SummaryBuilder 와 직교 — `summary/` 디렉토리에 IoList / WorkOrder / PdfControlSpec 등
+    // strategy 매치 결과의 정제 markdown 박제. 비매치 / signature 미달 파일은 rejected.json / near-miss.json
+    // 에 누적 박제 (N1, N4 default). Packager.createZip 가 `.lighthouse-kb/` 전체를 zip 에 동봉 → server upload.
+    let extractors : IExtractor list = [
+        new TextExtractor() :> IExtractor
+        new PdfExtractor() :> IExtractor
+        new OoxmlExtractor() :> IExtractor
+        new ImageExtractor() :> IExtractor
+    ]
+    try
+        let dump = TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
+        eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
+            dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
+    finally
+        for ex in extractors do ex.Dispose()
     kwResult
 
 let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: bool) : int =
