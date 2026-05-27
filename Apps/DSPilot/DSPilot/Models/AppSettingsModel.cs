@@ -104,9 +104,19 @@ public class HistoryViewSettings
     public int MaxCycleTimeMs { get; set; } = 0;
 
     /// <summary>
+    /// 사이클 최소 시간(ms). CT가 이 값 미만이면 비가동 사이클로 판정. 0이면 비활성.
+    /// </summary>
+    public int MinCycleTimeMs { get; set; } = 0;
+
+    /// <summary>
     /// 개별 Call 최대 실행시간(ms). GoingTime이 이 값 초과 시 동작편차 통계에서 제외.
     /// </summary>
     public int MaxCallGoingTimeMs { get; set; } = 30000;
+
+    /// <summary>
+    /// 개별 Call 최소 실행시간(ms). GoingTime이 이 값 미만이면 동작편차 통계에서 제외. 0이면 비활성.
+    /// </summary>
+    public int MinCallGoingTimeMs { get; set; } = 0;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
