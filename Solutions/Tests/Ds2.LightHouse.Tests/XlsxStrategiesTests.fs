@@ -181,7 +181,9 @@ let ``IoListStrategy Build — 매치 시 markdown 반환 + 머리말 5행 강�
         makeIoListFixture path
         let extracted = extractDocument path
         let strategy = IoListStrategy() :> IXlsxStrategy
-        match strategy.Build (path, extracted) with
+        // **라운드 3 Major-4 fix**: classifier 가 평가한 sigResult 를 Build 에 forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build (path, extracted, sigR) with
         | Rejected entry -> Assert.Fail(sprintf "Build 가 Rejected 반환 — reason=%s" entry.Reason)
         | Built markdown ->
             // 머리말 5행 (`documents-based-gfm.md` §8.5.5).
@@ -205,7 +207,9 @@ let ``IoListStrategy Build — markdown 안 H1 + sheet H2 + 6 컬럼 표 회귀`
         makeIoListFixture path
         let extracted = extractDocument path
         let strategy = IoListStrategy() :> IXlsxStrategy
-        match strategy.Build (path, extracted) with
+        // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build (path, extracted, sigR) with
         | Rejected entry -> Assert.Fail(sprintf "Build 가 Rejected 반환 — reason=%s" entry.Reason)
         | Built markdown ->
             // H1 = "# IO List — <project>"
@@ -227,16 +231,21 @@ let ``IoListStrategy Build — markdown 안 H1 + sheet H2 + 6 컬럼 표 회귀`
             Assert.Contains("cross-ref-hash:", markdown))
 
 [<Fact>]
-let ``IoListStrategy Build — BOM fixture 는 Rejected 반환 (정상 분기, exception 아님)`` () =
+let ``IoListStrategy 미매치 BOM fixture — classifier 가 NearMiss/Unmatched 분기 (exception 아님)`` () =
+    // **라운드 3 Major-4 fix**: Build 의 미매치 분기 책임이 classifier 로 이동 — 종전 Build 의 Rejected
+    // 분기 verify 가 classifier 의 NearMiss/Unmatched 분기 verify 로 대체. Strategy 가 throw 안 한다는
+    // 핵심 invariant (signature 미매치 = 정상 분기) 는 classifier path 에 그대로 보존.
     withTempPath ".xlsx" (fun path ->
         makeBomFixture path
         let extracted = extractDocument path
-        let strategy = IoListStrategy() :> IXlsxStrategy
-        match strategy.Build (path, extracted) with
-        | Built _ -> Assert.Fail("BOM 이 Built 반환 — false-positive")
-        | Rejected entry ->
-            Assert.Equal("IoListStrategy", entry.Strategy)
-            Assert.Contains("signature 미매치", entry.Reason))
+        let result = XlsxSignatureClassifier.classify path extracted
+        match result with
+        | ClassificationResult.Matched _ -> Assert.Fail("BOM 이 Matched 반환 — false-positive")
+        | ClassificationResult.RejectedByStrategy entry ->
+            Assert.Fail(sprintf "BOM 은 signature 미매치 — RejectedByStrategy 분기 부적합 reason=%s" entry.Reason)
+        | ClassificationResult.NearMiss entries ->
+            Assert.All(entries, fun e -> Assert.True(e.Score < e.Threshold))
+        | ClassificationResult.Unmatched -> ())
 
 // ── XlsxSignatureClassifier dispatch 회귀 ─────────────────────────────────
 
@@ -355,7 +364,9 @@ let ``WorkOrderStrategy Build — 매치 시 markdown 반환 + 머리말 5행 �
         makeWorkOrderFixture path
         let extracted = extractDocument path
         let strategy = WorkOrderStrategy() :> IXlsxStrategy
-        match strategy.Build (path, extracted) with
+        // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build (path, extracted, sigR) with
         | Rejected entry -> Assert.Fail(sprintf "Build 가 Rejected 반환 — reason=%s" entry.Reason)
         | Built markdown ->
             let lines = markdown.Split([| '\n' |], 8)
@@ -373,7 +384,9 @@ let ``WorkOrderStrategy Build — H1 + sheet H2 + 6 컬럼 표 회귀`` () =
         makeWorkOrderFixture path
         let extracted = extractDocument path
         let strategy = WorkOrderStrategy() :> IXlsxStrategy
-        match strategy.Build (path, extracted) with
+        // **라운드 3 Major-4 fix**: sigResult forward (interface 정합).
+        let sigR = strategy.Signature extracted
+        match strategy.Build (path, extracted, sigR) with
         | Rejected entry -> Assert.Fail(sprintf "Build 가 Rejected 반환 — reason=%s" entry.Reason)
         | Built markdown ->
             // H1 = "# 조립작업서 — <project>"

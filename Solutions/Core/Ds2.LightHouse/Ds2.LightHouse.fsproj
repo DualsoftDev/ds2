@@ -39,6 +39,11 @@
     <Compile Include="Extractors\XlsxStrategies\IXlsxStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\IoListStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\WorkOrderStrategy.fs" />
+    <!-- 라운드 3 Major-1 + Major-4 통합 fix — XlsxSignatureClassifier ↔ PdfSignatureClassifier 의
+         24-line byte-equal 중복 제거 + Build 안 evaluateSignature 재호출 제거 공용 dispatch helper.
+         IXlsxStrategy 의 SignatureResult/StrategyOutcome 의존 → IXlsxStrategy.fs 뒤,
+         XlsxSignatureClassifier.fs / PdfSignatureClassifier.fs 보다 앞 박제. -->
+    <Compile Include="Extractors\XlsxStrategies\SignatureClassifierHelpers.fs" />
     <Compile Include="Extractors\XlsxStrategies\XlsxSignatureClassifier.fs" />
     <!-- PR-I2 (todo §3.1 / §11.4 / §2.1) — pdf strategy interface + PdfControlSpecStrategy + classifier.
          IXlsxStrategy 의 SignatureResult / StrategyOutcome 재사용 → XlsxStrategies 의 IXlsxStrategy.fs 보다 뒤.

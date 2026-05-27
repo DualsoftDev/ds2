@@ -40,4 +40,7 @@ type IXlsxStrategy =
     /// 입력 xlsx 의 signature 매치 평가. 변환 단계 진입 여부 결정.
     abstract member Signature : ExtractedDocument -> SignatureResult
     /// signature 매치 후 markdown 빌드 진입점. `sourcePath` = cross-ref-hash 계산 + diagnostic 식별용.
-    abstract member Build : sourcePath: string * extracted: ExtractedDocument -> StrategyOutcome
+    /// **라운드 3 Major-4 fix**: classifier 가 평가한 `sigResult` 를 forward — strategy 가 동일
+    /// `evaluateSignature` 를 다시 호출하던 중복 비용 제거. caller (classifier) 가 매치 분기 판단
+    /// 후 호출하므로 Build 진입 시 `sigResult.Matched = true` 가 invariant.
+    abstract member Build : sourcePath: string * extracted: ExtractedDocument * sigResult: SignatureResult -> StrategyOutcome

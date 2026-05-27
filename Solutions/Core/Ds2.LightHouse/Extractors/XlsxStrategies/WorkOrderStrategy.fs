@@ -300,17 +300,6 @@ type WorkOrderStrategy() =
         member _.Name = strategyName
         member _.Version = strategyVersion
         member _.Signature extracted = evaluateSignature extracted
-        member _.Build (sourcePath, extracted) =
-            let sigResult = evaluateSignature extracted
-            if not sigResult.Matched then
-                Rejected {
-                    File = sourcePath
-                    // 전체 파일 reject — sheet 단위 정보 무관. null 박제 시 직렬화에서
-                    // key 누락 (NullValueHandling.Ignore). round 2 Major-3 fix 정합.
-                    Sheet = null
-                    Reason = sprintf "signature 미매치: %s" sigResult.Detail
-                    Strategy = strategyName
-                    RejectedAt = DateTime.UtcNow
-                }
-            else
-                Built (buildMarkdown sourcePath extracted sigResult)
+        // **라운드 3 Major-4 fix**: classifier 가 평가한 sigResult 를 forward (IoListStrategy 동형).
+        member _.Build (sourcePath, extracted, sigResult) =
+            Built (buildMarkdown sourcePath extracted sigResult)

@@ -1,8 +1,6 @@
 namespace Ds2.LightHouse.PdfStrategies
 
-open System
 open Ds2.LightHouse
-open Ds2.LightHouse.Diagnostics
 open Ds2.LightHouse.Extractors
 open Ds2.LightHouse.Extractors.XlsxStrategies
 
@@ -37,27 +35,16 @@ module PdfSignatureClassifier =
     ///   2. 첫 매치 strategy 의 Build 호출 → Built / Rejected 결과 그대로 반환.
     ///   3. 매치 strategy 0건 + score > 0 strategy 가 있으면 NearMiss list 반환.
     ///   4. 모든 strategy score 0 → Unmatched.
+    ///
+    /// **라운드 3 Major-1 + Major-4 통합 fix**: dispatch 본문은 `SignatureClassifierHelpers.classify`
+    /// SSOT 호출로 단축 (XlsxSignatureClassifier 와 byte-equal 중복 제거). 매치 strategy 의 Build 에
+    /// helper 평가 `sigResult` 가 forward → strategy 안 evaluateSignature 재호출 제거.
     let classify (sourcePath: string) (extracted: ExtractedDocument) : ClassificationResult =
-        let evaluations =
+        let dispatch =
             strategies
-            |> List.map (fun s -> s, s.Signature extracted)
-        let matched = evaluations |> List.tryFind (fun (_, sigR) -> sigR.Matched)
-        match matched with
-        | Some (strategy, _) ->
-            match strategy.Build (sourcePath, extracted) with
-            | StrategyOutcome.Built md -> ClassificationResult.Matched (strategy.Name, md)
-            | StrategyOutcome.Rejected entry -> ClassificationResult.RejectedByStrategy entry
-        | None ->
-            let nearMisses =
-                evaluations
-                |> List.filter (fun (_, sigR) -> sigR.Score > 0)
-                |> List.map (fun (strategy, sigR) -> {
-                    File = sourcePath
-                    CandidateStrategy = strategy.Name
-                    Score = sigR.Score
-                    Threshold = sigR.Threshold
-                    Detail = sigR.Detail
-                    DetectedAt = DateTime.UtcNow
-                })
-            if List.isEmpty nearMisses then ClassificationResult.Unmatched
-            else ClassificationResult.NearMiss nearMisses
+            |> List.map (fun s -> {
+                SignatureClassifierHelpers.Name = s.Name
+                SignatureClassifierHelpers.EvaluateSignature = s.Signature
+                SignatureClassifierHelpers.Build = s.Build
+            })
+        SignatureClassifierHelpers.classify dispatch sourcePath extracted
