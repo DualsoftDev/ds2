@@ -363,6 +363,7 @@ public sealed class SimulationEditGuardsTests
         public string? ShowSaveFileDialog(string filter, string? defaultFileName = null) => null;
         public T? ShowDialog<T>(Window dialog) where T : class => null;
         public bool? ShowDialog(Window dialog) => false;
+        public Ds2.Editor.CrossFlowDeviceMode? PromptCrossFlowDeviceMode(CrossFlowDeviceModePromptContext context) => null;
     }
 
     private sealed class StopChoosingDialogService : RecordingDialogService

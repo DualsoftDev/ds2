@@ -264,6 +264,24 @@ module Queries =
             && (match excludeId with Some id -> a.Id <> id | None -> true))
         |> not
 
+    /// 주어진 Passive System 의 ApiDef 들을 ApiCall.ApiDefId 로 참조하는 모든 Call.
+    /// Cross-flow Move 의 prefix-rename 모드 충돌 가드용 — source device 가 다른 Flow Call 한테도
+    /// 공유 중이면 rename 이 다른 참조를 깨뜨리므로 차단해야 한다.
+    let findCallsReferencingPassiveSystem (systemId: Guid) (store: DsStore) : Call list =
+        let apiDefIds =
+            apiDefsOf systemId store
+            |> List.map (fun d -> d.Id)
+            |> Set.ofList
+        if apiDefIds.IsEmpty then []
+        else
+            store.CallsReadOnly.Values
+            |> Seq.filter (fun c ->
+                c.ApiCalls
+                |> Seq.exists (fun ac ->
+                    ac.ApiDefId
+                    |> Option.exists apiDefIds.Contains))
+            |> Seq.toList
+
     // ─────────────────────────────────────────────────────────────────────────
     // ApiCall 쿼리
     // ─────────────────────────────────────────────────────────────────────────

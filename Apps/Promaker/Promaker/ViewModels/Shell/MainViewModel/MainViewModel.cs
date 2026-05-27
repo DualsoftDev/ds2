@@ -26,6 +26,8 @@ public partial class MainViewModel : ObservableObject
     private string? _currentFilePath;
     private readonly List<SelectionKey> _clipboardSelection = [];
     private int _pasteCount;
+    /// <summary>Cut(Ctrl+X) 으로 채워진 clipboard 인지. paste 완료 후 false 로 복귀.</summary>
+    private bool _clipboardIsCut;
     public bool HasClipboardData => _clipboardSelection.Count > 0;
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];

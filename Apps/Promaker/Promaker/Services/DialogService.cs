@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using Ds2.Editor;
 using Microsoft.Win32;
 using Promaker.Presentation;
 
@@ -83,5 +84,16 @@ public class DialogService : IDialogService
         }
 
         return dialog.ShowDialog();
+    }
+
+    public CrossFlowDeviceMode? PromptCrossFlowDeviceMode(CrossFlowDeviceModePromptContext context)
+    {
+        var dlg = new Dialogs.CallMoveAcrossFlowsDialog(context);
+        if (Application.Current.MainWindow is { } owner)
+        {
+            dlg.Owner = owner;
+            dlg.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        }
+        return dlg.ShowDialog() == true ? dlg.SelectedMode : null;
     }
 }
