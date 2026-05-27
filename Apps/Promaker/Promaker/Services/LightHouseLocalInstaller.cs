@@ -2,6 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,38 +37,49 @@ public sealed class LightHouseLocalInstaller
     }
 
     /// <summary>
-    /// enable-ai.ps1 호출 → 4단계 (Ollama / cert / sc create + PSK / firewall + start) → Promaker 측 PSK DPAPI 박제.
+    /// **B4 (2026-05-27) — SecureString 정공 path**. enable-ai.ps1 호출 → Promaker 측 PSK DPAPI 박제.
     /// 성공 시 <see cref="EnableResult.ServiceId"/> 가 LlmConfig.LightHouseServices 의 Local entry 식별자.
     /// <para/>
-    /// **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 caller 가 사용자 입력값 (현재 구현은
-    /// managed string, **M4 메타리뷰 (2026-05-27) — SecureString 정공은 별 phase**) 을 받아 평문으로 전달. 본 메서드는 그
-    /// 평문을 임시 파일 (Owner-only ACL) 에 박제 → ps1 가 read 후 wipe → 본 메서드도 finally 에서 wipe (이중 안전).
+    /// **PSK / cert PFX password 평문 lifetime 최소화**: SecureString → UTF-8 byte[] (lock 보호) → File.WriteAllBytes
+    /// → finally Array.Clear(bytes) + Marshal.ZeroFreeGlobalAllocUnicode. 임시 파일은 ps1 read 직후 wipe + 본 메서드도
+    /// finally wipe (이중 안전). PSK 의 DPAPI 박제 단계만 LlmConfig.SetLightHousePsk(string) 시그니처 제약으로 1회
+    /// managed string 변환 (lifetime = SetLightHousePsk 호출 안에 한정).
+    /// <para/>
+    /// **caller (EnableLocalServiceDialog)** 가 SecureString 소유권 이양. 본 메서드는 사용 후 Dispose 의무 가짐.
     /// </summary>
-    /// <param name="pskPlain">사용자 입력 PSK 평문. 임시 파일 박제 후 일찍 wipe — caller 도 호출 후 자체 wipe 의무.</param>
-    /// <param name="certPwdPlain">사용자 입력 cert PFX password 평문. PSK 와 동일 lifetime.</param>
-    public async Task<EnableResult> EnableAsync(string pskPlain, string certPwdPlain, CancellationToken ct = default)
+    /// <param name="psk">사용자 입력 PSK SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
+    /// <param name="certPwd">사용자 입력 cert PFX password SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
+    public async Task<EnableResult> EnableAsync(SecureString psk, SecureString certPwd, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(pskPlain)) throw new ArgumentException("PSK 평문 비어있음.", nameof(pskPlain));
-        if (string.IsNullOrEmpty(certPwdPlain)) throw new ArgumentException("Cert PFX password 평문 비어있음.", nameof(certPwdPlain));
-
-        var deployment = ResolveDeployment()
-            ?? throw new InvalidOperationException(
-                "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
-
-        var enableScript = Path.Combine(deployment.ScriptsDir, "enable-ai.ps1");
-        if (!File.Exists(enableScript))
-            throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
-
+        // **B4 자가 검열 Critical-1 fix (2026-05-27)** — Dispose 의무 박제는 진입 직후부터 보장.
+        // (이전 구현: Argument 검사 / ResolveDeployment / File.Exists throw 가 try 블록 *바깥* 이라 SecureString 누수.)
         var pskIn  = Path.Combine(Path.GetTempPath(), $"promaker-psk-{Guid.NewGuid():N}.tmp");
         var cpwdIn = Path.Combine(Path.GetTempPath(), $"promaker-cpw-{Guid.NewGuid():N}.tmp");
         var logOut = Path.Combine(Path.GetTempPath(), $"promaker-ai-{Guid.NewGuid():N}.log");
 
+        byte[]? pskBytes = null;
+        byte[]? cpwBytes = null;
         try
         {
-            // 평문 박제 — UTF-8 (no BOM) 1줄. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
+            if (psk is null) throw new ArgumentNullException(nameof(psk));
+            if (certPwd is null) throw new ArgumentNullException(nameof(certPwd));
+            if (psk.Length == 0) throw new ArgumentException("PSK 비어있음.", nameof(psk));
+            if (certPwd.Length == 0) throw new ArgumentException("Cert PFX password 비어있음.", nameof(certPwd));
+
+            var deployment = ResolveDeployment()
+                ?? throw new InvalidOperationException(
+                    "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
+
+            var enableScript = Path.Combine(deployment.ScriptsDir, "enable-ai.ps1");
+            if (!File.Exists(enableScript))
+                throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
+
+            // **B4 (2026-05-27)** — SecureString → UTF-8 byte[]. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
             // (Windows 의 %TEMP% 가 사용자별 분리 박제 — 다른 사용자 read 불가, admin elevation 시 read 가능 — UAC 후 자기 process 가 read).
-            File.WriteAllText(pskIn, pskPlain, new System.Text.UTF8Encoding(false));
-            File.WriteAllText(cpwdIn, certPwdPlain, new System.Text.UTF8Encoding(false));
+            pskBytes = SecureStringToUtf8Bytes(psk);
+            cpwBytes = SecureStringToUtf8Bytes(certPwd);
+            File.WriteAllBytes(pskIn, pskBytes);
+            File.WriteAllBytes(cpwdIn, cpwBytes);
 
             var psArgs = string.Join(' ', new[]
             {
@@ -98,8 +112,9 @@ public sealed class LightHouseLocalInstaller
                     $"enable-ai.ps1 실패 (exit {proc.ExitCode}). log 끝부분:{Environment.NewLine}{tail}{Environment.NewLine}전체 log: {logOut}");
             }
 
-            // PSK 는 caller (UI) 가 사용자 입력 받았으므로 그 평문이 이미 손에 있음 — Promaker LlmConfig 박제는 직접.
-            var serviceId = PersistLocalEntry(pskPlain);
+            // **B4 (2026-05-27)** — PSK 의 DPAPI 박제 단계만 SecureString → managed string 1회 변환 (lifetime 한정).
+            // LlmConfig.SetLightHousePsk(string) 시그니처 제약 — 별 backlog 로 SecureString overload 박제 권장.
+            var serviceId = PersistLocalEntryFromSecureString(psk);
             Log.Info($"LightHouse Local entry 박제 완료 — ServiceId={serviceId}");
 
             var startOk = TryParseStartResult(logOut);
@@ -107,10 +122,76 @@ public sealed class LightHouseLocalInstaller
         }
         finally
         {
-            // 이중 안전 — ps1 도 read 직후 wipe 하나 caller 측에서도 finally wipe (예외 분기 보호).
+            // **B4 (2026-05-27)** — heap 평문 wipe (Array.Clear) + temp file wipe (이중 안전).
+            if (pskBytes is not null) Array.Clear(pskBytes, 0, pskBytes.Length);
+            if (cpwBytes is not null) Array.Clear(cpwBytes, 0, cpwBytes.Length);
             TryWipeFile(pskIn);
             TryWipeFile(cpwdIn);
+            // null-safe — ArgumentNullException 분기 진입 시 한쪽이 null 일 수 있음.
+            psk?.Dispose();
+            certPwd?.Dispose();
             // log 는 caller 가 결과 표시 후 직접 cleanup. (실패 시 진단 자료로 유용.)
+        }
+    }
+
+    /// <summary>
+    /// **B4 (2026-05-27) deprecated** — managed string 시그니처 보존 (외부 caller 호환). 신규 caller 는 SecureString
+    /// overload 사용 의무 (heap 평문 lifetime 최소화 SSOT). 본 overload 는 평문 string → SecureString 1회 wrapping
+    /// 후 정공 path 호출 — string 자체는 immutable 이라 wipe 불가, caller 평문 잔존 risk 그대로.
+    /// </summary>
+    [Obsolete("B4 (2026-05-27): SecureString overload 사용 권장. managed string path 는 heap 평문 잔존 risk.")]
+    public Task<EnableResult> EnableAsync(string pskPlain, string certPwdPlain, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(pskPlain)) throw new ArgumentException("PSK 평문 비어있음.", nameof(pskPlain));
+        if (string.IsNullOrEmpty(certPwdPlain)) throw new ArgumentException("Cert PFX password 평문 비어있음.", nameof(certPwdPlain));
+        var psk = StringToSecureString(pskPlain);
+        var cpw = StringToSecureString(certPwdPlain);
+        return EnableAsync(psk, cpw, ct);
+    }
+
+    private static SecureString StringToSecureString(string s)
+    {
+        var ss = new SecureString();
+        foreach (var ch in s) ss.AppendChar(ch);
+        ss.MakeReadOnly();
+        return ss;
+    }
+
+    /// <summary>**B4 (2026-05-27)** — SecureString → UTF-8 byte[]. 중간 char[] 도 Array.Clear 로 wipe.
+    /// caller 가 반환 byte[] 의 사용 후 Array.Clear 의무 (finally). internal — 보안 정합 회귀 가드 (LightHouseLocalInstallerTests).</summary>
+    internal static byte[] SecureStringToUtf8Bytes(SecureString ss)
+    {
+        IntPtr unicodePtr = IntPtr.Zero;
+        char[]? chars = null;
+        try
+        {
+            unicodePtr = Marshal.SecureStringToGlobalAllocUnicode(ss);
+            chars = new char[ss.Length];
+            Marshal.Copy(unicodePtr, chars, 0, ss.Length);
+            return Encoding.UTF8.GetBytes(chars);
+        }
+        finally
+        {
+            if (chars is not null) Array.Clear(chars, 0, chars.Length);
+            if (unicodePtr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(unicodePtr);
+        }
+    }
+
+    /// <summary>**B4 (2026-05-27)** — DPAPI 박제 직전 1회 평문 변환 (SetLightHousePsk(string) 시그니처 제약).
+    /// 본 helper 의 string 결과는 GC heap 에 잔존 — LlmConfig 의 DPAPI 박제 후 GC 가 회수할 때까지 lifetime
+    /// 단축 의도. 별 backlog 로 SetLightHousePsk(SecureString) overload 박제 후 본 helper 폐기 권장.</summary>
+    private string PersistLocalEntryFromSecureString(SecureString psk)
+    {
+        IntPtr ptr = IntPtr.Zero;
+        try
+        {
+            ptr = Marshal.SecureStringToGlobalAllocUnicode(psk);
+            var pskPlain = Marshal.PtrToStringUni(ptr) ?? "";
+            return PersistLocalEntry(pskPlain);
+        }
+        finally
+        {
+            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
         }
     }
 

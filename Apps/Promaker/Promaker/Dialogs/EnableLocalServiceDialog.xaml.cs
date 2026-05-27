@@ -1,3 +1,4 @@
+using System.Security;
 using System.Windows;
 
 namespace Promaker.Dialogs;
@@ -10,16 +11,17 @@ namespace Promaker.Dialogs;
 /// <para/>
 /// **메타리뷰 M9 (2026-05-27)** — 빈 값 차단만 추가 (사용자 결정 항목 외라 안전).
 /// <para/>
-/// **메타리뷰 M4 (2026-05-27) — SecureString lifetime 격하 박제**: 본 dialog 는 WPF <c>PasswordBox.Password</c>
-/// (managed string) 사용. <c>PasswordBox.SecurePassword</c> (SecureString) 미사용 = heap 평문 잔존 risk.
-/// 정공 path (SecurePassword → byte[] → Array.Clear) 박제는 별 phase 권장 — caller (LightHouseLocalInstaller) 가
-/// string 인자 받는 시그니처라 dialog 만 SecureString 박제해도 caller 단계에서 string 변환되어 의미 없음.
-/// 전체 chain (UI dialog ↔ installer ↔ ps1 temp file) 의 byte[] / SecureString 정공 박제는 별 phase.
+/// **B4 (2026-05-27) — SecureString 정공 채택**: 이전 (M4) 의 managed string path 폐기. <c>PasswordBox.SecurePassword</c>
+/// (SecureString) 그대로 caller (<see cref="Promaker.Services.LightHouseLocalInstaller"/>) 에 전달.
+/// caller 가 SecureString → UTF-8 byte[] 변환 후 즉시 Array.Clear + ZeroFreeGlobalAllocUnicode 의무.
+/// dialog 는 SecureString 소유권 caller 로 이양 — caller 가 Dispose 책임.
 /// </summary>
 public partial class EnableLocalServiceDialog : Window
 {
-    public string? PskResult { get; private set; }
-    public string? CertPwdResult { get; private set; }
+    /// <summary>**B4 (2026-05-27)** — PasswordBox.SecurePassword 의 평문 미노출 path. caller 가 Dispose 의무.</summary>
+    public SecureString? PskResult { get; private set; }
+    /// <summary>**B4 (2026-05-27)** — Cert PFX password SecureString. caller 가 Dispose 의무.</summary>
+    public SecureString? CertPwdResult { get; private set; }
 
     public EnableLocalServiceDialog()
     {
@@ -29,15 +31,22 @@ public partial class EnableLocalServiceDialog : Window
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         // **M9 (2026-05-27)** — 빈 값 차단 (강도 안내는 사용자 결정 정합으로 제외).
-        var psk = PskBox.Password ?? "";
-        var cpw = CertPwdBox.Password ?? "";
-        if (string.IsNullOrEmpty(psk) || string.IsNullOrEmpty(cpw))
+        // **B4 (2026-05-27)** — SecurePassword 박제. PasswordBox.SecurePassword 가 매 호출마다 신규 SecureString 반환
+        // (WPF 내부 buffer 복사) — Length 검사 후 그대로 caller 에 이양. 평문 변환 없음.
+        var psk = PskBox.SecurePassword;
+        var cpw = CertPwdBox.SecurePassword;
+        if (psk.Length == 0 || cpw.Length == 0)
         {
+            psk.Dispose();
+            cpw.Dispose();
             MessageBox.Show(this,
                 "PSK 와 Cert PFX Password 둘 다 입력 필수입니다 (빈 값 거부).",
                 "입력 확인", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        // immutable 박제 — caller 가 사용 후 Dispose 시 후속 mutate 불가.
+        psk.MakeReadOnly();
+        cpw.MakeReadOnly();
         PskResult = psk;
         CertPwdResult = cpw;
         DialogResult = true;

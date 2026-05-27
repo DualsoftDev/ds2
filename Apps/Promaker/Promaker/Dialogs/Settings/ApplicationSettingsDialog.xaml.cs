@@ -558,10 +558,18 @@ public partial class ApplicationSettingsDialog : Window
         }
 
         // PSK / Cert PFX Password 입력 dialog (검증 0).
+        // **B4 (2026-05-27)** — SecureString 정공 path. dialog 가 SecureString 반환 → installer 가 소유권 이양 후 Dispose.
         var inputDialog = new Promaker.Dialogs.EnableLocalServiceDialog { Owner = Window.GetWindow(this) };
         if (inputDialog.ShowDialog() != true) return;
-        var pskPlain = inputDialog.PskResult ?? "";
-        var certPwdPlain = inputDialog.CertPwdResult ?? "";
+        var pskSecure = inputDialog.PskResult;
+        var certPwdSecure = inputDialog.CertPwdResult;
+        if (pskSecure is null || certPwdSecure is null)
+        {
+            // dialog OK 후 빈 값 차단 — 방어 분기. 한쪽만 null 케이스의 leak 차단.
+            pskSecure?.Dispose();
+            certPwdSecure?.Dispose();
+            return;
+        }
 
         LhEnableLocalButton.IsEnabled = false;
         LhEnableLocalStatus.Text =
@@ -569,7 +577,7 @@ public partial class ApplicationSettingsDialog : Window
         try
         {
             var installer = new LightHouseLocalInstaller(_llmConfig);
-            var result = await installer.EnableAsync(pskPlain, certPwdPlain).ConfigureAwait(true);
+            var result = await installer.EnableAsync(pskSecure, certPwdSecure).ConfigureAwait(true);
 
             LlmConfigChanged = true;
             ReloadLhServicesWorking();
@@ -592,9 +600,7 @@ public partial class ApplicationSettingsDialog : Window
         finally
         {
             LhEnableLocalButton.IsEnabled = true;
-            // 평문 변수 즉시 비움 — managed string 잔존은 GC 한계.
-            pskPlain = null!;
-            certPwdPlain = null!;
+            // SecureString 의 Dispose 는 installer 의 finally 가 보장 — 본 caller 는 추가 wipe 불요.
         }
     }
 
