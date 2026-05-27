@@ -19,10 +19,10 @@ public sealed class ChildProcessTrackerTests
         ChildProcessTracker.AddProcess(null!);
     }
 
-    [Fact]
+    [SkippableFact]
     public void AddProcess_already_exited_process_is_no_op()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (ChildProcessTracker JobObject).");
 
         var psi = new ProcessStartInfo("cmd.exe", "/c exit 0")
         {
@@ -38,10 +38,10 @@ public sealed class ChildProcessTrackerTests
         ChildProcessTracker.AddProcess(proc);
     }
 
-    [Fact]
+    [SkippableFact]
     public void AddProcess_attaches_running_process_without_exception()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (ChildProcessTracker JobObject).");
 
         // 1초 자고 종료하는 cmd
         var psi = new ProcessStartInfo("cmd.exe", "/c ping -n 2 127.0.0.1 > nul")
