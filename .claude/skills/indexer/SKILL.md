@@ -170,8 +170,8 @@ caption-fill 보다 비용 가벼움 (doc 단위 N 작음, text dump ≤ 512KB) 
    - 각 agent prompt 안 명시:
      - text dump file path = `<folder>/.lighthouse-kb/<textDumpPath>` — **Read 도구로 read 후 처리** (전문 본문 흡수).
      - summary prompt = Step 1-b-3 의 fetch 결과 그대로 복사.
-     - 출력 형식: "summary 한 문장 (한국어 80~120자) 만. 본문 echo 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
-   - `max_output_tokens=300` 가드. parse 실패 시 per-doc max 2 attempts retry.
+     - 출력 형식: "summary 한 줄 (한국어 80~500자, 본문 분량 / 중요도에 비례) 만. 본문 echo 금지. 줄바꿈 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
+   - `max_output_tokens=800` 가드 (한국어 500자 + JSON wrapper 여유). parse 실패 시 per-doc max 2 attempts retry.
 
 5. **batch JSON 박제** — 모든 round 의 successful row 를 단일 array 로 모아 임시 파일 (e.g. `<folder>/.lighthouse-kb/summary-batch.json`).
 
