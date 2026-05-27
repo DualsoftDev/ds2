@@ -846,34 +846,30 @@ public partial class ApplicationSettingsDialog : Window
         if (svc is null) return;
 
         var url = (svc.BaseUrl ?? "").Trim();
-        // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화 (deep clone 한 ApiKeyEncrypted 로부터 _llmConfig 의 GetLightHousePsk 호출).
-        // **PR2 (2026-05-27)** — _pskChanges 가 SecureString — LightHouseClient.PSK provider (Func<string?>) wire-up 위해 1회 변환.
-        // LightHouseClient PSK provider 가 SecureString migrate 시 본 변환도 폐기 가능 (별 backlog).
-        string psk;
-        if (_pskChanges.TryGetValue(serviceId, out var pendingSecure))
-        {
-            psk = LightHouseLocalInstaller.SecureStringToManagedString(pendingSecure);
-        }
-        else
-        {
-            // 기존 service 에 박제된 ApiKeyEncrypted 가 있으면 복호화 — disk 의 _llmConfig 의 같은 ServiceId entry 사용.
-            psk = _llmConfig.GetLightHousePsk(serviceId) ?? "";
-        }
+        // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화.
+        // **B8 (2026-05-27)** — SecureString 정공 path. LightHouseClient.PSK provider 가 SecureString overload — 1회 string 변환 폐기.
+        var pskSecure = _pskChanges.TryGetValue(serviceId, out var pendingSecure)
+            ? pendingSecure  // 소유권 _pskChanges 유지 — provider Func 매 호출마다 같은 instance 반환.
+            : _llmConfig.GetLightHousePskSecure(serviceId);
 
         if (string.IsNullOrEmpty(url) || url == "https://")
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] Base URL 이 비어있습니다.", success: false);
             return;
         }
-        if (string.IsNullOrEmpty(psk))
+        if (pskSecure is null || pskSecure.Length == 0)
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] PSK 가 비어있습니다.", success: false);
+            // _pskChanges 의 entry 가 아니면 GetLightHousePskSecure 가 신규 발급한 SecureString — Dispose.
+            if (pendingSecure is null) pskSecure?.Dispose();
             return;
         }
         SetTestResult(LhTestResult, $"[{svc.DisplayName}] 확인 중…", success: null);
         try
         {
-            using var client = new LightHouseClient(url, () => psk, Environment.UserName);
+            // **B8 (2026-05-27)** — SecureString provider 직접 박제. pskSecure 가 _pskChanges 의 instance 면 dialog Closed 가 Dispose,
+            // GetLightHousePskSecure 신규 instance 면 본 try 의 finally 가 Dispose.
+            using var client = new LightHouseClient(url, () => pskSecure, Environment.UserName);
             var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
             SetTestResult(LhTestResult, $"✅ [{svc.DisplayName}] 연결 성공 — collection {resp.Collections.Count}건", success: true);
         }
@@ -888,6 +884,11 @@ public partial class ApplicationSettingsDialog : Window
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or ArgumentException)
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] 연결 실패 — {ex.Message}", success: false);
+        }
+        finally
+        {
+            // **B8 (2026-05-27)** — _pskChanges 의 instance 가 아니면 GetLightHousePskSecure 신규 발급 — Dispose 의무.
+            if (pendingSecure is null) pskSecure?.Dispose();
         }
     }
 

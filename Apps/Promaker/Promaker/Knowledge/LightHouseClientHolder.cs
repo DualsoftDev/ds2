@@ -138,9 +138,10 @@ public static class LightHouseClientHolder
                 try
                 {
                     // **B5 D-S7-1 후속 (s6-r61)** — clientCertThumbprint 박제 (null/빈 값 시 PSK 단독).
+                    // **B8 (2026-05-27)** — SecureString PSK provider 정공 path. heap 평문 lifetime = NewRequest scope 한정.
                     client = new LightHouseClient(
                         svc.BaseUrl,
-                        () => config.GetLightHousePsk(capturedServiceId),
+                        () => config.GetLightHousePskSecure(capturedServiceId),
                         Environment.UserName,
                         () => config.KbCollections
                             .Where(k => k.Active && k.ServiceId == capturedServiceId)

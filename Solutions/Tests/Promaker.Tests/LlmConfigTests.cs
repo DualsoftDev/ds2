@@ -462,6 +462,47 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Equal(plain, cfg.GetLightHousePsk(svc.ServiceId));
     }
 
+    /// <summary>**B8 (2026-05-27)** — GetLightHousePskSecure round-trip. DPAPI Unprotect → SecureString. 미설정 / 빈 entry 시 null.</summary>
+    [SkippableFact]
+    public void GetLightHousePskSecure_round_trip_정합()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        const string plain = "secure-psk-recover-789";
+        cfg.SetLightHousePsk(svc.ServiceId, plain);
+
+        using var ss = cfg.GetLightHousePskSecure(svc.ServiceId);
+        Assert.NotNull(ss);
+        Assert.Equal(plain.Length, ss!.Length);
+
+        // SecureString 평문 복구 후 원본 일치 확인 (test 가독성 위한 1회 변환).
+        var ptr = System.Runtime.InteropServices.Marshal.SecureStringToGlobalAllocUnicode(ss);
+        try
+        {
+            Assert.Equal(plain, System.Runtime.InteropServices.Marshal.PtrToStringUni(ptr));
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    [SkippableFact]
+    public void GetLightHousePskSecure_missing_or_empty_returns_null()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        Assert.Null(cfg.GetLightHousePskSecure("nonexistent-id"));
+        Assert.Null(cfg.GetLightHousePskSecure(""));
+
+        var svc = cfg.EnsureActiveService();
+        // ApiKeyEncrypted="" 인 상태 — null 반환.
+        Assert.Null(cfg.GetLightHousePskSecure(svc.ServiceId));
+    }
+
     /// <summary>**B5 (2026-05-27)** — SecureString overload 의 null/빈 입력 시 ApiKeyEncrypted clear (string overload contract 동일).</summary>
     [SkippableFact]
     public void SetLightHousePsk_SecureString_null_or_empty_clears_encrypted()

@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -35,7 +37,8 @@ public sealed class LightHouseClient : IDisposable
     private static readonly ILog Log = LogManager.GetLogger(typeof(LightHouseClient));
 
     private readonly HttpClient _http;
-    private readonly Func<string?> _pskProvider;
+    /// <summary>**B8 (2026-05-27)** — PSK provider. SecureString 정공 path. string overload ctor 는 wrapper 로 자체 변환.</summary>
+    private readonly Func<SecureString?> _pskProvider;
     private readonly string _userIdentity;
     private readonly Func<IReadOnlyList<string>>? _activeCollectionIdsProvider;
     private readonly bool _ownsHttp;
@@ -75,7 +78,7 @@ public sealed class LightHouseClient : IDisposable
     /// `LightHouseServiceConfig.BaseUrl` 가 HTTPS 가 아니면 ArgumentException (§3.7 plain HTTP 거부).
     /// </summary>
     /// <param name="baseUrl">HTTPS URL (e.g. "https://service.company.local:8443").</param>
-    /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생).</param>
+    /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생). <b>B8 (2026-05-27): managed string path 는 heap 평문 잔존 risk — 신규 caller 는 SecureString overload 권장.</b></param>
     /// <param name="userIdentity">`X-User-Identity` 헤더 값. 일반 = `Environment.UserName` 또는 LlmConfig 의 user 식별자.</param>
     /// <param name="activeCollectionIdsProvider">L3 자동 회복 시 재발급에 사용할 active 셋. null = 회복 비활성.</param>
     /// <param name="clientCertThumbprint">**B5 D-S7-1 후속 (s6-r61)** — mTLS client cert thumbprint (SHA-1 40 / SHA-256 64 hex). null/빈 값 = PSK 단독.</param>
@@ -85,7 +88,22 @@ public sealed class LightHouseClient : IDisposable
         string userIdentity,
         Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null,
         string? clientCertThumbprint = null)
-        : this(BuildHttp(baseUrl, clientCertThumbprint), pskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
+        : this(BuildHttp(baseUrl, clientCertThumbprint), WrapStringProvider(pskProvider), userIdentity, activeCollectionIdsProvider, ownsHttp: true)
+    {
+    }
+
+    /// <summary>
+    /// **B8 (2026-05-27) — SecureString 정공 production ctor**. caller (LightHouseClientHolder) 가
+    /// <see cref="LlmConfig.GetLightHousePskSecure"/> 직접 박제 → 본 client 가 매 NewRequest 시점에 SecureString → 1회
+    /// string 변환 (local var, GC 즉시) → AuthenticationHeaderValue. heap 평문 lifetime 최소화 정공 path.
+    /// </summary>
+    public LightHouseClient(
+        string baseUrl,
+        Func<SecureString?> securePskProvider,
+        string userIdentity,
+        Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null,
+        string? clientCertThumbprint = null)
+        : this(BuildHttp(baseUrl, clientCertThumbprint), securePskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
     {
     }
 
@@ -99,6 +117,17 @@ public sealed class LightHouseClient : IDisposable
         string userIdentity,
         Func<IReadOnlyList<string>>? activeCollectionIdsProvider,
         bool ownsHttp)
+        : this(httpClient, WrapStringProvider(pskProvider), userIdentity, activeCollectionIdsProvider, ownsHttp)
+    {
+    }
+
+    /// <summary>**B8 (2026-05-27)** — SecureString provider 진입점 ctor. string overload 는 본 ctor 위임. test 친화 (mock handler 박제 + SecureString PSK 직접 박제).</summary>
+    internal LightHouseClient(
+        HttpClient httpClient,
+        Func<SecureString?> securePskProvider,
+        string userIdentity,
+        Func<IReadOnlyList<string>>? activeCollectionIdsProvider,
+        bool ownsHttp)
     {
         if (httpClient is null) throw new ArgumentNullException(nameof(httpClient));
         if (httpClient.BaseAddress is null)
@@ -109,7 +138,7 @@ public sealed class LightHouseClient : IDisposable
 
         _http = httpClient;
         BaseUrl = httpClient.BaseAddress!.ToString().TrimEnd('/');
-        _pskProvider = pskProvider ?? throw new ArgumentNullException(nameof(pskProvider));
+        _pskProvider = securePskProvider ?? throw new ArgumentNullException(nameof(securePskProvider));
         _userIdentity = string.IsNullOrWhiteSpace(userIdentity)
             ? throw new ArgumentException("userIdentity 빈 값 금지 (§3.7 X-User-Identity 헤더 의무).", nameof(userIdentity))
             : userIdentity;
@@ -207,22 +236,54 @@ public sealed class LightHouseClient : IDisposable
 
     /// <summary>현재 PSK / X-User-Identity 헤더를 박제한 HttpRequestMessage 빌더. 매 호출마다 호출.
     /// <para/>
-    /// **B6 (M9 보안 sweep, s6-r71+)** — PSK 평문 lifetime 최소화. `pskProvider` 결과를 local var 로 받은 즉시
-    /// `AuthenticationHeaderValue` 박제 후 local var `null` 박제 → method scope 종료와 별개로 즉시 GC root 해제.
-    /// string immutable + intern pool 이라 zero-fill 강제 불가 (`SecureString` 은 .NET Core deprecated) — 본 fix 는
-    /// defense-in-depth 만, process dump 시점 string 잔존 시간 단축. 근본 해소는 `LlmConfig.GetLightHousePsk` 의
-    /// signature 를 `byte[]` 로 변경하는 별 phase 의무 박제 (caller 다수 영향).
+    /// **B8 (2026-05-27) — SecureString 정공 path**. `_pskProvider` 가 SecureString 반환 → 본 메서드가 즉시
+    /// `Marshal.SecureStringToGlobalAllocUnicode` → `PtrToStringUni` 로 1회 변환 후 `AuthenticationHeaderValue` 박제 →
+    /// local var 즉시 null + `ZeroFreeGlobalAllocUnicode` 로 unmanaged buffer wipe. heap 평문 lifetime = 본 메서드 scope.
+    /// 단 `AuthenticationHeaderValue.Parameter` 의 string 은 HttpClient 가 보유 — wire 전송 후 GC 시점까지 잔존
+    /// (HttpClient internal 한계, SecureString 으로 wire 전송 불가).
     /// </summary>
     private HttpRequestMessage NewRequest(HttpMethod method, string relativeUri)
     {
         var req = new HttpRequestMessage(method, relativeUri);
-        var psk = _pskProvider();
-        if (!string.IsNullOrEmpty(psk))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", psk);
-        // M9 — 평문 PSK reference 즉시 해제 (GC root 단축). string 자체는 internal char[] 잔존 가능, defense-in-depth 만.
-        psk = null;
+        AttachBearerHeader(req);
         req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
         return req;
+    }
+
+    /// <summary>**B8 자가 검열 m1 fix (2026-05-27)** — NewRequest / AddCommonHeaders 의 SecureString → 1회 string 변환 SSOT.
+    /// `_pskProvider` 가 null/빈 SecureString 반환 시 Authorization 헤더 생략. heap 평문 lifetime = 본 helper scope.</summary>
+    private void AttachBearerHeader(HttpRequestMessage req)
+    {
+        using var securePsk = _pskProvider();
+        if (securePsk is null || securePsk.Length == 0) return;
+        IntPtr ptr = IntPtr.Zero;
+        try
+        {
+            ptr = Marshal.SecureStringToGlobalAllocUnicode(securePsk);
+            var pskPlain = Marshal.PtrToStringUni(ptr) ?? "";
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", pskPlain);
+            pskPlain = null;  // local var GC root 단축 — HttpClient 가 헤더 박제한 string instance 는 별개 (HttpClient internal 한계).
+        }
+        finally
+        {
+            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    /// <summary>**B8 (2026-05-27)** — 기존 `Func&lt;string?&gt;` PSK provider 를 `Func&lt;SecureString?&gt;` 로 변환. string overload
+    /// caller 호환 — 단 string 자체는 caller scope 에 잔존 (immutable). 신규 caller 는 SecureString overload 직접 사용 권장.</summary>
+    private static Func<SecureString?> WrapStringProvider(Func<string?> stringProvider)
+    {
+        if (stringProvider is null) throw new ArgumentNullException(nameof(stringProvider));
+        return () =>
+        {
+            var s = stringProvider();
+            if (string.IsNullOrEmpty(s)) return null;
+            var ss = new SecureString();
+            foreach (var ch in s) ss.AppendChar(ch);
+            ss.MakeReadOnly();
+            return ss;
+        };
     }
 
     /// <summary>
@@ -489,10 +550,7 @@ public sealed class LightHouseClient : IDisposable
 
     private void AddCommonHeaders(HttpRequestMessage req, string appSessionToken, string? mcpSessionId)
     {
-        var psk = _pskProvider();
-        if (!string.IsNullOrEmpty(psk))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", psk);
-        psk = null;
+        AttachBearerHeader(req);
         req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
         req.Headers.Add("X-LightHouse-Session", appSessionToken);
         if (!string.IsNullOrEmpty(mcpSessionId))
