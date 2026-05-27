@@ -78,10 +78,10 @@ public sealed class McpConfigWriterTests : IDisposable
         Assert.Equal(json, File.ReadAllText(path));
     }
 
-    [Fact]
+    [SkippableFact]
     public void WriteWithOwnerOnlyAcl_applies_owner_only_ACL_on_windows()
     {
-        if (!OperatingSystem.IsWindows()) return; // ACL 검증은 Windows 한정
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (NTFS ACL 검증).");
 
         var path = Path.Combine(_root, "acl.json");
         McpConfigWriter.WriteWithOwnerOnlyAcl(path, "{}");
