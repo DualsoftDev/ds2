@@ -212,4 +212,51 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
         var roots = LlmChatViewModel.ExtractActiveSourceRoots(null!);
         Assert.Empty(roots);
     }
+
+    // ── Backlog K (s6-r? A+G 검열 M2) — SourceFolder canonical path 정규화 ─────────
+
+    [Fact]
+    public void SourceFolder_setter_strips_trailing_directory_separator()
+    {
+        // Backlog K — trailing separator 가 있는 입력은 canonical (no trailing sep) 으로 정규화.
+        // Directory.GetFiles 결과 비결정성 / 중복 root 박제 / fetcher 입력 회피.
+        var entry = new KbCollectionEntry { SourceFolder = @"C:\KB\Foo\" };
+        Assert.Equal(@"C:\KB\Foo", entry.SourceFolder);
+
+        // 다중 trailing sep 도 모두 제거.
+        var entry2 = new KbCollectionEntry { SourceFolder = @"C:\KB\Bar\\" };
+        Assert.Equal(@"C:\KB\Bar", entry2.SourceFolder);
+
+        // drive root 는 예외로 trailing sep 유지 — "C:" 만 남으면 cwd-relative 로 변질.
+        var entry3 = new KbCollectionEntry { SourceFolder = @"C:\" };
+        Assert.Equal(@"C:\", entry3.SourceFolder);
+    }
+
+    [Fact]
+    public void SourceFolder_setter_converts_relative_path_to_absolute()
+    {
+        // Backlog K — relative path 입력은 Path.GetFullPath 로 cwd 기준 절대경로 변환.
+        // 운영시에는 absolute 입력이 의도이지만, 테스트 / 사용자 manual 입력 시 graceful.
+        var entry = new KbCollectionEntry { SourceFolder = "./KB" };
+        Assert.NotNull(entry.SourceFolder);
+        Assert.True(Path.IsPathRooted(entry.SourceFolder));
+        // trailing sep 미박제.
+        Assert.False(entry.SourceFolder!.EndsWith(Path.DirectorySeparatorChar)
+                  || entry.SourceFolder.EndsWith(Path.AltDirectorySeparatorChar));
+    }
+
+    [Fact]
+    public void SourceFolder_setter_preserves_null_and_empty_input()
+    {
+        // Backlog K — null / 빈 / whitespace-only 입력은 그대로 보존.
+        // legacy entry + JsonIgnore(WhenWritingNull) 정합 + caller fail-safe 의무 위임.
+        var entry1 = new KbCollectionEntry { SourceFolder = null };
+        Assert.Null(entry1.SourceFolder);
+
+        var entry2 = new KbCollectionEntry { SourceFolder = "" };
+        Assert.Equal("", entry2.SourceFolder);
+
+        var entry3 = new KbCollectionEntry { SourceFolder = "   " };
+        Assert.Equal("   ", entry3.SourceFolder);
+    }
 }
