@@ -963,10 +963,47 @@ public sealed class KbCollectionEntry
     /// **backward-compat**: nullable + default null + <c>JsonIgnore(WhenWritingNull)</c> — 기존 LlmConfig.json
     /// (필드 부재) 로드 시 그대로 null 유지 + 다음 Save 에서 disk JSON 에 키 작성 0. 본 필드 부재 = legacy entry =
     /// specialized digest 비활성 (사용자가 KbManagerDialog 에서 재등록 시 채움).
+    /// <para/>
+    /// **Backlog K (s6-r? — A+G 검열 Major M2)** — setter 에서 canonical path 정규화 적용:
+    /// <list type="bullet">
+    /// <item><c>Path.GetFullPath</c> 로 relative → absolute 변환 + alt separator 통일.</item>
+    /// <item>trailing directory separator 제거 — disk 저장 / fetcher 입력 / Active root 매칭의 일관성.
+    /// drive root (<c>C:\</c>) 는 예외로 trailing sep 유지 (TrimEnd 가 colon-only 잔재 회피).</item>
+    /// <item>null / 빈 / whitespace-only 입력은 그대로 저장 — legacy entry 호환 + JsonIgnore 정합.</item>
+    /// </list>
+    /// 메모리 / disk / 비교 (ExtractActiveSourceRoots / Reupload_Click) 모두 동일 canonical form 보유 →
+    /// <c>Directory.GetFiles</c> 결과 비결정성 / 중복 root 박제 / 대소문자 mixed 박제 회피.
     /// </summary>
     [JsonPropertyName("sourceFolder")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SourceFolder { get; set; }
+    public string? SourceFolder
+    {
+        get => _sourceFolder;
+        set => _sourceFolder = NormalizeSourceFolder(value);
+    }
+
+    private string? _sourceFolder;
+
+    /// <summary>
+    /// **Backlog K** — SourceFolder canonical 정규화. setter / deserializer / 외부 caller 공통 SSOT.
+    /// <para/>
+    /// null / 빈 / whitespace-only 입력은 그대로 반환 (graceful — legacy entry + JsonIgnore 정합).
+    /// 그 외 입력은 <see cref="Path.GetFullPath(string)"/> 로 절대 path + alt separator 통일,
+    /// trailing directory separator 제거 (drive root <c>C:\</c> 제외).
+    /// <para/>
+    /// <c>Path.GetFullPath</c> 가 throw (잘못된 path char 등) 시 원본 그대로 반환 — fail-safe (caller / UI 가
+    /// 사용 시점에 다시 검증). 본 시점 throw 는 deserialization / setter 호출 stack 을 전부 깨뜨려 회복 비용 큼.
+    /// </summary>
+    internal static string? NormalizeSourceFolder(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        string full;
+        try { full = Path.GetFullPath(raw); }
+        catch { return raw; }
+        // drive root (e.g. "C:\") 의 trailing sep 은 보존 — TrimEnd 시 "C:" 만 남으면 cwd-relative 로 변질.
+        if (full.Length <= 3) return full;
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
 }
 
 /// <summary>
