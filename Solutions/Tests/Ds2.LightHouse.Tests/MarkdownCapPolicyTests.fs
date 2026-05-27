@@ -183,7 +183,9 @@ let ``Stage 3 — sampling 후도 초과 시 split 진입 + 각 part 가 cap 안
     // cap 초과 불가. Stage 3 trigger 위해 **section 수 자체가 많은** multi-section fixture 사용 —
     // 800 section × 20 row × cellPad 0. raw ~1.3MB → cap 초과 (Stage 0 fail). Stage 1 효과 0 (cell 짧음).
     // Stage 2 후 800 section × 11 row × ~80 byte + H2 overhead = ~720KB → cap 256KB 초과 → Stage 3 trigger.
-    // Stage 3 partCount=ceil(1.3MB / 256KB) ≈ 6 part 로 split 성공 (SplitMaxParts=32 안).
+    // **--review 라운드 1 Critical-1 fix**: Stage 3 입력이 stage1 → stage2 로 변경됨에 따라
+    // initialPartCount = ceil(stage2Size / cap) = ceil(720KB / 256KB) ≈ 3 part 로 split 성공
+    // (SplitMaxParts=32 안). 기존 stage1 입력 정책 가정의 ≈ 6 part 추정은 stale.
     let md = makeMultiSectionFixture 800 20 0
     let originalSize = utf8Size md
     Assert.True(originalSize > MarkdownCapPolicy.MaxMarkdownBytes,

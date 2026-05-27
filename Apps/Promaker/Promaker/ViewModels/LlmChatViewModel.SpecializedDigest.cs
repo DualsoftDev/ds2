@@ -80,8 +80,14 @@ public partial class LlmChatViewModel
     /// <summary>
     /// **PR-I5 (test / 후속 ViewModel hook 진입점)** — sourceRoot list 박제 + 즉시 <see cref="ApplyPendingSpecializedDigest"/>
     /// trigger. headless smoke 가 본 메서드로 fixture 박제 → ApiChatProvider 의 SetPendingSpecializedDigest 호출 확인.
-    /// 후속 PR 의 KbCollectionEntry.SourceFolder 추가 시점에는 ConfigureProviderAsync / SubscribeKbProfileEvents
-    /// hook 에서 본 메서드 호출하여 자동 박제.
+    /// <para/>
+    /// **production GUI override entry — 현재 Test only** (--review 라운드 1 Critical-2 hand-off 박제).
+    /// PR-I5 시점에는 본 메서드를 호출하는 production GUI wiring 이 부재 (Initialize.cs / KbProfile.cs SSE
+    /// invalidate / chat panel open 진입점 모두 미연결). `SpecializedDigestInjectionTests` 와 headless smoke
+    /// 만 본 메서드를 호출하여 schema-level 정합 검증. 후속 PR (별 backlog — todo-documents-based-gfm.md §0
+    /// "진입 대기 (Phase P2)") 에서 ConfigureProviderAsync / SubscribeKbProfileEvents hook 에 본 메서드 호출 추가
+    /// 의무. PR-I5 commit message 의 "chat panel open / KB collection 변경 시 trigger" 명세는 본 후속 wiring PR 의
+    /// 의무로 hand-off.
     /// <para/>
     /// caller 가 null / 빈 list 박제 시 = specialized digest 비활성 (cache breakpoint 3 박제 skip, PR-G v-b 와 wire 동치).
     /// </summary>
@@ -96,6 +102,13 @@ public partial class LlmChatViewModel
     /// ApiChatProvider 주입. <see cref="RefreshKbDigestAsync"/> 와 동일 lifecycle (chat panel open / KB collection 변경
     /// / SSE invalidate 시) 진입점. PR-F 의 KB digest path 정합 — fetch 실패 시 silent skip (Log.Warn) + 다음
     /// firstTurn 에 영향 0.
+    /// <para/>
+    /// **production GUI wiring 부재 — hand-off** (--review 라운드 1 Critical-2 박제). 본 메서드는 PR-I5 시점에는
+    /// <see cref="SpecializedDigestInjectionTests"/> + headless smoke 만 호출. ConfigureProviderAsync /
+    /// SubscribeKbProfileEvents / chat panel open 의 production GUI 진입점은 후속 PR (별 backlog —
+    /// todo-documents-based-gfm.md §0 "진입 대기 (Phase P2)") 에서 wire. PR-I5 commit message 의 "chat open 시
+    /// trigger" 명세는 본 후속 wiring PR 의 의무로 hand-off — PR-I5 자체는 schema + fetch logic + cache
+    /// breakpoint 3 주입 path 박제만 책임.
     /// <para/>
     /// **Backlog G fix** — 기존 <c>await Task.Yield()</c> 후 동기 IO 패턴 (정합 부족) 을 진정한 async 로 전환:
     /// <see cref="KbSpecializedDigestFetcher.FetchManyAsync"/> (F# <c>buildManyAsync</c> wrap) 가
@@ -142,6 +155,11 @@ public partial class LlmChatViewModel
     /// null (init 미완료) 또는 다른 provider 일 때 silent skip.
     /// <para/>
     /// 빈 sourceRoot list / 모든 root 에 summary/ 부재 → 빈 digest 박제 (cache breakpoint 3 skip, PR-G v-b 와 wire 동치).
+    /// <para/>
+    /// **production GUI wiring 부재 — hand-off** (--review 라운드 1 Critical-2 박제). sync path 역시 PR-I5 시점에는
+    /// <see cref="SetActiveCollectionSourceRoots"/> (test override) 만 호출. production GUI 진입점 (chat panel open
+    /// / KB collection 변경 등) wiring 은 별 PR backlog 로 hand-off — todo-documents-based-gfm.md §0 "진입 대기
+    /// (Phase P2)" 박제 정합.
     /// <para/>
     /// **Backlog J (todo §J)** — provider 박제 + Log 인라인 복제를 <see cref="ApplyFetchedDigest"/> SSOT helper 로
     /// 추출. 본 메서드는 sync fetch + helper 호출만 담당 — async path 와 wire byte-equal.
