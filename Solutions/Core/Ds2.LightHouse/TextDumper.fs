@@ -309,6 +309,8 @@ module TextDumper =
             | _ -> None  // strategy 미정의 DocType (Docx/Pptx/Text/Markdown/Image/Unsupported) — fallback 0
 
     /// `.lighthouse-kb/` skip + collection root 재귀 enumerate (Packager.createZip 의 동형 SSOT).
+    /// **PR-N15 (todo-documents-based-gfm.md §6.1 N15)** — `<root>/guide/*` 는 UserGuideImporter
+    /// 가 별도 박제 (`_user-guide-*.md`) → strategy summary path 에서도 이중 박제 회피.
     let private enumerateSourceFiles (collectionRoot: string) : string array =
         let kbPrefix =
             (Path.GetFullPath(SqliteStore.kbDir collectionRoot)).TrimEnd(Path.DirectorySeparatorChar)
@@ -316,7 +318,8 @@ module TextDumper =
         Directory.EnumerateFiles(collectionRoot, "*", SearchOption.AllDirectories)
         |> Seq.filter (fun p ->
             let pNorm = Path.GetFullPath p
-            not (pNorm.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase)))
+            not (pNorm.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase))
+            && not (Classifier.isUserGuideSourcePath collectionRoot p))
         |> Seq.toArray
 
     /// **PR-I3** — collection root 안 모든 파일에 strategy 분기 적용 + `summary/` 박제 + rejected/near-miss 누적.

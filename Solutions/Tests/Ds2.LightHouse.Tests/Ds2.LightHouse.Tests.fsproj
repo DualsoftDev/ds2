@@ -46,6 +46,10 @@
          SpecializedDigestBuilder.build / buildMany 회귀. synthetic summary/*.md fixture →
          합본 string + metadata 정합 + path-sorted enumeration + 멱등 byte-identical. -->
     <Compile Include="SpecializedDigestBuilderTests.fs" />
+    <!-- PR-N15 (todo-documents-based-gfm.md §6.1 N15 + documents-based-gfm.md §8.5.4) —
+         UserGuideImporter.importAll 회귀. happy path / 재귀 / 빈 디렉토리 / 부재 / cross-ref-hash /
+         멱등 / 머리말 6행 정합 / SpecializedDigestBuilder underscore prefix ordering 회귀. -->
+    <Compile Include="UserGuideImporterTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

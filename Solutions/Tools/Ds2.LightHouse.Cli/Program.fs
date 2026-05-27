@@ -227,6 +227,18 @@ let private runPostIngestHooks (folder: string) (extractors: IExtractor list) : 
             { SummaryFiles = [||]; RejectedCount = 0; NearMissCount = 0 }
     eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
         dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
+    // **PR-N15 (todo-documents-based-gfm.md §6.1 N15 + documents-based-gfm.md §8.5.4)** — 사용자 작성
+    // `<folder>/guide/*.md` 를 `_user-guide-*.md` 로 박제. 호출 순서 — `dumpStrategySummaries` 가
+    // `summary/` 디렉토리를 wipe + 재생성하므로 본 hook 은 반드시 그 *후*에 호출 (wipe 회피).
+    // strategy summary 와 동일 fail-safe 정책 — 실패 시 log + 계속 (사용자 KB digest 1차 가치).
+    let userGuideFiles =
+        try
+            UserGuideImporter.importAll folder
+        with ex ->
+            eprintfn "경고: user-guide 박제 실패 — %s (색인 자체는 정상)" ex.Message
+            [||]
+    eprintfn "  user-guide 박제 — %d 파일 (.lighthouse-kb/%s/_user-guide-*.md)"
+        userGuideFiles.Length TextDumper.SummarySubDirName
     kwResult
 
 let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: bool) : int =
