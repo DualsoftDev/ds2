@@ -106,7 +106,7 @@ Promaker 실행 → 설정 → **LLM 탭** → "LightHouse Services (Knowledge B
 UAC 프롬프트 응답 후 PowerShell 콘솔이 열리며 4단계 자동 진행 (수 분 소요):
 
 1. **Ollama + bge-m3** — `install-ollama.ps1` (이미 있으면 skip) + bge-m3 pull + `OLLAMA_FLASH_ATTENTION=false` 박제
-2. **self-signed TLS cert + .cer export** — `generate-dev-cert.ps1` 가 PFX 생성. 사용자 입력 cert PFX password 박제. **.cer (DER) 도 PFX 옆에 export + `icacls Users:R` 부여** — Node 측 `NODE_EXTRA_CA_CERTS` 가 read 가능 (일반 사용자 권한)
+2. **self-signed TLS cert + .cer export** — `generate-dev-cert.ps1` 가 SAN (DNS=localhost + IPAddress=127.0.0.1) + Basic Constraints CA:TRUE 박제 PFX 생성 + LocalMachine\Root import. 사용자 입력 cert PFX password. **.cer (PEM) 도 PFX 옆에 export + `icacls Users:R` 부여** — archive 용 (Plan B 폐기 후 직접 사용 path 0).
 3. **install-service.ps1** — 사용자 입력 PSK 평문 → DPAPI(LocalMachine) 박제 → `config.json` 의 `preSharedKeyEncrypted` / `tlsCertPasswordEncrypted` 박제. `sc create Ds2.LightHouseService` (기존 service 있으면 stop+delete polling 후 재등록)
 4. **firewall + start + healthcheck** — `netsh advfirewall firewall add rule` + `sc start` + `/healthz` 200 OK polling (최대 30s)
 
@@ -244,7 +244,7 @@ cat /c/ProgramData/Dualsoft/LightHouseService/Logs/service-YYYYMMDD.log
 
 self-signed cert 이므로 client (Promaker / curl / browser) 가 신뢰 안 함.
 
-**Claude Code CLI (Node 기반) 의 경우** — `ClaudeCliProvider.fs` 가 spawn 시 `NODE_EXTRA_CA_CERTS=%PROGRAMDATA%\Dualsoft\LightHouseService\service.cer` 환경변수 자동 박제 (2026-05-27 박제). `.cer` 파일은 `enable-ai.ps1` 가 PFX 생성 직후 같은 폴더에 export + `icacls Users:R` 박제. 사용자 manual import 의무 0. **§4.1 / §4.2 의 Trusted Root import path 는 .NET HttpClient / curl 등의 다른 client 용**.
+**Claude Code CLI (Node 기반) 의 경우** — `NODE_EXTRA_CA_CERTS` 자동 박제 path 는 **Plan B (2026-05-27) 폐기**. 사유: Anthropic Claude CLI 의 mcp HTTP/SSE transport 가 OAuth 2.1 강제 (`_authThenStart`) 라 단순 Bearer PSK 와 fundamental mismatch — Claude CLI 가 lighthouse 와 직접 mcp 통신 안 함. 대신 Promaker 자체 MCP host 의 `mcp__promaker__lighthouse_*` wrapper 6종 (LightHouseTools.cs) 이 .NET HttpClient (OS Trust Store 의존) 로 fan-out 호출. Claude CLI 의 `.mcp-config` 에는 `promaker` (plain HTTP, cert 무관) 1개만 박제. **§4.1 Trusted Root import 는 .NET HttpClient / curl / 기타 client 의 정공 path — Promaker LightHouseClient 도 본 OS Trust 의존**. `.cer (PEM)` 은 setup-cert-and-service.ps1 / enable-ai.ps1 가 archive 용으로 export 유지.
 
 두 방법:
 

@@ -325,6 +325,9 @@ public sealed class LightHouseClient : IDisposable
     // 본 client instance lifetime 동안 재사용. service 측 mcp session expire / 400 응답 시 caller 가
     // ResetMcpSession() 으로 재 init 강제. 동시성 = init 단계 lock 으로 idempotent.
 
+    // **메타리뷰 CR3 (2026-05-27)** — _mcpSessionId 의 read/write 는 _mcpInitLock 안에서만 mutate.
+    // CallMcpToolAsync 의 expire reset 도 lock 내부에서 처리 → fan-out parallel 시 silent corruption 차단.
+    // volatile 만으로는 set-after-check race 차단 불충분 (read after set 이 stale return 가능) — lock 강제.
     private string? _mcpSessionId;
     private readonly SemaphoreSlim _mcpInitLock = new(1, 1);
     private int _mcpRequestId;  // JSON-RPC id 발급 (Interlocked).
@@ -362,11 +365,22 @@ public sealed class LightHouseClient : IDisposable
 
         var (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
 
-        // mcp session 만료 (400 / 404 with "session not found" 류) 1회 retry.
-        if (statusCode == HttpStatusCode.BadRequest && body.Contains("session", StringComparison.OrdinalIgnoreCase))
+        // **메타리뷰 CR3 (2026-05-27)** — mcp session expire 분기 확장:
+        //   (a) 400 + body 의 "session" 휴리스틱 (기존)
+        //   (b) 401/403 (app session expire 와 동일 status 사용, mcp session 도 같이 stale 가능)
+        //   (c) 404 (server 측 session not found 응답 가능)
+        // 위 셋 중 하나라도 적중하면 mcp session reset + 1회만 retry. retry 후에도 동일 401/403 = outer
+        // ExecuteWithSessionRetryAsync 가 app session 재발급 후 1회 더 → 그래도 fail = 실 인증 결함.
+        var shouldRetryMcp =
+            (statusCode == HttpStatusCode.BadRequest && body.Contains("session", StringComparison.OrdinalIgnoreCase))
+            || statusCode == HttpStatusCode.Unauthorized
+            || statusCode == HttpStatusCode.Forbidden
+            || statusCode == HttpStatusCode.NotFound;
+        if (shouldRetryMcp)
         {
-            Log.Info($"CallMcpToolAsync({toolName}): mcp session expired (400) — re-init 후 1회 retry.");
-            _mcpSessionId = null;
+            Log.Info($"CallMcpToolAsync({toolName}): mcp session reset 후 1회 retry (status={(int)statusCode}).");
+            await _mcpInitLock.WaitAsync(ct).ConfigureAwait(false);
+            try { _mcpSessionId = null; } finally { _mcpInitLock.Release(); }
             await EnsureMcpInitializedAsync(appSessionToken, ct).ConfigureAwait(false);
             (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
         }
@@ -395,8 +409,12 @@ public sealed class LightHouseClient : IDisposable
         return textEl.GetString() ?? "";
     }
 
-    /// <summary>caller (e.g. LightHouseTools wrapper) 가 mcp session 강제 reset.</summary>
-    public void ResetMcpSession() => _mcpSessionId = null;
+    /// <summary>caller (e.g. LightHouseTools wrapper) 가 mcp session 강제 reset. lock 보호 (CR3, 2026-05-27).</summary>
+    public void ResetMcpSession()
+    {
+        _mcpInitLock.Wait();
+        try { _mcpSessionId = null; } finally { _mcpInitLock.Release(); }
+    }
 
     private async Task EnsureMcpInitializedAsync(string appSessionToken, CancellationToken ct)
     {
@@ -467,12 +485,20 @@ public sealed class LightHouseClient : IDisposable
         req.Headers.Add("X-LightHouse-Session", appSessionToken);
         if (!string.IsNullOrEmpty(mcpSessionId))
             req.Headers.Add("Mcp-Session-Id", mcpSessionId);
+        // **메타리뷰 m1 (2026-05-27)** — psk = null 박제 무의미 (managed string intern + GC 잔존). 위 NewRequest 의 동일 패턴 정정 별 phase (전체 chain SecureString 박제와 묶음).
     }
 
+    /// <summary>response body read 헬퍼. **메타리뷰 M7 (2026-05-27)** — silent catch 폐기:
+    /// OCE 는 rethrow (cancel 의도 보존), 그 외 IO/encoding 사고는 Log.Warn 후 빈 string (status code 가 SSOT).</summary>
     private static async Task<string> SafeReadAsString(HttpContent content, CancellationToken ct)
     {
         try { return await content.ReadAsStringAsync(ct).ConfigureAwait(false); }
-        catch { return ""; }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log.Warn($"SafeReadAsString 실패 ({ex.GetType().Name}: {ex.Message}) — empty body 반환, status code 가 SSOT.");
+            return "";
+        }
     }
 
     /// <summary>SSE single event body 에서 `data: ` line 의 JSON payload 추출. 단순 JSON 응답이면 그대로 반환.</summary>

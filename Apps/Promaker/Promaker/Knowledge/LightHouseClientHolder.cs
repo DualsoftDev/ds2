@@ -73,11 +73,12 @@ public static class LightHouseClientHolder
     }
 
     /// <summary>
-    /// **Plan B (2026-05-27)** — 현재 살아있는 모든 active client 와 그 ServiceId 반환. LightHouseTools wrapper 가
-    /// fan-out 호출 시 사용. EnsureCreated 호출 안 됐으면 빈 list. 순서는 ConcurrentDictionary enumeration 순.
+    /// **Plan B (2026-05-27)** — 현재 살아있는 모든 active client 의 (ServiceId, DisplayName, BaseUrl, Client) 4-tuple 반환.
+    /// LightHouseTools wrapper 가 fan-out 호출 + LLM 응답 serviceName 박제 시 사용. EnsureCreated 호출 안 됐으면 빈 list.
+    /// 순서는 ConcurrentDictionary enumeration 순. DisplayName 은 EnsureCreated 시점 ServiceClientEntry 에 박제.
     /// </summary>
-    public static IReadOnlyList<(string ServiceId, LightHouseClient Client)> GetActiveClients() =>
-        _clients.Values.Select(e => (e.ServiceId, e.Client)).ToList();
+    public static IReadOnlyList<(string ServiceId, string DisplayName, string BaseUrl, LightHouseClient Client)> GetActiveClients() =>
+        _clients.Values.Select(e => (e.ServiceId, e.DisplayName, e.BaseUrl, e.Client)).ToList();
 
     /// <summary>
     /// **D-S7-3b (s6-r30)** — config 의 모든 active service 에 대해 client 보장. 변경된 entry (BaseUrl/PSK 변동)
@@ -160,7 +161,7 @@ public static class LightHouseClientHolder
                 }
 
                 var entry = new ServiceClientEntry(
-                    svc.ServiceId, svc.BaseUrl, pskHash, thumbprintNormalized, client);
+                    svc.ServiceId, svc.BaseUrl, pskHash, thumbprintNormalized, svc.DisplayName, client);
                 StartSseLoopLocked(entry);
                 _clients[svc.ServiceId] = entry;
                 Log.Info($"LightHouseClientHolder created — {svc.BaseUrl} (serviceId={svc.ServiceId})");
@@ -352,18 +353,21 @@ public static class LightHouseClientHolder
         public string PskHash { get; }
         /// <summary>**B5 자가 검열 C1 (s6-r61)** — thumbprint 변경 감지용 (normalize 형식 박제).</summary>
         public string ClientCertThumbprintNormalized { get; }
+        /// <summary>**메타리뷰 M3 (2026-05-27)** — LightHouseTools wrapper 의 LLM 응답 serviceName 표시 용. EnsureCreated 시점 박제.</summary>
+        public string DisplayName { get; }
         public LightHouseClient Client { get; }
         public CancellationTokenSource? SseCts { get; set; }
         public Task? SseTask { get; set; }
 
         public ServiceClientEntry(
             string serviceId, string baseUrl, string pskHash,
-            string clientCertThumbprintNormalized, LightHouseClient client)
+            string clientCertThumbprintNormalized, string displayName, LightHouseClient client)
         {
             ServiceId = serviceId;
             BaseUrl = baseUrl;
             PskHash = pskHash;
             ClientCertThumbprintNormalized = clientCertThumbprintNormalized;
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? baseUrl : displayName;
             Client = client;
         }
     }

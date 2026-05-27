@@ -62,18 +62,28 @@ public static class LightHouseTools
         [Description("Optional: limit search to single document (prefixed fileId from lighthouse_list).")] string? fileId = null,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(query)) return Task.FromResult(JsonSerializer.Serialize(new { results = Array.Empty<object>(), hint = "query is empty" }));
+        // **메타리뷰 m2 (2026-05-27)** — empty query 응답 schema 가 정상 path (perServerCounts/hint) 와 일관되도록 확장.
+        if (string.IsNullOrWhiteSpace(query))
+            return Task.FromResult(JsonSerializer.Serialize(new
+            {
+                results = Array.Empty<object>(),
+                perServerCounts = new { },
+                hint = "query is empty",
+            }, JsonOptions));
 
         // **2026-05-27 fix** — attachment_search 의 fileId 는 service signature 가 required (F# 함수 인자, default 없음).
         // 누락 시 mcp-sdk ReflectionAIFunction 이 `ArgumentException: missing 'fileId'` throw → "An error occurred invoking 'attachment_search'".
         // 비어 있으면 ""로 명시 박제 — service 의 `String.IsNullOrEmpty fileId` 가 None scope (전체 검색) 으로 처리.
 
-        // fileId 박제 시 → 그 service 만 호출 (routing).
-        if (!string.IsNullOrEmpty(fileId) && TryParseFileId(fileId, out var routedServiceId, out var origFileId))
+        // fileId 박제 시 → 그 service 만 호출 (routing). prefix 파싱 후 client 직접 사용 (M6 — 이중 탐색 race 제거).
+        if (!string.IsNullOrEmpty(fileId) && TryParseFileId(fileId, out var prefix, out var origFileId))
         {
-            return SingleClientCall(routedServiceId, "attachment_search",
+            var match = FindClientByPrefix(prefix);
+            if (match is null)
+                return Task.FromResult(JsonSerializer.Serialize(new { error = $"no active LightHouse service matches fileId prefix '{prefix}'." }));
+            return CallClientAsync(match.Value.ServiceId, match.Value.DisplayName, match.Value.Client, "attachment_search",
                 new { query, topK, fileId = origFileId },
-                (sid, sname, raw) => PrefixFileIdsInSearchResponse(raw, sid, sname), ct);
+                (sid, sname, raw) => PrefixFileIdsInSearchResponse(sid, sname, raw), ct);
         }
 
         var n = LightHouseClientHolder.GetActiveClients().Count;
@@ -81,7 +91,7 @@ public static class LightHouseTools
 
         return FanOutAndMerge("attachment_search",
             new { query, topK = perServerTopK, fileId = "" },
-            (sid, sname, raw) => PrefixFileIdsInSearchResponse(raw, sid, sname),
+            (sid, sname, raw) => PrefixFileIdsInSearchResponse(sid, sname, raw),
             MergeSearchResultsRoundRobin, ct);
     }
 
@@ -125,7 +135,7 @@ public static class LightHouseTools
         var match = FindClientByPrefix(prefix);
         if (match is null)
             return Task.FromResult(JsonSerializer.Serialize(new { error = $"no active LightHouse service matches fileId prefix '{prefix}'." }));
-        return SingleClientCall(match.Value.ServiceId, "attachment_summary",
+        return CallClientAsync(match.Value.ServiceId, match.Value.DisplayName, match.Value.Client, "attachment_summary",
             new { collectionId = collectionGuid }, null, ct);
     }
 
@@ -147,12 +157,12 @@ public static class LightHouseTools
         return true;
     }
 
-    /// <summary>prefix 가 어느 service 의 것인지 활성 client 셋에서 찾음. 미일치 = null.</summary>
-    private static (string ServiceId, LightHouseClient Client)? FindClientByPrefix(string prefix)
+    /// <summary>prefix 가 어느 service 의 것인지 활성 client 셋에서 찾음. 미일치 = null. M3: DisplayName 포함.</summary>
+    private static (string ServiceId, string DisplayName, LightHouseClient Client)? FindClientByPrefix(string prefix)
     {
-        foreach (var (sid, client) in LightHouseClientHolder.GetActiveClients())
+        foreach (var t in LightHouseClientHolder.GetActiveClients())
         {
-            if (MakePrefix(sid) == prefix) return (sid, client);
+            if (MakePrefix(t.ServiceId) == prefix) return (t.ServiceId, t.DisplayName, t.Client);
         }
         return null;
     }
@@ -166,23 +176,23 @@ public static class LightHouseTools
         var match = FindClientByPrefix(prefix);
         if (match is null)
             return JsonSerializer.Serialize(new { error = $"no active LightHouse service matches fileId prefix '{prefix}' — service may have been removed/deactivated." });
-        return await SingleClientCall(match.Value.ServiceId, toolName, argsBuilder(origFileId), null, ct).ConfigureAwait(false);
+        return await CallClientAsync(match.Value.ServiceId, match.Value.DisplayName, match.Value.Client, toolName, argsBuilder(origFileId), null, ct).ConfigureAwait(false);
     }
 
-    /// <summary>단일 client 호출 + 예외 catch + 결과 transform (optional).</summary>
-    private static async Task<string> SingleClientCall(
-        string serviceId, string toolName, object args,
+    /// <summary>**메타리뷰 M6 (2026-05-27)** — client 인스턴스 직접 받음 (이중 탐색 race 제거).
+    /// **M2** — OperationCanceledException 은 rethrow (caller cancel 의도 보존, ExecuteWithSessionRetryAsync 의 SSOT 정합).
+    /// **M7** — 다른 예외만 Log.Warn 후 error JSON 변환.</summary>
+    private static async Task<string> CallClientAsync(
+        string serviceId, string displayName, LightHouseClient client, string toolName, object args,
         Func<string, string, string, string>? transform, CancellationToken ct)
     {
-        var match = LightHouseClientHolder.GetActiveClients().FirstOrDefault(p => p.ServiceId == serviceId);
-        if (match.Client is null)
-            return JsonSerializer.Serialize(new { error = $"service '{serviceId}' inactive or removed." });
         try
         {
-            var raw = await match.Client.ExecuteWithSessionRetryAsync(
-                (token, ct2) => match.Client.CallMcpToolAsync(token, toolName, args, ct2), ct).ConfigureAwait(false);
-            return transform is null ? raw : transform(serviceId, "(single)", raw);
+            var raw = await client.ExecuteWithSessionRetryAsync(
+                (token, ct2) => client.CallMcpToolAsync(token, toolName, args, ct2), ct).ConfigureAwait(false);
+            return transform is null ? raw : transform(serviceId, displayName, raw);
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             Log.Warn($"LightHouseTools.{toolName} single({serviceId}) 실패: {ex.Message}");
@@ -201,19 +211,22 @@ public static class LightHouseTools
         if (clients.Count == 0)
             return JsonSerializer.Serialize(new { items = Array.Empty<object>(), totalCount = 0, activeServiceCount = 0, hint = "no active LightHouse services configured." });
 
+        // **M2 (2026-05-27)** — OCE 는 rethrow (caller cancel 의도 보존). Task.WhenAll 이 첫 OCE 그대로 surface.
+        // **M3** — serviceName 박제는 DisplayName 사용 (BaseUrl 대신).
         var tasks = clients.Select(async pair =>
         {
             try
             {
                 var raw = await pair.Client.ExecuteWithSessionRetryAsync(
                     (token, ct2) => pair.Client.CallMcpToolAsync(token, toolName, args ?? new { }, ct2), ct).ConfigureAwait(false);
-                var transformed = perServiceTransform(pair.ServiceId, pair.Client.BaseUrl, raw);
-                return (ServiceId: pair.ServiceId, ServiceName: pair.Client.BaseUrl, Transformed: transformed, Error: (string?)null);
+                var transformed = perServiceTransform(pair.ServiceId, pair.DisplayName, raw);
+                return (ServiceId: pair.ServiceId, ServiceName: pair.DisplayName, Transformed: transformed, Error: (string?)null);
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Log.Warn($"LightHouseTools.{toolName} fan-out({pair.ServiceId}) 실패: {ex.Message}");
-                return (ServiceId: pair.ServiceId, ServiceName: pair.Client.BaseUrl, Transformed: "", Error: (string?)ex.Message);
+                return (ServiceId: pair.ServiceId, ServiceName: pair.DisplayName, Transformed: "", Error: (string?)ex.Message);
             }
         }).ToList();
 
@@ -324,8 +337,9 @@ public static class LightHouseTools
         }
     }
 
-    /// <summary>search response 의 모든 fileId 에 `&lt;serviceId-8&gt;:` prefix 박제. serviceName 도 hit 마다 추가.</summary>
-    private static string PrefixFileIdsInSearchResponse(string raw, string serviceId, string serviceName)
+    /// <summary>search response 의 모든 fileId 에 `&lt;serviceId-8&gt;:` prefix 박제. serviceName 도 hit 마다 추가.
+    /// **메타리뷰 M1 (2026-05-27)** — `PrefixFileIdsInListResponse` 와 인자 순서 통일 (serviceId, serviceName, raw).</summary>
+    private static string PrefixFileIdsInSearchResponse(string serviceId, string serviceName, string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return raw;
         try
