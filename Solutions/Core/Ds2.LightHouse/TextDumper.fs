@@ -73,6 +73,14 @@ module TextDumper =
     let nearMissJsonPath (collectionRoot: string) : string =
         Path.Combine(SqliteStore.kbDir collectionRoot, NearMissJsonFileName)
 
+    /// **A·m1 (Outlier/Minor 묶음 1)** — sanitize helper SSOT.
+    /// 종전 `summaryFilename` / `summaryPartFilename` 의 동일 char policy (`Char.IsLetterOrDigit ||
+    /// '-' || '_' || '.'`) 박제 loop 가 양쪽에 복붙되어 있던 것을 단일 helper 로 추출. drift 방지.
+    let internal appendSanitized (sb: StringBuilder) (s: string) : unit =
+        for ch in s do
+            if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
+            else sb.Append '_' |> ignore
+
     /// strategy 산출물 파일명 — `{strategyName}-{docId}-{basename}.md`.
     /// docId = `StrategyMarkdown.computeDocId` (source bytes SHA256 의 앞 4 byte = 8 hex char).
     /// strategy 다중 매치 / source 동일 시에도 unique. sanitizedFilename 와 동일 char policy.
@@ -81,15 +89,11 @@ module TextDumper =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath
         let sb = StringBuilder(strategyName.Length + docId.Length + basename.Length + 8)
-        let appendSanitized (s: string) =
-            for ch in s do
-                if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
-                else sb.Append '_' |> ignore
-        appendSanitized strategyName
+        appendSanitized sb strategyName
         sb.Append '-' |> ignore
-        appendSanitized docId
+        appendSanitized sb docId
         sb.Append '-' |> ignore
-        appendSanitized basename
+        appendSanitized sb basename
         sb.Append ".md" |> ignore
         sb.ToString()
 
@@ -102,15 +106,11 @@ module TextDumper =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath
         let sb = StringBuilder(strategyName.Length + docId.Length + basename.Length + 16)
-        let appendSanitized (s: string) =
-            for ch in s do
-                if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
-                else sb.Append '_' |> ignore
-        appendSanitized strategyName
+        appendSanitized sb strategyName
         sb.Append '-' |> ignore
-        appendSanitized docId
+        appendSanitized sb docId
         sb.Append '-' |> ignore
-        appendSanitized basename
+        appendSanitized sb basename
         sb.Append '.' |> ignore
         sb.Append (string partIndex) |> ignore
         sb.Append ".md" |> ignore
@@ -125,9 +125,8 @@ module TextDumper =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath
         let sb = StringBuilder(basename.Length)
-        for ch in basename do
-            if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
-            else sb.Append '_' |> ignore
+        // A·m1 — SSOT helper 재사용 (appendSanitized).
+        appendSanitized sb basename
         let safe = sb.ToString()
         let safe = if String.IsNullOrEmpty safe then "untitled" else safe
         sprintf "%d-%s.md" docId safe

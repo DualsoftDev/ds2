@@ -102,6 +102,13 @@ module DiagnosticJson =
         // 의 명시적 이름에만 의존했으나 (모든 field 에 attribute 가 있어 우연히 동작), 누락
         // field 가 추가될 경우 PascalCase 누출 위험. ContractResolver 로 default 보장.
         s.ContractResolver <- DefaultContractResolver(NamingStrategy = CamelCaseNamingStrategy())
+        // F·m10 (Outlier/Minor 묶음 1) — DateTime UTC 강제. RejectedAt / DetectedAt 가 caller 에
+        // 따라 Local / Unspecified 로 박제되어도 직렬화 시 UTC 정합 ISO 8601 Z suffix 박제.
+        // DateTimeZoneHandling = Utc → write 시 Local → UTC 변환 + 'Z' suffix.
+        // DateParseHandling = DateTimeOffset → read 시 zone 정보 보존, ToUniversalTime() 일치.
+        s.DateTimeZoneHandling <- DateTimeZoneHandling.Utc
+        s.DateFormatHandling <- DateFormatHandling.IsoDateFormat
+        s.DateFormatString <- @"yyyy-MM-ddTHH:mm:ss.fffZ"
         s
 
     let serialize<'T> (value: 'T) : string =

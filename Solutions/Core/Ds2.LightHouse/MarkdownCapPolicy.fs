@@ -105,8 +105,11 @@ module MarkdownCapPolicy =
     /// 표 row 의 cell 분해. `|` 로 split 후 leading/trailing empty 제거.
     /// `\|` (escape) 는 cell 안 char 로 보존.
     let private splitCells (line: string) : string array =
+        // **B·m4 (Outlier/Minor 묶음 1)** — sentinel 을 자연 발생 가능성 있는 0x01 (control char)
+        // 나 빈 문자열에서 PUA (Private Use Area, U+E000~U+F8FF) 로 전환. 분석 대상 markdown 안
+        // PUA 등장 일반 문서에서 의료 이루며 거의 없음 → `\|` escape 복구의 collision risk 0.
         // `\|` 를 임시 sentinel 로 치환 → `|` split → sentinel 복구.
-        let sentinel = ""
+        let sentinel = ""  // PUA U+E000
         let safe = line.Replace(@"\|", sentinel)
         let cells = safe.Split('|')
         // leading/trailing empty 제거 (행이 `|` 로 시작/끝).
@@ -128,6 +131,22 @@ module MarkdownCapPolicy =
             sb.Append(' ') |> ignore
             sb.Append('|') |> ignore
         sb.ToString()
+
+    /// **B·M1 / F·M4 (Outlier/Minor 묶음 1)** — 표 영역 종료 신호 식별. 종전 구현은 blank line
+    /// 만 종료 신호로 보아 직접 H2 / quote (`>`) / comment (`<!--`) 또는 다음 표의 새 header
+    /// 가 등장해도 표 영역이 계속이라고 잘못 판정 → Stage 1/2/3 의 표 무결성 깨짐 결함.
+    /// 본 helper 는 "현재 line 이 표 row / alignment row 가 아니면서 표 영역을 종료하는
+    /// content (blank / H1 / H2 / quote / comment) 인가" 를 판정.
+    let private isSectionBoundary (line: string) : bool =
+        if String.IsNullOrWhiteSpace line then true
+        else
+            let t = line.TrimStart()
+            t.StartsWith("# ")
+            || t.StartsWith("## ")
+            || t.StartsWith("### ")
+            || t.StartsWith("> ")
+            || t.StartsWith("<!--")
+            || t.StartsWith("---")
 
     /// 한 cell 의 char 길이를 `maxCellChars` 로 truncate. 초과 시 substring + suffix.
     /// alignment row cell (`:---:` 등) 은 그대로 (alignment row 자체가 별 path).
@@ -188,8 +207,9 @@ module MarkdownCapPolicy =
                         line
                 else
                     // 표 외 line — H1/H2/quote/comment/blank. 표 영역 종료 신호.
-                    if prevWasTableRow && String.IsNullOrWhiteSpace line then
-                        // 표와 다음 section 사이 blank line — 표 영역 종료.
+                    // **B·M1 / F·M4 fix** — blank line 만이 아니라 H2/quote/comment 등 모든
+                    // section boundary 도 종료 신호 (다음 표가 직접 등장해도 종료 정합).
+                    if prevWasTableRow && isSectionBoundary line then
                         inDataSection <- false
                     prevWasTableRow <- false
                     line)
@@ -233,7 +253,7 @@ module MarkdownCapPolicy =
             let mutable sectionCellCount = 0
             let mutable sectionTotalRows = 0
             let mutable sectionDataIdx = 0
-            let mutable sectionKept = 0
+            // B·m2 (Outlier/Minor 묶음 1) — sectionKept mutable 변수 제거 (dead increment 0 사용처).
             let mutable sectionDropped = 0
 
             let flushSampleNote () =
@@ -244,7 +264,6 @@ module MarkdownCapPolicy =
                             (min tailCount (sectionTotalRows - min headCount sectionTotalRows))
                             sectionDropped)
                 sectionDropped <- 0
-                sectionKept <- 0
                 sectionDataIdx <- 0
                 sectionTotalRows <- 0
                 sectionCellCount <- 0
@@ -272,7 +291,6 @@ module MarkdownCapPolicy =
                     sectionCellCount <- alignmentCellCount line
                     sectionTotalRows <- countSectionDataRows lines i
                     sectionDataIdx <- 0
-                    sectionKept <- 0
                     sectionDropped <- 0
                     result.Add line
                 elif isTableRow line then
@@ -283,7 +301,6 @@ module MarkdownCapPolicy =
                         let needsElide = sectionTotalRows > headCount + tailCount
                         if keepHead then
                             result.Add line
-                            sectionKept <- sectionKept + 1
                         elif needsElide && sectionDataIdx = headCount then
                             // elide row 박제 (한 번만).
                             let elidedCnt = sectionTotalRows - headCount - tailCount
@@ -292,7 +309,6 @@ module MarkdownCapPolicy =
                             // 본 row 자체는 drop (이미 elide 안 포함).
                         elif keepTail then
                             result.Add line
-                            sectionKept <- sectionKept + 1
                         else
                             // 중간 drop (elide row 박제 후 또는 needsElide=false 인 경우 모든 row keep 이라 여기 도달 안 됨).
                             ()
@@ -303,7 +319,8 @@ module MarkdownCapPolicy =
                         result.Add line
                         prevWasTableRow <- true
                 else
-                    if prevWasTableRow && String.IsNullOrWhiteSpace line then
+                    // **B·M1 / F·M4 fix** — blank 외 H2/quote/comment 등 section boundary 도 종료.
+                    if prevWasTableRow && isSectionBoundary line then
                         // 표 영역 종료 — sample note flush.
                         flushSampleNote ()
                         inDataSection <- false
@@ -342,7 +359,8 @@ module MarkdownCapPolicy =
                         if inDataSection then cnt <- cnt + 1
                         prevWasTableRow <- true
                     else
-                        if prevWasTableRow && String.IsNullOrWhiteSpace line then
+                        // B·M1 / F·M4 fix — section boundary 일반화.
+                        if prevWasTableRow && isSectionBoundary line then
                             inDataSection <- false
                         prevWasTableRow <- false
                 cnt
@@ -378,17 +396,36 @@ module MarkdownCapPolicy =
                                 partLines.Add line
                                 prevWasTableRow <- true
                         else
-                            if prevWasTableRow && String.IsNullOrWhiteSpace line then
+                            // B·M1 / F·M4 fix — section boundary 일반화.
+                            if prevWasTableRow && isSectionBoundary line then
                                 inDataSection <- false
                             prevWasTableRow <- false
                             partLines.Add line
-                    // part 안 split note 박제 — 어느 part 인지 명시.
-                    let partMd = joinLines (partLines.ToArray()) trailing
+                    // **B·M3 (Outlier/Minor 묶음 1)** — split note 위치를 머리말 5행 다음 + H1 이전
+                    // 으로 보정. 종전 구현은 part markdown 의 가장 앞 (머리말 1행 보다 앞) 에 박제 →
+                    // 머리말 첫 행이 `<!-- generated by ... -->` SSOT 인데 split note 가 그 앞에 박제되면
+                    // 외부 reader (LLM / 진단 도구) 가 첫 5행 머리말 박제 invariant 를 못 인식. 본 fix 는
+                    // partLines 안에서 첫 blank line (= 머리말 5행 직후 trailing blank) 위치를 찾아 그
+                    // 다음에 noteLine 삽입. blank line 부재 시 (fixture 비정상) fallback 으로 맨 앞 박제.
                     let noteLine =
-                        sprintf "<!-- split: part %d of %d (data rows %d~%d of %d) -->\n"
+                        sprintf "<!-- split: part %d of %d (data rows %d~%d of %d) -->"
                             (partIdx + 1) partCount (startRow + 1) endRow totalDataRows
-                    // note 는 첫 line 다음 (header comment 5행 직후 H1 영역 보다 앞).
-                    parts.Add (noteLine + partMd)
+                    let arr = partLines.ToArray()
+                    let insertIdx =
+                        // 머리말 5행 직후 첫 blank line index 검색 → 그 다음 위치 (idx + 1) 에 insert.
+                        let mutable idx = -1
+                        let mutable i = 0
+                        while idx < 0 && i < arr.Length do
+                            if String.IsNullOrWhiteSpace arr.[i] then idx <- i
+                            i <- i + 1
+                        if idx < 0 then 0 else idx + 1
+                    let injected = ResizeArray<string>(arr.Length + 1)
+                    for i in 0 .. arr.Length - 1 do
+                        if i = insertIdx then injected.Add noteLine
+                        injected.Add arr.[i]
+                    if insertIdx >= arr.Length then injected.Add noteLine
+                    let partMd = joinLines (injected.ToArray()) trailing
+                    parts.Add partMd
                 parts |> List.ofSeq
 
     // ── byte size 측정 ─────────────────────────────────────────────────
@@ -408,10 +445,19 @@ module MarkdownCapPolicy =
               SizeBytes = originalSize
               SplitParts = None }
         else
+            // **F·m1 (Outlier/Minor 묶음 1)** — Stage escalation 진단 logger 도입. 종전은 silent
+            // escalation 으로 (어느 fixture 가 어느 단계 까지 갔는지 추적 불가) PR review 시 부담.
+            // Log.lighthouse (`Ds2.LightHouse`) 로 통일.
+            Log.lighthouse.Debug(
+                sprintf "MarkdownCapPolicy: cap exceeded (size=%d > cap=%d), Stage 1 진입"
+                    originalSize MaxMarkdownBytes)
             // Stage 1 — 컬럼 truncate.
             let stage1 = applyColumnTruncate MaxCellChars markdown
             let stage1Size = byteSize stage1
             if stage1Size <= MaxMarkdownBytes then
+                Log.lighthouse.Debug(
+                    sprintf "MarkdownCapPolicy: Stage 1 (ColumnTruncated, maxCellChars=%d) 흡수 size=%d"
+                        MaxCellChars stage1Size)
                 { Markdown = stage1
                   Stage = ColumnTruncated MaxCellChars
                   SizeBytes = stage1Size
@@ -419,9 +465,14 @@ module MarkdownCapPolicy =
             else
                 // Stage 2 — head/tail sampling (SSOT §8.5.5 — "처음 5 + 마지막 5 + ...N개 생략").
                 // 단일 정책 — head 5 + tail 5 + 중간 elide. cap 안 흡수 못할 시 곧바로 Stage 3 진입.
+                Log.lighthouse.Debug(
+                    sprintf "MarkdownCapPolicy: Stage 1 미흡수 size=%d, Stage 2 진입" stage1Size)
                 let stage2 = applySampling SampleHeadCount SampleTailCount stage1
                 let stage2Size = byteSize stage2
                 if stage2Size <= MaxMarkdownBytes then
+                    Log.lighthouse.Debug(
+                        sprintf "MarkdownCapPolicy: Stage 2 (Sampled head=%d, tail=%d) 흡수 size=%d"
+                            SampleHeadCount SampleTailCount stage2Size)
                     { Markdown = stage2
                       Stage = Sampled (SampleHeadCount, SampleTailCount)
                       SizeBytes = stage2Size
@@ -435,6 +486,8 @@ module MarkdownCapPolicy =
                     // doubling → SplitMaxParts 초과 fail-fast 회귀 risk. SSOT (`§8.5.5`) 의 3 단계 escalation
                     // 정의 = "Stage 1 → 2 → 3 누적 적용" — Stage 3 가 Stage 2 결과를 입력으로 받음이 의도.
                     // 최소 partCount 추정: stage2 size / cap (ceil) — header 중복 무시한 lower bound.
+                    Log.lighthouse.Debug(
+                        sprintf "MarkdownCapPolicy: Stage 2 미흡수 size=%d, Stage 3 (Split) 진입" stage2Size)
                     let initialPartCount =
                         max 2 ((stage2Size + MaxMarkdownBytes - 1) / MaxMarkdownBytes)
                     let mutable partCount = initialPartCount
@@ -458,6 +511,9 @@ module MarkdownCapPolicy =
                             "MarkdownCapPolicy: split escalation failed (partCount=%d max), source markdown %d bytes 가 cap %d 안 안 들어감"
                             SplitMaxParts originalSize MaxMarkdownBytes
                     let firstPart = List.head parts
+                    Log.lighthouse.Debug(
+                        sprintf "MarkdownCapPolicy: Stage 3 (Split) partCount=%d 흡수, firstPartSize=%d"
+                            partCount (byteSize firstPart))
                     { Markdown = firstPart
                       Stage = Split (1, partCount)
                       SizeBytes = byteSize firstPart
