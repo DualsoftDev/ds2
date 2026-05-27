@@ -104,6 +104,10 @@ public partial class LlmChatViewModel
     /// 동기 <see cref="ApplyPendingSpecializedDigest"/> 는 <see cref="SetActiveCollectionSourceRoots"/> 등 sync caller
     /// 호환 위해 그대로 유지 — fetch 비용 작아 sync 도 허용 (test/시연 path).
     /// <para/>
+    /// **Backlog J (LlmChatViewModel.SpecializedDigest.cs §J)** — provider 박제 + Log 의 인라인 복제를
+    /// <see cref="ApplyFetchedDigest"/> SSOT helper 로 추출. 본 메서드는 (1) roots 채집 (2) async fetch
+    /// (3) helper 호출 만 담당 — sync path (<see cref="ApplyPendingSpecializedDigest"/>) 와 wire byte-equal.
+    /// <para/>
     /// **review fail-safe (CLAUDE.md 정합)**: file IO 예외 (permission / disk full 등) 만 catch (광범위 흡수가 아닌
     /// 의도된 best-effort — chat 진입 자체는 막지 않는다). 외 예외는 fail-fast (root cause 노출).
     /// </summary>
@@ -117,12 +121,7 @@ public partial class LlmChatViewModel
             var digest = await KbSpecializedDigestFetcher
                 .FetchManyAsync(roots, CancellationToken.None)
                 .ConfigureAwait(true); // UI thread 로 복귀 — _provider 박제는 UI thread invariant.
-            if (_provider is ApiChatProvider api)
-                api.SetPendingSpecializedDigest(digest);
-            if (Log.IsDebugEnabled)
-                Log.Debug(
-                    $"RefreshSpecializedDigestAsync — digest len={digest.Length} (roots={roots.Count}, " +
-                    $"provider={_provider?.GetType().Name ?? "none"})");
+            ApplyFetchedDigest(digest, roots.Count, nameof(RefreshSpecializedDigestAsync));
         }
         catch (IOException ex)
         {
@@ -143,16 +142,34 @@ public partial class LlmChatViewModel
     /// null (init 미완료) 또는 다른 provider 일 때 silent skip.
     /// <para/>
     /// 빈 sourceRoot list / 모든 root 에 summary/ 부재 → 빈 digest 박제 (cache breakpoint 3 skip, PR-G v-b 와 wire 동치).
+    /// <para/>
+    /// **Backlog J (todo §J)** — provider 박제 + Log 인라인 복제를 <see cref="ApplyFetchedDigest"/> SSOT helper 로
+    /// 추출. 본 메서드는 sync fetch + helper 호출만 담당 — async path 와 wire byte-equal.
     /// </summary>
     private void ApplyPendingSpecializedDigest()
     {
         var roots = GetActiveCollectionSourceRoots();
         var digest = KbSpecializedDigestFetcher.FetchMany(roots);
+        ApplyFetchedDigest(digest, roots.Count, nameof(ApplyPendingSpecializedDigest));
+    }
+
+    /// <summary>
+    /// **Backlog J (todo-documents-based-gfm.md §J — SSOT 통합)** — fetched specialized digest 를
+    /// <see cref="ApiChatProvider.SetPendingSpecializedDigest"/> 에 박제 + Log.Debug 출력하는 SSOT helper.
+    /// <see cref="RefreshSpecializedDigestAsync"/> (async) 와 <see cref="ApplyPendingSpecializedDigest"/> (sync)
+    /// 양 path 가 본 helper 호출 — 인라인 복제 제거 (drift 방지). caller prefix (<paramref name="callerLabel"/>) 만
+    /// path 별 다르게 전달하여 기존 Log 메시지 wire byte-equal 보장 (회귀 0).
+    /// <para/>
+    /// **thread-affinity**: 본 helper 는 <c>_provider</c> 박제 — UI thread (dispatcher) 에서만 호출 가정.
+    /// async path 는 <c>ConfigureAwait(true)</c> 로 UI thread 복귀 후 호출, sync path 는 caller 가 이미 UI thread.
+    /// </summary>
+    private void ApplyFetchedDigest(string digest, int rootsCount, string callerLabel)
+    {
         if (_provider is ApiChatProvider api)
             api.SetPendingSpecializedDigest(digest);
         if (Log.IsDebugEnabled)
             Log.Debug(
-                $"ApplyPendingSpecializedDigest — digest len={digest.Length} (roots={roots.Count}, " +
+                $"{callerLabel} — digest len={digest.Length} (roots={rootsCount}, " +
                 $"provider={_provider?.GetType().Name ?? "none"})");
     }
 }
