@@ -583,7 +583,9 @@ public sealed class LlmConfig
     /// <summary>
     /// **D-S7-3a (s6-r29)** — 지정 service 의 ApiKeyEncrypted 갱신. null / 빈 입력 = 박제 제거.
     /// service entry 가 list 에 없으면 <see cref="InvalidOperationException"/>.
+    /// <para/>**PR2 (2026-05-27) — deprecated**: SecureString overload 사용 권장. managed string path 는 heap 평문 GC 잔존 risk.
     /// </summary>
+    [Obsolete("PR2 (2026-05-27): SetLightHousePsk(string, SecureString) overload 사용 권장. managed string path 는 heap 평문 GC 잔존 risk.")]
     public void SetLightHousePsk(string serviceId, string? psk)
     {
         if (string.IsNullOrEmpty(serviceId)) throw new ArgumentException("serviceId required", nameof(serviceId));
@@ -644,11 +646,15 @@ public sealed class LlmConfig
     /// <summary>
     /// **D-S7-3a (s6-r29) backward-compat overload** — active service 가 있으면 PSK 갱신, 없으면 신규 service
     /// (Active=true) 생성. UI / Holder 가 D-S7-3c 진입 시 명시 ServiceId 사용으로 마이그레이션 후 제거 후보.
+    /// <para/>**PR2 (2026-05-27) — deprecated**: SecureString overload 사용 권장.
     /// </summary>
+    [Obsolete("PR2 (2026-05-27): SetLightHousePsk(SecureString) overload 사용 권장.")]
     public void SetLightHousePsk(string? psk)
     {
         var svc = EnsureActiveService();
+#pragma warning disable CS0618  // 본 helper 가 string overload SSOT 경유 — internal 위임.
         SetLightHousePsk(svc.ServiceId, psk);
+#pragma warning restore CS0618
     }
 
     public bool HasLightHousePsk() => !string.IsNullOrEmpty(GetLightHousePsk());

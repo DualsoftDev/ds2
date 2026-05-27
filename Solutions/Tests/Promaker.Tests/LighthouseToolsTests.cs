@@ -1,3 +1,5 @@
+// **PR2 (2026-05-27)** — SetLightHousePsk(string) [Obsolete]. test helper string overload 박제 — warning 차단.
+#pragma warning disable CS0618
 using System;
 using System.Linq;
 using System.Text.Json;

@@ -158,6 +158,23 @@ public sealed class LightHouseLocalInstaller
         return ss;
     }
 
+    /// <summary>**PR2 (2026-05-27)** — SecureString → managed string 1회 변환 (LightHouseClient PSK provider `Func&lt;string?&gt;` 인터페이스 보존 의무).
+    /// ApplicationSettings 의 LhTestConnection 이 사용 — pending PSK 의 1회 wire-up. 본 변환 결과 string 은 immutable 이라 GC 회수 전까지 heap 잔존
+    /// (LightHouseClient.PSK provider 가 SecureString 박제 migrate 시 본 helper 도 폐기 가능 — 별 backlog).</summary>
+    internal static string SecureStringToManagedString(SecureString ss)
+    {
+        IntPtr ptr = IntPtr.Zero;
+        try
+        {
+            ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
+            return Marshal.PtrToStringUni(ptr) ?? "";
+        }
+        finally
+        {
+            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
     /// <summary>**B4 (2026-05-27)** — SecureString → UTF-8 byte[]. 중간 char[] 도 Array.Clear 로 wipe.
     /// caller 가 반환 byte[] 의 사용 후 Array.Clear 의무 (finally).
     /// <para/>**B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) 도 본 helper SSOT 호출 (중복 제거).</summary>

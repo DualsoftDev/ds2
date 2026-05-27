@@ -1,3 +1,5 @@
+// **PR2 (2026-05-27)** — SetLightHousePsk(string) [Obsolete]. test 가독성 우선으로 string overload 박제 보존 — warning 차단.
+#pragma warning disable CS0618
 using System;
 using System.IO;
 using System.Security.Cryptography;
