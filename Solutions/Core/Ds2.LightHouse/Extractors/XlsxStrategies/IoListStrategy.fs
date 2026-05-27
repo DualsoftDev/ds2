@@ -292,7 +292,14 @@ type IoListStrategy() =
             FullHash = fullHash
             NowIso = nowIso
         }
-        header.ToString() + body + footer.ToString()
+        let raw = header.ToString() + body + footer.ToString()
+        // **Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5)** —
+        // 자료 A (***REDACTED***2 IO LIST) 의 raw markdown 약 454KB → 256KB cap 안 흡수.
+        // MarkdownCapPolicy 가 자동 3 단계 (column truncate → sample → split) escalation.
+        // Split 결과는 본 PR scope 외 — Stage 1/2 적용 결과 단일 markdown 반환 + Stage 3 진입
+        // 시 part 1 markdown 만 반환 (후속 backlog 에서 TextDumper 의 SplitParts 박제 hook).
+        let capResult = MarkdownCapPolicy.applyCap raw
+        capResult.Markdown
 
     interface IXlsxStrategy with
         member _.Name = strategyName
