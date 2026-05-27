@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Promaker.Knowledge;
+using Promaker.LlmAgent;
 using Llm.Shared.Api;
 
 namespace Promaker.ViewModels;
@@ -23,12 +24,10 @@ namespace Promaker.ViewModels;
 ///   (PR-F 의 KB digest path 정합, KB digest 갱신 후 specialized digest 도 동반 refresh)</item>
 /// </list>
 /// <para/>
-/// **PoC 한정 (todo §2.1 PR-I5)** — KB collection 의 local sourceFolder 가 <see cref="LlmConfig.KbCollectionEntry"/>
-/// 에 박제 안 됨 (현 schema). 본 partial 은 fetch path skeleton + ApiChatProvider 주입만 박제 — 실 sourceFolder
-/// 의 ViewModel 측 cache / metadata fetch path 는 후속 PR backlog (server-side API 또는 LlmConfig schema 확장).
-/// 현 phase 에서는 <see cref="GetActiveCollectionSourceRoots"/> 가 빈 list 반환 → 빈 digest 주입 → cache breakpoint 3
-/// 박제 skip (PR-G v-b 와 wire 동치, 회귀 0). headless smoke (<c>SpecializedDigestInjectionTests</c>) 는 fetch path
-/// 자체를 검증 (실 sourceFolder fixture 박제).
+/// **Backlog A (todo-documents-based-gfm.md §5.4 / §10.3 P2 hand-off)** — KbCollectionEntry.SourceFolder 추가 후
+/// 본 partial 의 <see cref="GetActiveCollectionSourceRoots"/> 가 _config.KbCollections 의 Active=true + non-empty
+/// SourceFolder 값 list 반환. caller (test / 후속 ViewModel hook) 가 <see cref="SetActiveCollectionSourceRoots"/>
+/// 로 명시 박제 시 그 값이 우선 (headless smoke / 외부 자료 정렬 시연용 — config 우회).
 /// <para/>
 /// **thread-affinity (PR-F 정합)**: <see cref="ApplyPendingSpecializedDigest"/> 는 UI thread (dispatcher) 에서만 호출.
 /// fetch 자체는 file IO 동기 — background thread 호출 가능하나 본 partial 은 sequential caller (RefreshKbDigestAsync
@@ -37,24 +36,45 @@ namespace Promaker.ViewModels;
 public partial class LlmChatViewModel
 {
     /// <summary>
-    /// **PR-I5** — specialized digest 의 fetch 시점 cache. KB collection 변경 시 invalidate.
-    /// 현 PoC 단계는 sourceRoot metadata 부재로 항상 빈 list — 후속 PR 에서 KbCollectionEntry / server-side fetch
-    /// path 확장 시 본 cache 채워짐. caller (test / 후속 ViewModel hook) 가 <see cref="SetActiveCollectionSourceRoots"/>
-    /// 로 직접 박제 가능 (headless smoke / 외부 자료 정렬 시연용).
+    /// **PR-I5 / Backlog A** — caller 명시 박제 override (test / 외부 hook). null 시 <see cref="_config"/>.KbCollections
+    /// 기반 자동 추출. <see cref="SetActiveCollectionSourceRoots"/> 호출로 박제 → headless smoke / 시연 path.
+    /// production GUI 는 본 override 사용 X — config 자동 추출만 진입.
     /// </summary>
-    private IReadOnlyList<string> _specializedDigestRoots = Array.Empty<string>();
+    private IReadOnlyList<string>? _specializedDigestRootsOverride = null;
 
     /// <summary>
-    /// **PR-I5 (PoC hook)** — 활성 KB collection 의 local sourceRoot list 반환. 현 phase 는 caller 가 직접 박제한
-    /// <see cref="_specializedDigestRoots"/> snapshot 반환 (LlmConfig.KbCollections 의 metadata 부재 — 후속 확장 대기).
-    /// <para/>
-    /// 후속 PR (KbCollectionEntry.SourceFolder 추가 또는 server-side <c>.lighthouse-kb/summary/*.md</c> fetch API 노출)
-    /// 시점에 본 메서드가 LlmConfig 또는 server response 에서 root 추출하도록 patch — caller (RefreshSpecializedDigestAsync)
-    /// 는 변경 0.
+    /// **Backlog A** — 활성 KB collection 의 local source root list 반환.
+    /// <list type="number">
+    ///   <item><see cref="_specializedDigestRootsOverride"/> 가 박제되어 있으면 그 snapshot 반환 (test / 시연 path).</item>
+    ///   <item>박제 안 됨 → <see cref="_config"/>.KbCollections 순회 — Active=true + non-empty SourceFolder 만 채집.</item>
+    /// </list>
+    /// fetch 자체 (`Directory.Exists` 검증 / 빈 디렉토리 skip) 는 <see cref="KbSpecializedDigestFetcher.FetchMany"/>
+    /// 가 담당 — 본 메서드는 path string 만 반환. 빈 list = specialized digest skip = cache breakpoint 3 skip (회귀 0).
     /// </summary>
     private IReadOnlyList<string> GetActiveCollectionSourceRoots()
     {
-        return _specializedDigestRoots;
+        if (_specializedDigestRootsOverride is not null) return _specializedDigestRootsOverride;
+        return ExtractActiveSourceRoots(_config);
+    }
+
+    /// <summary>
+    /// **Backlog A — unit-testable filter helper**. <see cref="LlmConfig.KbCollections"/> 중 Active=true 이고
+    /// SourceFolder 가 non-empty 인 entry 들의 SourceFolder 값 list 를 입력 순서 보존으로 반환.
+    /// <para/>
+    /// Promaker.Tests 의 `SpecializedDigestInjectionTests` 가 본 helper 를 직접 호출하여 회귀 검증
+    /// (LlmChatViewModel 인스턴스 / WPF Dispatcher 의존 없이 schema-level 정합 fact 박제 가능).
+    /// </summary>
+    internal static IReadOnlyList<string> ExtractActiveSourceRoots(LlmConfig config)
+    {
+        if (config is null) return Array.Empty<string>();
+        var roots = new List<string>();
+        foreach (var entry in config.KbCollections)
+        {
+            if (!entry.Active) continue;
+            if (string.IsNullOrEmpty(entry.SourceFolder)) continue;
+            roots.Add(entry.SourceFolder);
+        }
+        return roots;
     }
 
     /// <summary>
@@ -67,14 +87,22 @@ public partial class LlmChatViewModel
     /// </summary>
     internal void SetActiveCollectionSourceRoots(IReadOnlyList<string>? roots)
     {
-        _specializedDigestRoots = roots ?? Array.Empty<string>();
+        _specializedDigestRootsOverride = roots;
         ApplyPendingSpecializedDigest();
     }
 
     /// <summary>
-    /// **PR-I5** — specialized digest fetch + ApiChatProvider 주입. <see cref="RefreshKbDigestAsync"/> 와 동일
-    /// lifecycle (chat panel open / KB collection 변경 / SSE invalidate 시) 진입점. PR-F 의 KB digest path 정합 —
-    /// fetch 실패 시 silent skip (Log.Warn) + 다음 firstTurn 에 영향 0.
+    /// **PR-I5 + Backlog G (todo §2 PR-I5 review minor — async wiring)** — specialized digest fetch +
+    /// ApiChatProvider 주입. <see cref="RefreshKbDigestAsync"/> 와 동일 lifecycle (chat panel open / KB collection 변경
+    /// / SSE invalidate 시) 진입점. PR-F 의 KB digest path 정합 — fetch 실패 시 silent skip (Log.Warn) + 다음
+    /// firstTurn 에 영향 0.
+    /// <para/>
+    /// **Backlog G fix** — 기존 <c>await Task.Yield()</c> 후 동기 IO 패턴 (정합 부족) 을 진정한 async 로 전환:
+    /// <see cref="KbSpecializedDigestFetcher.FetchManyAsync"/> (F# <c>buildManyAsync</c> wrap) 가
+    /// <see cref="File.ReadAllTextAsync(string, System.Text.Encoding, CancellationToken)"/> 로 IO 수행 → UI thread
+    /// block 0. 합본 결과는 동기 <see cref="KbSpecializedDigestFetcher.FetchMany"/> 와 byte-identical 보장 (회귀 0).
+    /// 동기 <see cref="ApplyPendingSpecializedDigest"/> 는 <see cref="SetActiveCollectionSourceRoots"/> 등 sync caller
+    /// 호환 위해 그대로 유지 — fetch 비용 작아 sync 도 허용 (test/시연 path).
     /// <para/>
     /// **review fail-safe (CLAUDE.md 정합)**: file IO 예외 (permission / disk full 등) 만 catch (광범위 흡수가 아닌
     /// 의도된 best-effort — chat 진입 자체는 막지 않는다). 외 예외는 fail-fast (root cause 노출).
@@ -83,8 +111,18 @@ public partial class LlmChatViewModel
     {
         try
         {
-            await Task.Yield(); // UI thread block 회피 — file IO 양은 작으나 호출 시점 분리 정합.
-            ApplyPendingSpecializedDigest();
+            var roots = GetActiveCollectionSourceRoots();
+            // Backlog G — 진정한 async IO (F# `buildManyAsync` 의 `File.ReadAllTextAsync` path).
+            // 동기 FetchMany 와 byte-identical (FileSeparator / path-sort / UTF-8 동일 SSOT 재사용).
+            var digest = await KbSpecializedDigestFetcher
+                .FetchManyAsync(roots, CancellationToken.None)
+                .ConfigureAwait(true); // UI thread 로 복귀 — _provider 박제는 UI thread invariant.
+            if (_provider is ApiChatProvider api)
+                api.SetPendingSpecializedDigest(digest);
+            if (Log.IsDebugEnabled)
+                Log.Debug(
+                    $"RefreshSpecializedDigestAsync — digest len={digest.Length} (roots={roots.Count}, " +
+                    $"provider={_provider?.GetType().Name ?? "none"})");
         }
         catch (IOException ex)
         {

@@ -155,6 +155,76 @@ public sealed class SpecializedDigestInjectionTests
         }
     }
 
+    // ── Backlog G (async wiring) ─────────────────────────────────────────────
+    // `LlmChatViewModel.RefreshSpecializedDigestAsync` 의 `Task.Yield()` 후 동기 IO 패턴 정합 부족 →
+    // `FetchAsync` / `FetchManyAsync` (F# `buildAsync`/`buildManyAsync` wrap) 로 전환. 회귀 0 보장 =
+    // 동기 `Fetch` / `FetchMany` 와 byte-identical 결과 반환.
+
+    [Fact]
+    public async Task Smoke_G_KbSpecializedDigestFetcher_FetchAsync_동기_Fetch_와_byte_identical()
+    {
+        var root = CreateFixture(
+            ("a.md", "MARKER_ASYNC_A 광명2"),
+            ("b.md", "MARKER_ASYNC_B"),
+            ("c.md", "MARKER_ASYNC_C"));
+        try
+        {
+            var sync = KbSpecializedDigestFetcher.Fetch(root);
+            var async_ = await KbSpecializedDigestFetcher.FetchAsync(root);
+            Assert.Equal(sync, async_);
+            Assert.Contains("MARKER_ASYNC_A", async_);
+            Assert.Contains("MARKER_ASYNC_B", async_);
+            Assert.Contains("MARKER_ASYNC_C", async_);
+            // separator 박제 정합.
+            Assert.Contains("\n\n---\n\n", async_);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Smoke_G_FetchAsync_null_빈_부재_root_빈_string()
+    {
+        // null / 빈 / 부재 root → 빈 string (동기 Fetch 와 동일 graceful).
+        Assert.Equal("", await KbSpecializedDigestFetcher.FetchAsync(null));
+        Assert.Equal("", await KbSpecializedDigestFetcher.FetchAsync(""));
+        Assert.Equal("", await KbSpecializedDigestFetcher.FetchAsync(
+            Path.Combine(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N"))));
+    }
+
+    [Fact]
+    public async Task Smoke_G_FetchManyAsync_동기_FetchMany_와_byte_identical()
+    {
+        var root1 = CreateFixture(("a.md", "MARKER_COL1_ASYNC"));
+        var rootEmpty = Path.Combine(Path.GetTempPath(), "promaker-async-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootEmpty);
+        var root2 = CreateFixture(("b.md", "MARKER_COL2_ASYNC"));
+        try
+        {
+            var roots = new[] { root1, rootEmpty, root2 };
+            var sync = KbSpecializedDigestFetcher.FetchMany(roots);
+            var async_ = await KbSpecializedDigestFetcher.FetchManyAsync(roots);
+            Assert.Equal(sync, async_);
+            Assert.Contains("MARKER_COL1_ASYNC", async_);
+            Assert.Contains("MARKER_COL2_ASYNC", async_);
+        }
+        finally
+        {
+            Directory.Delete(root1, recursive: true);
+            Directory.Delete(rootEmpty, recursive: true);
+            Directory.Delete(root2, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Smoke_G_FetchManyAsync_null_빈_seq_빈_string()
+    {
+        Assert.Equal("", await KbSpecializedDigestFetcher.FetchManyAsync(null));
+        Assert.Equal("", await KbSpecializedDigestFetcher.FetchManyAsync(Array.Empty<string>()));
+    }
+
     // ── [5] mock LLM client 의 system prompt inject + wire-level 정합 ───────────────
 
     [Fact]

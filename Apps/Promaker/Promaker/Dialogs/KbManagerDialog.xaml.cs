@@ -358,6 +358,9 @@ public partial class KbManagerDialog : Window
                 DisplayName = title,
                 Active = true,
                 ServiceId = sid,
+                // Backlog A — 본 collection 의 local source root 박제. LlmChatViewModel.GetActiveCollectionSourceRoots
+                // 가 본 값을 KbSpecializedDigestFetcher.FetchMany 입력으로 사용 (specialized digest cache breakpoint 3).
+                SourceFolder = folder,
             });
             _config.Save();
             ConfigChanged = true;
@@ -392,6 +395,15 @@ public partial class KbManagerDialog : Window
         {
             await ingest.ReingestAndReuploadAsync(row.CollectionId, picker.FolderName, row.DisplayName, progress, ct)
                 .ConfigureAwait(true);
+            // Backlog A — payload swap 시 SourceFolder 도 새 폴더로 갱신. 다음 chat 의 specialized digest fetch 정합.
+            var entry = _config.KbCollections.FirstOrDefault(k =>
+                k.CollectionId == row.CollectionId && k.ServiceId == row.ServiceId);
+            if (entry is not null)
+            {
+                entry.SourceFolder = picker.FolderName;
+                _config.Save();
+                ConfigChanged = true;
+            }
             StatusChip.Text = $"✅ 재업로드 완료 — {row.DisplayName}";
             await RefreshServiceAsync(row.ServiceId).ConfigureAwait(true);
         });

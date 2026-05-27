@@ -3,6 +3,7 @@ module Ds2.LightHouse.Tests.SpecializedDigestBuilderTests
 open System
 open System.IO
 open System.Text
+open System.Threading
 open Xunit
 open Ds2.LightHouse
 
@@ -202,3 +203,83 @@ let ``build - strategy 산출물 헤더 + footer 그대로 합본 (가공 0)`` (
         // 단일 파일 — separator 박제 0 — content 그대로 (head/foot 가공 0).
         Assert.Equal(strategyMd, result.Combined)
         Assert.Equal(1, result.Metadata.FileCount))
+
+// ── 시나리오 8: Backlog G (async wiring) ─────────────────────────────────
+// `RefreshSpecializedDigestAsync` 의 `Task.Yield()` 후 동기 IO 패턴 → 정합 async 전환.
+// 회귀 0 보장 = `buildAsync` / `buildManyAsync` 가 동기 path 와 byte-identical 결과 반환.
+
+[<Fact>]
+let ``buildAsync - 동기 build 와 byte-identical 합본 + metadata`` () =
+    withTempDir (fun root ->
+        let summaryDir = mkSummaryDir root
+        writeSummary summaryDir "b-fixture.md" "# B Doc\n\nBody B 광명2" |> ignore
+        writeSummary summaryDir "a-fixture.md" "# A Doc\n\nBody A 한글" |> ignore
+        writeSummary summaryDir "c-fixture.md" "# C Doc\n\nBody C" |> ignore
+
+        let sync = SpecializedDigestBuilder.build root
+        let async_ =
+            (SpecializedDigestBuilder.buildAsync root CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+
+        // byte-identical Combined (FileSeparator / path-sort / UTF-8 동일).
+        Assert.Equal(sync.Combined, async_.Combined)
+        Assert.Equal(sync.Metadata.FileCount, async_.Metadata.FileCount)
+        Assert.Equal(sync.Metadata.EstimatedTokens, async_.Metadata.EstimatedTokens)
+        // LastIndexedUtc 도 동일 file system snapshot.
+        Assert.Equal(sync.Metadata.LastIndexedUtc, async_.Metadata.LastIndexedUtc))
+
+[<Fact>]
+let ``buildAsync - summary 부재 graceful 빈 합본`` () =
+    withTempDir (fun root ->
+        let result =
+            (SpecializedDigestBuilder.buildAsync root CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+        Assert.Equal("", result.Combined)
+        Assert.Equal(0, result.Metadata.FileCount)
+        Assert.True(result.Metadata.LastIndexedUtc.IsNone))
+
+[<Fact>]
+let ``buildAsync - 빈 summary 디렉토리 빈 합본`` () =
+    withTempDir (fun root ->
+        let _ = mkSummaryDir root
+        let result =
+            (SpecializedDigestBuilder.buildAsync root CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+        Assert.Equal("", result.Combined)
+        Assert.Equal(0, result.Metadata.FileCount))
+
+[<Fact>]
+let ``buildManyAsync - 동기 buildMany 와 byte-identical 다중 collection`` () =
+    withTempDir (fun root1 ->
+        withTempDir (fun rootEmpty ->
+            withTempDir (fun root2 ->
+                let dir1 = mkSummaryDir root1
+                let dir2 = mkSummaryDir root2
+                writeSummary dir1 "c1-a.md" "Coll1 A" |> ignore
+                writeSummary dir1 "c1-b.md" "Coll1 B" |> ignore
+                writeSummary dir2 "c2-a.md" "Coll2 A" |> ignore
+                // rootEmpty 는 summary/ 미생성 — 동기/비동기 양쪽 모두 separator skip 정합.
+
+                let roots = [ root1; rootEmpty; root2 ]
+                let sync = SpecializedDigestBuilder.buildMany roots
+                let async_ =
+                    (SpecializedDigestBuilder.buildManyAsync roots CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
+
+                Assert.Equal(sync.Combined, async_.Combined)
+                Assert.Equal(sync.Metadata.FileCount, async_.Metadata.FileCount)
+                Assert.Equal(sync.Metadata.EstimatedTokens, async_.Metadata.EstimatedTokens))))
+
+[<Fact>]
+let ``buildManyAsync - 빈 seq 빈 합본`` () =
+    let result =
+        (SpecializedDigestBuilder.buildManyAsync [] CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
+    Assert.Equal("", result.Combined)
+    Assert.Equal(0, result.Metadata.FileCount)
+    Assert.True(result.Metadata.LastIndexedUtc.IsNone)
