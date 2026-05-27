@@ -13,8 +13,11 @@ open System.Text
 /// **3 단계 압축** (`documents-based-gfm.md` §8.5.5 SSOT):
 ///   1. **컬럼 truncate** — 표 data row 안 각 cell 의 문자열 길이 `MaxCellChars` 이하로 truncate
 ///      (`...` 박제). 표 header row / alignment row / H1/H2/quote/comment 행은 보존.
-///   2. **sample** — 표 data row 를 `SampleStep` 간격으로 sampling (행 수 감소). 표 무결성 유지
-///      (header + alignment + sampled data rows). drop 발생 시 안내 comment 박제.
+///   2. **sample (head/tail + elide)** — 표 data row 중 처음 `SampleHeadCount` 개 + 마지막
+///      `SampleTailCount` 개만 keep, 중간은 단일 elide placeholder row 박제 (예:
+///      `| ... | (N rows elided) | ... | ... | ... | ... |`). SSOT (`§8.5.5`) 의
+///      "N개 중 처음 5 + 마지막 5 + ...N개 생략" 정책 정합. 표 무결성 유지 (header + alignment + 박제 행 +
+///      elide row + tail 행). drop 발생 시 안내 comment 박제.
 ///   3. **split** — 위 두 단계 후도 초과 시 표 data row 를 N 등분하여 part 분할
 ///      (각 part 가 cap 안 들어갈 때까지 N 증가). header/footer 는 part 별 공유.
 ///
@@ -41,14 +44,14 @@ module MarkdownCapPolicy =
     [<Literal>]
     let TruncateSuffix = "..."
 
-    /// Stage 2 — sampling 간격. 2 = 2건마다 1건 keep (drop 1/2).
-    /// 4 = 4건마다 1건 keep (drop 3/4). 본 default 는 2 (1차 시도) → 안 들어가면 4 → 8 ... escalate.
+    /// Stage 2 — head/tail sampling 의 head 행 수 (표 시작부 보존).
+    /// SSOT (`documents-based-gfm.md` §8.5.5) — "처음 5 + 마지막 5 + ...N개 생략".
     [<Literal>]
-    let SampleStepInitial = 2
+    let SampleHeadCount = 5
 
-    /// Stage 2 sampling escalation 의 최대 step. 이 step 넘어도 cap 초과 → Stage 3 진입.
+    /// Stage 2 — head/tail sampling 의 tail 행 수 (표 끝부 보존).
     [<Literal>]
-    let SampleStepMax = 16
+    let SampleTailCount = 5
 
     /// Stage 3 split 의 최대 분할 개수. 이 N 넘으면 fail-fast (자료 비정상).
     [<Literal>]
@@ -60,8 +63,8 @@ module MarkdownCapPolicy =
         | Original
         /// Stage 1 적용 — 컬럼 truncate (`maxCellChars` 적용).
         | ColumnTruncated of maxCellChars: int
-        /// Stage 2 적용 — sampling (`step` 간격).
-        | Sampled of step: int
+        /// Stage 2 적용 — head/tail sampling (`headCount` + `tailCount` 행 keep, 중간 elide).
+        | Sampled of headCount: int * tailCount: int
         /// Stage 3 적용 — split (`partIndex` of `partCount`).
         | Split of partIndex: int * partCount: int
 
@@ -192,48 +195,108 @@ module MarkdownCapPolicy =
                     line)
         joinLines result trailing
 
-    // ── Stage 2 — sampling ────────────────────────────────────────────
+    // ── Stage 2 — head/tail sampling + 중간 elide ──────────────────────
 
-    /// 표 data row 를 `step` 간격으로 sampling (i % step = 0 만 keep).
-    /// header + alignment 보존. drop 발생 시 표 끝에 `<!-- sampled ... -->` 안내 박제.
-    let private applySampling (step: int) (markdown: string) : string =
-        if step < 2 then markdown
+    /// 표 한 section 의 data row 갯수를 미리 count.
+    /// alignment row 다음부터 다음 비-표 line (또는 blank) 까지의 data row count.
+    let private countSectionDataRows (lines: string array) (sectionStartIdx: int) : int =
+        // sectionStartIdx = alignment row 의 index. 그 다음부터 count.
+        let mutable cnt = 0
+        let mutable i = sectionStartIdx + 1
+        let mutable stop = false
+        while not stop && i < lines.Length do
+            let line = lines.[i]
+            if isTableRow line && not (isAlignmentRow line) then
+                cnt <- cnt + 1
+                i <- i + 1
+            else
+                stop <- true
+        cnt
+
+    /// alignment row 의 cell 개수 추출 — elide row 의 cell 개수 정합.
+    let private alignmentCellCount (line: string) : int =
+        splitCells line |> Array.length
+
+    /// 표 data row 를 head 5 + tail 5 + 중간 elide single row 로 sampling.
+    /// elide row 형식: `| ... | ... | (N rows elided) | ... | ... | ... |` (cell 개수 = alignment row 정합).
+    /// drop 발생 시 표 끝에 `<!-- sampled: head N + tail M, elided E -->` 안내 박제.
+    let private applySampling (headCount: int) (tailCount: int) (markdown: string) : string =
+        if headCount < 0 || tailCount < 0 then markdown
         else
             let trailing = hasTrailingNewline markdown
             let lines = splitLines markdown
             let result = ResizeArray<string>()
+            let mutable i = 0
             let mutable inDataSection = false
             let mutable prevWasTableRow = false
-            let mutable dataRowIdx = 0
-            let mutable keptInSection = 0
-            let mutable droppedInSection = 0
+            // 현재 section 의 alignment row cell 개수 + total data row count.
+            let mutable sectionCellCount = 0
+            let mutable sectionTotalRows = 0
+            let mutable sectionDataIdx = 0
+            let mutable sectionKept = 0
+            let mutable sectionDropped = 0
 
             let flushSampleNote () =
-                if droppedInSection > 0 then
+                if sectionDropped > 0 then
                     result.Add (
-                        sprintf "<!-- sampled: %d data row(s) kept, %d dropped (step=%d) -->"
-                            keptInSection droppedInSection step)
-                droppedInSection <- 0
-                keptInSection <- 0
-                dataRowIdx <- 0
+                        sprintf "<!-- sampled: head %d + tail %d kept, %d row(s) elided -->"
+                            (min headCount sectionTotalRows)
+                            (min tailCount (sectionTotalRows - min headCount sectionTotalRows))
+                            sectionDropped)
+                sectionDropped <- 0
+                sectionKept <- 0
+                sectionDataIdx <- 0
+                sectionTotalRows <- 0
+                sectionCellCount <- 0
 
-            for line in lines do
+            let buildElideRow (cellCnt: int) (elided: int) : string =
+                // cell 0 = `...`, cell 1 = `(N rows elided)`, 나머지 cell = `...`.
+                // cell 수 < 2 인 비정상 표는 단일 `...` cell 만.
+                if cellCnt <= 0 then
+                    sprintf "| (%d rows elided) |" elided
+                else
+                    let cells =
+                        Array.init cellCnt (fun idx ->
+                            if idx = (min 1 (cellCnt - 1)) then
+                                sprintf "(%d rows elided)" elided
+                            else
+                                "...")
+                    joinCells cells
+
+            while i < lines.Length do
+                let line = lines.[i]
                 if isAlignmentRow line then
+                    // 새 section 진입 — section 의 total data row count 미리 계산.
                     inDataSection <- true
                     prevWasTableRow <- true
-                    dataRowIdx <- 0
-                    keptInSection <- 0
-                    droppedInSection <- 0
+                    sectionCellCount <- alignmentCellCount line
+                    sectionTotalRows <- countSectionDataRows lines i
+                    sectionDataIdx <- 0
+                    sectionKept <- 0
+                    sectionDropped <- 0
                     result.Add line
                 elif isTableRow line then
                     if inDataSection then
-                        // data row — step 간격으로 keep.
-                        if dataRowIdx % step = 0 then
+                        // head/tail 5 + 중간 elide 결정.
+                        let keepHead = sectionDataIdx < headCount
+                        let keepTail = sectionDataIdx >= sectionTotalRows - tailCount
+                        let needsElide = sectionTotalRows > headCount + tailCount
+                        if keepHead then
                             result.Add line
-                            keptInSection <- keptInSection + 1
+                            sectionKept <- sectionKept + 1
+                        elif needsElide && sectionDataIdx = headCount then
+                            // elide row 박제 (한 번만).
+                            let elidedCnt = sectionTotalRows - headCount - tailCount
+                            result.Add (buildElideRow sectionCellCount elidedCnt)
+                            sectionDropped <- sectionDropped + elidedCnt
+                            // 본 row 자체는 drop (이미 elide 안 포함).
+                        elif keepTail then
+                            result.Add line
+                            sectionKept <- sectionKept + 1
                         else
-                            droppedInSection <- droppedInSection + 1
-                        dataRowIdx <- dataRowIdx + 1
+                            // 중간 drop (elide row 박제 후 또는 needsElide=false 인 경우 모든 row keep 이라 여기 도달 안 됨).
+                            ()
+                        sectionDataIdx <- sectionDataIdx + 1
                         prevWasTableRow <- true
                     else
                         // header row — keep.
@@ -246,6 +309,7 @@ module MarkdownCapPolicy =
                         inDataSection <- false
                     prevWasTableRow <- false
                     result.Add line
+                i <- i + 1
 
             // 마지막 표가 끝까지 진행된 경우 (trailing blank line 없음) flush.
             flushSampleNote ()
@@ -353,23 +417,13 @@ module MarkdownCapPolicy =
                   SizeBytes = stage1Size
                   SplitParts = None }
             else
-                // Stage 2 — sampling escalation (step = 2, 4, 8, 16).
-                let mutable step = SampleStepInitial
-                let mutable stage2 = stage1
-                let mutable stage2Size = stage1Size
-                let mutable stage2Done = false
-                while not stage2Done && step <= SampleStepMax do
-                    let sampled = applySampling step stage1
-                    let sz = byteSize sampled
-                    if sz <= MaxMarkdownBytes then
-                        stage2 <- sampled
-                        stage2Size <- sz
-                        stage2Done <- true
-                    else
-                        step <- step * 2
-                if stage2Done then
+                // Stage 2 — head/tail sampling (SSOT §8.5.5 — "처음 5 + 마지막 5 + ...N개 생략").
+                // 단일 정책 — head 5 + tail 5 + 중간 elide. cap 안 흡수 못할 시 곧바로 Stage 3 진입.
+                let stage2 = applySampling SampleHeadCount SampleTailCount stage1
+                let stage2Size = byteSize stage2
+                if stage2Size <= MaxMarkdownBytes then
                     { Markdown = stage2
-                      Stage = Sampled step
+                      Stage = Sampled (SampleHeadCount, SampleTailCount)
                       SizeBytes = stage2Size
                       SplitParts = None }
                 else

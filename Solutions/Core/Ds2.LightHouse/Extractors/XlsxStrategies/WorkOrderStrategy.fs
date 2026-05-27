@@ -291,7 +291,14 @@ type WorkOrderStrategy() =
             FullHash = fullHash
             NowIso = nowIso
         }
-        header.ToString() + bodyStr + footer.ToString()
+        let raw = header.ToString() + bodyStr + footer.ToString()
+        // **Backlog H (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+        // 자료 C (***REDACTED***2 SV_SIDE 조립작업서) 의 raw markdown 이 cap 초과 시 자동 압축.
+        // MarkdownCapPolicy 의 3 단계 (column truncate → head/tail sample → split) escalation.
+        // Stage 3 진입 시 part 1 markdown 만 반환 — SplitParts 박제 hook 은 Backlog I 후속 (IXlsxStrategy
+        // signature 변경 + TextDumper 의 part 파일 박제 path).
+        let capResult = MarkdownCapPolicy.applyCap raw
+        capResult.Markdown
 
     interface IXlsxStrategy with
         member _.Name = strategyName
