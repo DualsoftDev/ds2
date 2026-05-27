@@ -26,7 +26,14 @@
          PR-I2 시점 WorkOrderStrategy 가 IoListStrategy 다음 / XlsxSignatureClassifier 보다 앞에 append. -->
     <Compile Include="Extractors\XlsxStrategies\IXlsxStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\IoListStrategy.fs" />
+    <Compile Include="Extractors\XlsxStrategies\WorkOrderStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\XlsxSignatureClassifier.fs" />
+    <!-- PR-I2 (todo §3.1 / §11.4 / §2.1) — pdf strategy interface + PdfControlSpecStrategy + classifier.
+         IXlsxStrategy 의 SignatureResult / StrategyOutcome 재사용 → XlsxStrategies 의 IXlsxStrategy.fs 보다 뒤.
+         PdfExtractor 보다 뒤 (Models / Diagnostics / XlsxStrategies SignatureResult 만 의존). -->
+    <Compile Include="PdfStrategies\IPdfStrategy.fs" />
+    <Compile Include="PdfStrategies\PdfControlSpecStrategy.fs" />
+    <Compile Include="PdfStrategies\PdfSignatureClassifier.fs" />
     <Compile Include="Extractors\OoxmlExtractor.fs" />
     <Compile Include="Extractors\ImageExtractor.fs" />
     <Compile Include="Chunker.fs" />
