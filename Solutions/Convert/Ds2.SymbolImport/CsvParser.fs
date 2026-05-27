@@ -263,6 +263,12 @@ module CsvParser =
     let private tryFindIndexByName (name: string) (row: string list) =
         row |> List.tryFindIndex (equalsOrdinalIgnoreCase name)
 
+    /// 여러 후보 컬럼명(영문/한글 별칭) 중 가장 먼저 매칭되는 컬럼 인덱스.
+    /// LS XG5000 export 는 UI 언어에 따라 헤더가 영문(Variable/Address/...) 또는
+    /// 한글(변수/메모리 할당/...)로 나오므로, 컬럼 수에 의존하지 않고 이름으로 인식한다.
+    let private tryFindIndexByNames (names: string list) (row: string list) =
+        row |> List.tryFindIndex (fun cell -> names |> List.exists (fun n -> equalsOrdinalIgnoreCase n cell))
+
     let private isBitLike (dataType: string) =
         let upper = if isNull dataType then "" else dataType.Trim().ToUpperInvariant()
         upper = "BIT" || upper = "BOOL" || upper = "BOOLEAN"
@@ -278,13 +284,15 @@ module CsvParser =
         rows
         |> Array.mapi (fun index row -> index, row)
         |> Array.tryPick (fun (index, row) ->
-            match tryFindIndexByName "Variable" row, tryFindIndexByName "Address" row with
+            // 영문/한글 헤더 공통 인식. "변수 종류"(Type) 는 exact match 라 "변수"(Variable) 와 안 겹친다.
+            match tryFindIndexByNames [ "Variable"; "변수" ] row,
+                  tryFindIndexByNames [ "Address"; "메모리 할당"; "주소" ] row with
             | Some nameIndex, Some addressIndex ->
                 Some
                     { NameIndex = nameIndex
                       AddressIndex = addressIndex
-                      DataTypeIndex = tryFindIndexByName "DataType" row
-                      CommentIndex = tryFindIndexByName "Comment" row
+                      DataTypeIndex = tryFindIndexByNames [ "DataType"; "데이터 타입"; "타입" ] row
+                      CommentIndex = tryFindIndexByNames [ "Comment"; "설명문"; "설명"; "비고" ] row
                       DataStartIndex = index + 1 }
             | _ ->
                 if row.Length >= 6 && row |> List.exists (equalsOrdinalIgnoreCase "HMI") then
