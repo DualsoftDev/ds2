@@ -68,8 +68,10 @@ if (-not [string]::IsNullOrEmpty($CertPasswordPlain)) {
 # string 도 매칭 — Promaker LightHouseClient 의 `/sessions` 호출은 통과 → Node 측만 fail 발견 지연.
 # **fix**: `-DnsName` 사용 폐기, `-TextExtension "2.5.29.17={text}DNS=...&IPAddress=..."` 로
 # SAN 본문 직접 박제. IPv4 / IPv6 regex 판정 후 자동 분리.
+# **메타리뷰 m6 (2026-05-27)** — IPv6 regex 강화. 기존 `^[0-9a-fA-F:]+:[0-9a-fA-F:]*$` 는 `:::` 같은 비정상도 통과.
+# `[System.Net.IPAddress]::TryParse` 가 정공이지만 본 스크립트의 인자 단순 분류만 필요 → form check 강화.
 $ipv4Regex = '^(\d{1,3}\.){3}\d{1,3}$'
-$ipv6Regex = '^[0-9a-fA-F:]+:[0-9a-fA-F:]*$'
+$ipv6Regex = '^([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$|^::1$|^::$'
 $sanParts = @()
 foreach ($h in $DnsName) {
     if ($h -match $ipv4Regex -or $h -match $ipv6Regex) {

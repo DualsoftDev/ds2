@@ -37,8 +37,8 @@ public sealed class LightHouseLocalInstaller
     /// enable-ai.ps1 호출 → 4단계 (Ollama / cert / sc create + PSK / firewall + start) → Promaker 측 PSK DPAPI 박제.
     /// 성공 시 <see cref="EnableResult.ServiceId"/> 가 LlmConfig.LightHouseServices 의 Local entry 식별자.
     /// <para/>
-    /// **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 caller 가 사용자 입력값 (SecureString) 을
-    /// 받아 평문으로 전달. caller 측 책임: SecureString → UTF-8 byte → 본 메서드 호출 → byte clear. 본 메서드는 그
+    /// **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 caller 가 사용자 입력값 (현재 구현은
+    /// managed string, **M4 메타리뷰 (2026-05-27) — SecureString 정공은 별 phase**) 을 받아 평문으로 전달. 본 메서드는 그
     /// 평문을 임시 파일 (Owner-only ACL) 에 박제 → ps1 가 read 후 wipe → 본 메서드도 finally 에서 wipe (이중 안전).
     /// </summary>
     /// <param name="pskPlain">사용자 입력 PSK 평문. 임시 파일 박제 후 일찍 wipe — caller 도 호출 후 자체 wipe 의무.</param>

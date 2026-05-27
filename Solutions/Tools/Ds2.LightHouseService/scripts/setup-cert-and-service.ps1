@@ -77,11 +77,11 @@ try {
       throw "install-service.ps1 failed (exit=$LASTEXITCODE)"
     }
 
-    # ─── .cer (PEM) export — Node 기반 client (Claude CLI) 의 NODE_EXTRA_CA_CERTS 호환 ──────
+    # ─── .cer (PEM) export — 일반 https client 호환용 archive ──────
     # **2026-05-27 박제** — enable-ai.ps1 (Promaker UI path) 는 .cer export 박제했으나 본 wrapper
-    # (`make install` path) 가 누락 → PFX 재발급 시 .cer 가 옛 thumbprint 잔존 → Node TLS mismatch
-    # (mcp lighthouse "failed") 사고. 본 export 가 PFX 와 동시 갱신 보장.
-    # PEM 형식 의무 — Node OpenSSL 은 NODE_EXTRA_CA_CERTS 에 PEM 만 신뢰 (DER 박제 시 ignoring extra certs warn).
+    # (`make install` path) 가 누락 → PFX 재발급 시 .cer 가 옛 thumbprint 잔존 → 진단 어려움.
+    # PEM 형식 의무 — Plan B 폐기 후에도 archive 용도 + 일반 https client 호환 위해 유지.
+    # **메타리뷰 m8 (2026-05-27)** — enable-ai.ps1 의 동일 블록과 동기화 의무. helper module 분리는 별 phase.
     $cerPath = [System.IO.Path]::ChangeExtension($PfxPath, '.cer')
     $certForExport = $null
     try {

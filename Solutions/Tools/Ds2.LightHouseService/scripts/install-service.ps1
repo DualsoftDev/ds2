@@ -232,7 +232,7 @@ if (-not $createOk) {
   Write-Warning "  1. services.msc — 열려 있으면 닫기"
   Write-Warning "  2. Process Explorer / Process Hacker / Sysinternals 등 service 감시 도구 — 종료"
   Write-Warning "  3. 보안 SW (CrowdStrike / Defender ATP / EDR agent) — service hook 잠금 가능"
-  Write-Warning "  4. Promaker WPF 가 LightHouseClient HttpClient connection pool 을 닫지 않음"
+  Write-Warning "  4. polling 중인 sc.exe query 자체의 handle 잔존 (SCM internal refcount)"
   Write-Warning ""
   Write-Warning "해결 단계:"
   Write-Warning "  a) 위 도구들 닫기 + Promaker 종료"
@@ -241,7 +241,8 @@ if (-not $createOk) {
   Write-Warning ""
   Write-Warning "마지막 sc.exe stdout: $($scOut | Out-String)"
   Write-Warning "═══════════════════════════════════════════════════════════════════"
-  exit 1
+  # **메타리뷰 m5 (2026-05-27)** — exit 1 대신 1072 sentinel 유지 → caller 가 marked-for-deletion 분기 구분 가능.
+  exit 1072
 }
 
 & sc.exe description $ServiceName "Ds2 LightHouse KB — central index + search host" | Out-Null

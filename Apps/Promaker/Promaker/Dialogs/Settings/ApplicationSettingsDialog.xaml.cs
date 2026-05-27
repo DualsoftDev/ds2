@@ -486,6 +486,16 @@ public partial class ApplicationSettingsDialog : Window
     /// </summary>
     private void LhAddLocalEntry_Click(object sender, RoutedEventArgs e)
     {
+        // **메타리뷰 M8 (2026-05-27)** — config.json 미존재 시 dead entry 박제 차단.
+        var configPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Dualsoft", "LightHouseService", "config.json");
+        if (!System.IO.File.Exists(configPath))
+        {
+            LhEnableLocalStatus.Text = "LightHouseService 가 설치 전입니다 — 'Local 서비스 설치/재설치' 버튼으로 먼저 설치하시기 바랍니다.";
+            return;
+        }
+
         var baseUrl = LightHouseLocalInstaller.ResolveLocalBaseUrl();
 
         // safety net — IsEnabled 갱신이 CollectionChanged 만 hook 하므로 cell 편집 직후 race 시 중복 추가될 수 있음.
@@ -588,28 +598,26 @@ public partial class ApplicationSettingsDialog : Window
         }
     }
 
-    /// <summary>`sc query Ds2.LightHouseService` 의 STATE=RUNNING 여부 판정. 미설치 / STOPPED / 다른 상태 모두 false.</summary>
+    /// <summary>**메타리뷰 M5 (2026-05-27)** — `sc.exe` regex parse → `ServiceController` native API 로 교체.
+    /// 한글 Windows 의 cp949 출력 사고 (regex "RUNNING" 우연 통과 / "실행 중" false negative) 차단. 미설치 catch 만 swallow.</summary>
     private static bool IsLightHouseServiceRunning()
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo("sc.exe", "query Ds2.LightHouseService")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            if (p is null) return false;
-            var stdout = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(3000);
-            // KR/EN 양쪽 정합 — "STATE  : 4  RUNNING" 패턴만 검출 (한글 출력 "상태 : 4 RUNNING").
-            return System.Text.RegularExpressions.Regex.IsMatch(stdout, @":\s*4\s+RUNNING");
+            using var sc = new System.ServiceProcess.ServiceController("Ds2.LightHouseService");
+            // ServiceController.Status access 가 미설치 service 면 InvalidOperationException throw.
+            return sc.Status == System.ServiceProcess.ServiceControllerStatus.Running;
         }
-        catch
+        catch (InvalidOperationException)
         {
+            // 미설치 — 정상 분기 (UI 가 신규 설치 path).
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // 권한 / WMI 사고 등 — log 박제 후 안전 default (false → reinstall path 진입, confirm dialog 안 뜸).
+            log4net.LogManager.GetLogger(typeof(ApplicationSettingsDialog))
+                .Warn($"IsLightHouseServiceRunning ServiceController 사고 ({ex.GetType().Name}: {ex.Message}) — false default.");
             return false;
         }
     }
@@ -657,6 +665,8 @@ public partial class ApplicationSettingsDialog : Window
             BaseUrl = hasLocal ? "https://" : defaultLocalUrl,
             Active = true,
         };
+        // **메타리뷰 m10 (2026-05-27)** — UX 대칭 — LhAddLocalEntry_Click 의 단일 active 정합 규칙을 본 핸들러에도 적용.
+        foreach (var s in _lhServicesWorking) s.Active = false;
         _lhServicesWorking.Add(svc);
         LhServicesGrid.Items.Refresh();
     }

@@ -7,7 +7,8 @@
   Promaker WPF 의 LightHouseLocalInstaller 가 UAC elevation (Verb=runas) 으로 호출.
   **RNG path 폐기 (사용자 결정 2026-05-27)** — PSK / cert PFX password 둘 다 사용자 입력값을 caller 가
   임시 파일에 박제하여 전달. 본 스크립트가 read → install-service.ps1 -PskPlain / -CertPasswordPlain
-  으로 chain → 임시 파일 wipe. 사용자 시야에 평문 노출 0 (caller 의 SecureString → 임시 파일 → 본 스크립트 read).
+  으로 chain → 임시 파일 wipe. 사용자 시야에 평문 노출 0 (caller 가 managed string 으로 박제한 평문 → 임시 파일 → 본 스크립트 read).
+  **M4 메타리뷰 (2026-05-27)** — SecureString 정공 path (PasswordBox.SecurePassword → byte[] → ZeroFreeBSTR) 박제는 별 phase.
 
   .cer 파일은 generate-dev-cert.ps1 직후 Export-Certificate 로 PFX 옆에 박제 + icacls Users:R 부여 —
   Node-based Claude Code CLI 의 NODE_EXTRA_CA_CERTS 가 read 할 수 있도록 (일반 사용자 권한).
@@ -66,7 +67,8 @@ try {
     if ([string]::IsNullOrEmpty($certPwdPlain)) { throw "Cert PFX password 입력값 비어있음." }
 
     # defense-in-depth — read 직후 임시 파일 0-byte 덮어쓰기 + delete. caller (Promaker) 의 finally wipe 와 이중 안전.
-    function Wipe-TempFile([string]$path) {
+    # **메타리뷰 m3 (2026-05-27)** — PSScriptAnalyzer Approved Verbs 정합 (Wipe → Clear).
+    function Clear-TempFile([string]$path) {
         if (-not (Test-Path $path)) { return }
         try {
             $len = (Get-Item $path).Length
@@ -79,8 +81,8 @@ try {
             Write-Warning "임시 파일 wipe 실패 ($path) — caller finally 가 보완: $($_.Exception.Message)"
         }
     }
-    Wipe-TempFile $PskInputPath
-    Wipe-TempFile $CertPasswordInputPath
+    Clear-TempFile $PskInputPath
+    Clear-TempFile $CertPasswordInputPath
 
     # ─── [1/4] Ollama + bge-m3 ──────────────────────────────
     Write-Host "===== [1/4] Ollama + bge-m3 ====="
@@ -99,10 +101,10 @@ try {
     & (Join-Path $scriptsDir 'generate-dev-cert.ps1') -PfxPath $pfxPath -CertPasswordPlain $certPwdPlain
     if ($LASTEXITCODE -ne 0) { throw "generate-dev-cert.ps1 실패 (exit $LASTEXITCODE)" }
 
-    # .cer export — Node-based Claude Code CLI 의 NODE_EXTRA_CA_CERTS 가 read 할 public cert.
-    # **PEM 형식** 박제 의무 — Node 의 OpenSSL 은 NODE_EXTRA_CA_CERTS 에 PEM 만 신뢰 (DER 박제 시
-    # `error:10000002:SSL routines:OPENSSL_internal:system library` + "ignoring extra certs").
+    # .cer (PEM) export — Plan B 폐기 후 archive 용도 + 일반 https client 호환 (Promaker LightHouseClient 는 OS Trust Store 의존).
+    # PEM 박제 사고 history — Node OpenSSL 은 DER 시 `error:10000002:SSL routines:OPENSSL_internal:system library` warning.
     # icacls Users:R 부여 (parent ACL 이 Administrators/SYSTEM only 라 fallback).
+    # **메타리뷰 m8 (2026-05-27)** — setup-cert-and-service.ps1 의 동일 블록과 동기화 의무. helper module 분리는 별 phase.
     $cerPath = [System.IO.Path]::ChangeExtension($pfxPath, '.cer')
     $certForExport = $null
     try {
