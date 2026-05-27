@@ -548,5 +548,13 @@ let ``자료 A 실파일 — 존재 시 IoListStrategy 매치 + markdown 박제 
                 mdBytes <= MarkdownCapPolicy.MaxMarkdownBytes,
                 sprintf "자료 A markdown %d bytes 가 cap %d 초과 — MarkdownCapPolicy escalation 결함"
                     mdBytes MarkdownCapPolicy.MaxMarkdownBytes)
+            // Backlog N — Stage 진입 정보 assert (silent Stage 3 split 진입 시 데이터 손실 감지).
+            // 자료 A 는 Original (cap 안) 또는 Stage 1 (ColumnTruncated) 허용 — Sampled / Split 진입 시
+            // fail (현재 IoListStrategy 가 Split 의 part 1 만 박제 → silent data loss 위험).
+            let capResult = MarkdownCapPolicy.applyCap markdown
+            match capResult.Stage with
+            | MarkdownCapPolicy.Original | MarkdownCapPolicy.ColumnTruncated _ -> ()
+            | other ->
+                Assert.Fail(sprintf "자료 A 가 Stage 2/3 진입 — 실제 %A (Backlog I/H 후속 처리 필요: SplitParts hook + cap 일반화)" other)
         | other ->
             Assert.Fail(sprintf "자료 A 가 IoListStrategy 매치 실패 — %A" other)
