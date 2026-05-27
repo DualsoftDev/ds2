@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -594,10 +595,51 @@ public sealed class LlmConfig
             return;
         }
         var plain = Encoding.UTF8.GetBytes(psk);
-        var entropy = BuildLightHousePskEntropy(serviceId);
-        var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
-        svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        try
+        {
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
+            svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        }
+        finally
+        {
+            // **B5 (2026-05-27)** — plain byte[] wipe (best-effort). 단 string psk 는 immutable 이라 GC heap 잔존.
+            Array.Clear(plain, 0, plain.Length);
+        }
     }
+
+    /// <summary>
+    /// **B5 (2026-05-27) — SecureString 정공 overload**. heap 평문 lifetime 완전 제거 — caller (LightHouseLocalInstaller)
+    /// 가 SecureString 직접 박제 → 본 메서드가 SecureString → byte[] (lock 보호) → DPAPI Protect → finally Array.Clear.
+    /// <para/>
+    /// caller 는 SecureString 의 소유권 유지 — 본 메서드가 Dispose 안 함 (caller 의 finally 책임). PSK 가 null/Length==0 시
+    /// ApiKeyEncrypted 박제 제거 (string overload 와 contract 동일성).
+    /// </summary>
+    public void SetLightHousePsk(string serviceId, SecureString? psk)
+    {
+        if (string.IsNullOrEmpty(serviceId)) throw new ArgumentException("serviceId required", nameof(serviceId));
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId)
+                  ?? throw new InvalidOperationException($"LightHouseServices entry not found: {serviceId}");
+        if (psk is null || psk.Length == 0)
+        {
+            svc.ApiKeyEncrypted = "";
+            return;
+        }
+        var plain = LightHouseLocalInstaller.SecureStringToUtf8Bytes(psk);
+        try
+        {
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
+            svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        }
+        finally
+        {
+            Array.Clear(plain, 0, plain.Length);
+        }
+    }
+
+    // **B5 자가 검열 M1 fix (2026-05-27)** — SecureStringToUtf8Bytes 중복 제거. LightHouseLocalInstaller.SecureStringToUtf8Bytes
+    // SSOT 사용 (internal helper). using Promaker.Services 박제됨 (line 16) — 의존 방향 동일.
 
     /// <summary>
     /// **D-S7-3a (s6-r29) backward-compat overload** — active service 가 있으면 PSK 갱신, 없으면 신규 service
