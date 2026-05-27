@@ -285,6 +285,17 @@ public class SelectionState
         _host.NotifyCommandStatesChanged();
     }
 
+    /// Cut 상태 시각 표시 — 주어진 keys 의 EntityNode 들 (Tree + Canvas) IsCutPending=true,
+    /// 나머지는 false. 빈 컬렉션 전달 시 전체 cut visual clear.
+    public void ApplyCutPendingVisuals(IEnumerable<SelectionKey> cutKeys)
+    {
+        var cutSet = new HashSet<SelectionKey>(cutKeys);
+        foreach (var node in _host.CanvasNodes)
+            node.IsCutPending = cutSet.Contains(ToKey(node));
+        foreach (var node in EnumerateTreeNodes())
+            node.IsCutPending = cutSet.Contains(ToKey(node));
+    }
+
     private List<SelectionKey> CanvasSelectionOrderKeys() =>
         EditorSelectionQueries.OrderCanvasSelectionKeys(_host.CanvasNodes.Select(ToCanvasSelectionCandidate))
             .ToList();

@@ -1,6 +1,22 @@
+using System;
 using System.Windows;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.Services;
+
+/// <summary>Cross-flow Call 이동/복사 시 사용자에게 device system 처리 모드를 묻는 컨텍스트.</summary>
+/// <param name="CallCount">옮길/복사할 Call 개수</param>
+/// <param name="IsCut">cut(이동) 인지 (false 면 copy)</param>
+/// <param name="Store">F# helper 호출용 (rename 충돌 사전 검사 등)</param>
+/// <param name="SourceCallIds">source Call ID 목록</param>
+/// <param name="TargetWorkId">target Work ID (target Flow 식별용)</param>
+public record CrossFlowDeviceModePromptContext(
+    int CallCount,
+    bool IsCut,
+    DsStore Store,
+    Guid[] SourceCallIds,
+    Guid TargetWorkId);
 
 /// <summary>
 /// 다이얼로그 표시를 담당하는 서비스 인터페이스
@@ -83,4 +99,12 @@ public interface IDialogService
     /// <param name="dialog">표시할 다이얼로그</param>
     /// <returns>다이얼로그 결과</returns>
     bool? ShowDialog(Window dialog);
+
+    /// <summary>
+    /// Cross-flow Call 이동/복사 시 device system 처리 모드를 묻는 다이얼로그.
+    /// CloneSystem(복사) / RenameSourceSystem(prefix 교체) / KeepReferences(참조 유지) 중 선택.
+    /// RenameSourceSystem 은 충돌(공유 device or name taken)이 있으면 라디오 비활성.
+    /// </summary>
+    /// <returns>사용자가 선택한 mode, 취소 시 null</returns>
+    CrossFlowDeviceMode? PromptCrossFlowDeviceMode(CrossFlowDeviceModePromptContext context);
 }

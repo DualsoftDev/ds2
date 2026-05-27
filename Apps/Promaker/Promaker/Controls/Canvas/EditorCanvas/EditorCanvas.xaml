@@ -317,6 +317,10 @@
                                         <Setter TargetName="NodeBorder" Property="Opacity" Value="0.45"/>
                                         <Setter TargetName="NodeBorder" Property="BorderThickness" Value="1.5"/>
                                     </DataTrigger>
+                                    <!-- Cut(Ctrl+X) pending: 디밍/반투명 -->
+                                    <DataTrigger Binding="{Binding IsCutPending}" Value="True">
+                                        <Setter TargetName="NodeBorder" Property="Opacity" Value="0.4"/>
+                                    </DataTrigger>
                                     <!-- Reference node: gray border + muted background -->
                                     <DataTrigger Binding="{Binding IsReference}" Value="True">
                                         <Setter TargetName="NodeBorder" Property="BorderBrush"

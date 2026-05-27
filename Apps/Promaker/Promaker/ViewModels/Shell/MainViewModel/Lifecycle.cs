@@ -62,6 +62,8 @@ public partial class MainViewModel
         CurrentHistoryIndex = 0;
 
         _clipboardSelection.Clear();
+        _clipboardIsCut = false;
+        Selection.ApplyCutPendingVisuals([]);
         Selection.Reset();
         CanvasManager.Reset();
         _rebuildQueued = false;
@@ -128,6 +130,8 @@ public partial class MainViewModel
     {
         Simulation.ResetForNewStore();
         _clipboardSelection.Clear();
+        _clipboardIsCut = false;
+        Selection.ApplyCutPendingVisuals([]);
         Selection.Reset();
         CanvasManager.Reset();
         _rebuildQueued = false;

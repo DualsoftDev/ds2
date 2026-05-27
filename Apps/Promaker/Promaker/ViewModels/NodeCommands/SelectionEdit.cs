@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
@@ -124,12 +125,99 @@ public partial class MainViewModel
 
         var validated = ok.Item;
         _clipboardSelection.Clear();
+        _clipboardIsCut = false;
         _pasteCount = 0;
         foreach (var key in validated)
             _clipboardSelection.Add(key);
 
+        // Copy 는 cut 아님 — 이전 cut visual 이 남아있다면 clear
+        Selection.ApplyCutPendingVisuals([]);
+
         StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityKind}(s).";
         RefreshEditorCommandStates();
+    }
+
+    private bool CanCutSelected()
+    {
+        if (!CanCopySelected())
+            return false;
+        // Cut 은 Call 만 지원 (1차 release). Flow/Work cut 은 cascade 폭이 커서 별도 명세 필요.
+        var candidates = Selection.OrderedNodeSelection.Count > 0
+            ? Selection.OrderedNodeSelection
+            : SelectedNode is { } single
+                ? new[] { new SelectionKey(single.Id, single.EntityType) }
+                : Array.Empty<SelectionKey>();
+        return candidates.Count > 0 && candidates.All(k => k.EntityKind == EntityKind.Call);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCutSelected))]
+    private void CutSelected()
+    {
+        var candidates = Selection.OrderedNodeSelection.Count > 0
+            ? Selection.OrderedNodeSelection
+            : SelectedNode is { } single
+                ? [new SelectionKey(single.Id, single.EntityType)]
+                : (IReadOnlyList<SelectionKey>)[];
+
+        if (!TryEditorFunc(
+                () => _store.ValidateCopySelection(candidates),
+                out CopyValidationResult result,
+                fallback: CopyValidationResult.NothingToCopy))
+            return;
+
+        if (result.IsMixedTypes)
+        {
+            _dialogService.ShowWarning("같은 종류의 항목만 이동할 수 있습니다.");
+            return;
+        }
+        if (result.IsMixedParents)
+        {
+            _dialogService.ShowWarning("서로 다른 위치에 있는 항목은 함께 이동할 수 없습니다.");
+            return;
+        }
+        if (result is not CopyValidationResult.Ok ok)
+        {
+            StatusText = "Nothing to cut.";
+            return;
+        }
+
+        var validated = ok.Item;
+        if (validated[0].EntityKind != EntityKind.Call)
+        {
+            _dialogService.ShowWarning("Cut(이동) 은 Call 만 지원합니다.");
+            return;
+        }
+
+        _clipboardSelection.Clear();
+        _clipboardIsCut = true;
+        _pasteCount = 0;
+        foreach (var key in validated)
+            _clipboardSelection.Add(key);
+
+        // Cut visual: 클립보드 entry 들을 디밍/반투명 표시
+        Selection.ApplyCutPendingVisuals(_clipboardSelection);
+
+        StatusText = $"Cut {_clipboardSelection.Count} Call(s) — Ctrl+V to move.";
+        RefreshEditorCommandStates();
+    }
+
+    /// <summary>
+    /// target Work 의 Flow 가 clipboard Call 들의 *어느 source Flow 와도 다른지*. 다르면 cross-flow paste/move 분기 → 다이얼로그 필요.
+    /// </summary>
+    private bool IsTargetInDifferentFlow((EntityKind EntityType, Guid EntityId) target)
+    {
+        var targetWorkOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Work, target.EntityType, target.EntityId);
+        if (targetWorkOpt is null) return false;
+        var targetWorkId = targetWorkOpt.Value;
+        if (!_store.WorksReadOnly.TryGetValue(targetWorkId, out var targetWork)) return false;
+        var targetFlowId = targetWork.ParentId;
+        foreach (var key in _clipboardSelection)
+        {
+            if (!_store.CallsReadOnly.TryGetValue(key.Id, out var call)) continue;
+            if (!_store.WorksReadOnly.TryGetValue(call.ParentId, out var sourceWork)) continue;
+            if (sourceWork.ParentId != targetFlowId) return true;
+        }
+        return false;
     }
 
     [RelayCommand(CanExecute = nameof(CanPasteCopied))]
@@ -142,6 +230,21 @@ public partial class MainViewModel
         {
             StatusText = "Clipboard is empty.";
             return;
+        }
+
+        // Cut clipboard: source Call 들이 그 동안 삭제되었는지 검증. 사라졌으면 자동 clear + 안내.
+        if (_clipboardIsCut)
+        {
+            var missing = _clipboardSelection.Where(k => !_store.CallsReadOnly.ContainsKey(k.Id)).ToList();
+            if (missing.Count > 0)
+            {
+                _clipboardSelection.Clear();
+                _clipboardIsCut = false;
+                Selection.ApplyCutPendingVisuals([]);
+                StatusText = "Cut 대상이 그 사이 삭제되어 클립보드를 비웠습니다.";
+                RefreshEditorCommandStates();
+                return;
+            }
         }
 
         var target = ResolvePasteTarget();
@@ -162,6 +265,20 @@ public partial class MainViewModel
         if (batchType == EntityKind.Flow)
         {
             PasteFlowsWithRename(target.Value);
+            return;
+        }
+
+        // Call 분기 — cross-flow 일 때는 device system 처리 모드 다이얼로그 분기
+        if (batchType == EntityKind.Call && IsTargetInDifferentFlow(target.Value))
+        {
+            DispatchCallAcrossFlows(target.Value);
+            return;
+        }
+
+        // Cut + same flow (다른 Work) → MoveCallToWork (단일 transaction loop)
+        if (batchType == EntityKind.Call && _clipboardIsCut)
+        {
+            DispatchCallMoveSameFlow(target.Value);
             return;
         }
 
@@ -189,6 +306,109 @@ public partial class MainViewModel
         var pastedIds = ((PasteResult.Ok)pasteResult).Item;
         _pasteCount++;
         ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
+    }
+
+    /// <summary>
+    /// Cross-flow Call paste/move — device system 처리 모드 다이얼로그 → F# 호출.
+    /// Cut clipboard 면 MoveCallsAcrossFlow, copy 면 PasteEntitiesWithMode.
+    /// </summary>
+    private void DispatchCallAcrossFlows((EntityKind EntityType, Guid EntityId) target)
+    {
+        var targetWorkOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Work, target.EntityType, target.EntityId);
+        if (targetWorkOpt is null) return;
+        var targetWorkId = targetWorkOpt.Value;
+
+        var mode = _dialogService.PromptCrossFlowDeviceMode(
+            new CrossFlowDeviceModePromptContext(
+                CallCount: _clipboardSelection.Count,
+                IsCut: _clipboardIsCut,
+                Store: _store,
+                SourceCallIds: _clipboardSelection.Select(k => k.Id).ToArray(),
+                TargetWorkId: targetWorkId));
+        if (mode is null) return;  // cancelled
+
+        var resolvedMode = mode;
+        if (_clipboardIsCut)
+        {
+            if (!TryEditorFunc(
+                    () => _store.MoveCallsAcrossFlow(
+                        _clipboardSelection.Select(k => k.Id), targetWorkId, resolvedMode),
+                    out CrossFlowMoveResult result,
+                    fallback: CrossFlowMoveResult.NewMoved(Microsoft.FSharp.Collections.ListModule.Empty<Guid>())))
+                return;
+            if (result is CrossFlowMoveResult.Blocked blocked)
+            {
+                ShowMoveValidationBlocked(blocked.Item);
+                return;
+            }
+            var movedIds = ((CrossFlowMoveResult.Moved)result).newCallIds;
+            _clipboardSelection.Clear();
+            _clipboardIsCut = false;
+            Selection.ApplyCutPendingVisuals([]);
+            ApplyPasteSelection(movedIds, $"Moved {movedIds.Length} Call(s) across Flow ({resolvedMode}).");
+        }
+        else
+        {
+            var pasteIndex = _pasteCount * _clipboardSelection.Count;
+            if (!TryEditorFunc(
+                    () => _store.PasteEntitiesWithMode(
+                        _clipboardSelection.Select(k => k.Id), target.EntityType, target.EntityId, pasteIndex, resolvedMode),
+                    out PasteResult result,
+                    fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>())))
+                return;
+            if (result is PasteResult.Blocked blocked)
+            {
+                if (blocked.Item.IsSameWorkPaste)
+                    _dialogService.ShowWarning("같은 Work 내의 Call은 복사할 수 없습니다.");
+                else if (blocked.Item.IsDuplicateCallInWork)
+                    _dialogService.ShowWarning("대상 Work에 이미 동일한 이름의 Call이 존재합니다.");
+                return;
+            }
+            var pastedIds = ((PasteResult.Ok)result).Item;
+            _pasteCount++;
+            ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} Call(s) across Flow ({resolvedMode}).");
+        }
+    }
+
+    /// <summary>Cut Call + same flow 의 다른 Work — same-flow MoveCallToWork 를 loop 로 호출.</summary>
+    private void DispatchCallMoveSameFlow((EntityKind EntityType, Guid EntityId) target)
+    {
+        var targetWorkOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Work, target.EntityType, target.EntityId);
+        if (targetWorkOpt is null) return;
+        var targetWorkId = targetWorkOpt.Value;
+
+        var moved = 0;
+        foreach (var key in _clipboardSelection.ToArray())
+        {
+            if (TryEditorFunc(
+                    () => _store.MoveCallToWork(key.Id, targetWorkId),
+                    out bool ok, fallback: false) && ok)
+                moved++;
+        }
+        if (moved > 0)
+        {
+            _clipboardSelection.Clear();
+            _clipboardIsCut = false;
+            Selection.ApplyCutPendingVisuals([]);
+            StatusText = $"Moved {moved} Call(s) within Flow.";
+            RefreshEditorCommandStates();
+        }
+        else
+        {
+            StatusText = "Nothing moved (duplicate name or invalid target).";
+        }
+    }
+
+    private void ShowMoveValidationBlocked(CrossFlowMoveValidation v)
+    {
+        if (v.IsSameWorkMove)
+            _dialogService.ShowWarning("이미 같은 Work 안에 있는 Call 은 이동할 수 없습니다.");
+        else if (v is CrossFlowMoveValidation.DuplicateNamesInTarget dup)
+            _dialogService.ShowWarning($"대상 Work 에 이미 동일한 이름의 Call 이 있습니다 ({dup.Item.Length}개).");
+        else if (v is CrossFlowMoveValidation.RenameModeConflicts conflicts)
+            _dialogService.ShowWarning($"Prefix 교체 모드 충돌: {conflicts.Item.Length}개 device. Device 복사 모드를 사용하세요.");
+        else
+            _dialogService.ShowWarning("이동할 수 없습니다.");
     }
 
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)

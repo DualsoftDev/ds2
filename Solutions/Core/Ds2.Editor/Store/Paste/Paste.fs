@@ -87,6 +87,51 @@ type DsStorePasteExtensions =
                 if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
                 PasteResult.Ok pastedIds
 
+    /// PasteEntities 의 Call 전용 확장 — device system 처리 모드 지정.
+    /// CloneSystem(기본) / RenameSourceSystem / KeepReferences 중 하나.
+    /// Cross-flow Call paste 에서만 mode 가 의미 있다. 그 외엔 PasteEntities 와 동일.
+    [<Extension>]
+    static member PasteEntitiesWithMode
+        (store: DsStore, copiedCallIds: seq<Guid>, targetEntityKind: EntityKind, targetEntityId: Guid,
+         pasteIndex: int, mode: CrossFlowDeviceMode) : PasteResult =
+        let ids =
+            copiedCallIds
+            |> Seq.map (fun id -> Queries.resolveOriginalCallId id store)
+            |> Seq.distinct
+            |> Seq.toList
+        if ids.IsEmpty then PasteResult.Ok []
+        else
+            let targetWorkIdOpt =
+                StoreHierarchyQueries.resolveTarget store EntityKind.Work targetEntityKind targetEntityId
+            match targetWorkIdOpt with
+            | Some targetWorkId ->
+                let anyFromSameWork =
+                    ids |> List.exists (fun id ->
+                        match Queries.getCall id store with
+                        | Some call -> call.ParentId = targetWorkId
+                        | None -> false)
+                if anyFromSameWork then PasteResult.Blocked PasteValidationResult.SameWorkPaste
+                else
+                    let existingNames =
+                        Queries.originalCallsOf targetWorkId store
+                        |> List.map (fun c -> c.Name)
+                        |> Set.ofList
+                    let hasDuplicate =
+                        ids |> List.exists (fun id ->
+                            match Queries.getCall id store with
+                            | Some call -> existingNames.Contains(call.Name)
+                            | None -> false)
+                    if hasDuplicate then PasteResult.Blocked PasteValidationResult.DuplicateCallInWork
+                    else
+                        StoreLog.debug($"PasteEntitiesWithMode: kind=Call, mode={mode}, count={ids.Length}, targetWork={targetWorkId}")
+                        let sourceCalls = ids |> List.choose (fun id -> Queries.getCall id store)
+                        let mutable pastedIds = []
+                        store.WithTransaction($"Paste Calls ({mode})", fun () ->
+                            pastedIds <- DirectPasteOps.pasteCallsToWorkBatchWithMode store sourceCalls targetWorkId pasteIndex mode)
+                        if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
+                        PasteResult.Ok pastedIds
+            | None -> PasteResult.Ok []
+
     [<Extension>]
     static member ValidateCopySelection(store: DsStore, keys: seq<SelectionKey>) : CopyValidationResult =
         let filtered =
