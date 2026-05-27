@@ -1,0 +1,87 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Ds2.LightHouse;
+using log4net;
+
+namespace Promaker.Knowledge;
+
+/// <summary>
+/// **PR-I5 (todo-documents-based-gfm.md §2 PR-I5 + §2.1 + documents-based-gfm.md §8.7~§8.9)** —
+/// 활성 KB collection 의 local root 디렉토리에서 `.lighthouse-kb/summary/*.md` 합본 markdown 을 fetch.
+/// <para/>
+/// 본 fetcher 는 <see cref="SpecializedDigestBuilder"/> (Ds2.LightHouse F# lib) 의 thin wrapper —
+/// ViewModel 친화성 (C# 호출 + Promaker.Knowledge namespace 정합) + null-graceful 변환 (rootDir 부재 / 빈
+/// 디렉토리 시 빈 string 반환) 만 추가. <see cref="ApiChatProvider.SetPendingSpecializedDigest"/> 가 빈 string
+/// 박제 시 cache breakpoint 3 skip → wire 동치 (PR-G v-b 와 회귀 0, todo §2.1 PR-I5 정합).
+/// <para/>
+/// **PoC 한정**: rootDir 입력은 caller (LlmChatViewModel) 의 책임. 현 phase 에서는 server-side
+/// `.lighthouse-kb/summary/` fetch path 가 별도 LightHouseClient API 로 노출 안 됨 (PR-I3 의 Packager
+/// whitelist 만 활성) — production 통합은 후속 PR backlog.
+/// <para/>
+/// **PR-F (KbProfileExtractor) 정합**: static helper + fail-safe (file IO 실패 시 Log.Warn + 빈 string).
+/// <see cref="OperationCanceledException"/> 등 cancellation 은 본 helper 가 동기 IO 만 수행하므로 무관.
+/// </summary>
+internal static class KbSpecializedDigestFetcher
+{
+    private static readonly ILog Log = LogManager.GetLogger(typeof(KbSpecializedDigestFetcher));
+
+    /// <summary>
+    /// 합본 markdown 사이 separator (다중 collection — F# <c>buildMany</c> 와 동일 SSOT — markdown horizontal rule).
+    /// 본 separator 의 갱신은 `SpecializedDigestBuilder.fs` 의 <c>FileSeparator</c> 와 동시 진행 의무.
+    /// </summary>
+    private const string CollectionSeparator = "\n\n---\n\n";
+
+    /// <summary>
+    /// 단일 collection root → `SpecializedDigestBuilder.build` 결과의 합본 string 반환.
+    /// <list type="bullet">
+    ///   <item><paramref name="collectionRoot"/> 가 null / 빈 string / 디렉토리 부재 → 빈 string</item>
+    ///   <item><c>.lighthouse-kb/summary/</c> 디렉토리 부재 또는 `*.md` 0개 → 빈 string (cache breakpoint 3 skip)</item>
+    ///   <item>합본 성공 → markdown string (`StrategyMarkdown` 머리말/footer 포함)</item>
+    /// </list>
+    /// 호출 비용 = `Directory.GetFiles` + 각 파일 `ReadAllText` 동기 IO. ***REDACTED***2 3 자료 기준 ~38K tokens ≈ 수십 KB,
+    /// localhost 가정 시 ~수십 ms.
+    /// </summary>
+    public static string Fetch(string? collectionRoot)
+    {
+        if (string.IsNullOrEmpty(collectionRoot)) return "";
+        if (!Directory.Exists(collectionRoot))
+        {
+            Log.Debug($"KbSpecializedDigestFetcher.Fetch — collectionRoot 부재 skip: {collectionRoot}");
+            return "";
+        }
+        // F# 모듈 호출 — Ds2.LightHouse.SpecializedDigestBuilder.build(rootDir) → DigestResult.Combined.
+        // file IO 실패 (permission / disk full 등) 는 fail-fast — caller 의 ApplyPendingSpecializedDigest 가
+        // try/catch 흡수 (KB digest 와 동일 fail-safe path).
+        var result = SpecializedDigestBuilder.build(collectionRoot);
+        if (Log.IsDebugEnabled)
+            Log.Debug(
+                $"KbSpecializedDigestFetcher.Fetch — root={collectionRoot} files={result.Metadata.FileCount} " +
+                $"tokens={result.Metadata.EstimatedTokens}");
+        return result.Combined;
+    }
+
+    /// <summary>
+    /// 다중 collection root → `SpecializedDigestBuilder.buildMany` 결과의 합본 string 반환.
+    /// 빈 list / null 입력 → 빈 string. 각 root 의 빈 합본은 separator skip (F# 측 동일 정책).
+    /// <para/>
+    /// 사용처 = <see cref="LlmChatViewModel"/> 의 multi-collection 시나리오. 현 PoC 단계에서는 단일 collection
+    /// 시연이지만 본 helper 는 multi 진입 가능 (future-proof, todo §2.1 PR-I5 영역 안).
+    /// </summary>
+    public static string FetchMany(IEnumerable<string>? collectionRoots)
+    {
+        if (collectionRoots is null) return "";
+        var existing = collectionRoots
+            .Where(p => !string.IsNullOrEmpty(p) && Directory.Exists(p))
+            .ToArray();
+        if (existing.Length == 0) return "";
+        // F# 측 buildMany 사용 — 빈 합본은 자동 skip + FileSeparator 동치 (CollectionSeparator 의 SSOT).
+        var result = SpecializedDigestBuilder.buildMany(existing);
+        if (Log.IsDebugEnabled)
+            Log.Debug(
+                $"KbSpecializedDigestFetcher.FetchMany — roots={existing.Length} files={result.Metadata.FileCount} " +
+                $"tokens={result.Metadata.EstimatedTokens}");
+        return result.Combined;
+    }
+}
