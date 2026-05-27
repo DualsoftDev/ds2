@@ -39,6 +39,10 @@
     <!-- PR-I3 (todo-documents-based-gfm.md §2 PR-I3 + §8.5.5) — TextDumper.dumpStrategySummaries hook 회귀.
          IoList/WorkOrder fixture → summary/ 박제 + rejected/near-miss JSON 누적 박제 + 자료 A/B/C 옵션 회귀. -->
     <Compile Include="TextDumperStrategiesTests.fs" />
+    <!-- PR-I4 (todo-documents-based-gfm.md §2 PR-I4 + documents-based-gfm.md §8.3) —
+         SpecializedDigestBuilder.build / buildMany 회귀. synthetic summary/*.md fixture →
+         합본 string + metadata 정합 + path-sorted enumeration + 멱등 byte-identical. -->
+    <Compile Include="SpecializedDigestBuilderTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -54,6 +54,10 @@
     <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
          SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
     <Compile Include="TextDumper.fs" />
+    <!-- PR-I4 (todo-documents-based-gfm.md §2 PR-I4 + §11.4 / documents-based-gfm.md §8.3) —
+         `.lighthouse-kb/summary/*.md` 합본 + metadata. SystemContentBuilder 의 cache breakpoint 3 박제 source.
+         TextDumper.summaryDir + StrategyMarkdown.estimateTokens 의존 → 둘 뒤 박제. -->
+    <Compile Include="SpecializedDigestBuilder.fs" />
     <!-- PR-H1 (todo-lighthouse-index-summary.md §11) — doc-level 1줄 summary (.lighthouse-kb/summary.md).
          SqliteStore + TextDumper.TextSubDirName 의존 → 뒤 박제. -->
     <Compile Include="SummaryBuilder.fs" />
