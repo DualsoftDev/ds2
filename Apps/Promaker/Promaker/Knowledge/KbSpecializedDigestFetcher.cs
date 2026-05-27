@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Ds2.LightHouse;
 using log4net;
 
@@ -81,6 +83,53 @@ internal static class KbSpecializedDigestFetcher
         if (Log.IsDebugEnabled)
             Log.Debug(
                 $"KbSpecializedDigestFetcher.FetchMany — roots={existing.Length} files={result.Metadata.FileCount} " +
+                $"tokens={result.Metadata.EstimatedTokens}");
+        return result.Combined;
+    }
+
+    // ── Backlog G (todo-documents-based-gfm.md §2 PR-I5 review minor) ───────────
+    // 비동기 overload — `LlmChatViewModel.RefreshSpecializedDigestAsync` 의 `Task.Yield()` 후
+    // 동기 IO 패턴을 정합 async 로 전환. 동기 `Fetch` / `FetchMany` 는 backward-compat 위해 그대로 유지.
+    // F# `buildAsync` / `buildManyAsync` thin wrapper — null-graceful / 디렉토리 부재 graceful 동기 path SSOT 재사용.
+
+    /// <summary>
+    /// 단일 collection root → <see cref="SpecializedDigestBuilder.buildAsync"/> 결과의 합본 string 비동기 반환.
+    /// 동기 <see cref="Fetch"/> 와 byte-identical (FileSeparator / path-sort / UTF-8 동일).
+    /// null / 빈 / 부재 root → 빈 string. cancellation token 지원 (각 파일 IO 사이 throw).
+    /// </summary>
+    public static async Task<string> FetchAsync(string? collectionRoot, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(collectionRoot)) return "";
+        if (!Directory.Exists(collectionRoot))
+        {
+            Log.Debug($"KbSpecializedDigestFetcher.FetchAsync — collectionRoot 부재 skip: {collectionRoot}");
+            return "";
+        }
+        var result = await SpecializedDigestBuilder.buildAsync(collectionRoot, ct).ConfigureAwait(false);
+        if (Log.IsDebugEnabled)
+            Log.Debug(
+                $"KbSpecializedDigestFetcher.FetchAsync — root={collectionRoot} files={result.Metadata.FileCount} " +
+                $"tokens={result.Metadata.EstimatedTokens}");
+        return result.Combined;
+    }
+
+    /// <summary>
+    /// 다중 collection root → <see cref="SpecializedDigestBuilder.buildManyAsync"/> 결과의 합본 string 비동기 반환.
+    /// 동기 <see cref="FetchMany"/> 와 byte-identical (separator skip 정책 동일).
+    /// null / 빈 list → 빈 string. 각 root 의 빈 합본은 separator skip (F# 측 동일 정책).
+    /// </summary>
+    public static async Task<string> FetchManyAsync(
+        IEnumerable<string>? collectionRoots, CancellationToken ct = default)
+    {
+        if (collectionRoots is null) return "";
+        var existing = collectionRoots
+            .Where(p => !string.IsNullOrEmpty(p) && Directory.Exists(p))
+            .ToArray();
+        if (existing.Length == 0) return "";
+        var result = await SpecializedDigestBuilder.buildManyAsync(existing, ct).ConfigureAwait(false);
+        if (Log.IsDebugEnabled)
+            Log.Debug(
+                $"KbSpecializedDigestFetcher.FetchManyAsync — roots={existing.Length} files={result.Metadata.FileCount} " +
                 $"tokens={result.Metadata.EstimatedTokens}");
         return result.Combined;
     }

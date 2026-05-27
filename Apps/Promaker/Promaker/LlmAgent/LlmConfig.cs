@@ -950,6 +950,23 @@ public sealed class KbCollectionEntry
     /// </summary>
     [JsonPropertyName("serviceId")]
     public string ServiceId { get; set; } = "";
+
+    /// <summary>
+    /// **Backlog A (todo-documents-based-gfm.md §5.4 / §10.3 P2 hand-off)** — 본 collection 의 local source root
+    /// 디렉토리 절대경로. <c>.lighthouse-kb/summary/*.md</c> 합본 fetch 의 입력 (
+    /// <see cref="Promaker.Knowledge.KbSpecializedDigestFetcher.FetchMany"/> 의 root list).
+    /// <para/>
+    /// **PR-I5 한정**: 본 필드가 박제 안 된 collection 은 specialized digest skip — cache breakpoint 3 박제 0 (PR-G v-b
+    /// 와 wire 동치, 회귀 0). 사용자가 KbManagerDialog 에서 폴더 선택 후 "등록 시작" 시 자동 박제 (등록 폴더 = source
+    /// root). 재업로드 시 새 폴더로 갱신 (Reupload_Click).
+    /// <para/>
+    /// **backward-compat**: nullable + default null + <c>JsonIgnore(WhenWritingNull)</c> — 기존 LlmConfig.json
+    /// (필드 부재) 로드 시 그대로 null 유지 + 다음 Save 에서 disk JSON 에 키 작성 0. 본 필드 부재 = legacy entry =
+    /// specialized digest 비활성 (사용자가 KbManagerDialog 에서 재등록 시 채움).
+    /// </summary>
+    [JsonPropertyName("sourceFolder")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceFolder { get; set; }
 }
 
 /// <summary>
