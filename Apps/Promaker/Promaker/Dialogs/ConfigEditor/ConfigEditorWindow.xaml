@@ -401,6 +401,63 @@
                     </ScrollViewer>
                 </TabItem>
 
+                <TabItem Header="XGK 슬롯" Style="{StaticResource TabItemStyle}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="12">
+                            <Border Style="{StaticResource PanelCardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="XGK 슬롯별 P-주소 범위" Style="{StaticResource SectionTitleStyle}"/>
+                                    <TextBlock TextWrapping="Wrap" Style="{StaticResource HintTextStyle}">
+                                        XGK 는 입력/출력이 모두 <Run FontWeight="Bold">P</Run> 접두로 시작하기 때문에 주소만으로 방향을 구분할 수 없습니다.
+                                        XG5000 의 <Run FontWeight="Bold">I/O 파라미터</Run> 화면에서 본 슬롯 구성을 그대로 입력하세요.
+                                        (예: 슬롯 0 = XGI-D28A/B → Input, P00000 ~ P0003F)
+                                        설정된 범위 안에 들어오는 P-주소는 해당 Direction 으로 분류됩니다.
+                                    </TextBlock>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="+ 슬롯 추가"
+                                                Command="{Binding AddXgkSlotCommand}"
+                                                Style="{StaticResource ActionButtonStyle}"
+                                                Margin="0,0,8,0"/>
+                                        <Button Content="기본값 (XGI-D28x×2 / XGQ-TR×2)"
+                                                Command="{Binding LoadDefaultXgkSlotsCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}"/>
+                                    </StackPanel>
+
+                                    <DataGrid ItemsSource="{Binding XgkSlots}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="True"
+                                              HeadersVisibility="Column"
+                                              GridLinesVisibility="Horizontal"
+                                              Background="{DynamicResource TertiaryBackgroundBrush}"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              BorderBrush="{DynamicResource BorderBrush}"
+                                              Margin="0,10,0,0"
+                                              MinHeight="280">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="슬롯"   Binding="{Binding Slot}"         Width="60"/>
+                                            <DataGridTextColumn Header="모듈"   Binding="{Binding Module}"       Width="*"/>
+                                            <DataGridComboBoxColumn Header="방향" SelectedItemBinding="{Binding Direction}" Width="100">
+                                                <DataGridComboBoxColumn.ItemsSource>
+                                                    <x:Array Type="sys:String" xmlns:sys="clr-namespace:System;assembly=mscorlib">
+                                                        <sys:String>Input</sys:String>
+                                                        <sys:String>Output</sys:String>
+                                                        <sys:String>Memory</sys:String>
+                                                    </x:Array>
+                                                </DataGridComboBoxColumn.ItemsSource>
+                                            </DataGridComboBoxColumn>
+                                            <DataGridTextColumn Header="시작 주소" Binding="{Binding AddressStart}" Width="120"/>
+                                            <DataGridTextColumn Header="끝 주소"   Binding="{Binding AddressEnd}"   Width="120"/>
+                                            <DataGridTextColumn Header="설명"     Binding="{Binding Description}"  Width="2*"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <TabItem Header="JSON 편집" Style="{StaticResource TabItemStyle}">
                     <Grid Margin="12">
                         <Grid.RowDefinitions>

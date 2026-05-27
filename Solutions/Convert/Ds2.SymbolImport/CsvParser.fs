@@ -15,6 +15,115 @@ module CsvParser =
     let private startsWithAny (prefixes: string list) (value: string) =
         prefixes |> List.exists (fun prefix -> value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
 
+    // ── XGK slot config (사용자 정의 P-address 범위) ────────────────
+    // XGK 는 P-prefix 주소가 입력/출력 공통이라 자동 추론이 불가능.
+    // input-matching-config.json 의 VendorSettings.XGK.Slots 에서 슬롯별
+    // 주소 범위를 읽어 disambiguate. 슬롯 미설정 시 기존 heuristic fallback.
+    type private XgkSlotRange =
+        { Direction: SymbolDirection
+          /// 정규화된 hex 값 (P 접두/dot 제거 후 16진수 정수)
+          StartHex: uint64
+          EndHex: uint64 }
+
+    let mutable private configPath : string option = None
+    let mutable private xgkSlotsCache : XgkSlotRange list option = None
+
+    /// XGK P-address 를 hex 정수로 정규화 — `%PX0000.A`, `P0000A`, `P0000.A` 등 모두 → 0x0000A
+    let private normalizePAddressHex (raw: string) : uint64 option =
+        if isNull raw then None
+        else
+            let s = raw.Trim().TrimStart([| '%' |]).ToUpperInvariant()
+            // P, PX, PW, PB, PD prefix 제거
+            let body =
+                if s.StartsWith("P") then
+                    let rest = s.Substring(1)
+                    if rest.Length > 0 && (rest.[0] = 'X' || rest.[0] = 'W' || rest.[0] = 'B' || rest.[0] = 'D') then
+                        rest.Substring(1)
+                    else rest
+                else s
+            if body.Length = 0 then None
+            else
+                let dotIdx = body.IndexOf('.')
+                let wordStr, bitStr =
+                    if dotIdx >= 0 then body.Substring(0, dotIdx), body.Substring(dotIdx + 1)
+                    else
+                        // dot 없으면 마지막 1글자가 bit, 나머지가 word
+                        if body.Length >= 2 then body.Substring(0, body.Length - 1), body.Substring(body.Length - 1)
+                        else "0", body
+                let tryParseHex (t: string) =
+                    let mutable v = 0UL
+                    if UInt64.TryParse(t, Globalization.NumberStyles.HexNumber, Globalization.CultureInfo.InvariantCulture, &v) then Some v
+                    else None
+                match tryParseHex wordStr, tryParseHex bitStr with
+                | Some w, Some b -> Some (w * 16UL + b)
+                | _ -> None
+
+    let private loadXgkSlotsFromConfig () : XgkSlotRange list =
+        try
+            let path =
+                match configPath with
+                | Some p -> p
+                | None -> System.IO.Path.Combine(AppContext.BaseDirectory, "input-matching-config.json")
+            if not (System.IO.File.Exists path) then []
+            else
+                let json = System.IO.File.ReadAllText path
+                use doc = System.Text.Json.JsonDocument.Parse(json)
+                let root = doc.RootElement
+                let nameVendorSettings : string = "VendorSettings"
+                let nameXgk : string = "XGK"
+                let nameSlots : string = "Slots"
+                let mutable vs = Unchecked.defaultof<System.Text.Json.JsonElement>
+                if not (root.TryGetProperty(nameVendorSettings, &vs)) then []
+                else
+                    let mutable xgk = Unchecked.defaultof<System.Text.Json.JsonElement>
+                    if not (vs.TryGetProperty(nameXgk, &xgk)) then []
+                    else
+                        let mutable slots = Unchecked.defaultof<System.Text.Json.JsonElement>
+                        if not (xgk.TryGetProperty(nameSlots, &slots)) then []
+                        else
+                            [ for el in slots.EnumerateArray() do
+                                let getStr (name: string) =
+                                    let mutable v = Unchecked.defaultof<System.Text.Json.JsonElement>
+                                    if el.TryGetProperty(name, &v) && v.ValueKind = System.Text.Json.JsonValueKind.String
+                                    then v.GetString() else ""
+                                let dir =
+                                    match (getStr "Direction").Trim().ToLowerInvariant() with
+                                    | "input"  -> Some SymbolDirection.Input
+                                    | "output" -> Some SymbolDirection.Output
+                                    | "memory" -> Some SymbolDirection.Memory
+                                    | _ -> None
+                                match dir, normalizePAddressHex (getStr "AddressStart"), normalizePAddressHex (getStr "AddressEnd") with
+                                | Some d, Some s, Some e when s <= e ->
+                                    yield { Direction = d; StartHex = s; EndHex = e }
+                                | _ -> () ]
+        with _ -> []
+
+    /// Config editor 가 호출 — 캐시 무효화 + 경로 설정.
+    let setConfigPath (path: string) =
+        configPath <- Some path
+        xgkSlotsCache <- None
+
+    let private getXgkSlots () : XgkSlotRange list =
+        match xgkSlotsCache with
+        | Some s -> s
+        | None ->
+            let s = loadXgkSlotsFromConfig ()
+            xgkSlotsCache <- Some s
+            s
+
+    let private tryInferXgkPDirection (address: string) : SymbolDirection option =
+        if isNull address then None
+        else
+            let trimmed = address.Trim().TrimStart([| '%' |])
+            if not (trimmed.StartsWith("P", StringComparison.OrdinalIgnoreCase)) then None
+            else
+                match normalizePAddressHex trimmed with
+                | None -> None
+                | Some h ->
+                    getXgkSlots ()
+                    |> List.tryFind (fun s -> h >= s.StartHex && h <= s.EndHex)
+                    |> Option.map (fun s -> s.Direction)
+
     /// Address/name prefix based direction inference.
     /// LS XGB/XGK CSV often stores bit I/O in P/M addresses while the variable
     /// name carries QX/IX, so the logical name is checked first for LS CSV.
@@ -27,8 +136,13 @@ module CsvParser =
             elif startsWithAny [ "IX"; "IW"; "IB"; "ID"; "I_" ] upperName then SymbolDirection.Input
             elif startsWithAny [ "QX"; "QW"; "QB"; "QD"; "Q" ] upperAddr then SymbolDirection.Output
             elif startsWithAny [ "IX"; "IW"; "IB"; "ID"; "I" ] upperAddr then SymbolDirection.Input
-            elif startsWithAny [ "MX"; "MW"; "MB"; "MD"; "M" ] upperAddr then SymbolDirection.Memory
-            else SymbolDirection.UnknownDir
+            else
+                // XGK 의 P-주소: 사용자 정의 슬롯 범위로 disambiguate (없으면 Memory/Unknown fallback)
+                match (if vendor = XGK then tryInferXgkPDirection upperAddr else None) with
+                | Some d -> d
+                | None ->
+                    if startsWithAny [ "MX"; "MW"; "MB"; "MD"; "M" ] upperAddr then SymbolDirection.Memory
+                    else SymbolDirection.UnknownDir
         | _ ->
             if startsWithAny [ "X"; "I" ] upperAddr then SymbolDirection.Input
             elif startsWithAny [ "Y"; "Q" ] upperAddr then SymbolDirection.Output
