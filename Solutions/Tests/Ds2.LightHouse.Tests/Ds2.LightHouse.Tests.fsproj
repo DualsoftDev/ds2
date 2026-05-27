@@ -22,6 +22,9 @@
     <Compile Include="IndexerTests.fs" />
     <Compile Include="KnowledgeBaseTests.fs" />
     <Compile Include="CaptionGeneratorTests.fs" />
+    <!-- P-R3a (todo-documents-based-gfm.md §6.1 N16) — CaptionCache.saveFromDb / tryLookup /
+         cacheFilePath 회귀 + closure cache hit/miss integration. ImageStore 의존 → 같은 그룹 박제. -->
+    <Compile Include="CaptionCacheTests.fs" />
     <Compile Include="KeywordExtractorTests.fs" />
     <Compile Include="TextDumperTests.fs" />
     <Compile Include="SummaryBuilderTests.fs" />
