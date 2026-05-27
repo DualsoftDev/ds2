@@ -205,7 +205,13 @@ public sealed class DatabaseLifecycleService
                 return new RebuildResult(false, "AASX reload 후 DB 동기화 실패 — 로그 확인");
             }
 
-            // 5) Engine in-place 재초기화 (PLC 모니터링 끊지 않음 — read-only)
+            // 5) Engine 재초기화 — 모델 정의(SimIndex / IOMap / UserTag 주소)가 바뀌었을 수 있으므로
+            //    teardown 후 새 store 로 재빌드해야 한다. TryEnsureInitialized() 만으로는 이미 초기화된
+            //    엔진이 startup 시점의 stale index 를 그대로 들고 있어, 새/변경된 Flow·Call·UserTag 가
+            //    인식되지 않고 plcTagLog 기록도 누락된다 (서비스 재시작해야 적용되던 증상).
+            //    ResetAsync 직후 재초기화에서 BootstrapPlcTags 가 새 UserTag 주소를 캐시에 등록하고,
+            //    SeedCallStatsFromDb 가 DB 통계를 다시 시드하므로 누적 통계 연속성도 유지된다.
+            await _engineService.ResetAsync();
             _engineService.TryEnsureInitialized();
 
             // 6) Layout 동기화 — Flow Guid 집합이 placement 와 다르면 백업 후 자동 재배치.
