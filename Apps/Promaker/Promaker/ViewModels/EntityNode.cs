@@ -48,6 +48,10 @@ public partial class EntityNode : ObservableObject
     /// 조건 드롭 대상 하이라이트
     [ObservableProperty] private bool _isDropTarget;
 
+    /// Cut(Ctrl+X) 으로 클립보드에 담겨 "이동 예정" 상태. Paste 완료/clear 시 false.
+    /// Tree/Canvas 양쪽 visual 에서 디밍/반투명 표시용.
+    [ObservableProperty] private bool _isCutPending;
+
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
 

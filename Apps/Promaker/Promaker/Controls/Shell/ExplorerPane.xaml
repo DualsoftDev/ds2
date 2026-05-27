@@ -105,6 +105,9 @@
                 <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
                     <Setter TargetName="TreeItemBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IsCutPending}" Value="True">
+                    <Setter TargetName="TreeItemBorder" Property="Opacity" Value="0.4"/>
+                </DataTrigger>
             </HierarchicalDataTemplate.Triggers>
         </HierarchicalDataTemplate>
 
