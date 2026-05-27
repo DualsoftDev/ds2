@@ -32,6 +32,10 @@
     <!-- PR-I2 (todo-documents-based-gfm.md §2 + §11.4) — IPdfStrategy + PdfControlSpecStrategy +
          PdfSignatureClassifier + M22 spot-check 회귀. XlsxStrategiesTests.fs 다음. -->
     <Compile Include="PdfStrategiesTests.fs" />
+    <!-- PR-I2.5 (todo-documents-based-gfm.md §2 PR-I2.5) — `StrategyMarkdown.fs` SSOT helper 회귀.
+         3 strategy 공용 helper (computeDocId/computeFullHash/estimateTokens/normalizeCell/
+         buildHeader/buildFooter) 의 byte-equal 출력 보장 검증. -->
+    <Compile Include="StrategyMarkdownTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

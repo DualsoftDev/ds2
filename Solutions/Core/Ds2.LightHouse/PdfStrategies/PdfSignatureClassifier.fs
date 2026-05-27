@@ -13,9 +13,12 @@ open Ds2.LightHouse.Extractors.XlsxStrategies
 ///
 /// XlsxClassificationResult 와 동등 (재명명) — 본 PR 의 변경 가능 영역 한정 (todo §2.1 의 "신규" 영역).
 /// 단 type 자체는 별 신설 (xlsx classifier 의 type 을 reuse 하면 case 가 "Xlsx" prefix 등으로 의미 오염).
+///
+/// **PR-I2.5 (Major 3)**: `Rejected` case → `RejectedByStrategy` rename. `StrategyOutcome.Rejected` 와
+/// case name 동일하여 reader 가 두 type 을 혼동하던 문제 해소.
 type PdfClassificationResult =
     | Matched of strategyName: string * markdown: string
-    | Rejected of RejectedEntry
+    | RejectedByStrategy of RejectedEntry
     | NearMiss of NearMissEntry list
     | Unmatched
 
@@ -42,7 +45,7 @@ module PdfSignatureClassifier =
         | Some (strategy, _) ->
             match strategy.Build (sourcePath, extracted) with
             | StrategyOutcome.Built md -> Matched (strategy.Name, md)
-            | StrategyOutcome.Rejected entry -> Rejected entry
+            | StrategyOutcome.Rejected entry -> RejectedByStrategy entry
         | None ->
             let nearMisses =
                 evaluations
