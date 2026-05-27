@@ -79,3 +79,22 @@ module Classifier =
                 match Map.tryFind ext supportedExtensions with
                 | Some kind -> kind
                 | None -> Unsupported ext
+
+    /// **PR-N15 (todo-documents-based-gfm.md §6.1 N15)** — 일반 색인 source set 에서 제외 의무.
+    ///
+    /// `<collectionRoot>/guide/` 디렉토리 (재귀) 의 모든 파일은 `UserGuideImporter` 가 별도로
+    /// `_user-guide-*.md` 형식의 specialized summary 로 박제하므로 일반 keyword digest / text dump /
+    /// chunk 색인 path 에서 이중 박제를 회피해야 한다. `<collectionRoot>/.lighthouse-kb/` skip 패턴과
+    /// 동형 — caller 가 path normalize 후 prefix 비교.
+    ///
+    /// 반환 = `true` 면 `<collectionRoot>/guide/` 안 파일 (skip 의무), `false` 면 외부 파일 (색인 가능).
+    /// `Indexer.enumerateFiles` / `TextDumper.enumerateSourceFiles` 양쪽이 본 helper 호출 → 단일 SSOT.
+    let isUserGuideSourcePath (collectionRoot: string) (path: string) : bool =
+        // `"guide"` literal = UserGuideImporter.GuideSubDirName SSOT 정합 — fsproj 의존 방향
+        // (Classifier.fs 가 UserGuideImporter.fs 보다 앞 박제) 때문에 module 참조 불가 → literal 재박제.
+        // drift 시 동시 갱신 의무.
+        let sep = string Path.DirectorySeparatorChar
+        let guidePrefix =
+            (Path.GetFullPath(Path.Combine(collectionRoot, "guide"))).TrimEnd(Path.DirectorySeparatorChar) + sep
+        let pNorm = Path.GetFullPath path
+        pNorm.StartsWith(guidePrefix, StringComparison.OrdinalIgnoreCase)

@@ -67,6 +67,10 @@
     <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
          SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
     <Compile Include="TextDumper.fs" />
+    <!-- PR-N15 (todo-documents-based-gfm.md §6.1 N15 + documents-based-gfm.md §8.5.4) —
+         사용자 작성 `<folder>/guide/*.md` 를 `_user-guide-*.md` 로 박제 (specialized digest 우선 박제).
+         TextDumper.summaryDir + StrategyMarkdown.estimateTokens 의존 → 둘 뒤 박제. -->
+    <Compile Include="UserGuideImporter.fs" />
     <!-- PR-I4 (todo-documents-based-gfm.md §2 PR-I4 + §11.4 / documents-based-gfm.md §8.3) —
          `.lighthouse-kb/summary/*.md` 합본 + metadata. SystemContentBuilder 의 cache breakpoint 3 박제 source.
          TextDumper.summaryDir + StrategyMarkdown.estimateTokens 의존 → 둘 뒤 박제. -->

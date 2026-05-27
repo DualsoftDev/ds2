@@ -136,6 +136,8 @@ module SpecializedDigestBuilder =
         if not (Directory.Exists dir) then emptyResult ()
         else
             // path-sorted enumeration — Directory.GetFiles 는 OS 별 순서 비결정적, 명시 sort 로 cache hit 보장.
+            // **PR-N15**: `_user-guide-*.md` 가 underscore prefix 로 alphabetical sort 시 자동 맨 앞 박제 —
+            // UserGuideImporter (N15) 산출물 ordering 정합 (별도 sort 로직 불필요).
             let files = Directory.GetFiles(dir, "*.md") |> Array.sort
             if files.Length = 0 then emptyResult ()
             else
