@@ -22,25 +22,51 @@
 - `documents-based-gfm.md` r1 박제 (commit `fdadea69`) — 사실/분석 SSOT 확정
 - 자료 A/B/C + sister KMM 매뉴얼이 `F:/Git/dualsoft/secrets/KBSamples/{core, sisters}/` 로 통일
 
-### 자동 진행 범위 (사용자 결정: PR-I1 ~ PR-I5 한정)
+### 자동 진행 범위 (단일 정의 — §0, §1.1, §2, §4.1, §10.3 의 공통 SSOT)
 
-- `--orchestrate` 의 1-shot 자동 진행 범위 = **Phase P1 종료까지** (PR-I1~PR-I5)
-- Phase P2 진입 = **명시적 hand-off** (도메인 전문가 검수 의무, §5)
-- PR-I6 / PR-I7 = **사용자 confirm 필수** (§4.2 spot-check / §4.3 KMM A/B test 사람 평가)
+**1-shot 정의**: single orchestrator run (내부적으로 multi-turn / sub-agent dispatch
+포함, 단 사용자 추가 입력 0).
 
-### Orchestrator 시작 시 fail-fast 점검 (A7 해소)
+| 영역 | 자동 / hand-off | 범위 |
+|---|---|---|
+| **자동 진행** | ✅ | **PR-I1 의 첫 작업 agent 호출** ~ **PR-I5 의 commit 완료** (§10.3 의 8 단계 loop × 5 PR) |
+| **P1 종료 신호** | 자동 판정 | PR-I5 의 commit 완료 + Promaker.Tests `SpecializedDigestInjectionTests.cs` 통과 (headless smoke) |
+| **P2 hand-off** | ❌ human-in-loop | 도메인 전문가 검수 의무 (§5) — orchestrator 가 P1 종료 후 보고 + 종료 |
+| **PR-I6 strategy 코드** | ◐ 자동 가능 (코드 영역 직교) | 단 운용 진입 = §4.2 spot-check 사용자 confirm 필수 |
+| **PR-I7 strategy 코드** | ❌ | §4.3 KMM A/B test 사람 평가 후 자율 진입 |
 
-```
-[ ] git status — working tree clean 확인 (untracked / modified 0)
-[ ] git branch — light-house-summary 또는 light-house 위 확인
-[ ] dotnet --version — .NET 9 SDK 박제 확인
-[ ] F:/Git/dualsoft/secrets/KBSamples/core/ 존재 + 자료 A/B/C 3 파일 박제 확인
-[ ] F:/Git/dualsoft/secrets/KBSamples/sisters/ 존재 + KMM 매뉴얼 1 파일 박제 (PR-I7 진입 시만 필수)
-[ ] Solutions/Ds2.sln 위치 확인
-[ ] make light-house (dry run) — service console build 통과 확인
-```
+**headless smoke (§4.1 [4][5][6] 재정의 — C4 해소)**:
 
-→ 위 7 항목 중 1건이라도 실패 시 orchestrator 즉시 종료 + 사용자 보고.
+§4.1 의 사용자 GUI 인터랙션 항목 (KB 활성 / chat 시작 / "YAML 초안" 요청 /
+`attachment_fulltext` 자율 호출) 은 orchestrator 가 자동 판정 불가 → **PR-I5 의 신규
+test `SpecializedDigestInjectionTests.cs` 가 e2e 흡수**:
+
+| 기존 §4.1 항목 (사용자 GUI) | 신규 headless smoke (자동) |
+|---|---|
+| [4] KB collection 활성 후 chat 시작 + system prompt inject | `SpecializedDigestBuilder.Build` 직접 호출 후 합본 string assert |
+| [5] 사용자 "S204 KEY 지그 YAML" 요청 | 고정 prompt 로 mock LLM client (또는 record-replay) 호출 + 출력 YAML 의 `ValidateModelDoc` 통과 assert |
+| [6] `attachment_fulltext` 자율 호출 | 동일 mock 의 tool_use 시뮬레이션 호출 1+ 회 assert |
+
+→ 사용자 GUI 검증은 P2 hand-off 후 사용자 수동 수행. P1 종료의 정량 trigger 는 위
+headless smoke 통과로 단일화.
+
+### Orchestrator 시작 시 fail-fast 점검 (A7, C1, C2, m9 해소)
+
+**적용 시점**: orchestrator 의 **첫 PR-I1 진입 turn 만**. 이후 PR turn 은 작업 agent 의
+산출물로 untracked / modified 발생이 정상이므로 git status 점검 skip.
+
+| # | 항목 | 명령 (§11.5 와 1:1) | 합격 기준 |
+|---|---|---|---|
+| 1 | working tree clean | `git status --porcelain` | 출력 0 행 |
+| 2 | branch 준비 | `git branch --list light-house-summary` | 1 행 (없으면 §11.5 의 생성 명령 자동 실행) |
+| 3 | .NET 9 SDK | `dotnet --version` | `9.*` 매치 |
+| 4 | 자료 A/B/C 존재 | `ls F:/Git/dualsoft/secrets/KBSamples/core/` | ≥ 3 파일 |
+| 5 | sister 자료 존재 (PR-I7 진입 시만) | `ls F:/Git/dualsoft/secrets/KBSamples/sisters/` | ≥ 1 파일 |
+| 6 | sln 위치 | `test -f F:/Git/ds2/light-house/Solutions/Ds2.sln` | exit 0 |
+| 7 | service build dry-run | `dotnet build F:/Git/ds2/light-house/Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj -c Debug --no-incremental` | exit 0 |
+
+→ 위 7 항목 중 1건이라도 실패 시 orchestrator 즉시 종료 + 사용자 보고. 단 #2 의 branch
+부재는 즉시 종료 대신 §11.5 의 `git switch -c light-house-summary` 명령으로 자동 생성.
 
 ### 진입 대기 (Phase P1)
 - PR-I1 의 strategy interface 설계 + IoListStrategy 단독 구현 — 자료 A 의 summary 박제 e2e
@@ -61,7 +87,8 @@
 | **P3** | 다른 라인 확장 (FLR / BB / CRP / ROOF / BC) | 라인 당 0.5주 | line 별 strategy 변형 |
 | **P4** | image caption strategy 도입 + KMM 매뉴얼 prior-art 활용 | 1주 | PR-I6 + PR-I7 (자율) |
 
-전체 wall-clock 합 = P1 + P2 + P4 = **3~4주** + P3 (라인 N 개당 0.5N 주).
+전체 wall-clock 합 = P1 + P2 + P4 = **3~4주** + P3 (라인 N 개당 0.5N 주, m3 — P3 제외
+사유 = 다른 라인 자료 외부 입수 의존이며 N 사전 미정).
 
 **strategy 코드 자체** 의 추정치는 약 2~2.5주 (§3 합계 표 참조) — 위 합산의 P1
 + P4 일부에 해당. 매퍼 / 검수 / 라인 확장은 별도.
@@ -101,7 +128,7 @@ P1 의 strategy 코드 (2~2.5주 추정) 와 P4 의 caption strategy (1주 추�
 | **PR-I4** | `SpecializedDigestBuilder` + `SystemContentBuilder.cs` cache breakpoint 3 + Anthropic wire 검증 | system prompt 주입 | PR-I3 종료 조건 통과 | first turn 의 system prompt 안 3개 markdown 합본 박제 + 둘째 turn 의 `cache_read_input_tokens` ~38K 확인 |
 | **PR-I5** | Promaker WPF — `KbSpecializedDigestFetcher.cs` + `LlmChatViewModel.SpecializedDigest.cs` (partial) + 회귀 테스트 | 사용자 e2e | PR-I4 종료 조건 통과 | §4.1 의 [4][5][6] 만족 — 사용자가 "S204 KEY 지그 YAML 초안" 요청 → 정상 출력 + `attachment_fulltext` 자율 호출 확인 |
 | **PR-I6** | `CaptionPromptStrategy` 7 kind + `detect` signature + Opus model 차등 | image caption quality 도약 | PR-I1~I5 와 코드 영역 평행 가능, 운용 진입은 Phase P4 | §4.2 의 spot-check 35장 4/5 이상 통과 |
-| **PR-I7** | (자율) `KmmManualStrategy` (pptx) + FlowChart/Interlock caption 의 `summary/` 박제 통합 | KMM 매뉴얼 baseline 활용 | PR-I6 spot-check 통과 + §4.3 KMM A/B test 합격 | A/B test 의 3 지표 모두 ≥ 5%p 향상 + 회귀 0 |
+| **PR-I7** | (자율) `KmmManualStrategy` (pptx) — 2 step: (a) caption-only 임시 합본 산출 + A/B test 진입 → (b) A/B 합격 후 `summary/` 통합 박제 | KMM 매뉴얼 baseline 활용 | (a) PR-I6 spot-check 통과 / (b) (a) 의 A/B test 합격 (C5 해소) | A/B test 의 3 지표 모두 ≥ 5%p 향상 + 회귀 0 |
 
 ### 2.1 PR 간 dispatch 정합 규칙 (F 해소)
 
@@ -121,6 +148,25 @@ PR-I2/I3 가 PR-I1 의 산출물에 의존하는 정합 규칙:
   - `Solutions/Tools/Ds2.LightHouse.Cli/Packager.fs` 의 zip whitelist 에 `summary/` 추가 (~5 줄)
   - `Solutions/Tools/Ds2.LightHouse.Cli/Program.fs` 의 `runIndex` 에 dump hook 진입점 (~20 줄)
   - **금지**: strategy 코드 영역, classifier 코드 영역 (PR-I1/I2 와 동시 변경 시 conflict)
+- **PR-I4 의 변경 가능 영역** (M2):
+  - `Solutions/Core/Ds2.LightHouse/SpecializedDigestBuilder.fs` (신규)
+  - `Apps/Promaker/Promaker/LlmAgent/SystemContentBuilder.cs` 의 cache breakpoint 3 추가 (~20 줄)
+  - **금지**: strategy 코드 영역 (PR-I1/I2) / TextDumper / Packager / runIndex (PR-I3) — 모두 PR-I3 의 산출물에 의존하지만 변경 0
+- **PR-I5 의 변경 가능 영역**:
+  - `Apps/Promaker/Promaker/Knowledge/KbSpecializedDigestFetcher.cs` (신규)
+  - `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.SpecializedDigest.cs` (신규 partial)
+  - `Solutions/Tests/Promaker.Tests/SpecializedDigestInjectionTests.cs` (신규, headless smoke)
+  - **금지**: lib (Solutions/Core/Ds2.LightHouse/) / CLI / service / SystemContentBuilder 본체 — 모두 호출만
+- **PR-I6 의 변경 가능 영역**:
+  - `Solutions/Core/Ds2.LightHouse/CaptionGenerator.fs` 의 helper 분리 (~50 줄, callAnthropic wire 변경 0)
+  - `Solutions/Core/Ds2.LightHouse/CaptionPromptStrategy.fs` (신규)
+  - `Solutions/Tools/Ds2.LightHouse.Cli/Program.fs` 의 `print-caption-prompt --kind <Kind>` 분기 (~20 줄)
+  - `Solutions/Tools/Ds2.LightHouseService/` 의 Indexer 흐름 — image 처리 시 detect → promptFor → callAnthropic (~30 줄)
+  - **금지**: 기존 strategy 코드 영역 (XlsxStrategies/, PdfStrategies/) 변경 0 / callAnthropic 의 wire 변경 0
+- **PR-I7 의 변경 가능 영역**:
+  - `Solutions/Core/Ds2.LightHouse/PptxStrategies/KmmManualStrategy.fs` (신규)
+  - `XlsxSignatureClassifier.fs` 의 pptx 분기 또는 별 `PptxSignatureClassifier.fs` (신규)
+  - **금지**: 기존 strategy 코드 영역 / caption strategy (PR-I6) 변경 0 / summary 통합 박제는 A/B test 통과 후 step (b) 에서만
 
 ### 2.2 외부 평행 / 충돌
 - **PR-H** (`todo-lighthouse-index-summary.md`) 의 (D) doc summary 1줄 박제 (`summary.md`
@@ -137,6 +183,10 @@ PR-I2/I3 가 PR-I1 의 산출물에 의존하는 정합 규칙:
 Solutions/Core/Ds2.LightHouse/
 ├── TextDumper.fs                          ← summary/ dir 박제 추가 (~50 줄)
 ├── SpecializedDigestBuilder.fs            ← 신규 (~80 줄)
+├── Diagnostics/                           ← 신규 폴더 (M11 — N6 schema 박제 위치)
+│   └── DiagnosticSchemas.fs               ← 신규 (~60 줄, PR-I1 시점)
+│                                            type RejectedEntry, NearMissEntry, StaleEntry
+│                                            + Newtonsoft.Json serialize/deserialize
 ├── Extractors/
 │   ├── OoxmlExtractor.fs                  ← 기존 (XlsxSheetRoles SSOT 재사용)
 │   ├── PdfExtractor.fs                    ← 기존 (r3 `f88e60c4` CJK 띄어쓰기 fix 포함)
@@ -175,10 +225,15 @@ Tests/
 Solutions/Core/Ds2.LightHouse/
 ├── CaptionGenerator.fs               ← Generic prompt 유지 + helper 분리 (~50 줄 변경)
 └── CaptionPromptStrategy.fs          ← 신규 (~200 줄)
-    ├── CaptionPromptKind DU (8 case)
+    ├── CaptionPromptKind DU 8 case   ← Generic / FlowChart / InterlockDiagram / SystemTopology /
+    │                                   LayoutFloorPlan / HmiScreenshot / EquipmentPhoto / TableSnapshot
+    │                                   (M3 — Generic + EquipmentPhoto 둘이 fallback 군. spot-check 35 = 7 kind × 5 장 — Generic 제외)
     ├── detect (slideContext, imageHash) → Kind
     ├── promptFor (Kind) → string + maxTokens
-    └── modelFor (Kind) → "claude-opus-4-7" | "claude-sonnet-4-6"
+    └── modelFor (Kind) → string      ← env lookup + literal fallback (M1, M14 정합):
+                                        `Environment.GetEnvironmentVariable("LIGHTHOUSE_CAPTION_MODEL_PRIMARY")` 우선,
+                                        부재 시 kind 별 literal default ("claude-opus-4-7" for FlowChart/Interlock/Topology,
+                                        나머지 "claude-sonnet-4-6"). 실패 시 fallback chain (`opus-4-7 → sonnet-4-6 → sonnet-4-5`)
 
 Solutions/Tools/Ds2.LightHouse.Cli/
 └── Program.fs                        ← print-caption-prompt --kind <Kind> 분기 (~20 줄)
@@ -232,7 +287,7 @@ F:/Git/dualsoft/secrets/KBSamples/core/
   IoListStrategy v1.0 -->`)
 - [ ] KB collection 활성화 후 Promaker chat 시작 → first turn 의 system prompt 에
   3개 markdown 합본 inject 박제 확인
-- [ ] 둘째 turn 의 Anthropic response 에서 `cache_read_input_tokens` ~38K 박제 확인
+- [ ] 둘째 turn 의 Anthropic response 에서 `cache_read_input_tokens` **30K ~ 50K range** 박제 확인 (M6 — ~38K 는 광명2 자료 추정치, range 벗어남 자체는 cache 정상 동작 보장이라 fail 처리 X)
 - [ ] 사용자가 "S204 KEY 지그의 YAML 초안" 요청 → `documents-based-gfm.md` §4.4 시연
   같은 YAML 출력 확인
 - [ ] LLM 이 정확 IO 비트 dump 필요 시 `attachment_fulltext` 자율 호출 확인
@@ -245,6 +300,8 @@ core 와 collection 분리):
 - [ ] detect 결과 분포 확인 — 76 slides × ~1.5 img 중 FlowChart 5+ / InterlockDiagram
   6+ / SystemTopology 2+ / LayoutFloorPlan 6+ / HmiScreenshot 20+ / TableSnapshot 4+
   / 나머지 Generic
+  (m7 — 본 분포는 광명2 PoC 분석 turn 의 python `python-pptx` 추출 결과 + 슬라이드 제목
+  키워드 매핑 추정. PR-I6 진입 시 실측 detect 결과로 재확인 의무)
 - [ ] Opus 차등 — FlowChart / InterlockDiagram / SystemTopology 호출 model
   `claude-opus-4-7` 확인, 나머지 Sonnet 4.6
 - [ ] **spot-check** (`documents-based-gfm.md` §8.6.4 갱신본 기준) — 각 kind 5장 × 7
@@ -274,6 +331,9 @@ KMM 매뉴얼 caption 을 광명2 모델 생성에 inject 하는 것이 noise �
 
 **합격 기준**: 조건 B 가 모든 지표에서 조건 A 보다 ≥ 5%p 향상 + 어느 지표도
 회귀 0. 미합격 시 KmmManualStrategy 박제 보류 또는 prompt 재설계.
+
+> **m4 hedge**: ≥ 5%p 와 n=5 는 **PoC heuristic** — n=5 의 통계적 유의성 한계 (표준편차
+> 미관측) 인정. 본 PoC 한정 합격 기준, 운영 진입 전 n 상향 또는 별 통계 검정 도입 결정.
 
 ---
 
@@ -305,6 +365,23 @@ strategy 개선의 회귀 baseline 자체가 오염됨.
 - [ ] 차이 패턴이 광명2 한정인지 HKMC 전사 패턴인지 판단 → strategy 코드 또는
   prompt 갱신 위치 결정
 
+### 5.4 P2 hand-off 의 사용자 액션 시퀀스 (M7 — orchestrator hand-off 직후)
+
+orchestrator 가 PR-I5 commit + headless smoke 통과 보고 후 **사용자 (모델 작성자)** 가
+직접 수행하는 단계:
+
+| step | 액션 | 소요 |
+|---|---|---|
+| 1 | `광명2_204_draft.yaml` 생성 — Promaker GUI 또는 chat 으로 PR-I5 의 인프라 활용 | ~30분 |
+| 2 | 검수 의뢰 발송 — HKMC 설비제어기술2팀 또는 광명2 SV 라인 운영자에게 draft + 검수 요청 한국어 노트 송부 | (외부 응답 대기) |
+| 3 | 검수 의견 수령 — 보정 사항 한국어 노트로 회신 받음 | (외부) |
+| 4 | 보정 적용 — `광명2_204_golden.yaml` 작성 (수동 Patch 또는 GUI 편집) | ~30분 |
+| 5 | golden 박제 — `F:/Git/dualsoft/secrets/KBSamples/golden/광명2_204_golden.yaml` 위치 (신규 디렉토리) + KB 색인 (별 collection `광명2_golden`) | ~10분 |
+| 6 | 후속 strategy 개선 시 회귀 baseline — 동일 입력 → 동일 LLM 으로 동일 출력 (cache hit) verification | (PR-I 진행 시) |
+
+→ orchestrator 가 P1 종료 보고 시 위 6 step 의 체크리스트 + 검수자 연락처 placeholder
+를 함께 출력 (사용자가 다음 액션 즉시 시작 가능).
+
 ---
 
 ## 6. 메타리뷰 후속 결정 항목
@@ -323,6 +400,17 @@ strategy 개선의 회귀 baseline 자체가 오염됨.
 | **M15** | `light-house-summary` branch 정책 | PR-I1 진입 turn | **`light-house-summary` branch 누적 + 최종 squash merge to `light-house`** (A4 해소) |
 | **M22** | PDF P89-104 페이지 인용 검증 | PR-I2 진입 시 | **PR-I2 turn 의 첫 PdfControlSpecStrategy 산출물 spot-check 1회** (5 페이지 정합 확인) — orchestrator 가 자동 실행 |
 | **M26** | Symbol SSOT 광명2 한정 vs HKMC 전사 표준 | Phase P3 진입 시 | **광명2 한정 가정** — P3 에서 다른 라인 자료 비교로 판정 |
+
+### 6.0 default 결정의 적용 범위 (m8)
+
+§6 메타리뷰 + §6.1 N1~N7 의 "default 결정" 컬럼은 **자동 진행 범위 (§0 = PR-I1~I5) 안의
+박제 신호** 가 default. 자동 진행 범위 외 (PR-I6 이후 / Phase P3) 의 default 는
+**self-driven 가능한 시점에 orchestrator 가 자동 채택, hand-off 후의 사용자 액션은
+override 우선**. 즉:
+
+- PR-I1~I5 turn: default 자동 채택, 사용자가 동일 turn 안에서 override 입력 시 그것 우선
+- PR-I6 / PR-I7 / P2~P3 turn: 사용자 confirm 필수, default 는 "사용자 미응답 시 채택" 의
+  최후 신호
 
 ### 6.1 누락 점검 (2026-05-27 turn) 추가 backlog
 
@@ -424,13 +512,23 @@ PR-I{N} 구현: {scope 한 줄}
 - §3 구현 위치 트리의 해당 파일 (신규/변경 대상)
 
 ## 작업 영역 (정확히 이것만 — F 해소)
-- {PR 별 변경 가능 파일 목록 — §2.1 dispatch 정합 규칙 참조}
+- {PR 별 변경 가능 파일 목록 — §2.1 dispatch 정합 규칙 의 "변경 가능 영역" 인용}
 
-## 금지
+## 금지 (공통)
 - 위 영역 외 파일 수정 0
-- git commit / push 직접 호출 0 (main 이 collect 후 commit)
-- 외부 LLM API 직접 호출 0 (Anthropic key 박제 X — caption 은 별 path)
-- todo / documents-based-gfm.md 수정 0
+- git commit / push / stage (git add) 직접 호출 0 — main 이 §10.3 step 6.5 에서 stage + step 7 에서 commit
+- 외부 LLM API 직접 호출 0 (Anthropic key 박제 X — caption 은 별 path, §10.1 의 보고에 model 만 명시)
+- todo-documents-based-gfm.md / documents-based-gfm.md 수정 0
+
+## 금지 (PR-I{N} 추가 — §2.1 인용)
+{PR 별 금지 항목 — §2.1 의 "금지" 컬럼 명시적 복붙. placeholder:}
+- {PR-I1: signature classifier 의 strategy list 변경 0 (PR-I2 영역) / strategy interface 외 dispatch hook 변경 0 (PR-I3 영역)}
+- {PR-I2: IXlsxStrategy.fs interface signature 변경 0 / IoListStrategy.fs 의 출력 결과 변경 0}
+- {PR-I3: strategy 코드 영역 (XlsxStrategies/ + PdfStrategies/) 수정 0 / classifier 코드 영역 수정 0}
+- {PR-I4: strategy 코드 영역 + TextDumper.fs + Packager.fs + runIndex 수정 0 (PR-I1~I3 영역)}
+- {PR-I5: lib (Solutions/Core/Ds2.LightHouse/) 수정 0 / CLI (Solutions/Tools/Ds2.LightHouse.Cli/) 수정 0 / service (Ds2.LightHouseService) 수정 0}
+- {PR-I6: 기존 strategy 코드 영역 수정 0 / CaptionGenerator.fs 의 callAnthropic wire 변경 0 (helper 분리만)}
+- {PR-I7: 기존 strategy 코드 영역 수정 0 / KMM caption-only 임시 합본 외 summary/ 통합은 A/B test 통과 후}
 
 ## 종료 조건
 - §2 의 PR-I{N} "종료 조건 (정량)" 컬럼의 모든 항목 만족
@@ -494,16 +592,25 @@ PR-I{N} 자가 검열
 ### 10.3 main (orchestrator) 의 PR turn 흐름
 
 ```
+# 시작 시 1회만
+0.   fail-fast 점검 (§0 의 7 항목 — §11.5 의 명령 사용)
+0.1  branch 준비 — light-house-summary 부재 시 `git switch -c light-house-summary light-house` (§11.5)
+
 for PR in [PR-I1, PR-I2, PR-I3, PR-I4, PR-I5]:
-    1. fail-fast 점검 (§0)
-    2. 작업 agent 호출 (§10.1 의 prompt + PR 별 input)
-    3. 작업 agent 산출물 받음 → diff stage
-    4. 검열 agent 호출 (§10.2 의 prompt + diff)
-    5. Critical 0건 확인 → 미통과 시 작업 agent 재진입 (max 3 attempts)
-    6. 종료 조건 (§2) 정량 만족 확인
-    7. git commit (branch=light-house-summary, message=[light-house-summary] PR-I{N}: ...)
-    8. 다음 PR
-종료: PR-I5 commit 후 Phase P1 종료 보고 → 사용자 hand-off (Phase P2)
+    1.   작업 agent 호출 (§10.1 의 prompt — PR 별 input + 금지 placeholder 채움)
+    2.   작업 agent 산출물 받음 — 파일 변경 list + 빌드/테스트 결과
+    3.   main 이 변경 파일 stage (M9 — `git add <변경 파일 list>`. 작업 agent 는 stage 안 함)
+    4.   검열 agent 호출 (§10.2 의 prompt + staged diff)
+    5.   Critical 0건 확인 → 미통과 시 step 1 재진입 (max 3 attempts):
+          - attempts 1: 검열 보고서 + 재작업 지시
+          - attempts 2: 검열 보고서 + 작업 agent 의 산출물 reset + 재시작
+          - attempts 3: 검열 보고서 + 작업 agent 의 산출물 reset + 재시작
+          - 3 회 초과 (M10): `git restore --staged + 작업 git stash` + orchestrator abort + 사용자 hand-off
+            (Phase P{현재 PR 의 단계} 종료 보고, 다음 PR 진입 0)
+    6.   종료 조건 (§2 의 PR-I{N} "종료 조건 (정량)" 컬럼) 정량 만족 확인 + §11 의 빌드/테스트 통과
+    7.   git commit (branch=light-house-summary, message=[light-house-summary] PR-I{N}: ...)
+    8.   다음 PR
+종료: PR-I5 commit + Promaker.Tests SpecializedDigestInjectionTests.cs 통과 (headless smoke) → Phase P1 종료 보고 → 사용자 hand-off (§5.4 의 6 step 출력)
 ```
 
 ---
@@ -547,7 +654,7 @@ cd /f/Git/ds2/light-house/Apps/Promaker
 
 # LightHouse service console 실행 (Windows Service 정지 후)
 sc stop Ds2.LightHouseService     # 별 PowerShell admin
-make light-house                  # dotnet run dotnet run --project ../../Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj -c Debug
+make light-house                  # dotnet run --project ../../Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj -c Debug
 ```
 
 ### 11.4 신규 .fs 파일의 .fsproj 등록
@@ -555,29 +662,52 @@ make light-house                  # dotnet run dotnet run --project ../../Soluti
 F# 의 `.fsproj` 는 `<ItemGroup>` 안 `<Compile Include="..." />` **순서 의존** (forward
 declaration 강제). 신규 파일 추가 위치:
 
-| 신규 파일 | 등록 .fsproj | 등록 위치 (기존 ItemGroup 안) |
-|---|---|---|
-| `XlsxStrategies/IXlsxStrategy.fs` | `Solutions/Core/Ds2.LightHouse/Ds2.LightHouse.fsproj` | `Extractors/OoxmlExtractor.fs` 보다 **앞** (의존 역방향) |
-| `XlsxStrategies/IoListStrategy.fs` 등 | 같은 .fsproj | `IXlsxStrategy.fs` 다음, `OoxmlExtractor.fs` 보다 앞 |
-| `XlsxSignatureClassifier.fs` | 같은 .fsproj | 모든 `XlsxStrategies/*.fs` 다음 |
-| `SpecializedDigestBuilder.fs` | 같은 .fsproj | `TextDumper.fs` 다음 |
-| `PdfStrategies/PdfControlSpecStrategy.fs` | 같은 .fsproj | `PdfExtractor.fs` 다음 |
-| `CaptionPromptStrategy.fs` (PR-I6) | 같은 .fsproj | `CaptionGenerator.fs` 다음 |
-| Promaker `KbSpecializedDigestFetcher.cs` / `.SpecializedDigest.cs` | `Apps/Promaker/Promaker/Promaker.csproj` | 일반 C# 은 alphabetical, 순서 무관 |
+| 신규 파일 | 등록 .fsproj/.csproj | 등록 위치 (기존 ItemGroup 안) | PR |
+|---|---|---|---|
+| `Diagnostics/DiagnosticSchemas.fs` | `Solutions/Core/Ds2.LightHouse/Ds2.LightHouse.fsproj` | `Models.fs` 다음 (모든 use site 보다 앞) | PR-I1 |
+| `Extractors/XlsxStrategies/IXlsxStrategy.fs` | 동 | `Extractors/OoxmlExtractor.fs` 보다 **앞** (의존 역방향) | PR-I1 |
+| `Extractors/XlsxStrategies/XlsxSignatureClassifier.fs` | 동 | 모든 `XlsxStrategies/*.fs` 다음, `OoxmlExtractor.fs` 보다 앞 | PR-I1 |
+| `Extractors/XlsxStrategies/IoListStrategy.fs` | 동 | `IXlsxStrategy.fs` 다음, `XlsxSignatureClassifier.fs` 보다 앞 | PR-I1 |
+| `Extractors/XlsxStrategies/WorkOrderStrategy.fs` | 동 | `IoListStrategy.fs` 다음, `XlsxSignatureClassifier.fs` 보다 앞 | PR-I2 |
+| `PdfStrategies/PdfControlSpecStrategy.fs` | 동 | `PdfExtractor.fs` 다음 | PR-I2 |
+| `SpecializedDigestBuilder.fs` | 동 | `TextDumper.fs` 다음 | PR-I4 |
+| `CaptionPromptStrategy.fs` | 동 | `CaptionGenerator.fs` 다음 | PR-I6 |
+| `PptxStrategies/KmmManualStrategy.fs` | 동 | `OoxmlExtractor.fs` 다음 (pptx 분기 의존) | PR-I7 |
+| `Apps/Promaker/Promaker/Knowledge/KbSpecializedDigestFetcher.cs` | `Apps/Promaker/Promaker/Promaker.csproj` | 일반 C# (alphabetical 권장, 순서 무관) | PR-I5 |
+| `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.SpecializedDigest.cs` | 동 | 일반 C# | PR-I5 |
+| `Solutions/Tests/Ds2.LightHouse.Tests/XlsxStrategiesTests.fs` | `Solutions/Tests/Ds2.LightHouse.Tests/Ds2.LightHouse.Tests.fsproj` | 기존 *Tests.fs 다음 (alphabetical) | PR-I1~I2 |
+| `Solutions/Tests/Ds2.LightHouse.Tests/CaptionPromptStrategyTests.fs` | 동 | `XlsxStrategiesTests.fs` 다음 | PR-I6 |
+| `Solutions/Tests/Ds2.LightHouseService.Tests/SummaryDirIntegrationTests.fs` | 동명 Service.Tests.fsproj | 기존 *Tests.fs 다음 | PR-I3 |
+| `Solutions/Tests/Promaker.Tests/SpecializedDigestInjectionTests.cs` | `Solutions/Tests/Promaker.Tests/Promaker.Tests.csproj` | 일반 C# | PR-I5 |
 
 작업 agent 가 신규 파일 추가 시 .fsproj 의 `<Compile Include="..."/>` line 도 같이 patch
 의무. 누락 시 build error → 검열 agent 가 Critical 으로 보고.
 
-### 11.5 fixture 점검 명령 (§0 의 fail-fast)
+### 11.5 fail-fast / branch / 빌드 dry-run 명령 SSOT (§0 점검 7 항목과 1:1)
 
 ```bash
-# 자료 A/B/C 존재 확인
-ls /f/Git/dualsoft/secrets/KBSamples/core/ | wc -l   # ≥ 3
-ls /f/Git/dualsoft/secrets/KBSamples/sisters/ | wc -l # ≥ 1 (PR-I7 시 필수)
+# git Bash 환경 (`/f/Git/...`). PowerShell 환경이면 `F:/Git/...` 또는 `F:\Git\...` 치환.
 
-# dotnet SDK
-dotnet --version | grep -q "9\."
+# #1 working tree clean
+cd /f/Git/ds2/light-house && git status --porcelain        # 출력 0 행
 
-# git 상태
-cd /f/Git/ds2/light-house && git status --porcelain | wc -l  # = 0
+# #2 branch 준비 (없으면 자동 생성 — light-house base 에서 분기)
+cd /f/Git/ds2/light-house && \
+  ( git branch --list light-house-summary | grep -q . || git switch -c light-house-summary light-house )
+cd /f/Git/ds2/light-house && git branch --show-current     # = light-house-summary
+
+# #3 .NET 9 SDK
+dotnet --version | grep -E "^9\."
+
+# #4 자료 A/B/C
+ls /f/Git/dualsoft/secrets/KBSamples/core/ | wc -l         # ≥ 3
+
+# #5 sister 자료 (PR-I7 진입 시만)
+ls /f/Git/dualsoft/secrets/KBSamples/sisters/ | wc -l      # ≥ 1
+
+# #6 sln 위치
+test -f /f/Git/ds2/light-house/Solutions/Ds2.sln           # exit 0
+
+# #7 service build dry-run
+dotnet build /f/Git/ds2/light-house/Solutions/Tools/Ds2.LightHouseService/Ds2.LightHouseService.fsproj -c Debug --no-incremental
 ```
