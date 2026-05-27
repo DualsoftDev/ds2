@@ -82,6 +82,27 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
     /// </summary>
     private string _kbDigest = "";
 
+    /// <summary>
+    /// **PR-I5 (todo-documents-based-gfm.md §2 PR-I5 + §2.1 + documents-based-gfm.md §8.7)** —
+    /// specialized digest pending swap target. <see cref="SetPendingSpecializedDigest"/> 가 background thread
+    /// (LlmChatViewModel.RefreshSpecializedDigestAsync) 에서 write, firstTurn 에서 read+null reset.
+    /// <para/>
+    /// null = pending 없음 ( <see cref="_specializedDigest"/> 그대로 유지). 빈 string = digest 비활성 박제
+    /// (이전 specialized digest 제거 — cache breakpoint 3 박제 skip). non-empty = 새 specialized digest 적용.
+    /// <see cref="Interlocked.Exchange{T}(ref T, T)"/> 로 race-free.
+    /// </summary>
+    private string? _pendingSpecializedDigest;
+
+    /// <summary>
+    /// **PR-I5** — 현재 적용된 specialized digest (`SpecializedDigestBuilder.build` 산출 markdown 합본).
+    /// firstTurn 진입 시 <see cref="_pendingSpecializedDigest"/> 가 non-null 이면 본 field 로 swap.
+    /// <see cref="SystemContentBuilder"/> 가 본 값으로 system 메시지의 3번째 TextContent (cache breakpoint 3) 박제.
+    /// <para/>
+    /// chat-scoped invariant — KB digest 와 동일하게 *다음 firstTurn 까지 적용 안 됨*. in-flight turn 보호.
+    /// 빈 string = cache breakpoint 3 박제 skip (PR-G v-b 와 동치 wire — 회귀 0).
+    /// </summary>
+    private string _specializedDigest = "";
+
     // round-trip §5.2 / §J2 — cache_control: ephemeral 부착 람다 SSOT.
     // capability 비트에 따라 한 번만 생성 (Anthropic 호환 wire 외에는 null = nop).
     // system prompt / turn snapshot 양쪽 호출처가 동일 인스턴스 공유 → cache_control 정책 변경 시
@@ -159,6 +180,21 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
         Interlocked.Exchange(ref _pendingKbDigest, digest ?? "");
     }
 
+    /// <summary>
+    /// **PR-I5 (todo-documents-based-gfm.md §2 PR-I5)** — specialized digest pending swap. background thread
+    /// (LlmChatViewModel.RefreshSpecializedDigestAsync) 호출. 다음 firstTurn 진입 시점에 <see cref="_specializedDigest"/>
+    /// 로 swap → in-flight turn 보호 + chat-scoped invariant 정합 (KB digest 와 동일 lifecycle).
+    /// <para/>
+    /// 빈 string 박제 시 = specialized digest 비활성 박제 (cache breakpoint 3 박제 skip, PR-G v-b 와 동치 wire).
+    /// null 인자도 내부적으로 `?? ""` 로 정규화 (caller 의 `SpecializedDigestBuilder.build` 빈 결과 "" forward 가능).
+    /// <para/>
+    /// thread-safe — <see cref="Interlocked.Exchange{T}(ref T, T)"/> 단일 호출로 race-free.
+    /// </summary>
+    public void SetPendingSpecializedDigest(string? digest)
+    {
+        Interlocked.Exchange(ref _pendingSpecializedDigest, digest ?? "");
+    }
+
     /// <summary>API key 검증. CLI 가 아닌 API 라 EnsureCli 명칭은 인터페이스 호환용. 실 검증은 첫 호출 시 401 등으로 노출.</summary>
     public ClaudeCliVersion.Result EnsureCli()
     {
@@ -202,11 +238,18 @@ public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
             var pending = Interlocked.Exchange(ref _pendingKbDigest, null);
             if (pending != null) _kbDigest = pending;
 
-            // round-trip §5.2 / §J2 + PR-G v-b — system message 의 AIContent 박제.
-            // base + (optional) KB digest 각각 별 TextContent + cache_control: ephemeral (Anthropic 한정, nop 다른 provider).
-            // breakpoint 사용: base 1 + digest 1 (digest 박제 시) + snapshot 1 = 최대 3/4 (여유 1).
-            // digest 빈 시 base 1 TextContent 만 — 회귀 0 (기존 단일 prompt 동치).
-            var systemContents = SystemContentBuilder.Build(_basePrompt, _kbDigest, _applyCacheControl);
+            // PR-I5 (todo-documents-based-gfm.md §2 PR-I5) — specialized digest pending swap. KB digest 와 동일 시점 swap
+            // (chat-scoped invariant — strategy 재색인은 *다음 firstTurn 까지 적용 안 됨*, in-flight turn 보호).
+            var pendingSpecialized = Interlocked.Exchange(ref _pendingSpecializedDigest, null);
+            if (pendingSpecialized != null) _specializedDigest = pendingSpecialized;
+
+            // round-trip §5.2 / §J2 + PR-G v-b + PR-I4 — system message 의 AIContent 박제.
+            // base + (optional) KB digest + (optional) specialized digest 각각 별 TextContent +
+            // cache_control: ephemeral (Anthropic 한정, nop 다른 provider).
+            // breakpoint 사용: base 1 + KB digest 1 (박제 시) + specialized digest 1 (박제 시) + snapshot 1 = 최대 4/4 cap.
+            // digest 둘 다 빈 시 base 1 TextContent 만 — 회귀 0 (기존 단일 prompt 동치).
+            var systemContents = SystemContentBuilder.Build(
+                _basePrompt, _kbDigest, _specializedDigest, _applyCacheControl);
             _history.Add(new ChatMessage(ChatRole.System, systemContents));
 
             var toolNames = new List<string>(_cachedTools.Count);
