@@ -176,7 +176,7 @@ let ``PdfSignatureClassifier — 매치 시 Matched 반환`` () =
     let extracted = makeControlSpecFixture ()
     let result = PdfSignatureClassifier.classify "fixture.pdf" extracted
     match result with
-    | PdfClassificationResult.Matched (name, markdown) ->
+    | ClassificationResult.Matched (name, markdown) ->
         Assert.Equal("PdfControlSpecStrategy", name)
         Assert.True(markdown.Length > 0)
     | other -> Assert.Fail(sprintf "Matched 기대했으나 %A" other)
@@ -186,8 +186,8 @@ let ``PdfSignatureClassifier — 미매치 시 Unmatched 또는 NearMiss 반환`
     let extracted = makeNonMatchFixture ()
     let result = PdfSignatureClassifier.classify "non-match.pdf" extracted
     match result with
-    | PdfClassificationResult.Unmatched -> ()
-    | PdfClassificationResult.NearMiss entries ->
+    | ClassificationResult.Unmatched -> ()
+    | ClassificationResult.NearMiss entries ->
         Assert.All(entries, fun e ->
             Assert.True(e.Score < e.Threshold))
     | other -> Assert.Fail(sprintf "Unmatched/NearMiss 기대했으나 %A" other)
@@ -211,7 +211,7 @@ let ``자료 B 실파일 — 존재 시 PdfControlSpecStrategy 매치 + markdown
         Assert.Equal(FileKind.Pdf, extracted.DocType)
         let result = PdfSignatureClassifier.classify sampleBPath extracted
         match result with
-        | PdfClassificationResult.Matched (name, markdown) ->
+        | ClassificationResult.Matched (name, markdown) ->
             Assert.Equal("PdfControlSpecStrategy", name)
             // 머리말 5행.
             let headLines = markdown.Split([| '\n' |], 6)

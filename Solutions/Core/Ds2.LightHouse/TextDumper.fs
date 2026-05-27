@@ -262,28 +262,28 @@ module TextDumper =
             match extracted.DocType with
             | FileKind.Xlsx ->
                 match XlsxSignatureClassifier.classify path extracted with
-                | XlsxClassificationResult.Matched (strategyName, markdown) ->
+                | ClassificationResult.Matched (strategyName, markdown) ->
                     let docId = StrategyMarkdown.computeDocId path
                     Some (strategyName, docId, markdown)
-                | XlsxClassificationResult.Rejected entry ->
+                | ClassificationResult.RejectedByStrategy entry ->
                     rejected.Add entry
                     None
-                | XlsxClassificationResult.NearMiss entries ->
+                | ClassificationResult.NearMiss entries ->
                     for e in entries do nearMisses.Add e
                     None
-                | XlsxClassificationResult.Unmatched -> None
+                | ClassificationResult.Unmatched -> None
             | FileKind.Pdf ->
                 match PdfSignatureClassifier.classify path extracted with
-                | PdfClassificationResult.Matched (strategyName, markdown) ->
+                | ClassificationResult.Matched (strategyName, markdown) ->
                     let docId = StrategyMarkdown.computeDocId path
                     Some (strategyName, docId, markdown)
-                | PdfClassificationResult.RejectedByStrategy entry ->
+                | ClassificationResult.RejectedByStrategy entry ->
                     rejected.Add entry
                     None
-                | PdfClassificationResult.NearMiss entries ->
+                | ClassificationResult.NearMiss entries ->
                     for e in entries do nearMisses.Add e
                     None
-                | PdfClassificationResult.Unmatched -> None
+                | ClassificationResult.Unmatched -> None
             | _ -> None  // strategy 미정의 DocType (Docx/Pptx/Text/Markdown/Image/Unsupported) — fallback 0
 
     /// `.lighthouse-kb/` skip + collection root 재귀 enumerate (Packager.createZip 의 동형 SSOT).

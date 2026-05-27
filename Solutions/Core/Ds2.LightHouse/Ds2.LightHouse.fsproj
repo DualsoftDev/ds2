@@ -15,6 +15,10 @@
          (RejectedEntry / NearMissEntry / StaleEntry). XlsxStrategies 가 RejectedEntry 박제 →
          Models.fs 다음, 모든 use site 보다 앞 박제. -->
     <Compile Include="Diagnostics\DiagnosticSchemas.fs" />
+    <!-- Backlog C (PR-I2 검열 Major 2) — xlsx/pdf classifier 의 통합 분류 결과 DU 박제.
+         Diagnostics (RejectedEntry / NearMissEntry) 의존 → DiagnosticSchemas.fs 뒤,
+         XlsxSignatureClassifier.fs / PdfSignatureClassifier.fs 보다 앞 박제 필수. -->
+    <Compile Include="Extractors\ClassificationResult.fs" />
     <!-- PR-I2.5 (todo-documents-based-gfm.md §2 PR-I2.5) — 3 strategy 공용 markdown helper SSOT
          (computeDocId / computeFullHash / estimateTokens / normalizeCell / buildHeader / buildFooter).
          IXlsxStrategy.fs / IPdfStrategy.fs 의 strategy 구현체보다 앞 박제 필수 (의존 방향). -->
