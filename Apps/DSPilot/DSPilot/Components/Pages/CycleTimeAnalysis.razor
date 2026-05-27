@@ -752,6 +752,10 @@
 
                 // 미리 받아둔 idle edges 로 비가동 구간 빌드 (DB 조회 없음 — 메모리 처리)
                 BuildIdleRegionsFromEdges(idleEdges);
+
+                // 갠트 세그먼트/비가동 구간으로 MT(가동)·WT(유휴) 산출 (DB 조회 없음 — 메모리 처리).
+                // _idleRegions 가 빌드된 뒤 호출해야 한다.
+                ComputeUtilizationMetrics();
             }
         }
         catch (Exception ex)
@@ -1196,6 +1200,41 @@
             if ((firstEdge - _chartStartTime).TotalMilliseconds > maxCT)
                 _idleRegions.Add((_chartStartTime, firstEdge));
         }
+    }
+
+    /// <summary>
+    /// 가동 시간(MT)·유휴 시간(WT) 를 화면에 이미 로드된 데이터로 산출해 <see cref="_ganttData"/> 에 채운다.
+    /// (FlowMetricsService 의 Head→Tail 사이클 추적과는 별개 — 이 페이지 전용 정의.)
+    ///   CT = 분석 시간창 길이(_chartEndTime − _chartStartTime, 서비스가 이미 설정)
+    ///   WT = 비가동 구간(<see cref="_idleRegions"/>) 합 — 윈도우 내로 클램프
+    ///   MT = CT − WT
+    /// → 가동률 = MT/CT, 유휴율 = WT/CT (합 100%). 추가 DB 조회 없음.
+    /// </summary>
+    private void ComputeUtilizationMetrics()
+    {
+        if (_ganttData == null) return;
+
+        var ctMs = _ganttData.CT ?? 0;
+        if (ctMs <= 0)
+        {
+            _ganttData.MT = 0;
+            _ganttData.WT = 0;
+            return;
+        }
+
+        double wtMs = 0;
+        foreach (var (start, end) in _idleRegions)
+        {
+            // 비가동 구간은 보통 윈도우 내이지만, 경계 구간(차트 시작/끝)을 포함하므로 안전하게 클램프.
+            var s = start < _chartStartTime ? _chartStartTime : start;
+            var e = end > _chartEndTime ? _chartEndTime : end;
+            if (e > s) wtMs += (e - s).TotalMilliseconds;
+        }
+
+        if (wtMs > ctMs) wtMs = ctMs;
+
+        _ganttData.WT = (int)wtMs;
+        _ganttData.MT = (int)(ctMs - wtMs);
     }
 
     private async Task ExportCsv()
