@@ -54,7 +54,7 @@
                     FontSize="13" Cursor="Hand"
                     Background="Transparent"
                     Foreground="{DynamicResource AccentBrush}"
-                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" Width="273" Height="37.29">
                 <StackPanel Orientation="Horizontal">
                     <iconPacks:PackIconMaterial Kind="FileImport" Width="16" Height="16" Margin="0,0,6,0"
                           Foreground="{DynamicResource AccentBrush}"/>
