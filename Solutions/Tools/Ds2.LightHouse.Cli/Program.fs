@@ -79,6 +79,9 @@ let private usage () =
     eprintfn "  lighthouse-cli list-pending-summaries <folder>"
     eprintfn "  lighthouse-cli summary-update <folder> <batch.json>"
     eprintfn "  lighthouse-cli print-summary-prompt"
+    eprintfn "  lighthouse-cli export-image-cache <folder>"
+    eprintfn "  lighthouse-cli import-image-cache <folder> <backup.json>"
+    eprintfn "  lighthouse-cli probe-indexer-version <folder>"
     eprintfn "  lighthouse-cli --version"
     eprintfn ""
     eprintfn "options:"
@@ -324,6 +327,35 @@ let private runUpload
         eprintfn "  먼저 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1-a 색인 수행하세요."
         11
     else
+        // **② --reuse-kb 자가 probe** — server 의 IndexerVersion gate 응답 받기 전 client 측 stale 인식.
+        // schema / sqlite-vec extension drift / 이전 build 산출 → server 응답 후 진단보다 zip 생성 + POST round-trip
+        // 비용 절감. probe 결과별 사용자 친화 메시지 + /indexer skill 의 caption 보존 자동 복구 path 안내.
+        let probeFailureCode =
+            if reuseKb then
+                match KnowledgeBase.probeIndexerVersionDetailed folder with
+                | Found _ -> None
+                | KeyMissing ->
+                    eprintfn "오류: --%s 박제 + Meta.indexer_version 키 미박제 — 이전 build 산출 가능성" FlagReuseKb
+                    eprintfn "  /indexer skill 의 caption 보존 자동 복구 path 활용 권장:"
+                    eprintfn "    1) lighthouse-cli export-image-cache <folder> > caption-backup.json"
+                    eprintfn "    2) rm -rf <folder>/.lighthouse-kb"
+                    eprintfn "    3) lighthouse-cli index <folder> --skip-upload"
+                    eprintfn "    4) lighthouse-cli import-image-cache <folder> caption-backup.json"
+                    eprintfn "    5) lighthouse-cli index <folder> --upload <url> --reuse-kb ..."
+                    Some 2
+                | OpenFailed reason ->
+                    eprintfn "오류: --%s 박제 + 색인 DB open 실패 — %s" FlagReuseKb reason
+                    eprintfn "  schema / sqlite-vec extension drift 가능 — .lighthouse-kb/ wipe 후 재색인 필요."
+                    eprintfn "  caption 보존 시도는 open 실패라 불가 — 신규 caption 비용 발생."
+                    Some 2
+                | DbMissing ->
+                    // 위 elif 분기에서 처리됨 — 도달 불가 (안전망).
+                    eprintfn "내부 오류: probe DbMissing reached after exists check"
+                    Some 11
+            else None
+        match probeFailureCode with
+        | Some code -> code
+        | None ->
         // `--reuse-kb` 박제 시 captionGen / embedder 진입 자체 skip — runIngest 미진입이므로 두 의존성 모두 dead.
         // VLM API key 미박제 + force 미박제 사용자에게도 reuse path 는 허용해야 (Step 2 가 이미 caption 박제).
         // 자가 검열 Minor-1 — dummy null 박제 회피, `CaptionGenerator.noop` SSOT 재사용. runIngest 가 잘못 호출되어도
@@ -582,6 +614,66 @@ let private runPrintSummaryPrompt () : int =
     printfn "%s" SummaryStore.SummaryPrompt
     0
 
+/// `/indexer` skill — caption 보존 자동화 (build-drift 인식 → `.lighthouse-kb/` wipe 전 dump).
+/// stdout JSON array (camelCase: `hash`, `captionText`, `captionAt`, `captionModel`).
+/// caption 박제된 ImageCache row 만 dump — `CaptionText IS NOT NULL AND != ''`.
+let private runExportImageCache (folder: string) : int =
+    match requireIndexedFolder folder with
+    | Error code -> code
+    | Ok dbPath ->
+        use conn = SqliteStore.openConnection dbPath true
+        let rows = ImageStore.exportCaptions conn |> Seq.toArray
+        let json = System.Text.Json.JsonSerializer.Serialize(rows, camelJsonOpts())
+        printfn "%s" json
+        0
+
+/// `/indexer` skill — caption 보존 복원 (`.lighthouse-kb/` wipe 후 재색인 직후 진입).
+/// backup JSON 의 (hash, captionText, captionAt, captionModel) 4 컬럼을 신 DB 의 ImageCache 에 UPDATE.
+/// hash 매치 row 만 갱신, CaptionText 이미 박제된 row 보존. text-dump 재생성 동반 (caption-update 와 동형).
+let private runImportImageCache (folder: string) (jsonPath: string) : int =
+    if not (File.Exists jsonPath) then
+        eprintfn "오류: backup 파일 미존재 — %s" jsonPath
+        11
+    else
+        match requireIndexedFolder folder with
+        | Error code -> code
+        | Ok dbPath ->
+            let json = File.ReadAllText(jsonPath, Text.Encoding.UTF8)
+            let rows = System.Text.Json.JsonSerializer.Deserialize<ImageStore.ImageCaptionBackup[]>(json, camelJsonOpts())
+            if isNull rows then
+                eprintfn "오류: backup JSON parse 결과 null — %s" jsonPath
+                10
+            elif rows.Length = 0 then
+                eprintfn "  backup 빈 array — no-op (idempotent)"
+                0
+            else
+                use conn = SqliteStore.openConnection dbPath false
+                let updated, skipped = ImageStore.importCaptions conn rows
+                let dumpFiles = TextDumper.dumpAll conn folder
+                printfn "import-image-cache 완료 — updated=%d, skipped=%d (rows=%d, text-dump 재생성=%d 파일)"
+                    updated skipped rows.Length dumpFiles.Length
+                0
+
+/// `/indexer` skill 자가 진단 — `--reuse-kb` 직전 호출 또는 사용자 수동 진단용.
+/// `<folder>/.lighthouse-kb/index.db` 의 `Meta.indexer_version` probe 결과를 JSON 으로 stdout 노출.
+/// stdout 한 줄 = `{"status":"ok|key-missing|open-failed|db-missing","version":"<v>|null","reason":"..."}`.
+/// SSOT = `KnowledgeBase.probeIndexerVersionDetailed` (server-side `evaluateIndexerVersionGate` 와 공유).
+let private runProbeIndexerVersion (folder: string) : int =
+    let payload =
+        match KnowledgeBase.probeIndexerVersionDetailed folder with
+        | Found v -> {| status = "ok"; version = v; reason = "" |}
+        | KeyMissing ->
+            {| status = "key-missing"; version = ""
+               reason = "Meta.indexer_version 키 미박제 (이전 build 산출 가능성)" |}
+        | DbMissing ->
+            {| status = "db-missing"; version = ""
+               reason = sprintf "%s 미존재" (SqliteStore.dbPath folder) |}
+        | OpenFailed reason ->
+            {| status = "open-failed"; version = ""
+               reason = reason |}
+    printfn "%s" (System.Text.Json.JsonSerializer.Serialize(payload, camelJsonOpts()))
+    0
+
 [<EntryPoint>]
 let main args =
     // CP949 등 legacy code page 활성화 — TextEncoding 의 fallback (LightHouseService Program.fs 와 동일 패턴).
@@ -645,6 +737,12 @@ let main args =
             runSummaryUpdate folder batchPath
         | [ "print-summary-prompt" ] ->
             runPrintSummaryPrompt ()
+        | "export-image-cache" :: folder :: _ ->
+            runExportImageCache folder
+        | "import-image-cache" :: folder :: jsonPath :: _ ->
+            runImportImageCache folder jsonPath
+        | "probe-indexer-version" :: folder :: _ ->
+            runProbeIndexerVersion folder
         | _ ->
             usage ()
             10

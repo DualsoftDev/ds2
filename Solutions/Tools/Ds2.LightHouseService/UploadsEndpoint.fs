@@ -513,9 +513,10 @@ module UploadsEndpoint =
                                         { clientMeta with Title = title }
                                 MetaJsonIO.save collStaging serverMeta
 
-                                let clientVer = ZipImport.probeIndexerVersion collStaging
+                                // **2026-05-28 fix** — probe 시그니처 변경 (option → IndexerVersionProbe DU). cause 분리.
+                                let probe = Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed collStaging
                                 let gate =
-                                    ZipImport.evaluateIndexerVersionGate clientVer
+                                    ZipImport.evaluateIndexerVersionGate probe
                                         cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
                                 let! compatible =
                                     CollectionEndpoints.processStagingExtractGate

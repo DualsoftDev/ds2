@@ -352,6 +352,82 @@ module ImageStore =
             acc.Add { Hash = hash; Ext = ext; RefLocator = refLocator; DocPath = docPath }
         acc :> _
 
+    /// `/indexer` skill — caption 보존 자동화 (build-drift 시 `.lighthouse-kb/` wipe 전 dump 용).
+    /// `ImageCache.CaptionText` 박제 row 의 (Hash, CaptionText, CaptionAt, CaptionModel) 4 컬럼.
+    /// hash = sha256 64 char — 새 색인의 같은 image bytes 가 같은 hash 박제 → importCaptions 가 UPDATE 매치.
+    /// caption 미박제 row (CaptionText IS NULL) 는 자연 제외 — backup 의 의미 정합 (caption 박제 row 만 보존).
+    type ImageCaptionBackup = {
+        Hash: string
+        CaptionText: string
+        /// ISO8601 UTC. 빈 문자열은 import 시 현재 시각으로 자동 박제.
+        CaptionAt: string
+        CaptionModel: string
+    }
+
+    /// `lighthouse-cli export-image-cache <folder>` SSOT — caption 박제된 ImageCache row 만 dump.
+    /// 본 함수는 read-only — `withReadOnlyConn` 또는 `openConnection ... true` caller 안 안전.
+    let exportCaptions (conn: SqliteConnection) : ImageCaptionBackup seq =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT ImageHash, CaptionText, CaptionAt, CaptionModel
+            FROM ImageCache
+            WHERE CaptionText IS NOT NULL AND CaptionText != ''
+            ORDER BY ImageHash
+        """
+        use reader = cmd.ExecuteReader()
+        let acc = ResizeArray<ImageCaptionBackup>()
+        while reader.Read() do
+            let hash = reader.GetString 0
+            let text = reader.GetString 1
+            let at = if reader.IsDBNull 2 then "" else reader.GetString 2
+            let model = if reader.IsDBNull 3 then "" else reader.GetString 3
+            acc.Add { Hash = hash; CaptionText = text; CaptionAt = at; CaptionModel = model }
+        acc :> _
+
+    /// `lighthouse-cli import-image-cache <folder> <json>` SSOT — backup JSON row 의 caption 4 컬럼을
+    /// 신 DB 의 ImageCache 에 UPDATE. hash 매치된 row 만 갱신, **CaptionText 이미 박제된 row 는 보존**
+    /// (`AND CaptionText IS NULL` 절). hash 미매치 row 는 silent skip — 반환 (updated, skipped) 로 보고.
+    ///
+    /// `updateCaptionBatch` 와 동형 — UPDATE 성공 시 동 hash 의 모든 ImageReferences 에 대해 caption-chunk
+    /// INSERT/UPDATE 박제 (`upsertCaptionChunkForRef`) + ChunksFts trigger 자동 sync.
+    /// 단일 transaction. empty rows 시 (0, 0) no-op.
+    let importCaptions
+        (conn: SqliteConnection)
+        (rows: ImageCaptionBackup seq)
+        : int * int =
+        let arr = rows |> Seq.toArray
+        if arr.Length = 0 then 0, 0
+        else
+            use tx = conn.BeginTransaction()
+            let mutable updated = 0
+            let mutable skipped = 0
+            for row in arr do
+                use cmd = conn.CreateCommand()
+                cmd.Transaction <- tx
+                cmd.CommandText <- """
+                    UPDATE ImageCache
+                    SET CaptionText = $text, CaptionAt = $at, CaptionModel = $model
+                    WHERE ImageHash = $hash AND CaptionText IS NULL
+                """
+                let atValue =
+                    if String.IsNullOrWhiteSpace row.CaptionAt
+                    then DateTime.UtcNow.ToString("o")
+                    else row.CaptionAt
+                cmd.Parameters.AddWithValue("$hash",  row.Hash) |> ignore
+                cmd.Parameters.AddWithValue("$text",  row.CaptionText) |> ignore
+                cmd.Parameters.AddWithValue("$at",    atValue) |> ignore
+                cmd.Parameters.AddWithValue("$model", row.CaptionModel) |> ignore
+                let affected = cmd.ExecuteNonQuery()
+                if affected > 0 then
+                    updated <- updated + affected
+                    let refs = SqliteStore.listImageRefsByHash conn row.Hash
+                    for (docId, refLocator, ordinal, _) in refs do
+                        upsertCaptionChunkForRef conn docId row.Hash refLocator ordinal row.CaptionText
+                else
+                    skipped <- skipped + 1
+            tx.Commit()
+            updated, skipped
+
     /// 한 문서가 참조하는 모든 image — (ImageHash, RefLocator, Ordinal, ChunkId option).
     /// PK 순서 정렬 (Ordinal asc) — page 순회 자연스러움.
     let lookupReferencesByDocument

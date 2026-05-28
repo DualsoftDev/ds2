@@ -348,6 +348,61 @@ let main argv =
     let resolvedStorageRoot = Storage.initialize (Config.expandEnv cfg.StorageRoot)
     Log.service.Info(sprintf "storage root 초기화 완료 — %s" resolvedStorageRoot)
 
+    // **④ startup sweep (2026-05-28 fix)** — 기존 Collections/ 의 IndexerVersion 정합 점검.
+    // 각 collection 의 .lighthouse-kb/index.db 의 Meta.indexer_version probe + range 비교 →
+    // stale (key 부재 / range 밖 / open 실패 / DB 부재) collection 은 Warn 로그 박제. 운영자가
+    // sentinel 인지 후 /indexer skill 의 caption 보존 자동 path 또는 명시 wipe 권유. fail-fast 안 함
+    // (한 stale collection 이 service 기동을 막지 않도록).
+    // 자가 검열 Major-2 정합 — 1 collection 결함 (ACL / log4net / Storage 결함) 이 service 기동 자체를 막지 않도록
+    // outer try/with + per-collection try/with 이중 보강. enumeration 결함 시 sweep skip + Warn, sweep 외 startup 정상 진행.
+    do
+        try
+            let collectionsDir = Storage.collectionsDir resolvedStorageRoot
+            if Directory.Exists collectionsDir then
+                let mutable ok = 0
+                let mutable stale = 0
+                let mutable errored = 0
+                for collDir in Directory.EnumerateDirectories collectionsDir do
+                    let dirName = Path.GetFileName collDir
+                    try
+                        match Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed collDir with
+                        | Ds2.LightHouse.IndexerVersionProbe.Found v ->
+                            let gate =
+                                ZipImport.evaluateIndexerVersionGate
+                                    (Ds2.LightHouse.IndexerVersionProbe.Found v)
+                                    cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
+                            match gate with
+                            | IndexerVersionGateResult.Compatible -> ok <- ok + 1
+                            | IndexerVersionGateResult.TooLow(ver, m) ->
+                                stale <- stale + 1
+                                Log.service.Warn(sprintf "startup sweep: stale collection (indexer_version=%s < hostMin=%s) — %s"
+                                    ver m dirName)
+                            | IndexerVersionGateResult.TooHigh(ver, m) ->
+                                stale <- stale + 1
+                                Log.service.Warn(sprintf "startup sweep: stale collection (indexer_version=%s > hostMax=%s) — %s"
+                                    ver m dirName)
+                            | _ -> ()   // Found 입력 + range 안에서는 도달 불가
+                        | Ds2.LightHouse.IndexerVersionProbe.KeyMissing ->
+                            stale <- stale + 1
+                            Log.service.Warn(sprintf "startup sweep: stale collection (Meta.indexer_version 키 미박제 — 이전 build 산출 가능성) — %s" dirName)
+                        | Ds2.LightHouse.IndexerVersionProbe.OpenFailed reason ->
+                            stale <- stale + 1
+                            Log.service.Warn(sprintf "startup sweep: stale collection (DB open 실패: %s) — %s" reason dirName)
+                        | Ds2.LightHouse.IndexerVersionProbe.DbMissing ->
+                            stale <- stale + 1
+                            Log.service.Warn(sprintf "startup sweep: stale collection (.lighthouse-kb/index.db 부재) — %s" dirName)
+                    with ex ->
+                        errored <- errored + 1
+                        Log.service.Warn(sprintf "startup sweep: %s 점검 실패 (%s) — %s" dirName (ex.GetType().Name) ex.Message)
+                Log.service.Info(sprintf "startup sweep — collection ok=%d stale=%d errored=%d (total=%d)"
+                    ok stale errored (ok + stale + errored))
+                if stale > 0 then
+                    Log.service.Warn(sprintf "startup sweep: %d collection 정합 미달 — /indexer skill 의 caption 보존 자동 path 권유 또는 명시 wipe 후 재색인" stale)
+        with ex ->
+            // Storage.collectionsDir / Directory.EnumerateDirectories 등 sweep 진입 자체 결함 → fail-safe Warn 후 startup 정상 진행.
+            Log.service.Warn(sprintf "startup sweep 진입 실패 (%s) — sweep skip, service 기동 계속: %s"
+                (ex.GetType().Name) ex.Message)
+
     // TLS 인증서 로드 — Kestrel HTTPS-only
     let tlsCertPath = Config.expandEnv cfg.TlsCertPath
     if not (File.Exists tlsCertPath) then

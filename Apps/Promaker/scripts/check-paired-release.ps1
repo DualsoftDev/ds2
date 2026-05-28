@@ -38,6 +38,14 @@
 #
 #   RepoRoot 미지정 시 본 스크립트 위치 기준 자동 추정
 #   ($PSScriptRoot/../../../ = light-house repo root).
+#
+# 본 ps1 검증의 한계 (2026-05-28 fix ④ 박제):
+#   본 script 는 *신규 build 의 lib + service config 정합*만 검증. 운영 환경의
+#   *기존 collection*의 stale 여부 (예전 build 산출의 indexer_version 키 부재 / 범위 밖) 는
+#   service Program.fs 의 startup sweep (2026-05-28 추가) 이 별도 검증 + Warn 로그 박제.
+#   운영자가 service 기동 후 Logs/service-*.log 에서 'startup sweep:' 패턴 grep 하여
+#   stale collection 인지. stale 인 경우 /indexer skill 의 caption 보존 자동 path 활용
+#   (lighthouse-cli export-image-cache → wipe → 재색인 → import-image-cache → upload --reuse-kb).
 # ============================================================
 
 [CmdletBinding()]
