@@ -258,11 +258,12 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 2. **`LlmChatVm` lazy 생성** — `IsLlmChatVisible=true` 가 되는 순간엔 `LlmChatVm != null` 보장.
 3. **PropertyChanged 구독자** (MainWindow 의 column width 토글) 가 DX 의 `SetAnchorVisible("llmchat", show)` 호출로 대체됨 — 외부에서 보이는 contract 는 "보기 메뉴 toggle → LlmChat 가시성 토글" 유지.
 
-### PR-D6 — Layout 영속화
-- [ ] DX `DockLayoutManager.SaveLayoutToXml(path)` / `RestoreLayoutFromXml(path)` 활용.
-- [ ] `Window_Closing` 의 `_llmChatDisposed=true` 직후 Save.
-- [ ] `Window.Loaded` 에서 Restore (파일 없음 / parse 실패 시 default).
-- [ ] `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
+### PR-D6 — Layout 영속화 — ✅ 완료 (commit `c51dc858`)
+- [x] DX `DockLayoutManager.SaveLayoutToXml(path)` / `RestoreLayoutFromXml(path)` 활용. IDockManager 에 `SaveLayout(string)` / `RestoreLayout(string)` wrapping (DX type 매개 0).
+- [x] `Window_Closing` 의 `_llmChatDisposed=true` 직후 Save (verbatim 정합).
+- [x] `Window.Loaded` 의 `RestoreDockLayoutAndSyncVm` 에서 Restore (File.Exists 가드 + try/catch swallow — default 유지).
+- [x] 경로 `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
+- [x] **PR-D5 검열 Minor 1 박제 해소** — Restore 직후 `_suppressAnchorSync` guard 안에서 4 anchor 의 `IsAnchorVisible` 결과를 VM 4 property 강제 sync (IsAnchorVisible API 본 PR 에서 처음 활용). LlmChat 은 baseline §5 보존 → Restore 결과 무시 + false 강제 (consent 흐름 보존). Welcome/Canvas 는 HasProject SSOT 일방 관리.
 
 ### PR-D7 — 추가 wiring
 
@@ -367,32 +368,35 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `8b5a8a97` — PR-D4 step 2~5: Promaker 본체 wire-up (MainWindow DockingManager → DockHost / 5 anchor + 2 document Register / AvalonDock 6 partial 파일 제거 / SimulationPanel Log tab 통합 / ContentId 박제 정합). 검열 Critical 0 / Major 4 (M1+M2 본 commit 처리, M3 정보, M4 PR-D5 위임) / Minor 5. 빌드 0/0 + transitive DevExpress 0건 + bin 11종 deploy 검증 PASS.
 - `a7666390` — todo §3 PR-D4 헤더 완료 + §9 갱신 (PR-D4 SHA 박제 + PR-D5 시작점).
 - `a13bf9d2` — PR-D5: SSOT (IsLlmChatVisible) + 보기 메뉴 + HasProject 재wiring + M1 박제 (Loaded hook 지연). DockAnchors.cs (VM partial 4 ObservableProperty) 신설. LlmChat.cs 변경 0 (baseline 박제 §5 보존). 검열 Critical 0 / Major 0 / Minor 4 (모두 정보 또는 PR-D6 위임).
+- `4a9f4f71` — todo §3 PR-D5 헤더 완료 + §9 갱신 (PR-D5 SHA 박제 + PR-D6 시작점).
+- `c51dc858` — PR-D6: Layout 영속화 (Save/Restore XML). IDockManager 에 SaveLayout/RestoreLayout 시그니처 추가. RestoreDockLayoutAndSyncVm 의 guard 안에서 IDockManager.IsAnchorVisible 로 4 anchor sync (PR-D5 검열 Minor 1 해소). LlmChat baseline §5 보존 (false 강제). 검열 Critical 0 / Major 0 / Minor 3 (모두 정보).
 - working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D6 (§3 PR-D6 참조)
+### 다음 작업 — PR-D7 (§3 PR-D7 참조)
 
-Layout 영속화 — DX `SaveLayoutToXml` / `RestoreLayoutFromXml` 활용. 작업 흐름:
+추가 wiring — D7.1 부동 메뉴 mouse 위치 / D7.2 PanelHeader caption template / D7.3 DX skin 정합. 작업 흐름 (각 항목 박제):
 
-1. **DockHost.xaml.cs 에 Save / Restore API 추가**:
-   - `IDockManager` 에 `SaveLayout(string filepath)` / `RestoreLayout(string filepath)` 시그니처 추가 (또는 DockHost UserControl 자체 public method 로 분리 — 외부 노출 surface 최소화). PR 진입 시 결정.
-   - 구현: `_dockLayout.SaveLayoutToXml(filepath)` / `_dockLayout.RestoreLayoutFromXml(filepath)` wrapping.
-   - Restore 시 파일 없음 / parse 실패 시 default 유지 (try/catch 또는 File.Exists 가드).
+1. **D7.1 — 부동 메뉴 mouse 위치 (정적 분석 + DX native 동작 신뢰)**:
+   - DX `DockLayoutManager` 의 ▼ → Float 메뉴 click 시 mouse 위치 주변 floating window 생성 동작은 DX native 처리.
+   - 정적 분석: 24.1.7 의 `DockController.Float(item)` 가 호출 시 `LayoutPanel.FloatLocation` 미지정 시 default 위치 (mouse 근처) 채택 추정.
+   - 채택: 코드 변경 0 + checkbox tick 후 "DX native 처리 — 별도 보정 불필요" 박제 후 D7.1 종료. 비정상 동작 발견 시 별 step 분할 (todo §3 PR-D7 박제 그대로).
 
-2. **MainWindow `Window_Closing` Save / `Window_Loaded` Restore**:
-   - `%LOCALAPPDATA%\Promaker\dock-layout.xml` 경로 (`Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)`).
-   - Closing: `_llmChatDisposed=true` 직후.
-   - Loaded: Restore 후 DockHost 의 `ItemIsVisibleChanged` hook (PR-D5 Loaded one-shot) 보다 *이전* 또는 *이후* 중 안전한 시점 결정. Restore 가 4 anchor visibility 변경 시 raise 발화 시점 박제 필요.
+2. **D7.2 — PanelHeader (caption template + HelpButton)**:
+   - 박제 결정: DX `LayoutPanel.Caption` + caption template 으로 일원화. 기존 PanelHeader (Promaker.Controls.Shell.PanelHeader UserControl) 사용처 제거 또는 caption template 안으로 이전.
+   - HelpButton: caption template 의 우측 정렬 영역 button — DX `BaseLayoutItem.CaptionTemplate` / `CaptionTemplateSelector` 활용.
+   - LayoutPanel.Caption 의 string 만 set 하면 default caption template 가 표시. 본 PR 에서 HelpButton 필요 패널만 custom template 적용.
+   - 실제 PanelHeader 사용처 grep 으로 확인 후 caption template 으로 이전.
 
-3. **Restore 후 VM 4 anchor visibility property 강제 sync** (PR-D5 검열 Minor 1 박제):
-   - layout restore 가 `Closed` 초기값을 xml 에서 복원할 때 VM 의 4 property (`IsExplorerVisible` 등) 초기값 (`= true`) 과 sync 가 깨질 수 있음.
-   - Restore 직후 1회 `IsAnchorVisible("explorer") → _vm.IsExplorerVisible = ...` 4건 강제 sync (`_suppressAnchorSync=true` guard). `IDockManager.IsAnchorVisible` API 본 step 에서 처음 활용 (PR-D5 검열 Minor 1 의 "활용 안 됨" 우려 해소).
+3. **D7.3 — DX skin 정합 (Promaker 다크 테마 매핑)**:
+   - DX `DXSkinManager.ApplyTheme(Application.Current, "WindowsUI Dark")` 또는 동등 (Office2019Colorful Dark 등) `App.xaml.cs` 의 `OnStartup` 직후 1줄 적용.
+   - Promaker `ThemeManager.cs` 의 dark background color 와 DX skin background 색차 — 사용자 1회 시각 검수 통과 시 D7.3 종료. 색차 큼 시 다른 skin 시도 또는 자체 skin mapping 으로 step 분할.
 
-4. **빌드 + 자가 검열** — `dotnet build` 0 오류 + 검열 agent 위임 의무. 통과 시 commit (`[dock2] Dock layout: PR-D6 — Layout 영속화 (Save/Restore XML)`).
+4. **빌드 + 자가 검열**.
 
-#### PR-D6 spike 결과 처리 룰
+#### PR-D7 spike 결과 처리 룰
 
-DX `SaveLayoutToXml` / `RestoreLayoutFromXml` 의 동작 (callback 매개변수, xml 형식, 미존재 panel 처리, Restore 시 `ItemIsVisibleChanged` raise 시점) 가 본 step 의 가정과 다를 시 PR-D3/D4/D5 spike 룰과 동일 — (a) 차이 박제 후 자동 진행 / (b) 기능 자체 부재 만 차단.
+D7.1/D7.2/D7.3 각각 독립 step 으로 진행 — 하나가 차단 사유 발생해도 다른 step 의 자동 진행 가능. D7.3 의 "색차 시각 검수" 만 사용자 1회 확인 필요 (다른 step 은 자동 진행).
 
 ### (이력) 이전 PR-D5 작업 흐름
 
@@ -424,10 +428,10 @@ DX `SaveLayoutToXml` / `RestoreLayoutFromXml` 의 동작 (callback 매개변수,
 
 ### 새 세션 시작 시 첫 행동
 1. 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` 전체 read.
-2. 현재 commit 상태 확인 — `git log --oneline -15` 로 PR-D1 ~ PR-D5 commit + 본 §9 갱신 commit 확인.
+2. 현재 commit 상태 확인 — `git log --oneline -18` 로 PR-D1 ~ PR-D6 commit + 본 §9 갱신 commit 확인.
 3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업.
-4. PR-D6 의 §3 항목 (Save/Restore + LOCALAPPDATA + Restore 후 강제 sync) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~4 순서.
-5. PR-D6 commit 후 본 §9 갱신 (PR-D6 completion 박제 + PR-D7 시작점 명시).
+4. PR-D7 의 §3 항목 (D7.1 부동 mouse / D7.2 PanelHeader / D7.3 DX skin) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~4 순서.
+5. PR-D7 commit 후 본 §9 갱신 (PR-D7 completion 박제 + PR-D8 시작점 명시).
 
 ### DX API spike 결과 박제 — PR-D3 완료
 PR-D3 진행 중 24.1.7 의 정확한 API 가 PR-D2 의 가정과 다른 부분 (Closed DP / ItemIsVisibleChanged event / ItemWidth=GridLength / DockController.Float 등) 모두 본 §9 "PR-D3 spike API 박제" 절에 박제 완료. PR-D4 이후 동일 spike 반복 금지 — 본 박제 절을 ground truth 로 사용.
