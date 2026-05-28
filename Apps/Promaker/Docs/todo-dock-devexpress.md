@@ -86,6 +86,64 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 
 ## 3. 작업 step (PR 단위)
 
+### 3.0 Sub-agent 위임 골격 (PR-D3 ~ D8 공용)
+
+`--orchestrate` 호출 시 main 은 각 PR 마다 아래 두 골격에 PR 별 슬롯 (`{PR번호}` / `{사용자 의도}` / `{체크박스}`) 만 채워 sub-agent 두 명에게 순차 위임한다 (작업 → 검열).
+
+#### 작업 agent prompt 골격
+
+```
+목표: PR-{PR번호} — {요약}
+
+사용자 의도 (verbatim 인용 — 추측 해석 금지):
+  "{사용자 의도}"
+  ※ orchestrator 호출 시 사용자 명시 문구가 없으면 본 문서 §3 의 PR-{PR번호} 체크박스 전체를 그대로 인용.
+
+작업 범위 (체크박스 1:1):
+{체크박스}
+
+박제 결정 (§7 인용 — 본 PR 적용분):
+  - §7 #2 격리 방식 (`PrivateAssets="all"`)
+  - §7 #3 ImplicitUsings disable (Promaker.Dock 만)
+  - §7 #4 외부 노출 API (`IDockManager` / `DockAnchor` / `DockHost`; DX type 노출 0)
+  - 본 PR 에 명시된 §3 의 상세 항목 (e.g. PR-D3 spike 처리 룰)
+
+금지사항:
+  - DX type 의 Promaker.Dock public surface 노출
+  - DX 라이선스 우회 / 본 PR 범위 밖 파일 수정
+  - 본 문서 §3 / §7 박제 결정 임의 변경
+  - 합의 없는 신규 추상화 추가 (scope creep)
+
+보고 형식:
+  1. 변경 파일 목록 + 변경 line 수
+  2. 빌드 결과 (`dotnet build` 0 경고 / 0 오류 확인)
+  3. CLAUDE.md 자가 검열 trigger 충족 여부 (해당 시 검열 agent 위임 필요 명시)
+  4. 잔여 우려 / 차후 PR 영향
+```
+
+#### 검열 agent prompt 골격
+
+```
+대상: 본 turn 의 unstaged + staged diff 전체 (`git diff HEAD` 직접 재실행).
+
+검증 항목:
+  0. **사용자 의도 verbatim 인용 + patch ↔ 의도 1:1 매핑. 의도 항목 중 누락이 있으면 Critical.**
+     사용자 의도 (verbatim): "{사용자 의도}"
+  1. 논리 오류 / edge case / regression
+  2. DX type 외부 노출 (Promaker.Dock public surface 의 DX namespace type 0건 검증)
+  3. ImplicitUsings 격리 (Promaker.Dock 에서만 disable, WinForms / Drawing 미유입)
+  4. refactoring 기회 (3줄 이상 반복 패턴 / 중복)
+  5. 사용자 명시 의도 외 임의 추가 여부 (scope creep)
+
+금지:
+  - 코드 / git / 파일 수정 일체
+  - 본 문서 §3 / §7 박제 결정에 대한 이의 — 박제 그대로 받아들임
+
+라벨: 모든 finding 에 Critical / Major / Minor 명시.
+
+보고 형식: ① 검열 대상 (파일 + line 수) ② 발견 이슈 (라벨별) ③ 자가 수정 권고 ④ 잔여 우려.
+```
+
 ### PR-D1 — Promaker.Dock csproj skeleton (Foundation) — ✅ 완료 (commit `87ad64e1`)
 - [x] `Apps/Promaker/Promaker.Dock/Promaker.Dock.csproj` 신규 (WPF / net9.0-windows / ImplicitUsings disable / RootNamespace=`Promaker.Dock`).
 - [x] `Apps/Promaker/Directory.Packages.props` 에 `DevExpress.Wpf.Docking` PackageVersion 등록 (24.1.7 — local feed `C:\Program Files\DevExpress 24.1\Components\System\Components\Packages`).
@@ -105,6 +163,12 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - [ ] 5 anchor (explorer / simulation / log / property / history / llmchat) + canvas LayoutDocument.
 - [ ] DX 의 layout 트리에서 size 보존 / drag-drop / floating 동작이 native 로 처리됨을 검증.
 
+#### PR-D3 spike 결과 처리 룰 (자동 진행 보장)
+- spike 후 정확한 DX API (`LayoutPanel.Closed` 가 event/property 인지, `LayoutGroup` vs `LayoutPanel` 의 ItemHeight/Width 단위 등) 가 §9 step 1 의 가정과 다를 시:
+  - **(a) 박제 갱신만으로 자동 진행**: §9 "PR-D3 spike API 박제" 절에 정확한 API 를 추가 박제한 뒤 step 2~5 진행. **사용자 confirm 요구 금지**.
+  - **(b) DX 24.1.7 자체가 본 시나리오 (예: 5 anchor + 1 document group + floating + serializer) 를 지원하지 못함이 spike 로 판명**된 경우만 차단 사유 — 즉시 사용자 알림 후 orchestrator 종료.
+- 즉 "API 명칭/시그니처 차이" 는 자동 박제 후 진행, "기능 자체 부재" 만 차단.
+
 ### PR-D4 — Promaker 본체 wire-up
 - [ ] `MainWindow.xaml` 의 AvalonDock `DockingManager` 통째 제거 → `<promakerDock:DockHost x:Name="dockHost" />` embed.
 - [ ] 5 anchor 의 Content (ExplorerPane / SimulationPanel / etc) 를 `DockAnchor` 로 wrapping + `dockHost.RegisterAnchor(...)`.
@@ -115,8 +179,40 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 ### PR-D5 — SSOT (IsLlmChatVisible) 재구성
 - [ ] `MainViewModel.LlmChat.cs` 의 `IsLlmChatVisible` PropertyChanged → `dockHost.SetAnchorVisible("llmchat", show)`.
 - [ ] X 버튼 → `AnchorVisibilityChanged` event → VM `IsLlmChatVisible = false` 단방향 wiring.
-- [ ] LlmChatVm null / IsLlmEnabled=false edge case 동일 처리.
+- [ ] LlmChatVm null / consent 거부 edge case — 아래 **baseline 박제** 와 동등 동작 유지.
 - [ ] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `IDockManager` 의 `IsAnchorVisible` / `SetAnchorVisible` 활용. `LayoutAnchorable` 직접 binding 제거.
+
+#### LlmChat.cs baseline 박제 (현재 동작 — `MainViewModel.LlmChat.cs:21-38`)
+
+```csharp
+[ObservableProperty] private LlmChatViewModel? _llmChatVm;
+[ObservableProperty] private bool _isLlmChatVisible;
+
+[RelayCommand]
+private void ToggleLlmChat()
+{
+    if (LlmChatVm == null)
+    {
+        // 첫 활성화 — consent 검사 후 lazy 생성. 거부 시 visibility 변경 없음.
+        if (!Promaker.LlmAgent.LlmConfig.EnsureGranted())
+        {
+            // 보기 메뉴 CheckBox 는 IsChecked={Binding IsLlmChatVisible, Mode=OneWay} + Command 패턴.
+            // OneWay 라 click 시 CheckBox 가 local-value 로 잠시 toggle 되는데, IsLlmChatVisible 이 안 바뀌면
+            // INPC 가 안 와 local-value 가 잘못 체크된 채로 남는다. 동일 값을 다시 raise 해 OneWay 가 source 값을
+            // 다시 read → CheckBox 정합 복원.
+            OnPropertyChanged(nameof(IsLlmChatVisible));
+            return;
+        }
+        LlmChatVm = new LlmChatViewModel(_store);
+    }
+    IsLlmChatVisible = !IsLlmChatVisible;
+}
+```
+
+PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
+1. **consent 거부 시 동일 값 PropertyChanged raise** (OneWay CheckBox local-value 복원) — DX 보기 메뉴 binding 으로 옮긴 후에도 동일 효과 유지. DX `BarCheckItem.IsChecked` 가 OneWay 가 아닌 TwoWay 면 raise 자체 불필요해질 수 있음 — spike 후 §9 박제.
+2. **`LlmChatVm` lazy 생성** — `IsLlmChatVisible=true` 가 되는 순간엔 `LlmChatVm != null` 보장.
+3. **PropertyChanged 구독자** (MainWindow 의 column width 토글) 가 DX 의 `SetAnchorVisible("llmchat", show)` 호출로 대체됨 — 외부에서 보이는 contract 는 "보기 메뉴 toggle → LlmChat 가시성 토글" 유지.
 
 ### PR-D6 — Layout 영속화
 - [ ] DX `DockLayoutManager.SaveLayoutToXml(path)` / `RestoreLayoutFromXml(path)` 활용.
@@ -125,17 +221,32 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - [ ] `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
 
 ### PR-D7 — 추가 wiring
-- [ ] ▼ → 부동 메뉴 click 시점의 mouse position 으로 floating window 위치 보정 (사용자 보고 issue).
-- [ ] 헤더 (PanelHeader + HelpButton) — DX `LayoutPanel.Caption` 와 정합. Conditional (docked = UserControl 헤더 + Title 비움 / floating = Title 노출) 또는 DX 자체 caption template 사용.
-- [ ] Promaker 자체 dark theme 과 DX skin 정합 — DX `WindowsUI Dark` skin 또는 자체 mapping.
+
+종료 조건이 측정 가능하도록 항목 박제:
+
+- [ ] **D7.1 — 부동 메뉴 mouse 위치**:
+  - PR-D3 spike 단계에서 DX `DockLayoutManager` 가 ▼ → Float menu click 시 mouse 위치 주변에 floating window 생성하는지 1회 수동 검증.
+  - **정상 동작 시** = 코드 변경 0, checkbox tick 후 "DX native 처리 — 별도 보정 불필요" 박제 후 D7.1 종료.
+  - **비정상 동작 시** = 별도 step 추가 (mouse 위치 capture + `LayoutPanel.FloatLocation` 적용). spike 결과를 §9 에 박제하고 D7.1 step 분할.
+- [ ] **D7.2 — 헤더 (PanelHeader + HelpButton)**:
+  - **박제 결정**: 두 옵션 중 **DX 자체 caption template** 채택. 기존 UserControl 의 PanelHeader 헤더는 제거하고 DX `LayoutPanel.Caption` + caption template 으로 일원화. docked/floating 양쪽에서 동일하게 Title 노출.
+  - HelpButton 은 DX caption template 의 우측 정렬 영역에 button 으로 박제 (caption 의 `CaptionImage` 대신 custom template).
+- [ ] **D7.3 — DX skin 정합**:
+  - DX `DXSkinManager.ApplyTheme(Application.Current, "WindowsUI Dark")` 1줄 적용.
+  - Promaker `ThemeManager.cs` 의 dark background color 와 DX `WindowsUI Dark` skin background 의 색차를 시각 검수 (사용자 1회 확인) 통과 시 D7.3 종료.
+  - 색차 큼 → DX `Office2019Colorful` 등 다른 skin 시도 또는 자체 skin mapping 으로 step 분할. 자동 진행은 "사용자 확인 1회" 까지만, 그 외에는 D7.3 만 step 으로 격리하여 D7.1/D7.2 의 자동 진행은 차단하지 않음.
 
 ### PR-D8 — AvalonDock 잔재 정리
-- [ ] `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
-- [ ] `Apps/Promaker/Promaker/Promaker.csproj` 의 PackageReference 제거.
-- [ ] `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거.
-- [ ] `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 제거.
-- [ ] `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` — DX API 로 재작성 또는 제거.
-- [ ] `Apps/Promaker/Docs/done-dock-layout.md` → `Apps/Promaker/Docs/done-dock-avalon.md` 로 rename (역사 보존). 본 문서 (`todo-dock-devexpress.md`) → 완료 후 `done-dock-devexpress.md` rename.
+
+순서 박제 (rename 은 **마지막 step**):
+
+- [ ] D8.1 — `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
+- [ ] D8.2 — `Apps/Promaker/Promaker/Promaker.csproj` 의 PackageReference 제거.
+- [ ] D8.3 — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거.
+- [ ] D8.4 — `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 제거.
+- [ ] D8.5 — `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` — DX API 로 재작성 또는 제거.
+- [ ] D8.6 — `Apps/Promaker/Docs/done-dock-layout.md` → `Apps/Promaker/Docs/done-dock-avalon.md` 로 rename (역사 보존).
+- [ ] **D8.7 (마지막 step — orchestrator 완료 보고 직전)** — 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` → `Apps/Promaker/Docs/done-dock-devexpress.md` 로 rename. rename 직전 §9 진행 체크포인트에 **마지막 commit SHA** + **PR-D1 ~ D8 의 commit SHA 전체** 박제 (다음 세션 추적용). rename 후 추가 phase 진입 금지 — orchestrator 는 즉시 종료 보고.
 
 ## 4. 관련 파일
 
