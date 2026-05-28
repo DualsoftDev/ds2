@@ -326,7 +326,7 @@
 /* ── 공통 카드 구조 ── */
 .ds-card {
     --u: clamp(10px, 1.3vh, 15px);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     flex: 1;
     min-height: 0;
@@ -334,7 +334,7 @@
     flex-direction: column;
     border: 1px solid var(--color-lines);
     background: var(--color-surface);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    box-shadow: var(--shadow-card);
 }
 .ds-card-header {
     padding: calc(var(--u) * 0.4) calc(var(--u) * 1.2);

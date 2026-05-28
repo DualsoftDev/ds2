@@ -7,9 +7,9 @@
 
 .flow-dashboard-panel {
     border: 1px solid var(--color-lines);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--color-surface);
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    box-shadow: var(--shadow-card);
     overflow: hidden;
     min-width: 0;
 }

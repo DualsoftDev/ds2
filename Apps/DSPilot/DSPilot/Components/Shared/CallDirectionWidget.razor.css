@@ -2,8 +2,8 @@
     position: relative;
     padding: 20px;
     background: var(--card-bg, #fff);
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
 }
 
 .widget-header {
