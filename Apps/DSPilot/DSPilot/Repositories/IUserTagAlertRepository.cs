@@ -49,9 +49,6 @@ public interface IUserTagAlertRepository
     /// <summary>가장 최근 알림 한 건의 ID — UI 폴링 비교용.</summary>
     Task<long> GetMaxAlertIdAsync(CancellationToken ct = default);
 
-    /// <summary>cutoff 보다 오래된 row 삭제 — 보관 기간 정리.</summary>
-    Task<int> PurgeOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default);
-
     /// <summary>day 단위로 raw 행을 집계해 userTagAlertDaily 에 upsert. 마지막 집계된 다음 날부터 어제까지.</summary>
     Task<int> RebuildDailyAggregatesAsync(DateTime fromDateUtc, DateTime toDateUtc, CancellationToken ct = default);
 
