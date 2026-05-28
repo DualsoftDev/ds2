@@ -9,6 +9,10 @@
   <ItemGroup>
     <PackageVersion Include="Anthropic" Version="12.20.0" />
     <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <!-- HKMC H-Chat phase 2 — H-Chat 의 /v3/openai/deployments/{model}/chat/completions 는 Azure OpenAI deployment path 스타일.
+         OpenAI SDK 단독으론 deployment routing 불가 → AzureOpenAIClient 의존. 2.1.0 = latest stable, OpenAI 2.1.0 dep.
+         OpenAI 2.10.0 hoist 정상 호환 (SemVer 2.x). Promaker/Directory.Packages.props 와 버전 정합 의무. -->
+    <PackageVersion Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.25" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.5.2" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.2" />

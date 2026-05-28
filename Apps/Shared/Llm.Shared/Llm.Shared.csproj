@@ -28,6 +28,8 @@
     <!-- LLM provider SDKs + MCP HTTP transport. -->
     <PackageReference Include="Anthropic" />
     <PackageReference Include="OpenAI" />
+    <!-- HKMC H-Chat phase 2 — H-Chat OpenAI endpoint 의 Azure deployment path 라우팅용. -->
+    <PackageReference Include="Azure.AI.OpenAI" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
