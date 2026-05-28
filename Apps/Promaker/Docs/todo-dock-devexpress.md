@@ -265,21 +265,16 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - [x] 경로 `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
 - [x] **PR-D5 검열 Minor 1 박제 해소** — Restore 직후 `_suppressAnchorSync` guard 안에서 4 anchor 의 `IsAnchorVisible` 결과를 VM 4 property 강제 sync (IsAnchorVisible API 본 PR 에서 처음 활용). LlmChat 은 baseline §5 보존 → Restore 결과 무시 + false 강제 (consent 흐름 보존). Welcome/Canvas 는 HasProject SSOT 일방 관리.
 
-### PR-D7 — 추가 wiring
+### PR-D7 — 추가 wiring — ✅ 완료 (commit `6eccdc01`, 단 D7.3 색차 사용자 1회 시각 검수 잔존)
 
 종료 조건이 측정 가능하도록 항목 박제:
 
-- [ ] **D7.1 — 부동 메뉴 mouse 위치**:
-  - PR-D3 spike 단계에서 DX `DockLayoutManager` 가 ▼ → Float menu click 시 mouse 위치 주변에 floating window 생성하는지 1회 수동 검증.
-  - **정상 동작 시** = 코드 변경 0, checkbox tick 후 "DX native 처리 — 별도 보정 불필요" 박제 후 D7.1 종료.
-  - **비정상 동작 시** = 별도 step 추가 (mouse 위치 capture + `LayoutPanel.FloatLocation` 적용). spike 결과를 §9 에 박제하고 D7.1 step 분할.
-- [ ] **D7.2 — 헤더 (PanelHeader + HelpButton)**:
-  - **박제 결정**: 두 옵션 중 **DX 자체 caption template** 채택. 기존 UserControl 의 PanelHeader 헤더는 제거하고 DX `LayoutPanel.Caption` + caption template 으로 일원화. docked/floating 양쪽에서 동일하게 Title 노출.
-  - HelpButton 은 DX caption template 의 우측 정렬 영역에 button 으로 박제 (caption 의 `CaptionImage` 대신 custom template).
-- [ ] **D7.3 — DX skin 정합**:
-  - DX `DXSkinManager.ApplyTheme(Application.Current, "WindowsUI Dark")` 1줄 적용.
-  - Promaker `ThemeManager.cs` 의 dark background color 와 DX `WindowsUI Dark` skin background 의 색차를 시각 검수 (사용자 1회 확인) 통과 시 D7.3 종료.
-  - 색차 큼 → DX `Office2019Colorful` 등 다른 skin 시도 또는 자체 skin mapping 으로 step 분할. 자동 진행은 "사용자 확인 1회" 까지만, 그 외에는 D7.3 만 step 으로 격리하여 D7.1/D7.2 의 자동 진행은 차단하지 않음.
+- [x] **D7.1 — 부동 메뉴 mouse 위치**: DX `DockController.Float` native 처리 신뢰. 정적 분석 결과 코드 변경 0 + "DX native 처리 — 별도 보정 불필요" 박제 후 종료. 비정상 발견 시 후속 step 분할 (mouse 위치 capture + `LayoutPanel.FloatLocation`).
+- [x] **D7.2 — 헤더 (PanelHeader + HelpButton)**: 5 anchor caption 영역의 PanelHeader UserControl 사용처 0건 grep 결과 (`PanelHeader` 는 `Theme.Controls.Forms.xaml` 의 Style key 만 존재, UserControl 아님). HelpButton Style 의 사용처 (`ApiCallsGridControl` / `ConditionSectionControl`) 는 panel 본문 영역으로 caption 영역과 무관. DX `BaseLayoutItem.Caption` (PR-D4 의 `ApplyAnchorMetadata` 의 Title set) 으로 docked/floating 양쪽 일원화 자연 완료 — 코드 변경 0.
+- [x] **D7.3 — DX skin 정합 (적용 완료, 색차 시각 검수 사용자 의무)**:
+  - `Promaker.Dock.DockHost.InitializeTheme()` 정적 메서드 신설 (Promaker.Dock 내부 `DevExpress.Xpf.Core.ApplicationThemeHelper.ApplicationThemeName="Office2019Colorful"`). App.xaml.cs OnStartup → ThemeManager.ApplySavedTheme() 직후 1줄 호출. DX type 외부 노출 0 유지 (§7 #4).
+  - skin 명은 PR-D4 fallback D deploy SSOT 정합 — `DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll` 단일 Themes assembly deploy. verbatim 1차 선택 "WindowsUI Dark" 는 별도 Themes assembly 추가 deploy 필요로 본 PR 미채택 (검열 Minor 1 — 정당화된 박제 정정).
+  - **사용자 1회 시각 검수 잔존**: Promaker dark theme background 와 Office2019Colorful skin background 색차 큼 시 후속 step (D7.3-fallback) — `DevExpress.Xpf.Themes.WindowsUI.v24.1.dll` deploy 추가 + `ApplicationThemeName="WindowsUIDark"` 재시도, 또는 자체 skin mapping. todo §3 PR-D7.3 박제 그대로 step 분할 룰 적용.
 
 ### PR-D8 — AvalonDock 잔재 정리
 
@@ -370,33 +365,31 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `a13bf9d2` — PR-D5: SSOT (IsLlmChatVisible) + 보기 메뉴 + HasProject 재wiring + M1 박제 (Loaded hook 지연). DockAnchors.cs (VM partial 4 ObservableProperty) 신설. LlmChat.cs 변경 0 (baseline 박제 §5 보존). 검열 Critical 0 / Major 0 / Minor 4 (모두 정보 또는 PR-D6 위임).
 - `4a9f4f71` — todo §3 PR-D5 헤더 완료 + §9 갱신 (PR-D5 SHA 박제 + PR-D6 시작점).
 - `c51dc858` — PR-D6: Layout 영속화 (Save/Restore XML). IDockManager 에 SaveLayout/RestoreLayout 시그니처 추가. RestoreDockLayoutAndSyncVm 의 guard 안에서 IDockManager.IsAnchorVisible 로 4 anchor sync (PR-D5 검열 Minor 1 해소). LlmChat baseline §5 보존 (false 강제). 검열 Critical 0 / Major 0 / Minor 3 (모두 정보).
+- `fdc47e75` — todo §3 PR-D6 헤더 완료 + §9 갱신 (PR-D6 SHA 박제 + PR-D7 시작점).
+- `6eccdc01` — PR-D7: D7.1 native / D7.2 caption 일원화 / D7.3 DX skin (Office2019Colorful 박제 정정). 변경 18 line, 2 파일. DX type 외부 노출 0 유지. 검열 Critical 0 / Major 0 / Minor 1 (skin 박제 정정). 사용자 1회 시각 검수 (§3 PR-D7.3) 잔존.
 - working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D7 (§3 PR-D7 참조)
+### 다음 작업 — PR-D8 (§3 PR-D8 참조)
 
-추가 wiring — D7.1 부동 메뉴 mouse 위치 / D7.2 PanelHeader caption template / D7.3 DX skin 정합. 작업 흐름 (각 항목 박제):
+AvalonDock 잔재 정리. 순서 박제 — **rename 은 마지막 step**:
 
-1. **D7.1 — 부동 메뉴 mouse 위치 (정적 분석 + DX native 동작 신뢰)**:
-   - DX `DockLayoutManager` 의 ▼ → Float 메뉴 click 시 mouse 위치 주변 floating window 생성 동작은 DX native 처리.
-   - 정적 분석: 24.1.7 의 `DockController.Float(item)` 가 호출 시 `LayoutPanel.FloatLocation` 미지정 시 default 위치 (mouse 근처) 채택 추정.
-   - 채택: 코드 변경 0 + checkbox tick 후 "DX native 처리 — 별도 보정 불필요" 박제 후 D7.1 종료. 비정상 동작 발견 시 별 step 분할 (todo §3 PR-D7 박제 그대로).
+- **D8.1** — `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
+- **D8.2** — `Apps/Promaker/Promaker/Promaker.csproj` 의 AvalonDock PackageReference 제거.
+- **D8.3** — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거.
+- **D8.4** — `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 잔존 여부 확인 후 제거 (PR-D4 에서 이미 제거 완료 — 본 step 은 잔재 확인만).
+- **D8.5** — `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` — DX API 로 재작성 또는 제거 (PR-D4 에서 이미 제거 완료 — 본 step 은 잔재 확인만).
+- **D8.6** — `Apps/Promaker/Promaker/Docs/done-dock-layout.md` → `done-dock-avalon.md` rename (역사 보존).
+- **D8.7 (마지막)** — 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` → `done-dock-devexpress.md` rename. **rename 직전 §9 진행 체크포인트에 PR-D1 ~ D8 의 commit SHA 전체 박제**. rename 후 orchestrator 즉시 종료 보고.
 
-2. **D7.2 — PanelHeader (caption template + HelpButton)**:
-   - 박제 결정: DX `LayoutPanel.Caption` + caption template 으로 일원화. 기존 PanelHeader (Promaker.Controls.Shell.PanelHeader UserControl) 사용처 제거 또는 caption template 안으로 이전.
-   - HelpButton: caption template 의 우측 정렬 영역 button — DX `BaseLayoutItem.CaptionTemplate` / `CaptionTemplateSelector` 활용.
-   - LayoutPanel.Caption 의 string 만 set 하면 default caption template 가 표시. 본 PR 에서 HelpButton 필요 패널만 custom template 적용.
-   - 실제 PanelHeader 사용처 grep 으로 확인 후 caption template 으로 이전.
+추가 잔재 정리 (PR-D4 보고 의 잔여 우려):
+- `MainWindow.xaml` line 60 의 PR-D4 주석 안 "AvalonDock" 단어 (Grep noise).
+- `App.xaml` 의 `AvalonDock_ThemeMetro_BaseColor*` brush 5건 무해 노이즈.
+- `done-dock-layout.md` 의 "PanelHeader UserControl" 표현 정정 (실제로는 Style key).
 
-3. **D7.3 — DX skin 정합 (Promaker 다크 테마 매핑)**:
-   - DX `DXSkinManager.ApplyTheme(Application.Current, "WindowsUI Dark")` 또는 동등 (Office2019Colorful Dark 등) `App.xaml.cs` 의 `OnStartup` 직후 1줄 적용.
-   - Promaker `ThemeManager.cs` 의 dark background color 와 DX skin background 색차 — 사용자 1회 시각 검수 통과 시 D7.3 종료. 색차 큼 시 다른 skin 시도 또는 자체 skin mapping 으로 step 분할.
+#### PR-D8 spike 결과 처리 룰
 
-4. **빌드 + 자가 검열**.
-
-#### PR-D7 spike 결과 처리 룰
-
-D7.1/D7.2/D7.3 각각 독립 step 으로 진행 — 하나가 차단 사유 발생해도 다른 step 의 자동 진행 가능. D7.3 의 "색차 시각 검수" 만 사용자 1회 확인 필요 (다른 step 은 자동 진행).
+각 step 독립 진행. D8.7 rename 시점 박제 commit SHA 누락 시 차단. 그 외 step 자동 진행.
 
 ### (이력) 이전 PR-D5 작업 흐름
 
@@ -428,10 +421,11 @@ D7.1/D7.2/D7.3 각각 독립 step 으로 진행 — 하나가 차단 사유 발�
 
 ### 새 세션 시작 시 첫 행동
 1. 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` 전체 read.
-2. 현재 commit 상태 확인 — `git log --oneline -18` 로 PR-D1 ~ PR-D6 commit + 본 §9 갱신 commit 확인.
+2. 현재 commit 상태 확인 — `git log --oneline -20` 로 PR-D1 ~ PR-D7 commit + 본 §9 갱신 commit 확인.
 3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업.
-4. PR-D7 의 §3 항목 (D7.1 부동 mouse / D7.2 PanelHeader / D7.3 DX skin) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~4 순서.
-5. PR-D7 commit 후 본 §9 갱신 (PR-D7 completion 박제 + PR-D8 시작점 명시).
+4. **PR-D7.3 사용자 1회 시각 검수 (Office2019Colorful skin 색차)** 결과 받기 — 통과 시 §3 PR-D7.3 "사용자 1회 시각 검수 잔존" 박제 종료, 색차 큼 시 D7.3-fallback step 분할.
+5. PR-D8 의 §3 항목 (D8.1~D8.7) 진행 → 본 §9 의 "다음 작업" 흐름 따라.
+6. PR-D8.7 rename 직전 §9 에 PR-D1~D8 commit SHA 전체 박제. rename 후 orchestrator 종료.
 
 ### DX API spike 결과 박제 — PR-D3 완료
 PR-D3 진행 중 24.1.7 의 정확한 API 가 PR-D2 의 가정과 다른 부분 (Closed DP / ItemIsVisibleChanged event / ItemWidth=GridLength / DockController.Float 등) 모두 본 §9 "PR-D3 spike API 박제" 절에 박제 완료. PR-D4 이후 동일 spike 반복 금지 — 본 박제 절을 ground truth 로 사용.
