@@ -19,6 +19,14 @@ light-house repo 의 `Ds2.LightHouse.Cli` (`lighthouse-cli`) 를 호출하여 �
 /indexer <folder> --url <baseUrl>                  # URL 명시 override (LIGHTHOUSE_URL env / default 모두 무시)
 ```
 
+추가 CLI subcommand (2026-05-28 fix — skill 자동 dispatch / 사용자 수동 진단용):
+
+```
+lighthouse-cli probe-indexer-version <folder>      # stdout JSON: {"status":"ok|key-missing|open-failed|db-missing", "version":..., "reason":...}
+lighthouse-cli export-image-cache <folder>          # caption 박제 ImageCache row JSON stdout (wipe 전 backup)
+lighthouse-cli import-image-cache <folder> <json>   # backup JSON → 신규 DB 의 caption 4 컬럼 UPDATE (idempotent)
+```
+
 ## 사전 조건
 
 ### Service URL 결정 우선순위 (SSOT)
@@ -278,6 +286,36 @@ CLI 가 **in-place 색인** — 색인 산출물은 `<folder>/.lighthouse-kb/` �
 
 source 폴더에서 *파일이 삭제* 되었거나, 강제 재색인이 필요하면 사용자가 명시적으로 `<folder>/.lighthouse-kb/` 를
 지우고 재실행. CLI 가 자동으로 stale row 청소는 안 함 (현 phase 한정 — 추후 selective cleanup 도입 가능).
+
+### build-drift / stale 색인본 자동 복구 path (2026-05-28 fix)
+
+CLI/lib build 가 갱신되어 기존 `.lighthouse-kb/` 의 schema/extension 정합이 무너진 경우 (`Meta.indexer_version`
+키 부재 / 호환 range 밖 / sqlite-vec extension drift 로 open 실패), 종전 `--reuse-kb` upload 는 server 의
+IndexerVersion gate (§3.12) 에서 거부. 본 phase 의 자동 복구 path:
+
+1. **stale 감지** — `lighthouse-cli probe-indexer-version <folder>` 호출. stdout JSON `{"status":"ok|key-missing|open-failed|db-missing","version":"...","reason":"..."}`.
+   - `ok` = 정상, Step 3 `--reuse-kb` 진입 가능.
+   - `key-missing` / `open-failed` = stale, 아래 (2)~(5) 로 자동 복구.
+   - `db-missing` = Step 1-a 미수행. `--skip-upload` 색인부터.
+2. **caption 보존 export** — `lighthouse-cli export-image-cache <folder> > <temp>/caption-backup.json`.
+   `key-missing` 경로는 DB open 정상 → caption 박제분 dump 가능. `open-failed` 경로는 dump 불가 → caption 비용 신규 발생 (불가피).
+3. **wipe** — `<folder>/.lighthouse-kb/` 삭제 (사용자 명시 동의 후).
+4. **재색인** — `lighthouse-cli index <folder> --skip-upload`. 새 build 의 `IndexerVersion.Current` stamp.
+5. **caption 복원** — `lighthouse-cli import-image-cache <folder> <temp>/caption-backup.json`. 재색인이 새로 박제한
+   ImageCache row 의 caption 4 컬럼만 UPDATE (`WHERE ImageHash = $hash AND CaptionText IS NULL` 정합 — 이미 caption
+   박제된 row 는 보존). hash 매치 row 만 갱신, 미매치 hash 는 silent skip + 보고.
+6. **upload** — `lighthouse-cli index <folder> --upload <url> --reuse-kb --title <name>`.
+
+skill 측 자동 dispatch 박제 권장 — Step 3 진입 전 `probe-indexer-version` 호출, `key-missing`/`open-failed` 인 경우
+사용자에게 확인 후 (2)~(5) 자동 실행. `open-failed` 의 경우 caption 비용 발생 사전 안내.
+
+#### server 측 정합 응답 (2026-05-28 fix ①)
+
+종전 server 는 stale 시 `{"error":"indexerVersion 미존재 — index.db 의 Meta.indexer_version 키 미존재"}` 로
+원인 (open 실패 / 키 부재 / DB 부재) 을 압축 응답 → 운영자 진단 불가. 본 fix 이후 분리:
+- HTTP 400 `indexerVersion key missing` — caption 보존 자동 path 안내 (suggestedAction).
+- HTTP 400 `indexerVersion db missing` — zip 결함 / Step 1-a 미수행 안내.
+- HTTP 400 `indexerVersion db open failed` — schema/extension drift, wipe + 신규 색인 안내.
 
 ## Exit code 해석 (사용자 친화 메시지)
 
