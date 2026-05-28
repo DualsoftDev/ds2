@@ -143,5 +143,10 @@
          HMI Designer 등 후속 App 도 본 lib 을 참조해 동일 인프라 공유. Promaker 측 잔류 = ModelTools / PromakerToolNames /
          LlmConfig / LlmChatPanel + ViewModel / Behaviors / Presentation / Dialogs / Themes / Prompts overlay. -->
     <ProjectReference Include="..\..\Shared\Llm.Shared\Llm.Shared.csproj" />
+    <!-- PR-D4 — Promaker.Dock (DevExpress.Wpf.Docking 캡슐화 격리 csproj).
+         Promaker.Dock 측이 mechanism D (Reference HintPath, PackageReference 제거) 로 NuGet graph 격리 보장 →
+         본 ProjectReference 에 PrivateAssets 불필요 (transitive 0건). DX 11종 + Themes.Office2019Colorful 은
+         Promaker.Dock 의 Reference Private=true + Content Include 로 Promaker bin 까지 carry. -->
+    <ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />
   </ItemGroup>
 </Project>
