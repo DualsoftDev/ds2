@@ -356,7 +356,12 @@ module TextDumper =
                 // strategy 의 raw markdown 에 MarkdownCapPolicy 3-stage escalation 적용. Stage 3
                 // (Split) 진입 시 SplitParts 의 N 개 part 를 `{basename}.1.md` / `{basename}.2.md` ...
                 // 다중 박제 (silent data loss 제거). 단일 part (Stage 0/1/2) 는 기존 파일명 유지.
-                let capResult = MarkdownCapPolicy.applyCap rawMarkdown
+                //
+                // **Phase 4 (todo-lighthouse-iolist-v2.md Phase 4)** — `applyCapFor strategyName` 분기
+                // 호출 — IoList 인 경우 Stage 2 가 device-aware sampling (head 10 + tail 10 + unique
+                // device sample + Direction 분포 박제) 으로 escalation. 기존 strategy (WorkOrder /
+                // PdfControlSpec) 는 default 분기 (head 5 + tail 5) 유지 → byte-equal 회귀 가드.
+                let capResult = MarkdownCapPolicy.applyCapFor strategyName rawMarkdown
                 match capResult.SplitParts with
                 | Some parts ->
                     // Stage 3 multi-part 박제.
