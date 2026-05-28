@@ -62,7 +62,8 @@ let private mkRow (rowIdx: uint) (cells: (int * string) list) : Row =
 /// ***REDACTED***2 IO List signature 충족 xlsx fixture.
 ///   - 시트 8개 (zone code S201~S205 + 보조)
 ///   - 각 시트에 R1=헤더, R6+=데이터 (`%IW`/`%QW` 토큰 다수, BOOL DataType)
-///   - 4-block 가로 layout (20 columns / row).
+///   - **Phase 1 정합 22-col 가로 layout** (`[col1=leading 빈] + 5-col block × 4 + [col22=trailing 빈]`).
+///     IoListStrategy.fs:127 `reshapeRowToBlocks` 는 `i=1` 시작 + `blockSize=5` 로 4 block 흡수.
 let private makeIoListFixture (path: string) =
     use doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook)
     let wbPart = doc.AddWorkbookPart()
@@ -80,34 +81,36 @@ let private makeIoListFixture (path: string) =
             // COVER 시트 — 데이터 0, R1 텍스트.
             sheetData.AppendChild(mkRow 1u [ 1, "COVER" ]) |> ignore
         else
-            // R1 헤더 — "PLC : LS XGT" / "I/O LIST".
-            sheetData.AppendChild(mkRow 1u [ 1, "PLC : LS XGT"; 5, "I/O LIST" ]) |> ignore
+            // R1 헤더 — "PLC : LS XGT" / "I/O LIST". (col 1 은 leading 빈 정합 보존)
+            sheetData.AppendChild(mkRow 1u [ 2, "PLC : LS XGT"; 6, "I/O LIST" ]) |> ignore
             // R2 — Project meta.
             sheetData.AppendChild(mkRow 2u [
-                1, "Project: ***REDACTED***2_SV_SIDE_OUTER"
-                5, sprintf "Part: %s" name
+                2, "Project: ***REDACTED***2_SV_SIDE_OUTER"
+                6, sprintf "Part: %s" name
             ]) |> ignore
             // R3 — 표 헤더.
-            sheetData.AppendChild(mkRow 3u [ 1, "워드" ]) |> ignore
+            sheetData.AppendChild(mkRow 3u [ 2, "워드" ]) |> ignore
             // R4 — zone meta.
-            sheetData.AppendChild(mkRow 4u [ 1, sprintf "Zone: %s" name ]) |> ignore
-            // R5 — 컬럼 헤더 (4 block).
+            sheetData.AppendChild(mkRow 4u [ 2, sprintf "Zone: %s" name ]) |> ignore
+            // R5 — 컬럼 헤더 (4 block × 5 col, col 1 = leading 빈, col 22 = trailing 빈).
             let headerCells = [
-                1, "Word";  2, "Tag";  3, "Type";  4, "Addr";  5, "Sym"
-                6, "Word";  7, "Tag";  8, "Type";  9, "Addr"; 10, "Sym"
-                11, "Word"; 12, "Tag"; 13, "Type"; 14, "Addr"; 15, "Sym"
-                16, "Word"; 17, "Tag"; 18, "Type"; 19, "Addr"; 20, "Sym"
+                2, "Word";  3, "Tag";  4, "Type";  5, "Addr";  6, "Sym"
+                7, "Word";  8, "Tag";  9, "Type"; 10, "Addr"; 11, "Sym"
+                12, "Word"; 13, "Tag"; 14, "Type"; 15, "Addr"; 16, "Sym"
+                17, "Word"; 18, "Tag"; 19, "Type"; 20, "Addr"; 21, "Sym"
+                22, ""  // trailing 빈 col (cells.Length >= 22 보장 — hasFourBlockLayout signature 정합)
             ]
             sheetData.AppendChild(mkRow 5u headerCells) |> ignore
             // R6~R13 — 데이터 8 rows × 4 block = 32 행 (long-form 변환 후).
-            // %IW/%QW 토큰 ≥ 50 충족 위해 8 rows × 4 block = 32 + 다른 시트 합산 → 7 sheet × 32 = 224 토큰.
+            // %IW/%QW 토큰 ≥ 50 충족 위해 7 sheet × 32 = 224 토큰.
             for r in 6u .. 13u do
                 let i = int r - 5
                 let dataCells = [
-                    1, "2010";  2, sprintf "%s_RB1_HOME_POS%d" name i;     3, "BOOL"; 4, sprintf "%%IW2010.%d" i;  5, "WRS01"
-                    6, "2010";  7, sprintf "%s_RB1_WK_COMP%d" name i;      8, "BOOL"; 9, sprintf "%%IW2010.%d" (i+8); 10, "WRS01"
-                    11, "5410"; 12, sprintf "%s_CLP%d_ADV1" name i;       13, "BOOL"; 14, sprintf "%%QW5410.%d" i; 15, "WRS02"
-                    16, "5410"; 17, sprintf "%s_CLP%d_RET1" name i;       18, "BOOL"; 19, sprintf "%%QW5410.%d" (i+8); 20, "WRS02"
+                    2, "2010";  3, sprintf "%s_RB1_HOME_POS%d" name i;     4, "BOOL"; 5, sprintf "%%IW2010.%d" i;  6, "WRS01"
+                    7, "2010";  8, sprintf "%s_RB1_WK_COMP%d" name i;      9, "BOOL"; 10, sprintf "%%IW2010.%d" (i+8); 11, "WRS01"
+                    12, "5410"; 13, sprintf "%s_CLP%d_ADV1" name i;       14, "BOOL"; 15, sprintf "%%QW5410.%d" i; 16, "WRS02"
+                    17, "5410"; 18, sprintf "%s_CLP%d_RET1" name i;       19, "BOOL"; 20, sprintf "%%QW5410.%d" (i+8); 21, "WRS02"
+                    22, ""  // trailing 빈 col (cells.Length >= 22 보장)
                 ]
                 sheetData.AppendChild(mkRow r dataCells) |> ignore
         let ws = Worksheet()
