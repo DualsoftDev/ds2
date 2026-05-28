@@ -210,19 +210,21 @@ PR-D4 step 1 진입 시 `<ProjectReference PrivateAssets="all">` 단독 mechanis
   - **(b) DX 24.1.7 자체가 본 시나리오 (예: 5 anchor + 1 document group + floating + serializer) 를 지원하지 못함이 spike 로 판명**된 경우만 차단 사유 — 즉시 사용자 알림 후 orchestrator 종료.
 - 즉 "API 명칭/시그니처 차이" 는 자동 박제 후 진행, "기능 자체 부재" 만 차단.
 
-### PR-D4 — Promaker 본체 wire-up (격리 mechanism = fallback D Reference HintPath, §2 spike D1 PASS)
-- [ ] `MainWindow.xaml` 의 AvalonDock `DockingManager` 통째 제거 → `<promakerDock:DockHost x:Name="dockHost" />` embed.
-- [ ] 5 anchor 의 Content (ExplorerPane / SimulationPanel / etc) 를 `DockAnchor` 로 wrapping + `dockHost.RegisterAnchor(...)`.
-- [ ] Welcome / Canvas LayoutDocument 동일.
-- [ ] `MainWindow.xaml.cs` 의 AvalonDock 관련 wiring (5+ partial 파일 — DockExtents.cs / DockPlacement.cs / DockTrace.cs / MainViewModel.Dock.cs) 통째 제거.
-- [ ] 빌드 통과.
+### PR-D4 — Promaker 본체 wire-up — ✅ 완료 (mechanism step 1: commit `92a355ce` / wire-up: commit `8b5a8a97`)
+- [x] `MainWindow.xaml` 의 AvalonDock `DockingManager` 통째 제거 → `<promakerDock:DockHost x:Name="dockHost" />` embed.
+- [x] 5 anchor 의 Content (ExplorerPane / SimulationPanel + Log tab 통합 / PropertyPanel / HistoryPanel / LlmChat ContentControl) 를 `DockAnchor` 로 wrapping + `dockHost.RegisterAnchor(...)`. AppLogView 는 검열 M1 박제로 SimulationPanel TabControl 마지막 tab 으로 통합 (5 anchor SSOT 정합).
+- [x] Welcome / Canvas LayoutDocument 등록 (`RegisterDocument` 2건). 검열 M2 박제: ContentId `properties` (Title="Properties") / `canvas` (Title="Workspace") — done-dock-layout §3.1 안 A SSOT 정합.
+- [x] `MainWindow.xaml.cs` 의 AvalonDock 관련 wiring 6 partial 파일 제거 — DockExtents.cs / DockPlacement.cs / DockTrace.cs / DockOverlay.cs / FloatingWindow.cs / MainViewModel/Dock.cs.
+- [x] 빌드 통과 (0 경고 / 0 오류). `dotnet list package --include-transitive` DevExpress / System.Drawing.Common 0건. bin 에 DevExpress 11종 + Themes.Office2019Colorful deploy 확인.
 
 ### PR-D5 — SSOT (IsLlmChatVisible) 재구성
 - [ ] `MainViewModel.LlmChat.cs` 의 `IsLlmChatVisible` PropertyChanged → `dockHost.SetAnchorVisible("llmchat", show)`.
 - [ ] X 버튼 → `AnchorVisibilityChanged` event → VM `IsLlmChatVisible = false` 단방향 wiring.
 - [ ] LlmChatVm null / consent 거부 edge case — 아래 **baseline 박제** 와 동등 동작 유지.
 - [ ] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `IDockManager` 의 `IsAnchorVisible` / `SetAnchorVisible` 활용. `LayoutAnchorable` 직접 binding 제거.
+- [ ] **PR-D4 검열 M4 박제 — 보기 메뉴 PathError 해소**: PR-D4 종료 시점에 `MainToolbarEtcContent.xaml` 의 5 체크박스 binding (`{Binding ExplorerAnchor.IsVisible, Mode=TwoWay}` 등) 이 VM 의 삭제된 `Dock.cs` 의 anchor property 를 가리켜 dead path 상태. PR-D5 의 IDockManager 재wiring 시 5 체크박스 binding 모두 새 binding source (e.g. VM property + DockHost SetAnchorVisible 호출) 로 교체 + 라벨 정합 (Properties / Simulation / Log 등).
 - [ ] **PR-D3 검열 M1 박제 — 초기 raise spike**: PR-D5 진입 직전 1회 spike 로 다음 검증. (1) `DockHost` ctor 의 `_dockLayout.ItemIsVisibleChanged` hook 시점에 layout 초기 평가로 인한 false-IsVisible raise 가 외부 (SSOT) 로 누설되는지. (2) 누설 시 hook 시점을 `Loaded` event 또는 `RegisterAnchor` 첫 호출 직후로 지연. (3) 누설 없으면 박제 후 종료. SSOT 의 `IsLlmChatVisible` 무한 loop 차단 책임은 본 항목과 별개로 `_suppressLlmChatSync` 류 가드 (done-dock-layout §2 F3 박제) 적용 의무.
+- [ ] **PR-D4 검열 잔여 — `HasProject` 토글로 Welcome ↔ Canvas 전환 정책**: done-dock-layout §3.1 안 A 의 동작 (HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전) 을 IDockManager.SetAnchorVisible 호출로 재구현. 현재 PR-D4 종료 시점에 두 document 모두 tab 노출 상태.
 
 #### LlmChat.cs baseline 박제 (현재 동작 — `MainViewModel.LlmChat.cs:21-38`)
 
@@ -361,51 +363,47 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `a1b51760` — PR-D3: DockLayoutManager layout 트리 + IDockManager 구현 + 24.1.7 spike 박제 + RegisterAnchor/RegisterDocument 중복 가드. 자가 검열 Critical 0 / Major 2 (M1: 초기 raise 누설 우려 → PR-D5 spike 위임 / M2: 중복 가드 → 본 commit 반영) / Minor 4.
 - `d6148275` — todo §3 PR-D3 헤더 완료 표기 + §9 갱신 (PR-D3 SHA 박제 + PR-D4 시작점).
 - `00079ca8` — PR-D4 진입 차단 박제 (격리 mechanism spike A 계열 전부 실패).
-- **PR-D4 격리 mechanism 결정 — fallback D (Reference HintPath) 채택**: §2 spike 표 D row PASS (3 검증 동시 만족). `Apps/Promaker/Promaker.Dock/Promaker.Dock.csproj` 의 PackageReference 제거 + Reference HintPath × 13 + Content Include × 1 (Themes.Office2019Colorful 보강). `Apps/Promaker/Directory.Packages.props` 의 DevExpress.Wpf.Docking PackageVersion 제거.
-- working tree: 본 박제 commit 으로 mechanism 변경 적용 후 PR-D4 step 2~5 (MainWindow wire-up) 진입.
+- `92a355ce` — PR-D4 step 1: fallback D mechanism 적용 (Reference HintPath × 13 + Themes Content Include + Directory.Packages.props PackageVersion 제거). §2 spike 표 D row 박제.
+- `8b5a8a97` — PR-D4 step 2~5: Promaker 본체 wire-up (MainWindow DockingManager → DockHost / 5 anchor + 2 document Register / AvalonDock 6 partial 파일 제거 / SimulationPanel Log tab 통합 / ContentId 박제 정합). 검열 Critical 0 / Major 4 (M1+M2 본 commit 처리, M3 정보, M4 PR-D5 위임) / Minor 5. 빌드 0/0 + transitive DevExpress 0건 + bin 11종 deploy 검증 PASS.
+- working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D4 step 2~5 (격리 mechanism = fallback D 적용 완료, wire-up 진행)
+### 다음 작업 — PR-D5 (§3 PR-D5 참조)
 
-step 1 격리 mechanism 은 §2 spike 결과 D 채택 + 본 박제 commit 에 적용 완료. 이하는 step 2~5 의 wire-up 절차:
+SSOT (IsLlmChatVisible) 재구성 + 보기 메뉴 IDockManager 재wiring + HasProject 토글 Welcome↔Canvas 전환. 작업 흐름:
 
-1. **Promaker.csproj ProjectReference (격리 mechanism D 적용 — PrivateAssets 불필요)**:
-   - `Apps/Promaker/Promaker/Promaker.csproj` 에 `<ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />` 추가 (Promaker.Dock 의 PackageReference 자체가 제거됐으므로 NuGet graph 격리는 mechanism D 측에서 이미 보장. ProjectReference 측 PrivateAssets 불필요).
-   - 빌드 후 `dotnet list package --include-transitive` 로 Promaker (Promaker.dll) 의 transitive 에 `DevExpress.*` / `System.Drawing.Common` 0건 검증 (§2 spike D 행).
-   - 빌드 후 `Apps/Promaker/Promaker/bin/Debug/net9.0-windows/` 에 DevExpress.*.v24.1.dll 11종 + Themes.Office2019Colorful 자체 deploy 검증 (mechanism D 의 Reference Private=true + Content Include 효과 propagate).
-   - **검증 실패 시 차단** — mechanism D 가 ProjectReference carry-over 단계에서 깨졌다는 의미, 즉시 사용자 알림.
+1. **PR-D3 검열 M1 박제 — 초기 raise spike (선결)**:
+   - `Apps/Promaker/Promaker.Dock/DockHost.xaml.cs` 의 ctor `_dockLayout.ItemIsVisibleChanged += OnItemIsVisibleChanged` 시점에 layout 초기 평가로 인한 false-IsVisible raise 가 외부 (SSOT) 로 누설되는지 1회 spike. 누설 시 hook 시점을 `Loaded` event 또는 `RegisterAnchor` 첫 호출 직후로 지연 + 박제.
+   - 누설 검증 방법: PR-D4 가 적용된 상태에서 Promaker 본체 dev 모드로 실행 후 `AnchorVisibilityChanged` 의 첫 raise list (contentId / isVisible) 와 SSOT VM property 의 초기 값 비교. 또는 `OnItemIsVisibleChanged` 안에 console log 임시 삽입 후 raise sequence 관찰.
 
-2. **MainWindow.xaml — AvalonDock 통째 제거 + DockHost embed**:
-   - `Apps/Promaker/Promaker/Windows/MainWindow/MainWindow.xaml` 안의 AvalonDock `<xcad:DockingManager>` 트리 통째 제거.
-   - 신규 xmlns: `xmlns:promakerDock="clr-namespace:Promaker.Dock;assembly=Promaker.Dock"`.
-   - `<promakerDock:DockHost x:Name="dockHost" />` 1줄 embed (위치는 기존 DockingManager 자리).
-   - 기존 5 anchor 의 Content UserControl (ExplorerPane / SimulationPanel / PropertyPanel / HistoryPanel / LlmChatPanel) 은 XAML 에서 직접 instantiate 하지 말고 PR-D4 step 3 에서 code-behind 로 `DockAnchor` wrapping + `RegisterAnchor` 호출.
+2. **MainViewModel.LlmChat.cs SSOT wiring**:
+   - `IsLlmChatVisible` PropertyChanged → `dockHost.SetAnchorVisible("llmchat", value)` 호출.
+   - DockHost 의 `AnchorVisibilityChanged` event → MainWindow.xaml.cs 에서 hook → `contentId == "llmchat"` 시 `_vm.IsLlmChatVisible = isVisible` (단방향, `_suppressLlmChatSync` guard 로 loop 차단).
+   - LlmChat baseline 박제 (§3 PR-D5) 의 consent 거부 시 동일 값 PropertyChanged raise / `LlmChatVm` lazy 생성 / `ToggleLlmChat` 동작 모두 보존.
 
-3. **MainWindow.xaml.cs — RegisterAnchor / RegisterDocument 호출**:
-   - 5 anchor 등록: `dockHost.RegisterAnchor(new DockAnchor("explorer", "Explorer", new ExplorerPane(...), DockAnchorPosition.Left));` 형태로 5건.
-   - 2 document 등록: Welcome / Canvas (현재 SplitCanvasContainer 또는 동등 wrapping). `HasProject` 토글로 Welcome detach + Canvas attach 정책은 done-dock-layout §3.1 안 A 그대로.
-   - 5 anchor 의 정확한 Content type / ctor 시그니처는 기존 AvalonDock XAML 직접 인스턴스 패턴을 본 step 진입 시 grep 으로 확인 후 박제.
+3. **보기 메뉴 (`MainToolbarEtcContent.xaml`) 재wiring (PR-D4 M4 박제 해소)**:
+   - 5 체크박스 (Explorer/Simulation/Properties/History/Log) 각각 `IsChecked` binding 을 VM 의 `IsExplorerVisible` 등 새 property 5건 + `Command="{Binding ToggleAnchorCommand}" CommandParameter="explorer"` 패턴으로 재wiring. ToggleAnchorCommand → `dockHost.SetAnchorVisible(contentId, !IsAnchorVisible(contentId))`.
+   - 또는 더 간단한 대안: VM 에 IDockManager 주입 + binding 5건 모두 `OneWayToSource` + Command 1건 + 라벨 정합 ("Properties" / "Simulation" / "Log" — done-dock-layout §3.1 안 A SSOT). PR-D5 진입 시 spike 후 결정.
 
-4. **AvalonDock 관련 partial / wiring 제거**:
-   - `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 통째 제거 (PR-D8 의 일부지만 PR-D4 wire-up 완료를 위해 본 step 에서 함께 제거).
-   - `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` 의 AvalonDock 의존 멤버 제거 또는 DX API 로 재작성 (PR-D5 SSOT 재구성 직전 단계 — PR-D5 가 IsLlmChatVisible 재wiring 한다는 사실 인지하고 본 step 에서는 build 통과 minimal 변경만).
-   - **단, PR-D8 의 "rename 마지막 step" 룰 (D8.6 done-dock-layout 보존 rename, D8.7 todo rename) 은 본 PR-D4 에서 손대지 않음.** PackageReference / PackageVersion 의 AvalonDock 제거도 PR-D8 으로 미룸 (transitive 비활성 상태로 두면 본 PR-D4 빌드 시 unused warning 만 발생 — 무시 가능).
+4. **HasProject 토글 Welcome↔Canvas 전환 (PR-D4 M4 잔여)**:
+   - `MainViewModel.HasProject` PropertyChanged → DockHost.SetAnchorVisible 로 `welcome` / `canvas` 토글. 또는 RegisterDocument 시점에 HasProject=false 이면 canvas 초기 Closed=true, true 시 welcome Closed=true 로 swap.
+   - done-dock-layout §3.1 안 A 의 동작 (HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전) 그대로 보존.
 
 5. **빌드 + 자가 검열**:
-   - `dotnet build Apps/Promaker/Promaker/Promaker.csproj` 0 오류 (경고는 AvalonDock unused 만 허용).
-   - 자가 검열 trigger 충족 (MainWindow XAML 통째 교체 / DockHost embed / 5 anchor wiring 신설) → 검열 agent 위임 의무.
-   - 검열 prompt 검증 항목 0번: 사용자 의도 verbatim 인용 + patch ↔ 의도 1:1 매핑.
-   - 통과 시 commit (메시지 박제: `[dock2] Dock layout: PR-D4 — Promaker 본체 wire-up (MainWindow DockingManager → DockHost)`).
+   - `dotnet build Apps/Promaker/Promaker/Promaker.csproj` 0 오류.
+   - 자가 검열 trigger 충족 (LlmChat / View menu / HasProject 3개 SSOT 재wiring) → 검열 agent 위임 의무.
+   - 검열 prompt 검증 항목 0번: 사용자 의도 verbatim 인용 + LlmChat baseline 박제 (§3 PR-D5 의 consent 거부 raise / lazy 생성 / X 버튼 단방향 wiring) 보존 1:1 매핑.
+   - 통과 시 commit (메시지 박제: `[dock2] Dock layout: PR-D5 — SSOT (IsLlmChatVisible) + 보기 메뉴 + HasProject 재wiring`).
 
-#### PR-D4 spike 결과 처리 룰
-- spike (예: `ExplorerPane` 의 ctor 시그니처, `SplitCanvasContainer` 의 binding context, `MainViewModel.Dock.cs` 의 AvalonDock 의존 멤버 목록) 결과가 PR-D4 step 의 가정과 다를 시 § PR-D3 spike 룰과 동일 — (a) 차이 박제 후 자동 진행 / (b) 기능 자체 부재 (e.g. Promaker 본체 빌드 가능성 차단) 만 사용자 알림 + 차단.
+#### PR-D5 spike 결과 처리 룰
+- spike (M1 raise 누설 검증 / 보기 메뉴 binding 패턴 / HasProject 토글 위치) 결과가 본 step 의 가정과 다를 시 PR-D3/D4 spike 룰과 동일 — (a) 차이 박제 후 자동 진행 / (b) 기능 자체 부재 만 차단.
 
 ### 새 세션 시작 시 첫 행동
 1. 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` 전체 read.
-2. 현재 commit 상태 확인 — `git log --oneline -8` 로 PR-D1 ~ PR-D3 (및 본 §9 갱신 commit) 확인.
-3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업 — `cd` / `make run` 시 경로 명시.
-4. PR-D4 의 §3 항목 5건 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~5 순서.
-5. PR-D4 commit 후 본 §9 갱신 (PR-D4 completion 박제 + PR-D5 시작점 명시).
+2. 현재 commit 상태 확인 — `git log --oneline -12` 로 PR-D1 ~ PR-D4 commit + 본 §9 갱신 commit 확인.
+3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업.
+4. PR-D5 의 §3 항목 (5+M1+HasProject 박제) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~5 순서.
+5. PR-D5 commit 후 본 §9 갱신 (PR-D5 completion 박제 + PR-D6 시작점 명시).
 
 ### DX API spike 결과 박제 — PR-D3 완료
 PR-D3 진행 중 24.1.7 의 정확한 API 가 PR-D2 의 가정과 다른 부분 (Closed DP / ItemIsVisibleChanged event / ItemWidth=GridLength / DockController.Float 등) 모두 본 §9 "PR-D3 spike API 박제" 절에 박제 완료. PR-D4 이후 동일 spike 반복 금지 — 본 박제 절을 ground truth 로 사용.
