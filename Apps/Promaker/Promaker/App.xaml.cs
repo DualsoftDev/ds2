@@ -89,6 +89,11 @@ public partial class App : Application
                 // winmm 호출 실패해도 동작은 가능 (정밀도만 보장 안 됨)
             }
         }
+        // PR-D7.3 fix — DX dll 의 동적 로드 (Themes.Office2019Colorful 등) 가 .NET 9 AssemblyLoadContext
+        // strong-named entry 미등록으로 실패하는 것을 회피. 모든 DX type 참조 (MainWindow XAML parsing 포함)
+        // 이전에 1회 등록 필수 → OnStartup 의 가장 이른 시점.
+        Promaker.Dock.DockHost.RegisterAssemblyResolve();
+
         var configFile = new FileInfo("log4net.config");
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
@@ -112,18 +117,26 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Fatal("Unhandled dispatcher exception", args.Exception);
-            MessageBox.Show(
-                $"A fatal UI error occurred and the app will stop.\n\n{args.Exception.Message}",
-                "Fatal Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            // [SPIKE] inner exception chain + stack trace 모두 dialog 에 표시 — log file flush 실패 회피.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("A fatal UI error occurred and the app will stop.").AppendLine();
+            var ex = args.Exception;
+            int depth = 0;
+            while (ex != null)
+            {
+                sb.AppendLine($"[{depth}] {ex.GetType().FullName}: {ex.Message}");
+                if (ex.StackTrace != null) sb.AppendLine(ex.StackTrace);
+                sb.AppendLine();
+                ex = ex.InnerException; depth++;
+            }
+            MessageBox.Show(sb.ToString(), "Fatal Error", MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = false;
         };
 
         ThemeManager.ApplySavedTheme();
 
         // PR-D7.3 — DX skin 정합. Promaker.Dock 의 격리 helper 1줄 호출 (DX type 외부 노출 0건 유지, §7 #4).
-        // 사용자 1회 시각 검수 (Promaker dark theme 과 DX Office2019Colorful skin 색차) 통과 시 종료.
+        // 사용자 시각 검수 결과 Office2019Colorful (light) 부적합 → Office2019Black (dark) 채택 (PR-D7.3 fix).
         Promaker.Dock.DockHost.InitializeTheme();
 
         // GUI Log tab 의 AppLogState (singleton + ICollectionView) 를 UI thread 에서 강제 prefetch.

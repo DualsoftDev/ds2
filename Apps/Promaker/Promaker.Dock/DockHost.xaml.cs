@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using DevExpress.Xpf.Core;
@@ -31,13 +32,31 @@ public partial class DockHost : UserControl, IDockManager
     /// PR-D7.3 — DX skin 정합. App startup 시점 (Application 인스턴스 생성 직후, MainWindow 생성 전) 1회 호출.
     /// 격리 원칙 (§7 #4): DX type 외부 노출 차단 — Promaker 본체가 DX API 를 직접 호출하지 않도록
     /// 본 정적 helper 가 단일 진입점. 매개변수 없음 — skin 이름은 deploy 된 Themes assembly 와 정합되는
-    /// "Office2019Colorful" 로 하드코딩 (PR-D4 fallback D 의 DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll
-    /// 1종만 deploy). WindowsUI Dark 등 다른 skin 은 별도 Themes assembly 추가 deploy 필요.
-    /// 사용자 1회 시각 검수 (§3 PR-D7.3 박제) 통과 시 종료. 색차 크면 step 분할.
+    /// "Office2019Black" 으로 하드코딩 (PR-D7.3 fix: Promaker dark theme 색차 시각 검수 결과 Office2019Colorful
+    /// (light) 부적합 → Office2019Black 채택. DevExpress.Xpf.Themes.Office2019Black.v24.1.dll 1종만 deploy).
+    /// 다른 dark skin (Office2019DarkGray / VS2019Dark / Win11Dark 등) 은 별도 Themes assembly 추가 deploy 필요.
     /// </summary>
     public static void InitializeTheme()
     {
-        ApplicationThemeHelper.ApplicationThemeName = "Office2019Colorful";
+        ApplicationThemeHelper.ApplicationThemeName = "Office2019Black";
+    }
+
+    /// <summary>
+    /// PR-D7.3 fix — mechanism D (Reference HintPath) 의 NetCore dll 이 .NET 9 AssemblyLoadContext 에
+    /// strong-named entry 로 등록되지 않아 DX 의 동적 Themes assembly load (Themes.Office2019Colorful 등)
+    /// 가 FileNotFoundException 으로 실패. AppDomain.AssemblyResolve hook 으로 bin 폴더의 DevExpress.*.dll
+    /// 을 명시 로드. 본 메서드는 App startup 의 가장 이른 시점 (모든 DX type 참조 이전) 1회 호출 필수.
+    /// 본 메서드 body 에 DX type 참조 0건 — 안전한 정적 helper.
+    /// </summary>
+    public static void RegisterAssemblyResolve()
+    {
+        AppDomain.CurrentDomain.AssemblyResolve += (_, e) =>
+        {
+            var name = new AssemblyName(e.Name).Name;
+            if (name == null || !name.StartsWith("DevExpress.", StringComparison.Ordinal)) return null;
+            var path = Path.Combine(AppContext.BaseDirectory, name + ".dll");
+            return File.Exists(path) ? Assembly.LoadFrom(path) : null;
+        };
     }
 
     public DockHost()
