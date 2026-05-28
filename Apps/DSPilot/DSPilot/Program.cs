@@ -107,11 +107,8 @@ builder.Services.AddHostedService<PlcDatabaseMonitorService>();
 builder.Services.AddSingleton<PlcTagLogWriterService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PlcTagLogWriterService>());
 
-// plcTagLog retention — 30일 이상 된 행 자동 삭제 (디스크 폭증 방지)
-builder.Services.AddHostedService<PlcTagLogRetentionService>();
-
-// dspFlowHistory retention — /flow 페이지 "지난 60일" 추이 보장 + 무한 누적 방지 (FlowHistory:RetentionDays appsettings)
-builder.Services.AddHostedService<DspFlowHistoryRetentionService>();
+// 시계열 데이터 보존 정책: plcTagLog / dspFlowHistory / userTagAlertLog 는 DB 에 영구 보존.
+// 기간 한정은 reader (PlcRepository / DspRepositoryAdapter.GetFlowHistoryByDays / UserTagAlertRepository.BuildFilter) 에서 수행.
 
 // Ds2.Runtime 기반 Engine + RuntimeModeSession + PassiveInferenceSession 통합
 builder.Services.AddSingleton<SimulationEngineService>();
@@ -120,8 +117,8 @@ builder.Services.AddSingleton<SimulationEngineService>();
 builder.Services.AddScoped<IUserTagAlertRepository, UserTagAlertRepository>();
 builder.Services.AddSingleton<UserTagAlertService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertService>());
-// userTagAlertLog 보관 + 일별 집계 (기본 60일, UserTagAlert:RetentionDays appsettings)
-builder.Services.AddHostedService<UserTagAlertRetentionService>();
+// userTagAlertDaily 일별 집계 backfill (purge 없음 — raw 는 영구 보존)
+builder.Services.AddHostedService<UserTagAlertAggregationService>();
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.

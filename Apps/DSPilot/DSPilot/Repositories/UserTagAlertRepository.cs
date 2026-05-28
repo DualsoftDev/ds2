@@ -212,14 +212,6 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         return await conn.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM userTagAlertLog") ?? 0L;
     }
 
-    public async Task<int> PurgeOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        return await conn.ExecuteAsync(
-            "DELETE FROM userTagAlertLog WHERE occurredAt < @Cutoff",
-            new { Cutoff = Iso(cutoffUtc) });
-    }
-
     public async Task<int> RebuildDailyAggregatesAsync(DateTime fromDateUtc, DateTime toDateUtc, CancellationToken ct = default)
     {
         if (toDateUtc < fromDateUtc) return 0;
