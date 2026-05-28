@@ -23,6 +23,9 @@
   <ItemGroup>
     <PackageVersion Include="Anthropic" Version="12.20.0" />
     <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <!-- HKMC H-Chat phase 2 — Azure OpenAI deployment routing 위해 신규 의존성.
+         Apps/Shared/Directory.Packages.props 와 버전 정합 의무 (drift 시 NU1605). -->
+    <PackageVersion Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.25" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.5.2" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.2" />
