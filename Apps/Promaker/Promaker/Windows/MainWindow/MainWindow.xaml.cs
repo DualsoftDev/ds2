@@ -22,8 +22,13 @@ public partial class MainWindow : Window
     private const int DwmwaTextColor = 36;
 
     // PR-D4 — Welcome / Canvas SplitCanvasContainer 인스턴스 핸들. HasProject 토글 기반 visibility 정책 (Welcome ↔ Canvas)
-    // 은 PR-D5 영역. PR-D4 에서는 두 document 모두 등록 + 기본 visibility 는 DX native 처리에 위임.
+    // 은 PR-D5 에서 SyncWelcomeCanvasVisibility 로 처리.
     private SplitCanvasContainer? _workspacePane;
+
+    // PR-D5 — DockHost ↔ VM 양방향 sync 의 재진입 가드.
+    // done-dock-layout.md §2 F3 박제 — visibility 변경이 4회+ 중복 raise 되는 DX 동작에 대한 절대 필수 가드.
+    // 한쪽 방향 처리 중에 다른 방향 raise 가 와도 무시 (loop 차단).
+    private bool _suppressAnchorSync;
 
     public MainWindow()
     {
@@ -42,8 +47,6 @@ public partial class MainWindow : Window
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
-        // PR-D5 위임: 보기 메뉴 (MainToolbarEtcContent.xaml 의 5 체크박스) 의 binding 은 현재 dead path —
-        // PR-D5 가 IDockManager.IsAnchorVisible / SetAnchorVisible 로 재wiring 예정.
         dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,    DockAnchorPosition.Left));
         dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel, DockAnchorPosition.Bottom));
         dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,   DockAnchorPosition.RightTop));
@@ -53,10 +56,100 @@ public partial class MainWindow : Window
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
 
+        // PR-D5 — VM SSOT ↔ DockHost 양방향 wiring.
+        //   VM → DockHost : VM.PropertyChanged 의 IsXxxVisible / IsLlmChatVisible / HasProject 에 반응.
+        //   DockHost → VM : X 버튼 등 DX 자체 visibility 변경 → AnchorVisibilityChanged → VM property set.
+        // 양방향 _suppressAnchorSync 가드로 loop 차단 (F3 박제).
+        _vm.PropertyChanged += Vm_PropertyChanged;
+        dockHost.AnchorVisibilityChanged += DockHost_AnchorVisibilityChanged;
+
+        // 초기 동기화 — HasProject 의 현재 값에 따라 Welcome ↔ Canvas 즉시 설정.
+        // done-dock-layout.md §3.1 안 A: HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전.
+        SyncWelcomeCanvasVisibility();
+
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
         Loaded += MainWindow_Loaded;
         Activated += MainWindow_Activated;
+    }
+
+    /// <summary>
+    /// VM property → DockHost 호출 (SSOT → View).
+    /// IsLlmChatVisible: baseline 박제 보존 (ToggleLlmChat 의 consent 거부 / lazy 생성 그대로) — 본 핸들러는
+    /// 단순히 변경된 값을 DockHost 에 통보. 4 anchor visibility 도 동일 패턴.
+    /// HasProject: Welcome ↔ Canvas swap.
+    /// </summary>
+    private void Vm_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_suppressAnchorSync) return;
+
+        switch (e.PropertyName)
+        {
+            case nameof(MainViewModel.IsLlmChatVisible):
+                ApplyAnchorVisible("llmchat", _vm.IsLlmChatVisible);
+                break;
+            case nameof(MainViewModel.IsExplorerVisible):
+                ApplyAnchorVisible("explorer", _vm.IsExplorerVisible);
+                break;
+            case nameof(MainViewModel.IsSimulationVisible):
+                ApplyAnchorVisible("simulation", _vm.IsSimulationVisible);
+                break;
+            case nameof(MainViewModel.IsPropertiesVisible):
+                ApplyAnchorVisible("properties", _vm.IsPropertiesVisible);
+                break;
+            case nameof(MainViewModel.IsHistoryVisible):
+                ApplyAnchorVisible("history", _vm.IsHistoryVisible);
+                break;
+            case nameof(MainViewModel.HasProject):
+                SyncWelcomeCanvasVisibility();
+                break;
+        }
+    }
+
+    private void ApplyAnchorVisible(string contentId, bool visible)
+    {
+        _suppressAnchorSync = true;
+        try { dockHost.SetAnchorVisible(contentId, visible); }
+        finally { _suppressAnchorSync = false; }
+    }
+
+    /// <summary>
+    /// DockHost → VM 단방향 sync (X 버튼 등 DX 자체 visibility 변경 → SSOT 갱신).
+    /// _suppressAnchorSync 로 VM → DockHost 진행 중인 raise 는 무시.
+    /// </summary>
+    private void DockHost_AnchorVisibilityChanged(object? sender, Promaker.Dock.DockAnchorVisibilityChangedEventArgs e)
+    {
+        if (_suppressAnchorSync) return;
+        _suppressAnchorSync = true;
+        try
+        {
+            switch (e.ContentId)
+            {
+                case "llmchat":    _vm.IsLlmChatVisible    = e.IsVisible; break;
+                case "explorer":   _vm.IsExplorerVisible   = e.IsVisible; break;
+                case "simulation": _vm.IsSimulationVisible = e.IsVisible; break;
+                case "properties": _vm.IsPropertiesVisible = e.IsVisible; break;
+                case "history":    _vm.IsHistoryVisible    = e.IsVisible; break;
+                // welcome / canvas 는 HasProject SSOT 가 SyncWelcomeCanvasVisibility 로 일방 관리 — 무시.
+            }
+        }
+        finally { _suppressAnchorSync = false; }
+    }
+
+    /// <summary>
+    /// HasProject SSOT → welcome / canvas document 가시성.
+    /// done-dock-layout.md §3.1 안 A: false → Welcome 보임 / Canvas 숨김, true → 역전.
+    /// </summary>
+    private void SyncWelcomeCanvasVisibility()
+    {
+        _suppressAnchorSync = true;
+        try
+        {
+            var hasProject = _vm.HasProject;
+            dockHost.SetAnchorVisible("welcome", !hasProject);
+            dockHost.SetAnchorVisible("canvas", hasProject);
+        }
+        finally { _suppressAnchorSync = false; }
     }
 
     // 외부 에디터 등으로 파일이 변경된 경우 포커스 복귀 시 사용자 confirm → reload.

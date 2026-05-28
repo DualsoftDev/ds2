@@ -63,9 +63,12 @@
                     </Border>
                 </Popup>
             </Grid>
-            <!-- B-1 (`Apps/Promaker/Docs/todo-dock-layout.md` §3.1 Q2) — 닫힌 anchor 복원 UI. 4 anchor 의 IsVisible 양방향 토글.
-                 닫힌 항목도 자연스럽게 unchecked 로 표시되어 ▼ 드롭다운 + 보기 메뉴 분리 안 대신 단일 popup 통합.
-                 LlmChat 은 IsLlmChatVisible SSOT 별도 + 별도 LLM toolbar 버튼 이미 존재 → 본 메뉴 제외. -->
+            <!-- PR-D5 — 보기 메뉴 IDockManager 재wiring.
+                 4 체크박스 (Explorer/Properties/History/Simulation) 가 VM 의 IsXxxVisible TwoWay binding.
+                 MainWindow.xaml.cs 의 Vm_PropertyChanged 가 dockHost.SetAnchorVisible 호출 + DockHost 의
+                 AnchorVisibilityChanged 가 VM property 역방향 set (양방향 _suppressAnchorSync 가드).
+                 Log 는 SimulationPanel TabControl 마지막 tab 으로 통합 — 별도 anchor 없음, 본 메뉴 제외.
+                 LlmChat 은 별도 SSOT (IsLlmChatVisible, baseline 박제). -->
             <Grid>
                 <ToggleButton x:Name="ViewMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="패널 보기">
                     <StackPanel Orientation="Vertical">
@@ -86,18 +89,16 @@
                             MinWidth="200">
                         <StackPanel>
                             <TextBlock Text="패널 보기/숨김" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,6" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <CheckBox Content="Explorer"   IsChecked="{Binding ExplorerAnchor.IsVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
-                            <CheckBox Content="Properties" IsChecked="{Binding PropertyAnchor.IsVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
-                            <CheckBox Content="History"    IsChecked="{Binding HistoryAnchor.IsVisible,    Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
-                            <CheckBox Content="Simulation" IsChecked="{Binding SimulationAnchor.IsVisible, Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="Explorer"   IsChecked="{Binding IsExplorerVisible,   Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="Properties" IsChecked="{Binding IsPropertiesVisible, Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="History"    IsChecked="{Binding IsHistoryVisible,    Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
+                            <CheckBox Content="Simulation" IsChecked="{Binding IsSimulationVisible, Mode=TwoWay}" IsEnabled="{Binding HasProject}" Margin="8,4"/>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="앱 도구" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,6" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <!-- Log — HasProject 와 무관하게 항상 활성. AppLogState singleton 이 앱 전역 log 표시. -->
-                            <CheckBox Content="Log"        IsChecked="{Binding LogAnchor.IsVisible, Mode=TwoWay}" Margin="8,4"/>
                             <!-- LLM Chat — IsLlmChatVisible 이 SSOT, ToggleLlmChatCommand 가 consent 검사 + lazy 생성 +
                                  visible 토글을 수행. IsChecked 를 TwoWay 로 직접 잡으면 setter 가 우회되어 vm null 노출
                                  위험 → IsChecked=OneWay 표시 전용, Click 은 Command 에 위임. toolbar 의 별도 LLM 버튼과
-                                 동일한 진입 경로. -->
+                                 동일한 진입 경로. baseline 박제 (todo §3 PR-D5 § "LlmChat.cs baseline 박제") 보존. -->
                             <CheckBox Content="LLM Chat"
                                       IsChecked="{Binding IsLlmChatVisible, Mode=OneWay}"
                                       Command="{Binding ToggleLlmChatCommand}"

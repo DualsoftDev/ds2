@@ -29,8 +29,20 @@ public partial class DockHost : UserControl, IDockManager
     {
         InitializeComponent();
 
-        // visibility 변경 통보 — DX 의 단일 manager-level event 를 IDockManager event 로 변환.
-        // X 버튼 / Closed DP set / Hide()/Restore() 등 모든 경로에서 raise 됨 (DX native).
+        // PR-D5 — PR-D3 검열 M1 박제 처리: hook 시점을 Loaded 로 지연.
+        // 사유: XAML 의 `_llmChatPanel Closed="True"` 초기 박제 + DX 의 ItemIsVisibleChanged 가
+        // layout 첫 평가 (InitializeComponent 직후 또는 첫 arrange 시점) 에 false-IsVisible raise 를
+        // 일으킬 가능성 있음. ctor 안에서 hook 등록 시 그 초기 raise 가 외부 (SSOT) 로 누설되어
+        // VM 의 IsLlmChatVisible 가 false 로 강제 되거나 무한 loop 진입 위험.
+        // Loaded 는 layout 첫 arrange 완료 시점이므로, 그 안에서 hook 등록하면 초기 raise 는
+        // 모두 hook 이전에 처리되어 외부로 누설되지 않음 (정적 분석 기반 보수적 default).
+        Loaded += DockHost_Loaded;
+    }
+
+    private void DockHost_Loaded(object sender, RoutedEventArgs e)
+    {
+        // 1회만 hook (Loaded 다회 발생 — UserControl 재parent 등 — 시 중복 등록 방지).
+        Loaded -= DockHost_Loaded;
         _dockLayout.ItemIsVisibleChanged += OnItemIsVisibleChanged;
     }
 
