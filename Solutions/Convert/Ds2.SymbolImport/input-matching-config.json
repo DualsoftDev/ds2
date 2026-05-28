@@ -3720,6 +3720,21 @@
       "OutputPattern": "_RET",
       "InputPattern": "_RET?",
       "Description": "숫자 붙는경우 조합"
+    },
+    {
+      "OutputPattern": "TL_",
+      "InputPattern": "TS_",
+      "Description": "LS XGK HMI Touch Lamp(출력 TL_<dev>_<action>, P06xxx) ↔ Touch Switch(입력 TS_<dev>_<action>, P05xxx)"
+    },
+    {
+      "OutputPattern": "TL_*",
+      "InputPattern": "TS_*",
+      "Description": "LS XGK HMI TL/TS wildcard 캡처"
+    },
+    {
+      "OutputPattern": "QX_*_SV",
+      "InputPattern": "IX_*_RS",
+      "Description": "LS XGK QX SV 출력 → IX RS 센서 입력"
     }
   ],
   "ExplicitMappings": [
@@ -3957,136 +3972,6 @@
       "OutputKeyword": "IN_OK",
       "InputKeyword": "WORK_COMPL",
       "Description": "IN_OK → WORK_COMPL (일반)"
-    },
-    {
-      "OutputPattern": "TL_",
-      "InputPattern": "TS_",
-      "Description": "LS XGK HMI Touch Lamp(출력 TL_<dev>_<action>, P06xxx) ↔ Touch Switch(입력 TS_<dev>_<action>, P05xxx) — 같은 action 명으로 600+ 페어"
-    },
-    {
-      "OutputPattern": "TL_*",
-      "InputPattern": "TS_*",
-      "Description": "LS XGK HMI TL/TS wildcard 캡처 — TL_<rest> 의 <rest> 를 TS_<rest> 로 정확 매칭"
-    },
-    {
-      "OutputPattern": "QX_*_SV",
-      "InputPattern": "IX_*_RS",
-      "Description": "LS XGK QX SV 출력 → IX RS 센서 입력 (와일드카드 캡처)"
-    },
-    {
-      "OutputPattern": "_SETBLOCK",
-      "InputPattern": "_STATE",
-      "Description": "[D-공격] LS HSLink _HS<n>_SETBLOCK<idx>(출력) ↔ _HS<n>_STATE<idx>(입력) — 블록 설정 ↔ 상태 (1,536 페어)"
-    },
-    {
-      "OutputPattern": "_RLINK",
-      "InputPattern": "_LTRBL",
-      "Description": "[D-공격] LS HSLink _HS<n>_RLINK<idx>(출력) ↔ _HS<n>_LTRBL<idx>(입력) — 정상 ↔ 비정상 (1,536 페어)"
-    },
-    {
-      "OutputPattern": "_MOD",
-      "InputPattern": "_TRX",
-      "Description": "[D-공격] LS HSLink _HS<n>_MOD<idx>(출력) ↔ _HS<n>_TRX<idx>(입력) — 운전 모드 ↔ 통신 상태 (1,536 페어)"
-    },
-    {
-      "OutputPattern": "_ERR",
-      "InputPattern": "_ENABLE",
-      "Description": "[D-공격] LS HSLink _HS<n>_ERR<idx>(출력) ↔ _HS<n>_ENABLE<idx>(입력) — 에러 ↔ enable (~24 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_STATE0",
-      "InputPattern": "_PID*_STATE1",
-      "Description": "[D-공격] LS PID _PID<n>_STATE0(출력) ↔ _PID<n>_STATE1(입력) — PID 상태 페어 (32 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_STATE2",
-      "InputPattern": "_PID*_STATE3",
-      "Description": "[D-공격] LS PID _PID<n>_STATE2 ↔ _STATE3 (32 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_STATE4",
-      "InputPattern": "_PID*_STATE5",
-      "Description": "[D-공격] LS PID _PID<n>_STATE4 ↔ _STATE5 (32 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_STATE6",
-      "InputPattern": "_PID*_STATE7",
-      "Description": "[D-공격] LS PID _PID<n>_STATE6 ↔ _STATE7 (32 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_ALARM4",
-      "InputPattern": "_PID*_ALARM5",
-      "Description": "[D-공격] LS PID _PID<n>_ALARM4 ↔ _ALARM5 (32 페어)"
-    },
-    {
-      "OutputPattern": "_PID*_ALARM6",
-      "InputPattern": "_PID*_ALARM7",
-      "Description": "[D-공격] LS PID _PID<n>_ALARM6 ↔ _ALARM7 (32 페어)"
-    },
-    {
-      "OutputPattern": "_REQ",
-      "InputPattern": "_ENABLE",
-      "Description": "[D-공격] LS _REQ(요청) ↔ _ENABLE(허용) 페어"
-    },
-    {
-      "OutputPattern": "ORIGINRUN",
-      "InputPattern": "ORIGIN_COMPELETE",
-      "Description": "XGK 원점복귀 출력 → 완료 입력 (오타 COMPELETE 포함)"
-    },
-    {
-      "OutputPattern": "ORIGINRUN",
-      "InputPattern": "ORIGIN_COMPLETE",
-      "Description": "XGK 원점복귀 출력 → 완료 입력"
-    },
-    {
-      "OutputPattern": "ORIGINRUN",
-      "InputPattern": "ORIGINRUN_ENABLE",
-      "Description": "XGK 원점복귀 출력 → 원점복귀 허용 입력"
-    },
-    {
-      "OutputPattern": "ORIGINRUN",
-      "InputPattern": "ORIGIN_CHANGE_FLAG",
-      "Description": "XGK 원점복귀 출력 → 원점 변경 플래그 입력"
-    },
-    {
-      "OutputPattern": "POSIONRUN",
-      "InputPattern": "POSIONRUN_ENABLE",
-      "Description": "XGK 위치이동 출력 → enable 입력"
-    },
-    {
-      "OutputPattern": "POSITIONRUN",
-      "InputPattern": "POSITIONRUN_ENABLE",
-      "Description": "XGK 위치이동 출력 → enable 입력"
-    },
-    {
-      "OutputPattern": "JOGRUN",
-      "InputPattern": "JOGRUN_ENABLE",
-      "Description": "XGK 조그 출력 → enable 입력"
-    },
-    {
-      "OutputPattern": "핑거_넓힘",
-      "InputPattern": "핑거_넓힘_RS",
-      "Description": "삽입밴딩기 핑거 출력 → RS 센서 입력"
-    },
-    {
-      "OutputPattern": "핑거_좁힘",
-      "InputPattern": "핑거_좁힘_RS",
-      "Description": "삽입밴딩기 핑거 출력 → RS 센서 입력"
-    },
-    {
-      "OutputPattern": "반전기_0도",
-      "InputPattern": "반전기_0도RS",
-      "Description": "삽입밴딩기 반전기 출력 → RS 센서 입력"
-    },
-    {
-      "OutputPattern": "반전기_180도",
-      "InputPattern": "반전기_180도RS",
-      "Description": "삽입밴딩기 반전기 출력 → RS 센서 입력"
-    },
-    {
-      "OutputPattern": "몰드유무확인",
-      "InputPattern": "몰드유무_RS",
-      "Description": "삽입밴딩기 몰드 확인 출력 → RS 센서 입력"
     }
   ],
   "FilterExclusions": {
@@ -4505,6 +4390,53 @@
       "S141_SOL_CT_CLP_ADV": "CT_CLP_ADV (Flow S141 제거, SOL 제거)",
       "S141_WRS_CT_CLP_ADVD": "CT_CLP_ADVD (Flow S141 제거, WRS 제거)",
       "S141_Q_RB1_START": "RB1_START (Flow S141 제거, Q 제거)"
+    }
+  },
+  "VendorSettings": {
+    "XGK": {
+      "Description": "XGK P-prefix 주소 범위 — 입력/출력 disambiguation 용",
+      "Slots": [
+        {
+          "Slot": 0,
+          "Module": "XGI-D28A/B (DC 24V 입력, 64점)",
+          "Direction": "Input",
+          "AddressStart": "P00000",
+          "AddressEnd": "P0003F",
+          "Description": ""
+        },
+        {
+          "Slot": 1,
+          "Module": "XGI-D28A/B (DC 24V 입력, 64점)",
+          "Direction": "Input",
+          "AddressStart": "P00040",
+          "AddressEnd": "P0007F",
+          "Description": ""
+        },
+        {
+          "Slot": 2,
+          "Module": "XGQ-TR8A/B (트랜지스터 출력, 64점)",
+          "Direction": "Output",
+          "AddressStart": "P00080",
+          "AddressEnd": "P0011F",
+          "Description": ""
+        },
+        {
+          "Slot": 3,
+          "Module": "XGQ-TR4A/B (트랜지스터 출력, 32점)",
+          "Direction": "Output",
+          "AddressStart": "P00120",
+          "AddressEnd": "P0013F",
+          "Description": ""
+        },
+        {
+          "Slot": 4,
+          "Module": "XGF-M16M (모션, 16축)",
+          "Direction": "Input",
+          "AddressStart": "P00140",
+          "AddressEnd": "P0014F",
+          "Description": ""
+        }
+      ]
     }
   },
   "UserTagRules": {

@@ -132,8 +132,8 @@ module CsvParser =
         let upperAddr = if isNull address then "" else address.ToUpperInvariant().TrimStart([| '%' |])
         match vendor with
         | XG5000 | XGB | XGK ->
-            if startsWithAny [ "QX"; "QW"; "QB"; "QD"; "Q_" ] upperName then SymbolDirection.Output
-            elif startsWithAny [ "IX"; "IW"; "IB"; "ID"; "I_" ] upperName then SymbolDirection.Input
+            if startsWithAny [ "QX"; "QW"; "QB"; "QD"; "Q_"; "TL_" ] upperName then SymbolDirection.Output
+            elif startsWithAny [ "IX"; "IW"; "IB"; "ID"; "I_"; "TS_" ] upperName then SymbolDirection.Input
             elif startsWithAny [ "QX"; "QW"; "QB"; "QD"; "Q" ] upperAddr then SymbolDirection.Output
             elif startsWithAny [ "IX"; "IW"; "IB"; "ID"; "I" ] upperAddr then SymbolDirection.Input
             else
@@ -141,7 +141,10 @@ module CsvParser =
                 match (if vendor = XGK then tryInferXgkPDirection upperAddr else None) with
                 | Some d -> d
                 | None ->
-                    if startsWithAny [ "MX"; "MW"; "MB"; "MD"; "M" ] upperAddr then SymbolDirection.Memory
+                    // 현장 XGK HMI 영역: TL_ / TS_ 이름이 손상되거나 빠져도 P06/P05 범위로 보정.
+                    if vendor = XGK && startsWithAny [ "P06" ] upperAddr then SymbolDirection.Output
+                    elif vendor = XGK && startsWithAny [ "P05" ] upperAddr then SymbolDirection.Input
+                    elif startsWithAny [ "MX"; "MW"; "MB"; "MD"; "M" ] upperAddr then SymbolDirection.Memory
                     else SymbolDirection.UnknownDir
         | _ ->
             if startsWithAny [ "X"; "I" ] upperAddr then SymbolDirection.Input

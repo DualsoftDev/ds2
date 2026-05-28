@@ -87,6 +87,24 @@ Tag,VariableComment,"QX_CV_1_COUNT",P1200,"WORD",,"word skipped"
     Assert.Equal(SymbolDirection.Input, result.Entries.[1].Direction)
 
 [<Fact>]
+let ``XGK CSV parse — P address uses TL TS and slot direction rules`` () =
+    CsvParser.setConfigPath(Path.Combine(AppContext.BaseDirectory, "input-matching-config.json"))
+    let csv = """Remark,CPU Type=XGK-CPUE
+Type,Scope,Variable,Address,DataType,Property,Comment
+Tag,VariableComment,"TL_ASIN_JOGB",P06504,"BIT",,"touch lamp"
+Tag,VariableComment,"TS_ASIN_JOGB",P05504,"BIT",,"touch switch"
+Tag,VariableComment,"NO_PREFIX_INPUT",P00000,"BIT",,"slot input"
+Tag,VariableComment,"NO_PREFIX_OUTPUT",P00120,"BIT",,"slot output"
+"""
+    let result = CsvParser.parse XGK csv
+
+    Assert.Equal(4, result.Entries.Length)
+    Assert.Equal(SymbolDirection.Output, result.Entries.[0].Direction)
+    Assert.Equal(SymbolDirection.Input, result.Entries.[1].Direction)
+    Assert.Equal(SymbolDirection.Input, result.Entries.[2].Direction)
+    Assert.Equal(SymbolDirection.Output, result.Entries.[3].Direction)
+
+[<Fact>]
 let ``XGB variable-description CSV parse — variable type device HMI description`` () =
     let csv = """Name,Type,Device,Use,HMI,Description
 QX_CV_2_RET_SV,BIT,P00105,1,0,CV2 RET output
