@@ -3,11 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:ctrl="clr-namespace:Promaker.Controls"
+             xmlns:logCtrl="clr-namespace:Promaker.Controls.Logging"
              xmlns:b="clr-namespace:Promaker.Behaviors">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- Log tab 은 별도 독립 dock pane (logAnchor / Controls/Logging/AppLogView) 으로 분리됨.
+        <!-- PR-D4: Log tab 은 본 TabControl 의 마지막 tab 으로 통합 (mechanism D + 5 anchor SSOT).
              나머지 시뮬 도메인 탭은 HasProject=true 일 때만 노출. Welcome 모드에서는
              MainWindow.SyncWelcomeCanvasVisibility 가 simulationAnchor 자체를 hide.
              BasedOn: Theme.Controls.Navigation.xaml 의 implicit TabItem style 을 상속해야 외관 회귀 없음. -->
@@ -136,6 +137,9 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+            </TabItem>
+            <TabItem Header="Log">
+                <logCtrl:AppLogView />
             </TabItem>
         </TabControl>
     </Border>
