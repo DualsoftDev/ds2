@@ -48,6 +48,19 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
+            <Button Command="{Binding ImportCsvCommand}"
+                    Padding="16,10" Margin="0,12,0,0"
+                    HorizontalAlignment="Center"
+                    FontSize="13" Cursor="Hand"
+                    Background="Transparent"
+                    Foreground="{DynamicResource AccentBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                <StackPanel Orientation="Horizontal">
+                    <iconPacks:PackIconMaterial Kind="FileImport" Width="16" Height="16" Margin="0,0,6,0"
+                          Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="파일(PLC, CSV)로부터 모델 만들기" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
     </Border>
 </UserControl>
