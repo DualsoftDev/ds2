@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Promaker — LLM Chat 으로 설비 모델링 (1-pager)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafbfc;
+  --ink: #1a1a2e;
+  --ink-soft: #2d2d44;
+  --muted: #64748b;
+  --accent-blue: #3a6b8c;
+  --accent-teal: #5a8da8;
+  --accent-orange: #b07a50;
+  --pastel-blue: #edf2f7;
+  --pastel-orange: #f3ede6;
+  --pastel-gray: #f0f2f4;
+  --border: #e2e8f0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink-soft); }
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 14px 24px 12px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+/* ===== Header ===== */
+header {
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+header .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+header h1 {
+  margin: 3px 0 2px;
+  font-size: 24px;
+  color: var(--ink);
+  font-weight: 700;
+}
+header h1 .accent { color: var(--accent-blue); }
+header .lede {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+header .lede strong { color: var(--accent-teal); font-weight: 500; }
+
+/* ===== Diagram (top, full-width) ===== */
+.diagram {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.diagram .mermaid {
+  font-size: 13px;
+  text-align: center;
+}
+.diagram .mermaid svg { max-height: 340px; }
+
+/* ===== Lower grid: Before/After + Values ===== */
+.lower {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+@media (max-width: 900px) {
+  .lower { grid-template-columns: 1fr; }
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-blue);
+  border-radius: 8px;
+  padding: 11px 14px;
+}
+.card.teal { border-left-color: var(--accent-teal); }
+.card.orange { border-left-color: var(--accent-orange); }
+.card h3 {
+  margin: 0 0 7px;
+  font-size: 13px;
+  color: var(--accent-blue);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.card.teal h3 { color: var(--accent-teal); }
+.card.orange h3 { color: var(--accent-orange); }
+
+/* ===== Before / After ===== */
+.beforeafter {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+.ba-row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.ba-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.ba-label.user { color: var(--accent-blue); }
+.ba-label.out { color: var(--accent-orange); }
+.ba-box {
+  background: var(--pastel-blue);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.ba-box.out { background: var(--pastel-orange); }
+.ba-box ul { margin: 4px 0 0 0; padding-left: 16px; }
+.ba-box li { margin-bottom: 2px; font-size: 12px; }
+.ba-box .kb-cite {
+  display: inline-block;
+  background: white;
+  border: 1px dashed var(--accent-orange);
+  color: var(--accent-orange);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ===== Value bullets ===== */
+.values ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.values li {
+  padding: 5px 0 5px 26px;
+  position: relative;
+  font-size: 12.5px;
+  border-bottom: 1px dashed var(--border);
+}
+.values li:last-child { border-bottom: none; }
+.values li::before {
+  content: attr(data-n);
+  position: absolute;
+  left: 0; top: 5px;
+  width: 20px; height: 20px;
+  background: var(--accent-blue);
+  color: white;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.values li strong { color: var(--ink); }
+.values li .sub { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+/* ===== Footer ===== */
+footer {
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+footer .chip {
+  background: var(--pastel-gray);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+footer .chip strong { color: var(--ink-soft); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Promaker · One-pager</div>
+  <h1>LLM Chat 으로 설비 모델링 — <span class="accent">자연어 + 사내 KB → 실행 가능한 모델</span></h1>
+  <p class="lede">현장에서 쓰는 어휘 그대로 대화하면, <strong>Promaker LLM Agent</strong> 가 사내 공법 <strong>KB</strong> 를 참조해 선언적 모델로 분해하고 Promaker 가 검증·반영합니다.</p>
+</header>
+
+<!-- ===== TOP: Pipeline (full-width, LR) ===== -->
+<div class="diagram">
+  <div class="mermaid">
+flowchart LR
+  USER(["사용자<br/>자연어 대화"])
+
+  DOC["공법 문서 · 도면<br/>(PDF · Word)"]
+  KB(["KB — 사내 공법 지식<br/>색인 + 검색 (BM25 + ANN)"])
+  DOC --> KB
+
+  subgraph PMK["Promaker"]
+    direction TB
+    LLM(["LLM Agent<br/>자연어 → 선언적 YAML"])
+    YAML["선언적 모델 (YAML)<br/>+ 검증 후보 / 미리보기"]
+    APPLY["스키마 검증<br/>+ cascade 자동 구성"]
+    TX["트랜잭션 적용<br/>(원자적 반영)"]
+    LLM --> YAML --> APPLY --> TX
+  end
+
+  GUI(["GUI 캔버스 / 3D<br/>시뮬레이션"])
+  DS["DS 모델<br/>(공통 산출물)"]
+
+  USER -->|"사양 · 의도"| LLM
+  KB <-->|"RAG 인용 ·<br/>키워드 검색"| LLM
+  TX <-->|"양방향 동기화"| GUI
+  TX --> DS
+
+  classDef llm fill:#fff3b0,stroke:#c98a00,color:#1a1a2e,stroke-width:2px;
+  classDef nl  fill:#d6eaff,stroke:#2a6fbf,color:#1a1a2e,stroke-width:2px;
+  classDef store fill:#e8e8e8,stroke:#666,color:#1a1a2e;
+  classDef doc fill:#f3ede6,stroke:#b07a50,color:#5a4030;
+  class LLM llm;
+  class USER,GUI nl;
+  class KB,DS store;
+  class YAML,DOC doc;
+
+  style PMK fill:#f7faff,stroke:#3a6b8c,stroke-width:2.5px;
+  </div>
+</div>
+
+<!-- ===== BOTTOM: Before/After + Values ===== -->
+<div class="lower">
+  <div class="card teal">
+    <h3>자연어 대화 → 자동 발행</h3>
+    <div class="beforeafter">
+      <div class="ba-row">
+        <div class="ba-label user">사용자</div>
+        <div class="ba-box">"지난번 <strong>W-1234 공정</strong>처럼 두 실린더 순차 전진 후 펀치, 다시 순차 후진하도록 모델링해 줘"</div>
+      </div>
+      <div class="ba-row">
+        <div class="ba-label out">자동 발행</div>
+        <div class="ba-box out">
+          <span class="kb-cite">KB: W-1234.pdf §3.2 인용</span>
+          <ul>
+            <li>시스템 <strong>1</strong> (제어기) + 디바이스 <strong>3</strong> (실린더 2 · 펀처 1)</li>
+            <li>작업 <strong>5</strong> + 연결 <strong>4</strong> (순차 · 합류)</li>
+            <li>총 ~<strong>20 항목</strong> 자동 구성 · 미리보기 후 일괄 반영</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card values">
+    <h3>핵심 가치</h3>
+    <ul>
+      <li data-n="1"><strong>도메인 어휘 그대로</strong><span class="sub">Flow / Work / Arrow 같은 모델링 용어를 외울 필요 없음</span></li>
+      <li data-n="2"><strong>사내 공법 KB 자동 인용</strong><span class="sub">KB 가 표준 / 이전 사례를 검색해 모델 근거로 제시</span></li>
+      <li data-n="3"><strong>GUI ↔ Chat 자유 혼용</strong><span class="sub">GUI 변경이 자동으로 LLM 에 동기화되어 양방향 작업</span></li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  <span class="chip"><strong>안전</strong> 3 단계 사용자 동의 (전송 / 비용 / 고권한)</span>
+  <span class="chip"><strong>보안</strong> API 키 OS 보안 저장소 (DPAPI)</span>
+  <span class="chip"><strong>방어</strong> 첨부 prompt injection 차단</span>
+  <span class="chip"><strong>Provider</strong> Claude · OpenAI · Anthropic · Groq · Ollama</span>
+  <span class="chip"><strong>표준</strong> 선언적 YAML — 왕복 보존 · 결정성</span>
+</footer>
+
+<!-- Mermaid -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#edf2f7',
+    primaryTextColor: '#1a1a2e',
+    primaryBorderColor: '#3a6b8c',
+    lineColor: '#3a6b8c',
+    secondaryColor: '#f0f2f4',
+    tertiaryColor: '#f0f2f4',
+    fontFamily: 'Noto Sans KR, sans-serif',
+    fontSize: '13px'
+  },
+  flowchart: { curve: 'basis', padding: 10, htmlLabels: true, nodeSpacing: 30, rankSpacing: 40 }
+});
+</script>
+
+</body>
+</html>
