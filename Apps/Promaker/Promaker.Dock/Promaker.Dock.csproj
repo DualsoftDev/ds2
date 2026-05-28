@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <!--
+      ImplicitUsings disable — DevExpress.Wpf.Docking 의 transitive System.Windows.Forms / System.Drawing 가
+      ImplicitUsings 의 global using 과 충돌해 138 곳 CS0104 (Point/Brush/Rectangle/UserControl/Button/...) 발생.
+      본 격리 csproj 안에서만 명시 using 으로 처리하고, 외부 (Promaker.csproj) 는 PrivateAssets="all" 로 차단.
+    -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Promaker.Dock</RootNamespace>
+    <AssemblyName>Promaker.Dock</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DevExpress.Wpf.Docking" />
+  </ItemGroup>
+
+</Project>
