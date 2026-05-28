@@ -3,11 +3,15 @@ PYTHON ?= $(shell cygpath "$$LOCALAPPDATA")/Programs/Python/Python314/python.exe
 DOCS = paper
 PDFS = $(addsuffix .pdf,$(DOCS))
 
-.PHONY: all clean figures
+.PHONY: all clean figures install
 
 default: $(PDFS)
 
 all: clean figures $(PDFS)
+
+install:
+	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install markdown pygments
 
 figures:
 	$(PYTHON) figures/gen_figures.py

@@ -39,7 +39,8 @@ flowchart TB
         LLA_G --> DS_G
         PRM_GUI --> DS_G
     end
-    LH_SRCH -. "RAG 컨텍스트" .-> LLA_G
+    LH_SRCH -- "RAG 컨텍스트" --> LLA_G
+    LLA_G -- "키워드 검색" --> LH_SRCH
 
     %% ===== BFM =====
     subgraph BFM["BFM"]
@@ -85,8 +86,8 @@ flowchart TB
     class ORA_STATE rt;
 
     %% 점선 edge 만 dash/gap 길이 확장 (실선과 시각적 구분 강화)
-    %% index: 8=RAG 컨텍스트, 12=seed/규칙, 14/15=LH→BFM(예정), 19=LH→Oracle(예정)
-    linkStyle 8,12,14,15,19 stroke-dasharray: 8 8;
+    %% index: 13=seed/규칙, 15/16=LH→BFM(예정), 20=LH→Oracle(예정)
+    linkStyle 13,15,16,20 stroke-dasharray: 8 8;
 ```
 
 ## 범례 (Legend)
