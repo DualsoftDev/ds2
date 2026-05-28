@@ -1,0 +1,8 @@
+# build-installer.bat 가 다운로드하는 외부 바이너리 — 커밋하지 않음
+mediamtx.exe
+mediamtx-service.exe
+*.zip
+# WinSW 가 런타임에 만드는 로그
+*.out.log
+*.err.log
+*.wrapper.log

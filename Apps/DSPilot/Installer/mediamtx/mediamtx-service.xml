@@ -1,0 +1,23 @@
+<!--
+  WinSW 서비스 디스크립터 — MediaMTX(콘솔 앱)를 Windows 서비스로 감싼다.
+  MediaMTX 자체는 SCM 핸드셰이크를 지원하지 않으므로 WinSW 래퍼로 등록한다.
+  %BASE% 는 이 XML/winsw exe 가 위치한 폴더(= {app}\mediamtx).
+-->
+<service>
+  <id>DSPilotMediaMtx</id>
+  <name>DSPilot CCTV MediaMTX</name>
+  <description>DSPilot CCTV - RTSP to WebRTC gateway (MediaMTX)</description>
+  <executable>%BASE%\mediamtx.exe</executable>
+  <arguments>"%BASE%\mediamtx.yml"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <!-- 크래시 시 자동 재시작 (DSPilot 서비스 복구 옵션과 동일 정책) -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+</service>

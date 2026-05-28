@@ -12,6 +12,43 @@ public class AppSettingsModel
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
     public HistoryViewSettings HistoryView { get; set; } = new();
+    public CctvSettings Cctv { get; set; } = new();
+}
+
+/// <summary>
+/// CCTV 설정. RTSP 카메라를 MediaMTX(별도 Windows 서비스) 가 받아 WebRTC 로 재게시하고,
+/// /cctv 페이지가 브라우저에서 WebRTC(WHEP) 로 시청한다.
+/// 카메라 목록이 단일 진실 소스이며, 저장 시 DSPilot 이 MediaMTX 제어 API 로 경로를 동기화한다.
+/// </summary>
+public class CctvSettings
+{
+    /// <summary>MediaMTX 제어 API 주소 (DSPilot → localhost). 카메라 경로 등록/갱신용.</summary>
+    public string MediaMtxApiUrl { get; set; } = "http://localhost:9997";
+
+    /// <summary>
+    /// 브라우저가 WebRTC(WHEP) 로 붙는 MediaMTX 포트. 실제 host 는 브라우저 접속 호스트로
+    /// 클라이언트에서 치환되므로(원격 접속 대비) 포트만 보관한다.
+    /// </summary>
+    public int WebRtcPort { get; set; } = 8889;
+
+    public List<CctvCamera> Cameras { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class CctvCamera
+{
+    /// <summary>MediaMTX 경로명 겸 화면 표시명. 영숫자/하이픈/언더스코어만 (URL path 로 사용).</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>원본 RTSP 주소. 예: rtsp://user:pass@192.168.0.10:554/stream1</summary>
+    public string RtspUrl { get; set; } = "";
+
+    public bool Enabled { get; set; } = true;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>
