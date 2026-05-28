@@ -1053,7 +1053,7 @@ strategy 별 자유도가 허용되는 영역과 강제되는 영역을 명시.
 | **외부 링크 (linked workbook)** | 링크 깨진 reference 는 `#REF!` 또는 cache 값으로 박제. strategy 가 cache 값 우선 |
 | **pivot table / formula calc cache** | openpyxl `data_only=True` 정합. cache 없으면 `None` → `-` 표기 |
 | **xlsx 안 이미지** (예: COVER 로고, 도면) | OoxmlExtractor 가 `xl/media/` 추출. signature 매치 strategy 가 image 무시 / image caption path 로 routing 결정 (예: IoListStrategy 는 무시, 도면 PDF 변환 자료는 caption routing) |
-| **다른 IO List 변형 layout** (3/5-block, 세로) | IoListStrategy false-negative 가능 — `XlsxSignatureClassifier` 의 threshold 가 4-block 기준이라 5-block 라인 매치 못함. **§8.5.7 fallback hierarchy** 의 "거의 매치" 정책으로 일부 흡수 + Phase P3 진입 시 strategy variant 추가 |
+| **다른 IO List 변형 layout** (3/5-block, 세로) | **Phase 1+3 박제 (PR-I8 / `todo-lighthouse-iolist-v2.md`)** — 실 layout 은 `[leading 빈 col] + 5-col block × N + [trailing 빈 col]`: 22-col (N=4, 23 시트) + 27-col (N=5, 14 시트) 모두 `reshapeRowToBlocks` 가 `blockSize=5` + `i=1` 시작으로 자동 흡수. signature `hasFourBlockLayout` 의 threshold 는 22-col (4-block) 기준이지만 27-col (5-block) 도 `cols.Length >= 22` 충족하므로 동일 검출. **8-col WRS 변형** (4 시트, ~846 tag) 은 후속 PR backlog (R5 헤더 다름 → 별 분기 필요). signature 미매치 시 §8.5.7 fallback hierarchy 의 "거의 매치" 정책으로 진단 |
 | **BOM / 부품표 / 시험성적서 / 보전 점검표** | strategy 미정의 → fallback `GenericXlsxStrategy` (OoxmlExtractor 의 raw tab-join). summary 박제 0, 기존 (B) text dump 만 활용 |
 | **xlsx ≥ 100MB** | indexer timeout 위험 — 사전 size cap 5MB 초과 시 warning + 시트 단위 chunking 색인 (다음 PR backlog) |
 
@@ -1106,7 +1106,7 @@ xlsx 가 IoList + WorkOrder 둘 다 매치 가정 시 — 실측상 한 doc 가 
 | IoList | `%IW`/`%QW` 셀 ≥ 50 | 3 (가장 결정적) |
 | IoList | 시트명 zone 코드 (`S\d{3}` 등) ≥ 5 | 2 |
 | IoList | R1 "I/O LIST" 키워드 | 2 |
-| IoList | 4-block 가로 layout | 1 |
+| IoList | **22+ col 가로 layout** (`hasFourBlockLayout` — 데이터 row 의 `cols.Length >= 22` — 22-col 4-block / 27-col 5-block 모두 흡수) | 1 |
 | IoList | DataType 다수 BOOL | 1 |
 | **IoList total** | (최대 9) — **합산 ≥ 6 이면 매치** |  |
 | WorkOrder | Gantt header 4종 매치 (작업내역/시작/시간/누계) | 4 |

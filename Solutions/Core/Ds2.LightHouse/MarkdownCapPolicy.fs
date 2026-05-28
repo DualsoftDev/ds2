@@ -372,7 +372,12 @@ module MarkdownCapPolicy =
     ///     cell 개수 < 3 인 비정상 표는 fallback (일반 `applySampling` 결과 통과).
     ///   - device base token 추출 fail (Tag cell 빈 값 / `_` 부재) row 는 unique key 로 raw Tag 사용.
     ///
-    /// **6-col layout 가정 위반 시 fallback**: alignment cell count < 3 → 일반 `applySampling` 적용.
+    /// **6-col layout 가정 위반 시 동작 박제** (Phase 5 자가 검열 Major-4 정정):
+    ///   - `collectDeviceSampleIndices` 안 `cells.Length < 3` → Tag cell 부재 → `tagCell = ""` 박제.
+    ///   - `reshapeTagToDeviceBase ""` 가 `""` 반환 → `key = ""` → `seen.Add key` 가 skip 되어 device set 빈 집합.
+    ///   - 결과: device-aware 가 효과 0 → head/tail 만 keep 하는 일반 `applySampling` 동등 결과.
+    ///   - 즉 fallback path 는 별도 `applySampling` 호출이 아니라 device set 빈집합 → head/tail 만 동작.
+    ///     안전 fallback (Direction 분포 박제 + Stage 2 cap 흡수 동등).
     let private reshapeTagToDeviceBase (tag: string) : string =
         if String.IsNullOrWhiteSpace tag then ""
         else
@@ -451,6 +456,11 @@ module MarkdownCapPolicy =
             let mutable sectionKept = 0
             let mutable sectionDeviceSet : Set<int> = Set.empty
             let mutable sectionDeviceCount = 0
+            // Phase 5 Major-2 fix — section 진입 시 미리 계산: device sample row 중 head/tail 범위 밖의 row 수.
+            let mutable sectionDeviceOnly = 0
+            // Phase 5 Major-1 fix — section 진입 시 미리 계산: 예상 drop 수 = totalRows - kept.
+            // kept = unique row indices in (head ∪ tail ∪ deviceSet). elide marker row 의 정확 elided 수치 박제.
+            let mutable sectionExpectedDropped = 0
             let mutable sectionIw = 0
             let mutable sectionQw = 0
             let mutable sectionOther = 0
@@ -460,12 +470,13 @@ module MarkdownCapPolicy =
                 if sectionDropped > 0 then
                     let headKept = min headCount sectionTotalRows
                     let tailKept = min tailCount (max 0 (sectionTotalRows - headKept))
-                    // device-only sample = sectionKept - (head + tail) (head/tail overlap 은 device set 와 별 separately count).
-                    let deviceOnly =
-                        max 0 (sectionKept - headKept - tailKept)
+                    // **Phase 5 Major-2 fix** — device-only = head/tail 범위 밖의 device sample row 수.
+                    // 종전: `sectionKept - headKept - tailKept` → head/tail 와 device set 의 overlap
+                    // (e.g. head 의 row 가 device 첫 등장 row 이기도 한 경우) 발생 시 deviceOnly 가 음수
+                    // 또는 부정확. 본 fix: section 진입 시 미리 계산한 정확 값 (`sectionDeviceOnly`) 박제.
                     result.Add (
                         sprintf "<!-- sampled (IoList): %d kept (head %d + tail %d + devices %d of %d unique), %d row(s) elided. directions: IW=%d, QW=%d, other=%d -->"
-                            sectionKept headKept tailKept deviceOnly sectionDeviceCount sectionDropped
+                            sectionKept headKept tailKept sectionDeviceOnly sectionDeviceCount sectionDropped
                             sectionIw sectionQw sectionOther)
                 sectionDropped <- 0
                 sectionKept <- 0
@@ -474,6 +485,8 @@ module MarkdownCapPolicy =
                 sectionCellCount <- 0
                 sectionDeviceSet <- Set.empty
                 sectionDeviceCount <- 0
+                sectionDeviceOnly <- 0
+                sectionExpectedDropped <- 0
                 sectionIw <- 0
                 sectionQw <- 0
                 sectionOther <- 0
@@ -509,6 +522,23 @@ module MarkdownCapPolicy =
                     sectionIw <- iw
                     sectionQw <- qw
                     sectionOther <- other
+                    // **Phase 5 Major-1/2 fix** — keep / drop 사전 계산.
+                    // keepSet = (0 .. headCount-1) ∪ (totalRows-tailCount .. totalRows-1) ∪ deviceSet.
+                    // expectedDropped = totalRows - |keepSet|. deviceOnly = |deviceSet \ head \ tail|.
+                    let headHi = min headCount sectionTotalRows
+                    let tailLo = max headHi (sectionTotalRows - tailCount)
+                    let keepSet = System.Collections.Generic.HashSet<int>()
+                    for k in 0 .. headHi - 1 do keepSet.Add k |> ignore
+                    for k in tailLo .. sectionTotalRows - 1 do keepSet.Add k |> ignore
+                    let mutable deviceOnlyAcc = 0
+                    for idx in sectionDeviceSet do
+                        let inHead = idx < headHi
+                        let inTail = idx >= tailLo
+                        if not inHead && not inTail then
+                            deviceOnlyAcc <- deviceOnlyAcc + 1
+                        keepSet.Add idx |> ignore
+                    sectionDeviceOnly <- deviceOnlyAcc
+                    sectionExpectedDropped <- max 0 (sectionTotalRows - keepSet.Count)
                     result.Add line
                 elif isTableRow line then
                     if inDataSection then
@@ -522,9 +552,9 @@ module MarkdownCapPolicy =
                         else
                             // drop. 첫 drop 발생 위치에 elide marker row 1회 박제.
                             if not elideEmitted then
-                                // elide 박제 시 행 수 = (예상 elided 총수) — Stage 1 보고 결과로 갱신 어렵우니
-                                // 시트 끝에 sample note 박제로 정확 수치 노출. 본 elide marker 는 placeholder.
-                                result.Add (buildElideRow sectionCellCount 0)
+                                // **Phase 5 Major-1 fix** — elide marker row 에 정확한 expected drop 수
+                                // 박제 (종전 placeholder 0). sample note 의 `M elided` 와 일치.
+                                result.Add (buildElideRow sectionCellCount sectionExpectedDropped)
                                 elideEmitted <- true
                             sectionDropped <- sectionDropped + 1
                         sectionDataIdx <- sectionDataIdx + 1
@@ -541,10 +571,9 @@ module MarkdownCapPolicy =
                 i <- i + 1
 
             flushSampleNote ()
-            // elide marker row 의 placeholder `0` 을 실제 drop count 로 교체 (시트별 sample note 의
-            // `M elided` 와 동일 수치). 단순화 — section 별 정확 mapping 은 복잡하므로 marker row 의
-            // `(0 rows elided)` 는 sample note 의 row count 가 SSOT. marker row 는 표 무결성 (cell 개수)
-            // 보존 + 위치 표시 목적만.
+            // **Phase 5 Major-1 fix** — section 진입 시 사전 계산한 `sectionExpectedDropped` 를
+            // elide marker row 박제 시점에 직접 박제 (종전 placeholder `0` → 실제 drop 수).
+            // marker row 와 sample note 의 row count 가 동일 — 표 무결성 + 정확 수치 박제 정합.
             joinLines (result.ToArray()) trailing
 
     // ── Stage 3 — split ───────────────────────────────────────────────

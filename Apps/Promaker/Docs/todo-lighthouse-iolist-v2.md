@@ -73,11 +73,11 @@ git -C /f/Git/ds2/light-house status -uno
 | Phase | 상태 | 작업 | 추정 line | 검열 |
 |---|---|---|---|---|
 | 0. 진단 (root cause 확정) | ✅ 완료 | OoxmlExtractor segment text 실측 + cap policy elide 위치 trace + 8-col/27-col 변형 검증 | 0 (보고만) | — |
-| 1. 22-col 6-col block fix | ⬜ | `reshapeRowToBlocks` blockSize 5→6, offset 보정. Direction 정상 박제 | ~30~40 | 불필요 |
+| 1. 22-col 6-col block fix | ✅ 완료 (`adf4970b`) | `reshapeRowToBlocks` `blockSize=5` + leading 빈 col skip `i=1` 시작 + trailing 빈 col 자동 흡수. Direction 정상 박제 | ~30~40 | 불필요 |
 | 2. 8-col WRS 변형 | ⏭ **사용자 결정 — skip** (후속 PR) | — | — | — |
-| 3. 27-col RB 검증 | ⬜ | Phase 1 의 6-col block 자동 흡수 — `while i + 6 <= 27` 검증 + 마지막 block 처리 보강 | ~5~10 | 불필요 |
-| 4. cap policy 보강 | ⬜ | `MarkdownCapPolicy.applyCap` strategyName 인자 추가 + IoList escalation 분기 (device base token 단위 sampling) | ~100~120 | **필수** (①④⑤) |
-| 5. 통합 test + docs SSOT 갱신 | ⬜ | IoListStrategyTests 신설 + `todo-documents-based-gfm.md` PR-I 번호 + `documents-based-gfm.md` §1056/§8.5.7 보강 | +150~250 | 불필요 |
+| 3. 27-col RB 검증 | ✅ 완료 (Phase 1 흡수) | Phase 1 의 `i=1 + blockSize=5 × N + trailing` 정합 — 27-col (N=5) 자동 흡수. 신규 test 회귀 가드 박제 (Phase 5) | 0 (Phase 1 흡수) | 불필요 |
+| 4. cap policy 보강 | ✅ 완료 (`3c8d99df`) | `MarkdownCapPolicy.applyCapFor strategyName` 인자 추가 + IoList escalation 분기 (`applyIoListSampling` — device base token 단위 sampling + Direction 분포 박제) | ~100~120 | **필수** (①④⑤ — 완료) |
+| 5. 통합 test + docs SSOT 갱신 | ✅ 완료 (본 PR) | XlsxStrategiesTests fixture 22-col 정합 갱신 + IoListStrategyTests 신설 6건 + 검열 Major fix 4건 (elide marker 정확 elidedCnt / `deviceOnly` head-tail overlap / fallback 주석 정정) + `todo-documents-based-gfm.md` §6.1 PR-I8 추가 + `documents-based-gfm.md` §1056/§8.5.7 보강 | ~200~300 | 불필요 (test 추가 + docs 갱신 — code change 적음) |
 | 6. KB 재색인 + LLM quality 검증 | ⬜ (사용자 수동) | `/indexer` 호출 + 사용자 검증 | — | — |
 
 **자동 commit 예산** (사용자 허용 5회): Phase 1 / 3 / 4 / 5 = 4 commit. Phase 6 은 사용자 수동.
@@ -302,4 +302,8 @@ dotnet test /f/Git/ds2/light-house/Solutions/Tests/Ds2.LightHouse.Tests/Ds2.Ligh
 
 | Phase | commit | 작업 | 검열 | 비고 |
 |---|---|---|---|---|
-| — | — | (초기) | — | — |
+| 0 | (보고만) | root cause 진단 — `IoListStrategy.fs:120 reshapeRowToBlocks` blockSize 5 정합 결함 (Critical) + cap policy head/tail elide (Major) 복합 확정 | — | 8-col WRS skip 결정 + 22-col / 27-col 모두 5-col block × N 흡수 가능 박제 |
+| 1 | `adf4970b` | 22-col 6-col block fix — `i=1` 시작 + `blockSize=5` × N + trailing 빈 col 자동 흡수. Direction Input/Output 박제율 0% → 100% 복구 | 불필요 | signature `hasFourBlockLayout` threshold 22 박제 |
+| 3 | (Phase 1 흡수) | 27-col RB 검증 — Phase 1 의 `while i + 5 <= cells.Length` 가 27-col (N=5) 자동 흡수. 신규 test 회귀 가드 박제 (Phase 5) | — | — |
+| 4 | `3c8d99df` | cap policy 보강 — `applyCapFor strategyName` dispatch + IoList 전용 `applyIoListSampling` (device base token 단위 sampling + Direction 분포 박제). default 분기 byte-equal 회귀 가드 박제 | ✅ 완료 (Major 4건 박제 → Phase 5 fix scope) | head 10 + tail 10 + unique device sample row 합집합 keep |
+| 5 | (본 PR) | XlsxStrategiesTests fixture 22-col 정합 갱신 + IoListStrategyTests 신설 6건 + 검열 Major 4건 fix (elide marker 정확 elidedCnt / `deviceOnly` head-tail overlap 흡수 / 6-col fallback 주석 정정 / `reshapeTagToDeviceBase` edge case test 박제) + docs SSOT 갱신 (`todo-documents-based-gfm.md` PR-I8 + `documents-based-gfm.md` §1056/§8.5.7) | 불필요 (test 추가 + docs 갱신 — Phase 4 검열에서 흡수된 Major 4건 fix 완료) | 전체 test 430 / 0 통과 |
