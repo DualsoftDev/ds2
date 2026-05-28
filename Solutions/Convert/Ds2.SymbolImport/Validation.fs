@@ -13,16 +13,25 @@ module Validation =
         Message: string
     }
 
+    let private countUnmatchedByDirection (direction: SymbolDirection) (batch: Mapper.MappingBatch) =
+        batch.Unmatched |> List.filter (fun e -> e.Direction = direction) |> List.length
+
     /// 매핑 batch + 생성 plan 검증.
     let validate (batch: Mapper.MappingBatch) (plans: ModelGenerator.SystemPlan list) : ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
 
         // V-S1: unmatched 심볼이 있으면 Warning.
         if not batch.Unmatched.IsEmpty then
+            let unmatchedOutput = countUnmatchedByDirection SymbolDirection.Output batch
+            let unmatchedInput = countUnmatchedByDirection SymbolDirection.Input batch
+            let unmatchedMemory = countUnmatchedByDirection SymbolDirection.Memory batch
+            let unmatchedUnknown = countUnmatchedByDirection SymbolDirection.UnknownDir batch
             issues.Add {
                 Severity = Warning
                 Code = "V-S1"
-                Message = sprintf "매칭 실패 심볼 %d 건 (segment 부족 등)" batch.Unmatched.Length
+                Message =
+                    sprintf "매칭 실패 심볼 %d 건 (Output %d / Input %d / Memory %d / Unknown %d)"
+                        batch.Unmatched.Length unmatchedOutput unmatchedInput unmatchedMemory unmatchedUnknown
             }
 
         // V-S2: NotMatched strategy 또는 낮은 신뢰도 (< 0.5) — Info.

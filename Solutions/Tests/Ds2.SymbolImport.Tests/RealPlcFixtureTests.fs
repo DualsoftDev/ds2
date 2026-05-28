@@ -154,6 +154,8 @@ let ``XGK CSV sample parse — CP949 / QX output / IX input`` () =
     Assert.True(result.Entries.Length > 100, sprintf "entries=%d" result.Entries.Length)
     Assert.Contains(result.Entries, fun e -> e.Name.StartsWith("QX_") && e.Direction = SymbolDirection.Output)
     Assert.Contains(result.Entries, fun e -> e.Name.StartsWith("IX_") && e.Direction = SymbolDirection.Input)
+    Assert.Contains(result.Entries, fun e -> e.Name.StartsWith("TL_") && e.Direction = SymbolDirection.Output)
+    Assert.Contains(result.Entries, fun e -> e.Name.StartsWith("TS_") && e.Direction = SymbolDirection.Input)
 
 [<Fact>]
 let ``XGB variable-description sample parse — CP949 / QX output / IX input`` () =
@@ -176,3 +178,9 @@ let ``XGK CSV sample full flow — parse map generate creates active Works and b
         |> List.collect (fun p -> p.Flows |> List.collect (fun f -> f.Works))
     Assert.NotEmpty(works)
     Assert.Contains(works, fun w -> w.Calls.Length >= 1 && w.Calls.Length <= 20)
+    let hmiPairs =
+        batch.Mapped
+        |> List.filter (fun m ->
+            (m.OutputEntry |> Option.exists (fun e -> e.Name.StartsWith("TL_")))
+            && (m.InputEntries |> List.exists (fun e -> e.Name.StartsWith("TS_"))))
+    Assert.True(hmiPairs.Length > 100, sprintf "TL/TS HMI 페어가 너무 적음: %d" hmiPairs.Length)
