@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -29,6 +30,12 @@ public partial class MainWindow : Window
     // done-dock-layout.md §2 F3 박제 — visibility 변경이 4회+ 중복 raise 되는 DX 동작에 대한 절대 필수 가드.
     // 한쪽 방향 처리 중에 다른 방향 raise 가 와도 무시 (loop 차단).
     private bool _suppressAnchorSync;
+
+    // PR-D6 — dock layout 영속화 경로. `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
+    // 사용자 의도 verbatim 박제 (todo-dock-devexpress.md §3 PR-D6): "%LOCALAPPDATA%\Promaker\dock-layout.xml".
+    private static readonly string LayoutXmlPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Promaker", "dock-layout.xml");
 
     public MainWindow()
     {
@@ -139,16 +146,13 @@ public partial class MainWindow : Window
     /// <summary>
     /// HasProject SSOT → welcome / canvas document 가시성.
     /// done-dock-layout.md §3.1 안 A: false → Welcome 보임 / Canvas 숨김, true → 역전.
+    /// PR-D6 — 호출자가 이미 _suppressAnchorSync 안일 수도 있어 본문은 guard 없는 단순 적용,
+    /// guard 책임은 호출자 (외부 호출 path 는 SyncWelcomeCanvasVisibility 가 wrapping).
     /// </summary>
     private void SyncWelcomeCanvasVisibility()
     {
         _suppressAnchorSync = true;
-        try
-        {
-            var hasProject = _vm.HasProject;
-            dockHost.SetAnchorVisible("welcome", !hasProject);
-            dockHost.SetAnchorVisible("canvas", hasProject);
-        }
+        try { SyncWelcomeCanvasVisibilityNoGuard(); }
         finally { _suppressAnchorSync = false; }
     }
 
@@ -164,11 +168,65 @@ public partial class MainWindow : Window
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        // PR-D6 — dock layout 복원. WPF event 순서상 자식 (DockHost) Loaded 가 먼저 발화 →
+        // DockHost 의 ItemIsVisibleChanged hook 이 이미 등록된 상태이므로 Restore 시 4 anchor visibility
+        // 변경에 따른 raise 가 외부 (Vm_PropertyChanged) 로 누설될 수 있음.
+        // → `_suppressAnchorSync=true` guard 안에서 Restore 후 5 property 강제 sync 로 raise loop 차단 + 정합 보장.
+        // (PR-D5 검열 Minor 1 박제 해소 — `IsAnchorVisible` API 본 PR 에서 처음 활용.)
+        RestoreDockLayoutAndSyncVm();
+
         if (App.StartupFilePath is { } path)
         {
             App.StartupFilePath = null;
             _vm.OpenFilePath(path);
         }
+    }
+
+    /// <summary>
+    /// PR-D6 — dock layout xml 복원 후 VM 의 anchor visibility property 강제 sync.
+    /// 처리 순서 (todo-dock-devexpress.md §9 PR-D6 step 3 안전 패턴 박제):
+    ///   1. `_suppressAnchorSync=true` set — Restore 가 발화하는 ItemIsVisibleChanged raise loop 차단.
+    ///   2. `dockHost.RestoreLayout(...)` — 파일 없음 / parse 실패 시 default 유지.
+    ///   3. 4 anchor property 강제 sync (`IsAnchorVisible` API 활용 — PR-D5 검열 Minor 1 해소).
+    ///   4. LlmChat 만 별도 처리 — baseline 박제 §5 의 consent 흐름 보존을 위해 Restore 결과 무시 + false 강제.
+    ///      (사용자가 LLM Chat 버튼 click 시 ToggleLlmChat 의 consent 검사를 거쳐 정상 흐름 진입.)
+    ///   5. HasProject SSOT 정합 — Welcome / Canvas 는 Restore 결과 무시 + SyncWelcomeCanvasVisibility 재적용.
+    ///   6. `_suppressAnchorSync=false`.
+    /// </summary>
+    private void RestoreDockLayoutAndSyncVm()
+    {
+        _suppressAnchorSync = true;
+        try
+        {
+            dockHost.RestoreLayout(LayoutXmlPath);
+
+            // 4 anchor — Restore 결과를 VM property 로 강제 sync.
+            _vm.IsExplorerVisible   = dockHost.IsAnchorVisible("explorer");
+            _vm.IsSimulationVisible = dockHost.IsAnchorVisible("simulation");
+            _vm.IsPropertiesVisible = dockHost.IsAnchorVisible("properties");
+            _vm.IsHistoryVisible    = dockHost.IsAnchorVisible("history");
+
+            // LlmChat — baseline 박제 §5 (consent 흐름 + LlmChatVm lazy 생성) 보존 의무 → Restore 결과 무시.
+            // Restore 가 llmchat=Closed=false (visible) 로 복원했더라도 LlmChatVm 은 아직 null 일 수 있고,
+            // consent 검사도 통과 안 됨. 사용자 click 시 ToggleLlmChat 가 정상 흐름 (consent + lazy 생성) 진입.
+            dockHost.SetAnchorVisible("llmchat", false);
+            _vm.IsLlmChatVisible = false;
+
+            // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과를 무시하고 현재 HasProject 로 재적용.
+            SyncWelcomeCanvasVisibilityNoGuard();
+        }
+        finally { _suppressAnchorSync = false; }
+    }
+
+    /// <summary>
+    /// <see cref="SyncWelcomeCanvasVisibility"/> 의 guard 미적용 버전.
+    /// 호출자가 이미 `_suppressAnchorSync=true` 안에 있을 때 사용 (이중 set 회피).
+    /// </summary>
+    private void SyncWelcomeCanvasVisibilityNoGuard()
+    {
+        var hasProject = _vm.HasProject;
+        dockHost.SetAnchorVisible("welcome", !hasProject);
+        dockHost.SetAnchorVisible("canvas", hasProject);
     }
 
     private bool _llmChatDisposed;
@@ -203,6 +261,10 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         _llmChatDisposed = true;
+
+        // PR-D6 — 사용자 의도 verbatim: "`Window_Closing` 의 `_llmChatDisposed=true` 직후 Save".
+        // `%LOCALAPPDATA%\Promaker\dock-layout.xml` 박제. 상위 디렉토리는 DockHost.SaveLayout 안에서 자동 생성.
+        dockHost.SaveLayout(LayoutXmlPath);
 
         await _vm.DisposeLlmChatAsync();
         // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.

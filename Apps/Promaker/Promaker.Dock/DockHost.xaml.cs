@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using DevExpress.Xpf.Docking;
@@ -85,6 +86,32 @@ public partial class DockHost : UserControl, IDockManager
     }
 
     public bool IsAnchorVisible(string contentId) => !FindLayoutItem(contentId).Closed;
+
+    /// <summary>
+    /// PR-D6 — DX <see cref="DockLayoutManager.SaveLayoutToXml(string)"/> wrapping.
+    /// 상위 디렉토리 미존재 시 생성. 호출 측 경로는 <c>%LOCALAPPDATA%\Promaker\dock-layout.xml</c> 박제.
+    /// </summary>
+    public void SaveLayout(string filepath)
+    {
+        if (string.IsNullOrEmpty(filepath)) throw new ArgumentException("filepath is required.", nameof(filepath));
+        var dir = Path.GetDirectoryName(filepath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        _dockLayout.SaveLayoutToXml(filepath);
+    }
+
+    /// <summary>
+    /// PR-D6 — DX <see cref="DockLayoutManager.RestoreLayoutFromXml(string)"/> wrapping.
+    /// 파일 미존재 시 default layout 유지. parse / restore 실패 시에도 default 유지 (외부 환경 예외 — fail-safe).
+    /// CLAUDE.md `## 예외 처리`: "프로그램 동작 중에 외부 환경 등의 어쩔 수 없는 요소에 의해서 예상되는 예외는 log 메시지" —
+    /// Promaker.Dock 에는 log4net 미연결이므로 swallow (호출측에서 default 진행).
+    /// </summary>
+    public void RestoreLayout(string filepath)
+    {
+        if (string.IsNullOrEmpty(filepath)) throw new ArgumentException("filepath is required.", nameof(filepath));
+        if (!File.Exists(filepath)) return;
+        try { _dockLayout.RestoreLayoutFromXml(filepath); }
+        catch { /* 손상된 xml — default layout 유지 */ }
+    }
 
     /// <summary>
     /// DockAnchorPosition → 미리 만든 LayoutPanel 매핑. PR-D2 의 enum 5 anchor 위치 + Document (별도 경로).

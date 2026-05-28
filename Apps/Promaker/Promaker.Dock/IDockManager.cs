@@ -20,6 +20,19 @@ public interface IDockManager
     /// <summary>현재 anchor 의 visible 상태 조회. 보기 메뉴 OneWay binding 등에 활용.</summary>
     bool IsAnchorVisible(string contentId);
 
+    /// <summary>
+    /// 현재 dock layout 을 xml 파일로 저장 (DX <c>DockLayoutManager.SaveLayoutToXml</c> wrapping).
+    /// 경로의 상위 디렉토리가 없으면 생성. 호출 측은 <c>%LOCALAPPDATA%\Promaker\dock-layout.xml</c>
+    /// 같은 user-scope 경로 사용. DX type 외부 노출 차단 — 매개변수는 <c>string filepath</c> 만.
+    /// </summary>
+    void SaveLayout(string filepath);
+
+    /// <summary>
+    /// 저장된 dock layout xml 을 복원 (DX <c>DockLayoutManager.RestoreLayoutFromXml</c> wrapping).
+    /// 파일 미존재 / parse 실패 시 default layout 유지 (XAML 박제 그대로). DX type 외부 노출 차단.
+    /// </summary>
+    void RestoreLayout(string filepath);
+
     /// <summary>사용자가 X 버튼 등으로 anchor 를 hide 하면 발화. VM 의 SSOT 와 단방향 sync 용.</summary>
     event EventHandler<DockAnchorVisibilityChangedEventArgs>? AnchorVisibilityChanged;
 }
