@@ -1,0 +1,788 @@
+@page "/call-test"
+@using System.Globalization
+@using System.Text
+@using DSPilot.Models.Analysis
+@using DSPilot.Repositories
+@using DSPilot.Services
+@inject PlcToCallMapperService CallMapper
+@inject IPlcRepository PlcRepository
+@inject CycleAnalysisService CycleAnalysis
+@inject IFlowMetricsService FlowMetrics
+@inject ILogger<CallTest> Logger
+
+<PageTitle>Call 간트 - DSPilot</PageTitle>
+
+<div class="call-test-page">
+    <div class="call-test-controls">
+        <div class="ct-field">
+            <label>Flow</label>
+            <select class="form-field" @bind="_selectedFlow" @bind:after="OnFlowChangedAsync">
+                <option value="">-- Flow 선택 --</option>
+                @foreach (var flow in _flows)
+                {
+                    <option value="@flow">@flow</option>
+                }
+            </select>
+        </div>
+        <div class="ct-field">
+            <label>시작</label>
+            <input type="datetime-local" class="form-field" @bind="_startTime" @bind:after="OnTimeChangedAsync" />
+        </div>
+        <div class="ct-field">
+            <label>종료</label>
+            <input type="datetime-local" class="form-field" @bind="_endTime" @bind:after="OnTimeChangedAsync" />
+        </div>
+        <div class="ct-presets">
+            <button class="btn btn-sm" @onclick="() => SetRecentMinutesAsync(1)">최근 1분</button>
+            <button class="btn btn-sm" @onclick="() => SetRecentMinutesAsync(5)">최근 5분</button>
+            <button class="btn btn-sm" @onclick="() => SetRecentMinutesAsync(30)">최근 30분</button>
+            <button class="btn btn-sm" @onclick="() => SetRecentHoursAsync(1)">최근 1시간</button>
+            <button class="btn btn-sm" @onclick="() => SetRecentHoursAsync(24)">최근 24시간</button>
+            <button class="btn btn-filled btn-sm" @onclick="LoadAsync" disabled="@(_isLoading || string.IsNullOrEmpty(_selectedFlow))">
+                <span class="material-icons" style="font-size:14px; vertical-align:middle;">refresh</span>
+                새로고침
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-error">
+            <span class="material-icons">error</span>
+            @_errorMessage
+        </div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="ct-loading">
+            <div class="spinner"></div>
+            <p>데이터 로딩 중…</p>
+        </div>
+    }
+    else if (string.IsNullOrEmpty(_selectedFlow))
+    {
+        <div class="ct-empty">
+            <span class="material-icons">play_circle</span>
+            <p>Flow 를 선택하세요.</p>
+        </div>
+    }
+    else if (_callLanes.Count == 0)
+    {
+        <div class="ct-empty">
+            <span class="material-icons">hourglass_disabled</span>
+            <p>선택한 시간 범위에 신호 이벤트가 없습니다.</p>
+            <p class="ct-empty-hint">시간 범위를 늘리거나 프리셋 버튼을 사용해 보세요.</p>
+        </div>
+    }
+    else
+    {
+        <div class="ct-info-bar">
+            <div class="ct-info-item"><span class="ct-info-k">Flow</span><span class="ct-info-v">@_selectedFlow</span></div>
+            <div class="ct-info-item"><span class="ct-info-k">Call 수</span><span class="ct-info-v">@_callLanes.Count</span></div>
+            <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v">@(HeadName ?? "(기본 Head)") · @_cycleBoundaries.Count 회</span></div>
+            <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v">@(TailName ?? "-") · @_tailEdges.Count 회</span></div>
+            @if (_avgCycleMs.HasValue)
+            {
+                <div class="ct-info-item"><span class="ct-info-k">CT 평균 (Head↑→Head↑)</span><span class="ct-info-v">@FormatMs(_avgCycleMs.Value)</span></div>
+            }
+            @if (_avgActiveMs.HasValue)
+            {
+                <div class="ct-info-item"><span class="ct-info-k">활성 평균 (Head↑→Tail↑)</span><span class="ct-info-v">@FormatMs(_avgActiveMs.Value)</span></div>
+            }
+            <div class="ct-info-item">
+                <span class="ct-info-k">Zoom</span>
+                <input type="range" min="0.5" max="3.0" step="0.1" @bind="_zoom" @bind:event="oninput" class="ct-zoom" />
+                <span class="ct-zoom-val">@_zoom.ToString("F1", CultureInfo.InvariantCulture)x</span>
+            </div>
+            <button class="btn btn-sm btn-outlined" @onclick="RestoreProjectHeadTailAsync"
+                    title="AASX 프로젝트에 정의된 Head/Tail 로 되돌립니다" style="margin-left:auto;">
+                기본값 복원
+            </button>
+            <button class="btn btn-sm btn-outlined" @onclick="ClearHeadTailAsync" disabled="@(_headCallId is null && _tailCallId is null)">
+                H/T 해제
+            </button>
+        </div>
+
+        <div class="ct-gantt-layout">
+            <div class="ct-lane-sidebar">
+                <div class="ct-sidebar-header" style="height:@(TopMargin)px;">Call</div>
+                @foreach (var lane in _callLanes)
+                {
+                    var isHead = _headCallId == lane.CallId;
+                    var isTail = _tailCallId == lane.CallId;
+                    var rowCls = isHead ? "ct-lane-row is-head" : isTail ? "ct-lane-row is-tail" : "ct-lane-row";
+                    <div class="@rowCls" style="height:@(LaneHeight)px;">
+                        <div class="ct-lane-name-block">
+                            <div class="ct-lane-name">
+                                @lane.CallName
+                                @if (isHead)
+                                {
+                                    <span class="ct-badge head">HEAD</span>
+                                }
+                                @if (isTail)
+                                {
+                                    <span class="ct-badge tail">TAIL</span>
+                                }
+                            </div>
+                            <div class="ct-lane-work">@lane.WorkName</div>
+                        </div>
+                        <div class="ct-lane-tags">
+                            <button class="ct-tag-btn head @(isHead ? "active" : "")"
+                                    @onclick="() => ToggleHeadAsync(lane.CallId)"
+                                    disabled="@_overlayBusy"
+                                    title="Head 로 지정: 이 Call 의 InTag↑ 가 사이클 경계가 됩니다">H</button>
+                            <button class="ct-tag-btn tail @(isTail ? "active" : "")"
+                                    @onclick="() => ToggleTailAsync(lane.CallId)"
+                                    disabled="@_overlayBusy"
+                                    title="Tail 로 지정: 이 Call 의 OutTag↑ 가 사이클 종료 마커가 됩니다">T</button>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="ct-gantt-chart-area">
+                <div class="ct-gantt-wrapper" style="transform: scale(@_zoom.ToString("F2", CultureInfo.InvariantCulture)); transform-origin: top left;">
+                    @_svgMarkup
+                </div>
+            </div>
+        </div>
+
+        <div class="ct-legend">
+            <span><i class="ct-sw ct-sw-going"></i> 실행 (InTag ∪ OutTag ON 합집합)</span>
+            <span><i class="ct-sw ct-sw-head"></i> Head 마크 lane</span>
+            <span><i class="ct-sw ct-sw-tail"></i> Tail 마크 lane</span>
+            <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head↑)</span>
+            @if (_tailCallId.HasValue)
+            {
+                <span><i class="ct-sw ct-sw-active-band"></i> 활성 (Head↑→Tail↑)</span>
+                <span><i class="ct-sw ct-sw-idle-band"></i> 유휴 (Tail↑→다음 Head↑)</span>
+            }
+            else
+            {
+                <span><i class="ct-sw ct-sw-band-a"></i> 사이클 칸 (홀수)</span>
+                <span><i class="ct-sw ct-sw-band-b"></i> 사이클 칸 (짝수)</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private sealed record CallLane(Guid CallId, string CallName, string WorkName, int LaneIndex, List<(DateTime Start, DateTime End)> Intervals);
+
+    private List<string> _flows = new();
+    private string _selectedFlow = "";
+
+    private DateTime _startTime = DateTime.Now.AddMinutes(-5);
+    private DateTime _endTime = DateTime.Now;
+
+    private bool _isLoading;
+    private bool _overlayBusy;
+    private string? _errorMessage;
+
+    private List<CallLane> _callLanes = new();
+    private Dictionary<Guid, (string? InTag, string? OutTag)> _callTags = new();
+
+    private List<DateTime> _cycleBoundaries = new();
+    private List<DateTime> _tailEdges = new();
+    private DateTime _chartStart;
+    private DateTime _chartEnd;
+    private int _totalIntervals;
+    private double _zoom = 1.0;
+
+    private Guid? _headCallId;
+    private Guid? _tailCallId;
+
+    // 사용자가 H/T 를 명시적으로 토글/해제한 적이 있는지.
+    // true 면 LoadAsync (시간범위 변경 등) 가 프로젝트 정의값으로 덮어쓰지 않음.
+    private bool _userOverrodeHeadTail;
+
+    private double? _avgCycleMs;
+    private double? _avgActiveMs;
+
+    private MarkupString _svgMarkup;
+
+    private const int TopMargin = 50;
+    private const int LaneHeight = 32;
+    private const int BarHeight = 16;
+    private const int PlotWidth = 1800;
+    private const int LeftPad = 12;
+    private const int RightPad = 40;
+    private const int BottomPad = 56;
+    // 사이클 # / CT 라벨이 lane 아래에 들어가도록 BottomPad 확장.
+
+    private string? HeadName => _headCallId is Guid h ? _callLanes.FirstOrDefault(l => l.CallId == h)?.CallName : null;
+    private string? TailName => _tailCallId is Guid t ? _callLanes.FirstOrDefault(l => l.CallId == t)?.CallName : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _flows = CallMapper.GetAllCallTagPairs()
+                .Select(p => p.FlowName)
+                .Where(f => !string.IsNullOrEmpty(f))
+                .Distinct()
+                .OrderBy(f => f)
+                .ToList();
+            if (_flows.Count > 0) _selectedFlow = _flows[0];
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Flow 목록 로딩 실패: {ex.Message}";
+            Logger.LogWarning(ex, "[CallTest] flow list load failed");
+        }
+
+        try
+        {
+            var latest = await PlcRepository.GetLatestLogDateTimeAsync();
+            if (latest.HasValue)
+            {
+                _endTime = latest.Value;
+                _startTime = latest.Value.AddMinutes(-5);
+            }
+        }
+        catch { }
+
+        if (!string.IsNullOrEmpty(_selectedFlow))
+            await LoadAsync();
+    }
+
+    private Task OnFlowChangedAsync()
+    {
+        _callLanes.Clear();
+        _callTags.Clear();
+        _headCallId = null;
+        _tailCallId = null;
+        _tailEdges.Clear();
+        _avgCycleMs = null;
+        _avgActiveMs = null;
+        _svgMarkup = default;
+        // 새 Flow 진입 — 다시 프로젝트 정의 H/T 가 자동 적용되도록 override 플래그 리셋.
+        _userOverrodeHeadTail = false;
+        return string.IsNullOrEmpty(_selectedFlow) ? Task.CompletedTask : LoadAsync();
+    }
+
+    private Task OnTimeChangedAsync()
+        => string.IsNullOrEmpty(_selectedFlow) ? Task.CompletedTask : LoadAsync();
+
+    private async Task SetRecentMinutesAsync(int minutes)
+    {
+        _endTime = await GetEffectiveLatestAsync();
+        _startTime = _endTime.AddMinutes(-minutes);
+        if (!string.IsNullOrEmpty(_selectedFlow)) await LoadAsync();
+    }
+
+    private async Task SetRecentHoursAsync(int hours)
+    {
+        _endTime = await GetEffectiveLatestAsync();
+        _startTime = _endTime.AddHours(-hours);
+        if (!string.IsNullOrEmpty(_selectedFlow)) await LoadAsync();
+    }
+
+    private async Task<DateTime> GetEffectiveLatestAsync()
+    {
+        try
+        {
+            var latest = await PlcRepository.GetLatestLogDateTimeAsync();
+            if (latest.HasValue) return latest.Value;
+        }
+        catch { }
+        return DateTime.Now;
+    }
+
+    private async Task ToggleHeadAsync(Guid callId)
+    {
+        _headCallId = _headCallId == callId ? null : callId;
+        if (_headCallId == _tailCallId) _tailCallId = null;
+        _userOverrodeHeadTail = true;
+        await ResolveOverlaysAsync();
+    }
+
+    private async Task ToggleTailAsync(Guid callId)
+    {
+        _tailCallId = _tailCallId == callId ? null : callId;
+        if (_headCallId == _tailCallId) _headCallId = null;
+        _userOverrodeHeadTail = true;
+        await ResolveOverlaysAsync();
+    }
+
+    private async Task ClearHeadTailAsync()
+    {
+        _headCallId = null;
+        _tailCallId = null;
+        _userOverrodeHeadTail = true;
+        await ResolveOverlaysAsync();
+    }
+
+    private async Task RestoreProjectHeadTailAsync()
+    {
+        _userOverrodeHeadTail = false;
+        ApplyProjectHeadTail();
+        await ResolveOverlaysAsync();
+    }
+
+    /// <summary>
+    /// 프로젝트 (AASX) 정의 Head/Tail 을 lane 매칭해서 H/T 로 적용.
+    /// _callLanes 가 빌드된 다음 호출되어야 함.
+    /// </summary>
+    private void ApplyProjectHeadTail()
+    {
+        if (string.IsNullOrEmpty(_selectedFlow)) return;
+        try
+        {
+            var (headName, tailName) = FlowMetrics.GetAasxCycleBoundaries(_selectedFlow);
+            _headCallId = !string.IsNullOrEmpty(headName)
+                ? _callLanes.FirstOrDefault(l => string.Equals(l.CallName, headName, StringComparison.OrdinalIgnoreCase))?.CallId
+                : null;
+            _tailCallId = !string.IsNullOrEmpty(tailName)
+                ? _callLanes.FirstOrDefault(l => string.Equals(l.CallName, tailName, StringComparison.OrdinalIgnoreCase))?.CallId
+                : null;
+            if (_headCallId == _tailCallId) _tailCallId = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[CallTest] failed to apply project head/tail for flow '{Flow}'", _selectedFlow);
+        }
+    }
+
+    /// <summary>
+    /// H/T 토글에 반응해 *오버레이만* 갱신: 사이클 경계 source 와 Tail 마커 edge 를 다시 가져온다.
+    /// 메인 segment 데이터(_callLanes) 는 재사용 — 시간범위/Flow 가 바뀌지 않으면 다시 읽을 필요 없음.
+    /// </summary>
+    private async Task ResolveOverlaysAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedFlow)) return;
+
+        _overlayBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            // Head 경계
+            Task<List<DateTime>> headTask;
+            if (_headCallId is Guid hId
+                && _callTags.TryGetValue(hId, out var hTags)
+                && !string.IsNullOrWhiteSpace(hTags.InTag))
+            {
+                headTask = PlcRepository.FindRisingEdgesAsync(hTags.InTag!, _startTime, _endTime);
+            }
+            else
+            {
+                // 사용자 미지정 시 프로젝트 정의 Head 사용 (기본 동작)
+                headTask = CycleAnalysis.GetCycleBoundaryTimesAsync(_selectedFlow, _startTime, _endTime);
+            }
+
+            // Tail 마커
+            Task<List<DateTime>> tailTask;
+            if (_tailCallId is Guid tId
+                && _callTags.TryGetValue(tId, out var tTags)
+                && !string.IsNullOrWhiteSpace(tTags.OutTag))
+            {
+                tailTask = PlcRepository.FindRisingEdgesAsync(tTags.OutTag!, _startTime, _endTime);
+            }
+            else
+            {
+                tailTask = Task.FromResult(new List<DateTime>());
+            }
+
+            await Task.WhenAll(headTask, tailTask);
+
+            _cycleBoundaries = headTask.Result.OrderBy(t => t).ToList();
+            _tailEdges = tailTask.Result.OrderBy(t => t).ToList();
+
+            ComputeCycleStats();
+            _svgMarkup = BuildSvg();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"오버레이 갱신 실패: {ex.Message}";
+            Logger.LogWarning(ex, "[CallTest] resolve overlays failed");
+        }
+        finally
+        {
+            _overlayBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedFlow)) return;
+        if (_endTime <= _startTime)
+        {
+            _errorMessage = "종료 시각은 시작 시각보다 커야 합니다.";
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // segment 데이터는 H/T 와 무관하게 먼저 가져온다.
+            var data = await CycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(_selectedFlow, _startTime, _endTime);
+
+            _chartStart = data.ActualEventStartTime ?? _startTime;
+            _chartEnd = data.ActualEventEndTime ?? _endTime;
+            if (_chartEnd <= _chartStart) _chartEnd = _chartStart.AddSeconds(1);
+
+            _callLanes = data.Items
+                .GroupBy(i => i.Lane)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    var intervals = MergeIntervals(g.Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
+                    return new CallLane(first.CallId, first.CallName, first.WorkName, first.Lane, intervals);
+                })
+                .OrderBy(l => l.LaneIndex)
+                .ToList();
+
+            // CallMapper 로 각 Call 의 (InTag, OutTag) lookup 캐시 — H/T 토글 시 재사용.
+            _callTags = _callLanes
+                .Select(l => (l.CallId, Tags: CallMapper.GetCallTagsByCallId(l.CallId)))
+                .Where(x => x.Tags.HasValue)
+                .ToDictionary(x => x.CallId, x => (x.Tags!.Value.InTag, x.Tags.Value.OutTag));
+
+            _totalIntervals = _callLanes.Sum(l => l.Intervals.Count);
+
+            // 사용자가 한 번도 H/T 를 직접 만지지 않았으면 프로젝트 정의 (AASX) Head/Tail 적용.
+            // 만져본 적이 있으면 그 선택을 유지하고 시간 범위만 갱신.
+            if (!_userOverrodeHeadTail)
+                ApplyProjectHeadTail();
+
+            // 이제 H/T 가 확정됐으니 그 기준으로 boundary/tail edge 조회.
+            var boundaryTask = ResolveHeadBoundaryAsync();
+            var tailTask = ResolveTailEdgesAsync();
+            await Task.WhenAll(boundaryTask, tailTask);
+            _cycleBoundaries = boundaryTask.Result.OrderBy(t => t).ToList();
+            _tailEdges = tailTask.Result.OrderBy(t => t).ToList();
+
+            ComputeCycleStats();
+            _svgMarkup = BuildSvg();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"데이터 로딩 실패: {ex.Message}";
+            Logger.LogWarning(ex, "[CallTest] load failed");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task<List<DateTime>> ResolveHeadBoundaryAsync()
+    {
+        if (_headCallId is Guid hId
+            && _callTags.TryGetValue(hId, out var hTags)
+            && !string.IsNullOrWhiteSpace(hTags.InTag))
+        {
+            return PlcRepository.FindRisingEdgesAsync(hTags.InTag!, _startTime, _endTime);
+        }
+        return CycleAnalysis.GetCycleBoundaryTimesAsync(_selectedFlow, _startTime, _endTime);
+    }
+
+    private Task<List<DateTime>> ResolveTailEdgesAsync()
+    {
+        if (_tailCallId is Guid tId
+            && _callTags.TryGetValue(tId, out var tTags)
+            && !string.IsNullOrWhiteSpace(tTags.OutTag))
+        {
+            return PlcRepository.FindRisingEdgesAsync(tTags.OutTag!, _startTime, _endTime);
+        }
+        return Task.FromResult(new List<DateTime>());
+    }
+
+    /// <summary>
+    /// 사이클 경계 간 CT 평균 + (Head↑ → 사이클 내 첫 Tail↑) 활성구간 평균.
+    /// 같은 Head/Tail 정의로 정량 비교가 가능하도록.
+    /// </summary>
+    private void ComputeCycleStats()
+    {
+        _avgCycleMs = null;
+        _avgActiveMs = null;
+
+        if (_cycleBoundaries.Count >= 2)
+        {
+            var diffs = new List<double>();
+            for (int i = 0; i < _cycleBoundaries.Count - 1; i++)
+                diffs.Add((_cycleBoundaries[i + 1] - _cycleBoundaries[i]).TotalMilliseconds);
+            if (diffs.Count > 0) _avgCycleMs = diffs.Average();
+        }
+
+        if (_tailEdges.Count > 0 && _cycleBoundaries.Count > 0)
+        {
+            var actives = new List<double>();
+            int ti = 0;
+            for (int i = 0; i < _cycleBoundaries.Count; i++)
+            {
+                var cStart = _cycleBoundaries[i];
+                var cEnd = i + 1 < _cycleBoundaries.Count ? _cycleBoundaries[i + 1] : _chartEnd;
+                while (ti < _tailEdges.Count && _tailEdges[ti] <= cStart) ti++;
+                if (ti < _tailEdges.Count && _tailEdges[ti] < cEnd)
+                {
+                    actives.Add((_tailEdges[ti] - cStart).TotalMilliseconds);
+                    ti++;
+                }
+            }
+            if (actives.Count > 0) _avgActiveMs = actives.Average();
+        }
+    }
+
+    private static List<(DateTime Start, DateTime End)> MergeIntervals(List<(DateTime Start, DateTime End)> intervals)
+    {
+        var merged = new List<(DateTime Start, DateTime End)>();
+        if (intervals.Count == 0) return merged;
+
+        intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+        var curS = intervals[0].Start;
+        var curE = intervals[0].End;
+        for (int i = 1; i < intervals.Count; i++)
+        {
+            var (s, e) = intervals[i];
+            if (s <= curE)
+            {
+                if (e > curE) curE = e;
+            }
+            else
+            {
+                if (curE > curS) merged.Add((curS, curE));
+                curS = s;
+                curE = e;
+            }
+        }
+        if (curE > curS) merged.Add((curS, curE));
+        return merged;
+    }
+
+    private MarkupString BuildSvg()
+    {
+        if (_callLanes.Count == 0) return default;
+
+        var inv = CultureInfo.InvariantCulture;
+        var totalMs = Math.Max(1.0, (_chartEnd - _chartStart).TotalMilliseconds);
+        var laneCount = _callLanes.Count;
+        var chartW = LeftPad + PlotWidth + RightPad;
+        var laneAreaTop = TopMargin;
+        var laneAreaBottom = TopMargin + laneCount * LaneHeight;
+        var chartH = laneAreaBottom + BottomPad;
+        var xScale = PlotWidth / totalMs;
+
+        var sb = new StringBuilder(96 * 1024);
+
+        sb.Append("<svg class=\"ct-gantt\" width=\"").Append(chartW)
+          .Append("\" height=\"").Append(chartH)
+          .Append("\" xmlns=\"http://www.w3.org/2000/svg\">");
+        sb.Append("<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>");
+
+        // 1) 사이클 band — Head 경계 사이 vertical 영역을 색으로 분할.
+        //    Tail 지정 시 각 band 는 "활성(Head↑→Tail↑)" + "유휴(Tail↑→다음 Head↑)" 두 부분으로 나뉜다.
+        AppendCycleBands(sb, inv, xScale, laneAreaTop, laneAreaBottom);
+
+        // 2) 시간 축 + 그리드 (band 위에 얹음)
+        AppendTimeAxis(sb, inv, totalMs, xScale, laneCount);
+
+        // 3) lane 행 — 배경 fill 은 band 와 충돌하지 않게 생략하고 hairline 만.
+        for (int i = 0; i < _callLanes.Count; i++)
+        {
+            var lane = _callLanes[i];
+            var laneY = TopMargin + i * LaneHeight;
+            var laneCY = laneY + LaneHeight / 2.0;
+            var isHead = _headCallId == lane.CallId;
+            var isTail = _tailCallId == lane.CallId;
+
+            // Head/Tail lane 만 살짝 강조 (band 보다 흐리게 띄어 표시)
+            if (isHead || isTail)
+            {
+                var stripeFill = isHead ? "#c8e6c9" : "#e1bee7";
+                sb.Append("<rect x=\"0\" y=\"").Append(laneY).Append("\" width=\"").Append(chartW)
+                  .Append("\" height=\"").Append(LaneHeight)
+                  .Append("\" fill=\"").Append(stripeFill).Append("\" opacity=\"0.35\"/>");
+            }
+
+            sb.Append("<line x1=\"0\" y1=\"").Append(laneY + LaneHeight).Append("\" x2=\"").Append(chartW)
+              .Append("\" y2=\"").Append(laneY + LaneHeight).Append("\" stroke=\"#e3e6ea\" stroke-width=\"1\"/>");
+
+            var fill = isHead ? "#4caf50" : isTail ? "#ab47bc" : "#5b9bd5";
+            var stroke = isHead ? "#2e7d32" : isTail ? "#7b1fa2" : "#3478b8";
+
+            foreach (var (s, e) in lane.Intervals)
+            {
+                var x = LeftPad + (s - _chartStart).TotalMilliseconds * xScale;
+                var w = Math.Max(2, (e - s).TotalMilliseconds * xScale);
+                var durMs = (e - s).TotalMilliseconds;
+                var tip = $"{lane.CallName}  {s:HH:mm:ss.fff} ~ {e:HH:mm:ss.fff}  ({FormatMs(durMs)})";
+
+                sb.Append("<g><title>").Append(Esc(tip)).Append("</title>");
+                sb.Append("<rect x=\"").Append(F(x, inv)).Append("\" y=\"").Append(F(laneCY - BarHeight / 2.0, inv))
+                  .Append("\" width=\"").Append(F(w, inv)).Append("\" height=\"").Append(BarHeight)
+                  .Append("\" rx=\"2\" fill=\"").Append(fill).Append("\" stroke=\"").Append(stroke).Append("\" stroke-width=\"0.5\"/>");
+                sb.Append("</g>");
+            }
+        }
+
+        sb.Append("</svg>");
+        return new MarkupString(sb.ToString());
+    }
+
+    /// <summary>
+    /// Head 경계 사이를 한 "사이클 칸" 으로 표시.
+    /// Tail 미지정 → 사이클 전체를 한 색 (홀짝 alternation)
+    /// Tail 지정    → Head↑ → 사이클 내 첫 Tail↑ = 활성(green-tint), Tail↑ → 다음 Head↑ = 유휴(grey-tint)
+    /// 각 band 아래쪽(lane 영역 밖)에 #N · CT (또는 AT/CT) 라벨.
+    /// </summary>
+    private void AppendCycleBands(StringBuilder sb, CultureInfo inv, double xScale, int laneAreaTop, int laneAreaBottom)
+    {
+        if (_cycleBoundaries.Count == 0) return;
+
+        // 인접 경계 쌍으로 사이클 span 구성. 마지막 경계 ~ chartEnd 는 열린 사이클로 추가 (시각화만, 라벨 흐리게).
+        var spans = new List<(DateTime Start, DateTime End, int Number, bool IsOpen)>();
+        for (int i = 0; i < _cycleBoundaries.Count - 1; i++)
+            spans.Add((_cycleBoundaries[i], _cycleBoundaries[i + 1], i + 1, false));
+        if (_cycleBoundaries[^1] < _chartEnd)
+            spans.Add((_cycleBoundaries[^1], _chartEnd, _cycleBoundaries.Count, true));
+
+        int tailIdx = 0;
+        var laneAreaH = laneAreaBottom - laneAreaTop;
+
+        foreach (var span in spans)
+        {
+            var sx = LeftPad + (span.Start - _chartStart).TotalMilliseconds * xScale;
+            var ex = LeftPad + (span.End - _chartStart).TotalMilliseconds * xScale;
+            var bandW = Math.Max(1, ex - sx);
+
+            // 이 band 안의 첫 Tail edge 찾기
+            while (tailIdx < _tailEdges.Count && _tailEdges[tailIdx] <= span.Start) tailIdx++;
+            DateTime? tailIn = null;
+            if (tailIdx < _tailEdges.Count && _tailEdges[tailIdx] < span.End)
+                tailIn = _tailEdges[tailIdx];
+
+            double? tailX = tailIn.HasValue
+                ? LeftPad + (tailIn.Value - _chartStart).TotalMilliseconds * xScale
+                : (double?)null;
+
+            // 칸 fill — Tail 있으면 active/idle 2분할, 없으면 alternation
+            var openOpacity = span.IsOpen ? "0.35" : "0.6";
+            if (tailX.HasValue)
+            {
+                // active = green-tint
+                sb.Append("<rect x=\"").Append(F(sx, inv)).Append("\" y=\"").Append(laneAreaTop)
+                  .Append("\" width=\"").Append(F(tailX.Value - sx, inv)).Append("\" height=\"").Append(laneAreaH)
+                  .Append("\" fill=\"#dcedc8\" opacity=\"").Append(openOpacity).Append("\"/>");
+                // idle = grey-tint
+                sb.Append("<rect x=\"").Append(F(tailX.Value, inv)).Append("\" y=\"").Append(laneAreaTop)
+                  .Append("\" width=\"").Append(F(ex - tailX.Value, inv)).Append("\" height=\"").Append(laneAreaH)
+                  .Append("\" fill=\"#eceff1\" opacity=\"").Append(openOpacity).Append("\"/>");
+            }
+            else
+            {
+                var bandFill = span.Number % 2 == 0 ? "#f0f4f8" : "#fffde7";
+                sb.Append("<rect x=\"").Append(F(sx, inv)).Append("\" y=\"").Append(laneAreaTop)
+                  .Append("\" width=\"").Append(F(bandW, inv)).Append("\" height=\"").Append(laneAreaH)
+                  .Append("\" fill=\"").Append(bandFill).Append("\" opacity=\"").Append(openOpacity).Append("\"/>");
+            }
+
+            // 칸 좌/우 경계선 (Head 경계 강조)
+            sb.Append("<line x1=\"").Append(F(sx, inv)).Append("\" y1=\"").Append(laneAreaTop)
+              .Append("\" x2=\"").Append(F(sx, inv)).Append("\" y2=\"").Append(laneAreaBottom)
+              .Append("\" stroke=\"#ff9800\" stroke-width=\"1.2\" opacity=\"0.85\"/>");
+
+            // Tail 경계 (band 내부 분할선)
+            if (tailX.HasValue)
+            {
+                sb.Append("<line x1=\"").Append(F(tailX.Value, inv)).Append("\" y1=\"").Append(laneAreaTop)
+                  .Append("\" x2=\"").Append(F(tailX.Value, inv)).Append("\" y2=\"").Append(laneAreaBottom)
+                  .Append("\" stroke=\"#ab47bc\" stroke-width=\"1\" stroke-dasharray=\"3 2\" opacity=\"0.8\"/>");
+            }
+
+            // lane 아래 라벨 — band 너비가 충분할 때만 (텍스트 너비 ~ 60px 가정)
+            if (bandW >= 36)
+            {
+                var labelX = sx + bandW / 2;
+                var labelY1 = laneAreaBottom + 16;
+                var labelY2 = laneAreaBottom + 30;
+                var num = span.IsOpen ? $"#{span.Number}*" : $"#{span.Number}";
+                sb.Append("<text x=\"").Append(F(labelX, inv)).Append("\" y=\"").Append(labelY1)
+                  .Append("\" text-anchor=\"middle\" font-size=\"11\" font-weight=\"800\" fill=\"#555\">")
+                  .Append(num).Append("</text>");
+
+                var ctMs = (span.End - span.Start).TotalMilliseconds;
+                var ctLabel = tailIn.HasValue
+                    ? $"AT {FormatMs((tailIn.Value - span.Start).TotalMilliseconds)} · CT {FormatMs(ctMs)}"
+                    : $"CT {FormatMs(ctMs)}";
+                sb.Append("<text x=\"").Append(F(labelX, inv)).Append("\" y=\"").Append(labelY2)
+                  .Append("\" text-anchor=\"middle\" font-size=\"9\" fill=\"#777\" font-family=\"ui-monospace,Consolas,monospace\">")
+                  .Append(Esc(ctLabel)).Append("</text>");
+            }
+        }
+
+        // 마지막 사이클의 오른쪽 경계 (chart 끝 또는 마지막 boundary)
+        var lastEdge = _cycleBoundaries[^1];
+        if (lastEdge >= _chartStart && lastEdge <= _chartEnd)
+        {
+            var lx = LeftPad + (lastEdge - _chartStart).TotalMilliseconds * xScale;
+            sb.Append("<line x1=\"").Append(F(lx, inv)).Append("\" y1=\"").Append(laneAreaTop)
+              .Append("\" x2=\"").Append(F(lx, inv)).Append("\" y2=\"").Append(laneAreaBottom)
+              .Append("\" stroke=\"#ff9800\" stroke-width=\"1.2\" opacity=\"0.85\"/>");
+        }
+    }
+
+    private void AppendTimeAxis(StringBuilder sb, CultureInfo inv, double totalMs, double xScale, int laneCount)
+    {
+        sb.Append("<line x1=\"").Append(LeftPad).Append("\" y1=\"").Append(TopMargin - 6)
+          .Append("\" x2=\"").Append(LeftPad + PlotWidth).Append("\" y2=\"").Append(TopMargin - 6)
+          .Append("\" stroke=\"#888\" stroke-width=\"1\"/>");
+
+        var tickStep = ChooseTickStepMs(totalMs);
+        for (double t = 0; t <= totalMs + 1e-6; t += tickStep)
+        {
+            var x = LeftPad + t * xScale;
+            sb.Append("<line x1=\"").Append(F(x, inv)).Append("\" y1=\"").Append(TopMargin - 6)
+              .Append("\" x2=\"").Append(F(x, inv)).Append("\" y2=\"").Append(TopMargin + laneCount * LaneHeight)
+              .Append("\" stroke=\"#e9ecef\" stroke-width=\"1\" stroke-dasharray=\"2 4\"/>");
+
+            var labelTime = _chartStart.AddMilliseconds(t);
+            sb.Append("<text x=\"").Append(F(x, inv)).Append("\" y=\"").Append(TopMargin - 12)
+              .Append("\" text-anchor=\"middle\" font-size=\"10\" fill=\"#666\" font-family=\"ui-monospace,Consolas,monospace\">")
+              .Append(Esc(labelTime.ToString("HH:mm:ss"))).Append("</text>");
+        }
+    }
+
+    private static double ChooseTickStepMs(double totalMs)
+    {
+        const double targetCount = 10;
+        var rough = totalMs / targetCount;
+        var mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1, rough))));
+        var norm = rough / mag;
+        double mult = norm switch
+        {
+            <= 1 => 1,
+            <= 2 => 2,
+            <= 5 => 5,
+            _ => 10
+        };
+        return Math.Max(1, mult * mag);
+    }
+
+    private static string FormatMs(double ms)
+    {
+        if (ms <= 0) return "0";
+        if (ms < 1000) return ms.ToString("F0", CultureInfo.InvariantCulture) + " ms";
+        if (ms < 60_000) return (ms / 1000.0).ToString("F2", CultureInfo.InvariantCulture) + " s";
+        return (ms / 60_000.0).ToString("F2", CultureInfo.InvariantCulture) + " min";
+    }
+
+    private static string F(double v, CultureInfo inv) => v.ToString("0.##", inv);
+
+    private static string Esc(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
+            .Replace("\"", "&quot;")
+            .Replace("'", "&apos;");
+    }
+}
