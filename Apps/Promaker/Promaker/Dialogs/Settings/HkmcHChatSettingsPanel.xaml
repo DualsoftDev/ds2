@@ -38,20 +38,42 @@
         <!-- Claude Model -->
         <TextBlock Text="Claude Model ID" FontSize="11"
                    Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-        <TextBox x:Name="HkmcClaudeModelBox" Padding="6,4" FontFamily="Consolas" Margin="0,0,0,2"
-                 ToolTip="예: claude-sonnet-4-6 (사용자 입력 필수, default 빈 문자열)"/>
-        <TextBlock Text="예: claude-sonnet-4-6 (사용자 입력 필수)"
+        <Grid Margin="0,0,0,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0" x:Name="HkmcClaudeModelBox" Padding="6,4" FontFamily="Consolas"
+                     ToolTip="H-Chat 의 Claude deployment 이름 — ▾ 버튼으로 후보 선택 또는 직접 입력"/>
+            <Button Grid.Column="1" Content="▾"
+                    Style="{StaticResource DarkButton}"
+                    Padding="10,4" Margin="4,0,0,0"
+                    Click="HkmcClaudeCandidates_Click"
+                    ToolTip="Claude 모델 후보"/>
+        </Grid>
+        <TextBlock Text="H-Chat docs 기준 후보: claude-sonnet-4-6 / claude-sonnet-4-5 / claude-haiku-4-5"
                    FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                    Margin="0,0,0,12" FontStyle="Italic"/>
 
         <!-- OpenAI Model -->
         <TextBlock Text="OpenAI Model ID" FontSize="11"
                    Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-        <TextBox x:Name="HkmcOpenAiModelBox" Padding="6,4" FontFamily="Consolas" Margin="0,0,0,2"
-                 ToolTip="예: gpt-5 (Azure deployment name, 사용자 입력 필수)"/>
-        <TextBlock Text="예: gpt-5 (Azure deployment name, 사용자 입력 필수)"
+        <Grid Margin="0,0,0,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0" x:Name="HkmcOpenAiModelBox" Padding="6,4" FontFamily="Consolas"
+                     ToolTip="H-Chat 의 OpenAI Azure deployment 이름 — ▾ 버튼으로 후보 선택 또는 직접 입력"/>
+            <Button Grid.Column="1" Content="▾"
+                    Style="{StaticResource DarkButton}"
+                    Padding="10,4" Margin="4,0,0,0"
+                    Click="HkmcOpenAiCandidates_Click"
+                    ToolTip="OpenAI 모델 후보"/>
+        </Grid>
+        <TextBlock Text="H-Chat docs 기준 후보: gpt-5.4 / gpt-5.4-mini / gpt-5.2 / gpt-5.1 / gpt-5 / gpt-5-mini / gpt-4.1 / gpt-4.1-mini / gpt-4o"
                    FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                   Margin="0,0,0,12" FontStyle="Italic"/>
+                   Margin="0,0,0,12" FontStyle="Italic" TextWrapping="Wrap"/>
 
         <!-- 안내 -->
         <TextBlock TextWrapping="Wrap"

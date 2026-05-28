@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using Llm.Shared.Api;
 using Promaker.LlmAgent;
 
@@ -44,6 +45,55 @@ public partial class HkmcHChatSettingsPanel : UserControl
     }
 
     private void HkmcClearKey_Click(object sender, RoutedEventArgs e) => HkmcApiKeyBox.Password = "";
+
+    /// <summary>H-Chat docs (Docs4) 의 Claude 모델 목록 — Settings 의 ▾ 후보 dropdown.</summary>
+    private static readonly string[] ClaudeModelCandidates =
+    {
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+    };
+
+    /// <summary>H-Chat docs (Docs4) 의 OpenAI 모델 목록 — Azure deployment 이름. 실 deployment 명은 H-Chat 측 정책에 따라 다를 수 있어 editable.</summary>
+    private static readonly string[] OpenAiModelCandidates =
+    {
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4o",
+    };
+
+    private void HkmcClaudeCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, HkmcClaudeModelBox, ClaudeModelCandidates);
+
+    private void HkmcOpenAiCandidates_Click(object sender, RoutedEventArgs e)
+        => ShowCandidatesMenu(sender, HkmcOpenAiModelBox, OpenAiModelCandidates);
+
+    /// <summary>
+    /// VLM / Anthropic / OpenAI / Ollama 의 ▾ 버튼 패턴과 동일 — TextBox + ContextMenu popup.
+    /// ApplicationSettingsDialog 의 동일 헬퍼와 코드 중복이나 본체 침투 회피 우선 (todo 금지사항).
+    /// </summary>
+    private static void ShowCandidatesMenu(object sender, TextBox target, string[] candidates)
+    {
+        if (sender is not Button btn) return;
+        var menu = new ContextMenu
+        {
+            PlacementTarget = btn,
+            Placement = PlacementMode.Bottom,
+        };
+        foreach (var c in candidates)
+        {
+            var mi = new MenuItem { Header = c };
+            mi.Click += (_, _) => target.Text = c;
+            menu.Items.Add(mi);
+        }
+        menu.IsOpen = true;
+    }
 
     /// <summary>
     /// caller (ApplicationSettingsDialog.Ok_Click → SaveLlmTab 직후) 가 호출. _config 만 mutate — disk Save 는 caller 책임.
