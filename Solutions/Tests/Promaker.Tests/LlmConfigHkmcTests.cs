@@ -52,11 +52,12 @@ public sealed class LlmConfigHkmcTests
     [Fact]
     public void HkmcHChatConfig_Defaults()
     {
-        // 결정 #3 (모델 ID 빈 문자열 default) + 결정 #9 (운영 URL only) 박제.
+        // 결정 #3 정정 (ComboBox + 편집창 도입) — default 가 빈 문자열에서 H-Chat docs 의 latest stable 명시로 변경.
+        // Settings panel 의 ▾ dropdown 첫 항목과 SSOT 정합.
         var cfg = new HkmcHChatConfig();
 
         Assert.Equal("***REDACTED-INTERNAL-URL***", cfg.BaseUrl);
-        Assert.Equal("", cfg.ClaudeModel);
-        Assert.Equal("", cfg.OpenAiModel);
+        Assert.Equal("claude-sonnet-4-6", cfg.ClaudeModel);
+        Assert.Equal("gpt-5.4", cfg.OpenAiModel);
     }
 }

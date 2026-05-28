@@ -14,7 +14,8 @@ public sealed partial class LlmConfig
 }
 
 /// <summary>
-/// H-Chat 게이트웨이 endpoint / 모델 설정. 모델 ID 는 default 빈 문자열 — 사용자 입력 강제.
+/// H-Chat 게이트웨이 endpoint / 모델 설정. 모델 ID default 는 H-Chat docs (Docs4) 의 latest stable —
+/// Settings panel 의 후보 dropdown 첫 항목과 정합. 사용자가 비울 경우는 declined 분기로 안내.
 /// </summary>
 public sealed class HkmcHChatConfig
 {
@@ -22,8 +23,8 @@ public sealed class HkmcHChatConfig
     public string BaseUrl { get; set; } = "***REDACTED-INTERNAL-URL***";
 
     [JsonPropertyName("claudeModel")]
-    public string ClaudeModel { get; set; } = "";
+    public string ClaudeModel { get; set; } = "claude-sonnet-4-6";
 
     [JsonPropertyName("openAiModel")]
-    public string OpenAiModel { get; set; } = "";
+    public string OpenAiModel { get; set; } = "gpt-5.4";
 }
