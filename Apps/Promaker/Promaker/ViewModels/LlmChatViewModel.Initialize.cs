@@ -212,6 +212,8 @@ public partial class LlmChatViewModel
                 LlmProviderKind.OpenAiApi => await CreateOpenAiApiProviderAsync().ConfigureAwait(true),
                 LlmProviderKind.Ollama => await CreateOllamaApiProviderAsync().ConfigureAwait(true),
                 LlmProviderKind.GroqApi => await CreateGroqApiProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.HkmcHChatClaude => await CreateHkmcHChatClaudeProviderAsync().ConfigureAwait(true),
+                LlmProviderKind.HkmcHChatOpenAi => await CreateHkmcHChatOpenAiProviderAsync().ConfigureAwait(true),
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unknown provider"),
             };
 
