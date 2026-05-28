@@ -36,9 +36,7 @@
     <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <!-- AvalonDock (PR-1a) + Metro 테마 (다크 hotfix — 추후 PR-4 자체 ResourceDictionary 머지 시 교체). -->
-    <PackageReference Include="Dirkster.AvalonDock" />
-    <PackageReference Include="Dirkster.AvalonDock.Themes.Metro" />
+    <!-- PR-D8: AvalonDock (Dirkster.AvalonDock / Themes.Metro) PackageReference 제거. DevExpress.Wpf.Docking 으로 swap. -->
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->

@@ -10,7 +10,7 @@ public sealed record DockAnchor(
     DockAnchorPosition DefaultPosition);
 
 /// <summary>
-/// done-dock-layout.md §3.1 의 layout 트리 위치. PR-D3 의 DockLayoutManager 초기 트리 구성 시 사용.
+/// done-dock-avalon.md §3.1 의 layout 트리 위치. PR-D3 의 DockLayoutManager 초기 트리 구성 시 사용.
 /// Promaker 의 5종 anchor + 1 fill (LlmChat) + Document area 매핑:
 /// - <see cref="Left"/>:        Explorer (좌측 column 상단).
 /// - <see cref="Bottom"/>:      Simulation / Log (가운데 column 하단, tab).

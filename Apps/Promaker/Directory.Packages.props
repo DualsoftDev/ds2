@@ -47,14 +47,11 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
-  <!-- AvalonDock — Dock layout (Ms-PL). Themes.Metro = 다크 톤 단일 테마 (Promaker 다크 테마 일치 hotfix).
-       추후 PR-4 진입 시 자체 `Themes/Theme.Controls.Dock.xaml` 로 정확 매핑하면 본 테마 패키지는 제거 가능. -->
+  <!-- DevExpress.Wpf.Docking — PR-D4 spike D mechanism 적용: PackageReference 제거.
+       Promaker.Dock.csproj 에서 직접 <Reference HintPath> 로 binary link (DX 설치 폴더 + NuGet cache).
+       NuGet graph 자체에서 격리 → Promaker 본체 transitive 0건 (todo-dock-devexpress.md §2 PR-D4 D1).
+       PR-D8: AvalonDock (Dirkster.AvalonDock / Dirkster.AvalonDock.Themes.Metro) PackageVersion 제거. -->
   <ItemGroup>
-    <PackageVersion Include="Dirkster.AvalonDock" Version="4.74.1" />
-    <PackageVersion Include="Dirkster.AvalonDock.Themes.Metro" Version="4.74.1" />
-    <!-- DevExpress.Wpf.Docking — PR-D4 spike D mechanism 적용: PackageReference 제거.
-         Promaker.Dock.csproj 에서 직접 <Reference HintPath> 로 binary link (DX 설치 폴더 + NuGet cache).
-         NuGet graph 자체에서 격리 → Promaker 본체 transitive 0건 (todo-dock-devexpress.md §2 PR-D4 D1). -->
   </ItemGroup>
 
   <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->
