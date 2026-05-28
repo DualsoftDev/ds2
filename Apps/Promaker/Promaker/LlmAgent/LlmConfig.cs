@@ -33,7 +33,7 @@ namespace Promaker.LlmAgent;
 /// `LlmApiConfig.cs` (instance, `%APPDATA%\Promaker\llm-api-config.json`) → 본 단일 클래스.
 /// JSON 은 flat 8 필드 (consent 2 + provider 6). 사용자 인지 부하 ↓ + 향후 추가 필드의 위치 결정 회의 X.
 /// </summary>
-public sealed class LlmConfig
+public sealed partial class LlmConfig
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LlmConfig));
     private static readonly object _saveLock = new();
