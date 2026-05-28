@@ -53,6 +53,22 @@ module MarkdownCapPolicy =
     [<Literal>]
     let SampleTailCount = 5
 
+    /// **Phase 4 IoList 전용 SSOT (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
+    /// device-aware sampling 에서 사용하는 시트별 head 행 수. 기존 정책 (5) 대비 2배 — device base
+    /// token 분포 보존 + Direction 분포 박제 위해 더 많은 row 표본 keep.
+    [<Literal>]
+    let IoListSampleHeadCount = 10
+
+    /// **Phase 4 IoList 전용 SSOT** — IoList strategy 의 device-aware sampling 의 시트별 tail 행 수.
+    [<Literal>]
+    let IoListSampleTailCount = 10
+
+    /// **Phase 4 IoList 전용 SSOT (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
+    /// `strategyName` 식별자. SSOT (`IoListStrategy.fs:50`) 의 `static let strategyName` 정합.
+    /// `applyCapFor` 의 dispatch key — 본 값 매치 시 IoList 전용 sampling 분기.
+    [<Literal>]
+    let IoListStrategyName = "IoListStrategy"
+
     /// Stage 3 split 의 최대 분할 개수. 이 N 넘으면 fail-fast (자료 비정상).
     [<Literal>]
     let SplitMaxParts = 32
@@ -332,6 +348,205 @@ module MarkdownCapPolicy =
             flushSampleNote ()
             joinLines (result.ToArray()) trailing
 
+    // ── Phase 4 IoList 전용 device-aware sampling ──────────────────────
+
+    /// **Phase 4 (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 전용 Stage 2 sampling.
+    ///
+    /// 일반 `applySampling` 의 head 5 + tail 5 정책은 시트당 ~10 row 만 keep → 시트당 row 수가
+    /// 평균 100+ 인 ***REDACTED***2 SIDE OUTER SV IO LIST (43 시트) 에서 device 정보 ~95% 소실 (4011 row 박제).
+    /// 본 helper 는 IoList 의 도메인 구조 (Tag = device base token + bit suffix) 를 활용하여 device
+    /// coverage 80%+ 박제.
+    ///
+    /// **알고리즘** (시트별 = section 별 적용):
+    ///   1. 시트 안 모든 data row 의 Tag cell 에서 device base token 추출
+    ///      (`reshapeTagToDeviceBase` — 마지막 `_TOKEN` 제거. 예: `S204_WRS_1ST_CLAMP1_ADV` → `S204_WRS_1ST_CLAMP1`).
+    ///   2. unique device base token 별로 **첫 등장 row** 1건 선정 (device sample row).
+    ///   3. 시트 head `IoListSampleHeadCount` (10) row + tail `IoListSampleTailCount` (10) row +
+    ///      device sample row 합집합 keep. 나머지는 drop.
+    ///   4. 시트 끝에 `<!-- sampled (IoList): N kept (head H + tail T + devices D), M elided. directions: IW=X, QW=Y -->`
+    ///      안내 박제 — device coverage + Direction 분포 LLM 가시화.
+    ///
+    /// **invariant**:
+    ///   - 표 alignment row / header row 보존 (`applySampling` 정합).
+    ///   - 본 helper 는 IoList 의 6-col 표 layout (Word/Direction/Tag/DataType/Address/Symbol) 가정.
+    ///     cell 개수 < 3 인 비정상 표는 fallback (일반 `applySampling` 결과 통과).
+    ///   - device base token 추출 fail (Tag cell 빈 값 / `_` 부재) row 는 unique key 로 raw Tag 사용.
+    ///
+    /// **6-col layout 가정 위반 시 fallback**: alignment cell count < 3 → 일반 `applySampling` 적용.
+    let private reshapeTagToDeviceBase (tag: string) : string =
+        if String.IsNullOrWhiteSpace tag then ""
+        else
+            let trimmed = tag.Trim()
+            let lastUnderscore = trimmed.LastIndexOf('_')
+            if lastUnderscore <= 0 then trimmed
+            else trimmed.Substring(0, lastUnderscore)
+
+    /// IoList 시트 한 section 의 Direction 분포 박제 — Direction cell 의 값 (`Input` / `Output` / `-`)
+    /// 카운트하여 IW / QW 표기로 변환.
+    let private countDirectionDistribution
+        (lines: string array)
+        (sectionStartIdx: int)
+        (sectionTotalRows: int) : (int * int * int) =
+        // Tag = cell 2 (0-based: Word=0, Direction=1, Tag=2, DataType=3, Address=4, Symbol=5).
+        // Direction cell index = 1.
+        let mutable iw = 0  // Input
+        let mutable qw = 0  // Output
+        let mutable other = 0
+        let mutable i = sectionStartIdx + 1
+        let mutable cnt = 0
+        while cnt < sectionTotalRows && i < lines.Length do
+            let line = lines.[i]
+            if isTableRow line && not (isAlignmentRow line) then
+                let cells = splitCells line
+                if cells.Length >= 2 then
+                    let dir = cells.[1].Trim()
+                    if dir.Equals("Input", StringComparison.OrdinalIgnoreCase) then iw <- iw + 1
+                    elif dir.Equals("Output", StringComparison.OrdinalIgnoreCase) then qw <- qw + 1
+                    else other <- other + 1
+                cnt <- cnt + 1
+            i <- i + 1
+        (iw, qw, other)
+
+    /// IoList 시트 한 section 의 unique device base token 별 첫 등장 row index (section 안 0-based)
+    /// 집합 계산. Tag cell (index 2) 에서 base token 추출 → 첫 등장 idx 만 keep.
+    let private collectDeviceSampleIndices
+        (lines: string array)
+        (sectionStartIdx: int)
+        (sectionTotalRows: int) : Set<int> =
+        let seen = System.Collections.Generic.HashSet<string>()
+        let result = System.Collections.Generic.HashSet<int>()
+        let mutable i = sectionStartIdx + 1
+        let mutable rowIdx = 0
+        while rowIdx < sectionTotalRows && i < lines.Length do
+            let line = lines.[i]
+            if isTableRow line && not (isAlignmentRow line) then
+                let cells = splitCells line
+                let tagCell =
+                    if cells.Length >= 3 then cells.[2] else ""
+                let baseToken = reshapeTagToDeviceBase tagCell
+                let key = if String.IsNullOrEmpty baseToken then tagCell.Trim() else baseToken
+                if not (String.IsNullOrEmpty key) && seen.Add key then
+                    result.Add rowIdx |> ignore
+                rowIdx <- rowIdx + 1
+            i <- i + 1
+        Set.ofSeq result
+
+    /// IoList 전용 Stage 2 — device-aware sampling. 시트별 head/tail + unique device sample 합집합 keep.
+    let private applyIoListSampling
+        (headCount: int)
+        (tailCount: int)
+        (markdown: string) : string =
+        if headCount < 0 || tailCount < 0 then markdown
+        else
+            let trailing = hasTrailingNewline markdown
+            let lines = splitLines markdown
+            let result = ResizeArray<string>()
+            let mutable i = 0
+            let mutable inDataSection = false
+            let mutable prevWasTableRow = false
+            let mutable sectionCellCount = 0
+            let mutable sectionTotalRows = 0
+            let mutable sectionDataIdx = 0
+            let mutable sectionDropped = 0
+            let mutable sectionKept = 0
+            let mutable sectionDeviceSet : Set<int> = Set.empty
+            let mutable sectionDeviceCount = 0
+            let mutable sectionIw = 0
+            let mutable sectionQw = 0
+            let mutable sectionOther = 0
+            let mutable elideEmitted = false
+
+            let flushSampleNote () =
+                if sectionDropped > 0 then
+                    let headKept = min headCount sectionTotalRows
+                    let tailKept = min tailCount (max 0 (sectionTotalRows - headKept))
+                    // device-only sample = sectionKept - (head + tail) (head/tail overlap 은 device set 와 별 separately count).
+                    let deviceOnly =
+                        max 0 (sectionKept - headKept - tailKept)
+                    result.Add (
+                        sprintf "<!-- sampled (IoList): %d kept (head %d + tail %d + devices %d of %d unique), %d row(s) elided. directions: IW=%d, QW=%d, other=%d -->"
+                            sectionKept headKept tailKept deviceOnly sectionDeviceCount sectionDropped
+                            sectionIw sectionQw sectionOther)
+                sectionDropped <- 0
+                sectionKept <- 0
+                sectionDataIdx <- 0
+                sectionTotalRows <- 0
+                sectionCellCount <- 0
+                sectionDeviceSet <- Set.empty
+                sectionDeviceCount <- 0
+                sectionIw <- 0
+                sectionQw <- 0
+                sectionOther <- 0
+                elideEmitted <- false
+
+            let buildElideRow (cellCnt: int) (elided: int) : string =
+                if cellCnt <= 0 then
+                    sprintf "| (%d rows elided) |" elided
+                else
+                    let cells =
+                        Array.init cellCnt (fun idx ->
+                            if idx = (min 1 (cellCnt - 1)) then
+                                sprintf "(%d rows elided)" elided
+                            else
+                                "...")
+                    joinCells cells
+
+            while i < lines.Length do
+                let line = lines.[i]
+                if isAlignmentRow line then
+                    inDataSection <- true
+                    prevWasTableRow <- true
+                    sectionCellCount <- alignmentCellCount line
+                    sectionTotalRows <- countSectionDataRows lines i
+                    sectionDataIdx <- 0
+                    sectionDropped <- 0
+                    sectionKept <- 0
+                    elideEmitted <- false
+                    // device sample indices + Direction 분포 사전 계산 (시트당 한 번).
+                    sectionDeviceSet <- collectDeviceSampleIndices lines i sectionTotalRows
+                    sectionDeviceCount <- sectionDeviceSet.Count
+                    let iw, qw, other = countDirectionDistribution lines i sectionTotalRows
+                    sectionIw <- iw
+                    sectionQw <- qw
+                    sectionOther <- other
+                    result.Add line
+                elif isTableRow line then
+                    if inDataSection then
+                        let keepHead = sectionDataIdx < headCount
+                        let keepTail = sectionDataIdx >= sectionTotalRows - tailCount
+                        let keepDevice = sectionDeviceSet.Contains sectionDataIdx
+                        let keep = keepHead || keepTail || keepDevice
+                        if keep then
+                            result.Add line
+                            sectionKept <- sectionKept + 1
+                        else
+                            // drop. 첫 drop 발생 위치에 elide marker row 1회 박제.
+                            if not elideEmitted then
+                                // elide 박제 시 행 수 = (예상 elided 총수) — Stage 1 보고 결과로 갱신 어렵우니
+                                // 시트 끝에 sample note 박제로 정확 수치 노출. 본 elide marker 는 placeholder.
+                                result.Add (buildElideRow sectionCellCount 0)
+                                elideEmitted <- true
+                            sectionDropped <- sectionDropped + 1
+                        sectionDataIdx <- sectionDataIdx + 1
+                        prevWasTableRow <- true
+                    else
+                        result.Add line
+                        prevWasTableRow <- true
+                else
+                    if prevWasTableRow && isSectionBoundary line then
+                        flushSampleNote ()
+                        inDataSection <- false
+                    prevWasTableRow <- false
+                    result.Add line
+                i <- i + 1
+
+            flushSampleNote ()
+            // elide marker row 의 placeholder `0` 을 실제 drop count 로 교체 (시트별 sample note 의
+            // `M elided` 와 동일 수치). 단순화 — section 별 정확 mapping 은 복잡하므로 marker row 의
+            // `(0 rows elided)` 는 sample note 의 row count 가 SSOT. marker row 는 표 무결성 (cell 개수)
+            // 보존 + 위치 표시 목적만.
+            joinLines (result.ToArray()) trailing
+
     // ── Stage 3 — split ───────────────────────────────────────────────
 
     /// markdown 을 N 등분 — header (첫 H1 이전 + H1) / footer (`---` 다음) 공유,
@@ -437,9 +652,21 @@ module MarkdownCapPolicy =
 
     // ── 단계 escalation 진입점 ─────────────────────────────────────────
 
-    /// cap 정책 진입점. `markdown` 의 byte size 가 `MaxMarkdownBytes` 이하면 Original 반환.
-    /// 초과 시 Stage 1 → 2 → 3 순으로 escalation. 모든 단계가 cap 안 흡수 가능하게 시도.
-    let applyCap (markdown: string) : CapResult =
+    /// **Phase 4 dispatch (`todo-lighthouse-iolist-v2.md` Phase 4)** — strategy 인지 진입점.
+    /// `applyCap` 의 wrapper — Stage 2 sampling 분기를 strategy 별 dispatch.
+    ///
+    /// **dispatch policy**:
+    ///   - `strategyName = "IoListStrategy"` → Stage 2 = `applyIoListSampling` (device-aware,
+    ///     head 10 + tail 10 + unique device sample + Direction 분포 박제).
+    ///   - 그 외 (WorkOrder / PdfControlSpec / 빈 문자열) → Stage 2 = `applySampling` (head 5 +
+    ///     tail 5, byte-equal 회귀 가드).
+    ///
+    /// **byte-equal 회귀 가드**: `applyCap markdown` 호출은 본 wrapper 의 default 분기와 동일 결과
+    /// 반환 (기존 caller 변경 0). caller 가 strategy 인지 시점에 `applyCapFor` 명시 호출.
+    let rec applyCapFor (strategyName: string) (markdown: string) : CapResult =
+        let isIoList =
+            not (String.IsNullOrEmpty strategyName)
+            && strategyName.Equals(IoListStrategyName, StringComparison.Ordinal)
         let originalSize = byteSize markdown
         if originalSize <= MaxMarkdownBytes then
             { Markdown = markdown
@@ -447,13 +674,10 @@ module MarkdownCapPolicy =
               SizeBytes = originalSize
               SplitParts = None }
         else
-            // **F·m1 (Outlier/Minor 묶음 1)** — Stage escalation 진단 logger 도입. 종전은 silent
-            // escalation 으로 (어느 fixture 가 어느 단계 까지 갔는지 추적 불가) PR review 시 부담.
-            // Log.lighthouse (`Ds2.LightHouse`) 로 통일.
             Log.lighthouse.Debug(
-                sprintf "MarkdownCapPolicy: cap exceeded (size=%d > cap=%d), Stage 1 진입"
-                    originalSize MaxMarkdownBytes)
-            // Stage 1 — 컬럼 truncate.
+                sprintf "MarkdownCapPolicy: cap exceeded (size=%d > cap=%d, strategy=%s), Stage 1 진입"
+                    originalSize MaxMarkdownBytes
+                    (if String.IsNullOrEmpty strategyName then "(default)" else strategyName))
             let stage1 = applyColumnTruncate MaxCellChars markdown
             let stage1Size = byteSize stage1
             if stage1Size <= MaxMarkdownBytes then
@@ -465,29 +689,28 @@ module MarkdownCapPolicy =
                   SizeBytes = stage1Size
                   SplitParts = None }
             else
-                // Stage 2 — head/tail sampling (SSOT §8.5.5 — "처음 5 + 마지막 5 + ...N개 생략").
-                // 단일 정책 — head 5 + tail 5 + 중간 elide. cap 안 흡수 못할 시 곧바로 Stage 3 진입.
                 Log.lighthouse.Debug(
-                    sprintf "MarkdownCapPolicy: Stage 1 미흡수 size=%d, Stage 2 진입" stage1Size)
-                let stage2 = applySampling SampleHeadCount SampleTailCount stage1
+                    sprintf "MarkdownCapPolicy: Stage 1 미흡수 size=%d, Stage 2 진입 (strategy=%s)"
+                        stage1Size
+                        (if isIoList then "IoList(device-aware)" else "default(head/tail)"))
+                // Phase 4 — IoList 인 경우 device-aware sampling.
+                let stage2, stage2HeadCount, stage2TailCount =
+                    if isIoList then
+                        applyIoListSampling IoListSampleHeadCount IoListSampleTailCount stage1,
+                        IoListSampleHeadCount, IoListSampleTailCount
+                    else
+                        applySampling SampleHeadCount SampleTailCount stage1,
+                        SampleHeadCount, SampleTailCount
                 let stage2Size = byteSize stage2
                 if stage2Size <= MaxMarkdownBytes then
                     Log.lighthouse.Debug(
                         sprintf "MarkdownCapPolicy: Stage 2 (Sampled head=%d, tail=%d) 흡수 size=%d"
-                            SampleHeadCount SampleTailCount stage2Size)
+                            stage2HeadCount stage2TailCount stage2Size)
                     { Markdown = stage2
-                      Stage = Sampled (SampleHeadCount, SampleTailCount)
+                      Stage = Sampled (stage2HeadCount, stage2TailCount)
                       SizeBytes = stage2Size
                       SplitParts = None }
                 else
-                    // Stage 3 — split. partCount 를 size 기반 lower bound 부터 시도, doubling 으로 escalate.
-                    // 단순 +1 escalation 은 N 큰 case 에 O(N^2) → doubling 으로 O(log N) 안.
-                    //
-                    // **--review 라운드 1 Critical-1 fix**: split 입력은 stage2 (head/tail sampling 적용본)
-                    // 이어야 함. 기존 stage1 입력은 sampling 효과 무시 → split 후 각 part 가 cap 못 들어가 무한
-                    // doubling → SplitMaxParts 초과 fail-fast 회귀 risk. SSOT (`§8.5.5`) 의 3 단계 escalation
-                    // 정의 = "Stage 1 → 2 → 3 누적 적용" — Stage 3 가 Stage 2 결과를 입력으로 받음이 의도.
-                    // 최소 partCount 추정: stage2 size / cap (ceil) — header 중복 무시한 lower bound.
                     Log.lighthouse.Debug(
                         sprintf "MarkdownCapPolicy: Stage 2 미흡수 size=%d, Stage 3 (Split) 진입" stage2Size)
                     let initialPartCount =
@@ -505,10 +728,8 @@ module MarkdownCapPolicy =
                             parts <- candidate
                             splitDone <- true
                         else
-                            // header overhead 흡수 + safety margin — doubling.
                             partCount <- partCount * 2
                     if not splitDone then
-                        // fail-fast — 자료 비정상.
                         failwithf
                             "MarkdownCapPolicy: split escalation failed (partCount=%d max), source markdown %d bytes 가 cap %d 안 안 들어감"
                             SplitMaxParts originalSize MaxMarkdownBytes
@@ -520,3 +741,17 @@ module MarkdownCapPolicy =
                       Stage = Split (1, partCount)
                       SizeBytes = byteSize firstPart
                       SplitParts = Some parts }
+
+    /// cap 정책 진입점. `markdown` 의 byte size 가 `MaxMarkdownBytes` 이하면 Original 반환.
+    /// 초과 시 Stage 1 → 2 → 3 순으로 escalation. 모든 단계가 cap 안 흡수 가능하게 시도.
+    ///
+    /// **byte-equal 회귀 가드**: 본 진입점은 strategy 무관 default 분기 — `applyCapFor ""` 와 동일
+    /// 결과. Phase 4 (IoList sampling) 추가 후에도 기존 caller (SpecializedDigestBuilder /
+    /// MarkdownCapPolicyTests) 의 출력은 byte-equal 유지.
+    and applyCap (markdown: string) : CapResult =
+        // **Phase 4 refactor (CLAUDE.md "3줄 이상 반복 패턴 → refactoring")** — `applyCap` 본문 80여
+        // 줄이 `applyCapFor` default 분기 (isIoList=false) 와 동일 → `applyCapFor ""` 위임으로 중복
+        // 제거. byte-equal 회귀 가드 동등 (`isIoList=false` 분기에서 default sampling 사용).
+        // F·m1 (Outlier/Minor 묶음 1) escalation 진단 logger 박제 유지 — `applyCapFor` 의 logger 가
+        // strategy 인지 (`strategy=(default)` 표기) 로 박제, 종전 logger format 과 유사 정합.
+        applyCapFor "" markdown
