@@ -2,6 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using log4net;
@@ -22,7 +26,8 @@ public sealed class LightHouseLocalInstaller
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(LightHouseLocalInstaller));
 
-    private const string LocalBaseUrl = "https://127.0.0.1:8443";
+    /// <summary>fallback BaseUrl — config.json read 실패 시 사용. install-service.ps1 의 default ListenUrl 정합.</summary>
+    public const string DefaultLocalBaseUrl = "https://127.0.0.1:8443";
 
     private readonly LlmConfig _llmConfig;
 
@@ -32,31 +37,59 @@ public sealed class LightHouseLocalInstaller
     }
 
     /// <summary>
-    /// enable-ai.ps1 호출 → 4단계 (Ollama / cert / sc create + PSK / firewall + start) → PSK 박제.
+    /// **B4 (2026-05-27) — SecureString 정공 path**. enable-ai.ps1 호출 → Promaker 측 PSK DPAPI 박제.
     /// 성공 시 <see cref="EnableResult.ServiceId"/> 가 LlmConfig.LightHouseServices 의 Local entry 식별자.
+    /// <para/>
+    /// **PSK / cert PFX password 평문 lifetime 최소화**: SecureString → UTF-8 byte[] (lock 보호) → File.WriteAllBytes
+    /// → finally Array.Clear(bytes) + Marshal.ZeroFreeGlobalAllocUnicode. 임시 파일은 ps1 read 직후 wipe + 본 메서드도
+    /// finally wipe (이중 안전).
+    /// <para/>
+    /// **B5 (2026-05-27)** — DPAPI 박제 단계도 SecureString overload 직접 호출 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
+    /// <para/>
+    /// **caller (EnableLocalServiceDialog)** 가 SecureString 소유권 이양. 본 메서드는 사용 후 Dispose 의무 가짐.
     /// </summary>
-    public async Task<EnableResult> EnableAsync(CancellationToken ct = default)
+    /// <param name="psk">사용자 입력 PSK SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
+    /// <param name="certPwd">사용자 입력 cert PFX password SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
+    public async Task<EnableResult> EnableAsync(SecureString psk, SecureString certPwd, CancellationToken ct = default)
     {
-        var deployment = ResolveDeployment()
-            ?? throw new InvalidOperationException(
-                "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
-
-        var enableScript = Path.Combine(deployment.ScriptsDir, "enable-ai.ps1");
-        if (!File.Exists(enableScript))
-            throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
-
-        var pskOut = Path.Combine(Path.GetTempPath(), $"promaker-psk-{Guid.NewGuid():N}.tmp");
+        // **B4 자가 검열 Critical-1 fix (2026-05-27)** — Dispose 의무 박제는 진입 직후부터 보장.
+        // (이전 구현: Argument 검사 / ResolveDeployment / File.Exists throw 가 try 블록 *바깥* 이라 SecureString 누수.)
+        var pskIn  = Path.Combine(Path.GetTempPath(), $"promaker-psk-{Guid.NewGuid():N}.tmp");
+        var cpwdIn = Path.Combine(Path.GetTempPath(), $"promaker-cpw-{Guid.NewGuid():N}.tmp");
         var logOut = Path.Combine(Path.GetTempPath(), $"promaker-ai-{Guid.NewGuid():N}.log");
 
+        byte[]? pskBytes = null;
+        byte[]? cpwBytes = null;
         try
         {
+            if (psk is null) throw new ArgumentNullException(nameof(psk));
+            if (certPwd is null) throw new ArgumentNullException(nameof(certPwd));
+            if (psk.Length == 0) throw new ArgumentException("PSK 비어있음.", nameof(psk));
+            if (certPwd.Length == 0) throw new ArgumentException("Cert PFX password 비어있음.", nameof(certPwd));
+
+            var deployment = ResolveDeployment()
+                ?? throw new InvalidOperationException(
+                    "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
+
+            var enableScript = Path.Combine(deployment.ScriptsDir, "enable-ai.ps1");
+            if (!File.Exists(enableScript))
+                throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
+
+            // **B4 (2026-05-27)** — SecureString → UTF-8 byte[]. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
+            // (Windows 의 %TEMP% 가 사용자별 분리 박제 — 다른 사용자 read 불가, admin elevation 시 read 가능 — UAC 후 자기 process 가 read).
+            pskBytes = SecureStringToUtf8Bytes(psk);
+            cpwBytes = SecureStringToUtf8Bytes(certPwd);
+            File.WriteAllBytes(pskIn, pskBytes);
+            File.WriteAllBytes(cpwdIn, cpwBytes);
+
             var psArgs = string.Join(' ', new[]
             {
                 "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
                 "-File", Quote(enableScript),
                 "-ExePath", Quote(deployment.ExePath),
-                "-PskOutputPath", Quote(pskOut),
+                "-PskInputPath", Quote(pskIn),
+                "-CertPasswordInputPath", Quote(cpwdIn),
                 "-LogPath", Quote(logOut),
             });
 
@@ -66,8 +99,6 @@ public sealed class LightHouseLocalInstaller
                 Arguments = psArgs,
                 UseShellExecute = true,   // Verb=runas 와 정합 (UAC 프롬프트)
                 Verb = "runas",
-                // 사용자 progress feedback — 진행 화면을 console 로 표시 (수 분 소요 + UAC 후 무화면 회피).
-                // PSK 평문은 install-service.ps1 가 -PskOutputPath 로 직접 박제 → console / transcript 미경유.
                 WindowStyle = ProcessWindowStyle.Normal,
             };
 
@@ -82,36 +113,104 @@ public sealed class LightHouseLocalInstaller
                     $"enable-ai.ps1 실패 (exit {proc.ExitCode}). log 끝부분:{Environment.NewLine}{tail}{Environment.NewLine}전체 log: {logOut}");
             }
 
-            if (!File.Exists(pskOut))
-                throw new InvalidOperationException($"PSK output 미생성 — enable-ai.ps1 가 PSK 박제하지 못함. log: {logOut}");
-
-            var pskPlain = File.ReadAllText(pskOut).Trim();
-            if (string.IsNullOrEmpty(pskPlain))
-                throw new InvalidOperationException($"PSK output 비어 있음. log: {logOut}");
-
-            var serviceId = PersistLocalEntry(pskPlain);
+            // **B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) overload 박제 완료. SecureString 직접 박제 path —
+            // managed string 변환 0 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
+            var serviceId = PersistLocalEntry(psk);
             Log.Info($"LightHouse Local entry 박제 완료 — ServiceId={serviceId}");
 
-            // enable-ai.ps1 의 마지막 단계가 출력한 `START_RESULT=exit=<n> health=<true|false>` 라인을 파싱.
-            // log 파일에는 transcript 가 박혀 있고, install-service.ps1 가 PSK 평문을 stdout 미경유로
-            // 파일 박제하므로 (자가검열 C2 정합) — log 파일에 PSK 평문 잔존 없음.
             var startOk = TryParseStartResult(logOut);
             return new EnableResult(serviceId, logOut, startOk);
         }
         finally
         {
-            TryWipeFile(pskOut);
+            // **B4 (2026-05-27)** — heap 평문 wipe (Array.Clear) + temp file wipe (이중 안전).
+            if (pskBytes is not null) Array.Clear(pskBytes, 0, pskBytes.Length);
+            if (cpwBytes is not null) Array.Clear(cpwBytes, 0, cpwBytes.Length);
+            TryWipeFile(pskIn);
+            TryWipeFile(cpwdIn);
+            // null-safe — ArgumentNullException 분기 진입 시 한쪽이 null 일 수 있음.
+            psk?.Dispose();
+            certPwd?.Dispose();
             // log 는 caller 가 결과 표시 후 직접 cleanup. (실패 시 진단 자료로 유용.)
         }
     }
 
-    /// <summary>PSK 평문을 DPAPI 박제. Local LightHouse entry 가 없으면 신규, 있으면 PSK 만 update.
-    /// 단일 active 정합 (LlmConfig <see cref="LightHouseServiceConfig.Active"/> XML doc 의 결정 D-S7-3 #3) —
-    /// 활성화 시점에 다른 entry 의 <c>Active</c> 를 false 로 강제 (사용자가 다시 명시 토글 가능).</summary>
-    private string PersistLocalEntry(string pskPlain)
+    /// <summary>
+    /// **B4 (2026-05-27) deprecated** — managed string 시그니처 보존 (외부 caller 호환). 신규 caller 는 SecureString
+    /// overload 사용 의무 (heap 평문 lifetime 최소화 SSOT). 본 overload 는 평문 string → SecureString 1회 wrapping
+    /// 후 정공 path 호출 — string 자체는 immutable 이라 wipe 불가, caller 평문 잔존 risk 그대로.
+    /// </summary>
+    [Obsolete("B4 (2026-05-27): SecureString overload 사용 권장. managed string path 는 heap 평문 잔존 risk.")]
+    public Task<EnableResult> EnableAsync(string pskPlain, string certPwdPlain, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(pskPlain)) throw new ArgumentException("PSK 평문 비어있음.", nameof(pskPlain));
+        if (string.IsNullOrEmpty(certPwdPlain)) throw new ArgumentException("Cert PFX password 평문 비어있음.", nameof(certPwdPlain));
+        var psk = StringToSecureString(pskPlain);
+        var cpw = StringToSecureString(certPwdPlain);
+        return EnableAsync(psk, cpw, ct);
+    }
+
+    private static SecureString StringToSecureString(string s)
+    {
+        var ss = new SecureString();
+        foreach (var ch in s) ss.AppendChar(ch);
+        ss.MakeReadOnly();
+        return ss;
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — SecureString → managed string 1회 변환 (LightHouseClient PSK provider `Func&lt;string?&gt;` 인터페이스 보존 의무).
+    /// ApplicationSettings 의 LhTestConnection 이 사용 — pending PSK 의 1회 wire-up. 본 변환 결과 string 은 immutable 이라 GC 회수 전까지 heap 잔존
+    /// (LightHouseClient.PSK provider 가 SecureString 박제 migrate 시 본 helper 도 폐기 가능 — 별 backlog).</summary>
+    internal static string SecureStringToManagedString(SecureString ss)
+    {
+        IntPtr ptr = IntPtr.Zero;
+        try
+        {
+            ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
+            return Marshal.PtrToStringUni(ptr) ?? "";
+        }
+        finally
+        {
+            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    /// <summary>**B4 (2026-05-27)** — SecureString → UTF-8 byte[]. 중간 char[] 도 Array.Clear 로 wipe.
+    /// caller 가 반환 byte[] 의 사용 후 Array.Clear 의무 (finally).
+    /// <para/>**B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) 도 본 helper SSOT 호출 (중복 제거).</summary>
+    internal static byte[] SecureStringToUtf8Bytes(SecureString ss)
+    {
+        IntPtr unicodePtr = IntPtr.Zero;
+        char[]? chars = null;
+        try
+        {
+            unicodePtr = Marshal.SecureStringToGlobalAllocUnicode(ss);
+            chars = new char[ss.Length];
+            Marshal.Copy(unicodePtr, chars, 0, ss.Length);
+            return Encoding.UTF8.GetBytes(chars);
+        }
+        finally
+        {
+            if (chars is not null) Array.Clear(chars, 0, chars.Length);
+            if (unicodePtr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(unicodePtr);
+        }
+    }
+
+    /// <summary>**B5 (2026-05-27) — SecureString 정공 path**. SecureString → DPAPI 직접 박제 — managed string 변환 0.
+    /// <see cref="LlmConfig.SetLightHousePsk(string, SecureString?)"/> overload 사용. PtrToStringUni leak 제거.</summary>
+    private string PersistLocalEntry(SecureString psk)
+    {
+        var entry = EnsureLocalEntry();
+        _llmConfig.SetLightHousePsk(entry.ServiceId, psk);
+        _llmConfig.Save();
+        return entry.ServiceId;
+    }
+
+    /// <summary>**B5 자가 검열 M2 fix (2026-05-27)** — entry 박제 / 단일 active 정합 SSOT. SecureString overload 만 호출 (string overload caller 0 — dead code 제거).</summary>
+    private LightHouseServiceConfig EnsureLocalEntry()
     {
         var entry = _llmConfig.LightHouseServices.FirstOrDefault(s =>
-            IsSameLocalEndpoint(s.BaseUrl, LocalBaseUrl));
+            IsSameLocalEndpoint(s.BaseUrl, DefaultLocalBaseUrl));
 
         if (entry is null)
         {
@@ -119,24 +218,21 @@ public sealed class LightHouseLocalInstaller
             {
                 ServiceId = Guid.NewGuid().ToString(),
                 DisplayName = "Local LightHouse",
-                BaseUrl = LocalBaseUrl,
+                BaseUrl = DefaultLocalBaseUrl,
                 Active = true,
             };
             _llmConfig.LightHouseServices.Add(entry);
         }
-        else
+        else if (string.IsNullOrWhiteSpace(entry.DisplayName))
         {
-            if (string.IsNullOrWhiteSpace(entry.DisplayName))
-                entry.DisplayName = "Local LightHouse";
+            entry.DisplayName = "Local LightHouse";
         }
 
         // 단일 active 정합 — Local 이 방금 활성화되었으므로 다른 모든 entry 비활성.
         foreach (var s in _llmConfig.LightHouseServices)
             s.Active = ReferenceEquals(s, entry);
 
-        _llmConfig.SetLightHousePsk(entry.ServiceId, pskPlain);
-        _llmConfig.Save();
-        return entry.ServiceId;
+        return entry;
     }
 
     /// <summary>운영 (`{AppContext.BaseDirectory}\LightHouseService\`) → 개발 (repo/Solutions/Tools/...) 순으로 탐색.</summary>
@@ -176,7 +272,9 @@ public sealed class LightHouseLocalInstaller
         return null;
     }
 
-    private static bool IsSameLocalEndpoint(string a, string b)
+    /// <summary>두 BaseUrl 이 같은 endpoint 인지 판정 — scheme / host(localhost↔127.0.0.1 정규화) / port 비교.
+    /// LlmConfig 의 LightHouseServices 중복 검사 (UI 의 "Local 항목 추가" + "+ Add Service" 양쪽) SSOT.</summary>
+    public static bool IsSameLocalEndpoint(string a, string b)
     {
         if (!Uri.TryCreate(a, UriKind.Absolute, out var ua)) return false;
         if (!Uri.TryCreate(b, UriKind.Absolute, out var ub)) return false;
@@ -184,6 +282,45 @@ public sealed class LightHouseLocalInstaller
         return string.Equals(ua.Scheme, ub.Scheme, StringComparison.OrdinalIgnoreCase)
             && Norm(ua.Host) == Norm(ub.Host)
             && ua.Port == ub.Port;
+    }
+
+    /// <summary>로컬 LightHouseService 의 client target BaseUrl 결정 —
+    /// <c>%PROGRAMDATA%\Dualsoft\LightHouseService\config.json</c> 의 <c>listenUrl</c> 박제값 우선,
+    /// read 실패 (ACL 거부 / 파일 미존재 / parse 실패) 시 <see cref="DefaultLocalBaseUrl"/> fallback.
+    /// <para/>
+    /// 정규화 — listenUrl 의 host 가 <c>0.0.0.0</c> 이면 <c>127.0.0.1</c> 로 치환 (client connect target 부적합).
+    /// IPv6 <c>[::]</c> 도 동일.
+    /// <para/>
+    /// 본 helper 는 read-only — DPAPI 복호화 / 평문 노출 0. listenUrl 만 추출.
+    /// </summary>
+    public static string ResolveLocalBaseUrl()
+    {
+        try
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Dualsoft", "LightHouseService", "config.json");
+            if (!File.Exists(configPath)) return DefaultLocalBaseUrl;
+
+            using var stream = File.OpenRead(configPath);
+            using var doc = JsonDocument.Parse(stream);
+            if (!doc.RootElement.TryGetProperty("listenUrl", out var lu)) return DefaultLocalBaseUrl;
+            var raw = lu.GetString();
+            if (string.IsNullOrWhiteSpace(raw)) return DefaultLocalBaseUrl;
+
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var u)) return DefaultLocalBaseUrl;
+            // bind-only host (client target 부적합) → loopback 치환. install-service.ps1 default 가 IPv4 loopback
+            // 이므로 IPv4 unspecified 만 처리 — IPv6 unspecified (`[::]`) 는 별 backlog 박제 의무
+            // (Uri.Host 가 IPv6 의 경우 full-expand 형태 "0000:..." 로 정규화되어 단순 비교 안 통함).
+            var host = u.Host == "0.0.0.0" ? "127.0.0.1" : u.Host;
+            // UriBuilder 가 default port 를 -1 로 표기 + ToString() 에서 생략 — 명시 port 유지를 위해 직접 조립.
+            return $"{u.Scheme}://{host}:{u.Port}";
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"config.json listenUrl 추출 실패 — fallback {DefaultLocalBaseUrl} ({ex.Message})");
+            return DefaultLocalBaseUrl;
+        }
     }
 
     private static string Quote(string s) => "\"" + s.Replace("\"", "\\\"") + "\"";

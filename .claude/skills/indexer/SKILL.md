@@ -13,19 +13,38 @@ light-house repo 의 `Ds2.LightHouse.Cli` (`lighthouse-cli`) 를 호출하여 �
 ## Usage
 
 ```
-/indexer                                           # 현재 working directory 색인
+/indexer                                           # 현재 working directory 색인 (default URL = localhost service)
 /indexer <folder>                                  # 지정 폴더 색인
 /indexer <folder> --title <name>                   # collection 표시 이름 override (생략 시 폴더명)
-/indexer <folder> --url <baseUrl>                  # LIGHTHOUSE_URL env var override
+/indexer <folder> --url <baseUrl>                  # URL 명시 override (LIGHTHOUSE_URL env / default 모두 무시)
 ```
 
 ## 사전 조건
 
-### env var (필수)
-- `LIGHTHOUSE_URL` — service base URL (e.g. `https://service.local:8443`). 명령행 `--url` 로 override 가능.
-- `LIGHTHOUSE_PSK` — 평문 PSK. CLI 가 직접 읽음.
+### Service URL 결정 우선순위 (SSOT)
 
-둘 중 하나라도 미설정 시 사용자에게 일반 텍스트로 물어보고 진행. 응답값을 그 turn 의 `$env:LIGHTHOUSE_URL` / `$env:LIGHTHOUSE_PSK` 로 박제하여 호출.
+| 우선순위 | source | 값 |
+|---|---|---|
+| 1 | 명령행 `--url <baseUrl>` | 사용자가 명시한 값 |
+| 2 | env var `LIGHTHOUSE_URL` | shell 환경에 박제된 값 |
+| 3 | **default (fallback)** | **`https://127.0.0.1:8443`** — local host 에 구동 중인 LightHouse Service 의 loopback listen URL (`install-service.ps1` / `config.json.template` SSOT). self-signed cert → `--allow-invalid-certs` 자동 박제 |
+
+→ **3가지 모두 미박제 시 사용자에게 묻지 않고 default 로 진행**. 단 default 진입 전 healthz probe 1회 수행 (아래 참조).
+
+### env var
+- `LIGHTHOUSE_URL` — service base URL (선택). 명령행 `--url` 가 우선, 둘 다 미박제 시 default `https://127.0.0.1:8443`.
+- `LIGHTHOUSE_PSK` — 평문 PSK (**필수**). CLI 가 직접 읽음. 미박제 시 사용자에게 일반 텍스트로 물어보고 응답값을 그 turn 의 `$env:LIGHTHOUSE_PSK` 로 박제하여 호출.
+
+### local default 진입 시 healthz probe
+
+URL 결정이 우선순위 3 (default) 인 경우 다음을 1회 수행:
+
+```powershell
+& curl.exe -k -s -o NUL -w "%{http_code}" --max-time 3 https://127.0.0.1:8443/healthz
+```
+
+- `200` 외 응답 시 사용자에게 `로컬 LightHouse Service 미가동 (https://127.0.0.1:8443/healthz != 200). 서비스 기동 후 재시도 또는 --url 로 명시.` 노출 후 abort.
+- 우선순위 1·2 (사용자 명시 URL) 인 경우 probe skip — 사용자의 명시 의도 존중.
 
 ### Ollama (embedding backend)
 - `ollama serve` 가동 + `bge-m3` 모델 pull 됨 (`ollama pull bge-m3`).
@@ -52,20 +71,45 @@ repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 �
    ```
    (자동 build 안 함 — 사용자가 명시적으로 빌드.)
 
-## 실행 절차
+## 진입 분기 결정 (SSOT)
+
+skill 진입 즉시 다음 순서로 분기를 박제. **모델은 image 수 추측 / 폴더 종류 추론 / 파일 종류 추론 등 어떤 자체 추론으로도 분기하지 않는다** — 아래 환경 / flag 단일 기준만 따른다.
+
+| 조건 | 진입 path |
+|---|---|
+| 사용자가 명령행에 `--force-without-image-caption` 명시 | §"단일 호출 path" (caption 명시 skip) |
+| `$env:LIGHTHOUSE_VLM_API_KEY` 박제됨 | §"단일 호출 path" (CLI 가 Anthropic API direct 로 caption) |
+| 위 둘 다 미해당 (**Claude Code 사용자의 default**) | §"Step 1/2/3 흐름" (subagent caption + summary path) |
+
+→ image 0건 폴더에서도 Step 1/2/3 path 안전 — Step 1-b / Step 2 가 empty batch exit 0 no-op. 즉 "이 폴더는 image 없을 것 같으니까 단일 호출 path" 식의 분기 금지.
+
+### 사용자 질의 시 결정 고수
+
+진입 분기 결정 후 사용자가 "왜 X 명령?" / "왜 --skip-upload?" 등을 물으면 **선택된 path 의 mechanism 을 설명할 뿐, 자체 판단으로 path 를 변경하지 않는다.** 분기 정정은 다음 두 경우에만 허용:
+- 사용자가 명시적으로 다른 path 를 지시 (e.g. "단일 호출로 진행해줘", "`--force-without-image-caption` 박제해줘").
+- 사용자가 환경을 바꾸고 재시도 (e.g. `LIGHTHOUSE_VLM_API_KEY` 박제).
+
+Step 1-a 의 `--skip-upload` 는 *의도된 시작점* — 표면적으로 "업로드 안 함" 처럼 읽혀 사용자가 의문을 표할 수 있지만, Step 3 의 `--upload` 가 caption 박제 이후 별도 진입하는 분리 흐름의 의도된 1단계.
+
+## 단일 호출 path
+
+**진입 조건**: §"진입 분기 결정 (SSOT)" 표의 상위 2개 행 (사용자 명시 flag OR `LIGHTHOUSE_VLM_API_KEY` 박제). 그 외 환경에서는 §"Step 1/2/3 흐름" 을 사용.
 
 ```powershell
-& "<cli-path>" index "<folder>" --upload "$env:LIGHTHOUSE_URL" --title "<derived-title>"
+& "<cli-path>" index "<folder>" --upload "<resolved-url>" --title "<derived-title>"
 ```
 
+- `<resolved-url>` 은 위 §"Service URL 결정 우선순위" 의 1→2→3 순으로 도출. 우선순위 3 (default `https://127.0.0.1:8443`) 진입 전 healthz probe 통과 필수.
 - PSK 는 env var `LIGHTHOUSE_PSK` 로 CLI 가 자동 흡수 (명령행 노출 안 함).
 - `--title` 미지정 시 CLI 가 자동으로 폴더명 사용 (skill 에서 굳이 derive 안 함).
 - stderr 의 진행률 (`[N%] x/y — file`) 그대로 사용자에게 전달.
-- self-signed cert 환경이면 `--allow-invalid-certs` 추가 (dev only).
+- self-signed cert 환경 (default loopback URL 포함) 이면 `--allow-invalid-certs` 자동 박제 (dev only). 우선순위 1·2 의 외부 URL 이 정식 cert 인 경우 사용자가 `--url` 뒤 별도 인자 없이도 그대로 통과 (CLI 가 SSL 검증 정상 수행).
 
 ## Step 1/2/3 흐름 (subagent caption + summary path)
 
-`/indexer` 가 **이미지 다수 포함** 폴더 색인 시 VLM caption 을 Anthropic API 직접 (`LIGHTHOUSE_VLM_API_KEY`) 대신 Claude Code subagent 로 위임하여 비용을 Claude Code subscription 으로 통합하는 path. `Apps/Promaker/Docs/todo-lighthouse-indexer-claude-caption.md` 의 채택안 (옵션 B, deferred 2-step + parallel subagent) 박제.
+**진입 조건**: §"진입 분기 결정 (SSOT)" 표의 3번째 행 — `LIGHTHOUSE_VLM_API_KEY` 미박제 + 사용자가 `--force-without-image-caption` 미명시. **Claude Code 사용자의 default path** (대다수 환경이 이에 해당).
+
+VLM caption 을 Anthropic API 직접 (`LIGHTHOUSE_VLM_API_KEY`) 대신 Claude Code subagent 로 위임하여 비용을 Claude Code subscription 으로 통합. `Apps/Promaker/Docs/todo-lighthouse-indexer-claude-caption.md` 의 채택안 (옵션 B, deferred 2-step + parallel subagent) 박제. todo §2 #3 의 lower=1 결정에 따라 **image 1장이라도** 있으면 subagent path 의무 — image 0건 폴더에서도 안전 (Step 1-b / Step 2 가 empty batch exit 0 no-op).
 
 **design (r5+)**: doc-level summary 도 subagent batch 박제 (Step 1 의 sub-step). PR-H1 zero-cost fallback (firstSentence)
 폐기 — PDF 표제지 stale 박제 결함이 design 의도 ("LLM 호출 없이 박제된 summary 박제") 를 fail 시킴. SummaryText NULL
@@ -126,8 +170,8 @@ caption-fill 보다 비용 가벼움 (doc 단위 N 작음, text dump ≤ 512KB) 
    - 각 agent prompt 안 명시:
      - text dump file path = `<folder>/.lighthouse-kb/<textDumpPath>` — **Read 도구로 read 후 처리** (전문 본문 흡수).
      - summary prompt = Step 1-b-3 의 fetch 결과 그대로 복사.
-     - 출력 형식: "summary 한 문장 (한국어 80~120자) 만. 본문 echo 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
-   - `max_output_tokens=300` 가드. parse 실패 시 per-doc max 2 attempts retry.
+     - 출력 형식: "summary 한 줄 (한국어 80~500자, 본문 분량 / 중요도에 비례) 만. 본문 echo 금지. 줄바꿈 금지. **마지막 줄은 단일 JSON line**: `{"docId":<int>,"summary":"..."}`".
+   - `max_output_tokens=800` 가드 (한국어 500자 + JSON wrapper 여유). parse 실패 시 per-doc max 2 attempts retry.
 
 5. **batch JSON 박제** — 모든 round 의 successful row 를 단일 array 로 모아 임시 파일 (e.g. `<folder>/.lighthouse-kb/summary-batch.json`).
 
@@ -182,12 +226,17 @@ caption-fill 보다 비용 가벼움 (doc 단위 N 작음, text dump ≤ 512KB) 
 ### Step 3 — upload (CLI)
 
 ```powershell
-& "<cli-path>" index "<folder>" --upload "$env:LIGHTHOUSE_URL" --title "<derived-title>"
+& "<cli-path>" index "<folder>" --upload "$env:LIGHTHOUSE_URL" --reuse-kb --title "<derived-title>"
 ```
 
-- 이 시점 `LIGHTHOUSE_VLM_API_KEY` 미박제여도 caption 이 이미 박제됨 → `--force-without-image-caption` 자동 박제 의무. 또는 별 entry (follow-up) 로 upload-only path 박제.
-- **임시**: Step 1 산출물 wipe 회피 위해, `runUpload` 가 in-place 색인을 재수행하지 않도록 별 upload-only entry 가 필요 (follow-up phase). 현재는 Step 3 진입 시 `LIGHTHOUSE_VLM_API_KEY` 가 없으면 `--force-without-image-caption` 으로 호출하여 재색인 시 caption noop → 기존 caption 보존 (DB 이미 박제).
-- summary 측은 `Documents.SummaryText` 보존 — re-index 가 fast-skip path 면 column 자연 유지. SummaryText NULL doc 만 Step 1-b 가 새로 박제.
+- **`--reuse-kb` 박제 의무** — Step 1-a 가 생성한 `<folder>/.lighthouse-kb/` 산출물 (DB + caption + summary + text dump) 을 *wipe 없이* 그대로 zip + POST. 박제 시 `runUpload` 가 `resetKbDir` + `runIngest` 건너뛰고 곧장 `summarizeReuse` + `writeMeta` + `createZip` 진입.
+- `--reuse-kb` 박제 시 captionGen / embedder 의존성 자체 dead — `LIGHTHOUSE_VLM_API_KEY` 미박제도 OK, `--force-without-image-caption` 자동 박제 의무 없음, `OLLAMA_FLASH_ATTENTION` precheck 도 skip.
+- `--title` 미지정 시 server 가 `ArgumentException: title 필수` 로 거부 (exit 99). CLI 의 default fallback 은 multipart 단계까지 도달 못 함 — skill 측에서 폴더명을 명시 박제 의무.
+- self-signed cert (default loopback URL 포함) 환경은 `--allow-invalid-certs` 자동 박제.
+
+#### 이전 결함 박제 (2026-05-27 fix)
+
+종전 본 step 호출은 `--reuse-kb` 부재로 `runUpload` 가 `Packager.resetKbDir` → `runIngest` 재수행 → DB 의 caption / summary 모두 wipe → 색인 결과의 text dump 가 `(caption 미생성)` + summary placeholder 로 박제됨 → server 측 collection 도 동일 상태 박제 결함. `--reuse-kb` 신설 (Program.fs `FlagReuseKb`, Packager.fs `summarizeReuse`) 로 wipe-free upload path 박제 + 본 SKILL Step 3 호출 갱신.
 
 ### concurrent SQLite writer 회피
 
@@ -215,8 +264,10 @@ CLI 가 **in-place 색인** — 색인 산출물은 `<folder>/.lighthouse-kb/` �
   - **hash 수준 skip**: 동일 hash 의 Document 이미 있으면 skip (`findDocumentByHash`).
   - **image caption 재활용**: `ImageCache.ImageHash` PK + `upsertImageCache` 가 `INSERT OR IGNORE` → 같은 hash 의
     image 가 다시 들어와도 기존 `CaptionText` / `CaptionModel` 절대 덮어쓰지 않음. caption 비용 재투입 0.
-- **`--upload` 경로는 여전히 wipe** — `Packager.resetKbDir` 가 marker / index.db 존재 시에만 wipe (사용자의 다른
+- **`--upload` 경로 wipe** — `Packager.resetKbDir` 가 marker / index.db 존재 시에만 wipe (사용자의 다른
   용도 동명 폴더 보호). zip 산출물의 결정성 보장 우선.
+- **`--upload --reuse-kb` 경로는 wipe 안 함** — `<folder>/.lighthouse-kb/` 의 기존 산출물 (DB + caption + summary + text dump)
+  을 그대로 zip + POST. /indexer skill 의 Step 3 default path 박제 — Step 1-b / Step 2 박제분 server 까지 전달 보장.
 - **self-ingest 방지**: `Indexer.enumerateFiles` 가 `.lighthouse-kb/` 안 파일 (DB / blob / dump 등) 을 `GetFullPath`
   normalize 비교로 제외.
 - **upload zip**: temp 위치에 만들고 업로드 완료/실패 시 즉시 정리. `.lighthouse-kb/` 는 source 안에 유지.
@@ -248,9 +299,9 @@ CLI 의 exit code SSOT (`Program.fs` D-S6-4 박제) 를 다음 메시지로 변�
 ## 사용 예
 
 ```
-/indexer F:/Git/ds2/light-house/Apps/Promaker/Docs
-/indexer ./Apps/Promaker/Docs --title "Promaker Docs"
-/indexer ./Apps/Promaker/Docs --url https://service.local:8443
+/indexer F:/Git/ds2/light-house/Apps/Promaker/Docs              # default URL = https://127.0.0.1:8443 (local service)
+/indexer ./Apps/Promaker/Docs --title "Promaker Docs"           # 동일 default URL + title override
+/indexer ./Apps/Promaker/Docs --url https://service.local:8443  # 외부 service 명시
 ```
 
 ## 비포함 (follow-up)

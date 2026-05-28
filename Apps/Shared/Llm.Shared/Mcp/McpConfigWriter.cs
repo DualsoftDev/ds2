@@ -25,9 +25,6 @@ public sealed class McpConfigWriter : IDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(McpConfigWriter));
 
-    /// <summary>Sweep 시 dead 가 아닌 alive 프로세스의 파일이 stale 로 간주되기 위한 mtime 임계 (분). dead pid 면 즉시 sweep.</summary>
-    public const int StaleMinutes = 5;
-
     public string Path { get; }
     public string ServerName { get; }
 
@@ -160,7 +157,19 @@ public sealed class McpConfigWriter : IDisposable
 
     /// <summary>
     /// %TEMP%/Promaker 의 stale `.mcp-config` 파일을 정리 (1d-5 / 결정 5.4).
-    /// 자기 WindowsSessionId 안의 파일만 + (dead pid OR mtime > StaleMinutes) 조건 — 자기 자신 (current pid) 은 절대 sweep 안 함.
+    ///
+    /// **정책 (2026-05-27 개정)**: 같은 WindowsSessionId 안의 살아있는 Promaker 인스턴스의 pid 집합을
+    /// 먼저 수집한 뒤, 그 집합에 속하지 않는 pid 의 파일만 삭제. mtime 임계 폐기 — alive 인스턴스의
+    /// idle chat (5분+ 무응답) .mcp-config 가 다른 신규 인스턴스의 startup sweep 에 의해 삭제되어
+    /// 다음 turn 의 Claude CLI spawn 이 "MCP config file not found" 로 exit=1 종료되는 회귀 차단.
+    ///
+    /// **PID reuse 보호**: `Process.GetProcessesByName("Promaker")` 결과만 alive set 에 포함하므로,
+    /// 죽은 Promaker pid 가 다른 exe (chrome, explorer 등) 로 재할당된 경우 set 미포함 → sweep.
+    ///
+    /// **자기 자신 보호**: `Environment.ProcessId` 는 ProcessName 무관 alive set 에 무조건 포함.
+    /// 실 Promaker 런타임에서는 자기도 "Promaker" 라 자연히 잡히지만 (예: dotnet test) 다른 host
+    /// 프로세스에서 호출 시에도 자기 파일 보호 보장.
+    ///
     /// 다른 session 의 파일은 건드리지 않음 (RDP / Fast User Switching 격리).
     /// Promaker 시작 시 1회 호출 (App / MainViewModel ctor).
     /// </summary>
@@ -172,25 +181,30 @@ public sealed class McpConfigWriter : IDisposable
             if (!Directory.Exists(dir)) return;
 
             var currentSessionId = Process.GetCurrentProcess().SessionId;
-            var currentPid = Environment.ProcessId;
             var pattern = $"mcp-{currentSessionId}-*.json";
-            var threshold = DateTime.UtcNow.AddMinutes(-StaleMinutes);
-            var swept = 0;
 
+            var alivePids = new HashSet<int> { Environment.ProcessId };
+            foreach (var p in Process.GetProcessesByName("Promaker"))
+            {
+                try
+                {
+                    if (p.SessionId == currentSessionId) alivePids.Add(p.Id);
+                }
+                catch { /* admin / 권한 부족 등 — 보수적 skip (해당 pid 는 sweep 대상으로 흘러가지만 alive 면 다음 startup 까지 무해 leak 1개) */ }
+                finally { p.Dispose(); }
+            }
+
+            var swept = 0;
             foreach (var path in Directory.EnumerateFiles(dir, pattern))
             {
                 if (!TryParsePidFromFileName(System.IO.Path.GetFileName(path), out var filePid)) continue;
-                if (filePid == currentPid) continue;
-
-                var dead = IsProcessDead(filePid);
-                var oldEnough = File.GetLastWriteTimeUtc(path) < threshold;
-                if (!dead && !oldEnough) continue;
+                if (alivePids.Contains(filePid)) continue;
 
                 try
                 {
                     File.Delete(path);
                     swept++;
-                    Log.Info($"McpConfigWriter sweep — {path} (pid={filePid}, dead={dead}, oldEnough={oldEnough})");
+                    Log.Info($"McpConfigWriter sweep — {path} (pid={filePid} alive set 외)");
                 }
                 catch (Exception ex)
                 {
@@ -216,22 +230,6 @@ public sealed class McpConfigWriter : IDisposable
         // ["mcp", sessionId, pid, "guid.json"]
         if (parts.Length < 4) return false;
         return int.TryParse(parts[2], out pid);
-    }
-
-    /// <summary>
-    /// m2 — Win32Exception (admin process 조회 실패 / PID reuse) 도 fail-safe 로 감쌈.
-    /// 죽은 게 확실하지 않으면 false (alive) 로 보수적 보고 → mtime 임계로 자연 sweep.
-    /// </summary>
-    private static bool IsProcessDead(int pid)
-    {
-        try
-        {
-            using var _ = Process.GetProcessById(pid);
-            return false;
-        }
-        catch (ArgumentException) { return true; }
-        catch (InvalidOperationException) { return true; }
-        catch (Exception) { return false; }
     }
 
 }

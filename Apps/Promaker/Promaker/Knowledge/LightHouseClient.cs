@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -35,10 +37,18 @@ public sealed class LightHouseClient : IDisposable
     private static readonly ILog Log = LogManager.GetLogger(typeof(LightHouseClient));
 
     private readonly HttpClient _http;
-    private readonly Func<string?> _pskProvider;
+    /// <summary>**B8 (2026-05-27)** — PSK provider. SecureString 정공 path. string overload ctor 는 wrapper 로 자체 변환.</summary>
+    private readonly Func<SecureString?> _pskProvider;
     private readonly string _userIdentity;
     private readonly Func<IReadOnlyList<string>>? _activeCollectionIdsProvider;
     private readonly bool _ownsHttp;
+
+    // **B1 (2026-05-27)** — app session token pooling. ExecuteWithSessionRetryAsync 가 매 op 마다 신규 발급하던
+    // 이전 동작 (LightHouseClient.cs:573 의 unconditional RecoverSessionAsync) 을 cached token 우선으로 변경.
+    // service 측 session storm (fan-out N×op) 차단 + 발급 latency 절감. 무효화 = 401/403 시 lock 안에서 동일 token
+    // match 후 clear (race window 차단). server 측 sessionIdleTtlMinutes 만료 시 410/401 응답 → 자동 재발급.
+    private string? _cachedAppSessionToken;
+    private readonly SemaphoreSlim _appSessionLock = new(1, 1);
 
     /// <summary>
     /// **D-S7-5 phase 3 (s6-r67)** — chunked path 자동 선택 임계값 SSOT. 본 값 초과 zip 은 caller (AttachmentIngestService)
@@ -49,6 +59,9 @@ public sealed class LightHouseClient : IDisposable
     /// 본 const 만 변경 — caller 박제 단순 유지.
     /// </summary>
     public const long ResumableUploadThresholdBytes = 256L * 1024L * 1024L;
+
+    /// <summary>BaseAddress 의 URL 문자열 (trailing slash 제거). LightHouseTools 의 serviceName 표시 등 진단 용.</summary>
+    public string BaseUrl { get; }
 
     /// <summary>
     /// JSON 직렬화 옵션 SSOT — body 의 camelCase 정합 (service 의 §3.3.1 / Registry / SessionEndpoints 와 같은 convention).
@@ -65,7 +78,7 @@ public sealed class LightHouseClient : IDisposable
     /// `LightHouseServiceConfig.BaseUrl` 가 HTTPS 가 아니면 ArgumentException (§3.7 plain HTTP 거부).
     /// </summary>
     /// <param name="baseUrl">HTTPS URL (e.g. "https://service.company.local:8443").</param>
-    /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생).</param>
+    /// <param name="pskProvider">매 요청 시 호출 — DPAPI 복호화된 평문 PSK 반환. null = 인증 불가 (401 의도적 발생). <b>B8 (2026-05-27): managed string path 는 heap 평문 잔존 risk — 신규 caller 는 SecureString overload 권장.</b></param>
     /// <param name="userIdentity">`X-User-Identity` 헤더 값. 일반 = `Environment.UserName` 또는 LlmConfig 의 user 식별자.</param>
     /// <param name="activeCollectionIdsProvider">L3 자동 회복 시 재발급에 사용할 active 셋. null = 회복 비활성.</param>
     /// <param name="clientCertThumbprint">**B5 D-S7-1 후속 (s6-r61)** — mTLS client cert thumbprint (SHA-1 40 / SHA-256 64 hex). null/빈 값 = PSK 단독.</param>
@@ -75,7 +88,22 @@ public sealed class LightHouseClient : IDisposable
         string userIdentity,
         Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null,
         string? clientCertThumbprint = null)
-        : this(BuildHttp(baseUrl, clientCertThumbprint), pskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
+        : this(BuildHttp(baseUrl, clientCertThumbprint), WrapStringProvider(pskProvider), userIdentity, activeCollectionIdsProvider, ownsHttp: true)
+    {
+    }
+
+    /// <summary>
+    /// **B8 (2026-05-27) — SecureString 정공 production ctor**. caller (LightHouseClientHolder) 가
+    /// <see cref="LlmConfig.GetLightHousePskSecure"/> 직접 박제 → 본 client 가 매 NewRequest 시점에 SecureString → 1회
+    /// string 변환 (local var, GC 즉시) → AuthenticationHeaderValue. heap 평문 lifetime 최소화 정공 path.
+    /// </summary>
+    public LightHouseClient(
+        string baseUrl,
+        Func<SecureString?> securePskProvider,
+        string userIdentity,
+        Func<IReadOnlyList<string>>? activeCollectionIdsProvider = null,
+        string? clientCertThumbprint = null)
+        : this(BuildHttp(baseUrl, clientCertThumbprint), securePskProvider, userIdentity, activeCollectionIdsProvider, ownsHttp: true)
     {
     }
 
@@ -89,6 +117,17 @@ public sealed class LightHouseClient : IDisposable
         string userIdentity,
         Func<IReadOnlyList<string>>? activeCollectionIdsProvider,
         bool ownsHttp)
+        : this(httpClient, WrapStringProvider(pskProvider), userIdentity, activeCollectionIdsProvider, ownsHttp)
+    {
+    }
+
+    /// <summary>**B8 (2026-05-27)** — SecureString provider 진입점 ctor. string overload 는 본 ctor 위임. test 친화 (mock handler 박제 + SecureString PSK 직접 박제).</summary>
+    internal LightHouseClient(
+        HttpClient httpClient,
+        Func<SecureString?> securePskProvider,
+        string userIdentity,
+        Func<IReadOnlyList<string>>? activeCollectionIdsProvider,
+        bool ownsHttp)
     {
         if (httpClient is null) throw new ArgumentNullException(nameof(httpClient));
         if (httpClient.BaseAddress is null)
@@ -98,7 +137,8 @@ public sealed class LightHouseClient : IDisposable
                 $"BaseAddress 가 HTTPS 가 아님 — {httpClient.BaseAddress} (plain HTTP 거부, §3.7).", nameof(httpClient));
 
         _http = httpClient;
-        _pskProvider = pskProvider ?? throw new ArgumentNullException(nameof(pskProvider));
+        BaseUrl = httpClient.BaseAddress!.ToString().TrimEnd('/');
+        _pskProvider = securePskProvider ?? throw new ArgumentNullException(nameof(securePskProvider));
         _userIdentity = string.IsNullOrWhiteSpace(userIdentity)
             ? throw new ArgumentException("userIdentity 빈 값 금지 (§3.7 X-User-Identity 헤더 의무).", nameof(userIdentity))
             : userIdentity;
@@ -187,26 +227,63 @@ public sealed class LightHouseClient : IDisposable
     public void Dispose()
     {
         if (_ownsHttp) _http.Dispose();
+        // **B7 (2026-05-27)** — SemaphoreSlim 명시 dispose (CA2213 / IDISP004 정공화). idempotent — double-dispose 안전.
+        // SSE loop 의 _mcpInitLock 사용은 LightHouseClientHolder.DisposeAllAsync 가 SSE cancel + Wait 후 본 Dispose 호출
+        // 정합으로 race 차단 (StopSseLoop 의 3초 Wait 가 SSE catch 의 Task.Delay 종료까지 확보).
+        _appSessionLock.Dispose();
+        _mcpInitLock.Dispose();
     }
 
     /// <summary>현재 PSK / X-User-Identity 헤더를 박제한 HttpRequestMessage 빌더. 매 호출마다 호출.
     /// <para/>
-    /// **B6 (M9 보안 sweep, s6-r71+)** — PSK 평문 lifetime 최소화. `pskProvider` 결과를 local var 로 받은 즉시
-    /// `AuthenticationHeaderValue` 박제 후 local var `null` 박제 → method scope 종료와 별개로 즉시 GC root 해제.
-    /// string immutable + intern pool 이라 zero-fill 강제 불가 (`SecureString` 은 .NET Core deprecated) — 본 fix 는
-    /// defense-in-depth 만, process dump 시점 string 잔존 시간 단축. 근본 해소는 `LlmConfig.GetLightHousePsk` 의
-    /// signature 를 `byte[]` 로 변경하는 별 phase 의무 박제 (caller 다수 영향).
+    /// **B8 (2026-05-27) — SecureString 정공 path**. `_pskProvider` 가 SecureString 반환 → 본 메서드가 즉시
+    /// `Marshal.SecureStringToGlobalAllocUnicode` → `PtrToStringUni` 로 1회 변환 후 `AuthenticationHeaderValue` 박제 →
+    /// local var 즉시 null + `ZeroFreeGlobalAllocUnicode` 로 unmanaged buffer wipe. heap 평문 lifetime = 본 메서드 scope.
+    /// 단 `AuthenticationHeaderValue.Parameter` 의 string 은 HttpClient 가 보유 — wire 전송 후 GC 시점까지 잔존
+    /// (HttpClient internal 한계, SecureString 으로 wire 전송 불가).
     /// </summary>
     private HttpRequestMessage NewRequest(HttpMethod method, string relativeUri)
     {
         var req = new HttpRequestMessage(method, relativeUri);
-        var psk = _pskProvider();
-        if (!string.IsNullOrEmpty(psk))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", psk);
-        // M9 — 평문 PSK reference 즉시 해제 (GC root 단축). string 자체는 internal char[] 잔존 가능, defense-in-depth 만.
-        psk = null;
+        AttachBearerHeader(req);
         req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
         return req;
+    }
+
+    /// <summary>**B8 자가 검열 m1 fix (2026-05-27)** — NewRequest / AddCommonHeaders 의 SecureString → 1회 string 변환 SSOT.
+    /// `_pskProvider` 가 null/빈 SecureString 반환 시 Authorization 헤더 생략. heap 평문 lifetime = 본 helper scope.</summary>
+    private void AttachBearerHeader(HttpRequestMessage req)
+    {
+        using var securePsk = _pskProvider();
+        if (securePsk is null || securePsk.Length == 0) return;
+        IntPtr ptr = IntPtr.Zero;
+        try
+        {
+            ptr = Marshal.SecureStringToGlobalAllocUnicode(securePsk);
+            var pskPlain = Marshal.PtrToStringUni(ptr) ?? "";
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", pskPlain);
+            pskPlain = null;  // local var GC root 단축 — HttpClient 가 헤더 박제한 string instance 는 별개 (HttpClient internal 한계).
+        }
+        finally
+        {
+            if (ptr != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    /// <summary>**B8 (2026-05-27)** — 기존 `Func&lt;string?&gt;` PSK provider 를 `Func&lt;SecureString?&gt;` 로 변환. string overload
+    /// caller 호환 — 단 string 자체는 caller scope 에 잔존 (immutable). 신규 caller 는 SecureString overload 직접 사용 권장.</summary>
+    private static Func<SecureString?> WrapStringProvider(Func<string?> stringProvider)
+    {
+        if (stringProvider is null) throw new ArgumentNullException(nameof(stringProvider));
+        return () =>
+        {
+            var s = stringProvider();
+            if (string.IsNullOrEmpty(s)) return null;
+            var ss = new SecureString();
+            foreach (var ch in s) ss.AppendChar(ch);
+            ss.MakeReadOnly();
+            return ss;
+        };
     }
 
     /// <summary>
@@ -306,6 +383,209 @@ public sealed class LightHouseClient : IDisposable
             ?? throw new LightHouseProtocolException("POST /sessions response body 빈 값.");
     }
 
+    // ─── MCP JSON-RPC over Streamable HTTP (Plan B wrapper, 2026-05-27) ────────────────────
+    //
+    // **배경**: Anthropic Claude CLI 의 mcp HTTP/SSE transport 는 OAuth 2.1 path 강제 (`_authThenStart`)
+    // — 우리 service 의 단순 Bearer PSK 와 fundamental mismatch. Claude CLI 가 lighthouse mcp 에
+    // 직접 연결 불가. 대신 Promaker 자체 MCP host (`mcp__promaker__*`) 의 wrapper 도구 6종 (lighthouse_*)
+    // 이 본 메서드로 lighthouse 의 attachment_* 6종을 호출 + fan-out + result merge.
+    //
+    // **wire 형식**: POST /mcp + Bearer PSK + X-LightHouse-Session(app session) + Mcp-Session-Id(mcp session,
+    // initialize 후 발급). 요청 body = JSON-RPC. 응답 = `text/event-stream` 형식의 single event
+    // (`event: message\ndata: <JSON>\n\n`). data line 의 JSON 이 jsonrpc result/error.
+    //
+    // **lifecycle**: 첫 호출 시 `initialize` request 1회 → response header 의 `Mcp-Session-Id` 캡처 후
+    // 본 client instance lifetime 동안 재사용. service 측 mcp session expire / 400 응답 시 caller 가
+    // ResetMcpSession() 으로 재 init 강제. 동시성 = init 단계 lock 으로 idempotent.
+
+    // **메타리뷰 CR3 (2026-05-27)** — _mcpSessionId 의 read/write 는 _mcpInitLock 안에서만 mutate.
+    // CallMcpToolAsync 의 expire reset 도 lock 내부에서 처리 → fan-out parallel 시 silent corruption 차단.
+    // volatile 만으로는 set-after-check race 차단 불충분 (read after set 이 stale return 가능) — lock 강제.
+    private string? _mcpSessionId;
+    private readonly SemaphoreSlim _mcpInitLock = new(1, 1);
+    private int _mcpRequestId;  // JSON-RPC id 발급 (Interlocked).
+
+    /// <summary>
+    /// LightHouseService 의 `/mcp` endpoint 에 JSON-RPC tools/call 호출. mcp session 자동 초기화.
+    /// 401/403 = caller (LightHouseTools wrapper) 가 ExecuteWithSessionRetryAsync 로 wrap 권장.
+    /// </summary>
+    /// <param name="appSessionToken">X-LightHouse-Session 헤더 값 (app session, CreateSessionAsync 결과).</param>
+    /// <param name="toolName">attachment_list / attachment_search / attachment_outline / attachment_read / attachment_fulltext / attachment_summary.</param>
+    /// <param name="arguments">tool arguments (null = `{}`). JsonSerializer.Serialize 로 JSON 변환.</param>
+    /// <param name="ct">caller CancellationToken.</param>
+    /// <returns>JSON-RPC result 의 `content` 배열 첫 text item (mcp 표준 — tool 응답은 `{content:[{type:"text", text:"<json>"}]}` 형식).</returns>
+    /// <exception cref="LightHouseProtocolException">mcp session 발급 실패, SSE parse 실패, JSON-RPC error 응답 등.</exception>
+    /// <exception cref="LightHouseAuthException">401/403 응답.</exception>
+    public async Task<string> CallMcpToolAsync(
+        string appSessionToken,
+        string toolName,
+        object? arguments,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(appSessionToken)) throw new ArgumentException("appSessionToken 필수.", nameof(appSessionToken));
+        if (string.IsNullOrWhiteSpace(toolName)) throw new ArgumentException("toolName 필수.", nameof(toolName));
+
+        await EnsureMcpInitializedAsync(appSessionToken, ct).ConfigureAwait(false);
+
+        var id = Interlocked.Increment(ref _mcpRequestId);
+        var rpcBody = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            method = "tools/call",
+            id,
+            @params = new { name = toolName, arguments = arguments ?? new { } },
+        }, JsonOptions);
+
+        var (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
+
+        // **메타리뷰 CR3 (2026-05-27)** — mcp session expire 분기 확장:
+        //   (a) 400 + body 의 "session" 휴리스틱 (기존)
+        //   (b) 401/403 (app session expire 와 동일 status 사용, mcp session 도 같이 stale 가능)
+        //   (c) 404 (server 측 session not found 응답 가능)
+        // 위 셋 중 하나라도 적중하면 mcp session reset + 1회만 retry. retry 후에도 동일 401/403 = outer
+        // ExecuteWithSessionRetryAsync 가 app session 재발급 후 1회 더 → 그래도 fail = 실 인증 결함.
+        var shouldRetryMcp =
+            (statusCode == HttpStatusCode.BadRequest && body.Contains("session", StringComparison.OrdinalIgnoreCase))
+            || statusCode == HttpStatusCode.Unauthorized
+            || statusCode == HttpStatusCode.Forbidden
+            || statusCode == HttpStatusCode.NotFound;
+        if (shouldRetryMcp)
+        {
+            Log.Info($"CallMcpToolAsync({toolName}): mcp session reset 후 1회 retry (status={(int)statusCode}).");
+            await _mcpInitLock.WaitAsync(ct).ConfigureAwait(false);
+            try { _mcpSessionId = null; } finally { _mcpInitLock.Release(); }
+            await EnsureMcpInitializedAsync(appSessionToken, ct).ConfigureAwait(false);
+            (statusCode, contentType, body) = await SendMcpAsync(appSessionToken, rpcBody, ct).ConfigureAwait(false);
+        }
+
+        if (statusCode == HttpStatusCode.Unauthorized || statusCode == HttpStatusCode.Forbidden)
+            throw new LightHouseAuthException($"POST /mcp tools/call({toolName}) {(int)statusCode}", statusCode);
+        if (!((int)statusCode >= 200 && (int)statusCode < 300))
+            throw new LightHouseProtocolException($"POST /mcp tools/call({toolName}) {(int)statusCode}: {Truncate(body, 200)}");
+
+        var jsonPayload = ParseSseData(body, contentType);
+        using var doc = JsonDocument.Parse(jsonPayload);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var err))
+        {
+            var msg = err.TryGetProperty("message", out var m) ? m.GetString() : err.GetRawText();
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) JSON-RPC error: {msg}");
+        }
+        // mcp tool 응답 표준 = { content: [{ type:"text", text:"<JSON 문자열>" }] }
+        if (!root.TryGetProperty("result", out var result))
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) result 누락: {Truncate(jsonPayload, 200)}");
+        if (!result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array || content.GetArrayLength() == 0)
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) content 빈 값.");
+        var firstItem = content[0];
+        if (!firstItem.TryGetProperty("text", out var textEl))
+            throw new LightHouseProtocolException($"mcp tools/call({toolName}) content[0].text 누락.");
+        return textEl.GetString() ?? "";
+    }
+
+    /// <summary>caller (e.g. LightHouseTools wrapper) 가 mcp session 강제 reset. lock 보호 (CR3, 2026-05-27).</summary>
+    public void ResetMcpSession()
+    {
+        _mcpInitLock.Wait();
+        try { _mcpSessionId = null; } finally { _mcpInitLock.Release(); }
+    }
+
+    private async Task EnsureMcpInitializedAsync(string appSessionToken, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(_mcpSessionId)) return;
+        await _mcpInitLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!string.IsNullOrEmpty(_mcpSessionId)) return;  // double-check
+            var initBody = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                method = "initialize",
+                id = Interlocked.Increment(ref _mcpRequestId),
+                @params = new
+                {
+                    protocolVersion = "2025-03-26",
+                    capabilities = new { },
+                    clientInfo = new { name = "Promaker.LightHouseTools", version = "1.0" },
+                }
+            }, JsonOptions);
+
+            // initialize 는 Mcp-Session-Id 없이 호출, 응답 header 에서 capture.
+            using var req = new HttpRequestMessage(HttpMethod.Post, "mcp");
+            AddCommonHeaders(req, appSessionToken, mcpSessionId: null);
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            req.Content = new StringContent(initBody, System.Text.Encoding.UTF8, "application/json");
+
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var b = await SafeReadAsString(resp.Content, ct).ConfigureAwait(false);
+                throw new LightHouseProtocolException($"mcp initialize {(int)resp.StatusCode}: {Truncate(b, 200)}");
+            }
+            if (!resp.Headers.TryGetValues("Mcp-Session-Id", out var values))
+                throw new LightHouseProtocolException("mcp initialize 응답에 Mcp-Session-Id 헤더 누락.");
+            _mcpSessionId = values.FirstOrDefault();
+            if (string.IsNullOrEmpty(_mcpSessionId))
+                throw new LightHouseProtocolException("Mcp-Session-Id 헤더 값이 빈 문자열.");
+            Log.Debug($"mcp session initialized — sid={_mcpSessionId[..Math.Min(8, _mcpSessionId.Length)]}…");
+        }
+        finally
+        {
+            _mcpInitLock.Release();
+        }
+    }
+
+    private async Task<(HttpStatusCode statusCode, string? contentType, string body)> SendMcpAsync(
+        string appSessionToken, string jsonRpcBody, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "mcp");
+        AddCommonHeaders(req, appSessionToken, mcpSessionId: _mcpSessionId);
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        req.Content = new StringContent(jsonRpcBody, System.Text.Encoding.UTF8, "application/json");
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var body = await SafeReadAsString(resp.Content, ct).ConfigureAwait(false);
+        return (resp.StatusCode, resp.Content.Headers.ContentType?.MediaType, body);
+    }
+
+    private void AddCommonHeaders(HttpRequestMessage req, string appSessionToken, string? mcpSessionId)
+    {
+        AttachBearerHeader(req);
+        req.Headers.Add(Ds2.LightHouse.Protocol.HeaderNames.UserIdentity, _userIdentity);
+        req.Headers.Add("X-LightHouse-Session", appSessionToken);
+        if (!string.IsNullOrEmpty(mcpSessionId))
+            req.Headers.Add("Mcp-Session-Id", mcpSessionId);
+        // **메타리뷰 m1 (2026-05-27)** — psk = null 박제 무의미 (managed string intern + GC 잔존). 위 NewRequest 의 동일 패턴 정정 별 phase (전체 chain SecureString 박제와 묶음).
+    }
+
+    /// <summary>response body read 헬퍼. **메타리뷰 M7 (2026-05-27)** — silent catch 폐기:
+    /// OCE 는 rethrow (cancel 의도 보존), 그 외 IO/encoding 사고는 Log.Warn 후 빈 string (status code 가 SSOT).</summary>
+    private static async Task<string> SafeReadAsString(HttpContent content, CancellationToken ct)
+    {
+        try { return await content.ReadAsStringAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log.Warn($"SafeReadAsString 실패 ({ex.GetType().Name}: {ex.Message}) — empty body 반환, status code 가 SSOT.");
+            return "";
+        }
+    }
+
+    /// <summary>SSE single event body 에서 `data: ` line 의 JSON payload 추출. 단순 JSON 응답이면 그대로 반환.</summary>
+    private static string ParseSseData(string body, string? contentType)
+    {
+        if (contentType is null || contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+            return body;
+        // text/event-stream — `event: message\ndata: <JSON>\n\n` 형식. data line 만 추출.
+        var dataLines = body.Split('\n')
+            .Where(l => l.StartsWith("data:", StringComparison.Ordinal))
+            .Select(l => l.Substring(5).TrimStart());
+        var joined = string.Join("", dataLines);
+        if (string.IsNullOrWhiteSpace(joined))
+            throw new LightHouseProtocolException($"SSE body 에서 data line 추출 실패: {Truncate(body, 200)}");
+        return joined;
+    }
+
     /// <summary>`DELETE /sessions/{token}` — 명시 해제 (L2-1).</summary>
     public async Task DeleteSessionAsync(string token, CancellationToken ct = default)
     {
@@ -359,11 +639,11 @@ public sealed class LightHouseClient : IDisposable
             throw new InvalidOperationException(
                 "activeCollectionIdsProvider 미설정 — L3 자동 회복 비활성 (LightHouseClient ctor 시 박제 필요).");
 
-        // 첫 token 발급.
-        var sess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+        // **B1 (2026-05-27)** — cached token 우선. 미존재 시 lock 안에서 1회만 발급 (fan-out N concurrent op 의 storm 차단).
+        var token = await EnsureAppSessionTokenAsync(ct).ConfigureAwait(false);
         try
         {
-            return await operation(sess.Token, ct).ConfigureAwait(false);
+            return await operation(token, ct).ConfigureAwait(false);
         }
         // 자가 검열 M2: caller 의 cancellation 의도는 retry 우선 — OCE 는 retry 진입 차단 후 그대로 전파.
         catch (OperationCanceledException)
@@ -372,12 +652,15 @@ public sealed class LightHouseClient : IDisposable
         }
         catch (LightHouseAuthException firstFail)
         {
-            // 1회 retry — 새 session 발급 후 재시도. CR6 L3 sweet spot.
-            Log.Warn($"session-bound op 401/403 — retry 1회 (status={firstFail.StatusCode}).");
-            SessionCreateResponse retrySess;
+            // **B1 (2026-05-27)** — 401/403 = cached token stale 가능성. 동일 token match 시 무효화 + mcp session reset,
+            // 그 후 신규 token 발급 후 1회 retry. CR6 L3 sweet spot.
+            Log.Warn($"session-bound op 401/403 — token 무효화 후 retry 1회 (status={firstFail.StatusCode}).");
+            await InvalidateAppSessionTokenAsync(token, ct).ConfigureAwait(false);
+            ResetMcpSession();
+            string retryToken;
             try
             {
-                retrySess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+                retryToken = await EnsureAppSessionTokenAsync(ct).ConfigureAwait(false);
             }
             catch (LightHouseAuthException recoverFail)
             {
@@ -386,8 +669,40 @@ public sealed class LightHouseClient : IDisposable
                     $"L3 retry 의 RecoverSession 자체 실패 (PSK 결함 의심) — first={firstFail.Message} recover={recoverFail.Message}",
                     recoverFail.StatusCode);
             }
-            return await operation(retrySess.Token, ct).ConfigureAwait(false);
+            return await operation(retryToken, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>**B1 (2026-05-27)** — cached app session token 반환. 미존재 시 lock 안에서 RecoverSessionAsync 1회만 호출.
+    /// concurrent op N개가 동시 진입해도 첫 진입자가 발급, 나머지는 cached token 재사용 (lock 내 double-check).</summary>
+    private async Task<string> EnsureAppSessionTokenAsync(CancellationToken ct)
+    {
+        var cached = _cachedAppSessionToken;
+        if (!string.IsNullOrEmpty(cached)) return cached;
+
+        await _appSessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // lock 진입 전 다른 task 가 발급 완료했을 가능성 — double-check.
+            if (!string.IsNullOrEmpty(_cachedAppSessionToken)) return _cachedAppSessionToken!;
+            var sess = await RecoverSessionAsync(ct).ConfigureAwait(false);
+            _cachedAppSessionToken = sess.Token;
+            return sess.Token;
+        }
+        finally { _appSessionLock.Release(); }
+    }
+
+    /// <summary>**B1 (2026-05-27)** — stale token 무효화. 동일 token 이 캐시에 박제된 경우만 clear — 다른 concurrent
+    /// op 가 이미 신규 발급한 token 을 덮어쓰지 않도록 race window 차단.</summary>
+    private async Task InvalidateAppSessionTokenAsync(string staleToken, CancellationToken ct)
+    {
+        await _appSessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (string.Equals(_cachedAppSessionToken, staleToken, StringComparison.Ordinal))
+                _cachedAppSessionToken = null;
+        }
+        finally { _appSessionLock.Release(); }
     }
 
     private static async Task EnsureSuccessOrThrow(HttpResponseMessage resp, string operation, CancellationToken ct)

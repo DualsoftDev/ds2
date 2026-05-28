@@ -129,7 +129,74 @@ Tag,VariableComment,"IX_UNIT_START_RS",P00020,"BIT",,"done"
     Assert.Equal(SymbolDirection.Output, result.Entries.[0].Direction)
 
 [<Fact>]
+let ``LS 한글 헤더 10컬럼 로컬변수 CSV parse — 컬럼명(변수/메모리 할당)으로 인식`` () =
+    // XG5000 한글 UI export 의 로컬 변수 형태(10컬럼). 영문 헤더와 데이터는 동일하나
+    // 헤더만 한글이라 과거엔 "layout not recognized" 로 0건 파싱되던 회귀 케이스.
+    let csv = String.concat "\n" [
+        "변수 종류,변수,타입,메모리 할당,초기값,리테인,사용 유무,EIP/OPC UA,HMI,비고"
+        "VAR_EXTERNAL,QX_AutoMode_O,BOOL,%QX0.0.7,,0,1,0,0,오토 램프"
+        "VAR_EXTERNAL,IX_AutoSel_I,BOOL,%IX0.0.0,,0,1,0,0,오토 선택"
+    ]
+    let result = CsvParser.parse XGK csv
+    Assert.Equal(2, result.Entries.Length)
+    Assert.Equal("QX_AutoMode_O", result.Entries.[0].Name)
+    Assert.Equal("%QX0.0.7", result.Entries.[0].Address)
+    Assert.Equal("오토 램프", result.Entries.[0].Comment)
+    Assert.Equal(SymbolDirection.Output, result.Entries.[0].Direction)
+    Assert.Equal(SymbolDirection.Input, result.Entries.[1].Direction)
+
+[<Fact>]
+let ``LS 한글 헤더 12컬럼 글로벌변수 CSV parse — 설명문 컬럼 Comment 인식`` () =
+    // 글로벌 변수 형태(12컬럼): EIP/OPC UA 가 두 컬럼, 모션 컬럼 추가, Comment="설명문".
+    let csv = String.concat "\n" [
+        "변수 종류,변수,타입,메모리 할당,초기값,리테인,사용 유무,EIP,OPC UA,HMI,모션,설명문"
+        "VAR_GLOBAL,QX_ROBOT_START_O,BOOL,%QX0.1.0,,1,0,0,0,0,0,로봇 기동"
+    ]
+    let result = CsvParser.parse XG5000 csv
+    Assert.Equal(1, result.Entries.Length)
+    Assert.Equal("QX_ROBOT_START_O", result.Entries.[0].Name)
+    Assert.Equal("%QX0.1.0", result.Entries.[0].Address)
+    Assert.Equal("로봇 기동", result.Entries.[0].Comment)
+
+[<Fact>]
 let ``vendor dispatch — AB 는 미구현 warning 만`` () =
     let result = CsvParser.parse AB "anything"
     Assert.Empty(result.Entries)
     Assert.NotEmpty(result.Warnings)
+
+// ── inferVendorFromText: 파일 선택 시 드롭다운 자동 선택용 추론 ──────────────
+
+[<Fact>]
+let ``inferVendor — XML 은 XG5000`` () =
+    let xml = "<?xml version=\"1.0\"?>\n<SymbolTable><Symbol Var=\"%IX0.0.0\" Name=\"A\"/></SymbolTable>"
+    Assert.Equal(Some XG5000, CsvParser.inferVendorFromText xml)
+
+[<Fact>]
+let ``inferVendor — XGK 리마크/컬럼 (Scope+Property)`` () =
+    let csv = "Remark,CPU Type=XGK-CPUE\nType,Scope,Variable,Address,DataType,Property,Comment\nTag,VariableComment,\"QX_A\",P00104,\"BIT\",,\"c\""
+    Assert.Equal(Some XGK, CsvParser.inferVendorFromText csv)
+
+[<Fact>]
+let ``inferVendor — XGK 리마크 없어도 Scope+Property 로 인식`` () =
+    let csv = "Type,Scope,Variable,Address,DataType,Property,Comment\nTag,VariableComment,\"QX_A\",P00104,\"BIT\",,\"c\""
+    Assert.Equal(Some XGK, CsvParser.inferVendorFromText csv)
+
+[<Fact>]
+let ``inferVendor — XGB (HMI+Use+Device)`` () =
+    let csv = "Name,Type,Device,Use,HMI,Description\nQX_A,BIT,P00105,1,0,out"
+    Assert.Equal(Some XGB, CsvParser.inferVendorFromText csv)
+
+[<Fact>]
+let ``inferVendor — XG5000 한글 CSV (메모리 할당)`` () =
+    let csv = "변수 종류,변수,타입,메모리 할당,초기값,리테인,사용 유무,EIP/OPC UA,HMI,비고\nVAR_EXTERNAL,QX_A,BOOL,%QX0.0.7,,0,1,0,0,램프"
+    Assert.Equal(Some XG5000, CsvParser.inferVendorFromText csv)
+
+[<Fact>]
+let ``inferVendor — Mitsubishi (tab + Device Name)`` () =
+    let csv = "\"Title\"\n\"Device Name\"\t\"Comment\"\n\"X0\"\t\"ready\""
+    Assert.Equal(Some Mitsubishi, CsvParser.inferVendorFromText csv)
+
+[<Fact>]
+let ``inferVendor — 인식 불가 시 None`` () =
+    Assert.Equal(None, CsvParser.inferVendorFromText "foo,bar,baz\n1,2,3")
+    Assert.Equal(None, CsvParser.inferVendorFromText "")

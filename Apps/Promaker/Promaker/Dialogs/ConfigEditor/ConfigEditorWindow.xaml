@@ -401,7 +401,8 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <TabItem Header="XGK 슬롯" Style="{StaticResource TabItemStyle}">
+                <TabItem Header="XGK 슬롯" Style="{StaticResource TabItemStyle}"
+                         Visibility="{Binding XgkTabVisibility}">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="12">
                             <Border Style="{StaticResource PanelCardStyle}">

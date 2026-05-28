@@ -1947,60 +1947,103 @@ module ModelProtocol =
         | _ -> ()
 
         // patch.arrows.add / patch.arrows.remove — SSOT §2.6 / §3.4 (Critical 1 fix)
+        // 두 dispatcher 의 outer + middle loop (in/entries/findFlowByPath/extractArrowString/parseArrowSpec/resolveWork)
+        // 골격을 iterFlowArrowEntries helper 로 통합. add 는 spec.TypeRaw 필수, remove 는 옵션 분기 (callback 안 위치).
+        let iterFlowArrowEntries
+            (sectionTag: string)
+            (listEl: JsonElement)
+            (onSpec: string -> Flow -> string -> ArrowSpec -> (string -> Guid option) -> unit) =
+            let mutable aIdx = 0
+            for entry in listEl.EnumerateArray() do
+                let path = sprintf "patch.arrows.%s[%d]" sectionTag aIdx
+                let inPath = tryProp entry "in" |> Option.bind tryString
+                let entriesEl = tryProp entry "entries"
+                match inPath, entriesEl with
+                | None, _ -> ctx.Diagnostics.Add(path, "'in' 키 누락 (Flow path 필요).")
+                | _, None -> ctx.Diagnostics.Add(path, "'entries' 키 누락 (arrow 표기 list 필요).")
+                | Some flowPath, Some entries when entries.ValueKind = JsonValueKind.Array ->
+                    match findFlowByPath ctx.Store flowPath with
+                    | None -> ctx.Diagnostics.Add(path, sprintf "Flow '%s' 가 store 에 없습니다." flowPath)
+                    | Some flow ->
+                        let resolveWork (rawName: string) : Guid option =
+                            Queries.worksOf flow.Id ctx.Store
+                            |> List.tryFind (fun w -> w.LocalName = normalizePath rawName)
+                            |> Option.map (fun w -> w.Id)
+                        let mutable eIdx = 0
+                        for arrEl in entries.EnumerateArray() do
+                            let entryPath = sprintf "%s.entries[%d]" path eIdx
+                            match extractArrowString arrEl with
+                            | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
+                            | Ok raw ->
+                                match parseArrowSpec raw with
+                                | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
+                                | Ok spec -> onSpec flowPath flow entryPath spec resolveWork
+                            eIdx <- eIdx + 1
+                | _ -> ctx.Diagnostics.Add(path, "'entries' 가 array 가 아닙니다.")
+                aIdx <- aIdx + 1
+
         match tryProp patchEl "arrows" with
         | Some arrowsEl when arrowsEl.ValueKind = JsonValueKind.Object ->
-            // arrows.add — Flow 단위 entries
+            // arrows.add — Flow 단위 entries. spec.TypeRaw 필수.
             match tryProp arrowsEl "add" with
             | Some addList when addList.ValueKind = JsonValueKind.Array ->
-                let mutable aIdx = 0
-                for entry in addList.EnumerateArray() do
-                    let path = sprintf "patch.arrows.add[%d]" aIdx
-                    let inPath = tryProp entry "in" |> Option.bind tryString
-                    let entriesEl = tryProp entry "entries"
-                    match inPath, entriesEl with
-                    | None, _ -> ctx.Diagnostics.Add(path, "'in' 키 누락 (Flow path 필요).")
-                    | _, None -> ctx.Diagnostics.Add(path, "'entries' 키 누락 (arrow 표기 list 필요).")
-                    | Some flowPath, Some entries when entries.ValueKind = JsonValueKind.Array ->
-                        match findFlowByPath ctx.Store flowPath with
-                        | None -> ctx.Diagnostics.Add(path, sprintf "Flow '%s' 가 store 에 없습니다." flowPath)
-                        | Some flow ->
-                            let mutable eIdx = 0
-                            for arrEl in entries.EnumerateArray() do
-                                let entryPath = sprintf "%s.entries[%d]" path eIdx
-                                match extractArrowString arrEl with
-                                | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
-                                | Ok raw ->
-                                    match parseArrowSpec raw with
-                                    | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
-                                    | Ok spec ->
-                                        match spec.TypeRaw with
-                                        | None -> ctx.Diagnostics.Add(entryPath, "type 누락. '<from> -> <to> : <Type>' 형식 사용.")
-                                        | Some tRaw ->
-                                            match parseArrowType tRaw with
-                                            | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
-                                            | Ok aType ->
-                                                let resolveWork (rawName: string) : Guid option =
-                                                    Queries.worksOf flow.Id ctx.Store
-                                                    |> List.tryFind (fun w -> w.LocalName = normalizePath rawName)
-                                                    |> Option.map (fun w -> w.Id)
-                                                match resolveWork spec.FromRaw, resolveWork spec.ToRaw with
-                                                | Some s, Some t ->
-                                                    try
-                                                        ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                                    with ex -> ctx.Diagnostics.Add(entryPath, ex.Message)
-                                                | None, _ -> ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.FromRaw flowPath)
-                                                | _, None -> ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.ToRaw flowPath)
-                                eIdx <- eIdx + 1
-                    | _ -> ctx.Diagnostics.Add(path, "'entries' 가 array 가 아닙니다.")
-                    aIdx <- aIdx + 1
+                iterFlowArrowEntries "add" addList (fun flowPath _flow entryPath spec resolveWork ->
+                    match spec.TypeRaw with
+                    | None -> ctx.Diagnostics.Add(entryPath, "type 누락. '<from> -> <to> : <Type>' 형식 사용.")
+                    | Some tRaw ->
+                        match parseArrowType tRaw with
+                        | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
+                        | Ok aType ->
+                            match resolveWork spec.FromRaw, resolveWork spec.ToRaw with
+                            | Some s, Some t ->
+                                try
+                                    ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                with ex -> ctx.Diagnostics.Add(entryPath, ex.Message)
+                            | None, _ -> ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.FromRaw flowPath)
+                            | _, None -> ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.ToRaw flowPath))
             | _ -> ()
-            // arrows.remove — PoC 미지원 (EntityKind 에 ArrowWork case 없음 → queueRemoveEntity 경로 부재)
-            // 후속: EntityKind.ArrowWork / ArrowCall 확장 + CascadeRemove 분기 추가 필요. 현재는 친절 에러로 안내.
+            // arrows.remove — Flow 단위 entries (arrows.add 와 대칭).
+            // 입력: { in: <flowPath>, entries: [ "<from> -> <to>" | "<from> -> <to> : <Type>", ... ] }
+            // Type 미지정 시 (from, to) 쌍 unique 일 때만 매칭 — 다중 매칭 시 type 명시 요구.
+            // Call arrow 제거는 첫 cycle 미지원 (in path 가 flow 임을 전제).
             match tryProp arrowsEl "remove" with
-            | Some _ ->
-                ctx.Diagnostics.Add(
-                    "patch.arrows.remove",
-                    "PoC 미지원 — Arrow 단독 제거는 후속 cycle (EntityKind 확장 필요). 부모 Work 제거로 cascade 우회 가능.")
+            | Some remList when remList.ValueKind = JsonValueKind.Array ->
+                iterFlowArrowEntries "remove" remList (fun flowPath _flow entryPath spec resolveWork ->
+                    let typeFilter : Result<ArrowType option, string> =
+                        match spec.TypeRaw with
+                        | None -> Ok None
+                        | Some tRaw -> parseArrowType tRaw |> Result.map Some
+                    match resolveWork spec.FromRaw, resolveWork spec.ToRaw, typeFilter with
+                    | None, _, _ ->
+                        ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.FromRaw flowPath)
+                    | _, None, _ ->
+                        ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.ToRaw flowPath)
+                    | _, _, Error msg ->
+                        ctx.Diagnostics.Add(entryPath, msg)
+                    | Some s, Some t, Ok aTypeOpt ->
+                        // Flow scope invariant: ArrowBetweenWorks.ParentId = SystemId (Flow scope 필드 부재) 이지만
+                        // Source/Target Work 는 Flow 안에서 unique (Queries.worksOf flow.Id 가 LocalName unique list).
+                        // resolveWork 가 flow.Id 의 Work 만 반환하므로 (s, t) 매칭이 자동으로 Flow scope.
+                        let candidates =
+                            ctx.Store.ArrowWorksReadOnly.Values
+                            |> Seq.filter (fun a -> a.SourceId = s && a.TargetId = t)
+                            |> Seq.filter (fun a ->
+                                match aTypeOpt with
+                                | None -> true
+                                | Some aType -> a.ArrowType = aType)
+                            |> Seq.toList
+                        match candidates with
+                        | [] ->
+                            ctx.Diagnostics.Add(entryPath, sprintf "Arrow '%s -> %s' 가 Flow '%s' 에 없습니다." spec.FromRaw spec.ToRaw flowPath)
+                        | [ arrow ] ->
+                            try
+                                ToolOperations.queueRemoveEntity ctx.Plan ctx.Store arrow.Id |> ignore
+                            with ex -> ctx.Diagnostics.Add(entryPath, ex.Message)
+                        | many ->
+                            ctx.Diagnostics.Add(
+                                entryPath,
+                                sprintf "Arrow '%s -> %s' 가 Flow '%s' 에 %d 개 — Type 을 명시하세요 (예: '%s -> %s : Start')."
+                                    spec.FromRaw spec.ToRaw flowPath many.Length spec.FromRaw spec.ToRaw))
             | _ -> ()
         | _ -> ()
 
@@ -2045,6 +2088,10 @@ module ModelProtocol =
         | _ -> ()
 
         // patch.remove — [<path>, ...]
+        // dotted-path 1~5 segment (Project / System / Flow|ApiDef / Work / Call) 전부 지원.
+        // tryFindEntity 가 path 깊이로 EntityKind 자동 결정 → queueRemoveEntity 가 cascade 위임 (CascadeRemove).
+        // **breaking (Phase A)**: legacy single-segment 'SysName' 호환 폐기 — SSOT §2.5.1 정합으로 segs[0] = Project name 강제.
+        //   기존 호출자가 'Cyl1' 형식을 썼다면 'ProjectName.Cyl1' 로 마이그레이션 필요.
         match tryProp patchEl "remove" with
         | Some removeEl when removeEl.ValueKind = JsonValueKind.Array ->
             let mutable rIdx = 0
@@ -2053,23 +2100,13 @@ module ModelProtocol =
                 match tryString entry with
                 | None -> ctx.Diagnostics.Add(path, "remove 항목은 path string 이어야 합니다.")
                 | Some rawPath ->
-                    let segs = pathSegments rawPath
-                    match segs with
-                    | [ sysName ] ->
-                        let sysOpt =
-                            Queries.allProjects ctx.Store
-                            |> List.collect (fun p ->
-                                (Queries.activeSystemsOf p.Id ctx.Store)
-                                @ (Queries.passiveSystemsOf p.Id ctx.Store))
-                            |> List.tryFind (fun s -> s.Name = sysName)
-                        match sysOpt with
-                        | None -> ctx.Diagnostics.Add(path, sprintf "System '%s' 가 발견되지 않음." sysName)
-                        | Some s ->
-                            try
-                                ToolOperations.queueRemoveEntity ctx.Plan ctx.Store s.Id |> ignore
-                            with ex -> ctx.Diagnostics.Add(path, ex.Message)
-                    | _ ->
-                        ctx.Diagnostics.Add(path, "PoC 는 single-segment system remove 만 지원.")
+                    match tryFindEntity ctx.Store rawPath with
+                    | None ->
+                        ctx.Diagnostics.Add(path, sprintf "Entity '%s' 가 store 에 없습니다." rawPath)
+                    | Some (_, id) ->
+                        try
+                            ToolOperations.queueRemoveEntity ctx.Plan ctx.Store id |> ignore
+                        with ex -> ctx.Diagnostics.Add(path, ex.Message)
                 rIdx <- rIdx + 1
         | _ -> ()
 

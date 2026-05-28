@@ -3,7 +3,12 @@ namespace Ds2.LightHouse
 open System
 open System.IO
 open System.Text
+open System.Threading
 open Microsoft.Data.Sqlite
+open Ds2.LightHouse.Diagnostics
+open Ds2.LightHouse.Extractors
+open Ds2.LightHouse.Extractors.XlsxStrategies
+open Ds2.LightHouse.PdfStrategies
 
 /// **PR-C (todo-lighthouse-index-summary.md §3.2)** — collection 의 색인된 모든 Document 를 markdown
 /// text dump 파일로 변환하여 `<root>/.lighthouse-kb/text/<docId>-<filename>.md` 에 저장.
@@ -32,6 +37,22 @@ module TextDumper =
     [<Literal>]
     let TextSubDirName = "text"
 
+    /// **PR-I3 (todo-documents-based-gfm.md §2 PR-I3 + §8.5.5)** — strategy 의 정제 markdown 박제
+    /// sub-directory 이름 (`.lighthouse-kb/summary/`). SpecializedDigestBuilder (PR-I4) 가
+    /// 본 디렉토리의 모든 `*.md` 를 합쳐 system prompt 의 cache breakpoint 3 에 inject.
+    [<Literal>]
+    let SummarySubDirName = "summary"
+
+    /// **PR-I3 (todo §6.1 N1 default)** — strategy signature 매치 후 변환 실패한 케이스의 누적 박제 파일.
+    /// Newtonsoft.Json serialize 된 `RejectedEntry list`. 동일 collection 재색인 시 overwrite (in-place update).
+    [<Literal>]
+    let RejectedJsonFileName = "rejected.json"
+
+    /// **PR-I3 (todo §6.1 N4 default)** — strategy score > 0 이나 threshold 미달 (거의 매치) 의 누적 박제 파일.
+    /// Newtonsoft.Json serialize 된 `NearMissEntry list`. 동일 collection 재색인 시 overwrite.
+    [<Literal>]
+    let NearMissJsonFileName = "near-miss.json"
+
     /// truncate 시 박제 footer (LLM 안내 + attachment_search escalation 권장).
     [<Literal>]
     let TruncateFooter = "\n\n---\n\n[text dump truncated at 512KB — use attachment_search for specific ref]\n"
@@ -39,6 +60,61 @@ module TextDumper =
     /// `<source>/.lighthouse-kb/text/` 절대 경로.
     let textDir (collectionRoot: string) : string =
         Path.Combine(SqliteStore.kbDir collectionRoot, TextSubDirName)
+
+    /// `<source>/.lighthouse-kb/summary/` 절대 경로 (PR-I3 strategy 정제 markdown 박제 위치).
+    let summaryDir (collectionRoot: string) : string =
+        Path.Combine(SqliteStore.kbDir collectionRoot, SummarySubDirName)
+
+    /// `<source>/.lighthouse-kb/rejected.json` 절대 경로.
+    let rejectedJsonPath (collectionRoot: string) : string =
+        Path.Combine(SqliteStore.kbDir collectionRoot, RejectedJsonFileName)
+
+    /// `<source>/.lighthouse-kb/near-miss.json` 절대 경로.
+    let nearMissJsonPath (collectionRoot: string) : string =
+        Path.Combine(SqliteStore.kbDir collectionRoot, NearMissJsonFileName)
+
+    /// **A·m1 (Outlier/Minor 묶음 1)** — sanitize helper SSOT.
+    /// 종전 `summaryFilename` / `summaryPartFilename` 의 동일 char policy (`Char.IsLetterOrDigit ||
+    /// '-' || '_' || '.'`) 박제 loop 가 양쪽에 복붙되어 있던 것을 단일 helper 로 추출. drift 방지.
+    let internal appendSanitized (sb: StringBuilder) (s: string) : unit =
+        for ch in s do
+            if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
+            else sb.Append '_' |> ignore
+
+    /// strategy 산출물 파일명 — `{strategyName}-{docId}-{basename}.md`.
+    /// docId = `StrategyMarkdown.computeDocId` (source bytes SHA256 의 앞 4 byte = 8 hex char).
+    /// strategy 다중 매치 / source 동일 시에도 unique. sanitizedFilename 와 동일 char policy.
+    let summaryFilename (strategyName: string) (docId: string) (originalPath: string) : string =
+        let basename =
+            if String.IsNullOrEmpty originalPath then "untitled"
+            else Path.GetFileNameWithoutExtension originalPath
+        let sb = StringBuilder(strategyName.Length + docId.Length + basename.Length + 8)
+        appendSanitized sb strategyName
+        sb.Append '-' |> ignore
+        appendSanitized sb docId
+        sb.Append '-' |> ignore
+        appendSanitized sb basename
+        sb.Append ".md" |> ignore
+        sb.ToString()
+
+    /// **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+    /// Stage 3 (Split) 진입 시 multi-part 박제 파일명 — `{strategyName}-{docId}-{basename}.{partIndex}.md`.
+    /// `partIndex` = 1-based. Stage 3 미진입 (SplitParts=None) 시 `summaryFilename` 사용 (1-part 만 박제).
+    /// caller 가 `MarkdownCapPolicy.CapResult.SplitParts` 의 Some 분기에서 본 helper 호출.
+    let summaryPartFilename (strategyName: string) (docId: string) (originalPath: string) (partIndex: int) : string =
+        let basename =
+            if String.IsNullOrEmpty originalPath then "untitled"
+            else Path.GetFileNameWithoutExtension originalPath
+        let sb = StringBuilder(strategyName.Length + docId.Length + basename.Length + 16)
+        appendSanitized sb strategyName
+        sb.Append '-' |> ignore
+        appendSanitized sb docId
+        sb.Append '-' |> ignore
+        appendSanitized sb basename
+        sb.Append '.' |> ignore
+        sb.Append (string partIndex) |> ignore
+        sb.Append ".md" |> ignore
+        sb.ToString()
 
     /// docId + originalPath → filename (path traversal 차단 + 의심 char 제거).
     /// 결과 = `<docId>-<basename>.md` (basename 은 의심 char `/\:*?"<>|` 등 replace `_`).
@@ -49,9 +125,8 @@ module TextDumper =
             if String.IsNullOrEmpty originalPath then "untitled"
             else Path.GetFileNameWithoutExtension originalPath
         let sb = StringBuilder(basename.Length)
-        for ch in basename do
-            if Char.IsLetterOrDigit ch || ch = '-' || ch = '_' || ch = '.' then sb.Append ch |> ignore
-            else sb.Append '_' |> ignore
+        // A·m1 — SSOT helper 재사용 (appendSanitized).
+        appendSanitized sb basename
         let safe = sb.ToString()
         let safe = if String.IsNullOrEmpty safe then "untitled" else safe
         sprintf "%d-%s.md" docId safe
@@ -168,3 +243,140 @@ module TextDumper =
             File.WriteAllText(outPath, final, UTF8Encoding(false))
             results.Add (outPath, Encoding.UTF8.GetByteCount final)
         results.ToArray()
+
+    // ── PR-I3 (todo §2 / §2.1 / §8.5.5~§8.5.8) — strategy 정제 markdown 박제 hook ───────────
+
+    /// strategy 박제 결과 — caller (CLI / 테스트) 진단용.
+    [<NoComparison; NoEquality>]
+    type StrategyDumpSummary = {
+        /// 생성된 `summary/*.md` 파일 절대경로.
+        SummaryFiles: string array
+        /// rejected.json 박제 entry 수 (0 이면 파일 미생성).
+        RejectedCount: int
+        /// near-miss.json 박제 entry 수 (0 이면 파일 미생성).
+        NearMissCount: int
+    }
+
+    /// **PR-I3 (todo §6.1 N1 + N4)** — diagnostic JSON 누적 박제. entry list 비어 있으면 파일 생성 0
+    /// (직전 산출물이 있으면 wipe — in-place update). caller 가 file-level 동의어 catch 0 (write 실패 throw).
+    let private writeDiagnosticJson<'T> (path: string) (entries: 'T list) : unit =
+        if List.isEmpty entries then
+            if File.Exists path then File.Delete path
+        else
+            let json = DiagnosticJson.serialize entries
+            File.WriteAllText(path, json, UTF8Encoding(false))
+
+    /// 단일 파일에 strategy 적용 — DocType 별 OoxmlExtractor / PdfExtractor 호출 후 classifier dispatch.
+    /// 반환 = (Built markdown, source path) option + reject/near-miss accumulator append.
+    let private applyStrategiesToFile
+        (path: string)
+        (extractors: IExtractor list)
+        (ct: CancellationToken)
+        (rejected: ResizeArray<RejectedEntry>)
+        (nearMisses: ResizeArray<NearMissEntry>)
+        : (string * string * string) option =  // (strategyName, docId, markdown)
+        let kind = Classifier.classifyForKb path
+        let extractorOpt = extractors |> List.tryFind (fun ex -> ex.Supports kind)
+        match extractorOpt with
+        | None -> None
+        | Some extractor ->
+            let extracted = extractor.Extract(path, ct)
+            match extracted.DocType with
+            | FileKind.Xlsx ->
+                match XlsxSignatureClassifier.classify path extracted with
+                | ClassificationResult.Matched (strategyName, markdown) ->
+                    let docId = StrategyMarkdown.computeDocId path
+                    Some (strategyName, docId, markdown)
+                | ClassificationResult.RejectedByStrategy entry ->
+                    rejected.Add entry
+                    None
+                | ClassificationResult.NearMiss entries ->
+                    for e in entries do nearMisses.Add e
+                    None
+                | ClassificationResult.Unmatched -> None
+            | FileKind.Pdf ->
+                match PdfSignatureClassifier.classify path extracted with
+                | ClassificationResult.Matched (strategyName, markdown) ->
+                    let docId = StrategyMarkdown.computeDocId path
+                    Some (strategyName, docId, markdown)
+                | ClassificationResult.RejectedByStrategy entry ->
+                    rejected.Add entry
+                    None
+                | ClassificationResult.NearMiss entries ->
+                    for e in entries do nearMisses.Add e
+                    None
+                | ClassificationResult.Unmatched -> None
+            | _ -> None  // strategy 미정의 DocType (Docx/Pptx/Text/Markdown/Image/Unsupported) — fallback 0
+
+    /// `.lighthouse-kb/` skip + collection root 재귀 enumerate (Packager.createZip 의 동형 SSOT).
+    /// **PR-N15 (todo-documents-based-gfm.md §6.1 N15)** — `<root>/guide/*` 는 UserGuideImporter
+    /// 가 별도 박제 (`_user-guide-*.md`) → strategy summary path 에서도 이중 박제 회피.
+    let private enumerateSourceFiles (collectionRoot: string) : string array =
+        let kbPrefix =
+            (Path.GetFullPath(SqliteStore.kbDir collectionRoot)).TrimEnd(Path.DirectorySeparatorChar)
+            + string Path.DirectorySeparatorChar
+        Directory.EnumerateFiles(collectionRoot, "*", SearchOption.AllDirectories)
+        |> Seq.filter (fun p ->
+            let pNorm = Path.GetFullPath p
+            not (pNorm.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase))
+            && not (Classifier.isUserGuideSourcePath collectionRoot p))
+        |> Seq.toArray
+
+    /// **PR-I3** — collection root 안 모든 파일에 strategy 분기 적용 + `summary/` 박제 + rejected/near-miss 누적.
+    ///
+    /// 흐름:
+    ///   1. `.lighthouse-kb/` 제외 모든 파일 enumerate.
+    ///   2. DocType 별 extractor (OoxmlExtractor / PdfExtractor) 호출 후 classifier dispatch.
+    ///   3. Matched → `summary/{strategyName}-{docId}-{basename}.md` 박제.
+    ///   4. Rejected → `rejected.json` 누적 (N1 default).
+    ///   5. NearMiss → `near-miss.json` 누적 (N4 default).
+    ///
+    /// 멱등 — 동일 collection 재호출 시 `summary/` wipe 후 재생성, rejected/near-miss 도 overwrite.
+    /// caller 의 catch 0 — extract / IO 실패는 그대로 throw (fail-fast 정합, CLAUDE.md).
+    /// `extractors` = caller 책임 lifecycle (TextExtractor / PdfExtractor / OoxmlExtractor / ImageExtractor).
+    let dumpStrategySummaries
+        (collectionRoot: string)
+        (extractors: IExtractor list)
+        (ct: CancellationToken)
+        : StrategyDumpSummary =
+        let dir = summaryDir collectionRoot
+        // 멱등 박제 — 기존 `summary/` 통째 wipe 후 재생성 (strategy 결과 stale 방어).
+        if Directory.Exists dir then Directory.Delete(dir, true)
+        Directory.CreateDirectory dir |> ignore
+
+        let summaryPaths = ResizeArray<string>()
+        let rejected = ResizeArray<RejectedEntry>()
+        let nearMisses = ResizeArray<NearMissEntry>()
+
+        for path in enumerateSourceFiles collectionRoot do
+            ct.ThrowIfCancellationRequested()
+            match applyStrategiesToFile path extractors ct rejected nearMisses with
+            | Some (strategyName, docId, rawMarkdown) ->
+                // **Backlog I (todo-documents-based-gfm.md §6.1 + documents-based-gfm.md §8.5.5)** —
+                // strategy 의 raw markdown 에 MarkdownCapPolicy 3-stage escalation 적용. Stage 3
+                // (Split) 진입 시 SplitParts 의 N 개 part 를 `{basename}.1.md` / `{basename}.2.md` ...
+                // 다중 박제 (silent data loss 제거). 단일 part (Stage 0/1/2) 는 기존 파일명 유지.
+                let capResult = MarkdownCapPolicy.applyCap rawMarkdown
+                match capResult.SplitParts with
+                | Some parts ->
+                    // Stage 3 multi-part 박제.
+                    parts
+                    |> List.iteri (fun idx part ->
+                        let filename = summaryPartFilename strategyName docId path (idx + 1)
+                        let outPath = Path.Combine(dir, filename)
+                        File.WriteAllText(outPath, part, UTF8Encoding(false))
+                        summaryPaths.Add outPath)
+                | None ->
+                    // Stage 0/1/2 단일 박제 — 기존 파일명 패턴 유지.
+                    let filename = summaryFilename strategyName docId path
+                    let outPath = Path.Combine(dir, filename)
+                    File.WriteAllText(outPath, capResult.Markdown, UTF8Encoding(false))
+                    summaryPaths.Add outPath
+            | None -> ()
+
+        writeDiagnosticJson (rejectedJsonPath collectionRoot) (List.ofSeq rejected)
+        writeDiagnosticJson (nearMissJsonPath collectionRoot) (List.ofSeq nearMisses)
+
+        { SummaryFiles = summaryPaths.ToArray()
+          RejectedCount = rejected.Count
+          NearMissCount = nearMisses.Count }

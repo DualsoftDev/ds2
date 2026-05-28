@@ -39,11 +39,11 @@ public partial class LlmChatViewModel
             // 호출 시 typeof(ModelTools).Assembly 명시로 tools/list 응답에 mcp__promaker__* 6개 복원.
             await _mcpHost.StartAsync(typeof(ModelTools).Assembly).ConfigureAwait(true);
 
-            // Phase S5c → D-S7-3b — N 개 active service 별 session 발급 시도.
-            // 일부 service 실패 시 부분 활성화 (결정 #1) — 성공한 service 만 .mcp-config 에 박제.
-            var lhEntries = await TryCreateLightHouseSessionsAsync().ConfigureAwait(true);
+            // Phase S5c → D-S7-3b — N 개 active service 별 session 발급 시도 (KbDigest / SSE 등 의존).
+            // **Plan B (2026-05-27)** — `.mcp-config` 박제 안 함. mcp__promaker__lighthouse_* wrapper 사용.
+            await TryCreateLightHouseSessionsAsync().ConfigureAwait(true);
 
-            _mcpConfig = BuildMcpConfig(lhEntries);
+            _mcpConfig = BuildMcpConfig();
             await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
 
             // PR-F (§5.1) — KB profile subscribe (SSE collection-* invalidate) + 초기 fetch.
@@ -53,6 +53,15 @@ public partial class LlmChatViewModel
             SubscribeKbProfileEvents();
             _ = RefreshKbDigestAsync();
             // 본 _ = 는 의도된 fire-and-forget. unobserved exception 위험은 RefreshKbDigestAsync 의 자체 흡수로 차단.
+            // N8 (todo-documents-based-gfm.md §6.1) — production GUI wiring: PR-I5 의 specialized digest fetch 를
+            // KB digest 와 동일 lifecycle 에 진입. SetActiveCollectionSourceRoots(null) 명시 박제로 (1) chat panel
+            // 재진입 시 stale override 차단 (2) production 진입점 박제 의미 확보 + ApplyPendingSpecializedDigest
+            // 1회 sync trigger (file IO — 비용 작음). 뒤이은 RefreshSpecializedDigestAsync 는 진정한 async path
+            // (FetchManyAsync) 로 file IO 후 ApplyFetchedDigest 진입 — IOException / UnauthorizedAccessException
+            // 흡수 (Log.Warn) → unobserved 0. SourceFolder schema 미박제 collection 만 있으면 빈 list 반환 →
+            // graceful skip (cache breakpoint 3 박제 skip = PR-G v-b wire 동치).
+            SetActiveCollectionSourceRoots(null);
+            _ = RefreshSpecializedDigestAsync();
         }
         catch (Exception ex)
         {
@@ -74,14 +83,13 @@ public partial class LlmChatViewModel
     /// <para/>
     /// KbCollections.GroupBy(ServiceId) — 각 service 는 본인 소속 collection 만 routing 의 collectionIds 로 발행.
     /// </summary>
-    private async Task<List<McpServerEntry>> TryCreateLightHouseSessionsAsync()
+    private async Task TryCreateLightHouseSessionsAsync()
     {
-        var result = new List<McpServerEntry>();
         var clients = LightHouseClientHolder.EnsureCreated(_config);
         if (clients.Count == 0)
         {
             // active LightHouse service 미설정 — 정상 분기 (Knowledge Base 비활성). chip 안내 없음 (정보 과잉 회피).
-            return result;
+            return;
         }
 
         // ServiceId → 본인 소속 collection 의 active id 셋 (D-S7-3a path — KbCollections.ServiceId 정합).
@@ -135,14 +143,11 @@ public partial class LlmChatViewModel
                     Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ [{svc.DisplayName}] 색인 실패 collection {resp.UnindexableIds.Count}건 제외 (재시도 가능)." });
                 }
 
-                var baseUrl = svc.BaseUrl.TrimEnd('/');
-                var entryName = LightHouseServerNaming.McpEntryName(svc);
-                result.Add(new McpServerEntry(entryName, baseUrl + "/mcp",
-                    new Dictionary<string, string>
-                    {
-                        ["Authorization"] = "Bearer " + psk,
-                        ["X-LightHouse-Session"] = resp.Token,
-                    }));
+                // **Plan B (2026-05-27)** — lighthouse 의 `.mcp-config` entry 박제 폐기. Anthropic Claude CLI 의
+                // mcp HTTP/SSE transport 가 OAuth 2.1 path 강제 (`_authThenStart`) 라 단순 Bearer PSK 와 호환 안 됨.
+                // 대신 `LightHouseTools` (mcp__promaker__lighthouse_*) wrapper 가 LightHouseClient 의 raw JSON-RPC
+                // (CallMcpToolAsync) 로 fan-out 호출. Claude CLI 는 promaker MCP 1개만 직접 통신.
+                // 본 분기는 session 발급 + accepted/unknown/unindexable lazy sync + SSE register 로직만 유지.
             }
             catch (LightHouseAuthException)
             {
@@ -156,35 +161,18 @@ public partial class LlmChatViewModel
         }
 
         if (changedConfig) _config.Save();
-        return result;
     }
 
     /// <summary>
-    /// `.mcp-config` 작성 — promaker (필수) + lighthouse N 개 (옵션). D-S7-3b: N≥0 lighthouse entry.
-    /// 각 lighthouse entry 이름 = `lighthouse-{sanitize(displayName)}` (LightHouseServerNaming.McpEntryName 정합).
-    /// <para/>
-    /// **자가 검열 Major-2 적용 (s6-r30 review)**: 동일 sanitized name 의 2 active service 시점 (사용자가 displayName
-    /// "본사" 2개 박제 + config 직접 편집 등) → `McpConfigWriter.CreateMulti` 가 throw → `InitializeAsync` outer
-    /// catch 진입 → chat 전면 차단 risk. 결정 #1 (부분 활성화) 정합을 위해 dedup 1줄 + 사용자 chip 안내 — 첫 entry 만
-    /// 살려두고 나머지 drop. D-S7-3c UI 검증 (displayName uniqueness 차단) 이 1차 방어, 본 dedup 은 fail-safe.
+    /// `.mcp-config` 작성 — promaker 1개만. **Plan B (2026-05-27)**: Anthropic Claude CLI 의 mcp HTTP/SSE transport
+    /// OAuth 2.1 강제 사고로 lighthouse entry 박제 폐기. LLM 은 `mcp__promaker__lighthouse_*` wrapper 6종으로
+    /// LightHouseService 의 attachment_* 도구를 fan-out 호출 (multi-service 지원).
     /// </summary>
-    private McpConfigWriter BuildMcpConfig(IReadOnlyList<McpServerEntry> lighthouseEntries)
+    private McpConfigWriter BuildMcpConfig()
     {
         var promaker = new McpServerEntry("promaker", _mcpHost.ServerUrl,
             new Dictionary<string, string> { ["X-Promaker-Nonce"] = _mcpHost.HandshakeNonce });
-        var entries = new List<McpServerEntry>(1 + lighthouseEntries.Count) { promaker };
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var droppedCount = 0;
-        foreach (var e in lighthouseEntries)
-        {
-            if (seen.Add(e.Name)) entries.Add(e);
-            else droppedCount++;
-        }
-        if (droppedCount > 0)
-        {
-            Turns.Add(new ChatTurn { Role = ChatTurn.Roles.System, Text = $"⚠ LightHouse service 의 displayName 중복으로 MCP entry {droppedCount}건 drop — Settings 에서 displayName uniqueness 확인 권장." });
-        }
-        return McpConfigWriter.CreateMulti(entries);
+        return McpConfigWriter.CreateMulti(new List<McpServerEntry> { promaker });
     }
 
     /// <summary>
@@ -236,6 +224,11 @@ public partial class LlmChatViewModel
             // PR-G review C-1 fix — provider 토글 시 새 ApiChatProvider 의 _kbDigest 가 "" 박제로 reset 되므로
             // 현재 cache snapshot 으로 즉시 re-apply. SSE event 없이도 다음 firstTurn 에 KB digest 박제 보장.
             ApplyPendingKbDigest();
+            // N8 (todo-documents-based-gfm.md §6.1) — provider 토글 시 새 ApiChatProvider 의 _specializedDigest 도
+            // "" 박제로 reset 되므로 동일 시점에 re-apply. KB digest 패턴 1:1 정합 — sync path (file IO) 라 fetch
+            // 비용 작음. cache snapshot 부재 (init 미완료) 시 GetActiveCollectionSourceRoots 가 빈 list →
+            // SetPendingSpecializedDigest("") → cache breakpoint 3 skip = PR-G v-b wire 동치 (회귀 0).
+            ApplyPendingSpecializedDigest();
 
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 

@@ -78,10 +78,10 @@ public sealed class McpConfigWriterTests : IDisposable
         Assert.Equal(json, File.ReadAllText(path));
     }
 
-    [Fact]
+    [SkippableFact]
     public void WriteWithOwnerOnlyAcl_applies_owner_only_ACL_on_windows()
     {
-        if (!OperatingSystem.IsWindows()) return; // ACL 검증은 Windows 한정
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (NTFS ACL 검증).");
 
         var path = Path.Combine(_root, "acl.json");
         McpConfigWriter.WriteWithOwnerOnlyAcl(path, "{}");
@@ -147,7 +147,8 @@ public sealed class McpConfigWriterTests : IDisposable
     [Fact]
     public void SweepStale_does_not_remove_current_pid_file()
     {
-        // Create 가 만든 파일은 자기 PID 라 SweepStale 의 알리브 pid + 신규 mtime 두 조건으로 보호됨.
+        // Create 가 만든 파일은 자기 PID — SweepStale 의 alive set 에 Environment.ProcessId 가
+        // ProcessName 무관 무조건 포함 (2026-05-27 정책 개정) 되므로 보호됨.
         using var writer = McpConfigWriter.Create("promaker-self", "http://127.0.0.1:1/", "n");
         var path = writer.Path;
         Assert.True(File.Exists(path));

@@ -100,6 +100,11 @@ module internal CascadeRemove =
             | EntityKind.System    -> cascadeRemoveSystem store id
             | EntityKind.Project   -> cascadeRemoveProject store id
             | EntityKind.ApiDef    -> store.TrackRemove(store.ApiDefs, id)
+            | EntityKind.ArrowWork -> store.TrackRemove(store.ArrowWorks, id)
+            // ArrowCall: 현 cycle 의 dispatcher 입력 경로 부재 (arrows.remove 는 ArrowWork 만 enumerate,
+            // patch.remove 의 tryFindEntity 는 Arrow 미식별). 안전망 선반영 — 후속 cycle 에서 call-graph
+            // arrow remove DSL 추가 시 즉시 동작하도록 분기 박제.
+            | EntityKind.ArrowCall -> store.TrackRemove(store.ArrowCalls, id)
             | _ -> ()
 
         removeOrphanApiCalls store

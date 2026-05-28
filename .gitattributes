@@ -1,6 +1,8 @@
 # Force git to treat F#/C#/F# script source as text. literal control chars (RLO/NUL/ZWJ 등)
 # 이 들어간 source 도 binary 로 fall-through 하지 않게 하여 diff/blame/merge 가시성 보존.
-*.fs    text diff
-*.fsi   text diff
-*.fsx   text diff
-*.cs    text diff
+# eol=lf — CLAUDE.md 강제 규약 (C#/F# 는 LF only). core.autocrlf=true 환경에서도
+# checkout 시 CRLF 변환 차단. 다음 git checkout/operation 부터 기존 .cs/.fs 도 LF 로 정규화.
+*.fs    text diff eol=lf
+*.fsi   text diff eol=lf
+*.fsx   text diff eol=lf
+*.cs    text diff eol=lf

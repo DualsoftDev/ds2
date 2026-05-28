@@ -103,8 +103,9 @@ help:
 	@echo "                    Stop the Windows Service first if registered (sc stop Ds2.LightHouseService)"
 	@echo "                    to free the listen port."
 	@echo ""
-	@echo "Targets (Tools gateway):"
-	@echo "  build           - Delegate to ../../Solutions/Tools/Makefile build target"
+	@echo "Targets (build):"
+	@echo "  build           - Build Promaker apps (Promaker / Promaker.Agent / Promaker.AgentTray)"
+	@echo "                    + delegate to ../../Solutions/Tools/Makefile build target"
 	@echo "                    (Ds2.LightHouse.Cli / Ollama / LightHouseService)."
 	@echo "                    Override config: make build BUILD_CONFIG=Debug"
 	@echo ""
@@ -215,20 +216,18 @@ install:
 	@echo "============================================================="
 	@echo "LightHouseService dev install"
 	@echo "  Requires Administrator PowerShell."
-	@echo "  Steps: 1) Ollama + bge-m3  2) self-signed PFX  3) dotnet publish  4) install-service.ps1"
+	@echo "  Steps: 1) Ollama + bge-m3  2) dotnet publish  3) setup-cert-and-service.ps1"
+	@echo "         (PFX password single prompt -> generate-dev-cert + install-service + PSK applied)"
 	@echo "============================================================="
 	@echo ""
-	@echo "=== Step 1/4: install-ollama.ps1 (embedding backend) ==="
+	@echo "=== Step 1/3: install-ollama.ps1 (embedding backend) ==="
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-ollama.ps1"
 	@echo ""
-	@echo "=== Step 2/4: generate-dev-cert.ps1 ==="
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/generate-dev-cert.ps1" -PfxPath "$(LH_PFX_PATH)"
-	@echo ""
-	@echo "=== Step 3/4: dotnet publish service ==="
+	@echo "=== Step 2/3: dotnet publish service ==="
 	dotnet publish "$(LH_SERVICE_PROJ)" -c Release --self-contained false -o "$(LH_PUBLISH_DIR)" -p:DebugType=none -p:DebugSymbols=false -m:1
 	@echo ""
-	@echo "=== Step 4/4: install-service.ps1 ==="
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-service.ps1" -ExePath "$(LH_SERVICE_EXE)" -TlsCertPath "$(LH_PFX_PATH)"
+	@echo "=== Step 3/3: setup-cert-and-service.ps1 (PFX password single prompt) ==="
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/setup-cert-and-service.ps1" -PfxPath "$(LH_PFX_PATH)" -ExePath "$(LH_SERVICE_EXE)"
 	@echo ""
 	@echo "============================================================="
 	@echo "Install complete. Next:"
@@ -247,14 +246,28 @@ light-house:
 	@echo "============================================================="
 	dotnet run --project "$(LH_SERVICE_PROJ)" -c Debug
 
-# ── Tools build (gateway) ──────────────────────────────────
-# ../../Solutions/Tools/Makefile 의 build target 을 그대로 위임.
-# 산하 프로젝트: Ds2.LightHouse.Cli / Ds2.LightHouse.Ollama / Ds2.LightHouseService.
-# Promaker 작업 디렉터리에서 LightHouse 솔루션 일괄 빌드를 한 줄로 호출하기 위함.
+# ── build (Promaker apps + Tools gateway) ─────────────────
+# Promaker 작업 디렉터리에서 본체/Agent/AgentTray + LightHouse 솔루션을
+# 한 줄로 일괄 빌드하기 위함.
+#   - Promaker 본체:  Promaker.csproj (WPF, net9.0-windows)
+#   - Agent:          Promaker.Agent.csproj (Windows Service, net9.0)
+#   - AgentTray:      Promaker.AgentTray.csproj (WPF tray)
+#   - (Promaker.Shared 는 본체가 참조 — transitively 빌드)
+# Tools/Makefile 의 build 가 Ds2.LightHouse.{Cli,Ollama,LightHouseService} 를 커버.
 TOOLS_DIR    := ../../Solutions/Tools
 BUILD_CONFIG ?= Release
 
+PROMAKER_BUILD_PROJECTS := \
+	Promaker/Promaker.csproj \
+	Promaker.Agent/Promaker.Agent.csproj \
+	Promaker.AgentTray/Promaker.AgentTray.csproj
+
 build:
+	@echo "=== build Promaker apps (CONFIG=$(BUILD_CONFIG)) ==="
+	@for proj in $(PROMAKER_BUILD_PROJECTS); do \
+		echo "==> build $$proj ($(BUILD_CONFIG))"; \
+		dotnet build "$$proj" -c $(BUILD_CONFIG) || exit $$?; \
+	done
 	@echo "=== build Tools (CONFIG=$(BUILD_CONFIG)) — delegate to $(TOOLS_DIR)/Makefile ==="
 	$(MAKE) -C "$(TOOLS_DIR)" build CONFIG=$(BUILD_CONFIG)
 

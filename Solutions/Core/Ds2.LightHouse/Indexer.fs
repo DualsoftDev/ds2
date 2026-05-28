@@ -315,7 +315,10 @@ module Indexer =
         Directory.EnumerateFiles(collectionRoot, "*.*", SearchOption.AllDirectories)
         |> Seq.filter (fun p ->
             let pNorm = Path.GetFullPath p
-            not (pNorm.StartsWith(kbFolderNorm, StringComparison.OrdinalIgnoreCase)))
+            not (pNorm.StartsWith(kbFolderNorm, StringComparison.OrdinalIgnoreCase))
+            // **PR-N15 (todo-documents-based-gfm.md §6.1 N15)** — `<root>/guide/*` 는 UserGuideImporter
+            // 가 별도 박제 (`_user-guide-*.md`) → 일반 색인 source set 에서 제외 (이중 박제 회피).
+            && not (Classifier.isUserGuideSourcePath collectionRoot p))
         |> Seq.toArray
 
     /// 한 connection 위에서 파일들을 순차 ingest. 진행률 콜백 호출. 결과 array 반환 (review m6).

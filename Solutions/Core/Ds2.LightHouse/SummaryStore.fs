@@ -81,7 +81,7 @@ module SummaryStore =
     /// caption-prompt 와 동형. 다음 turn 의 subagent dispatch 가 본 문자열을 그대로 prompt 에 박제.
     [<Literal>]
     let SummaryPrompt = """다음 markdown 본문은 한 document 의 전체 본문 dump 입니다.
-이 문서의 *영역 / 주제* 를 한 문장 (한국어, 80~120자) 으로 요약해주세요.
+이 문서의 *영역 / 주제* 를 한국어 80~500자 한 줄로 요약해주세요. (본문 분량 / 중요도에 비례. 줄바꿈 금지.)
 - 자질구레한 표제지 정보 (담당자명 / 날짜 / 도장 / RESTRICTED 등) 는 무시.
 - 본문의 *주된 내용* (어떤 시스템 / 어떤 사양 / 어떤 분야) 만 압축.
 - 출력 형식 — **마지막 줄은 단일 JSON line**:

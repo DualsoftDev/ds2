@@ -917,4 +917,196 @@ public sealed class LightHouseClientTests
         Assert.True(LightHouseClient.ResumableUploadThresholdBytes < 10L * 1024L * 1024L * 1024L,
             "threshold 가 maxUploadBytes (10 GiB) 초과면 chunked path 가 영원히 비활성.");
     }
+
+    // ── B8 (2026-05-27) — SecureString PSK provider overload ─────────────────────────────
+
+    /// <summary>**B8 (2026-05-27)** — SecureString PSK provider ctor 의 Bearer 헤더 wire 정합. string overload 와 동일 결과.</summary>
+    [Fact]
+    public async Task SecureString_PSK_provider_attaches_Bearer_header()
+    {
+        var handler = new CapturingHandler();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"schemaVersion":1,"collections":[]}""",
+                                        Encoding.UTF8, "application/json"),
+        };
+        var http = new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) };
+        using var psk = new System.Security.SecureString();
+        foreach (var ch in "secure-psk-bearer-한글") psk.AppendChar(ch);
+        psk.MakeReadOnly();
+
+        using var client = new LightHouseClient(
+            http,
+            () => psk,
+            "tester@example.com",
+            null,
+            ownsHttp: true);
+        _ = await client.ListCollectionsAsync();
+
+        var req = handler.Requests.Single();
+        Assert.NotNull(req.Headers.Authorization);
+        Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.Equal("secure-psk-bearer-한글", req.Headers.Authorization.Parameter);
+    }
+
+    /// <summary>**B8 (2026-05-27)** — SecureString provider 가 null 반환 시 Authorization 헤더 생략 (string overload 와 동일 contract).</summary>
+    [Fact]
+    public async Task SecureString_PSK_provider_null_omits_Authorization()
+    {
+        var handler = new CapturingHandler();
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"schemaVersion":1,"collections":[]}""",
+                                        Encoding.UTF8, "application/json"),
+        };
+        var http = new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) };
+        using var client = new LightHouseClient(
+            http,
+            () => (System.Security.SecureString?)null,
+            "tester@example.com",
+            null,
+            ownsHttp: true);
+        _ = await client.ListCollectionsAsync();
+
+        Assert.Null(handler.Requests.Single().Headers.Authorization);
+    }
+
+    // ── B1 (2026-05-27) — ExecuteWithSessionRetryAsync app session pooling ────────────────
+
+    /// <summary>**B1 test 의무 1** — cached token 재사용: 연속 2회 호출 시 POST /sessions 는 1회만 발급.</summary>
+    [Fact]
+    public async Task ExecuteWithSessionRetryAsync_caches_token_across_sequential_calls()
+    {
+        var (client, handler) = MakeClient(recover: () => new[] { "coll-1" });
+        var issued = 0;
+        handler.Responder = req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.EndsWith("/sessions"))
+            {
+                Interlocked.Increment(ref issued);
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent($$"""{"token":"tok-{{issued}}","acceptedCollectionIds":["coll-1"],"unknownIds":[],"unindexableIds":[]}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        };
+
+        var t1 = await client.ExecuteWithSessionRetryAsync<string>((token, _) => Task.FromResult(token));
+        var t2 = await client.ExecuteWithSessionRetryAsync<string>((token, _) => Task.FromResult(token));
+
+        Assert.Equal("tok-1", t1);
+        Assert.Equal("tok-1", t2);
+        Assert.Equal(1, issued);
+    }
+
+    /// <summary>**B1 test 의무 2** — 401 시 cache 무효화 + 신규 발급: operation 이 첫 token 으로 401 throw 시
+    /// 두 번째 token 발급 후 재시도. POST /sessions 는 2회.</summary>
+    [Fact]
+    public async Task ExecuteWithSessionRetryAsync_invalidates_cache_and_recreates_on_401()
+    {
+        var (client, handler) = MakeClient(recover: () => new[] { "coll-1" });
+        var issued = 0;
+        handler.Responder = req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.EndsWith("/sessions"))
+            {
+                Interlocked.Increment(ref issued);
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent($$"""{"token":"tok-{{issued}}","acceptedCollectionIds":["coll-1"],"unknownIds":[],"unindexableIds":[]}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        };
+
+        var attempt = 0;
+        var seenTokens = new List<string>();
+        var result = await client.ExecuteWithSessionRetryAsync<string>((token, _) =>
+        {
+            seenTokens.Add(token);
+            if (Interlocked.Increment(ref attempt) == 1)
+                throw new LightHouseAuthException("simulated 401", HttpStatusCode.Unauthorized);
+            return Task.FromResult(token);
+        });
+
+        Assert.Equal("tok-2", result);
+        Assert.Equal(2, issued);  // 첫 발급 + 401 후 재발급.
+        Assert.Equal(2, seenTokens.Count);
+        Assert.Equal("tok-1", seenTokens[0]);
+        Assert.Equal("tok-2", seenTokens[1]);
+
+        // **B1 follow-up** — 401 후 두 번째 token 이 cache 에 박제됐는지 (다음 호출이 추가 발급 0).
+        var t3 = await client.ExecuteWithSessionRetryAsync<string>((token, _) => Task.FromResult(token));
+        Assert.Equal("tok-2", t3);
+        Assert.Equal(2, issued);  // 추가 발급 없음.
+    }
+
+    /// <summary>**B1 test 의무 3** — concurrent N op 일제 진입 시 신규 발급 1회만 (lock 정합).
+    /// fan-out N×op 의 session storm 차단 SSOT.</summary>
+    [Fact]
+    public async Task ExecuteWithSessionRetryAsync_concurrent_ops_create_only_one_session()
+    {
+        var (client, handler) = MakeClient(recover: () => new[] { "coll-1" });
+        var issued = 0;
+        handler.Responder = req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.EndsWith("/sessions"))
+            {
+                Interlocked.Increment(ref issued);
+                // 인위적 delay — race window 박제. SemaphoreSlim 의 lock 이 정합이면 issued=1.
+                Thread.Sleep(30);
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent($$"""{"token":"tok-{{issued}}","acceptedCollectionIds":["coll-1"],"unknownIds":[],"unindexableIds":[]}""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        };
+
+        const int N = 8;
+        var tasks = Enumerable.Range(0, N)
+            .Select(_ => client.ExecuteWithSessionRetryAsync<string>((token, _) => Task.FromResult(token)))
+            .ToArray();
+        var results = await Task.WhenAll(tasks);
+
+        Assert.All(results, t => Assert.Equal("tok-1", t));
+        Assert.Equal(1, issued);  // lock 정합 — 첫 진입자만 발급.
+    }
+
+    /// <summary>**B1 invariant** — 401 retry 의 RecoverSession 자체 실패 시 LightHouseAuthException 박제 (PSK 결함 의심 msg).
+    /// 기존 행동 보존 (B1 변경 후에도 SSOT 정합 검증).</summary>
+    [Fact]
+    public async Task ExecuteWithSessionRetryAsync_throws_when_recover_itself_fails()
+    {
+        var (client, handler) = MakeClient(recover: () => new[] { "coll-1" });
+        var issued = 0;
+        handler.Responder = req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.EndsWith("/sessions"))
+            {
+                var n = Interlocked.Increment(ref issued);
+                if (n == 1)
+                {
+                    // 첫 발급 OK.
+                    return new HttpResponseMessage(HttpStatusCode.Created)
+                    {
+                        Content = new StringContent("""{"token":"tok-1","acceptedCollectionIds":["coll-1"],"unknownIds":[],"unindexableIds":[]}""",
+                            Encoding.UTF8, "application/json"),
+                    };
+                }
+                // 401 retry 의 두 번째 발급은 401 (PSK 결함).
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        };
+
+        var ex = await Assert.ThrowsAsync<LightHouseAuthException>(() =>
+            client.ExecuteWithSessionRetryAsync<string>((token, _) =>
+                throw new LightHouseAuthException("simulated op 401", HttpStatusCode.Unauthorized)));
+        Assert.Contains("PSK 결함", ex.Message);
+    }
 }
