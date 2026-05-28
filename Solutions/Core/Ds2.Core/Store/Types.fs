@@ -113,6 +113,13 @@ module DevicePresets =
 // =============================================================================
 // EntityKind — 엔티티/노드 타입 열거형 (C# == 비교 가능)
 // =============================================================================
+//
+// 추가 시 동기화 지점:
+//   • Ds2.Editor/Store/Nodes/Remove.fs `batchRemoveEntities` cascade 분기
+//   • Ds2.LlmAgent/ToolOperations.fs `queueRemoveEntity` store dict 검사 + `addedInPlanKind`
+//   • Ds2.Core/Store/ImportPlan.fs `applyOperationDirect` RemoveEntity 분기
+//   • Ds2.LlmAgent/ModelProtocol.fs `tryPathOf` 및 path-unsupported 회귀 lock
+//   • Ds2.Editor/Queries/EntityKindRules.fs (GUI 메뉴 활성화 rule)
 
 type EntityKind =
     | Project        = 0
@@ -127,6 +134,8 @@ type EntityKind =
     | Action         = 9
     | ApiDefCategory = 10
     | DeviceRoot     = 11
+    | ArrowWork      = 12
+    | ArrowCall      = 13
 
 [<Sealed>]
 type MoveEntityRequest(id: Guid, position: Xywh) =

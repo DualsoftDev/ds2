@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -570,6 +571,46 @@ public sealed class LlmConfig
     }
 
     /// <summary>
+    /// **B8 (2026-05-27) — SecureString 정공 path**. 평문 string lifetime 0 — DPAPI Unprotect → byte[] → char[] →
+    /// SecureString → finally byte[]/char[] Array.Clear. 미설정 / 복호화 실패 시 null. caller (LightHouseClientHolder /
+    /// LightHouseClient 의 PSK provider) 가 SecureString 소유권 받아 Dispose 의무.
+    /// </summary>
+    public SecureString? GetLightHousePskSecure(string serviceId)
+    {
+        if (string.IsNullOrEmpty(serviceId)) return null;
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId);
+        if (svc is null || string.IsNullOrEmpty(svc.ApiKeyEncrypted)) return null;
+        byte[]? plain = null;
+        char[]? chars = null;
+        SecureString? ss = null;
+        try
+        {
+            var encrypted = Convert.FromBase64String(svc.ApiKeyEncrypted);
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            plain = ProtectedData.Unprotect(encrypted, entropy, DataProtectionScope.CurrentUser);
+            chars = Encoding.UTF8.GetChars(plain);
+            ss = new SecureString();
+            foreach (var ch in chars) ss.AppendChar(ch);
+            ss.MakeReadOnly();
+            var result = ss;
+            ss = null;  // **B8 자가 검열 m3 fix (2026-05-27)** — 성공 path 만 finally Dispose 회피 (caller 소유권 이양).
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"LlmConfig.GetLightHousePskSecure({serviceId}) 복호화 실패: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            if (plain is not null) Array.Clear(plain, 0, plain.Length);
+            if (chars is not null) Array.Clear(chars, 0, chars.Length);
+            // **B8 자가 검열 m3 fix (2026-05-27)** — AppendChar loop 도중 exception 시 ss partial state leak 차단.
+            ss?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// **D-S7-3a (s6-r29) backward-compat overload** — active service 의 PSK 반환. 다음 phase (D-S7-3b/c)
     /// 에서 caller (Holder / Settings / ChatViewModel) 가 ServiceId 명시 path 로 마이그레이션 완료 시 제거 후보.
     /// </summary>
@@ -582,7 +623,9 @@ public sealed class LlmConfig
     /// <summary>
     /// **D-S7-3a (s6-r29)** — 지정 service 의 ApiKeyEncrypted 갱신. null / 빈 입력 = 박제 제거.
     /// service entry 가 list 에 없으면 <see cref="InvalidOperationException"/>.
+    /// <para/>**PR2 (2026-05-27) — deprecated**: SecureString overload 사용 권장. managed string path 는 heap 평문 GC 잔존 risk.
     /// </summary>
+    [Obsolete("PR2 (2026-05-27): SetLightHousePsk(string, SecureString) overload 사용 권장. managed string path 는 heap 평문 GC 잔존 risk.")]
     public void SetLightHousePsk(string serviceId, string? psk)
     {
         if (string.IsNullOrEmpty(serviceId)) throw new ArgumentException("serviceId required", nameof(serviceId));
@@ -594,19 +637,64 @@ public sealed class LlmConfig
             return;
         }
         var plain = Encoding.UTF8.GetBytes(psk);
-        var entropy = BuildLightHousePskEntropy(serviceId);
-        var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
-        svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        try
+        {
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
+            svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        }
+        finally
+        {
+            // **B5 (2026-05-27)** — plain byte[] wipe (best-effort). 단 string psk 는 immutable 이라 GC heap 잔존.
+            Array.Clear(plain, 0, plain.Length);
+        }
     }
+
+    /// <summary>
+    /// **B5 (2026-05-27) — SecureString 정공 overload**. heap 평문 lifetime 완전 제거 — caller (LightHouseLocalInstaller)
+    /// 가 SecureString 직접 박제 → 본 메서드가 SecureString → byte[] (lock 보호) → DPAPI Protect → finally Array.Clear.
+    /// <para/>
+    /// caller 는 SecureString 의 소유권 유지 — 본 메서드가 Dispose 안 함 (caller 의 finally 책임). PSK 가 null/Length==0 시
+    /// ApiKeyEncrypted 박제 제거 (string overload 와 contract 동일성).
+    /// </summary>
+    public void SetLightHousePsk(string serviceId, SecureString? psk)
+    {
+        if (string.IsNullOrEmpty(serviceId)) throw new ArgumentException("serviceId required", nameof(serviceId));
+        var svc = LightHouseServices.FirstOrDefault(s => s.ServiceId == serviceId)
+                  ?? throw new InvalidOperationException($"LightHouseServices entry not found: {serviceId}");
+        if (psk is null || psk.Length == 0)
+        {
+            svc.ApiKeyEncrypted = "";
+            return;
+        }
+        var plain = LightHouseLocalInstaller.SecureStringToUtf8Bytes(psk);
+        try
+        {
+            var entropy = BuildLightHousePskEntropy(serviceId);
+            var encrypted = ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser);
+            svc.ApiKeyEncrypted = Convert.ToBase64String(encrypted);
+        }
+        finally
+        {
+            Array.Clear(plain, 0, plain.Length);
+        }
+    }
+
+    // **B5 자가 검열 M1 fix (2026-05-27)** — SecureStringToUtf8Bytes 중복 제거. LightHouseLocalInstaller.SecureStringToUtf8Bytes
+    // SSOT 사용 (internal helper). using Promaker.Services 박제됨 (line 16) — 의존 방향 동일.
 
     /// <summary>
     /// **D-S7-3a (s6-r29) backward-compat overload** — active service 가 있으면 PSK 갱신, 없으면 신규 service
     /// (Active=true) 생성. UI / Holder 가 D-S7-3c 진입 시 명시 ServiceId 사용으로 마이그레이션 후 제거 후보.
+    /// <para/>**PR2 (2026-05-27) — deprecated**: SecureString overload 사용 권장.
     /// </summary>
+    [Obsolete("PR2 (2026-05-27): SetLightHousePsk(SecureString) overload 사용 권장.")]
     public void SetLightHousePsk(string? psk)
     {
         var svc = EnsureActiveService();
+#pragma warning disable CS0618  // 본 helper 가 string overload SSOT 경유 — internal 위임.
         SetLightHousePsk(svc.ServiceId, psk);
+#pragma warning restore CS0618
     }
 
     public bool HasLightHousePsk() => !string.IsNullOrEmpty(GetLightHousePsk());
@@ -887,6 +975,11 @@ public enum VisionCostGateStatus
 /// </summary>
 public sealed class KbCollectionEntry
 {
+    /// **--review 라운드 1 Major-2 fix** — NormalizeSourceFolder 의 path-validation exception
+    /// (ArgumentException / PathTooLongException / NotSupportedException) 박제용 logger.
+    /// LlmConfig 의 logger 와 분리 — 의미 단위 분리 (collection entry vs config root).
+    private static readonly ILog Log = LogManager.GetLogger(typeof(KbCollectionEntry));
+
     [JsonPropertyName("collectionId")]
     public string CollectionId { get; set; } = "";
 
@@ -902,6 +995,95 @@ public sealed class KbCollectionEntry
     /// </summary>
     [JsonPropertyName("serviceId")]
     public string ServiceId { get; set; } = "";
+
+    /// <summary>
+    /// **Backlog A (todo-documents-based-gfm.md §5.4 / §10.3 P2 hand-off)** — 본 collection 의 local source root
+    /// 디렉토리 절대경로. <c>.lighthouse-kb/summary/*.md</c> 합본 fetch 의 입력 (
+    /// <see cref="Promaker.Knowledge.KbSpecializedDigestFetcher.FetchMany"/> 의 root list).
+    /// <para/>
+    /// **PR-I5 한정**: 본 필드가 박제 안 된 collection 은 specialized digest skip — cache breakpoint 3 박제 0 (PR-G v-b
+    /// 와 wire 동치, 회귀 0). 사용자가 KbManagerDialog 에서 폴더 선택 후 "등록 시작" 시 자동 박제 (등록 폴더 = source
+    /// root). 재업로드 시 새 폴더로 갱신 (Reupload_Click).
+    /// <para/>
+    /// **backward-compat**: nullable + default null + <c>JsonIgnore(WhenWritingNull)</c> — 기존 LlmConfig.json
+    /// (필드 부재) 로드 시 그대로 null 유지 + 다음 Save 에서 disk JSON 에 키 작성 0. 본 필드 부재 = legacy entry =
+    /// specialized digest 비활성 (사용자가 KbManagerDialog 에서 재등록 시 채움).
+    /// <para/>
+    /// **Backlog K (s6-r? — A+G 검열 Major M2)** — setter 에서 canonical path 정규화 적용:
+    /// <list type="bullet">
+    /// <item><c>Path.GetFullPath</c> 로 relative → absolute 변환 + alt separator 통일.</item>
+    /// <item>trailing directory separator 제거 — disk 저장 / fetcher 입력 / Active root 매칭의 일관성.
+    /// drive root (<c>C:\</c>) 는 예외로 trailing sep 유지 (TrimEnd 가 colon-only 잔재 회피).</item>
+    /// <item>null / 빈 / whitespace-only 입력은 그대로 저장 — legacy entry 호환 + JsonIgnore 정합.</item>
+    /// </list>
+    /// 메모리 / disk / 비교 (ExtractActiveSourceRoots / Reupload_Click) 모두 동일 canonical form 보유 →
+    /// <c>Directory.GetFiles</c> 결과 비결정성 / 중복 root 박제 / 대소문자 mixed 박제 회피.
+    /// <para/>
+    /// **B·M5 (Outlier/Minor 묶음 2) — silent rewrite 박제 명세** (입력 → disk 값 round-trip):
+    /// <list type="bullet">
+    /// <item>raw JSON 값 <c>"C:/KB/광명2/"</c> → setter 진입 → <c>NormalizeSourceFolder</c> →
+    /// disk 저장값 <c>"C:\KB\광명2"</c> (alt separator 변환 + trailing sep trim).</item>
+    /// <item>raw <c>"./Docs"</c> + cwd <c>C:\Work</c> → disk <c>"C:\Work\Docs"</c> (relative → absolute).</item>
+    /// <item>raw <c>"C:\"</c> → disk <c>"C:\"</c> (drive root 보존, length ≤ 3 분기).</item>
+    /// <item>raw <c>null</c> / <c>""</c> / <c>"   "</c> → disk 그대로 저장 (legacy entry / JsonIgnore 정합).</item>
+    /// </list>
+    /// caller (KbManagerDialog) 가 사용자 입력값을 setter 로 박제할 때 disk 의 최종 표기와 다를 수 있음 —
+    /// 본 변환은 의도된 normalization 이며 silent 가 아닌 의도 (round-trip Fact 박제 = `KbCollectionSourceFolderTests`).
+    /// disk JSON 을 외부 텍스트 편집기로 수정한 사용자도 다음 Load + Save 사이클에서 canonical form 으로
+    /// 자동 정렬됨 — drift 회피.
+    /// </summary>
+    [JsonPropertyName("sourceFolder")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceFolder
+    {
+        get => _sourceFolder;
+        set => _sourceFolder = NormalizeSourceFolder(value);
+    }
+
+    private string? _sourceFolder;
+
+    /// <summary>
+    /// **Backlog K** — SourceFolder canonical 정규화. setter / deserializer / 외부 caller 공통 SSOT.
+    /// <para/>
+    /// null / 빈 / whitespace-only 입력은 그대로 반환 (graceful — legacy entry + JsonIgnore 정합).
+    /// 그 외 입력은 <see cref="Path.GetFullPath(string)"/> 로 절대 path + alt separator 통일,
+    /// trailing directory separator 제거 (drive root <c>C:\</c> 제외).
+    /// <para/>
+    /// **Windows-only 가정**: drive-root 분기 (<c>full.Length &lt;= 3</c> = <c>C:\</c> 형태 보존) 는
+    /// Windows 의 drive-letter path semantics 에 종속. Promaker 는 WPF (Windows-only) app 이므로 본 가정 정합.
+    /// 비-Windows 진입 시 (예: 향후 cross-platform 마이그레이션) drive-root 분기 재검토 의무.
+    /// <para/>
+    /// **--review 라운드 1 Major-2 fix**: 기존 catch-all (`catch { return raw; }`) 은 silent fallback 으로
+    /// 진단성 0 + OutOfMemoryException / ThreadAbortException 등 transient critical exception 까지 흡수.
+    /// narrow 한 path-validation exception (<see cref="ArgumentException"/> = invalid char / 빈 path,
+    /// <see cref="PathTooLongException"/> = MAX_PATH 초과, <see cref="NotSupportedException"/> = colon 위치
+    /// 오류 등) 만 catch + <see cref="Log"/>.Warn 박제. 외 예외는 fail-fast (root cause 노출). fail-safe 정책
+    /// (raw 반환) 은 유지 — caller / UI 가 사용 시점에 다시 검증.
+    /// </summary>
+    internal static string? NormalizeSourceFolder(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        string full;
+        try { full = Path.GetFullPath(raw); }
+        catch (ArgumentException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: invalid path char/format — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
+        catch (PathTooLongException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: path too long — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
+        catch (NotSupportedException ex)
+        {
+            Log.Warn($"NormalizeSourceFolder: unsupported path format — raw='{raw}' 보존 ({ex.Message})");
+            return raw;
+        }
+        // drive root (e.g. "C:\") 의 trailing sep 은 보존 — TrimEnd 시 "C:" 만 남으면 cwd-relative 로 변질.
+        if (full.Length <= 3) return full;
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
 }
 
 /// <summary>

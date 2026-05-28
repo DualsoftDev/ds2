@@ -525,12 +525,14 @@ module ToolOperations =
     let private addedInPlanKind (plan: ImportPlanBuilder) (id: Guid) : EntityKind option =
         plan.Operations
         |> Seq.tryPick (function
-            | AddProject p   when p.Id = id -> Some EntityKind.Project
-            | AddSystem s    when s.Id = id -> Some EntityKind.System
-            | AddFlow f      when f.Id = id -> Some EntityKind.Flow
-            | AddWork w      when w.Id = id -> Some EntityKind.Work
-            | AddCall c      when c.Id = id -> Some EntityKind.Call
-            | AddApiDef d    when d.Id = id -> Some EntityKind.ApiDef
+            | AddProject p    when p.Id = id -> Some EntityKind.Project
+            | AddSystem s     when s.Id = id -> Some EntityKind.System
+            | AddFlow f       when f.Id = id -> Some EntityKind.Flow
+            | AddWork w       when w.Id = id -> Some EntityKind.Work
+            | AddCall c       when c.Id = id -> Some EntityKind.Call
+            | AddApiDef d     when d.Id = id -> Some EntityKind.ApiDef
+            | AddArrowWork a  when a.Id = id -> Some EntityKind.ArrowWork
+            | AddArrowCall a  when a.Id = id -> Some EntityKind.ArrowCall
             | _ -> None)
 
     /// remove_entity mutation tool. id 의 EntityKind 를 store dict 검색으로 자동 판별.
@@ -540,12 +542,14 @@ module ToolOperations =
     /// 반환: 판별된 EntityKind (LLM 응답 메시지에 포함).
     let queueRemoveEntity (plan: ImportPlanBuilder) (store: DsStore) (id: Guid) : EntityKind =
         let kind =
-            if   store.Projects.ContainsKey(id) then EntityKind.Project
-            elif store.Systems.ContainsKey(id)  then EntityKind.System
-            elif store.Flows.ContainsKey(id)    then EntityKind.Flow
-            elif store.Works.ContainsKey(id)    then EntityKind.Work
-            elif store.Calls.ContainsKey(id)    then EntityKind.Call
-            elif store.ApiDefs.ContainsKey(id)  then EntityKind.ApiDef
+            if   store.Projects.ContainsKey(id)   then EntityKind.Project
+            elif store.Systems.ContainsKey(id)    then EntityKind.System
+            elif store.Flows.ContainsKey(id)      then EntityKind.Flow
+            elif store.Works.ContainsKey(id)      then EntityKind.Work
+            elif store.Calls.ContainsKey(id)      then EntityKind.Call
+            elif store.ApiDefs.ContainsKey(id)    then EntityKind.ApiDef
+            elif store.ArrowWorks.ContainsKey(id) then EntityKind.ArrowWork
+            elif store.ArrowCalls.ContainsKey(id) then EntityKind.ArrowCall
             else
                 match addedInPlanKind plan id with
                 | Some addedKind ->
@@ -553,7 +557,7 @@ module ToolOperations =
                     // doc-level 어휘 (apply_model_doc / patch.remove) 로 안내 재작성.
                     invalidOp (sprintf "Entity(id=%O, kind=%O) 는 같은 apply_model_doc turn 안에서 방금 추가되어 store 에 아직 반영되지 않았습니다. 같은 turn 의 patch.remove 로 즉시 제거는 미지원입니다 — 추가 자체를 취소하려면 doc 본문에서 해당 entity 를 빼고 다시 apply_model_doc 하거나, 응답을 마친 뒤 다음 turn 의 apply_model_doc 에서 patch.remove 로 호출하세요." id addedKind)
                 | None ->
-                    invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef 어디에도 없음)."
+                    invalidOp $"Entity(id={id}) 가 store 에 없습니다 (Project/System/Flow/Work/Call/ApiDef/ArrowWork/ArrowCall 어디에도 없음)."
         plan.Add(RemoveEntity(kind, id))
         kind
 

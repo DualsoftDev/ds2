@@ -72,8 +72,10 @@ public class DspDatabaseServiceAdapter : BackgroundService
 
         if (success)
         {
+            // Reinitialize — 재로딩 시에도 강제 재빌드. Initialize() 는 _isInitialized 가드로
+            // NO-OP 가 되어 stale 매핑(사이클 페이지 flow 리스트 등)이 남던 문제 수정.
             _logger.LogInformation("Initializing PlcToCallMapper...");
-            _mapper.Initialize();
+            _mapper.Reinitialize();
 
             _logger.LogInformation("Initializing FlowMetricsService...");
             await _flowMetricsService.InitializeAsync();

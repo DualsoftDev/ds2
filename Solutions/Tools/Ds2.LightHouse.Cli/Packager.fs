@@ -89,6 +89,21 @@ module Packager =
             if not isCliManaged then
                 invalidOp (
                     sprintf "기존 폴더 %s 가 lighthouse-cli 산출물이 아닌 듯합니다 (marker / index.db 모두 부재). 수동 확인 후 삭제하십시오." kb)
+            // **P-R3a (todo-documents-based-gfm.md §6.1 N16)** — wipe 직전 caption cache 박제.
+            // 기존 색인 산출물의 `ImageCache.CaptionText` (Anthropic VLM API call 결과) 를 sourceFolder 안
+            // `.lighthouse-caption-cache.json` 으로 박제 → 재색인 시 `Vlm.buildCaptionGen` 의 closure 가
+            // 동일 hash 의 cache 우선 lookup → API call skip path 활성. 사용자 결정 (1a 즉시) 정합.
+            // fail-safe — sweep 실패 시 log + 진행 (색인 자체는 정상, cache 만 부재).
+            if File.Exists indexDb then
+                try
+                    use conn = SqliteStore.openConnection indexDb true
+                    let saved = CaptionCache.saveFromDb sourceFolder conn
+                    if saved > 0 then
+                        eprintfn "  caption cache 박제 — %d row (%s)"
+                            saved CaptionCache.CacheFileName
+                with ex ->
+                    eprintfn "  warning: caption cache 박제 실패 (재색인 진행) — %s: %s"
+                        (ex.GetType().Name) ex.Message
             safeDelete kb
         Directory.CreateDirectory kb |> ignore
         File.WriteAllText(Path.Combine(kb, MarkerFileName), "lighthouse-cli managed\n")
@@ -127,6 +142,28 @@ module Packager =
             | Ingested _ -> ingested <- ingested + 1
             | _ -> ()
         { FileCount = results.Length; TotalBytes = bytes; IngestedCount = ingested }
+
+    /// **wipe-free upload path (`--reuse-kb`)** — `runIngest` 미진입 시 fileCount / totalBytes / ingestedCount 도출.
+    /// fileCount / totalBytes: source 폴더 직접 enumerate + `.lighthouse-kb/` skip (Indexer.enumerateFiles 와 동형 SSOT).
+    /// ingestedCount: 기존 `<source>/.lighthouse-kb/index.db` 의 Documents row count — Step 1-a 색인 산출물 재사용.
+    /// `kbPrefix` 비교는 createZip 의 패턴과 동일 (외부 --review Mj-2 정합 — `.lighthouse-kb-foo/` 거짓 매치 차단).
+    let summarizeReuse (sourceFolder: string) : IngestSummary =
+        let srcFull = Path.GetFullPath sourceFolder
+        let kbPrefix =
+            (Path.GetFullPath(kbDir sourceFolder)).TrimEnd(Path.DirectorySeparatorChar) + string Path.DirectorySeparatorChar
+        let mutable fileCount = 0
+        let mutable bytes = 0L
+        for filePath in Directory.EnumerateFiles(srcFull, "*", SearchOption.AllDirectories) do
+            if not (filePath.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase)) then
+                fileCount <- fileCount + 1
+                bytes <- bytes + (FileInfo filePath).Length
+        let ingested =
+            let dbPath = SqliteStore.dbPath sourceFolder
+            use conn = SqliteStore.openConnection dbPath true
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "SELECT COUNT(*) FROM Documents"
+            Convert.ToInt32(cmd.ExecuteScalar())
+        { FileCount = fileCount; TotalBytes = bytes; IngestedCount = ingested }
 
     /// in-place meta.json 생성 — `<source>/.lighthouse-kb/meta.json` (옵션 P).
     /// **A2 (K4 통합, 2026-05-20)** — `Ds2.LightHouse.Protocol.MetaJson` 단일 SSOT 사용.
@@ -171,6 +208,12 @@ module Packager =
     /// zip layout (§3.3):
     ///   <zip>/source/<사용자 원본 rel-path>      — 사용자 원본 파일은 `source/` prefix
     ///   <zip>/.lighthouse-kb/{meta.json, index.db, blobs/...}  — KB 산출물은 zip root
+    ///
+    /// **PR-I3 (todo-documents-based-gfm.md §2 PR-I3)** — zip whitelist 는 `.lighthouse-kb/` prefix glob
+    /// (아래 `isKb` 분기) — 본 prefix 안의 모든 파일이 자동 포함되므로 PR-I3 의 `summary/` 디렉토리도
+    /// 별도 entry append 없이 동봉. 단 정합 확인: `summary/` 박제 위치는 `TextDumper.SummarySubDirName`
+    /// (`.lighthouse-kb/summary/`) — `.lighthouse-kb/` prefix 안이라 본 glob 이 그대로 흡수. drift 시 본 주석
+    /// 진단.
     let createZip (sourceFolder: string) : string =
         let zipPath = Path.Combine(Path.GetTempPath(), "lh-cli-payload-" + Guid.NewGuid().ToString("N") + ".zip")
         let srcFull = Path.GetFullPath sourceFolder

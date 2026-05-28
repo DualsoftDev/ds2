@@ -532,9 +532,122 @@ patch:
     Assert.True(diag.HasErrors)
     Assert.Contains("이미 존재", diag.Format())
 
+// ─── patch.remove — dotted-path 1~5 segment (Project/System/Flow/Work/Call/ApiDef) ────
+
 [<Fact>]
-let ``patch.arrows.remove — PoC 미지원 친절 에러`` () =
-    let baseYaml = """
+let ``patch.remove — System dotted-path (Project.System)`` () =
+    // Phase A: single-segment system 호환 폐기. SSOT §2.5.1 정합 — segs[0] = Project name.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  remove:
+    - M1.Cyl1
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove cyl1", plan.Build())
+    let passives =
+        Queries.allProjects store
+        |> List.collect (fun p -> Queries.passiveSystemsOf p.Id store)
+    Assert.Empty(passives)
+
+[<Fact>]
+let ``patch.remove — Flow 경로 → 자식 Work / Call cascade`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let beforeWorkCount = store.Works.Count
+    let beforeCallCount = store.Calls.Count
+    Assert.True(beforeWorkCount > 0)
+    Assert.True(beforeCallCount > 0)
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  remove:
+    - M1.Controller.Run
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove flow", plan.Build())
+    // Controller 의 Flow Run 제거 + 자식 Adv/Ret Work + Call 자식들도 cascade
+    let projects = Queries.allProjects store
+    let controller =
+        Queries.activeSystemsOf projects.Head.Id store
+        |> List.find (fun s -> s.Name = "Controller")
+    Assert.Empty(Queries.flowsOf controller.Id store)
+    // Adv/Ret Work 2개가 cascade 로 사라져야 함 (singleCylinderYaml 의 Controller.Run flow 자식 Work 2개).
+    // Cyl1 의 자체 Work 가 별도로 남을 수 있어 store 전체 count 차이 (-2) 로 검증.
+    Assert.Equal(beforeWorkCount - 2, store.Works.Count)
+
+[<Fact>]
+let ``patch.remove — Work 경로 → 자기 자신 + 자식 Call cascade`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  remove:
+    - M1.Controller.Run.Adv
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove work", plan.Build())
+    // Flow Run 은 살아있지만 Work Adv 만 사라지고 Ret 은 유지
+    let projects = Queries.allProjects store
+    let controller =
+        Queries.activeSystemsOf projects.Head.Id store
+        |> List.find (fun s -> s.Name = "Controller")
+    let runFlow = Queries.flowsOf controller.Id store |> List.head
+    let workNames =
+        Queries.worksOf runFlow.Id store
+        |> List.map (fun w -> w.LocalName)
+        |> Set.ofList
+    Assert.DoesNotContain("Adv", workNames)
+    Assert.Contains("Ret", workNames)
+
+[<Fact>]
+let ``patch.remove — ApiDef 경로 (3-segment, System 직접 자식)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    // Cyl1 에는 ADV / RET ApiDef 가 있음
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  remove:
+    - M1.Cyl1.ADV
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove apidef", plan.Build())
+    let projects = Queries.allProjects store
+    let cyl1 =
+        Queries.passiveSystemsOf projects.Head.Id store
+        |> List.find (fun s -> s.Name = "Cyl1")
+    let apiNames =
+        Queries.apiDefsOf cyl1.Id store
+        |> List.map (fun d -> d.Name)
+        |> Set.ofList
+    Assert.DoesNotContain("ADV", apiNames)
+    Assert.Contains("RET", apiNames)
+
+[<Fact>]
+let ``patch.remove — 존재하지 않는 path 는 친절 진단`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  remove:
+    - M1.NoSuchSystem
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("store 에 없습니다", diag.Format())
+
+// ─── patch.arrows.remove — Flow 단위 entries (arrows.add 대칭) ──────────────────
+
+let private arrowsRemoveBaseYaml = """
 protocol: promaker/v0
 project: M1
 systems:
@@ -547,8 +660,12 @@ systems:
       arrows:
         - A -> B : Start
 """
+
+[<Fact>]
+let ``patch.arrows.remove — Flow 의 arrow 제거`` () =
     let store = DsStore()
-    let _ = parseApplyCommit store baseYaml
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    Assert.Equal(1, store.ArrowWorks.Count)
     let patchYaml = """
 protocol: promaker/v0
 patch:
@@ -558,9 +675,102 @@ patch:
         entries:
           - A -> B
 """
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove arrow", plan.Build())
+    Assert.Equal(0, store.ArrowWorks.Count)
+    // Work A / B 는 그대로 (arrow 만 제거)
+    Assert.Equal(2, store.Works.Count)
+
+[<Fact>]
+let ``patch.arrows.remove — Type 지정 제거`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.Run
+        entries:
+          - "A -> B : Start"
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("remove arrow with type", plan.Build())
+    Assert.Equal(0, store.ArrowWorks.Count)
+
+[<Fact>]
+let ``patch.arrows.remove — 존재하지 않는 from Work`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.Run
+        entries:
+          - NoSuch -> B
+"""
     let diag, _, _ = parseAndApply store patchYaml
     Assert.True(diag.HasErrors)
-    Assert.Contains("PoC 미지원", diag.Format())
+    let fmt = diag.Format()
+    Assert.Contains("Work 'NoSuch'", fmt)
+
+[<Fact>]
+let ``patch.arrows.remove — 존재하지 않는 Flow path`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.NoSuchFlow
+        entries:
+          - A -> B
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("Flow 'Controller.NoSuchFlow'", diag.Format())
+
+[<Fact>]
+let ``patch.arrows.remove — 매칭되는 Arrow 없음`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    // A -> B 는 존재. B -> A 는 미존재.
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.Run
+        entries:
+          - B -> A
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("Arrow 'B -> A'", diag.Format())
+
+[<Fact>]
+let ``patch.arrows.remove — 잘못된 arrow 표기 (parseArrowSpec error)`` () =
+    // ArrowSpec 형식 위반 (-> 부재) 시 parseArrowSpec 가 Error 반환 → diagnostics 친절 메시지.
+    let store = DsStore()
+    let _ = parseApplyCommit store arrowsRemoveBaseYaml
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    remove:
+      - in: Controller.Run
+        entries:
+          - "A B"
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    // 정확한 메시지는 parseArrowSpec 가 결정 — 핵심은 entries 자리에서 진단 발생.
+    Assert.Contains("entries[0]", diag.Format())
 
 // ─── Major 2 회귀 — workDuration / opposing override export round-trip ──────
 

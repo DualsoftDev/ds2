@@ -1,3 +1,5 @@
+// **PR2 (2026-05-27)** — SetLightHousePsk(string) [Obsolete]. test helper string overload 박제 — warning 차단.
+#pragma warning disable CS0618
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -17,6 +19,7 @@ namespace Promaker.Tests;
 ///
 /// 본 suite 는 *static singleton-like* dictionary 를 다루므로 각 Fact 가 Invalidate 로 시작해 prior state 제거.
 /// </summary>
+[Collection("LightHouseClientHolder")]
 public sealed class LightHouseClientHolderTests : IDisposable
 {
     private const string TestBaseUrl = "https://service.test.local:8443";
@@ -180,11 +183,12 @@ public sealed class LightHouseClientHolderTests : IDisposable
 
     // ─── D-S7-3b (s6-r30) multi-instance ─────────────────────────────────────
 
-    [Fact]
+    [SkippableFact]
     public void EnsureCreated_creates_one_client_per_active_service()
     {
         // **D-S7-3b** — N 개 active service → N 개 client 생성. 각 client 가 별 instance (per-ServiceId).
-        if (!OperatingSystem.IsWindows()) return;
+        // **B6 (2026-05-27)** — Windows-only (DPAPI / LightHouseClient ctor). silent return → Skip 정공화.
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         var (cfg, aId, bId) = MakeTwoActiveServices();
         var clients = LightHouseClientHolder.EnsureCreated(cfg);
@@ -201,11 +205,11 @@ public sealed class LightHouseClientHolderTests : IDisposable
         Assert.NotSame(clientA, clientB);
     }
 
-    [Fact]
+    [SkippableFact]
     public void EnsureCreated_only_recreates_changed_entries()
     {
         // **D-S7-3b** — service A 만 BaseUrl 변경 시 A entry 만 dispose/recreate, B entry 는 그대로 재사용.
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         var (cfg, aId, bId) = MakeTwoActiveServices();
         var clients1 = LightHouseClientHolder.EnsureCreated(cfg);
@@ -224,11 +228,11 @@ public sealed class LightHouseClientHolderTests : IDisposable
         Assert.Equal(2, clients2.Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public void EnsureCreated_removes_entry_when_service_deactivated()
     {
         // **D-S7-3b** — config 에서 service B 가 비활성화되면 holder entry 도 제거.
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / LightHouseClient ctor).");
 
         var (cfg, aId, bId) = MakeTwoActiveServices();
         LightHouseClientHolder.EnsureCreated(cfg);

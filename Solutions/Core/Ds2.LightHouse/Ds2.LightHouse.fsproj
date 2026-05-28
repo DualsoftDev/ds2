@@ -11,17 +11,55 @@
     <Compile Include="ImageFormat.fs" />
     <Compile Include="TextEncoding.fs" />
     <Compile Include="Models.fs" />
+    <!-- PR-I1 (todo-documents-based-gfm.md §3.1 / §11.4 / §6.1 N6) — strategy 진단 JSON schema SSOT
+         (RejectedEntry / NearMissEntry / StaleEntry). XlsxStrategies 가 RejectedEntry 박제 →
+         Models.fs 다음, 모든 use site 보다 앞 박제. -->
+    <Compile Include="Diagnostics\DiagnosticSchemas.fs" />
+    <!-- Backlog C (PR-I2 검열 Major 2) — xlsx/pdf classifier 의 통합 분류 결과 DU 박제.
+         Diagnostics (RejectedEntry / NearMissEntry) 의존 → DiagnosticSchemas.fs 뒤,
+         XlsxSignatureClassifier.fs / PdfSignatureClassifier.fs 보다 앞 박제 필수. -->
+    <Compile Include="Extractors\ClassificationResult.fs" />
+    <!-- PR-I2.5 (todo-documents-based-gfm.md §2 PR-I2.5) — 3 strategy 공용 markdown helper SSOT
+         (computeDocId / computeFullHash / estimateTokens / normalizeCell / buildHeader / buildFooter).
+         IXlsxStrategy.fs / IPdfStrategy.fs 의 strategy 구현체보다 앞 박제 필수 (의존 방향). -->
+    <Compile Include="StrategyMarkdown.fs" />
+    <!-- Backlog D (todo-documents-based-gfm.md §6.1 N5 + documents-based-gfm.md §8.5.5) —
+         strategy summary markdown 의 256KB cap 정책 SSOT. 3 단계 압축 (컬럼 truncate → sample → split).
+         StrategyMarkdown.fs 다음 + IoListStrategy.fs (호출 site) 보다 앞 박제. -->
+    <Compile Include="MarkdownCapPolicy.fs" />
     <Compile Include="RefLocator.fs" />
     <Compile Include="Classifier.fs" />
     <Compile Include="MetafileConverter.fs" />
     <Compile Include="Extractors\IExtractor.fs" />
     <Compile Include="Extractors\TextExtractor.fs" />
     <Compile Include="Extractors\PdfExtractor.fs" />
+    <!-- PR-I1 (todo §3.1 / §11.4) — xlsx strategy interface + IoListStrategy + classifier.
+         OoxmlExtractor 보다 앞 박제 (XlsxStrategies 는 Diagnostics + Models 만 의존, OoxmlExtractor 와 직교).
+         PR-I2 시점 WorkOrderStrategy 가 IoListStrategy 다음 / XlsxSignatureClassifier 보다 앞에 append. -->
+    <Compile Include="Extractors\XlsxStrategies\IXlsxStrategy.fs" />
+    <Compile Include="Extractors\XlsxStrategies\IoListStrategy.fs" />
+    <Compile Include="Extractors\XlsxStrategies\WorkOrderStrategy.fs" />
+    <!-- 라운드 3 Major-1 + Major-4 통합 fix — XlsxSignatureClassifier ↔ PdfSignatureClassifier 의
+         24-line byte-equal 중복 제거 + Build 안 evaluateSignature 재호출 제거 공용 dispatch helper.
+         IXlsxStrategy 의 SignatureResult/StrategyOutcome 의존 → IXlsxStrategy.fs 뒤,
+         XlsxSignatureClassifier.fs / PdfSignatureClassifier.fs 보다 앞 박제. -->
+    <Compile Include="Extractors\XlsxStrategies\SignatureClassifierHelpers.fs" />
+    <Compile Include="Extractors\XlsxStrategies\XlsxSignatureClassifier.fs" />
+    <!-- PR-I2 (todo §3.1 / §11.4 / §2.1) — pdf strategy interface + PdfControlSpecStrategy + classifier.
+         IXlsxStrategy 의 SignatureResult / StrategyOutcome 재사용 → XlsxStrategies 의 IXlsxStrategy.fs 보다 뒤.
+         PdfExtractor 보다 뒤 (Models / Diagnostics / XlsxStrategies SignatureResult 만 의존). -->
+    <Compile Include="PdfStrategies\IPdfStrategy.fs" />
+    <Compile Include="PdfStrategies\PdfControlSpecStrategy.fs" />
+    <Compile Include="PdfStrategies\PdfSignatureClassifier.fs" />
     <Compile Include="Extractors\OoxmlExtractor.fs" />
     <Compile Include="Extractors\ImageExtractor.fs" />
     <Compile Include="Chunker.fs" />
     <Compile Include="SqliteStore.fs" />
     <Compile Include="ImageStore.fs" />
+    <!-- P-R3a (todo-documents-based-gfm.md §6.1 N16) — `.lighthouse-kb/` wipe 직전 ImageCache.CaptionText
+         sweep → `<sourceFolder>/.lighthouse-caption-cache.json` 박제. caption 생성 closure 가 동일 hash 의
+         cache 우선 lookup → Anthropic VLM call skip path. SqliteStore + ImageStore 뒤 박제 (의존 방향). -->
+    <Compile Include="CaptionCache.fs" />
     <Compile Include="CaptionGenerator.fs" />
     <Compile Include="EmbeddingProvider.fs" />
     <Compile Include="Searcher.fs" />
@@ -33,6 +71,14 @@
     <!-- PR-C (todo-lighthouse-index-summary.md §3.2) — Document → markdown text dump 생성.
          SqliteStore + ImageStore 의존 → 둘 뒤 박제. -->
     <Compile Include="TextDumper.fs" />
+    <!-- PR-N15 (todo-documents-based-gfm.md §6.1 N15 + documents-based-gfm.md §8.5.4) —
+         사용자 작성 `<folder>/guide/*.md` 를 `_user-guide-*.md` 로 박제 (specialized digest 우선 박제).
+         TextDumper.summaryDir + StrategyMarkdown.estimateTokens 의존 → 둘 뒤 박제. -->
+    <Compile Include="UserGuideImporter.fs" />
+    <!-- PR-I4 (todo-documents-based-gfm.md §2 PR-I4 + §11.4 / documents-based-gfm.md §8.3) —
+         `.lighthouse-kb/summary/*.md` 합본 + metadata. SystemContentBuilder 의 cache breakpoint 3 박제 source.
+         TextDumper.summaryDir + StrategyMarkdown.estimateTokens 의존 → 둘 뒤 박제. -->
+    <Compile Include="SpecializedDigestBuilder.fs" />
     <!-- PR-H1 (todo-lighthouse-index-summary.md §11) — doc-level 1줄 summary (.lighthouse-kb/summary.md).
          SqliteStore + TextDumper.TextSubDirName 의존 → 뒤 박제. -->
     <Compile Include="SummaryBuilder.fs" />
@@ -51,6 +97,9 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="log4net" />
+    <!-- PR-I1 (todo-documents-based-gfm.md §6.1 N6) — Diagnostics JSON schema 직렬화 (RejectedEntry /
+         NearMissEntry / StaleEntry). 기존 CLAUDE.md JSON 선호 (Newtonsoft.Json 주로 사용) 정합. -->
+    <PackageReference Include="Newtonsoft.Json" />
     <!-- 첨부물/문서 base 인프라 — KB 색인 + 공통 텍스트 인프라. todo §3.4 (detectEncoding) 의 CP949 fallback. -->
     <PackageReference Include="System.Text.Encoding.CodePages" />
     <!-- KB 색인 — SQLite (FTS5 trigram + WAL). bundle_e_sqlite3 가 FTS5/JSON1/R*Tree 기본 포함. todo §6.4 SSOT.

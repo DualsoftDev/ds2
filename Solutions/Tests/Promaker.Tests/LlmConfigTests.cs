@@ -1,3 +1,5 @@
+// **PR2 (2026-05-27)** — SetLightHousePsk(string) [Obsolete]. test 가독성 우선으로 string overload 박제 보존 — warning 차단.
+#pragma warning disable CS0618
 using System;
 using System.IO;
 using System.Security.Cryptography;
@@ -99,10 +101,10 @@ public sealed class LlmConfigTests : IDisposable
 
     // ─── DPAPI key set/get round-trip ────────────────────────────────────────
 
-    [Fact]
+    [SkippableFact]
     public void SetApiKey_then_GetApiKey_returns_same_plaintext()
     {
-        if (!OperatingSystem.IsWindows()) return; // DPAPI Windows 전용
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg = new LlmConfig();
         const string plain = "sk-ant-api03-fake-test-key-1234567890";
@@ -118,10 +120,10 @@ public sealed class LlmConfigTests : IDisposable
         Assert.NotEqual(plain, cfg.EncryptedKeys["anthropic"]);
     }
 
-    [Fact]
+    [SkippableFact]
     public void SetApiKey_with_null_or_empty_removes_key()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg = new LlmConfig();
         cfg.SetApiKey("openai", "sk-temp");
@@ -197,12 +199,12 @@ public sealed class LlmConfigTests : IDisposable
         Assert.True(migrated.Active);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Legacy_PSK_reencryption_succeeds_on_migration()
     {
         // **D-S7-3a (s6-r29)** — 단수 시절 legacy entropy 로 실제 DPAPI 암호화된 PSK 가 disk JSON 에 박제된
         // 경우, migration 시 자동으로 per-service entropy 로 재암호화. GetLightHousePsk(serviceId) 로 복호화 성공.
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         // 1단계: 단수 시절 disk 형태를 모의 — legacy LightHousePskEntropy 로 PSK 암호화 → base64 ApiKeyEncrypted 산출.
         const string plain = "legacy-psk-1234567890";
@@ -323,13 +325,13 @@ public sealed class LlmConfigTests : IDisposable
         Assert.DoesNotContain(cfg.LightHouseServices, s => s.BaseUrl == "https://legacy.local:8443");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Per_service_entropy_empty_serviceId_equals_legacy_entropy_invariant()
     {
         // **자가 검열 Minor-1 (s6-r29 review)** — `BuildLightHousePskEntropy("")` ≡ legacy entropy 의 byte-equal
         // invariant 가 silent contract. 본 fact 는 invariant 의 *동작 검증* 으로 보호 (entropy 문자열 v2 bump
         // 시 본 fact 가 실패하여 migration v2 path 신설 의무를 강제).
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         // legacy entropy 로 직접 암호화 (BuildLightHousePskEntropy 가 internal 이라 외부 reflection 대신 동일
         // 문자열 reproduce — 본 invariant 자체가 BuildLightHousePskEntropy("") == "Promaker.LightHouseService.v1"
@@ -409,10 +411,10 @@ public sealed class LlmConfigTests : IDisposable
         Assert.False(cfg.HasLightHousePsk());
     }
 
-    [Fact]
+    [SkippableFact]
     public void SetLightHousePsk_then_GetLightHousePsk_returns_same_plaintext()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg = new LlmConfig();
         const string plain = "lighthouse-psk-test-1234567890";
@@ -429,10 +431,10 @@ public sealed class LlmConfigTests : IDisposable
         Assert.NotEqual(plain, cfg.LightHouseServices[0].ApiKeyEncrypted);
     }
 
-    [Fact]
+    [SkippableFact]
     public void SetLightHousePsk_with_null_clears_encrypted()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg = new LlmConfig();
         cfg.SetLightHousePsk("temp");
@@ -443,11 +445,90 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Equal("", cfg.LightHouseServices[0].ApiKeyEncrypted);
     }
 
-    [Fact]
+    /// <summary>**B5 (2026-05-27)** — SecureString overload round-trip. DPAPI Protect/Unprotect 후 원본 일치.</summary>
+    [SkippableFact]
+    public void SetLightHousePsk_SecureString_round_trip_정합()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        const string plain = "secure-psk-한글-456";
+        using var ss = new System.Security.SecureString();
+        foreach (var ch in plain) ss.AppendChar(ch);
+        ss.MakeReadOnly();
+
+        cfg.SetLightHousePsk(svc.ServiceId, ss);
+        Assert.Equal(plain, cfg.GetLightHousePsk(svc.ServiceId));
+    }
+
+    /// <summary>**B8 (2026-05-27)** — GetLightHousePskSecure round-trip. DPAPI Unprotect → SecureString. 미설정 / 빈 entry 시 null.</summary>
+    [SkippableFact]
+    public void GetLightHousePskSecure_round_trip_정합()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        const string plain = "secure-psk-recover-789";
+        cfg.SetLightHousePsk(svc.ServiceId, plain);
+
+        using var ss = cfg.GetLightHousePskSecure(svc.ServiceId);
+        Assert.NotNull(ss);
+        Assert.Equal(plain.Length, ss!.Length);
+
+        // SecureString 평문 복구 후 원본 일치 확인 (test 가독성 위한 1회 변환).
+        var ptr = System.Runtime.InteropServices.Marshal.SecureStringToGlobalAllocUnicode(ss);
+        try
+        {
+            Assert.Equal(plain, System.Runtime.InteropServices.Marshal.PtrToStringUni(ptr));
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    [SkippableFact]
+    public void GetLightHousePskSecure_missing_or_empty_returns_null()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        Assert.Null(cfg.GetLightHousePskSecure("nonexistent-id"));
+        Assert.Null(cfg.GetLightHousePskSecure(""));
+
+        var svc = cfg.EnsureActiveService();
+        // ApiKeyEncrypted="" 인 상태 — null 반환.
+        Assert.Null(cfg.GetLightHousePskSecure(svc.ServiceId));
+    }
+
+    /// <summary>**B5 (2026-05-27)** — SecureString overload 의 null/빈 입력 시 ApiKeyEncrypted clear (string overload contract 동일).</summary>
+    [SkippableFact]
+    public void SetLightHousePsk_SecureString_null_or_empty_clears_encrypted()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
+
+        var cfg = new LlmConfig();
+        var svc = cfg.EnsureActiveService();
+        cfg.SetLightHousePsk(svc.ServiceId, "temp");
+        Assert.True(cfg.HasLightHousePsk());
+
+        cfg.SetLightHousePsk(svc.ServiceId, (System.Security.SecureString?)null);
+        Assert.False(cfg.HasLightHousePsk());
+
+        cfg.SetLightHousePsk(svc.ServiceId, "temp");
+        using var empty = new System.Security.SecureString();
+        empty.MakeReadOnly();
+        cfg.SetLightHousePsk(svc.ServiceId, empty);
+        Assert.False(cfg.HasLightHousePsk());
+    }
+
+    [SkippableFact]
     public void LightHousePsk_uses_distinct_entropy_from_LlmApi_keys()
     {
         // 다른 entropy 사용 검증 — LlmApi key 와 LightHouse PSK ciphertext 가 동일 평문이라도 별 entropy 라 다른 byte.
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg1 = new LlmConfig();
         cfg1.SetApiKey("anthropic", "same-plain");
@@ -456,12 +537,12 @@ public sealed class LlmConfigTests : IDisposable
         Assert.NotEqual(cfg1.EncryptedKeys["anthropic"], cfg1.LightHouseServices[0].ApiKeyEncrypted);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Per_service_PSK_entropy_isolation()
     {
         // **D-S7-3a (s6-r29) — 결정 #4 (per-service entropy)** — 동일 평문을 두 service 에 박제하면 ciphertext
         // 가 서로 다름. service A 의 ciphertext 를 service B 의 ServiceId 로 복호화 시도 시 null (실패).
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI).");
 
         var cfg = new LlmConfig();
         var svcA = new LightHouseServiceConfig
@@ -587,10 +668,10 @@ public sealed class LlmConfigTests : IDisposable
         Assert.Equal(1234, cfg.VisionCostGate.TokensUsedToday);
     }
 
-    [Fact]
+    [SkippableFact]
     public void IsVlmEnabled_requires_provider_and_apikey()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / VLM apikey).");
 
         var cfg = new LlmConfig();
         // no apikey → false
@@ -603,10 +684,10 @@ public sealed class LlmConfigTests : IDisposable
         Assert.False(cfg.IsVlmEnabled());
     }
 
-    [Fact]
+    [SkippableFact]
     public void GetVlmApiKey_env_var_takes_precedence()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only (DPAPI / VLM apikey).");
 
         const string envVar = "LIGHTHOUSE_VLM_API_KEY";
         var prior = Environment.GetEnvironmentVariable(envVar);

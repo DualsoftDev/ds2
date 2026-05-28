@@ -14,7 +14,7 @@ type ImportPlanOperation =
     | AddApiCall of ApiCall
     | AddArrowWork of ArrowBetweenWorks
     | AddArrowCall of ArrowBetweenCalls
-    /// Remove (cascade). entityKind = Project/System/Flow/Work/Call/ApiDef. entityId = 대상 GUID.
+    /// Remove (cascade). entityKind = Project/System/Flow/Work/Call/ApiDef/ArrowWork/ArrowCall. entityId = 대상 GUID.
     /// applyDirect 는 dict 단순 제거만 수행 (cascade 책임은 호출자) — applyTracked 가 CascadeRemove 호출.
     | RemoveEntity of entityKind: EntityKind * entityId: Guid
     /// Rename (System / ApiDef 만 — Flow/Work/Call 은 자식 cascade 복잡도로 phase 후속).
@@ -93,12 +93,14 @@ module ImportPlan =
             // Direct path 는 cascade 없이 단순 dict 제거. Mermaid/CSV importer 등 raw build 용도.
             // LLM mutation 은 ImportPlanApply 측 applyOperationTracked 가 cascade 처리.
             match kind with
-            | EntityKind.Project -> store.Projects.Remove(id) |> ignore
-            | EntityKind.System  -> store.Systems.Remove(id)  |> ignore
-            | EntityKind.Flow    -> store.Flows.Remove(id)    |> ignore
-            | EntityKind.Work    -> store.Works.Remove(id)    |> ignore
-            | EntityKind.Call    -> store.Calls.Remove(id)    |> ignore
-            | EntityKind.ApiDef  -> store.ApiDefs.Remove(id)  |> ignore
+            | EntityKind.Project   -> store.Projects.Remove(id)   |> ignore
+            | EntityKind.System    -> store.Systems.Remove(id)    |> ignore
+            | EntityKind.Flow      -> store.Flows.Remove(id)      |> ignore
+            | EntityKind.Work      -> store.Works.Remove(id)      |> ignore
+            | EntityKind.Call      -> store.Calls.Remove(id)      |> ignore
+            | EntityKind.ApiDef    -> store.ApiDefs.Remove(id)    |> ignore
+            | EntityKind.ArrowWork -> store.ArrowWorks.Remove(id) |> ignore
+            | EntityKind.ArrowCall -> store.ArrowCalls.Remove(id) |> ignore
             | _ -> invalidOp $"RemoveEntity direct: 지원하지 않는 EntityKind ({kind})."
         | RenameEntity (kind, id, newName) ->
             match kind with

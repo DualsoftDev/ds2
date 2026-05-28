@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -66,11 +67,15 @@ public partial class ApplicationSettingsDialog : Window
     private readonly ObservableCollection<LightHouseServiceConfig> _lhServicesWorking = new();
 
     /// <summary>
-    /// **D-S7-3c (s6-r31)** — PSK 평문 dialog 입력 임시 저장. key = ServiceId, value = 평문 PSK. ApplyLlmTab 시점에
-    /// _llmConfig.SetLightHousePsk(serviceId, plain) 호출 + Save. dict 자체는 dialog modal lifetime 동안만 유지 →
-    /// 평문 보존 risk 최소화.
+    /// **D-S7-3c (s6-r31)** — PSK dialog 입력 임시 저장. key = ServiceId, value = SecureString PSK. ApplyLlmTab 시점에
+    /// _llmConfig.SetLightHousePsk(serviceId, SecureString) 호출 + Save. dict 자체는 dialog modal lifetime 동안만 유지 +
+    /// 각 SecureString 은 Dispose 책임 격리 (helper <see cref="SetPendingPsk"/> / <see cref="RemovePendingPsk"/> /
+    /// <see cref="DisposeAndClearPskChanges"/>).
+    /// <para/>
+    /// **PR2 (2026-05-27) — SecureString chain 완전화**: 이전 (D-S7-3c) 의 managed string Dictionary 폐기. heap 평문
+    /// lifetime 완전 제거 — PskEditDialog.SecurePassword → 본 dict → SetLightHousePsk(SecureString) chain.
     /// </summary>
-    private readonly Dictionary<string, string> _pskChanges = new();
+    private readonly Dictionary<string, SecureString> _pskChanges = new();
 
     // s5c-r1 — 연결/테스트 결과 색상 SSOT (사용자 보고 cosmetic). dark theme 에서 잘 보이는 light blue / red.
     // Freeze 로 GC + thread 부담 최소화.
@@ -137,8 +142,15 @@ public partial class ApplicationSettingsDialog : Window
 
         // **s6-r70 review C-11** — Cancel / X close path 의 _pskChanges 평문 cleanup. ApplyLlmTab path 는 자체 Clear.
         // Closed event 가 OK / Cancel / X 모두 통과 — 시점 OK button click 후의 _pskChanges 는 이미 Clear 된 상태,
-        // Cancel/X 의 경우만 평문 잔존 → 즉시 Clear (GC 시점까지의 평문 lifetime 단축).
-        Closed += (_, _) => _pskChanges.Clear();
+        // Cancel/X 의 경우만 평문 잔존 → 즉시 Dispose + Clear (SecureString lifetime 단축).
+        // **PR2 (2026-05-27)** — SecureString Dispose 의무.
+        Closed += (_, _) => DisposeAndClearPskChanges();
+
+        // "Local 항목 추가" 버튼 IsEnabled 갱신 — _lhServicesWorking 의 row 추가/제거 시 자동.
+        // (BaseUrl cell 편집은 INotifyPropertyChanged 미구현이라 즉시 갱신 안 됨 — click handler 내부의
+        // IsSameLocalEndpoint 재검사가 safety net 역할. CollectionChanged 는 best-effort hint.)
+        _lhServicesWorking.CollectionChanged += (_, _) => RefreshAddLocalEnabled();
+        RefreshAddLocalEnabled();
 
         // 앱 설정에서 로드
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
@@ -302,7 +314,7 @@ public partial class ApplicationSettingsDialog : Window
         _lhServicesWorking.Clear();
         foreach (var src in _llmConfig.LightHouseServices)
             _lhServicesWorking.Add(CloneServiceConfig(src));
-        _pskChanges.Clear();
+        DisposeAndClearPskChanges();  // **PR2 (2026-05-27)** — SecureString Dispose 후 Clear.
         LhServicesGrid.ItemsSource = _lhServicesWorking;
 
         // s6-r38 P4-C.2 — Embedding UI Load. active service 1개 가정 (multi-service per-service UI 진입은 backlog).
@@ -470,26 +482,113 @@ public partial class ApplicationSettingsDialog : Window
 
     // ─── LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid handlers ─────────
 
-    /// <summary>**Phase: "로컬 LightHouse 서비스 활성화"** — installer 가 배치한 enable-ai.ps1 을 UAC elevated 로 호출.
-    /// 4단계 (Ollama / cert / install-service + PSK 생성 / firewall + service start) 완료 후 PSK 평문을 capture 하여
-    /// LlmConfig.LightHouseServices 의 Local entry 에 DPAPI 박제. UI 가 자동 갱신.</summary>
+    /// <summary>**"Local 항목 추가"** 버튼 — 이미 떠 있는 로컬 LightHouseService 의 listenUrl 을
+    /// <c>%PROGRAMDATA%\Dualsoft\LightHouseService\config.json</c> 에서 자동 추출하여 working list 에 row 만 추가한다.
+    /// service 자체의 설치/구동은 별 path ("Local 서비스 설치/재설치" 버튼 또는 외부 `make install`).
+    /// <para/>
+    /// 추가 entry — Active=true (단일 active 정합), DisplayName="Local LightHouse", PSK 빈 값 (사용자가 row 의
+    /// 'PSK 설정...' 으로 별 입력). 동일 endpoint 가 이미 있으면 silent skip + chip 안내 (best-effort IsEnabled
+    /// 갱신이 race 인 경우의 safety net).
+    /// </summary>
+    private void LhAddLocalEntry_Click(object sender, RoutedEventArgs e)
+    {
+        // **메타리뷰 M8 (2026-05-27)** — config.json 미존재 시 dead entry 박제 차단.
+        var configPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Dualsoft", "LightHouseService", "config.json");
+        if (!System.IO.File.Exists(configPath))
+        {
+            LhEnableLocalStatus.Text = "LightHouseService 가 설치 전입니다 — 'Local 서비스 설치/재설치' 버튼으로 먼저 설치하시기 바랍니다.";
+            return;
+        }
+
+        var baseUrl = LightHouseLocalInstaller.ResolveLocalBaseUrl();
+
+        // safety net — IsEnabled 갱신이 CollectionChanged 만 hook 하므로 cell 편집 직후 race 시 중복 추가될 수 있음.
+        if (_lhServicesWorking.Any(s => LightHouseLocalInstaller.IsSameLocalEndpoint(s.BaseUrl, baseUrl)))
+        {
+            LhEnableLocalStatus.Text = $"이미 같은 endpoint 의 항목이 있습니다 ({baseUrl}).";
+            return;
+        }
+
+        var svc = new LightHouseServiceConfig
+        {
+            ServiceId = Guid.NewGuid().ToString(),
+            DisplayName = "Local LightHouse",
+            BaseUrl = baseUrl,
+            Active = true,
+        };
+
+        // 단일 active 정합 — 신규 항목이 Active 가 되었으므로 다른 entry 비활성.
+        foreach (var s in _lhServicesWorking) s.Active = false;
+        _lhServicesWorking.Add(svc);
+        LhServicesGrid.Items.Refresh();
+
+        LhEnableLocalStatus.Text =
+            $"Local 항목 추가됨 ({baseUrl}) — PSK '설정...' 버튼으로 PSK 입력 필요.";
+    }
+
+    /// <summary>"Local 항목 추가" 버튼 IsEnabled 갱신 — 같은 endpoint 의 항목이 이미 working list 에 있으면 비활성.
+    /// CollectionChanged subscribe 에서 호출 (row 추가/제거 시점). BaseUrl cell 편집은 PropertyChanged 미발화 →
+    /// LhAddLocalEntry_Click 의 safety net 이 보완.</summary>
+    private void RefreshAddLocalEnabled()
+    {
+        var baseUrl = LightHouseLocalInstaller.ResolveLocalBaseUrl();
+        LhAddLocalEntryButton.IsEnabled =
+            !_lhServicesWorking.Any(s => LightHouseLocalInstaller.IsSameLocalEndpoint(s.BaseUrl, baseUrl));
+    }
+
+    /// <summary>**Phase: "Local 서비스 설치/재설치"** — installer 가 배치한 enable-ai.ps1 을 UAC elevated 로 호출.
+    /// 4단계 (Ollama / cert / install-service + 사용자 입력 PSK / firewall + service start) 완료 후
+    /// LlmConfig.LightHouseServices 의 Local entry 에 DPAPI 박제. UI 가 자동 갱신.
+    /// <para/>
+    /// 진입 시 sc query 1회 → RUNNING 인 경우 confirm dialog → PSK + Cert PFX Password 입력 dialog
+    /// (검증 / RNG 버튼 0) → installer.EnableAsync(pskPlain, certPwdPlain) 호출.
+    /// <para/>
+    /// service 정지 / config wire-up 만 원하면 "Local 항목 추가" 버튼 권장.</summary>
     private async void LhEnableLocal_Click(object sender, RoutedEventArgs e)
     {
+        // sc query — RUNNING 인 경우 confirm dialog (Q2 β).
+        if (IsLightHouseServiceRunning())
+        {
+            var owner = Window.GetWindow(this);
+            var msg =
+                "Ds2.LightHouseService 가 이미 실행 중입니다." + Environment.NewLine + Environment.NewLine +
+                "재설치는 기존 service 를 정지 후 재등록하며, PSK 도 새로 설정됩니다 " +
+                "(기존 client 들의 PSK 갱신 의무 — 안전 채널로 새 PSK 전달)." + Environment.NewLine + Environment.NewLine +
+                "계속하시겠습니까?";
+            var result = owner != null
+                ? MessageBox.Show(owner, msg, "Local 서비스 재설치 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                : MessageBox.Show(msg, "Local 서비스 재설치 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes) return;
+        }
+
+        // PSK / Cert PFX Password 입력 dialog (검증 0).
+        // **B4 (2026-05-27)** — SecureString 정공 path. dialog 가 SecureString 반환 → installer 가 소유권 이양 후 Dispose.
+        var inputDialog = new Promaker.Dialogs.EnableLocalServiceDialog { Owner = Window.GetWindow(this) };
+        if (inputDialog.ShowDialog() != true) return;
+        var pskSecure = inputDialog.PskResult;
+        var certPwdSecure = inputDialog.CertPwdResult;
+        if (pskSecure is null || certPwdSecure is null)
+        {
+            // dialog OK 후 빈 값 차단 — 방어 분기. 한쪽만 null 케이스의 leak 차단.
+            pskSecure?.Dispose();
+            certPwdSecure?.Dispose();
+            return;
+        }
+
         LhEnableLocalButton.IsEnabled = false;
         LhEnableLocalStatus.Text =
             "UAC 프롬프트 응답 → PowerShell 콘솔에서 진행 표시 (Ollama 첫 설치 시 수 분 소요 가능).";
         try
         {
             var installer = new LightHouseLocalInstaller(_llmConfig);
-            var result = await installer.EnableAsync().ConfigureAwait(true);
+            var result = await installer.EnableAsync(pskSecure, certPwdSecure).ConfigureAwait(true);
 
-            // 사용자가 dirty save 를 누르지 않아도 PSK 는 이미 disk 박제됨 (installer 내부 Save 호출).
-            // dirty 플래그 켜서 dialog 닫을 때 reload 정합 (UI 갱신 위해).
             LlmConfigChanged = true;
             ReloadLhServicesWorking();
             LhServicesGrid.Items.Refresh();
 
-            // healthcheck 결과 차별 표시 — 자가검열 m2 정합.
             var healthSuffix = result.Healthy switch
             {
                 true  => "  /healthz 200 OK",
@@ -507,6 +606,31 @@ public partial class ApplicationSettingsDialog : Window
         finally
         {
             LhEnableLocalButton.IsEnabled = true;
+            // SecureString 의 Dispose 는 installer 의 finally 가 보장 — 본 caller 는 추가 wipe 불요.
+        }
+    }
+
+    /// <summary>**메타리뷰 M5 (2026-05-27)** — `sc.exe` regex parse → `ServiceController` native API 로 교체.
+    /// 한글 Windows 의 cp949 출력 사고 (regex "RUNNING" 우연 통과 / "실행 중" false negative) 차단. 미설치 catch 만 swallow.</summary>
+    private static bool IsLightHouseServiceRunning()
+    {
+        try
+        {
+            using var sc = new System.ServiceProcess.ServiceController("Ds2.LightHouseService");
+            // ServiceController.Status access 가 미설치 service 면 InvalidOperationException throw.
+            return sc.Status == System.ServiceProcess.ServiceControllerStatus.Running;
+        }
+        catch (InvalidOperationException)
+        {
+            // 미설치 — 정상 분기 (UI 가 신규 설치 path).
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // 권한 / WMI 사고 등 — log 박제 후 안전 default (false → reinstall path 진입, confirm dialog 안 뜸).
+            log4net.LogManager.GetLogger(typeof(ApplicationSettingsDialog))
+                .Warn($"IsLightHouseServiceRunning ServiceController 사고 ({ex.GetType().Name}: {ex.Message}) — false default.");
+            return false;
         }
     }
 
@@ -544,8 +668,8 @@ public partial class ApplicationSettingsDialog : Window
     /// 동일 host:port (localhost ↔ 127.0.0.1 정규화) 가 이미 working list 에 있으면 빈 `https://` 로 둔다 (중복 방지).</summary>
     private void LhAddService_Click(object sender, RoutedEventArgs e)
     {
-        const string defaultLocalUrl = "https://127.0.0.1:8443";
-        var hasLocal = _lhServicesWorking.Any(s => IsSameLocalEndpoint(s.BaseUrl, defaultLocalUrl));
+        var defaultLocalUrl = LightHouseLocalInstaller.DefaultLocalBaseUrl;
+        var hasLocal = _lhServicesWorking.Any(s => LightHouseLocalInstaller.IsSameLocalEndpoint(s.BaseUrl, defaultLocalUrl));
         var svc = new LightHouseServiceConfig
         {
             ServiceId = Guid.NewGuid().ToString(),
@@ -553,19 +677,10 @@ public partial class ApplicationSettingsDialog : Window
             BaseUrl = hasLocal ? "https://" : defaultLocalUrl,
             Active = true,
         };
+        // **메타리뷰 m10 (2026-05-27)** — UX 대칭 — LhAddLocalEntry_Click 의 단일 active 정합 규칙을 본 핸들러에도 적용.
+        foreach (var s in _lhServicesWorking) s.Active = false;
         _lhServicesWorking.Add(svc);
         LhServicesGrid.Items.Refresh();
-    }
-
-    /// <summary>두 BaseUrl 이 같은 endpoint 인지 판정 — scheme/host(localhost↔127.0.0.1 정규화)/port 비교.</summary>
-    private static bool IsSameLocalEndpoint(string a, string b)
-    {
-        if (!Uri.TryCreate(a, UriKind.Absolute, out var ua)) return false;
-        if (!Uri.TryCreate(b, UriKind.Absolute, out var ub)) return false;
-        static string Norm(string h) => h.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? "127.0.0.1" : h;
-        return string.Equals(ua.Scheme, ub.Scheme, StringComparison.OrdinalIgnoreCase)
-            && Norm(ua.Host) == Norm(ub.Host)
-            && ua.Port == ub.Port;
     }
 
     /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "제거" 버튼. Button.Tag = ServiceId. working entry 제거 + _pskChanges 정리.</summary>
@@ -575,11 +690,12 @@ public partial class ApplicationSettingsDialog : Window
         var idx = _lhServicesWorking.ToList().FindIndex(s => s.ServiceId == serviceId);
         if (idx < 0) return;
         _lhServicesWorking.RemoveAt(idx);
-        _pskChanges.Remove(serviceId);
+        RemovePendingPsk(serviceId);  // **PR2 (2026-05-27)** — SecureString Dispose 후 Remove.
         LhServicesGrid.Items.Refresh();
     }
 
-    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "PSK 설정..." 버튼. 별 dialog 로 평문 PSK 입력 (DataGrid cell 에 평문 비노출). OK 시 _pskChanges 에 임시 저장.</summary>
+    /// <summary>**D-S7-3c (s6-r31)** — DataGrid row 의 "PSK 설정..." 버튼. 별 dialog 로 PSK SecureString 입력 (DataGrid cell 에 평문 비노출).
+    /// OK 시 _pskChanges 에 임시 저장. **PR2 (2026-05-27)** — SecureString chain.</summary>
     private void LhEditPsk_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string serviceId) return;
@@ -591,13 +707,38 @@ public partial class ApplicationSettingsDialog : Window
         };
         if (dlg.ShowDialog() == true && dlg.Result is not null)
         {
-            _pskChanges[serviceId] = dlg.Result;
+            var len = dlg.Result.Length;
+            SetPendingPsk(serviceId, dlg.Result);  // 기존 entry 가 있으면 Dispose 후 박제.
             SetTestResult(LhTestResult,
-                string.IsNullOrEmpty(dlg.Result)
+                len == 0
                     ? $"ℹ️ [{svc.DisplayName}] PSK 제거 (저장 시 반영)"
-                    : $"ℹ️ [{svc.DisplayName}] PSK 변경됨 ({dlg.Result.Length} 문자, 저장 시 반영)",
+                    : $"ℹ️ [{svc.DisplayName}] PSK 변경됨 ({len} 문자, 저장 시 반영)",
                 success: null);
         }
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — _pskChanges SecureString lifecycle helper. 기존 entry 가 있으면 Dispose 후 박제.</summary>
+    private void SetPendingPsk(string serviceId, SecureString psk)
+    {
+        if (_pskChanges.TryGetValue(serviceId, out var prev)) prev?.Dispose();
+        _pskChanges[serviceId] = psk;
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — _pskChanges 에서 한 entry 제거 + Dispose.</summary>
+    private void RemovePendingPsk(string serviceId)
+    {
+        if (_pskChanges.TryGetValue(serviceId, out var prev))
+        {
+            prev?.Dispose();
+            _pskChanges.Remove(serviceId);
+        }
+    }
+
+    /// <summary>**PR2 (2026-05-27)** — 모든 _pskChanges entry Dispose 후 Clear. Closed event / ReloadLhServicesWorking / ApplyLhServices 공통.</summary>
+    private void DisposeAndClearPskChanges()
+    {
+        foreach (var ss in _pskChanges.Values) ss?.Dispose();
+        _pskChanges.Clear();
     }
 
     /// <summary>
@@ -705,32 +846,30 @@ public partial class ApplicationSettingsDialog : Window
         if (svc is null) return;
 
         var url = (svc.BaseUrl ?? "").Trim();
-        // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화 (deep clone 한 ApiKeyEncrypted 로부터 _llmConfig 의 GetLightHousePsk 호출).
-        string psk;
-        if (_pskChanges.TryGetValue(serviceId, out var pendingPlain))
-        {
-            psk = pendingPlain;
-        }
-        else
-        {
-            // 기존 service 에 박제된 ApiKeyEncrypted 가 있으면 복호화 — disk 의 _llmConfig 의 같은 ServiceId entry 사용.
-            psk = _llmConfig.GetLightHousePsk(serviceId) ?? "";
-        }
+        // PSK: _pskChanges 에 우선, 없으면 기존 ciphertext 복호화.
+        // **B8 (2026-05-27)** — SecureString 정공 path. LightHouseClient.PSK provider 가 SecureString overload — 1회 string 변환 폐기.
+        var pskSecure = _pskChanges.TryGetValue(serviceId, out var pendingSecure)
+            ? pendingSecure  // 소유권 _pskChanges 유지 — provider Func 매 호출마다 같은 instance 반환.
+            : _llmConfig.GetLightHousePskSecure(serviceId);
 
         if (string.IsNullOrEmpty(url) || url == "https://")
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] Base URL 이 비어있습니다.", success: false);
             return;
         }
-        if (string.IsNullOrEmpty(psk))
+        if (pskSecure is null || pskSecure.Length == 0)
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] PSK 가 비어있습니다.", success: false);
+            // _pskChanges 의 entry 가 아니면 GetLightHousePskSecure 가 신규 발급한 SecureString — Dispose.
+            if (pendingSecure is null) pskSecure?.Dispose();
             return;
         }
         SetTestResult(LhTestResult, $"[{svc.DisplayName}] 확인 중…", success: null);
         try
         {
-            using var client = new LightHouseClient(url, () => psk, Environment.UserName);
+            // **B8 (2026-05-27)** — SecureString provider 직접 박제. pskSecure 가 _pskChanges 의 instance 면 dialog Closed 가 Dispose,
+            // GetLightHousePskSecure 신규 instance 면 본 try 의 finally 가 Dispose.
+            using var client = new LightHouseClient(url, () => pskSecure, Environment.UserName);
             var resp = await client.ListCollectionsAsync().ConfigureAwait(true);
             SetTestResult(LhTestResult, $"✅ [{svc.DisplayName}] 연결 성공 — collection {resp.Collections.Count}건", success: true);
         }
@@ -745,6 +884,11 @@ public partial class ApplicationSettingsDialog : Window
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or ArgumentException)
         {
             SetTestResult(LhTestResult, $"❌ [{svc.DisplayName}] 연결 실패 — {ex.Message}", success: false);
+        }
+        finally
+        {
+            // **B8 (2026-05-27)** — _pskChanges 의 instance 가 아니면 GetLightHousePskSecure 신규 발급 — Dispose 의무.
+            if (pendingSecure is null) pskSecure?.Dispose();
         }
     }
 
@@ -880,15 +1024,16 @@ public partial class ApplicationSettingsDialog : Window
                     },
                 });
             }
-            foreach (var (sid, plain) in _pskChanges)
+            // **PR2 (2026-05-27)** — SecureString overload 호출. 박제 후 DisposeAndClearPskChanges 가 finally 정리.
+            foreach (var (sid, secure) in _pskChanges)
             {
                 // _llmConfig.LightHouseServices 안에 sid 가 없으면 (remove 후 PSK 변경 이전) skip.
                 if (_llmConfig.LightHouseServices.Any(s => s.ServiceId == sid))
                 {
-                    _llmConfig.SetLightHousePsk(sid, plain);
+                    _llmConfig.SetLightHousePsk(sid, secure);
                 }
             }
-            _pskChanges.Clear();
+            DisposeAndClearPskChanges();
         }
 
         _llmConfig.Save();

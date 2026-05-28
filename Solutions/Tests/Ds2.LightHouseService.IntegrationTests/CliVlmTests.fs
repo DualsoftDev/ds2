@@ -32,7 +32,7 @@ type CliVlmTests() =
     [<Fact>]
     member _.``API key 미박제 + force=false → Error (CLI fail-fast)`` () =
         withEnvKey None (fun () ->
-            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None false with
+            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None (System.IO.Path.GetTempPath()) false with
             | Error msg ->
                 // 사용자 안내 msg 에 env var 명 + flag 명 포함 의무.
                 Assert.Contains("LIGHTHOUSE_VLM_API_KEY", msg)
@@ -43,7 +43,7 @@ type CliVlmTests() =
     [<Fact>]
     member _.``API key 빈 whitespace + force=false → Error (whitespace 가드)`` () =
         withEnvKey (Some "   ") (fun () ->
-            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None false with
+            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None (System.IO.Path.GetTempPath()) false with
             | Error msg ->
                 Assert.Contains("LIGHTHOUSE_VLM_API_KEY", msg)
             | Ok _ ->
@@ -52,7 +52,7 @@ type CliVlmTests() =
     [<Fact>]
     member _.``API key 미박제 + force=true → Ok noop closure (SkippedCaption "no caption gen")`` () =
         withEnvKey None (fun () ->
-            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None true with
+            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None (System.IO.Path.GetTempPath()) true with
             | Ok gen ->
                 let result = gen [| 0x89uy |] Png
                 match result with
@@ -68,7 +68,7 @@ type CliVlmTests() =
         // fake key 박제 — callAnthropic 진입. 외부 네트워크 실 호출이라 (a) 4xx (b) network 실패 (c) timeout
         // 어느 경우든 noop "no caption gen" 분기 아닌 다른 결과 박제. SSOT = noop 분기 미진입 검증.
         withEnvKey (Some "sk-ant-fake-key-for-test") (fun () ->
-            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None false with
+            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None (System.IO.Path.GetTempPath()) false with
             | Ok gen ->
                 let result = gen [| 0x89uy |] Png
                 match result with
@@ -82,7 +82,7 @@ type CliVlmTests() =
     member _.``API key 박제 + force=true → Ok callAnthropic (force flag 가 API key 보다 후순위)`` () =
         // API key 박제 + force=true → API key 우선 활성 (force flag 는 미박제 상태에서만 의미).
         withEnvKey (Some "sk-ant-fake-key-for-test") (fun () ->
-            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None true with
+            match Ds2.LightHouse.Cli.Vlm.buildCaptionGen CancellationToken.None (System.IO.Path.GetTempPath()) true with
             | Ok gen ->
                 let result = gen [| 0x89uy |] Png
                 match result with
