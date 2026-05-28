@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using DevExpress.Xpf.Core;
 using DevExpress.Xpf.Docking;
 using DevExpress.Xpf.Docking.Base;
 
@@ -25,6 +26,19 @@ public partial class DockHost : UserControl, IDockManager
     /// LayoutGroup.Items[string] 은 직접 자식만 lookup — 트리 전역은 자체 dictionary 가 더 단순/안정.
     /// </summary>
     private readonly Dictionary<string, BaseLayoutItem> _itemsByContentId = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// PR-D7.3 — DX skin 정합. App startup 시점 (Application 인스턴스 생성 직후, MainWindow 생성 전) 1회 호출.
+    /// 격리 원칙 (§7 #4): DX type 외부 노출 차단 — Promaker 본체가 DX API 를 직접 호출하지 않도록
+    /// 본 정적 helper 가 단일 진입점. 매개변수 없음 — skin 이름은 deploy 된 Themes assembly 와 정합되는
+    /// "Office2019Colorful" 로 하드코딩 (PR-D4 fallback D 의 DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll
+    /// 1종만 deploy). WindowsUI Dark 등 다른 skin 은 별도 Themes assembly 추가 deploy 필요.
+    /// 사용자 1회 시각 검수 (§3 PR-D7.3 박제) 통과 시 종료. 색차 크면 step 분할.
+    /// </summary>
+    public static void InitializeTheme()
+    {
+        ApplicationThemeHelper.ApplicationThemeName = "Office2019Colorful";
+    }
 
     public DockHost()
     {
