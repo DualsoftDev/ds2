@@ -15,7 +15,7 @@ namespace Promaker.Dock;
 /// DX 의 System.Windows.Forms / System.Drawing transitive 가 Promaker 본체에 유입되지 않도록 격리.
 ///
 /// PR-D3 단계:
-///   - done-dock-layout.md §3.1 의 안 A 그대로 LayoutGroup 트리 구성 (XAML).
+///   - done-dock-avalon.md §3.1 의 안 A 그대로 LayoutGroup 트리 구성 (XAML).
 ///   - IDockManager 의 4 메서드 + 1 event 구현. dispatch 는 <see cref="DockAnchorPosition"/> switch.
 ///   - size 보존 / drag-drop / floating 은 DX native 처리 — 별도 보정 코드 없음 (작업 의도 verbatim).
 /// </summary>
@@ -129,7 +129,7 @@ public partial class DockHost : UserControl, IDockManager
 
     /// <summary>
     /// DockAnchorPosition → 미리 만든 LayoutPanel 매핑. PR-D2 의 enum 5 anchor 위치 + Document (별도 경로).
-    /// done-dock-layout.md §3.1 안 A:
+    /// done-dock-avalon.md §3.1 안 A:
     ///   Left=explorer / Bottom=simulation / RightTop=property / RightMiddle=history / RightBottom=llmchat.
     /// </summary>
     private LayoutPanel ResolveAnchorPanel(DockAnchorPosition position) => position switch

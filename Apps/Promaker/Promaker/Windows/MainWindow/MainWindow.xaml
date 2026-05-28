@@ -55,7 +55,7 @@
 
         <ctrl:MainToolbar Grid.Row="0"/>
 
-        <!-- PR-D4 — AvalonDock DockingManager 통째 제거 → Promaker.Dock.DockHost 로 교체.
+        <!-- PR-D4 — Promaker.Dock.DockHost (DevExpress.Wpf.Docking 캡슐화 UserControl) embed.
              5 anchor (Explorer / Simulation / Property / History / LlmChat) + 2 document (Welcome / Canvas) 의
              Content UserControl 인스턴스 + RegisterAnchor / RegisterDocument 호출은 code-behind 의 ctor 에서 수행. -->
         <promakerDock:DockHost x:Name="dockHost" Grid.Row="1"/>

@@ -27,7 +27,7 @@ public partial class MainWindow : Window
     private SplitCanvasContainer? _workspacePane;
 
     // PR-D5 — DockHost ↔ VM 양방향 sync 의 재진입 가드.
-    // done-dock-layout.md §2 F3 박제 — visibility 변경이 4회+ 중복 raise 되는 DX 동작에 대한 절대 필수 가드.
+    // done-dock-avalon.md §2 F3 박제 — visibility 변경이 4회+ 중복 raise 되는 DX 동작에 대한 절대 필수 가드.
     // 한쪽 방향 처리 중에 다른 방향 raise 가 와도 무시 (loop 차단).
     private bool _suppressAnchorSync;
 
@@ -43,7 +43,7 @@ public partial class MainWindow : Window
         DataContext = _vm;
 
         // PR-D4 — 5 anchor + 2 document 등록. PR-D3 의 IDockManager (DockHost) API 사용.
-        // ContentId / Title / Content / DefaultPosition 매핑은 done-dock-layout.md §3.1 안 A + todo §9 의 PR-D3 spike 박제.
+        // ContentId / Title / Content / DefaultPosition 매핑은 done-dock-avalon.md §3.1 안 A + todo §9 의 PR-D3 spike 박제.
         var explorerPane = new ExplorerPane();
         var simulationPanel = new SimulationPanel { DataContext = _vm.Simulation };
         var propertyPanel = new PropertyPanel { DataContext = _vm.PropertyPanel };
@@ -71,7 +71,7 @@ public partial class MainWindow : Window
         dockHost.AnchorVisibilityChanged += DockHost_AnchorVisibilityChanged;
 
         // 초기 동기화 — HasProject 의 현재 값에 따라 Welcome ↔ Canvas 즉시 설정.
-        // done-dock-layout.md §3.1 안 A: HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전.
+        // done-dock-avalon.md §3.1 안 A: HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전.
         SyncWelcomeCanvasVisibility();
 
         SourceInitialized += MainWindow_SourceInitialized;
@@ -145,7 +145,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// HasProject SSOT → welcome / canvas document 가시성.
-    /// done-dock-layout.md §3.1 안 A: false → Welcome 보임 / Canvas 숨김, true → 역전.
+    /// done-dock-avalon.md §3.1 안 A: false → Welcome 보임 / Canvas 숨김, true → 역전.
     /// PR-D6 — 호출자가 이미 _suppressAnchorSync 안일 수도 있어 본문은 guard 없는 단순 적용,
     /// guard 책임은 호출자 (외부 호출 path 는 SyncWelcomeCanvasVisibility 가 wrapping).
     /// </summary>
