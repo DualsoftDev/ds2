@@ -80,7 +80,7 @@ LH_SERVICE_EXE   := $(LH_PUBLISH_DIR)/Ds2.LightHouseService.exe
 # 본체 sc/fd 모드 동일 정합 (self-contained / framework-dependent).
 LH_INSTALLER_PUBLISH := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
 
-.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build run
 
 help:
 	@echo "Promaker installer Makefile"
@@ -108,6 +108,10 @@ help:
 	@echo "                    + delegate to ../../Solutions/Tools/Makefile build target"
 	@echo "                    (Ds2.LightHouse.Cli / Ollama / LightHouseService)."
 	@echo "                    Override config: make build BUILD_CONFIG=Debug"
+	@echo ""
+	@echo "Targets (run):"
+	@echo "  run             - Build + launch Promaker in background (shell returns immediately)."
+	@echo "                    Override config: make run RUN_CONFIG=Release"
 	@echo ""
 	@echo "Targets (meta):"
 	@echo "  help            - This message"
@@ -270,6 +274,20 @@ build:
 	done
 	@echo "=== build Tools (CONFIG=$(BUILD_CONFIG)) — delegate to $(TOOLS_DIR)/Makefile ==="
 	$(MAKE) -C "$(TOOLS_DIR)" build CONFIG=$(BUILD_CONFIG)
+
+# ── run (Promaker 본체 실행) ──────────────────────────────
+# 개발/디버그용 빠른 실행. dotnet build 로 산출물 생성 후 exe 를 background 로 분리 실행
+# → 셸은 즉시 프롬프트 복귀, Promaker GUI 는 별도 프로세스로 잔존.
+# (WPF WinExe 라 부모 셸 종료와 무관하게 살아남음.)
+RUN_CONFIG  ?= Debug
+PROMAKER_EXE := Promaker/bin/$(RUN_CONFIG)/net9.0-windows/Promaker.exe
+
+run:
+	@echo "=== Build Promaker (CONFIG=$(RUN_CONFIG)) ==="
+	dotnet build "$(PROJECT_FILE)" -c $(RUN_CONFIG)
+	@echo "=== Launching Promaker in background ==="
+	@"$(PROMAKER_EXE)" >/dev/null 2>&1 &
+	@echo "Promaker started (PID detached). Shell returns immediately."
 
 # 공용 dist-force 만 활성화. `make dist` 는 아래에서 notice-only 로 재정의하여
 # 우발적 배포(scp/bump) 를 방지하고 `/dist` skill 사용을 유도한다.
