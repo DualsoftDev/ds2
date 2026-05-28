@@ -1,7 +1,23 @@
 module Ds2.SymbolImport.Tests.MappingConfigTests
 
+open System
+open System.IO
+open System.Text.Json
 open Xunit
 open Ds2.SymbolImport
+
+module private ConfigPath =
+    let rec findRepoRoot (dir: DirectoryInfo) : DirectoryInfo option =
+        if isNull (box dir) then None
+        else
+            let configPath = Path.Combine(dir.FullName, "Solutions", "Convert", "Ds2.SymbolImport", "input-matching-config.json")
+            if File.Exists configPath then Some dir
+            else findRepoRoot dir.Parent
+
+    let sourceConfig () =
+        match findRepoRoot (DirectoryInfo(AppContext.BaseDirectory)) with
+        | Some root -> Path.Combine(root.FullName, "Solutions", "Convert", "Ds2.SymbolImport", "input-matching-config.json")
+        | None -> failwith "repo root with SymbolImport config not found"
 
 [<Fact>]
 let ``loadDefault — 실 input-matching-config.json 로드 성공 (Common + 4 vendor + SymmetryRules)`` () =
@@ -78,3 +94,20 @@ let ``loadDefault — UserTagRules 이상 태그 자동 생성 규칙 로드`` (
     Assert.Equal("Error", first.LogLevel)
     Assert.Equal("Bit", first.ValueType)
     Assert.Contains("*ERR*", first.NamePatterns)
+
+[<Fact>]
+let ``source config — ExplicitMappings에는 패턴형 SymmetryRule 키가 섞이지 않음`` () =
+    let json = File.ReadAllText(ConfigPath.sourceConfig ())
+    use doc = JsonDocument.Parse(json)
+    let explicitMappings = doc.RootElement.GetProperty("ExplicitMappings").EnumerateArray()
+
+    let malformed =
+        explicitMappings
+        |> Seq.filter (fun item ->
+            let mutable outputPattern = Unchecked.defaultof<JsonElement>
+            let mutable inputPattern = Unchecked.defaultof<JsonElement>
+            item.TryGetProperty("OutputPattern", &outputPattern)
+            || item.TryGetProperty("InputPattern", &inputPattern))
+        |> Seq.length
+
+    Assert.Equal(0, malformed)

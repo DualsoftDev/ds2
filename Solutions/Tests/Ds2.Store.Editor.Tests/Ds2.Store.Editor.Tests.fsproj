@@ -20,6 +20,7 @@
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
+    <Compile Include="V10ApiDefMatrixTests.fs" />
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
     <Compile Include="RuntimeCommandPolicyTests.fs" />

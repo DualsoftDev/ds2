@@ -19,6 +19,9 @@ let ``V-S1: unmatched 심볼 있으면 Warning`` () =
     let plans = ModelGenerator.generate batch
     let issues = Validation.validate batch plans
     Assert.Contains(issues, fun i -> i.Code = "V-S1" && i.Severity = Validation.Warning)
+    let issue = issues |> List.find (fun i -> i.Code = "V-S1")
+    Assert.Contains("Input 2", issue.Message)
+    Assert.Contains("Output 0", issue.Message)
 
 [<Fact>]
 let ``V-S2: NotMatched 또는 낮은 신뢰도 매핑 있으면 Info`` () =
