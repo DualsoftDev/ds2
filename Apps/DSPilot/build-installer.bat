@@ -59,8 +59,10 @@ if not exist "%MTX_DIR%\mediamtx.exe" (
 )
 
 if not exist "%MTX_DIR%\mediamtx-service.exe" (
-    echo       Downloading WinSW %WINSW_VERSION%...
-    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $u='https://github.com/winsw/winsw/releases/download/%WINSW_VERSION%/WinSW-x64.exe'; Invoke-WebRequest -Uri $u -OutFile '%MTX_DIR%\mediamtx-service.exe'"
+    echo       Downloading WinSW %WINSW_VERSION% (net461)...
+    rem WinSW-net461 빌드 사용: Windows 10/11 in-box .NET Framework(4.8)만 의존 →
+    rem 대상 PC 가 오프라인이고 .NET Core 런타임이 없어도 동작 보장.
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $u='https://github.com/winsw/winsw/releases/download/%WINSW_VERSION%/WinSW-net461.exe'; Invoke-WebRequest -Uri $u -OutFile '%MTX_DIR%\mediamtx-service.exe'"
     if !errorlevel! neq 0 goto :fail_cctv
 ) else (
     echo       WinSW already present, skipping.
