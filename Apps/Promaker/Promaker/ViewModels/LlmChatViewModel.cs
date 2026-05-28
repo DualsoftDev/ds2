@@ -34,6 +34,8 @@ public enum LlmProviderKind
     Ollama,
     /// <summary>F-1 spike — Groq OpenAI 호환 endpoint. F-4 cleanup 시 정식 schema 로 보존 (이름 동일).</summary>
     GroqApi,
+    HkmcHChatClaude,
+    HkmcHChatOpenAi,
 }
 
 /// <summary>
@@ -142,8 +144,12 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     public ObservableCollection<ChatTurn> Turns { get; } = new();
 
-    public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } =
-        new[] {
+    public IReadOnlyList<LlmProviderKind> AvailableProviders { get; } = BuildAvailableProviders();
+
+    private static IReadOnlyList<LlmProviderKind> BuildAvailableProviders()
+    {
+        var list = new List<LlmProviderKind>
+        {
             LlmProviderKind.Claude,
             LlmProviderKind.Codex,
             LlmProviderKind.AnthropicApi,
@@ -151,6 +157,13 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             LlmProviderKind.Ollama,
             LlmProviderKind.GroqApi,
         };
+        if (Promaker.HkmcFeature.IsEnabled)
+        {
+            list.Add(LlmProviderKind.HkmcHChatClaude);
+            list.Add(LlmProviderKind.HkmcHChatOpenAi);
+        }
+        return list;
+    }
 
     [ObservableProperty]
     private string _input = "";
