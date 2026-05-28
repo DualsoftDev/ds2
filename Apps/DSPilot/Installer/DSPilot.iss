@@ -11,6 +11,11 @@
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
 #define MyDefaultPort "80"
+; CCTV — MediaMTX(WinSW 래퍼) 서비스. RTSP→WebRTC 게이트웨이. DSPilot 과 별 프로세스로 격리.
+#define MyMtxServiceName "DSPilotMediaMtx"
+#define MyMtxServiceExe "mediamtx-service.exe"
+#define MyWebRtcPort "8889"
+#define MyWebRtcUdpPort "8189"
 ; Promaker · DSPilot 공유 AASX 경로 (DSPilot/Infrastructure/SharedPaths.cs 와 동일)
 #define MySharedDir "{commonappdata}\DualSoft\Shared"
 #define MySharedAasxName "project.aasx"
@@ -49,6 +54,12 @@ Name: "{#MySharedDir}"; Permissions: users-modify
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*"
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
+; CCTV — MediaMTX 바이너리 + WinSW 래퍼. build-installer.bat 가 mediamtx 폴더를 채운다.
+; mediamtx.yml 은 운영자가 손볼 수 있으므로 업그레이드 시 덮어쓰지 않는다(onlyifdoesntexist).
+Source: "mediamtx\mediamtx.exe"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+Source: "mediamtx\{#MyMtxServiceExe}"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+Source: "mediamtx\mediamtx-service.xml"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+Source: "mediamtx\mediamtx.yml"; DestDir: "{app}\mediamtx"; Flags: onlyifdoesntexist
 ; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
 ; 운영 시점에 모델 파일이 생성/갱신됨. 파일이 없을 때 DSPilot 은 빈 상태로 부팅되며
 ; Settings 페이지에 "파일 없음 — Promaker 에서 먼저 저장하세요" 안내가 표시됨.
@@ -91,6 +102,28 @@ Filename: "{sys}\sc.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "서비스 시작 중..."
 
+; ── CCTV: MediaMTX 서비스 (WinSW 래퍼로 등록 + 시작) ──
+Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
+  Parameters: "install"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "CCTV(MediaMTX) 서비스 등록 중..."
+
+Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
+  Parameters: "start"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "CCTV(MediaMTX) 서비스 시작 중..."
+
+; WebRTC 시청 포트 (TCP 8889 = WHEP/시그널링, UDP 8189 = ICE 미디어)
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""DSPilot CCTV WebRTC TCP"" dir=in action=allow protocol=tcp localport={#MyWebRtcPort}"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "CCTV 방화벽 규칙 추가 중 (TCP)..."
+
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""DSPilot CCTV WebRTC UDP"" dir=in action=allow protocol=udp localport={#MyWebRtcUdpPort}"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "CCTV 방화벽 규칙 추가 중 (UDP)..."
+
 ; Open browser after install (optional)
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
@@ -100,6 +133,28 @@ Filename: "{code:GetAppURL}"; \
 Type: files; Name: "{autodesktop}\{#MyAppName}.url"
 
 [UninstallRun]
+; ── CCTV: MediaMTX 서비스 정지 + 등록 해제 (WinSW) ──
+Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
+  Parameters: "stop"; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "StopMtxService"
+
+Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
+  Parameters: "uninstall"; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "UninstallMtxService"
+
+; Remove CCTV firewall rules
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall delete rule name=""DSPilot CCTV WebRTC TCP"""; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "DeleteMtxFirewallTcp"
+
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall delete rule name=""DSPilot CCTV WebRTC UDP"""; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "DeleteMtxFirewallUdp"
+
 ; Stop the service before uninstall
 Filename: "{sys}\sc.exe"; \
   Parameters: "stop {#MyServiceName}"; \
@@ -332,6 +387,12 @@ begin
   // 고정 Sleep 대신 STOPPED polling — Sleep(3000) 으로는 부족한 환경 race condition 대비.
   WaitForServiceStopped('{#MyServiceName}', 10);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // CCTV(MediaMTX) 서비스도 업그레이드 전 정지/제거. WinSW 가 등록한 일반 Windows 서비스라
+  // sc 로 직접 정리 가능(구버전 래퍼 exe 존재 여부에 의존하지 않음). mediamtx.exe 파일 잠금 해제 목적.
+  Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyMtxServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  WaitForServiceStopped('{#MyMtxServiceName}', 10);
+  Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyMtxServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 

@@ -5,7 +5,9 @@
 @inject IFlowMetricsService FlowMetricsService
 @inject DsProjectService ProjectService
 @inject DatabaseLifecycleService DbLifecycle
+@inject CctvMediaMtxService CctvSync
 @inject IJSRuntime JS
+@using DSPilot.Models
 
 <PageTitle>설정 - DSPilot</PageTitle>
 
@@ -271,6 +273,68 @@
                 </div>
             </div>
 
+            @* CCTV *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">videocam</span>
+                    <h6 class="typo-h6">CCTV (RTSP)</h6>
+                </div>
+                <div class="card-content">
+                    <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
+                        <small style="color: var(--color-text-secondary); line-height:1.5;">
+                            RTSP 카메라를 등록하면 <strong>MediaMTX</strong>(별도 서비스)가 받아 WebRTC 로 재게시하고,
+                            <a href="cctv">CCTV 페이지</a>에서 시청합니다. 저장 시 MediaMTX 에 자동 반영됩니다.
+                        </small>
+                    </div>
+
+                    <div class="form-group mb-2">
+                        <label class="form-label">MediaMTX 제어 API</label>
+                        <input class="form-field" @bind="_settings.Cctv.MediaMtxApiUrl"
+                               placeholder="http://localhost:9997" style="font-family:monospace; font-size:12px;" />
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">WebRTC 포트</label>
+                        <input type="number" class="form-field" @bind="_settings.Cctv.WebRtcPort"
+                               min="1" max="65535" placeholder="8889" style="width:120px;" />
+                    </div>
+
+                    <hr class="divider my-2" />
+
+                    @if (_settings.Cctv.Cameras.Count == 0)
+                    {
+                        <small style="color: var(--color-text-secondary); display:block; margin:8px 0;">
+                            등록된 카메라가 없습니다.
+                        </small>
+                    }
+                    @for (int i = 0; i < _settings.Cctv.Cameras.Count; i++)
+                    {
+                        var cam = _settings.Cctv.Cameras[i];
+                        <div style="border:1px solid var(--color-lines, #e0e0e0); border-radius:6px; padding:10px; margin-bottom:8px;">
+                            <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+                                <input class="form-field" @bind="cam.Name" placeholder="이름 (예: line1-entry)"
+                                       style="flex:1;" />
+                                <label class="switch" style="margin:0; white-space:nowrap;">
+                                    <input type="checkbox" @bind="cam.Enabled" /> 사용
+                                </label>
+                                <button class="btn btn-sm" style="color:#c0392b;" @onclick="@(() => RemoveCamera(cam))" title="삭제">
+                                    <span class="material-icons" style="font-size:18px;">delete</span>
+                                </button>
+                            </div>
+                            <input class="form-field" @bind="cam.RtspUrl"
+                                   placeholder="rtsp://user:pass@192.168.0.10:554/stream1"
+                                   style="font-family:monospace; font-size:12px;" />
+                        </div>
+                    }
+
+                    <button class="btn btn-outlined btn-sm" style="width:100%;" @onclick="AddCamera">
+                        <span class="material-icons" style="font-size:16px;">add</span> 카메라 추가
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 8px; display: block;">
+                        MediaMTX 동기화 상태: <span style="color:@(CctvSync.LastSyncOk ? "#27ae60" : "#c0392b");">@CctvSync.LastSyncMessage</span>
+                    </small>
+                </div>
+            </div>
+
         </div>
     </div>
 }
@@ -471,6 +535,9 @@ else
             // 비가동 임계값 변경을 기존 히스토리/평균에 소급 적용 (대시보드·히스토리 즉시 반영)
             var (restamped, flows) = await FlowMetricsService.ReapplyIdleThresholdsAsync();
 
+            // CCTV 카메라 목록을 MediaMTX 에 동기화 (실패해도 설정 저장 자체는 성공)
+            await CctvSync.SyncAsync();
+
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar",
                 $"설정이 저장되었습니다. 비가동 판정 소급 적용: 히스토리 {restamped}건 재평가, Flow {flows}개 평균 재집계.",
                 "success");
@@ -485,6 +552,16 @@ else
     {
         try { return DatabasePathResolver.GetSharedDbPath(); }
         catch { return "알 수 없음"; }
+    }
+
+    private void AddCamera()
+    {
+        _settings?.Cctv.Cameras.Add(new CctvCamera { Name = $"camera{_settings.Cctv.Cameras.Count + 1}", Enabled = true });
+    }
+
+    private void RemoveCamera(CctvCamera cam)
+    {
+        _settings?.Cctv.Cameras.Remove(cam);
     }
 
     private async Task ClearFlowHistory()

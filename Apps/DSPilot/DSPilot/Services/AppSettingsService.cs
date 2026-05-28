@@ -10,7 +10,7 @@ public class AppSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -65,6 +65,7 @@ public class AppSettingsService
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
             HistoryView = Deserialize<HistoryViewSettings>(root["HistoryView"]),
+            Cctv = Deserialize<CctvSettings>(root["Cctv"]),
         };
     }
 
@@ -90,6 +91,7 @@ public class AppSettingsService
         target["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         target["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
         target["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
+        target["Cctv"] = JsonSerializer.SerializeToNode(model.Cctv, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)

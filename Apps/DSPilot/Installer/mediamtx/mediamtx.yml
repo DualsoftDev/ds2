@@ -1,0 +1,24 @@
+# MediaMTX 설정 — DSPilot CCTV 전용.
+# 카메라 경로(paths)는 DSPilot 이 제어 API(:9997)로 런타임 등록/갱신하므로 여기서 비워둔다.
+# DSPilot 의 CctvMediaMtxService 가 주기적으로 재동기화하므로 이 서비스가 재시작돼도 자동 복구된다.
+
+logLevel: info
+logDestinations: [stdout]
+
+# 제어 API — DSPilot 이 카메라 경로를 등록/갱신.
+api: yes
+apiAddress: :9997
+
+# 브라우저 시청용 WebRTC (WHEP).
+webrtc: yes
+webrtcAddress: :8889
+# ICE 로컬 UDP 먹스 포트 — 방화벽에서 UDP 8189 개방 필요.
+webrtcLocalUDPAddress: :8189
+
+# 사용하지 않는 서버 프로토콜은 비활성 (카메라는 source 클라이언트로 pull).
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+
+paths: {}

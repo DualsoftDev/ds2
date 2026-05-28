@@ -123,6 +123,11 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertServic
 // userTagAlertLog 보관 + 일별 집계 (기본 60일, UserTagAlert:RetentionDays appsettings)
 builder.Services.AddHostedService<UserTagAlertRetentionService>();
 
+// CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
+// Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.
+builder.Services.AddSingleton<CctvMediaMtxService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CctvMediaMtxService>());
+
 // Promaker.Agent 가 broadcast 하는 PLC 어댑터 연결 상태 캐시 — UI 배너 / 대시보드가 구독.
 builder.Services.AddSingleton<PlcConnectionStatusTracker>();
 
