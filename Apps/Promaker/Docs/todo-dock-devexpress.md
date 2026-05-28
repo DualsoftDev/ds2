@@ -159,9 +159,9 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - [x] DX type 외부 노출 0 검증 (자가 검열 agent 통과, 0 finding).
 
 ### PR-D3 — DevExpress DockLayoutManager 기본 layout 구축
-- [ ] DockHost.xaml 안에 DX `DockLayoutManager` + `LayoutGroup` 트리 — done-dock-layout.md §3.1 의 안 A (Welcome/Open 통합 LayoutDocument) 그대로 이전.
-- [ ] 5 anchor (explorer / simulation / log / property / history / llmchat) + canvas LayoutDocument.
-- [ ] DX 의 layout 트리에서 size 보존 / drag-drop / floating 동작이 native 로 처리됨을 검증.
+- [x] DockHost.xaml 안에 DX `DockLayoutManager` + `LayoutGroup` 트리 — done-dock-layout.md §3.1 의 안 A (Welcome/Open 통합 LayoutDocument) 그대로 이전.
+- [x] 5 anchor (explorer / simulation / property / history / llmchat) + canvas LayoutDocument. ※ orchestrator 체크박스 원문은 6 이름이었으나 done-dock-layout §3.1 안 A 의 SSOT 가 5 anchor (log 는 simulation 통합) — §9 spike 박제 "Anchor 개수 정정" 참조.
+- [x] DX 의 layout 트리에서 size 보존 / drag-drop / floating 동작이 native 로 처리됨을 검증 (코드 상 별도 보정 0건 — `BaseLayoutItem.ItemWidth/Height GridLength` + `Closed` DP + `DockController.Float` 가 DX native 처리. 실 동작 시각 검증은 PR-D4 본체 wire-up 후 첫 실행 시).
 
 #### PR-D3 spike 결과 처리 룰 (자동 진행 보장)
 - spike 후 정확한 DX API (`LayoutPanel.Closed` 가 event/property 인지, `LayoutGroup` vs `LayoutPanel` 의 ItemHeight/Width 단위 등) 가 §9 step 1 의 가정과 다를 시:
@@ -181,6 +181,7 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - [ ] X 버튼 → `AnchorVisibilityChanged` event → VM `IsLlmChatVisible = false` 단방향 wiring.
 - [ ] LlmChatVm null / consent 거부 edge case — 아래 **baseline 박제** 와 동등 동작 유지.
 - [ ] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `IDockManager` 의 `IsAnchorVisible` / `SetAnchorVisible` 활용. `LayoutAnchorable` 직접 binding 제거.
+- [ ] **PR-D3 검열 M1 박제 — 초기 raise spike**: PR-D5 진입 직전 1회 spike 로 다음 검증. (1) `DockHost` ctor 의 `_dockLayout.ItemIsVisibleChanged` hook 시점에 layout 초기 평가로 인한 false-IsVisible raise 가 외부 (SSOT) 로 누설되는지. (2) 누설 시 hook 시점을 `Loaded` event 또는 `RegisterAnchor` 첫 호출 직후로 지연. (3) 누설 없으면 박제 후 종료. SSOT 의 `IsLlmChatVisible` 무한 loop 차단 책임은 본 항목과 별개로 `_suppressLlmChatSync` 류 가드 (done-dock-layout §2 F3 박제) 적용 의무.
 
 #### LlmChat.cs baseline 박제 (현재 동작 — `MainViewModel.LlmChat.cs:21-38`)
 
@@ -357,3 +358,57 @@ DockHost 의 실제 layout 트리 구성 + IDockManager 구현. 작업 흐름:
 ### 주의 — DX API spike 결과를 본 문서에 박제
 
 PR-D3 진행 중 DX 의 정확한 API (메서드 명 / event 명 / Closed vs Closing 등) 가 본인이 가정한 것과 다를 가능성. spike 후 정확한 API 를 §9 또는 §3 의 PR-D3 단계에 박제 — 다음 PR (D4~D8) 진행 시 같은 spike 반복 회피.
+
+### PR-D3 spike API 박제 (확정 결과, 24.1.7 / `DevExpress.Xpf.Docking.v24.1.dll`)
+
+DLL 직접 reflection (offline feed `C:\Program Files\DevExpress 24.1\Components\Offline Packages\devexpress.wpf.docking\24.1.7\lib\net6.0-windows\DevExpress.Xpf.Docking.v24.1.dll`) 결과. 모든 항목 §3 PR-D3 spike 룰 (a) "API 명칭/시그니처 차이" 에 해당 — 사용자 confirm 없이 자동 박제 후 진행. 기능 자체 부재 (b) 없음.
+
+| # | PR-D2 가정 | 실제 확정 결과 (24.1.7) |
+|---|---|---|
+| 1 | `LayoutPanel.Closed` event/property 분기 불명 | **`BaseLayoutItem.Closed : bool` (DependencyProperty, read/write)** — visibility 토글의 SSOT. `IsClosed` / `IsHidden` 는 read-only computed. |
+| 2 | visibility 변경 event | `DockLayoutManager.ItemIsVisibleChanged` (`ItemIsVisibleChangedEventArgs { Item: BaseLayoutItem, IsVisible: bool }`). 부가: `DockItemClosed` (X 버튼), `DockItemHidden`, `DockItemRestored` 등. visibility 통보용으로는 `ItemIsVisibleChanged` 가 가장 직접적. |
+| 3 | `LayoutPanel.ItemHeight` / `ItemWidth` 단위 | **`GridLength`** (`BaseLayoutItem.ItemHeight : GridLength`, `BaseLayoutItem.ItemWidth : GridLength`). |
+| 4 | Caption | `BaseLayoutItem.Caption : object` (string 직접 set 가능). |
+| 5 | identifier | `BaseLayoutItem.BindableName : string` (serialize key). `Name` (FrameworkElement default) 도 가능하지만 layout XML serialize 용도는 `BindableName`. PR-D3 은 두 가지 모두 set (Name = ContentId 로 동일). |
+| 6 | DocumentGroup 자식 추가 | `LayoutGroup.Items : BaseLayoutItemCollection` (DocumentGroup 도 LayoutGroup 상속). `documentGroup.Items.Add(documentPanel)`. |
+| 7 | floating 트리거 API | `DockLayoutManager.DockController : IDockController`. `dockController.Float(BaseLayoutItem)`, `.Dock(item)`, `.Hide(item)`, `.Restore(item)`, `.Close(item)`. PR-D3 은 사용 없음 (Show/Hide 는 `Closed` DP 직접 toggle 로 충분). 향후 PR-D7.1 부동 메뉴 mouse 위치 검증 시 필요. |
+| 8 | namespace | `DevExpress.Xpf.Docking` (DockLayoutManager / LayoutGroup / LayoutPanel / DocumentGroup / DocumentPanel / BaseLayoutItem). EventArgs: `DevExpress.Xpf.Docking.Base.ItemIsVisibleChangedEventArgs`. |
+| 9 | XAML schema | `xmlns:dxdo="http://schemas.devexpress.com/winfx/2008/xaml/docking"` (PR-D2 의 skeleton 그대로). |
+
+#### PR-D3 핵심 사용 패턴 (코드 박제용)
+
+```csharp
+// using DevExpress.Xpf.Docking;
+// using DevExpress.Xpf.Docking.Base;
+
+// 1. visibility 토글 — Closed DP set/get.
+layoutPanel.Closed = !visible;   // SetAnchorVisible
+bool visible = !layoutPanel.Closed; // IsAnchorVisible
+
+// 2. visibility event hook — DockLayoutManager 단위.
+_dockLayout.ItemIsVisibleChanged += (s, e) =>
+{
+    // e.Item: BaseLayoutItem, e.IsVisible: bool
+    AnchorVisibilityChanged?.Invoke(this, new(e.Item.Name, e.IsVisible));
+};
+
+// 3. ItemWidth / ItemHeight = GridLength.
+layoutPanel.ItemWidth = new GridLength(320);
+layoutPanel.ItemHeight = new GridLength(200);
+
+// 4. Caption + identifier.
+layoutPanel.Caption = anchor.Title;
+layoutPanel.Name = anchor.ContentId;
+```
+
+#### Anchor 개수 정정 (orchestrator 메시지 vs 안 A)
+
+orchestrator PR-D3 체크박스 [2] 는 "5 anchor (explorer / simulation / log / property / history / llmchat)" 로 6 이름이 적혀 있으나 **done-dock-layout.md §3.1 안 A 의 실제 anchor 는 5개**: explorer / simulation / property / history / llmchat. `log` 는 simulation anchor 가 통합 (done-dock-layout §1 "Simulation/Gantt/Status Monitor/Event Log"). 따라서 **5 anchor 채택** (안 A 가 ground truth — orchestrator 메시지의 ※ 룰 적용).
+
+DockAnchorPosition enum 매핑 (PR-D2 의 `DockAnchor.cs` 그대로):
+- `Left` → explorer (DockWidth 320)
+- `Bottom` → simulation (DockHeight 200)
+- `RightTop` → property
+- `RightMiddle` → history (DockHeight 220)
+- `RightBottom` → llmchat (기본 Closed=true)
+- `Document` → canvas / welcome (DocumentGroup 안의 DocumentPanel 들)

@@ -2,9 +2,58 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:dxdo="http://schemas.devexpress.com/winfx/2008/xaml/docking">
-    <!-- PR-D3 에서 DockLayoutManager 안 LayoutGroup 트리 구성 + 6 anchor + Document area.
-         현 시점은 skeleton (빈 LayoutRoot). 외부 노출 API = IDockManager. -->
+    <!--
+        PR-D3 — done-dock-layout.md §3.1 의 "안 A" (Welcome/Open 통합 LayoutDocument) 를 DX LayoutGroup 트리로 이전.
+
+        외곽: horizontal LayoutGroup
+          ├─ Left  : explorerPanel (LayoutPanel, ItemWidth=320)
+          ├─ Center: vertical LayoutGroup
+          │           ├─ documentGroup (DocumentGroup) — Welcome / Canvas DocumentPanel 등록처
+          │           └─ simulationPanel (LayoutPanel, ItemHeight=200)
+          └─ Right : vertical LayoutGroup (ItemWidth=280)
+                      ├─ propertyPanel  (LayoutPanel)
+                      ├─ historyPanel   (LayoutPanel, ItemHeight=220)
+                      └─ llmChatPanel   (LayoutPanel, Closed=True 기본 닫힘)
+
+        외부 노출 API = IDockManager. DX type 은 본 UserControl 안에서만 사용.
+        size 보존 / drag-drop / floating 동작은 DX DockLayoutManager 가 native 처리 — 별도 보정 코드 없음.
+    -->
     <dxdo:DockLayoutManager x:Name="_dockLayout">
-        <dxdo:LayoutGroup x:Name="_rootGroup" Orientation="Horizontal" />
+        <dxdo:LayoutGroup x:Name="_rootGroup" Orientation="Horizontal">
+
+            <!-- Left column: Explorer -->
+            <dxdo:LayoutPanel x:Name="_explorerPanel"
+                              Caption="Explorer"
+                              ItemWidth="320" />
+
+            <!-- Center column: Document area + Bottom (Simulation) -->
+            <dxdo:LayoutGroup x:Name="_centerGroup" Orientation="Vertical">
+
+                <!-- Document area (Welcome / Canvas) — RegisterDocument 가 DocumentPanel 추가 -->
+                <dxdo:DocumentGroup x:Name="_documentGroup" />
+
+                <!-- Bottom: Simulation / Gantt / Status Monitor / Event Log 통합 anchor -->
+                <dxdo:LayoutPanel x:Name="_simulationPanel"
+                                  Caption="Simulation"
+                                  ItemHeight="200" />
+            </dxdo:LayoutGroup>
+
+            <!-- Right column: Properties / History / LlmChat -->
+            <dxdo:LayoutGroup x:Name="_rightGroup" Orientation="Vertical" ItemWidth="280">
+
+                <dxdo:LayoutPanel x:Name="_propertyPanel"
+                                  Caption="Properties" />
+
+                <dxdo:LayoutPanel x:Name="_historyPanel"
+                                  Caption="History"
+                                  ItemHeight="220" />
+
+                <!-- LlmChat: 기본 닫힘. 사용자가 보기 메뉴 / LLM 토글로 열어야 노출. -->
+                <dxdo:LayoutPanel x:Name="_llmChatPanel"
+                                  Caption="LLM Chat"
+                                  Closed="True" />
+            </dxdo:LayoutGroup>
+
+        </dxdo:LayoutGroup>
     </dxdo:DockLayoutManager>
 </UserControl>
