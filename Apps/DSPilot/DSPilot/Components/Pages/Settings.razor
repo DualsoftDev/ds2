@@ -95,19 +95,28 @@
                         </small>
                     </div>
                     <hr class="divider my-3" />
-                    <button class="btn btn-outlined" style="width:100%; color:#c0392b; border-color:#c0392b;" @onclick="RebuildDatabase">
-                        <span class="material-icons" style="font-size:18px;">build_circle</span> DB 재구축
+                    <button class="btn btn-outlined" style="width:100%;" @onclick="InvalidateCaches">
+                        <span class="material-icons" style="font-size:18px;">restart_alt</span> 캐시 재계산 (raw 보존)
                     </button>
                     <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
-                        plc.db 삭제 → 스키마 재생성 → 현재 메모리 AASX 로부터 dspFlow / dspCall 재적재 → 엔진 재시작.
-                        통계 / 히스토리 / 태그 로그 모두 삭제. 서비스 재시작 불필요.
+                        dspFlow / dspCall 의 평균/누적 통계만 NULL 초기화. plcTagLog · dspFlowHistory · userTagAlertLog 는 그대로 보존.
+                        head/tail 이 바뀌었거나 모델이 크게 바뀌어 새 baseline 으로 평균을 다시 누적하고 싶을 때 사용.
+                        다음 사이클부터 자연스럽게 누적 시작.
                     </small>
                     <hr class="divider my-3" />
                     <button class="btn btn-outlined" style="width:100%; color:#e67e22; border-color:#e67e22;" @onclick="ClearFlowHistory">
                         <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
                     </button>
                     <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
-                        dspFlowHistory 와 Call 통계만 초기화. Flow/Call 정의와 AASX 는 유지.
+                        dspFlowHistory + Call 통계 초기화. plcTagLog 는 보존. Flow/Call 정의와 AASX 도 유지.
+                    </small>
+                    <hr class="divider my-3" />
+                    <button class="btn btn-outlined" style="width:100%; color:#c0392b; border-color:#c0392b;" @onclick="RebuildDatabase">
+                        <span class="material-icons" style="font-size:18px;">delete_forever</span> 전체 초기화 (plcTagLog 포함 삭제)
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 6px; display: block;">
+                        ⚠️ plc.db 파일 자체를 삭제하고 스키마부터 재생성. plcTagLog (수 GB 단위 가능), dspFlowHistory, userTagAlertLog 등
+                        <strong>raw 데이터를 모두 잃습니다.</strong> 대부분의 경우 위의 "캐시 재계산" 으로 충분합니다.
                     </small>
                     <small style="color: var(--color-text-secondary); margin-top: 8px; display: block;">
                         현재 DB: @GetDatabasePath()
@@ -595,12 +604,40 @@ else
             reload.Success ? "success" : "error");
     }
 
+    private async Task InvalidateCaches()
+    {
+        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "캐시 재계산",
+            "dspFlow / dspCall 의 평균과 누적 통계를 NULL 로 초기화합니다.\n\n" +
+            "• plcTagLog, dspFlowHistory, userTagAlertLog 등 raw 데이터는 그대로 보존\n" +
+            "• 엔진 in-memory Welford 누적기 reset\n" +
+            "• 다음 사이클 완료 시점부터 새 평균이 자연스럽게 누적\n" +
+            "• 서비스 재시작 불필요\n\n" +
+            "head/tail 이 바뀌었거나 모델이 크게 변경되어 평균을 새 baseline 으로 다시 측정하고 싶을 때 사용하세요.",
+            "재계산", "취소");
+
+        if (!result) return;
+
+        var invalidate = await DbLifecycle.InvalidateCachesAsync();
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+            invalidate.Message,
+            invalidate.Success ? "success" : "error");
+    }
+
     private async Task RebuildDatabase()
     {
         var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
-            "DB 재구축",
-            "plc.db 를 삭제하고 현재 메모리 AASX 모델로부터 다시 구축합니다.\n\n• 스키마 재생성 → dspFlow / dspCall 재적재\n• 모든 통계 / 히스토리 / 태그 로그 삭제\n• 엔진 자동 재시작\n• 서비스 재시작 불필요\n\n디스크 AASX 가 변경된 경우 먼저 \"AASX 모델 다시 불러오기\" 를 실행하세요.",
-            "재구축", "취소");
+            "⚠️ 전체 초기화 — raw 데이터 삭제",
+            "plc.db 파일을 완전히 삭제하고 스키마부터 재생성합니다.\n\n" +
+            "다음 데이터가 영구히 사라집니다:\n" +
+            "• plcTagLog (PLC 신호 시계열 — 수 GB 단위 가능)\n" +
+            "• dspFlowHistory (Flow 사이클 히스토리 전체)\n" +
+            "• userTagAlertLog / userTagAlertDaily (알림 이력)\n" +
+            "• aasxChangeLog / flowBoundaryChangeLog (변경 이력)\n" +
+            "• 모든 통계 / 평균\n\n" +
+            "대부분의 경우 \"캐시 재계산\" 으로 충분합니다.\n" +
+            "정말 raw 데이터까지 모두 삭제하시겠습니까?",
+            "전체 삭제", "취소");
 
         if (!result) return;
 

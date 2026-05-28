@@ -127,10 +127,13 @@ public sealed class AasxFileWatcherService : BackgroundService
         }
 
         // 케이스 1: DSPilot 이 AASX 를 한 번도 로드한 적 없음
-        //   → 초기 설치/배포 직후 처음 AASX 가 떨어진 상황. 통계/히스토리가 아직 없으므로 자동 로드 + DB 재구축이 안전.
+        //   → 두 시나리오:
+        //     (a) 초기 설치/배포 직후 — DB 가 비어있음. 자동 로드 + DB 부트스트랩이 안전.
+        //     (b) AASX 가 늦게 도착 (서버 먼저 켜진 상태) — plcTagLog 등 prior 데이터가 있을 수 있음.
+        //         이 경우 통째 RebuildDatabase 는 데이터 손실을 초래. 안전한 ReloadAasx + InvalidateCaches 경로로.
         if (!_projectService.IsLoaded)
         {
-            _logger.LogInformation("[AasxWatcher] 미로드 상태에서 AASX 감지 → 자동 로드 + DB 재구축 시작 ({Path})", path);
+            _logger.LogInformation("[AasxWatcher] 미로드 상태에서 AASX 감지 → 자동 로드 + 캐시 재초기화 ({Path})", path);
             try
             {
                 var lifecycle = _services.GetRequiredService<DatabaseLifecycleService>();
@@ -140,17 +143,20 @@ public sealed class AasxFileWatcherService : BackgroundService
                     _logger.LogWarning("[AasxWatcher] 자동 AASX 로드 실패: {Message}", reload.Message);
                     return;
                 }
-                var result = await lifecycle.RebuildDatabaseAsync();
-                _logger.LogInformation("[AasxWatcher] 자동 재구축 결과: {Success} / {Message}", result.Success, result.Message);
 
-                if (result.Success)
+                // ReloadAndResync 와 동등한 in-place 동기화 — 첫 등장이라도 plcTagLog 가 비어있지 않을 수 있어
+                // (서비스 먼저 켜졌다가 AASX 가 늦게 떨어진 경우) 통째 삭제는 피한다.
+                var resync = await lifecycle.ReloadAndResyncAsync();
+                _logger.LogInformation("[AasxWatcher] 자동 동기화 결과: {Success} / {Message}", resync.Success, resync.Message);
+
+                if (resync.Success)
                 {
                     TryAutoFillBlueprint();
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[AasxWatcher] 자동 재구축 실패");
+                _logger.LogError(ex, "[AasxWatcher] 자동 동기화 실패");
             }
             return;
         }

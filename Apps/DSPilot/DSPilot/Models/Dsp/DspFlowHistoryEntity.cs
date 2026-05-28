@@ -45,4 +45,15 @@ public class DspFlowHistoryEntity
     /// 비가동 사이클 여부 (CT > MaxCycleTimeMs 또는 CT < MinCycleTimeMs)
     /// </summary>
     public bool IsIdle { get; set; } = false;
+
+    /// <summary>
+    /// 이 사이클이 측정된 시점의 head Call 이름 (boundary 박제 — 사후 분석/필터링용).
+    /// head/tail 이 바뀐 후의 데이터와 섞이지 않도록 row 별로 정의를 보존.
+    /// </summary>
+    public string? HeadCallName { get; set; }
+
+    /// <summary>
+    /// 이 사이클이 측정된 시점의 tail Call 이름 (boundary 박제).
+    /// </summary>
+    public string? TailCallName { get; set; }
 }
