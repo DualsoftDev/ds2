@@ -84,6 +84,37 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - Promaker.csproj 의 `<ProjectReference PrivateAssets="all">` 로 DX assembly transitive 가 Promaker.dll 의 reference 에 포함되지 않음을 빌드 결과 검증 (`dotnet list package --include-transitive`).
 - `Promaker.csproj` 안의 .cs 에서 DX type 직접 참조 시 컴파일 에러 발생함을 확인 (격리 강제).
 
+### ⚠ PR-D4 진입 시 spike 결과 — 단일 PrivateAssets mechanism 으로 3종 의도 동시 만족 불가 (사용자 결정 대기)
+
+PR-D4 step 1 진입 시 `<ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj"><PrivateAssets>all</PrivateAssets></ProjectReference>` 적용 후 spike 검증 결과:
+
+| mechanism | (a) transitive 0 | (b) compile 차단 | (c) runtime deploy |
+|---|---|---|---|
+| ProjectReference PrivateAssets="all" 단독 | FAIL — Promaker 의 transitive 그래프에 DevExpress 11종 + System.Drawing.Common 노출 | FAIL — Promaker 본체에서 `using DevExpress.Xpf.Docking;` 컴파일 통과 | PASS — bin 에 DevExpress.*.v24.1.dll 11종 deploy |
+| + Promaker.Dock 의 PackageReference PrivateAssets="all" | PASS | PASS — CS0246 오류 발생 | **FAIL** — bin 에 DevExpress.*.dll 0건 (runtime asset 까지 차단) |
+| + PrivateAssets="compile" | FAIL — transitive 노출 그대로 | FAIL — System.Windows.Forms / System.Drawing 의 transitive compile asset 누수로 CS0104 197건 | N/A |
+| + PrivateAssets="compile;build;analyzers;contentfiles" | FAIL | FAIL | N/A |
+| + ExcludeAssets="compile" PrivateAssets="all" | N/A — Promaker.Dock 자기 빌드 실패 (MC3074 — 자기 compile asset 까지 박탈) | N/A | N/A |
+
+**근본 원인** (NuGet 표준 모순):
+- `PrivateAssets="compile"` 은 본 PackageReference 자체의 compile asset 만 차단 — `System.Windows.Forms` / `System.Drawing` 등 transitive package 의 compile asset 은 별개 PackageReference 로 propagate 되어 Promaker 본체에 누수.
+- (a) transitive 0 와 (c) deploy 유지 는 NuGet graph 의 본질상 모순 — runtime asset 이 propagate 되면 transitive list 에 항상 노출.
+- 단일 `PrivateAssets`/`ExcludeAssets` 조작만으로 (a)+(b)+(c) 동시 만족 불가능 확인.
+
+**fallback 후보 (미검증 — 사용자 결정 후 spike 필요)**:
+- **B** — ProjectReference PrivateAssets="all" 유지 (compile 강제 격리 후 transitive 0) + Promaker.csproj 에 MSBuild `<Target AfterTargets="ResolveReferences">` 추가하여 Promaker.Dock 의 build output (`..\Promaker.Dock\bin\$(Configuration)\net9.0-windows\DevExpress.*.dll` 등 11종 + `System.Drawing.Common.dll`) 를 Promaker output 으로 selective copy. NuGet graph 는 깨끗, deploy 는 수동 propagate.
+- **C** — ProjectReference 측 PrivateAssets 제거 (transitive 0 포기) + Promaker 본체에 `<Using Remove="System.Windows.Forms" />` / global using alias 등으로 ambiguous 차단. compile 격리는 자발적 강제 (grep 검증). 박제 #2 의 의도 약화.
+- **D** — DevExpress.Wpf.Docking 를 PackageReference 가 아닌 Promaker.Dock 의 직접 binary reference (HintPath) + 수동 copy. NuGet 메커니즘 우회.
+
+**판정** (orchestrator §3 PR-D4 spike 룰 적용):
+- spike 룰 (a) "API 명칭/시그니처 차이" 범주를 넘어선 mechanism 자체 한계. spike 룰 (b) "기능 자체 부재" 와 동등 — **즉시 사용자 알림 + orchestrator 종료** 사유.
+- PR-D4 step 1 의 worktree 변경 (Promaker.csproj 의 ProjectReference 추가) 은 본 박제 commit 직전 `git checkout` 으로 revert. PR-D4 진입 전 상태로 복귀.
+
+사용자 결정 영역:
+1. fallback B/C/D 중 어느 mechanism 채택?
+2. 박제 §2 row 2 / §7 #2 의 표현을 어떻게 update?
+3. 채택된 mechanism 으로 PR-D4 재진입 (별도 spike 1회 + 본 PR-D4 step 2~5 진행).
+
 ## 3. 작업 step (PR 단위)
 
 ### 3.0 Sub-agent 위임 골격 (PR-D3 ~ D8 공용)
@@ -169,7 +200,7 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
   - **(b) DX 24.1.7 자체가 본 시나리오 (예: 5 anchor + 1 document group + floating + serializer) 를 지원하지 못함이 spike 로 판명**된 경우만 차단 사유 — 즉시 사용자 알림 후 orchestrator 종료.
 - 즉 "API 명칭/시그니처 차이" 는 자동 박제 후 진행, "기능 자체 부재" 만 차단.
 
-### PR-D4 — Promaker 본체 wire-up
+### PR-D4 — Promaker 본체 wire-up — ⏸ 차단 (격리 mechanism spike 결과 §2 박제 + §9 참조 — 사용자 fallback 결정 대기)
 - [ ] `MainWindow.xaml` 의 AvalonDock `DockingManager` 통째 제거 → `<promakerDock:DockHost x:Name="dockHost" />` embed.
 - [ ] 5 anchor 의 Content (ExplorerPane / SimulationPanel / etc) 를 `DockAnchor` 로 wrapping + `dockHost.RegisterAnchor(...)`.
 - [ ] Welcome / Canvas LayoutDocument 동일.
@@ -318,12 +349,25 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `8c2318d9` — todo §9 진행 체크포인트 + PR-D1/D2 완료 박제.
 - `fd8f142d` — todo §3.0 sub-agent prompt 골격 + PR-D3 spike 룰 + PR-D5 baseline 박제.
 - `a1b51760` — PR-D3: DockLayoutManager layout 트리 + IDockManager 구현 + 24.1.7 spike 박제 + RegisterAnchor/RegisterDocument 중복 가드. 자가 검열 Critical 0 / Major 2 (M1: 초기 raise 누설 우려 → PR-D5 spike 위임 / M2: 중복 가드 → 본 commit 반영) / Minor 4.
+- `d6148275` — todo §3 PR-D3 헤더 완료 표기 + §9 갱신 (PR-D3 SHA 박제 + PR-D4 시작점).
+- **PR-D4 진입 차단** — step 1 격리 mechanism spike 결과 단일 `<ProjectReference PrivateAssets="all">` 으로는 §2 박제 의도 3종 동시 만족 불가능 확인 (§2 spike 표 참조). PR-D4 step 1 시도 시의 worktree 변경 revert. PR-D3 완료 시점 (`a1b51760` HEAD) 으로 복귀.
 - working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D4 (§3 참조)
+### ⏸ PR-D4 차단 — 격리 mechanism 사용자 결정 대기
 
-Promaker 본체 wire-up. 작업 흐름:
+PR-D4 step 1 진입 시 박제 mechanism (`<ProjectReference PrivateAssets="all">`) 단독으로 §2 박제 의도 3종 ((a) transitive 0 + (b) compile 차단 + (c) runtime deploy 유지) 동시 만족 불가능 확인 (§2 의 "⚠ PR-D4 진입 시 spike 결과" 절 박제 표 참조). orchestrator §3 PR-D4 spike 룰 (b) "기능 자체 부재" 에 해당 — 즉시 사용자 알림 + orchestrator 종료.
+
+worktree 상태: PR-D4 step 1 시도 시 추가했던 `Apps/Promaker/Promaker/Promaker.csproj` 의 ProjectReference 는 본 박제 commit 직전 revert. PR-D3 완료 시점 (commit `a1b51760`) 으로 복귀.
+
+다음 세션 재진입 절차:
+1. **사용자가 fallback B / C / D 중 mechanism 채택 결정** (§2 박제 절 참조).
+2. 결정된 mechanism 으로 단발 spike (§2 spike 표에 새 row 추가 박제) — (a)+(b)+(c) 동시 만족 검증.
+3. 검증 통과 시 §2 row 2 + §7 #2 박제 update + PR-D4 step 1~5 정상 진행.
+
+### 다음 작업 — PR-D4 step 2~5 (mechanism 결정 후 재진입)
+
+이하 절차는 step 1 격리 mechanism 결정 후 적용:
 
 1. **Promaker.csproj ProjectReference**:
    - `Apps/Promaker/Promaker/Promaker.csproj` 에 `<ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" PrivateAssets="all" />` 추가.
