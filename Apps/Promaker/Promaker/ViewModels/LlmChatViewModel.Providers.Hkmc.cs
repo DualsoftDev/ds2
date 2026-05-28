@@ -22,46 +22,51 @@ namespace Promaker.ViewModels;
 /// </summary>
 public partial class LlmChatViewModel
 {
+    /// <summary>
+    /// _config.HkmcHChat 이 null 또는 BaseUrl 빈 문자열이면 <see cref="HkmcHChatConfig"/> default 값으로 fallback.
+    /// Settings 의 H-Chat panel 이 default 인스턴스를 표시값으로 사용하는 동선과 SSOT 정합 — UI 가 default URL 을
+    /// 보여주는데 declined 메시지는 "BaseUrl 미설정" 으로 떠서 사용자가 혼동하는 UX 함정 차단.
+    /// 모델 ID 는 결정 #3 에 따라 default 빈 문자열 강제이므로 여전히 declined.
+    /// </summary>
     private async Task<ILlmProvider> CreateHkmcHChatClaudeProviderAsync()
     {
         if (!Promaker.HkmcFeature.IsEnabled)
             throw ProviderDeclined("HKMC H-Chat (Claude)", "ENABLE_HKMC 환경변수 미설정 (재시작 필요)");
 
-        var cfg = _config.HkmcHChat;
-        if (cfg is null || string.IsNullOrWhiteSpace(cfg.BaseUrl))
-            throw ProviderDeclined("HKMC H-Chat (Claude)", "BaseUrl 미설정 — Settings 의 H-Chat 패널에서 입력 필요");
+        var cfg = _config.HkmcHChat ?? new HkmcHChatConfig();
+        var baseUrl = string.IsNullOrWhiteSpace(cfg.BaseUrl) ? new HkmcHChatConfig().BaseUrl : cfg.BaseUrl;
         if (string.IsNullOrWhiteSpace(cfg.ClaudeModel))
-            throw ProviderDeclined("HKMC H-Chat (Claude)", "모델 ID 미입력 — Settings 의 H-Chat 패널에서 입력 필요");
+            throw ProviderDeclined("HKMC H-Chat (Claude)", "Claude Model ID 미입력 — Settings 의 H-Chat 패널에서 입력 필요");
 
         var apiKey = _config.GetApiKey(HkmcApiProviderFactory.HkmcHChatKey)
                      ?? Environment.GetEnvironmentVariable("H_CHAT_API_KEY")
                      ?? "";
         return await HkmcApiProviderFactory.CreateHChatClaudeAsync(
             apiKey: apiKey,
-            baseUrl: cfg.BaseUrl,
+            baseUrl: baseUrl,
             model: cfg.ClaudeModel,
             systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
 
+    /// <summary>Claude 메서드와 동일 fallback 정책. <see cref="CreateHkmcHChatClaudeProviderAsync"/> 의 주석 참조.</summary>
     private async Task<ILlmProvider> CreateHkmcHChatOpenAiProviderAsync()
     {
         if (!Promaker.HkmcFeature.IsEnabled)
             throw ProviderDeclined("HKMC H-Chat (OpenAI)", "ENABLE_HKMC 환경변수 미설정 (재시작 필요)");
 
-        var cfg = _config.HkmcHChat;
-        if (cfg is null || string.IsNullOrWhiteSpace(cfg.BaseUrl))
-            throw ProviderDeclined("HKMC H-Chat (OpenAI)", "BaseUrl 미설정 — Settings 의 H-Chat 패널에서 입력 필요");
+        var cfg = _config.HkmcHChat ?? new HkmcHChatConfig();
+        var baseUrl = string.IsNullOrWhiteSpace(cfg.BaseUrl) ? new HkmcHChatConfig().BaseUrl : cfg.BaseUrl;
         if (string.IsNullOrWhiteSpace(cfg.OpenAiModel))
-            throw ProviderDeclined("HKMC H-Chat (OpenAI)", "모델 ID 미입력 — Settings 의 H-Chat 패널에서 입력 필요");
+            throw ProviderDeclined("HKMC H-Chat (OpenAI)", "OpenAI Model ID 미입력 — Settings 의 H-Chat 패널에서 입력 필요");
 
         var apiKey = _config.GetApiKey(HkmcApiProviderFactory.HkmcHChatKey)
                      ?? Environment.GetEnvironmentVariable("H_CHAT_API_KEY")
                      ?? "";
         return await HkmcApiProviderFactory.CreateHChatOpenAiAsync(
             apiKey: apiKey,
-            baseUrl: cfg.BaseUrl,
+            baseUrl: baseUrl,
             model: cfg.OpenAiModel,
             systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
             mcpServerUrl: _mcpHost.ServerUrl,
