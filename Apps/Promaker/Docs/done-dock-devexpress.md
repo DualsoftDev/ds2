@@ -276,17 +276,17 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
   - skin 명은 PR-D4 fallback D deploy SSOT 정합 — `DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll` 단일 Themes assembly deploy. verbatim 1차 선택 "WindowsUI Dark" 는 별도 Themes assembly 추가 deploy 필요로 본 PR 미채택 (검열 Minor 1 — 정당화된 박제 정정).
   - **사용자 1회 시각 검수 잔존**: Promaker dark theme background 와 Office2019Colorful skin background 색차 큼 시 후속 step (D7.3-fallback) — `DevExpress.Xpf.Themes.WindowsUI.v24.1.dll` deploy 추가 + `ApplicationThemeName="WindowsUIDark"` 재시도, 또는 자체 skin mapping. todo §3 PR-D7.3 박제 그대로 step 분할 룰 적용.
 
-### PR-D8 — AvalonDock 잔재 정리
+### PR-D8 — AvalonDock 잔재 정리 — ✅ 완료 (D8.1~D8.6 commit `7afa848b` + D8.7 본 commit)
 
 순서 박제 (rename 은 **마지막 step**):
 
-- [ ] D8.1 — `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
-- [ ] D8.2 — `Apps/Promaker/Promaker/Promaker.csproj` 의 PackageReference 제거.
-- [ ] D8.3 — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거.
-- [ ] D8.4 — `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 제거.
-- [ ] D8.5 — `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` — DX API 로 재작성 또는 제거.
-- [x] D8.6 — `Apps/Promaker/Docs/done-dock-layout.md` → `Apps/Promaker/Docs/done-dock-avalon.md` 로 rename (역사 보존).
-- [ ] **D8.7 (마지막 step — orchestrator 완료 보고 직전)** — 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` → `Apps/Promaker/Docs/done-dock-devexpress.md` 로 rename. rename 직전 §9 진행 체크포인트에 **마지막 commit SHA** + **PR-D1 ~ D8 의 commit SHA 전체** 박제 (다음 세션 추적용). rename 후 추가 phase 진입 금지 — orchestrator 는 즉시 종료 보고.
+- [x] D8.1 — `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
+- [x] D8.2 — `Apps/Promaker/Promaker/Promaker.csproj` 의 PackageReference 제거.
+- [x] D8.3 — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거 + App.xaml.cs 의 StartupDockSpike / `--dock-spike` arg / 분기 block 정리 (build 정합성).
+- [x] D8.4 — `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 잔재 0건 확인 (PR-D4 `8b5a8a97` 에서 제거 완료).
+- [x] D8.5 — `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` 잔재 0건 확인 (PR-D4 에서 제거 완료).
+- [x] D8.6 — `Apps/Promaker/Docs/done-dock-layout.md` → `Apps/Promaker/Docs/done-dock-avalon.md` rename (역사 보존). 11 todo 참조 + 8 코드 참조 update 완료.
+- [x] **D8.7 (마지막 step)** — 본 문서 `todo-dock-devexpress.md` → `done-dock-devexpress.md` rename. 본 commit 에 §9 진행 체크포인트 전체 SHA 박제 + rename. orchestrator 종료 보고.
 
 ## 4. 관련 파일
 
@@ -367,29 +367,46 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `c51dc858` — PR-D6: Layout 영속화 (Save/Restore XML). IDockManager 에 SaveLayout/RestoreLayout 시그니처 추가. RestoreDockLayoutAndSyncVm 의 guard 안에서 IDockManager.IsAnchorVisible 로 4 anchor sync (PR-D5 검열 Minor 1 해소). LlmChat baseline §5 보존 (false 강제). 검열 Critical 0 / Major 0 / Minor 3 (모두 정보).
 - `fdc47e75` — todo §3 PR-D6 헤더 완료 + §9 갱신 (PR-D6 SHA 박제 + PR-D7 시작점).
 - `6eccdc01` — PR-D7: D7.1 native / D7.2 caption 일원화 / D7.3 DX skin (Office2019Colorful 박제 정정). 변경 18 line, 2 파일. DX type 외부 노출 0 유지. 검열 Critical 0 / Major 0 / Minor 1 (skin 박제 정정). 사용자 1회 시각 검수 (§3 PR-D7.3) 잔존.
-- working tree clean (본 §9 갱신 commit 직전).
+- `c28a447d` — todo §3 PR-D7 헤더 완료 + §9 갱신 (PR-D7 SHA 박제 + PR-D8 시작점).
+- `7afa848b` — PR-D8 D8.1~D8.6 + 추가 잔재 정리 + done-dock-layout.md → done-dock-avalon.md rename + 코드 8건 참조 update + App.xaml brush 3건 제거. 빌드 0/0. 검열 Critical 0 / Major 0 / Minor 2 (정보 권고 본 commit 처리).
+- 본 commit (D8.7) — todo-dock-devexpress.md → done-dock-devexpress.md rename + 전체 SHA 박제. **orchestrator 종료.**
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D8 (§3 PR-D8 참조)
+### ✅ 모든 phase 완료 — orchestrator 종료
 
-AvalonDock 잔재 정리. 순서 박제 — **rename 은 마지막 step**:
+PR-D1 ~ PR-D8 전체 완료. 본 commit (D8.7) 으로 `todo-dock-devexpress.md` → `done-dock-devexpress.md` rename + 진행 체크포인트 전체 SHA 박제.
 
-- **D8.1** — `Apps/Promaker/Directory.Packages.props` 의 `Dirkster.AvalonDock` / `Dirkster.AvalonDock.Themes.Metro` PackageVersion 제거.
-- **D8.2** — `Apps/Promaker/Promaker/Promaker.csproj` 의 AvalonDock PackageReference 제거.
-- **D8.3** — `Apps/Promaker/Promaker/Spike/DockSpikeWindow.xaml(.cs)` 제거.
-- **D8.4** — `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 잔존 여부 확인 후 제거 (PR-D4 에서 이미 제거 완료 — 본 step 은 잔재 확인만).
-- **D8.5** — `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` — DX API 로 재작성 또는 제거 (PR-D4 에서 이미 제거 완료 — 본 step 은 잔재 확인만).
-- **D8.6** — `Apps/Promaker/Docs/done-dock-layout.md` → `done-dock-avalon.md` rename (역사 보존). ✅ 완료.
-- **D8.7 (마지막)** — 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` → `done-dock-devexpress.md` rename. **rename 직전 §9 진행 체크포인트에 PR-D1 ~ D8 의 commit SHA 전체 박제**. rename 후 orchestrator 즉시 종료 보고.
+**PR-D1 ~ D8 commit SHA 전체 박제** (orchestrator 추적용 ground truth):
 
-추가 잔재 정리 (PR-D4 보고 의 잔여 우려):
-- `MainWindow.xaml` line 60 의 PR-D4 주석 안 "AvalonDock" 단어 (Grep noise).
-- `App.xaml` 의 `AvalonDock_ThemeMetro_BaseColor*` brush 3건 (BaseColor1/2/7) 무해 노이즈 — PR-D8 본 commit 에서 사용처 0건 확인 후 제거 완료.
-- `done-dock-avalon.md` 의 "PanelHeader UserControl" 표현 정정 (실제로는 Style key).
+| Phase | commit SHA | 내용 |
+|---|---|---|
+| PR-D1 | `87ad64e1` | Promaker.Dock csproj skeleton + Directory.Packages.props (DevExpress 24.1.7) |
+| PR-D2 | `27c85180` | IDockManager / DockAnchor / DockHost skeleton |
+| PR-D1/D2 post | `8c2318d9` | §9 진행 체크포인트 + PR-D1/D2 완료 박제 |
+| Setup | `fd8f142d` | §3.0 sub-agent prompt 골격 + PR-D3 spike 룰 + PR-D5 baseline 박제 |
+| PR-D3 | `a1b51760` | DockLayoutManager layout 트리 + IDockManager 구현 + 24.1.7 spike 박제 |
+| PR-D3 post | `d6148275` | §3 PR-D3 헤더 완료 + §9 갱신 |
+| PR-D4 차단 | `00079ca8` | 격리 mechanism spike A 계열 전부 실패 박제 |
+| PR-D4 step 1 | `92a355ce` | fallback D mechanism 적용 (Reference HintPath × 13 + Themes Content) |
+| PR-D4 step 2~5 | `8b5a8a97` | Promaker 본체 wire-up (MainWindow → DockHost / 5 anchor + 2 doc / AvalonDock 6 partial 제거 / SimulationPanel Log tab 통합) |
+| PR-D4 post | `a7666390` | §3 PR-D4 헤더 완료 + §9 갱신 |
+| PR-D5 | `a13bf9d2` | SSOT (IsLlmChatVisible) + 보기 메뉴 + HasProject 재wiring + M1 박제 (Loaded hook 지연) |
+| PR-D5 post | `4a9f4f71` | §3 PR-D5 헤더 완료 + §9 갱신 |
+| PR-D6 | `c51dc858` | Layout 영속화 (Save/Restore XML) + PR-D5 Minor 1 해소 |
+| PR-D6 post | `fdc47e75` | §3 PR-D6 헤더 완료 + §9 갱신 |
+| PR-D7 | `6eccdc01` | D7.1 native / D7.2 caption 일원화 / D7.3 DX skin (Office2019Colorful) |
+| PR-D7 post | `c28a447d` | §3 PR-D7 헤더 완료 + §9 갱신 |
+| PR-D8 D8.1~D8.6 | `7afa848b` | AvalonDock 잔재 정리 + done-dock-layout → done-dock-avalon rename + 코드 8건 참조 update + App.xaml brush 3건 제거 |
+| **PR-D8 D8.7 (본 commit)** | *(이 commit)* | todo-dock-devexpress.md → done-dock-devexpress.md rename + 전체 SHA 박제 + orchestrator 종료 |
 
-#### PR-D8 spike 결과 처리 룰
+### 잔여 사항 (사용자 의무 / 후속 세션)
 
-각 step 독립 진행. D8.7 rename 시점 박제 commit SHA 누락 시 차단. 그 외 step 자동 진행.
+1. **PR-D7.3 사용자 1회 시각 검수** — Promaker dark theme background 와 Office2019Colorful skin background 색차 확인. 색차 큼 시 후속 step (D7.3-fallback) 으로 `DevExpress.Xpf.Themes.WindowsUI.v24.1.dll` deploy 추가 + `ApplicationThemeName="WindowsUIDark"` 재시도 또는 자체 skin mapping. §3 PR-D7.3 박제 그대로 step 분할 룰 적용.
+2. **mechanism D 잔여 우려** (§2 박제):
+   - HintPath 절대 경로 environment 의존 — `$(DXInstallRoot)` MSBuild property 도입 권고 (후속 PR).
+   - Version upgrade 시 13건 HintPath 갱신 — `$(DXVersion)` property 화 권고.
+   - `System.Drawing.Common` / `Microsoft.Win32.SystemEvents` 의 SDK reference 단순화 (후속 PR).
+3. **AvalonDock 6 fix 작업물** — dock2 stash@{0} 에 보존. 사용자 명시 시 stash drop 가능.
 
 ### (이력) 이전 PR-D5 작업 흐름
 
