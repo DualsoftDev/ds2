@@ -158,7 +158,7 @@ public enum DockAnchorPosition { LeftTop, LeftBottom, BottomLeft, BottomRight, R
 - [x] 빌드 통과 (0 오류 / 1 경고 — CS0067 `AnchorVisibilityChanged` 미사용, PR-D3 raise 시 자연 해소).
 - [x] DX type 외부 노출 0 검증 (자가 검열 agent 통과, 0 finding).
 
-### PR-D3 — DevExpress DockLayoutManager 기본 layout 구축
+### PR-D3 — DevExpress DockLayoutManager 기본 layout 구축 — ✅ 완료 (commit `a1b51760`)
 - [x] DockHost.xaml 안에 DX `DockLayoutManager` + `LayoutGroup` 트리 — done-dock-layout.md §3.1 의 안 A (Welcome/Open 통합 LayoutDocument) 그대로 이전.
 - [x] 5 anchor (explorer / simulation / property / history / llmchat) + canvas LayoutDocument. ※ orchestrator 체크박스 원문은 6 이름이었으나 done-dock-layout §3.1 안 A 의 SSOT 가 5 anchor (log 는 simulation 통합) — §9 spike 박제 "Anchor 개수 정정" 참조.
 - [x] DX 의 layout 트리에서 size 보존 / drag-drop / floating 동작이 native 로 처리됨을 검증 (코드 상 별도 보정 0건 — `BaseLayoutItem.ItemWidth/Height GridLength` + `Closed` DP + `DockController.Float` 가 DX native 처리. 실 동작 시각 검증은 PR-D4 본체 wire-up 후 첫 실행 시).
@@ -315,49 +315,55 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 ### 현재 상태 (branch `dock2`, remote 없음)
 - `87ad64e1` — PR-D1: Promaker.Dock csproj skeleton + Directory.Packages.props (DevExpress 24.1.7) + todo 문서 신규.
 - `27c85180` — PR-D2: IDockManager / DockAnchor / DockHost skeleton + 자가 검열 0 finding.
-- working tree clean (본 §9 추가 commit 직전).
+- `8c2318d9` — todo §9 진행 체크포인트 + PR-D1/D2 완료 박제.
+- `fd8f142d` — todo §3.0 sub-agent prompt 골격 + PR-D3 spike 룰 + PR-D5 baseline 박제.
+- `a1b51760` — PR-D3: DockLayoutManager layout 트리 + IDockManager 구현 + 24.1.7 spike 박제 + RegisterAnchor/RegisterDocument 중복 가드. 자가 검열 Critical 0 / Major 2 (M1: 초기 raise 누설 우려 → PR-D5 spike 위임 / M2: 중복 가드 → 본 commit 반영) / Minor 4.
+- working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D3 (§3 참조)
+### 다음 작업 — PR-D4 (§3 참조)
 
-DockHost 의 실제 layout 트리 구성 + IDockManager 구현. 작업 흐름:
+Promaker 본체 wire-up. 작업 흐름:
 
-1. **DevExpress 24.1 docking API spike** (선결):
-   - DX docs / local feed 의 `DevExpress.Wpf.Docking.24.1.7.nupkg` 내부 또는 `C:\Program Files\DevExpress 24.1\` 의 sample 확인.
-   - 핵심 API 확정: `DockLayoutManager.LayoutRoot`, `LayoutGroup`, `LayoutPanel`, `DocumentGroup`, `DocumentPanel`, `LayoutPanel.Closed` event/property, `LayoutPanel.ItemHeight` / `ItemWidth`, layout serializer.
-   - 격리 검증 — DockHost.xaml.cs 안의 명시 using (`DevExpress.Xpf.Docking;`) 으로 `LayoutPanel` / `DockLayoutManager` 사용 후 빌드 0 경고 / 0 오류.
+1. **Promaker.csproj ProjectReference**:
+   - `Apps/Promaker/Promaker/Promaker.csproj` 에 `<ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" PrivateAssets="all" />` 추가.
+   - 빌드 후 `dotnet list package --include-transitive` 로 Promaker.dll 의 reference 에 `DevExpress.*` 가 transitive 로도 포함되지 않음을 검증 (§7 #2 격리 효과).
+   - **검증 실패 시 차단** — Promaker 본체에 DX namespace 가 새면 PR-D4 완료 불가, 즉시 사용자 알림.
 
-2. **DockHost.xaml layout 트리 구성**:
-   - done-dock-layout.md §3.1 의 안 A (Welcome/Open 통합) 그대로 이전.
-   - 외곽 horizontal `LayoutGroup`: Left column (Explorer) | Center (Document area + Bottom group) | Right column (Properties / History / LlmChat).
-   - `DocumentGroup` 안에 Welcome / Canvas LayoutDocument 2종 (`HasProject` 토글로 Add/Remove 또는 visibility 토글).
+2. **MainWindow.xaml — AvalonDock 통째 제거 + DockHost embed**:
+   - `Apps/Promaker/Promaker/Windows/MainWindow/MainWindow.xaml` 안의 AvalonDock `<xcad:DockingManager>` 트리 통째 제거.
+   - 신규 xmlns: `xmlns:promakerDock="clr-namespace:Promaker.Dock;assembly=Promaker.Dock"`.
+   - `<promakerDock:DockHost x:Name="dockHost" />` 1줄 embed (위치는 기존 DockingManager 자리).
+   - 기존 5 anchor 의 Content UserControl (ExplorerPane / SimulationPanel / PropertyPanel / HistoryPanel / LlmChatPanel) 은 XAML 에서 직접 instantiate 하지 말고 PR-D4 step 3 에서 code-behind 로 `DockAnchor` wrapping + `RegisterAnchor` 호출.
 
-3. **`DockHost.xaml.cs` 의 IDockManager 구현**:
-   - `RegisterAnchor(DockAnchor)`: `DefaultPosition` 에 따라 미리 만든 6 LayoutPanel 중 하나에 anchor 의 `Content` set + `Caption=anchor.Title` + `Name=anchor.ContentId` (binding key).
-   - `RegisterDocument(DockAnchor)`: DocumentGroup 안에 DocumentPanel 추가.
-   - `SetAnchorVisible(string contentId, bool visible)`: `LayoutPanel.Closed` (또는 동등 property) toggle.
-   - `IsAnchorVisible(string contentId)`: 동일 property 조회.
-   - `AnchorVisibilityChanged` raise — DX 의 `LayoutPanel.Closed` event (또는 `ClosedChanged`) hook → `_contentId → bool` 으로 변환 후 발화. 본 raise 로 PR-D2 의 CS0067 경고 자연 해소.
+3. **MainWindow.xaml.cs — RegisterAnchor / RegisterDocument 호출**:
+   - 5 anchor 등록: `dockHost.RegisterAnchor(new DockAnchor("explorer", "Explorer", new ExplorerPane(...), DockAnchorPosition.Left));` 형태로 5건.
+   - 2 document 등록: Welcome / Canvas (현재 SplitCanvasContainer 또는 동등 wrapping). `HasProject` 토글로 Welcome detach + Canvas attach 정책은 done-dock-layout §3.1 안 A 그대로.
+   - 5 anchor 의 정확한 Content type / ctor 시그니처는 기존 AvalonDock XAML 직접 인스턴스 패턴을 본 step 진입 시 grep 으로 확인 후 박제.
 
-4. **격리 재검증**:
-   - `_dockLayout` / `_rootGroup` / 추가 신규 LayoutPanel field 들이 모두 `internal` 또는 `private` (public 노출 0).
-   - IDockManager 의 public 시그니처에 DX namespace type 0건 유지.
+4. **AvalonDock 관련 partial / wiring 제거**:
+   - `Apps/Promaker/Promaker/Windows/MainWindow/DockExtents.cs` / `DockPlacement.cs` / `DockTrace.cs` 통째 제거 (PR-D8 의 일부지만 PR-D4 wire-up 완료를 위해 본 step 에서 함께 제거).
+   - `Apps/Promaker/Promaker/ViewModels/Shell/MainViewModel/Dock.cs` 의 AvalonDock 의존 멤버 제거 또는 DX API 로 재작성 (PR-D5 SSOT 재구성 직전 단계 — PR-D5 가 IsLlmChatVisible 재wiring 한다는 사실 인지하고 본 step 에서는 build 통과 minimal 변경만).
+   - **단, PR-D8 의 "rename 마지막 step" 룰 (D8.6 done-dock-layout 보존 rename, D8.7 todo rename) 은 본 PR-D4 에서 손대지 않음.** PackageReference / PackageVersion 의 AvalonDock 제거도 PR-D8 으로 미룸 (transitive 비활성 상태로 두면 본 PR-D4 빌드 시 unused warning 만 발생 — 무시 가능).
 
-5. **빌드 + 자가 검열 (general-purpose agent)**:
-   - 신규 type 3개 이상 + dispatch 변경 (RegisterAnchor 의 position dispatch) 충족 → 자가 검열 의무.
-   - prompt 의 검증 항목 0번 박제: 사용자 의도 verbatim 인용 + patch ↔ 의도 1:1 매핑.
-   - 통과 시 commit (메시지 박제: `[dock2] Dock layout: PR-D3 — DockLayoutManager layout 트리 + IDockManager 구현`).
+5. **빌드 + 자가 검열**:
+   - `dotnet build Apps/Promaker/Promaker/Promaker.csproj` 0 오류 (경고는 AvalonDock unused 만 허용).
+   - 자가 검열 trigger 충족 (MainWindow XAML 통째 교체 / DockHost embed / 5 anchor wiring 신설) → 검열 agent 위임 의무.
+   - 검열 prompt 검증 항목 0번: 사용자 의도 verbatim 인용 + patch ↔ 의도 1:1 매핑.
+   - 통과 시 commit (메시지 박제: `[dock2] Dock layout: PR-D4 — Promaker 본체 wire-up (MainWindow DockingManager → DockHost)`).
+
+#### PR-D4 spike 결과 처리 룰
+- spike (예: `ExplorerPane` 의 ctor 시그니처, `SplitCanvasContainer` 의 binding context, `MainViewModel.Dock.cs` 의 AvalonDock 의존 멤버 목록) 결과가 PR-D4 step 의 가정과 다를 시 § PR-D3 spike 룰과 동일 — (a) 차이 박제 후 자동 진행 / (b) 기능 자체 부재 (e.g. Promaker 본체 빌드 가능성 차단) 만 사용자 알림 + 차단.
 
 ### 새 세션 시작 시 첫 행동
 1. 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` 전체 read.
-2. 현재 commit 상태 확인 — `git log --oneline -5` 로 `87ad64e1` / `27c85180` / 본 §9 commit 확인.
+2. 현재 commit 상태 확인 — `git log --oneline -8` 로 PR-D1 ~ PR-D3 (및 본 §9 갱신 commit) 확인.
 3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업 — `cd` / `make run` 시 경로 명시.
-4. PR-D3 의 §3 항목 5건 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~5 순서.
-5. PR-D3 commit 후 본 §9 갱신 (PR-D3 completion 박제 + PR-D4 시작점 명시).
+4. PR-D4 의 §3 항목 5건 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~5 순서.
+5. PR-D4 commit 후 본 §9 갱신 (PR-D4 completion 박제 + PR-D5 시작점 명시).
 
-### 주의 — DX API spike 결과를 본 문서에 박제
-
-PR-D3 진행 중 DX 의 정확한 API (메서드 명 / event 명 / Closed vs Closing 등) 가 본인이 가정한 것과 다를 가능성. spike 후 정확한 API 를 §9 또는 §3 의 PR-D3 단계에 박제 — 다음 PR (D4~D8) 진행 시 같은 spike 반복 회피.
+### DX API spike 결과 박제 — PR-D3 완료
+PR-D3 진행 중 24.1.7 의 정확한 API 가 PR-D2 의 가정과 다른 부분 (Closed DP / ItemIsVisibleChanged event / ItemWidth=GridLength / DockController.Float 등) 모두 본 §9 "PR-D3 spike API 박제" 절에 박제 완료. PR-D4 이후 동일 spike 반복 금지 — 본 박제 절을 ground truth 로 사용.
 
 ### PR-D3 spike API 박제 (확정 결과, 24.1.7 / `DevExpress.Xpf.Docking.v24.1.dll`)
 
