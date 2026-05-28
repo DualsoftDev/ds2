@@ -176,15 +176,56 @@ public class DspRepositoryAdapter : IDspRepository
 
             const string createFlowHistory = @"
                 CREATE TABLE IF NOT EXISTS dspFlowHistory (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    flowName    NVARCHAR(128),
-                    mt          INTEGER,
-                    wt          INTEGER,
-                    ct          INTEGER,
-                    cycleNo     INTEGER,
-                    recordedAt  DATETIME,
-                    IsIdle      INTEGER NOT NULL DEFAULT 0
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flowName      NVARCHAR(128),
+                    mt            INTEGER,
+                    wt            INTEGER,
+                    ct            INTEGER,
+                    cycleNo       INTEGER,
+                    recordedAt    DATETIME,
+                    IsIdle        INTEGER NOT NULL DEFAULT 0,
+                    headCallName  NVARCHAR(128),
+                    tailCallName  NVARCHAR(128)
                 )";
+
+            // 모델 변경 이력 — Promaker 의 AASX 가 바뀔 때마다 audit row 1건.
+            // 사후 분석에서 "이 사이클타임이 어느 모델 시점의 측정인지" 추적용.
+            const string createAasxChangeLog = @"
+                CREATE TABLE IF NOT EXISTS aasxChangeLog (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    changedAt        DATETIME NOT NULL,
+                    sha256Before     TEXT,
+                    sha256After      TEXT NOT NULL,
+                    source           TEXT NOT NULL,
+                    flowsAddedJson   TEXT,
+                    flowsRemovedJson TEXT,
+                    pruneFlows       INTEGER NOT NULL DEFAULT 0,
+                    pruneCalls       INTEGER NOT NULL DEFAULT 0,
+                    pruneHistory     INTEGER NOT NULL DEFAULT 0,
+                    notes            TEXT
+                )";
+            const string createAasxChangeLogIdx =
+                "CREATE INDEX IF NOT EXISTS idx_aasxChangeLog_changedAt ON aasxChangeLog(changedAt)";
+
+            // Flow head/tail boundary 변경 이력 — 사용자 override 또는 AASX 자동 갱신마다 row 1건.
+            // dspFlowHistory 의 headCallName/tailCallName 박제와 함께 쓰면 boundary 변경 시점을 정확히 분리 가능.
+            const string createFlowBoundaryChangeLog = @"
+                CREATE TABLE IF NOT EXISTS flowBoundaryChangeLog (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    changedAt       DATETIME NOT NULL,
+                    flowName        NVARCHAR(128) NOT NULL,
+                    headBefore      NVARCHAR(128),
+                    headAfter       NVARCHAR(128),
+                    tailBefore      NVARCHAR(128),
+                    tailAfter       NVARCHAR(128),
+                    source          TEXT NOT NULL,
+                    aasxChangeLogId INTEGER,
+                    notes           TEXT
+                )";
+            const string createFlowBoundaryChangeLogIdxTime =
+                "CREATE INDEX IF NOT EXISTS idx_flowBoundaryChangeLog_changedAt ON flowBoundaryChangeLog(changedAt)";
+            const string createFlowBoundaryChangeLogIdxFlow =
+                "CREATE INDEX IF NOT EXISTS idx_flowBoundaryChangeLog_flowName ON flowBoundaryChangeLog(flowName)";
 
             // plc / plcTag / plcTagLog — Hub 모니터링 모드에서 DsPilot 자체가 채움.
             // 컬럼 구성은 [PlcEntity](Apps/DSPilot/DSPilot/Models/Plc/PlcEntity.cs) 와 일치.
@@ -285,6 +326,11 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createUserTagAlertLogIdxLevelTime);
             await conn.ExecuteAsync(createUserTagAlertDaily);
             await conn.ExecuteAsync(createUserTagAlertDailyIdxDate);
+            await conn.ExecuteAsync(createAasxChangeLog);
+            await conn.ExecuteAsync(createAasxChangeLogIdx);
+            await conn.ExecuteAsync(createFlowBoundaryChangeLog);
+            await conn.ExecuteAsync(createFlowBoundaryChangeLogIdxTime);
+            await conn.ExecuteAsync(createFlowBoundaryChangeLogIdxFlow);
 
             // 기본 plc 행 보장 (id=1) — plcTag.plcId 가 참조하는 단일 PLC
             await conn.ExecuteAsync(
@@ -302,6 +348,8 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureColumnAsync(conn, "dspFlow", "avgMT",             "REAL");
             await EnsureColumnAsync(conn, "dspFlow", "avgWT",             "REAL");
             await EnsureColumnAsync(conn, "dspFlow", "avgCT",             "REAL");
+            await EnsureColumnAsync(conn, "dspFlowHistory", "headCallName", "NVARCHAR(128)");
+            await EnsureColumnAsync(conn, "dspFlowHistory", "tailCallName", "NVARCHAR(128)");
 
             _logger.LogInformation(
                 "DSP/PLC schema ensured (dspFlow / dspCall / dspFlowHistory / plc / plcTag / plcTagLog)");
@@ -790,8 +838,8 @@ public class DspRepositoryAdapter : IDspRepository
         try
         {
             var sql = $@"
-                INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle)
-                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle)";
+                INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName)
+                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)";
 
             var result = await conn.ExecuteAsync(sql, new
             {
@@ -802,11 +850,14 @@ public class DspRepositoryAdapter : IDspRepository
                 history.CycleNo,
                 RecordedAt = history.RecordedAt == default ? DateTime.UtcNow : history.RecordedAt,
                 history.IsIdle,
+                history.HeadCallName,
+                history.TailCallName,
             });
 
             _logger.LogDebug(
-                "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms",
-                history.FlowName, history.CycleNo, history.MT, history.WT, history.CT);
+                "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms, head={Head}, tail={Tail}",
+                history.FlowName, history.CycleNo, history.MT, history.WT, history.CT,
+                history.HeadCallName, history.TailCallName);
 
             return result;
         }
@@ -831,7 +882,8 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureIsIdleColumnAsync(conn);
 
             var sql = $@"
-                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
+                       HeadCallName, TailCallName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                 ORDER BY RecordedAt DESC
@@ -861,7 +913,8 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureIsIdleColumnAsync(conn);
 
             var sql = $@"
-                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
+                       HeadCallName, TailCallName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                   AND RecordedAt >= @SinceDate
@@ -892,7 +945,8 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureIsIdleColumnAsync(conn);
 
             var sql = $@"
-                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
+                SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
+                       HeadCallName, TailCallName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                   AND RecordedAt >= @SinceDate
@@ -1142,5 +1196,344 @@ public class DspRepositoryAdapter : IDspRepository
     {
         public string WorkName { get; set; } = string.Empty;
         public string FlowName { get; set; } = string.Empty;
+    }
+
+    // ===== Cache invalidate (raw 보존, derived 만 reset) =====
+
+    /// <summary>
+    /// dspFlow 의 현재값/평균 + dspCall 의 누적 통계를 NULL/0 으로 reset.
+    /// raw 테이블(plcTagLog / plcTag / userTagAlertLog / dspFlowHistory) 은 손대지 않음.
+    /// head/tail boundary 가 바뀌었거나 모델이 크게 바뀌어 평균을 새 baseline 으로 다시 누적해야 할 때 사용.
+    /// </summary>
+    public async Task<(int FlowsReset, int CallsReset)> InvalidateRunningStatsAsync()
+    {
+        if (!_enabled) return (0, 0);
+
+        await using var conn = await OpenAsync();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var flowsReset = 0;
+            if (await TableExistsAsync(conn, _flowTable))
+            {
+                var sql = $@"
+                    UPDATE {_flowTable}
+                    SET MT = NULL, WT = NULL, CT = NULL,
+                        AvgMT = NULL, AvgWT = NULL, AvgCT = NULL,
+                        UpdatedAt = datetime('now')";
+                flowsReset = await conn.ExecuteAsync(sql, transaction: tx);
+            }
+
+            var callsReset = 0;
+            if (await TableExistsAsync(conn, _callTable))
+            {
+                var sql = $@"
+                    UPDATE {_callTable}
+                    SET PreviousGoingTime = NULL,
+                        AverageGoingTime = NULL,
+                        StdDevGoingTime = NULL,
+                        GoingCount = 0,
+                        UpdatedAt = datetime('now')";
+                callsReset = await conn.ExecuteAsync(sql, transaction: tx);
+            }
+
+            tx.Commit();
+            _logger.LogInformation(
+                "Invalidated running stats — Flow {Flows}, Call {Calls} (raw 보존, dspFlowHistory 도 보존)",
+                flowsReset, callsReset);
+            return (flowsReset, callsReset);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "InvalidateRunningStatsAsync 실패");
+            throw;
+        }
+    }
+
+    // ===== Audit logs =====
+
+    public async Task<long> InsertAasxChangeLogAsync(
+        string? sha256Before,
+        string sha256After,
+        string source,
+        IEnumerable<string>? flowsAdded,
+        IEnumerable<string>? flowsRemoved,
+        int pruneFlows,
+        int pruneCalls,
+        int pruneHistory,
+        string? notes = null)
+    {
+        if (!_enabled) return 0;
+
+        try
+        {
+            await using var conn = await OpenAsync();
+            if (!await TableExistsAsync(conn, "aasxChangeLog"))
+                return 0;
+
+            var sql = @"
+                INSERT INTO aasxChangeLog
+                  (changedAt, sha256Before, sha256After, source,
+                   flowsAddedJson, flowsRemovedJson,
+                   pruneFlows, pruneCalls, pruneHistory, notes)
+                VALUES
+                  (@ChangedAt, @ShaBefore, @ShaAfter, @Source,
+                   @AddedJson, @RemovedJson,
+                   @PruneFlows, @PruneCalls, @PruneHistory, @Notes);
+                SELECT last_insert_rowid();";
+
+            var id = await conn.ExecuteScalarAsync<long>(sql, new
+            {
+                ChangedAt = DateTime.UtcNow,
+                ShaBefore = sha256Before,
+                ShaAfter = sha256After,
+                Source = source,
+                AddedJson = flowsAdded is null ? null : System.Text.Json.JsonSerializer.Serialize(flowsAdded),
+                RemovedJson = flowsRemoved is null ? null : System.Text.Json.JsonSerializer.Serialize(flowsRemoved),
+                PruneFlows = pruneFlows,
+                PruneCalls = pruneCalls,
+                PruneHistory = pruneHistory,
+                Notes = notes,
+            });
+            _logger.LogInformation(
+                "[audit] aasxChangeLog#{Id} source={Source} sha {Before}→{After}",
+                id, source, sha256Before ?? "<none>", sha256After);
+            return id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "InsertAasxChangeLogAsync 실패 (비중요)");
+            return 0;
+        }
+    }
+
+    public async Task InsertFlowBoundaryChangeLogAsync(
+        string flowName,
+        string? headBefore, string? headAfter,
+        string? tailBefore, string? tailAfter,
+        string source,
+        long? aasxChangeLogId = null,
+        string? notes = null)
+    {
+        if (!_enabled) return;
+        if (headBefore == headAfter && tailBefore == tailAfter) return; // no-op
+
+        try
+        {
+            await using var conn = await OpenAsync();
+            if (!await TableExistsAsync(conn, "flowBoundaryChangeLog"))
+                return;
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO flowBoundaryChangeLog
+                  (changedAt, flowName, headBefore, headAfter, tailBefore, tailAfter, source, aasxChangeLogId, notes)
+                VALUES
+                  (@ChangedAt, @FlowName, @HeadB, @HeadA, @TailB, @TailA, @Source, @AasxId, @Notes)",
+                new
+                {
+                    ChangedAt = DateTime.UtcNow,
+                    FlowName = flowName,
+                    HeadB = headBefore,
+                    HeadA = headAfter,
+                    TailB = tailBefore,
+                    TailA = tailAfter,
+                    Source = source,
+                    AasxId = aasxChangeLogId,
+                    Notes = notes,
+                });
+            _logger.LogInformation(
+                "[audit] flowBoundaryChangeLog '{Flow}' head {HB}→{HA} tail {TB}→{TA} source={Source}",
+                flowName, headBefore ?? "<none>", headAfter ?? "<none>",
+                tailBefore ?? "<none>", tailAfter ?? "<none>", source);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "InsertFlowBoundaryChangeLogAsync 실패 (비중요)");
+        }
+    }
+
+    /// <summary>dspFlow 의 현재 boundary 조회 (변경 비교용).</summary>
+    public async Task<(string? MovingStartName, string? MovingEndName)> GetFlowBoundariesAsync(string flowName)
+    {
+        if (!_enabled) return (null, null);
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, _flowTable)) return (null, null);
+
+        // Dapper 가 ValueTuple 매핑을 silently null 처리 — 명시적 DTO.
+        var row = await conn.QueryFirstOrDefaultAsync<FlowBoundaryRow>(
+            $"SELECT MovingStartName, MovingEndName FROM {_flowTable} WHERE FlowName = @FlowName",
+            new { FlowName = flowName });
+        return (row?.MovingStartName, row?.MovingEndName);
+    }
+
+    private sealed class FlowBoundaryRow
+    {
+        public string? MovingStartName { get; set; }
+        public string? MovingEndName { get; set; }
+    }
+
+    // ===== Cache rebuild from history (옵션 A — 즉시 재집계) =====
+
+    /// <summary>
+    /// 각 Flow 의 현재 boundary(MovingStartName/MovingEndName) 와 일치하는 dspFlowHistory 행으로
+    /// Avg{MT,WT,CT} 와 현재값(MT/WT/CT) 을 즉시 재집계.
+    /// <para>
+    /// 매칭 규칙:
+    /// <list type="bullet">
+    /// <item>history.HeadCallName 이 NULL → 보수적으로 현재 boundary 와 일치하는 것으로 간주 (박제 이전 데이터).</item>
+    /// <item>history.HeadCallName 이 있음 → dspFlow.MovingStartName == flowName||"."||history.headCallName 일치 검사.</item>
+    /// <item>비가동(IsIdle=1) 행은 제외.</item>
+    /// </list>
+    /// </para>
+    /// InvalidateCachesAsync 끝에서 호출되어, NULL 로 비운 Avg* 를 boundary 박제 컬럼 기반으로 즉시 복원한다.
+    /// </summary>
+    public async Task<(int FlowsRecomputed, int HistoryRowsUsed)> RecomputeAveragesFromCurrentBoundaryAsync()
+    {
+        if (!_enabled) return (0, 0);
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, HistoryTable)) return (0, 0);
+        if (!await TableExistsAsync(conn, _flowTable)) return (0, 0);
+
+        await EnsureIsIdleColumnAsync(conn);
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 매칭 조건을 inline 으로 두 번 쓰지 않게 view 대신 sub-select 두 번 (SQLite UPDATE FROM 미지원 환경 호환).
+            // boundary 매칭은 dspFlow.{MovingStartName,MovingEndName} == flowName||'.'||h.{headCallName,tailCallName}.
+            var avgSql = $@"
+                UPDATE {_flowTable}
+                SET AvgMT = (
+                        SELECT AVG(h.mt) FROM {HistoryTable} h
+                        WHERE h.flowName = {_flowTable}.flowName
+                          AND COALESCE(h.IsIdle, 0) = 0
+                          AND (h.headCallName IS NULL
+                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                          AND (h.tailCallName IS NULL
+                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                    ),
+                    AvgWT = (
+                        SELECT AVG(h.wt) FROM {HistoryTable} h
+                        WHERE h.flowName = {_flowTable}.flowName
+                          AND COALESCE(h.IsIdle, 0) = 0
+                          AND (h.headCallName IS NULL
+                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                          AND (h.tailCallName IS NULL
+                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                    ),
+                    AvgCT = (
+                        SELECT AVG(h.ct) FROM {HistoryTable} h
+                        WHERE h.flowName = {_flowTable}.flowName
+                          AND COALESCE(h.IsIdle, 0) = 0
+                          AND (h.headCallName IS NULL
+                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                          AND (h.tailCallName IS NULL
+                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                    ),
+                    UpdatedAt = datetime('now')";
+            var flowsRecomputed = await conn.ExecuteAsync(avgSql, transaction: tx);
+
+            // 현재값(MT/WT/CT) 도 매칭되는 가장 최근 사이클로 복원. 매칭 행 없으면 NULL 유지.
+            var lastSql = $@"
+                UPDATE {_flowTable}
+                SET MT = (SELECT h.mt FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName
+                            AND COALESCE(h.IsIdle, 0) = 0
+                            AND (h.headCallName IS NULL
+                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                            AND (h.tailCallName IS NULL
+                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                    WT = (SELECT h.wt FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName
+                            AND COALESCE(h.IsIdle, 0) = 0
+                            AND (h.headCallName IS NULL
+                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                            AND (h.tailCallName IS NULL
+                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                    CT = (SELECT h.ct FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName
+                            AND COALESCE(h.IsIdle, 0) = 0
+                            AND (h.headCallName IS NULL
+                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                            AND (h.tailCallName IS NULL
+                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
+                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1)";
+            await conn.ExecuteAsync(lastSql, transaction: tx);
+
+            // 사용된 history 행 수 — UI 메시지용. 같은 boundary 매칭 조건으로 COUNT.
+            var countSql = $@"
+                SELECT COUNT(*)
+                FROM {HistoryTable} h
+                INNER JOIN {_flowTable} f ON f.flowName = h.flowName
+                WHERE COALESCE(h.IsIdle, 0) = 0
+                  AND (h.headCallName IS NULL OR f.movingStartName = (f.flowName || '.' || h.headCallName))
+                  AND (h.tailCallName IS NULL OR f.movingEndName = (f.flowName || '.' || h.tailCallName))";
+            var historyRowsUsed = await conn.ExecuteScalarAsync<int>(countSql, transaction: tx);
+
+            tx.Commit();
+
+            _logger.LogInformation(
+                "Recomputed Flow averages from current boundary: {Flows} flows updated, {Rows} history rows used",
+                flowsRecomputed, historyRowsUsed);
+
+            return (flowsRecomputed, historyRowsUsed);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "RecomputeAveragesFromCurrentBoundaryAsync 실패");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 현재 boundary 와 일치하는 비가동-제외 history 의 누적합 + 카운트 — in-memory Welford 상태 재시드용.
+    /// <see cref="GetNonIdleAggregatesAsync"/> 의 boundary-aware 버전.
+    /// </summary>
+    public async Task<Dictionary<string, (int Count, double SumMT, double SumWT, double SumCT)>> GetNonIdleAggregatesByCurrentBoundaryAsync()
+    {
+        var result = new Dictionary<string, (int, double, double, double)>(StringComparer.Ordinal);
+        if (!_enabled) return result;
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, HistoryTable)) return result;
+        if (!await TableExistsAsync(conn, _flowTable)) return result;
+
+        await EnsureIsIdleColumnAsync(conn);
+
+        var sql = $@"
+            SELECT h.flowName             AS FlowName,
+                   COUNT(*)               AS Cnt,
+                   COALESCE(SUM(h.mt), 0) AS SumMT,
+                   COALESCE(SUM(h.wt), 0) AS SumWT,
+                   COALESCE(SUM(h.ct), 0) AS SumCT
+            FROM {HistoryTable} h
+            INNER JOIN {_flowTable} f ON f.flowName = h.flowName
+            WHERE COALESCE(h.IsIdle, 0) = 0
+              AND (h.headCallName IS NULL OR f.movingStartName = (f.flowName || '.' || h.headCallName))
+              AND (h.tailCallName IS NULL OR f.movingEndName = (f.flowName || '.' || h.tailCallName))
+            GROUP BY h.flowName";
+
+        var rows = await conn.QueryAsync<NonIdleAggregateRow>(sql);
+        foreach (var r in rows)
+        {
+            if (!string.IsNullOrEmpty(r.FlowName))
+                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
+        }
+        return result;
+    }
+
+    /// <summary>전체 dspFlow 의 FlowName 집합 — added/removed 계산용.</summary>
+    public async Task<List<string>> GetAllFlowNamesAsync()
+    {
+        if (!_enabled) return new List<string>();
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, _flowTable)) return new List<string>();
+        var rows = await conn.QueryAsync<string>($"SELECT FlowName FROM {_flowTable}");
+        return rows.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
     }
 }

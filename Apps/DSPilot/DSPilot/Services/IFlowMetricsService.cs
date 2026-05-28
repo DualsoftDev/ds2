@@ -49,4 +49,10 @@ public interface IFlowMetricsService
     /// </summary>
     /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
     Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync();
+
+    /// <summary>
+    /// 현재 boundary 와 일치하는 dspFlowHistory 행으로 in-memory Welford 누적기를 재시드.
+    /// InvalidateCachesAsync 후 호출하여 다음 사이클이 누적 평균을 잘못 덮어쓰지 않게 한다.
+    /// </summary>
+    Task ReseedCycleStatesFromCurrentBoundaryAsync();
 }

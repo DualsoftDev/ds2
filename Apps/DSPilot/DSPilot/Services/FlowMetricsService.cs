@@ -185,7 +185,31 @@ public class FlowMetricsService : IFlowMetricsService
         var effectiveStartCallName = NormalizeCallName(startCallName) ?? defaultStartCallName;
         var effectiveEndCallName = NormalizeCallName(endCallName) ?? defaultEndCallName;
 
+        // 변경 비교용 — 적용 전 boundary 캡처
+        string? headBefore = null, tailBefore = null;
+        if (_flowCycleStates.TryGetValue(flowName, out var prior))
+        {
+            headBefore = prior.HeadCallName;
+            tailBefore = prior.TailCallName;
+        }
+
         await ApplyResolvedCycleBoundaryAsync(flowName, effectiveStartCallName, effectiveEndCallName);
+
+        // boundary 가 실제로 변경된 경우만 audit log INSERT (UserOverride source)
+        try
+        {
+            await _dspRepository.InsertFlowBoundaryChangeLogAsync(
+                flowName: flowName,
+                headBefore: headBefore,
+                headAfter: effectiveStartCallName,
+                tailBefore: tailBefore,
+                tailAfter: effectiveEndCallName,
+                source: "UserOverride");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "flowBoundaryChangeLog INSERT 실패 (비중요)");
+        }
 
         _logger.LogInformation(
             "Flow '{FlowName}' cycle boundary override applied. Effective Start={Start}, Effective End={End}",
@@ -377,6 +401,7 @@ public class FlowMetricsService : IFlowMetricsService
             }
 
             // 2. History 테이블 삽입 (비가동 포함, IsIdle 플래그와 함께)
+            //    boundary 박제 — head/tail 이 바뀌어도 row 별로 측정 정의가 보존됨.
             var history = new Models.Dsp.DspFlowHistoryEntity
             {
                 FlowName = flowName,
@@ -385,7 +410,9 @@ public class FlowMetricsService : IFlowMetricsService
                 CT = ct,
                 CycleNo = state.CycleCount,
                 RecordedAt = DateTime.UtcNow,
-                IsIdle = isIdle
+                IsIdle = isIdle,
+                HeadCallName = state.HeadCallName,
+                TailCallName = state.TailCallName,
             };
 
             await _dspRepository.InsertFlowHistoryAsync(history);
@@ -441,6 +468,39 @@ public class FlowMetricsService : IFlowMetricsService
         }
 
         return result;
+    }
+
+    public async Task ReseedCycleStatesFromCurrentBoundaryAsync()
+    {
+        try
+        {
+            var aggregates = await _dspRepository.GetNonIdleAggregatesByCurrentBoundaryAsync();
+            foreach (var kv in _flowCycleStates)
+            {
+                var state = kv.Value;
+                if (aggregates.TryGetValue(kv.Key, out var agg) && agg.Count > 0)
+                {
+                    state.CycleCount = agg.Count;
+                    state.SumMT = agg.SumMT;
+                    state.SumWT = agg.SumWT;
+                    state.SumCT = agg.SumCT;
+                }
+                else
+                {
+                    state.CycleCount = 0;
+                    state.SumMT = 0;
+                    state.SumWT = 0;
+                    state.SumCT = 0;
+                }
+            }
+            _logger.LogInformation(
+                "Reseeded in-memory Welford accumulators from current-boundary history for {Count} flow states",
+                _flowCycleStates.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ReseedCycleStatesFromCurrentBoundaryAsync 실패");
+        }
     }
 
     private async Task ApplyResolvedCycleBoundaryAsync(string flowName, string? startCallName, string? endCallName)

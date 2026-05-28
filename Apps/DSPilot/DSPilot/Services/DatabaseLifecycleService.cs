@@ -18,6 +18,7 @@ public sealed class DatabaseLifecycleService
     private readonly AppSettingsService _settingsService;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly BlueprintService _blueprint;
+    private readonly IFlowMetricsService _flowMetricsService;
     private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -31,6 +32,7 @@ public sealed class DatabaseLifecycleService
         AppSettingsService settingsService,
         IDatabasePathResolver pathResolver,
         BlueprintService blueprint,
+        IFlowMetricsService flowMetricsService,
         IHubContext<MonitoringHub> hubContext,
         ILogger<DatabaseLifecycleService> logger)
     {
@@ -42,23 +44,90 @@ public sealed class DatabaseLifecycleService
         _settingsService = settingsService;
         _pathResolver = pathResolver;
         _blueprint = blueprint;
+        _flowMetricsService = flowMetricsService;
         _hubContext = hubContext;
         _logger = logger;
     }
 
     /// <summary>
-    /// plc.db 전체 삭제 + 스키마 재생성 + 현재 in-memory AASX 로부터 dspFlow/dspCall 재적재 + 엔진 재시작.
-    /// AASX 파일을 디스크에서 다시 읽지 않는다 — 필요하면 <see cref="ReloadAasxAsync"/> 를 먼저 호출할 것.
-    /// 서버 재시작 불필요.
+    /// raw 데이터(plcTagLog / plcTag / userTagAlertLog / dspFlowHistory) 는 보존하고
+    /// derived/캐시(dspFlow.MT/WT/CT/Avg*, dspCall 누적 통계, in-memory Welford 누적기) 만 reset.
+    /// head/tail boundary 변경, 모델 큰 변경 후 평균을 새 baseline 으로 다시 누적하고 싶을 때 사용.
+    /// 새 사이클 완료 시점부터 자연스럽게 누적 시작.
     /// </summary>
-    public async Task<RebuildResult> RebuildDatabaseAsync()
+    public async Task<RebuildResult> InvalidateCachesAsync()
     {
         if (!await _gate.WaitAsync(0))
             return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
 
         try
         {
-            _logger.LogInformation("[DBLifecycle] Rebuild starting...");
+            _logger.LogInformation("[DBLifecycle] InvalidateCaches starting (raw 보존)...");
+
+            // 1. dspFlow / dspCall 누적 통계 컬럼 reset (plcTagLog / dspFlowHistory 는 손대지 않음)
+            var (flowsReset, callsReset) = await _dspRepository.InvalidateRunningStatsAsync();
+
+            // 2. 엔진 in-memory 통계 (Call Welford 누적기) reset
+            _engineService.ResetCallStats();
+
+            // 3. (옵션 A) history 박제된 boundary 컬럼으로 Avg* 즉시 재집계 — 기다리지 않고 평균 복원
+            var (flowsRecomputed, historyRowsUsed) = (0, 0);
+            try
+            {
+                (flowsRecomputed, historyRowsUsed) = await _dspRepository.RecomputeAveragesFromCurrentBoundaryAsync();
+                // in-memory Welford 누적기도 같은 boundary 의 history 로 재시드 → 다음 사이클이 정합 유지
+                await _flowMetricsService.ReseedCycleStatesFromCurrentBoundaryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DBLifecycle] history 기반 평균 재집계 실패 (NULL 유지, 새 사이클부터 누적)");
+            }
+
+            // 4. UI 스냅샷 클리어 → 모든 페이지가 새 상태로 재구성
+            _dspDbService.Reset();
+
+            try { await _hubContext.Clients.All.SendAsync("DatabaseRebuilt"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)"); }
+
+            _logger.LogInformation(
+                "[DBLifecycle] InvalidateCaches complete — reset(Flow {Reset}, Call {CallReset}), recompute(Flow {Recomp}, history {Rows})",
+                flowsReset, callsReset, flowsRecomputed, historyRowsUsed);
+
+            var msg = historyRowsUsed > 0
+                ? $"캐시 초기화 완료 (Flow {flowsReset}, Call {callsReset}). " +
+                  $"현재 boundary 의 history {historyRowsUsed}건으로 평균 즉시 복원 ({flowsRecomputed} Flow). " +
+                  "plcTagLog / dspFlowHistory 는 보존."
+                : $"캐시 초기화 완료 (Flow {flowsReset}, Call {callsReset}). " +
+                  "현재 boundary 의 history 없음 — 다음 사이클부터 새 평균 누적. plcTagLog / dspFlowHistory 는 보존.";
+            return new RebuildResult(true, msg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DBLifecycle] InvalidateCaches failed");
+            return new RebuildResult(false, $"캐시 초기화 실패: {ex.Message}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// plc.db 전체 삭제 + 스키마 재생성 + 현재 in-memory AASX 로부터 dspFlow/dspCall 재적재 + 엔진 재시작.
+    /// AASX 파일을 디스크에서 다시 읽지 않는다 — 필요하면 <see cref="ReloadAasxAsync"/> 를 먼저 호출할 것.
+    /// 서버 재시작 불필요.
+    /// 주의: plcTagLog (GB 단위 가능) 와 dspFlowHistory 가 모두 삭제됨. 일반 사용자는
+    /// <see cref="InvalidateCachesAsync"/> 를 사용해야 함.
+    /// </summary>
+    /// <param name="auditSource">audit log 의 source 값. 기본 "Settings.Rebuild" (사용자 액션). 첫 부팅 자동 호출이면 "Initial".</param>
+    public async Task<RebuildResult> RebuildDatabaseAsync(string auditSource = "Settings.Rebuild")
+    {
+        if (!await _gate.WaitAsync(0))
+            return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
+
+        try
+        {
+            _logger.LogInformation("[DBLifecycle] Rebuild starting (source={Source})...", auditSource);
 
             if (!_projectService.IsLoaded)
             {
@@ -93,7 +162,21 @@ public sealed class DatabaseLifecycleService
             // 자동 재구성된다. (CycleTimeAnalysis 도 OnDataChanged 구독 — 동일 경로)
             _dspDbService.Reset();
 
-            // 7. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
+            // 7. audit log — 통째 재구축은 통계 단절점이라 명시적으로 박제
+            try
+            {
+                await _dspRepository.InsertAasxChangeLogAsync(
+                    sha256Before: null,
+                    sha256After: _projectService.LastLoadedSha256 ?? "<unknown>",
+                    source: auditSource,
+                    flowsAdded: null,
+                    flowsRemoved: null,
+                    pruneFlows: 0, pruneCalls: 0, pruneHistory: 0,
+                    notes: "plc.db full rebuild — plcTagLog / dspFlowHistory 등 raw 데이터 모두 삭제됨");
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] aasxChangeLog INSERT 실패 (비중요)"); }
+
+            // 8. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
             try
             {
                 await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");
@@ -174,6 +257,10 @@ public sealed class DatabaseLifecycleService
             if (!File.Exists(path))
                 return new RebuildResult(false, $"AASX 파일이 없습니다: {path}");
 
+            // 1) AASX 재로딩 전에 prior SHA + 현재 DB 의 Flow 집합 캡처 (audit log 용)
+            var shaBefore = _projectService.LastLoadedSha256;
+            var priorFlowNames = await _dspRepository.GetAllFlowNamesAsync();
+
             // 1) AASX 재로딩 — in-memory DsStore 교체 (ReplaceStore)
             _logger.LogInformation("[DBLifecycle] ReloadAndResync starting ({Path})", path);
             _projectService.LoadProject(path);
@@ -186,6 +273,12 @@ public sealed class DatabaseLifecycleService
                 .ToList();
             var keepNames = keepFlows.Select(f => f.Name).ToList();
             var keepIds = keepFlows.Select(f => f.Id).ToHashSet();
+
+            // added / removed 산출 — audit log 용
+            var priorSet = new HashSet<string>(priorFlowNames, StringComparer.OrdinalIgnoreCase);
+            var keepSet = new HashSet<string>(keepNames, StringComparer.OrdinalIgnoreCase);
+            var flowsAdded = keepSet.Except(priorSet, StringComparer.OrdinalIgnoreCase).ToList();
+            var flowsRemoved = priorSet.Except(keepSet, StringComparer.OrdinalIgnoreCase).ToList();
 
             // 3) stale 행 prune — 새 모델에 없는 Flow 의 dspFlow / dspCall / dspFlowHistory 삭제
             //    Bootstrap UPSERT 보다 먼저 — UPSERT 가 같은 row 를 다시 살리지는 않으니 순서는 무관하지만,
@@ -235,7 +328,23 @@ public sealed class DatabaseLifecycleService
             // 7) UI 스냅샷 클리어 → OnDataChanged + OnStructuralChange 발화로 모든 페이지 자동 새로고침
             _dspDbService.Reset();
 
-            // 8) 다른 클라이언트 알림 (DatabaseRebuilt 핸들러 재사용 — 페이지가 강제 reload)
+            // 8) audit log — "이 시점에 모델이 어떻게 바뀌었는지" 영구 박제
+            try
+            {
+                await _dspRepository.InsertAasxChangeLogAsync(
+                    sha256Before: shaBefore,
+                    sha256After: _projectService.LastLoadedSha256 ?? "<unknown>",
+                    source: "AasxWatcher",
+                    flowsAdded: flowsAdded.Count > 0 ? flowsAdded : null,
+                    flowsRemoved: flowsRemoved.Count > 0 ? flowsRemoved : null,
+                    pruneFlows: pruned.Flows,
+                    pruneCalls: pruned.Calls,
+                    pruneHistory: pruned.History,
+                    notes: layoutChanged ? "layout auto-resynced" : null);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] aasxChangeLog INSERT 실패 (비중요)"); }
+
+            // 9) 다른 클라이언트 알림 (DatabaseRebuilt 핸들러 재사용 — 페이지가 강제 reload)
             try { await _hubContext.Clients.All.SendAsync("DatabaseRebuilt"); }
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)"); }
 
