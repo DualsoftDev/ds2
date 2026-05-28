@@ -217,14 +217,14 @@ PR-D4 step 1 진입 시 `<ProjectReference PrivateAssets="all">` 단독 mechanis
 - [x] `MainWindow.xaml.cs` 의 AvalonDock 관련 wiring 6 partial 파일 제거 — DockExtents.cs / DockPlacement.cs / DockTrace.cs / DockOverlay.cs / FloatingWindow.cs / MainViewModel/Dock.cs.
 - [x] 빌드 통과 (0 경고 / 0 오류). `dotnet list package --include-transitive` DevExpress / System.Drawing.Common 0건. bin 에 DevExpress 11종 + Themes.Office2019Colorful deploy 확인.
 
-### PR-D5 — SSOT (IsLlmChatVisible) 재구성
-- [ ] `MainViewModel.LlmChat.cs` 의 `IsLlmChatVisible` PropertyChanged → `dockHost.SetAnchorVisible("llmchat", show)`.
-- [ ] X 버튼 → `AnchorVisibilityChanged` event → VM `IsLlmChatVisible = false` 단방향 wiring.
-- [ ] LlmChatVm null / consent 거부 edge case — 아래 **baseline 박제** 와 동등 동작 유지.
-- [ ] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `IDockManager` 의 `IsAnchorVisible` / `SetAnchorVisible` 활용. `LayoutAnchorable` 직접 binding 제거.
-- [ ] **PR-D4 검열 M4 박제 — 보기 메뉴 PathError 해소**: PR-D4 종료 시점에 `MainToolbarEtcContent.xaml` 의 5 체크박스 binding (`{Binding ExplorerAnchor.IsVisible, Mode=TwoWay}` 등) 이 VM 의 삭제된 `Dock.cs` 의 anchor property 를 가리켜 dead path 상태. PR-D5 의 IDockManager 재wiring 시 5 체크박스 binding 모두 새 binding source (e.g. VM property + DockHost SetAnchorVisible 호출) 로 교체 + 라벨 정합 (Properties / Simulation / Log 등).
-- [ ] **PR-D3 검열 M1 박제 — 초기 raise spike**: PR-D5 진입 직전 1회 spike 로 다음 검증. (1) `DockHost` ctor 의 `_dockLayout.ItemIsVisibleChanged` hook 시점에 layout 초기 평가로 인한 false-IsVisible raise 가 외부 (SSOT) 로 누설되는지. (2) 누설 시 hook 시점을 `Loaded` event 또는 `RegisterAnchor` 첫 호출 직후로 지연. (3) 누설 없으면 박제 후 종료. SSOT 의 `IsLlmChatVisible` 무한 loop 차단 책임은 본 항목과 별개로 `_suppressLlmChatSync` 류 가드 (done-dock-layout §2 F3 박제) 적용 의무.
-- [ ] **PR-D4 검열 잔여 — `HasProject` 토글로 Welcome ↔ Canvas 전환 정책**: done-dock-layout §3.1 안 A 의 동작 (HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전) 을 IDockManager.SetAnchorVisible 호출로 재구현. 현재 PR-D4 종료 시점에 두 document 모두 tab 노출 상태.
+### PR-D5 — SSOT (IsLlmChatVisible) 재구성 — ✅ 완료 (commit `a13bf9d2`)
+- [x] `MainViewModel.LlmChat.cs` 의 `IsLlmChatVisible` PropertyChanged → `dockHost.SetAnchorVisible("llmchat", show)`. ※ VM 의 IDockManager 직접 의존 회피 — MainWindow.xaml.cs 의 `Vm_PropertyChanged` 외부 구독으로 처리 (MVVM cleanness).
+- [x] X 버튼 → `AnchorVisibilityChanged` event → VM `IsLlmChatVisible = false` 단방향 wiring (`_suppressAnchorSync` guard 로 SSOT loop 차단).
+- [x] LlmChatVm null / consent 거부 edge case — baseline 박제 §5 3종 보존 (LlmChat.cs 변경 0 line). 검열 Critical 위반 0.
+- [x] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `LayoutAnchorable` 직접 binding 제거 + VM `Is{Explorer/Simulation/Properties/History}Visible` 4 ObservableProperty 신설 (DockAnchors.cs partial) + TwoWay binding → PropertyChanged → `dockHost.SetAnchorVisible(contentId, value)` 간접 경로. Log 체크박스 제거 (PR-D4 SimulationPanel Log tab 통합 SSOT 정합).
+- [x] **PR-D4 검열 M4 박제 — 보기 메뉴 PathError 해소**: dead path 4 binding 모두 새 source 로 교체 + 라벨 정합 (Properties / Simulation / History / Explorer / LLM Chat). Log 체크박스 제거 박제.
+- [x] **PR-D3 검열 M1 박제 — 초기 raise hook 시점 지연**: DockHost.xaml.cs ctor 의 `_dockLayout.ItemIsVisibleChanged` hook 을 `Loaded` event one-shot 으로 지연. 초기 raise 외부 누설 차단. 정적 분석 + 보수적 default 채택 (실 실행 spike 생략 — Loaded 시점이 가장 안전).
+- [x] **PR-D4 검열 잔여 — `HasProject` 토글 Welcome↔Canvas**: SyncWelcomeCanvasVisibility ctor 1회 초기 sync + PropertyChanged hook 분기. done-dock-layout §3.1 안 A 정합 (false → Welcome / Canvas 숨김, true → 역전).
 
 #### LlmChat.cs baseline 박제 (현재 동작 — `MainViewModel.LlmChat.cs:21-38`)
 
@@ -365,12 +365,36 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - `00079ca8` — PR-D4 진입 차단 박제 (격리 mechanism spike A 계열 전부 실패).
 - `92a355ce` — PR-D4 step 1: fallback D mechanism 적용 (Reference HintPath × 13 + Themes Content Include + Directory.Packages.props PackageVersion 제거). §2 spike 표 D row 박제.
 - `8b5a8a97` — PR-D4 step 2~5: Promaker 본체 wire-up (MainWindow DockingManager → DockHost / 5 anchor + 2 document Register / AvalonDock 6 partial 파일 제거 / SimulationPanel Log tab 통합 / ContentId 박제 정합). 검열 Critical 0 / Major 4 (M1+M2 본 commit 처리, M3 정보, M4 PR-D5 위임) / Minor 5. 빌드 0/0 + transitive DevExpress 0건 + bin 11종 deploy 검증 PASS.
+- `a7666390` — todo §3 PR-D4 헤더 완료 + §9 갱신 (PR-D4 SHA 박제 + PR-D5 시작점).
+- `a13bf9d2` — PR-D5: SSOT (IsLlmChatVisible) + 보기 메뉴 + HasProject 재wiring + M1 박제 (Loaded hook 지연). DockAnchors.cs (VM partial 4 ObservableProperty) 신설. LlmChat.cs 변경 0 (baseline 박제 §5 보존). 검열 Critical 0 / Major 0 / Minor 4 (모두 정보 또는 PR-D6 위임).
 - working tree clean (본 §9 갱신 commit 직전).
 - AvalonDock 6 fix 작업물은 dock2 stash@{0} 보존 (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan").
 
-### 다음 작업 — PR-D5 (§3 PR-D5 참조)
+### 다음 작업 — PR-D6 (§3 PR-D6 참조)
 
-SSOT (IsLlmChatVisible) 재구성 + 보기 메뉴 IDockManager 재wiring + HasProject 토글 Welcome↔Canvas 전환. 작업 흐름:
+Layout 영속화 — DX `SaveLayoutToXml` / `RestoreLayoutFromXml` 활용. 작업 흐름:
+
+1. **DockHost.xaml.cs 에 Save / Restore API 추가**:
+   - `IDockManager` 에 `SaveLayout(string filepath)` / `RestoreLayout(string filepath)` 시그니처 추가 (또는 DockHost UserControl 자체 public method 로 분리 — 외부 노출 surface 최소화). PR 진입 시 결정.
+   - 구현: `_dockLayout.SaveLayoutToXml(filepath)` / `_dockLayout.RestoreLayoutFromXml(filepath)` wrapping.
+   - Restore 시 파일 없음 / parse 실패 시 default 유지 (try/catch 또는 File.Exists 가드).
+
+2. **MainWindow `Window_Closing` Save / `Window_Loaded` Restore**:
+   - `%LOCALAPPDATA%\Promaker\dock-layout.xml` 경로 (`Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)`).
+   - Closing: `_llmChatDisposed=true` 직후.
+   - Loaded: Restore 후 DockHost 의 `ItemIsVisibleChanged` hook (PR-D5 Loaded one-shot) 보다 *이전* 또는 *이후* 중 안전한 시점 결정. Restore 가 4 anchor visibility 변경 시 raise 발화 시점 박제 필요.
+
+3. **Restore 후 VM 4 anchor visibility property 강제 sync** (PR-D5 검열 Minor 1 박제):
+   - layout restore 가 `Closed` 초기값을 xml 에서 복원할 때 VM 의 4 property (`IsExplorerVisible` 등) 초기값 (`= true`) 과 sync 가 깨질 수 있음.
+   - Restore 직후 1회 `IsAnchorVisible("explorer") → _vm.IsExplorerVisible = ...` 4건 강제 sync (`_suppressAnchorSync=true` guard). `IDockManager.IsAnchorVisible` API 본 step 에서 처음 활용 (PR-D5 검열 Minor 1 의 "활용 안 됨" 우려 해소).
+
+4. **빌드 + 자가 검열** — `dotnet build` 0 오류 + 검열 agent 위임 의무. 통과 시 commit (`[dock2] Dock layout: PR-D6 — Layout 영속화 (Save/Restore XML)`).
+
+#### PR-D6 spike 결과 처리 룰
+
+DX `SaveLayoutToXml` / `RestoreLayoutFromXml` 의 동작 (callback 매개변수, xml 형식, 미존재 panel 처리, Restore 시 `ItemIsVisibleChanged` raise 시점) 가 본 step 의 가정과 다를 시 PR-D3/D4/D5 spike 룰과 동일 — (a) 차이 박제 후 자동 진행 / (b) 기능 자체 부재 만 차단.
+
+### (이력) 이전 PR-D5 작업 흐름
 
 1. **PR-D3 검열 M1 박제 — 초기 raise spike (선결)**:
    - `Apps/Promaker/Promaker.Dock/DockHost.xaml.cs` 의 ctor `_dockLayout.ItemIsVisibleChanged += OnItemIsVisibleChanged` 시점에 layout 초기 평가로 인한 false-IsVisible raise 가 외부 (SSOT) 로 누설되는지 1회 spike. 누설 시 hook 시점을 `Loaded` event 또는 `RegisterAnchor` 첫 호출 직후로 지연 + 박제.
@@ -400,10 +424,10 @@ SSOT (IsLlmChatVisible) 재구성 + 보기 메뉴 IDockManager 재wiring + HasPr
 
 ### 새 세션 시작 시 첫 행동
 1. 본 문서 `Apps/Promaker/Docs/todo-dock-devexpress.md` 전체 read.
-2. 현재 commit 상태 확인 — `git log --oneline -12` 로 PR-D1 ~ PR-D4 commit + 본 §9 갱신 commit 확인.
+2. 현재 commit 상태 확인 — `git log --oneline -15` 로 PR-D1 ~ PR-D5 commit + 본 §9 갱신 commit 확인.
 3. dock2 worktree (`/f/Git/ds2/dock2`) 안에서 작업.
-4. PR-D5 의 §3 항목 (5+M1+HasProject 박제) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~5 순서.
-5. PR-D5 commit 후 본 §9 갱신 (PR-D5 completion 박제 + PR-D6 시작점 명시).
+4. PR-D6 의 §3 항목 (Save/Restore + LOCALAPPDATA + Restore 후 강제 sync) 진행 → 본 §9 의 "다음 작업" 흐름 따라 step 1~4 순서.
+5. PR-D6 commit 후 본 §9 갱신 (PR-D6 completion 박제 + PR-D7 시작점 명시).
 
 ### DX API spike 결과 박제 — PR-D3 완료
 PR-D3 진행 중 24.1.7 의 정확한 API 가 PR-D2 의 가정과 다른 부분 (Closed DP / ItemIsVisibleChanged event / ItemWidth=GridLength / DockController.Float 등) 모두 본 §9 "PR-D3 spike API 박제" 절에 박제 완료. PR-D4 이후 동일 spike 반복 금지 — 본 박제 절을 ground truth 로 사용.
