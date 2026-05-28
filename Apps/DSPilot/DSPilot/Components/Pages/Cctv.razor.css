@@ -1,8 +1,13 @@
+/* 페이지 자체가 뷰포트 가용 영역(앱바 64 + container 패딩 24 = 88 차감)을 꽉 채워
+   그리드가 잘리거나 스크롤되지 않도록 강제. box-sizing: border-box 로 자체 패딩은 내부에서 흡수. */
 .cctv-page {
-    padding: 16px;
+    box-sizing: border-box;
+    height: calc(100vh - 88px);
+    padding: 8px 8px 0 8px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
+    overflow: hidden;
 }
 
 .cctv-header {
@@ -47,21 +52,43 @@
     color: var(--color-text-secondary);
 }
 
-.cctv-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
+.cctv-overflow-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--color-surface-variant, rgba(0, 0, 0, 0.04));
+    border-left: 3px solid var(--color-primary);
+    font-size: 12px;
+    color: var(--color-text-secondary);
 }
+
+/* 가변 그리드 — 동시 시청 최대 6대.
+   대수별 행·열을 명시해 그리드가 페이지 가용 영역을 항상 균등 분할(1fr × 1fr) 하도록.
+   타일은 셀 크기를 따르고, 영상은 object-fit:contain 으로 레터박스 처리. */
+.cctv-grid {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.cctv-grid.count-1 { grid-template-columns: 1fr;             grid-template-rows: 1fr; }
+.cctv-grid.count-2 { grid-template-columns: 1fr 1fr;         grid-template-rows: 1fr; }
+.cctv-grid.count-3,
+.cctv-grid.count-4 { grid-template-columns: 1fr 1fr;         grid-template-rows: 1fr 1fr; }
+.cctv-grid.count-5,
+.cctv-grid.count-6 { grid-template-columns: 1fr 1fr 1fr;     grid-template-rows: 1fr 1fr; }
 
 .cctv-tile {
     position: relative;
-    aspect-ratio: 16 / 9;
     background: #000;
-    border-radius: var(--radius-md);
     overflow: hidden;
     cursor: pointer;
-    box-shadow: var(--shadow-card);
-    border: 1px solid var(--color-lines, #2a2a2a);
+    min-height: 0;
+    min-width: 0;
 }
 
 .cctv-tile video {
