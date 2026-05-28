@@ -79,10 +79,26 @@ module CollectionEndpoints =
                 StagingSweep.removeStaging storageRoot stagingId |> ignore
                 do! writeJson ctx 415 {| error = "indexerVersion too high"; clientVersion = v; hostingRange = {| min = range.Min; max = range.Max |}; suggestedAction = "service 업그레이드 또는 client Ds2.LightHouse lib 다운그레이드 후 재색인 / 재업로드" |}
                 return false
-            | IndexerVersionGateResult.Missing reason ->
-                Log.audit.Warn(sprintf "indexerVersion gate missing%s — id=%s reason=%s" labelSuffix identifier reason)
+            | IndexerVersionGateResult.KeyMissing ->
+                Log.audit.Warn(sprintf "indexerVersion gate key-missing%s — id=%s" labelSuffix identifier)
                 StagingSweep.removeStaging storageRoot stagingId |> ignore
-                do! writeError ctx 400 (sprintf "indexerVersion 미존재 — %s" reason)
+                do! writeJson ctx 400 {| error = "indexerVersion key missing"
+                                         reason = "zip 안 index.db 에 Meta.indexer_version 키 미박제 (이전 build 산출 가능성)"
+                                         suggestedAction = "client 측 caption 보존 자동 path 활용: lighthouse-cli export-image-cache → wipe .lighthouse-kb/ → 재색인 (--skip-upload) → import-image-cache → upload (--reuse-kb)" |}
+                return false
+            | IndexerVersionGateResult.DbMissing ->
+                Log.audit.Warn(sprintf "indexerVersion gate db-missing%s — id=%s" labelSuffix identifier)
+                StagingSweep.removeStaging storageRoot stagingId |> ignore
+                do! writeJson ctx 400 {| error = "indexerVersion db missing"
+                                         reason = "zip 안 .lighthouse-kb/index.db 부재 (zip 결함 또는 client 색인 미수행)"
+                                         suggestedAction = "client 측 'lighthouse-cli index <folder> --skip-upload' 으로 Step 1-a 색인 수행 후 재upload" |}
+                return false
+            | IndexerVersionGateResult.OpenFailed reason ->
+                Log.audit.Warn(sprintf "indexerVersion gate open-failed%s — id=%s reason=%s" labelSuffix identifier reason)
+                StagingSweep.removeStaging storageRoot stagingId |> ignore
+                do! writeJson ctx 400 {| error = "indexerVersion db open failed"
+                                         reason = sprintf "zip 안 index.db open 실패 — %s. schema 또는 sqlite-vec extension drift 가능" reason
+                                         suggestedAction = "client 측 .lighthouse-kb/ wipe 후 재색인 — open 실패라 caption 보존은 불가, 신규 caption 비용 발생" |}
                 return false
         }
 
@@ -133,8 +149,9 @@ module CollectionEndpoints =
                     MetaJsonIO.save stagingPath serverMeta
 
                     // IndexerVersion gate (§3.12) — SSOT = `processStagingExtractGate` (s6-r43).
-                    let clientVer = ZipImport.probeIndexerVersion stagingPath
-                    let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
+                    // **2026-05-28 fix** — probe 시그니처 변경 (option → IndexerVersionProbe DU). cause 분리.
+                    let probe = Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed stagingPath
+                    let gate = ZipImport.evaluateIndexerVersionGate probe cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
                     let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate collectionId ""
                     if compatible then
                         // atomic move → Collections\<guid>-<sanitized>\
@@ -253,8 +270,8 @@ module CollectionEndpoints =
                             MetaJsonIO.stampServerFields id user storageRelPath { clientMeta with Title = title }
                         MetaJsonIO.save stagingPath serverMeta
 
-                        let clientVer = ZipImport.probeIndexerVersion stagingPath
-                        let gate = ZipImport.evaluateIndexerVersionGate clientVer cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
+                        let probe = Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed stagingPath
+                        let gate = ZipImport.evaluateIndexerVersionGate probe cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
                         // s6-r43: postCollections 와 동일 SSOT (`processStagingExtractGate`) — swap label 박제.
                         let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate id " (swap)"
                         if compatible then

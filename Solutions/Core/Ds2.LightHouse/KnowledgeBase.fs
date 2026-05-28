@@ -4,6 +4,20 @@ open System
 open System.IO
 open Microsoft.Data.Sqlite
 
+/// `probeIndexerVersionDetailed` 의 분기 결과 — server-side `IndexerVersionGateResult.Missing` 의 cause 분리
+/// (이전 build "키 미존재" 단일 메시지 압축의 풀이 — done-lighthouse-kb-index.md §3.12 정합).
+///
+/// caller 분기 의무:
+///   - `Found v` → range 비교 (`ZipImport.evaluateIndexerVersionGate`).
+///   - `KeyMissing` → 이전 build 산출 가능성 — `.lighthouse-kb/` wipe + 재색인 추천 (caption export → import path).
+///   - `DbMissing` → 색인 미수행 — Step 1-a 진입 안내.
+///   - `OpenFailed` → schema/extension drift (sqlite-vec native 결함 등) — wipe + 재색인 외 우회 없음.
+type IndexerVersionProbe =
+    | Found of version: string
+    | KeyMissing
+    | DbMissing
+    | OpenFailed of reason: string
+
 /// KnowledgeBase facade — `Ds2.LightHouse` 의 외부 진입점 (done-lighthouse-kb-index.md §3.18.1).
 ///
 /// 형식: F# **record-of-functions** (idiomatic, mock 친화, DI 컨테이너 무관 — `openCollections` 가 instance 반환).
@@ -85,8 +99,40 @@ module KnowledgeBase =
     ///
     /// review IM-6 통합 — Ds2.LightHouseService.ZipImport.probeIndexerVersion 가 SqliteStore.openConnection +
     /// getMeta + ClearPool 직접 호출하던 우회 흡수. caller 측 Microsoft.Data.Sqlite PackageReference 제거 가능.
+    ///
+    /// **참고**: 본 함수는 None 의 원인 (DB 미존재 / open 실패 / 키 부재) 을 구분 못 함 — 진단 메시지 디테일이 필요한
+    /// 신규 caller 는 `probeIndexerVersionDetailed` 사용.
     let probeIndexerVersion (collectionRoot: string) : string option =
         withReadOnlyConn collectionRoot (fun conn -> SqliteStore.getMeta conn "indexer_version")
+
+    /// `probeIndexerVersion` 의 디테일 분기 버전 — 진단 메시지가 필요한 caller 의 SSOT.
+    ///
+    /// `IndexerVersionProbe`:
+    ///   - `Found v` = 키 박제 + 값 v.
+    ///   - `KeyMissing` = DB open 정상 + `Meta.indexer_version` 키 부재 (구 build 산출 가능성).
+    ///   - `DbMissing` = `<collectionRoot>/.lighthouse-kb/index.db` 파일 자체 미존재.
+    ///   - `OpenFailed reason` = open 시 SqliteException 등 — schema/extension drift, file lock, 권한 부족 등.
+    ///
+    /// caller (server `ZipImport.evaluateIndexerVersionGate` / CLI `runProbeIndexerVersion` /
+    /// `runUpload --reuse-kb` 자가 probe) 가 원인별 분기 의무. 종전 `probeIndexerVersion` 의 `option<string>`
+    /// 반환은 caller 에서 "키 부재" 와 "open 실패" 를 같은 None 으로 압축 — 본 함수는 그 압축 해소.
+    let probeIndexerVersionDetailed (collectionRoot: string) : IndexerVersionProbe =
+        if not (isIndexed collectionRoot) then IndexerVersionProbe.DbMissing
+        else
+            let dbPath = SqliteStore.dbPath collectionRoot
+            try
+                let conn = SqliteStore.openConnection dbPath true
+                try
+                    match SqliteStore.getMeta conn "indexer_version" with
+                    | None -> IndexerVersionProbe.KeyMissing
+                    | Some v -> IndexerVersionProbe.Found v
+                finally
+                    conn.Close()
+                    conn.Dispose()
+            with ex ->
+                Log.lighthouse.Warn(sprintf "probeIndexerVersionDetailed: %s 열기 실패 — %s: %s"
+                    dbPath (ex.GetType().Name) ex.Message)
+                IndexerVersionProbe.OpenFailed (sprintf "%s: %s" (ex.GetType().Name) ex.Message)
 
     /// `Meta.indexer_version` 행을 override (write). `probeIndexerVersion` 의 대칭.
     ///

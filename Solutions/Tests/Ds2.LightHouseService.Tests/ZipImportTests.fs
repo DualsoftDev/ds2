@@ -5,6 +5,7 @@ open System.IO
 open System.IO.Compression
 open System.Text
 open Xunit
+open Ds2.LightHouse
 open Ds2.LightHouseService
 
 let private withTempDir (action: string -> 'r) : 'r =
@@ -195,26 +196,35 @@ let ``zip bomb — ratio 한도 초과 거부`` () = withTempDir (fun root ->
     | other -> Assert.Fail(sprintf "ZipBombExceeded 기대, 실제 = %A" other))
 
 [<Fact>]
-let ``evaluateIndexerVersionGate — Compatible / TooLow / TooHigh / Missing`` () =
+let ``evaluateIndexerVersionGate — Compatible / TooLow / TooHigh / KeyMissing / DbMissing / OpenFailed`` () =
     let gate = ZipImport.evaluateIndexerVersionGate
-    // None 입력 → Missing
-    match gate None "1.0.0" "1.99.99" with
-    | IndexerVersionGateResult.Missing _ -> ()
-    | other -> Assert.Fail(sprintf "Missing 기대, %A" other)
-    // 빈 값 → Missing
-    match gate (Some "  ") "1.0.0" "1.99.99" with
-    | IndexerVersionGateResult.Missing _ -> ()
-    | other -> Assert.Fail(sprintf "Missing 기대 (빈 값), %A" other)
+    // KeyMissing 입력 → KeyMissing
+    match gate IndexerVersionProbe.KeyMissing "1.0.0" "1.99.99" with
+    | IndexerVersionGateResult.KeyMissing -> ()
+    | other -> Assert.Fail(sprintf "KeyMissing 기대, %A" other)
+    // Found "  " (white-space) → KeyMissing (백워드 호환 — 종전 Missing "indexer_version 빈 값")
+    match gate (IndexerVersionProbe.Found "  ") "1.0.0" "1.99.99" with
+    | IndexerVersionGateResult.KeyMissing -> ()
+    | other -> Assert.Fail(sprintf "KeyMissing 기대 (빈 값), %A" other)
+    // DbMissing
+    match gate IndexerVersionProbe.DbMissing "1.0.0" "1.99.99" with
+    | IndexerVersionGateResult.DbMissing -> ()
+    | other -> Assert.Fail(sprintf "DbMissing 기대, %A" other)
+    // OpenFailed — reason 전파 확인
+    match gate (IndexerVersionProbe.OpenFailed "SqliteException: missing extension") "1.0.0" "1.99.99" with
+    | IndexerVersionGateResult.OpenFailed reason ->
+        Assert.Contains("SqliteException", reason)
+    | other -> Assert.Fail(sprintf "OpenFailed 기대, %A" other)
     // Compatible
-    Assert.Equal(IndexerVersionGateResult.Compatible, gate (Some "1.0.0") "1.0.0" "1.99.99")
-    Assert.Equal(IndexerVersionGateResult.Compatible, gate (Some "1.5.0") "1.0.0" "1.99.99")
-    Assert.Equal(IndexerVersionGateResult.Compatible, gate (Some "1.99.99") "1.0.0" "1.99.99")
+    Assert.Equal(IndexerVersionGateResult.Compatible, gate (IndexerVersionProbe.Found "1.0.0") "1.0.0" "1.99.99")
+    Assert.Equal(IndexerVersionGateResult.Compatible, gate (IndexerVersionProbe.Found "1.5.0") "1.0.0" "1.99.99")
+    Assert.Equal(IndexerVersionGateResult.Compatible, gate (IndexerVersionProbe.Found "1.99.99") "1.0.0" "1.99.99")
     // TooLow
-    match gate (Some "0.9.99") "1.0.0" "1.99.99" with
+    match gate (IndexerVersionProbe.Found "0.9.99") "1.0.0" "1.99.99" with
     | IndexerVersionGateResult.TooLow ("0.9.99", "1.0.0") -> ()
     | other -> Assert.Fail(sprintf "TooLow 기대, %A" other)
     // TooHigh
-    match gate (Some "2.0.0") "1.0.0" "1.99.99" with
+    match gate (IndexerVersionProbe.Found "2.0.0") "1.0.0" "1.99.99" with
     | IndexerVersionGateResult.TooHigh ("2.0.0", "1.99.99") -> ()
     | other -> Assert.Fail(sprintf "TooHigh 기대, %A" other)
 

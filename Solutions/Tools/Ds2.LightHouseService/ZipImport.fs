@@ -13,12 +13,23 @@ open System.Text.RegularExpressions
 /// - IndexerVersion gate: 전개된 `.lighthouse-kb/index.db` 의 `Meta.indexer_version` 호환성 검증
 /// - atomic move: Staging\ → Collections\<guid>-<sanitized-title>\
 
+/// IndexerVersion gate (§3.12) 의 분기 결과 — `Missing` 단일 case 의 cause 압축을 풀이 (2026-05-28 fix).
+///
+/// 종전 `Missing of reason` 은 (a) zip 안 `.lighthouse-kb/index.db` 부재 (b) DB open 시 SqliteException
+/// (schema / sqlite-vec extension drift / file lock) (c) `Meta.indexer_version` 키 부재 — 세 원인을
+/// 같은 응답 메시지로 압축. 운영자 / 사용자 진단 불가 → 본 분리로 분기.
+///
+/// - `KeyMissing` = DB open 정상 + 키 부재 (이전 build 산출 가능성). client 측 caption 보존 후 재색인 권유.
+/// - `DbMissing` = `.lighthouse-kb/index.db` 자체 미존재 (zip 결함). client 색인 미수행.
+/// - `OpenFailed` = open 시 SqliteException 등 — schema / extension drift. wipe + 재색인 필요.
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type IndexerVersionGateResult =
     | Compatible
     | TooLow of clientVersion: string * hostMin: string
     | TooHigh of clientVersion: string * hostMax: string
-    | Missing of reason: string
+    | KeyMissing
+    | DbMissing
+    | OpenFailed of reason: string
 
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type SanitizeError =
@@ -191,6 +202,9 @@ module ZipImport =
     ///
     /// review IM-6 (2/7 reviewer): SqliteStore 직접 호출 우회 제거 → Ds2.LightHouse.KnowledgeBase.probeIndexerVersion delegation.
     /// service 의 Microsoft.Data.Sqlite PackageReference 제거 가능 (lib 의 PrivateAssets=all 정합).
+    ///
+    /// **참고**: legacy caller 호환 alias — 진단 메시지 분리 (KeyMissing / OpenFailed / DbMissing) 가 필요한
+    /// 신규 caller 는 `Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed` 직접 호출.
     let probeIndexerVersion (collectionDir: string) : string option =
         Ds2.LightHouse.KnowledgeBase.probeIndexerVersion collectionDir
 
@@ -219,15 +233,21 @@ module ZipImport =
         result
 
     /// IndexerVersion gate — host 의 `indexerVersionRange` 와 비교. §3.12 SSOT.
+    ///
+    /// **2026-05-28 fix** — input 시그니처 변경 (`string option` → `IndexerVersionProbe`). 종전 None 의 cause
+    /// (open 실패 / 키 부재 / DB 부재) 가 압축되어 운영자가 진단 불가했던 결함 해소.
+    /// `Found "  "` (white-space-only) 도 `KeyMissing` 으로 흡수 — 종전 `Missing "indexer_version 빈 값"` 정합.
     let evaluateIndexerVersionGate
-        (clientVersion: string option)
+        (probe: Ds2.LightHouse.IndexerVersionProbe)
         (hostMin: string)
         (hostMax: string)
         : IndexerVersionGateResult =
-        match clientVersion with
-        | None -> IndexerVersionGateResult.Missing "index.db 의 Meta.indexer_version 키 미존재"
-        | Some v when String.IsNullOrWhiteSpace v -> IndexerVersionGateResult.Missing "indexer_version 빈 값"
-        | Some v ->
+        match probe with
+        | Ds2.LightHouse.IndexerVersionProbe.DbMissing -> IndexerVersionGateResult.DbMissing
+        | Ds2.LightHouse.IndexerVersionProbe.OpenFailed reason -> IndexerVersionGateResult.OpenFailed reason
+        | Ds2.LightHouse.IndexerVersionProbe.KeyMissing -> IndexerVersionGateResult.KeyMissing
+        | Ds2.LightHouse.IndexerVersionProbe.Found v when String.IsNullOrWhiteSpace v -> IndexerVersionGateResult.KeyMissing
+        | Ds2.LightHouse.IndexerVersionProbe.Found v ->
             if compareVersion v hostMin < 0 then IndexerVersionGateResult.TooLow(v, hostMin)
             elif compareVersion v hostMax > 0 then IndexerVersionGateResult.TooHigh(v, hostMax)
             else IndexerVersionGateResult.Compatible
