@@ -52,9 +52,9 @@
   <ItemGroup>
     <PackageVersion Include="Dirkster.AvalonDock" Version="4.74.1" />
     <PackageVersion Include="Dirkster.AvalonDock.Themes.Metro" Version="4.74.1" />
-    <!-- DevExpress.Wpf.Docking — Promaker.Dock 격리 csproj 전용. Local feed: %ProgramFiles%\DevExpress 24.1\Components\System\Components\Packages.
-         transitive System.Windows.Forms / System.Drawing 유입 — PrivateAssets="all" 로 Promaker 본체 격리 (todo-dock-devexpress.md §2). -->
-    <PackageVersion Include="DevExpress.Wpf.Docking" Version="24.1.7" />
+    <!-- DevExpress.Wpf.Docking — PR-D4 spike D mechanism 적용: PackageReference 제거.
+         Promaker.Dock.csproj 에서 직접 <Reference HintPath> 로 binary link (DX 설치 폴더 + NuGet cache).
+         NuGet graph 자체에서 격리 → Promaker 본체 transitive 0건 (todo-dock-devexpress.md §2 PR-D4 D1). -->
   </ItemGroup>
 
   <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->

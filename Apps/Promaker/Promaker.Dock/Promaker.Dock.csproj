@@ -7,7 +7,8 @@
     <!--
       ImplicitUsings disable — DevExpress.Wpf.Docking 의 transitive System.Windows.Forms / System.Drawing 가
       ImplicitUsings 의 global using 과 충돌해 138 곳 CS0104 (Point/Brush/Rectangle/UserControl/Button/...) 발생.
-      본 격리 csproj 안에서만 명시 using 으로 처리하고, 외부 (Promaker.csproj) 는 PrivateAssets="all" 로 차단.
+      본 격리 csproj 안에서만 명시 using 으로 처리하고, 외부 (Promaker.csproj) 는 Reference HintPath 방식으로
+      NuGet graph 자체에서 격리 (PR-D4 spike D mechanism).
     -->
     <ImplicitUsings>disable</ImplicitUsings>
     <RootNamespace>Promaker.Dock</RootNamespace>
@@ -15,8 +16,86 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    PR-D4 spike D mechanism — DevExpress 11종 + System.Drawing.Common + Microsoft.Win32.SystemEvents 를
+    PackageReference 가 아닌 직접 binary Reference (HintPath + Private=true) 로 link.
+    이유: NuGet PackageReference 사용 시 PrivateAssets="all" 이어도 Promaker 본체 transitive graph 에
+    DevExpress.* / System.Drawing.Common 11종이 노출됨 (mechanism A 계열 spike 전부 FAIL — todo §2 박제).
+    Reference HintPath 방식은 NuGet graph 와 완전 독립 → Promaker 본체 transitive 0건 확보.
+    Private="true" 로 Promaker.Dock build output 에 dll copy, ProjectReference 통해 본체 bin 으로 전파.
+
+    DLL 출처:
+      - DevExpress 10종 → DX 설치 폴더 (`C:\Program Files\DevExpress 24.1\Components\Bin\Framework\`).
+      - System.Drawing.Common 4.7.2 / Microsoft.Win32.SystemEvents 4.7.0 → DX 설치 폴더 미존재 →
+        NuGet global cache (`%USERPROFILE%\.nuget\packages\...\runtimes\win\lib\netcoreapp3.0\`).
+    잔여 우려: HintPath 절대 경로 = environment 의존. 다른 개발자 / CI 호환성은 후속 PR 에서
+    `$(DXInstallRoot)` MSBuild property 도입으로 해소 권고 (본 spike scope 외).
+  -->
   <ItemGroup>
-    <PackageReference Include="DevExpress.Wpf.Docking" />
+    <Reference Include="DevExpress.Data.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Data.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Data.Desktop.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Data.Desktop.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Drawing.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Drawing.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Mvvm.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Mvvm.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Pdf.v24.1.Core">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Pdf.v24.1.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Pdf.v24.1.Drawing">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Pdf.v24.1.Drawing.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Printing.v24.1.Core">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Printing.v24.1.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Xpf.Core.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Xpf.Core.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Xpf.Docking.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Xpf.Docking.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Xpf.Layout.v24.1.Core">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Xpf.Layout.v24.1.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="DevExpress.Xpf.Themes.Office2019Colorful.v24.1">
+      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Drawing.Common">
+      <HintPath>$(UserProfile)\.nuget\packages\system.drawing.common\4.7.2\runtimes\win\lib\netcoreapp3.0\System.Drawing.Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Win32.SystemEvents">
+      <HintPath>$(UserProfile)\.nuget\packages\microsoft.win32.systemevents\4.7.0\runtimes\win\lib\netcoreapp3.0\Microsoft.Win32.SystemEvents.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    Themes.Office2019Colorful 보강 — Reference Private=true 만으로는 본체 ProjectReference carry-over 가
+    deps.json runtime asset trim 에 걸려 누락 (compile graph 미연결 → Theme XAML 동적 load 만). Content + Link +
+    PreserveNewest 로 본체 bin 까지 carry. baseline 비교 결과 본체 bin 의 Themes.Office2019Colorful 부재 보완.
+  -->
+  <ItemGroup>
+    <Content Include="C:\Program Files\DevExpress 24.1\Components\Bin\Framework\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll">
+      <Link>DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
