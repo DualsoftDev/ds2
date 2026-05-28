@@ -130,6 +130,10 @@ public partial class App : Application
 
         ThemeManager.ApplySavedTheme();
 
+        // PR-D7.3 — DX skin 정합. Promaker.Dock 의 격리 helper 1줄 호출 (DX type 외부 노출 0건 유지, §7 #4).
+        // 사용자 1회 시각 검수 (Promaker dark theme 과 DX Office2019Colorful skin 색차) 통과 시 종료.
+        Promaker.Dock.DockHost.InitializeTheme();
+
         // GUI Log tab 의 AppLogState (singleton + ICollectionView) 를 UI thread 에서 강제 prefetch.
         // worker thread 의 첫 log 호출이 lazy 생성을 trigger 하면 CollectionView 가 worker SynchronizationContext
         // 에 묶여 이후 binding 시 NotSupportedException. fatal handler 등록 이후 시점이므로 ctor 예외 시 진단 가능.
