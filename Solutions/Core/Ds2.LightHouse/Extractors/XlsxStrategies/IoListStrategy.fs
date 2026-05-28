@@ -8,12 +8,16 @@ open Ds2.LightHouse
 open Ds2.LightHouse.Diagnostics
 
 /// **PR-I1 (todo-documents-based-gfm.md §2 + documents-based-gfm.md §1.1/§4/§8.5/§8.5.5/§8.5.7)** —
-/// ***REDACTED***2 SIDE OUTER SV IO LIST 의 4-block 가로 layout 을 long-form CSV markdown 으로 reshape.
+/// ***REDACTED***2 SIDE OUTER SV IO LIST 의 4~5 block 가로 layout 을 long-form CSV markdown 으로 reshape.
 ///
-/// **입력 가정** (`documents-based-gfm.md` §1.1):
+/// **입력 가정** (`documents-based-gfm.md` §1.1 + Phase 0 진단 SSOT — `todo-lighthouse-iolist-v2.md` §1.1):
 ///   - xlsx, 43 시트 규모 (실측), 각 시트 R1=헤더, R2=meta, R3=표헤더, R4=zone meta,
 ///     R5=컬럼헤더, R6+=데이터.
-///   - 데이터 영역은 5 컬럼 묶음 × 4~5 block (가로 반복). 컬럼 의미 = Word/TagName/DataType/Address/Symbol.
+///   - 데이터 영역 layout: `[leading 빈 col] + (Word/Tag/DataType/Address/Symbol) × N block + [trailing 빈 col]`.
+///     - 22-col 시트 (23개): N=4 → 1 + 5×4 + 1 = 22
+///     - 27-col 시트 (14개): N=5 → 1 + 5×5 + 1 = 27
+///   - reshape 시작 offset = 1 (cells.[0] = leading 빈 col 의 시트 prefix 자리, skip).
+///   - block 시작 col (1-based) = 2, 7, 12, 17, 22 → cells index = 1, 6, 11, 16, 21.
 ///   - `%IW` / `%QW` address 다수 (LS XGT PLC IO address 표기).
 ///
 /// **출력** (`documents-based-gfm.md` §8.5.5 강제 머리말 6행 (canary 1행 + 기존 5행, 2026-05-27 patch) + footer 2행):
@@ -78,7 +82,8 @@ type IoListStrategy() =
             firstLine.Contains("I/O LIST", StringComparison.OrdinalIgnoreCase)
             || firstLine.Contains("IO LIST", StringComparison.OrdinalIgnoreCase))
 
-    /// 4-block 가로 layout 검출 — 데이터 행의 컬럼 수가 20+ (5 컬럼 × 4 block).
+    /// 4~5 block 가로 layout 검출 — 데이터 행의 컬럼 수가 22+ (1 leading + 5×4 + 1 trailing = 22, 또는 27).
+    /// Phase 0 진단 SSOT (todo-lighthouse-iolist-v2.md §1.1): 22-col / 27-col 변형 모두 본 layout.
     /// segments 중 dense data sheet 가 적어도 1개 이상 본 layout.
     static let hasFourBlockLayout (segments: ExtractedSegment array) : bool =
         segments
@@ -91,7 +96,7 @@ type IoListStrategy() =
                 dataLines
                 |> Array.exists (fun line ->
                     let cols = line.Split('\t')
-                    cols.Length >= 20))
+                    cols.Length >= 22))
 
     /// BOOL DataType 다수 매치 — `\bBOOL\b` 빈도가 다른 type 합산보다 다수.
     static let hasMostlyBoolDataType (segments: ExtractedSegment array) : bool =
@@ -115,12 +120,15 @@ type IoListStrategy() =
         else "-"
 
     /// 단일 데이터 row 의 컬럼들로부터 4~5 block 을 long-form row 들로 reshape.
+    /// **Phase 1 fix (todo-lighthouse-iolist-v2.md §1.2)**: 실 layout 은 leading 빈 col 1개 +
+    /// 5-col block × N + trailing col 1개. cells.[0] 은 leading 빈 col → skip (i 시작 = 1).
     /// 각 block = 5 columns (Word / Tag / DataType / Address / Symbol).
     /// trailing 빈 block 은 skip.
     static let reshapeRowToBlocks (cells: string array) : (string * string * string * string * string) array =
         let blocks = ResizeArray<_>()
         let blockSize = 5
-        let mutable i = 0
+        // leading 빈 col (cells.[0]) 은 시트 prefix 자리 — skip. i = 1 부터 5-col block 추출.
+        let mutable i = 1
         while i + blockSize <= cells.Length do
             let word = cells.[i]
             let tag = cells.[i + 1]
