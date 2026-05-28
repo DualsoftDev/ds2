@@ -509,6 +509,9 @@
                             <TextBlock Text="동의 철회 시 LLM Chat 진입이 차단됩니다. 다음 진입 시 동의 다이얼로그가 다시 표시됩니다."
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,4,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                            <!-- HKMC H-Chat panel (Phase 4) — ENABLE_HKMC 환경변수 on 일 때만 visible. -->
+                            <ContentPresenter x:Name="HkmcSection" Visibility="Collapsed"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

@@ -171,7 +171,19 @@ public partial class ApplicationSettingsDialog : Window
         // 기본 값 — Motor 샘플 (프리셋 입력 형식 안내용). 실제 systemTypePreset.json 의
         // 디폴트 항목은 CallCreateDialog 가 없을 때 자동 생성하는 5종 (Unit/Cylinder_#/Robot*/Part).
         PresetTextBox.Text = "FWD;BWD";
+
+        // HKMC (Phase 4) — ENABLE_HKMC 환경변수 on 일 때만 HkmcHChatSettingsPanel 부착 + visible.
+        // HkmcFeature.IsEnabled 가 SSOT — 다른 분기 평가 금지.
+        if (Promaker.HkmcFeature.IsEnabled)
+        {
+            _hkmcPanel = new HkmcHChatSettingsPanel(_llmConfig);
+            HkmcSection.Content = _hkmcPanel;
+            HkmcSection.Visibility = Visibility.Visible;
+        }
     }
+
+    /// <summary>HKMC (Phase 4) — Ok_Click 의 SaveLlmTab 직후 Save() 호출용 reference. ENABLE_HKMC off 시 null.</summary>
+    private HkmcHChatSettingsPanel? _hkmcPanel;
 
     // ── FBTagMap 디바이스 타입 설정은 제거됨 ────────────────────────────────
     //    IoList = 단일 진실원 (B안). FB 포트 바인딩은 IO Wizard 에서 편집합니다.
@@ -1129,6 +1141,19 @@ public partial class ApplicationSettingsDialog : Window
 
         // LLM 탭 저장 (PR-B). LlmConfigChanged=true 면 호출자가 LlmChatVm.ReloadConfig() 호출.
         SaveLlmTab();
+
+        // HKMC (Phase 4) — panel mutate 후 LlmConfigChanged 박제. _hkmcPanel.Save() 가 _llmConfig 만 mutate,
+        // disk Save 는 SaveLlmTab 안에서 일괄 처리되어야 하나 SaveLlmTab 의 dirty 체크가 HkmcHChat 변경을 인지 못하므로
+        // 본 분기에서 _llmConfig.Save() 직접 호출 + LlmConfigChanged 갱신.
+        if (_hkmcPanel is not null)
+        {
+            _hkmcPanel.Save();
+            if (_hkmcPanel.Dirty)
+            {
+                _llmConfig.Save();
+                LlmConfigChanged = true;
+            }
+        }
 
         DialogResult = true;
     }
