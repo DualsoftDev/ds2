@@ -34,7 +34,15 @@
     }
     else
     {
-        <div class="cctv-grid">
+        @if (_hiddenCount > 0)
+        {
+            <div class="cctv-overflow-note">
+                <span class="material-icons" style="font-size:16px;">info</span>
+                FHD 디테일 모니터링을 위해 동시 표시는 최대 6대로 제한합니다.
+                현재 표시 6대 / 등록 @(_cameras.Count + _hiddenCount)대 (나머지 @(_hiddenCount)대는 다음 버전에서 페이지네이션 지원 예정).
+            </div>
+        }
+        <div class="cctv-grid count-@_cameras.Count">
             @foreach (var cam in _cameras)
             {
                 var sid = MediaMtxId(cam.Name);
@@ -62,14 +70,18 @@
                         <span class="material-icons">close</span>
                     </button>
                 </div>
-                <video id="@($"cctv-modal-{MediaMtxId(_expanded.Name)}")" muted autoplay playsinline controls></video>
+                <video id="@($"cctv-modal-{MediaMtxId(_expanded.Name)}")" muted autoplay playsinline></video>
             </div>
         </div>
     }
 </div>
 
 @code {
+    /// <summary>FHD 모니터에서 디테일 식별 가능한 최소 분할 = 6대(3×2). 그 이상은 다음 버전에서 페이지네이션.</summary>
+    private const int MaxConcurrentCameras = 6;
+
     private List<CctvCamera> _cameras = new();
+    private int _hiddenCount;
     private int _webRtcPort = 8889;
     private CctvCamera? _expanded;
 
@@ -82,9 +94,11 @@
     {
         var cctv = SettingsService.LoadSettings().Cctv;
         _webRtcPort = cctv.WebRtcPort;
-        _cameras = cctv.Cameras
+        var enabled = cctv.Cameras
             .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Name) && !string.IsNullOrWhiteSpace(c.RtspUrl))
             .ToList();
+        _cameras = enabled.Take(MaxConcurrentCameras).ToList();
+        _hiddenCount = Math.Max(0, enabled.Count - _cameras.Count);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
