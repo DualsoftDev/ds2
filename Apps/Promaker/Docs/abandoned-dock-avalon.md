@@ -1,5 +1,14 @@
 # TODO — Promaker Dock Layout 도입 (AvalonDock 4.x 기반)
 
+> ## ⛔ 폐기됨 — AvalonDock → DevExpress 전환
+>
+> **본 문서의 AvalonDock 4.x 기반 접근은 폐기되었다.** AvalonDock(`Dirkster.AvalonDock`) 이 미성숙하여
+> floating window WindowChrome frozen 예외, resize grip 미적용, title bar 침범, Document/Anchorable
+> pane 흰선·회색 띠 등 갖은 오류가 반복 발생했고(아래 v13~v15 회귀 이력 참조), 끝내 안정화하지 못했다.
+> 이에 **DevExpress `DockLayoutManager` (DevExpress.Wpf.Docking) 로 전환**하여 최종 구현했다.
+> 현행 구현은 `Promaker.Dock` 프로젝트(`DockHost.xaml` / `DockHost.xaml.cs`)이며, 본 문서는
+> AvalonDock 시도의 기록 보존용으로만 남긴다 — 더 이상 유효한 작업 계획이 아니다.
+
 > Canvas 를 제외한 모든 창(Explorer, Properties, History, Simulation/Gantt, LLM Chat)에 Attach/Detach + 마그넷 dock 지원.
 > **AvalonDock 4.74.x** (`Dirkster.AvalonDock`, Ms-PL) 기반.
 >

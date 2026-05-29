@@ -7,7 +7,7 @@
 
 ### AvalonDock 4.74.1 누적 문제 (작업 폐기 사유)
 
-`done-dock-avalon.md` 의 작업 결과로 v15 (hotfix 6건 누적, dock2 worktree stash) 까지 진행했으나 다음 문제 잔여:
+`abandoned-dock-avalon.md` 의 작업 결과로 v15 (hotfix 6건 누적, dock2 worktree stash) 까지 진행했으나 다음 문제 잔여:
 
 | # | 증상 | 원인 (trace 진단) |
 |---|---|---|
@@ -200,8 +200,8 @@ PR-D4 step 1 진입 시 `<ProjectReference PrivateAssets="all">` 단독 mechanis
 - [x] DX type 외부 노출 0 검증 (자가 검열 agent 통과, 0 finding).
 
 ### PR-D3 — DevExpress DockLayoutManager 기본 layout 구축 — ✅ 완료 (commit `a1b51760`)
-- [x] DockHost.xaml 안에 DX `DockLayoutManager` + `LayoutGroup` 트리 — done-dock-avalon.md §3.1 의 안 A (Welcome/Open 통합 LayoutDocument) 그대로 이전.
-- [x] 5 anchor (explorer / simulation / property / history / llmchat) + canvas LayoutDocument. ※ orchestrator 체크박스 원문은 6 이름이었으나 done-dock-avalon §3.1 안 A 의 SSOT 가 5 anchor (log 는 simulation 통합) — §9 spike 박제 "Anchor 개수 정정" 참조.
+- [x] DockHost.xaml 안에 DX `DockLayoutManager` + `LayoutGroup` 트리 — abandoned-dock-avalon.md §3.1 의 안 A (Welcome/Open 통합 LayoutDocument) 그대로 이전.
+- [x] 5 anchor (explorer / simulation / property / history / llmchat) + canvas LayoutDocument. ※ orchestrator 체크박스 원문은 6 이름이었으나 abandoned-dock-avalon §3.1 안 A 의 SSOT 가 5 anchor (log 는 simulation 통합) — §9 spike 박제 "Anchor 개수 정정" 참조.
 - [x] DX 의 layout 트리에서 size 보존 / drag-drop / floating 동작이 native 로 처리됨을 검증 (코드 상 별도 보정 0건 — `BaseLayoutItem.ItemWidth/Height GridLength` + `Closed` DP + `DockController.Float` 가 DX native 처리. 실 동작 시각 검증은 PR-D4 본체 wire-up 후 첫 실행 시).
 
 #### PR-D3 spike 결과 처리 룰 (자동 진행 보장)
@@ -213,7 +213,7 @@ PR-D4 step 1 진입 시 `<ProjectReference PrivateAssets="all">` 단독 mechanis
 ### PR-D4 — Promaker 본체 wire-up — ✅ 완료 (mechanism step 1: commit `92a355ce` / wire-up: commit `8b5a8a97`)
 - [x] `MainWindow.xaml` 의 AvalonDock `DockingManager` 통째 제거 → `<promakerDock:DockHost x:Name="dockHost" />` embed.
 - [x] 5 anchor 의 Content (ExplorerPane / SimulationPanel + Log tab 통합 / PropertyPanel / HistoryPanel / LlmChat ContentControl) 를 `DockAnchor` 로 wrapping + `dockHost.RegisterAnchor(...)`. AppLogView 는 검열 M1 박제로 SimulationPanel TabControl 마지막 tab 으로 통합 (5 anchor SSOT 정합).
-- [x] Welcome / Canvas LayoutDocument 등록 (`RegisterDocument` 2건). 검열 M2 박제: ContentId `properties` (Title="Properties") / `canvas` (Title="Workspace") — done-dock-avalon §3.1 안 A SSOT 정합.
+- [x] Welcome / Canvas LayoutDocument 등록 (`RegisterDocument` 2건). 검열 M2 박제: ContentId `properties` (Title="Properties") / `canvas` (Title="Workspace") — abandoned-dock-avalon §3.1 안 A SSOT 정합.
 - [x] `MainWindow.xaml.cs` 의 AvalonDock 관련 wiring 6 partial 파일 제거 — DockExtents.cs / DockPlacement.cs / DockTrace.cs / DockOverlay.cs / FloatingWindow.cs / MainViewModel/Dock.cs.
 - [x] 빌드 통과 (0 경고 / 0 오류). `dotnet list package --include-transitive` DevExpress / System.Drawing.Common 0건. bin 에 DevExpress 11종 + Themes.Office2019Colorful deploy 확인.
 
@@ -224,7 +224,7 @@ PR-D4 step 1 진입 시 `<ProjectReference PrivateAssets="all">` 단독 mechanis
 - [x] 보기 메뉴 (`MainToolbarEtcContent.xaml`) — `LayoutAnchorable` 직접 binding 제거 + VM `Is{Explorer/Simulation/Properties/History}Visible` 4 ObservableProperty 신설 (DockAnchors.cs partial) + TwoWay binding → PropertyChanged → `dockHost.SetAnchorVisible(contentId, value)` 간접 경로. Log 체크박스 제거 (PR-D4 SimulationPanel Log tab 통합 SSOT 정합).
 - [x] **PR-D4 검열 M4 박제 — 보기 메뉴 PathError 해소**: dead path 4 binding 모두 새 source 로 교체 + 라벨 정합 (Properties / Simulation / History / Explorer / LLM Chat). Log 체크박스 제거 박제.
 - [x] **PR-D3 검열 M1 박제 — 초기 raise hook 시점 지연**: DockHost.xaml.cs ctor 의 `_dockLayout.ItemIsVisibleChanged` hook 을 `Loaded` event one-shot 으로 지연. 초기 raise 외부 누설 차단. 정적 분석 + 보수적 default 채택 (실 실행 spike 생략 — Loaded 시점이 가장 안전).
-- [x] **PR-D4 검열 잔여 — `HasProject` 토글 Welcome↔Canvas**: SyncWelcomeCanvasVisibility ctor 1회 초기 sync + PropertyChanged hook 분기. done-dock-avalon §3.1 안 A 정합 (false → Welcome / Canvas 숨김, true → 역전).
+- [x] **PR-D4 검열 잔여 — `HasProject` 토글 Welcome↔Canvas**: SyncWelcomeCanvasVisibility ctor 1회 초기 sync + PropertyChanged hook 분기. abandoned-dock-avalon §3.1 안 A 정합 (false → Welcome / Canvas 숨김, true → 역전).
 
 #### LlmChat.cs baseline 박제 (현재 동작 — `MainViewModel.LlmChat.cs:21-38`)
 
@@ -324,7 +324,7 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 
 - dock2 worktree 의 stash@{0} (label: "AvalonDock size snapshot + Root null deferred capture (fix 1-6) — superseded by DevExpress migration plan") 에 본 turn 까지의 6 fix 보존.
 - 사용자 명시 시 stash drop. 그 외는 보존 (회귀 fallback / 학습 참조용).
-- `done-dock-avalon.md` (PR-D8 D8.6 rename 전 파일명 `done-dock-layout.md`) 의 v1~v15 박제는 그대로 — DevExpress 작업 검증 후 PR-D8 에서 rename 완료.
+- `abandoned-dock-avalon.md` (파일명 이력: `done-dock-layout.md` → [PR-D8 D8.6] `done-dock-avalon.md` → [폐기 정리] `abandoned-dock-avalon.md`) 의 v1~v15 박제는 그대로 — DevExpress 작업 검증 후 PR-D8 에서 rename, 이후 AvalonDock 구현 폐기 확정으로 abandoned- prefix 부여.
 
 ## 7. 결정 사항
 
@@ -336,7 +336,7 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 | 4 | API 노출 | `IDockManager` + `DockAnchor` record + `DockHost` UserControl (DX type 외부 노출 0) |
 | 5 | 작업 순서 | PR-D1 → D2 → D3 → D4 → D5 → D6 → D7 → D8 |
 | 6 | 검증 | 각 PR 단위 빌드 + 수동 시나리오 + 사용자 명시 후 commit |
-| 7 | AvalonDock 작업물 | dock2 stash@{0} 보존 / `done-dock-avalon.md` (PR-D8 D8.6 rename 전 `done-dock-layout.md`) 보존 |
+| 7 | AvalonDock 작업물 | dock2 stash@{0} 보존 / `abandoned-dock-avalon.md` (이력: `done-dock-layout.md` → `done-dock-avalon.md` → `abandoned-dock-avalon.md`) 보존 |
 | 8 | DX 라이선스 | PR-D1 첫 step 에서 점검 |
 
 ## 8. 주의 사항
@@ -347,7 +347,7 @@ PR-D5 보존 의무 (Critical — 변경 시 검열 차단):
 - 자가 검열 trigger (CLAUDE.md): 신규 type 3개 이상 / dispatch 재작성 / public API 갱신 충족 시 sub-agent 위임 후 commit 제안.
 - 사용자 명시 없이 git commit 금지.
 - `--git-commit` 진행 시 dock2 branch 가 remote 없으면 local commit only (push 생략).
-- 본 문서 외 다른 문서 (e.g. `done-dock-avalon.md`) 가리키는 참조는 파일 경로 명시.
+- 본 문서 외 다른 문서 (e.g. `abandoned-dock-avalon.md`) 가리키는 참조는 파일 경로 명시.
 
 ## 9. 진행 체크포인트 (이어받는 세션용)
 
@@ -421,11 +421,11 @@ PR-D1 ~ PR-D8 전체 완료. 본 commit (D8.7) 으로 `todo-dock-devexpress.md` 
 
 3. **보기 메뉴 (`MainToolbarEtcContent.xaml`) 재wiring (PR-D4 M4 박제 해소)**:
    - 5 체크박스 (Explorer/Simulation/Properties/History/Log) 각각 `IsChecked` binding 을 VM 의 `IsExplorerVisible` 등 새 property 5건 + `Command="{Binding ToggleAnchorCommand}" CommandParameter="explorer"` 패턴으로 재wiring. ToggleAnchorCommand → `dockHost.SetAnchorVisible(contentId, !IsAnchorVisible(contentId))`.
-   - 또는 더 간단한 대안: VM 에 IDockManager 주입 + binding 5건 모두 `OneWayToSource` + Command 1건 + 라벨 정합 ("Properties" / "Simulation" / "Log" — done-dock-avalon §3.1 안 A SSOT). PR-D5 진입 시 spike 후 결정.
+   - 또는 더 간단한 대안: VM 에 IDockManager 주입 + binding 5건 모두 `OneWayToSource` + Command 1건 + 라벨 정합 ("Properties" / "Simulation" / "Log" — abandoned-dock-avalon §3.1 안 A SSOT). PR-D5 진입 시 spike 후 결정.
 
 4. **HasProject 토글 Welcome↔Canvas 전환 (PR-D4 M4 잔여)**:
    - `MainViewModel.HasProject` PropertyChanged → DockHost.SetAnchorVisible 로 `welcome` / `canvas` 토글. 또는 RegisterDocument 시점에 HasProject=false 이면 canvas 초기 Closed=true, true 시 welcome Closed=true 로 swap.
-   - done-dock-avalon §3.1 안 A 의 동작 (HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전) 그대로 보존.
+   - abandoned-dock-avalon §3.1 안 A 의 동작 (HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전) 그대로 보존.
 
 5. **빌드 + 자가 검열**:
    - `dotnet build Apps/Promaker/Promaker/Promaker.csproj` 0 오류.
@@ -491,7 +491,7 @@ layoutPanel.Name = anchor.ContentId;
 
 #### Anchor 개수 정정 (orchestrator 메시지 vs 안 A)
 
-orchestrator PR-D3 체크박스 [2] 는 "5 anchor (explorer / simulation / log / property / history / llmchat)" 로 6 이름이 적혀 있으나 **done-dock-avalon.md §3.1 안 A 의 실제 anchor 는 5개**: explorer / simulation / property / history / llmchat. `log` 는 simulation anchor 가 통합 (done-dock-avalon §1 "Simulation/Gantt/Status Monitor/Event Log"). 따라서 **5 anchor 채택** (안 A 가 ground truth — orchestrator 메시지의 ※ 룰 적용).
+orchestrator PR-D3 체크박스 [2] 는 "5 anchor (explorer / simulation / log / property / history / llmchat)" 로 6 이름이 적혀 있으나 **abandoned-dock-avalon.md §3.1 안 A 의 실제 anchor 는 5개**: explorer / simulation / property / history / llmchat. `log` 는 simulation anchor 가 통합 (abandoned-dock-avalon §1 "Simulation/Gantt/Status Monitor/Event Log"). 따라서 **5 anchor 채택** (안 A 가 ground truth — orchestrator 메시지의 ※ 룰 적용).
 
 DockAnchorPosition enum 매핑 (PR-D2 의 `DockAnchor.cs` 그대로):
 - `Left` → explorer (DockWidth 320)

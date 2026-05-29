@@ -25,7 +25,7 @@ public sealed record DockAnchor(
     bool HasHelp = false);
 
 /// <summary>
-/// done-dock-avalon.md §3.1 의 layout 트리 위치. PR-D3 의 DockLayoutManager 초기 트리 구성 시 사용.
+/// done-dock-devexpress.md §3 PR-D3 의 layout 트리 위치. PR-D3 의 DockLayoutManager 초기 트리 구성 시 사용.
 /// Promaker 의 6종 anchor + Document area 매핑 (post-D8 fix — Log 독립 anchor 승격):
 /// - <see cref="Left"/>:        Explorer (좌측 column 상단).
 /// - <see cref="BottomLeft"/>:  Simulation (가운데 column 하단, horizontal split 좌).
