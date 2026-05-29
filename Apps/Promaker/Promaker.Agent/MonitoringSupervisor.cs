@@ -32,6 +32,8 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     private const int DebounceMs = 1000;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    // _pendingReason / _inflight 보호용 monitor lock — SemaphoreSlim 객체에 lock 거는 antipattern 회피.
+    private readonly object _pendingLock = new();
     private WebApplication? _app;
     private FileSystemWatcher? _flagWatcher;
     private FileSystemWatcher? _sessionWatcher;
@@ -39,6 +41,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     private FileSystemWatcher? _aasxWatcher;
     private Timer? _debounce;
     private DebounceReason _pendingReason;
+    // OnDebounceFiredAsync 가 실행 중인 동안 ScheduleDebounce 가 새 Timer 를 만들지 않도록 가드.
+    // 처리 중 들어온 이벤트는 _pendingReason 에 누적하고, 마무리 시점에 self-reschedule.
+    private bool _inflight;
 
     /// <summary>부팅 시 한 번 호출 — 디렉터리 준비, 워처 시작, 현재 flag 상태 기준으로 초기 전이.</summary>
     public async Task StartAsync()
@@ -93,38 +98,62 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         // FlagChanged 와 ConfigChanged 가 모두 발화하면 둘 다 처리해야 한다.
         // (예: Promaker WPF 가 "Agent 보내기" 시 PlcConnection.json 저장 + active.flag 재기록 →
         //  두 이벤트가 거의 동시에 들어옴. 덮어쓰면 새 PLC 설정이 적용 안 됨.)
-        lock (_gate)
+        bool startTimer;
+        lock (_pendingLock)
         {
             _pendingReason |= reason;
+            // 처리 중이면 reason 만 누적하고 종료 — OnDebounceFiredAsync 가 마무리 시점에
+            // _pendingReason 을 다시 보고 self-reschedule 한다.
+            // (BackendHost.stop 이 수 초 걸리는 동안 새 이벤트가 들어오면 두 번째 Timer 가
+            //  병렬 OnDebounceFiredAsync 를 만들어 gate 큐잉 race 가 났던 사례 회피.)
+            if (_inflight)
+            {
+                Log.Debug($"Watcher event during in-flight: {changeType} on {fullPath} → reason+={reason}.");
+                return;
+            }
+            startTimer = true;
         }
-        Log.Debug($"Watcher event: {changeType} on {fullPath} → debounce({reason}).");
-        _debounce?.Dispose();
-        _debounce = new Timer(_ => _ = OnDebounceFiredAsync(), null, DebounceMs, Timeout.Infinite);
+        if (startTimer)
+        {
+            Log.Debug($"Watcher event: {changeType} on {fullPath} → debounce({reason}).");
+            _debounce?.Dispose();
+            _debounce = new Timer(_ => _ = OnDebounceFiredAsync(), null, DebounceMs, Timeout.Infinite);
+        }
     }
 
     private async Task OnDebounceFiredAsync()
     {
-        DebounceReason reason;
-        lock (_gate)
+        // While 루프 — 한 iteration 처리 도중 새 이벤트가 누적되면 즉시 한 번 더 처리.
+        // _inflight 가 true 인 동안 ScheduleDebounce 는 Timer 를 만들지 않으므로 여기서 drain.
+        while (true)
         {
-            reason = _pendingReason;
-            _pendingReason = DebounceReason.None;
-        }
-        if (reason == DebounceReason.None) return;
+            DebounceReason reason;
+            lock (_pendingLock)
+            {
+                reason = _pendingReason;
+                _pendingReason = DebounceReason.None;
+                if (reason == DebounceReason.None)
+                {
+                    _inflight = false;
+                    return;
+                }
+                _inflight = true;
+            }
 
-        try
-        {
-            // FlagChanged 와 ConfigChanged 가 함께 들어왔으면 둘 다 처리.
-            // 순서: Flag 먼저(idle↔active 전이) → Config (활성 상태 restart).
-            // active 상태에서 둘 다 set 되면 Flag 는 no-op + Config 가 restart 를 수행 → 새 IP 적용.
-            if ((reason & DebounceReason.FlagChanged) != 0)
-                await HandleFlagChangedAsync().ConfigureAwait(false);
-            if ((reason & DebounceReason.ConfigChanged) != 0)
-                await HandleConfigChangedAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Unhandled exception in debounce handler.", ex);
+            try
+            {
+                // FlagChanged 와 ConfigChanged 가 함께 들어왔으면 둘 다 처리.
+                // 순서: Flag 먼저(idle↔active 전이) → Config (활성 상태 restart).
+                // active 상태에서 둘 다 set 되면 Flag 는 no-op + Config 가 restart 를 수행 → 새 IP 적용.
+                if ((reason & DebounceReason.FlagChanged) != 0)
+                    await HandleFlagChangedAsync().ConfigureAwait(false);
+                if ((reason & DebounceReason.ConfigChanged) != 0)
+                    await HandleConfigChangedAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Unhandled exception in debounce handler.", ex);
+            }
         }
     }
 
@@ -153,7 +182,10 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             return;
         }
         Log.Info("Config changed while active → restart with new settings.");
-        await DeactivateAsync().ConfigureAwait(false);
+        // 이전 구현: Deactivate → TryActivate 를 두 번의 gate scope 로 나눠 호출.
+        // gate 사이 race 로 다른 task 가 BackendHost 를 다시 띄우면 TryActivate 의 skip 분기가
+        // silent drop 됐던 사례 (2026-05-28 17:12). TryActivate 한 번 호출로 통합 — 내부에서
+        // _app != null 이면 stop 한 뒤 새 설정으로 재시작 (한 gate scope 안 atomic).
         await TryActivateAsync().ConfigureAwait(false);
     }
 
@@ -164,8 +196,12 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         {
             if (_app is not null)
             {
-                Log.Warn("Activate requested but BackendHost already running — skipping.");
-                return;
+                // 이전엔 silent skip — race 시 새 설정이 누락된 사례 확인됨.
+                // 이미 떠 있는 host 는 옛 설정을 들고 있으므로 in-place stop 한 뒤 아래 흐름으로 재시작.
+                Log.Info("Activate requested while BackendHost running → stopping in-place for restart.");
+                try { BackendHost.stop(_app); }
+                catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
+                _app = null;
             }
 
             // 1) session.json 로드 (없으면 기본 경로로 대체 — 첫 부팅 시나리오).

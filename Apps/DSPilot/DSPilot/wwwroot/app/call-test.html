@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Call 간트 — DSPilot</title>
+
+    <!--
+      격리형 호스팅 레퍼런스 #5 (Call 간트 / Call cycle). 읽기 전용 분석. NO SignalR, NO JS interop, NO mutation.
+      서버/모델 = C#(/api/call-test/*), 뷰 = Alpine + vanilla SVG.
+      Blazor CallTest.razor 의 BuildSvg()/StringBuilder 를 JS 로 재구현 — 동일 레이아웃 수학(PlotWidth=1800,
+      lane metrics, xScale, cycle band, time axis, 라벨/색상). lane/segment/boundary/tail 은 서버가 JSON 으로 내려줌.
+      시간 프리셋은 서버 latest-time 기준점 + 클라이언트 오프셋. zoom 은 localStorage 영속. _userOverrodeHeadTail 플래그 보존.
+
+      CSS 규칙: 전역(/css/*.css)은 절대경로 링크로 그대로 적용.
+      CallTest.razor.css(스코프드)는 정적 페이지에 적용되지 않으므로 아래 <style> 에 전량 인라인.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/theme.css" rel="stylesheet" />
+    <link href="/css/components.css" rel="stylesheet" />
+    <link href="/css/dark-theme.css" rel="stylesheet" />
+    <link href="/css/app.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* ── 독립 셸 (cctv.html 과 동일) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
+        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
+        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
+        .btn.btn-primary:hover { filter: brightness(1.05); }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+
+        /* ── CallTest.razor.css (스코프드) 전량 인라인 ── */
+        .call-test-page { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); box-shadow: var(--shadow-card, var(--shadow-1)); }
+        .ct-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+        .ct-field label { font-size: 11px; color: var(--color-text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+        .ct-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
+        .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px 20px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px dashed var(--color-lines); border-radius: var(--radius-lg, 8px); }
+        .ct-empty .material-icons { font-size: 36px; opacity: 0.5; }
+        .ct-empty-hint { font-size: 12px; opacity: 0.7; }
+        .ct-info-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); align-items: center; font-size: 12px; box-shadow: var(--shadow-card, var(--shadow-1)); }
+        .ct-info-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+        .ct-info-k { font-size: 10px; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; }
+        .ct-info-v { color: var(--color-text-primary); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ct-mono { font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-weight: 500; }
+        .ct-zoom { width: 100px; vertical-align: middle; }
+        .ct-zoom-val { font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-size: 11px; color: var(--color-text-secondary); }
+        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); box-shadow: var(--shadow-card, var(--shadow-1)); overflow: hidden; max-height: calc(100vh - 280px); }
+        .ct-lane-sidebar { flex: 0 0 280px; width: 280px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
+        .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 11px; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--color-lines); background: var(--color-background, #f5f5f5); position: sticky; top: 0; z-index: 2; }
+        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid #e3e6ea; background: #ffffff; }
+        .ct-lane-row.is-head { background: #e8f5e9; }
+        .ct-lane-row.is-tail { background: #f3e5f5; }
+        .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
+        .ct-lane-name { font-size: 12px; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+        .ct-lane-work { font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ct-badge { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; color: #fff; line-height: 1.4; }
+        .ct-badge.head { background: #4caf50; }
+        .ct-badge.tail { background: #ab47bc; }
+        .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
+        .ct-tag-btn { width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--color-lines); background: var(--color-surface); font-size: 11px; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); }
+        .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
+        .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: #ffffff; }
+        .ct-gantt-wrapper { display: inline-block; }
+        .ct-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--color-text-secondary); padding: 8px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); }
+        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+        .ct-sw-going { background: #5b9bd5; }
+        .ct-sw-head { background: #4caf50; }
+        .ct-sw-tail { background: #ab47bc; }
+        .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
+        .ct-sw-active-band { background: #dcedc8; border: 1px solid #aed581; }
+        .ct-sw-idle-band { background: #eceff1; border: 1px solid #cfd8dc; }
+        .ct-sw-band-a { background: #fffde7; border: 1px solid #f0e68c; }
+        .ct-sw-band-b { background: #f0f4f8; border: 1px solid #d4dce4; }
+        .spinner { width: 24px; height: 24px; border: 3px solid var(--color-lines); border-top-color: var(--color-primary); border-radius: 50%; animation: ct-spin 1s linear infinite; }
+        @keyframes ct-spin { to { transform: rotate(360deg); } }
+        .alert { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+        .alert-error { background: color-mix(in srgb, var(--color-error, #e53935) 12%, var(--color-surface)); color: var(--color-error, #e53935); border: 1px solid color-mix(in srgb, var(--color-error, #e53935) 35%, transparent); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="callTestApp()" x-init="init()" x-cloak>
+
+        <!-- 데모 만료 -->
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
+            <div class="modal-content" style="max-width:480px; text-align:center;">
+                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <header class="dsp-appbar">
+            <span class="dsp-title">Call 간트</span>
+            <span class="dsp-badge">정적/격리</span>
+            <div class="spacer"></div>
+            <a href="/call-test" title="Blazor 버전과 비교">Blazor 버전</a>
+            <a href="/app/dashboard.html">대시보드</a>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div class="call-test-page">
+                <!-- 컨트롤 -->
+                <div class="call-test-controls">
+                    <div class="ct-field">
+                        <label>Flow</label>
+                        <select class="form-field" x-model="selectedFlow" @change="onFlowChanged()">
+                            <option value="">-- Flow 선택 --</option>
+                            <template x-for="f in flows" :key="f"><option :value="f" x-text="f"></option></template>
+                        </select>
+                    </div>
+                    <div class="ct-field">
+                        <label>시작</label>
+                        <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
+                    </div>
+                    <div class="ct-field">
+                        <label>종료</label>
+                        <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
+                    </div>
+                    <div class="ct-presets">
+                        <button class="btn btn-sm" @click="setRecentMinutes(1)">최근 1분</button>
+                        <button class="btn btn-sm" @click="setRecentMinutes(5)">최근 5분</button>
+                        <button class="btn btn-sm" @click="setRecentMinutes(30)">최근 30분</button>
+                        <button class="btn btn-sm" @click="setRecentHours(1)">최근 1시간</button>
+                        <button class="btn btn-sm" @click="setRecentHours(24)">최근 24시간</button>
+                        <button class="btn btn-filled btn-sm" @click="load()" :disabled="isLoading || !selectedFlow">
+                            <span class="material-icons" style="font-size:14px; vertical-align:middle;">refresh</span>
+                            새로고침
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 오류 -->
+                <div class="alert alert-error" x-show="errorMessage">
+                    <span class="material-icons">error</span>
+                    <span x-text="errorMessage"></span>
+                </div>
+
+                <!-- 로딩 -->
+                <template x-if="isLoading">
+                    <div class="ct-loading">
+                        <div class="spinner"></div>
+                        <p>데이터 로딩 중…</p>
+                    </div>
+                </template>
+
+                <!-- Flow 미선택 -->
+                <template x-if="!isLoading && !selectedFlow">
+                    <div class="ct-empty">
+                        <span class="material-icons">play_circle</span>
+                        <p>Flow 를 선택하세요.</p>
+                    </div>
+                </template>
+
+                <!-- 데이터 없음 -->
+                <template x-if="!isLoading && selectedFlow && callLanes.length === 0">
+                    <div class="ct-empty">
+                        <span class="material-icons">hourglass_disabled</span>
+                        <p>선택한 시간 범위에 신호 이벤트가 없습니다.</p>
+                        <p class="ct-empty-hint">시간 범위를 늘리거나 프리셋 버튼을 사용해 보세요.</p>
+                    </div>
+                </template>
+
+                <!-- 본문 -->
+                <template x-if="!isLoading && selectedFlow && callLanes.length > 0">
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        <!-- 정보 바 -->
+                        <div class="ct-info-bar">
+                            <div class="ct-info-item"><span class="ct-info-k">Flow</span><span class="ct-info-v" x-text="selectedFlow"></span></div>
+                            <div class="ct-info-item"><span class="ct-info-k">Call 수</span><span class="ct-info-v" x-text="callLanes.length"></span></div>
+                            <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
+                            <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
+                            <template x-if="avgCycleMs !== null">
+                                <div class="ct-info-item"><span class="ct-info-k">CT 평균 (Head↑→Head↑)</span><span class="ct-info-v" x-text="formatMs(avgCycleMs)"></span></div>
+                            </template>
+                            <template x-if="avgActiveMs !== null">
+                                <div class="ct-info-item"><span class="ct-info-k">활성 평균 (Head↑→Tail↑)</span><span class="ct-info-v" x-text="formatMs(avgActiveMs)"></span></div>
+                            </template>
+                            <div class="ct-info-item">
+                                <span class="ct-info-k">Zoom</span>
+                                <input type="range" min="0.5" max="3.0" step="0.1" x-model.number="zoom" @input="persistZoom()" class="ct-zoom" />
+                                <span class="ct-zoom-val" x-text="zoom.toFixed(1) + 'x'"></span>
+                            </div>
+                            <button class="btn btn-sm btn-outlined" @click="restoreProjectHeadTail()"
+                                    title="AASX 프로젝트에 정의된 Head/Tail 로 되돌립니다" style="margin-left:auto;">
+                                기본값 복원
+                            </button>
+                            <button class="btn btn-sm btn-outlined" @click="clearHeadTail()" :disabled="headCallId === null && tailCallId === null">
+                                H/T 해제
+                            </button>
+                        </div>
+
+                        <!-- 간트 layout -->
+                        <div class="ct-gantt-layout">
+                            <div class="ct-lane-sidebar">
+                                <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
+                                <template x-for="lane in callLanes" :key="lane.callId">
+                                    <div :class="laneRowClass(lane)" :style="`height:${LANE_HEIGHT}px;`">
+                                        <div class="ct-lane-name-block">
+                                            <div class="ct-lane-name">
+                                                <span x-text="lane.callName"></span>
+                                                <template x-if="headCallId === lane.callId"><span class="ct-badge head">HEAD</span></template>
+                                                <template x-if="tailCallId === lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                            </div>
+                                            <div class="ct-lane-work" x-text="lane.workName"></div>
+                                        </div>
+                                        <div class="ct-lane-tags">
+                                            <button :class="'ct-tag-btn head ' + (headCallId === lane.callId ? 'active' : '')"
+                                                    @click="toggleHead(lane.callId)"
+                                                    :disabled="overlayBusy"
+                                                    title="Head 로 지정: 이 Call 의 InTag↑ 가 사이클 경계가 됩니다">H</button>
+                                            <button :class="'ct-tag-btn tail ' + (tailCallId === lane.callId ? 'active' : '')"
+                                                    @click="toggleTail(lane.callId)"
+                                                    :disabled="overlayBusy"
+                                                    title="Tail 로 지정: 이 Call 의 OutTag↑ 가 사이클 종료 마커가 됩니다">T</button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="ct-gantt-chart-area">
+                                <div class="ct-gantt-wrapper" :style="`transform: scale(${zoom.toFixed(2)}); transform-origin: top left;`" x-html="svgMarkup"></div>
+                            </div>
+                        </div>
+
+                        <!-- 범례 -->
+                        <div class="ct-legend">
+                            <span><i class="ct-sw ct-sw-going"></i> 실행 (InTag ∪ OutTag ON 합집합)</span>
+                            <span><i class="ct-sw ct-sw-head"></i> Head 마크 lane</span>
+                            <span><i class="ct-sw ct-sw-tail"></i> Tail 마크 lane</span>
+                            <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head↑)</span>
+                            <template x-if="tailCallId !== null">
+                                <span style="display:contents;">
+                                    <span><i class="ct-sw ct-sw-active-band"></i> 활성 (Head↑→Tail↑)</span>
+                                    <span><i class="ct-sw ct-sw-idle-band"></i> 유휴 (Tail↑→다음 Head↑)</span>
+                                </span>
+                            </template>
+                            <template x-if="tailCallId === null">
+                                <span style="display:contents;">
+                                    <span><i class="ct-sw ct-sw-band-a"></i> 사이클 칸 (홀수)</span>
+                                    <span><i class="ct-sw ct-sw-band-b"></i> 사이클 칸 (짝수)</span>
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function callTestApp() {
+            // ── BuildSvg 레이아웃 상수 (CallTest.razor @code 와 1:1) ──
+            const TOP_MARGIN = 50, LANE_HEIGHT = 32, BAR_HEIGHT = 16, PLOT_WIDTH = 1800, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 56;
+
+            return {
+                TOP_MARGIN, LANE_HEIGHT,
+
+                flows: [], selectedFlow: '',
+                startTime: '', endTime: '',
+                isLoading: false, overlayBusy: false, errorMessage: null,
+                dark: false, demoBlocked: false,
+
+                callLanes: [],
+                cycleBoundaries: [], tailEdges: [],
+                chartStart: null, chartEnd: null,
+                zoom: 1.0,
+                headCallId: null, tailCallId: null,
+                // 프로젝트(AASX) 정의 기본 H/T (lane 매칭된 callId) — 기본값 복원 시 사용.
+                projectHeadId: null, projectTailId: null,
+                // 사용자가 H/T 를 명시적으로 토글/해제한 적 있는지. true 면 load 가 프로젝트값으로 덮어쓰지 않음.
+                userOverrodeHeadTail: false,
+                avgCycleMs: null, avgActiveMs: null,
+                svgMarkup: '',
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    const z = parseFloat(localStorage.getItem('dsp-call-test-zoom'));
+                    if (!isNaN(z) && z >= 0.5 && z <= 3.0) this.zoom = z;
+
+                    // Flow 목록
+                    try {
+                        this.flows = await this.apiGet('/api/call-test/flows');
+                        if (this.flows.length > 0) this.selectedFlow = this.flows[0];
+                    } catch (e) { if (e.message !== 'demo-blocked') this.errorMessage = 'Flow 목록 로딩 실패: ' + e.message; }
+
+                    // 기본 시간범위 (최신-5분 ~ 최신)
+                    try {
+                        const t = await this.apiGet('/api/call-test/latest-time');
+                        this.startTime = this.toInputValue(t.start);
+                        this.endTime = this.toInputValue(t.end);
+                    } catch (e) {
+                        const now = new Date();
+                        this.endTime = this.dateToInput(now);
+                        this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
+                    }
+
+                    if (this.selectedFlow) await this.load();
+                },
+
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+                persistZoom() { localStorage.setItem('dsp-call-test-zoom', String(this.zoom)); this.svgMarkup = this.buildSvg(); },
+
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+
+                // ── 시각 helper ──
+                // 서버가 보낸 로컬 ISO("o") → datetime-local input 값 (벽시계 기준, tz 변환 없이 슬라이스).
+                toInputValue(iso) { return iso ? iso.slice(0, 19) : ''; },
+                dateToInput(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                // datetime-local input 값(벽시계) → 로컬 Date 객체.
+                inputToDate(v) {
+                    if (!v) return new Date();
+                    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+                    if (!m) return new Date(v);
+                    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
+                },
+
+                // ── 이벤트 핸들러 (Blazor 동일) ──
+                onFlowChanged() {
+                    this.callLanes = [];
+                    this.headCallId = null; this.tailCallId = null;
+                    this.tailEdges = [];
+                    this.avgCycleMs = null; this.avgActiveMs = null;
+                    this.svgMarkup = '';
+                    this.userOverrodeHeadTail = false; // 새 Flow → override 리셋
+                    if (this.selectedFlow) this.load();
+                },
+                onTimeChanged() { if (this.selectedFlow) this.load(); },
+
+                async setRecentMinutes(minutes) {
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - minutes * 60000));
+                    if (this.selectedFlow) await this.load();
+                },
+                async setRecentHours(hours) {
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - hours * 3600000));
+                    if (this.selectedFlow) await this.load();
+                },
+                async effectiveLatest() {
+                    try {
+                        const t = await this.apiGet('/api/call-test/latest-time');
+                        return this.inputToDate(this.toInputValue(t.end));
+                    } catch (e) { return new Date(); }
+                },
+
+                // ── H/T 토글 (Blazor 동일) ──
+                async toggleHead(callId) {
+                    this.headCallId = this.headCallId === callId ? null : callId;
+                    if (this.headCallId === this.tailCallId) this.tailCallId = null;
+                    this.userOverrodeHeadTail = true;
+                    await this.resolveOverlays();
+                },
+                async toggleTail(callId) {
+                    this.tailCallId = this.tailCallId === callId ? null : callId;
+                    if (this.headCallId === this.tailCallId) this.headCallId = null;
+                    this.userOverrodeHeadTail = true;
+                    await this.resolveOverlays();
+                },
+                async clearHeadTail() {
+                    this.headCallId = null; this.tailCallId = null;
+                    this.userOverrodeHeadTail = true;
+                    await this.resolveOverlays();
+                },
+                async restoreProjectHeadTail() {
+                    this.userOverrodeHeadTail = false;
+                    this.headCallId = this.projectHeadId;
+                    this.tailCallId = this.projectTailId;
+                    if (this.headCallId === this.tailCallId) this.tailCallId = null;
+                    await this.resolveOverlays();
+                },
+
+                // ── 메인 로드 ──
+                async load() {
+                    if (!this.selectedFlow) return;
+                    const start = this.inputToDate(this.startTime);
+                    const end = this.inputToDate(this.endTime);
+                    if (end <= start) { this.errorMessage = '종료 시각은 시작 시각보다 커야 합니다.'; return; }
+
+                    this.isLoading = true; this.errorMessage = null;
+                    try {
+                        const body = {
+                            flowName: this.selectedFlow,
+                            start: this.startTime, end: this.endTime,
+                            // override 한 적 있으면 현재 선택을 명시적으로 보냄, 아니면 서버가 프로젝트 기본값 적용.
+                            headCallId: this.headCallId, tailCallId: this.tailCallId,
+                            headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail
+                        };
+                        const d = await this.apiPost('/api/call-test/load', body);
+                        this.applyLoadResult(d);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = '데이터 로딩 실패: ' + e.message;
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                applyLoadResult(d) {
+                    this.callLanes = d.lanes || [];
+                    this.chartStart = new Date(d.chartStart);
+                    this.chartEnd = new Date(d.chartEnd);
+                    this.headCallId = d.headCallId || null;
+                    this.tailCallId = d.tailCallId || null;
+                    this.projectHeadId = d.projectHeadCallId || null;
+                    this.projectTailId = d.projectTailCallId || null;
+                    this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                    this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                    this.avgCycleMs = d.avgCycleMs ?? null;
+                    this.avgActiveMs = d.avgActiveMs ?? null;
+                    this.svgMarkup = this.buildSvg();
+                },
+
+                // ── 오버레이만 재조회 (H/T 토글 반응) ──
+                async resolveOverlays() {
+                    if (!this.selectedFlow) return;
+                    this.overlayBusy = true;
+                    try {
+                        const headLane = this.headCallId ? this.callLanes.find(l => l.callId === this.headCallId) : null;
+                        const tailLane = this.tailCallId ? this.callLanes.find(l => l.callId === this.tailCallId) : null;
+                        const body = {
+                            flowName: this.selectedFlow,
+                            start: this.startTime, end: this.endTime,
+                            headCallId: this.headCallId, tailCallId: this.tailCallId,
+                            headInTag: headLane ? headLane.inTag : null,
+                            tailOutTag: tailLane ? tailLane.outTag : null
+                        };
+                        const d = await this.apiPost('/api/call-test/resolve-overlays', body);
+                        this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                        this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                        this.avgCycleMs = d.avgCycleMs ?? null;
+                        this.avgActiveMs = d.avgActiveMs ?? null;
+                        this.svgMarkup = this.buildSvg();
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = '오버레이 갱신 실패: ' + e.message;
+                    } finally {
+                        this.overlayBusy = false;
+                    }
+                },
+
+                // ── 표시 helper ──
+                get headName() { const l = this.headCallId ? this.callLanes.find(x => x.callId === this.headCallId) : null; return l ? l.callName : null; },
+                get tailName() { const l = this.tailCallId ? this.callLanes.find(x => x.callId === this.tailCallId) : null; return l ? l.callName : null; },
+                laneRowClass(lane) {
+                    if (this.headCallId === lane.callId) return 'ct-lane-row is-head';
+                    if (this.tailCallId === lane.callId) return 'ct-lane-row is-tail';
+                    return 'ct-lane-row';
+                },
+
+                // ── BuildSvg() JS 재구현 (CallTest.razor @code 1:1) ──
+                buildSvg() {
+                    if (this.callLanes.length === 0) return '';
+                    const cs = this.chartStart.getTime(), ce = this.chartEnd.getTime();
+                    const totalMs = Math.max(1.0, ce - cs);
+                    const laneCount = this.callLanes.length;
+                    const chartW = LEFT_PAD + PLOT_WIDTH + RIGHT_PAD;
+                    const laneAreaTop = TOP_MARGIN;
+                    const laneAreaBottom = TOP_MARGIN + laneCount * LANE_HEIGHT;
+                    const chartH = laneAreaBottom + BOTTOM_PAD;
+                    const xScale = PLOT_WIDTH / totalMs;
+                    const ms = (d) => d.getTime() - cs; // chartStart 기준 오프셋(ms)
+
+                    let sb = '';
+                    sb += `<svg class="ct-gantt" width="${chartW}" height="${chartH}" xmlns="http://www.w3.org/2000/svg">`;
+                    sb += `<rect width="100%" height="100%" fill="#ffffff"/>`;
+
+                    // 1) 사이클 band
+                    sb += this.appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce);
+                    // 2) 시간 축
+                    sb += this.appendTimeAxis(totalMs, xScale, laneCount, cs);
+
+                    // 3) lane 행
+                    for (let i = 0; i < this.callLanes.length; i++) {
+                        const lane = this.callLanes[i];
+                        const laneY = TOP_MARGIN + i * LANE_HEIGHT;
+                        const laneCY = laneY + LANE_HEIGHT / 2.0;
+                        const isHead = this.headCallId === lane.callId;
+                        const isTail = this.tailCallId === lane.callId;
+
+                        if (isHead || isTail) {
+                            const stripeFill = isHead ? '#c8e6c9' : '#e1bee7';
+                            sb += `<rect x="0" y="${laneY}" width="${chartW}" height="${LANE_HEIGHT}" fill="${stripeFill}" opacity="0.35"/>`;
+                        }
+                        sb += `<line x1="0" y1="${laneY + LANE_HEIGHT}" x2="${chartW}" y2="${laneY + LANE_HEIGHT}" stroke="#e3e6ea" stroke-width="1"/>`;
+
+                        const fill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
+                        const stroke = isHead ? '#2e7d32' : isTail ? '#7b1fa2' : '#3478b8';
+
+                        for (const iv of lane.intervals) {
+                            const s = new Date(iv.start), e = new Date(iv.end);
+                            const x = LEFT_PAD + ms(s) * xScale;
+                            const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
+                            const durMs = e.getTime() - s.getTime();
+                            const tip = `${lane.callName}  ${this.hms(s)} ~ ${this.hms(e)}  (${this.formatMs(durMs)})`;
+                            sb += `<g><title>${this.esc(tip)}</title>`;
+                            sb += `<rect x="${this.f(x)}" y="${this.f(laneCY - BAR_HEIGHT / 2.0)}" width="${this.f(w)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>`;
+                            sb += `</g>`;
+                        }
+                    }
+
+                    sb += `</svg>`;
+                    return sb;
+                },
+
+                appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce) {
+                    if (this.cycleBoundaries.length === 0) return '';
+                    let sb = '';
+                    const bnd = this.cycleBoundaries.map(d => d.getTime());
+                    const ms = (t) => t - cs;
+
+                    // spans 구성
+                    const spans = [];
+                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
+                    if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
+
+                    const tails = this.tailEdges.map(d => d.getTime());
+                    let tailIdx = 0;
+                    const laneAreaH = laneAreaBottom - laneAreaTop;
+
+                    for (const span of spans) {
+                        const sx = LEFT_PAD + ms(span.start) * xScale;
+                        const ex = LEFT_PAD + ms(span.end) * xScale;
+                        const bandW = Math.max(1, ex - sx);
+
+                        while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
+                        let tailIn = null;
+                        if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
+                        const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
+
+                        const openOpacity = span.isOpen ? '0.35' : '0.6';
+                        if (tailX !== null) {
+                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(tailX - sx)}" height="${laneAreaH}" fill="#dcedc8" opacity="${openOpacity}"/>`;
+                            sb += `<rect x="${this.f(tailX)}" y="${laneAreaTop}" width="${this.f(ex - tailX)}" height="${laneAreaH}" fill="#eceff1" opacity="${openOpacity}"/>`;
+                        } else {
+                            const bandFill = span.number % 2 === 0 ? '#f0f4f8' : '#fffde7';
+                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(bandW)}" height="${laneAreaH}" fill="${bandFill}" opacity="${openOpacity}"/>`;
+                        }
+
+                        // 좌 경계선
+                        sb += `<line x1="${this.f(sx)}" y1="${laneAreaTop}" x2="${this.f(sx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.2" opacity="0.85"/>`;
+                        // Tail 분할선
+                        if (tailX !== null) {
+                            sb += `<line x1="${this.f(tailX)}" y1="${laneAreaTop}" x2="${this.f(tailX)}" y2="${laneAreaBottom}" stroke="#ab47bc" stroke-width="1" stroke-dasharray="3 2" opacity="0.8"/>`;
+                        }
+
+                        // 라벨
+                        if (bandW >= 36) {
+                            const labelX = sx + bandW / 2;
+                            const labelY1 = laneAreaBottom + 16;
+                            const labelY2 = laneAreaBottom + 30;
+                            const num = span.isOpen ? `#${span.number}*` : `#${span.number}`;
+                            sb += `<text x="${this.f(labelX)}" y="${labelY1}" text-anchor="middle" font-size="11" font-weight="800" fill="#555">${num}</text>`;
+                            const ctMs = span.end - span.start;
+                            const ctLabel = tailIn !== null
+                                ? `AT ${this.formatMs(tailIn - span.start)} · CT ${this.formatMs(ctMs)}`
+                                : `CT ${this.formatMs(ctMs)}`;
+                            sb += `<text x="${this.f(labelX)}" y="${labelY2}" text-anchor="middle" font-size="9" fill="#777" font-family="ui-monospace,Consolas,monospace">${this.esc(ctLabel)}</text>`;
+                        }
+                    }
+
+                    // 마지막 boundary 경계선
+                    const lastEdge = bnd[bnd.length - 1];
+                    if (lastEdge >= cs && lastEdge <= ce) {
+                        const lx = LEFT_PAD + ms(lastEdge) * xScale;
+                        sb += `<line x1="${this.f(lx)}" y1="${laneAreaTop}" x2="${this.f(lx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.2" opacity="0.85"/>`;
+                    }
+                    return sb;
+                },
+
+                appendTimeAxis(totalMs, xScale, laneCount, cs) {
+                    let sb = '';
+                    sb += `<line x1="${LEFT_PAD}" y1="${TOP_MARGIN - 6}" x2="${LEFT_PAD + PLOT_WIDTH}" y2="${TOP_MARGIN - 6}" stroke="#888" stroke-width="1"/>`;
+                    const tickStep = this.chooseTickStepMs(totalMs);
+                    for (let t = 0; t <= totalMs + 1e-6; t += tickStep) {
+                        const x = LEFT_PAD + t * xScale;
+                        sb += `<line x1="${this.f(x)}" y1="${TOP_MARGIN - 6}" x2="${this.f(x)}" y2="${TOP_MARGIN + laneCount * LANE_HEIGHT}" stroke="#e9ecef" stroke-width="1" stroke-dasharray="2 4"/>`;
+                        const labelTime = new Date(cs + t);
+                        sb += `<text x="${this.f(x)}" y="${TOP_MARGIN - 12}" text-anchor="middle" font-size="10" fill="#666" font-family="ui-monospace,Consolas,monospace">${this.esc(this.hms2(labelTime))}</text>`;
+                    }
+                    return sb;
+                },
+
+                chooseTickStepMs(totalMs) {
+                    const targetCount = 10;
+                    const rough = totalMs / targetCount;
+                    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1, rough))));
+                    const norm = rough / mag;
+                    let mult;
+                    if (norm <= 1) mult = 1; else if (norm <= 2) mult = 2; else if (norm <= 5) mult = 5; else mult = 10;
+                    return Math.max(1, mult * mag);
+                },
+
+                // FormatMs (CallTest.razor 동일 — InvariantCulture)
+                formatMs(ms) {
+                    if (ms <= 0) return '0';
+                    if (ms < 1000) return Math.round(ms) + ' ms';
+                    if (ms < 60000) return (ms / 1000.0).toFixed(2) + ' s';
+                    return (ms / 60000.0).toFixed(2) + ' min';
+                },
+                // "0.##" 포맷 (소수 둘째자리 반올림, 불필요한 0 제거)
+                f(v) { return String(Math.round(v * 100) / 100); },
+                // HH:mm:ss.fff (벽시계)
+                hms(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+                },
+                // HH:mm:ss (벽시계, 축 라벨)
+                hms2(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                esc(s) {
+                    if (s == null || s === '') return '';
+                    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+                }
+            };
+        }
+    </script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>
