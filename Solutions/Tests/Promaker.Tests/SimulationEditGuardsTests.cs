@@ -351,7 +351,7 @@ public sealed class SimulationEditGuardsTests
 
         public bool Confirm(string message, string title) => true;
         public void ShowWarning(string message) => WarningMessages.Add(message);
-        public virtual bool WarnSimulationEditBlocked(string message)
+        public virtual bool WarnSimulationEditBlocked(string message, bool isMonitoring)
         {
             WarningMessages.Add(message);
             return false; // 기본은 stop 안 함 → 기존 테스트 동작 유지
@@ -368,7 +368,7 @@ public sealed class SimulationEditGuardsTests
 
     private sealed class StopChoosingDialogService : RecordingDialogService
     {
-        public override bool WarnSimulationEditBlocked(string message)
+        public override bool WarnSimulationEditBlocked(string message, bool isMonitoring)
         {
             WarningMessages.Add(message);
             return true; // 항상 stop 선택

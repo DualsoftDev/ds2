@@ -215,11 +215,8 @@ public partial class ExplorerPane : UserControl
             return;
 
         ViewModel.Selection.SetActiveTreePane(_pendingTreeSelectionPane);
-        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
-        // 검색 중에는 화면에 클론 트리가 떠 있으므로, 원본 노드의 IsTreeSelected 를 클론으로 동기화해야
-        // 하이라이트가 보인다. (Call 은 drag-candidate 경로라 HandleTreeSelectionChanged 를 안 타므로 여기서 처리)
-        if (HasActiveSearch)
-            RefreshFilteredSelectionState();
+        // Call 은 drag-candidate 경로라 HandleTreeSelectionChanged 를 안 타므로 여기서 선택 확정 + 검색 동기화.
+        SelectNodeFromTreeAndSyncSearch(node, ctrlPressed: false, shiftPressed: false);
         ClearPendingTreeDragSelection();
         e.Handled = true;
     }
@@ -459,14 +456,10 @@ public partial class ExplorerPane : UserControl
             && ReferenceEquals(node, _pendingTreeSelectionNode))
             return;
 
-        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        SelectNodeFromTreeAndSyncSearch(node, ctrlPressed: false, shiftPressed: false);
 
-        if (HasActiveSearch)
-        {
-            RefreshFilteredSelectionState();
-            if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
-                ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
-        }
+        if (HasActiveSearch && node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
+            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
@@ -484,14 +477,14 @@ public partial class ExplorerPane : UserControl
             // Control.HandleDoubleClick 클래스 핸들러가 MouseDoubleClick 을 발생시키지 못한다.
             if ((node.IsTreeSelected || item.IsSelected) && e.ClickCount == 1)
             {
-                ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+                SelectNodeFromTreeAndSyncSearch(node, ctrlPressed: false, shiftPressed: false);
                 e.Handled = true;
             }
 
             return;
         }
 
-        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed, shiftPressed);
+        SelectNodeFromTreeAndSyncSearch(node, ctrlPressed, shiftPressed);
         if (e.ClickCount == 1)
             e.Handled = true;
     }
@@ -552,6 +545,16 @@ public partial class ExplorerPane : UserControl
     {
         _treeDragCandidate = false;
         _pendingTreeSelectionNode = null;
+    }
+
+    // 트리 선택을 적용하고, 검색 중이면 화면에 떠 있는 클론 트리에 선택 하이라이트를 동기화한다.
+    // (검색 중에는 원본이 아니라 클론 노드가 표시되므로 IsTreeSelected 동기화가 없으면 하이라이트가 안 보임)
+    private void SelectNodeFromTreeAndSyncSearch(EntityNode node, bool ctrlPressed, bool shiftPressed)
+    {
+        if (ViewModel is null) return;
+        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed, shiftPressed);
+        if (HasActiveSearch)
+            RefreshFilteredSelectionState();
     }
 
     private void RefreshFilteredSelectionState()
