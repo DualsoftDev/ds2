@@ -50,6 +50,18 @@ builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions
 // SignalR for real-time monitoring
 builder.Services.AddSignalR();
 
+// 격리형 호스팅(Isolated Hosting) — /api/* JSON 컨트롤러 계층.
+// 정적 HTML/JS/CSS 페이지(wwwroot/app/*)가 fetch 로 호출하는 데이터 API.
+// 기존 싱글톤 서비스를 얇게 래핑만 하며(신규 데이터 로직 없음), Blazor 회로와 동일 프로세스·DI·SignalR 허브를 공유한다.
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        // camelCase(MVC 기본값) 유지 — 기존 wwwroot/js/*.js 가 camelCase 키를 기대(예: call-history-chart.js 의 d.goingTimeMs).
+        o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        // 도메인/EF 엔티티의 양방향 참조 순환으로 인한 직렬화 예외 방지.
+        o.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
+
 // Database path resolution (Unified mode support) - F# Adapter 사용
 builder.Services.AddSingleton<DatabasePathResolverAdapter>();
 builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService<DatabasePathResolverAdapter>());
@@ -212,6 +224,13 @@ app.Use(async (context, next) =>
 
 // TODO: MapStaticAssets 500 진단 — 원인 파악 후 복원
 // app.MapStaticAssets();
+
+// /api/* 컨트롤러 — 반드시 Blazor SPA catch-all(MapRazorComponents) 보다 먼저 매핑해야
+// attribute 라우트가 Blazor 라우팅에 흡수되지 않는다.
+// 정적 페이지(wwwroot/app/*)는 기본 UseStaticFiles 가 서빙하므로 별도 매핑 불필요.
+// (데모 차단 시: 정적 셸은 short-circuit 으로 로드되지만 /api 는 데모 게이트에서 503 → 페이지가 자체 "데모 만료" 안내)
+app.MapControllers();
+
 app.MapRazorComponents<DSPilot.Components.App>()
     .AddInteractiveServerRenderMode();
 
