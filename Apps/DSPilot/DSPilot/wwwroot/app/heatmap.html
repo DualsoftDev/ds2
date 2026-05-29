@@ -665,9 +665,13 @@
                     // requestAnimationFrame 으로 최대 ~10프레임 폴링 후 렌더(Blazor 의 Task.Delay(50) 대체, 더 견고).
                     await this.$nextTick();
                     const draw = (attempt) => {
-                        if (document.getElementById('callHistoryChart')) {
+                        const cv = document.getElementById('callHistoryChart');
+                        const box = cv && cv.parentElement;
+                        // 캔버스 컨테이너가 실제 레이아웃 크기를 가질 때까지 대기.
+                        // 0×0 상태(모달 mount/표시 직후)에서 Chart.js 를 만들면 캔버스가 0×0 으로 고정돼 빈 차트가 됨.
+                        if (box && box.clientWidth > 0 && box.clientHeight > 0) {
                             window.renderCallHistoryChart('callHistoryChart', chartData, avg, sd);
-                        } else if (attempt < 10) {
+                        } else if (attempt < 30) {
                             requestAnimationFrame(() => draw(attempt + 1));
                         }
                     };
