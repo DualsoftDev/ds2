@@ -36,9 +36,7 @@
     <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <!-- AvalonDock (PR-1a) + Metro 테마 (다크 hotfix — 추후 PR-4 자체 ResourceDictionary 머지 시 교체). -->
-    <PackageReference Include="Dirkster.AvalonDock" />
-    <PackageReference Include="Dirkster.AvalonDock.Themes.Metro" />
+    <!-- PR-D8: AvalonDock (Dirkster.AvalonDock / Themes.Metro) PackageReference 제거. DevExpress.Wpf.Docking 으로 swap. -->
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
@@ -143,5 +141,10 @@
          HMI Designer 등 후속 App 도 본 lib 을 참조해 동일 인프라 공유. Promaker 측 잔류 = ModelTools / PromakerToolNames /
          LlmConfig / LlmChatPanel + ViewModel / Behaviors / Presentation / Dialogs / Themes / Prompts overlay. -->
     <ProjectReference Include="..\..\Shared\Llm.Shared\Llm.Shared.csproj" />
+    <!-- PR-D4 — Promaker.Dock (DevExpress.Wpf.Docking 캡슐화 격리 csproj).
+         Promaker.Dock 측이 mechanism D (Reference HintPath, PackageReference 제거) 로 NuGet graph 격리 보장 →
+         본 ProjectReference 에 PrivateAssets 불필요 (transitive 0건). DX 11종 + Themes.Office2019Black (PR-D7.3 fix)
+         은 Promaker.Dock 의 Reference Private=true + Content Include 로 Promaker bin 까지 carry. -->
+    <ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />
   </ItemGroup>
 </Project>

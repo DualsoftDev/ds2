@@ -49,17 +49,20 @@ module internal DirectPasteOps =
             | None -> 1, 0, 0, getName item, index)
         |> List.map snd
 
-    let private offsetPosition (baseIndex: int) (pos: Xywh option) =
-        let offset = 30 * (baseIndex + 1)
-        pos |> Option.map (fun p -> Xywh(p.X + offset, p.Y + offset, p.W, p.H))
+    /// paste 시 노드를 (offsetPx, offsetPx) 만큼 대각선 이동 — *같은 캔버스* 에 겹쳐 붙는 걸 막는 용도.
+    /// Work 통째 복사처럼 하위 노드가 새 독립 캔버스(Work 탭)로 가는 경우엔 offsetPx=0 (shift 불필요).
+    let private offsetPosition (offsetPx: int) (pos: Xywh option) =
+        pos |> Option.map (fun p -> Xywh(p.X + offsetPx, p.Y + offsetPx, p.W, p.H))
+
+    let private offsetPxOf (baseIndex: int) = 30 * (baseIndex + 1)
 
     let private pasteCallToWork
         (store: DsStore) (context: CallCopyContext) (sourceCall: Call) (targetWorkId: Guid)
-        (deviceState: PasteDeviceOps.DevicePasteState) (deviceFlowCtxOpt: PasteDeviceOps.DeviceFlowCtx option) (baseIndex: int)
+        (deviceState: PasteDeviceOps.DevicePasteState) (deviceFlowCtxOpt: PasteDeviceOps.DeviceFlowCtx option) (offsetPx: int)
         : Call * PasteDeviceOps.DevicePasteState =
         let pastedCall = Call(sourceCall.DevicesAlias, sourceCall.ApiName, targetWorkId)
         sourceCall.GetSimulationProperties() |> Option.iter (fun p -> pastedCall.SetSimulationProperties(p.DeepCopy()))
-        pastedCall.Position <- offsetPosition baseIndex sourceCall.Position
+        pastedCall.Position <- offsetPosition offsetPx sourceCall.Position
         store.TrackAdd(store.Calls, pastedCall)
         let newDeviceState =
             PasteDeviceOps.copyApiCallsForPaste store context sourceCall pastedCall.Id deviceState deviceFlowCtxOpt
@@ -76,7 +79,7 @@ module internal DirectPasteOps =
         sourceWork.GetSimulationProperties() |> Option.iter (fun p -> pastedWork.SetSimulationProperties(p.DeepCopy()))
         pastedWork.TokenRole <- sourceWork.TokenRole
         pastedWork.Duration <- sourceWork.Duration
-        pastedWork.Position <- offsetPosition baseIndex sourceWork.Position
+        pastedWork.Position <- offsetPosition (offsetPxOf baseIndex) sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
         let isDifferentFlow = sourceWork.ParentId <> targetFlowId
         let context = if isDifferentFlow then DifferentFlow else DifferentWork
@@ -85,6 +88,7 @@ module internal DirectPasteOps =
             Queries.callsOf sourceWork.Id store
             |> sortByPositionAndName (fun call -> call.Position) (fun call -> call.Name)
             |> List.fold (fun (callMap, devState) sourceCall ->
+                // offsetPx=0 : 복사된 Work 는 새 독립 캔버스(Work 탭)라 내부 Call 은 원본 좌표 그대로 둔다.
                 let pastedCall, newDevState = pasteCallToWork store context sourceCall pastedWork.Id devState ctxOpt 0
                 Map.add sourceCall.Id pastedCall.Id callMap, newDevState
             ) (Map.empty, deviceState)
@@ -170,7 +174,9 @@ module internal DirectPasteOps =
                         | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
                         | _ -> DifferentFlow
                 let ctxOpt = match context with DifferentFlow -> deviceFlowCtxForDiffFlow | _ -> None
-                let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt baseIndex
+                // 같은 Work 로의 Call 복사는 상위 PasteEntities 에서 SameWorkPaste 로 차단됨 —
+                // 이 경로는 *다른 Work / 다른 Flow* 로의 Call 복사 전용.
+                let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt (offsetPxOf baseIndex)
                 Map.add sc.Id pc.Id cm, pc.Id :: ids, nds
             ) (Map.empty, [], PasteDeviceOps.initialDevicePasteState)
         replayCallArrows store sourceCallArrows callMap

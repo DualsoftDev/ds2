@@ -7,9 +7,9 @@
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- Log tab 은 별도 독립 dock pane (logAnchor / Controls/Logging/AppLogView) 으로 분리됨.
-             나머지 시뮬 도메인 탭은 HasProject=true 일 때만 노출. Welcome 모드에서는
-             MainWindow.SyncWelcomeCanvasVisibility 가 simulationAnchor 자체를 hide.
+        <!-- Log 는 별 dock anchor 로 분리 (post-D8 fix). 본 TabControl 은 시뮬 도메인 tab
+             (Gantt / Status Monitor / Event Log) 만. HasProject=true 일 때만 노출.
+             Welcome 모드에서는 MainWindow.SyncWelcomeCanvasVisibility 가 simulationAnchor 자체를 hide.
              BasedOn: Theme.Controls.Navigation.xaml 의 implicit TabItem style 을 상속해야 외관 회귀 없음. -->
         <Style x:Key="TabVisibleWhenHasProject" TargetType="TabItem"
                BasedOn="{StaticResource {x:Type TabItem}}">
