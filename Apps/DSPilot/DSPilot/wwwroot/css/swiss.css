@@ -724,6 +724,20 @@ details.expansion-panel[open] > summary::before { transform: rotate(90deg); }
 .flow-dashboard-call-meta { margin-top: 7px; font-size: 0.68rem; font-weight: 600; opacity: 0.78; }
 
 /* ───────────────────────────── 18. Flow card (flow-card.css 재테마) ───────── */
+/* 도면 레이아웃 캔버스 = 제도(drafting) 그리드 표면. 배경이 콘텐츠(배치된 flow 카드)와
+   의미적으로 연결되도록 페이지 배경(빈 베이지)이 아닌 그리드 트레이로 처리. */
+.fl-canvas {
+    background-color: var(--color-surface-variant);
+    background-image:
+        linear-gradient(to right, color-mix(in srgb, var(--color-text-primary) 6%, transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb, var(--color-text-primary) 6%, transparent) 1px, transparent 1px);
+    background-size: 24px 24px;
+    box-shadow: inset 0 0 0 1px var(--color-lines);
+}
+/* 도면 배경 이미지 = 흐린 회색 언더레이(사진/도면이 크리스프한 카드와 충돌하지 않도록 탈색). */
+.fl-blueprint { opacity: 0.2; filter: grayscale(0.85) contrast(0.92); }
+.dark-theme .fl-blueprint { opacity: 0.32; filter: grayscale(0.85) brightness(1.35) contrast(0.85); }
+
 .fl-card {
     position: absolute; border-radius: var(--radius-sm); background: var(--color-surface);
     overflow: hidden; cursor: pointer;

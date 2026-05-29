@@ -11,6 +11,9 @@
     <link href="css/dark-theme.css" rel="stylesheet" />
     <link href="css/app.css" rel="stylesheet" />
     <link href="css/flow-card.css" rel="stylesheet" />
+    <!-- Swiss Technical 디자인 시스템 — 맨 마지막에 로드해 위 전역 css 의 토큰/클래스를 Swiss 값으로 override.
+         정적 /app/*.html 과 동일 시스템을 Blazor(/flow·/editor·/pw + MainLayout)에도 적용. -->
+    <link href="css/swiss.css" rel="stylesheet" />
     <link href="DSPilot.styles.css" rel="stylesheet" />
     <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)" />
 </head>
