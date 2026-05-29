@@ -229,8 +229,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonHotEnabled))]
     private bool _isSimulating;
@@ -271,7 +269,6 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
     [NotifyPropertyChangedFor(nameof(IsManualControlButtonVisible))]
@@ -294,24 +291,14 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsAgentDelegationMode))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
     private bool _isRealPlcConnected;
 
     /// <summary>Monitoring + 실 PLC 모드 — Promaker.Agent (Windows Service) 가 BackendHost+PLC 를 전담한다.
-    /// 이 모드에서 PLAY 누르면 자체 시뮬이 도는 게 아니라 active.flag 를 쓰고 Agent 에 모니터링을 위임하는
-    /// "1회성 명령 송신" 이라 Stop 토글이 의미 없다 (Agent 는 sticky monitoring — Stop 누른다고 Agent 가 멈추지
-    /// 않음). 따라서 UI 는 Play→Stop 토글 대신 항상 "Agent 전송" 단일 동작으로 노출.</summary>
+    /// "Agent 전송" 을 누르면 active.flag 를 기록해 Agent 에 모니터링을 위임하고 DSPilot 대시보드도 띄운다.
+    /// 시작 후 같은 버튼은 "정지"(StopSimulationCommand) 로 토글 — "정지" 는 Promaker 화면만 끄고
+    /// active.flag 유지 → Agent 는 sticky monitoring (Promaker 종료/재부팅과 무관하게 계속 동작).</summary>
     public bool IsAgentDelegationMode =>
         SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
-
-    /// <summary>"자체 모니터링" 실행 중 — Agent 우회, Promaker 본체가 5051 직접 호스팅.
-    /// StartSelfMonitoring 진입 시 true, StopSimulation 시 false (Hub.Stop 도 함께 리셋).
-    /// XAML 의 SelfMonitoringToggleButton 이 이 플래그로 Play↔Stop 아이콘/Command 를 전환한다.</summary>
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartSelfMonitoringCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StopSelfMonitoringCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
-    private bool _isSelfMonitoring;
 
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
@@ -401,10 +388,6 @@ public partial class SimulationPanelState : ObservableObject
     {
         _clockInterpolator.ResetBase();
         RefreshGanttTimeSource();
-        // IsSimulating 가 외부에서 false 로 전환됐는데 자체 모니터링 표식이 남아 있으면 토글 버튼이
-        // "정지" 상태로 굳어 다시 시작할 수 없게 된다 (CanStartSelfMonitoring 가 !IsSelfMonitoring 의존). 안전망.
-        if (!value && IsSelfMonitoring)
-            IsSelfMonitoring = false;
     }
 
     // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
