@@ -4,80 +4,92 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Call 간트 — DSPilot</title>
+    <title>Call 사이클 — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #5 (Call 간트 / Call cycle). 읽기 전용 분석. NO SignalR, NO JS interop, NO mutation.
-      서버/모델 = C#(/api/call-test/*), 뷰 = Alpine + vanilla SVG.
-      Blazor CallTest.razor 의 BuildSvg()/StringBuilder 를 JS 로 재구현 — 동일 레이아웃 수학(PlotWidth=1800,
-      lane metrics, xScale, cycle band, time axis, 라벨/색상). lane/segment/boundary/tail 은 서버가 JSON 으로 내려줌.
-      시간 프리셋은 서버 latest-time 기준점 + 클라이언트 오프셋. zoom 은 localStorage 영속. _userOverrodeHeadTail 플래그 보존.
-
-      CSS 규칙: 전역(/css/*.css)은 절대경로 링크로 그대로 적용.
-      CallTest.razor.css(스코프드)는 정적 페이지에 적용되지 않으므로 아래 <style> 에 전량 인라인.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (Call 사이클 / call-cycle Gantt).
+      읽기 전용 분석. NO SignalR, NO JS interop. POST 는 H/T 오버레이 재계산(load/resolve-overlays)뿐.
+      서버/모델 = C#(/api/call-test/*), 뷰 = Alpine + vanilla SVG(buildSvg/appendCycleBands/appendTimeAxis).
+      간트 SVG 는 JS 가 좌표/마크업을 문자열로 생성하므로 buildSvg() 계열은 VERBATIM 보존(색상 리터럴 포함).
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(ct-*)만 인라인 + 다크 보강.
+      시간 프리셋은 서버 latest-time 기준점 + 클라이언트 오프셋. zoom 은 localStorage(dsp-call-test-zoom) 영속.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
 
-        /* ── 독립 셸 (cctv.html 과 동일) ── */
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
-        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
-        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
-        .btn.btn-primary:hover { filter: brightness(1.05); }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 20px; }
 
-        /* ── CallTest.razor.css (스코프드) 전량 인라인 ── */
-        .call-test-page { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); box-shadow: var(--shadow-card, var(--shadow-1)); }
-        .ct-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
-        .ct-field label { font-size: 11px; color: var(--color-text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+        /* ── 콘텐츠 페이지 헤더 (셸이 제거하지 않는 영역 → 번호 인덱스 + 제목 + 오버레이 상태) ── */
+        .ct-pagehead { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); flex-wrap: wrap; }
+        .ct-pagehead .ct-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .ct-pagehead .ct-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .ct-pagehead .ct-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .ct-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+        .ct-live .ct-live-dot { width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
+        .ct-live.is-busy { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); }
+        .ct-live.is-busy .ct-live-dot { animation: ct-pulse 1.4s ease-in-out infinite; }
+        @keyframes ct-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── 페이지 본문 컨테이너 ── */
+        .call-test-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+        /* ── 컨트롤 패널 (헤어라인 박스, 플랫) ── */
+        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .ct-field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+        .ct-field label { font-size: 0.66rem; color: var(--color-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
         .ct-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
-        .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px 20px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px dashed var(--color-lines); border-radius: var(--radius-lg, 8px); }
-        .ct-empty .material-icons { font-size: 36px; opacity: 0.5; }
-        .ct-empty-hint { font-size: 12px; opacity: 0.7; }
-        .ct-info-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); align-items: center; font-size: 12px; box-shadow: var(--shadow-card, var(--shadow-1)); }
-        .ct-info-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-        .ct-info-k { font-size: 10px; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; }
-        .ct-info-v { color: var(--color-text-primary); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ct-mono { font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-weight: 500; }
-        .ct-zoom { width: 100px; vertical-align: middle; }
-        .ct-zoom-val { font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-size: 11px; color: var(--color-text-secondary); }
-        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); box-shadow: var(--shadow-card, var(--shadow-1)); overflow: hidden; max-height: calc(100vh - 280px); }
+
+        /* ── 로딩 / 빈 상태 (점선 헤어라인) ── */
+        .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 20px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-md); }
+        .ct-loading p, .ct-empty p { margin: 0; }
+        .ct-empty .material-icons { font-size: 38px; color: var(--color-text-disabled); }
+        .ct-empty-hint { font-size: 0.72rem; color: var(--color-text-secondary); }
+
+        /* ── 정보 바 (계기판 readout 묶음) ── */
+        .ct-info-bar { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 12px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; font-size: 0.78rem; }
+        .ct-info-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+        .ct-info-k { font-size: 0.6rem; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.12em; }
+        .ct-info-v { color: var(--color-text-primary); font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .ct-zoom { width: 110px; vertical-align: middle; accent-color: var(--color-primary); }
+        .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+
+        /* ── 간트 layout (헤어라인 박스, 그림자 없음) ── */
+        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; max-height: calc(100vh - 300px); }
         .ct-lane-sidebar { flex: 0 0 280px; width: 280px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
-        .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 11px; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--color-lines); background: var(--color-background, #f5f5f5); position: sticky; top: 0; z-index: 2; }
-        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid #e3e6ea; background: #ffffff; }
-        .ct-lane-row.is-head { background: #e8f5e9; }
-        .ct-lane-row.is-tail { background: #f3e5f5; }
+        .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); position: sticky; top: 0; z-index: 2; }
+        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); }
+        /* Head/Tail lane 강조 — 사이클 의미색을 헤어라인 좌측 룰 + 미세 틴트로 (SVG 스트라이프와 정합) */
+        .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #4caf50; }
+        .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #ab47bc; }
         .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
-        .ct-lane-name { font-size: 12px; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
-        .ct-lane-work { font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .ct-badge { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; color: #fff; line-height: 1.4; }
+        .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+        .ct-lane-work { font-size: 0.66rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+        .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
         .ct-badge.head { background: #4caf50; }
         .ct-badge.tail { background: #ab47bc; }
         .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
-        .ct-tag-btn { width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--color-lines); background: var(--color-surface); font-size: 11px; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
-        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); }
+        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
         .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
         .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
-        .ct-gantt-chart-area { flex: 1; overflow: auto; background: #ffffff; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); }
         .ct-gantt-wrapper { display: inline-block; }
-        .ct-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--color-text-secondary); padding: 8px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-lg, 8px); }
-        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+        /* ── 범례 (헤어라인 박스) ── */
+        .ct-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.72rem; color: var(--color-text-secondary); padding: 10px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
+        .ct-legend > span { display: inline-flex; align-items: center; }
+        /* 범례 스와치 색은 SVG fill 리터럴과 1:1 정합되어야 하므로 동일 hex 유지(보더/모서리만 스위스화) */
+        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
         .ct-sw-going { background: #5b9bd5; }
         .ct-sw-head { background: #4caf50; }
         .ct-sw-tail { background: #ab47bc; }
@@ -86,10 +98,15 @@
         .ct-sw-idle-band { background: #eceff1; border: 1px solid #cfd8dc; }
         .ct-sw-band-a { background: #fffde7; border: 1px solid #f0e68c; }
         .ct-sw-band-b { background: #f0f4f8; border: 1px solid #d4dce4; }
-        .spinner { width: 24px; height: 24px; border: 3px solid var(--color-lines); border-top-color: var(--color-primary); border-radius: 50%; animation: ct-spin 1s linear infinite; }
-        @keyframes ct-spin { to { transform: rotate(360deg); } }
-        .alert { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
-        .alert-error { background: color-mix(in srgb, var(--color-error, #e53935) 12%, var(--color-surface)); color: var(--color-error, #e53935); border: 1px solid color-mix(in srgb, var(--color-error, #e53935) 35%, transparent); }
+
+        /* ── 다크 보강 (dark-theme.css 미링크 → ct-* 계열 인라인 오버라이드) ── */
+        .dark-theme .ct-sidebar-header { background: var(--color-surface-variant); }
+        .dark-theme .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 18%, var(--color-surface)); }
+        .dark-theme .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 18%, var(--color-surface)); }
+        .dark-theme .ct-tag-btn { background: var(--color-surface-variant); }
+        /* 간트 SVG 내부는 buildSvg() 가 흰 배경/고정색을 그리므로 다크에서도 차트 캔버스는 밝게 유지(가독성).
+           래퍼/레인 영역만 다크 토큰으로 감싼다. */
+        .dark-theme .ct-gantt-chart-area { background: #ffffff; }
     </style>
 </head>
 
@@ -98,31 +115,46 @@
 
         <!-- 데모 만료 -->
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+            <div class="modal-content demo-blocked-card" style="max-width:480px;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">Call 간트</span>
-            <span class="dsp-badge">정적/격리</span>
+            <span class="dsp-title">Call 사이클</span>
+            <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
-            <a href="/call-test" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
+
+            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 오버레이 상태 -->
+            <div class="ct-pagehead">
+                <div class="ct-head">
+                    <span class="ct-index">04 / Call 사이클</span>
+                    <span class="ct-title">Call 사이클 간트</span>
+                </div>
+                <div class="spacer"></div>
+                <span class="ct-live" :class="(isLoading || overlayBusy) ? 'is-busy' : ''"
+                      :title="(isLoading || overlayBusy) ? '데이터/오버레이 갱신 중' : '읽기 전용 분석'">
+                    <span class="ct-live-dot"></span>
+                    <span x-text="(isLoading || overlayBusy) ? 'SYNC · 갱신중' : 'READ · 읽기전용'"></span>
+                </span>
+            </div>
+
             <div class="call-test-page">
                 <!-- 컨트롤 -->
                 <div class="call-test-controls">
                     <div class="ct-field">
                         <label>Flow</label>
-                        <select class="form-field" x-model="selectedFlow" @change="onFlowChanged()">
+                        <select class="form-select" x-model="selectedFlow" @change="onFlowChanged()">
                             <option value="">-- Flow 선택 --</option>
                             <template x-for="f in flows" :key="f"><option :value="f" x-text="f"></option></template>
                         </select>
@@ -142,7 +174,7 @@
                         <button class="btn btn-sm" @click="setRecentHours(1)">최근 1시간</button>
                         <button class="btn btn-sm" @click="setRecentHours(24)">최근 24시간</button>
                         <button class="btn btn-filled btn-sm" @click="load()" :disabled="isLoading || !selectedFlow">
-                            <span class="material-icons" style="font-size:14px; vertical-align:middle;">refresh</span>
+                            <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
                             새로고침
                         </button>
                     </div>
@@ -150,7 +182,7 @@
 
                 <!-- 오류 -->
                 <div class="alert alert-error" x-show="errorMessage">
-                    <span class="material-icons">error</span>
+                    <span class="material-icons">error_outline</span>
                     <span x-text="errorMessage"></span>
                 </div>
 
@@ -189,21 +221,23 @@
                             <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
                             <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
                             <template x-if="avgCycleMs !== null">
-                                <div class="ct-info-item"><span class="ct-info-k">CT 평균 (Head↑→Head↑)</span><span class="ct-info-v" x-text="formatMs(avgCycleMs)"></span></div>
+                                <div class="ct-info-item"><span class="ct-info-k">CT 평균 (Head↑→Head↑)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
                             </template>
                             <template x-if="avgActiveMs !== null">
-                                <div class="ct-info-item"><span class="ct-info-k">활성 평균 (Head↑→Tail↑)</span><span class="ct-info-v" x-text="formatMs(avgActiveMs)"></span></div>
+                                <div class="ct-info-item"><span class="ct-info-k">활성 평균 (Head↑→Tail↑)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgActiveMs)"></span></div>
                             </template>
                             <div class="ct-info-item">
                                 <span class="ct-info-k">Zoom</span>
-                                <input type="range" min="0.5" max="3.0" step="0.1" x-model.number="zoom" @input="persistZoom()" class="ct-zoom" />
-                                <span class="ct-zoom-val" x-text="zoom.toFixed(1) + 'x'"></span>
+                                <span style="display:inline-flex; align-items:center; gap:8px;">
+                                    <input type="range" min="0.5" max="3.0" step="0.1" x-model.number="zoom" @input="persistZoom()" class="ct-zoom" />
+                                    <span class="ct-zoom-val" x-text="zoom.toFixed(1) + 'x'"></span>
+                                </span>
                             </div>
                             <button class="btn btn-sm btn-outlined" @click="restoreProjectHeadTail()"
                                     title="AASX 프로젝트에 정의된 Head/Tail 로 되돌립니다" style="margin-left:auto;">
                                 기본값 복원
                             </button>
-                            <button class="btn btn-sm btn-outlined" @click="clearHeadTail()" :disabled="headCallId === null && tailCallId === null">
+                            <button class="btn btn-sm btn-outlined color-default" @click="clearHeadTail()" :disabled="headCallId === null && tailCallId === null">
                                 H/T 해제
                             </button>
                         </div>

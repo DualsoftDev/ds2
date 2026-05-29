@@ -117,6 +117,17 @@ public class CallTestController : ControllerBase
             .OrderBy(l => l.LaneIndex)
             .ToList();
 
+        // 시간 범위에 데이터가 없는 Call 도 표시 — 빈 인터벌로 추가.
+        var laneIds = lanes.Select(l => l.CallId).ToHashSet();
+        int nextLane = lanes.Count > 0 ? lanes.Max(l => l.LaneIndex) + 1 : 0;
+        foreach (var c in _callMapper.GetAllCallTagPairs()
+                     .Where(p => string.Equals(p.FlowName, req.FlowName, StringComparison.OrdinalIgnoreCase))
+                     .Where(c => !laneIds.Contains(c.CallId.ToString())))
+        {
+            lanes.Add(new CtLaneDto(c.CallId.ToString(), c.CallName, c.WorkName, nextLane++,
+                new List<CtIntervalDto>(), c.InTag, c.OutTag));
+        }
+
         // 프로젝트 정의 Head/Tail (override 안 했을 때 적용할 기본값) — 클라이언트가 _userOverrodeHeadTail
         // 플래그로 적용 여부를 결정하지만, 서버는 항상 "현재 요청에서 어떤 H/T 로 boundary 를 구할지" 를 확정해야 한다.
         var (projHeadId, projTailId) = ResolveProjectHeadTail(req.FlowName, lanes);

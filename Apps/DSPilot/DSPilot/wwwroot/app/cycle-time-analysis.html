@@ -4,144 +4,137 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cycle Time Analysis — DSPilot</title>
+    <title>사이클 분석 — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #5 (Cycle-Time Analysis). 가장 무거운 페이지.
-      서버=C#(/api/cycle-analysis/flows|latest-time|gantt-data), 뷰=Alpine + 순수 JS SVG 렌더.
-      base 갠트 SVG / lane 정렬 / zoom / 바 선택 오버레이 / GAP top-5 / CSV 를 전부 클라이언트에서 처리.
-      crosshair 는 /js/gantt-crosshair.js 그대로 재사용, 툴팁/scrollIntoView 는 /js/cycle-time-chart.js 재사용
-      (단 dotnetRef 클릭 invoke 는 사용하지 않고 클릭을 로컬 Alpine state 로 처리).
-      cut-2: Excel 내보내기(POST /api/cycle-analysis/export-excel)·병목 GAP scroll-to+펄스 하이라이트 추가.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (Cycle-Time Analysis).
+      서버=C#(/api/cycle-analysis/flows|latest-time|gantt-data|export-excel), 뷰=Alpine + 순수 JS SVG 렌더.
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(gantt-*/sel-*/gantt-info-*)만 인라인.
+      base 갠트 SVG / lane 정렬 / zoom / 바 선택 오버레이 / GAP top-5 / CSV / Excel 을 전부 클라이언트에서 처리.
+      crosshair=/js/gantt-crosshair.js, 툴팁/scrollIntoView=/js/cycle-time-chart.js 재사용(클릭은 로컬 Alpine state).
+      gantt-* SVG 색은 swiss.css 가 재정의한 var(--gantt-*) 토큰을 그대로 참조 → 다크 자동.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+
+        /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
-        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1600px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
-        .btn.btn-primary:hover { filter: brightness(1.05); }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 20px; max-width: 1600px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+
+        /* ── 콘텐츠 페이지 헤더 (셸이 제거하지 않는 영역 → 실시간/조회 상태 노출) ── */
+        .cta-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); flex-wrap: wrap; }
+        .cta-toolbar .cta-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .cta-toolbar .cta-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .cta-toolbar .cta-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .cta-status { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+        .cta-status .cta-status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .cta-status.is-loaded { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+        .cta-status.is-loading { color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 50%, transparent); }
+        .cta-status.is-loading .cta-status-dot { animation: cta-pulse 1.4s ease-in-out infinite; }
+        @keyframes cta-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* ── CycleTimeAnalysis.razor.css (스코프드) 전부 인라인 ── */
-        .cycle-time-analysis { padding: 4px 0; width: 100%; margin: 0 auto; min-width: 0; box-sizing: border-box; }
-        .chart-filter-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; box-shadow: var(--shadow-card); }
-        .chart-filter-panel h4 { margin: 0 0 15px 0; color: var(--color-text-primary); font-size: 1.1rem; }
-        .filter-row { display: flex; gap: 15px; align-items: flex-end; margin-bottom: 10px; flex-wrap: wrap; }
-        .filter-group { min-width: 0; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-        .filter-group label { font-size: 0.9rem; font-weight: 500; color: var(--color-text-secondary); }
+        /* ── 필터 패널 (스위스 헤어라인 박스) ── */
+        .cycle-time-analysis { width: 100%; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+        .chart-filter-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 14px; }
+        .chart-filter-panel h4 { margin: 0 0 14px 0; color: var(--color-text-primary); font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
+        .filter-row { display: flex; gap: 16px; align-items: flex-end; margin-bottom: 10px; flex-wrap: wrap; }
+        .filter-row:last-child { margin-bottom: 0; }
+        .filter-group { min-width: 0; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .filter-group > label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
         .filter-group input[type="datetime-local"], .filter-group select { min-width: 150px; }
-        .filter-group input[type="range"] { flex: 1; }
-        .time-preset-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-        .time-preset-buttons .btn-sm { font-size: 0.75rem; padding: 2px 8px; }
+        .filter-group input[type="range"] { flex: 1; accent-color: var(--color-primary); }
+        .filter-zoom-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.82rem; color: var(--color-text-primary); }
+        .time-preset-buttons { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 
-        /* 병목 배너 */
-        .bottleneck-banner { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 18px; margin-bottom: 16px; border: none; border-radius: 10px; cursor: pointer; font: inherit; transition: filter 0.15s ease, transform 0.1s ease; }
-        .bottleneck-banner-active { background: linear-gradient(135deg, #c62828, #ef5350); color: #fff; box-shadow: 0 4px 12px rgba(198,40,40,0.35); }
-        .bottleneck-banner-active:hover { filter: brightness(1.05); }
-        .bottleneck-banner-active:active { transform: translateY(1px); }
-        .bottleneck-banner-muted { background: var(--color-surface); color: var(--color-text-secondary); border: 1px solid var(--color-lines); cursor: default; }
-        .bottleneck-icon { font-size: 26px !important; }
-        .bottleneck-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.95; }
-        .bottleneck-value { font-size: 1.5rem; font-weight: 800; font-family: 'Consolas','Roboto Mono',monospace; }
-        .bottleneck-unit { font-size: 0.95rem; font-weight: 600; margin-left: 2px; }
-        .bottleneck-lane { font-size: 0.9rem; font-weight: 600; opacity: 0.95; }
-        .bottleneck-cta { margin-left: auto; font-size: 0.82rem; font-weight: 600; opacity: 0.9; }
+        /* 병목 배너 — swiss.css 의 .bottleneck-banner / -active / -muted / -icon / -label / -value / -unit / -lane / -cta 사용. 여백만 보정. */
+        .bottleneck-banner { margin-top: 0; margin-bottom: 14px; }
 
-        /* Gantt Info Bar */
-        .gantt-info-bar { background: linear-gradient(135deg, var(--gantt-info-from, #455a64) 0%, var(--gantt-info-to, #263238) 100%); color: white; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: flex; gap: 30px; flex-wrap: wrap; box-shadow: 0 4px 12px var(--gantt-info-shadow, rgba(0,0,0,0.25)); }
-        .info-item { display: flex; gap: 8px; align-items: center; }
-        .info-item .label { font-size: 0.85rem; opacity: 0.9; font-weight: 500; }
-        .info-item .value { font-size: 0.95rem; font-weight: 600; }
-        .gantt-info-controls { display: flex; align-items: center; gap: 10px; margin-left: 12px; flex-wrap: wrap; min-width: 0; }
-        .gantt-info-controls .gap-picker-select { max-width: 100%; }
-        .gantt-info-label { display: flex; align-items: center; gap: 4px; cursor: pointer; color: white; font-size: 13px; }
-        .gantt-info-separator { color: rgba(255, 255, 255, 0.3); margin: 0 2px; }
-        .gantt-info-hint { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
-        .gantt-idle-legend { display: flex; align-items: center; gap: 5px; font-size: 13px; color: white; opacity: 0.9; }
-        .gantt-idle-swatch { display: inline-block; width: 16px; height: 12px; background: #9e9e9e; opacity: 0.5; border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.4); }
-        .gantt-info-export { margin-left: auto; background: rgba(255, 255, 255, 0.15); color: white; border: 1px solid rgba(255, 255, 255, 0.3); white-space: nowrap; }
+        /* Gantt Info Bar — 평면 잉크 바, 헤어라인, 모노 수치 */
+        .gantt-info-bar { background: var(--color-surface-variant); color: var(--color-text-primary); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 14px; display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
+        .info-item { display: flex; gap: 7px; align-items: baseline; }
+        .info-item .label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
+        .info-item .value { font-size: 0.85rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
+        .gantt-info-controls { display: flex; align-items: center; gap: 10px; margin-left: 8px; flex-wrap: wrap; min-width: 0; }
+        .gantt-info-controls .gap-picker-select { max-width: 100%; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.74rem; }
+        .gantt-info-label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--color-text-primary); font-size: 0.8rem; font-weight: 600; }
+        .gantt-info-label input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; }
+        .gantt-info-separator { color: var(--color-lines-strong); margin: 0 2px; }
+        .gantt-info-hint { font-size: 0.68rem; color: var(--color-text-secondary); }
+        .gantt-idle-legend { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); }
+        .gantt-idle-swatch { display: inline-block; width: 16px; height: 12px; background: var(--gantt-idle-swatch-bg, #9e9e9e); opacity: 0.55; border-radius: 1px; border: 1px solid var(--color-lines-strong); }
+        .gantt-info-export { margin-left: 0; white-space: nowrap; }
+        .gantt-info-actions { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
 
         /* Gantt Chart Container */
-        .gantt-chart-container { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 380px); min-height: 600px; box-shadow: var(--shadow-card); }
+        .gantt-chart-container { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 16px; margin-bottom: 0; overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 380px); min-height: 600px; flex: 1; }
         .gantt-chart-wrapper { display: inline-block; min-width: 100%; }
-        .gantt-chart { display: block; border: 1px solid var(--color-lines); border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); }
+        .gantt-chart { display: block; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); }
 
-        /* Signal selection panel */
-        .sel-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 14px; box-shadow: var(--shadow-card); animation: slideIn 0.3s ease-out; }
-        .sel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-lines); }
-        .sel-selected-signal { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
-        .sel-selected-signal strong { font-size: 1rem; color: var(--color-text-primary); }
-        .sel-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; }
-        .sel-badge-selected { background: rgba(var(--color-warning-rgb, 255, 152, 0), 0.12); color: var(--color-warning); border: 1px solid rgba(var(--color-warning-rgb, 255, 152, 0), 0.35); }
-        .sel-badge-next { background: rgba(var(--color-success-rgb, 76, 175, 80), 0.12); color: var(--color-success); border: 1px solid rgba(var(--color-success-rgb, 76, 175, 80), 0.35); }
-        .sel-event-type { font-size: 0.8rem; color: var(--color-text-secondary); background: var(--color-background); padding: 1px 6px; border-radius: 4px; }
-        .sel-time { font-size: 0.82rem; color: var(--color-text-disabled); font-family: 'Consolas', monospace; }
-        .sel-info-row { display: flex; gap: 10px; align-items: stretch; }
-        .sel-gap-card { flex: 1; padding: 10px 14px; background: var(--color-background); border: 1px solid var(--color-lines); border-radius: 10px; text-align: center; min-width: 0; }
-        .sel-gap-direction { font-size: 0.72rem; font-weight: 700; color: var(--color-text-disabled); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        /* Signal selection panel (sel-* 패밀리 — 토큰 기반, 다크 자동) */
+        .sel-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 14px; animation: slideIn 0.25s ease-out; }
+        .sel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-lines); flex-wrap: wrap; }
+        .sel-selected-signal { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; flex-wrap: wrap; }
+        .sel-selected-signal strong { font-size: 0.95rem; font-weight: 700; color: var(--color-text-primary); }
+        .sel-badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+        .sel-badge-selected { background: color-mix(in srgb, var(--color-warning) 12%, transparent); color: var(--color-warning); border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent); }
+        .sel-badge-next { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent); }
+        .sel-event-type { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); background: var(--color-surface-variant); border: 1px solid var(--color-lines); padding: 1px 7px; border-radius: var(--radius-sm); }
+        .sel-time { font-size: 0.78rem; color: var(--color-text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .sel-info-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+        .sel-gap-card { flex: 1; min-width: 160px; padding: 10px 14px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); text-align: center; }
+        .sel-gap-direction { font-size: 0.62rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .sel-arrow { display: inline-block; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
-        .sel-arrow-left { border-right: 6px solid var(--color-text-disabled); }
-        .sel-arrow-right { border-left: 6px solid var(--color-text-disabled); }
-        .sel-gap-value { font-size: 1.1rem; font-weight: 700; color: var(--color-text-primary); margin-bottom: 2px; }
-        .sel-gap-signal { font-size: 0.78rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sel-arrow-left { border-right: 6px solid var(--color-text-secondary); }
+        .sel-arrow-right { border-left: 6px solid var(--color-text-secondary); }
+        .sel-gap-value { font-size: 1.1rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-primary); margin-bottom: 3px; }
+        .sel-gap-signal { font-size: 0.74rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sel-gap-signal span { color: var(--color-text-disabled); }
-        .sel-cycle-card { flex: 1.2; padding: 10px 14px; background: rgba(var(--color-success-rgb, 76, 175, 80), 0.08); border: 2px solid rgba(var(--color-success-rgb, 76, 175, 80), 0.40); border-radius: 10px; text-align: center; min-width: 0; }
-        .sel-cycle-label { font-size: 0.72rem; font-weight: 700; color: var(--color-success); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-        .sel-cycle-value { font-size: 1.3rem; font-weight: 800; color: var(--color-success); margin-bottom: 2px; }
-        .sel-cycle-signal { font-size: 0.78rem; color: var(--color-text-secondary); display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sel-cycle-card { flex: 1.2; min-width: 180px; padding: 10px 14px; background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-success) 45%, transparent); border-radius: var(--radius-sm); text-align: center; }
+        .sel-cycle-label { font-size: 0.62rem; font-weight: 700; color: var(--color-success); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 3px; }
+        .sel-cycle-value { font-size: 1.3rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-success); margin-bottom: 3px; }
+        .sel-cycle-signal { font-size: 0.74rem; color: var(--color-text-secondary); display: flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         /* Loading / empty / alert */
-        .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px; }
-        .chart-loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: white; font-weight: 600; z-index: 100; border-radius: 12px; pointer-events: none; }
-        .chart-loading-overlay .spinner { width: 40px; height: 40px; margin-bottom: 0; }
-        .spinner { border: 4px solid var(--color-lines); border-top: 4px solid var(--color-primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-        .empty-state { text-align: center; padding: 80px; color: var(--color-text-secondary); }
-        .empty-state .material-icons { font-size: 64px; color: var(--color-text-disabled); margin-bottom: 15px; }
-        .empty-state p { margin: 10px 0; font-size: 1.1rem; }
-        .empty-state-hint { font-size: 0.85rem; color: var(--color-text-disabled); }
-        .alert { padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
-        .alert-error { background: rgba(var(--color-error-rgb, 244, 67, 54), 0.1); border: 1px solid rgba(var(--color-error-rgb, 244, 67, 54), 0.3); color: var(--color-error); }
-        .alert .material-icons { font-size: 24px; }
+        .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 72px; color: var(--color-text-secondary); }
+        .loading-container p { margin-top: 16px; font-size: 0.85rem; }
+        .chart-loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--color-surface) 70%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--color-text-primary); font-weight: 700; font-size: 0.82rem; z-index: 100; border-radius: var(--radius-md); pointer-events: none; backdrop-filter: blur(1px); }
+        .empty-state { text-align: center; padding: 72px 24px; color: var(--color-text-secondary); }
+        .empty-state .material-icons { font-size: 56px; color: var(--color-text-disabled); margin-bottom: 12px; }
+        .empty-state p { margin: 8px 0; font-size: 1rem; }
+        .empty-state-hint { font-size: 0.8rem; color: var(--color-text-disabled); }
 
-        /* SVG Gantt styles — razor.css 의 ::deep 규칙을 비스코프드로 인라인 */
-        .gantt-bg { fill: var(--gantt-bg, #ffffff); }
-        .gantt-idle-region { fill: #9e9e9e; opacity: 0.25; pointer-events: none; }
-        .gantt-idle-label { fill: #666; font-size: 11px; font-weight: 600; opacity: 0.7; pointer-events: none; }
-        .gantt-lane-even { fill: var(--gantt-lane-even, #f7f9fb); stroke: var(--gantt-lane-border, #e0e6ea); stroke-width: 1; }
-        .gantt-lane-odd { fill: var(--gantt-lane-odd, #eef2f5); stroke: var(--gantt-lane-border, #e0e6ea); stroke-width: 1; }
-        .gantt-lane-center { stroke: var(--gantt-lane-center, #d5dde2); stroke-width: 1; }
-        .gantt-lane-label { fill: var(--gantt-label, #37474f); }
-        .gantt-lane-sublabel { fill: var(--gantt-sublabel, #90a4ae); }
-        .gantt-axis { stroke: var(--gantt-axis, #607d8b); stroke-width: 2; }
-        .gantt-tick { stroke: var(--gantt-axis, #607d8b); stroke-width: 1; }
-        .gantt-tick-label { fill: var(--gantt-tick-label, #607d8b); }
-        .gantt-bar-in { fill: var(--gantt-bar-in, #42a5f5); stroke: var(--gantt-bar-in-stroke, #1e88e5); stroke-width: 1; }
-        .gantt-bar-out { fill: var(--gantt-bar-out, #ec407a); stroke: var(--gantt-bar-out-stroke, #d81b60); stroke-width: 1; }
-        .gantt-bar-label { fill: white; }
-        .gantt-gap-overlay { fill: var(--gantt-gap-fill, rgba(244,67,54,0.15)); stroke: var(--gantt-gap-stroke, #f44336); stroke-width: 2; }
-        .gantt-gap-text { fill: var(--gantt-gap-text, #c62828); }
-        .gantt-gap-label-bg { fill: rgba(255, 255, 255, 0.92); stroke: var(--gantt-gap-text, #c62828); stroke-width: 1.5; }
-        .gantt-ct-label-bg { fill: rgba(255, 255, 255, 0.92); stroke: var(--gantt-ct-text, #2E7D32); stroke-width: 1.5; }
-        .gantt-cycletime-overlay { fill: var(--gantt-ct-fill, rgba(76,175,80,0.12)); stroke: var(--gantt-ct-stroke, #4caf50); stroke-width: 2; }
-        .gantt-cycletime-text { fill: var(--gantt-ct-text, #2e7d32); }
-        .gantt-cycletime-start { stroke: var(--gantt-ct-start, #4caf50); stroke-width: 2; }
-        .gantt-cycletime-end { stroke: var(--gantt-ct-end, #2e7d32); stroke-width: 2; }
+        /* ── SVG Gantt 스타일 — JS 렌더러(C# 이식)가 emit/target. 색은 var(--gantt-*) 토큰(다크 자동). 구조 CSS 보존. ── */
+        .gantt-bg { fill: var(--gantt-bg); }
+        .gantt-idle-region { fill: var(--gantt-idle-region-fill, #9e9e9e); opacity: 0.22; pointer-events: none; }
+        .gantt-idle-label { fill: var(--gantt-sublabel); font-size: 11px; font-weight: 600; opacity: 0.8; pointer-events: none; }
+        .gantt-lane-even { fill: var(--gantt-lane-even); stroke: var(--gantt-lane-border); stroke-width: 1; }
+        .gantt-lane-odd { fill: var(--gantt-lane-odd); stroke: var(--gantt-lane-border); stroke-width: 1; }
+        .gantt-lane-center { stroke: var(--gantt-lane-center); stroke-width: 1; }
+        .gantt-lane-label { fill: var(--gantt-label); }
+        .gantt-lane-sublabel { fill: var(--gantt-sublabel); }
+        .gantt-axis { stroke: var(--gantt-axis); stroke-width: 2; }
+        .gantt-tick { stroke: var(--gantt-axis); stroke-width: 1; }
+        .gantt-tick-label { fill: var(--gantt-tick-label); }
+        .gantt-bar-in { fill: var(--gantt-bar-in); stroke: var(--gantt-bar-in-stroke); stroke-width: 1; }
+        .gantt-bar-out { fill: var(--gantt-bar-out); stroke: var(--gantt-bar-out-stroke); stroke-width: 1; }
+        .gantt-bar-label { fill: #fff; }
+        .gantt-gap-overlay { fill: var(--gantt-gap-fill); stroke: var(--gantt-gap-stroke); stroke-width: 2; }
+        .gantt-gap-text { fill: var(--gantt-gap-text); }
+        .gantt-gap-label-bg { fill: var(--gantt-connector-bg); stroke: var(--gantt-gap-text); stroke-width: 1.5; }
+        .gantt-ct-label-bg { fill: var(--gantt-connector-bg); stroke: var(--gantt-ct-text); stroke-width: 1.5; }
+        .gantt-cycletime-overlay { fill: var(--gantt-ct-fill); stroke: var(--gantt-ct-stroke); stroke-width: 2; }
+        .gantt-cycletime-text { fill: var(--gantt-ct-text); }
+        .gantt-cycletime-start { stroke: var(--gantt-ct-start); stroke-width: 2; }
+        .gantt-cycletime-end { stroke: var(--gantt-ct-end); stroke-width: 2; }
 
         /* 병목 GAP scroll-to 하이라이트 — focusGap() 이 ~1.2s 동안 부여 */
         @keyframes gantt-gap-pulse {
@@ -151,50 +144,71 @@
             100% { opacity: 0.0; }
         }
         .gantt-gap-pulse { animation: gantt-gap-pulse 1.2s ease-in-out 1; }
-        .gantt-gap-pulse-fill { fill: var(--gantt-gap-fill, rgba(244,67,54,0.30)); }
+        .gantt-gap-pulse-fill { fill: var(--gantt-gap-fill); }
         .gantt-gap-pulse-outline {
             fill: none;
-            stroke: var(--gantt-gap-stroke, #f44336);
+            stroke: var(--gantt-gap-stroke);
             stroke-width: 3;
             stroke-dasharray: 6,4;
         }
 
-        @media (max-width: 1200px) { .gantt-chart-container { max-height: calc(100vh - 450px); min-height: 500px; } .gantt-info-bar { gap: 15px; } }
+        /* ── 다크 보강 (old dark-theme.css 미링크 → 페이지 고유 클래스의 다크 처리 인라인) ── */
+        .dark-theme .gantt-idle-swatch { background: rgba(244, 242, 236, 0.40); }
+        .dark-theme .gantt-idle-region { fill: rgba(244, 242, 236, 0.30); }
+        .dark-theme .gantt-bar-label { fill: #fff; }
+
+        @media (max-width: 1200px) { .gantt-chart-container { max-height: calc(100vh - 450px); min-height: 500px; } .gantt-info-bar { gap: 16px; } }
         @media (max-width: 1024px) { .gantt-chart-container { max-height: calc(100vh - 500px); min-height: 400px; } }
-        @media (max-width: 768px) { .filter-row { flex-direction: column; align-items: stretch; } .gantt-info-bar { flex-direction: column; gap: 10px; } .gantt-chart-container { max-height: 400px; min-height: 300px; } }
+        @media (max-width: 768px) { .filter-row { flex-direction: column; align-items: stretch; } .gantt-info-bar { flex-direction: column; align-items: stretch; gap: 12px; } .gantt-info-actions { margin-left: 0; } .gantt-chart-container { max-height: 400px; min-height: 300px; } }
     </style>
 </head>
 
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cycleAnalysisApp()" x-init="init()" x-cloak>
 
+        <!-- 데모 만료 -->
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+            <div class="modal-content demo-blocked-card" style="max-width:480px;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">Cycle Time Analysis</span>
-            <span class="dsp-badge">정적/격리</span>
+            <span class="dsp-title">사이클 분석</span>
+            <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
-            <a href="/cycle-time-analysis" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
+
+            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 조회 상태 -->
+            <div class="cta-toolbar">
+                <div class="cta-head">
+                    <span class="cta-index">03 / 사이클</span>
+                    <span class="cta-title">사이클 분석</span>
+                </div>
+                <div class="spacer"></div>
+                <span class="cta-status" :class="loading ? 'is-loading' : (data && data.items.length ? 'is-loaded' : '')"
+                      :title="loading ? '갠트 데이터 조회 중' : (data && data.items.length ? '갠트 렌더링 완료' : '대기')">
+                    <span class="cta-status-dot"></span>
+                    <span x-text="loading ? 'LOADING · 조회중' : (data && data.items.length ? ('LOADED · ' + data.renderedEventCount) : 'IDLE · 대기')"></span>
+                </span>
+            </div>
+
             <div class="cycle-time-analysis">
                 <!-- Flow 선택 -->
                 <div class="chart-filter-panel">
                     <div class="filter-row">
                         <div class="filter-group">
                             <label>Flow 선택</label>
-                            <select class="form-field" x-model="selectedFlow" @change="onFlowChanged()">
+                            <select class="form-select" x-model="selectedFlow" @change="onFlowChanged()">
                                 <option value="">-- Flow 선택 --</option>
                                 <template x-for="f in flows" :key="f"><option :value="f" x-text="f"></option></template>
                             </select>
@@ -210,24 +224,24 @@
                             <label>시작 시간</label>
                             <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeRangeChanged()" />
                             <div class="time-preset-buttons">
-                                <button class="btn btn-sm" @click="setDurationMinutes(1)">시작 1분</button>
-                                <button class="btn btn-sm" @click="setDurationMinutes(2)">시작 2분</button>
-                                <button class="btn btn-sm" @click="setDurationMinutes(5)">시작 5분</button>
-                                <button class="btn btn-sm" @click="setDurationMinutes(10)">시작 10분</button>
-                                <button class="btn btn-sm" @click="setDurationMinutes(30)">시작 30분</button>
-                                <button class="btn btn-sm" @click="setDurationMinutes(60)">시작 1시간</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(1)">시작 1분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(2)">시작 2분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(5)">시작 5분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(10)">시작 10분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(30)">시작 30분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setDurationMinutes(60)">시작 1시간</button>
                             </div>
                         </div>
                         <div class="filter-group">
                             <label>종료 시간</label>
                             <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeRangeChanged()" />
                             <div class="time-preset-buttons">
-                                <button class="btn btn-sm" @click="setRecentMinutes(1)">최근 1분</button>
-                                <button class="btn btn-sm" @click="setRecentMinutes(2)">최근 2분</button>
-                                <button class="btn btn-sm" @click="setRecentMinutes(5)">최근 5분</button>
-                                <button class="btn btn-sm" @click="setRecentMinutes(10)">최근 10분</button>
-                                <button class="btn btn-sm" @click="setRecentMinutes(30)">최근 30분</button>
-                                <button class="btn btn-sm" @click="setRecentMinutes(60)">최근 1시간</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(1)">최근 1분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(2)">최근 2분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(5)">최근 5분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(10)">최근 10분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(30)">최근 30분</button>
+                                <button class="btn btn-sm btn-outlined color-default" @click="setRecentMinutes(60)">최근 1시간</button>
                             </div>
                         </div>
                     </div>
@@ -235,7 +249,7 @@
                     <div class="filter-row" x-show="data && data.items.length">
                         <div class="filter-group">
                             <label>정렬 방식</label>
-                            <select class="form-field" x-model="chartSort" @change="onSortChanged()">
+                            <select class="form-select" x-model="chartSort" @change="onSortChanged()">
                                 <option value="ByLane">Lane별</option>
                                 <option value="ByTime">시간순</option>
                                 <option value="ByCallName">Call 이름순</option>
@@ -244,15 +258,17 @@
                         </div>
                         <div class="filter-group">
                             <label>Zoom</label>
-                            <input type="range" min="0.5" max="3.0" step="0.1" x-model="zoomLevel" @input="applyZoom()" />
-                            <span x-text="parseFloat(zoomLevel).toFixed(1) + 'x'"></span>
+                            <div class="d-flex align-center gap-3">
+                                <input type="range" min="0.5" max="3.0" step="0.1" x-model="zoomLevel" @input="applyZoom()" />
+                                <span class="filter-zoom-value" x-text="parseFloat(zoomLevel).toFixed(1) + 'x'"></span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 에러 -->
-                <div class="alert alert-error" x-show="error">
-                    <span class="material-icons">error</span>
+                <div class="alert alert-error mb-4" x-show="error">
+                    <span class="material-icons">error_outline</span>
                     <span x-text="error"></span>
                 </div>
 
@@ -264,8 +280,8 @@
 
                 <!-- 결과 -->
                 <template x-if="data && data.items.length">
-                    <div>
-                        <!-- 병목 배너 -->
+                    <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+                        <!-- 병목 배너 (swiss.css 가 스타일) -->
                         <button type="button"
                                 class="bottleneck-banner"
                                 :class="data.topGaps.length ? 'bottleneck-banner-active' : 'bottleneck-banner-muted'"
@@ -274,7 +290,7 @@
                             <span class="material-icons bottleneck-icon">warning_amber</span>
                             <span class="bottleneck-label">최대 GAP (병목)</span>
                             <template x-if="data.topGaps.length">
-                                <span style="display:flex; align-items:center; gap:12px; flex:1;">
+                                <span style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
                                     <span class="bottleneck-value" x-text="(data.topGaps[0].duration / 1000).toFixed(2)"><span class="bottleneck-unit">s</span></span>
                                     <span class="bottleneck-lane" x-text="data.topGaps[0].laneName"></span>
                                     <span class="bottleneck-cta">클릭하여 갠트에서 보기 →</span>
@@ -290,15 +306,15 @@
 
                         <!-- Info Bar -->
                         <div class="gantt-info-bar">
-                            <div class="info-item"><span class="label">Flow:</span><span class="value" x-text="data.flowName"></span></div>
-                            <div class="info-item"><span class="label">시간 범위:</span><span class="value" x-text="data.startTimeDisplay + ' ~ ' + data.endTimeDisplay"></span></div>
-                            <div class="info-item"><span class="label">총 이벤트:</span><span class="value" x-text="data.totalEventCount + ' (' + data.renderedEventCount + ' 렌더링)'"></span></div>
-                            <div class="info-item"><span class="label">Lane 수:</span><span class="value" x-text="data.totalLanes"></span></div>
+                            <div class="info-item"><span class="label">Flow</span><span class="value" x-text="data.flowName"></span></div>
+                            <div class="info-item"><span class="label">시간 범위</span><span class="value" x-text="data.startTimeDisplay + ' ~ ' + data.endTimeDisplay"></span></div>
+                            <div class="info-item"><span class="label">총 이벤트</span><span class="value" x-text="data.totalEventCount + ' (' + data.renderedEventCount + ' 렌더링)'"></span></div>
+                            <div class="info-item"><span class="label">Lane 수</span><span class="value" x-text="data.totalLanes"></span></div>
                             <div class="gantt-info-controls">
                                 <label class="gantt-info-label">
                                     <input type="checkbox" x-model="showGapOverlay" @change="renderOverlay()" :disabled="!data.topGaps.length" /> GAP
                                 </label>
-                                <select class="form-field gap-picker-select" x-model.number="selectedGapIndex" @change="onGapPicked()"
+                                <select class="form-select gap-picker-select" x-model.number="selectedGapIndex" @change="onGapPicked()"
                                         :disabled="!showGapOverlay || !data.topGaps.length" :style="(showGapOverlay && data.topGaps.length) ? 'opacity:1' : 'opacity:0.4'">
                                     <template x-if="!data.topGaps.length"><option value="-1">GAP 없음</option></template>
                                     <template x-for="(g, i) in data.topGaps" :key="i">
@@ -311,18 +327,18 @@
                                 </label>
                                 <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
                                 <template x-if="data.idleRegions.length">
-                                    <span style="display:flex;align-items:center;gap:5px;">
+                                    <span style="display:flex;align-items:center;gap:6px;">
                                         <span class="gantt-info-separator">|</span>
                                         <span class="gantt-idle-legend"><span class="gantt-idle-swatch"></span>비가동 구간</span>
                                     </span>
                                 </template>
                             </div>
-                            <div style="display:flex; gap:4px;">
-                                <button class="btn btn-sm gantt-info-export" @click="refreshLatest()" :disabled="loading" title="최신 데이터까지 포함해 다시 조회 (현재 윈도우 길이 유지)">
-                                    <span class="material-icons" style="font-size:14px;vertical-align:middle;margin-right:2px;">refresh</span>새로고침
+                            <div class="gantt-info-actions">
+                                <button class="btn btn-sm btn-outlined color-default gantt-info-export" @click="refreshLatest()" :disabled="loading" title="최신 데이터까지 포함해 다시 조회 (현재 윈도우 길이 유지)">
+                                    <span class="material-icons" style="font-size:15px;">refresh</span>새로고침
                                 </button>
-                                <button class="btn btn-sm gantt-info-export" @click="exportCsv()" :disabled="!data || !data.items.length">CSV 내보내기</button>
-                                <button class="btn btn-sm gantt-info-export" @click="exportExcel()" :disabled="!data || !data.items.length || exporting">
+                                <button class="btn btn-sm btn-outlined color-default gantt-info-export" @click="exportCsv()" :disabled="!data || !data.items.length">CSV 내보내기</button>
+                                <button class="btn btn-sm btn-filled gantt-info-export" @click="exportExcel()" :disabled="!data || !data.items.length || exporting">
                                     <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 내보내기'"></span>
                                 </button>
                             </div>
@@ -643,7 +659,7 @@
                         s += `<line class="gantt-cycletime-end" x1="${ctEndX.toFixed(2)}" y1="${G.TOP}" x2="${ctEndX.toFixed(2)}" y2="${G.TOP+totalH}"/>`;
                     }
 
-                    // 하이라이트 rect (선택/비교/이전/다음)
+                    // 하이라이트 rect (선택/비교/이전/다음) — 색은 swiss.css gantt 토큰으로 통일
                     const hl = (item, color, sw) => {
                         if (!item) return '';
                         const dl = (displayLaneIndex[item.lane] !== undefined) ? displayLaneIndex[item.lane] : item.lane;
@@ -653,10 +669,10 @@
                         const hw = Math.max(2, Math.max(item.durationMs, 1) * xScale);
                         return `<rect x="${hx.toFixed(2)}" y="${hy}" width="${hw.toFixed(2)}" height="${G.BAR_H}" rx="4" fill="none" stroke="${color}" stroke-width="${sw}" pointer-events="none"/>`;
                     };
-                    s += hl(this.selectedItem, '#ff9800', 3);
-                    s += hl(this.comparisonItem, '#8b5cf6', 3);
-                    s += hl(this.previousItem, '#ff9800', 2);
-                    s += hl(this.nextItem, '#26a69a', 2);
+                    s += hl(this.selectedItem, '#B5740E', 3);
+                    s += hl(this.comparisonItem, '#6B675A', 3);
+                    s += hl(this.previousItem, '#B5740E', 2);
+                    s += hl(this.nextItem, '#2E8B7A', 2);
 
                     // GAP 텍스트 라벨
                     if (this.showGapOverlay && gap) {

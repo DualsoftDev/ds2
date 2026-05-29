@@ -7,102 +7,148 @@
     <title>CCTV — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #4 (CCTV). 영상은 MediaMTX WHEP 로 브라우저 직접 연결 — /js/cctv-whep.js 그대로 재사용.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (CCTV).
+      영상은 MediaMTX WHEP 로 브라우저 직접 연결 — /js/cctv-whep.js 그대로 재사용.
       서버=C#(/api/cctv/config|status|sync), 뷰=Alpine. POST /sync 는 antiforgery 미적용 평범한 fetch.
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(cctv-*)만 인라인.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+
+        /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
         .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 
-        /* 간이 토스트 */
-        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 10px 18px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
-        .dsp-toast.success { background: #2e7d32; }
-        .dsp-toast.error { background: #c62828; }
+        /* ── CCTV 페이지 셸 ── */
+        .cctv-page { box-sizing: border-box; height: calc(100vh - 56px); padding: 16px 20px 12px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
 
-        /* ── Cctv.razor.css (스코프드) 에서 가져온 클래스 ── */
-        .cctv-page { box-sizing: border-box; height: calc(100vh - 56px); padding: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-        .cctv-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-        .cctv-header-actions { display: flex; align-items: center; gap: 12px; }
-        .cctv-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
-        .cctv-status.ok { color: #27ae60; background: rgba(39,174,96,0.12); }
-        .cctv-status.fail { color: #c0392b; background: rgba(192,57,43,0.12); }
-        .cctv-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 16px; color: var(--color-text-secondary); }
-        .cctv-overflow-note { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; background: var(--color-surface-variant, rgba(0,0,0,0.04)); border-left: 3px solid var(--color-primary); font-size: 12px; color: var(--color-text-secondary); }
-        .cctv-grid { flex: 1; min-height: 0; min-width: 0; display: grid; gap: 2px; }
+        /* ── 콘텐츠 페이지 헤더 ── */
+        .cctv-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); flex-shrink: 0; }
+        .cctv-head-main { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .cctv-head-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .cctv-head-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; margin: 0; }
+        .cctv-header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+        /* ── 라이브 상태 배지 ── */
+        .cctv-status { display: inline-flex; align-items: center; gap: 7px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); color: var(--color-text-secondary); }
+        .cctv-status .material-icons { font-size: 16px; }
+        .cctv-status.ok { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); background: color-mix(in srgb, var(--color-success) 8%, transparent); }
+        .cctv-status.ok .cctv-status-dot { animation: cctv-pulse 1.6s ease-in-out infinite; }
+        .cctv-status.fail { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 50%, transparent); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
+        .cctv-status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        @keyframes cctv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── 빈 상태 ── */
+        .cctv-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 64px 16px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .cctv-empty p { margin: 0; }
+
+        /* ── 표시 제한 안내 ── */
+        .cctv-overflow-note { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--color-lines); border-left: 3px solid var(--color-info); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-info) 7%, var(--color-surface)); font-size: 0.78rem; color: var(--color-text-secondary); flex-shrink: 0; }
+        .cctv-overflow-note .material-icons { font-size: 16px; color: var(--color-info); flex-shrink: 0; }
+
+        /* ── 영상 영역 (그리드/싱글 공통 컨테이너) ── */
+        .cctv-video-area { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+
+        /* ── 비디오 그리드 ── */
+        .cctv-grid { flex: 1; min-height: 0; min-width: 0; display: grid; gap: 8px; }
         .cctv-grid.count-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
         .cctv-grid.count-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
         .cctv-grid.count-3, .cctv-grid.count-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
         .cctv-grid.count-5, .cctv-grid.count-6 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
-        .cctv-tile { position: relative; background: #000; overflow: hidden; cursor: pointer; min-height: 0; min-width: 0; }
+
+        /* ── 비디오 타일 ── */
+        .cctv-tile { position: relative; background: #000; overflow: hidden; cursor: pointer; min-height: 0; min-width: 0; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); transition: border-color 0.12s ease; }
+        .cctv-tile:hover { border-color: var(--color-primary); }
         .cctv-tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-        .cctv-tile-label { position: absolute; left: 8px; bottom: 8px; display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; pointer-events: none; }
-        .cctv-tile-expand { position: absolute; top: 8px; right: 8px; color: #fff; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-        .cctv-tile:hover .cctv-tile-expand { opacity: 0.9; }
-        .cctv-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1200; padding: 24px; }
-        .cctv-modal { width: min(90vw, 1280px); background: #000; border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-4, 0 12px 48px rgba(0,0,0,0.5)); display: flex; flex-direction: column; }
-        .cctv-modal-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; color: #fff; background: #161b22; font-size: 14px; }
-        .cctv-modal-close { background: transparent; border: 0; color: #fff; cursor: pointer; display: flex; align-items: center; padding: 4px; border-radius: 4px; }
-        .cctv-modal-close:hover { background: rgba(255,255,255,0.12); }
-        .cctv-modal video { width: 100%; max-height: 80vh; object-fit: contain; background: #000; display: block; }
+        .cctv-tile-label { position: absolute; left: 8px; bottom: 8px; display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius-sm); background: rgba(18, 17, 13, 0.66); color: #fff; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; pointer-events: none; }
+        .cctv-tile-label .material-icons { font-size: 14px; }
+        .cctv-tile-hint { position: absolute; top: 8px; right: 8px; color: #fff; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.7); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,0.45); padding: 3px 7px; border-radius: var(--radius-sm); }
+        .cctv-tile-hint .material-icons { font-size: 15px; }
+        .cctv-tile:hover .cctv-tile-hint { opacity: 1; }
+
+        /* ── 싱글 뷰 ── */
+        .cctv-single { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; background: #000; }
+        .cctv-single-bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--color-surface); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; }
+        .cctv-single-bar .cctv-single-name { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.02em; flex: 1; display: flex; align-items: center; gap: 6px; }
+        .cctv-single-bar .cctv-single-name .material-icons { font-size: 17px; color: var(--color-text-secondary); }
+        .cctv-single video { flex: 1; width: 100%; min-height: 0; object-fit: contain; background: #000; display: block; }
+
+        /* ── 전체화면 시 비디오 영역 꽉 채우기 ── */
+        :fullscreen .cctv-video-area { height: 100vh; padding: 0; }
+        :fullscreen .cctv-single { border-radius: 0; border: none; }
+        :fullscreen .cctv-grid { border-radius: 0; }
+
+        /* ── 간이 토스트 ── */
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
+        .dsp-toast.success { border-left-color: var(--color-success); }
+        .dsp-toast.error { border-left-color: var(--color-error); }
     </style>
 </head>
 
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cctvApp()" x-init="init()" x-cloak>
 
+        <!-- 데모 만료 -->
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">CCTV</span>
-            <span class="dsp-badge">정적/격리</span>
+            <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
-            <a href="/cctv" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
             <div class="cctv-page">
+
+                <!-- 콘텐츠 페이지 헤더 -->
                 <section class="cctv-header">
-                    <h1 class="typo-h5" style="margin:0;">CCTV</h1>
+                    <div class="cctv-head-main">
+                        <span class="cctv-head-index">06 / CCTV</span>
+                        <h1 class="cctv-head-title" x-text="view === 'single' && selectedCam ? selectedCam.name : '실시간 영상'"></h1>
+                    </div>
                     <div class="cctv-header-actions">
                         <span class="cctv-status" :class="status.ok ? 'ok' : 'fail'">
-                            <span class="material-icons" style="font-size:16px;" x-text="status.ok ? 'videocam' : 'videocam_off'"></span>
+                            <span class="cctv-status-dot"></span>
+                            <span class="material-icons" x-text="status.ok ? 'videocam' : 'videocam_off'"></span>
                             <span x-text="status.message"></span>
                         </span>
+                        <template x-if="view === 'single'">
+                            <button class="btn btn-outlined btn-sm" @click="backToGrid()">
+                                <span class="material-icons" style="font-size:16px;">grid_view</span> 스플릿으로
+                            </button>
+                        </template>
                         <button class="btn btn-outlined btn-sm" @click="resync()" :disabled="syncing">
                             <span class="material-icons" style="font-size:16px;">sync</span> <span x-text="syncing ? '동기화 중...' : '재동기화'"></span>
                         </button>
+                        <template x-if="cameras.length > 0">
+                            <button class="btn btn-outlined btn-sm" @click="enterFullscreen()" title="전체화면">
+                                <span class="material-icons" style="font-size:16px;">fullscreen</span> 전체화면
+                            </button>
+                        </template>
                     </div>
                 </section>
 
                 <template x-if="cameras.length === 0">
                     <div class="cctv-empty">
                         <span class="material-icons" style="font-size:48px; opacity:.4;">videocam_off</span>
-                        <p>등록된 카메라가 없습니다.</p>
+                        <p class="typo-body2">등록된 카메라가 없습니다.</p>
                         <a class="btn btn-outlined btn-sm" href="/settings">
                             <span class="material-icons" style="font-size:16px;">settings</span> 설정에서 카메라 추가
                         </a>
@@ -110,42 +156,58 @@
                 </template>
 
                 <template x-if="cameras.length > 0">
-                    <div style="display:flex; flex-direction:column; gap:8px; flex:1; min-height:0;">
-                        <template x-if="hiddenCount > 0">
+                    <div class="cctv-video-area" x-ref="videoArea">
+
+                        <!-- 넘침 안내 (그리드 뷰에만 표시) -->
+                        <template x-if="view === 'grid' && hiddenCount > 0">
                             <div class="cctv-overflow-note">
-                                <span class="material-icons" style="font-size:16px;">info</span>
+                                <span class="material-icons">info</span>
                                 <span x-text="'FHD 디테일 모니터링을 위해 동시 표시는 최대 6대로 제한합니다. 현재 표시 ' + shownCount + '대 / 등록 ' + totalCount + '대 (나머지 ' + hiddenCount + '대는 다음 버전에서 페이지네이션 지원 예정).'"></span>
                             </div>
                         </template>
-                        <div :class="'cctv-grid count-' + cameras.length">
-                            <template x-for="cam in cameras" :key="cam.id">
-                                <div class="cctv-tile" @click="expand(cam)">
-                                    <video :id="'cctv-grid-' + cam.id" muted autoplay playsinline></video>
-                                    <div class="cctv-tile-label">
-                                        <span class="material-icons" style="font-size:14px;">photo_camera</span>
-                                        <span x-text="cam.name"></span>
+
+                        <!-- 그리드 뷰 -->
+                        <template x-if="view === 'grid'">
+                            <div :class="'cctv-grid count-' + cameras.length">
+                                <template x-for="cam in cameras" :key="cam.id">
+                                    <div class="cctv-tile" @click="focusCam(cam)">
+                                        <video :id="'cctv-grid-' + cam.id" muted autoplay playsinline></video>
+                                        <div class="cctv-tile-label">
+                                            <span class="material-icons">photo_camera</span>
+                                            <span x-text="cam.name"></span>
+                                        </div>
+                                        <div class="cctv-tile-hint">
+                                            <span class="material-icons">crop_free</span>
+                                            <span>단독 보기</span>
+                                        </div>
                                     </div>
-                                    <div class="cctv-tile-expand"><span class="material-icons">fullscreen</span></div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- 싱글(단독) 뷰 -->
+                        <template x-if="view === 'single' && selectedCam">
+                            <div class="cctv-single">
+                                <div class="cctv-single-bar">
+                                    <button class="btn btn-ghost btn-sm" @click="backToGrid()" title="스플릿으로 돌아가기 (ESC)">
+                                        <span class="material-icons" style="font-size:18px;">arrow_back</span>
+                                    </button>
+                                    <span class="cctv-single-name">
+                                        <span class="material-icons">videocam</span>
+                                        <span x-text="selectedCam.name"></span>
+                                    </span>
+                                    <button class="btn btn-ghost btn-sm" @click="enterFullscreen()" title="전체화면">
+                                        <span class="material-icons" style="font-size:18px;">fullscreen</span>
+                                    </button>
                                 </div>
-                            </template>
-                        </div>
+                                <video :id="'cctv-single-' + selectedCam.id" muted autoplay playsinline></video>
+                            </div>
+                        </template>
+
                     </div>
                 </template>
             </div>
         </main>
-
-        <!-- 확대 모달 -->
-        <div class="cctv-modal-backdrop" x-show="expanded" @click="collapse()" style="display:none;">
-            <template x-if="expanded">
-                <div class="cctv-modal" @click.stop>
-                    <div class="cctv-modal-bar">
-                        <span><span class="material-icons" style="font-size:18px; vertical-align:middle;">photo_camera</span> <span x-text="expanded.name"></span></span>
-                        <button class="cctv-modal-close" @click="collapse()" title="닫기"><span class="material-icons">close</span></button>
-                    </div>
-                    <video :id="'cctv-modal-' + expanded.id" muted autoplay playsinline></video>
-                </div>
-            </template>
-        </div>
 
         <!-- 토스트 -->
         <div class="dsp-toast" :class="toast.type" x-show="toast.show" x-transition style="display:none;" x-text="toast.msg"></div>
@@ -157,9 +219,10 @@
             return {
                 cameras: [], webRtcPort: 8889, shownCount: 0, hiddenCount: 0, totalCount: 0,
                 status: { ok: false, message: '동기화 전' },
-                expanded: null, syncing: false, dark: false, demoBlocked: false,
+                view: 'grid', selectedCam: null,
+                syncing: false, dark: false, demoBlocked: false,
                 toast: { show: false, msg: '', type: 'success' },
-                _gridStarted: false, _modalStartedId: null,
+                _gridStarted: false, _singleStartedId: null,
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -167,6 +230,14 @@
                     await this.loadConfig();
                     await this.loadStatus();
                     setInterval(() => this.loadStatus(), 15000);
+                    window.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape' && this.view === 'single' && !document.fullscreenElement) this.backToGrid();
+                    });
+                    document.addEventListener('fullscreenchange', () => {
+                        if (!document.fullscreenElement && this.view === 'single') {
+                            // 전체화면 종료 — 싱글 뷰는 유지
+                        }
+                    });
                     window.addEventListener('beforeunload', () => { try { window.cctvWhep.stopAll(); } catch (e) {} });
                 },
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
@@ -200,18 +271,36 @@
                     }
                 },
 
-                expand(cam) {
-                    this.expanded = cam;
+                focusCam(cam) {
+                    this.selectedCam = cam;
+                    this.view = 'single';
                     this.$nextTick(() => {
-                        const id = 'cctv-modal-' + cam.id;
-                        if (this._modalStartedId && this._modalStartedId !== id) window.cctvWhep.stop(this._modalStartedId);
+                        const id = 'cctv-single-' + cam.id;
+                        if (this._singleStartedId && this._singleStartedId !== id) {
+                            window.cctvWhep.stop(this._singleStartedId);
+                        }
                         window.cctvWhep.start(id, this.webRtcPort, cam.id);
-                        this._modalStartedId = id;
+                        this._singleStartedId = id;
                     });
                 },
-                collapse() {
-                    if (this._modalStartedId) { window.cctvWhep.stop(this._modalStartedId); this._modalStartedId = null; }
-                    this.expanded = null;
+
+                backToGrid() {
+                    if (document.fullscreenElement) document.exitFullscreen();
+                    if (this._singleStartedId) { window.cctvWhep.stop(this._singleStartedId); this._singleStartedId = null; }
+                    this.selectedCam = null;
+                    this.view = 'grid';
+                },
+
+                enterFullscreen() {
+                    const el = this.$refs.videoArea;
+                    if (!el) return;
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else if (el.requestFullscreen) {
+                        el.requestFullscreen();
+                    } else if (el.webkitRequestFullscreen) {
+                        el.webkitRequestFullscreen();
+                    }
                 },
 
                 async resync() {
