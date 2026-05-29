@@ -159,7 +159,7 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    app.UseHsts();
+    // app.UseHsts(); // Allow HTTP for debugging
 }
 
 // ── 진단용: uploads 요청 예외 캡처 (원인 파악 후 제거) ──

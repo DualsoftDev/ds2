@@ -295,6 +295,108 @@ select:focus-visible {
 .nav-link .material-icons { font-size: 19px; color: var(--color-drawer-icon); }
 .nav-link.active .material-icons { color: var(--color-primary); }
 
+/* ── 사이드바 섹션 (페이지 바로가기 / 라인요약 / 시스템 / agent 통신) ──
+   섹션 헤더는 .eyebrow 를 재사용하고, 헤어라인으로 구획을 나눈다(스위스). */
+.nav-section-head {
+    padding: 15px 22px 7px;
+    border-top: 1px solid var(--color-lines);
+    margin-top: 5px;
+}
+.nav-section-head:first-child { border-top: none; margin-top: 0; padding-top: 12px; }
+.nav-section-body { padding: 3px 22px 10px; }
+.nav-section-empty { padding: 2px 22px 10px; font-size: 0.74rem; color: var(--color-text-secondary); }
+
+/* 시스템 트리 (시스템 헤더 + flow 분기선) — NavMenu.razor 와 shell.js 가 공유 */
+.nav-sys { padding: 6px 22px 3px; display: flex; align-items: center; gap: 8px; }
+.nav-sys img { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; }
+.nav-sys-name {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-flows { margin-left: 30px; margin-bottom: 4px; }
+.nav-flow {
+    position: relative; display: block; width: 100%;
+    padding: 5px 0 5px 16px;
+    border: 0; text-align: left; text-decoration: none; cursor: pointer;
+    background: transparent; font-family: inherit;
+}
+.nav-flow:hover { background: color-mix(in srgb, var(--color-text-primary) 5%, transparent); }
+.nav-flow.is-selected { background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
+.nav-flow-line-v { position: absolute; left: 0; top: 0; width: 1px; height: 100%; background: var(--color-lines); }
+.nav-flow.is-last .nav-flow-line-v { height: 50%; }
+.nav-flow-line-h { position: absolute; left: 0; top: 50%; width: 12px; height: 1px; background: var(--color-lines); }
+.nav-flow-name { font-size: 0.8rem; font-weight: 500; color: var(--color-drawer-text); }
+.nav-flow.is-selected .nav-flow-name { font-weight: 700; color: var(--color-primary); }
+
+/* nav-link 우측 카운트 배지 (이상발생 활성 건수 등) */
+.nav-link-badge {
+    margin-left: auto; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px;
+    font-size: 0.64rem; font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    background: var(--color-error); color: #fff;
+}
+.dark-theme .nav-link-badge { color: #1A0F0C; }
+
+/* 라인요약 — 가동/대기 카운트 + 가동률 바 */
+.line-summary { display: flex; flex-direction: column; gap: 9px; }
+.ls-counts { display: flex; gap: 8px; }
+.ls-count {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 9px;
+    border: 1px solid var(--color-lines);
+    border-radius: var(--radius-sm);
+    font-size: 0.73rem; font-weight: 600; color: var(--color-text-secondary);
+}
+.ls-count b {
+    margin-left: auto; font-size: 0.95rem; font-weight: 700;
+    color: var(--color-text-primary); font-variant-numeric: tabular-nums;
+}
+.ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-disabled); }
+.ls-running .ls-dot { background: var(--color-success); }
+.ls-idle .ls-dot { background: var(--color-text-disabled); }
+.ls-eff-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 0.72rem; color: var(--color-text-secondary); margin-bottom: 5px;
+}
+.ls-eff-val { font-size: 0.84rem; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+
+/* agent 통신 상태 — Hub / PLC 행, dot + 상태 라벨 */
+.agent-status { display: flex; flex-direction: column; gap: 8px; }
+.ag-row { display: flex; align-items: center; gap: 8px; font-size: 0.76rem; }
+.ag-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-disabled); }
+.ag-dot.ag-ok { background: var(--color-success); }
+.ag-dot.ag-warn { background: var(--color-warning); }
+.ag-dot.ag-down { background: var(--color-error); }
+.ag-dot.ag-pending { background: var(--color-warning); animation: ag-pulse 1.2s ease-in-out infinite; }
+.ag-dot.ag-muted { background: var(--color-text-disabled); }
+.ag-label { color: var(--color-drawer-text); font-weight: 600; }
+.ag-state {
+    margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+}
+.ag-row.is-ok .ag-state { color: var(--color-success); }
+.ag-row.is-warn .ag-state { color: var(--color-warning); }
+.ag-row.is-down .ag-state { color: var(--color-error); }
+.ag-row.is-pending .ag-state { color: var(--color-warning); }
+.ag-row.is-muted .ag-state { color: var(--color-text-disabled); }
+@keyframes ag-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* 마지막 갱신 푸터 */
+.nav-updated {
+    margin-top: 8px; padding: 9px 22px 4px;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.7rem; color: var(--color-text-secondary);
+    border-top: 1px solid var(--color-lines);
+}
+.nav-updated b { color: var(--color-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nav-updated-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--color-success); }
+.nav-updated-dot.is-stale { background: var(--color-text-disabled); }
+
 /* ── 반응형 드로어 ── */
 @media (max-width: 1024px) {
     .drawer { transform: translateX(-100%); }

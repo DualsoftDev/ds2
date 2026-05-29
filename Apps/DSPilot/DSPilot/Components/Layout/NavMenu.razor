@@ -1,72 +1,78 @@
 @implements IDisposable
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
-@inject DashboardEditService EditService
 @inject AppSettingsService AppSettings
+@inject DspDbService Db
+@inject HubSubscriberService Hub
+@inject PlcConnectionStatusTracker PlcStatus
+@inject DSPilot.Repositories.IUserTagAlertRepository AlertRepo
 @using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.AspNetCore.SignalR.Client
 
+@* Swiss 사이드바 — 정적 shell.js 와 동일한 4-섹션 구성:
+   페이지 바로가기 / 라인요약 / 시스템 / agent 통신 상태.
+   주요 페이지는 정적(/route)이라 일반 a 태그(전체 페이지 이동). 라이브 값은 서비스 이벤트로 갱신. *@
 <nav class="nav-menu">
-    <div style="display:flex; align-items:center; border-radius:4px;
-                background: @(_isHome ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
-        <a class="nav-link" href="/"
-                 style="flex:1; min-width:0; background: transparent !important;">
-            <span class="material-icons">space_dashboard</span>
-            대시보드
-        </a>
-        <button class="btn btn-sm @(EditService.IsEditing ? "btn-filled color-warning" : "btn-outlined")"
-                @onclick="EditService.Toggle"
-                style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
-            <span class="material-icons" style="font-size:14px;">@(EditService.IsEditing ? "check" : "dashboard_customize")</span>
-            @(EditService.IsEditing ? "완료" : "편집")
-        </button>
-    </div>
-    @* 격리형 호스팅: 주요 페이지는 정적(/route)으로 대체됨 → NavLink(회로 내 라우팅) 대신 일반 a 태그(전체 페이지 이동)로 정적 페이지 로드 *@
+    @* ── 1. 페이지 바로가기 ── *@
+    <div class="nav-section-head"><span class="eyebrow">페이지 바로가기</span></div>
+    <a class="nav-link @(_isHome ? "active" : "")" href="/">
+        <span class="material-icons">space_dashboard</span> 대시보드
+    </a>
     <a class="nav-link" href="/heatmap">
-        <span class="material-icons">gradient</span>
-        동작편차
+        <span class="material-icons">gradient</span> 동작편차
     </a>
     <a class="nav-link" href="/cycle-time-analysis">
-        <span class="material-icons">equalizer</span>
-        사이클 분석
+        <span class="material-icons">equalizer</span> 사이클 분석
     </a>
     <a class="nav-link" href="/call-test">
-        <span class="material-icons">play_circle</span>
-        Call 사이클
+        <span class="material-icons">play_circle</span> Call 사이클
     </a>
     <a class="nav-link" href="/user-tags">
-        <span class="material-icons">crisis_alert</span>
-        이상발생 관리
+        <span class="material-icons">crisis_alert</span> 이상발생 관리
+        @if (_anomalyActiveCount > 0)
+        {
+            <span class="nav-link-badge" title="최근 10분 내 Error 알림">@_anomalyActiveCount</span>
+        }
     </a>
     <a class="nav-link" href="/cctv">
-        <span class="material-icons">videocam</span>
-        CCTV
+        <span class="material-icons">videocam</span> CCTV
     </a>
-
     @if (_showPlcDebug)
     {
         <a class="nav-link" href="/plc-debug">
-            <span class="material-icons">bug_report</span>
-            PLC 디버그
+            <span class="material-icons">bug_report</span> PLC 디버그
         </a>
     }
 
-    <hr class="divider" style="margin: 8px 0;" />
+    @* ── 2. 라인요약 (가동/대기 + 가동률) ── *@
+    <div class="nav-section-head"><span class="eyebrow">라인요약</span></div>
+    <div class="nav-section-body line-summary">
+        <div class="ls-counts">
+            <span class="ls-count ls-running"><span class="ls-dot"></span>가동 <b>@_running</b></span>
+            <span class="ls-count ls-idle"><span class="ls-dot"></span>대기 <b>@_idle</b></span>
+        </div>
+        <div>
+            <div class="ls-eff-row">
+                <span>라인 효율</span>
+                <span class="ls-eff-val">@(_lineTotal > 0 ? $"{_efficiencyPct}%" : "—")</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" style="width:@(_lineTotal > 0 ? _efficiencyPct : 0)%"></div>
+            </div>
+        </div>
+    </div>
 
-    @if (!ProjectService.IsLoaded)
-    {
-        <span class="typo-caption" style="padding: 8px 16px; display:block; color: var(--color-tertiary);">
-            No project loaded
-        </span>
-    }
-    else
+    @* ── 3. 시스템 (system → flow 트리) ── *@
+    <div class="nav-section-head"><span class="eyebrow">시스템</span></div>
+    @if (ProjectService.IsLoaded && _systemFlowMap.Count > 0)
     {
         @foreach (var systemFlows in _systemFlowMap)
         {
-            <div class="typo-h6" style="padding: 8px 16px 4px; font-weight:700; display: flex; align-items: center; gap: 8px;">
-                <img src="images/aas.png" alt="AAS" style="width: 20px; height: 20px; object-fit: contain;" />
-                @systemFlows.Key
+            <div class="nav-sys">
+                <img src="images/aas.png" alt="AAS" />
+                <span class="nav-sys-name">@systemFlows.Key</span>
             </div>
-            <div style="margin-left: 24px;">
+            <div class="nav-flows">
                 @{ var flowList = systemFlows.Value; }
                 @for (int i = 0; i < flowList.Count; i++)
                 {
@@ -75,26 +81,41 @@
                     var isLast = idx == flowList.Count - 1;
                     var isSelected = _selectedFlow == flow.Name;
                     <button type="button"
-                            @onclick="@(() => NavigateToFlow(flow.Name))"
-                            style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
-                                   text-decoration: none; display: block; width: 100%; border: 0; text-align: left;
-                                   background: @(isSelected ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
-                        <span style="position: absolute; left: 0; top: 0;
-                                     width: 1px; height: @(isLast ? "50%" : "100%");
-                                     background: var(--color-lines);"></span>
-                        <span style="position: absolute; left: 0; top: 50%;
-                                     width: 12px; height: 1px;
-                                     background: var(--color-lines);"></span>
-                        <span style="font-size: 0.875rem;
-                                     font-weight: @(isSelected ? "700" : "400");
-                                     color: @(isSelected ? "var(--color-primary)" : "var(--color-drawer-text)");">
-                            @flow.Name
-                        </span>
+                            class="nav-flow @(isSelected ? "is-selected" : "") @(isLast ? "is-last" : "")"
+                            @onclick="@(() => NavigateToFlow(flow.Name))">
+                        <span class="nav-flow-line-v"></span>
+                        <span class="nav-flow-line-h"></span>
+                        <span class="nav-flow-name">@flow.Name</span>
                     </button>
                 }
             </div>
         }
     }
+    else
+    {
+        <div class="nav-section-empty">프로젝트 미로드</div>
+    }
+
+    @* ── 4. agent 통신 상태 (Hub + PLC) ── *@
+    <div class="nav-section-head"><span class="eyebrow">agent 통신 상태</span></div>
+    <div class="nav-section-body agent-status">
+        <div class="ag-row is-@_hubLevel" title="@_hubTooltip">
+            <span class="ag-dot ag-@_hubLevel"></span>
+            <span class="ag-label">Promaker Hub</span>
+            <span class="ag-state">@_hubLabel</span>
+        </div>
+        <div class="ag-row is-@_plcLevel" title="@_plcTooltip">
+            <span class="ag-dot ag-@_plcLevel"></span>
+            <span class="ag-label">PLC 어댑터</span>
+            <span class="ag-state">@_plcLabel</span>
+        </div>
+    </div>
+
+    @* ── 마지막 갱신 ── *@
+    <div class="nav-updated">
+        <span class="nav-updated-dot @(_hubLevel == "down" ? "is-stale" : "")"></span>
+        마지막 갱신 <b>@_lastUpdate.ToString("HH:mm:ss")</b>
+    </div>
 </nav>
 
 @code {
@@ -103,22 +124,161 @@
     private bool _isHome;
     private bool _showPlcDebug = true;
 
+    // 라인요약
+    private int _lineTotal;
+    private int _running;
+    private int _idle;
+    private int _efficiencyPct;
+
+    // agent 통신 상태
+    private string _hubLevel = "pending";
+    private string _hubLabel = "연결 중";
+    private string _hubTooltip = "";
+    private string _plcLevel = "muted";
+    private string _plcLabel = "—";
+    private string _plcTooltip = "";
+
+    // 이상발생 활성 건수 (최근 10분 Error) — push 이벤트가 없어 주기 폴링.
+    private int _anomalyActiveCount;
+    private System.Threading.Timer? _anomalyTimer;
+    private static readonly TimeSpan AnomalyInterval = TimeSpan.FromSeconds(12);
+
+    private DateTime _lastUpdate = DateTime.Now;
+
     protected override void OnInitialized()
     {
         UpdateLocationState(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
         _showPlcDebug = AppSettings.LoadSettings().Ui.ShowPlcDebug;
 
-        if (!ProjectService.IsLoaded) return;
-
-        var systems = ProjectService.GetActiveSystems();
-        foreach (var system in systems)
+        if (ProjectService.IsLoaded)
         {
-            var flows = ProjectService.GetFlows(system.Id);
-            if (flows.Count > 0)
+            foreach (var system in ProjectService.GetActiveSystems())
             {
-                _systemFlowMap[system.Name] = flows;
+                var flows = ProjectService.GetFlows(system.Id);
+                if (flows.Count > 0)
+                {
+                    _systemFlowMap[system.Name] = flows;
+                }
             }
+        }
+
+        // 라이브 데이터 초기 계산 + 구독
+        RecomputeLines();
+        RecomputeAgent();
+        _lastUpdate = DateTime.Now;
+
+        Db.OnDataChanged += OnDbChanged;
+        Hub.StatusChanged += OnHubChanged;
+        PlcStatus.StatusChanged += OnPlcChanged;
+
+        // 이상발생 건수 폴링 (즉시 1회 + 12초 주기). 실패해도 사이드바엔 영향 없음.
+        _anomalyTimer = new System.Threading.Timer(
+            _state => { _ = RefreshAnomalyAsync(); }, null, TimeSpan.Zero, AnomalyInterval);
+    }
+
+    private void OnDbChanged()
+    {
+        if (RecomputeLines())
+        {
+            _lastUpdate = DateTime.Now;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnHubChanged(HubConnectionState _)
+    {
+        RecomputeAgent();
+        _lastUpdate = DateTime.Now;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPlcChanged()
+    {
+        RecomputeAgent();
+        _lastUpdate = DateTime.Now;
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>스냅샷에서 가동/대기/가동률 재계산. 값이 바뀐 경우에만 true(렌더 트리거).</summary>
+    private bool RecomputeLines()
+    {
+        var flows = Db.Snapshot.Flows;
+        var total = flows.Count;
+        var running = flows.Count(f => f.State == "Going");
+        var idle = total - running;
+        var eff = total > 0 ? (int)Math.Round(running * 100.0 / total) : 0;
+
+        if (total == _lineTotal && running == _running && idle == _idle && eff == _efficiencyPct)
+            return false;
+
+        _lineTotal = total;
+        _running = running;
+        _idle = idle;
+        _efficiencyPct = eff;
+        return true;
+    }
+
+    /// <summary>Hub 연결 상태 + PLC 어댑터 연결을 통합해 두 행(Hub/PLC)의 표시 상태를 갱신.</summary>
+    private void RecomputeAgent()
+    {
+        var hub = Hub.CurrentStatus;
+        (_hubLevel, _hubLabel, _hubTooltip) = hub switch
+        {
+            HubConnectionState.Connected => ("ok", "정상", "Promaker 모니터링 허브 연결됨"),
+            HubConnectionState.Connecting => ("pending", "연결 중", "Promaker 허브 연결 시도 중"),
+            HubConnectionState.Reconnecting => ("pending", "재연결 중", "Promaker 허브 재연결 중"),
+            _ => ("down", "끊김", "Promaker 5051 모니터링 허브 연결 없음 — Promaker 실행/모니터링 확인"),
+        };
+
+        var statuses = PlcStatus.CurrentStatuses;
+        var plcTotal = statuses.Count;
+        var plcDown = statuses.Count(s => !s.IsConnected);
+
+        if (hub != HubConnectionState.Connected)
+        {
+            // 허브가 끊기면 PLC 상태 캐시가 비워져 알 수 없음.
+            _plcLevel = "muted";
+            _plcLabel = "—";
+            _plcTooltip = "허브 연결 후 PLC 상태가 표시됩니다";
+        }
+        else if (plcTotal == 0)
+        {
+            _plcLevel = "muted";
+            _plcLabel = "보고 없음";
+            _plcTooltip = "보고된 PLC 어댑터가 없습니다";
+        }
+        else if (plcDown > 0)
+        {
+            _plcLevel = "down";
+            _plcLabel = $"{plcDown}대 끊김";
+            _plcTooltip = string.Join("\n", statuses.Where(s => !s.IsConnected)
+                .Select(s => $"{s.Name} ({s.Vendor} {s.IpAddress}:{s.Port}) — {s.LastError}"));
+        }
+        else
+        {
+            _plcLevel = "ok";
+            _plcLabel = $"{plcTotal}대 연결";
+            _plcTooltip = string.Join("\n", statuses.Select(s => $"{s.Name} ({s.IpAddress}:{s.Port})"));
+        }
+    }
+
+    private async Task RefreshAnomalyAsync()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var count = await AlertRepo.CountAlertsAsync(
+                now - TimeSpan.FromMinutes(10), now, null, "Error", null);
+            if (count != _anomalyActiveCount)
+            {
+                _anomalyActiveCount = count;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // 사이드바 안정성 우선 — 카운트 조회 실패는 무시.
         }
     }
 
@@ -155,6 +315,9 @@
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
+        Db.OnDataChanged -= OnDbChanged;
+        Hub.StatusChanged -= OnHubChanged;
+        PlcStatus.StatusChanged -= OnPlcChanged;
+        _anomalyTimer?.Dispose();
     }
-
 }
