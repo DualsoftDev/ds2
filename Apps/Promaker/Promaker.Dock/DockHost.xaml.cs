@@ -247,3 +247,21 @@ public partial class DockHost : UserControl, IDockManager
         AnchorVisibilityChanged?.Invoke(this, new DockAnchorVisibilityChangedEventArgs(contentId, e.IsVisible));
     }
 }
+
+/// <summary>
+/// AnchorCaptionWithHelp 의 Help(?) 뱃지를 'docked caption bar 일 때만' 표시하기 위한 converter.
+/// DX <see cref="BaseLayoutItem.CaptionTemplate"/> 은 docked caption bar 와 tab caption 양쪽 모두에 적용되는데,
+/// tab caption 으로 렌더될 때는 LayoutPanel visual 조상이 없음(tab strip 에서 그려짐). XAML 에서
+/// <c>{Binding RelativeSource={RelativeSource AncestorType=LayoutPanel}}</c> 를 source 로 주면:
+///   - caption bar: 조상(LayoutPanel) 발견 → value=LayoutPanel(non-null) → Visible.
+///   - tab caption: 조상 없음 → binding 미해결 → 호출 측에서 FallbackValue=Collapsed 적용(converter 미호출).
+/// converter 자체는 non-null → Visible / null → Collapsed 의 단순 매핑(자기문서화 목적).
+/// </summary>
+public sealed class AncestorPresenceToVisibilityConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => value is null ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => throw new NotSupportedException();
+}
