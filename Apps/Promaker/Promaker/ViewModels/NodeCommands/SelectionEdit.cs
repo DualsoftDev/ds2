@@ -275,7 +275,7 @@ public partial class MainViewModel
             return;
         }
 
-        // Cut + same flow (다른 Work) → MoveCallToWork (단일 transaction loop)
+        // Cut + same flow (다른 Work) → MoveCallsToWork (1 undo step 일괄 이동)
         if (batchType == EntityKind.Call && _clipboardIsCut)
         {
             DispatchCallMoveSameFlow(target.Value);
@@ -370,21 +370,16 @@ public partial class MainViewModel
         }
     }
 
-    /// <summary>Cut Call + same flow 의 다른 Work — same-flow MoveCallToWork 를 loop 로 호출.</summary>
+    /// <summary>Cut Call + same flow 의 다른 Work — same-flow MoveCallsToWork 로 1 undo step 일괄 이동.</summary>
     private void DispatchCallMoveSameFlow((EntityKind EntityType, Guid EntityId) target)
     {
         var targetWorkOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Work, target.EntityType, target.EntityId);
         if (targetWorkOpt is null) return;
         var targetWorkId = targetWorkOpt.Value;
 
-        var moved = 0;
-        foreach (var key in _clipboardSelection.ToArray())
-        {
-            if (TryEditorFunc(
-                    () => _store.MoveCallToWork(key.Id, targetWorkId),
-                    out bool ok, fallback: false) && ok)
-                moved++;
-        }
+        TryEditorFunc(
+            () => _store.MoveCallsToWork(_clipboardSelection.Select(k => k.Id).ToArray(), targetWorkId),
+            out int moved, fallback: 0);
         if (moved > 0)
         {
             _clipboardSelection.Clear();

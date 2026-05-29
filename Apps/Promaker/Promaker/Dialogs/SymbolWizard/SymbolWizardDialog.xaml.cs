@@ -23,7 +23,8 @@ public partial class SymbolWizardDialog : Window
     /// <summary>Step 2 의 DataGrid row — mapping 결과 + 원본 entry 정보.</summary>
     public sealed class MappingRow
     {
-        public string Address { get; init; } = "";
+        public string InAddress { get; init; } = "";
+        public string OutAddress { get; init; } = "";
         public string Name { get; init; } = "";
         public string Direction { get; init; } = "";
         public string Flow { get; init; } = "";
@@ -204,17 +205,19 @@ public partial class SymbolWizardDialog : Window
         _pendingBatch = batch;
         _pendingPlans = plans;
 
-        // Mapping 의 OutputEntry 우선, 없으면 첫 InputEntry 로 row 1건 표시.
-        // dsev2 매칭 결과는 Output/Input 페어 형태 — UI 는 *대표 1건* 만 보여줌.
-        // (상세 페어 보려면 별도 Detail panel 또는 expand 필요 — 다음 단계.)
+        // dsev2 매칭 결과는 Output/Input 페어 형태 — In/Out 주소를 각각 컬럼으로 노출한다.
+        // (Input 이 여러 개면 CallPlan 과 동일하게 첫 entry 를 대표로 표시.)
         var rows = batch.Mapped.Select(m =>
         {
-            var rep = Microsoft.FSharp.Core.FSharpOption<CsvTypes.SymbolEntry>.get_IsSome(m.OutputEntry)
+            var outEntry = Microsoft.FSharp.Core.FSharpOption<CsvTypes.SymbolEntry>.get_IsSome(m.OutputEntry)
                 ? m.OutputEntry.Value
-                : m.InputEntries.FirstOrDefault();
+                : null;
+            var inEntry = m.InputEntries.FirstOrDefault();
+            var rep = outEntry ?? inEntry;
             return new MappingRow
             {
-                Address = rep?.Address ?? "",
+                InAddress = inEntry?.Address ?? "",
+                OutAddress = outEntry?.Address ?? "",
                 Name = rep?.Name ?? $"{m.DeviceName}.{m.ApiName}",
                 Direction = rep is null ? "" : rep.Direction.ToString(),
                 Flow = m.FlowName,

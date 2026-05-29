@@ -310,6 +310,8 @@ let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisua
     let works = Queries.worksOf flowId store
     let workIds = HashSet<Guid>()
     let positions = Dictionary<Guid, Xywh>()
+    // Call -> 소속 Work 맵. Call 화살표의 장애물을 "같은 Work 의 Call" 로만 한정하기 위함.
+    let callOwnerWork = Dictionary<Guid, Guid>()
     for work in works do
         workIds.Add(work.Id) |> ignore
         positions.[work.Id] <- defaultArg work.Position (UiDefaults.createDefaultNodeBounds ())
@@ -318,6 +320,7 @@ let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisua
     for call in store.CallsReadOnly.Values do
         if workIds.Contains call.ParentId then
             positions.[call.Id] <- defaultArg call.Position (UiDefaults.createDefaultNodeBounds ())
+            callOwnerWork.[call.Id] <- call.ParentId
 
     let arrows = ResizeArray<DsArrow>()
     match Queries.getFlow flowId store with
@@ -362,10 +365,26 @@ let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisua
         let srcOff = (float si - float (faceTotal.[sk] - 1) / 2.0) * edgeSepDistance
         let tgtOff = (float ti - float (faceTotal.[tk] - 1) / 2.0) * edgeSepDistance
 
+        // 장애물 범위는 화살표 종류에 맞춰 한정한다.
+        // - Call 화살표: 같은 Work(=같은 캔버스) 의 Call 만. 다른 Work 노드(예: 복사 원본)는
+        //   좌표가 겹쳐도 무시 — Work 탭은 독립 캔버스이므로.
+        // - Work 화살표: 같은 Flow 의 Work 노드들.
         let obstacles =
-            allPositions
-            |> List.choose (fun (id, pos) ->
-                if id = arrow.SourceId || id = arrow.TargetId then None else Some pos)
+            match callOwnerWork.TryGetValue arrow.SourceId with
+            | true, ownerWorkId ->
+                allPositions
+                |> List.choose (fun (id, pos) ->
+                    if id = arrow.SourceId || id = arrow.TargetId then None
+                    else
+                        match callOwnerWork.TryGetValue id with
+                        | true, w when w = ownerWorkId -> Some pos
+                        | _ -> None)
+            | _ ->
+                allPositions
+                |> List.choose (fun (id, pos) ->
+                    if id = arrow.SourceId || id = arrow.TargetId then None
+                    elif workIds.Contains id then Some pos
+                    else None)
 
         result.[arrow.Id] <- {
             Points = BezierRouting.computeBezierPoints srcFace tgtFace srcPos tgtPos srcOff tgtOff obstacles
