@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>이상발생 관리 — DSPilot</title>
+
+    <!--
+      격리형 호스팅 레퍼런스 #3 (UserTag 이상발생 관리). 읽기 전용 모니터링.
+      서버/모델=C#(/api/user-tags/*), 뷰=Alpine+fetch. 차트는 기존 ES모듈 /js/user-tag-trend-chart.js 재사용.
+      8개 granular 쿼리를 GET /api/user-tags/snapshot 하나로 통합. 실시간=10초 폴링 + /hubs/monitoring 트리거.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/theme.css" rel="stylesheet" />
+    <link href="/css/components.css" rel="stylesheet" />
+    <link href="/css/dark-theme.css" rel="stylesheet" />
+    <link href="/css/app.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
+        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
+        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1400px; margin: 0 auto; width: 100%; }
+        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
+        .btn.btn-primary:hover { filter: brightness(1.05); }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+
+        /* ── UserTags.razor.css (스코프드) 에서 가져온 클래스 ── */
+        .user-tags-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 100px); }
+        .user-tags-hero { padding: 20px 24px; background: radial-gradient(circle at top left, rgba(0,155,180,0.10), transparent 32%), linear-gradient(135deg, rgba(var(--color-primary-rgb),0.05), var(--color-surface)); }
+        .user-tags-hero-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+        .user-tags-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); font-weight: 700; }
+        .user-tags-title { margin: 6px 0 0; font-weight: 700; color: var(--color-text-primary); }
+        .user-tags-subtitle { margin-top: 8px; color: var(--color-text-secondary); font-size: 0.95rem; }
+        .user-tags-hero-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 280px; }
+        .user-tags-counter-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .user-tags-panel { padding: 18px 20px; }
+        .user-tags-panel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+        .user-tags-section-toggle { cursor: pointer; user-select: none; }
+        .user-tags-muted { color: var(--color-text-secondary); }
+        .user-tags-alert-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; min-width: 320px; }
+        .user-tags-alert-controls .form-field { min-width: 160px; }
+        .user-tags-empty { padding: 40px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); min-height: 200px; text-align: center; }
+        .user-tags-empty .material-icons { font-size: 44px; color: var(--color-primary); }
+        .ut-table-wrapper { overflow-x: auto; overflow-y: auto; }
+        .ut-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .ut-table thead th { position: sticky; top: 0; background: var(--color-surface); border-bottom: 2px solid var(--color-lines); text-align: left; padding: 8px 10px; font-weight: 600; color: var(--color-text-secondary); z-index: 1; }
+        .ut-table tbody td { padding: 6px 10px; border-bottom: 1px solid var(--color-lines); color: var(--color-text-primary); vertical-align: middle; }
+        .ut-table tbody tr:hover { background: rgba(var(--color-primary-rgb), 0.04); }
+        .ut-row-warning { background: rgba(255,152,0,0.06); }
+        .ut-row-error { background: rgba(244,67,54,0.08); }
+        .ut-row-error:hover { background: rgba(244,67,54,0.12) !important; }
+        .ut-time { font-family: 'Consolas','Courier New',monospace; font-size: 0.8125rem; color: var(--color-text-secondary); }
+        .ut-empty { text-align: center; padding: 36px 12px; color: var(--color-text-secondary); }
+        .ut-empty .material-icons { font-size: 48px; opacity: 0.4; }
+        .ut-empty p { margin: 6px 0; }
+        .chip-level-info { background: color-mix(in srgb, var(--color-info) 15%, transparent); color: var(--color-info); border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .chip-level-warning { background: rgba(255,152,0,0.15); color: #ef6c00; border: 1px solid rgba(255,152,0,0.4); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .chip-level-error { background: rgba(244,67,54,0.15); color: #c62828; border: 1px solid rgba(244,67,54,0.4); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .user-tags-page code { background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; font-family: 'Consolas','Courier New',monospace; font-size: 0.8125rem; }
+        .dark-theme .user-tags-page code { background: rgba(255,255,255,0.08); }
+        .user-tags-filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+        .user-tags-filter-row .form-field { min-width: 160px; }
+        .ut-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+        .ut-kpi { background: rgba(var(--color-primary-rgb),0.04); border: 1px solid var(--color-lines); border-radius: 8px; padding: 12px 16px; }
+        .ut-kpi-label { font-size: 0.75rem; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+        .ut-kpi-value { margin-top: 4px; font-size: 1.75rem; font-weight: 700; color: var(--color-text-primary); line-height: 1.1; }
+        .ut-kpi-value-small { margin-top: 4px; font-size: 1rem; font-weight: 600; color: var(--color-text-primary); }
+        .ut-kpi-error { color: #c62828; }
+        .ut-kpi-warn { color: #ef6c00; }
+        .ut-chart-tall { position: relative; height: 320px; }
+        .ut-chart-md { position: relative; height: 260px; }
+        .ut-chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+        .ut-chart-half { min-width: 0; }
+        @media (max-width: 900px) {
+            .user-tags-hero-top { flex-direction: column; }
+            .user-tags-hero-actions, .user-tags-alert-controls { min-width: 0; width: 100%; align-items: stretch; justify-content: flex-start; }
+            .ut-chart-row { grid-template-columns: 1fr; }
+            .ut-ops-row { grid-template-columns: 1fr; }
+        }
+        .ut-ops-row { margin-top: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .ut-ops-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines); border-radius: 8px; min-width: 0; }
+        .ut-ops-error { border-left-color: #c62828; background: linear-gradient(90deg, rgba(198,40,40,0.08), transparent 60%); }
+        .ut-ops-ok { border-left-color: #2e7d32; }
+        .ut-ops-icon { font-size: 28px !important; color: var(--color-text-secondary); flex-shrink: 0; }
+        .ut-ops-error .ut-ops-icon { color: #c62828; }
+        .ut-ops-ok .ut-ops-icon { color: #2e7d32; }
+        .ut-ops-text { display: flex; flex-direction: column; min-width: 0; }
+        .ut-ops-label { font-size: 11px; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+        .ut-ops-hint { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.75; }
+        .ut-ops-value { margin-top: 2px; font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: var(--color-text-primary); font-family: 'Consolas','Roboto Mono',monospace; }
+        .ut-ops-value-sm { font-size: 1rem; }
+        .ut-ops-error .ut-ops-value { color: #c62828; }
+        .ut-ops-ok .ut-ops-value { color: #2e7d32; }
+        .ut-ops-unit { font-size: 0.85rem; font-weight: 500; color: var(--color-text-secondary); margin-left: 3px; }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="userTagsApp()" x-init="init()" x-cloak>
+
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
+            <div class="modal-content" style="max-width:480px; text-align:center;">
+                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <header class="dsp-appbar">
+            <span class="dsp-title">이상발생 관리</span>
+            <span class="dsp-badge">정적/격리</span>
+            <span class="chip" :style="`background:${rt.connected ? '#4CAF50' : '#9e9e9e'}; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;`"
+                  x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
+            <div class="spacer"></div>
+            <a href="/user-tags" title="Blazor 버전과 비교">Blazor 버전</a>
+            <a href="/app/dashboard.html">대시보드</a>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div class="user-tags-page">
+                <!-- 로딩 -->
+                <div x-show="loading && !data" style="height:4px; background:var(--color-surface-variant, #e0e0e0); border-radius:2px; overflow:hidden;">
+                    <div style="height:100%; width:25%; background:var(--color-primary); animation: heatmap-indeterminate 1.5s infinite ease-in-out;"></div>
+                </div>
+                <div class="card user-tags-panel" x-show="error" style="border-left:4px solid #c62828;">
+                    <strong>오류:</strong> <span x-text="error"></span>
+                </div>
+
+                <template x-if="data">
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+                        <!-- 히어로 -->
+                        <section class="card user-tags-hero">
+                            <div class="user-tags-hero-top">
+                                <div>
+                                    <div class="user-tags-eyebrow">이상발생 관리 · UserTag Alerts</div>
+                                    <h4 class="user-tags-title">이상발생 관리</h4>
+                                    <div class="user-tags-subtitle">AASX 에 정의된 UserTag 가 PLC 에서 조건 충족 시 자동 기록된 이벤트의 실시간 + 기간별 추이입니다.</div>
+                                </div>
+                                <div class="user-tags-hero-actions">
+                                    <div class="user-tags-counter-row">
+                                        <span class="chip chip-level-info" title="Info" x-text="'INFO ' + lc('Info')"></span>
+                                        <span class="chip chip-level-warning" title="Warning" x-text="'WARN ' + lc('Warning')"></span>
+                                        <span class="chip chip-level-error" title="Error" x-text="'ERR ' + lc('Error')"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ut-ops-row">
+                                <div class="ut-ops-item" :class="data.activeErrorCount > 0 ? 'ut-ops-error' : 'ut-ops-ok'">
+                                    <span class="material-icons ut-ops-icon" x-text="data.activeErrorCount > 0 ? 'crisis_alert' : 'check_circle'"></span>
+                                    <div class="ut-ops-text">
+                                        <div class="ut-ops-label">진행중 이상 <span class="ut-ops-hint">(최근 10분 Error)</span></div>
+                                        <div class="ut-ops-value"><span x-text="data.activeErrorCount"></span><span class="ut-ops-unit">건</span></div>
+                                    </div>
+                                </div>
+                                <div class="ut-ops-item">
+                                    <span class="material-icons ut-ops-icon">today</span>
+                                    <div class="ut-ops-text">
+                                        <div class="ut-ops-label">오늘 신규 Error</div>
+                                        <div class="ut-ops-value"><span x-text="data.todayErrorCount"></span><span class="ut-ops-unit">건</span></div>
+                                    </div>
+                                </div>
+                                <div class="ut-ops-item">
+                                    <span class="material-icons ut-ops-icon">history</span>
+                                    <div class="ut-ops-text">
+                                        <div class="ut-ops-label">마지막 이상 발생</div>
+                                        <div class="ut-ops-value ut-ops-value-sm" x-text="data.lastAlertAtLocal || '-'"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- 기간 / 필터 -->
+                        <section class="card user-tags-panel">
+                            <div class="user-tags-panel-header">
+                                <div>
+                                    <h6 class="typo-h6">기간 및 필터</h6>
+                                    <div class="typo-caption user-tags-muted">
+                                        현재 기간: <span x-text="data.periodStartLocal"></span> ~ <span x-text="data.periodEndLocal"></span>
+                                        (버킷: <span x-text="data.bucketLabel"></span>)
+                                    </div>
+                                </div>
+                                <div class="user-tags-alert-controls">
+                                    <button class="btn btn-sm" :class="periodPreset === 'today' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('today')">오늘</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '7d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('7d')">지난 7일</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '30d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('30d')">지난 30일</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '60d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('60d')">지난 60일</button>
+                                </div>
+                            </div>
+                            <div class="user-tags-filter-row">
+                                <input class="form-field" x-model="searchText" @input.debounce.300ms="applyFilters()" placeholder="이름 / 주소 검색..." />
+                                <select class="form-field" x-model="levelFilter" @change="applyFilters()">
+                                    <option value="">전체 레벨</option>
+                                    <option value="Info">Info</option>
+                                    <option value="Warning">Warning</option>
+                                    <option value="Error">Error</option>
+                                </select>
+                                <select class="form-field" x-model="systemFilter" @change="applyFilters()">
+                                    <option value="">전체 System</option>
+                                    <template x-for="s in data.systemOptions" :key="s"><option :value="s" x-text="s"></option></template>
+                                </select>
+                                <button class="btn btn-outlined" @click="exportCsv()" :disabled="data.alerts.length === 0">CSV 내보내기</button>
+                            </div>
+                        </section>
+
+                        <!-- KPI -->
+                        <section class="card user-tags-panel">
+                            <div class="ut-kpi-row">
+                                <div class="ut-kpi"><div class="ut-kpi-label">총 알림</div><div class="ut-kpi-value" x-text="data.totalCount.toLocaleString()"></div></div>
+                                <div class="ut-kpi"><div class="ut-kpi-label">Error</div><div class="ut-kpi-value ut-kpi-error" x-text="lc('Error').toLocaleString()"></div></div>
+                                <div class="ut-kpi"><div class="ut-kpi-label">Warning</div><div class="ut-kpi-value ut-kpi-warn" x-text="lc('Warning').toLocaleString()"></div></div>
+                                <div class="ut-kpi">
+                                    <div class="ut-kpi-label">가장 빈번한 태그</div>
+                                    <div class="ut-kpi-value-small">
+                                        <template x-if="data.topRows.length > 0"><span x-text="data.topRows[0].name + ' (' + data.topRows[0].count.toLocaleString() + ')'"></span></template>
+                                        <template x-if="data.topRows.length === 0"><span class="user-tags-muted">-</span></template>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- 시계열 차트 -->
+                        <section class="card user-tags-panel">
+                            <div class="user-tags-panel-header">
+                                <div>
+                                    <h6 class="typo-h6">시계열 추이</h6>
+                                    <div class="typo-caption user-tags-muted">레벨별 스택 막대 (Error: 빨강 / Warn: 주황 / Info: 파랑)</div>
+                                </div>
+                            </div>
+                            <div class="ut-chart-tall"><canvas id="ut-trend-chart"></canvas></div>
+                        </section>
+
+                        <div class="ut-chart-row">
+                            <section class="card user-tags-panel ut-chart-half">
+                                <h6 class="typo-h6">태그별 Top 10</h6>
+                                <div class="ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
+                            </section>
+                            <section class="card user-tags-panel ut-chart-half">
+                                <h6 class="typo-h6">레벨 비율</h6>
+                                <div class="ut-chart-md"><canvas id="ut-level-doughnut"></canvas></div>
+                            </section>
+                        </div>
+
+                        <!-- 알림 이력 테이블 -->
+                        <section class="card user-tags-panel">
+                            <div class="user-tags-panel-header">
+                                <div>
+                                    <h6 class="typo-h6">알림 이력 (<span x-text="data.totalCount.toLocaleString()"></span> 건, 페이지 <span x-text="data.page + 1"></span> / <span x-text="data.maxPage"></span>)</h6>
+                                    <div class="typo-caption user-tags-muted">최신순. 페이지당 <span x-text="data.pageSize"></span> 건.</div>
+                                </div>
+                                <div class="user-tags-alert-controls">
+                                    <button class="btn btn-sm btn-outlined" @click="prevPage()" :disabled="data.page === 0">이전</button>
+                                    <button class="btn btn-sm btn-outlined" @click="nextPage()" :disabled="data.page + 1 >= data.maxPage">다음</button>
+                                </div>
+                            </div>
+                            <template x-if="data.alerts.length === 0">
+                                <div class="ut-empty">
+                                    <span class="material-icons">notifications_none</span>
+                                    <p>조회 기간 / 필터에 해당하는 알림이 없습니다.</p>
+                                </div>
+                            </template>
+                            <template x-if="data.alerts.length > 0">
+                                <div class="ut-table-wrapper">
+                                    <table class="ut-table">
+                                        <thead><tr>
+                                            <th style="width:170px;">시각</th><th>레벨</th><th>System</th><th>이름</th><th>주소</th><th>조건</th><th>값</th>
+                                        </tr></thead>
+                                        <tbody>
+                                            <template x-for="(a, i) in data.alerts" :key="i">
+                                                <tr :class="levelRowClass(a.logLevel)">
+                                                    <td><span class="ut-time" x-text="a.occurredAtLocal.slice(0,19)"></span></td>
+                                                    <td><span class="chip" :class="levelChipClass(a.logLevel)" x-text="a.logLevel"></span></td>
+                                                    <td x-text="a.systemName"></td>
+                                                    <td><strong x-text="a.name"></strong></td>
+                                                    <td><code x-text="a.tagAddress"></code></td>
+                                                    <td><span class="user-tags-muted" x-text="describeOp(a.matchOp, a.matchValue)"></span></td>
+                                                    <td><code x-text="a.actualValue"></code></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </template>
+                        </section>
+
+                        <!-- 정의 목록 -->
+                        <template x-if="data.definitions.length === 0">
+                            <section class="card user-tags-panel user-tags-empty">
+                                <span class="material-icons">info</span>
+                                <div class="typo-h6 mt-2">정의된 UserTag 가 없습니다.</div>
+                                <div class="typo-body2 mt-1">Promaker 의 사용자 태그 패널에서 추가하세요.</div>
+                            </section>
+                        </template>
+                        <template x-if="data.definitions.length > 0">
+                            <section class="card user-tags-panel">
+                                <div class="user-tags-panel-header">
+                                    <div class="user-tags-section-toggle" @click="showDefinitions = !showDefinitions" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                                        <span class="material-icons" style="font-size:22px;" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
+                                        <div>
+                                            <h6 class="typo-h6">정의된 UserTag (<span x-text="data.definitions.length"></span>, 페이지 <span x-text="definitionsPage + 1"></span> / <span x-text="definitionsMaxPage"></span>)</h6>
+                                            <div class="typo-caption user-tags-muted">AASX 의 System 정의를 기반으로 모니터링되는 태그. 페이지당 10 건.</div>
+                                        </div>
+                                    </div>
+                                    <div class="user-tags-alert-controls" x-show="showDefinitions && data.definitions.length > 10">
+                                        <button class="btn btn-sm btn-outlined" @click="definitionsPage = Math.max(0, definitionsPage - 1)" :disabled="definitionsPage === 0">이전</button>
+                                        <button class="btn btn-sm btn-outlined" @click="definitionsPage = Math.min(definitionsMaxPage - 1, definitionsPage + 1)" :disabled="definitionsPage + 1 >= definitionsMaxPage">다음</button>
+                                    </div>
+                                </div>
+                                <div class="ut-table-wrapper" x-show="showDefinitions">
+                                    <table class="ut-table">
+                                        <thead><tr><th>System</th><th>이름</th><th>레벨</th><th>주소</th><th>타입</th><th>매칭 조건</th></tr></thead>
+                                        <tbody>
+                                            <template x-for="(d, i) in definitionsPageView" :key="i">
+                                                <tr>
+                                                    <td x-text="d.systemName"></td>
+                                                    <td><strong x-text="d.name"></strong></td>
+                                                    <td><span class="chip" :class="levelChipClass(d.logLevel)" x-text="d.logLevel"></span></td>
+                                                    <td><code x-text="d.tagAddress"></code></td>
+                                                    <td x-text="d.valueType"></td>
+                                                    <td x-text="describeOp(d.matchOp, d.matchValue)"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </main>
+    </div>
+
+    <script src="/lib/chart.umd.min.js"></script>
+    <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/lib/signalr.min.js"></script>
+    <script>
+        function userTagsApp() {
+            return {
+                data: null, loading: true, error: null, demoBlocked: false, dark: false,
+                periodPreset: 'today', page: 0, searchText: '', levelFilter: '', systemFilter: '',
+                showDefinitions: true, definitionsPage: 0,
+                rt: { connected: false },
+                _charts: null, _conn: null, _dt: null,
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
+                    await this.load();
+                    this.connectSignalR();
+                    setInterval(() => this.load(true), 10000);
+                },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                qs() {
+                    const p = new URLSearchParams({ period: this.periodPreset, page: this.page });
+                    if (this.searchText.trim()) p.set('search', this.searchText.trim());
+                    if (this.levelFilter) p.set('level', this.levelFilter);
+                    if (this.systemFilter) p.set('system', this.systemFilter);
+                    return p.toString();
+                },
+                async load(silent) {
+                    if (!silent) this.loading = true;
+                    try {
+                        const d = await this.apiGet('/api/user-tags/snapshot?' + this.qs());
+                        this.page = d.page; // 서버가 page 클램프할 수 있음
+                        this.data = d;
+                        this.error = null;
+                        this.$nextTick(() => this.drawCharts());
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
+                    } finally { this.loading = false; }
+                },
+                drawCharts() {
+                    if (!this._charts || !this.data) return;
+                    try {
+                        this._charts.renderTrendChart('ut-trend-chart', this.data.buckets, this.data.granularity);
+                        this._charts.renderTopChart('ut-top-chart', this.data.topRows.slice(0, 10));
+                        this._charts.renderLevelDoughnut('ut-level-doughnut', this.data.levelCounts);
+                    } catch (e) { console.warn('chart draw failed', e); }
+                },
+
+                connectSignalR() {
+                    if (!window.signalR) return;
+                    const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
+                    const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.load(true), 300); };
+                    conn.on('CallStateChangedBatch', trigger);
+                    conn.on('CallStateChanged', trigger);
+                    conn.on('DatabaseRebuilt', () => this.load(true));
+                    conn.on('FlowHistoryCleared', trigger);
+                    conn.onreconnected(() => { this.rt.connected = true; this.load(true); });
+                    conn.onreconnecting(() => { this.rt.connected = false; });
+                    conn.onclose(() => { this.rt.connected = false; });
+                    conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
+                    this._conn = conn;
+                },
+
+                lc(level) { return (this.data && this.data.levelCounts && this.data.levelCounts[level]) || 0; },
+
+                setPreset(p) { if (this.periodPreset === p) return; this.periodPreset = p; this.page = 0; this.load(); },
+                applyFilters() { this.page = 0; this.load(); },
+                prevPage() { if (this.page === 0) return; this.page--; this.load(); },
+                nextPage() { if (this.page + 1 >= this.data.maxPage) return; this.page++; this.load(); },
+
+                get definitionsMaxPage() { return this.data ? Math.max(1, Math.ceil(this.data.definitions.length / 10)) : 1; },
+                get definitionsPageView() { return this.data ? this.data.definitions.slice(this.definitionsPage * 10, this.definitionsPage * 10 + 10) : []; },
+
+                async exportCsv() {
+                    if (!this._charts || !this.data) return;
+                    let all;
+                    try { all = await this.apiGet('/api/user-tags/alerts?' + this.qs() + '&limit=100000'); }
+                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); return; }
+                    const esc = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+                    const lines = ['Timestamp,LogLevel,System,Name,TagAddress,ValueType,MatchOp,MatchValue,ActualValue'];
+                    for (const a of all) lines.push([esc(a.occurredAtLocal), esc(a.logLevel), esc(a.systemName), esc(a.name), esc(a.tagAddress), esc(a.valueType), esc(a.matchOp), esc(a.matchValue || ''), esc(a.actualValue)].join(','));
+                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
+                    const fn = `UserTagAlerts_${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.csv`;
+                    this._charts.downloadCsv(fn, lines.join('\n'));
+                },
+
+                describeOp(op, mv) {
+                    const v = (mv == null || mv === '') ? '?' : mv;
+                    switch (op) {
+                        case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
+                        case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v; case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
+                        case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v; default: return op || '?';
+                    }
+                },
+                levelChipClass(l) { return l === 'Error' ? 'chip-level-error' : l === 'Warning' ? 'chip-level-warning' : 'chip-level-info'; },
+                levelRowClass(l) { return l === 'Error' ? 'ut-row-error' : l === 'Warning' ? 'ut-row-warning' : ''; }
+            };
+        }
+    </script>
+    <style>@keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }</style>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>
