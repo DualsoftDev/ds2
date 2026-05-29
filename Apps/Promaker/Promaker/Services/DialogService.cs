@@ -24,8 +24,8 @@ public class DialogService : IDialogService
         Dialogs.DialogHelpers.Warn(message);
     }
 
-    public bool WarnSimulationEditBlocked(string message)
-        => Dialogs.DialogHelpers.ShowSimulationStopOptionDialog(message);
+    public bool WarnSimulationEditBlocked(string message, bool isMonitoring)
+        => Dialogs.DialogHelpers.ShowSimulationStopOptionDialog(message, isMonitoring);
 
     public void ShowError(string message)
         => Dialogs.DialogHelpers.Error(Application.Current.MainWindow, message);
