@@ -53,7 +53,7 @@ module MarkdownCapPolicy =
     [<Literal>]
     let SampleTailCount = 5
 
-    /// **Phase 4 IoList 전용 SSOT (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
+    /// **Phase 4 IoList 전용 SSOT (`done-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
     /// device-aware sampling 에서 사용하는 시트별 head 행 수. 기존 정책 (5) 대비 2배 — device base
     /// token 분포 보존 + Direction 분포 박제 위해 더 많은 row 표본 keep.
     [<Literal>]
@@ -63,7 +63,7 @@ module MarkdownCapPolicy =
     [<Literal>]
     let IoListSampleTailCount = 10
 
-    /// **Phase 4 IoList 전용 SSOT (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
+    /// **Phase 4 IoList 전용 SSOT (`done-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 의
     /// `strategyName` 식별자. SSOT (`IoListStrategy.fs:50`) 의 `static let strategyName` 정합.
     /// `applyCapFor` 의 dispatch key — 본 값 매치 시 IoList 전용 sampling 분기.
     [<Literal>]
@@ -350,7 +350,7 @@ module MarkdownCapPolicy =
 
     // ── Phase 4 IoList 전용 device-aware sampling ──────────────────────
 
-    /// **Phase 4 (`todo-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 전용 Stage 2 sampling.
+    /// **Phase 4 (`done-lighthouse-iolist-v2.md` Phase 4)** — IoList strategy 전용 Stage 2 sampling.
     ///
     /// 일반 `applySampling` 의 head 5 + tail 5 정책은 시트당 ~10 row 만 keep → 시트당 row 수가
     /// 평균 100+ 인 광명2 SIDE OUTER SV IO LIST (43 시트) 에서 device 정보 ~95% 소실 (4011 row 박제).
@@ -681,7 +681,7 @@ module MarkdownCapPolicy =
 
     // ── 단계 escalation 진입점 ─────────────────────────────────────────
 
-    /// **Phase 4 dispatch (`todo-lighthouse-iolist-v2.md` Phase 4)** — strategy 인지 진입점.
+    /// **Phase 4 dispatch (`done-lighthouse-iolist-v2.md` Phase 4)** — strategy 인지 진입점.
     /// `applyCap` 의 wrapper — Stage 2 sampling 분기를 strategy 별 dispatch.
     ///
     /// **dispatch policy**:

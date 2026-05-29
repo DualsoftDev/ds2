@@ -1053,7 +1053,7 @@ strategy 별 자유도가 허용되는 영역과 강제되는 영역을 명시.
 | **외부 링크 (linked workbook)** | 링크 깨진 reference 는 `#REF!` 또는 cache 값으로 박제. strategy 가 cache 값 우선 |
 | **pivot table / formula calc cache** | openpyxl `data_only=True` 정합. cache 없으면 `None` → `-` 표기 |
 | **xlsx 안 이미지** (예: COVER 로고, 도면) | OoxmlExtractor 가 `xl/media/` 추출. signature 매치 strategy 가 image 무시 / image caption path 로 routing 결정 (예: IoListStrategy 는 무시, 도면 PDF 변환 자료는 caption routing) |
-| **다른 IO List 변형 layout** (3/5-block, 세로) | **Phase 1+3 박제 (PR-I8 / `todo-lighthouse-iolist-v2.md`)** — 실 layout 은 `[leading 빈 col] + 5-col block × N + [trailing 빈 col]`: 22-col (N=4, 23 시트) + 27-col (N=5, 14 시트) 모두 `reshapeRowToBlocks` 가 `blockSize=5` + `i=1` 시작으로 자동 흡수. signature `hasFourBlockLayout` 의 threshold 는 22-col (4-block) 기준이지만 27-col (5-block) 도 `cols.Length >= 22` 충족하므로 동일 검출. **8-col WRS 변형** (4 시트, ~846 tag) 은 후속 PR backlog (R5 헤더 다름 → 별 분기 필요). signature 미매치 시 §8.5.7 fallback hierarchy 의 "거의 매치" 정책으로 진단 |
+| **다른 IO List 변형 layout** (3/5-block, 세로) | **Phase 1+3 박제 (PR-I8 / `done-lighthouse-iolist-v2.md`)** — 실 layout 은 `[leading 빈 col] + 5-col block × N + [trailing 빈 col]`: 22-col (N=4, 23 시트) + 27-col (N=5, 14 시트) 모두 `reshapeRowToBlocks` 가 `blockSize=5` + `i=1` 시작으로 자동 흡수. signature `hasFourBlockLayout` 의 threshold 는 22-col (4-block) 기준이지만 27-col (5-block) 도 `cols.Length >= 22` 충족하므로 동일 검출. **8-col WRS 변형** (4 시트, ~846 tag) 은 후속 PR backlog (R5 헤더 다름 → 별 분기 필요). signature 미매치 시 §8.5.7 fallback hierarchy 의 "거의 매치" 정책으로 진단 |
 | **BOM / 부품표 / 시험성적서 / 보전 점검표** | strategy 미정의 → fallback `GenericXlsxStrategy` (OoxmlExtractor 의 raw tab-join). summary 박제 0, 기존 (B) text dump 만 활용 |
 | **xlsx ≥ 100MB** | indexer timeout 위험 — 사전 size cap 5MB 초과 시 warning + 시트 단위 chunking 색인 (다음 PR backlog) |
 
@@ -1239,7 +1239,7 @@ caption 단계에서 image bytes 만 던지지 말고 **slide context 동봉**:
 → 도식의 의도가 텍스트에 있는 경우가 많아 vision LLM 의 해석 정확도 크게 향상.
 KMM 매뉴얼의 S66-71 같은 **연속 5장 FLOW CHART** 도 매 장 caption 의 일관성 확보.
 
-#### 8.6.4 SSOT 정책 갱신 (외부 문서 `todo-lighthouse-indexer-claude-caption.md` 의 두 결정 항목 patch)
+#### 8.6.4 SSOT 정책 갱신 (외부 문서 `done-lighthouse-indexer-claude-caption.md` 의 두 결정 항목 patch)
 
 해당 외부 문서의 영향받는 두 결정 항목:
 
@@ -1296,7 +1296,7 @@ e2e + caption spot-check + KMM A/B test) / Phase P1~P4 일정 / 도메인 전문
 | `Solutions/Core/Ds2.LightHouse/TextDumper.fs` | raw markdown dump 박제 (`.lighthouse-kb/text/`) — 본 §8 가 `summary/` 평행 추가 |
 | `Solutions/Core/Ds2.LightHouse/SummaryBuilder.fs` | PR-H1 의 doc 1줄 summary (`.lighthouse-kb/summary.md`) |
 | `Solutions/Core/Ds2.LightHouse/CaptionGenerator.fs` | 이미지 caption SSOT (`CaptionPrompt` Literal + `callAnthropic` wire). §8.6 이 task-specific 분기 도입 |
-| `Apps/Promaker/Docs/todo-lighthouse-indexer-claude-caption.md` | `/indexer` skill subagent caption 위임 — §2 #5 SSOT + §2 #14 spot-check 기준 갱신 대상 (§8.6.4) |
+| `Apps/Promaker/Docs/done-lighthouse-indexer-claude-caption.md` | `/indexer` skill subagent caption 위임 — §2 #5 SSOT + §2 #14 spot-check 기준 갱신 대상 (§8.6.4) |
 | `solutions/Ev2.Backend/src/Ev2.Oracle/CLAUDE.md` | Ev2.Oracle 지침 (시나리오 A++ 까지의 외부 파이프라인 — A+++++ 채택 후 의존 제거) |
 | `solutions/Ev2.Backend/src/Ev2.Oracle/Prompts/common-build-model-domain.md` | tags.json 스키마 + zone/device/action 분석 규칙 (strategy 설계 reference) |
 | **자료 A** — `F:/Git/dualsoft/secrets/KBSamples/core/4-3. 광명2 SIDE OUTER SV IO LIST STD MAP.xlsx` | IO List (43 sheets, 5000+ 비트) |

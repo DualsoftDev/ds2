@@ -478,7 +478,7 @@ let private camelJsonOpts () : System.Text.Json.JsonSerializerOptions =
     opts
 
 /// `/indexer` skill Step 2 — caption-pending row JSON stdout stream.
-/// `todo-lighthouse-indexer-claude-caption.md` §3 manifest fenced block 의 wire 정합.
+/// `done-lighthouse-indexer-claude-caption.md` §3 manifest fenced block 의 wire 정합.
 /// 본 entry 는 read-only — `SqliteStore.openConnection ... true` 진입 (PRAGMA WAL/synchronous/busy_timeout 자동 박제).
 let private runListPendingCaptions (folder: string) : int =
     match requireIndexedFolder folder with

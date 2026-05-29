@@ -10,7 +10,7 @@ open Ds2.LightHouse.Diagnostics
 /// **PR-I1 (todo-documents-based-gfm.md §2 + documents-based-gfm.md §1.1/§4/§8.5/§8.5.5/§8.5.7)** —
 /// 광명2 SIDE OUTER SV IO LIST 의 4~5 block 가로 layout 을 long-form CSV markdown 으로 reshape.
 ///
-/// **입력 가정** (`documents-based-gfm.md` §1.1 + Phase 0 진단 SSOT — `todo-lighthouse-iolist-v2.md` §1.1):
+/// **입력 가정** (`documents-based-gfm.md` §1.1 + Phase 0 진단 SSOT — `done-lighthouse-iolist-v2.md` §1.1):
 ///   - xlsx, 43 시트 규모 (실측), 각 시트 R1=헤더, R2=meta, R3=표헤더, R4=zone meta,
 ///     R5=컬럼헤더, R6+=데이터.
 ///   - 데이터 영역 layout: `[leading 빈 col] + (Word/Tag/DataType/Address/Symbol) × N block + [trailing 빈 col]`.
@@ -83,7 +83,7 @@ type IoListStrategy() =
             || firstLine.Contains("IO LIST", StringComparison.OrdinalIgnoreCase))
 
     /// 4~5 block 가로 layout 검출 — 데이터 행의 컬럼 수가 22+ (1 leading + 5×4 + 1 trailing = 22, 또는 27).
-    /// Phase 0 진단 SSOT (todo-lighthouse-iolist-v2.md §1.1): 22-col / 27-col 변형 모두 본 layout.
+    /// Phase 0 진단 SSOT (done-lighthouse-iolist-v2.md §1.1): 22-col / 27-col 변형 모두 본 layout.
     /// segments 중 dense data sheet 가 적어도 1개 이상 본 layout.
     static let hasFourBlockLayout (segments: ExtractedSegment array) : bool =
         segments
@@ -120,7 +120,7 @@ type IoListStrategy() =
         else "-"
 
     /// 단일 데이터 row 의 컬럼들로부터 4~5 block 을 long-form row 들로 reshape.
-    /// **Phase 1 fix (todo-lighthouse-iolist-v2.md §1.2)**: 실 layout 은 leading 빈 col 1개 +
+    /// **Phase 1 fix (done-lighthouse-iolist-v2.md §1.2)**: 실 layout 은 leading 빈 col 1개 +
     /// 5-col block × N + trailing col 1개. cells.[0] 은 leading 빈 col → skip (i 시작 = 1).
     /// 각 block = 5 columns (Word / Tag / DataType / Address / Symbol).
     /// trailing 빈 block 은 skip.

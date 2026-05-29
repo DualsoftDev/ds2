@@ -261,7 +261,7 @@ module ImageStore =
                 SqliteStore.insertCaptionChunk conn documentId refLocator chunkOrdinal tokenCount chunkText
             SqliteStore.setImageRefCaptionChunkId conn documentId imageHash refLocator ordinal chunkId
 
-    /// `/indexer` skill Step 2 → `caption-update` entry (`todo-lighthouse-indexer-claude-caption.md` §3 batch fenced block) —
+    /// `/indexer` skill Step 2 → `caption-update` entry (`done-lighthouse-indexer-claude-caption.md` §3 batch fenced block) —
     /// subagent 가 return 한 caption batch 를 단일 transaction 안 N 회 UPDATE → atomic commit.
     ///
     /// 본 함수가 transaction lifecycle 흡수 책임 — caller 측에서 `BeginTransaction()` + `cmd.Transaction <- tx`
@@ -305,7 +305,7 @@ module ImageStore =
             tx.Commit()
             n
 
-    /// `/indexer` skill (`todo-lighthouse-indexer-claude-caption.md` §2 #6/#12) — caption 미박제 image
+    /// `/indexer` skill (`done-lighthouse-indexer-claude-caption.md` §2 #6/#12) — caption 미박제 image
     /// row 의 SSOT enumeration. skill 진입 시 `lighthouse-cli list-pending-captions <folder>` 가 호출 → stdout JSON.
     ///
     /// **invariant**:

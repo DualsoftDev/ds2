@@ -117,7 +117,7 @@ Step 1-a 의 `--skip-upload` 는 *의도된 시작점* — 표면적으로 "업�
 
 **진입 조건**: §"진입 분기 결정 (SSOT)" 표의 3번째 행 — `LIGHTHOUSE_VLM_API_KEY` 미박제 + 사용자가 `--force-without-image-caption` 미명시. **Claude Code 사용자의 default path** (대다수 환경이 이에 해당).
 
-VLM caption 을 Anthropic API 직접 (`LIGHTHOUSE_VLM_API_KEY`) 대신 Claude Code subagent 로 위임하여 비용을 Claude Code subscription 으로 통합. `Apps/Promaker/Docs/todo-lighthouse-indexer-claude-caption.md` 의 채택안 (옵션 B, deferred 2-step + parallel subagent) 박제. todo §2 #3 의 lower=1 결정에 따라 **image 1장이라도** 있으면 subagent path 의무 — image 0건 폴더에서도 안전 (Step 1-b / Step 2 가 empty batch exit 0 no-op).
+VLM caption 을 Anthropic API 직접 (`LIGHTHOUSE_VLM_API_KEY`) 대신 Claude Code subagent 로 위임하여 비용을 Claude Code subscription 으로 통합. `Apps/Promaker/Docs/done-lighthouse-indexer-claude-caption.md` 의 채택안 (옵션 B, deferred 2-step + parallel subagent) 박제. todo §2 #3 의 lower=1 결정에 따라 **image 1장이라도** 있으면 subagent path 의무 — image 0건 폴더에서도 안전 (Step 1-b / Step 2 가 empty batch exit 0 no-op).
 
 **design (r5+)**: doc-level summary 도 subagent batch 박제 (Step 1 의 sub-step). PR-H1 zero-cost fallback (firstSentence)
 폐기 — PDF 표제지 stale 박제 결함이 design 의도 ("LLM 호출 없이 박제된 summary 박제") 를 fail 시킴. SummaryText NULL
