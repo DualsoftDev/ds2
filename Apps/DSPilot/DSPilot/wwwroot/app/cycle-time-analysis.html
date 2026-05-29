@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cycle Time Analysis — DSPilot</title>
+
+    <!--
+      격리형 호스팅 레퍼런스 #5 (Cycle-Time Analysis). 가장 무거운 페이지.
+      서버=C#(/api/cycle-analysis/flows|latest-time|gantt-data), 뷰=Alpine + 순수 JS SVG 렌더.
+      base 갠트 SVG / lane 정렬 / zoom / 바 선택 오버레이 / GAP top-5 / CSV 를 전부 클라이언트에서 처리.
+      crosshair 는 /js/gantt-crosshair.js 그대로 재사용, 툴팁/scrollIntoView 는 /js/cycle-time-chart.js 재사용
+      (단 dotnetRef 클릭 invoke 는 사용하지 않고 클릭을 로컬 Alpine state 로 처리).
+      cut-1 범위: idle-region 마스킹/Excel/scrollIntoView 애니메이션 제외(비가동 구간은 표시만).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/theme.css" rel="stylesheet" />
+    <link href="/css/components.css" rel="stylesheet" />
+    <link href="/css/dark-theme.css" rel="stylesheet" />
+    <link href="/css/app.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
+        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
+        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1600px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
+        .btn.btn-primary:hover { filter: brightness(1.05); }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(2px); }
+        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── CycleTimeAnalysis.razor.css (스코프드) 전부 인라인 ── */
+        .cycle-time-analysis { padding: 4px 0; width: 100%; margin: 0 auto; min-width: 0; box-sizing: border-box; }
+        .chart-filter-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; box-shadow: var(--shadow-card); }
+        .chart-filter-panel h4 { margin: 0 0 15px 0; color: var(--color-text-primary); font-size: 1.1rem; }
+        .filter-row { display: flex; gap: 15px; align-items: flex-end; margin-bottom: 10px; flex-wrap: wrap; }
+        .filter-group { min-width: 0; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .filter-group label { font-size: 0.9rem; font-weight: 500; color: var(--color-text-secondary); }
+        .filter-group input[type="datetime-local"], .filter-group select { min-width: 150px; }
+        .filter-group input[type="range"] { flex: 1; }
+        .time-preset-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .time-preset-buttons .btn-sm { font-size: 0.75rem; padding: 2px 8px; }
+
+        /* 병목 배너 */
+        .bottleneck-banner { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 18px; margin-bottom: 16px; border: none; border-radius: 10px; cursor: pointer; font: inherit; transition: filter 0.15s ease, transform 0.1s ease; }
+        .bottleneck-banner-active { background: linear-gradient(135deg, #c62828, #ef5350); color: #fff; box-shadow: 0 4px 12px rgba(198,40,40,0.35); }
+        .bottleneck-banner-active:hover { filter: brightness(1.05); }
+        .bottleneck-banner-active:active { transform: translateY(1px); }
+        .bottleneck-banner-muted { background: var(--color-surface); color: var(--color-text-secondary); border: 1px solid var(--color-lines); cursor: default; }
+        .bottleneck-icon { font-size: 26px !important; }
+        .bottleneck-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.95; }
+        .bottleneck-value { font-size: 1.5rem; font-weight: 800; font-family: 'Consolas','Roboto Mono',monospace; }
+        .bottleneck-unit { font-size: 0.95rem; font-weight: 600; margin-left: 2px; }
+        .bottleneck-lane { font-size: 0.9rem; font-weight: 600; opacity: 0.95; }
+        .bottleneck-cta { margin-left: auto; font-size: 0.82rem; font-weight: 600; opacity: 0.9; }
+
+        /* Gantt Info Bar */
+        .gantt-info-bar { background: linear-gradient(135deg, var(--gantt-info-from, #455a64) 0%, var(--gantt-info-to, #263238) 100%); color: white; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: flex; gap: 30px; flex-wrap: wrap; box-shadow: 0 4px 12px var(--gantt-info-shadow, rgba(0,0,0,0.25)); }
+        .info-item { display: flex; gap: 8px; align-items: center; }
+        .info-item .label { font-size: 0.85rem; opacity: 0.9; font-weight: 500; }
+        .info-item .value { font-size: 0.95rem; font-weight: 600; }
+        .gantt-info-controls { display: flex; align-items: center; gap: 10px; margin-left: 12px; flex-wrap: wrap; min-width: 0; }
+        .gantt-info-controls .gap-picker-select { max-width: 100%; }
+        .gantt-info-label { display: flex; align-items: center; gap: 4px; cursor: pointer; color: white; font-size: 13px; }
+        .gantt-info-separator { color: rgba(255, 255, 255, 0.3); margin: 0 2px; }
+        .gantt-info-hint { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
+        .gantt-idle-legend { display: flex; align-items: center; gap: 5px; font-size: 13px; color: white; opacity: 0.9; }
+        .gantt-idle-swatch { display: inline-block; width: 16px; height: 12px; background: #9e9e9e; opacity: 0.5; border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.4); }
+        .gantt-info-export { margin-left: auto; background: rgba(255, 255, 255, 0.15); color: white; border: 1px solid rgba(255, 255, 255, 0.3); white-space: nowrap; }
+
+        /* Gantt Chart Container */
+        .gantt-chart-container { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 380px); min-height: 600px; box-shadow: var(--shadow-card); }
+        .gantt-chart-wrapper { display: inline-block; min-width: 100%; }
+        .gantt-chart { display: block; border: 1px solid var(--color-lines); border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); }
+
+        /* Signal selection panel */
+        .sel-panel { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 14px; box-shadow: var(--shadow-card); animation: slideIn 0.3s ease-out; }
+        .sel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-lines); }
+        .sel-selected-signal { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+        .sel-selected-signal strong { font-size: 1rem; color: var(--color-text-primary); }
+        .sel-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; }
+        .sel-badge-selected { background: rgba(var(--color-warning-rgb, 255, 152, 0), 0.12); color: var(--color-warning); border: 1px solid rgba(var(--color-warning-rgb, 255, 152, 0), 0.35); }
+        .sel-badge-next { background: rgba(var(--color-success-rgb, 76, 175, 80), 0.12); color: var(--color-success); border: 1px solid rgba(var(--color-success-rgb, 76, 175, 80), 0.35); }
+        .sel-event-type { font-size: 0.8rem; color: var(--color-text-secondary); background: var(--color-background); padding: 1px 6px; border-radius: 4px; }
+        .sel-time { font-size: 0.82rem; color: var(--color-text-disabled); font-family: 'Consolas', monospace; }
+        .sel-info-row { display: flex; gap: 10px; align-items: stretch; }
+        .sel-gap-card { flex: 1; padding: 10px 14px; background: var(--color-background); border: 1px solid var(--color-lines); border-radius: 10px; text-align: center; min-width: 0; }
+        .sel-gap-direction { font-size: 0.72rem; font-weight: 700; color: var(--color-text-disabled); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        .sel-arrow { display: inline-block; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+        .sel-arrow-left { border-right: 6px solid var(--color-text-disabled); }
+        .sel-arrow-right { border-left: 6px solid var(--color-text-disabled); }
+        .sel-gap-value { font-size: 1.1rem; font-weight: 700; color: var(--color-text-primary); margin-bottom: 2px; }
+        .sel-gap-signal { font-size: 0.78rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sel-gap-signal span { color: var(--color-text-disabled); }
+        .sel-cycle-card { flex: 1.2; padding: 10px 14px; background: rgba(var(--color-success-rgb, 76, 175, 80), 0.08); border: 2px solid rgba(var(--color-success-rgb, 76, 175, 80), 0.40); border-radius: 10px; text-align: center; min-width: 0; }
+        .sel-cycle-label { font-size: 0.72rem; font-weight: 700; color: var(--color-success); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+        .sel-cycle-value { font-size: 1.3rem; font-weight: 800; color: var(--color-success); margin-bottom: 2px; }
+        .sel-cycle-signal { font-size: 0.78rem; color: var(--color-text-secondary); display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Loading / empty / alert */
+        .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px; }
+        .chart-loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: white; font-weight: 600; z-index: 100; border-radius: 12px; pointer-events: none; }
+        .chart-loading-overlay .spinner { width: 40px; height: 40px; margin-bottom: 0; }
+        .spinner { border: 4px solid var(--color-lines); border-top: 4px solid var(--color-primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        .empty-state { text-align: center; padding: 80px; color: var(--color-text-secondary); }
+        .empty-state .material-icons { font-size: 64px; color: var(--color-text-disabled); margin-bottom: 15px; }
+        .empty-state p { margin: 10px 0; font-size: 1.1rem; }
+        .empty-state-hint { font-size: 0.85rem; color: var(--color-text-disabled); }
+        .alert { padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .alert-error { background: rgba(var(--color-error-rgb, 244, 67, 54), 0.1); border: 1px solid rgba(var(--color-error-rgb, 244, 67, 54), 0.3); color: var(--color-error); }
+        .alert .material-icons { font-size: 24px; }
+
+        /* SVG Gantt styles — razor.css 의 ::deep 규칙을 비스코프드로 인라인 */
+        .gantt-bg { fill: var(--gantt-bg, #ffffff); }
+        .gantt-idle-region { fill: #9e9e9e; opacity: 0.25; pointer-events: none; }
+        .gantt-idle-label { fill: #666; font-size: 11px; font-weight: 600; opacity: 0.7; pointer-events: none; }
+        .gantt-lane-even { fill: var(--gantt-lane-even, #f7f9fb); stroke: var(--gantt-lane-border, #e0e6ea); stroke-width: 1; }
+        .gantt-lane-odd { fill: var(--gantt-lane-odd, #eef2f5); stroke: var(--gantt-lane-border, #e0e6ea); stroke-width: 1; }
+        .gantt-lane-center { stroke: var(--gantt-lane-center, #d5dde2); stroke-width: 1; }
+        .gantt-lane-label { fill: var(--gantt-label, #37474f); }
+        .gantt-lane-sublabel { fill: var(--gantt-sublabel, #90a4ae); }
+        .gantt-axis { stroke: var(--gantt-axis, #607d8b); stroke-width: 2; }
+        .gantt-tick { stroke: var(--gantt-axis, #607d8b); stroke-width: 1; }
+        .gantt-tick-label { fill: var(--gantt-tick-label, #607d8b); }
+        .gantt-bar-in { fill: var(--gantt-bar-in, #42a5f5); stroke: var(--gantt-bar-in-stroke, #1e88e5); stroke-width: 1; }
+        .gantt-bar-out { fill: var(--gantt-bar-out, #ec407a); stroke: var(--gantt-bar-out-stroke, #d81b60); stroke-width: 1; }
+        .gantt-bar-label { fill: white; }
+        .gantt-gap-overlay { fill: var(--gantt-gap-fill, rgba(244,67,54,0.15)); stroke: var(--gantt-gap-stroke, #f44336); stroke-width: 2; }
+        .gantt-gap-text { fill: var(--gantt-gap-text, #c62828); }
+        .gantt-gap-label-bg { fill: rgba(255, 255, 255, 0.92); stroke: var(--gantt-gap-text, #c62828); stroke-width: 1.5; }
+        .gantt-ct-label-bg { fill: rgba(255, 255, 255, 0.92); stroke: var(--gantt-ct-text, #2E7D32); stroke-width: 1.5; }
+        .gantt-cycletime-overlay { fill: var(--gantt-ct-fill, rgba(76,175,80,0.12)); stroke: var(--gantt-ct-stroke, #4caf50); stroke-width: 2; }
+        .gantt-cycletime-text { fill: var(--gantt-ct-text, #2e7d32); }
+        .gantt-cycletime-start { stroke: var(--gantt-ct-start, #4caf50); stroke-width: 2; }
+        .gantt-cycletime-end { stroke: var(--gantt-ct-end, #2e7d32); stroke-width: 2; }
+
+        @media (max-width: 1200px) { .gantt-chart-container { max-height: calc(100vh - 450px); min-height: 500px; } .gantt-info-bar { gap: 15px; } }
+        @media (max-width: 1024px) { .gantt-chart-container { max-height: calc(100vh - 500px); min-height: 400px; } }
+        @media (max-width: 768px) { .filter-row { flex-direction: column; align-items: stretch; } .gantt-info-bar { flex-direction: column; gap: 10px; } .gantt-chart-container { max-height: 400px; min-height: 300px; } }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cycleAnalysisApp()" x-init="init()" x-cloak>
+
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
+            <div class="modal-content" style="max-width:480px; text-align:center;">
+                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <header class="dsp-appbar">
+            <span class="dsp-title">Cycle Time Analysis</span>
+            <span class="dsp-badge">정적/격리</span>
+            <div class="spacer"></div>
+            <a href="/cycle-time-analysis" title="Blazor 버전과 비교">Blazor 버전</a>
+            <a href="/app/dashboard.html">대시보드</a>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div class="cycle-time-analysis">
+                <!-- Flow 선택 -->
+                <div class="chart-filter-panel">
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label>Flow 선택</label>
+                            <select class="form-field" x-model="selectedFlow" @change="onFlowChanged()">
+                                <option value="">-- Flow 선택 --</option>
+                                <template x-for="f in flows" :key="f"><option :value="f" x-text="f"></option></template>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 시간 범위 -->
+                <div class="chart-filter-panel" x-show="selectedFlow">
+                    <h4>시간 범위 설정</h4>
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label>시작 시간</label>
+                            <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeRangeChanged()" />
+                            <div class="time-preset-buttons">
+                                <button class="btn btn-sm" @click="setDurationMinutes(1)">시작 1분</button>
+                                <button class="btn btn-sm" @click="setDurationMinutes(2)">시작 2분</button>
+                                <button class="btn btn-sm" @click="setDurationMinutes(5)">시작 5분</button>
+                                <button class="btn btn-sm" @click="setDurationMinutes(10)">시작 10분</button>
+                                <button class="btn btn-sm" @click="setDurationMinutes(30)">시작 30분</button>
+                                <button class="btn btn-sm" @click="setDurationMinutes(60)">시작 1시간</button>
+                            </div>
+                        </div>
+                        <div class="filter-group">
+                            <label>종료 시간</label>
+                            <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeRangeChanged()" />
+                            <div class="time-preset-buttons">
+                                <button class="btn btn-sm" @click="setRecentMinutes(1)">최근 1분</button>
+                                <button class="btn btn-sm" @click="setRecentMinutes(2)">최근 2분</button>
+                                <button class="btn btn-sm" @click="setRecentMinutes(5)">최근 5분</button>
+                                <button class="btn btn-sm" @click="setRecentMinutes(10)">최근 10분</button>
+                                <button class="btn btn-sm" @click="setRecentMinutes(30)">최근 30분</button>
+                                <button class="btn btn-sm" @click="setRecentMinutes(60)">최근 1시간</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-row" x-show="data && data.items.length">
+                        <div class="filter-group">
+                            <label>정렬 방식</label>
+                            <select class="form-field" x-model="chartSort" @change="onSortChanged()">
+                                <option value="ByLane">Lane별</option>
+                                <option value="ByTime">시간순</option>
+                                <option value="ByCallName">Call 이름순</option>
+                                <option value="ByGapSize">GAP 크기순</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Zoom</label>
+                            <input type="range" min="0.5" max="3.0" step="0.1" x-model="zoomLevel" @input="applyZoom()" />
+                            <span x-text="parseFloat(zoomLevel).toFixed(1) + 'x'"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 에러 -->
+                <div class="alert alert-error" x-show="error">
+                    <span class="material-icons">error</span>
+                    <span x-text="error"></span>
+                </div>
+
+                <!-- 로딩 (차트 없을 때) -->
+                <div class="loading-container" x-show="loading && (!data || !data.items.length)">
+                    <div class="spinner"></div>
+                    <p>데이터 로딩 중...</p>
+                </div>
+
+                <!-- 결과 -->
+                <template x-if="data && data.items.length">
+                    <div>
+                        <!-- 병목 배너 -->
+                        <button type="button"
+                                class="bottleneck-banner"
+                                :class="data.topGaps.length ? 'bottleneck-banner-active' : 'bottleneck-banner-muted'"
+                                @click="focusLargestGap()" :disabled="!data.topGaps.length"
+                                :title="data.topGaps.length ? '클릭 시 갠트에서 해당 GAP 강조' : 'GAP 없음'">
+                            <span class="material-icons bottleneck-icon">warning_amber</span>
+                            <span class="bottleneck-label">최대 GAP (병목)</span>
+                            <template x-if="data.topGaps.length">
+                                <span style="display:flex; align-items:center; gap:12px; flex:1;">
+                                    <span class="bottleneck-value" x-text="(data.topGaps[0].duration / 1000).toFixed(2)"><span class="bottleneck-unit">s</span></span>
+                                    <span class="bottleneck-lane" x-text="data.topGaps[0].laneName"></span>
+                                    <span class="bottleneck-cta">클릭하여 갠트에서 보기 →</span>
+                                </span>
+                            </template>
+                            <template x-if="!data.topGaps.length">
+                                <span style="display:flex; align-items:center; gap:12px;">
+                                    <span class="bottleneck-value">-</span>
+                                    <span class="bottleneck-lane">GAP 없음</span>
+                                </span>
+                            </template>
+                        </button>
+
+                        <!-- Info Bar -->
+                        <div class="gantt-info-bar">
+                            <div class="info-item"><span class="label">Flow:</span><span class="value" x-text="data.flowName"></span></div>
+                            <div class="info-item"><span class="label">시간 범위:</span><span class="value" x-text="data.startTimeDisplay + ' ~ ' + data.endTimeDisplay"></span></div>
+                            <div class="info-item"><span class="label">총 이벤트:</span><span class="value" x-text="data.totalEventCount + ' (' + data.renderedEventCount + ' 렌더링)'"></span></div>
+                            <div class="info-item"><span class="label">Lane 수:</span><span class="value" x-text="data.totalLanes"></span></div>
+                            <div class="gantt-info-controls">
+                                <label class="gantt-info-label">
+                                    <input type="checkbox" x-model="showGapOverlay" @change="renderOverlay()" :disabled="!data.topGaps.length" /> GAP
+                                </label>
+                                <select class="form-field gap-picker-select" x-model.number="selectedGapIndex" @change="renderOverlay()"
+                                        :disabled="!showGapOverlay || !data.topGaps.length" :style="(showGapOverlay && data.topGaps.length) ? 'opacity:1' : 'opacity:0.4'">
+                                    <template x-if="!data.topGaps.length"><option value="-1">GAP 없음</option></template>
+                                    <template x-for="(g, i) in data.topGaps" :key="i">
+                                        <option :value="i" x-text="'#' + (i+1) + ': ' + (g.duration/1000).toFixed(2) + 's | ' + g.laneName + ' | ' + g.startDisplay + ' ~ ' + g.endDisplay"></option>
+                                    </template>
+                                </select>
+                                <span class="gantt-info-separator">|</span>
+                                <label class="gantt-info-label">
+                                    <input type="checkbox" x-model="showCycleTimeOverlay" @change="renderOverlay()" /> Cycle Time
+                                </label>
+                                <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
+                                <template x-if="data.idleRegions.length">
+                                    <span style="display:flex;align-items:center;gap:5px;">
+                                        <span class="gantt-info-separator">|</span>
+                                        <span class="gantt-idle-legend"><span class="gantt-idle-swatch"></span>비가동 구간</span>
+                                    </span>
+                                </template>
+                            </div>
+                            <div style="display:flex; gap:4px;">
+                                <button class="btn btn-sm gantt-info-export" @click="refreshLatest()" :disabled="loading" title="최신 데이터까지 포함해 다시 조회 (현재 윈도우 길이 유지)">
+                                    <span class="material-icons" style="font-size:14px;vertical-align:middle;margin-right:2px;">refresh</span>새로고침
+                                </button>
+                                <button class="btn btn-sm gantt-info-export" @click="exportCsv()">CSV 내보내기</button>
+                            </div>
+                        </div>
+
+                        <!-- 선택 패널 -->
+                        <template x-if="selectedItem">
+                            <div class="sel-panel">
+                                <div class="sel-header">
+                                    <div class="sel-selected-signal">
+                                        <span class="sel-badge sel-badge-selected">선택</span>
+                                        <strong x-text="selectedItem.callName"></strong>
+                                        <span class="sel-event-type" x-text="eventLabel(selectedItem.eventType)"></span>
+                                        <span class="sel-time" x-text="hms(selectedItem.goingStartTime)"></span>
+                                    </div>
+                                    <button class="btn btn-sm btn-outlined" @click="clearSelection()" style="white-space:nowrap;">선택 해제</button>
+                                </div>
+                                <div class="sel-info-row">
+                                    <div class="sel-gap-card">
+                                        <div class="sel-gap-direction"><span class="sel-arrow sel-arrow-left"></span> 이전 GAP</div>
+                                        <div class="sel-gap-value" x-text="previousGap !== null ? fmtGap(previousGap) : '-'"></div>
+                                        <template x-if="previousItem">
+                                            <div class="sel-gap-signal"><span x-text="previousItem.callName"></span> <span x-text="eventLabel(previousItem.eventType)"></span></div>
+                                        </template>
+                                    </div>
+                                    <template x-if="comparisonItem">
+                                        <div class="sel-cycle-card">
+                                            <div class="sel-cycle-label">Cycle Time</div>
+                                            <div class="sel-cycle-value" x-text="comparisonGap !== null ? fmtGap(comparisonGap) : '-'"></div>
+                                            <div class="sel-cycle-signal">
+                                                <span class="sel-badge sel-badge-next">다음</span>
+                                                <span x-text="comparisonItem.callName"></span>
+                                                <span class="sel-time" x-text="hms(comparisonItem.goingStartTime)"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div class="sel-gap-card">
+                                        <div class="sel-gap-direction">다음 GAP <span class="sel-arrow sel-arrow-right"></span></div>
+                                        <div class="sel-gap-value" x-text="nextGap !== null ? fmtGap(nextGap) : '-'"></div>
+                                        <template x-if="nextItem">
+                                            <div class="sel-gap-signal"><span x-text="nextItem.callName"></span> <span x-text="eventLabel(nextItem.eventType)"></span></div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Gantt -->
+                        <div class="gantt-chart-container" x-ref="ganttContainer" style="position: relative;">
+                            <div class="gantt-chart-wrapper" x-ref="ganttWrapper" style="transform-origin: top left; position: relative;">
+                                <div x-ref="baseSvgHost"></div>
+                                <svg x-ref="overlaySvg" class="gantt-chart-overlay-layer" xmlns="http://www.w3.org/2000/svg"
+                                     style="position:absolute; top:0; left:0; pointer-events:none;"></svg>
+                            </div>
+                            <div class="chart-loading-overlay" x-show="loading">
+                                <div class="spinner"></div><span>데이터 로딩 중...</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 빈 상태 -->
+                <template x-if="!loading && data && !data.items.length && selectedFlow">
+                    <div class="empty-state">
+                        <span class="material-icons">search_off</span>
+                        <p>선택한 시간 범위에 분석할 데이터가 없습니다</p>
+                        <p class="empty-state-hint">시간 범위를 변경하거나 프리셋 버튼을 사용해 보세요</p>
+                    </div>
+                </template>
+                <template x-if="!selectedFlow">
+                    <div class="empty-state">
+                        <span class="material-icons">bar_chart</span>
+                        <p>Flow를 선택하세요</p>
+                    </div>
+                </template>
+            </div>
+        </main>
+    </div>
+
+    <!-- 차트 click 위임 + 툴팁 (dotnetRef 없이 click 콜백만 로컬) / crosshair -->
+    <script src="/js/cycle-time-chart.js"></script>
+    <script src="/js/gantt-crosshair.js"></script>
+    <script>
+        // ── 차트 geometry — CycleTimeChartRenderer 상수와 동일 ──
+        const G = { LEFT: 220, TOP: 60, LANE_H: 52, BAR_H: 14, PLOT_W: 2000 };
+
+        function cycleAnalysisApp() {
+            return {
+                flows: [], selectedFlow: '',
+                startTime: '', endTime: '',
+                data: null, loading: false, error: null, demoBlocked: false, dark: false,
+
+                chartSort: 'ByLane', zoomLevel: 1.0,
+                showGapOverlay: true, showCycleTimeOverlay: true, selectedGapIndex: 0,
+
+                // 선택 상태 (로컬 계산 — 서버 라운드트립 없음)
+                selectedItem: null, comparisonItem: null, previousItem: null, nextItem: null,
+                comparisonGap: null, previousGap: null, nextGap: null,
+
+                // 렌더 캐시
+                _geo: null,            // { chartStart(ms), xScale, displayLaneIndex{lane:idx}, width, height }
+                _sortedItems: [],      // data-bar-idx 와 일치하는 정렬된 items
+                _debounce: null,
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    try {
+                        this.flows = await this.apiGet('/api/cycle-analysis/flows');
+                    } catch (e) { if (e.message !== 'demo-blocked') this.error = 'Flow 로딩 실패: ' + e.message; return; }
+                    if (this.flows.length) {
+                        this.selectedFlow = this.flows[0];
+                        const latest = await this.fetchLatest();
+                        this.endTime = latest;
+                        this.startTime = this.addMinutes(latest, -1);
+                        await this.loadGantt();
+                    }
+                },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); this.$nextTick(() => this.renderOverlay()); },
+
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+
+                // ── 시간 헬퍼 (datetime-local 문자열 = 로컬 naive) ──
+                async fetchLatest() {
+                    try { const d = await this.apiGet('/api/cycle-analysis/latest-time'); return d.latest.slice(0, 19); }
+                    catch { return this.nowLocal(); }
+                },
+                nowLocal() { const d = new Date(); return this.toLocalInput(d); },
+                toLocalInput(d) { const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; },
+                addMinutes(localStr, mins) { const d = this.parseLocal(localStr); d.setMinutes(d.getMinutes() + mins); return this.toLocalInput(d); },
+                parseLocal(s) { const m = s.match(/(\d+)-(\d+)-(\d+)T(\d+):(\d+)(?::(\d+))?/); if (!m) return new Date(); return new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]||0); },
+
+                async onFlowChanged() {
+                    this.clearSelectionState();
+                    this.data = null;
+                    if (!this.selectedFlow) return;
+                    const latest = await this.fetchLatest();
+                    this.endTime = latest;
+                    this.startTime = this.addMinutes(latest, -1);
+                    await this.loadGantt();
+                },
+                onTimeRangeChanged() {
+                    clearTimeout(this._debounce);
+                    this._debounce = setTimeout(() => { if (this.selectedFlow) this.loadGantt(); }, 500);
+                },
+                async setDurationMinutes(mins) { this.endTime = this.addMinutes(this.startTime, mins); if (this.selectedFlow) await this.loadGantt(); },
+                async setRecentMinutes(mins) { const latest = await this.fetchLatest(); this.endTime = latest; this.startTime = this.addMinutes(latest, -mins); if (this.selectedFlow) await this.loadGantt(); },
+                async refreshLatest() {
+                    if (!this.selectedFlow) return;
+                    const durMs = this.parseLocal(this.endTime) - this.parseLocal(this.startTime);
+                    const dur = durMs > 0 ? durMs : 60000;
+                    const latest = await this.fetchLatest();
+                    this.endTime = latest;
+                    const sd = new Date(this.parseLocal(latest).getTime() - dur);
+                    this.startTime = this.toLocalInput(sd);
+                    await this.loadGantt();
+                },
+
+                async loadGantt() {
+                    this.loading = true; this.error = null;
+                    try {
+                        const d = await this.apiPost('/api/cycle-analysis/gantt-data', { flowName: this.selectedFlow, start: this.startTime, end: this.endTime });
+                        this.data = d;
+                        this.clearSelectionState();
+                        this.selectedGapIndex = 0;
+                        this.$nextTick(() => { this.renderChart(); });
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.error = '데이터 로딩 실패: ' + e.message;
+                    } finally { this.loading = false; }
+                },
+
+                onSortChanged() { this.clearSelectionState(); this.$nextTick(() => this.renderChart()); },
+                applyZoom() { if (this.$refs.ganttWrapper) this.$refs.ganttWrapper.style.transform = 'scale(' + this.zoomLevel + ')'; },
+
+                // ════════════════════════════════════════════════════════════════
+                //  렌더링 — CycleTimeChartRenderer.BuildBaseSvg + RenderDynamicOverlay 이식
+                // ════════════════════════════════════════════════════════════════
+                renderChart() {
+                    if (!this.data || !this.data.items.length) { this.disposeJs(); return; }
+                    const laneOrder = this.computeDisplayLaneOrder();
+                    const displayLaneIndex = {}; laneOrder.forEach((lane, i) => displayLaneIndex[lane] = i);
+                    this._sortedItems = this.computeSortedItems(laneOrder, displayLaneIndex);
+
+                    const chartStart = new Date(this.data.chartStartTime).getTime();
+                    const chartEnd = new Date(this.data.chartEndTime).getTime();
+                    const cycleTime = Math.max(chartEnd - chartStart, 1);
+                    const xScale = G.PLOT_W / cycleTime;
+                    const width = G.LEFT + G.PLOT_W + 100;
+                    const height = G.TOP + (this.data.totalLanes * G.LANE_H) + 100;
+                    this._geo = { chartStart, xScale, displayLaneIndex, width, height };
+
+                    // base SVG
+                    this.$refs.baseSvgHost.innerHTML = this.buildBaseSvg(laneOrder, displayLaneIndex, chartStart, xScale, width, height);
+                    const ov = this.$refs.overlaySvg;
+                    ov.setAttribute('width', width); ov.setAttribute('height', height);
+
+                    this.applyZoom();
+                    this.renderOverlay();
+                    this.initJs(chartStart, xScale);
+                },
+
+                buildBaseSvg(laneOrder, displayLaneIndex, chartStart, xScale, width, height) {
+                    const d = this.data;
+                    const chartEnd = new Date(d.chartEndTime).getTime();
+                    let s = `<svg class="gantt-chart" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+                    s += `<rect class="gantt-bg" width="100%" height="100%"/>`;
+                    s += this.buildTimeAxis(chartStart, chartEnd);
+                    s += this.buildLanes(laneOrder);
+                    s += this.buildBars(chartStart, xScale, displayLaneIndex);
+                    s += this.buildIdleRegions(chartStart, xScale);
+                    s += `</svg>`;
+                    return s;
+                },
+                buildTimeAxis(startMs, endMs) {
+                    const tickCount = 20, dur = endMs - startMs, tickInterval = dur / tickCount;
+                    let s = `<line class="gantt-axis" x1="${G.LEFT}" y1="${G.TOP-5}" x2="${G.LEFT+G.PLOT_W}" y2="${G.TOP-5}"/>`;
+                    for (let i = 0; i <= tickCount; i++) {
+                        const x = G.LEFT + (i * G.PLOT_W / tickCount);
+                        const t = new Date(startMs + i * tickInterval);
+                        s += `<line class="gantt-tick" x1="${x}" y1="${G.TOP-5}" x2="${x}" y2="${G.TOP-10}"/>`;
+                        s += `<text class="gantt-tick-label" x="${x}" y="${G.TOP-15}" text-anchor="middle" font-size="10">${this.hmsTick(t)}</text>`;
+                    }
+                    return s;
+                },
+                buildLanes(laneOrder) {
+                    const d = this.data; let s = '';
+                    for (let dl = 0; dl < laneOrder.length; dl++) {
+                        const lane = laneOrder[dl];
+                        const y = G.TOP + dl * G.LANE_H;
+                        const cls = dl % 2 === 0 ? 'gantt-lane-even' : 'gantt-lane-odd';
+                        const cy = y + G.LANE_H / 2;
+                        const label = (lane >= 0 && lane < d.laneLabels.length) ? d.laneLabels[lane] : ('Lane ' + lane);
+                        s += `<rect class="${cls}" x="${G.LEFT}" y="${y}" width="${G.PLOT_W}" height="${G.LANE_H}"/>`;
+                        s += `<line class="gantt-lane-center" x1="${G.LEFT}" y1="${cy}" x2="${G.LEFT+G.PLOT_W}" y2="${cy}"/>`;
+                        s += `<text class="gantt-lane-label" x="${G.LEFT-10}" y="${cy-6}" text-anchor="end" dominant-baseline="middle" font-size="12" font-weight="600">${esc(label)}</text>`;
+                        s += `<text class="gantt-lane-sublabel" x="${G.LEFT-10}" y="${cy+10}" text-anchor="end" dominant-baseline="middle" font-size="10">IN / OUT</text>`;
+                    }
+                    return s;
+                },
+                buildBars(chartStart, xScale, displayLaneIndex) {
+                    let s = '';
+                    const items = this._sortedItems;
+                    for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        const dl = (displayLaneIndex[item.lane] !== undefined) ? displayLaneIndex[item.lane] : item.lane;
+                        const laneTop = G.TOP + dl * G.LANE_H;
+                        const y = item.eventType === 'InTag' ? laneTop + 7 : laneTop + 29;
+                        const x = G.LEFT + ((new Date(item.goingStartTime).getTime() - chartStart) * xScale);
+                        const durMs = item.durationMs;
+                        const width = Math.max(2, Math.max(durMs, 1) * xScale);
+                        const cls = item.eventType === 'InTag' ? 'gantt-bar-in' : 'gantt-bar-out';
+                        s += `<g style="cursor:pointer" data-bar-idx="${i}"><rect class="${cls}" x="${x.toFixed(2)}" y="${y}" width="${width.toFixed(2)}" height="${G.BAR_H}" rx="4"/>`;
+                        if (width > 30) {
+                            s += `<text class="gantt-bar-label" x="${(x+width/2).toFixed(2)}" y="${y+G.BAR_H/2}" text-anchor="middle" dominant-baseline="middle" font-size="10" style="pointer-events:none">${item.eventType === 'InTag' ? 'In' : 'Out'}</text>`;
+                        }
+                        s += `</g>`;
+                    }
+                    return s;
+                },
+                buildIdleRegions(chartStart, xScale) {
+                    const d = this.data; let s = '';
+                    const totalH = d.totalLanes * G.LANE_H;
+                    for (const r of d.idleRegions) {
+                        const rs = new Date(r.start).getTime(), re = new Date(r.end).getTime();
+                        let x = G.LEFT + Math.max(0, (rs - chartStart) * xScale);
+                        let w = (re - rs) * xScale;
+                        if (x + w < G.LEFT || x > G.LEFT + G.PLOT_W) continue;
+                        if (x < G.LEFT) { w -= (G.LEFT - x); x = G.LEFT; }
+                        if (x + w > G.LEFT + G.PLOT_W) w = G.LEFT + G.PLOT_W - x;
+                        s += `<rect class="gantt-idle-region" x="${x.toFixed(2)}" y="${G.TOP}" width="${w.toFixed(2)}" height="${totalH}"/>`;
+                        if (w > 30) s += `<text class="gantt-idle-label" x="${(x+w/2).toFixed(2)}" y="${G.TOP+16}" text-anchor="middle" dominant-baseline="middle">비가동</text>`;
+                    }
+                    return s;
+                },
+
+                // ── dynamic overlay (선택/CT/GAP) — RenderDynamicOverlay 이식 ──
+                renderOverlay() {
+                    const ov = this.$refs && this.$refs.overlaySvg;
+                    if (!ov || !this._geo || !this.data || !this.data.items.length) return;
+                    const { chartStart, xScale, displayLaneIndex } = this._geo;
+                    const d = this.data;
+                    let s = '';
+
+                    // GAP 배경
+                    const gap = this.activeGap();
+                    if (this.showGapOverlay && gap) {
+                        const gs = new Date(gap.start).getTime(), ge = new Date(gap.end).getTime();
+                        const gx = G.LEFT + (gs - chartStart) * xScale;
+                        const gw = (ge - gs) * xScale;
+                        const gy = G.TOP + gap.lane * G.LANE_H;
+                        s += `<rect class="gantt-gap-overlay" x="${gx.toFixed(2)}" y="${gy}" width="${gw.toFixed(2)}" height="${G.LANE_H}" stroke-dasharray="5,5"/>`;
+                    }
+
+                    // CT 배경 + 세로선
+                    if (this.showCycleTimeOverlay && this.selectedItem && this.comparisonItem) {
+                        let a = this.selectedItem, b = this.comparisonItem;
+                        if (new Date(a.goingStartTime) > new Date(b.goingStartTime)) { [a, b] = [b, a]; }
+                        const ax = new Date(a.goingStartTime).getTime(), bx = new Date(b.goingStartTime).getTime();
+                        const ctX = G.LEFT + (ax - chartStart) * xScale;
+                        const ctW = Math.max(2, (bx - ax) * xScale);
+                        const totalH = d.totalLanes * G.LANE_H;
+                        s += `<rect class="gantt-cycletime-overlay" x="${ctX.toFixed(2)}" y="${G.TOP}" width="${ctW.toFixed(2)}" height="${totalH}" stroke-dasharray="6,3"/>`;
+                        s += `<line class="gantt-cycletime-start" x1="${ctX.toFixed(2)}" y1="${G.TOP}" x2="${ctX.toFixed(2)}" y2="${G.TOP+totalH}"/>`;
+                        const ctEndX = ctX + ctW;
+                        s += `<line class="gantt-cycletime-end" x1="${ctEndX.toFixed(2)}" y1="${G.TOP}" x2="${ctEndX.toFixed(2)}" y2="${G.TOP+totalH}"/>`;
+                    }
+
+                    // 하이라이트 rect (선택/비교/이전/다음)
+                    const hl = (item, color, sw) => {
+                        if (!item) return '';
+                        const dl = (displayLaneIndex[item.lane] !== undefined) ? displayLaneIndex[item.lane] : item.lane;
+                        const laneTop = G.TOP + dl * G.LANE_H;
+                        const hy = item.eventType === 'InTag' ? laneTop + 7 : laneTop + 29;
+                        const hx = G.LEFT + (new Date(item.goingStartTime).getTime() - chartStart) * xScale;
+                        const hw = Math.max(2, Math.max(item.durationMs, 1) * xScale);
+                        return `<rect x="${hx.toFixed(2)}" y="${hy}" width="${hw.toFixed(2)}" height="${G.BAR_H}" rx="4" fill="none" stroke="${color}" stroke-width="${sw}" pointer-events="none"/>`;
+                    };
+                    s += hl(this.selectedItem, '#ff9800', 3);
+                    s += hl(this.comparisonItem, '#8b5cf6', 3);
+                    s += hl(this.previousItem, '#ff9800', 2);
+                    s += hl(this.nextItem, '#26a69a', 2);
+
+                    // GAP 텍스트 라벨
+                    if (this.showGapOverlay && gap) {
+                        const gs = new Date(gap.start).getTime(), ge = new Date(gap.end).getTime();
+                        const gx = G.LEFT + (gs - chartStart) * xScale;
+                        const gw = (ge - gs) * xScale;
+                        const gy = G.TOP + gap.lane * G.LANE_H;
+                        const label = `${gap.laneName} GAP: ${(gap.duration/1000).toFixed(2)}s`;
+                        const fs = 13, tw = label.length * (fs * 0.62), padX = 6, padY = 4;
+                        const bgW = tw + padX*2, bgH = fs + padY*2;
+                        const cx = gx + gw/2, cy = gy + G.LANE_H/2;
+                        s += `<rect class="gantt-gap-label-bg" x="${(cx-bgW/2).toFixed(2)}" y="${(cy-bgH/2).toFixed(2)}" width="${bgW.toFixed(2)}" height="${bgH.toFixed(2)}" rx="4"/>`;
+                        s += `<text class="gantt-gap-text" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="bold">${esc(label)}</text>`;
+                    }
+
+                    // CT 텍스트 라벨
+                    if (this.showCycleTimeOverlay && this.selectedItem && this.comparisonItem) {
+                        let a = this.selectedItem, b = this.comparisonItem;
+                        if (new Date(a.goingStartTime) > new Date(b.goingStartTime)) { [a, b] = [b, a]; }
+                        const ax = new Date(a.goingStartTime).getTime(), bx = new Date(b.goingStartTime).getTime();
+                        const ctX = G.LEFT + (ax - chartStart) * xScale;
+                        const ctW = Math.max(2, (bx - ax) * xScale);
+                        const ctDur = bx - ax;
+                        const label = `Δ ${(ctDur/1000).toFixed(2)}s`;
+                        const fs = 13, tw = label.length * (fs * 0.65), padX = 6, padY = 4;
+                        const bgW = tw + padX*2, bgH = fs + padY*2;
+                        const cx = ctX + ctW/2, cy = G.TOP - 20;
+                        s += `<rect class="gantt-ct-label-bg" x="${(cx-bgW/2).toFixed(2)}" y="${(cy-bgH/2).toFixed(2)}" width="${bgW.toFixed(2)}" height="${bgH.toFixed(2)}" rx="4"/>`;
+                        s += `<text class="gantt-cycletime-text" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="bold">${esc(label)}</text>`;
+                    }
+
+                    ov.innerHTML = s;
+                },
+
+                activeGap() {
+                    const gaps = this.data.topGaps;
+                    if (!gaps.length) return null;
+                    const i = (this.selectedGapIndex >= 0 && this.selectedGapIndex < gaps.length) ? this.selectedGapIndex : 0;
+                    return gaps[i];
+                },
+
+                // ── lane order / item sort — GetDisplayLaneOrder / GetSortedItemsForDisplay 이식 ──
+                computeDisplayLaneOrder() {
+                    const d = this.data;
+                    const byLane = {};
+                    for (const it of d.items) { (byLane[it.lane] = byLane[it.lane] || []).push(it); }
+                    const stats = Object.keys(byLane).map(k => {
+                        const lane = +k;
+                        const ordered = byLane[k].slice().sort((a,b) => new Date(a.goingStartTime) - new Date(b.goingStartTime));
+                        const label = (lane >= 0 && lane < d.laneLabels.length) ? d.laneLabels[lane] : ('Lane ' + lane);
+                        const firstStart = ordered.length ? new Date(ordered[0].goingStartTime).getTime() : Infinity;
+                        let maxGap = 0;
+                        for (let i = 0; i < ordered.length - 1; i++) {
+                            const ce = new Date(ordered[i].finishTime || ordered[i].goingStartTime).getTime();
+                            const ns = new Date(ordered[i+1].goingStartTime).getTime();
+                            maxGap = Math.max(maxGap, ns - ce);
+                        }
+                        return { lane, label, firstStart, maxGap };
+                    });
+                    let sorted;
+                    switch (this.chartSort) {
+                        case 'ByTime': sorted = stats.sort((a,b) => a.firstStart - b.firstStart || a.lane - b.lane); break;
+                        case 'ByCallName': sorted = stats.sort((a,b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()) || a.lane - b.lane); break;
+                        case 'ByGapSize': sorted = stats.sort((a,b) => b.maxGap - a.maxGap || a.firstStart - b.firstStart || a.lane - b.lane); break;
+                        default: sorted = stats.sort((a,b) => a.lane - b.lane); break;
+                    }
+                    return sorted.map(s => s.lane);
+                },
+                computeSortedItems(laneOrder, displayLaneIndex) {
+                    const items = this.data.items.slice();
+                    const ts = (i) => new Date(i.goingStartTime).getTime();
+                    switch (this.chartSort) {
+                        case 'ByTime': return items.sort((a,b) => ts(a) - ts(b));
+                        case 'ByLane': return items.sort((a,b) => a.lane - b.lane || ts(a) - ts(b));
+                        case 'ByCallName':
+                        case 'ByGapSize':
+                            return items.sort((a,b) => (displayLaneIndex[a.lane] ?? a.lane) - (displayLaneIndex[b.lane] ?? b.lane) || ts(a) - ts(b));
+                        default: return items.sort((a,b) => a.lane - b.lane || ts(a) - ts(b));
+                    }
+                },
+
+                // ── JS interop (재사용) ──
+                initJs(chartStart, xScale) {
+                    const container = this.$refs.ganttContainer;
+                    if (!container) return;
+                    // 클릭 위임: dotnetRef 대신 로컬 핸들러로 바 클릭 처리.
+                    if (window.cycleTimeChart) {
+                        window.cycleTimeChart.init(container, { invokeMethodAsync: (_m, idx) => { this.onBarClicked(idx); return Promise.resolve(); } });
+                        window.cycleTimeChart.setTooltips(container, this.buildTooltips());
+                    }
+                    // crosshair: snap edges = 각 item 시작/끝
+                    if (window.ganttCrosshair) {
+                        const snapEdges = [];
+                        for (const item of this._sortedItems) {
+                            const st = new Date(item.goingStartTime).getTime();
+                            const x = G.LEFT + (st - chartStart) * xScale;
+                            snapEdges.push({ x: Math.round(x), timeMs: st });
+                            if (item.durationMs > 0) {
+                                const endX = Math.round(x + Math.max(2, item.durationMs * xScale));
+                                snapEdges.push({ x: endX, timeMs: st + item.durationMs });
+                            }
+                        }
+                        window.ganttCrosshair.init(container, {
+                            leftMargin: G.LEFT, topMargin: G.TOP, plotWidth: G.PLOT_W,
+                            plotHeight: this.data.totalLanes * G.LANE_H, xScale,
+                            chartStartTimeMs: chartStart, snapEdges
+                        });
+                    }
+                },
+                disposeJs() {
+                    const container = this.$refs && this.$refs.ganttContainer;
+                    if (!container) return;
+                    if (window.cycleTimeChart) window.cycleTimeChart.dispose(container);
+                    if (window.ganttCrosshair) window.ganttCrosshair.dispose(container);
+                },
+                buildTooltips() {
+                    return this._sortedItems.map(item => {
+                        const ev = item.eventType === 'InTag' ? 'InTag' : 'OutTag';
+                        const end = item.finishTime ? this.hms(item.finishTime) : '진행중';
+                        return `Call: ${item.callName}\nWork: ${item.workName}\nTag: ${item.tagName} (${item.tagAddress})\nEvent: ${ev}\nStart: ${this.hms(item.goingStartTime)}\nEnd: ${end}\nDuration: ${(item.durationMs/1000).toFixed(1)} (sec)`;
+                    });
+                },
+
+                // ── 바 클릭 → 로컬 선택 계산 (OnBarClicked / SelectItem 이식) ──
+                onBarClicked(idx) {
+                    if (idx < 0 || idx >= this._sortedItems.length) return;
+                    const item = this._sortedItems[idx];
+                    if (this.selectedItem === item) { this.clearSelection(); return; }
+                    this.selectedItem = item;
+                    this.comparisonItem = null; this.comparisonGap = null;
+                    this.calcItemGaps(item);
+                    this.autoMatchCycleTime(item);
+                    this.renderOverlay();
+                },
+                calcItemGaps(item) {
+                    this.previousGap = null; this.nextGap = null; this.previousItem = null; this.nextItem = null;
+                    const same = this.data.items.filter(i => i.lane === item.lane).sort((a,b) => new Date(a.goingStartTime) - new Date(b.goingStartTime));
+                    const idx = same.indexOf(item);
+                    if (idx === -1) return;
+                    if (idx > 0) {
+                        this.previousItem = same[idx-1];
+                        const pe = new Date(this.previousItem.finishTime || this.previousItem.goingStartTime).getTime();
+                        this.previousGap = new Date(item.goingStartTime).getTime() - pe;
+                    }
+                    if (idx < same.length - 1) {
+                        this.nextItem = same[idx+1];
+                        const ce = new Date(item.finishTime || item.goingStartTime).getTime();
+                        this.nextGap = new Date(this.nextItem.goingStartTime).getTime() - ce;
+                    }
+                },
+                autoMatchCycleTime(item) {
+                    // 동일 (tagAddress, eventType) 의 다음 발생
+                    const group = this.data.items
+                        .filter(i => i.tagAddress === item.tagAddress && i.eventType === item.eventType)
+                        .sort((a,b) => new Date(a.goingStartTime) - new Date(b.goingStartTime));
+                    const pivot = new Date(item.goingStartTime).getTime();
+                    const next = group.find(i => new Date(i.goingStartTime).getTime() > pivot);
+                    if (!next) return;
+                    this.comparisonItem = next;
+                    this.comparisonGap = new Date(next.goingStartTime).getTime() - pivot;
+                },
+                clearSelection() { this.clearSelectionState(); this.renderOverlay(); },
+                clearSelectionState() {
+                    this.selectedItem = null; this.comparisonItem = null; this.previousItem = null; this.nextItem = null;
+                    this.comparisonGap = null; this.previousGap = null; this.nextGap = null;
+                },
+
+                focusLargestGap() {
+                    if (!this.data.topGaps.length) return;
+                    this.showGapOverlay = true; this.selectedGapIndex = 0;
+                    this.renderOverlay();
+                    const c = this.$refs.ganttContainer;
+                    if (c && c.scrollIntoView) { try { c.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {} }
+                },
+
+                // ── CSV (CycleTimeChartExporter.BuildCsvBytes 포맷 동일, 클라이언트 빌드) ──
+                exportCsv() {
+                    if (!this.data || !this.data.items.length) return;
+                    const esc2 = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+                    const lines = ['CallName,WorkName,FlowName,TagName,TagAddress,EventType,GoingStartTime,FinishTime,Duration(ms),Lane'];
+                    const sorted = this.data.items.slice().sort((a,b) => new Date(a.goingStartTime) - new Date(b.goingStartTime));
+                    for (const it of sorted) {
+                        const et = it.eventType === 'InTag' ? 'IN' : 'OUT';
+                        const finish = it.finishTime ? this.fullTs(it.finishTime) : '';
+                        lines.push([esc2(it.callName), esc2(it.workName), esc2(it.flowName), esc2(it.tagName), esc2(it.tagAddress), et, this.fullTs(it.goingStartTime), finish, it.durationMs, it.lane].join(','));
+                    }
+                    const csv = '﻿' + lines.join('\n');  // UTF-8 BOM
+                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
+                    const fn = `CycleAnalysis_${this.data.flowName}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.csv`;
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = fn;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                },
+
+                // ── 포맷 헬퍼 ──
+                eventLabel(et) { return et === 'InTag' ? 'IN' : 'OUT'; },
+                fmtGap(ms) { return (ms / 1000).toFixed(1) + ' (sec)'; },   // FormatDurationTooltip 동일
+                hms(iso) { const d = new Date(iso); const p = (x) => String(x).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`; },
+                hmsTick(d) { const p = (x) => String(x).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; },
+                fullTs(iso) { const d = new Date(iso); const p = (x) => String(x).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`; }
+            };
+        }
+
+        function esc(v) {
+            if (v == null) return '';
+            return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+        }
+    </script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>
