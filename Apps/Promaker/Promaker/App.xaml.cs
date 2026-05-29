@@ -94,11 +94,13 @@ public partial class App : Application
         // 이전에 1회 등록 필수 → OnStartup 의 가장 이른 시점.
         Promaker.Dock.DockHost.RegisterAssemblyResolve();
 
-        var configFile = new FileInfo("log4net.config");
+        // process working dir 가 exe 폴더가 아닐 수 있어 (단축키 / dotnet run / 다른 cwd 에서 실행)
+        // AppContext.BaseDirectory (exe 폴더) 기준 절대 경로로 명시 — log4net Configure silent skip 회피.
+        var configFile = new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config"));
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
         else
-            System.Diagnostics.Trace.TraceWarning("log4net.config was not found. Logging may be disabled.");
+            System.Diagnostics.Trace.TraceWarning($"log4net.config not found at {configFile.FullName}. Logging may be disabled.");
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
