@@ -166,12 +166,15 @@ public partial class ExplorerPane : UserControl
             _pendingTreeSelectionPane = pane;
             try { _treeDragStartPoint = e.GetPosition(null); }
             catch { _treeDragStartPoint = default; }
-        }
-        else
-        {
-            ClearPendingTreeDragSelection();
+
+            // 선택 확정은 drag 시작(다중 유지) 또는 mouse-up(드래그 안 했을 때 단일 선택)에 위임한다.
+            // 여기서 HandleTreeItemMouseDown 으로 단일 리셋하면, 다중 선택해 둔 Call 을 끌려고
+            // 누르는 순간 선택이 1개로 줄어들어 다중 드래그가 깨진다.
+            ViewModel?.Selection.SetActiveTreePane(pane);
+            return;
         }
 
+        ClearPendingTreeDragSelection();
         HandleTreeItemMouseDown(pane, sender, e, requireModifiers: true);
     }
 
