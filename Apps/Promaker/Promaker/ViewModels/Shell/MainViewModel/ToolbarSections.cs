@@ -19,7 +19,13 @@ public partial class MainViewModel
     /// 영속화: 본 PR 범위 외 — 현재 in-memory 상태 only (앱 재시작 시 default true 복귀).
     ///         후속 PR 에서 settings xml / LayoutXml 동등 저장 영역으로 박제 예정.
     ///
-    /// HasProject 무관 — 모든 카테고리 가시성은 사용자 선호 only (프로젝트 로드 상태와 독립).
+    /// HasProject 종속 (사용자 명시 의도):
+    ///   - 파일/기타 (<see cref="IsToolbarFileVisible"/> / <see cref="IsToolbarEtcVisible"/>): HasProject 무관.
+    ///     NewProject/Open/Save/보기/설정 등 항상 필요.
+    ///   - 프로젝트/편집/연결/시뮬레이션 4 section: <c>MainWindow.SyncWelcomeCanvasVisibilityNoGuard</c> 가
+    ///     HasProject 토글 시 자동 set (false → 강제 hide, true → 강제 show). 사용자 ContextMenu toggle 결과는
+    ///     HasProject 토글로 reset — dock anchor 와 동일 패턴 (일관성). 사용자 toggle 보존이 필요하면
+    ///     MultiBinding (IsToolbar*Visible AND HasProject) 으로 재설계 필요 (후속 PR 영역).
     /// </summary>
     [ObservableProperty] private bool _isToolbarFileVisible = true;
     [ObservableProperty] private bool _isToolbarProjectVisible = true;

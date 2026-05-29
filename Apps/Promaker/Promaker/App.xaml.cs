@@ -119,19 +119,11 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Fatal("Unhandled dispatcher exception", args.Exception);
-            // [SPIKE] inner exception chain + stack trace 모두 dialog 에 표시 — log file flush 실패 회피.
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("A fatal UI error occurred and the app will stop.").AppendLine();
-            var ex = args.Exception;
-            int depth = 0;
-            while (ex != null)
-            {
-                sb.AppendLine($"[{depth}] {ex.GetType().FullName}: {ex.Message}");
-                if (ex.StackTrace != null) sb.AppendLine(ex.StackTrace);
-                sb.AppendLine();
-                ex = ex.InnerException; depth++;
-            }
-            MessageBox.Show(sb.ToString(), "Fatal Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(
+                $"A fatal UI error occurred and the app will stop.\n\n{args.Exception.Message}",
+                "Fatal Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
             args.Handled = false;
         };
 
