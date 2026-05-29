@@ -46,11 +46,12 @@ public interface IDialogService
     void ShowWarning(string message);
 
     /// <summary>
-    /// 시뮬레이션 중 편집 차단 경고 + "시뮬레이션 종료" 옵션 다이얼로그.
+    /// 시뮬레이션/모니터링 중 편집 차단 경고 + "시뮬레이션 종료"/"모니터링 종료" 옵션 다이얼로그.
     /// </summary>
     /// <param name="message">경고 메시지</param>
-    /// <returns>사용자가 시뮬 종료를 선택했으면 true, 그 외 false</returns>
-    bool WarnSimulationEditBlocked(string message);
+    /// <param name="isMonitoring">실 PLC 모니터링 세션이면 true — 제목/버튼을 "모니터링" 문구로 표시</param>
+    /// <returns>사용자가 종료를 선택했으면 true, "취소" 등 그 외 false</returns>
+    bool WarnSimulationEditBlocked(string message, bool isMonitoring);
 
     /// <summary>
     /// 에러 메시지 표시

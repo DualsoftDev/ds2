@@ -32,10 +32,9 @@
                 <StackPanel Orientation="Horizontal">
                     <!--
                         Monitoring + 실 PLC 모드(IsAgentDelegationMode) 에서는:
-                          - 항상 Play 아이콘 + "Agent 전송" 라벨 (Stop 토글 없음 — Stop 눌러도 Agent 정지 안 함)
-                          - Command 는 항상 StartSimulationCommand. 이미 모니터링 중에 다시 누르면 active.flag/session.json
-                            을 재기록 → Agent FileSystemWatcher 가 debounce 후 BackendHost 재시작(=갱신).
-                          - Tooltip 으로 "Agent 로 모니터링 명령 전송 / 이미 모니터링 중이면 설정 갱신" 안내.
+                          - 시작 전: Play 아이콘 + "Agent 전송" (StartSimulationCommand) — active.flag 기록 + 모니터링 + DSPilot 대시보드.
+                          - 시작 후: Stop 아이콘 + "정지" (StopSimulationCommand) 로 토글.
+                            "정지" 는 Promaker 화면만 끄고 active.flag 유지 → Agent 는 계속 동작(sticky).
                         그 외 모드(Simulation / Control 등) 는 기존 Play↔Stop 토글 유지.
                     -->
                     <Button x:Name="SimulationStartStopButton"
@@ -58,9 +57,19 @@
                                     </MultiDataTrigger>
                                     <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
                                         <Setter Property="Command" Value="{Binding Simulation.StartSimulationCommand}"/>
-                                        <Setter Property="ToolTip" Value="모니터링 명령을 Promaker.Agent 로 전송합니다. 이미 모니터링 중이면 현재 PLC/AASX 설정으로 갱신(재시작)합니다."/>
+                                        <Setter Property="ToolTip" Value="모니터링 명령을 Promaker.Agent 로 전송하고 DSPilot 대시보드를 띄웁니다."/>
                                         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                     </DataTrigger>
+                                    <!-- 모니터링 시작 후 같은 버튼을 "정지"로 토글. 정지 = Promaker 화면만 끔, active.flag 유지 → Agent 계속 동작. -->
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True"/>
+                                            <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Command" Value="{Binding Simulation.StopSimulationCommand}"/>
+                                        <Setter Property="ToolTip" Value="모니터링 정지 — Promaker 모니터링 화면을 닫습니다. (Promaker.Agent 는 계속 동작합니다.)"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                    </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
@@ -75,11 +84,20 @@
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
+                                                <!-- Sim/Control: 실행 중(비일시정지) → Play 숨김 -->
                                                 <MultiDataTrigger>
                                                     <MultiDataTrigger.Conditions>
                                                         <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                         <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                                         <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </MultiDataTrigger>
+                                                <!-- Monitoring 실행 중 → Play 숨김 -->
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </MultiDataTrigger>
@@ -96,11 +114,20 @@
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
+                                                <!-- Sim/Control: 실행 중(비일시정지) → Stop 표시 -->
                                                 <MultiDataTrigger>
                                                     <MultiDataTrigger.Conditions>
                                                         <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                         <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                                         <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </MultiDataTrigger>
+                                                <!-- Monitoring 실행 중 → Stop 표시 -->
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </MultiDataTrigger>
@@ -125,78 +152,13 @@
                                             <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
                                                 <Setter Property="Text" Value="Agent 전송"/>
                                             </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </StackPanel>
-                    </Button>
-                    <!-- 자체 모니터링 토글 — Agent 위임 모드일 때 Pause 자리에 노출. Play↔Stop 단일 버튼.
-                         시작: Promaker 본체가 5051 직접 호스팅 (Agent 우회).
-                         정지: 자체 모니터링만 정지 — Hub.Stop 이 SelfMonitoringClientOnly=false 복귀, Agent 는 계속 동작.
-                         일반 Simulation/Control 모드에서는 숨김 — Pause 버튼이 같은 자리에 정상 노출.
-                         IsSelfMonitoring 가 토글되어도 버튼은 같은 자리에 남고 아이콘/라벨/Command 만 전환된다.
-                    -->
-                    <Button x:Name="SelfMonitoringToggleButton"
-                            Visibility="{Binding Simulation.IsAgentDelegationMode, Converter={StaticResource BoolToVis}}"
-                            IsEnabled="{Binding HasProject}">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
-                                <Setter Property="Command" Value="{Binding Simulation.StartSelfMonitoringCommand}"/>
-                                <Setter Property="ToolTip" Value="Agent 의 5051 Hub 에 Promaker 가 client 로만 접속 (active.flag 미기록). Agent 가 떠 있어야 데이터가 들어옵니다."/>
-                                <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
-                                        <Setter Property="Command" Value="{Binding Simulation.StopSelfMonitoringCommand}"/>
-                                        <Setter Property="ToolTip" Value="자체 모니터링 정지 — 5051 client 연결만 끊습니다 (Agent 는 계속 동작)."/>
-                                        <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <StackPanel Orientation="Vertical">
-                            <Grid Width="18" Height="18">
-                                <iconPacks:PackIconMaterial Kind="Play"
-                                                            Width="18"
-                                                            Height="18"
-                                                            HorizontalAlignment="Center"
-                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-                                    <iconPacks:PackIconMaterial.Style>
-                                        <Style TargetType="iconPacks:PackIconMaterial">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </iconPacks:PackIconMaterial.Style>
-                                </iconPacks:PackIconMaterial>
-                                <iconPacks:PackIconMaterial Kind="Stop"
-                                                            Width="18"
-                                                            Height="18"
-                                                            HorizontalAlignment="Center"
-                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-                                    <iconPacks:PackIconMaterial.Style>
-                                        <Style TargetType="iconPacks:PackIconMaterial">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
-                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </iconPacks:PackIconMaterial.Style>
-                                </iconPacks:PackIconMaterial>
-                            </Grid>
-                            <TextBlock Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
-                                        <Setter Property="Text" Value="시작"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Simulation.IsSelfMonitoring}" Value="True">
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True"/>
+                                                    <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                                </MultiDataTrigger.Conditions>
                                                 <Setter Property="Text" Value="정지"/>
-                                            </DataTrigger>
+                                            </MultiDataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </TextBlock.Style>
@@ -217,8 +179,7 @@
                                         <Setter Property="ToolTip" Value="한 단계 실행"/>
                                         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                     </DataTrigger>
-                                    <!-- Monitoring + 실 PLC (Agent 위임 모드) 에서는 Pause/Step 자체가 의미 없음.
-                                         같은 자리를 "자체 모니터링" 버튼이 차지 — Pause 는 숨김. -->
+                                    <!-- Monitoring + 실 PLC (Agent 위임 모드) 에서는 Pause/Step 의미 없음 — 숨김. -->
                                     <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed"/>
                                     </DataTrigger>

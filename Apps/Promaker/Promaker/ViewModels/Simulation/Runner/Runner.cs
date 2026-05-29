@@ -168,40 +168,6 @@ public partial class SimulationPanelState
     private bool CanResetSimulation() =>
         SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideReset(IsSimulating));
 
-    /// <summary>"자체 모니터링" 시작 — Agent 의 5051 에 Promaker 가 client 로만 접속 (active.flag 미기록, host 미시작).
-    /// Hub.SelfMonitoringClientOnly=true 로 표식 후 일반 StartSimulation 흐름을 재사용.
-    /// 시작 실패 시 (StartSimulation 이 조기 return) Hub.Stop 의 false 복귀가 보장된다.</summary>
-    [RelayCommand(CanExecute = nameof(CanStartSelfMonitoring))]
-    private void StartSelfMonitoring()
-    {
-        Hub.SelfMonitoringClientOnly = true;
-        IsSelfMonitoring = true;
-        StartSimulation();
-        // StartSimulation 이 어떤 게이트(검증 등) 로 조기 return 한 경우 IsSimulating 가 false.
-        // 그 때는 자체 모니터링 표식도 되돌린다 — Stop 경유 Hub.Stop 이 안 불릴 수 있음.
-        if (!IsSimulating)
-        {
-            Hub.SelfMonitoringClientOnly = false;
-            IsSelfMonitoring = false;
-        }
-    }
-
-    /// <summary>"자체 모니터링" 정지 — 일반 StopSimulation 호출 후 IsSelfMonitoring 플래그 리셋.
-    /// (Hub.Stop 은 SelfMonitoringClientOnly 만 리셋. 패널의 IsSelfMonitoring 표식은 별도라 여기서 명시 해제 —
-    /// 누락 시 토글 버튼이 "정지" 상태로 굳어 재시작 불가.)</summary>
-    [RelayCommand(CanExecute = nameof(CanStopSelfMonitoring))]
-    private void StopSelfMonitoring()
-    {
-        StopSimulation();
-        IsSelfMonitoring = false;
-    }
-
-    private bool CanStartSelfMonitoring() =>
-        IsAgentDelegationMode && !IsSimulating && !IsHomingPhase;
-
-    private bool CanStopSelfMonitoring() =>
-        IsSelfMonitoring && IsSimulating;
-
     private void DisposeSimEngine()
     {
         TryDisposeCurrentEngine("Simulation dispose");

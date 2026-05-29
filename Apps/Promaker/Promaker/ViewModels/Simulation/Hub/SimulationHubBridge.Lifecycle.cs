@@ -103,29 +103,14 @@ public sealed partial class SimulationHubBridge
     }
 
     /// <summary>Host 띄우기. 분기:
-    ///   Monitoring + 실 PLC + SelfMonitoringClientOnly → host/active.flag 모두 미수행. client 만 5051 에 attach.
     ///   Monitoring + 실 PLC → Agent (Windows Service) 가 전담 — active.flag 만 기록 후 클라이언트로 접속.
+    ///     "Agent 전송"·"자체 모니터링(시작)" 모두 이 경로를 탄다 (차이는 DSPilot 대시보드 실행 여부뿐, StartSimulation 에서 분기).
     ///     Agent 미가용이면 차단 (자체 호스팅 fallback 제거 — "둘 다 모니터링" 사고 회피).
     ///   Control + 실 PLC → 자체 BackendHost.startWithPlcConfig (read/write).
     ///   Control + PLC 미연결 → 자체 BackendHost.start (idle).</summary>
     private bool TryStartHost()
     {
         var isMonitoring = _runtimeMode() == RuntimeMode.Monitoring;
-
-        // ── Monitoring + 실 PLC + 자체 모니터링(client-only) → host 미시작, client 만 5051 에 접속 ──
-        // Agent (또는 다른 외부 프로세스) 가 이미 5051 을 호스팅 중이라고 가정.
-        // 호스트가 없으면 ConnectAsync 의 retry/diagnostic 로그에서 사용자가 사유 파악 가능.
-        if (isMonitoring && _isRealPlcConnected() && SelfMonitoringClientOnly)
-        {
-            _hubHost = null;
-            IsHosting = false;
-            _delegatedToAgent = false;
-            _addSimLog(
-                $"자체 모니터링 — Agent 5051 에 client 로 접속 (active.flag 미기록, Promaker host 미시작). " +
-                "Agent 가 떠 있지 않으면 client 연결 실패 로그 참조.",
-                LogSeverity.System);
-            return true;
-        }
 
         // ── Monitoring + 실 PLC → Agent 전담 ──
         if (isMonitoring && _isRealPlcConnected())
@@ -465,9 +450,6 @@ public sealed partial class SimulationHubBridge
         {
             _delegatedToAgent = false;
         }
-
-        // 자체 모니터링(client-only) 도 Stop 과 함께 종료. Agent 의 active.flag 와 무관 — Agent 는 계속 호스팅 유지.
-        SelfMonitoringClientOnly = false;
 
         var batchSender = _hubBatchSender;
         _hubBatchSender = null;

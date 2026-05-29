@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PLC 디버그 — DSPilot</title>
+
+    <!--
+      격리형 호스팅 레퍼런스 #5 (PLC 디버그). 유일하게 "쓰기 레이어"(DB 파일 업로드)가 있는 페이지.
+      서버/모델 = C#(/api/plc-debug/*), 뷰 = Alpine + fetch. 차트는 기존 /js/plc-debug.js (window.plcDebug, Chart.js) 재사용.
+      업로드: 실제 <input type=file> + FormData multipart POST /api/plc-debug/upload (antiforgery 미적용 평범한 fetch).
+      샘플링/레인/색상/숫자파싱은 서버(PlcDebugController)에서 Blazor LoadChartData 와 동일하게 계산해
+      plcDebug.renderChart(datasets, {rangeStart,rangeEnd,chartHeight,lanes}) 형태로 그대로 내려준다.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/theme.css" rel="stylesheet" />
+    <link href="/css/components.css" rel="stylesheet" />
+    <link href="/css/dark-theme.css" rel="stylesheet" />
+    <link href="/css/app.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* ── 독립 셸 (cctv.html 등과 동일) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
+        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
+        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1600px; margin: 0 auto; width: 100%; }
+        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
+        .btn.btn-primary:hover { filter: brightness(1.05); }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+
+        /* 간이 토스트 (Blazor 의 uiUtils.showSnackbar 대체) */
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 10px 18px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+        .dsp-toast.success { background: #2e7d32; }
+        .dsp-toast.error { background: #c62828; }
+        .dsp-toast.warning { background: #ef6c00; }
+        .dsp-toast.info { background: #0277bd; }
+
+        /* 스피너 (Blazor .spinner 대체) */
+        .spinner { border: 2px solid rgba(0,0,0,0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: dsp-spin 0.8s linear infinite; }
+        @keyframes dsp-spin { to { transform: rotate(360deg); } }
+
+        /* ── PlcDebug.razor (스코프드 + 인라인 <style>) 에서 가져온 클래스 전부 ── */
+        .plc-debug-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 100px); }
+        .plc-debug-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px 24px; background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.06), rgba(0, 155, 180, 0.08)), linear-gradient(180deg, var(--color-surface), var(--color-background)); }
+        .plc-debug-title { margin: 0; font-weight: 700; color: var(--color-text-primary); }
+        .plc-debug-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
+        .plc-debug-upload { min-width: 200px; justify-content: center; }
+        .plc-debug-toolbar { padding: 18px 20px; }
+        .plc-debug-toolbar-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(420px, 2fr); gap: 12px; align-items: stretch; }
+        .plc-debug-stat { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--color-lines); background: var(--color-surface); display: flex; flex-direction: column; gap: 6px; }
+        .plc-debug-stat-label { font-size: 0.78rem; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+        .plc-debug-stat-value { font-size: 1rem; color: var(--color-text-primary); word-break: break-word; }
+        .plc-debug-actions { display: grid; grid-template-columns: 160px minmax(180px, 1fr) 180px; gap: 12px; align-content: start; }
+        .plc-debug-button-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+        .plc-debug-time-range { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(220px, 280px)); gap: 12px; }
+        .plc-debug-selector { background: var(--color-surface); }
+        .plc-debug-selector-body { padding: 14px 0 0; }
+        .plc-debug-tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 360px; overflow: auto; }
+        .plc-debug-tag-chip { border: 1px solid var(--color-lines); background: var(--color-surface); border-radius: 10px; padding: 10px 12px; text-align: left; display: grid; gap: 3px; cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease; }
+        .plc-debug-tag-chip:hover { transform: translateY(-1px); border-color: var(--color-primary); }
+        .plc-debug-tag-chip.is-selected { background: rgba(var(--color-primary-rgb), 0.08); border-color: var(--color-primary); box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.08); }
+        .plc-debug-tag-main { font-weight: 700; color: var(--color-text-primary); }
+        .plc-debug-tag-sub, .plc-debug-tag-count { font-size: 0.82rem; color: var(--color-text-secondary); }
+        .plc-debug-chart-card { padding-bottom: 8px; }
+        .plc-debug-chart-shell { position: relative; width: 100%; min-height: 720px; border: 1px solid var(--color-lines); border-radius: 12px; padding: 14px; background: linear-gradient(180deg, var(--color-surface), var(--color-background)); }
+        .plc-debug-chart-placeholder { position: absolute; inset: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--color-text-secondary); background: rgba(255, 255, 255, 0.72); border-radius: 10px; text-align: center; pointer-events: none; }
+        .plc-debug-chart-placeholder .material-icons { font-size: 42px; opacity: 0.55; }
+        .plc-debug-empty { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); text-align: center; }
+        .plc-debug-empty .material-icons { font-size: 84px; opacity: 0.35; }
+        @media (max-width: 1280px) {
+            .plc-debug-toolbar-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .plc-debug-actions { grid-template-columns: minmax(0, 1fr); }
+        }
+        @media (max-width: 900px) {
+            .plc-debug-hero { flex-direction: column; align-items: stretch; }
+            .plc-debug-time-range { grid-template-columns: 1fr; }
+        }
+        /* 다크 테마에서 차트 placeholder 가독성 (razor 스코프드엔 없지만 흰배경 인라인 보정) */
+        .dark-theme .plc-debug-chart-placeholder { background: rgba(0, 0, 0, 0.45); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="plcDebugApp()" x-init="init()" x-cloak>
+
+        <!-- 데모 만료 -->
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
+            <div class="modal-content" style="max-width:480px; text-align:center;">
+                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <header class="dsp-appbar">
+            <span class="dsp-title">PLC 디버그</span>
+            <span class="dsp-badge">정적/격리</span>
+            <div class="spacer"></div>
+            <a href="/plc-debug" title="Blazor 버전과 비교">Blazor 버전</a>
+            <a href="/app/dashboard.html">대시보드</a>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div class="plc-debug-page">
+                <!-- 히어로 + 업로드 -->
+                <section class="card plc-debug-hero">
+                    <div>
+                        <h5 class="typo-h5 plc-debug-title">PLC DB 전체 타임라인</h5>
+                        <p class="typo-body1 plc-debug-subtitle">
+                            DB 파일을 선택하면 전체 태그를 자동 선택하고 전체 기간으로 바로 그립니다.
+                        </p>
+                    </div>
+
+                    <label class="btn btn-filled plc-debug-upload">
+                        <span class="material-icons" style="font-size:20px;">upload_file</span>
+                        DB 파일 선택
+                        <input type="file" accept=".db,.sqlite,.sqlite3" style="display:none;"
+                               @change="onDbFileSelected($event)" x-ref="dbFile" />
+                    </label>
+                </section>
+
+                <!-- 업로드 중 -->
+                <div class="alert alert-info" x-show="uploading">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div class="spinner" style="width:18px; height:18px; border-width:2px;"></div>
+                        <span>DB 파일 업로드 및 분석 준비 중...</span>
+                    </div>
+                </div>
+
+                <!-- DB 로드 후 -->
+                <template x-if="dbLoaded">
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+                        <section class="card plc-debug-toolbar">
+                            <div class="plc-debug-toolbar-grid">
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">파일</span>
+                                    <strong class="plc-debug-stat-value" x-text="currentDbFileName"></strong>
+                                </div>
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">태그</span>
+                                    <strong class="plc-debug-stat-value" x-text="totalTags.toLocaleString()"></strong>
+                                </div>
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">로그</span>
+                                    <strong class="plc-debug-stat-value" x-text="totalLogs.toLocaleString()"></strong>
+                                </div>
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">선택</span>
+                                    <strong class="plc-debug-stat-value" x-text="selectedTagIds.size.toLocaleString()"></strong>
+                                </div>
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">활성 태그</span>
+                                    <strong class="plc-debug-stat-value" x-text="activeTagCount.toLocaleString()"></strong>
+                                </div>
+                                <div class="plc-debug-stat">
+                                    <span class="plc-debug-stat-label">기간</span>
+                                    <strong class="plc-debug-stat-value" x-text="currentRangeLabel()"></strong>
+                                </div>
+                                <div class="plc-debug-actions">
+                                    <div class="form-group">
+                                        <label class="form-label">Flow</label>
+                                        <select class="form-select" x-model="selectedFlow" @change="onFlowChanged()"
+                                                :disabled="flowNames.length === 0">
+                                            <option value="">전체</option>
+                                            <template x-for="flow in flowNames" :key="flow">
+                                                <option :value="flow" x-text="flow"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">검색</label>
+                                        <input class="form-field" x-model="tagFilter" @input="onTagFilterChanged()"
+                                               placeholder="주소 또는 이름" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">최대 포인트/태그</label>
+                                        <select class="form-select" x-model.number="maxPointsPerTag">
+                                            <option value="120">120 (전체 보기)</option>
+                                            <option value="240">240 (기본)</option>
+                                            <option value="500">500 (상세)</option>
+                                            <option value="1000">1,000 (고해상도)</option>
+                                        </select>
+                                    </div>
+                                    <div class="plc-debug-button-row">
+                                        <button class="btn btn-outlined" @click="selectAllFilteredTags()">
+                                            <span class="material-icons" style="font-size:18px;">done_all</span>
+                                            전체 선택
+                                        </button>
+                                        <button class="btn btn-outlined" @click="clearSelection()">
+                                            <span class="material-icons" style="font-size:18px;">clear_all</span>
+                                            전체 해제
+                                        </button>
+                                        <button class="btn btn-outlined" @click="resetTimeRange()">
+                                            <span class="material-icons" style="font-size:18px;">history</span>
+                                            전체 기간
+                                        </button>
+                                        <button class="btn btn-filled" @click="loadChartData()"
+                                                :disabled="loadingChart || selectedTagIds.size === 0">
+                                            <span class="material-icons" style="font-size:18px;" x-text="loadingChart ? 'hourglass_empty' : 'refresh'"></span>
+                                            <span x-text="loadingChart ? '로딩 중...' : '다시 그리기'"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="plc-debug-time-range">
+                                <div class="form-group">
+                                    <label class="form-label">시작 시간</label>
+                                    <input type="datetime-local" class="form-field" step="1" x-model="startTime" />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">종료 시간</label>
+                                    <input type="datetime-local" class="form-field" step="1" x-model="endTime" />
+                                </div>
+                            </div>
+                        </section>
+
+                        <details class="expansion-panel plc-debug-selector">
+                            <summary x-text="'태그 선택(' + selectedTagIds.size + ' / ' + tags.length + ')'"></summary>
+                            <div class="plc-debug-selector-body">
+                                <div class="plc-debug-tag-grid">
+                                    <template x-for="tag in filteredTags" :key="tag.id">
+                                        <button type="button"
+                                                class="plc-debug-tag-chip"
+                                                :class="selectedTagIds.has(tag.id) ? 'is-selected' : ''"
+                                                :title="buildTagLabel(tag)"
+                                                @click="toggleTag(tag.id)">
+                                            <span class="plc-debug-tag-main" x-text="tag.address"></span>
+                                            <span class="plc-debug-tag-sub" x-text="(tag.name && tag.name.trim()) ? tag.name : 'No Name'"></span>
+                                            <span class="plc-debug-tag-count" x-text="(tagLogCounts[tag.id] || 0).toLocaleString()"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                        </details>
+
+                        <section class="card plc-debug-chart-card">
+                            <div class="card-header">
+                                <span class="material-icons mr-2">monitoring</span>
+                                <h6 class="typo-h6">전체 태그 타임라인</h6>
+                            </div>
+                            <div class="card-content">
+                                <div class="alert alert-info mb-3" x-show="loadingChart">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <div class="spinner" style="width:18px; height:18px; border-width:2px;"></div>
+                                        <span x-text="loadingProgress"></span>
+                                    </div>
+                                </div>
+
+                                <div class="plc-debug-chart-shell" :style="'height:' + chartHeightPx + 'px;'">
+                                    <canvas id="plcDebugChart"></canvas>
+
+                                    <div class="plc-debug-chart-placeholder" x-show="!chartLoaded && !loadingChart">
+                                        <span class="material-icons">monitoring</span>
+                                        <div>선택한 태그와 기간으로 차트를 다시 그려주세요.</div>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-info mt-3" x-show="samplingInfo">
+                                    <span class="material-icons">info</span>
+                                    <span x-text="samplingInfo"></span>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </template>
+
+                <!-- 빈 상태 -->
+                <template x-if="!dbLoaded && !uploading">
+                    <section class="card plc-debug-empty">
+                        <span class="material-icons">database</span>
+                        <div class="typo-h6 mt-3">PLC 로그 DB 파일을 선택하세요</div>
+                        <div class="typo-caption mt-2">선택 즉시 전체 태그와 전체 기간이 자동으로 로드됩니다.</div>
+                    </section>
+                </template>
+            </div>
+        </main>
+
+        <!-- 토스트 -->
+        <div class="dsp-toast" :class="toast.type" x-show="toast.show" x-transition style="display:none;" x-text="toast.msg"></div>
+    </div>
+
+    <script src="/lib/chart.umd.min.js"></script>
+    <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/js/plc-debug.js"></script>
+    <script>
+        function plcDebugApp() {
+            return {
+                dark: false, demoBlocked: false,
+                uploading: false, dbLoaded: false, loadingChart: false, chartLoaded: false,
+                currentDbFileName: '',
+                tags: [], flowNames: [],
+                selectedTagIds: new Set(),
+                tagLogCounts: {},
+                selectedFlow: '', tagFilter: '',
+                totalTags: 0, totalLogs: 0,
+                oldestLog: null, latestLog: null,   // 'o' ISO 문자열 (서버 로컬)
+                startTime: '', endTime: '',          // datetime-local 'yyyy-MM-ddTHH:mm:ss'
+                maxPointsPerTag: 240,
+                chartHeightPx: 720, activeTagCount: 0,
+                loadingProgress: '', samplingInfo: '',
+                toast: { show: false, msg: '', type: 'success' },
+                _toastTimer: null,
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    window.addEventListener('beforeunload', () => { try { window.plcDebug.destroyChart(); } catch (e) {} });
+                },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+
+                // ── 모든 GET/POST 는 demo-block(503) → 오버레이 ──
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+
+                // ── 필터 (Blazor _filteredTags getter) ──
+                get filteredTags() {
+                    const flow = (this.selectedFlow || '').trim();
+                    const search = (this.tagFilter || '').trim().toLowerCase();
+                    return this.tags.filter(t => {
+                        if (flow && (t.flowName || '').toLowerCase() !== flow.toLowerCase()) return false;
+                        if (search) {
+                            const a = (t.address || '').toLowerCase();
+                            const n = (t.name || '').toLowerCase();
+                            if (!a.includes(search) && !n.includes(search)) return false;
+                        }
+                        return true;
+                    });
+                },
+
+                // ── 업로드 (Blazor OnDbFileSelected) ──
+                async onDbFileSelected(event) {
+                    const file = event.target.files && event.target.files[0];
+                    if (!file) return;
+
+                    this.uploading = true;
+                    this.dbLoaded = false;
+                    this.chartLoaded = false;
+                    this.samplingInfo = '';
+                    this.selectedTagIds = new Set();
+                    this.currentDbFileName = '';
+                    try { window.plcDebug.destroyChart(); } catch (e) {}
+
+                    try {
+                        const fd = new FormData();
+                        fd.append('file', file, file.name);
+                        const res = await fetch('/api/plc-debug/upload', { method: 'POST', body: fd });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) {
+                            let msg = 'HTTP ' + res.status;
+                            try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
+                            throw new Error(msg);
+                        }
+                        const up = await res.json();
+                        this.currentDbFileName = up.fileName || file.name;
+                        await this.loadDatabaseInfo();
+                        this.showToast('파일 로드 완료: ' + this.currentDbFileName, 'success');
+                    } catch (e) {
+                        this.dbLoaded = false;
+                        this.chartLoaded = false;
+                        if (e.message !== 'demo-blocked') this.showToast('파일 로드 실패: ' + e.message, 'error');
+                    } finally {
+                        this.uploading = false;
+                        // 같은 파일 재선택 허용
+                        if (this.$refs.dbFile) this.$refs.dbFile.value = '';
+                    }
+                },
+
+                // ── DB 메타 로드 (Blazor LoadDatabaseInfo) ──
+                async loadDatabaseInfo() {
+                    const [tagsResp, stats, range] = await Promise.all([
+                        this.apiGet('/api/plc-debug/tags'),
+                        this.apiGet('/api/plc-debug/statistics'),
+                        this.apiGet('/api/plc-debug/log-time-range')
+                    ]);
+
+                    this.tags = tagsResp.tags || [];
+                    this.flowNames = tagsResp.flowNames || [];
+                    this.totalTags = stats.totalTags || 0;
+                    this.totalLogs = stats.totalLogs || 0;
+                    this.oldestLog = range.oldest || null;
+                    this.latestLog = range.latest || null;
+
+                    this.dbLoaded = this.tags.length > 0;
+
+                    // 로그 개수
+                    if (this.tags.length > 0) {
+                        try { this.tagLogCounts = await this.apiPost('/api/plc-debug/log-counts', { tagIds: this.tags.map(t => t.id) }); }
+                        catch (e) { if (e.message === 'demo-blocked') return; this.tagLogCounts = {}; }
+                    } else {
+                        this.tagLogCounts = {};
+                    }
+
+                    // 전체 기간으로 초기화
+                    this.startTime = this.isoToLocalInput(this.oldestLog);
+                    this.endTime = this.isoToLocalInput(this.latestLog);
+
+                    // selectedFlow 유효성 (Blazor 와 동일)
+                    if (this.selectedFlow && !this.flowNames.some(f => f.toLowerCase() === this.selectedFlow.toLowerCase())) {
+                        this.selectedFlow = '';
+                    }
+                    this.tagFilter = '';
+
+                    this.syncSelectionToCurrentFilter();
+
+                    // 자동 렌더 (Blazor _pendingAutoRender)
+                    if (this.dbLoaded && this.selectedTagIds.size > 0) {
+                        this.$nextTick(() => this.loadChartData());
+                    }
+                },
+
+                // ── 필터/선택 (Blazor) ──
+                onFlowChanged() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
+                onTagFilterChanged() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
+                toggleTag(id) {
+                    if (this.selectedTagIds.has(id)) this.selectedTagIds.delete(id);
+                    else this.selectedTagIds.add(id);
+                    // Set 변경 반응성 트리거
+                    this.selectedTagIds = new Set(this.selectedTagIds);
+                },
+                selectAllFilteredTags() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
+                clearSelection() {
+                    this.selectedTagIds = new Set();
+                    this.chartLoaded = false;
+                    this.samplingInfo = '선택된 태그가 없습니다.';
+                    try { window.plcDebug.destroyChart(); } catch (e) {}
+                },
+                resetTimeRange() {
+                    this.startTime = this.isoToLocalInput(this.oldestLog);
+                    this.endTime = this.isoToLocalInput(this.latestLog);
+                },
+                syncSelectionToCurrentFilter() {
+                    this.selectedTagIds = new Set(this.filteredTags.map(t => t.id));
+                },
+                markChartAsFilterChanged() {
+                    if (!this.dbLoaded) return;
+                    this.chartLoaded = false;
+                    this.activeTagCount = 0;
+                    this.samplingInfo = this.selectedTagIds.size === 0
+                        ? '현재 필터 조건에 맞는 태그가 없습니다.'
+                        : '현재 필터로 ' + this.selectedTagIds.size.toLocaleString() + '개 태그가 선택되었습니다. 다시 그리기를 눌러 반영하세요.';
+                },
+
+                // ── 차트 로드 (Blazor LoadChartData — 서버에서 datasets/lanes 계산) ──
+                async loadChartData() {
+                    const filteredIds = new Set(this.filteredTags.map(t => t.id));
+                    if (filteredIds.size === 0) { this.showToast('필터 조건에 맞는 태그가 없습니다.', 'warning'); return; }
+                    if (this.selectedTagIds.size === 0) { this.showToast('태그를 선택하세요.', 'warning'); return; }
+
+                    // 필터 ∩ 선택 (서버가 주소순 정렬·검증하므로 ID 만 전달)
+                    const tagIds = [...this.selectedTagIds].filter(id => filteredIds.has(id));
+                    if (tagIds.length === 0) { this.showToast('현재 필터에서 선택된 태그가 없습니다.', 'warning'); return; }
+
+                    this.loadingChart = true;
+                    this.chartLoaded = false;
+                    this.samplingInfo = '';
+                    this.activeTagCount = 0;
+                    this.loadingProgress = '데이터 샘플링 중...';
+
+                    try {
+                        const result = await this.apiPost('/api/plc-debug/sampled-logs', {
+                            tagIds,
+                            start: this.localInputToServer(this.startTime),
+                            end: this.localInputToServer(this.endTime),
+                            maxPointsPerTag: this.maxPointsPerTag
+                        });
+
+                        this.activeTagCount = result.activeTagCount || 0;
+                        this.samplingInfo = result.samplingInfo || '';
+
+                        if (this.activeTagCount === 0 || !result.rangeStart || !result.rangeEnd) {
+                            try { window.plcDebug.destroyChart(); } catch (e) {}
+                            this.chartLoaded = false;
+                            return;
+                        }
+
+                        // 서버가 산출한 실제 범위로 입력 동기화
+                        this.startTime = this.isoToLocalInput(result.rangeStart);
+                        this.endTime = this.isoToLocalInput(result.rangeEnd);
+                        this.chartHeightPx = result.chartHeight || 720;
+
+                        this.loadingProgress = '전체 페이지 차트 렌더링 중...';
+
+                        await this.$nextTick();
+                        const rendered = window.plcDebug.renderChart(result.datasets, {
+                            rangeStart: result.rangeStart,
+                            rangeEnd: result.rangeEnd,
+                            chartHeight: this.chartHeightPx,
+                            lanes: result.lanes
+                        });
+
+                        if (!rendered) throw new Error('차트 캔버스를 찾지 못했습니다. 페이지를 다시 렌더링한 후 다시 시도하세요.');
+                        this.chartLoaded = true;
+                    } catch (e) {
+                        this.chartLoaded = false;
+                        if (e.message !== 'demo-blocked') this.showToast('차트 로드 실패: ' + e.message, 'error');
+                    } finally {
+                        this.loadingChart = false;
+                        this.loadingProgress = '';
+                    }
+                },
+
+                // ── 라벨/포맷 (Blazor 와 동일) ──
+                buildTagLabel(tag) {
+                    return (tag.name && tag.name.trim()) ? (tag.address + ' | ' + tag.name) : tag.address;
+                },
+                currentRangeLabel() {
+                    const s = this.parseInput(this.startTime), e = this.parseInput(this.endTime);
+                    if (!s || !e) return '-';
+                    const ms = e.getTime() - s.getTime();
+                    const days = ms / 86400000, hrs = ms / 3600000, mins = ms / 60000, secs = ms / 1000;
+                    if (days >= 1) return days.toFixed(1) + ' day';
+                    if (hrs >= 1) return hrs.toFixed(1) + ' hr';
+                    if (mins >= 1) return mins.toFixed(1) + ' min';
+                    return secs.toFixed(1) + ' sec';
+                },
+
+                // ── 시간 변환 헬퍼 ──
+                // 서버 'o' ISO(예: 2026-05-29T12:34:56.7891234+09:00) → datetime-local 값(로컬 초단위)
+                isoToLocalInput(iso) {
+                    if (!iso) return '';
+                    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+                    if (!m) return '';
+                    return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+                },
+                // datetime-local 값 → 서버로 보낼 문자열(그대로 로컬 시각, 서버가 AssumeLocal 파싱)
+                localInputToServer(v) { return (v && v.trim()) ? v.trim() : null; },
+                parseInput(v) {
+                    if (!v || !v.trim()) return null;
+                    const d = new Date(v);
+                    return isNaN(d.getTime()) ? null : d;
+                },
+
+                showToast(msg, type) {
+                    this.toast = { show: true, msg, type: type || 'info' };
+                    clearTimeout(this._toastTimer);
+                    this._toastTimer = setTimeout(() => { this.toast.show = false; }, 3000);
+                }
+            };
+        }
+    </script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

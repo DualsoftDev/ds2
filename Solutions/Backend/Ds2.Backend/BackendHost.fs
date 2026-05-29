@@ -78,5 +78,10 @@ module BackendHost =
 
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()
-        app.StopAsync() |> Async.AwaitTask |> Async.RunSynchronously
+        // 기본 ShutdownTimeout(30s) 을 다 기다리는 wedge 관찰됨 — Kestrel 의 active SignalR
+        // client drain 또는 hosted service 종료 대기가 원인. Promaker.Agent 의 restart cycle 이
+        // 매번 30s 씩 hang 되어 DSPilot 에서 새 PLC 설정이 늦게 반영되는 race 의 진입점이 됨.
+        // 짧은 timeout 으로 강제 — graceful 실패 시 dispose 가 어차피 자원 해제.
+        let stopTimeout = TimeSpan.FromSeconds 5.0
+        app.StopAsync(stopTimeout) |> Async.AwaitTask |> Async.RunSynchronously
         (app :> IDisposable).Dispose()

@@ -32,14 +32,10 @@ public partial class SimulationPanelState
             return;
         }
 
-        // Agent 위임 모드 + 이미 모니터링 중인 경우 — "Agent 전송" 재전송은 설정 갱신 명령으로 해석한다.
-        // 자체 엔진/Hub 를 끊었다 다시 띄우는 destructive 흐름을 피하고:
-        //   1) DSPilot 공유 AASX 재발행 (모델 변경분 반영)
-        //   2) active.flag 재기록 → Agent 의 FileSystemWatcher 가 debounce 후 BackendHost 재시작
-        // 결과적으로 Agent 가 새 PLC/AASX 설정으로 모니터링을 재개. Promaker WPF 자체 상태는 그대로 유지.
-        // 자체 모니터링(client-only) 중에는 이 경로를 타지 않음 — Promaker 가 Agent 5051 에 단순 attach 한 상태로
-        // active.flag 재기록은 자체 모니터링 의도와 무관하다 (Agent 활성 토글은 트레이/명령으로 별도 관리).
-        if (IsAgentDelegationMode && IsSimulating && !IsSelfMonitoring)
+        // Agent 위임 모드 + 이미 모니터링 중 — "Agent 전송" 재누름을 설정 갱신 명령으로 해석.
+        // (CanStartSimulation 이 IsSimulating 중 이 경로를 막으므로 실제로는 도달하지 않지만 안전망으로 유지.)
+        // 자체 엔진/Hub 를 끊지 않고: AASX 재발행 + active.flag 재기록 → Agent 가 새 설정으로 재시작.
+        if (IsAgentDelegationMode && IsSimulating)
         {
             try
             {
@@ -326,9 +322,8 @@ public partial class SimulationPanelState
     }
 
     private bool CanStartSimulation() =>
-        // Agent 위임 모드는 "전송" 재누름이 갱신 의미라 IsSimulating 가드를 우회.
-        // 자체 모니터링(client-only) 중에도 Agent 전송은 그대로 허용 — Agent 활성/갱신 명령은 독립적.
-        IsAgentDelegationMode
+        // Agent 위임 모드: 모니터링 미시작 시에만 활성 — 시작 후에는 같은 버튼이 "정지"(StopSimulationCommand) 로 토글.
+        (IsAgentDelegationMode && !IsSimulating)
         || SimulationCommandFacade.IsAccepted(
             SimulationCommandFacade.DecideStart(IsSimulating, IsSimPaused, IsHomingPhase));
 }
