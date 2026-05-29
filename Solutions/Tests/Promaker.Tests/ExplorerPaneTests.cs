@@ -109,6 +109,65 @@ public sealed class ExplorerPaneTests
     }
 
     [Fact]
+    public void Clicking_filtered_call_highlights_it_in_search_results()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("CallHighlightWork", flowId);
+            store.AddCallsWithDevice(projectId, workId, ["Dev.HighlightCall"], true, null);
+
+            Assert.True(StaTestRunner.WaitUntil(
+                1000,
+                () => Flatten(vm.ControlTreeRoots).Any(n => n.EntityType == EntityKind.Call && n.Name.Contains("HighlightCall"))));
+            var callNode = Flatten(vm.ControlTreeRoots).First(n => n.EntityType == EntityKind.Call && n.Name.Contains("HighlightCall"));
+            var callId = callNode.Id;
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var searchBox = GetNamed<TextBox>(pane, "SearchBox");
+                var controlTree = GetNamed<TreeView>(pane, "ControlTree");
+
+                searchBox.Text = callNode.Name;
+
+                Assert.True(StaTestRunner.WaitUntil(1000, () => ReferenceEquals(controlTree.ItemsSource, pane.FilteredControlTreeRoots)));
+                Assert.True(StaTestRunner.WaitUntil(1000, () => Flatten(pane.FilteredControlTreeRoots).Any(n => n.Id == callId)));
+                ExpandAllContainers(controlTree);
+
+                var item = FindTreeViewItem(controlTree, callId);
+                Assert.NotNull(item);
+
+                // Call 은 drag-candidate 경로 — 실제 클릭은 누름→뗌(mouseup)에서 선택이 확정되며,
+                // SelectedItemChanged(HandleTreeSelectionChanged) 경로를 타지 않는다.
+                item!.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+                });
+                item.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent
+                });
+                StaTestRunner.PumpPendingUi();
+
+                // 화면에 떠 있는 검색 결과(클론) Call 노드가 하이라이트되어야 한다.
+                var filteredCall = Flatten(pane.FilteredControlTreeRoots).First(n => n.Id == callId);
+                Assert.True(filteredCall.IsTreeSelected);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void Device_toggle_and_filtered_device_selection_open_parent_canvas()
     {
         StaTestRunner.Run(() =>
