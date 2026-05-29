@@ -12,7 +12,7 @@
       base 갠트 SVG / lane 정렬 / zoom / 바 선택 오버레이 / GAP top-5 / CSV 를 전부 클라이언트에서 처리.
       crosshair 는 /js/gantt-crosshair.js 그대로 재사용, 툴팁/scrollIntoView 는 /js/cycle-time-chart.js 재사용
       (단 dotnetRef 클릭 invoke 는 사용하지 않고 클릭을 로컬 Alpine state 로 처리).
-      cut-1 범위: idle-region 마스킹/Excel/scrollIntoView 애니메이션 제외(비가동 구간은 표시만).
+      cut-2: Excel 내보내기(POST /api/cycle-analysis/export-excel)·병목 GAP scroll-to+펄스 하이라이트 추가.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/theme.css" rel="stylesheet" />
@@ -142,6 +142,22 @@
         .gantt-cycletime-text { fill: var(--gantt-ct-text, #2e7d32); }
         .gantt-cycletime-start { stroke: var(--gantt-ct-start, #4caf50); stroke-width: 2; }
         .gantt-cycletime-end { stroke: var(--gantt-ct-end, #2e7d32); stroke-width: 2; }
+
+        /* 병목 GAP scroll-to 하이라이트 — focusGap() 이 ~1.2s 동안 부여 */
+        @keyframes gantt-gap-pulse {
+            0%   { opacity: 0.0; }
+            15%  { opacity: 0.95; }
+            70%  { opacity: 0.85; }
+            100% { opacity: 0.0; }
+        }
+        .gantt-gap-pulse { animation: gantt-gap-pulse 1.2s ease-in-out 1; }
+        .gantt-gap-pulse-fill { fill: var(--gantt-gap-fill, rgba(244,67,54,0.30)); }
+        .gantt-gap-pulse-outline {
+            fill: none;
+            stroke: var(--gantt-gap-stroke, #f44336);
+            stroke-width: 3;
+            stroke-dasharray: 6,4;
+        }
 
         @media (max-width: 1200px) { .gantt-chart-container { max-height: calc(100vh - 450px); min-height: 500px; } .gantt-info-bar { gap: 15px; } }
         @media (max-width: 1024px) { .gantt-chart-container { max-height: calc(100vh - 500px); min-height: 400px; } }
@@ -282,7 +298,7 @@
                                 <label class="gantt-info-label">
                                     <input type="checkbox" x-model="showGapOverlay" @change="renderOverlay()" :disabled="!data.topGaps.length" /> GAP
                                 </label>
-                                <select class="form-field gap-picker-select" x-model.number="selectedGapIndex" @change="renderOverlay()"
+                                <select class="form-field gap-picker-select" x-model.number="selectedGapIndex" @change="onGapPicked()"
                                         :disabled="!showGapOverlay || !data.topGaps.length" :style="(showGapOverlay && data.topGaps.length) ? 'opacity:1' : 'opacity:0.4'">
                                     <template x-if="!data.topGaps.length"><option value="-1">GAP 없음</option></template>
                                     <template x-for="(g, i) in data.topGaps" :key="i">
@@ -305,7 +321,10 @@
                                 <button class="btn btn-sm gantt-info-export" @click="refreshLatest()" :disabled="loading" title="최신 데이터까지 포함해 다시 조회 (현재 윈도우 길이 유지)">
                                     <span class="material-icons" style="font-size:14px;vertical-align:middle;margin-right:2px;">refresh</span>새로고침
                                 </button>
-                                <button class="btn btn-sm gantt-info-export" @click="exportCsv()">CSV 내보내기</button>
+                                <button class="btn btn-sm gantt-info-export" @click="exportCsv()" :disabled="!data || !data.items.length">CSV 내보내기</button>
+                                <button class="btn btn-sm gantt-info-export" @click="exportExcel()" :disabled="!data || !data.items.length || exporting">
+                                    <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 내보내기'"></span>
+                                </button>
                             </div>
                         </div>
 
@@ -395,6 +414,7 @@
                 flows: [], selectedFlow: '',
                 startTime: '', endTime: '',
                 data: null, loading: false, error: null, demoBlocked: false, dark: false,
+                exporting: false,
 
                 chartSort: 'ByLane', zoomLevel: 1.0,
                 showGapOverlay: true, showCycleTimeOverlay: true, selectedGapIndex: 0,
@@ -407,6 +427,7 @@
                 _geo: null,            // { chartStart(ms), xScale, displayLaneIndex{lane:idx}, width, height }
                 _sortedItems: [],      // data-bar-idx 와 일치하는 정렬된 items
                 _debounce: null,
+                _pulseTimer: null,     // focusGap 하이라이트 제거 타이머
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -803,12 +824,70 @@
                     this.comparisonGap = null; this.previousGap = null; this.nextGap = null;
                 },
 
+                // ── 병목 배너 클릭 → 최대 GAP 으로 스크롤 + 하이라이트 ──
                 focusLargestGap() {
                     if (!this.data.topGaps.length) return;
                     this.showGapOverlay = true; this.selectedGapIndex = 0;
                     this.renderOverlay();
-                    const c = this.$refs.ganttContainer;
-                    if (c && c.scrollIntoView) { try { c.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {} }
+                    this.focusGap(0);
+                },
+                // ── GAP 드롭다운 선택 → 오버레이 갱신 + 해당 GAP 으로 스크롤 + 하이라이트 ──
+                onGapPicked() {
+                    this.renderOverlay();
+                    if (this.showGapOverlay) this.focusGap(this.selectedGapIndex);
+                },
+                // selectedGapIndex 의 GAP x 위치가 가로 스크롤 컨테이너 가운데에 오도록 부드럽게 스크롤하고
+                // ~1.2s 펄스 하이라이트를 띄운다. (self-contained — CSS 는 page <style>, 로직은 여기.)
+                focusGap(index) {
+                    const c = this.$refs && this.$refs.ganttContainer;
+                    const gaps = this.data && this.data.topGaps;
+                    if (!c || !this._geo || !gaps || !gaps.length) return;
+                    const i = (index >= 0 && index < gaps.length) ? index : 0;
+                    const gap = gaps[i];
+                    const { chartStart, xScale } = this._geo;
+                    const gs = new Date(gap.start).getTime(), ge = new Date(gap.end).getTime();
+                    // SVG 좌표(zoom 미반영) → 화면 좌표는 zoomLevel 배.
+                    const z = parseFloat(this.zoomLevel) || 1;
+                    const gxMid = (G.LEFT + ((gs + ge) / 2 - chartStart) * xScale) * z;
+                    const gyTop = (G.TOP + gap.lane * G.LANE_H) * z;
+                    // 가로: GAP 중앙이 컨테이너 가운데로. 세로: GAP lane 이 보이도록.
+                    const targetLeft = Math.max(0, gxMid - c.clientWidth / 2);
+                    const targetTop = Math.max(0, gyTop - c.clientHeight / 2 + (G.LANE_H * z) / 2);
+                    try { c.scrollTo({ left: targetLeft, top: targetTop, behavior: 'smooth' }); }
+                    catch (_) { c.scrollLeft = targetLeft; c.scrollTop = targetTop; }
+                    this.pulseGap(gap);
+                },
+                // 오버레이 위에 펄스용 rect(채움+테두리)을 그렸다가 ~1.2s 뒤 제거.
+                pulseGap(gap) {
+                    const ov = this.$refs && this.$refs.overlaySvg;
+                    if (!ov || !this._geo) return;
+                    clearTimeout(this._pulseTimer);
+                    const old = ov.querySelector('.gantt-gap-pulse-group');
+                    if (old) old.remove();
+                    const { chartStart, xScale } = this._geo;
+                    const gs = new Date(gap.start).getTime(), ge = new Date(gap.end).getTime();
+                    const gx = G.LEFT + (gs - chartStart) * xScale;
+                    const gw = Math.max(2, (ge - gs) * xScale);
+                    const gy = G.TOP + gap.lane * G.LANE_H;
+                    const ns = 'http://www.w3.org/2000/svg';
+                    const g = document.createElementNS(ns, 'g');
+                    g.setAttribute('class', 'gantt-gap-pulse-group gantt-gap-pulse');
+                    g.setAttribute('pointer-events', 'none');
+                    const mk = (cls) => {
+                        const r = document.createElementNS(ns, 'rect');
+                        r.setAttribute('class', cls);
+                        r.setAttribute('x', gx.toFixed(2)); r.setAttribute('y', gy);
+                        r.setAttribute('width', gw.toFixed(2)); r.setAttribute('height', G.LANE_H);
+                        r.setAttribute('rx', '4');
+                        return r;
+                    };
+                    g.appendChild(mk('gantt-gap-pulse-fill'));
+                    g.appendChild(mk('gantt-gap-pulse-outline'));
+                    ov.appendChild(g);
+                    this._pulseTimer = setTimeout(() => {
+                        const node = ov.querySelector('.gantt-gap-pulse-group');
+                        if (node) node.remove();
+                    }, 1250);
                 },
 
                 // ── CSV (CycleTimeChartExporter.BuildCsvBytes 포맷 동일, 클라이언트 빌드) ──
@@ -831,6 +910,44 @@
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
                 },
 
+                // ── Excel — 서버(CycleTimeChartExporter.BuildExcelBytes)에서 .xlsx 생성 후 blob 다운로드 ──
+                async exportExcel() {
+                    if (!this.data || !this.data.items.length || this.exporting) return;
+                    this.exporting = true; this.error = null;
+                    try {
+                        const res = await fetch('/api/cycle-analysis/export-excel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ flowName: this.selectedFlow, start: this.startTime, end: this.endTime })
+                        });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+                        // 파일명: Content-Disposition 우선, 없으면 클라이언트 구성.
+                        let fn = this.excelFileName();
+                        const cd = res.headers.get('Content-Disposition');
+                        if (cd) {
+                            const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+                            const plain = cd.match(/filename="?([^";]+)"?/i);
+                            if (star) { try { fn = decodeURIComponent(star[1].trim()); } catch (_) {} }
+                            else if (plain) { fn = plain[1].trim(); }
+                        }
+
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = fn;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                    } catch (e) {
+                        this.error = 'Excel 내보내기 실패: ' + e.message;
+                    } finally {
+                        this.exporting = false;
+                    }
+                },
+                excelFileName() {
+                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
+                    return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
+                },
+
                 // ── 포맷 헬퍼 ──
                 eventLabel(et) { return et === 'InTag' ? 'IN' : 'OUT'; },
                 fmtGap(ms) { return (ms / 1000).toFixed(1) + ' (sec)'; },   // FormatDurationTooltip 동일
@@ -845,6 +962,7 @@
             return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
         }
     </script>
+    <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>
 </body>
 

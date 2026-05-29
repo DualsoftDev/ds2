@@ -222,6 +222,39 @@ app.Use(async (context, next) =>
     await context.Response.WriteAsync(DemoBlockedHtml());
 });
 
+// ── 격리형 호스팅: 정식 라우트를 정적 /app/*.html 로 대체 ──
+// 이전 완료된 8개 Blazor 페이지를 정적 페이지로 "대체". 미들웨어로 short-circuit 하므로
+// (엔드포인트가 아님) Blazor @page 엔드포인트와 ambiguity 없음 — 이 줄을 지우면 즉시 원복.
+// 데모 게이트 뒤에 위치하므로 데모 차단 시 정식 라우트도 503(기존 Blazor 동작과 동일).
+// 미이전 페이지(/flow, /editor, /pw)는 가로채지 않아 Blazor 가 계속 처리.
+var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+{
+    ["/"] = "dashboard.html",
+    ["/dashboard"] = "dashboard.html",
+    ["/heatmap"] = "heatmap.html",
+    ["/cycle-time-analysis"] = "cycle-time-analysis.html",
+    ["/call-test"] = "call-test.html",
+    ["/user-tags"] = "user-tags.html",
+    ["/cctv"] = "cctv.html",
+    ["/plc-debug"] = "plc-debug.html",
+    ["/settings"] = "settings.html",
+};
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsGet(context.Request.Method)
+        && canonicalStaticRoutes.TryGetValue(context.Request.Path.Value ?? string.Empty, out var file))
+    {
+        var path = Path.Combine(webRoot, "app", file);
+        if (File.Exists(path))
+        {
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.SendFileAsync(path);
+            return;
+        }
+    }
+    await next();
+});
+
 // TODO: MapStaticAssets 500 진단 — 원인 파악 후 복원
 // app.MapStaticAssets();
 
