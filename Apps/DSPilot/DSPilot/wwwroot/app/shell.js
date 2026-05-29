@@ -3,19 +3,24 @@
  * ------------------------------------------------------------------
  * /app/*.html 정적 페이지에 사이드바 + 앱바(스위스 테크니컬)를 입힌다.
  * 전역 디자인 시스템(/css/swiss.css)의 .layout/.app-bar/.drawer/.main-content/
- * .nav-menu/.nav-link/.btn-icon/.dsp-brand 를 사용한다.
+ * .nav-menu/.nav-link/.btn-icon/.dsp-brand + 사이드바 4-섹션 클래스를 사용한다.
  *
  * 포함 방법(매 페이지, alpine.min.js 보다 먼저):
  *   <script src="/app/shell.js" defer></script>
  *   <script defer src="/lib/alpine.min.js"></script>
  *
+ * 사이드바 구성(Blazor NavMenu.razor 와 동일):
+ *   1) 페이지 바로가기 — 정적 페이지 링크 + (옵션) PLC 디버그
+ *   2) 라인요약        — 가동/대기 + 가동률 (/api/nav/summary 폴링)
+ *   3) 시스템          — per-system flow 트리 (/api/nav 1회)
+ *   4) agent 통신 상태 — Promaker Hub + PLC 어댑터 연결 (/api/nav/summary 폴링)
+ *   + 마지막 갱신 푸터
+ *
  * 동작 개요:
- *   1) <html> 에 dark-theme 적용 — localStorage 'dspilot-theme' 기준.
- *   2) .dsp-page(Alpine 루트)를 찾고, 페이지의 슬림 헤더 .dsp-appbar 를 제거.
- *   3) .layout > (app-bar + drawer + main-content) 셸 DOM 생성, .dsp-page 를 main-content 로 이동.
- *   4) /api/nav 로 시스템·flow 트리 + ShowPlcDebug 를 가져와 사이드바 렌더.
- *   5) 테마 토글 → localStorage + dark-theme 토글 + StorageEvent 발행(페이지 Alpine 동기화).
- *   6) 햄버거 → drawer-closed 토글.
+ *   - 테마: <html>+layout 에 dark-theme(localStorage 'dspilot-theme').
+ *   - .dsp-page(Alpine 루트) 를 main-content 로 이동, 슬림 헤더 제거.
+ *   - /api/nav      : showPlcDebug + 시스템/flow 트리 (구조, 1회).
+ *   - /api/nav/summary : 라인요약·agent 통신·이상발생 건수 (4초 폴링).
  *
  * 의존성 없음(no framework). defer 라 실행 시점에 DOM 은 이미 파싱 완료.
  */
@@ -38,7 +43,17 @@
             .replace(/\s*[—-]\s*DSPilot\s*$/, '')
             .trim();
 
-        // ── 네비게이션 정의 (라우트/아이콘 — Blazor NavMenu 와 동일) ──
+        // ── 작은 DOM 헬퍼 ──
+        function el(tag, className, text) {
+            var e = document.createElement(tag);
+            if (className) e.className = className;
+            if (text != null) e.textContent = text;
+            return e;
+        }
+        function pad2(n) { return (n < 10 ? '0' : '') + n; }
+        function fmtTime(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
+
+        // ── 네비게이션 정의 (라우트/아이콘 — Blazor NavMenu 와 동일). 설정은 앱바 기어 아이콘. ──
         var NAV_ITEMS = [
             { label: '대시보드',     href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
             { label: '동작편차',     href: '/heatmap',             icon: 'gradient',        match: 'prefix', legacy: '/app/heatmap.html' },
@@ -47,7 +62,6 @@
             { label: '이상발생 관리', href: '/user-tags',          icon: 'crisis_alert',    match: 'prefix', legacy: '/app/user-tags.html' },
             { label: 'CCTV',         href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
         ];
-        var SETTINGS_ITEM = { label: '설정', href: '/settings', icon: 'settings', match: 'prefix', legacy: '/app/settings.html' };
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
 
         var path = (location.pathname || '/').replace(/\/+$/, '') || '/';
@@ -68,61 +82,45 @@
             var a = document.createElement('a');
             a.className = 'nav-link' + (isActive(item) ? ' active' : '');
             a.href = item.href;
-            var icon = document.createElement('span');
-            icon.className = 'material-icons';
+            var icon = el('span', 'material-icons');
             icon.textContent = item.icon;
             a.appendChild(icon);
             a.appendChild(document.createTextNode(item.label));
             return a;
         }
+        function sectionHead(label) {
+            var head = el('div', 'nav-section-head');
+            head.appendChild(el('span', 'eyebrow', label));
+            return head;
+        }
 
         // ── 3) 셸 DOM 구성 ──
-        var layout = document.createElement('div');
-        layout.className = 'layout' + (dark ? ' dark-theme' : '');
+        var layout = el('div', 'layout' + (dark ? ' dark-theme' : ''));
 
         // header.app-bar
-        var appBar = document.createElement('header');
-        appBar.className = 'app-bar';
+        var appBar = el('header', 'app-bar');
 
-        // 햄버거 (drawer 토글)
-        var hamburger = document.createElement('button');
-        hamburger.className = 'btn-icon';
+        var hamburger = el('button', 'btn-icon');
         hamburger.title = '메뉴';
         hamburger.innerHTML = '<span class="material-icons">menu</span>';
 
-        // 브랜드 워드마크 → "/"  (스위스: 레드 사각 마크 + DSPilot)
-        var brand = document.createElement('a');
-        brand.className = 'dsp-brand';
+        var brand = el('a', 'dsp-brand');
         brand.href = '/';
         brand.title = 'DSPilot';
-        var mark = document.createElement('span');
-        mark.className = 'dsp-brand-mark';
-        var word = document.createElement('span');
-        word.className = 'dsp-brand-word';
+        brand.appendChild(el('span', 'dsp-brand-mark'));
+        var word = el('span', 'dsp-brand-word');
         word.innerHTML = 'DS<b>Pilot</b>';
-        brand.appendChild(mark);
         brand.appendChild(word);
 
-        // 페이지 제목 (아이브로우)
-        var titleSpan = document.createElement('span');
-        titleSpan.className = 'header-page-title';
-        titleSpan.textContent = pageTitle;
+        var titleSpan = el('span', 'header-page-title', pageTitle);
+        var spacer = el('div', 'spacer');
 
-        var spacer = document.createElement('div');
-        spacer.className = 'spacer';
-
-        // 테마 토글
-        var themeBtn = document.createElement('button');
-        themeBtn.className = 'btn-icon';
+        var themeBtn = el('button', 'btn-icon');
         themeBtn.title = '테마 전환';
-        var themeIcon = document.createElement('span');
-        themeIcon.className = 'material-icons';
-        themeIcon.textContent = dark ? 'light_mode' : 'dark_mode';
+        var themeIcon = el('span', 'material-icons', dark ? 'light_mode' : 'dark_mode');
         themeBtn.appendChild(themeIcon);
 
-        // 설정
-        var settingsBtn = document.createElement('a');
-        settingsBtn.className = 'btn-icon';
+        var settingsBtn = el('a', 'btn-icon');
         settingsBtn.title = '설정';
         settingsBtn.href = '/settings';
         settingsBtn.innerHTML = '<span class="material-icons">settings</span>';
@@ -135,15 +133,12 @@
         appBar.appendChild(settingsBtn);
 
         // aside.drawer > nav.nav-menu
-        var drawer = document.createElement('aside');
-        drawer.className = 'drawer';
-        var navMenu = document.createElement('nav');
-        navMenu.className = 'nav-menu';
+        var drawer = el('aside', 'drawer');
+        var navMenu = el('nav', 'nav-menu');
         drawer.appendChild(navMenu);
 
         // main.main-content
-        var main = document.createElement('main');
-        main.className = 'main-content';
+        var main = el('main', 'main-content');
 
         layout.appendChild(appBar);
         layout.appendChild(drawer);
@@ -151,7 +146,7 @@
 
         // .dsp-page 를 main 안으로 이동 (Alpine init 전이라 안전)
         page.classList.add('dsp-in-shell');
-        var style = document.createElement('style');
+        var style = el('style');
         style.textContent =
             '.dsp-in-shell{min-height:0 !important}' +
             '.dsp-in-shell .dsp-appbar{display:none}';
@@ -160,13 +155,83 @@
         document.body.insertBefore(layout, page);
         main.appendChild(page);
 
-        // ── 기본 nav 링크 렌더 ──
-        NAV_ITEMS.forEach(function (item) { navMenu.appendChild(buildNavLink(item)); });
+        // ── 4) 사이드바 4-섹션 스캐폴드 ──
 
-        var settingsLink = buildNavLink(SETTINGS_ITEM);
-        navMenu.appendChild(settingsLink);
+        // (1) 페이지 바로가기
+        navMenu.appendChild(sectionHead('페이지 바로가기'));
+        var anomalyLink = null;
+        NAV_ITEMS.forEach(function (item) {
+            var link = buildNavLink(item);
+            if (item.href === '/user-tags') anomalyLink = link;
+            navMenu.appendChild(link);
+        });
 
-        // ── 4) /api/nav: ShowPlcDebug + per-system flow 트리 ──
+        // (2) 라인요약 — 가동/대기 + 가동률
+        var lineSummaryHead = sectionHead('라인요약');
+        navMenu.appendChild(lineSummaryHead);
+        var lsBody = el('div', 'nav-section-body line-summary');
+        var lsRunning = el('b', null, '0');
+        var lsIdle = el('b', null, '0');
+        var counts = el('div', 'ls-counts');
+        var runWrap = el('span', 'ls-count ls-running');
+        runWrap.appendChild(el('span', 'ls-dot'));
+        runWrap.appendChild(document.createTextNode('가동 '));
+        runWrap.appendChild(lsRunning);
+        var idleWrap = el('span', 'ls-count ls-idle');
+        idleWrap.appendChild(el('span', 'ls-dot'));
+        idleWrap.appendChild(document.createTextNode('대기 '));
+        idleWrap.appendChild(lsIdle);
+        counts.appendChild(runWrap);
+        counts.appendChild(idleWrap);
+        var effWrap = el('div');
+        var effRow = el('div', 'ls-eff-row');
+        effRow.appendChild(el('span', null, '라인 효율'));
+        var lsEffVal = el('span', 'ls-eff-val', '—');
+        effRow.appendChild(lsEffVal);
+        var bar = el('div', 'progress-bar');
+        var lsEffFill = el('div', 'progress-bar-fill');
+        lsEffFill.style.width = '0%';
+        bar.appendChild(lsEffFill);
+        effWrap.appendChild(effRow);
+        effWrap.appendChild(bar);
+        lsBody.appendChild(counts);
+        lsBody.appendChild(effWrap);
+        navMenu.appendChild(lsBody);
+
+        // (3) 시스템 — flow 트리 (/api/nav 로 채움)
+        navMenu.appendChild(sectionHead('시스템'));
+        var systemContainer = el('div');
+        navMenu.appendChild(systemContainer);
+
+        // (4) agent 통신 상태 — Hub / PLC
+        navMenu.appendChild(sectionHead('agent 통신 상태'));
+        var agBody = el('div', 'nav-section-body agent-status');
+        function agentRow(label) {
+            var row = el('div', 'ag-row');
+            var dot = el('span', 'ag-dot');
+            var lab = el('span', 'ag-label', label);
+            var state = el('span', 'ag-state', '—');
+            row.appendChild(dot);
+            row.appendChild(lab);
+            row.appendChild(state);
+            return { row: row, dot: dot, state: state };
+        }
+        var hubRow = agentRow('Promaker Hub');
+        var plcRow = agentRow('PLC 어댑터');
+        agBody.appendChild(hubRow.row);
+        agBody.appendChild(plcRow.row);
+        navMenu.appendChild(agBody);
+
+        // 마지막 갱신 푸터
+        var updated = el('div', 'nav-updated');
+        var updatedDot = el('span', 'nav-updated-dot');
+        updated.appendChild(updatedDot);
+        updated.appendChild(document.createTextNode('마지막 갱신 '));
+        var updatedTime = el('b', null, '—');
+        updated.appendChild(updatedTime);
+        navMenu.appendChild(updated);
+
+        // ── 5) 시스템 트리 빌더 ──
         var selectedFlow = null;
         try {
             if (path === '/flow' || path === '/app/flow.html') {
@@ -175,96 +240,139 @@
             }
         } catch (e) { /* ignore */ }
 
+        function buildSystemTree(systems) {
+            systemContainer.textContent = '';
+            if (!systems || systems.length === 0) {
+                systemContainer.appendChild(el('div', 'nav-section-empty', '프로젝트 미로드'));
+                return;
+            }
+            systems.forEach(function (sys) {
+                var head = el('div', 'nav-sys');
+                var aas = el('img');
+                aas.src = '/images/aas.png';
+                aas.alt = 'AAS';
+                head.appendChild(aas);
+                head.appendChild(el('span', 'nav-sys-name', sys.name));
+                systemContainer.appendChild(head);
+
+                var flows = sys.flows || [];
+                var wrap = el('div', 'nav-flows');
+                flows.forEach(function (flowName, i) {
+                    var isLast = i === flows.length - 1;
+                    var isSelected = selectedFlow === flowName;
+                    var a = el('a', 'nav-flow' + (isSelected ? ' is-selected' : '') + (isLast ? ' is-last' : ''));
+                    a.href = '/flow?name=' + encodeURIComponent(flowName);
+                    a.appendChild(el('span', 'nav-flow-line-v'));
+                    a.appendChild(el('span', 'nav-flow-line-h'));
+                    a.appendChild(el('span', 'nav-flow-name', flowName));
+                    wrap.appendChild(a);
+                });
+                systemContainer.appendChild(wrap);
+            });
+        }
+
+        // ── 6) /api/nav: ShowPlcDebug + per-system flow 트리 (1회) ──
         fetch('/api/nav', { headers: { 'Accept': 'application/json' } })
             .then(function (res) { return res.ok ? res.json() : null; })
             .then(function (data) {
-                if (!data) return;
-
+                if (!data) { buildSystemTree([]); return; }
                 if (data.showPlcDebug) {
-                    navMenu.insertBefore(buildNavLink(PLC_DEBUG_ITEM), settingsLink);
+                    navMenu.insertBefore(buildNavLink(PLC_DEBUG_ITEM), lineSummaryHead);
                 }
-
-                var systems = data.systems || [];
-                if (systems.length === 0) return;
-
-                var divider = document.createElement('hr');
-                divider.className = 'divider';
-                divider.style.margin = '14px 18px';
-                navMenu.insertBefore(divider, settingsLink);
-
-                systems.forEach(function (sys) {
-                    // 시스템 헤더 — 아이브로우 스타일
-                    var header = document.createElement('div');
-                    header.style.padding = '6px 22px 4px';
-                    header.style.display = 'flex';
-                    header.style.alignItems = 'center';
-                    header.style.gap = '8px';
-                    header.style.fontSize = '0.64rem';
-                    header.style.fontWeight = '700';
-                    header.style.textTransform = 'uppercase';
-                    header.style.letterSpacing = '0.14em';
-                    header.style.color = 'var(--color-text-secondary)';
-                    var aas = document.createElement('img');
-                    aas.src = '/images/aas.png';
-                    aas.alt = 'AAS';
-                    aas.style.width = '16px';
-                    aas.style.height = '16px';
-                    aas.style.objectFit = 'contain';
-                    header.appendChild(aas);
-                    header.appendChild(document.createTextNode(sys.name));
-                    navMenu.insertBefore(header, settingsLink);
-
-                    var flows = sys.flows || [];
-                    var indent = document.createElement('div');
-                    indent.style.marginLeft = '30px';
-                    indent.style.marginBottom = '4px';
-                    flows.forEach(function (flowName, i) {
-                        var isLast = i === flows.length - 1;
-                        var isSelected = selectedFlow === flowName;
-                        var btn = document.createElement('a');
-                        btn.href = '/flow?name=' + encodeURIComponent(flowName);
-                        btn.style.position = 'relative';
-                        btn.style.padding = '5px 0 5px 16px';
-                        btn.style.cursor = 'pointer';
-                        btn.style.textDecoration = 'none';
-                        btn.style.display = 'block';
-                        btn.style.width = '100%';
-                        btn.style.border = '0';
-                        btn.style.textAlign = 'left';
-                        btn.style.background = isSelected ? 'color-mix(in srgb, var(--color-primary) 9%, transparent)' : 'transparent';
-
-                        var vLine = document.createElement('span');
-                        vLine.style.position = 'absolute';
-                        vLine.style.left = '0';
-                        vLine.style.top = '0';
-                        vLine.style.width = '1px';
-                        vLine.style.height = isLast ? '50%' : '100%';
-                        vLine.style.background = 'var(--color-lines)';
-                        var hLine = document.createElement('span');
-                        hLine.style.position = 'absolute';
-                        hLine.style.left = '0';
-                        hLine.style.top = '50%';
-                        hLine.style.width = '12px';
-                        hLine.style.height = '1px';
-                        hLine.style.background = 'var(--color-lines)';
-
-                        var label = document.createElement('span');
-                        label.style.fontSize = '0.8rem';
-                        label.style.fontWeight = isSelected ? '700' : '500';
-                        label.style.color = isSelected ? 'var(--color-primary)' : 'var(--color-drawer-text)';
-                        label.textContent = flowName;
-
-                        btn.appendChild(vLine);
-                        btn.appendChild(hLine);
-                        btn.appendChild(label);
-                        indent.appendChild(btn);
-                    });
-                    navMenu.insertBefore(indent, settingsLink);
-                });
+                buildSystemTree(data.systems || []);
             })
-            .catch(function () { /* nav 실패해도 기본 링크 유지 */ });
+            .catch(function () { buildSystemTree([]); });
 
-        // ── 5) 테마 토글 ──
+        // ── 7) /api/nav/summary: 라인요약 + agent 통신 + 이상발생 (주기 폴링) ──
+        var HUB_INFO = {
+            connected:    ['ok', '정상', 'Promaker 모니터링 허브 연결됨'],
+            connecting:   ['pending', '연결 중', 'Promaker 허브 연결 시도 중'],
+            reconnecting: ['pending', '재연결 중', 'Promaker 허브 재연결 중'],
+            disconnected: ['down', '끊김', 'Promaker 5051 모니터링 허브 연결 없음 — Promaker 실행/모니터링 확인']
+        };
+
+        function setRow(r, level, label) {
+            r.row.className = 'ag-row is-' + level;
+            r.dot.className = 'ag-dot ag-' + level;
+            r.state.textContent = label;
+        }
+
+        function plcTooltip(agent) {
+            var adapters = agent.adapters || [];
+            if (agent.hub !== 'connected') return '허브 연결 후 PLC 상태가 표시됩니다';
+            if (!adapters.length) return '보고된 PLC 어댑터가 없습니다';
+            var down = adapters.filter(function (a) { return !a.connected; });
+            if (down.length) {
+                return down.map(function (a) {
+                    return a.name + ' (' + a.vendor + ' ' + a.ip + ':' + a.port + ') — ' + (a.error || '');
+                }).join('\n');
+            }
+            return adapters.map(function (a) { return a.name + ' (' + a.ip + ':' + a.port + ')'; }).join('\n');
+        }
+
+        function setAnomalyBadge(count) {
+            if (!anomalyLink) return;
+            var badge = anomalyLink.querySelector('.nav-link-badge');
+            if (count > 0) {
+                if (!badge) {
+                    badge = el('span', 'nav-link-badge');
+                    badge.title = '최근 10분 내 Error 알림';
+                    anomalyLink.appendChild(badge);
+                }
+                badge.textContent = count;
+            } else if (badge) {
+                badge.remove();
+            }
+        }
+
+        function applySummary(data) {
+            // 라인요약
+            var lines = data.lines || {};
+            var total = lines.total || 0;
+            lsRunning.textContent = lines.running || 0;
+            lsIdle.textContent = lines.idle || 0;
+            var eff = lines.efficiencyPct || 0;
+            lsEffVal.textContent = total > 0 ? eff + '%' : '—';
+            lsEffFill.style.width = (total > 0 ? eff : 0) + '%';
+
+            // agent 통신
+            var agent = data.agent || {};
+            var hubInfo = HUB_INFO[agent.hub] || HUB_INFO.disconnected;
+            setRow(hubRow, hubInfo[0], hubInfo[1]);
+            hubRow.row.title = hubInfo[2];
+
+            var hub = agent.hub, plcTotal = agent.plcTotal || 0, plcDown = agent.plcDisconnected || 0;
+            var lvl, lbl;
+            if (hub !== 'connected') { lvl = 'muted'; lbl = '—'; }
+            else if (plcTotal === 0) { lvl = 'muted'; lbl = '보고 없음'; }
+            else if (plcDown > 0) { lvl = 'down'; lbl = plcDown + '대 끊김'; }
+            else { lvl = 'ok'; lbl = plcTotal + '대 연결'; }
+            setRow(plcRow, lvl, lbl);
+            plcRow.row.title = plcTooltip(agent);
+
+            // 이상발생 배지
+            setAnomalyBadge(data.anomalyActiveCount || 0);
+
+            // 마지막 갱신 (서버 시각 파싱 실패 시 현재 시각으로 폴백 — NaN:NaN:NaN 방지)
+            var t = new Date();
+            if (data.serverTimeUtc) {
+                var parsed = new Date(data.serverTimeUtc);
+                if (!isNaN(parsed.getTime())) t = parsed;
+            }
+            updatedTime.textContent = fmtTime(t);
+            updatedDot.classList.toggle('is-stale', !!(agent.hub && agent.hub !== 'connected'));
+        }
+
+        function pollSummary() {
+            fetch('/api/nav/summary', { headers: { 'Accept': 'application/json' } })
+                .then(function (res) { return res.ok ? res.json() : null; })
+                .then(function (data) { if (data) applySummary(data); })
+                .catch(function () { /* 폴링 실패 시 마지막 값 유지 */ });
+        }
+        pollSummary();
+        setInterval(pollSummary, 4000);
+
+        // ── 8) 테마 토글 ──
         themeBtn.addEventListener('click', function () {
             var next = !document.documentElement.classList.contains('dark-theme');
             localStorage.setItem('dspilot-theme', next ? 'dark' : 'light');
@@ -285,7 +393,7 @@
             themeIcon.textContent = d ? 'light_mode' : 'dark_mode';
         });
 
-        // ── 6) drawer 토글 (햄버거) ──
+        // ── 9) drawer 토글 (햄버거) ──
         function setDrawerClosed(closed) {
             drawer.classList.toggle('drawer-closed', closed);
             main.classList.toggle('drawer-closed', closed);
