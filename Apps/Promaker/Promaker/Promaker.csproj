@@ -143,8 +143,8 @@
     <ProjectReference Include="..\..\Shared\Llm.Shared\Llm.Shared.csproj" />
     <!-- PR-D4 — Promaker.Dock (DevExpress.Wpf.Docking 캡슐화 격리 csproj).
          Promaker.Dock 측이 mechanism D (Reference HintPath, PackageReference 제거) 로 NuGet graph 격리 보장 →
-         본 ProjectReference 에 PrivateAssets 불필요 (transitive 0건). DX 11종 + Themes.Office2019Colorful 은
-         Promaker.Dock 의 Reference Private=true + Content Include 로 Promaker bin 까지 carry. -->
+         본 ProjectReference 에 PrivateAssets 불필요 (transitive 0건). DX 11종 + Themes.Office2019Black (PR-D7.3 fix)
+         은 Promaker.Dock 의 Reference Private=true + Content Include 로 Promaker bin 까지 carry. -->
     <ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />
   </ItemGroup>
 </Project>

@@ -15,9 +15,11 @@ namespace Promaker.Dock;
 /// DX type 은 본 클래스 안에서만 사용 — Promaker.csproj 의 PrivateAssets="all" ProjectReference 와 함께
 /// DX 의 System.Windows.Forms / System.Drawing transitive 가 Promaker 본체에 유입되지 않도록 격리.
 ///
-/// PR-D3 단계:
+/// PR-D3~D6 단계:
 ///   - done-dock-avalon.md §3.1 의 안 A 그대로 LayoutGroup 트리 구성 (XAML).
-///   - IDockManager 의 4 메서드 + 1 event 구현. dispatch 는 <see cref="DockAnchorPosition"/> switch.
+///   - IDockManager 의 6 메서드 (RegisterAnchor / RegisterDocument / SetAnchorVisible / IsAnchorVisible /
+///     SaveLayout / RestoreLayout) + 1 event (AnchorVisibilityChanged) 구현. dispatch 는
+///     <see cref="DockAnchorPosition"/> switch.
 ///   - size 보존 / drag-drop / floating 은 DX native 처리 — 별도 보정 코드 없음 (작업 의도 verbatim).
 /// </summary>
 public partial class DockHost : UserControl, IDockManager
@@ -82,6 +84,13 @@ public partial class DockHost : UserControl, IDockManager
 
     public event EventHandler<DockAnchorVisibilityChangedEventArgs>? AnchorVisibilityChanged;
 
+    /// <summary>
+    /// PR-D9 (MJ2 복구) — anchor caption 의 Help 버튼 click event.
+    /// 매개 = ContentId 문자열 (DX type 외부 노출 0). MainWindow 가
+    /// <c>Promaker.Help.HelpNavigator.NavigateCommand.Execute(contentId)</c> 로 hook.
+    /// </summary>
+    public event EventHandler<string>? AnchorHelpRequested;
+
     public void RegisterAnchor(DockAnchor anchor)
     {
         if (anchor is null) throw new ArgumentNullException(nameof(anchor));
@@ -94,13 +103,39 @@ public partial class DockHost : UserControl, IDockManager
 
         var panel = ResolveAnchorPanel(anchor.DefaultPosition);
         ApplyAnchorMetadata(panel, anchor);
+        if (anchor.HasHelp)
+        {
+            // PR-D9 — baseline 3 anchor (explorer/properties/history) 의 caption Help 버튼 복구.
+            // DataTemplate 의 DataContext = BaseLayoutItem 인스턴스 (DX 24.1) → Binding Caption / Binding Name 정합.
+            panel.CaptionTemplate = (DataTemplate)FindResource("AnchorCaptionWithHelp");
+        }
         panel.Content = anchor.Content;
         _itemsByContentId[anchor.ContentId] = panel;
+    }
+
+    /// <summary>
+    /// PR-D9 — caption Help 뱃지 click 핸들러. <c>PreviewMouseLeftButtonDown</c> 사용 — DX caption chrome 이
+    /// 자체 drag-drop 을 위해 mouse event 를 캡처하므로 일반 Button.Click 으로는 동작 안 함. preview 단계에서
+    /// e.Handled=true 로 chrome 의 mouse capture 차단 + AnchorHelpRequested 발화. Border.Tag = anchor.ContentId
+    /// (Binding Name). 외부 (MainWindow) 가 Promaker.Help.HelpNavigator.NavigateCommand 호출.
+    /// </summary>
+    private void HelpBadge_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string contentId && !string.IsNullOrEmpty(contentId))
+        {
+            AnchorHelpRequested?.Invoke(this, contentId);
+            e.Handled = true;
+        }
     }
 
     public void RegisterDocument(DockAnchor document)
     {
         if (document is null) throw new ArgumentNullException(nameof(document));
+        if (document.DefaultPosition != DockAnchorPosition.Document)
+            throw new ArgumentException(
+                $"RegisterDocument() expects DockAnchorPosition.Document; got {document.DefaultPosition}. " +
+                $"Use RegisterAnchor() for non-document anchors. ContentId={document.ContentId}",
+                nameof(document));
         if (_itemsByContentId.ContainsKey(document.ContentId))
             throw new InvalidOperationException($"ContentId '{document.ContentId}' is already registered.");
 
@@ -143,7 +178,11 @@ public partial class DockHost : UserControl, IDockManager
         if (string.IsNullOrEmpty(filepath)) throw new ArgumentException("filepath is required.", nameof(filepath));
         if (!File.Exists(filepath)) return;
         try { _dockLayout.RestoreLayoutFromXml(filepath); }
-        catch { /* 손상된 xml — default layout 유지 */ }
+        catch (Exception ex)
+        {
+            // Promaker.Dock 에 log4net 미연결 — 최소 진단 흔적 (사용자 철학 "외부 예외는 log 남김").
+            System.Diagnostics.Trace.TraceWarning($"DockHost.RestoreLayout failed for '{filepath}': {ex.Message}");
+        }
     }
 
     /// <summary>

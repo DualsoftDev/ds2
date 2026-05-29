@@ -35,6 +35,14 @@ public interface IDockManager
 
     /// <summary>사용자가 X 버튼 등으로 anchor 를 hide 하면 발화. VM 의 SSOT 와 단방향 sync 용.</summary>
     event EventHandler<DockAnchorVisibilityChangedEventArgs>? AnchorVisibilityChanged;
+
+    /// <summary>
+    /// PR-D9 (MJ2 복구) — anchor caption 의 Help 버튼 (<c>?</c>) click 시 발화.
+    /// 매개는 anchor 의 ContentId 문자열 (DX type 외부 노출 0 — 격리 §7 #4 박제).
+    /// Promaker 본체가 <c>Promaker.Help.HelpNavigator.NavigateCommand.Execute(contentId)</c> hook 하여
+    /// baseline AvalonDock 의 Help 동작 (3 anchor: explorer / properties / history) 을 복구.
+    /// </summary>
+    event EventHandler<string>? AnchorHelpRequested;
 }
 
 public sealed class DockAnchorVisibilityChangedEventArgs : EventArgs

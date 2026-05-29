@@ -10,7 +10,7 @@
                 <ResourceDictionary Source="Dialogs/TagWizard/Dialog.Resources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <!-- PR-D8: AvalonDock 제거 후 AvalonDock_ThemeMetro_BaseColor* brush 3건 (BaseColor1/2/7) 모두 정리.
-                 DevExpress Office2019Colorful skin 은 자체 brush palette 사용 — 본 override 불필요. -->
+                 DevExpress Office2019Black skin (PR-D7.3 fix) 은 자체 brush palette 사용 — 본 override 불필요. -->
         </ResourceDictionary>
     </Application.Resources>
 </Application>
