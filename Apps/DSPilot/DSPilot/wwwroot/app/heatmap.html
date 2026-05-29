@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>동작편차 — DSPilot</title>
+
+    <!--
+      격리형 호스팅(Isolated Hosting) 레퍼런스 페이지.
+      서버/코어/모델은 C#(/api/heatmap/*), 뷰는 순수 HTML/CSS/JS(htmx·Alpine·Chart.js).
+      Blazor 영역(/heatmap)과 동일 호스트·포트·origin → CORS 없음, 동일 디자인 토큰 재사용.
+
+      디자인 적용 규칙:
+        - 전역 CSS(/css/*.css)는 절대경로로 링크하면 Blazor 와 100% 동일하게 적용됨.
+        - 컴포넌트 스코프드 CSS(*.razor.css → [b-xxx] 한정)는 정적 페이지에 안 먹으므로
+          필요한 규칙(flow-dashboard-*, 로딩 keyframe, modal)을 아래 <style> 로 인라인한다.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/theme.css" rel="stylesheet" />
+    <link href="/css/components.css" rel="stylesheet" />
+    <link href="/css/dark-theme.css" rel="stylesheet" />
+    <link href="/css/app.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* 독립 셸(이 페이지는 Blazor MainLayout 을 쓰지 않으므로 자체 헤더/본문) */
+        .dsp-page {
+            min-height: 100vh;
+            background: var(--color-background);
+            color: var(--color-text-primary);
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        .dsp-appbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            height: 56px;
+            padding: 0 20px;
+            background: var(--color-appbar-bg, var(--color-surface));
+            color: var(--color-appbar-text, var(--color-text-primary));
+            border-bottom: 1px solid var(--color-lines);
+            box-shadow: var(--shadow-1);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
+        .dsp-appbar .dsp-badge {
+            font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+            background: var(--color-primary); color: #fff;
+        }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
+        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
+        .dsp-main { max-width: 1280px; margin: 0 auto; padding: 20px; }
+
+        /* btn-primary: 전역 CSS 에 미정의(Blazor 도 동일 잠재 이슈)라 활성 기간 버튼 강조용으로 정의 */
+        .btn.btn-primary {
+            background: var(--color-primary);
+            color: #fff;
+            border: 1px solid var(--color-primary);
+        }
+        .btn.btn-primary:hover { filter: brightness(1.05); }
+
+        /* ── Heatmap.razor.css(스코프드) 에서 가져온 규칙 ── */
+        @keyframes heatmap-indeterminate {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        .flow-dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+            gap: 18px;
+            align-items: start;
+        }
+        .flow-dashboard-panel {
+            border: 1px solid var(--color-lines);
+            border-radius: var(--radius-lg);
+            background: var(--color-surface);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            min-width: 0;
+        }
+        .flow-dashboard-panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 12px 14px;
+            border-bottom: 1px solid var(--color-lines);
+            background: var(--color-background);
+        }
+        .flow-dashboard-panel-title { font-size: 18px; font-weight: 800; color: var(--color-text-primary); }
+        .flow-dashboard-panel-subtitle { font-size: 12px; color: var(--color-text-secondary); font-weight: 600; }
+        .flow-dashboard-work-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px; padding: 14px; background: var(--color-background);
+        }
+        .flow-dashboard-work-panel {
+            border: 1px solid var(--color-lines); border-radius: 10px;
+            background: color-mix(in srgb, var(--color-text-primary) 6%, var(--color-surface));
+            overflow: hidden; min-width: 0;
+        }
+        .flow-dashboard-work-header {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; padding: 8px 10px;
+            background: color-mix(in srgb, var(--color-text-primary) 10%, var(--color-surface));
+            color: var(--color-text-secondary); font-size: 12px; font-weight: 800;
+        }
+        .flow-dashboard-call-grid { display: grid; gap: 6px; padding: 6px; }
+        .flow-dashboard-call-cell {
+            min-height: 106px; padding: 10px; border-radius: 0;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; color: var(--color-text-primary); font-weight: 700;
+            box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.12); cursor: pointer;
+        }
+        .flow-dashboard-call-cell.heatmap-excellent,
+        .flow-dashboard-call-cell.heatmap-good,
+        .flow-dashboard-call-cell.heatmap-poor,
+        .flow-dashboard-call-cell.heatmap-critical { color: #fff; }
+        .flow-dashboard-call-name { font-size: 13px; font-weight: 800; line-height: 1.25; word-break: break-word; }
+        .flow-dashboard-call-value { margin-top: 12px; font-size: 18px; font-weight: 900; line-height: 1.15; }
+        .flow-dashboard-call-meta { margin-top: 8px; font-size: 11px; font-weight: 700; opacity: 0.76; }
+
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000; backdrop-filter: blur(2px);
+        }
+        .modal-content {
+            background: var(--color-surface); border-radius: 12px; padding: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); max-height: 85vh; overflow-y: auto;
+        }
+
+        /* dark-theme.css 의 flow-dashboard-* 오버라이드 (정적 페이지용으로 재수록) */
+        .dark-theme .flow-dashboard-panel { background: #1A1F2E; border-color: rgba(255,255,255,0.10); box-shadow: var(--shadow-card); }
+        .dark-theme .flow-dashboard-panel-header { background: linear-gradient(180deg, #252A3A, #252525); border-bottom-color: rgba(255,255,255,0.08); }
+        .dark-theme .flow-dashboard-panel-title { color: rgba(255,255,255,0.87); }
+        .dark-theme .flow-dashboard-panel-subtitle { color: rgba(255,255,255,0.50); }
+        .dark-theme .flow-dashboard-work-grid { background: linear-gradient(180deg, rgba(30,30,30,0.96), rgba(25,25,25,0.9)); }
+        .dark-theme .flow-dashboard-work-panel { background: rgba(44,44,44,0.55); border-color: rgba(255,255,255,0.08); }
+        .dark-theme .flow-dashboard-work-header { background: rgba(60,60,60,0.72); color: rgba(255,255,255,0.70); }
+        .dark-theme .flow-dashboard-call-cell { color: rgba(255,255,255,0.87); }
+        .dark-theme .flow-dashboard-call-cell.heatmap-excellent,
+        .dark-theme .flow-dashboard-call-cell.heatmap-good,
+        .dark-theme .flow-dashboard-call-cell.heatmap-poor,
+        .dark-theme .flow-dashboard-call-cell.heatmap-critical { color: rgba(255,255,255,0.87); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="heatmapApp()" x-init="init()" x-cloak>
+
+        <!-- 데모 만료 안내 (정적 셸은 demo 게이트 short-circuit 대상이지만, /api 는 503 → 그때 표시) -->
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:2000;">
+            <div class="modal-content" style="max-width:480px; text-align:center;">
+                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <!-- 슬림 헤더 -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">동작편차</span>
+            <span class="dsp-badge">정적/격리</span>
+            <div class="spacer"></div>
+            <a href="/heatmap" title="Blazor 버전과 비교">Blazor 버전</a>
+            <a href="/">← DSPilot</a>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+
+            <!-- 컨트롤 패널 -->
+            <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
+                <div class="d-flex" style="align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div style="flex:0 0 auto; min-width:160px;">
+                        <label class="typo-caption" style="display:block; margin-bottom:4px; color:var(--color-text-secondary);">표시 메트릭</label>
+                        <select class="form-field" x-model.number="selectedMetricIdx">
+                            <template x-for="(m, i) in metrics" :key="m.key">
+                                <option :value="i" x-text="m.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div style="flex:1; max-width:400px;">
+                        <label class="typo-caption" style="display:block; margin-bottom:4px; color:var(--color-text-secondary);">Flow 필터</label>
+                        <input class="form-field" x-model="flowFilter" placeholder="Flow 이름 검색..." />
+                    </div>
+                    <div style="flex:0 0 auto; display:flex; gap:8px; align-items:flex-end; padding-top:18px;">
+                        <button class="btn btn-filled" @click="loadData()">
+                            <span class="material-icons" style="font-size:18px;">refresh</span> 새로고침
+                        </button>
+                        <button class="btn btn-outlined" @click="allExpanded = !allExpanded">
+                            <span class="material-icons" style="font-size:18px;" x-text="allExpanded ? 'unfold_less' : 'unfold_more'"></span>
+                            <span x-text="allExpanded ? 'Flow Group Matrix 접기' : 'Flow Group Matrix 펼치기'"></span>
+                        </button>
+                        <button class="btn btn-outlined" @click="exportCsv()" :disabled="filteredGroups.length === 0">
+                            CSV 내보내기
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 로딩 -->
+            <div class="mb-4" x-show="loading" style="height:4px; background:var(--color-surface-variant, #e0e0e0); border-radius:2px; overflow:hidden;">
+                <div style="height:100%; width:25%; background:var(--color-primary); animation: heatmap-indeterminate 1.5s infinite ease-in-out;"></div>
+            </div>
+
+            <!-- 오류 -->
+            <div class="card mb-4" x-show="error" style="padding:16px; border-left:4px solid var(--color-error, #d32f2f);">
+                <span class="material-icons" style="font-size:18px; vertical-align:middle; margin-right:8px; color:var(--color-error, #d32f2f);">error_outline</span>
+                <span x-text="error"></span>
+            </div>
+
+            <!-- 데이터 없음 -->
+            <div class="card mb-4" x-show="!loading && !error && filteredGroups.length === 0" style="padding:16px; border-left:4px solid var(--color-info, #2196F3);">
+                <span class="material-icons" style="font-size:18px; vertical-align:middle; margin-right:8px; color:var(--color-info, #2196F3);">info</span>
+                <span>표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.</span>
+            </div>
+
+            <template x-if="!loading && filteredGroups.length > 0">
+                <div>
+                    <!-- 요약 대시보드 -->
+                    <div class="grid mb-4" style="gap:12px; grid-template-columns: repeat(4, 1fr);">
+                        <div class="card" style="padding:16px; text-align:center; box-shadow: var(--shadow-1);">
+                            <div class="typo-overline" style="color:var(--color-text-secondary);">총 Flow</div>
+                            <div class="typo-h5" style="color:var(--color-primary);" x-text="filteredGroups.length"></div>
+                        </div>
+                        <div class="card" style="padding:16px; text-align:center; box-shadow: var(--shadow-1);">
+                            <div class="typo-overline" style="color:var(--color-text-secondary);">총 Call</div>
+                            <div class="typo-h5" style="color:var(--color-primary);" x-text="totalCalls"></div>
+                        </div>
+                        <div class="card" style="padding:16px; text-align:center; box-shadow: var(--shadow-1);">
+                            <div class="typo-overline" style="color:var(--color-text-secondary);">이슈 Call</div>
+                            <div class="typo-h5" :style="`color:${issueCalls > 0 ? 'var(--color-error)' : 'var(--color-success)'};`" x-text="issueCalls"></div>
+                        </div>
+                        <div class="card" style="padding:16px; text-align:center; box-shadow: var(--shadow-1);">
+                            <div class="typo-overline" style="color:var(--color-text-secondary);">선택 메트릭 평균</div>
+                            <div class="typo-h5" style="color:var(--color-primary);" x-text="fmt(selectedMetric.key, selectedMetricAverage)"></div>
+                            <div class="typo-caption" style="color:var(--color-text-secondary);" x-text="selectedMetric.name"></div>
+                        </div>
+                    </div>
+
+                    <!-- 범례 -->
+                    <div class="card mb-4" style="padding:12px 16px; box-shadow: var(--shadow-1);">
+                        <div class="d-flex" style="flex-wrap:wrap; align-items:center; gap:4px;">
+                            <span class="typo-caption" style="margin-right:8px; color:var(--color-text-secondary);">범례:</span>
+                            <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-excellent"></div><span class="typo-caption">우수</span></div>
+                            <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-good"></div><span class="typo-caption">양호</span></div>
+                            <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-fair"></div><span class="typo-caption">보통</span></div>
+                            <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-poor"></div><span class="typo-caption">개선필요</span></div>
+                            <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-critical"></div><span class="typo-caption">심각</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Flow Group Matrix 대시보드 -->
+                    <div class="card mb-4" x-show="allExpanded" style="padding:16px; box-shadow: var(--shadow-2);">
+                        <div class="d-flex" style="flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px; gap:12px;">
+                            <div>
+                                <h6 class="typo-h6">Flow Group Matrix</h6>
+                                <span class="typo-body2" style="color:var(--color-text-secondary);">Flow 패널 안에 Work 블록과 Call 셀을 배치해 그룹 구조를 한눈에 봅니다.</span>
+                            </div>
+                            <span class="chip" style="background:var(--color-primary); color:white;" x-text="filteredGroups.length + ' Flows'"></span>
+                        </div>
+                        <div class="flow-dashboard-grid">
+                            <template x-for="group in filteredGroups" :key="'fg-' + group.flowName">
+                                <section class="flow-dashboard-panel">
+                                    <div class="flow-dashboard-panel-header">
+                                        <div>
+                                            <div class="flow-dashboard-panel-title" x-text="group.flowName"></div>
+                                            <div class="flow-dashboard-panel-subtitle" x-text="'평균 ' + fmt(selectedMetric.key, flowAvgValue(group, selectedMetric.key))"></div>
+                                        </div>
+                                        <span class="chip" style="background:var(--color-info, #2196F3); color:white; font-size:12px;" x-text="group.callCount + ' Calls'"></span>
+                                    </div>
+                                    <div class="flow-dashboard-work-grid">
+                                        <template x-for="wg in workGroups(group)" :key="'wg-' + group.flowName + '-' + wg.workName">
+                                            <div class="flow-dashboard-work-panel">
+                                                <div class="flow-dashboard-work-header">
+                                                    <span x-text="wg.workName"></span>
+                                                    <span x-text="wg.calls.length"></span>
+                                                </div>
+                                                <div class="flow-dashboard-call-grid" style="grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));">
+                                                    <template x-for="call in wg.calls" :key="'fc-' + call.callId">
+                                                        <div :class="'flow-dashboard-call-cell ' + colorClass(call, selectedMetric.key)"
+                                                             :title="callTooltip(call)" @click="selectCall(call)">
+                                                            <div class="flow-dashboard-call-name" x-text="call.callName"></div>
+                                                            <div class="flow-dashboard-call-value" x-text="fmt(selectedMetric.key, metricValue(call, selectedMetric.key))"></div>
+                                                            <div class="flow-dashboard-call-meta" x-text="call.workName"></div>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Flow 그룹별 매트릭스 히트맵 테이블 -->
+                    <template x-for="group in filteredGroups" :key="'tbl-' + group.flowName">
+                        <div class="card mb-4" style="box-shadow: var(--shadow-2); border-radius: 8px;">
+                            <div class="d-flex" style="align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--color-lines);">
+                                <div class="d-flex" style="align-items:center; gap:8px;">
+                                    <button class="btn-icon btn-sm" @click="group.isExpanded = !group.isExpanded">
+                                        <span class="material-icons" x-text="group.isExpanded ? 'expand_more' : 'chevron_right'"></span>
+                                    </button>
+                                    <h6 class="typo-h6" x-text="group.flowName"></h6>
+                                    <span class="chip" style="background:var(--color-info); color:white;" x-text="group.callCount + ' Calls'"></span>
+                                    <span class="chip" x-show="issueCount(group) > 0" style="background:var(--color-error); color:white;" x-text="issueCount(group) + ' 이슈'"></span>
+                                </div>
+                                <div class="d-flex" style="align-items:center; gap:4px;">
+                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassAvg" :title="'평균: ' + Math.round(group.flowAverageTime) + ' ms'">Avg</div>
+                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassStdDev" :title="'표준편차: ' + Math.round(group.flowAverageStdDev) + ' ms'">SD</div>
+                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassCV" :title="'변동계수: ' + group.flowAverageCV.toFixed(2)">CV</div>
+                                </div>
+                            </div>
+
+                            <div class="table-container" x-show="group.isExpanded" style="overflow:auto;">
+                                <table class="table heatmap-matrix-table" style="table-layout:fixed; width:100%;">
+                                    <colgroup>
+                                        <col style="width:22%;" /><col style="width:14%;" /><col style="width:12%;" />
+                                        <col style="width:12%;" /><col style="width:12%;" /><col style="width:10%;" />
+                                    </colgroup>
+                                    <thead class="table-head-sticky">
+                                        <tr>
+                                            <th class="sortable" @click="sortBy('callName')">Call <span x-html="sortIcon('callName')"></span></th>
+                                            <th class="sortable" @click="sortBy('workName')">Work <span x-html="sortIcon('workName')"></span></th>
+                                            <th class="sortable heatmap-col-header" @click="sortBy('avg')">
+                                                <span title="Call의 평균 실행 시간 (ms). 낮을수록 빠릅니다." style="border-bottom:1px dotted; cursor:help;">평균 <span x-html="sortIcon('avg')"></span></span>
+                                            </th>
+                                            <th class="sortable heatmap-col-header" @click="sortBy('stddev')">
+                                                <span title="실행 시간의 표준편차 (ms). 낮을수록 안정적입니다." style="border-bottom:1px dotted; cursor:help;">표준편차 <span x-html="sortIcon('stddev')"></span></span>
+                                            </th>
+                                            <th class="sortable heatmap-col-header" @click="sortBy('cv')">
+                                                <span title="변동계수 (CV) = 표준편차/평균. 0.1 미만: 안정, 0.3 이상: 불안정" style="border-bottom:1px dotted; cursor:help;">변동계수 <span x-html="sortIcon('cv')"></span></span>
+                                            </th>
+                                            <th style="text-align:center;"><span title="Call이 Going 상태로 전환된 총 횟수" style="border-bottom:1px dotted; cursor:help;">실행횟수</span></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="call in sortedCalls(group)" :key="'row-' + call.callId">
+                                            <tr :class="'heatmap-matrix-row ' + (selectedCall && selectedCall.callId === call.callId ? 'selected' : '')"
+                                                @click="selectCall(call)" :title="callTooltip(call)">
+                                                <td class="heatmap-matrix-label" x-text="call.callName"></td>
+                                                <td class="heatmap-matrix-label" x-text="call.workName"></td>
+                                                <td style="text-align:center; padding:4px;">
+                                                    <div :class="'heatmap-cell-compact ' + call.colorClassAvg" x-text="fmtShortAvg(call.averageGoingTime)"></div>
+                                                </td>
+                                                <td style="text-align:center; padding:4px;">
+                                                    <div :class="'heatmap-cell-compact ' + call.colorClassStdDev" x-text="fmtShortAvg(call.stdDevGoingTime)"></div>
+                                                </td>
+                                                <td style="text-align:center; padding:4px;">
+                                                    <div :class="'heatmap-cell-compact ' + call.colorClassCV" x-text="call.coefficientOfVariation.toFixed(2)"></div>
+                                                </td>
+                                                <td style="text-align:center;"><span class="typo-body2" x-text="call.goingCount"></span></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </main>
+
+        <!-- Call 상세 모달 -->
+        <div class="modal-overlay" x-show="selectedCall" @click="closeModal()" style="display:none;" x-transition.opacity>
+            <template x-if="selectedCall">
+                <div class="modal-content" style="max-width:720px; width:90vw;" @click.stop>
+                    <div class="d-flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <div>
+                            <h6 class="typo-h6" style="margin:0;" x-text="selectedCall.callName"></h6>
+                            <span class="typo-caption" style="color:var(--color-text-secondary);"
+                                  x-text="'Flow: ' + selectedCall.flowName + ' | Work: ' + selectedCall.workName"></span>
+                        </div>
+                        <button class="btn-icon btn-sm" @click="closeModal()"><span class="material-icons">close</span></button>
+                    </div>
+
+                    <div class="grid" style="gap:12px; grid-template-columns: repeat(4, 1fr);">
+                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassAvg">
+                            <div class="typo-overline" style="color:inherit; opacity:0.85;">평균 시간</div>
+                            <div style="font-size:1.25rem; font-weight:700;" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime)"></div>
+                            <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 빠름</div>
+                        </div>
+                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassStdDev">
+                            <div class="typo-overline" style="color:inherit; opacity:0.85;">표준편차</div>
+                            <div style="font-size:1.25rem; font-weight:700;" x-text="formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></div>
+                            <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 안정적</div>
+                        </div>
+                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassCV">
+                            <div class="typo-overline" style="color:inherit; opacity:0.85;">변동계수</div>
+                            <div style="font-size:1.25rem; font-weight:700;" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></div>
+                            <div class="typo-caption" style="color:inherit; opacity:0.7;" x-text="cvStatus(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation)"></div>
+                        </div>
+                        <div class="heatmap-detail-card" style="background:linear-gradient(135deg, #475569, #64748b);">
+                            <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
+                            <div style="font-size:1.25rem; font-weight:700;" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount) + '회'"></div>
+                            <div class="typo-caption" style="color:inherit; opacity:0.7;" x-text="goingCountStatus(chartCount > 0 ? chartCount : selectedCall.goingCount)"></div>
+                        </div>
+                    </div>
+
+                    <!-- 실행 이력 차트 -->
+                    <div style="margin-top:16px; border-top:1px solid var(--color-lines); padding-top:16px;">
+                        <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                            <span class="material-icons" style="font-size:18px; color:var(--color-primary);">show_chart</span>
+                            <span class="typo-subtitle2">실행 시간 추이</span>
+                            <span class="typo-caption" x-show="isChartLoading" style="color:var(--color-text-secondary);">로딩 중...</span>
+                            <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
+                                <div class="d-flex" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
+                                    <button class="btn btn-sm" :class="historyPeriod === 'all' ? 'btn-primary' : 'btn-outlined'" @click="setHistoryPeriod('all')">전체</button>
+                                    <button class="btn btn-sm" :class="historyPeriod === 'today' ? 'btn-primary' : 'btn-outlined'" @click="setHistoryPeriod('today')">오늘</button>
+                                    <button class="btn btn-sm" :class="historyPeriod === '7d' ? 'btn-primary' : 'btn-outlined'" @click="setHistoryPeriod('7d')">지난 7일</button>
+                                    <button class="btn btn-sm" :class="historyPeriod === '30d' ? 'btn-primary' : 'btn-outlined'" @click="setHistoryPeriod('30d')">지난 30일</button>
+                                </div>
+                                <label class="d-flex" style="align-items:center; gap:4px; cursor:pointer; font-size:0.8rem; color:var(--color-text-secondary); user-select:none;"
+                                       title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 스파이크)를 제외합니다.">
+                                    <input type="checkbox" x-model="excludeDeviation" @change="onExcludeDeviationChange()" /> 스파이크 제외
+                                </label>
+                            </div>
+                        </div>
+
+                        <div x-show="callHistory.length > 0" style="height:280px; position:relative;">
+                            <canvas id="callHistoryChart"></canvas>
+                        </div>
+                        <div x-show="callHistory.length === 0 && !isChartLoading"
+                             class="typo-body2" style="color:var(--color-text-secondary); padding:24px; text-align:center; background:var(--color-surface-variant, #f5f5f5); border-radius:8px;">
+                            <span class="material-icons" style="font-size:32px; display:block; margin-bottom:8px; opacity:0.5;">timeline</span>
+                            실행 이력이 없습니다.
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Chart.js + 기존 차트 인터롭(camelCase 키 기대 → API 도 camelCase) -->
+    <script src="/lib/chart.umd.min.js"></script>
+    <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/js/call-history-chart.js"></script>
+
+    <!-- Alpine 컴포넌트 정의 (Alpine 보다 먼저 평가되어 전역 함수 등록) -->
+    <script>
+        function heatmapApp() {
+            return {
+                allGroups: [],
+                loading: true,
+                error: null,
+                demoBlocked: false,
+                flowFilter: '',
+                selectedMetricIdx: 2, // 기본: 변동계수(CV) — Blazor SelectedMetric 기본값과 동일
+                allExpanded: true,
+                sortField: 'cv',
+                sortAsc: false,
+                selectedCall: null,
+                callHistory: [],
+                excludeDeviation: true,
+                historyPeriod: 'all',
+                isChartLoading: false,
+                dark: false,
+
+                metrics: [
+                    { key: 'avg', name: '평균 시간 (ms)' },
+                    { key: 'stddev', name: '표준편차 (ms)' },
+                    { key: 'cv', name: '변동계수 (CV)' }
+                ],
+
+                get selectedMetric() { return this.metrics[this.selectedMetricIdx] || this.metrics[2]; },
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => {
+                        if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark';
+                    });
+                    await this.loadData();
+                },
+
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
+                },
+
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+
+                async loadData() {
+                    this.loading = true; this.error = null;
+                    try {
+                        this.allGroups = await this.apiGet('/api/heatmap/data');
+                        // 새로고침으로 데이터가 교체됐는데 열린 모달의 Call 이 더 이상 없으면 모달 정리(좀비 모달 방지)
+                        if (this.selectedCall &&
+                            !this.allGroups.some(g => (g.calls || []).some(c => c.callId === this.selectedCall.callId))) {
+                            await this.closeModal();
+                        }
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
+                        this.allGroups = [];
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                get filteredGroups() {
+                    const f = this.flowFilter.trim().toLowerCase();
+                    if (!f) return this.allGroups;
+                    return this.allGroups.filter(g => (g.flowName || '').toLowerCase().includes(f));
+                },
+
+                metricValue(call, key) {
+                    if (key === 'avg') return call.averageGoingTime;
+                    if (key === 'stddev') return call.stdDevGoingTime;
+                    return call.coefficientOfVariation;
+                },
+                colorClass(call, key) {
+                    if (key === 'avg') return call.colorClassAvg;
+                    if (key === 'stddev') return call.colorClassStdDev;
+                    return call.colorClassCV;
+                },
+                flowAvgValue(group, key) {
+                    if (key === 'avg') return group.flowAverageTime;
+                    if (key === 'stddev') return group.flowAverageStdDev;
+                    return group.flowAverageCV;
+                },
+
+                // HeatmapPerformance.FormatMetricValue: avg/stddev → F0, cv → F2
+                fmt(key, value) {
+                    if (key === 'cv') return Number(value).toFixed(2);
+                    return Math.round(Number(value)).toString();
+                },
+                // FormatMetricValueShort(AverageTime/StdDeviation): <1000 → 정수, else (x/1000)s
+                fmtShortAvg(v) {
+                    return v < 1000 ? Math.round(v).toString() : (v / 1000).toFixed(1) + 's';
+                },
+
+                isIssueCall(call) {
+                    const c = this.colorClass(call, this.selectedMetric.key);
+                    return c === 'heatmap-poor' || c === 'heatmap-critical';
+                },
+                issueCount(group) { return group.calls.filter(c => this.isIssueCall(c)).length; },
+
+                get totalCalls() { return this.filteredGroups.reduce((s, g) => s + g.callCount, 0); },
+                get issueCalls() { return this.filteredGroups.reduce((s, g) => s + this.issueCount(g), 0); },
+                get selectedMetricAverage() {
+                    const calls = this.filteredGroups.flatMap(g => g.calls);
+                    if (calls.length === 0) return 0;
+                    return calls.reduce((s, c) => s + this.metricValue(c, this.selectedMetric.key), 0) / calls.length;
+                },
+
+                workGroups(group) {
+                    const map = {};
+                    for (const call of group.calls) {
+                        const w = (call.workName && call.workName.trim()) ? call.workName : 'No Work';
+                        (map[w] = map[w] || []).push(call);
+                    }
+                    return Object.keys(map).sort((a, b) => a.localeCompare(b)).map(w => ({
+                        workName: w,
+                        calls: map[w].slice().sort((a, b) => (a.callName || '').localeCompare(b.callName || ''))
+                    }));
+                },
+
+                sortedCalls(group) {
+                    const calls = group.calls.slice();
+                    const f = this.sortField, asc = this.sortAsc;
+                    const cmp = (a, b) => (a || '').localeCompare(b || '');
+                    if (f === 'callName') calls.sort((a, b) => asc ? cmp(a.callName, b.callName) : cmp(b.callName, a.callName));
+                    else if (f === 'workName') calls.sort((a, b) => asc ? cmp(a.workName, b.workName) : cmp(b.workName, a.workName));
+                    else {
+                        const k = f === 'avg' ? 'averageGoingTime' : f === 'stddev' ? 'stdDevGoingTime' : 'coefficientOfVariation';
+                        calls.sort((a, b) => asc ? a[k] - b[k] : b[k] - a[k]);
+                    }
+                    return calls;
+                },
+                sortBy(field) {
+                    if (this.sortField === field) this.sortAsc = !this.sortAsc;
+                    else { this.sortField = field; this.sortAsc = (field === 'callName' || field === 'workName'); }
+                },
+                sortIcon(field) {
+                    if (this.sortField !== field) return '';
+                    const icon = this.sortAsc ? 'arrow_upward' : 'arrow_downward';
+                    return `<span class="material-icons" style="font-size:14px; vertical-align:middle;">${icon}</span>`;
+                },
+
+                cvStatus(cv) {
+                    if (cv < 0.1) return '매우 안정적';
+                    if (cv < 0.2) return '안정적';
+                    if (cv < 0.3) return '보통';
+                    if (cv < 0.5) return '불안정';
+                    return '매우 불안정';
+                },
+                goingCountStatus(n) {
+                    if (n >= 30) return '샘플 충분';
+                    if (n >= 10) return '샘플 보통';
+                    return '샘플 적음';
+                },
+                callTooltip(call) {
+                    const key = this.selectedMetric.key;
+                    return `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName}\n`
+                        + `평균: ${Math.round(call.averageGoingTime)} ms\n표준편차: ${Math.round(call.stdDevGoingTime)} ms\n`
+                        + `변동계수: ${call.coefficientOfVariation.toFixed(2)} (${this.cvStatus(call.coefficientOfVariation)})\n`
+                        + `실행횟수: ${call.goingCount}회\n${this.selectedMetric.name}: ${this.fmt(key, this.metricValue(call, key))}`;
+                },
+
+                // ── 차트/통계 (스파이크 제외 반영) ──
+                get displayedHistory() {
+                    if (!this.excludeDeviation || this.callHistory.length === 0) return this.callHistory;
+                    const times = this.callHistory.map(r => r.goingTimeMs);
+                    const n = times.length, half = Math.floor(5 / 2), result = [];
+                    for (let i = 0; i < n; i++) {
+                        const lo = Math.max(0, i - half), hi = Math.min(n - 1, i + half);
+                        let sum = 0; for (let j = lo; j <= hi; j++) sum += times[j];
+                        const ma = sum / (hi - lo + 1);
+                        if (ma <= 0 || (times[i] >= ma * 0.5 && times[i] <= ma * 2.0)) result.push(this.callHistory[i]);
+                    }
+                    return result;
+                },
+                get chartAvg() { const d = this.displayedHistory; return d.length ? d.reduce((s, r) => s + r.goingTimeMs, 0) / d.length : 0; },
+                get chartStdDev() { const d = this.displayedHistory; if (!d.length) return 0; const a = this.chartAvg; return Math.sqrt(d.reduce((s, r) => s + Math.pow(r.goingTimeMs - a, 2), 0) / d.length); },
+                get chartCV() { return this.chartAvg > 0 ? this.chartStdDev / this.chartAvg : 0; },
+                get chartCount() { return this.displayedHistory.length; },
+
+                async selectCall(call) {
+                    if (this.selectedCall && this.selectedCall.callId === call.callId) { await this.closeModal(); return; }
+                    this.selectedCall = call;
+                    this.callHistory = [];
+                    await this.loadHistory();
+                },
+                async loadHistory() {
+                    if (!this.selectedCall) return;
+                    this.isChartLoading = true;
+                    try {
+                        this.callHistory = await this.apiGet(`/api/heatmap/call-history?callId=${encodeURIComponent(this.selectedCall.callId)}&period=${this.historyPeriod}`);
+                        await this.renderChart();
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') console.error('history load failed', e);
+                        this.callHistory = [];
+                    } finally {
+                        this.isChartLoading = false;
+                    }
+                },
+                async setHistoryPeriod(p) {
+                    if (this.historyPeriod === p) return;
+                    this.historyPeriod = p;
+                    await this.loadHistory();
+                },
+                async onExcludeDeviationChange() { await this.renderChart(); },
+                async renderChart() {
+                    const d = this.displayedHistory;
+                    if (d.length === 0) { window.destroyCallHistoryChart(); return; }
+                    const chartData = d.map(r => ({
+                        executionNumber: r.executionNumber,
+                        goingTimeMs: r.goingTimeMs,
+                        timestamp: (r.timestamp || '').replace('T', ' ').slice(0, 19)
+                    }));
+                    const avg = this.selectedCall?.averageGoingTime ?? 0;
+                    const sd = this.selectedCall?.stdDevGoingTime ?? 0;
+                    // canvas 는 x-if(모달) + x-show(이력>0) 안에 있어 $nextTick 한 번으로 DOM 보장이 안 될 수 있으므로
+                    // requestAnimationFrame 으로 최대 ~10프레임 폴링 후 렌더(Blazor 의 Task.Delay(50) 대체, 더 견고).
+                    await this.$nextTick();
+                    const draw = (attempt) => {
+                        if (document.getElementById('callHistoryChart')) {
+                            window.renderCallHistoryChart('callHistoryChart', chartData, avg, sd);
+                        } else if (attempt < 10) {
+                            requestAnimationFrame(() => draw(attempt + 1));
+                        }
+                    };
+                    draw(0);
+                },
+                async closeModal() {
+                    this.selectedCall = null;
+                    this.callHistory = [];
+                    window.destroyCallHistoryChart();
+                },
+
+                formatMs(ms) {
+                    if (ms <= 0) return '0s';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
+                    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+                    if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
+                    return Math.floor(ms / 3600000) + 'h ' + Math.floor((ms % 3600000) / 60000) + 'm';
+                },
+
+                exportCsv() {
+                    const groups = this.filteredGroups;
+                    if (groups.length === 0) return;
+                    const esc = (v) => {
+                        v = (v ?? '').toString();
+                        return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v;
+                    };
+                    const lines = ['Flow,Call,Work,평균(ms),표준편차(ms),변동계수,실행횟수'];
+                    for (const g of groups) for (const c of this.sortedCalls(g)) {
+                        lines.push([esc(c.flowName), esc(c.callName), esc(c.workName),
+                            Math.round(c.averageGoingTime), Math.round(c.stdDevGoingTime),
+                            c.coefficientOfVariation.toFixed(2), c.goingCount].join(','));
+                    }
+                    const pad = (x) => String(x).padStart(2, '0');
+                    const t = new Date();
+                    const name = `Heatmap_${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.csv`;
+                    const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+                }
+            };
+        }
+    </script>
+
+    <!-- Alpine 마지막 로드 (defer) -->
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>
