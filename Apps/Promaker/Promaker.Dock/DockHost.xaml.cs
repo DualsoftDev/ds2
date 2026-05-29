@@ -103,12 +103,11 @@ public partial class DockHost : UserControl, IDockManager
 
         var panel = ResolveAnchorPanel(anchor.DefaultPosition);
         ApplyAnchorMetadata(panel, anchor);
-        if (anchor.HasHelp)
-        {
-            // PR-D9 — baseline 3 anchor (explorer/properties/history) 의 caption Help 버튼 복구.
-            // DataTemplate 의 DataContext = BaseLayoutItem 인스턴스 (DX 24.1) → Binding Caption / Binding Name 정합.
-            panel.CaptionTemplate = (DataTemplate)FindResource("AnchorCaptionWithHelp");
-        }
+        // caption 폰트/높이 통일 (DockHost.xaml 의 PaneCaptionFontSize SSOT) — DX LayoutPanel caption 기본 폰트가
+        // DocumentPanel(Workspace) 보다 커지는 문제를 모든 anchor 에 동일 template 으로 차단.
+        //   - HasHelp(explorer/properties/history): Help 뱃지 포함 AnchorCaptionWithHelp (caption TextBlock 에 동일 FontSize).
+        //   - 그 외(simulation/log/llmchat): 폰트만 통일하는 PaneCaption.
+        panel.CaptionTemplate = (DataTemplate)FindResource(anchor.HasHelp ? "AnchorCaptionWithHelp" : "PaneCaption");
         panel.Content = anchor.Content;
         _itemsByContentId[anchor.ContentId] = panel;
     }
