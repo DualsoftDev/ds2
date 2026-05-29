@@ -9,7 +9,9 @@
           ├─ Left  : explorerPanel (LayoutPanel, ItemWidth=320)
           ├─ Center: vertical LayoutGroup
           │           ├─ documentGroup (DocumentGroup) — Welcome / Canvas DocumentPanel 등록처
-          │           └─ simulationPanel (LayoutPanel, ItemHeight=200)
+          │           └─ bottomGroup   (LayoutGroup, Horizontal, ItemHeight=200)
+          │                ├─ simulationPanel (LayoutPanel) — BottomLeft
+          │                └─ logPanel        (LayoutPanel) — BottomRight (post-D8 fix: Log 독립 승격)
           └─ Right : vertical LayoutGroup (ItemWidth=280)
                       ├─ propertyPanel  (LayoutPanel)
                       ├─ historyPanel   (LayoutPanel, ItemHeight=220)
@@ -26,16 +28,19 @@
                               Caption="Explorer"
                               ItemWidth="320" />
 
-            <!-- Center column: Document area + Bottom (Simulation) -->
+            <!-- Center column: Document area + Bottom (Simulation | Log horizontal split) -->
             <dxdo:LayoutGroup x:Name="_centerGroup" Orientation="Vertical">
 
                 <!-- Document area (Welcome / Canvas) — RegisterDocument 가 DocumentPanel 추가 -->
                 <dxdo:DocumentGroup x:Name="_documentGroup" />
 
-                <!-- Bottom: Simulation / Gantt / Status Monitor / Event Log 통합 anchor -->
-                <dxdo:LayoutPanel x:Name="_simulationPanel"
-                                  Caption="Simulation"
-                                  ItemHeight="200" />
+                <!-- Bottom: Simulation (좌) + Log (우) horizontal split. ItemHeight=200 박제, 사용자 docking 으로 재배치 가능. -->
+                <dxdo:LayoutGroup x:Name="_bottomGroup" Orientation="Horizontal" ItemHeight="200">
+                    <dxdo:LayoutPanel x:Name="_simulationPanel"
+                                      Caption="Simulation" />
+                    <dxdo:LayoutPanel x:Name="_logPanel"
+                                      Caption="Log" />
+                </dxdo:LayoutGroup>
             </dxdo:LayoutGroup>
 
             <!-- Right column: Properties / History / LlmChat -->

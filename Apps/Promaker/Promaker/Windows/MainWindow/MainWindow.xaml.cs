@@ -54,11 +54,12 @@ public partial class MainWindow : Window
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
-        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,    DockAnchorPosition.Left));
-        dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel, DockAnchorPosition.Bottom));
-        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,   DockAnchorPosition.RightTop));
-        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,    DockAnchorPosition.RightMiddle));
-        dockHost.RegisterAnchor(new DockAnchor("llmchat",    "LLM Chat",   llmChatPanel,    DockAnchorPosition.RightBottom));
+        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,        DockAnchorPosition.Left));
+        dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel,     DockAnchorPosition.BottomLeft));
+        dockHost.RegisterAnchor(new DockAnchor("log",        "Log",        new AppLogView(),    DockAnchorPosition.BottomRight));
+        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop));
+        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle));
+        dockHost.RegisterAnchor(new DockAnchor("llmchat",    "LLM Chat",   llmChatPanel,        DockAnchorPosition.RightBottom));
 
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
@@ -107,6 +108,9 @@ public partial class MainWindow : Window
             case nameof(MainViewModel.IsHistoryVisible):
                 ApplyAnchorVisible("history", _vm.IsHistoryVisible);
                 break;
+            case nameof(MainViewModel.IsLogVisible):
+                ApplyAnchorVisible("log", _vm.IsLogVisible);
+                break;
             case nameof(MainViewModel.HasProject):
                 SyncWelcomeCanvasVisibility();
                 break;
@@ -137,6 +141,7 @@ public partial class MainWindow : Window
                 case "simulation": _vm.IsSimulationVisible = e.IsVisible; break;
                 case "properties": _vm.IsPropertiesVisible = e.IsVisible; break;
                 case "history":    _vm.IsHistoryVisible    = e.IsVisible; break;
+                case "log":        _vm.IsLogVisible        = e.IsVisible; break;
                 // welcome / canvas 는 HasProject SSOT 가 SyncWelcomeCanvasVisibility 로 일방 관리 — 무시.
             }
         }
@@ -200,11 +205,12 @@ public partial class MainWindow : Window
         {
             dockHost.RestoreLayout(LayoutXmlPath);
 
-            // 4 anchor — Restore 결과를 VM property 로 강제 sync.
+            // 5 anchor — Restore 결과를 VM property 로 강제 sync.
             _vm.IsExplorerVisible   = dockHost.IsAnchorVisible("explorer");
             _vm.IsSimulationVisible = dockHost.IsAnchorVisible("simulation");
             _vm.IsPropertiesVisible = dockHost.IsAnchorVisible("properties");
             _vm.IsHistoryVisible    = dockHost.IsAnchorVisible("history");
+            _vm.IsLogVisible        = dockHost.IsAnchorVisible("log");
 
             // LlmChat — baseline 박제 §5 (consent 흐름 + LlmChatVm lazy 생성) 보존 의무 → Restore 결과 무시.
             // Restore 가 llmchat=Closed=false (visible) 로 복원했더라도 LlmChatVm 은 아직 null 일 수 있고,
