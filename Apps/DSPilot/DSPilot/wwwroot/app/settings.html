@@ -7,67 +7,78 @@
     <title>설정 — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #5 (Settings). FIRST heavy-mutation 페이지 — mutation-controller convention 확립.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (Settings).
       서버/모델 = C#(/api/settings/*), 뷰 = Alpine + fetch.
       GET /api/settings (전체) + /aasx-status. POST /save·/reload·/rebuild-aasx·/invalidate-caches·
       /clear-flow-history·/rebuild-database·/restore-flow-defaults — 모두 antiforgery 미적용 평범한 JSON fetch.
-      파괴적 POST(rebuild-database / clear-flow-history)는 confirm() 가드 필수.
-      Blazor IJSRuntime showSnackbar/showConfirm 라운드트립은 inline Alpine 토스트 + 모달로 대체.
+      파괴적 POST(rebuild-database / clear-flow-history)는 askConfirm 모달 가드 필수.
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(settings-*/hms-*/cam-*)만 인라인.
       ConnectionString↔DB폴더 분리 / H·M·S↔ms 변환은 서버(SettingsController)에서 처리.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
 
-        /* ── 독립 셸 (cctv.html / dashboard.html 과 동일) ── */
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dark-theme .dsp-appbar { border-bottom-color: var(--color-lines); }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
-        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1280px; margin: 0 auto; width: 100%; }
-        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
-        .btn.btn-primary:hover { filter: brightness(1.05); }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 20px; max-width: 1280px; margin: 0 auto; width: 100%; }
+
+        /* ── 콘텐츠 상단 페이지 헤더 (dashboard .dash-toolbar 컨벤션) ── */
+        .set-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); }
+        .set-toolbar .set-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .set-toolbar .set-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .set-toolbar .set-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .set-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+        .set-live .set-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .set-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+        .set-live.is-live .set-live-dot { animation: set-pulse 1.6s ease-in-out infinite; }
+        .set-live.is-poll { color: var(--color-text-secondary); }
+        @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* 모달 (확인 / 데모만료) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(18, 17, 13, 0.46); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .dark-theme .modal-overlay { background: rgba(0, 0, 0, 0.62); }
+        .modal-content { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 24px; box-shadow: var(--shadow-modal); }
         @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
 
-        /* 간이 토스트 (cctv.html 과 동일) */
-        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 10px 18px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); max-width: 90vw; }
-        .dsp-toast.success { background: #2e7d32; }
-        .dsp-toast.error { background: #c62828; }
-        .dsp-toast.info { background: #1565c0; }
+        /* 간이 토스트 — 잉크 스낵바(평면, 헤어라인, 좌측 시맨틱 룰) */
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); border-radius: var(--radius-sm); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); max-width: 90vw; }
+        .dsp-toast.success { border-left-color: var(--color-success); }
+        .dsp-toast.error { border-left-color: var(--color-error); }
+        .dsp-toast.info { border-left-color: var(--color-info); }
 
-        /* ── Settings 레이아웃 (Settings.razor inline-style 을 클래스로 정리) ── */
+        /* ── Settings 레이아웃 ── */
         .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
         .settings-col { display: flex; flex-direction: column; gap: 16px; }
         .settings-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
-        .settings-note { padding: 8px 12px; margin-bottom: 12px; background: var(--color-surface-variant, #f5f5f5); border-radius: 6px; border-left: 3px solid var(--color-primary); }
-        .settings-note small { color: var(--color-text-secondary); line-height: 1.5; }
-        .settings-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; }
-        .settings-status-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; margin: 8px 0 12px; }
-        .settings-status-grid .lbl { color: var(--color-text-secondary); }
+        .settings-note { padding: 10px 12px; margin-bottom: 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
+        .settings-note small { color: var(--color-text-secondary); line-height: 1.55; }
+        .settings-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; font-size: 0.72rem; line-height: 1.5; }
+        .settings-status-grid { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; font-size: 0.8rem; margin: 10px 0 14px; align-items: baseline; }
+        .settings-status-grid .lbl { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
+        .settings-status-grid .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
         .hms-row { display: flex; gap: 8px; align-items: center; }
         .hms-cell { display: flex; align-items: center; gap: 4px; }
-        .hms-cell input { width: 70px; text-align: center; }
-        .hms-cell span { font-size: 13px; color: var(--color-text-secondary); }
-        .cam-card { border: 1px solid var(--color-lines, #e0e0e0); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+        .hms-cell input { width: 72px; text-align: center; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .hms-cell span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); }
+        .cam-card { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 8px; background: var(--color-surface-variant); }
         .cam-row1 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-        .mono { font-family: monospace; font-size: 12px; }
-        .divider { border: none; border-top: 1px solid var(--color-lines, #e0e0e0); }
-        .settings-page code { background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; font-family: 'Consolas','Courier New',monospace; font-size: 0.8125rem; }
-        .dark-theme .settings-page code { background: rgba(255,255,255,0.08); }
+        .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+        .divider { border: none; border-top: 1px solid var(--color-lines); }
+        .settings-page code { background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.8rem; }
+        .set-subhead { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
+        .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
+        .set-subnote { color: var(--color-text-secondary); display: block; margin-bottom: 10px; font-size: 0.72rem; line-height: 1.5; }
         .modal-confirm { max-width: 520px; }
-        .modal-confirm h3 { margin: 0 0 12px; font-size: 18px; }
-        .modal-confirm .msg { white-space: pre-line; color: var(--color-text-secondary); line-height: 1.6; font-size: 14px; max-height: 50vh; overflow-y: auto; }
+        .modal-confirm h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
+        .modal-confirm .msg { white-space: pre-line; color: var(--color-text-secondary); line-height: 1.6; font-size: 0.85rem; max-height: 50vh; overflow-y: auto; }
         .modal-confirm .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     </style>
 </head>
@@ -78,38 +89,52 @@
         <!-- 데모 만료 -->
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
             <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+                <h2 style="color:var(--color-warning); margin:0 0 12px;">DEMO 만료</h2>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">설정</span>
-            <span class="dsp-badge">정적/격리</span>
+            <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
-            <a href="/settings" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
+
+            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 실시간 상태 -->
+            <div class="set-toolbar">
+                <div class="set-head">
+                    <span class="set-index">08 / 설정</span>
+                    <span class="set-title">시스템 설정</span>
+                </div>
+                <div class="spacer"></div>
+                <span class="set-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                      :title="rt.connected ? 'SignalR 실시간 연결됨' : '연결 대기'">
+                    <span class="set-live-dot"></span>
+                    <span x-text="rt.connected ? 'LIVE · 실시간' : 'IDLE · 대기'"></span>
+                </span>
+            </div>
+
             <!-- 로딩 -->
-            <div x-show="loading && !s" style="height:4px; background:var(--color-surface-variant, #e0e0e0); border-radius:2px; overflow:hidden;">
-                <div style="height:100%; width:25%; background:var(--color-primary); animation: heatmap-indeterminate 1.5s infinite ease-in-out;"></div>
+            <div x-show="loading && !s" class="progress-bar progress-bar-indeterminate mb-4">
+                <div class="progress-bar-fill"></div>
             </div>
 
             <template x-if="s">
                 <div class="settings-page">
                     <!-- 상단 액션 -->
                     <div class="settings-actions">
-                        <button class="btn btn-outlined" @click="reload()" :disabled="busy">
-                            <span class="material-icons" style="font-size:18px;">refresh</span> 되돌리기
+                        <button class="btn btn-outlined color-default" @click="reload()" :disabled="busy">
+                            <span class="material-icons">refresh</span> 되돌리기
                         </button>
                         <button class="btn btn-filled" @click="save()" :disabled="busy">
-                            <span class="material-icons" style="font-size:18px;">save</span> 저장
+                            <span class="material-icons">save</span> 저장
                         </button>
                     </div>
 
@@ -118,10 +143,10 @@
                         <div class="settings-col">
 
                             <!-- AASX 모델 -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">schema</span>
-                                    <h6 class="typo-h6">AASX 모델</h6>
+                                    <span class="material-icons">schema</span>
+                                    <span>AASX 모델</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="settings-note">
@@ -134,26 +159,26 @@
                                     <div class="form-group mb-2">
                                         <label class="form-label">파일 경로 (고정)</label>
                                         <input class="form-field mono" :value="s.aasxFilePath" readonly
-                                               style="background:var(--color-surface-variant, #f7f7f7);" />
+                                               style="background:var(--color-surface-variant);" />
                                     </div>
 
                                     <div class="settings-status-grid">
                                         <span class="lbl">파일 상태</span>
-                                        <template x-if="aasx.exists"><span style="color:#27ae60;" x-text="'존재함 (' + aasx.sizeDisplay + ')'"></span></template>
-                                        <template x-if="!aasx.exists"><span style="color:#c0392b;">파일 없음 — Promaker 에서 먼저 저장하세요</span></template>
+                                        <template x-if="aasx.exists"><span class="val" style="color:var(--color-success);" x-text="'존재함 (' + aasx.sizeDisplay + ')'"></span></template>
+                                        <template x-if="!aasx.exists"><span class="val" style="color:var(--color-error);">파일 없음 — Promaker 에서 먼저 저장하세요</span></template>
 
                                         <span class="lbl">파일 수정</span>
-                                        <span x-text="aasx.writeTimeLocal"></span>
+                                        <span class="val" x-text="aasx.writeTimeLocal"></span>
 
                                         <span class="lbl">마지막 로드</span>
-                                        <span x-text="aasx.lastLoadedLocal"></span>
+                                        <span class="val" x-text="aasx.lastLoadedLocal"></span>
 
                                         <span class="lbl">동기화</span>
-                                        <span :style="`color:${aasx.syncColor};`" x-text="aasx.syncText"></span>
+                                        <span class="val" :style="`color:${aasx.syncColor};`" x-text="aasx.syncText"></span>
                                     </div>
 
-                                    <button class="btn btn-outlined" style="width:100%;" @click="reloadAasx()" :disabled="busy || !aasx.exists">
-                                        <span class="material-icons" style="font-size:18px;">refresh</span>
+                                    <button class="btn btn-outlined w-100" @click="reloadAasx()" :disabled="busy || !aasx.exists">
+                                        <span class="material-icons">refresh</span>
                                         AASX 모델 다시 불러오기
                                     </button>
                                     <small class="settings-hint">
@@ -162,8 +187,8 @@
                                         모델 정의가 바뀌었다면 아래 "DB 재구축" 도 함께 실행하세요.
                                     </small>
                                     <hr class="divider my-3" />
-                                    <button class="btn btn-outlined" style="width:100%;" @click="rebuildAasx()" :disabled="busy || !aasx.exists">
-                                        <span class="material-icons" style="font-size:18px;">sync</span>
+                                    <button class="btn btn-outlined w-100" @click="rebuildAasx()" :disabled="busy || !aasx.exists">
+                                        <span class="material-icons">sync</span>
                                         모델 정의 동기화 (Reload + Resync)
                                     </button>
                                     <small class="settings-hint">
@@ -174,22 +199,22 @@
                             </div>
 
                             <!-- 데이터베이스 -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">storage</span>
-                                    <h6 class="typo-h6">데이터베이스</h6>
+                                    <span class="material-icons">storage</span>
+                                    <span>데이터베이스</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="form-group mb-3">
                                         <label class="form-label">DB 저장 폴더</label>
-                                        <input class="form-field" x-model="s.dbDir" placeholder="%ProgramData%/DualSoft/Shared" />
+                                        <input class="form-field mono" x-model="s.dbDir" placeholder="%ProgramData%/DualSoft/Shared" />
                                         <small class="settings-hint">
                                             plc.db 파일이 저장될 폴더. 서비스 모드에서 <code>%APPDATA%</code> 는 SYSTEM 계정 경로로 해석되므로 사용 금지.
                                         </small>
                                     </div>
                                     <hr class="divider my-3" />
-                                    <button class="btn btn-outlined" style="width:100%;" @click="invalidateCaches()" :disabled="busy">
-                                        <span class="material-icons" style="font-size:18px;">restart_alt</span> 캐시 재계산 (raw 보존)
+                                    <button class="btn btn-outlined color-default w-100" @click="invalidateCaches()" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> 캐시 재계산 (raw 보존)
                                     </button>
                                     <small class="settings-hint">
                                         dspFlow / dspCall 의 평균/누적 통계만 NULL 초기화. plcTagLog · dspFlowHistory · userTagAlertLog 는 그대로 보존.
@@ -197,34 +222,34 @@
                                         다음 사이클부터 자연스럽게 누적 시작.
                                     </small>
                                     <hr class="divider my-3" />
-                                    <button class="btn btn-outlined" style="width:100%; color:#e67e22; border-color:#e67e22;" @click="clearFlowHistory()" :disabled="busy">
-                                        <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
+                                    <button class="btn btn-outlined color-warning w-100" @click="clearFlowHistory()" :disabled="busy">
+                                        <span class="material-icons">delete_sweep</span> Flow 히스토리 삭제
                                     </button>
                                     <small class="settings-hint">
                                         dspFlowHistory + Call 통계 초기화. plcTagLog 는 보존. Flow/Call 정의와 AASX 도 유지.
                                     </small>
                                     <hr class="divider my-3" />
-                                    <button class="btn btn-outlined" style="width:100%; color:#c0392b; border-color:#c0392b;" @click="rebuildDatabase()" :disabled="busy">
-                                        <span class="material-icons" style="font-size:18px;">delete_forever</span> 전체 초기화 (plcTagLog 포함 삭제)
+                                    <button class="btn btn-outlined color-error w-100" @click="rebuildDatabase()" :disabled="busy">
+                                        <span class="material-icons">delete_forever</span> 전체 초기화 (plcTagLog 포함 삭제)
                                     </button>
                                     <small class="settings-hint">
                                         ⚠️ plc.db 파일 자체를 삭제하고 스키마부터 재생성. plcTagLog (수 GB 단위 가능), dspFlowHistory, userTagAlertLog 등
                                         <strong>raw 데이터를 모두 잃습니다.</strong> 대부분의 경우 위의 "캐시 재계산" 으로 충분합니다.
                                     </small>
                                     <small class="settings-hint">
-                                        현재 DB: <span x-text="s.dbPath"></span>
+                                        현재 DB: <span class="mono" x-text="s.dbPath"></span>
                                     </small>
                                 </div>
                             </div>
 
                             <!-- 로깅 -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">bug_report</span>
-                                    <h6 class="typo-h6">로깅</h6>
+                                    <span class="material-icons">bug_report</span>
+                                    <span>로깅</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="form-group">
+                                    <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">로그 수준</label>
                                         <select class="form-select" x-model="s.logLevelDefault">
                                             <template x-for="level in s.logLevels" :key="level">
@@ -239,10 +264,10 @@
                             </div>
 
                             <!-- UI -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">settings</span>
-                                    <h6 class="typo-h6">사용자 인터페이스</h6>
+                                    <span class="material-icons">settings</span>
+                                    <span>사용자 인터페이스</span>
                                 </div>
                                 <div class="card-content">
                                     <label class="switch mb-2">
@@ -260,21 +285,21 @@
                         <div class="settings-col">
 
                             <!-- 이상치 필터 -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">filter_list</span>
-                                    <h6 class="typo-h6">이상치 필터</h6>
+                                    <span class="material-icons">filter_list</span>
+                                    <span>이상치 필터</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="settings-note">
                                         <small>저장하면 서버 재시작 없이 즉시 적용됩니다.</small>
                                     </div>
 
-                                    <h6 class="typo-subtitle2" style="margin-bottom:8px;">
-                                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">timer_off</span>
+                                    <h6 class="set-subhead">
+                                        <span class="material-icons">timer_off</span>
                                         비가동 사이클 판정
                                     </h6>
-                                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
+                                    <small class="set-subnote">
                                         CT가 최대 제한을 초과하거나 최소 제한에 미달하면 비가동 사이클로 판정. 대시보드·동작편차·Flow 평균에서 제외, 사이클 분석에서 회색 배경 표시.
                                     </small>
                                     <div class="form-group">
@@ -298,35 +323,35 @@
 
                                     <hr class="divider" style="margin:16px 0;" />
 
-                                    <h6 class="typo-subtitle2" style="margin-bottom:8px;">
-                                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">speed</span>
+                                    <h6 class="set-subhead">
+                                        <span class="material-icons">speed</span>
                                         개별 Call 실행시간 제한
                                     </h6>
-                                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
+                                    <small class="set-subnote">
                                         GoingTime 이 최대 초과 또는 최소 미달이면 동작편차 통계에서 제외.
                                     </small>
                                     <div class="form-group">
                                         <label class="form-label">최대 실행시간 (ms, 초과 시 제외)</label>
-                                        <input type="number" class="form-field" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000" />
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000" />
                                         <small class="settings-hint">기본: 30,000ms (30초)</small>
                                     </div>
-                                    <div class="form-group">
+                                    <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
-                                        <input type="number" class="form-field" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0" />
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0" />
                                         <small class="settings-hint">오감지·노이즈로 인한 짧은 동작 제외용. 0이면 비활성.</small>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Flow CT 기준 -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">restart_alt</span>
-                                    <h6 class="typo-h6">Flow CT 기준</h6>
+                                    <span class="material-icons">restart_alt</span>
+                                    <span>Flow CT 기준</span>
                                 </div>
                                 <div class="card-content">
-                                    <button class="btn btn-outlined" style="width:100%;" @click="restoreFlowDefaults()" :disabled="busy">
-                                        <span class="material-icons" style="font-size:18px;">restart_alt</span>
+                                    <button class="btn btn-outlined color-default w-100" @click="restoreFlowDefaults()" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span>
                                         AASX 기준으로 복원
                                     </button>
                                     <small class="settings-hint">
@@ -337,16 +362,16 @@
                             </div>
 
                             <!-- CCTV -->
-                            <div class="card" style="box-shadow: var(--shadow-2);">
+                            <div class="card">
                                 <div class="card-header">
-                                    <span class="material-icons mr-2">videocam</span>
-                                    <h6 class="typo-h6">CCTV (RTSP)</h6>
+                                    <span class="material-icons">videocam</span>
+                                    <span>CCTV (RTSP)</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="settings-note">
                                         <small>
                                             RTSP 카메라를 등록하면 <strong>MediaMTX</strong>(별도 서비스)가 받아 WebRTC 로 재게시하고,
-                                            <a href="/app/cctv.html">CCTV 페이지</a>에서 시청합니다. 저장 시 MediaMTX 에 자동 반영됩니다.
+                                            <a href="/app/cctv.html" style="color:var(--color-primary);">CCTV 페이지</a>에서 시청합니다. 저장 시 MediaMTX 에 자동 반영됩니다.
                                         </small>
                                     </div>
 
@@ -356,13 +381,13 @@
                                     </div>
                                     <div class="form-group mb-3">
                                         <label class="form-label">WebRTC 포트</label>
-                                        <input type="number" class="form-field" x-model.number="s.cctv.webRtcPort" min="1" max="65535" placeholder="8889" style="width:120px;" />
+                                        <input type="number" class="form-field mono" x-model.number="s.cctv.webRtcPort" min="1" max="65535" placeholder="8889" style="width:120px;" />
                                     </div>
 
                                     <hr class="divider my-2" />
 
                                     <template x-if="s.cctv.cameras.length === 0">
-                                        <small style="color: var(--color-text-secondary); display:block; margin:8px 0;">등록된 카메라가 없습니다.</small>
+                                        <small style="color: var(--color-text-secondary); display:block; margin:8px 0; font-size:0.78rem;">등록된 카메라가 없습니다.</small>
                                     </template>
                                     <template x-for="(cam, i) in s.cctv.cameras" :key="i">
                                         <div class="cam-card">
@@ -371,19 +396,19 @@
                                                 <label class="switch" style="margin:0; white-space:nowrap;">
                                                     <input type="checkbox" x-model="cam.enabled" /> 사용
                                                 </label>
-                                                <button class="btn btn-sm" style="color:#c0392b;" @click="removeCamera(i)" title="삭제">
-                                                    <span class="material-icons" style="font-size:18px;">delete</span>
+                                                <button class="btn-icon btn-sm" style="color:var(--color-error);" @click="removeCamera(i)" title="삭제">
+                                                    <span class="material-icons">delete</span>
                                                 </button>
                                             </div>
                                             <input class="form-field mono" x-model="cam.rtspUrl" placeholder="rtsp://user:pass@192.168.0.10:554/stream1" />
                                         </div>
                                     </template>
 
-                                    <button class="btn btn-outlined btn-sm" style="width:100%;" @click="addCamera()">
-                                        <span class="material-icons" style="font-size:16px;">add</span> 카메라 추가
+                                    <button class="btn btn-outlined btn-sm w-100" @click="addCamera()">
+                                        <span class="material-icons">add</span> 카메라 추가
                                     </button>
                                     <small class="settings-hint">
-                                        MediaMTX 동기화 상태: <span :style="`color:${s.cctv.syncOk ? '#27ae60' : '#c0392b'};`" x-text="s.cctv.syncMessage"></span>
+                                        MediaMTX 동기화 상태: <span class="mono" :style="`color:${s.cctv.syncOk ? 'var(--color-success)' : 'var(--color-error)'};`" x-text="s.cctv.syncMessage"></span>
                                     </small>
                                 </div>
                             </div>
@@ -400,8 +425,8 @@
                 <h3 x-text="confirm.title"></h3>
                 <div class="msg" x-text="confirm.message"></div>
                 <div class="actions">
-                    <button class="btn btn-outlined" @click="confirmCancel()" x-text="confirm.cancelText"></button>
-                    <button class="btn btn-primary" @click="confirmOk()" x-text="confirm.okText"></button>
+                    <button class="btn btn-outlined color-default" @click="confirmCancel()" x-text="confirm.cancelText"></button>
+                    <button class="btn btn-filled" @click="confirmOk()" x-text="confirm.okText"></button>
                 </div>
             </div>
         </div>
@@ -417,6 +442,7 @@
                 s: null, aasx: {}, loading: true, busy: false, dark: false, demoBlocked: false,
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
+                rt: { connected: false },
                 _conn: null, _toastTimer: null,
 
                 async init() {
@@ -600,8 +626,10 @@
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
                     conn.on('DatabaseRebuilt', () => this.refreshAasxStatus());
-                    conn.onreconnected(() => this.refreshAasxStatus());
-                    conn.start().catch(() => {});
+                    conn.onreconnected(() => { this.rt.connected = true; this.refreshAasxStatus(); });
+                    conn.onreconnecting(() => { this.rt.connected = false; });
+                    conn.onclose(() => { this.rt.connected = false; });
+                    conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                     this._conn = conn;
                 },
 

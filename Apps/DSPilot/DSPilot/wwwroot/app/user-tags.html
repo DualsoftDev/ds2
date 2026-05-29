@@ -7,99 +7,129 @@
     <title>이상발생 관리 — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #3 (UserTag 이상발생 관리). 읽기 전용 모니터링.
-      서버/모델=C#(/api/user-tags/*), 뷰=Alpine+fetch. 차트는 기존 ES모듈 /js/user-tag-trend-chart.js 재사용.
-      8개 granular 쿼리를 GET /api/user-tags/snapshot 하나로 통합. 실시간=10초 폴링 + /hubs/monitoring 트리거.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (UserTag 이상발생 관리). 읽기 전용 모니터링.
+      서버/모델=C#(/api/user-tags/*), 뷰=정적 HTML/CSS/JS(Alpine + Chart.js + SignalR).
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(user-tags-*/ut-*)만 인라인.
+      차트는 기존 ES모듈 /js/user-tag-trend-chart.js 재사용. 실시간=10초 폴링 + /hubs/monitoring 트리거.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
-        .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
-        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1400px; margin: 0 auto; width: 100%; }
-        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
-        .btn.btn-primary:hover { filter: brightness(1.05); }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 
-        /* ── UserTags.razor.css (스코프드) 에서 가져온 클래스 ── */
-        .user-tags-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 100px); }
-        .user-tags-hero { padding: 20px 24px; background: radial-gradient(circle at top left, rgba(0,155,180,0.10), transparent 32%), linear-gradient(135deg, rgba(var(--color-primary-rgb),0.05), var(--color-surface)); }
+        /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+        /* ── 페이지 헤더 + 실시간 상태 (셸이 제거하지 않는 콘텐츠 영역) ── */
+        .ut-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); }
+        .ut-toolbar .ut-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .ut-toolbar .ut-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .ut-toolbar .ut-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .ut-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+        .ut-live .ut-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .ut-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+        .ut-live.is-live .ut-live-dot { animation: ut-pulse 1.6s ease-in-out infinite; }
+        .ut-live.is-poll { color: var(--color-text-secondary); }
+        @keyframes ut-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── 페이지 레이아웃 ── */
+        .user-tags-page { display: flex; flex-direction: column; gap: 16px; }
+
+        /* ── 히어로 (eyebrow + 제목 + 카운터 칩 + ops KPI) ── */
+        .user-tags-hero { padding: 20px 24px; }
         .user-tags-hero-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-        .user-tags-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); font-weight: 700; }
-        .user-tags-title { margin: 6px 0 0; font-weight: 700; color: var(--color-text-primary); }
-        .user-tags-subtitle { margin-top: 8px; color: var(--color-text-secondary); font-size: 0.95rem; }
+        .user-tags-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); color: var(--color-text-secondary); }
+        .user-tags-eyebrow::before { content: ''; width: 16px; height: 2px; background: var(--color-primary); display: inline-block; }
+        .user-tags-title { margin: 8px 0 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.015em; color: var(--color-text-primary); }
+        .user-tags-subtitle { margin-top: 8px; color: var(--color-text-secondary); font-size: 0.85rem; line-height: 1.55; max-width: 720px; }
         .user-tags-hero-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 280px; }
         .user-tags-counter-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+        /* ── 패널 (card 재사용 + 패딩) ── */
         .user-tags-panel { padding: 18px 20px; }
         .user-tags-panel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
         .user-tags-section-toggle { cursor: pointer; user-select: none; }
         .user-tags-muted { color: var(--color-text-secondary); }
-        .user-tags-alert-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; min-width: 320px; }
-        .user-tags-alert-controls .form-field { min-width: 160px; }
+        .user-tags-alert-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; min-width: 320px; }
+        .user-tags-alert-controls .form-field, .user-tags-alert-controls .form-select { min-width: 160px; }
         .user-tags-empty { padding: 40px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); min-height: 200px; text-align: center; }
         .user-tags-empty .material-icons { font-size: 44px; color: var(--color-primary); }
-        .ut-table-wrapper { overflow-x: auto; overflow-y: auto; }
-        .ut-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-        .ut-table thead th { position: sticky; top: 0; background: var(--color-surface); border-bottom: 2px solid var(--color-lines); text-align: left; padding: 8px 10px; font-weight: 600; color: var(--color-text-secondary); z-index: 1; }
-        .ut-table tbody td { padding: 6px 10px; border-bottom: 1px solid var(--color-lines); color: var(--color-text-primary); vertical-align: middle; }
-        .ut-table tbody tr:hover { background: rgba(var(--color-primary-rgb), 0.04); }
-        .ut-row-warning { background: rgba(255,152,0,0.06); }
-        .ut-row-error { background: rgba(244,67,54,0.08); }
-        .ut-row-error:hover { background: rgba(244,67,54,0.12) !important; }
-        .ut-time { font-family: 'Consolas','Courier New',monospace; font-size: 0.8125rem; color: var(--color-text-secondary); }
-        .ut-empty { text-align: center; padding: 36px 12px; color: var(--color-text-secondary); }
-        .ut-empty .material-icons { font-size: 48px; opacity: 0.4; }
-        .ut-empty p { margin: 6px 0; }
-        .chip-level-info { background: color-mix(in srgb, var(--color-info) 15%, transparent); color: var(--color-info); border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-        .chip-level-warning { background: rgba(255,152,0,0.15); color: #ef6c00; border: 1px solid rgba(255,152,0,0.4); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-        .chip-level-error { background: rgba(244,67,54,0.15); color: #c62828; border: 1px solid rgba(244,67,54,0.4); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-        .user-tags-page code { background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; font-family: 'Consolas','Courier New',monospace; font-size: 0.8125rem; }
-        .dark-theme .user-tags-page code { background: rgba(255,255,255,0.08); }
+
+        /* ── 정의된 코드/주소 (모노) ── */
+        .user-tags-page code { background: color-mix(in srgb, var(--color-text-primary) 6%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.78rem; color: var(--color-text-primary); }
+
+        /* ── 필터 행 ── */
         .user-tags-filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
-        .user-tags-filter-row .form-field { min-width: 160px; }
+        .user-tags-filter-row .form-field, .user-tags-filter-row .form-select { min-width: 160px; width: auto; }
+
+        /* ── ops KPI (진행중 이상 / 오늘 신규 / 마지막 발생) ── */
+        .ut-ops-row { margin-top: 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .ut-ops-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines-strong); border-radius: var(--radius-sm); min-width: 0; }
+        .ut-ops-error { border-left-color: var(--color-error); background: color-mix(in srgb, var(--color-error) 6%, var(--color-surface)); }
+        .ut-ops-ok { border-left-color: var(--color-success); }
+        .ut-ops-icon { font-size: 28px !important; color: var(--color-text-secondary); flex-shrink: 0; }
+        .ut-ops-error .ut-ops-icon { color: var(--color-error); }
+        .ut-ops-ok .ut-ops-icon { color: var(--color-success); }
+        .ut-ops-text { display: flex; flex-direction: column; min-width: 0; }
+        .ut-ops-label { font-size: 0.64rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap; }
+        .ut-ops-hint { font-weight: 600; text-transform: none; letter-spacing: 0; opacity: 0.75; }
+        .ut-ops-value { margin-top: 4px; font-size: 1.6rem; font-weight: 700; line-height: 1.05; color: var(--color-text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        .ut-ops-value-sm { font-size: 1rem; }
+        .ut-ops-error .ut-ops-value { color: var(--color-error); }
+        .ut-ops-ok .ut-ops-value { color: var(--color-success); }
+        .ut-ops-unit { font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); margin-left: 3px; }
+
+        /* ── KPI 그리드 ── */
         .ut-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
-        .ut-kpi { background: rgba(var(--color-primary-rgb),0.04); border: 1px solid var(--color-lines); border-radius: 8px; padding: 12px 16px; }
-        .ut-kpi-label { font-size: 0.75rem; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-        .ut-kpi-value { margin-top: 4px; font-size: 1.75rem; font-weight: 700; color: var(--color-text-primary); line-height: 1.1; }
-        .ut-kpi-value-small { margin-top: 4px; font-size: 1rem; font-weight: 600; color: var(--color-text-primary); }
-        .ut-kpi-error { color: #c62828; }
-        .ut-kpi-warn { color: #ef6c00; }
+        .ut-kpi { background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 14px 16px; }
+        .ut-kpi-label { font-size: 0.64rem; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; }
+        .ut-kpi-value { margin-top: 6px; font-size: 1.85rem; font-weight: 700; color: var(--color-text-primary); line-height: 1; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        .ut-kpi-value-small { margin-top: 6px; font-size: 1rem; font-weight: 600; color: var(--color-text-primary); }
+        .ut-kpi-error { color: var(--color-error); }
+        .ut-kpi-warn { color: var(--color-warning); }
+
+        /* ── 차트 컨테이너 (렌더러가 의존하는 높이/위치 유지) ── */
         .ut-chart-tall { position: relative; height: 320px; }
         .ut-chart-md { position: relative; height: 260px; }
         .ut-chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
         .ut-chart-half { min-width: 0; }
+
+        /* ── 알림 이력 테이블 (스위스 ruled + sticky 헤더) ── */
+        .ut-table-wrapper { overflow-x: auto; overflow-y: auto; max-height: 560px; }
+        .ut-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        .ut-table thead th { position: sticky; top: 0; background: var(--color-surface); border-bottom: 1.5px solid var(--color-text-primary); text-align: left; padding: 9px 12px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); white-space: nowrap; z-index: 1; }
+        .ut-table tbody td { padding: 8px 12px; border-bottom: 1px solid var(--color-lines); color: var(--color-text-primary); vertical-align: middle; font-variant-numeric: tabular-nums; }
+        .ut-table tbody tr:hover { background: color-mix(in srgb, var(--color-text-primary) 4%, transparent); }
+        .ut-row-warning { background: color-mix(in srgb, var(--color-warning) 8%, transparent); }
+        .ut-row-error { background: color-mix(in srgb, var(--color-error) 9%, transparent); }
+        .ut-row-error:hover { background: color-mix(in srgb, var(--color-error) 14%, transparent) !important; }
+        .ut-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.78rem; color: var(--color-text-secondary); }
+        .ut-empty { text-align: center; padding: 36px 12px; color: var(--color-text-secondary); }
+        .ut-empty .material-icons { font-size: 48px; opacity: 0.4; }
+        .ut-empty p { margin: 6px 0; }
+
+        /* ── 레벨 칩 (시맨틱 색상 유지, 스위스 평면 톤) ── */
+        .chip-level-info { background: color-mix(in srgb, var(--color-info) 10%, transparent); color: var(--color-info); border: 1px solid var(--color-info); padding: 3px 9px; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .chip-level-warning { background: color-mix(in srgb, var(--color-warning) 12%, transparent); color: var(--color-warning); border: 1px solid var(--color-warning); padding: 3px 9px; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .chip-level-error { background: color-mix(in srgb, var(--color-error) 10%, transparent); color: var(--color-error); border: 1px solid var(--color-error); padding: 3px 9px; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
         @media (max-width: 900px) {
             .user-tags-hero-top { flex-direction: column; }
             .user-tags-hero-actions, .user-tags-alert-controls { min-width: 0; width: 100%; align-items: stretch; justify-content: flex-start; }
+            .user-tags-counter-row { justify-content: flex-start; }
             .ut-chart-row { grid-template-columns: 1fr; }
             .ut-ops-row { grid-template-columns: 1fr; }
         }
-        .ut-ops-row { margin-top: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .ut-ops-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines); border-radius: 8px; min-width: 0; }
-        .ut-ops-error { border-left-color: #c62828; background: linear-gradient(90deg, rgba(198,40,40,0.08), transparent 60%); }
-        .ut-ops-ok { border-left-color: #2e7d32; }
-        .ut-ops-icon { font-size: 28px !important; color: var(--color-text-secondary); flex-shrink: 0; }
-        .ut-ops-error .ut-ops-icon { color: #c62828; }
-        .ut-ops-ok .ut-ops-icon { color: #2e7d32; }
-        .ut-ops-text { display: flex; flex-direction: column; min-width: 0; }
-        .ut-ops-label { font-size: 11px; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
-        .ut-ops-hint { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.75; }
-        .ut-ops-value { margin-top: 2px; font-size: 1.5rem; font-weight: 700; line-height: 1.1; color: var(--color-text-primary); font-family: 'Consolas','Roboto Mono',monospace; }
-        .ut-ops-value-sm { font-size: 1rem; }
-        .ut-ops-error .ut-ops-value { color: #c62828; }
-        .ut-ops-ok .ut-ops-value { color: #2e7d32; }
-        .ut-ops-unit { font-size: 0.85rem; font-weight: 500; color: var(--color-text-secondary); margin-left: 3px; }
+
+        /* ── 다크 보강 (토큰으로 대부분 처리되나 명시) ── */
+        .dark-theme .dsp-appbar { background: var(--color-appbar-bg); border-bottom-color: var(--color-lines); }
+        .dark-theme .ut-kpi { background: var(--color-surface-variant); }
+        .dark-theme .ut-table thead th { background: var(--color-surface); }
     </style>
 </head>
 
@@ -107,34 +137,47 @@
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="userTagsApp()" x-init="init()" x-cloak>
 
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">이상발생 관리</span>
-            <span class="dsp-badge">정적/격리</span>
-            <span class="chip" :style="`background:${rt.connected ? '#4CAF50' : '#9e9e9e'}; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;`"
-                  x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
+            <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
-            <a href="/user-tags" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
+            <!-- 콘텐츠 툴바: 페이지 제목 + 실시간 상태 -->
+            <div class="ut-toolbar">
+                <div class="ut-head">
+                    <span class="ut-index">05 / 이상</span>
+                    <span class="ut-title">이상발생 관리</span>
+                </div>
+                <div class="spacer"></div>
+                <span class="ut-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                      :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(10초) 모드'">
+                    <span class="ut-live-dot"></span>
+                    <span x-text="rt.connected ? 'LIVE · 실시간' : 'POLL · 10초'"></span>
+                </span>
+            </div>
+
             <div class="user-tags-page">
                 <!-- 로딩 -->
-                <div x-show="loading && !data" style="height:4px; background:var(--color-surface-variant, #e0e0e0); border-radius:2px; overflow:hidden;">
-                    <div style="height:100%; width:25%; background:var(--color-primary); animation: heatmap-indeterminate 1.5s infinite ease-in-out;"></div>
+                <div x-show="loading && !data" class="progress-bar progress-bar-indeterminate" style="flex-shrink:0;">
+                    <div class="progress-bar-fill"></div>
                 </div>
-                <div class="card user-tags-panel" x-show="error" style="border-left:4px solid #c62828;">
-                    <strong>오류:</strong> <span x-text="error"></span>
+                <div class="alert alert-error" x-show="error">
+                    <span class="material-icons">error_outline</span>
+                    <span><strong>오류:</strong> <span x-text="error"></span></span>
                 </div>
 
                 <template x-if="data">
@@ -191,25 +234,27 @@
                                     </div>
                                 </div>
                                 <div class="user-tags-alert-controls">
-                                    <button class="btn btn-sm" :class="periodPreset === 'today' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('today')">오늘</button>
-                                    <button class="btn btn-sm" :class="periodPreset === '7d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('7d')">지난 7일</button>
-                                    <button class="btn btn-sm" :class="periodPreset === '30d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('30d')">지난 30일</button>
-                                    <button class="btn btn-sm" :class="periodPreset === '60d' ? 'btn-primary' : 'btn-outlined'" @click="setPreset('60d')">지난 60일</button>
+                                    <button class="btn btn-sm" :class="periodPreset === 'today' ? 'btn-filled' : 'btn-outlined'" @click="setPreset('today')">오늘</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '7d' ? 'btn-filled' : 'btn-outlined'" @click="setPreset('7d')">지난 7일</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '30d' ? 'btn-filled' : 'btn-outlined'" @click="setPreset('30d')">지난 30일</button>
+                                    <button class="btn btn-sm" :class="periodPreset === '60d' ? 'btn-filled' : 'btn-outlined'" @click="setPreset('60d')">지난 60일</button>
                                 </div>
                             </div>
                             <div class="user-tags-filter-row">
                                 <input class="form-field" x-model="searchText" @input.debounce.300ms="applyFilters()" placeholder="이름 / 주소 검색..." />
-                                <select class="form-field" x-model="levelFilter" @change="applyFilters()">
+                                <select class="form-select" x-model="levelFilter" @change="applyFilters()">
                                     <option value="">전체 레벨</option>
                                     <option value="Info">Info</option>
                                     <option value="Warning">Warning</option>
                                     <option value="Error">Error</option>
                                 </select>
-                                <select class="form-field" x-model="systemFilter" @change="applyFilters()">
+                                <select class="form-select" x-model="systemFilter" @change="applyFilters()">
                                     <option value="">전체 System</option>
                                     <template x-for="s in data.systemOptions" :key="s"><option :value="s" x-text="s"></option></template>
                                 </select>
-                                <button class="btn btn-outlined" @click="exportCsv()" :disabled="data.alerts.length === 0">CSV 내보내기</button>
+                                <button class="btn btn-outlined" @click="exportCsv()" :disabled="data.alerts.length === 0">
+                                    <span class="material-icons">download</span> CSV 내보내기
+                                </button>
                             </div>
                         </section>
 
@@ -242,11 +287,11 @@
 
                         <div class="ut-chart-row">
                             <section class="card user-tags-panel ut-chart-half">
-                                <h6 class="typo-h6">태그별 Top 10</h6>
+                                <h6 class="typo-h6 mb-3">태그별 Top 10</h6>
                                 <div class="ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                             </section>
                             <section class="card user-tags-panel ut-chart-half">
-                                <h6 class="typo-h6">레벨 비율</h6>
+                                <h6 class="typo-h6 mb-3">레벨 비율</h6>
                                 <div class="ut-chart-md"><canvas id="ut-level-doughnut"></canvas></div>
                             </section>
                         </div>
@@ -305,7 +350,7 @@
                             <section class="card user-tags-panel">
                                 <div class="user-tags-panel-header">
                                     <div class="user-tags-section-toggle" @click="showDefinitions = !showDefinitions" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:8px;">
-                                        <span class="material-icons" style="font-size:22px;" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
+                                        <span class="material-icons" style="font-size:22px; color:var(--color-primary);" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
                                         <div>
                                             <h6 class="typo-h6">정의된 UserTag (<span x-text="data.definitions.length"></span>, 페이지 <span x-text="definitionsPage + 1"></span> / <span x-text="definitionsMaxPage"></span>)</h6>
                                             <div class="typo-caption user-tags-muted">AASX 의 System 정의를 기반으로 모니터링되는 태그. 페이지당 10 건.</div>
@@ -448,7 +493,6 @@
             };
         }
     </script>
-    <style>@keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }</style>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>
 </body>

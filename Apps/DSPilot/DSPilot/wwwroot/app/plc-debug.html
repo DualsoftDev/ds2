@@ -7,75 +7,87 @@
     <title>PLC 디버그 — DSPilot</title>
 
     <!--
-      격리형 호스팅 레퍼런스 #5 (PLC 디버그). 유일하게 "쓰기 레이어"(DB 파일 업로드)가 있는 페이지.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (PLC 디버그).
+      유일하게 "쓰기 레이어"(DB 파일 업로드)가 있는 페이지.
       서버/모델 = C#(/api/plc-debug/*), 뷰 = Alpine + fetch. 차트는 기존 /js/plc-debug.js (window.plcDebug, Chart.js) 재사용.
-      업로드: 실제 <input type=file> + FormData multipart POST /api/plc-debug/upload (antiforgery 미적용 평범한 fetch).
-      샘플링/레인/색상/숫자파싱은 서버(PlcDebugController)에서 Blazor LoadChartData 와 동일하게 계산해
-      plcDebug.renderChart(datasets, {rangeStart,rangeEnd,chartHeight,lanes}) 형태로 그대로 내려준다.
+      업로드: 실제 <input type=file> + FormData multipart POST /api/plc-debug/upload.
+      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(plc-debug-*)만 인라인으로 스위스 재정의.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/theme.css" rel="stylesheet" />
-    <link href="/css/components.css" rel="stylesheet" />
-    <link href="/css/dark-theme.css" rel="stylesheet" />
-    <link href="/css/app.css" rel="stylesheet" />
+    <link href="/css/swiss.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
 
-        /* ── 독립 셸 (cctv.html 등과 동일) ── */
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: 'Noto Sans KR', sans-serif; }
-        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg, var(--color-surface)); color: var(--color-appbar-text, var(--color-text-primary)); border-bottom: 1px solid var(--color-lines); box-shadow: var(--shadow-1); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
-        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 800; }
-        .dsp-appbar .dsp-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--color-primary); color: #fff; }
+        /* ── 독립 셸 (shell.js 미동작 시 fallback, shell.js 가 .dsp-appbar 제거) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dark-theme .dsp-appbar { border-bottom-color: var(--color-lines); }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-appbar a { color: inherit; text-decoration: none; opacity: 0.8; font-size: 14px; }
-        .dsp-appbar a:hover { opacity: 1; text-decoration: underline; }
-        .dsp-main { flex: 1; min-height: 0; padding: 16px; max-width: 1600px; margin: 0 auto; width: 100%; }
-        .btn.btn-primary { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
-        .btn.btn-primary:hover { filter: brightness(1.05); }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
-        .modal-content { background: var(--color-surface); border-radius: 12px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 20px; max-width: 1600px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; }
 
-        /* 간이 토스트 (Blazor 의 uiUtils.showSnackbar 대체) */
-        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 10px 18px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
-        .dsp-toast.success { background: #2e7d32; }
-        .dsp-toast.error { background: #c62828; }
-        .dsp-toast.warning { background: #ef6c00; }
-        .dsp-toast.info { background: #0277bd; }
+        /* ── 콘텐츠 상단 페이지 헤더 (대시보드 .dash-toolbar 규약 + 라이브 상태 칩 이전) ── */
+        .pd-pagehead { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); flex-wrap: wrap; }
+        .pd-pagehead .pd-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+        .pd-pagehead .pd-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
+        .pd-pagehead .pd-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .pd-state { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+        .pd-state .pd-state-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .pd-state.is-on { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+        .pd-state.is-off { color: var(--color-text-secondary); }
 
-        /* 스피너 (Blazor .spinner 대체) */
-        .spinner { border: 2px solid rgba(0,0,0,0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: dsp-spin 0.8s linear infinite; }
-        @keyframes dsp-spin { to { transform: rotate(360deg); } }
+        /* ── 간이 토스트 (Blazor uiUtils.showSnackbar 대체) — 스위스 잉크 솔리드 ── */
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); color: var(--color-surface); background: var(--color-text-primary); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); border-left: 3px solid var(--color-text-secondary); }
+        .dsp-toast.success { border-left-color: var(--color-success); }
+        .dsp-toast.error { border-left-color: var(--color-error); }
+        .dsp-toast.warning { border-left-color: var(--color-warning); }
+        .dsp-toast.info { border-left-color: var(--color-info); }
 
-        /* ── PlcDebug.razor (스코프드 + 인라인 <style>) 에서 가져온 클래스 전부 ── */
-        .plc-debug-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 100px); }
-        .plc-debug-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px 24px; background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.06), rgba(0, 155, 180, 0.08)), linear-gradient(180deg, var(--color-surface), var(--color-background)); }
-        .plc-debug-title { margin: 0; font-weight: 700; color: var(--color-text-primary); }
-        .plc-debug-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); }
+        /* ── PlcDebug 페이지 고유 클래스 — 스위스(평면/헤어라인/토큰/모노 수치/작은 라운드) ── */
+        .plc-debug-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 120px); }
+
+        /* 히어로: 그라데이션 제거 → 헤어라인 패널 + eyebrow */
+        .plc-debug-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px 22px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .plc-debug-title { margin: 8px 0 0; font-weight: 700; color: var(--color-text-primary); font-size: 1.45rem; line-height: 1.15; letter-spacing: -0.015em; }
+        .plc-debug-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 0.85rem; line-height: 1.5; }
         .plc-debug-upload { min-width: 200px; justify-content: center; }
-        .plc-debug-toolbar { padding: 18px 20px; }
+
+        .plc-debug-toolbar { padding: 18px 20px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
         .plc-debug-toolbar-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(420px, 2fr); gap: 12px; align-items: stretch; }
-        .plc-debug-stat { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--color-lines); background: var(--color-surface); display: flex; flex-direction: column; gap: 6px; }
-        .plc-debug-stat-label { font-size: 0.78rem; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-        .plc-debug-stat-value { font-size: 1rem; color: var(--color-text-primary); word-break: break-word; }
+
+        /* 통계 = 모노 readout */
+        .plc-debug-stat { padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines); background: var(--color-surface-variant); display: flex; flex-direction: column; gap: 6px; }
+        .plc-debug-stat-label { font-size: 0.64rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; }
+        .plc-debug-stat-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); word-break: break-word; line-height: 1.15; letter-spacing: -0.01em; }
+
         .plc-debug-actions { display: grid; grid-template-columns: 160px minmax(180px, 1fr) 180px; gap: 12px; align-content: start; }
         .plc-debug-button-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
         .plc-debug-time-range { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(220px, 280px)); gap: 12px; }
+
         .plc-debug-selector { background: var(--color-surface); }
         .plc-debug-selector-body { padding: 14px 0 0; }
-        .plc-debug-tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 360px; overflow: auto; }
-        .plc-debug-tag-chip { border: 1px solid var(--color-lines); background: var(--color-surface); border-radius: 10px; padding: 10px 12px; text-align: left; display: grid; gap: 3px; cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease; }
-        .plc-debug-tag-chip:hover { transform: translateY(-1px); border-color: var(--color-primary); }
-        .plc-debug-tag-chip.is-selected { background: rgba(var(--color-primary-rgb), 0.08); border-color: var(--color-primary); box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.08); }
-        .plc-debug-tag-main { font-weight: 700; color: var(--color-text-primary); }
-        .plc-debug-tag-sub, .plc-debug-tag-count { font-size: 0.82rem; color: var(--color-text-secondary); }
-        .plc-debug-chart-card { padding-bottom: 8px; }
-        .plc-debug-chart-shell { position: relative; width: 100%; min-height: 720px; border: 1px solid var(--color-lines); border-radius: 12px; padding: 14px; background: linear-gradient(180deg, var(--color-surface), var(--color-background)); }
-        .plc-debug-chart-placeholder { position: absolute; inset: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--color-text-secondary); background: rgba(255, 255, 255, 0.72); border-radius: 10px; text-align: center; pointer-events: none; }
-        .plc-debug-chart-placeholder .material-icons { font-size: 42px; opacity: 0.55; }
-        .plc-debug-empty { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); text-align: center; }
-        .plc-debug-empty .material-icons { font-size: 84px; opacity: 0.35; }
+        .plc-debug-tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 360px; overflow: auto; padding: 0 16px 16px; }
+
+        /* 태그 칩: 또렷한 스위스 토글 칩 (헤어라인 → 선택 시 악센트 룰) */
+        .plc-debug-tag-chip { position: relative; border: 1px solid var(--color-lines); background: var(--color-surface); border-radius: var(--radius-sm); padding: 9px 12px 9px 14px; text-align: left; display: grid; gap: 3px; cursor: pointer; transition: border-color 0.12s ease, background 0.12s ease; }
+        .plc-debug-tag-chip::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; transition: background 0.12s ease; }
+        .plc-debug-tag-chip:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .plc-debug-tag-chip.is-selected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+        .plc-debug-tag-chip.is-selected::before { background: var(--color-primary); }
+        .plc-debug-tag-main { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.82rem; color: var(--color-text-primary); letter-spacing: -0.01em; }
+        .plc-debug-tag-sub { font-size: 0.74rem; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .plc-debug-tag-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); }
+
+        .plc-debug-chart-card { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; }
+        .plc-debug-chart-shell { position: relative; width: 100%; min-height: 720px; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 14px; background: var(--color-background); }
+        .plc-debug-chart-placeholder { position: absolute; inset: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-surface) 82%, transparent); border-radius: var(--radius-sm); text-align: center; pointer-events: none; }
+        .plc-debug-chart-placeholder .material-icons { font-size: 42px; opacity: 0.5; color: var(--color-text-disabled); }
+        .dark-theme .plc-debug-chart-placeholder { background: color-mix(in srgb, var(--color-surface) 78%, transparent); }
+
+        .plc-debug-empty { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); text-align: center; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .plc-debug-empty .material-icons { font-size: 84px; opacity: 0.3; color: var(--color-text-disabled); }
+
         @media (max-width: 1280px) {
             .plc-debug-toolbar-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .plc-debug-actions { grid-template-columns: minmax(0, 1fr); }
@@ -84,8 +96,6 @@
             .plc-debug-hero { flex-direction: column; align-items: stretch; }
             .plc-debug-time-range { grid-template-columns: 1fr; }
         }
-        /* 다크 테마에서 차트 placeholder 가독성 (razor 스코프드엔 없지만 흰배경 인라인 보정) */
-        .dark-theme .plc-debug-chart-placeholder { background: rgba(0, 0, 0, 0.45); }
     </style>
 </head>
 
@@ -94,31 +104,47 @@
 
         <!-- 데모 만료 -->
         <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning, #f0883e); margin:0 0 12px;">DEMO 만료</h2>
+            <div class="modal-content demo-blocked-card" style="max-width:480px;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
                 <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
                 <p>서비스 관리자에게 문의해 주세요.</p>
             </div>
         </div>
 
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">PLC 디버그</span>
             <span class="dsp-badge">정적/격리</span>
             <div class="spacer"></div>
-            <a href="/plc-debug" title="Blazor 버전과 비교">Blazor 버전</a>
-            <a href="/app/dashboard.html">대시보드</a>
-            <button class="btn-icon" @click="toggleTheme()" title="테마 전환" style="margin-left:8px;">
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
                 <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
             </button>
         </header>
 
         <main class="dsp-main">
+
+            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + DB 로드 상태 칩 -->
+            <div class="pd-pagehead">
+                <div class="pd-head">
+                    <span class="pd-index">07 / PLC 디버그</span>
+                    <span class="pd-title">PLC 로그 타임라인</span>
+                </div>
+                <div class="spacer"></div>
+                <span class="pd-state" :class="dbLoaded ? 'is-on' : 'is-off'"
+                      :title="dbLoaded ? ('DB 로드됨 · ' + currentDbFileName) : 'DB 파일 미로드'">
+                    <span class="pd-state-dot"></span>
+                    <span x-text="dbLoaded ? 'DB · 로드됨' : 'DB · 대기'"></span>
+                </span>
+            </div>
+
             <div class="plc-debug-page">
                 <!-- 히어로 + 업로드 -->
-                <section class="card plc-debug-hero">
+                <section class="plc-debug-hero">
                     <div>
-                        <h5 class="typo-h5 plc-debug-title">PLC DB 전체 타임라인</h5>
-                        <p class="typo-body1 plc-debug-subtitle">
+                        <span class="eyebrow">SQLite · 전체 타임라인</span>
+                        <h5 class="plc-debug-title">PLC DB 전체 타임라인</h5>
+                        <p class="plc-debug-subtitle">
                             DB 파일을 선택하면 전체 태그를 자동 선택하고 전체 기간으로 바로 그립니다.
                         </p>
                     </div>
@@ -142,7 +168,7 @@
                 <!-- DB 로드 후 -->
                 <template x-if="dbLoaded">
                     <div style="display:flex; flex-direction:column; gap:16px;">
-                        <section class="card plc-debug-toolbar">
+                        <section class="plc-debug-toolbar">
                             <div class="plc-debug-toolbar-grid">
                                 <div class="plc-debug-stat">
                                     <span class="plc-debug-stat-label">파일</span>
@@ -194,15 +220,15 @@
                                         </select>
                                     </div>
                                     <div class="plc-debug-button-row">
-                                        <button class="btn btn-outlined" @click="selectAllFilteredTags()">
+                                        <button class="btn btn-outlined color-default" @click="selectAllFilteredTags()">
                                             <span class="material-icons" style="font-size:18px;">done_all</span>
                                             전체 선택
                                         </button>
-                                        <button class="btn btn-outlined" @click="clearSelection()">
+                                        <button class="btn btn-outlined color-default" @click="clearSelection()">
                                             <span class="material-icons" style="font-size:18px;">clear_all</span>
                                             전체 해제
                                         </button>
-                                        <button class="btn btn-outlined" @click="resetTimeRange()">
+                                        <button class="btn btn-outlined color-default" @click="resetTimeRange()">
                                             <span class="material-icons" style="font-size:18px;">history</span>
                                             전체 기간
                                         </button>
@@ -246,12 +272,12 @@
                             </div>
                         </details>
 
-                        <section class="card plc-debug-chart-card">
-                            <div class="card-header">
-                                <span class="material-icons mr-2">monitoring</span>
-                                <h6 class="typo-h6">전체 태그 타임라인</h6>
+                        <section class="plc-debug-chart-card">
+                            <div class="dsp-panel-head">
+                                <span class="dsp-panel-title">전체 태그 타임라인</span>
+                                <span class="eyebrow no-rule">TAG · TIMELINE</span>
                             </div>
-                            <div class="card-content">
+                            <div class="dsp-panel-body">
                                 <div class="alert alert-info mb-3" x-show="loadingChart">
                                     <div style="display:flex; align-items:center; gap:10px;">
                                         <div class="spinner" style="width:18px; height:18px; border-width:2px;"></div>
@@ -279,7 +305,7 @@
 
                 <!-- 빈 상태 -->
                 <template x-if="!dbLoaded && !uploading">
-                    <section class="card plc-debug-empty">
+                    <section class="plc-debug-empty">
                         <span class="material-icons">database</span>
                         <div class="typo-h6 mt-3">PLC 로그 DB 파일을 선택하세요</div>
                         <div class="typo-caption mt-2">선택 즉시 전체 태그와 전체 기간이 자동으로 로드됩니다.</div>
