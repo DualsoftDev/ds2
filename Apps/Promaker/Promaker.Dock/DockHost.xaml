@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:local="clr-namespace:Promaker.Dock"
              xmlns:dxdo="http://schemas.devexpress.com/winfx/2008/xaml/docking">
     <UserControl.Resources>
         <!--
@@ -12,9 +13,18 @@
         -->
         <sys:Double x:Key="PaneCaptionFontSize">12</sys:Double>
 
-        <!-- Help 버튼 없는 LayoutPanel(Simulation/Log/LLM Chat) 용 caption — 폰트 크기만 명시 통일. -->
+        <!-- Help(?) 뱃지를 docked caption bar 일 때만 표시 (tab caption 에서는 숨김) — AncestorPresenceToVisibilityConverter 참조. -->
+        <local:AncestorPresenceToVisibilityConverter x:Key="AncestorToVisibility"/>
+
+        <!-- Help 버튼 없는 LayoutPanel(Simulation/Log/LLM Chat) 용 caption — 폰트 크기만 명시 통일.
+             caption 텍스트는 path 없는 {Binding} — DX CaptionTemplate 의 DataContext 는 Caption '문자열' 값
+             (BaseLayoutItem 인스턴스 아님, DX 공식 문서 BaseLayoutItem.CaptionTemplate 확인). CaptionTemplate 은
+             docked caption bar 와 'tab caption' 양쪽 모두에 적용됨.
+             (과거 RelativeSource AncestorType=LayoutPanel 은 caption bar 에서만 통하고, panel 을 다른 panel 안에
+             dock 해 tab 으로 합쳐지면 tab caption 이 LayoutPanel 의 visual 자식이 아니어서 조상 탐색 실패 →
+             탭 이름 빈칸 버그. {Binding Caption} 은 string DataContext 에 .Caption 속성이 없어 양쪽 모두 실패. DockHost.xaml) -->
         <DataTemplate x:Key="PaneCaption">
-            <TextBlock Text="{Binding Caption, RelativeSource={RelativeSource AncestorType={x:Type dxdo:LayoutPanel}}}"
+            <TextBlock Text="{Binding}"
                        FontSize="{StaticResource PaneCaptionFontSize}"
                        VerticalAlignment="Center"/>
         </DataTemplate>
@@ -34,15 +44,20 @@
             은 Promaker.Dock 에서 참조 불가 (격리 §7 #4 — Promaker 본체 Themes 미참조).
         -->
         <DataTemplate x:Key="AnchorCaptionWithHelp">
-            <!-- Caption / Tag binding: AncestorType=LayoutPanel 로 명시 (CaptionTemplate 의 DataContext 는
-                 DX chrome 내부 구조에 따라 string 또는 BaseLayoutItem 일 수 있음 — visual tree ancestor 가 안전).
+            <!-- caption 텍스트: path 없는 {Binding} — DX CaptionTemplate 의 DataContext 는 Caption '문자열' 값이며
+                 docked caption bar / tab caption 양쪽 모두에 적용됨 (DX 공식 문서 BaseLayoutItem.CaptionTemplate).
+                 RelativeSource AncestorType=LayoutPanel 은 tab 으로 합쳐졌을 때 조상 탐색 실패 → 탭 이름 빈칸 버그.
+                 Help(?) 뱃지는 'docked caption bar 일 때만' 표시 — Border.Visibility 를 LayoutPanel 조상 존재
+                 여부(AncestorPresenceToVisibilityConverter + FallbackValue=Collapsed)로 제어. tab caption 에서는
+                 조상이 없어 Collapsed → 뱃지 숨김. 따라서 Tag(=ContentId, LayoutPanel.Name)은 caption bar 에서만
+                 평가되며 tab 에서의 Tag=null 은 뱃지 자체가 숨겨져 무관.
                  Help 뱃지 visual: Theme.Controls.Forms.xaml 의 HelpButton (파란 원형 ? 뱃지) 와 시각 통일 —
                  Promaker.Dock 격리상 직접 Style 참조 불가, inline Border + TextBlock 으로 동등 visual.
                  DynamicResource (AccentBrush / AccentTextBrush) lookup 은 Application.Resources 까지 도달 OK.
                  Click 핸들러: PreviewMouseLeftButtonDown — DX caption drag chrome 의 mouse capture 차단 의무
                  (e.Handled=true). 일반 Button.Click event 는 chrome 가로채서 동작 안 함. -->
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{Binding Caption, RelativeSource={RelativeSource AncestorType={x:Type dxdo:LayoutPanel}}}"
+                <TextBlock Text="{Binding}"
                            FontSize="{StaticResource PaneCaptionFontSize}"
                            VerticalAlignment="Center"/>
                 <Border Width="14" Height="14"
@@ -53,6 +68,7 @@
                         Cursor="Hand"
                         ToolTip="도움말"
                         Tag="{Binding Name, RelativeSource={RelativeSource AncestorType={x:Type dxdo:LayoutPanel}}}"
+                        Visibility="{Binding RelativeSource={RelativeSource AncestorType={x:Type dxdo:LayoutPanel}}, Converter={StaticResource AncestorToVisibility}, FallbackValue=Collapsed}"
                         PreviewMouseLeftButtonDown="HelpBadge_PreviewMouseLeftButtonDown">
                     <TextBlock Text="?"
                                FontSize="9" FontWeight="Bold"
