@@ -216,6 +216,10 @@ public partial class ExplorerPane : UserControl
 
         ViewModel.Selection.SetActiveTreePane(_pendingTreeSelectionPane);
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        // 검색 중에는 화면에 클론 트리가 떠 있으므로, 원본 노드의 IsTreeSelected 를 클론으로 동기화해야
+        // 하이라이트가 보인다. (Call 은 drag-candidate 경로라 HandleTreeSelectionChanged 를 안 타므로 여기서 처리)
+        if (HasActiveSearch)
+            RefreshFilteredSelectionState();
         ClearPendingTreeDragSelection();
         e.Handled = true;
     }
