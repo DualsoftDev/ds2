@@ -37,10 +37,26 @@ public partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Promaker", "dock-layout.xml");
 
+    // --review mn5 — 5 standard anchor (explorer/simulation/properties/history/log) 의 (contentId, vmProp, get, set)
+    // 통합 table. Vm_PropertyChanged / DockHost_AnchorVisibilityChanged / RestoreDockLayoutAndSyncVm 의 switch+magic
+    // string 중복을 단일 source 로 통합. LlmChat 은 baseline §5 (consent 흐름 + lazy 생성) 보존 별도.
+    private record AnchorSync(string ContentId, string VmPropertyName, Func<bool> Get, Action<bool> Set);
+    private readonly AnchorSync[] _anchorSyncs;
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _vm;
+
+        // --review mn5 — anchor sync table (5 standard anchor, LlmChat 별도). ContentId / VmProperty 의 단일 source.
+        _anchorSyncs = new[]
+        {
+            new AnchorSync("explorer",   nameof(MainViewModel.IsExplorerVisible),   () => _vm.IsExplorerVisible,   v => _vm.IsExplorerVisible   = v),
+            new AnchorSync("simulation", nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
+            new AnchorSync("properties", nameof(MainViewModel.IsPropertiesVisible), () => _vm.IsPropertiesVisible, v => _vm.IsPropertiesVisible = v),
+            new AnchorSync("history",    nameof(MainViewModel.IsHistoryVisible),    () => _vm.IsHistoryVisible,    v => _vm.IsHistoryVisible    = v),
+            new AnchorSync("log",        nameof(MainViewModel.IsLogVisible),        () => _vm.IsLogVisible,        v => _vm.IsLogVisible        = v),
+        };
 
         // PR-D4 — 5 anchor + 2 document 등록. PR-D3 의 IDockManager (DockHost) API 사용.
         // ContentId / Title / Content / DefaultPosition 매핑은 done-dock-avalon.md §3.1 안 A + todo §9 의 PR-D3 spike 박제.
@@ -96,30 +112,12 @@ public partial class MainWindow : Window
     {
         if (_suppressAnchorSync) return;
 
-        switch (e.PropertyName)
-        {
-            case nameof(MainViewModel.IsLlmChatVisible):
-                ApplyAnchorVisible("llmchat", _vm.IsLlmChatVisible);
-                break;
-            case nameof(MainViewModel.IsExplorerVisible):
-                ApplyAnchorVisible("explorer", _vm.IsExplorerVisible);
-                break;
-            case nameof(MainViewModel.IsSimulationVisible):
-                ApplyAnchorVisible("simulation", _vm.IsSimulationVisible);
-                break;
-            case nameof(MainViewModel.IsPropertiesVisible):
-                ApplyAnchorVisible("properties", _vm.IsPropertiesVisible);
-                break;
-            case nameof(MainViewModel.IsHistoryVisible):
-                ApplyAnchorVisible("history", _vm.IsHistoryVisible);
-                break;
-            case nameof(MainViewModel.IsLogVisible):
-                ApplyAnchorVisible("log", _vm.IsLogVisible);
-                break;
-            case nameof(MainViewModel.HasProject):
-                SyncWelcomeCanvasVisibility();
-                break;
-        }
+        // HasProject / LlmChat 은 특수 처리 (baseline 박제 / Welcome↔Canvas swap), 나머지 5 anchor 는 table lookup.
+        if (e.PropertyName == nameof(MainViewModel.HasProject)) { SyncWelcomeCanvasVisibility(); return; }
+        if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible)) { ApplyAnchorVisible("llmchat", _vm.IsLlmChatVisible); return; }
+
+        foreach (var b in _anchorSyncs)
+            if (b.VmPropertyName == e.PropertyName) { ApplyAnchorVisible(b.ContentId, b.Get()); return; }
     }
 
     private void ApplyAnchorVisible(string contentId, bool visible)
@@ -139,16 +137,10 @@ public partial class MainWindow : Window
         _suppressAnchorSync = true;
         try
         {
-            switch (e.ContentId)
-            {
-                case "llmchat":    _vm.IsLlmChatVisible    = e.IsVisible; break;
-                case "explorer":   _vm.IsExplorerVisible   = e.IsVisible; break;
-                case "simulation": _vm.IsSimulationVisible = e.IsVisible; break;
-                case "properties": _vm.IsPropertiesVisible = e.IsVisible; break;
-                case "history":    _vm.IsHistoryVisible    = e.IsVisible; break;
-                case "log":        _vm.IsLogVisible        = e.IsVisible; break;
-                // welcome / canvas 는 HasProject SSOT 가 SyncWelcomeCanvasVisibility 로 일방 관리 — 무시.
-            }
+            // LlmChat 별도 (baseline §5), welcome/canvas 는 HasProject SSOT 일방 관리라 무시, 나머지 5 anchor table lookup.
+            if (e.ContentId == "llmchat") { _vm.IsLlmChatVisible = e.IsVisible; return; }
+            foreach (var b in _anchorSyncs)
+                if (b.ContentId == e.ContentId) { b.Set(e.IsVisible); return; }
         }
         finally { _suppressAnchorSync = false; }
     }
@@ -210,12 +202,9 @@ public partial class MainWindow : Window
         {
             dockHost.RestoreLayout(LayoutXmlPath);
 
-            // 5 anchor — Restore 결과를 VM property 로 강제 sync.
-            _vm.IsExplorerVisible   = dockHost.IsAnchorVisible("explorer");
-            _vm.IsSimulationVisible = dockHost.IsAnchorVisible("simulation");
-            _vm.IsPropertiesVisible = dockHost.IsAnchorVisible("properties");
-            _vm.IsHistoryVisible    = dockHost.IsAnchorVisible("history");
-            _vm.IsLogVisible        = dockHost.IsAnchorVisible("log");
+            // 5 anchor — Restore 결과를 VM property 로 강제 sync. mn5 table iterate (magic string 중복 제거).
+            foreach (var b in _anchorSyncs)
+                b.Set(dockHost.IsAnchorVisible(b.ContentId));
 
             // LlmChat — baseline 박제 §5 (consent 흐름 + LlmChatVm lazy 생성) 보존 의무 → Restore 결과 무시.
             // Restore 가 llmchat=Closed=false (visible) 로 복원했더라도 LlmChatVm 은 아직 null 일 수 있고,
