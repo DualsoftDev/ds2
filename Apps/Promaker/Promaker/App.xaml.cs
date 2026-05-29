@@ -34,12 +34,6 @@ public partial class App : Application
     /// </summary>
     internal static bool StartupMeasureThenExit { get; set; }
 
-    /// <summary>
-    /// `--dock-spike` 인자 — PR-1b 임시 모드. MainWindow 대신 DockSpikeWindow 만 띄움.
-    /// PR-2a 진입 시 본 옵션 + Spike 폴더 함께 제거 예정.
-    /// </summary>
-    internal static bool StartupDockSpike { get; set; }
-
     // 측정 자동화 fail-fast exit codes — 외부 측정 스크립트(run-pass5.fsx 등)가 이 값으로 실패 원인을 분기 식별.
     // 변경 시 측정 스크립트 측도 함께 갱신 필요.
     internal const int MeasureExitSendCommandUnavailable = 2;
@@ -79,8 +73,6 @@ public partial class App : Application
                 StartupMeasurePrompt = e.Args[i + 1];
                 i++;   // skip next (consumed as prompt value)
             }
-            else if (arg == "--dock-spike")
-                StartupDockSpike = true;
             else if (StartupFilePath == null && File.Exists(arg))
                 StartupFilePath = arg;
         }
@@ -97,11 +89,18 @@ public partial class App : Application
                 // winmm 호출 실패해도 동작은 가능 (정밀도만 보장 안 됨)
             }
         }
-        var configFile = new FileInfo("log4net.config");
+        // PR-D7.3 fix — DX dll 의 동적 로드 (Themes.Office2019Colorful 등) 가 .NET 9 AssemblyLoadContext
+        // strong-named entry 미등록으로 실패하는 것을 회피. 모든 DX type 참조 (MainWindow XAML parsing 포함)
+        // 이전에 1회 등록 필수 → OnStartup 의 가장 이른 시점.
+        Promaker.Dock.DockHost.RegisterAssemblyResolve();
+
+        // process working dir 가 exe 폴더가 아닐 수 있어 (단축키 / dotnet run / 다른 cwd 에서 실행)
+        // AppContext.BaseDirectory (exe 폴더) 기준 절대 경로로 명시 — log4net Configure silent skip 회피.
+        var configFile = new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config"));
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
         else
-            System.Diagnostics.Trace.TraceWarning("log4net.config was not found. Logging may be disabled.");
+            System.Diagnostics.Trace.TraceWarning($"log4net.config not found at {configFile.FullName}. Logging may be disabled.");
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -130,6 +129,10 @@ public partial class App : Application
 
         ThemeManager.ApplySavedTheme();
 
+        // PR-D7.3 — DX skin 정합. Promaker.Dock 의 격리 helper 1줄 호출 (DX type 외부 노출 0건 유지, §7 #4).
+        // 사용자 시각 검수 결과 Office2019Colorful (light) 부적합 → Office2019Black (dark) 채택 (PR-D7.3 fix).
+        Promaker.Dock.DockHost.InitializeTheme();
+
         // GUI Log tab 의 AppLogState (singleton + ICollectionView) 를 UI thread 에서 강제 prefetch.
         // worker thread 의 첫 log 호출이 lazy 생성을 trigger 하면 CollectionView 가 worker SynchronizationContext
         // 에 묶여 이후 binding 시 NotSupportedException. fatal handler 등록 이후 시점이므로 ctor 예외 시 진단 가능.
@@ -148,16 +151,6 @@ public partial class App : Application
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
         Log.Info("=== Promaker startup ===");
-
-        if (StartupDockSpike)
-        {
-            // PR-1b — MainWindow.xaml StartupUri 우회. ShutdownMode=OnMainWindowClose 라
-            // MainWindow=spike 설정 후 spike close 시 종료.
-            var spike = new Promaker.Spike.DockSpikeWindow();
-            MainWindow = spike;
-            spike.Show();
-            return;
-        }
 
         base.OnStartup(e);
     }

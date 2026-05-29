@@ -13,38 +13,46 @@ Claude 전용 워크플로. `scripts/dist-common.mk` 의 공용 mk 자체는 손
 배포 산출물은 **zip** 이다 (MS Edge 등 브라우저의 `.exe` 다운로드 차단 회피).
 zip 안에는 installer `.exe` + `ReleaseNote.txt` 가 들어간다.
 
-**ReleaseNote 는 누적 관리**: `installer/Apps/Promaker/ReleaseNote.txt` 가
+**ReleaseNote 는 누적 관리**: `Apps/Promaker/ReleaseNote.txt` 가
 git 추적 대상이며, 매 `/dist` 마다 파일 맨 위에 이번 배포 entry 가
 **prepend** 된다. 과거 entry 는 그대로 보존되어 전체 릴리즈 히스토리가
 한 파일에 누적된다. zip 에는 이 누적 파일 전체가 복사된다.
 
+## 실행 cwd 전제 (필수)
+
+`/dist` 의 **모든 스텝은 repo 최상위(e.g `F:/Git/ds2/main`)를 cwd 로 가정**한다. 이하 문서의 모든 상대경로(`Apps/Promaker/...`)는 repo root 기준이다.
+
+- 진입 시 **가장 먼저** `cd "$(git rev-parse --show-toplevel)"` 로 repo root 로 이동한 뒤 Step 1 부터 진행한다.
+- 본 skill 은 Promaker 앱 폴더(`Apps/Promaker`) 안에서 호출될 수 있으므로(세션 cwd 가 repo root 가 아님), 이 cd 를 생략하면 상대경로가 `Apps/Promaker/Apps/Promaker/...` 로 어긋난다. 생략 금지.
+
 ## 관련 파일 / 경로
 
-- Version file: `installer/Apps/Promaker/BuildVersion.txt`
-- ReleaseNote (git 관리): `installer/Apps/Promaker/ReleaseNote.txt` — 헤더 `# Promaker Release Notes` + 누적 entry
-- Installer 빌드: `make -C installer/Apps/Promaker dist-installer` (bump 없이 `.exe` 만 생성, MODE=sc default)
-- Installer 산출물: `installer/Apps/Promaker/Installer/Output/Promaker_Setup_<VER>_sc.exe`
-- ReleaseNote 업데이트: `installer/Apps/Promaker/scripts/update-releasenote.sh <CUR_VER> <COMMIT_MSG_FILE>` — commit **전** 호출
-- Zip 패키징: `installer/Apps/Promaker/scripts/package-release.sh <CUR_VER> <exe>` — commit **후** 호출, stdout 마지막 줄에 zip 경로
-- Zip 산출물: `installer/Apps/Promaker/Installer/Output/Promaker_Setup_<VER>_sc.zip`
-- SCP: `installer/Apps/Promaker/scripts/scp-installer.sh <zip> <DEST>` (zip 만 업로드, exe 는 로컬 보존)
-- Bump: `installer/Apps/Promaker/scripts/bump-buildversion.sh <BuildVersion.txt>` — 마지막 슬롯 +1
+- Version file: `Apps/Promaker/BuildVersion.txt`
+- ReleaseNote (git 관리): `Apps/Promaker/ReleaseNote.txt` — 헤더 `# Promaker Release Notes` + 누적 entry
+- Installer 빌드: `make -C Apps/Promaker dist-installer` (bump 없이 `.exe` 만 생성, MODE=sc default)
+- Installer 산출물: `Apps/Promaker/Installer/Output/Promaker_Setup_<VER>_sc.exe`
+- ReleaseNote 업데이트: `Apps/Promaker/scripts/update-releasenote.sh <CUR_VER> <COMMIT_MSG_FILE>` — commit **전** 호출
+- Zip 패키징: `Apps/Promaker/scripts/package-release.sh <CUR_VER> <exe>` — commit **후** 호출, stdout 마지막 줄에 zip 경로
+- Zip 산출물: `Apps/Promaker/Installer/Output/Promaker_Setup_<VER>_sc.zip`
+- SCP: `Apps/Promaker/scripts/scp-installer.sh <zip> <DEST>` (zip 만 업로드, exe 는 로컬 보존)
+- Bump: `Apps/Promaker/scripts/bump-buildversion.sh <BuildVersion.txt>` — 마지막 슬롯 +1
 - SCP 기본 대상: `download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64`
 
 ## 수행 순서 (`/dist`) — A안: commit 을 scp 보다 먼저
 
-1. **CUR_VER 저장**: `CUR_VER=$(tr -d '[:space:]' < installer/Apps/Promaker/BuildVersion.txt)` — bump 이전 버전 값.
+0. **repo root 이동**: `cd "$(git rev-parse --show-toplevel)"` — 이후 모든 상대경로는 repo root 기준. (위 "실행 cwd 전제" 참조)
+1. **CUR_VER 저장**: `CUR_VER=$(tr -d '[:space:]' < Apps/Promaker/BuildVersion.txt)` — bump 이전 버전 값.
 2. **Tag 사전 점검** — 다음 둘 중 하나라도 `vPromaker_$CUR_VER` 존재 시 에러 출력 후 **전체 중단**:
    - 우선 `git fetch --tags --prune origin` 으로 remote tag 캐시 갱신 (다른 머신에서 push 된 tag 가 stale 로 누락되는 것 방지).
    - Local: `git rev-parse --verify refs/tags/vPromaker_$CUR_VER` 성공
    - Remote: `git ls-remote --tags origin "refs/tags/vPromaker_$CUR_VER"` non-empty
-3. **빌드**: `make -C installer/Apps/Promaker dist-installer` — Promaker installer `.exe` 생성. 실패 시 중단.
-3.5. **Paired-release drift check** — `powershell.exe -NoProfile -ExecutionPolicy Bypass -File installer/Apps/Promaker/scripts/check-paired-release.ps1` 호출. Promaker 가 동봉하는 `Ds2.LightHouse.IndexerVersion.Current` literal ↔ LightHouseService `config.json.template` 의 `indexerVersionRange.[min,max]` 범위 정합 검증. drift 시 exit code 1 + stderr 안내 (어느 쪽 조정 필요한지) → **즉시 중단**. 사유: 범위 밖이면 사용자의 KB upload 가 service 415 (gate fail) 로 전부 차단되는 회귀를 dist 시점에 차단. (done-lighthouse-kb-server.md s5d-r0 박제 — s1-r0 결정 정정: AssemblyVersion 비교 → IndexerVersion.Current literal 비교. F# `[<Literal>]` const inline 으로 reflection 불가, source regex 추출이 SSOT.) 실패 시 working tree 변경 0 (검사 only) → 원인 수정 후 재시도.
+3. **빌드**: `make -C Apps/Promaker dist-installer` — Promaker installer `.exe` 생성. 실패 시 중단.
+3.5. **Paired-release drift check** — `powershell.exe -NoProfile -ExecutionPolicy Bypass -File Apps/Promaker/scripts/check-paired-release.ps1` 호출. Promaker 가 동봉하는 `Ds2.LightHouse.IndexerVersion.Current` literal ↔ LightHouseService `config.json.template` 의 `indexerVersionRange.[min,max]` 범위 정합 검증. drift 시 exit code 1 + stderr 안내 (어느 쪽 조정 필요한지) → **즉시 중단**. 사유: 범위 밖이면 사용자의 KB upload 가 service 415 (gate fail) 로 전부 차단되는 회귀를 dist 시점에 차단. (done-lighthouse-kb-server.md s5d-r0 박제 — s1-r0 결정 정정: AssemblyVersion 비교 → IndexerVersion.Current literal 비교. F# `[<Literal>]` const inline 으로 reflection 불가, source regex 추출이 SSOT.) 실패 시 working tree 변경 0 (검사 only) → 원인 수정 후 재시도.
 4. **Pull**: `git pull --ff-only` — upstream 존재 시 (`git rev-parse --abbrev-ref --symbolic-full-name @{u}` 로 판정). 실패 시 중단.
 5. **배포 대상 변경 유무 사전 검사** — ReleaseNote prepend **이전** 에 수행 (검사를 prepend 뒤에 두면 ReleaseNote 변경 자체가 항상 non-empty 로 잡혀 검사가 사문화됨):
    - `PREV_TAG=$(git describe --tags --match 'vPromaker_*' --abbrev=0 HEAD 2>/dev/null || true)`
    - (a) tracked working tree 수정 유무 (BuildVersion.txt 제외 — bump 후 남은 잔재이므로 제외):
-     `git diff --name-only -- . ':(exclude)installer/Apps/Promaker/BuildVersion.txt'` 결과가 비어있으면 a=0
+     `git diff --name-only -- . ':(exclude)Apps/Promaker/BuildVersion.txt'` 결과가 비어있으면 a=0
    - (b) `PREV_TAG` 이후 새 commit 유무:
      `PREV_TAG` 존재 시 `git rev-list "${PREV_TAG}..HEAD" --count`, 없으면 initial release 로 간주해 통과
    - (a) 와 (b) 모두 0 이면 "dist 대상 변경사항 없음 (이전 tag <PREV_TAG> 이후 tracked 변경 없음)" 에러 출력 후 **종료**.
@@ -70,23 +78,23 @@ git 추적 대상이며, 매 `/dist` 마다 파일 맨 위에 이번 배포 entr
    - 카테고리 분류는 **사용자 관점** 기준 — 동일 GUI 화면 / 동일 기능 영역을 한 그룹으로. 내부 디렉터리 구조를 그대로 옮기지 말 것.
    - 선별 결과가 사소한 것 1~2 줄 뿐이어도 OK. 반대로 여러 commit 이 큰 기능 하나로 묶이면 itemize 1 줄로 압축.
    - Co-Authored-By 미기입 (글로벌 `--git-commit` 규칙 상속).
-7. **ReleaseNote prepend**: `bash installer/Apps/Promaker/scripts/update-releasenote.sh "$CUR_VER" "$MSGFILE"`
+7. **ReleaseNote prepend**: `bash Apps/Promaker/scripts/update-releasenote.sh "$CUR_VER" "$MSGFILE"`
    - 스크립트 내부: `git describe --tags --match 'vPromaker_*' --abbrev=0 HEAD` 로 PREV_TAG 탐색 → 새 entry = [구분선 + `[v<CUR_VER>] <timestamp>` + `Previous: <PREV_TAG>` + **MSGFILE 내용 전문**] → 파일 맨 위(헤더 바로 아래)에 prepend.
    - 스크립트는 `git log` 를 **자동 첨부하지 않는다** — 선별 책임은 Step 6 의 Claude.
-   - 실패 시 중단. 복구는 `git checkout -- installer/Apps/Promaker/ReleaseNote.txt` 로 충분.
+   - 실패 시 중단. 복구는 `git checkout -- Apps/Promaker/ReleaseNote.txt` 로 충분.
 8. **Staging**:
    - `git add -u` — tracked 수정분만 (untracked 제외)
-   - `git add installer/Apps/Promaker/BuildVersion.txt` — bump 전 상태 명시 스테이징
-   - `git add installer/Apps/Promaker/ReleaseNote.txt` — 방금 prepend 한 변경
+   - `git add Apps/Promaker/BuildVersion.txt` — bump 전 상태 명시 스테이징
+   - `git add Apps/Promaker/ReleaseNote.txt` — 방금 prepend 한 변경
 9. **Commit**: `git commit -F "$MSGFILE"` — step 6 에서 만든 msg 파일을 그대로 사용 → commit msg 와 ReleaseNote entry 본문이 동기화. 이 commit 에 이후 `vPromaker_$CUR_VER` tag 가 붙는다.
-10. **Zip 패키징**: `ZIP=$(bash installer/Apps/Promaker/scripts/package-release.sh "$CUR_VER" "<installer.exe>")`
+10. **Zip 패키징**: `ZIP=$(bash Apps/Promaker/scripts/package-release.sh "$CUR_VER" "<installer.exe>")`
     - 스크립트는 이미 업데이트된 `ReleaseNote.txt` 와 `installer.exe` 를 `Promaker_Setup_<CUR_VER>_sc.zip` 으로 묶음.
     - zip 툴: `zip` 우선, 없으면 PowerShell `Compress-Archive` fallback.
     - 실패 시 롤백 (아래 롤백 표 참조).
-11. **SCP**: `bash installer/Apps/Promaker/scripts/scp-installer.sh "$ZIP" "<DEST>"` — zip 업로드 (exe 아님).
+11. **SCP**: `bash Apps/Promaker/scripts/scp-installer.sh "$ZIP" "<DEST>"` — zip 업로드 (exe 아님).
     - 실패 시 롤백 필수. tag 는 아직 없으므로 추가 정리 불필요.
 12. **Tag**: `git tag vPromaker_$CUR_VER HEAD` — lightweight tag. 강제 덮어쓰기(`-f`) 금지.
-13. **Bump**: `bash installer/Apps/Promaker/scripts/bump-buildversion.sh installer/Apps/Promaker/BuildVersion.txt` — 마지막 슬롯 +1. bump 후 working tree 는 uncommitted 상태로 남으며 다음 `/dist` 의 commit 에 자연스럽게 흡수된다.
+13. **Bump**: `bash Apps/Promaker/scripts/bump-buildversion.sh Apps/Promaker/BuildVersion.txt` — 마지막 슬롯 +1. bump 후 working tree 는 uncommitted 상태로 남으며 다음 `/dist` 의 commit 에 자연스럽게 흡수된다.
 14. **Push** — upstream 존재 시에만:
     - `git push` — 실패 시 경고만 출력하고 계속
     - `git push origin "vPromaker_$CUR_VER"` — 실패 시 경고만
@@ -106,18 +114,18 @@ Destructive 스텝(빌드 / ReleaseNote 파일 수정 / commit / zip / scp / tag
 
 ## 롤백 시나리오 요약
 
-**중요 원칙**: `git reset --mixed HEAD^` 는 index 만 리셋하고 working tree 는 유지하므로, ReleaseNote.txt 의 prepend 된 entry 가 남아있다. 재시도 시 Step 7 (update-releasenote.sh) 가 **같은 entry 를 또 prepend → 중복 누적**. 따라서 commit 을 롤백할 때는 `--mixed HEAD^` 와 **반드시 함께** `git checkout -- installer/Apps/Promaker/ReleaseNote.txt` 를 실행해 working tree 의 ReleaseNote 도 이전 상태로 되돌려야 한다.
+**중요 원칙**: `git reset --mixed HEAD^` 는 index 만 리셋하고 working tree 는 유지하므로, ReleaseNote.txt 의 prepend 된 entry 가 남아있다. 재시도 시 Step 7 (update-releasenote.sh) 가 **같은 entry 를 또 prepend → 중복 누적**. 따라서 commit 을 롤백할 때는 `--mixed HEAD^` 와 **반드시 함께** `git checkout -- Apps/Promaker/ReleaseNote.txt` 를 실행해 working tree 의 ReleaseNote 도 이전 상태로 되돌려야 한다.
 
 | 실패 시점 | 남은 상태 | 복구 절차 |
 |---|---|---|
 | 1~3 (빌드까지) | 변경 없음 (빌드 산출물만) | 재시도 |
 | 3.5 paired-release drift | 변경 없음 (검사 only) | drift 원인 수정 (lib IndexerVersion 조정 또는 service config range 확장) → 재시도 |
 | 4~6 (pull / msg 준비) | 변경 없음 | 재시도 |
-| 7 ReleaseNote prepend 실패 | ReleaseNote.txt 만 부분 수정 가능 | `git checkout -- installer/Apps/Promaker/ReleaseNote.txt` → 재시도 |
-| 8 staging 실패 | Staging 일부 존재 + ReleaseNote prepend 됨 | `git reset HEAD`<br>`git checkout -- installer/Apps/Promaker/ReleaseNote.txt` → 재시도 |
-| 9 commit 실패 | Staging 존재, commit 없음, ReleaseNote prepend 됨 | `git reset HEAD`<br>`git checkout -- installer/Apps/Promaker/ReleaseNote.txt` → 재시도 |
-| 10 zip 생성 실패 | commit 남음 + ReleaseNote 파일 변경 포함된 상태 | `git reset --mixed HEAD^`<br>`git checkout -- installer/Apps/Promaker/ReleaseNote.txt` → 원인 수정 → 재시도 |
-| 11 scp 실패 | commit + 로컬 zip + ReleaseNote 변경 | `git reset --mixed HEAD^`<br>`git checkout -- installer/Apps/Promaker/ReleaseNote.txt` → 재시도 (로컬 zip 은 다음 실행에서 덮어써짐) |
+| 7 ReleaseNote prepend 실패 | ReleaseNote.txt 만 부분 수정 가능 | `git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 |
+| 8 staging 실패 | Staging 일부 존재 + ReleaseNote prepend 됨 | `git reset HEAD`<br>`git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 |
+| 9 commit 실패 | Staging 존재, commit 없음, ReleaseNote prepend 됨 | `git reset HEAD`<br>`git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 |
+| 10 zip 생성 실패 | commit 남음 + ReleaseNote 파일 변경 포함된 상태 | `git reset --mixed HEAD^`<br>`git checkout -- Apps/Promaker/ReleaseNote.txt` → 원인 수정 → 재시도 |
+| 11 scp 실패 | commit + 로컬 zip + ReleaseNote 변경 | `git reset --mixed HEAD^`<br>`git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 (로컬 zip 은 다음 실행에서 덮어써짐) |
 | 12 tag 실패 | commit + zip 업로드 완료 | tag 만 수동 생성 후 13~14 이어서 진행 (여기부터는 롤백 금지 — 이미 scp 됨) |
 | 13 bump 실패 | 이례적 — 파일 쓰기 실패 | 디스크/권한 확인 후 수동 bump |
 | 14 push 실패 | commit + tag 로컬에만 존재 | 경고 메시지대로 무시하거나 수동 재 push |
@@ -127,7 +135,7 @@ Destructive 스텝(빌드 / ReleaseNote 파일 수정 / commit / zip / scp / tag
 - **Commit/Push 사전 confirm 면제 (글로벌 규칙 예외)** — 글로벌 `CLAUDE.md` 및 [[feedback_commit_authorization]] 메모리는 "임의 git commit 금지 / multi-step plan 의 'go' 동의로 commit 까지 묶지 말 것" 을 강제하지만, `/dist` 는 **사용자가 명시적으로 본 skill 을 호출한 시점에 Step 9 (commit) / Step 14 (push) 까지의 전체 워크플로 실행을 승인한 것** 으로 간주한다. 따라서 `/dist` 실행 중에는 commit / push 직전에 별도 confirm 을 요구하지 않으며, Step 1~15 를 끊김 없이 진행한다. (단 `/dist dry` 는 기존대로 destructive 스텝 전부 skip — 본 예외는 정식 `/dist` 에만 적용)
 - **`make dist` 는 notice-only 로 비활성화** — 우발적 배포 방지를 위해 Makefile 이 notice 메시지만 출력하고 종료한다. 강제로 legacy 동작 (scp + bump, ReleaseNote/commit/tag/push 없음) 이 필요하면 `make dist-force` 사용. 정식 배포는 반드시 본 `/dist` skill 사용.
 - `/dist` 는 **Promaker 단독 배포 전용**. ds2 의 다른 컴포넌트(DSPilot 등) 가 추후 같은 구조를 도입하더라도 각자의 `/dist` 를 갖는다.
-- **fd 모드는 `/dist` 자동 배포 대상이 아님** — 필요 시 `MODE=fd make -C installer/Apps/Promaker dist-installer` 로 수동 빌드만 한다 (산출물은 로컬 보존, scp 대상은 sc).
+- **fd 모드는 `/dist` 자동 배포 대상이 아님** — 필요 시 `MODE=fd make -C Apps/Promaker dist-installer` 로 수동 빌드만 한다 (산출물은 로컬 보존, scp 대상은 sc).
 - Tag 충돌 시 강제 덮어쓰기(`git tag -f`, `git push --force`) 금지 — 히스토리 훼손 방지.
 - `git add -A` 금지 — 빌드 산출물 / 로그 유입 위험. `-u` 고정 (+ BuildVersion.txt / ReleaseNote.txt 명시).
 - 글로벌 `--git-commit` 규칙 상속: `git pull --ff-only` 선행, upstream 있을 때만 push, Co-Authored-By 미기입, commit 이전 pull 실패 시 중단.
@@ -135,4 +143,4 @@ Destructive 스텝(빌드 / ReleaseNote 파일 수정 / commit / zip / scp / tag
 - `update-releasenote.sh` 는 `git describe ... HEAD` (HEAD 기준) 를, `package-release.sh` 는 HEAD 기준 파일만 묶음 — 순서 역전 금지. 반드시 **5(pre-check) → 6(msg) → 7(update-releasenote) → 8~9(add/commit) → 10(package) → 11(scp)** 순서.
 - commit msg 파일(`$MSGFILE`) 과 ReleaseNote entry 본문은 **같은 텍스트** 여야 함 (단계 6 에서 만든 파일이 단계 7 과 9 에 모두 투입). Claude 가 중간에 수정하지 말 것.
 - **MSGFILE 등 `/dist` 임시 파일(`/tmp/...`) 작성은 반드시 Bash heredoc 으로 할 것** — Claude Code 의 `Write` 도구는 Windows 환경에서 `/tmp/...` 경로를 Git Bash 의 tmp (`C:\Users\<user>\AppData\Local\Temp\`) 와 **다른 위치**(드라이브 루트의 `\tmp\` 등) 로 해석하는 경우가 있어, `Write` 로 만들면 후속 Bash 스크립트가 0 바이트 파일을 읽게 됨. `cat > "$MSGFILE" <<'MSGEOF' ... MSGEOF` 패턴 사용.
-- **롤백 시 반드시 `git checkout -- installer/Apps/Promaker/ReleaseNote.txt` 병행** — `git reset --mixed HEAD^` 는 working tree 를 건드리지 않으므로 ReleaseNote 의 prepend 된 entry 가 남아 재시도 시 중복 누적된다.
+- **롤백 시 반드시 `git checkout -- Apps/Promaker/ReleaseNote.txt` 병행** — `git reset --mixed HEAD^` 는 working tree 를 건드리지 않으므로 ReleaseNote 의 prepend 된 entry 가 남아 재시도 시 중복 누적된다.

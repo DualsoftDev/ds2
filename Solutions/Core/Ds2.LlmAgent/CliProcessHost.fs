@@ -133,7 +133,10 @@ module CliProcessHost =
                     // `--input-format stream-json` line-strict parser 는 BOM 포함 line 을 즉시 reject
                     // ("Error parsing streaming input line" + exit 1).
                     psi.StandardInputEncoding <- System.Text.UTF8Encoding(false)
-                for (k, v) in spec.EnvOverrides do
+                // 튜플 패턴 분해를 for 헤더가 아닌 본문에서 수행 — task CE 의 resumable state machine
+                // 정적 컴파일 제약(FS3511) 회피. for 헤더의 단순 식별자만 정적 컴파일 가능.
+                for kv in spec.EnvOverrides do
+                    let (k, v) = kv
                     psi.Environment.[k] <- v
 
                 let redacted = spec.Redact spec.Args
@@ -141,7 +144,8 @@ module CliProcessHost =
                 // **2026-05-27 진단 박제** — EnvOverrides 가 child process 에 실제 박혔는지 가시화.
                 // NODE_EXTRA_CA_CERTS 의 경우 cert 파일 존재 여부도 함께 노출 — 박제는 됐지만 파일 미존재로
                 // Node 가 silent ignore 하는 사고 (lighthouse mcp connect failed) 의 1차 진단.
-                for (k, v) in spec.EnvOverrides do
+                for kv in spec.EnvOverrides do
+                    let (k, v) = kv
                     let extra =
                         if k = "NODE_EXTRA_CA_CERTS" then sprintf " (exists=%b)" (System.IO.File.Exists v)
                         else ""

@@ -1,5 +1,14 @@
 # TODO — Promaker Dock Layout 도입 (AvalonDock 4.x 기반)
 
+> ## ⛔ 폐기됨 — AvalonDock → DevExpress 전환
+>
+> **본 문서의 AvalonDock 4.x 기반 접근은 폐기되었다.** AvalonDock(`Dirkster.AvalonDock`) 이 미성숙하여
+> floating window WindowChrome frozen 예외, resize grip 미적용, title bar 침범, Document/Anchorable
+> pane 흰선·회색 띠 등 갖은 오류가 반복 발생했고(아래 v13~v15 회귀 이력 참조), 끝내 안정화하지 못했다.
+> 이에 **DevExpress `DockLayoutManager` (DevExpress.Wpf.Docking) 로 전환**하여 최종 구현했다.
+> 현행 구현은 `Promaker.Dock` 프로젝트(`DockHost.xaml` / `DockHost.xaml.cs`)이며, 본 문서는
+> AvalonDock 시도의 기록 보존용으로만 남긴다 — 더 이상 유효한 작업 계획이 아니다.
+
 > Canvas 를 제외한 모든 창(Explorer, Properties, History, Simulation/Gantt, LLM Chat)에 Attach/Detach + 마그넷 dock 지원.
 > **AvalonDock 4.74.x** (`Dirkster.AvalonDock`, Ms-PL) 기반.
 >
@@ -428,7 +437,7 @@ PanelHeader + HelpButton 패턴 3곳:
 | 안 | 설명 | 장점 | 단점 |
 |---|---|---|---|
 | A. AnchorableTitleTemplate | `DockingManager.AnchorableTitleTemplate`/`DocumentHeaderTemplate`/`LayoutItemTemplate` 활용. attached property `DockCaption.HelpKey` | AvalonDock 표준 hook, caption 영역 일관 커스터마이즈. **attached property 가 LayoutItemContainerStyle setter 로 들어가면 매 reparent 마다 자동 재적용 → serialize 한계 무력화 가능 (PR-4 spike 검증)** | LayoutItemContainerStyle 추가 wiring 필요. 안 B 보다 변경 면적 큼 |
-| **B. UserControl 컴포지션 (현 권장, 단점 보강)** | 기존 UserControl 본문 첫 줄에 PanelHeader Style 그대로 유지 | CLAUDE.md "기존 함수 재활용 90점" 부합. 변경 최소. floating/dock 무관 (UserControl 내부) | **LayoutAnchorable.Title 은 auto-hide 사이드 탭 / floating window caption / closed panels bar 의 식별자 역할** → `Title=""` 비우면 시각 깨짐. **conditional 필요**: docked 상태 = UserControl 헤더 + Title 비움, auto-hide/floating = Title 노출 + UserControl 헤더 hide |
+| **B. UserControl 컴포지션 (현 권장, 단점 보강)** | 기존 UserControl 본문 첫 줄에 `PanelHeader` Style 그대로 유지 (※ PR-D8 정정 박제 — `PanelHeader` 는 UserControl 이 아니라 `Themes/Theme.Controls.Forms.xaml` 의 Style key 로 정의. 본 표가 작성될 당시 "PanelHeader UserControl 컴포지션" 으로 표현되었으나 실제 패턴은 Style key 적용임. PR-D7 D7.2 검열 잔여 우려 박제 해소) | CLAUDE.md "기존 함수 재활용 90점" 부합. 변경 최소. floating/dock 무관 (UserControl 내부) | **LayoutAnchorable.Title 은 auto-hide 사이드 탭 / floating window caption / closed panels bar 의 식별자 역할** → `Title=""` 비우면 시각 깨짐. **conditional 필요**: docked 상태 = UserControl 헤더 + Title 비움, auto-hide/floating = Title 노출 + UserControl 헤더 hide |
 | C. ControlTemplate override | `LayoutAnchorableControl` ControlTemplate 통째 override | 가장 자유도 높음 | 4.x 의 hook 점이 wrapper 라 단일 override 로 caption 통제 어려움 (v5 reviewer A4 지적). 유지비 큼 |
 
 **현 권장**: **B** (UserControl 컴포지션) — 변경 최소. 단 conditional 처리는 PR-4 spike 에서 구체화. 안 A 의 setter 패턴 검증 결과 우월하면 안 A 로 전환.
