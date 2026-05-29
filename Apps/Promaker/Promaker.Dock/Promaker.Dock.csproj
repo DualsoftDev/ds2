@@ -20,6 +20,13 @@
       경고만 silence. NoWarn 사용 — 본 csproj 한정.
     -->
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <!--
+      DXInstallRoot — review mn4 박제. DX 설치 폴더 hard-coded 의존 해소.
+      우선순위: 환경변수 DXInstallRoot > $(ProgramFiles)\DevExpress 24.1\Components fallback.
+      다른 개발자 / CI 환경에서 DX 설치 위치 다르면 환경변수 set 으로 override 가능. version upgrade 시는
+      $(DXVersion) 도 함께 property 화 권장 (후속 PR — 본 PR 은 install root 만).
+    -->
+    <DXInstallRoot Condition="'$(DXInstallRoot)'==''">$(ProgramFiles)\DevExpress 24.1\Components</DXInstallRoot>
   </PropertyGroup>
 
   <!--
@@ -31,7 +38,7 @@
     Private="true" 로 Promaker.Dock build output 에 dll copy, ProjectReference 통해 본체 bin 으로 전파.
 
     DLL 출처:
-      - DevExpress 10종 → DX 설치 폴더 (`C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\`).
+      - DevExpress 10종 → DX 설치 폴더 (`$(DXInstallRoot)\Bin\NetCore\`).
       - System.Drawing.Common 4.7.2 / Microsoft.Win32.SystemEvents 4.7.0 → DX 설치 폴더 미존재 →
         NuGet global cache (`%USERPROFILE%\.nuget\packages\...\runtimes\win\lib\netcoreapp3.0\`).
     잔여 우려: HintPath 절대 경로 = environment 의존. 다른 개발자 / CI 호환성은 후속 PR 에서
@@ -39,47 +46,47 @@
   -->
   <ItemGroup>
     <Reference Include="DevExpress.Data.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Data.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Data.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Data.Desktop.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Data.Desktop.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Data.Desktop.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Drawing.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Drawing.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Drawing.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Mvvm.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Mvvm.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Mvvm.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Pdf.v24.1.Core">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Pdf.v24.1.Core.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Pdf.v24.1.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Pdf.v24.1.Drawing">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Pdf.v24.1.Drawing.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Pdf.v24.1.Drawing.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Printing.v24.1.Core">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Printing.v24.1.Core.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Printing.v24.1.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Xpf.Core.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Xpf.Core.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Core.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Xpf.Docking.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Xpf.Docking.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Docking.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Xpf.Layout.v24.1.Core">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Xpf.Layout.v24.1.Core.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Layout.v24.1.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="DevExpress.Xpf.Themes.Office2019Black.v24.1">
-      <HintPath>C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</HintPath>
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <!--
@@ -105,7 +112,7 @@
     PR-D7.3 dark theme — Promaker 다크 테마와 색차 최소화 위해 Office2019Black 채택 (Colorful → Black 변경).
   -->
   <ItemGroup>
-    <Content Include="C:\Program Files\DevExpress 24.1\Components\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll">
+    <Content Include="$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll">
       <Link>DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
