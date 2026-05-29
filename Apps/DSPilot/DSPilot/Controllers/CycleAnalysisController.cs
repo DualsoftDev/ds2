@@ -143,6 +143,45 @@ public class CycleAnalysisController : ControllerBase
         return dto;
     }
 
+    /// <summary>
+    /// Excel(.xlsx) 내보내기. gantt-data 와 동일한 분석을 다시 돌려 <see cref="GanttChartData"/> 를 얻은 뒤
+    /// <see cref="CycleTimeChartExporter.BuildExcelBytes"/> 에 Blazor ExportGanttExcel 과 동일한 인자
+    /// (data, displayLaneOrder, idleRegions) 를 넘긴다.
+    ///
+    /// displayLaneOrder: 정적 페이지는 정렬 상태를 서버로 보내지 않으므로 기본 정렬(ByLane = lane 오름차순)의
+    /// 서버 측 등가물을 계산한다(Blazor GetDisplayLaneOrder 의 default 분기와 동일).
+    /// idleRegions: gantt-data 와 동일하게 LoadIdleEdgesAsync + BuildIdleRegionsFromEdges 로 산출.
+    /// antiforgery 미적용 평범한 POST. 파일명 = CycleTime_&lt;flow&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx.
+    /// </summary>
+    [HttpPost("export-excel")]
+    public async Task<IActionResult> ExportExcel([FromBody] GanttRequest req)
+    {
+        if (string.IsNullOrEmpty(req.FlowName))
+            return BadRequest("flowName required");
+
+        var start = ParseLocal(req.Start) ?? DateTime.Now.AddMinutes(-1);
+        var end = ParseLocal(req.End) ?? DateTime.Now;
+
+        var dataTask = _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(req.FlowName, start, end);
+        var idleEdgesTask = LoadIdleEdgesAsync(req.FlowName, start, end);
+        await Task.WhenAll(dataTask, idleEdgesTask);
+
+        var data = dataTask.Result;
+        var idleEdges = idleEdgesTask.Result;
+        var idleRegions = BuildIdleRegionsFromEdges(idleEdges, start, end);
+
+        // 기본 정렬(ByLane) 등가물 — lane 오름차순.
+        var displayLaneOrder = data.Items
+            .Select(i => i.Lane)
+            .Distinct()
+            .OrderBy(lane => lane)
+            .ToList();
+
+        var bytes = CycleTimeChartExporter.BuildExcelBytes(data, displayLaneOrder, idleRegions);
+        var fileName = $"CycleTime_{req.FlowName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, CycleTimeChartExporter.XlsxMimeType, fileName);
+    }
+
     // ─── Blazor LoadIdleEdgesAsync 와 동일 ────────────────────────────────────
     private async Task<List<DateTime>> LoadIdleEdgesAsync(string flowName, DateTime start, DateTime end)
     {

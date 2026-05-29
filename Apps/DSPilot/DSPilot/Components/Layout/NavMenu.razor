@@ -8,11 +8,11 @@
 <nav class="nav-menu">
     <div style="display:flex; align-items:center; border-radius:4px;
                 background: @(_isHome ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
-        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"
+        <a class="nav-link" href="/"
                  style="flex:1; min-width:0; background: transparent !important;">
             <span class="material-icons">space_dashboard</span>
             대시보드
-        </NavLink>
+        </a>
         <button class="btn btn-sm @(EditService.IsEditing ? "btn-filled color-warning" : "btn-outlined")"
                 @onclick="EditService.Toggle"
                 style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
@@ -20,66 +20,34 @@
             @(EditService.IsEditing ? "완료" : "편집")
         </button>
     </div>
-    <NavLink class="nav-link" href="heatmap" Match="NavLinkMatch.Prefix">
+    @* 격리형 호스팅: 주요 페이지는 정적(/route)으로 대체됨 → NavLink(회로 내 라우팅) 대신 일반 a 태그(전체 페이지 이동)로 정적 페이지 로드 *@
+    <a class="nav-link" href="/heatmap">
         <span class="material-icons">gradient</span>
         동작편차
-    </NavLink>
-    @* 격리형 호스팅(정적 HTML/JS) 레퍼런스 페이지 — Blazor 라우터 밖이므로 NavLink 가 아닌 일반 a 태그(전체 페이지 이동) *@
-    <a class="nav-link" href="/app/dashboard.html">
-        <span class="material-icons">auto_awesome</span>
-        대시보드 (신규 UI)
     </a>
-    <a class="nav-link" href="/app/heatmap.html">
-        <span class="material-icons">auto_awesome</span>
-        동작편차 (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/user-tags.html">
-        <span class="material-icons">auto_awesome</span>
-        이상발생 관리 (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/cctv.html">
-        <span class="material-icons">auto_awesome</span>
-        CCTV (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/cycle-time-analysis.html">
-        <span class="material-icons">auto_awesome</span>
-        사이클 분석 (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/call-test.html">
-        <span class="material-icons">auto_awesome</span>
-        Call 사이클 (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/plc-debug.html">
-        <span class="material-icons">auto_awesome</span>
-        PLC 디버그 (신규 UI)
-    </a>
-    <a class="nav-link" href="/app/settings.html">
-        <span class="material-icons">auto_awesome</span>
-        설정 (신규 UI)
-    </a>
-    <NavLink class="nav-link" href="cycle-time-analysis" Match="NavLinkMatch.Prefix">
+    <a class="nav-link" href="/cycle-time-analysis">
         <span class="material-icons">equalizer</span>
         사이클 분석
-    </NavLink>
-    <NavLink class="nav-link" href="call-test" Match="NavLinkMatch.Prefix">
+    </a>
+    <a class="nav-link" href="/call-test">
         <span class="material-icons">play_circle</span>
         Call 사이클
-    </NavLink>
-    <NavLink class="nav-link" href="user-tags" Match="NavLinkMatch.Prefix">
+    </a>
+    <a class="nav-link" href="/user-tags">
         <span class="material-icons">crisis_alert</span>
         이상발생 관리
-    </NavLink>
-    <NavLink class="nav-link" href="cctv" Match="NavLinkMatch.Prefix">
+    </a>
+    <a class="nav-link" href="/cctv">
         <span class="material-icons">videocam</span>
         CCTV
-    </NavLink>
+    </a>
 
     @if (_showPlcDebug)
     {
-        <NavLink class="nav-link" href="plc-debug" Match="NavLinkMatch.Prefix">
+        <a class="nav-link" href="/plc-debug">
             <span class="material-icons">bug_report</span>
             PLC 디버그
-        </NavLink>
+        </a>
     }
 
     <hr class="divider" style="margin: 8px 0;" />
