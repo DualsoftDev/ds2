@@ -44,7 +44,7 @@ module CaptionGenerator =
     let private CaptionPrompt =
         "이 이미지를 한국어로 1~2문장으로 설명해주세요. 도면/표/그래프인 경우 안에 보이는 라벨/번호/태그(예: CV01, DI12)를 우선 인용해주세요."
 
-    /// `/indexer` skill 의 caption-prompt fetch SSOT (`todo-lighthouse-indexer-claude-caption.md` §2 #5).
+    /// `/indexer` skill 의 caption-prompt fetch SSOT (`done-lighthouse-indexer-claude-caption.md` §2 #5).
     /// `lighthouse-cli print-caption-prompt` 가 본 함수를 호출해 stdout 출력 → skill 이 subagent prompt 에 박제.
     /// literal 사본 박제 회피 — lib 의 prompt 변경 = 자동 전파.
     let promptText () : string = CaptionPrompt

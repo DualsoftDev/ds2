@@ -32,7 +32,7 @@
     <!-- PR-I1 (todo-documents-based-gfm.md §2 + §11.4) — strategy interface + IoListStrategy +
          XlsxSignatureClassifier + Diagnostics schema 회귀. 기존 *Tests.fs 다음 (alphabetical 마지막). -->
     <Compile Include="XlsxStrategiesTests.fs" />
-    <!-- PR-I (todo-lighthouse-iolist-v2.md Phase 5) — IoListStrategy v2 회귀 가드.
+    <!-- PR-I (done-lighthouse-iolist-v2.md Phase 5) — IoListStrategy v2 회귀 가드.
          22-col 6-col block reshape (Phase 1) + 27-col RB 자동 흡수 (Phase 3) + cap policy
          device-aware sampling (Phase 4) + 검열 Major fix (Phase 5) 의 회귀 가드. -->
     <Compile Include="IoListStrategyTests.fs" />

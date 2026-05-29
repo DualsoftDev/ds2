@@ -13,7 +13,7 @@ open DocumentFormat.OpenXml
 open DocumentFormat.OpenXml.Packaging
 open DocumentFormat.OpenXml.Spreadsheet
 
-/// **PR-I (todo-lighthouse-iolist-v2.md Phase 5)** — IoListStrategy v2 회귀 가드.
+/// **PR-I (done-lighthouse-iolist-v2.md Phase 5)** — IoListStrategy v2 회귀 가드.
 ///
 /// 본 신규 test 묶음은 Phase 1 (22-col 6-col block fix) + Phase 3 (27-col RB 자동 흡수) +
 /// Phase 4 (cap policy device-aware sampling) + Phase 5 (검열 Major fix) 의 회귀 가드.
