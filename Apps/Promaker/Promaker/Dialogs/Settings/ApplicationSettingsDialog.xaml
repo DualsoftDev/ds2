@@ -125,395 +125,423 @@
                 </TabItem>
 
                 <!-- 탭 3: LLM (Phase 2 PR-B + PR-D) — API keys (DPAPI) / Models (editable ComboBox) / Ollama / Consent.
-                     Default provider 는 LLM Chat 패널 ComboBox 의 마지막 선택이 자동으로 영구 저장됨 (PR-D). -->
+                     Default provider 는 LLM Chat 패널 ComboBox 의 마지막 선택이 자동으로 영구 저장됨 (PR-D).
+                     ApplicationSettingsDialog.xaml — LLM 탭 내부를 3 하위 탭으로 재구성 (모델·API / 지식베이스(KB) / 고급·정책).
+                     Vision(VLM) 은 KB 색인 파이프라인 전용 (AttachmentIngestService.BuildCaptionGen) 이므로 KB 탭에 통합.
+                     모든 컨트롤 x:Name 은 보존 — code-behind NameScope 는 Window 전체이므로 sub-tab 래핑에도 무영향. -->
                 <TabItem Header="LLM">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                        <StackPanel>
-                            <!-- API keys -->
-                            <TextBlock Text="API 키 (DPAPI 암호화 저장)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
+                    <TabControl Margin="0,4,0,0">
+                        <!-- LLM 하위 탭 1: 모델 · API (API 키 + 모델명 + Ollama base URL) -->
+                        <TabItem Header="모델 · API">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                                <StackPanel>
+                                    <!-- API keys -->
+                                    <TextBlock Text="API 키 (DPAPI 암호화 저장)"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,8"/>
 
-                            <TextBlock Text="Anthropic API key" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="LlmAnthropicKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="지우기"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmClearAnthropicKey_Click"/>
-                            </Grid>
+                                    <TextBlock Text="Anthropic API key" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="LlmAnthropicKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                        <Button Grid.Column="2" Content="지우기"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmClearAnthropicKey_Click"/>
+                                    </Grid>
 
-                            <TextBlock Text="OpenAI API key" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="LlmOpenAiKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="지우기"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmClearOpenAiKey_Click"/>
-                            </Grid>
+                                    <TextBlock Text="OpenAI API key" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="LlmOpenAiKeyBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                        <Button Grid.Column="2" Content="지우기"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmClearOpenAiKey_Click"/>
+                                    </Grid>
 
-                            <!-- Models -->
-                            <TextBlock Text="모델명"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
+                                    <!-- Models -->
+                                    <TextBlock Text="모델명"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,8"/>
 
-                            <!-- Hot-fix-8 v3: IsEditable ComboBox quirks 회피 — TextBox + dropdown Button (▾) + ContextMenu.
-                                 Button click → 후보 ContextMenu 표시 → 선택 시 TextBox.Text 채움. 직접 입력도 가능. -->
-                            <TextBlock Text="Anthropic" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmAnthropicModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
-                                <Button Grid.Column="1" x:Name="LlmAnthropicCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmAnthropicCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
+                                    <!-- Hot-fix-8 v3: IsEditable ComboBox quirks 회피 — TextBox + dropdown Button (▾) + ContextMenu.
+                                         Button click → 후보 ContextMenu 표시 → 선택 시 TextBox.Text 채움. 직접 입력도 가능. -->
+                                    <TextBlock Text="Anthropic" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="LlmAnthropicModelBox" Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
+                                        <Button Grid.Column="1" x:Name="LlmAnthropicCandidatesButton" Content="▾"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Margin="4,0,0,0"
+                                                Click="LlmAnthropicCandidates_Click"
+                                                ToolTip="추천 모델 후보"/>
+                                    </Grid>
 
-                            <TextBlock Text="OpenAI" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmOpenAiModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
-                                <Button Grid.Column="1" x:Name="LlmOpenAiCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmOpenAiCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
+                                    <TextBlock Text="OpenAI" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="LlmOpenAiModelBox" Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="모델 ID 직접 입력 또는 ▾ 버튼으로 후보 선택"/>
+                                        <Button Grid.Column="1" x:Name="LlmOpenAiCandidatesButton" Content="▾"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Margin="4,0,0,0"
+                                                Click="LlmOpenAiCandidates_Click"
+                                                ToolTip="추천 모델 후보"/>
+                                    </Grid>
 
-                            <TextBlock Text="Ollama" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="LlmOllamaModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="모델 ID 직접 입력 (`ollama list` 결과 참조) 또는 ▾ 버튼"/>
-                                <Button Grid.Column="1" x:Name="LlmOllamaCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="LlmOllamaCandidates_Click"
-                                        ToolTip="추천 모델 후보"/>
-                            </Grid>
+                                    <TextBlock Text="Ollama" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="LlmOllamaModelBox" Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="모델 ID 직접 입력 (`ollama list` 결과 참조) 또는 ▾ 버튼"/>
+                                        <Button Grid.Column="1" x:Name="LlmOllamaCandidatesButton" Content="▾"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Margin="4,0,0,0"
+                                                Click="LlmOllamaCandidates_Click"
+                                                ToolTip="추천 모델 후보"/>
+                                    </Grid>
 
-                            <!-- Ollama base URL + 연결 확인 -->
-                            <TextBlock Text="Ollama base URL"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="LlmOllamaBaseUrlBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
-                                <Button Grid.Column="2" Content="연결 확인"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmTestOllama_Click"/>
-                            </Grid>
-                            <TextBlock x:Name="LlmOllamaTestResult"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic"/>
+                                    <!-- Ollama base URL + 연결 확인 -->
+                                    <TextBlock Text="Ollama base URL"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="LlmOllamaBaseUrlBox" Grid.Column="0" Padding="6,4" FontFamily="Consolas"/>
+                                        <Button Grid.Column="2" Content="연결 확인"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmTestOllama_Click"/>
+                                    </Grid>
+                                    <TextBlock x:Name="LlmOllamaTestResult"
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,0,0,16" FontStyle="Italic"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
 
-                            <!-- User Prompts (사용자 추가 지침) — %APPDATA%\Dualsoft\Promaker\Prompts\*.md 자동 흡수.
-                                 폴더 열기 → OS Explorer. 편집은 .md 기본 핸들러에 위임 (P2). 다음 새 대화부터 반영 (R2b). -->
-                            <TextBlock Text="사용자 추가 지침 (User Prompts)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="LlmUserPromptsDirBox" Grid.Column="0"
-                                         Padding="6,4" FontFamily="Consolas" FontSize="11"
-                                         IsReadOnly="True"
-                                         Background="{DynamicResource PrimaryBackgroundBrush}"
-                                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                                <Button Grid.Column="2" Content="폴더 열기"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmOpenUserPromptsFolder_Click"/>
-                            </Grid>
-                            <TextBlock Text="폴더에 *.md 파일을 떨궈두면 system prompt 끝에 자동 합쳐집니다 (다음 LLM 호출부터 반영). 편집은 기본 .md 에디터로 진행."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+                        <!-- LLM 하위 탭 2: 지식베이스 (KB) — LightHouse Services + Embedding + Vision(이미지 색인 caption).
+                             색인 파이프라인 흐름 순서: Service(저장 대상) → Embedding(텍스트→벡터) → Vision(이미지→caption 텍스트). -->
+                        <TabItem Header="지식베이스 (KB)">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                                <StackPanel>
+                                    <!-- LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid -->
+                                    <TextBlock Text="LightHouse Services (Knowledge Base)"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock Text="여러 LightHouse Service 에 동시 접속할 수 있습니다. 같은 displayName 의 service 가 둘 이상이면 저장 불가."
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,4"/>
 
-                            <!-- VLM (Vision LM) — Phase 2 task D / E (s6-r20).
-                                 VLM API key 는 위의 Anthropic API key 를 재활용 (D-2-5 정합).
-                                 본 section 은 provider/model + daily token cap (E-i MR4) 만. -->
-                            <TextBlock Text="VLM (Vision — 이미지 caption 생성)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
+                                    <!-- 로컬 LightHouse 버튼 — 두 가지 path 분리:
+                                         (1) "Local 항목 추가" : 이미 service 가 떠 있는 상태에서 LlmConfig.LightHouseServices 에 row 만 추가
+                                             (config.json 의 listenUrl 자동 추출). PSK 는 row 의 'PSK 설정...' 버튼으로 별 입력.
+                                         (2) "Local 서비스 설치/재설치" : enable-ai.ps1 chain (Ollama / cert / install-service+PSK / firewall+start)
+                                             UAC + 수 분 소요. 기존 service 가 있으면 stop+delete+create 로 재설치 (PSK rotation).
+                                         IsEnabled 갱신은 code-behind 의 RefreshAddLocalEnabled (LightHouseServices CollectionChanged subscribe). -->
+                                    <Grid Margin="0,4,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" x:Name="LhAddLocalEntryButton"
+                                                Content="Local 항목 추가"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="12,4"
+                                                Click="LhAddLocalEntry_Click"
+                                                ToolTip="config.json 의 listenUrl 을 읽어 LightHouse Services 목록에 Local 항목 추가 (PSK 는 row 의 'PSK 설정...' 으로 별 입력). 동일 endpoint 항목이 이미 있으면 비활성."/>
+                                        <Button Grid.Column="2" x:Name="LhEnableLocalButton"
+                                                Content="Local 서비스 설치/재설치"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="12,4"
+                                                Click="LhEnableLocal_Click"
+                                                ToolTip="Ollama + bge-m3 설치 + self-signed cert + sc create Ds2.LightHouseService + 8443 방화벽 + service start (UAC 권한 필요, 기존 service 가 있으면 PSK rotation 으로 재설치)"/>
+                                        <TextBlock Grid.Column="4" x:Name="LhEnableLocalStatus"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   FontStyle="Italic" TextWrapping="Wrap"/>
+                                    </Grid>
 
-                            <TextBlock Text="Provider" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <ComboBox x:Name="VlmProviderBox" Margin="0,0,0,8" Padding="6,2"
-                                      ToolTip="이미지 caption 생성 LLM. anthropic = 위 Anthropic API key 재활용. none = caption 미생성.">
-                                <ComboBoxItem Content="anthropic"/>
-                                <ComboBoxItem Content="none"/>
-                            </ComboBox>
+                                    <DataGrid x:Name="LhServicesGrid"
+                                              AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                              HeadersVisibility="Column" GridLinesVisibility="None"
+                                              RowHeaderWidth="0" SelectionMode="Single" SelectionUnit="FullRow"
+                                              Background="{DynamicResource BackgroundBrush}"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              RowBackground="{DynamicResource BackgroundBrush}"
+                                              AlternatingRowBackground="{DynamicResource SurfaceBrush}"
+                                              MinHeight="100" MaxHeight="220" Margin="0,0,0,4">
+                                        <DataGrid.Columns>
+                                            <DataGridCheckBoxColumn Header="Active" Binding="{Binding Active, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                                            <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                            <DataGridTextColumn Header="Base URL (HTTPS)" Binding="{Binding BaseUrl, UpdateSourceTrigger=PropertyChanged}" Width="2*"/>
+                                            <DataGridTemplateColumn Header="PSK" Width="120">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="설정..." Style="{StaticResource DarkButton}"
+                                                                Padding="6,2" Margin="2"
+                                                                Click="LhEditPsk_Click"
+                                                                Tag="{Binding ServiceId}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <!-- B5 phase 2 (s6-r64) — mTLS client cert 선택 (LocalMachine\My X509Store). 선택된 cert
+                                                 의 thumbprint 마지막 8 자리 표시. 미설정 시 "(없음)". 클릭 = X509Certificate2UI.SelectFromCollection.
+                                                 B5 phase 3 (s6-r68) — '검증' 버튼 추가 + thumbprint 직접 편집 TextBox 추가 (paste 가능). -->
+                                            <DataGridTemplateColumn Header="Client Cert" Width="220">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Button Content="선택..." Style="{StaticResource DarkButton}"
+                                                                    Padding="6,2" Margin="2"
+                                                                    Click="LhSelectCert_Click"
+                                                                    Tag="{Binding ServiceId}"
+                                                                    ToolTip="LocalMachine\My X509Store 에서 client cert 선택 (mTLS)"/>
+                                                            <Button Content="검증" Style="{StaticResource DarkButton}"
+                                                                    Padding="6,2" Margin="2"
+                                                                    Click="LhValidateCert_Click"
+                                                                    Tag="{Binding ServiceId}"
+                                                                    ToolTip="thumbprint 의 cert validity (NotAfter / X509Store 일치) 검증"/>
+                                                            <TextBox Text="{Binding ClientCertThumbprint, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                                     VerticalAlignment="Center"
+                                                                     FontSize="10" FontFamily="Consolas"
+                                                                     Width="90" Margin="4,0,0,0"
+                                                                     ToolTip="thumbprint 직접 편집 (paste 가능, SHA-1 40 hex / SHA-256 64 hex). 빈 값 = mTLS 비활성."/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="연결 테스트" Width="100">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="테스트" Style="{StaticResource DarkButton}"
+                                                                Padding="6,2" Margin="2"
+                                                                Click="LhTestConnection_Click"
+                                                                Tag="{Binding ServiceId}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="" Width="70">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="제거" Style="{StaticResource DarkButton}"
+                                                                Padding="6,2" Margin="2"
+                                                                Click="LhRemoveService_Click"
+                                                                Tag="{Binding ServiceId}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Content="+ Add Service"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LhAddService_Click"/>
+                                    </Grid>
+                                    <TextBlock x:Name="LhTestResult"
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
 
-                            <TextBlock Text="VLM Model" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="VlmModelBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="vision 사용 모델 — default claude-sonnet-4-6 (cost 균형, D-2-1 정합)"/>
-                                <Button Grid.Column="1" x:Name="VlmModelCandidatesButton" Content="▾"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Margin="4,0,0,0"
-                                        Click="VlmModelCandidates_Click"
-                                        ToolTip="vision 모델 후보"/>
-                            </Grid>
+                                    <!-- s6-r38 P4-C.2 — Embedding (vector retrieval) section. active service 1개 가정.
+                                         active service 가 0건 / 다수 시점은 backlog 박제 (multi-service per-service UI 진입). -->
+                                    <TextBlock Text="Embedding (벡터 검색)"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock Text="활성 LightHouse Service 의 색인에 사용할 embedding backend. 비활성화 시 BM25 키워드 검색만 사용."
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                    <CheckBox x:Name="EmbeddingEnabledCheck"
+                                              Content="Embedding 활성화 (Ollama)"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              Margin="0,0,0,8"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Base URL" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <TextBox x:Name="EmbeddingBaseUrlBox" Grid.Column="1"
+                                                 Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="예: http://localhost:11434"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Model" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <TextBox x:Name="EmbeddingModelBox" Grid.Column="1"
+                                                 Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="예: bge-m3 (1024 dim), nomic-embed-text (768 dim)"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Dimension" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <TextBox x:Name="EmbeddingDimensionBox" Grid.Column="1"
+                                                 Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="sqlite-vec schema 와 정합 의무. lib default = 1024 (bge-m3)."/>
+                                    </Grid>
 
-                            <TextBlock Text="Daily Vision Token Cap (MR4)" FontSize="11"
-                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="VlmDailyTokenCapBox" Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="하루 누적 vision token 한도. 초과 시 caption 자동 skip + 다음 날 재시도."/>
-                                <Button Grid.Column="2" Content="reset 누적"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="VlmResetCostGate_Click"
-                                        ToolTip="오늘 누적 token 을 0 으로 초기화"/>
-                            </Grid>
-                            <TextBlock x:Name="VlmCostGateStatusText"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+                                    <!-- VLM (Vision LM) — Phase 2 task D / E (s6-r20).
+                                         VLM API key 는 모델·API 탭의 Anthropic API key 를 재활용 (D-2-5 정합).
+                                         본 section 은 provider/model + daily token cap (E-i MR4) 만.
+                                         KB 색인 전용 — AttachmentIngestService.BuildCaptionGen 의 captionGen closure 가 사용.
+                                         LLM 대화(LlmChatViewModel) 경로에서는 호출되지 않음. -->
+                                    <TextBlock Text="Vision (이미지 KB 색인 — caption 생성)"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,2"/>
+                                    <TextBlock Text="이미지를 KB 에 색인할 때만 사용됩니다. 이미지 → caption 텍스트를 만들어 검색 대상에 포함. LLM 대화 자체에는 영향 없음."
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,8"/>
 
-                            <!-- LightHouse Services (D-S7-3c, s6-r31) — multi-service DataGrid -->
-                            <TextBlock Text="LightHouse Services (Knowledge Base)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-                            <TextBlock Text="여러 LightHouse Service 에 동시 접속할 수 있습니다. 같은 displayName 의 service 가 둘 이상이면 저장 불가."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Provider" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <ComboBox x:Name="VlmProviderBox" Margin="0,0,0,8" Padding="6,2"
+                                              ToolTip="이미지 caption 생성 LLM. anthropic = 위 Anthropic API key 재활용. none = caption 미생성.">
+                                        <ComboBoxItem Content="anthropic"/>
+                                        <ComboBoxItem Content="none"/>
+                                    </ComboBox>
 
-                            <!-- 로컬 LightHouse 버튼 — 두 가지 path 분리:
-                                 (1) "Local 항목 추가" : 이미 service 가 떠 있는 상태에서 LlmConfig.LightHouseServices 에 row 만 추가
-                                     (config.json 의 listenUrl 자동 추출). PSK 는 row 의 'PSK 설정...' 버튼으로 별 입력.
-                                 (2) "Local 서비스 설치/재설치" : enable-ai.ps1 chain (Ollama / cert / install-service+PSK / firewall+start)
-                                     UAC + 수 분 소요. 기존 service 가 있으면 stop+delete+create 로 재설치 (PSK rotation).
-                                 IsEnabled 갱신은 code-behind 의 RefreshAddLocalEnabled (LightHouseServices CollectionChanged subscribe). -->
-                            <Grid Margin="0,4,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" x:Name="LhAddLocalEntryButton"
-                                        Content="Local 항목 추가"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="12,4"
-                                        Click="LhAddLocalEntry_Click"
-                                        ToolTip="config.json 의 listenUrl 을 읽어 LightHouse Services 목록에 Local 항목 추가 (PSK 는 row 의 'PSK 설정...' 으로 별 입력). 동일 endpoint 항목이 이미 있으면 비활성."/>
-                                <Button Grid.Column="2" x:Name="LhEnableLocalButton"
-                                        Content="Local 서비스 설치/재설치"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="12,4"
-                                        Click="LhEnableLocal_Click"
-                                        ToolTip="Ollama + bge-m3 설치 + self-signed cert + sc create Ds2.LightHouseService + 8443 방화벽 + service start (UAC 권한 필요, 기존 service 가 있으면 PSK rotation 으로 재설치)"/>
-                                <TextBlock Grid.Column="4" x:Name="LhEnableLocalStatus"
-                                           VerticalAlignment="Center"
-                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                           FontStyle="Italic" TextWrapping="Wrap"/>
-                            </Grid>
+                                    <TextBlock Text="VLM Model" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="VlmModelBox" Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="vision 사용 모델 — default claude-sonnet-4-6 (cost 균형, D-2-1 정합)"/>
+                                        <Button Grid.Column="1" x:Name="VlmModelCandidatesButton" Content="▾"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Margin="4,0,0,0"
+                                                Click="VlmModelCandidates_Click"
+                                                ToolTip="vision 모델 후보"/>
+                                    </Grid>
 
-                            <DataGrid x:Name="LhServicesGrid"
-                                      AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
-                                      HeadersVisibility="Column" GridLinesVisibility="None"
-                                      RowHeaderWidth="0" SelectionMode="Single" SelectionUnit="FullRow"
-                                      Background="{DynamicResource BackgroundBrush}"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      RowBackground="{DynamicResource BackgroundBrush}"
-                                      AlternatingRowBackground="{DynamicResource SurfaceBrush}"
-                                      MinHeight="100" MaxHeight="220" Margin="0,0,0,4">
-                                <DataGrid.Columns>
-                                    <DataGridCheckBoxColumn Header="Active" Binding="{Binding Active, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
-                                    <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                                    <DataGridTextColumn Header="Base URL (HTTPS)" Binding="{Binding BaseUrl, UpdateSourceTrigger=PropertyChanged}" Width="2*"/>
-                                    <DataGridTemplateColumn Header="PSK" Width="120">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Button Content="설정..." Style="{StaticResource DarkButton}"
-                                                        Padding="6,2" Margin="2"
-                                                        Click="LhEditPsk_Click"
-                                                        Tag="{Binding ServiceId}"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <!-- B5 phase 2 (s6-r64) — mTLS client cert 선택 (LocalMachine\My X509Store). 선택된 cert
-                                         의 thumbprint 마지막 8 자리 표시. 미설정 시 "(없음)". 클릭 = X509Certificate2UI.SelectFromCollection.
-                                         B5 phase 3 (s6-r68) — '검증' 버튼 추가 + thumbprint 직접 편집 TextBox 추가 (paste 가능). -->
-                                    <DataGridTemplateColumn Header="Client Cert" Width="220">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Button Content="선택..." Style="{StaticResource DarkButton}"
-                                                            Padding="6,2" Margin="2"
-                                                            Click="LhSelectCert_Click"
-                                                            Tag="{Binding ServiceId}"
-                                                            ToolTip="LocalMachine\My X509Store 에서 client cert 선택 (mTLS)"/>
-                                                    <Button Content="검증" Style="{StaticResource DarkButton}"
-                                                            Padding="6,2" Margin="2"
-                                                            Click="LhValidateCert_Click"
-                                                            Tag="{Binding ServiceId}"
-                                                            ToolTip="thumbprint 의 cert validity (NotAfter / X509Store 일치) 검증"/>
-                                                    <TextBox Text="{Binding ClientCertThumbprint, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
-                                                             VerticalAlignment="Center"
-                                                             FontSize="10" FontFamily="Consolas"
-                                                             Width="90" Margin="4,0,0,0"
-                                                             ToolTip="thumbprint 직접 편집 (paste 가능, SHA-1 40 hex / SHA-256 64 hex). 빈 값 = mTLS 비활성."/>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="연결 테스트" Width="100">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Button Content="테스트" Style="{StaticResource DarkButton}"
-                                                        Padding="6,2" Margin="2"
-                                                        Click="LhTestConnection_Click"
-                                                        Tag="{Binding ServiceId}"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="" Width="70">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Button Content="제거" Style="{StaticResource DarkButton}"
-                                                        Padding="6,2" Margin="2"
-                                                        Click="LhRemoveService_Click"
-                                                        Tag="{Binding ServiceId}"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="+ Add Service"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LhAddService_Click"/>
-                            </Grid>
-                            <TextBlock x:Name="LhTestResult"
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Daily Vision Token Cap (MR4)" FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="VlmDailyTokenCapBox" Padding="6,4" FontFamily="Consolas"
+                                                 ToolTip="하루 누적 vision token 한도. 초과 시 caption 자동 skip + 다음 날 재시도."/>
+                                        <Button Grid.Column="2" Content="reset 누적"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="VlmResetCostGate_Click"
+                                                ToolTip="오늘 누적 token 을 0 으로 초기화"/>
+                                    </Grid>
+                                    <TextBlock x:Name="VlmCostGateStatusText"
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
 
-                            <!-- s6-r38 P4-C.2 — Embedding (vector retrieval) section. active service 1개 가정.
-                                 active service 가 0건 / 다수 시점은 backlog 박제 (multi-service per-service UI 진입). -->
-                            <TextBlock Text="Embedding (벡터 검색)"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-                            <TextBlock Text="활성 LightHouse Service 의 색인에 사용할 embedding backend. 비활성화 시 BM25 키워드 검색만 사용."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                            <CheckBox x:Name="EmbeddingEnabledCheck"
-                                      Content="Embedding 활성화 (Ollama)"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      Margin="0,0,0,8"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Base URL" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                <TextBox x:Name="EmbeddingBaseUrlBox" Grid.Column="1"
-                                         Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="예: http://localhost:11434"/>
-                            </Grid>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Model" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                <TextBox x:Name="EmbeddingModelBox" Grid.Column="1"
-                                         Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="예: bge-m3 (1024 dim), nomic-embed-text (768 dim)"/>
-                            </Grid>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Dimension" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                <TextBox x:Name="EmbeddingDimensionBox" Grid.Column="1"
-                                         Padding="6,4" FontFamily="Consolas"
-                                         ToolTip="sqlite-vec schema 와 정합 의무. lib default = 1024 (bge-m3)."/>
-                            </Grid>
+                        <!-- LLM 하위 탭 3: 고급 · 정책 — User Prompts + 데이터 전송 동의 + HKMC -->
+                        <TabItem Header="고급 · 정책">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                                <StackPanel>
+                                    <!-- User Prompts (사용자 추가 지침) — %APPDATA%\Dualsoft\Promaker\Prompts\*.md 자동 흡수.
+                                         폴더 열기 → OS Explorer. 편집은 .md 기본 핸들러에 위임 (P2). 다음 새 대화부터 반영 (R2b). -->
+                                    <TextBlock Text="사용자 추가 지침 (User Prompts)"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="LlmUserPromptsDirBox" Grid.Column="0"
+                                                 Padding="6,4" FontFamily="Consolas" FontSize="11"
+                                                 IsReadOnly="True"
+                                                 Background="{DynamicResource PrimaryBackgroundBrush}"
+                                                 ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                                        <Button Grid.Column="2" Content="폴더 열기"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmOpenUserPromptsFolder_Click"/>
+                                    </Grid>
+                                    <TextBlock Text="폴더에 *.md 파일을 떨궈두면 system prompt 끝에 자동 합쳐집니다 (다음 LLM 호출부터 반영). 편집은 기본 .md 에디터로 진행."
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
 
-                            <!-- Consent -->
-                            <TextBlock Text="데이터 전송 동의"
-                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,8"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="LlmConsentStatusText" Grid.Column="0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"
-                                           TextWrapping="Wrap"/>
-                                <Button x:Name="LlmRevokeConsentButton" Grid.Column="2" Content="동의 철회"
-                                        Style="{StaticResource DarkButton}"
-                                        Padding="10,4" Click="LlmRevokeConsent_Click"/>
-                            </Grid>
-                            <TextBlock Text="동의 철회 시 LLM Chat 진입이 차단됩니다. 다음 진입 시 동의 다이얼로그가 다시 표시됩니다."
-                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                                       Margin="0,4,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                                    <!-- Consent -->
+                                    <TextBlock Text="데이터 전송 동의"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,8"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LlmConsentStatusText" Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                        <Button x:Name="LlmRevokeConsentButton" Grid.Column="2" Content="동의 철회"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmRevokeConsent_Click"/>
+                                    </Grid>
+                                    <TextBlock Text="동의 철회 시 LLM Chat 진입이 차단됩니다. 다음 진입 시 동의 다이얼로그가 다시 표시됩니다."
+                                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,4,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
 
-                            <!-- HKMC H-Chat panel (Phase 4) — ENABLE_HKMC 환경변수 on 일 때만 visible. -->
-                            <ContentPresenter x:Name="HkmcSection" Visibility="Collapsed"/>
-                        </StackPanel>
-                    </ScrollViewer>
+                                    <!-- HKMC H-Chat panel (Phase 4) — ENABLE_HKMC 환경변수 on 일 때만 visible. -->
+                                    <ContentPresenter x:Name="HkmcSection" Visibility="Collapsed" Margin="0,16,0,0"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
                 </TabItem>
 
                 <!-- 탭 4: 프리셋 -->
