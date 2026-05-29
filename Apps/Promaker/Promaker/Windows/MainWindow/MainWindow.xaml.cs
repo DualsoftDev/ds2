@@ -227,12 +227,32 @@ public partial class MainWindow : Window
     /// <summary>
     /// <see cref="SyncWelcomeCanvasVisibility"/> 의 guard 미적용 버전.
     /// 호출자가 이미 `_suppressAnchorSync=true` 안에 있을 때 사용 (이중 set 회피).
+    /// 사용자 의도 박제: HasProject=false 시 Log 제외 4 anchor (Explorer/Properties/History/Simulation) 자동 hide,
+    /// HasProject=true 시 자동 show. LlmChat 은 baseline §5 보존 (consent 흐름), Log 는 시스템 로그라 무관.
+    /// VM property 도 함께 sync 하여 보기 메뉴 체크박스 UI 와 일관.
     /// </summary>
     private void SyncWelcomeCanvasVisibilityNoGuard()
     {
         var hasProject = _vm.HasProject;
         dockHost.SetAnchorVisible("welcome", !hasProject);
         dockHost.SetAnchorVisible("canvas", hasProject);
+
+        // 4 anchor 도 HasProject 따라 자동 show/hide.
+        dockHost.SetAnchorVisible("explorer", hasProject);
+        dockHost.SetAnchorVisible("properties", hasProject);
+        dockHost.SetAnchorVisible("history", hasProject);
+        dockHost.SetAnchorVisible("simulation", hasProject);
+        _vm.IsExplorerVisible = hasProject;
+        _vm.IsPropertiesVisible = hasProject;
+        _vm.IsHistoryVisible = hasProject;
+        _vm.IsSimulationVisible = hasProject;
+
+        // 상단 ribbon 4 section (프로젝트/편집/연결/시뮬레이션) 도 HasProject 따라 자동 show/hide.
+        // 파일/기타 section 은 HasProject 무관 (NewProject/Open/Save/보기/설정 등 항상 필요).
+        _vm.IsToolbarProjectVisible = hasProject;
+        _vm.IsToolbarEditVisible = hasProject;
+        _vm.IsToolbarConnectVisible = hasProject;
+        _vm.IsToolbarSimulationVisible = hasProject;
     }
 
     private bool _llmChatDisposed;
