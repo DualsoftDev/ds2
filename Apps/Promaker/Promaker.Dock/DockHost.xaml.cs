@@ -147,14 +147,15 @@ public partial class DockHost : UserControl, IDockManager
     }
 
     /// <summary>
-    /// DockAnchorPosition → 미리 만든 LayoutPanel 매핑. PR-D2 의 enum 5 anchor 위치 + Document (별도 경로).
-    /// done-dock-avalon.md §3.1 안 A:
-    ///   Left=explorer / Bottom=simulation / RightTop=property / RightMiddle=history / RightBottom=llmchat.
+    /// DockAnchorPosition → 미리 만든 LayoutPanel 매핑. enum 6 anchor 위치 + Document (별도 경로).
+    /// post-D8 fix (Log 독립 anchor 승격) 매핑:
+    ///   Left=explorer / BottomLeft=simulation / BottomRight=log / RightTop=property / RightMiddle=history / RightBottom=llmchat.
     /// </summary>
     private LayoutPanel ResolveAnchorPanel(DockAnchorPosition position) => position switch
     {
         DockAnchorPosition.Left => _explorerPanel,
-        DockAnchorPosition.Bottom => _simulationPanel,
+        DockAnchorPosition.BottomLeft => _simulationPanel,
+        DockAnchorPosition.BottomRight => _logPanel,
         DockAnchorPosition.RightTop => _propertyPanel,
         DockAnchorPosition.RightMiddle => _historyPanel,
         DockAnchorPosition.RightBottom => _llmChatPanel,
