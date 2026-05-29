@@ -16,7 +16,7 @@ namespace Promaker.Dock;
 /// DX 의 System.Windows.Forms / System.Drawing transitive 가 Promaker 본체에 유입되지 않도록 격리.
 ///
 /// PR-D3~D6 단계:
-///   - done-dock-avalon.md §3.1 의 안 A 그대로 LayoutGroup 트리 구성 (XAML).
+///   - done-dock-devexpress.md §3 PR-D3 의 layout 설계 (Welcome/Canvas 통합 DocumentGroup) 그대로 LayoutGroup 트리 구성 (XAML).
 ///   - IDockManager 의 6 메서드 (RegisterAnchor / RegisterDocument / SetAnchorVisible / IsAnchorVisible /
 ///     SaveLayout / RestoreLayout) + 1 event (AnchorVisibilityChanged) 구현. dispatch 는
 ///     <see cref="DockAnchorPosition"/> switch.
