@@ -15,6 +15,7 @@
             </ResourceDictionary.MergedDictionaries>
             <pres:FileNameConverter x:Key="FileNameConverter"/>
             <pres:ZeroToVisibilityConverter x:Key="ZeroToVisibleConverter"/>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -22,6 +23,35 @@
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,0,1"
             Padding="6,2,6,4">
+        <!-- 우클릭 ContextMenu: 6 카테고리 (파일/프로젝트/편집/연결/시뮬레이션/기타) 보기/숨김 toggle.
+             보기 메뉴 (MainToolbarEtcContent.xaml) 의 CheckBox 와 visual 통일 — MenuItem 의 Template 을
+             CheckBox 로 완전 교체 (Icon/Header 등 default content 영역 제거). CheckBox.IsChecked 가 TemplatedParent
+             MenuItem.IsChecked 와 TwoWay 동기, MenuItem.IsCheckable=True 가 ContextMenu binding (ToolbarSections.cs
+             ObservableProperty) 와 sync. 현재 in-memory only — 영속화는 후속 PR. -->
+        <Border.ContextMenu>
+            <ContextMenu>
+                <ContextMenu.Resources>
+                    <Style x:Key="ToolbarSectionCheckMenuItem" TargetType="MenuItem">
+                        <Setter Property="IsCheckable" Value="True"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="MenuItem">
+                                    <CheckBox Content="{TemplateBinding Header}"
+                                              IsChecked="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              Margin="8,4"/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ContextMenu.Resources>
+                <MenuItem Header="파일"       Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarFileVisible,       Mode=TwoWay}"/>
+                <MenuItem Header="프로젝트"   Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarProjectVisible,    Mode=TwoWay}"/>
+                <MenuItem Header="편집"       Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarEditVisible,       Mode=TwoWay}"/>
+                <MenuItem Header="연결"       Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarConnectVisible,    Mode=TwoWay}"/>
+                <MenuItem Header="시뮬레이션" Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarSimulationVisible, Mode=TwoWay}"/>
+                <MenuItem Header="기타"       Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarEtcVisible,        Mode=TwoWay}"/>
+            </ContextMenu>
+        </Border.ContextMenu>
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/> <!-- 0: File -->
@@ -40,7 +70,8 @@
             </Grid.ColumnDefinitions>
 
             <!-- File Section -->
-            <Grid x:Name="ProjectQuickAccessSection" Grid.Column="0">
+            <Grid x:Name="ProjectQuickAccessSection" Grid.Column="0"
+                  Visibility="{Binding IsToolbarFileVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="NewProjectQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding NewProjectCommand}" ToolTip="{x:Static res:Strings.NewFileTooltip}">
@@ -118,10 +149,12 @@
                 <TextBlock Grid.Row="1" Text="파일" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
 
-            <Border x:Name="ProjectEditSeparator" Grid.Column="1" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ProjectEditSeparator" Grid.Column="1" Style="{StaticResource RibbonSectionSeparator}"
+                    Visibility="{Binding IsToolbarFileVisible, Converter={StaticResource BoolToVis}}"/>
 
             <!-- Project Properties Section -->
-            <Grid x:Name="ProjectPropertiesSection" Grid.Column="2">
+            <Grid x:Name="ProjectPropertiesSection" Grid.Column="2"
+                  Visibility="{Binding IsToolbarProjectVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Button Style="{StaticResource RibbonFlatButton}"
                         Command="{Binding ShowProjectPropertiesCommand}"
@@ -135,10 +168,12 @@
                 </Button>
                 <TextBlock Grid.Row="1" Text="프로젝트" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="ProjectPropertiesEditSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ProjectPropertiesEditSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"
+                    Visibility="{Binding IsToolbarProjectVisible, Converter={StaticResource BoolToVis}}"/>
 
             <!-- Edit Section (편집 메뉴 드롭다운 + 검증 버튼 통합) -->
-            <Grid x:Name="EditSection" Grid.Column="4">
+            <Grid x:Name="EditSection" Grid.Column="4"
+                  Visibility="{Binding IsToolbarEditVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <StackPanel x:Name="EditRibbonContentPanel" Orientation="Horizontal">
                     <ToggleButton x:Name="EditMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="편집 메뉴" IsEnabled="{Binding HasProject}">
@@ -184,10 +219,12 @@
                 </StackPanel>
                 <TextBlock Grid.Row="1" Text="편집" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="EditConnectSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="EditConnectSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"
+                    Visibility="{Binding IsToolbarEditVisible, Converter={StaticResource BoolToVis}}"/>
 
             <!-- Connect Section (dropdown with arrow type selection) -->
-            <Grid x:Name="ConnectSection" Grid.Column="6">
+            <Grid x:Name="ConnectSection" Grid.Column="6"
+                  Visibility="{Binding IsToolbarConnectVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectExecuteButton" Style="{StaticResource RibbonFlatButton}"
@@ -402,10 +439,13 @@
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="연결" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="ConnectSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ConnectSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"
+                    Visibility="{Binding IsToolbarConnectVisible, Converter={StaticResource BoolToVis}}"/>
 
-            <controls:MainToolbarSimulationContent Grid.Column="8" DataContext="{Binding}"/>
-            <controls:MainToolbarEtcContent Grid.Column="11" Grid.ColumnSpan="2" DataContext="{Binding}"/>
+            <controls:MainToolbarSimulationContent Grid.Column="8" DataContext="{Binding}"
+                                                   Visibility="{Binding IsToolbarSimulationVisible, Converter={StaticResource BoolToVis}}"/>
+            <controls:MainToolbarEtcContent Grid.Column="11" Grid.ColumnSpan="2" DataContext="{Binding}"
+                                            Visibility="{Binding IsToolbarEtcVisible, Converter={StaticResource BoolToVis}}"/>
         </Grid>
     </Border>
 </UserControl>

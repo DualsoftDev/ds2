@@ -49,27 +49,50 @@ type DsStoreCallMoveExtensions =
             && Queries.isCallNameUniqueInWork targetWork.Id call.Name (Some call.Id) store
         | None -> false
 
+    /// 단일 call 의 attached arrow 제거 + ParentId 변경. *반드시* WithTransaction 안에서만 호출.
+    static member private MoveOneCallInTransaction(store: DsStore, call: Call, targetWork: Work) =
+        let attachedArrowIds =
+            store.ArrowCallsReadOnly.Values
+            |> Seq.filter (fun arrow -> arrow.SourceId = call.Id || arrow.TargetId = call.Id)
+            |> Seq.map (fun arrow -> arrow.Id)
+            |> Seq.toList
+        for arrowId in attachedArrowIds do
+            store.TrackRemove(store.ArrowCalls, arrowId)
+        store.TrackMutate(store.Calls, call.Id, fun current ->
+            current.ParentId <- targetWork.Id)
+
+    /// 여러 call 을 같은 flow 의 target work 로 *한 transaction(=1 undo step)* 으로 이동.
+    /// 이동 가능한 것만 옮기고 옮긴 개수를 반환. movable 판정은 단일 MoveCallToWork 와 동일하되,
+    /// 이번 batch 안에서 이미 옮기기로 한 이름과의 중복까지 누적 차단(루프 호출 시 동작과 동일).
+    [<Extension>]
+    static member MoveCallsToWork(store: DsStore, callIds: seq<Guid>, targetWorkId: Guid) : int =
+        let movables =
+            callIds
+            |> Seq.distinct
+            |> Seq.choose (fun id -> DsStoreCallMoveExtensions.TryGetMoveCandidate(store, id, targetWorkId))
+            |> Seq.fold
+                (fun (acc, takenNames: Set<string>) (call, sourceWork, targetWork) ->
+                    if sourceWork.Id <> targetWork.Id
+                       && sourceWork.ParentId = targetWork.ParentId
+                       && Queries.isCallNameUniqueInWork targetWork.Id call.Name (Some call.Id) store
+                       && not (takenNames.Contains call.Name) then
+                        (call, targetWork) :: acc, takenNames.Add call.Name
+                    else
+                        acc, takenNames)
+                ([], Set.empty)
+            |> fst
+            |> List.rev
+        if movables.IsEmpty then 0
+        else
+            store.WithTransaction("Move Call(s) To Work", fun () ->
+                for (call, targetWork) in movables do
+                    DsStoreCallMoveExtensions.MoveOneCallInTransaction(store, call, targetWork))
+            store.EmitRefreshAndHistory()
+            movables.Length
+
     [<Extension>]
     static member MoveCallToWork(store: DsStore, callId: Guid, targetWorkId: Guid) : bool =
-        match DsStoreCallMoveExtensions.TryGetMoveCandidate(store, callId, targetWorkId) with
-        | Some(call, sourceWork, targetWork)
-            when sourceWork.Id <> targetWork.Id
-                 && sourceWork.ParentId = targetWork.ParentId
-                 && Queries.isCallNameUniqueInWork targetWork.Id call.Name (Some call.Id) store ->
-            let attachedArrowIds =
-                store.ArrowCallsReadOnly.Values
-                |> Seq.filter (fun arrow -> arrow.SourceId = call.Id || arrow.TargetId = call.Id)
-                |> Seq.map (fun arrow -> arrow.Id)
-                |> Seq.toList
-
-            store.WithTransaction("Move Call To Work", fun () ->
-                for arrowId in attachedArrowIds do
-                    store.TrackRemove(store.ArrowCalls, arrowId)
-                store.TrackMutate(store.Calls, call.Id, fun current ->
-                    current.ParentId <- targetWork.Id))
-            store.EmitRefreshAndHistory()
-            true
-        | _ -> false
+        DsStoreCallMoveExtensions.MoveCallsToWork(store, Seq.singleton callId, targetWorkId) > 0
 
     /// RenameSourceSystem 모드 가능 여부를 사전 검사. (devAlias * conflict) list 반환.
     /// 빈 리스트면 Rename 모드 안전. UI Dialog 가 라디오 disable 여부 판단용으로 호출.

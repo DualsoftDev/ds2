@@ -117,6 +117,26 @@ module PasteTests =
         Assert.Equal<int list>(expectedPositions |> List.map (fun p -> p.Y), pastedPositions |> List.map (fun p -> p.Y))
 
     [<Fact>]
+    let ``PasteEntities Work copy keeps inner Call positions unchanged (no shift)`` () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.ApiA"; "Dev.ApiB" ], true, None)
+        let srcCalls = Queries.callsOf work.Id store |> List.sortBy (fun c -> c.Name)
+        srcCalls.[0].Position <- Some (Xywh(100, 50, 120, 40))
+        srcCalls.[1].Position <- Some (Xywh(300, 50, 120, 40))
+
+        // Work 를 통째로 복사 → 새 Work 는 독립 캔버스라 내부 Call 은 shift 되면 안 된다.
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0) |> unwrapOk
+        let pastedWorkId = pastedIds |> List.exactlyOne
+        let pastedCallPositions =
+            Queries.callsOf pastedWorkId store
+            |> List.sortBy (fun c -> c.Name)
+            |> List.map (fun c -> c.Position |> Option.get)
+
+        Assert.Equal<int list>([ 100; 300 ], pastedCallPositions |> List.map (fun p -> p.X))
+        Assert.Equal<int list>([ 50; 50 ], pastedCallPositions |> List.map (fun p -> p.Y))
+
+    [<Fact>]
     let ``PasteEntities keeps multiple Call order and relative positions`` () =
         let store = createStore ()
         let project, _, flow, work = setupBasicHierarchy store
@@ -317,6 +337,26 @@ module MoveTests =
 
         Assert.Equal(work1.Id, store.Calls.[callA.Id].ParentId)
         Assert.Equal(1, Queries.arrowCallsOf work1.Id store |> List.length)
+
+    [<Fact>]
+    let ``MoveCallsToWork moves multiple calls in a single undo step`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.ApiA"; "Dev.ApiB" ], true, None)
+        let calls = Queries.callsOf work1.Id store |> List.sortBy (fun c -> c.Name)
+        let callA, callB = calls.[0], calls.[1]
+
+        let moved = store.MoveCallsToWork([ callA.Id; callB.Id ], work2.Id)
+
+        Assert.Equal(2, moved)
+        Assert.Equal(work2.Id, store.Calls.[callA.Id].ParentId)
+        Assert.Equal(work2.Id, store.Calls.[callB.Id].ParentId)
+
+        // 핵심: 하나씩이 아니라 한꺼번에 — 단일 Undo 로 둘 다 원위치
+        store.Undo()
+        Assert.Equal(work1.Id, store.Calls.[callA.Id].ParentId)
+        Assert.Equal(work1.Id, store.Calls.[callB.Id].ParentId)
 
 // =============================================================================
 // Panel (도메인 타입 직접 사용)

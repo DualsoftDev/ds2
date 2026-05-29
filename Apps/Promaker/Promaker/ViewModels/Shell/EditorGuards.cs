@@ -138,7 +138,7 @@ public partial class MainViewModel
 
         if (!isCrossFlow)
         {
-            // Same flow → loop MoveCallToWork (move) or PasteEntities (copy)
+            // Same flow → MoveCallsToWork (move, 1 undo step) or PasteEntities (copy)
             if (copyMode)
             {
                 if (!TryEditorFunc(
@@ -153,12 +153,9 @@ public partial class MainViewModel
                 StatusText = $"Copied {ids.Length} Call(s).";
                 return true;
             }
-            var moved = 0;
-            foreach (var cid in callIds)
-            {
-                if (TryEditorFunc(() => _store.MoveCallToWork(cid, targetWorkId), out bool ok, fallback: false) && ok)
-                    moved++;
-            }
+            // Same flow → 한 transaction(=1 undo step)으로 일괄 이동
+            if (!TryEditorFunc(() => _store.MoveCallsToWork(callIds, targetWorkId), out int moved, fallback: 0))
+                return false;
             if (moved > 0) StatusText = $"Moved {moved} Call(s) within Flow.";
             return moved > 0;
         }
