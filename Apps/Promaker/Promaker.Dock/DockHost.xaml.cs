@@ -64,6 +64,7 @@ public partial class DockHost : UserControl, IDockManager
     public DockHost()
     {
         InitializeComponent();
+        ApplyDocumentGroupCaptionButtons();
 
         // PR-D5 — PR-D3 검열 M1 박제 처리: hook 시점을 Loaded 로 지연.
         // 사유: XAML 의 `_llmChatPanel Closed="True"` 초기 박제 + DX 의 ItemIsVisibleChanged 가
@@ -182,6 +183,24 @@ public partial class DockHost : UserControl, IDockManager
             // Promaker.Dock 에 log4net 미연결 — 최소 진단 흔적 (사용자 철학 "외부 예외는 log 남김").
             System.Diagnostics.Trace.TraceWarning($"DockHost.RestoreLayout failed for '{filepath}': {ex.Message}");
         }
+        // RestoreLayoutFromXml 이 _documentGroup 의 caption 버튼 숨김 설정을 기본값으로 되돌리므로 복원 후 재적용.
+        ApplyDocumentGroupCaptionButtons();
+    }
+
+    /// <summary>
+    /// Workspace 문서 영역(<see cref="_documentGroup"/>) caption 우측 기본 버튼 표시 숨김:
+    /// ▼ 문서목록 드롭다운(<see cref="DocumentGroup.ShowDropDownButton"/>) / ✕ 활성문서 닫기
+    /// (<see cref="DocumentGroup.ClosePageButtonShowMode"/>). **동작은 보존하고 표시만 차단** — Close 는 API 로 여전히 가능.
+    /// <para>
+    /// ctor + <see cref="RestoreLayout"/> 직후 양쪽에서 호출 필수. RestoreLayoutFromXml 은 이 두 속성을 XML 에
+    /// 직렬화하지 않아 복원 시 기본값(버튼 노출)으로 되돌리므로, 복원 후 재적용해야 설정이 유지됨
+    /// (XAML 선언으로는 복원에 덮어써져 무효 — 코드로 일원화).
+    /// </para>
+    /// </summary>
+    private void ApplyDocumentGroupCaptionButtons()
+    {
+        _documentGroup.ShowDropDownButton = false;
+        _documentGroup.ClosePageButtonShowMode = ClosePageButtonShowMode.NoWhere;
     }
 
     /// <summary>

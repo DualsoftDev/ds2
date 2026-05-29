@@ -94,15 +94,11 @@
 
                 <!-- Document area (Welcome / Canvas) — RegisterDocument 가 DocumentPanel 추가 -->
                 <!--
-                    caption 우측 기본 버튼(▼ 문서목록 드롭다운 / ✕ 활성문서 닫기) 표시 숨김 (DockHost.xaml).
-                    Promaker 의 Workspace 문서 영역은 사실상 단일 canvas 라 그룹 단위 닫기/문서 전환 드롭다운이
-                    불필요해 보임 — 다만 기능 제거 확신이 없어 **표시만** 끈다 (동작 자체는 보존):
-                      - ClosePageButtonShowMode="NoWhere" : caption/탭의 ✕ 버튼 비표시 (Close 동작은 API 로 여전히 가능).
-                      - ShowDropDownButton="False"        : 문서 목록 드롭다운(▼) 비표시.
-                    되살리려면 두 속성을 제거(기본값 복원)하면 됨. 개별 문서 탭의 닫기는 BaseLayoutItem.ShowCloseButton 으로 별도 제어. -->
-                <dxdo:DocumentGroup x:Name="_documentGroup"
-                                    ClosePageButtonShowMode="NoWhere"
-                                    ShowDropDownButton="False" />
+                    caption 우측 기본 버튼(▼ 문서목록 드롭다운 / ✕ 활성문서 닫기) 표시 숨김은
+                    code-behind 의 ApplyDocumentGroupCaptionButtons() 에서 설정 (DockHost.xaml.cs).
+                    XAML 속성으로 주면 RestoreLayoutFromXml(레이아웃 복원)이 해당 설정을 기본값으로 되돌려
+                    (XML 미직렬화 속성) 버튼이 다시 노출됨 — 복원 후 재적용이 필요해 코드로 일원화. -->
+                <dxdo:DocumentGroup x:Name="_documentGroup" />
 
                 <!-- Bottom: Simulation (좌) + Log (우) horizontal split. ItemHeight=200 박제, 사용자 docking 으로 재배치 가능. -->
                 <dxdo:LayoutGroup x:Name="_bottomGroup" Orientation="Horizontal" ItemHeight="200">
