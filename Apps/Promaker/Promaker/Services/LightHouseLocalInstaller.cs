@@ -20,7 +20,9 @@ namespace Promaker.Services;
 ///
 /// 운영 / 개발 환경 모두 동작:
 ///   운영 = {app}\LightHouseService\scripts\enable-ai.ps1  +  {app}\LightHouseService\Ds2.LightHouseService.exe
-///   개발 = repo/Solutions/Tools/Ds2.LightHouseService/scripts/enable-ai.ps1  +  .../bin/Release/net9.0/publish/Ds2.LightHouseService.exe
+///   개발 = repo/Solutions/Tools/Ds2.LightHouseService/scripts/enable-ai.ps1  +  exe 는 ResolveDeployment 의 devExeCandidates 후보
+///          (make publish-lighthouse → bin/Release/net9.0/win-x64/publish-self-contained|publish-framework-dependent,
+///           make install/light-house → bin/Release/net9.0/publish)
 /// </summary>
 public sealed class LightHouseLocalInstaller
 {
@@ -251,8 +253,19 @@ public sealed class LightHouseLocalInstaller
         {
             var devRoot = Path.Combine(repoRoot, "Solutions", "Tools", "Ds2.LightHouseService");
             var devScripts = Path.Combine(devRoot, "scripts");
-            var devExe = Path.Combine(devRoot, "bin", "Release", "net9.0", "publish", "Ds2.LightHouseService.exe");
-            if (Directory.Exists(devScripts) && File.Exists(devExe))
+            // dev exe 탐색 후보 (Makefile SSOT). `make publish-lighthouse` 는 LH_INSTALLER_PUBLISH
+            // (`bin/Release/net9.0/win-x64/publish-self-contained|publish-framework-dependent`, MODE=sc 기본/fd)
+            // 로, `make install`/`light-house`(콘솔) 은 LH_PUBLISH_DIR(`bin/Release/net9.0/publish`) 로 출력한다.
+            // 셋 다 순서대로 탐색 — sc 우선(dev 에서도 .NET 런타임 번들로 service 등록 안전).
+            var devBin = Path.Combine(devRoot, "bin", "Release", "net9.0");
+            string[] devExeCandidates =
+            {
+                Path.Combine(devBin, "win-x64", "publish-self-contained", "Ds2.LightHouseService.exe"),
+                Path.Combine(devBin, "win-x64", "publish-framework-dependent", "Ds2.LightHouseService.exe"),
+                Path.Combine(devBin, "publish", "Ds2.LightHouseService.exe"),
+            };
+            var devExe = devExeCandidates.FirstOrDefault(File.Exists);
+            if (Directory.Exists(devScripts) && devExe is not null)
                 return new Deployment(devScripts, devExe, IsOperational: false);
         }
 
