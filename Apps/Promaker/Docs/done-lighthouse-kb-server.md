@@ -369,6 +369,7 @@ Promaker:
 | `POST /collections/{id}/payload` | 재업로드 — 같은 id 에 새 zip swap | KbManagerDialog 의 "새 버전 업로드" (D5) |
 | `DELETE /collections/{id}` | 제거 (`Collections\<id>\` 전체 purge, D7) | KbManagerDialog 의 "제거" |
 | `GET /collections/{id}/files/{fileId}` | 원문 byte stream (PDF/DOCX/..., D6) | citation 클릭 시 |
+| `GET /collections/{id}/images/{hash}` | 이미지 1장 byte stream (content-addressed blob, `{hash}`=sha256 64hex; ETag/Range/304) | 도면·그래프 1장 보기 (attachment_search hit 의 `images[].hash` 사용) |
 | `GET /collections/{id}/files/{fileId}/thumbnail` | 미리보기 (Phase S7 옵션) | UI 보조 |
 | `POST /sessions` `{ collectionIds }` | active 셋 routing token 발급 (Q2 ATTACH limit hard fail 포함) | chat panel open |
 | `DELETE /sessions/{token}` | session 해제 | chat panel close / process exit |

@@ -457,6 +457,7 @@ PoC → production 전환 시:
 | `POST /collections/{id}/payload` | Bearer + X-User-Identity | 재업로드 |
 | `DELETE /collections/{id}` | Bearer + X-User-Identity | 제거 |
 | `GET /collections/{id}/files/{fileId}` | Bearer + X-User-Identity | citation 원문 stream |
+| `GET /collections/{id}/images/{hash}` | Bearer + X-User-Identity | 이미지 1장 stream (`{hash}`=sha256 64hex, content-addressed blob) |
 | `POST /sessions` `{collectionIds}` | Bearer + X-User-Identity | active 셋 routing token |
 | `DELETE /sessions/{token}` | Bearer + X-User-Identity | session 해제 |
 | `/mcp` (HTTP transport) | Bearer + X-LightHouse-Session | MCP tools: `attachment_list/_outline/_search/_read` |
