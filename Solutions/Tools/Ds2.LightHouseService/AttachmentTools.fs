@@ -276,7 +276,17 @@ type AttachmentTools() =
                             score = h.Score
                             excerpt = h.Excerpt
                             tokenCount = h.TokenCount
-                            hasImages = h.HasImages
+                            hasImages = h.HasImages   // 하위호환 — 기존 ev2 caller 유지
+                            // chunk 가 참조하는 이미지 hash 목록 (full 64자). frontend 가 `GET /collections/{id}/images/{hash}`
+                            // 로 가리킬 수 있도록 노출. caption 은 jsonOptions 에 F# option 컨버터 부재 → nullable string 변환.
+                            images =
+                                h.Images
+                                |> Array.map (fun im ->
+                                    {|
+                                        hash = im.Hash
+                                        ordinal = im.Ordinal
+                                        caption = (match im.Caption with Some c -> c | None -> null)
+                                    |})
                         |})
                 // **s6-r53 M11** — hint 박제 정책: caller 가 truncated/clamp 검출 가능. 기존 hint 와 결합 (semicolon 구분).
                 let baseHint = r.Hint |> Option.defaultValue null

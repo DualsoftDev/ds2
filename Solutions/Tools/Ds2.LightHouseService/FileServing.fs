@@ -97,6 +97,30 @@ module FileServing =
                     if info.Attributes.HasFlag(FileAttributes.ReparsePoint) then false
                     else info.Length = sizeBytes)
 
+    /// If-None-Match 헤더 ↔ `ETag("<hash>")` 비교 (RFC 7232 §3.2). `getFile` / `getImage` 공유 SSOT.
+    /// match (또는 `*`) 시 true → caller 가 304 + body 없음. 미존재 / mismatch 시 false.
+    ///
+    /// **review S4-M2 (RFC 7232 §3.2) + B9 (s6-r88, 15-reviewer Major)** — 이전 박제 (substring `Contains`) 는
+    /// multi-tag (`"a","b"`) 의 partial match + tag 안 hash substring false-positive risk. comma-split +
+    /// `W/` weak prefix strip + quote strip 후 exact equality. ASP.NET Core 의 Results.File 이 자동 처리하지만
+    /// 본 endpoint 는 IResult 미사용 (raw HttpContext) — Range 호환성 차원에서 명시 비교.
+    let private ifNoneMatchHit (ctx: HttpContext) (hash: string) : bool =
+        let ifNoneMatch =
+            match ctx.Request.Headers.TryGetValue HeaderNames.IfNoneMatch with
+            | true, v when v.Count >= 1 -> string v.[0]
+            | _ -> ""
+        if String.IsNullOrEmpty ifNoneMatch then false
+        elif ifNoneMatch.Trim() = "*" then true
+        else
+            ifNoneMatch.Split(',')
+            |> Array.exists (fun raw ->
+                let p = raw.Trim()
+                let stripped =
+                    if p.StartsWith("W/", StringComparison.OrdinalIgnoreCase) then p.Substring(2).Trim()
+                    else p
+                let unq = stripped.Trim().Trim('"')
+                String.Equals(unq, hash, StringComparison.Ordinal))
+
     /// `GET /collections/{id}/files/{fileId}` handler.
     /// test 단위 시험 위해 public (production caller 는 `map` 만 사용 의도).
     ///
@@ -154,29 +178,8 @@ module FileServing =
                             let contentType = contentTypeOf basename
                             let etag = EntityTagHeaderValue(Microsoft.Extensions.Primitives.StringSegment(sprintf "\"%s\"" fileHash))
 
-                            // If-None-Match 검사 — match 시 304 + body 없음.
-                            // ASP.NET Core 의 Results.File 이 자동 처리하지만 본 endpoint 는 IResult 미사용 (raw HttpContext).
-                            // 명시 처리 — Range 호환성 차원에서 If-None-Match 만 단순 비교.
-                            let ifNoneMatch =
-                                match ctx.Request.Headers.TryGetValue HeaderNames.IfNoneMatch with
-                                | true, v when v.Count >= 1 -> string v.[0]
-                                | _ -> ""
-                            // **review S4-M2 (RFC 7232 §3.2) + B9 (s6-r88, 15-reviewer Major)** — RFC 7232 정합.
-                            // 이전 박제 (substring `Contains`) 는 multi-tag (`"a","b"`) 의 partial match + tag
-                            // 안 hash substring false-positive risk. comma-split + W/ prefix strip + quote strip
-                            // 후 exact equality.
-                            let etagMatch =
-                                if String.IsNullOrEmpty ifNoneMatch then false
-                                elif ifNoneMatch.Trim() = "*" then true
-                                else
-                                    ifNoneMatch.Split(',')
-                                    |> Array.exists (fun raw ->
-                                        let p = raw.Trim()
-                                        let stripped =
-                                            if p.StartsWith("W/", StringComparison.OrdinalIgnoreCase) then p.Substring(2).Trim()
-                                            else p
-                                        let unq = stripped.Trim().Trim('"')
-                                        String.Equals(unq, fileHash, StringComparison.Ordinal))
+                            // If-None-Match 검사 — match 시 304 + body 없음. RFC 7232 정합은 `ifNoneMatchHit` SSOT.
+                            let etagMatch = ifNoneMatchHit ctx fileHash
                             if etagMatch then
                                 ctx.Response.Headers.[HeaderNames.ETag] <- Microsoft.Extensions.Primitives.StringValues(etag.ToString())
                                 ctx.Response.StatusCode <- 304
@@ -199,6 +202,86 @@ module FileServing =
                                 do! result.ExecuteAsync(ctx)
         } :> Task
 
+    /// `GET /collections/{id}/images/{hash}` handler — content-addressed 이미지 blob 1장 stream.
+    /// `{hash}` = `ImageCache.ImageHash` (sha256 64자 lowercase hex). test 단위 시험 위해 public (production
+    /// caller 는 `map` 만 사용 의도).
+    ///
+    /// `getFile` 패턴 그대로 복제 — multi-tenant Hidden / collection 미존재 / hash 미존재 / blob 부재 모두 동일
+    /// 404 (정보 leak 0). ETag(`"<hash>"`) + If-None-Match 304 + Range 지원. 이미지 blob 은 content-addressed
+    /// immutable 이라 source/ basename+size lookup (getFile) 불필요 — `lookupImage` 가 StoredPath 직접 반환.
+    let getImage
+        (cfg: ServiceConfig)
+        (storageRoot: string)
+        (id: string)
+        (hashRaw: string)
+        (ctx: HttpContext)
+        : Task =
+        task {
+            let user = userIdentityOf ctx
+            // hash 형식 검증 — 64 lowercase hex 만 (path traversal / injection 차단). lookupImage 진입 전 1차 가드.
+            let hash = if isNull hashRaw then "" else hashRaw.ToLowerInvariant()
+            let validHash =
+                hash.Length = 64
+                && hash |> Seq.forall (fun c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+            if not validHash then
+                Log.audit.Info(sprintf "image get: hash 형식 오류 — id=%s hash=%s by=%s"
+                    (Log.sanitizeForLog id) (Log.sanitizeForLog hashRaw) (Log.sanitizeForLog user))
+                do! writeError ctx 400 "image hash 형식 오류 — 64자 lowercase hex 필요"
+            else
+                match Registry.tryFindById storageRoot id with
+                | None ->
+                    Log.audit.Info(sprintf "image get: collection 미존재 — id=%s by=%s"
+                        (Log.sanitizeForLog id) (Log.sanitizeForLog user))
+                    do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+                | Some entry when
+                    (match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user entry with
+                     | MultiTenantPolicy.AccessDecision.Hidden -> true
+                     | _ -> false) ->
+                    // **s6-r70 review C-1 정합** — T2/T3 acl reject. cross-tenant download 차단 (Hidden = 404 정보 leak 0).
+                    Log.audit.Warn(sprintf "image get: acl reject (hidden) — id=%s by=%s mode=%s"
+                        (Log.sanitizeForLog id) (Log.sanitizeForLog user) cfg.MultiTenant.Mode)
+                    do! writeError ctx 404 (sprintf "collection 미존재 — id=%s" id)
+                | Some entry ->
+                    let collectionRoot = AttachmentResolver.collectionPath storageRoot entry.Id entry.DisplayName
+                    match Ds2.LightHouse.KnowledgeBase.lookupImage collectionRoot hash with
+                    | None ->
+                        Log.audit.Info(sprintf "image get: image 미존재 — id=%s hash=%s by=%s"
+                            (Log.sanitizeForLog id) (Log.sanitizeForLog hash) (Log.sanitizeForLog user))
+                        do! writeError ctx 404 (sprintf "image 미존재 — hash=%s" hash)
+                    | Some (storedPath, _) when not (File.Exists storedPath) ->
+                        Log.audit.Info(sprintf "image get: blob 파일 미존재 — id=%s hash=%s by=%s"
+                            (Log.sanitizeForLog id) (Log.sanitizeForLog hash) (Log.sanitizeForLog user))
+                        do! writeError ctx 404 "image blob 파일 미존재"
+                    | Some (storedPath, mimeType) ->
+                        let contentType =
+                            if String.IsNullOrEmpty mimeType then "application/octet-stream" else mimeType
+                        let ext = (Path.GetExtension storedPath).ToLowerInvariant()   // ".png" 등
+                        // Content-Disposition: attachment; filename="<hash12>.<ext>". hash 는 64자 검증 통과 → Substring 안전.
+                        let downloadName = sprintf "%s%s" (hash.Substring(0, 12)) ext
+                        let etag = EntityTagHeaderValue(Microsoft.Extensions.Primitives.StringSegment(sprintf "\"%s\"" hash))
+                        if ifNoneMatchHit ctx hash then
+                            ctx.Response.Headers.[HeaderNames.ETag] <- Microsoft.Extensions.Primitives.StringValues(etag.ToString())
+                            ctx.Response.StatusCode <- 304
+                            Log.audit.Info(sprintf "image get 304 (ETag match) — id=%s hash=%s by=%s"
+                                (Log.sanitizeForLog id) (Log.sanitizeForLog hash) (Log.sanitizeForLog user))
+                        else
+                            Log.audit.Info(sprintf "image get — id=%s hash=%s mime=%s by=%s"
+                                (Log.sanitizeForLog id) (Log.sanitizeForLog hash)
+                                (Log.sanitizeForLog contentType) (Log.sanitizeForLog user))
+                            // Results.File — Range / Content-Length / Last-Modified / Content-Disposition 자동 처리.
+                            // storedPath 는 hash → ImageCache.StoredPath 역조회 결과 (content-addressed, traversal 무관).
+                            let lastModified = File.GetLastWriteTimeUtc storedPath
+                            let result =
+                                Results.File(
+                                    path = storedPath,
+                                    contentType = contentType,
+                                    fileDownloadName = downloadName,
+                                    lastModified = Nullable(DateTimeOffset lastModified),
+                                    entityTag = etag,
+                                    enableRangeProcessing = true)
+                            do! result.ExecuteAsync(ctx)
+        } :> Task
+
     /// endpoint 등록. AuthMiddleware 뒤에 매핑.
     /// **s6-r70 review C-1**: cfg 인자 추가 (multi-tenant filter SSOT).
     let map (app: IEndpointRouteBuilder) (cfg: ServiceConfig) (storageRoot: string) =
@@ -206,3 +289,8 @@ module FileServing =
             let id = ctx.Request.RouteValues.["id"] |> string
             let fileId = ctx.Request.RouteValues.["fileId"] |> string
             getFile cfg storageRoot id fileId ctx)) |> ignore
+        // 이미지 1장 다운로드 — getFile 과 동일 AuthMiddleware (PSK + X-User-Identity) 뒤 자동 적용.
+        app.MapGet("/collections/{id}/images/{hash}", RequestDelegate(fun ctx ->
+            let id = ctx.Request.RouteValues.["id"] |> string
+            let hash = ctx.Request.RouteValues.["hash"] |> string
+            getImage cfg storageRoot id hash ctx)) |> ignore

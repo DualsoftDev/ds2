@@ -224,8 +224,59 @@ module Searcher =
             Excerpt     = truncateExcerpt text maxExcerptTokens
             TokenCount  = tokenCount
             HasImages   = imageCount > 0   // **C7 (s6-r57)** — Chunks.ImageCount > 0 정합 (§3.15.2 Phase 2 박제 활용)
+            Images      = [||]             // topK trim 직후 `enrichWithImages` 가 채움 (over-fetch 후보엔 미조회 — IO 절약)
         }
         { KbIdx = kbIdx; ChunkId = chunkId; Hit = hit; RawScore = rawScore }
+
+    /// 한 chunk 가 참조하는 이미지 — `SearchHit.Images` 박제용. `readImagesByRef` (docId+RefLocator 기반) 의
+    /// **chunkId 기반 변형** — `HasImages` (= `Chunks.ImageCount = COUNT(ImageReferences WHERE ChunkId=Chunks.Id)`)
+    /// 와 동일 셋 (RefLocator 기반은 같은 페이지 다른 chunk 까지 중복 노출 → HasImages 불일치).
+    ///
+    /// 본 쿼리는 ImageCache INNER JOIN — "동일 셋" 은 `ImageReferences.ImageHash → ImageCache` FK 무결성 가정 하
+    /// 성립 (`addImageReference` 가 항상 `upsertImageCache` 후 호출 → orphan ImageReference 0; `readImagesByRef`
+    /// 와 동일 JOIN). orphan 발생 시엔 HasImages=true 라도 빈 배열일 수 있으나 그 hash 는 blob 도 없어 다운로드 404.
+    ///
+    /// `alias` = 해당 collection 의 ATTACH alias (kb0..). `hash` 는 full 64자 — caller 가 그대로 노출.
+    /// 빈 결과 (chunkId 에 매핑된 ImageReference 없음 → HasImages=false) → 빈 배열.
+    let private readImagesByChunkId (conn: SqliteConnection) (alias: string) (chunkId: int64) : SearchHitImage array =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- sprintf """
+            SELECT ir.ImageHash, ir.Ordinal, ic.CaptionText
+            FROM %s.ImageReferences ir
+            JOIN %s.ImageCache ic ON ic.ImageHash = ir.ImageHash
+            WHERE ir.ChunkId = $chunk
+            ORDER BY ir.Ordinal
+        """ alias alias
+        cmd.Parameters.AddWithValue("$chunk", chunkId) |> ignore
+        use reader = cmd.ExecuteReader()
+        let acc = ResizeArray<SearchHitImage>()
+        while reader.Read() do
+            let hash    = reader.GetString 0
+            let ordinal = reader.GetInt32 1
+            let caption = if reader.IsDBNull 2 then None else Some (reader.GetString 2)
+            acc.Add { Hash = hash; Ordinal = ordinal; Caption = caption }
+        acc.ToArray()
+
+    /// 최종 (topK trim 된) keyed hit 목록의 `Images` 필드 박제. key = `<kbIdx>:<chunkId>` (runBm25/runVector 가 생성).
+    ///
+    /// over-fetch 후보 전체가 아닌 **최종 hit 만** 이미지 조회 (IO 절약). `HasImages=false` 인 hit 은 쿼리 skip —
+    /// `Chunks.ImageCount=0` 이라 ChunkId 매핑된 ImageReference 가 없음 (조회해도 빈 배열, fast path).
+    let private enrichWithImages
+        (conn: SqliteConnection)
+        (aliases: string array)
+        (keyed: (string * SearchHit) list)
+        : SearchHit array =
+        keyed
+        |> List.map (fun (key, hit) ->
+            if not hit.HasImages then hit
+            else
+                // key 형식 = `<kbIdx>:<chunkId>` — parseFileId 의 `<kbIdx>:<docId>` 와 형식 동일 (int:int64).
+                // 두 번째 요소만 chunkId 로 해석하는 형식-중립 재사용 (별도 파서 신설 회피).
+                match parseFileId key with
+                | Some (kbIdx, chunkId) when kbIdx >= 0 && kbIdx < aliases.Length ->
+                    { hit with Images = readImagesByChunkId conn aliases.[kbIdx] chunkId }
+                | _ -> hit)
+        |> List.toArray
 
     /// **Phase 4 (s6-r35)** — BM25 UNION ALL 결과를 dedup key (`<kbIdx>:<ChunkId>`) 순서로 반환.
     /// 반환 = ordered list of (key, hit). rank = list index.
@@ -406,8 +457,7 @@ module Searcher =
                 let trimmed =
                     bm25Hits
                     |> List.truncate topK
-                    |> List.map snd
-                    |> List.toArray
+                    |> enrichWithImages conn aliases
                 let hint =
                     if trimmed.Length = 0 then Some "synonym retry"
                     else None
@@ -438,7 +488,7 @@ module Searcher =
                 let vectorHits =
                     runVector conn aliases fileIdFilter queryVector perSystemLimit maxExcerptTokens
                 let merged, moreAvailable = rrfMerge bm25Hits vectorHits topK
-                let trimmed = merged |> List.map snd |> List.toArray
+                let trimmed = enrichWithImages conn aliases merged
                 let hint =
                     if trimmed.Length = 0 then Some "synonym retry"
                     else None
