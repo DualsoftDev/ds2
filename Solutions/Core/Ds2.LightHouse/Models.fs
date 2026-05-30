@@ -151,10 +151,26 @@ type Query = {
     FileId: string option
 }
 
+/// `SearchHit` 이 참조하는 한 이미지 — chunk ↔ image 매핑 (`ImageReferences.ChunkId` 기반).
+///
+/// `HasImages` (= `Chunks.ImageCount > 0`) 의 SSOT 와 동일 셋: `updateChunkImageCounts` 가
+/// `COUNT(ImageReferences WHERE ChunkId = Chunks.Id)` 로 ImageCount 를 박제하고, `ImageReferences.ChunkId` 는
+/// 한 RefLocator 의 **첫 chunk** 만 가리키므로 (Indexer C4 매핑), chunkId 기반 조회가 HasImages 와 정확히 정합.
+///   - `Hash` = sha256 64 char lowercase (**full** — frontend / 이미지 다운로드 endpoint 가 64자 요구).
+///   - `Ordinal` = 같은 chunk 안 N번째 (ImageReferences.Ordinal, asc 정렬).
+///   - `Caption` = `ImageCache.CaptionText` (미생성 시 None).
+type SearchHitImage = {
+    Hash: string
+    Ordinal: int
+    Caption: string option
+}
+
 /// MCP `attachment_search` 의 한 hit (§3.10 JSON schema 와 1:1 대응).
 ///
 /// `Ref` = 저장형 (`RefLocator` SSOT, §3.13). 표시형 변환은 LLM / UI 책임.
 /// `HasImages` = Phase 1 항상 false. Phase 2 부터 의미 부여.
+/// `Images` = 그 chunk 가 참조하는 이미지 hash 목록 (HasImages 와 동일 셋, 빈 배열 허용). frontend 가
+///            특정 이미지를 가리킬 수 있도록 full 64자 hash 노출 — `HasImages` 는 하위호환 유지 (기존 ev2 caller).
 type SearchHit = {
     FileId: string
     FileName: string
@@ -164,6 +180,7 @@ type SearchHit = {
     Excerpt: string
     TokenCount: int
     HasImages: bool
+    Images: SearchHitImage array
 }
 
 /// MCP `attachment_search` 응답 wrapper. `Hint` 는 0-hit 회복 안내 (예: "synonym retry").

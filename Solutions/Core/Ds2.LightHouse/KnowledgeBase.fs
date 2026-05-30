@@ -167,6 +167,17 @@ module KnowledgeBase =
     let lookupDocument (collectionRoot: string) (documentId: int64) : (string * string * int64) option =
         withReadOnlyConn collectionRoot (fun conn -> SqliteStore.findDocumentById conn documentId)
 
+    /// 단일 collection 의 ImageCache.ImageHash → (StoredPath, MimeType). 이미지 1장 다운로드 endpoint 용
+    /// (`GET /collections/{id}/images/{hash}`, FileServing.getImage). `lookupDocument` 와 동형 — `withReadOnlyConn`
+    /// SSOT + `ImageStore.getImageCache` 재사용 (반환 4-tuple 의 Width/Height 는 본 endpoint 미사용, 앞 2개만).
+    ///
+    /// `<collection-root>/.lighthouse-kb/index.db` 미존재 / open 실패 / hash 미존재 시 None
+    /// (caller 가 fail-safe 404). caller (FileServing) 가 StoredPath → File.Exists + Range stream 책임.
+    let lookupImage (collectionRoot: string) (imageHash: string) : (string * string) option =
+        withReadOnlyConn collectionRoot (fun conn ->
+            ImageStore.getImageCache conn imageHash
+            |> Option.map (fun (storedPath, mimeType, _, _) -> storedPath, mimeType))
+
     /// ATTACH URI 변환 — Windows backslash → forward slash + `?mode=ro` 강제.
     /// read-only ATTACH 라 *색인 중에도* 검색 가능 (WAL + ro mode).
     let private toAttachUri (path: string) : string =
