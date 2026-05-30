@@ -219,31 +219,40 @@ clean:
 #   1) install-ollama.ps1 (embedding backend)
 #   2) publish-lighthouse 재사용 — Setup.iss 와 동일 RID(win-x64)+모드(MODE=sc/fd)로 publish.
 #      (framework-dependent 산출물을 self-contained 설치본 위에 덮으면 런타임 dll 혼합으로 부팅 실패 → 동일 모드 강제)
-#   3) setup-cert-and-service.ps1 — 빌드 산출물 설치본 복사 + PFX 1회 입력 → generate-dev-cert +
-#      install-service (DPAPI 암호화 PSK/cert pw → config.json + sc.exe register, binPath=설치본 exe)
-# 모두 관리자 권한 PowerShell 필요. 한 번 install 후 'sc start Ds2.LightHouseService' 또는 'make light-house'.
+#   3) setup-cert-and-service.ps1 — 빌드 산출물 설치본 복사(복사 전 service 자동 stop) + PFX 1회 입력 →
+#      generate-dev-cert + install-service (DPAPI 암호화 PSK/cert pw → config.json + sc.exe register, binPath=설치본 exe)
+#   4) sc.exe start — 등록(start= auto)만 된 service 를 즉시 기동 + RUNNING 검증 (실패 시 fail-hard).
+# 모두 관리자 권한 PowerShell 필요. install 마지막에 service 자동 start. 콘솔 디버그는 'make light-house' (service 정지 후).
 # 설치본을 fd 모드로 설치했다면 'make install MODE=fd' 로 모드를 맞출 것.
 install:
 	@echo "============================================================="
 	@echo "LightHouseService install (registers the INSTALLED copy, MODE=$(MODE))"
 	@echo "  Requires Administrator PowerShell + Promaker installed (AI component)."
-	@echo "  Steps: 1) Ollama + bge-m3  2) publish-lighthouse  3) copy to install dir + setup-cert-and-service.ps1"
-	@echo "         (build output is copied into {InstallLocation}\\LightHouseService, then registered)"
+	@echo "  Steps: 1) Ollama + bge-m3  2) publish-lighthouse  3) copy to install dir + setup-cert-and-service.ps1  4) sc start"
+	@echo "         (build output is copied into {InstallLocation}\\LightHouseService, then registered & started)"
 	@echo "============================================================="
 	@echo ""
-	@echo "=== Step 1/3: install-ollama.ps1 (embedding backend) ==="
+	@echo "=== Step 1/4: install-ollama.ps1 (embedding backend) ==="
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-ollama.ps1"
 	@echo ""
-	@echo "=== Step 2/3: publish-lighthouse ($(MODE)) — Setup.iss 와 동일 모드로 빌드 ==="
+	@echo "=== Step 2/4: publish-lighthouse ($(MODE)) — Setup.iss 와 동일 모드로 빌드 ==="
 	@$(MAKE) publish-lighthouse
 	@echo ""
-	@echo "=== Step 3/3: copy to install dir + setup-cert-and-service.ps1 (PFX password single prompt) ==="
+	@echo "=== Step 3/4: copy to install dir + setup-cert-and-service.ps1 (PFX password single prompt) ==="
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/setup-cert-and-service.ps1" -PfxPath "$(LH_PFX_PATH)" -PublishDir "$(LH_INSTALLER_PUBLISH)"
 	@echo ""
+	@echo "=== Step 4/4: sc.exe start Ds2.LightHouseService ==="
+	@# 등록만 된 service (start= auto) 를 즉시 기동. `-` 로 'already running'(1056) 무시.
+	@# start 는 async (START_PENDING) → RUNNING 까지 polling 후 최종 상태 검증 (실패 시 fail-hard).
+	-sc.exe start Ds2.LightHouseService
+	@i=0; while [ $$i -lt 60 ]; do sc.exe query Ds2.LightHouseService 2>/dev/null | grep -q RUNNING && break; sleep 0.5; i=$$((i+1)); done
+	@sc.exe query Ds2.LightHouseService 2>/dev/null | grep -q RUNNING || { echo "[ERROR] Ds2.LightHouseService did not reach RUNNING within 30s -- check EventLog / config (cert/PSK)."; exit 1; }
+	@echo ""
 	@echo "============================================================="
-	@echo "Install complete. Next:"
-	@echo "  sc start Ds2.LightHouseService     # Windows Service start (production)"
-	@echo "  make light-house               # console run (dev / debug)"
+	@echo "Install complete -- service started (RUNNING)."
+	@echo "  sc query Ds2.LightHouseService   # status"
+	@echo "  sc stop  Ds2.LightHouseService   # stop"
+	@echo "  make light-house                 # console run (dev / debug; stop service first)"
 	@echo "============================================================="
 
 # light-house — 콘솔에서 service 실행 (개발/디버그용, dotnet run).
