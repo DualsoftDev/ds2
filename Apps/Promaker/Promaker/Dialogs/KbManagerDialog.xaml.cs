@@ -436,7 +436,7 @@ public partial class KbManagerDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"제거 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            DialogHelpers.Error(this, $"제거 실패: {ex.Message}");
         }
         finally
         {
@@ -471,7 +471,9 @@ public partial class KbManagerDialog : Window
         catch (Exception ex)
         {
             StatusChip.Text = $"❌ 등록 실패 — {ex.Message}";
-            MessageBox.Show(this, ex.ToString(), "등록 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+            // ex.ToString() 은 전체 stack trace 라 매우 길다 — native MessageBox 는 화면 초과 시 버튼이 가려지므로
+            // ScrollViewer 가 적용된 DialogHelpers 경유 (긴 메시지 세로 스크롤 + 버튼 항상 노출).
+            DialogHelpers.Error(this, ex.ToString(), "등록 실패");
         }
         finally
         {
