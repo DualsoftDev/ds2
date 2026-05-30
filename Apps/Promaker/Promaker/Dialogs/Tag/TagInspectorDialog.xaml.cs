@@ -180,8 +180,7 @@ public partial class TagInspectorDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"CSV 내보내기 실패: {ex.Message}", "오류",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DialogHelpers.Warn(this, $"CSV 내보내기 실패: {ex.Message}", "오류");
         }
     }
 
